@@ -46,7 +46,7 @@ class DataCollector:
             "type": "framework_detection_raw",
             "version": "1.0",
             "workload_uid": os.environ.get("WORKLOAD_UID", ""),
-            "pod_uid": os.environ.get("POD_UID", ""),  # 修复：使用正确的环境变量 POD_UID
+            "pod_uid": os.environ.get("POD_UID", ""),  
             "pod_name": os.environ.get("POD_NAME", ""),
             "namespace": os.environ.get("POD_NAMESPACE", ""),
             "evidence": evidence,
@@ -85,11 +85,23 @@ class DataCollector:
         pytorch_info = self._extract_pytorch_info()
         debug_log(f"[Primus Lens Data Collector] PyTorch available: {pytorch_info.get('available', False)}")
         
+        # 4. Wrapper 框架检测（通过 import）
+        debug_log(f"[Primus Lens Data Collector] Detecting wrapper frameworks by import...")
+        wrapper_frameworks = self._detect_wrapper_by_import()
+        debug_log(f"[Primus Lens Data Collector] Detected {len(wrapper_frameworks)} wrapper framework(s): {list(wrapper_frameworks.keys())}")
+        
+        # 5. Base 框架检测（通过 import）
+        debug_log(f"[Primus Lens Data Collector] Detecting base frameworks by import...")
+        base_frameworks = self._detect_base_by_import()
+        debug_log(f"[Primus Lens Data Collector] Detected {len(base_frameworks)} base framework(s): {list(base_frameworks.keys())}")
+        
         evidence = {
             "wandb": wandb_info,
             "environment": env_vars,
             "pytorch": pytorch_info,
-            # 4. 系统信息
+            "wrapper_frameworks": wrapper_frameworks,  # 新增：通过 import 检测的 wrapper 框架
+            "base_frameworks": base_frameworks,        # 新增：通过 import 检测的 base 框架
+            # 6. 系统信息
             "system": {
                 "python_version": sys.version,
                 "python_executable": sys.executable,
@@ -189,6 +201,189 @@ class DataCollector:
         # 过滤掉 None 值
         return {k: v for k, v in env_vars.items() if v is not None}
     
+    def _detect_wrapper_by_import(self) -> Dict[str, Any]:
+        """
+        通过 import 检测 Wrapper 框架
+        
+        支持的 Wrapper 框架：
+        - Primus: 企业级训练框架
+        - PyTorch Lightning: PyTorch 高级封装
+        - Hugging Face Trainer: Transformers 训练封装
+        
+        Returns:
+            Dict: 检测到的 wrapper 框架信息
+        """
+        detected_wrappers = {}
+        
+        # 1. 检测 Primus
+        try:
+            import primus
+            primus_info = {
+                "detected": True,
+                "version": getattr(primus, '__version__', 'unknown'),
+                "initialized": False,
+                "base_framework": None
+            }
+            
+            # 检查是否初始化
+            try:
+                from primus.core.utils.global_vars import is_initialized, get_primus_config
+                if is_initialized():
+                    primus_info["initialized"] = True
+                    config = get_primus_config()
+                    
+                    # 尝试获取底层框架信息
+                    try:
+                        pre_trainer_cfg = config.get_module_config("pre_trainer")
+                        primus_info["base_framework"] = pre_trainer_cfg.framework
+                    except:
+                        pass
+            except:
+                pass
+            
+            detected_wrappers["primus"] = primus_info
+            debug_log(f"[Primus Lens Data Collector] Detected Primus: version={primus_info['version']}, initialized={primus_info['initialized']}")
+        except ImportError:
+            pass
+        
+        # 2. 检测 PyTorch Lightning
+        try:
+            import pytorch_lightning as pl
+            lightning_info = {
+                "detected": True,
+                "version": getattr(pl, '__version__', 'unknown'),
+                "module_name": "pytorch_lightning",
+                "trainer_available": hasattr(pl, 'Trainer')
+            }
+            detected_wrappers["lightning"] = lightning_info
+            debug_log(f"[Primus Lens Data Collector] Detected Lightning: version={lightning_info['version']}")
+        except ImportError:
+            # 尝试新版本的 lightning
+            try:
+                import lightning as L
+                lightning_info = {
+                    "detected": True,
+                    "version": getattr(L, '__version__', 'unknown'),
+                    "module_name": "lightning",
+                    "trainer_available": hasattr(L, 'Trainer')
+                }
+                detected_wrappers["lightning"] = lightning_info
+                debug_log(f"[Primus Lens Data Collector] Detected Lightning (new): version={lightning_info['version']}")
+            except ImportError:
+                pass
+        
+        # 3. 检测 Hugging Face Trainer
+        try:
+            from transformers import Trainer, TrainingArguments
+            import transformers
+            trainer_info = {
+                "detected": True,
+                "version": getattr(transformers, '__version__', 'unknown'),
+                "has_trainer": True,
+                "has_training_arguments": True
+            }
+            detected_wrappers["transformers_trainer"] = trainer_info
+            debug_log(f"[Primus Lens Data Collector] Detected Transformers Trainer: version={trainer_info['version']}")
+        except ImportError:
+            pass
+        
+        return detected_wrappers
+    
+    def _detect_base_by_import(self) -> Dict[str, Any]:
+        """
+        通过 import 检测 Base 框架
+        
+        支持的 Base 框架：
+        - Megatron-LM: NVIDIA 大规模语言模型训练框架
+        - DeepSpeed: Microsoft 分布式训练优化框架
+        - JAX: Google 高性能机器学习框架
+        - Transformers: Hugging Face 模型库
+        
+        Returns:
+            Dict: 检测到的 base 框架信息
+        """
+        detected_bases = {}
+        
+        # 1. 检测 Megatron-LM
+        try:
+            import megatron
+            megatron_info = {
+                "detected": True,
+                "version": getattr(megatron, '__version__', 'unknown'),
+                "initialized": False
+            }
+            
+            # 检查是否已初始化
+            try:
+                from megatron.training import get_args
+                args = get_args()
+                megatron_info["initialized"] = True
+            except:
+                pass
+            
+            detected_bases["megatron"] = megatron_info
+            debug_log(f"[Primus Lens Data Collector] Detected Megatron: initialized={megatron_info['initialized']}")
+        except ImportError:
+            pass
+        
+        # 2. 检测 DeepSpeed
+        try:
+            import deepspeed
+            deepspeed_info = {
+                "detected": True,
+                "version": getattr(deepspeed, '__version__', 'unknown'),
+                "initialized": False
+            }
+            
+            # 检查是否已初始化
+            if hasattr(deepspeed, 'is_initialized'):
+                try:
+                    deepspeed_info["initialized"] = deepspeed.is_initialized()
+                except:
+                    pass
+            
+            detected_bases["deepspeed"] = deepspeed_info
+            debug_log(f"[Primus Lens Data Collector] Detected DeepSpeed: version={deepspeed_info['version']}")
+        except ImportError:
+            pass
+        
+        # 3. 检测 JAX
+        try:
+            import jax
+            jax_info = {
+                "detected": True,
+                "version": getattr(jax, '__version__', 'unknown'),
+                "backend": None,
+                "devices": 0
+            }
+            
+            # 获取 JAX 配置信息
+            try:
+                jax_info["backend"] = jax.default_backend()
+                jax_info["devices"] = len(jax.devices())
+            except:
+                pass
+            
+            detected_bases["jax"] = jax_info
+            debug_log(f"[Primus Lens Data Collector] Detected JAX: version={jax_info['version']}, backend={jax_info['backend']}")
+        except ImportError:
+            pass
+        
+        # 4. 检测 Transformers（作为 base 框架）
+        try:
+            import transformers
+            # 只有在没有检测到 Trainer 作为 wrapper 时才作为 base
+            transformers_info = {
+                "detected": True,
+                "version": getattr(transformers, '__version__', 'unknown')
+            }
+            detected_bases["transformers"] = transformers_info
+            debug_log(f"[Primus Lens Data Collector] Detected Transformers: version={transformers_info['version']}")
+        except ImportError:
+            pass
+        
+        return detected_bases
+    
     def _extract_pytorch_info(self) -> Optional[Dict[str, Any]]:
         """提取 PyTorch 相关信息"""
         try:
@@ -222,145 +417,306 @@ class DataCollector:
     
     def _get_framework_hints(self, evidence: Dict[str, Any]) -> Dict[str, Any]:
         """
-        生成轻量级预判断线索
+        生成轻量级预判断线索（支持两层框架检测）
+        
+        Framework Detection Layers:
+        - wrapper_frameworks: 外层包装框架（如 Primus）
+        - base_frameworks: 底层基础框架（如 Megatron、JAX、DeepSpeed）
         
         Args:
             evidence: 原始证据数据
         
         Returns:
-            Dict: hints 数据
+            Dict: hints 数据，包含分层的框架信息
         """
         debug_log(f"[Primus Lens Data Collector] _get_framework_hints() started")
         
         hints = {
-            "possible_frameworks": [],
-            "confidence": "low",  # low/medium/high
+            "wrapper_frameworks": [],      # 外层包装框架（如 Primus）
+            "base_frameworks": [],          # 底层基础框架（如 Megatron、JAX）
+            "possible_frameworks": [],      # 保留兼容性：所有检测到的框架
+            "confidence": "low",            # low/medium/high
             "primary_indicators": [],
+            "framework_layers": {},         # 框架层级关系映射
             "timestamp": time.time(),
         }
         
         env = evidence.get("environment", {})
         wandb_config = evidence.get("wandb", {}).get("config", {})
         pytorch_info = evidence.get("pytorch", {})
+        wrapper_by_import = evidence.get("wrapper_frameworks", {})
+        base_by_import = evidence.get("base_frameworks", {})
         
         # === 收集线索 ===
+        
+        # 0. 从 import 检测收集（最强指标）
+        debug_log(f"[Primus Lens Data Collector] Collecting hints from import detection...")
+        self._collect_import_hints(wrapper_by_import, base_by_import, hints)
+        debug_log(f"[Primus Lens Data Collector] Import hints: wrapper={hints['wrapper_frameworks']}, base={hints['base_frameworks']}")
         
         # 1. 从环境变量收集（强指标）
         debug_log(f"[Primus Lens Data Collector] Collecting hints from environment variables...")
         self._collect_env_hints(env, hints)
-        debug_log(f"[Primus Lens Data Collector] Env hints: frameworks={hints['possible_frameworks']}, indicators={hints['primary_indicators']}")
+        debug_log(f"[Primus Lens Data Collector] Env hints: wrapper={hints['wrapper_frameworks']}, base={hints['base_frameworks']}")
         
         # 2. 从 wandb config 收集（中等指标）
         debug_log(f"[Primus Lens Data Collector] Collecting hints from WandB config...")
         self._collect_config_hints(wandb_config, hints)
-        debug_log(f"[Primus Lens Data Collector] Config hints: frameworks={hints['possible_frameworks']}, indicators={hints['primary_indicators']}")
+        debug_log(f"[Primus Lens Data Collector] Config hints: wrapper={hints['wrapper_frameworks']}, base={hints['base_frameworks']}")
         
         # 3. 从 PyTorch 模块收集（弱指标）
         debug_log(f"[Primus Lens Data Collector] Collecting hints from PyTorch modules...")
         self._collect_pytorch_hints(pytorch_info, hints)
-        debug_log(f"[Primus Lens Data Collector] PyTorch hints: frameworks={hints['possible_frameworks']}, indicators={hints['primary_indicators']}")
+        debug_log(f"[Primus Lens Data Collector] PyTorch hints: wrapper={hints['wrapper_frameworks']}, base={hints['base_frameworks']}")
         
         # 4. 从 wandb project name 收集（最弱指标）
         debug_log(f"[Primus Lens Data Collector] Collecting hints from project name...")
         self._collect_project_hints(evidence.get("wandb", {}), hints)
-        debug_log(f"[Primus Lens Data Collector] Project hints: frameworks={hints['possible_frameworks']}, indicators={hints['primary_indicators']}")
+        debug_log(f"[Primus Lens Data Collector] Project hints: wrapper={hints['wrapper_frameworks']}, base={hints['base_frameworks']}")
         
         # === 评估置信度 ===
         hints["confidence"] = self._evaluate_confidence(hints["primary_indicators"])
         debug_log(f"[Primus Lens Data Collector] Confidence evaluated: {hints['confidence']}")
         
         # 去重
-        hints["possible_frameworks"] = list(set(hints["possible_frameworks"]))
+        hints["wrapper_frameworks"] = list(set(hints["wrapper_frameworks"]))
+        hints["base_frameworks"] = list(set(hints["base_frameworks"]))
+        
+        # 构建 possible_frameworks（保持向后兼容）
+        hints["possible_frameworks"] = hints["wrapper_frameworks"] + hints["base_frameworks"]
+        
+        # 构建框架层级关系
+        self._build_framework_layers(hints)
         
         debug_log(f"[Primus Lens Data Collector] _get_framework_hints() completed")
-        debug_log(f"[Primus Lens Data Collector] Final hints: {hints['possible_frameworks']} (confidence: {hints['confidence']})")
+        debug_log(f"[Primus Lens Data Collector] Final hints: wrapper={hints['wrapper_frameworks']}, base={hints['base_frameworks']} (confidence: {hints['confidence']})")
         
         return hints
     
+    def _collect_import_hints(self, wrapper_by_import: Dict[str, Any], 
+                              base_by_import: Dict[str, Any], hints: Dict[str, Any]):
+        """
+        从 import 检测收集 hints（最强指标）
+        
+        Args:
+            wrapper_by_import: 通过 import 检测到的 wrapper 框架
+            base_by_import: 通过 import 检测到的 base 框架
+            hints: hints 字典
+        """
+        # 处理 Wrapper 框架
+        for framework_name, framework_info in wrapper_by_import.items():
+            if framework_info.get("detected"):
+                # 添加到 wrapper_frameworks
+                if framework_name not in hints["wrapper_frameworks"]:
+                    hints["wrapper_frameworks"].append(framework_name)
+                hints["primary_indicators"].append(f"import.{framework_name}")
+                
+                # 如果是 Primus 且有 base_framework 信息，也记录下来
+                if framework_name == "primus" and framework_info.get("base_framework"):
+                    base_fw = framework_info["base_framework"].lower()
+                    if base_fw not in hints["base_frameworks"]:
+                        hints["base_frameworks"].append(base_fw)
+                    hints["primary_indicators"].append(f"primus.base_framework={base_fw}")
+        
+        # 处理 Base 框架
+        for framework_name, framework_info in base_by_import.items():
+            if framework_info.get("detected"):
+                # 避免重复添加（transformers 可能同时在 wrapper 和 base 中）
+                if framework_name == "transformers" and "transformers_trainer" in wrapper_by_import:
+                    # 如果已经作为 wrapper 的 trainer 检测到，跳过
+                    continue
+                
+                if framework_name not in hints["base_frameworks"]:
+                    hints["base_frameworks"].append(framework_name)
+                hints["primary_indicators"].append(f"import.{framework_name}")
+    
     def _collect_env_hints(self, env: Dict[str, str], hints: Dict[str, Any]):
-        """从环境变量收集 hints"""
+        """从环境变量收集 hints（分层检测）"""
+        # === Wrapper Frameworks（外层包装框架）===
+        
         # Primus
         if env.get("PRIMUS_CONFIG") or env.get("PRIMUS_VERSION"):
-            hints["possible_frameworks"].append("primus")
+            hints["wrapper_frameworks"].append("primus")
             hints["primary_indicators"].append("PRIMUS env vars")
+            
+            # 如果有 PRIMUS_BACKEND，记录底层框架信息
+            backend = env.get("PRIMUS_BACKEND")
+            if backend:
+                backend_lower = backend.lower()
+                if backend_lower not in hints["base_frameworks"]:
+                    hints["base_frameworks"].append(backend_lower)
+                hints["primary_indicators"].append(f"PRIMUS_BACKEND={backend}")
+        
+        # === Base Frameworks（底层基础框架）===
         
         # DeepSpeed
         if env.get("DEEPSPEED_CONFIG") or env.get("DS_CONFIG") or env.get("DEEPSPEED_VERSION"):
-            hints["possible_frameworks"].append("deepspeed")
+            hints["base_frameworks"].append("deepspeed")
             hints["primary_indicators"].append("DEEPSPEED env vars")
         
         # Megatron
         if env.get("MEGATRON_CONFIG") or env.get("MEGATRON_LM_PATH"):
-            hints["possible_frameworks"].append("megatron")
+            hints["base_frameworks"].append("megatron")
             hints["primary_indicators"].append("MEGATRON env vars")
         
         # JAX
-        if env.get("JAX_BACKEND"):
-            hints["possible_frameworks"].append("jax")
+        if env.get("JAX_BACKEND") or env.get("JAX_PLATFORMS"):
+            hints["base_frameworks"].append("jax")
             hints["primary_indicators"].append("JAX env vars")
         
-        # 通用 FRAMEWORK 环境变量
-        if env.get("FRAMEWORK"):
-            fw = env["FRAMEWORK"].lower()
-            if fw not in hints["possible_frameworks"]:
-                hints["possible_frameworks"].append(fw)
+        # === 通用 FRAMEWORK 环境变量 ===
+        if env.get("FRAMEWORK") or env.get("TRAINING_FRAMEWORK"):
+            fw = (env.get("FRAMEWORK") or env.get("TRAINING_FRAMEWORK")).lower()
+            # 根据框架名称判断层级
+            if fw in ["primus", "lightning", "pytorch_lightning"]:
+                if fw not in hints["wrapper_frameworks"]:
+                    hints["wrapper_frameworks"].append(fw)
+            else:
+                if fw not in hints["base_frameworks"]:
+                    hints["base_frameworks"].append(fw)
             hints["primary_indicators"].append(f"FRAMEWORK={fw}")
     
     def _collect_config_hints(self, wandb_config: Dict[str, Any], hints: Dict[str, Any]):
-        """从 WandB config 收集 hints"""
+        """从 WandB config 收集 hints（分层检测）"""
         # 检查 config.framework 字段
         if "framework" in wandb_config:
             fw = str(wandb_config["framework"]).lower()
-            if fw not in hints["possible_frameworks"]:
-                hints["possible_frameworks"].append(fw)
+            # 根据框架类型分类
+            if fw in ["primus", "lightning", "pytorch_lightning"]:
+                if fw not in hints["wrapper_frameworks"]:
+                    hints["wrapper_frameworks"].append(fw)
+            else:
+                if fw not in hints["base_frameworks"]:
+                    hints["base_frameworks"].append(fw)
             hints["primary_indicators"].append("wandb_config.framework")
+        
+        # 检查 config.base_framework 字段（Primus 特定）
+        if "base_framework" in wandb_config:
+            base_fw = str(wandb_config["base_framework"]).lower()
+            if base_fw not in hints["base_frameworks"]:
+                hints["base_frameworks"].append(base_fw)
+            hints["primary_indicators"].append("wandb_config.base_framework")
         
         # 检查 config.trainer 字段
         if "trainer" in wandb_config:
             trainer = str(wandb_config["trainer"]).lower()
-            if "deepspeed" in trainer and "deepspeed" not in hints["possible_frameworks"]:
-                hints["possible_frameworks"].append("deepspeed")
+            if "deepspeed" in trainer and "deepspeed" not in hints["base_frameworks"]:
+                hints["base_frameworks"].append("deepspeed")
+                hints["primary_indicators"].append("wandb_config.trainer")
+            elif "megatron" in trainer and "megatron" not in hints["base_frameworks"]:
+                hints["base_frameworks"].append("megatron")
                 hints["primary_indicators"].append("wandb_config.trainer")
     
     def _collect_pytorch_hints(self, pytorch_info: Dict[str, Any], hints: Dict[str, Any]):
-        """从 PyTorch 模块收集 hints"""
+        """从 PyTorch 模块收集 hints（分层检测）"""
         if not pytorch_info.get("available"):
             return
         
         modules = pytorch_info.get("detected_modules", {})
         
+        # Wrapper frameworks
+        if modules.get("lightning"):
+            if "lightning" not in hints["wrapper_frameworks"]:
+                hints["wrapper_frameworks"].append("lightning")
+            hints["primary_indicators"].append("pytorch.modules.lightning")
+        
+        # Base frameworks
         if modules.get("deepspeed"):
-            if "deepspeed" not in hints["possible_frameworks"]:
-                hints["possible_frameworks"].append("deepspeed")
+            if "deepspeed" not in hints["base_frameworks"]:
+                hints["base_frameworks"].append("deepspeed")
             hints["primary_indicators"].append("pytorch.modules.deepspeed")
         
         if modules.get("megatron"):
-            if "megatron" not in hints["possible_frameworks"]:
-                hints["possible_frameworks"].append("megatron")
+            if "megatron" not in hints["base_frameworks"]:
+                hints["base_frameworks"].append("megatron")
             hints["primary_indicators"].append("pytorch.modules.megatron")
+        
+        if modules.get("transformers"):
+            if "transformers" not in hints["base_frameworks"]:
+                hints["base_frameworks"].append("transformers")
+            hints["primary_indicators"].append("pytorch.modules.transformers")
     
     def _collect_project_hints(self, wandb_info: Dict[str, Any], hints: Dict[str, Any]):
-        """从 WandB project name 收集 hints"""
+        """从 WandB project name 收集 hints（分层检测）"""
         project = wandb_info.get("project", "")
         if not project:
             return
         
         project_lower = project.lower()
-        frameworks = ["primus", "deepspeed", "megatron", "jax"]
         
-        for framework in frameworks:
-            if framework in project_lower and framework not in hints["possible_frameworks"]:
-                hints["possible_frameworks"].append(framework)
+        # Wrapper frameworks
+        wrapper_frameworks = ["primus", "lightning"]
+        for framework in wrapper_frameworks:
+            if framework in project_lower and framework not in hints["wrapper_frameworks"]:
+                hints["wrapper_frameworks"].append(framework)
+                hints["primary_indicators"].append(f"project_name={project}")
+        
+        # Base frameworks
+        base_frameworks = ["deepspeed", "megatron", "jax", "transformers"]
+        for framework in base_frameworks:
+            if framework in project_lower and framework not in hints["base_frameworks"]:
+                hints["base_frameworks"].append(framework)
                 hints["primary_indicators"].append(f"project_name={project}")
     
+    def _build_framework_layers(self, hints: Dict[str, Any]):
+        """
+        构建框架层级关系映射
+        
+        示例：
+        {
+            "primus": {
+                "layer": "wrapper",
+                "base_frameworks": ["megatron", "deepspeed"]
+            },
+            "megatron": {
+                "layer": "base",
+                "wrapper_frameworks": ["primus"]
+            }
+        }
+        """
+        layers = {}
+        
+        # 记录 wrapper frameworks
+        for wrapper in hints["wrapper_frameworks"]:
+            layers[wrapper] = {
+                "layer": "wrapper",
+                "base_frameworks": hints["base_frameworks"].copy()
+            }
+        
+        # 记录 base frameworks
+        for base in hints["base_frameworks"]:
+            layers[base] = {
+                "layer": "base",
+                "wrapper_frameworks": hints["wrapper_frameworks"].copy()
+            }
+        
+        hints["framework_layers"] = layers
+    
     def _evaluate_confidence(self, indicators: List[str]) -> str:
-        """评估置信度"""
+        """
+        评估置信度
+        
+        指标强度分级：
+        - 最强：import 检测（实际模块已加载）
+        - 强：环境变量、FRAMEWORK/BACKEND 变量
+        - 中：wandb_config 字段
+        - 弱：PyTorch 模块、项目名称
+        """
+        # 最强指标：import 检测
+        import_indicators = sum(1 for ind in indicators if ind.startswith("import."))
+        
+        # 强指标：环境变量
         strong_indicators = sum(1 for ind in indicators 
-                               if "env vars" in ind or "FRAMEWORK=" in ind)
+                               if "env vars" in ind or "FRAMEWORK=" in ind or "BACKEND=" in ind)
+        
+        # 中等指标：wandb config
         medium_indicators = sum(1 for ind in indicators 
                                if "wandb_config" in ind)
         
-        if strong_indicators >= 2:
+        # 如果有 import 检测，直接高置信度
+        if import_indicators >= 1:
+            return "high"
+        elif strong_indicators >= 2:
             return "high"
         elif strong_indicators >= 1 or medium_indicators >= 2:
             return "medium"

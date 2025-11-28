@@ -40,6 +40,8 @@ type FacadeInterface interface {
 	GetAiWorkloadMetadata() AiWorkloadMetadataFacadeInterface
 	// GetCheckpointEvent returns the CheckpointEvent Facade interface
 	GetCheckpointEvent() CheckpointEventFacadeInterface
+	// GetDetectionConflictLog returns the DetectionConflictLog Facade interface
+	GetDetectionConflictLog() DetectionConflictLogFacadeInterface
 	// WithCluster returns a new Facade instance using the specified cluster
 	WithCluster(clusterName string) FacadeInterface
 }
@@ -62,9 +64,10 @@ type Facade struct {
 	SystemConfig         SystemConfigFacadeInterface
 	JobExecutionHistory  JobExecutionHistoryFacadeInterface
 	NamespaceInfo        NamespaceInfoFacadeInterface
-	WorkloadStatistic    WorkloadStatisticFacadeInterface
-	AiWorkloadMetadata   AiWorkloadMetadataFacadeInterface
-	CheckpointEvent      CheckpointEventFacadeInterface
+	WorkloadStatistic      WorkloadStatisticFacadeInterface
+	AiWorkloadMetadata     AiWorkloadMetadataFacadeInterface
+	CheckpointEvent        CheckpointEventFacadeInterface
+	DetectionConflictLog   DetectionConflictLogFacadeInterface
 }
 
 // NewFacade creates a new Facade instance
@@ -86,9 +89,10 @@ func NewFacade() *Facade {
 		SystemConfig:         NewSystemConfigFacade(),
 		JobExecutionHistory:  NewJobExecutionHistoryFacade(),
 		NamespaceInfo:        NewNamespaceInfoFacade(),
-		WorkloadStatistic:    NewWorkloadStatisticFacade(),
-		AiWorkloadMetadata:   NewAiWorkloadMetadataFacade(),
-		CheckpointEvent:      NewCheckpointEventFacade(),
+		WorkloadStatistic:      NewWorkloadStatisticFacade(),
+		AiWorkloadMetadata:     NewAiWorkloadMetadataFacade(),
+		CheckpointEvent:        NewCheckpointEventFacade(),
+		DetectionConflictLog:   NewDetectionConflictLogFacade(),
 	}
 }
 
@@ -187,6 +191,11 @@ func (f *Facade) GetCheckpointEvent() CheckpointEventFacadeInterface {
 	return f.CheckpointEvent
 }
 
+// GetDetectionConflictLog returns the DetectionConflictLog Facade interface
+func (f *Facade) GetDetectionConflictLog() DetectionConflictLogFacadeInterface {
+	return f.DetectionConflictLog
+}
+
 // WithCluster returns a new Facade instance, all sub-Facades use the specified cluster
 func (f *Facade) WithCluster(clusterName string) FacadeInterface {
 	return &Facade{
@@ -206,9 +215,10 @@ func (f *Facade) WithCluster(clusterName string) FacadeInterface {
 		SystemConfig:         f.SystemConfig.WithCluster(clusterName),
 		JobExecutionHistory:  f.JobExecutionHistory.WithCluster(clusterName),
 		NamespaceInfo:        f.NamespaceInfo.WithCluster(clusterName),
-		WorkloadStatistic:    f.WorkloadStatistic.WithCluster(clusterName),
-		AiWorkloadMetadata:   f.AiWorkloadMetadata.WithCluster(clusterName),
-		CheckpointEvent:      f.CheckpointEvent.WithCluster(clusterName),
+		WorkloadStatistic:      f.WorkloadStatistic.WithCluster(clusterName),
+		AiWorkloadMetadata:     f.AiWorkloadMetadata.WithCluster(clusterName),
+		CheckpointEvent:        f.CheckpointEvent.WithCluster(clusterName),
+		DetectionConflictLog:   f.DetectionConflictLog.WithCluster(clusterName),
 	}
 }
 
