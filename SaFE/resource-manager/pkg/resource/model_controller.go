@@ -332,11 +332,12 @@ func (r *ModelReconciler) constructDownloadJob(model *v1.Model) (*batchv1.Job, e
 					RestartPolicy: corev1.RestartPolicyOnFailure,
 					Containers: []corev1.Container{
 						{
-							Name:         "downloader",
-							Image:        image,
-							Command:      cmd,
-							Env:          envs,
-							VolumeMounts: volumeMounts,
+							Name:            "downloader",
+							Image:           image,
+							ImagePullPolicy: corev1.PullIfNotPresent,
+							Command:         cmd,
+							Env:             envs,
+							VolumeMounts:    volumeMounts,
 						},
 					},
 					Volumes: volumes,
