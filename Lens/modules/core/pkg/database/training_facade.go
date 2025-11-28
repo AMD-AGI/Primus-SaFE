@@ -17,6 +17,9 @@ type TrainingFacadeInterface interface {
 	UpdateTrainingPerformance(ctx context.Context, trainingPerformance *model.TrainingPerformance) error
 	ListWorkloadPerformanceByWorkloadIdAndTimeRange(ctx context.Context, workloadUid string, start, end time.Time) ([]*model.TrainingPerformance, error)
 	ListTrainingPerformanceByWorkloadIdsAndTimeRange(ctx context.Context, workloadUids []string, start, end time.Time) ([]*model.TrainingPerformance, error)
+	ListTrainingPerformanceByWorkloadUID(ctx context.Context, workloadUid string) ([]*model.TrainingPerformance, error)
+	ListTrainingPerformanceByWorkloadUIDAndDataSource(ctx context.Context, workloadUid string, dataSource string) ([]*model.TrainingPerformance, error)
+	ListTrainingPerformanceByWorkloadUIDDataSourceAndTimeRange(ctx context.Context, workloadUid string, dataSource string, start, end time.Time) ([]*model.TrainingPerformance, error)
 
 	// WithCluster method
 	WithCluster(clusterName string) TrainingFacadeInterface
@@ -95,6 +98,62 @@ func (f *TrainingFacade) ListWorkloadPerformanceByWorkloadIdAndTimeRange(ctx con
 func (f *TrainingFacade) ListTrainingPerformanceByWorkloadIdsAndTimeRange(ctx context.Context, workloadUids []string, start, end time.Time) ([]*model.TrainingPerformance, error) {
 	q := f.getDAL().TrainingPerformance
 	result, err := q.WithContext(ctx).Where(q.WorkloadUID.In(workloadUids...)).Where(q.CreatedAt.Gte(start)).Where(q.CreatedAt.Lte(end)).Order(q.CreatedAt.Asc()).Find()
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return result, nil
+}
+
+// ListTrainingPerformanceByWorkloadUID returns all training performance records for a workload
+func (f *TrainingFacade) ListTrainingPerformanceByWorkloadUID(ctx context.Context, workloadUid string) ([]*model.TrainingPerformance, error) {
+	q := f.getDAL().TrainingPerformance
+	result, err := q.WithContext(ctx).Where(q.WorkloadUID.Eq(workloadUid)).Order(q.CreatedAt.Asc()).Find()
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return result, nil
+}
+
+// ListTrainingPerformanceByWorkloadUIDAndDataSource returns training performance records filtered by workload UID and data source
+func (f *TrainingFacade) ListTrainingPerformanceByWorkloadUIDAndDataSource(ctx context.Context, workloadUid string, dataSource string) ([]*model.TrainingPerformance, error) {
+	q := f.getDAL().TrainingPerformance
+	query := q.WithContext(ctx).Where(q.WorkloadUID.Eq(workloadUid))
+	
+	// Only filter by data_source if it's not empty
+	if dataSource != "" {
+		query = query.Where(q.DataSource.Eq(dataSource))
+	}
+	
+	result, err := query.Order(q.CreatedAt.Asc()).Find()
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return result, nil
+}
+
+// ListTrainingPerformanceByWorkloadUIDDataSourceAndTimeRange returns training performance records filtered by workload UID, data source and time range
+func (f *TrainingFacade) ListTrainingPerformanceByWorkloadUIDDataSourceAndTimeRange(ctx context.Context, workloadUid string, dataSource string, start, end time.Time) ([]*model.TrainingPerformance, error) {
+	q := f.getDAL().TrainingPerformance
+	query := q.WithContext(ctx).
+		Where(q.WorkloadUID.Eq(workloadUid)).
+		Where(q.CreatedAt.Gte(start)).
+		Where(q.CreatedAt.Lte(end))
+	
+	// Only filter by data_source if it's not empty
+	if dataSource != "" {
+		query = query.Where(q.DataSource.Eq(dataSource))
+	}
+	
+	result, err := query.Order(q.CreatedAt.Asc()).Find()
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
