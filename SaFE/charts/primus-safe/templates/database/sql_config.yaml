@@ -210,8 +210,8 @@ data:
        delete_time TIMESTAMP
     );
 
-    CREATE INDEX idx_publickey_userid ON public_key(user_id);
-    CREATE UNIQUE INDEX idx_publickey_userid_pubkey ON public_key(user_id, public_key, delete_time);
+    CREATE INDEX IF NOT EXISTS idx_publickey_userid ON public_key(user_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_publickey_userid_pubkey ON public_key(user_id, public_key, delete_time);
     alter table public_key owner to "primus-safe";
 
     CREATE TABLE IF NOT EXISTS ssh_session_records (
@@ -227,7 +227,7 @@ data:
     );
 
     alter table ssh_session_records owner to "primus-safe";
-    create table notification
+    create table if not exists notification
     (
         id         serial,
         kind       varchar(64),
