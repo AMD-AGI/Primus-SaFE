@@ -320,7 +320,7 @@ func (h *Handler) modifyWorkspace(ctx context.Context, workspace *v1.Workspace, 
 // Additionally, when a secret is bound to a workspace, the secret will be copied into the
 // workspace’s Kubernetes namespace so workloads in that workspace can use it for image pulls.
 func (h *Handler) updateWorkspaceImageSecrets(ctx context.Context, workspace *v1.Workspace, requestUser *v1.User, secretIds []string) error {
-	uniq := sets.NewSet()
+	uniqueSecretIds := sets.NewSet()
 	targetSecrets := make([]*corev1.Secret, 0, len(secretIds))
 	for _, id := range secretIds {
 		secret, err := h.getAndAuthorizeSecret(ctx, id, workspace.Name, requestUser, v1.ListVerb)
@@ -330,10 +330,10 @@ func (h *Handler) updateWorkspaceImageSecrets(ctx context.Context, workspace *v1
 		if v1.GetSecretType(secret) != string(v1.SecretImage) {
 			return commonerrors.NewBadRequest("the secret type is not image")
 		}
-		if uniq.Has(id) {
+		if uniqueSecretIds.Has(id) {
 			continue
 		}
-		uniq.Insert(id)
+		uniqueSecretIds.Insert(id)
 		targetSecrets = append(targetSecrets, secret)
 	}
 
@@ -345,7 +345,7 @@ func (h *Handler) updateWorkspaceImageSecrets(ctx context.Context, workspace *v1
 			patch := client.MergeFrom(secret.DeepCopy())
 			v1.SetAnnotation(secret, v1.WorkspaceIdsAnnotation, string(jsonutils.MarshalSilently(workspaceIds)))
 			if err := h.Patch(ctx, secret, patch); err != nil {
-				return err
+				return fmt.Errorf("failed to update workspace annotation for secret %s: %w", secret.Name, err)
 			}
 		}
 		imageSecrets = append(imageSecrets, *commonutils.GenObjectReference(secret.TypeMeta, secret.ObjectMeta))
