@@ -16,6 +16,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -34,6 +35,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/syncer"
 	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/backoff"
+	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 )
 
 const (
@@ -221,9 +223,19 @@ func (r *FailoverReconciler) addFailoverCondition(ctx context.Context, workload 
 	if jobutils.FindCondition(workload, cond) != nil {
 		return nil
 	}
+
 	workload.Status.Conditions = append(workload.Status.Conditions, *cond)
-	if err := r.Status().Update(ctx, workload); err != nil {
-		klog.ErrorS(err, "failed to update workload status")
+	patchObj := map[string]any{
+		"metadata": map[string]any{
+			"resourceVersion": workload.ResourceVersion,
+		},
+		"status": map[string]any{
+			"conditions": workload.Status.Conditions,
+		},
+	}
+	p := jsonutils.MarshalSilently(patchObj)
+	if err := r.Status().Patch(ctx, workload, client.RawPatch(apitypes.MergePatchType, p)); err != nil {
+		klog.ErrorS(err, "failed to patch workload status")
 		return err
 	}
 	return nil

@@ -105,6 +105,7 @@ def build_payload_from_input(inp: Dict[str, Any]) -> Dict[str, Any]:
         "env": env_map,
         "groupVersionKind": {"kind": gvk_kind, "version": gvk_version},
         "description": description,
+        "ttlSecondsAfterFinished": 20,
     }
     if isinstance(timeout, int) and timeout > 0:
         payload["timeout"] = timeout

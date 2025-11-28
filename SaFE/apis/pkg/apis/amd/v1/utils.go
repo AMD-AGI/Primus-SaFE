@@ -60,7 +60,7 @@ func HasAnnotation(obj metav1.Object, key string) bool {
 // RemoveLabel removes a label from a Kubernetes object.
 // Returns true if the label was removed, false if the object is nil or the label didn't exist.
 func RemoveLabel(obj metav1.Object, key string) bool {
-	if obj == nil {
+	if obj == nil || len(obj.GetLabels()) == 0 {
 		return false
 	}
 	if _, ok := obj.GetLabels()[key]; !ok {
@@ -73,7 +73,7 @@ func RemoveLabel(obj metav1.Object, key string) bool {
 // RemoveEmptyLabel removes a label from a Kubernetes object if its value is empty.
 // Returns true if the label was removed, false otherwise.
 func RemoveEmptyLabel(obj metav1.Object, key string) bool {
-	if obj == nil {
+	if obj == nil || len(obj.GetLabels()) == 0 {
 		return false
 	}
 	val, ok := obj.GetLabels()[key]
@@ -87,7 +87,7 @@ func RemoveEmptyLabel(obj metav1.Object, key string) bool {
 // RemoveAnnotation removes an annotation from a Kubernetes object.
 // Returns true if the annotation was removed, false if the object is nil or the annotation didn't exist.
 func RemoveAnnotation(obj metav1.Object, key string) bool {
-	if obj == nil {
+	if obj == nil || len(obj.GetAnnotations()) == 0 {
 		return false
 	}
 	if _, ok := obj.GetAnnotations()[key]; !ok {

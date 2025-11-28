@@ -30,6 +30,7 @@ import (
 	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/backoff"
+	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 )
 
 // FaultReconciler reconciles Fault resources and manages their lifecycle
@@ -248,9 +249,10 @@ func (r *FaultReconciler) processFault(ctx context.Context, fault *v1.Fault) (ct
 
 // updatePhase updates the fault's phase status.
 func (r *FaultReconciler) updatePhase(ctx context.Context, fault *v1.Fault, phase v1.FaultPhase) error {
+	patch := client.MergeFrom(fault.DeepCopy())
 	fault.Status.UpdateTime = &metav1.Time{Time: time.Now().UTC()}
 	fault.Status.Phase = phase
-	if err := r.Status().Update(ctx, fault); err != nil {
+	if err := r.Status().Patch(ctx, fault, patch); err != nil {
 		klog.ErrorS(err, "failed to update fault status", "name", fault.Name)
 		return err
 	}
@@ -277,13 +279,20 @@ func (r *FaultReconciler) taintNode(ctx context.Context, fault *v1.Fault) error 
 	}
 
 	// Add the taint to the node
-	adminNode.Spec.Taints = append(adminNode.Spec.Taints, corev1.Taint{
-		Key:       taintKey,
-		Effect:    corev1.TaintEffectNoSchedule,
-		TimeAdded: &metav1.Time{Time: time.Now().UTC()},
-	})
-	err = r.Update(ctx, adminNode)
-	if err != nil {
+	patchObj := map[string]any{
+		"metadata": map[string]any{
+			"resourceVersion": adminNode.ResourceVersion,
+		},
+		"spec": map[string]any{
+			"taints": append(adminNode.Spec.Taints, corev1.Taint{
+				Key:       taintKey,
+				Effect:    corev1.TaintEffectNoSchedule,
+				TimeAdded: &metav1.Time{Time: time.Now().UTC()},
+			}),
+		},
+	}
+	p := jsonutils.MarshalSilently(patchObj)
+	if err = r.Patch(ctx, adminNode, client.RawPatch(apitypes.MergePatchType, p)); err != nil {
 		klog.ErrorS(err, "failed to update admin node")
 		return err
 	}
@@ -311,14 +320,26 @@ func (r *FaultReconciler) removeNodeTaint(ctx context.Context, fault *v1.Fault) 
 			break
 		}
 	}
-	if isFound {
-		err = r.Update(ctx, adminNode)
-		if err != nil {
-			return err
-		}
-		klog.Infof("remove taint, cluster: %s, node-name: %s, key: %s",
-			v1.GetClusterId(fault), adminNode.Name, taintKey)
+	if !isFound {
+		return nil
 	}
+
+	patchObj := map[string]any{
+		"metadata": map[string]any{
+			"resourceVersion": adminNode.ResourceVersion,
+		},
+		"spec": map[string]any{
+			"taints": adminNode.Spec.Taints,
+		},
+	}
+	p := jsonutils.MarshalSilently(patchObj)
+	if err = r.Patch(ctx, adminNode, client.RawPatch(apitypes.MergePatchType, p)); err != nil {
+		klog.ErrorS(err, "failed to update admin node")
+		return err
+	}
+
+	klog.Infof("remove taint, cluster: %s, node-name: %s, key: %s",
+		v1.GetClusterId(fault), adminNode.Name, taintKey)
 	return nil
 }
 
