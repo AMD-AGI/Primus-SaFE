@@ -401,7 +401,7 @@ func buildSecretData(reqType v1.SecretType, allParams []map[types.SecretParam]st
 				}
 			}
 			password := stringutil.Base64Decode(params[types.PasswordParam])
-			auth := fmt.Sprintf("%s:%s", params[types.UserNameParam], password)
+			auth := stringutil.Base64Encode(fmt.Sprintf("%s:%s", params[types.UserNameParam], password))
 			dockerConf.Auths[params[types.ServerParam]] = types.DockerConfigItem{
 				UserName: params[types.UserNameParam],
 				Password: password,
