@@ -223,8 +223,8 @@ func (r *ModelReconciler) constructDownloadJob(model *v1.Model) (*batchv1.Job, e
 	}
 
 	// Use custom image with pre-installed huggingface-cli and awscli
-	// Note: You should build this image using SaFE/docker/model-downloader/Dockerfile
-	image := "primus-safe/model-downloader:latest"
+	// Note: You should build this image using harbor.tas.primus-safe.amd.com/proxy/primussafe/model-downloader:latest
+	image := "harbor.tas.primus-safe.amd.com/proxy/primussafe/model-downloader:latest"
 
 	// Mount HF_TOKEN from Secret if provided
 	if model.Spec.Source.Token != nil {
