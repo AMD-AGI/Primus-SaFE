@@ -400,11 +400,11 @@ func buildSecretData(reqType v1.SecretType, allParams []map[types.SecretParam]st
 					return fmt.Errorf("the %s is empty", key)
 				}
 			}
-			auth := stringutil.Base64Encode(fmt.Sprintf("%s:%s",
-				params[types.UserNameParam], params[types.PasswordParam]))
+			password := stringutil.Base64Decode(params[types.PasswordParam])
+			auth := fmt.Sprintf("%s:%s", params[types.UserNameParam], password)
 			dockerConf.Auths[params[types.ServerParam]] = types.DockerConfigItem{
 				UserName: params[types.UserNameParam],
-				Password: stringutil.Base64Decode(params[types.PasswordParam]),
+				Password: password,
 				Auth:     auth,
 			}
 		}
@@ -420,7 +420,7 @@ func buildSecretData(reqType v1.SecretType, allParams []map[types.SecretParam]st
 		secretType = corev1.SecretTypeOpaque
 		data[string(types.UserNameParam)] = []byte(params[types.UserNameParam])
 		if val, _ := params[types.PasswordParam]; val != "" {
-			data[string(types.PasswordParam)] = []byte(params[types.PasswordParam])
+			data[string(types.PasswordParam)] = []byte(stringutil.Base64Decode(params[types.PasswordParam]))
 		} else if existKey(params, types.PublicKeyParam) && existKey(params, types.PrivateKeyParam) {
 			data[types.SSHAuthKey] = []byte(stringutil.Base64Decode(params[types.PrivateKeyParam]))
 			data[types.SSHAuthPubKey] = []byte(stringutil.Base64Decode(params[types.PublicKeyParam]))
@@ -434,7 +434,7 @@ func buildSecretData(reqType v1.SecretType, allParams []map[types.SecretParam]st
 		}
 		params := allParams[0]
 		for k, v := range params {
-			data[string(k)] = []byte(v)
+			data[string(k)] = []byte(stringutil.Base64Decode(v))
 		}
 	default:
 		return fmt.Errorf("the secret type %s is not supported", reqType)

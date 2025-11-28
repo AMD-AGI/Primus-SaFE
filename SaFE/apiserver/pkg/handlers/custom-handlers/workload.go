@@ -700,7 +700,7 @@ func (h *Handler) generateWorkload(ctx context.Context,
 		workload.Spec.Workspace = req.WorkspaceId
 	}
 	if commonworkload.IsCICDScalingRunnerSet(workload) {
-		if err = h.generateCICDScaleRunnerSet(ctx, workload, req, requestUser); err != nil {
+		if err = h.generateCICDScaleRunnerSet(ctx, workload, requestUser); err != nil {
 			return nil, err
 		}
 	}
@@ -709,12 +709,10 @@ func (h *Handler) generateWorkload(ctx context.Context,
 
 // generateCICDScaleRunnerSet configures a workload for CICD scaling runner set.
 // It validates CICD settings, creates a GitHub token secret, and sets the control plane IP.
-func (h *Handler) generateCICDScaleRunnerSet(ctx context.Context,
-	workload *v1.Workload, req *types.CreateWorkloadRequest, requestUser *v1.User) error {
+func (h *Handler) generateCICDScaleRunnerSet(ctx context.Context, workload *v1.Workload, requestUser *v1.User) error {
 	if !commonconfig.IsCICDEnable() {
 		return commonerrors.NewNotImplemented("the CICD is not enabled")
 	}
-	workload.Name = req.DisplayName
 	val, _ := workload.Spec.Env[common.GithubConfigUrl]
 	if val == "" {
 		return commonerrors.NewBadRequest("the github config url is empty")
@@ -730,7 +728,7 @@ func (h *Handler) generateCICDScaleRunnerSet(ctx context.Context,
 		Owner:        workload.Name,
 		Params: []map[types.SecretParam]string{
 			{
-				"github_token": val,
+				common.GithubToken: val,
 			},
 		},
 	}
