@@ -132,10 +132,12 @@ func (r *SecretReconciler) delete(ctx context.Context, secret *corev1.Secret) er
 	if err := r.removeSecretFromWorkspaces(ctx, secret); err != nil {
 		return err
 	}
-	// If deleting, try to cleanup mirrored copies
-	if err := r.cleanupMirroredSecrets(ctx, secret.Name, nil); err != nil {
-		klog.ErrorS(err, "failed to cleanup mirrored secrets on delete", "name", secret.Name)
-		return err
+	if len(v1.GetAnnotation(secret, v1.WorkspaceIdsAnnotation)) > 0 {
+		// If deleting, try to cleanup mirrored copies
+		if err := r.cleanupMirroredSecrets(ctx, secret.Name, nil); err != nil {
+			klog.ErrorS(err, "failed to cleanup mirrored secrets on delete", "name", secret.Name)
+			return err
+		}
 	}
 	return utils.RemoveFinalizer(ctx, r.Client, secret, v1.SecretFinalizer)
 }
