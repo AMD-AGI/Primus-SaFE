@@ -22,6 +22,7 @@ rules:
   - clusters
   - faults
   - inferences
+  - models
   - nodeflavors
   - nodes
   - nodetemplates
@@ -47,6 +48,7 @@ rules:
   - clusters/status
   - faults/status
   - inferences/status
+  - models/status
   - nodeflavors/status
   - nodes/status
   - nodetemplates/status
