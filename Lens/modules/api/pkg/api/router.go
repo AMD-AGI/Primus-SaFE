@@ -34,6 +34,7 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		workloadGroup.GET(":uid/metrics", getWorkloadMetrics)
 		workloadGroup.GET(":uid/trainingPerformance", GetWorkloadTrainingPerformance)
 		// Training performance new APIs
+		workloadGroup.GET(":uid/metrics/sources", GetDataSources)
 		workloadGroup.GET(":uid/metrics/available", GetAvailableMetrics)
 		workloadGroup.GET(":uid/metrics/data", GetMetricsData)
 	}
