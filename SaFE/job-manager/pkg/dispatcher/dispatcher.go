@@ -145,7 +145,7 @@ func (r *DispatcherReconciler) processWorkload(ctx context.Context, workload *v1
 
 	switch {
 	case !v1.IsWorkloadDispatched(workload):
-		if apierrors.IsNotFound(err) || obj == nil {
+		if apierrors.IsNotFound(err) {
 			if err = r.dispatch(ctx, workload, clusterInformer); err != nil {
 				break
 			}

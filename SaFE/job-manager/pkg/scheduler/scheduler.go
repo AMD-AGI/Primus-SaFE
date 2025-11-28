@@ -230,10 +230,6 @@ func (r *SchedulerReconciler) waitObjectDeleted(ctx context.Context,
 	if getErr != nil {
 		return ctrlruntime.Result{}, client.IgnoreNotFound(getErr)
 	}
-	if current == nil {
-		// Treat as already deleted
-		return ctrlruntime.Result{}, nil
-	}
 
 	// object still exists
 	if ts := current.GetDeletionTimestamp(); ts != nil && !ts.IsZero() && time.Since(ts.Time) > 2*time.Minute {
