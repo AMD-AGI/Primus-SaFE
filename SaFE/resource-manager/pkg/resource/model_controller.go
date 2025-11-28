@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -91,7 +92,7 @@ func (r *ModelReconciler) handlePending(ctx context.Context, model *v1.Model) (c
 	// Case B: Download needed (RemoteDownload or other modes requiring download)
 	jobName := model.Name
 	job := &batchv1.Job{}
-	err := r.Get(ctx, client.ObjectKey{Name: jobName, Namespace: model.Namespace}, job)
+	err := r.Get(ctx, client.ObjectKey{Name: jobName, Namespace: common.PrimusSafeNamespace}, job)
 
 	if errors.IsNotFound(err) {
 		// Construct download Job
@@ -144,7 +145,7 @@ func (r *ModelReconciler) handlePending(ctx context.Context, model *v1.Model) (c
 func (r *ModelReconciler) handlePulling(ctx context.Context, model *v1.Model) (ctrl.Result, error) {
 	jobName := model.Name
 	job := &batchv1.Job{}
-	if err := r.Get(ctx, client.ObjectKey{Name: jobName, Namespace: model.Namespace}, job); err != nil {
+	if err := r.Get(ctx, client.ObjectKey{Name: jobName, Namespace: common.PrimusSafeNamespace}, job); err != nil {
 		if errors.IsNotFound(err) {
 			model.Status.Phase = v1.ModelPhaseFailed
 			model.Status.Message = "Download job lost or deleted unexpectedly"
@@ -312,7 +313,7 @@ func (r *ModelReconciler) constructDownloadJob(model *v1.Model) (*batchv1.Job, e
 	job := &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      model.Name,
-			Namespace: model.Namespace,
+			Namespace: common.PrimusSafeNamespace,
 			Labels: map[string]string{
 				"app":   "model-downloader",
 				"model": model.Name,
