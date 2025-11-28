@@ -299,8 +299,9 @@ func (r *SecretReconciler) removeSecretFromCluster(ctx context.Context, secret *
 		if imageSecret == nil || imageSecret.Name != secret.Name {
 			continue
 		}
+		patch := client.MergeFrom(cluster.DeepCopy())
 		cluster.Spec.ControlPlane.ImageSecret = nil
-		if err := r.Update(ctx, &cluster); err != nil {
+		if err := r.Patch(ctx, &cluster, patch); err != nil {
 			return err
 		}
 	}
@@ -336,8 +337,9 @@ func (r *SecretReconciler) removeSecretFromWorkspace(ctx context.Context, secret
 		newSecrets = append(newSecrets, workspace.Spec.ImageSecrets[i])
 	}
 	if len(newSecrets) != len(workspace.Spec.ImageSecrets) {
+		patch := client.MergeFrom(workspace.DeepCopy())
 		workspace.Spec.ImageSecrets = newSecrets
-		if err := r.Update(ctx, workspace); err != nil {
+		if err := r.Patch(ctx, workspace, patch); err != nil {
 			return err
 		}
 		klog.Infof("remove secret reference from workspace: %s/%s", workspace.Name, secretName)
@@ -354,8 +356,9 @@ func (r *SecretReconciler) updateWorkspaceRefSecret(ctx context.Context, secret 
 			continue
 		}
 		if currentSecret.ResourceVersion != secretRef.ResourceVersion {
+			patch := client.MergeFrom(workspace.DeepCopy())
 			workspace.Spec.ImageSecrets[i] = *secretRef
-			if err := r.Update(ctx, workspace); err != nil {
+			if err := r.Patch(ctx, workspace, patch); err != nil {
 				return err
 			}
 		}
@@ -376,8 +379,9 @@ func (r *SecretReconciler) updateClusterRefSecret(ctx context.Context, secret *c
 			continue
 		}
 		if imageSecret.ResourceVersion != secret.ResourceVersion {
+			patch := client.MergeFrom(cluster.DeepCopy())
 			cluster.Spec.ControlPlane.ImageSecret = commonutils.GenObjectReference(secret.TypeMeta, secret.ObjectMeta)
-			if err := r.Update(ctx, &cluster); err != nil {
+			if err := r.Patch(ctx, &cluster, patch); err != nil {
 				return err
 			}
 		}

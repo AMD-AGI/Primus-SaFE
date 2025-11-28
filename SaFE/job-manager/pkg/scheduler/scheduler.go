@@ -15,7 +15,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/types"
+	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -29,7 +29,6 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/controller"
-	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
@@ -539,9 +538,8 @@ func (r *SchedulerReconciler) updateScheduled(ctx context.Context, workload *v1.
 			return nil
 		} else {
 			if apierrors.IsConflict(innerError) {
-				r.Get(ctx, client.ObjectKey{Name: name}, workload)
-				if workload == nil {
-					return commonerrors.NewNotFoundWithMessage(fmt.Sprintf("The workload %s is not found", name))
+				if getErr := r.Get(ctx, client.ObjectKey{Name: name}, workload); getErr != nil {
+					return getErr
 				}
 			}
 			return innerError
@@ -551,17 +549,10 @@ func (r *SchedulerReconciler) updateScheduled(ctx context.Context, workload *v1.
 		return err
 	}
 
-	patchObj := map[string]any{
-		"metadata": map[string]any{
-			"resourceVersion": workload.ResourceVersion,
-			"annotations": map[string]any{
-				v1.WorkloadReScheduledAnnotation: nil,
-				v1.WorkloadScheduledAnnotation:   timeutil.FormatRFC3339(time.Now().UTC()),
-			},
-		},
-	}
-	p := jsonutils.MarshalSilently(patchObj)
-	if err := r.Patch(ctx, workload, client.RawPatch(types.MergePatchType, p)); err != nil {
+	patch := client.MergeFrom(workload.DeepCopy())
+	v1.RemoveAnnotation(workload, v1.WorkloadReScheduledAnnotation)
+	v1.SetAnnotation(workload, v1.WorkloadScheduledAnnotation, timeutil.FormatRFC3339(time.Now().UTC()))
+	if err := r.Patch(ctx, workload, patch); err != nil {
 		klog.ErrorS(err, "failed to update workload", "name", workload.Name)
 		return err
 	}
@@ -575,12 +566,23 @@ func (r *SchedulerReconciler) updateStatus(ctx context.Context, workload *v1.Wor
 	if jobutils.FindCondition(workload, cond) != nil {
 		return nil
 	}
-	workload.Status.Conditions = append(workload.Status.Conditions, *cond)
-	workload.Status.QueuePosition = 0
+
+	statusPatch := map[string]any{}
 	if workload.Status.Phase == "" {
-		workload.Status.Phase = v1.WorkloadPending
+		statusPatch["phase"] = v1.WorkloadPending
 	}
-	if err := r.Status().Update(ctx, workload); err != nil {
+	if workload.Status.QueuePosition > 0 {
+		statusPatch["queuePosition"] = 0
+	}
+	statusPatch["conditions"] = append(workload.Status.Conditions, *cond)
+	patchObj := map[string]any{
+		"metadata": map[string]any{
+			"resourceVersion": workload.ResourceVersion,
+		},
+		"status": statusPatch,
+	}
+	p := jsonutils.MarshalSilently(patchObj)
+	if err := r.Status().Patch(ctx, workload, client.RawPatch(apitypes.MergePatchType, p)); err != nil {
 		return err
 	}
 	return nil

@@ -14,7 +14,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -254,18 +253,11 @@ func (r *SyncerReconciler) reSchedule(ctx context.Context, workload *v1.Workload
 	}
 
 	if v1.IsWorkloadDispatched(workload) {
-		patchObj := map[string]any{
-			"metadata": map[string]any{
-				"resourceVersion": workload.ResourceVersion,
-				"annotations": map[string]any{
-					v1.WorkloadDispatchedAnnotation:  nil,
-					v1.WorkloadScheduledAnnotation:   nil,
-					v1.WorkloadReScheduledAnnotation: "",
-				},
-			},
-		}
-		p := jsonutils.MarshalSilently(patchObj)
-		if err := r.Patch(ctx, workload, client.RawPatch(types.MergePatchType, p)); err != nil {
+		patch := client.MergeFrom(workload.DeepCopy())
+		v1.RemoveAnnotation(workload, v1.WorkloadScheduledAnnotation)
+		v1.RemoveAnnotation(workload, v1.WorkloadDispatchedAnnotation)
+		v1.SetAnnotation(workload, v1.WorkloadReScheduledAnnotation, "")
+		if err := r.Patch(ctx, workload, patch); err != nil {
 			return err
 		}
 	}

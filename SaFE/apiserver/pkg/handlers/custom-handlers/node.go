@@ -464,9 +464,9 @@ func (h *Handler) patchNode(c *gin.Context) (interface{}, error) {
 		klog.ErrorS(err, "failed to parse request", "body", string(body))
 		return nil, err
 	}
-	
+
 	if err = backoff.ConflictRetry(func() error {
-		shouldUpdate, innerErr := h.updateNode(ctx, node, req)
+		shouldUpdate, innerErr := h.modifyNode(ctx, node, req)
 		if innerErr != nil || !shouldUpdate {
 			return innerErr
 		}
@@ -792,9 +792,9 @@ func parseListNodeQuery(c *gin.Context) (*types.ListNodeRequest, error) {
 	return query, nil
 }
 
-// updateNode applies updates to a node based on the patch request.
+// modifyNode applies updates to a node based on the patch request.
 // Handles label updates, taint modifications, flavor/template changes, and port updates.
-func (h *Handler) updateNode(ctx context.Context, node *v1.Node, req *types.PatchNodeRequest) (bool, error) {
+func (h *Handler) modifyNode(ctx context.Context, node *v1.Node, req *types.PatchNodeRequest) (bool, error) {
 	shouldUpdate := false
 	nodesLabelAction := generateNodeLabelAction(node, req)
 	if len(nodesLabelAction) > 0 {
@@ -931,7 +931,7 @@ func generateNodeLabelAction(node *v1.Node, req *types.PatchNodeRequest) map[str
 			val2, ok := (*req.Labels)[key]
 			if !ok {
 				nodesLabelAction[key] = v1.NodeActionRemove
-				delete(node.Labels, key)
+				v1.RemoveLabel(node, key)
 			} else if val != val2 {
 				nodesLabelAction[key] = v1.NodeActionAdd
 				v1.SetLabel(node, key, val2)

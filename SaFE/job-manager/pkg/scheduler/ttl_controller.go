@@ -12,6 +12,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -22,6 +23,7 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
+	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 )
 
 type WorkloadTTLController struct {
@@ -142,9 +144,14 @@ func (r *WorkloadTTLController) deleteWorkload(ctx context.Context, workload *v1
 
 // addTimeoutCondition adds a timeout condition to a workload that has exceeded its timeout.
 func (r *WorkloadTTLController) addTimeoutCondition(ctx context.Context, workload *v1.Workload) error {
-	workload.Status.Phase = v1.WorkloadStopped
+	if workload.Status.Phase == v1.WorkloadStopped {
+		return nil
+	}
+
+	statusPatch := map[string]any{}
+	statusPatch["phase"] = v1.WorkloadStopped
 	if workload.Status.EndTime == nil {
-		workload.Status.EndTime = &metav1.Time{Time: time.Now().UTC()}
+		statusPatch["endTime"] = &metav1.Time{Time: time.Now().UTC()}
 	}
 	cond := metav1.Condition{
 		Type:    string(v1.AdminStopped),
@@ -152,8 +159,18 @@ func (r *WorkloadTTLController) addTimeoutCondition(ctx context.Context, workloa
 		Reason:  commonworkload.GenerateDispatchReason(v1.GetWorkloadDispatchCnt(workload)),
 		Message: fmt.Sprintf("the workload has timed out"),
 	}
-	meta.SetStatusCondition(&workload.Status.Conditions, cond)
-	if err := r.Status().Update(ctx, workload); err != nil {
+	if meta.SetStatusCondition(&workload.Status.Conditions, cond) {
+		statusPatch["conditions"] = workload.Status.Conditions
+	}
+
+	patchObj := map[string]any{
+		"metadata": map[string]any{
+			"resourceVersion": workload.ResourceVersion,
+		},
+		"status": statusPatch,
+	}
+	p := jsonutils.MarshalSilently(patchObj)
+	if err := r.Status().Patch(ctx, workload, client.RawPatch(apitypes.MergePatchType, p)); err != nil {
 		klog.ErrorS(err, "failed to patch workload phase", "workload", workload.Name)
 		return err
 	}

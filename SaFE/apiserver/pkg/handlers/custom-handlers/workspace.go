@@ -381,8 +381,9 @@ func (h *Handler) updateWorkspaceNodesAction(c *gin.Context, workspaceId, action
 		}); err != nil {
 			return err
 		}
+		patch := client.MergeFrom(workspace.DeepCopy())
 		v1.SetAnnotation(workspace, v1.WorkspaceNodesAction, nodeAction)
-		if err := h.Update(c.Request.Context(), workspace); err != nil {
+		if err := h.Patch(c.Request.Context(), workspace, patch); err != nil {
 			return err
 		}
 		return nil
@@ -413,8 +414,10 @@ func (h *Handler) removeWorkspaceManager(ctx context.Context, workspaceId, userI
 	if len(newManagers) == len(workspace.Spec.Managers) {
 		return nil
 	}
+
+	patch := client.MergeFrom(workspace.DeepCopy())
 	workspace.Spec.Managers = newManagers
-	if err = h.Update(ctx, workspace); err != nil {
+	if err = h.Patch(ctx, workspace, patch); err != nil {
 		return err
 	}
 	return nil

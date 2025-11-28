@@ -21,6 +21,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -326,11 +327,12 @@ func (h *Handler) deleteWorkloadImpl(c *gin.Context, name string, requestUser *v
 // Sets the workload phase to stopped and deletes the resource from etcd.
 func (h *Handler) deleteAdminWorkload(ctx context.Context, adminWorkload *v1.Workload, message string) error {
 	cond := &metav1.Condition{
-		Type:    string(v1.AdminStopped),
-		Status:  metav1.ConditionTrue,
-		Message: message,
+		Type:               string(v1.AdminStopped),
+		Status:             metav1.ConditionTrue,
+		Message:            message,
+		LastTransitionTime: metav1.NewTime(time.Now()),
+		Reason:             commonworkload.GenerateDispatchReason(v1.GetWorkloadDispatchCnt(adminWorkload)),
 	}
-
 	if err := h.updateWorkloadPhase(ctx, adminWorkload, v1.WorkloadStopped, cond); err != nil {
 		return err
 	}
@@ -529,24 +531,36 @@ func (h *Handler) getWorkloadPodLog(c *gin.Context) (interface{}, error) {
 // Handles status updates including setting end time for stopped workloads.
 func (h *Handler) updateWorkloadPhase(ctx context.Context,
 	workload *v1.Workload, phase v1.WorkloadPhase, cond *metav1.Condition) error {
+	shouldUpdateConditions := func(workload *v1.Workload, cond *metav1.Condition) bool {
+		if cond == nil {
+			return false
+		}
+		return meta.FindStatusCondition(workload.Status.Conditions, cond.Type) == nil
+	}
 	name := workload.Name
 	if err := backoff.ConflictRetry(func() error {
-		if phase != "" {
-			workload.Status.Phase = phase
+		if phase == workload.Status.Phase && !shouldUpdateConditions(workload, cond) {
+			return nil
+		}
+		// Build a minimal JSON merge patch for status subresource with RV precondition
+		statusPatch := map[string]any{}
+		if phase != workload.Status.Phase {
+			statusPatch["phase"] = phase
 			if phase == v1.WorkloadStopped && workload.Status.EndTime == nil {
-				workload.Status.EndTime = &metav1.Time{Time: time.Now().UTC()}
+				statusPatch["endTime"] = &metav1.Time{Time: time.Now().UTC()}
 			}
 		}
-		if cond != nil {
-			cond.LastTransitionTime = metav1.NewTime(time.Now())
-			cond.Reason = commonworkload.GenerateDispatchReason(v1.GetWorkloadDispatchCnt(workload))
-			if cond2 := workload.GetLastCondition(); cond2 != nil && cond2.Type == cond.Type {
-				meta.SetStatusCondition(&workload.Status.Conditions, *cond)
-			} else {
-				workload.Status.Conditions = append(workload.Status.Conditions, *cond)
-			}
+		if shouldUpdateConditions(workload, cond) {
+			statusPatch["conditions"] = append(workload.Status.Conditions, *cond)
 		}
-		if innerError := h.Status().Update(ctx, workload); innerError == nil {
+		patchObj := map[string]any{
+			"metadata": map[string]any{
+				"resourceVersion": workload.ResourceVersion,
+			},
+			"status": statusPatch,
+		}
+		p := jsonutils.MarshalSilently(patchObj)
+		if innerError := h.Status().Patch(ctx, workload, client.RawPatch(apitypes.MergePatchType, p)); innerError == nil {
 			return nil
 		} else {
 			if apierrors.IsConflict(innerError) {
@@ -560,7 +574,6 @@ func (h *Handler) updateWorkloadPhase(ctx context.Context,
 		klog.ErrorS(err, "failed to update workload status", "name", workload.Name)
 		return err
 	}
-
 	return nil
 }
 
