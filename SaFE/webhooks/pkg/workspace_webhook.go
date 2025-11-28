@@ -327,6 +327,10 @@ func (m *WorkspaceMutator) mutateDefaultWorkspaceUsers(ctx context.Context, oldW
 }
 
 // mutateManagers synchronizes manager changes by updating user attributes when workspace managers are added or removed.
+// For added managers: validates user exists, adds workspace to user's lists and user's managed list, and updates user.
+// For removed managers: validates user exists, removes workspace from user's managed list, and updates user.
+// If user not found during add/remove, removes user ID from workspace managers list
+// Note: Granting a user as a workspace manager also grants the user access to the workspace automatically.
 func (m *WorkspaceMutator) mutateManagers(ctx context.Context, oldWorkspace, newWorkspace *v1.Workspace) error {
 	var currentManagers []string
 	if oldWorkspace != nil {
@@ -360,7 +364,6 @@ func (m *WorkspaceMutator) mutateManagers(ctx context.Context, oldWorkspace, new
 		user, err := getUser(ctx, m.Client, userId)
 		if err != nil {
 			if apierrors.IsNotFound(err) {
-				newWorkspace.Spec.Managers, _ = sliceutil.RemoveString(newWorkspace.Spec.Managers, userId)
 				continue
 			}
 			return err
