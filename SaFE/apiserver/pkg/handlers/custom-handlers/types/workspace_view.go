@@ -36,8 +36,6 @@ type CreateWorkspaceRequest struct {
 	Volumes []v1.WorkspaceVolume `json:"volumes,omitempty"`
 	// Whether preemption is enabled. If enabled, higher-priority workload will preempt the lower-priority one
 	EnablePreempt bool `json:"enablePreempt"`
-	// User ID of the workspace administrator
-	Managers []string `json:"managers,omitempty"`
 	// Set the workspace as the default workspace (i.e., all users can access it)
 	IsDefault bool `json:"isDefault,omitempty"`
 	// Workspace image secret ID, used for downloading images

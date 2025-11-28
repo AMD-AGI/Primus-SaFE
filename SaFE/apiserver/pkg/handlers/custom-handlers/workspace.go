@@ -447,7 +447,6 @@ func (h *Handler) generateWorkspace(ctx context.Context,
 			Volumes:       req.Volumes,
 			Scopes:        req.Scopes,
 			EnablePreempt: req.EnablePreempt,
-			Managers:      req.Managers,
 			IsDefault:     req.IsDefault,
 		},
 	}

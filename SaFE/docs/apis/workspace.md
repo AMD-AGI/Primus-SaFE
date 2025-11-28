@@ -47,7 +47,6 @@ Create a new workspace in a cluster.
     }
   ],
   "enablePreempt": false,
-  "managers": ["user-001", "user-002"],
   "isDefault": true,
   "imageSecretIds": ["image-secret-001"]
 }
@@ -66,7 +65,6 @@ Create a new workspace in a cluster.
 | scopes | []string | No | Supported service modules: Train/Infer/Authoring/CICD, no limitation if not specified                                                    |
 | volumes | []object | No | Storage volume configuration list                                                                                                        |
 | enablePreempt | bool | No | Whether to enable preemption, default false.  If enabled, higher-priority workload will preempt the lower-priority one in this workspace |
-| managers | []string | No | List of manager user IDs                                                                                                                 |
 | isDefault | bool | No | Whether to set as default workspace (accessible to all users)                                                                            |
 | imageSecretIds | []string | No | List of image pull secret IDs                                                                                                            |
 

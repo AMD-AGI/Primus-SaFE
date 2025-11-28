@@ -105,9 +105,9 @@ func GetObject(ctx context.Context, k8sClientFactory *commonclient.ClientFactory
 		Namespace(namespace).
 		Get(ctx, name, metav1.GetOptions{})
 	if getErr != nil {
-		return nil, err
+		return nil, getErr
 	}
-	return obj, nil
+	return obj.DeepCopy(), nil
 }
 
 // GetObjectByInformer retrieves an object from the informer cache.
