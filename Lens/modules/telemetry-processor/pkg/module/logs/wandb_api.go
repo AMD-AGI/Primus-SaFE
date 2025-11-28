@@ -60,8 +60,16 @@ func ReceiveWandBDetection(ctx *gin.Context) {
 	// 打印请求体详情
 	reqJSON, _ := json.MarshalIndent(req, "", "  ")
 	logrus.Debugf("[WandB Detection API] Request body:\n%s", string(reqJSON))
-	logrus.Infof("[WandB Detection API] Detection request - WorkloadUID: %s, PodName: %s, RunID: %s, PossibleFrameworks: %v",
-		req.WorkloadUID, req.PodName, req.Evidence.WandB.ID, req.Hints.PossibleFrameworks)
+
+	// 支持双层框架的日志输出
+	if len(req.Hints.WrapperFrameworks) > 0 || len(req.Hints.BaseFrameworks) > 0 {
+		logrus.Infof("[WandB Detection API] Detection request (双层框架) - WorkloadUID: %s, PodName: %s, RunID: %s, Wrapper: %v, Base: %v",
+			req.WorkloadUID, req.PodName, req.Evidence.WandB.ID, req.Hints.WrapperFrameworks, req.Hints.BaseFrameworks)
+	} else {
+		// 向后兼容：旧格式
+		logrus.Infof("[WandB Detection API] Detection request - WorkloadUID: %s, PodName: %s, RunID: %s, PossibleFrameworks: %v",
+			req.WorkloadUID, req.PodName, req.Evidence.WandB.ID, req.Hints.PossibleFrameworks)
+	}
 
 	// 验证：必须提供 workload_uid 或 pod_name
 	if req.WorkloadUID == "" && req.PodName == "" {
@@ -79,8 +87,14 @@ func ReceiveWandBDetection(ctx *gin.Context) {
 		return
 	}
 
-	logrus.Infof("[WandB Detection API] ✓ Detection processed successfully - PossibleFrameworks: %v, WorkloadUID: %s",
-		req.Hints.PossibleFrameworks, req.WorkloadUID)
+	// 支持双层框架的成功日志
+	if len(req.Hints.WrapperFrameworks) > 0 || len(req.Hints.BaseFrameworks) > 0 {
+		logrus.Infof("[WandB Detection API] ✓ Detection processed successfully (双层框架) - Wrapper: %v, Base: %v, WorkloadUID: %s",
+			req.Hints.WrapperFrameworks, req.Hints.BaseFrameworks, req.WorkloadUID)
+	} else {
+		logrus.Infof("[WandB Detection API] ✓ Detection processed successfully - PossibleFrameworks: %v, WorkloadUID: %s",
+			req.Hints.PossibleFrameworks, req.WorkloadUID)
+	}
 	ctx.JSON(http.StatusOK, rest.SuccessResp(ctx.Request.Context(), gin.H{
 		"message": "detection reported successfully",
 	}))
@@ -268,8 +282,14 @@ func ReceiveWandBBatch(ctx *gin.Context) {
 
 	// 处理框架检测
 	if req.Detection != nil {
-		logrus.Infof("[WandB Batch API] Processing detection - PossibleFrameworks: %v, WorkloadUID: %s",
-			req.Detection.Hints.PossibleFrameworks, req.Detection.WorkloadUID)
+		// 支持双层框架的日志输出
+		if len(req.Detection.Hints.WrapperFrameworks) > 0 || len(req.Detection.Hints.BaseFrameworks) > 0 {
+			logrus.Infof("[WandB Batch API] Processing detection (双层框架) - Wrapper: %v, Base: %v, WorkloadUID: %s",
+				req.Detection.Hints.WrapperFrameworks, req.Detection.Hints.BaseFrameworks, req.Detection.WorkloadUID)
+		} else {
+			logrus.Infof("[WandB Batch API] Processing detection - PossibleFrameworks: %v, WorkloadUID: %s",
+				req.Detection.Hints.PossibleFrameworks, req.Detection.WorkloadUID)
+		}
 		if err := wandbHandler.detector.ProcessWandBDetection(ctx.Request.Context(), req.Detection); err != nil {
 			logrus.Errorf("[WandB Batch API] Failed to process detection: %v", err)
 			result["results"].(gin.H)["detection"] = gin.H{

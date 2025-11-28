@@ -12,6 +12,16 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// wandb数据源中的元数据字段，这些不是实际的指标
+var wandbMetadataFields = map[string]bool{
+	"step":       true,
+	"run_id":     true,
+	"source":     true,
+	"history":    true,
+	"created_at": true,
+	"updated_at": true,
+}
+
 // MetricInfo 指标信息
 type MetricInfo struct {
 	Name       string   `json:"name"`        // 指标名称
@@ -43,9 +53,37 @@ type MetricsDataResponse struct {
 	TotalCount  int               `json:"total_count"`
 }
 
-// GetAvailableMetrics 获取指定 workload 的所有可用指标
-// GET /workloads/:uid/metrics/available
-func GetAvailableMetrics(ctx *gin.Context) {
+// DataSourceInfo 数据源信息
+type DataSourceInfo struct {
+	Name  string `json:"name"`  // 数据源名称
+	Count int    `json:"count"` // 该数据源的数据点数量
+}
+
+// DataSourcesResponse 数据源列表响应
+type DataSourcesResponse struct {
+	WorkloadUID string           `json:"workload_uid"`
+	DataSources []DataSourceInfo `json:"data_sources"`
+	TotalCount  int              `json:"total_count"`
+}
+
+// isMetricField 判断字段是否为实际指标（根据数据源类型）
+func isMetricField(fieldName string, dataSource string) bool {
+	switch dataSource {
+	case "wandb":
+		// wandb数据源需要过滤元数据字段
+		return !wandbMetadataFields[fieldName]
+	case "log", "tensorflow":
+		// log和tensorflow数据源的所有字段都是指标
+		return true
+	default:
+		// 默认都视为指标
+		return true
+	}
+}
+
+// GetDataSources 获取指定 workload 的所有数据源
+// GET /workloads/:uid/metrics/sources
+func GetDataSources(ctx *gin.Context) {
 	workloadUID := ctx.Param("uid")
 	if workloadUID == "" {
 		_ = ctx.Error(errors.NewError().
@@ -64,10 +102,76 @@ func GetAvailableMetrics(ctx *gin.Context) {
 		return
 	}
 
+	// 统计数据源
+	sourceMap := make(map[string]int) // data_source -> count
+	for _, p := range performances {
+		sourceMap[p.DataSource]++
+	}
+
+	// 构建响应
+	dataSources := make([]DataSourceInfo, 0, len(sourceMap))
+	for source, count := range sourceMap {
+		dataSources = append(dataSources, DataSourceInfo{
+			Name:  source,
+			Count: count,
+		})
+	}
+
+	response := DataSourcesResponse{
+		WorkloadUID: workloadUID,
+		DataSources: dataSources,
+		TotalCount:  len(dataSources),
+	}
+
+	ctx.JSON(200, response)
+}
+
+// GetAvailableMetrics 获取指定 workload 的所有可用指标
+// GET /workloads/:uid/metrics/available
+// Query Parameters:
+//   - data_source: 数据来源 (可选，如 "log", "wandb", "tensorflow")
+func GetAvailableMetrics(ctx *gin.Context) {
+	workloadUID := ctx.Param("uid")
+	if workloadUID == "" {
+		_ = ctx.Error(errors.NewError().
+			WithCode(errors.RequestParameterInvalid).
+			WithMessage("workload_uid is required"))
+		return
+	}
+
+	// 获取数据源参数
+	dataSource := ctx.Query("data_source")
+
+	// 获取训练性能数据
+	var performances []*model.TrainingPerformance
+	var err error
+
+	if dataSource != "" {
+		// 按数据源过滤
+		performances, err = database.GetFacade().GetTraining().
+			ListTrainingPerformanceByWorkloadUIDAndDataSource(ctx, workloadUID, dataSource)
+	} else {
+		// 获取所有数据源
+		performances, err = database.GetFacade().GetTraining().
+			ListTrainingPerformanceByWorkloadUID(ctx, workloadUID)
+	}
+
+	if err != nil {
+		_ = ctx.Error(errors.NewError().
+			WithCode(errors.InternalError).
+			WithMessage(err.Error()))
+		return
+	}
+
 	// 统计所有可用指标
 	metricMap := make(map[string]map[string]int) // metric_name -> {data_source -> count}
 	for _, p := range performances {
 		for metricName := range p.Performance {
+			// 根据数据源类型过滤字段
+			if !isMetricField(metricName, p.DataSource) {
+				continue
+			}
+
 			if _, exists := metricMap[metricName]; !exists {
 				metricMap[metricName] = make(map[string]int)
 			}
@@ -192,6 +296,11 @@ func GetMetricsData(ctx *gin.Context) {
 
 	for _, p := range performances {
 		for metricName, value := range p.Performance {
+			// 根据数据源类型过滤元数据字段
+			if !isMetricField(metricName, p.DataSource) {
+				continue
+			}
+
 			// 如果指定了指标列表，只返回请求的指标
 			if len(metricsSet) > 0 && !metricsSet[metricName] {
 				continue
