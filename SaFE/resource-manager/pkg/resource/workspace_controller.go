@@ -284,9 +284,10 @@ func (r *WorkspaceReconciler) updatePhase(ctx context.Context, workspace *v1.Wor
 	if workspace.Status.Phase == phase {
 		return nil
 	}
+	patch := client.MergeFrom(workspace.DeepCopy())
 	workspace.Status.UpdateTime = &metav1.Time{Time: time.Now().UTC()}
 	workspace.Status.Phase = phase
-	if err := r.Status().Update(ctx, workspace); err != nil {
+	if err := r.Status().Patch(ctx, workspace, patch); err != nil {
 		return err
 	}
 	return nil
@@ -594,8 +595,9 @@ func (r *WorkspaceReconciler) removeNodesAction(ctx context.Context, workspace *
 	if v1.GetWorkspaceNodesAction(workspace) == "" {
 		return nil
 	}
-	delete(workspace.Annotations, v1.WorkspaceNodesAction)
-	if err := r.Update(ctx, workspace); err != nil {
+	patch := client.MergeFrom(workspace.DeepCopy())
+	v1.RemoveAnnotation(workspace, v1.WorkspaceNodesAction)
+	if err := r.Patch(ctx, workspace, patch); err != nil {
 		return err
 	}
 	return nil
@@ -638,12 +640,13 @@ func (r *WorkspaceReconciler) updateSingleNodeBinding(ctx context.Context, node 
 	if node.Spec.Workspace != nil && *node.Spec.Workspace == target {
 		return false, nil
 	}
+	patch := client.MergeFrom(node.DeepCopy())
 	node.Spec.Workspace = pointer.String(target)
-	klog.Infof("updateSingleNodeBinding, node: %s, target: %s", node.Name, target)
-	if err := r.Update(ctx, node); err != nil {
+	if err := r.Patch(ctx, node, patch); err != nil {
 		klog.ErrorS(err, "failed to update node", "target", target)
 		return false, err
 	}
+	klog.Infof("updateSingleNodeBinding, node: %s, target: %s", node.Name, target)
 	return true, nil
 }
 

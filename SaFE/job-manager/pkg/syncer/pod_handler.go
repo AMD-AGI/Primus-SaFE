@@ -166,12 +166,28 @@ func (r *SyncerReconciler) updateWorkloadPod(ctx context.Context, obj *unstructu
 		r.updateWorkloadNodes(adminWorkload, message)
 	}
 	if commonworkload.IsCICDScalingRunnerSet(adminWorkload) {
-		val, ok := pod.Labels[appComponent]
-		if ok && val == scaleSetListener {
-			adminWorkload.Status.Phase = v1.WorkloadPhase(pod.Status.Phase)
-		}
+		updateCICDScalingRunnerSetPhase(adminWorkload, pod)
 	}
 	return ctrlruntime.Result{}, r.Status().Update(ctx, adminWorkload)
+}
+
+// updateCICDScalingRunnerSetPhase updates the workload phase for CICD scaling runner sets
+// based on the phase of its listener pod, since these workloads don't have inherent status.
+// Running pods result in WorkloadRunning status, pending pods result in WorkloadPending,
+// and all other pod phases result in WorkloadNotReady status.
+func updateCICDScalingRunnerSetPhase(adminWorkload *v1.Workload, pod *corev1.Pod) {
+	val, ok := pod.Labels[appComponent]
+	if !ok || val != scaleSetListener {
+		return
+	}
+	switch pod.Status.Phase {
+	case corev1.PodRunning:
+		adminWorkload.Status.Phase = v1.WorkloadRunning
+	case corev1.PodPending:
+		adminWorkload.Status.Phase = v1.WorkloadPending
+	default:
+		adminWorkload.Status.Phase = v1.WorkloadNotReady
+	}
 }
 
 // updateWorkloadNodes updates the node information for a workload.
