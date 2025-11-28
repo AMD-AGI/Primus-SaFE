@@ -491,7 +491,7 @@ func getNodeLabelsString(node *v1.Node) (string, bool) {
 		return "", false
 	}
 	labels := node.Labels
-	delete(node.Labels, v1.ClusterManageNodeClusterLabel)
+	v1.RemoveLabel(node, v1.ClusterManageNodeClusterLabel)
 	if node.Spec.NodeFlavor != nil {
 		labels[v1.NodeFlavorIdLabel] = node.Spec.NodeFlavor.Name
 	}
