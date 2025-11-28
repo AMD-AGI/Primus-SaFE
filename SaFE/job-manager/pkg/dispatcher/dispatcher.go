@@ -140,11 +140,8 @@ func (r *DispatcherReconciler) processWorkload(ctx context.Context, workload *v1
 	if err != nil {
 		return ctrlruntime.Result{}, err
 	}
-	resourceInformer, err := clusterInformer.GetResourceInformer(ctx, rt.ToSchemaGVK())
-	if err != nil {
-		return ctrlruntime.Result{}, err
-	}
-	obj, err := jobutils.GetObject(resourceInformer, workload.Name, workload.Spec.Workspace)
+	obj, err := jobutils.GetObject(ctx,
+		clusterInformer.ClientFactory(), workload.Name, workload.Spec.Workspace, rt.ToSchemaGVK())
 
 	switch {
 	case !v1.IsWorkloadDispatched(workload):

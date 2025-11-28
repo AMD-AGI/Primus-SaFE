@@ -96,13 +96,7 @@ func (r *SyncerReconciler) getK8sResourceStatus(ctx context.Context, message *re
 			Message: fmt.Sprintf("%s %s is deleted", message.gvk.Kind, message.name),
 		}, nil
 	}
-
-	informer, err := clusterInformer.GetResourceInformer(ctx, message.gvk)
-	if err != nil {
-		klog.ErrorS(err, "failed to get resource informer")
-		return nil, err
-	}
-	k8sObject, err := jobutils.GetObject(informer, message.name, message.namespace)
+	k8sObject, err := jobutils.GetObject(ctx, clusterInformer.ClientFactory(), message.name, message.namespace, message.gvk)
 	if err != nil {
 		klog.ErrorS(err, "failed to get k8s object", "name", message.name, "namespace", message.namespace)
 		return nil, err

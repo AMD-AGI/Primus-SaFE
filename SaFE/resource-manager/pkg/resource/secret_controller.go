@@ -83,7 +83,7 @@ func (relevantChangePredicate) Update(e event.UpdateEvent) bool {
 	if !ok1 || !ok2 || newSecret.Namespace != common.PrimusSafeNamespace {
 		return false
 	}
-	if v1.GetAnnotation(newSecret, v1.WorkspaceIdsAnnotation) != "" && !newSecret.GetDeletionTimestamp().IsZero() {
+	if oldSecret.GetDeletionTimestamp().IsZero() && !newSecret.GetDeletionTimestamp().IsZero() {
 		return true
 	}
 	if v1.GetAnnotation(oldSecret, v1.WorkspaceIdsAnnotation) != v1.GetAnnotation(newSecret, v1.WorkspaceIdsAnnotation) {

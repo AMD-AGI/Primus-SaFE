@@ -32,7 +32,7 @@ type CreateSecretRequest struct {
 	Type v1.SecretType `json:"type"`
 	// Parameters required for creating the secret, including username, password, privateKey, publicKey and so on
 	// for a general secret, you can define any parameters.
-	// the private key, public key and password need to be Base64 encoded.
+	// the private key, public key, password and value of general secret need to be Base64 encoded.
 	// each server can have only one auth entry.
 	// Multiple auths may be created for image secret, so the params is a slice
 	Params []map[SecretParam]string `json:"params"`

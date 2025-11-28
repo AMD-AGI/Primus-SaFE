@@ -14,6 +14,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
 	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
@@ -200,6 +201,10 @@ func (r *SchedulerReconciler) delete(ctx context.Context, adminWorkload *v1.Work
 		klog.ErrorS(err, "failed to delete k8s object")
 		return ctrlruntime.Result{}, err
 	}
+	if result, err := r.waitObjectDeleted(ctx, obj, clusterInformer); err != nil || result.RequeueAfter > 0 {
+		return result, err
+	}
+
 	if commonworkload.IsCICDScalingRunnerSet(adminWorkload) {
 		if err = r.deleteRelatedSecrets(ctx, adminWorkload); err != nil {
 			return ctrlruntime.Result{}, err
@@ -212,6 +217,34 @@ func (r *SchedulerReconciler) delete(ctx context.Context, adminWorkload *v1.Work
 	}
 	klog.Infof("delete workload, name: %s", adminWorkload.Name)
 	return ctrlruntime.Result{}, nil
+}
+
+// waitObjectDeleted waits for an object to be fully deleted from the cluster.
+// If the object still exists after 2 minutes of deletion timestamp, it forcefully removes finalizers.
+func (r *SchedulerReconciler) waitObjectDeleted(ctx context.Context,
+	obj *unstructured.Unstructured, clusterInformer *syncer.ClusterInformer) (ctrlruntime.Result, error) {
+
+	k8sClientFactory := clusterInformer.ClientFactory()
+	gvk := obj.GroupVersionKind()
+	current, getErr := jobutils.GetObject(ctx, k8sClientFactory, obj.GetName(), obj.GetNamespace(), gvk)
+	if getErr != nil {
+		return ctrlruntime.Result{}, client.IgnoreNotFound(getErr)
+	}
+
+	// object still exists
+	if ts := current.GetDeletionTimestamp(); !ts.IsZero() && time.Since(ts.Time) > 2*time.Minute {
+		patchObj := map[string]any{
+			"metadata": map[string]any{
+				"finalizers": []string{},
+			},
+		}
+		p := jsonutils.MarshalSilently(patchObj)
+		if patchErr := jobutils.PatchObject(ctx,
+			k8sClientFactory, obj.GetName(), obj.GetNamespace(), gvk, p); patchErr != nil {
+			return ctrlruntime.Result{}, client.IgnoreNotFound(patchErr)
+		}
+	}
+	return ctrlruntime.Result{RequeueAfter: time.Second * 3}, nil
 }
 
 // deleteRelatedSecrets removes all secrets associated with a CICD scaling runner set workload.

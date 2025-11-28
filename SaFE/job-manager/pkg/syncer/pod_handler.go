@@ -49,7 +49,7 @@ func (r *SyncerReconciler) handlePod(ctx context.Context, message *resourceMessa
 	if err != nil {
 		return ctrlruntime.Result{}, err
 	}
-	obj, err := jobutils.GetObject(informer, message.name, message.namespace)
+	obj, err := jobutils.GetObjectByInformer(informer, message.name, message.namespace)
 	if err != nil {
 		return ctrlruntime.Result{}, err
 	}
