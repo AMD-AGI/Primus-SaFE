@@ -728,7 +728,7 @@ func (h *Handler) generateCICDScaleRunnerSet(ctx context.Context, workload *v1.W
 		Owner:        workload.Name,
 		Params: []map[types.SecretParam]string{
 			{
-				common.GithubToken: val,
+				common.GithubToken: stringutil.Base64Encode(val),
 			},
 		},
 	}
@@ -1140,6 +1140,10 @@ func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context,
 	if str := dbutils.ParseNullString(dbWorkload.Env); str != "" {
 		json.Unmarshal([]byte(str), &result.Env)
 		result.Env = maps.RemoveValue(result.Env, "")
+		if result.GroupVersionKind.Kind == common.CICDScaleRunnerSetKind {
+			delete(result.Env, common.GithubPAT)
+			delete(result.Env, common.AdminControlPlane)
+		}
 	}
 	if str := dbutils.ParseNullString(dbWorkload.Dependencies); str != "" {
 		json.Unmarshal([]byte(str), &result.Dependencies)

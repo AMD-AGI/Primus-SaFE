@@ -314,6 +314,10 @@ All fields are optional, only provided fields will be updated
 
 All parameters have the same meaning as the corresponding parameters in "Create Workspace".
 
+**Notes**:
+- When an image secret is bound to a workspace (by specifying it in the workspace’s image secrets during update), the secret will also be copied into the workspace’s Kubernetes namespace to ensure image pulls can succeed. Future updates to the bound secret are synchronized accordingly.
+- When you grant a user as a workspace manager, the user will also be granted access to the workspace automatically (manager implies access).
+
 **Response**: 200 OK with no response body
 
 ---
