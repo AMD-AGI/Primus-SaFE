@@ -700,16 +700,16 @@ func (h *Handler) generateWorkload(ctx context.Context,
 		workload.Spec.Workspace = req.WorkspaceId
 	}
 	if commonworkload.IsCICDScalingRunnerSet(workload) {
-		if err = h.generateCICDSalesRunnerSet(ctx, workload, req, requestUser); err != nil {
+		if err = h.generateCICDScaleRunnerSet(ctx, workload, req, requestUser); err != nil {
 			return nil, err
 		}
 	}
 	return workload, nil
 }
 
-// generateCICDSalesRunnerSet configures a workload for CICD scaling runner set.
+// generateCICDScaleRunnerSet configures a workload for CICD scaling runner set.
 // It validates CICD settings, creates a GitHub token secret, and sets the control plane IP.
-func (h *Handler) generateCICDSalesRunnerSet(ctx context.Context,
+func (h *Handler) generateCICDScaleRunnerSet(ctx context.Context,
 	workload *v1.Workload, req *types.CreateWorkloadRequest, requestUser *v1.User) error {
 	if !commonconfig.IsCICDEnable() {
 		return commonerrors.NewNotImplemented("the CICD is not enabled")
