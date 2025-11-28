@@ -340,7 +340,6 @@ func (r *FaultReconciler) removeNodeTaint(ctx context.Context, fault *v1.Fault) 
 
 	klog.Infof("remove taint, cluster: %s, node-name: %s, key: %s",
 		v1.GetClusterId(fault), adminNode.Name, taintKey)
-
 	return nil
 }
 
