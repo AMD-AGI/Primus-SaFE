@@ -29,6 +29,7 @@ const (
 
 	GithubConfigUrl   = "GITHUB_CONFIG_URL"
 	GithubPAT         = "GITHUB_PAT"
+	GithubToken       = "github_token"
 	AdminControlPlane = "ADMIN_CONTROL_PLANE"
 	UnifiedJobEnable  = "UNIFIED_JOB_ENABLE"
 	ScaleRunnerSetID  = "SCALE_RUNNER_SET_ID"
