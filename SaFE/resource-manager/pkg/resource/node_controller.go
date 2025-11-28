@@ -294,12 +294,14 @@ func (r *NodeReconciler) updateMachineStatus(ctx context.Context,
 	if node.Status.MachineStatus.Phase == phase && node.Status.MachineStatus.HostName == hostname {
 		return nil
 	}
+
+	patch := client.MergeFrom(node.DeepCopy())
 	node.Status.MachineStatus.Phase = phase
 	if hostname != "" {
 		node.Status.MachineStatus.HostName = hostname
 	}
 	node.Status.MachineStatus.UpdateTime = &metav1.Time{Time: time.Now().UTC()}
-	if err := r.Status().Update(ctx, node); err != nil {
+	if err := r.Status().Patch(ctx, node, patch); err != nil {
 		klog.ErrorS(err, "failed to patch status", "node", node.Name)
 		return err
 	}
@@ -359,9 +361,11 @@ func (r *NodeReconciler) updateK8sNode(ctx context.Context, adminNode *v1.Node, 
 		klog.ErrorS(err, "failed to remove taint conditions")
 		return ctrlruntime.Result{}, err
 	}
-	delete(adminNode.Annotations, v1.NodeLabelAction)
-	delete(adminNode.Annotations, v1.NodeAnnotationAction)
-	if err = r.Update(ctx, adminNode); err != nil {
+
+	patch := client.MergeFrom(adminNode.DeepCopy())
+	v1.RemoveAnnotation(adminNode, v1.NodeLabelAction)
+	v1.RemoveAnnotation(adminNode, v1.NodeAnnotationAction)
+	if err = r.Patch(ctx, adminNode, patch); err != nil {
 		return ctrlruntime.Result{}, err
 	}
 	return ctrlruntime.Result{}, nil
