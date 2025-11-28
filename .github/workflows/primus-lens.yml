@@ -53,6 +53,9 @@ jobs:
           telemetry_processor:
             - Lens/modules/telemetry-processor/**
             - Lens/modules/core/**
+          ai_advisor:
+            - Lens/modules/ai-advisor/**
+            - Lens/modules/core/**
           gpu_resource_exporter:
             - Lens/modules/exporters/gpu-resource-exporter/**
             - Lens/modules/core/**
@@ -82,6 +85,9 @@ jobs:
           fi
           if [[ "${{ steps.changed-files.outputs.telemetry_processor_any_changed }}" == "true" ]]; then
             MATRIX+='{"name":"telemetry-processor","buildpath":"cmd/telemetry-processor","basepath":"Lens/modules/telemetry-processor/"},'
+          fi
+          if [[ "${{ steps.changed-files.outputs.ai_advisor_any_changed }}" == "true" ]]; then
+            MATRIX+='{"name":"ai-advisor","buildpath":"cmd/ai-advisor","basepath":"Lens/modules/ai-advisor/"},'
           fi
           if [[ "${{ steps.changed-files.outputs.gpu_resource_exporter_any_changed }}" == "true" ]]; then
             MATRIX+='{"name":"gpu-resource-exporter","buildpath":"cmd/gpu-resource-exporter","basepath":"Lens/modules/exporters/gpu-resource-exporter/"},'
