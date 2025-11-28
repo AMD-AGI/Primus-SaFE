@@ -16,7 +16,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/types"
+	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/klog/v2"
@@ -140,11 +140,8 @@ func (r *DispatcherReconciler) processWorkload(ctx context.Context, workload *v1
 	if err != nil {
 		return ctrlruntime.Result{}, err
 	}
-	resourceInformer, err := clusterInformer.GetResourceInformer(ctx, rt.ToSchemaGVK())
-	if err != nil {
-		return ctrlruntime.Result{}, err
-	}
-	obj, err := jobutils.GetObject(resourceInformer, workload.Name, workload.Spec.Workspace)
+	obj, err := jobutils.GetObject(ctx,
+		clusterInformer.ClientFactory(), workload.Name, workload.Spec.Workspace, rt.ToSchemaGVK())
 
 	switch {
 	case !v1.IsWorkloadDispatched(workload):
@@ -158,7 +155,7 @@ func (r *DispatcherReconciler) processWorkload(ctx context.Context, workload *v1
 		if err = r.createService(ctx, workload, clusterInformer); err != nil {
 			break
 		}
-		if err = r.patchDispatched(ctx, workload); err != nil {
+		if err = r.updateDispatched(ctx, workload); err != nil {
 			break
 		}
 		klog.Infof("the workload is dispatched, name: %s, dispatch count: %d, max retry: %d",
@@ -297,37 +294,34 @@ func (r *DispatcherReconciler) getWorkloadTemplate(ctx context.Context, adminWor
 	return template, nil
 }
 
-// patchDispatched updates a workload's status to indicate it has been dispatched.
-func (r *DispatcherReconciler) patchDispatched(ctx context.Context, workload *v1.Workload) error {
+// updateDispatched updates a workload's status to indicate it has been dispatched.
+func (r *DispatcherReconciler) updateDispatched(ctx context.Context, workload *v1.Workload) error {
 	reason := commonworkload.GenerateDispatchReason(v1.GetWorkloadDispatchCnt(workload) + 1)
 	cond := jobutils.NewCondition(string(v1.AdminDispatched), "the workload is dispatched", reason)
 	if jobutils.FindCondition(workload, cond) == nil {
-		workload.Status.Conditions = append(workload.Status.Conditions, *cond)
+		statusPatch := map[string]any{}
 		if workload.Status.Phase == "" {
-			workload.Status.Phase = v1.WorkloadPending
+			statusPatch["phase"] = v1.WorkloadPending
 		}
-		if err := r.Status().Update(ctx, workload); err != nil {
-			klog.ErrorS(err, "failed to update workload", "name", workload.Name)
+		statusPatch["conditions"] = append(workload.Status.Conditions, *cond)
+		patchObj := map[string]any{
+			"metadata": map[string]any{
+				"resourceVersion": workload.ResourceVersion,
+			},
+			"status": statusPatch,
+		}
+		p := jsonutils.MarshalSilently(patchObj)
+		if err := r.Status().Patch(ctx, workload, client.RawPatch(apitypes.MergePatchType, p)); err != nil {
 			return err
 		}
 	}
 
 	if !v1.IsWorkloadDispatched(workload) {
-		patchObj := map[string]any{
-			"metadata": map[string]any{
-				"resourceVersion": workload.ResourceVersion,
-				"labels": map[string]any{
-					v1.WorkloadDispatchCntLabel: buildDispatchCount(workload),
-				},
-				"annotations": map[string]any{
-					v1.WorkloadDispatchedAnnotation: timeutil.FormatRFC3339(time.Now().UTC()),
-					v1.WorkloadPreemptedAnnotation:  nil,
-				},
-			},
-		}
-		p := jsonutils.MarshalSilently(patchObj)
-		if err := r.Patch(ctx, workload, client.RawPatch(types.MergePatchType, p)); err != nil {
-			klog.ErrorS(err, "failed to patch workload", "name", workload.Name)
+		patch := client.MergeFrom(workload.DeepCopy())
+		v1.RemoveAnnotation(workload, v1.WorkloadPreemptedAnnotation)
+		v1.SetAnnotation(workload, v1.WorkloadDispatchedAnnotation, timeutil.FormatRFC3339(time.Now().UTC()))
+		v1.SetLabel(workload, v1.WorkloadDispatchCntLabel, buildDispatchCount(workload))
+		if err := r.Patch(ctx, workload, patch); err != nil {
 			return err
 		}
 	}

@@ -21,6 +21,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -50,8 +51,8 @@ type WorkloadBatchAction string
 
 const (
 	defaultLogTailLine int64 = 1000
-	defaultRetryCount        = 3
-	defaultRetryDelay        = 100 * time.Millisecond
+	defaultRetryCount        = 5
+	defaultRetryDelay        = 200 * time.Millisecond
 
 	BatchDelete WorkloadBatchAction = "delete"
 	BatchStop   WorkloadBatchAction = "stop"
@@ -140,7 +141,7 @@ func (h *Handler) createWorkload(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	workload, err := h.generateWorkload(c.Request.Context(), req, body)
+	workload, err := h.generateWorkload(c.Request.Context(), req, body, requestUser)
 	if err != nil {
 		return nil, commonerrors.NewBadRequest(err.Error())
 	}
@@ -326,11 +327,12 @@ func (h *Handler) deleteWorkloadImpl(c *gin.Context, name string, requestUser *v
 // Sets the workload phase to stopped and deletes the resource from etcd.
 func (h *Handler) deleteAdminWorkload(ctx context.Context, adminWorkload *v1.Workload, message string) error {
 	cond := &metav1.Condition{
-		Type:    string(v1.AdminStopped),
-		Status:  metav1.ConditionTrue,
-		Message: message,
+		Type:               string(v1.AdminStopped),
+		Status:             metav1.ConditionTrue,
+		Message:            message,
+		LastTransitionTime: metav1.NewTime(time.Now()),
+		Reason:             commonworkload.GenerateDispatchReason(v1.GetWorkloadDispatchCnt(adminWorkload)),
 	}
-
 	if err := h.updateWorkloadPhase(ctx, adminWorkload, v1.WorkloadStopped, cond); err != nil {
 		return err
 	}
@@ -474,6 +476,9 @@ func (h *Handler) cloneWorkloadImpl(c *gin.Context, name string, requestUser *v1
 		return nil, err
 	}
 	workload := cvtDBWorkloadToAdminWorkload(dbWorkload)
+	if commonworkload.IsCICDScalingRunnerSet(workload) {
+		return nil, commonerrors.NewNotImplemented("the clone function is not supported for cicd scaling runner")
+	}
 	if err = h.accessController.Authorize(authority.AccessInput{
 		Context:  c.Request.Context(),
 		Resource: workload,
@@ -526,24 +531,36 @@ func (h *Handler) getWorkloadPodLog(c *gin.Context) (interface{}, error) {
 // Handles status updates including setting end time for stopped workloads.
 func (h *Handler) updateWorkloadPhase(ctx context.Context,
 	workload *v1.Workload, phase v1.WorkloadPhase, cond *metav1.Condition) error {
+	shouldUpdateConditions := func(workload *v1.Workload, cond *metav1.Condition) bool {
+		if cond == nil {
+			return false
+		}
+		return meta.FindStatusCondition(workload.Status.Conditions, cond.Type) == nil
+	}
 	name := workload.Name
 	if err := backoff.ConflictRetry(func() error {
-		if phase != "" {
-			workload.Status.Phase = phase
+		if phase == workload.Status.Phase && !shouldUpdateConditions(workload, cond) {
+			return nil
+		}
+		// Build a minimal JSON merge patch for status subresource with RV precondition
+		statusPatch := map[string]any{}
+		if phase != workload.Status.Phase {
+			statusPatch["phase"] = phase
 			if phase == v1.WorkloadStopped && workload.Status.EndTime == nil {
-				workload.Status.EndTime = &metav1.Time{Time: time.Now().UTC()}
+				statusPatch["endTime"] = &metav1.Time{Time: time.Now().UTC()}
 			}
 		}
-		if cond != nil {
-			cond.LastTransitionTime = metav1.NewTime(time.Now())
-			cond.Reason = commonworkload.GenerateDispatchReason(v1.GetWorkloadDispatchCnt(workload))
-			if cond2 := workload.GetLastCondition(); cond2 != nil && cond2.Type == cond.Type {
-				meta.SetStatusCondition(&workload.Status.Conditions, *cond)
-			} else {
-				workload.Status.Conditions = append(workload.Status.Conditions, *cond)
-			}
+		if shouldUpdateConditions(workload, cond) {
+			statusPatch["conditions"] = append(workload.Status.Conditions, *cond)
 		}
-		if innerError := h.Status().Update(ctx, workload); innerError == nil {
+		patchObj := map[string]any{
+			"metadata": map[string]any{
+				"resourceVersion": workload.ResourceVersion,
+			},
+			"status": statusPatch,
+		}
+		p := jsonutils.MarshalSilently(patchObj)
+		if innerError := h.Status().Patch(ctx, workload, client.RawPatch(apitypes.MergePatchType, p)); innerError == nil {
 			return nil
 		} else {
 			if apierrors.IsConflict(innerError) {
@@ -557,7 +574,6 @@ func (h *Handler) updateWorkloadPhase(ctx context.Context,
 		klog.ErrorS(err, "failed to update workload status", "name", workload.Name)
 		return err
 	}
-
 	return nil
 }
 
@@ -653,7 +669,8 @@ func (h *Handler) authWorkloadPriority(c *gin.Context, adminWorkload *v1.Workloa
 
 // generateWorkload creates a new workload object based on the creation request.
 // Populates workload metadata, specifications, and customer labels.
-func (h *Handler) generateWorkload(ctx context.Context, req *types.CreateWorkloadRequest, body []byte) (*v1.Workload, error) {
+func (h *Handler) generateWorkload(ctx context.Context,
+	req *types.CreateWorkloadRequest, body []byte, requestUser *v1.User) (*v1.Workload, error) {
 	workload := &v1.Workload{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: commonutils.GenerateName(req.DisplayName),
@@ -683,17 +700,50 @@ func (h *Handler) generateWorkload(ctx context.Context, req *types.CreateWorkloa
 		workload.Spec.Workspace = req.WorkspaceId
 	}
 	if commonworkload.IsCICDScalingRunnerSet(workload) {
-		if !commonconfig.IsCICDEnable() {
-			return nil, commonerrors.NewNotImplemented("the CICD is not enabled")
-		}
-		workload.Name = req.DisplayName
-		controlPlaneIp, err := h.getAdminControlPlaneIp(ctx)
-		if err != nil {
+		if err = h.generateCICDScaleRunnerSet(ctx, workload, requestUser); err != nil {
 			return nil, err
 		}
-		commonworkload.SetEnv(workload, common.AdminControlPlane, controlPlaneIp)
 	}
 	return workload, nil
+}
+
+// generateCICDScaleRunnerSet configures a workload for CICD scaling runner set.
+// It validates CICD settings, creates a GitHub token secret, and sets the control plane IP.
+func (h *Handler) generateCICDScaleRunnerSet(ctx context.Context, workload *v1.Workload, requestUser *v1.User) error {
+	if !commonconfig.IsCICDEnable() {
+		return commonerrors.NewNotImplemented("the CICD is not enabled")
+	}
+	val, _ := workload.Spec.Env[common.GithubConfigUrl]
+	if val == "" {
+		return commonerrors.NewBadRequest("the github config url is empty")
+	}
+	val, _ = workload.Spec.Env[common.GithubPAT]
+	if val == "" {
+		return commonerrors.NewBadRequest("the github pat(token) is empty")
+	}
+	createSecretReq := &types.CreateSecretRequest{
+		Name:         v1.GetDisplayName(workload),
+		WorkspaceIds: []string{workload.Spec.Workspace},
+		Type:         v1.SecretGeneral,
+		Owner:        workload.Name,
+		Params: []map[types.SecretParam]string{
+			{
+				common.GithubToken: val,
+			},
+		},
+	}
+	secret, err := h.createSecretImpl(ctx, createSecretReq, requestUser)
+	if err != nil {
+		return err
+	}
+	workload.Spec.Secrets = append(workload.Spec.Secrets,
+		v1.SecretEntity{Id: secret.Name, Type: v1.SecretGeneral})
+	controlPlaneIp, err := h.getAdminControlPlaneIp(ctx)
+	if err != nil {
+		return err
+	}
+	commonworkload.SetEnv(workload, common.AdminControlPlane, controlPlaneIp)
+	return nil
 }
 
 func (h *Handler) getAdminControlPlaneIp(ctx context.Context) (string, error) {
