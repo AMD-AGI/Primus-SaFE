@@ -17,22 +17,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Upgrade pip first (optional but recommended)
 RUN pip install --no-cache-dir --upgrade pip
 
-# Install huggingface_hub[cli] and awscli
+# Install huggingface_hub[cli] with fixed version and awscli
 # --no-cache-dir to keep image size small
-RUN pip install --no-cache-dir "huggingface_hub[cli]" awscli
+RUN pip install --no-cache-dir "huggingface_hub[cli]==0.24.0" awscli
 
-# Create a stable symlink to the installed console script if it lives in a non-standard location
-# (some environments install console scripts into /root/.local/bin)
-RUN HFC_PATH="$(python -c 'import shutil; import sys; print(shutil.which(\"huggingface-cli\") or shutil.which(\"huggingface\") or \"\")')" \
-    && if [ -n "$HFC_PATH" ]; then ln -sf "$HFC_PATH" /usr/local/bin/huggingface-cli || true; fi \
-    && echo "huggingface-cli resolved at: $HFC_PATH" || true
+# Ensure huggingface-cli is in PATH
+RUN ln -sf $(which huggingface-cli || echo /usr/local/bin/huggingface-cli) /usr/local/bin/huggingface-cli 2>/dev/null || true
 
-# Verify installation in a robust way:
-#  - check python import (required)
-#  - if CLI exists, print its version (optional)
-#  - check aws
-RUN python -c "import huggingface_hub as hf; print('huggingface_hub', getattr(hf, '__version__', 'unknown'))" \
-  && ( command -v huggingface-cli >/dev/null 2>&1 && huggingface-cli --version || ( command -v huggingface >/dev/null 2>&1 && huggingface --version ) || echo 'warning: huggingface-cli not found, but python package is installed' ) \
+# Verify installation
+RUN python -c "import huggingface_hub as hf; print('huggingface_hub version:', hf.__version__)" \
+  && command -v huggingface-cli \
   && aws --version
 
 # Set workdir

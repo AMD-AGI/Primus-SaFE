@@ -8,6 +8,7 @@ package resource
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
@@ -268,12 +269,14 @@ func (r *ModelReconciler) constructDownloadJob(model *v1.Model) (*batchv1.Job, e
 		})
 
 		// Download command for local storage
+		// Extract repo_id from URL (e.g., "https://huggingface.co/microsoft/phi-2" -> "microsoft/phi-2")
+		repoId := extractHFRepoId(model.Spec.Source.URL)
 		cmd = []string{
 			"/bin/sh", "-c",
 			fmt.Sprintf(`
 				set -e
-				huggingface-cli download %s --local-dir /data/model --local-dir-use-symlinks False || exit 1
-			`, model.Spec.Source.URL),
+				huggingface-cli download %s --local-dir /data/model || exit 1
+			`, repoId),
 		}
 
 	case v1.DownloadTypeS3:
@@ -294,15 +297,17 @@ func (r *ModelReconciler) constructDownloadJob(model *v1.Model) (*batchv1.Job, e
 
 		// Download command for S3 storage
 		// First download to temp dir, then upload to S3
+		// Extract repo_id from URL (e.g., "https://huggingface.co/microsoft/phi-2" -> "microsoft/phi-2")
+		repoId := extractHFRepoId(model.Spec.Source.URL)
 		s3Path := fmt.Sprintf("s3://%s/models/%s", s3Config.Bucket, model.Name)
 		cmd = []string{
 			"/bin/sh", "-c",
 			fmt.Sprintf(`
 				set -e
 				mkdir -p /tmp/model
-				huggingface-cli download %s --local-dir /tmp/model --local-dir-use-symlinks False || exit 1
+				huggingface-cli download %s --local-dir /tmp/model || exit 1
 				aws s3 sync /tmp/model %s --endpoint-url %s || exit 1
-			`, model.Spec.Source.URL, s3Path, s3Config.Endpoint),
+			`, repoId, s3Path, s3Config.Endpoint),
 		}
 
 	default:
@@ -351,4 +356,26 @@ func (r *ModelReconciler) constructDownloadJob(model *v1.Model) (*batchv1.Job, e
 	}
 
 	return job, nil
+}
+
+// extractHFRepoId extracts the repository ID from a HuggingFace URL.
+// Examples:
+//   - "https://huggingface.co/microsoft/phi-2" -> "microsoft/phi-2"
+//   - "https://huggingface.co/gpt2" -> "gpt2"
+//   - "microsoft/phi-2" -> "microsoft/phi-2" (already a repo_id)
+func extractHFRepoId(url string) string {
+	// Remove trailing slashes
+	url = strings.TrimSuffix(url, "/")
+
+	// Check if it's a full URL
+	if strings.Contains(url, "huggingface.co/") {
+		// Extract the part after "huggingface.co/"
+		parts := strings.Split(url, "huggingface.co/")
+		if len(parts) > 1 {
+			return parts[1]
+		}
+	}
+
+	// Already a repo_id or unknown format, return as-is
+	return url
 }
