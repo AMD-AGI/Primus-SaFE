@@ -58,6 +58,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &amdv1.CronJobApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("DiskFlavor"):
 		return &amdv1.DiskFlavorApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("DownloadTarget"):
+		return &amdv1.DownloadTargetApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("ErasureCodedSpec"):
 		return &amdv1.ErasureCodedSpecApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("Fault"):
@@ -82,8 +84,30 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &amdv1.HelmStatusApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("HybridStorageSpec"):
 		return &amdv1.HybridStorageSpecApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("Inference"):
+		return &amdv1.InferenceApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("InferenceConfig"):
+		return &amdv1.InferenceConfigApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("InferenceEvent"):
+		return &amdv1.InferenceEventApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("InferenceInstance"):
+		return &amdv1.InferenceInstanceApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("InferenceResource"):
+		return &amdv1.InferenceResourceApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("InferenceSpec"):
+		return &amdv1.InferenceSpecApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("InferenceStatus"):
+		return &amdv1.InferenceStatusApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("MachineStatus"):
 		return &amdv1.MachineStatusApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("Model"):
+		return &amdv1.ModelApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("ModelSource"):
+		return &amdv1.ModelSourceApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("ModelSpec"):
+		return &amdv1.ModelSpecApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("ModelStatus"):
+		return &amdv1.ModelStatusApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("Node"):
 		return &amdv1.NodeApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("NodeClusterStatus"):
@@ -126,6 +150,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &amdv1.RoleApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("SecretEntity"):
 		return &amdv1.SecretEntityApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("S3TargetConfig"):
+		return &amdv1.S3TargetConfigApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("Service"):
 		return &amdv1.ServiceApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("Storage"):

@@ -38,6 +38,22 @@ type FaultListerExpansion interface{}
 // FaultNamespaceLister.
 type FaultNamespaceListerExpansion interface{}
 
+// InferenceListerExpansion allows custom methods to be added to
+// InferenceLister.
+type InferenceListerExpansion interface{}
+
+// InferenceNamespaceListerExpansion allows custom methods to be added to
+// InferenceNamespaceLister.
+type InferenceNamespaceListerExpansion interface{}
+
+// ModelListerExpansion allows custom methods to be added to
+// ModelLister.
+type ModelListerExpansion interface{}
+
+// ModelNamespaceListerExpansion allows custom methods to be added to
+// ModelNamespaceLister.
+type ModelNamespaceListerExpansion interface{}
+
 // NodeListerExpansion allows custom methods to be added to
 // NodeLister.
 type NodeListerExpansion interface{}

@@ -310,7 +310,7 @@ func (r *NodeK8sReconciler) handleNodeUnmanaged(ctx context.Context, message *no
 			return err
 		}
 	}
-	
+
 	adminNode.Status.Taints = nil
 	adminNode.Status.Resources = nil
 	adminNode.Status.Conditions = nil
