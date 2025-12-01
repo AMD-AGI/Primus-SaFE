@@ -49,7 +49,7 @@ class PostInstallCommand(install):
 
 setup(
     name='primus-lens-wandb-exporter',
-    version='0.1.2',
+    version='0.1.3',
     description='Primus Lens WandB Exporter - 自动劫持 wandb 上报，无需代码修改',
     long_description=open('README.md', encoding='utf-8').read() if os.path.exists('README.md') else '',
     long_description_content_type='text/markdown',

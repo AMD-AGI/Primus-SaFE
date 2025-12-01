@@ -179,5 +179,31 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		weeklyReportGroup.GET("/:id/json", DownloadWeeklyReportJSON)
 	}
 
+	// Detection Config routes - Framework log parsing configuration management
+	detectionConfigGroup := group.Group("/detection-configs")
+	{
+		// Framework configuration management
+		frameworkGroup := detectionConfigGroup.Group("/frameworks")
+		{
+			// List all enabled frameworks
+			frameworkGroup.GET("", ListFrameworks)
+			// Get specific framework configuration
+			frameworkGroup.GET("/:name", GetFrameworkConfig)
+			// Update framework configuration
+			frameworkGroup.PUT("/:name", UpdateFrameworkConfig)
+		}
+		
+		// Cache management
+		cacheGroup := detectionConfigGroup.Group("/cache")
+		{
+			// Refresh configuration cache
+			cacheGroup.POST("/refresh", RefreshDetectionConfigCache)
+			// Get cache TTL
+			cacheGroup.GET("/ttl", GetCacheTTL)
+			// Set cache TTL
+			cacheGroup.PUT("/ttl", SetCacheTTL)
+		}
+	}
+
 	return nil
 }

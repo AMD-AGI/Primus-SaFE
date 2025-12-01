@@ -196,6 +196,16 @@ func (d *WandBFrameworkDetector) detectFramework(
 
 	// 2. WandB Config 检测（confidence: 0.70）
 	if result := d.detectFromWandBConfig(req.Evidence.WandB.Config); result != nil {
+		// 尝试从 hints 中补充 wrapper 框架信息
+		if result.WrapperFramework == "" && len(req.Hints.WrapperFrameworks) > 0 {
+			// 从 hints 中选择第一个 wrapper 框架
+			result.WrapperFramework = req.Hints.WrapperFrameworks[0]
+			// 如果当前检测到的是 base 框架，更新主框架为 wrapper
+			if result.FrameworkLayer == "base" {
+				result.Framework = result.WrapperFramework
+				result.FrameworkLayer = "wrapper"
+			}
+		}
 		return result
 	}
 
@@ -208,6 +218,11 @@ func (d *WandBFrameworkDetector) detectFramework(
 
 	// 4. WandB Project 名称检测（confidence: 0.50）
 	if result := d.detectFromWandBProject(req.Evidence.WandB.Project); result != nil {
+		return result
+	}
+
+	// 5. Fallback: 如果所有检测方法都失败，尝试使用 hints（confidence: 0.40）
+	if result := d.detectFromHints(req.Hints); result != nil {
 		return result
 	}
 
@@ -579,6 +594,72 @@ func (d *WandBFrameworkDetector) detectFromWandBProject(project string) *Detecti
 				}
 			}
 		}
+	}
+
+	return nil
+}
+
+// detectFromHints 从 hints 提取框架信息（最低优先级 fallback）
+func (d *WandBFrameworkDetector) detectFromHints(hints WandBHints) *DetectionResult {
+	var wrapperFramework string
+	var baseFramework string
+
+	// 优先选择 wrapper 框架
+	if len(hints.WrapperFrameworks) > 0 {
+		// 优先选择 primus
+		for _, fw := range hints.WrapperFrameworks {
+			if fw == "primus" {
+				wrapperFramework = fw
+				break
+			}
+		}
+		// 如果没有 primus，选择第一个
+		if wrapperFramework == "" {
+			wrapperFramework = hints.WrapperFrameworks[0]
+		}
+	}
+
+	// 选择 base 框架
+	if len(hints.BaseFrameworks) > 0 {
+		// 按优先级选择：megatron > deepspeed > jax > transformers
+		priority := []string{"megatron", "deepspeed", "jax", "transformers"}
+		for _, priorityFw := range priority {
+			for _, fw := range hints.BaseFrameworks {
+				if fw == priorityFw {
+					baseFramework = fw
+					break
+				}
+			}
+			if baseFramework != "" {
+				break
+			}
+		}
+		// 如果优先级中没有匹配，选择第一个
+		if baseFramework == "" {
+			baseFramework = hints.BaseFrameworks[0]
+		}
+	}
+
+	// 构造检测结果
+	if wrapperFramework != "" || baseFramework != "" {
+		result := &DetectionResult{
+			Confidence: 0.40, // Hints 是最低优先级的 fallback
+			Method:     "hints_fallback",
+		}
+
+		// 优先报告 wrapper 框架
+		if wrapperFramework != "" {
+			result.Framework = wrapperFramework
+			result.FrameworkLayer = "wrapper"
+			result.WrapperFramework = wrapperFramework
+			result.BaseFramework = baseFramework
+		} else {
+			result.Framework = baseFramework
+			result.FrameworkLayer = "base"
+			result.BaseFramework = baseFramework
+		}
+
+		return result
 	}
 
 	return nil
