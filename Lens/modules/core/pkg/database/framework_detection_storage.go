@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
-	
+
 	"github.com/sirupsen/logrus"
-	
+
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
 	coreModel "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/model"
 	"gorm.io/gorm"
@@ -192,6 +192,21 @@ func (s *FrameworkDetectionStorage) buildMetadataMap(
 	
 	// Update framework_detection field
 	metadataMap["framework_detection"] = detection
+	
+	// Extract and store WandB information from the latest source
+	// This makes it easier to access WandB metadata without parsing through sources
+	if len(detection.Sources) > 0 {
+		for i := len(detection.Sources) - 1; i >= 0; i-- {
+			source := detection.Sources[i]
+			if source.Source == "wandb" && source.Evidence != nil {
+				// Check if evidence contains wandb information
+				if wandbInfo, ok := source.Evidence["wandb"]; ok {
+					metadataMap["wandb"] = wandbInfo
+					break
+				}
+			}
+		}
+	}
 	
 	return metadataMap, nil
 }
