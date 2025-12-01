@@ -82,4 +82,3 @@ func (h *WandBHandler) ReceiveDetection(c *gin.Context) {
 		"message": "Detection processed successfully",
 	})
 }
-
