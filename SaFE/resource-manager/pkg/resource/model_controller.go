@@ -25,6 +25,13 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 )
 
+const (
+	// ModelFinalizer is the finalizer for Model resources
+	ModelFinalizer = "model.amd.com/finalizer"
+	// CleanupJobPrefix is the prefix for cleanup job names
+	CleanupJobPrefix = "cleanup-"
+)
+
 // ModelReconciler reconciles a Model object
 type ModelReconciler struct {
 	*ClusterBaseReconciler
@@ -56,7 +63,21 @@ func (r *ModelReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	// 2. Initialize Status
+	// 2. Handle deletion
+	if !model.GetDeletionTimestamp().IsZero() {
+		return r.handleDelete(ctx, model)
+	}
+
+	// 3. Add finalizer if needed (only for Local download type)
+	if r.needsCleanup(model) && !controllerutil.ContainsFinalizer(model, ModelFinalizer) {
+		controllerutil.AddFinalizer(model, ModelFinalizer)
+		if err := r.Update(ctx, model); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, nil
+	}
+
+	// 4. Initialize Status
 	if model.Status.Phase == "" {
 		model.Status.Phase = v1.ModelPhasePending
 		model.Status.Message = "Waiting for processing"
@@ -66,7 +87,7 @@ func (r *ModelReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		return ctrl.Result{}, nil
 	}
 
-	// 3. Processing logic based on Phase
+	// 5. Processing logic based on Phase
 	switch model.Status.Phase {
 	case v1.ModelPhasePending:
 		return r.handlePending(ctx, model)
@@ -77,6 +98,189 @@ func (r *ModelReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	}
 
 	return ctrl.Result{}, nil
+}
+
+// needsCleanup checks if the model needs cleanup on deletion (only Local type needs cleanup)
+func (r *ModelReconciler) needsCleanup(model *v1.Model) bool {
+	// Only Local download type needs cleanup
+	// Remote API mode doesn't download files, so no cleanup needed
+	if model.Spec.Source.AccessMode == v1.AccessModeRemoteAPI {
+		return false
+	}
+	if model.Spec.DownloadTarget == nil {
+		return false
+	}
+	return model.Spec.DownloadTarget.Type == v1.DownloadTypeLocal
+}
+
+// handleDelete handles the deletion of a Model resource
+func (r *ModelReconciler) handleDelete(ctx context.Context, model *v1.Model) (ctrl.Result, error) {
+	// If no finalizer, nothing to do
+	if !controllerutil.ContainsFinalizer(model, ModelFinalizer) {
+		return ctrl.Result{}, nil
+	}
+
+	// Only cleanup for Local download type
+	if !r.needsCleanup(model) {
+		// No cleanup needed, just remove finalizer
+		controllerutil.RemoveFinalizer(model, ModelFinalizer)
+		if err := r.Update(ctx, model); err != nil {
+			return ctrl.Result{}, err
+		}
+		klog.InfoS("Model deleted (no cleanup needed)", "model", model.Name)
+		return ctrl.Result{}, nil
+	}
+
+	// Check if cleanup job already exists
+	cleanupJobName := CleanupJobPrefix + model.Name
+	cleanupJob := &batchv1.Job{}
+	err := r.Get(ctx, client.ObjectKey{Name: cleanupJobName, Namespace: common.PrimusSafeNamespace}, cleanupJob)
+
+	if errors.IsNotFound(err) {
+		// Create cleanup job
+		job, err := r.constructCleanupJob(model)
+		if err != nil {
+			klog.ErrorS(err, "Failed to construct cleanup job", "model", model.Name)
+			// If we can't construct cleanup job, still remove finalizer to allow deletion
+			controllerutil.RemoveFinalizer(model, ModelFinalizer)
+			if updateErr := r.Update(ctx, model); updateErr != nil {
+				return ctrl.Result{}, updateErr
+			}
+			return ctrl.Result{}, nil
+		}
+
+		if err := r.Create(ctx, job); err != nil {
+			klog.ErrorS(err, "Failed to create cleanup job", "model", model.Name)
+			// If we can't create cleanup job, still remove finalizer to allow deletion
+			controllerutil.RemoveFinalizer(model, ModelFinalizer)
+			if updateErr := r.Update(ctx, model); updateErr != nil {
+				return ctrl.Result{}, updateErr
+			}
+			return ctrl.Result{}, nil
+		}
+
+		klog.InfoS("Cleanup job created", "model", model.Name, "job", cleanupJobName)
+		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+	} else if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	// Check cleanup job status
+	if cleanupJob.Status.Succeeded > 0 {
+		// Cleanup completed, delete the job and remove finalizer
+		if err := r.Delete(ctx, cleanupJob); err != nil && !errors.IsNotFound(err) {
+			klog.ErrorS(err, "Failed to delete cleanup job", "job", cleanupJobName)
+		}
+
+		controllerutil.RemoveFinalizer(model, ModelFinalizer)
+		if err := r.Update(ctx, model); err != nil {
+			return ctrl.Result{}, err
+		}
+
+		klog.InfoS("Model cleanup completed and deleted", "model", model.Name, "localPath", model.Spec.DownloadTarget.LocalPath)
+		return ctrl.Result{}, nil
+	}
+
+	if cleanupJob.Status.Failed > 0 && cleanupJob.Status.Active == 0 {
+		// Cleanup failed, but still allow deletion
+		klog.ErrorS(nil, "Cleanup job failed, proceeding with deletion anyway", "model", model.Name)
+
+		if err := r.Delete(ctx, cleanupJob); err != nil && !errors.IsNotFound(err) {
+			klog.ErrorS(err, "Failed to delete failed cleanup job", "job", cleanupJobName)
+		}
+
+		controllerutil.RemoveFinalizer(model, ModelFinalizer)
+		if err := r.Update(ctx, model); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, nil
+	}
+
+	// Cleanup still in progress
+	klog.InfoS("Waiting for cleanup job to complete", "model", model.Name, "job", cleanupJobName)
+	return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+}
+
+// constructCleanupJob creates a Job to delete the downloaded model files
+func (r *ModelReconciler) constructCleanupJob(model *v1.Model) (*batchv1.Job, error) {
+	if model.Spec.DownloadTarget == nil || model.Spec.DownloadTarget.Type != v1.DownloadTypeLocal {
+		return nil, fmt.Errorf("cleanup job only supported for Local download type")
+	}
+
+	localPath := model.Spec.DownloadTarget.LocalPath
+	if localPath == "" {
+		localPath = "/data/models"
+	}
+
+	// Use alpine image for cleanup (small and has rm command)
+	image := "alpine:3.18"
+
+	backoffLimit := int32(1)
+	ttlSeconds := int32(300) // Auto-delete job after 5 minutes
+
+	job := &batchv1.Job{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      CleanupJobPrefix + model.Name,
+			Namespace: common.PrimusSafeNamespace,
+			Labels: map[string]string{
+				"app":   "model-cleanup",
+				"model": model.Name,
+			},
+		},
+		Spec: batchv1.JobSpec{
+			BackoffLimit:            &backoffLimit,
+			TTLSecondsAfterFinished: &ttlSeconds,
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						"app":   "model-cleanup",
+						"model": model.Name,
+					},
+				},
+				Spec: corev1.PodSpec{
+					RestartPolicy: corev1.RestartPolicyNever,
+					Containers: []corev1.Container{
+						{
+							Name:            "cleanup",
+							Image:           image,
+							ImagePullPolicy: corev1.PullIfNotPresent,
+							Command: []string{
+								"/bin/sh", "-c",
+								fmt.Sprintf(`
+									echo "Starting cleanup for model: %s"
+									echo "Target path: /data/model"
+									if [ -d "/data/model" ]; then
+										rm -rf /data/model/*
+										echo "Cleanup completed successfully"
+									else
+										echo "Directory does not exist, nothing to clean"
+									fi
+								`, model.Name),
+							},
+							VolumeMounts: []corev1.VolumeMount{
+								{
+									Name:      "model-storage",
+									MountPath: "/data/model",
+								},
+							},
+						},
+					},
+					Volumes: []corev1.Volume{
+						{
+							Name: "model-storage",
+							VolumeSource: corev1.VolumeSource{
+								HostPath: &corev1.HostPathVolumeSource{
+									Path: localPath,
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	return job, nil
 }
 
 func (r *ModelReconciler) handlePending(ctx context.Context, model *v1.Model) (ctrl.Result, error) {
@@ -161,6 +365,14 @@ func (r *ModelReconciler) handlePulling(ctx context.Context, model *v1.Model) (c
 		model.Status.Phase = v1.ModelPhaseReady
 		model.Status.Message = "Download completed successfully"
 		klog.InfoS("Model download completed", "model", model.Name, "url", model.Spec.Source.URL)
+
+		// Delete the completed job to clean up resources
+		if err := r.Delete(ctx, job); err != nil && !errors.IsNotFound(err) {
+			klog.ErrorS(err, "Failed to delete completed job", "job", jobName)
+		} else {
+			klog.InfoS("Deleted completed download job", "job", jobName)
+		}
+
 		return ctrl.Result{}, r.Status().Update(ctx, model)
 	}
 
@@ -179,6 +391,13 @@ func (r *ModelReconciler) handlePulling(ctx context.Context, model *v1.Model) (c
 				"url", model.Spec.Source.URL,
 				"attempts", job.Status.Failed,
 				"reason", failureReason)
+
+			// Delete the failed job to allow retry
+			if err := r.Delete(ctx, job); err != nil && !errors.IsNotFound(err) {
+				klog.ErrorS(err, "Failed to delete failed job", "job", jobName)
+			} else {
+				klog.InfoS("Deleted failed download job", "job", jobName)
+			}
 
 			return ctrl.Result{}, r.Status().Update(ctx, model)
 		}

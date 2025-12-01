@@ -6,6 +6,7 @@
 package model_handlers
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -16,6 +17,17 @@ import (
 
 	"k8s.io/klog/v2"
 )
+
+// createHTTPClient creates an HTTP client that skips TLS verification
+// This is needed for environments with corporate proxies using self-signed certificates
+func createHTTPClient() *http.Client {
+	return &http.Client{
+		Timeout: 10 * time.Second,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		},
+	}
+}
 
 // HFModelMetadata represents the JSON response from Hugging Face API
 type HFModelMetadata struct {
@@ -104,7 +116,7 @@ func cleanRepoID(input string) string {
 
 // fetchJSON fetches and parses JSON into struct
 func fetchJSON(url string, info *HFModelInfo) error {
-	client := http.Client{Timeout: 10 * time.Second}
+	client := createHTTPClient()
 	resp, err := client.Get(url)
 	if err != nil {
 		return err
@@ -128,7 +140,7 @@ func fetchJSON(url string, info *HFModelInfo) error {
 
 // fetchText fetches raw text content
 func fetchText(url string) (string, error) {
-	client := http.Client{Timeout: 10 * time.Second}
+	client := createHTTPClient()
 	resp, err := client.Get(url)
 	if err != nil {
 		return "", err

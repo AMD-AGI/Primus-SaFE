@@ -381,11 +381,6 @@ func modelMapper(obj *unstructured.Unstructured) *dbclient.Model {
 		dbModel.SourceToken = cr.Spec.Source.Token.Name
 	}
 
-	// Extract Resources
-	dbModel.CPU = fmt.Sprintf("%d", cr.Spec.Resource.Cpu)
-	dbModel.Memory = fmt.Sprintf("%dGi", cr.Spec.Resource.Memory)
-	dbModel.GPU = cr.Spec.Resource.Gpu
-
 	// Serialize complex fields
 	if cr.Spec.DownloadTarget != nil && cr.Spec.DownloadTarget.S3Config != nil {
 		dbModel.S3Config = string(jsonutils.MarshalSilently(cr.Spec.DownloadTarget.S3Config))

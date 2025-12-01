@@ -8,7 +8,6 @@ package model_handlers
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/constvar"
@@ -16,7 +15,6 @@ import (
 	"github.com/gin-gonic/gin/binding"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
@@ -72,6 +70,32 @@ func (h *Handler) createModel(c *gin.Context) (interface{}, error) {
 		return nil, commonerrors.NewBadRequest("accessMode must be 'local' or 'remote_api'")
 	}
 
+	// Check if model with same URL already exists
+	// Also check by repo_id to handle both URL and repo_id format
+	existingModel, _ := h.findModelBySourceURL(ctx, req.Source.URL)
+	if existingModel == nil {
+		// Try to find by normalized repo_id (e.g., "microsoft/phi-2" from "https://huggingface.co/microsoft/phi-2")
+		repoId := cleanRepoID(req.Source.URL)
+		if repoId != req.Source.URL {
+			existingModel, _ = h.findModelBySourceURL(ctx, repoId)
+		}
+		// Also try the full URL if user provided repo_id
+		if existingModel == nil && !isFullURL(req.Source.URL) {
+			fullURL := fmt.Sprintf("https://huggingface.co/%s", req.Source.URL)
+			existingModel, _ = h.findModelBySourceURL(ctx, fullURL)
+		}
+	}
+	if existingModel != nil {
+		if existingModel.Phase == string(v1.ModelPhaseReady) {
+			return nil, commonerrors.NewBadRequest(fmt.Sprintf("model with URL '%s' already exists and is ready (id: %s)", existingModel.SourceURL, existingModel.ID))
+		} else if existingModel.Phase == string(v1.ModelPhasePulling) {
+			return nil, commonerrors.NewBadRequest(fmt.Sprintf("model with URL '%s' is currently being downloaded (id: %s)", existingModel.SourceURL, existingModel.ID))
+		} else if existingModel.Phase == string(v1.ModelPhasePending) {
+			return nil, commonerrors.NewBadRequest(fmt.Sprintf("model with URL '%s' already exists and is pending (id: %s)", existingModel.SourceURL, existingModel.ID))
+		}
+		// If model exists but failed, allow re-creation
+	}
+
 	var (
 		displayName string
 		description string
@@ -83,10 +107,7 @@ func (h *Handler) createModel(c *gin.Context) (interface{}, error) {
 	// 0. Handle metadata based on AccessMode
 	if req.Source.AccessMode == string(v1.AccessModeLocal) {
 		// Local mode: Auto-fill metadata from Hugging Face
-		if !strings.Contains(req.Source.URL, "huggingface.co") {
-			return nil, commonerrors.NewBadRequest("local mode only supports Hugging Face URLs")
-		}
-
+		// Supports both full URL (https://huggingface.co/microsoft/phi-2) and repo_id format (microsoft/phi-2)
 		if hfInfo, err := GetHFModelInfo(req.Source.URL); err == nil {
 			displayName = hfInfo.DisplayName
 			description = hfInfo.Description
@@ -182,28 +203,6 @@ func (h *Handler) createModel(c *gin.Context) (interface{}, error) {
 	if tokenSecretName != "" {
 		k8sModel.Spec.Source.Token = &corev1.LocalObjectReference{
 			Name: tokenSecretName,
-		}
-	}
-
-	// Handle Resources
-	if req.Resources != nil {
-		cpuInt := 0
-		if req.Resources.CPU != "" {
-			if q, err := resource.ParseQuantity(req.Resources.CPU); err == nil {
-				cpuInt = int(q.Value()) // Returns int64, cast to int
-			}
-		}
-		memInt := 0
-		if req.Resources.Memory != "" {
-			if q, err := resource.ParseQuantity(req.Resources.Memory); err == nil {
-				memInt = int(q.Value() / (1024 * 1024 * 1024)) // Convert bytes to GiB
-			}
-		}
-
-		k8sModel.Spec.Resource = v1.InferenceResource{
-			Cpu:    cpuInt,
-			Memory: memInt,
-			Gpu:    req.Resources.GPU,
 		}
 	}
 
@@ -335,9 +334,6 @@ func (h *Handler) toggleModel(c *gin.Context) (interface{}, error) {
 			return gin.H{"message": "inference already exists", "inferenceId": k8sModel.Status.InferenceID}, nil
 		}
 
-		// Generate new inference ID
-		infId := commonutils.GenerateName(modelId)
-
 		// Determine ModelForm based on AccessMode
 		var modelForm constvar.InferenceModelForm
 		if k8sModel.IsRemoteAPI() {
@@ -345,6 +341,54 @@ func (h *Handler) toggleModel(c *gin.Context) (interface{}, error) {
 		} else {
 			modelForm = constvar.InferenceModelFormModelSquare
 		}
+
+		// Validate required fields for non-API mode
+		if modelForm == constvar.InferenceModelFormModelSquare {
+			if req.Resource == nil || req.Config == nil {
+				return nil, commonerrors.NewBadRequest("resource and config are required for local model inference")
+			}
+			var missingFields []string
+			if req.Resource.Workspace == "" {
+				missingFields = append(missingFields, "workspace")
+			}
+			if req.Resource.Replica <= 0 {
+				missingFields = append(missingFields, "replica")
+			}
+			if req.Config.Image == "" {
+				missingFields = append(missingFields, "image")
+			}
+			if req.Config.EntryPoint == "" {
+				missingFields = append(missingFields, "entryPoint")
+			}
+			if len(missingFields) > 0 {
+				return nil, commonerrors.NewBadRequest(fmt.Sprintf("missing required fields for inference: %v", missingFields))
+			}
+		}
+
+		// Build Resource from request
+		var inferenceResource v1.InferenceResource
+		if req.Resource != nil {
+			inferenceResource = v1.InferenceResource{
+				Workspace: req.Resource.Workspace,
+				Replica:   req.Resource.Replica,
+				Cpu:       req.Resource.CPU,
+				Memory:    req.Resource.Memory,
+				Gpu:       req.Resource.GPU,
+			}
+		}
+
+		// Build Config from request
+		var inferenceConfig v1.InferenceConfig
+		if req.Config != nil {
+			inferenceConfig = v1.InferenceConfig{
+				Image:      req.Config.Image,
+				EntryPoint: req.Config.EntryPoint,
+				ModelPath:  req.Config.ModelPath,
+			}
+		}
+
+		// Generate new inference ID
+		infId := commonutils.GenerateName(modelId)
 
 		// Create Inference CRD
 		inference := &v1.Inference{
@@ -365,8 +409,8 @@ func (h *Handler) toggleModel(c *gin.Context) (interface{}, error) {
 				UserName:    userName,
 				ModelForm:   modelForm,
 				ModelName:   modelId,
-				Resource:    k8sModel.Spec.Resource,
-				Config:      k8sModel.Spec.Config,
+				Resource:    inferenceResource,
+				Config:      inferenceConfig,
 			},
 			Status: v1.InferenceStatus{
 				Phase:      constvar.InferencePhasePending,
@@ -479,4 +523,38 @@ func (h *Handler) deleteModel(c *gin.Context) (interface{}, error) {
 	}
 
 	return gin.H{"message": "model deleted successfully", "id": modelId}, nil
+}
+
+// findModelBySourceURL checks if a model with the given source URL already exists in the database.
+// Returns the existing model if found, nil otherwise.
+func (h *Handler) findModelBySourceURL(ctx context.Context, sourceURL string) (*dbclient.Model, error) {
+	client, ok := h.dbClient.(*dbclient.Client)
+	if !ok {
+		return nil, fmt.Errorf("database client type mismatch")
+	}
+
+	db, err := client.GetGormDB()
+	if err != nil {
+		return nil, err
+	}
+
+	var model dbclient.Model
+	// Search for non-deleted model with the same source URL
+	if err := db.Where("source_url = ? AND is_deleted = ?", sourceURL, false).First(&model).Error; err != nil {
+		if errors.IsNotFound(err) {
+			return nil, nil
+		}
+		// For gorm, check if it's a "record not found" error
+		if err.Error() == "record not found" {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	return &model, nil
+}
+
+// isFullURL checks if the input is a full URL (starts with http:// or https://)
+func isFullURL(input string) bool {
+	return len(input) > 7 && (input[:7] == "http://" || input[:8] == "https://")
 }

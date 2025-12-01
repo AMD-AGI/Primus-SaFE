@@ -220,4 +220,26 @@ type ListModelResponse struct {
 
 type ToggleModelRequest struct {
 	Enabled bool `json:"enabled"`
+
+	// Resource configuration for the inference service (required when enabled=true)
+	Resource *ToggleResourceReq `json:"resource,omitempty"`
+
+	// Config contains additional configuration for the inference service (required when enabled=true)
+	Config *ToggleConfigReq `json:"config,omitempty"`
+}
+
+// ToggleResourceReq contains resource requirements for enabling inference
+type ToggleResourceReq struct {
+	Workspace string `json:"workspace"` // Required: workspace ID
+	Replica   int    `json:"replica"`   // Required: number of replicas
+	CPU       int    `json:"cpu"`       // CPU cores
+	Memory    int    `json:"memory"`    // Memory in GB
+	GPU       string `json:"gpu"`       // GPU specification (e.g., "1")
+}
+
+// ToggleConfigReq contains configuration for enabling inference
+type ToggleConfigReq struct {
+	Image      string `json:"image"`      // Required: container image
+	EntryPoint string `json:"entryPoint"` // Required: entry point script
+	ModelPath  string `json:"modelPath"`  // Optional: model path
 }

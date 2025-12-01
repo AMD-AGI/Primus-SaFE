@@ -272,9 +272,6 @@ type Model struct {
 	DownloadType   string      `gorm:"column:download_type" json:"downloadType" db:"download_type"`
 	LocalPath      string      `gorm:"column:local_path" json:"localPath" db:"local_path"`
 	S3Config       string      `gorm:"column:s3_config" json:"s3Config" db:"s3_config"`
-	CPU            string      `gorm:"column:cpu" json:"cpu" db:"cpu"`
-	Memory         string      `gorm:"column:memory" json:"memory" db:"memory"`
-	GPU            string      `gorm:"column:gpu" json:"gpu" db:"gpu"`
 	Phase          string      `gorm:"column:phase" json:"phase" db:"phase"`
 	Message        string      `gorm:"column:message" json:"message" db:"message"`
 	InferenceID    string      `gorm:"column:inference_id" json:"inferenceID" db:"inference_id"`
