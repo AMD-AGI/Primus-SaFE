@@ -4,7 +4,10 @@ go 1.24.7
 
 replace github.com/AMD-AGI/Primus-SaFE/Lens/core => ../core
 
+replace github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor => ../ai-advisor
+
 require (
+	github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor v0.0.0-00010101000000-000000000000
 	github.com/AMD-AGI/Primus-SaFE/Lens/core v0.0.0-00010101000000-000000000000
 	github.com/VictoriaMetrics/VictoriaMetrics v1.122.0
 	github.com/gin-gonic/gin v1.10.1

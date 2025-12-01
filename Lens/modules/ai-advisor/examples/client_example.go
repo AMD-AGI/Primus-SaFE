@@ -144,7 +144,7 @@ func main() {
 
 	// 10. 统计信息
 	fmt.Println("\n=== Get Statistics ===")
-	stats, err := aiAdvisor.GetDetectionStats()
+	stats, err := aiAdvisor.GetDetectionStats("", "", "") // No filters
 	if err != nil {
 		fmt.Printf("Failed to get stats: %v\n", err)
 	} else {

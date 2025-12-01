@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 
+	advisorClient "github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/client"
+	advisorCommon "github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/common"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/model/rest"
 	"github.com/gin-gonic/gin"
@@ -12,21 +14,21 @@ import (
 
 // WandBHandler WandB 数据上报 API 处理器
 type WandBHandler struct {
-	detector     *WandBFrameworkDetector
-	logProcessor *WandBLogProcessor
+	aiAdvisorClient *advisorClient.Client
+	logProcessor    *WandBLogProcessor
 }
 
 // wandbHandler 全局 handler 实例
 var wandbHandler *WandBHandler
 
-// InitWandBHandler 初始化 WandB Handler
-func InitWandBHandler(
-	detector *WandBFrameworkDetector,
+// InitWandBHandlerWithClient 初始化 WandB Handler (使用 AI Advisor client)
+func InitWandBHandlerWithClient(
+	aiAdvisor *advisorClient.Client,
 	logProcessor *WandBLogProcessor,
 ) {
 	wandbHandler = &WandBHandler{
-		detector:     detector,
-		logProcessor: logProcessor,
+		aiAdvisorClient: aiAdvisor,
+		logProcessor:    logProcessor,
 	}
 }
 
@@ -79,9 +81,14 @@ func ReceiveWandBDetection(ctx *gin.Context) {
 		return
 	}
 
-	logrus.Infof("[WandB Detection API] Starting detection processing...")
-	if err := wandbHandler.detector.ProcessWandBDetection(ctx.Request.Context(), &req); err != nil {
-		logrus.Errorf("[WandB Detection API] Failed to process detection: %v", err)
+	// Forward detection request to AI Advisor
+	logrus.Infof("[WandB Detection API] Forwarding detection request to AI Advisor...")
+
+	// Convert request to AI Advisor format
+	advisorReq := convertToAdvisorWandBRequest(&req)
+
+	if err := wandbHandler.aiAdvisorClient.ReportWandBDetection(advisorReq); err != nil {
+		logrus.Errorf("[WandB Detection API] Failed to forward detection to AI Advisor: %v", err)
 		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(),
 			http.StatusInternalServerError, "failed to process detection", nil))
 		return
@@ -290,14 +297,16 @@ func ReceiveWandBBatch(ctx *gin.Context) {
 			logrus.Infof("[WandB Batch API] Processing detection - PossibleFrameworks: %v, WorkloadUID: %s",
 				req.Detection.Hints.PossibleFrameworks, req.Detection.WorkloadUID)
 		}
-		if err := wandbHandler.detector.ProcessWandBDetection(ctx.Request.Context(), req.Detection); err != nil {
-			logrus.Errorf("[WandB Batch API] Failed to process detection: %v", err)
+		// Forward to AI Advisor
+		advisorReq := convertToAdvisorWandBRequest(req.Detection)
+		if err := wandbHandler.aiAdvisorClient.ReportWandBDetection(advisorReq); err != nil {
+			logrus.Errorf("[WandB Batch API] Failed to forward detection to AI Advisor: %v", err)
 			result["results"].(gin.H)["detection"] = gin.H{
 				"success": false,
 				"error":   err.Error(),
 			}
 		} else {
-			logrus.Infof("[WandB Batch API] ✓ Detection processed successfully")
+			logrus.Infof("[WandB Batch API] ✓ Detection forwarded to AI Advisor successfully")
 			result["results"].(gin.H)["detection"] = gin.H{
 				"success": true,
 			}
@@ -356,4 +365,43 @@ func getMapKeys(m map[string]interface{}) []string {
 		keys = append(keys, k)
 	}
 	return keys
+}
+
+// convertToAdvisorWandBRequest converts telemetry-processor WandBDetectionRequest
+// to ai-advisor WandBDetectionRequest format
+// Note: Since structures are slightly different, we use JSON marshaling for safe conversion
+func convertToAdvisorWandBRequest(req *WandBDetectionRequest) *advisorCommon.WandBDetectionRequest {
+	if req == nil {
+		return nil
+	}
+
+	// Simple field mapping (structures match from migration)
+	// ai-advisor's WandBDetectionRequest matches the original structure
+	return &advisorCommon.WandBDetectionRequest{
+		Source:      req.Source,
+		Type:        req.Type,
+		Version:     req.Version,
+		WorkloadUID: req.WorkloadUID,
+		PodUID:      req.PodUID,
+		PodName:     req.PodName,
+		Namespace:   req.Namespace,
+		Timestamp:   req.Timestamp,
+		Evidence: advisorCommon.WandBEvidence{
+			WandB: advisorCommon.WandBInfo{
+				ID:      req.Evidence.WandB.ID,
+				Name:    req.Evidence.WandB.Name,
+				Project: req.Evidence.WandB.Project,
+				Config:  req.Evidence.WandB.Config,
+			},
+			PyTorch: advisorCommon.PyTorchInfo{
+				Version:       req.Evidence.PyTorch.Version,
+				CudaAvailable: req.Evidence.PyTorch.CudaAvailable,
+			},
+		},
+		Hints: advisorCommon.WandBHints{
+			PossibleFrameworks: req.Hints.PossibleFrameworks,
+			WrapperFrameworks:  req.Hints.WrapperFrameworks,
+			BaseFrameworks:     req.Hints.BaseFrameworks,
+		},
+	}
 }

@@ -115,6 +115,23 @@ func (c *Client) ReportDetection(req *common.DetectionRequest) (*common.Detectio
 	return &result, nil
 }
 
+// ReportWandBDetection reports framework detection from WandB exporter
+func (c *Client) ReportWandBDetection(req *common.WandBDetectionRequest) error {
+	resp, err := c.client.R().
+		SetBody(req).
+		Post("/api/v1/wandb/detection")
+
+	if err != nil {
+		return fmt.Errorf("failed to report WandB detection: %w", err)
+	}
+
+	if resp.IsError() {
+		return fmt.Errorf("WandB detection API returned error: %s", resp.String())
+	}
+
+	return nil
+}
+
 // GetDetection retrieves framework detection result for a workload
 func (c *Client) GetDetection(workloadUID string) (*common.Detection, error) {
 	var result common.Detection
@@ -165,6 +182,25 @@ func (c *Client) BatchGetDetection(workloadUIDs []string) (map[string]*common.De
 	return result.Results, nil
 }
 
+// GetDetectionBatch retrieves detection results for multiple workloads (alternative interface)
+func (c *Client) GetDetectionBatch(req *common.BatchDetectionRequest) (*common.BatchDetectionResponse, error) {
+	var result common.BatchDetectionResponse
+	resp, err := c.client.R().
+		SetBody(req).
+		SetResult(&result).
+		Post("/api/v1/detection/batch")
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to batch get detections: %w", err)
+	}
+
+	if resp.IsError() {
+		return nil, fmt.Errorf("detection API returned error: %s", resp.String())
+	}
+
+	return &result, nil
+}
+
 // UpdateDetection updates detection result (manual annotation)
 func (c *Client) UpdateDetection(workloadUID string, req *common.DetectionRequest) (*common.Detection, error) {
 	var result common.Detection
@@ -185,12 +221,23 @@ func (c *Client) UpdateDetection(workloadUID string, req *common.DetectionReques
 	return &result, nil
 }
 
-// GetDetectionStats retrieves detection statistics
-func (c *Client) GetDetectionStats() (*common.Statistics, error) {
+// GetDetectionStats retrieves detection statistics with optional filters
+func (c *Client) GetDetectionStats(startTime, endTime, namespace string) (*common.Statistics, error) {
 	var result common.Statistics
-	resp, err := c.client.R().
-		SetResult(&result).
-		Get("/api/v1/detection/stats")
+	req := c.client.R().SetResult(&result)
+
+	// Add query parameters if provided
+	if startTime != "" {
+		req.SetQueryParam("start_time", startTime)
+	}
+	if endTime != "" {
+		req.SetQueryParam("end_time", endTime)
+	}
+	if namespace != "" {
+		req.SetQueryParam("namespace", namespace)
+	}
+
+	resp, err := req.Get("/api/v1/detection/stats")
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to get detection stats: %w", err)

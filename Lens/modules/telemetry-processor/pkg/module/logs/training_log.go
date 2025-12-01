@@ -3,6 +3,7 @@ package logs
 import (
 	"context"
 	"fmt"
+	"os"
 	"reflect"
 	"strconv"
 	"strings"
@@ -10,37 +11,43 @@ import (
 
 	"github.com/sirupsen/logrus"
 
+	advisorClient "github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/client"
+	advisorCommon "github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/common"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/constant"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
 	dbModel "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
-	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/framework"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/config"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/model"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/utils/mapUtil"
-	tpapi "github.com/AMD-AGI/Primus-SaFE/Lens/telemetry-processor/pkg/api"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/telemetry-processor/pkg/module/pods"
 )
 
 var (
 	// Global singletons (initialized at startup)
-	detectionManager *framework.FrameworkDetectionManager
-	configManager    *FrameworkConfigManager
-	patternMatchers  map[string]*PatternMatcher
+	aiAdvisorClient *advisorClient.Client // AI Advisor client for framework detection
+	configManager   *FrameworkConfigManager // For local log pattern matching
+	patternMatchers map[string]*PatternMatcher // For local log parsing
 )
 
-// InitializeFrameworkDetection initializes framework detection components
-func InitializeFrameworkDetection(
-	metadataFacade database.AiWorkloadMetadataFacadeInterface,
-	systemConfigMgr *config.Manager,
-) error {
-	// Initialize detection manager
-	detectionManager = framework.NewFrameworkDetectionManager(
-		metadataFacade,
-		framework.DefaultDetectionConfig(),
-	)
+// InitializeWandBHandlerAndLogProcessing initializes WandB handler with AI Advisor client
+// and local log processing components
+func InitializeWandBHandlerAndLogProcessing(aiAdvisorURL string, systemConfigMgr *config.Manager) error {
+	// 1. Create AI Advisor client
+	if aiAdvisorURL == "" {
+		aiAdvisorURL = os.Getenv("AI_ADVISOR_URL")
+		if aiAdvisorURL == "" {
+			aiAdvisorURL = "http://ai-advisor:8080" // Default
+		}
+	}
 
-	// Initialize config manager
+	aiAdvisorClient = advisorClient.NewClientWithDefaults(aiAdvisorURL).
+		SetTimeout(30 * time.Second).
+		SetRetry(3, 1*time.Second)
+
+	logrus.Infof("AI Advisor client initialized: %s", aiAdvisorURL)
+
+	// 2. Initialize config manager (for local log pattern matching)
 	configManager = NewFrameworkConfigManager(systemConfigMgr)
 
 	// Load all framework configurations
@@ -49,7 +56,7 @@ func InitializeFrameworkDetection(
 		logrus.Warnf("Failed to load some framework configs: %v", err)
 	}
 
-	// Initialize pattern matchers
+	// 3. Initialize pattern matchers (for local log parsing)
 	patternMatchers = make(map[string]*PatternMatcher)
 	for _, frameworkName := range configManager.ListFrameworks() {
 		patterns := configManager.GetFramework(frameworkName)
@@ -67,22 +74,22 @@ func InitializeFrameworkDetection(
 		logrus.Infof("Initialized pattern matcher for framework: %s", frameworkName)
 	}
 
-	logrus.Infof("Framework detection initialized with %d frameworks", len(patternMatchers))
+	logrus.Infof("Framework pattern matchers initialized with %d frameworks", len(patternMatchers))
 
-	// Initialize WandB components
-	wandbDetector := NewWandBFrameworkDetector(detectionManager)
+	// 4. Initialize WandB log/metrics processor (local processing)
 	metricsStorage := NewInMemoryMetricsStorage(10000) // Max 10000 metrics per workload
 	wandbLogProcessor := NewWandBLogProcessor(metricsStorage)
 
-	// Initialize WandB Handler
-	InitWandBHandler(wandbDetector, wandbLogProcessor)
+	// 5. Initialize WandB Handler (with AI Advisor client)
+	InitWandBHandlerWithClient(aiAdvisorClient, wandbLogProcessor)
 	logrus.Info("WandB handler initialized successfully")
 
-	// Initialize Framework Detection API Handler
-	tpapi.InitFrameworkDetectionHandler(detectionManager)
-	logrus.Info("Framework detection API handler initialized successfully")
-
 	return nil
+}
+
+// GetAIAdvisorClient returns the AI Advisor client
+func GetAIAdvisorClient() *advisorClient.Client {
+	return aiAdvisorClient
 }
 
 func WorkloadLog(ctx context.Context, podUid string, msg string, logTime time.Time) error {
@@ -94,10 +101,10 @@ func WorkloadLog(ctx context.Context, podUid string, msg string, logTime time.Ti
 		return nil
 	}
 
-	// Framework detection must be initialized
-	if detectionManager == nil || len(patternMatchers) == 0 {
-		logrus.Errorf("Framework detection not initialized - cannot process logs for pod %s", podUid)
-		return fmt.Errorf("framework detection not initialized")
+	// Check if pattern matchers are initialized (for local log parsing)
+	if len(patternMatchers) == 0 {
+		logrus.Tracef("Pattern matchers not initialized - skipping framework-specific log processing for pod %s", podUid)
+		// Continue processing without framework detection
 	}
 
 	// workloadRefs is [][]string, each element is []string{workloadName, workloadUID}
@@ -105,56 +112,58 @@ func WorkloadLog(ctx context.Context, podUid string, msg string, logTime time.Ti
 	// we only need to detect framework once (using first workload)
 	firstWorkloadUID := workloadRefs[0][1]
 
-	// Get or detect framework (only once, shared by all workloads in hierarchy)
-	detection, err := detectionManager.GetDetection(ctx, firstWorkloadUID)
-	if err != nil {
-		logrus.Warnf("Failed to get detection for %s: %v", firstWorkloadUID, err)
-	}
-
-	// Determine framework to use
+	// Get or detect framework
 	var frameworkName string
 	needsDetection := false
 
-	if detection != nil && detection.Confidence >= 0.5 {
-		// Use existing detection (shared across workload hierarchy)
-		frameworkName = detection.Framework
-		logrus.Debugf("Using existing framework detection: %s (confidence: %.2f)",
-			frameworkName, detection.Confidence)
-	} else {
-		// Try to detect framework from log (only once)
-		frameworkName, err = detectFrameworkFromLog(ctx, firstWorkloadUID, msg)
+	// Try to query existing detection from ai-advisor
+	if aiAdvisorClient != nil {
+		detection, err := aiAdvisorClient.GetDetection(firstWorkloadUID)
+		if err != nil {
+			logrus.Debugf("Failed to query detection from AI Advisor: %v", err)
+		} else if detection != nil && detection.Confidence >= 0.5 {
+			// Use existing detection (shared across workload hierarchy)
+			frameworkName = detection.Framework
+			logrus.Debugf("Using existing framework detection from AI Advisor: %s (confidence: %.2f)",
+				frameworkName, detection.Confidence)
+		}
+	}
+
+	// If no framework detected yet, try to detect from log
+	if frameworkName == "" && len(patternMatchers) > 0 {
+		detectedFramework, err := detectFrameworkFromLog(ctx, firstWorkloadUID, msg)
 		if err != nil {
 			// Framework not detected from this log - this is OK
-			// Don't use a default value, keep it unknown
 			logrus.Tracef("Framework not detected from log: %v - skipping framework-specific processing", err)
-			frameworkName = "" // No framework detected
+			// No framework detected, keep frameworkName empty
 		} else {
 			// Successfully detected framework from log
+			frameworkName = detectedFramework
 			needsDetection = true
 		}
 	}
 
-	// Report detection only if we actually detected something (only once, automatically propagates to root)
-	if needsDetection && frameworkName != "" {
+	// Report detection to AI Advisor if we detected something new
+	if needsDetection && frameworkName != "" && aiAdvisorClient != nil {
 		confidence := calculateDetectionConfidence(frameworkName, msg)
 
-		err = detectionManager.ReportDetection(
-			ctx,
-			firstWorkloadUID,
-			"log",
-			frameworkName,
-			"training",
-			confidence,
-			map[string]interface{}{
+		// Report to AI Advisor
+		_, err := aiAdvisorClient.ReportDetection(&advisorCommon.DetectionRequest{
+			WorkloadUID: firstWorkloadUID,
+			Source:      "log",
+			Framework:   frameworkName,
+			Type:        "training",
+			Confidence:  confidence,
+			Evidence: map[string]interface{}{
 				"method":     "log_pattern_match",
 				"sample_log": truncateLog(msg, 200),
 			},
-		)
+		})
 		if err != nil {
-			logrus.Errorf("Failed to report log detection: %v", err)
+			logrus.Errorf("Failed to report log detection to AI Advisor: %v", err)
 			IncFrameworkDetectionErrors("log", "report_failed")
 		} else {
-			logrus.Infof("Reported log detection: workload=%s, framework=%s, confidence=%.2f (shared with hierarchy)",
+			logrus.Infof("✓ Reported log detection to AI Advisor: workload=%s, framework=%s, confidence=%.2f",
 				firstWorkloadUID, frameworkName, confidence)
 			// Record detection metrics
 			IncFrameworkDetectionCount(frameworkName, "log_pattern", "log")

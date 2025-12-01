@@ -158,3 +158,69 @@ type Statistics struct {
 	AdditionalMetrics   map[string]interface{} `json:"additional_metrics,omitempty"`
 }
 
+// WandBDetectionRequest represents WandB detection data from wandb-exporter
+type WandBDetectionRequest struct {
+	Source      string        `json:"source"`
+	Type        string        `json:"type"`
+	Version     string        `json:"version"`
+	WorkloadUID string        `json:"workload_uid,omitempty"`
+	PodUID      string        `json:"pod_uid,omitempty"`
+	PodName     string        `json:"pod_name"`
+	Namespace   string        `json:"namespace"`
+	Evidence    WandBEvidence `json:"evidence"`
+	Hints       WandBHints    `json:"hints"`
+	Timestamp   float64       `json:"timestamp"`
+}
+
+// WandBEvidence contains evidence data from WandB
+type WandBEvidence struct {
+	Imports     []string      `json:"imports,omitempty"`
+	Environment []string      `json:"environment,omitempty"`
+	WandB       WandBInfo     `json:"wandb"`
+	PyTorch     PyTorchInfo   `json:"pytorch"`
+}
+
+// WandBInfo contains WandB run information
+type WandBInfo struct {
+	ID         string                 `json:"id"`
+	Name       string                 `json:"name"`
+	Project    string                 `json:"project"`
+	Entity     string                 `json:"entity"`
+	ConfigKeys []string               `json:"config_keys,omitempty"`
+	Config     map[string]interface{} `json:"config,omitempty"`
+}
+
+// PyTorchInfo contains PyTorch environment information
+type PyTorchInfo struct {
+	Version       string   `json:"version"`
+	CudaAvailable bool     `json:"cuda_available"`
+	CudaVersion   string   `json:"cuda_version,omitempty"`
+	ModulePaths   []string `json:"module_paths,omitempty"`
+}
+
+// WandBHints contains detection hints
+type WandBHints struct {
+	PossibleFrameworks []string `json:"possible_frameworks,omitempty"`
+	WrapperFrameworks  []string `json:"wrapper_frameworks,omitempty"`
+	BaseFrameworks     []string `json:"base_frameworks,omitempty"`
+	ConfidenceAdjust   float64  `json:"confidence_adjust,omitempty"`
+}
+
+// BatchDetectionRequest represents a batch detection query request
+type BatchDetectionRequest struct {
+	WorkloadUIDs []string `json:"workload_uids" binding:"required"`
+}
+
+// BatchDetectionResponse represents a batch detection query response
+type BatchDetectionResponse struct {
+	Results []BatchDetectionResult `json:"results"`
+	Total   int                    `json:"total"`
+}
+
+// BatchDetectionResult represents a single result in batch query
+type BatchDetectionResult struct {
+	WorkloadUID string     `json:"workload_uid"`
+	Detection   *Detection `json:"detection,omitempty"`
+	Error       string     `json:"error,omitempty"`
+}
+
