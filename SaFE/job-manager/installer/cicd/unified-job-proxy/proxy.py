@@ -33,6 +33,14 @@ def getenv_str(name: str, default: Optional[str] = None) -> Optional[str]:
         return default
     return val
 
+def getenv_int(name: str, default: Optional[int] = None) -> Optional[int]:
+    val = getenv_str(name)
+    if val is None:
+        return default
+    try:
+        return int(val)
+    except ValueError:
+        return default
 
 def is_base64(s: str) -> bool:
     try:
@@ -95,6 +103,7 @@ def build_payload_from_input(inp: Dict[str, Any]) -> Dict[str, Any]:
     gvk_version = "v1"
     display_name = getenv_str(SCALE_RUNNER_SET_ENV) + "-unified-trainer"
     description = "model: " + model
+    priority = getenv_int("PRIORITY", 0)
 
     payload: Dict[str, Any] = {
         "displayName": display_name,
@@ -106,6 +115,7 @@ def build_payload_from_input(inp: Dict[str, Any]) -> Dict[str, Any]:
         "groupVersionKind": {"kind": gvk_kind, "version": gvk_version},
         "description": description,
         "ttlSecondsAfterFinished": 20,
+        "priority": priority,
     }
     if isinstance(timeout, int) and timeout > 0:
         payload["timeout"] = timeout

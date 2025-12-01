@@ -403,7 +403,6 @@ func (m *WorkloadMutator) mutateCICDScaleSet(workload *v1.Workload) {
 // mutateImage trims image name and entry point.
 func (m *WorkloadMutator) mutateImage(workload *v1.Workload) {
 	workload.Spec.Image = strings.TrimSpace(workload.Spec.Image)
-	workload.Spec.EntryPoint = strings.TrimSpace(workload.Spec.EntryPoint)
 }
 
 // mutateMaxRetry bounds MaxRetry to [0, DefaultMaxFailover].
@@ -438,6 +437,7 @@ func (m *WorkloadMutator) mutateTTLSeconds(workload *v1.Workload) {
 
 // mutateEntryPoint base64-encodes entry point for the required jobs.
 func (m *WorkloadMutator) mutateEntryPoint(workload *v1.Workload) {
+	workload.Spec.EntryPoint = strings.TrimSpace(workload.Spec.EntryPoint)
 	if commonworkload.IsAuthoring(workload) || commonworkload.IsOpsJob(workload) {
 		return
 	}
