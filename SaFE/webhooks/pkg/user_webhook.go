@@ -289,7 +289,7 @@ func (v *UserValidator) validateImmutableFields(newUser, oldUser *v1.User) error
 	if newUser.Spec.Type != oldUser.Spec.Type {
 		return field.Forbidden(field.NewPath("spec").Key("type"), "immutable")
 	}
-	if v1.GetUserName(newUser) != v1.GetUserName(oldUser) {
+	if newUser.Spec.Type == v1.DefaultUserType && v1.GetUserName(newUser) != v1.GetUserName(oldUser) {
 		return field.Forbidden(field.NewPath("user").Key("name"), "immutable")
 	}
 	return nil

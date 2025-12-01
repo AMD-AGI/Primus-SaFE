@@ -572,6 +572,7 @@ func updateCICDEnvironments(obj *unstructured.Unstructured,
 	}
 	envs := maps.Copy(adminWorkload.Spec.Env)
 	envs[jobutils.UserIdEnv] = v1.GetUserId(adminWorkload)
+	envs[jobutils.PriorityEnv] = strconv.Itoa(adminWorkload.Spec.Priority)
 	envs[common.ScaleRunnerSetID] = adminWorkload.Name
 	envs[jobutils.WorkspaceIdEnv] = adminWorkload.Spec.Workspace
 	mainContainerName := v1.GetMainContainer(adminWorkload)

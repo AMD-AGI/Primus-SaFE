@@ -243,7 +243,7 @@ func (c *ssoToken) synchronizeUser(ctx context.Context, userInfo *UserInfo) (*v1
 			},
 		}
 		if err = c.Create(ctx, user); err != nil {
-			return nil, err
+			return nil, client.IgnoreAlreadyExists(err)
 		}
 	}
 	return user, err

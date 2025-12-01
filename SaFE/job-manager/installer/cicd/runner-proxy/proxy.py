@@ -17,6 +17,14 @@ def getenv_str(name: str, default: Optional[str] = None) -> Optional[str]:
         return default
     return val
 
+def getenv_int(name: str, default: Optional[int] = None) -> Optional[int]:
+    val = getenv_str(name)
+    if val is None:
+        return default
+    try:
+        return int(val)
+    except ValueError:
+        return default
 
 def getenv_bool(name: str, default: bool = False) -> bool:
     val = getenv_str(name)
@@ -72,10 +80,10 @@ def build_payload() -> Dict[str, Any]:
 
     # Optional metadata/config
     workspace_id = getenv_str("WORKSPACE_ID")
+    priority = getenv_int("PRIORITY", 0)
     display_name = getenv_str("SCALE_RUNNER_SET_ID") + "-runner"
     kind = "AutoscalingRunner"
     version = "v1"
-    priority = 0
 
     # Inject only the two requested environment variables if present
     env_map: Dict[str, str] = {}

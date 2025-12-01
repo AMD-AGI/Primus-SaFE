@@ -502,11 +502,11 @@ func cvtToGetSecretResponse(secret *corev1.Secret) types.GetSecretResponse {
 		if pwd, ok := secret.Data[string(types.PasswordParam)]; ok && len(pwd) > 0 {
 			params[types.PasswordParam] = stringutil.Base64Encode(string(pwd))
 		} else {
-			if priv := secret.Data[types.SSHAuthKey]; len(priv) > 0 {
-				params[types.PrivateKeyParam] = stringutil.Base64Encode(string(priv))
+			if auth := secret.Data[types.SSHAuthKey]; len(auth) > 0 {
+				params[types.PrivateKeyParam] = stringutil.Base64Encode(string(auth))
 			}
-			if pub := secret.Data[types.SSHAuthPubKey]; len(pub) > 0 {
-				params[types.PublicKeyParam] = stringutil.Base64Encode(string(pub))
+			if authPub := secret.Data[types.SSHAuthPubKey]; len(authPub) > 0 {
+				params[types.PublicKeyParam] = stringutil.Base64Encode(string(authPub))
 			}
 		}
 		result.Params = append(result.Params, params)
@@ -514,7 +514,7 @@ func cvtToGetSecretResponse(secret *corev1.Secret) types.GetSecretResponse {
 		result.Params = make([]map[types.SecretParam]string, 0, len(secret.Data))
 		params := make(map[types.SecretParam]string)
 		for k, v := range secret.Data {
-			params[types.SecretParam(k)] = string(v)
+			params[types.SecretParam(k)] = stringutil.Base64Encode(string(v))
 		}
 		result.Params = append(result.Params, params)
 	}
