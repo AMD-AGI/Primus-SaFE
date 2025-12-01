@@ -212,24 +212,37 @@ func (r *InferenceReconciler) processModelSquareInference(ctx context.Context, i
 func (r *InferenceReconciler) handlePending(ctx context.Context, inference *v1.Inference) (ctrlruntime.Result, error) {
 	klog.Infof("Processing pending inference %s", inference.Name)
 
-	// Create workload
+	// Create or get existing workload
 	workload, err := r.createWorkload(ctx, inference)
 	if err != nil {
 		klog.ErrorS(err, "failed to create workload for inference", "inference", inference.Name)
 		return r.updatePhase(ctx, inference, constvar.InferencePhaseFailure, fmt.Sprintf("Failed to create workload: %v", err))
 	}
 
-	// Update inference instance with workload ID
-	originalInference := inference.DeepCopy()
-	inference.Spec.Instance.WorkloadID = workload.Name
-	if err := r.Patch(ctx, inference, client.MergeFrom(originalInference)); err != nil {
-		klog.ErrorS(err, "failed to update inference with workload ID")
-		return ctrlruntime.Result{}, err
+	// Update inference instance with workload ID if not set
+	if inference.Spec.Instance.WorkloadID != workload.Name {
+		originalInference := inference.DeepCopy()
+		inference.Spec.Instance.WorkloadID = workload.Name
+		if err := r.Patch(ctx, inference, client.MergeFrom(originalInference)); err != nil {
+			klog.ErrorS(err, "failed to update inference with workload ID")
+			return ctrlruntime.Result{}, err
+		}
 	}
 
-	// Update phase to pending (wait for workload to start)
-	if _, err := r.updatePhase(ctx, inference, constvar.InferencePhasePending, "Workload created, waiting for running"); err != nil {
-		return ctrlruntime.Result{}, err
+	// Check workload status and sync to inference
+	if workload.Status.Phase == v1.WorkloadRunning {
+		// Workload is running, update inference to Running
+		return r.syncWorkloadStatus(ctx, inference, workload)
+	} else if workload.Status.Phase == v1.WorkloadFailed {
+		// Workload failed, update inference to Failed
+		return r.syncWorkloadStatus(ctx, inference, workload)
+	}
+
+	// Workload still pending, update phase and requeue
+	if inference.Status.Message != "Workload created, waiting for running" {
+		if _, err := r.updatePhase(ctx, inference, constvar.InferencePhasePending, "Workload created, waiting for running"); err != nil {
+			return ctrlruntime.Result{}, err
+		}
 	}
 
 	// Requeue to check workload status
@@ -323,6 +336,15 @@ func (r *InferenceReconciler) createWorkload(ctx context.Context, inference *v1.
 			Workspace:  inference.Spec.Resource.Workspace,
 			Image:      inference.Spec.Config.Image,
 			EntryPoint: inference.Spec.Config.EntryPoint,
+			// Inject environment variables for entryPoint script to use
+			Env: map[string]string{
+				"MODEL_PATH":             inference.Spec.Config.ModelPath,
+				"TENSOR_PARALLEL_SIZE":   fmt.Sprintf("%d", inference.Spec.Resource.Replica),
+				"CPU_COUNT":              fmt.Sprintf("%d", inference.Spec.Resource.Cpu),
+				"MEMORY_GB":              fmt.Sprintf("%d", inference.Spec.Resource.Memory),
+				"GPU_COUNT":              inference.Spec.Resource.Gpu,
+				"VLLM_ATTENTION_BACKEND": "FLEX_ATTENTION", // Support models with non-standard head sizes on ROCm
+			},
 			GroupVersionKind: v1.GroupVersionKind{
 				Kind:    common.PytorchJobKind,
 				Version: "v1",
