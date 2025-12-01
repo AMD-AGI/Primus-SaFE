@@ -79,10 +79,6 @@ type (
 		Source ModelSource `json:"source"`
 		// DownloadTarget defines where to store the pulled model
 		DownloadTarget *DownloadTarget `json:"downloadTarget,omitempty"`
-		// Resource contains the resource requirements for the inference service
-		Resource InferenceResource `json:"resource"`
-		// Config contains additional configuration for different phases
-		Config InferenceConfig `json:"config,omitempty"`
 	}
 
 	// DownloadTarget defines the storage location for the model
