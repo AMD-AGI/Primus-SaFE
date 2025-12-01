@@ -17,10 +17,13 @@ import (
 
 // FrameworkAnnotationRequest represents the request body for annotating workload framework
 type FrameworkAnnotationRequest struct {
-	Framework  string                 `json:"framework" binding:"required"` // Framework name (primus, megatron, deepspeed, etc.)
-	Type       string                 `json:"type"`                         // Task type (training, inference), optional
-	Confidence float64                `json:"confidence"`                   // Confidence [0.0-1.0], default 1.0 for user annotation
-	Evidence   map[string]interface{} `json:"evidence"`                     // Optional evidence/notes from user
+	Framework        string                 `json:"framework"`         // Framework name (primus, megatron, deepspeed, etc.)
+	FrameworkLayer   string                 `json:"framework_layer"`   // Framework layer: wrapper or base (optional)
+	WrapperFramework string                 `json:"wrapper_framework"` // Wrapper framework (optional, e.g., primus, lightning)
+	BaseFramework    string                 `json:"base_framework"`    // Base framework (optional, e.g., megatron, deepspeed)
+	Type             string                 `json:"type"`              // Task type (training, inference), optional
+	Confidence       float64                `json:"confidence"`        // Confidence [0.0-1.0], default 1.0 for user annotation
+	Evidence         map[string]interface{} `json:"evidence"`          // Optional evidence/notes from user
 }
 
 // UpdateMetadataRequest represents the request body for full metadata update
@@ -36,12 +39,15 @@ type AiWorkloadMetadataResponse struct {
 	WorkloadUID         string                 `json:"workload_uid"`
 	Type                string                 `json:"type"`
 	Framework           string                 `json:"framework"`
+	FrameworkLayer      string                 `json:"framework_layer,omitempty"`   // Framework layer: wrapper or base
+	WrapperFramework    string                 `json:"wrapper_framework,omitempty"` // Wrapper framework (e.g., primus, lightning)
+	BaseFramework       string                 `json:"base_framework,omitempty"`    // Base framework (e.g., megatron, deepspeed)
 	Metadata            map[string]interface{} `json:"metadata"`
 	ImagePrefix         string                 `json:"image_prefix"`
 	CreatedAt           time.Time              `json:"created_at"`
-	HasConflicts        bool                   `json:"has_conflicts"`              // 是否存在冲突
-	UnresolvedConflicts int                    `json:"unresolved_conflicts"`       // 未解决冲突数量
-	ConflictSummary     []ConflictSummaryItem  `json:"conflict_summary,omitempty"` // 冲突摘要
+	HasConflicts        bool                   `json:"has_conflicts"`              // Whether conflicts exist
+	UnresolvedConflicts int                    `json:"unresolved_conflicts"`       // Number of unresolved conflicts
+	ConflictSummary     []ConflictSummaryItem  `json:"conflict_summary,omitempty"` // Conflict summary
 }
 
 // ConflictSummaryItem represents a summary of a detection conflict
@@ -82,9 +88,11 @@ type DetectionConflictLogDetail struct {
 // ListAiWorkloadMetadataQueryParams represents query parameters for listing AI workload metadata
 type ListAiWorkloadMetadataQueryParams struct {
 	rest.Page
-	Framework   string `form:"framework"`
-	Type        string `form:"type"`
-	HasConflict *bool  `form:"has_conflict"`
+	Framework        string `form:"framework"`         // Search in both wrapper_framework and base_framework
+	WrapperFramework string `form:"wrapper_framework"` // Specific wrapper framework filter
+	BaseFramework    string `form:"base_framework"`    // Specific base framework filter
+	Type             string `form:"type"`
+	HasConflict      *bool  `form:"has_conflict"`
 }
 
 // ======================== API Handlers ========================
@@ -167,14 +175,6 @@ func ListAiWorkloadMetadata(ctx *gin.Context) {
 	// Build responses with conflict information
 	responses := []AiWorkloadMetadataResponse{}
 	for _, metadata := range allMetadata {
-		// Apply filters
-		if queryParams.Framework != "" && metadata.Framework != queryParams.Framework {
-			continue
-		}
-		if queryParams.Type != "" && metadata.Type != queryParams.Type {
-			continue
-		}
-
 		// Get conflict logs
 		conflicts, _, err := database.GetFacadeForCluster(clients.ClusterName).GetDetectionConflictLog().ListDetectionConflictLogsByWorkloadUID(ctx.Request.Context(), metadata.WorkloadUID, 100, 0)
 		if err != nil {
@@ -183,6 +183,38 @@ func ListAiWorkloadMetadata(ctx *gin.Context) {
 		}
 
 		response := buildMetadataResponseWithConflicts(metadata, conflicts)
+
+		// Apply filters
+		if queryParams.Type != "" && response.Type != queryParams.Type {
+			continue
+		}
+
+		// Framework filter: search in wrapper_framework, base_framework, or primary framework
+		if queryParams.Framework != "" {
+			matched := false
+			if response.Framework == queryParams.Framework {
+				matched = true
+			}
+			if response.WrapperFramework == queryParams.Framework {
+				matched = true
+			}
+			if response.BaseFramework == queryParams.Framework {
+				matched = true
+			}
+			if !matched {
+				continue
+			}
+		}
+
+		// Specific wrapper framework filter
+		if queryParams.WrapperFramework != "" && response.WrapperFramework != queryParams.WrapperFramework {
+			continue
+		}
+
+		// Specific base framework filter
+		if queryParams.BaseFramework != "" && response.BaseFramework != queryParams.BaseFramework {
+			continue
+		}
 
 		// Filter by conflict status if specified
 		if queryParams.HasConflict != nil {
@@ -224,24 +256,50 @@ func AnnotateWorkloadFramework(ctx *gin.Context) {
 		return
 	}
 
-	// 设置默认值
+	// Validate: at least one framework field must be provided
+	if req.Framework == "" && req.WrapperFramework == "" && req.BaseFramework == "" {
+		ctx.JSON(http.StatusBadRequest, rest.ErrorResp(ctx.Request.Context(), http.StatusBadRequest, "at least one of framework, wrapper_framework, or base_framework is required", nil))
+		return
+	}
+
+	// If Framework is not provided, infer it from other fields
+	if req.Framework == "" {
+		if req.WrapperFramework != "" {
+			req.Framework = req.WrapperFramework
+		} else if req.BaseFramework != "" {
+			req.Framework = req.BaseFramework
+		}
+	}
+
+	// Set default values
 	if req.Type == "" {
 		req.Type = "training"
 	}
 	if req.Confidence == 0 {
-		req.Confidence = 1.0 // 用户标注默认置信度为 1.0
+		req.Confidence = 1.0 // Default confidence for user annotation is 1.0
 	}
 	if req.Evidence == nil {
 		req.Evidence = make(map[string]interface{})
 	}
 
-	// 添加用户标注信息到 evidence
+	// Add user annotation info to evidence
 	req.Evidence["method"] = "user_annotation"
 	req.Evidence["annotated_at"] = time.Now().Format(time.RFC3339)
 
+	// Add framework layer info to evidence if provided
+	if req.FrameworkLayer != "" {
+		req.Evidence["framework_layer"] = req.FrameworkLayer
+	}
+	if req.WrapperFramework != "" {
+		req.Evidence["wrapper_framework"] = req.WrapperFramework
+	}
+	if req.BaseFramework != "" {
+		req.Evidence["base_framework"] = req.BaseFramework
+	}
+
 	metadataFacade := database.GetFacadeForCluster(clients.ClusterName).GetAiWorkloadMetadata()
 
-	// 检查是否已存在 metadata
+	// Check if metadata already exists
 	existing, err := metadataFacade.GetAiWorkloadMetadata(ctx.Request.Context(), workloadUID)
 	if err != nil {
 		log.GlobalLogger().WithContext(ctx).Errorf("Failed to get AI workload metadata: %v", err)
@@ -251,7 +309,7 @@ func AnnotateWorkloadFramework(ctx *gin.Context) {
 
 	now := time.Now()
 
-	// 创建新的 detection source
+	// Create new detection source
 	newSource := map[string]interface{}{
 		"source":      "user",
 		"framework":   req.Framework,
@@ -261,17 +319,39 @@ func AnnotateWorkloadFramework(ctx *gin.Context) {
 		"evidence":    req.Evidence,
 	}
 
+	// Add framework layer fields to source if provided
+	if req.FrameworkLayer != "" {
+		newSource["framework_layer"] = req.FrameworkLayer
+	}
+	if req.WrapperFramework != "" {
+		newSource["wrapper_framework"] = req.WrapperFramework
+	}
+	if req.BaseFramework != "" {
+		newSource["base_framework"] = req.BaseFramework
+	}
+
 	if existing == nil {
-		// 创建新的 metadata
+		// Create new metadata
 		frameworkDetection := map[string]interface{}{
 			"framework":  req.Framework,
 			"type":       req.Type,
 			"confidence": req.Confidence,
-			"status":     "confirmed", // 用户标注直接为 confirmed
+			"status":     "confirmed", // User annotation is directly confirmed
 			"sources":    []interface{}{newSource},
 			"conflicts":  []interface{}{},
 			"version":    "1.0",
 			"updated_at": now.Format(time.RFC3339),
+		}
+
+		// Add framework layer fields if provided
+		if req.FrameworkLayer != "" {
+			frameworkDetection["framework_layer"] = req.FrameworkLayer
+		}
+		if req.WrapperFramework != "" {
+			frameworkDetection["wrapper_framework"] = req.WrapperFramework
+		}
+		if req.BaseFramework != "" {
+			frameworkDetection["base_framework"] = req.BaseFramework
 		}
 
 		metadata := &dbmodel.AiWorkloadMetadata{
@@ -295,12 +375,12 @@ func AnnotateWorkloadFramework(ctx *gin.Context) {
 		return
 	}
 
-	// 更新现有 metadata
+	// Update existing metadata
 	if existing.Metadata == nil {
 		existing.Metadata = make(map[string]interface{})
 	}
 
-	// 获取现有的 framework_detection
+	// Get existing framework_detection
 	var frameworkDetection map[string]interface{}
 	if detectionData, ok := existing.Metadata["framework_detection"]; ok {
 		if detectionMap, ok := detectionData.(map[string]interface{}); ok {
@@ -312,15 +392,15 @@ func AnnotateWorkloadFramework(ctx *gin.Context) {
 		frameworkDetection = make(map[string]interface{})
 	}
 
-	// 更新或添加 sources
+	// Update or add sources
 	var sources []interface{}
 	if existingSources, ok := frameworkDetection["sources"].([]interface{}); ok {
-		// 检查是否已有用户标注
+		// Check if user annotation already exists
 		foundUserSource := false
 		for i, s := range existingSources {
 			if sourceMap, ok := s.(map[string]interface{}); ok {
 				if sourceMap["source"] == "user" {
-					// 更新现有用户标注
+					// Update existing user annotation
 					existingSources[i] = newSource
 					foundUserSource = true
 					break
@@ -336,18 +416,29 @@ func AnnotateWorkloadFramework(ctx *gin.Context) {
 		sources = []interface{}{newSource}
 	}
 
-	// 更新 framework_detection
+	// Update framework_detection
 	frameworkDetection["framework"] = req.Framework
 	frameworkDetection["type"] = req.Type
 	frameworkDetection["confidence"] = req.Confidence
-	frameworkDetection["status"] = "confirmed" // 用户标注后状态为 confirmed
+	frameworkDetection["status"] = "confirmed" // Status is confirmed after user annotation
 	frameworkDetection["sources"] = sources
 	frameworkDetection["updated_at"] = now.Format(time.RFC3339)
 	if frameworkDetection["version"] == nil {
 		frameworkDetection["version"] = "1.0"
 	}
 
-	// 更新 metadata
+	// Update framework layer fields if provided
+	if req.FrameworkLayer != "" {
+		frameworkDetection["framework_layer"] = req.FrameworkLayer
+	}
+	if req.WrapperFramework != "" {
+		frameworkDetection["wrapper_framework"] = req.WrapperFramework
+	}
+	if req.BaseFramework != "" {
+		frameworkDetection["base_framework"] = req.BaseFramework
+	}
+
+	// Update metadata
 	existing.Metadata["framework_detection"] = frameworkDetection
 	existing.Framework = req.Framework
 	existing.Type = req.Type
@@ -550,6 +641,9 @@ func buildMetadataResponseWithConflicts(metadata *dbmodel.AiWorkloadMetadata, co
 		CreatedAt:   metadata.CreatedAt,
 	}
 
+	// Extract framework layer information from metadata
+	extractFrameworkLayerInfo(&response, metadata.Metadata)
+
 	if len(conflicts) > 0 {
 		response.HasConflicts = true
 		unresolvedCount := 0
@@ -581,6 +675,93 @@ func buildMetadataResponseWithConflicts(metadata *dbmodel.AiWorkloadMetadata, co
 	}
 
 	return response
+}
+
+// extractFrameworkLayerInfo extracts framework layer information from metadata
+func extractFrameworkLayerInfo(response *AiWorkloadMetadataResponse, metadata map[string]interface{}) {
+	if metadata == nil {
+		return
+	}
+
+	// Try to extract from framework_detection field
+	frameworkDetection, ok := metadata["framework_detection"]
+	if !ok {
+		return
+	}
+
+	detectionMap, ok := frameworkDetection.(map[string]interface{})
+	if !ok {
+		return
+	}
+
+	// Extract framework_layer
+	if layer, ok := detectionMap["framework_layer"].(string); ok {
+		response.FrameworkLayer = layer
+	}
+
+	// Extract wrapper_framework
+	if wrapperFw, ok := detectionMap["wrapper_framework"].(string); ok {
+		response.WrapperFramework = wrapperFw
+	}
+
+	// Extract base_framework
+	if baseFw, ok := detectionMap["base_framework"].(string); ok {
+		response.BaseFramework = baseFw
+	}
+
+	// If not found in top level, try to extract from sources
+	if response.FrameworkLayer == "" || response.WrapperFramework == "" || response.BaseFramework == "" {
+		if sources, ok := detectionMap["sources"].([]interface{}); ok && len(sources) > 0 {
+			// Try to find from the most recent source (usually the first one after sorting)
+			for _, source := range sources {
+				sourceMap, ok := source.(map[string]interface{})
+				if !ok {
+					continue
+				}
+
+				// Extract from source evidence
+				if evidence, ok := sourceMap["evidence"].(map[string]interface{}); ok {
+					if response.FrameworkLayer == "" {
+						if layer, ok := evidence["framework_layer"].(string); ok {
+							response.FrameworkLayer = layer
+						}
+					}
+					if response.WrapperFramework == "" {
+						if wrapperFw, ok := evidence["wrapper_framework"].(string); ok {
+							response.WrapperFramework = wrapperFw
+						}
+					}
+					if response.BaseFramework == "" {
+						if baseFw, ok := evidence["base_framework"].(string); ok {
+							response.BaseFramework = baseFw
+						}
+					}
+				}
+
+				// Also check source level fields
+				if response.FrameworkLayer == "" {
+					if layer, ok := sourceMap["framework_layer"].(string); ok {
+						response.FrameworkLayer = layer
+					}
+				}
+				if response.WrapperFramework == "" {
+					if wrapperFw, ok := sourceMap["wrapper_framework"].(string); ok {
+						response.WrapperFramework = wrapperFw
+					}
+				}
+				if response.BaseFramework == "" {
+					if baseFw, ok := sourceMap["base_framework"].(string); ok {
+						response.BaseFramework = baseFw
+					}
+				}
+
+				// If we found all fields, we can stop
+				if response.FrameworkLayer != "" && response.WrapperFramework != "" && response.BaseFramework != "" {
+					break
+				}
+			}
+		}
+	}
 }
 
 // convertConflictToDetail converts a conflict log model to detail response
