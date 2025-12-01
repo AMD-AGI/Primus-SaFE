@@ -10,7 +10,7 @@ type Detection struct {
 	Confidence  float64                `json:"confidence"`
 	Status      string                 `json:"status"`
 	Sources     []DetectionSource      `json:"sources"`
-	Conflicts   []string               `json:"conflicts,omitempty"`
+	Conflicts   []DetectionConflict    `json:"conflicts,omitempty"`
 	ReuseInfo   *ReuseInfo             `json:"reuse_info,omitempty"`
 	UpdatedAt   time.Time              `json:"updated_at"`
 }
@@ -22,6 +22,16 @@ type DetectionSource struct {
 	Confidence float64                `json:"confidence"`
 	Evidence   map[string]interface{} `json:"evidence"`
 	Timestamp  time.Time              `json:"timestamp"`
+}
+
+// DetectionConflict represents a conflict between two detection sources
+type DetectionConflict struct {
+	Source1    string    `json:"source1"`
+	Source2    string    `json:"source2"`
+	Framework1 string    `json:"framework1"`
+	Framework2 string    `json:"framework2"`
+	Resolution string    `json:"resolution"`
+	ResolvedAt time.Time `json:"resolved_at"`
 }
 
 // ReuseInfo contains reuse metadata
