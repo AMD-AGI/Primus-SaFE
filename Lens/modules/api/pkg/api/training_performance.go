@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/errors"
@@ -92,8 +93,17 @@ func GetDataSources(ctx *gin.Context) {
 		return
 	}
 
+	cm := clientsets.GetClusterManager()
+	// Get cluster name from query parameter, priority: specified cluster > default cluster > current cluster
+	clusterName := ctx.Query("cluster")
+	clients, err := cm.GetClusterClientsOrDefault(clusterName)
+	if err != nil {
+		_ = ctx.Error(err)
+		return
+	}
+
 	// 获取所有训练性能数据
-	performances, err := database.GetFacade().GetTraining().
+	performances, err := database.GetFacadeForCluster(clients.ClusterName).GetTraining().
 		ListTrainingPerformanceByWorkloadUID(ctx, workloadUID)
 	if err != nil {
 		_ = ctx.Error(errors.NewError().
@@ -139,20 +149,28 @@ func GetAvailableMetrics(ctx *gin.Context) {
 		return
 	}
 
+	cm := clientsets.GetClusterManager()
+	// Get cluster name from query parameter, priority: specified cluster > default cluster > current cluster
+	clusterName := ctx.Query("cluster")
+	clients, err := cm.GetClusterClientsOrDefault(clusterName)
+	if err != nil {
+		_ = ctx.Error(err)
+		return
+	}
+
 	// 获取数据源参数
 	dataSource := ctx.Query("data_source")
 
 	// 获取训练性能数据
 	var performances []*model.TrainingPerformance
-	var err error
 
 	if dataSource != "" {
 		// 按数据源过滤
-		performances, err = database.GetFacade().GetTraining().
+		performances, err = database.GetFacadeForCluster(clients.ClusterName).GetTraining().
 			ListTrainingPerformanceByWorkloadUIDAndDataSource(ctx, workloadUID, dataSource)
 	} else {
 		// 获取所有数据源
-		performances, err = database.GetFacade().GetTraining().
+		performances, err = database.GetFacadeForCluster(clients.ClusterName).GetTraining().
 			ListTrainingPerformanceByWorkloadUID(ctx, workloadUID)
 	}
 
@@ -220,6 +238,15 @@ func GetMetricsData(ctx *gin.Context) {
 		return
 	}
 
+	cm := clientsets.GetClusterManager()
+	// Get cluster name from query parameter, priority: specified cluster > default cluster > current cluster
+	clusterName := ctx.Query("cluster")
+	clients, err := cm.GetClusterClientsOrDefault(clusterName)
+	if err != nil {
+		_ = ctx.Error(err)
+		return
+	}
+
 	// 解析查询参数
 	dataSource := ctx.Query("data_source")
 	metricsStr := ctx.Query("metrics")
@@ -264,15 +291,14 @@ func GetMetricsData(ctx *gin.Context) {
 
 	// 查询数据
 	var performances []*model.TrainingPerformance
-	var err error
 
 	if hasTimeRange {
-		performances, err = database.GetFacade().GetTraining().
+		performances, err = database.GetFacadeForCluster(clients.ClusterName).GetTraining().
 			ListTrainingPerformanceByWorkloadUIDDataSourceAndTimeRange(
 				ctx, workloadUID, dataSource, startTime, endTime,
 			)
 	} else {
-		performances, err = database.GetFacade().GetTraining().
+		performances, err = database.GetFacadeForCluster(clients.ClusterName).GetTraining().
 			ListTrainingPerformanceByWorkloadUIDAndDataSource(
 				ctx, workloadUID, dataSource,
 			)

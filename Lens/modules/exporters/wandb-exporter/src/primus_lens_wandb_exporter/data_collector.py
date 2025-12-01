@@ -498,17 +498,30 @@ class DataCollector:
         """
         从 import 检测收集 hints（最强指标）
         
+        Transformers 作为兜底策略：
+        - transformers 和 transformers_trainer 太基础，很多项目都会安装
+        - 只有在没有检测到其他更具体的框架时，才将它们作为框架
+        
         Args:
             wrapper_by_import: 通过 import 检测到的 wrapper 框架
             base_by_import: 通过 import 检测到的 base 框架
             hints: hints 字典
         """
-        # 处理 Wrapper 框架
+        # 先收集非 transformers 相关的框架
+        non_transformers_wrappers = []
+        non_transformers_bases = []
+        
+        # 处理 Wrapper 框架（排除 transformers_trainer）
         for framework_name, framework_info in wrapper_by_import.items():
             if framework_info.get("detected"):
+                # 暂时跳过 transformers_trainer，最后处理
+                if framework_name == "transformers_trainer":
+                    continue
+                
                 # 添加到 wrapper_frameworks
                 if framework_name not in hints["wrapper_frameworks"]:
                     hints["wrapper_frameworks"].append(framework_name)
+                    non_transformers_wrappers.append(framework_name)
                 hints["primary_indicators"].append(f"import.{framework_name}")
                 
                 # 如果是 Primus 且有 base_framework 信息，也记录下来
@@ -516,19 +529,45 @@ class DataCollector:
                     base_fw = framework_info["base_framework"].lower()
                     if base_fw not in hints["base_frameworks"]:
                         hints["base_frameworks"].append(base_fw)
+                        non_transformers_bases.append(base_fw)
                     hints["primary_indicators"].append(f"primus.base_framework={base_fw}")
         
-        # 处理 Base 框架
+        # 处理 Base 框架（排除 transformers）
         for framework_name, framework_info in base_by_import.items():
             if framework_info.get("detected"):
-                # 避免重复添加（transformers 可能同时在 wrapper 和 base 中）
-                if framework_name == "transformers" and "transformers_trainer" in wrapper_by_import:
-                    # 如果已经作为 wrapper 的 trainer 检测到，跳过
+                # 暂时跳过 transformers，最后处理
+                if framework_name == "transformers":
                     continue
                 
                 if framework_name not in hints["base_frameworks"]:
                     hints["base_frameworks"].append(framework_name)
+                    non_transformers_bases.append(framework_name)
                 hints["primary_indicators"].append(f"import.{framework_name}")
+        
+        # === 兜底策略：Transformers ===
+        # 只有在没有检测到其他框架时，才添加 transformers 相关框架
+        has_other_frameworks = len(non_transformers_wrappers) > 0 or len(non_transformers_bases) > 0
+        
+        if not has_other_frameworks:
+            # 没有其他框架，使用 transformers 作为兜底
+            
+            # 添加 transformers_trainer（如果检测到）
+            if "transformers_trainer" in wrapper_by_import and wrapper_by_import["transformers_trainer"].get("detected"):
+                if "transformers_trainer" not in hints["wrapper_frameworks"]:
+                    hints["wrapper_frameworks"].append("transformers_trainer")
+                hints["primary_indicators"].append("import.transformers_trainer (fallback)")
+                debug_log("[Primus Lens Data Collector] Using transformers_trainer as fallback wrapper framework")
+            
+            # 添加 transformers（如果检测到且不与 trainer 重复）
+            if "transformers" in base_by_import and base_by_import["transformers"].get("detected"):
+                # 如果已经添加了 transformers_trainer，就不再添加 transformers 作为 base
+                if "transformers_trainer" not in hints["wrapper_frameworks"]:
+                    if "transformers" not in hints["base_frameworks"]:
+                        hints["base_frameworks"].append("transformers")
+                    hints["primary_indicators"].append("import.transformers (fallback)")
+                    debug_log("[Primus Lens Data Collector] Using transformers as fallback base framework")
+        else:
+            debug_log(f"[Primus Lens Data Collector] Skipping transformers (found other frameworks: wrappers={non_transformers_wrappers}, bases={non_transformers_bases})")
     
     def _collect_env_hints(self, env: Dict[str, str], hints: Dict[str, Any]):
         """从环境变量收集 hints（分层检测）"""
