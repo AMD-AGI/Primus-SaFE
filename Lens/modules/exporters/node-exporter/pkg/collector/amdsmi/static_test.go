@@ -349,4 +349,3 @@ func TestParseGPUInfoArray_TypeSafety(t *testing.T) {
 		assert.Nil(t, result)
 	})
 }
-

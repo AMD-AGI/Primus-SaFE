@@ -29,7 +29,7 @@ func main() {
 	args := flag.Args()
 	if len(args) < 1 {
 		fmt.Println("📊 GPU Usage Weekly Report - Export from Database")
-		fmt.Println("==========================================\n")
+		fmt.Println("==========================================")
 		fmt.Println("Usage: go run main.go [options] <report_id>")
 		fmt.Println("\nExample: go run main.go -dbHost=localhost -dbPass=yourpass rpt_20251125_x-flannel_abc12345")
 		fmt.Println("\nOptions:")
@@ -41,7 +41,7 @@ func main() {
 	reportID := args[0]
 
 	fmt.Println("📊 GPU Usage Weekly Report - Export from Database")
-	fmt.Println("==========================================\n")
+	fmt.Println("==========================================")
 	fmt.Printf("📋 Report ID: %s\n\n", reportID)
 
 	// Initialize database connection

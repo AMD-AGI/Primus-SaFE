@@ -24,7 +24,7 @@ func main() {
 	flag.Parse()
 	
 	fmt.Println("📊 GPU Usage Weekly Reports - Query Database")
-	fmt.Println("==========================================\n")
+	fmt.Println("==========================================")
 
 	// Initialize database connection
 	fmt.Println("💾 Connecting to database...")
@@ -50,7 +50,7 @@ func main() {
 		fmt.Println("\n💡 Tip: Usage: go run main.go -dbHost=localhost -dbPort=5432 -dbUser=postgres -dbPass=yourpass -dbName=primus_lens")
 		os.Exit(1)
 	}
-	fmt.Println("✅ Database connected successfully\n")
+	fmt.Println("✅ Database connected successfully")
 
 	// Query all reports (excluding large fields)
 	var reports []dbmodel.GpuUsageWeeklyReports
@@ -105,7 +105,7 @@ func main() {
 		fmt.Println()
 	}
 
-	fmt.Println("═══════════════════════════════════════════════════════════\n")
+	fmt.Println("═══════════════════════════════════════════════════════════")
 	
 	// Provide export option
 	if len(reports) > 0 {
