@@ -8,6 +8,7 @@ import (
 	advisorCommon "github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/common"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/model/rest"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/telemetry-processor/pkg/module/pods"
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
 )
@@ -80,6 +81,9 @@ func ReceiveWandBDetection(ctx *gin.Context) {
 			http.StatusBadRequest, "either workload_uid or pod_name is required", nil))
 		return
 	}
+
+	// 尝试从 pod cache 中获取 workload 信息
+	fillWorkloadUIDFromPodName(&req.WorkloadUID, req.PodName, "WandB Detection API")
 
 	// Forward detection request to AI Advisor
 	logrus.Infof("[WandB Detection API] Forwarding detection request to AI Advisor...")
@@ -156,6 +160,9 @@ func ReceiveWandBMetrics(ctx *gin.Context) {
 		return
 	}
 
+	// 尝试从 pod cache 中获取 workload 信息
+	fillWorkloadUIDFromPodName(&req.WorkloadUID, req.PodName, "WandB Metrics API")
+
 	logrus.Infof("[WandB Metrics API] Starting metrics processing (%d metrics)...", len(req.Metrics))
 	if err := wandbHandler.logProcessor.ProcessMetrics(ctx.Request.Context(), &req); err != nil {
 		logrus.Errorf("[WandB Metrics API] Failed to process metrics: %v", err)
@@ -223,6 +230,9 @@ func ReceiveWandBLogs(ctx *gin.Context) {
 		return
 	}
 
+	// 尝试从 pod cache 中获取 workload 信息
+	fillWorkloadUIDFromPodName(&req.WorkloadUID, req.PodName, "WandB Logs/Training API")
+
 	logrus.Infof("[WandB Logs/Training API] Starting training data processing (%d entries)...", len(req.Logs))
 	if err := wandbHandler.logProcessor.ProcessLogs(ctx.Request.Context(), &req); err != nil {
 		logrus.Errorf("[WandB Logs/Training API] Failed to process training data: %v", err)
@@ -289,6 +299,9 @@ func ReceiveWandBBatch(ctx *gin.Context) {
 
 	// 处理框架检测
 	if req.Detection != nil {
+		// 尝试从 pod cache 中获取 workload 信息
+		fillWorkloadUIDFromPodName(&req.Detection.WorkloadUID, req.Detection.PodName, "WandB Batch API - Detection")
+
 		// 支持双层框架的日志输出
 		if len(req.Detection.Hints.WrapperFrameworks) > 0 || len(req.Detection.Hints.BaseFrameworks) > 0 {
 			logrus.Infof("[WandB Batch API] Processing detection (双层框架) - Wrapper: %v, Base: %v, WorkloadUID: %s",
@@ -315,6 +328,9 @@ func ReceiveWandBBatch(ctx *gin.Context) {
 
 	// 处理指标
 	if req.Metrics != nil {
+		// 尝试从 pod cache 中获取 workload 信息
+		fillWorkloadUIDFromPodName(&req.Metrics.WorkloadUID, req.Metrics.PodName, "WandB Batch API - Metrics")
+
 		logrus.Infof("[WandB Batch API] Processing metrics - Count: %d, WorkloadUID: %s",
 			len(req.Metrics.Metrics), req.Metrics.WorkloadUID)
 		if err := wandbHandler.logProcessor.ProcessMetrics(ctx.Request.Context(), req.Metrics); err != nil {
@@ -335,6 +351,9 @@ func ReceiveWandBBatch(ctx *gin.Context) {
 
 	// 处理日志
 	if req.Logs != nil {
+		// 尝试从 pod cache 中获取 workload 信息
+		fillWorkloadUIDFromPodName(&req.Logs.WorkloadUID, req.Logs.PodName, "WandB Batch API - Logs")
+
 		logrus.Infof("[WandB Batch API] Processing training data - Count: %d, WorkloadUID: %s",
 			len(req.Logs.Logs), req.Logs.WorkloadUID)
 		if err := wandbHandler.logProcessor.ProcessLogs(ctx.Request.Context(), req.Logs); err != nil {
@@ -365,6 +384,24 @@ func getMapKeys(m map[string]interface{}) []string {
 		keys = append(keys, k)
 	}
 	return keys
+}
+
+// fillWorkloadUIDFromPodName 根据 PodName 从缓存中填充 WorkloadUID
+// 如果 WorkloadUID 为空但 PodName 不为空，尝试从 pod_cache 中获取 workload 信息
+func fillWorkloadUIDFromPodName(workloadUID *string, podName string, apiName string) {
+	if *workloadUID == "" && podName != "" {
+		logrus.Infof("[%s] WorkloadUID not provided, trying to get from pod cache by PodName: %s", apiName, podName)
+		workloads := pods.GetWorkloadsByPodName(podName)
+		if len(workloads) > 0 {
+			// 取第一个 workload（通常一个 pod 只属于一个 workload）
+			workloadName := workloads[0][0]
+			*workloadUID = workloads[0][1]
+			logrus.Infof("[%s] ✓ Found workload from cache - WorkloadName: %s, WorkloadUID: %s, PodName: %s",
+				apiName, workloadName, *workloadUID, podName)
+		} else {
+			logrus.Warnf("[%s] Failed to find workload for PodName: %s in cache", apiName, podName)
+		}
+	}
 }
 
 // convertToAdvisorWandBRequest converts telemetry-processor WandBDetectionRequest
