@@ -63,20 +63,6 @@ spec:
           spec:
             description: ModelSpec defines the desired state of Model
             properties:
-              config:
-                description: Config contains additional configuration for different
-                  phases
-                properties:
-                  entryPoint:
-                    description: EntryPoint is the execution script
-                    type: string
-                  image:
-                    description: Image is the container image
-                    type: string
-                  modelPath:
-                    description: ModelPath is the model path
-                    type: string
-                type: object
               description:
                 description: Description describes the model
                 type: string
@@ -118,28 +104,6 @@ spec:
               label:
                 description: Label is the model label
                 type: string
-              resource:
-                description: Resource contains the resource requirements for the inference
-                  service
-                properties:
-                  cpu:
-                    description: Cpu is the CPU count
-                    type: integer
-                  gpu:
-                    description: Gpu is the GPU count
-                    type: string
-                  memory:
-                    description: Memory is the memory size in GB
-                    type: integer
-                  replica:
-                    description: Replica is the number of replicas
-                    type: integer
-                  workspace:
-                    description: Workspace is the workspace ID
-                    type: string
-                required:
-                - workspace
-                type: object
               source:
                 description: Source defines where to pull the model from
                 properties:
@@ -178,7 +142,6 @@ spec:
                   type: string
                 type: array
             required:
-            - resource
             - source
             type: object
           status:
