@@ -21,6 +21,8 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
@@ -47,13 +49,41 @@ func SetupModelController(mgr manager.Manager) error {
 	}
 	err := ctrl.NewControllerManagedBy(mgr).
 		For(&v1.Model{}).
-		Owns(&batchv1.Job{}). // Watch Jobs created by this controller
+		Owns(&batchv1.Job{}).                               // Watch Jobs created by this controller
+		Watches(&v1.Inference{}, r.handleInferenceEvent()). // Watch Inference status changes
 		Complete(r)
 	if err != nil {
 		return err
 	}
 	klog.Infof("Setup Model Controller successfully")
 	return nil
+}
+
+// handleInferenceEvent creates an event handler that enqueues Model requests when related Inference resources change.
+func (r *ModelReconciler) handleInferenceEvent() handler.EventHandler {
+	return handler.Funcs{
+		UpdateFunc: func(ctx context.Context, e event.UpdateEvent, q v1.RequestWorkQueue) {
+			inference, ok := e.ObjectNew.(*v1.Inference)
+			if !ok {
+				return
+			}
+			// Find the Model that owns this Inference
+			r.enqueueModelForInference(ctx, inference, q)
+		},
+	}
+}
+
+// enqueueModelForInference finds and enqueues the Model that owns the inference
+func (r *ModelReconciler) enqueueModelForInference(ctx context.Context, inference *v1.Inference, q v1.RequestWorkQueue) {
+	// inference.Spec.ModelName contains the Model name
+	if inference.Spec.ModelName == "" {
+		return
+	}
+	q.Add(ctrl.Request{
+		NamespacedName: client.ObjectKey{
+			Name: inference.Spec.ModelName,
+		},
+	})
 }
 
 // Reconcile handles the reconciliation loop
@@ -88,7 +118,14 @@ func (r *ModelReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		return ctrl.Result{}, nil
 	}
 
-	// 5. Processing logic based on Phase
+	// 5. Sync inference phase if model has an inference
+	if model.Status.InferenceID != "" {
+		if err := r.syncInferencePhase(ctx, model); err != nil {
+			klog.ErrorS(err, "failed to sync inference phase", "model", model.Name)
+		}
+	}
+
+	// 6. Processing logic based on Phase
 	switch model.Status.Phase {
 	case v1.ModelPhasePending:
 		return r.handlePending(ctx, model)
@@ -99,6 +136,34 @@ func (r *ModelReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	}
 
 	return ctrl.Result{}, nil
+}
+
+// syncInferencePhase syncs the inference phase to the model status
+func (r *ModelReconciler) syncInferencePhase(ctx context.Context, model *v1.Model) error {
+	inference := &v1.Inference{}
+	if err := r.Get(ctx, client.ObjectKey{Name: model.Status.InferenceID}, inference); err != nil {
+		if errors.IsNotFound(err) {
+			// Inference not found, clear the inference fields
+			if model.Status.InferencePhase != "" || model.Status.InferenceID != "" {
+				model.Status.InferenceID = ""
+				model.Status.InferencePhase = ""
+				return r.Status().Update(ctx, model)
+			}
+			return nil
+		}
+		return err
+	}
+
+	// Sync phase if changed
+	newPhase := string(inference.Status.Phase)
+	if model.Status.InferencePhase != newPhase {
+		model.Status.InferencePhase = newPhase
+		model.Status.UpdateTime = &metav1.Time{Time: time.Now().UTC()}
+		klog.Infof("Syncing inference phase for model %s: %s -> %s", model.Name, model.Status.InferencePhase, newPhase)
+		return r.Status().Update(ctx, model)
+	}
+
+	return nil
 }
 
 // needsCleanup checks if the model needs cleanup on deletion (only Local type needs cleanup)
