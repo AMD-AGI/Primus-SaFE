@@ -23,10 +23,10 @@ type ConductorAPIResponse struct {
 
 func main() {
 	// Read report-example.json
-	fmt.Println("📖 读取 report-example.json...")
+	fmt.Println("📖 Reading report-example.json...")
 	jsonData, err := os.ReadFile("report-example.json")
 	if err != nil {
-		fmt.Printf("❌ 读取文件失败: %v\n", err)
+		fmt.Printf("❌ Failed to read file: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -34,10 +34,10 @@ func main() {
 	var apiResp ConductorAPIResponse
 	err = json.Unmarshal(jsonData, &apiResp)
 	if err != nil {
-		fmt.Printf("❌ 解析 JSON 失败: %v\n", err)
+		fmt.Printf("❌ Failed to parse JSON: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Println("✅ JSON 解析成功")
+	fmt.Println("✅ JSON parsed successfully")
 
 	// Extract parameters from metadata
 	params := apiResp.Metadata["parameters"].(map[string]interface{})
@@ -48,8 +48,8 @@ func main() {
 	startTime, _ := time.Parse(time.RFC3339, startTimeStr)
 	endTime, _ := time.Parse(time.RFC3339, endTimeStr)
 
-	fmt.Printf("📊 集群: %s\n", cluster)
-	fmt.Printf("📅 时间范围: %s 到 %s\n", startTime.Format("2006-01-02"), endTime.Format("2006-01-02"))
+	fmt.Printf("📊 Cluster: %s\n", cluster)
+	fmt.Printf("📅 Time range: %s to %s\n", startTime.Format("2006-01-02"), endTime.Format("2006-01-02"))
 
 	// Extract summary data from markdown report
 	// Note: In production, summary data (including total_gpu_count) comes from API response
@@ -69,10 +69,10 @@ func main() {
 		chartData = &gpu_usage_weekly_report.ChartData{}
 		err = json.Unmarshal(chartDataJSON, chartData)
 		if err != nil {
-			fmt.Printf("⚠️  解析 chart_data 失败: %v\n", err)
+			fmt.Printf("⚠️  Failed to parse chart_data: %v\n", err)
 			chartData = &gpu_usage_weekly_report.ChartData{}
 		} else {
-			fmt.Println("✅ Chart data 解析成功")
+			fmt.Println("✅ Chart data parsed successfully")
 			if chartData.ClusterUsageTrend != nil {
 				fmt.Printf("   - cluster_usage_trend: %d data points, %d series\n",
 					len(chartData.ClusterUsageTrend.XAxis),
@@ -107,43 +107,43 @@ func main() {
 	}
 
 	// Initialize renderer
-	fmt.Println("\n🎨 初始化渲染器...")
+	fmt.Println("\n🎨 Initializing renderer...")
 	renderer := gpu_usage_weekly_report.NewReportRenderer(cfg)
 
 	// Render HTML
-	fmt.Println("🖼️  渲染 HTML...")
+	fmt.Println("🖼️  Rendering HTML...")
 	ctx := context.Background()
 	htmlContent, err := renderer.RenderHTML(ctx, reportData)
 	if err != nil {
-		fmt.Printf("❌ HTML 渲染失败: %v\n", err)
+		fmt.Printf("❌ HTML rendering failed: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Println("✅ HTML 渲染成功")
+	fmt.Println("✅ HTML rendered successfully")
 
 	// Save HTML to file
 	htmlOutputPath := "report_output.html"
 	err = os.WriteFile(htmlOutputPath, htmlContent, 0644)
 	if err != nil {
-		fmt.Printf("❌ 保存 HTML 文件失败: %v\n", err)
+		fmt.Printf("❌ Failed to save HTML file: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Printf("✅ HTML 已保存到: %s\n", htmlOutputPath)
+	fmt.Printf("✅ HTML saved to: %s\n", htmlOutputPath)
 
 	// Render PDF (if supported)
-	fmt.Println("\n📄 渲染 PDF...")
+	fmt.Println("\n📄 Rendering PDF...")
 	pdfContent, err := renderer.RenderPDF(ctx, htmlContent)
 	if err != nil {
-		fmt.Printf("⚠️  PDF 渲染失败: %v\n", err)
+		fmt.Printf("⚠️  PDF rendering failed: %v\n", err)
 	} else if len(pdfContent) > 0 {
 		pdfOutputPath := "report_output.pdf"
 		err = os.WriteFile(pdfOutputPath, pdfContent, 0644)
 		if err != nil {
-			fmt.Printf("❌ 保存 PDF 文件失败: %v\n", err)
+			fmt.Printf("❌ Failed to save PDF file: %v\n", err)
 		} else {
-			fmt.Printf("✅ PDF 已保存到: %s\n", pdfOutputPath)
+			fmt.Printf("✅ PDF saved to: %s\n", pdfOutputPath)
 		}
 	} else {
-		fmt.Println("ℹ️  PDF 渲染未实现（这是预期的）")
+		fmt.Println("ℹ️  PDF rendering not implemented (this is expected)")
 	}
 
 	// Save full report data as JSON for inspection
@@ -151,14 +151,14 @@ func main() {
 	reportDataJSON, _ := json.MarshalIndent(reportData, "", "  ")
 	err = os.WriteFile(jsonOutputPath, reportDataJSON, 0644)
 	if err != nil {
-		fmt.Printf("⚠️  保存 report_data.json 失败: %v\n", err)
+		fmt.Printf("⚠️  Failed to save report_data.json: %v\n", err)
 	} else {
-		fmt.Printf("✅ 报告数据已保存到: %s\n", jsonOutputPath)
+		fmt.Printf("✅ Report data saved to: %s\n", jsonOutputPath)
 	}
 
-	fmt.Println("\n✨ 渲染测试完成！")
-	fmt.Println("\n📁 生成的文件:")
-	fmt.Printf("   - %s (HTML 报告)\n", htmlOutputPath)
-	fmt.Printf("   - %s (报告数据)\n", jsonOutputPath)
-	fmt.Println("\n💡 提示: 在浏览器中打开 report_output.html 查看渲染结果")
+	fmt.Println("\n✨ Rendering test complete!")
+	fmt.Println("\n📁 Generated files:")
+	fmt.Printf("   - %s (HTML report)\n", htmlOutputPath)
+	fmt.Printf("   - %s (report data)\n", jsonOutputPath)
+	fmt.Println("\n💡 Tip: Open report_output.html in a browser to view the rendered result")
 }

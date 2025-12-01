@@ -28,55 +28,55 @@ var (
 func main() {
 	flag.Parse()
 
-	fmt.Println("📊 GPU Usage Weekly Report - 保存到数据库")
+	fmt.Println("📊 GPU Usage Weekly Report - Save to Database")
 	fmt.Println("==========================================")
 	fmt.Println()
 
-	// 文件路径相对于 jobs 目录
+	// File path relative to jobs directory
 	baseDir := ""
 
-	// 1. 读取 report_data.json
+	// 1. Read report_data.json
 	inputPath := filepath.Join(baseDir, "report_data.json")
-	fmt.Printf("📖 读取 %s...\n", inputPath)
+	fmt.Printf("📖 Reading %s...\n", inputPath)
 	jsonData, err := os.ReadFile(inputPath)
 	if err != nil {
-		fmt.Printf("❌ 读取 report_data.json 失败: %v\n", err)
+		fmt.Printf("❌ Failed to read report_data.json: %v\n", err)
 		os.Exit(1)
 	}
 
 	var reportData gpu_usage_weekly_report.ReportData
 	err = json.Unmarshal(jsonData, &reportData)
 	if err != nil {
-		fmt.Printf("❌ 解析 JSON 失败: %v\n", err)
+		fmt.Printf("❌ Failed to parse JSON: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Printf("✅ JSON 解析成功 - 集群: %s\n", reportData.ClusterName)
+	fmt.Printf("✅ JSON parsed successfully - Cluster: %s\n", reportData.ClusterName)
 
-	// 2. 读取 report_output.html
+	// 2. Read report_output.html
 	htmlPath := filepath.Join(baseDir, "report_output.html")
-	fmt.Printf("📄 读取 %s...\n", htmlPath)
+	fmt.Printf("📄 Reading %s...\n", htmlPath)
 	htmlContent, err := os.ReadFile(htmlPath)
 	if err != nil {
-		fmt.Printf("❌ 读取 HTML 文件失败: %v\n", err)
+		fmt.Printf("❌ Failed to read HTML file: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Printf("✅ HTML 读取成功 - 大小: %d bytes\n", len(htmlContent))
+	fmt.Printf("✅ HTML read successfully - Size: %d bytes\n", len(htmlContent))
 
-	// 3. 读取 report_output.pdf (可选)
+	// 3. Read report_output.pdf (optional)
 	var pdfContent []byte
 	pdfPath := filepath.Join(baseDir, "report_output.pdf")
-	fmt.Printf("📄 读取 %s...\n", pdfPath)
+	fmt.Printf("📄 Reading %s...\n", pdfPath)
 	pdfContent, err = os.ReadFile(pdfPath)
 	if err != nil {
-		fmt.Printf("⚠️  PDF 文件不存在或读取失败: %v\n", err)
-		fmt.Println("   将继续保存，但不包含 PDF 内容")
+		fmt.Printf("⚠️  PDF file not found or failed to read: %v\n", err)
+		fmt.Println("   Will continue saving without PDF content")
 		pdfContent = nil
 	} else {
-		fmt.Printf("✅ PDF 读取成功 - 大小: %d bytes\n", len(pdfContent))
+		fmt.Printf("✅ PDF read successfully - Size: %d bytes\n", len(pdfContent))
 	}
 
-	// 4. 初始化数据库连接
-	fmt.Println("\n💾 连接数据库...")
+	// 4. Initialize database connection
+	fmt.Println("\n💾 Connecting to database...")
 	fmt.Printf("   - Host: %s:%s\n", *dbHost, *dbPort)
 	fmt.Printf("   - Database: %s\n", *dbName)
 	fmt.Printf("   - User: %s\n", *dbUser)
@@ -95,20 +95,20 @@ func main() {
 	})
 
 	if err != nil {
-		fmt.Printf("❌ 数据库连接失败: %v\n", err)
-		fmt.Println("\n💡 提示: 请检查数据库参数是否正确")
-		fmt.Println("   使用方法: go run main.go -dbHost=localhost -dbPort=5432 -dbUser=postgres -dbPass=yourpass -dbName=primus_lens")
+		fmt.Printf("❌ Database connection failed: %v\n", err)
+		fmt.Println("\n💡 Tip: Please check if database parameters are correct")
+		fmt.Println("   Usage: go run main.go -dbHost=localhost -dbPort=5432 -dbUser=postgres -dbPass=yourpass -dbName=primus_lens")
 		os.Exit(1)
 	}
-	fmt.Println("✅ 数据库连接成功")
+	fmt.Println("✅ Database connected successfully")
 
-	// 5. 准备数据库记录
-	fmt.Println("\n📝 准备数据库记录...")
+	// 5. Prepare database record
+	fmt.Println("\n📝 Preparing database record...")
 
-	// 生成唯一 ID
+	// Generate unique ID
 	reportID := generateReportID(reportData.ClusterName)
 
-	// 解析时间范围
+	// Parse time range
 	var periodStart, periodEnd time.Time
 	if reportData.Metadata != nil {
 		if params, ok := reportData.Metadata["parameters"].(map[string]interface{}); ok {
@@ -121,7 +121,7 @@ func main() {
 		}
 	}
 
-	// 如果从 metadata 中无法获取，使用 Period 字段
+	// If unable to get from metadata, use Period field
 	if periodStart.IsZero() {
 		periodStart = reportData.Period.StartTime
 	}
@@ -129,19 +129,19 @@ func main() {
 		periodEnd = reportData.Period.EndTime
 	}
 
-	// 如果仍然是零值，使用当前时间的前7天到现在
+	// If still zero, use last 7 days to now
 	if periodStart.IsZero() {
 		periodEnd = time.Now()
 		periodStart = periodEnd.AddDate(0, 0, -7)
 	}
 
-	// 准备 json_content
+	// Prepare json_content
 	jsonContent := reportData.ToExtType()
 
-	// 准备 metadata
+	// Prepare metadata
 	metadata := reportData.GenerateMetadata()
 
-	// 创建数据库记录
+	// Create database record
 	record := &dbmodel.GpuUsageWeeklyReports{
 		ID:           reportID,
 		ClusterName:  reportData.ClusterName,
@@ -158,65 +158,65 @@ func main() {
 		UpdatedAt:    time.Now(),
 	}
 
-	fmt.Printf("   - 报告 ID: %s\n", reportID)
-	fmt.Printf("   - 集群名称: %s\n", record.ClusterName)
-	fmt.Printf("   - 周期: %s 到 %s\n",
+	fmt.Printf("   - Report ID: %s\n", reportID)
+	fmt.Printf("   - Cluster name: %s\n", record.ClusterName)
+	fmt.Printf("   - Period: %s to %s\n",
 		periodStart.Format("2006-01-02"),
 		periodEnd.Format("2006-01-02"))
-	fmt.Printf("   - 状态: %s\n", record.Status)
+	fmt.Printf("   - Status: %s\n", record.Status)
 
-	// 6. 保存到数据库
-	fmt.Println("\n💾 保存到数据库...")
+	// 6. Save to database
+	fmt.Println("\n💾 Saving to database...")
 
-	// 检查是否已存在相同 ID 的记录
+	// Check if record with same ID already exists
 	var existingRecord dbmodel.GpuUsageWeeklyReports
 	result := db.Where("id = ?", reportID).First(&existingRecord)
 
 	if result.Error == nil {
-		// 记录已存在，询问是否覆盖
-		fmt.Printf("⚠️  警告: ID 为 %s 的报告已存在\n", reportID)
-		fmt.Println("   是否覆盖现有记录? (y/n)")
+		// Record exists, ask if overwrite
+		fmt.Printf("⚠️  Warning: Report with ID %s already exists\n", reportID)
+		fmt.Println("   Overwrite existing record? (y/n)")
 
 		var response string
 		fmt.Scanln(&response)
 
 		if response != "y" && response != "Y" {
-			fmt.Println("❌ 操作已取消")
+			fmt.Println("❌ Operation cancelled")
 			os.Exit(0)
 		}
 
-		// 更新现有记录
+		// Update existing record
 		result = db.Model(&existingRecord).Updates(record)
 		if result.Error != nil {
-			fmt.Printf("❌ 更新记录失败: %v\n", result.Error)
+			fmt.Printf("❌ Failed to update record: %v\n", result.Error)
 			os.Exit(1)
 		}
-		fmt.Println("✅ 记录更新成功")
+		fmt.Println("✅ Record updated successfully")
 	} else if result.Error == gorm.ErrRecordNotFound {
-		// 记录不存在，创建新记录
+		// Record doesn't exist, create new record
 		result = db.Create(record)
 		if result.Error != nil {
-			fmt.Printf("❌ 创建记录失败: %v\n", result.Error)
+			fmt.Printf("❌ Failed to create record: %v\n", result.Error)
 			os.Exit(1)
 		}
-		fmt.Println("✅ 记录创建成功")
+		fmt.Println("✅ Record created successfully")
 	} else {
-		fmt.Printf("❌ 数据库查询失败: %v\n", result.Error)
+		fmt.Printf("❌ Database query failed: %v\n", result.Error)
 		os.Exit(1)
 	}
 
-	// 7. 显示摘要
-	fmt.Println("\n✨ 保存完成！")
-	fmt.Println("\n📊 报告摘要:")
-	fmt.Printf("   - 报告 ID: %s\n", reportID)
-	fmt.Printf("   - 集群名称: %s\n", record.ClusterName)
-	fmt.Printf("   - HTML 大小: %d bytes\n", len(htmlContent))
+	// 7. Display summary
+	fmt.Println("\n✨ Save complete!")
+	fmt.Println("\n📊 Report summary:")
+	fmt.Printf("   - Report ID: %s\n", reportID)
+	fmt.Printf("   - Cluster name: %s\n", record.ClusterName)
+	fmt.Printf("   - HTML size: %d bytes\n", len(htmlContent))
 	if len(pdfContent) > 0 {
-		fmt.Printf("   - PDF 大小: %d bytes\n", len(pdfContent))
+		fmt.Printf("   - PDF size: %d bytes\n", len(pdfContent))
 	}
 
 	if reportData.Summary != nil {
-		fmt.Println("\n📈 统计数据:")
+		fmt.Println("\n📈 Statistics:")
 		fmt.Printf("   - Total GPUs: %d\n", reportData.Summary.TotalGPUs)
 		fmt.Printf("   - Avg Utilization: %.2f%%\n", reportData.Summary.AvgUtilization)
 		fmt.Printf("   - Avg Allocation: %.2f%%\n", reportData.Summary.AvgAllocation)
@@ -224,12 +224,12 @@ func main() {
 		fmt.Printf("   - Wasted GPU Days: %.1f\n", reportData.Summary.WastedGpuDays)
 	}
 
-	fmt.Println("\n💡 可以通过以下方式查询报告:")
+	fmt.Println("\n💡 You can query the report using:")
 	fmt.Printf("   SELECT * FROM gpu_usage_weekly_reports WHERE id = '%s';\n", reportID)
 }
 
-// generateReportID 生成报告的唯一标识符
-// 格式: rpt_YYYYMMDD_clustername_uuid
+// generateReportID generates unique identifier for report
+// Format: rpt_YYYYMMDD_clustername_uuid
 func generateReportID(clusterName string) string {
 	now := time.Now()
 	dateStr := now.Format("20060102")

@@ -281,7 +281,7 @@ func TestParseGPUInfoArray_EdgeCases(t *testing.T) {
 
 	t.Run("JSON with unicode characters", func(t *testing.T) {
 		jsonData := []byte(`[{
-			"asic": {"market_name": "GPU测试🚀"},
+			"asic": {"market_name": "GPU-test🚀"},
 			"gpu": 0
 		}]`)
 

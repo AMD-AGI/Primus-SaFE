@@ -28,24 +28,24 @@ func main() {
 	
 	args := flag.Args()
 	if len(args) < 1 {
-		fmt.Println("📊 GPU Usage Weekly Report - 从数据库导出")
+		fmt.Println("📊 GPU Usage Weekly Report - Export from Database")
 		fmt.Println("==========================================\n")
-		fmt.Println("用法: go run main.go [选项] <report_id>")
-		fmt.Println("\n示例: go run main.go -dbHost=localhost -dbPass=yourpass rpt_20251125_x-flannel_abc12345")
-		fmt.Println("\n选项:")
+		fmt.Println("Usage: go run main.go [options] <report_id>")
+		fmt.Println("\nExample: go run main.go -dbHost=localhost -dbPass=yourpass rpt_20251125_x-flannel_abc12345")
+		fmt.Println("\nOptions:")
 		flag.PrintDefaults()
-		fmt.Println("\n💡 提示: 运行 'cd ../list-reports && go run main.go' 查看所有报告 ID")
+		fmt.Println("\n💡 Tip: Run 'cd ../list-reports && go run main.go' to view all report IDs")
 		os.Exit(1)
 	}
 
 	reportID := args[0]
 
-	fmt.Println("📊 GPU Usage Weekly Report - 从数据库导出")
+	fmt.Println("📊 GPU Usage Weekly Report - Export from Database")
 	fmt.Println("==========================================\n")
-	fmt.Printf("📋 报告 ID: %s\n\n", reportID)
+	fmt.Printf("📋 Report ID: %s\n\n", reportID)
 
-	// 初始化数据库连接
-	fmt.Println("💾 连接数据库...")
+	// Initialize database connection
+	fmt.Println("💾 Connecting to database...")
 	fmt.Printf("   - Host: %s:%s\n", *dbHost, *dbPort)
 	fmt.Printf("   - Database: %s\n", *dbName)
 	fmt.Printf("   - User: %s\n", *dbUser)
@@ -64,54 +64,54 @@ func main() {
 	})
 	
 	if err != nil {
-		fmt.Printf("❌ 数据库连接失败: %v\n", err)
+		fmt.Printf("❌ Database connection failed: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Println("✅ 数据库连接成功")
+	fmt.Println("✅ Database connected successfully")
 
-	// 查询报告
-	fmt.Println("🔍 查询报告...")
+	// Query report
+	fmt.Println("🔍 Querying report...")
 	var report dbmodel.GpuUsageWeeklyReports
 	result := db.Where("id = ?", reportID).First(&report)
 	if result.Error != nil {
-		fmt.Printf("❌ 查询失败: %v\n", result.Error)
-		fmt.Println("\n💡 提示: 使用 'cd ../list-reports && go run main.go' 查看所有可用的报告")
+		fmt.Printf("❌ Query failed: %v\n", result.Error)
+		fmt.Println("\n💡 Tip: Use 'cd ../list-reports && go run main.go' to view all available reports")
 		os.Exit(1)
 	}
-	fmt.Println("✅ 报告找到")
+	fmt.Println("✅ Report found")
 
-	// 显示报告信息
-	fmt.Println("\n📊 报告信息:")
+	// Display report information
+	fmt.Println("\n📊 Report information:")
 	fmt.Printf("   - ID: %s\n", report.ID)
-	fmt.Printf("   - 集群: %s\n", report.ClusterName)
-	fmt.Printf("   - 周期: %s 到 %s\n", 
+	fmt.Printf("   - Cluster: %s\n", report.ClusterName)
+	fmt.Printf("   - Period: %s to %s\n", 
 		report.PeriodStart.Format("2006-01-02"),
 		report.PeriodEnd.Format("2006-01-02"))
-	fmt.Printf("   - 生成时间: %s\n", report.GeneratedAt.Format("2006-01-02 15:04:05"))
-	fmt.Printf("   - 状态: %s\n", report.Status)
+	fmt.Printf("   - Generated at: %s\n", report.GeneratedAt.Format("2006-01-02 15:04:05"))
+	fmt.Printf("   - Status: %s\n", report.Status)
 
-	// 创建输出目录
+	// Create output directory
 	outputDir := fmt.Sprintf("exported_report_%s", reportID)
-	fmt.Printf("\n📁 创建输出目录: %s\n", outputDir)
+	fmt.Printf("\n📁 Creating output directory: %s\n", outputDir)
 	err = os.MkdirAll(outputDir, 0755)
 	if err != nil {
-		fmt.Printf("❌ 创建目录失败: %v\n", err)
+		fmt.Printf("❌ Failed to create directory: %v\n", err)
 		os.Exit(1)
 	}
 
 	filesExported := 0
 
-	// 导出 JSON 数据
+	// Export JSON data
 	if report.JSONContent != nil {
-		fmt.Println("📄 导出 JSON 数据...")
+		fmt.Println("📄 Exporting JSON data...")
 		jsonPath := filepath.Join(outputDir, "report_data.json")
 		jsonBytes, err := json.MarshalIndent(report.JSONContent, "", "  ")
 		if err != nil {
-			fmt.Printf("⚠️  JSON 序列化失败: %v\n", err)
+			fmt.Printf("⚠️  JSON serialization failed: %v\n", err)
 		} else {
 			err = os.WriteFile(jsonPath, jsonBytes, 0644)
 			if err != nil {
-				fmt.Printf("⚠️  保存 JSON 失败: %v\n", err)
+				fmt.Printf("⚠️  Failed to save JSON: %v\n", err)
 			} else {
 				fmt.Printf("   ✅ %s (%d bytes)\n", jsonPath, len(jsonBytes))
 				filesExported++
@@ -119,45 +119,45 @@ func main() {
 		}
 	}
 
-	// 导出 HTML
+	// Export HTML
 	if len(report.HTMLContent) > 0 {
-		fmt.Println("📄 导出 HTML 报告...")
+		fmt.Println("📄 Exporting HTML report...")
 		htmlPath := filepath.Join(outputDir, "report.html")
 		err = os.WriteFile(htmlPath, report.HTMLContent, 0644)
 		if err != nil {
-			fmt.Printf("⚠️  保存 HTML 失败: %v\n", err)
+			fmt.Printf("⚠️  Failed to save HTML: %v\n", err)
 		} else {
 			fmt.Printf("   ✅ %s (%d bytes)\n", htmlPath, len(report.HTMLContent))
 			filesExported++
 		}
 	}
 
-	// 导出 PDF
+	// Export PDF
 	if len(report.PdfContent) > 0 {
-		fmt.Println("📄 导出 PDF 报告...")
+		fmt.Println("📄 Exporting PDF report...")
 		pdfPath := filepath.Join(outputDir, "report.pdf")
 		err = os.WriteFile(pdfPath, report.PdfContent, 0644)
 		if err != nil {
-			fmt.Printf("⚠️  保存 PDF 失败: %v\n", err)
+			fmt.Printf("⚠️  Failed to save PDF: %v\n", err)
 		} else {
 			fmt.Printf("   ✅ %s (%d bytes)\n", pdfPath, len(report.PdfContent))
 			filesExported++
 		}
 	} else {
-		fmt.Println("ℹ️  此报告没有 PDF 内容")
+		fmt.Println("ℹ️  This report has no PDF content")
 	}
 
-	// 导出元数据
+	// Export metadata
 	if report.Metadata != nil {
-		fmt.Println("📄 导出元数据...")
+		fmt.Println("📄 Exporting metadata...")
 		metadataPath := filepath.Join(outputDir, "metadata.json")
 		metadataBytes, err := json.MarshalIndent(report.Metadata, "", "  ")
 		if err != nil {
-			fmt.Printf("⚠️  元数据序列化失败: %v\n", err)
+			fmt.Printf("⚠️  Metadata serialization failed: %v\n", err)
 		} else {
 			err = os.WriteFile(metadataPath, metadataBytes, 0644)
 			if err != nil {
-				fmt.Printf("⚠️  保存元数据失败: %v\n", err)
+				fmt.Printf("⚠️  Failed to save metadata: %v\n", err)
 			} else {
 				fmt.Printf("   ✅ %s (%d bytes)\n", metadataPath, len(metadataBytes))
 				filesExported++
@@ -165,8 +165,8 @@ func main() {
 		}
 	}
 
-	// 创建摘要文件
-	fmt.Println("📄 创建摘要文件...")
+	// Create summary file
+	fmt.Println("📄 Creating summary file...")
 	summaryPath := filepath.Join(outputDir, "README.txt")
 	summary := fmt.Sprintf(`GPU Usage Weekly Report Export
 ================================
@@ -205,14 +205,14 @@ Files:
 
 	err = os.WriteFile(summaryPath, []byte(summary), 0644)
 	if err != nil {
-		fmt.Printf("⚠️  保存摘要失败: %v\n", err)
+		fmt.Printf("⚠️  Failed to save summary: %v\n", err)
 	} else {
 		fmt.Printf("   ✅ %s\n", summaryPath)
 		filesExported++
 	}
 
-	fmt.Println("\n✨ 导出完成！")
-	fmt.Printf("   共导出 %d 个文件到: %s/\n", filesExported, outputDir)
-	fmt.Println("\n💡 提示: 在浏览器中打开 report.html 查看报告")
+	fmt.Println("\n✨ Export complete!")
+	fmt.Printf("   Exported %d files to: %s/\n", filesExported, outputDir)
+	fmt.Println("\n💡 Tip: Open report.html in a browser to view the report")
 }
 

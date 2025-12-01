@@ -12,15 +12,15 @@ import (
 )
 
 func main() {
-	// 文件路径相对于 jobs 目录
+	// File path relative to jobs directory
 	baseDir := filepath.Join("..", "..")
 	
 	// Read report_data.json
 	inputPath := filepath.Join(baseDir, "report_data.json")
-	fmt.Printf("📖 读取 %s...\n", inputPath)
+	fmt.Printf("📖 Reading %s...\n", inputPath)
 	jsonData, err := os.ReadFile(inputPath)
 	if err != nil {
-		fmt.Printf("❌ 读取文件失败: %v\n", err)
+		fmt.Printf("❌ Failed to read file: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -28,13 +28,13 @@ func main() {
 	var reportData gpu_usage_weekly_report.ReportData
 	err = json.Unmarshal(jsonData, &reportData)
 	if err != nil {
-		fmt.Printf("❌ 解析 JSON 失败: %v\n", err)
+		fmt.Printf("❌ Failed to parse JSON: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Println("✅ JSON 解析成功")
+	fmt.Println("✅ JSON parsed successfully")
 
 	// Display summary info
-	fmt.Printf("📊 集群: %s\n", reportData.ClusterName)
+	fmt.Printf("📊 Cluster: %s\n", reportData.ClusterName)
 	if reportData.Summary != nil {
 		fmt.Printf("   - Total GPUs: %d\n", reportData.Summary.TotalGPUs)
 		fmt.Printf("   - Avg Utilization: %.2f%%\n", reportData.Summary.AvgUtilization)
@@ -56,32 +56,32 @@ func main() {
 	}
 
 	// Initialize renderer
-	fmt.Println("\n🎨 初始化渲染器...")
+	fmt.Println("\n🎨 Initializing renderer...")
 	renderer := gpu_usage_weekly_report.NewReportRenderer(cfg)
 
 	// Render HTML
-	fmt.Println("🖼️  渲染 HTML...")
+	fmt.Println("🖼️  Rendering HTML...")
 	ctx := context.Background()
 	htmlContent, err := renderer.RenderHTML(ctx, &reportData)
 	if err != nil {
-		fmt.Printf("❌ HTML 渲染失败: %v\n", err)
+		fmt.Printf("❌ HTML rendering failed: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Println("✅ HTML 渲染成功")
+	fmt.Println("✅ HTML rendered successfully")
 
 	// Save HTML to file
 	htmlOutputPath := filepath.Join(baseDir, "report_output.html")
 	err = os.WriteFile(htmlOutputPath, htmlContent, 0644)
 	if err != nil {
-		fmt.Printf("❌ 保存 HTML 文件失败: %v\n", err)
+		fmt.Printf("❌ Failed to save HTML file: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Printf("✅ HTML 已保存到: %s\n", htmlOutputPath)
+	fmt.Printf("✅ HTML saved to: %s\n", htmlOutputPath)
 
-	fmt.Println("\n✨ 渲染测试完成！")
-	fmt.Println("\n💡 提示: 在浏览器中打开 report_output.html 查看渲染结果")
+	fmt.Println("\n✨ Rendering test complete!")
+	fmt.Println("\n💡 Tip: Open report_output.html in a browser to view the rendered result")
 	if reportData.Summary != nil {
-		fmt.Printf("    Total GPUs 应该显示为: %d\n", reportData.Summary.TotalGPUs)
+		fmt.Printf("    Total GPUs should display as: %d\n", reportData.Summary.TotalGPUs)
 	}
 }
 
