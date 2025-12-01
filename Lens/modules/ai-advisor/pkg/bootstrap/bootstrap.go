@@ -10,6 +10,7 @@ import (
 	configHelper "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/config"
 	log "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/router"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/router/middleware"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/server"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/trace"
 	"github.com/gin-gonic/gin"
@@ -83,7 +84,7 @@ func initRouter(group *gin.RouterGroup) error {
 		detectionGroup.POST("", detectionHandler.ReportDetection)
 
 		// Query detection results
-		detectionGroup.GET("/workloads/:uid", detectionHandler.GetDetection)
+		detectionGroup.GET("/workloads/:uid", middleware.WithTracingRate(0.001), detectionHandler.GetDetection)
 		detectionGroup.POST("/batch", detectionHandler.BatchGetDetection)
 
 		// Statistics
