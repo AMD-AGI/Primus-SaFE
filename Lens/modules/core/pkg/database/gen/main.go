@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -36,7 +37,10 @@ func main() {
 	logConf := conf.DefaultConfig()
 	logConf.Level = conf.TraceLevel
 	log.InitGlobalLogger(logConf)
-	dsn := fmt.Sprintf("host=%s port=%s user=%s dbname=%s password=%s sslmode=%s", *dbHost, *dbPort, *dbUser, *dbName, *dbPass, *sslMode)
+	// Use PostgreSQL URI format to properly handle special characters in password
+	encodedPass := url.QueryEscape(*dbPass)
+	encodedUser := url.QueryEscape(*dbUser)
+	dsn := fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=%s", encodedUser, encodedPass, *dbHost, *dbPort, *dbName, *sslMode)
 	db, err := gorm.Open(postgres.Dialector{
 		Config: &postgres.Config{
 			DSN: dsn,

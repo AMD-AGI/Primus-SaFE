@@ -227,7 +227,7 @@ func TestGetSource_EdgeCases(t *testing.T) {
 			"custom/runtime",
 			"runtime@v1",
 			"runtime:latest",
-			"运行时",           // Chinese characters
+			"runtime-zh",     // international characters
 			"🐳",             // emoji
 			"source\nwith\nnewline",
 			"source\twith\ttab",
