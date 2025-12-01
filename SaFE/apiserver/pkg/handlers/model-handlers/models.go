@@ -8,6 +8,7 @@ package model_handlers
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/constvar"
@@ -390,6 +391,10 @@ func (h *Handler) toggleModel(c *gin.Context) (interface{}, error) {
 		// Generate new inference ID
 		infId := commonutils.GenerateName(modelId)
 
+		// Normalize displayName for label (replace "/" and ":" as they are not allowed in label values)
+		normalizedDisplayName := strings.ReplaceAll(k8sModel.Spec.DisplayName, "/", "-")
+		normalizedDisplayName = strings.ReplaceAll(normalizedDisplayName, ":", "-")
+
 		// Create Inference CRD
 		inference := &v1.Inference{
 			ObjectMeta: metav1.ObjectMeta{
@@ -397,7 +402,7 @@ func (h *Handler) toggleModel(c *gin.Context) (interface{}, error) {
 				Labels: map[string]string{
 					v1.InferenceIdLabel: infId,
 					v1.UserIdLabel:      userId,
-					v1.DisplayNameLabel: k8sModel.Spec.DisplayName,
+					v1.DisplayNameLabel: normalizedDisplayName,
 				},
 			},
 			Spec: v1.InferenceSpec{
