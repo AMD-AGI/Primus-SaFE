@@ -48,20 +48,16 @@ func RemoveOwnerReferences(references []metav1.OwnerReference, uid types.UID) []
 
 // RemoveFinalizer removes specified finalizers from the object and updates it.
 func RemoveFinalizer(ctx context.Context, cli client.Client, obj client.Object, finalizer ...string) error {
-	var found bool
+	isChanged := false
 	for _, val := range finalizer {
-		if found = controllerutil.ContainsFinalizer(obj, val); found {
-			break
+		if controllerutil.RemoveFinalizer(obj, val) {
+			isChanged = true
 		}
 	}
-	if !found {
+	if !isChanged {
 		return nil
 	}
-
-	for _, val := range finalizer {
-		controllerutil.RemoveFinalizer(obj, val)
-	}
-	if err := cli.Update(ctx, obj); err != nil {
+	if err := commonutils.PatchObjectFinalizer(ctx, cli, obj); err != nil {
 		klog.ErrorS(err, "failed to remove finalizer")
 		return err
 	}

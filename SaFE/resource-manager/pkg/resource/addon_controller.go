@@ -32,6 +32,7 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
+	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 )
 
 // AddonController manages Helm addon installations and updates for clusters.
@@ -85,7 +86,7 @@ func (r *AddonController) guaranteeHelmAddon(ctx context.Context, addon *v1.Addo
 	if !addon.DeletionTimestamp.IsZero() {
 		if addon.Status.Phase == v1.AddonDeleted {
 			if controllerutil.RemoveFinalizer(addon, v1.AddonFinalizer) {
-				return r.Update(ctx, addon)
+				return commonutils.PatchObjectFinalizer(ctx, r.Client, addon)
 			}
 		} else if addon.Status.Phase != v1.AddonDeleting {
 			originalAddon := client.MergeFrom(addon.DeepCopy())
@@ -105,7 +106,7 @@ func (r *AddonController) guaranteeHelmAddon(ctx context.Context, addon *v1.Addo
 		return nil
 	}
 	if controllerutil.AddFinalizer(addon, v1.AddonFinalizer) {
-		return r.Update(ctx, addon)
+		return commonutils.PatchObjectFinalizer(ctx, r.Client, addon)
 	}
 	if addon.Status.AddonSourceStatus.HelmRepositoryStatus == nil {
 		r.helmInstall(ctx, addon)

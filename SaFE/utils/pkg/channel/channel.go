@@ -5,7 +5,7 @@
 
 package channel
 
-// IsChannelClosed returns true if the condition is met.
+// IsChannelClosed returns true if the channel is closed.
 func IsChannelClosed(ch chan struct{}) bool {
 	if ch == nil {
 		return true

@@ -143,10 +143,19 @@ func (h *Handler) listOpsJob(c *gin.Context) (interface{}, error) {
 	return result, nil
 }
 
-// getOpsJob implements the logic for retrieving a single ops job's detailed information.
-// It queries the database for the specified job and converts it to a response format.
+// getOpsJob implements the logic for retrieving a single ops job's detailed information
 // Returns an error if the job is not found or database is not enabled.
 func (h *Handler) getOpsJob(c *gin.Context) (interface{}, error) {
+	opsJob, err := h.getOpsJobFromDB(c)
+	if err != nil {
+		return nil, err
+	}
+	return cvtToGetOpsJobResponse(opsJob), nil
+}
+
+// getOpsJobFromDB queries the database for the specified job
+// Returns an error if the job is not found or database is not enabled.
+func (h *Handler) getOpsJobFromDB(c *gin.Context) (*dbclient.OpsJob, error) {
 	if !commonconfig.IsDBEnable() {
 		return nil, commonerrors.NewInternalError("the database function is not enabled")
 	}
@@ -161,7 +170,7 @@ func (h *Handler) getOpsJob(c *gin.Context) (interface{}, error) {
 	if len(jobs) == 0 {
 		return nil, commonerrors.NewNotFoundWithMessage("the opsjob is not found")
 	}
-	return cvtToGetOpsJobResponse(jobs[0]), nil
+	return jobs[0], nil
 }
 
 // deleteOpsJob implements ops job deletion logic.
@@ -179,14 +188,26 @@ func (h *Handler) deleteOpsJob(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 	if commonconfig.IsDBEnable() {
-		userId := ""
-		if requestUser != nil && !requestUser.IsSystemAdmin() {
-			userId = requestUser.Name
+		opsJob, err := h.getOpsJobFromDB(c)
+		if err != nil {
+			if !commonerrors.IsNotFound(err) {
+				return nil, err
+			}
+		} else {
+			if err = h.accessController.Authorize(authority.AccessInput{
+				Context:       c.Request.Context(),
+				ResourceKind:  v1.OpsJobKind,
+				ResourceOwner: dbutils.ParseNullString(opsJob.UserId),
+				Verb:          v1.DeleteVerb,
+				User:          requestUser,
+			}); err != nil {
+				return nil, err
+			}
+			if err = h.dbClient.SetOpsJobDeleted(c.Request.Context(), name); err != nil {
+				return nil, err
+			}
+			isFound = true
 		}
-		if err = h.dbClient.SetOpsJobDeleted(c.Request.Context(), name, userId); err != nil {
-			return nil, err
-		}
-		isFound = true
 	}
 	if !isFound {
 		return nil, commonerrors.NewNotFoundWithMessage("the opsjob is not found")
@@ -232,10 +253,10 @@ func (h *Handler) deleteAdminOpsJob(c *gin.Context, opsJobId string) (bool, erro
 	}
 
 	if err = h.accessController.Authorize(authority.AccessInput{
-		Context:      ctx,
-		ResourceKind: v1.OpsJobKind,
-		Verb:         v1.DeleteVerb,
-		UserId:       c.GetString(common.UserId),
+		Context:  ctx,
+		Resource: opsJob,
+		Verb:     v1.DeleteVerb,
+		UserId:   c.GetString(common.UserId),
 	}); err != nil {
 		return false, err
 	}
@@ -287,18 +308,19 @@ func (h *Handler) generateAddonJob(c *gin.Context, body []byte) (*v1.OpsJob, err
 }
 
 // generatePreflightJob creates a preflight-type ops job.
-// It authorizes the request for system admin, parses preflight-specific parameters,
+// It authorizes the request for system admin,
 // and generates a job object with resource, image, and entrypoint specifications.
 func (h *Handler) generatePreflightJob(c *gin.Context, body []byte) (*v1.OpsJob, error) {
 	requestUser, err := h.getAndSetUsername(c)
 	if err != nil {
 		return nil, err
 	}
-
-	if err = h.accessController.AuthorizeSystemAdmin(authority.AccessInput{
-		Context: c.Request.Context(),
-		User:    requestUser,
-	}, false); err != nil {
+	if err = h.accessController.Authorize(authority.AccessInput{
+		Context:      c.Request.Context(),
+		ResourceKind: authority.PreflightKind,
+		Verb:         v1.CreateVerb,
+		User:         requestUser,
+	}); err != nil {
 		return nil, err
 	}
 
@@ -312,7 +334,6 @@ func (h *Handler) generatePreflightJob(c *gin.Context, body []byte) (*v1.OpsJob,
 	job.Spec.EntryPoint = req.EntryPoint
 	job.Spec.Env = req.Env
 	job.Spec.Hostpath = req.Hostpath
-
 	if err = h.generateOpsJobNodesInput(c.Request.Context(), job, &req.BaseOpsJobRequest); err != nil {
 		return nil, err
 	}
@@ -370,7 +391,7 @@ func (h *Handler) generateRebootJob(c *gin.Context, body []byte) (*v1.OpsJob, er
 	if err != nil {
 		return nil, err
 	}
-	if err := h.accessController.Authorize(authority.AccessInput{
+	if err = h.accessController.Authorize(authority.AccessInput{
 		Context:      c.Request.Context(),
 		ResourceKind: v1.NodeKind,
 		Verb:         v1.UpdateVerb,
@@ -580,7 +601,7 @@ func (h *Handler) generateOpsJobNodesInput(ctx context.Context, job *v1.OpsJob, 
 	}
 	excludedNodesSet := sets.NewSetByKeys(req.ExcludedNodes...)
 	if workloadParam := job.GetParameter(v1.ParameterWorkload); workloadParam != nil {
-		nodes, err := h.getNodesOfWorkload(ctx, workloadParam.Value)
+		nodes, workspaceId, err := h.getNodesOfWorkload(ctx, workloadParam.Value)
 		if err != nil {
 			return err
 		}
@@ -590,6 +611,7 @@ func (h *Handler) generateOpsJobNodesInput(ctx context.Context, job *v1.OpsJob, 
 			}
 			job.Spec.Inputs = append(job.Spec.Inputs, v1.Parameter{Name: v1.ParameterNode, Value: n})
 		}
+		v1.SetLabel(job, v1.WorkspaceIdLabel, workspaceId)
 	} else if workspaceParam := job.GetParameter(v1.ParameterWorkspace); workspaceParam != nil {
 		nodes, err := commonnodes.GetNodesOfWorkspaces(ctx, h.Client, []string{workspaceParam.Value}, nil)
 		if err != nil {
@@ -601,6 +623,7 @@ func (h *Handler) generateOpsJobNodesInput(ctx context.Context, job *v1.OpsJob, 
 			}
 			job.Spec.Inputs = append(job.Spec.Inputs, v1.Parameter{Name: v1.ParameterNode, Value: n.Name})
 		}
+		v1.SetLabel(job, v1.WorkspaceIdLabel, workspaceParam.Value)
 	} else if clusterParam := job.GetParameter(v1.ParameterCluster); clusterParam != nil {
 		nodes, err := commonnodes.GetNodesOfCluster(ctx, h.Client, clusterParam.Value, nil)
 		if err != nil {
@@ -621,28 +644,29 @@ func (h *Handler) generateOpsJobNodesInput(ctx context.Context, job *v1.OpsJob, 
 
 // getNodesOfWorkload retrieves the list of nodes associated with a workload.
 // It queries either the database or k8s cluster based on configuration to get node information.
-func (h *Handler) getNodesOfWorkload(ctx context.Context, workloadId string) ([]string, error) {
+// the workspaceId is also returned
+func (h *Handler) getNodesOfWorkload(ctx context.Context, workloadId string) ([]string, string, error) {
 	if commonconfig.IsDBEnable() {
 		workload, err := h.dbClient.GetWorkload(ctx, workloadId)
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
 		if str := dbutils.ParseNullString(workload.Nodes); str != "" {
 			var nodes [][]string
 			if json.Unmarshal([]byte(str), &nodes) == nil && len(nodes) > 0 {
-				return nodes[len(nodes)-1], nil
+				return nodes[len(nodes)-1], workload.Workspace, nil
 			}
 		}
 	} else {
 		workload, err := h.getAdminWorkload(ctx, workloadId)
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
 		if len(workload.Status.Nodes) > 0 {
-			return workload.Status.Nodes[len(workload.Status.Nodes)-1], nil
+			return workload.Status.Nodes[len(workload.Status.Nodes)-1], workload.Spec.Workspace, nil
 		}
 	}
-	return nil, nil
+	return nil, "", nil
 }
 
 // parseListOpsJobQuery parses and validates the query parameters for listing ops jobs.

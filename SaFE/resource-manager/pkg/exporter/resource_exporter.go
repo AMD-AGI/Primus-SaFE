@@ -25,6 +25,7 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	commonctrl "github.com/AMD-AIG-AIMA/SAFE/common/pkg/controller"
+	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 )
 
 // ResourceFilter defines a function type for filtering resource updates.
@@ -162,21 +163,17 @@ func (r *ResourceExporter) Do(ctx context.Context, msg types.NamespacedName) (ct
 // addFinalizer adds the exporter finalizer to the object if it doesn't already exist.
 // It uses a patch operation to update the object's metadata.
 func (r *ResourceExporter) addFinalizer(ctx context.Context, object *unstructured.Unstructured) error {
-	if ctrlutil.ContainsFinalizer(object, v1.ExporterFinalizer) {
+	if !ctrlutil.AddFinalizer(object, v1.ExporterFinalizer) {
 		return nil
 	}
-	originalObject := client.MergeFrom(object.DeepCopy())
-	ctrlutil.AddFinalizer(object, v1.ExporterFinalizer)
-	return r.Patch(ctx, object, originalObject)
+	return commonutils.PatchObjectFinalizer(ctx, r.Client, object)
 }
 
 // removeFinalizer removes the exporter finalizer from the object if it exists.
 // It uses a patch operation to update the object's metadata.
 func (r *ResourceExporter) removeFinalizer(ctx context.Context, object *unstructured.Unstructured) error {
-	if !ctrlutil.ContainsFinalizer(object, v1.ExporterFinalizer) {
+	if !ctrlutil.RemoveFinalizer(object, v1.ExporterFinalizer) {
 		return nil
 	}
-	originalObject := client.MergeFrom(object.DeepCopy())
-	ctrlutil.RemoveFinalizer(object, v1.ExporterFinalizer)
-	return r.Patch(ctx, object, originalObject)
+	return commonutils.PatchObjectFinalizer(ctx, r.Client, object)
 }

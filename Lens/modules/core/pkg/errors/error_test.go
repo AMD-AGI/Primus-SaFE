@@ -51,7 +51,7 @@ func TestError_WithMessage(t *testing.T) {
 		{"Simple message", "test error"},
 		{"Empty message", ""},
 		{"Long message", strings.Repeat("a", 1000)},
-		{"Unicode message", "错误信息 🚨"},
+		{"Unicode message", "error message 🚨"},
 	}
 
 	for _, tt := range tests {

@@ -29,6 +29,7 @@ import (
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonuser "github.com/AMD-AIG-AIMA/SAFE/common/pkg/user"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/backoff"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/slice"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
@@ -91,20 +92,17 @@ func (h *Handler) Logout(c *gin.Context) {
 // Parses the request, generates a user object with appropriate permissions and settings,
 // and creates it in the system.
 func (h *Handler) createUser(c *gin.Context) (interface{}, error) {
-	requestUser, err := h.getAndSetUsername(c)
-	if err != nil {
-		return nil, err
-	}
 	if commonconfig.IsSSOEnable() {
 		return nil, commonerrors.NewInternalError("the user registration is not enabled")
 	}
-
-	req, err := parseCreateUserQuery(requestUser, c)
+	req := &types.CreateUserRequest{}
+	body, err := apiutils.ParseRequestBody(c.Request, req)
 	if err != nil {
+		klog.ErrorS(err, "fail to parseRequestBody", "body", string(body))
 		return nil, err
 	}
 
-	user := generateUser(req, requestUser)
+	user := generateUser(req)
 	if err = h.Create(c.Request.Context(), user); err != nil {
 		return nil, err
 	}
@@ -114,7 +112,7 @@ func (h *Handler) createUser(c *gin.Context) (interface{}, error) {
 // generateUser creates a new user object based on the creation request.
 // Sets user metadata, roles, and properties based on the requester's permissions.
 // Handles password encoding and workspace assignments.
-func generateUser(req *types.CreateUserRequest, requestUser *v1.User) *v1.User {
+func generateUser(req *types.CreateUserRequest) *v1.User {
 	user := &v1.User{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: commonuser.GenerateUserIdByName(req.Name),
@@ -125,14 +123,8 @@ func generateUser(req *types.CreateUserRequest, requestUser *v1.User) *v1.User {
 			},
 		},
 		Spec: v1.UserSpec{
-			Type: v1.DefaultUser,
+			Type: v1.DefaultUserType,
 		},
-	}
-
-	// Only administrators can specify user type; others can only create default user.
-	if requestUser != nil && requestUser.IsSystemAdmin() {
-		user.Spec.Type = req.Type
-		commonuser.AssignWorkspace(user, req.Workspaces...)
 	}
 	if req.Password != "" {
 		user.Spec.Password = stringutil.Base64Encode(req.Password)
@@ -254,13 +246,36 @@ func (h *Handler) patchUser(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-
 	isChanged, err := h.authUserUpdate(c, targetUser, req)
 	if !isChanged || err != nil {
 		return nil, err
 	}
 
-	originalUser := client.MergeFrom(targetUser.DeepCopy())
+	if err = backoff.ConflictRetry(func() error {
+		modifyUser(targetUser, req)
+		if innerError := h.Update(c.Request.Context(), targetUser); innerError == nil {
+			return nil
+		} else {
+			if apierrors.IsConflict(innerError) {
+				targetUser, _ = h.getAdminUser(c.Request.Context(), targetUserId)
+				if targetUser == nil {
+					return commonerrors.NewNotFoundWithMessage(fmt.Sprintf("user %s not found", targetUserId))
+				}
+			}
+			return innerError
+		}
+	}, defaultRetryCount, defaultRetryDelay); err != nil {
+		klog.ErrorS(err, "failed to update user", "name", targetUser.Name)
+		return nil, err
+	}
+	klog.Infof("patch user, target.user: %s, request.user: %s, request: %s",
+		targetUserId, c.GetString(common.UserName), string(jsonutils.MarshalSilently(req)))
+	return nil, nil
+}
+
+// modifyUser updates the target user with values from the patch request.
+// Only modifies fields that are present in the request.
+func modifyUser(targetUser *v1.User, req *types.PatchUserRequest) {
 	if req.Workspaces != nil {
 		commonuser.AssignWorkspace(targetUser, *req.Workspaces...)
 	}
@@ -280,13 +295,6 @@ func (h *Handler) patchUser(c *gin.Context) (interface{}, error) {
 		v1.SetLabel(targetUser, v1.UserEmailMd5Label, stringutil.MD5(*req.Email))
 		v1.SetAnnotation(targetUser, v1.UserEmailAnnotation, *req.Email)
 	}
-	if err = h.Patch(c.Request.Context(), targetUser, originalUser); err != nil {
-		klog.ErrorS(err, "fail to patch user", "body", string(body))
-		return nil, err
-	}
-	klog.Infof("patch user, target.user: %s, request.user: %s, request: %s",
-		targetUserId, c.GetString(common.UserName), string(jsonutils.MarshalSilently(req)))
-	return nil, nil
 }
 
 // authUserUpdate validates authorization for user patch operations.
@@ -391,7 +399,7 @@ func (h *Handler) deleteUser(c *gin.Context) (interface{}, error) {
 	return nil, nil
 }
 
-// getAdminUser retrieves a user resource by ID from the system.
+// getAdminUser retrieves a user resource by ID from the admin data plane.
 // Returns an error if the user doesn't exist or the ID is empty.
 func (h *Handler) getAdminUser(ctx context.Context, userId string) (*v1.User, error) {
 	if userId == "" {
@@ -414,7 +422,7 @@ func (h *Handler) login(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 	var tokenInstance authority.TokenInterface
-	if query.Type == v1.SSOUser {
+	if query.Type == v1.SSOUserType {
 		if !commonconfig.IsSSOEnable() {
 			return nil, commonerrors.NewInternalError("SSO is not enabled")
 		}
@@ -433,6 +441,7 @@ func (h *Handler) login(c *gin.Context) (interface{}, error) {
 	}
 	user, resp, err := tokenInstance.Login(c.Request.Context(), tokenInput)
 	if err != nil {
+		klog.ErrorS(err, "user login failed", "userName", query.Name)
 		return nil, err
 	}
 	result := &types.UserLoginResponse{
@@ -511,23 +520,6 @@ func (h *Handler) logout(c *gin.Context) (interface{}, error) {
 	info := &types.UserLoginResponse{}
 	setCookie(c, info, "")
 	return nil, nil
-}
-
-// parseCreateUserQuery parses and validates the user creation request.
-// Ensures required fields are present and validates based on requester permissions.
-func parseCreateUserQuery(requestUser *v1.User, c *gin.Context) (*types.CreateUserRequest, error) {
-	req := &types.CreateUserRequest{}
-	body, err := apiutils.ParseRequestBody(c.Request, req)
-	if err != nil {
-		klog.ErrorS(err, "fail to parseRequestBody", "body", string(body))
-		return nil, err
-	}
-	if requestUser == nil || !requestUser.IsSystemAdmin() {
-		if req.Password == "" {
-			return nil, commonerrors.NewBadRequest("the password is empty")
-		}
-	}
-	return req, nil
 }
 
 // parseLoginQuery parses and validates the user login request.

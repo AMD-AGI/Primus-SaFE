@@ -42,6 +42,8 @@ type FacadeInterface interface {
 	GetCheckpointEvent() CheckpointEventFacadeInterface
 	// GetDetectionConflictLog returns the DetectionConflictLog Facade interface
 	GetDetectionConflictLog() DetectionConflictLogFacadeInterface
+	// GetGpuUsageWeeklyReport returns the GpuUsageWeeklyReport Facade interface
+	GetGpuUsageWeeklyReport() GpuUsageWeeklyReportFacadeInterface
 	// WithCluster returns a new Facade instance using the specified cluster
 	WithCluster(clusterName string) FacadeInterface
 }
@@ -68,6 +70,8 @@ type Facade struct {
 	AiWorkloadMetadata     AiWorkloadMetadataFacadeInterface
 	CheckpointEvent        CheckpointEventFacadeInterface
 	DetectionConflictLog   DetectionConflictLogFacadeInterface
+	WorkloadStatistic    WorkloadStatisticFacadeInterface
+	GpuUsageWeeklyReport GpuUsageWeeklyReportFacadeInterface
 }
 
 // NewFacade creates a new Facade instance
@@ -93,6 +97,8 @@ func NewFacade() *Facade {
 		AiWorkloadMetadata:     NewAiWorkloadMetadataFacade(),
 		CheckpointEvent:        NewCheckpointEventFacade(),
 		DetectionConflictLog:   NewDetectionConflictLogFacade(),
+		WorkloadStatistic:    NewWorkloadStatisticFacade(),
+		GpuUsageWeeklyReport: NewGpuUsageWeeklyReportFacade(),
 	}
 }
 
@@ -196,6 +202,11 @@ func (f *Facade) GetDetectionConflictLog() DetectionConflictLogFacadeInterface {
 	return f.DetectionConflictLog
 }
 
+// GetGpuUsageWeeklyReport returns the GpuUsageWeeklyReport Facade interface
+func (f *Facade) GetGpuUsageWeeklyReport() GpuUsageWeeklyReportFacadeInterface {
+	return f.GpuUsageWeeklyReport
+}
+
 // WithCluster returns a new Facade instance, all sub-Facades use the specified cluster
 func (f *Facade) WithCluster(clusterName string) FacadeInterface {
 	return &Facade{
@@ -219,6 +230,8 @@ func (f *Facade) WithCluster(clusterName string) FacadeInterface {
 		AiWorkloadMetadata:     f.AiWorkloadMetadata.WithCluster(clusterName),
 		CheckpointEvent:        f.CheckpointEvent.WithCluster(clusterName),
 		DetectionConflictLog:   f.DetectionConflictLog.WithCluster(clusterName),
+		WorkloadStatistic:    f.WorkloadStatistic.WithCluster(clusterName),
+		GpuUsageWeeklyReport: f.GpuUsageWeeklyReport.WithCluster(clusterName),
 	}
 }
 

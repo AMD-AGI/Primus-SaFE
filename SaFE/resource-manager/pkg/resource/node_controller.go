@@ -76,10 +76,6 @@ func SetupNodeController(mgr manager.Manager) error {
 // relevantChangePredicate defines which Node changes should trigger reconciliation.
 func (r *NodeReconciler) relevantChangePredicate() predicate.Predicate {
 	return predicate.Funcs{
-		CreateFunc: func(e event.CreateEvent) bool {
-			_, ok := e.Object.(*v1.Node)
-			return ok
-		},
 		UpdateFunc: func(e event.UpdateEvent) bool {
 			oldNode, ok1 := e.ObjectOld.(*v1.Node)
 			newNode, ok2 := e.ObjectNew.(*v1.Node)
@@ -87,12 +83,6 @@ func (r *NodeReconciler) relevantChangePredicate() predicate.Predicate {
 				return false
 			}
 			return r.isNodeRelevantFieldChanged(oldNode, newNode)
-		},
-		DeleteFunc: func(evt event.DeleteEvent) bool {
-			return false
-		},
-		GenericFunc: func(evt event.GenericEvent) bool {
-			return false
 		},
 	}
 }
@@ -263,7 +253,7 @@ func (r *NodeReconciler) observeCluster(_ context.Context, adminNode *v1.Node, k
 func (r *NodeReconciler) processNode(ctx context.Context, adminNode *v1.Node, k8sNode *corev1.Node) (ctrlruntime.Result, error) {
 	if result, err := r.updateK8sNode(ctx, adminNode, k8sNode); err != nil || result.RequeueAfter > 0 {
 		if err != nil {
-			klog.ErrorS(err, "failed to update k8s node")
+			klog.ErrorS(err, "failed to update k8s node", "node", adminNode.Name)
 		}
 		return result, err
 	}
@@ -304,13 +294,14 @@ func (r *NodeReconciler) updateMachineStatus(ctx context.Context,
 	if node.Status.MachineStatus.Phase == phase && node.Status.MachineStatus.HostName == hostname {
 		return nil
 	}
-	originalNode := client.MergeFrom(node.DeepCopy())
+
+	patch := client.MergeFrom(node.DeepCopy())
 	node.Status.MachineStatus.Phase = phase
 	if hostname != "" {
 		node.Status.MachineStatus.HostName = hostname
 	}
 	node.Status.MachineStatus.UpdateTime = &metav1.Time{Time: time.Now().UTC()}
-	if err := r.Status().Patch(ctx, node, originalNode); err != nil {
+	if err := r.Status().Patch(ctx, node, patch); err != nil {
 		klog.ErrorS(err, "failed to patch status", "node", node.Name)
 		return err
 	}
@@ -370,9 +361,11 @@ func (r *NodeReconciler) updateK8sNode(ctx context.Context, adminNode *v1.Node, 
 		klog.ErrorS(err, "failed to remove taint conditions")
 		return ctrlruntime.Result{}, err
 	}
-	delete(adminNode.Annotations, v1.NodeLabelAction)
-	delete(adminNode.Annotations, v1.NodeAnnotationAction)
-	if err = r.Update(ctx, adminNode); err != nil {
+
+	patch := client.MergeFrom(adminNode.DeepCopy())
+	v1.RemoveAnnotation(adminNode, v1.NodeLabelAction)
+	v1.RemoveAnnotation(adminNode, v1.NodeAnnotationAction)
+	if err = r.Patch(ctx, adminNode, patch); err != nil {
 		return ctrlruntime.Result{}, err
 	}
 	return ctrlruntime.Result{}, nil
@@ -504,7 +497,6 @@ func (r *NodeReconciler) updateK8sNodeWorkspace(adminNode *v1.Node, k8sNode *cor
 func (r *NodeReconciler) processNodeManagement(ctx context.Context, adminNode *v1.Node, k8sNode *corev1.Node) (ctrlruntime.Result, error) {
 	var err error
 	var result ctrlruntime.Result
-	originalNode := client.MergeFrom(adminNode.DeepCopy())
 	if adminNode.GetSpecCluster() != "" {
 		result, err = r.manage(ctx, adminNode, k8sNode)
 	} else {
@@ -525,7 +517,7 @@ func (r *NodeReconciler) processNodeManagement(ctx context.Context, adminNode *v
 		klog.ErrorS(err, "failed to handle node", "node", adminNode.Name)
 		return ctrlruntime.Result{}, err
 	}
-	if err = r.Status().Patch(ctx, adminNode, originalNode); err != nil {
+	if err = r.Status().Update(ctx, adminNode); err != nil {
 		klog.ErrorS(err, "failed to update node status", "node", adminNode.Name)
 		return ctrlruntime.Result{}, err
 	}
@@ -768,7 +760,8 @@ func (r *NodeReconciler) syncLabelsToK8sNode(ctx context.Context,
 	}
 	data, err := json.Marshal(map[string]interface{}{
 		"metadata": map[string]interface{}{
-			"labels": labels,
+			"resourceVersion": k8sNode.ResourceVersion,
+			"labels":          labels,
 		},
 	})
 	if err != nil {

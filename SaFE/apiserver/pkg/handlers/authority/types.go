@@ -10,7 +10,11 @@ const (
 
 	UserWorkspaceResource = "user/workspace"
 	UserIdentityResource  = "user/identity"
-	SecretResourceKind    = "Secret"
+	SecretResourceKind    = "secret"
+	PreflightKind         = "preflight"
+	PublicKeyKind         = "PublicKey"
+	ImageImportKind       = "ImageImport"
+	ImageRegisterKind     = "ImageRegister"
 	AllResource           = "*"
 
 	GrantedAllUser       = "*"

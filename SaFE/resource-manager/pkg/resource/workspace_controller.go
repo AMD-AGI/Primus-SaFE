@@ -16,9 +16,11 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	apitypes "k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
@@ -83,31 +85,17 @@ func SetupWorkspaceController(mgr manager.Manager, opt *WorkspaceReconcilerOptio
 
 // relevantChangePredicate defines which Workspace changes should trigger reconciliation.
 func (r *WorkspaceReconciler) relevantChangePredicate() predicate.Predicate {
-	isRelevantFieldChanged := func(oldWorkspace, newWorkspace *v1.Workspace) bool {
-		if oldWorkspace.Spec.Replica != newWorkspace.Spec.Replica ||
-			v1.GetWorkspaceNodesAction(oldWorkspace) == "" && v1.GetWorkspaceNodesAction(newWorkspace) != "" ||
-			(oldWorkspace.GetDeletionTimestamp().IsZero() && !newWorkspace.GetDeletionTimestamp().IsZero()) {
-			return true
-		}
-		return false
-	}
-
 	return predicate.Funcs{
-		CreateFunc: func(evt event.CreateEvent) bool {
-			return true
-		},
 		UpdateFunc: func(evt event.UpdateEvent) bool {
 			oldWorkspace, ok1 := evt.ObjectOld.(*v1.Workspace)
 			newWorkspace, ok2 := evt.ObjectNew.(*v1.Workspace)
 			if !ok1 || !ok2 {
 				return false
 			}
-			return isRelevantFieldChanged(oldWorkspace, newWorkspace)
-		},
-		DeleteFunc: func(evt event.DeleteEvent) bool {
-			return false
-		},
-		GenericFunc: func(evt event.GenericEvent) bool {
+			if v1.GetWorkspaceNodesAction(oldWorkspace) == "" && v1.GetWorkspaceNodesAction(newWorkspace) != "" ||
+				(oldWorkspace.GetDeletionTimestamp().IsZero() && !newWorkspace.GetDeletionTimestamp().IsZero()) {
+				return true
+			}
 			return false
 		},
 	}
@@ -165,19 +153,90 @@ func (r *WorkspaceReconciler) handleNodeEvent() handler.EventHandler {
 	}
 }
 
+// guaranteeDataPlaneResources creates required resources in the data plane for a workspace.
+func (r *WorkspaceReconciler) guaranteeDataPlaneResources(ctx context.Context, workspace *v1.Workspace, clientSet kubernetes.Interface) error {
+	// create namespace for data plane
+	if err := createDataplaneNamespace(ctx, workspace.Name, clientSet); err != nil {
+		klog.ErrorS(err, "failed to create namespace for data plane", "name", workspace.Name)
+		return err
+	}
+	if err := createDataPlanePvc(ctx, workspace, clientSet); err != nil {
+		klog.ErrorS(err, "failed to create pvc for data plane", "name", workspace.Name)
+		return err
+	}
+	if err := createCICDNoPermissionSA(ctx, workspace, clientSet); err != nil {
+		klog.ErrorS(err, "failed to create service account for cicd with no permission", "name", workspace.Name)
+		return err
+	}
+	if err := syncDataPlanePVC(ctx, workspace, clientSet); err != nil {
+		klog.ErrorS(err, "failed to sync pvc for data plane", "name", workspace.Name)
+		return err
+	}
+	return nil
+}
+
+func (r *WorkspaceReconciler) getClientSetOfDataplane(ctx context.Context, clusterId string) (kubernetes.Interface, error) {
+	if clusterId == "" {
+		return nil, nil
+	}
+	cluster := &v1.Cluster{}
+	if err := r.Get(ctx, client.ObjectKey{Name: clusterId}, cluster); err != nil {
+		return nil, err
+	}
+	k8sClients, err := utils.GetK8sClientFactory(r.clientManager, clusterId)
+	if err != nil || !k8sClients.IsValid() {
+		return nil, fmt.Errorf("the cluster(%s) clients is not ready", clusterId)
+	}
+	return k8sClients.ClientSet(), nil
+}
+
+// deleteDataPlaneResources deletes data plane resources when a workspace is deleted.
+func (r *WorkspaceReconciler) deleteDataPlaneResources(ctx context.Context, workspace *v1.Workspace) error {
+	clientSet, err := r.getClientSetOfDataplane(ctx, workspace.Spec.Cluster)
+	if err != nil || clientSet == nil {
+		return client.IgnoreNotFound(err)
+	}
+	for _, vol := range workspace.Spec.Volumes {
+		if vol.Type == v1.HOSTPATH {
+			continue
+		}
+		if err = deletePVC(ctx, vol.GenFullVolumeId(), workspace.Name, clientSet); err != nil {
+			return err
+		}
+	}
+	if err = deleteCICDNoPermissionSA(ctx, workspace, clientSet); err != nil {
+		return err
+	}
+	if err = deleteWorkspaceSecrets(ctx, workspace, clientSet); err != nil {
+		return err
+	}
+	if err = deleteDataplaneNamespace(ctx, workspace.Name, clientSet); err != nil {
+		return err
+	}
+	return nil
+}
+
 // Reconcile is the main control loop for Workspace resources.
 func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrlruntime.Request) (ctrlruntime.Result, error) {
-	startTime := time.Now().UTC()
-	defer func() {
-		klog.V(4).Infof("Finished reconcile %s %s cost (%v)", v1.WorkspaceKind, req.Name, time.Since(startTime))
-	}()
-
 	workspace := new(v1.Workspace)
 	if err := r.Get(ctx, req.NamespacedName, workspace); err != nil {
 		return ctrlruntime.Result{}, client.IgnoreNotFound(err)
 	}
 	if !workspace.GetDeletionTimestamp().IsZero() {
 		return ctrlruntime.Result{}, r.delete(ctx, workspace)
+	}
+	clientSet, err := r.getClientSetOfDataplane(ctx, workspace.Spec.Cluster)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return ctrlruntime.Result{}, nil
+		}
+		return ctrlruntime.Result{RequeueAfter: time.Second}, nil
+	}
+	if clientSet == nil {
+		return ctrlruntime.Result{}, nil
+	}
+	if err = r.guaranteeDataPlaneResources(ctx, workspace, clientSet); err != nil {
+		return ctrlruntime.Result{}, err
 	}
 	result, err := r.processWorkspace(ctx, workspace)
 	if err != nil {
@@ -189,18 +248,32 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrlruntime.Req
 // delete handles the deletion of a Workspace resource by unbinding nodes and removing finalizers.
 func (r *WorkspaceReconciler) delete(ctx context.Context, workspace *v1.Workspace) error {
 	var err error
-	nodeList := &v1.NodeList{}
-	labelSelector := labels.SelectorFromSet(map[string]string{v1.WorkspaceIdLabel: workspace.Name})
-	if err = r.List(ctx, nodeList, &client.ListOptions{LabelSelector: labelSelector}); err != nil {
+	if err = r.updatePhase(ctx, workspace, v1.WorkspaceDeleting); err != nil {
+		klog.ErrorS(err, "failed to update phase for workspace", "name", workspace.Name)
 		return err
 	}
-	nodes := commonnodes.Nodes2PointerSlice(nodeList.Items)
+
+	nodeList := &v1.NodeList{}
+	if err = r.List(ctx, nodeList); err != nil {
+		return err
+	}
+	var nodes []*v1.Node
+	for i, item := range nodeList.Items {
+		if item.GetSpecWorkspace() == workspace.Name {
+			nodes = append(nodes, &nodeList.Items[i])
+		}
+	}
 	if err = r.updateNodesBinding(ctx, workspace, nodes, buildTargetList(nodes, "")); err != nil {
 		return err
 	}
+	// Wait for all expected unbind operations to be observed before proceeding
+	if !r.meetExpectations(workspace.Name) {
+		klog.Infof("Workspace(%s) delete waiting for node unbinding to complete", workspace.Name)
+		return nil
+	}
 	r.removeExpectations(workspace.Name)
-	if err = r.updatePhase(ctx, workspace, v1.WorkspaceDeleting); err != nil {
-		klog.ErrorS(err, "failed to update phase for workspace")
+	if err = r.deleteDataPlaneResources(ctx, workspace); err != nil {
+		klog.ErrorS(err, "failed to delete data plane resources for workspace", "name", workspace.Name)
 		return err
 	}
 	return utils.RemoveFinalizer(ctx, r.Client, workspace, v1.WorkspaceFinalizer)
@@ -211,10 +284,10 @@ func (r *WorkspaceReconciler) updatePhase(ctx context.Context, workspace *v1.Wor
 	if workspace.Status.Phase == phase {
 		return nil
 	}
-	originalWorkspace := client.MergeFrom(workspace.DeepCopy())
+	patch := client.MergeFrom(workspace.DeepCopy())
 	workspace.Status.UpdateTime = &metav1.Time{Time: time.Now().UTC()}
 	workspace.Status.Phase = phase
-	if err := r.Status().Patch(ctx, workspace, originalWorkspace); err != nil {
+	if err := r.Status().Patch(ctx, workspace, patch); err != nil {
 		return err
 	}
 	return nil
@@ -273,6 +346,9 @@ func (r *WorkspaceReconciler) processWorkspace(ctx context.Context, workspace *v
 	}
 	if err = r.syncWorkspace(ctx, workspace); err != nil {
 		return ctrlruntime.Result{}, err
+	}
+	if workspace.Spec.NodeFlavor == "" {
+		return ctrlruntime.Result{}, nil
 	}
 
 	totalStatusCount := workspace.CurrentReplica()
@@ -489,7 +565,7 @@ func (r *WorkspaceReconciler) processNodesAction(ctx context.Context, workspace 
 		if err := r.Get(ctx, client.ObjectKey{Name: key}, node); client.IgnoreNotFound(err) != nil {
 			return false, err
 		}
-		if node == nil || !node.GetDeletionTimestamp().IsZero() {
+		if node == nil || node.Name == "" || !node.GetDeletionTimestamp().IsZero() {
 			continue
 		}
 		if val == v1.NodeActionRemove {
@@ -519,8 +595,9 @@ func (r *WorkspaceReconciler) removeNodesAction(ctx context.Context, workspace *
 	if v1.GetWorkspaceNodesAction(workspace) == "" {
 		return nil
 	}
-	delete(workspace.Annotations, v1.WorkspaceNodesAction)
-	if err := r.Update(ctx, workspace); err != nil {
+	patch := client.MergeFrom(workspace.DeepCopy())
+	v1.RemoveAnnotation(workspace, v1.WorkspaceNodesAction)
+	if err := r.Patch(ctx, workspace, patch); err != nil {
 		return err
 	}
 	return nil
@@ -563,12 +640,13 @@ func (r *WorkspaceReconciler) updateSingleNodeBinding(ctx context.Context, node 
 	if node.Spec.Workspace != nil && *node.Spec.Workspace == target {
 		return false, nil
 	}
+	patch := client.MergeFrom(node.DeepCopy())
 	node.Spec.Workspace = pointer.String(target)
-	klog.Infof("updateSingleNodeBinding, node: %s, target: %s", node.Name, target)
-	if err := r.Update(ctx, node); err != nil {
+	if err := r.Patch(ctx, node, patch); err != nil {
 		klog.ErrorS(err, "failed to update node", "target", target)
 		return false, err
 	}
+	klog.Infof("updateSingleNodeBinding, node: %s, target: %s", node.Name, target)
 	return true, nil
 }
 

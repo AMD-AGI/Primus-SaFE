@@ -25,16 +25,19 @@ const (
 
 type CreateSecretRequest struct {
 	// Used to generate the secret ID, which will do normalization processing, e.g. lowercase
-	Name string `json:"name,omitempty"`
-	// Secret type, e.g. image, ssh
+	Name string `json:"name"`
+	// The workspaces which the secret belongs to
+	WorkspaceIds []string `json:"workspaceIds,omitempty"`
+	// Secret type, e.g. image, ssh, default
 	Type v1.SecretType `json:"type"`
-	// Parameters required for creating the secret, including username, password, privateKey, publicKey.
-	// the private key, public key and password need to be Base64 encoded.
+	// Parameters required for creating the secret, including username, password, privateKey, publicKey and so on
+	// for a general secret, you can define any parameters.
+	// the private key, public key, password and value of general secret need to be Base64 encoded.
 	// each server can have only one auth entry.
 	// Multiple auths may be created for image secret, so the params is a slice
 	Params []map[SecretParam]string `json:"params"`
-	// Whether to bind the secret to all workspaces, only for image secret
-	BindAllWorkspaces bool `json:"bindAllWorkspaces,omitempty"`
+	// The secret owner, For internal use.
+	Owner string `json:"-"`
 }
 
 type CreateSecretResponse struct {
@@ -43,9 +46,11 @@ type CreateSecretResponse struct {
 }
 
 type ListSecretRequest struct {
-	// Secret type, e.g. ssh, image
+	// Secret type, e.g. ssh, image, general
 	// if specifying multiple phase queries, separate them with commas
 	Type string `form:"type" binding:"omitempty"`
+	// the workspace which the secret belongs to
+	WorkspaceId *string `json:"workspaceId,omitempty"`
 }
 
 type ListSecretResponse struct {
@@ -59,14 +64,22 @@ type SecretResponseItem struct {
 	SecretId string `json:"secretId"`
 	// Secret name
 	SecretName string `json:"secretName"`
+	// The workspaces which the secret belongs to
+	WorkspaceIds []string `json:"workspaceIds"`
 	// Secret type, e.g. ssh, image
 	Type string `json:"type"`
-	// Parameters required for creating the secret, including username, password, privateKey, publicKey.
-	Params []map[SecretParam]string `json:"params"`
 	// Creation timestamp of the secret
 	CreationTime string `json:"creationTime"`
-	// Whether to bind the secret to all workspaces
-	BindAllWorkspaces bool `json:"bindAllWorkspaces,omitempty"`
+	// The userId who created the secret
+	UserId string `json:"userId"`
+	// The userName who created the secret
+	UserName string `json:"userName"`
+}
+
+type GetSecretResponse struct {
+	SecretResponseItem
+	// Parameters required for creating the secret, including username, password, privateKey, publicKey.
+	Params []map[SecretParam]string `json:"params"`
 }
 
 type DockerConfigItem struct {
@@ -84,7 +97,9 @@ type PatchSecretRequest struct {
 	// the private key, public key and password need to be Base64 encoded.
 	// each server can have only one auth entry.
 	// Multiple auths may be created for image secret, so the params is a slice
+	// When provided, the params list will REPLACE the existing parameters.
 	Params *[]map[SecretParam]string `json:"params,omitempty"`
-	// Whether to bind the secret to all workspaces, only for image secret
-	BindAllWorkspaces *bool `json:"bindAllWorkspaces,omitempty"`
+	// the workspaces which the secret belongs to.
+	// When provided, this list will REPLACE the existing bound workspaces.
+	WorkspaceIds *[]string `json:"workspaceIds,omitempty"`
 }

@@ -110,11 +110,15 @@ func (h *Handler) DeleteNodes(c *gin.Context) {
 // Validates the request, generates a node object with specified parameters,
 // and persists it in the system.
 func (h *Handler) createNode(c *gin.Context) (interface{}, error) {
-	if err := h.accessController.Authorize(authority.AccessInput{
+	requestUser, err := h.getAndSetUsername(c)
+	if err != nil {
+		return nil, err
+	}
+	if err = h.accessController.Authorize(authority.AccessInput{
 		Context:      c.Request.Context(),
 		ResourceKind: v1.NodeKind,
 		Verb:         v1.CreateVerb,
-		UserId:       c.GetString(common.UserId),
+		User:         requestUser,
 	}); err != nil {
 		return nil, err
 	}
@@ -126,7 +130,7 @@ func (h *Handler) createNode(c *gin.Context) (interface{}, error) {
 		return nil, commonerrors.NewBadRequest(err.Error())
 	}
 
-	node, err := h.generateNode(c, req, body)
+	node, err := h.generateNode(c.Request.Context(), requestUser, req, body)
 	if err != nil {
 		klog.ErrorS(err, "failed to generate node")
 		return nil, err
@@ -461,9 +465,8 @@ func (h *Handler) patchNode(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 
-	maxRetry := 3
 	if err = backoff.ConflictRetry(func() error {
-		shouldUpdate, innerErr := h.updateNode(ctx, node, req)
+		shouldUpdate, innerErr := h.modifyNode(ctx, node, req)
 		if innerErr != nil || !shouldUpdate {
 			return innerErr
 		}
@@ -472,7 +475,7 @@ func (h *Handler) patchNode(c *gin.Context) (interface{}, error) {
 			h.getAdminNode(ctx, nodeId)
 		}
 		return innerErr
-	}, maxRetry, time.Millisecond*200); err != nil {
+	}, defaultRetryCount, defaultRetryDelay); err != nil {
 		klog.ErrorS(err, "failed to update node", "name", node.Name)
 		return nil, err
 	}
@@ -696,7 +699,7 @@ func (h *Handler) getUsedResource(ctx context.Context, node *v1.Node) (*resource
 
 // generateNode creates a new node object based on the creation request.
 // Validates the request parameters and create References for the flavors and templates used internally.
-func (h *Handler) generateNode(c *gin.Context, req *types.CreateNodeRequest, body []byte) (*v1.Node, error) {
+func (h *Handler) generateNode(ctx context.Context, requestUser *v1.User, req *types.CreateNodeRequest, body []byte) (*v1.Node, error) {
 	node := &v1.Node{
 		ObjectMeta: metav1.ObjectMeta{
 			Labels: req.Labels,
@@ -709,7 +712,6 @@ func (h *Handler) generateNode(c *gin.Context, req *types.CreateNodeRequest, bod
 	if err = validateCreateNodeRequest(req); err != nil {
 		return nil, err
 	}
-	ctx := c.Request.Context()
 	nf, err := h.getAdminNodeFlavor(ctx, req.FlavorId)
 	if err != nil {
 		return nil, err
@@ -724,12 +726,12 @@ func (h *Handler) generateNode(c *gin.Context, req *types.CreateNodeRequest, bod
 		node.Spec.NodeTemplate = commonutils.GenObjectReference(nt.TypeMeta, nt.ObjectMeta)
 	}
 
-	secret, err := h.getAdminSecret(ctx, req.SSHSecretId)
+	secret, err := h.getAndAuthorizeSecret(ctx, req.SSHSecretId, "", requestUser, v1.GetVerb)
 	if err != nil {
 		return nil, err
 	}
 	node.Spec.SSHSecret = commonutils.GenObjectReference(secret.TypeMeta, secret.ObjectMeta)
-	v1.SetLabel(node, v1.UserIdLabel, c.GetString(common.UserId))
+	v1.SetLabel(node, v1.UserIdLabel, requestUser.Name)
 	return node, nil
 }
 
@@ -790,9 +792,9 @@ func parseListNodeQuery(c *gin.Context) (*types.ListNodeRequest, error) {
 	return query, nil
 }
 
-// updateNode applies updates to a node based on the patch request.
+// modifyNode applies updates to a node based on the patch request.
 // Handles label updates, taint modifications, flavor/template changes, and port updates.
-func (h *Handler) updateNode(ctx context.Context, node *v1.Node, req *types.PatchNodeRequest) (bool, error) {
+func (h *Handler) modifyNode(ctx context.Context, node *v1.Node, req *types.PatchNodeRequest) (bool, error) {
 	shouldUpdate := false
 	nodesLabelAction := generateNodeLabelAction(node, req)
 	if len(nodesLabelAction) > 0 {
@@ -929,7 +931,7 @@ func generateNodeLabelAction(node *v1.Node, req *types.PatchNodeRequest) map[str
 			val2, ok := (*req.Labels)[key]
 			if !ok {
 				nodesLabelAction[key] = v1.NodeActionRemove
-				delete(node.Labels, key)
+				v1.RemoveLabel(node, key)
 			} else if val != val2 {
 				nodesLabelAction[key] = v1.NodeActionAdd
 				v1.SetLabel(node, key, val2)

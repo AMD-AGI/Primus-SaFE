@@ -11,14 +11,14 @@ import (
 	"strings"
 	"time"
 
-	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
-	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	sqrl "github.com/Masterminds/squirrel"
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/custom-handlers/types"
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
@@ -67,7 +67,7 @@ func (h *Handler) createPublicKey(c *gin.Context) (interface{}, error) {
 	}
 	if err = h.accessController.Authorize(authority.AccessInput{
 		Context:      c.Request.Context(),
-		ResourceKind: common.PublicKeyKind,
+		ResourceKind: authority.PublicKeyKind,
 		Verb:         v1.CreateVerb,
 		UserId:       c.GetString(common.UserId),
 	}); err != nil {
@@ -103,7 +103,7 @@ func (h *Handler) listPublicKeys(c *gin.Context) (interface{}, error) {
 
 	if err = h.accessController.Authorize(authority.AccessInput{
 		Context:      c.Request.Context(),
-		ResourceKind: common.PublicKeyKind,
+		ResourceKind: authority.PublicKeyKind,
 		Verb:         v1.ListVerb,
 		UserId:       c.GetString(common.UserId),
 	}); err != nil {
@@ -148,7 +148,7 @@ func (h *Handler) deletePublicKey(c *gin.Context) (interface{}, error) {
 
 	if err = h.accessController.Authorize(authority.AccessInput{
 		Context:      c.Request.Context(),
-		ResourceKind: common.PublicKeyKind,
+		ResourceKind: authority.PublicKeyKind,
 		Verb:         v1.DeleteVerb,
 		UserId:       c.GetString(common.UserId),
 	}); err != nil {
@@ -183,7 +183,7 @@ func (h *Handler) setPublicKeyStatus(c *gin.Context) (interface{}, error) {
 
 	if err = h.accessController.Authorize(authority.AccessInput{
 		Context:      c.Request.Context(),
-		ResourceKind: common.PublicKeyKind,
+		ResourceKind: authority.PublicKeyKind,
 		Verb:         v1.UpdateVerb,
 		UserId:       c.GetString(common.UserId),
 	}); err != nil {
@@ -216,7 +216,7 @@ func (h *Handler) setPublicKeyDescription(c *gin.Context) (interface{}, error) {
 
 	if err = h.accessController.Authorize(authority.AccessInput{
 		Context:      c.Request.Context(),
-		ResourceKind: common.PublicKeyKind,
+		ResourceKind: authority.PublicKeyKind,
 		Verb:         v1.UpdateVerb,
 		UserId:       c.GetString(common.UserId),
 	}); err != nil {

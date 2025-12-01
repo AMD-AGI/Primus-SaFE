@@ -34,6 +34,9 @@ import (
 const (
 	ForceDeleteDelaySeconds = 20
 	LogTailLines            = 1000
+
+	appComponent     = "app.kubernetes.io/component"
+	scaleSetListener = "runner-scale-set-listener"
 )
 
 // handlePod processes Pod resource events (add, update, delete).
@@ -46,7 +49,7 @@ func (r *SyncerReconciler) handlePod(ctx context.Context, message *resourceMessa
 	if err != nil {
 		return ctrlruntime.Result{}, err
 	}
-	obj, err := jobutils.GetObject(informer, message.name, message.namespace)
+	obj, err := jobutils.GetObjectByInformer(informer, message.name, message.namespace)
 	if err != nil {
 		return ctrlruntime.Result{}, err
 	}
@@ -107,17 +110,8 @@ func (r *SyncerReconciler) updateWorkloadPod(ctx context.Context, obj *unstructu
 	if adminWorkload == nil {
 		return ctrlruntime.Result{}, err
 	}
-
 	if !v1.IsWorkloadDispatched(adminWorkload) {
 		return ctrlruntime.Result{RequeueAfter: time.Second}, nil
-	}
-	k8sNode := &corev1.Node{}
-	if pod.Spec.NodeName != "" {
-		if k8sNode, err = clusterInformer.dataClientFactory.ClientSet().
-			CoreV1().Nodes().Get(ctx, pod.Spec.NodeName, metav1.GetOptions{}); err != nil {
-			klog.ErrorS(err, "failed to get k8s node")
-			return ctrlruntime.Result{}, err
-		}
 	}
 
 	id := -1
@@ -131,6 +125,15 @@ func (r *SyncerReconciler) updateWorkloadPod(ctx context.Context, obj *unstructu
 			return ctrlruntime.Result{}, nil
 		}
 		break
+	}
+
+	k8sNode := &corev1.Node{}
+	if pod.Spec.NodeName != "" {
+		if k8sNode, err = clusterInformer.dataClientFactory.ClientSet().
+			CoreV1().Nodes().Get(ctx, pod.Spec.NodeName, metav1.GetOptions{}); err != nil {
+			klog.ErrorS(err, "failed to get k8s node")
+			return ctrlruntime.Result{}, err
+		}
 	}
 
 	workloadPod := v1.WorkloadPod{
@@ -162,7 +165,29 @@ func (r *SyncerReconciler) updateWorkloadPod(ctx context.Context, obj *unstructu
 	if shouldUpdateNodes {
 		r.updateWorkloadNodes(adminWorkload, message)
 	}
+	if commonworkload.IsCICDScalingRunnerSet(adminWorkload) {
+		updateCICDScalingRunnerSetPhase(adminWorkload, pod)
+	}
 	return ctrlruntime.Result{}, r.Status().Update(ctx, adminWorkload)
+}
+
+// updateCICDScalingRunnerSetPhase updates the workload phase for CICD scaling runner sets
+// based on the phase of its listener pod, since these workloads don't have inherent status.
+// Running pods result in WorkloadRunning status, pending pods result in WorkloadPending,
+// and all other pod phases result in WorkloadNotReady status.
+func updateCICDScalingRunnerSetPhase(adminWorkload *v1.Workload, pod *corev1.Pod) {
+	val, ok := pod.Labels[appComponent]
+	if !ok || val != scaleSetListener {
+		return
+	}
+	switch pod.Status.Phase {
+	case corev1.PodRunning:
+		adminWorkload.Status.Phase = v1.WorkloadRunning
+	case corev1.PodPending:
+		adminWorkload.Status.Phase = v1.WorkloadPending
+	default:
+		adminWorkload.Status.Phase = v1.WorkloadNotReady
+	}
 }
 
 // updateWorkloadNodes updates the node information for a workload.
@@ -285,6 +310,10 @@ func buildPodTerminatedInfo(ctx context.Context,
 // getPodLog retrieves and filters logs from a pod's main container.
 // Extracts lines containing ERROR or SUCCESS markers for OpsJob workloads.
 func getPodLog(ctx context.Context, clientSet kubernetes.Interface, pod *corev1.Pod, mainContainerName string) string {
+	if mainContainerName == "" {
+		klog.Error("the main container is empty")
+		return ""
+	}
 	var tailLine int64 = LogTailLines
 	opt := &corev1.PodLogOptions{
 		Container: mainContainerName,

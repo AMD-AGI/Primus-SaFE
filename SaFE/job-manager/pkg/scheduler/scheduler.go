@@ -14,10 +14,10 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/resource"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/labels"
+	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
-	"k8s.io/utils/pointer"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -38,7 +38,6 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/backoff"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
-	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
 
@@ -133,267 +132,25 @@ func (r *SchedulerReconciler) relevantChangePredicate() predicate.Predicate {
 
 // handleWorkspaceEvent creates an event handler that watches Workspace resource events.
 func (r *SchedulerReconciler) handleWorkspaceEvent() handler.EventHandler {
-	maxWaitTime := defaultRetryDelay * 10
 	return handler.Funcs{
-		CreateFunc: func(ctx context.Context, evt event.CreateEvent, q v1.RequestWorkQueue) {
-			workspace, ok := evt.Object.(*v1.Workspace)
-			if !ok {
-				return
-			}
-			operation := func() error {
-				return r.createDataPlaneResources(ctx, workspace)
-			}
-			if err := backoff.Retry(operation, maxWaitTime, defaultRetryDelay); err != nil {
-				klog.Error(err.Error())
-			}
-		},
+		CreateFunc: func(ctx context.Context, evt event.CreateEvent, q v1.RequestWorkQueue) {},
 		UpdateFunc: func(ctx context.Context, evt event.UpdateEvent, q v1.RequestWorkQueue) {
 			oldWorkspace, ok1 := evt.ObjectOld.(*v1.Workspace)
 			newWorkspace, ok2 := evt.ObjectNew.(*v1.Workspace)
 			if !ok1 || !ok2 {
 				return
 			}
-			operation := func() error {
-				return r.updateDataPlaneResources(ctx, oldWorkspace, newWorkspace)
-			}
-			if err := backoff.Retry(operation, maxWaitTime, defaultRetryDelay); err != nil {
-				klog.Error(err.Error())
-			}
 			// Since workspace resource updates may impact scheduling decisions, a rescheduling reconciliation is triggered.
-			if !quantity.Equal(oldWorkspace.Status.AvailableResources, newWorkspace.Status.AvailableResources) {
+			if !quantity.Equal(oldWorkspace.Status.AvailableResources, newWorkspace.Status.AvailableResources) ||
+				oldWorkspace.Spec.QueuePolicy != newWorkspace.Spec.QueuePolicy {
 				r.Add(&SchedulerMessage{
 					ClusterId:   newWorkspace.Spec.Cluster,
 					WorkspaceId: newWorkspace.Name,
 				})
 			}
 		},
-		DeleteFunc: func(ctx context.Context, evt event.DeleteEvent, q v1.RequestWorkQueue) {
-			workspace, ok := evt.Object.(*v1.Workspace)
-			if !ok {
-				return
-			}
-			operation := func() error {
-				return r.deleteDataPlaneResources(ctx, workspace)
-			}
-			if err := backoff.Retry(operation, maxWaitTime, defaultRetryDelay); err != nil {
-				klog.Error(err.Error())
-			}
-		},
+		DeleteFunc: func(ctx context.Context, evt event.DeleteEvent, q v1.RequestWorkQueue) {},
 	}
-}
-
-// createDataPlaneResources creates required resources in the data plane for a workspace.
-func (r *SchedulerReconciler) createDataPlaneResources(ctx context.Context, workspace *v1.Workspace) error {
-	clusterInformer, err := syncer.GetClusterInformer(r.clusterInformers, workspace.Spec.Cluster)
-	if err != nil {
-		return err
-	}
-	clientSet := clusterInformer.ClientFactory().ClientSet()
-	// create namespace for data plane
-	if err = jobutils.CreateNamespace(ctx, workspace.Name, clientSet); err != nil {
-		return err
-	}
-	// copy image secret from admin plane to data plane
-	for _, s := range workspace.Spec.ImageSecrets {
-		secret, err := r.getAdminSecret(ctx, s.Name)
-		if err != nil {
-			continue
-		}
-		if err = jobutils.CopySecret(ctx, clientSet, secret, workspace.Name); err != nil {
-			return err
-		}
-	}
-	// create pvc for data plane
-	for _, vol := range workspace.Spec.Volumes {
-		if vol.Type == v1.HOSTPATH {
-			continue
-		}
-		pvc, err := r.generatePVC(&vol, workspace)
-		if err != nil {
-			klog.Error(err.Error())
-			continue
-		}
-		if err = jobutils.CreatePVC(ctx, pvc, clientSet); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// updateDataPlaneResources updates data plane resources when workspace specifications change.
-func (r *SchedulerReconciler) updateDataPlaneResources(ctx context.Context, oldWorkspace, newWorkspace *v1.Workspace) error {
-	if !reflect.DeepEqual(oldWorkspace.Spec.Volumes, newWorkspace.Spec.Volumes) {
-		if err := r.updateDataPlanePvc(ctx, oldWorkspace, newWorkspace); err != nil {
-			return err
-		}
-	}
-
-	if !reflect.DeepEqual(oldWorkspace.Spec.ImageSecrets, newWorkspace.Spec.ImageSecrets) {
-		if err := r.updateDataPlaneSecrets(ctx, oldWorkspace, newWorkspace); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// updateDataPlanePvc updates PVC resources in the data plane.
-func (r *SchedulerReconciler) updateDataPlanePvc(ctx context.Context, oldWorkspace, newWorkspace *v1.Workspace) error {
-	informer, err := syncer.GetClusterInformer(r.clusterInformers, newWorkspace.Spec.Cluster)
-	if err != nil {
-		return err
-	}
-
-	oldPvcSets := sets.NewSet()
-	for _, vol := range oldWorkspace.Spec.Volumes {
-		if vol.Type == v1.HOSTPATH {
-			continue
-		}
-		oldPvcSets.Insert(vol.GenFullVolumeId())
-	}
-	newPvcSets := sets.NewSet()
-	clientSet := informer.ClientFactory().ClientSet()
-	for _, vol := range newWorkspace.Spec.Volumes {
-		if vol.Type == v1.HOSTPATH {
-			continue
-		}
-		volumeId := vol.GenFullVolumeId()
-		newPvcSets.Insert(volumeId)
-		if oldPvcSets.Has(volumeId) {
-			continue
-		}
-		pvc, err := r.generatePVC(&vol, newWorkspace)
-		if err != nil {
-			klog.Error(err.Error())
-			continue
-		}
-		if err = jobutils.CreatePVC(ctx, pvc, clientSet); err != nil {
-			return err
-		}
-	}
-	for _, vol := range oldWorkspace.Spec.Volumes {
-		if vol.Type == v1.HOSTPATH {
-			continue
-		}
-		volumeId := vol.GenFullVolumeId()
-		if newPvcSets.Has(volumeId) {
-			continue
-		}
-		if err = jobutils.DeletePVC(ctx, volumeId, newWorkspace.Name, clientSet); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// updateDataPlaneSecrets updates secret resources in the data plane.
-func (r *SchedulerReconciler) updateDataPlaneSecrets(ctx context.Context, oldWorkspace, newWorkspace *v1.Workspace) error {
-	informer, err := syncer.GetClusterInformer(r.clusterInformers, newWorkspace.Spec.Cluster)
-	if err != nil {
-		return err
-	}
-	clientSet := informer.ClientFactory().ClientSet()
-
-	oldSecretMap := make(map[string]string)
-	for _, s := range oldWorkspace.Spec.ImageSecrets {
-		oldSecretMap[s.Name] = s.ResourceVersion
-	}
-	newSecretSet := sets.NewSet()
-	for _, s := range newWorkspace.Spec.ImageSecrets {
-		newSecretSet.Insert(s.Name)
-		secret, err := r.getAdminSecret(ctx, s.Name)
-		if err != nil {
-			continue
-		}
-		oldSecretVersion, ok := oldSecretMap[s.Name]
-		if ok {
-			if oldSecretVersion == s.ResourceVersion {
-				continue
-			}
-			if err = jobutils.UpdateSecret(ctx, clientSet, secret, newWorkspace.Name); err != nil {
-				return err
-			}
-		} else {
-			if err = jobutils.CopySecret(ctx, clientSet, secret, newWorkspace.Name); err != nil {
-				return err
-			}
-		}
-	}
-	for _, s := range oldWorkspace.Spec.ImageSecrets {
-		if newSecretSet.Has(s.Name) {
-			continue
-		}
-		if err = jobutils.DeleteSecret(ctx, clientSet, s.Name, newWorkspace.Name); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// deleteDataPlaneResources deletes data plane resources when a workspace is deleted.
-func (r *SchedulerReconciler) deleteDataPlaneResources(ctx context.Context, workspace *v1.Workspace) error {
-	informer, err := syncer.GetClusterInformer(r.clusterInformers, workspace.Spec.Cluster)
-	if err != nil {
-		return err
-	}
-	clientSet := informer.ClientFactory().ClientSet()
-	for _, vol := range workspace.Spec.Volumes {
-		if vol.Type == v1.HOSTPATH {
-			continue
-		}
-		if err = jobutils.DeletePVC(ctx, vol.GenFullVolumeId(), workspace.Name, clientSet); err != nil {
-			return err
-		}
-	}
-	for _, s := range workspace.Spec.ImageSecrets {
-		if err = jobutils.DeleteSecret(ctx, clientSet, s.Name, workspace.Name); err != nil {
-			return err
-		}
-	}
-	if err = jobutils.DeleteNamespace(ctx, workspace.Name, clientSet); err != nil {
-		return err
-	}
-	return nil
-}
-
-// deleteDataPlaneNamespace deletes a namespace in the data plane.
-func (r *SchedulerReconciler) deleteDataPlaneNamespace(ctx context.Context, targetNamespace, clusterId string) error {
-	informer, err := syncer.GetClusterInformer(r.clusterInformers, clusterId)
-	if err != nil {
-		return err
-	}
-	if err = jobutils.DeleteNamespace(ctx, targetNamespace, informer.ClientFactory().ClientSet()); err != nil {
-		return err
-	}
-	return nil
-}
-
-// generatePVC generates a PersistentVolumeClaim based on workspace volume specifications.
-func (r *SchedulerReconciler) generatePVC(volume *v1.WorkspaceVolume,
-	workspace *v1.Workspace) (*corev1.PersistentVolumeClaim, error) {
-	pvc := &corev1.PersistentVolumeClaim{}
-	pvc.SetName(volume.GenFullVolumeId())
-	pvc.SetNamespace(workspace.Name)
-	if len(volume.Selector) > 0 {
-		pvc.Spec.Selector = &metav1.LabelSelector{
-			MatchLabels: volume.Selector,
-		}
-	} else {
-		pvc.Spec.StorageClassName = pointer.String(volume.StorageClass)
-	}
-
-	storeQuantity, err := resource.ParseQuantity(volume.Capacity)
-	if err != nil {
-		return nil, err
-	}
-	pvc.Spec.Resources = corev1.VolumeResourceRequirements{
-		Requests: corev1.ResourceList{
-			corev1.ResourceStorage: storeQuantity,
-		},
-	}
-	pvc.Spec.AccessModes = []corev1.PersistentVolumeAccessMode{volume.AccessMode}
-	volumeMode := corev1.PersistentVolumeFilesystem
-	pvc.Spec.VolumeMode = &volumeMode
-	return pvc, nil
 }
 
 // Reconcile is the main control loop for Workload resources that triggers scheduling.
@@ -444,13 +201,74 @@ func (r *SchedulerReconciler) delete(ctx context.Context, adminWorkload *v1.Work
 		klog.ErrorS(err, "failed to delete k8s object")
 		return ctrlruntime.Result{}, err
 	}
+	if result, err := r.waitObjectDeleted(ctx, obj, clusterInformer); err != nil || result.RequeueAfter > 0 {
+		return result, err
+	}
+
+	if commonworkload.IsCICDScalingRunnerSet(adminWorkload) {
+		if err = r.deleteRelatedSecrets(ctx, adminWorkload); err != nil {
+			return ctrlruntime.Result{}, err
+		}
+	}
 	if controllerutil.RemoveFinalizer(adminWorkload, v1.WorkloadFinalizer) {
-		if err = r.Update(ctx, adminWorkload); err != nil {
+		if err = commonutils.PatchObjectFinalizer(ctx, r.Client, adminWorkload); err != nil {
 			return ctrlruntime.Result{}, err
 		}
 	}
 	klog.Infof("delete workload, name: %s", adminWorkload.Name)
 	return ctrlruntime.Result{}, nil
+}
+
+// waitObjectDeleted waits for an object to be fully deleted from the cluster.
+// If the object still exists after 2 minutes of deletion timestamp, it forcefully removes finalizers.
+func (r *SchedulerReconciler) waitObjectDeleted(ctx context.Context,
+	obj *unstructured.Unstructured, clusterInformer *syncer.ClusterInformer) (ctrlruntime.Result, error) {
+
+	k8sClientFactory := clusterInformer.ClientFactory()
+	gvk := obj.GroupVersionKind()
+	current, getErr := jobutils.GetObject(ctx, k8sClientFactory, obj.GetName(), obj.GetNamespace(), gvk)
+	if getErr != nil {
+		return ctrlruntime.Result{}, client.IgnoreNotFound(getErr)
+	}
+
+	// object still exists
+	if ts := current.GetDeletionTimestamp(); ts != nil && !ts.IsZero() && time.Since(ts.Time) > 2*time.Minute {
+		patchObj := map[string]any{
+			"metadata": map[string]any{
+				"finalizers": []string{},
+			},
+		}
+		p := jsonutils.MarshalSilently(patchObj)
+		if patchErr := jobutils.PatchObject(ctx,
+			k8sClientFactory, obj.GetName(), obj.GetNamespace(), gvk, p); patchErr != nil {
+			return ctrlruntime.Result{}, client.IgnoreNotFound(patchErr)
+		}
+	}
+	return ctrlruntime.Result{RequeueAfter: time.Second * 3}, nil
+}
+
+// deleteRelatedSecrets removes all secrets associated with a CICD scaling runner set workload.
+// This ensures proper cleanup of GitHub token secrets when the workload is deleted.
+func (r *SchedulerReconciler) deleteRelatedSecrets(ctx context.Context, adminWorkload *v1.Workload) error {
+	secList := &corev1.SecretList{}
+	selector := labels.SelectorFromSet(map[string]string{v1.OwnerLabel: adminWorkload.Name})
+	if err := r.List(ctx, secList, &client.ListOptions{
+		Namespace:     common.PrimusSafeNamespace,
+		LabelSelector: selector,
+	}); err != nil {
+		klog.ErrorS(err, "failed to list cicd token secrets", "workload", adminWorkload.Name)
+		return err
+	}
+	for i := range secList.Items {
+		sec := &secList.Items[i]
+		if delErr := r.Client.Delete(ctx, sec); delErr != nil && !apierrors.IsNotFound(delErr) {
+			klog.ErrorS(delErr, "failed to delete cicd token secret", "secret", sec.Name, "workload", adminWorkload.Name)
+			return delErr
+		} else {
+			klog.Infof("deleted cicd token secret %s for workload %s", sec.Name, adminWorkload.Name)
+		}
+	}
+	return nil
 }
 
 // Start implements Runnable interface in controller runtime package.
@@ -476,7 +294,7 @@ func (r *SchedulerReconciler) Do(ctx context.Context, message *SchedulerMessage)
 // while those that do not remain in the queue and have their queue positions updated.
 // Preemption of tasks is also supported.
 func (r *SchedulerReconciler) scheduleWorkloads(ctx context.Context, message *SchedulerMessage) error {
-	workspace, err := r.getWorkspace(ctx, message.ClusterId, message.WorkspaceId)
+	workspace, err := r.getWorkspace(ctx, message.WorkspaceId)
 	if workspace == nil {
 		return err
 	}
@@ -666,16 +484,10 @@ func (r *SchedulerReconciler) checkNodeResources(ctx context.Context,
 }
 
 // getWorkspace retrieves a workspace by cluster ID and workspace ID.
-func (r *SchedulerReconciler) getWorkspace(ctx context.Context, clusterId, workspaceId string) (*v1.Workspace, error) {
+func (r *SchedulerReconciler) getWorkspace(ctx context.Context, workspaceId string) (*v1.Workspace, error) {
 	workspace := &v1.Workspace{}
 	if err := r.Get(ctx, client.ObjectKey{Name: workspaceId}, workspace); err != nil {
-		if apierrors.IsNotFound(err) {
-			if err = r.deleteDataPlaneNamespace(ctx, workspaceId, clusterId); err != nil {
-				klog.Error(err.Error())
-			}
-			err = nil
-		}
-		return nil, err
+		return nil, client.IgnoreNotFound(err)
 	}
 	return workspace, nil
 }
@@ -753,30 +565,28 @@ func (r *SchedulerReconciler) getLeftTotalResources(ctx context.Context,
 
 // updateScheduled updates a workload's status to indicate it has been scheduled.
 func (r *SchedulerReconciler) updateScheduled(ctx context.Context, workload *v1.Workload) error {
+	name := workload.Name
 	if err := backoff.ConflictRetry(func() error {
-		err := r.updateStatus(ctx, workload)
-		if err == nil {
+		if innerError := r.updateStatus(ctx, workload); innerError == nil {
 			return nil
+		} else {
+			if apierrors.IsConflict(innerError) {
+				if getErr := r.Get(ctx, client.ObjectKey{Name: name}, workload); getErr != nil {
+					return getErr
+				}
+			}
+			return innerError
 		}
-		if apierrors.IsConflict(err) {
-			r.Get(ctx, client.ObjectKey{Namespace: workload.Namespace, Name: workload.Name}, workload)
-		}
-		return err
 	}, defaultRetryCount, defaultRetryDelay); err != nil {
 		klog.ErrorS(err, "failed to update workload status", "name", workload.Name)
 		return err
 	}
 
-	originalWorkload := client.MergeFrom(workload.DeepCopy())
-	annotations := workload.GetAnnotations()
-	if annotations == nil {
-		annotations = make(map[string]string)
-	}
-	annotations[v1.WorkloadScheduledAnnotation] = timeutil.FormatRFC3339(time.Now().UTC())
-	delete(annotations, v1.WorkloadReScheduledAnnotation)
-	workload.SetAnnotations(annotations)
-	if err := r.Patch(ctx, workload, originalWorkload); err != nil {
-		klog.ErrorS(err, "failed to patch workload", "name", workload.Name)
+	patch := client.MergeFrom(workload.DeepCopy())
+	v1.RemoveAnnotation(workload, v1.WorkloadReScheduledAnnotation)
+	v1.SetAnnotation(workload, v1.WorkloadScheduledAnnotation, timeutil.FormatRFC3339(time.Now().UTC()))
+	if err := r.Patch(ctx, workload, patch); err != nil {
+		klog.ErrorS(err, "failed to update workload", "name", workload.Name)
 		return err
 	}
 	return nil
@@ -789,12 +599,23 @@ func (r *SchedulerReconciler) updateStatus(ctx context.Context, workload *v1.Wor
 	if jobutils.FindCondition(workload, cond) != nil {
 		return nil
 	}
-	workload.Status.Conditions = append(workload.Status.Conditions, *cond)
-	workload.Status.QueuePosition = 0
+
+	statusPatch := map[string]any{}
 	if workload.Status.Phase == "" {
-		workload.Status.Phase = v1.WorkloadPending
+		statusPatch["phase"] = v1.WorkloadPending
 	}
-	if err := r.Status().Update(ctx, workload); err != nil {
+	if workload.Status.QueuePosition > 0 {
+		statusPatch["queuePosition"] = 0
+	}
+	statusPatch["conditions"] = append(workload.Status.Conditions, *cond)
+	patchObj := map[string]any{
+		"metadata": map[string]any{
+			"resourceVersion": workload.ResourceVersion,
+		},
+		"status": statusPatch,
+	}
+	p := jsonutils.MarshalSilently(patchObj)
+	if err := r.Status().Patch(ctx, workload, client.RawPatch(apitypes.MergePatchType, p)); err != nil {
 		return err
 	}
 	return nil
@@ -807,7 +628,7 @@ func (r *SchedulerReconciler) updateUnScheduled(ctx context.Context, workloads [
 		if v1.IsWorkloadScheduled(w) || w.IsEnd() {
 			continue
 		}
-		originalWorkload := client.MergeFrom(workloads[i].DeepCopy())
+		patch := client.MergeFrom(workloads[i].DeepCopy())
 		isChanged := false
 		if workloads[i].Status.QueuePosition != position {
 			workloads[i].Status.QueuePosition = position
@@ -822,8 +643,8 @@ func (r *SchedulerReconciler) updateUnScheduled(ctx context.Context, workloads [
 			isChanged = true
 		}
 		if isChanged {
-			if err := r.Status().Patch(ctx, workloads[i], originalWorkload); err != nil {
-				klog.ErrorS(err, "failed to patch workload", "name", workloads[i].Name)
+			if err := r.Status().Patch(ctx, workloads[i], patch); err != nil {
+				klog.ErrorS(err, "failed to patch workload status", "name", workloads[i].Name)
 			}
 		}
 		position++

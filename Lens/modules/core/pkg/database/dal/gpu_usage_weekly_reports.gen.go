@@ -6,7 +6,6 @@ package dal
 
 import (
 	"context"
-	"database/sql"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -48,7 +47,7 @@ func newGpuUsageWeeklyReports(db *gorm.DB, opts ...gen.DOOption) gpuUsageWeeklyR
 }
 
 type gpuUsageWeeklyReports struct {
-	gpuUsageWeeklyReportsDo
+	gpuUsageWeeklyReportsDo gpuUsageWeeklyReportsDo
 
 	ALL          field.Asterisk
 	ID           field.String // Unique report identifier (e.g., rpt_20251123_x_flannel_001)
@@ -99,6 +98,18 @@ func (g *gpuUsageWeeklyReports) updateTableName(table string) *gpuUsageWeeklyRep
 	return g
 }
 
+func (g *gpuUsageWeeklyReports) WithContext(ctx context.Context) *gpuUsageWeeklyReportsDo {
+	return g.gpuUsageWeeklyReportsDo.WithContext(ctx)
+}
+
+func (g gpuUsageWeeklyReports) TableName() string { return g.gpuUsageWeeklyReportsDo.TableName() }
+
+func (g gpuUsageWeeklyReports) Alias() string { return g.gpuUsageWeeklyReportsDo.Alias() }
+
+func (g gpuUsageWeeklyReports) Columns(cols ...field.Expr) gen.Columns {
+	return g.gpuUsageWeeklyReportsDo.Columns(cols...)
+}
+
 func (g *gpuUsageWeeklyReports) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 	_f, ok := g.fieldMap[fieldName]
 	if !ok || _f == nil {
@@ -137,158 +148,95 @@ func (g gpuUsageWeeklyReports) replaceDB(db *gorm.DB) gpuUsageWeeklyReports {
 
 type gpuUsageWeeklyReportsDo struct{ gen.DO }
 
-type IGpuUsageWeeklyReportsDo interface {
-	gen.SubQuery
-	Debug() IGpuUsageWeeklyReportsDo
-	WithContext(ctx context.Context) IGpuUsageWeeklyReportsDo
-	WithResult(fc func(tx gen.Dao)) gen.ResultInfo
-	ReplaceDB(db *gorm.DB)
-	ReadDB() IGpuUsageWeeklyReportsDo
-	WriteDB() IGpuUsageWeeklyReportsDo
-	As(alias string) gen.Dao
-	Session(config *gorm.Session) IGpuUsageWeeklyReportsDo
-	Columns(cols ...field.Expr) gen.Columns
-	Clauses(conds ...clause.Expression) IGpuUsageWeeklyReportsDo
-	Not(conds ...gen.Condition) IGpuUsageWeeklyReportsDo
-	Or(conds ...gen.Condition) IGpuUsageWeeklyReportsDo
-	Select(conds ...field.Expr) IGpuUsageWeeklyReportsDo
-	Where(conds ...gen.Condition) IGpuUsageWeeklyReportsDo
-	Order(conds ...field.Expr) IGpuUsageWeeklyReportsDo
-	Distinct(cols ...field.Expr) IGpuUsageWeeklyReportsDo
-	Omit(cols ...field.Expr) IGpuUsageWeeklyReportsDo
-	Join(table schema.Tabler, on ...field.Expr) IGpuUsageWeeklyReportsDo
-	LeftJoin(table schema.Tabler, on ...field.Expr) IGpuUsageWeeklyReportsDo
-	RightJoin(table schema.Tabler, on ...field.Expr) IGpuUsageWeeklyReportsDo
-	Group(cols ...field.Expr) IGpuUsageWeeklyReportsDo
-	Having(conds ...gen.Condition) IGpuUsageWeeklyReportsDo
-	Limit(limit int) IGpuUsageWeeklyReportsDo
-	Offset(offset int) IGpuUsageWeeklyReportsDo
-	Count() (count int64, err error)
-	Scopes(funcs ...func(gen.Dao) gen.Dao) IGpuUsageWeeklyReportsDo
-	Unscoped() IGpuUsageWeeklyReportsDo
-	Create(values ...*model.GpuUsageWeeklyReports) error
-	CreateInBatches(values []*model.GpuUsageWeeklyReports, batchSize int) error
-	Save(values ...*model.GpuUsageWeeklyReports) error
-	First() (*model.GpuUsageWeeklyReports, error)
-	Take() (*model.GpuUsageWeeklyReports, error)
-	Last() (*model.GpuUsageWeeklyReports, error)
-	Find() ([]*model.GpuUsageWeeklyReports, error)
-	FindInBatch(batchSize int, fc func(tx gen.Dao, batch int) error) (results []*model.GpuUsageWeeklyReports, err error)
-	FindInBatches(result *[]*model.GpuUsageWeeklyReports, batchSize int, fc func(tx gen.Dao, batch int) error) error
-	Pluck(column field.Expr, dest interface{}) error
-	Delete(...*model.GpuUsageWeeklyReports) (info gen.ResultInfo, err error)
-	Update(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
-	UpdateSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
-	Updates(value interface{}) (info gen.ResultInfo, err error)
-	UpdateColumn(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
-	UpdateColumnSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
-	UpdateColumns(value interface{}) (info gen.ResultInfo, err error)
-	UpdateFrom(q gen.SubQuery) gen.Dao
-	Attrs(attrs ...field.AssignExpr) IGpuUsageWeeklyReportsDo
-	Assign(attrs ...field.AssignExpr) IGpuUsageWeeklyReportsDo
-	Joins(fields ...field.RelationField) IGpuUsageWeeklyReportsDo
-	Preload(fields ...field.RelationField) IGpuUsageWeeklyReportsDo
-	FirstOrInit() (*model.GpuUsageWeeklyReports, error)
-	FirstOrCreate() (*model.GpuUsageWeeklyReports, error)
-	FindByPage(offset int, limit int) (result []*model.GpuUsageWeeklyReports, count int64, err error)
-	ScanByPage(result interface{}, offset int, limit int) (count int64, err error)
-	Rows() (*sql.Rows, error)
-	Row() *sql.Row
-	Scan(result interface{}) (err error)
-	Returning(value interface{}, columns ...string) IGpuUsageWeeklyReportsDo
-	UnderlyingDB() *gorm.DB
-	schema.Tabler
-}
-
-func (g gpuUsageWeeklyReportsDo) Debug() IGpuUsageWeeklyReportsDo {
+func (g gpuUsageWeeklyReportsDo) Debug() *gpuUsageWeeklyReportsDo {
 	return g.withDO(g.DO.Debug())
 }
 
-func (g gpuUsageWeeklyReportsDo) WithContext(ctx context.Context) IGpuUsageWeeklyReportsDo {
+func (g gpuUsageWeeklyReportsDo) WithContext(ctx context.Context) *gpuUsageWeeklyReportsDo {
 	return g.withDO(g.DO.WithContext(ctx))
 }
 
-func (g gpuUsageWeeklyReportsDo) ReadDB() IGpuUsageWeeklyReportsDo {
+func (g gpuUsageWeeklyReportsDo) ReadDB() *gpuUsageWeeklyReportsDo {
 	return g.Clauses(dbresolver.Read)
 }
 
-func (g gpuUsageWeeklyReportsDo) WriteDB() IGpuUsageWeeklyReportsDo {
+func (g gpuUsageWeeklyReportsDo) WriteDB() *gpuUsageWeeklyReportsDo {
 	return g.Clauses(dbresolver.Write)
 }
 
-func (g gpuUsageWeeklyReportsDo) Session(config *gorm.Session) IGpuUsageWeeklyReportsDo {
+func (g gpuUsageWeeklyReportsDo) Session(config *gorm.Session) *gpuUsageWeeklyReportsDo {
 	return g.withDO(g.DO.Session(config))
 }
 
-func (g gpuUsageWeeklyReportsDo) Clauses(conds ...clause.Expression) IGpuUsageWeeklyReportsDo {
+func (g gpuUsageWeeklyReportsDo) Clauses(conds ...clause.Expression) *gpuUsageWeeklyReportsDo {
 	return g.withDO(g.DO.Clauses(conds...))
 }
 
-func (g gpuUsageWeeklyReportsDo) Returning(value interface{}, columns ...string) IGpuUsageWeeklyReportsDo {
+func (g gpuUsageWeeklyReportsDo) Returning(value interface{}, columns ...string) *gpuUsageWeeklyReportsDo {
 	return g.withDO(g.DO.Returning(value, columns...))
 }
 
-func (g gpuUsageWeeklyReportsDo) Not(conds ...gen.Condition) IGpuUsageWeeklyReportsDo {
+func (g gpuUsageWeeklyReportsDo) Not(conds ...gen.Condition) *gpuUsageWeeklyReportsDo {
 	return g.withDO(g.DO.Not(conds...))
 }
 
-func (g gpuUsageWeeklyReportsDo) Or(conds ...gen.Condition) IGpuUsageWeeklyReportsDo {
+func (g gpuUsageWeeklyReportsDo) Or(conds ...gen.Condition) *gpuUsageWeeklyReportsDo {
 	return g.withDO(g.DO.Or(conds...))
 }
 
-func (g gpuUsageWeeklyReportsDo) Select(conds ...field.Expr) IGpuUsageWeeklyReportsDo {
+func (g gpuUsageWeeklyReportsDo) Select(conds ...field.Expr) *gpuUsageWeeklyReportsDo {
 	return g.withDO(g.DO.Select(conds...))
 }
 
-func (g gpuUsageWeeklyReportsDo) Where(conds ...gen.Condition) IGpuUsageWeeklyReportsDo {
+func (g gpuUsageWeeklyReportsDo) Where(conds ...gen.Condition) *gpuUsageWeeklyReportsDo {
 	return g.withDO(g.DO.Where(conds...))
 }
 
-func (g gpuUsageWeeklyReportsDo) Order(conds ...field.Expr) IGpuUsageWeeklyReportsDo {
+func (g gpuUsageWeeklyReportsDo) Order(conds ...field.Expr) *gpuUsageWeeklyReportsDo {
 	return g.withDO(g.DO.Order(conds...))
 }
 
-func (g gpuUsageWeeklyReportsDo) Distinct(cols ...field.Expr) IGpuUsageWeeklyReportsDo {
+func (g gpuUsageWeeklyReportsDo) Distinct(cols ...field.Expr) *gpuUsageWeeklyReportsDo {
 	return g.withDO(g.DO.Distinct(cols...))
 }
 
-func (g gpuUsageWeeklyReportsDo) Omit(cols ...field.Expr) IGpuUsageWeeklyReportsDo {
+func (g gpuUsageWeeklyReportsDo) Omit(cols ...field.Expr) *gpuUsageWeeklyReportsDo {
 	return g.withDO(g.DO.Omit(cols...))
 }
 
-func (g gpuUsageWeeklyReportsDo) Join(table schema.Tabler, on ...field.Expr) IGpuUsageWeeklyReportsDo {
+func (g gpuUsageWeeklyReportsDo) Join(table schema.Tabler, on ...field.Expr) *gpuUsageWeeklyReportsDo {
 	return g.withDO(g.DO.Join(table, on...))
 }
 
-func (g gpuUsageWeeklyReportsDo) LeftJoin(table schema.Tabler, on ...field.Expr) IGpuUsageWeeklyReportsDo {
+func (g gpuUsageWeeklyReportsDo) LeftJoin(table schema.Tabler, on ...field.Expr) *gpuUsageWeeklyReportsDo {
 	return g.withDO(g.DO.LeftJoin(table, on...))
 }
 
-func (g gpuUsageWeeklyReportsDo) RightJoin(table schema.Tabler, on ...field.Expr) IGpuUsageWeeklyReportsDo {
+func (g gpuUsageWeeklyReportsDo) RightJoin(table schema.Tabler, on ...field.Expr) *gpuUsageWeeklyReportsDo {
 	return g.withDO(g.DO.RightJoin(table, on...))
 }
 
-func (g gpuUsageWeeklyReportsDo) Group(cols ...field.Expr) IGpuUsageWeeklyReportsDo {
+func (g gpuUsageWeeklyReportsDo) Group(cols ...field.Expr) *gpuUsageWeeklyReportsDo {
 	return g.withDO(g.DO.Group(cols...))
 }
 
-func (g gpuUsageWeeklyReportsDo) Having(conds ...gen.Condition) IGpuUsageWeeklyReportsDo {
+func (g gpuUsageWeeklyReportsDo) Having(conds ...gen.Condition) *gpuUsageWeeklyReportsDo {
 	return g.withDO(g.DO.Having(conds...))
 }
 
-func (g gpuUsageWeeklyReportsDo) Limit(limit int) IGpuUsageWeeklyReportsDo {
+func (g gpuUsageWeeklyReportsDo) Limit(limit int) *gpuUsageWeeklyReportsDo {
 	return g.withDO(g.DO.Limit(limit))
 }
 
-func (g gpuUsageWeeklyReportsDo) Offset(offset int) IGpuUsageWeeklyReportsDo {
+func (g gpuUsageWeeklyReportsDo) Offset(offset int) *gpuUsageWeeklyReportsDo {
 	return g.withDO(g.DO.Offset(offset))
 }
 
-func (g gpuUsageWeeklyReportsDo) Scopes(funcs ...func(gen.Dao) gen.Dao) IGpuUsageWeeklyReportsDo {
+func (g gpuUsageWeeklyReportsDo) Scopes(funcs ...func(gen.Dao) gen.Dao) *gpuUsageWeeklyReportsDo {
 	return g.withDO(g.DO.Scopes(funcs...))
 }
 
-func (g gpuUsageWeeklyReportsDo) Unscoped() IGpuUsageWeeklyReportsDo {
+func (g gpuUsageWeeklyReportsDo) Unscoped() *gpuUsageWeeklyReportsDo {
 	return g.withDO(g.DO.Unscoped())
 }
 
@@ -354,22 +302,22 @@ func (g gpuUsageWeeklyReportsDo) FindInBatches(result *[]*model.GpuUsageWeeklyRe
 	return g.DO.FindInBatches(result, batchSize, fc)
 }
 
-func (g gpuUsageWeeklyReportsDo) Attrs(attrs ...field.AssignExpr) IGpuUsageWeeklyReportsDo {
+func (g gpuUsageWeeklyReportsDo) Attrs(attrs ...field.AssignExpr) *gpuUsageWeeklyReportsDo {
 	return g.withDO(g.DO.Attrs(attrs...))
 }
 
-func (g gpuUsageWeeklyReportsDo) Assign(attrs ...field.AssignExpr) IGpuUsageWeeklyReportsDo {
+func (g gpuUsageWeeklyReportsDo) Assign(attrs ...field.AssignExpr) *gpuUsageWeeklyReportsDo {
 	return g.withDO(g.DO.Assign(attrs...))
 }
 
-func (g gpuUsageWeeklyReportsDo) Joins(fields ...field.RelationField) IGpuUsageWeeklyReportsDo {
+func (g gpuUsageWeeklyReportsDo) Joins(fields ...field.RelationField) *gpuUsageWeeklyReportsDo {
 	for _, _f := range fields {
 		g = *g.withDO(g.DO.Joins(_f))
 	}
 	return &g
 }
 
-func (g gpuUsageWeeklyReportsDo) Preload(fields ...field.RelationField) IGpuUsageWeeklyReportsDo {
+func (g gpuUsageWeeklyReportsDo) Preload(fields ...field.RelationField) *gpuUsageWeeklyReportsDo {
 	for _, _f := range fields {
 		g = *g.withDO(g.DO.Preload(_f))
 	}
