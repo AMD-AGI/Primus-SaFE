@@ -8,7 +8,6 @@ package resource
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
@@ -288,10 +287,8 @@ func (r *InferenceReconciler) handleTerminalState(ctx context.Context, inference
 
 // createWorkload creates a workload for the inference
 func (r *InferenceReconciler) createWorkload(ctx context.Context, inference *v1.Inference) (*v1.Workload, error) {
-	// Normalize displayName for label (replace illegal characters as they are not allowed in label values)
-	normalizedDisplayName := inference.Spec.DisplayName
-	normalizedDisplayName = strings.ReplaceAll(normalizedDisplayName, "/", "-")
-	normalizedDisplayName = strings.ReplaceAll(normalizedDisplayName, ":", "-")
+	// Get normalized displayName from inference labels
+	normalizedDisplayName := v1.GetDisplayName(inference)
 
 	workload := &v1.Workload{
 		ObjectMeta: metav1.ObjectMeta{
