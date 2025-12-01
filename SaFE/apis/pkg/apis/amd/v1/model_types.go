@@ -52,6 +52,8 @@ const (
 // +kubebuilder:printcolumn:name="InferenceID",type=string,JSONPath=`.status.inferenceID`
 // +kubebuilder:printcolumn:name="InferencePhase",type=string,JSONPath=`.status.inferencePhase`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
+// +kubebuilder:rbac:groups=amd.com,resources=models,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=amd.com,resources=models/status,verbs=get;update;patch
 
 // Model defines a model item in the model playground
 type Model struct {

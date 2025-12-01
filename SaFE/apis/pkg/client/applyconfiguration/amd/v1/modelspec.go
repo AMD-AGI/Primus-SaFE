@@ -9,15 +9,13 @@ package v1
 // ModelSpecApplyConfiguration represents a declarative configuration of the ModelSpec type for use
 // with apply.
 type ModelSpecApplyConfiguration struct {
-	DisplayName    *string                              `json:"displayName,omitempty"`
-	Description    *string                              `json:"description,omitempty"`
-	Icon           *string                              `json:"icon,omitempty"`
-	Label          *string                              `json:"label,omitempty"`
-	Tags           []string                             `json:"tags,omitempty"`
-	Source         *ModelSourceApplyConfiguration       `json:"source,omitempty"`
-	DownloadTarget *DownloadTargetApplyConfiguration    `json:"downloadTarget,omitempty"`
-	Resource       *InferenceResourceApplyConfiguration `json:"resource,omitempty"`
-	Config         *InferenceConfigApplyConfiguration   `json:"config,omitempty"`
+	DisplayName    *string                           `json:"displayName,omitempty"`
+	Description    *string                           `json:"description,omitempty"`
+	Icon           *string                           `json:"icon,omitempty"`
+	Label          *string                           `json:"label,omitempty"`
+	Tags           []string                          `json:"tags,omitempty"`
+	Source         *ModelSourceApplyConfiguration    `json:"source,omitempty"`
+	DownloadTarget *DownloadTargetApplyConfiguration `json:"downloadTarget,omitempty"`
 }
 
 // ModelSpecApplyConfiguration constructs a declarative configuration of the ModelSpec type for use with
@@ -81,21 +79,5 @@ func (b *ModelSpecApplyConfiguration) WithSource(value *ModelSourceApplyConfigur
 // If called multiple times, the DownloadTarget field is set to the value of the last call.
 func (b *ModelSpecApplyConfiguration) WithDownloadTarget(value *DownloadTargetApplyConfiguration) *ModelSpecApplyConfiguration {
 	b.DownloadTarget = value
-	return b
-}
-
-// WithResource sets the Resource field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the Resource field is set to the value of the last call.
-func (b *ModelSpecApplyConfiguration) WithResource(value *InferenceResourceApplyConfiguration) *ModelSpecApplyConfiguration {
-	b.Resource = value
-	return b
-}
-
-// WithConfig sets the Config field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the Config field is set to the value of the last call.
-func (b *ModelSpecApplyConfiguration) WithConfig(value *InferenceConfigApplyConfiguration) *ModelSpecApplyConfiguration {
-	b.Config = value
 	return b
 }
