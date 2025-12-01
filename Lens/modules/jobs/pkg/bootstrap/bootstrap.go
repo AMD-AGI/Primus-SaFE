@@ -43,9 +43,12 @@ func Init(ctx context.Context, cfg *config.Config) error {
 	if err != nil {
 		return err
 	}
-	err = jobs.Start(ctx)
+
+	// Start jobs with configuration
+	err = jobs.Start(ctx, cfg.Jobs)
 	if err != nil {
 		return err
 	}
+
 	return nil
 }

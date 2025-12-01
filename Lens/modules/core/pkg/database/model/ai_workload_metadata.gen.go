@@ -18,6 +18,7 @@ type AiWorkloadMetadata struct {
 	Framework   string    `gorm:"column:framework" json:"framework"`
 	Metadata    ExtType   `gorm:"column:metadata" json:"metadata"`
 	CreatedAt   time.Time `gorm:"column:created_at" json:"created_at"`
+	ImagePrefix string    `gorm:"column:image_prefix;comment:Image repository address without tag, extracted from container image for efficient similarity matching" json:"image_prefix"` // Image repository address without tag, extracted from container image for efficient similarity matching
 }
 
 // TableName AiWorkloadMetadata's table name

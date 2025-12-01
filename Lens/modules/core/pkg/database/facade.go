@@ -36,6 +36,8 @@ type FacadeInterface interface {
 	GetNamespaceInfo() NamespaceInfoFacadeInterface
 	// GetWorkloadStatistic returns the WorkloadStatistic Facade interface
 	GetWorkloadStatistic() WorkloadStatisticFacadeInterface
+	// GetGpuUsageWeeklyReport returns the GpuUsageWeeklyReport Facade interface
+	GetGpuUsageWeeklyReport() GpuUsageWeeklyReportFacadeInterface
 	// WithCluster returns a new Facade instance using the specified cluster
 	WithCluster(clusterName string) FacadeInterface
 }
@@ -59,6 +61,7 @@ type Facade struct {
 	JobExecutionHistory  JobExecutionHistoryFacadeInterface
 	NamespaceInfo        NamespaceInfoFacadeInterface
 	WorkloadStatistic    WorkloadStatisticFacadeInterface
+	GpuUsageWeeklyReport GpuUsageWeeklyReportFacadeInterface
 }
 
 // NewFacade creates a new Facade instance
@@ -81,6 +84,7 @@ func NewFacade() *Facade {
 		JobExecutionHistory:  NewJobExecutionHistoryFacade(),
 		NamespaceInfo:        NewNamespaceInfoFacade(),
 		WorkloadStatistic:    NewWorkloadStatisticFacade(),
+		GpuUsageWeeklyReport: NewGpuUsageWeeklyReportFacade(),
 	}
 }
 
@@ -169,6 +173,11 @@ func (f *Facade) GetWorkloadStatistic() WorkloadStatisticFacadeInterface {
 	return f.WorkloadStatistic
 }
 
+// GetGpuUsageWeeklyReport returns the GpuUsageWeeklyReport Facade interface
+func (f *Facade) GetGpuUsageWeeklyReport() GpuUsageWeeklyReportFacadeInterface {
+	return f.GpuUsageWeeklyReport
+}
+
 // WithCluster returns a new Facade instance, all sub-Facades use the specified cluster
 func (f *Facade) WithCluster(clusterName string) FacadeInterface {
 	return &Facade{
@@ -189,6 +198,7 @@ func (f *Facade) WithCluster(clusterName string) FacadeInterface {
 		JobExecutionHistory:  f.JobExecutionHistory.WithCluster(clusterName),
 		NamespaceInfo:        f.NamespaceInfo.WithCluster(clusterName),
 		WorkloadStatistic:    f.WorkloadStatistic.WithCluster(clusterName),
+		GpuUsageWeeklyReport: f.GpuUsageWeeklyReport.WithCluster(clusterName),
 	}
 }
 
