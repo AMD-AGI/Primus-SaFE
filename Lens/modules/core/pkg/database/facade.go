@@ -66,10 +66,9 @@ type Facade struct {
 	SystemConfig         SystemConfigFacadeInterface
 	JobExecutionHistory  JobExecutionHistoryFacadeInterface
 	NamespaceInfo        NamespaceInfoFacadeInterface
-	WorkloadStatistic      WorkloadStatisticFacadeInterface
-	AiWorkloadMetadata     AiWorkloadMetadataFacadeInterface
-	CheckpointEvent        CheckpointEventFacadeInterface
-	DetectionConflictLog   DetectionConflictLogFacadeInterface
+	AiWorkloadMetadata   AiWorkloadMetadataFacadeInterface
+	CheckpointEvent      CheckpointEventFacadeInterface
+	DetectionConflictLog DetectionConflictLogFacadeInterface
 	WorkloadStatistic    WorkloadStatisticFacadeInterface
 	GpuUsageWeeklyReport GpuUsageWeeklyReportFacadeInterface
 }
@@ -93,10 +92,9 @@ func NewFacade() *Facade {
 		SystemConfig:         NewSystemConfigFacade(),
 		JobExecutionHistory:  NewJobExecutionHistoryFacade(),
 		NamespaceInfo:        NewNamespaceInfoFacade(),
-		WorkloadStatistic:      NewWorkloadStatisticFacade(),
-		AiWorkloadMetadata:     NewAiWorkloadMetadataFacade(),
-		CheckpointEvent:        NewCheckpointEventFacade(),
-		DetectionConflictLog:   NewDetectionConflictLogFacade(),
+		AiWorkloadMetadata:   NewAiWorkloadMetadataFacade(),
+		CheckpointEvent:      NewCheckpointEventFacade(),
+		DetectionConflictLog: NewDetectionConflictLogFacade(),
 		WorkloadStatistic:    NewWorkloadStatisticFacade(),
 		GpuUsageWeeklyReport: NewGpuUsageWeeklyReportFacade(),
 	}
@@ -226,10 +224,9 @@ func (f *Facade) WithCluster(clusterName string) FacadeInterface {
 		SystemConfig:         f.SystemConfig.WithCluster(clusterName),
 		JobExecutionHistory:  f.JobExecutionHistory.WithCluster(clusterName),
 		NamespaceInfo:        f.NamespaceInfo.WithCluster(clusterName),
-		WorkloadStatistic:      f.WorkloadStatistic.WithCluster(clusterName),
-		AiWorkloadMetadata:     f.AiWorkloadMetadata.WithCluster(clusterName),
-		CheckpointEvent:        f.CheckpointEvent.WithCluster(clusterName),
-		DetectionConflictLog:   f.DetectionConflictLog.WithCluster(clusterName),
+		AiWorkloadMetadata:   f.AiWorkloadMetadata.WithCluster(clusterName),
+		CheckpointEvent:      f.CheckpointEvent.WithCluster(clusterName),
+		DetectionConflictLog: f.DetectionConflictLog.WithCluster(clusterName),
 		WorkloadStatistic:    f.WorkloadStatistic.WithCluster(clusterName),
 		GpuUsageWeeklyReport: f.GpuUsageWeeklyReport.WithCluster(clusterName),
 	}
