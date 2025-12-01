@@ -6,7 +6,6 @@ package dal
 
 import (
 	"context"
-	"database/sql"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -43,7 +42,7 @@ func newAlertCorrelations(db *gorm.DB, opts ...gen.DOOption) alertCorrelations {
 }
 
 type alertCorrelations struct {
-	alertCorrelationsDo
+	alertCorrelationsDo alertCorrelationsDo
 
 	ALL                 field.Asterisk
 	ID                  field.Int64
@@ -84,6 +83,18 @@ func (a *alertCorrelations) updateTableName(table string) *alertCorrelations {
 	return a
 }
 
+func (a *alertCorrelations) WithContext(ctx context.Context) *alertCorrelationsDo {
+	return a.alertCorrelationsDo.WithContext(ctx)
+}
+
+func (a alertCorrelations) TableName() string { return a.alertCorrelationsDo.TableName() }
+
+func (a alertCorrelations) Alias() string { return a.alertCorrelationsDo.Alias() }
+
+func (a alertCorrelations) Columns(cols ...field.Expr) gen.Columns {
+	return a.alertCorrelationsDo.Columns(cols...)
+}
+
 func (a *alertCorrelations) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 	_f, ok := a.fieldMap[fieldName]
 	if !ok || _f == nil {
@@ -117,158 +128,95 @@ func (a alertCorrelations) replaceDB(db *gorm.DB) alertCorrelations {
 
 type alertCorrelationsDo struct{ gen.DO }
 
-type IAlertCorrelationsDo interface {
-	gen.SubQuery
-	Debug() IAlertCorrelationsDo
-	WithContext(ctx context.Context) IAlertCorrelationsDo
-	WithResult(fc func(tx gen.Dao)) gen.ResultInfo
-	ReplaceDB(db *gorm.DB)
-	ReadDB() IAlertCorrelationsDo
-	WriteDB() IAlertCorrelationsDo
-	As(alias string) gen.Dao
-	Session(config *gorm.Session) IAlertCorrelationsDo
-	Columns(cols ...field.Expr) gen.Columns
-	Clauses(conds ...clause.Expression) IAlertCorrelationsDo
-	Not(conds ...gen.Condition) IAlertCorrelationsDo
-	Or(conds ...gen.Condition) IAlertCorrelationsDo
-	Select(conds ...field.Expr) IAlertCorrelationsDo
-	Where(conds ...gen.Condition) IAlertCorrelationsDo
-	Order(conds ...field.Expr) IAlertCorrelationsDo
-	Distinct(cols ...field.Expr) IAlertCorrelationsDo
-	Omit(cols ...field.Expr) IAlertCorrelationsDo
-	Join(table schema.Tabler, on ...field.Expr) IAlertCorrelationsDo
-	LeftJoin(table schema.Tabler, on ...field.Expr) IAlertCorrelationsDo
-	RightJoin(table schema.Tabler, on ...field.Expr) IAlertCorrelationsDo
-	Group(cols ...field.Expr) IAlertCorrelationsDo
-	Having(conds ...gen.Condition) IAlertCorrelationsDo
-	Limit(limit int) IAlertCorrelationsDo
-	Offset(offset int) IAlertCorrelationsDo
-	Count() (count int64, err error)
-	Scopes(funcs ...func(gen.Dao) gen.Dao) IAlertCorrelationsDo
-	Unscoped() IAlertCorrelationsDo
-	Create(values ...*model.AlertCorrelations) error
-	CreateInBatches(values []*model.AlertCorrelations, batchSize int) error
-	Save(values ...*model.AlertCorrelations) error
-	First() (*model.AlertCorrelations, error)
-	Take() (*model.AlertCorrelations, error)
-	Last() (*model.AlertCorrelations, error)
-	Find() ([]*model.AlertCorrelations, error)
-	FindInBatch(batchSize int, fc func(tx gen.Dao, batch int) error) (results []*model.AlertCorrelations, err error)
-	FindInBatches(result *[]*model.AlertCorrelations, batchSize int, fc func(tx gen.Dao, batch int) error) error
-	Pluck(column field.Expr, dest interface{}) error
-	Delete(...*model.AlertCorrelations) (info gen.ResultInfo, err error)
-	Update(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
-	UpdateSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
-	Updates(value interface{}) (info gen.ResultInfo, err error)
-	UpdateColumn(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
-	UpdateColumnSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
-	UpdateColumns(value interface{}) (info gen.ResultInfo, err error)
-	UpdateFrom(q gen.SubQuery) gen.Dao
-	Attrs(attrs ...field.AssignExpr) IAlertCorrelationsDo
-	Assign(attrs ...field.AssignExpr) IAlertCorrelationsDo
-	Joins(fields ...field.RelationField) IAlertCorrelationsDo
-	Preload(fields ...field.RelationField) IAlertCorrelationsDo
-	FirstOrInit() (*model.AlertCorrelations, error)
-	FirstOrCreate() (*model.AlertCorrelations, error)
-	FindByPage(offset int, limit int) (result []*model.AlertCorrelations, count int64, err error)
-	ScanByPage(result interface{}, offset int, limit int) (count int64, err error)
-	Rows() (*sql.Rows, error)
-	Row() *sql.Row
-	Scan(result interface{}) (err error)
-	Returning(value interface{}, columns ...string) IAlertCorrelationsDo
-	UnderlyingDB() *gorm.DB
-	schema.Tabler
-}
-
-func (a alertCorrelationsDo) Debug() IAlertCorrelationsDo {
+func (a alertCorrelationsDo) Debug() *alertCorrelationsDo {
 	return a.withDO(a.DO.Debug())
 }
 
-func (a alertCorrelationsDo) WithContext(ctx context.Context) IAlertCorrelationsDo {
+func (a alertCorrelationsDo) WithContext(ctx context.Context) *alertCorrelationsDo {
 	return a.withDO(a.DO.WithContext(ctx))
 }
 
-func (a alertCorrelationsDo) ReadDB() IAlertCorrelationsDo {
+func (a alertCorrelationsDo) ReadDB() *alertCorrelationsDo {
 	return a.Clauses(dbresolver.Read)
 }
 
-func (a alertCorrelationsDo) WriteDB() IAlertCorrelationsDo {
+func (a alertCorrelationsDo) WriteDB() *alertCorrelationsDo {
 	return a.Clauses(dbresolver.Write)
 }
 
-func (a alertCorrelationsDo) Session(config *gorm.Session) IAlertCorrelationsDo {
+func (a alertCorrelationsDo) Session(config *gorm.Session) *alertCorrelationsDo {
 	return a.withDO(a.DO.Session(config))
 }
 
-func (a alertCorrelationsDo) Clauses(conds ...clause.Expression) IAlertCorrelationsDo {
+func (a alertCorrelationsDo) Clauses(conds ...clause.Expression) *alertCorrelationsDo {
 	return a.withDO(a.DO.Clauses(conds...))
 }
 
-func (a alertCorrelationsDo) Returning(value interface{}, columns ...string) IAlertCorrelationsDo {
+func (a alertCorrelationsDo) Returning(value interface{}, columns ...string) *alertCorrelationsDo {
 	return a.withDO(a.DO.Returning(value, columns...))
 }
 
-func (a alertCorrelationsDo) Not(conds ...gen.Condition) IAlertCorrelationsDo {
+func (a alertCorrelationsDo) Not(conds ...gen.Condition) *alertCorrelationsDo {
 	return a.withDO(a.DO.Not(conds...))
 }
 
-func (a alertCorrelationsDo) Or(conds ...gen.Condition) IAlertCorrelationsDo {
+func (a alertCorrelationsDo) Or(conds ...gen.Condition) *alertCorrelationsDo {
 	return a.withDO(a.DO.Or(conds...))
 }
 
-func (a alertCorrelationsDo) Select(conds ...field.Expr) IAlertCorrelationsDo {
+func (a alertCorrelationsDo) Select(conds ...field.Expr) *alertCorrelationsDo {
 	return a.withDO(a.DO.Select(conds...))
 }
 
-func (a alertCorrelationsDo) Where(conds ...gen.Condition) IAlertCorrelationsDo {
+func (a alertCorrelationsDo) Where(conds ...gen.Condition) *alertCorrelationsDo {
 	return a.withDO(a.DO.Where(conds...))
 }
 
-func (a alertCorrelationsDo) Order(conds ...field.Expr) IAlertCorrelationsDo {
+func (a alertCorrelationsDo) Order(conds ...field.Expr) *alertCorrelationsDo {
 	return a.withDO(a.DO.Order(conds...))
 }
 
-func (a alertCorrelationsDo) Distinct(cols ...field.Expr) IAlertCorrelationsDo {
+func (a alertCorrelationsDo) Distinct(cols ...field.Expr) *alertCorrelationsDo {
 	return a.withDO(a.DO.Distinct(cols...))
 }
 
-func (a alertCorrelationsDo) Omit(cols ...field.Expr) IAlertCorrelationsDo {
+func (a alertCorrelationsDo) Omit(cols ...field.Expr) *alertCorrelationsDo {
 	return a.withDO(a.DO.Omit(cols...))
 }
 
-func (a alertCorrelationsDo) Join(table schema.Tabler, on ...field.Expr) IAlertCorrelationsDo {
+func (a alertCorrelationsDo) Join(table schema.Tabler, on ...field.Expr) *alertCorrelationsDo {
 	return a.withDO(a.DO.Join(table, on...))
 }
 
-func (a alertCorrelationsDo) LeftJoin(table schema.Tabler, on ...field.Expr) IAlertCorrelationsDo {
+func (a alertCorrelationsDo) LeftJoin(table schema.Tabler, on ...field.Expr) *alertCorrelationsDo {
 	return a.withDO(a.DO.LeftJoin(table, on...))
 }
 
-func (a alertCorrelationsDo) RightJoin(table schema.Tabler, on ...field.Expr) IAlertCorrelationsDo {
+func (a alertCorrelationsDo) RightJoin(table schema.Tabler, on ...field.Expr) *alertCorrelationsDo {
 	return a.withDO(a.DO.RightJoin(table, on...))
 }
 
-func (a alertCorrelationsDo) Group(cols ...field.Expr) IAlertCorrelationsDo {
+func (a alertCorrelationsDo) Group(cols ...field.Expr) *alertCorrelationsDo {
 	return a.withDO(a.DO.Group(cols...))
 }
 
-func (a alertCorrelationsDo) Having(conds ...gen.Condition) IAlertCorrelationsDo {
+func (a alertCorrelationsDo) Having(conds ...gen.Condition) *alertCorrelationsDo {
 	return a.withDO(a.DO.Having(conds...))
 }
 
-func (a alertCorrelationsDo) Limit(limit int) IAlertCorrelationsDo {
+func (a alertCorrelationsDo) Limit(limit int) *alertCorrelationsDo {
 	return a.withDO(a.DO.Limit(limit))
 }
 
-func (a alertCorrelationsDo) Offset(offset int) IAlertCorrelationsDo {
+func (a alertCorrelationsDo) Offset(offset int) *alertCorrelationsDo {
 	return a.withDO(a.DO.Offset(offset))
 }
 
-func (a alertCorrelationsDo) Scopes(funcs ...func(gen.Dao) gen.Dao) IAlertCorrelationsDo {
+func (a alertCorrelationsDo) Scopes(funcs ...func(gen.Dao) gen.Dao) *alertCorrelationsDo {
 	return a.withDO(a.DO.Scopes(funcs...))
 }
 
-func (a alertCorrelationsDo) Unscoped() IAlertCorrelationsDo {
+func (a alertCorrelationsDo) Unscoped() *alertCorrelationsDo {
 	return a.withDO(a.DO.Unscoped())
 }
 
@@ -334,22 +282,22 @@ func (a alertCorrelationsDo) FindInBatches(result *[]*model.AlertCorrelations, b
 	return a.DO.FindInBatches(result, batchSize, fc)
 }
 
-func (a alertCorrelationsDo) Attrs(attrs ...field.AssignExpr) IAlertCorrelationsDo {
+func (a alertCorrelationsDo) Attrs(attrs ...field.AssignExpr) *alertCorrelationsDo {
 	return a.withDO(a.DO.Attrs(attrs...))
 }
 
-func (a alertCorrelationsDo) Assign(attrs ...field.AssignExpr) IAlertCorrelationsDo {
+func (a alertCorrelationsDo) Assign(attrs ...field.AssignExpr) *alertCorrelationsDo {
 	return a.withDO(a.DO.Assign(attrs...))
 }
 
-func (a alertCorrelationsDo) Joins(fields ...field.RelationField) IAlertCorrelationsDo {
+func (a alertCorrelationsDo) Joins(fields ...field.RelationField) *alertCorrelationsDo {
 	for _, _f := range fields {
 		a = *a.withDO(a.DO.Joins(_f))
 	}
 	return &a
 }
 
-func (a alertCorrelationsDo) Preload(fields ...field.RelationField) IAlertCorrelationsDo {
+func (a alertCorrelationsDo) Preload(fields ...field.RelationField) *alertCorrelationsDo {
 	for _, _f := range fields {
 		a = *a.withDO(a.DO.Preload(_f))
 	}

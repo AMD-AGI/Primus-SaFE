@@ -6,7 +6,6 @@ package dal
 
 import (
 	"context"
-	"database/sql"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -54,7 +53,7 @@ func newAlertSilences(db *gorm.DB, opts ...gen.DOOption) alertSilences {
 }
 
 type alertSilences struct {
-	alertSilencesDo
+	alertSilencesDo alertSilencesDo
 
 	ALL             field.Asterisk
 	ID              field.String
@@ -117,6 +116,18 @@ func (a *alertSilences) updateTableName(table string) *alertSilences {
 	return a
 }
 
+func (a *alertSilences) WithContext(ctx context.Context) *alertSilencesDo {
+	return a.alertSilencesDo.WithContext(ctx)
+}
+
+func (a alertSilences) TableName() string { return a.alertSilencesDo.TableName() }
+
+func (a alertSilences) Alias() string { return a.alertSilencesDo.Alias() }
+
+func (a alertSilences) Columns(cols ...field.Expr) gen.Columns {
+	return a.alertSilencesDo.Columns(cols...)
+}
+
 func (a *alertSilences) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 	_f, ok := a.fieldMap[fieldName]
 	if !ok || _f == nil {
@@ -161,158 +172,95 @@ func (a alertSilences) replaceDB(db *gorm.DB) alertSilences {
 
 type alertSilencesDo struct{ gen.DO }
 
-type IAlertSilencesDo interface {
-	gen.SubQuery
-	Debug() IAlertSilencesDo
-	WithContext(ctx context.Context) IAlertSilencesDo
-	WithResult(fc func(tx gen.Dao)) gen.ResultInfo
-	ReplaceDB(db *gorm.DB)
-	ReadDB() IAlertSilencesDo
-	WriteDB() IAlertSilencesDo
-	As(alias string) gen.Dao
-	Session(config *gorm.Session) IAlertSilencesDo
-	Columns(cols ...field.Expr) gen.Columns
-	Clauses(conds ...clause.Expression) IAlertSilencesDo
-	Not(conds ...gen.Condition) IAlertSilencesDo
-	Or(conds ...gen.Condition) IAlertSilencesDo
-	Select(conds ...field.Expr) IAlertSilencesDo
-	Where(conds ...gen.Condition) IAlertSilencesDo
-	Order(conds ...field.Expr) IAlertSilencesDo
-	Distinct(cols ...field.Expr) IAlertSilencesDo
-	Omit(cols ...field.Expr) IAlertSilencesDo
-	Join(table schema.Tabler, on ...field.Expr) IAlertSilencesDo
-	LeftJoin(table schema.Tabler, on ...field.Expr) IAlertSilencesDo
-	RightJoin(table schema.Tabler, on ...field.Expr) IAlertSilencesDo
-	Group(cols ...field.Expr) IAlertSilencesDo
-	Having(conds ...gen.Condition) IAlertSilencesDo
-	Limit(limit int) IAlertSilencesDo
-	Offset(offset int) IAlertSilencesDo
-	Count() (count int64, err error)
-	Scopes(funcs ...func(gen.Dao) gen.Dao) IAlertSilencesDo
-	Unscoped() IAlertSilencesDo
-	Create(values ...*model.AlertSilences) error
-	CreateInBatches(values []*model.AlertSilences, batchSize int) error
-	Save(values ...*model.AlertSilences) error
-	First() (*model.AlertSilences, error)
-	Take() (*model.AlertSilences, error)
-	Last() (*model.AlertSilences, error)
-	Find() ([]*model.AlertSilences, error)
-	FindInBatch(batchSize int, fc func(tx gen.Dao, batch int) error) (results []*model.AlertSilences, err error)
-	FindInBatches(result *[]*model.AlertSilences, batchSize int, fc func(tx gen.Dao, batch int) error) error
-	Pluck(column field.Expr, dest interface{}) error
-	Delete(...*model.AlertSilences) (info gen.ResultInfo, err error)
-	Update(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
-	UpdateSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
-	Updates(value interface{}) (info gen.ResultInfo, err error)
-	UpdateColumn(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
-	UpdateColumnSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
-	UpdateColumns(value interface{}) (info gen.ResultInfo, err error)
-	UpdateFrom(q gen.SubQuery) gen.Dao
-	Attrs(attrs ...field.AssignExpr) IAlertSilencesDo
-	Assign(attrs ...field.AssignExpr) IAlertSilencesDo
-	Joins(fields ...field.RelationField) IAlertSilencesDo
-	Preload(fields ...field.RelationField) IAlertSilencesDo
-	FirstOrInit() (*model.AlertSilences, error)
-	FirstOrCreate() (*model.AlertSilences, error)
-	FindByPage(offset int, limit int) (result []*model.AlertSilences, count int64, err error)
-	ScanByPage(result interface{}, offset int, limit int) (count int64, err error)
-	Rows() (*sql.Rows, error)
-	Row() *sql.Row
-	Scan(result interface{}) (err error)
-	Returning(value interface{}, columns ...string) IAlertSilencesDo
-	UnderlyingDB() *gorm.DB
-	schema.Tabler
-}
-
-func (a alertSilencesDo) Debug() IAlertSilencesDo {
+func (a alertSilencesDo) Debug() *alertSilencesDo {
 	return a.withDO(a.DO.Debug())
 }
 
-func (a alertSilencesDo) WithContext(ctx context.Context) IAlertSilencesDo {
+func (a alertSilencesDo) WithContext(ctx context.Context) *alertSilencesDo {
 	return a.withDO(a.DO.WithContext(ctx))
 }
 
-func (a alertSilencesDo) ReadDB() IAlertSilencesDo {
+func (a alertSilencesDo) ReadDB() *alertSilencesDo {
 	return a.Clauses(dbresolver.Read)
 }
 
-func (a alertSilencesDo) WriteDB() IAlertSilencesDo {
+func (a alertSilencesDo) WriteDB() *alertSilencesDo {
 	return a.Clauses(dbresolver.Write)
 }
 
-func (a alertSilencesDo) Session(config *gorm.Session) IAlertSilencesDo {
+func (a alertSilencesDo) Session(config *gorm.Session) *alertSilencesDo {
 	return a.withDO(a.DO.Session(config))
 }
 
-func (a alertSilencesDo) Clauses(conds ...clause.Expression) IAlertSilencesDo {
+func (a alertSilencesDo) Clauses(conds ...clause.Expression) *alertSilencesDo {
 	return a.withDO(a.DO.Clauses(conds...))
 }
 
-func (a alertSilencesDo) Returning(value interface{}, columns ...string) IAlertSilencesDo {
+func (a alertSilencesDo) Returning(value interface{}, columns ...string) *alertSilencesDo {
 	return a.withDO(a.DO.Returning(value, columns...))
 }
 
-func (a alertSilencesDo) Not(conds ...gen.Condition) IAlertSilencesDo {
+func (a alertSilencesDo) Not(conds ...gen.Condition) *alertSilencesDo {
 	return a.withDO(a.DO.Not(conds...))
 }
 
-func (a alertSilencesDo) Or(conds ...gen.Condition) IAlertSilencesDo {
+func (a alertSilencesDo) Or(conds ...gen.Condition) *alertSilencesDo {
 	return a.withDO(a.DO.Or(conds...))
 }
 
-func (a alertSilencesDo) Select(conds ...field.Expr) IAlertSilencesDo {
+func (a alertSilencesDo) Select(conds ...field.Expr) *alertSilencesDo {
 	return a.withDO(a.DO.Select(conds...))
 }
 
-func (a alertSilencesDo) Where(conds ...gen.Condition) IAlertSilencesDo {
+func (a alertSilencesDo) Where(conds ...gen.Condition) *alertSilencesDo {
 	return a.withDO(a.DO.Where(conds...))
 }
 
-func (a alertSilencesDo) Order(conds ...field.Expr) IAlertSilencesDo {
+func (a alertSilencesDo) Order(conds ...field.Expr) *alertSilencesDo {
 	return a.withDO(a.DO.Order(conds...))
 }
 
-func (a alertSilencesDo) Distinct(cols ...field.Expr) IAlertSilencesDo {
+func (a alertSilencesDo) Distinct(cols ...field.Expr) *alertSilencesDo {
 	return a.withDO(a.DO.Distinct(cols...))
 }
 
-func (a alertSilencesDo) Omit(cols ...field.Expr) IAlertSilencesDo {
+func (a alertSilencesDo) Omit(cols ...field.Expr) *alertSilencesDo {
 	return a.withDO(a.DO.Omit(cols...))
 }
 
-func (a alertSilencesDo) Join(table schema.Tabler, on ...field.Expr) IAlertSilencesDo {
+func (a alertSilencesDo) Join(table schema.Tabler, on ...field.Expr) *alertSilencesDo {
 	return a.withDO(a.DO.Join(table, on...))
 }
 
-func (a alertSilencesDo) LeftJoin(table schema.Tabler, on ...field.Expr) IAlertSilencesDo {
+func (a alertSilencesDo) LeftJoin(table schema.Tabler, on ...field.Expr) *alertSilencesDo {
 	return a.withDO(a.DO.LeftJoin(table, on...))
 }
 
-func (a alertSilencesDo) RightJoin(table schema.Tabler, on ...field.Expr) IAlertSilencesDo {
+func (a alertSilencesDo) RightJoin(table schema.Tabler, on ...field.Expr) *alertSilencesDo {
 	return a.withDO(a.DO.RightJoin(table, on...))
 }
 
-func (a alertSilencesDo) Group(cols ...field.Expr) IAlertSilencesDo {
+func (a alertSilencesDo) Group(cols ...field.Expr) *alertSilencesDo {
 	return a.withDO(a.DO.Group(cols...))
 }
 
-func (a alertSilencesDo) Having(conds ...gen.Condition) IAlertSilencesDo {
+func (a alertSilencesDo) Having(conds ...gen.Condition) *alertSilencesDo {
 	return a.withDO(a.DO.Having(conds...))
 }
 
-func (a alertSilencesDo) Limit(limit int) IAlertSilencesDo {
+func (a alertSilencesDo) Limit(limit int) *alertSilencesDo {
 	return a.withDO(a.DO.Limit(limit))
 }
 
-func (a alertSilencesDo) Offset(offset int) IAlertSilencesDo {
+func (a alertSilencesDo) Offset(offset int) *alertSilencesDo {
 	return a.withDO(a.DO.Offset(offset))
 }
 
-func (a alertSilencesDo) Scopes(funcs ...func(gen.Dao) gen.Dao) IAlertSilencesDo {
+func (a alertSilencesDo) Scopes(funcs ...func(gen.Dao) gen.Dao) *alertSilencesDo {
 	return a.withDO(a.DO.Scopes(funcs...))
 }
 
-func (a alertSilencesDo) Unscoped() IAlertSilencesDo {
+func (a alertSilencesDo) Unscoped() *alertSilencesDo {
 	return a.withDO(a.DO.Unscoped())
 }
 
@@ -378,22 +326,22 @@ func (a alertSilencesDo) FindInBatches(result *[]*model.AlertSilences, batchSize
 	return a.DO.FindInBatches(result, batchSize, fc)
 }
 
-func (a alertSilencesDo) Attrs(attrs ...field.AssignExpr) IAlertSilencesDo {
+func (a alertSilencesDo) Attrs(attrs ...field.AssignExpr) *alertSilencesDo {
 	return a.withDO(a.DO.Attrs(attrs...))
 }
 
-func (a alertSilencesDo) Assign(attrs ...field.AssignExpr) IAlertSilencesDo {
+func (a alertSilencesDo) Assign(attrs ...field.AssignExpr) *alertSilencesDo {
 	return a.withDO(a.DO.Assign(attrs...))
 }
 
-func (a alertSilencesDo) Joins(fields ...field.RelationField) IAlertSilencesDo {
+func (a alertSilencesDo) Joins(fields ...field.RelationField) *alertSilencesDo {
 	for _, _f := range fields {
 		a = *a.withDO(a.DO.Joins(_f))
 	}
 	return &a
 }
 
-func (a alertSilencesDo) Preload(fields ...field.RelationField) IAlertSilencesDo {
+func (a alertSilencesDo) Preload(fields ...field.RelationField) *alertSilencesDo {
 	for _, _f := range fields {
 		a = *a.withDO(a.DO.Preload(_f))
 	}

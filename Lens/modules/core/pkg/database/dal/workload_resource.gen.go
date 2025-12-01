@@ -6,7 +6,6 @@ package dal
 
 import (
 	"context"
-	"database/sql"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -42,7 +41,7 @@ func newWorkloadResource(db *gorm.DB, opts ...gen.DOOption) workloadResource {
 }
 
 type workloadResource struct {
-	workloadResourceDo
+	workloadResourceDo workloadResourceDo
 
 	ALL            field.Asterisk
 	ID             field.Int32
@@ -81,6 +80,18 @@ func (w *workloadResource) updateTableName(table string) *workloadResource {
 	return w
 }
 
+func (w *workloadResource) WithContext(ctx context.Context) *workloadResourceDo {
+	return w.workloadResourceDo.WithContext(ctx)
+}
+
+func (w workloadResource) TableName() string { return w.workloadResourceDo.TableName() }
+
+func (w workloadResource) Alias() string { return w.workloadResourceDo.Alias() }
+
+func (w workloadResource) Columns(cols ...field.Expr) gen.Columns {
+	return w.workloadResourceDo.Columns(cols...)
+}
+
 func (w *workloadResource) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 	_f, ok := w.fieldMap[fieldName]
 	if !ok || _f == nil {
@@ -113,158 +124,95 @@ func (w workloadResource) replaceDB(db *gorm.DB) workloadResource {
 
 type workloadResourceDo struct{ gen.DO }
 
-type IWorkloadResourceDo interface {
-	gen.SubQuery
-	Debug() IWorkloadResourceDo
-	WithContext(ctx context.Context) IWorkloadResourceDo
-	WithResult(fc func(tx gen.Dao)) gen.ResultInfo
-	ReplaceDB(db *gorm.DB)
-	ReadDB() IWorkloadResourceDo
-	WriteDB() IWorkloadResourceDo
-	As(alias string) gen.Dao
-	Session(config *gorm.Session) IWorkloadResourceDo
-	Columns(cols ...field.Expr) gen.Columns
-	Clauses(conds ...clause.Expression) IWorkloadResourceDo
-	Not(conds ...gen.Condition) IWorkloadResourceDo
-	Or(conds ...gen.Condition) IWorkloadResourceDo
-	Select(conds ...field.Expr) IWorkloadResourceDo
-	Where(conds ...gen.Condition) IWorkloadResourceDo
-	Order(conds ...field.Expr) IWorkloadResourceDo
-	Distinct(cols ...field.Expr) IWorkloadResourceDo
-	Omit(cols ...field.Expr) IWorkloadResourceDo
-	Join(table schema.Tabler, on ...field.Expr) IWorkloadResourceDo
-	LeftJoin(table schema.Tabler, on ...field.Expr) IWorkloadResourceDo
-	RightJoin(table schema.Tabler, on ...field.Expr) IWorkloadResourceDo
-	Group(cols ...field.Expr) IWorkloadResourceDo
-	Having(conds ...gen.Condition) IWorkloadResourceDo
-	Limit(limit int) IWorkloadResourceDo
-	Offset(offset int) IWorkloadResourceDo
-	Count() (count int64, err error)
-	Scopes(funcs ...func(gen.Dao) gen.Dao) IWorkloadResourceDo
-	Unscoped() IWorkloadResourceDo
-	Create(values ...*model.WorkloadResource) error
-	CreateInBatches(values []*model.WorkloadResource, batchSize int) error
-	Save(values ...*model.WorkloadResource) error
-	First() (*model.WorkloadResource, error)
-	Take() (*model.WorkloadResource, error)
-	Last() (*model.WorkloadResource, error)
-	Find() ([]*model.WorkloadResource, error)
-	FindInBatch(batchSize int, fc func(tx gen.Dao, batch int) error) (results []*model.WorkloadResource, err error)
-	FindInBatches(result *[]*model.WorkloadResource, batchSize int, fc func(tx gen.Dao, batch int) error) error
-	Pluck(column field.Expr, dest interface{}) error
-	Delete(...*model.WorkloadResource) (info gen.ResultInfo, err error)
-	Update(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
-	UpdateSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
-	Updates(value interface{}) (info gen.ResultInfo, err error)
-	UpdateColumn(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
-	UpdateColumnSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
-	UpdateColumns(value interface{}) (info gen.ResultInfo, err error)
-	UpdateFrom(q gen.SubQuery) gen.Dao
-	Attrs(attrs ...field.AssignExpr) IWorkloadResourceDo
-	Assign(attrs ...field.AssignExpr) IWorkloadResourceDo
-	Joins(fields ...field.RelationField) IWorkloadResourceDo
-	Preload(fields ...field.RelationField) IWorkloadResourceDo
-	FirstOrInit() (*model.WorkloadResource, error)
-	FirstOrCreate() (*model.WorkloadResource, error)
-	FindByPage(offset int, limit int) (result []*model.WorkloadResource, count int64, err error)
-	ScanByPage(result interface{}, offset int, limit int) (count int64, err error)
-	Rows() (*sql.Rows, error)
-	Row() *sql.Row
-	Scan(result interface{}) (err error)
-	Returning(value interface{}, columns ...string) IWorkloadResourceDo
-	UnderlyingDB() *gorm.DB
-	schema.Tabler
-}
-
-func (w workloadResourceDo) Debug() IWorkloadResourceDo {
+func (w workloadResourceDo) Debug() *workloadResourceDo {
 	return w.withDO(w.DO.Debug())
 }
 
-func (w workloadResourceDo) WithContext(ctx context.Context) IWorkloadResourceDo {
+func (w workloadResourceDo) WithContext(ctx context.Context) *workloadResourceDo {
 	return w.withDO(w.DO.WithContext(ctx))
 }
 
-func (w workloadResourceDo) ReadDB() IWorkloadResourceDo {
+func (w workloadResourceDo) ReadDB() *workloadResourceDo {
 	return w.Clauses(dbresolver.Read)
 }
 
-func (w workloadResourceDo) WriteDB() IWorkloadResourceDo {
+func (w workloadResourceDo) WriteDB() *workloadResourceDo {
 	return w.Clauses(dbresolver.Write)
 }
 
-func (w workloadResourceDo) Session(config *gorm.Session) IWorkloadResourceDo {
+func (w workloadResourceDo) Session(config *gorm.Session) *workloadResourceDo {
 	return w.withDO(w.DO.Session(config))
 }
 
-func (w workloadResourceDo) Clauses(conds ...clause.Expression) IWorkloadResourceDo {
+func (w workloadResourceDo) Clauses(conds ...clause.Expression) *workloadResourceDo {
 	return w.withDO(w.DO.Clauses(conds...))
 }
 
-func (w workloadResourceDo) Returning(value interface{}, columns ...string) IWorkloadResourceDo {
+func (w workloadResourceDo) Returning(value interface{}, columns ...string) *workloadResourceDo {
 	return w.withDO(w.DO.Returning(value, columns...))
 }
 
-func (w workloadResourceDo) Not(conds ...gen.Condition) IWorkloadResourceDo {
+func (w workloadResourceDo) Not(conds ...gen.Condition) *workloadResourceDo {
 	return w.withDO(w.DO.Not(conds...))
 }
 
-func (w workloadResourceDo) Or(conds ...gen.Condition) IWorkloadResourceDo {
+func (w workloadResourceDo) Or(conds ...gen.Condition) *workloadResourceDo {
 	return w.withDO(w.DO.Or(conds...))
 }
 
-func (w workloadResourceDo) Select(conds ...field.Expr) IWorkloadResourceDo {
+func (w workloadResourceDo) Select(conds ...field.Expr) *workloadResourceDo {
 	return w.withDO(w.DO.Select(conds...))
 }
 
-func (w workloadResourceDo) Where(conds ...gen.Condition) IWorkloadResourceDo {
+func (w workloadResourceDo) Where(conds ...gen.Condition) *workloadResourceDo {
 	return w.withDO(w.DO.Where(conds...))
 }
 
-func (w workloadResourceDo) Order(conds ...field.Expr) IWorkloadResourceDo {
+func (w workloadResourceDo) Order(conds ...field.Expr) *workloadResourceDo {
 	return w.withDO(w.DO.Order(conds...))
 }
 
-func (w workloadResourceDo) Distinct(cols ...field.Expr) IWorkloadResourceDo {
+func (w workloadResourceDo) Distinct(cols ...field.Expr) *workloadResourceDo {
 	return w.withDO(w.DO.Distinct(cols...))
 }
 
-func (w workloadResourceDo) Omit(cols ...field.Expr) IWorkloadResourceDo {
+func (w workloadResourceDo) Omit(cols ...field.Expr) *workloadResourceDo {
 	return w.withDO(w.DO.Omit(cols...))
 }
 
-func (w workloadResourceDo) Join(table schema.Tabler, on ...field.Expr) IWorkloadResourceDo {
+func (w workloadResourceDo) Join(table schema.Tabler, on ...field.Expr) *workloadResourceDo {
 	return w.withDO(w.DO.Join(table, on...))
 }
 
-func (w workloadResourceDo) LeftJoin(table schema.Tabler, on ...field.Expr) IWorkloadResourceDo {
+func (w workloadResourceDo) LeftJoin(table schema.Tabler, on ...field.Expr) *workloadResourceDo {
 	return w.withDO(w.DO.LeftJoin(table, on...))
 }
 
-func (w workloadResourceDo) RightJoin(table schema.Tabler, on ...field.Expr) IWorkloadResourceDo {
+func (w workloadResourceDo) RightJoin(table schema.Tabler, on ...field.Expr) *workloadResourceDo {
 	return w.withDO(w.DO.RightJoin(table, on...))
 }
 
-func (w workloadResourceDo) Group(cols ...field.Expr) IWorkloadResourceDo {
+func (w workloadResourceDo) Group(cols ...field.Expr) *workloadResourceDo {
 	return w.withDO(w.DO.Group(cols...))
 }
 
-func (w workloadResourceDo) Having(conds ...gen.Condition) IWorkloadResourceDo {
+func (w workloadResourceDo) Having(conds ...gen.Condition) *workloadResourceDo {
 	return w.withDO(w.DO.Having(conds...))
 }
 
-func (w workloadResourceDo) Limit(limit int) IWorkloadResourceDo {
+func (w workloadResourceDo) Limit(limit int) *workloadResourceDo {
 	return w.withDO(w.DO.Limit(limit))
 }
 
-func (w workloadResourceDo) Offset(offset int) IWorkloadResourceDo {
+func (w workloadResourceDo) Offset(offset int) *workloadResourceDo {
 	return w.withDO(w.DO.Offset(offset))
 }
 
-func (w workloadResourceDo) Scopes(funcs ...func(gen.Dao) gen.Dao) IWorkloadResourceDo {
+func (w workloadResourceDo) Scopes(funcs ...func(gen.Dao) gen.Dao) *workloadResourceDo {
 	return w.withDO(w.DO.Scopes(funcs...))
 }
 
-func (w workloadResourceDo) Unscoped() IWorkloadResourceDo {
+func (w workloadResourceDo) Unscoped() *workloadResourceDo {
 	return w.withDO(w.DO.Unscoped())
 }
 
@@ -330,22 +278,22 @@ func (w workloadResourceDo) FindInBatches(result *[]*model.WorkloadResource, bat
 	return w.DO.FindInBatches(result, batchSize, fc)
 }
 
-func (w workloadResourceDo) Attrs(attrs ...field.AssignExpr) IWorkloadResourceDo {
+func (w workloadResourceDo) Attrs(attrs ...field.AssignExpr) *workloadResourceDo {
 	return w.withDO(w.DO.Attrs(attrs...))
 }
 
-func (w workloadResourceDo) Assign(attrs ...field.AssignExpr) IWorkloadResourceDo {
+func (w workloadResourceDo) Assign(attrs ...field.AssignExpr) *workloadResourceDo {
 	return w.withDO(w.DO.Assign(attrs...))
 }
 
-func (w workloadResourceDo) Joins(fields ...field.RelationField) IWorkloadResourceDo {
+func (w workloadResourceDo) Joins(fields ...field.RelationField) *workloadResourceDo {
 	for _, _f := range fields {
 		w = *w.withDO(w.DO.Joins(_f))
 	}
 	return &w
 }
 
-func (w workloadResourceDo) Preload(fields ...field.RelationField) IWorkloadResourceDo {
+func (w workloadResourceDo) Preload(fields ...field.RelationField) *workloadResourceDo {
 	for _, _f := range fields {
 		w = *w.withDO(w.DO.Preload(_f))
 	}

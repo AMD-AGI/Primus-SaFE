@@ -6,7 +6,6 @@ package dal
 
 import (
 	"context"
-	"database/sql"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -39,7 +38,7 @@ func newNodeContainerEvent(db *gorm.DB, opts ...gen.DOOption) nodeContainerEvent
 }
 
 type nodeContainerEvent struct {
-	nodeContainerEventDo
+	nodeContainerEventDo nodeContainerEventDo
 
 	ALL         field.Asterisk
 	ID          field.Int32
@@ -72,6 +71,18 @@ func (n *nodeContainerEvent) updateTableName(table string) *nodeContainerEvent {
 	return n
 }
 
+func (n *nodeContainerEvent) WithContext(ctx context.Context) *nodeContainerEventDo {
+	return n.nodeContainerEventDo.WithContext(ctx)
+}
+
+func (n nodeContainerEvent) TableName() string { return n.nodeContainerEventDo.TableName() }
+
+func (n nodeContainerEvent) Alias() string { return n.nodeContainerEventDo.Alias() }
+
+func (n nodeContainerEvent) Columns(cols ...field.Expr) gen.Columns {
+	return n.nodeContainerEventDo.Columns(cols...)
+}
+
 func (n *nodeContainerEvent) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 	_f, ok := n.fieldMap[fieldName]
 	if !ok || _f == nil {
@@ -101,158 +112,95 @@ func (n nodeContainerEvent) replaceDB(db *gorm.DB) nodeContainerEvent {
 
 type nodeContainerEventDo struct{ gen.DO }
 
-type INodeContainerEventDo interface {
-	gen.SubQuery
-	Debug() INodeContainerEventDo
-	WithContext(ctx context.Context) INodeContainerEventDo
-	WithResult(fc func(tx gen.Dao)) gen.ResultInfo
-	ReplaceDB(db *gorm.DB)
-	ReadDB() INodeContainerEventDo
-	WriteDB() INodeContainerEventDo
-	As(alias string) gen.Dao
-	Session(config *gorm.Session) INodeContainerEventDo
-	Columns(cols ...field.Expr) gen.Columns
-	Clauses(conds ...clause.Expression) INodeContainerEventDo
-	Not(conds ...gen.Condition) INodeContainerEventDo
-	Or(conds ...gen.Condition) INodeContainerEventDo
-	Select(conds ...field.Expr) INodeContainerEventDo
-	Where(conds ...gen.Condition) INodeContainerEventDo
-	Order(conds ...field.Expr) INodeContainerEventDo
-	Distinct(cols ...field.Expr) INodeContainerEventDo
-	Omit(cols ...field.Expr) INodeContainerEventDo
-	Join(table schema.Tabler, on ...field.Expr) INodeContainerEventDo
-	LeftJoin(table schema.Tabler, on ...field.Expr) INodeContainerEventDo
-	RightJoin(table schema.Tabler, on ...field.Expr) INodeContainerEventDo
-	Group(cols ...field.Expr) INodeContainerEventDo
-	Having(conds ...gen.Condition) INodeContainerEventDo
-	Limit(limit int) INodeContainerEventDo
-	Offset(offset int) INodeContainerEventDo
-	Count() (count int64, err error)
-	Scopes(funcs ...func(gen.Dao) gen.Dao) INodeContainerEventDo
-	Unscoped() INodeContainerEventDo
-	Create(values ...*model.NodeContainerEvent) error
-	CreateInBatches(values []*model.NodeContainerEvent, batchSize int) error
-	Save(values ...*model.NodeContainerEvent) error
-	First() (*model.NodeContainerEvent, error)
-	Take() (*model.NodeContainerEvent, error)
-	Last() (*model.NodeContainerEvent, error)
-	Find() ([]*model.NodeContainerEvent, error)
-	FindInBatch(batchSize int, fc func(tx gen.Dao, batch int) error) (results []*model.NodeContainerEvent, err error)
-	FindInBatches(result *[]*model.NodeContainerEvent, batchSize int, fc func(tx gen.Dao, batch int) error) error
-	Pluck(column field.Expr, dest interface{}) error
-	Delete(...*model.NodeContainerEvent) (info gen.ResultInfo, err error)
-	Update(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
-	UpdateSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
-	Updates(value interface{}) (info gen.ResultInfo, err error)
-	UpdateColumn(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
-	UpdateColumnSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
-	UpdateColumns(value interface{}) (info gen.ResultInfo, err error)
-	UpdateFrom(q gen.SubQuery) gen.Dao
-	Attrs(attrs ...field.AssignExpr) INodeContainerEventDo
-	Assign(attrs ...field.AssignExpr) INodeContainerEventDo
-	Joins(fields ...field.RelationField) INodeContainerEventDo
-	Preload(fields ...field.RelationField) INodeContainerEventDo
-	FirstOrInit() (*model.NodeContainerEvent, error)
-	FirstOrCreate() (*model.NodeContainerEvent, error)
-	FindByPage(offset int, limit int) (result []*model.NodeContainerEvent, count int64, err error)
-	ScanByPage(result interface{}, offset int, limit int) (count int64, err error)
-	Rows() (*sql.Rows, error)
-	Row() *sql.Row
-	Scan(result interface{}) (err error)
-	Returning(value interface{}, columns ...string) INodeContainerEventDo
-	UnderlyingDB() *gorm.DB
-	schema.Tabler
-}
-
-func (n nodeContainerEventDo) Debug() INodeContainerEventDo {
+func (n nodeContainerEventDo) Debug() *nodeContainerEventDo {
 	return n.withDO(n.DO.Debug())
 }
 
-func (n nodeContainerEventDo) WithContext(ctx context.Context) INodeContainerEventDo {
+func (n nodeContainerEventDo) WithContext(ctx context.Context) *nodeContainerEventDo {
 	return n.withDO(n.DO.WithContext(ctx))
 }
 
-func (n nodeContainerEventDo) ReadDB() INodeContainerEventDo {
+func (n nodeContainerEventDo) ReadDB() *nodeContainerEventDo {
 	return n.Clauses(dbresolver.Read)
 }
 
-func (n nodeContainerEventDo) WriteDB() INodeContainerEventDo {
+func (n nodeContainerEventDo) WriteDB() *nodeContainerEventDo {
 	return n.Clauses(dbresolver.Write)
 }
 
-func (n nodeContainerEventDo) Session(config *gorm.Session) INodeContainerEventDo {
+func (n nodeContainerEventDo) Session(config *gorm.Session) *nodeContainerEventDo {
 	return n.withDO(n.DO.Session(config))
 }
 
-func (n nodeContainerEventDo) Clauses(conds ...clause.Expression) INodeContainerEventDo {
+func (n nodeContainerEventDo) Clauses(conds ...clause.Expression) *nodeContainerEventDo {
 	return n.withDO(n.DO.Clauses(conds...))
 }
 
-func (n nodeContainerEventDo) Returning(value interface{}, columns ...string) INodeContainerEventDo {
+func (n nodeContainerEventDo) Returning(value interface{}, columns ...string) *nodeContainerEventDo {
 	return n.withDO(n.DO.Returning(value, columns...))
 }
 
-func (n nodeContainerEventDo) Not(conds ...gen.Condition) INodeContainerEventDo {
+func (n nodeContainerEventDo) Not(conds ...gen.Condition) *nodeContainerEventDo {
 	return n.withDO(n.DO.Not(conds...))
 }
 
-func (n nodeContainerEventDo) Or(conds ...gen.Condition) INodeContainerEventDo {
+func (n nodeContainerEventDo) Or(conds ...gen.Condition) *nodeContainerEventDo {
 	return n.withDO(n.DO.Or(conds...))
 }
 
-func (n nodeContainerEventDo) Select(conds ...field.Expr) INodeContainerEventDo {
+func (n nodeContainerEventDo) Select(conds ...field.Expr) *nodeContainerEventDo {
 	return n.withDO(n.DO.Select(conds...))
 }
 
-func (n nodeContainerEventDo) Where(conds ...gen.Condition) INodeContainerEventDo {
+func (n nodeContainerEventDo) Where(conds ...gen.Condition) *nodeContainerEventDo {
 	return n.withDO(n.DO.Where(conds...))
 }
 
-func (n nodeContainerEventDo) Order(conds ...field.Expr) INodeContainerEventDo {
+func (n nodeContainerEventDo) Order(conds ...field.Expr) *nodeContainerEventDo {
 	return n.withDO(n.DO.Order(conds...))
 }
 
-func (n nodeContainerEventDo) Distinct(cols ...field.Expr) INodeContainerEventDo {
+func (n nodeContainerEventDo) Distinct(cols ...field.Expr) *nodeContainerEventDo {
 	return n.withDO(n.DO.Distinct(cols...))
 }
 
-func (n nodeContainerEventDo) Omit(cols ...field.Expr) INodeContainerEventDo {
+func (n nodeContainerEventDo) Omit(cols ...field.Expr) *nodeContainerEventDo {
 	return n.withDO(n.DO.Omit(cols...))
 }
 
-func (n nodeContainerEventDo) Join(table schema.Tabler, on ...field.Expr) INodeContainerEventDo {
+func (n nodeContainerEventDo) Join(table schema.Tabler, on ...field.Expr) *nodeContainerEventDo {
 	return n.withDO(n.DO.Join(table, on...))
 }
 
-func (n nodeContainerEventDo) LeftJoin(table schema.Tabler, on ...field.Expr) INodeContainerEventDo {
+func (n nodeContainerEventDo) LeftJoin(table schema.Tabler, on ...field.Expr) *nodeContainerEventDo {
 	return n.withDO(n.DO.LeftJoin(table, on...))
 }
 
-func (n nodeContainerEventDo) RightJoin(table schema.Tabler, on ...field.Expr) INodeContainerEventDo {
+func (n nodeContainerEventDo) RightJoin(table schema.Tabler, on ...field.Expr) *nodeContainerEventDo {
 	return n.withDO(n.DO.RightJoin(table, on...))
 }
 
-func (n nodeContainerEventDo) Group(cols ...field.Expr) INodeContainerEventDo {
+func (n nodeContainerEventDo) Group(cols ...field.Expr) *nodeContainerEventDo {
 	return n.withDO(n.DO.Group(cols...))
 }
 
-func (n nodeContainerEventDo) Having(conds ...gen.Condition) INodeContainerEventDo {
+func (n nodeContainerEventDo) Having(conds ...gen.Condition) *nodeContainerEventDo {
 	return n.withDO(n.DO.Having(conds...))
 }
 
-func (n nodeContainerEventDo) Limit(limit int) INodeContainerEventDo {
+func (n nodeContainerEventDo) Limit(limit int) *nodeContainerEventDo {
 	return n.withDO(n.DO.Limit(limit))
 }
 
-func (n nodeContainerEventDo) Offset(offset int) INodeContainerEventDo {
+func (n nodeContainerEventDo) Offset(offset int) *nodeContainerEventDo {
 	return n.withDO(n.DO.Offset(offset))
 }
 
-func (n nodeContainerEventDo) Scopes(funcs ...func(gen.Dao) gen.Dao) INodeContainerEventDo {
+func (n nodeContainerEventDo) Scopes(funcs ...func(gen.Dao) gen.Dao) *nodeContainerEventDo {
 	return n.withDO(n.DO.Scopes(funcs...))
 }
 
-func (n nodeContainerEventDo) Unscoped() INodeContainerEventDo {
+func (n nodeContainerEventDo) Unscoped() *nodeContainerEventDo {
 	return n.withDO(n.DO.Unscoped())
 }
 
@@ -318,22 +266,22 @@ func (n nodeContainerEventDo) FindInBatches(result *[]*model.NodeContainerEvent,
 	return n.DO.FindInBatches(result, batchSize, fc)
 }
 
-func (n nodeContainerEventDo) Attrs(attrs ...field.AssignExpr) INodeContainerEventDo {
+func (n nodeContainerEventDo) Attrs(attrs ...field.AssignExpr) *nodeContainerEventDo {
 	return n.withDO(n.DO.Attrs(attrs...))
 }
 
-func (n nodeContainerEventDo) Assign(attrs ...field.AssignExpr) INodeContainerEventDo {
+func (n nodeContainerEventDo) Assign(attrs ...field.AssignExpr) *nodeContainerEventDo {
 	return n.withDO(n.DO.Assign(attrs...))
 }
 
-func (n nodeContainerEventDo) Joins(fields ...field.RelationField) INodeContainerEventDo {
+func (n nodeContainerEventDo) Joins(fields ...field.RelationField) *nodeContainerEventDo {
 	for _, _f := range fields {
 		n = *n.withDO(n.DO.Joins(_f))
 	}
 	return &n
 }
 
-func (n nodeContainerEventDo) Preload(fields ...field.RelationField) INodeContainerEventDo {
+func (n nodeContainerEventDo) Preload(fields ...field.RelationField) *nodeContainerEventDo {
 	for _, _f := range fields {
 		n = *n.withDO(n.DO.Preload(_f))
 	}

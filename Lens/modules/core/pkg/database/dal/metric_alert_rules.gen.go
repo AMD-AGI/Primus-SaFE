@@ -6,7 +6,6 @@ package dal
 
 import (
 	"context"
-	"database/sql"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -55,7 +54,7 @@ func newMetricAlertRules(db *gorm.DB, opts ...gen.DOOption) metricAlertRules {
 }
 
 type metricAlertRules struct {
-	metricAlertRulesDo
+	metricAlertRulesDo metricAlertRulesDo
 
 	ALL             field.Asterisk
 	ID              field.Int64
@@ -120,6 +119,18 @@ func (m *metricAlertRules) updateTableName(table string) *metricAlertRules {
 	return m
 }
 
+func (m *metricAlertRules) WithContext(ctx context.Context) *metricAlertRulesDo {
+	return m.metricAlertRulesDo.WithContext(ctx)
+}
+
+func (m metricAlertRules) TableName() string { return m.metricAlertRulesDo.TableName() }
+
+func (m metricAlertRules) Alias() string { return m.metricAlertRulesDo.Alias() }
+
+func (m metricAlertRules) Columns(cols ...field.Expr) gen.Columns {
+	return m.metricAlertRulesDo.Columns(cols...)
+}
+
 func (m *metricAlertRules) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 	_f, ok := m.fieldMap[fieldName]
 	if !ok || _f == nil {
@@ -165,158 +176,95 @@ func (m metricAlertRules) replaceDB(db *gorm.DB) metricAlertRules {
 
 type metricAlertRulesDo struct{ gen.DO }
 
-type IMetricAlertRulesDo interface {
-	gen.SubQuery
-	Debug() IMetricAlertRulesDo
-	WithContext(ctx context.Context) IMetricAlertRulesDo
-	WithResult(fc func(tx gen.Dao)) gen.ResultInfo
-	ReplaceDB(db *gorm.DB)
-	ReadDB() IMetricAlertRulesDo
-	WriteDB() IMetricAlertRulesDo
-	As(alias string) gen.Dao
-	Session(config *gorm.Session) IMetricAlertRulesDo
-	Columns(cols ...field.Expr) gen.Columns
-	Clauses(conds ...clause.Expression) IMetricAlertRulesDo
-	Not(conds ...gen.Condition) IMetricAlertRulesDo
-	Or(conds ...gen.Condition) IMetricAlertRulesDo
-	Select(conds ...field.Expr) IMetricAlertRulesDo
-	Where(conds ...gen.Condition) IMetricAlertRulesDo
-	Order(conds ...field.Expr) IMetricAlertRulesDo
-	Distinct(cols ...field.Expr) IMetricAlertRulesDo
-	Omit(cols ...field.Expr) IMetricAlertRulesDo
-	Join(table schema.Tabler, on ...field.Expr) IMetricAlertRulesDo
-	LeftJoin(table schema.Tabler, on ...field.Expr) IMetricAlertRulesDo
-	RightJoin(table schema.Tabler, on ...field.Expr) IMetricAlertRulesDo
-	Group(cols ...field.Expr) IMetricAlertRulesDo
-	Having(conds ...gen.Condition) IMetricAlertRulesDo
-	Limit(limit int) IMetricAlertRulesDo
-	Offset(offset int) IMetricAlertRulesDo
-	Count() (count int64, err error)
-	Scopes(funcs ...func(gen.Dao) gen.Dao) IMetricAlertRulesDo
-	Unscoped() IMetricAlertRulesDo
-	Create(values ...*model.MetricAlertRules) error
-	CreateInBatches(values []*model.MetricAlertRules, batchSize int) error
-	Save(values ...*model.MetricAlertRules) error
-	First() (*model.MetricAlertRules, error)
-	Take() (*model.MetricAlertRules, error)
-	Last() (*model.MetricAlertRules, error)
-	Find() ([]*model.MetricAlertRules, error)
-	FindInBatch(batchSize int, fc func(tx gen.Dao, batch int) error) (results []*model.MetricAlertRules, err error)
-	FindInBatches(result *[]*model.MetricAlertRules, batchSize int, fc func(tx gen.Dao, batch int) error) error
-	Pluck(column field.Expr, dest interface{}) error
-	Delete(...*model.MetricAlertRules) (info gen.ResultInfo, err error)
-	Update(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
-	UpdateSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
-	Updates(value interface{}) (info gen.ResultInfo, err error)
-	UpdateColumn(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
-	UpdateColumnSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
-	UpdateColumns(value interface{}) (info gen.ResultInfo, err error)
-	UpdateFrom(q gen.SubQuery) gen.Dao
-	Attrs(attrs ...field.AssignExpr) IMetricAlertRulesDo
-	Assign(attrs ...field.AssignExpr) IMetricAlertRulesDo
-	Joins(fields ...field.RelationField) IMetricAlertRulesDo
-	Preload(fields ...field.RelationField) IMetricAlertRulesDo
-	FirstOrInit() (*model.MetricAlertRules, error)
-	FirstOrCreate() (*model.MetricAlertRules, error)
-	FindByPage(offset int, limit int) (result []*model.MetricAlertRules, count int64, err error)
-	ScanByPage(result interface{}, offset int, limit int) (count int64, err error)
-	Rows() (*sql.Rows, error)
-	Row() *sql.Row
-	Scan(result interface{}) (err error)
-	Returning(value interface{}, columns ...string) IMetricAlertRulesDo
-	UnderlyingDB() *gorm.DB
-	schema.Tabler
-}
-
-func (m metricAlertRulesDo) Debug() IMetricAlertRulesDo {
+func (m metricAlertRulesDo) Debug() *metricAlertRulesDo {
 	return m.withDO(m.DO.Debug())
 }
 
-func (m metricAlertRulesDo) WithContext(ctx context.Context) IMetricAlertRulesDo {
+func (m metricAlertRulesDo) WithContext(ctx context.Context) *metricAlertRulesDo {
 	return m.withDO(m.DO.WithContext(ctx))
 }
 
-func (m metricAlertRulesDo) ReadDB() IMetricAlertRulesDo {
+func (m metricAlertRulesDo) ReadDB() *metricAlertRulesDo {
 	return m.Clauses(dbresolver.Read)
 }
 
-func (m metricAlertRulesDo) WriteDB() IMetricAlertRulesDo {
+func (m metricAlertRulesDo) WriteDB() *metricAlertRulesDo {
 	return m.Clauses(dbresolver.Write)
 }
 
-func (m metricAlertRulesDo) Session(config *gorm.Session) IMetricAlertRulesDo {
+func (m metricAlertRulesDo) Session(config *gorm.Session) *metricAlertRulesDo {
 	return m.withDO(m.DO.Session(config))
 }
 
-func (m metricAlertRulesDo) Clauses(conds ...clause.Expression) IMetricAlertRulesDo {
+func (m metricAlertRulesDo) Clauses(conds ...clause.Expression) *metricAlertRulesDo {
 	return m.withDO(m.DO.Clauses(conds...))
 }
 
-func (m metricAlertRulesDo) Returning(value interface{}, columns ...string) IMetricAlertRulesDo {
+func (m metricAlertRulesDo) Returning(value interface{}, columns ...string) *metricAlertRulesDo {
 	return m.withDO(m.DO.Returning(value, columns...))
 }
 
-func (m metricAlertRulesDo) Not(conds ...gen.Condition) IMetricAlertRulesDo {
+func (m metricAlertRulesDo) Not(conds ...gen.Condition) *metricAlertRulesDo {
 	return m.withDO(m.DO.Not(conds...))
 }
 
-func (m metricAlertRulesDo) Or(conds ...gen.Condition) IMetricAlertRulesDo {
+func (m metricAlertRulesDo) Or(conds ...gen.Condition) *metricAlertRulesDo {
 	return m.withDO(m.DO.Or(conds...))
 }
 
-func (m metricAlertRulesDo) Select(conds ...field.Expr) IMetricAlertRulesDo {
+func (m metricAlertRulesDo) Select(conds ...field.Expr) *metricAlertRulesDo {
 	return m.withDO(m.DO.Select(conds...))
 }
 
-func (m metricAlertRulesDo) Where(conds ...gen.Condition) IMetricAlertRulesDo {
+func (m metricAlertRulesDo) Where(conds ...gen.Condition) *metricAlertRulesDo {
 	return m.withDO(m.DO.Where(conds...))
 }
 
-func (m metricAlertRulesDo) Order(conds ...field.Expr) IMetricAlertRulesDo {
+func (m metricAlertRulesDo) Order(conds ...field.Expr) *metricAlertRulesDo {
 	return m.withDO(m.DO.Order(conds...))
 }
 
-func (m metricAlertRulesDo) Distinct(cols ...field.Expr) IMetricAlertRulesDo {
+func (m metricAlertRulesDo) Distinct(cols ...field.Expr) *metricAlertRulesDo {
 	return m.withDO(m.DO.Distinct(cols...))
 }
 
-func (m metricAlertRulesDo) Omit(cols ...field.Expr) IMetricAlertRulesDo {
+func (m metricAlertRulesDo) Omit(cols ...field.Expr) *metricAlertRulesDo {
 	return m.withDO(m.DO.Omit(cols...))
 }
 
-func (m metricAlertRulesDo) Join(table schema.Tabler, on ...field.Expr) IMetricAlertRulesDo {
+func (m metricAlertRulesDo) Join(table schema.Tabler, on ...field.Expr) *metricAlertRulesDo {
 	return m.withDO(m.DO.Join(table, on...))
 }
 
-func (m metricAlertRulesDo) LeftJoin(table schema.Tabler, on ...field.Expr) IMetricAlertRulesDo {
+func (m metricAlertRulesDo) LeftJoin(table schema.Tabler, on ...field.Expr) *metricAlertRulesDo {
 	return m.withDO(m.DO.LeftJoin(table, on...))
 }
 
-func (m metricAlertRulesDo) RightJoin(table schema.Tabler, on ...field.Expr) IMetricAlertRulesDo {
+func (m metricAlertRulesDo) RightJoin(table schema.Tabler, on ...field.Expr) *metricAlertRulesDo {
 	return m.withDO(m.DO.RightJoin(table, on...))
 }
 
-func (m metricAlertRulesDo) Group(cols ...field.Expr) IMetricAlertRulesDo {
+func (m metricAlertRulesDo) Group(cols ...field.Expr) *metricAlertRulesDo {
 	return m.withDO(m.DO.Group(cols...))
 }
 
-func (m metricAlertRulesDo) Having(conds ...gen.Condition) IMetricAlertRulesDo {
+func (m metricAlertRulesDo) Having(conds ...gen.Condition) *metricAlertRulesDo {
 	return m.withDO(m.DO.Having(conds...))
 }
 
-func (m metricAlertRulesDo) Limit(limit int) IMetricAlertRulesDo {
+func (m metricAlertRulesDo) Limit(limit int) *metricAlertRulesDo {
 	return m.withDO(m.DO.Limit(limit))
 }
 
-func (m metricAlertRulesDo) Offset(offset int) IMetricAlertRulesDo {
+func (m metricAlertRulesDo) Offset(offset int) *metricAlertRulesDo {
 	return m.withDO(m.DO.Offset(offset))
 }
 
-func (m metricAlertRulesDo) Scopes(funcs ...func(gen.Dao) gen.Dao) IMetricAlertRulesDo {
+func (m metricAlertRulesDo) Scopes(funcs ...func(gen.Dao) gen.Dao) *metricAlertRulesDo {
 	return m.withDO(m.DO.Scopes(funcs...))
 }
 
-func (m metricAlertRulesDo) Unscoped() IMetricAlertRulesDo {
+func (m metricAlertRulesDo) Unscoped() *metricAlertRulesDo {
 	return m.withDO(m.DO.Unscoped())
 }
 
@@ -382,22 +330,22 @@ func (m metricAlertRulesDo) FindInBatches(result *[]*model.MetricAlertRules, bat
 	return m.DO.FindInBatches(result, batchSize, fc)
 }
 
-func (m metricAlertRulesDo) Attrs(attrs ...field.AssignExpr) IMetricAlertRulesDo {
+func (m metricAlertRulesDo) Attrs(attrs ...field.AssignExpr) *metricAlertRulesDo {
 	return m.withDO(m.DO.Attrs(attrs...))
 }
 
-func (m metricAlertRulesDo) Assign(attrs ...field.AssignExpr) IMetricAlertRulesDo {
+func (m metricAlertRulesDo) Assign(attrs ...field.AssignExpr) *metricAlertRulesDo {
 	return m.withDO(m.DO.Assign(attrs...))
 }
 
-func (m metricAlertRulesDo) Joins(fields ...field.RelationField) IMetricAlertRulesDo {
+func (m metricAlertRulesDo) Joins(fields ...field.RelationField) *metricAlertRulesDo {
 	for _, _f := range fields {
 		m = *m.withDO(m.DO.Joins(_f))
 	}
 	return &m
 }
 
-func (m metricAlertRulesDo) Preload(fields ...field.RelationField) IMetricAlertRulesDo {
+func (m metricAlertRulesDo) Preload(fields ...field.RelationField) *metricAlertRulesDo {
 	for _, _f := range fields {
 		m = *m.withDO(m.DO.Preload(_f))
 	}

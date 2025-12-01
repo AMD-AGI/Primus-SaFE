@@ -6,7 +6,6 @@ package dal
 
 import (
 	"context"
-	"database/sql"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -57,7 +56,7 @@ func newClusterOverviewCache(db *gorm.DB, opts ...gen.DOOption) clusterOverviewC
 }
 
 type clusterOverviewCache struct {
-	clusterOverviewCacheDo
+	clusterOverviewCacheDo clusterOverviewCacheDo
 
 	ALL                          field.Asterisk
 	ID                           field.Int32
@@ -126,6 +125,18 @@ func (c *clusterOverviewCache) updateTableName(table string) *clusterOverviewCac
 	return c
 }
 
+func (c *clusterOverviewCache) WithContext(ctx context.Context) *clusterOverviewCacheDo {
+	return c.clusterOverviewCacheDo.WithContext(ctx)
+}
+
+func (c clusterOverviewCache) TableName() string { return c.clusterOverviewCacheDo.TableName() }
+
+func (c clusterOverviewCache) Alias() string { return c.clusterOverviewCacheDo.Alias() }
+
+func (c clusterOverviewCache) Columns(cols ...field.Expr) gen.Columns {
+	return c.clusterOverviewCacheDo.Columns(cols...)
+}
+
 func (c *clusterOverviewCache) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 	_f, ok := c.fieldMap[fieldName]
 	if !ok || _f == nil {
@@ -173,158 +184,95 @@ func (c clusterOverviewCache) replaceDB(db *gorm.DB) clusterOverviewCache {
 
 type clusterOverviewCacheDo struct{ gen.DO }
 
-type IClusterOverviewCacheDo interface {
-	gen.SubQuery
-	Debug() IClusterOverviewCacheDo
-	WithContext(ctx context.Context) IClusterOverviewCacheDo
-	WithResult(fc func(tx gen.Dao)) gen.ResultInfo
-	ReplaceDB(db *gorm.DB)
-	ReadDB() IClusterOverviewCacheDo
-	WriteDB() IClusterOverviewCacheDo
-	As(alias string) gen.Dao
-	Session(config *gorm.Session) IClusterOverviewCacheDo
-	Columns(cols ...field.Expr) gen.Columns
-	Clauses(conds ...clause.Expression) IClusterOverviewCacheDo
-	Not(conds ...gen.Condition) IClusterOverviewCacheDo
-	Or(conds ...gen.Condition) IClusterOverviewCacheDo
-	Select(conds ...field.Expr) IClusterOverviewCacheDo
-	Where(conds ...gen.Condition) IClusterOverviewCacheDo
-	Order(conds ...field.Expr) IClusterOverviewCacheDo
-	Distinct(cols ...field.Expr) IClusterOverviewCacheDo
-	Omit(cols ...field.Expr) IClusterOverviewCacheDo
-	Join(table schema.Tabler, on ...field.Expr) IClusterOverviewCacheDo
-	LeftJoin(table schema.Tabler, on ...field.Expr) IClusterOverviewCacheDo
-	RightJoin(table schema.Tabler, on ...field.Expr) IClusterOverviewCacheDo
-	Group(cols ...field.Expr) IClusterOverviewCacheDo
-	Having(conds ...gen.Condition) IClusterOverviewCacheDo
-	Limit(limit int) IClusterOverviewCacheDo
-	Offset(offset int) IClusterOverviewCacheDo
-	Count() (count int64, err error)
-	Scopes(funcs ...func(gen.Dao) gen.Dao) IClusterOverviewCacheDo
-	Unscoped() IClusterOverviewCacheDo
-	Create(values ...*model.ClusterOverviewCache) error
-	CreateInBatches(values []*model.ClusterOverviewCache, batchSize int) error
-	Save(values ...*model.ClusterOverviewCache) error
-	First() (*model.ClusterOverviewCache, error)
-	Take() (*model.ClusterOverviewCache, error)
-	Last() (*model.ClusterOverviewCache, error)
-	Find() ([]*model.ClusterOverviewCache, error)
-	FindInBatch(batchSize int, fc func(tx gen.Dao, batch int) error) (results []*model.ClusterOverviewCache, err error)
-	FindInBatches(result *[]*model.ClusterOverviewCache, batchSize int, fc func(tx gen.Dao, batch int) error) error
-	Pluck(column field.Expr, dest interface{}) error
-	Delete(...*model.ClusterOverviewCache) (info gen.ResultInfo, err error)
-	Update(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
-	UpdateSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
-	Updates(value interface{}) (info gen.ResultInfo, err error)
-	UpdateColumn(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
-	UpdateColumnSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
-	UpdateColumns(value interface{}) (info gen.ResultInfo, err error)
-	UpdateFrom(q gen.SubQuery) gen.Dao
-	Attrs(attrs ...field.AssignExpr) IClusterOverviewCacheDo
-	Assign(attrs ...field.AssignExpr) IClusterOverviewCacheDo
-	Joins(fields ...field.RelationField) IClusterOverviewCacheDo
-	Preload(fields ...field.RelationField) IClusterOverviewCacheDo
-	FirstOrInit() (*model.ClusterOverviewCache, error)
-	FirstOrCreate() (*model.ClusterOverviewCache, error)
-	FindByPage(offset int, limit int) (result []*model.ClusterOverviewCache, count int64, err error)
-	ScanByPage(result interface{}, offset int, limit int) (count int64, err error)
-	Rows() (*sql.Rows, error)
-	Row() *sql.Row
-	Scan(result interface{}) (err error)
-	Returning(value interface{}, columns ...string) IClusterOverviewCacheDo
-	UnderlyingDB() *gorm.DB
-	schema.Tabler
-}
-
-func (c clusterOverviewCacheDo) Debug() IClusterOverviewCacheDo {
+func (c clusterOverviewCacheDo) Debug() *clusterOverviewCacheDo {
 	return c.withDO(c.DO.Debug())
 }
 
-func (c clusterOverviewCacheDo) WithContext(ctx context.Context) IClusterOverviewCacheDo {
+func (c clusterOverviewCacheDo) WithContext(ctx context.Context) *clusterOverviewCacheDo {
 	return c.withDO(c.DO.WithContext(ctx))
 }
 
-func (c clusterOverviewCacheDo) ReadDB() IClusterOverviewCacheDo {
+func (c clusterOverviewCacheDo) ReadDB() *clusterOverviewCacheDo {
 	return c.Clauses(dbresolver.Read)
 }
 
-func (c clusterOverviewCacheDo) WriteDB() IClusterOverviewCacheDo {
+func (c clusterOverviewCacheDo) WriteDB() *clusterOverviewCacheDo {
 	return c.Clauses(dbresolver.Write)
 }
 
-func (c clusterOverviewCacheDo) Session(config *gorm.Session) IClusterOverviewCacheDo {
+func (c clusterOverviewCacheDo) Session(config *gorm.Session) *clusterOverviewCacheDo {
 	return c.withDO(c.DO.Session(config))
 }
 
-func (c clusterOverviewCacheDo) Clauses(conds ...clause.Expression) IClusterOverviewCacheDo {
+func (c clusterOverviewCacheDo) Clauses(conds ...clause.Expression) *clusterOverviewCacheDo {
 	return c.withDO(c.DO.Clauses(conds...))
 }
 
-func (c clusterOverviewCacheDo) Returning(value interface{}, columns ...string) IClusterOverviewCacheDo {
+func (c clusterOverviewCacheDo) Returning(value interface{}, columns ...string) *clusterOverviewCacheDo {
 	return c.withDO(c.DO.Returning(value, columns...))
 }
 
-func (c clusterOverviewCacheDo) Not(conds ...gen.Condition) IClusterOverviewCacheDo {
+func (c clusterOverviewCacheDo) Not(conds ...gen.Condition) *clusterOverviewCacheDo {
 	return c.withDO(c.DO.Not(conds...))
 }
 
-func (c clusterOverviewCacheDo) Or(conds ...gen.Condition) IClusterOverviewCacheDo {
+func (c clusterOverviewCacheDo) Or(conds ...gen.Condition) *clusterOverviewCacheDo {
 	return c.withDO(c.DO.Or(conds...))
 }
 
-func (c clusterOverviewCacheDo) Select(conds ...field.Expr) IClusterOverviewCacheDo {
+func (c clusterOverviewCacheDo) Select(conds ...field.Expr) *clusterOverviewCacheDo {
 	return c.withDO(c.DO.Select(conds...))
 }
 
-func (c clusterOverviewCacheDo) Where(conds ...gen.Condition) IClusterOverviewCacheDo {
+func (c clusterOverviewCacheDo) Where(conds ...gen.Condition) *clusterOverviewCacheDo {
 	return c.withDO(c.DO.Where(conds...))
 }
 
-func (c clusterOverviewCacheDo) Order(conds ...field.Expr) IClusterOverviewCacheDo {
+func (c clusterOverviewCacheDo) Order(conds ...field.Expr) *clusterOverviewCacheDo {
 	return c.withDO(c.DO.Order(conds...))
 }
 
-func (c clusterOverviewCacheDo) Distinct(cols ...field.Expr) IClusterOverviewCacheDo {
+func (c clusterOverviewCacheDo) Distinct(cols ...field.Expr) *clusterOverviewCacheDo {
 	return c.withDO(c.DO.Distinct(cols...))
 }
 
-func (c clusterOverviewCacheDo) Omit(cols ...field.Expr) IClusterOverviewCacheDo {
+func (c clusterOverviewCacheDo) Omit(cols ...field.Expr) *clusterOverviewCacheDo {
 	return c.withDO(c.DO.Omit(cols...))
 }
 
-func (c clusterOverviewCacheDo) Join(table schema.Tabler, on ...field.Expr) IClusterOverviewCacheDo {
+func (c clusterOverviewCacheDo) Join(table schema.Tabler, on ...field.Expr) *clusterOverviewCacheDo {
 	return c.withDO(c.DO.Join(table, on...))
 }
 
-func (c clusterOverviewCacheDo) LeftJoin(table schema.Tabler, on ...field.Expr) IClusterOverviewCacheDo {
+func (c clusterOverviewCacheDo) LeftJoin(table schema.Tabler, on ...field.Expr) *clusterOverviewCacheDo {
 	return c.withDO(c.DO.LeftJoin(table, on...))
 }
 
-func (c clusterOverviewCacheDo) RightJoin(table schema.Tabler, on ...field.Expr) IClusterOverviewCacheDo {
+func (c clusterOverviewCacheDo) RightJoin(table schema.Tabler, on ...field.Expr) *clusterOverviewCacheDo {
 	return c.withDO(c.DO.RightJoin(table, on...))
 }
 
-func (c clusterOverviewCacheDo) Group(cols ...field.Expr) IClusterOverviewCacheDo {
+func (c clusterOverviewCacheDo) Group(cols ...field.Expr) *clusterOverviewCacheDo {
 	return c.withDO(c.DO.Group(cols...))
 }
 
-func (c clusterOverviewCacheDo) Having(conds ...gen.Condition) IClusterOverviewCacheDo {
+func (c clusterOverviewCacheDo) Having(conds ...gen.Condition) *clusterOverviewCacheDo {
 	return c.withDO(c.DO.Having(conds...))
 }
 
-func (c clusterOverviewCacheDo) Limit(limit int) IClusterOverviewCacheDo {
+func (c clusterOverviewCacheDo) Limit(limit int) *clusterOverviewCacheDo {
 	return c.withDO(c.DO.Limit(limit))
 }
 
-func (c clusterOverviewCacheDo) Offset(offset int) IClusterOverviewCacheDo {
+func (c clusterOverviewCacheDo) Offset(offset int) *clusterOverviewCacheDo {
 	return c.withDO(c.DO.Offset(offset))
 }
 
-func (c clusterOverviewCacheDo) Scopes(funcs ...func(gen.Dao) gen.Dao) IClusterOverviewCacheDo {
+func (c clusterOverviewCacheDo) Scopes(funcs ...func(gen.Dao) gen.Dao) *clusterOverviewCacheDo {
 	return c.withDO(c.DO.Scopes(funcs...))
 }
 
-func (c clusterOverviewCacheDo) Unscoped() IClusterOverviewCacheDo {
+func (c clusterOverviewCacheDo) Unscoped() *clusterOverviewCacheDo {
 	return c.withDO(c.DO.Unscoped())
 }
 
@@ -390,22 +338,22 @@ func (c clusterOverviewCacheDo) FindInBatches(result *[]*model.ClusterOverviewCa
 	return c.DO.FindInBatches(result, batchSize, fc)
 }
 
-func (c clusterOverviewCacheDo) Attrs(attrs ...field.AssignExpr) IClusterOverviewCacheDo {
+func (c clusterOverviewCacheDo) Attrs(attrs ...field.AssignExpr) *clusterOverviewCacheDo {
 	return c.withDO(c.DO.Attrs(attrs...))
 }
 
-func (c clusterOverviewCacheDo) Assign(attrs ...field.AssignExpr) IClusterOverviewCacheDo {
+func (c clusterOverviewCacheDo) Assign(attrs ...field.AssignExpr) *clusterOverviewCacheDo {
 	return c.withDO(c.DO.Assign(attrs...))
 }
 
-func (c clusterOverviewCacheDo) Joins(fields ...field.RelationField) IClusterOverviewCacheDo {
+func (c clusterOverviewCacheDo) Joins(fields ...field.RelationField) *clusterOverviewCacheDo {
 	for _, _f := range fields {
 		c = *c.withDO(c.DO.Joins(_f))
 	}
 	return &c
 }
 
-func (c clusterOverviewCacheDo) Preload(fields ...field.RelationField) IClusterOverviewCacheDo {
+func (c clusterOverviewCacheDo) Preload(fields ...field.RelationField) *clusterOverviewCacheDo {
 	for _, _f := range fields {
 		c = *c.withDO(c.DO.Preload(_f))
 	}

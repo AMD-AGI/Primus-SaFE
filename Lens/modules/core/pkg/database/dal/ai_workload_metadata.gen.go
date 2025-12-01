@@ -6,7 +6,6 @@ package dal
 
 import (
 	"context"
-	"database/sql"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -42,7 +41,7 @@ func newAiWorkloadMetadata(db *gorm.DB, opts ...gen.DOOption) aiWorkloadMetadata
 }
 
 type aiWorkloadMetadata struct {
-	aiWorkloadMetadataDo
+	aiWorkloadMetadataDo aiWorkloadMetadataDo
 
 	ALL         field.Asterisk
 	ID          field.Int32
@@ -81,6 +80,18 @@ func (a *aiWorkloadMetadata) updateTableName(table string) *aiWorkloadMetadata {
 	return a
 }
 
+func (a *aiWorkloadMetadata) WithContext(ctx context.Context) *aiWorkloadMetadataDo {
+	return a.aiWorkloadMetadataDo.WithContext(ctx)
+}
+
+func (a aiWorkloadMetadata) TableName() string { return a.aiWorkloadMetadataDo.TableName() }
+
+func (a aiWorkloadMetadata) Alias() string { return a.aiWorkloadMetadataDo.Alias() }
+
+func (a aiWorkloadMetadata) Columns(cols ...field.Expr) gen.Columns {
+	return a.aiWorkloadMetadataDo.Columns(cols...)
+}
+
 func (a *aiWorkloadMetadata) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 	_f, ok := a.fieldMap[fieldName]
 	if !ok || _f == nil {
@@ -113,158 +124,95 @@ func (a aiWorkloadMetadata) replaceDB(db *gorm.DB) aiWorkloadMetadata {
 
 type aiWorkloadMetadataDo struct{ gen.DO }
 
-type IAiWorkloadMetadataDo interface {
-	gen.SubQuery
-	Debug() IAiWorkloadMetadataDo
-	WithContext(ctx context.Context) IAiWorkloadMetadataDo
-	WithResult(fc func(tx gen.Dao)) gen.ResultInfo
-	ReplaceDB(db *gorm.DB)
-	ReadDB() IAiWorkloadMetadataDo
-	WriteDB() IAiWorkloadMetadataDo
-	As(alias string) gen.Dao
-	Session(config *gorm.Session) IAiWorkloadMetadataDo
-	Columns(cols ...field.Expr) gen.Columns
-	Clauses(conds ...clause.Expression) IAiWorkloadMetadataDo
-	Not(conds ...gen.Condition) IAiWorkloadMetadataDo
-	Or(conds ...gen.Condition) IAiWorkloadMetadataDo
-	Select(conds ...field.Expr) IAiWorkloadMetadataDo
-	Where(conds ...gen.Condition) IAiWorkloadMetadataDo
-	Order(conds ...field.Expr) IAiWorkloadMetadataDo
-	Distinct(cols ...field.Expr) IAiWorkloadMetadataDo
-	Omit(cols ...field.Expr) IAiWorkloadMetadataDo
-	Join(table schema.Tabler, on ...field.Expr) IAiWorkloadMetadataDo
-	LeftJoin(table schema.Tabler, on ...field.Expr) IAiWorkloadMetadataDo
-	RightJoin(table schema.Tabler, on ...field.Expr) IAiWorkloadMetadataDo
-	Group(cols ...field.Expr) IAiWorkloadMetadataDo
-	Having(conds ...gen.Condition) IAiWorkloadMetadataDo
-	Limit(limit int) IAiWorkloadMetadataDo
-	Offset(offset int) IAiWorkloadMetadataDo
-	Count() (count int64, err error)
-	Scopes(funcs ...func(gen.Dao) gen.Dao) IAiWorkloadMetadataDo
-	Unscoped() IAiWorkloadMetadataDo
-	Create(values ...*model.AiWorkloadMetadata) error
-	CreateInBatches(values []*model.AiWorkloadMetadata, batchSize int) error
-	Save(values ...*model.AiWorkloadMetadata) error
-	First() (*model.AiWorkloadMetadata, error)
-	Take() (*model.AiWorkloadMetadata, error)
-	Last() (*model.AiWorkloadMetadata, error)
-	Find() ([]*model.AiWorkloadMetadata, error)
-	FindInBatch(batchSize int, fc func(tx gen.Dao, batch int) error) (results []*model.AiWorkloadMetadata, err error)
-	FindInBatches(result *[]*model.AiWorkloadMetadata, batchSize int, fc func(tx gen.Dao, batch int) error) error
-	Pluck(column field.Expr, dest interface{}) error
-	Delete(...*model.AiWorkloadMetadata) (info gen.ResultInfo, err error)
-	Update(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
-	UpdateSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
-	Updates(value interface{}) (info gen.ResultInfo, err error)
-	UpdateColumn(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
-	UpdateColumnSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
-	UpdateColumns(value interface{}) (info gen.ResultInfo, err error)
-	UpdateFrom(q gen.SubQuery) gen.Dao
-	Attrs(attrs ...field.AssignExpr) IAiWorkloadMetadataDo
-	Assign(attrs ...field.AssignExpr) IAiWorkloadMetadataDo
-	Joins(fields ...field.RelationField) IAiWorkloadMetadataDo
-	Preload(fields ...field.RelationField) IAiWorkloadMetadataDo
-	FirstOrInit() (*model.AiWorkloadMetadata, error)
-	FirstOrCreate() (*model.AiWorkloadMetadata, error)
-	FindByPage(offset int, limit int) (result []*model.AiWorkloadMetadata, count int64, err error)
-	ScanByPage(result interface{}, offset int, limit int) (count int64, err error)
-	Rows() (*sql.Rows, error)
-	Row() *sql.Row
-	Scan(result interface{}) (err error)
-	Returning(value interface{}, columns ...string) IAiWorkloadMetadataDo
-	UnderlyingDB() *gorm.DB
-	schema.Tabler
-}
-
-func (a aiWorkloadMetadataDo) Debug() IAiWorkloadMetadataDo {
+func (a aiWorkloadMetadataDo) Debug() *aiWorkloadMetadataDo {
 	return a.withDO(a.DO.Debug())
 }
 
-func (a aiWorkloadMetadataDo) WithContext(ctx context.Context) IAiWorkloadMetadataDo {
+func (a aiWorkloadMetadataDo) WithContext(ctx context.Context) *aiWorkloadMetadataDo {
 	return a.withDO(a.DO.WithContext(ctx))
 }
 
-func (a aiWorkloadMetadataDo) ReadDB() IAiWorkloadMetadataDo {
+func (a aiWorkloadMetadataDo) ReadDB() *aiWorkloadMetadataDo {
 	return a.Clauses(dbresolver.Read)
 }
 
-func (a aiWorkloadMetadataDo) WriteDB() IAiWorkloadMetadataDo {
+func (a aiWorkloadMetadataDo) WriteDB() *aiWorkloadMetadataDo {
 	return a.Clauses(dbresolver.Write)
 }
 
-func (a aiWorkloadMetadataDo) Session(config *gorm.Session) IAiWorkloadMetadataDo {
+func (a aiWorkloadMetadataDo) Session(config *gorm.Session) *aiWorkloadMetadataDo {
 	return a.withDO(a.DO.Session(config))
 }
 
-func (a aiWorkloadMetadataDo) Clauses(conds ...clause.Expression) IAiWorkloadMetadataDo {
+func (a aiWorkloadMetadataDo) Clauses(conds ...clause.Expression) *aiWorkloadMetadataDo {
 	return a.withDO(a.DO.Clauses(conds...))
 }
 
-func (a aiWorkloadMetadataDo) Returning(value interface{}, columns ...string) IAiWorkloadMetadataDo {
+func (a aiWorkloadMetadataDo) Returning(value interface{}, columns ...string) *aiWorkloadMetadataDo {
 	return a.withDO(a.DO.Returning(value, columns...))
 }
 
-func (a aiWorkloadMetadataDo) Not(conds ...gen.Condition) IAiWorkloadMetadataDo {
+func (a aiWorkloadMetadataDo) Not(conds ...gen.Condition) *aiWorkloadMetadataDo {
 	return a.withDO(a.DO.Not(conds...))
 }
 
-func (a aiWorkloadMetadataDo) Or(conds ...gen.Condition) IAiWorkloadMetadataDo {
+func (a aiWorkloadMetadataDo) Or(conds ...gen.Condition) *aiWorkloadMetadataDo {
 	return a.withDO(a.DO.Or(conds...))
 }
 
-func (a aiWorkloadMetadataDo) Select(conds ...field.Expr) IAiWorkloadMetadataDo {
+func (a aiWorkloadMetadataDo) Select(conds ...field.Expr) *aiWorkloadMetadataDo {
 	return a.withDO(a.DO.Select(conds...))
 }
 
-func (a aiWorkloadMetadataDo) Where(conds ...gen.Condition) IAiWorkloadMetadataDo {
+func (a aiWorkloadMetadataDo) Where(conds ...gen.Condition) *aiWorkloadMetadataDo {
 	return a.withDO(a.DO.Where(conds...))
 }
 
-func (a aiWorkloadMetadataDo) Order(conds ...field.Expr) IAiWorkloadMetadataDo {
+func (a aiWorkloadMetadataDo) Order(conds ...field.Expr) *aiWorkloadMetadataDo {
 	return a.withDO(a.DO.Order(conds...))
 }
 
-func (a aiWorkloadMetadataDo) Distinct(cols ...field.Expr) IAiWorkloadMetadataDo {
+func (a aiWorkloadMetadataDo) Distinct(cols ...field.Expr) *aiWorkloadMetadataDo {
 	return a.withDO(a.DO.Distinct(cols...))
 }
 
-func (a aiWorkloadMetadataDo) Omit(cols ...field.Expr) IAiWorkloadMetadataDo {
+func (a aiWorkloadMetadataDo) Omit(cols ...field.Expr) *aiWorkloadMetadataDo {
 	return a.withDO(a.DO.Omit(cols...))
 }
 
-func (a aiWorkloadMetadataDo) Join(table schema.Tabler, on ...field.Expr) IAiWorkloadMetadataDo {
+func (a aiWorkloadMetadataDo) Join(table schema.Tabler, on ...field.Expr) *aiWorkloadMetadataDo {
 	return a.withDO(a.DO.Join(table, on...))
 }
 
-func (a aiWorkloadMetadataDo) LeftJoin(table schema.Tabler, on ...field.Expr) IAiWorkloadMetadataDo {
+func (a aiWorkloadMetadataDo) LeftJoin(table schema.Tabler, on ...field.Expr) *aiWorkloadMetadataDo {
 	return a.withDO(a.DO.LeftJoin(table, on...))
 }
 
-func (a aiWorkloadMetadataDo) RightJoin(table schema.Tabler, on ...field.Expr) IAiWorkloadMetadataDo {
+func (a aiWorkloadMetadataDo) RightJoin(table schema.Tabler, on ...field.Expr) *aiWorkloadMetadataDo {
 	return a.withDO(a.DO.RightJoin(table, on...))
 }
 
-func (a aiWorkloadMetadataDo) Group(cols ...field.Expr) IAiWorkloadMetadataDo {
+func (a aiWorkloadMetadataDo) Group(cols ...field.Expr) *aiWorkloadMetadataDo {
 	return a.withDO(a.DO.Group(cols...))
 }
 
-func (a aiWorkloadMetadataDo) Having(conds ...gen.Condition) IAiWorkloadMetadataDo {
+func (a aiWorkloadMetadataDo) Having(conds ...gen.Condition) *aiWorkloadMetadataDo {
 	return a.withDO(a.DO.Having(conds...))
 }
 
-func (a aiWorkloadMetadataDo) Limit(limit int) IAiWorkloadMetadataDo {
+func (a aiWorkloadMetadataDo) Limit(limit int) *aiWorkloadMetadataDo {
 	return a.withDO(a.DO.Limit(limit))
 }
 
-func (a aiWorkloadMetadataDo) Offset(offset int) IAiWorkloadMetadataDo {
+func (a aiWorkloadMetadataDo) Offset(offset int) *aiWorkloadMetadataDo {
 	return a.withDO(a.DO.Offset(offset))
 }
 
-func (a aiWorkloadMetadataDo) Scopes(funcs ...func(gen.Dao) gen.Dao) IAiWorkloadMetadataDo {
+func (a aiWorkloadMetadataDo) Scopes(funcs ...func(gen.Dao) gen.Dao) *aiWorkloadMetadataDo {
 	return a.withDO(a.DO.Scopes(funcs...))
 }
 
-func (a aiWorkloadMetadataDo) Unscoped() IAiWorkloadMetadataDo {
+func (a aiWorkloadMetadataDo) Unscoped() *aiWorkloadMetadataDo {
 	return a.withDO(a.DO.Unscoped())
 }
 
@@ -330,22 +278,22 @@ func (a aiWorkloadMetadataDo) FindInBatches(result *[]*model.AiWorkloadMetadata,
 	return a.DO.FindInBatches(result, batchSize, fc)
 }
 
-func (a aiWorkloadMetadataDo) Attrs(attrs ...field.AssignExpr) IAiWorkloadMetadataDo {
+func (a aiWorkloadMetadataDo) Attrs(attrs ...field.AssignExpr) *aiWorkloadMetadataDo {
 	return a.withDO(a.DO.Attrs(attrs...))
 }
 
-func (a aiWorkloadMetadataDo) Assign(attrs ...field.AssignExpr) IAiWorkloadMetadataDo {
+func (a aiWorkloadMetadataDo) Assign(attrs ...field.AssignExpr) *aiWorkloadMetadataDo {
 	return a.withDO(a.DO.Assign(attrs...))
 }
 
-func (a aiWorkloadMetadataDo) Joins(fields ...field.RelationField) IAiWorkloadMetadataDo {
+func (a aiWorkloadMetadataDo) Joins(fields ...field.RelationField) *aiWorkloadMetadataDo {
 	for _, _f := range fields {
 		a = *a.withDO(a.DO.Joins(_f))
 	}
 	return &a
 }
 
-func (a aiWorkloadMetadataDo) Preload(fields ...field.RelationField) IAiWorkloadMetadataDo {
+func (a aiWorkloadMetadataDo) Preload(fields ...field.RelationField) *aiWorkloadMetadataDo {
 	for _, _f := range fields {
 		a = *a.withDO(a.DO.Preload(_f))
 	}

@@ -6,7 +6,6 @@ package dal
 
 import (
 	"context"
-	"database/sql"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -60,7 +59,7 @@ func newWorkloadStatistic(db *gorm.DB, opts ...gen.DOOption) workloadStatistic {
 }
 
 type workloadStatistic struct {
-	workloadStatisticDo
+	workloadStatisticDo workloadStatisticDo
 
 	ALL                   field.Asterisk
 	ID                    field.Int32
@@ -135,6 +134,18 @@ func (w *workloadStatistic) updateTableName(table string) *workloadStatistic {
 	return w
 }
 
+func (w *workloadStatistic) WithContext(ctx context.Context) *workloadStatisticDo {
+	return w.workloadStatisticDo.WithContext(ctx)
+}
+
+func (w workloadStatistic) TableName() string { return w.workloadStatisticDo.TableName() }
+
+func (w workloadStatistic) Alias() string { return w.workloadStatisticDo.Alias() }
+
+func (w workloadStatistic) Columns(cols ...field.Expr) gen.Columns {
+	return w.workloadStatisticDo.Columns(cols...)
+}
+
 func (w *workloadStatistic) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 	_f, ok := w.fieldMap[fieldName]
 	if !ok || _f == nil {
@@ -185,158 +196,95 @@ func (w workloadStatistic) replaceDB(db *gorm.DB) workloadStatistic {
 
 type workloadStatisticDo struct{ gen.DO }
 
-type IWorkloadStatisticDo interface {
-	gen.SubQuery
-	Debug() IWorkloadStatisticDo
-	WithContext(ctx context.Context) IWorkloadStatisticDo
-	WithResult(fc func(tx gen.Dao)) gen.ResultInfo
-	ReplaceDB(db *gorm.DB)
-	ReadDB() IWorkloadStatisticDo
-	WriteDB() IWorkloadStatisticDo
-	As(alias string) gen.Dao
-	Session(config *gorm.Session) IWorkloadStatisticDo
-	Columns(cols ...field.Expr) gen.Columns
-	Clauses(conds ...clause.Expression) IWorkloadStatisticDo
-	Not(conds ...gen.Condition) IWorkloadStatisticDo
-	Or(conds ...gen.Condition) IWorkloadStatisticDo
-	Select(conds ...field.Expr) IWorkloadStatisticDo
-	Where(conds ...gen.Condition) IWorkloadStatisticDo
-	Order(conds ...field.Expr) IWorkloadStatisticDo
-	Distinct(cols ...field.Expr) IWorkloadStatisticDo
-	Omit(cols ...field.Expr) IWorkloadStatisticDo
-	Join(table schema.Tabler, on ...field.Expr) IWorkloadStatisticDo
-	LeftJoin(table schema.Tabler, on ...field.Expr) IWorkloadStatisticDo
-	RightJoin(table schema.Tabler, on ...field.Expr) IWorkloadStatisticDo
-	Group(cols ...field.Expr) IWorkloadStatisticDo
-	Having(conds ...gen.Condition) IWorkloadStatisticDo
-	Limit(limit int) IWorkloadStatisticDo
-	Offset(offset int) IWorkloadStatisticDo
-	Count() (count int64, err error)
-	Scopes(funcs ...func(gen.Dao) gen.Dao) IWorkloadStatisticDo
-	Unscoped() IWorkloadStatisticDo
-	Create(values ...*model.WorkloadStatistic) error
-	CreateInBatches(values []*model.WorkloadStatistic, batchSize int) error
-	Save(values ...*model.WorkloadStatistic) error
-	First() (*model.WorkloadStatistic, error)
-	Take() (*model.WorkloadStatistic, error)
-	Last() (*model.WorkloadStatistic, error)
-	Find() ([]*model.WorkloadStatistic, error)
-	FindInBatch(batchSize int, fc func(tx gen.Dao, batch int) error) (results []*model.WorkloadStatistic, err error)
-	FindInBatches(result *[]*model.WorkloadStatistic, batchSize int, fc func(tx gen.Dao, batch int) error) error
-	Pluck(column field.Expr, dest interface{}) error
-	Delete(...*model.WorkloadStatistic) (info gen.ResultInfo, err error)
-	Update(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
-	UpdateSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
-	Updates(value interface{}) (info gen.ResultInfo, err error)
-	UpdateColumn(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
-	UpdateColumnSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
-	UpdateColumns(value interface{}) (info gen.ResultInfo, err error)
-	UpdateFrom(q gen.SubQuery) gen.Dao
-	Attrs(attrs ...field.AssignExpr) IWorkloadStatisticDo
-	Assign(attrs ...field.AssignExpr) IWorkloadStatisticDo
-	Joins(fields ...field.RelationField) IWorkloadStatisticDo
-	Preload(fields ...field.RelationField) IWorkloadStatisticDo
-	FirstOrInit() (*model.WorkloadStatistic, error)
-	FirstOrCreate() (*model.WorkloadStatistic, error)
-	FindByPage(offset int, limit int) (result []*model.WorkloadStatistic, count int64, err error)
-	ScanByPage(result interface{}, offset int, limit int) (count int64, err error)
-	Rows() (*sql.Rows, error)
-	Row() *sql.Row
-	Scan(result interface{}) (err error)
-	Returning(value interface{}, columns ...string) IWorkloadStatisticDo
-	UnderlyingDB() *gorm.DB
-	schema.Tabler
-}
-
-func (w workloadStatisticDo) Debug() IWorkloadStatisticDo {
+func (w workloadStatisticDo) Debug() *workloadStatisticDo {
 	return w.withDO(w.DO.Debug())
 }
 
-func (w workloadStatisticDo) WithContext(ctx context.Context) IWorkloadStatisticDo {
+func (w workloadStatisticDo) WithContext(ctx context.Context) *workloadStatisticDo {
 	return w.withDO(w.DO.WithContext(ctx))
 }
 
-func (w workloadStatisticDo) ReadDB() IWorkloadStatisticDo {
+func (w workloadStatisticDo) ReadDB() *workloadStatisticDo {
 	return w.Clauses(dbresolver.Read)
 }
 
-func (w workloadStatisticDo) WriteDB() IWorkloadStatisticDo {
+func (w workloadStatisticDo) WriteDB() *workloadStatisticDo {
 	return w.Clauses(dbresolver.Write)
 }
 
-func (w workloadStatisticDo) Session(config *gorm.Session) IWorkloadStatisticDo {
+func (w workloadStatisticDo) Session(config *gorm.Session) *workloadStatisticDo {
 	return w.withDO(w.DO.Session(config))
 }
 
-func (w workloadStatisticDo) Clauses(conds ...clause.Expression) IWorkloadStatisticDo {
+func (w workloadStatisticDo) Clauses(conds ...clause.Expression) *workloadStatisticDo {
 	return w.withDO(w.DO.Clauses(conds...))
 }
 
-func (w workloadStatisticDo) Returning(value interface{}, columns ...string) IWorkloadStatisticDo {
+func (w workloadStatisticDo) Returning(value interface{}, columns ...string) *workloadStatisticDo {
 	return w.withDO(w.DO.Returning(value, columns...))
 }
 
-func (w workloadStatisticDo) Not(conds ...gen.Condition) IWorkloadStatisticDo {
+func (w workloadStatisticDo) Not(conds ...gen.Condition) *workloadStatisticDo {
 	return w.withDO(w.DO.Not(conds...))
 }
 
-func (w workloadStatisticDo) Or(conds ...gen.Condition) IWorkloadStatisticDo {
+func (w workloadStatisticDo) Or(conds ...gen.Condition) *workloadStatisticDo {
 	return w.withDO(w.DO.Or(conds...))
 }
 
-func (w workloadStatisticDo) Select(conds ...field.Expr) IWorkloadStatisticDo {
+func (w workloadStatisticDo) Select(conds ...field.Expr) *workloadStatisticDo {
 	return w.withDO(w.DO.Select(conds...))
 }
 
-func (w workloadStatisticDo) Where(conds ...gen.Condition) IWorkloadStatisticDo {
+func (w workloadStatisticDo) Where(conds ...gen.Condition) *workloadStatisticDo {
 	return w.withDO(w.DO.Where(conds...))
 }
 
-func (w workloadStatisticDo) Order(conds ...field.Expr) IWorkloadStatisticDo {
+func (w workloadStatisticDo) Order(conds ...field.Expr) *workloadStatisticDo {
 	return w.withDO(w.DO.Order(conds...))
 }
 
-func (w workloadStatisticDo) Distinct(cols ...field.Expr) IWorkloadStatisticDo {
+func (w workloadStatisticDo) Distinct(cols ...field.Expr) *workloadStatisticDo {
 	return w.withDO(w.DO.Distinct(cols...))
 }
 
-func (w workloadStatisticDo) Omit(cols ...field.Expr) IWorkloadStatisticDo {
+func (w workloadStatisticDo) Omit(cols ...field.Expr) *workloadStatisticDo {
 	return w.withDO(w.DO.Omit(cols...))
 }
 
-func (w workloadStatisticDo) Join(table schema.Tabler, on ...field.Expr) IWorkloadStatisticDo {
+func (w workloadStatisticDo) Join(table schema.Tabler, on ...field.Expr) *workloadStatisticDo {
 	return w.withDO(w.DO.Join(table, on...))
 }
 
-func (w workloadStatisticDo) LeftJoin(table schema.Tabler, on ...field.Expr) IWorkloadStatisticDo {
+func (w workloadStatisticDo) LeftJoin(table schema.Tabler, on ...field.Expr) *workloadStatisticDo {
 	return w.withDO(w.DO.LeftJoin(table, on...))
 }
 
-func (w workloadStatisticDo) RightJoin(table schema.Tabler, on ...field.Expr) IWorkloadStatisticDo {
+func (w workloadStatisticDo) RightJoin(table schema.Tabler, on ...field.Expr) *workloadStatisticDo {
 	return w.withDO(w.DO.RightJoin(table, on...))
 }
 
-func (w workloadStatisticDo) Group(cols ...field.Expr) IWorkloadStatisticDo {
+func (w workloadStatisticDo) Group(cols ...field.Expr) *workloadStatisticDo {
 	return w.withDO(w.DO.Group(cols...))
 }
 
-func (w workloadStatisticDo) Having(conds ...gen.Condition) IWorkloadStatisticDo {
+func (w workloadStatisticDo) Having(conds ...gen.Condition) *workloadStatisticDo {
 	return w.withDO(w.DO.Having(conds...))
 }
 
-func (w workloadStatisticDo) Limit(limit int) IWorkloadStatisticDo {
+func (w workloadStatisticDo) Limit(limit int) *workloadStatisticDo {
 	return w.withDO(w.DO.Limit(limit))
 }
 
-func (w workloadStatisticDo) Offset(offset int) IWorkloadStatisticDo {
+func (w workloadStatisticDo) Offset(offset int) *workloadStatisticDo {
 	return w.withDO(w.DO.Offset(offset))
 }
 
-func (w workloadStatisticDo) Scopes(funcs ...func(gen.Dao) gen.Dao) IWorkloadStatisticDo {
+func (w workloadStatisticDo) Scopes(funcs ...func(gen.Dao) gen.Dao) *workloadStatisticDo {
 	return w.withDO(w.DO.Scopes(funcs...))
 }
 
-func (w workloadStatisticDo) Unscoped() IWorkloadStatisticDo {
+func (w workloadStatisticDo) Unscoped() *workloadStatisticDo {
 	return w.withDO(w.DO.Unscoped())
 }
 
@@ -402,22 +350,22 @@ func (w workloadStatisticDo) FindInBatches(result *[]*model.WorkloadStatistic, b
 	return w.DO.FindInBatches(result, batchSize, fc)
 }
 
-func (w workloadStatisticDo) Attrs(attrs ...field.AssignExpr) IWorkloadStatisticDo {
+func (w workloadStatisticDo) Attrs(attrs ...field.AssignExpr) *workloadStatisticDo {
 	return w.withDO(w.DO.Attrs(attrs...))
 }
 
-func (w workloadStatisticDo) Assign(attrs ...field.AssignExpr) IWorkloadStatisticDo {
+func (w workloadStatisticDo) Assign(attrs ...field.AssignExpr) *workloadStatisticDo {
 	return w.withDO(w.DO.Assign(attrs...))
 }
 
-func (w workloadStatisticDo) Joins(fields ...field.RelationField) IWorkloadStatisticDo {
+func (w workloadStatisticDo) Joins(fields ...field.RelationField) *workloadStatisticDo {
 	for _, _f := range fields {
 		w = *w.withDO(w.DO.Joins(_f))
 	}
 	return &w
 }
 
-func (w workloadStatisticDo) Preload(fields ...field.RelationField) IWorkloadStatisticDo {
+func (w workloadStatisticDo) Preload(fields ...field.RelationField) *workloadStatisticDo {
 	for _, _f := range fields {
 		w = *w.withDO(w.DO.Preload(_f))
 	}

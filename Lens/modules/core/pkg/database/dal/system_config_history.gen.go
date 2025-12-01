@@ -6,7 +6,6 @@ package dal
 
 import (
 	"context"
-	"database/sql"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -44,7 +43,7 @@ func newSystemConfigHistory(db *gorm.DB, opts ...gen.DOOption) systemConfigHisto
 }
 
 type systemConfigHistory struct {
-	systemConfigHistoryDo
+	systemConfigHistoryDo systemConfigHistoryDo
 
 	ALL          field.Asterisk
 	ID           field.Int64
@@ -87,6 +86,18 @@ func (s *systemConfigHistory) updateTableName(table string) *systemConfigHistory
 	return s
 }
 
+func (s *systemConfigHistory) WithContext(ctx context.Context) *systemConfigHistoryDo {
+	return s.systemConfigHistoryDo.WithContext(ctx)
+}
+
+func (s systemConfigHistory) TableName() string { return s.systemConfigHistoryDo.TableName() }
+
+func (s systemConfigHistory) Alias() string { return s.systemConfigHistoryDo.Alias() }
+
+func (s systemConfigHistory) Columns(cols ...field.Expr) gen.Columns {
+	return s.systemConfigHistoryDo.Columns(cols...)
+}
+
 func (s *systemConfigHistory) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 	_f, ok := s.fieldMap[fieldName]
 	if !ok || _f == nil {
@@ -121,158 +132,95 @@ func (s systemConfigHistory) replaceDB(db *gorm.DB) systemConfigHistory {
 
 type systemConfigHistoryDo struct{ gen.DO }
 
-type ISystemConfigHistoryDo interface {
-	gen.SubQuery
-	Debug() ISystemConfigHistoryDo
-	WithContext(ctx context.Context) ISystemConfigHistoryDo
-	WithResult(fc func(tx gen.Dao)) gen.ResultInfo
-	ReplaceDB(db *gorm.DB)
-	ReadDB() ISystemConfigHistoryDo
-	WriteDB() ISystemConfigHistoryDo
-	As(alias string) gen.Dao
-	Session(config *gorm.Session) ISystemConfigHistoryDo
-	Columns(cols ...field.Expr) gen.Columns
-	Clauses(conds ...clause.Expression) ISystemConfigHistoryDo
-	Not(conds ...gen.Condition) ISystemConfigHistoryDo
-	Or(conds ...gen.Condition) ISystemConfigHistoryDo
-	Select(conds ...field.Expr) ISystemConfigHistoryDo
-	Where(conds ...gen.Condition) ISystemConfigHistoryDo
-	Order(conds ...field.Expr) ISystemConfigHistoryDo
-	Distinct(cols ...field.Expr) ISystemConfigHistoryDo
-	Omit(cols ...field.Expr) ISystemConfigHistoryDo
-	Join(table schema.Tabler, on ...field.Expr) ISystemConfigHistoryDo
-	LeftJoin(table schema.Tabler, on ...field.Expr) ISystemConfigHistoryDo
-	RightJoin(table schema.Tabler, on ...field.Expr) ISystemConfigHistoryDo
-	Group(cols ...field.Expr) ISystemConfigHistoryDo
-	Having(conds ...gen.Condition) ISystemConfigHistoryDo
-	Limit(limit int) ISystemConfigHistoryDo
-	Offset(offset int) ISystemConfigHistoryDo
-	Count() (count int64, err error)
-	Scopes(funcs ...func(gen.Dao) gen.Dao) ISystemConfigHistoryDo
-	Unscoped() ISystemConfigHistoryDo
-	Create(values ...*model.SystemConfigHistory) error
-	CreateInBatches(values []*model.SystemConfigHistory, batchSize int) error
-	Save(values ...*model.SystemConfigHistory) error
-	First() (*model.SystemConfigHistory, error)
-	Take() (*model.SystemConfigHistory, error)
-	Last() (*model.SystemConfigHistory, error)
-	Find() ([]*model.SystemConfigHistory, error)
-	FindInBatch(batchSize int, fc func(tx gen.Dao, batch int) error) (results []*model.SystemConfigHistory, err error)
-	FindInBatches(result *[]*model.SystemConfigHistory, batchSize int, fc func(tx gen.Dao, batch int) error) error
-	Pluck(column field.Expr, dest interface{}) error
-	Delete(...*model.SystemConfigHistory) (info gen.ResultInfo, err error)
-	Update(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
-	UpdateSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
-	Updates(value interface{}) (info gen.ResultInfo, err error)
-	UpdateColumn(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
-	UpdateColumnSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
-	UpdateColumns(value interface{}) (info gen.ResultInfo, err error)
-	UpdateFrom(q gen.SubQuery) gen.Dao
-	Attrs(attrs ...field.AssignExpr) ISystemConfigHistoryDo
-	Assign(attrs ...field.AssignExpr) ISystemConfigHistoryDo
-	Joins(fields ...field.RelationField) ISystemConfigHistoryDo
-	Preload(fields ...field.RelationField) ISystemConfigHistoryDo
-	FirstOrInit() (*model.SystemConfigHistory, error)
-	FirstOrCreate() (*model.SystemConfigHistory, error)
-	FindByPage(offset int, limit int) (result []*model.SystemConfigHistory, count int64, err error)
-	ScanByPage(result interface{}, offset int, limit int) (count int64, err error)
-	Rows() (*sql.Rows, error)
-	Row() *sql.Row
-	Scan(result interface{}) (err error)
-	Returning(value interface{}, columns ...string) ISystemConfigHistoryDo
-	UnderlyingDB() *gorm.DB
-	schema.Tabler
-}
-
-func (s systemConfigHistoryDo) Debug() ISystemConfigHistoryDo {
+func (s systemConfigHistoryDo) Debug() *systemConfigHistoryDo {
 	return s.withDO(s.DO.Debug())
 }
 
-func (s systemConfigHistoryDo) WithContext(ctx context.Context) ISystemConfigHistoryDo {
+func (s systemConfigHistoryDo) WithContext(ctx context.Context) *systemConfigHistoryDo {
 	return s.withDO(s.DO.WithContext(ctx))
 }
 
-func (s systemConfigHistoryDo) ReadDB() ISystemConfigHistoryDo {
+func (s systemConfigHistoryDo) ReadDB() *systemConfigHistoryDo {
 	return s.Clauses(dbresolver.Read)
 }
 
-func (s systemConfigHistoryDo) WriteDB() ISystemConfigHistoryDo {
+func (s systemConfigHistoryDo) WriteDB() *systemConfigHistoryDo {
 	return s.Clauses(dbresolver.Write)
 }
 
-func (s systemConfigHistoryDo) Session(config *gorm.Session) ISystemConfigHistoryDo {
+func (s systemConfigHistoryDo) Session(config *gorm.Session) *systemConfigHistoryDo {
 	return s.withDO(s.DO.Session(config))
 }
 
-func (s systemConfigHistoryDo) Clauses(conds ...clause.Expression) ISystemConfigHistoryDo {
+func (s systemConfigHistoryDo) Clauses(conds ...clause.Expression) *systemConfigHistoryDo {
 	return s.withDO(s.DO.Clauses(conds...))
 }
 
-func (s systemConfigHistoryDo) Returning(value interface{}, columns ...string) ISystemConfigHistoryDo {
+func (s systemConfigHistoryDo) Returning(value interface{}, columns ...string) *systemConfigHistoryDo {
 	return s.withDO(s.DO.Returning(value, columns...))
 }
 
-func (s systemConfigHistoryDo) Not(conds ...gen.Condition) ISystemConfigHistoryDo {
+func (s systemConfigHistoryDo) Not(conds ...gen.Condition) *systemConfigHistoryDo {
 	return s.withDO(s.DO.Not(conds...))
 }
 
-func (s systemConfigHistoryDo) Or(conds ...gen.Condition) ISystemConfigHistoryDo {
+func (s systemConfigHistoryDo) Or(conds ...gen.Condition) *systemConfigHistoryDo {
 	return s.withDO(s.DO.Or(conds...))
 }
 
-func (s systemConfigHistoryDo) Select(conds ...field.Expr) ISystemConfigHistoryDo {
+func (s systemConfigHistoryDo) Select(conds ...field.Expr) *systemConfigHistoryDo {
 	return s.withDO(s.DO.Select(conds...))
 }
 
-func (s systemConfigHistoryDo) Where(conds ...gen.Condition) ISystemConfigHistoryDo {
+func (s systemConfigHistoryDo) Where(conds ...gen.Condition) *systemConfigHistoryDo {
 	return s.withDO(s.DO.Where(conds...))
 }
 
-func (s systemConfigHistoryDo) Order(conds ...field.Expr) ISystemConfigHistoryDo {
+func (s systemConfigHistoryDo) Order(conds ...field.Expr) *systemConfigHistoryDo {
 	return s.withDO(s.DO.Order(conds...))
 }
 
-func (s systemConfigHistoryDo) Distinct(cols ...field.Expr) ISystemConfigHistoryDo {
+func (s systemConfigHistoryDo) Distinct(cols ...field.Expr) *systemConfigHistoryDo {
 	return s.withDO(s.DO.Distinct(cols...))
 }
 
-func (s systemConfigHistoryDo) Omit(cols ...field.Expr) ISystemConfigHistoryDo {
+func (s systemConfigHistoryDo) Omit(cols ...field.Expr) *systemConfigHistoryDo {
 	return s.withDO(s.DO.Omit(cols...))
 }
 
-func (s systemConfigHistoryDo) Join(table schema.Tabler, on ...field.Expr) ISystemConfigHistoryDo {
+func (s systemConfigHistoryDo) Join(table schema.Tabler, on ...field.Expr) *systemConfigHistoryDo {
 	return s.withDO(s.DO.Join(table, on...))
 }
 
-func (s systemConfigHistoryDo) LeftJoin(table schema.Tabler, on ...field.Expr) ISystemConfigHistoryDo {
+func (s systemConfigHistoryDo) LeftJoin(table schema.Tabler, on ...field.Expr) *systemConfigHistoryDo {
 	return s.withDO(s.DO.LeftJoin(table, on...))
 }
 
-func (s systemConfigHistoryDo) RightJoin(table schema.Tabler, on ...field.Expr) ISystemConfigHistoryDo {
+func (s systemConfigHistoryDo) RightJoin(table schema.Tabler, on ...field.Expr) *systemConfigHistoryDo {
 	return s.withDO(s.DO.RightJoin(table, on...))
 }
 
-func (s systemConfigHistoryDo) Group(cols ...field.Expr) ISystemConfigHistoryDo {
+func (s systemConfigHistoryDo) Group(cols ...field.Expr) *systemConfigHistoryDo {
 	return s.withDO(s.DO.Group(cols...))
 }
 
-func (s systemConfigHistoryDo) Having(conds ...gen.Condition) ISystemConfigHistoryDo {
+func (s systemConfigHistoryDo) Having(conds ...gen.Condition) *systemConfigHistoryDo {
 	return s.withDO(s.DO.Having(conds...))
 }
 
-func (s systemConfigHistoryDo) Limit(limit int) ISystemConfigHistoryDo {
+func (s systemConfigHistoryDo) Limit(limit int) *systemConfigHistoryDo {
 	return s.withDO(s.DO.Limit(limit))
 }
 
-func (s systemConfigHistoryDo) Offset(offset int) ISystemConfigHistoryDo {
+func (s systemConfigHistoryDo) Offset(offset int) *systemConfigHistoryDo {
 	return s.withDO(s.DO.Offset(offset))
 }
 
-func (s systemConfigHistoryDo) Scopes(funcs ...func(gen.Dao) gen.Dao) ISystemConfigHistoryDo {
+func (s systemConfigHistoryDo) Scopes(funcs ...func(gen.Dao) gen.Dao) *systemConfigHistoryDo {
 	return s.withDO(s.DO.Scopes(funcs...))
 }
 
-func (s systemConfigHistoryDo) Unscoped() ISystemConfigHistoryDo {
+func (s systemConfigHistoryDo) Unscoped() *systemConfigHistoryDo {
 	return s.withDO(s.DO.Unscoped())
 }
 
@@ -338,22 +286,22 @@ func (s systemConfigHistoryDo) FindInBatches(result *[]*model.SystemConfigHistor
 	return s.DO.FindInBatches(result, batchSize, fc)
 }
 
-func (s systemConfigHistoryDo) Attrs(attrs ...field.AssignExpr) ISystemConfigHistoryDo {
+func (s systemConfigHistoryDo) Attrs(attrs ...field.AssignExpr) *systemConfigHistoryDo {
 	return s.withDO(s.DO.Attrs(attrs...))
 }
 
-func (s systemConfigHistoryDo) Assign(attrs ...field.AssignExpr) ISystemConfigHistoryDo {
+func (s systemConfigHistoryDo) Assign(attrs ...field.AssignExpr) *systemConfigHistoryDo {
 	return s.withDO(s.DO.Assign(attrs...))
 }
 
-func (s systemConfigHistoryDo) Joins(fields ...field.RelationField) ISystemConfigHistoryDo {
+func (s systemConfigHistoryDo) Joins(fields ...field.RelationField) *systemConfigHistoryDo {
 	for _, _f := range fields {
 		s = *s.withDO(s.DO.Joins(_f))
 	}
 	return &s
 }
 
-func (s systemConfigHistoryDo) Preload(fields ...field.RelationField) ISystemConfigHistoryDo {
+func (s systemConfigHistoryDo) Preload(fields ...field.RelationField) *systemConfigHistoryDo {
 	for _, _f := range fields {
 		s = *s.withDO(s.DO.Preload(_f))
 	}

@@ -6,7 +6,6 @@ package dal
 
 import (
 	"context"
-	"database/sql"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -44,7 +43,7 @@ func newNodeContainerDevices(db *gorm.DB, opts ...gen.DOOption) nodeContainerDev
 }
 
 type nodeContainerDevices struct {
-	nodeContainerDevicesDo
+	nodeContainerDevicesDo nodeContainerDevicesDo
 
 	ALL          field.Asterisk
 	ID           field.Int32
@@ -87,6 +86,18 @@ func (n *nodeContainerDevices) updateTableName(table string) *nodeContainerDevic
 	return n
 }
 
+func (n *nodeContainerDevices) WithContext(ctx context.Context) *nodeContainerDevicesDo {
+	return n.nodeContainerDevicesDo.WithContext(ctx)
+}
+
+func (n nodeContainerDevices) TableName() string { return n.nodeContainerDevicesDo.TableName() }
+
+func (n nodeContainerDevices) Alias() string { return n.nodeContainerDevicesDo.Alias() }
+
+func (n nodeContainerDevices) Columns(cols ...field.Expr) gen.Columns {
+	return n.nodeContainerDevicesDo.Columns(cols...)
+}
+
 func (n *nodeContainerDevices) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 	_f, ok := n.fieldMap[fieldName]
 	if !ok || _f == nil {
@@ -121,158 +132,95 @@ func (n nodeContainerDevices) replaceDB(db *gorm.DB) nodeContainerDevices {
 
 type nodeContainerDevicesDo struct{ gen.DO }
 
-type INodeContainerDevicesDo interface {
-	gen.SubQuery
-	Debug() INodeContainerDevicesDo
-	WithContext(ctx context.Context) INodeContainerDevicesDo
-	WithResult(fc func(tx gen.Dao)) gen.ResultInfo
-	ReplaceDB(db *gorm.DB)
-	ReadDB() INodeContainerDevicesDo
-	WriteDB() INodeContainerDevicesDo
-	As(alias string) gen.Dao
-	Session(config *gorm.Session) INodeContainerDevicesDo
-	Columns(cols ...field.Expr) gen.Columns
-	Clauses(conds ...clause.Expression) INodeContainerDevicesDo
-	Not(conds ...gen.Condition) INodeContainerDevicesDo
-	Or(conds ...gen.Condition) INodeContainerDevicesDo
-	Select(conds ...field.Expr) INodeContainerDevicesDo
-	Where(conds ...gen.Condition) INodeContainerDevicesDo
-	Order(conds ...field.Expr) INodeContainerDevicesDo
-	Distinct(cols ...field.Expr) INodeContainerDevicesDo
-	Omit(cols ...field.Expr) INodeContainerDevicesDo
-	Join(table schema.Tabler, on ...field.Expr) INodeContainerDevicesDo
-	LeftJoin(table schema.Tabler, on ...field.Expr) INodeContainerDevicesDo
-	RightJoin(table schema.Tabler, on ...field.Expr) INodeContainerDevicesDo
-	Group(cols ...field.Expr) INodeContainerDevicesDo
-	Having(conds ...gen.Condition) INodeContainerDevicesDo
-	Limit(limit int) INodeContainerDevicesDo
-	Offset(offset int) INodeContainerDevicesDo
-	Count() (count int64, err error)
-	Scopes(funcs ...func(gen.Dao) gen.Dao) INodeContainerDevicesDo
-	Unscoped() INodeContainerDevicesDo
-	Create(values ...*model.NodeContainerDevices) error
-	CreateInBatches(values []*model.NodeContainerDevices, batchSize int) error
-	Save(values ...*model.NodeContainerDevices) error
-	First() (*model.NodeContainerDevices, error)
-	Take() (*model.NodeContainerDevices, error)
-	Last() (*model.NodeContainerDevices, error)
-	Find() ([]*model.NodeContainerDevices, error)
-	FindInBatch(batchSize int, fc func(tx gen.Dao, batch int) error) (results []*model.NodeContainerDevices, err error)
-	FindInBatches(result *[]*model.NodeContainerDevices, batchSize int, fc func(tx gen.Dao, batch int) error) error
-	Pluck(column field.Expr, dest interface{}) error
-	Delete(...*model.NodeContainerDevices) (info gen.ResultInfo, err error)
-	Update(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
-	UpdateSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
-	Updates(value interface{}) (info gen.ResultInfo, err error)
-	UpdateColumn(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
-	UpdateColumnSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
-	UpdateColumns(value interface{}) (info gen.ResultInfo, err error)
-	UpdateFrom(q gen.SubQuery) gen.Dao
-	Attrs(attrs ...field.AssignExpr) INodeContainerDevicesDo
-	Assign(attrs ...field.AssignExpr) INodeContainerDevicesDo
-	Joins(fields ...field.RelationField) INodeContainerDevicesDo
-	Preload(fields ...field.RelationField) INodeContainerDevicesDo
-	FirstOrInit() (*model.NodeContainerDevices, error)
-	FirstOrCreate() (*model.NodeContainerDevices, error)
-	FindByPage(offset int, limit int) (result []*model.NodeContainerDevices, count int64, err error)
-	ScanByPage(result interface{}, offset int, limit int) (count int64, err error)
-	Rows() (*sql.Rows, error)
-	Row() *sql.Row
-	Scan(result interface{}) (err error)
-	Returning(value interface{}, columns ...string) INodeContainerDevicesDo
-	UnderlyingDB() *gorm.DB
-	schema.Tabler
-}
-
-func (n nodeContainerDevicesDo) Debug() INodeContainerDevicesDo {
+func (n nodeContainerDevicesDo) Debug() *nodeContainerDevicesDo {
 	return n.withDO(n.DO.Debug())
 }
 
-func (n nodeContainerDevicesDo) WithContext(ctx context.Context) INodeContainerDevicesDo {
+func (n nodeContainerDevicesDo) WithContext(ctx context.Context) *nodeContainerDevicesDo {
 	return n.withDO(n.DO.WithContext(ctx))
 }
 
-func (n nodeContainerDevicesDo) ReadDB() INodeContainerDevicesDo {
+func (n nodeContainerDevicesDo) ReadDB() *nodeContainerDevicesDo {
 	return n.Clauses(dbresolver.Read)
 }
 
-func (n nodeContainerDevicesDo) WriteDB() INodeContainerDevicesDo {
+func (n nodeContainerDevicesDo) WriteDB() *nodeContainerDevicesDo {
 	return n.Clauses(dbresolver.Write)
 }
 
-func (n nodeContainerDevicesDo) Session(config *gorm.Session) INodeContainerDevicesDo {
+func (n nodeContainerDevicesDo) Session(config *gorm.Session) *nodeContainerDevicesDo {
 	return n.withDO(n.DO.Session(config))
 }
 
-func (n nodeContainerDevicesDo) Clauses(conds ...clause.Expression) INodeContainerDevicesDo {
+func (n nodeContainerDevicesDo) Clauses(conds ...clause.Expression) *nodeContainerDevicesDo {
 	return n.withDO(n.DO.Clauses(conds...))
 }
 
-func (n nodeContainerDevicesDo) Returning(value interface{}, columns ...string) INodeContainerDevicesDo {
+func (n nodeContainerDevicesDo) Returning(value interface{}, columns ...string) *nodeContainerDevicesDo {
 	return n.withDO(n.DO.Returning(value, columns...))
 }
 
-func (n nodeContainerDevicesDo) Not(conds ...gen.Condition) INodeContainerDevicesDo {
+func (n nodeContainerDevicesDo) Not(conds ...gen.Condition) *nodeContainerDevicesDo {
 	return n.withDO(n.DO.Not(conds...))
 }
 
-func (n nodeContainerDevicesDo) Or(conds ...gen.Condition) INodeContainerDevicesDo {
+func (n nodeContainerDevicesDo) Or(conds ...gen.Condition) *nodeContainerDevicesDo {
 	return n.withDO(n.DO.Or(conds...))
 }
 
-func (n nodeContainerDevicesDo) Select(conds ...field.Expr) INodeContainerDevicesDo {
+func (n nodeContainerDevicesDo) Select(conds ...field.Expr) *nodeContainerDevicesDo {
 	return n.withDO(n.DO.Select(conds...))
 }
 
-func (n nodeContainerDevicesDo) Where(conds ...gen.Condition) INodeContainerDevicesDo {
+func (n nodeContainerDevicesDo) Where(conds ...gen.Condition) *nodeContainerDevicesDo {
 	return n.withDO(n.DO.Where(conds...))
 }
 
-func (n nodeContainerDevicesDo) Order(conds ...field.Expr) INodeContainerDevicesDo {
+func (n nodeContainerDevicesDo) Order(conds ...field.Expr) *nodeContainerDevicesDo {
 	return n.withDO(n.DO.Order(conds...))
 }
 
-func (n nodeContainerDevicesDo) Distinct(cols ...field.Expr) INodeContainerDevicesDo {
+func (n nodeContainerDevicesDo) Distinct(cols ...field.Expr) *nodeContainerDevicesDo {
 	return n.withDO(n.DO.Distinct(cols...))
 }
 
-func (n nodeContainerDevicesDo) Omit(cols ...field.Expr) INodeContainerDevicesDo {
+func (n nodeContainerDevicesDo) Omit(cols ...field.Expr) *nodeContainerDevicesDo {
 	return n.withDO(n.DO.Omit(cols...))
 }
 
-func (n nodeContainerDevicesDo) Join(table schema.Tabler, on ...field.Expr) INodeContainerDevicesDo {
+func (n nodeContainerDevicesDo) Join(table schema.Tabler, on ...field.Expr) *nodeContainerDevicesDo {
 	return n.withDO(n.DO.Join(table, on...))
 }
 
-func (n nodeContainerDevicesDo) LeftJoin(table schema.Tabler, on ...field.Expr) INodeContainerDevicesDo {
+func (n nodeContainerDevicesDo) LeftJoin(table schema.Tabler, on ...field.Expr) *nodeContainerDevicesDo {
 	return n.withDO(n.DO.LeftJoin(table, on...))
 }
 
-func (n nodeContainerDevicesDo) RightJoin(table schema.Tabler, on ...field.Expr) INodeContainerDevicesDo {
+func (n nodeContainerDevicesDo) RightJoin(table schema.Tabler, on ...field.Expr) *nodeContainerDevicesDo {
 	return n.withDO(n.DO.RightJoin(table, on...))
 }
 
-func (n nodeContainerDevicesDo) Group(cols ...field.Expr) INodeContainerDevicesDo {
+func (n nodeContainerDevicesDo) Group(cols ...field.Expr) *nodeContainerDevicesDo {
 	return n.withDO(n.DO.Group(cols...))
 }
 
-func (n nodeContainerDevicesDo) Having(conds ...gen.Condition) INodeContainerDevicesDo {
+func (n nodeContainerDevicesDo) Having(conds ...gen.Condition) *nodeContainerDevicesDo {
 	return n.withDO(n.DO.Having(conds...))
 }
 
-func (n nodeContainerDevicesDo) Limit(limit int) INodeContainerDevicesDo {
+func (n nodeContainerDevicesDo) Limit(limit int) *nodeContainerDevicesDo {
 	return n.withDO(n.DO.Limit(limit))
 }
 
-func (n nodeContainerDevicesDo) Offset(offset int) INodeContainerDevicesDo {
+func (n nodeContainerDevicesDo) Offset(offset int) *nodeContainerDevicesDo {
 	return n.withDO(n.DO.Offset(offset))
 }
 
-func (n nodeContainerDevicesDo) Scopes(funcs ...func(gen.Dao) gen.Dao) INodeContainerDevicesDo {
+func (n nodeContainerDevicesDo) Scopes(funcs ...func(gen.Dao) gen.Dao) *nodeContainerDevicesDo {
 	return n.withDO(n.DO.Scopes(funcs...))
 }
 
-func (n nodeContainerDevicesDo) Unscoped() INodeContainerDevicesDo {
+func (n nodeContainerDevicesDo) Unscoped() *nodeContainerDevicesDo {
 	return n.withDO(n.DO.Unscoped())
 }
 
@@ -338,22 +286,22 @@ func (n nodeContainerDevicesDo) FindInBatches(result *[]*model.NodeContainerDevi
 	return n.DO.FindInBatches(result, batchSize, fc)
 }
 
-func (n nodeContainerDevicesDo) Attrs(attrs ...field.AssignExpr) INodeContainerDevicesDo {
+func (n nodeContainerDevicesDo) Attrs(attrs ...field.AssignExpr) *nodeContainerDevicesDo {
 	return n.withDO(n.DO.Attrs(attrs...))
 }
 
-func (n nodeContainerDevicesDo) Assign(attrs ...field.AssignExpr) INodeContainerDevicesDo {
+func (n nodeContainerDevicesDo) Assign(attrs ...field.AssignExpr) *nodeContainerDevicesDo {
 	return n.withDO(n.DO.Assign(attrs...))
 }
 
-func (n nodeContainerDevicesDo) Joins(fields ...field.RelationField) INodeContainerDevicesDo {
+func (n nodeContainerDevicesDo) Joins(fields ...field.RelationField) *nodeContainerDevicesDo {
 	for _, _f := range fields {
 		n = *n.withDO(n.DO.Joins(_f))
 	}
 	return &n
 }
 
-func (n nodeContainerDevicesDo) Preload(fields ...field.RelationField) INodeContainerDevicesDo {
+func (n nodeContainerDevicesDo) Preload(fields ...field.RelationField) *nodeContainerDevicesDo {
 	for _, _f := range fields {
 		n = *n.withDO(n.DO.Preload(_f))
 	}

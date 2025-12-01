@@ -6,7 +6,6 @@ package dal
 
 import (
 	"context"
-	"database/sql"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -55,7 +54,7 @@ func newNode(db *gorm.DB, opts ...gen.DOOption) node {
 }
 
 type node struct {
-	nodeDo
+	nodeDo nodeDo
 
 	ALL               field.Asterisk
 	ID                field.Int32
@@ -120,6 +119,14 @@ func (n *node) updateTableName(table string) *node {
 	return n
 }
 
+func (n *node) WithContext(ctx context.Context) *nodeDo { return n.nodeDo.WithContext(ctx) }
+
+func (n node) TableName() string { return n.nodeDo.TableName() }
+
+func (n node) Alias() string { return n.nodeDo.Alias() }
+
+func (n node) Columns(cols ...field.Expr) gen.Columns { return n.nodeDo.Columns(cols...) }
+
 func (n *node) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 	_f, ok := n.fieldMap[fieldName]
 	if !ok || _f == nil {
@@ -165,158 +172,95 @@ func (n node) replaceDB(db *gorm.DB) node {
 
 type nodeDo struct{ gen.DO }
 
-type INodeDo interface {
-	gen.SubQuery
-	Debug() INodeDo
-	WithContext(ctx context.Context) INodeDo
-	WithResult(fc func(tx gen.Dao)) gen.ResultInfo
-	ReplaceDB(db *gorm.DB)
-	ReadDB() INodeDo
-	WriteDB() INodeDo
-	As(alias string) gen.Dao
-	Session(config *gorm.Session) INodeDo
-	Columns(cols ...field.Expr) gen.Columns
-	Clauses(conds ...clause.Expression) INodeDo
-	Not(conds ...gen.Condition) INodeDo
-	Or(conds ...gen.Condition) INodeDo
-	Select(conds ...field.Expr) INodeDo
-	Where(conds ...gen.Condition) INodeDo
-	Order(conds ...field.Expr) INodeDo
-	Distinct(cols ...field.Expr) INodeDo
-	Omit(cols ...field.Expr) INodeDo
-	Join(table schema.Tabler, on ...field.Expr) INodeDo
-	LeftJoin(table schema.Tabler, on ...field.Expr) INodeDo
-	RightJoin(table schema.Tabler, on ...field.Expr) INodeDo
-	Group(cols ...field.Expr) INodeDo
-	Having(conds ...gen.Condition) INodeDo
-	Limit(limit int) INodeDo
-	Offset(offset int) INodeDo
-	Count() (count int64, err error)
-	Scopes(funcs ...func(gen.Dao) gen.Dao) INodeDo
-	Unscoped() INodeDo
-	Create(values ...*model.Node) error
-	CreateInBatches(values []*model.Node, batchSize int) error
-	Save(values ...*model.Node) error
-	First() (*model.Node, error)
-	Take() (*model.Node, error)
-	Last() (*model.Node, error)
-	Find() ([]*model.Node, error)
-	FindInBatch(batchSize int, fc func(tx gen.Dao, batch int) error) (results []*model.Node, err error)
-	FindInBatches(result *[]*model.Node, batchSize int, fc func(tx gen.Dao, batch int) error) error
-	Pluck(column field.Expr, dest interface{}) error
-	Delete(...*model.Node) (info gen.ResultInfo, err error)
-	Update(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
-	UpdateSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
-	Updates(value interface{}) (info gen.ResultInfo, err error)
-	UpdateColumn(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
-	UpdateColumnSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
-	UpdateColumns(value interface{}) (info gen.ResultInfo, err error)
-	UpdateFrom(q gen.SubQuery) gen.Dao
-	Attrs(attrs ...field.AssignExpr) INodeDo
-	Assign(attrs ...field.AssignExpr) INodeDo
-	Joins(fields ...field.RelationField) INodeDo
-	Preload(fields ...field.RelationField) INodeDo
-	FirstOrInit() (*model.Node, error)
-	FirstOrCreate() (*model.Node, error)
-	FindByPage(offset int, limit int) (result []*model.Node, count int64, err error)
-	ScanByPage(result interface{}, offset int, limit int) (count int64, err error)
-	Rows() (*sql.Rows, error)
-	Row() *sql.Row
-	Scan(result interface{}) (err error)
-	Returning(value interface{}, columns ...string) INodeDo
-	UnderlyingDB() *gorm.DB
-	schema.Tabler
-}
-
-func (n nodeDo) Debug() INodeDo {
+func (n nodeDo) Debug() *nodeDo {
 	return n.withDO(n.DO.Debug())
 }
 
-func (n nodeDo) WithContext(ctx context.Context) INodeDo {
+func (n nodeDo) WithContext(ctx context.Context) *nodeDo {
 	return n.withDO(n.DO.WithContext(ctx))
 }
 
-func (n nodeDo) ReadDB() INodeDo {
+func (n nodeDo) ReadDB() *nodeDo {
 	return n.Clauses(dbresolver.Read)
 }
 
-func (n nodeDo) WriteDB() INodeDo {
+func (n nodeDo) WriteDB() *nodeDo {
 	return n.Clauses(dbresolver.Write)
 }
 
-func (n nodeDo) Session(config *gorm.Session) INodeDo {
+func (n nodeDo) Session(config *gorm.Session) *nodeDo {
 	return n.withDO(n.DO.Session(config))
 }
 
-func (n nodeDo) Clauses(conds ...clause.Expression) INodeDo {
+func (n nodeDo) Clauses(conds ...clause.Expression) *nodeDo {
 	return n.withDO(n.DO.Clauses(conds...))
 }
 
-func (n nodeDo) Returning(value interface{}, columns ...string) INodeDo {
+func (n nodeDo) Returning(value interface{}, columns ...string) *nodeDo {
 	return n.withDO(n.DO.Returning(value, columns...))
 }
 
-func (n nodeDo) Not(conds ...gen.Condition) INodeDo {
+func (n nodeDo) Not(conds ...gen.Condition) *nodeDo {
 	return n.withDO(n.DO.Not(conds...))
 }
 
-func (n nodeDo) Or(conds ...gen.Condition) INodeDo {
+func (n nodeDo) Or(conds ...gen.Condition) *nodeDo {
 	return n.withDO(n.DO.Or(conds...))
 }
 
-func (n nodeDo) Select(conds ...field.Expr) INodeDo {
+func (n nodeDo) Select(conds ...field.Expr) *nodeDo {
 	return n.withDO(n.DO.Select(conds...))
 }
 
-func (n nodeDo) Where(conds ...gen.Condition) INodeDo {
+func (n nodeDo) Where(conds ...gen.Condition) *nodeDo {
 	return n.withDO(n.DO.Where(conds...))
 }
 
-func (n nodeDo) Order(conds ...field.Expr) INodeDo {
+func (n nodeDo) Order(conds ...field.Expr) *nodeDo {
 	return n.withDO(n.DO.Order(conds...))
 }
 
-func (n nodeDo) Distinct(cols ...field.Expr) INodeDo {
+func (n nodeDo) Distinct(cols ...field.Expr) *nodeDo {
 	return n.withDO(n.DO.Distinct(cols...))
 }
 
-func (n nodeDo) Omit(cols ...field.Expr) INodeDo {
+func (n nodeDo) Omit(cols ...field.Expr) *nodeDo {
 	return n.withDO(n.DO.Omit(cols...))
 }
 
-func (n nodeDo) Join(table schema.Tabler, on ...field.Expr) INodeDo {
+func (n nodeDo) Join(table schema.Tabler, on ...field.Expr) *nodeDo {
 	return n.withDO(n.DO.Join(table, on...))
 }
 
-func (n nodeDo) LeftJoin(table schema.Tabler, on ...field.Expr) INodeDo {
+func (n nodeDo) LeftJoin(table schema.Tabler, on ...field.Expr) *nodeDo {
 	return n.withDO(n.DO.LeftJoin(table, on...))
 }
 
-func (n nodeDo) RightJoin(table schema.Tabler, on ...field.Expr) INodeDo {
+func (n nodeDo) RightJoin(table schema.Tabler, on ...field.Expr) *nodeDo {
 	return n.withDO(n.DO.RightJoin(table, on...))
 }
 
-func (n nodeDo) Group(cols ...field.Expr) INodeDo {
+func (n nodeDo) Group(cols ...field.Expr) *nodeDo {
 	return n.withDO(n.DO.Group(cols...))
 }
 
-func (n nodeDo) Having(conds ...gen.Condition) INodeDo {
+func (n nodeDo) Having(conds ...gen.Condition) *nodeDo {
 	return n.withDO(n.DO.Having(conds...))
 }
 
-func (n nodeDo) Limit(limit int) INodeDo {
+func (n nodeDo) Limit(limit int) *nodeDo {
 	return n.withDO(n.DO.Limit(limit))
 }
 
-func (n nodeDo) Offset(offset int) INodeDo {
+func (n nodeDo) Offset(offset int) *nodeDo {
 	return n.withDO(n.DO.Offset(offset))
 }
 
-func (n nodeDo) Scopes(funcs ...func(gen.Dao) gen.Dao) INodeDo {
+func (n nodeDo) Scopes(funcs ...func(gen.Dao) gen.Dao) *nodeDo {
 	return n.withDO(n.DO.Scopes(funcs...))
 }
 
-func (n nodeDo) Unscoped() INodeDo {
+func (n nodeDo) Unscoped() *nodeDo {
 	return n.withDO(n.DO.Unscoped())
 }
 
@@ -382,22 +326,22 @@ func (n nodeDo) FindInBatches(result *[]*model.Node, batchSize int, fc func(tx g
 	return n.DO.FindInBatches(result, batchSize, fc)
 }
 
-func (n nodeDo) Attrs(attrs ...field.AssignExpr) INodeDo {
+func (n nodeDo) Attrs(attrs ...field.AssignExpr) *nodeDo {
 	return n.withDO(n.DO.Attrs(attrs...))
 }
 
-func (n nodeDo) Assign(attrs ...field.AssignExpr) INodeDo {
+func (n nodeDo) Assign(attrs ...field.AssignExpr) *nodeDo {
 	return n.withDO(n.DO.Assign(attrs...))
 }
 
-func (n nodeDo) Joins(fields ...field.RelationField) INodeDo {
+func (n nodeDo) Joins(fields ...field.RelationField) *nodeDo {
 	for _, _f := range fields {
 		n = *n.withDO(n.DO.Joins(_f))
 	}
 	return &n
 }
 
-func (n nodeDo) Preload(fields ...field.RelationField) INodeDo {
+func (n nodeDo) Preload(fields ...field.RelationField) *nodeDo {
 	for _, _f := range fields {
 		n = *n.withDO(n.DO.Preload(_f))
 	}

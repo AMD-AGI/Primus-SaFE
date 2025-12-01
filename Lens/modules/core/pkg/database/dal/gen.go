@@ -15,122 +15,6 @@ import (
 	"gorm.io/plugin/dbresolver"
 )
 
-var (
-	Q                         = new(Query)
-	AiWorkloadMetadata        *aiWorkloadMetadata
-	AlertCorrelations         *alertCorrelations
-	AlertEvents               *alertEvents
-	AlertNotifications        *alertNotifications
-	AlertRuleAdviceStatistics *alertRuleAdviceStatistics
-	AlertRuleAdvices          *alertRuleAdvices
-	AlertRules                *alertRules
-	AlertSilences             *alertSilences
-	AlertStatistics           *alertStatistics
-	CheckpointEvent           *checkpointEvent
-	ClusterGpuHourlyStats     *clusterGpuHourlyStats
-	ClusterOverviewCache      *clusterOverviewCache
-	DetectionConflictLog      *detectionConflictLog
-	DetectionSourcePriority   *detectionSourcePriority
-	Fault                     *fault
-	FrameworkConfig           *frameworkConfig
-	FrameworkDetectionMetrics *frameworkDetectionMetrics
-	GenericCache              *genericCache
-	GpuAllocationSnapshots    *gpuAllocationSnapshots
-	GpuDevice                 *gpuDevice
-	GpuPods                   *gpuPods
-	GpuPodsEvent              *gpuPodsEvent
-	GpuUsageWeeklyReports     *gpuUsageWeeklyReports
-	GpuWorkload               *gpuWorkload
-	GpuWorkloadSnapshot       *gpuWorkloadSnapshot
-	JobExecutionHistory       *jobExecutionHistory
-	LabelGpuHourlyStats       *labelGpuHourlyStats
-	LogAlertRuleStatistics    *logAlertRuleStatistics
-	LogAlertRuleTemplates     *logAlertRuleTemplates
-	LogAlertRuleVersions      *logAlertRuleVersions
-	LogAlertRules             *logAlertRules
-	MetricAlertRules          *metricAlertRules
-	NamespaceGpuHourlyStats   *namespaceGpuHourlyStats
-	NamespaceInfo             *namespaceInfo
-	Node                      *node
-	NodeContainer             *nodeContainer
-	NodeContainerDevices      *nodeContainerDevices
-	NodeContainerEvent        *nodeContainerEvent
-	NodeDeviceChangelog       *nodeDeviceChangelog
-	PodResource               *podResource
-	PodSnapshot               *podSnapshot
-	RdmaDevice                *rdmaDevice
-	ReuseEffectivenessLog     *reuseEffectivenessLog
-	SilencedAlerts            *silencedAlerts
-	Storage                   *storage
-	SystemConfig              *systemConfig
-	SystemConfigHistory       *systemConfigHistory
-	TrainingPerformance       *trainingPerformance
-	WorkloadEvent             *workloadEvent
-	WorkloadGpuHourlyStats    *workloadGpuHourlyStats
-	WorkloadPodReference      *workloadPodReference
-	WorkloadResource          *workloadResource
-	WorkloadSimilarityCache   *workloadSimilarityCache
-	WorkloadStatistic         *workloadStatistic
-)
-
-func SetDefault(db *gorm.DB, opts ...gen.DOOption) {
-	*Q = *Use(db, opts...)
-	AiWorkloadMetadata = &Q.AiWorkloadMetadata
-	AlertCorrelations = &Q.AlertCorrelations
-	AlertEvents = &Q.AlertEvents
-	AlertNotifications = &Q.AlertNotifications
-	AlertRuleAdviceStatistics = &Q.AlertRuleAdviceStatistics
-	AlertRuleAdvices = &Q.AlertRuleAdvices
-	AlertRules = &Q.AlertRules
-	AlertSilences = &Q.AlertSilences
-	AlertStatistics = &Q.AlertStatistics
-	CheckpointEvent = &Q.CheckpointEvent
-	ClusterGpuHourlyStats = &Q.ClusterGpuHourlyStats
-	ClusterOverviewCache = &Q.ClusterOverviewCache
-	DetectionConflictLog = &Q.DetectionConflictLog
-	DetectionSourcePriority = &Q.DetectionSourcePriority
-	Fault = &Q.Fault
-	FrameworkConfig = &Q.FrameworkConfig
-	FrameworkDetectionMetrics = &Q.FrameworkDetectionMetrics
-	GenericCache = &Q.GenericCache
-	GpuAllocationSnapshots = &Q.GpuAllocationSnapshots
-	GpuDevice = &Q.GpuDevice
-	GpuPods = &Q.GpuPods
-	GpuPodsEvent = &Q.GpuPodsEvent
-	GpuUsageWeeklyReports = &Q.GpuUsageWeeklyReports
-	GpuWorkload = &Q.GpuWorkload
-	GpuWorkloadSnapshot = &Q.GpuWorkloadSnapshot
-	JobExecutionHistory = &Q.JobExecutionHistory
-	LabelGpuHourlyStats = &Q.LabelGpuHourlyStats
-	LogAlertRuleStatistics = &Q.LogAlertRuleStatistics
-	LogAlertRuleTemplates = &Q.LogAlertRuleTemplates
-	LogAlertRuleVersions = &Q.LogAlertRuleVersions
-	LogAlertRules = &Q.LogAlertRules
-	MetricAlertRules = &Q.MetricAlertRules
-	NamespaceGpuHourlyStats = &Q.NamespaceGpuHourlyStats
-	NamespaceInfo = &Q.NamespaceInfo
-	Node = &Q.Node
-	NodeContainer = &Q.NodeContainer
-	NodeContainerDevices = &Q.NodeContainerDevices
-	NodeContainerEvent = &Q.NodeContainerEvent
-	NodeDeviceChangelog = &Q.NodeDeviceChangelog
-	PodResource = &Q.PodResource
-	PodSnapshot = &Q.PodSnapshot
-	RdmaDevice = &Q.RdmaDevice
-	ReuseEffectivenessLog = &Q.ReuseEffectivenessLog
-	SilencedAlerts = &Q.SilencedAlerts
-	Storage = &Q.Storage
-	SystemConfig = &Q.SystemConfig
-	SystemConfigHistory = &Q.SystemConfigHistory
-	TrainingPerformance = &Q.TrainingPerformance
-	WorkloadEvent = &Q.WorkloadEvent
-	WorkloadGpuHourlyStats = &Q.WorkloadGpuHourlyStats
-	WorkloadPodReference = &Q.WorkloadPodReference
-	WorkloadResource = &Q.WorkloadResource
-	WorkloadSimilarityCache = &Q.WorkloadSimilarityCache
-	WorkloadStatistic = &Q.WorkloadStatistic
-}
-
 func Use(db *gorm.DB, opts ...gen.DOOption) *Query {
 	return &Query{
 		db:                        db,
@@ -381,60 +265,60 @@ func (q *Query) ReplaceDB(db *gorm.DB) *Query {
 }
 
 type queryCtx struct {
-	AiWorkloadMetadata        IAiWorkloadMetadataDo
-	AlertCorrelations         IAlertCorrelationsDo
-	AlertEvents               IAlertEventsDo
-	AlertNotifications        IAlertNotificationsDo
-	AlertRuleAdviceStatistics IAlertRuleAdviceStatisticsDo
-	AlertRuleAdvices          IAlertRuleAdvicesDo
-	AlertRules                IAlertRulesDo
-	AlertSilences             IAlertSilencesDo
-	AlertStatistics           IAlertStatisticsDo
-	CheckpointEvent           ICheckpointEventDo
-	ClusterGpuHourlyStats     IClusterGpuHourlyStatsDo
-	ClusterOverviewCache      IClusterOverviewCacheDo
-	DetectionConflictLog      IDetectionConflictLogDo
-	DetectionSourcePriority   IDetectionSourcePriorityDo
-	Fault                     IFaultDo
-	FrameworkConfig           IFrameworkConfigDo
-	FrameworkDetectionMetrics IFrameworkDetectionMetricsDo
-	GenericCache              IGenericCacheDo
-	GpuAllocationSnapshots    IGpuAllocationSnapshotsDo
-	GpuDevice                 IGpuDeviceDo
-	GpuPods                   IGpuPodsDo
-	GpuPodsEvent              IGpuPodsEventDo
-	GpuUsageWeeklyReports     IGpuUsageWeeklyReportsDo
-	GpuWorkload               IGpuWorkloadDo
-	GpuWorkloadSnapshot       IGpuWorkloadSnapshotDo
-	JobExecutionHistory       IJobExecutionHistoryDo
-	LabelGpuHourlyStats       ILabelGpuHourlyStatsDo
-	LogAlertRuleStatistics    ILogAlertRuleStatisticsDo
-	LogAlertRuleTemplates     ILogAlertRuleTemplatesDo
-	LogAlertRuleVersions      ILogAlertRuleVersionsDo
-	LogAlertRules             ILogAlertRulesDo
-	MetricAlertRules          IMetricAlertRulesDo
-	NamespaceGpuHourlyStats   INamespaceGpuHourlyStatsDo
-	NamespaceInfo             INamespaceInfoDo
-	Node                      INodeDo
-	NodeContainer             INodeContainerDo
-	NodeContainerDevices      INodeContainerDevicesDo
-	NodeContainerEvent        INodeContainerEventDo
-	NodeDeviceChangelog       INodeDeviceChangelogDo
-	PodResource               IPodResourceDo
-	PodSnapshot               IPodSnapshotDo
-	RdmaDevice                IRdmaDeviceDo
-	ReuseEffectivenessLog     IReuseEffectivenessLogDo
-	SilencedAlerts            ISilencedAlertsDo
-	Storage                   IStorageDo
-	SystemConfig              ISystemConfigDo
-	SystemConfigHistory       ISystemConfigHistoryDo
-	TrainingPerformance       ITrainingPerformanceDo
-	WorkloadEvent             IWorkloadEventDo
-	WorkloadGpuHourlyStats    IWorkloadGpuHourlyStatsDo
-	WorkloadPodReference      IWorkloadPodReferenceDo
-	WorkloadResource          IWorkloadResourceDo
-	WorkloadSimilarityCache   IWorkloadSimilarityCacheDo
-	WorkloadStatistic         IWorkloadStatisticDo
+	AiWorkloadMetadata        *aiWorkloadMetadataDo
+	AlertCorrelations         *alertCorrelationsDo
+	AlertEvents               *alertEventsDo
+	AlertNotifications        *alertNotificationsDo
+	AlertRuleAdviceStatistics *alertRuleAdviceStatisticsDo
+	AlertRuleAdvices          *alertRuleAdvicesDo
+	AlertRules                *alertRulesDo
+	AlertSilences             *alertSilencesDo
+	AlertStatistics           *alertStatisticsDo
+	CheckpointEvent           *checkpointEventDo
+	ClusterGpuHourlyStats     *clusterGpuHourlyStatsDo
+	ClusterOverviewCache      *clusterOverviewCacheDo
+	DetectionConflictLog      *detectionConflictLogDo
+	DetectionSourcePriority   *detectionSourcePriorityDo
+	Fault                     *faultDo
+	FrameworkConfig           *frameworkConfigDo
+	FrameworkDetectionMetrics *frameworkDetectionMetricsDo
+	GenericCache              *genericCacheDo
+	GpuAllocationSnapshots    *gpuAllocationSnapshotsDo
+	GpuDevice                 *gpuDeviceDo
+	GpuPods                   *gpuPodsDo
+	GpuPodsEvent              *gpuPodsEventDo
+	GpuUsageWeeklyReports     *gpuUsageWeeklyReportsDo
+	GpuWorkload               *gpuWorkloadDo
+	GpuWorkloadSnapshot       *gpuWorkloadSnapshotDo
+	JobExecutionHistory       *jobExecutionHistoryDo
+	LabelGpuHourlyStats       *labelGpuHourlyStatsDo
+	LogAlertRuleStatistics    *logAlertRuleStatisticsDo
+	LogAlertRuleTemplates     *logAlertRuleTemplatesDo
+	LogAlertRuleVersions      *logAlertRuleVersionsDo
+	LogAlertRules             *logAlertRulesDo
+	MetricAlertRules          *metricAlertRulesDo
+	NamespaceGpuHourlyStats   *namespaceGpuHourlyStatsDo
+	NamespaceInfo             *namespaceInfoDo
+	Node                      *nodeDo
+	NodeContainer             *nodeContainerDo
+	NodeContainerDevices      *nodeContainerDevicesDo
+	NodeContainerEvent        *nodeContainerEventDo
+	NodeDeviceChangelog       *nodeDeviceChangelogDo
+	PodResource               *podResourceDo
+	PodSnapshot               *podSnapshotDo
+	RdmaDevice                *rdmaDeviceDo
+	ReuseEffectivenessLog     *reuseEffectivenessLogDo
+	SilencedAlerts            *silencedAlertsDo
+	Storage                   *storageDo
+	SystemConfig              *systemConfigDo
+	SystemConfigHistory       *systemConfigHistoryDo
+	TrainingPerformance       *trainingPerformanceDo
+	WorkloadEvent             *workloadEventDo
+	WorkloadGpuHourlyStats    *workloadGpuHourlyStatsDo
+	WorkloadPodReference      *workloadPodReferenceDo
+	WorkloadResource          *workloadResourceDo
+	WorkloadSimilarityCache   *workloadSimilarityCacheDo
+	WorkloadStatistic         *workloadStatisticDo
 }
 
 func (q *Query) WithContext(ctx context.Context) *queryCtx {

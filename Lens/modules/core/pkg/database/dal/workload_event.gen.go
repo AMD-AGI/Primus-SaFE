@@ -6,7 +6,6 @@ package dal
 
 import (
 	"context"
-	"database/sql"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -42,7 +41,7 @@ func newWorkloadEvent(db *gorm.DB, opts ...gen.DOOption) workloadEvent {
 }
 
 type workloadEvent struct {
-	workloadEventDo
+	workloadEventDo workloadEventDo
 
 	ALL                field.Asterisk
 	ID                 field.Int32
@@ -81,6 +80,18 @@ func (w *workloadEvent) updateTableName(table string) *workloadEvent {
 	return w
 }
 
+func (w *workloadEvent) WithContext(ctx context.Context) *workloadEventDo {
+	return w.workloadEventDo.WithContext(ctx)
+}
+
+func (w workloadEvent) TableName() string { return w.workloadEventDo.TableName() }
+
+func (w workloadEvent) Alias() string { return w.workloadEventDo.Alias() }
+
+func (w workloadEvent) Columns(cols ...field.Expr) gen.Columns {
+	return w.workloadEventDo.Columns(cols...)
+}
+
 func (w *workloadEvent) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 	_f, ok := w.fieldMap[fieldName]
 	if !ok || _f == nil {
@@ -113,158 +124,95 @@ func (w workloadEvent) replaceDB(db *gorm.DB) workloadEvent {
 
 type workloadEventDo struct{ gen.DO }
 
-type IWorkloadEventDo interface {
-	gen.SubQuery
-	Debug() IWorkloadEventDo
-	WithContext(ctx context.Context) IWorkloadEventDo
-	WithResult(fc func(tx gen.Dao)) gen.ResultInfo
-	ReplaceDB(db *gorm.DB)
-	ReadDB() IWorkloadEventDo
-	WriteDB() IWorkloadEventDo
-	As(alias string) gen.Dao
-	Session(config *gorm.Session) IWorkloadEventDo
-	Columns(cols ...field.Expr) gen.Columns
-	Clauses(conds ...clause.Expression) IWorkloadEventDo
-	Not(conds ...gen.Condition) IWorkloadEventDo
-	Or(conds ...gen.Condition) IWorkloadEventDo
-	Select(conds ...field.Expr) IWorkloadEventDo
-	Where(conds ...gen.Condition) IWorkloadEventDo
-	Order(conds ...field.Expr) IWorkloadEventDo
-	Distinct(cols ...field.Expr) IWorkloadEventDo
-	Omit(cols ...field.Expr) IWorkloadEventDo
-	Join(table schema.Tabler, on ...field.Expr) IWorkloadEventDo
-	LeftJoin(table schema.Tabler, on ...field.Expr) IWorkloadEventDo
-	RightJoin(table schema.Tabler, on ...field.Expr) IWorkloadEventDo
-	Group(cols ...field.Expr) IWorkloadEventDo
-	Having(conds ...gen.Condition) IWorkloadEventDo
-	Limit(limit int) IWorkloadEventDo
-	Offset(offset int) IWorkloadEventDo
-	Count() (count int64, err error)
-	Scopes(funcs ...func(gen.Dao) gen.Dao) IWorkloadEventDo
-	Unscoped() IWorkloadEventDo
-	Create(values ...*model.WorkloadEvent) error
-	CreateInBatches(values []*model.WorkloadEvent, batchSize int) error
-	Save(values ...*model.WorkloadEvent) error
-	First() (*model.WorkloadEvent, error)
-	Take() (*model.WorkloadEvent, error)
-	Last() (*model.WorkloadEvent, error)
-	Find() ([]*model.WorkloadEvent, error)
-	FindInBatch(batchSize int, fc func(tx gen.Dao, batch int) error) (results []*model.WorkloadEvent, err error)
-	FindInBatches(result *[]*model.WorkloadEvent, batchSize int, fc func(tx gen.Dao, batch int) error) error
-	Pluck(column field.Expr, dest interface{}) error
-	Delete(...*model.WorkloadEvent) (info gen.ResultInfo, err error)
-	Update(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
-	UpdateSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
-	Updates(value interface{}) (info gen.ResultInfo, err error)
-	UpdateColumn(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
-	UpdateColumnSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
-	UpdateColumns(value interface{}) (info gen.ResultInfo, err error)
-	UpdateFrom(q gen.SubQuery) gen.Dao
-	Attrs(attrs ...field.AssignExpr) IWorkloadEventDo
-	Assign(attrs ...field.AssignExpr) IWorkloadEventDo
-	Joins(fields ...field.RelationField) IWorkloadEventDo
-	Preload(fields ...field.RelationField) IWorkloadEventDo
-	FirstOrInit() (*model.WorkloadEvent, error)
-	FirstOrCreate() (*model.WorkloadEvent, error)
-	FindByPage(offset int, limit int) (result []*model.WorkloadEvent, count int64, err error)
-	ScanByPage(result interface{}, offset int, limit int) (count int64, err error)
-	Rows() (*sql.Rows, error)
-	Row() *sql.Row
-	Scan(result interface{}) (err error)
-	Returning(value interface{}, columns ...string) IWorkloadEventDo
-	UnderlyingDB() *gorm.DB
-	schema.Tabler
-}
-
-func (w workloadEventDo) Debug() IWorkloadEventDo {
+func (w workloadEventDo) Debug() *workloadEventDo {
 	return w.withDO(w.DO.Debug())
 }
 
-func (w workloadEventDo) WithContext(ctx context.Context) IWorkloadEventDo {
+func (w workloadEventDo) WithContext(ctx context.Context) *workloadEventDo {
 	return w.withDO(w.DO.WithContext(ctx))
 }
 
-func (w workloadEventDo) ReadDB() IWorkloadEventDo {
+func (w workloadEventDo) ReadDB() *workloadEventDo {
 	return w.Clauses(dbresolver.Read)
 }
 
-func (w workloadEventDo) WriteDB() IWorkloadEventDo {
+func (w workloadEventDo) WriteDB() *workloadEventDo {
 	return w.Clauses(dbresolver.Write)
 }
 
-func (w workloadEventDo) Session(config *gorm.Session) IWorkloadEventDo {
+func (w workloadEventDo) Session(config *gorm.Session) *workloadEventDo {
 	return w.withDO(w.DO.Session(config))
 }
 
-func (w workloadEventDo) Clauses(conds ...clause.Expression) IWorkloadEventDo {
+func (w workloadEventDo) Clauses(conds ...clause.Expression) *workloadEventDo {
 	return w.withDO(w.DO.Clauses(conds...))
 }
 
-func (w workloadEventDo) Returning(value interface{}, columns ...string) IWorkloadEventDo {
+func (w workloadEventDo) Returning(value interface{}, columns ...string) *workloadEventDo {
 	return w.withDO(w.DO.Returning(value, columns...))
 }
 
-func (w workloadEventDo) Not(conds ...gen.Condition) IWorkloadEventDo {
+func (w workloadEventDo) Not(conds ...gen.Condition) *workloadEventDo {
 	return w.withDO(w.DO.Not(conds...))
 }
 
-func (w workloadEventDo) Or(conds ...gen.Condition) IWorkloadEventDo {
+func (w workloadEventDo) Or(conds ...gen.Condition) *workloadEventDo {
 	return w.withDO(w.DO.Or(conds...))
 }
 
-func (w workloadEventDo) Select(conds ...field.Expr) IWorkloadEventDo {
+func (w workloadEventDo) Select(conds ...field.Expr) *workloadEventDo {
 	return w.withDO(w.DO.Select(conds...))
 }
 
-func (w workloadEventDo) Where(conds ...gen.Condition) IWorkloadEventDo {
+func (w workloadEventDo) Where(conds ...gen.Condition) *workloadEventDo {
 	return w.withDO(w.DO.Where(conds...))
 }
 
-func (w workloadEventDo) Order(conds ...field.Expr) IWorkloadEventDo {
+func (w workloadEventDo) Order(conds ...field.Expr) *workloadEventDo {
 	return w.withDO(w.DO.Order(conds...))
 }
 
-func (w workloadEventDo) Distinct(cols ...field.Expr) IWorkloadEventDo {
+func (w workloadEventDo) Distinct(cols ...field.Expr) *workloadEventDo {
 	return w.withDO(w.DO.Distinct(cols...))
 }
 
-func (w workloadEventDo) Omit(cols ...field.Expr) IWorkloadEventDo {
+func (w workloadEventDo) Omit(cols ...field.Expr) *workloadEventDo {
 	return w.withDO(w.DO.Omit(cols...))
 }
 
-func (w workloadEventDo) Join(table schema.Tabler, on ...field.Expr) IWorkloadEventDo {
+func (w workloadEventDo) Join(table schema.Tabler, on ...field.Expr) *workloadEventDo {
 	return w.withDO(w.DO.Join(table, on...))
 }
 
-func (w workloadEventDo) LeftJoin(table schema.Tabler, on ...field.Expr) IWorkloadEventDo {
+func (w workloadEventDo) LeftJoin(table schema.Tabler, on ...field.Expr) *workloadEventDo {
 	return w.withDO(w.DO.LeftJoin(table, on...))
 }
 
-func (w workloadEventDo) RightJoin(table schema.Tabler, on ...field.Expr) IWorkloadEventDo {
+func (w workloadEventDo) RightJoin(table schema.Tabler, on ...field.Expr) *workloadEventDo {
 	return w.withDO(w.DO.RightJoin(table, on...))
 }
 
-func (w workloadEventDo) Group(cols ...field.Expr) IWorkloadEventDo {
+func (w workloadEventDo) Group(cols ...field.Expr) *workloadEventDo {
 	return w.withDO(w.DO.Group(cols...))
 }
 
-func (w workloadEventDo) Having(conds ...gen.Condition) IWorkloadEventDo {
+func (w workloadEventDo) Having(conds ...gen.Condition) *workloadEventDo {
 	return w.withDO(w.DO.Having(conds...))
 }
 
-func (w workloadEventDo) Limit(limit int) IWorkloadEventDo {
+func (w workloadEventDo) Limit(limit int) *workloadEventDo {
 	return w.withDO(w.DO.Limit(limit))
 }
 
-func (w workloadEventDo) Offset(offset int) IWorkloadEventDo {
+func (w workloadEventDo) Offset(offset int) *workloadEventDo {
 	return w.withDO(w.DO.Offset(offset))
 }
 
-func (w workloadEventDo) Scopes(funcs ...func(gen.Dao) gen.Dao) IWorkloadEventDo {
+func (w workloadEventDo) Scopes(funcs ...func(gen.Dao) gen.Dao) *workloadEventDo {
 	return w.withDO(w.DO.Scopes(funcs...))
 }
 
-func (w workloadEventDo) Unscoped() IWorkloadEventDo {
+func (w workloadEventDo) Unscoped() *workloadEventDo {
 	return w.withDO(w.DO.Unscoped())
 }
 
@@ -330,22 +278,22 @@ func (w workloadEventDo) FindInBatches(result *[]*model.WorkloadEvent, batchSize
 	return w.DO.FindInBatches(result, batchSize, fc)
 }
 
-func (w workloadEventDo) Attrs(attrs ...field.AssignExpr) IWorkloadEventDo {
+func (w workloadEventDo) Attrs(attrs ...field.AssignExpr) *workloadEventDo {
 	return w.withDO(w.DO.Attrs(attrs...))
 }
 
-func (w workloadEventDo) Assign(attrs ...field.AssignExpr) IWorkloadEventDo {
+func (w workloadEventDo) Assign(attrs ...field.AssignExpr) *workloadEventDo {
 	return w.withDO(w.DO.Assign(attrs...))
 }
 
-func (w workloadEventDo) Joins(fields ...field.RelationField) IWorkloadEventDo {
+func (w workloadEventDo) Joins(fields ...field.RelationField) *workloadEventDo {
 	for _, _f := range fields {
 		w = *w.withDO(w.DO.Joins(_f))
 	}
 	return &w
 }
 
-func (w workloadEventDo) Preload(fields ...field.RelationField) IWorkloadEventDo {
+func (w workloadEventDo) Preload(fields ...field.RelationField) *workloadEventDo {
 	for _, _f := range fields {
 		w = *w.withDO(w.DO.Preload(_f))
 	}

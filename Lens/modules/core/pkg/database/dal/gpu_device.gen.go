@@ -6,7 +6,6 @@ package dal
 
 import (
 	"context"
-	"database/sql"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -51,7 +50,7 @@ func newGpuDevice(db *gorm.DB, opts ...gen.DOOption) gpuDevice {
 }
 
 type gpuDevice struct {
-	gpuDeviceDo
+	gpuDeviceDo gpuDeviceDo
 
 	ALL            field.Asterisk
 	ID             field.Int32
@@ -108,6 +107,16 @@ func (g *gpuDevice) updateTableName(table string) *gpuDevice {
 	return g
 }
 
+func (g *gpuDevice) WithContext(ctx context.Context) *gpuDeviceDo {
+	return g.gpuDeviceDo.WithContext(ctx)
+}
+
+func (g gpuDevice) TableName() string { return g.gpuDeviceDo.TableName() }
+
+func (g gpuDevice) Alias() string { return g.gpuDeviceDo.Alias() }
+
+func (g gpuDevice) Columns(cols ...field.Expr) gen.Columns { return g.gpuDeviceDo.Columns(cols...) }
+
 func (g *gpuDevice) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 	_f, ok := g.fieldMap[fieldName]
 	if !ok || _f == nil {
@@ -149,158 +158,95 @@ func (g gpuDevice) replaceDB(db *gorm.DB) gpuDevice {
 
 type gpuDeviceDo struct{ gen.DO }
 
-type IGpuDeviceDo interface {
-	gen.SubQuery
-	Debug() IGpuDeviceDo
-	WithContext(ctx context.Context) IGpuDeviceDo
-	WithResult(fc func(tx gen.Dao)) gen.ResultInfo
-	ReplaceDB(db *gorm.DB)
-	ReadDB() IGpuDeviceDo
-	WriteDB() IGpuDeviceDo
-	As(alias string) gen.Dao
-	Session(config *gorm.Session) IGpuDeviceDo
-	Columns(cols ...field.Expr) gen.Columns
-	Clauses(conds ...clause.Expression) IGpuDeviceDo
-	Not(conds ...gen.Condition) IGpuDeviceDo
-	Or(conds ...gen.Condition) IGpuDeviceDo
-	Select(conds ...field.Expr) IGpuDeviceDo
-	Where(conds ...gen.Condition) IGpuDeviceDo
-	Order(conds ...field.Expr) IGpuDeviceDo
-	Distinct(cols ...field.Expr) IGpuDeviceDo
-	Omit(cols ...field.Expr) IGpuDeviceDo
-	Join(table schema.Tabler, on ...field.Expr) IGpuDeviceDo
-	LeftJoin(table schema.Tabler, on ...field.Expr) IGpuDeviceDo
-	RightJoin(table schema.Tabler, on ...field.Expr) IGpuDeviceDo
-	Group(cols ...field.Expr) IGpuDeviceDo
-	Having(conds ...gen.Condition) IGpuDeviceDo
-	Limit(limit int) IGpuDeviceDo
-	Offset(offset int) IGpuDeviceDo
-	Count() (count int64, err error)
-	Scopes(funcs ...func(gen.Dao) gen.Dao) IGpuDeviceDo
-	Unscoped() IGpuDeviceDo
-	Create(values ...*model.GpuDevice) error
-	CreateInBatches(values []*model.GpuDevice, batchSize int) error
-	Save(values ...*model.GpuDevice) error
-	First() (*model.GpuDevice, error)
-	Take() (*model.GpuDevice, error)
-	Last() (*model.GpuDevice, error)
-	Find() ([]*model.GpuDevice, error)
-	FindInBatch(batchSize int, fc func(tx gen.Dao, batch int) error) (results []*model.GpuDevice, err error)
-	FindInBatches(result *[]*model.GpuDevice, batchSize int, fc func(tx gen.Dao, batch int) error) error
-	Pluck(column field.Expr, dest interface{}) error
-	Delete(...*model.GpuDevice) (info gen.ResultInfo, err error)
-	Update(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
-	UpdateSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
-	Updates(value interface{}) (info gen.ResultInfo, err error)
-	UpdateColumn(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
-	UpdateColumnSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
-	UpdateColumns(value interface{}) (info gen.ResultInfo, err error)
-	UpdateFrom(q gen.SubQuery) gen.Dao
-	Attrs(attrs ...field.AssignExpr) IGpuDeviceDo
-	Assign(attrs ...field.AssignExpr) IGpuDeviceDo
-	Joins(fields ...field.RelationField) IGpuDeviceDo
-	Preload(fields ...field.RelationField) IGpuDeviceDo
-	FirstOrInit() (*model.GpuDevice, error)
-	FirstOrCreate() (*model.GpuDevice, error)
-	FindByPage(offset int, limit int) (result []*model.GpuDevice, count int64, err error)
-	ScanByPage(result interface{}, offset int, limit int) (count int64, err error)
-	Rows() (*sql.Rows, error)
-	Row() *sql.Row
-	Scan(result interface{}) (err error)
-	Returning(value interface{}, columns ...string) IGpuDeviceDo
-	UnderlyingDB() *gorm.DB
-	schema.Tabler
-}
-
-func (g gpuDeviceDo) Debug() IGpuDeviceDo {
+func (g gpuDeviceDo) Debug() *gpuDeviceDo {
 	return g.withDO(g.DO.Debug())
 }
 
-func (g gpuDeviceDo) WithContext(ctx context.Context) IGpuDeviceDo {
+func (g gpuDeviceDo) WithContext(ctx context.Context) *gpuDeviceDo {
 	return g.withDO(g.DO.WithContext(ctx))
 }
 
-func (g gpuDeviceDo) ReadDB() IGpuDeviceDo {
+func (g gpuDeviceDo) ReadDB() *gpuDeviceDo {
 	return g.Clauses(dbresolver.Read)
 }
 
-func (g gpuDeviceDo) WriteDB() IGpuDeviceDo {
+func (g gpuDeviceDo) WriteDB() *gpuDeviceDo {
 	return g.Clauses(dbresolver.Write)
 }
 
-func (g gpuDeviceDo) Session(config *gorm.Session) IGpuDeviceDo {
+func (g gpuDeviceDo) Session(config *gorm.Session) *gpuDeviceDo {
 	return g.withDO(g.DO.Session(config))
 }
 
-func (g gpuDeviceDo) Clauses(conds ...clause.Expression) IGpuDeviceDo {
+func (g gpuDeviceDo) Clauses(conds ...clause.Expression) *gpuDeviceDo {
 	return g.withDO(g.DO.Clauses(conds...))
 }
 
-func (g gpuDeviceDo) Returning(value interface{}, columns ...string) IGpuDeviceDo {
+func (g gpuDeviceDo) Returning(value interface{}, columns ...string) *gpuDeviceDo {
 	return g.withDO(g.DO.Returning(value, columns...))
 }
 
-func (g gpuDeviceDo) Not(conds ...gen.Condition) IGpuDeviceDo {
+func (g gpuDeviceDo) Not(conds ...gen.Condition) *gpuDeviceDo {
 	return g.withDO(g.DO.Not(conds...))
 }
 
-func (g gpuDeviceDo) Or(conds ...gen.Condition) IGpuDeviceDo {
+func (g gpuDeviceDo) Or(conds ...gen.Condition) *gpuDeviceDo {
 	return g.withDO(g.DO.Or(conds...))
 }
 
-func (g gpuDeviceDo) Select(conds ...field.Expr) IGpuDeviceDo {
+func (g gpuDeviceDo) Select(conds ...field.Expr) *gpuDeviceDo {
 	return g.withDO(g.DO.Select(conds...))
 }
 
-func (g gpuDeviceDo) Where(conds ...gen.Condition) IGpuDeviceDo {
+func (g gpuDeviceDo) Where(conds ...gen.Condition) *gpuDeviceDo {
 	return g.withDO(g.DO.Where(conds...))
 }
 
-func (g gpuDeviceDo) Order(conds ...field.Expr) IGpuDeviceDo {
+func (g gpuDeviceDo) Order(conds ...field.Expr) *gpuDeviceDo {
 	return g.withDO(g.DO.Order(conds...))
 }
 
-func (g gpuDeviceDo) Distinct(cols ...field.Expr) IGpuDeviceDo {
+func (g gpuDeviceDo) Distinct(cols ...field.Expr) *gpuDeviceDo {
 	return g.withDO(g.DO.Distinct(cols...))
 }
 
-func (g gpuDeviceDo) Omit(cols ...field.Expr) IGpuDeviceDo {
+func (g gpuDeviceDo) Omit(cols ...field.Expr) *gpuDeviceDo {
 	return g.withDO(g.DO.Omit(cols...))
 }
 
-func (g gpuDeviceDo) Join(table schema.Tabler, on ...field.Expr) IGpuDeviceDo {
+func (g gpuDeviceDo) Join(table schema.Tabler, on ...field.Expr) *gpuDeviceDo {
 	return g.withDO(g.DO.Join(table, on...))
 }
 
-func (g gpuDeviceDo) LeftJoin(table schema.Tabler, on ...field.Expr) IGpuDeviceDo {
+func (g gpuDeviceDo) LeftJoin(table schema.Tabler, on ...field.Expr) *gpuDeviceDo {
 	return g.withDO(g.DO.LeftJoin(table, on...))
 }
 
-func (g gpuDeviceDo) RightJoin(table schema.Tabler, on ...field.Expr) IGpuDeviceDo {
+func (g gpuDeviceDo) RightJoin(table schema.Tabler, on ...field.Expr) *gpuDeviceDo {
 	return g.withDO(g.DO.RightJoin(table, on...))
 }
 
-func (g gpuDeviceDo) Group(cols ...field.Expr) IGpuDeviceDo {
+func (g gpuDeviceDo) Group(cols ...field.Expr) *gpuDeviceDo {
 	return g.withDO(g.DO.Group(cols...))
 }
 
-func (g gpuDeviceDo) Having(conds ...gen.Condition) IGpuDeviceDo {
+func (g gpuDeviceDo) Having(conds ...gen.Condition) *gpuDeviceDo {
 	return g.withDO(g.DO.Having(conds...))
 }
 
-func (g gpuDeviceDo) Limit(limit int) IGpuDeviceDo {
+func (g gpuDeviceDo) Limit(limit int) *gpuDeviceDo {
 	return g.withDO(g.DO.Limit(limit))
 }
 
-func (g gpuDeviceDo) Offset(offset int) IGpuDeviceDo {
+func (g gpuDeviceDo) Offset(offset int) *gpuDeviceDo {
 	return g.withDO(g.DO.Offset(offset))
 }
 
-func (g gpuDeviceDo) Scopes(funcs ...func(gen.Dao) gen.Dao) IGpuDeviceDo {
+func (g gpuDeviceDo) Scopes(funcs ...func(gen.Dao) gen.Dao) *gpuDeviceDo {
 	return g.withDO(g.DO.Scopes(funcs...))
 }
 
-func (g gpuDeviceDo) Unscoped() IGpuDeviceDo {
+func (g gpuDeviceDo) Unscoped() *gpuDeviceDo {
 	return g.withDO(g.DO.Unscoped())
 }
 
@@ -366,22 +312,22 @@ func (g gpuDeviceDo) FindInBatches(result *[]*model.GpuDevice, batchSize int, fc
 	return g.DO.FindInBatches(result, batchSize, fc)
 }
 
-func (g gpuDeviceDo) Attrs(attrs ...field.AssignExpr) IGpuDeviceDo {
+func (g gpuDeviceDo) Attrs(attrs ...field.AssignExpr) *gpuDeviceDo {
 	return g.withDO(g.DO.Attrs(attrs...))
 }
 
-func (g gpuDeviceDo) Assign(attrs ...field.AssignExpr) IGpuDeviceDo {
+func (g gpuDeviceDo) Assign(attrs ...field.AssignExpr) *gpuDeviceDo {
 	return g.withDO(g.DO.Assign(attrs...))
 }
 
-func (g gpuDeviceDo) Joins(fields ...field.RelationField) IGpuDeviceDo {
+func (g gpuDeviceDo) Joins(fields ...field.RelationField) *gpuDeviceDo {
 	for _, _f := range fields {
 		g = *g.withDO(g.DO.Joins(_f))
 	}
 	return &g
 }
 
-func (g gpuDeviceDo) Preload(fields ...field.RelationField) IGpuDeviceDo {
+func (g gpuDeviceDo) Preload(fields ...field.RelationField) *gpuDeviceDo {
 	for _, _f := range fields {
 		g = *g.withDO(g.DO.Preload(_f))
 	}

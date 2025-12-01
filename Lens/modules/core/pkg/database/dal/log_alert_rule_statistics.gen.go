@@ -6,7 +6,6 @@ package dal
 
 import (
 	"context"
-	"database/sql"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -48,7 +47,7 @@ func newLogAlertRuleStatistics(db *gorm.DB, opts ...gen.DOOption) logAlertRuleSt
 }
 
 type logAlertRuleStatistics struct {
-	logAlertRuleStatisticsDo
+	logAlertRuleStatisticsDo logAlertRuleStatisticsDo
 
 	ALL            field.Asterisk
 	ID             field.Int64
@@ -99,6 +98,18 @@ func (l *logAlertRuleStatistics) updateTableName(table string) *logAlertRuleStat
 	return l
 }
 
+func (l *logAlertRuleStatistics) WithContext(ctx context.Context) *logAlertRuleStatisticsDo {
+	return l.logAlertRuleStatisticsDo.WithContext(ctx)
+}
+
+func (l logAlertRuleStatistics) TableName() string { return l.logAlertRuleStatisticsDo.TableName() }
+
+func (l logAlertRuleStatistics) Alias() string { return l.logAlertRuleStatisticsDo.Alias() }
+
+func (l logAlertRuleStatistics) Columns(cols ...field.Expr) gen.Columns {
+	return l.logAlertRuleStatisticsDo.Columns(cols...)
+}
+
 func (l *logAlertRuleStatistics) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 	_f, ok := l.fieldMap[fieldName]
 	if !ok || _f == nil {
@@ -137,158 +148,95 @@ func (l logAlertRuleStatistics) replaceDB(db *gorm.DB) logAlertRuleStatistics {
 
 type logAlertRuleStatisticsDo struct{ gen.DO }
 
-type ILogAlertRuleStatisticsDo interface {
-	gen.SubQuery
-	Debug() ILogAlertRuleStatisticsDo
-	WithContext(ctx context.Context) ILogAlertRuleStatisticsDo
-	WithResult(fc func(tx gen.Dao)) gen.ResultInfo
-	ReplaceDB(db *gorm.DB)
-	ReadDB() ILogAlertRuleStatisticsDo
-	WriteDB() ILogAlertRuleStatisticsDo
-	As(alias string) gen.Dao
-	Session(config *gorm.Session) ILogAlertRuleStatisticsDo
-	Columns(cols ...field.Expr) gen.Columns
-	Clauses(conds ...clause.Expression) ILogAlertRuleStatisticsDo
-	Not(conds ...gen.Condition) ILogAlertRuleStatisticsDo
-	Or(conds ...gen.Condition) ILogAlertRuleStatisticsDo
-	Select(conds ...field.Expr) ILogAlertRuleStatisticsDo
-	Where(conds ...gen.Condition) ILogAlertRuleStatisticsDo
-	Order(conds ...field.Expr) ILogAlertRuleStatisticsDo
-	Distinct(cols ...field.Expr) ILogAlertRuleStatisticsDo
-	Omit(cols ...field.Expr) ILogAlertRuleStatisticsDo
-	Join(table schema.Tabler, on ...field.Expr) ILogAlertRuleStatisticsDo
-	LeftJoin(table schema.Tabler, on ...field.Expr) ILogAlertRuleStatisticsDo
-	RightJoin(table schema.Tabler, on ...field.Expr) ILogAlertRuleStatisticsDo
-	Group(cols ...field.Expr) ILogAlertRuleStatisticsDo
-	Having(conds ...gen.Condition) ILogAlertRuleStatisticsDo
-	Limit(limit int) ILogAlertRuleStatisticsDo
-	Offset(offset int) ILogAlertRuleStatisticsDo
-	Count() (count int64, err error)
-	Scopes(funcs ...func(gen.Dao) gen.Dao) ILogAlertRuleStatisticsDo
-	Unscoped() ILogAlertRuleStatisticsDo
-	Create(values ...*model.LogAlertRuleStatistics) error
-	CreateInBatches(values []*model.LogAlertRuleStatistics, batchSize int) error
-	Save(values ...*model.LogAlertRuleStatistics) error
-	First() (*model.LogAlertRuleStatistics, error)
-	Take() (*model.LogAlertRuleStatistics, error)
-	Last() (*model.LogAlertRuleStatistics, error)
-	Find() ([]*model.LogAlertRuleStatistics, error)
-	FindInBatch(batchSize int, fc func(tx gen.Dao, batch int) error) (results []*model.LogAlertRuleStatistics, err error)
-	FindInBatches(result *[]*model.LogAlertRuleStatistics, batchSize int, fc func(tx gen.Dao, batch int) error) error
-	Pluck(column field.Expr, dest interface{}) error
-	Delete(...*model.LogAlertRuleStatistics) (info gen.ResultInfo, err error)
-	Update(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
-	UpdateSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
-	Updates(value interface{}) (info gen.ResultInfo, err error)
-	UpdateColumn(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
-	UpdateColumnSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
-	UpdateColumns(value interface{}) (info gen.ResultInfo, err error)
-	UpdateFrom(q gen.SubQuery) gen.Dao
-	Attrs(attrs ...field.AssignExpr) ILogAlertRuleStatisticsDo
-	Assign(attrs ...field.AssignExpr) ILogAlertRuleStatisticsDo
-	Joins(fields ...field.RelationField) ILogAlertRuleStatisticsDo
-	Preload(fields ...field.RelationField) ILogAlertRuleStatisticsDo
-	FirstOrInit() (*model.LogAlertRuleStatistics, error)
-	FirstOrCreate() (*model.LogAlertRuleStatistics, error)
-	FindByPage(offset int, limit int) (result []*model.LogAlertRuleStatistics, count int64, err error)
-	ScanByPage(result interface{}, offset int, limit int) (count int64, err error)
-	Rows() (*sql.Rows, error)
-	Row() *sql.Row
-	Scan(result interface{}) (err error)
-	Returning(value interface{}, columns ...string) ILogAlertRuleStatisticsDo
-	UnderlyingDB() *gorm.DB
-	schema.Tabler
-}
-
-func (l logAlertRuleStatisticsDo) Debug() ILogAlertRuleStatisticsDo {
+func (l logAlertRuleStatisticsDo) Debug() *logAlertRuleStatisticsDo {
 	return l.withDO(l.DO.Debug())
 }
 
-func (l logAlertRuleStatisticsDo) WithContext(ctx context.Context) ILogAlertRuleStatisticsDo {
+func (l logAlertRuleStatisticsDo) WithContext(ctx context.Context) *logAlertRuleStatisticsDo {
 	return l.withDO(l.DO.WithContext(ctx))
 }
 
-func (l logAlertRuleStatisticsDo) ReadDB() ILogAlertRuleStatisticsDo {
+func (l logAlertRuleStatisticsDo) ReadDB() *logAlertRuleStatisticsDo {
 	return l.Clauses(dbresolver.Read)
 }
 
-func (l logAlertRuleStatisticsDo) WriteDB() ILogAlertRuleStatisticsDo {
+func (l logAlertRuleStatisticsDo) WriteDB() *logAlertRuleStatisticsDo {
 	return l.Clauses(dbresolver.Write)
 }
 
-func (l logAlertRuleStatisticsDo) Session(config *gorm.Session) ILogAlertRuleStatisticsDo {
+func (l logAlertRuleStatisticsDo) Session(config *gorm.Session) *logAlertRuleStatisticsDo {
 	return l.withDO(l.DO.Session(config))
 }
 
-func (l logAlertRuleStatisticsDo) Clauses(conds ...clause.Expression) ILogAlertRuleStatisticsDo {
+func (l logAlertRuleStatisticsDo) Clauses(conds ...clause.Expression) *logAlertRuleStatisticsDo {
 	return l.withDO(l.DO.Clauses(conds...))
 }
 
-func (l logAlertRuleStatisticsDo) Returning(value interface{}, columns ...string) ILogAlertRuleStatisticsDo {
+func (l logAlertRuleStatisticsDo) Returning(value interface{}, columns ...string) *logAlertRuleStatisticsDo {
 	return l.withDO(l.DO.Returning(value, columns...))
 }
 
-func (l logAlertRuleStatisticsDo) Not(conds ...gen.Condition) ILogAlertRuleStatisticsDo {
+func (l logAlertRuleStatisticsDo) Not(conds ...gen.Condition) *logAlertRuleStatisticsDo {
 	return l.withDO(l.DO.Not(conds...))
 }
 
-func (l logAlertRuleStatisticsDo) Or(conds ...gen.Condition) ILogAlertRuleStatisticsDo {
+func (l logAlertRuleStatisticsDo) Or(conds ...gen.Condition) *logAlertRuleStatisticsDo {
 	return l.withDO(l.DO.Or(conds...))
 }
 
-func (l logAlertRuleStatisticsDo) Select(conds ...field.Expr) ILogAlertRuleStatisticsDo {
+func (l logAlertRuleStatisticsDo) Select(conds ...field.Expr) *logAlertRuleStatisticsDo {
 	return l.withDO(l.DO.Select(conds...))
 }
 
-func (l logAlertRuleStatisticsDo) Where(conds ...gen.Condition) ILogAlertRuleStatisticsDo {
+func (l logAlertRuleStatisticsDo) Where(conds ...gen.Condition) *logAlertRuleStatisticsDo {
 	return l.withDO(l.DO.Where(conds...))
 }
 
-func (l logAlertRuleStatisticsDo) Order(conds ...field.Expr) ILogAlertRuleStatisticsDo {
+func (l logAlertRuleStatisticsDo) Order(conds ...field.Expr) *logAlertRuleStatisticsDo {
 	return l.withDO(l.DO.Order(conds...))
 }
 
-func (l logAlertRuleStatisticsDo) Distinct(cols ...field.Expr) ILogAlertRuleStatisticsDo {
+func (l logAlertRuleStatisticsDo) Distinct(cols ...field.Expr) *logAlertRuleStatisticsDo {
 	return l.withDO(l.DO.Distinct(cols...))
 }
 
-func (l logAlertRuleStatisticsDo) Omit(cols ...field.Expr) ILogAlertRuleStatisticsDo {
+func (l logAlertRuleStatisticsDo) Omit(cols ...field.Expr) *logAlertRuleStatisticsDo {
 	return l.withDO(l.DO.Omit(cols...))
 }
 
-func (l logAlertRuleStatisticsDo) Join(table schema.Tabler, on ...field.Expr) ILogAlertRuleStatisticsDo {
+func (l logAlertRuleStatisticsDo) Join(table schema.Tabler, on ...field.Expr) *logAlertRuleStatisticsDo {
 	return l.withDO(l.DO.Join(table, on...))
 }
 
-func (l logAlertRuleStatisticsDo) LeftJoin(table schema.Tabler, on ...field.Expr) ILogAlertRuleStatisticsDo {
+func (l logAlertRuleStatisticsDo) LeftJoin(table schema.Tabler, on ...field.Expr) *logAlertRuleStatisticsDo {
 	return l.withDO(l.DO.LeftJoin(table, on...))
 }
 
-func (l logAlertRuleStatisticsDo) RightJoin(table schema.Tabler, on ...field.Expr) ILogAlertRuleStatisticsDo {
+func (l logAlertRuleStatisticsDo) RightJoin(table schema.Tabler, on ...field.Expr) *logAlertRuleStatisticsDo {
 	return l.withDO(l.DO.RightJoin(table, on...))
 }
 
-func (l logAlertRuleStatisticsDo) Group(cols ...field.Expr) ILogAlertRuleStatisticsDo {
+func (l logAlertRuleStatisticsDo) Group(cols ...field.Expr) *logAlertRuleStatisticsDo {
 	return l.withDO(l.DO.Group(cols...))
 }
 
-func (l logAlertRuleStatisticsDo) Having(conds ...gen.Condition) ILogAlertRuleStatisticsDo {
+func (l logAlertRuleStatisticsDo) Having(conds ...gen.Condition) *logAlertRuleStatisticsDo {
 	return l.withDO(l.DO.Having(conds...))
 }
 
-func (l logAlertRuleStatisticsDo) Limit(limit int) ILogAlertRuleStatisticsDo {
+func (l logAlertRuleStatisticsDo) Limit(limit int) *logAlertRuleStatisticsDo {
 	return l.withDO(l.DO.Limit(limit))
 }
 
-func (l logAlertRuleStatisticsDo) Offset(offset int) ILogAlertRuleStatisticsDo {
+func (l logAlertRuleStatisticsDo) Offset(offset int) *logAlertRuleStatisticsDo {
 	return l.withDO(l.DO.Offset(offset))
 }
 
-func (l logAlertRuleStatisticsDo) Scopes(funcs ...func(gen.Dao) gen.Dao) ILogAlertRuleStatisticsDo {
+func (l logAlertRuleStatisticsDo) Scopes(funcs ...func(gen.Dao) gen.Dao) *logAlertRuleStatisticsDo {
 	return l.withDO(l.DO.Scopes(funcs...))
 }
 
-func (l logAlertRuleStatisticsDo) Unscoped() ILogAlertRuleStatisticsDo {
+func (l logAlertRuleStatisticsDo) Unscoped() *logAlertRuleStatisticsDo {
 	return l.withDO(l.DO.Unscoped())
 }
 
@@ -354,22 +302,22 @@ func (l logAlertRuleStatisticsDo) FindInBatches(result *[]*model.LogAlertRuleSta
 	return l.DO.FindInBatches(result, batchSize, fc)
 }
 
-func (l logAlertRuleStatisticsDo) Attrs(attrs ...field.AssignExpr) ILogAlertRuleStatisticsDo {
+func (l logAlertRuleStatisticsDo) Attrs(attrs ...field.AssignExpr) *logAlertRuleStatisticsDo {
 	return l.withDO(l.DO.Attrs(attrs...))
 }
 
-func (l logAlertRuleStatisticsDo) Assign(attrs ...field.AssignExpr) ILogAlertRuleStatisticsDo {
+func (l logAlertRuleStatisticsDo) Assign(attrs ...field.AssignExpr) *logAlertRuleStatisticsDo {
 	return l.withDO(l.DO.Assign(attrs...))
 }
 
-func (l logAlertRuleStatisticsDo) Joins(fields ...field.RelationField) ILogAlertRuleStatisticsDo {
+func (l logAlertRuleStatisticsDo) Joins(fields ...field.RelationField) *logAlertRuleStatisticsDo {
 	for _, _f := range fields {
 		l = *l.withDO(l.DO.Joins(_f))
 	}
 	return &l
 }
 
-func (l logAlertRuleStatisticsDo) Preload(fields ...field.RelationField) ILogAlertRuleStatisticsDo {
+func (l logAlertRuleStatisticsDo) Preload(fields ...field.RelationField) *logAlertRuleStatisticsDo {
 	for _, _f := range fields {
 		l = *l.withDO(l.DO.Preload(_f))
 	}

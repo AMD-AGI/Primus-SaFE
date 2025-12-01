@@ -6,7 +6,6 @@ package dal
 
 import (
 	"context"
-	"database/sql"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -43,7 +42,7 @@ func newWorkloadSimilarityCache(db *gorm.DB, opts ...gen.DOOption) workloadSimil
 }
 
 type workloadSimilarityCache struct {
-	workloadSimilarityCacheDo
+	workloadSimilarityCacheDo workloadSimilarityCacheDo
 
 	ALL             field.Asterisk
 	ID              field.Int64
@@ -84,6 +83,18 @@ func (w *workloadSimilarityCache) updateTableName(table string) *workloadSimilar
 	return w
 }
 
+func (w *workloadSimilarityCache) WithContext(ctx context.Context) *workloadSimilarityCacheDo {
+	return w.workloadSimilarityCacheDo.WithContext(ctx)
+}
+
+func (w workloadSimilarityCache) TableName() string { return w.workloadSimilarityCacheDo.TableName() }
+
+func (w workloadSimilarityCache) Alias() string { return w.workloadSimilarityCacheDo.Alias() }
+
+func (w workloadSimilarityCache) Columns(cols ...field.Expr) gen.Columns {
+	return w.workloadSimilarityCacheDo.Columns(cols...)
+}
+
 func (w *workloadSimilarityCache) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 	_f, ok := w.fieldMap[fieldName]
 	if !ok || _f == nil {
@@ -117,158 +128,95 @@ func (w workloadSimilarityCache) replaceDB(db *gorm.DB) workloadSimilarityCache 
 
 type workloadSimilarityCacheDo struct{ gen.DO }
 
-type IWorkloadSimilarityCacheDo interface {
-	gen.SubQuery
-	Debug() IWorkloadSimilarityCacheDo
-	WithContext(ctx context.Context) IWorkloadSimilarityCacheDo
-	WithResult(fc func(tx gen.Dao)) gen.ResultInfo
-	ReplaceDB(db *gorm.DB)
-	ReadDB() IWorkloadSimilarityCacheDo
-	WriteDB() IWorkloadSimilarityCacheDo
-	As(alias string) gen.Dao
-	Session(config *gorm.Session) IWorkloadSimilarityCacheDo
-	Columns(cols ...field.Expr) gen.Columns
-	Clauses(conds ...clause.Expression) IWorkloadSimilarityCacheDo
-	Not(conds ...gen.Condition) IWorkloadSimilarityCacheDo
-	Or(conds ...gen.Condition) IWorkloadSimilarityCacheDo
-	Select(conds ...field.Expr) IWorkloadSimilarityCacheDo
-	Where(conds ...gen.Condition) IWorkloadSimilarityCacheDo
-	Order(conds ...field.Expr) IWorkloadSimilarityCacheDo
-	Distinct(cols ...field.Expr) IWorkloadSimilarityCacheDo
-	Omit(cols ...field.Expr) IWorkloadSimilarityCacheDo
-	Join(table schema.Tabler, on ...field.Expr) IWorkloadSimilarityCacheDo
-	LeftJoin(table schema.Tabler, on ...field.Expr) IWorkloadSimilarityCacheDo
-	RightJoin(table schema.Tabler, on ...field.Expr) IWorkloadSimilarityCacheDo
-	Group(cols ...field.Expr) IWorkloadSimilarityCacheDo
-	Having(conds ...gen.Condition) IWorkloadSimilarityCacheDo
-	Limit(limit int) IWorkloadSimilarityCacheDo
-	Offset(offset int) IWorkloadSimilarityCacheDo
-	Count() (count int64, err error)
-	Scopes(funcs ...func(gen.Dao) gen.Dao) IWorkloadSimilarityCacheDo
-	Unscoped() IWorkloadSimilarityCacheDo
-	Create(values ...*model.WorkloadSimilarityCache) error
-	CreateInBatches(values []*model.WorkloadSimilarityCache, batchSize int) error
-	Save(values ...*model.WorkloadSimilarityCache) error
-	First() (*model.WorkloadSimilarityCache, error)
-	Take() (*model.WorkloadSimilarityCache, error)
-	Last() (*model.WorkloadSimilarityCache, error)
-	Find() ([]*model.WorkloadSimilarityCache, error)
-	FindInBatch(batchSize int, fc func(tx gen.Dao, batch int) error) (results []*model.WorkloadSimilarityCache, err error)
-	FindInBatches(result *[]*model.WorkloadSimilarityCache, batchSize int, fc func(tx gen.Dao, batch int) error) error
-	Pluck(column field.Expr, dest interface{}) error
-	Delete(...*model.WorkloadSimilarityCache) (info gen.ResultInfo, err error)
-	Update(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
-	UpdateSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
-	Updates(value interface{}) (info gen.ResultInfo, err error)
-	UpdateColumn(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
-	UpdateColumnSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
-	UpdateColumns(value interface{}) (info gen.ResultInfo, err error)
-	UpdateFrom(q gen.SubQuery) gen.Dao
-	Attrs(attrs ...field.AssignExpr) IWorkloadSimilarityCacheDo
-	Assign(attrs ...field.AssignExpr) IWorkloadSimilarityCacheDo
-	Joins(fields ...field.RelationField) IWorkloadSimilarityCacheDo
-	Preload(fields ...field.RelationField) IWorkloadSimilarityCacheDo
-	FirstOrInit() (*model.WorkloadSimilarityCache, error)
-	FirstOrCreate() (*model.WorkloadSimilarityCache, error)
-	FindByPage(offset int, limit int) (result []*model.WorkloadSimilarityCache, count int64, err error)
-	ScanByPage(result interface{}, offset int, limit int) (count int64, err error)
-	Rows() (*sql.Rows, error)
-	Row() *sql.Row
-	Scan(result interface{}) (err error)
-	Returning(value interface{}, columns ...string) IWorkloadSimilarityCacheDo
-	UnderlyingDB() *gorm.DB
-	schema.Tabler
-}
-
-func (w workloadSimilarityCacheDo) Debug() IWorkloadSimilarityCacheDo {
+func (w workloadSimilarityCacheDo) Debug() *workloadSimilarityCacheDo {
 	return w.withDO(w.DO.Debug())
 }
 
-func (w workloadSimilarityCacheDo) WithContext(ctx context.Context) IWorkloadSimilarityCacheDo {
+func (w workloadSimilarityCacheDo) WithContext(ctx context.Context) *workloadSimilarityCacheDo {
 	return w.withDO(w.DO.WithContext(ctx))
 }
 
-func (w workloadSimilarityCacheDo) ReadDB() IWorkloadSimilarityCacheDo {
+func (w workloadSimilarityCacheDo) ReadDB() *workloadSimilarityCacheDo {
 	return w.Clauses(dbresolver.Read)
 }
 
-func (w workloadSimilarityCacheDo) WriteDB() IWorkloadSimilarityCacheDo {
+func (w workloadSimilarityCacheDo) WriteDB() *workloadSimilarityCacheDo {
 	return w.Clauses(dbresolver.Write)
 }
 
-func (w workloadSimilarityCacheDo) Session(config *gorm.Session) IWorkloadSimilarityCacheDo {
+func (w workloadSimilarityCacheDo) Session(config *gorm.Session) *workloadSimilarityCacheDo {
 	return w.withDO(w.DO.Session(config))
 }
 
-func (w workloadSimilarityCacheDo) Clauses(conds ...clause.Expression) IWorkloadSimilarityCacheDo {
+func (w workloadSimilarityCacheDo) Clauses(conds ...clause.Expression) *workloadSimilarityCacheDo {
 	return w.withDO(w.DO.Clauses(conds...))
 }
 
-func (w workloadSimilarityCacheDo) Returning(value interface{}, columns ...string) IWorkloadSimilarityCacheDo {
+func (w workloadSimilarityCacheDo) Returning(value interface{}, columns ...string) *workloadSimilarityCacheDo {
 	return w.withDO(w.DO.Returning(value, columns...))
 }
 
-func (w workloadSimilarityCacheDo) Not(conds ...gen.Condition) IWorkloadSimilarityCacheDo {
+func (w workloadSimilarityCacheDo) Not(conds ...gen.Condition) *workloadSimilarityCacheDo {
 	return w.withDO(w.DO.Not(conds...))
 }
 
-func (w workloadSimilarityCacheDo) Or(conds ...gen.Condition) IWorkloadSimilarityCacheDo {
+func (w workloadSimilarityCacheDo) Or(conds ...gen.Condition) *workloadSimilarityCacheDo {
 	return w.withDO(w.DO.Or(conds...))
 }
 
-func (w workloadSimilarityCacheDo) Select(conds ...field.Expr) IWorkloadSimilarityCacheDo {
+func (w workloadSimilarityCacheDo) Select(conds ...field.Expr) *workloadSimilarityCacheDo {
 	return w.withDO(w.DO.Select(conds...))
 }
 
-func (w workloadSimilarityCacheDo) Where(conds ...gen.Condition) IWorkloadSimilarityCacheDo {
+func (w workloadSimilarityCacheDo) Where(conds ...gen.Condition) *workloadSimilarityCacheDo {
 	return w.withDO(w.DO.Where(conds...))
 }
 
-func (w workloadSimilarityCacheDo) Order(conds ...field.Expr) IWorkloadSimilarityCacheDo {
+func (w workloadSimilarityCacheDo) Order(conds ...field.Expr) *workloadSimilarityCacheDo {
 	return w.withDO(w.DO.Order(conds...))
 }
 
-func (w workloadSimilarityCacheDo) Distinct(cols ...field.Expr) IWorkloadSimilarityCacheDo {
+func (w workloadSimilarityCacheDo) Distinct(cols ...field.Expr) *workloadSimilarityCacheDo {
 	return w.withDO(w.DO.Distinct(cols...))
 }
 
-func (w workloadSimilarityCacheDo) Omit(cols ...field.Expr) IWorkloadSimilarityCacheDo {
+func (w workloadSimilarityCacheDo) Omit(cols ...field.Expr) *workloadSimilarityCacheDo {
 	return w.withDO(w.DO.Omit(cols...))
 }
 
-func (w workloadSimilarityCacheDo) Join(table schema.Tabler, on ...field.Expr) IWorkloadSimilarityCacheDo {
+func (w workloadSimilarityCacheDo) Join(table schema.Tabler, on ...field.Expr) *workloadSimilarityCacheDo {
 	return w.withDO(w.DO.Join(table, on...))
 }
 
-func (w workloadSimilarityCacheDo) LeftJoin(table schema.Tabler, on ...field.Expr) IWorkloadSimilarityCacheDo {
+func (w workloadSimilarityCacheDo) LeftJoin(table schema.Tabler, on ...field.Expr) *workloadSimilarityCacheDo {
 	return w.withDO(w.DO.LeftJoin(table, on...))
 }
 
-func (w workloadSimilarityCacheDo) RightJoin(table schema.Tabler, on ...field.Expr) IWorkloadSimilarityCacheDo {
+func (w workloadSimilarityCacheDo) RightJoin(table schema.Tabler, on ...field.Expr) *workloadSimilarityCacheDo {
 	return w.withDO(w.DO.RightJoin(table, on...))
 }
 
-func (w workloadSimilarityCacheDo) Group(cols ...field.Expr) IWorkloadSimilarityCacheDo {
+func (w workloadSimilarityCacheDo) Group(cols ...field.Expr) *workloadSimilarityCacheDo {
 	return w.withDO(w.DO.Group(cols...))
 }
 
-func (w workloadSimilarityCacheDo) Having(conds ...gen.Condition) IWorkloadSimilarityCacheDo {
+func (w workloadSimilarityCacheDo) Having(conds ...gen.Condition) *workloadSimilarityCacheDo {
 	return w.withDO(w.DO.Having(conds...))
 }
 
-func (w workloadSimilarityCacheDo) Limit(limit int) IWorkloadSimilarityCacheDo {
+func (w workloadSimilarityCacheDo) Limit(limit int) *workloadSimilarityCacheDo {
 	return w.withDO(w.DO.Limit(limit))
 }
 
-func (w workloadSimilarityCacheDo) Offset(offset int) IWorkloadSimilarityCacheDo {
+func (w workloadSimilarityCacheDo) Offset(offset int) *workloadSimilarityCacheDo {
 	return w.withDO(w.DO.Offset(offset))
 }
 
-func (w workloadSimilarityCacheDo) Scopes(funcs ...func(gen.Dao) gen.Dao) IWorkloadSimilarityCacheDo {
+func (w workloadSimilarityCacheDo) Scopes(funcs ...func(gen.Dao) gen.Dao) *workloadSimilarityCacheDo {
 	return w.withDO(w.DO.Scopes(funcs...))
 }
 
-func (w workloadSimilarityCacheDo) Unscoped() IWorkloadSimilarityCacheDo {
+func (w workloadSimilarityCacheDo) Unscoped() *workloadSimilarityCacheDo {
 	return w.withDO(w.DO.Unscoped())
 }
 
@@ -334,22 +282,22 @@ func (w workloadSimilarityCacheDo) FindInBatches(result *[]*model.WorkloadSimila
 	return w.DO.FindInBatches(result, batchSize, fc)
 }
 
-func (w workloadSimilarityCacheDo) Attrs(attrs ...field.AssignExpr) IWorkloadSimilarityCacheDo {
+func (w workloadSimilarityCacheDo) Attrs(attrs ...field.AssignExpr) *workloadSimilarityCacheDo {
 	return w.withDO(w.DO.Attrs(attrs...))
 }
 
-func (w workloadSimilarityCacheDo) Assign(attrs ...field.AssignExpr) IWorkloadSimilarityCacheDo {
+func (w workloadSimilarityCacheDo) Assign(attrs ...field.AssignExpr) *workloadSimilarityCacheDo {
 	return w.withDO(w.DO.Assign(attrs...))
 }
 
-func (w workloadSimilarityCacheDo) Joins(fields ...field.RelationField) IWorkloadSimilarityCacheDo {
+func (w workloadSimilarityCacheDo) Joins(fields ...field.RelationField) *workloadSimilarityCacheDo {
 	for _, _f := range fields {
 		w = *w.withDO(w.DO.Joins(_f))
 	}
 	return &w
 }
 
-func (w workloadSimilarityCacheDo) Preload(fields ...field.RelationField) IWorkloadSimilarityCacheDo {
+func (w workloadSimilarityCacheDo) Preload(fields ...field.RelationField) *workloadSimilarityCacheDo {
 	for _, _f := range fields {
 		w = *w.withDO(w.DO.Preload(_f))
 	}

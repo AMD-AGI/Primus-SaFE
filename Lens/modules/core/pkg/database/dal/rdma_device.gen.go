@@ -6,7 +6,6 @@ package dal
 
 import (
 	"context"
-	"database/sql"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -45,7 +44,7 @@ func newRdmaDevice(db *gorm.DB, opts ...gen.DOOption) rdmaDevice {
 }
 
 type rdmaDevice struct {
-	rdmaDeviceDo
+	rdmaDeviceDo rdmaDeviceDo
 
 	ALL       field.Asterisk
 	ID        field.Int32
@@ -90,6 +89,16 @@ func (r *rdmaDevice) updateTableName(table string) *rdmaDevice {
 	return r
 }
 
+func (r *rdmaDevice) WithContext(ctx context.Context) *rdmaDeviceDo {
+	return r.rdmaDeviceDo.WithContext(ctx)
+}
+
+func (r rdmaDevice) TableName() string { return r.rdmaDeviceDo.TableName() }
+
+func (r rdmaDevice) Alias() string { return r.rdmaDeviceDo.Alias() }
+
+func (r rdmaDevice) Columns(cols ...field.Expr) gen.Columns { return r.rdmaDeviceDo.Columns(cols...) }
+
 func (r *rdmaDevice) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 	_f, ok := r.fieldMap[fieldName]
 	if !ok || _f == nil {
@@ -125,158 +134,95 @@ func (r rdmaDevice) replaceDB(db *gorm.DB) rdmaDevice {
 
 type rdmaDeviceDo struct{ gen.DO }
 
-type IRdmaDeviceDo interface {
-	gen.SubQuery
-	Debug() IRdmaDeviceDo
-	WithContext(ctx context.Context) IRdmaDeviceDo
-	WithResult(fc func(tx gen.Dao)) gen.ResultInfo
-	ReplaceDB(db *gorm.DB)
-	ReadDB() IRdmaDeviceDo
-	WriteDB() IRdmaDeviceDo
-	As(alias string) gen.Dao
-	Session(config *gorm.Session) IRdmaDeviceDo
-	Columns(cols ...field.Expr) gen.Columns
-	Clauses(conds ...clause.Expression) IRdmaDeviceDo
-	Not(conds ...gen.Condition) IRdmaDeviceDo
-	Or(conds ...gen.Condition) IRdmaDeviceDo
-	Select(conds ...field.Expr) IRdmaDeviceDo
-	Where(conds ...gen.Condition) IRdmaDeviceDo
-	Order(conds ...field.Expr) IRdmaDeviceDo
-	Distinct(cols ...field.Expr) IRdmaDeviceDo
-	Omit(cols ...field.Expr) IRdmaDeviceDo
-	Join(table schema.Tabler, on ...field.Expr) IRdmaDeviceDo
-	LeftJoin(table schema.Tabler, on ...field.Expr) IRdmaDeviceDo
-	RightJoin(table schema.Tabler, on ...field.Expr) IRdmaDeviceDo
-	Group(cols ...field.Expr) IRdmaDeviceDo
-	Having(conds ...gen.Condition) IRdmaDeviceDo
-	Limit(limit int) IRdmaDeviceDo
-	Offset(offset int) IRdmaDeviceDo
-	Count() (count int64, err error)
-	Scopes(funcs ...func(gen.Dao) gen.Dao) IRdmaDeviceDo
-	Unscoped() IRdmaDeviceDo
-	Create(values ...*model.RdmaDevice) error
-	CreateInBatches(values []*model.RdmaDevice, batchSize int) error
-	Save(values ...*model.RdmaDevice) error
-	First() (*model.RdmaDevice, error)
-	Take() (*model.RdmaDevice, error)
-	Last() (*model.RdmaDevice, error)
-	Find() ([]*model.RdmaDevice, error)
-	FindInBatch(batchSize int, fc func(tx gen.Dao, batch int) error) (results []*model.RdmaDevice, err error)
-	FindInBatches(result *[]*model.RdmaDevice, batchSize int, fc func(tx gen.Dao, batch int) error) error
-	Pluck(column field.Expr, dest interface{}) error
-	Delete(...*model.RdmaDevice) (info gen.ResultInfo, err error)
-	Update(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
-	UpdateSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
-	Updates(value interface{}) (info gen.ResultInfo, err error)
-	UpdateColumn(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
-	UpdateColumnSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
-	UpdateColumns(value interface{}) (info gen.ResultInfo, err error)
-	UpdateFrom(q gen.SubQuery) gen.Dao
-	Attrs(attrs ...field.AssignExpr) IRdmaDeviceDo
-	Assign(attrs ...field.AssignExpr) IRdmaDeviceDo
-	Joins(fields ...field.RelationField) IRdmaDeviceDo
-	Preload(fields ...field.RelationField) IRdmaDeviceDo
-	FirstOrInit() (*model.RdmaDevice, error)
-	FirstOrCreate() (*model.RdmaDevice, error)
-	FindByPage(offset int, limit int) (result []*model.RdmaDevice, count int64, err error)
-	ScanByPage(result interface{}, offset int, limit int) (count int64, err error)
-	Rows() (*sql.Rows, error)
-	Row() *sql.Row
-	Scan(result interface{}) (err error)
-	Returning(value interface{}, columns ...string) IRdmaDeviceDo
-	UnderlyingDB() *gorm.DB
-	schema.Tabler
-}
-
-func (r rdmaDeviceDo) Debug() IRdmaDeviceDo {
+func (r rdmaDeviceDo) Debug() *rdmaDeviceDo {
 	return r.withDO(r.DO.Debug())
 }
 
-func (r rdmaDeviceDo) WithContext(ctx context.Context) IRdmaDeviceDo {
+func (r rdmaDeviceDo) WithContext(ctx context.Context) *rdmaDeviceDo {
 	return r.withDO(r.DO.WithContext(ctx))
 }
 
-func (r rdmaDeviceDo) ReadDB() IRdmaDeviceDo {
+func (r rdmaDeviceDo) ReadDB() *rdmaDeviceDo {
 	return r.Clauses(dbresolver.Read)
 }
 
-func (r rdmaDeviceDo) WriteDB() IRdmaDeviceDo {
+func (r rdmaDeviceDo) WriteDB() *rdmaDeviceDo {
 	return r.Clauses(dbresolver.Write)
 }
 
-func (r rdmaDeviceDo) Session(config *gorm.Session) IRdmaDeviceDo {
+func (r rdmaDeviceDo) Session(config *gorm.Session) *rdmaDeviceDo {
 	return r.withDO(r.DO.Session(config))
 }
 
-func (r rdmaDeviceDo) Clauses(conds ...clause.Expression) IRdmaDeviceDo {
+func (r rdmaDeviceDo) Clauses(conds ...clause.Expression) *rdmaDeviceDo {
 	return r.withDO(r.DO.Clauses(conds...))
 }
 
-func (r rdmaDeviceDo) Returning(value interface{}, columns ...string) IRdmaDeviceDo {
+func (r rdmaDeviceDo) Returning(value interface{}, columns ...string) *rdmaDeviceDo {
 	return r.withDO(r.DO.Returning(value, columns...))
 }
 
-func (r rdmaDeviceDo) Not(conds ...gen.Condition) IRdmaDeviceDo {
+func (r rdmaDeviceDo) Not(conds ...gen.Condition) *rdmaDeviceDo {
 	return r.withDO(r.DO.Not(conds...))
 }
 
-func (r rdmaDeviceDo) Or(conds ...gen.Condition) IRdmaDeviceDo {
+func (r rdmaDeviceDo) Or(conds ...gen.Condition) *rdmaDeviceDo {
 	return r.withDO(r.DO.Or(conds...))
 }
 
-func (r rdmaDeviceDo) Select(conds ...field.Expr) IRdmaDeviceDo {
+func (r rdmaDeviceDo) Select(conds ...field.Expr) *rdmaDeviceDo {
 	return r.withDO(r.DO.Select(conds...))
 }
 
-func (r rdmaDeviceDo) Where(conds ...gen.Condition) IRdmaDeviceDo {
+func (r rdmaDeviceDo) Where(conds ...gen.Condition) *rdmaDeviceDo {
 	return r.withDO(r.DO.Where(conds...))
 }
 
-func (r rdmaDeviceDo) Order(conds ...field.Expr) IRdmaDeviceDo {
+func (r rdmaDeviceDo) Order(conds ...field.Expr) *rdmaDeviceDo {
 	return r.withDO(r.DO.Order(conds...))
 }
 
-func (r rdmaDeviceDo) Distinct(cols ...field.Expr) IRdmaDeviceDo {
+func (r rdmaDeviceDo) Distinct(cols ...field.Expr) *rdmaDeviceDo {
 	return r.withDO(r.DO.Distinct(cols...))
 }
 
-func (r rdmaDeviceDo) Omit(cols ...field.Expr) IRdmaDeviceDo {
+func (r rdmaDeviceDo) Omit(cols ...field.Expr) *rdmaDeviceDo {
 	return r.withDO(r.DO.Omit(cols...))
 }
 
-func (r rdmaDeviceDo) Join(table schema.Tabler, on ...field.Expr) IRdmaDeviceDo {
+func (r rdmaDeviceDo) Join(table schema.Tabler, on ...field.Expr) *rdmaDeviceDo {
 	return r.withDO(r.DO.Join(table, on...))
 }
 
-func (r rdmaDeviceDo) LeftJoin(table schema.Tabler, on ...field.Expr) IRdmaDeviceDo {
+func (r rdmaDeviceDo) LeftJoin(table schema.Tabler, on ...field.Expr) *rdmaDeviceDo {
 	return r.withDO(r.DO.LeftJoin(table, on...))
 }
 
-func (r rdmaDeviceDo) RightJoin(table schema.Tabler, on ...field.Expr) IRdmaDeviceDo {
+func (r rdmaDeviceDo) RightJoin(table schema.Tabler, on ...field.Expr) *rdmaDeviceDo {
 	return r.withDO(r.DO.RightJoin(table, on...))
 }
 
-func (r rdmaDeviceDo) Group(cols ...field.Expr) IRdmaDeviceDo {
+func (r rdmaDeviceDo) Group(cols ...field.Expr) *rdmaDeviceDo {
 	return r.withDO(r.DO.Group(cols...))
 }
 
-func (r rdmaDeviceDo) Having(conds ...gen.Condition) IRdmaDeviceDo {
+func (r rdmaDeviceDo) Having(conds ...gen.Condition) *rdmaDeviceDo {
 	return r.withDO(r.DO.Having(conds...))
 }
 
-func (r rdmaDeviceDo) Limit(limit int) IRdmaDeviceDo {
+func (r rdmaDeviceDo) Limit(limit int) *rdmaDeviceDo {
 	return r.withDO(r.DO.Limit(limit))
 }
 
-func (r rdmaDeviceDo) Offset(offset int) IRdmaDeviceDo {
+func (r rdmaDeviceDo) Offset(offset int) *rdmaDeviceDo {
 	return r.withDO(r.DO.Offset(offset))
 }
 
-func (r rdmaDeviceDo) Scopes(funcs ...func(gen.Dao) gen.Dao) IRdmaDeviceDo {
+func (r rdmaDeviceDo) Scopes(funcs ...func(gen.Dao) gen.Dao) *rdmaDeviceDo {
 	return r.withDO(r.DO.Scopes(funcs...))
 }
 
-func (r rdmaDeviceDo) Unscoped() IRdmaDeviceDo {
+func (r rdmaDeviceDo) Unscoped() *rdmaDeviceDo {
 	return r.withDO(r.DO.Unscoped())
 }
 
@@ -342,22 +288,22 @@ func (r rdmaDeviceDo) FindInBatches(result *[]*model.RdmaDevice, batchSize int, 
 	return r.DO.FindInBatches(result, batchSize, fc)
 }
 
-func (r rdmaDeviceDo) Attrs(attrs ...field.AssignExpr) IRdmaDeviceDo {
+func (r rdmaDeviceDo) Attrs(attrs ...field.AssignExpr) *rdmaDeviceDo {
 	return r.withDO(r.DO.Attrs(attrs...))
 }
 
-func (r rdmaDeviceDo) Assign(attrs ...field.AssignExpr) IRdmaDeviceDo {
+func (r rdmaDeviceDo) Assign(attrs ...field.AssignExpr) *rdmaDeviceDo {
 	return r.withDO(r.DO.Assign(attrs...))
 }
 
-func (r rdmaDeviceDo) Joins(fields ...field.RelationField) IRdmaDeviceDo {
+func (r rdmaDeviceDo) Joins(fields ...field.RelationField) *rdmaDeviceDo {
 	for _, _f := range fields {
 		r = *r.withDO(r.DO.Joins(_f))
 	}
 	return &r
 }
 
-func (r rdmaDeviceDo) Preload(fields ...field.RelationField) IRdmaDeviceDo {
+func (r rdmaDeviceDo) Preload(fields ...field.RelationField) *rdmaDeviceDo {
 	for _, _f := range fields {
 		r = *r.withDO(r.DO.Preload(_f))
 	}

@@ -6,7 +6,6 @@ package dal
 
 import (
 	"context"
-	"database/sql"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -48,7 +47,7 @@ func newNamespaceGpuHourlyStats(db *gorm.DB, opts ...gen.DOOption) namespaceGpuH
 }
 
 type namespaceGpuHourlyStats struct {
-	namespaceGpuHourlyStatsDo
+	namespaceGpuHourlyStatsDo namespaceGpuHourlyStatsDo
 
 	ALL                 field.Asterisk
 	ID                  field.Int32
@@ -99,6 +98,18 @@ func (n *namespaceGpuHourlyStats) updateTableName(table string) *namespaceGpuHou
 	return n
 }
 
+func (n *namespaceGpuHourlyStats) WithContext(ctx context.Context) *namespaceGpuHourlyStatsDo {
+	return n.namespaceGpuHourlyStatsDo.WithContext(ctx)
+}
+
+func (n namespaceGpuHourlyStats) TableName() string { return n.namespaceGpuHourlyStatsDo.TableName() }
+
+func (n namespaceGpuHourlyStats) Alias() string { return n.namespaceGpuHourlyStatsDo.Alias() }
+
+func (n namespaceGpuHourlyStats) Columns(cols ...field.Expr) gen.Columns {
+	return n.namespaceGpuHourlyStatsDo.Columns(cols...)
+}
+
 func (n *namespaceGpuHourlyStats) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 	_f, ok := n.fieldMap[fieldName]
 	if !ok || _f == nil {
@@ -137,158 +148,95 @@ func (n namespaceGpuHourlyStats) replaceDB(db *gorm.DB) namespaceGpuHourlyStats 
 
 type namespaceGpuHourlyStatsDo struct{ gen.DO }
 
-type INamespaceGpuHourlyStatsDo interface {
-	gen.SubQuery
-	Debug() INamespaceGpuHourlyStatsDo
-	WithContext(ctx context.Context) INamespaceGpuHourlyStatsDo
-	WithResult(fc func(tx gen.Dao)) gen.ResultInfo
-	ReplaceDB(db *gorm.DB)
-	ReadDB() INamespaceGpuHourlyStatsDo
-	WriteDB() INamespaceGpuHourlyStatsDo
-	As(alias string) gen.Dao
-	Session(config *gorm.Session) INamespaceGpuHourlyStatsDo
-	Columns(cols ...field.Expr) gen.Columns
-	Clauses(conds ...clause.Expression) INamespaceGpuHourlyStatsDo
-	Not(conds ...gen.Condition) INamespaceGpuHourlyStatsDo
-	Or(conds ...gen.Condition) INamespaceGpuHourlyStatsDo
-	Select(conds ...field.Expr) INamespaceGpuHourlyStatsDo
-	Where(conds ...gen.Condition) INamespaceGpuHourlyStatsDo
-	Order(conds ...field.Expr) INamespaceGpuHourlyStatsDo
-	Distinct(cols ...field.Expr) INamespaceGpuHourlyStatsDo
-	Omit(cols ...field.Expr) INamespaceGpuHourlyStatsDo
-	Join(table schema.Tabler, on ...field.Expr) INamespaceGpuHourlyStatsDo
-	LeftJoin(table schema.Tabler, on ...field.Expr) INamespaceGpuHourlyStatsDo
-	RightJoin(table schema.Tabler, on ...field.Expr) INamespaceGpuHourlyStatsDo
-	Group(cols ...field.Expr) INamespaceGpuHourlyStatsDo
-	Having(conds ...gen.Condition) INamespaceGpuHourlyStatsDo
-	Limit(limit int) INamespaceGpuHourlyStatsDo
-	Offset(offset int) INamespaceGpuHourlyStatsDo
-	Count() (count int64, err error)
-	Scopes(funcs ...func(gen.Dao) gen.Dao) INamespaceGpuHourlyStatsDo
-	Unscoped() INamespaceGpuHourlyStatsDo
-	Create(values ...*model.NamespaceGpuHourlyStats) error
-	CreateInBatches(values []*model.NamespaceGpuHourlyStats, batchSize int) error
-	Save(values ...*model.NamespaceGpuHourlyStats) error
-	First() (*model.NamespaceGpuHourlyStats, error)
-	Take() (*model.NamespaceGpuHourlyStats, error)
-	Last() (*model.NamespaceGpuHourlyStats, error)
-	Find() ([]*model.NamespaceGpuHourlyStats, error)
-	FindInBatch(batchSize int, fc func(tx gen.Dao, batch int) error) (results []*model.NamespaceGpuHourlyStats, err error)
-	FindInBatches(result *[]*model.NamespaceGpuHourlyStats, batchSize int, fc func(tx gen.Dao, batch int) error) error
-	Pluck(column field.Expr, dest interface{}) error
-	Delete(...*model.NamespaceGpuHourlyStats) (info gen.ResultInfo, err error)
-	Update(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
-	UpdateSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
-	Updates(value interface{}) (info gen.ResultInfo, err error)
-	UpdateColumn(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
-	UpdateColumnSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
-	UpdateColumns(value interface{}) (info gen.ResultInfo, err error)
-	UpdateFrom(q gen.SubQuery) gen.Dao
-	Attrs(attrs ...field.AssignExpr) INamespaceGpuHourlyStatsDo
-	Assign(attrs ...field.AssignExpr) INamespaceGpuHourlyStatsDo
-	Joins(fields ...field.RelationField) INamespaceGpuHourlyStatsDo
-	Preload(fields ...field.RelationField) INamespaceGpuHourlyStatsDo
-	FirstOrInit() (*model.NamespaceGpuHourlyStats, error)
-	FirstOrCreate() (*model.NamespaceGpuHourlyStats, error)
-	FindByPage(offset int, limit int) (result []*model.NamespaceGpuHourlyStats, count int64, err error)
-	ScanByPage(result interface{}, offset int, limit int) (count int64, err error)
-	Rows() (*sql.Rows, error)
-	Row() *sql.Row
-	Scan(result interface{}) (err error)
-	Returning(value interface{}, columns ...string) INamespaceGpuHourlyStatsDo
-	UnderlyingDB() *gorm.DB
-	schema.Tabler
-}
-
-func (n namespaceGpuHourlyStatsDo) Debug() INamespaceGpuHourlyStatsDo {
+func (n namespaceGpuHourlyStatsDo) Debug() *namespaceGpuHourlyStatsDo {
 	return n.withDO(n.DO.Debug())
 }
 
-func (n namespaceGpuHourlyStatsDo) WithContext(ctx context.Context) INamespaceGpuHourlyStatsDo {
+func (n namespaceGpuHourlyStatsDo) WithContext(ctx context.Context) *namespaceGpuHourlyStatsDo {
 	return n.withDO(n.DO.WithContext(ctx))
 }
 
-func (n namespaceGpuHourlyStatsDo) ReadDB() INamespaceGpuHourlyStatsDo {
+func (n namespaceGpuHourlyStatsDo) ReadDB() *namespaceGpuHourlyStatsDo {
 	return n.Clauses(dbresolver.Read)
 }
 
-func (n namespaceGpuHourlyStatsDo) WriteDB() INamespaceGpuHourlyStatsDo {
+func (n namespaceGpuHourlyStatsDo) WriteDB() *namespaceGpuHourlyStatsDo {
 	return n.Clauses(dbresolver.Write)
 }
 
-func (n namespaceGpuHourlyStatsDo) Session(config *gorm.Session) INamespaceGpuHourlyStatsDo {
+func (n namespaceGpuHourlyStatsDo) Session(config *gorm.Session) *namespaceGpuHourlyStatsDo {
 	return n.withDO(n.DO.Session(config))
 }
 
-func (n namespaceGpuHourlyStatsDo) Clauses(conds ...clause.Expression) INamespaceGpuHourlyStatsDo {
+func (n namespaceGpuHourlyStatsDo) Clauses(conds ...clause.Expression) *namespaceGpuHourlyStatsDo {
 	return n.withDO(n.DO.Clauses(conds...))
 }
 
-func (n namespaceGpuHourlyStatsDo) Returning(value interface{}, columns ...string) INamespaceGpuHourlyStatsDo {
+func (n namespaceGpuHourlyStatsDo) Returning(value interface{}, columns ...string) *namespaceGpuHourlyStatsDo {
 	return n.withDO(n.DO.Returning(value, columns...))
 }
 
-func (n namespaceGpuHourlyStatsDo) Not(conds ...gen.Condition) INamespaceGpuHourlyStatsDo {
+func (n namespaceGpuHourlyStatsDo) Not(conds ...gen.Condition) *namespaceGpuHourlyStatsDo {
 	return n.withDO(n.DO.Not(conds...))
 }
 
-func (n namespaceGpuHourlyStatsDo) Or(conds ...gen.Condition) INamespaceGpuHourlyStatsDo {
+func (n namespaceGpuHourlyStatsDo) Or(conds ...gen.Condition) *namespaceGpuHourlyStatsDo {
 	return n.withDO(n.DO.Or(conds...))
 }
 
-func (n namespaceGpuHourlyStatsDo) Select(conds ...field.Expr) INamespaceGpuHourlyStatsDo {
+func (n namespaceGpuHourlyStatsDo) Select(conds ...field.Expr) *namespaceGpuHourlyStatsDo {
 	return n.withDO(n.DO.Select(conds...))
 }
 
-func (n namespaceGpuHourlyStatsDo) Where(conds ...gen.Condition) INamespaceGpuHourlyStatsDo {
+func (n namespaceGpuHourlyStatsDo) Where(conds ...gen.Condition) *namespaceGpuHourlyStatsDo {
 	return n.withDO(n.DO.Where(conds...))
 }
 
-func (n namespaceGpuHourlyStatsDo) Order(conds ...field.Expr) INamespaceGpuHourlyStatsDo {
+func (n namespaceGpuHourlyStatsDo) Order(conds ...field.Expr) *namespaceGpuHourlyStatsDo {
 	return n.withDO(n.DO.Order(conds...))
 }
 
-func (n namespaceGpuHourlyStatsDo) Distinct(cols ...field.Expr) INamespaceGpuHourlyStatsDo {
+func (n namespaceGpuHourlyStatsDo) Distinct(cols ...field.Expr) *namespaceGpuHourlyStatsDo {
 	return n.withDO(n.DO.Distinct(cols...))
 }
 
-func (n namespaceGpuHourlyStatsDo) Omit(cols ...field.Expr) INamespaceGpuHourlyStatsDo {
+func (n namespaceGpuHourlyStatsDo) Omit(cols ...field.Expr) *namespaceGpuHourlyStatsDo {
 	return n.withDO(n.DO.Omit(cols...))
 }
 
-func (n namespaceGpuHourlyStatsDo) Join(table schema.Tabler, on ...field.Expr) INamespaceGpuHourlyStatsDo {
+func (n namespaceGpuHourlyStatsDo) Join(table schema.Tabler, on ...field.Expr) *namespaceGpuHourlyStatsDo {
 	return n.withDO(n.DO.Join(table, on...))
 }
 
-func (n namespaceGpuHourlyStatsDo) LeftJoin(table schema.Tabler, on ...field.Expr) INamespaceGpuHourlyStatsDo {
+func (n namespaceGpuHourlyStatsDo) LeftJoin(table schema.Tabler, on ...field.Expr) *namespaceGpuHourlyStatsDo {
 	return n.withDO(n.DO.LeftJoin(table, on...))
 }
 
-func (n namespaceGpuHourlyStatsDo) RightJoin(table schema.Tabler, on ...field.Expr) INamespaceGpuHourlyStatsDo {
+func (n namespaceGpuHourlyStatsDo) RightJoin(table schema.Tabler, on ...field.Expr) *namespaceGpuHourlyStatsDo {
 	return n.withDO(n.DO.RightJoin(table, on...))
 }
 
-func (n namespaceGpuHourlyStatsDo) Group(cols ...field.Expr) INamespaceGpuHourlyStatsDo {
+func (n namespaceGpuHourlyStatsDo) Group(cols ...field.Expr) *namespaceGpuHourlyStatsDo {
 	return n.withDO(n.DO.Group(cols...))
 }
 
-func (n namespaceGpuHourlyStatsDo) Having(conds ...gen.Condition) INamespaceGpuHourlyStatsDo {
+func (n namespaceGpuHourlyStatsDo) Having(conds ...gen.Condition) *namespaceGpuHourlyStatsDo {
 	return n.withDO(n.DO.Having(conds...))
 }
 
-func (n namespaceGpuHourlyStatsDo) Limit(limit int) INamespaceGpuHourlyStatsDo {
+func (n namespaceGpuHourlyStatsDo) Limit(limit int) *namespaceGpuHourlyStatsDo {
 	return n.withDO(n.DO.Limit(limit))
 }
 
-func (n namespaceGpuHourlyStatsDo) Offset(offset int) INamespaceGpuHourlyStatsDo {
+func (n namespaceGpuHourlyStatsDo) Offset(offset int) *namespaceGpuHourlyStatsDo {
 	return n.withDO(n.DO.Offset(offset))
 }
 
-func (n namespaceGpuHourlyStatsDo) Scopes(funcs ...func(gen.Dao) gen.Dao) INamespaceGpuHourlyStatsDo {
+func (n namespaceGpuHourlyStatsDo) Scopes(funcs ...func(gen.Dao) gen.Dao) *namespaceGpuHourlyStatsDo {
 	return n.withDO(n.DO.Scopes(funcs...))
 }
 
-func (n namespaceGpuHourlyStatsDo) Unscoped() INamespaceGpuHourlyStatsDo {
+func (n namespaceGpuHourlyStatsDo) Unscoped() *namespaceGpuHourlyStatsDo {
 	return n.withDO(n.DO.Unscoped())
 }
 
@@ -354,22 +302,22 @@ func (n namespaceGpuHourlyStatsDo) FindInBatches(result *[]*model.NamespaceGpuHo
 	return n.DO.FindInBatches(result, batchSize, fc)
 }
 
-func (n namespaceGpuHourlyStatsDo) Attrs(attrs ...field.AssignExpr) INamespaceGpuHourlyStatsDo {
+func (n namespaceGpuHourlyStatsDo) Attrs(attrs ...field.AssignExpr) *namespaceGpuHourlyStatsDo {
 	return n.withDO(n.DO.Attrs(attrs...))
 }
 
-func (n namespaceGpuHourlyStatsDo) Assign(attrs ...field.AssignExpr) INamespaceGpuHourlyStatsDo {
+func (n namespaceGpuHourlyStatsDo) Assign(attrs ...field.AssignExpr) *namespaceGpuHourlyStatsDo {
 	return n.withDO(n.DO.Assign(attrs...))
 }
 
-func (n namespaceGpuHourlyStatsDo) Joins(fields ...field.RelationField) INamespaceGpuHourlyStatsDo {
+func (n namespaceGpuHourlyStatsDo) Joins(fields ...field.RelationField) *namespaceGpuHourlyStatsDo {
 	for _, _f := range fields {
 		n = *n.withDO(n.DO.Joins(_f))
 	}
 	return &n
 }
 
-func (n namespaceGpuHourlyStatsDo) Preload(fields ...field.RelationField) INamespaceGpuHourlyStatsDo {
+func (n namespaceGpuHourlyStatsDo) Preload(fields ...field.RelationField) *namespaceGpuHourlyStatsDo {
 	for _, _f := range fields {
 		n = *n.withDO(n.DO.Preload(_f))
 	}

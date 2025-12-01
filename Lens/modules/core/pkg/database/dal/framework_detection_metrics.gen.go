@@ -6,7 +6,6 @@ package dal
 
 import (
 	"context"
-	"database/sql"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -51,7 +50,7 @@ func newFrameworkDetectionMetrics(db *gorm.DB, opts ...gen.DOOption) frameworkDe
 }
 
 type frameworkDetectionMetrics struct {
-	frameworkDetectionMetricsDo
+	frameworkDetectionMetricsDo frameworkDetectionMetricsDo
 
 	ALL                   field.Asterisk
 	ID                    field.Int64
@@ -108,6 +107,20 @@ func (f *frameworkDetectionMetrics) updateTableName(table string) *frameworkDete
 	return f
 }
 
+func (f *frameworkDetectionMetrics) WithContext(ctx context.Context) *frameworkDetectionMetricsDo {
+	return f.frameworkDetectionMetricsDo.WithContext(ctx)
+}
+
+func (f frameworkDetectionMetrics) TableName() string {
+	return f.frameworkDetectionMetricsDo.TableName()
+}
+
+func (f frameworkDetectionMetrics) Alias() string { return f.frameworkDetectionMetricsDo.Alias() }
+
+func (f frameworkDetectionMetrics) Columns(cols ...field.Expr) gen.Columns {
+	return f.frameworkDetectionMetricsDo.Columns(cols...)
+}
+
 func (f *frameworkDetectionMetrics) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 	_f, ok := f.fieldMap[fieldName]
 	if !ok || _f == nil {
@@ -149,158 +162,95 @@ func (f frameworkDetectionMetrics) replaceDB(db *gorm.DB) frameworkDetectionMetr
 
 type frameworkDetectionMetricsDo struct{ gen.DO }
 
-type IFrameworkDetectionMetricsDo interface {
-	gen.SubQuery
-	Debug() IFrameworkDetectionMetricsDo
-	WithContext(ctx context.Context) IFrameworkDetectionMetricsDo
-	WithResult(fc func(tx gen.Dao)) gen.ResultInfo
-	ReplaceDB(db *gorm.DB)
-	ReadDB() IFrameworkDetectionMetricsDo
-	WriteDB() IFrameworkDetectionMetricsDo
-	As(alias string) gen.Dao
-	Session(config *gorm.Session) IFrameworkDetectionMetricsDo
-	Columns(cols ...field.Expr) gen.Columns
-	Clauses(conds ...clause.Expression) IFrameworkDetectionMetricsDo
-	Not(conds ...gen.Condition) IFrameworkDetectionMetricsDo
-	Or(conds ...gen.Condition) IFrameworkDetectionMetricsDo
-	Select(conds ...field.Expr) IFrameworkDetectionMetricsDo
-	Where(conds ...gen.Condition) IFrameworkDetectionMetricsDo
-	Order(conds ...field.Expr) IFrameworkDetectionMetricsDo
-	Distinct(cols ...field.Expr) IFrameworkDetectionMetricsDo
-	Omit(cols ...field.Expr) IFrameworkDetectionMetricsDo
-	Join(table schema.Tabler, on ...field.Expr) IFrameworkDetectionMetricsDo
-	LeftJoin(table schema.Tabler, on ...field.Expr) IFrameworkDetectionMetricsDo
-	RightJoin(table schema.Tabler, on ...field.Expr) IFrameworkDetectionMetricsDo
-	Group(cols ...field.Expr) IFrameworkDetectionMetricsDo
-	Having(conds ...gen.Condition) IFrameworkDetectionMetricsDo
-	Limit(limit int) IFrameworkDetectionMetricsDo
-	Offset(offset int) IFrameworkDetectionMetricsDo
-	Count() (count int64, err error)
-	Scopes(funcs ...func(gen.Dao) gen.Dao) IFrameworkDetectionMetricsDo
-	Unscoped() IFrameworkDetectionMetricsDo
-	Create(values ...*model.FrameworkDetectionMetrics) error
-	CreateInBatches(values []*model.FrameworkDetectionMetrics, batchSize int) error
-	Save(values ...*model.FrameworkDetectionMetrics) error
-	First() (*model.FrameworkDetectionMetrics, error)
-	Take() (*model.FrameworkDetectionMetrics, error)
-	Last() (*model.FrameworkDetectionMetrics, error)
-	Find() ([]*model.FrameworkDetectionMetrics, error)
-	FindInBatch(batchSize int, fc func(tx gen.Dao, batch int) error) (results []*model.FrameworkDetectionMetrics, err error)
-	FindInBatches(result *[]*model.FrameworkDetectionMetrics, batchSize int, fc func(tx gen.Dao, batch int) error) error
-	Pluck(column field.Expr, dest interface{}) error
-	Delete(...*model.FrameworkDetectionMetrics) (info gen.ResultInfo, err error)
-	Update(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
-	UpdateSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
-	Updates(value interface{}) (info gen.ResultInfo, err error)
-	UpdateColumn(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
-	UpdateColumnSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
-	UpdateColumns(value interface{}) (info gen.ResultInfo, err error)
-	UpdateFrom(q gen.SubQuery) gen.Dao
-	Attrs(attrs ...field.AssignExpr) IFrameworkDetectionMetricsDo
-	Assign(attrs ...field.AssignExpr) IFrameworkDetectionMetricsDo
-	Joins(fields ...field.RelationField) IFrameworkDetectionMetricsDo
-	Preload(fields ...field.RelationField) IFrameworkDetectionMetricsDo
-	FirstOrInit() (*model.FrameworkDetectionMetrics, error)
-	FirstOrCreate() (*model.FrameworkDetectionMetrics, error)
-	FindByPage(offset int, limit int) (result []*model.FrameworkDetectionMetrics, count int64, err error)
-	ScanByPage(result interface{}, offset int, limit int) (count int64, err error)
-	Rows() (*sql.Rows, error)
-	Row() *sql.Row
-	Scan(result interface{}) (err error)
-	Returning(value interface{}, columns ...string) IFrameworkDetectionMetricsDo
-	UnderlyingDB() *gorm.DB
-	schema.Tabler
-}
-
-func (f frameworkDetectionMetricsDo) Debug() IFrameworkDetectionMetricsDo {
+func (f frameworkDetectionMetricsDo) Debug() *frameworkDetectionMetricsDo {
 	return f.withDO(f.DO.Debug())
 }
 
-func (f frameworkDetectionMetricsDo) WithContext(ctx context.Context) IFrameworkDetectionMetricsDo {
+func (f frameworkDetectionMetricsDo) WithContext(ctx context.Context) *frameworkDetectionMetricsDo {
 	return f.withDO(f.DO.WithContext(ctx))
 }
 
-func (f frameworkDetectionMetricsDo) ReadDB() IFrameworkDetectionMetricsDo {
+func (f frameworkDetectionMetricsDo) ReadDB() *frameworkDetectionMetricsDo {
 	return f.Clauses(dbresolver.Read)
 }
 
-func (f frameworkDetectionMetricsDo) WriteDB() IFrameworkDetectionMetricsDo {
+func (f frameworkDetectionMetricsDo) WriteDB() *frameworkDetectionMetricsDo {
 	return f.Clauses(dbresolver.Write)
 }
 
-func (f frameworkDetectionMetricsDo) Session(config *gorm.Session) IFrameworkDetectionMetricsDo {
+func (f frameworkDetectionMetricsDo) Session(config *gorm.Session) *frameworkDetectionMetricsDo {
 	return f.withDO(f.DO.Session(config))
 }
 
-func (f frameworkDetectionMetricsDo) Clauses(conds ...clause.Expression) IFrameworkDetectionMetricsDo {
+func (f frameworkDetectionMetricsDo) Clauses(conds ...clause.Expression) *frameworkDetectionMetricsDo {
 	return f.withDO(f.DO.Clauses(conds...))
 }
 
-func (f frameworkDetectionMetricsDo) Returning(value interface{}, columns ...string) IFrameworkDetectionMetricsDo {
+func (f frameworkDetectionMetricsDo) Returning(value interface{}, columns ...string) *frameworkDetectionMetricsDo {
 	return f.withDO(f.DO.Returning(value, columns...))
 }
 
-func (f frameworkDetectionMetricsDo) Not(conds ...gen.Condition) IFrameworkDetectionMetricsDo {
+func (f frameworkDetectionMetricsDo) Not(conds ...gen.Condition) *frameworkDetectionMetricsDo {
 	return f.withDO(f.DO.Not(conds...))
 }
 
-func (f frameworkDetectionMetricsDo) Or(conds ...gen.Condition) IFrameworkDetectionMetricsDo {
+func (f frameworkDetectionMetricsDo) Or(conds ...gen.Condition) *frameworkDetectionMetricsDo {
 	return f.withDO(f.DO.Or(conds...))
 }
 
-func (f frameworkDetectionMetricsDo) Select(conds ...field.Expr) IFrameworkDetectionMetricsDo {
+func (f frameworkDetectionMetricsDo) Select(conds ...field.Expr) *frameworkDetectionMetricsDo {
 	return f.withDO(f.DO.Select(conds...))
 }
 
-func (f frameworkDetectionMetricsDo) Where(conds ...gen.Condition) IFrameworkDetectionMetricsDo {
+func (f frameworkDetectionMetricsDo) Where(conds ...gen.Condition) *frameworkDetectionMetricsDo {
 	return f.withDO(f.DO.Where(conds...))
 }
 
-func (f frameworkDetectionMetricsDo) Order(conds ...field.Expr) IFrameworkDetectionMetricsDo {
+func (f frameworkDetectionMetricsDo) Order(conds ...field.Expr) *frameworkDetectionMetricsDo {
 	return f.withDO(f.DO.Order(conds...))
 }
 
-func (f frameworkDetectionMetricsDo) Distinct(cols ...field.Expr) IFrameworkDetectionMetricsDo {
+func (f frameworkDetectionMetricsDo) Distinct(cols ...field.Expr) *frameworkDetectionMetricsDo {
 	return f.withDO(f.DO.Distinct(cols...))
 }
 
-func (f frameworkDetectionMetricsDo) Omit(cols ...field.Expr) IFrameworkDetectionMetricsDo {
+func (f frameworkDetectionMetricsDo) Omit(cols ...field.Expr) *frameworkDetectionMetricsDo {
 	return f.withDO(f.DO.Omit(cols...))
 }
 
-func (f frameworkDetectionMetricsDo) Join(table schema.Tabler, on ...field.Expr) IFrameworkDetectionMetricsDo {
+func (f frameworkDetectionMetricsDo) Join(table schema.Tabler, on ...field.Expr) *frameworkDetectionMetricsDo {
 	return f.withDO(f.DO.Join(table, on...))
 }
 
-func (f frameworkDetectionMetricsDo) LeftJoin(table schema.Tabler, on ...field.Expr) IFrameworkDetectionMetricsDo {
+func (f frameworkDetectionMetricsDo) LeftJoin(table schema.Tabler, on ...field.Expr) *frameworkDetectionMetricsDo {
 	return f.withDO(f.DO.LeftJoin(table, on...))
 }
 
-func (f frameworkDetectionMetricsDo) RightJoin(table schema.Tabler, on ...field.Expr) IFrameworkDetectionMetricsDo {
+func (f frameworkDetectionMetricsDo) RightJoin(table schema.Tabler, on ...field.Expr) *frameworkDetectionMetricsDo {
 	return f.withDO(f.DO.RightJoin(table, on...))
 }
 
-func (f frameworkDetectionMetricsDo) Group(cols ...field.Expr) IFrameworkDetectionMetricsDo {
+func (f frameworkDetectionMetricsDo) Group(cols ...field.Expr) *frameworkDetectionMetricsDo {
 	return f.withDO(f.DO.Group(cols...))
 }
 
-func (f frameworkDetectionMetricsDo) Having(conds ...gen.Condition) IFrameworkDetectionMetricsDo {
+func (f frameworkDetectionMetricsDo) Having(conds ...gen.Condition) *frameworkDetectionMetricsDo {
 	return f.withDO(f.DO.Having(conds...))
 }
 
-func (f frameworkDetectionMetricsDo) Limit(limit int) IFrameworkDetectionMetricsDo {
+func (f frameworkDetectionMetricsDo) Limit(limit int) *frameworkDetectionMetricsDo {
 	return f.withDO(f.DO.Limit(limit))
 }
 
-func (f frameworkDetectionMetricsDo) Offset(offset int) IFrameworkDetectionMetricsDo {
+func (f frameworkDetectionMetricsDo) Offset(offset int) *frameworkDetectionMetricsDo {
 	return f.withDO(f.DO.Offset(offset))
 }
 
-func (f frameworkDetectionMetricsDo) Scopes(funcs ...func(gen.Dao) gen.Dao) IFrameworkDetectionMetricsDo {
+func (f frameworkDetectionMetricsDo) Scopes(funcs ...func(gen.Dao) gen.Dao) *frameworkDetectionMetricsDo {
 	return f.withDO(f.DO.Scopes(funcs...))
 }
 
-func (f frameworkDetectionMetricsDo) Unscoped() IFrameworkDetectionMetricsDo {
+func (f frameworkDetectionMetricsDo) Unscoped() *frameworkDetectionMetricsDo {
 	return f.withDO(f.DO.Unscoped())
 }
 
@@ -366,22 +316,22 @@ func (f frameworkDetectionMetricsDo) FindInBatches(result *[]*model.FrameworkDet
 	return f.DO.FindInBatches(result, batchSize, fc)
 }
 
-func (f frameworkDetectionMetricsDo) Attrs(attrs ...field.AssignExpr) IFrameworkDetectionMetricsDo {
+func (f frameworkDetectionMetricsDo) Attrs(attrs ...field.AssignExpr) *frameworkDetectionMetricsDo {
 	return f.withDO(f.DO.Attrs(attrs...))
 }
 
-func (f frameworkDetectionMetricsDo) Assign(attrs ...field.AssignExpr) IFrameworkDetectionMetricsDo {
+func (f frameworkDetectionMetricsDo) Assign(attrs ...field.AssignExpr) *frameworkDetectionMetricsDo {
 	return f.withDO(f.DO.Assign(attrs...))
 }
 
-func (f frameworkDetectionMetricsDo) Joins(fields ...field.RelationField) IFrameworkDetectionMetricsDo {
+func (f frameworkDetectionMetricsDo) Joins(fields ...field.RelationField) *frameworkDetectionMetricsDo {
 	for _, _f := range fields {
 		f = *f.withDO(f.DO.Joins(_f))
 	}
 	return &f
 }
 
-func (f frameworkDetectionMetricsDo) Preload(fields ...field.RelationField) IFrameworkDetectionMetricsDo {
+func (f frameworkDetectionMetricsDo) Preload(fields ...field.RelationField) *frameworkDetectionMetricsDo {
 	for _, _f := range fields {
 		f = *f.withDO(f.DO.Preload(_f))
 	}

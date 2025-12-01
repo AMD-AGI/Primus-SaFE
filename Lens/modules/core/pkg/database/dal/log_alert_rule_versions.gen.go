@@ -6,7 +6,6 @@ package dal
 
 import (
 	"context"
-	"database/sql"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -44,7 +43,7 @@ func newLogAlertRuleVersions(db *gorm.DB, opts ...gen.DOOption) logAlertRuleVers
 }
 
 type logAlertRuleVersions struct {
-	logAlertRuleVersionsDo
+	logAlertRuleVersionsDo logAlertRuleVersionsDo
 
 	ALL        field.Asterisk
 	ID         field.Int64
@@ -87,6 +86,18 @@ func (l *logAlertRuleVersions) updateTableName(table string) *logAlertRuleVersio
 	return l
 }
 
+func (l *logAlertRuleVersions) WithContext(ctx context.Context) *logAlertRuleVersionsDo {
+	return l.logAlertRuleVersionsDo.WithContext(ctx)
+}
+
+func (l logAlertRuleVersions) TableName() string { return l.logAlertRuleVersionsDo.TableName() }
+
+func (l logAlertRuleVersions) Alias() string { return l.logAlertRuleVersionsDo.Alias() }
+
+func (l logAlertRuleVersions) Columns(cols ...field.Expr) gen.Columns {
+	return l.logAlertRuleVersionsDo.Columns(cols...)
+}
+
 func (l *logAlertRuleVersions) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 	_f, ok := l.fieldMap[fieldName]
 	if !ok || _f == nil {
@@ -121,158 +132,95 @@ func (l logAlertRuleVersions) replaceDB(db *gorm.DB) logAlertRuleVersions {
 
 type logAlertRuleVersionsDo struct{ gen.DO }
 
-type ILogAlertRuleVersionsDo interface {
-	gen.SubQuery
-	Debug() ILogAlertRuleVersionsDo
-	WithContext(ctx context.Context) ILogAlertRuleVersionsDo
-	WithResult(fc func(tx gen.Dao)) gen.ResultInfo
-	ReplaceDB(db *gorm.DB)
-	ReadDB() ILogAlertRuleVersionsDo
-	WriteDB() ILogAlertRuleVersionsDo
-	As(alias string) gen.Dao
-	Session(config *gorm.Session) ILogAlertRuleVersionsDo
-	Columns(cols ...field.Expr) gen.Columns
-	Clauses(conds ...clause.Expression) ILogAlertRuleVersionsDo
-	Not(conds ...gen.Condition) ILogAlertRuleVersionsDo
-	Or(conds ...gen.Condition) ILogAlertRuleVersionsDo
-	Select(conds ...field.Expr) ILogAlertRuleVersionsDo
-	Where(conds ...gen.Condition) ILogAlertRuleVersionsDo
-	Order(conds ...field.Expr) ILogAlertRuleVersionsDo
-	Distinct(cols ...field.Expr) ILogAlertRuleVersionsDo
-	Omit(cols ...field.Expr) ILogAlertRuleVersionsDo
-	Join(table schema.Tabler, on ...field.Expr) ILogAlertRuleVersionsDo
-	LeftJoin(table schema.Tabler, on ...field.Expr) ILogAlertRuleVersionsDo
-	RightJoin(table schema.Tabler, on ...field.Expr) ILogAlertRuleVersionsDo
-	Group(cols ...field.Expr) ILogAlertRuleVersionsDo
-	Having(conds ...gen.Condition) ILogAlertRuleVersionsDo
-	Limit(limit int) ILogAlertRuleVersionsDo
-	Offset(offset int) ILogAlertRuleVersionsDo
-	Count() (count int64, err error)
-	Scopes(funcs ...func(gen.Dao) gen.Dao) ILogAlertRuleVersionsDo
-	Unscoped() ILogAlertRuleVersionsDo
-	Create(values ...*model.LogAlertRuleVersions) error
-	CreateInBatches(values []*model.LogAlertRuleVersions, batchSize int) error
-	Save(values ...*model.LogAlertRuleVersions) error
-	First() (*model.LogAlertRuleVersions, error)
-	Take() (*model.LogAlertRuleVersions, error)
-	Last() (*model.LogAlertRuleVersions, error)
-	Find() ([]*model.LogAlertRuleVersions, error)
-	FindInBatch(batchSize int, fc func(tx gen.Dao, batch int) error) (results []*model.LogAlertRuleVersions, err error)
-	FindInBatches(result *[]*model.LogAlertRuleVersions, batchSize int, fc func(tx gen.Dao, batch int) error) error
-	Pluck(column field.Expr, dest interface{}) error
-	Delete(...*model.LogAlertRuleVersions) (info gen.ResultInfo, err error)
-	Update(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
-	UpdateSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
-	Updates(value interface{}) (info gen.ResultInfo, err error)
-	UpdateColumn(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
-	UpdateColumnSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
-	UpdateColumns(value interface{}) (info gen.ResultInfo, err error)
-	UpdateFrom(q gen.SubQuery) gen.Dao
-	Attrs(attrs ...field.AssignExpr) ILogAlertRuleVersionsDo
-	Assign(attrs ...field.AssignExpr) ILogAlertRuleVersionsDo
-	Joins(fields ...field.RelationField) ILogAlertRuleVersionsDo
-	Preload(fields ...field.RelationField) ILogAlertRuleVersionsDo
-	FirstOrInit() (*model.LogAlertRuleVersions, error)
-	FirstOrCreate() (*model.LogAlertRuleVersions, error)
-	FindByPage(offset int, limit int) (result []*model.LogAlertRuleVersions, count int64, err error)
-	ScanByPage(result interface{}, offset int, limit int) (count int64, err error)
-	Rows() (*sql.Rows, error)
-	Row() *sql.Row
-	Scan(result interface{}) (err error)
-	Returning(value interface{}, columns ...string) ILogAlertRuleVersionsDo
-	UnderlyingDB() *gorm.DB
-	schema.Tabler
-}
-
-func (l logAlertRuleVersionsDo) Debug() ILogAlertRuleVersionsDo {
+func (l logAlertRuleVersionsDo) Debug() *logAlertRuleVersionsDo {
 	return l.withDO(l.DO.Debug())
 }
 
-func (l logAlertRuleVersionsDo) WithContext(ctx context.Context) ILogAlertRuleVersionsDo {
+func (l logAlertRuleVersionsDo) WithContext(ctx context.Context) *logAlertRuleVersionsDo {
 	return l.withDO(l.DO.WithContext(ctx))
 }
 
-func (l logAlertRuleVersionsDo) ReadDB() ILogAlertRuleVersionsDo {
+func (l logAlertRuleVersionsDo) ReadDB() *logAlertRuleVersionsDo {
 	return l.Clauses(dbresolver.Read)
 }
 
-func (l logAlertRuleVersionsDo) WriteDB() ILogAlertRuleVersionsDo {
+func (l logAlertRuleVersionsDo) WriteDB() *logAlertRuleVersionsDo {
 	return l.Clauses(dbresolver.Write)
 }
 
-func (l logAlertRuleVersionsDo) Session(config *gorm.Session) ILogAlertRuleVersionsDo {
+func (l logAlertRuleVersionsDo) Session(config *gorm.Session) *logAlertRuleVersionsDo {
 	return l.withDO(l.DO.Session(config))
 }
 
-func (l logAlertRuleVersionsDo) Clauses(conds ...clause.Expression) ILogAlertRuleVersionsDo {
+func (l logAlertRuleVersionsDo) Clauses(conds ...clause.Expression) *logAlertRuleVersionsDo {
 	return l.withDO(l.DO.Clauses(conds...))
 }
 
-func (l logAlertRuleVersionsDo) Returning(value interface{}, columns ...string) ILogAlertRuleVersionsDo {
+func (l logAlertRuleVersionsDo) Returning(value interface{}, columns ...string) *logAlertRuleVersionsDo {
 	return l.withDO(l.DO.Returning(value, columns...))
 }
 
-func (l logAlertRuleVersionsDo) Not(conds ...gen.Condition) ILogAlertRuleVersionsDo {
+func (l logAlertRuleVersionsDo) Not(conds ...gen.Condition) *logAlertRuleVersionsDo {
 	return l.withDO(l.DO.Not(conds...))
 }
 
-func (l logAlertRuleVersionsDo) Or(conds ...gen.Condition) ILogAlertRuleVersionsDo {
+func (l logAlertRuleVersionsDo) Or(conds ...gen.Condition) *logAlertRuleVersionsDo {
 	return l.withDO(l.DO.Or(conds...))
 }
 
-func (l logAlertRuleVersionsDo) Select(conds ...field.Expr) ILogAlertRuleVersionsDo {
+func (l logAlertRuleVersionsDo) Select(conds ...field.Expr) *logAlertRuleVersionsDo {
 	return l.withDO(l.DO.Select(conds...))
 }
 
-func (l logAlertRuleVersionsDo) Where(conds ...gen.Condition) ILogAlertRuleVersionsDo {
+func (l logAlertRuleVersionsDo) Where(conds ...gen.Condition) *logAlertRuleVersionsDo {
 	return l.withDO(l.DO.Where(conds...))
 }
 
-func (l logAlertRuleVersionsDo) Order(conds ...field.Expr) ILogAlertRuleVersionsDo {
+func (l logAlertRuleVersionsDo) Order(conds ...field.Expr) *logAlertRuleVersionsDo {
 	return l.withDO(l.DO.Order(conds...))
 }
 
-func (l logAlertRuleVersionsDo) Distinct(cols ...field.Expr) ILogAlertRuleVersionsDo {
+func (l logAlertRuleVersionsDo) Distinct(cols ...field.Expr) *logAlertRuleVersionsDo {
 	return l.withDO(l.DO.Distinct(cols...))
 }
 
-func (l logAlertRuleVersionsDo) Omit(cols ...field.Expr) ILogAlertRuleVersionsDo {
+func (l logAlertRuleVersionsDo) Omit(cols ...field.Expr) *logAlertRuleVersionsDo {
 	return l.withDO(l.DO.Omit(cols...))
 }
 
-func (l logAlertRuleVersionsDo) Join(table schema.Tabler, on ...field.Expr) ILogAlertRuleVersionsDo {
+func (l logAlertRuleVersionsDo) Join(table schema.Tabler, on ...field.Expr) *logAlertRuleVersionsDo {
 	return l.withDO(l.DO.Join(table, on...))
 }
 
-func (l logAlertRuleVersionsDo) LeftJoin(table schema.Tabler, on ...field.Expr) ILogAlertRuleVersionsDo {
+func (l logAlertRuleVersionsDo) LeftJoin(table schema.Tabler, on ...field.Expr) *logAlertRuleVersionsDo {
 	return l.withDO(l.DO.LeftJoin(table, on...))
 }
 
-func (l logAlertRuleVersionsDo) RightJoin(table schema.Tabler, on ...field.Expr) ILogAlertRuleVersionsDo {
+func (l logAlertRuleVersionsDo) RightJoin(table schema.Tabler, on ...field.Expr) *logAlertRuleVersionsDo {
 	return l.withDO(l.DO.RightJoin(table, on...))
 }
 
-func (l logAlertRuleVersionsDo) Group(cols ...field.Expr) ILogAlertRuleVersionsDo {
+func (l logAlertRuleVersionsDo) Group(cols ...field.Expr) *logAlertRuleVersionsDo {
 	return l.withDO(l.DO.Group(cols...))
 }
 
-func (l logAlertRuleVersionsDo) Having(conds ...gen.Condition) ILogAlertRuleVersionsDo {
+func (l logAlertRuleVersionsDo) Having(conds ...gen.Condition) *logAlertRuleVersionsDo {
 	return l.withDO(l.DO.Having(conds...))
 }
 
-func (l logAlertRuleVersionsDo) Limit(limit int) ILogAlertRuleVersionsDo {
+func (l logAlertRuleVersionsDo) Limit(limit int) *logAlertRuleVersionsDo {
 	return l.withDO(l.DO.Limit(limit))
 }
 
-func (l logAlertRuleVersionsDo) Offset(offset int) ILogAlertRuleVersionsDo {
+func (l logAlertRuleVersionsDo) Offset(offset int) *logAlertRuleVersionsDo {
 	return l.withDO(l.DO.Offset(offset))
 }
 
-func (l logAlertRuleVersionsDo) Scopes(funcs ...func(gen.Dao) gen.Dao) ILogAlertRuleVersionsDo {
+func (l logAlertRuleVersionsDo) Scopes(funcs ...func(gen.Dao) gen.Dao) *logAlertRuleVersionsDo {
 	return l.withDO(l.DO.Scopes(funcs...))
 }
 
-func (l logAlertRuleVersionsDo) Unscoped() ILogAlertRuleVersionsDo {
+func (l logAlertRuleVersionsDo) Unscoped() *logAlertRuleVersionsDo {
 	return l.withDO(l.DO.Unscoped())
 }
 
@@ -338,22 +286,22 @@ func (l logAlertRuleVersionsDo) FindInBatches(result *[]*model.LogAlertRuleVersi
 	return l.DO.FindInBatches(result, batchSize, fc)
 }
 
-func (l logAlertRuleVersionsDo) Attrs(attrs ...field.AssignExpr) ILogAlertRuleVersionsDo {
+func (l logAlertRuleVersionsDo) Attrs(attrs ...field.AssignExpr) *logAlertRuleVersionsDo {
 	return l.withDO(l.DO.Attrs(attrs...))
 }
 
-func (l logAlertRuleVersionsDo) Assign(attrs ...field.AssignExpr) ILogAlertRuleVersionsDo {
+func (l logAlertRuleVersionsDo) Assign(attrs ...field.AssignExpr) *logAlertRuleVersionsDo {
 	return l.withDO(l.DO.Assign(attrs...))
 }
 
-func (l logAlertRuleVersionsDo) Joins(fields ...field.RelationField) ILogAlertRuleVersionsDo {
+func (l logAlertRuleVersionsDo) Joins(fields ...field.RelationField) *logAlertRuleVersionsDo {
 	for _, _f := range fields {
 		l = *l.withDO(l.DO.Joins(_f))
 	}
 	return &l
 }
 
-func (l logAlertRuleVersionsDo) Preload(fields ...field.RelationField) ILogAlertRuleVersionsDo {
+func (l logAlertRuleVersionsDo) Preload(fields ...field.RelationField) *logAlertRuleVersionsDo {
 	for _, _f := range fields {
 		l = *l.withDO(l.DO.Preload(_f))
 	}

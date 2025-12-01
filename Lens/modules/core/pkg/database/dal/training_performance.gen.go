@@ -6,7 +6,6 @@ package dal
 
 import (
 	"context"
-	"database/sql"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -43,7 +42,7 @@ func newTrainingPerformance(db *gorm.DB, opts ...gen.DOOption) trainingPerforman
 }
 
 type trainingPerformance struct {
-	trainingPerformanceDo
+	trainingPerformanceDo trainingPerformanceDo
 
 	ALL         field.Asterisk
 	ID          field.Int32
@@ -84,6 +83,18 @@ func (t *trainingPerformance) updateTableName(table string) *trainingPerformance
 	return t
 }
 
+func (t *trainingPerformance) WithContext(ctx context.Context) *trainingPerformanceDo {
+	return t.trainingPerformanceDo.WithContext(ctx)
+}
+
+func (t trainingPerformance) TableName() string { return t.trainingPerformanceDo.TableName() }
+
+func (t trainingPerformance) Alias() string { return t.trainingPerformanceDo.Alias() }
+
+func (t trainingPerformance) Columns(cols ...field.Expr) gen.Columns {
+	return t.trainingPerformanceDo.Columns(cols...)
+}
+
 func (t *trainingPerformance) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 	_f, ok := t.fieldMap[fieldName]
 	if !ok || _f == nil {
@@ -117,158 +128,95 @@ func (t trainingPerformance) replaceDB(db *gorm.DB) trainingPerformance {
 
 type trainingPerformanceDo struct{ gen.DO }
 
-type ITrainingPerformanceDo interface {
-	gen.SubQuery
-	Debug() ITrainingPerformanceDo
-	WithContext(ctx context.Context) ITrainingPerformanceDo
-	WithResult(fc func(tx gen.Dao)) gen.ResultInfo
-	ReplaceDB(db *gorm.DB)
-	ReadDB() ITrainingPerformanceDo
-	WriteDB() ITrainingPerformanceDo
-	As(alias string) gen.Dao
-	Session(config *gorm.Session) ITrainingPerformanceDo
-	Columns(cols ...field.Expr) gen.Columns
-	Clauses(conds ...clause.Expression) ITrainingPerformanceDo
-	Not(conds ...gen.Condition) ITrainingPerformanceDo
-	Or(conds ...gen.Condition) ITrainingPerformanceDo
-	Select(conds ...field.Expr) ITrainingPerformanceDo
-	Where(conds ...gen.Condition) ITrainingPerformanceDo
-	Order(conds ...field.Expr) ITrainingPerformanceDo
-	Distinct(cols ...field.Expr) ITrainingPerformanceDo
-	Omit(cols ...field.Expr) ITrainingPerformanceDo
-	Join(table schema.Tabler, on ...field.Expr) ITrainingPerformanceDo
-	LeftJoin(table schema.Tabler, on ...field.Expr) ITrainingPerformanceDo
-	RightJoin(table schema.Tabler, on ...field.Expr) ITrainingPerformanceDo
-	Group(cols ...field.Expr) ITrainingPerformanceDo
-	Having(conds ...gen.Condition) ITrainingPerformanceDo
-	Limit(limit int) ITrainingPerformanceDo
-	Offset(offset int) ITrainingPerformanceDo
-	Count() (count int64, err error)
-	Scopes(funcs ...func(gen.Dao) gen.Dao) ITrainingPerformanceDo
-	Unscoped() ITrainingPerformanceDo
-	Create(values ...*model.TrainingPerformance) error
-	CreateInBatches(values []*model.TrainingPerformance, batchSize int) error
-	Save(values ...*model.TrainingPerformance) error
-	First() (*model.TrainingPerformance, error)
-	Take() (*model.TrainingPerformance, error)
-	Last() (*model.TrainingPerformance, error)
-	Find() ([]*model.TrainingPerformance, error)
-	FindInBatch(batchSize int, fc func(tx gen.Dao, batch int) error) (results []*model.TrainingPerformance, err error)
-	FindInBatches(result *[]*model.TrainingPerformance, batchSize int, fc func(tx gen.Dao, batch int) error) error
-	Pluck(column field.Expr, dest interface{}) error
-	Delete(...*model.TrainingPerformance) (info gen.ResultInfo, err error)
-	Update(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
-	UpdateSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
-	Updates(value interface{}) (info gen.ResultInfo, err error)
-	UpdateColumn(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
-	UpdateColumnSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
-	UpdateColumns(value interface{}) (info gen.ResultInfo, err error)
-	UpdateFrom(q gen.SubQuery) gen.Dao
-	Attrs(attrs ...field.AssignExpr) ITrainingPerformanceDo
-	Assign(attrs ...field.AssignExpr) ITrainingPerformanceDo
-	Joins(fields ...field.RelationField) ITrainingPerformanceDo
-	Preload(fields ...field.RelationField) ITrainingPerformanceDo
-	FirstOrInit() (*model.TrainingPerformance, error)
-	FirstOrCreate() (*model.TrainingPerformance, error)
-	FindByPage(offset int, limit int) (result []*model.TrainingPerformance, count int64, err error)
-	ScanByPage(result interface{}, offset int, limit int) (count int64, err error)
-	Rows() (*sql.Rows, error)
-	Row() *sql.Row
-	Scan(result interface{}) (err error)
-	Returning(value interface{}, columns ...string) ITrainingPerformanceDo
-	UnderlyingDB() *gorm.DB
-	schema.Tabler
-}
-
-func (t trainingPerformanceDo) Debug() ITrainingPerformanceDo {
+func (t trainingPerformanceDo) Debug() *trainingPerformanceDo {
 	return t.withDO(t.DO.Debug())
 }
 
-func (t trainingPerformanceDo) WithContext(ctx context.Context) ITrainingPerformanceDo {
+func (t trainingPerformanceDo) WithContext(ctx context.Context) *trainingPerformanceDo {
 	return t.withDO(t.DO.WithContext(ctx))
 }
 
-func (t trainingPerformanceDo) ReadDB() ITrainingPerformanceDo {
+func (t trainingPerformanceDo) ReadDB() *trainingPerformanceDo {
 	return t.Clauses(dbresolver.Read)
 }
 
-func (t trainingPerformanceDo) WriteDB() ITrainingPerformanceDo {
+func (t trainingPerformanceDo) WriteDB() *trainingPerformanceDo {
 	return t.Clauses(dbresolver.Write)
 }
 
-func (t trainingPerformanceDo) Session(config *gorm.Session) ITrainingPerformanceDo {
+func (t trainingPerformanceDo) Session(config *gorm.Session) *trainingPerformanceDo {
 	return t.withDO(t.DO.Session(config))
 }
 
-func (t trainingPerformanceDo) Clauses(conds ...clause.Expression) ITrainingPerformanceDo {
+func (t trainingPerformanceDo) Clauses(conds ...clause.Expression) *trainingPerformanceDo {
 	return t.withDO(t.DO.Clauses(conds...))
 }
 
-func (t trainingPerformanceDo) Returning(value interface{}, columns ...string) ITrainingPerformanceDo {
+func (t trainingPerformanceDo) Returning(value interface{}, columns ...string) *trainingPerformanceDo {
 	return t.withDO(t.DO.Returning(value, columns...))
 }
 
-func (t trainingPerformanceDo) Not(conds ...gen.Condition) ITrainingPerformanceDo {
+func (t trainingPerformanceDo) Not(conds ...gen.Condition) *trainingPerformanceDo {
 	return t.withDO(t.DO.Not(conds...))
 }
 
-func (t trainingPerformanceDo) Or(conds ...gen.Condition) ITrainingPerformanceDo {
+func (t trainingPerformanceDo) Or(conds ...gen.Condition) *trainingPerformanceDo {
 	return t.withDO(t.DO.Or(conds...))
 }
 
-func (t trainingPerformanceDo) Select(conds ...field.Expr) ITrainingPerformanceDo {
+func (t trainingPerformanceDo) Select(conds ...field.Expr) *trainingPerformanceDo {
 	return t.withDO(t.DO.Select(conds...))
 }
 
-func (t trainingPerformanceDo) Where(conds ...gen.Condition) ITrainingPerformanceDo {
+func (t trainingPerformanceDo) Where(conds ...gen.Condition) *trainingPerformanceDo {
 	return t.withDO(t.DO.Where(conds...))
 }
 
-func (t trainingPerformanceDo) Order(conds ...field.Expr) ITrainingPerformanceDo {
+func (t trainingPerformanceDo) Order(conds ...field.Expr) *trainingPerformanceDo {
 	return t.withDO(t.DO.Order(conds...))
 }
 
-func (t trainingPerformanceDo) Distinct(cols ...field.Expr) ITrainingPerformanceDo {
+func (t trainingPerformanceDo) Distinct(cols ...field.Expr) *trainingPerformanceDo {
 	return t.withDO(t.DO.Distinct(cols...))
 }
 
-func (t trainingPerformanceDo) Omit(cols ...field.Expr) ITrainingPerformanceDo {
+func (t trainingPerformanceDo) Omit(cols ...field.Expr) *trainingPerformanceDo {
 	return t.withDO(t.DO.Omit(cols...))
 }
 
-func (t trainingPerformanceDo) Join(table schema.Tabler, on ...field.Expr) ITrainingPerformanceDo {
+func (t trainingPerformanceDo) Join(table schema.Tabler, on ...field.Expr) *trainingPerformanceDo {
 	return t.withDO(t.DO.Join(table, on...))
 }
 
-func (t trainingPerformanceDo) LeftJoin(table schema.Tabler, on ...field.Expr) ITrainingPerformanceDo {
+func (t trainingPerformanceDo) LeftJoin(table schema.Tabler, on ...field.Expr) *trainingPerformanceDo {
 	return t.withDO(t.DO.LeftJoin(table, on...))
 }
 
-func (t trainingPerformanceDo) RightJoin(table schema.Tabler, on ...field.Expr) ITrainingPerformanceDo {
+func (t trainingPerformanceDo) RightJoin(table schema.Tabler, on ...field.Expr) *trainingPerformanceDo {
 	return t.withDO(t.DO.RightJoin(table, on...))
 }
 
-func (t trainingPerformanceDo) Group(cols ...field.Expr) ITrainingPerformanceDo {
+func (t trainingPerformanceDo) Group(cols ...field.Expr) *trainingPerformanceDo {
 	return t.withDO(t.DO.Group(cols...))
 }
 
-func (t trainingPerformanceDo) Having(conds ...gen.Condition) ITrainingPerformanceDo {
+func (t trainingPerformanceDo) Having(conds ...gen.Condition) *trainingPerformanceDo {
 	return t.withDO(t.DO.Having(conds...))
 }
 
-func (t trainingPerformanceDo) Limit(limit int) ITrainingPerformanceDo {
+func (t trainingPerformanceDo) Limit(limit int) *trainingPerformanceDo {
 	return t.withDO(t.DO.Limit(limit))
 }
 
-func (t trainingPerformanceDo) Offset(offset int) ITrainingPerformanceDo {
+func (t trainingPerformanceDo) Offset(offset int) *trainingPerformanceDo {
 	return t.withDO(t.DO.Offset(offset))
 }
 
-func (t trainingPerformanceDo) Scopes(funcs ...func(gen.Dao) gen.Dao) ITrainingPerformanceDo {
+func (t trainingPerformanceDo) Scopes(funcs ...func(gen.Dao) gen.Dao) *trainingPerformanceDo {
 	return t.withDO(t.DO.Scopes(funcs...))
 }
 
-func (t trainingPerformanceDo) Unscoped() ITrainingPerformanceDo {
+func (t trainingPerformanceDo) Unscoped() *trainingPerformanceDo {
 	return t.withDO(t.DO.Unscoped())
 }
 
@@ -334,22 +282,22 @@ func (t trainingPerformanceDo) FindInBatches(result *[]*model.TrainingPerformanc
 	return t.DO.FindInBatches(result, batchSize, fc)
 }
 
-func (t trainingPerformanceDo) Attrs(attrs ...field.AssignExpr) ITrainingPerformanceDo {
+func (t trainingPerformanceDo) Attrs(attrs ...field.AssignExpr) *trainingPerformanceDo {
 	return t.withDO(t.DO.Attrs(attrs...))
 }
 
-func (t trainingPerformanceDo) Assign(attrs ...field.AssignExpr) ITrainingPerformanceDo {
+func (t trainingPerformanceDo) Assign(attrs ...field.AssignExpr) *trainingPerformanceDo {
 	return t.withDO(t.DO.Assign(attrs...))
 }
 
-func (t trainingPerformanceDo) Joins(fields ...field.RelationField) ITrainingPerformanceDo {
+func (t trainingPerformanceDo) Joins(fields ...field.RelationField) *trainingPerformanceDo {
 	for _, _f := range fields {
 		t = *t.withDO(t.DO.Joins(_f))
 	}
 	return &t
 }
 
-func (t trainingPerformanceDo) Preload(fields ...field.RelationField) ITrainingPerformanceDo {
+func (t trainingPerformanceDo) Preload(fields ...field.RelationField) *trainingPerformanceDo {
 	for _, _f := range fields {
 		t = *t.withDO(t.DO.Preload(_f))
 	}

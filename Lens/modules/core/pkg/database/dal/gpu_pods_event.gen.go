@@ -6,7 +6,6 @@ package dal
 
 import (
 	"context"
-	"database/sql"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -41,7 +40,7 @@ func newGpuPodsEvent(db *gorm.DB, opts ...gen.DOOption) gpuPodsEvent {
 }
 
 type gpuPodsEvent struct {
-	gpuPodsEventDo
+	gpuPodsEventDo gpuPodsEventDo
 
 	ALL          field.Asterisk
 	ID           field.Int32
@@ -78,6 +77,18 @@ func (g *gpuPodsEvent) updateTableName(table string) *gpuPodsEvent {
 	return g
 }
 
+func (g *gpuPodsEvent) WithContext(ctx context.Context) *gpuPodsEventDo {
+	return g.gpuPodsEventDo.WithContext(ctx)
+}
+
+func (g gpuPodsEvent) TableName() string { return g.gpuPodsEventDo.TableName() }
+
+func (g gpuPodsEvent) Alias() string { return g.gpuPodsEventDo.Alias() }
+
+func (g gpuPodsEvent) Columns(cols ...field.Expr) gen.Columns {
+	return g.gpuPodsEventDo.Columns(cols...)
+}
+
 func (g *gpuPodsEvent) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 	_f, ok := g.fieldMap[fieldName]
 	if !ok || _f == nil {
@@ -109,158 +120,95 @@ func (g gpuPodsEvent) replaceDB(db *gorm.DB) gpuPodsEvent {
 
 type gpuPodsEventDo struct{ gen.DO }
 
-type IGpuPodsEventDo interface {
-	gen.SubQuery
-	Debug() IGpuPodsEventDo
-	WithContext(ctx context.Context) IGpuPodsEventDo
-	WithResult(fc func(tx gen.Dao)) gen.ResultInfo
-	ReplaceDB(db *gorm.DB)
-	ReadDB() IGpuPodsEventDo
-	WriteDB() IGpuPodsEventDo
-	As(alias string) gen.Dao
-	Session(config *gorm.Session) IGpuPodsEventDo
-	Columns(cols ...field.Expr) gen.Columns
-	Clauses(conds ...clause.Expression) IGpuPodsEventDo
-	Not(conds ...gen.Condition) IGpuPodsEventDo
-	Or(conds ...gen.Condition) IGpuPodsEventDo
-	Select(conds ...field.Expr) IGpuPodsEventDo
-	Where(conds ...gen.Condition) IGpuPodsEventDo
-	Order(conds ...field.Expr) IGpuPodsEventDo
-	Distinct(cols ...field.Expr) IGpuPodsEventDo
-	Omit(cols ...field.Expr) IGpuPodsEventDo
-	Join(table schema.Tabler, on ...field.Expr) IGpuPodsEventDo
-	LeftJoin(table schema.Tabler, on ...field.Expr) IGpuPodsEventDo
-	RightJoin(table schema.Tabler, on ...field.Expr) IGpuPodsEventDo
-	Group(cols ...field.Expr) IGpuPodsEventDo
-	Having(conds ...gen.Condition) IGpuPodsEventDo
-	Limit(limit int) IGpuPodsEventDo
-	Offset(offset int) IGpuPodsEventDo
-	Count() (count int64, err error)
-	Scopes(funcs ...func(gen.Dao) gen.Dao) IGpuPodsEventDo
-	Unscoped() IGpuPodsEventDo
-	Create(values ...*model.GpuPodsEvent) error
-	CreateInBatches(values []*model.GpuPodsEvent, batchSize int) error
-	Save(values ...*model.GpuPodsEvent) error
-	First() (*model.GpuPodsEvent, error)
-	Take() (*model.GpuPodsEvent, error)
-	Last() (*model.GpuPodsEvent, error)
-	Find() ([]*model.GpuPodsEvent, error)
-	FindInBatch(batchSize int, fc func(tx gen.Dao, batch int) error) (results []*model.GpuPodsEvent, err error)
-	FindInBatches(result *[]*model.GpuPodsEvent, batchSize int, fc func(tx gen.Dao, batch int) error) error
-	Pluck(column field.Expr, dest interface{}) error
-	Delete(...*model.GpuPodsEvent) (info gen.ResultInfo, err error)
-	Update(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
-	UpdateSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
-	Updates(value interface{}) (info gen.ResultInfo, err error)
-	UpdateColumn(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
-	UpdateColumnSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
-	UpdateColumns(value interface{}) (info gen.ResultInfo, err error)
-	UpdateFrom(q gen.SubQuery) gen.Dao
-	Attrs(attrs ...field.AssignExpr) IGpuPodsEventDo
-	Assign(attrs ...field.AssignExpr) IGpuPodsEventDo
-	Joins(fields ...field.RelationField) IGpuPodsEventDo
-	Preload(fields ...field.RelationField) IGpuPodsEventDo
-	FirstOrInit() (*model.GpuPodsEvent, error)
-	FirstOrCreate() (*model.GpuPodsEvent, error)
-	FindByPage(offset int, limit int) (result []*model.GpuPodsEvent, count int64, err error)
-	ScanByPage(result interface{}, offset int, limit int) (count int64, err error)
-	Rows() (*sql.Rows, error)
-	Row() *sql.Row
-	Scan(result interface{}) (err error)
-	Returning(value interface{}, columns ...string) IGpuPodsEventDo
-	UnderlyingDB() *gorm.DB
-	schema.Tabler
-}
-
-func (g gpuPodsEventDo) Debug() IGpuPodsEventDo {
+func (g gpuPodsEventDo) Debug() *gpuPodsEventDo {
 	return g.withDO(g.DO.Debug())
 }
 
-func (g gpuPodsEventDo) WithContext(ctx context.Context) IGpuPodsEventDo {
+func (g gpuPodsEventDo) WithContext(ctx context.Context) *gpuPodsEventDo {
 	return g.withDO(g.DO.WithContext(ctx))
 }
 
-func (g gpuPodsEventDo) ReadDB() IGpuPodsEventDo {
+func (g gpuPodsEventDo) ReadDB() *gpuPodsEventDo {
 	return g.Clauses(dbresolver.Read)
 }
 
-func (g gpuPodsEventDo) WriteDB() IGpuPodsEventDo {
+func (g gpuPodsEventDo) WriteDB() *gpuPodsEventDo {
 	return g.Clauses(dbresolver.Write)
 }
 
-func (g gpuPodsEventDo) Session(config *gorm.Session) IGpuPodsEventDo {
+func (g gpuPodsEventDo) Session(config *gorm.Session) *gpuPodsEventDo {
 	return g.withDO(g.DO.Session(config))
 }
 
-func (g gpuPodsEventDo) Clauses(conds ...clause.Expression) IGpuPodsEventDo {
+func (g gpuPodsEventDo) Clauses(conds ...clause.Expression) *gpuPodsEventDo {
 	return g.withDO(g.DO.Clauses(conds...))
 }
 
-func (g gpuPodsEventDo) Returning(value interface{}, columns ...string) IGpuPodsEventDo {
+func (g gpuPodsEventDo) Returning(value interface{}, columns ...string) *gpuPodsEventDo {
 	return g.withDO(g.DO.Returning(value, columns...))
 }
 
-func (g gpuPodsEventDo) Not(conds ...gen.Condition) IGpuPodsEventDo {
+func (g gpuPodsEventDo) Not(conds ...gen.Condition) *gpuPodsEventDo {
 	return g.withDO(g.DO.Not(conds...))
 }
 
-func (g gpuPodsEventDo) Or(conds ...gen.Condition) IGpuPodsEventDo {
+func (g gpuPodsEventDo) Or(conds ...gen.Condition) *gpuPodsEventDo {
 	return g.withDO(g.DO.Or(conds...))
 }
 
-func (g gpuPodsEventDo) Select(conds ...field.Expr) IGpuPodsEventDo {
+func (g gpuPodsEventDo) Select(conds ...field.Expr) *gpuPodsEventDo {
 	return g.withDO(g.DO.Select(conds...))
 }
 
-func (g gpuPodsEventDo) Where(conds ...gen.Condition) IGpuPodsEventDo {
+func (g gpuPodsEventDo) Where(conds ...gen.Condition) *gpuPodsEventDo {
 	return g.withDO(g.DO.Where(conds...))
 }
 
-func (g gpuPodsEventDo) Order(conds ...field.Expr) IGpuPodsEventDo {
+func (g gpuPodsEventDo) Order(conds ...field.Expr) *gpuPodsEventDo {
 	return g.withDO(g.DO.Order(conds...))
 }
 
-func (g gpuPodsEventDo) Distinct(cols ...field.Expr) IGpuPodsEventDo {
+func (g gpuPodsEventDo) Distinct(cols ...field.Expr) *gpuPodsEventDo {
 	return g.withDO(g.DO.Distinct(cols...))
 }
 
-func (g gpuPodsEventDo) Omit(cols ...field.Expr) IGpuPodsEventDo {
+func (g gpuPodsEventDo) Omit(cols ...field.Expr) *gpuPodsEventDo {
 	return g.withDO(g.DO.Omit(cols...))
 }
 
-func (g gpuPodsEventDo) Join(table schema.Tabler, on ...field.Expr) IGpuPodsEventDo {
+func (g gpuPodsEventDo) Join(table schema.Tabler, on ...field.Expr) *gpuPodsEventDo {
 	return g.withDO(g.DO.Join(table, on...))
 }
 
-func (g gpuPodsEventDo) LeftJoin(table schema.Tabler, on ...field.Expr) IGpuPodsEventDo {
+func (g gpuPodsEventDo) LeftJoin(table schema.Tabler, on ...field.Expr) *gpuPodsEventDo {
 	return g.withDO(g.DO.LeftJoin(table, on...))
 }
 
-func (g gpuPodsEventDo) RightJoin(table schema.Tabler, on ...field.Expr) IGpuPodsEventDo {
+func (g gpuPodsEventDo) RightJoin(table schema.Tabler, on ...field.Expr) *gpuPodsEventDo {
 	return g.withDO(g.DO.RightJoin(table, on...))
 }
 
-func (g gpuPodsEventDo) Group(cols ...field.Expr) IGpuPodsEventDo {
+func (g gpuPodsEventDo) Group(cols ...field.Expr) *gpuPodsEventDo {
 	return g.withDO(g.DO.Group(cols...))
 }
 
-func (g gpuPodsEventDo) Having(conds ...gen.Condition) IGpuPodsEventDo {
+func (g gpuPodsEventDo) Having(conds ...gen.Condition) *gpuPodsEventDo {
 	return g.withDO(g.DO.Having(conds...))
 }
 
-func (g gpuPodsEventDo) Limit(limit int) IGpuPodsEventDo {
+func (g gpuPodsEventDo) Limit(limit int) *gpuPodsEventDo {
 	return g.withDO(g.DO.Limit(limit))
 }
 
-func (g gpuPodsEventDo) Offset(offset int) IGpuPodsEventDo {
+func (g gpuPodsEventDo) Offset(offset int) *gpuPodsEventDo {
 	return g.withDO(g.DO.Offset(offset))
 }
 
-func (g gpuPodsEventDo) Scopes(funcs ...func(gen.Dao) gen.Dao) IGpuPodsEventDo {
+func (g gpuPodsEventDo) Scopes(funcs ...func(gen.Dao) gen.Dao) *gpuPodsEventDo {
 	return g.withDO(g.DO.Scopes(funcs...))
 }
 
-func (g gpuPodsEventDo) Unscoped() IGpuPodsEventDo {
+func (g gpuPodsEventDo) Unscoped() *gpuPodsEventDo {
 	return g.withDO(g.DO.Unscoped())
 }
 
@@ -326,22 +274,22 @@ func (g gpuPodsEventDo) FindInBatches(result *[]*model.GpuPodsEvent, batchSize i
 	return g.DO.FindInBatches(result, batchSize, fc)
 }
 
-func (g gpuPodsEventDo) Attrs(attrs ...field.AssignExpr) IGpuPodsEventDo {
+func (g gpuPodsEventDo) Attrs(attrs ...field.AssignExpr) *gpuPodsEventDo {
 	return g.withDO(g.DO.Attrs(attrs...))
 }
 
-func (g gpuPodsEventDo) Assign(attrs ...field.AssignExpr) IGpuPodsEventDo {
+func (g gpuPodsEventDo) Assign(attrs ...field.AssignExpr) *gpuPodsEventDo {
 	return g.withDO(g.DO.Assign(attrs...))
 }
 
-func (g gpuPodsEventDo) Joins(fields ...field.RelationField) IGpuPodsEventDo {
+func (g gpuPodsEventDo) Joins(fields ...field.RelationField) *gpuPodsEventDo {
 	for _, _f := range fields {
 		g = *g.withDO(g.DO.Joins(_f))
 	}
 	return &g
 }
 
-func (g gpuPodsEventDo) Preload(fields ...field.RelationField) IGpuPodsEventDo {
+func (g gpuPodsEventDo) Preload(fields ...field.RelationField) *gpuPodsEventDo {
 	for _, _f := range fields {
 		g = *g.withDO(g.DO.Preload(_f))
 	}

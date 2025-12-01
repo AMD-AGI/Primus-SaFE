@@ -6,7 +6,6 @@ package dal
 
 import (
 	"context"
-	"database/sql"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -48,7 +47,7 @@ func newGpuPods(db *gorm.DB, opts ...gen.DOOption) gpuPods {
 }
 
 type gpuPods struct {
-	gpuPodsDo
+	gpuPodsDo gpuPodsDo
 
 	ALL          field.Asterisk
 	ID           field.Int32
@@ -99,6 +98,14 @@ func (g *gpuPods) updateTableName(table string) *gpuPods {
 	return g
 }
 
+func (g *gpuPods) WithContext(ctx context.Context) *gpuPodsDo { return g.gpuPodsDo.WithContext(ctx) }
+
+func (g gpuPods) TableName() string { return g.gpuPodsDo.TableName() }
+
+func (g gpuPods) Alias() string { return g.gpuPodsDo.Alias() }
+
+func (g gpuPods) Columns(cols ...field.Expr) gen.Columns { return g.gpuPodsDo.Columns(cols...) }
+
 func (g *gpuPods) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 	_f, ok := g.fieldMap[fieldName]
 	if !ok || _f == nil {
@@ -137,158 +144,95 @@ func (g gpuPods) replaceDB(db *gorm.DB) gpuPods {
 
 type gpuPodsDo struct{ gen.DO }
 
-type IGpuPodsDo interface {
-	gen.SubQuery
-	Debug() IGpuPodsDo
-	WithContext(ctx context.Context) IGpuPodsDo
-	WithResult(fc func(tx gen.Dao)) gen.ResultInfo
-	ReplaceDB(db *gorm.DB)
-	ReadDB() IGpuPodsDo
-	WriteDB() IGpuPodsDo
-	As(alias string) gen.Dao
-	Session(config *gorm.Session) IGpuPodsDo
-	Columns(cols ...field.Expr) gen.Columns
-	Clauses(conds ...clause.Expression) IGpuPodsDo
-	Not(conds ...gen.Condition) IGpuPodsDo
-	Or(conds ...gen.Condition) IGpuPodsDo
-	Select(conds ...field.Expr) IGpuPodsDo
-	Where(conds ...gen.Condition) IGpuPodsDo
-	Order(conds ...field.Expr) IGpuPodsDo
-	Distinct(cols ...field.Expr) IGpuPodsDo
-	Omit(cols ...field.Expr) IGpuPodsDo
-	Join(table schema.Tabler, on ...field.Expr) IGpuPodsDo
-	LeftJoin(table schema.Tabler, on ...field.Expr) IGpuPodsDo
-	RightJoin(table schema.Tabler, on ...field.Expr) IGpuPodsDo
-	Group(cols ...field.Expr) IGpuPodsDo
-	Having(conds ...gen.Condition) IGpuPodsDo
-	Limit(limit int) IGpuPodsDo
-	Offset(offset int) IGpuPodsDo
-	Count() (count int64, err error)
-	Scopes(funcs ...func(gen.Dao) gen.Dao) IGpuPodsDo
-	Unscoped() IGpuPodsDo
-	Create(values ...*model.GpuPods) error
-	CreateInBatches(values []*model.GpuPods, batchSize int) error
-	Save(values ...*model.GpuPods) error
-	First() (*model.GpuPods, error)
-	Take() (*model.GpuPods, error)
-	Last() (*model.GpuPods, error)
-	Find() ([]*model.GpuPods, error)
-	FindInBatch(batchSize int, fc func(tx gen.Dao, batch int) error) (results []*model.GpuPods, err error)
-	FindInBatches(result *[]*model.GpuPods, batchSize int, fc func(tx gen.Dao, batch int) error) error
-	Pluck(column field.Expr, dest interface{}) error
-	Delete(...*model.GpuPods) (info gen.ResultInfo, err error)
-	Update(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
-	UpdateSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
-	Updates(value interface{}) (info gen.ResultInfo, err error)
-	UpdateColumn(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
-	UpdateColumnSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
-	UpdateColumns(value interface{}) (info gen.ResultInfo, err error)
-	UpdateFrom(q gen.SubQuery) gen.Dao
-	Attrs(attrs ...field.AssignExpr) IGpuPodsDo
-	Assign(attrs ...field.AssignExpr) IGpuPodsDo
-	Joins(fields ...field.RelationField) IGpuPodsDo
-	Preload(fields ...field.RelationField) IGpuPodsDo
-	FirstOrInit() (*model.GpuPods, error)
-	FirstOrCreate() (*model.GpuPods, error)
-	FindByPage(offset int, limit int) (result []*model.GpuPods, count int64, err error)
-	ScanByPage(result interface{}, offset int, limit int) (count int64, err error)
-	Rows() (*sql.Rows, error)
-	Row() *sql.Row
-	Scan(result interface{}) (err error)
-	Returning(value interface{}, columns ...string) IGpuPodsDo
-	UnderlyingDB() *gorm.DB
-	schema.Tabler
-}
-
-func (g gpuPodsDo) Debug() IGpuPodsDo {
+func (g gpuPodsDo) Debug() *gpuPodsDo {
 	return g.withDO(g.DO.Debug())
 }
 
-func (g gpuPodsDo) WithContext(ctx context.Context) IGpuPodsDo {
+func (g gpuPodsDo) WithContext(ctx context.Context) *gpuPodsDo {
 	return g.withDO(g.DO.WithContext(ctx))
 }
 
-func (g gpuPodsDo) ReadDB() IGpuPodsDo {
+func (g gpuPodsDo) ReadDB() *gpuPodsDo {
 	return g.Clauses(dbresolver.Read)
 }
 
-func (g gpuPodsDo) WriteDB() IGpuPodsDo {
+func (g gpuPodsDo) WriteDB() *gpuPodsDo {
 	return g.Clauses(dbresolver.Write)
 }
 
-func (g gpuPodsDo) Session(config *gorm.Session) IGpuPodsDo {
+func (g gpuPodsDo) Session(config *gorm.Session) *gpuPodsDo {
 	return g.withDO(g.DO.Session(config))
 }
 
-func (g gpuPodsDo) Clauses(conds ...clause.Expression) IGpuPodsDo {
+func (g gpuPodsDo) Clauses(conds ...clause.Expression) *gpuPodsDo {
 	return g.withDO(g.DO.Clauses(conds...))
 }
 
-func (g gpuPodsDo) Returning(value interface{}, columns ...string) IGpuPodsDo {
+func (g gpuPodsDo) Returning(value interface{}, columns ...string) *gpuPodsDo {
 	return g.withDO(g.DO.Returning(value, columns...))
 }
 
-func (g gpuPodsDo) Not(conds ...gen.Condition) IGpuPodsDo {
+func (g gpuPodsDo) Not(conds ...gen.Condition) *gpuPodsDo {
 	return g.withDO(g.DO.Not(conds...))
 }
 
-func (g gpuPodsDo) Or(conds ...gen.Condition) IGpuPodsDo {
+func (g gpuPodsDo) Or(conds ...gen.Condition) *gpuPodsDo {
 	return g.withDO(g.DO.Or(conds...))
 }
 
-func (g gpuPodsDo) Select(conds ...field.Expr) IGpuPodsDo {
+func (g gpuPodsDo) Select(conds ...field.Expr) *gpuPodsDo {
 	return g.withDO(g.DO.Select(conds...))
 }
 
-func (g gpuPodsDo) Where(conds ...gen.Condition) IGpuPodsDo {
+func (g gpuPodsDo) Where(conds ...gen.Condition) *gpuPodsDo {
 	return g.withDO(g.DO.Where(conds...))
 }
 
-func (g gpuPodsDo) Order(conds ...field.Expr) IGpuPodsDo {
+func (g gpuPodsDo) Order(conds ...field.Expr) *gpuPodsDo {
 	return g.withDO(g.DO.Order(conds...))
 }
 
-func (g gpuPodsDo) Distinct(cols ...field.Expr) IGpuPodsDo {
+func (g gpuPodsDo) Distinct(cols ...field.Expr) *gpuPodsDo {
 	return g.withDO(g.DO.Distinct(cols...))
 }
 
-func (g gpuPodsDo) Omit(cols ...field.Expr) IGpuPodsDo {
+func (g gpuPodsDo) Omit(cols ...field.Expr) *gpuPodsDo {
 	return g.withDO(g.DO.Omit(cols...))
 }
 
-func (g gpuPodsDo) Join(table schema.Tabler, on ...field.Expr) IGpuPodsDo {
+func (g gpuPodsDo) Join(table schema.Tabler, on ...field.Expr) *gpuPodsDo {
 	return g.withDO(g.DO.Join(table, on...))
 }
 
-func (g gpuPodsDo) LeftJoin(table schema.Tabler, on ...field.Expr) IGpuPodsDo {
+func (g gpuPodsDo) LeftJoin(table schema.Tabler, on ...field.Expr) *gpuPodsDo {
 	return g.withDO(g.DO.LeftJoin(table, on...))
 }
 
-func (g gpuPodsDo) RightJoin(table schema.Tabler, on ...field.Expr) IGpuPodsDo {
+func (g gpuPodsDo) RightJoin(table schema.Tabler, on ...field.Expr) *gpuPodsDo {
 	return g.withDO(g.DO.RightJoin(table, on...))
 }
 
-func (g gpuPodsDo) Group(cols ...field.Expr) IGpuPodsDo {
+func (g gpuPodsDo) Group(cols ...field.Expr) *gpuPodsDo {
 	return g.withDO(g.DO.Group(cols...))
 }
 
-func (g gpuPodsDo) Having(conds ...gen.Condition) IGpuPodsDo {
+func (g gpuPodsDo) Having(conds ...gen.Condition) *gpuPodsDo {
 	return g.withDO(g.DO.Having(conds...))
 }
 
-func (g gpuPodsDo) Limit(limit int) IGpuPodsDo {
+func (g gpuPodsDo) Limit(limit int) *gpuPodsDo {
 	return g.withDO(g.DO.Limit(limit))
 }
 
-func (g gpuPodsDo) Offset(offset int) IGpuPodsDo {
+func (g gpuPodsDo) Offset(offset int) *gpuPodsDo {
 	return g.withDO(g.DO.Offset(offset))
 }
 
-func (g gpuPodsDo) Scopes(funcs ...func(gen.Dao) gen.Dao) IGpuPodsDo {
+func (g gpuPodsDo) Scopes(funcs ...func(gen.Dao) gen.Dao) *gpuPodsDo {
 	return g.withDO(g.DO.Scopes(funcs...))
 }
 
-func (g gpuPodsDo) Unscoped() IGpuPodsDo {
+func (g gpuPodsDo) Unscoped() *gpuPodsDo {
 	return g.withDO(g.DO.Unscoped())
 }
 
@@ -354,22 +298,22 @@ func (g gpuPodsDo) FindInBatches(result *[]*model.GpuPods, batchSize int, fc fun
 	return g.DO.FindInBatches(result, batchSize, fc)
 }
 
-func (g gpuPodsDo) Attrs(attrs ...field.AssignExpr) IGpuPodsDo {
+func (g gpuPodsDo) Attrs(attrs ...field.AssignExpr) *gpuPodsDo {
 	return g.withDO(g.DO.Attrs(attrs...))
 }
 
-func (g gpuPodsDo) Assign(attrs ...field.AssignExpr) IGpuPodsDo {
+func (g gpuPodsDo) Assign(attrs ...field.AssignExpr) *gpuPodsDo {
 	return g.withDO(g.DO.Assign(attrs...))
 }
 
-func (g gpuPodsDo) Joins(fields ...field.RelationField) IGpuPodsDo {
+func (g gpuPodsDo) Joins(fields ...field.RelationField) *gpuPodsDo {
 	for _, _f := range fields {
 		g = *g.withDO(g.DO.Joins(_f))
 	}
 	return &g
 }
 
-func (g gpuPodsDo) Preload(fields ...field.RelationField) IGpuPodsDo {
+func (g gpuPodsDo) Preload(fields ...field.RelationField) *gpuPodsDo {
 	for _, _f := range fields {
 		g = *g.withDO(g.DO.Preload(_f))
 	}

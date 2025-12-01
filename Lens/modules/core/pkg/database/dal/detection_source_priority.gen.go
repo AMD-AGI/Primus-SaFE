@@ -6,7 +6,6 @@ package dal
 
 import (
 	"context"
-	"database/sql"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -45,7 +44,7 @@ func newDetectionSourcePriority(db *gorm.DB, opts ...gen.DOOption) detectionSour
 }
 
 type detectionSourcePriority struct {
-	detectionSourcePriorityDo
+	detectionSourcePriorityDo detectionSourcePriorityDo
 
 	ALL             field.Asterisk
 	ID              field.Int32
@@ -90,6 +89,18 @@ func (d *detectionSourcePriority) updateTableName(table string) *detectionSource
 	return d
 }
 
+func (d *detectionSourcePriority) WithContext(ctx context.Context) *detectionSourcePriorityDo {
+	return d.detectionSourcePriorityDo.WithContext(ctx)
+}
+
+func (d detectionSourcePriority) TableName() string { return d.detectionSourcePriorityDo.TableName() }
+
+func (d detectionSourcePriority) Alias() string { return d.detectionSourcePriorityDo.Alias() }
+
+func (d detectionSourcePriority) Columns(cols ...field.Expr) gen.Columns {
+	return d.detectionSourcePriorityDo.Columns(cols...)
+}
+
 func (d *detectionSourcePriority) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 	_f, ok := d.fieldMap[fieldName]
 	if !ok || _f == nil {
@@ -125,158 +136,95 @@ func (d detectionSourcePriority) replaceDB(db *gorm.DB) detectionSourcePriority 
 
 type detectionSourcePriorityDo struct{ gen.DO }
 
-type IDetectionSourcePriorityDo interface {
-	gen.SubQuery
-	Debug() IDetectionSourcePriorityDo
-	WithContext(ctx context.Context) IDetectionSourcePriorityDo
-	WithResult(fc func(tx gen.Dao)) gen.ResultInfo
-	ReplaceDB(db *gorm.DB)
-	ReadDB() IDetectionSourcePriorityDo
-	WriteDB() IDetectionSourcePriorityDo
-	As(alias string) gen.Dao
-	Session(config *gorm.Session) IDetectionSourcePriorityDo
-	Columns(cols ...field.Expr) gen.Columns
-	Clauses(conds ...clause.Expression) IDetectionSourcePriorityDo
-	Not(conds ...gen.Condition) IDetectionSourcePriorityDo
-	Or(conds ...gen.Condition) IDetectionSourcePriorityDo
-	Select(conds ...field.Expr) IDetectionSourcePriorityDo
-	Where(conds ...gen.Condition) IDetectionSourcePriorityDo
-	Order(conds ...field.Expr) IDetectionSourcePriorityDo
-	Distinct(cols ...field.Expr) IDetectionSourcePriorityDo
-	Omit(cols ...field.Expr) IDetectionSourcePriorityDo
-	Join(table schema.Tabler, on ...field.Expr) IDetectionSourcePriorityDo
-	LeftJoin(table schema.Tabler, on ...field.Expr) IDetectionSourcePriorityDo
-	RightJoin(table schema.Tabler, on ...field.Expr) IDetectionSourcePriorityDo
-	Group(cols ...field.Expr) IDetectionSourcePriorityDo
-	Having(conds ...gen.Condition) IDetectionSourcePriorityDo
-	Limit(limit int) IDetectionSourcePriorityDo
-	Offset(offset int) IDetectionSourcePriorityDo
-	Count() (count int64, err error)
-	Scopes(funcs ...func(gen.Dao) gen.Dao) IDetectionSourcePriorityDo
-	Unscoped() IDetectionSourcePriorityDo
-	Create(values ...*model.DetectionSourcePriority) error
-	CreateInBatches(values []*model.DetectionSourcePriority, batchSize int) error
-	Save(values ...*model.DetectionSourcePriority) error
-	First() (*model.DetectionSourcePriority, error)
-	Take() (*model.DetectionSourcePriority, error)
-	Last() (*model.DetectionSourcePriority, error)
-	Find() ([]*model.DetectionSourcePriority, error)
-	FindInBatch(batchSize int, fc func(tx gen.Dao, batch int) error) (results []*model.DetectionSourcePriority, err error)
-	FindInBatches(result *[]*model.DetectionSourcePriority, batchSize int, fc func(tx gen.Dao, batch int) error) error
-	Pluck(column field.Expr, dest interface{}) error
-	Delete(...*model.DetectionSourcePriority) (info gen.ResultInfo, err error)
-	Update(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
-	UpdateSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
-	Updates(value interface{}) (info gen.ResultInfo, err error)
-	UpdateColumn(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
-	UpdateColumnSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
-	UpdateColumns(value interface{}) (info gen.ResultInfo, err error)
-	UpdateFrom(q gen.SubQuery) gen.Dao
-	Attrs(attrs ...field.AssignExpr) IDetectionSourcePriorityDo
-	Assign(attrs ...field.AssignExpr) IDetectionSourcePriorityDo
-	Joins(fields ...field.RelationField) IDetectionSourcePriorityDo
-	Preload(fields ...field.RelationField) IDetectionSourcePriorityDo
-	FirstOrInit() (*model.DetectionSourcePriority, error)
-	FirstOrCreate() (*model.DetectionSourcePriority, error)
-	FindByPage(offset int, limit int) (result []*model.DetectionSourcePriority, count int64, err error)
-	ScanByPage(result interface{}, offset int, limit int) (count int64, err error)
-	Rows() (*sql.Rows, error)
-	Row() *sql.Row
-	Scan(result interface{}) (err error)
-	Returning(value interface{}, columns ...string) IDetectionSourcePriorityDo
-	UnderlyingDB() *gorm.DB
-	schema.Tabler
-}
-
-func (d detectionSourcePriorityDo) Debug() IDetectionSourcePriorityDo {
+func (d detectionSourcePriorityDo) Debug() *detectionSourcePriorityDo {
 	return d.withDO(d.DO.Debug())
 }
 
-func (d detectionSourcePriorityDo) WithContext(ctx context.Context) IDetectionSourcePriorityDo {
+func (d detectionSourcePriorityDo) WithContext(ctx context.Context) *detectionSourcePriorityDo {
 	return d.withDO(d.DO.WithContext(ctx))
 }
 
-func (d detectionSourcePriorityDo) ReadDB() IDetectionSourcePriorityDo {
+func (d detectionSourcePriorityDo) ReadDB() *detectionSourcePriorityDo {
 	return d.Clauses(dbresolver.Read)
 }
 
-func (d detectionSourcePriorityDo) WriteDB() IDetectionSourcePriorityDo {
+func (d detectionSourcePriorityDo) WriteDB() *detectionSourcePriorityDo {
 	return d.Clauses(dbresolver.Write)
 }
 
-func (d detectionSourcePriorityDo) Session(config *gorm.Session) IDetectionSourcePriorityDo {
+func (d detectionSourcePriorityDo) Session(config *gorm.Session) *detectionSourcePriorityDo {
 	return d.withDO(d.DO.Session(config))
 }
 
-func (d detectionSourcePriorityDo) Clauses(conds ...clause.Expression) IDetectionSourcePriorityDo {
+func (d detectionSourcePriorityDo) Clauses(conds ...clause.Expression) *detectionSourcePriorityDo {
 	return d.withDO(d.DO.Clauses(conds...))
 }
 
-func (d detectionSourcePriorityDo) Returning(value interface{}, columns ...string) IDetectionSourcePriorityDo {
+func (d detectionSourcePriorityDo) Returning(value interface{}, columns ...string) *detectionSourcePriorityDo {
 	return d.withDO(d.DO.Returning(value, columns...))
 }
 
-func (d detectionSourcePriorityDo) Not(conds ...gen.Condition) IDetectionSourcePriorityDo {
+func (d detectionSourcePriorityDo) Not(conds ...gen.Condition) *detectionSourcePriorityDo {
 	return d.withDO(d.DO.Not(conds...))
 }
 
-func (d detectionSourcePriorityDo) Or(conds ...gen.Condition) IDetectionSourcePriorityDo {
+func (d detectionSourcePriorityDo) Or(conds ...gen.Condition) *detectionSourcePriorityDo {
 	return d.withDO(d.DO.Or(conds...))
 }
 
-func (d detectionSourcePriorityDo) Select(conds ...field.Expr) IDetectionSourcePriorityDo {
+func (d detectionSourcePriorityDo) Select(conds ...field.Expr) *detectionSourcePriorityDo {
 	return d.withDO(d.DO.Select(conds...))
 }
 
-func (d detectionSourcePriorityDo) Where(conds ...gen.Condition) IDetectionSourcePriorityDo {
+func (d detectionSourcePriorityDo) Where(conds ...gen.Condition) *detectionSourcePriorityDo {
 	return d.withDO(d.DO.Where(conds...))
 }
 
-func (d detectionSourcePriorityDo) Order(conds ...field.Expr) IDetectionSourcePriorityDo {
+func (d detectionSourcePriorityDo) Order(conds ...field.Expr) *detectionSourcePriorityDo {
 	return d.withDO(d.DO.Order(conds...))
 }
 
-func (d detectionSourcePriorityDo) Distinct(cols ...field.Expr) IDetectionSourcePriorityDo {
+func (d detectionSourcePriorityDo) Distinct(cols ...field.Expr) *detectionSourcePriorityDo {
 	return d.withDO(d.DO.Distinct(cols...))
 }
 
-func (d detectionSourcePriorityDo) Omit(cols ...field.Expr) IDetectionSourcePriorityDo {
+func (d detectionSourcePriorityDo) Omit(cols ...field.Expr) *detectionSourcePriorityDo {
 	return d.withDO(d.DO.Omit(cols...))
 }
 
-func (d detectionSourcePriorityDo) Join(table schema.Tabler, on ...field.Expr) IDetectionSourcePriorityDo {
+func (d detectionSourcePriorityDo) Join(table schema.Tabler, on ...field.Expr) *detectionSourcePriorityDo {
 	return d.withDO(d.DO.Join(table, on...))
 }
 
-func (d detectionSourcePriorityDo) LeftJoin(table schema.Tabler, on ...field.Expr) IDetectionSourcePriorityDo {
+func (d detectionSourcePriorityDo) LeftJoin(table schema.Tabler, on ...field.Expr) *detectionSourcePriorityDo {
 	return d.withDO(d.DO.LeftJoin(table, on...))
 }
 
-func (d detectionSourcePriorityDo) RightJoin(table schema.Tabler, on ...field.Expr) IDetectionSourcePriorityDo {
+func (d detectionSourcePriorityDo) RightJoin(table schema.Tabler, on ...field.Expr) *detectionSourcePriorityDo {
 	return d.withDO(d.DO.RightJoin(table, on...))
 }
 
-func (d detectionSourcePriorityDo) Group(cols ...field.Expr) IDetectionSourcePriorityDo {
+func (d detectionSourcePriorityDo) Group(cols ...field.Expr) *detectionSourcePriorityDo {
 	return d.withDO(d.DO.Group(cols...))
 }
 
-func (d detectionSourcePriorityDo) Having(conds ...gen.Condition) IDetectionSourcePriorityDo {
+func (d detectionSourcePriorityDo) Having(conds ...gen.Condition) *detectionSourcePriorityDo {
 	return d.withDO(d.DO.Having(conds...))
 }
 
-func (d detectionSourcePriorityDo) Limit(limit int) IDetectionSourcePriorityDo {
+func (d detectionSourcePriorityDo) Limit(limit int) *detectionSourcePriorityDo {
 	return d.withDO(d.DO.Limit(limit))
 }
 
-func (d detectionSourcePriorityDo) Offset(offset int) IDetectionSourcePriorityDo {
+func (d detectionSourcePriorityDo) Offset(offset int) *detectionSourcePriorityDo {
 	return d.withDO(d.DO.Offset(offset))
 }
 
-func (d detectionSourcePriorityDo) Scopes(funcs ...func(gen.Dao) gen.Dao) IDetectionSourcePriorityDo {
+func (d detectionSourcePriorityDo) Scopes(funcs ...func(gen.Dao) gen.Dao) *detectionSourcePriorityDo {
 	return d.withDO(d.DO.Scopes(funcs...))
 }
 
-func (d detectionSourcePriorityDo) Unscoped() IDetectionSourcePriorityDo {
+func (d detectionSourcePriorityDo) Unscoped() *detectionSourcePriorityDo {
 	return d.withDO(d.DO.Unscoped())
 }
 
@@ -342,22 +290,22 @@ func (d detectionSourcePriorityDo) FindInBatches(result *[]*model.DetectionSourc
 	return d.DO.FindInBatches(result, batchSize, fc)
 }
 
-func (d detectionSourcePriorityDo) Attrs(attrs ...field.AssignExpr) IDetectionSourcePriorityDo {
+func (d detectionSourcePriorityDo) Attrs(attrs ...field.AssignExpr) *detectionSourcePriorityDo {
 	return d.withDO(d.DO.Attrs(attrs...))
 }
 
-func (d detectionSourcePriorityDo) Assign(attrs ...field.AssignExpr) IDetectionSourcePriorityDo {
+func (d detectionSourcePriorityDo) Assign(attrs ...field.AssignExpr) *detectionSourcePriorityDo {
 	return d.withDO(d.DO.Assign(attrs...))
 }
 
-func (d detectionSourcePriorityDo) Joins(fields ...field.RelationField) IDetectionSourcePriorityDo {
+func (d detectionSourcePriorityDo) Joins(fields ...field.RelationField) *detectionSourcePriorityDo {
 	for _, _f := range fields {
 		d = *d.withDO(d.DO.Joins(_f))
 	}
 	return &d
 }
 
-func (d detectionSourcePriorityDo) Preload(fields ...field.RelationField) IDetectionSourcePriorityDo {
+func (d detectionSourcePriorityDo) Preload(fields ...field.RelationField) *detectionSourcePriorityDo {
 	for _, _f := range fields {
 		d = *d.withDO(d.DO.Preload(_f))
 	}

@@ -6,7 +6,6 @@ package dal
 
 import (
 	"context"
-	"database/sql"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -43,7 +42,7 @@ func newSilencedAlerts(db *gorm.DB, opts ...gen.DOOption) silencedAlerts {
 }
 
 type silencedAlerts struct {
-	silencedAlertsDo
+	silencedAlertsDo silencedAlertsDo
 
 	ALL         field.Asterisk
 	ID          field.Int64
@@ -84,6 +83,18 @@ func (s *silencedAlerts) updateTableName(table string) *silencedAlerts {
 	return s
 }
 
+func (s *silencedAlerts) WithContext(ctx context.Context) *silencedAlertsDo {
+	return s.silencedAlertsDo.WithContext(ctx)
+}
+
+func (s silencedAlerts) TableName() string { return s.silencedAlertsDo.TableName() }
+
+func (s silencedAlerts) Alias() string { return s.silencedAlertsDo.Alias() }
+
+func (s silencedAlerts) Columns(cols ...field.Expr) gen.Columns {
+	return s.silencedAlertsDo.Columns(cols...)
+}
+
 func (s *silencedAlerts) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 	_f, ok := s.fieldMap[fieldName]
 	if !ok || _f == nil {
@@ -117,158 +128,95 @@ func (s silencedAlerts) replaceDB(db *gorm.DB) silencedAlerts {
 
 type silencedAlertsDo struct{ gen.DO }
 
-type ISilencedAlertsDo interface {
-	gen.SubQuery
-	Debug() ISilencedAlertsDo
-	WithContext(ctx context.Context) ISilencedAlertsDo
-	WithResult(fc func(tx gen.Dao)) gen.ResultInfo
-	ReplaceDB(db *gorm.DB)
-	ReadDB() ISilencedAlertsDo
-	WriteDB() ISilencedAlertsDo
-	As(alias string) gen.Dao
-	Session(config *gorm.Session) ISilencedAlertsDo
-	Columns(cols ...field.Expr) gen.Columns
-	Clauses(conds ...clause.Expression) ISilencedAlertsDo
-	Not(conds ...gen.Condition) ISilencedAlertsDo
-	Or(conds ...gen.Condition) ISilencedAlertsDo
-	Select(conds ...field.Expr) ISilencedAlertsDo
-	Where(conds ...gen.Condition) ISilencedAlertsDo
-	Order(conds ...field.Expr) ISilencedAlertsDo
-	Distinct(cols ...field.Expr) ISilencedAlertsDo
-	Omit(cols ...field.Expr) ISilencedAlertsDo
-	Join(table schema.Tabler, on ...field.Expr) ISilencedAlertsDo
-	LeftJoin(table schema.Tabler, on ...field.Expr) ISilencedAlertsDo
-	RightJoin(table schema.Tabler, on ...field.Expr) ISilencedAlertsDo
-	Group(cols ...field.Expr) ISilencedAlertsDo
-	Having(conds ...gen.Condition) ISilencedAlertsDo
-	Limit(limit int) ISilencedAlertsDo
-	Offset(offset int) ISilencedAlertsDo
-	Count() (count int64, err error)
-	Scopes(funcs ...func(gen.Dao) gen.Dao) ISilencedAlertsDo
-	Unscoped() ISilencedAlertsDo
-	Create(values ...*model.SilencedAlerts) error
-	CreateInBatches(values []*model.SilencedAlerts, batchSize int) error
-	Save(values ...*model.SilencedAlerts) error
-	First() (*model.SilencedAlerts, error)
-	Take() (*model.SilencedAlerts, error)
-	Last() (*model.SilencedAlerts, error)
-	Find() ([]*model.SilencedAlerts, error)
-	FindInBatch(batchSize int, fc func(tx gen.Dao, batch int) error) (results []*model.SilencedAlerts, err error)
-	FindInBatches(result *[]*model.SilencedAlerts, batchSize int, fc func(tx gen.Dao, batch int) error) error
-	Pluck(column field.Expr, dest interface{}) error
-	Delete(...*model.SilencedAlerts) (info gen.ResultInfo, err error)
-	Update(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
-	UpdateSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
-	Updates(value interface{}) (info gen.ResultInfo, err error)
-	UpdateColumn(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
-	UpdateColumnSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
-	UpdateColumns(value interface{}) (info gen.ResultInfo, err error)
-	UpdateFrom(q gen.SubQuery) gen.Dao
-	Attrs(attrs ...field.AssignExpr) ISilencedAlertsDo
-	Assign(attrs ...field.AssignExpr) ISilencedAlertsDo
-	Joins(fields ...field.RelationField) ISilencedAlertsDo
-	Preload(fields ...field.RelationField) ISilencedAlertsDo
-	FirstOrInit() (*model.SilencedAlerts, error)
-	FirstOrCreate() (*model.SilencedAlerts, error)
-	FindByPage(offset int, limit int) (result []*model.SilencedAlerts, count int64, err error)
-	ScanByPage(result interface{}, offset int, limit int) (count int64, err error)
-	Rows() (*sql.Rows, error)
-	Row() *sql.Row
-	Scan(result interface{}) (err error)
-	Returning(value interface{}, columns ...string) ISilencedAlertsDo
-	UnderlyingDB() *gorm.DB
-	schema.Tabler
-}
-
-func (s silencedAlertsDo) Debug() ISilencedAlertsDo {
+func (s silencedAlertsDo) Debug() *silencedAlertsDo {
 	return s.withDO(s.DO.Debug())
 }
 
-func (s silencedAlertsDo) WithContext(ctx context.Context) ISilencedAlertsDo {
+func (s silencedAlertsDo) WithContext(ctx context.Context) *silencedAlertsDo {
 	return s.withDO(s.DO.WithContext(ctx))
 }
 
-func (s silencedAlertsDo) ReadDB() ISilencedAlertsDo {
+func (s silencedAlertsDo) ReadDB() *silencedAlertsDo {
 	return s.Clauses(dbresolver.Read)
 }
 
-func (s silencedAlertsDo) WriteDB() ISilencedAlertsDo {
+func (s silencedAlertsDo) WriteDB() *silencedAlertsDo {
 	return s.Clauses(dbresolver.Write)
 }
 
-func (s silencedAlertsDo) Session(config *gorm.Session) ISilencedAlertsDo {
+func (s silencedAlertsDo) Session(config *gorm.Session) *silencedAlertsDo {
 	return s.withDO(s.DO.Session(config))
 }
 
-func (s silencedAlertsDo) Clauses(conds ...clause.Expression) ISilencedAlertsDo {
+func (s silencedAlertsDo) Clauses(conds ...clause.Expression) *silencedAlertsDo {
 	return s.withDO(s.DO.Clauses(conds...))
 }
 
-func (s silencedAlertsDo) Returning(value interface{}, columns ...string) ISilencedAlertsDo {
+func (s silencedAlertsDo) Returning(value interface{}, columns ...string) *silencedAlertsDo {
 	return s.withDO(s.DO.Returning(value, columns...))
 }
 
-func (s silencedAlertsDo) Not(conds ...gen.Condition) ISilencedAlertsDo {
+func (s silencedAlertsDo) Not(conds ...gen.Condition) *silencedAlertsDo {
 	return s.withDO(s.DO.Not(conds...))
 }
 
-func (s silencedAlertsDo) Or(conds ...gen.Condition) ISilencedAlertsDo {
+func (s silencedAlertsDo) Or(conds ...gen.Condition) *silencedAlertsDo {
 	return s.withDO(s.DO.Or(conds...))
 }
 
-func (s silencedAlertsDo) Select(conds ...field.Expr) ISilencedAlertsDo {
+func (s silencedAlertsDo) Select(conds ...field.Expr) *silencedAlertsDo {
 	return s.withDO(s.DO.Select(conds...))
 }
 
-func (s silencedAlertsDo) Where(conds ...gen.Condition) ISilencedAlertsDo {
+func (s silencedAlertsDo) Where(conds ...gen.Condition) *silencedAlertsDo {
 	return s.withDO(s.DO.Where(conds...))
 }
 
-func (s silencedAlertsDo) Order(conds ...field.Expr) ISilencedAlertsDo {
+func (s silencedAlertsDo) Order(conds ...field.Expr) *silencedAlertsDo {
 	return s.withDO(s.DO.Order(conds...))
 }
 
-func (s silencedAlertsDo) Distinct(cols ...field.Expr) ISilencedAlertsDo {
+func (s silencedAlertsDo) Distinct(cols ...field.Expr) *silencedAlertsDo {
 	return s.withDO(s.DO.Distinct(cols...))
 }
 
-func (s silencedAlertsDo) Omit(cols ...field.Expr) ISilencedAlertsDo {
+func (s silencedAlertsDo) Omit(cols ...field.Expr) *silencedAlertsDo {
 	return s.withDO(s.DO.Omit(cols...))
 }
 
-func (s silencedAlertsDo) Join(table schema.Tabler, on ...field.Expr) ISilencedAlertsDo {
+func (s silencedAlertsDo) Join(table schema.Tabler, on ...field.Expr) *silencedAlertsDo {
 	return s.withDO(s.DO.Join(table, on...))
 }
 
-func (s silencedAlertsDo) LeftJoin(table schema.Tabler, on ...field.Expr) ISilencedAlertsDo {
+func (s silencedAlertsDo) LeftJoin(table schema.Tabler, on ...field.Expr) *silencedAlertsDo {
 	return s.withDO(s.DO.LeftJoin(table, on...))
 }
 
-func (s silencedAlertsDo) RightJoin(table schema.Tabler, on ...field.Expr) ISilencedAlertsDo {
+func (s silencedAlertsDo) RightJoin(table schema.Tabler, on ...field.Expr) *silencedAlertsDo {
 	return s.withDO(s.DO.RightJoin(table, on...))
 }
 
-func (s silencedAlertsDo) Group(cols ...field.Expr) ISilencedAlertsDo {
+func (s silencedAlertsDo) Group(cols ...field.Expr) *silencedAlertsDo {
 	return s.withDO(s.DO.Group(cols...))
 }
 
-func (s silencedAlertsDo) Having(conds ...gen.Condition) ISilencedAlertsDo {
+func (s silencedAlertsDo) Having(conds ...gen.Condition) *silencedAlertsDo {
 	return s.withDO(s.DO.Having(conds...))
 }
 
-func (s silencedAlertsDo) Limit(limit int) ISilencedAlertsDo {
+func (s silencedAlertsDo) Limit(limit int) *silencedAlertsDo {
 	return s.withDO(s.DO.Limit(limit))
 }
 
-func (s silencedAlertsDo) Offset(offset int) ISilencedAlertsDo {
+func (s silencedAlertsDo) Offset(offset int) *silencedAlertsDo {
 	return s.withDO(s.DO.Offset(offset))
 }
 
-func (s silencedAlertsDo) Scopes(funcs ...func(gen.Dao) gen.Dao) ISilencedAlertsDo {
+func (s silencedAlertsDo) Scopes(funcs ...func(gen.Dao) gen.Dao) *silencedAlertsDo {
 	return s.withDO(s.DO.Scopes(funcs...))
 }
 
-func (s silencedAlertsDo) Unscoped() ISilencedAlertsDo {
+func (s silencedAlertsDo) Unscoped() *silencedAlertsDo {
 	return s.withDO(s.DO.Unscoped())
 }
 
@@ -334,22 +282,22 @@ func (s silencedAlertsDo) FindInBatches(result *[]*model.SilencedAlerts, batchSi
 	return s.DO.FindInBatches(result, batchSize, fc)
 }
 
-func (s silencedAlertsDo) Attrs(attrs ...field.AssignExpr) ISilencedAlertsDo {
+func (s silencedAlertsDo) Attrs(attrs ...field.AssignExpr) *silencedAlertsDo {
 	return s.withDO(s.DO.Attrs(attrs...))
 }
 
-func (s silencedAlertsDo) Assign(attrs ...field.AssignExpr) ISilencedAlertsDo {
+func (s silencedAlertsDo) Assign(attrs ...field.AssignExpr) *silencedAlertsDo {
 	return s.withDO(s.DO.Assign(attrs...))
 }
 
-func (s silencedAlertsDo) Joins(fields ...field.RelationField) ISilencedAlertsDo {
+func (s silencedAlertsDo) Joins(fields ...field.RelationField) *silencedAlertsDo {
 	for _, _f := range fields {
 		s = *s.withDO(s.DO.Joins(_f))
 	}
 	return &s
 }
 
-func (s silencedAlertsDo) Preload(fields ...field.RelationField) ISilencedAlertsDo {
+func (s silencedAlertsDo) Preload(fields ...field.RelationField) *silencedAlertsDo {
 	for _, _f := range fields {
 		s = *s.withDO(s.DO.Preload(_f))
 	}

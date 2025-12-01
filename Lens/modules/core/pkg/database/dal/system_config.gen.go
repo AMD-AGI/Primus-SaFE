@@ -6,7 +6,6 @@ package dal
 
 import (
 	"context"
-	"database/sql"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -47,7 +46,7 @@ func newSystemConfig(db *gorm.DB, opts ...gen.DOOption) systemConfig {
 }
 
 type systemConfig struct {
-	systemConfigDo
+	systemConfigDo systemConfigDo
 
 	ALL         field.Asterisk
 	ID          field.Int64
@@ -96,6 +95,18 @@ func (s *systemConfig) updateTableName(table string) *systemConfig {
 	return s
 }
 
+func (s *systemConfig) WithContext(ctx context.Context) *systemConfigDo {
+	return s.systemConfigDo.WithContext(ctx)
+}
+
+func (s systemConfig) TableName() string { return s.systemConfigDo.TableName() }
+
+func (s systemConfig) Alias() string { return s.systemConfigDo.Alias() }
+
+func (s systemConfig) Columns(cols ...field.Expr) gen.Columns {
+	return s.systemConfigDo.Columns(cols...)
+}
+
 func (s *systemConfig) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 	_f, ok := s.fieldMap[fieldName]
 	if !ok || _f == nil {
@@ -133,158 +144,95 @@ func (s systemConfig) replaceDB(db *gorm.DB) systemConfig {
 
 type systemConfigDo struct{ gen.DO }
 
-type ISystemConfigDo interface {
-	gen.SubQuery
-	Debug() ISystemConfigDo
-	WithContext(ctx context.Context) ISystemConfigDo
-	WithResult(fc func(tx gen.Dao)) gen.ResultInfo
-	ReplaceDB(db *gorm.DB)
-	ReadDB() ISystemConfigDo
-	WriteDB() ISystemConfigDo
-	As(alias string) gen.Dao
-	Session(config *gorm.Session) ISystemConfigDo
-	Columns(cols ...field.Expr) gen.Columns
-	Clauses(conds ...clause.Expression) ISystemConfigDo
-	Not(conds ...gen.Condition) ISystemConfigDo
-	Or(conds ...gen.Condition) ISystemConfigDo
-	Select(conds ...field.Expr) ISystemConfigDo
-	Where(conds ...gen.Condition) ISystemConfigDo
-	Order(conds ...field.Expr) ISystemConfigDo
-	Distinct(cols ...field.Expr) ISystemConfigDo
-	Omit(cols ...field.Expr) ISystemConfigDo
-	Join(table schema.Tabler, on ...field.Expr) ISystemConfigDo
-	LeftJoin(table schema.Tabler, on ...field.Expr) ISystemConfigDo
-	RightJoin(table schema.Tabler, on ...field.Expr) ISystemConfigDo
-	Group(cols ...field.Expr) ISystemConfigDo
-	Having(conds ...gen.Condition) ISystemConfigDo
-	Limit(limit int) ISystemConfigDo
-	Offset(offset int) ISystemConfigDo
-	Count() (count int64, err error)
-	Scopes(funcs ...func(gen.Dao) gen.Dao) ISystemConfigDo
-	Unscoped() ISystemConfigDo
-	Create(values ...*model.SystemConfig) error
-	CreateInBatches(values []*model.SystemConfig, batchSize int) error
-	Save(values ...*model.SystemConfig) error
-	First() (*model.SystemConfig, error)
-	Take() (*model.SystemConfig, error)
-	Last() (*model.SystemConfig, error)
-	Find() ([]*model.SystemConfig, error)
-	FindInBatch(batchSize int, fc func(tx gen.Dao, batch int) error) (results []*model.SystemConfig, err error)
-	FindInBatches(result *[]*model.SystemConfig, batchSize int, fc func(tx gen.Dao, batch int) error) error
-	Pluck(column field.Expr, dest interface{}) error
-	Delete(...*model.SystemConfig) (info gen.ResultInfo, err error)
-	Update(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
-	UpdateSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
-	Updates(value interface{}) (info gen.ResultInfo, err error)
-	UpdateColumn(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
-	UpdateColumnSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
-	UpdateColumns(value interface{}) (info gen.ResultInfo, err error)
-	UpdateFrom(q gen.SubQuery) gen.Dao
-	Attrs(attrs ...field.AssignExpr) ISystemConfigDo
-	Assign(attrs ...field.AssignExpr) ISystemConfigDo
-	Joins(fields ...field.RelationField) ISystemConfigDo
-	Preload(fields ...field.RelationField) ISystemConfigDo
-	FirstOrInit() (*model.SystemConfig, error)
-	FirstOrCreate() (*model.SystemConfig, error)
-	FindByPage(offset int, limit int) (result []*model.SystemConfig, count int64, err error)
-	ScanByPage(result interface{}, offset int, limit int) (count int64, err error)
-	Rows() (*sql.Rows, error)
-	Row() *sql.Row
-	Scan(result interface{}) (err error)
-	Returning(value interface{}, columns ...string) ISystemConfigDo
-	UnderlyingDB() *gorm.DB
-	schema.Tabler
-}
-
-func (s systemConfigDo) Debug() ISystemConfigDo {
+func (s systemConfigDo) Debug() *systemConfigDo {
 	return s.withDO(s.DO.Debug())
 }
 
-func (s systemConfigDo) WithContext(ctx context.Context) ISystemConfigDo {
+func (s systemConfigDo) WithContext(ctx context.Context) *systemConfigDo {
 	return s.withDO(s.DO.WithContext(ctx))
 }
 
-func (s systemConfigDo) ReadDB() ISystemConfigDo {
+func (s systemConfigDo) ReadDB() *systemConfigDo {
 	return s.Clauses(dbresolver.Read)
 }
 
-func (s systemConfigDo) WriteDB() ISystemConfigDo {
+func (s systemConfigDo) WriteDB() *systemConfigDo {
 	return s.Clauses(dbresolver.Write)
 }
 
-func (s systemConfigDo) Session(config *gorm.Session) ISystemConfigDo {
+func (s systemConfigDo) Session(config *gorm.Session) *systemConfigDo {
 	return s.withDO(s.DO.Session(config))
 }
 
-func (s systemConfigDo) Clauses(conds ...clause.Expression) ISystemConfigDo {
+func (s systemConfigDo) Clauses(conds ...clause.Expression) *systemConfigDo {
 	return s.withDO(s.DO.Clauses(conds...))
 }
 
-func (s systemConfigDo) Returning(value interface{}, columns ...string) ISystemConfigDo {
+func (s systemConfigDo) Returning(value interface{}, columns ...string) *systemConfigDo {
 	return s.withDO(s.DO.Returning(value, columns...))
 }
 
-func (s systemConfigDo) Not(conds ...gen.Condition) ISystemConfigDo {
+func (s systemConfigDo) Not(conds ...gen.Condition) *systemConfigDo {
 	return s.withDO(s.DO.Not(conds...))
 }
 
-func (s systemConfigDo) Or(conds ...gen.Condition) ISystemConfigDo {
+func (s systemConfigDo) Or(conds ...gen.Condition) *systemConfigDo {
 	return s.withDO(s.DO.Or(conds...))
 }
 
-func (s systemConfigDo) Select(conds ...field.Expr) ISystemConfigDo {
+func (s systemConfigDo) Select(conds ...field.Expr) *systemConfigDo {
 	return s.withDO(s.DO.Select(conds...))
 }
 
-func (s systemConfigDo) Where(conds ...gen.Condition) ISystemConfigDo {
+func (s systemConfigDo) Where(conds ...gen.Condition) *systemConfigDo {
 	return s.withDO(s.DO.Where(conds...))
 }
 
-func (s systemConfigDo) Order(conds ...field.Expr) ISystemConfigDo {
+func (s systemConfigDo) Order(conds ...field.Expr) *systemConfigDo {
 	return s.withDO(s.DO.Order(conds...))
 }
 
-func (s systemConfigDo) Distinct(cols ...field.Expr) ISystemConfigDo {
+func (s systemConfigDo) Distinct(cols ...field.Expr) *systemConfigDo {
 	return s.withDO(s.DO.Distinct(cols...))
 }
 
-func (s systemConfigDo) Omit(cols ...field.Expr) ISystemConfigDo {
+func (s systemConfigDo) Omit(cols ...field.Expr) *systemConfigDo {
 	return s.withDO(s.DO.Omit(cols...))
 }
 
-func (s systemConfigDo) Join(table schema.Tabler, on ...field.Expr) ISystemConfigDo {
+func (s systemConfigDo) Join(table schema.Tabler, on ...field.Expr) *systemConfigDo {
 	return s.withDO(s.DO.Join(table, on...))
 }
 
-func (s systemConfigDo) LeftJoin(table schema.Tabler, on ...field.Expr) ISystemConfigDo {
+func (s systemConfigDo) LeftJoin(table schema.Tabler, on ...field.Expr) *systemConfigDo {
 	return s.withDO(s.DO.LeftJoin(table, on...))
 }
 
-func (s systemConfigDo) RightJoin(table schema.Tabler, on ...field.Expr) ISystemConfigDo {
+func (s systemConfigDo) RightJoin(table schema.Tabler, on ...field.Expr) *systemConfigDo {
 	return s.withDO(s.DO.RightJoin(table, on...))
 }
 
-func (s systemConfigDo) Group(cols ...field.Expr) ISystemConfigDo {
+func (s systemConfigDo) Group(cols ...field.Expr) *systemConfigDo {
 	return s.withDO(s.DO.Group(cols...))
 }
 
-func (s systemConfigDo) Having(conds ...gen.Condition) ISystemConfigDo {
+func (s systemConfigDo) Having(conds ...gen.Condition) *systemConfigDo {
 	return s.withDO(s.DO.Having(conds...))
 }
 
-func (s systemConfigDo) Limit(limit int) ISystemConfigDo {
+func (s systemConfigDo) Limit(limit int) *systemConfigDo {
 	return s.withDO(s.DO.Limit(limit))
 }
 
-func (s systemConfigDo) Offset(offset int) ISystemConfigDo {
+func (s systemConfigDo) Offset(offset int) *systemConfigDo {
 	return s.withDO(s.DO.Offset(offset))
 }
 
-func (s systemConfigDo) Scopes(funcs ...func(gen.Dao) gen.Dao) ISystemConfigDo {
+func (s systemConfigDo) Scopes(funcs ...func(gen.Dao) gen.Dao) *systemConfigDo {
 	return s.withDO(s.DO.Scopes(funcs...))
 }
 
-func (s systemConfigDo) Unscoped() ISystemConfigDo {
+func (s systemConfigDo) Unscoped() *systemConfigDo {
 	return s.withDO(s.DO.Unscoped())
 }
 
@@ -350,22 +298,22 @@ func (s systemConfigDo) FindInBatches(result *[]*model.SystemConfig, batchSize i
 	return s.DO.FindInBatches(result, batchSize, fc)
 }
 
-func (s systemConfigDo) Attrs(attrs ...field.AssignExpr) ISystemConfigDo {
+func (s systemConfigDo) Attrs(attrs ...field.AssignExpr) *systemConfigDo {
 	return s.withDO(s.DO.Attrs(attrs...))
 }
 
-func (s systemConfigDo) Assign(attrs ...field.AssignExpr) ISystemConfigDo {
+func (s systemConfigDo) Assign(attrs ...field.AssignExpr) *systemConfigDo {
 	return s.withDO(s.DO.Assign(attrs...))
 }
 
-func (s systemConfigDo) Joins(fields ...field.RelationField) ISystemConfigDo {
+func (s systemConfigDo) Joins(fields ...field.RelationField) *systemConfigDo {
 	for _, _f := range fields {
 		s = *s.withDO(s.DO.Joins(_f))
 	}
 	return &s
 }
 
-func (s systemConfigDo) Preload(fields ...field.RelationField) ISystemConfigDo {
+func (s systemConfigDo) Preload(fields ...field.RelationField) *systemConfigDo {
 	for _, _f := range fields {
 		s = *s.withDO(s.DO.Preload(_f))
 	}
