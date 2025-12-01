@@ -141,19 +141,44 @@ func (d *WandBFrameworkDetector) ProcessWandBDetection(
 			result.Framework, result.Confidence, result.Method)
 	}
 
-	// 4. 构造证据（包含双层框架信息）
+	// 4. 构造证据（包含双层框架信息和完整的wandb基础信息）
 	evidence := map[string]interface{}{
 		"method":            result.Method,
 		"framework_layer":   result.FrameworkLayer,
 		"wrapper_framework": result.WrapperFramework,
 		"base_framework":    result.BaseFramework,
-		"wandb_project":     req.Evidence.WandB.Project,
-		"wandb_name":        req.Evidence.WandB.Name,
 		"environment_vars":  result.MatchedEnvVars,
 		"pytorch_modules":   result.MatchedModules,
 		"hints":             req.Hints,
 		"pod_name":          req.PodName,
 		"detected_at":       time.Now().Format(time.RFC3339),
+		// 保存完整的wandb信息
+		"wandb": map[string]interface{}{
+			"project": req.Evidence.WandB.Project,
+			"name":    req.Evidence.WandB.Name,
+			"id":      req.Evidence.WandB.ID,
+			"config":  req.Evidence.WandB.Config,
+			"tags":    req.Evidence.WandB.Tags,
+		},
+		// 保存environment信息
+		"environment": req.Evidence.Environment,
+		// 保存pytorch信息
+		"pytorch": nil,
+		// 保存wrapper和base框架的详细信息
+		"wrapper_frameworks_detail": req.Evidence.WrapperFrameworks,
+		"base_frameworks_detail":    req.Evidence.BaseFrameworks,
+		// 保存system信息
+		"system": req.Evidence.System,
+	}
+
+	// 如果有PyTorch信息，添加到evidence
+	if req.Evidence.PyTorch != nil {
+		evidence["pytorch"] = map[string]interface{}{
+			"available":        req.Evidence.PyTorch.Available,
+			"version":          req.Evidence.PyTorch.Version,
+			"cuda_available":   req.Evidence.PyTorch.CudaAvailable,
+			"detected_modules": req.Evidence.PyTorch.DetectedModules,
+		}
 	}
 
 	// 5. 上报到 FrameworkDetectionManager

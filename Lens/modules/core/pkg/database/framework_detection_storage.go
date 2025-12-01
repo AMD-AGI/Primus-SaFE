@@ -193,17 +193,52 @@ func (s *FrameworkDetectionStorage) buildMetadataMap(
 	// Update framework_detection field
 	metadataMap["framework_detection"] = detection
 	
-	// Extract and store WandB information from the latest source
+	// Extract and store WandB information from the latest wandb source
 	// This makes it easier to access WandB metadata without parsing through sources
 	if len(detection.Sources) > 0 {
 		for i := len(detection.Sources) - 1; i >= 0; i-- {
 			source := detection.Sources[i]
 			if source.Source == "wandb" && source.Evidence != nil {
-				// Check if evidence contains wandb information
+				// 保存完整的wandb信息
 				if wandbInfo, ok := source.Evidence["wandb"]; ok {
 					metadataMap["wandb"] = wandbInfo
-					break
 				}
+				
+				// 保存environment信息
+				if envInfo, ok := source.Evidence["environment"]; ok {
+					metadataMap["environment"] = envInfo
+				}
+				
+				// 保存pytorch信息
+				if pytorchInfo, ok := source.Evidence["pytorch"]; ok {
+					metadataMap["pytorch"] = pytorchInfo
+				}
+				
+				// 保存system信息
+				if systemInfo, ok := source.Evidence["system"]; ok {
+					metadataMap["system"] = systemInfo
+				}
+				
+				// 保存wrapper和base框架的详细信息
+				if wrapperInfo, ok := source.Evidence["wrapper_frameworks_detail"]; ok {
+					metadataMap["wrapper_frameworks_detail"] = wrapperInfo
+				}
+				if baseInfo, ok := source.Evidence["base_frameworks_detail"]; ok {
+					metadataMap["base_frameworks_detail"] = baseInfo
+				}
+				
+				// 保存框架层级信息
+				if layer, ok := source.Evidence["framework_layer"]; ok {
+					metadataMap["framework_layer"] = layer
+				}
+				if wrapperFw, ok := source.Evidence["wrapper_framework"]; ok {
+					metadataMap["wrapper_framework"] = wrapperFw
+				}
+				if baseFw, ok := source.Evidence["base_framework"]; ok {
+					metadataMap["base_framework"] = baseFw
+				}
+				
+				break
 			}
 		}
 	}

@@ -29,9 +29,10 @@ func TestConflictDetector_DetectConflicts_NoConflict(t *testing.T) {
 	assert.Empty(t, conflicts, "No conflicts should be detected")
 }
 
-func TestConflictDetector_DetectConflicts_OneConflict(t *testing.T) {
+func TestConflictDetector_DetectConflicts_WrapperAndBaseCompatible(t *testing.T) {
 	detector := NewConflictDetector()
 	
+	// primus (wrapper) and deepspeed (base) should be compatible
 	sources := []model.DetectionSource{
 		{
 			Source:     "log",
@@ -46,11 +47,32 @@ func TestConflictDetector_DetectConflicts_OneConflict(t *testing.T) {
 	}
 	
 	conflicts := detector.DetectConflicts(sources)
-	assert.Len(t, conflicts, 1, "One conflict should be detected")
+	assert.Empty(t, conflicts, "Wrapper and base frameworks should not conflict")
+}
+
+func TestConflictDetector_DetectConflicts_SameLayerConflict(t *testing.T) {
+	detector := NewConflictDetector()
+	
+	// Two different base frameworks should conflict
+	sources := []model.DetectionSource{
+		{
+			Source:     "log",
+			Framework:  "deepspeed",
+			DetectedAt: time.Now(),
+		},
+		{
+			Source:     "component",
+			Framework:  "megatron",
+			DetectedAt: time.Now(),
+		},
+	}
+	
+	conflicts := detector.DetectConflicts(sources)
+	assert.Len(t, conflicts, 1, "Two different base frameworks should conflict")
 	assert.Equal(t, "log", conflicts[0].Source1)
 	assert.Equal(t, "component", conflicts[0].Source2)
-	assert.Equal(t, "primus", conflicts[0].Framework1)
-	assert.Equal(t, "deepspeed", conflicts[0].Framework2)
+	assert.Equal(t, "deepspeed", conflicts[0].Framework1)
+	assert.Equal(t, "megatron", conflicts[0].Framework2)
 }
 
 func TestConflictDetector_DetectConflicts_MultipleConflicts(t *testing.T) {
@@ -59,24 +81,25 @@ func TestConflictDetector_DetectConflicts_MultipleConflicts(t *testing.T) {
 	sources := []model.DetectionSource{
 		{
 			Source:     "log",
-			Framework:  "primus",
+			Framework:  "primus", // wrapper
 			DetectedAt: time.Now(),
 		},
 		{
 			Source:     "component",
-			Framework:  "deepspeed",
+			Framework:  "deepspeed", // base
 			DetectedAt: time.Now(),
 		},
 		{
 			Source:     "wandb",
-			Framework:  "megatron",
+			Framework:  "megatron", // base
 			DetectedAt: time.Now(),
 		},
 	}
 	
 	conflicts := detector.DetectConflicts(sources)
-	// With 3 different frameworks, we should have 3 conflicts (pairwise)
-	assert.Len(t, conflicts, 3, "Three conflicts should be detected")
+	// primus (wrapper) is compatible with both deepspeed and megatron (base)
+	// but deepspeed and megatron conflict with each other (both base)
+	assert.Len(t, conflicts, 1, "Only one conflict should be detected (deepspeed vs megatron)")
 }
 
 func TestConflictDetector_DetectConflicts_EmptySources(t *testing.T) {
@@ -124,7 +147,7 @@ func TestConflictDetector_HasConflict(t *testing.T) {
 			expected: false,
 		},
 		{
-			name: "No conflict",
+			name: "No conflict - same framework",
 			sources: []model.DetectionSource{
 				{Framework: "primus"},
 				{Framework: "primus"},
@@ -132,10 +155,18 @@ func TestConflictDetector_HasConflict(t *testing.T) {
 			expected: false,
 		},
 		{
-			name: "Has conflict",
+			name: "No conflict - wrapper and base compatible",
 			sources: []model.DetectionSource{
-				{Framework: "primus"},
-				{Framework: "deepspeed"},
+				{Framework: "primus"},    // wrapper
+				{Framework: "deepspeed"}, // base
+			},
+			expected: false,
+		},
+		{
+			name: "Has conflict - two base frameworks",
+			sources: []model.DetectionSource{
+				{Framework: "deepspeed"}, // base
+				{Framework: "megatron"},  // base
 			},
 			expected: true,
 		},
@@ -182,13 +213,15 @@ func TestConflictDetector_CountConflicts(t *testing.T) {
 	detector := NewConflictDetector()
 	
 	sources := []model.DetectionSource{
-		{Framework: "primus"},
-		{Framework: "deepspeed"},
-		{Framework: "megatron"},
+		{Framework: "primus"},    // wrapper
+		{Framework: "deepspeed"}, // base
+		{Framework: "megatron"},  // base
 	}
 	
 	count := detector.CountConflicts(sources)
-	assert.Equal(t, 3, count, "Should count 3 pairwise conflicts")
+	// primus (wrapper) is compatible with deepspeed and megatron (base)
+	// but deepspeed and megatron conflict with each other
+	assert.Equal(t, 1, count, "Should count 1 conflict (deepspeed vs megatron)")
 }
 
 func TestConflictDetector_GetDistinctFrameworks(t *testing.T) {
@@ -206,5 +239,125 @@ func TestConflictDetector_GetDistinctFrameworks(t *testing.T) {
 	assert.Contains(t, frameworks, "primus")
 	assert.Contains(t, frameworks, "deepspeed")
 	assert.Contains(t, frameworks, "megatron")
+}
+
+// Test framework layer detection with evidence
+func TestConflictDetector_DetectConflicts_WithLayerEvidence(t *testing.T) {
+	detector := NewConflictDetector()
+	
+	sources := []model.DetectionSource{
+		{
+			Source:     "wandb",
+			Framework:  "primus",
+			DetectedAt: time.Now(),
+			Evidence: map[string]interface{}{
+				"wrapper_framework": "primus",
+				"base_framework":    "deepspeed",
+				"framework_layer":   "wrapper",
+			},
+		},
+		{
+			Source:     "log",
+			Framework:  "deepspeed",
+			DetectedAt: time.Now(),
+			Evidence: map[string]interface{}{
+				"base_framework":  "deepspeed",
+				"framework_layer": "base",
+			},
+		},
+	}
+	
+	conflicts := detector.DetectConflicts(sources)
+	assert.Empty(t, conflicts, "Same base framework should not conflict even if one has wrapper")
+}
+
+// Test conflicting wrapper frameworks
+func TestConflictDetector_DetectConflicts_WrapperConflict(t *testing.T) {
+	detector := NewConflictDetector()
+	
+	sources := []model.DetectionSource{
+		{
+			Source:     "wandb",
+			Framework:  "primus",
+			DetectedAt: time.Now(),
+			Evidence: map[string]interface{}{
+				"wrapper_framework": "primus",
+				"framework_layer":   "wrapper",
+			},
+		},
+		{
+			Source:     "log",
+			Framework:  "lightning",
+			DetectedAt: time.Now(),
+			Evidence: map[string]interface{}{
+				"wrapper_framework": "lightning",
+				"framework_layer":   "wrapper",
+			},
+		},
+	}
+	
+	conflicts := detector.DetectConflicts(sources)
+	assert.Len(t, conflicts, 1, "Different wrapper frameworks should conflict")
+	assert.Contains(t, conflicts[0].Resolution, "wrapper_layer_conflict")
+}
+
+// Test conflicting base frameworks with evidence
+func TestConflictDetector_DetectConflicts_BaseConflictWithEvidence(t *testing.T) {
+	detector := NewConflictDetector()
+	
+	sources := []model.DetectionSource{
+		{
+			Source:     "wandb",
+			Framework:  "deepspeed",
+			DetectedAt: time.Now(),
+			Evidence: map[string]interface{}{
+				"base_framework":  "deepspeed",
+				"framework_layer": "base",
+			},
+		},
+		{
+			Source:     "log",
+			Framework:  "megatron",
+			DetectedAt: time.Now(),
+			Evidence: map[string]interface{}{
+				"base_framework":  "megatron",
+				"framework_layer": "base",
+			},
+		},
+	}
+	
+	conflicts := detector.DetectConflicts(sources)
+	assert.Len(t, conflicts, 1, "Different base frameworks should conflict")
+	assert.Contains(t, conflicts[0].Resolution, "base_layer_conflict")
+}
+
+// Test compatible wrapper and base with evidence
+func TestConflictDetector_DetectConflicts_CompatibleWithEvidence(t *testing.T) {
+	detector := NewConflictDetector()
+	
+	sources := []model.DetectionSource{
+		{
+			Source:     "wandb",
+			Framework:  "primus",
+			DetectedAt: time.Now(),
+			Evidence: map[string]interface{}{
+				"wrapper_framework": "primus",
+				"base_framework":    "deepspeed",
+				"framework_layer":   "wrapper",
+			},
+		},
+		{
+			Source:     "log",
+			Framework:  "megatron",
+			DetectedAt: time.Now(),
+			Evidence: map[string]interface{}{
+				"base_framework":  "megatron",
+				"framework_layer": "base",
+			},
+		},
+	}
+	
+	conflicts := detector.DetectConflicts(sources)
+	assert.Len(t, conflicts, 1, "Different base frameworks (deepspeed vs megatron) should conflict")
 }
 
