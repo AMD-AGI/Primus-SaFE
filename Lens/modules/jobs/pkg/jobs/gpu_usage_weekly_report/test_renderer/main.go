@@ -55,11 +55,11 @@ func main() {
 	// Note: In production, summary data (including total_gpu_count) comes from API response
 	summary := &gpu_usage_weekly_report.ReportSummary{
 		TotalGPUs:      1004, // Should be populated from API response's summary.total_gpu_count
-		AvgUtilization: 65.85,
-		AvgAllocation:  65.81,
+		AvgUtilization: 52.42,
+		AvgAllocation:  44.54,
 		TotalGpuHours:  0,
-		LowUtilCount:   13,
-		WastedGpuDays:  400,
+		LowUtilCount:   12,
+		WastedGpuDays:  252,
 	}
 
 	// Parse chart data
