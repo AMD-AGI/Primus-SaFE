@@ -1,0 +1,7 @@
+torch>=2.0.0
+transformers>=4.30.0
+datasets>=2.0.0
+tqdm
+numpy
+tensorboard
+#flash-attn>=2.0.0
