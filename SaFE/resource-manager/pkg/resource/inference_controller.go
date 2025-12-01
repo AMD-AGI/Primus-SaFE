@@ -287,6 +287,20 @@ func (r *InferenceReconciler) handleTerminalState(ctx context.Context, inference
 
 // createWorkload creates a workload for the inference
 func (r *InferenceReconciler) createWorkload(ctx context.Context, inference *v1.Inference) (*v1.Workload, error) {
+	// Check if workload already exists for this inference
+	existingWorkloads := &v1.WorkloadList{}
+	if err := r.List(ctx, existingWorkloads, client.MatchingLabels{
+		v1.InferenceIdLabel: inference.Name,
+	}); err != nil {
+		return nil, err
+	}
+
+	// If workload already exists, return it
+	if len(existingWorkloads.Items) > 0 {
+		klog.Infof("Workload %s already exists for inference %s", existingWorkloads.Items[0].Name, inference.Name)
+		return &existingWorkloads.Items[0], nil
+	}
+
 	// Get normalized displayName from inference labels
 	normalizedDisplayName := v1.GetDisplayName(inference)
 
