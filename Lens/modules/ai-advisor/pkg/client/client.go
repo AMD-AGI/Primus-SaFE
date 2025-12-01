@@ -102,7 +102,7 @@ func (c *Client) ReportDetection(req *common.DetectionRequest) (*common.Detectio
 	resp, err := c.client.R().
 		SetBody(req).
 		SetResult(&result).
-		Post("/api/v1/detection")
+		Post("/v1/detection")
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to report detection: %w", err)
@@ -119,7 +119,7 @@ func (c *Client) ReportDetection(req *common.DetectionRequest) (*common.Detectio
 func (c *Client) ReportWandBDetection(req *common.WandBDetectionRequest) error {
 	resp, err := c.client.R().
 		SetBody(req).
-		Post("/api/v1/wandb/detection")
+		Post("/v1/wandb/detection")
 
 	if err != nil {
 		return fmt.Errorf("failed to report WandB detection: %w", err)
@@ -138,7 +138,7 @@ func (c *Client) GetDetection(workloadUID string) (*common.Detection, error) {
 	resp, err := c.client.R().
 		SetPathParam("uid", workloadUID).
 		SetResult(&result).
-		Get("/api/v1/detection/workloads/{uid}")
+		Get("/v1/detection/workloads/{uid}")
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to get detection: %w", err)
@@ -169,7 +169,7 @@ func (c *Client) BatchGetDetection(workloadUIDs []string) (map[string]*common.De
 	resp, err := c.client.R().
 		SetBody(&BatchRequest{WorkloadUIDs: workloadUIDs}).
 		SetResult(&result).
-		Post("/api/v1/detection/batch")
+		Post("/v1/detection/batch")
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to batch get detections: %w", err)
@@ -188,7 +188,7 @@ func (c *Client) GetDetectionBatch(req *common.BatchDetectionRequest) (*common.B
 	resp, err := c.client.R().
 		SetBody(req).
 		SetResult(&result).
-		Post("/api/v1/detection/batch")
+		Post("/v1/detection/batch")
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to batch get detections: %w", err)
@@ -208,7 +208,7 @@ func (c *Client) UpdateDetection(workloadUID string, req *common.DetectionReques
 		SetPathParam("uid", workloadUID).
 		SetBody(req).
 		SetResult(&result).
-		Put("/api/v1/detection/workloads/{uid}")
+		Put("/v1/detection/workloads/{uid}")
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to update detection: %w", err)
@@ -237,7 +237,7 @@ func (c *Client) GetDetectionStats(startTime, endTime, namespace string) (*commo
 		req.SetQueryParam("namespace", namespace)
 	}
 
-	resp, err := req.Get("/api/v1/detection/stats")
+	resp, err := req.Get("/v1/detection/stats")
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to get detection stats: %w", err)
@@ -262,7 +262,7 @@ func (c *Client) AnalyzePerformance(workloadUID string) (*common.PerformanceAnal
 	resp, err := c.client.R().
 		SetBody(&Request{WorkloadUID: workloadUID}).
 		SetResult(&result).
-		Post("/api/v1/analysis/performance")
+		Post("/v1/analysis/performance")
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to analyze performance: %w", err)
@@ -281,7 +281,7 @@ func (c *Client) GetPerformanceReport(workloadUID string) (*common.PerformanceAn
 	resp, err := c.client.R().
 		SetPathParam("uid", workloadUID).
 		SetResult(&result).
-		Get("/api/v1/analysis/workloads/{uid}/performance")
+		Get("/v1/analysis/workloads/{uid}/performance")
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to get performance report: %w", err)
@@ -304,7 +304,7 @@ func (c *Client) GetTrends(workloadUID string) (map[string]interface{}, error) {
 	resp, err := c.client.R().
 		SetPathParam("uid", workloadUID).
 		SetResult(&result).
-		Get("/api/v1/analysis/workloads/{uid}/trends")
+		Get("/v1/analysis/workloads/{uid}/trends")
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to get trends: %w", err)
@@ -329,7 +329,7 @@ func (c *Client) DetectAnomalies(workloadUID string) ([]common.Anomaly, error) {
 	resp, err := c.client.R().
 		SetBody(&Request{WorkloadUID: workloadUID}).
 		SetResult(&result).
-		Post("/api/v1/anomalies/detect")
+		Post("/v1/anomalies/detect")
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to detect anomalies: %w", err)
@@ -348,7 +348,7 @@ func (c *Client) GetAnomalies(workloadUID string) ([]common.Anomaly, error) {
 	resp, err := c.client.R().
 		SetPathParam("uid", workloadUID).
 		SetResult(&result).
-		Get("/api/v1/anomalies/workloads/{uid}")
+		Get("/v1/anomalies/workloads/{uid}")
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to get anomalies: %w", err)
@@ -368,7 +368,7 @@ func (c *Client) GetLatestAnomalies(workloadUID string, limit int) ([]common.Ano
 		SetPathParam("uid", workloadUID).
 		SetQueryParam("limit", fmt.Sprintf("%d", limit)).
 		SetResult(&result).
-		Get("/api/v1/anomalies/workloads/{uid}/latest")
+		Get("/v1/anomalies/workloads/{uid}/latest")
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to get latest anomalies: %w", err)
@@ -389,7 +389,7 @@ func (c *Client) GetRecommendations(workloadUID string) ([]common.Recommendation
 	resp, err := c.client.R().
 		SetPathParam("uid", workloadUID).
 		SetResult(&result).
-		Get("/api/v1/recommendations/workloads/{uid}")
+		Get("/v1/recommendations/workloads/{uid}")
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to get recommendations: %w", err)
@@ -408,7 +408,7 @@ func (c *Client) GenerateRecommendations(workloadUID string) ([]common.Recommend
 	resp, err := c.client.R().
 		SetPathParam("uid", workloadUID).
 		SetResult(&result).
-		Post("/api/v1/recommendations/workloads/{uid}/generate")
+		Post("/v1/recommendations/workloads/{uid}/generate")
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate recommendations: %w", err)
@@ -433,7 +433,7 @@ func (c *Client) AnalyzeWorkload(workloadUID string) (*common.Diagnostic, error)
 	resp, err := c.client.R().
 		SetBody(&Request{WorkloadUID: workloadUID}).
 		SetResult(&result).
-		Post("/api/v1/diagnostics/analyze")
+		Post("/v1/diagnostics/analyze")
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to analyze workload: %w", err)
@@ -452,7 +452,7 @@ func (c *Client) GetDiagnosticReport(workloadUID string) (*common.Diagnostic, er
 	resp, err := c.client.R().
 		SetPathParam("uid", workloadUID).
 		SetResult(&result).
-		Get("/api/v1/diagnostics/workloads/{uid}")
+		Get("/v1/diagnostics/workloads/{uid}")
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to get diagnostic report: %w", err)
@@ -475,7 +475,7 @@ func (c *Client) GetRootCauses(workloadUID string) ([]common.RootCause, error) {
 	resp, err := c.client.R().
 		SetPathParam("uid", workloadUID).
 		SetResult(&result).
-		Get("/api/v1/diagnostics/workloads/{uid}/root-causes")
+		Get("/v1/diagnostics/workloads/{uid}/root-causes")
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to get root causes: %w", err)
@@ -504,7 +504,7 @@ func (c *Client) AnalyzeModel(workloadUID string, modelConfig map[string]interfa
 			ModelConfig: modelConfig,
 		}).
 		SetResult(&result).
-		Post("/api/v1/insights/model")
+		Post("/v1/insights/model")
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to analyze model: %w", err)
@@ -523,7 +523,7 @@ func (c *Client) GetModelInsights(workloadUID string) (*common.ModelInsight, err
 	resp, err := c.client.R().
 		SetPathParam("uid", workloadUID).
 		SetResult(&result).
-		Get("/api/v1/insights/workloads/{uid}")
+		Get("/v1/insights/workloads/{uid}")
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to get model insights: %w", err)
@@ -546,7 +546,7 @@ func (c *Client) EstimateMemory(params map[string]interface{}) (*common.MemoryEs
 	resp, err := c.client.R().
 		SetBody(params).
 		SetResult(&result).
-		Post("/api/v1/insights/estimate-memory")
+		Post("/v1/insights/estimate-memory")
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to estimate memory: %w", err)
@@ -565,7 +565,7 @@ func (c *Client) EstimateCompute(params map[string]interface{}) (*common.Compute
 	resp, err := c.client.R().
 		SetBody(params).
 		SetResult(&result).
-		Post("/api/v1/insights/estimate-compute")
+		Post("/v1/insights/estimate-compute")
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to estimate compute: %w", err)
@@ -583,7 +583,7 @@ func (c *Client) EstimateCompute(params map[string]interface{}) (*common.Compute
 // HealthCheck checks if the AI Advisor service is healthy
 func (c *Client) HealthCheck() (bool, error) {
 	resp, err := c.client.R().
-		Get("/api/v1/health")
+		Get("/v1/health")
 
 	if err != nil {
 		return false, fmt.Errorf("health check failed: %w", err)

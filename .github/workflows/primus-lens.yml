@@ -53,6 +53,7 @@ jobs:
           telemetry_processor:
             - Lens/modules/telemetry-processor/**
             - Lens/modules/core/**
+            - Lens/modules/ai-advisor/pkg/client/**
           ai_advisor:
             - Lens/modules/ai-advisor/**
             - Lens/modules/core/**
