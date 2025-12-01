@@ -315,9 +315,13 @@ func (h *Handler) modifyWorkspace(ctx context.Context, workspace *v1.Workspace, 
 }
 
 // updateWorkspaceImageSecrets updates the image secrets associated with a workspace.
-// Retrieves secret objects by ID and updates the workspace's image secret references.
+// It validates each secret ID, ensures the secret type is correct,
+// updates the secret's workspace annotations if needed, and sets the image secrets in the workspace spec.
+// Additionally, when a secret is bound to a workspace, the secret will be copied into the
+// workspace’s Kubernetes namespace so workloads in that workspace can use it for image pulls.
 func (h *Handler) updateWorkspaceImageSecrets(ctx context.Context, workspace *v1.Workspace, requestUser *v1.User, secretIds []string) error {
-	var imageSecrets []corev1.ObjectReference
+	uniqueSecretIds := sets.NewSet()
+	targetSecrets := make([]*corev1.Secret, 0, len(secretIds))
 	for _, id := range secretIds {
 		secret, err := h.getAndAuthorizeSecret(ctx, id, workspace.Name, requestUser, v1.ListVerb)
 		if err != nil {
@@ -326,11 +330,23 @@ func (h *Handler) updateWorkspaceImageSecrets(ctx context.Context, workspace *v1
 		if v1.GetSecretType(secret) != string(v1.SecretImage) {
 			return commonerrors.NewBadRequest("the secret type is not image")
 		}
+		if uniqueSecretIds.Has(id) {
+			continue
+		}
+		uniqueSecretIds.Insert(id)
+		targetSecrets = append(targetSecrets, secret)
+	}
+
+	imageSecrets := make([]corev1.ObjectReference, 0, len(targetSecrets))
+	for _, secret := range targetSecrets {
 		workspaceIds := commonsecret.GetSecretWorkspaces(secret)
 		if !sliceutil.Contains(workspaceIds, workspace.Name) {
-			klog.Errorf("secret(%s) workspaces %v do not include target workspace %s",
-				id, workspaceIds, workspace.Name)
-			return commonerrors.NewBadRequest("the secret is not associated with the workspace")
+			workspaceIds = append(workspaceIds, workspace.Name)
+			patch := client.MergeFrom(secret.DeepCopy())
+			v1.SetAnnotation(secret, v1.WorkspaceIdsAnnotation, string(jsonutils.MarshalSilently(workspaceIds)))
+			if err := h.Patch(ctx, secret, patch); err != nil {
+				return fmt.Errorf("failed to update workspace annotation for secret %s: %w", secret.Name, err)
+			}
 		}
 		imageSecrets = append(imageSecrets, *commonutils.GenObjectReference(secret.TypeMeta, secret.ObjectMeta))
 	}
