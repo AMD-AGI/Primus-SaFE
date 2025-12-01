@@ -397,8 +397,6 @@ func (h *Handler) toggleModel(c *gin.Context) (interface{}, error) {
 				Labels: map[string]string{
 					v1.InferenceIdLabel: infId,
 					v1.UserIdLabel:      userId,
-				},
-				Annotations: map[string]string{
 					v1.DisplayNameLabel: k8sModel.Spec.DisplayName,
 				},
 			},

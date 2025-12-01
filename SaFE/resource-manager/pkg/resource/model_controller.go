@@ -8,6 +8,7 @@ package resource
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -209,7 +210,18 @@ func (r *ModelReconciler) constructCleanupJob(model *v1.Model) (*batchv1.Job, er
 
 	localPath := model.Spec.DownloadTarget.LocalPath
 	if localPath == "" {
-		localPath = "/data/models"
+		return nil, fmt.Errorf("localPath is empty, cannot determine cleanup target")
+	}
+
+	// Clean the path and extract parent directory and folder name
+	// e.g., "/apps/models/phi-2" -> parentDir="/apps/models", folderName="phi-2"
+	cleanPath := filepath.Clean(localPath)
+	parentDir := filepath.Dir(cleanPath)
+	folderName := filepath.Base(cleanPath)
+
+	// Safety check: don't allow deleting root-level directories
+	if parentDir == "/" || parentDir == "." || folderName == "/" || folderName == "." {
+		return nil, fmt.Errorf("invalid localPath: %s, cannot delete root-level directories", localPath)
 	}
 
 	// Use alpine image for cleanup (small and has rm command)
@@ -248,19 +260,19 @@ func (r *ModelReconciler) constructCleanupJob(model *v1.Model) (*batchv1.Job, er
 								"/bin/sh", "-c",
 								fmt.Sprintf(`
 									echo "Starting cleanup for model: %s"
-									echo "Target path: /data/model"
-									if [ -d "/data/model" ]; then
-										rm -rf /data/model/*
-										echo "Cleanup completed successfully"
+									echo "Target folder: /mnt/models/%s"
+									if [ -d "/mnt/models/%s" ]; then
+										rm -rf "/mnt/models/%s"
+										echo "Cleanup completed: folder deleted successfully"
 									else
 										echo "Directory does not exist, nothing to clean"
 									fi
-								`, model.Name),
+								`, model.Name, folderName, folderName, folderName),
 							},
 							VolumeMounts: []corev1.VolumeMount{
 								{
 									Name:      "model-storage",
-									MountPath: "/data/model",
+									MountPath: "/mnt/models",
 								},
 							},
 						},
@@ -270,7 +282,7 @@ func (r *ModelReconciler) constructCleanupJob(model *v1.Model) (*batchv1.Job, er
 							Name: "model-storage",
 							VolumeSource: corev1.VolumeSource{
 								HostPath: &corev1.HostPathVolumeSource{
-									Path: localPath,
+									Path: parentDir,
 								},
 							},
 						},

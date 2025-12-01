@@ -293,8 +293,6 @@ func (r *InferenceReconciler) createWorkload(ctx context.Context, inference *v1.
 			Labels: map[string]string{
 				v1.InferenceIdLabel: inference.Name,
 				v1.UserIdLabel:      inference.Spec.UserID,
-			},
-			Annotations: map[string]string{
 				v1.DisplayNameLabel: inference.Spec.DisplayName,
 			},
 		},
