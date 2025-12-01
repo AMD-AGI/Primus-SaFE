@@ -30,6 +30,7 @@ const (
 	EntrypointEnv  = "ENTRYPOINT"
 	WorkspaceIdEnv = "WORKSPACE_ID"
 	UserIdEnv      = "USER_ID"
+	PriorityEnv    = "PRIORITY"
 	NfsPathEnv     = "SAFE_NFS_PATH"
 	NfsInputEnv    = "SAFE_NFS_INPUT"
 	NfsOutputEnv   = "SAFE_NFS_OUTPUT"
