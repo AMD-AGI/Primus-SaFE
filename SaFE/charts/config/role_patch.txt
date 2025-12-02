@@ -25,6 +25,7 @@
   - priorityclasses
   - endpoints
   - events
+  - ingresses
   verbs:
   - '*'
 - apiGroups:
