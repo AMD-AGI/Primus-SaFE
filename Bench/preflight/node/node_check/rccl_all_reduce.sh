@@ -33,7 +33,7 @@ fi
 
 threshold=300
 if (( $(echo "$algbw < $threshold" | bc -l) )); then
-  echo "algbw($algbw GB/s) < threshold(threshold GB/s)" >&2
+  echo "algbw($algbw GB/s) < threshold($threshold GB/s)" >&2
   exit 1
 fi
 echo "[INFO] result: $algbw GB/s"
