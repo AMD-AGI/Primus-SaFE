@@ -82,32 +82,59 @@ func ReceiveWandBDetection(ctx *gin.Context) {
 		return
 	}
 
-	// 尝试从 pod cache 中获取 workload 信息
-	fillWorkloadUIDFromPodName(&req.WorkloadUID, req.PodName, "WandB Detection API")
-
-	// Forward detection request to AI Advisor
-	logrus.Infof("[WandB Detection API] Forwarding detection request to AI Advisor...")
-
-	// Convert request to AI Advisor format
-	advisorReq := convertToAdvisorWandBRequest(&req)
-
-	if err := wandbHandler.aiAdvisorClient.ReportWandBDetection(advisorReq); err != nil {
-		logrus.Errorf("[WandB Detection API] Failed to forward detection to AI Advisor: %v", err)
-		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(),
-			http.StatusInternalServerError, "failed to process detection", nil))
+	// 尝试从 pod cache 中获取 workload 信息（可能有多个）
+	workloadUIDs := getWorkloadUIDsFromPodName(req.WorkloadUID, req.PodName, "WandB Detection API")
+	if len(workloadUIDs) == 0 {
+		logrus.Errorf("[WandB Detection API] No valid workload UIDs found")
+		ctx.JSON(http.StatusBadRequest, rest.ErrorResp(ctx.Request.Context(),
+			http.StatusBadRequest, "no valid workload found", nil))
 		return
 	}
 
-	// 支持双层框架的成功日志
-	if len(req.Hints.WrapperFrameworks) > 0 || len(req.Hints.BaseFrameworks) > 0 {
-		logrus.Infof("[WandB Detection API] ✓ Detection processed successfully (双层框架) - Wrapper: %v, Base: %v, WorkloadUID: %s",
-			req.Hints.WrapperFrameworks, req.Hints.BaseFrameworks, req.WorkloadUID)
-	} else {
-		logrus.Infof("[WandB Detection API] ✓ Detection processed successfully - PossibleFrameworks: %v, WorkloadUID: %s",
-			req.Hints.PossibleFrameworks, req.WorkloadUID)
+	// 对每个 workload 进行处理
+	logrus.Infof("[WandB Detection API] Processing detection for %d workload(s)...", len(workloadUIDs))
+	successCount := 0
+	var lastErr error
+
+	for _, workloadUID := range workloadUIDs {
+		// 创建每个 workload 的请求副本
+		reqCopy := req
+		reqCopy.WorkloadUID = workloadUID
+
+		// Forward detection request to AI Advisor
+		logrus.Infof("[WandB Detection API] Forwarding detection request to AI Advisor for WorkloadUID: %s...", workloadUID)
+
+		// Convert request to AI Advisor format
+		advisorReq := convertToAdvisorWandBRequest(&reqCopy)
+
+		if err := wandbHandler.aiAdvisorClient.ReportWandBDetection(advisorReq); err != nil {
+			logrus.Errorf("[WandB Detection API] Failed to forward detection to AI Advisor for WorkloadUID %s: %v", workloadUID, err)
+			lastErr = err
+		} else {
+			successCount++
+			// 支持双层框架的成功日志
+			if len(req.Hints.WrapperFrameworks) > 0 || len(req.Hints.BaseFrameworks) > 0 {
+				logrus.Infof("[WandB Detection API] ✓ Detection processed successfully (双层框架) - Wrapper: %v, Base: %v, WorkloadUID: %s",
+					req.Hints.WrapperFrameworks, req.Hints.BaseFrameworks, workloadUID)
+			} else {
+				logrus.Infof("[WandB Detection API] ✓ Detection processed successfully - PossibleFrameworks: %v, WorkloadUID: %s",
+					req.Hints.PossibleFrameworks, workloadUID)
+			}
+		}
 	}
+
+	if successCount == 0 {
+		logrus.Errorf("[WandB Detection API] All workloads failed to process detection")
+		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(),
+			http.StatusInternalServerError, "failed to process detection", lastErr))
+		return
+	}
+
+	logrus.Infof("[WandB Detection API] ✓ Detection processing completed - Success: %d/%d workloads", successCount, len(workloadUIDs))
 	ctx.JSON(http.StatusOK, rest.SuccessResp(ctx.Request.Context(), gin.H{
-		"message": "detection reported successfully",
+		"message":         "detection reported successfully",
+		"workloads_count": len(workloadUIDs),
+		"success_count":   successCount,
 	}))
 }
 
@@ -160,22 +187,51 @@ func ReceiveWandBMetrics(ctx *gin.Context) {
 		return
 	}
 
-	// 尝试从 pod cache 中获取 workload 信息
-	fillWorkloadUIDFromPodName(&req.WorkloadUID, req.PodName, "WandB Metrics API")
-
-	logrus.Infof("[WandB Metrics API] Starting metrics processing (%d metrics)...", len(req.Metrics))
-	if err := wandbHandler.logProcessor.ProcessMetrics(ctx.Request.Context(), &req); err != nil {
-		logrus.Errorf("[WandB Metrics API] Failed to process metrics: %v", err)
-		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(),
-			http.StatusInternalServerError, "failed to process metrics", nil))
+	// 尝试从 pod cache 中获取 workload 信息（可能有多个）
+	workloadUIDs := getWorkloadUIDsFromPodName(req.WorkloadUID, req.PodName, "WandB Metrics API")
+	if len(workloadUIDs) == 0 {
+		logrus.Errorf("[WandB Metrics API] No valid workload UIDs found")
+		ctx.JSON(http.StatusBadRequest, rest.ErrorResp(ctx.Request.Context(),
+			http.StatusBadRequest, "no valid workload found", nil))
 		return
 	}
 
-	logrus.Infof("[WandB Metrics API] ✓ Metrics processed successfully - Count: %d, WorkloadUID: %s",
-		len(req.Metrics), req.WorkloadUID)
+	// 对每个 workload 进行处理
+	logrus.Infof("[WandB Metrics API] Processing metrics for %d workload(s), %d metrics per workload...",
+		len(workloadUIDs), len(req.Metrics))
+	successCount := 0
+	var lastErr error
+
+	for _, workloadUID := range workloadUIDs {
+		// 创建每个 workload 的请求副本
+		reqCopy := req
+		reqCopy.WorkloadUID = workloadUID
+
+		logrus.Infof("[WandB Metrics API] Starting metrics processing for WorkloadUID: %s (%d metrics)...",
+			workloadUID, len(req.Metrics))
+		if err := wandbHandler.logProcessor.ProcessMetrics(ctx.Request.Context(), &reqCopy); err != nil {
+			logrus.Errorf("[WandB Metrics API] Failed to process metrics for WorkloadUID %s: %v", workloadUID, err)
+			lastErr = err
+		} else {
+			successCount++
+			logrus.Infof("[WandB Metrics API] ✓ Metrics processed successfully - Count: %d, WorkloadUID: %s",
+				len(req.Metrics), workloadUID)
+		}
+	}
+
+	if successCount == 0 {
+		logrus.Errorf("[WandB Metrics API] All workloads failed to process metrics")
+		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(),
+			http.StatusInternalServerError, "failed to process metrics", lastErr))
+		return
+	}
+
+	logrus.Infof("[WandB Metrics API] ✓ Metrics processing completed - Success: %d/%d workloads", successCount, len(workloadUIDs))
 	ctx.JSON(http.StatusOK, rest.SuccessResp(ctx.Request.Context(), gin.H{
-		"message": "metrics reported successfully",
-		"count":   len(req.Metrics),
+		"message":         "metrics reported successfully",
+		"count":           len(req.Metrics),
+		"workloads_count": len(workloadUIDs),
+		"success_count":   successCount,
 	}))
 }
 
@@ -230,22 +286,51 @@ func ReceiveWandBLogs(ctx *gin.Context) {
 		return
 	}
 
-	// 尝试从 pod cache 中获取 workload 信息
-	fillWorkloadUIDFromPodName(&req.WorkloadUID, req.PodName, "WandB Logs/Training API")
-
-	logrus.Infof("[WandB Logs/Training API] Starting training data processing (%d entries)...", len(req.Logs))
-	if err := wandbHandler.logProcessor.ProcessLogs(ctx.Request.Context(), &req); err != nil {
-		logrus.Errorf("[WandB Logs/Training API] Failed to process training data: %v", err)
-		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(),
-			http.StatusInternalServerError, "failed to process logs", nil))
+	// 尝试从 pod cache 中获取 workload 信息（可能有多个）
+	workloadUIDs := getWorkloadUIDsFromPodName(req.WorkloadUID, req.PodName, "WandB Logs/Training API")
+	if len(workloadUIDs) == 0 {
+		logrus.Errorf("[WandB Logs/Training API] No valid workload UIDs found")
+		ctx.JSON(http.StatusBadRequest, rest.ErrorResp(ctx.Request.Context(),
+			http.StatusBadRequest, "no valid workload found", nil))
 		return
 	}
 
-	logrus.Infof("[WandB Logs/Training API] ✓ Training data processed successfully - Count: %d, WorkloadUID: %s",
-		len(req.Logs), req.WorkloadUID)
+	// 对每个 workload 进行处理
+	logrus.Infof("[WandB Logs/Training API] Processing training data for %d workload(s), %d entries per workload...",
+		len(workloadUIDs), len(req.Logs))
+	successCount := 0
+	var lastErr error
+
+	for _, workloadUID := range workloadUIDs {
+		// 创建每个 workload 的请求副本
+		reqCopy := req
+		reqCopy.WorkloadUID = workloadUID
+
+		logrus.Infof("[WandB Logs/Training API] Starting training data processing for WorkloadUID: %s (%d entries)...",
+			workloadUID, len(req.Logs))
+		if err := wandbHandler.logProcessor.ProcessLogs(ctx.Request.Context(), &reqCopy); err != nil {
+			logrus.Errorf("[WandB Logs/Training API] Failed to process training data for WorkloadUID %s: %v", workloadUID, err)
+			lastErr = err
+		} else {
+			successCount++
+			logrus.Infof("[WandB Logs/Training API] ✓ Training data processed successfully - Count: %d, WorkloadUID: %s",
+				len(req.Logs), workloadUID)
+		}
+	}
+
+	if successCount == 0 {
+		logrus.Errorf("[WandB Logs/Training API] All workloads failed to process training data")
+		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(),
+			http.StatusInternalServerError, "failed to process logs", lastErr))
+		return
+	}
+
+	logrus.Infof("[WandB Logs/Training API] ✓ Training data processing completed - Success: %d/%d workloads", successCount, len(workloadUIDs))
 	ctx.JSON(http.StatusOK, rest.SuccessResp(ctx.Request.Context(), gin.H{
-		"message": "training data reported successfully",
-		"count":   len(req.Logs),
+		"message":         "training data reported successfully",
+		"count":           len(req.Logs),
+		"workloads_count": len(workloadUIDs),
+		"success_count":   successCount,
 	}))
 }
 
@@ -299,75 +384,162 @@ func ReceiveWandBBatch(ctx *gin.Context) {
 
 	// 处理框架检测
 	if req.Detection != nil {
-		// 尝试从 pod cache 中获取 workload 信息
-		fillWorkloadUIDFromPodName(&req.Detection.WorkloadUID, req.Detection.PodName, "WandB Batch API - Detection")
+		// 尝试从 pod cache 中获取 workload 信息（可能有多个）
+		workloadUIDs := getWorkloadUIDsFromPodName(req.Detection.WorkloadUID, req.Detection.PodName, "WandB Batch API - Detection")
 
-		// 支持双层框架的日志输出
-		if len(req.Detection.Hints.WrapperFrameworks) > 0 || len(req.Detection.Hints.BaseFrameworks) > 0 {
-			logrus.Infof("[WandB Batch API] Processing detection (双层框架) - Wrapper: %v, Base: %v, WorkloadUID: %s",
-				req.Detection.Hints.WrapperFrameworks, req.Detection.Hints.BaseFrameworks, req.Detection.WorkloadUID)
-		} else {
-			logrus.Infof("[WandB Batch API] Processing detection - PossibleFrameworks: %v, WorkloadUID: %s",
-				req.Detection.Hints.PossibleFrameworks, req.Detection.WorkloadUID)
-		}
-		// Forward to AI Advisor
-		advisorReq := convertToAdvisorWandBRequest(req.Detection)
-		if err := wandbHandler.aiAdvisorClient.ReportWandBDetection(advisorReq); err != nil {
-			logrus.Errorf("[WandB Batch API] Failed to forward detection to AI Advisor: %v", err)
+		if len(workloadUIDs) == 0 {
+			logrus.Errorf("[WandB Batch API] No valid workload UIDs found for detection")
 			result["results"].(gin.H)["detection"] = gin.H{
 				"success": false,
-				"error":   err.Error(),
+				"error":   "no valid workload found",
 			}
 		} else {
-			logrus.Infof("[WandB Batch API] ✓ Detection forwarded to AI Advisor successfully")
-			result["results"].(gin.H)["detection"] = gin.H{
-				"success": true,
+			// 对每个 workload 进行处理
+			logrus.Infof("[WandB Batch API] Processing detection for %d workload(s)...", len(workloadUIDs))
+			detectionSuccessCount := 0
+			var detectionLastErr error
+
+			for _, workloadUID := range workloadUIDs {
+				// 创建每个 workload 的请求副本
+				detectionReq := *req.Detection
+				detectionReq.WorkloadUID = workloadUID
+
+				// 支持双层框架的日志输出
+				if len(detectionReq.Hints.WrapperFrameworks) > 0 || len(detectionReq.Hints.BaseFrameworks) > 0 {
+					logrus.Infof("[WandB Batch API] Processing detection (双层框架) - Wrapper: %v, Base: %v, WorkloadUID: %s",
+						detectionReq.Hints.WrapperFrameworks, detectionReq.Hints.BaseFrameworks, workloadUID)
+				} else {
+					logrus.Infof("[WandB Batch API] Processing detection - PossibleFrameworks: %v, WorkloadUID: %s",
+						detectionReq.Hints.PossibleFrameworks, workloadUID)
+				}
+
+				// Forward to AI Advisor
+				advisorReq := convertToAdvisorWandBRequest(&detectionReq)
+				if err := wandbHandler.aiAdvisorClient.ReportWandBDetection(advisorReq); err != nil {
+					logrus.Errorf("[WandB Batch API] Failed to forward detection to AI Advisor for WorkloadUID %s: %v", workloadUID, err)
+					detectionLastErr = err
+				} else {
+					detectionSuccessCount++
+					logrus.Infof("[WandB Batch API] ✓ Detection forwarded to AI Advisor successfully for WorkloadUID: %s", workloadUID)
+				}
+			}
+
+			if detectionSuccessCount == 0 {
+				result["results"].(gin.H)["detection"] = gin.H{
+					"success": false,
+					"error":   detectionLastErr.Error(),
+				}
+			} else {
+				logrus.Infof("[WandB Batch API] ✓ Detection processing completed - Success: %d/%d workloads", detectionSuccessCount, len(workloadUIDs))
+				result["results"].(gin.H)["detection"] = gin.H{
+					"success":         true,
+					"workloads_count": len(workloadUIDs),
+					"success_count":   detectionSuccessCount,
+				}
 			}
 		}
 	}
 
 	// 处理指标
 	if req.Metrics != nil {
-		// 尝试从 pod cache 中获取 workload 信息
-		fillWorkloadUIDFromPodName(&req.Metrics.WorkloadUID, req.Metrics.PodName, "WandB Batch API - Metrics")
+		// 尝试从 pod cache 中获取 workload 信息（可能有多个）
+		workloadUIDs := getWorkloadUIDsFromPodName(req.Metrics.WorkloadUID, req.Metrics.PodName, "WandB Batch API - Metrics")
 
-		logrus.Infof("[WandB Batch API] Processing metrics - Count: %d, WorkloadUID: %s",
-			len(req.Metrics.Metrics), req.Metrics.WorkloadUID)
-		if err := wandbHandler.logProcessor.ProcessMetrics(ctx.Request.Context(), req.Metrics); err != nil {
-			logrus.Errorf("[WandB Batch API] Failed to process metrics: %v", err)
+		if len(workloadUIDs) == 0 {
+			logrus.Errorf("[WandB Batch API] No valid workload UIDs found for metrics")
 			result["results"].(gin.H)["metrics"] = gin.H{
 				"success": false,
-				"error":   err.Error(),
+				"error":   "no valid workload found",
 			}
 		} else {
-			logrus.Infof("[WandB Batch API] ✓ Metrics processed successfully - Count: %d",
-				len(req.Metrics.Metrics))
-			result["results"].(gin.H)["metrics"] = gin.H{
-				"success": true,
-				"count":   len(req.Metrics.Metrics),
+			// 对每个 workload 进行处理
+			logrus.Infof("[WandB Batch API] Processing metrics for %d workload(s), %d metrics per workload...",
+				len(workloadUIDs), len(req.Metrics.Metrics))
+			metricsSuccessCount := 0
+			var metricsLastErr error
+
+			for _, workloadUID := range workloadUIDs {
+				// 创建每个 workload 的请求副本
+				metricsReq := *req.Metrics
+				metricsReq.WorkloadUID = workloadUID
+
+				logrus.Infof("[WandB Batch API] Processing metrics - Count: %d, WorkloadUID: %s",
+					len(metricsReq.Metrics), workloadUID)
+				if err := wandbHandler.logProcessor.ProcessMetrics(ctx.Request.Context(), &metricsReq); err != nil {
+					logrus.Errorf("[WandB Batch API] Failed to process metrics for WorkloadUID %s: %v", workloadUID, err)
+					metricsLastErr = err
+				} else {
+					metricsSuccessCount++
+					logrus.Infof("[WandB Batch API] ✓ Metrics processed successfully - Count: %d, WorkloadUID: %s",
+						len(metricsReq.Metrics), workloadUID)
+				}
+			}
+
+			if metricsSuccessCount == 0 {
+				result["results"].(gin.H)["metrics"] = gin.H{
+					"success": false,
+					"error":   metricsLastErr.Error(),
+				}
+			} else {
+				logrus.Infof("[WandB Batch API] ✓ Metrics processing completed - Success: %d/%d workloads", metricsSuccessCount, len(workloadUIDs))
+				result["results"].(gin.H)["metrics"] = gin.H{
+					"success":         true,
+					"count":           len(req.Metrics.Metrics),
+					"workloads_count": len(workloadUIDs),
+					"success_count":   metricsSuccessCount,
+				}
 			}
 		}
 	}
 
 	// 处理日志
 	if req.Logs != nil {
-		// 尝试从 pod cache 中获取 workload 信息
-		fillWorkloadUIDFromPodName(&req.Logs.WorkloadUID, req.Logs.PodName, "WandB Batch API - Logs")
+		// 尝试从 pod cache 中获取 workload 信息（可能有多个）
+		workloadUIDs := getWorkloadUIDsFromPodName(req.Logs.WorkloadUID, req.Logs.PodName, "WandB Batch API - Logs")
 
-		logrus.Infof("[WandB Batch API] Processing training data - Count: %d, WorkloadUID: %s",
-			len(req.Logs.Logs), req.Logs.WorkloadUID)
-		if err := wandbHandler.logProcessor.ProcessLogs(ctx.Request.Context(), req.Logs); err != nil {
-			logrus.Errorf("[WandB Batch API] Failed to process training data: %v", err)
+		if len(workloadUIDs) == 0 {
+			logrus.Errorf("[WandB Batch API] No valid workload UIDs found for logs")
 			result["results"].(gin.H)["logs"] = gin.H{
 				"success": false,
-				"error":   err.Error(),
+				"error":   "no valid workload found",
 			}
 		} else {
-			logrus.Infof("[WandB Batch API] ✓ Training data processed successfully - Count: %d",
-				len(req.Logs.Logs))
-			result["results"].(gin.H)["logs"] = gin.H{
-				"success": true,
-				"count":   len(req.Logs.Logs),
+			// 对每个 workload 进行处理
+			logrus.Infof("[WandB Batch API] Processing training data for %d workload(s), %d entries per workload...",
+				len(workloadUIDs), len(req.Logs.Logs))
+			logsSuccessCount := 0
+			var logsLastErr error
+
+			for _, workloadUID := range workloadUIDs {
+				// 创建每个 workload 的请求副本
+				logsReq := *req.Logs
+				logsReq.WorkloadUID = workloadUID
+
+				logrus.Infof("[WandB Batch API] Processing training data - Count: %d, WorkloadUID: %s",
+					len(logsReq.Logs), workloadUID)
+				if err := wandbHandler.logProcessor.ProcessLogs(ctx.Request.Context(), &logsReq); err != nil {
+					logrus.Errorf("[WandB Batch API] Failed to process training data for WorkloadUID %s: %v", workloadUID, err)
+					logsLastErr = err
+				} else {
+					logsSuccessCount++
+					logrus.Infof("[WandB Batch API] ✓ Training data processed successfully - Count: %d, WorkloadUID: %s",
+						len(logsReq.Logs), workloadUID)
+				}
+			}
+
+			if logsSuccessCount == 0 {
+				result["results"].(gin.H)["logs"] = gin.H{
+					"success": false,
+					"error":   logsLastErr.Error(),
+				}
+			} else {
+				logrus.Infof("[WandB Batch API] ✓ Training data processing completed - Success: %d/%d workloads", logsSuccessCount, len(workloadUIDs))
+				result["results"].(gin.H)["logs"] = gin.H{
+					"success":         true,
+					"count":           len(req.Logs.Logs),
+					"workloads_count": len(workloadUIDs),
+					"success_count":   logsSuccessCount,
+				}
 			}
 		}
 	}
@@ -386,22 +558,39 @@ func getMapKeys(m map[string]interface{}) []string {
 	return keys
 }
 
-// fillWorkloadUIDFromPodName 根据 PodName 从缓存中填充 WorkloadUID
-// 如果 WorkloadUID 为空但 PodName 不为空，尝试从 pod_cache 中获取 workload 信息
-func fillWorkloadUIDFromPodName(workloadUID *string, podName string, apiName string) {
-	if *workloadUID == "" && podName != "" {
-		logrus.Infof("[%s] WorkloadUID not provided, trying to get from pod cache by PodName: %s", apiName, podName)
+// getWorkloadUIDsFromPodName 根据 PodName 从缓存中获取所有关联的 WorkloadUID
+// 如果 WorkloadUID 已提供则直接返回；否则从 pod_cache 中获取所有关联的 workload 信息
+// 返回 workload UID 数组，一个 pod 可能对应多个 workload
+func getWorkloadUIDsFromPodName(workloadUID string, podName string, apiName string) []string {
+	// 如果已经提供了 WorkloadUID，直接返回
+	if workloadUID != "" {
+		logrus.Infof("[%s] WorkloadUID provided: %s", apiName, workloadUID)
+		return []string{workloadUID}
+	}
+
+	// 如果提供了 PodName，尝试从缓存中获取所有关联的 workload
+	if podName != "" {
+		logrus.Infof("[%s] WorkloadUID not provided, trying to get all workloads from pod cache by PodName: %s", apiName, podName)
 		workloads := pods.GetWorkloadsByPodName(podName)
 		if len(workloads) > 0 {
-			// 取第一个 workload（通常一个 pod 只属于一个 workload）
-			workloadName := workloads[0][0]
-			*workloadUID = workloads[0][1]
-			logrus.Infof("[%s] ✓ Found workload from cache - WorkloadName: %s, WorkloadUID: %s, PodName: %s",
-				apiName, workloadName, *workloadUID, podName)
+			workloadUIDs := make([]string, 0, len(workloads))
+			for _, workload := range workloads {
+				workloadName := workload[0]
+				workloadUID := workload[1]
+				workloadUIDs = append(workloadUIDs, workloadUID)
+				logrus.Infof("[%s] ✓ Found workload from cache - WorkloadName: %s, WorkloadUID: %s, PodName: %s",
+					apiName, workloadName, workloadUID, podName)
+			}
+			logrus.Infof("[%s] Total %d workload(s) found for PodName: %s", apiName, len(workloadUIDs), podName)
+			return workloadUIDs
 		} else {
-			logrus.Warnf("[%s] Failed to find workload for PodName: %s in cache", apiName, podName)
+			logrus.Warnf("[%s] Failed to find any workload for PodName: %s in cache", apiName, podName)
+			return []string{}
 		}
 	}
+
+	logrus.Warnf("[%s] Neither WorkloadUID nor PodName provided", apiName)
+	return []string{}
 }
 
 // convertToAdvisorWandBRequest converts telemetry-processor WandBDetectionRequest
