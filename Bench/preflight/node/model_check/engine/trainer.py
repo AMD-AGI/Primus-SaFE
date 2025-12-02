@@ -59,7 +59,7 @@ class Trainer:
             batch_size=config.training.batch_size,
             shuffle=True,
             num_workers=config.data.num_workers,
-            pin_memory=config.data.pin_memory and config.system.device == "cuda",
+            pin_memory=config.data.pin_memory and self.device.type == "cuda",
             prefetch_factor=config.data.prefetch_factor if config.data.num_workers > 0 else None,
         )
         
@@ -80,10 +80,10 @@ class Trainer:
         )
         
         # Mixed precision training
-        self.use_amp = config.training.use_amp and config.system.device == "cuda"
+        self.use_amp = config.training.use_amp and self.device.type == "cuda"
         if self.use_amp:
             # Use new torch.amp.GradScaler API to avoid deprecation warning
-            self.scaler = torch.amp.GradScaler('cuda')
+            self.scaler = torch.amp.GradScaler(self.device.type)
             # Ensure amp_dtype is a torch.dtype, not a string
             amp_dtype = config.training.amp_dtype
             
