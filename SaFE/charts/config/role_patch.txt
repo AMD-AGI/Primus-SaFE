@@ -25,7 +25,6 @@
   - priorityclasses
   - endpoints
   - events
-  - ingresses
   verbs:
   - '*'
 - apiGroups:
@@ -45,5 +44,11 @@
   resources:
   - "clusterrolebindings"
   - "clusterroles"
+  verbs:
+  - '*'
+- apiGroups:
+  - networking.k8s.io
+  resources:
+  - ingresses
   verbs:
   - '*'

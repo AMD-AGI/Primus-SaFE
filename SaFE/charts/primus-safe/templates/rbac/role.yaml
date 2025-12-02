@@ -85,7 +85,6 @@ rules:
   - priorityclasses
   - endpoints
   - events
-  - ingresses
   verbs:
   - '*'
 - apiGroups:
@@ -105,6 +104,12 @@ rules:
   resources:
   - "clusterrolebindings"
   - "clusterroles"
+  verbs:
+  - '*'
+- apiGroups:
+  - networking.k8s.io
+  resources:
+  - ingresses
   verbs:
   - '*'
 ---
