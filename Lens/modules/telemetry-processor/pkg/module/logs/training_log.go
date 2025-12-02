@@ -25,8 +25,8 @@ import (
 
 var (
 	// Global singletons (initialized at startup)
-	aiAdvisorClient *advisorClient.Client // AI Advisor client for framework detection
-	configManager   *FrameworkConfigManager // For local log pattern matching
+	aiAdvisorClient *advisorClient.Client      // AI Advisor client for framework detection
+	configManager   *FrameworkConfigManager    // For local log pattern matching
 	patternMatchers map[string]*PatternMatcher // For local log parsing
 )
 
@@ -42,7 +42,7 @@ func InitializeWandBHandlerAndLogProcessing(aiAdvisorURL string, systemConfigMgr
 	}
 
 	aiAdvisorClient = advisorClient.NewClientWithDefaults(aiAdvisorURL).
-		SetTimeout(30 * time.Second).
+		SetTimeout(30*time.Second).
 		SetRetry(3, 1*time.Second)
 
 	logrus.Infof("AI Advisor client initialized: %s", aiAdvisorURL)
