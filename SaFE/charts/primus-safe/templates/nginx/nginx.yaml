@@ -3,7 +3,7 @@
 # See LICENSE for license information.
 #
 
-{{- if eq .Values.global.ingress "nginx" }}
+{{- if eq .Values.net.ingress "nginx" }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
