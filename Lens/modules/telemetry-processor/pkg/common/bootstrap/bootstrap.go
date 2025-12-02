@@ -116,9 +116,8 @@ func initRouter(group *gin.RouterGroup) error {
 	group.GET("silences", alerts.ListSilences)
 	group.DELETE("silences/:id", alerts.DeleteSilence)
 
-	// Debug endpoints for pattern matchers
+	// Legacy debug endpoints (kept for backward compatibility)
 	group.GET("debug/pattern-matchers", api.GetPatternMatchers)
-	group.GET("debug/frameworks", api.GetFrameworkList)
 	group.GET("debug/pattern-matchers/:framework", api.GetPatternMatcherByFramework)
 
 	return nil
