@@ -181,6 +181,17 @@ func (r *ModelReconciler) needsCleanup(model *v1.Model) bool {
 
 // handleDelete handles the deletion of a Model resource
 func (r *ModelReconciler) handleDelete(ctx context.Context, model *v1.Model) (ctrl.Result, error) {
+	// Delete associated Inference if exists
+	if model.Status.InferenceID != "" {
+		inference := &v1.Inference{}
+		if err := r.Get(ctx, client.ObjectKey{Name: model.Status.InferenceID}, inference); err == nil {
+			klog.InfoS("Deleting associated inference", "model", model.Name, "inference", model.Status.InferenceID)
+			if err := r.Delete(ctx, inference); err != nil && !errors.IsNotFound(err) {
+				klog.ErrorS(err, "Failed to delete associated inference", "inference", model.Status.InferenceID)
+			}
+		}
+	}
+
 	// If no finalizer, nothing to do
 	if !controllerutil.ContainsFinalizer(model, ModelFinalizer) {
 		return ctrl.Result{}, nil

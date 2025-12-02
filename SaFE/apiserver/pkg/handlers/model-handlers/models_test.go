@@ -449,7 +449,7 @@ func TestCreateModel_ValidationErrors(t *testing.T) {
 	}
 }
 
-// TestToggleModel_Enable tests enabling a model (starting inference)
+// TestToggleModel_Enable tests enabling a local model (starting inference)
 func TestToggleModel_Enable(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -457,7 +457,7 @@ func TestToggleModel_Enable(t *testing.T) {
 	_ = v1.AddToScheme(scheme)
 	_ = corev1.AddToScheme(scheme)
 
-	// Create a test model
+	// Create a test LOCAL model (remote_api models create inference at creation time)
 	testModel := &v1.Model{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "test-model",
@@ -467,8 +467,12 @@ func TestToggleModel_Enable(t *testing.T) {
 			DisplayName: "Test Model",
 			Description: "A test model",
 			Source: v1.ModelSource{
-				URL:        "https://api.test.com",
-				AccessMode: v1.AccessModeRemoteAPI,
+				URL:        "https://huggingface.co/test/model",
+				AccessMode: v1.AccessModeLocal, // Use local mode for toggle test
+			},
+			DownloadTarget: &v1.DownloadTarget{
+				Type:      v1.DownloadTypeLocal,
+				LocalPath: "/apps/models/test",
 			},
 		},
 		Status: v1.ModelStatus{
@@ -487,9 +491,21 @@ func TestToggleModel_Enable(t *testing.T) {
 		k8sClient: k8sClient,
 	}
 
-	// Create request to enable
+	// Create request to enable with required resource and config for local models
 	reqBody := ToggleModelRequest{
 		Enabled: true,
+		Resource: &ToggleResourceReq{
+			Workspace: "test-workspace",
+			Replica:   1,
+			CPU:       4,
+			Memory:    16,
+			GPU:       "1",
+		},
+		Config: &ToggleConfigReq{
+			Image:      "vllm/vllm-openai:latest",
+			EntryPoint: "dmxsbSBzZXJ2ZSAvYXBwcy9tb2RlbHMvdGVzdA==", // base64 encoded
+			ModelPath:  "/apps/models/test",
+		},
 	}
 
 	bodyBytes, _ := json.Marshal(reqBody)
@@ -525,6 +541,72 @@ func TestToggleModel_Enable(t *testing.T) {
 	inference := inferenceList.Items[0]
 	assert.Equal(t, "Test Model", inference.Spec.DisplayName)
 	assert.Equal(t, "test-user", inference.Spec.UserID)
+}
+
+// TestToggleModel_RemoteAPI tests that remote API models don't need toggle
+func TestToggleModel_RemoteAPI(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	scheme := runtime.NewScheme()
+	_ = v1.AddToScheme(scheme)
+	_ = corev1.AddToScheme(scheme)
+
+	// Create a remote API model with existing inference (created at model creation time)
+	testModel := &v1.Model{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-api-model",
+			Namespace: common.PrimusSafeNamespace,
+		},
+		Spec: v1.ModelSpec{
+			DisplayName: "Test API Model",
+			Description: "A test API model",
+			Source: v1.ModelSource{
+				URL:        "https://api.test.com",
+				AccessMode: v1.AccessModeRemoteAPI,
+			},
+		},
+		Status: v1.ModelStatus{
+			Phase:          v1.ModelPhaseReady,
+			InferenceID:    "existing-inference", // Already has inference
+			InferencePhase: "Running",
+		},
+	}
+
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(testModel).
+		WithStatusSubresource(&v1.Model{}).
+		Build()
+
+	handler := &Handler{
+		k8sClient: k8sClient,
+	}
+
+	// Try to toggle a remote API model
+	reqBody := ToggleModelRequest{
+		Enabled: true,
+	}
+
+	bodyBytes, _ := json.Marshal(reqBody)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("POST", "/models/test-api-model/toggle", bytes.NewBuffer(bodyBytes))
+	c.Request.Header.Set("Content-Type", "application/json")
+	c.Params = gin.Params{gin.Param{Key: "id", Value: "test-api-model"}}
+
+	c.Set(common.UserId, "test-user")
+	c.Set(common.UserName, "Test User")
+
+	result, err := handler.toggleModel(c)
+
+	// Should succeed with message indicating no action needed
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	respMap, ok := result.(gin.H)
+	require.True(t, ok)
+	// Remote API models should indicate they're always available
+	assert.Contains(t, respMap["message"], "remote API model")
 }
 
 // TestToggleModel_Disable tests disabling a model (stopping inference)

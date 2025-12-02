@@ -336,15 +336,6 @@ func (r *InferenceReconciler) createWorkload(ctx context.Context, inference *v1.
 			Workspace:  inference.Spec.Resource.Workspace,
 			Image:      inference.Spec.Config.Image,
 			EntryPoint: inference.Spec.Config.EntryPoint,
-			// Inject environment variables for entryPoint script to use
-			Env: map[string]string{
-				"MODEL_PATH":             inference.Spec.Config.ModelPath,
-				"TENSOR_PARALLEL_SIZE":   fmt.Sprintf("%d", inference.Spec.Resource.Replica),
-				"CPU_COUNT":              fmt.Sprintf("%d", inference.Spec.Resource.Cpu),
-				"MEMORY_GB":              fmt.Sprintf("%d", inference.Spec.Resource.Memory),
-				"GPU_COUNT":              inference.Spec.Resource.Gpu,
-				"VLLM_ATTENTION_BACKEND": "FLEX_ATTENTION", // Support models with non-standard head sizes on ROCm
-			},
 			GroupVersionKind: v1.GroupVersionKind{
 				Kind:    common.PytorchJobKind,
 				Version: "v1",
@@ -417,19 +408,28 @@ func (r *InferenceReconciler) syncWorkloadStatus(ctx context.Context, inference 
 // updateInferenceInstance updates the inference instance information
 func (r *InferenceReconciler) updateInferenceInstance(ctx context.Context, inference *v1.Inference, workload *v1.Workload) error {
 	// Extract service information from workload
-	// TODO: Implement proper service discovery
-	// For now, use mock data
 	originalInference := inference.DeepCopy()
+	needsUpdate := false
 
-	if inference.Spec.Instance.BaseUrl == "" && len(workload.Status.Pods) > 0 {
-		// Mock base URL from pod IP
+	// Always update BaseUrl from current pod IP (pod IP may change after restart)
+	if len(workload.Status.Pods) > 0 {
 		pod := workload.Status.Pods[0]
-		inference.Spec.Instance.BaseUrl = fmt.Sprintf("http://%s:8000", pod.PodIp)
+		newBaseUrl := fmt.Sprintf("http://%s:8000", pod.PodIp)
+		if inference.Spec.Instance.BaseUrl != newBaseUrl {
+			inference.Spec.Instance.BaseUrl = newBaseUrl
+			needsUpdate = true
+			klog.Infof("Updated inference %s baseUrl to %s", inference.Name, newBaseUrl)
+		}
 	}
 
 	if inference.Spec.Instance.ApiKey == "" {
-		// Generate mock API key
+		// Generate API key if not set
 		inference.Spec.Instance.ApiKey = fmt.Sprintf("sk-%s", inference.Name)
+		needsUpdate = true
+	}
+
+	if !needsUpdate {
+		return nil
 	}
 
 	return r.Patch(ctx, inference, client.MergeFrom(originalInference))
