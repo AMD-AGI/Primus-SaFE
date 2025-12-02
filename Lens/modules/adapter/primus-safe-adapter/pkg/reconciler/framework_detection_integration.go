@@ -74,9 +74,9 @@ func (f *FrameworkDetectionIntegration) OnWorkloadCreated(
 	}
 
 	if reusedDetection != nil {
-		log.Infof("✓ Reused metadata from %s, framework=%s, confidence=%.2f",
+		log.Infof("✓ Reused metadata from %s, framework=%v, confidence=%.2f",
 			reusedDetection.ReuseInfo.ReusedFrom,
-			reusedDetection.Framework,
+			reusedDetection.Frameworks,
 			reusedDetection.Confidence)
 	}
 
@@ -100,8 +100,8 @@ func (f *FrameworkDetectionIntegration) OnWorkloadCreated(
 	}
 
 	if finalDetection != nil {
-		log.Infof("✓ Framework detection completed: framework=%s, confidence=%.2f, status=%s, sources=%d",
-			finalDetection.Framework,
+		log.Infof("✓ Framework detection completed: framework=%v, confidence=%.2f, status=%s, sources=%d",
+			finalDetection.Frameworks,
 			finalDetection.Confidence,
 			finalDetection.Status,
 			len(finalDetection.Sources))
@@ -138,11 +138,17 @@ func (f *FrameworkDetectionIntegration) tryReuseMetadata(
 		"reuse_reason":     "high_similarity_match",
 	}
 
+	// Get primary framework from Frameworks array
+	primaryFramework := "unknown"
+	if len(detection.Frameworks) > 0 {
+		primaryFramework = detection.Frameworks[0]
+	}
+
 	err = f.detectionManager.ReportDetection(
 		ctx,
 		string(workload.UID),
 		"reuse",
-		detection.Framework,
+		primaryFramework,
 		detection.Type,
 		detection.Confidence,
 		evidence,

@@ -124,6 +124,7 @@ var (
 	frameworkDetectionCount      *prometheus.CounterVec
 	frameworkDetectionConfidence *prometheus.HistogramVec
 	frameworkDetectionErrors     *prometheus.CounterVec
+	frameworkUsageCount          *prometheus.CounterVec
 )
 
 func init() {
@@ -160,6 +161,17 @@ func init() {
 		[]string{"source", "error_type"}, // source: wandb/log, error_type: no_match/report_failed
 	)
 	prometheus.MustRegister(frameworkDetectionErrors)
+
+	// 框架使用统计（从AI Advisor获取的检测结果）
+	frameworkUsageCount = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Subsystem: "framework_usage",
+			Name:      "total",
+			Help:      "Total number of workloads using each framework (from AI Advisor detection)",
+		},
+		[]string{"framework", "detection_source"}, // framework: primus/pytorch/megatron/etc, detection_source: wrapper/base/primary
+	)
+	prometheus.MustRegister(frameworkUsageCount)
 }
 
 // Log pattern matching metrics
@@ -376,6 +388,10 @@ func ObserveFrameworkDetectionConfidence(framework, method string, confidence fl
 
 func IncFrameworkDetectionErrors(source, errorType string) {
 	frameworkDetectionErrors.WithLabelValues(source, errorType).Inc()
+}
+
+func IncFrameworkUsageCount(framework, detectionSource string) {
+	frameworkUsageCount.WithLabelValues(framework, detectionSource).Inc()
 }
 
 // Log pattern matching helper functions

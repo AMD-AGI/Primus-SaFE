@@ -142,10 +142,13 @@ func WorkloadLog(ctx context.Context, podUid string, msg string, logTime time.Ti
 			// This prevents issues if Frameworks array order changes
 			if detection.WrapperFramework != "" {
 				frameworkName = detection.WrapperFramework
+				IncFrameworkUsageCount(frameworkName, "wrapper")
 			} else if detection.BaseFramework != "" {
 				frameworkName = detection.BaseFramework
+				IncFrameworkUsageCount(frameworkName, "base")
 			} else if len(detection.Frameworks) > 0 {
 				frameworkName = detection.Frameworks[0]
+				IncFrameworkUsageCount(frameworkName, "primary")
 			}
 
 		}
