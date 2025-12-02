@@ -66,21 +66,6 @@ type DataSourcesResponse struct {
 	TotalCount  int              `json:"total_count"`
 }
 
-// IterationTimePoint iteration 时间点数据
-type IterationTimePoint struct {
-	Iteration  int32  `json:"iteration"`   // 训练步数/迭代次数
-	Timestamp  int64  `json:"timestamp"`   // 时间戳（毫秒）
-	DataSource string `json:"data_source"` // 数据来源
-}
-
-// IterationTimesResponse iteration 时间列表响应
-type IterationTimesResponse struct {
-	WorkloadUID string               `json:"workload_uid"`
-	DataSource  string               `json:"data_source,omitempty"`
-	Data        []IterationTimePoint `json:"data"`
-	TotalCount  int                  `json:"total_count"`
-}
-
 // isMetricField 判断字段是否为实际指标（根据数据源类型）
 func isMetricField(fieldName string, dataSource string) bool {
 	switch dataSource {
@@ -383,6 +368,10 @@ func GetMetricsData(ctx *gin.Context) {
 //   - data_source: 数据来源 (可选，如 "log", "wandb", "tensorflow")
 //   - start: 开始时间戳（毫秒）(可选)
 //   - end: 结束时间戳（毫秒）(可选)
+//
+// 返回格式与 GetMetricsData 相同，包含两个指标：
+//   - metric_name: "iteration" - 当前迭代次数
+//   - metric_name: "target_iteration" - 目标迭代次数
 func GetIterationTimes(ctx *gin.Context) {
 	workloadUID := ctx.Param("uid")
 	if workloadUID == "" {
@@ -446,36 +435,67 @@ func GetIterationTimes(ctx *gin.Context) {
 		return
 	}
 
-	// 构建 iteration 时间点列表
+	// 构建指标数据点列表
 	// 使用 map 去重，因为同一个 iteration 可能有多个指标记录
-	iterationMap := make(map[int32]*IterationTimePoint)
+	type IterationInfo struct {
+		Timestamp       int64
+		TargetIteration *float64
+		DataSource      string
+	}
+	iterationMap := make(map[int32]*IterationInfo)
 
 	for _, p := range performances {
 		timestamp := p.CreatedAt.UnixMilli()
+
+		// 提取 TargetIteration（如果存在）
+		var targetIteration *float64
+		if targetIterValue, exists := p.Performance["TargetIteration"]; exists {
+			targetIterFloat := convertToFloat(targetIterValue)
+			if !math.IsNaN(targetIterFloat) {
+				targetIteration = &targetIterFloat
+			}
+		}
+
 		// 如果这个 iteration 还没记录，或者当前记录的时间更早，则更新
 		if existing, exists := iterationMap[p.Iteration]; !exists || timestamp < existing.Timestamp {
-			iterationMap[p.Iteration] = &IterationTimePoint{
-				Iteration:  p.Iteration,
-				Timestamp:  timestamp,
-				DataSource: p.DataSource,
+			iterationMap[p.Iteration] = &IterationInfo{
+				Timestamp:       timestamp,
+				TargetIteration: targetIteration,
+				DataSource:      p.DataSource,
 			}
 		}
 	}
 
-	// 转换为数组
-	timePoints := make([]IterationTimePoint, 0, len(iterationMap))
-	for _, point := range iterationMap {
-		timePoints = append(timePoints, *point)
+	// 转换为 MetricDataPoint 数组
+	dataPoints := make([]MetricDataPoint, 0, len(iterationMap)*2)
+
+	for iteration, info := range iterationMap {
+		// 添加 iteration 数据点
+		dataPoints = append(dataPoints, MetricDataPoint{
+			MetricName: "iteration",
+			Value:      float64(iteration),
+			Timestamp:  info.Timestamp,
+			Iteration:  iteration,
+			DataSource: info.DataSource,
+		})
+
+		// 如果有 target_iteration，添加对应的数据点
+		if info.TargetIteration != nil {
+			dataPoints = append(dataPoints, MetricDataPoint{
+				MetricName: "target_iteration",
+				Value:      *info.TargetIteration,
+				Timestamp:  info.Timestamp,
+				Iteration:  iteration,
+				DataSource: info.DataSource,
+			})
+		}
 	}
 
-	// 按 iteration 排序（可选，如果需要有序返回）
-	// 这里为了性能暂不排序，客户端可以自行排序
-
-	response := IterationTimesResponse{
+	response := MetricsDataResponse{
 		WorkloadUID: workloadUID,
 		DataSource:  dataSource,
-		Data:        timePoints,
-		TotalCount:  len(timePoints),
+		Data:        dataPoints,
+		TotalCount:  len(dataPoints),
 	}
 
 	ctx.JSON(200, response)

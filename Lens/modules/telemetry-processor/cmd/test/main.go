@@ -99,5 +99,10 @@ func main() {
 			continue
 		}
 		fmt.Printf("%s match\n", name)
+		all := r.FindStringSubmatch(logV2)
+		names := r.SubexpNames()
+		for i := range all {
+			fmt.Println(names[i] + ":" + all[i])
+		}
 	}
 }
