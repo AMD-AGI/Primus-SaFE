@@ -59,7 +59,7 @@ class Trainer:
             batch_size=config.training.batch_size,
             shuffle=True,
             num_workers=config.data.num_workers,
-            pin_memory=config.data.pin_memory and self.device.type == "cuda",
+            pin_memory=config.data.pin_memory and config.system.device == "cuda",
             prefetch_factor=config.data.prefetch_factor if config.data.num_workers > 0 else None,
         )
         
