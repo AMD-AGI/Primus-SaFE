@@ -97,12 +97,15 @@ def build_model(config, hf_config):
     
     # Instantiate model with configuration
     try:
-        # Pass debug flag and attention backend if available
+        # Pass debug flag if available
         debug_enabled = config.debug.enabled if hasattr(config, 'debug') else False
+        
+        # Note: attention_backend configuration is handled internally by BasicAttention
+        # Log the intended backend for informational purposes
         attention_backend = getattr(config.model, 'attention_backend', 'native_math')
         use_flash_attention = getattr(config.model, 'use_flash_attention', False)
         
-        # Determine the actual backend to use
+        # Determine what backend would be used (for logging only)
         if not use_flash_attention:
             attention_backend = 'native_math'  # Force native_math if flash is disabled
         elif attention_backend == 'flash_attn' and not config.training.use_amp:
@@ -110,8 +113,8 @@ def build_model(config, hf_config):
             attention_backend = 'native_math'
             logger.warning("Flash attention requires fp16/bf16. Falling back to native_math since AMP is disabled.")
         
-        model = model_class(hf_config, debug_enabled=debug_enabled, attention_backend=attention_backend)
-        logger.info(f"Model created successfully: {model.__class__.__name__} with attention backend: {attention_backend}")
+        model = model_class(hf_config, debug_enabled=debug_enabled)
+        logger.info(f"Model created successfully: {model.__class__.__name__} (backend selection handled internally)")
     except TypeError:
         # Fallback for models that don't accept debug parameter
         try:

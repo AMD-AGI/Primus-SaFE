@@ -179,16 +179,18 @@ def check_grad_nan(grad, name="gradient", location=""):
                     percentiles = torch.quantile(valid_grad.float(), torch.tensor([0.01, 0.25, 0.5, 0.75, 0.99]).to(valid_grad.device))
                     print(f"    Percentiles [1%, 25%, 50%, 75%, 99%]: {percentiles.tolist()}")
         
-    print("\n" + "="*80)
-    print("[CALL STACK]")
-    print("="*80)
-    traceback.print_stack()
+        print("\n" + "="*80)
+        print("[CALL STACK]")
+        print("="*80)
+        traceback.print_stack()
+        
+        print("="*80)
+        print("[EXITING] Program terminated due to gradient NaN detection")
+        print("="*80)
+        
+        sys.exit(1)
     
-    print("="*80)
-    print("[EXITING] Program terminated due to gradient NaN detection")
-    print("="*80)
-    
-    sys.exit(1)
+    # Return False when no NaN detected (for consistency with check_nan)
     return False
 
 
@@ -706,13 +708,11 @@ class LlamaBasicModel(nn.Module):
         self,
         config: LlamaConfig,
         debug_enabled=False,  # Simple debug flag
-        attention_backend='flash_attn',  # Attention backend (not used, always flash_attn)
     ):
         super().__init__()
         self.config = config
         self.debug_enabled = debug_enabled
-        # Always use flash_attn, ignore the parameter
-        self.attention_backend = 'flash_attn'
+        # Note: BasicAttention handles its own backend selection internally
         
         import os
         gpu_id = os.environ.get('GPU_RANK', os.environ.get('CUDA_VISIBLE_DEVICES', ''))
