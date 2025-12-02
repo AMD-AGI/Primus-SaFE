@@ -861,7 +861,16 @@ func (r *DispatcherReconciler) createService(ctx context.Context, adminWorkload 
 		},
 	}
 
-	if err = controllerutil.SetControllerReference(obj, service, r.Client.Scheme()); err != nil {
+	// Only set owner reference when the owner object has a valid UID.
+	owner := obj
+	if len(owner.GetUID()) == 0 {
+		if fetched, getErr := jobutils.GetObjectByClientFactory(ctx, clusterInformer.ClientFactory(), obj); getErr != nil {
+			return getErr
+		} else {
+			owner = fetched
+		}
+	}
+	if err = controllerutil.SetControllerReference(owner, service, r.Client.Scheme()); err != nil {
 		klog.ErrorS(err, "failed to SetControllerReference")
 		return err
 	}
@@ -995,7 +1004,16 @@ func (r *DispatcherReconciler) createIngress(ctx context.Context, adminWorkload 
 			}},
 		},
 	}
-	if err := controllerutil.SetControllerReference(obj, ing, r.Client.Scheme()); err != nil {
+	// Only set owner reference when the owner object has a valid UID.
+	owner := obj
+	if len(owner.GetUID()) == 0 {
+		if fetched, getErr := jobutils.GetObjectByClientFactory(ctx, clusterInformer.ClientFactory(), obj); getErr != nil {
+			return getErr
+		} else {
+			owner = fetched
+		}
+	}
+	if err := controllerutil.SetControllerReference(owner, ing, r.Client.Scheme()); err != nil {
 		klog.ErrorS(err, "failed to SetControllerReference for ingress", "ingress", name)
 		return err
 	}
