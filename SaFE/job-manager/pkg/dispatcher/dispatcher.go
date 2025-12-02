@@ -922,7 +922,10 @@ func (r *DispatcherReconciler) updateService(ctx context.Context, adminWorkload 
 		}
 	} else {
 		// reset NodePort when not required
-		existing.Spec.Ports[0].NodePort = 0
+		if existing.Spec.Ports[0].NodePort != 0 {
+			existing.Spec.Ports[0].NodePort = 0
+			isChanged = true
+		}
 	}
 	if !isChanged {
 		return nil
@@ -1026,7 +1029,7 @@ func (r *DispatcherReconciler) updateIngress(ctx context.Context, adminWorkload 
 		return err
 	}
 	specService := adminWorkload.Spec.Service
-	if len(existing.Spec.Rules) > 0 && len(existing.Spec.Rules[0].HTTP.Paths) > 0 {
+	if len(existing.Spec.Rules) > 0 && existing.Spec.Rules[0].HTTP != nil && len(existing.Spec.Rules[0].HTTP.Paths) > 0 {
 		if existing.Spec.Rules[0].HTTP.Paths[0].Backend.Service.Port.Number == int32(specService.Port) {
 			return nil
 		}

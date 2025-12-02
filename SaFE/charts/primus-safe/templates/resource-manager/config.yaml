@@ -7,12 +7,15 @@ apiVersion: v1
 data:
   config.yaml: |
     global:
-      # RDMA device name
-      rdma_name: {{ .Values.net.rdma_name }}
       # Image pull secret for primus-safe. If set to empty, the secret will not be used.
       image_secret: {{ .Values.global.image_pull_secret }}
+    net:
+      # RDMA device name
+      rdma_name: {{ .Values.net.rdma_name }}
       # Ingress component name selected during install.sh
-      ingress: {{ .Values.global.ingress }}
+      ingress: {{ .Values.net.ingress }}
+      # The node port of higress gateway. Only needed when using Higress Ingress.
+      higress_node_port: {{ .Values.net.higress_node_port }}
     notification:
       enable: false
     health_check:

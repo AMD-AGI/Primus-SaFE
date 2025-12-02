@@ -11,6 +11,7 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	schedulingv1 "k8s.io/api/scheduling/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -19,9 +20,11 @@ import (
 	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/pointer"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -48,16 +51,19 @@ type ClusterReconciler struct {
 
 // SetupClusterController initializes and registers the ClusterReconciler with the controller manager.
 func SetupClusterController(mgr manager.Manager) error {
-	r := &ClusterReconciler{
-		ClusterBaseReconciler: &ClusterBaseReconciler{
-			Client: mgr.GetClient(),
-		},
-		clientManager: commonutils.NewObjectManagerSingleton(),
+	baseReconciler, err := newClusterBaseReconciler(mgr)
+	if err != nil {
+		return err
 	}
+	r := &ClusterReconciler{
+		ClusterBaseReconciler: baseReconciler,
+		clientManager:         commonutils.NewObjectManagerSingleton(),
+	}
+
 	if r.clientManager == nil {
 		return fmt.Errorf("failed to new clientManager")
 	}
-	err := ctrlruntime.NewControllerManagedBy(mgr).
+	err = ctrlruntime.NewControllerManagedBy(mgr).
 		For(&v1.Cluster{}, builder.WithPredicates(predicate.Or(
 			predicate.ResourceVersionChangedPredicate{}, r.relevantChangePredicate()))).
 		Watches(&corev1.Pod{}, r.handlePodEvent()).
@@ -178,36 +184,40 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrlruntime.Reque
 		return ctrlruntime.Result{}, r.delete(ctx, cluster)
 	}
 	if err = r.guaranteeClusterControlPlane(ctx, cluster); err != nil {
-		klog.ErrorS(err, "failed to guarantee cluster control plane")
+		klog.ErrorS(err, "failed to guarantee cluster control plane", "cluster", cluster.Name)
 		return ctrlruntime.Result{}, err
 	}
 	if err = r.guaranteeClientFactory(ctx, cluster); err != nil {
-		klog.ErrorS(err, "failed to guarantee client factory")
+		klog.ErrorS(err, "failed to guarantee client factory", "cluster", cluster.Name)
 		return ctrlruntime.Result{}, err
 	}
 	// if result, err := r.guaranteeStorage(ctx, cluster); err != nil || result.RequeueAfter > 0 {
 	// 	return result, err
 	// }
 	if result, err := r.guaranteeDefaultAddon(ctx, cluster); err != nil || result.RequeueAfter > 0 {
-		klog.ErrorS(err, "failed to guarantee default addon")
+		klog.ErrorS(err, "failed to guarantee default addon", "cluster", cluster.Name)
 		return result, err
 	}
 	if result, err := r.guaranteePriorityClass(ctx, cluster); err != nil || result.RequeueAfter > 0 {
-		klog.ErrorS(err, "failed to guarantee priority class")
+		klog.ErrorS(err, "failed to guarantee priority class", "cluster", cluster.Name)
 		return result, err
 	}
 	if err = r.guaranteeAllImageSecrets(ctx, cluster); err != nil {
-		klog.ErrorS(err, "failed to guarantee image secrets")
+		klog.ErrorS(err, "failed to guarantee image secrets", "cluster", cluster.Name)
 		return ctrlruntime.Result{}, err
 	}
 	// Sync CICD ClusterRole from admin plane to data plane (if present)
 	if err = r.guaranteeCICDClusterRole(ctx, cluster); err != nil {
-		klog.ErrorS(err, "failed to guarantee cicd cluster role")
+		klog.ErrorS(err, "failed to guarantee cicd cluster role", "cluster", cluster.Name)
 		return ctrlruntime.Result{}, err
 	}
 	// Ensure ClusterRoleBinding exists and is labeled to reference this role
 	if err = r.guaranteeCICDClusterRoleBinding(ctx, cluster); err != nil {
-		klog.ErrorS(err, "failed to guarantee cicd cluster role binding")
+		klog.ErrorS(err, "failed to guarantee cicd cluster role binding", "cluster", cluster.Name)
+		return ctrlruntime.Result{}, err
+	}
+	if err = r.guaranteeForwardIngress(ctx, cluster); err != nil {
+		klog.ErrorS(err, "failed to guarantee ingress", "cluster", cluster.Name)
 		return ctrlruntime.Result{}, err
 	}
 	return ctrlruntime.Result{}, nil
@@ -632,4 +642,176 @@ func (r *ClusterReconciler) guaranteeCICDClusterRoleBinding(ctx context.Context,
 	}
 	klog.Infof("create ClusterRoleBinding %s for role %s on cluster %s", roleName, roleName, cluster.Name)
 	return nil
+}
+
+// guaranteeForwardIngress create an Ingress to connect the admin plane and the data plane.
+func (r *ClusterReconciler) guaranteeForwardIngress(ctx context.Context, cluster *v1.Cluster) error {
+	if commonconfig.GetIngress() != common.HigressClassname {
+		return nil
+	}
+
+	name := generateForwardName(cluster.Name)
+	_, err := r.clientSet.NetworkingV1().Ingresses(common.PrimusSafeNamespace).Get(ctx, name, metav1.GetOptions{})
+	if err == nil {
+		return nil
+	}
+	if !apierrors.IsNotFound(err) {
+		klog.ErrorS(err, "failed to get ingress", "ingress", name)
+		return err
+	}
+
+	if err = r.guaranteeForwardService(ctx, cluster); err != nil {
+		klog.ErrorS(err, "failed to guarantee cluster forward service", "cluster", cluster.Name)
+		return err
+	}
+
+	pathType := networkingv1.PathTypePrefix
+	desiredIng := &networkingv1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: common.PrimusSafeNamespace,
+			Annotations: map[string]string{
+				"higress.io/rewrite-target": "/$1",
+			},
+		},
+		Spec: networkingv1.IngressSpec{
+			IngressClassName: pointer.String(common.HigressClassname),
+			Rules: []networkingv1.IngressRule{{
+				Host: commonconfig.GetSystemHost(),
+				IngressRuleValue: networkingv1.IngressRuleValue{
+					HTTP: &networkingv1.HTTPIngressRuleValue{
+						Paths: []networkingv1.HTTPIngressPath{{
+							Path:     fmt.Sprintf("/%s/(.*)", cluster.Name),
+							PathType: &pathType,
+							Backend: networkingv1.IngressBackend{
+								Service: &networkingv1.IngressServiceBackend{
+									Name: name, Port: networkingv1.ServiceBackendPort{Number: 80},
+								},
+							},
+						}},
+					},
+				},
+			}},
+		},
+	}
+	if err = controllerutil.SetControllerReference(cluster, desiredIng, r.Client.Scheme()); err != nil {
+		klog.ErrorS(err, "failed to SetControllerReference for ingress", "ingress", name)
+		return err
+	}
+	if _, err = r.clientSet.NetworkingV1().Ingresses(common.PrimusSafeNamespace).Create(ctx, desiredIng, metav1.CreateOptions{}); err != nil {
+		if apierrors.IsAlreadyExists(err) {
+			err = nil
+		} else {
+			klog.ErrorS(err, "failed to create ingress", "name", name)
+		}
+		return err
+	}
+	return nil
+}
+
+// guaranteeForwardService creates a Service for forwarding traffic to the data plane cluster.
+// It first checks if the service already exists, and if not, creates a new one
+// with manual endpoints (no selector) for HTTP traffic on port 80.
+func (r *ClusterReconciler) guaranteeForwardService(ctx context.Context, cluster *v1.Cluster) error {
+	name := generateForwardName(cluster.Name)
+	_, err := r.clientSet.CoreV1().Services(common.PrimusSafeNamespace).Get(ctx, name, metav1.GetOptions{})
+	if err == nil {
+		return nil
+	}
+	if !apierrors.IsNotFound(err) {
+		return err
+	}
+
+	if err = r.guaranteeForwardEndpoints(ctx, cluster); err != nil {
+		return err
+	}
+
+	svc := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: common.PrimusSafeNamespace,
+		},
+		Spec: corev1.ServiceSpec{
+			// No selector - we will back this with manual Endpoints
+			Ports: []corev1.ServicePort{{
+				Name:     "http",
+				Port:     80,
+				Protocol: corev1.ProtocolTCP,
+			}},
+			Type: corev1.ServiceTypeClusterIP,
+		},
+	}
+	if err = controllerutil.SetControllerReference(cluster, svc, r.Client.Scheme()); err != nil {
+		return err
+	}
+	if _, err = r.clientSet.CoreV1().Services(common.PrimusSafeNamespace).Create(ctx, svc, metav1.CreateOptions{}); err != nil {
+		return client.IgnoreAlreadyExists(err)
+	}
+	return nil
+}
+
+// guaranteeForwardEndpoints creates Endpoints for forwarding traffic to the data plane cluster.
+// It gets the cluster's endpoint addresses and creates Endpoints resource with
+// those addresses pointing to the Higress gateway NodePort.
+func (r *ClusterReconciler) guaranteeForwardEndpoints(ctx context.Context, cluster *v1.Cluster) error {
+	name := generateForwardName(cluster.Name)
+	_, err := r.clientSet.CoreV1().Endpoints(common.PrimusSafeNamespace).Get(ctx, name, metav1.GetOptions{})
+	if err == nil {
+		return nil
+	}
+	if !apierrors.IsNotFound(err) {
+		return err
+	}
+	addresses, err := r.getClusterEndpoint(ctx, cluster)
+	if err != nil {
+		return err
+	}
+
+	// Endpoints backed by data-plane gateway NodePort (fixed 32608)
+	desiredEp := &corev1.Endpoints{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      generateForwardName(cluster.Name),
+			Namespace: common.PrimusSafeNamespace,
+		},
+		Subsets: []corev1.EndpointSubset{{
+			Addresses: addresses,
+			Ports: []corev1.EndpointPort{{
+				Name:     "http",
+				Port:     int32(commonconfig.GetHigressNodePort()),
+				Protocol: corev1.ProtocolTCP,
+			}},
+		}},
+	}
+	if err = controllerutil.SetControllerReference(cluster, desiredEp, r.Client.Scheme()); err != nil {
+		return err
+	}
+	if _, err = r.clientSet.CoreV1().Endpoints(common.PrimusSafeNamespace).Create(ctx, desiredEp, metav1.CreateOptions{}); err != nil {
+		return client.IgnoreAlreadyExists(err)
+	}
+	return nil
+}
+
+// getClusterEndpoint retrieves the endpoint addresses for a cluster by its name.
+// It fetches the Endpoints resource and extracts all available addresses from its subsets
+func (r *ClusterReconciler) getClusterEndpoint(ctx context.Context, cluster *v1.Cluster) ([]corev1.EndpointAddress, error) {
+	name := cluster.Name
+	srcEp, err := r.clientSet.CoreV1().Endpoints(common.PrimusSafeNamespace).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return nil, err
+	}
+	var addresses []corev1.EndpointAddress
+	for _, ss := range srcEp.Subsets {
+		if len(ss.Addresses) > 0 {
+			addresses = append(addresses, ss.Addresses...)
+		}
+	}
+	if len(addresses) == 0 {
+		return nil, fmt.Errorf("no endpoint addresses found for cluster %s", name)
+	}
+	return addresses, nil
+}
+
+// generateForwardName generates the name for forward resources by appending "-forward" to the cluster name.
+func generateForwardName(clusterName string) string {
+	return clusterName + "-forward"
 }

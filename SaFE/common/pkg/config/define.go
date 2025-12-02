@@ -7,13 +7,15 @@ package config
 
 const (
 	// global
-	globalPrefix  = "global."
-	rdmaName      = globalPrefix + "rdma_name"
-	imageSecret   = globalPrefix + "image_secret"
-	systemBaseUrl = globalPrefix + "system_base_url"
-	ingress       = globalPrefix + "ingress"
-	domain        = globalPrefix + "domain"
-	subDomain     = globalPrefix + "sub_domain"
+	globalPrefix = "global."
+	imageSecret  = globalPrefix + "image_secret"
+	domain       = globalPrefix + "domain"
+	subDomain    = globalPrefix + "sub_domain"
+
+	netPrefix       = "net."
+	rdmaName        = netPrefix + "rdma_name"
+	ingress         = netPrefix + "ingress"
+	higressNodePort = netPrefix + "higress_node_port"
 
 	// crypto
 	cryptoPrefix     = "crypto."

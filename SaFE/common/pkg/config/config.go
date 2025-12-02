@@ -360,9 +360,14 @@ func GetNotificationConfig() string {
 	return getFromFile(notificationSecretPath, "config")
 }
 
-// GetSystemBaseUrl returns the base URL of the system.
-func GetSystemBaseUrl() string {
-	return getString(systemBaseUrl, "")
+// GetSystemHost returns the host of the system. e.g. tw325.primus-safe.amd.com
+func GetSystemHost() string {
+	subDomainConfig := getString(subDomain, "")
+	domainConfig := getString(domain, "")
+	if subDomainConfig == "" || domainConfig == "" {
+		return ""
+	}
+	return subDomainConfig + "." + domainConfig
 }
 
 // GetIngress returns the ingress class name of the system.
@@ -370,14 +375,9 @@ func GetIngress() string {
 	return getString(ingress, "")
 }
 
-// GetDomain returns the domain of the system.
-func GetDomain() string {
-	return getString(domain, "")
-}
-
-// GetSubDomain returns the sub domain of the system.
-func GetSubDomain() string {
-	return getString(subDomain, "")
+// GetHigressNodePort returns the node port of higress gateway
+func GetHigressNodePort() int {
+	return getInt(higressNodePort, 0)
 }
 
 func IsSSOEnable() bool {
