@@ -273,17 +273,28 @@ func GetMetricsData(ctx *gin.Context) {
 	var returnAllMetrics bool = true // 默认返回所有指标
 
 	if metricsStr != "" {
+		// 去除首尾空格
+		metricsStr = strings.TrimSpace(metricsStr)
+
 		// 如果明确指定 "all"，返回所有指标
-		if strings.ToLower(strings.TrimSpace(metricsStr)) == "all" {
+		if strings.ToLower(metricsStr) == "all" {
 			returnAllMetrics = true
 		} else {
-			// 指定了具体的指标名称
-			requestedMetrics = strings.Split(metricsStr, ",")
-			// 去除空格
-			for i := range requestedMetrics {
-				requestedMetrics[i] = strings.TrimSpace(requestedMetrics[i])
+			// 支持 Grafana 格式：{metric1,metric2} 或普通格式：metric1,metric2
+			// 去除花括号（如果存在）
+			if strings.HasPrefix(metricsStr, "{") && strings.HasSuffix(metricsStr, "}") {
+				metricsStr = metricsStr[1 : len(metricsStr)-1]
 			}
-			returnAllMetrics = false
+
+			// 指定了具体的指标名称
+			if metricsStr != "" {
+				requestedMetrics = strings.Split(metricsStr, ",")
+				// 去除空格
+				for i := range requestedMetrics {
+					requestedMetrics[i] = strings.TrimSpace(requestedMetrics[i])
+				}
+				returnAllMetrics = false
+			}
 		}
 	}
 

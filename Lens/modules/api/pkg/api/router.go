@@ -37,6 +37,7 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		workloadGroup.GET(":uid/metrics/sources", GetDataSources)
 		workloadGroup.GET(":uid/metrics/available", GetAvailableMetrics)
 		workloadGroup.GET(":uid/metrics/data", GetMetricsData)
+		workloadGroup.GET(":uid/metrics/iteration-times", GetIterationTimes)
 	}
 	group.GET("workloadMetadata", getWorkloadsMetadata)
 	storageGroup := group.Group("/storage")
