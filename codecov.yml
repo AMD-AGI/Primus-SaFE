@@ -18,7 +18,7 @@ ignore:
   - "**/*.gen.go"
   
   # Ignore entire database directory (DAL, models, and other database-related code)
-  - "**/pkg/database/**"
+  - "Lens/modules/core/pkg/database/**"
   
   # Other common file types that don't need test coverage
   - "**/*_mock.go"        # Mock files
