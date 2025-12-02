@@ -449,7 +449,7 @@ func GetIterationTimes(ctx *gin.Context) {
 
 		// 提取 TargetIteration（如果存在）
 		var targetIteration *float64
-		if targetIterValue, exists := p.Performance["TargetIteration"]; exists {
+		if targetIterValue, exists := p.Performance["target_iteration"]; exists {
 			targetIterFloat := convertToFloat(targetIterValue)
 			if !math.IsNaN(targetIterFloat) {
 				targetIteration = &targetIterFloat
