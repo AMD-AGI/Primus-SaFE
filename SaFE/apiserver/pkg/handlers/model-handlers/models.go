@@ -8,7 +8,6 @@ package model_handlers
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/constvar"
@@ -25,6 +24,7 @@ import (
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 )
 
 // CreateModel handles the creation of a new playground model.
@@ -219,9 +219,8 @@ func (h *Handler) createModel(c *gin.Context) (interface{}, error) {
 
 		infId := commonutils.GenerateName(name)
 
-		// Normalize displayName for label
-		normalizedDisplayName := strings.ReplaceAll(displayName, "/", "-")
-		normalizedDisplayName = strings.ReplaceAll(normalizedDisplayName, ":", "-")
+		// Normalize displayName for K8s label (must be lowercase alphanumeric, '-', max 45 chars)
+		normalizedDisplayName := stringutil.NormalizeForDNS(displayName)
 
 		inference := &v1.Inference{
 			ObjectMeta: metav1.ObjectMeta{
@@ -450,9 +449,8 @@ func (h *Handler) toggleModel(c *gin.Context) (interface{}, error) {
 		// Generate new inference ID
 		infId := commonutils.GenerateName(modelId)
 
-		// Normalize displayName for label (replace "/" and ":" as they are not allowed in label values)
-		normalizedDisplayName := strings.ReplaceAll(k8sModel.Spec.DisplayName, "/", "-")
-		normalizedDisplayName = strings.ReplaceAll(normalizedDisplayName, ":", "-")
+		// Normalize displayName for K8s label (must be lowercase alphanumeric, '-', max 45 chars)
+		normalizedDisplayName := stringutil.NormalizeForDNS(k8sModel.Spec.DisplayName)
 
 		// Create Inference CRD
 		inference := &v1.Inference{
@@ -507,6 +505,7 @@ func (h *Handler) toggleModel(c *gin.Context) (interface{}, error) {
 			if errors.IsNotFound(err) {
 				// Inference already gone, just clean up status
 				k8sModel.Status.InferenceID = ""
+				k8sModel.Status.InferencePhase = ""
 				_ = h.k8sClient.Status().Update(ctx, k8sModel)
 				return gin.H{"message": "inference already deleted"}, nil
 			}
@@ -517,8 +516,9 @@ func (h *Handler) toggleModel(c *gin.Context) (interface{}, error) {
 			return nil, commonerrors.NewInternalError("failed to stop inference: " + err.Error())
 		}
 
-		// Clear Model Status InferenceID
+		// Clear Model Status InferenceID and InferencePhase
 		k8sModel.Status.InferenceID = ""
+		k8sModel.Status.InferencePhase = ""
 		if err := h.k8sClient.Status().Update(ctx, k8sModel); err != nil {
 			klog.ErrorS(err, "Failed to clear model status inference ID", "model", modelId)
 			return nil, commonerrors.NewInternalError("failed to Update models: " + err.Error())

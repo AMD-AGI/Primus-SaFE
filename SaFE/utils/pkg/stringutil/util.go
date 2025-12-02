@@ -71,6 +71,55 @@ func NormalizeName(str string) string {
 	return str
 }
 
+// NormalizeForDNS converts a string to a valid DNS-compatible name.
+// The result will be:
+// - Lowercase alphanumeric characters and '-' only
+// - Start with an alphabetic character
+// - End with an alphanumeric character
+// - Maximum 45 characters (suitable for K8s labels and workload naming)
+func NormalizeForDNS(s string) string {
+	// Convert to lowercase
+	result := strings.ToLower(s)
+
+	// Replace common invalid characters with '-'
+	replacer := strings.NewReplacer("/", "-", ":", "-", ".", "-", "_", "-", " ", "-")
+	result = replacer.Replace(result)
+
+	// Keep only alphanumeric and '-'
+	var cleaned strings.Builder
+	for _, r := range result {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' {
+			cleaned.WriteRune(r)
+		}
+	}
+	result = cleaned.String()
+
+	// Remove consecutive dashes
+	for strings.Contains(result, "--") {
+		result = strings.ReplaceAll(result, "--", "-")
+	}
+
+	// Trim leading/trailing dashes
+	result = strings.Trim(result, "-")
+
+	// Ensure starts with letter (prefix with 'n' if starts with number)
+	if len(result) > 0 && result[0] >= '0' && result[0] <= '9' {
+		result = "n" + result
+	}
+
+	// Truncate to 45 chars
+	if len(result) > 45 {
+		result = strings.TrimSuffix(result[:45], "-")
+	}
+
+	// Default if empty
+	if result == "" {
+		result = "model"
+	}
+
+	return result
+}
+
 // StrCaseEqual compares two strings case-insensitively.
 func StrCaseEqual(str1, str2 string) bool {
 	if strings.ToLower(str1) == strings.ToLower(str2) {
