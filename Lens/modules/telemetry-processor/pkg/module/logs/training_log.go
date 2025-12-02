@@ -569,3 +569,91 @@ func truncateLog(log string, maxLen int) string {
 	}
 	return log[:maxLen] + "..."
 }
+
+// PatternMatcherInfo represents debug information for a pattern matcher
+type PatternMatcherInfo struct {
+	Framework           string              `json:"framework"`
+	IdentifyPatterns    []PatternDebugInfo  `json:"identify_patterns"`
+	PerformancePatterns []PatternDebugInfo  `json:"performance_patterns"`
+	TrainingEvents      map[string][]string `json:"training_events"`
+	CheckpointEvents    map[string][]string `json:"checkpoint_events"`
+	TotalPatterns       int                 `json:"total_patterns"`
+}
+
+// PatternDebugInfo represents debug info for a single pattern
+type PatternDebugInfo struct {
+	Name       string   `json:"name"`
+	Pattern    string   `json:"pattern"`
+	Confidence float64  `json:"confidence"`
+	Tags       []string `json:"tags,omitempty"`
+}
+
+// GetPatternMatchersInfo returns debug information about all pattern matchers
+func GetPatternMatchersInfo() map[string]*PatternMatcherInfo {
+	result := make(map[string]*PatternMatcherInfo)
+
+	for frameworkName, matcher := range patternMatchers {
+		info := &PatternMatcherInfo{
+			Framework:        frameworkName,
+			TrainingEvents:   make(map[string][]string),
+			CheckpointEvents: make(map[string][]string),
+		}
+
+		// Get identify patterns
+		matcher.mu.RLock()
+		for _, cp := range matcher.identifyRegexps {
+			info.IdentifyPatterns = append(info.IdentifyPatterns, PatternDebugInfo{
+				Name:       cp.Name,
+				Pattern:    cp.Pattern.String(),
+				Confidence: cp.Confidence,
+				Tags:       cp.Tags,
+			})
+			info.TotalPatterns++
+		}
+
+		// Get performance patterns
+		for _, cp := range matcher.performanceRegexps {
+			info.PerformancePatterns = append(info.PerformancePatterns, PatternDebugInfo{
+				Name:       cp.Name,
+				Pattern:    cp.Pattern.String(),
+				Confidence: cp.Confidence,
+				Tags:       cp.Tags,
+			})
+			info.TotalPatterns++
+		}
+
+		// Get training event patterns
+		for eventType, patterns := range matcher.trainingEventRegexps {
+			patternNames := make([]string, 0, len(patterns))
+			for _, cp := range patterns {
+				patternNames = append(patternNames, cp.Name)
+				info.TotalPatterns++
+			}
+			info.TrainingEvents[eventType] = patternNames
+		}
+
+		// Get checkpoint event patterns
+		for eventType, patterns := range matcher.checkpointRegexps {
+			patternNames := make([]string, 0, len(patterns))
+			for _, cp := range patterns {
+				patternNames = append(patternNames, cp.Name)
+				info.TotalPatterns++
+			}
+			info.CheckpointEvents[eventType] = patternNames
+		}
+		matcher.mu.RUnlock()
+
+		result[frameworkName] = info
+	}
+
+	return result
+}
+
+// GetFrameworkList returns the list of available frameworks
+func GetFrameworkList() []string {
+	frameworks := make([]string, 0, len(patternMatchers))
+	for frameworkName := range patternMatchers {
+		frameworks = append(frameworks, frameworkName)
+	}
+	return frameworks
+}

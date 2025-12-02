@@ -118,5 +118,10 @@ func initRouter(group *gin.RouterGroup) error {
 	group.POST("workloads/framework-detection/batch", api.GetFrameworkDetectionBatch)
 	group.GET("framework-detection/stats", api.GetFrameworkDetectionStats)
 
+	// Debug endpoints for pattern matchers
+	group.GET("debug/pattern-matchers", api.GetPatternMatchers)
+	group.GET("debug/frameworks", api.GetFrameworkList)
+	group.GET("debug/pattern-matchers/:framework", api.GetPatternMatcherByFramework)
+
 	return nil
 }
