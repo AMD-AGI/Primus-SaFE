@@ -359,6 +359,7 @@ func modelMapper(obj *unstructured.Unstructured) *dbclient.Model {
 		DisplayName:    cr.Spec.DisplayName,
 		Description:    cr.Spec.Description,
 		Icon:           cr.Spec.Icon,
+		Label:          cr.Spec.Label,
 		Tags:           strings.Join(cr.Spec.Tags, ","),
 		SourceURL:      cr.Spec.Source.URL,
 		AccessMode:     string(cr.Spec.Source.AccessMode),

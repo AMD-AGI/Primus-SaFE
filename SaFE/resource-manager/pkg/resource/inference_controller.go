@@ -25,6 +25,7 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/constvar"
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 )
 
 const (
@@ -314,8 +315,11 @@ func (r *InferenceReconciler) createWorkload(ctx context.Context, inference *v1.
 		return &existingWorkloads.Items[0], nil
 	}
 
-	// Get normalized displayName from inference labels
+	// Get normalized displayName from inference labels (already normalized in models.go)
 	normalizedDisplayName := v1.GetDisplayName(inference)
+	if normalizedDisplayName == "" {
+		normalizedDisplayName = stringutil.NormalizeForDNS(inference.Spec.DisplayName)
+	}
 
 	workload := &v1.Workload{
 		ObjectMeta: metav1.ObjectMeta{
