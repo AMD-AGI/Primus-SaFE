@@ -212,6 +212,61 @@ func (h *Handler) createModel(c *gin.Context) (interface{}, error) {
 		return nil, commonerrors.NewInternalError("failed to create model resource: " + err.Error())
 	}
 
+	// For remote_api mode, automatically create Inference CR
+	if req.Source.AccessMode == string(v1.AccessModeRemoteAPI) {
+		userId := c.GetString("userId")
+		userName := c.GetString("userName")
+
+		infId := commonutils.GenerateName(name)
+
+		// Normalize displayName for label
+		normalizedDisplayName := strings.ReplaceAll(displayName, "/", "-")
+		normalizedDisplayName = strings.ReplaceAll(normalizedDisplayName, ":", "-")
+
+		inference := &v1.Inference{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: infId,
+				Labels: map[string]string{
+					v1.InferenceIdLabel: infId,
+					v1.UserIdLabel:      userId,
+					v1.DisplayNameLabel: normalizedDisplayName,
+				},
+			},
+			Spec: v1.InferenceSpec{
+				DisplayName: displayName,
+				Description: description,
+				UserID:      userId,
+				UserName:    userName,
+				ModelForm:   constvar.InferenceModelFormAPI,
+				ModelName:   name,
+				Instance: v1.InferenceInstance{
+					BaseUrl: req.Source.URL,
+					ApiKey:  req.Source.ApiKey,
+				},
+				// Resource and Config are empty for remote_api mode
+			},
+			Status: v1.InferenceStatus{
+				Phase:      constvar.InferencePhaseRunning, // Remote API is immediately ready
+				UpdateTime: &metav1.Time{Time: time.Now().UTC()},
+			},
+		}
+
+		if err := h.k8sClient.Create(ctx, inference); err != nil {
+			klog.ErrorS(err, "Failed to create Inference for remote API model", "model", name)
+			// Don't fail the model creation, just log the error
+		} else {
+			klog.Infof("Created Inference %s for remote API model %s", infId, name)
+
+			// Update Model status with inference ID
+			k8sModel.Status.InferenceID = infId
+			k8sModel.Status.InferencePhase = string(constvar.InferencePhaseRunning)
+			k8sModel.Status.Phase = v1.ModelPhaseReady // Remote API models are immediately ready
+			if err := h.k8sClient.Status().Update(ctx, k8sModel); err != nil {
+				klog.ErrorS(err, "Failed to update Model status with inference ID", "model", name)
+			}
+		}
+	}
+
 	return &CreateResponse{ID: name}, nil
 }
 
@@ -329,41 +384,45 @@ func (h *Handler) toggleModel(c *gin.Context) (interface{}, error) {
 		return nil, commonerrors.NewNotFound("playground model", modelId)
 	}
 
+	// For remote_api mode, toggle is not needed - inference is always available
+	if k8sModel.IsRemoteAPI() {
+		if k8sModel.Status.InferenceID != "" {
+			return gin.H{
+				"message":     "remote API model is always available, toggle is not needed",
+				"inferenceId": k8sModel.Status.InferenceID,
+			}, nil
+		}
+		return gin.H{"message": "remote API model has no inference, please check model status"}, nil
+	}
+
 	if req.Enabled {
 		// Toggle ON
 		if k8sModel.Status.InferenceID != "" {
 			return gin.H{"message": "inference already exists", "inferenceId": k8sModel.Status.InferenceID}, nil
 		}
 
-		// Determine ModelForm based on AccessMode
-		var modelForm constvar.InferenceModelForm
-		if k8sModel.IsRemoteAPI() {
-			modelForm = constvar.InferenceModelFormAPI
-		} else {
-			modelForm = constvar.InferenceModelFormModelSquare
-		}
+		// At this point, we know it's a local model (remote_api already returned above)
+		modelForm := constvar.InferenceModelFormModelSquare
 
-		// Validate required fields for non-API mode
-		if modelForm == constvar.InferenceModelFormModelSquare {
-			if req.Resource == nil || req.Config == nil {
-				return nil, commonerrors.NewBadRequest("resource and config are required for local model inference")
-			}
-			var missingFields []string
-			if req.Resource.Workspace == "" {
-				missingFields = append(missingFields, "workspace")
-			}
-			if req.Resource.Replica <= 0 {
-				missingFields = append(missingFields, "replica")
-			}
-			if req.Config.Image == "" {
-				missingFields = append(missingFields, "image")
-			}
-			if req.Config.EntryPoint == "" {
-				missingFields = append(missingFields, "entryPoint")
-			}
-			if len(missingFields) > 0 {
-				return nil, commonerrors.NewBadRequest(fmt.Sprintf("missing required fields for inference: %v", missingFields))
-			}
+		// Validate required fields for local model inference
+		if req.Resource == nil || req.Config == nil {
+			return nil, commonerrors.NewBadRequest("resource and config are required for local model inference")
+		}
+		var missingFields []string
+		if req.Resource.Workspace == "" {
+			missingFields = append(missingFields, "workspace")
+		}
+		if req.Resource.Replica <= 0 {
+			missingFields = append(missingFields, "replica")
+		}
+		if req.Config.Image == "" {
+			missingFields = append(missingFields, "image")
+		}
+		if req.Config.EntryPoint == "" {
+			missingFields = append(missingFields, "entryPoint")
+		}
+		if len(missingFields) > 0 {
+			return nil, commonerrors.NewBadRequest(fmt.Sprintf("missing required fields for inference: %v", missingFields))
 		}
 
 		// Build Resource from request

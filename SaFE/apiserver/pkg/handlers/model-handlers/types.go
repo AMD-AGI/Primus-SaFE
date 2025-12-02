@@ -180,7 +180,8 @@ type CreateModelRequest struct {
 type ModelSourceReq struct {
 	URL        string `json:"url"`
 	AccessMode string `json:"accessMode"` // "remote_api", "local"
-	Token      string `json:"token"`      // Plaintext token
+	Token      string `json:"token"`      // Plaintext token (for downloading models)
+	ApiKey     string `json:"apiKey"`     // API key for remote_api mode
 }
 
 type ResourceReq struct {
