@@ -256,7 +256,7 @@ func IsCICDScalingRunnerSet(w *v1.Workload) bool {
 	return false
 }
 
-// IsJob returns true if the workload is about ops job
+// IsOpsJob returns true if the workload is about ops job
 func IsOpsJob(w *v1.Workload) bool {
 	return v1.GetOpsJobId(w) != ""
 }

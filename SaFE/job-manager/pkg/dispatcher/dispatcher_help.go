@@ -211,7 +211,7 @@ func modifyVolumeMounts(container map[string]interface{}, workload *v1.Workload,
 	if ok {
 		volumeMounts = volumeMountObjs.([]interface{})
 	}
-	if commonworkload.IsJob(workload) {
+	if !commonworkload.IsCICDScalingRunnerSet(workload) {
 		volumeMounts = append(volumeMounts, buildVolumeMount(SharedMemoryVolume, "/dev/shm", "", false))
 	}
 	maxId := 0
