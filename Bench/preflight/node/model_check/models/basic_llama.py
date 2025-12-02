@@ -741,8 +741,8 @@ class LlamaBasicModel(nn.Module):
             persistent=True,
         )
 
-        # Only test 4 layers for now
-        self.layers = nn.ModuleList([BasicTransformerBlock(layer_id, config, debug_enabled) for layer_id in range(4)])
+        # Use num_hidden_layers from config
+        self.layers = nn.ModuleList([BasicTransformerBlock(layer_id, config, debug_enabled) for layer_id in range(config.num_hidden_layers)])
         self.norm = nn.RMSNorm(config.hidden_size)
         self.output = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
         self.init_weights()
