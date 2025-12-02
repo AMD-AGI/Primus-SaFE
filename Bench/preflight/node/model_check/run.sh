@@ -58,13 +58,23 @@ for GPU_ID in $(seq 0 $((NUM_GPUS - 1))); do
     echo "  - Log file: $LOG_FILE"
     
     # Start the process with output to both screen and log file
-    # Use tee with process substitution to add GPU prefix for screen output
-    # The entire pipeline is wrapped in a subshell to capture the right PID
-    (
+    # Use bash -c to create a new process group for the entire pipeline
+    bash -c "
+        # Create new process group
+        set -m
         exec 2>&1  # Redirect stderr to stdout
-        CUDA_VISIBLE_DEVICES=$GPU_ID GPU_RANK=$GPU_ID python3 pretrain_main.py "$@" | \
-        tee "$LOG_FILE" | sed "s/^/[GPU$GPU_ID] /"
-    ) &
+        
+        # Start the python process and pipeline
+        CUDA_VISIBLE_DEVICES=$GPU_ID GPU_RANK=$GPU_ID python3 pretrain_main.py \"\$@\" | \
+        tee \"$LOG_FILE\" | while IFS= read -r line; do
+            # Check if line already has [GPU X] prefix
+            if echo \"\$line\" | grep -q '^\[GPU [0-9]\]'; then
+                echo \"\$line\"
+            else
+                echo \"[GPU$GPU_ID] \$line\"
+            fi
+        done
+    " -- "$@" &
     PID=$!
     PIDS+=($PID)
     
@@ -103,48 +113,86 @@ extract_error() {
         fi
         
         if [ -n "$error_line" ]; then
-            # Clean up the error line - remove GPU prefix if it's already there
-            if echo "$error_line" | grep -q "GPU.*ERROR"; then
-                # Extract everything after "ERROR |"
-                local clean_msg=$(echo "$error_line" | sed 's/.*ERROR | //')
-                echo "GPU${gpu_id}:ERROR | $clean_msg"
-            elif echo "$error_line" | grep -q "GPU.*INFO"; then
-                # Extract everything after "INFO |"
-                local clean_msg=$(echo "$error_line" | sed 's/.*INFO | //')
-                echo "GPU${gpu_id}:INFO | $clean_msg"
-            else
-                echo "GPU${gpu_id}:$error_line"
-            fi
+            # Clean the error line of any prefixes and duplicates
+            local clean_msg="$error_line"
+            
+            # Remove multiple GPU/ERROR prefixes (e.g., "GPU6:ERROR: ", "GPU6:ERROR | ")
+            clean_msg=$(echo "$clean_msg" | sed 's/GPU[0-9]*:ERROR: //g')
+            clean_msg=$(echo "$clean_msg" | sed 's/GPU[0-9]*:ERROR | //g')
+            clean_msg=$(echo "$clean_msg" | sed 's/GPU[0-9]*:INFO: //g')
+            clean_msg=$(echo "$clean_msg" | sed 's/GPU[0-9]*:INFO | //g')
+            clean_msg=$(echo "$clean_msg" | sed 's/\[GPU [0-9]*\] //g')
+            clean_msg=$(echo "$clean_msg" | sed 's/ERROR | ERROR |//')
+            clean_msg=$(echo "$clean_msg" | sed 's/^ERROR | //')
+            clean_msg=$(echo "$clean_msg" | sed 's/^ERROR: //')
+            
+            # Return clean message with single GPU prefix
+            echo "GPU${gpu_id}:ERROR: $clean_msg"
         else
             # Get last meaningful line as fallback (excluding empty lines and separators)
             local last_line=$(tail -n 10 "$log_file" 2>/dev/null | grep -v "^$" | grep -v "====" | tail -1 || true)
             if [ -n "$last_line" ]; then
-                echo "GPU${gpu_id}:$last_line"
+                # Clean any existing prefixes from the last line
+                local clean_last=$(echo "$last_line" | sed 's/GPU[0-9]*://g' | sed 's/\[GPU [0-9]*\] //g')
+                echo "GPU${gpu_id}:ERROR: $clean_last"
             else
-                echo "GPU${gpu_id}:No error message found"
+                echo "GPU${gpu_id}:ERROR: No error message found"
             fi
         fi
     else
-        echo "GPU${gpu_id}:No log file found"
+        echo "GPU${gpu_id}:ERROR: No log file found"
     fi
 }
 
+# Flag to track if cleanup has been called
+CLEANUP_DONE=0
+
 # Function to kill all processes
 cleanup() {
+    # Avoid running cleanup twice
+    if [ $CLEANUP_DONE -eq 1 ]; then
+        return
+    fi
+    CLEANUP_DONE=1
+    
     echo "Stopping all GPU processes..."
+    
+    # First, try to terminate process groups gracefully
     for PID in "${PIDS[@]}"; do
-        if kill -0 $PID 2>/dev/null; then
-            kill -TERM $PID 2>/dev/null || true
+        if [ -n "$PID" ] && kill -0 $PID 2>/dev/null; then
+            # Try to get the process group ID
+            PGID=$(ps -o pgid= -p $PID 2>/dev/null | tr -d ' ')
+            if [ -n "$PGID" ]; then
+                echo "  - Stopping process group $PGID (GPU PID $PID)"
+                # Kill the entire process group
+                kill -TERM -${PGID} 2>/dev/null || true
+            else
+                echo "  - Stopping PID $PID"
+                kill -TERM $PID 2>/dev/null || true
+            fi
         fi
     done
+    
     # Give processes time to cleanup
     sleep 2
+    
     # Force kill if still running
     for PID in "${PIDS[@]}"; do
-        if kill -0 $PID 2>/dev/null; then
-            kill -KILL $PID 2>/dev/null || true
+        if [ -n "$PID" ] && kill -0 $PID 2>/dev/null; then
+            PGID=$(ps -o pgid= -p $PID 2>/dev/null | tr -d ' ')
+            if [ -n "$PGID" ]; then
+                echo "  - Force stopping process group $PGID"
+                kill -KILL -${PGID} 2>/dev/null || true
+            else
+                echo "  - Force stopping PID $PID"
+                kill -KILL $PID 2>/dev/null || true
+            fi
         fi
     done
+    
+    # Clean up any orphaned python3 processes that might be from our script
+    pkill -f "pretrain_main.py" 2>/dev/null || true
+    
     # Clean up log directory (temporarily disabled for debugging)
     # rm -rf "$LOG_DIR" 2>/dev/null || true
     echo "Logs kept for debugging: $LOG_DIR"
@@ -180,6 +228,10 @@ while true; do
                 fi
                 
                 if [ $EXIT_CODE -ne 0 ] || [ $HAS_CRITICAL_ERROR -eq 1 ]; then
+                    # Mark failure
+                    FAILED=1
+                    FAILED_GPU=$i
+                    
                     # Extract specific error from log
                     ERROR_MSG=$(extract_error "$LOG_FILE" "$i")
                     echo ""
@@ -190,7 +242,7 @@ while true; do
                         echo "  - Note: Critical error detected in log despite exit code 0"
                     fi
                     # Display error message without duplicate GPU prefix
-                    echo "  - Error: $(echo "$ERROR_MSG" | sed "s/GPU${i}://")"
+                    echo "  - Error: $(echo "$ERROR_MSG" | sed "s/GPU${i}:ERROR: //")"
                     # Show last few lines of log for context
                     if [ -f "$LOG_FILE" ]; then
                         LOG_SIZE=$(wc -c < "$LOG_FILE")
@@ -200,8 +252,50 @@ while true; do
                         # Filter out error lines and separators from tail output
                         tail -n 10 "$LOG_FILE" | grep -v "ERROR\|====" | tail -n 3 | sed 's/^/      /'
                     fi
-                    FAILED=1
-                    FAILED_GPU=$i
+                    
+                    # Kill all other GPU processes when one fails
+                    echo ""
+                    echo "Stopping all other GPU processes due to GPU $i failure..."
+                    
+                    # Kill all processes (including the current failed one)
+                    for j in "${!PIDS[@]}"; do
+                        if [ -n "${PIDS[$j]}" ]; then
+                            echo "  - Stopping GPU $j (PID ${PIDS[$j]})"
+                            # Get the process group ID and kill the entire group
+                            PGID=$(ps -o pgid= -p ${PIDS[$j]} 2>/dev/null | tr -d ' ')
+                            if [ -n "$PGID" ]; then
+                                # Kill the entire process group
+                                echo "    Killing process group $PGID"
+                                kill -TERM -${PGID} 2>/dev/null || true
+                            else
+                                # Fallback to killing just the PID
+                                kill -TERM ${PIDS[$j]} 2>/dev/null || true
+                            fi
+                            # Clear the PID from array
+                            PIDS[$j]=""
+                        fi
+                    done
+                    
+                    # Wait a moment for processes to terminate
+                    sleep 2
+                    
+                    # Force kill any remaining processes
+                    echo "  - Checking for remaining processes..."
+                    for j in "${!PIDS[@]}"; do
+                        if [ -n "${PIDS[$j]}" ] && kill -0 ${PIDS[$j]} 2>/dev/null; then
+                            echo "  - Force stopping GPU $j (PID ${PIDS[$j]})"
+                            PGID=$(ps -o pgid= -p ${PIDS[$j]} 2>/dev/null | tr -d ' ')
+                            if [ -n "$PGID" ]; then
+                                kill -KILL -${PGID} 2>/dev/null || true
+                            else
+                                kill -KILL ${PIDS[$j]} 2>/dev/null || true
+                            fi
+                        fi
+                    done
+                    
+                    # Kill any orphaned pretrain_main.py processes
+                    pkill -f "pretrain_main.py" 2>/dev/null || true
+                    
                     break 2  # Exit both loops
                 else
                     echo ""
