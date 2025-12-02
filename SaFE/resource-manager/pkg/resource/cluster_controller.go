@@ -37,6 +37,7 @@ import (
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
 )
 
 const (
@@ -650,18 +651,16 @@ func (r *ClusterReconciler) guaranteeForwardIngress(ctx context.Context, cluster
 		return nil
 	}
 
+	if err := r.guaranteeForwardService(ctx, cluster); err != nil {
+		return err
+	}
+
 	name := generateForwardName(cluster.Name)
 	_, err := r.clientSet.NetworkingV1().Ingresses(common.PrimusSafeNamespace).Get(ctx, name, metav1.GetOptions{})
 	if err == nil {
 		return nil
 	}
 	if !apierrors.IsNotFound(err) {
-		klog.ErrorS(err, "failed to get ingress", "ingress", name)
-		return err
-	}
-
-	if err = r.guaranteeForwardService(ctx, cluster); err != nil {
-		klog.ErrorS(err, "failed to guarantee cluster forward service", "cluster", cluster.Name)
 		return err
 	}
 
@@ -695,16 +694,10 @@ func (r *ClusterReconciler) guaranteeForwardIngress(ctx context.Context, cluster
 		},
 	}
 	if err = controllerutil.SetControllerReference(cluster, desiredIng, r.Client.Scheme()); err != nil {
-		klog.ErrorS(err, "failed to SetControllerReference for ingress", "ingress", name)
 		return err
 	}
 	if _, err = r.clientSet.NetworkingV1().Ingresses(common.PrimusSafeNamespace).Create(ctx, desiredIng, metav1.CreateOptions{}); err != nil {
-		if apierrors.IsAlreadyExists(err) {
-			err = nil
-		} else {
-			klog.ErrorS(err, "failed to create ingress", "name", name)
-		}
-		return err
+		return client.IgnoreAlreadyExists(err)
 	}
 	return nil
 }
@@ -713,16 +706,16 @@ func (r *ClusterReconciler) guaranteeForwardIngress(ctx context.Context, cluster
 // It first checks if the service already exists, and if not, creates a new one
 // with manual endpoints (no selector) for HTTP traffic on port 80.
 func (r *ClusterReconciler) guaranteeForwardService(ctx context.Context, cluster *v1.Cluster) error {
+	if err := r.guaranteeForwardEndpoints(ctx, cluster); err != nil {
+		return err
+	}
+
 	name := generateForwardName(cluster.Name)
 	_, err := r.clientSet.CoreV1().Services(common.PrimusSafeNamespace).Get(ctx, name, metav1.GetOptions{})
 	if err == nil {
 		return nil
 	}
 	if !apierrors.IsNotFound(err) {
-		return err
-	}
-
-	if err = r.guaranteeForwardEndpoints(ctx, cluster); err != nil {
 		return err
 	}
 
@@ -754,32 +747,62 @@ func (r *ClusterReconciler) guaranteeForwardService(ctx context.Context, cluster
 // It gets the cluster's endpoint addresses and creates Endpoints resource with
 // those addresses pointing to the Higress gateway NodePort.
 func (r *ClusterReconciler) guaranteeForwardEndpoints(ctx context.Context, cluster *v1.Cluster) error {
-	name := generateForwardName(cluster.Name)
-	_, err := r.clientSet.CoreV1().Endpoints(common.PrimusSafeNamespace).Get(ctx, name, metav1.GetOptions{})
-	if err == nil {
-		return nil
-	}
-	if !apierrors.IsNotFound(err) {
-		return err
-	}
 	addresses, err := r.getClusterEndpoint(ctx, cluster)
 	if err != nil {
 		return err
 	}
 
-	// Endpoints backed by data-plane gateway NodePort (fixed 32608)
+	name := generateForwardName(cluster.Name)
+	existing, err := r.clientSet.CoreV1().Endpoints(common.PrimusSafeNamespace).Get(ctx, name, metav1.GetOptions{})
+
+	desiredPorts := []corev1.EndpointPort{{
+		Name:     "http",
+		Port:     int32(commonconfig.GetHigressNodePort()),
+		Protocol: corev1.ProtocolTCP,
+	}}
+	if err == nil {
+		isChanged := false
+		if len(existing.Subsets) != 1 {
+			existing.Subsets = []corev1.EndpointSubset{{Addresses: addresses, Ports: desiredPorts}}
+			isChanged = true
+		} else {
+			cur := existing.Subsets[0]
+			if len(cur.Ports) != 1 || cur.Ports[0].Port != desiredPorts[0].Port {
+				existing.Subsets[0].Ports = desiredPorts
+				isChanged = true
+			}
+			ipset := sets.NewSet()
+			for _, a := range cur.Addresses {
+				ipset.Insert(a.IP)
+			}
+			for _, addr := range addresses {
+				if !ipset.Has(addr.IP) {
+					existing.Subsets[0].Addresses = addresses
+					isChanged = true
+					break
+				}
+			}
+		}
+		if isChanged {
+			if _, e := r.clientSet.CoreV1().Endpoints(common.PrimusSafeNamespace).Update(ctx, existing, metav1.UpdateOptions{}); e != nil {
+				return e
+			}
+		}
+		return nil
+	}
+	if !apierrors.IsNotFound(err) {
+		return err
+	}
+
+	// Create path
 	desiredEp := &corev1.Endpoints{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      generateForwardName(cluster.Name),
+			Name:      name,
 			Namespace: common.PrimusSafeNamespace,
 		},
 		Subsets: []corev1.EndpointSubset{{
 			Addresses: addresses,
-			Ports: []corev1.EndpointPort{{
-				Name:     "http",
-				Port:     int32(commonconfig.GetHigressNodePort()),
-				Protocol: corev1.ProtocolTCP,
-			}},
+			Ports:     desiredPorts,
 		}},
 	}
 	if err = controllerutil.SetControllerReference(cluster, desiredEp, r.Client.Scheme()); err != nil {
