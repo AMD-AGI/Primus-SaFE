@@ -85,6 +85,7 @@ rules:
   - priorityclasses
   - endpoints
   - events
+  - ingresses
   verbs:
   - '*'
 - apiGroups:
