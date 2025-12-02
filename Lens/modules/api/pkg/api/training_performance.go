@@ -67,6 +67,21 @@ type DataSourcesResponse struct {
 	TotalCount  int              `json:"total_count"`
 }
 
+// IterationTimePoint iteration 时间点数据
+type IterationTimePoint struct {
+	Iteration  int32  `json:"iteration"`   // 训练步数/迭代次数
+	Timestamp  int64  `json:"timestamp"`   // 时间戳（毫秒）
+	DataSource string `json:"data_source"` // 数据来源
+}
+
+// IterationTimesResponse iteration 时间列表响应
+type IterationTimesResponse struct {
+	WorkloadUID string               `json:"workload_uid"`
+	DataSource  string               `json:"data_source,omitempty"`
+	Data        []IterationTimePoint `json:"data"`
+	TotalCount  int                  `json:"total_count"`
+}
+
 // isMetricField 判断字段是否为实际指标（根据数据源类型）
 func isMetricField(fieldName string, dataSource string) bool {
 	switch dataSource {
@@ -226,7 +241,7 @@ func GetAvailableMetrics(ctx *gin.Context) {
 // GET /workloads/:uid/metrics/data
 // Query Parameters:
 //   - data_source: 数据来源 (可选，如 "log", "wandb", "tensorflow")
-//   - metrics: 指标名称列表，逗号分隔 (可选，不指定则返回所有指标)
+//   - metrics: 指标名称列表，逗号分隔 (可选，支持 "all" 返回所有指标，或指定具体指标名，不指定则返回所有)
 //   - start: 开始时间戳（毫秒）(可选)
 //   - end: 结束时间戳（毫秒）(可选)
 func GetMetricsData(ctx *gin.Context) {
@@ -255,11 +270,20 @@ func GetMetricsData(ctx *gin.Context) {
 
 	// 解析指标列表
 	var requestedMetrics []string
+	var returnAllMetrics bool = true // 默认返回所有指标
+
 	if metricsStr != "" {
-		requestedMetrics = strings.Split(metricsStr, ",")
-		// 去除空格
-		for i := range requestedMetrics {
-			requestedMetrics[i] = strings.TrimSpace(requestedMetrics[i])
+		// 如果明确指定 "all"，返回所有指标
+		if strings.ToLower(strings.TrimSpace(metricsStr)) == "all" {
+			returnAllMetrics = true
+		} else {
+			// 指定了具体的指标名称
+			requestedMetrics = strings.Split(metricsStr, ",")
+			// 去除空格
+			for i := range requestedMetrics {
+				requestedMetrics[i] = strings.TrimSpace(requestedMetrics[i])
+			}
+			returnAllMetrics = false
 		}
 	}
 
@@ -314,7 +338,9 @@ func GetMetricsData(ctx *gin.Context) {
 	// 构建数据点列表
 	dataPoints := make([]MetricDataPoint, 0)
 	metricsSet := make(map[string]bool)
-	if len(requestedMetrics) > 0 {
+
+	// 如果不是返回所有指标，构建指标集合用于过滤
+	if !returnAllMetrics && len(requestedMetrics) > 0 {
 		for _, m := range requestedMetrics {
 			metricsSet[m] = true
 		}
@@ -327,8 +353,8 @@ func GetMetricsData(ctx *gin.Context) {
 				continue
 			}
 
-			// 如果指定了指标列表，只返回请求的指标
-			if len(metricsSet) > 0 && !metricsSet[metricName] {
+			// 如果不是返回所有指标且指定了指标列表，只返回请求的指标
+			if !returnAllMetrics && len(metricsSet) > 0 && !metricsSet[metricName] {
 				continue
 			}
 
@@ -352,6 +378,118 @@ func GetMetricsData(ctx *gin.Context) {
 		DataSource:  dataSource,
 		Data:        dataPoints,
 		TotalCount:  len(dataPoints),
+	}
+
+	ctx.JSON(200, response)
+}
+
+// GetIterationTimes 获取每个 iteration 的时间信息
+// GET /workloads/:uid/metrics/iteration-times
+// Query Parameters:
+//   - data_source: 数据来源 (可选，如 "log", "wandb", "tensorflow")
+//   - start: 开始时间戳（毫秒）(可选)
+//   - end: 结束时间戳（毫秒）(可选)
+func GetIterationTimes(ctx *gin.Context) {
+	workloadUID := ctx.Param("uid")
+	if workloadUID == "" {
+		_ = ctx.Error(errors.NewError().
+			WithCode(errors.RequestParameterInvalid).
+			WithMessage("workload_uid is required"))
+		return
+	}
+
+	cm := clientsets.GetClusterManager()
+	// Get cluster name from query parameter, priority: specified cluster > default cluster > current cluster
+	clusterName := ctx.Query("cluster")
+	clients, err := cm.GetClusterClientsOrDefault(clusterName)
+	if err != nil {
+		_ = ctx.Error(err)
+		return
+	}
+
+	// 解析查询参数
+	dataSource := ctx.Query("data_source")
+	startStr := ctx.Query("start")
+	endStr := ctx.Query("end")
+
+	// 解析时间范围
+	var startTime, endTime time.Time
+	var hasTimeRange bool
+
+	if startStr != "" && endStr != "" {
+		startMs, err := strconv.ParseInt(startStr, 10, 64)
+		if err != nil {
+			_ = ctx.Error(errors.NewError().
+				WithCode(errors.RequestParameterInvalid).
+				WithMessage("invalid start time format"))
+			return
+		}
+
+		endMs, err := strconv.ParseInt(endStr, 10, 64)
+		if err != nil {
+			_ = ctx.Error(errors.NewError().
+				WithCode(errors.RequestParameterInvalid).
+				WithMessage("invalid end time format"))
+			return
+		}
+
+		startTime = time.UnixMilli(startMs)
+		endTime = time.UnixMilli(endMs)
+		hasTimeRange = true
+	}
+
+	// 查询数据
+	var performances []*model.TrainingPerformance
+
+	if hasTimeRange {
+		performances, err = database.GetFacadeForCluster(clients.ClusterName).GetTraining().
+			ListTrainingPerformanceByWorkloadUIDDataSourceAndTimeRange(
+				ctx, workloadUID, dataSource, startTime, endTime,
+			)
+	} else {
+		performances, err = database.GetFacadeForCluster(clients.ClusterName).GetTraining().
+			ListTrainingPerformanceByWorkloadUIDAndDataSource(
+				ctx, workloadUID, dataSource,
+			)
+	}
+
+	if err != nil {
+		_ = ctx.Error(errors.NewError().
+			WithCode(errors.InternalError).
+			WithMessage(err.Error()))
+		return
+	}
+
+	// 构建 iteration 时间点列表
+	// 使用 map 去重，因为同一个 iteration 可能有多个指标记录
+	iterationMap := make(map[int32]*IterationTimePoint)
+
+	for _, p := range performances {
+		timestamp := p.CreatedAt.UnixMilli()
+		// 如果这个 iteration 还没记录，或者当前记录的时间更早，则更新
+		if existing, exists := iterationMap[p.Iteration]; !exists || timestamp < existing.Timestamp {
+			iterationMap[p.Iteration] = &IterationTimePoint{
+				Iteration:  p.Iteration,
+				Timestamp:  timestamp,
+				DataSource: p.DataSource,
+			}
+		}
+	}
+
+	// 转换为数组
+	timePoints := make([]IterationTimePoint, 0, len(iterationMap))
+	for _, point := range iterationMap {
+		timePoints = append(timePoints, *point)
+	}
+
+	// 按 iteration 排序（可选，如果需要有序返回）
+	// 这里为了性能暂不排序，客户端可以自行排序
+
+	response := IterationTimesResponse{
+		WorkloadUID: workloadUID,
+		DataSource:  dataSource,
+		Data:        timePoints,
+		TotalCount:  len(timePoints),
 	}
 
 	ctx.JSON(200, response)
