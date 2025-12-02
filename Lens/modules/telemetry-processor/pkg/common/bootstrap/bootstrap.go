@@ -83,6 +83,11 @@ func initRouter(group *gin.RouterGroup) error {
 	// Active metrics endpoint
 	group.GET("metrics/active", metrics.GetActiveMetricsHandler)
 
+	// Log pattern matching debug endpoints
+	group.POST("debug/test-log-match", logs.DebugTestLogMatch)
+	group.GET("debug/frameworks", logs.DebugListFrameworks)
+	group.GET("debug/frameworks/:name/patterns", logs.DebugFrameworkPatterns)
+
 	// Container event endpoints
 	group.POST("container-events", containers.ReceiveContainerEvent)
 	group.POST("container-events/batch", containers.ReceiveBatchContainerEvents)

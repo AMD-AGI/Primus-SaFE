@@ -431,8 +431,8 @@ func detectFrameworkFromLog(ctx context.Context, workloadUID, logLine string) (s
 
 	if bestMatch != "" {
 		logrus.Infof("Detected framework %s from log with confidence %.2f", bestMatch, bestConfidence)
-		// Record pattern match success
-		IncLogPatternMatchCount(bestMatch, "identify")
+		// Record pattern match success (pattern name not available in this context)
+		IncLogPatternMatchCount(bestMatch, "identify", "")
 		return bestMatch, nil
 	}
 
@@ -471,7 +471,7 @@ func processLogWithFramework(
 
 	// Try performance pattern
 	if result := matcher.MatchPerformance(msg); result.Matched {
-		IncLogPatternMatchCount(frameworkName, "performance")
+		IncLogPatternMatchCount(frameworkName, "performance", result.Pattern)
 		err := handlePerformanceLog(ctx, workloadUID, podUid, result.Groups, logTime, frameworkName)
 		if err != nil {
 			IncLogPatternMatchErrors(frameworkName, "performance", "processing_failed")
@@ -481,17 +481,17 @@ func processLogWithFramework(
 
 	// Try training events
 	if result := matcher.MatchTrainingEvent(msg, "start_training"); result.Matched {
-		IncLogPatternMatchCount(frameworkName, "training_event")
+		IncLogPatternMatchCount(frameworkName, "training_event", result.Pattern)
 		return handleTrainingEvent(ctx, workloadUID, podUid, "StartTrain", logTime)
 	}
 	if result := matcher.MatchTrainingEvent(msg, "end_training"); result.Matched {
-		IncLogPatternMatchCount(frameworkName, "training_event")
+		IncLogPatternMatchCount(frameworkName, "training_event", result.Pattern)
 		return handleTrainingEvent(ctx, workloadUID, podUid, "EndTrain", logTime)
 	}
 
 	// Try checkpoint events
 	if result := matcher.MatchCheckpointEvent(msg, "start_saving"); result.Matched {
-		IncLogPatternMatchCount(frameworkName, "checkpoint_event")
+		IncLogPatternMatchCount(frameworkName, "checkpoint_event", result.Pattern)
 		IncCheckpointEventCount("start_saving", frameworkName)
 		err := handleCheckpointEvent(ctx, workloadUID, podUid, "start_saving", result.Groups, logTime)
 		if err != nil {
@@ -500,7 +500,7 @@ func processLogWithFramework(
 		return err
 	}
 	if result := matcher.MatchCheckpointEvent(msg, "end_saving"); result.Matched {
-		IncLogPatternMatchCount(frameworkName, "checkpoint_event")
+		IncLogPatternMatchCount(frameworkName, "checkpoint_event", result.Pattern)
 		IncCheckpointEventCount("end_saving", frameworkName)
 		err := handleCheckpointEvent(ctx, workloadUID, podUid, "end_saving", result.Groups, logTime)
 		if err != nil {
@@ -509,7 +509,7 @@ func processLogWithFramework(
 		return err
 	}
 	if result := matcher.MatchCheckpointEvent(msg, "loading"); result.Matched {
-		IncLogPatternMatchCount(frameworkName, "checkpoint_event")
+		IncLogPatternMatchCount(frameworkName, "checkpoint_event", result.Pattern)
 		IncCheckpointEventCount("loading", frameworkName)
 		err := handleCheckpointEvent(ctx, workloadUID, podUid, "loading", result.Groups, logTime)
 		if err != nil {
@@ -523,6 +523,21 @@ func processLogWithFramework(
 	return nil
 }
 
+// ConvertGroupsToPerformance converts regex groups to TrainingPerformance (pure function for testing)
+// This is a public wrapper around groupsToPerformance for use in tests and debug APIs
+func ConvertGroupsToPerformance(groups map[string]string) (*model.TrainingPerformance, error) {
+	if len(groups) == 0 {
+		return nil, fmt.Errorf("no groups provided")
+	}
+
+	performance := groupsToPerformance(groups)
+	if performance == nil {
+		return nil, fmt.Errorf("failed to convert groups to performance data")
+	}
+
+	return performance, nil
+}
+
 // handlePerformanceLog handles performance log extraction
 func handlePerformanceLog(
 	ctx context.Context,
@@ -532,9 +547,9 @@ func handlePerformanceLog(
 	frameworkName string,
 ) error {
 	// Convert groups (extracted from regex) to TrainingPerformance model
-	performance := groupsToPerformance(groups)
-	if performance == nil {
-		return fmt.Errorf("failed to convert groups to performance data")
+	performance, err := ConvertGroupsToPerformance(groups)
+	if err != nil {
+		return err
 	}
 
 	// Get nearest workload for serial calculation

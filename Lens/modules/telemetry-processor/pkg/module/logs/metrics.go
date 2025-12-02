@@ -181,14 +181,14 @@ var (
 )
 
 func init() {
-	// 日志模式匹配计数（按模式类型和框架）
+	// 日志模式匹配计数（按模式类型、框架和具体模式名称）
 	logPatternMatchCount = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Subsystem: "log_pattern",
 			Name:      "match_total",
 			Help:      "Total number of successful log pattern matches",
 		},
-		[]string{"framework", "pattern_type"}, // pattern_type: performance/training_event/checkpoint_event/identify
+		[]string{"framework", "pattern_type", "pattern_name"}, // pattern_type: performance/training_event/checkpoint_event/identify, pattern_name: specific regex pattern name
 	)
 	prometheus.MustRegister(logPatternMatchCount)
 
@@ -395,8 +395,8 @@ func IncFrameworkUsageCount(framework, detectionSource string) {
 }
 
 // Log pattern matching helper functions
-func IncLogPatternMatchCount(framework, patternType string) {
-	logPatternMatchCount.WithLabelValues(framework, patternType).Inc()
+func IncLogPatternMatchCount(framework, patternType, patternName string) {
+	logPatternMatchCount.WithLabelValues(framework, patternType, patternName).Inc()
 }
 
 func IncLogPatternMatchErrors(framework, patternType, errorType string) {
