@@ -6,7 +6,7 @@
     "model": {
         "model_type": "llama",
         "model_path": "meta-llama/Llama-3.1-8B-Instruct",
-        "num_layers": 32,
+        "num_layers": 4,
         "init_std": 0.02,
         "use_flash_attention": true
     },
