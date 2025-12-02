@@ -268,11 +268,23 @@ func tryAlternativeNames(groups map[string]string, fieldName string) string {
 }
 
 // setFieldValue sets a reflect.Value based on string input and field type
+// Supports both direct values and pointer types
 func setFieldValue(field reflect.Value, value string) error {
 	if value == "" {
 		return nil // Skip empty values
 	}
 
+	// Handle pointer types
+	if field.Kind() == reflect.Ptr {
+		// Create a new pointer if nil
+		if field.IsNil() {
+			field.Set(reflect.New(field.Type().Elem()))
+		}
+		// Recursively set the pointed-to value
+		return setFieldValue(field.Elem(), value)
+	}
+
+	// Handle direct value types
 	switch field.Kind() {
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		intVal, err := strconv.ParseInt(value, 10, 64)
@@ -317,7 +329,14 @@ func saveTrainingPerformanceForSingleWorkload(ctx context.Context, podId, worklo
 	if err != nil {
 		return err
 	}
-	existDbPerformance, err := database.GetFacade().GetTraining().GetTrainingPerformanceByWorkloadIdSerialAndIteration(ctx, workloadId, serial, perf.CurrentIteration)
+	
+	// Get current iteration value (handle pointer)
+	currentIteration := 0
+	if perf.CurrentIteration != nil {
+		currentIteration = *perf.CurrentIteration
+	}
+	
+	existDbPerformance, err := database.GetFacade().GetTraining().GetTrainingPerformanceByWorkloadIdSerialAndIteration(ctx, workloadId, serial, currentIteration)
 	if err != nil {
 		return err
 	}
@@ -329,7 +348,7 @@ func saveTrainingPerformanceForSingleWorkload(ctx context.Context, podId, worklo
 		ID:          0,
 		PodUUID:     podId,
 		Performance: ext,
-		Iteration:   int32(perf.CurrentIteration),
+		Iteration:   int32(currentIteration),
 		CreatedAt:   docTime,
 		Serial:      int32(serial),
 		WorkloadUID: workloadId,
