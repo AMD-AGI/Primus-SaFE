@@ -1,0 +1,237 @@
+[RESULT] [3095057.561843] Action name :action_1
+[RESULT] [3095057.582043] Module name :mem
+[RESULT] [3095058.57840 ] [action_1] mem   The following memory tests will run
+[RESULT] [3095058.58445 ] =============== Test 1  [Walking 1 bit]
+
+[RESULT] [3095058.58715 ] =============== Test 2  [Own address test]
+
+[RESULT] [3095058.58983 ] =============== Test 3  [Moving inversions, ones&zeros]
+
+[RESULT] [3095058.59233 ] =============== Test 4  [Moving inversions, 8 bit pat]
+
+[RESULT] [3095058.59469 ] =============== Test 5  [Moving inversions, random pattern]
+
+[RESULT] [3095058.59722 ] =============== Test 6  [Block move, 64 moves]
+
+[RESULT] [3095058.59958 ] =============== Test 7  [Moving inversions, 32 bit pat]
+
+[RESULT] [3095058.60198 ] =============== Test 8  [Random number sequence]
+
+[RESULT] [3095058.60439 ] =============== Test 9  [Modulo 20, random pattern]
+
+[RESULT] [3095058.458863] [action_1] mem Test 1: Change one bit memory addresss  
+[RESULT] [3095058.487034] [action_1] mem Test 1 : PASS
+[RESULT] [3095058.487396] [action_1] mem Test 2: Each Memory location is filled with its own address
+[RESULT] [3095058.504169] [action_1] mem Test 2 : PASS
+[RESULT] [3095058.504503] [action_1] mem Test 3 [Moving inversions, ones&zeros] 0 and 4294967295
+
+[RESULT] [3095058.573603] [action_1] mem Test 1: Change one bit memory addresss  
+[RESULT] [3095058.600893] [action_1] mem Test 1 : PASS
+[RESULT] [3095058.601324] [action_1] mem Test 2: Each Memory location is filled with its own address
+[RESULT] [3095058.609282] [action_1] mem Test 3 : PASS 
+[RESULT] [3095058.609600] [action_1] mem Test 4 [Moving inversions, 8 bit pat]2155905152 and 2139062143
+
+[RESULT] [3095058.618130] [action_1] mem Test 2 : PASS
+[RESULT] [3095058.622411] [action_1] mem Test 3 [Moving inversions, ones&zeros] 0 and 4294967295
+
+[RESULT] [3095058.687389] [action_1] mem Test 1: Change one bit memory addresss  
+[RESULT] [3095058.715273] [action_1] mem Test 4 : PASS
+[RESULT] [3095058.715647] [action_1] mem Test 5 [Moving inversions, random pattern] 
+
+[RESULT] [3095058.719179] [action_1] mem Test 1 : PASS
+[RESULT] [3095058.719469] [action_1] mem Test 2: Each Memory location is filled with its own address
+[RESULT] [3095058.727546] [action_1] mem Test 3 : PASS 
+[RESULT] [3095058.727861] [action_1] mem Test 4 [Moving inversions, 8 bit pat]2155905152 and 2139062143
+
+[RESULT] [3095058.736248] [action_1] mem Test 2 : PASS
+[RESULT] [3095058.736690] [action_1] mem Test 3 [Moving inversions, ones&zeros] 0 and 4294967295
+
+[RESULT] [3095058.768136] [action_1] mem Test 5 : PASS no errors detected, iterations are zero here
+[RESULT] [3095058.768487] [action_1] mem Test 6 [Block move, 64 moves]
+[RESULT] [3095058.781676] [action_1] mem Test 6 : PASS
+[RESULT] [3095058.782006] [action_1] mem Test 7 [Moving inversions, 32 bit pat]
+[RESULT] [3095058.802300] [action_1] mem Test 1: Change one bit memory addresss  
+[RESULT] [3095058.828942] [action_1] mem Test 1 : PASS
+[RESULT] [3095058.829571] [action_1] mem Test 2: Each Memory location is filled with its own address
+[RESULT] [3095058.832863] [action_1] mem Test 4 : PASS
+[RESULT] [3095058.833239] [action_1] mem Test 5 [Moving inversions, random pattern] 
+
+[RESULT] [3095058.841557] [action_1] mem Test 3 : PASS 
+[RESULT] [3095058.841881] [action_1] mem Test 4 [Moving inversions, 8 bit pat]2155905152 and 2139062143
+
+[RESULT] [3095058.846454] [action_1] mem Test 2 : PASS
+[RESULT] [3095058.847037] [action_1] mem Test 3 [Moving inversions, ones&zeros] 0 and 4294967295
+
+[RESULT] [3095058.885755] [action_1] mem Test 5 : PASS no errors detected, iterations are zero here
+[RESULT] [3095058.886116] [action_1] mem Test 6 [Block move, 64 moves]
+[RESULT] [3095058.899295] [action_1] mem Test 6 : PASS
+[RESULT] [3095058.899885] [action_1] mem Test 7 [Moving inversions, 32 bit pat]
+[RESULT] [3095058.917278] [action_1] mem Test 1: Change one bit memory addresss  
+[RESULT] [3095058.946752] [action_1] mem Test 4 : PASS
+[RESULT] [3095058.947096] [action_1] mem Test 5 [Moving inversions, random pattern] 
+
+[RESULT] [3095058.948109] [action_1] mem Test 1 : PASS
+[RESULT] [3095058.948409] [action_1] mem Test 2: Each Memory location is filled with its own address
+[RESULT] [3095058.952121] [action_1] mem Test 3 : PASS 
+[RESULT] [3095058.952411] [action_1] mem Test 4 [Moving inversions, 8 bit pat]2155905152 and 2139062143
+
+[RESULT] [3095058.965256] [action_1] mem Test 2 : PASS
+[RESULT] [3095058.965637] [action_1] mem Test 3 [Moving inversions, ones&zeros] 0 and 4294967295
+
+[RESULT] [3095058.999645] [action_1] mem Test 5 : PASS no errors detected, iterations are zero here
+[RESULT] [3095059.106   ] [action_1] mem Test 6 [Block move, 64 moves]
+[RESULT] [3095059.13282 ] [action_1] mem Test 6 : PASS
+[RESULT] [3095059.13587 ] [action_1] mem Test 7 [Moving inversions, 32 bit pat]
+[RESULT] [3095059.32509 ] [action_1] mem Test 1: Change one bit memory addresss  
+[RESULT] [3095059.57430 ] [action_1] mem Test 4 : PASS
+[RESULT] [3095059.57833 ] [action_1] mem Test 5 [Moving inversions, random pattern] 
+
+[RESULT] [3095059.61698 ] [action_1] mem Test 1 : PASS
+[RESULT] [3095059.62015 ] [action_1] mem Test 2: Each Memory location is filled with its own address
+[RESULT] [3095059.70494 ] [action_1] mem Test 3 : PASS 
+[RESULT] [3095059.70824 ] [action_1] mem Test 4 [Moving inversions, 8 bit pat]2155905152 and 2139062143
+
+[RESULT] [3095059.78753 ] [action_1] mem Test 2 : PASS
+[RESULT] [3095059.79077 ] [action_1] mem Test 3 [Moving inversions, ones&zeros] 0 and 4294967295
+
+[RESULT] [3095059.110438] [action_1] mem Test 5 : PASS no errors detected, iterations are zero here
+[RESULT] [3095059.110810] [action_1] mem Test 6 [Block move, 64 moves]
+[RESULT] [3095059.124004] [action_1] mem Test 6 : PASS
+[RESULT] [3095059.124342] [action_1] mem Test 7 [Moving inversions, 32 bit pat]
+[RESULT] [3095059.145462] [action_1] mem Test 1: Change one bit memory addresss  
+[RESULT] [3095059.175325] [action_1] mem Test 1 : PASS
+[RESULT] [3095059.176020] [action_1] mem Test 4 : PASS
+[RESULT] [3095059.201174] [action_1] mem Test 5 [Moving inversions, random pattern] 
+
+[RESULT] [3095059.190845] [action_1] mem Test 2: Each Memory location is filled with its own address
+[RESULT] [3095059.183633] [action_1] mem Test 3 : PASS 
+[RESULT] [3095059.202327] [action_1] mem Test 4 [Moving inversions, 8 bit pat]2155905152 and 2139062143
+
+[RESULT] [3095059.208535] [action_1] mem Test 1: Change one bit memory addresss  
+[RESULT] [3095059.218541] [action_1] mem Test 2 : PASS
+[RESULT] [3095059.219501] [action_1] mem Test 3 [Moving inversions, ones&zeros] 0 and 4294967295
+
+[RESULT] [3095059.237863] [action_1] mem Test 1 : PASS
+[RESULT] [3095059.238211] [action_1] mem Test 2: Each Memory location is filled with its own address
+[RESULT] [3095059.254005] [action_1] mem Test 5 : PASS no errors detected, iterations are zero here
+[RESULT] [3095059.254309] [action_1] mem Test 6 [Block move, 64 moves]
+[RESULT] [3095059.254985] [action_1] mem Test 2 : PASS
+[RESULT] [3095059.255251] [action_1] mem Test 3 [Moving inversions, ones&zeros] 0 and 4294967295
+
+[RESULT] [3095059.267553] [action_1] mem Test 6 : PASS
+[RESULT] [3095059.267886] [action_1] mem Test 7 [Moving inversions, 32 bit pat]
+[RESULT] [3095059.307077] [action_1] mem Test 4 : PASS
+[RESULT] [3095059.308427] [action_1] mem Test 5 [Moving inversions, random pattern] 
+
+[RESULT] [3095059.324401] [action_1] mem Test 3 : PASS 
+[RESULT] [3095059.324713] [action_1] mem Test 4 [Moving inversions, 8 bit pat]2155905152 and 2139062143
+
+[RESULT] [3095059.360155] [action_1] mem Test 3 : PASS 
+[RESULT] [3095059.360558] [action_1] mem Test 4 [Moving inversions, 8 bit pat]2155905152 and 2139062143
+
+[RESULT] [3095059.360900] [action_1] mem Test 5 : PASS no errors detected, iterations are zero here
+[RESULT] [3095059.361165] [action_1] mem Test 6 [Block move, 64 moves]
+[RESULT] [3095059.374327] [action_1] mem Test 6 : PASS
+[RESULT] [3095059.374619] [action_1] mem Test 7 [Moving inversions, 32 bit pat]
+[RESULT] [3095059.429557] [action_1] mem Test 4 : PASS
+[RESULT] [3095059.430087] [action_1] mem Test 5 [Moving inversions, random pattern] 
+
+[RESULT] [3095059.465385] [action_1] mem Test 4 : PASS
+[RESULT] [3095059.465919] [action_1] mem Test 5 [Moving inversions, random pattern] 
+
+[RESULT] [3095059.482579] [action_1] mem Test 5 : PASS no errors detected, iterations are zero here
+[RESULT] [3095059.482914] [action_1] mem Test 6 [Block move, 64 moves]
+[RESULT] [3095059.496114] [action_1] mem Test 6 : PASS
+[RESULT] [3095059.496459] [action_1] mem Test 7 [Moving inversions, 32 bit pat]
+[RESULT] [3095059.520593] [action_1] mem Test 5 : PASS no errors detected, iterations are zero here
+[RESULT] [3095059.520928] [action_1] mem Test 6 [Block move, 64 moves]
+[RESULT] [3095059.534104] [action_1] mem Test 6 : PASS
+[RESULT] [3095059.534404] [action_1] mem Test 7 [Moving inversions, 32 bit pat]
+[RESULT] [3095062.720138] [action_1] mem Test 7 : PASS
+[RESULT] [3095062.720864] [action_1] mem Test 8 [Random number sequence]
+[RESULT] [3095062.842514] [action_1] mem Test 7 : PASS
+[RESULT] [3095062.843029] [action_1] mem Test 8 [Random number sequence]
+[RESULT] [3095062.953392] [action_1] mem Test 7 : PASS
+[RESULT] [3095062.953969] [action_1] mem Test 8 [Random number sequence]
+[RESULT] [3095063.65953 ] [action_1] mem Test 7 : PASS
+[RESULT] [3095063.66461 ] [action_1] mem Test 8 [Random number sequence]
+[RESULT] [3095063.215659] [action_1] mem Test 7 : PASS
+[RESULT] [3095063.216192] [action_1] mem Test 8 [Random number sequence]
+[RESULT] [3095063.307557] [action_1] mem Test 7 : PASS
+[RESULT] [3095063.307996] [action_1] mem Test 8 [Random number sequence]
+[RESULT] [3095063.435282] [action_1] mem Test 7 : PASS
+[RESULT] [3095063.435916] [action_1] mem Test 8 [Random number sequence]
+[RESULT] [3095063.474492] [action_1] mem Test 7 : PASS
+[RESULT] [3095063.474927] [action_1] mem Test 8 [Random number sequence]
+[RESULT] [3095064.824506] [action_1] mem Test 8 : PASS no errors detected, iterations are zero here
+[RESULT] [3095064.825185] [action_1] mem  Test 9 [Modulo 20, random pattern]
+[RESULT] [3095065.103406] [action_1] mem Test 9 : PASS 
+no errors detected, iterations are zero here
+[RESULT] [3095065.103941] [action_1] mem Test 10 [Bit fade test, 90 min, 2 patterns]
+[RESULT] [3095066.223865] [action_1] mem Test 8 : PASS no errors detected, iterations are zero here
+[RESULT] [3095066.224550] [action_1] mem  Test 9 [Modulo 20, random pattern]
+[RESULT] [3095066.285907] [action_1] mem Test 8 : PASS no errors detected, iterations are zero here
+[RESULT] [3095066.286487] [action_1] mem  Test 9 [Modulo 20, random pattern]
+[RESULT] [3095066.503229] [action_1] mem Test 9 : PASS 
+no errors detected, iterations are zero here
+[RESULT] [3095066.503802] [action_1] mem Test 10 [Bit fade test, 90 min, 2 patterns]
+[RESULT] [3095066.519550] [action_1] mem Test 8 : PASS no errors detected, iterations are zero here
+[RESULT] [3095066.520026] [action_1] mem  Test 9 [Modulo 20, random pattern]
+[RESULT] [3095066.564808] [action_1] mem Test 9 : PASS 
+no errors detected, iterations are zero here
+[RESULT] [3095066.565393] [action_1] mem Test 10 [Bit fade test, 90 min, 2 patterns]
+[RESULT] [3095066.653893] [action_1] mem Test 8 : PASS no errors detected, iterations are zero here
+[RESULT] [3095066.689269] [action_1] mem  Test 9 [Modulo 20, random pattern]
+[RESULT] [3095066.772681] [action_1] mem Test 8 : PASS no errors detected, iterations are zero here
+[RESULT] [3095066.773193] [action_1] mem  Test 9 [Modulo 20, random pattern]
+[RESULT] [3095066.803235] [action_1] mem Test 9 : PASS 
+no errors detected, iterations are zero here
+[RESULT] [3095066.803709] [action_1] mem Test 10 [Bit fade test, 90 min, 2 patterns]
+[RESULT] [3095066.810652] [action_1] mem Test 8 : PASS no errors detected, iterations are zero here
+[RESULT] [3095066.811013] [action_1] mem  Test 9 [Modulo 20, random pattern]
+[RESULT] [3095066.825211] [action_1] mem Test 8 : PASS no errors detected, iterations are zero here
+[RESULT] [3095066.825557] [action_1] mem  Test 9 [Modulo 20, random pattern]
+[RESULT] [3095066.967468] [action_1] mem Test 9 : PASS 
+no errors detected, iterations are zero here
+[RESULT] [3095066.968011] [action_1] mem Test 10 [Bit fade test, 90 min, 2 patterns]
+[RESULT] [3095067.51512 ] [action_1] mem Test 9 : PASS 
+no errors detected, iterations are zero here
+[RESULT] [3095067.51960 ] [action_1] mem Test 10 [Bit fade test, 90 min, 2 patterns]
+[RESULT] [3095067.89560 ] [action_1] mem Test 9 : PASS 
+no errors detected, iterations are zero here
+[RESULT] [3095067.89945 ] [action_1] mem Test 10 [Bit fade test, 90 min, 2 patterns]
+[RESULT] [3095067.104679] [action_1] mem Test 9 : PASS 
+no errors detected, iterations are zero here
+[RESULT] [3095067.105031] [action_1] mem Test 10 [Bit fade test, 90 min, 2 patterns]
+[RESULT] [3095085.159140] [action_1] mem Test 10 : PASS
+[RESULT] [3095085.162031] [action_1] mem Test 11 [memory stress test]
+[RESULT] [3095086.557135] [action_1] mem Test 10 : PASS
+[RESULT] [3095086.559799] [action_1] mem Test 11 [memory stress test]
+[RESULT] [3095086.618644] [action_1] mem Test 10 : PASS
+[RESULT] [3095086.619251] [action_1] mem Test 11 [memory stress test]
+[RESULT] [3095086.857153] [action_1] mem Test 10 : PASS
+[RESULT] [3095086.857694] [action_1] mem Test 11 [memory stress test]
+[RESULT] [3095087.21098 ] [action_1] mem Test 10 : PASS
+[RESULT] [3095087.25224 ] [action_1] mem Test 11 [memory stress test]
+[RESULT] [3095087.105131] [action_1] mem Test 10 : PASS
+[RESULT] [3095087.105617] [action_1] mem Test 11 [memory stress test]
+[RESULT] [3095087.143063] [action_1] mem Test 10 : PASS
+[RESULT] [3095087.144144] [action_1] mem Test 11 [memory stress test]
+[RESULT] [3095087.158109] [action_1] mem Test 10 : PASS
+[RESULT] [3095087.171951] [action_1] mem Test 11 [memory stress test]
+[RESULT] [3095091.85755 ] [action_1] mem Test 11: elapsedtime = 5908.337891 bandwidth = 2166.451660GB/s 
+[RESULT] [3095091.90133 ] [action_1] mem Test 11 : PASS 
+[RESULT] [3095092.508016] [action_1] mem Test 11: elapsedtime = 5931.205078 bandwidth = 2158.099121GB/s 
+[RESULT] [3095092.511680] [action_1] mem Test 11 : PASS 
+[RESULT] [3095092.557009] [action_1] mem Test 11: elapsedtime = 5921.403809 bandwidth = 2161.671143GB/s 
+[RESULT] [3095092.562351] [action_1] mem Test 11 : PASS 
+[RESULT] [3095092.804011] [action_1] mem Test 11: elapsedtime = 5935.048340 bandwidth = 2156.701660GB/s 
+[RESULT] [3095092.807718] [action_1] mem Test 11 : PASS 
+[RESULT] [3095092.964827] [action_1] mem Test 11: elapsedtime = 5928.054199 bandwidth = 2159.246094GB/s 
+[RESULT] [3095092.968239] [action_1] mem Test 11 : PASS 
+[RESULT] [3095093.38018 ] [action_1] mem Test 11: elapsedtime = 5918.001465 bandwidth = 2162.914062GB/s 
+[RESULT] [3095093.40915 ] [action_1] mem Test 11 : PASS 
+[RESULT] [3095093.88342 ] [action_1] mem Test 11: elapsedtime = 5924.247559 bandwidth = 2160.633545GB/s 
+[RESULT] [3095093.91731 ] [action_1] mem Test 11 : PASS 
+[RESULT] [3095093.121891] [action_1] mem Test 11: elapsedtime = 5930.808594 bandwidth = 2158.243408GB/s 
+[RESULT] [3095093.129874] [action_1] mem Test 11 : PASS 

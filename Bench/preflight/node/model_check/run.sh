@@ -155,7 +155,8 @@ cleanup() {
     fi
     CLEANUP_DONE=1
     
-    echo "Stopping all GPU processes..."
+    # Output to stderr so it can be captured by parent script
+    echo "Stopping all GPU processes..." >&2
     
     # First, try to terminate process groups gracefully
     for PID in "${PIDS[@]}"; do
@@ -163,11 +164,11 @@ cleanup() {
             # Try to get the process group ID
             PGID=$(ps -o pgid= -p $PID 2>/dev/null | tr -d ' ')
             if [ -n "$PGID" ]; then
-                echo "  - Stopping process group $PGID (GPU PID $PID)"
+                echo "  - Stopping process group $PGID (GPU PID $PID)" >&2
                 # Kill the entire process group
                 kill -TERM -${PGID} 2>/dev/null || true
             else
-                echo "  - Stopping PID $PID"
+                echo "  - Stopping PID $PID" >&2
                 kill -TERM $PID 2>/dev/null || true
             fi
         fi
@@ -181,10 +182,10 @@ cleanup() {
         if [ -n "$PID" ] && kill -0 $PID 2>/dev/null; then
             PGID=$(ps -o pgid= -p $PID 2>/dev/null | tr -d ' ')
             if [ -n "$PGID" ]; then
-                echo "  - Force stopping process group $PGID"
+                echo "  - Force stopping process group $PGID" >&2
                 kill -KILL -${PGID} 2>/dev/null || true
             else
-                echo "  - Force stopping PID $PID"
+                echo "  - Force stopping PID $PID" >&2
                 kill -KILL $PID 2>/dev/null || true
             fi
         fi
@@ -195,7 +196,7 @@ cleanup() {
     
     # Clean up log directory (temporarily disabled for debugging)
     # rm -rf "$LOG_DIR" 2>/dev/null || true
-    echo "Logs kept for debugging: $LOG_DIR"
+    echo "Logs kept for debugging: $LOG_DIR" >&2
 }
 
 # Trap signals to cleanup on exit
@@ -254,18 +255,18 @@ while true; do
                     fi
                     
                     # Kill all other GPU processes when one fails
-                    echo ""
-                    echo "Stopping all other GPU processes due to GPU $i failure..."
+                    echo "" >&2
+                    echo "Stopping all other GPU processes due to GPU $i failure..." >&2
                     
                     # Kill all processes (including the current failed one)
                     for j in "${!PIDS[@]}"; do
                         if [ -n "${PIDS[$j]}" ]; then
-                            echo "  - Stopping GPU $j (PID ${PIDS[$j]})"
+                            echo "  - Stopping GPU $j (PID ${PIDS[$j]})" >&2
                             # Get the process group ID and kill the entire group
                             PGID=$(ps -o pgid= -p ${PIDS[$j]} 2>/dev/null | tr -d ' ')
                             if [ -n "$PGID" ]; then
                                 # Kill the entire process group
-                                echo "    Killing process group $PGID"
+                                echo "    Killing process group $PGID" >&2
                                 kill -TERM -${PGID} 2>/dev/null || true
                             else
                                 # Fallback to killing just the PID
@@ -280,10 +281,10 @@ while true; do
                     sleep 2
                     
                     # Force kill any remaining processes
-                    echo "  - Checking for remaining processes..."
+                    echo "  - Checking for remaining processes..." >&2
                     for j in "${!PIDS[@]}"; do
                         if [ -n "${PIDS[$j]}" ] && kill -0 ${PIDS[$j]} 2>/dev/null; then
-                            echo "  - Force stopping GPU $j (PID ${PIDS[$j]})"
+                            echo "  - Force stopping GPU $j (PID ${PIDS[$j]})" >&2
                             PGID=$(ps -o pgid= -p ${PIDS[$j]} 2>/dev/null | tr -d ' ')
                             if [ -n "$PGID" ]; then
                                 kill -KILL -${PGID} 2>/dev/null || true

@@ -22,6 +22,12 @@ exec 3>&1
 cleanup() {
     echo ""
     echo "${LOG_HEADER}[$(date +'%Y-%m-%d %H:%M:%S')] Interrupted by user (Ctrl+C)"
+    # Send SIGINT to all child processes first
+    kill -INT -$$ 2>/dev/null || true
+    # Give child processes time to cleanup
+    sleep 1
+    # Kill any remaining child processes
+    pkill -P $$ 2>/dev/null || true
     exit 130
 }
 trap cleanup SIGINT SIGTERM
@@ -50,8 +56,12 @@ run_check_phase() {
     
     # Execute the check script in its directory
     # stdout goes directly to terminal (fd 3), stderr is tee'd to both terminal and file
-    bash -c "cd $check_dir && bash run.sh" >&3 2> >(tee "$err_file" >&2)
+    # Use exec to ensure proper signal handling and output flushing
+    bash -c "cd $check_dir && exec bash run.sh" >&3 2> >(tee "$err_file" >&2)
     exit_code=$?
+    
+    # Wait for tee process to finish writing
+    sleep 0.1
     
     # Check if interrupted by signal (128 + signal number, SIGINT=2 -> 130)
     if [ $exit_code -ge 128 ]; then
@@ -88,7 +98,7 @@ if [ $ret -ge 128 ]; then
     exit $ret
 fi
 if [ $ret -ne 0 ]; then
-    errors+="$error_output"
+    errors="${errors}${error_output}"
     has_error=1
 fi
 
@@ -103,9 +113,9 @@ if [ $ret -ge 128 ]; then
 fi
 if [ $ret -ne 0 ]; then
     if [ -n "$errors" ]; then
-        errors+=" | "
+        errors="${errors} | "
     fi
-    errors+="$error_output"
+    errors="${errors}${error_output}"
     has_error=1
 fi
 
@@ -120,9 +130,9 @@ if [ $ret -ge 128 ]; then
 fi
 if [ $ret -ne 0 ]; then
     if [ -n "$errors" ]; then
-        errors+=" | "
+        errors="${errors} | "
     fi
-    errors+="$error_output"
+    errors="${errors}${error_output}"
     has_error=1
 fi
 
@@ -132,13 +142,13 @@ fi
 
 final_ret=0
 if [ -n "$errors" ]; then
-    echo "${LOG_HEADER}[NODE] [ERROR]❌: $errors"
+    echo "${LOG_HEADER}[NODE] [ERROR]: $errors"
     final_ret=1
 elif [ $has_error -eq 1 ]; then
-    echo "${LOG_HEADER}[NODE] [ERROR]❌: One or more checks failed (check logs for details)"
+    echo "${LOG_HEADER}[NODE] [ERROR]: One or more checks failed (check logs for details)"
     final_ret=1
 else
-    echo "${LOG_HEADER}[$(date +'%Y-%m-%d %H:%M:%S')] [NODE] [SUCCESS] ✅ All checks passed"
+    echo "${LOG_HEADER}[$(date +'%Y-%m-%d %H:%M:%S')] [NODE] [SUCCESS] All checks passed"
 fi
 
 echo "${LOG_HEADER}[$(date +'%Y-%m-%d %H:%M:%S')] diagnose finished"
