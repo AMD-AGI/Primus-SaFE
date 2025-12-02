@@ -30,7 +30,7 @@ func main() {
 	detection, err := aiAdvisor.ReportDetection(&common.DetectionRequest{
 		WorkloadUID: workloadUID,
 		Source:      "wandb",
-		Framework:   "primus",
+		Frameworks:  []string{"primus"},
 		Type:        "training",
 		Confidence:  0.95,
 		Evidence: map[string]interface{}{
@@ -42,8 +42,8 @@ func main() {
 	if err != nil {
 		fmt.Printf("Failed to report detection: %v\n", err)
 	} else {
-		fmt.Printf("Detection reported: %s (confidence: %.2f, status: %s)\n",
-			detection.Framework, detection.Confidence, detection.Status)
+		fmt.Printf("Detection reported: %v (confidence: %.2f, status: %s)\n",
+			detection.Frameworks, detection.Confidence, detection.Status)
 	}
 
 	// 3. 查询框架检测结果
@@ -54,7 +54,7 @@ func main() {
 	} else if result == nil {
 		fmt.Println("Detection not found")
 	} else {
-		fmt.Printf("Framework: %s\n", result.Framework)
+		fmt.Printf("Framework: %v\n", result.Frameworks)
 		fmt.Printf("Confidence: %.2f\n", result.Confidence)
 		fmt.Printf("Status: %s\n", result.Status)
 		fmt.Printf("Sources: %d\n", len(result.Sources))
@@ -71,7 +71,7 @@ func main() {
 			if det == nil {
 				fmt.Printf("%s: not found\n", uid)
 			} else {
-				fmt.Printf("%s: %s (%.2f)\n", uid, det.Framework, det.Confidence)
+				fmt.Printf("%s: %v (%.2f)\n", uid, det.Frameworks, det.Confidence)
 			}
 		}
 	}
@@ -158,4 +158,3 @@ func main() {
 
 	fmt.Println("\n=== Example Completed ===")
 }
-

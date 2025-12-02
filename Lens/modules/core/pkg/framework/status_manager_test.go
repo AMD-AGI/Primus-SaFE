@@ -3,43 +3,43 @@ package framework
 import (
 	"testing"
 	"time"
-	
+
 	"github.com/stretchr/testify/assert"
-	
+
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/model"
 )
 
 func TestStatusManager_DetermineStatus_SingleLowConfidence(t *testing.T) {
 	config := DefaultDetectionConfig()
 	manager := NewStatusManager(config)
-	
+
 	sources := []model.DetectionSource{
 		{
 			Source:     "log",
-			Framework:  "primus",
+			Frameworks: []string{"primus"},
 			Confidence: 0.4,
 			DetectedAt: time.Now(),
 		},
 	}
-	
+
 	status := manager.DetermineStatus(0.4, sources)
-	assert.Equal(t, model.DetectionStatusSuspected, status, 
+	assert.Equal(t, model.DetectionStatusSuspected, status,
 		"Low confidence single source should be suspected")
 }
 
 func TestStatusManager_DetermineStatus_SingleHighConfidence(t *testing.T) {
 	config := DefaultDetectionConfig()
 	manager := NewStatusManager(config)
-	
+
 	sources := []model.DetectionSource{
 		{
 			Source:     "component",
-			Framework:  "primus",
+			Frameworks: []string{"primus"},
 			Confidence: 0.9,
 			DetectedAt: time.Now(),
 		},
 	}
-	
+
 	status := manager.DetermineStatus(0.9, sources)
 	assert.Equal(t, model.DetectionStatusConfirmed, status,
 		"High confidence single source should be confirmed")
@@ -48,22 +48,22 @@ func TestStatusManager_DetermineStatus_SingleHighConfidence(t *testing.T) {
 func TestStatusManager_DetermineStatus_MultiSourceVerified(t *testing.T) {
 	config := DefaultDetectionConfig()
 	manager := NewStatusManager(config)
-	
+
 	sources := []model.DetectionSource{
 		{
 			Source:     "log",
-			Framework:  "primus",
+			Frameworks: []string{"primus"},
 			Confidence: 0.8,
 			DetectedAt: time.Now(),
 		},
 		{
 			Source:     "component",
-			Framework:  "primus",
+			Frameworks: []string{"primus"},
 			Confidence: 0.9,
 			DetectedAt: time.Now(),
 		},
 	}
-	
+
 	status := manager.DetermineStatus(0.95, sources)
 	assert.Equal(t, model.DetectionStatusVerified, status,
 		"Multiple consistent high-confidence sources should be verified")
@@ -72,22 +72,22 @@ func TestStatusManager_DetermineStatus_MultiSourceVerified(t *testing.T) {
 func TestStatusManager_DetermineStatus_Conflict(t *testing.T) {
 	config := DefaultDetectionConfig()
 	manager := NewStatusManager(config)
-	
+
 	sources := []model.DetectionSource{
 		{
 			Source:     "log",
-			Framework:  "primus",
+			Frameworks: []string{"primus"},
 			Confidence: 0.8,
 			DetectedAt: time.Now(),
 		},
 		{
 			Source:     "component",
-			Framework:  "deepspeed",
+			Frameworks: []string{"deepspeed"},
 			Confidence: 0.9,
 			DetectedAt: time.Now(),
 		},
 	}
-	
+
 	status := manager.DetermineStatus(0.7, sources)
 	assert.Equal(t, model.DetectionStatusConflict, status,
 		"Conflicting sources should result in conflict status")
@@ -96,16 +96,16 @@ func TestStatusManager_DetermineStatus_Conflict(t *testing.T) {
 func TestStatusManager_DetermineStatus_ReuseOnly(t *testing.T) {
 	config := DefaultDetectionConfig()
 	manager := NewStatusManager(config)
-	
+
 	sources := []model.DetectionSource{
 		{
 			Source:     "reuse",
-			Framework:  "primus",
+			Frameworks: []string{"primus"},
 			Confidence: 0.85,
 			DetectedAt: time.Now(),
 		},
 	}
-	
+
 	status := manager.DetermineStatus(0.85, sources)
 	assert.Equal(t, model.DetectionStatusReused, status,
 		"Reuse-only source should have reused status")
@@ -114,16 +114,16 @@ func TestStatusManager_DetermineStatus_ReuseOnly(t *testing.T) {
 func TestStatusManager_DetermineStatus_Unknown(t *testing.T) {
 	config := DefaultDetectionConfig()
 	manager := NewStatusManager(config)
-	
+
 	sources := []model.DetectionSource{
 		{
 			Source:     "log",
-			Framework:  "primus",
+			Frameworks: []string{"primus"},
 			Confidence: 0.1,
 			DetectedAt: time.Now(),
 		},
 	}
-	
+
 	status := manager.DetermineStatus(0.1, sources)
 	assert.Equal(t, model.DetectionStatusUnknown, status,
 		"Very low confidence should be unknown")
@@ -132,7 +132,7 @@ func TestStatusManager_DetermineStatus_Unknown(t *testing.T) {
 func TestStatusManager_ValidateTransition(t *testing.T) {
 	config := DefaultDetectionConfig()
 	manager := NewStatusManager(config)
-	
+
 	validTransitions := []struct {
 		name string
 		from model.DetectionStatus
@@ -146,7 +146,7 @@ func TestStatusManager_ValidateTransition(t *testing.T) {
 		{"Reused to Verified", model.DetectionStatusReused, model.DetectionStatusVerified},
 		{"Conflict to Verified", model.DetectionStatusConflict, model.DetectionStatusVerified},
 	}
-	
+
 	for _, tt := range validTransitions {
 		t.Run(tt.name, func(t *testing.T) {
 			err := manager.ValidateTransition(tt.from, tt.to)
@@ -158,7 +158,7 @@ func TestStatusManager_ValidateTransition(t *testing.T) {
 func TestStatusManager_ValidateTransition_Invalid(t *testing.T) {
 	config := DefaultDetectionConfig()
 	manager := NewStatusManager(config)
-	
+
 	invalidTransitions := []struct {
 		name string
 		from model.DetectionStatus
@@ -168,7 +168,7 @@ func TestStatusManager_ValidateTransition_Invalid(t *testing.T) {
 		{"Confirmed to Suspected", model.DetectionStatusConfirmed, model.DetectionStatusSuspected},
 		{"Verified to Suspected", model.DetectionStatusVerified, model.DetectionStatusSuspected},
 	}
-	
+
 	for _, tt := range invalidTransitions {
 		t.Run(tt.name, func(t *testing.T) {
 			err := manager.ValidateTransition(tt.from, tt.to)
@@ -180,7 +180,7 @@ func TestStatusManager_ValidateTransition_Invalid(t *testing.T) {
 func TestStatusManager_GetStatusPriority(t *testing.T) {
 	config := DefaultDetectionConfig()
 	manager := NewStatusManager(config)
-	
+
 	tests := []struct {
 		status   model.DetectionStatus
 		expected int
@@ -192,7 +192,7 @@ func TestStatusManager_GetStatusPriority(t *testing.T) {
 		{model.DetectionStatusConflict, 1},
 		{model.DetectionStatusUnknown, 0},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(string(tt.status), func(t *testing.T) {
 			priority := manager.GetStatusPriority(tt.status)
@@ -204,14 +204,14 @@ func TestStatusManager_GetStatusPriority(t *testing.T) {
 func TestStatusManager_ShouldUpdate(t *testing.T) {
 	config := DefaultDetectionConfig()
 	manager := NewStatusManager(config)
-	
+
 	tests := []struct {
-		name           string
-		oldStatus      model.DetectionStatus
-		newStatus      model.DetectionStatus
-		oldConfidence  float64
-		newConfidence  float64
-		shouldUpdate   bool
+		name          string
+		oldStatus     model.DetectionStatus
+		newStatus     model.DetectionStatus
+		oldConfidence float64
+		newConfidence float64
+		shouldUpdate  bool
 	}{
 		{
 			name:          "Unknown to Suspected",
@@ -246,7 +246,7 @@ func TestStatusManager_ShouldUpdate(t *testing.T) {
 			shouldUpdate:  false,
 		},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := manager.ShouldUpdate(
@@ -261,7 +261,7 @@ func TestStatusManager_ShouldUpdate(t *testing.T) {
 func TestStatusManager_HasConflict(t *testing.T) {
 	config := DefaultDetectionConfig()
 	manager := NewStatusManager(config)
-	
+
 	tests := []struct {
 		name     string
 		sources  []model.DetectionSource
@@ -275,28 +275,28 @@ func TestStatusManager_HasConflict(t *testing.T) {
 		{
 			name: "Single source",
 			sources: []model.DetectionSource{
-				{Framework: "primus"},
+				{Frameworks: []string{"primus"}},
 			},
 			expected: false,
 		},
 		{
 			name: "No conflict",
 			sources: []model.DetectionSource{
-				{Framework: "primus"},
-				{Framework: "primus"},
+				{Frameworks: []string{"primus"}},
+				{Frameworks: []string{"primus"}},
 			},
 			expected: false,
 		},
 		{
 			name: "Has conflict",
 			sources: []model.DetectionSource{
-				{Framework: "primus"},
-				{Framework: "deepspeed"},
+				{Frameworks: []string{"primus"}},
+				{Frameworks: []string{"deepspeed"}},
 			},
 			expected: true,
 		},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := manager.hasConflict(tt.sources)
@@ -308,7 +308,7 @@ func TestStatusManager_HasConflict(t *testing.T) {
 func TestStatusManager_IsReusedOnly(t *testing.T) {
 	config := DefaultDetectionConfig()
 	manager := NewStatusManager(config)
-	
+
 	tests := []struct {
 		name     string
 		sources  []model.DetectionSource
@@ -343,7 +343,7 @@ func TestStatusManager_IsReusedOnly(t *testing.T) {
 			expected: false,
 		},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := manager.isReusedOnly(tt.sources)
@@ -351,4 +351,3 @@ func TestStatusManager_IsReusedOnly(t *testing.T) {
 		})
 	}
 }
-

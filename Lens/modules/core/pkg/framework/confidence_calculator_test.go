@@ -16,7 +16,7 @@ func TestConfidenceCalculator_Calculate_SingleSource(t *testing.T) {
 	sources := []model.DetectionSource{
 		{
 			Source:     "log",
-			Framework:  "primus",
+			Frameworks: []string{"primus"},
 			Confidence: 0.7,
 			DetectedAt: time.Now(),
 		},
@@ -33,13 +33,13 @@ func TestConfidenceCalculator_Calculate_MultiSourceConsistent(t *testing.T) {
 	sources := []model.DetectionSource{
 		{
 			Source:     "log",
-			Framework:  "primus",
+			Frameworks: []string{"primus"},
 			Confidence: 0.7,
 			DetectedAt: time.Now(),
 		},
 		{
 			Source:     "component",
-			Framework:  "primus",
+			Frameworks: []string{"primus"},
 			Confidence: 0.8,
 			DetectedAt: time.Now(),
 		},
@@ -59,13 +59,13 @@ func TestConfidenceCalculator_Calculate_MultiSourceConflict(t *testing.T) {
 	sources := []model.DetectionSource{
 		{
 			Source:     "log",
-			Framework:  "primus",
+			Frameworks: []string{"primus"},
 			Confidence: 0.9,
 			DetectedAt: time.Now(),
 		},
 		{
 			Source:     "component",
-			Framework:  "deepspeed",
+			Frameworks: []string{"deepspeed"},
 			Confidence: 0.7,
 			DetectedAt: time.Now(),
 		},
@@ -95,19 +95,19 @@ func TestConfidenceCalculator_Calculate_ThreeConsistentSources(t *testing.T) {
 	sources := []model.DetectionSource{
 		{
 			Source:     "log",
-			Framework:  "primus",
+			Frameworks: []string{"primus"},
 			Confidence: 0.7,
 			DetectedAt: time.Now(),
 		},
 		{
 			Source:     "component",
-			Framework:  "primus",
+			Frameworks: []string{"primus"},
 			Confidence: 0.8,
 			DetectedAt: time.Now(),
 		},
 		{
 			Source:     "wandb",
-			Framework:  "primus",
+			Frameworks: []string{"primus"},
 			Confidence: 0.75,
 			DetectedAt: time.Now(),
 		},
@@ -161,24 +161,24 @@ func TestConfidenceCalculator_AllAgree(t *testing.T) {
 		{
 			name: "Single source",
 			sources: []model.DetectionSource{
-				{Framework: "primus"},
+				{Frameworks: []string{"primus"}},
 			},
 			expected: true,
 		},
 		{
 			name: "All agree",
 			sources: []model.DetectionSource{
-				{Framework: "primus"},
-				{Framework: "primus"},
-				{Framework: "primus"},
+				{Frameworks: []string{"primus"}},
+				{Frameworks: []string{"primus"}},
+				{Frameworks: []string{"primus"}},
 			},
 			expected: true,
 		},
 		{
 			name: "Conflict",
 			sources: []model.DetectionSource{
-				{Framework: "primus"},
-				{Framework: "deepspeed"},
+				{Frameworks: []string{"primus"}},
+				{Frameworks: []string{"deepspeed"}},
 			},
 			expected: false,
 		},
@@ -199,12 +199,12 @@ func TestConfidenceCalculator_CalculateWeighted(t *testing.T) {
 	sources := []model.DetectionSource{
 		{
 			Source:     "log",     // Priority 60
-			Framework:  "primus",
+			Frameworks: []string{"primus"},
 			Confidence: 0.7,
 		},
 		{
 			Source:     "component", // Priority 80
-			Framework:  "primus",
+			Frameworks:  []string{"primus"},
 			Confidence: 0.9,
 		},
 	}

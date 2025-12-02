@@ -9,7 +9,6 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
-	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/errors"
 	"github.com/gin-gonic/gin"
 )
 
@@ -102,9 +101,7 @@ func isMetricField(fieldName string, dataSource string) bool {
 func GetDataSources(ctx *gin.Context) {
 	workloadUID := ctx.Param("uid")
 	if workloadUID == "" {
-		_ = ctx.Error(errors.NewError().
-			WithCode(errors.RequestParameterInvalid).
-			WithMessage("workload_uid is required"))
+		ctx.AbortWithStatusJSON(400, gin.H{"error": "workload_uid is required"})
 		return
 	}
 
@@ -113,7 +110,7 @@ func GetDataSources(ctx *gin.Context) {
 	clusterName := ctx.Query("cluster")
 	clients, err := cm.GetClusterClientsOrDefault(clusterName)
 	if err != nil {
-		_ = ctx.Error(err)
+		ctx.AbortWithStatusJSON(500, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -121,9 +118,7 @@ func GetDataSources(ctx *gin.Context) {
 	performances, err := database.GetFacadeForCluster(clients.ClusterName).GetTraining().
 		ListTrainingPerformanceByWorkloadUID(ctx, workloadUID)
 	if err != nil {
-		_ = ctx.Error(errors.NewError().
-			WithCode(errors.InternalError).
-			WithMessage(err.Error()))
+		ctx.AbortWithStatusJSON(500, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -158,9 +153,7 @@ func GetDataSources(ctx *gin.Context) {
 func GetAvailableMetrics(ctx *gin.Context) {
 	workloadUID := ctx.Param("uid")
 	if workloadUID == "" {
-		_ = ctx.Error(errors.NewError().
-			WithCode(errors.RequestParameterInvalid).
-			WithMessage("workload_uid is required"))
+		ctx.AbortWithStatusJSON(400, gin.H{"error": "workload_uid is required"})
 		return
 	}
 
@@ -169,7 +162,7 @@ func GetAvailableMetrics(ctx *gin.Context) {
 	clusterName := ctx.Query("cluster")
 	clients, err := cm.GetClusterClientsOrDefault(clusterName)
 	if err != nil {
-		_ = ctx.Error(err)
+		ctx.AbortWithStatusJSON(500, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -190,9 +183,7 @@ func GetAvailableMetrics(ctx *gin.Context) {
 	}
 
 	if err != nil {
-		_ = ctx.Error(errors.NewError().
-			WithCode(errors.InternalError).
-			WithMessage(err.Error()))
+		ctx.AbortWithStatusJSON(500, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -247,18 +238,7 @@ func GetAvailableMetrics(ctx *gin.Context) {
 func GetMetricsData(ctx *gin.Context) {
 	workloadUID := ctx.Param("uid")
 	if workloadUID == "" {
-		_ = ctx.Error(errors.NewError().
-			WithCode(errors.RequestParameterInvalid).
-			WithMessage("workload_uid is required"))
-		return
-	}
-
-	cm := clientsets.GetClusterManager()
-	// Get cluster name from query parameter, priority: specified cluster > default cluster > current cluster
-	clusterName := ctx.Query("cluster")
-	clients, err := cm.GetClusterClientsOrDefault(clusterName)
-	if err != nil {
-		_ = ctx.Error(err)
+		ctx.AbortWithStatusJSON(400, gin.H{"error": "workload_uid is required"})
 		return
 	}
 
@@ -305,23 +285,28 @@ func GetMetricsData(ctx *gin.Context) {
 	if startStr != "" && endStr != "" {
 		startMs, err := strconv.ParseInt(startStr, 10, 64)
 		if err != nil {
-			_ = ctx.Error(errors.NewError().
-				WithCode(errors.RequestParameterInvalid).
-				WithMessage("invalid start time format"))
+			ctx.AbortWithStatusJSON(400, gin.H{"error": "invalid start time format"})
 			return
 		}
 
 		endMs, err := strconv.ParseInt(endStr, 10, 64)
 		if err != nil {
-			_ = ctx.Error(errors.NewError().
-				WithCode(errors.RequestParameterInvalid).
-				WithMessage("invalid end time format"))
+			ctx.AbortWithStatusJSON(400, gin.H{"error": "invalid end time format"})
 			return
 		}
 
 		startTime = time.UnixMilli(startMs)
 		endTime = time.UnixMilli(endMs)
 		hasTimeRange = true
+	}
+
+	cm := clientsets.GetClusterManager()
+	// Get cluster name from query parameter, priority: specified cluster > default cluster > current cluster
+	clusterName := ctx.Query("cluster")
+	clients, err := cm.GetClusterClientsOrDefault(clusterName)
+	if err != nil {
+		ctx.AbortWithStatusJSON(500, gin.H{"error": err.Error()})
+		return
 	}
 
 	// 查询数据
@@ -340,9 +325,7 @@ func GetMetricsData(ctx *gin.Context) {
 	}
 
 	if err != nil {
-		_ = ctx.Error(errors.NewError().
-			WithCode(errors.InternalError).
-			WithMessage(err.Error()))
+		ctx.AbortWithStatusJSON(500, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -403,9 +386,7 @@ func GetMetricsData(ctx *gin.Context) {
 func GetIterationTimes(ctx *gin.Context) {
 	workloadUID := ctx.Param("uid")
 	if workloadUID == "" {
-		_ = ctx.Error(errors.NewError().
-			WithCode(errors.RequestParameterInvalid).
-			WithMessage("workload_uid is required"))
+		ctx.AbortWithStatusJSON(400, gin.H{"error": "workload_uid is required"})
 		return
 	}
 
@@ -414,7 +395,7 @@ func GetIterationTimes(ctx *gin.Context) {
 	clusterName := ctx.Query("cluster")
 	clients, err := cm.GetClusterClientsOrDefault(clusterName)
 	if err != nil {
-		_ = ctx.Error(err)
+		ctx.AbortWithStatusJSON(500, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -430,17 +411,13 @@ func GetIterationTimes(ctx *gin.Context) {
 	if startStr != "" && endStr != "" {
 		startMs, err := strconv.ParseInt(startStr, 10, 64)
 		if err != nil {
-			_ = ctx.Error(errors.NewError().
-				WithCode(errors.RequestParameterInvalid).
-				WithMessage("invalid start time format"))
+			ctx.AbortWithStatusJSON(400, gin.H{"error": "invalid start time format"})
 			return
 		}
 
 		endMs, err := strconv.ParseInt(endStr, 10, 64)
 		if err != nil {
-			_ = ctx.Error(errors.NewError().
-				WithCode(errors.RequestParameterInvalid).
-				WithMessage("invalid end time format"))
+			ctx.AbortWithStatusJSON(400, gin.H{"error": "invalid end time format"})
 			return
 		}
 
@@ -465,9 +442,7 @@ func GetIterationTimes(ctx *gin.Context) {
 	}
 
 	if err != nil {
-		_ = ctx.Error(errors.NewError().
-			WithCode(errors.InternalError).
-			WithMessage(err.Error()))
+		ctx.AbortWithStatusJSON(500, gin.H{"error": err.Error()})
 		return
 	}
 

@@ -14,14 +14,19 @@ const (
 	DetectionStatusConflict  DetectionStatus = "conflict"  // Conflict between sources
 )
 
-// FrameworkDetection represents the framework detection result
+// FrameworkDetection represents the framework detection result with dual-layer support
 type FrameworkDetection struct {
-	Framework  string              `json:"framework"`  // Framework name (pytorch, tensorflow, primus, deepspeed, megatron, etc.)
+	Frameworks []string            `json:"frameworks"` // Detected frameworks: [wrapper, base] for dual-layer, [framework] for single-layer
 	Type       string              `json:"type"`       // Task type (training, inference, etc.)
 	Confidence float64             `json:"confidence"` // Confidence score [0.0-1.0]
 	Status     DetectionStatus     `json:"status"`     // Detection status
 	Sources    []DetectionSource   `json:"sources"`    // Data sources that contributed to detection
 	Conflicts  []DetectionConflict `json:"conflicts"`  // Conflict records if any
+
+	// Dual-layer framework support
+	FrameworkLayer   string `json:"framework_layer,omitempty"`   // Framework layer: "wrapper" or "base"
+	WrapperFramework string `json:"wrapper_framework,omitempty"` // Wrapper framework (e.g., primus, lightning)
+	BaseFramework    string `json:"base_framework,omitempty"`    // Base framework (e.g., megatron, deepspeed)
 
 	// Reuse information (only set when status is reused)
 	ReuseInfo *ReuseInfo `json:"reuse_info,omitempty"` // Reuse metadata
@@ -30,14 +35,19 @@ type FrameworkDetection struct {
 	UpdatedAt time.Time `json:"updated_at"` // Last update timestamp
 }
 
-// DetectionSource represents a single detection data source
+// DetectionSource represents a single detection data source with dual-layer support
 type DetectionSource struct {
 	Source     string                 `json:"source"`      // Source identifier (component, log, wandb, user, reuse, image, default)
-	Framework  string                 `json:"framework"`   // Framework detected by this source
+	Frameworks []string               `json:"frameworks"`  // Detected frameworks: [wrapper, base] or [framework]
 	Type       string                 `json:"type"`        // Task type detected by this source
 	Confidence float64                `json:"confidence"`  // Confidence of this source [0.0-1.0]
 	DetectedAt time.Time              `json:"detected_at"` // Detection timestamp
 	Evidence   map[string]interface{} `json:"evidence"`    // Evidence data (method, details, matched patterns, etc.)
+
+	// Dual-layer framework support
+	FrameworkLayer   string `json:"framework_layer,omitempty"`   // Framework layer: "wrapper" or "base"
+	WrapperFramework string `json:"wrapper_framework,omitempty"` // Wrapper framework if detected
+	BaseFramework    string `json:"base_framework,omitempty"`    // Base framework if detected
 }
 
 // DetectionConflict represents a conflict between two detection sources

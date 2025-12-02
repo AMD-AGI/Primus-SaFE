@@ -181,8 +181,8 @@ func (d *WandBFrameworkDetector) ProcessWandBDetection(
 		}
 	}
 
-	// 5. 上报到 FrameworkDetectionManager
-	err = d.detectionManager.ReportDetection(
+	// 5. 上报到 FrameworkDetectionManager (使用双层框架支持的新方法)
+	err = d.detectionManager.ReportDetectionWithLayers(
 		ctx,
 		workloadUID,
 		"wandb",
@@ -190,6 +190,9 @@ func (d *WandBFrameworkDetector) ProcessWandBDetection(
 		"training",
 		result.Confidence,
 		evidence,
+		result.FrameworkLayer,
+		result.WrapperFramework,
+		result.BaseFramework,
 	)
 
 	if err != nil {

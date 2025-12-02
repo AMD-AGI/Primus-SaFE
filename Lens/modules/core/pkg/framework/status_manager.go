@@ -2,7 +2,7 @@ package framework
 
 import (
 	"fmt"
-	
+
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/model"
 )
 
@@ -34,12 +34,12 @@ func (s *StatusManager) DetermineStatus(
 	if s.hasConflict(sources) {
 		return model.DetectionStatusConflict
 	}
-	
+
 	// Check if only reuse source
 	if s.isReusedOnly(sources) {
 		return model.DetectionStatusReused
 	}
-	
+
 	// Determine status based on confidence and source count
 	if confidence >= s.config.VerifiedThreshold {
 		if len(sources) > 1 {
@@ -51,7 +51,7 @@ func (s *StatusManager) DetermineStatus(
 	} else if confidence >= s.config.SuspectedThreshold {
 		return model.DetectionStatusSuspected
 	}
-	
+
 	return model.DetectionStatusUnknown
 }
 
@@ -60,10 +60,19 @@ func (s *StatusManager) hasConflict(sources []model.DetectionSource) bool {
 	if len(sources) <= 1 {
 		return false
 	}
-	
-	firstFramework := sources[0].Framework
+
+	// Compare first framework from each source's Frameworks array
+	var firstFramework string
+	if len(sources[0].Frameworks) > 0 {
+		firstFramework = sources[0].Frameworks[0]
+	}
+
 	for i := 1; i < len(sources); i++ {
-		if sources[i].Framework != firstFramework {
+		var currentFramework string
+		if len(sources[i].Frameworks) > 0 {
+			currentFramework = sources[i].Frameworks[0]
+		}
+		if currentFramework != firstFramework {
 			return true
 		}
 	}
@@ -75,7 +84,7 @@ func (s *StatusManager) isReusedOnly(sources []model.DetectionSource) bool {
 	if len(sources) == 0 {
 		return false
 	}
-	
+
 	for _, src := range sources {
 		if src.Source != "reuse" {
 			return false
@@ -125,19 +134,19 @@ func (s *StatusManager) ValidateTransition(
 			model.DetectionStatusConfirmed,
 		},
 	}
-	
+
 	// Check if transition is valid
 	allowedTargets, ok := validTransitions[from]
 	if !ok {
 		return fmt.Errorf("invalid source status: %s", from)
 	}
-	
+
 	for _, allowed := range allowedTargets {
 		if to == allowed {
 			return nil // Valid transition
 		}
 	}
-	
+
 	return fmt.Errorf("invalid transition from %s to %s", from, to)
 }
 
@@ -151,7 +160,7 @@ func (s *StatusManager) GetStatusPriority(status model.DetectionStatus) int {
 		model.DetectionStatusConflict:  1,
 		model.DetectionStatusUnknown:   0,
 	}
-	
+
 	if priority, ok := priorities[status]; ok {
 		return priority
 	}
@@ -167,16 +176,15 @@ func (s *StatusManager) ShouldUpdate(
 	if oldStatus == model.DetectionStatusUnknown {
 		return true
 	}
-	
+
 	// Always update if new confidence is significantly higher (>0.2 difference)
 	if newConfidence-oldConfidence > 0.2 {
 		return true
 	}
-	
+
 	// Update if new status has higher priority
 	oldPriority := s.GetStatusPriority(oldStatus)
 	newPriority := s.GetStatusPriority(newStatus)
-	
+
 	return newPriority > oldPriority
 }
-

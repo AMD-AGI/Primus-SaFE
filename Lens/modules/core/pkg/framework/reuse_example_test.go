@@ -52,7 +52,7 @@ func Example_reuseEngine() {
 	if detection != nil {
 		// Metadata was successfully reused
 		fmt.Printf("✓ Successfully reused metadata from workload %s\n", detection.ReuseInfo.ReusedFrom)
-		fmt.Printf("  Framework: %s\n", detection.Framework)
+		fmt.Printf("  Framework: %v\n", detection.Frameworks)
 		fmt.Printf("  Type: %s\n", detection.Type)
 		fmt.Printf("  Confidence: %.2f (original: %.2f)\n", 
 			detection.Confidence, 
@@ -175,7 +175,7 @@ func Example_workloadCreationWithReuse() {
 	if detection != nil {
 		// Step 3a: Reuse successful - save immediately
 		fmt.Println("✓ Reuse successful!")
-		fmt.Printf("  Framework: %s\n", detection.Framework)
+		fmt.Printf("  Framework: %v\n", detection.Frameworks)
 		fmt.Printf("  Confidence: %.2f\n", detection.Confidence)
 		fmt.Printf("  Time saved: ~6 minutes (no need to wait for log-based detection)\n")
 		

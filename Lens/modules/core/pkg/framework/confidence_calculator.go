@@ -2,7 +2,7 @@ package framework
 
 import (
 	"math"
-	
+
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/model"
 )
 
@@ -27,18 +27,18 @@ func (c *ConfidenceCalculator) Calculate(sources []model.DetectionSource) float6
 	if len(sources) == 0 {
 		return 0.0
 	}
-	
+
 	// Scenario 1: Single source
 	if len(sources) == 1 {
 		return c.clamp(sources[0].Confidence)
 	}
-	
+
 	// Check if all sources agree on the framework
 	if c.allAgree(sources) {
 		// Scenario 2: Multiple consistent sources
 		return c.calculateConsistentConfidence(sources)
 	}
-	
+
 	// Scenario 3: Conflicting sources
 	return c.calculateConflictConfidence(sources)
 }
@@ -48,10 +48,19 @@ func (c *ConfidenceCalculator) allAgree(sources []model.DetectionSource) bool {
 	if len(sources) <= 1 {
 		return true
 	}
-	
-	firstFramework := sources[0].Framework
+
+	// Compare first framework from each source's Frameworks array
+	var firstFramework string
+	if len(sources[0].Frameworks) > 0 {
+		firstFramework = sources[0].Frameworks[0]
+	}
+
 	for i := 1; i < len(sources); i++ {
-		if sources[i].Framework != firstFramework {
+		var currentFramework string
+		if len(sources[i].Frameworks) > 0 {
+			currentFramework = sources[i].Frameworks[0]
+		}
+		if currentFramework != firstFramework {
 			return false
 		}
 	}
@@ -64,17 +73,17 @@ func (c *ConfidenceCalculator) calculateConsistentConfidence(sources []model.Det
 	// Calculate weighted average based on source priorities
 	totalWeight := 0.0
 	weightedSum := 0.0
-	
+
 	for _, src := range sources {
 		priority := float64(c.config.GetSourcePriority(src.Source))
 		if priority == 0 {
 			priority = 1.0 // Minimum weight
 		}
-		
+
 		totalWeight += priority
 		weightedSum += src.Confidence * priority
 	}
-	
+
 	var avg float64
 	if totalWeight > 0 {
 		avg = weightedSum / totalWeight
@@ -86,11 +95,11 @@ func (c *ConfidenceCalculator) calculateConsistentConfidence(sources []model.Det
 		}
 		avg = sum / float64(len(sources))
 	}
-	
+
 	// Apply boost for additional consistent sources
 	boost := c.config.MultiSourceBoost * float64(len(sources)-1)
 	result := avg + boost
-	
+
 	return c.clamp(result)
 }
 
@@ -100,7 +109,7 @@ func (c *ConfidenceCalculator) calculateConflictConfidence(sources []model.Detec
 	// Find the source with highest priority
 	maxPriority := -1
 	maxConfidence := 0.0
-	
+
 	for _, src := range sources {
 		priority := c.config.GetSourcePriority(src.Source)
 		if priority > maxPriority {
@@ -113,10 +122,10 @@ func (c *ConfidenceCalculator) calculateConflictConfidence(sources []model.Detec
 			}
 		}
 	}
-	
+
 	// Apply conflict penalty
 	result := maxConfidence - c.config.ConflictPenalty
-	
+
 	// Ensure minimum confidence of 0.3
 	return math.Max(c.clamp(result), 0.3)
 }
@@ -137,24 +146,23 @@ func (c *ConfidenceCalculator) CalculateWeighted(sources []model.DetectionSource
 	if len(sources) == 0 {
 		return 0.0
 	}
-	
+
 	totalWeight := 0.0
 	weightedSum := 0.0
-	
+
 	for _, src := range sources {
 		priority := float64(c.config.GetSourcePriority(src.Source))
 		if priority == 0 {
 			priority = 1.0
 		}
-		
+
 		totalWeight += priority
 		weightedSum += src.Confidence * priority
 	}
-	
+
 	if totalWeight > 0 {
 		return c.clamp(weightedSum / totalWeight)
 	}
-	
+
 	return 0.0
 }
-

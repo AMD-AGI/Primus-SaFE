@@ -117,7 +117,7 @@ func TestReuseEngine_TryReuse_Success(t *testing.T) {
 
 	// Create detailed metadata with framework detection
 	detectionData := coreModel.FrameworkDetection{
-		Framework:  "pytorch",
+		Frameworks: []string{"pytorch"},
 		Type:       "training",
 		Confidence: 0.95,
 		Version:    "1.9.0",
@@ -125,7 +125,7 @@ func TestReuseEngine_TryReuse_Success(t *testing.T) {
 		Sources: []coreModel.DetectionSource{
 			{
 				Source:     "logs",
-				Framework:  "pytorch",
+				Frameworks: []string{"pytorch"},
 				Type:       "training",
 				Confidence: 0.95,
 			},
@@ -158,7 +158,7 @@ func TestReuseEngine_TryReuse_Success(t *testing.T) {
 
 	assert.NoError(t, err)
 	assert.NotNil(t, result)
-	assert.Equal(t, "pytorch", result.Framework)
+	assert.Equal(t, []string{"pytorch"}, result.Frameworks)
 	assert.Equal(t, "training", result.Type)
 	assert.Equal(t, coreModel.DetectionStatusReused, result.Status)
 	
@@ -279,7 +279,7 @@ func TestReuseEngine_BuildCacheKey(t *testing.T) {
 // Helper function to create mock candidate workload
 func createMockCandidate(uid, image string, command []string) *model.AiWorkloadMetadata {
 	detection := coreModel.FrameworkDetection{
-		Framework:  "pytorch",
+		Frameworks: []string{"pytorch"},
 		Type:       "training",
 		Confidence: 0.90,
 		Status:     coreModel.DetectionStatusVerified,
@@ -395,7 +395,7 @@ func TestReuseConfig_Validate(t *testing.T) {
 // Test serialization/deserialization of detection data
 func TestFrameworkDetection_JSON(t *testing.T) {
 	detection := coreModel.FrameworkDetection{
-		Framework:  "pytorch",
+		Frameworks: []string{"pytorch"},
 		Type:       "training",
 		Confidence: 0.95,
 		Version:    "1.9.0",
@@ -417,7 +417,7 @@ func TestFrameworkDetection_JSON(t *testing.T) {
 	var decoded coreModel.FrameworkDetection
 	err = json.Unmarshal(data, &decoded)
 	assert.NoError(t, err)
-	assert.Equal(t, detection.Framework, decoded.Framework)
+	assert.Equal(t, detection.Frameworks, decoded.Frameworks)
 	assert.Equal(t, detection.Type, decoded.Type)
 	assert.Equal(t, detection.Confidence, decoded.Confidence)
 	assert.NotNil(t, decoded.ReuseInfo)

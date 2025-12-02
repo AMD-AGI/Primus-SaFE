@@ -70,7 +70,7 @@ func TestIntegration_CompleteReuseFlow(t *testing.T) {
 	require.NotNil(t, detection)
 	
 	// Verify framework detection
-	assert.Equal(t, "pytorch", detection.Framework)
+	assert.Equal(t, []string{"pytorch"}, detection.Frameworks)
 	assert.Equal(t, "training", detection.Type)
 	assert.Equal(t, coreModel.DetectionStatusReused, detection.Status)
 	
@@ -87,7 +87,7 @@ func TestIntegration_CompleteReuseFlow(t *testing.T) {
 	// Verify sources
 	require.Len(t, detection.Sources, 1)
 	assert.Equal(t, "reuse", detection.Sources[0].Source)
-	assert.Equal(t, "pytorch", detection.Sources[0].Framework)
+	assert.Equal(t, []string{"pytorch"}, detection.Sources[0].Frameworks)
 	
 	mockDB.AssertExpectations(t)
 }
@@ -286,7 +286,7 @@ func TestIntegration_CachingBehavior(t *testing.T) {
 	require.NotNil(t, detection2)
 
 	// Verify both detections are equivalent
-	assert.Equal(t, detection1.Framework, detection2.Framework)
+	assert.Equal(t, detection1.Frameworks, detection2.Frameworks)
 	assert.Equal(t, detection1.Confidence, detection2.Confidence)
 
 	mockDB.AssertExpectations(t)
@@ -301,7 +301,7 @@ func createHistoricalWorkload(
 	confidence float64,
 ) *model.AiWorkloadMetadata {
 	detection := coreModel.FrameworkDetection{
-		Framework:  "pytorch",
+		Frameworks: []string{"pytorch"},
 		Type:       "training",
 		Confidence: confidence,
 		Status:     coreModel.DetectionStatusVerified,
@@ -309,7 +309,7 @@ func createHistoricalWorkload(
 		Sources: []coreModel.DetectionSource{
 			{
 				Source:     "logs",
-				Framework:  "pytorch",
+				Frameworks: []string{"pytorch"},
 				Type:       "training",
 				Confidence: confidence,
 				DetectedAt: time.Now().Add(-1 * time.Hour),

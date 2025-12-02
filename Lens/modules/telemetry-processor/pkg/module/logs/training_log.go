@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -28,6 +29,10 @@ var (
 	aiAdvisorClient *advisorClient.Client      // AI Advisor client for framework detection
 	configManager   *FrameworkConfigManager    // For local log pattern matching
 	patternMatchers map[string]*PatternMatcher // For local log parsing
+
+	// ANSI escape code regex for cleaning logs
+	// Matches: \x1b[...m (standard ANSI), [...m (simplified format), [...][ (any bracket sequences)
+	ansiEscapeRegex = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]|\[[0-9;]*m|\[[\d;]+\w`)
 )
 
 // InitializeWandBHandlerAndLogProcessing initializes WandB handler with AI Advisor client
@@ -92,8 +97,18 @@ func GetAIAdvisorClient() *advisorClient.Client {
 	return aiAdvisorClient
 }
 
+// stripAnsiCodes removes ANSI escape codes from log messages
+// This handles color codes like [[32m, [0m, etc. that appear in terminal output
+func stripAnsiCodes(msg string) string {
+	return ansiEscapeRegex.ReplaceAllString(msg, "")
+}
+
 func WorkloadLog(ctx context.Context, podUid string, msg string, logTime time.Time) error {
 	log.Tracef("before consume workload log , pod uid %s", podUid)
+
+	// Clean ANSI escape codes from log message (color codes, etc.)
+	// This ensures pattern matching works correctly for logs with terminal formatting
+	cleanMsg := stripAnsiCodes(msg)
 
 	// Get workload information from cache
 	workloadRefs := pods.GetWorkloadsByPodUid(podUid)
@@ -123,15 +138,22 @@ func WorkloadLog(ctx context.Context, podUid string, msg string, logTime time.Ti
 			logrus.Debugf("Failed to query detection from AI Advisor: %v", err)
 		} else if detection != nil && detection.Confidence >= 0.5 {
 			// Use existing detection (shared across workload hierarchy)
-			frameworkName = detection.Framework
-			logrus.Debugf("Using existing framework detection from AI Advisor: %s (confidence: %.2f)",
-				frameworkName, detection.Confidence)
+			// Priority: WrapperFramework > BaseFramework > Frameworks[0]
+			// This prevents issues if Frameworks array order changes
+			if detection.WrapperFramework != "" {
+				frameworkName = detection.WrapperFramework
+			} else if detection.BaseFramework != "" {
+				frameworkName = detection.BaseFramework
+			} else if len(detection.Frameworks) > 0 {
+				frameworkName = detection.Frameworks[0]
+			}
+
 		}
 	}
 
 	// If no framework detected yet, try to detect from log
 	if frameworkName == "" && len(patternMatchers) > 0 {
-		detectedFramework, err := detectFrameworkFromLog(ctx, firstWorkloadUID, msg)
+		detectedFramework, err := detectFrameworkFromLog(ctx, firstWorkloadUID, cleanMsg)
 		if err != nil {
 			// Framework not detected from this log - this is OK
 			logrus.Tracef("Framework not detected from log: %v - skipping framework-specific processing", err)
@@ -145,18 +167,18 @@ func WorkloadLog(ctx context.Context, podUid string, msg string, logTime time.Ti
 
 	// Report detection to AI Advisor if we detected something new
 	if needsDetection && frameworkName != "" && aiAdvisorClient != nil {
-		confidence := calculateDetectionConfidence(frameworkName, msg)
+		confidence := calculateDetectionConfidence(frameworkName, cleanMsg)
 
 		// Report to AI Advisor
 		_, err := aiAdvisorClient.ReportDetection(&advisorCommon.DetectionRequest{
 			WorkloadUID: firstWorkloadUID,
 			Source:      "log",
-			Framework:   frameworkName,
+			Frameworks:  []string{frameworkName},
 			Type:        "training",
 			Confidence:  confidence,
 			Evidence: map[string]interface{}{
 				"method":     "log_pattern_match",
-				"sample_log": truncateLog(msg, 200),
+				"sample_log": truncateLog(cleanMsg, 200),
 			},
 		})
 		if err != nil {
@@ -174,7 +196,7 @@ func WorkloadLog(ctx context.Context, podUid string, msg string, logTime time.Ti
 	// Process log with framework-specific parser (only once)
 	// Skip if framework is unknown - we don't want to force processing with a default framework
 	if frameworkName != "" {
-		if err := processLogWithFramework(ctx, podUid, firstWorkloadUID, msg, logTime, frameworkName); err != nil {
+		if err := processLogWithFramework(ctx, podUid, firstWorkloadUID, cleanMsg, logTime, frameworkName); err != nil {
 			logrus.Debugf("Failed to process log with framework %s: %v", frameworkName, err)
 		}
 	} else {

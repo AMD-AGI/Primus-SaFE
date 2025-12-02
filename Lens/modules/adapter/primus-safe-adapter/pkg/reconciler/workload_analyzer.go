@@ -184,7 +184,7 @@ func loadFrameworkRules() map[string]*FrameworkRule {
 			"DEEPSPEED_CONFIG",
 			"DS_CONFIG",
 		},
-		BaseConfidence: 0.85,
+		BaseConfidence: 0.9,
 	}
 
 	// Megatron
@@ -198,7 +198,7 @@ func loadFrameworkRules() map[string]*FrameworkRule {
 		EnvVarKeys: []string{
 			"MEGATRON_CONFIG",
 		},
-		BaseConfidence: 0.85,
+		BaseConfidence: 0.9,
 	}
 
 	return rules

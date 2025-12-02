@@ -111,13 +111,6 @@ func initRouter(group *gin.RouterGroup) error {
 	group.GET("silences", alerts.ListSilences)
 	group.DELETE("silences/:id", alerts.DeleteSilence)
 
-	// Framework detection query endpoints
-	// Note: These endpoints forward all requests to the ai-advisor service
-	group.GET("workloads/:uid/framework-detection", api.GetFrameworkDetection)
-	group.POST("workloads/:uid/framework-detection", api.UpdateFrameworkDetection)
-	group.POST("workloads/framework-detection/batch", api.GetFrameworkDetectionBatch)
-	group.GET("framework-detection/stats", api.GetFrameworkDetectionStats)
-
 	// Debug endpoints for pattern matchers
 	group.GET("debug/pattern-matchers", api.GetPatternMatchers)
 	group.GET("debug/frameworks", api.GetFrameworkList)

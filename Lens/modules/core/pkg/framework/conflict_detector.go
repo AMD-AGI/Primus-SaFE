@@ -2,7 +2,7 @@ package framework
 
 import (
 	"time"
-	
+
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/model"
 )
 
@@ -31,15 +31,15 @@ func isCompatibleFrameworkPair(fw1, fw2 string) bool {
 	if fw1 == fw2 {
 		return true // 相同框架，兼容
 	}
-	
+
 	isWrapper1 := isWrapperFramework(fw1)
 	isWrapper2 := isWrapperFramework(fw2)
-	
+
 	// 如果一个是wrapper，一个是base，则兼容
 	if isWrapper1 != isWrapper2 {
 		return true
 	}
-	
+
 	// 如果都是wrapper或都是base，但不相同，则冲突
 	return false
 }
@@ -49,7 +49,7 @@ func extractFrameworkLayer(evidence map[string]interface{}) (wrapper string, bas
 	if evidence == nil {
 		return "", ""
 	}
-	
+
 	// 尝试从evidence中提取wrapper_framework和base_framework
 	if wf, ok := evidence["wrapper_framework"].(string); ok {
 		wrapper = wf
@@ -57,7 +57,7 @@ func extractFrameworkLayer(evidence map[string]interface{}) (wrapper string, bas
 	if bf, ok := evidence["base_framework"].(string); ok {
 		base = bf
 	}
-	
+
 	return wrapper, base
 }
 
@@ -68,20 +68,20 @@ func (d *ConflictDetector) DetectConflicts(sources []model.DetectionSource) []mo
 	if len(sources) <= 1 {
 		return nil
 	}
-	
+
 	var conflicts []model.DetectionConflict
-	
+
 	// Compare each pair of sources
 	for i := 0; i < len(sources); i++ {
 		for j := i + 1; j < len(sources); j++ {
 			// 提取框架层级信息
 			wrapper1, base1 := extractFrameworkLayer(sources[i].Evidence)
 			wrapper2, base2 := extractFrameworkLayer(sources[j].Evidence)
-			
+
 			// 检查是否存在冲突
 			hasConflict := false
 			conflictType := ""
-			
+
 			// 如果两个source都有框架层级信息，按层级比较
 			if (wrapper1 != "" || base1 != "") && (wrapper2 != "" || base2 != "") {
 				// 比较wrapper层级
@@ -95,23 +95,39 @@ func (d *ConflictDetector) DetectConflicts(sources []model.DetectionSource) []mo
 					conflictType = "base_layer_conflict"
 				}
 			} else {
-				// 如果没有框架层级信息，使用传统的框架比较
-				// 但要考虑wrapper和base的兼容性
-				if sources[i].Framework != sources[j].Framework {
-					if !isCompatibleFrameworkPair(sources[i].Framework, sources[j].Framework) {
+				// If no framework layer info, compare primary frameworks
+				// Consider wrapper and base compatibility
+				var frameworkI, frameworkJ string
+				if len(sources[i].Frameworks) > 0 {
+					frameworkI = sources[i].Frameworks[0]
+				}
+				if len(sources[j].Frameworks) > 0 {
+					frameworkJ = sources[j].Frameworks[0]
+				}
+
+				if frameworkI != frameworkJ {
+					if !isCompatibleFrameworkPair(frameworkI, frameworkJ) {
 						hasConflict = true
 						conflictType = "framework_conflict"
 					}
 				}
 			}
-			
+
 			if hasConflict {
 				// Found a conflict
+				var framework1, framework2 string
+				if len(sources[i].Frameworks) > 0 {
+					framework1 = sources[i].Frameworks[0]
+				}
+				if len(sources[j].Frameworks) > 0 {
+					framework2 = sources[j].Frameworks[0]
+				}
+
 				conflict := model.DetectionConflict{
 					Source1:    sources[i].Source,
 					Source2:    sources[j].Source,
-					Framework1: sources[i].Framework,
-					Framework2: sources[j].Framework,
+					Framework1: framework1,
+					Framework2: framework2,
 					Resolution: conflictType,
 					ResolvedAt: time.Time{}, // Will be set when resolved
 				}
@@ -119,7 +135,7 @@ func (d *ConflictDetector) DetectConflicts(sources []model.DetectionSource) []mo
 			}
 		}
 	}
-	
+
 	return conflicts
 }
 
@@ -129,7 +145,7 @@ func (d *ConflictDetector) HasConflict(sources []model.DetectionSource) bool {
 	if len(sources) <= 1 {
 		return false
 	}
-	
+
 	// Use DetectConflicts to check for conflicts
 	// This ensures consistency with the conflict detection logic
 	conflicts := d.DetectConflicts(sources)
@@ -140,16 +156,21 @@ func (d *ConflictDetector) HasConflict(sources []model.DetectionSource) bool {
 // Returns map[framework][]source
 func (d *ConflictDetector) GetConflictingSources(sources []model.DetectionSource) map[string][]string {
 	result := make(map[string][]string)
-	
+
 	for _, src := range sources {
-		result[src.Framework] = append(result[src.Framework], src.Source)
+		// Use first framework from Frameworks array
+		var framework string
+		if len(src.Frameworks) > 0 {
+			framework = src.Frameworks[0]
+		}
+		result[framework] = append(result[framework], src.Source)
 	}
-	
+
 	// Only return if there's actual conflict (more than one framework)
 	if len(result) <= 1 {
 		return nil
 	}
-	
+
 	return result
 }
 
@@ -162,16 +183,18 @@ func (d *ConflictDetector) CountConflicts(sources []model.DetectionSource) int {
 // GetDistinctFrameworks returns all distinct frameworks from sources
 func (d *ConflictDetector) GetDistinctFrameworks(sources []model.DetectionSource) []string {
 	frameworkSet := make(map[string]bool)
-	
+
 	for _, src := range sources {
-		frameworkSet[src.Framework] = true
+		// Collect all frameworks from Frameworks array
+		for _, fw := range src.Frameworks {
+			frameworkSet[fw] = true
+		}
 	}
-	
+
 	var frameworks []string
 	for fw := range frameworkSet {
 		frameworks = append(frameworks, fw)
 	}
-	
+
 	return frameworks
 }
-

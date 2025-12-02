@@ -147,7 +147,7 @@ func (r *ReuseEngine) TryReuse(
 	// Clear original Sources and Conflicts, ready to collect new ones
 	detection.Sources = []coreModel.DetectionSource{{
 		Source:     "reuse",
-		Framework:  detection.Framework,
+		Frameworks: detection.Frameworks,
 		Type:       detection.Type,
 		Confidence: detection.Confidence,
 		DetectedAt: time.Now(),
@@ -167,7 +167,12 @@ func (r *ReuseEngine) TryReuse(
 
 	// Step 12: Record metrics
 	r.metrics.RecordAttempt("success")
-	r.metrics.RecordSuccess(detection.Framework, workload.Namespace, best.Score, detection.Confidence)
+	// Use first framework from Frameworks array for metrics
+	var primaryFramework string
+	if len(detection.Frameworks) > 0 {
+		primaryFramework = detection.Frameworks[0]
+	}
+	r.metrics.RecordSuccess(primaryFramework, workload.Namespace, best.Score, detection.Confidence)
 
 	logrus.Infof("Successfully reused metadata from workload %s (score=%.4f, confidence=%.2f)",
 		best.WorkloadUID, best.Score, detection.Confidence)
@@ -307,7 +312,7 @@ func (r *ReuseEngine) loadAndCopyDetection(
 
 		// Deep copy - return a new instance
 		return &coreModel.FrameworkDetection{
-			Framework:  detection.Framework,
+			Frameworks: detection.Frameworks,
 			Type:       detection.Type,
 			Confidence: detection.Confidence,
 			Version:    detection.Version,

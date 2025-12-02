@@ -22,7 +22,7 @@ func NewDetectionHandler(detectionMgr *framework.FrameworkDetectionManager) *Det
 	}
 }
 
-// ReportDetection handles detection reporting from any source
+// ReportDetection handles detection reporting from any source with dual-layer framework support
 //
 // POST /api/v1/detection
 func (h *DetectionHandler) ReportDetection(c *gin.Context) {
@@ -44,15 +44,24 @@ func (h *DetectionHandler) ReportDetection(c *gin.Context) {
 	}
 	req.Evidence["reported_at"] = time.Now().Format(time.RFC3339)
 
-	// Report to detection manager
-	err := h.detectionManager.ReportDetection(
+	// Extract primary framework from Frameworks array (for compatibility with detection manager)
+	var primaryFramework string
+	if len(req.Frameworks) > 0 {
+		primaryFramework = req.Frameworks[0]
+	}
+
+	// Report to detection manager with dual-layer framework support
+	err := h.detectionManager.ReportDetectionWithLayers(
 		c.Request.Context(),
 		req.WorkloadUID,
 		req.Source,
-		req.Framework,
+		primaryFramework,
 		req.Type,
 		req.Confidence,
 		req.Evidence,
+		req.FrameworkLayer,
+		req.WrapperFramework,
+		req.BaseFramework,
 	)
 
 	if err != nil {
@@ -150,14 +159,17 @@ func (h *DetectionHandler) BatchGetDetection(c *gin.Context) {
 			continue
 		}
 		if detection != nil {
-			// Convert to common.Detection
+			// Convert to common.Detection with dual-layer framework info
 			results[uid] = &common.Detection{
-				WorkloadUID: uid,
-				Framework:   detection.Framework,
-				Type:        detection.Type,
-				Confidence:  detection.Confidence,
-				Status:      string(detection.Status),
-				UpdatedAt:   detection.UpdatedAt,
+				WorkloadUID:      uid,
+				Frameworks:       detection.Frameworks,
+				Type:             detection.Type,
+				Confidence:       detection.Confidence,
+				Status:           string(detection.Status),
+				UpdatedAt:        detection.UpdatedAt,
+				FrameworkLayer:   detection.FrameworkLayer,
+				WrapperFramework: detection.WrapperFramework,
+				BaseFramework:    detection.BaseFramework,
 			}
 		}
 	}
@@ -207,15 +219,24 @@ func (h *DetectionHandler) UpdateDetection(c *gin.Context) {
 	}
 	req.Evidence["updated_at"] = time.Now().Format(time.RFC3339)
 
-	// Report detection
-	err := h.detectionManager.ReportDetection(
+	// Extract primary framework from Frameworks array
+	var primaryFramework string
+	if len(req.Frameworks) > 0 {
+		primaryFramework = req.Frameworks[0]
+	}
+
+	// Report detection with dual-layer framework support
+	err := h.detectionManager.ReportDetectionWithLayers(
 		c.Request.Context(),
 		req.WorkloadUID,
 		req.Source,
-		req.Framework,
+		primaryFramework,
 		req.Type,
 		req.Confidence,
 		req.Evidence,
+		req.FrameworkLayer,
+		req.WrapperFramework,
+		req.BaseFramework,
 	)
 
 	if err != nil {
@@ -267,4 +288,3 @@ func (h *DetectionHandler) GetStats(c *gin.Context) {
 
 	c.JSON(http.StatusOK, stats)
 }
-

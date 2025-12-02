@@ -74,6 +74,7 @@ func NewFrameworkDetectionManager(
 // ReportDetection reports a detection result from a data source
 // This is the main entry point for adding detection information
 // It propagates the detection to the root of the workload hierarchy
+// Deprecated: Use ReportDetectionWithLayers for dual-layer framework support
 func (m *FrameworkDetectionManager) ReportDetection(
 	ctx context.Context,
 	workloadUID string,
@@ -82,6 +83,37 @@ func (m *FrameworkDetectionManager) ReportDetection(
 	taskType string,
 	confidence float64,
 	evidence map[string]interface{},
+) error {
+	// Extract dual-layer framework info from evidence if exists
+	var frameworkLayer, wrapperFramework, baseFramework string
+	if evidence != nil {
+		if layer, ok := evidence["framework_layer"].(string); ok {
+			frameworkLayer = layer
+		}
+		if wrapper, ok := evidence["wrapper_framework"].(string); ok {
+			wrapperFramework = wrapper
+		}
+		if base, ok := evidence["base_framework"].(string); ok {
+			baseFramework = base
+		}
+	}
+
+	return m.ReportDetectionWithLayers(ctx, workloadUID, source, framework, taskType, confidence, evidence, frameworkLayer, wrapperFramework, baseFramework)
+}
+
+// ReportDetectionWithLayers reports a detection result with dual-layer framework support
+// This is the new entry point for adding detection information with wrapper/base framework distinction
+func (m *FrameworkDetectionManager) ReportDetectionWithLayers(
+	ctx context.Context,
+	workloadUID string,
+	source string,
+	framework string,
+	taskType string,
+	confidence float64,
+	evidence map[string]interface{},
+	frameworkLayer string,
+	wrapperFramework string,
+	baseFramework string,
 ) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -96,8 +128,14 @@ func (m *FrameworkDetectionManager) ReportDetection(
 		return fmt.Errorf("invalid input: %w", err)
 	}
 
-	logrus.Infof("Reporting detection for workload %s: source=%s, framework=%s, confidence=%.2f",
-		workloadUID, source, framework, confidence)
+	// Log detection report with dual-layer info
+	if wrapperFramework != "" && baseFramework != "" {
+		logrus.Infof("Reporting detection for workload %s: source=%s, framework=%s/%s (wrapper/base), confidence=%.2f",
+			workloadUID, source, wrapperFramework, baseFramework, confidence)
+	} else {
+		logrus.Infof("Reporting detection for workload %s: source=%s, framework=%s, confidence=%.2f",
+			workloadUID, source, framework, confidence)
+	}
 
 	// Get root workload in hierarchy
 	rootUID, err := m.getRootWorkload(ctx, workloadUID)
@@ -117,14 +155,29 @@ func (m *FrameworkDetectionManager) ReportDetection(
 		return fmt.Errorf("failed to load detection: %w", err)
 	}
 
-	// Create new source entry
+	// Build frameworks array: [wrapper, base] for dual-layer, [framework] for single-layer
+	var frameworks []string
+	if wrapperFramework != "" && baseFramework != "" {
+		frameworks = []string{wrapperFramework, baseFramework}
+	} else if wrapperFramework != "" {
+		frameworks = []string{wrapperFramework}
+	} else if baseFramework != "" {
+		frameworks = []string{baseFramework}
+	} else {
+		frameworks = []string{framework}
+	}
+
+	// Create new source entry with dual-layer framework info
 	newSource := model.DetectionSource{
-		Source:     source,
-		Framework:  framework,
-		Type:       taskType,
-		Confidence: confidence,
-		DetectedAt: time.Now(),
-		Evidence:   evidence,
+		Source:           source,
+		Frameworks:       frameworks,
+		Type:             taskType,
+		Confidence:       confidence,
+		DetectedAt:       time.Now(),
+		Evidence:         evidence,
+		FrameworkLayer:   frameworkLayer,
+		WrapperFramework: wrapperFramework,
+		BaseFramework:    baseFramework,
 	}
 
 	// Merge with existing detection
@@ -149,8 +202,13 @@ func (m *FrameworkDetectionManager) ReportDetection(
 		}
 	}
 
-	logrus.Infof("Detection reported successfully: workload=%s (root=%s), framework=%s, status=%s, confidence=%.2f",
-		workloadUID, rootUID, merged.Framework, merged.Status, merged.Confidence)
+	if merged.WrapperFramework != "" && merged.BaseFramework != "" {
+		logrus.Infof("Detection reported successfully: workload=%s (root=%s), frameworks=%v (wrapper/base), status=%s, confidence=%.2f",
+			workloadUID, rootUID, merged.Frameworks, merged.Status, merged.Confidence)
+	} else {
+		logrus.Infof("Detection reported successfully: workload=%s (root=%s), frameworks=%v, status=%s, confidence=%.2f",
+			workloadUID, rootUID, merged.Frameworks, merged.Status, merged.Confidence)
+	}
 
 	return nil
 }
@@ -213,7 +271,7 @@ func (m *FrameworkDetectionManager) GetDetection(
 }
 
 // MergeDetections merges a new detection source with existing detection
-// This is the core algorithm for multi-source fusion
+// This is the core algorithm for multi-source fusion with dual-layer framework support
 func (m *FrameworkDetectionManager) MergeDetections(
 	existing *model.FrameworkDetection,
 	newSource *model.DetectionSource,
@@ -226,14 +284,17 @@ func (m *FrameworkDetectionManager) MergeDetections(
 		)
 
 		return &model.FrameworkDetection{
-			Framework:  newSource.Framework,
-			Type:       newSource.Type,
-			Confidence: newSource.Confidence,
-			Status:     status,
-			Sources:    []model.DetectionSource{*newSource},
-			Conflicts:  []model.DetectionConflict{},
-			Version:    "1.0",
-			UpdatedAt:  time.Now(),
+			Frameworks:       newSource.Frameworks,
+			Type:             newSource.Type,
+			Confidence:       newSource.Confidence,
+			Status:           status,
+			Sources:          []model.DetectionSource{*newSource},
+			Conflicts:        []model.DetectionConflict{},
+			FrameworkLayer:   newSource.FrameworkLayer,
+			WrapperFramework: newSource.WrapperFramework,
+			BaseFramework:    newSource.BaseFramework,
+			Version:          "1.0",
+			UpdatedAt:        time.Now(),
 		}, nil
 	}
 
@@ -266,19 +327,29 @@ func (m *FrameworkDetectionManager) MergeDetections(
 	}
 
 	// No conflicts: all sources agree
-	existing.Framework = newSource.Framework
+	existing.Frameworks = newSource.Frameworks
 	existing.Type = newSource.Type
 	existing.Confidence = m.confidenceCalculator.Calculate(existing.Sources)
 	existing.Status = m.statusManager.DetermineStatus(existing.Confidence, existing.Sources)
 	existing.UpdatedAt = time.Now()
 
-	logrus.Debugf("Merged detection: framework=%s, confidence=%.2f, status=%s",
-		existing.Framework, existing.Confidence, existing.Status)
+	// Update dual-layer framework info
+	existing.FrameworkLayer = newSource.FrameworkLayer
+	existing.WrapperFramework = newSource.WrapperFramework
+	existing.BaseFramework = newSource.BaseFramework
+
+	if existing.WrapperFramework != "" && existing.BaseFramework != "" {
+		logrus.Debugf("Merged detection: frameworks=%v (wrapper/base), confidence=%.2f, status=%s",
+			existing.Frameworks, existing.Confidence, existing.Status)
+	} else {
+		logrus.Debugf("Merged detection: frameworks=%v, confidence=%.2f, status=%s",
+			existing.Frameworks, existing.Confidence, existing.Status)
+	}
 
 	return existing, nil
 }
 
-// handleConflicts handles conflicting detection sources
+// handleConflicts handles conflicting detection sources with dual-layer framework support
 func (m *FrameworkDetectionManager) handleConflicts(
 	detection *model.FrameworkDetection,
 	conflicts []model.DetectionConflict,
@@ -289,14 +360,22 @@ func (m *FrameworkDetectionManager) handleConflicts(
 		return nil, fmt.Errorf("failed to resolve conflict: %w", err)
 	}
 
-	logrus.Infof("Conflict resolved: chose %s from source %s (reason: %s)",
-		resolved.Framework, resolved.Source, reason)
+	if resolved.WrapperFramework != "" && resolved.BaseFramework != "" {
+		logrus.Infof("Conflict resolved: chose %v (wrapper/base) from source %s (reason: %s)",
+			resolved.Frameworks, resolved.Source, reason)
+	} else {
+		logrus.Infof("Conflict resolved: chose %v from source %s (reason: %s)",
+			resolved.Frameworks, resolved.Source, reason)
+	}
 
-	// Update detection with resolved framework
-	detection.Framework = resolved.Framework
+	// Update detection with resolved framework (including dual-layer info)
+	detection.Frameworks = resolved.Frameworks
 	detection.Type = resolved.Type
 	detection.Confidence = m.confidenceCalculator.Calculate(detection.Sources)
 	detection.Status = model.DetectionStatusConflict
+	detection.FrameworkLayer = resolved.FrameworkLayer
+	detection.WrapperFramework = resolved.WrapperFramework
+	detection.BaseFramework = resolved.BaseFramework
 
 	// Update conflict records
 	for i := range conflicts {
@@ -348,7 +427,12 @@ func (m *FrameworkDetectionManager) recordMetrics(detection *model.FrameworkDete
 	// Record detection event
 	if len(detection.Sources) > 0 {
 		lastSource := detection.Sources[len(detection.Sources)-1]
-		RecordDetection(lastSource.Source, detection.Framework, detection.Status, detection.Confidence)
+		// Use first framework from array for metrics
+		var primaryFramework string
+		if len(detection.Frameworks) > 0 {
+			primaryFramework = detection.Frameworks[0]
+		}
+		RecordDetection(lastSource.Source, primaryFramework, detection.Status, detection.Confidence)
 	}
 
 	// Record conflicts
@@ -358,8 +442,8 @@ func (m *FrameworkDetectionManager) recordMetrics(detection *model.FrameworkDete
 		}
 	}
 
-	logrus.Debugf("Metrics recorded: framework=%s, status=%s, confidence=%.2f, sources=%d, conflicts=%d",
-		detection.Framework, detection.Status, detection.Confidence,
+	logrus.Debugf("Metrics recorded: frameworks=%v, status=%s, confidence=%.2f, sources=%d, conflicts=%d",
+		detection.Frameworks, detection.Status, detection.Confidence,
 		len(detection.Sources), len(detection.Conflicts))
 }
 

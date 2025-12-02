@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -34,17 +35,17 @@ func (s *FrameworkDetectionStorage) GetDetection(
 	if err != nil {
 		return nil, fmt.Errorf("failed to get metadata: %w", err)
 	}
-	
+
 	if metadata == nil {
 		return nil, gorm.ErrRecordNotFound
 	}
-	
+
 	// Extract framework_detection from metadata JSONB
 	detection, err := s.extractDetectionFromMetadata(metadata)
 	if err != nil {
 		return nil, fmt.Errorf("failed to extract detection: %w", err)
 	}
-	
+
 	return detection, nil
 }
 
@@ -59,15 +60,18 @@ func (s *FrameworkDetectionStorage) SaveDetection(
 	if err != nil {
 		return fmt.Errorf("failed to build metadata: %w", err)
 	}
-	
+
+	// Join all frameworks with comma as the framework value
+	frameworkValue := strings.Join(detection.Frameworks, ",")
+
 	metadata := &model.AiWorkloadMetadata{
 		WorkloadUID: workloadUID,
 		Type:        detection.Type,
-		Framework:   detection.Framework,
+		Framework:   frameworkValue,
 		Metadata:    metadataMap,
 		CreatedAt:   time.Now(),
 	}
-	
+
 	return s.metadataFacade.CreateAiWorkloadMetadata(ctx, metadata)
 }
 
@@ -82,22 +86,25 @@ func (s *FrameworkDetectionStorage) UpdateDetection(
 	if err != nil {
 		return fmt.Errorf("failed to get existing metadata: %w", err)
 	}
-	
+
 	if existingMetadata == nil {
 		// No existing metadata, create new one
 		return s.SaveDetection(ctx, workloadUID, detection)
 	}
-	
+
 	// Build updated metadata map
 	metadataMap, err := s.buildMetadataMap(detection, existingMetadata)
 	if err != nil {
 		return fmt.Errorf("failed to build metadata: %w", err)
 	}
-	
+
+	// Join all frameworks with comma as the framework value
+	frameworkValue := strings.Join(detection.Frameworks, ",")
+
 	existingMetadata.Type = detection.Type
-	existingMetadata.Framework = detection.Framework
+	existingMetadata.Framework = frameworkValue
 	existingMetadata.Metadata = metadataMap
-	
+
 	return s.metadataFacade.UpdateAiWorkloadMetadata(ctx, existingMetadata)
 }
 
@@ -112,11 +119,11 @@ func (s *FrameworkDetectionStorage) UpsertDetection(
 	if err != nil && err != gorm.ErrRecordNotFound {
 		return err
 	}
-	
+
 	if existing == nil {
 		return s.SaveDetection(ctx, workloadUID, detection)
 	}
-	
+
 	return s.UpdateDetection(ctx, workloadUID, detection)
 }
 
@@ -130,25 +137,25 @@ func (s *FrameworkDetectionStorage) ListDetections(
 	status, _ := filters["status"].(string)
 	minConfidence, _ := filters["min_confidence"].(float64)
 	limit, _ := filters["limit"].(int)
-	
+
 	if limit == 0 {
 		limit = 100
 	}
-	
+
 	// Build query - this is a simplified version
 	// In production, you'd want more sophisticated filtering
 	metadata, err := s.metadataFacade.GetAiWorkloadMetadata(ctx, "")
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// For now, return empty list
 	// TODO: Implement proper filtering with database queries
 	_ = framework
 	_ = status
 	_ = minConfidence
 	_ = metadata
-	
+
 	return []*coreModel.FrameworkDetection{}, nil
 }
 
@@ -157,22 +164,22 @@ func (s *FrameworkDetectionStorage) extractDetectionFromMetadata(
 	metadata *model.AiWorkloadMetadata,
 ) (*coreModel.FrameworkDetection, error) {
 	metadataMap := metadata.Metadata
-	
+
 	detectionData, ok := metadataMap["framework_detection"]
 	if !ok {
 		return nil, fmt.Errorf("no framework_detection in metadata")
 	}
-	
+
 	detectionJSON, err := json.Marshal(detectionData)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal detection data: %w", err)
 	}
-	
+
 	var detection coreModel.FrameworkDetection
 	if err := json.Unmarshal(detectionJSON, &detection); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal detection: %w", err)
 	}
-	
+
 	return &detection, nil
 }
 
@@ -182,17 +189,17 @@ func (s *FrameworkDetectionStorage) buildMetadataMap(
 	existingMetadata *model.AiWorkloadMetadata,
 ) (model.ExtType, error) {
 	var metadataMap model.ExtType
-	
+
 	if existingMetadata != nil && len(existingMetadata.Metadata) > 0 {
 		// Preserve existing metadata fields
 		metadataMap = existingMetadata.Metadata
 	} else {
 		metadataMap = make(model.ExtType)
 	}
-	
+
 	// Update framework_detection field
 	metadataMap["framework_detection"] = detection
-	
+
 	// Extract and store WandB information from the latest wandb source
 	// This makes it easier to access WandB metadata without parsing through sources
 	if len(detection.Sources) > 0 {
@@ -203,22 +210,22 @@ func (s *FrameworkDetectionStorage) buildMetadataMap(
 				if wandbInfo, ok := source.Evidence["wandb"]; ok {
 					metadataMap["wandb"] = wandbInfo
 				}
-				
+
 				// 保存environment信息
 				if envInfo, ok := source.Evidence["environment"]; ok {
 					metadataMap["environment"] = envInfo
 				}
-				
+
 				// 保存pytorch信息
 				if pytorchInfo, ok := source.Evidence["pytorch"]; ok {
 					metadataMap["pytorch"] = pytorchInfo
 				}
-				
+
 				// 保存system信息
 				if systemInfo, ok := source.Evidence["system"]; ok {
 					metadataMap["system"] = systemInfo
 				}
-				
+
 				// 保存wrapper和base框架的详细信息
 				if wrapperInfo, ok := source.Evidence["wrapper_frameworks_detail"]; ok {
 					metadataMap["wrapper_frameworks_detail"] = wrapperInfo
@@ -226,7 +233,7 @@ func (s *FrameworkDetectionStorage) buildMetadataMap(
 				if baseInfo, ok := source.Evidence["base_frameworks_detail"]; ok {
 					metadataMap["base_frameworks_detail"] = baseInfo
 				}
-				
+
 				// 保存框架层级信息
 				if layer, ok := source.Evidence["framework_layer"]; ok {
 					metadataMap["framework_layer"] = layer
@@ -237,12 +244,12 @@ func (s *FrameworkDetectionStorage) buildMetadataMap(
 				if baseFw, ok := source.Evidence["base_framework"]; ok {
 					metadataMap["base_framework"] = baseFw
 				}
-				
+
 				break
 			}
 		}
 	}
-	
+
 	return metadataMap, nil
 }
 
@@ -264,15 +271,15 @@ func (s *FrameworkDetectionStorage) GetStatistics(
 	endTime string,
 	namespace string,
 ) (*StatisticsResult, error) {
-	
+
 	// 注意：由于 facade 接口不提供直接的 DB 访问，这里使用简化的实现
 	// 实际生产环境中，应该在 facade 接口中添加统计方法，或使用专门的统计服务
-	
+
 	// 简化实现：返回基本统计信息
 	// TODO: 在 facade 接口中添加更完善的统计查询方法
-	
+
 	logrus.Warn("GetStatistics using simplified implementation. Consider adding statistics methods to facade interface.")
-	
+
 	return &StatisticsResult{
 		TotalWorkloads:    0,
 		ByFramework:       make(map[string]int64),
@@ -283,4 +290,3 @@ func (s *FrameworkDetectionStorage) GetStatistics(
 		ReuseRate:         0,
 	}, nil
 }
-
