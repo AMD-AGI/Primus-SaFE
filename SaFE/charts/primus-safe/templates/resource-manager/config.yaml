@@ -11,6 +11,8 @@ data:
       rdma_name: {{ .Values.net.rdma_name }}
       # Image pull secret for primus-safe. If set to empty, the secret will not be used.
       image_secret: {{ .Values.global.image_pull_secret }}
+      # Ingress component name selected during install.sh
+      ingress: {{ .Values.global.ingress }}
     notification:
       enable: false
     health_check:

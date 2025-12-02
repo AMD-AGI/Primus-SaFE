@@ -102,6 +102,7 @@ Create a new workload.
 ```
 
 Notes for CICD (AutoscalingRunnerSet):
+- Only GitHub is supported for CICD integration at this time. Other providers are not supported.
 - Required env: `GITHUB_CONFIG_URL` must be set in `env` to the GitHub repository/organization URL.
 - Required env: `GITHUB_PAT` must be provided in `env` (GitHub Personal Access Token). The system will automatically create a secret (with key `github_token`) from this PAT and attach it to the workload(Its lifecycle is also controlled by the workload)
 - Multi-node evaluation: set `"UNIFIED_JOB_ENABLE": "true"` in `env` to enable multi-node evaluation in CICD.

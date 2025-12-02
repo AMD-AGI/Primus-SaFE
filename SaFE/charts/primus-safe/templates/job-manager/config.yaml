@@ -9,6 +9,8 @@ data:
     global:
       # RDMA device name
       rdma_name: {{ .Values.net.rdma_name }}
+      # Ingress component name selected during install.sh
+      ingress: {{ .Values.global.ingress }}
     health_check:
       # Whether to enable health check
       enable: {{ default true (default .Values.k8s).enable_health_check }}

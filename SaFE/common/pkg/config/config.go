@@ -365,6 +365,21 @@ func GetSystemBaseUrl() string {
 	return getString(systemBaseUrl, "")
 }
 
+// GetIngress returns the ingress class name of the system.
+func GetIngress() string {
+	return getString(ingress, "")
+}
+
+// GetDomain returns the domain of the system.
+func GetDomain() string {
+	return getString(domain, "")
+}
+
+// GetSubDomain returns the sub domain of the system.
+func GetSubDomain() string {
+	return getString(subDomain, "")
+}
+
 func IsSSOEnable() bool {
 	return getBool(ssoEnable, false)
 }

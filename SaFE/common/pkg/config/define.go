@@ -11,6 +11,10 @@ const (
 	rdmaName      = globalPrefix + "rdma_name"
 	imageSecret   = globalPrefix + "image_secret"
 	systemBaseUrl = globalPrefix + "system_base_url"
+	ingress       = globalPrefix + "ingress"
+	domain        = globalPrefix + "domain"
+	subDomain     = globalPrefix + "sub_domain"
+
 	// crypto
 	cryptoPrefix     = "crypto."
 	cryptoEnable     = cryptoPrefix + "enable"
