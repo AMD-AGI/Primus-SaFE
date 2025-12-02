@@ -1,8 +1,9 @@
+ARG GO_VERSION=1.24.7
 ARG BUILDPATH
 ARG APPNAME
 ARG BASEPATH
 
-FROM golang:1.24.7 AS builder
+FROM golang:${GO_VERSION} AS builder
 WORKDIR /app
 
 ARG GITHUB_TOKEN
@@ -19,12 +20,8 @@ SHELL ["/bin/bash", "-c"]
 RUN echo "✅ GOPRIVATE=$GOPRIVATE" && \
     echo "✅ BUILDPATH=$BUILDPATH" && \
     echo "✅ BASEPATH=$BASEPATH" && \
-    echo "✅ APPNAME=$APPNAME" && \
-    echo "✅ GITHUB_TOKEN=$(echo $GITHUB_TOKEN | cut -c1-6)******"
-
-
-RUN git config --global url."https://${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
-
+    echo "✅ APPNAME=$APPNAME"
+    
 RUN echo "BUILDPATH: $BUILDPATH" && \
     echo "BASEPATH: $BASEPATH" && \
         echo "APPNAME: $APPNAME" && \

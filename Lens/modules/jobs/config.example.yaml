@@ -1,0 +1,150 @@
+# Example configuration for Jobs service with mode separation
+
+# ============================================================
+# Data Cluster Configuration Example
+# ============================================================
+# Use this configuration for clusters that only collect data
+# ---
+# multiCluster: false
+# loadK8SClient: true
+# loadStorageClient: true
+# httpPort: 8080
+# 
+# jobs:
+#   mode: "data"
+#   grpc_port: 50051
+
+# ============================================================
+# Management Cluster Configuration Example
+# ============================================================
+# Use this configuration for the cluster that generates reports
+# ---
+# multiCluster: false
+# loadK8SClient: true
+# loadStorageClient: true
+# httpPort: 8080
+# 
+# jobs:
+#   mode: "management"
+#   grpc_port: 50051
+#   
+#   weekly_report:
+#     enabled: true
+#     cron: "0 9 * * 1"
+#     timezone: "Asia/Shanghai"
+#     time_range_days: 7
+#     utilization_threshold: 30
+#     min_gpu_count: 1
+#     top_n: 20
+#     
+#     conductor:
+#       base_url: "http://primus-conductor-api:8000"
+#       timeout: 300s
+#       retry: 3
+#     
+#     brand:
+#       logo_url: "/assets/logo.png"
+#       company_name: "AMD AGI"
+#       primary_color: "#ED1C24"
+#     
+#     output_formats:
+#       - html
+#       - pdf
+#     
+#     email:
+#       enabled: false
+#       smtp:
+#         host: "smtp.example.com"
+#         port: 587
+#         username: "reports@example.com"
+#         password_env: "SMTP_PASSWORD"
+#       recipients:
+#         to:
+#           - "admin@example.com"
+#         cc:
+#           - "manager@example.com"
+#       subject_template: "GPU Cluster Weekly Report - {{.WeekRange}}"
+#       attach_pdf: true
+#     
+#     storage:
+#       retention_days: 90
+
+# ============================================================
+# Standalone Configuration Example (Default)
+# ============================================================
+# Use this configuration for all-in-one deployments
+
+multiCluster: false
+loadK8SClient: true
+loadStorageClient: true
+httpPort: 8080
+
+controller:
+  namespace: primus-lens
+  leaderElectionId: controller-leader
+  metricsPort: 19191
+  healthzPort: 19192
+  pprofPort: 19193
+
+jobs:
+  # Mode: data, management, or standalone (default)
+  # - data: Only run data collection jobs
+  # - management: Only run management jobs (reports, cleanup, etc.)
+  # - standalone: Run all jobs
+  mode: "standalone"
+  
+  grpc_port: 50051
+  
+  # Weekly report configuration (only used in management or standalone mode)
+  weekly_report:
+    enabled: true
+    
+    # Cron schedule for report generation
+    # Default: "0 9 * * 1" (every Monday at 9:00 AM)
+    cron: "0 9 * * 1"
+    timezone: "Asia/Shanghai"
+    
+    # Report parameters
+    time_range_days: 7          # Number of days to include in report
+    utilization_threshold: 30   # Threshold for low utilization detection
+    min_gpu_count: 1           # Minimum GPU count for low util users
+    top_n: 20                  # Number of top users to include
+    
+    # Conductor API configuration
+    conductor:
+      base_url: "http://primus-conductor-api:8000"
+      timeout: 300s
+      retry: 3
+    
+    # Branding configuration
+    brand:
+      logo_url: "/assets/logo.png"
+      company_name: "AMD AGI"
+      primary_color: "#ED1C24"
+    
+    # Output formats
+    output_formats:
+      - html
+      - pdf
+    
+    # Email configuration (optional)
+    email:
+      enabled: false
+      smtp:
+        host: "smtp.example.com"
+        port: 587
+        username: "reports@example.com"
+        password_env: "SMTP_PASSWORD"  # Use environment variable for password
+      recipients:
+        to:
+          - "admin@example.com"
+          - "team@example.com"
+        cc:
+          - "manager@example.com"
+      subject_template: "GPU Cluster Weekly Report - {{.WeekRange}}"
+      attach_pdf: true
+    
+    # Storage configuration
+    storage:
+      retention_days: 90  # Automatically clean up reports older than 90 days
+

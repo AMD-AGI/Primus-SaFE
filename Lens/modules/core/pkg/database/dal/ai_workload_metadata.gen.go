@@ -33,6 +33,7 @@ func newAiWorkloadMetadata(db *gorm.DB, opts ...gen.DOOption) aiWorkloadMetadata
 	_aiWorkloadMetadata.Framework = field.NewString(tableName, "framework")
 	_aiWorkloadMetadata.Metadata = field.NewField(tableName, "metadata")
 	_aiWorkloadMetadata.CreatedAt = field.NewTime(tableName, "created_at")
+	_aiWorkloadMetadata.ImagePrefix = field.NewString(tableName, "image_prefix")
 
 	_aiWorkloadMetadata.fillFieldMap()
 
@@ -49,6 +50,7 @@ type aiWorkloadMetadata struct {
 	Framework   field.String
 	Metadata    field.Field
 	CreatedAt   field.Time
+	ImagePrefix field.String // Image repository address without tag, extracted from container image for efficient similarity matching
 
 	fieldMap map[string]field.Expr
 }
@@ -71,6 +73,7 @@ func (a *aiWorkloadMetadata) updateTableName(table string) *aiWorkloadMetadata {
 	a.Framework = field.NewString(table, "framework")
 	a.Metadata = field.NewField(table, "metadata")
 	a.CreatedAt = field.NewTime(table, "created_at")
+	a.ImagePrefix = field.NewString(table, "image_prefix")
 
 	a.fillFieldMap()
 
@@ -99,13 +102,14 @@ func (a *aiWorkloadMetadata) GetFieldByName(fieldName string) (field.OrderExpr, 
 }
 
 func (a *aiWorkloadMetadata) fillFieldMap() {
-	a.fieldMap = make(map[string]field.Expr, 6)
+	a.fieldMap = make(map[string]field.Expr, 7)
 	a.fieldMap["id"] = a.ID
 	a.fieldMap["workload_uid"] = a.WorkloadUID
 	a.fieldMap["type"] = a.Type
 	a.fieldMap["framework"] = a.Framework
 	a.fieldMap["metadata"] = a.Metadata
 	a.fieldMap["created_at"] = a.CreatedAt
+	a.fieldMap["image_prefix"] = a.ImagePrefix
 }
 
 func (a aiWorkloadMetadata) clone(db *gorm.DB) aiWorkloadMetadata {

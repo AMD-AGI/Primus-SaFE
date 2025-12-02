@@ -93,6 +93,304 @@ Lens/
 └── README.md                              # This file
 ```
 
+## Module Architecture and Build System
+
+Each module in Primus Lens is self-contained with its own build configuration, allowing for independent deployment and custom dependencies.
+
+### Module Structure
+
+```
+Lens/modules/
+├── api/
+│   ├── cmd/
+│   ├── pkg/
+│   └── installer/
+│       └── Dockerfile          # Module-specific Dockerfile
+├── jobs/
+│   ├── cmd/
+│   ├── pkg/
+│   └── installer/
+│       └── Dockerfile          # With PDF rendering support
+├── exporters/
+│   ├── node-exporter/
+│   │   └── installer/
+│   │       └── Dockerfile      # (optional, falls back to ci/Dockerfile)
+│   └── ...
+└── ...
+```
+
+### Build System
+
+#### Dockerfile Location Priority
+
+The CI/CD system uses the following priority for Dockerfile selection:
+
+1. **Module-specific Dockerfile** (Recommended)
+   - Location: `{module}/installer/Dockerfile`
+   - Used if exists
+   - Allows module-specific dependencies
+
+2. **Fallback to central Dockerfile**
+   - Location: `Lens/ci/Dockerfile`
+   - Used if module doesn't have its own Dockerfile
+   - Standard lightweight build
+
+#### GitHub Actions Flow
+
+```yaml
+# Automatic Dockerfile detection
+if [[ -f "$MODULE_DOCKERFILE" ]]; then
+  Use module's own Dockerfile
+else
+  Use Lens/ci/Dockerfile
+fi
+```
+
+### Standard Module Types
+
+#### Lightweight Module
+
+Example: `modules/api/`
+
+```
+api/
+├── cmd/
+│   └── primus-lens-api/
+│       └── main.go
+├── pkg/
+│   └── api/
+│       └── *.go
+└── installer/
+    └── Dockerfile              # ~200MB, standard dependencies
+```
+
+#### Module with Special Requirements
+
+Example: `modules/jobs/` (needs Chrome for PDF)
+
+```
+jobs/
+├── cmd/
+│   └── primus-lens-jobs/
+│       └── main.go
+├── pkg/
+│   └── jobs/
+│       └── *.go
+└── installer/
+    └── Dockerfile              # ~1GB, includes Chrome/Chromium
+```
+
+### Creating a New Module
+
+#### Step 1: Create Module Directory
+
+```bash
+mkdir -p Lens/modules/my-module/{cmd/my-module,pkg/my-module,installer}
+```
+
+#### Step 2: Create Dockerfile (Optional)
+
+If your module has special dependencies, create `installer/Dockerfile`:
+
+```dockerfile
+# Lens/modules/my-module/installer/Dockerfile
+
+ARG BUILDPATH
+ARG APPNAME
+ARG BASEPATH
+
+# Stage 1: Build
+FROM golang:1.24.7 AS builder
+WORKDIR /app
+
+ARG GITHUB_TOKEN
+ARG BASEPATH
+ARG BUILDPATH
+ARG APPNAME
+ENV BUILDPATH=${BUILDPATH}
+ENV APPNAME=${APPNAME}
+ENV BASEPATH=${BASEPATH}
+ENV GOPRIVATE="github.com/AMD-AGI/*"
+
+RUN git config --global url."https://${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
+
+COPY . .
+RUN cd $BASEPATH && CGO_ENABLED=0 go build -tags nosqlite -a -installsuffix cgo -o $APPNAME $BUILDPATH/main.go
+
+# Stage 2: Runtime
+FROM --platform=linux/amd64 primussafe/ubuntu-rdma-base:0.0.1
+
+ARG APPNAME
+ARG BASEPATH
+ENV BASEPATH=${BASEPATH}
+ENV APPNAME=${APPNAME}
+
+WORKDIR /root/
+
+# Install module-specific dependencies here
+# RUN apt-get update && apt-get install -y ...
+
+COPY --from=builder /app/$BASEPATH/$APPNAME .
+COPY --from=builder /app/Lens/ci/run.sh .
+RUN chmod +x run.sh
+
+CMD ["./run.sh"]
+```
+
+#### Step 3: Update GitHub Actions (if needed)
+
+The workflow automatically detects modules. Add to `.github/workflows/primus-lens.yml`:
+
+```yaml
+files_yaml: |
+  my_module:
+    - Lens/modules/my-module/**
+    - Lens/modules/core/**
+```
+
+And in the matrix generation:
+
+```yaml
+if [[ "${{ steps.changed-files.outputs.my_module_any_changed }}" == "true" ]]; then
+  MATRIX+='{"name":"my-module","buildpath":"cmd/my-module","basepath":"Lens/modules/my-module/"},'
+fi
+```
+
+### When to Create Module-Specific Dockerfile
+
+Create `installer/Dockerfile` when:
+
+✅ Module needs special runtime dependencies  
+✅ Module needs specific system packages  
+✅ Module needs larger base image  
+✅ Module has unique requirements (e.g., Chrome, GPU drivers)
+
+Use `Lens/ci/Dockerfile` (no installer directory) when:
+
+✅ Module has standard dependencies only  
+✅ Module can use ubuntu-rdma-base image  
+✅ No special runtime requirements
+
+### Build Arguments
+
+All Dockerfiles receive these build arguments:
+
+| Argument | Example | Description |
+|----------|---------|-------------|
+| `BUILDPATH` | `cmd/primus-lens-jobs` | Path to main.go |
+| `BASEPATH` | `Lens/modules/jobs/` | Module base path |
+| `APPNAME` | `primus-lens-jobs` | Application name |
+| `GITHUB_TOKEN` | `ghp_xxx` | GitHub token for private repos |
+| `GOPROXY` | `https://goproxy.io,direct` | Go module proxy |
+
+### Testing Locally
+
+#### Build with Module Dockerfile
+
+```bash
+# Navigate to project root
+cd Primus-SaFE
+
+# Build specific module
+buildah bud \
+  --build-arg BUILDPATH=cmd/primus-lens-jobs \
+  --build-arg BASEPATH=Lens/modules/jobs/ \
+  --build-arg APPNAME=primus-lens-jobs \
+  --build-arg GITHUB_TOKEN=${GITHUB_TOKEN} \
+  -t primus-lens-jobs:test \
+  -f Lens/modules/jobs/installer/Dockerfile .
+
+# Run
+docker run --rm primus-lens-jobs:test
+```
+
+#### Test Dockerfile Selection
+
+```bash
+# Check if module Dockerfile exists
+MODULE="jobs"
+BASEPATH="Lens/modules/${MODULE}/"
+
+if [[ -f "${BASEPATH}installer/Dockerfile" ]]; then
+  echo "Will use: ${BASEPATH}installer/Dockerfile"
+else
+  echo "Will use: Lens/ci/Dockerfile"
+fi
+```
+
+### Image Size Comparison
+
+| Module | Dockerfile Location | Base Image | Size | Features |
+|--------|-------------------|-----------|------|----------|
+| **api** | `modules/api/installer/` | ubuntu-rdma-base | ~200MB | Standard |
+| **jobs** | `modules/jobs/installer/` | debian+chromium | ~1GB | PDF rendering |
+| **node-exporter** | (uses fallback) | ubuntu-rdma-base | ~200MB | Standard |
+
+### Best Practices
+
+#### 1. Self-Contained Modules
+
+✅ Each module should be independently deployable  
+✅ Module-specific dependencies in module's Dockerfile  
+✅ Don't rely on shared state or assumptions
+
+#### 2. Dockerfile Optimization
+
+✅ Use multi-stage builds  
+✅ Clean up package caches  
+✅ Only install required dependencies  
+✅ Document why each dependency is needed
+
+#### 3. Consistent Structure
+
+✅ Follow the standard directory structure  
+✅ Use consistent naming conventions  
+✅ Include README in module directory
+
+#### 4. Documentation
+
+✅ Document special dependencies in module README  
+✅ Explain why custom Dockerfile is needed  
+✅ Provide deployment examples
+
+### Troubleshooting Module Builds
+
+#### Issue: CI not using module Dockerfile
+
+**Problem**: CI still uses `Lens/ci/Dockerfile`
+
+**Solution**:
+```bash
+# Check file exists
+ls -la Lens/modules/your-module/installer/Dockerfile
+
+# Ensure it's committed
+git status
+
+# Check GitHub Actions logs for message
+"📄 Using module-specific Dockerfile: ..."
+```
+
+#### Issue: Build fails with module Dockerfile
+
+**Problem**: Build fails, but works with central Dockerfile
+
+**Solution**:
+1. Check all ARGs are properly used
+2. Verify COPY paths are correct
+3. Test locally first
+4. Check build logs for specific errors
+
+#### Issue: Image too large
+
+**Problem**: Module image is unexpectedly large
+
+**Solution**:
+1. Check if you're cleaning up package caches
+2. Use `.dockerignore` to exclude unnecessary files
+3. Consider using Alpine for smaller base
+4. Remove unnecessary dependencies
+
 ## Core Modules
 
 ### 1. Core Module

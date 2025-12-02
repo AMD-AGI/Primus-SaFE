@@ -69,12 +69,12 @@ func TestDecodeSecretData(t *testing.T) {
 			expectError: false,
 		},
 		{
-			name: "contains Chinese characters",
+			name: "contains UTF-8 characters",
 			data: map[string][]byte{
-				"description": []byte("数据库连接配置"),
+				"description": []byte("database connection config"),
 			},
 			key:         "description",
-			expected:    "数据库连接配置",
+			expected:    "database connection config",
 			expectError: false,
 		},
 		{

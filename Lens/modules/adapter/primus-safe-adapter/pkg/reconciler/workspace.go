@@ -2,6 +2,7 @@ package reconciler
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"runtime/debug"
 	"time"
@@ -14,6 +15,7 @@ import (
 	primusSafeV1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -65,25 +67,45 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req reconcile.Reque
 	// Handle deletion
 	if workspace.DeletionTimestamp != nil {
 		log.Infof("Workspace %s is being deleted, removing namespace info", workspace.Name)
-		err = r.deleteNamespaceInfo(ctx, workspace)
+		if !controllerutil.RemoveFinalizer(workspace, constant.PrimusLensGpuWorkloadExporterFinalizer) {
+			return reconcile.Result{}, nil
+		}
+		finalizers := workspace.GetFinalizers()
+		patchObj := map[string]any{
+			"metadata": map[string]any{
+				"resourceVersion": workspace.ResourceVersion,
+				"finalizers":      finalizers,
+			},
+		}
+		p, err := json.Marshal(patchObj)
 		if err != nil {
-			log.Errorf("Failed to delete namespace info for workspace %s: %v", workspace.Name, err)
+			log.Errorf("Failed to marshal patch object for removing finalizer: %v", err)
 			return reconcile.Result{}, err
 		}
-		// Remove finalizer
-		controllerutil.RemoveFinalizer(workspace, constant.PrimusLensGpuWorkloadExporterFinalizer)
-		err = r.client.ControllerRuntimeClient.Update(ctx, workspace)
-		if err != nil {
+		if err = r.client.ControllerRuntimeClient.Patch(ctx, workspace, client.RawPatch(types.MergePatchType, p)); err != nil {
+			log.Errorf("Failed to patch workspace for removing finalizer: %v", err)
 			return reconcile.Result{}, err
 		}
 		return reconcile.Result{}, nil
 	}
 
 	// Add finalizer if not present
-	if !controllerutil.ContainsFinalizer(workspace, constant.PrimusLensGpuWorkloadExporterFinalizer) {
-		controllerutil.AddFinalizer(workspace, constant.PrimusLensGpuWorkloadExporterFinalizer)
-		err = r.client.ControllerRuntimeClient.Update(ctx, workspace)
+	if controllerutil.AddFinalizer(workspace, constant.PrimusLensGpuWorkloadExporterFinalizer) {
+		// Use raw patch with resource version to add finalizer
+		finalizers := workspace.GetFinalizers()
+		patchObj := map[string]any{
+			"metadata": map[string]any{
+				"resourceVersion": workspace.ResourceVersion,
+				"finalizers":      finalizers,
+			},
+		}
+		p, err := json.Marshal(patchObj)
 		if err != nil {
+			log.Errorf("Failed to marshal patch object for adding finalizer: %v", err)
+			return reconcile.Result{}, err
+		}
+		if err = r.client.ControllerRuntimeClient.Patch(ctx, workspace, client.RawPatch(types.MergePatchType, p)); err != nil {
+			log.Errorf("Failed to patch workspace for adding finalizer: %v", err)
 			return reconcile.Result{}, err
 		}
 	}
