@@ -329,18 +329,21 @@ func saveTrainingPerformanceForSingleWorkload(ctx context.Context, podId, worklo
 	if err != nil {
 		return err
 	}
-	
+
 	// Get current iteration value (handle pointer)
 	currentIteration := 0
 	if perf.CurrentIteration != nil {
 		currentIteration = *perf.CurrentIteration
 	}
-	
+
 	existDbPerformance, err := database.GetFacade().GetTraining().GetTrainingPerformanceByWorkloadIdSerialAndIteration(ctx, workloadId, serial, currentIteration)
 	if err != nil {
 		return err
 	}
 	if existDbPerformance != nil {
+		// 记录跳过的原因：已存在相同记录
+		logrus.Debugf("Training performance already exists for workload=%s, serial=%d, iteration=%d - skipping insert",
+			workloadId, serial, currentIteration)
 		return nil
 	}
 	ext, _ := mapUtil.EncodeMap(perf)
@@ -354,10 +357,20 @@ func saveTrainingPerformanceForSingleWorkload(ctx context.Context, podId, worklo
 		WorkloadUID: workloadId,
 		DataSource:  constant.DataSourceLog, // Data parsed from application logs
 	}
+
+	// 记录即将插入的数据信息
+	logrus.Debugf("Inserting training performance: workload=%s, serial=%d, iteration=%d, pod=%s, time=%s",
+		workloadId, serial, currentIteration, podId, docTime.Format(time.RFC3339))
+
 	err = database.GetFacade().GetTraining().CreateTrainingPerformance(ctx, existDbPerformance)
 	if err != nil {
+		logrus.Errorf("Failed to insert training performance: workload=%s, serial=%d, iteration=%d, error=%v",
+			workloadId, serial, currentIteration, err)
 		return err
 	}
+
+	logrus.Infof("✓ Successfully inserted training performance: workload=%s, serial=%d, iteration=%d",
+		workloadId, serial, currentIteration)
 	return nil
 }
 
@@ -594,9 +607,12 @@ func handlePerformanceLog(
 			continue
 		}
 		wUID := workloadRef[1]
+		logrus.Debugf("Processing performance data for workload=%s, pod=%s, iteration=%v",
+			wUID, podUid, performance.CurrentIteration)
+
 		err = saveTrainingPerformanceForSingleWorkload(ctx, podUid, wUID, nearestWorkloadUid, performance, logTime)
 		if err != nil {
-			log.Errorf("saveTrainingPerformanceForSingleWorkload err %+v", err)
+			log.Errorf("saveTrainingPerformanceForSingleWorkload failed: workload=%s, error=%+v", wUID, err)
 			IncTrainingPerformanceSaveErrors(wUID, "log", "db_error")
 		} else {
 			log.Tracef("save training performance for workload %s", wUID)
