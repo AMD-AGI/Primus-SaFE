@@ -70,6 +70,7 @@ run_check_phase() {
 
 # Initialize error collection
 errors=""
+has_error=0  # Track if any phase failed
 
 # ----------------------------------------------------------------------------
 # Phase 1: Check configuration on node
@@ -78,6 +79,7 @@ echo "${LOG_HEADER}[$(date +'%Y-%m-%d %H:%M:%S')] Phase 1: Checking node configu
 error_output=$(run_check_phase "config_check" "config check")
 if [ $? -ne 0 ]; then
     errors+="$error_output"
+    has_error=1
 fi
 
 # ----------------------------------------------------------------------------
@@ -90,6 +92,7 @@ if [ $? -ne 0 ]; then
         errors+=" | "
     fi
     errors+="$error_output"
+    has_error=1
 fi
 
 # ----------------------------------------------------------------------------
@@ -97,12 +100,12 @@ fi
 # ----------------------------------------------------------------------------
 echo "${LOG_HEADER}[$(date +'%Y-%m-%d %H:%M:%S')] Phase 3: Running model checks..."
 error_output=$(run_check_phase "model_check" "model check")
-exit_code=$?
-if [ $exit_code -ne 0 ]; then
+if [ $? -ne 0 ]; then
     if [ -n "$errors" ]; then
         errors+=" | "
     fi
     errors+="$error_output"
+    has_error=1
 fi
 
 # ============================================================================
@@ -113,8 +116,8 @@ ret=0
 if [ -n "$errors" ]; then
     echo "${LOG_HEADER}[NODE] [ERROR]❌: $errors"
     ret=1
-elif [ $exit_code -ne 0 ]; then
-    echo "${LOG_HEADER}[NODE] [ERROR]❌: model_check failed with exit code $exit_code (check logs for details)"
+elif [ $has_error -eq 1 ]; then
+    echo "${LOG_HEADER}[NODE] [ERROR]❌: One or more checks failed (check logs for details)"
     ret=1
 else
     echo "${LOG_HEADER}[$(date +'%Y-%m-%d %H:%M:%S')] [NODE] [SUCCESS] ✅ All checks passed"
