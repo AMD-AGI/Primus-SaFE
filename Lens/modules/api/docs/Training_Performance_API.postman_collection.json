@@ -1,0 +1,446 @@
+{
+	"info": {
+		"_postman_id": "training-performance-api-collection",
+		"name": "Primus Lens - Training Performance API",
+		"description": "API collection for training workload performance metrics collection, including data sources management and metrics data retrieval",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "Get Data Sources",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{scheme}}://{{primus-lens-api}}/v1/workloads/:uid/metrics/sources",
+					"host": ["{{primus-lens-api}}"],
+					"path": ["v1", "workloads", ":uid", "metrics", "sources"],
+					"variable": [
+						{
+							"key": "uid",
+							"value": "abc-123-def-456",
+							"description": "Workload UID"
+						}
+					]
+				},
+				"description": "Get all available data sources for a specific workload, including source names and data point counts"
+			},
+			"response": [
+				{
+					"name": "Success Response",
+					"originalRequest": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{scheme}}://{{primus-lens-api}}/v1/workloads/abc-123-def-456/metrics/sources",
+							"host": ["{{primus-lens-api}}"],
+							"path": ["v1", "workloads", "abc-123-def-456", "metrics", "sources"]
+						}
+					},
+					"status": "OK",
+					"code": 200,
+					"_postman_previewlanguage": "json",
+					"header": [
+						{
+							"key": "Content-Type",
+							"value": "application/json"
+						}
+					],
+					"body": "{\n  \"workload_uid\": \"abc-123-def-456\",\n  \"data_sources\": [\n    {\n      \"name\": \"wandb\",\n      \"count\": 150\n    },\n    {\n      \"name\": \"log\",\n      \"count\": 200\n    },\n    {\n      \"name\": \"tensorflow\",\n      \"count\": 180\n    }\n  ],\n  \"total_count\": 3\n}"
+				}
+			]
+		},
+		{
+			"name": "Get Available Metrics",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{scheme}}://{{primus-lens-api}}/v1/workloads/:uid/metrics/available?data_source=wandb",
+					"host": ["{{primus-lens-api}}"],
+					"path": ["v1", "workloads", ":uid", "metrics", "available"],
+					"query": [
+						{
+							"key": "data_source",
+							"value": "wandb",
+							"description": "Data source filter (optional): wandb, log, tensorflow"
+						}
+					],
+					"variable": [
+						{
+							"key": "uid",
+							"value": "abc-123-def-456",
+							"description": "Workload UID"
+						}
+					]
+				},
+				"description": "Get all available metrics for a specific workload with optional data source filter"
+			},
+			"response": [
+				{
+					"name": "Success Response - All Sources",
+					"originalRequest": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{scheme}}://{{primus-lens-api}}/v1/workloads/abc-123-def-456/metrics/available",
+							"host": ["{{primus-lens-api}}"],
+							"path": ["v1", "workloads", "abc-123-def-456", "metrics", "available"]
+						}
+					},
+					"status": "OK",
+					"code": 200,
+					"_postman_previewlanguage": "json",
+					"header": [
+						{
+							"key": "Content-Type",
+							"value": "application/json"
+						}
+					],
+					"body": "{\n  \"workload_uid\": \"abc-123-def-456\",\n  \"metrics\": [\n    {\n      \"name\": \"loss\",\n      \"data_source\": [\"wandb\", \"log\"],\n      \"count\": 250\n    },\n    {\n      \"name\": \"accuracy\",\n      \"data_source\": [\"wandb\", \"tensorflow\"],\n      \"count\": 200\n    },\n    {\n      \"name\": \"learning_rate\",\n      \"data_source\": [\"wandb\", \"log\"],\n      \"count\": 250\n    },\n    {\n      \"name\": \"gpu_utilization\",\n      \"data_source\": [\"log\"],\n      \"count\": 150\n    },\n    {\n      \"name\": \"throughput\",\n      \"data_source\": [\"log\"],\n      \"count\": 150\n    }\n  ],\n  \"total_count\": 5\n}"
+				},
+				{
+					"name": "Success Response - Filtered by Source",
+					"originalRequest": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{scheme}}://{{primus-lens-api}}/v1/workloads/abc-123-def-456/metrics/available?data_source=wandb",
+							"host": ["{{primus-lens-api}}"],
+							"path": ["v1", "workloads", "abc-123-def-456", "metrics", "available"],
+							"query": [
+								{
+									"key": "data_source",
+									"value": "wandb"
+								}
+							]
+						}
+					},
+					"status": "OK",
+					"code": 200,
+					"_postman_previewlanguage": "json",
+					"header": [
+						{
+							"key": "Content-Type",
+							"value": "application/json"
+						}
+					],
+					"body": "{\n  \"workload_uid\": \"abc-123-def-456\",\n  \"metrics\": [\n    {\n      \"name\": \"loss\",\n      \"data_source\": [\"wandb\"],\n      \"count\": 100\n    },\n    {\n      \"name\": \"accuracy\",\n      \"data_source\": [\"wandb\"],\n      \"count\": 100\n    },\n    {\n      \"name\": \"learning_rate\",\n      \"data_source\": [\"wandb\"],\n      \"count\": 100\n    }\n  ],\n  \"total_count\": 3\n}"
+				}
+			]
+		},
+		{
+			"name": "Get Metrics Data - All Metrics",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{scheme}}://{{primus-lens-api}}/v1/workloads/:uid/metrics/data?data_source=wandb",
+					"host": ["{{primus-lens-api}}"],
+					"path": ["v1", "workloads", ":uid", "metrics", "data"],
+					"query": [
+						{
+							"key": "data_source",
+							"value": "wandb",
+							"description": "Data source filter (optional): wandb, log, tensorflow"
+						},
+						{
+							"key": "metrics",
+							"value": "",
+							"description": "Comma-separated metric names (optional, e.g., loss,accuracy)",
+							"disabled": true
+						},
+						{
+							"key": "start",
+							"value": "",
+							"description": "Start timestamp in milliseconds (optional)",
+							"disabled": true
+						},
+						{
+							"key": "end",
+							"value": "",
+							"description": "End timestamp in milliseconds (optional)",
+							"disabled": true
+						}
+					],
+					"variable": [
+						{
+							"key": "uid",
+							"value": "abc-123-def-456",
+							"description": "Workload UID"
+						}
+					]
+				},
+				"description": "Get all metrics data for a specific workload with optional filters for data source, specific metrics, and time range"
+			},
+			"response": [
+				{
+					"name": "Success Response - All Metrics",
+					"originalRequest": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{scheme}}://{{primus-lens-api}}/v1/workloads/abc-123-def-456/metrics/data?data_source=wandb",
+							"host": ["{{primus-lens-api}}"],
+							"path": ["v1", "workloads", "abc-123-def-456", "metrics", "data"],
+							"query": [
+								{
+									"key": "data_source",
+									"value": "wandb"
+								}
+							]
+						}
+					},
+					"status": "OK",
+					"code": 200,
+					"_postman_previewlanguage": "json",
+					"header": [
+						{
+							"key": "Content-Type",
+							"value": "application/json"
+						}
+					],
+					"body": "{\n  \"workload_uid\": \"abc-123-def-456\",\n  \"data_source\": \"wandb\",\n  \"data\": [\n    {\n      \"metric_name\": \"loss\",\n      \"value\": 2.456,\n      \"timestamp\": 1705315800000,\n      \"iteration\": 100,\n      \"data_source\": \"wandb\"\n    },\n    {\n      \"metric_name\": \"loss\",\n      \"value\": 2.123,\n      \"timestamp\": 1705316400000,\n      \"iteration\": 200,\n      \"data_source\": \"wandb\"\n    },\n    {\n      \"metric_name\": \"accuracy\",\n      \"value\": 0.856,\n      \"timestamp\": 1705315800000,\n      \"iteration\": 100,\n      \"data_source\": \"wandb\"\n    },\n    {\n      \"metric_name\": \"accuracy\",\n      \"value\": 0.892,\n      \"timestamp\": 1705316400000,\n      \"iteration\": 200,\n      \"data_source\": \"wandb\"\n    },\n    {\n      \"metric_name\": \"learning_rate\",\n      \"value\": 0.0001,\n      \"timestamp\": 1705315800000,\n      \"iteration\": 100,\n      \"data_source\": \"wandb\"\n    },\n    {\n      \"metric_name\": \"learning_rate\",\n      \"value\": 0.00008,\n      \"timestamp\": 1705316400000,\n      \"iteration\": 200,\n      \"data_source\": \"wandb\"\n    }\n  ],\n  \"total_count\": 6\n}"
+				}
+			]
+		},
+		{
+			"name": "Get Metrics Data - Specific Metrics",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{scheme}}://{{primus-lens-api}}/v1/workloads/:uid/metrics/data?data_source=wandb&metrics=loss,accuracy",
+					"host": ["{{primus-lens-api}}"],
+					"path": ["v1", "workloads", ":uid", "metrics", "data"],
+					"query": [
+						{
+							"key": "data_source",
+							"value": "wandb",
+							"description": "Data source filter"
+						},
+						{
+							"key": "metrics",
+							"value": "loss,accuracy",
+							"description": "Comma-separated metric names to retrieve"
+						}
+					],
+					"variable": [
+						{
+							"key": "uid",
+							"value": "abc-123-def-456",
+							"description": "Workload UID"
+						}
+					]
+				},
+				"description": "Get specific metrics data (loss and accuracy) for a workload from a specific data source"
+			},
+			"response": [
+				{
+					"name": "Success Response",
+					"originalRequest": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{scheme}}://{{primus-lens-api}}/v1/workloads/abc-123-def-456/metrics/data?data_source=wandb&metrics=loss,accuracy",
+							"host": ["{{primus-lens-api}}"],
+							"path": ["v1", "workloads", "abc-123-def-456", "metrics", "data"],
+							"query": [
+								{
+									"key": "data_source",
+									"value": "wandb"
+								},
+								{
+									"key": "metrics",
+									"value": "loss,accuracy"
+								}
+							]
+						}
+					},
+					"status": "OK",
+					"code": 200,
+					"_postman_previewlanguage": "json",
+					"header": [
+						{
+							"key": "Content-Type",
+							"value": "application/json"
+						}
+					],
+					"body": "{\n  \"workload_uid\": \"abc-123-def-456\",\n  \"data_source\": \"wandb\",\n  \"data\": [\n    {\n      \"metric_name\": \"loss\",\n      \"value\": 2.456,\n      \"timestamp\": 1705315800000,\n      \"iteration\": 100,\n      \"data_source\": \"wandb\"\n    },\n    {\n      \"metric_name\": \"loss\",\n      \"value\": 2.123,\n      \"timestamp\": 1705316400000,\n      \"iteration\": 200,\n      \"data_source\": \"wandb\"\n    },\n    {\n      \"metric_name\": \"accuracy\",\n      \"value\": 0.856,\n      \"timestamp\": 1705315800000,\n      \"iteration\": 100,\n      \"data_source\": \"wandb\"\n    },\n    {\n      \"metric_name\": \"accuracy\",\n      \"value\": 0.892,\n      \"timestamp\": 1705316400000,\n      \"iteration\": 200,\n      \"data_source\": \"wandb\"\n    }\n  ],\n  \"total_count\": 4\n}"
+				}
+			]
+		},
+		{
+			"name": "Get Metrics Data - Time Range",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{scheme}}://{{primus-lens-api}}/v1/workloads/:uid/metrics/data?data_source=wandb&start=1705315800000&end=1705320000000",
+					"host": ["{{primus-lens-api}}"],
+					"path": ["v1", "workloads", ":uid", "metrics", "data"],
+					"query": [
+						{
+							"key": "data_source",
+							"value": "wandb",
+							"description": "Data source filter"
+						},
+						{
+							"key": "start",
+							"value": "1705315800000",
+							"description": "Start timestamp in milliseconds (2025-01-15 10:30:00)"
+						},
+						{
+							"key": "end",
+							"value": "1705320000000",
+							"description": "End timestamp in milliseconds (2025-01-15 12:00:00)"
+						}
+					],
+					"variable": [
+						{
+							"key": "uid",
+							"value": "abc-123-def-456",
+							"description": "Workload UID"
+						}
+					]
+				},
+				"description": "Get metrics data within a specific time range (requires both start and end timestamps)"
+			},
+			"response": [
+				{
+					"name": "Success Response",
+					"originalRequest": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{scheme}}://{{primus-lens-api}}/v1/workloads/abc-123-def-456/metrics/data?data_source=wandb&start=1705315800000&end=1705320000000",
+							"host": ["{{primus-lens-api}}"],
+							"path": ["v1", "workloads", "abc-123-def-456", "metrics", "data"],
+							"query": [
+								{
+									"key": "data_source",
+									"value": "wandb"
+								},
+								{
+									"key": "start",
+									"value": "1705315800000"
+								},
+								{
+									"key": "end",
+									"value": "1705320000000"
+								}
+							]
+						}
+					},
+					"status": "OK",
+					"code": 200,
+					"_postman_previewlanguage": "json",
+					"header": [
+						{
+							"key": "Content-Type",
+							"value": "application/json"
+						}
+					],
+					"body": "{\n  \"workload_uid\": \"abc-123-def-456\",\n  \"data_source\": \"wandb\",\n  \"data\": [\n    {\n      \"metric_name\": \"loss\",\n      \"value\": 2.456,\n      \"timestamp\": 1705315800000,\n      \"iteration\": 100,\n      \"data_source\": \"wandb\"\n    },\n    {\n      \"metric_name\": \"loss\",\n      \"value\": 2.123,\n      \"timestamp\": 1705316400000,\n      \"iteration\": 200,\n      \"data_source\": \"wandb\"\n    },\n    {\n      \"metric_name\": \"accuracy\",\n      \"value\": 0.856,\n      \"timestamp\": 1705315800000,\n      \"iteration\": 100,\n      \"data_source\": \"wandb\"\n    },\n    {\n      \"metric_name\": \"accuracy\",\n      \"value\": 0.892,\n      \"timestamp\": 1705316400000,\n      \"iteration\": 200,\n      \"data_source\": \"wandb\"\n    },\n    {\n      \"metric_name\": \"learning_rate\",\n      \"value\": 0.0001,\n      \"timestamp\": 1705315800000,\n      \"iteration\": 100,\n      \"data_source\": \"wandb\"\n    },\n    {\n      \"metric_name\": \"learning_rate\",\n      \"value\": 0.00008,\n      \"timestamp\": 1705316400000,\n      \"iteration\": 200,\n      \"data_source\": \"wandb\"\n    }\n  ],\n  \"total_count\": 6\n}"
+				}
+			]
+		},
+		{
+			"name": "Get Metrics Data - Combined Filters",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{scheme}}://{{primus-lens-api}}/v1/workloads/:uid/metrics/data?data_source=log&metrics=gpu_utilization,throughput&start=1705315800000&end=1705320000000",
+					"host": ["{{primus-lens-api}}"],
+					"path": ["v1", "workloads", ":uid", "metrics", "data"],
+					"query": [
+						{
+							"key": "data_source",
+							"value": "log",
+							"description": "Data source filter"
+						},
+						{
+							"key": "metrics",
+							"value": "gpu_utilization,throughput",
+							"description": "Specific metrics to retrieve"
+						},
+						{
+							"key": "start",
+							"value": "1705315800000",
+							"description": "Start timestamp in milliseconds"
+						},
+						{
+							"key": "end",
+							"value": "1705320000000",
+							"description": "End timestamp in milliseconds"
+						}
+					],
+					"variable": [
+						{
+							"key": "uid",
+							"value": "abc-123-def-456",
+							"description": "Workload UID"
+						}
+					]
+				},
+				"description": "Get specific metrics data from a specific data source within a time range (combining all filters)"
+			},
+			"response": [
+				{
+					"name": "Success Response",
+					"originalRequest": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{scheme}}://{{primus-lens-api}}/v1/workloads/abc-123-def-456/metrics/data?data_source=log&metrics=gpu_utilization,throughput&start=1705315800000&end=1705320000000",
+							"host": ["{{primus-lens-api}}"],
+							"path": ["v1", "workloads", "abc-123-def-456", "metrics", "data"],
+							"query": [
+								{
+									"key": "data_source",
+									"value": "log"
+								},
+								{
+									"key": "metrics",
+									"value": "gpu_utilization,throughput"
+								},
+								{
+									"key": "start",
+									"value": "1705315800000"
+								},
+								{
+									"key": "end",
+									"value": "1705320000000"
+								}
+							]
+						}
+					},
+					"status": "OK",
+					"code": 200,
+					"_postman_previewlanguage": "json",
+					"header": [
+						{
+							"key": "Content-Type",
+							"value": "application/json"
+						}
+					],
+					"body": "{\n  \"workload_uid\": \"abc-123-def-456\",\n  \"data_source\": \"log\",\n  \"data\": [\n    {\n      \"metric_name\": \"gpu_utilization\",\n      \"value\": 95.6,\n      \"timestamp\": 1705315800000,\n      \"iteration\": 100,\n      \"data_source\": \"log\"\n    },\n    {\n      \"metric_name\": \"gpu_utilization\",\n      \"value\": 96.2,\n      \"timestamp\": 1705316400000,\n      \"iteration\": 200,\n      \"data_source\": \"log\"\n    },\n    {\n      \"metric_name\": \"throughput\",\n      \"value\": 1256.8,\n      \"timestamp\": 1705315800000,\n      \"iteration\": 100,\n      \"data_source\": \"log\"\n    },\n    {\n      \"metric_name\": \"throughput\",\n      \"value\": 1289.3,\n      \"timestamp\": 1705316400000,\n      \"iteration\": 200,\n      \"data_source\": \"log\"\n    }\n  ],\n  \"total_count\": 4\n}"
+				}
+			]
+		}
+	],
+	"variable": [
+		{
+			"key": "scheme",
+			"value": "http",
+			"type": "string"
+		},
+		{
+			"key": "primus-lens-api",
+			"value": "localhost:8080",
+			"type": "string"
+		}
+	]
+}
+

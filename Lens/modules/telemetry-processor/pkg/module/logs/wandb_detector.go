@@ -10,31 +10,31 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// WandBDetectionRequest wandb-exporter 上报的请求数据
+// WandBDetectionRequest request data reported by wandb-exporter
 type WandBDetectionRequest struct {
 	Source      string        `json:"source"`                 // "wandb"
 	Type        string        `json:"type"`                   // "framework_detection_raw"
 	Version     string        `json:"version"`                // "1.0"
-	WorkloadUID string        `json:"workload_uid,omitempty"` // 可选（兼容性）
+	WorkloadUID string        `json:"workload_uid,omitempty"` // Optional (for compatibility)
 	PodUID      string        `json:"pod_uid,omitempty"`
-	PodName     string        `json:"pod_name"` // 必需：客户端从环境变量获取
+	PodName     string        `json:"pod_name"` // Required: client gets from environment variable
 	Namespace   string        `json:"namespace"`
-	Evidence    WandBEvidence `json:"evidence"` // 原始证据
-	Hints       WandBHints    `json:"hints"`    // 轻量级 hints
+	Evidence    WandBEvidence `json:"evidence"` // Raw evidence
+	Hints       WandBHints    `json:"hints"`    // Lightweight hints
 	Timestamp   float64       `json:"timestamp"`
 }
 
-// WandBEvidence 原始证据数据
+// WandBEvidence raw evidence data
 type WandBEvidence struct {
 	WandB             WandBInfo                         `json:"wandb"`
 	Environment       map[string]string                 `json:"environment"`
 	PyTorch           *PyTorchInfo                      `json:"pytorch,omitempty"`
-	WrapperFrameworks map[string]map[string]interface{} `json:"wrapper_frameworks,omitempty"` // 外层包装框架检测结果
-	BaseFrameworks    map[string]map[string]interface{} `json:"base_frameworks,omitempty"`    // 底层基础框架检测结果
+	WrapperFrameworks map[string]map[string]interface{} `json:"wrapper_frameworks,omitempty"` // Wrapper framework detection results
+	BaseFrameworks    map[string]map[string]interface{} `json:"base_frameworks,omitempty"`    // Base framework detection results
 	System            map[string]interface{}            `json:"system"`
 }
 
-// WandBInfo WandB 项目信息
+// WandBInfo WandB project information
 type WandBInfo struct {
 	Project string                 `json:"project"`
 	Name    string                 `json:"name"`
@@ -43,7 +43,7 @@ type WandBInfo struct {
 	Tags    []string               `json:"tags"`
 }
 
-// PyTorchInfo PyTorch 环境信息
+// PyTorchInfo PyTorch environment information
 type PyTorchInfo struct {
 	Available       bool            `json:"available"`
 	Version         string          `json:"version"`
@@ -51,34 +51,34 @@ type PyTorchInfo struct {
 	DetectedModules map[string]bool `json:"detected_modules"`
 }
 
-// WandBHints 预判断线索（支持双层框架检测）
+// WandBHints pre-judgment hints (supporting dual-layer framework detection)
 type WandBHints struct {
-	WrapperFrameworks  []string                          `json:"wrapper_frameworks"`         // 外层包装框架（如 primus, lightning）
-	BaseFrameworks     []string                          `json:"base_frameworks"`            // 底层基础框架（如 megatron, deepspeed, jax）
-	PossibleFrameworks []string                          `json:"possible_frameworks"`        // 所有框架（保持向后兼容）
+	WrapperFrameworks  []string                          `json:"wrapper_frameworks"`         // Wrapper frameworks (e.g. primus, lightning)
+	BaseFrameworks     []string                          `json:"base_frameworks"`            // Base frameworks (e.g. megatron, deepspeed, jax)
+	PossibleFrameworks []string                          `json:"possible_frameworks"`        // All frameworks (maintain backward compatibility)
 	Confidence         string                            `json:"confidence"`                 // low/medium/high
-	PrimaryIndicators  []string                          `json:"primary_indicators"`         // 检测指标来源
-	FrameworkLayers    map[string]map[string]interface{} `json:"framework_layers,omitempty"` // 框架层级关系映射
+	PrimaryIndicators  []string                          `json:"primary_indicators"`         // Detection indicator sources
+	FrameworkLayers    map[string]map[string]interface{} `json:"framework_layers,omitempty"` // Framework hierarchy mapping
 }
 
-// DetectionResult 检测结果（支持双层框架）
+// DetectionResult detection result (supporting dual-layer frameworks)
 type DetectionResult struct {
-	Framework        string // 主要框架（wrapper 或 base）
-	FrameworkLayer   string // 框架层级：wrapper 或 base
-	WrapperFramework string // 外层包装框架（如果有）
-	BaseFramework    string // 底层基础框架（如果有）
+	Framework        string // Primary framework (wrapper or base)
+	FrameworkLayer   string // Framework layer: wrapper or base
+	WrapperFramework string // Wrapper framework (if any)
+	BaseFramework    string // Base framework (if any)
 	Confidence       float64
 	Method           string
 	MatchedEnvVars   []string
 	MatchedModules   []string
 }
 
-// WandBFrameworkDetector WandB 框架检测器
+// WandBFrameworkDetector WandB framework detector
 type WandBFrameworkDetector struct {
 	detectionManager *framework.FrameworkDetectionManager
 }
 
-// NewWandBFrameworkDetector 创建检测器
+// NewWandBFrameworkDetector creates detector
 func NewWandBFrameworkDetector(
 	detectMgr *framework.FrameworkDetectionManager,
 ) *WandBFrameworkDetector {
@@ -87,7 +87,7 @@ func NewWandBFrameworkDetector(
 	}
 }
 
-// ProcessWandBDetection 处理 WandB 检测请求
+// ProcessWandBDetection processes WandB detection request
 func (d *WandBFrameworkDetector) ProcessWandBDetection(
 	ctx context.Context,
 	req *WandBDetectionRequest,
@@ -99,7 +99,7 @@ func (d *WandBFrameworkDetector) ProcessWandBDetection(
 		ObserveWandBRequestDuration("detection", time.Since(startTime).Seconds())
 	}()
 
-	// 1. 从 PodName 解析 WorkloadUID
+	// 1. Parse WorkloadUID from PodName
 	workloadUID, err := resolveWorkloadUID(req.WorkloadUID, req.PodName)
 	if err != nil {
 		IncWandBRequestErrorCount("detection", "validation")
@@ -108,22 +108,22 @@ func (d *WandBFrameworkDetector) ProcessWandBDetection(
 
 	logrus.Infof("Processing WandB detection for pod %s -> workload %s", req.PodName, workloadUID)
 
-	// 2. 记录 hints（用于监控和调优，支持双层框架）
+	// 2. Record hints (for monitoring and tuning, supporting dual-layer frameworks)
 	if len(req.Hints.WrapperFrameworks) > 0 || len(req.Hints.BaseFrameworks) > 0 {
-		logrus.Infof("WandB hints (双层框架): wrapper=%v, base=%v, confidence=%s",
+		logrus.Infof("WandB hints (dual-layer frameworks): wrapper=%v, base=%v, confidence=%s",
 			req.Hints.WrapperFrameworks,
 			req.Hints.BaseFrameworks,
 			req.Hints.Confidence)
 		logrus.Debugf("WandB hints indicators: %v", req.Hints.PrimaryIndicators)
 	} else if len(req.Hints.PossibleFrameworks) > 0 {
-		// 向后兼容：旧格式的 hints
+		// Backward compatibility: old format hints
 		logrus.Debugf("WandB hints (legacy): frameworks=%v, confidence=%s, indicators=%v",
 			req.Hints.PossibleFrameworks,
 			req.Hints.Confidence,
 			req.Hints.PrimaryIndicators)
 	}
 
-	// 3. 执行框架检测规则
+	// 3. Execute framework detection rules
 	result := d.detectFramework(req)
 	if result == nil || result.Framework == "" {
 		logrus.Debug("No framework detected from WandB data")
@@ -131,7 +131,7 @@ func (d *WandBFrameworkDetector) ProcessWandBDetection(
 		return nil
 	}
 
-	// 根据框架层级输出不同的日志
+	// Output different logs based on framework layer
 	if result.FrameworkLayer == "wrapper" && result.BaseFramework != "" {
 		logrus.Infof("✓ Detected framework from WandB: %s/%s (wrapper/base, confidence: %.2f, method: %s)",
 			result.Framework, result.BaseFramework, result.Confidence, result.Method)
@@ -147,7 +147,7 @@ func (d *WandBFrameworkDetector) ProcessWandBDetection(
 	IncFrameworkDetectionCount(result.Framework, result.Method, "wandb")
 	ObserveFrameworkDetectionConfidence(result.Framework, result.Method, result.Confidence)
 
-	// 4. 构造证据（包含双层框架信息）
+	// 4. Construct evidence (including dual-layer framework information)
 	evidence := map[string]interface{}{
 		"method":            result.Method,
 		"framework_layer":   result.FrameworkLayer,
@@ -162,7 +162,7 @@ func (d *WandBFrameworkDetector) ProcessWandBDetection(
 		"detected_at":       time.Now().Format(time.RFC3339),
 	}
 
-	// 5. 上报到 FrameworkDetectionManager
+	// 5. Report to FrameworkDetectionManager
 	err = d.detectionManager.ReportDetection(
 		ctx,
 		workloadUID,
@@ -185,36 +185,36 @@ func (d *WandBFrameworkDetector) ProcessWandBDetection(
 	return nil
 }
 
-// detectFramework 基于 WandB 数据检测框架（支持双层框架）
+// detectFramework detects framework based on WandB data (supporting dual-layer frameworks)
 func (d *WandBFrameworkDetector) detectFramework(
 	req *WandBDetectionRequest,
 ) *DetectionResult {
 
-	// 优先使用 Import 检测结果（最强指标）
+	// Use Import detection results first (strongest indicator)
 	if result := d.detectFromImportEvidence(req.Evidence); result != nil {
 		return result
 	}
 
-	// 按优先级应用检测规则
+	// Apply detection rules by priority
 
-	// 1. 环境变量检测（最高优先级，confidence: 0.80）
+	// 1. Environment variable detection (highest priority, confidence: 0.80)
 	if result := d.detectFromEnvVars(req.Evidence.Environment); result != nil {
 		return result
 	}
 
-	// 2. WandB Config 检测（confidence: 0.70）
+	// 2. WandB Config detection (confidence: 0.70)
 	if result := d.detectFromWandBConfig(req.Evidence.WandB.Config); result != nil {
 		return result
 	}
 
-	// 3. PyTorch 模块检测（confidence: 0.60）
+	// 3. PyTorch module detection (confidence: 0.60)
 	if req.Evidence.PyTorch != nil && req.Evidence.PyTorch.Available {
 		if result := d.detectFromPyTorchModules(req.Evidence.PyTorch); result != nil {
 			return result
 		}
 	}
 
-	// 4. WandB Project 名称检测（confidence: 0.50）
+	// 4. WandB Project name detection (confidence: 0.50)
 	if result := d.detectFromWandBProject(req.Evidence.WandB.Project); result != nil {
 		return result
 	}
@@ -222,18 +222,18 @@ func (d *WandBFrameworkDetector) detectFramework(
 	return nil
 }
 
-// detectFromImportEvidence 从 Import 检测证据中提取框架信息（最强指标）
+// detectFromImportEvidence extracts framework information from Import detection evidence (strongest indicator)
 func (d *WandBFrameworkDetector) detectFromImportEvidence(evidence WandBEvidence) *DetectionResult {
 	var wrapperFramework string
 	var baseFramework string
 
-	// 检查 wrapper_frameworks
+	// Check wrapper_frameworks
 	if len(evidence.WrapperFrameworks) > 0 {
-		// 优先选择 Primus（如果存在）
+		// Prioritize Primus (if exists)
 		if primusInfo, ok := evidence.WrapperFrameworks["primus"]; ok {
 			if detected, _ := primusInfo["detected"].(bool); detected {
 				wrapperFramework = "primus"
-				// 尝试获取 Primus 的 base_framework
+				// Try to get Primus's base_framework
 				if baseFrameworkVal, ok := primusInfo["base_framework"]; ok && baseFrameworkVal != nil {
 					if baseStr, ok := baseFrameworkVal.(string); ok && baseStr != "" {
 						baseFramework = strings.ToLower(baseStr)
@@ -242,7 +242,7 @@ func (d *WandBFrameworkDetector) detectFromImportEvidence(evidence WandBEvidence
 			}
 		}
 
-		// 其他 wrapper frameworks
+		// Other wrapper frameworks
 		if wrapperFramework == "" {
 			for frameworkName, frameworkInfo := range evidence.WrapperFrameworks {
 				if detected, ok := frameworkInfo["detected"].(bool); ok && detected {
@@ -253,9 +253,9 @@ func (d *WandBFrameworkDetector) detectFromImportEvidence(evidence WandBEvidence
 		}
 	}
 
-	// 检查 base_frameworks
+	// Check base_frameworks
 	if len(evidence.BaseFrameworks) > 0 && baseFramework == "" {
-		// 优先级：megatron > deepspeed > jax > transformers
+		// Priority: megatron > deepspeed > jax > transformers
 		priority := []string{"megatron", "deepspeed", "jax", "transformers"}
 		for _, frameworkName := range priority {
 			if frameworkInfo, ok := evidence.BaseFrameworks[frameworkName]; ok {
@@ -266,7 +266,7 @@ func (d *WandBFrameworkDetector) detectFromImportEvidence(evidence WandBEvidence
 			}
 		}
 
-		// 如果优先级中没有找到，检查其他框架
+		// If not found in priority list, check other frameworks
 		if baseFramework == "" {
 			for frameworkName, frameworkInfo := range evidence.BaseFrameworks {
 				if detected, ok := frameworkInfo["detected"].(bool); ok && detected {
@@ -277,14 +277,14 @@ func (d *WandBFrameworkDetector) detectFromImportEvidence(evidence WandBEvidence
 		}
 	}
 
-	// 构造检测结果
+	// Construct detection result
 	if wrapperFramework != "" || baseFramework != "" {
 		result := &DetectionResult{
-			Confidence: 0.90, // Import 检测是最强指标
+			Confidence: 0.90, // Import detection is the strongest indicator
 			Method:     "import_detection",
 		}
 
-		// 优先报告 wrapper 框架
+		// Report wrapper framework first
 		if wrapperFramework != "" {
 			result.Framework = wrapperFramework
 			result.FrameworkLayer = "wrapper"
@@ -302,7 +302,7 @@ func (d *WandBFrameworkDetector) detectFromImportEvidence(evidence WandBEvidence
 	return nil
 }
 
-// detectFromEnvVars 从环境变量检测（支持双层框架）
+// detectFromEnvVars detects from environment variables (supporting dual-layer frameworks)
 func (d *WandBFrameworkDetector) detectFromEnvVars(env map[string]string) *DetectionResult {
 
 	// Wrapper Frameworks
@@ -318,7 +318,7 @@ func (d *WandBFrameworkDetector) detectFromEnvVars(env map[string]string) *Detec
 			Method:           "env_vars",
 			MatchedEnvVars:   matched,
 		}
-		// 检查 PRIMUS_BACKEND 以确定底层框架
+		// Check PRIMUS_BACKEND to determine base framework
 		if backend := env["PRIMUS_BACKEND"]; backend != "" {
 			result.BaseFramework = strings.ToLower(backend)
 		}
@@ -366,7 +366,7 @@ func (d *WandBFrameworkDetector) detectFromEnvVars(env map[string]string) *Detec
 		}
 	}
 
-	// 通用 FRAMEWORK 环境变量（根据框架名称判断层级）
+	// Generic FRAMEWORK environment variable (determine layer based on framework name)
 	if fw := env["FRAMEWORK"]; fw != "" {
 		fwLower := strings.ToLower(fw)
 		result := &DetectionResult{
@@ -376,7 +376,7 @@ func (d *WandBFrameworkDetector) detectFromEnvVars(env map[string]string) *Detec
 			MatchedEnvVars: []string{"FRAMEWORK"},
 		}
 
-		// 判断是 wrapper 还是 base
+		// Determine if wrapper or base
 		if isWrapperFramework(fwLower) {
 			result.FrameworkLayer = "wrapper"
 			result.WrapperFramework = fwLower
@@ -391,10 +391,10 @@ func (d *WandBFrameworkDetector) detectFromEnvVars(env map[string]string) *Detec
 	return nil
 }
 
-// detectFromWandBConfig 从 WandB Config 检测（支持双层框架）
+// detectFromWandBConfig detects from WandB Config (supporting dual-layer frameworks)
 func (d *WandBFrameworkDetector) detectFromWandBConfig(config map[string]interface{}) *DetectionResult {
 
-	// 检查 config.framework 字段
+	// Check config.framework field
 	if fw, ok := config["framework"]; ok {
 		framework := strings.ToLower(fmt.Sprintf("%v", fw))
 		result := &DetectionResult{
@@ -403,7 +403,7 @@ func (d *WandBFrameworkDetector) detectFromWandBConfig(config map[string]interfa
 			Method:     "wandb_config_framework",
 		}
 
-		// 判断框架层级
+		// Determine framework layer
 		if isWrapperFramework(framework) {
 			result.FrameworkLayer = "wrapper"
 			result.WrapperFramework = framework
@@ -415,7 +415,7 @@ func (d *WandBFrameworkDetector) detectFromWandBConfig(config map[string]interfa
 		return result
 	}
 
-	// 检查 config.base_framework 字段（Primus 特定）
+	// Check config.base_framework field (Primus specific)
 	if baseFw, ok := config["base_framework"]; ok {
 		baseFramework := strings.ToLower(fmt.Sprintf("%v", baseFw))
 		return &DetectionResult{
@@ -427,7 +427,7 @@ func (d *WandBFrameworkDetector) detectFromWandBConfig(config map[string]interfa
 		}
 	}
 
-	// 检查 config.trainer 字段（可能包含框架信息）
+	// Check config.trainer field (may contain framework information)
 	if trainer, ok := config["trainer"]; ok {
 		trainerStr := strings.ToLower(fmt.Sprintf("%v", trainer))
 		if strings.Contains(trainerStr, "deepspeed") {
@@ -450,7 +450,7 @@ func (d *WandBFrameworkDetector) detectFromWandBConfig(config map[string]interfa
 		}
 	}
 
-	// 检查特定框架配置键
+	// Check specific framework config keys
 	configKeys := map[string]struct {
 		framework string
 		layer     string
@@ -482,7 +482,7 @@ func (d *WandBFrameworkDetector) detectFromWandBConfig(config map[string]interfa
 	return nil
 }
 
-// detectFromPyTorchModules 从 PyTorch 模块检测（支持双层框架）
+// detectFromPyTorchModules detects from PyTorch modules (supporting dual-layer frameworks)
 func (d *WandBFrameworkDetector) detectFromPyTorchModules(pytorch *PyTorchInfo) *DetectionResult {
 
 	modules := pytorch.DetectedModules
@@ -539,7 +539,7 @@ func (d *WandBFrameworkDetector) detectFromPyTorchModules(pytorch *PyTorchInfo) 
 	return nil
 }
 
-// detectFromWandBProject 从 WandB 项目名检测（支持双层框架）
+// detectFromWandBProject detects from WandB project name (supporting dual-layer frameworks)
 func (d *WandBFrameworkDetector) detectFromWandBProject(project string) *DetectionResult {
 	if project == "" {
 		return nil
@@ -592,7 +592,7 @@ func (d *WandBFrameworkDetector) detectFromWandBProject(project string) *Detecti
 	return nil
 }
 
-// hasAnyKey 检查 map 中是否有任意一个 key
+// hasAnyKey checks if map contains any of the keys
 func hasAnyKey(m map[string]string, keys []string) []string {
 	matched := []string{}
 	for _, key := range keys {
@@ -603,7 +603,7 @@ func hasAnyKey(m map[string]string, keys []string) []string {
 	return matched
 }
 
-// isWrapperFramework 判断框架是否为 wrapper 框架
+// isWrapperFramework determines if the framework is a wrapper framework
 func isWrapperFramework(framework string) bool {
 	wrapperFrameworks := map[string]bool{
 		"primus":               true,

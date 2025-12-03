@@ -13,16 +13,16 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// WandBHandler WandB 数据上报 API 处理器
+// WandBHandler WandB data reporting API handler
 type WandBHandler struct {
 	aiAdvisorClient *advisorClient.Client
 	logProcessor    *WandBLogProcessor
 }
 
-// wandbHandler 全局 handler 实例
+// wandbHandler global handler instance
 var wandbHandler *WandBHandler
 
-// InitWandBHandlerWithClient 初始化 WandB Handler (使用 AI Advisor client)
+// InitWandBHandlerWithClient initializes WandB Handler (using AI Advisor client)
 func InitWandBHandlerWithClient(
 	aiAdvisor *advisorClient.Client,
 	logProcessor *WandBLogProcessor,
@@ -33,14 +33,14 @@ func InitWandBHandlerWithClient(
 	}
 }
 
-// WandBBatchRequest 批量上报请求
+// WandBBatchRequest batch reporting request
 type WandBBatchRequest struct {
 	Detection *WandBDetectionRequest `json:"detection,omitempty"`
 	Metrics   *WandBMetricsRequest   `json:"metrics,omitempty"`
 	Logs      *WandBLogsRequest      `json:"logs,omitempty"`
 }
 
-// ReceiveWandBDetection 处理框架检测上报
+// ReceiveWandBDetection handles framework detection reporting
 // POST /wandb/detection
 func ReceiveWandBDetection(ctx *gin.Context) {
 	logrus.Info("====== [WandB Detection API] Received request ======")
@@ -60,21 +60,21 @@ func ReceiveWandBDetection(ctx *gin.Context) {
 		return
 	}
 
-	// 打印请求体详情
+	// Print request body details
 	reqJSON, _ := json.MarshalIndent(req, "", "  ")
 	logrus.Debugf("[WandB Detection API] Request body:\n%s", string(reqJSON))
 
-	// 支持双层框架的日志输出
+	// Log output supporting dual-layer frameworks
 	if len(req.Hints.WrapperFrameworks) > 0 || len(req.Hints.BaseFrameworks) > 0 {
-		logrus.Infof("[WandB Detection API] Detection request (双层框架) - WorkloadUID: %s, PodName: %s, RunID: %s, Wrapper: %v, Base: %v",
+		logrus.Infof("[WandB Detection API] Detection request (dual-layer frameworks) - WorkloadUID: %s, PodName: %s, RunID: %s, Wrapper: %v, Base: %v",
 			req.WorkloadUID, req.PodName, req.Evidence.WandB.ID, req.Hints.WrapperFrameworks, req.Hints.BaseFrameworks)
 	} else {
-		// 向后兼容：旧格式
+		// Backward compatibility: old format
 		logrus.Infof("[WandB Detection API] Detection request - WorkloadUID: %s, PodName: %s, RunID: %s, PossibleFrameworks: %v",
 			req.WorkloadUID, req.PodName, req.Evidence.WandB.ID, req.Hints.PossibleFrameworks)
 	}
 
-	// 验证：必须提供 workload_uid 或 pod_name
+	// Validation: must provide workload_uid or pod_name
 	if req.WorkloadUID == "" && req.PodName == "" {
 		logrus.Warnf("[WandB Detection API] Validation failed: neither workload_uid nor pod_name provided")
 		ctx.JSON(http.StatusBadRequest, rest.ErrorResp(ctx.Request.Context(),
@@ -82,7 +82,7 @@ func ReceiveWandBDetection(ctx *gin.Context) {
 		return
 	}
 
-	// 尝试从 pod cache 中获取 workload 信息（可能有多个）
+	// Try to get workload information from pod cache (may have multiple)
 	workloadUIDs := getWorkloadUIDsFromPodName(req.WorkloadUID, req.PodName, "WandB Detection API")
 	if len(workloadUIDs) == 0 {
 		logrus.Errorf("[WandB Detection API] No valid workload UIDs found")
@@ -91,13 +91,13 @@ func ReceiveWandBDetection(ctx *gin.Context) {
 		return
 	}
 
-	// 对每个 workload 进行处理
+	// Process each workload
 	logrus.Infof("[WandB Detection API] Processing detection for %d workload(s)...", len(workloadUIDs))
 	successCount := 0
 	var lastErr error
 
 	for _, workloadUID := range workloadUIDs {
-		// 创建每个 workload 的请求副本
+		// Create a copy of the request for each workload
 		reqCopy := req
 		reqCopy.WorkloadUID = workloadUID
 
@@ -112,9 +112,9 @@ func ReceiveWandBDetection(ctx *gin.Context) {
 			lastErr = err
 		} else {
 			successCount++
-			// 支持双层框架的成功日志
+			// Success log supporting dual-layer frameworks
 			if len(req.Hints.WrapperFrameworks) > 0 || len(req.Hints.BaseFrameworks) > 0 {
-				logrus.Infof("[WandB Detection API] ✓ Detection processed successfully (双层框架) - Wrapper: %v, Base: %v, WorkloadUID: %s",
+				logrus.Infof("[WandB Detection API] ✓ Detection processed successfully (dual-layer frameworks) - Wrapper: %v, Base: %v, WorkloadUID: %s",
 					req.Hints.WrapperFrameworks, req.Hints.BaseFrameworks, workloadUID)
 			} else {
 				logrus.Infof("[WandB Detection API] ✓ Detection processed successfully - PossibleFrameworks: %v, WorkloadUID: %s",
@@ -138,7 +138,7 @@ func ReceiveWandBDetection(ctx *gin.Context) {
 	}))
 }
 
-// ReceiveWandBMetrics 处理指标上报
+// ReceiveWandBMetrics handles metrics reporting
 // POST /wandb/metrics
 func ReceiveWandBMetrics(ctx *gin.Context) {
 	logrus.Info("====== [WandB Metrics API] Received request ======")
@@ -158,16 +158,16 @@ func ReceiveWandBMetrics(ctx *gin.Context) {
 		return
 	}
 
-	// 打印请求体摘要（避免过大的日志）
+	// Print request body summary (avoid excessive logging)
 	logrus.Infof("[WandB Metrics API] Metrics request - WorkloadUID: %s, PodName: %s, RunID: %s, MetricsCount: %d",
 		req.WorkloadUID, req.PodName, req.RunID, len(req.Metrics))
 
-	// 详细日志（仅在 Debug 级别）
+	// Detailed logs (only at Debug level)
 	if logrus.IsLevelEnabled(logrus.DebugLevel) {
 		reqJSON, _ := json.MarshalIndent(req, "", "  ")
 		logrus.Debugf("[WandB Metrics API] Request body:\n%s", string(reqJSON))
 
-		// 打印前几个指标示例
+		// Print a few metric samples
 		sampleSize := 3
 		if len(req.Metrics) < sampleSize {
 			sampleSize = len(req.Metrics)
@@ -179,7 +179,7 @@ func ReceiveWandBMetrics(ctx *gin.Context) {
 		}
 	}
 
-	// 验证：必须提供 workload_uid 或 pod_name
+	// Validation: must provide workload_uid or pod_name
 	if req.WorkloadUID == "" && req.PodName == "" {
 		logrus.Warnf("[WandB Metrics API] Validation failed: neither workload_uid nor pod_name provided")
 		ctx.JSON(http.StatusBadRequest, rest.ErrorResp(ctx.Request.Context(),
@@ -187,7 +187,7 @@ func ReceiveWandBMetrics(ctx *gin.Context) {
 		return
 	}
 
-	// 尝试从 pod cache 中获取 workload 信息（可能有多个）
+	// Try to get workload information from pod cache (may have multiple)
 	workloadUIDs := getWorkloadUIDsFromPodName(req.WorkloadUID, req.PodName, "WandB Metrics API")
 	if len(workloadUIDs) == 0 {
 		logrus.Errorf("[WandB Metrics API] No valid workload UIDs found")
@@ -196,14 +196,14 @@ func ReceiveWandBMetrics(ctx *gin.Context) {
 		return
 	}
 
-	// 对每个 workload 进行处理
+	// Process each workload
 	logrus.Infof("[WandB Metrics API] Processing metrics for %d workload(s), %d metrics per workload...",
 		len(workloadUIDs), len(req.Metrics))
 	successCount := 0
 	var lastErr error
 
 	for _, workloadUID := range workloadUIDs {
-		// 创建每个 workload 的请求副本
+		// Create a copy of the request for each workload
 		reqCopy := req
 		reqCopy.WorkloadUID = workloadUID
 
@@ -257,16 +257,16 @@ func ReceiveWandBLogs(ctx *gin.Context) {
 		return
 	}
 
-	// 打印请求体摘要
+	// Print request body summary
 	logrus.Infof("[WandB Logs/Training API] Training data request - WorkloadUID: %s, PodName: %s, RunID: %s, LogsCount: %d",
 		req.WorkloadUID, req.PodName, req.RunID, len(req.Logs))
 
-	// 详细日志（仅在 Debug 级别）
+	// Detailed logs (only at Debug level)
 	if logrus.IsLevelEnabled(logrus.DebugLevel) {
 		reqJSON, _ := json.MarshalIndent(req, "", "  ")
 		logrus.Debugf("[WandB Logs/Training API] Request body:\n%s", string(reqJSON))
 
-		// 打印前几个训练数据条目示例
+		// Print a few training data entry samples
 		sampleSize := 3
 		if len(req.Logs) < sampleSize {
 			sampleSize = len(req.Logs)
@@ -278,7 +278,7 @@ func ReceiveWandBLogs(ctx *gin.Context) {
 		}
 	}
 
-	// 验证：必须提供 workload_uid 或 pod_name
+	// Validation: must provide workload_uid or pod_name
 	if req.WorkloadUID == "" && req.PodName == "" {
 		logrus.Warnf("[WandB Logs/Training API] Validation failed: neither workload_uid nor pod_name provided")
 		ctx.JSON(http.StatusBadRequest, rest.ErrorResp(ctx.Request.Context(),
@@ -286,7 +286,7 @@ func ReceiveWandBLogs(ctx *gin.Context) {
 		return
 	}
 
-	// 尝试从 pod cache 中获取 workload 信息（可能有多个）
+	// Try to get workload information from pod cache (may have multiple)
 	workloadUIDs := getWorkloadUIDsFromPodName(req.WorkloadUID, req.PodName, "WandB Logs/Training API")
 	if len(workloadUIDs) == 0 {
 		logrus.Errorf("[WandB Logs/Training API] No valid workload UIDs found")
@@ -295,14 +295,14 @@ func ReceiveWandBLogs(ctx *gin.Context) {
 		return
 	}
 
-	// 对每个 workload 进行处理
+	// Process each workload
 	logrus.Infof("[WandB Logs/Training API] Processing training data for %d workload(s), %d entries per workload...",
 		len(workloadUIDs), len(req.Logs))
 	successCount := 0
 	var lastErr error
 
 	for _, workloadUID := range workloadUIDs {
-		// 创建每个 workload 的请求副本
+		// Create a copy of the request for each workload
 		reqCopy := req
 		reqCopy.WorkloadUID = workloadUID
 
@@ -334,7 +334,7 @@ func ReceiveWandBLogs(ctx *gin.Context) {
 	}))
 }
 
-// ReceiveWandBBatch 批量上报
+// ReceiveWandBBatch batch reporting
 // POST /wandb/batch
 func ReceiveWandBBatch(ctx *gin.Context) {
 	logrus.Info("====== [WandB Batch API] Received request ======")
@@ -354,7 +354,7 @@ func ReceiveWandBBatch(ctx *gin.Context) {
 		return
 	}
 
-	// 打印批量请求摘要
+	// Print batch request summary
 	detectionCount := 0
 	if req.Detection != nil {
 		detectionCount = 1
@@ -371,7 +371,7 @@ func ReceiveWandBBatch(ctx *gin.Context) {
 	logrus.Infof("[WandB Batch API] Batch request summary - Detection: %d, Metrics: %d, Logs: %d",
 		detectionCount, metricsCount, logsCount)
 
-	// 详细日志（仅在 Debug 级别）
+	// Detailed logs (only at Debug level)
 	if logrus.IsLevelEnabled(logrus.DebugLevel) {
 		reqJSON, _ := json.MarshalIndent(req, "", "  ")
 		logrus.Debugf("[WandB Batch API] Request body:\n%s", string(reqJSON))
@@ -382,9 +382,9 @@ func ReceiveWandBBatch(ctx *gin.Context) {
 		"results": gin.H{},
 	}
 
-	// 处理框架检测
+	// Process framework detection
 	if req.Detection != nil {
-		// 尝试从 pod cache 中获取 workload 信息（可能有多个）
+		// Try to get workload information from pod cache (may have multiple)
 		workloadUIDs := getWorkloadUIDsFromPodName(req.Detection.WorkloadUID, req.Detection.PodName, "WandB Batch API - Detection")
 
 		if len(workloadUIDs) == 0 {
@@ -394,19 +394,19 @@ func ReceiveWandBBatch(ctx *gin.Context) {
 				"error":   "no valid workload found",
 			}
 		} else {
-			// 对每个 workload 进行处理
+			// Process each workload
 			logrus.Infof("[WandB Batch API] Processing detection for %d workload(s)...", len(workloadUIDs))
 			detectionSuccessCount := 0
 			var detectionLastErr error
 
 			for _, workloadUID := range workloadUIDs {
-				// 创建每个 workload 的请求副本
+				// Create a copy of the request for each workload
 				detectionReq := *req.Detection
 				detectionReq.WorkloadUID = workloadUID
 
-				// 支持双层框架的日志输出
+				// Log output supporting dual-layer frameworks
 				if len(detectionReq.Hints.WrapperFrameworks) > 0 || len(detectionReq.Hints.BaseFrameworks) > 0 {
-					logrus.Infof("[WandB Batch API] Processing detection (双层框架) - Wrapper: %v, Base: %v, WorkloadUID: %s",
+					logrus.Infof("[WandB Batch API] Processing detection (dual-layer frameworks) - Wrapper: %v, Base: %v, WorkloadUID: %s",
 						detectionReq.Hints.WrapperFrameworks, detectionReq.Hints.BaseFrameworks, workloadUID)
 				} else {
 					logrus.Infof("[WandB Batch API] Processing detection - PossibleFrameworks: %v, WorkloadUID: %s",
@@ -440,9 +440,9 @@ func ReceiveWandBBatch(ctx *gin.Context) {
 		}
 	}
 
-	// 处理指标
+	// Process metrics
 	if req.Metrics != nil {
-		// 尝试从 pod cache 中获取 workload 信息（可能有多个）
+		// Try to get workload information from pod cache (may have multiple)
 		workloadUIDs := getWorkloadUIDsFromPodName(req.Metrics.WorkloadUID, req.Metrics.PodName, "WandB Batch API - Metrics")
 
 		if len(workloadUIDs) == 0 {
@@ -452,14 +452,14 @@ func ReceiveWandBBatch(ctx *gin.Context) {
 				"error":   "no valid workload found",
 			}
 		} else {
-			// 对每个 workload 进行处理
+			// Process each workload
 			logrus.Infof("[WandB Batch API] Processing metrics for %d workload(s), %d metrics per workload...",
 				len(workloadUIDs), len(req.Metrics.Metrics))
 			metricsSuccessCount := 0
 			var metricsLastErr error
 
 			for _, workloadUID := range workloadUIDs {
-				// 创建每个 workload 的请求副本
+				// Create a copy of the request for each workload
 				metricsReq := *req.Metrics
 				metricsReq.WorkloadUID = workloadUID
 
@@ -492,9 +492,9 @@ func ReceiveWandBBatch(ctx *gin.Context) {
 		}
 	}
 
-	// 处理日志
+	// Process logs
 	if req.Logs != nil {
-		// 尝试从 pod cache 中获取 workload 信息（可能有多个）
+		// Try to get workload information from pod cache (may have multiple)
 		workloadUIDs := getWorkloadUIDsFromPodName(req.Logs.WorkloadUID, req.Logs.PodName, "WandB Batch API - Logs")
 
 		if len(workloadUIDs) == 0 {
@@ -504,14 +504,14 @@ func ReceiveWandBBatch(ctx *gin.Context) {
 				"error":   "no valid workload found",
 			}
 		} else {
-			// 对每个 workload 进行处理
+			// Process each workload
 			logrus.Infof("[WandB Batch API] Processing training data for %d workload(s), %d entries per workload...",
 				len(workloadUIDs), len(req.Logs.Logs))
 			logsSuccessCount := 0
 			var logsLastErr error
 
 			for _, workloadUID := range workloadUIDs {
-				// 创建每个 workload 的请求副本
+				// Create a copy of the request for each workload
 				logsReq := *req.Logs
 				logsReq.WorkloadUID = workloadUID
 
@@ -549,7 +549,7 @@ func ReceiveWandBBatch(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, rest.SuccessResp(ctx.Request.Context(), result))
 }
 
-// getMapKeys 获取 map 的所有键（用于日志输出）
+// getMapKeys gets all keys from a map (for log output)
 func getMapKeys(m map[string]interface{}) []string {
 	keys := make([]string, 0, len(m))
 	for k := range m {
@@ -558,17 +558,17 @@ func getMapKeys(m map[string]interface{}) []string {
 	return keys
 }
 
-// getWorkloadUIDsFromPodName 根据 PodName 从缓存中获取所有关联的 WorkloadUID
-// 如果 WorkloadUID 已提供则直接返回；否则从 pod_cache 中获取所有关联的 workload 信息
-// 返回 workload UID 数组，一个 pod 可能对应多个 workload
+// getWorkloadUIDsFromPodName gets all associated WorkloadUIDs from cache by PodName
+// If WorkloadUID is already provided, return it directly; otherwise get all associated workload info from pod_cache
+// Returns workload UID array, one pod may correspond to multiple workloads
 func getWorkloadUIDsFromPodName(workloadUID string, podName string, apiName string) []string {
-	// 如果已经提供了 WorkloadUID，直接返回
+	// If WorkloadUID is already provided, return it directly
 	if workloadUID != "" {
 		logrus.Infof("[%s] WorkloadUID provided: %s", apiName, workloadUID)
 		return []string{workloadUID}
 	}
 
-	// 如果提供了 PodName，尝试从缓存中获取所有关联的 workload
+	// If PodName is provided, try to get all associated workloads from cache
 	if podName != "" {
 		logrus.Infof("[%s] WorkloadUID not provided, trying to get all workloads from pod cache by PodName: %s", apiName, podName)
 		workloads := pods.GetWorkloadsByPodName(podName)

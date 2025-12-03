@@ -161,24 +161,24 @@ func (n NetFlow) GetScanPortListenInterval() time.Duration {
 	return time.Duration(n.ScanPortListenIntervalSeconds) * time.Second
 }
 
-// MiddlewareConfig 中间件配置
+// MiddlewareConfig middleware configuration
 type MiddlewareConfig struct {
-	EnableLogging *bool `json:"enableLogging" yaml:"enableLogging"` // 是否启用请求日志记录中间件
-	EnableTracing *bool `json:"enableTracing" yaml:"enableTracing"` // 是否启用分布式追踪中间件
+	EnableLogging *bool `json:"enableLogging" yaml:"enableLogging"` // Whether to enable request logging middleware
+	EnableTracing *bool `json:"enableTracing" yaml:"enableTracing"` // Whether to enable distributed tracing middleware
 }
 
-// IsLoggingEnabled 返回是否启用日志中间件，默认启用
+// IsLoggingEnabled returns whether logging middleware is enabled, default enabled
 func (m MiddlewareConfig) IsLoggingEnabled() bool {
-	// 如果配置文件中没有显式设置（nil），默认返回true（向后兼容）
+	// If not explicitly set in config file (nil), return true by default (backward compatible)
 	if m.EnableLogging == nil {
 		return true
 	}
 	return *m.EnableLogging
 }
 
-// IsTracingEnabled 返回是否启用追踪中间件，默认启用
+// IsTracingEnabled returns whether tracing middleware is enabled, default enabled
 func (m MiddlewareConfig) IsTracingEnabled() bool {
-	// 如果配置文件中没有显式设置（nil），默认返回true（向后兼容）
+	// If not explicitly set in config file (nil), return true by default (backward compatible)
 	if m.EnableTracing == nil {
 		return true
 	}

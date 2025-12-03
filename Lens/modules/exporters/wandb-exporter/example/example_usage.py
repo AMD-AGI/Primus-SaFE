@@ -1,20 +1,20 @@
 """
-示例：演示 Primus Lens WandB Exporter 的使用
+Example: Demonstrating Primus Lens WandB Exporter Usage
 
-这个脚本展示了如何在不修改任何代码的情况下，
-让 Primus Lens 自动劫持和增强 wandb 的功能。
+This script demonstrates how Primus Lens automatically hooks and enhances
+wandb functionality without any code modifications.
 """
 import os
 import time
 import random
 import tempfile
 
-# 设置环境变量（通常在运行脚本前设置）
+# Set environment variables (usually set before running the script)
 os.environ.setdefault('PRIMUS_LENS_WANDB_HOOK', 'true')
 os.environ.setdefault('PRIMUS_LENS_WANDB_ENHANCE_METRICS', 'true')
 os.environ.setdefault('PRIMUS_LENS_WANDB_SAVE_LOCAL', 'true')
 
-# 创建临时目录用于演示
+# Create temporary directory for demo
 tmpdir = tempfile.mkdtemp()
 os.environ.setdefault('PRIMUS_LENS_WANDB_OUTPUT_PATH', tmpdir)
 
@@ -33,7 +33,7 @@ print()
 
 
 def example_basic_usage():
-    """示例1：基本使用"""
+    """Example 1: Basic Usage"""
     print("Example 1: Basic Usage")
     print("-" * 70)
     print("This example shows basic wandb logging with automatic interception.")
@@ -42,7 +42,7 @@ def example_basic_usage():
     try:
         import wandb
         
-        # 使用离线模式避免实际上报
+        # Use offline mode to avoid actual uploads
         os.environ['WANDB_MODE'] = 'offline'
         
         print("Initializing wandb... (will be intercepted by Primus Lens)")
@@ -78,7 +78,7 @@ def example_basic_usage():
 
 
 def example_distributed_training():
-    """示例2：模拟分布式训练"""
+    """Example 2: Simulate Distributed Training"""
     print("Example 2: Distributed Training Simulation")
     print("-" * 70)
     print("This example simulates distributed training with rank information.")
@@ -87,7 +87,7 @@ def example_distributed_training():
     try:
         import wandb
         
-        # 模拟分布式训练环境
+        # Simulate distributed training environment
         os.environ['RANK'] = '0'
         os.environ['LOCAL_RANK'] = '0'
         os.environ['NODE_RANK'] = '0'
@@ -114,7 +114,7 @@ def example_distributed_training():
         print("✓ Distributed training simulation completed")
         wandb.finish()
         
-        # 清理环境变量
+        # Clean up environment variables
         for var in ['RANK', 'LOCAL_RANK', 'NODE_RANK', 'WORLD_SIZE']:
             os.environ.pop(var, None)
         
@@ -125,7 +125,7 @@ def example_distributed_training():
 
 
 def example_check_output():
-    """示例3：检查输出文件"""
+    """Example 3: Check Output Files"""
     print("Example 3: Check Output Files")
     print("-" * 70)
     print("Checking if metrics were saved to local files...")
@@ -135,7 +135,7 @@ def example_check_output():
     if output_path and os.path.exists(output_path):
         import json
         
-        # 查找所有 wandb_metrics.jsonl 文件
+        # Find all wandb_metrics.jsonl files
         metrics_files = []
         for root, dirs, files in os.walk(output_path):
             for file in files:
@@ -147,7 +147,7 @@ def example_check_output():
             for mf in metrics_files:
                 print(f"  - {mf}")
                 
-                # 读取并显示前几行
+                # Read and display first few lines
                 with open(mf, 'r') as f:
                     lines = f.readlines()
                     print(f"    Total entries: {len(lines)}")
@@ -163,7 +163,7 @@ def example_check_output():
 
 
 def example_verify_interception():
-    """示例4：验证劫持是否生效"""
+    """Example 4: Verify Hook Status"""
     print("Example 4: Verify Interception")
     print("-" * 70)
     
@@ -187,10 +187,10 @@ def example_verify_interception():
 
 
 def main():
-    """主函数"""
+    """Main function"""
     print("\n")
     
-    # 运行示例
+    # Run examples
     example_basic_usage()
     time.sleep(0.5)
     
@@ -212,7 +212,7 @@ def main():
     print("  3. Set PRIMUS_LENS_WANDB_HOOK=false to disable the hook")
     print()
     
-    # 清理临时目录
+    # Clean up temporary directory
     import shutil
     try:
         shutil.rmtree(tmpdir)
@@ -223,4 +223,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

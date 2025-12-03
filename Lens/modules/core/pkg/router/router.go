@@ -18,7 +18,7 @@ func RegisterGroup(group GroupRegister) {
 func InitRouter(engine *gin.Engine, cfg *config.Config) error {
 	g := engine.Group("/v1")
 	g.Use(middleware.HandleMetrics())
-	// 根据配置决定是否启用日志中间件
+	// Decide whether to enable logging middleware based on configuration
 	if cfg.Middleware.IsLoggingEnabled() {
 		log.Info("HTTP request logging middleware enabled")
 		g.Use(middleware.HandleLogging())
@@ -26,10 +26,10 @@ func InitRouter(engine *gin.Engine, cfg *config.Config) error {
 		log.Info("HTTP request logging middleware disabled")
 	}
 
-	// 错误处理中间件始终启用
+	// Error handling middleware is always enabled
 	g.Use(middleware.HandleErrors())
 
-	// 根据配置决定是否启用追踪中间件
+	// Decide whether to enable tracing middleware based on configuration
 	if cfg.Middleware.IsTracingEnabled() {
 		log.Info("Distributed tracing middleware enabled")
 		g.Use(middleware.HandleTracing())
@@ -37,7 +37,7 @@ func InitRouter(engine *gin.Engine, cfg *config.Config) error {
 		log.Info("Distributed tracing middleware disabled")
 	}
 
-	// CORS中间件始终启用
+	// CORS middleware is always enabled
 	g.Use(middleware.CorsMiddleware())
 
 	for _, group := range groupRegisters {

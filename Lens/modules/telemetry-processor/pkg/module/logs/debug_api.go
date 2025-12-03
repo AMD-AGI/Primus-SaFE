@@ -8,13 +8,13 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// DebugLogMatchRequest 日志匹配测试请求
+// DebugLogMatchRequest log match test request
 type DebugLogMatchRequest struct {
-	Framework string `json:"framework" binding:"required"` // 框架名称，如 "megatron", "primus"
-	Log       string `json:"log" binding:"required"`       // 原始日志内容
+	Framework string `json:"framework" binding:"required"` // Framework name, e.g. "megatron", "primus"
+	Log       string `json:"log" binding:"required"`       // Raw log content
 }
 
-// DebugLogMatchResponse 日志匹配测试响应
+// DebugLogMatchResponse log match test response
 type DebugLogMatchResponse struct {
 	Framework   string            `json:"framework"`
 	LogLength   int               `json:"log_length"`
@@ -27,7 +27,7 @@ type DebugLogMatchResponse struct {
 	Error       string            `json:"error,omitempty"`
 }
 
-// DebugTestLogMatch 测试日志匹配和性能数据转换
+// DebugTestLogMatch tests log matching and performance data conversion
 // POST /api/v1/debug/test-log-match
 //
 // Request Body:
@@ -111,7 +111,7 @@ func DebugTestLogMatch(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, rest.SuccessResp(ctx.Request.Context(), response))
 }
 
-// DebugListFrameworks 列出所有已加载的框架
+// DebugListFrameworks lists all loaded frameworks
 // GET /api/v1/debug/frameworks
 func DebugListFrameworks(ctx *gin.Context) {
 	frameworks := GetFrameworkList()
@@ -124,7 +124,7 @@ func DebugListFrameworks(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, rest.SuccessResp(ctx.Request.Context(), result))
 }
 
-// DebugFrameworkPatterns 查看指定框架的所有模式信息
+// DebugFrameworkPatterns views all pattern information for specified framework
 // GET /api/v1/debug/frameworks/:name/patterns
 func DebugFrameworkPatterns(ctx *gin.Context) {
 	frameworkName := ctx.Param("name")

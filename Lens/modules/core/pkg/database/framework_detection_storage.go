@@ -206,27 +206,27 @@ func (s *FrameworkDetectionStorage) buildMetadataMap(
 		for i := len(detection.Sources) - 1; i >= 0; i-- {
 			source := detection.Sources[i]
 			if source.Source == "wandb" && source.Evidence != nil {
-				// 保存完整的wandb信息
+				// Save complete wandb information
 				if wandbInfo, ok := source.Evidence["wandb"]; ok {
 					metadataMap["wandb"] = wandbInfo
 				}
 
-				// 保存environment信息
+				// Save environment information
 				if envInfo, ok := source.Evidence["environment"]; ok {
 					metadataMap["environment"] = envInfo
 				}
 
-				// 保存pytorch信息
+				// Save pytorch information
 				if pytorchInfo, ok := source.Evidence["pytorch"]; ok {
 					metadataMap["pytorch"] = pytorchInfo
 				}
 
-				// 保存system信息
+				// Save system information
 				if systemInfo, ok := source.Evidence["system"]; ok {
 					metadataMap["system"] = systemInfo
 				}
 
-				// 保存wrapper和base框架的详细信息
+				// Save detailed information of wrapper and base frameworks
 				if wrapperInfo, ok := source.Evidence["wrapper_frameworks_detail"]; ok {
 					metadataMap["wrapper_frameworks_detail"] = wrapperInfo
 				}
@@ -234,7 +234,7 @@ func (s *FrameworkDetectionStorage) buildMetadataMap(
 					metadataMap["base_frameworks_detail"] = baseInfo
 				}
 
-				// 保存框架层级信息
+				// Save framework layer information
 				if layer, ok := source.Evidence["framework_layer"]; ok {
 					metadataMap["framework_layer"] = layer
 				}
@@ -253,7 +253,7 @@ func (s *FrameworkDetectionStorage) buildMetadataMap(
 	return metadataMap, nil
 }
 
-// StatisticsResult 统计结果
+// StatisticsResult represents statistics results
 type StatisticsResult struct {
 	TotalWorkloads    int64            `json:"total_workloads"`
 	ByFramework       map[string]int64 `json:"by_framework"`
@@ -264,7 +264,7 @@ type StatisticsResult struct {
 	ReuseRate         float64          `json:"reuse_rate"`
 }
 
-// GetStatistics 获取框架检测统计信息
+// GetStatistics retrieves framework detection statistics
 func (s *FrameworkDetectionStorage) GetStatistics(
 	ctx context.Context,
 	startTime string,
@@ -272,11 +272,11 @@ func (s *FrameworkDetectionStorage) GetStatistics(
 	namespace string,
 ) (*StatisticsResult, error) {
 
-	// 注意：由于 facade 接口不提供直接的 DB 访问，这里使用简化的实现
-	// 实际生产环境中，应该在 facade 接口中添加统计方法，或使用专门的统计服务
+	// Note: Since the facade interface does not provide direct DB access, this uses a simplified implementation
+	// In production environment, statistics methods should be added to the facade interface, or use a dedicated statistics service
 
-	// 简化实现：返回基本统计信息
-	// TODO: 在 facade 接口中添加更完善的统计查询方法
+	// Simplified implementation: return basic statistics
+	// TODO: Add more comprehensive statistics query methods to facade interface
 
 	logrus.Warn("GetStatistics using simplified implementation. Consider adding statistics methods to facade interface.")
 

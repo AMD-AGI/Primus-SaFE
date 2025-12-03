@@ -7,30 +7,30 @@ import (
 	"testing"
 )
 
-// TestJSONEscaping 测试 JSON 转义对正则表达式的影响
+// TestJSONEscaping tests the effect of JSON escaping on regular expressions
 func TestJSONEscaping(t *testing.T) {
 	log := `[20251202 09:12:08][rank-7/8][INFO ] [--------trainer.py:2560] : iteration 126/ 5000 | consumed samples: 16128 | elapsed time per iteration (ms): 13372.8/13364.7 | hip mem usage/free/total/usage_ratio: 153.81GB/102.17GB/255.98GB/60.09% | throughput per GPU (TFLOP/s/GPU): 567.6/568.0 | tokens per GPU (tokens/s/GPU): 9801.4/9807.3 | learning rate: 9.984820E-06 | global batch size: 128 | lm loss: 6.548988E-03 | loss scale: 1.0 | grad norm: 0.061 | number of skipped iterations: 0 | number of nan iterations: 0 |`
 
-	// 测试不同级别的转义
+	// Test different levels of escaping
 	tests := []struct {
 		name        string
 		jsonPattern string
 		desc        string
 	}{
 		{
-			name:        "直接字符串（无转义）",
+			name:        "Direct string (no escaping)",
 			jsonPattern: `.*iteration\s+(?P<CurrentIteration>\d+)\s*/\s*(?P<TargetIteration>\d+)`,
-			desc:        "这是我们期望的最终正则表达式",
+			desc:        "This is the final expected regular expression",
 		},
 		{
-			name:        "JSON中的单层转义",
+			name:        "Single-level escaping in JSON",
 			jsonPattern: `.*iteration\\s+(?P<CurrentIteration>\\d+)\\s*/\\s*(?P<TargetIteration>\\d+)`,
-			desc:        "JSON字符串字面量中需要转义反斜杠一次",
+			desc:        "Backslashes need to be escaped once in JSON string literals",
 		},
 		{
-			name:        "JSON中的双层转义（SQL中的形式）",
+			name:        "Double-level escaping in JSON (SQL form)",
 			jsonPattern: `.*iteration\\\\s+(?P<CurrentIteration>\\\\d+)\\\\s*/\\\\s*(?P<TargetIteration>\\\\d+)`,
-			desc:        "当JSON作为SQL字符串字面量时需要双重转义",
+			desc:        "Double escaping is needed when JSON is a SQL string literal",
 		},
 	}
 
@@ -40,11 +40,11 @@ func TestJSONEscaping(t *testing.T) {
 			t.Logf("Pattern string: %s", tt.jsonPattern)
 			t.Logf("Pattern length: %d", len(tt.jsonPattern))
 
-			// 显示转义字符
+			// Show escape characters
 			showEscapes := strings.ReplaceAll(tt.jsonPattern, `\`, `[BACKSLASH]`)
 			t.Logf("Pattern with escapes visible: %s", showEscapes[:min(200, len(showEscapes))])
 
-			// 尝试编译
+			// Try to compile
 			re, err := regexp.Compile(tt.jsonPattern)
 			if err != nil {
 				t.Errorf("❌ Failed to compile: %v", err)
@@ -52,7 +52,7 @@ func TestJSONEscaping(t *testing.T) {
 			}
 			t.Logf("✓ Compiled successfully")
 
-			// 尝试匹配
+			// Try to match
 			matches := re.FindStringSubmatch(log)
 			if matches == nil {
 				t.Errorf("❌ Pattern did not match")
@@ -60,7 +60,7 @@ func TestJSONEscaping(t *testing.T) {
 			}
 			t.Logf("✓ Pattern matched, got %d groups", len(matches))
 
-			// 提取命名组
+			// Extract named groups
 			groups := make(map[string]string)
 			names := re.SubexpNames()
 			for i, name := range names {
@@ -74,7 +74,7 @@ func TestJSONEscaping(t *testing.T) {
 				t.Logf("  %s = %q", name, value)
 			}
 
-			// 验证值
+			// Validate values
 			if groups["CurrentIteration"] != "126" {
 				t.Errorf("❌ CurrentIteration: got %q, want \"126\"", groups["CurrentIteration"])
 			} else {
@@ -88,9 +88,9 @@ func TestJSONEscaping(t *testing.T) {
 		})
 	}
 
-	// 现在测试完整的 JSON 解析流程
-	t.Run("完整JSON解析流程", func(t *testing.T) {
-		// 这是数据库中存储的 JSON（带双重转义）
+	// Now test complete JSON parsing flow
+	t.Run("Complete JSON parsing flow", func(t *testing.T) {
+		// This is the JSON stored in database (with double escaping)
 		jsonStr := `{
 			"pattern": ".*iteration\\\\s+(?P<CurrentIteration>\\\\d+)\\\\s*/\\\\s*(?P<TargetIteration>\\\\d+)"
 		}`
@@ -107,7 +107,7 @@ func TestJSONEscaping(t *testing.T) {
 		showEscapes := strings.ReplaceAll(config.Pattern, `\`, `[BACKSLASH]`)
 		t.Logf("With escapes visible: %s", showEscapes)
 
-		// 编译并测试
+		// Compile and test
 		re, err := regexp.Compile(config.Pattern)
 		if err != nil {
 			t.Fatalf("Failed to compile: %v", err)

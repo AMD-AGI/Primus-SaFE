@@ -5,29 +5,29 @@ import (
 	"os/exec"
 )
 
-// OSFileSystem 实现 FileSystem 接口，使用真实的操作系统调用
+// OSFileSystem implements FileSystem interface using real OS calls
 type OSFileSystem struct{}
 
-// ReadFile 读取文件内容
+// ReadFile reads file content
 func (fs *OSFileSystem) ReadFile(filename string) ([]byte, error) {
 	return os.ReadFile(filename)
 }
 
-// WriteFile 写入文件内容
+// WriteFile writes file content
 func (fs *OSFileSystem) WriteFile(filename string, data []byte, perm uint32) error {
 	return os.WriteFile(filename, data, os.FileMode(perm))
 }
 
-// OSCommandExecutor 实现 CommandExecutor 接口，使用真实的命令执行
+// OSCommandExecutor implements CommandExecutor interface using real command execution
 type OSCommandExecutor struct{}
 
-// Execute 执行命令
+// Execute executes a command
 func (ce *OSCommandExecutor) Execute(name string, args ...string) error {
 	cmd := exec.Command(name, args...)
 	return cmd.Run()
 }
 
-// ExecuteWithOutput 执行命令并返回输出
+// ExecuteWithOutput executes a command and returns output
 func (ce *OSCommandExecutor) ExecuteWithOutput(name string, args ...string) ([]byte, error) {
 	cmd := exec.Command(name, args...)
 	return cmd.CombinedOutput()

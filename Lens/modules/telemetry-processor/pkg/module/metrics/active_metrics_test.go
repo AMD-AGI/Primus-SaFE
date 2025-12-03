@@ -6,16 +6,16 @@ import (
 )
 
 func TestActiveMetricsCache(t *testing.T) {
-	// 创建新的缓存实例用于测试
+	// Create new cache instance for testing
 	cache := &ActiveMetricsCache{
 		metrics:         make(map[string]*MetricActivity),
-		ttl:             1 * time.Second, // 使用较短的TTL便于测试
+		ttl:             1 * time.Second, // Use shorter TTL for easier testing
 		cleanupInterval: 500 * time.Millisecond,
 		stopChan:        make(chan struct{}),
 	}
 	defer cache.Stop()
 
-	// 测试记录metrics
+	// Test recording metrics
 	t.Run("RecordMetrics", func(t *testing.T) {
 		metricNames := map[string]bool{
 			"workload_gpu_utilization": true,
@@ -29,14 +29,14 @@ func TestActiveMetricsCache(t *testing.T) {
 		}
 	})
 
-	// 测试获取活跃metrics
+	// Test getting active metrics
 	t.Run("GetActiveMetrics", func(t *testing.T) {
 		metrics := cache.GetActiveMetrics()
 		if len(metrics) != 2 {
 			t.Errorf("Expected 2 metrics, got %d", len(metrics))
 		}
 
-		// 验证metric名称
+		// Verify metric names
 		names := make(map[string]bool)
 		for _, m := range metrics {
 			names[m.MetricName] = true
@@ -46,7 +46,7 @@ func TestActiveMetricsCache(t *testing.T) {
 		}
 	})
 
-	// 测试重复记录会增加计数
+	// Test that repeated recording increments count
 	t.Run("IncrementSeenCount", func(t *testing.T) {
 		metricNames := map[string]bool{
 			"workload_gpu_utilization": true,
@@ -63,9 +63,9 @@ func TestActiveMetricsCache(t *testing.T) {
 		}
 	})
 
-	// 测试TTL过期清理
+	// Test TTL expiration cleanup
 	t.Run("TTLExpiration", func(t *testing.T) {
-		// 等待TTL过期
+		// Wait for TTL to expire
 		time.Sleep(1500 * time.Millisecond)
 		cache.cleanup()
 
@@ -77,7 +77,7 @@ func TestActiveMetricsCache(t *testing.T) {
 }
 
 func TestGlobalFunctions(t *testing.T) {
-	// 测试全局函数
+	// Test global functions
 	t.Run("GlobalFunctions", func(t *testing.T) {
 		metricNames := map[string]bool{
 			"workload_test_metric": true,

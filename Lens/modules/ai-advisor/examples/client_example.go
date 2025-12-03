@@ -9,14 +9,14 @@ import (
 )
 
 func main() {
-	// 创建客户端
+	// Create client
 	aiAdvisor := client.NewClientWithDefaults("http://localhost:8080").
 		SetTimeout(30 * time.Second).
 		SetDebug(true)
 
 	workloadUID := "example-workload-123"
 
-	// 1. 健康检查
+	// 1. Health check
 	fmt.Println("=== Health Check ===")
 	healthy, err := aiAdvisor.HealthCheck()
 	if err != nil {
@@ -25,7 +25,7 @@ func main() {
 		fmt.Printf("AI Advisor is healthy: %v\n", healthy)
 	}
 
-	// 2. 上报框架检测
+	// 2. Report framework detection
 	fmt.Println("\n=== Report Detection ===")
 	detection, err := aiAdvisor.ReportDetection(&common.DetectionRequest{
 		WorkloadUID: workloadUID,
@@ -46,7 +46,7 @@ func main() {
 			detection.Frameworks, detection.Confidence, detection.Status)
 	}
 
-	// 3. 查询框架检测结果
+	// 3. Query framework detection result
 	fmt.Println("\n=== Get Detection ===")
 	result, err := aiAdvisor.GetDetection(workloadUID)
 	if err != nil {
@@ -60,7 +60,7 @@ func main() {
 		fmt.Printf("Sources: %d\n", len(result.Sources))
 	}
 
-	// 4. 批量查询
+	// 4. Batch query
 	fmt.Println("\n=== Batch Get Detection ===")
 	workloadUIDs := []string{workloadUID, "workload-2", "workload-3"}
 	results, err := aiAdvisor.BatchGetDetection(workloadUIDs)
@@ -76,7 +76,7 @@ func main() {
 		}
 	}
 
-	// 5. 性能分析
+	// 5. Performance analysis
 	fmt.Println("\n=== Analyze Performance ===")
 	analysis, err := aiAdvisor.AnalyzePerformance(workloadUID)
 	if err != nil {
@@ -88,7 +88,7 @@ func main() {
 		}
 	}
 
-	// 6. 异常检测
+	// 6. Anomaly detection
 	fmt.Println("\n=== Detect Anomalies ===")
 	anomalies, err := aiAdvisor.DetectAnomalies(workloadUID)
 	if err != nil {
@@ -101,7 +101,7 @@ func main() {
 		}
 	}
 
-	// 7. 获取建议
+	// 7. Get recommendations
 	fmt.Println("\n=== Get Recommendations ===")
 	recommendations, err := aiAdvisor.GetRecommendations(workloadUID)
 	if err != nil {
@@ -113,7 +113,7 @@ func main() {
 		}
 	}
 
-	// 8. 故障诊断
+	// 8. Fault diagnosis
 	fmt.Println("\n=== Analyze Workload (Diagnostics) ===")
 	diagnostic, err := aiAdvisor.AnalyzeWorkload(workloadUID)
 	if err != nil {
@@ -124,7 +124,7 @@ func main() {
 		fmt.Printf("Root Causes: %d\n", len(diagnostic.RootCauses))
 	}
 
-	// 9. 模型洞察
+	// 9. Model insights
 	fmt.Println("\n=== Analyze Model ===")
 	insight, err := aiAdvisor.AnalyzeModel(workloadUID, map[string]interface{}{
 		"architecture":        "transformer",
@@ -142,7 +142,7 @@ func main() {
 		}
 	}
 
-	// 10. 统计信息
+	// 10. Statistics
 	fmt.Println("\n=== Get Statistics ===")
 	stats, err := aiAdvisor.GetDetectionStats("", "", "") // No filters
 	if err != nil {

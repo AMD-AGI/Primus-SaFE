@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-// MetricActivity 记录单个metric的活跃信息
+// MetricActivity records activity information for a single metric
 type MetricActivity struct {
 	MetricName    string    `json:"metric_name"`
 	LastSeenTime  time.Time `json:"last_seen_time"`
@@ -13,7 +13,7 @@ type MetricActivity struct {
 	FirstSeenTime time.Time `json:"first_seen_time"`
 }
 
-// ActiveMetricsCache LRU缓存，记录最近5分钟活跃的metrics
+// ActiveMetricsCache LRU cache, records active metrics from the last 5 minutes
 type ActiveMetricsCache struct {
 	mu              sync.RWMutex
 	metrics         map[string]*MetricActivity
@@ -27,7 +27,7 @@ var (
 	once               sync.Once
 )
 
-// initActiveMetricsCache 初始化活跃metrics缓存
+// initActiveMetricsCache initializes active metrics cache
 func initActiveMetricsCache() {
 	once.Do(func() {
 		activeMetricsCache = &ActiveMetricsCache{
@@ -40,7 +40,7 @@ func initActiveMetricsCache() {
 	})
 }
 
-// startCleanup 定期清理过期的metrics记录
+// startCleanup periodically cleans up expired metrics records
 func (c *ActiveMetricsCache) startCleanup() {
 	ticker := time.NewTicker(c.cleanupInterval)
 	defer ticker.Stop()
@@ -55,7 +55,7 @@ func (c *ActiveMetricsCache) startCleanup() {
 	}
 }
 
-// cleanup 清理过期的metrics
+// cleanup cleans up expired metrics
 func (c *ActiveMetricsCache) cleanup() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -68,7 +68,7 @@ func (c *ActiveMetricsCache) cleanup() {
 	}
 }
 
-// RecordMetrics 记录一批metrics的活跃信息
+// RecordMetrics records activity information for a batch of metrics
 func (c *ActiveMetricsCache) RecordMetrics(metricNames map[string]bool, count int) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -76,11 +76,11 @@ func (c *ActiveMetricsCache) RecordMetrics(metricNames map[string]bool, count in
 	now := time.Now()
 	for name := range metricNames {
 		if activity, exists := c.metrics[name]; exists {
-			// 更新已存在的记录
+			// Update existing record
 			activity.LastSeenTime = now
 			activity.SeenCount++
 		} else {
-			// 创建新记录
+			// Create new record
 			c.metrics[name] = &MetricActivity{
 				MetricName:    name,
 				LastSeenTime:  now,
@@ -91,7 +91,7 @@ func (c *ActiveMetricsCache) RecordMetrics(metricNames map[string]bool, count in
 	}
 }
 
-// GetActiveMetrics 获取当前活跃的metrics列表
+// GetActiveMetrics gets list of currently active metrics
 func (c *ActiveMetricsCache) GetActiveMetrics() []*MetricActivity {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -100,7 +100,7 @@ func (c *ActiveMetricsCache) GetActiveMetrics() []*MetricActivity {
 	now := time.Now()
 
 	for _, activity := range c.metrics {
-		// 只返回未过期的记录
+		// Only return unexpired records
 		if now.Sub(activity.LastSeenTime) <= c.ttl {
 			result = append(result, &MetricActivity{
 				MetricName:    activity.MetricName,
@@ -114,7 +114,7 @@ func (c *ActiveMetricsCache) GetActiveMetrics() []*MetricActivity {
 	return result
 }
 
-// GetStats 获取缓存统计信息
+// GetStats gets cache statistics
 func (c *ActiveMetricsCache) GetStats() map[string]interface{} {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -132,24 +132,24 @@ func (c *ActiveMetricsCache) GetStats() map[string]interface{} {
 	}
 }
 
-// Stop 停止后台清理任务
+// Stop stops background cleanup task
 func (c *ActiveMetricsCache) Stop() {
 	close(c.stopChan)
 }
 
-// RecordActiveMetrics 记录活跃的metrics（包初始化时调用）
+// RecordActiveMetrics records active metrics (called during package initialization)
 func RecordActiveMetrics(metricNames map[string]bool, count int) {
 	initActiveMetricsCache()
 	activeMetricsCache.RecordMetrics(metricNames, count)
 }
 
-// GetActiveMetricsList 获取活跃metrics列表
+// GetActiveMetricsList gets active metrics list
 func GetActiveMetricsList() []*MetricActivity {
 	initActiveMetricsCache()
 	return activeMetricsCache.GetActiveMetrics()
 }
 
-// GetActiveMetricsStats 获取活跃metrics统计信息
+// GetActiveMetricsStats gets active metrics statistics
 func GetActiveMetricsStats() map[string]interface{} {
 	initActiveMetricsCache()
 	return activeMetricsCache.GetStats()

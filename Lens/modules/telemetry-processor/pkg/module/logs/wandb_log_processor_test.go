@@ -12,7 +12,7 @@ func TestInMemoryMetricsStorage_StoreAndQuery(t *testing.T) {
 	storage := NewInMemoryMetricsStorage(100)
 	ctx := context.Background()
 
-	// 存储指标
+	// Store metrics
 	metric1 := &StoredMetric{
 		WorkloadUID: "workload-123",
 		PodUID:      "pod-456",
@@ -43,7 +43,7 @@ func TestInMemoryMetricsStorage_StoreAndQuery(t *testing.T) {
 		Timestamp:   time.Now(),
 	}
 
-	// 存储
+	// Store
 	err := storage.Store(ctx, metric1)
 	assert.NoError(t, err)
 	err = storage.Store(ctx, metric2)
@@ -51,12 +51,12 @@ func TestInMemoryMetricsStorage_StoreAndQuery(t *testing.T) {
 	err = storage.Store(ctx, metric3)
 	assert.NoError(t, err)
 
-	// 查询所有指标
+	// Query all metrics
 	allMetrics, err := storage.Query(ctx, "workload-123", "")
 	assert.NoError(t, err)
 	assert.Equal(t, 3, len(allMetrics))
 
-	// 查询特定指标
+	// Query specific metric
 	lossMetrics, err := storage.Query(ctx, "workload-123", "loss")
 	assert.NoError(t, err)
 	assert.Equal(t, 2, len(lossMetrics))
@@ -65,17 +65,17 @@ func TestInMemoryMetricsStorage_StoreAndQuery(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, 1, len(accMetrics))
 
-	// 查询不存在的 workload
+	// Query non-existent workload
 	noMetrics, err := storage.Query(ctx, "workload-999", "")
 	assert.NoError(t, err)
 	assert.Equal(t, 0, len(noMetrics))
 }
 
 func TestInMemoryMetricsStorage_MaxSize(t *testing.T) {
-	storage := NewInMemoryMetricsStorage(10) // 最多存储 10 条
+	storage := NewInMemoryMetricsStorage(10) // Maximum 10 entries
 	ctx := context.Background()
 
-	// 存储 15 条指标
+	// Store 15 metrics
 	for i := 0; i < 15; i++ {
 		metric := &StoredMetric{
 			WorkloadUID: "workload-123",
@@ -90,12 +90,12 @@ func TestInMemoryMetricsStorage_MaxSize(t *testing.T) {
 		assert.NoError(t, err)
 	}
 
-	// 应该只保留最新的 10 条
+	// Should keep only the latest 10 entries
 	metrics, err := storage.Query(ctx, "workload-123", "")
 	assert.NoError(t, err)
 	assert.Equal(t, 10, len(metrics))
 
-	// 验证是最新的 10 条（step 5-14）
+	// Verify these are the latest 10 entries (step 5-14)
 	assert.Equal(t, float64(5), metrics[0].Value)
 	assert.Equal(t, float64(14), metrics[9].Value)
 }
@@ -104,7 +104,7 @@ func TestInMemoryMetricsStorage_CleanupOldMetrics(t *testing.T) {
 	storage := NewInMemoryMetricsStorage(100)
 	ctx := context.Background()
 
-	// 存储一些旧指标
+	// Store some old metrics
 	oldMetric := &StoredMetric{
 		WorkloadUID: "workload-123",
 		PodUID:      "pod-456",
@@ -112,10 +112,10 @@ func TestInMemoryMetricsStorage_CleanupOldMetrics(t *testing.T) {
 		Name:        "loss",
 		Value:       2.5,
 		Step:        0,
-		Timestamp:   time.Now().Add(-2 * time.Hour), // 2 小时前
+		Timestamp:   time.Now().Add(-2 * time.Hour), // 2 hours ago
 	}
 
-	// 存储一些新指标
+	// Store some new metrics
 	newMetric := &StoredMetric{
 		WorkloadUID: "workload-123",
 		PodUID:      "pod-456",
@@ -131,11 +131,11 @@ func TestInMemoryMetricsStorage_CleanupOldMetrics(t *testing.T) {
 	err = storage.Store(ctx, newMetric)
 	assert.NoError(t, err)
 
-	// 清理超过 1 小时的指标
+	// Cleanup metrics older than 1 hour
 	deleted := storage.CleanupOldMetrics(1 * time.Hour)
 	assert.Equal(t, 1, deleted)
 
-	// 验证只剩下新指标
+	// Verify only new metrics remain
 	metrics, err := storage.Query(ctx, "workload-123", "")
 	assert.NoError(t, err)
 	assert.Equal(t, 1, len(metrics))
@@ -205,7 +205,7 @@ func TestWandBLogProcessor_ProcessMetrics(t *testing.T) {
 			} else {
 				assert.NoError(t, err)
 
-				// 验证指标已存储
+				// Verify metrics are stored
 				if len(tt.req.Metrics) > 0 {
 					metrics, err := storage.Query(ctx, tt.req.WorkloadUID, "")
 					assert.NoError(t, err)
@@ -271,9 +271,9 @@ func TestWandBLogProcessor_ProcessLogs(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// 注意：由于 ProcessLogs 调用 WorkloadLog，而 WorkloadLog 需要数据库，
-			// 在没有完整测试环境的情况下，这个测试可能会失败
-			// 这里主要测试参数验证逻辑
+			// Note: Since ProcessLogs calls WorkloadLog which requires database,
+			// this test may fail without complete test environment
+			// Here we mainly test parameter validation logic
 			err := processor.ProcessLogs(ctx, tt.req)
 			if tt.wantErr {
 				assert.Error(t, err)
@@ -281,7 +281,7 @@ func TestWandBLogProcessor_ProcessLogs(t *testing.T) {
 					assert.Contains(t, err.Error(), tt.errMsg)
 				}
 			}
-			// 注意：由于依赖数据库，这里不验证成功情况
+			// Note: Success cases not verified due to database dependency
 		})
 	}
 }
@@ -292,7 +292,7 @@ func TestInMemoryMetricsStorage_GetMetricsCount(t *testing.T) {
 
 	assert.Equal(t, 0, storage.GetMetricsCount())
 
-	// 添加一些指标
+	// Add some metrics
 	for i := 0; i < 5; i++ {
 		metric := &StoredMetric{
 			WorkloadUID: "workload-123",
@@ -306,7 +306,7 @@ func TestInMemoryMetricsStorage_GetMetricsCount(t *testing.T) {
 
 	assert.Equal(t, 5, storage.GetMetricsCount())
 
-	// 添加另一个 workload 的指标
+	// Add metrics for another workload
 	for i := 0; i < 3; i++ {
 		metric := &StoredMetric{
 			WorkloadUID: "workload-456",

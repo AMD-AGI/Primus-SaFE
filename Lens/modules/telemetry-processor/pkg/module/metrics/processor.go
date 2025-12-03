@@ -165,7 +165,7 @@ func processTimeSeries(timeseries []prompb.TimeSeries) error {
 		}
 	}
 	if len(newTimeseries) > 0 {
-		// 记录活跃的metrics到缓存，减少日志输出
+		// Record active metrics to cache, reduce log output
 		RecordActiveMetrics(newTsNames, len(newTimeseries))
 		for i := range newTimeseries {
 			ts := newTimeseries[i]

@@ -12,24 +12,24 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// WandBMetricsRequest WandB 指标上报请求
+// WandBMetricsRequest WandB metrics reporting request
 type WandBMetricsRequest struct {
 	Source      string        `json:"source"`                 // "wandb"
-	WorkloadUID string        `json:"workload_uid,omitempty"` // 可选（兼容性）
+	WorkloadUID string        `json:"workload_uid,omitempty"` // Optional (compatibility)
 	PodUID      string        `json:"pod_uid,omitempty"`
-	PodName     string        `json:"pod_name"` // 必需：客户端从环境变量获取
+	PodName     string        `json:"pod_name"` // Required: client gets from environment variable
 	RunID       string        `json:"run_id"`   // WandB run id
-	Metrics     []WandBMetric `json:"metrics"`  // 指标数据
+	Metrics     []WandBMetric `json:"metrics"`  // Metrics data
 	Timestamp   float64       `json:"timestamp"`
 }
 
-// WandBMetric 单个指标数据点
+// WandBMetric single metrics data point
 type WandBMetric struct {
-	Name      string            `json:"name"`      // 指标名称，如 "loss", "accuracy"
-	Value     float64           `json:"value"`     // 指标值
-	Step      int64             `json:"step"`      // 训练步数
-	Timestamp float64           `json:"timestamp"` // 采集时间戳
-	Tags      map[string]string `json:"tags"`      // 额外标签
+	Name      string            `json:"name"`      // Metric name, e.g. "loss", "accuracy"
+	Value     float64           `json:"value"`     // Metric value
+	Step      int64             `json:"step"`      // Training step
+	Timestamp float64           `json:"timestamp"` // Collection timestamp
+	Tags      map[string]string `json:"tags"`      // Extra tags
 }
 
 // WandBLogsRequest WandB training data reporting request (from wandb.log())
@@ -52,14 +52,14 @@ type WandBLog struct {
 	Data      map[string]interface{} `json:"data"`      // Training metrics (loss, accuracy, lr, etc.)
 }
 
-// MetricsStorage 指标存储接口
+// MetricsStorage metrics storage interface
 type MetricsStorage interface {
 	Store(ctx context.Context, metric *StoredMetric) error
 	Query(ctx context.Context, workloadUID string, metricName string) ([]*StoredMetric, error)
 }
 
-// StoredMetric 存储的指标格式
-type StoredMetric struct {
+// StoredMetric stored metric format
+type StoredMetric struct{
 	WorkloadUID string
 	PodUID      string
 	Source      string
@@ -71,12 +71,12 @@ type StoredMetric struct {
 	Tags        map[string]string
 }
 
-// WandBLogProcessor WandB 日志和指标处理器
+// WandBLogProcessor WandB log and metrics processor
 type WandBLogProcessor struct {
-	metricsStorage MetricsStorage // 指标存储接口
+	metricsStorage MetricsStorage // Metrics storage interface
 }
 
-// NewWandBLogProcessor 创建处理器
+// NewWandBLogProcessor creates processor
 func NewWandBLogProcessor(
 	metricsStorage MetricsStorage,
 ) *WandBLogProcessor {
@@ -85,7 +85,7 @@ func NewWandBLogProcessor(
 	}
 }
 
-// ProcessMetrics 处理 WandB 指标数据
+// ProcessMetrics processes WandB metrics data
 func (p *WandBLogProcessor) ProcessMetrics(
 	ctx context.Context,
 	req *WandBMetricsRequest,
@@ -97,7 +97,7 @@ func (p *WandBLogProcessor) ProcessMetrics(
 		ObserveWandBRequestDuration("metrics", time.Since(startTime).Seconds())
 	}()
 
-	// 1. 从 PodName 解析 WorkloadUID
+	// 1. Parse WorkloadUID from PodName
 	workloadUID, err := resolveWorkloadUID(req.WorkloadUID, req.PodName)
 	if err != nil {
 		IncWandBRequestErrorCount("metrics", "validation")
@@ -115,12 +115,12 @@ func (p *WandBLogProcessor) ProcessMetrics(
 		return nil
 	}
 
-	// 2. 转换为内部格式并存储到 MetricsStorage
+	// 2. Convert to internal format and store to MetricsStorage
 	successCount := 0
 	errorCount := 0
 
 	for _, metric := range req.Metrics {
-		// 构造存储格式
+		// Construct storage format
 		storedMetric := &StoredMetric{
 			WorkloadUID: workloadUID,
 			PodUID:      req.PodUID,
@@ -133,12 +133,12 @@ func (p *WandBLogProcessor) ProcessMetrics(
 			Tags:        metric.Tags,
 		}
 
-		// 存储到时序数据库或指标存储
+		// Store to time-series database or metrics storage
 		if err := p.metricsStorage.Store(ctx, storedMetric); err != nil {
 			logrus.Errorf("Failed to store metric %s: %v", metric.Name, err)
 			IncWandBMetricsStoreErrors(workloadUID)
 			errorCount++
-			// 继续处理其他指标
+			// Continue processing other metrics
 			continue
 		}
 		IncWandBMetricsStoreCount(workloadUID)
@@ -148,7 +148,7 @@ func (p *WandBLogProcessor) ProcessMetrics(
 	logrus.Infof("✓ WandB metrics stored to MetricsStorage: %d success, %d errors (workload: %s)",
 		successCount, errorCount, workloadUID)
 
-	// 3. 将 metrics 按 step 聚合，存储到 training_performance 表
+	// 3. Aggregate metrics by step, store to training_performance table
 	stepMetrics := make(map[int64]map[string]interface{})
 	stepTimestamps := make(map[int64]time.Time)
 
@@ -159,7 +159,7 @@ func (p *WandBLogProcessor) ProcessMetrics(
 		}
 		stepMetrics[step][metric.Name] = metric.Value
 
-		// 记录每个 step 的时间戳（使用该 step 的第一个 metric 的时间戳）
+		// Record timestamp for each step (use first metric's timestamp for that step)
 		if _, exists := stepTimestamps[step]; !exists {
 			stepTimestamps[step] = time.Unix(0, int64(metric.Timestamp*1e9))
 		}
@@ -167,19 +167,19 @@ func (p *WandBLogProcessor) ProcessMetrics(
 
 	logrus.Infof("Aggregated metrics into %d step(s) for training_performance storage", len(stepMetrics))
 
-	// 4. 将每个 step 的 metrics 存储到 training_performance 表
+	// 4. Store metrics for each step to training_performance table
 	trainingSuccessCount := 0
 	trainingErrorCount := 0
 
 	for step, data := range stepMetrics {
-		// 构造 WandBLog 格式的数据
+		// Construct data in WandBLog format
 		logData := &WandBLog{
 			Step:      step,
 			Timestamp: float64(stepTimestamps[step].UnixNano()) / 1e9,
 			Data:      data,
 		}
 
-		// 存储到 training_performance 表
+		// Store to training_performance table
 		if err := p.storeTrainingData(ctx, workloadUID, req.PodUID, req.RunID, logData, stepTimestamps[step]); err != nil {
 			logrus.Errorf("Failed to store training data for step %d: %v", step, err)
 			IncTrainingPerformanceSaveErrors(workloadUID, constant.DataSourceWandB, "db_error")

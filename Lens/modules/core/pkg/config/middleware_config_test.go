@@ -11,87 +11,87 @@ func TestMiddlewareConfig_DefaultValues(t *testing.T) {
 		description         string
 	}{
 		{
-			name:            "未设置任何配置（默认启用）",
+			name:            "No configuration set (default enabled)",
 			config:          MiddlewareConfig{},
 			expectedLogging: true,
 			expectedTracing: true,
-			description:     "当配置文件中没有middleware配置时，应该默认启用所有中间件",
+			description:     "When no middleware config in file, all middlewares should be enabled by default",
 		},
 		{
-			name: "显式启用logging",
+			name: "Explicitly enable logging",
 			config: MiddlewareConfig{
 				EnableLogging: boolPtr(true),
 			},
 			expectedLogging: true,
 			expectedTracing: true,
-			description:     "显式设置logging为true，tracing未设置应默认为true",
+			description:     "Explicitly set logging to true, tracing unset should default to true",
 		},
 		{
-			name: "显式禁用logging",
+			name: "Explicitly disable logging",
 			config: MiddlewareConfig{
 				EnableLogging: boolPtr(false),
 			},
 			expectedLogging: false,
 			expectedTracing: true,
-			description:     "显式设置logging为false，tracing未设置应默认为true",
+			description:     "Explicitly set logging to false, tracing unset should default to true",
 		},
 		{
-			name: "显式启用tracing",
+			name: "Explicitly enable tracing",
 			config: MiddlewareConfig{
 				EnableTracing: boolPtr(true),
 			},
 			expectedLogging: true,
 			expectedTracing: true,
-			description:     "logging未设置应默认为true，显式设置tracing为true",
+			description:     "Logging unset should default to true, explicitly set tracing to true",
 		},
 		{
-			name: "显式禁用tracing",
+			name: "Explicitly disable tracing",
 			config: MiddlewareConfig{
 				EnableTracing: boolPtr(false),
 			},
 			expectedLogging: true,
 			expectedTracing: false,
-			description:     "logging未设置应默认为true，显式设置tracing为false",
+			description:     "Logging unset should default to true, explicitly set tracing to false",
 		},
 		{
-			name: "全部启用",
+			name: "Enable all",
 			config: MiddlewareConfig{
 				EnableLogging: boolPtr(true),
 				EnableTracing: boolPtr(true),
 			},
 			expectedLogging: true,
 			expectedTracing: true,
-			description:     "显式启用所有中间件",
+			description:     "Explicitly enable all middlewares",
 		},
 		{
-			name: "全部禁用",
+			name: "Disable all",
 			config: MiddlewareConfig{
 				EnableLogging: boolPtr(false),
 				EnableTracing: boolPtr(false),
 			},
 			expectedLogging: false,
 			expectedTracing: false,
-			description:     "显式禁用所有中间件",
+			description:     "Explicitly disable all middlewares",
 		},
 		{
-			name: "启用logging，禁用tracing",
+			name: "Enable logging, disable tracing",
 			config: MiddlewareConfig{
 				EnableLogging: boolPtr(true),
 				EnableTracing: boolPtr(false),
 			},
 			expectedLogging: true,
 			expectedTracing: false,
-			description:     "混合配置场景1",
+			description:     "Mixed configuration scenario 1",
 		},
 		{
-			name: "禁用logging，启用tracing",
+			name: "Disable logging, enable tracing",
 			config: MiddlewareConfig{
 				EnableLogging: boolPtr(false),
 				EnableTracing: boolPtr(true),
 			},
 			expectedLogging: false,
 			expectedTracing: true,
-			description:     "混合配置场景2",
+			description:     "Mixed configuration scenario 2",
 		},
 	}
 
@@ -110,7 +110,7 @@ func TestMiddlewareConfig_DefaultValues(t *testing.T) {
 	}
 }
 
-// boolPtr 返回bool指针的辅助函数
+// boolPtr is a helper function that returns a bool pointer
 func boolPtr(b bool) *bool {
 	return &b
 }

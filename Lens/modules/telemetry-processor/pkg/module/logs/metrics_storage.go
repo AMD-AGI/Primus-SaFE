@@ -8,17 +8,17 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// InMemoryMetricsStorage 内存指标存储实现
+// InMemoryMetricsStorage in-memory metrics storage implementation
 type InMemoryMetricsStorage struct {
 	mu      sync.RWMutex
 	metrics map[string][]*StoredMetric // workloadUID -> metrics
-	maxSize int                        // 每个 workload 最多保存的指标数量
+	maxSize int                        // Maximum number of metrics saved per workload
 }
 
-// NewInMemoryMetricsStorage 创建内存指标存储
+// NewInMemoryMetricsStorage creates in-memory metrics storage
 func NewInMemoryMetricsStorage(maxSize int) *InMemoryMetricsStorage {
 	if maxSize <= 0 {
-		maxSize = 10000 // 默认最多保存 10000 条
+		maxSize = 10000 // Default maximum 10000 entries
 	}
 	return &InMemoryMetricsStorage{
 		metrics: make(map[string][]*StoredMetric),
@@ -26,21 +26,21 @@ func NewInMemoryMetricsStorage(maxSize int) *InMemoryMetricsStorage {
 	}
 }
 
-// Store 存储指标
+// Store stores metric
 func (s *InMemoryMetricsStorage) Store(ctx context.Context, metric *StoredMetric) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// 获取或创建该 workload 的指标列表
+	// Get or create metrics list for this workload
 	metrics, exists := s.metrics[metric.WorkloadUID]
 	if !exists {
 		metrics = make([]*StoredMetric, 0, 100)
 	}
 
-	// 添加新指标
+	// Add new metric
 	metrics = append(metrics, metric)
 
-	// 如果超过最大大小，删除最旧的
+	// Delete oldest if exceeding max size
 	if len(metrics) > s.maxSize {
 		metrics = metrics[len(metrics)-s.maxSize:]
 	}
@@ -53,7 +53,7 @@ func (s *InMemoryMetricsStorage) Store(ctx context.Context, metric *StoredMetric
 	return nil
 }
 
-// Query 查询指标
+// Query queries metrics
 func (s *InMemoryMetricsStorage) Query(ctx context.Context, workloadUID string, metricName string) ([]*StoredMetric, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -63,7 +63,7 @@ func (s *InMemoryMetricsStorage) Query(ctx context.Context, workloadUID string, 
 		return []*StoredMetric{}, nil
 	}
 
-	// 如果指定了指标名称，过滤
+	// Filter by metric name if specified
 	if metricName != "" {
 		result := make([]*StoredMetric, 0)
 		for _, m := range allMetrics {
@@ -74,11 +74,11 @@ func (s *InMemoryMetricsStorage) Query(ctx context.Context, workloadUID string, 
 		return result, nil
 	}
 
-	// 返回所有指标
+	// Return all metrics
 	return allMetrics, nil
 }
 
-// GetMetricsCount 获取指标数量（用于监控）
+// GetMetricsCount gets metrics count (for monitoring)
 func (s *InMemoryMetricsStorage) GetMetricsCount() int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -90,7 +90,7 @@ func (s *InMemoryMetricsStorage) GetMetricsCount() int {
 	return total
 }
 
-// CleanupOldMetrics 清理超过指定时间的旧指标
+// CleanupOldMetrics cleans up old metrics exceeding specified time
 func (s *InMemoryMetricsStorage) CleanupOldMetrics(maxAge time.Duration) int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -99,7 +99,7 @@ func (s *InMemoryMetricsStorage) CleanupOldMetrics(maxAge time.Duration) int {
 	deletedCount := 0
 
 	for workloadUID, metrics := range s.metrics {
-		// 过滤出仍然有效的指标
+		// Filter out still valid metrics
 		validMetrics := make([]*StoredMetric, 0, len(metrics))
 		for _, m := range metrics {
 			if m.Timestamp.After(cutoffTime) {
@@ -110,7 +110,7 @@ func (s *InMemoryMetricsStorage) CleanupOldMetrics(maxAge time.Duration) int {
 		}
 
 		if len(validMetrics) == 0 {
-			// 如果该 workload 没有有效指标了，删除整个条目
+			// If this workload has no valid metrics left, delete the entire entry
 			delete(s.metrics, workloadUID)
 		} else {
 			s.metrics[workloadUID] = validMetrics

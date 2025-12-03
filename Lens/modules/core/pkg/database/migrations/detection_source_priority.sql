@@ -38,11 +38,11 @@ COMMENT ON COLUMN detection_source_priority.updated_at IS 'Timestamp when the co
 
 -- Insert default detection source priorities
 INSERT INTO detection_source_priority (source_name, display_name, priority, base_confidence, confidence_decay, description) VALUES
-('user', '用户标注', 100, 1.0, 1.0, '用户手动标注，最高优先级'),
-('component', '组件判断', 80, 0.85, 1.0, '组件通过镜像、标签等分析得出'),
-('reuse', '复用检测', 75, 0.85, 0.9, '从相似 Workload 复用的结果'),
-('log', '日志分析', 60, 0.70, 1.0, '通过日志模式匹配识别'),
-('image', '镜像推断', 40, 0.60, 1.0, '仅通过镜像名称推断'),
-('default', '默认推断', 20, 0.30, 1.0, '默认或未知情况')
+('user', 'User Annotation', 100, 1.0, 1.0, 'Manual user annotation, highest priority'),
+('component', 'Component Detection', 80, 0.85, 1.0, 'Detected by component through image, labels, etc.'),
+('reuse', 'Reuse Detection', 75, 0.85, 0.9, 'Reused results from similar workload'),
+('log', 'Log Analysis', 60, 0.70, 1.0, 'Identified through log pattern matching'),
+('image', 'Image Inference', 40, 0.60, 1.0, 'Inferred from image name only'),
+('default', 'Default Inference', 20, 0.30, 1.0, 'Default or unknown case')
 ON CONFLICT (source_name) DO NOTHING;
 

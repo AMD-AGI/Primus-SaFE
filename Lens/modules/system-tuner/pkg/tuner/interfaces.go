@@ -1,17 +1,17 @@
 package tuner
 
-// FileSystem 定义文件系统操作接口，便于测试时 mock
+// FileSystem defines file system operation interface for mocking in tests
 type FileSystem interface {
-	// ReadFile 读取文件内容
+	// ReadFile reads file content
 	ReadFile(filename string) ([]byte, error)
-	// WriteFile 写入文件内容
+	// WriteFile writes file content
 	WriteFile(filename string, data []byte, perm uint32) error
 }
 
-// CommandExecutor 定义命令执行接口，便于测试时 mock
+// CommandExecutor defines command execution interface for mocking in tests
 type CommandExecutor interface {
-	// Execute 执行命令并返回错误
+	// Execute executes a command and returns an error
 	Execute(name string, args ...string) error
-	// ExecuteWithOutput 执行命令并返回输出
+	// ExecuteWithOutput executes a command and returns output
 	ExecuteWithOutput(name string, args ...string) ([]byte, error)
 }

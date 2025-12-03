@@ -9,12 +9,12 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/telemetry-processor/pkg/module/logs"
 )
 
-// GetPatternMatchers 获取所有框架的 pattern matcher 信息（用于调试）
-// @Summary 获取 Pattern Matcher 列表
-// @Description 返回所有已初始化的 pattern matcher 的详细信息，包括各种匹配模式
+// GetPatternMatchers gets pattern matcher information for all frameworks (for debugging)
+// @Summary Get Pattern Matcher List
+// @Description Returns detailed information about all initialized pattern matchers, including various matching patterns
 // @Tags Debug
 // @Produce json
-// @Success 200 {object} map[string]interface{} "Pattern matcher 信息列表"
+// @Success 200 {object} map[string]interface{} "Pattern matcher information list"
 // @Router /debug/pattern-matchers [get]
 func GetPatternMatchers(c *gin.Context) {
 	matchersInfo := logs.GetPatternMatchersInfo()
@@ -44,12 +44,12 @@ func GetPatternMatchers(c *gin.Context) {
 	})
 }
 
-// GetFrameworkList 获取可用的框架列表（用于调试）
-// @Summary 获取框架列表
-// @Description 返回所有已初始化的框架名称列表
+// GetFrameworkList gets available framework list (for debugging)
+// @Summary Get Framework List
+// @Description Returns list of all initialized framework names
 // @Tags Debug
 // @Produce json
-// @Success 200 {object} map[string]interface{} "框架列表"
+// @Success 200 {object} map[string]interface{} "Framework list"
 // @Router /debug/frameworks [get]
 func GetFrameworkList(c *gin.Context) {
 	frameworks := logs.GetFrameworkList()
@@ -60,14 +60,14 @@ func GetFrameworkList(c *gin.Context) {
 	})
 }
 
-// GetPatternMatcherByFramework 获取指定框架的 pattern matcher 信息（用于调试）
-// @Summary 获取指定框架的 Pattern Matcher
-// @Description 返回指定框架的 pattern matcher 详细信息
+// GetPatternMatcherByFramework gets pattern matcher information for specified framework (for debugging)
+// @Summary Get Pattern Matcher for Specified Framework
+// @Description Returns detailed pattern matcher information for specified framework
 // @Tags Debug
 // @Produce json
-// @Param framework path string true "框架名称"
-// @Success 200 {object} map[string]interface{} "Pattern matcher 信息"
-// @Failure 404 {object} map[string]interface{} "框架不存在"
+// @Param framework path string true "Framework name"
+// @Success 200 {object} map[string]interface{} "Pattern matcher information"
+// @Failure 404 {object} map[string]interface{} "Framework does not exist"
 // @Router /debug/pattern-matchers/{framework} [get]
 func GetPatternMatcherByFramework(c *gin.Context) {
 	framework := c.Param("framework")

@@ -5,9 +5,9 @@ import (
 	"testing"
 )
 
-// TestSimpleRegexParts 逐步测试正则表达式的各个部分
+// TestSimpleRegexParts tests each part of the regular expression step by step
 func TestSimpleRegexParts(t *testing.T) {
-	// 清理后的日志
+	// Cleaned log
 	log := `[20251202 09:12:08][rank-7/8][INFO ] [--------trainer.py:2560] : iteration 126/ 5000 | consumed samples: 16128 | elapsed time per iteration (ms): 13372.8/13364.7 | hip mem usage/free/total/usage_ratio: 153.81GB/102.17GB/255.98GB/60.09% | throughput per GPU (TFLOP/s/GPU): 567.6/568.0 | tokens per GPU (tokens/s/GPU): 9801.4/9807.3 | learning rate: 9.984820E-06 | global batch size: 128 | lm loss: 6.548988E-03 | loss scale: 1.0 | grad norm: 0.061 | number of skipped iterations: 0 | number of nan iterations: 0 |`
 
 	tests := []struct {
@@ -16,21 +16,21 @@ func TestSimpleRegexParts(t *testing.T) {
 		expect  map[string]string
 	}{
 		{
-			name:    "最简单的iteration匹配",
+			name:    "Simplest iteration match",
 			pattern: `iteration\s+(\d+)`,
 			expect: map[string]string{
 				"": "iteration 126",
 			},
 		},
 		{
-			name:    "带命名组的iteration",
+			name:    "Iteration with named group",
 			pattern: `iteration\s+(?P<CurrentIteration>\d+)`,
 			expect: map[string]string{
 				"CurrentIteration": "126",
 			},
 		},
 		{
-			name:    "完整的iteration+target",
+			name:    "Complete iteration+target",
 			pattern: `iteration\s+(?P<CurrentIteration>\d+)\s*/\s*(?P<TargetIteration>\d+)`,
 			expect: map[string]string{
 				"CurrentIteration": "126",
@@ -38,7 +38,7 @@ func TestSimpleRegexParts(t *testing.T) {
 			},
 		},
 		{
-			name:    "从.*开头匹配iteration",
+			name:    "Match iteration starting with .*",
 			pattern: `.*iteration\s+(?P<CurrentIteration>\d+)\s*/\s*(?P<TargetIteration>\d+)`,
 			expect: map[string]string{
 				"CurrentIteration": "126",
@@ -46,21 +46,21 @@ func TestSimpleRegexParts(t *testing.T) {
 			},
 		},
 		{
-			name:    "匹配consumed samples",
+			name:    "Match consumed samples",
 			pattern: `consumed samples:\s+(?P<ConsumedSamples>\d+)`,
 			expect: map[string]string{
 				"ConsumedSamples": "16128",
 			},
 		},
 		{
-			name:    "匹配elapsed time",
+			name:    "Match elapsed time",
 			pattern: `elapsed\stime\sper\siteration\s\(ms\):\s+(?P<ElapsedTimePerIterationMS>\d+(?:\.\d+)*)`,
 			expect: map[string]string{
 				"ElapsedTimePerIterationMS": "13372.8",
 			},
 		},
 		{
-			name:    "匹配hip memory (完整路径)",
+			name:    "Match HIP memory (full path)",
 			pattern: `hip\s+mem\s+usage/free/total/usage_ratio:\s+(?P<MemUsage>\d+\.\d+)GB/(?P<MemFree>\d+\.\d+)GB/(?P<MemTotal>\d+\.\d+)GB/(?P<MemUsageRatio>\d+\.\d+)%`,
 			expect: map[string]string{
 				"MemUsage":      "153.81",
@@ -70,7 +70,7 @@ func TestSimpleRegexParts(t *testing.T) {
 			},
 		},
 		{
-			name:    "匹配learning rate (科学计数法)",
+			name:    "Match learning rate (scientific notation)",
 			pattern: `learning\s+rate:\s+(?P<LearningRate>[+-]?\d+(?:\.\d+)?(?:[Ee][+-]?\d+)?)`,
 			expect: map[string]string{
 				"LearningRate": "9.984820E-06",
@@ -105,10 +105,10 @@ func TestSimpleRegexParts(t *testing.T) {
 			t.Logf("Matches count: %d", len(matches))
 			t.Logf("Full match: %s", matches[0])
 
-			// 验证期望的groups
+			// Validate expected groups
 			for expectedName, expectedValue := range tt.expect {
 				if expectedName == "" {
-					// 无名捕获组，跳过
+					// Unnamed capture group, skip
 					continue
 				}
 				got, ok := groups[expectedName]

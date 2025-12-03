@@ -341,7 +341,7 @@ func saveTrainingPerformanceForSingleWorkload(ctx context.Context, podId, worklo
 		return err
 	}
 	if existDbPerformance != nil {
-		// 记录跳过的原因：已存在相同记录
+		// Record reason for skipping: duplicate record already exists
 		logrus.Debugf("Training performance already exists for workload=%s, serial=%d, iteration=%d - skipping insert",
 			workloadId, serial, currentIteration)
 		return nil
@@ -358,7 +358,7 @@ func saveTrainingPerformanceForSingleWorkload(ctx context.Context, podId, worklo
 		DataSource:  constant.DataSourceLog, // Data parsed from application logs
 	}
 
-	// 记录即将插入的数据信息
+	// Record data about to be inserted
 	logrus.Debugf("Inserting training performance: workload=%s, serial=%d, iteration=%d, pod=%s, time=%s",
 		workloadId, serial, currentIteration, podId, docTime.Format(time.RFC3339))
 

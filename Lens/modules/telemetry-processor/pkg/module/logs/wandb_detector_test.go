@@ -299,8 +299,8 @@ func TestHasAnyKey(t *testing.T) {
 }
 
 func TestWandBFrameworkDetector_ProcessWandBDetection_ValidationErrors(t *testing.T) {
-	// 跳过这个测试，因为它需要一个真正的 DetectionManager
-	// 在集成测试中会被覆盖
+	// Skip this test because it requires a real DetectionManager
+	// Will be covered in integration tests
 	t.Skip("Requires full DetectionManager setup - tested in integration tests")
 	
 	tests := []struct {

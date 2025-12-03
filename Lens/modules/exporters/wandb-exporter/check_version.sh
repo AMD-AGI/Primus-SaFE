@@ -1,7 +1,7 @@
 #!/bin/bash
 ################################################################################
 # Version Consistency Checker
-# 检查三个文件中的版本号是否一致
+# Check if version numbers in three files are consistent
 ################################################################################
 
 set -e
@@ -34,7 +34,7 @@ echo "  Version Consistency Check"
 echo "========================================="
 echo
 
-# 提取三个文件中的版本号
+# Extract version numbers from three files
 if [ -f "src/primus_lens_wandb_exporter/__init__.py" ]; then
     INIT_VERSION=$(grep "__version__" src/primus_lens_wandb_exporter/__init__.py | cut -d'"' -f2)
 else
@@ -56,13 +56,13 @@ else
     exit 1
 fi
 
-# 显示版本号
+# Display version numbers
 print_info "Version in __init__.py:     $INIT_VERSION"
 print_info "Version in setup.py:        $SETUP_VERSION"
 print_info "Version in pyproject.toml:  $TOML_VERSION"
 echo
 
-# 检查一致性
+# Check consistency
 if [ "$INIT_VERSION" = "$SETUP_VERSION" ] && [ "$SETUP_VERSION" = "$TOML_VERSION" ]; then
     print_success "All versions match: $INIT_VERSION"
     echo
@@ -93,4 +93,3 @@ else
     echo
     exit 1
 fi
-

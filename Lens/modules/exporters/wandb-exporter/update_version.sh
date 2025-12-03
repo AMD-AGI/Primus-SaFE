@@ -1,7 +1,7 @@
 #!/bin/bash
 ################################################################################
 # Version Updater
-# 一次性更新所有文件中的版本号
+# Update version numbers in all files at once
 ################################################################################
 
 set -e
@@ -34,7 +34,7 @@ print_header() {
     echo -e "${CYAN}$1${NC}"
 }
 
-# 显示使用说明
+# Show usage instructions
 show_usage() {
     echo "Usage: $0 <new_version>"
     echo
@@ -49,10 +49,10 @@ show_usage() {
     echo
 }
 
-# 验证版本号格式（语义化版本）
+# Validate version format (semantic versioning)
 validate_version() {
     local version=$1
-    # 支持格式：X.Y.Z 或 X.Y.Z-suffix（如 1.0.0-beta.1）
+    # Supported formats: X.Y.Z or X.Y.Z-suffix (e.g., 1.0.0-beta.1)
     if [[ ! $version =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$ ]]; then
         print_error "Invalid version format: $version"
         echo "Version should follow semantic versioning (e.g., 1.0.0 or 1.0.0-beta.1)"
@@ -61,7 +61,7 @@ validate_version() {
     return 0
 }
 
-# 获取当前版本号
+# Get current version number
 get_current_version() {
     if [ -f "src/primus_lens_wandb_exporter/__init__.py" ]; then
         grep "__version__" src/primus_lens_wandb_exporter/__init__.py | cut -d'"' -f2
@@ -70,14 +70,14 @@ get_current_version() {
     fi
 }
 
-# 备份文件
+# Backup file
 backup_file() {
     local file=$1
     cp "$file" "${file}.bak"
     print_info "Backed up: ${file}.bak"
 }
 
-# 恢复所有备份
+# Restore all backups
 restore_backups() {
     print_warning "Restoring backups..."
     [ -f "src/primus_lens_wandb_exporter/__init__.py.bak" ] && mv src/primus_lens_wandb_exporter/__init__.py.bak src/primus_lens_wandb_exporter/__init__.py
@@ -86,14 +86,14 @@ restore_backups() {
     print_info "Backups restored"
 }
 
-# 删除所有备份
+# Remove all backups
 remove_backups() {
     rm -f src/primus_lens_wandb_exporter/__init__.py.bak
     rm -f setup.py.bak
     rm -f pyproject.toml.bak
 }
 
-# 更新 __init__.py
+# Update __init__.py
 update_init_py() {
     local new_version=$1
     local file="src/primus_lens_wandb_exporter/__init__.py"
@@ -105,7 +105,7 @@ update_init_py() {
     
     backup_file "$file"
     
-    # 使用 sed 替换版本号
+    # Use sed to replace version number
     if [[ "$OSTYPE" == "darwin"* ]]; then
         # macOS
         sed -i '' "s/__version__ = \".*\"/__version__ = \"$new_version\"/" "$file"
@@ -114,7 +114,7 @@ update_init_py() {
         sed -i "s/__version__ = \".*\"/__version__ = \"$new_version\"/" "$file"
     fi
     
-    # 验证修改
+    # Verify modification
     local updated_version=$(grep "__version__" "$file" | cut -d'"' -f2)
     if [ "$updated_version" = "$new_version" ]; then
         print_success "Updated $file"
@@ -125,7 +125,7 @@ update_init_py() {
     fi
 }
 
-# 更新 setup.py
+# Update setup.py
 update_setup_py() {
     local new_version=$1
     local file="setup.py"
@@ -137,7 +137,7 @@ update_setup_py() {
     
     backup_file "$file"
     
-    # 使用 sed 替换版本号
+    # Use sed to replace version number
     if [[ "$OSTYPE" == "darwin"* ]]; then
         # macOS
         sed -i '' "s/version='[^']*'/version='$new_version'/" "$file"
@@ -146,7 +146,7 @@ update_setup_py() {
         sed -i "s/version='[^']*'/version='$new_version'/" "$file"
     fi
     
-    # 验证修改
+    # Verify modification
     local updated_version=$(grep "version=" "$file" | head -1 | sed "s/.*version='\([^']*\)'.*/\1/")
     if [ "$updated_version" = "$new_version" ]; then
         print_success "Updated $file"
@@ -157,7 +157,7 @@ update_setup_py() {
     fi
 }
 
-# 更新 pyproject.toml
+# Update pyproject.toml
 update_pyproject_toml() {
     local new_version=$1
     local file="pyproject.toml"
@@ -169,7 +169,7 @@ update_pyproject_toml() {
     
     backup_file "$file"
     
-    # 使用 sed 替换版本号（只替换第一个 version = ）
+    # Use sed to replace version number (only replace the first version =)
     if [[ "$OSTYPE" == "darwin"* ]]; then
         # macOS
         sed -i '' "0,/^version = \".*\"/s//version = \"$new_version\"/" "$file"
@@ -178,7 +178,7 @@ update_pyproject_toml() {
         sed -i "0,/^version = \".*\"/s//version = \"$new_version\"/" "$file"
     fi
     
-    # 验证修改
+    # Verify modification
     local updated_version=$(grep "^version" "$file" | head -1 | cut -d'"' -f2)
     if [ "$updated_version" = "$new_version" ]; then
         print_success "Updated $file"
@@ -189,14 +189,14 @@ update_pyproject_toml() {
     fi
 }
 
-# 主程序
+# Main program
 main() {
     print_header "========================================="
     print_header "  Version Updater"
     print_header "========================================="
     echo
     
-    # 检查参数
+    # Check arguments
     if [ $# -ne 1 ]; then
         show_usage
         exit 1
@@ -204,19 +204,19 @@ main() {
     
     NEW_VERSION=$1
     
-    # 验证版本号格式
+    # Validate version format
     if ! validate_version "$NEW_VERSION"; then
         exit 1
     fi
     
-    # 获取当前版本
+    # Get current version
     CURRENT_VERSION=$(get_current_version)
     
     echo "Current version: $CURRENT_VERSION"
     echo "New version:     $NEW_VERSION"
     echo
     
-    # 确认操作
+    # Confirm operation
     read -p "Do you want to update the version? [y/N] " -n 1 -r
     echo
     if [[ ! $REPLY =~ ^[Yy]$ ]]; then
@@ -228,7 +228,7 @@ main() {
     print_info "Updating version numbers..."
     echo
     
-    # 更新所有文件
+    # Update all files
     SUCCESS=true
     
     if ! update_init_py "$NEW_VERSION"; then
@@ -245,14 +245,14 @@ main() {
     
     echo
     
-    # 检查结果
+    # Check results
     if [ "$SUCCESS" = true ]; then
         print_success "All files updated successfully!"
         echo
         print_info "Running version consistency check..."
         echo
         
-        # 运行检查脚本
+        # Run check script
         if [ -f "check_version.sh" ]; then
             bash check_version.sh
             CHECK_RESULT=$?
@@ -293,6 +293,5 @@ main() {
     echo
 }
 
-# 运行主程序
+# Run main program
 main "$@"
-

@@ -465,7 +465,7 @@ func (m *FrameworkDetectionManager) GetStats() map[string]interface{} {
 	return stats
 }
 
-// DetectionStatistics 框架检测统计信息
+// DetectionStatistics represents framework detection statistics information
 type DetectionStatistics struct {
 	TotalWorkloads    int64            `json:"total_workloads"`
 	ByFramework       map[string]int64 `json:"by_framework"`
@@ -479,7 +479,7 @@ type DetectionStatistics struct {
 	Namespace         string           `json:"namespace,omitempty"`
 }
 
-// GetStatistics 获取详细的统计信息
+// GetStatistics retrieves detailed statistical information
 func (m *FrameworkDetectionManager) GetStatistics(
 	ctx context.Context,
 	startTime string,
@@ -490,13 +490,13 @@ func (m *FrameworkDetectionManager) GetStatistics(
 	logrus.Debugf("Getting statistics: startTime=%s, endTime=%s, namespace=%s",
 		startTime, endTime, namespace)
 
-	// 调用 storage 层的统计方法
+	// Call storage layer statistics method
 	stats, err := m.storage.GetStatistics(ctx, startTime, endTime, namespace)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get statistics: %w", err)
 	}
 
-	// 构造返回结果
+	// Construct return result
 	result := &DetectionStatistics{
 		TotalWorkloads:    stats.TotalWorkloads,
 		ByFramework:       stats.ByFramework,

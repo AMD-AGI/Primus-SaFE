@@ -1,11 +1,11 @@
 """
 Primus Lens WandB Exporter
-自动劫持 wandb 的上报功能，无需用户修改代码
+Automatically intercepts wandb reporting without requiring user code changes
 """
 
 __version__ = "0.1.4"
 __author__ = "Primus Team"
 
-# 自动安装 hook（通过 .pth 文件触发）
-# 这个模块会在 Python 启动时自动导入
+# Automatically install hook (triggered via .pth file)
+# This module will be automatically imported when Python starts
 

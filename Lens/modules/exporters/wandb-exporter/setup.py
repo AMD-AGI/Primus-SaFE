@@ -1,6 +1,6 @@
 """
 Setup script for primus-lens-wandb-exporter
-支持通过 .pth 文件自动劫持 wandb
+Support automatic wandb interception via .pth file
 """
 import os
 import sys
@@ -9,30 +9,30 @@ from setuptools.command.install import install
 
 
 class PostInstallCommand(install):
-    """自定义安装命令 - 安装 .pth 文件来实现自动劫持"""
+    """Custom install command - Install .pth file for automatic interception"""
     
     def run(self):
         install.run(self)
         
-        # 创建 .pth 文件
+        # Create .pth file
         self.create_pth_file()
     
     def create_pth_file(self):
-        """创建 .pth 文件到 site-packages"""
+        """Create .pth file in site-packages"""
         try:
             import site
             
-            # 获取 site-packages 目录
+            # Get site-packages directory
             if hasattr(site, 'getsitepackages'):
                 site_packages = site.getsitepackages()[0]
             else:
-                # 某些环境下可能没有 getsitepackages
+                # Some environments may not have getsitepackages
                 from distutils.sysconfig import get_python_lib
                 site_packages = get_python_lib()
             
             pth_file = os.path.join(site_packages, 'primus_lens_wandb_hook.pth')
             
-            # .pth 文件内容 - 导入 wandb_hook 模块
+            # .pth file content - import wandb_hook module
             pth_content = 'import primus_lens_wandb_exporter.wandb_hook\n'
             
             print(f"Installing .pth file to: {pth_file}")
@@ -50,7 +50,7 @@ class PostInstallCommand(install):
 setup(
     name='primus-lens-wandb-exporter',
     version='0.1.4',
-    description='Primus Lens WandB Exporter - 自动劫持 wandb 上报，无需代码修改',
+    description='Primus Lens WandB Exporter - Automatically intercept wandb reporting without code changes',
     long_description=open('README.md', encoding='utf-8').read() if os.path.exists('README.md') else '',
     long_description_content_type='text/markdown',
     author='Primus Team',
@@ -58,7 +58,7 @@ setup(
     package_dir={'': 'src'},
     python_requires='>=3.7',
     install_requires=[
-        'psutil>=5.8.0',  # 用于系统指标收集
+        'psutil>=5.8.0',  # For system metrics collection
     ],
     extras_require={
         'dev': [
@@ -66,7 +66,7 @@ setup(
             'pytest-cov>=3.0.0',
         ],
         'gpu': [
-            'nvidia-ml-py3>=7.352.0',  # 用于 GPU 指标收集
+            'nvidia-ml-py3>=7.352.0',  # For GPU metrics collection
         ],
     },
     cmdclass={

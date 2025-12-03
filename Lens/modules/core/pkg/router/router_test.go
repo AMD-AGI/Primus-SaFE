@@ -10,7 +10,7 @@ import (
 )
 
 func TestInitRouter_MiddlewareConfiguration(t *testing.T) {
-	// 设置Gin为测试模式
+	// Set Gin to test mode
 	gin.SetMode(gin.TestMode)
 
 	tests := []struct {
@@ -21,16 +21,16 @@ func TestInitRouter_MiddlewareConfiguration(t *testing.T) {
 		description        string
 	}{
 		{
-			name: "默认配置（全部启用）",
+			name: "Default configuration (all enabled)",
 			config: &config.Config{
 				Middleware: config.MiddlewareConfig{},
 			},
 			expectLogging: true,
 			expectTracing: true,
-			description:   "当middleware配置为空时，应该默认启用所有中间件",
+			description:   "When middleware config is empty, all middlewares should be enabled by default",
 		},
 		{
-			name: "仅启用日志",
+			name: "Only logging enabled",
 			config: &config.Config{
 				Middleware: config.MiddlewareConfig{
 					EnableLogging: boolPtr(true),
@@ -39,10 +39,10 @@ func TestInitRouter_MiddlewareConfiguration(t *testing.T) {
 			},
 			expectLogging: true,
 			expectTracing: false,
-			description:   "显式启用日志，禁用追踪",
+			description:   "Explicitly enable logging, disable tracing",
 		},
 		{
-			name: "仅启用追踪",
+			name: "Only tracing enabled",
 			config: &config.Config{
 				Middleware: config.MiddlewareConfig{
 					EnableLogging: boolPtr(false),
@@ -51,10 +51,10 @@ func TestInitRouter_MiddlewareConfiguration(t *testing.T) {
 			},
 			expectLogging: false,
 			expectTracing: true,
-			description:   "禁用日志，显式启用追踪",
+			description:   "Disable logging, explicitly enable tracing",
 		},
 		{
-			name: "全部禁用",
+			name: "All disabled",
 			config: &config.Config{
 				Middleware: config.MiddlewareConfig{
 					EnableLogging: boolPtr(false),
@@ -63,10 +63,10 @@ func TestInitRouter_MiddlewareConfiguration(t *testing.T) {
 			},
 			expectLogging: false,
 			expectTracing: false,
-			description:   "禁用所有可配置的中间件",
+			description:   "Disable all configurable middlewares",
 		},
 		{
-			name: "全部启用",
+			name: "All enabled",
 			config: &config.Config{
 				Middleware: config.MiddlewareConfig{
 					EnableLogging: boolPtr(true),
@@ -75,46 +75,46 @@ func TestInitRouter_MiddlewareConfiguration(t *testing.T) {
 			},
 			expectLogging: true,
 			expectTracing: true,
-			description:   "显式启用所有中间件",
+			description:   "Explicitly enable all middlewares",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// 清空全局的groupRegisters，避免测试之间的影响
+			// Clear global groupRegisters to avoid test interference
 			originalGroupRegisters := groupRegisters
 			groupRegisters = []GroupRegister{}
 			defer func() {
 				groupRegisters = originalGroupRegisters
 			}()
 
-			// 创建Gin引擎
+			// Create Gin engine
 			engine := gin.New()
 
-			// 初始化路由
+			// Initialize router
 			err := InitRouter(engine, tt.config)
 			if err != nil {
 				t.Fatalf("InitRouter() error = %v", err)
 			}
 
-			// 注册一个测试路由
+			// Register a test route
 			engine.GET("/test", func(c *gin.Context) {
 				c.String(http.StatusOK, "ok")
 			})
 
-			// 创建测试请求
+			// Create test request
 			req, _ := http.NewRequest("GET", "/v1/test", nil)
 			w := httptest.NewRecorder()
 			engine.ServeHTTP(w, req)
 
-			// 验证配置是否正确应用
-			// 注意：这里我们只能测试路由是否能正常工作
-			// 实际的中间件行为需要通过日志或其他方式验证
-			if w.Code != http.StatusNotFound { // /v1/test 不存在，期望404
-				// 但如果路由初始化有问题，可能会返回其他错误
+			// Verify configuration is correctly applied
+			// Note: we can only test if the route works normally here
+			// Actual middleware behavior needs to be verified through logs or other means
+			if w.Code != http.StatusNotFound { // /v1/test doesn't exist, expect 404
+				// But if router initialization has issues, may return other errors
 			}
 
-			// 验证配置方法是否返回预期值
+			// Verify configuration methods return expected values
 			if gotLogging := tt.config.Middleware.IsLoggingEnabled(); gotLogging != tt.expectLogging {
 				t.Errorf("%s: IsLoggingEnabled() = %v, want %v", tt.description, gotLogging, tt.expectLogging)
 			}
@@ -129,7 +129,7 @@ func TestInitRouter_MiddlewareConfiguration(t *testing.T) {
 func TestInitRouter_WithGroupRegister(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	// 清空并注册一个测试路由组
+	// Clear and register a test route group
 	originalGroupRegisters := groupRegisters
 	groupRegisters = []GroupRegister{}
 	defer func() {
@@ -162,7 +162,7 @@ func TestInitRouter_WithGroupRegister(t *testing.T) {
 		t.Error("Test route was not registered")
 	}
 
-	// 测试注册的路由是否可访问
+	// Test if the registered route is accessible
 	req, _ := http.NewRequest("GET", "/v1/test", nil)
 	w := httptest.NewRecorder()
 	engine.ServeHTTP(w, req)
@@ -176,7 +176,7 @@ func TestInitRouter_WithGroupRegister(t *testing.T) {
 	}
 }
 
-// boolPtr 返回bool指针的辅助函数
+// boolPtr is a helper function that returns a bool pointer
 func boolPtr(b bool) *bool {
 	return &b
 }

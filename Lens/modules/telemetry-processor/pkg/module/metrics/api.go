@@ -101,7 +101,7 @@ func DisableDebugHandler(ctx *gin.Context) {
 	}))
 }
 
-// GetActiveMetricsHandler 获取最近5分钟活跃的metrics列表
+// GetActiveMetricsHandler gets the list of active metrics from the last 5 minutes
 // GET /api/v1/metrics/active
 func GetActiveMetricsHandler(ctx *gin.Context) {
 	metrics := GetActiveMetricsList()

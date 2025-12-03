@@ -1,0 +1,494 @@
+{
+	"info": {
+		"_postman_id": "framework-detection-api-collection",
+		"name": "Primus Lens - Framework Detection API",
+		"description": "API collection for AI workload framework detection and metadata management with dual-layer framework support (wrapper/base)",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "Get Workload Metadata",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{scheme}}://{{primus-lens-api}}/v1/ai-workload-metadata/:workload_uid?cluster={{cluster_name}}",
+					"host": ["{{primus-lens-api}}"],
+					"path": ["v1", "ai-workload-metadata", ":workload_uid"],
+					"query": [
+						{
+							"key": "cluster",
+							"value": "{{cluster_name}}",
+							"description": "Cluster name (optional)"
+						}
+					],
+					"variable": [
+						{
+							"key": "workload_uid",
+							"value": "abc-123-def-456",
+							"description": "Workload UID"
+						}
+					]
+				},
+				"description": "Get AI workload metadata by workload UID with conflict information and dual-layer framework details"
+			},
+			"response": [
+				{
+					"name": "Success Response",
+					"originalRequest": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{scheme}}://{{primus-lens-api}}/v1/ai-workload-metadata/abc-123-def-456",
+							"host": ["{{primus-lens-api}}"],
+							"path": ["v1", "ai-workload-metadata", "abc-123-def-456"]
+						}
+					},
+					"status": "OK",
+					"code": 200,
+					"_postman_previewlanguage": "json",
+					"header": [
+						{
+							"key": "Content-Type",
+							"value": "application/json"
+						}
+					],
+					"body": "{\n  \"code\": 200,\n  \"data\": {\n    \"id\": 1,\n    \"workload_uid\": \"abc-123-def-456\",\n    \"type\": \"training\",\n    \"framework\": \"primus\",\n    \"framework_layer\": \"wrapper\",\n    \"wrapper_framework\": \"primus\",\n    \"base_framework\": \"megatron\",\n    \"metadata\": {\n      \"framework_detection\": {\n        \"framework\": \"primus\",\n        \"framework_layer\": \"wrapper\",\n        \"wrapper_framework\": \"primus\",\n        \"base_framework\": \"megatron\",\n        \"confidence\": 0.95,\n        \"status\": \"confirmed\"\n      }\n    },\n    \"image_prefix\": \"registry.example.com/primus\",\n    \"created_at\": \"2025-01-15T10:30:00Z\",\n    \"has_conflicts\": false,\n    \"unresolved_conflicts\": 0,\n    \"conflict_summary\": []\n  }\n}"
+				}
+			]
+		},
+		{
+			"name": "List Workload Metadata",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{scheme}}://{{primus-lens-api}}/v1/ai-workload-metadata?cluster={{cluster_name}}&framework=primus&type=training&has_conflict=false",
+					"host": ["{{primus-lens-api}}"],
+					"path": ["v1", "ai-workload-metadata"],
+					"query": [
+						{
+							"key": "cluster",
+							"value": "{{cluster_name}}",
+							"description": "Cluster name (optional)"
+						},
+						{
+							"key": "framework",
+							"value": "primus",
+							"description": "Search in wrapper_framework, base_framework, or primary framework (optional)"
+						},
+						{
+							"key": "wrapper_framework",
+							"value": "",
+							"description": "Specific wrapper framework filter (optional)",
+							"disabled": true
+						},
+						{
+							"key": "base_framework",
+							"value": "",
+							"description": "Specific base framework filter (optional)",
+							"disabled": true
+						},
+						{
+							"key": "type",
+							"value": "training",
+							"description": "Workload type: training or inference (optional)"
+						},
+						{
+							"key": "has_conflict",
+							"value": "false",
+							"description": "Filter by conflict status: true or false (optional)"
+						}
+					]
+				},
+				"description": "List all AI workload metadata with optional filters including dual-layer framework support"
+			},
+			"response": [
+				{
+					"name": "Success Response",
+					"originalRequest": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{scheme}}://{{primus-lens-api}}/v1/ai-workload-metadata?framework=primus",
+							"host": ["{{primus-lens-api}}"],
+							"path": ["v1", "ai-workload-metadata"],
+							"query": [
+								{
+									"key": "framework",
+									"value": "primus"
+								}
+							]
+						}
+					},
+					"status": "OK",
+					"code": 200,
+					"_postman_previewlanguage": "json",
+					"header": [
+						{
+							"key": "Content-Type",
+							"value": "application/json"
+						}
+					],
+					"body": "{\n  \"code\": 200,\n  \"data\": {\n    \"data\": [\n      {\n        \"id\": 1,\n        \"workload_uid\": \"abc-123\",\n        \"type\": \"training\",\n        \"framework\": \"primus\",\n        \"framework_layer\": \"wrapper\",\n        \"wrapper_framework\": \"primus\",\n        \"base_framework\": \"megatron\",\n        \"has_conflicts\": false,\n        \"unresolved_conflicts\": 0\n      },\n      {\n        \"id\": 2,\n        \"workload_uid\": \"def-456\",\n        \"type\": \"training\",\n        \"framework\": \"primus\",\n        \"framework_layer\": \"wrapper\",\n        \"wrapper_framework\": \"primus\",\n        \"base_framework\": \"deepspeed\",\n        \"has_conflicts\": false,\n        \"unresolved_conflicts\": 0\n      }\n    ],\n    \"total\": 2\n  }\n}"
+				}
+			]
+		},
+		{
+			"name": "List by Wrapper Framework",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{scheme}}://{{primus-lens-api}}/v1/ai-workload-metadata?wrapper_framework=primus&base_framework=megatron",
+					"host": ["{{primus-lens-api}}"],
+					"path": ["v1", "ai-workload-metadata"],
+					"query": [
+						{
+							"key": "wrapper_framework",
+							"value": "primus",
+							"description": "Filter by wrapper framework"
+						},
+						{
+							"key": "base_framework",
+							"value": "megatron",
+							"description": "Filter by base framework"
+						}
+					]
+				},
+				"description": "List workloads filtered by specific wrapper and base framework combination"
+			},
+			"response": []
+		},
+		{
+			"name": "Annotate Workload Framework",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"framework\": \"primus\",\n  \"framework_layer\": \"wrapper\",\n  \"wrapper_framework\": \"primus\",\n  \"base_framework\": \"megatron\",\n  \"type\": \"training\",\n  \"confidence\": 1.0,\n  \"evidence\": {\n    \"reason\": \"Confirmed Primus + Megatron training job\",\n    \"user\": \"admin@example.com\",\n    \"notes\": \"Verified through log analysis\"\n  }\n}"
+				},
+				"url": {
+					"raw": "{{scheme}}://{{primus-lens-api}}/v1/ai-workload-metadata/:workload_uid/annotate?cluster={{cluster_name}}",
+					"host": ["{{primus-lens-api}}"],
+					"path": ["v1", "ai-workload-metadata", ":workload_uid", "annotate"],
+					"query": [
+						{
+							"key": "cluster",
+							"value": "{{cluster_name}}",
+							"description": "Cluster name (optional)"
+						}
+					],
+					"variable": [
+						{
+							"key": "workload_uid",
+							"value": "abc-123-def-456",
+							"description": "Workload UID"
+						}
+					]
+				},
+				"description": "Annotate workload with framework information including dual-layer framework support (user annotation)"
+			},
+			"response": [
+				{
+					"name": "Success Response - New",
+					"originalRequest": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"framework\": \"primus\",\n  \"framework_layer\": \"wrapper\",\n  \"wrapper_framework\": \"primus\",\n  \"base_framework\": \"megatron\",\n  \"type\": \"training\",\n  \"confidence\": 1.0,\n  \"evidence\": {\n    \"reason\": \"Confirmed Primus + Megatron training job\"\n  }\n}"
+						},
+						"url": {
+							"raw": "{{scheme}}://{{primus-lens-api}}/v1/ai-workload-metadata/abc-123-def-456/annotate",
+							"host": ["{{primus-lens-api}}"],
+							"path": ["v1", "ai-workload-metadata", "abc-123-def-456", "annotate"]
+						}
+					},
+					"status": "OK",
+					"code": 200,
+					"_postman_previewlanguage": "json",
+					"header": [
+						{
+							"key": "Content-Type",
+							"value": "application/json"
+						}
+					],
+					"body": "{\n  \"code\": 200,\n  \"data\": {\n    \"id\": 1,\n    \"workload_uid\": \"abc-123-def-456\",\n    \"type\": \"training\",\n    \"framework\": \"primus\",\n    \"metadata\": {\n      \"framework_detection\": {\n        \"framework\": \"primus\",\n        \"framework_layer\": \"wrapper\",\n        \"wrapper_framework\": \"primus\",\n        \"base_framework\": \"megatron\",\n        \"type\": \"training\",\n        \"confidence\": 1.0,\n        \"status\": \"confirmed\",\n        \"sources\": [\n          {\n            \"source\": \"user\",\n            \"framework\": \"primus\",\n            \"framework_layer\": \"wrapper\",\n            \"wrapper_framework\": \"primus\",\n            \"base_framework\": \"megatron\",\n            \"type\": \"training\",\n            \"confidence\": 1.0,\n            \"detected_at\": \"2025-01-15T10:30:00Z\",\n            \"evidence\": {\n              \"method\": \"user_annotation\",\n              \"reason\": \"Confirmed Primus + Megatron training job\",\n              \"annotated_at\": \"2025-01-15T10:30:00Z\"\n            }\n          }\n        ],\n        \"conflicts\": [],\n        \"version\": \"1.0\",\n        \"updated_at\": \"2025-01-15T10:30:00Z\"\n      }\n    },\n    \"created_at\": \"2025-01-15T10:30:00Z\"\n  }\n}"
+				}
+			]
+		},
+		{
+			"name": "Annotate Single Layer Framework",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"framework\": \"pytorch\",\n  \"type\": \"training\",\n  \"confidence\": 1.0,\n  \"evidence\": {\n    \"reason\": \"Pure PyTorch training job\",\n    \"user\": \"admin@example.com\"\n  }\n}"
+				},
+				"url": {
+					"raw": "{{scheme}}://{{primus-lens-api}}/v1/ai-workload-metadata/:workload_uid/annotate",
+					"host": ["{{primus-lens-api}}"],
+					"path": ["v1", "ai-workload-metadata", ":workload_uid", "annotate"],
+					"variable": [
+						{
+							"key": "workload_uid",
+							"value": "xyz-789",
+							"description": "Workload UID"
+						}
+					]
+				},
+				"description": "Annotate workload with single-layer framework (no wrapper/base distinction)"
+			},
+			"response": []
+		},
+		{
+			"name": "Update Workload Metadata",
+			"request": {
+				"method": "PUT",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"type\": \"training\",\n  \"framework\": \"primus\",\n  \"metadata\": {\n    \"framework_detection\": {\n      \"framework\": \"primus\",\n      \"framework_layer\": \"wrapper\",\n      \"wrapper_framework\": \"primus\",\n      \"base_framework\": \"megatron\",\n      \"confidence\": 0.98,\n      \"status\": \"verified\"\n    }\n  }\n}"
+				},
+				"url": {
+					"raw": "{{scheme}}://{{primus-lens-api}}/v1/ai-workload-metadata/:workload_uid?cluster={{cluster_name}}",
+					"host": ["{{primus-lens-api}}"],
+					"path": ["v1", "ai-workload-metadata", ":workload_uid"],
+					"query": [
+						{
+							"key": "cluster",
+							"value": "{{cluster_name}}",
+							"description": "Cluster name (optional)"
+						}
+					],
+					"variable": [
+						{
+							"key": "workload_uid",
+							"value": "abc-123-def-456",
+							"description": "Workload UID"
+						}
+					]
+				},
+				"description": "Update existing AI workload metadata (full update)"
+			},
+			"response": []
+		},
+		{
+			"name": "Delete Workload Metadata",
+			"request": {
+				"method": "DELETE",
+				"header": [],
+				"url": {
+					"raw": "{{scheme}}://{{primus-lens-api}}/v1/ai-workload-metadata/:workload_uid?cluster={{cluster_name}}",
+					"host": ["{{primus-lens-api}}"],
+					"path": ["v1", "ai-workload-metadata", ":workload_uid"],
+					"query": [
+						{
+							"key": "cluster",
+							"value": "{{cluster_name}}",
+							"description": "Cluster name (optional)"
+						}
+					],
+					"variable": [
+						{
+							"key": "workload_uid",
+							"value": "abc-123-def-456",
+							"description": "Workload UID"
+						}
+					]
+				},
+				"description": "Delete AI workload metadata"
+			},
+			"response": [
+				{
+					"name": "Success Response",
+					"originalRequest": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{scheme}}://{{primus-lens-api}}/v1/ai-workload-metadata/abc-123-def-456",
+							"host": ["{{primus-lens-api}}"],
+							"path": ["v1", "ai-workload-metadata", "abc-123-def-456"]
+						}
+					},
+					"status": "OK",
+					"code": 200,
+					"_postman_previewlanguage": "json",
+					"header": [
+						{
+							"key": "Content-Type",
+							"value": "application/json"
+						}
+					],
+					"body": "{\n  \"code\": 200,\n  \"data\": {\n    \"message\": \"metadata deleted successfully\"\n  }\n}"
+				}
+			]
+		},
+		{
+			"name": "Get Workload Conflict Logs",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{scheme}}://{{primus-lens-api}}/v1/ai-workload-metadata/:workload_uid/conflicts?cluster={{cluster_name}}&page=1&page_size=20",
+					"host": ["{{primus-lens-api}}"],
+					"path": ["v1", "ai-workload-metadata", ":workload_uid", "conflicts"],
+					"query": [
+						{
+							"key": "cluster",
+							"value": "{{cluster_name}}",
+							"description": "Cluster name (optional)"
+						},
+						{
+							"key": "page",
+							"value": "1",
+							"description": "Page number (default: 1)"
+						},
+						{
+							"key": "page_size",
+							"value": "20",
+							"description": "Page size (default: 20, max: 100)"
+						}
+					],
+					"variable": [
+						{
+							"key": "workload_uid",
+							"value": "abc-123-def-456",
+							"description": "Workload UID"
+						}
+					]
+				},
+				"description": "Get detection conflict logs for a specific workload with detailed evidence including dual-layer framework information"
+			},
+			"response": [
+				{
+					"name": "Success Response",
+					"originalRequest": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{scheme}}://{{primus-lens-api}}/v1/ai-workload-metadata/abc-123-def-456/conflicts",
+							"host": ["{{primus-lens-api}}"],
+							"path": ["v1", "ai-workload-metadata", "abc-123-def-456", "conflicts"]
+						}
+					},
+					"status": "OK",
+					"code": 200,
+					"_postman_previewlanguage": "json",
+					"header": [
+						{
+							"key": "Content-Type",
+							"value": "application/json"
+						}
+					],
+					"body": "{\n  \"code\": 200,\n  \"data\": {\n    \"data\": [\n      {\n        \"id\": 1,\n        \"workload_uid\": \"abc-123-def-456\",\n        \"source_1\": \"wandb\",\n        \"source_2\": \"image\",\n        \"framework_1\": \"primus\",\n        \"framework_2\": \"megatron\",\n        \"confidence_1\": 0.95,\n        \"confidence_2\": 0.80,\n        \"resolution_strategy\": \"highest_confidence\",\n        \"resolved_framework\": \"primus\",\n        \"resolved_confidence\": 0.95,\n        \"evidence_1\": {\n          \"method\": \"import_detection\",\n          \"framework_layer\": \"wrapper\",\n          \"wrapper_framework\": \"primus\",\n          \"base_framework\": \"megatron\"\n        },\n        \"evidence_2\": {\n          \"image_name\": \"megatron-lm:latest\",\n          \"pattern_matched\": \"megatron\"\n        },\n        \"created_at\": \"2025-01-15T10:25:00Z\",\n        \"resolved_at\": \"2025-01-15T10:26:00Z\"\n      }\n    ],\n    \"total\": 1,\n    \"page\": 1,\n    \"page_size\": 20\n  }\n}"
+				}
+			]
+		},
+		{
+			"name": "List All Detection Conflicts",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{scheme}}://{{primus-lens-api}}/v1/detection-conflicts?cluster={{cluster_name}}&page=1&page_size=20",
+					"host": ["{{primus-lens-api}}"],
+					"path": ["v1", "detection-conflicts"],
+					"query": [
+						{
+							"key": "cluster",
+							"value": "{{cluster_name}}",
+							"description": "Cluster name (optional)"
+						},
+						{
+							"key": "page",
+							"value": "1",
+							"description": "Page number (default: 1)"
+						},
+						{
+							"key": "page_size",
+							"value": "20",
+							"description": "Page size (default: 20, max: 100)"
+						}
+					]
+				},
+				"description": "List all recent detection conflicts across all workloads"
+			},
+			"response": [
+				{
+					"name": "Success Response",
+					"originalRequest": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{scheme}}://{{primus-lens-api}}/v1/detection-conflicts?page=1&page_size=20",
+							"host": ["{{primus-lens-api}}"],
+							"path": ["v1", "detection-conflicts"],
+							"query": [
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "page_size",
+									"value": "20"
+								}
+							]
+						}
+					},
+					"status": "OK",
+					"code": 200,
+					"_postman_previewlanguage": "json",
+					"header": [
+						{
+							"key": "Content-Type",
+							"value": "application/json"
+						}
+					],
+					"body": "{\n  \"code\": 200,\n  \"data\": {\n    \"data\": [\n      {\n        \"id\": 1,\n        \"workload_uid\": \"abc-123\",\n        \"source_1\": \"wandb\",\n        \"source_2\": \"image\",\n        \"framework_1\": \"primus\",\n        \"framework_2\": \"megatron\",\n        \"confidence_1\": 0.95,\n        \"confidence_2\": 0.80,\n        \"resolution_strategy\": \"highest_confidence\",\n        \"resolved_framework\": \"primus\",\n        \"resolved_confidence\": 0.95,\n        \"created_at\": \"2025-01-15T10:25:00Z\"\n      },\n      {\n        \"id\": 2,\n        \"workload_uid\": \"def-456\",\n        \"source_1\": \"wandb\",\n        \"source_2\": \"component\",\n        \"framework_1\": \"deepspeed\",\n        \"framework_2\": \"pytorch\",\n        \"confidence_1\": 0.85,\n        \"confidence_2\": 0.70,\n        \"resolution_strategy\": \"\",\n        \"created_at\": \"2025-01-15T11:00:00Z\"\n      }\n    ],\n    \"total\": 2,\n    \"page\": 1,\n    \"page_size\": 20\n  }\n}"
+				}
+			]
+		}
+	],
+	"variable": [
+		{
+			"key": "scheme",
+			"value": "http",
+			"type": "string"
+		},
+		{
+			"key": "primus-lens-api",
+			"value": "localhost:8080",
+			"type": "string"
+		},
+		{
+			"key": "cluster_name",
+			"value": "default",
+			"type": "string"
+		}
+	]
+}
+

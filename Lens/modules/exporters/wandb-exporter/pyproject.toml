@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "primus-lens-wandb-exporter"
 version = "0.1.4"
-description = "自动劫持 WandB 上报的工具，无需修改用户代码"
+description = "Tool for automatically intercepting WandB reporting without modifying user code"
 readme = "README.md"
 requires-python = ">=3.7"
 license = {text = "Apache-2.0"}

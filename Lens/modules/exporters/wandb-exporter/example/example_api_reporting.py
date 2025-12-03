@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
 """
-示例：使用 WandB Exporter 的 API 上报功能
+Example: Using WandB Exporter's API Reporting Feature
 
-这个示例展示了如何通过环境变量配置 API 上报，
-并演示了框架检测数据和训练指标的异步上报。
+This example demonstrates how to configure API reporting through environment variables,
+and shows the async reporting of framework detection data and training metrics.
 
-运行方式：
-    # 设置必需的环境变量
+Usage:
+    # Set required environment variables
     export WORKLOAD_UID="my-workload-123"
     export POD_UID="my-pod-456"
-    export PRIMUS_CONFIG="/path/to/config.yaml"  # 可选：框架特征
-    export PRIMUS_LENS_API_BASE_URL="http://localhost:8080/api/v1"  # API 地址
+    export PRIMUS_CONFIG="/path/to/config.yaml"  # Optional: framework features
+    export PRIMUS_LENS_API_BASE_URL="http://localhost:8080/api/v1"  # API endpoint
     
-    # 运行示例
+    # Run the example
     python example_api_reporting.py
 """
 
@@ -20,22 +20,22 @@ import os
 import time
 import wandb
 
-# ========== 配置环境变量 ==========
+# ========== Configure Environment Variables ==========
 
-# 1. Workload 标识（必需）
+# 1. Workload identifier (required)
 os.environ["WORKLOAD_UID"] = "example-workload-123"
 os.environ["POD_NAME"] = "example-pod"
 os.environ["POD_NAMESPACE"] = "default"
 
-# 2. 框架特征（可选，用于框架检测）
+# 2. Framework features (optional, for framework detection)
 os.environ["PRIMUS_CONFIG"] = "/config/primus.yaml"
 os.environ["PRIMUS_VERSION"] = "1.2.3"
 
-# 3. API 配置
+# 3. API configuration
 os.environ["PRIMUS_LENS_API_BASE_URL"] = "http://primus-lens-telemetry-processor:8080/api/v1"
 os.environ["PRIMUS_LENS_WANDB_API_REPORTING"] = "true"
 
-# 4. 本地文件保存（可选）
+# 4. Local file saving (optional)
 os.environ["PRIMUS_LENS_WANDB_SAVE_LOCAL"] = "true"
 os.environ["PRIMUS_LENS_WANDB_OUTPUT_PATH"] = "/tmp/wandb_metrics"
 
@@ -50,17 +50,17 @@ print(f"  PRIMUS_CONFIG: {os.environ.get('PRIMUS_CONFIG')}")
 print(f"  API_BASE_URL: {os.environ.get('PRIMUS_LENS_API_BASE_URL')}")
 print()
 
-# ========== 初始化 WandB ==========
+# ========== Initialize WandB ==========
 
 print("Initializing WandB...")
 print()
 
-# 初始化 wandb - 这会触发框架检测数据的采集和上报
+# Initialize wandb - this will trigger framework detection data collection and reporting
 run = wandb.init(
     project="primus-training-exp",
     name="example-run",
     config={
-        "framework": "primus",  # 这会被作为 hint 使用
+        "framework": "primus",  # This will be used as a hint
         "learning_rate": 0.001,
         "batch_size": 32,
         "epochs": 10,
@@ -76,18 +76,18 @@ print()
 print("→ Framework detection data has been queued for async reporting")
 print()
 
-# ========== 模拟训练过程 ==========
+# ========== Simulate Training Process ==========
 
 print("Starting training simulation...")
 print()
 
 num_steps = 20
 for step in range(num_steps):
-    # 模拟训练指标
-    loss = 2.5 - (step * 0.1)  # 逐渐下降
-    accuracy = 0.5 + (step * 0.02)  # 逐渐上升
+    # Simulate training metrics
+    loss = 2.5 - (step * 0.1)  # Gradually decreasing
+    accuracy = 0.5 + (step * 0.02)  # Gradually increasing
     
-    # 记录指标 - 这会触发指标数据的异步上报
+    # Log metrics - this will trigger async reporting of metric data
     wandb.log({
         "loss": loss,
         "accuracy": accuracy,
@@ -95,11 +95,11 @@ for step in range(num_steps):
         "step": step,
     }, step=step)
     
-    # 每5步打印一次进度
+    # Print progress every 5 steps
     if step % 5 == 0:
         print(f"  Step {step:3d}: loss={loss:.3f}, accuracy={accuracy:.3f}")
     
-    # 模拟训练耗时
+    # Simulate training time
     time.sleep(0.1)
 
 print()
@@ -108,7 +108,7 @@ print()
 print("→ All metrics have been queued for async reporting")
 print()
 
-# ========== 结束 WandB Run ==========
+# ========== Finish WandB Run ==========
 
 print("Finishing WandB run...")
 wandb.finish()
@@ -117,10 +117,10 @@ print()
 print("✓ WandB run finished")
 print()
 
-# ========== 等待异步上报完成 ==========
+# ========== Wait for Async Reporting to Complete ==========
 
 print("Waiting for async reporter to flush data...")
-time.sleep(2)  # 等待后台线程完成上报
+time.sleep(2)  # Wait for background thread to complete reporting
 
 print()
 print("=" * 60)
@@ -148,4 +148,3 @@ print("Next steps:")
 print("  - Check telemetry-processor logs for received data")
 print("  - Query framework detection: GET /api/v1/workloads/{workload_uid}/framework-detection")
 print()
-

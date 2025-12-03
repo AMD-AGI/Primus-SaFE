@@ -1,32 +1,32 @@
 #!/bin/bash
 #
-# Primus Lens WandB Exporter - PyPI 发布脚本
+# Primus Lens WandB Exporter - PyPI Publishing Script
 #
-# 使用方法：
-#   1. 设置环境变量：
+# Usage:
+#   1. Set environment variables:
 #      export PYPI_TOKEN="pypi-AgEIcHlwaS5vcmcC..."
-#      export TESTPYPI_TOKEN="pypi-AgEI..." (可选，用于测试)
+#      export TESTPYPI_TOKEN="pypi-AgEI..." (optional, for testing)
 #
-#   2. 运行脚本：
+#   2. Run the script:
 #      ./publish.sh [--test] [--skip-tests] [--skip-build]
 #
-# 参数：
-#   --test          上传到 TestPyPI 而不是正式 PyPI
-#   --skip-tests    跳过测试阶段
-#   --skip-build    跳过构建阶段（重用已有的 dist/）
-#   --help          显示帮助信息
+# Arguments:
+#   --test          Upload to TestPyPI instead of official PyPI
+#   --skip-tests    Skip test phase
+#   --skip-build    Skip build phase (reuse existing dist/)
+#   --help          Show help message
 #
 
-set -e  # 遇到错误立即退出
+set -e  # Exit immediately on error
 
-# 颜色输出
+# Color output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-# 日志函数
+# Logging functions
 log_info() {
     echo -e "${BLUE}[INFO]${NC} $1"
 }
@@ -43,45 +43,45 @@ log_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
-# 显示帮助信息
+# Show help message
 show_help() {
     cat << EOF
-Primus Lens WandB Exporter - PyPI 发布脚本
+Primus Lens WandB Exporter - PyPI Publishing Script
 
-使用方法:
-    ./publish.sh [选项]
+Usage:
+    ./publish.sh [options]
 
-环境变量:
-    PYPI_TOKEN          PyPI API Token (必需)
-    TESTPYPI_TOKEN      TestPyPI API Token (使用 --test 时必需)
+Environment Variables:
+    PYPI_TOKEN          PyPI API Token (required)
+    TESTPYPI_TOKEN      TestPyPI API Token (required when using --test)
 
-选项:
-    --test              上传到 TestPyPI 进行测试
-    --skip-tests        跳过测试阶段
-    --skip-build        跳过构建阶段（重用已有的 dist/）
-    --help              显示此帮助信息
+Options:
+    --test              Upload to TestPyPI for testing
+    --skip-tests        Skip test phase
+    --skip-build        Skip build phase (reuse existing dist/)
+    --help              Show this help message
 
-示例:
-    # 发布到正式 PyPI
+Examples:
+    # Publish to official PyPI
     export PYPI_TOKEN="pypi-AgEIcHlwaS5vcmcC..."
     ./publish.sh
 
-    # 先测试发布到 TestPyPI
+    # Test publish to TestPyPI first
     export TESTPYPI_TOKEN="pypi-AgEI..."
     ./publish.sh --test
 
-    # 跳过测试直接发布
+    # Skip tests and publish directly
     ./publish.sh --skip-tests
 
-获取 PyPI Token:
-    1. 访问 https://pypi.org/manage/account/token/
-    2. 创建新的 API token
-    3. 复制 token 并设置为环境变量
+Get PyPI Token:
+    1. Visit https://pypi.org/manage/account/token/
+    2. Create a new API token
+    3. Copy token and set as environment variable
 
 EOF
 }
 
-# 解析命令行参数
+# Parse command line arguments
 USE_TESTPYPI=false
 SKIP_TESTS=false
 SKIP_BUILD=false
@@ -105,18 +105,18 @@ while [[ $# -gt 0 ]]; do
             exit 0
             ;;
         *)
-            log_error "未知参数: $1"
+            log_error "Unknown argument: $1"
             show_help
             exit 1
             ;;
     esac
 done
 
-# 检查环境变量
+# Check environment variables
 if [ "$USE_TESTPYPI" = true ]; then
     if [ -z "$TESTPYPI_TOKEN" ]; then
-        log_error "TESTPYPI_TOKEN 环境变量未设置"
-        echo "请运行: export TESTPYPI_TOKEN=\"your-token-here\""
+        log_error "TESTPYPI_TOKEN environment variable not set"
+        echo "Please run: export TESTPYPI_TOKEN=\"your-token-here\""
         exit 1
     fi
     PYPI_TOKEN="$TESTPYPI_TOKEN"
@@ -124,150 +124,150 @@ if [ "$USE_TESTPYPI" = true ]; then
     REPOSITORY_URL="https://test.pypi.org/legacy/"
 else
     if [ -z "$PYPI_TOKEN" ]; then
-        log_error "PYPI_TOKEN 环境变量未设置"
-        echo "请运行: export PYPI_TOKEN=\"your-token-here\""
+        log_error "PYPI_TOKEN environment variable not set"
+        echo "Please run: export PYPI_TOKEN=\"your-token-here\""
         exit 1
     fi
     REPOSITORY="pypi"
     REPOSITORY_URL="https://upload.pypi.org/legacy/"
 fi
 
-# 获取脚本所在目录
+# Get script directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
 echo ""
 echo "╔════════════════════════════════════════════════════════════════╗"
-echo "║    Primus Lens WandB Exporter - PyPI 发布工具                 ║"
+echo "║    Primus Lens WandB Exporter - PyPI Publishing Tool          ║"
 echo "╚════════════════════════════════════════════════════════════════╝"
 echo ""
 
-log_info "工作目录: $SCRIPT_DIR"
-log_info "目标仓库: $REPOSITORY"
+log_info "Working directory: $SCRIPT_DIR"
+log_info "Target repository: $REPOSITORY"
 echo ""
 
-# 步骤 1: 检查必要的工具
-log_info "步骤 1/6: 检查必要的工具..."
+# Step 1: Check required tools
+log_info "Step 1/6: Checking required tools..."
 
 if ! command -v python3 &> /dev/null; then
-    log_error "Python3 未安装"
+    log_error "Python3 not installed"
     exit 1
 fi
 
 PYTHON_VERSION=$(python3 --version)
 log_success "Python: $PYTHON_VERSION"
 
-# 检查虚拟环境
+# Check virtual environment
 if [ ! -d ".venv" ]; then
-    log_warning "虚拟环境不存在，正在创建..."
+    log_warning "Virtual environment does not exist, creating..."
     python3 -m venv .venv
 fi
 
-# 激活虚拟环境
+# Activate virtual environment
 source .venv/bin/activate
 
-# 安装必要的构建工具
-log_info "安装构建工具..."
+# Install necessary build tools
+log_info "Installing build tools..."
 pip install --upgrade pip build twine > /dev/null 2>&1
 
-log_success "工具检查完成"
+log_success "Tool check completed"
 echo ""
 
-# 步骤 2: 运行测试
+# Step 2: Run tests
 if [ "$SKIP_TESTS" = false ]; then
-    log_info "步骤 2/6: 运行测试套件..."
+    log_info "Step 2/6: Running test suite..."
     
-    # 设置测试环境变量
+    # Set test environment variables
     export PRIMUS_LENS_WANDB_HOOK=true
     export WANDB_MODE=offline
     export WANDB_SILENT=true
     
     if python3 test_real_scenario.py --scenario basic; then
-        log_success "基础测试通过"
+        log_success "Basic tests passed"
     else
-        log_error "测试失败"
+        log_error "Tests failed"
         echo ""
-        read -p "是否继续发布？(y/N): " -n 1 -r
+        read -p "Continue with publishing? (y/N): " -n 1 -r
         echo ""
         if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-            log_info "发布已取消"
+            log_info "Publishing cancelled"
             exit 1
         fi
     fi
     echo ""
 else
-    log_warning "步骤 2/6: 跳过测试"
+    log_warning "Step 2/6: Skipping tests"
     echo ""
 fi
 
-# 步骤 3: 清理旧的构建文件
+# Step 3: Clean old build files
 if [ "$SKIP_BUILD" = false ]; then
-    log_info "步骤 3/6: 清理旧的构建文件..."
+    log_info "Step 3/6: Cleaning old build files..."
     
     rm -rf build/ dist/ *.egg-info src/*.egg-info
     
-    log_success "清理完成"
+    log_success "Cleanup completed"
     echo ""
 else
-    log_warning "步骤 3/6: 跳过清理（保留现有构建）"
+    log_warning "Step 3/6: Skipping cleanup (keeping existing build)"
     echo ""
 fi
 
-# 步骤 4: 构建包
+# Step 4: Build package
 if [ "$SKIP_BUILD" = false ]; then
-    log_info "步骤 4/6: 构建包..."
+    log_info "Step 4/6: Building package..."
     
     python3 -m build
     
     if [ $? -eq 0 ]; then
-        log_success "包构建成功"
+        log_success "Package built successfully"
         echo ""
-        log_info "构建产物:"
+        log_info "Build artifacts:"
         ls -lh dist/
     else
-        log_error "包构建失败"
+        log_error "Package build failed"
         exit 1
     fi
     echo ""
 else
-    log_warning "步骤 4/6: 跳过构建"
+    log_warning "Step 4/6: Skipping build"
     echo ""
 fi
 
-# 步骤 5: 检查包
-log_info "步骤 5/6: 检查包完整性..."
+# Step 5: Check package
+log_info "Step 5/6: Checking package integrity..."
 
 twine check dist/*
 
 if [ $? -eq 0 ]; then
-    log_success "包检查通过"
+    log_success "Package check passed"
 else
-    log_error "包检查失败"
+    log_error "Package check failed"
     exit 1
 fi
 echo ""
 
-# 步骤 6: 上传到 PyPI
-log_info "步骤 6/6: 上传到 $REPOSITORY..."
+# Step 6: Upload to PyPI
+log_info "Step 6/6: Uploading to $REPOSITORY..."
 echo ""
 
 if [ "$USE_TESTPYPI" = true ]; then
-    log_warning "这是测试上传到 TestPyPI"
-    log_warning "安装测试包: pip install --index-url https://test.pypi.org/simple/ primus-lens-wandb-exporter"
+    log_warning "This is a test upload to TestPyPI"
+    log_warning "Install test package: pip install --index-url https://test.pypi.org/simple/ primus-lens-wandb-exporter"
 else
-    log_warning "这是正式上传到 PyPI，请确认！"
+    log_warning "This is an official upload to PyPI, please confirm!"
 fi
 echo ""
 
-read -p "确认上传？(y/N): " -n 1 -r
+read -p "Confirm upload? (y/N): " -n 1 -r
 echo ""
 
 if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-    log_info "上传已取消"
+    log_info "Upload cancelled"
     exit 0
 fi
 
-# 使用 twine 上传，通过环境变量传递 token
+# Use twine to upload, passing token via environment variables
 export TWINE_USERNAME="__token__"
 export TWINE_PASSWORD="$PYPI_TOKEN"
 
@@ -279,32 +279,31 @@ fi
 
 if [ $? -eq 0 ]; then
     echo ""
-    log_success "上传成功！"
+    log_success "Upload successful!"
     echo ""
     echo "╔════════════════════════════════════════════════════════════════╗"
-    echo "║                    🎉 发布成功！                                ║"
+    echo "║                    🎉 Publishing Successful!                   ║"
     echo "╚════════════════════════════════════════════════════════════════╝"
     echo ""
     
     if [ "$USE_TESTPYPI" = true ]; then
-        echo "测试安装命令:"
+        echo "Test installation command:"
         echo "  pip install --index-url https://test.pypi.org/simple/ primus-lens-wandb-exporter"
     else
-        echo "安装命令:"
+        echo "Installation command:"
         echo "  pip install primus-lens-wandb-exporter"
         echo ""
-        echo "包页面:"
+        echo "Package page:"
         echo "  https://pypi.org/project/primus-lens-wandb-exporter/"
     fi
     echo ""
 else
-    log_error "上传失败"
+    log_error "Upload failed"
     exit 1
 fi
 
-# 清理环境变量
+# Clean up environment variables
 unset TWINE_USERNAME
 unset TWINE_PASSWORD
 
-log_info "发布流程完成"
-
+log_info "Publishing process completed"

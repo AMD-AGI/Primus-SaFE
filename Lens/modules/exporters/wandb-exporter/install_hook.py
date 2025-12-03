@@ -1,5 +1,5 @@
 """
-安装/卸载 Primus Lens WandB Hook 的辅助脚本
+Helper script to install/uninstall Primus Lens WandB Hook
 """
 import os
 import sys
@@ -8,7 +8,7 @@ import argparse
 
 
 def get_pth_file_path():
-    """获取 .pth 文件路径"""
+    """Get .pth file path"""
     if hasattr(site, 'getsitepackages'):
         site_packages = site.getsitepackages()[0]
     else:
@@ -19,14 +19,14 @@ def get_pth_file_path():
 
 
 def install_pth_file():
-    """安装 .pth 文件"""
+    """Install .pth file"""
     pth_file = get_pth_file_path()
     
-    # .pth 文件内容
+    # .pth file content
     pth_content = 'import primus_lens_wandb_exporter.wandb_hook\n'
     
     try:
-        # 检查目录是否可写
+        # Check if directory is writable
         site_packages = os.path.dirname(pth_file)
         if not os.access(site_packages, os.W_OK):
             print(f"✗ Error: No write permission to {site_packages}")
@@ -37,7 +37,7 @@ def install_pth_file():
                 print(f"  sudo python {sys.argv[0]} install")
             return False
         
-        # 写入 .pth 文件
+        # Write .pth file
         with open(pth_file, 'w') as f:
             f.write(pth_content)
         
@@ -61,7 +61,7 @@ def install_pth_file():
 
 
 def uninstall_pth_file():
-    """卸载 .pth 文件"""
+    """Uninstall .pth file"""
     pth_file = get_pth_file_path()
     
     try:
@@ -83,7 +83,7 @@ def uninstall_pth_file():
 
 
 def check_installation():
-    """检查安装状态"""
+    """Check installation status"""
     pth_file = get_pth_file_path()
     
     print("Checking Primus Lens WandB Hook installation...")
@@ -93,13 +93,13 @@ def check_installation():
     if os.path.exists(pth_file):
         print(f"  Status: ✓ INSTALLED")
         
-        # 读取内容
+        # Read content
         with open(pth_file, 'r') as f:
             content = f.read()
         print(f"  Content: {content.strip()}")
         print()
         
-        # 检查包是否可导入
+        # Check if package is importable
         try:
             import primus_lens_wandb_exporter.wandb_hook
             print(f"  Package: ✓ Available")
@@ -108,7 +108,7 @@ def check_installation():
         
         print()
         
-        # 检查环境变量
+        # Check environment variables
         print("Environment variables:")
         env_vars = [
             'PRIMUS_LENS_WANDB_HOOK',
@@ -133,7 +133,7 @@ def check_installation():
 
 
 def main():
-    """主函数"""
+    """Main function"""
     parser = argparse.ArgumentParser(
         description='Install/uninstall Primus Lens WandB Hook',
         formatter_class=argparse.RawDescriptionHelpFormatter,
