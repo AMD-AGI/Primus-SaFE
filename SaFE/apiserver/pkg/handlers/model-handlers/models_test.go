@@ -112,28 +112,6 @@ func TestResourceReq(t *testing.T) {
 	assert.Equal(t, "nvidia-tesla-v100", resources.GPU)
 }
 
-// TestDownloadTargetReq tests the DownloadTargetReq struct
-func TestDownloadTargetReq(t *testing.T) {
-	s3Config := &S3ConfigReq{
-		Endpoint:        "s3.amazonaws.com",
-		Bucket:          "my-models",
-		Region:          "us-west-2",
-		AccessKeyID:     "AKIAIOSFODNN7EXAMPLE",
-		SecretAccessKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
-	}
-
-	downloadTarget := DownloadTargetReq{
-		Type:      string(v1.DownloadTypeS3),
-		LocalPath: "/data/models",
-		S3Config:  s3Config,
-	}
-
-	assert.Equal(t, string(v1.DownloadTypeS3), downloadTarget.Type)
-	assert.Equal(t, "/data/models", downloadTarget.LocalPath)
-	assert.NotNil(t, downloadTarget.S3Config)
-	assert.Equal(t, "my-models", downloadTarget.S3Config.Bucket)
-}
-
 // TestCreateResponse tests the CreateResponse struct
 func TestCreateResponse(t *testing.T) {
 	resp := CreateResponse{
@@ -469,10 +447,6 @@ func TestToggleModel_Enable(t *testing.T) {
 			Source: v1.ModelSource{
 				URL:        "https://huggingface.co/test/model",
 				AccessMode: v1.AccessModeLocal, // Use local mode for toggle test
-			},
-			DownloadTarget: &v1.DownloadTarget{
-				Type:      v1.DownloadTypeLocal,
-				LocalPath: "/apps/models/test",
 			},
 		},
 		Status: v1.ModelStatus{
