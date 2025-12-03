@@ -20,8 +20,6 @@ exec 3>&1
 
 # Trap Ctrl+C (SIGINT) and other signals
 cleanup() {
-    echo ""
-    echo "${LOG_HEADER}[$(date +'%Y-%m-%d %H:%M:%S')] Interrupted by user (Ctrl+C)"
     # Send SIGINT to all child processes first
     kill -INT -$$ 2>/dev/null || true
     # Give child processes time to cleanup

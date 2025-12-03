@@ -13,7 +13,7 @@ for script in *.sh; do
   fi
   if [[ "$TEST_LEVEL" != "FULL" ]]; then
     case "$script" in
-      "rvs_performance.sh"|"rvs_p2p_throughput.sh"|"rvs_power.sh"|"transfer_bench_p2p.sh")
+      "rvs_performance.sh"|"rvs_p2p_throughput.sh"|"rvs_power.sh"|"rvs_pcie_bandwidth.sh"|"transfer_bench_p2p.sh")
         echo "${LOG_HEADER}[$(date +'%Y-%m-%d %H:%M:%S')] Skipping $script (requires TEST_LEVEL=FULL)"
         continue
         ;;
