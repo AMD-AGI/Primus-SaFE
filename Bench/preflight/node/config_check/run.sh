@@ -37,12 +37,12 @@ for i in "${!scripts[@]}"; do
   else
     # Record error regardless of output
     if [ -n "$errors" ]; then
-      errors+=" | "
+      errors="${errors} | "
     fi
     if [ -n "$last_line" ]; then
-      errors+="[$(date +'%Y-%m-%d %H:%M:%S')] [$script] $last_line"
+      errors="${errors}[$(date +'%Y-%m-%d %H:%M:%S')] [$script] $last_line"
     else
-      errors+="[$(date +'%Y-%m-%d %H:%M:%S')] [$script] Failed with exit code $exit_code"
+      errors="${errors}[$(date +'%Y-%m-%d %H:%M:%S')] [$script] Failed with exit code $exit_code"
     fi
   fi
 done

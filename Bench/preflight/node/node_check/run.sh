@@ -13,7 +13,7 @@ for script in *.sh; do
   fi
   if [[ "$TEST_LEVEL" != "FULL" ]]; then
     case "$script" in
-      "rvs_performance.sh"|"rvs_p2p_throughput.sh"|"transfer_bench_p2p.sh")
+      "rvs_performance.sh"|"rvs_p2p_throughput.sh"|"rvs_power.sh"|"transfer_bench_p2p.sh")
         echo "${LOG_HEADER}[$(date +'%Y-%m-%d %H:%M:%S')] Skipping $script (requires TEST_LEVEL=FULL)"
         continue
         ;;
@@ -35,12 +35,12 @@ for script in *.sh; do
   else
     # Record error regardless of output
     if [ -n "$errors" ]; then
-      errors+=" | "
+      errors="${errors} | "
     fi
     if [ -n "$last_line" ]; then
-      errors+="[$(date +'%Y-%m-%d %H:%M:%S')] [$script] $last_line"
+      errors="${errors}[$(date +'%Y-%m-%d %H:%M:%S')] [$script] $last_line"
     else
-      errors+="[$(date +'%Y-%m-%d %H:%M:%S')] [$script] Failed with exit code $exit_code"
+      errors="${errors}[$(date +'%Y-%m-%d %H:%M:%S')] [$script] Failed with exit code $exit_code"
     fi
   fi
 done
