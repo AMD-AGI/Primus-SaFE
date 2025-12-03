@@ -32,10 +32,8 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/secure"
-	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/slice"
 )
 
 const (
@@ -90,23 +88,16 @@ func (r *ClusterReconciler) handleControlPlaneCreation(ctx context.Context, clus
 	if !cluster.DeletionTimestamp.IsZero() {
 		return r.reset(ctx, cluster, hostsContent)
 	}
-
-	if err = r.addFinalizer(ctx, cluster); err != nil {
-		return err
-	}
-
 	return r.createControlPlanePod(ctx, cluster, hostsContent)
 }
 
 // removeFinalizer removes the cluster finalizer during deletion.
 func (r *ClusterReconciler) removeFinalizer(ctx context.Context, cluster *v1.Cluster) error {
-	klog.Infof("delete %s finalizer", v1.ClusterFinalizer)
-	var ok bool
-	cluster.Finalizers, ok = slice.RemoveString(cluster.Finalizers, v1.ClusterFinalizer)
-	if !ok {
-		return nil
+	err := utils.RemoveFinalizer(ctx, r.Client, cluster, v1.ClusterFinalizer)
+	if err == nil {
+		klog.Infof("delete %s finalizer", v1.ClusterFinalizer)
 	}
-	return r.Update(ctx, cluster)
+	return err
 }
 
 // createControlPlanePod creates and manages the worker pod for cluster creation.
@@ -427,14 +418,7 @@ func (r *ClusterReconciler) updateClusterKubeConfig(ctx context.Context, cluster
 	if restConfig == nil {
 		return nil
 	}
-
-	cli, err := k8sclient.NewClientSetWithRestConfig(restConfig)
-	if err != nil {
-		klog.ErrorS(err, "failed to newForConfig", "cluster", cluster.Name)
-		return nil
-	}
-
-	if _, err = cli.CoreV1().Nodes().List(ctx, metav1.ListOptions{}); err != nil {
+	if _, err := r.clientSet.CoreV1().Nodes().List(ctx, metav1.ListOptions{}); err != nil {
 		klog.ErrorS(err, "failed to list node", "cluster", cluster.Name)
 		return nil
 	}
@@ -453,27 +437,12 @@ func (r *ClusterReconciler) updateClusterKubeConfig(ctx context.Context, cluster
 
 	cluster.Status.ControlPlaneStatus.Phase = v1.ReadyPhase
 
-	if err = r.guaranteeService(ctx, cluster); err != nil {
+	if err := r.guaranteeService(ctx, cluster); err != nil {
 		return err
 	}
 
-	if err = r.Status().Patch(ctx, cluster, originalCluster); err != nil {
+	if err := r.Status().Patch(ctx, cluster, originalCluster); err != nil {
 		return fmt.Errorf("failed load config %+v", err)
-	}
-
-	return nil
-}
-
-// addFinalizer adds the cluster finalizer to the cluster resource if not already present.
-func (r *ClusterReconciler) addFinalizer(ctx context.Context, cluster *v1.Cluster) error {
-	if slice.Contains(cluster.Finalizers, v1.ClusterFinalizer) {
-		return nil
-	}
-
-	cluster.Finalizers = append(cluster.Finalizers, v1.ClusterFinalizer)
-	err := r.Update(ctx, cluster)
-	if err != nil {
-		return fmt.Errorf("add cluster finalizer failed %+v", err)
 	}
 
 	return nil

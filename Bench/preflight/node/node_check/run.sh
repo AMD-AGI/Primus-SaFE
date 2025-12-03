@@ -32,11 +32,16 @@ for script in *.sh; do
 
   if [ $exit_code -eq 0 ]; then
     echo "${LOG_HEADER}[$(date +'%Y-%m-%d %H:%M:%S')] [${script}] [SUCCESS] tests passed"
-  elif [ -n "$last_line" ]; then
+  else
+    # Record error regardless of output
     if [ -n "$errors" ]; then
       errors+=" | "
     fi
-    errors+="[$(date +'%Y-%m-%d %H:%M:%S')] [$script] $last_line"
+    if [ -n "$last_line" ]; then
+      errors+="[$(date +'%Y-%m-%d %H:%M:%S')] [$script] $last_line"
+    else
+      errors+="[$(date +'%Y-%m-%d %H:%M:%S')] [$script] Failed with exit code $exit_code"
+    fi
   fi
 done
 

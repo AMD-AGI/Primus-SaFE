@@ -6,6 +6,7 @@
 package types
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
@@ -230,6 +231,14 @@ type GetWorkloadPodLogResponse struct {
 type BatchWorkloadsRequest struct {
 	// List of workload IDs to be processed
 	WorkloadIds []string `json:"workloadIds"`
+}
+
+type GetWorkloadServiceResponse struct {
+	Port           corev1.ServicePort `json:"port"`
+	ExternalDomain string             `json:"externalDomain"`
+	InternalDomain string             `json:"internalDomain"`
+	ClusterIp      string             `json:"clusterIp"`
+	Type           corev1.ServiceType `json:"type"`
 }
 
 type WorkloadSlice []v1.Workload

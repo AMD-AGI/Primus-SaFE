@@ -47,7 +47,6 @@ Create a new workspace in a cluster.
     }
   ],
   "enablePreempt": false,
-  "managers": ["user-001", "user-002"],
   "isDefault": true,
   "imageSecretIds": ["image-secret-001"]
 }
@@ -66,7 +65,6 @@ Create a new workspace in a cluster.
 | scopes | []string | No | Supported service modules: Train/Infer/Authoring/CICD, no limitation if not specified                                                    |
 | volumes | []object | No | Storage volume configuration list                                                                                                        |
 | enablePreempt | bool | No | Whether to enable preemption, default false.  If enabled, higher-priority workload will preempt the lower-priority one in this workspace |
-| managers | []string | No | List of manager user IDs                                                                                                                 |
 | isDefault | bool | No | Whether to set as default workspace (accessible to all users)                                                                            |
 | imageSecretIds | []string | No | List of image pull secret IDs                                                                                                            |
 
@@ -315,6 +313,10 @@ Update workspace configuration.
 All fields are optional, only provided fields will be updated
 
 All parameters have the same meaning as the corresponding parameters in "Create Workspace".
+
+**Notes**:
+- When an image secret is bound to a workspace (by specifying it in the workspace’s image secrets during update), the secret will also be copied into the workspace’s Kubernetes namespace to ensure image pulls can succeed. Future updates to the bound secret are synchronized accordingly.
+- When you grant a user as a workspace manager, the user will also be granted access to the workspace automatically (manager implies access).
 
 **Response**: 200 OK with no response body
 

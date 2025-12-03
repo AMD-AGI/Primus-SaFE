@@ -72,12 +72,14 @@ type NodeK8sReconciler struct {
 
 // SetupNodeK8sController initializes and registers the NodeK8sReconciler with the controller manager.
 func SetupNodeK8sController(ctx context.Context, mgr manager.Manager) error {
+	baseReconciler, err := newClusterBaseReconciler(mgr)
+	if err != nil {
+		return err
+	}
 	r := &NodeK8sReconciler{
-		ctx: ctx,
-		ClusterBaseReconciler: &ClusterBaseReconciler{
-			Client: mgr.GetClient(),
-		},
-		clientManager: commonutils.NewObjectManagerSingleton(),
+		ctx:                   ctx,
+		ClusterBaseReconciler: baseReconciler,
+		clientManager:         commonutils.NewObjectManagerSingleton(),
 		queue: workqueue.NewTypedRateLimitingQueueWithConfig(
 			workqueue.DefaultTypedControllerRateLimiter[*nodeQueueMessage](),
 			workqueue.TypedRateLimitingQueueConfig[*nodeQueueMessage]{Name: "node"}),
@@ -86,10 +88,10 @@ func SetupNodeK8sController(ctx context.Context, mgr manager.Manager) error {
 		return fmt.Errorf("failed to new clientManager")
 	}
 	r.Controller = commonctrl.NewControllerWithQueue[*nodeQueueMessage](r, r.queue, 1)
-	if err := r.start(ctx); err != nil {
+	if err = r.start(ctx); err != nil {
 		return err
 	}
-	err := ctrlruntime.NewControllerManagedBy(mgr).
+	err = ctrlruntime.NewControllerManagedBy(mgr).
 		For(&v1.Cluster{}, builder.WithPredicates(r.relevantChangePredicate())).
 		Complete(r)
 	if err != nil {

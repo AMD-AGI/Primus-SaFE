@@ -15,6 +15,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
@@ -48,7 +49,7 @@ func GenObjectReference(ctx context.Context, adminClient client.Client, workload
 func CreateObject(ctx context.Context, k8sClientFactory *commonclient.ClientFactory, obj *unstructured.Unstructured) error {
 	gvr, err := ConvertGVKToGVR(k8sClientFactory.Mapper(), obj.GroupVersionKind())
 	if err != nil {
-		return err
+		return commonerrors.NewInternalError(err.Error())
 	}
 	obj, err = k8sClientFactory.DynamicClient().Resource(gvr).Namespace(obj.GetNamespace()).Create(
 		ctx, obj, metav1.CreateOptions{})
@@ -76,8 +77,41 @@ func UpdateObject(ctx context.Context, k8sClientFactory *commonclient.ClientFact
 	return nil
 }
 
-// GetObject retrieves an object from the informer cache.
-func GetObject(informer informers.GenericInformer, name, namespace string) (*unstructured.Unstructured, error) {
+// PatchObject patch a Kubernetes object using the dynamic client.
+func PatchObject(ctx context.Context, k8sClientFactory *commonclient.ClientFactory,
+	name, namespace string, gvk schema.GroupVersionKind, p []byte) error {
+	gvr, err := ConvertGVKToGVR(k8sClientFactory.Mapper(), gvk)
+	if err != nil {
+		return err
+	}
+	if _, patchErr := k8sClientFactory.DynamicClient().
+		Resource(gvr).
+		Namespace(namespace).
+		Patch(ctx, name, apitypes.MergePatchType, p, metav1.PatchOptions{}); patchErr != nil {
+		return patchErr
+	}
+	return nil
+}
+
+// GetObject retrieves an object via the dynamic client.
+func GetObject(ctx context.Context, k8sClientFactory *commonclient.ClientFactory, name, namespace string,
+	gvk schema.GroupVersionKind) (*unstructured.Unstructured, error) {
+	gvr, err := ConvertGVKToGVR(k8sClientFactory.Mapper(), gvk)
+	if err != nil {
+		return nil, err
+	}
+	obj, getErr := k8sClientFactory.DynamicClient().
+		Resource(gvr).
+		Namespace(namespace).
+		Get(ctx, name, metav1.GetOptions{})
+	if getErr != nil {
+		return nil, getErr
+	}
+	return obj.DeepCopy(), nil
+}
+
+// GetObjectByInformer retrieves an object from the informer cache.
+func GetObjectByInformer(informer informers.GenericInformer, name, namespace string) (*unstructured.Unstructured, error) {
 	obj, err := informer.Lister().ByNamespace(namespace).Get(name)
 	if err != nil {
 		return nil, err

@@ -28,11 +28,14 @@ const (
 	ServiceAccountKind     = "ServiceAccount"
 
 	GithubConfigUrl   = "GITHUB_CONFIG_URL"
+	GithubPAT         = "GITHUB_PAT"
+	GithubToken       = "github_token"
 	AdminControlPlane = "ADMIN_CONTROL_PLANE"
 	UnifiedJobEnable  = "UNIFIED_JOB_ENABLE"
 	ScaleRunnerSetID  = "SCALE_RUNNER_SET_ID"
 	ScaleRunnerID     = "SCALE_RUNNER_ID"
 
+	HigressClassname = "higress"
 	HigressNamespace = "higress-system"
 	HigressGateway   = "higress-gateway"
 	HigressSSHPort   = 22

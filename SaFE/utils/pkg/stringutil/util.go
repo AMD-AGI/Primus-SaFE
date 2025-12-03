@@ -68,6 +68,8 @@ func NormalizeName(str string) string {
 	str = strings.ToLower(str)
 	str = strings.TrimSpace(str)
 	str = strings.ReplaceAll(str, "_", "-")
+	str = strings.ReplaceAll(str, "\n", "")
+	str = strings.ReplaceAll(str, "\r", "")
 	return str
 }
 

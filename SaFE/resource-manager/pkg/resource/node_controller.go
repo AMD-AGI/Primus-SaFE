@@ -52,16 +52,18 @@ type NodeReconciler struct {
 
 // SetupNodeController initializes and registers the NodeReconciler with the controller manager.
 func SetupNodeController(mgr manager.Manager) error {
+	baseReconciler, err := newClusterBaseReconciler(mgr)
+	if err != nil {
+		return err
+	}
 	r := &NodeReconciler{
-		ClusterBaseReconciler: &ClusterBaseReconciler{
-			Client: mgr.GetClient(),
-		},
-		clientManager: commonutils.NewObjectManagerSingleton(),
+		ClusterBaseReconciler: baseReconciler,
+		clientManager:         commonutils.NewObjectManagerSingleton(),
 	}
 	if r.clientManager == nil {
 		return fmt.Errorf("failed to new clientManager")
 	}
-	err := ctrlruntime.NewControllerManagedBy(mgr).
+	err = ctrlruntime.NewControllerManagedBy(mgr).
 		For(&v1.Node{}, builder.WithPredicates(predicate.Or(
 			predicate.GenerationChangedPredicate{}, r.relevantChangePredicate()))).
 		Watches(&corev1.Pod{}, r.handlePodEvent()).
@@ -294,12 +296,14 @@ func (r *NodeReconciler) updateMachineStatus(ctx context.Context,
 	if node.Status.MachineStatus.Phase == phase && node.Status.MachineStatus.HostName == hostname {
 		return nil
 	}
+
+	patch := client.MergeFrom(node.DeepCopy())
 	node.Status.MachineStatus.Phase = phase
 	if hostname != "" {
 		node.Status.MachineStatus.HostName = hostname
 	}
 	node.Status.MachineStatus.UpdateTime = &metav1.Time{Time: time.Now().UTC()}
-	if err := r.Status().Update(ctx, node); err != nil {
+	if err := r.Status().Patch(ctx, node, patch); err != nil {
 		klog.ErrorS(err, "failed to patch status", "node", node.Name)
 		return err
 	}
@@ -359,9 +363,11 @@ func (r *NodeReconciler) updateK8sNode(ctx context.Context, adminNode *v1.Node, 
 		klog.ErrorS(err, "failed to remove taint conditions")
 		return ctrlruntime.Result{}, err
 	}
-	delete(adminNode.Annotations, v1.NodeLabelAction)
-	delete(adminNode.Annotations, v1.NodeAnnotationAction)
-	if err = r.Update(ctx, adminNode); err != nil {
+
+	patch := client.MergeFrom(adminNode.DeepCopy())
+	v1.RemoveAnnotation(adminNode, v1.NodeLabelAction)
+	v1.RemoveAnnotation(adminNode, v1.NodeAnnotationAction)
+	if err = r.Patch(ctx, adminNode, patch); err != nil {
 		return ctrlruntime.Result{}, err
 	}
 	return ctrlruntime.Result{}, nil

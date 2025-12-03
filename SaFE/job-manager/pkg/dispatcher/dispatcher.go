@@ -8,18 +8,21 @@ package dispatcher
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"strconv"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/types"
+	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/pointer"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -30,6 +33,7 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
@@ -108,6 +112,12 @@ func (relevantChangePredicate) Update(e event.UpdateEvent) bool {
 	if !maps.EqualIgnoreOrder(oldWorkload.Spec.Env, newWorkload.Spec.Env) {
 		return true
 	}
+	if oldWorkload.Spec.Priority != newWorkload.Spec.Priority {
+		return true
+	}
+	if !reflect.DeepEqual(oldWorkload.Spec.Service, newWorkload.Spec.Service) {
+		return true
+	}
 	return false
 }
 
@@ -134,59 +144,70 @@ func (r *DispatcherReconciler) Reconcile(ctx context.Context, req ctrlruntime.Re
 func (r *DispatcherReconciler) processWorkload(ctx context.Context, workload *v1.Workload) (ctrlruntime.Result, error) {
 	clusterInformer, err := syncer.GetClusterInformer(r.clusterInformers, v1.GetClusterId(workload))
 	if err != nil {
-		return ctrlruntime.Result{}, err
+		return ctrlruntime.Result{RequeueAfter: time.Second}, nil
 	}
 	rt, err := commonworkload.GetResourceTemplate(ctx, r.Client, workload.ToSchemaGVK())
 	if err != nil {
 		return ctrlruntime.Result{}, err
 	}
-	resourceInformer, err := clusterInformer.GetResourceInformer(ctx, rt.ToSchemaGVK())
-	if err != nil {
-		return ctrlruntime.Result{}, err
-	}
-	obj, err := jobutils.GetObject(resourceInformer, workload.Name, workload.Spec.Workspace)
+	obj, err := jobutils.GetObject(ctx,
+		clusterInformer.ClientFactory(), workload.Name, workload.Spec.Workspace, rt.ToSchemaGVK())
+	result := ctrlruntime.Result{}
 
 	switch {
 	case !v1.IsWorkloadDispatched(workload):
 		if apierrors.IsNotFound(err) {
-			if err = r.dispatch(ctx, workload, clusterInformer); err != nil {
+			if result, err = r.dispatch(ctx, workload, clusterInformer); err != nil || result.RequeueAfter > 0 {
 				break
 			}
 		} else if err != nil {
 			break
 		}
-		if err = r.createService(ctx, workload, clusterInformer); err != nil {
-			break
-		}
-		if err = r.patchDispatched(ctx, workload); err != nil {
+		if err = r.updateDispatched(ctx, workload); err != nil {
 			break
 		}
 		klog.Infof("the workload is dispatched, name: %s, dispatch count: %d, max retry: %d",
 			workload.Name, v1.GetWorkloadDispatchCnt(workload), workload.Spec.MaxRetry)
 	case err == nil:
 		// update the workload which is already dispatched
-		err = r.updateK8sObject(ctx, workload, clusterInformer, obj)
+		if err = r.updateK8sObject(ctx, workload, clusterInformer, obj); err != nil {
+			break
+		}
+		// sync service according to latest spec
+		if result, err = r.updateService(ctx, workload, clusterInformer, obj); err != nil || result.RequeueAfter > 0 {
+			break
+		}
+		// Sync corresponding ingress
+		if result, err = r.updateIngress(ctx, workload, clusterInformer, obj); err != nil || result.RequeueAfter > 0 {
+			break
+		}
+		klog.Infof("the workload is updated, name: %s, dispatch count: %d, max retry: %d",
+			workload.Name, v1.GetWorkloadDispatchCnt(workload), workload.Spec.MaxRetry)
 	}
-	return ctrlruntime.Result{}, err
+	return result, err
 }
 
 // dispatch creates and deploys the Kubernetes object in the data plane for the workload.
 func (r *DispatcherReconciler) dispatch(ctx context.Context,
-	adminWorkload *v1.Workload, clusterInformer *syncer.ClusterInformer) error {
+	adminWorkload *v1.Workload, clusterInformer *syncer.ClusterInformer) (ctrlruntime.Result, error) {
 	// To prevent port conflicts when retrying, the port must be regenerated each time
 	if err := r.generateUniquePorts(ctx, adminWorkload); err != nil {
-		return err
+		return ctrlruntime.Result{}, err
 	}
 	k8sObject, err := r.generateK8sObject(ctx, adminWorkload)
 	if err != nil {
 		klog.ErrorS(err, "failed to create k8s unstructured object. ",
 			"name", adminWorkload.Name, "gvk", adminWorkload.Spec.GroupVersionKind)
-		return err
+		return ctrlruntime.Result{}, err
 	}
 	if err = jobutils.CreateObject(ctx, clusterInformer.ClientFactory(), k8sObject); err != nil {
-		return err
+		return ctrlruntime.Result{}, err
 	}
-	return nil
+	if result, err := r.createService(ctx, adminWorkload, clusterInformer, k8sObject); err != nil || result.RequeueAfter > 0 {
+		return result, err
+	}
+	// Ensure an ingress that points to the same-named Service
+	return r.createIngress(ctx, adminWorkload, clusterInformer, k8sObject)
 }
 
 // generateUniquePorts generates unique job and SSH ports for the workload to avoid conflicts.
@@ -207,7 +228,11 @@ func (r *DispatcherReconciler) generateUniquePorts(ctx context.Context, workload
 		}
 	}
 	patch := client.MergeFrom(workload.DeepCopy())
-	workload.Spec.JobPort = generateRandomPort(ports)
+	if workload.Spec.Service != nil {
+		workload.Spec.JobPort = workload.Spec.Service.TargetPort
+	} else {
+		workload.Spec.JobPort = generateRandomPort(ports)
+	}
 	workload.Spec.SSHPort = generateRandomPort(ports)
 	if workload.Spec.JobPort == 0 || workload.Spec.SSHPort == 0 {
 		return commonerrors.NewInternalError("failed to generate job or SSH port")
@@ -297,37 +322,34 @@ func (r *DispatcherReconciler) getWorkloadTemplate(ctx context.Context, adminWor
 	return template, nil
 }
 
-// patchDispatched updates a workload's status to indicate it has been dispatched.
-func (r *DispatcherReconciler) patchDispatched(ctx context.Context, workload *v1.Workload) error {
+// updateDispatched updates a workload's status to indicate it has been dispatched.
+func (r *DispatcherReconciler) updateDispatched(ctx context.Context, workload *v1.Workload) error {
 	reason := commonworkload.GenerateDispatchReason(v1.GetWorkloadDispatchCnt(workload) + 1)
 	cond := jobutils.NewCondition(string(v1.AdminDispatched), "the workload is dispatched", reason)
 	if jobutils.FindCondition(workload, cond) == nil {
-		workload.Status.Conditions = append(workload.Status.Conditions, *cond)
+		statusPatch := map[string]any{}
 		if workload.Status.Phase == "" {
-			workload.Status.Phase = v1.WorkloadPending
+			statusPatch["phase"] = v1.WorkloadPending
 		}
-		if err := r.Status().Update(ctx, workload); err != nil {
-			klog.ErrorS(err, "failed to update workload", "name", workload.Name)
+		statusPatch["conditions"] = append(workload.Status.Conditions, *cond)
+		patchObj := map[string]any{
+			"metadata": map[string]any{
+				"resourceVersion": workload.ResourceVersion,
+			},
+			"status": statusPatch,
+		}
+		p := jsonutils.MarshalSilently(patchObj)
+		if err := r.Status().Patch(ctx, workload, client.RawPatch(apitypes.MergePatchType, p)); err != nil {
 			return err
 		}
 	}
 
 	if !v1.IsWorkloadDispatched(workload) {
-		patchObj := map[string]any{
-			"metadata": map[string]any{
-				"resourceVersion": workload.ResourceVersion,
-				"labels": map[string]any{
-					v1.WorkloadDispatchCntLabel: buildDispatchCount(workload),
-				},
-				"annotations": map[string]any{
-					v1.WorkloadDispatchedAnnotation: timeutil.FormatRFC3339(time.Now().UTC()),
-					v1.WorkloadPreemptedAnnotation:  nil,
-				},
-			},
-		}
-		p := jsonutils.MarshalSilently(patchObj)
-		if err := r.Patch(ctx, workload, client.RawPatch(types.MergePatchType, p)); err != nil {
-			klog.ErrorS(err, "failed to patch workload", "name", workload.Name)
+		patch := client.MergeFrom(workload.DeepCopy())
+		v1.RemoveAnnotation(workload, v1.WorkloadPreemptedAnnotation)
+		v1.SetAnnotation(workload, v1.WorkloadDispatchedAnnotation, timeutil.FormatRFC3339(time.Now().UTC()))
+		v1.SetLabel(workload, v1.WorkloadDispatchCntLabel, buildDispatchCount(workload))
+		if err := r.Patch(ctx, workload, patch); err != nil {
 			return err
 		}
 	}
@@ -438,7 +460,7 @@ func isEnvChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructured, rt
 
 // isSharedMemoryChanged checks if the shared memory configuration of the workload has changed.
 func isSharedMemoryChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructured, rt *v1.ResourceTemplate) bool {
-	if !commonworkload.IsJob(adminWorkload) {
+	if commonworkload.IsCICDScalingRunnerSet(adminWorkload) {
 		return false
 	}
 	memoryStorageSize, err := jobutils.GetMemoryStorageSize(obj, rt)
@@ -578,6 +600,7 @@ func updateCICDEnvironments(obj *unstructured.Unstructured,
 	}
 	envs := maps.Copy(adminWorkload.Spec.Env)
 	envs[jobutils.UserIdEnv] = v1.GetUserId(adminWorkload)
+	envs[jobutils.PriorityEnv] = strconv.Itoa(adminWorkload.Spec.Priority)
 	envs[common.ScaleRunnerSetID] = adminWorkload.Name
 	envs[jobutils.WorkspaceIdEnv] = adminWorkload.Spec.Workspace
 	mainContainerName := v1.GetMainContainer(adminWorkload)
@@ -759,7 +782,7 @@ func updateContainerEnv(envs map[string]string, container map[string]interface{}
 
 // updateSharedMemory updates the shared memory volume configuration.
 func updateSharedMemory(adminWorkload *v1.Workload, obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec) error {
-	if !commonworkload.IsJob(adminWorkload) {
+	if commonworkload.IsCICDScalingRunnerSet(adminWorkload) {
 		return nil
 	}
 	path := resourceSpec.PrePaths
@@ -810,16 +833,16 @@ func updatePriorityClass(adminWorkload *v1.Workload,
 }
 
 // createService creates a Kubernetes Service for the workload if specified.
-func (r *DispatcherReconciler) createService(ctx context.Context,
-	adminWorkload *v1.Workload, clusterInformer *syncer.ClusterInformer) error {
+func (r *DispatcherReconciler) createService(ctx context.Context, adminWorkload *v1.Workload,
+	clusterInformer *syncer.ClusterInformer, obj *unstructured.Unstructured) (ctrlruntime.Result, error) {
 	if adminWorkload.Spec.Service == nil {
-		return nil
+		return ctrlruntime.Result{}, nil
 	}
 	k8sClientSet := clusterInformer.ClientFactory().ClientSet()
 	namespace := adminWorkload.Spec.Workspace
 	var err error
 	if _, err = k8sClientSet.CoreV1().Services(namespace).Get(ctx, adminWorkload.Name, metav1.GetOptions{}); err == nil {
-		return nil
+		return ctrlruntime.Result{}, nil
 	}
 	specService := adminWorkload.Spec.Service
 	service := &corev1.Service{
@@ -835,17 +858,27 @@ func (r *DispatcherReconciler) createService(ctx context.Context,
 			Selector: map[string]string{
 				v1.WorkloadIdLabel: adminWorkload.Name,
 			},
-			Ports: []corev1.ServicePort{{
-				Protocol:   specService.Protocol,
-				Port:       int32(specService.Port),
-				TargetPort: intstr.IntOrString{IntVal: int32(specService.TargetPort)},
-			}},
-			Type: specService.ServiceType,
+			Ports: generateServicePorts(specService),
+			Type:  specService.ServiceType,
 		},
 	}
-	if err = controllerutil.SetControllerReference(adminWorkload, service, r.Client.Scheme()); err != nil {
+
+	// Only set owner reference when the owner object has a valid UID.
+	owner := obj
+	if len(owner.GetUID()) == 0 {
+		if fetched, getErr := jobutils.GetObjectByClientFactory(ctx, clusterInformer.ClientFactory(), obj); getErr != nil {
+			return ctrlruntime.Result{}, getErr
+		} else {
+			if len(fetched.GetUID()) == 0 {
+				return ctrlruntime.Result{RequeueAfter: time.Second}, nil
+			}
+			owner = fetched
+		}
+	}
+
+	if err = controllerutil.SetControllerReference(owner, service, r.Client.Scheme()); err != nil {
 		klog.ErrorS(err, "failed to SetControllerReference")
-		return err
+		return ctrlruntime.Result{}, err
 	}
 	if specService.ServiceType == corev1.ServiceTypeNodePort && specService.NodePort > 0 {
 		service.Spec.Ports[0].NodePort = int32(specService.NodePort)
@@ -855,12 +888,189 @@ func (r *DispatcherReconciler) createService(ctx context.Context,
 		service, metav1.CreateOptions{}); client.IgnoreAlreadyExists(err) != nil {
 		klog.ErrorS(err, "failed to create service", "name", adminWorkload.Name)
 		if specService.NodePort > 0 {
-			// NodePort error occurred; skipping retry.
-			return commonerrors.NewBadRequest(err.Error())
+			// NodePort error occurred; cannot retry.
+			return ctrlruntime.Result{}, commonerrors.NewInternalError(err.Error())
 		}
-		return err
+		return ctrlruntime.Result{}, err
 	}
-	return nil
+	klog.Infof("service %s/%s created", namespace, adminWorkload.Name)
+	return ctrlruntime.Result{}, nil
+}
+
+// updateService ensures the Service matches the latest workload spec.
+// - If workload.Spec.Service == nil, the Service will be deleted if it exists.
+// - If Service does not exist and spec is set, it will be created.
+// - Otherwise, it will be updated in-place to match protocol/ports/type/selector.
+func (r *DispatcherReconciler) updateService(ctx context.Context, adminWorkload *v1.Workload,
+	clusterInformer *syncer.ClusterInformer, obj *unstructured.Unstructured) (ctrlruntime.Result, error) {
+	k8sClientSet := clusterInformer.ClientFactory().ClientSet()
+	namespace := adminWorkload.Spec.Workspace
+
+	// Delete when no service desired
+	if adminWorkload.Spec.Service == nil {
+		err := k8sClientSet.CoreV1().Services(namespace).Delete(ctx, adminWorkload.Name, metav1.DeleteOptions{})
+		return ctrlruntime.Result{}, client.IgnoreNotFound(err)
+	}
+
+	// Get or create
+	existing, err := k8sClientSet.CoreV1().Services(namespace).Get(ctx, adminWorkload.Name, metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
+		return r.createService(ctx, adminWorkload, clusterInformer, obj)
+	}
+	if err != nil {
+		return ctrlruntime.Result{}, err
+	}
+
+	specService := adminWorkload.Spec.Service
+	isChanged := false
+	if existing.Spec.Type != specService.ServiceType {
+		existing.Spec.Type = specService.ServiceType
+		isChanged = true
+	}
+	newPorts := generateServicePorts(specService)
+	if !reflect.DeepEqual(existing.Spec.Ports, newPorts) {
+		existing.Spec.Ports = newPorts
+		isChanged = true
+	}
+	if specService.ServiceType == corev1.ServiceTypeNodePort {
+		if existing.Spec.Ports[0].NodePort != int32(specService.NodePort) {
+			existing.Spec.Ports[0].NodePort = int32(specService.NodePort)
+			isChanged = true
+		}
+	} else {
+		// reset NodePort when not required
+		if existing.Spec.Ports[0].NodePort != 0 {
+			existing.Spec.Ports[0].NodePort = 0
+			isChanged = true
+		}
+	}
+	if !isChanged {
+		return ctrlruntime.Result{}, nil
+	}
+	if _, err = k8sClientSet.CoreV1().Services(namespace).Update(ctx, existing, metav1.UpdateOptions{}); err != nil {
+		klog.ErrorS(err, "failed to update service", "name", adminWorkload.Name)
+		if specService.NodePort > 0 {
+			// NodePort related update errors are not retryable via generic update
+			err = commonerrors.NewInternalError(err.Error())
+		}
+		return ctrlruntime.Result{}, err
+	}
+	return ctrlruntime.Result{}, nil
+}
+
+func generateServicePorts(specService *v1.Service) []corev1.ServicePort {
+	return []corev1.ServicePort{{
+		Protocol:   specService.Protocol,
+		Port:       int32(specService.Port),
+		TargetPort: intstr.IntOrString{IntVal: int32(specService.TargetPort)},
+	}}
+}
+
+// createIngress creates an Ingress in the same namespace that points to the same-named Service.
+func (r *DispatcherReconciler) createIngress(ctx context.Context, adminWorkload *v1.Workload,
+	clusterInformer *syncer.ClusterInformer, obj *unstructured.Unstructured) (ctrlruntime.Result, error) {
+	if adminWorkload.Spec.Service == nil || commonconfig.GetIngress() != common.HigressClassname {
+		return ctrlruntime.Result{}, nil
+	}
+	k8sClientSet := clusterInformer.ClientFactory().ClientSet()
+	namespace := adminWorkload.Spec.Workspace
+	name := adminWorkload.Name
+	if _, err := k8sClientSet.NetworkingV1().Ingresses(namespace).Get(ctx, name, metav1.GetOptions{}); err == nil {
+		return ctrlruntime.Result{}, nil
+	}
+	specService := adminWorkload.Spec.Service
+	pathType := networkingv1.PathTypePrefix
+	path := "/" + namespace + "/" + name + "/(.*)"
+	ing := &networkingv1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+			Annotations: map[string]string{
+				v1.UserNameAnnotation:       v1.GetUserName(adminWorkload),
+				"higress.io/rewrite-target": "/$1",
+			},
+		},
+		Spec: networkingv1.IngressSpec{
+			IngressClassName: pointer.String(common.HigressClassname),
+			Rules: []networkingv1.IngressRule{{
+				Host: commonconfig.GetSystemHost(),
+				IngressRuleValue: networkingv1.IngressRuleValue{
+					HTTP: &networkingv1.HTTPIngressRuleValue{
+						Paths: []networkingv1.HTTPIngressPath{{
+							Path:     path,
+							PathType: &pathType,
+							Backend: networkingv1.IngressBackend{
+								Service: &networkingv1.IngressServiceBackend{
+									Name: name, Port: networkingv1.ServiceBackendPort{
+										Number: int32(specService.Port),
+									},
+								},
+							},
+						}},
+					},
+				},
+			}},
+		},
+	}
+	// Only set owner reference when the owner object has a valid UID.
+	owner := obj
+	if len(owner.GetUID()) == 0 {
+		if fetched, getErr := jobutils.GetObjectByClientFactory(ctx, clusterInformer.ClientFactory(), obj); getErr != nil {
+			return ctrlruntime.Result{}, getErr
+		} else {
+			if len(fetched.GetUID()) == 0 {
+				return ctrlruntime.Result{RequeueAfter: time.Second}, nil
+			}
+			owner = fetched
+		}
+	}
+	if err := controllerutil.SetControllerReference(owner, ing, r.Client.Scheme()); err != nil {
+		klog.ErrorS(err, "failed to SetControllerReference for ingress", "ingress", name)
+		return ctrlruntime.Result{}, err
+	}
+	if _, err := k8sClientSet.NetworkingV1().Ingresses(namespace).Create(ctx, ing, metav1.CreateOptions{}); err != nil {
+		return ctrlruntime.Result{}, client.IgnoreAlreadyExists(err)
+	}
+	klog.Infof("ingress %s/%s created", namespace, name)
+	return ctrlruntime.Result{}, nil
+}
+
+// updateIngress makes sure the Ingress exists (or is removed) and points to the same-named Service and port.
+func (r *DispatcherReconciler) updateIngress(ctx context.Context, adminWorkload *v1.Workload,
+	clusterInformer *syncer.ClusterInformer, obj *unstructured.Unstructured) (ctrlruntime.Result, error) {
+	if commonconfig.GetIngress() != common.HigressClassname {
+		return ctrlruntime.Result{}, nil
+	}
+
+	k8sClientSet := clusterInformer.ClientFactory().ClientSet()
+	namespace := adminWorkload.Spec.Workspace
+	name := adminWorkload.Name
+	// Delete when service is not desired
+	if adminWorkload.Spec.Service == nil {
+		err := k8sClientSet.NetworkingV1().Ingresses(namespace).Delete(ctx, name, metav1.DeleteOptions{})
+		return ctrlruntime.Result{}, client.IgnoreNotFound(err)
+	}
+
+	existing, err := k8sClientSet.NetworkingV1().Ingresses(namespace).Get(ctx, name, metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
+		return r.createIngress(ctx, adminWorkload, clusterInformer, obj)
+	}
+	if err != nil {
+		return ctrlruntime.Result{}, err
+	}
+	specService := adminWorkload.Spec.Service
+	if len(existing.Spec.Rules) > 0 && existing.Spec.Rules[0].HTTP != nil && len(existing.Spec.Rules[0].HTTP.Paths) > 0 {
+		if existing.Spec.Rules[0].HTTP.Paths[0].Backend.Service.Port.Number == int32(specService.Port) {
+			return ctrlruntime.Result{}, nil
+		}
+		existing.Spec.Rules[0].HTTP.Paths[0].Backend.Service.Port.Number = int32(specService.Port)
+	} else {
+		return ctrlruntime.Result{}, commonerrors.NewInternalError("no rules found in ingress")
+	}
+	if _, err = k8sClientSet.NetworkingV1().Ingresses(namespace).Update(ctx, existing, metav1.UpdateOptions{}); err != nil {
+		return ctrlruntime.Result{}, client.IgnoreNotFound(err)
+	}
+	return ctrlruntime.Result{}, nil
 }
 
 func (r *DispatcherReconciler) getWorkspace(ctx context.Context, adminWorkload *v1.Workload) (*v1.Workspace, error) {
