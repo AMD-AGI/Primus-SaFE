@@ -687,19 +687,36 @@ Get Service information associated with the workload.
 
 ```json
 {
-  "serviceName": "my-training-job-abc123",
-  "clusterIP": "10.96.0.100",
-  "ports": [
-    {
-      "name": "http",
-      "port": 8080,
-      "targetPort": 8080,
-      "nodePort": 30000,
-      "protocol": "TCP"
-    }
-  ]
+    "port": {
+        "protocol": "TCP",
+        "port": 8080,
+        "targetPort": 8080,
+        "nodePort": 12345
+    },
+    "externalDomain": "http://tas.primus-safe.amd.com/safe-cluster/safe-cluster-dev/test-infer-htmqc",
+    "internalDomain": "test-infer-htmqc.safe-cluster-dev.svc.cluster.local:8080",
+    "clusterIp": "10.254.205.115",
+    "type": "ClusterIP"
 }
 ```
+
+**Field Description**:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| port | object | Kubernetes Service port info (protocol, port, targetPort). |
+| externalDomain | string | Public URL via Higress when enabled and system host is set; empty otherwise. |
+| internalDomain | string | In-cluster DNS address of the Service with port (service.namespace.svc.cluster.local:port). |
+| clusterIp | string | ClusterIP assigned to the Service; empty for headless/None. |
+| type | string | Service type: ClusterIP, NodePort. |
+
+Port fields:
+| Field | Type | Description |
+|-------|------|-------------|
+| protocol | string | Protocol of the service port (e.g., TCP/UDP). |
+| port | integer | Service port exposed by the Service. |
+| targetPort | integer | Container port targeted by the Service. |
+| nodePort | integer | Node port allocated when Service type is NodePort; 0 or omitted otherwise. |
 
 ---
 
