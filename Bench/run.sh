@@ -10,6 +10,8 @@ export TORCH_DISTRIBUTED_DEFAULT_TIMEOUT=$NCCL_TIMEOUT
 export GLOO_TIMEOUT=$NCCL_TIMEOUT
 export PRIMUSBENCH_PATH=$(pwd)
 export LOG_HEADER="[$(hostname)] [NODE-$RANK]"
+export HF_TOKEN=${HF_TOKEN}
+
 HOSTS=/root/hosts
 ENGINE="${ENGINE:-psync}"
 RUNTIME="${RUNTIME:-30}"
@@ -77,7 +79,7 @@ if [[ "$RANK" == "0" ]]; then
     preflight_node_logname="${OUTPUT_PATH}/preflight_node.log"
     log "🔍 Running node preflight check..."
     ansible-playbook -i "$HOSTS_INI" "$PALYBOOKS/node_check.yaml" \
-        -e workspace="$PRIMUSBENCH_PATH" -vvv -f "$WORLD_SIZE" \
+        -e workspace="$PRIMUSBENCH_PATH"  -e hf_token="$HF_TOKEN"  -vvv -f "$WORLD_SIZE" \
         > "$preflight_node_logname" 2>&1 &
     ansible_pid=$!
 
