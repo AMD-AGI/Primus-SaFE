@@ -230,7 +230,11 @@ func (r *DispatcherReconciler) generateUniquePorts(ctx context.Context, workload
 		}
 	}
 	patch := client.MergeFrom(workload.DeepCopy())
-	workload.Spec.JobPort = generateRandomPort(ports)
+	if workload.Spec.Service != nil {
+		workload.Spec.JobPort = workload.Spec.Service.TargetPort
+	} else {
+		workload.Spec.JobPort = generateRandomPort(ports)
+	}
 	workload.Spec.SSHPort = generateRandomPort(ports)
 	if workload.Spec.JobPort == 0 || workload.Spec.SSHPort == 0 {
 		return commonerrors.NewInternalError("failed to generate job or SSH port")
