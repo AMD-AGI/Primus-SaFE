@@ -6,6 +6,8 @@
 package v1
 
 import (
+	"strings"
+
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -18,9 +20,6 @@ type (
 	// ModelPhase represents the current phase of the model
 	ModelPhase string
 
-	// DownloadType represents the target storage type
-	DownloadType string
-
 	// AccessMode represents how to access the model
 	AccessMode string
 )
@@ -31,10 +30,6 @@ const (
 	ModelPhasePulling ModelPhase = "Pulling"
 	ModelPhaseReady   ModelPhase = "Ready"
 	ModelPhaseFailed  ModelPhase = "Failed"
-
-	// Download Target Types
-	DownloadTypeLocal DownloadType = "Local"
-	DownloadTypeS3    DownloadType = "S3"
 
 	// Access Mode Types
 	AccessModeRemoteAPI AccessMode = "remote_api" // Call external API directly
@@ -77,29 +72,10 @@ type (
 		Label string `json:"label,omitempty"`
 		// Tags are used for search and classification (e.g. "LLM", "CV", "ASR")
 		Tags []string `json:"tags,omitempty"`
+		// MaxTokens is the maximum context length of the model (from config.json max_position_embeddings)
+		MaxTokens int `json:"maxTokens,omitempty"`
 		// Source defines where to pull the model from
 		Source ModelSource `json:"source"`
-		// DownloadTarget defines where to store the pulled model
-		DownloadTarget *DownloadTarget `json:"downloadTarget,omitempty"`
-	}
-
-	// DownloadTarget defines the storage location for the model
-	DownloadTarget struct {
-		// Type specifies where to store the model: "Local" or "S3"
-		Type DownloadType `json:"type"`
-		// LocalPath is the absolute path on the host (for type "Local")
-		LocalPath string `json:"localPath,omitempty"`
-		// S3Config specifies the S3 bucket details (for type "S3")
-		S3Config *S3TargetConfig `json:"s3Config,omitempty"`
-	}
-
-	// S3TargetConfig defines S3 storage configuration
-	S3TargetConfig struct {
-		Endpoint        string `json:"endpoint,omitempty"`
-		Bucket          string `json:"bucket,omitempty"`
-		Region          string `json:"region,omitempty"`
-		AccessKeyID     string `json:"accessKeyID,omitempty"`
-		SecretAccessKey string `json:"secretAccessKey,omitempty"`
 	}
 
 	// ModelSource describes the model storage location
@@ -178,4 +154,21 @@ func (m *Model) IsRemoteAPI() bool {
 // IsLocal returns true if the model uses local deployment
 func (m *Model) IsLocal() bool {
 	return m.Spec.Source.AccessMode == AccessModeLocal
+}
+
+// GetS3Path returns the S3 path for the model (models/{modelName})
+func (m *Model) GetS3Path() string {
+	return "models/" + m.Name
+}
+
+// GetSafeDisplayName returns a sanitized display name safe for file paths
+// Replaces /, :, and other special characters with -
+func (m *Model) GetSafeDisplayName() string {
+	name := m.Spec.DisplayName
+	if name == "" {
+		name = m.Name
+	}
+	// Replace special characters
+	replacer := strings.NewReplacer("/", "-", ":", "-", " ", "-", "\\", "-")
+	return replacer.Replace(name)
 }

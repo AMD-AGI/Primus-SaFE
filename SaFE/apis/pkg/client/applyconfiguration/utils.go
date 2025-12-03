@@ -58,8 +58,6 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &amdv1.CronJobApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("DiskFlavor"):
 		return &amdv1.DiskFlavorApplyConfiguration{}
-	case v1.SchemeGroupVersion.WithKind("DownloadTarget"):
-		return &amdv1.DownloadTargetApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("ErasureCodedSpec"):
 		return &amdv1.ErasureCodedSpecApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("Fault"):
@@ -148,8 +146,6 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &amdv1.ResourceTemplateSpecApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("Role"):
 		return &amdv1.RoleApplyConfiguration{}
-	case v1.SchemeGroupVersion.WithKind("S3TargetConfig"):
-		return &amdv1.S3TargetConfigApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("SecretEntity"):
 		return &amdv1.SecretEntityApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("Service"):

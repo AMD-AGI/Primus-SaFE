@@ -9,11 +9,10 @@ package v1
 // InferenceInstanceApplyConfiguration represents a declarative configuration of the InferenceInstance type for use
 // with apply.
 type InferenceInstanceApplyConfiguration struct {
-	BaseUrl       *string `json:"baseUrl,omitempty"`
-	ApiKey        *string `json:"apiKey,omitempty"`
-	Model         *string `json:"model,omitempty"`
-	ContextLength *int    `json:"contextLength,omitempty"`
-	WorkloadID    *string `json:"workloadID,omitempty"`
+	BaseUrl    *string `json:"baseUrl,omitempty"`
+	ApiKey     *string `json:"apiKey,omitempty"`
+	Model      *string `json:"model,omitempty"`
+	WorkloadID *string `json:"workloadID,omitempty"`
 }
 
 // InferenceInstanceApplyConfiguration constructs a declarative configuration of the InferenceInstance type for use with
@@ -43,14 +42,6 @@ func (b *InferenceInstanceApplyConfiguration) WithApiKey(value string) *Inferenc
 // If called multiple times, the Model field is set to the value of the last call.
 func (b *InferenceInstanceApplyConfiguration) WithModel(value string) *InferenceInstanceApplyConfiguration {
 	b.Model = &value
-	return b
-}
-
-// WithContextLength sets the ContextLength field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the ContextLength field is set to the value of the last call.
-func (b *InferenceInstanceApplyConfiguration) WithContextLength(value int) *InferenceInstanceApplyConfiguration {
-	b.ContextLength = &value
 	return b
 }
 

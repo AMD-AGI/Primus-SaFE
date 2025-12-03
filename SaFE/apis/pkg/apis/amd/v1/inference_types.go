@@ -47,8 +47,6 @@ type (
 		// Model is the model name for OpenAI API requests (e.g., "gpt-4", "deepseek-chat")
 		// If not specified, will fallback to Inference.Spec.ModelName
 		Model string `json:"model,omitempty"`
-		// ContextLength is the context length
-		ContextLength int `json:"contextLength,omitempty"`
 		// WorkloadID is the workload ID
 		WorkloadID string `json:"workloadID,omitempty"`
 	}

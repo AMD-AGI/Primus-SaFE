@@ -9,13 +9,13 @@ package v1
 // ModelSpecApplyConfiguration represents a declarative configuration of the ModelSpec type for use
 // with apply.
 type ModelSpecApplyConfiguration struct {
-	DisplayName    *string                           `json:"displayName,omitempty"`
-	Description    *string                           `json:"description,omitempty"`
-	Icon           *string                           `json:"icon,omitempty"`
-	Label          *string                           `json:"label,omitempty"`
-	Tags           []string                          `json:"tags,omitempty"`
-	Source         *ModelSourceApplyConfiguration    `json:"source,omitempty"`
-	DownloadTarget *DownloadTargetApplyConfiguration `json:"downloadTarget,omitempty"`
+	DisplayName *string                        `json:"displayName,omitempty"`
+	Description *string                        `json:"description,omitempty"`
+	Icon        *string                        `json:"icon,omitempty"`
+	Label       *string                        `json:"label,omitempty"`
+	Tags        []string                       `json:"tags,omitempty"`
+	MaxTokens   *int                           `json:"maxTokens,omitempty"`
+	Source      *ModelSourceApplyConfiguration `json:"source,omitempty"`
 }
 
 // ModelSpecApplyConfiguration constructs a declarative configuration of the ModelSpec type for use with
@@ -66,18 +66,18 @@ func (b *ModelSpecApplyConfiguration) WithTags(values ...string) *ModelSpecApply
 	return b
 }
 
+// WithMaxTokens sets the MaxTokens field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the MaxTokens field is set to the value of the last call.
+func (b *ModelSpecApplyConfiguration) WithMaxTokens(value int) *ModelSpecApplyConfiguration {
+	b.MaxTokens = &value
+	return b
+}
+
 // WithSource sets the Source field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Source field is set to the value of the last call.
 func (b *ModelSpecApplyConfiguration) WithSource(value *ModelSourceApplyConfiguration) *ModelSpecApplyConfiguration {
 	b.Source = value
-	return b
-}
-
-// WithDownloadTarget sets the DownloadTarget field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the DownloadTarget field is set to the value of the last call.
-func (b *ModelSpecApplyConfiguration) WithDownloadTarget(value *DownloadTargetApplyConfiguration) *ModelSpecApplyConfiguration {
-	b.DownloadTarget = value
 	return b
 }
