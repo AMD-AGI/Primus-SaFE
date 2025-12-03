@@ -65,6 +65,7 @@ default_ethernet_nic="eno0"
 default_rdma_nic="rdma0,rdma1,rdma2,rdma3,rdma4,rdma5,rdma6,rdma7"
 default_cluster_scale="small"
 default_storage_class="local-path"
+default_higress_node_port="32608"
 
 ethernet_nic=$(get_input_with_default "Enter ethernet nic($default_ethernet_nic): " "$default_ethernet_nic")
 rdma_nic=$(get_input_with_default "Enter rdma nic($default_rdma_nic): " "$default_rdma_nic")
@@ -98,8 +99,10 @@ fi
 
 ingress=$(get_input_with_default "Enter the ingress name (nginx/higress): " "nginx")
 sub_domain=""
+higress_node_port=""
 if [[ "$ingress" == "higress" ]]; then
   sub_domain=$(get_input_with_default "Enter cluster name(lowercase with hyphen): " "amd")
+  higress_node_port=$(get_input_with_default "Enter higress gateway node port' ($default_higress_node_port): " "$default_higress_node_port")
 fi
 
 support_sso=$(get_input_with_default "Support SSO ? (y/n): " "n")
@@ -136,6 +139,7 @@ fi
 echo "✅ Ingress Name: \"$ingress\""
 if [[ "$ingress" == "higress" ]]; then
   echo "✅ Cluster Name: \"$sub_domain\""
+  echo "✅ Higress Gateway Node Port: \"$higress_node_port\""
 fi
 if [[ "$sso_enable" == "true" ]]; then
   echo "✅ SSO Endpoint: \"$sso_endpoint\""
@@ -259,6 +263,7 @@ sed -i "s/^.*memory:.*/  memory: $memory/" "$values_yaml"
 sed -i "s/^.*storage_class:.*/  storage_class: \"$storage_class\"/" "$values_yaml"
 if [[ "$ingress" == "higress" ]]; then
   sed -i "s/^.*sub_domain:.*/  sub_domain: \"$sub_domain\"/" "$values_yaml"
+  sed -i "s/higress_node_port: \".*\"/higress_node_port: \"$higress_node_port\"/" "$values_yaml"
 fi
 sed -i '/opensearch:/,/^[a-z]/ s/enable: .*/enable: '"$lens_enable"'/' "$values_yaml"
 sed -i '/s3:/,/^[a-z]/ s/enable: .*/enable: '"$s3_enable"'/' "$values_yaml"
@@ -345,4 +350,5 @@ sso_enable=$sso_enable
 ingress=$ingress
 sub_domain=$sub_domain
 install_node_agent=$install_node_agent
+higress_node_port=$higress_node_port
 EOF

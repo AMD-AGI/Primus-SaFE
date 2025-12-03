@@ -60,18 +60,20 @@ type WorkspaceReconcilerOption struct {
 
 // SetupWorkspaceController initializes and registers the WorkspaceReconciler with the controller manager.
 func SetupWorkspaceController(mgr manager.Manager, opt *WorkspaceReconcilerOption) error {
+	baseReconciler, err := newClusterBaseReconciler(mgr)
+	if err != nil {
+		return err
+	}
 	r := &WorkspaceReconciler{
-		ClusterBaseReconciler: &ClusterBaseReconciler{
-			Client: mgr.GetClient(),
-		},
-		clientManager: commonutils.NewObjectManagerSingleton(),
-		expectations:  make(map[string]sets.Set),
-		option:        opt,
+		ClusterBaseReconciler: baseReconciler,
+		clientManager:         commonutils.NewObjectManagerSingleton(),
+		expectations:          make(map[string]sets.Set),
+		option:                opt,
 	}
 	if r.clientManager == nil {
 		return fmt.Errorf("failed to new clientManager")
 	}
-	err := ctrlruntime.NewControllerManagedBy(mgr).
+	err = ctrlruntime.NewControllerManagedBy(mgr).
 		For(&v1.Workspace{}, builder.WithPredicates(predicate.Or(
 			r.relevantChangePredicate(), predicate.GenerationChangedPredicate{}))).
 		Watches(&v1.Node{}, r.handleNodeEvent()).

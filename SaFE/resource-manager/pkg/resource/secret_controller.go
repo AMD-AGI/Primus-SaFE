@@ -42,16 +42,18 @@ type SecretReconciler struct {
 }
 
 func SetupSecretController(mgr manager.Manager) error {
+	baseReconciler, err := newClusterBaseReconciler(mgr)
+	if err != nil {
+		return err
+	}
 	r := &SecretReconciler{
-		ClusterBaseReconciler: &ClusterBaseReconciler{
-			Client: mgr.GetClient(),
-		},
-		clientManager: commonutils.NewObjectManagerSingleton(),
+		ClusterBaseReconciler: baseReconciler,
+		clientManager:         commonutils.NewObjectManagerSingleton(),
 	}
 	if r.clientManager == nil {
 		return fmt.Errorf("failed to new clientManager")
 	}
-	err := ctrlruntime.NewControllerManagedBy(mgr).
+	err = ctrlruntime.NewControllerManagedBy(mgr).
 		For(&corev1.Secret{}, builder.WithPredicates(relevantChangePredicate{})).
 		Complete(r)
 	if err != nil {

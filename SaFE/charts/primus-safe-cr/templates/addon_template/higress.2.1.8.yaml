@@ -1,0 +1,23 @@
+#
+# Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+
+apiVersion: amd.com/v1
+kind: AddonTemplate
+metadata:
+  labels:
+    primus-safe.display.name: "higress.2.1.8"
+    app.kubernetes.io/managed-by: Helm
+    primus-safe.addon.default: ""
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
+  name: higress.2.1.8
+spec:
+  category: plugin
+  description: Higress is a cloud-native API gateway with a kernel based on Istio and Envoy. It allows writing Wasm plugins using Go/Rust/JS and other languages, provides dozens of ready-to-use general-purpose plugins, and comes with an out-of-the-box console
+  url: oci://registry-1.docker.io/primussafe/higress
+  version: 2.1.8
+  type: helm
+  helmDefaultNamespace: higress-system

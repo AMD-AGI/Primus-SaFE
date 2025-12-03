@@ -6,6 +6,7 @@
 package types
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
@@ -230,6 +231,19 @@ type GetWorkloadPodLogResponse struct {
 type BatchWorkloadsRequest struct {
 	// List of workload IDs to be processed
 	WorkloadIds []string `json:"workloadIds"`
+}
+
+type GetWorkloadServiceResponse struct {
+	// The Service port information (protocol/port/targetPort) from the first port.
+	Port corev1.ServicePort `json:"port"`
+	// Externally accessible URL via Higress when enabled and system host is configured; empty otherwise.
+	ExternalDomain string `json:"externalDomain"`
+	// In-cluster DNS address of the Service with port, e.g. <name>.<namespace>.svc.cluster.local:<port>.
+	InternalDomain string `json:"internalDomain"`
+	// ClusterIP assigned to the Service (empty for headless or None).
+	ClusterIp string `json:"clusterIp"`
+	// Kubernetes Service type: ClusterIP, NodePort.
+	Type corev1.ServiceType `json:"type"`
 }
 
 type WorkloadSlice []v1.Workload

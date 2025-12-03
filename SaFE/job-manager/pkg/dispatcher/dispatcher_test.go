@@ -72,8 +72,8 @@ func parseConfigmap(content string) (*corev1.ConfigMap, error) {
 }
 
 func TestCreatePytorchJob(t *testing.T) {
-	commonconfig.SetValue("global.rdma_name", "rdma/hca")
-	defer commonconfig.SetValue("global.rdma_name", "")
+	commonconfig.SetValue("net.rdma_name", "rdma/hca")
+	defer commonconfig.SetValue("net.rdma_name", "")
 	workspace := jobutils.TestWorkspaceData.DeepCopy()
 	workload := jobutils.TestWorkloadData.DeepCopy()
 	workload.Spec.Workspace = workspace.Name
@@ -133,8 +133,8 @@ func TestCreatePytorchJob(t *testing.T) {
 }
 
 func TestCreateDeployment(t *testing.T) {
-	commonconfig.SetValue("global.rdma_name", "rdma/hca")
-	defer commonconfig.SetValue("global.rdma_name", "")
+	commonconfig.SetValue("net.rdma_name", "rdma/hca")
+	defer commonconfig.SetValue("net.rdma_name", "")
 	workspace := jobutils.TestWorkspaceData.DeepCopy()
 	workload := jobutils.TestWorkloadData.DeepCopy()
 	workload.Spec.Workspace = workspace.Name
@@ -211,8 +211,8 @@ func TestUpdateDeployment(t *testing.T) {
 }
 
 func TestUpdatePytorchJob(t *testing.T) {
-	commonconfig.SetValue("global.rdma_name", "rdma/hca")
-	defer commonconfig.SetValue("global.rdma_name", "")
+	commonconfig.SetValue("net.rdma_name", "rdma/hca")
+	defer commonconfig.SetValue("net.rdma_name", "")
 
 	workloadObj, err := jsonutils.ParseYamlToJson(jobutils.TestPytorchData)
 	assert.NilError(t, err)
@@ -263,8 +263,8 @@ func TestUpdatePytorchJob(t *testing.T) {
 }
 
 func TestUpdatePytorchJobMaster(t *testing.T) {
-	commonconfig.SetValue("global.rdma_name", "rdma/hca")
-	defer commonconfig.SetValue("global.rdma_name", "")
+	commonconfig.SetValue("net.rdma_name", "rdma/hca")
+	defer commonconfig.SetValue("net.rdma_name", "")
 
 	workloadObj, err := jsonutils.ParseYamlToJson(jobutils.TestPytorchData)
 	assert.NilError(t, err)
@@ -439,8 +439,8 @@ func TestUpdateDeploymentEnv(t *testing.T) {
 }
 
 func TestCreateK8sJob(t *testing.T) {
-	commonconfig.SetValue("global.rdma_name", "rdma/hca")
-	defer commonconfig.SetValue("global.rdma_name", "")
+	commonconfig.SetValue("net.rdma_name", "rdma/hca")
+	defer commonconfig.SetValue("net.rdma_name", "")
 
 	workload := jobutils.TestWorkloadData.DeepCopy()
 	workload.Spec.GroupVersionKind = v1.GroupVersionKind{

@@ -39,11 +39,6 @@ func (gvk GroupVersionKind) VersionKind() string {
 	return gvk.Kind + "/" + gvk.Version
 }
 
-// Empty returns true if the GroupVersionKind is unset.
-func (gvk GroupVersionKind) Empty() bool {
-	return gvk.Group == "" && gvk.Version == "" && gvk.Kind == ""
-}
-
 type ResourceTemplateSpec struct {
 	// Specifies the Group, Version, and Kind (GVK) for a Kubernetes object
 	// This GVK is not the same as the workload's GVK, which is defined in the label selector.

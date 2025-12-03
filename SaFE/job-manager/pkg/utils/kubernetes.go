@@ -49,7 +49,7 @@ func GenObjectReference(ctx context.Context, adminClient client.Client, workload
 func CreateObject(ctx context.Context, k8sClientFactory *commonclient.ClientFactory, obj *unstructured.Unstructured) error {
 	gvr, err := ConvertGVKToGVR(k8sClientFactory.Mapper(), obj.GroupVersionKind())
 	if err != nil {
-		return err
+		return commonerrors.NewInternalError(err.Error())
 	}
 	obj, err = k8sClientFactory.DynamicClient().Resource(gvr).Namespace(obj.GetNamespace()).Create(
 		ctx, obj, metav1.CreateOptions{})

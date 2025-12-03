@@ -181,8 +181,12 @@ func (h *Handler) searchContextLog(queries []types.ListContextLogRequest, worklo
 	}
 
 	result := &commonsearch.OpenSearchResponse{}
-	addContextDoc(result, queries[0], &response[0], true)
-	addContextDoc(result, queries[1], &response[1], false)
+	if err = addContextDoc(result, queries[0], &response[0], true); err != nil {
+		return nil, err
+	}
+	if err = addContextDoc(result, queries[1], &response[1], false); err != nil {
+		return nil, err
+	}
 	result.Took = time.Since(startTime).Milliseconds()
 	return result, nil
 }
@@ -468,13 +472,16 @@ func parseLogQuery(req *http.Request, beginTime, endTime time.Time) (*types.List
 // a line number for context (positive for forward context, negative for backward context).
 // The function updates the result response with the extracted documents and total count.
 func addContextDoc(result *commonsearch.OpenSearchResponse,
-	query types.ListContextLogRequest, response *commonsearch.OpenSearchResponse, isAsc bool) {
-	id := 0
+	query types.ListContextLogRequest, response *commonsearch.OpenSearchResponse, isAsc bool) error {
+	id := -1
 	for i := range response.Hits.Hits {
 		if response.Hits.Hits[i].Id == query.DocId {
 			id = i + 1
 			break
 		}
+	}
+	if id == -1 {
+		return commonerrors.NewInternalError(fmt.Sprintf("the docId %s is not found", query.DocId))
 	}
 
 	count := 0
@@ -492,4 +499,5 @@ func addContextDoc(result *commonsearch.OpenSearchResponse,
 		result.Hits.Hits = append(result.Hits.Hits, *doc)
 	}
 	result.Hits.Total.Value += count
+	return nil
 }

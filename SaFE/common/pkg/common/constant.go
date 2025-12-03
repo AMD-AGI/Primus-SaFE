@@ -35,6 +35,7 @@ const (
 	ScaleRunnerSetID  = "SCALE_RUNNER_SET_ID"
 	ScaleRunnerID     = "SCALE_RUNNER_ID"
 
+	HigressClassname = "higress"
 	HigressNamespace = "higress-system"
 	HigressGateway   = "higress-gateway"
 	HigressSSHPort   = 22

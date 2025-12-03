@@ -57,13 +57,22 @@ data:
                  value: "11"
                - name: NCCL_IB_GID_INDEX
                  value: "3"
+               - name: NCCL_IB_QPS_PER_CONNECTION
+                 value: "4"
+               - name: NCCL_IB_TC
+                 value: "41"
                - name: MAIN_CONTAINER_NAME
                  value: "main"
                - name: POD_IP
                  valueFrom:
                    fieldRef:
                      fieldPath: status.podIP
+               - name: POD_NAME
+                 valueFrom:
+                   fieldRef:
+                     fieldPath: metadata.name
              securityContext:
+               runAsUser: 0
                capabilities:
                  add: [ "IPC_LOCK", "SYS_PTRACE", "SYS_RESOURCE"]
              volumeMounts:
@@ -77,6 +86,6 @@ data:
                path: /var/log
            - name: shared-data
              emptyDir: {}
-         terminationGracePeriodSeconds: 10
+         terminationGracePeriodSeconds: 5
          restartPolicy: Always
          schedulerName: kube-scheduler-plugins
