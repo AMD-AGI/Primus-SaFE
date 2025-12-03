@@ -338,6 +338,15 @@ func (m *WorkloadMutator) mutateService(workload *v1.Workload) {
 	if workload.Spec.Service.Port == 0 {
 		workload.Spec.Service.Port = workload.Spec.Service.TargetPort
 	}
+	if workload.Spec.Service.Extends == nil {
+		workload.Spec.Service.Extends = make(map[string]string)
+	}
+	if _, ok := workload.Spec.Service.Extends["maxUnavailable"]; !ok {
+		workload.Spec.Service.Extends["maxUnavailable"] = DefaultMaxUnavailable
+	}
+	if _, ok := workload.Spec.Service.Extends["maxSurge"]; !ok {
+		workload.Spec.Service.Extends["maxSurge"] = DefaultMaxMaxSurge
+	}
 }
 
 // isHostNetworkEnabled Check whether to enable hostNetwork. It should only be set to true.
@@ -363,18 +372,7 @@ func (m *WorkloadMutator) isHostNetworkEnabled(workload *v1.Workload, nf *v1.Nod
 func (m *WorkloadMutator) mutateDeployment(workload *v1.Workload) {
 	workload.Spec.IsSupervised = false
 	workload.Spec.MaxRetry = 0
-	if workload.Spec.Service == nil {
-		return
-	}
-	if workload.Spec.Service.Extends == nil {
-		workload.Spec.Service.Extends = make(map[string]string)
-	}
-	if _, ok := workload.Spec.Service.Extends["maxUnavailable"]; !ok {
-		workload.Spec.Service.Extends["maxUnavailable"] = DefaultMaxUnavailable
-	}
-	if _, ok := workload.Spec.Service.Extends["maxSurge"]; !ok {
-		workload.Spec.Service.Extends["maxSurge"] = DefaultMaxMaxSurge
-	}
+	workload.Spec.Dependencies = nil
 }
 
 // mutateAuthoring sets one-replica, entrypoint for Authoring.
