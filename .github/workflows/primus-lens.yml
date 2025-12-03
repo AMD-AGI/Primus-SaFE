@@ -36,66 +36,128 @@ jobs:
       run: |
         FORMATTED_DATE=$(TZ='Asia/Shanghai' date +'%Y%m%d%H%M')
         echo "date_time=$FORMATTED_DATE" >> $GITHUB_OUTPUT
-    - name: Get changed files
-      id: changed-files
-      uses: tj-actions/changed-files@v40
-      with:
-        files_yaml: |
-          api:
-            - Lens/modules/api/**
-            - Lens/modules/core/**
-          jobs:
-            - Lens/modules/jobs/**
-            - Lens/modules/core/**
-          node_exporter:
-            - Lens/modules/exporters/node-exporter/**
-            - Lens/modules/core/**
-          telemetry_processor:
-            - Lens/modules/telemetry-processor/**
-            - Lens/modules/core/**
-          gpu_resource_exporter:
-            - Lens/modules/exporters/gpu-resource-exporter/**
-            - Lens/modules/core/**
-          system_tuner:
-            - Lens/modules/system-tuner/**
-          network_exporter:
-            - Lens/modules/exporters/network-exporter/**
-            - Lens/modules/core/**
-          primus_safe_adapter:
-            - Lens/modules/adapter/primus-safe-adapter/**
-            - Lens/modules/core/**
-          multi_cluster_config_exporter:
-            - Lens/modules/exporters/multi-cluster-config-exporter/**
-            - Lens/modules/core/**
+    - name: Detect changed files with git diff
+      id: detect-changes
+      run: |
+        set -e
+        
+        # Determine the base commit for comparison
+        if [[ "${{ github.event_name }}" == "push" ]]; then
+          if [[ "${{ github.event.before }}" == "0000000000000000000000000000000000000000" ]]; then
+            # New branch, compare HEAD with previous commit
+            BASE_COMMIT="HEAD^"
+          else
+            # Use event.before as the base
+            BASE_COMMIT="${{ github.event.before }}"
+          fi
+          HEAD_COMMIT="${{ github.sha }}"
+        else
+          # For other event types (e.g. tag), compare the last two commits
+          BASE_COMMIT="HEAD^"
+          HEAD_COMMIT="HEAD"
+        fi
+        
+        echo "Comparing $BASE_COMMIT...$HEAD_COMMIT"
+        
+        # Get the list of changed files
+        CHANGED_FILES=$(git diff --name-only $BASE_COMMIT $HEAD_COMMIT || echo "")
+        
+        echo "Changed files:"
+        echo "$CHANGED_FILES"
+        
+        # Check if each module has changes
+        # api: Lens/modules/api/** or Lens/modules/core/**
+        if echo "$CHANGED_FILES" | grep -qE '^Lens/modules/api/|^Lens/modules/core/'; then
+          echo "api_changed=true" >> $GITHUB_OUTPUT
+        else
+          echo "api_changed=false" >> $GITHUB_OUTPUT
+        fi
+        
+        # jobs: Lens/modules/jobs/** or Lens/modules/core/**
+        if echo "$CHANGED_FILES" | grep -qE '^Lens/modules/jobs/|^Lens/modules/core/'; then
+          echo "jobs_changed=true" >> $GITHUB_OUTPUT
+        else
+          echo "jobs_changed=false" >> $GITHUB_OUTPUT
+        fi
+        
+        # node_exporter: Lens/modules/exporters/node-exporter/** or Lens/modules/core/**
+        if echo "$CHANGED_FILES" | grep -qE '^Lens/modules/exporters/node-exporter/|^Lens/modules/core/'; then
+          echo "node_exporter_changed=true" >> $GITHUB_OUTPUT
+        else
+          echo "node_exporter_changed=false" >> $GITHUB_OUTPUT
+        fi
+        
+        # telemetry_processor: Lens/modules/telemetry-processor/** or Lens/modules/core/**
+        if echo "$CHANGED_FILES" | grep -qE '^Lens/modules/telemetry-processor/|^Lens/modules/core/'; then
+          echo "telemetry_processor_changed=true" >> $GITHUB_OUTPUT
+        else
+          echo "telemetry_processor_changed=false" >> $GITHUB_OUTPUT
+        fi
+        
+        # gpu_resource_exporter: Lens/modules/exporters/gpu-resource-exporter/** or Lens/modules/core/**
+        if echo "$CHANGED_FILES" | grep -qE '^Lens/modules/exporters/gpu-resource-exporter/|^Lens/modules/core/'; then
+          echo "gpu_resource_exporter_changed=true" >> $GITHUB_OUTPUT
+        else
+          echo "gpu_resource_exporter_changed=false" >> $GITHUB_OUTPUT
+        fi
+        
+        # system_tuner: Lens/modules/system-tuner/**
+        if echo "$CHANGED_FILES" | grep -qE '^Lens/modules/system-tuner/'; then
+          echo "system_tuner_changed=true" >> $GITHUB_OUTPUT
+        else
+          echo "system_tuner_changed=false" >> $GITHUB_OUTPUT
+        fi
+        
+        # network_exporter: Lens/modules/exporters/network-exporter/** or Lens/modules/core/**
+        if echo "$CHANGED_FILES" | grep -qE '^Lens/modules/exporters/network-exporter/|^Lens/modules/core/'; then
+          echo "network_exporter_changed=true" >> $GITHUB_OUTPUT
+        else
+          echo "network_exporter_changed=false" >> $GITHUB_OUTPUT
+        fi
+        
+        # primus_safe_adapter: Lens/modules/adapter/primus-safe-adapter/** or Lens/modules/core/**
+        if echo "$CHANGED_FILES" | grep -qE '^Lens/modules/adapter/primus-safe-adapter/|^Lens/modules/core/'; then
+          echo "primus_safe_adapter_changed=true" >> $GITHUB_OUTPUT
+        else
+          echo "primus_safe_adapter_changed=false" >> $GITHUB_OUTPUT
+        fi
+        
+        # multi_cluster_config_exporter: Lens/modules/exporters/multi-cluster-config-exporter/** or Lens/modules/core/**
+        if echo "$CHANGED_FILES" | grep -qE '^Lens/modules/exporters/multi-cluster-config-exporter/|^Lens/modules/core/'; then
+          echo "multi_cluster_config_exporter_changed=true" >> $GITHUB_OUTPUT
+        else
+          echo "multi_cluster_config_exporter_changed=false" >> $GITHUB_OUTPUT
+        fi
+    
     - name: Generate matrix
       id: generate-matrix
       run: |
           MATRIX='{"include":['
-          if [[ "${{ steps.changed-files.outputs.api_any_changed }}" == "true" ]]; then
+          if [[ "${{ steps.detect-changes.outputs.api_changed }}" == "true" ]]; then
             MATRIX+='{"name":"primus-lens-api","buildpath":"cmd/primus-lens-api","basepath":"Lens/modules/api/"},'
           fi
-          if [[ "${{ steps.changed-files.outputs.jobs_any_changed }}" == "true" ]]; then
+          if [[ "${{ steps.detect-changes.outputs.jobs_changed }}" == "true" ]]; then
             MATRIX+='{"name":"primus-lens-jobs","buildpath":"cmd/primus-lens-jobs","basepath":"Lens/modules/jobs/"},'
           fi
-          if [[ "${{ steps.changed-files.outputs.node_exporter_any_changed }}" == "true" ]]; then
+          if [[ "${{ steps.detect-changes.outputs.node_exporter_changed }}" == "true" ]]; then
             MATRIX+='{"name":"primus-lens-node-exporter","buildpath":"cmd/node-exporter","basepath":"Lens/modules/exporters/node-exporter/"},'
           fi
-          if [[ "${{ steps.changed-files.outputs.telemetry_processor_any_changed }}" == "true" ]]; then
+          if [[ "${{ steps.detect-changes.outputs.telemetry_processor_changed }}" == "true" ]]; then
             MATRIX+='{"name":"telemetry-processor","buildpath":"cmd/telemetry-processor","basepath":"Lens/modules/telemetry-processor/"},'
           fi
-          if [[ "${{ steps.changed-files.outputs.gpu_resource_exporter_any_changed }}" == "true" ]]; then
+          if [[ "${{ steps.detect-changes.outputs.gpu_resource_exporter_changed }}" == "true" ]]; then
             MATRIX+='{"name":"gpu-resource-exporter","buildpath":"cmd/gpu-resource-exporter","basepath":"Lens/modules/exporters/gpu-resource-exporter/"},'
           fi
-          if [[ "${{ steps.changed-files.outputs.system_tuner_any_changed }}" == "true" ]]; then
+          if [[ "${{ steps.detect-changes.outputs.system_tuner_changed }}" == "true" ]]; then
             MATRIX+='{"name":"system-tuner","buildpath":"cmd/system-tuner","basepath":"Lens/modules/system-tuner/"},'
           fi
-          if [[ "${{ steps.changed-files.outputs.network_exporter_any_changed }}" == "true" ]]; then
+          if [[ "${{ steps.detect-changes.outputs.network_exporter_changed }}" == "true" ]]; then
             MATRIX+='{"name":"primus-lens-network-exporter","buildpath":"cmd/network-exporter","basepath":"Lens/modules/exporters/network-exporter/"},'
           fi
-          if [[ "${{ steps.changed-files.outputs.primus_safe_adapter_any_changed }}" == "true" ]]; then
+          if [[ "${{ steps.detect-changes.outputs.primus_safe_adapter_changed }}" == "true" ]]; then
             MATRIX+='{"name":"primus-safe-adapter","buildpath":"cmd/primus-safe-adapter","basepath":"Lens/modules/adapter/primus-safe-adapter/"},'
           fi
-          if [[ "${{ steps.changed-files.outputs.multi_cluster_config_exporter_any_changed }}" == "true" ]]; then
+          if [[ "${{ steps.detect-changes.outputs.multi_cluster_config_exporter_changed }}" == "true" ]]; then
             MATRIX+='{"name":"multi-cluster-config-exporter","buildpath":"cmd/multi-cluster-config-exporter","basepath":"Lens/modules/exporters/multi-cluster-config-exporter/"},'
           fi
           MATRIX=${MATRIX%,} # remove trailing comma
