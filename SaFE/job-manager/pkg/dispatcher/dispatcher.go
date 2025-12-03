@@ -887,6 +887,7 @@ func (r *DispatcherReconciler) createService(ctx context.Context, adminWorkload 
 		}
 		return err
 	}
+	klog.Infof("service %s/%s created", namespace, adminWorkload.Name)
 	return nil
 }
 
@@ -985,7 +986,7 @@ func (r *DispatcherReconciler) createIngress(ctx context.Context, adminWorkload 
 		Spec: networkingv1.IngressSpec{
 			IngressClassName: pointer.String(common.HigressClassname),
 			Rules: []networkingv1.IngressRule{{
-				Host: "*",
+				Host: commonconfig.GetSystemHost(),
 				IngressRuleValue: networkingv1.IngressRuleValue{
 					HTTP: &networkingv1.HTTPIngressRuleValue{
 						Paths: []networkingv1.HTTPIngressPath{{
@@ -1021,6 +1022,7 @@ func (r *DispatcherReconciler) createIngress(ctx context.Context, adminWorkload 
 		klog.ErrorS(err, "failed to create ingress", "name", name)
 		return err
 	}
+	klog.Infof("ingress %s/%s created", namespace, name)
 	return nil
 }
 
