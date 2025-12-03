@@ -8,6 +8,7 @@ package model_handlers
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/constvar"
@@ -72,20 +73,30 @@ func (h *Handler) createModel(c *gin.Context) (interface{}, error) {
 	}
 
 	// Check if model with same URL already exists
-	// Also check by repo_id to handle both URL and repo_id format
-	existingModel, _ := h.findModelBySourceURL(ctx, req.Source.URL)
+	// Normalize URL for consistent matching (trim trailing slash and spaces)
+	normalizedURL := strings.TrimSuffix(strings.TrimSpace(req.Source.URL), "/")
+
+	// Check with normalized URL first
+	existingModel, _ := h.findModelBySourceURL(ctx, normalizedURL)
 	if existingModel == nil {
+		// Also try with trailing slash (in case stored with slash)
+		existingModel, _ = h.findModelBySourceURL(ctx, normalizedURL+"/")
+	}
+
+	// For local models, also check by repo_id to handle both URL and repo_id format
+	if existingModel == nil && req.Source.AccessMode == string(v1.AccessModeLocal) {
 		// Try to find by normalized repo_id (e.g., "microsoft/phi-2" from "https://huggingface.co/microsoft/phi-2")
-		repoId := cleanRepoID(req.Source.URL)
-		if repoId != req.Source.URL {
+		repoId := cleanRepoID(normalizedURL)
+		if repoId != normalizedURL {
 			existingModel, _ = h.findModelBySourceURL(ctx, repoId)
 		}
 		// Also try the full URL if user provided repo_id
-		if existingModel == nil && !isFullURL(req.Source.URL) {
-			fullURL := fmt.Sprintf("https://huggingface.co/%s", req.Source.URL)
+		if existingModel == nil && !isFullURL(normalizedURL) {
+			fullURL := fmt.Sprintf("https://huggingface.co/%s", normalizedURL)
 			existingModel, _ = h.findModelBySourceURL(ctx, fullURL)
 		}
 	}
+
 	if existingModel != nil {
 		if existingModel.Phase == string(v1.ModelPhaseReady) {
 			return nil, commonerrors.NewBadRequest(fmt.Sprintf("model with URL '%s' already exists and is ready (id: %s)", existingModel.SourceURL, existingModel.ID))
@@ -176,28 +187,10 @@ func (h *Handler) createModel(c *gin.Context) (interface{}, error) {
 			Label:       label,
 			Tags:        tags,
 			Source: v1.ModelSource{
-				URL:        req.Source.URL,
+				URL:        normalizedURL, // Use normalized URL for consistent duplicate detection
 				AccessMode: v1.AccessMode(req.Source.AccessMode),
 			},
 		},
-	}
-
-	// Handle DownloadTarget (optional)
-	if req.DownloadTarget != nil {
-		k8sModel.Spec.DownloadTarget = &v1.DownloadTarget{
-			Type:      v1.DownloadType(req.DownloadTarget.Type),
-			LocalPath: req.DownloadTarget.LocalPath,
-		}
-		// Handle S3 Config
-		if req.DownloadTarget.Type == string(v1.DownloadTypeS3) && req.DownloadTarget.S3Config != nil {
-			k8sModel.Spec.DownloadTarget.S3Config = &v1.S3TargetConfig{
-				Endpoint:        req.DownloadTarget.S3Config.Endpoint,
-				Bucket:          req.DownloadTarget.S3Config.Bucket,
-				Region:          req.DownloadTarget.S3Config.Region,
-				AccessKeyID:     req.DownloadTarget.S3Config.AccessKeyID,
-				SecretAccessKey: req.DownloadTarget.S3Config.SecretAccessKey,
-			}
-		}
 	}
 
 	// Reference the Secret we just created
@@ -590,6 +583,23 @@ func (h *Handler) deleteModel(c *gin.Context) (interface{}, error) {
 // findModelBySourceURL checks if a model with the given source URL already exists in the database.
 // Returns the existing model if found, nil otherwise.
 func (h *Handler) findModelBySourceURL(ctx context.Context, sourceURL string) (*dbclient.Model, error) {
+	// First, check K8s directly for immediate consistency (no sync delay)
+	// This is critical for detecting duplicates when user creates models quickly
+	modelList := &v1.ModelList{}
+	if err := h.k8sClient.List(ctx, modelList); err == nil {
+		for _, m := range modelList.Items {
+			if m.Spec.Source.URL == sourceURL && m.DeletionTimestamp == nil {
+				// Found in K8s, convert to dbclient.Model for consistent return type
+				return &dbclient.Model{
+					ID:        m.Name,
+					SourceURL: m.Spec.Source.URL,
+					Phase:     string(m.Status.Phase),
+				}, nil
+			}
+		}
+	}
+
+	// Also check database for models that might not be in K8s yet or soft-deleted
 	client, ok := h.dbClient.(*dbclient.Client)
 	if !ok {
 		return nil, fmt.Errorf("database client type mismatch")

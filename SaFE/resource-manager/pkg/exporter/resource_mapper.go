@@ -372,19 +372,9 @@ func modelMapper(obj *unstructured.Unstructured) *dbclient.Model {
 		IsDeleted:      !cr.GetDeletionTimestamp().IsZero(),
 	}
 
-	if cr.Spec.DownloadTarget != nil {
-		dbModel.DownloadType = string(cr.Spec.DownloadTarget.Type)
-		dbModel.LocalPath = cr.Spec.DownloadTarget.LocalPath
-	}
-
 	// Store Secret name (not the actual token)
 	if cr.Spec.Source.Token != nil {
 		dbModel.SourceToken = cr.Spec.Source.Token.Name
-	}
-
-	// Serialize complex fields
-	if cr.Spec.DownloadTarget != nil && cr.Spec.DownloadTarget.S3Config != nil {
-		dbModel.S3Config = string(jsonutils.MarshalSilently(cr.Spec.DownloadTarget.S3Config))
 	}
 
 	return dbModel

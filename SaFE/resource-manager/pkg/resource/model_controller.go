@@ -8,11 +8,12 @@ package resource
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -168,15 +169,8 @@ func (r *ModelReconciler) syncInferencePhase(ctx context.Context, model *v1.Mode
 
 // needsCleanup checks if the model needs cleanup on deletion (only Local type needs cleanup)
 func (r *ModelReconciler) needsCleanup(model *v1.Model) bool {
-	// Only Local download type needs cleanup
-	// Remote API mode doesn't download files, so no cleanup needed
-	if model.Spec.Source.AccessMode == v1.AccessModeRemoteAPI {
-		return false
-	}
-	if model.Spec.DownloadTarget == nil {
-		return false
-	}
-	return model.Spec.DownloadTarget.Type == v1.DownloadTypeLocal
+	// Remote API models don't need cleanup (no files downloaded to S3
+	return model.Spec.Source.AccessMode != v1.AccessModeRemoteAPI
 }
 
 // handleDelete handles the deletion of a Model resource
@@ -209,7 +203,7 @@ func (r *ModelReconciler) handleDelete(ctx context.Context, model *v1.Model) (ct
 	}
 
 	// Check if cleanup job already exists
-	cleanupJobName := CleanupJobPrefix + model.Name
+	cleanupJobName := stringutil.NormalizeForDNS(CleanupJobPrefix + model.Name)
 	cleanupJob := &batchv1.Job{}
 	err := r.Get(ctx, client.ObjectKey{Name: cleanupJobName, Namespace: common.PrimusSafeNamespace}, cleanupJob)
 
@@ -244,8 +238,8 @@ func (r *ModelReconciler) handleDelete(ctx context.Context, model *v1.Model) (ct
 
 	// Check cleanup job status
 	if cleanupJob.Status.Succeeded > 0 {
-		// Cleanup completed, delete the job and remove finalizer
-		if err := r.Delete(ctx, cleanupJob); err != nil && !errors.IsNotFound(err) {
+		// Cleanup completed, delete the job and pods with cascade
+		if err := r.Delete(ctx, cleanupJob, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil && !errors.IsNotFound(err) {
 			klog.ErrorS(err, "Failed to delete cleanup job", "job", cleanupJobName)
 		}
 
@@ -254,7 +248,7 @@ func (r *ModelReconciler) handleDelete(ctx context.Context, model *v1.Model) (ct
 			return ctrl.Result{}, err
 		}
 
-		klog.InfoS("Model cleanup completed and deleted", "model", model.Name, "localPath", model.Spec.DownloadTarget.LocalPath)
+		klog.InfoS("Model S3 cleanup completed and deleted", "model", model.Name, "s3Path", model.GetS3Path())
 		return ctrl.Result{}, nil
 	}
 
@@ -262,7 +256,7 @@ func (r *ModelReconciler) handleDelete(ctx context.Context, model *v1.Model) (ct
 		// Cleanup failed, but still allow deletion
 		klog.ErrorS(nil, "Cleanup job failed, proceeding with deletion anyway", "model", model.Name)
 
-		if err := r.Delete(ctx, cleanupJob); err != nil && !errors.IsNotFound(err) {
+		if err := r.Delete(ctx, cleanupJob, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil && !errors.IsNotFound(err) {
 			klog.ErrorS(err, "Failed to delete failed cleanup job", "job", cleanupJobName)
 		}
 
@@ -278,37 +272,32 @@ func (r *ModelReconciler) handleDelete(ctx context.Context, model *v1.Model) (ct
 	return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 }
 
-// constructCleanupJob creates a Job to delete the downloaded model files
+// constructCleanupJob creates a Job to delete the model files from S3
 func (r *ModelReconciler) constructCleanupJob(model *v1.Model) (*batchv1.Job, error) {
-	if model.Spec.DownloadTarget == nil || model.Spec.DownloadTarget.Type != v1.DownloadTypeLocal {
-		return nil, fmt.Errorf("cleanup job only supported for Local download type")
+	// Get system S3 configuration
+	if !commonconfig.IsS3Enable() {
+		return nil, fmt.Errorf("S3 storage is not enabled in system configuration")
+	}
+	s3Endpoint := commonconfig.GetS3Endpoint()
+	s3AccessKey := commonconfig.GetS3AccessKey()
+	s3SecretKey := commonconfig.GetS3SecretKey()
+	s3Bucket := commonconfig.GetS3Bucket()
+	if s3Endpoint == "" || s3AccessKey == "" || s3SecretKey == "" || s3Bucket == "" {
+		return nil, fmt.Errorf("S3 configuration is incomplete")
 	}
 
-	localPath := model.Spec.DownloadTarget.LocalPath
-	if localPath == "" {
-		return nil, fmt.Errorf("localPath is empty, cannot determine cleanup target")
-	}
+	s3Path := fmt.Sprintf("s3://%s/%s", s3Bucket, model.GetS3Path())
 
-	// Clean the path and extract parent directory and folder name
-	// e.g., "/apps/models/phi-2" -> parentDir="/apps/models", folderName="phi-2"
-	cleanPath := filepath.Clean(localPath)
-	parentDir := filepath.Dir(cleanPath)
-	folderName := filepath.Base(cleanPath)
-
-	// Safety check: don't allow deleting root-level directories
-	if parentDir == "/" || parentDir == "." || folderName == "/" || folderName == "." {
-		return nil, fmt.Errorf("invalid localPath: %s, cannot delete root-level directories", localPath)
-	}
-
-	// Use alpine image for cleanup (small and has rm command)
-	image := "alpine:3.18"
+	// Use the same downloader image which has awscli installed
+	image := "harbor.tas.primus-safe.amd.com/proxy/primussafe/model-downloader:latest"
 
 	backoffLimit := int32(1)
-	ttlSeconds := int32(300) // Auto-delete job after 5 minutes
+	ttlSeconds := int32(60) // Auto-delete job and pod 60 seconds after completion
 
+	jobName := stringutil.NormalizeForDNS(CleanupJobPrefix + model.Name)
 	job := &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      CleanupJobPrefix + model.Name,
+			Name:      jobName,
 			Namespace: common.PrimusSafeNamespace,
 			Labels: map[string]string{
 				"app":   "model-cleanup",
@@ -335,31 +324,16 @@ func (r *ModelReconciler) constructCleanupJob(model *v1.Model) (*batchv1.Job, er
 							Command: []string{
 								"/bin/sh", "-c",
 								fmt.Sprintf(`
-									echo "Starting cleanup for model: %s"
-									echo "Target folder: /mnt/models/%s"
-									if [ -d "/mnt/models/%s" ]; then
-										rm -rf "/mnt/models/%s"
-										echo "Cleanup completed: folder deleted successfully"
-									else
-										echo "Directory does not exist, nothing to clean"
-									fi
-								`, model.Name, folderName, folderName, folderName),
+									echo "Starting S3 cleanup for model: %s"
+									echo "Target S3 path: %s"
+									aws s3 rm %s --recursive --endpoint-url %s || echo "Warning: S3 cleanup failed, but proceeding anyway"
+									echo "S3 cleanup completed"
+								`, model.Name, s3Path, s3Path, s3Endpoint),
 							},
-							VolumeMounts: []corev1.VolumeMount{
-								{
-									Name:      "model-storage",
-									MountPath: "/mnt/models",
-								},
-							},
-						},
-					},
-					Volumes: []corev1.Volume{
-						{
-							Name: "model-storage",
-							VolumeSource: corev1.VolumeSource{
-								HostPath: &corev1.HostPathVolumeSource{
-									Path: parentDir,
-								},
+							Env: []corev1.EnvVar{
+								{Name: "AWS_ACCESS_KEY_ID", Value: s3AccessKey},
+								{Name: "AWS_SECRET_ACCESS_KEY", Value: s3SecretKey},
+								{Name: "AWS_DEFAULT_REGION", Value: "us-east-1"},
 							},
 						},
 					},
@@ -454,8 +428,8 @@ func (r *ModelReconciler) handlePulling(ctx context.Context, model *v1.Model) (c
 		model.Status.Message = "Download completed successfully"
 		klog.InfoS("Model download completed", "model", model.Name, "url", model.Spec.Source.URL)
 
-		// Delete the completed job to clean up resources
-		if err := r.Delete(ctx, job); err != nil && !errors.IsNotFound(err) {
+		// Delete the completed job and pods to clean up resources
+		if err := r.Delete(ctx, job, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil && !errors.IsNotFound(err) {
 			klog.ErrorS(err, "Failed to delete completed job", "job", jobName)
 		} else {
 			klog.InfoS("Deleted completed download job", "job", jobName)
@@ -480,8 +454,8 @@ func (r *ModelReconciler) handlePulling(ctx context.Context, model *v1.Model) (c
 				"attempts", job.Status.Failed,
 				"reason", failureReason)
 
-			// Delete the failed job to allow retry
-			if err := r.Delete(ctx, job); err != nil && !errors.IsNotFound(err) {
+			// Delete the failed job and pods to allow retry
+			if err := r.Delete(ctx, job, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil && !errors.IsNotFound(err) {
 				klog.ErrorS(err, "Failed to delete failed job", "job", jobName)
 			} else {
 				klog.InfoS("Deleted failed download job", "job", jobName)
@@ -520,18 +494,26 @@ func (r *ModelReconciler) extractJobFailureReason(job *batchv1.Job) string {
 }
 
 func (r *ModelReconciler) constructDownloadJob(model *v1.Model) (*batchv1.Job, error) {
-	var cmd []string
 	var envs []corev1.EnvVar
-	var volumes []corev1.Volume
-	var volumeMounts []corev1.VolumeMount
 
 	// Validate Source URL
 	if model.Spec.Source.URL == "" {
 		return nil, fmt.Errorf("model source URL is empty")
 	}
 
+	// Get system S3 configuration
+	if !commonconfig.IsS3Enable() {
+		return nil, fmt.Errorf("S3 storage is not enabled in system configuration")
+	}
+	s3Endpoint := commonconfig.GetS3Endpoint()
+	s3AccessKey := commonconfig.GetS3AccessKey()
+	s3SecretKey := commonconfig.GetS3SecretKey()
+	s3Bucket := commonconfig.GetS3Bucket()
+	if s3Endpoint == "" || s3AccessKey == "" || s3SecretKey == "" || s3Bucket == "" {
+		return nil, fmt.Errorf("S3 configuration is incomplete")
+	}
+
 	// Use custom image with pre-installed huggingface-cli and awscli
-	// Note: You should build this image using harbor.tas.primus-safe.amd.com/proxy/primussafe/model-downloader:latest
 	image := "harbor.tas.primus-safe.amd.com/proxy/primussafe/model-downloader:latest"
 
 	// Mount HF_TOKEN from Secret if provided
@@ -547,81 +529,34 @@ func (r *ModelReconciler) constructDownloadJob(model *v1.Model) (*batchv1.Job, e
 		})
 	}
 
-	// Determine download target and construct appropriate command
-	downloadTarget := model.Spec.DownloadTarget
-	if downloadTarget == nil {
-		return nil, fmt.Errorf("downloadTarget is not specified")
-	}
+	// Add S3 credentials as environment variables
+	envs = append(envs,
+		corev1.EnvVar{Name: "AWS_ACCESS_KEY_ID", Value: s3AccessKey},
+		corev1.EnvVar{Name: "AWS_SECRET_ACCESS_KEY", Value: s3SecretKey},
+		corev1.EnvVar{Name: "AWS_DEFAULT_REGION", Value: "us-east-1"},
+		corev1.EnvVar{Name: "S3_ENDPOINT", Value: s3Endpoint},
+		corev1.EnvVar{Name: "S3_BUCKET", Value: s3Bucket},
+	)
 
-	switch downloadTarget.Type {
-	case v1.DownloadTypeLocal:
-		// Download to local path (HostPath volume)
-		localPath := downloadTarget.LocalPath
-		if localPath == "" {
-			localPath = "/data/models" // Default path
-		}
-
-		// Mount local storage
-		volumes = append(volumes, corev1.Volume{
-			Name: "model-storage",
-			VolumeSource: corev1.VolumeSource{
-				HostPath: &corev1.HostPathVolumeSource{
-					Path: localPath,
-				},
-			},
-		})
-		volumeMounts = append(volumeMounts, corev1.VolumeMount{
-			Name:      "model-storage",
-			MountPath: "/data/model",
-		})
-
-		// Download command for local storage
-		// Extract repo_id from URL (e.g., "https://huggingface.co/microsoft/phi-2" -> "microsoft/phi-2")
-		repoId := extractHFRepoId(model.Spec.Source.URL)
-		cmd = []string{
-			"/bin/sh", "-c",
-			fmt.Sprintf(`
-				set -e
-				huggingface-cli download %s --local-dir /data/model || exit 1
-			`, repoId),
-		}
-
-	case v1.DownloadTypeS3:
-		// Download to S3
-		s3Config := downloadTarget.S3Config
-		if s3Config == nil {
-			return nil, fmt.Errorf("s3Config is required when downloadTarget type is S3")
-		}
-
-		// Add S3 credentials as environment variables
-		envs = append(envs,
-			corev1.EnvVar{Name: "AWS_ACCESS_KEY_ID", Value: s3Config.AccessKeyID},
-			corev1.EnvVar{Name: "AWS_SECRET_ACCESS_KEY", Value: s3Config.SecretAccessKey},
-			corev1.EnvVar{Name: "AWS_DEFAULT_REGION", Value: s3Config.Region},
-			corev1.EnvVar{Name: "S3_ENDPOINT", Value: s3Config.Endpoint},
-			corev1.EnvVar{Name: "S3_BUCKET", Value: s3Config.Bucket},
-		)
-
-		// Download command for S3 storage
-		// First download to temp dir, then upload to S3
-		// Extract repo_id from URL (e.g., "https://huggingface.co/microsoft/phi-2" -> "microsoft/phi-2")
-		repoId := extractHFRepoId(model.Spec.Source.URL)
-		s3Path := fmt.Sprintf("s3://%s/models/%s", s3Config.Bucket, model.Name)
-		cmd = []string{
-			"/bin/sh", "-c",
-			fmt.Sprintf(`
-				set -e
-				mkdir -p /tmp/model
-				huggingface-cli download %s --local-dir /tmp/model || exit 1
-				aws s3 sync /tmp/model %s --endpoint-url %s || exit 1
-			`, repoId, s3Path, s3Config.Endpoint),
-		}
-
-	default:
-		return nil, fmt.Errorf("unsupported download target type: %s", downloadTarget.Type)
+	// Download from HuggingFace to S3
+	// Extract repo_id from URL (e.g., "https://huggingface.co/microsoft/phi-2" -> "microsoft/phi-2")
+	repoId := extractHFRepoId(model.Spec.Source.URL)
+	s3Path := fmt.Sprintf("s3://%s/%s", s3Bucket, model.GetS3Path())
+	cmd := []string{
+		"/bin/sh", "-c",
+		fmt.Sprintf(`
+			set -e
+			echo "Downloading model from HuggingFace: %s"
+			mkdir -p /tmp/model
+			huggingface-cli download %s --local-dir /tmp/model || exit 1
+			echo "Uploading model to S3: %s"
+			aws s3 sync /tmp/model %s --endpoint-url %s || exit 1
+			echo "Model download completed successfully"
+		`, repoId, repoId, s3Path, s3Path, s3Endpoint),
 	}
 
 	backoffLimit := int32(3)
+	ttlSeconds := int32(60) // Auto-delete job and pod 60 seconds after completion
 	job := &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      model.Name,
@@ -632,7 +567,8 @@ func (r *ModelReconciler) constructDownloadJob(model *v1.Model) (*batchv1.Job, e
 			},
 		},
 		Spec: batchv1.JobSpec{
-			BackoffLimit: &backoffLimit,
+			BackoffLimit:            &backoffLimit,
+			TTLSecondsAfterFinished: &ttlSeconds,
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: map[string]string{
@@ -649,10 +585,8 @@ func (r *ModelReconciler) constructDownloadJob(model *v1.Model) (*batchv1.Job, e
 							ImagePullPolicy: corev1.PullIfNotPresent,
 							Command:         cmd,
 							Env:             envs,
-							VolumeMounts:    volumeMounts,
 						},
 					},
-					Volumes: volumes,
 				},
 			},
 		},

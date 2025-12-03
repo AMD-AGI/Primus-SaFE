@@ -269,9 +269,6 @@ type Model struct {
 	SourceURL      string      `gorm:"column:source_url" json:"sourceURL" db:"source_url"`
 	AccessMode     string      `gorm:"column:access_mode" json:"accessMode" db:"access_mode"`
 	SourceToken    string      `gorm:"column:source_token" json:"sourceToken" db:"source_token"`
-	DownloadType   string      `gorm:"column:download_type" json:"downloadType" db:"download_type"`
-	LocalPath      string      `gorm:"column:local_path" json:"localPath" db:"local_path"`
-	S3Config       string      `gorm:"column:s3_config" json:"s3Config" db:"s3_config"`
 	Phase          string      `gorm:"column:phase" json:"phase" db:"phase"`
 	Message        string      `gorm:"column:message" json:"message" db:"message"`
 	InferenceID    string      `gorm:"column:inference_id" json:"inferenceID" db:"inference_id"`

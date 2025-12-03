@@ -156,9 +156,9 @@ func (m *Model) IsLocal() bool {
 	return m.Spec.Source.AccessMode == AccessModeLocal
 }
 
-// GetS3Path returns the S3 path for the model (models/{modelName})
+// GetS3Path returns the S3 path for the model (models/{safeDisplayName})
 func (m *Model) GetS3Path() string {
-	return "models/" + m.Name
+	return "models/" + m.GetSafeDisplayName()
 }
 
 // GetSafeDisplayName returns a sanitized display name safe for file paths

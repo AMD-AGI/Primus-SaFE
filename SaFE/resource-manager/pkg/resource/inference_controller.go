@@ -11,6 +11,10 @@ import (
 	"time"
 
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
+	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
@@ -31,6 +35,12 @@ import (
 const (
 	// SyncInterval defines how often to sync workload status
 	SyncInterval = 10 * time.Minute
+
+	// InferenceDownloadJobPrefix is the prefix for inference model download jobs
+	InferenceDownloadJobPrefix = "inference-download-"
+
+	// InferenceCleanupJobPrefix is the prefix for inference model cleanup jobs
+	InferenceCleanupJobPrefix = "inference-cleanup-"
 )
 
 // InferenceReconciler reconciles Inference resources
@@ -178,6 +188,14 @@ func (r *InferenceReconciler) delete(ctx context.Context, inference *v1.Inferenc
 		}
 	}
 
+	// Clean up local model files if this is a local model
+	if inference.IsFromModelSquare() {
+		if err := r.cleanupLocalModel(ctx, inference); err != nil {
+			klog.ErrorS(err, "failed to cleanup local model", "inference", inference.Name)
+			// Don't block deletion on cleanup failure
+		}
+	}
+
 	// Remove finalizer
 	return utils.RemoveFinalizer(ctx, r.Client, inference, v1.InferenceFinalizer)
 }
@@ -213,6 +231,24 @@ func (r *InferenceReconciler) processModelSquareInference(ctx context.Context, i
 func (r *InferenceReconciler) handlePending(ctx context.Context, inference *v1.Inference) (ctrlruntime.Result, error) {
 	klog.Infof("Processing pending inference %s", inference.Name)
 
+	// For ModelSquare models, download from S3 to local workspace first
+	if inference.IsFromModelSquare() {
+		downloaded, err := r.ensureModelDownloaded(ctx, inference)
+		if err != nil {
+			klog.ErrorS(err, "failed to download model for inference", "inference", inference.Name)
+			return r.updatePhase(ctx, inference, constvar.InferencePhaseFailure, fmt.Sprintf("Failed to download model: %v", err))
+		}
+		if !downloaded {
+			// Download job is still running, wait
+			if inference.Status.Message != "Downloading model from S3 to local workspace" {
+				if _, err := r.updatePhase(ctx, inference, constvar.InferencePhasePending, "Downloading model from S3 to local workspace"); err != nil {
+					return ctrlruntime.Result{}, err
+				}
+			}
+			return ctrlruntime.Result{RequeueAfter: 10 * time.Second}, nil
+		}
+	}
+
 	// Create or get existing workload
 	workload, err := r.createWorkload(ctx, inference)
 	if err != nil {
@@ -231,11 +267,7 @@ func (r *InferenceReconciler) handlePending(ctx context.Context, inference *v1.I
 	}
 
 	// Check workload status and sync to inference
-	if workload.Status.Phase == v1.WorkloadRunning {
-		// Workload is running, update inference to Running
-		return r.syncWorkloadStatus(ctx, inference, workload)
-	} else if workload.Status.Phase == v1.WorkloadFailed {
-		// Workload failed, update inference to Failed
+	if workload.Status.Phase == v1.WorkloadRunning || workload.Status.Phase == v1.WorkloadFailed {
 		return r.syncWorkloadStatus(ctx, inference, workload)
 	}
 
@@ -457,4 +489,312 @@ func (r *InferenceReconciler) updatePhase(ctx context.Context, inference *v1.Inf
 
 	klog.Infof("Updated inference %s to phase %s: %s", inference.Name, phase, message)
 	return ctrlruntime.Result{}, nil
+}
+
+// ensureModelDownloaded ensures the model is downloaded from S3 to local workspace
+// Returns true if download is complete, false if still in progress
+func (r *InferenceReconciler) ensureModelDownloaded(ctx context.Context, inference *v1.Inference) (bool, error) {
+	// Get the Model CR to get S3 path information
+	model := &v1.Model{}
+	if err := r.Get(ctx, client.ObjectKey{Name: inference.Spec.ModelName}, model); err != nil {
+		return false, fmt.Errorf("failed to get model %s: %w", inference.Spec.ModelName, err)
+	}
+
+	// Get workspace to determine mount path
+	workspace := &v1.Workspace{}
+	if err := r.Get(ctx, client.ObjectKey{Name: inference.Spec.Resource.Workspace}, workspace); err != nil {
+		return false, fmt.Errorf("failed to get workspace %s: %w", inference.Spec.Resource.Workspace, err)
+	}
+
+	// Get mount path from workspace volumes, prioritizing PFS type
+	localBasePath := getWorkspaceMountPath(workspace)
+	if localBasePath == "" {
+		return false, fmt.Errorf("workspace %s has no volumes with mount path", inference.Spec.Resource.Workspace)
+	}
+
+	// Local path: {mountPath}/models/{safeDisplayName}
+	localModelPath := fmt.Sprintf("%s/models/%s", localBasePath, model.GetSafeDisplayName())
+
+	// Check if download job already exists
+	downloadJobName := stringutil.NormalizeForDNS(InferenceDownloadJobPrefix + inference.Name)
+	downloadJob := &batchv1.Job{}
+	err := r.Get(ctx, client.ObjectKey{Name: downloadJobName, Namespace: common.PrimusSafeNamespace}, downloadJob)
+
+	if errors.IsNotFound(err) {
+		// Create download job
+		job, err := r.constructInferenceDownloadJob(inference, model, localBasePath, localModelPath)
+		if err != nil {
+			return false, fmt.Errorf("failed to construct download job: %w", err)
+		}
+		if err := r.Create(ctx, job); err != nil {
+			return false, fmt.Errorf("failed to create download job: %w", err)
+		}
+		klog.Infof("Created download job %s for inference %s", downloadJobName, inference.Name)
+		return false, nil
+	} else if err != nil {
+		return false, fmt.Errorf("failed to get download job: %w", err)
+	}
+
+	// Check job status
+	if downloadJob.Status.Succeeded > 0 {
+		klog.Infof("Download job %s completed for inference %s", downloadJobName, inference.Name)
+		// Delete the job after success
+		if err := r.Delete(ctx, downloadJob, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil && !errors.IsNotFound(err) {
+			klog.ErrorS(err, "failed to delete completed download job", "job", downloadJobName)
+		}
+		return true, nil
+	}
+
+	if downloadJob.Status.Failed > 0 && downloadJob.Status.Active == 0 {
+		// Job failed, delete it and return error
+		if err := r.Delete(ctx, downloadJob, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil && !errors.IsNotFound(err) {
+			klog.ErrorS(err, "failed to delete failed download job", "job", downloadJobName)
+		}
+		return false, fmt.Errorf("download job failed")
+	}
+
+	// Job still running
+	return false, nil
+}
+
+// constructInferenceDownloadJob creates a job to download model from S3 to local workspace
+func (r *InferenceReconciler) constructInferenceDownloadJob(inference *v1.Inference, model *v1.Model, localBasePath, localModelPath string) (*batchv1.Job, error) {
+	// Get S3 configuration
+	if !commonconfig.IsS3Enable() {
+		return nil, fmt.Errorf("S3 storage is not enabled")
+	}
+	s3Endpoint := commonconfig.GetS3Endpoint()
+	s3AccessKey := commonconfig.GetS3AccessKey()
+	s3SecretKey := commonconfig.GetS3SecretKey()
+	s3Bucket := commonconfig.GetS3Bucket()
+	if s3Endpoint == "" || s3AccessKey == "" || s3SecretKey == "" || s3Bucket == "" {
+		return nil, fmt.Errorf("S3 configuration is incomplete")
+	}
+
+	s3Path := fmt.Sprintf("s3://%s/%s", s3Bucket, model.GetS3Path())
+
+	// Use the model-downloader image which has awscli installed
+	image := "harbor.tas.primus-safe.amd.com/proxy/primussafe/model-downloader:latest"
+
+	backoffLimit := int32(3)
+	ttlSeconds := int32(60)
+
+	jobName := stringutil.NormalizeForDNS(InferenceDownloadJobPrefix + inference.Name)
+	job := &batchv1.Job{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      jobName,
+			Namespace: common.PrimusSafeNamespace,
+			Labels: map[string]string{
+				"app":       "inference-download",
+				"inference": inference.Name,
+			},
+		},
+		Spec: batchv1.JobSpec{
+			BackoffLimit:            &backoffLimit,
+			TTLSecondsAfterFinished: &ttlSeconds,
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						"app":       "inference-download",
+						"inference": inference.Name,
+					},
+				},
+				Spec: corev1.PodSpec{
+					RestartPolicy: corev1.RestartPolicyOnFailure,
+					Containers: []corev1.Container{
+						{
+							Name:            "downloader",
+							Image:           image,
+							ImagePullPolicy: corev1.PullIfNotPresent,
+							Command: []string{
+								"/bin/sh", "-c",
+								fmt.Sprintf(`
+									set -e
+									echo "Downloading model from S3 to local workspace"
+									echo "S3 Source: %s"
+									echo "Local Target: %s"
+									mkdir -p %s
+									aws s3 sync %s %s --endpoint-url %s
+									echo "Download completed successfully"
+								`, s3Path, localModelPath, localModelPath, s3Path, localModelPath, s3Endpoint),
+							},
+							Env: []corev1.EnvVar{
+								{Name: "AWS_ACCESS_KEY_ID", Value: s3AccessKey},
+								{Name: "AWS_SECRET_ACCESS_KEY", Value: s3SecretKey},
+								{Name: "AWS_DEFAULT_REGION", Value: "us-east-1"},
+							},
+							VolumeMounts: []corev1.VolumeMount{
+								{
+									Name:      "workspace-storage",
+									MountPath: localBasePath,
+								},
+							},
+						},
+					},
+					Volumes: []corev1.Volume{
+						{
+							Name: "workspace-storage",
+							VolumeSource: corev1.VolumeSource{
+								HostPath: &corev1.HostPathVolumeSource{
+									Path: localBasePath,
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	return job, nil
+}
+
+// cleanupLocalModel creates a job to clean up local model files when inference is deleted
+func (r *InferenceReconciler) cleanupLocalModel(ctx context.Context, inference *v1.Inference) error {
+	// Get the Model CR
+	model := &v1.Model{}
+	if err := r.Get(ctx, client.ObjectKey{Name: inference.Spec.ModelName}, model); err != nil {
+		if errors.IsNotFound(err) {
+			klog.Infof("Model %s not found, skipping cleanup", inference.Spec.ModelName)
+			return nil
+		}
+		return err
+	}
+
+	// Get workspace
+	workspace := &v1.Workspace{}
+	if err := r.Get(ctx, client.ObjectKey{Name: inference.Spec.Resource.Workspace}, workspace); err != nil {
+		if errors.IsNotFound(err) {
+			klog.Infof("Workspace %s not found, skipping cleanup", inference.Spec.Resource.Workspace)
+			return nil
+		}
+		return err
+	}
+
+	// Get mount path from workspace volumes, prioritizing PFS type
+	localBasePath := getWorkspaceMountPath(workspace)
+	if localBasePath == "" {
+		klog.Infof("Workspace %s has no volumes with mount path, skipping cleanup", inference.Spec.Resource.Workspace)
+		return nil
+	}
+
+	// Local path to clean
+	localModelPath := fmt.Sprintf("%s/models/%s", localBasePath, model.GetSafeDisplayName())
+
+	// Create cleanup job
+	job, err := r.constructInferenceCleanupJob(inference, localBasePath, localModelPath)
+	if err != nil {
+		return err
+	}
+
+	// Check if cleanup job already exists
+	existingJob := &batchv1.Job{}
+	if err := r.Get(ctx, client.ObjectKey{Name: job.Name, Namespace: job.Namespace}, existingJob); err == nil {
+		klog.Infof("Cleanup job %s already exists", job.Name)
+		return nil
+	}
+
+	if err := r.Create(ctx, job); err != nil && !errors.IsAlreadyExists(err) {
+		return err
+	}
+
+	klog.Infof("Created cleanup job %s for inference %s, path: %s", job.Name, inference.Name, localModelPath)
+	return nil
+}
+
+// constructInferenceCleanupJob creates a job to delete local model files
+func (r *InferenceReconciler) constructInferenceCleanupJob(inference *v1.Inference, localBasePath, localModelPath string) (*batchv1.Job, error) {
+	image := "alpine:3.18"
+
+	backoffLimit := int32(1)
+	ttlSeconds := int32(60)
+
+	jobName := stringutil.NormalizeForDNS(InferenceCleanupJobPrefix + inference.Name)
+	job := &batchv1.Job{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      jobName,
+			Namespace: common.PrimusSafeNamespace,
+			Labels: map[string]string{
+				"app":       "inference-cleanup",
+				"inference": inference.Name,
+			},
+		},
+		Spec: batchv1.JobSpec{
+			BackoffLimit:            &backoffLimit,
+			TTLSecondsAfterFinished: &ttlSeconds,
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						"app":       "inference-cleanup",
+						"inference": inference.Name,
+					},
+				},
+				Spec: corev1.PodSpec{
+					RestartPolicy: corev1.RestartPolicyNever,
+					Containers: []corev1.Container{
+						{
+							Name:            "cleanup",
+							Image:           image,
+							ImagePullPolicy: corev1.PullIfNotPresent,
+							Command: []string{
+								"/bin/sh", "-c",
+								fmt.Sprintf(`
+									echo "Starting cleanup for inference: %s"
+									echo "Target path: %s"
+									if [ -d "%s" ]; then
+										rm -rf "%s"
+										echo "Cleanup completed: directory deleted"
+									else
+										echo "Directory does not exist, nothing to clean"
+									fi
+								`, inference.Name, localModelPath, localModelPath, localModelPath),
+							},
+							VolumeMounts: []corev1.VolumeMount{
+								{
+									Name:      "workspace-storage",
+									MountPath: localBasePath,
+								},
+							},
+						},
+					},
+					Volumes: []corev1.Volume{
+						{
+							Name: "workspace-storage",
+							VolumeSource: corev1.VolumeSource{
+								HostPath: &corev1.HostPathVolumeSource{
+									Path: localBasePath,
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	return job, nil
+}
+
+// getWorkspaceMountPath retrieves mount path from workspace volumes.
+// It prioritizes PFS type volumes for better storage performance,
+// otherwise falls back to the first available volume's mount path.
+func getWorkspaceMountPath(workspace *v1.Workspace) string {
+	result := ""
+	// Prioritize PFS type volumes (e.g., /wekafs)
+	for _, vol := range workspace.Spec.Volumes {
+		if vol.Type == v1.PFS && vol.MountPath != "" {
+			result = vol.MountPath
+			break
+		}
+	}
+	// Fallback: use first volume with MountPath (e.g., /apps, /home)
+	if result == "" {
+		for _, vol := range workspace.Spec.Volumes {
+			if vol.MountPath != "" {
+				result = vol.MountPath
+				break
+			}
+		}
+	}
+	return result
 }
