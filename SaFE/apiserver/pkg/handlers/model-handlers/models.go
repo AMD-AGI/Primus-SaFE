@@ -384,13 +384,13 @@ func (h *Handler) toggleModel(c *gin.Context) (interface{}, error) {
 				"inferenceId": k8sModel.Status.InferenceID,
 			}, nil
 		}
-		return gin.H{"message": "remote API model has no inference, please check model status"}, nil
+		return nil, commonerrors.NewInternalError("remote API model has no inference, please check model status")
 	}
 
 	if req.Enabled {
 		// Toggle ON
 		if k8sModel.Status.InferenceID != "" {
-			return gin.H{"message": "inference already exists", "inferenceId": k8sModel.Status.InferenceID}, nil
+			return nil, commonerrors.NewBadRequest(fmt.Sprintf("inference already exists, inferenceId: %s", k8sModel.Status.InferenceID))
 		}
 
 		// At this point, we know it's a local model (remote_api already returned above)
@@ -487,7 +487,7 @@ func (h *Handler) toggleModel(c *gin.Context) (interface{}, error) {
 	} else {
 		// Toggle OFF
 		if k8sModel.Status.InferenceID == "" {
-			return gin.H{"message": "inference not found or already stopped"}, nil
+			return nil, commonerrors.NewBadRequest("inference not found or already stopped")
 		}
 
 		infId := k8sModel.Status.InferenceID
@@ -500,7 +500,7 @@ func (h *Handler) toggleModel(c *gin.Context) (interface{}, error) {
 				k8sModel.Status.InferenceID = ""
 				k8sModel.Status.InferencePhase = ""
 				_ = h.k8sClient.Status().Update(ctx, k8sModel)
-				return gin.H{"message": "inference already deleted"}, nil
+				return nil, commonerrors.NewBadRequest("inference already deleted")
 			}
 			return nil, commonerrors.NewInternalError("failed to fetch inference for deletion: " + err.Error())
 		}
