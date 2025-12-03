@@ -215,7 +215,6 @@ func cvtDBWorkloadListItem(ctx context.Context, clusterName string, dbWorkload *
 			result.InstantGpuUtilization = nil
 		}
 	}
-
 	return result, nil
 }
 
