@@ -139,5 +139,5 @@ func extractUserEmails(users []*v1.User) []string {
 }
 
 func getWorkloadUrl(workloadId string) string {
-	return fmt.Sprintf("%s/training/detail?id=%s", commonconfig.GetSystemBaseUrl(), workloadId)
+	return fmt.Sprintf("%s/training/detail?id=%s", commonconfig.GetSystemHost(), workloadId)
 }

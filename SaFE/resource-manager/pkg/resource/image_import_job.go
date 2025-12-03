@@ -13,7 +13,6 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -30,18 +29,13 @@ func SetupImageImportJobReconciler(mgr ctrlruntime.Manager) error {
 	if !commonconfig.IsDBEnable() {
 		return nil
 	}
-	dbClient := dbclient.NewClient()
-	clientSet, err := kubernetes.NewForConfig(mgr.GetConfig())
+	baseReconciler, err := newClusterBaseReconciler(mgr)
 	if err != nil {
-		klog.Errorf("Create kubernetes clientset failed: %v", err)
 		return err
 	}
 	r := &ImageImportJobReconciler{
-		ClusterBaseReconciler: &ClusterBaseReconciler{
-			Client: mgr.GetClient(),
-		},
-		dbClient:  dbClient,
-		k8sClient: clientSet,
+		ClusterBaseReconciler: baseReconciler,
+		dbClient:              dbclient.NewClient(),
 	}
 	err = ctrlruntime.NewControllerManagedBy(mgr).
 		For(&batchv1.Job{}).
@@ -78,8 +72,7 @@ func filterImageImportJob(o client.Object) bool {
 // It monitors Kubernetes jobs tagged with "image-import" label and synchronizes their status to the database.
 type ImageImportJobReconciler struct {
 	*ClusterBaseReconciler
-	dbClient  dbclient.Interface
-	k8sClient kubernetes.Interface
+	dbClient dbclient.Interface
 }
 
 // Reconcile reconciles image import jobs by monitoring their status and updating the database.
@@ -169,7 +162,7 @@ func (r *ImageImportJobReconciler) getImportImagePodLogs(ctx context.Context, jo
 	}
 
 	pod := pods.Items[0]
-	resp, err := r.k8sClient.CoreV1().Pods(job.Namespace).GetLogs(pod.Name, &corev1.PodLogOptions{}).Stream(ctx)
+	resp, err := r.clientSet.CoreV1().Pods(job.Namespace).GetLogs(pod.Name, &corev1.PodLogOptions{}).Stream(ctx)
 	if err != nil {
 		return "", err
 	}

@@ -151,7 +151,7 @@ func TestMultiResource(t *testing.T) {
 }
 
 func TestCvtToResourceList(t *testing.T) {
-	rdmaName := "global.rdma_name"
+	rdmaName := "net.rdma_name"
 	commonconfig.SetValue(rdmaName, "rdma/hca")
 	defer commonconfig.SetValue(rdmaName, "")
 

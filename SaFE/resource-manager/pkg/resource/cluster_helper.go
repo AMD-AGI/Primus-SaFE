@@ -17,12 +17,15 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apitypes "k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
 )
 
@@ -34,6 +37,18 @@ const (
 // ClusterBaseReconciler provides base functionality for cluster reconciliation operations.
 type ClusterBaseReconciler struct {
 	client.Client
+	clientSet kubernetes.Interface
+}
+
+func newClusterBaseReconciler(mgr manager.Manager) (*ClusterBaseReconciler, error) {
+	clientSet, err := k8sclient.NewClientSetWithRestConfig(mgr.GetConfig())
+	if err != nil {
+		return nil, err
+	}
+	return &ClusterBaseReconciler{
+		Client:    mgr.GetClient(),
+		clientSet: clientSet,
+	}, nil
 }
 
 // getUsername retrieves the SSH username for a node, checking cluster, node, and default secrets.
