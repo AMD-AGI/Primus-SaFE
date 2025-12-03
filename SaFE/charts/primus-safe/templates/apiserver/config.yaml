@@ -14,6 +14,8 @@ data:
     net:
       # RDMA device name
       rdma_name: {{ .Values.net.rdma_name }}
+      # Ingress component name selected during install.sh
+      ingress: {{ .Values.net.ingress }}
     crypto:
       # Whether to enable crypto. This will be used to encrypt the user token.
       enable: true
