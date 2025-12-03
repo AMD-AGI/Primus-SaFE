@@ -88,13 +88,13 @@ type HealthCheck struct {
 type Service struct {
 	// Service protocol, e.g. TCP/UDP, default TCP
 	Protocol corev1.Protocol `json:"protocol"`
-	// Service port for external access
-	Port int `json:"port"`
-	// Service NodePort (for NodePort type)
+	// Service port for external access, Defaults to targetPort.
+	Port int `json:"port,omitempty"`
+	// Port of Host Node (for NodePort type)
 	NodePort int `json:"nodePort,omitempty"`
 	// Target container port
 	TargetPort int `json:"targetPort"`
-	// Service type, e.g. ClusterIP/NodePort/LoadBalancer
+	// Service type, e.g. ClusterIP/NodePort
 	ServiceType corev1.ServiceType `json:"serviceType"`
 	// Extended environment variable
 	Extends map[string]string `json:"extends,omitempty"`

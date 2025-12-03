@@ -228,22 +228,21 @@ spec:
                     description: Extended environment variable
                     type: object
                   nodePort:
-                    description: Service NodePort (for NodePort type)
+                    description: Port of Host Node (for NodePort type)
                     type: integer
                   port:
-                    description: Service port for external access
+                    description: Service port for external access, Defaults to targetPort.
                     type: integer
                   protocol:
                     description: Service protocol, e.g. TCP/UDP, default TCP
                     type: string
                   serviceType:
-                    description: Service type, e.g. ClusterIP/NodePort/LoadBalancer
+                    description: Service type, e.g. ClusterIP/NodePort
                     type: string
                   targetPort:
                     description: Target container port
                     type: integer
                 required:
-                - port
                 - protocol
                 - serviceType
                 - targetPort

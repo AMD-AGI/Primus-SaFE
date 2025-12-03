@@ -27,7 +27,7 @@ func IsUnrecoverableError(err error) bool {
 	if commonerrors.IsBadRequest(err) || commonerrors.IsInternal(err) || commonerrors.IsNotFound(err) {
 		return true
 	}
-	if apierrors.IsForbidden(err) || apierrors.IsNotFound(err) {
+	if apierrors.IsNotFound(err) {
 		return true
 	}
 	return false

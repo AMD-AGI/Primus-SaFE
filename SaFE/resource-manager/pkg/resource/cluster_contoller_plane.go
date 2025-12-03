@@ -32,7 +32,6 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/secure"
 )
@@ -419,14 +418,7 @@ func (r *ClusterReconciler) updateClusterKubeConfig(ctx context.Context, cluster
 	if restConfig == nil {
 		return nil
 	}
-
-	cli, err := k8sclient.NewClientSetWithRestConfig(restConfig)
-	if err != nil {
-		klog.ErrorS(err, "failed to newForConfig", "cluster", cluster.Name)
-		return nil
-	}
-
-	if _, err = cli.CoreV1().Nodes().List(ctx, metav1.ListOptions{}); err != nil {
+	if _, err := r.clientSet.CoreV1().Nodes().List(ctx, metav1.ListOptions{}); err != nil {
 		klog.ErrorS(err, "failed to list node", "cluster", cluster.Name)
 		return nil
 	}
@@ -445,11 +437,11 @@ func (r *ClusterReconciler) updateClusterKubeConfig(ctx context.Context, cluster
 
 	cluster.Status.ControlPlaneStatus.Phase = v1.ReadyPhase
 
-	if err = r.guaranteeService(ctx, cluster); err != nil {
+	if err := r.guaranteeService(ctx, cluster); err != nil {
 		return err
 	}
 
-	if err = r.Status().Patch(ctx, cluster, originalCluster); err != nil {
+	if err := r.Status().Patch(ctx, cluster, originalCluster); err != nil {
 		return fmt.Errorf("failed load config %+v", err)
 	}
 

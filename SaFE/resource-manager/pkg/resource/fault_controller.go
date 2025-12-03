@@ -49,13 +49,15 @@ type FaultReconcilerOption struct {
 
 // SetupFaultController initializes and registers the FaultReconciler with the controller manager.
 func SetupFaultController(mgr manager.Manager, opt *FaultReconcilerOption) error {
-	r := &FaultReconciler{
-		ClusterBaseReconciler: &ClusterBaseReconciler{
-			Client: mgr.GetClient(),
-		},
-		opt: opt,
+	baseReconciler, err := newClusterBaseReconciler(mgr)
+	if err != nil {
+		return err
 	}
-	err := ctrlruntime.NewControllerManagedBy(mgr).
+	r := &FaultReconciler{
+		ClusterBaseReconciler: baseReconciler,
+		opt:                   opt,
+	}
+	err = ctrlruntime.NewControllerManagedBy(mgr).
 		For(&v1.Fault{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		Watches(&v1.Node{}, r.handleNodeEvent()).
 		Watches(&corev1.ConfigMap{}, r.handleConfigmapEvent()).

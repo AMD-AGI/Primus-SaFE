@@ -34,11 +34,8 @@ const (
 // Manages the lifecycle of workload resources and handles failure scenarios.
 func (r *SyncerReconciler) handleJob(ctx context.Context, message *resourceMessage, informer *ClusterInformer) (ctrlruntime.Result, error) {
 	adminWorkload, err := r.getAdminWorkload(ctx, message.workloadId)
-	if adminWorkload == nil {
+	if adminWorkload == nil || adminWorkload.IsEnd() {
 		return ctrlruntime.Result{}, err
-	}
-	if !adminWorkload.GetDeletionTimestamp().IsZero() {
-		return ctrlruntime.Result{}, nil
 	}
 	if !v1.IsWorkloadDispatched(adminWorkload) {
 		return ctrlruntime.Result{RequeueAfter: time.Second}, nil
