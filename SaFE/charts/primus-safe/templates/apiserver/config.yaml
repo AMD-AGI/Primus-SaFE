@@ -7,10 +7,13 @@ apiVersion: v1
 data:
   config.yaml: |
     global:
-      # RDMA device name
-      rdma_name: {{ .Values.net.rdma_name }}
       # Image pull secret for primus-safe. If set to empty, the secret will not be used.
       image_secret: {{ .Values.global.image_pull_secret }}
+      domain: {{ .Values.global.domain }}
+      sub_domain: {{ .Values.global.sub_domain }}
+    net:
+      # RDMA device name
+      rdma_name: {{ .Values.net.rdma_name }}
     crypto:
       # Whether to enable crypto. This will be used to encrypt the user token.
       enable: true
