@@ -671,6 +671,7 @@ func (r *ClusterReconciler) guaranteeForwardIngress(ctx context.Context, cluster
 			Namespace: common.PrimusSafeNamespace,
 			Annotations: map[string]string{
 				"higress.io/rewrite-target": "/$1",
+				"higress.io/route-priority": "10",
 			},
 		},
 		Spec: networkingv1.IngressSpec{

@@ -980,13 +980,14 @@ func (r *DispatcherReconciler) createIngress(ctx context.Context, adminWorkload 
 	}
 	specService := adminWorkload.Spec.Service
 	pathType := networkingv1.PathTypePrefix
-	path := "/" + namespace + "/" + name
+	path := "/" + namespace + "/" + name + "/(.*)"
 	ing := &networkingv1.Ingress{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: namespace,
 			Annotations: map[string]string{
-				v1.UserNameAnnotation: v1.GetUserName(adminWorkload),
+				v1.UserNameAnnotation:       v1.GetUserName(adminWorkload),
+				"higress.io/rewrite-target": "/$1",
 			},
 		},
 		Spec: networkingv1.IngressSpec{
