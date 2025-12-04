@@ -44,6 +44,7 @@ type HFModelInfo struct {
 	Icon        string
 	Label       string
 	Tags        []string
+	MaxTokens   int // Maximum context length from config.json (max_position_embeddings)
 }
 
 // GetHFModelInfo fetches metadata and readme from Hugging Face to extract model info.
@@ -64,14 +65,23 @@ func GetHFModelInfo(urlOrID string) (*HFModelInfo, error) {
 		// Don't return error yet, try to get info from README if API fails (though API is primary for Tags/Label)
 	}
 
-	// 3. Fetch README.md content
+	// 3. Fetch config.json to get max_position_embeddings (MaxTokens)
+	configURL := fmt.Sprintf("https://huggingface.co/%s/resolve/main/config.json", repoID)
+	if maxTokens, err := fetchMaxTokens(configURL); err == nil {
+		info.MaxTokens = maxTokens
+		klog.InfoS("Fetched MaxTokens from config.json", "repoID", repoID, "maxTokens", maxTokens)
+	} else {
+		klog.InfoS("Could not fetch MaxTokens from config.json", "repoID", repoID, "error", err)
+	}
+
+	// 4. Fetch README.md content
 	// URL: https://huggingface.co/{repoID}/resolve/main/README.md
 	readmeURL := fmt.Sprintf("https://huggingface.co/%s/resolve/main/README.md", repoID)
 	readmeContent, err := fetchText(readmeURL)
 	if err != nil {
 		klog.ErrorS(err, "Failed to fetch README", "url", readmeURL)
 	} else {
-		// 4. Extract Description from README
+		// 5. Extract Description from README
 		info.Description = extractDescription(readmeContent)
 	}
 
@@ -136,6 +146,47 @@ func fetchJSON(url string, info *HFModelInfo) error {
 	info.Label = meta.Author
 	info.Tags = meta.Tags
 	return nil
+}
+
+// fetchMaxTokens fetches config.json and extracts max_position_embeddings
+func fetchMaxTokens(url string) (int, error) {
+	client := createHTTPClient()
+	resp, err := client.Get(url)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return 0, fmt.Errorf("config.json returned status: %d", resp.StatusCode)
+	}
+
+	var config map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&config); err != nil {
+		return 0, err
+	}
+
+	// Try different field names that HuggingFace models use for max context length
+	fieldNames := []string{
+		"max_position_embeddings",
+		"n_positions",
+		"max_seq_len",
+		"max_sequence_length",
+		"seq_length",
+	}
+
+	for _, field := range fieldNames {
+		if val, ok := config[field]; ok {
+			switch v := val.(type) {
+			case float64:
+				return int(v), nil
+			case int:
+				return v, nil
+			}
+		}
+	}
+
+	return 0, fmt.Errorf("max_position_embeddings not found in config.json")
 }
 
 // fetchText fetches raw text content

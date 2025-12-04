@@ -169,6 +169,7 @@ type CreateModelRequest struct {
 	Icon        string   `json:"icon"`        // Model icon URL
 	Label       string   `json:"label"`       // Model author/organization
 	Tags        []string `json:"tags"`        // Model tags
+	MaxTokens   int      `json:"maxTokens"`   // Maximum context length (auto-filled from config.json for local mode)
 
 	Source ModelSourceReq `json:"source"`
 

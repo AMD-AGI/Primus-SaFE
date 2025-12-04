@@ -114,6 +114,7 @@ func (h *Handler) createModel(c *gin.Context) (interface{}, error) {
 		icon        string
 		label       string
 		tags        []string
+		maxTokens   int
 	)
 
 	// 0. Handle metadata based on AccessMode
@@ -126,7 +127,8 @@ func (h *Handler) createModel(c *gin.Context) (interface{}, error) {
 			icon = hfInfo.Icon
 			label = hfInfo.Label
 			tags = hfInfo.Tags
-			klog.InfoS("Auto-filled model metadata from Hugging Face", "model", hfInfo.DisplayName)
+			maxTokens = hfInfo.MaxTokens
+			klog.InfoS("Auto-filled model metadata from Hugging Face", "model", hfInfo.DisplayName, "maxTokens", maxTokens)
 		} else {
 			klog.ErrorS(err, "Failed to fetch metadata from Hugging Face", "url", req.Source.URL)
 			return nil, commonerrors.NewBadRequest("failed to fetch model info from Hugging Face: " + err.Error())
@@ -147,6 +149,7 @@ func (h *Handler) createModel(c *gin.Context) (interface{}, error) {
 		icon = req.Icon
 		label = req.Label
 		tags = req.Tags
+		maxTokens = req.MaxTokens
 		klog.InfoS("Using user-provided metadata for remote API model", "displayName", displayName)
 	}
 
@@ -186,6 +189,7 @@ func (h *Handler) createModel(c *gin.Context) (interface{}, error) {
 			Icon:        icon,
 			Label:       label,
 			Tags:        tags,
+			MaxTokens:   maxTokens,
 			Source: v1.ModelSource{
 				URL:        normalizedURL, // Use normalized URL for consistent duplicate detection
 				AccessMode: v1.AccessMode(req.Source.AccessMode),
