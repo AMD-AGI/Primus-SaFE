@@ -1,49 +1,49 @@
 # GPU Aggregation - Dimension Values API
 
-## 概述
+## Overview
 
-本文档描述了新增的 `dimension-values` API 端点，用于获取指定 dimension key 的所有可能的 values 列表。这个接口是对现有 `dimension-keys` 接口的补充，使得 Agent 可以完整地探索和遍历所有维度数据。
+This document describes the newly added `dimension-values` API endpoint, which is used to retrieve all possible values for a specified dimension key. This interface complements the existing `dimension-keys` interface, allowing Agents to fully explore and traverse all dimension data.
 
-## 使用场景
+## Use Cases
 
-当 Agent 需要分析集群使用率下降的原因时，可以按照以下步骤进行：
+When an Agent needs to analyze the reasons for cluster utilization decline, it can follow these steps:
 
-1. **获取可用的 dimension keys**
+1. **Get available dimension keys**
    ```bash
    GET /v1/gpu-aggregation/dimension-keys?dimension_type=annotation&start_time=...&end_time=...
    ```
 
-2. **获取每个 key 的所有 values**（新增功能）
+2. **Get all values for each key** (New feature)
    ```bash
    GET /v1/gpu-aggregation/dimension-values?dimension_type=annotation&dimension_key=primus-safe.user.name&start_time=...&end_time=...
    ```
 
-3. **查询每个 value 的使用率趋势**
+3. **Query utilization trends for each value**
    ```bash
    GET /v1/gpu-aggregation/labels/hourly-stats?dimension_type=annotation&dimension_key=primus-safe.user.name&dimension_value=zhangsan&start_time=...&end_time=...
    ```
 
-4. **分组统计并找出低使用率的维度**
+4. **Group statistics and identify low-utilization dimensions**
 
-## API 端点
+## API Endpoint
 
 ### Get Dimension Values
 
-获取指定时间范围内某个 dimension key 的所有可能值列表。
+Retrieves a list of all possible values for a specific dimension key within the specified time range.
 
-**端点:** `GET /v1/gpu-aggregation/dimension-values`
+**Endpoint:** `GET /v1/gpu-aggregation/dimension-values`
 
-**查询参数:**
+**Query Parameters:**
 
-| 参数 | 类型 | 必需 | 描述 |
+| Parameter | Type | Required | Description |
 |------|------|------|------|
-| `cluster` | string | 否 | 集群名称（不指定则使用默认集群） |
-| `dimension_type` | string | 是 | 维度类型：`label` 或 `annotation` |
-| `dimension_key` | string | 是 | 维度 key（如 "team", "primus-safe.user.name"） |
-| `start_time` | string | 是 | 开始时间（RFC3339 格式） |
-| `end_time` | string | 是 | 结束时间（RFC3339 格式） |
+| `cluster` | string | No | Cluster name (uses default cluster if not specified) |
+| `dimension_type` | string | Yes | Dimension type: `label` or `annotation` |
+| `dimension_key` | string | Yes | Dimension key (e.g., "team", "primus-safe.user.name") |
+| `start_time` | string | Yes | Start time (RFC3339 format) |
+| `end_time` | string | Yes | End time (RFC3339 format) |
 
-**响应示例:**
+**Response Example:**
 
 ```json
 {
@@ -59,43 +59,43 @@
 }
 ```
 
-**状态码:**
-- `200 OK` - 成功
-- `400 Bad Request` - 无效参数（如时间格式错误、dimension_type 不是 label/annotation）
-- `500 Internal Server Error` - 数据库或服务器错误
+**Status Codes:**
+- `200 OK` - Success
+- `400 Bad Request` - Invalid parameters (e.g., invalid time format, dimension_type is not label/annotation)
+- `500 Internal Server Error` - Database or server error
 
-**示例:**
+**Examples:**
 
 ```bash
-# 获取 annotation key "primus-safe.user.name" 的所有用户名
+# Get all usernames for annotation key "primus-safe.user.name"
 curl -X GET "http://localhost:8080/v1/gpu-aggregation/dimension-values?dimension_type=annotation&dimension_key=primus-safe.user.name&start_time=2025-11-01T00:00:00Z&end_time=2025-11-07T23:59:59Z"
 
-# 获取 label key "team" 的所有团队名称
+# Get all team names for label key "team"
 curl -X GET "http://localhost:8080/v1/gpu-aggregation/dimension-values?dimension_type=label&dimension_key=team&start_time=2025-11-01T00:00:00Z&end_time=2025-11-07T23:59:59Z"
 
-# 指定集群查询
+# Query with specific cluster
 curl -X GET "http://localhost:8080/v1/gpu-aggregation/dimension-values?cluster=gpu-cluster-02&dimension_type=label&dimension_key=project&start_time=2025-11-01T00:00:00Z&end_time=2025-11-07T23:59:59Z"
 ```
 
-## Python Agent 工具使用
+## Python Agent Tool Usage
 
-在 Python Agent 中，新增了 `get_available_dimension_values` 工具方法：
+In the Python Agent, a new `get_available_dimension_values` tool method has been added:
 
 ```python
 from gpu_usage_agent.tools import GPUAnalysisTools
 
-# 初始化工具
+# Initialize tools
 tools = GPUAnalysisTools(api_base_url="http://localhost:8080")
 
-# 获取某个 annotation key 的所有 values
+# Get all values for an annotation key
 result = tools.get_available_dimension_values(
     dimension_type="annotation",
     dimension_key="primus-safe.user.name",
     time_range_days=7,
-    cluster="default"  # 可选
+    cluster="default"  # Optional
 )
 
-# 解析结果
+# Parse result
 import json
 data = json.loads(result)
 print(f"Found {data['count']} values:")
@@ -103,24 +103,24 @@ for value in data['dimension_values']:
     print(f"  - {value}")
 ```
 
-## 完整的根因分析流程示例
+## Complete Root Cause Analysis Workflow Example
 
-以下是 Agent 应该遵循的完整流程来分析集群使用率下降的原因：
+The following is a complete workflow that an Agent should follow to analyze the reasons for cluster utilization decline:
 
 ```python
-# 步骤 1: 获取集群基线使用率
+# Step 1: Get cluster baseline utilization
 cluster_trend = tools.query_gpu_usage_trend(
     dimension="cluster",
     granularity="day",
     time_range_days=7,
     metric_type="utilization"
 )
-# 分析结果，确认使用率确实在下降
+# Analyze results and confirm that utilization is indeed declining
 
-# 步骤 2: 获取所有 namespaces
+# Step 2: Get all namespaces
 namespaces = tools.get_available_namespaces(time_range_days=7)
 
-# 步骤 3: 查询每个 namespace 的使用率
+# Step 3: Query utilization for each namespace
 namespace_stats = {}
 for ns in json.loads(namespaces)['namespaces']:
     trend = tools.query_gpu_usage_trend(
@@ -132,22 +132,22 @@ for ns in json.loads(namespaces)['namespaces']:
     )
     namespace_stats[ns] = json.loads(trend)
 
-# 步骤 4: 获取所有 annotation keys
+# Step 4: Get all annotation keys
 annotation_keys = tools.get_available_dimension_keys(
     dimension_type="annotation",
     time_range_days=7
 )
 
-# 步骤 5: 对于每个 key，获取所有 values（新增功能）
+# Step 5: For each key, get all values (new feature)
 for key in json.loads(annotation_keys)['dimension_keys']:
-    # 获取该 key 的所有 values
+    # Get all values for this key
     values_result = tools.get_available_dimension_values(
         dimension_type="annotation",
         dimension_key=key,
         time_range_days=7
     )
     
-    # 查询每个 value 的使用率
+    # Query utilization for each value
     values = json.loads(values_result)['dimension_values']
     for value in values:
         trend = tools.query_gpu_usage_trend(
@@ -157,39 +157,39 @@ for key in json.loads(annotation_keys)['dimension_keys']:
             time_range_days=7,
             metric_type="utilization"
         )
-        # 分析并记录低使用率的 key:value 组合
+        # Analyze and record low-utilization key:value combinations
 
-# 步骤 6: 分组统计，找出拉低整体利用率的维度
-# - 按平均使用率排序
-# - 计算每个维度占用的 GPU 资源量
-# - 分析对整体利用率的影响
+# Step 6: Group statistics and identify dimensions dragging down overall utilization
+# - Sort by average utilization
+# - Calculate GPU resource usage for each dimension
+# - Analyze impact on overall utilization
 ```
 
-## 实现细节
+## Implementation Details
 
-### 后端实现（Go）
+### Backend Implementation (Go)
 
-1. **数据库层** (`Lens/modules/core/pkg/database/gpu_aggregation_facade.go`)
-   - 添加了 `GetDistinctDimensionValues` 方法
-   - 使用 GORM 的 `Distinct` 和 `Pluck` 查询不重复的 dimension values
+1. **Database Layer** (`Lens/modules/core/pkg/database/gpu_aggregation_facade.go`)
+   - Added `GetDistinctDimensionValues` method
+   - Uses GORM's `Distinct` and `Pluck` to query unique dimension values
 
-2. **API 层** (`Lens/modules/api/pkg/api/gpu_aggregation.go`)
-   - 添加了 `DimensionValuesRequest` 请求结构体
-   - 添加了 `getDimensionValues` 处理函数
-   - 支持时间范围过滤和集群选择
+2. **API Layer** (`Lens/modules/api/pkg/api/gpu_aggregation.go`)
+   - Added `DimensionValuesRequest` request struct
+   - Added `getDimensionValues` handler function
+   - Supports time range filtering and cluster selection
 
-3. **路由注册** (`Lens/modules/api/pkg/api/router.go`)
-   - 注册了 `/gpu-aggregation/dimension-values` 路由
+3. **Route Registration** (`Lens/modules/api/pkg/api/router.go`)
+   - Registered `/gpu-aggregation/dimension-values` route
 
-### 前端实现（Python）
+### Frontend Implementation (Python)
 
-在 `Lens/modules/agents/gpu_usage_agent/tools.py` 中：
-- 添加了 `get_available_dimension_values` 方法
-- 集成到工具列表中，Agent 可以自动调用
+In `Lens/modules/agents/gpu_usage_agent/tools.py`:
+- Added `get_available_dimension_values` method
+- Integrated into the tool list for automatic Agent invocation
 
-## 数据库查询
+## Database Query
 
-新方法使用以下 SQL 逻辑（简化表示）：
+The new method uses the following SQL logic (simplified representation):
 
 ```sql
 SELECT DISTINCT dimension_value
@@ -201,51 +201,51 @@ WHERE dimension_type = ?
 ORDER BY dimension_value
 ```
 
-## 性能考虑
+## Performance Considerations
 
-- 查询性能取决于时间范围和数据量
-- 建议时间范围不超过 30 天
-- 数据库中 `dimension_type`, `dimension_key`, `stat_hour` 应该有索引
-- 结果会自动按字母顺序排序
+- Query performance depends on time range and data volume
+- Recommended time range should not exceed 30 days
+- Database should have indexes on `dimension_type`, `dimension_key`, `stat_hour`
+- Results are automatically sorted alphabetically
 
-## 错误处理
+## Error Handling
 
-**常见错误及解决方案:**
+**Common errors and solutions:**
 
 1. **400 Bad Request - Invalid dimension_type**
-   - 确保 `dimension_type` 是 "label" 或 "annotation"
+   - Ensure `dimension_type` is "label" or "annotation"
 
 2. **400 Bad Request - Invalid time format**
-   - 确保时间参数使用 RFC3339 格式（如 `2025-11-05T00:00:00Z`）
+   - Ensure time parameters use RFC3339 format (e.g., `2025-11-05T00:00:00Z`)
 
 3. **500 Internal Server Error**
-   - 检查数据库连接
-   - 检查日志中的详细错误信息
+   - Check database connection
+   - Check detailed error information in logs
 
-## 与现有 API 的对比
+## Comparison with Existing APIs
 
-| API 端点 | 返回内容 | 用途 |
+| API Endpoint | Returns | Purpose |
 |---------|---------|------|
-| `/dimension-keys` | 某个 dimension_type 的所有 keys | 发现有哪些 label/annotation keys |
-| `/dimension-values`（新） | 某个 key 的所有 values | 发现某个 key 有哪些可能的值 |
-| `/labels/hourly-stats` | 详细的统计数据 | 获取具体的使用率趋势数据 |
+| `/dimension-keys` | All keys for a dimension_type | Discover available label/annotation keys |
+| `/dimension-values` (New) | All values for a key | Discover possible values for a key |
+| `/labels/hourly-stats` | Detailed statistics | Get specific utilization trend data |
 
-## 后续优化建议
+## Future Optimization Suggestions
 
-1. **添加分页支持**
-   - 当某个 key 的 values 数量过多时（如 >1000），可以添加分页参数
+1. **Add pagination support**
+   - When the number of values for a key is too large (e.g., >1000), pagination parameters can be added
 
-2. **添加缓存**
-   - dimension values 在短时间内变化不大，可以考虑缓存
+2. **Add caching**
+   - Dimension values don't change much in a short time, caching can be considered
 
-3. **添加过滤和搜索**
-   - 支持通过前缀或正则表达式过滤 values
+3. **Add filtering and search**
+   - Support filtering values by prefix or regex
 
-4. **返回额外元数据**
-   - 可以返回每个 value 的样本数量或最后更新时间
+4. **Return additional metadata**
+   - Can return sample count or last update time for each value
 
-## 相关文档
+## Related Documentation
 
-- [GPU Aggregation API 完整文档](./gpu-aggregation.md)
-- [Agent 实现文档](../../modules/agents/gpu_usage_agent/README.md)
+- [Complete GPU Aggregation API Documentation](./gpu-aggregation.md)
+- [Agent Implementation Documentation](../../modules/agents/gpu_usage_agent/README.md)
 

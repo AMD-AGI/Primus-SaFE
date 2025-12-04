@@ -18,6 +18,7 @@ type Config struct {
 	NodeExporter      *NodeExporterConfig `json:"nodeExporter" yaml:"nodeExporter"`
 	Jobs              *JobsConfig         `json:"jobs" yaml:"jobs"`
 	Netflow           *NetFlow            `json:"netflow" yaml:"netflow"`
+	Middleware        MiddlewareConfig    `json:"middleware" yaml:"middleware"`
 }
 
 type ControllerConfig struct {
@@ -158,4 +159,28 @@ func (n NetFlow) GetScanPortListenInterval() time.Duration {
 		return 2 * time.Second
 	}
 	return time.Duration(n.ScanPortListenIntervalSeconds) * time.Second
+}
+
+// MiddlewareConfig middleware configuration
+type MiddlewareConfig struct {
+	EnableLogging *bool `json:"enableLogging" yaml:"enableLogging"` // Whether to enable request logging middleware
+	EnableTracing *bool `json:"enableTracing" yaml:"enableTracing"` // Whether to enable distributed tracing middleware
+}
+
+// IsLoggingEnabled returns whether logging middleware is enabled, default enabled
+func (m MiddlewareConfig) IsLoggingEnabled() bool {
+	// If not explicitly set in config file (nil), return true by default (backward compatible)
+	if m.EnableLogging == nil {
+		return true
+	}
+	return *m.EnableLogging
+}
+
+// IsTracingEnabled returns whether tracing middleware is enabled, default enabled
+func (m MiddlewareConfig) IsTracingEnabled() bool {
+	// If not explicitly set in config file (nil), return true by default (backward compatible)
+	if m.EnableTracing == nil {
+		return true
+	}
+	return *m.EnableTracing
 }

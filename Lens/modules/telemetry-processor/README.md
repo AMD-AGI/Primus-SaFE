@@ -261,7 +261,7 @@ go build -o telemetry-processor main.go
 
 The telemetry processor exposes its own Prometheus metrics for self-monitoring:
 
-### Log Metrics
+### Log Processing Metrics
 - `log_consume_latency_seconds`: Summary of log processing latency by node
 - `log_consume_latency_histogram_seconds`: Histogram of log processing latency
 - `log_analysis_consume_count`: Counter of logs analyzed by type
@@ -270,8 +270,42 @@ The telemetry processor exposes its own Prometheus metrics for self-monitoring:
 - `workload_event_create_count`: Counter of workload events created
 - `workload_event_create_error_count`: Counter of workload event creation errors
 
-### Metrics Processing
-- `gpu_utilization`: GPU utilization metrics (example/test metric)
+### WandB Metrics (New)
+- `wandb_request_total`: Total WandB requests by type (metrics/logs/detection)
+- `wandb_request_error_total`: Total WandB request errors by type and error category
+- `wandb_request_duration_seconds`: WandB request processing duration histogram
+- `wandb_metrics_datapoint_count`: WandB metrics data point count distribution
+- `wandb_metrics_store_total`: WandB metrics storage success count
+- `wandb_metrics_store_error_total`: WandB metrics storage error count
+- `wandb_logs_datapoint_count`: WandB logs data point count distribution
+
+### Framework Detection Metrics (New)
+- `log_framework_detection_total`: Framework detection count by framework, method, and source (from log processing)
+- `framework_detection_confidence`: Framework detection confidence distribution
+- `framework_detection_error_total`: Framework detection errors by source and error type
+
+### Log Pattern Matching Metrics (New)
+- `log_pattern_match_total`: Successful log pattern matches by framework and pattern type
+- `log_pattern_match_error_total`: Log pattern match errors by framework and error type
+
+### Training Performance Metrics (New)
+- `training_performance_save_total`: Training performance data saves by workload and source
+- `training_performance_save_error_total`: Training performance save errors by workload and source
+
+### Checkpoint Metrics (New)
+- `checkpoint_event_total`: Checkpoint events by event type and framework
+- `checkpoint_event_error_total`: Checkpoint event errors by type and framework
+
+### Container Event Metrics
+- `primus_lens_telemetry_processor_container_event_recv_total`: Container events received
+- `primus_lens_telemetry_processor_container_event_error_total`: Container event errors
+- `primus_lens_telemetry_processor_container_event_processing_duration_seconds`: Event processing duration
+- `primus_lens_telemetry_processor_container_event_batch_size`: Event batch size distribution
+
+**📊 For detailed metrics documentation, PromQL queries, and usage examples, see:**
+- [Metrics Documentation](pkg/module/logs/METRICS.md)
+- [Metrics Usage Examples](pkg/module/logs/METRICS_USAGE_EXAMPLES.md)
+- [Metrics Summary](pkg/module/logs/METRICS_SUMMARY.md)
 
 ## Performance Considerations
 

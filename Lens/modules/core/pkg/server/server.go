@@ -33,7 +33,7 @@ func InitServerWithPreInitFunc(ctx context.Context, preInit func(ctx context.Con
 	}
 	ginEngine := gin.New()
 	ginEngine.Use(gin.Recovery())
-	err = router.InitRouter(ginEngine)
+	err = router.InitRouter(ginEngine, cfg)
 	if err != nil {
 		return err
 	}
