@@ -125,6 +125,11 @@ func isMatchNodeLabel(node *v1.Node, workload *v1.Workload) bool {
 			if !sliceutil.Contains(nodeNames, v1.GetDisplayName(node)) {
 				return false
 			}
+		} else if key == common.ExcludedNodes {
+			nodeNames := strings.Split(val, " ")
+			if sliceutil.Contains(nodeNames, v1.GetDisplayName(node)) {
+				return false
+			}
 		} else if node.Labels[key] != val {
 			return false
 		}

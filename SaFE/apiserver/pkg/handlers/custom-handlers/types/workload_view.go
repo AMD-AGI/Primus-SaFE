@@ -16,6 +16,8 @@ type CreateWorkloadRequest struct {
 	v1.WorkloadSpec
 	// When specifying a workload run on nodes, the replica count will be overwritten with the node count.
 	SpecifiedNodes []string `json:"specifiedNodes,omitempty"`
+	// ExcludedNodes is a list of node names that the workload should avoid running on.
+	ExcludedNodes []string `json:"excludedNodes,omitempty"`
 	// The Workload name(display only). Used to generate the workload ID,
 	// which will do normalization processing, e.g. lowercase and random suffix
 	DisplayName string `json:"displayName"`
@@ -132,6 +134,8 @@ type GetWorkloadResponse struct {
 	WorkloadResponseItem
 	// The node specified by the user when creating the workload
 	SpecifiedNodes []string `json:"specifiedNodes,omitempty"`
+	// ExcludedNodes is a list of node names that the workload should avoid running on.
+	ExcludedNodes []string `json:"excludedNodes,omitempty"`
 	// The address of the image used by the workload
 	Image string `json:"image"`
 	// Workload startup command, in base64 encoding
@@ -234,11 +238,16 @@ type BatchWorkloadsRequest struct {
 }
 
 type GetWorkloadServiceResponse struct {
-	Port           corev1.ServicePort `json:"port"`
-	ExternalDomain string             `json:"externalDomain"`
-	InternalDomain string             `json:"internalDomain"`
-	ClusterIp      string             `json:"clusterIp"`
-	Type           corev1.ServiceType `json:"type"`
+	// The Service port information (protocol/port/targetPort) from the first port.
+	Port corev1.ServicePort `json:"port"`
+	// Externally accessible URL via Higress when enabled and system host is configured; empty otherwise.
+	ExternalDomain string `json:"externalDomain"`
+	// In-cluster DNS address of the Service with port, e.g. <name>.<namespace>.svc.cluster.local:<port>.
+	InternalDomain string `json:"internalDomain"`
+	// ClusterIP assigned to the Service (empty for headless or None).
+	ClusterIp string `json:"clusterIp"`
+	// Kubernetes Service type: ClusterIP, NodePort.
+	Type corev1.ServiceType `json:"type"`
 }
 
 type WorkloadSlice []v1.Workload

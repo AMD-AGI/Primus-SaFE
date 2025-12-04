@@ -39,25 +39,11 @@ Create a new workload.
     "CUDA_VISIBLE_DEVICES": "0,1,2,3,4,5,6,7"
   },
   "specifiedNodes": [],
+  "excludedNodes": [],
   "isSupervised": false,
   "ttlSecondsAfterFinished": 60,
   "customerLabels": {
     "key": "val"
-  },
-  "liveness": {
-    "path": "/status",
-    "port": 8088,
-    "initialDelaySeconds": 600,
-    "periodSeconds": 3,
-    "failureThreshold": 3
-  },
-  "service": {
-    "protocol": "TCP",
-    "port": 8080,
-    "nodePort": 12345,
-    "targetPort": 8088,
-    "serviceType": "NodePort",
-    "extends": {}
   },
   "dependencies": ["my-pre-training-job"],
   "cronJobs": [
@@ -73,6 +59,60 @@ Create a new workload.
     }
   ],
   "isTolerateAll": false
+}
+```
+
+***Deployment Request Example***:
+```json
+{
+  "displayName": "my-infer-job",
+  "description": "Infer job description",
+  "workspaceId": "cluster-workspace",
+  "groupVersionKind": {
+    "kind": "Deployment",
+    "version": "v1"
+  },
+  "image": "harbor.example.com/ai/infer:1.0",
+  "entryPoint": "cHl0aG9uIHRyYWluLnB5",
+  "resource": {
+    "cpu": "128",
+    "gpu": "8",
+    "memory": "256Gi",
+    "replica": 1
+  },
+  "priority": 2,
+  "env": {
+    "NCCL_DEBUG": "INFO",
+    "CUDA_VISIBLE_DEVICES": "0,1,2,3,4,5,6,7"
+  },
+  "liveness": {
+    "path": "/health",
+    "port": 8088,
+    "initialDelaySeconds": 600,
+    "periodSeconds": 3,
+    "failureThreshold": 3
+  },
+  "readiness": {
+    "path": "/health",
+    "port": 8088,
+    "initialDelaySeconds": 600,
+    "periodSeconds": 3,
+    "failureThreshold": 3
+  },
+  "service": {
+    "protocol": "TCP",
+    "port": 8080,
+    "nodePort": 12345,
+    "targetPort": 8088,
+    "serviceType": "NodePort",
+    "extends": {}
+  },
+  "secrets": [
+    {
+      "id": "test-secret-id1",
+      "type": "image"
+    }
+  ]
 }
 ```
 
@@ -128,11 +168,12 @@ Notes for CICD (AutoscalingRunnerSet):
 | timeout                      | int | No       | Timeout in seconds, 0 means no timeout                                                                                                   |
 | maxRetry                     | int | No       | Maximum retry count, default 0                                                                                                           |
 | env                          | object | No       | Environment variable key-value pairs                                                                                                     |
-| specifiedNodes               | []string | No       | List of specified nodes to run on                                                                                                        |
+| specifiedNodes               | []string | No       | List of nodes to run on                                                                                                                  |
+| excludedNodes               | []string | No       | List of nodes to avoid running on. If `specifiedNodes` is provided, this field will be ignored.                                          |                                                                                                  
 | isSupervised                 | bool | No       | When enabled, it performs operations like hang detection                                                                                 |
 | ttlSecondsAfterFinished      | int | No       | The lifecycle of the workload after completion, in seconds. Default is 60                                                                |
 | customerLabels               | object | No       | The workload will run on nodes with the user-specified labels                                                                            |
-| liveness.path                | string | No       | Liveness probe HTTP path                                                                                                                 |
+| liveness.path                | string | No       | Liveness probe HTTP path. liveness is only for Deployment/StatefulSet                                                                     |
 | liveness.port                | int | No       | Liveness probe port                                                                                                                      |
 | liveness.initialDelaySeconds | int | No       | Liveness initial delay seconds, default 600                                                                                              |
 | liveness.periodSeconds       | int | No       | Liveness check period seconds, default 3                                                                                                 |
@@ -141,7 +182,7 @@ Notes for CICD (AutoscalingRunnerSet):
 | service.port                 | int | No       | Service port for external access                                                                                                         |
 | service.nodePort             | int | No       | Service NodePort (for NodePort type)                                                                                                     |
 | service.targetPort           | int | No       | Target container port                                                                                                                    |
-| service.serviceType          | string | No       | Service type, e.g. ClusterIP/NodePort/LoadBalancer                                                                                       |
+| service.serviceType          | string | No       | Service type, e.g. ClusterIP/NodePort                                                                                                    |
 | service.extends              | object | No       | Additional service fields (advanced)                                                                                                     |
 | dependencies                 | []string | No       | Dependent workload IDs that must complete first                                                                                          |
 | cronJobs[].schedule          | string | No       | Scheduled trigger time (RFC3339 Milli timestamp)                                                                                         |
@@ -351,6 +392,7 @@ Get detailed information about a specific workload.
   "ranks": [["0"]],
   "customerLabels": {},
   "specifiedNodes": [],
+  "excludedNodes": [],
   "cronJobs": [
     {
       "schedule": "2025-10-26T10:41:00.000Z",
@@ -687,19 +729,36 @@ Get Service information associated with the workload.
 
 ```json
 {
-  "serviceName": "my-training-job-abc123",
-  "clusterIP": "10.96.0.100",
-  "ports": [
-    {
-      "name": "http",
-      "port": 8080,
-      "targetPort": 8080,
-      "nodePort": 30000,
-      "protocol": "TCP"
-    }
-  ]
+    "port": {
+        "protocol": "TCP",
+        "port": 8080,
+        "targetPort": 8080,
+        "nodePort": 12345
+    },
+    "externalDomain": "http://tas.primus-safe.amd.com/safe-cluster/safe-cluster-dev/test-infer-htmqc",
+    "internalDomain": "test-infer-htmqc.safe-cluster-dev.svc.cluster.local:8080",
+    "clusterIp": "10.254.205.115",
+    "type": "ClusterIP"
 }
 ```
+
+**Field Description**:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| port | object | Kubernetes Service port info (protocol, port, targetPort). |
+| externalDomain | string | Public URL via Higress when enabled and system host is set; empty otherwise. |
+| internalDomain | string | In-cluster DNS address of the Service with port (service.namespace.svc.cluster.local:port). |
+| clusterIp | string | ClusterIP assigned to the Service; empty for headless/None. |
+| type | string | Service type: ClusterIP, NodePort. |
+
+Port fields:
+| Field | Type | Description |
+|-------|------|-------------|
+| protocol | string | Protocol of the service port (e.g., TCP/UDP). |
+| port | integer | Service port exposed by the Service. |
+| targetPort | integer | Container port targeted by the Service. |
+| nodePort | integer | Node port allocated when Service type is NodePort; 0 or omitted otherwise. |
 
 ---
 
