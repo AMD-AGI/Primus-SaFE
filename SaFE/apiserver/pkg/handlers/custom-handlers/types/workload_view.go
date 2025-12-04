@@ -16,6 +16,8 @@ type CreateWorkloadRequest struct {
 	v1.WorkloadSpec
 	// When specifying a workload run on nodes, the replica count will be overwritten with the node count.
 	SpecifiedNodes []string `json:"specifiedNodes,omitempty"`
+	// ExcludedNodes is a list of node names that the workload should avoid running on.
+	ExcludedNodes []string `json:"excludedNodes,omitempty"`
 	// The Workload name(display only). Used to generate the workload ID,
 	// which will do normalization processing, e.g. lowercase and random suffix
 	DisplayName string `json:"displayName"`
@@ -132,6 +134,8 @@ type GetWorkloadResponse struct {
 	WorkloadResponseItem
 	// The node specified by the user when creating the workload
 	SpecifiedNodes []string `json:"specifiedNodes,omitempty"`
+	// ExcludedNodes is a list of node names that the workload should avoid running on.
+	ExcludedNodes []string `json:"excludedNodes,omitempty"`
 	// The address of the image used by the workload
 	Image string `json:"image"`
 	// Workload startup command, in base64 encoding

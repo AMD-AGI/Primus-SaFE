@@ -21,11 +21,12 @@ const (
 	CICDScaleRunnerSetKind = "AutoscalingRunnerSet"
 	CICDScaleRunnerKind    = "AutoscalingRunner"
 	UnifiedJobKind         = "UnifiedJob"
-	PodKind                = "Pod"
-	EventKind              = "Event"
-	ConfigmapKind          = "ConfigMap"
-	ClusterRoleKind        = "ClusterRole"
-	ServiceAccountKind     = "ServiceAccount"
+
+	PodKind            = "Pod"
+	EventKind          = "Event"
+	ConfigmapKind      = "ConfigMap"
+	ClusterRoleKind    = "ClusterRole"
+	ServiceAccountKind = "ServiceAccount"
 
 	GithubConfigUrl   = "GITHUB_CONFIG_URL"
 	GithubPAT         = "GITHUB_PAT"
@@ -47,6 +48,7 @@ const (
 	SSHPortName            = "ssh-port"
 	JsonContentType        = "application/json; charset=utf-8"
 	KubernetesControlPlane = "node-role.kubernetes.io/control-plane"
+	ExcludedNodes          = "excluded-nodes"
 
 	DefaultBurst = 1000
 	DefaultQPS   = 1000
