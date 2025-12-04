@@ -11,28 +11,39 @@ import (
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
 	coreModel "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/model"
-	"gorm.io/gorm"
 )
 
-func setupTestManager(t *testing.T) (*FrameworkDetectionManager, *MockAiWorkloadMetadataFacade) {
-	mockFacade := new(MockAiWorkloadMetadataFacade)
+func setupTestManager(t *testing.T) (*FrameworkDetectionManager, *MockAiWorkloadMetadataFacade, *MockWorkloadFacade) {
+	mockMetadataFacade := new(MockAiWorkloadMetadataFacade)
+	mockWorkloadFacade := new(MockWorkloadFacade)
 	config := DefaultDetectionConfig()
 	config.EnableCache = false // Disable cache for testing
 
-	manager := NewFrameworkDetectionManager(mockFacade, config)
-	return manager, mockFacade
+	manager := NewFrameworkDetectionManagerWithFacades(mockMetadataFacade, mockWorkloadFacade, config)
+	return manager, mockMetadataFacade, mockWorkloadFacade
 }
 
 // TestScenario1_LogFirst_ThenComponent tests the scenario where log detection arrives first
 func TestScenario1_LogFirst_ThenComponent(t *testing.T) {
-	manager, mockFacade := setupTestManager(t)
+	manager, mockMetadataFacade, mockWorkloadFacade := setupTestManager(t)
 	ctx := context.Background()
 	workloadUID := "test-workload-1"
 
+	// Setup: Mock workload hierarchy (no parent)
+	mockWorkloadFacade.On("GetGpuWorkloadByUid", ctx, workloadUID).
+		Return(&model.GpuWorkload{
+			UID:       workloadUID,
+			ParentUID: "", // No parent, this is root
+		}, nil)
+
 	// Setup: No existing metadata
-	mockFacade.On("GetAiWorkloadMetadata", ctx, workloadUID).
-		Return(nil, gorm.ErrRecordNotFound).Once()
-	mockFacade.On("CreateAiWorkloadMetadata", ctx, mock.Anything).
+	// First call: loadDetection
+	mockMetadataFacade.On("GetAiWorkloadMetadata", ctx, workloadUID).
+		Return(nil, nil).Once()
+	// Second call: saveDetection (UpsertDetection)
+	mockMetadataFacade.On("GetAiWorkloadMetadata", ctx, workloadUID).
+		Return(nil, nil).Once()
+	mockMetadataFacade.On("CreateAiWorkloadMetadata", ctx, mock.Anything).
 		Return(nil).Once()
 
 	// Step 1: Log detection arrives
@@ -43,7 +54,8 @@ func TestScenario1_LogFirst_ThenComponent(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify first report
-	mockFacade.AssertExpectations(t)
+	mockMetadataFacade.AssertExpectations(t)
+	mockWorkloadFacade.AssertExpectations(t)
 
 	// Setup for second report: return existing metadata
 	existingMetadata := &model.AiWorkloadMetadata{
@@ -67,9 +79,23 @@ func TestScenario1_LogFirst_ThenComponent(t *testing.T) {
 		},
 	}
 
-	mockFacade.On("GetAiWorkloadMetadata", ctx, workloadUID).
+	// Mock workload hierarchy again for second call
+	mockWorkloadFacade.On("GetGpuWorkloadByUid", ctx, workloadUID).
+		Return(&model.GpuWorkload{
+			UID:       workloadUID,
+			ParentUID: "", // No parent, this is root
+		}, nil)
+
+	// First call: loadDetection
+	mockMetadataFacade.On("GetAiWorkloadMetadata", ctx, workloadUID).
 		Return(existingMetadata, nil).Once()
-	mockFacade.On("UpdateAiWorkloadMetadata", ctx, mock.Anything).
+	// Second call: saveDetection (UpsertDetection)
+	mockMetadataFacade.On("GetAiWorkloadMetadata", ctx, workloadUID).
+		Return(existingMetadata, nil).Once()
+	// Third call: UpdateDetection (inside UpsertDetection)
+	mockMetadataFacade.On("GetAiWorkloadMetadata", ctx, workloadUID).
+		Return(existingMetadata, nil).Once()
+	mockMetadataFacade.On("UpdateAiWorkloadMetadata", ctx, mock.Anything).
 		Return(nil).Once()
 
 	// Step 2: Component detection arrives
@@ -79,19 +105,31 @@ func TestScenario1_LogFirst_ThenComponent(t *testing.T) {
 		})
 	require.NoError(t, err)
 
-	mockFacade.AssertExpectations(t)
+	mockMetadataFacade.AssertExpectations(t)
+	mockWorkloadFacade.AssertExpectations(t)
 }
 
 // TestScenario2_ConflictResolution tests conflict resolution by priority
 func TestScenario2_ConflictResolution(t *testing.T) {
-	manager, mockFacade := setupTestManager(t)
+	manager, mockMetadataFacade, mockWorkloadFacade := setupTestManager(t)
 	ctx := context.Background()
 	workloadUID := "test-workload-2"
 
-	// Setup: No existing metadata
-	mockFacade.On("GetAiWorkloadMetadata", ctx, workloadUID).
-		Return(nil, gorm.ErrRecordNotFound).Once()
-	mockFacade.On("CreateAiWorkloadMetadata", ctx, mock.Anything).
+	// Setup: Mock workload hierarchy (no parent)
+	mockWorkloadFacade.On("GetGpuWorkloadByUid", ctx, workloadUID).
+		Return(&model.GpuWorkload{
+			UID:       workloadUID,
+			ParentUID: "",
+		}, nil)
+
+	// Setup: No existing metadata (return nil, nil means not found)
+	// First call: loadDetection
+	mockMetadataFacade.On("GetAiWorkloadMetadata", ctx, workloadUID).
+		Return(nil, nil).Once()
+	// Second call: saveDetection (UpsertDetection)
+	mockMetadataFacade.On("GetAiWorkloadMetadata", ctx, workloadUID).
+		Return(nil, nil).Once()
+	mockMetadataFacade.On("CreateAiWorkloadMetadata", ctx, mock.Anything).
 		Return(nil).Once()
 
 	// Step 1: Log detection for primus
@@ -121,9 +159,23 @@ func TestScenario2_ConflictResolution(t *testing.T) {
 		},
 	}
 
-	mockFacade.On("GetAiWorkloadMetadata", ctx, workloadUID).
+	// Mock workload hierarchy for second call
+	mockWorkloadFacade.On("GetGpuWorkloadByUid", ctx, workloadUID).
+		Return(&model.GpuWorkload{
+			UID:       workloadUID,
+			ParentUID: "",
+		}, nil)
+
+	// First call: loadDetection
+	mockMetadataFacade.On("GetAiWorkloadMetadata", ctx, workloadUID).
 		Return(existingMetadata, nil).Once()
-	mockFacade.On("UpdateAiWorkloadMetadata", ctx, mock.Anything).
+	// Second call: saveDetection (UpsertDetection)
+	mockMetadataFacade.On("GetAiWorkloadMetadata", ctx, workloadUID).
+		Return(existingMetadata, nil).Once()
+	// Third call: UpdateDetection (inside UpsertDetection)
+	mockMetadataFacade.On("GetAiWorkloadMetadata", ctx, workloadUID).
+		Return(existingMetadata, nil).Once()
+	mockMetadataFacade.On("UpdateAiWorkloadMetadata", ctx, mock.Anything).
 		Return(nil).Once()
 
 	// Step 2: Component detection for deepspeed (conflict)
@@ -131,19 +183,31 @@ func TestScenario2_ConflictResolution(t *testing.T) {
 		"component", "deepspeed", "training", 0.85, nil)
 	require.NoError(t, err)
 
-	mockFacade.AssertExpectations(t)
+	mockMetadataFacade.AssertExpectations(t)
+	mockWorkloadFacade.AssertExpectations(t)
 }
 
 // TestScenario3_ReuseWithVerification tests reuse followed by verification
 func TestScenario3_ReuseWithVerification(t *testing.T) {
-	manager, mockFacade := setupTestManager(t)
+	manager, mockMetadataFacade, mockWorkloadFacade := setupTestManager(t)
 	ctx := context.Background()
 	workloadUID := "test-workload-3"
 
-	// Setup: No existing metadata
-	mockFacade.On("GetAiWorkloadMetadata", ctx, workloadUID).
-		Return(nil, gorm.ErrRecordNotFound).Once()
-	mockFacade.On("CreateAiWorkloadMetadata", ctx, mock.Anything).
+	// Setup: Mock workload hierarchy (no parent)
+	mockWorkloadFacade.On("GetGpuWorkloadByUid", ctx, workloadUID).
+		Return(&model.GpuWorkload{
+			UID:       workloadUID,
+			ParentUID: "",
+		}, nil)
+
+	// Setup: No existing metadata (return nil, nil means not found)
+	// First call: loadDetection
+	mockMetadataFacade.On("GetAiWorkloadMetadata", ctx, workloadUID).
+		Return(nil, nil).Once()
+	// Second call: saveDetection (UpsertDetection)
+	mockMetadataFacade.On("GetAiWorkloadMetadata", ctx, workloadUID).
+		Return(nil, nil).Once()
+	mockMetadataFacade.On("CreateAiWorkloadMetadata", ctx, mock.Anything).
 		Return(nil).Once()
 
 	// Step 1: Reuse detection
@@ -175,9 +239,23 @@ func TestScenario3_ReuseWithVerification(t *testing.T) {
 		},
 	}
 
-	mockFacade.On("GetAiWorkloadMetadata", ctx, workloadUID).
+	// Mock workload hierarchy for second call
+	mockWorkloadFacade.On("GetGpuWorkloadByUid", ctx, workloadUID).
+		Return(&model.GpuWorkload{
+			UID:       workloadUID,
+			ParentUID: "",
+		}, nil)
+
+	// First call: loadDetection
+	mockMetadataFacade.On("GetAiWorkloadMetadata", ctx, workloadUID).
 		Return(existingMetadata, nil).Once()
-	mockFacade.On("UpdateAiWorkloadMetadata", ctx, mock.Anything).
+	// Second call: saveDetection (UpsertDetection)
+	mockMetadataFacade.On("GetAiWorkloadMetadata", ctx, workloadUID).
+		Return(existingMetadata, nil).Once()
+	// Third call: UpdateDetection (inside UpsertDetection)
+	mockMetadataFacade.On("GetAiWorkloadMetadata", ctx, workloadUID).
+		Return(existingMetadata, nil).Once()
+	mockMetadataFacade.On("UpdateAiWorkloadMetadata", ctx, mock.Anything).
 		Return(nil).Once()
 
 	// Step 2: Component verification
@@ -185,19 +263,31 @@ func TestScenario3_ReuseWithVerification(t *testing.T) {
 		"component", "primus", "training", 0.9, nil)
 	require.NoError(t, err)
 
-	mockFacade.AssertExpectations(t)
+	mockMetadataFacade.AssertExpectations(t)
+	mockWorkloadFacade.AssertExpectations(t)
 }
 
 // TestScenario4_UserOverride tests user manual correction
 func TestScenario4_UserOverride(t *testing.T) {
-	manager, mockFacade := setupTestManager(t)
+	manager, mockMetadataFacade, mockWorkloadFacade := setupTestManager(t)
 	ctx := context.Background()
 	workloadUID := "test-workload-4"
 
-	// Setup: No existing metadata
-	mockFacade.On("GetAiWorkloadMetadata", ctx, workloadUID).
-		Return(nil, gorm.ErrRecordNotFound).Once()
-	mockFacade.On("CreateAiWorkloadMetadata", ctx, mock.Anything).
+	// Setup: Mock workload hierarchy (no parent)
+	mockWorkloadFacade.On("GetGpuWorkloadByUid", ctx, workloadUID).
+		Return(&model.GpuWorkload{
+			UID:       workloadUID,
+			ParentUID: "",
+		}, nil)
+
+	// Setup: No existing metadata (return nil, nil means not found)
+	// First call: loadDetection
+	mockMetadataFacade.On("GetAiWorkloadMetadata", ctx, workloadUID).
+		Return(nil, nil).Once()
+	// Second call: saveDetection (UpsertDetection)
+	mockMetadataFacade.On("GetAiWorkloadMetadata", ctx, workloadUID).
+		Return(nil, nil).Once()
+	mockMetadataFacade.On("CreateAiWorkloadMetadata", ctx, mock.Anything).
 		Return(nil).Once()
 
 	// Step 1: Incorrect detection
@@ -227,9 +317,23 @@ func TestScenario4_UserOverride(t *testing.T) {
 		},
 	}
 
-	mockFacade.On("GetAiWorkloadMetadata", ctx, workloadUID).
+	// Mock workload hierarchy for second call
+	mockWorkloadFacade.On("GetGpuWorkloadByUid", ctx, workloadUID).
+		Return(&model.GpuWorkload{
+			UID:       workloadUID,
+			ParentUID: "",
+		}, nil)
+
+	// First call: loadDetection
+	mockMetadataFacade.On("GetAiWorkloadMetadata", ctx, workloadUID).
 		Return(existingMetadata, nil).Once()
-	mockFacade.On("UpdateAiWorkloadMetadata", ctx, mock.Anything).
+	// Second call: saveDetection (UpsertDetection)
+	mockMetadataFacade.On("GetAiWorkloadMetadata", ctx, workloadUID).
+		Return(existingMetadata, nil).Once()
+	// Third call: UpdateDetection (inside UpsertDetection)
+	mockMetadataFacade.On("GetAiWorkloadMetadata", ctx, workloadUID).
+		Return(existingMetadata, nil).Once()
+	mockMetadataFacade.On("UpdateAiWorkloadMetadata", ctx, mock.Anything).
 		Return(nil).Once()
 
 	// Step 2: User correction (should win due to highest priority)
@@ -239,12 +343,13 @@ func TestScenario4_UserOverride(t *testing.T) {
 		})
 	require.NoError(t, err)
 
-	mockFacade.AssertExpectations(t)
+	mockMetadataFacade.AssertExpectations(t)
+	mockWorkloadFacade.AssertExpectations(t)
 }
 
 // TestValidateInput tests input validation
 func TestValidateInput(t *testing.T) {
-	manager, _ := setupTestManager(t)
+	manager, _, _ := setupTestManager(t)
 
 	tests := []struct {
 		name        string
@@ -276,7 +381,7 @@ func TestValidateInput(t *testing.T) {
 
 // TestMergeDetections_FirstDetection tests merging when no existing detection
 func TestMergeDetections_FirstDetection(t *testing.T) {
-	manager, _ := setupTestManager(t)
+	manager, _, _ := setupTestManager(t)
 
 	newSource := &coreModel.DetectionSource{
 		Source:     "log",
@@ -300,7 +405,7 @@ func TestMergeDetections_FirstDetection(t *testing.T) {
 
 // TestMergeDetections_UpdateExistingSource tests updating an existing source
 func TestMergeDetections_UpdateExistingSource(t *testing.T) {
-	manager, _ := setupTestManager(t)
+	manager, _, _ := setupTestManager(t)
 
 	existing := &coreModel.FrameworkDetection{
 		Frameworks: []string{"primus"},
@@ -335,7 +440,7 @@ func TestMergeDetections_UpdateExistingSource(t *testing.T) {
 
 // TestGetStats tests statistics retrieval
 func TestGetStats(t *testing.T) {
-	manager, _ := setupTestManager(t)
+	manager, _, _ := setupTestManager(t)
 
 	stats := manager.GetStats()
 	assert.NotNil(t, stats)
@@ -345,7 +450,7 @@ func TestGetStats(t *testing.T) {
 
 // TestGetConfig tests configuration retrieval
 func TestGetConfig(t *testing.T) {
-	manager, _ := setupTestManager(t)
+	manager, _, _ := setupTestManager(t)
 
 	config := manager.GetConfig()
 	assert.NotNil(t, config)

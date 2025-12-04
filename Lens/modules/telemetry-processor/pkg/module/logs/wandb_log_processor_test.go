@@ -144,7 +144,8 @@ func TestInMemoryMetricsStorage_CleanupOldMetrics(t *testing.T) {
 
 func TestWandBLogProcessor_ProcessMetrics(t *testing.T) {
 	storage := NewInMemoryMetricsStorage(100)
-	processor := NewWandBLogProcessor(storage)
+	mockTrainingFacade := NewMockTrainingFacade()
+	processor := NewWandBLogProcessorWithFacade(storage, mockTrainingFacade)
 	ctx := context.Background()
 
 	tests := []struct {
@@ -182,7 +183,7 @@ func TestWandBLogProcessor_ProcessMetrics(t *testing.T) {
 				Metrics: []WandBMetric{{Name: "loss", Value: 2.5}},
 			},
 			wantErr: true,
-			errMsg:  "workload_uid is required",
+			errMsg:  "either workload_uid or pod_name is required",
 		},
 		{
 			name: "Empty metrics",
@@ -218,7 +219,8 @@ func TestWandBLogProcessor_ProcessMetrics(t *testing.T) {
 
 func TestWandBLogProcessor_ProcessLogs(t *testing.T) {
 	storage := NewInMemoryMetricsStorage(100)
-	processor := NewWandBLogProcessor(storage)
+	mockTrainingFacade := NewMockTrainingFacade()
+	processor := NewWandBLogProcessorWithFacade(storage, mockTrainingFacade)
 	ctx := context.Background()
 
 	tests := []struct {

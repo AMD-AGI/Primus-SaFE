@@ -56,13 +56,26 @@ func (r *ConflictResolver) ResolveWithReason(sources []model.DetectionSource) (*
 
 	// Find the best source and track reason
 	bestIndex := 0
-	reason := "priority"
+	reason := "equal"
 
 	for i := 1; i < len(sources); i++ {
 		comparison := r.compare(&sources[i], &sources[bestIndex])
 		if comparison > 0 {
-			bestIndex = i
+			// Get reason before updating bestIndex
 			reason = r.getComparisonReason(&sources[i], &sources[bestIndex])
+			bestIndex = i
+		}
+	}
+
+	// If bestIndex is still 0, find a reason by comparing with another source
+	if bestIndex == 0 && len(sources) > 1 {
+		// Compare the winning source with the first different source
+		for i := 1; i < len(sources); i++ {
+			comparison := r.compare(&sources[0], &sources[i])
+			if comparison != 0 {
+				reason = r.getComparisonReason(&sources[0], &sources[i])
+				break
+			}
 		}
 	}
 

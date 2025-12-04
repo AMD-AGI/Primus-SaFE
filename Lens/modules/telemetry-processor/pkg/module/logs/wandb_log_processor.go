@@ -73,7 +73,8 @@ type StoredMetric struct{
 
 // WandBLogProcessor WandB log and metrics processor
 type WandBLogProcessor struct {
-	metricsStorage MetricsStorage // Metrics storage interface
+	metricsStorage  MetricsStorage                   // Metrics storage interface
+	trainingFacade  database.TrainingFacadeInterface // Training facade (optional, for testing)
 }
 
 // NewWandBLogProcessor creates processor
@@ -81,7 +82,19 @@ func NewWandBLogProcessor(
 	metricsStorage MetricsStorage,
 ) *WandBLogProcessor {
 	return &WandBLogProcessor{
-		metricsStorage: metricsStorage,
+		metricsStorage:  metricsStorage,
+		trainingFacade:  nil, // Use default facade from database.GetFacade()
+	}
+}
+
+// NewWandBLogProcessorWithFacade creates processor with custom training facade (for testing)
+func NewWandBLogProcessorWithFacade(
+	metricsStorage MetricsStorage,
+	trainingFacade database.TrainingFacadeInterface,
+) *WandBLogProcessor {
+	return &WandBLogProcessor{
+		metricsStorage:  metricsStorage,
+		trainingFacade:  trainingFacade,
 	}
 }
 
@@ -290,8 +303,14 @@ func (p *WandBLogProcessor) storeTrainingData(
 	serial := 1
 	iteration := int(data.Step)
 
+	// Get training facade (use injected one or default)
+	trainingFacade := p.trainingFacade
+	if trainingFacade == nil {
+		trainingFacade = database.GetFacade().GetTraining()
+	}
+
 	// Check if performance data already exists for this step
-	existingPerf, err := database.GetFacade().GetTraining().GetTrainingPerformanceByWorkloadIdSerialAndIteration(
+	existingPerf, err := trainingFacade.GetTrainingPerformanceByWorkloadIdSerialAndIteration(
 		ctx, workloadUID, serial, iteration)
 	if err != nil {
 		return fmt.Errorf("failed to check existing performance: %w", err)
@@ -389,7 +408,7 @@ func (p *WandBLogProcessor) storeTrainingData(
 	}
 
 	// Save training performance (creates if ID=0, updates if ID>0)
-	trainingFacade := database.GetFacade().GetTraining()
+	// trainingFacade is already obtained above, reuse it
 
 	if recordID > 0 {
 		// Update existing record (merges old data into history)

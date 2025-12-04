@@ -11,6 +11,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
+	dbModel "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/model"
 )
 
@@ -19,8 +20,9 @@ type FrameworkDetectionManager struct {
 	mu sync.RWMutex
 
 	// Storage layer
-	storage        *database.FrameworkDetectionStorage
-	workloadFacade database.AiWorkloadMetadataFacadeInterface
+	storage           *database.FrameworkDetectionStorage
+	workloadFacade    database.AiWorkloadMetadataFacadeInterface
+	gpuWorkloadFacade database.WorkloadFacadeInterface // For hierarchy queries
 
 	// Detection components
 	confidenceCalculator *ConfidenceCalculator
@@ -43,6 +45,16 @@ func NewFrameworkDetectionManager(
 	metadataFacade database.AiWorkloadMetadataFacadeInterface,
 	config *DetectionConfig,
 ) *FrameworkDetectionManager {
+	return NewFrameworkDetectionManagerWithFacades(metadataFacade, nil, config)
+}
+
+// NewFrameworkDetectionManagerWithFacades creates a new framework detection manager with custom facades
+// This is useful for testing with mock facades
+func NewFrameworkDetectionManagerWithFacades(
+	metadataFacade database.AiWorkloadMetadataFacadeInterface,
+	gpuWorkloadFacade database.WorkloadFacadeInterface,
+	config *DetectionConfig,
+) *FrameworkDetectionManager {
 	if config == nil {
 		config = DefaultDetectionConfig()
 	}
@@ -61,6 +73,7 @@ func NewFrameworkDetectionManager(
 	return &FrameworkDetectionManager{
 		storage:              storage,
 		workloadFacade:       metadataFacade,
+		gpuWorkloadFacade:    gpuWorkloadFacade, // Can be nil, will use global facade
 		confidenceCalculator: NewConfidenceCalculator(config),
 		statusManager:        NewStatusManager(config),
 		conflictResolver:     NewConflictResolver(config),
@@ -581,8 +594,14 @@ func (m *FrameworkDetectionManager) getParentWorkload(
 		}
 	}
 
-	// Query workload from database using the global facade
-	workload, err := database.GetFacade().GetWorkload().GetGpuWorkloadByUid(ctx, workloadUID)
+	// Query workload from database using injected facade or global facade
+	var workload *dbModel.GpuWorkload
+	var err error
+	if m.gpuWorkloadFacade != nil {
+		workload, err = m.gpuWorkloadFacade.GetGpuWorkloadByUid(ctx, workloadUID)
+	} else {
+		workload, err = database.GetFacade().GetWorkload().GetGpuWorkloadByUid(ctx, workloadUID)
+	}
 	if err != nil {
 		return "", err
 	}
