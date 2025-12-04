@@ -188,7 +188,7 @@ jobs:
   
   build:
     needs: detect-changes
-    runs-on: primus-safe-4dgng
+    runs-on: primus-safe-cicd-tnznd
     timeout-minutes: 7200
     strategy:
       fail-fast: false
