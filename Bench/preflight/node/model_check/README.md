@@ -2,10 +2,28 @@
 
 A highly efficient multi-GPU training framework designed specifically for LLaMA models, supporting distributed training, automatic error detection, and intelligent resource management.
 
+## 📋 Prerequisites
+
+### Environment Requirements
+
+1. **Docker Release Environment**: This system must be run in a Docker release environment.
+
+2. **HuggingFace Token**: You need to export your HuggingFace token to download models:
+   ```bash
+   export HF_TOKEN=your_huggingface_token_here
+   ```
+   
+   > **Note**: Get your token from [HuggingFace Settings](https://huggingface.co/settings/tokens)
+
 ## 🚀 Quick Start
 
 ```bash
-# Run training on all available GPUs
+# 1. Set HuggingFace token (required for model downloads)
+export HF_TOKEN=your_huggingface_token_here
+
+# 2. Ensure you're in the Docker release environment
+
+# 3. Run training on all available GPUs
 bash run.sh
 
 # Use debug mode
@@ -183,6 +201,8 @@ CUDA_VISIBLE_DEVICES=$GPU_ID GPU_RANK=$GPU_ID python3 pretrain_main.py "$@"
 - Python >= 3.8
 - CUDA >= 11.0 (for GPU training)
 - Linux/Unix system (recommended)
+- Docker release environment (required)
+- HuggingFace account and API token (required for model downloads)
 
 ### Python Packages
 ```txt
@@ -198,6 +218,8 @@ tensorboard
 ### Automatic Installation
 The run.sh script automatically detects and installs missing dependencies:
 ```bash
+# Make sure HF_TOKEN is exported before running
+export HF_TOKEN=your_huggingface_token_here
 bash run.sh  # Automatically installs dependencies and starts training
 ```
 
@@ -294,6 +316,11 @@ for name, grad in debug_data['gradients'].items():
 ```
 
 ## 💻 Single GPU Training
+
+**Note**: Remember to export your HuggingFace token before running:
+```bash
+export HF_TOKEN=your_huggingface_token_here
+```
 
 ### Method 1: Specify GPU via Environment Variable
 ```bash
@@ -394,6 +421,24 @@ bash run.sh 2>&1 | grep "GPU2"
 - Output files: `./.outputs/`
 
 ## ❓ Troubleshooting
+
+### Authentication Errors
+
+If you encounter HuggingFace authentication errors:
+
+1. **Verify HF_TOKEN is set**:
+   ```bash
+   echo $HF_TOKEN  # Should show your token
+   ```
+
+2. **Set the token if missing**:
+   ```bash
+   export HF_TOKEN=your_huggingface_token_here
+   ```
+
+3. **Ensure token has read permissions** for the model repositories you're accessing
+
+4. **Check Docker environment**: Make sure you're running in the Docker release environment
 
 ### NaN/Inf Errors
 
