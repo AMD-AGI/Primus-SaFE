@@ -88,24 +88,78 @@ if [[ "$RANK" == "0" ]]; then
     tail --pid=$ansible_pid -f "$NODE_LOG"
     wait $ansible_pid || true
 
+    # Initialize bench.md file
+    BENCH_REPORT="${OUTPUT_PATH}/bench.md"
+    echo "# PrimusBench Node Check Report" > "$BENCH_REPORT"
+    echo "Generated at: $(date '+%Y-%m-%d %H:%M:%S')" >> "$BENCH_REPORT"
+    echo "" >> "$BENCH_REPORT"
+    echo "## Node Check Results" >> "$BENCH_REPORT"
+    echo "" >> "$BENCH_REPORT"
+
     nodes=()
     nodes_ip=()
-    declare -A node_ip_map ip_node_map
+    failed_nodes=()
+    declare -A node_ip_map ip_node_map all_nodes_map
 
+    # First pass: collect all nodes from hosts file
+    while IFS= read -r host; do
+        all_nodes_map[$host]=1
+    done < "$HOSTS"
+
+    # Second pass: collect healthy nodes
     while IFS= read -r line; do
-        if [[ "$line" == *"All check passed\""* ]]; then
-            node=$(echo "$line" | grep -oP '(?<=\[)[^]]+(?=\])' | head -n1)
-            ip_addr=$(getent hosts "$node" | awk '{print $1; exit}')
-            [[ $ip_addr == 127.* ]] && ip_addr=$(ip route get 8.8.8.8 | awk '{print $7}')
-            node_ip_map[$node]=$ip_addr
-            ip_node_map[$ip_addr]=$node
-            nodes+=("$node")
-            nodes_ip+=("$ip_addr")
+        if [[ "$line" != *"All checks passed"* ]]; then
+          continue
         fi
+
+        mapfile -t fields < <(grep -oP '\[\K[^\]]+(?=\])' <<< "$line")
+
+        node="${fields[0]}"
+
+        ip_addr=$(getent hosts "$node" | awk '{print $1; exit}')
+
+        if [[ "$ip_addr" == 127.* ]]; then
+          ip_addr=$(ip route get 8.8.8.8 | awk '{print $7}')
+        fi
+
+	if [[ -n "${node_ip_map[$node]}" ]]; then
+            continue
+        fi
+        node_ip_map[$node]="$ip_addr"
+        ip_node_map[$ip_addr]="$node"
+        nodes+=("$node")
+        nodes_ip+=("$ip_addr")
+        # Remove from all_nodes_map to identify failed nodes
+        unset all_nodes_map[$node]
+
     done < "$preflight_node_logname"
+
+    # Collect failed nodes
+    for node in "${!all_nodes_map[@]}"; do
+        failed_nodes+=("$node")
+    done
+        
+    # Write failed nodes to bench.md
+    echo "### ❌ Failed Nodes (Node Check)" >> "$BENCH_REPORT"
+    if [ ${#failed_nodes[@]} -gt 0 ]; then
+        for node in "${failed_nodes[@]}"; do
+            echo "- $node" >> "$BENCH_REPORT"
+        done
+    else
+        echo "None" >> "$BENCH_REPORT"
+    fi
+    echo "" >> "$BENCH_REPORT"
 
     if [ ${#nodes[@]} -eq 0 ]; then
         err "No healthy nodes found, aborting."
+        CUDA_VISIBLE_DEVICES="" torchrun \
+        --nproc_per_node=1 \
+        --nnodes=$WORLD_SIZE \
+        --node_rank=$RANK \
+        --master_addr=$MASTER_ADDR \
+        --master_port=$MASTER_PORT \
+        preflight/network/wait_ready.py
+        err "PrimusBench failed!"
         exit 1
     fi
     ok "Detected ${#nodes[@]} healthy nodes."
@@ -130,6 +184,20 @@ if [[ "$RANK" == "0" ]]; then
     fi
     log "Unhealthy nodes detected: ${YELLOW}${unhealthy_nodes[*]:-none}${RESET}"
     
+    # Write network check results to bench.md
+    echo "## Network Check Results" >> "$BENCH_REPORT"
+    echo "" >> "$BENCH_REPORT"
+    echo "### ❌ Failed Nodes (Network Check)" >> "$BENCH_REPORT"
+    if [ ${#unhealthy_nodes[@]} -gt 0 ]; then
+        for unhealthy_ip in "${unhealthy_nodes[@]}"; do
+            unhealthy_node="${ip_node_map[$unhealthy_ip]:-$unhealthy_ip}"
+            echo "- $unhealthy_node ($unhealthy_ip)" >> "$BENCH_REPORT"
+        done
+    else
+        echo "None" >> "$BENCH_REPORT"
+    fi
+    echo "" >> "$BENCH_REPORT"
+    
     # Filter out unhealthy nodes from all nodes
     healthy_nodes_ip=()
     if [ ${#unhealthy_nodes[@]} -eq 0 ]; then
@@ -151,6 +219,20 @@ if [[ "$RANK" == "0" ]]; then
         done
     fi
     ok "Network check complete. Healthy nodes (${#healthy_nodes_ip[@]}/${#nodes_ip[@]}): ${healthy_nodes_ip[*]}"
+    
+    # Write healthy nodes to bench.md
+    echo "### ✅ Healthy Nodes (Passed All Checks)" >> "$BENCH_REPORT"
+    if [ ${#healthy_nodes_ip[@]} -gt 0 ]; then
+        for ip in "${healthy_nodes_ip[@]}"; do
+            healthy_node="${ip_node_map[$ip]}"
+            echo "- $healthy_node ($ip)" >> "$BENCH_REPORT"
+        done
+    else
+        echo "None" >> "$BENCH_REPORT"
+    fi
+    echo "" >> "$BENCH_REPORT"
+    echo "---" >> "$BENCH_REPORT"
+    echo "**Summary:** ${#healthy_nodes_ip[@]} healthy nodes out of $(cat $HOSTS | wc -l) total nodes" >> "$BENCH_REPORT"
     
     # Exit if no healthy nodes
     if [ ${#healthy_nodes_ip[@]} -eq 0 ]; then
@@ -213,6 +295,13 @@ if [[ "$RANK" == "0" ]]; then
     jq . < "${OUTPUT_PATH}/kernel_overhead_results.json"
 
     ok "✅ PrimusBench completed successfully!"
+    
+    # Display bench report
+    echo ""
+    log "📋 Node Check Report:"
+    echo ""
+    cat "$BENCH_REPORT"
+    echo ""
 fi
 
 log "${LOG_HEADER} [$(date +'%Y-%m-%d %H:%M:%S')] Waiting for rank 0 to complete bench..."
@@ -225,3 +314,4 @@ CUDA_VISIBLE_DEVICES="" torchrun \
     preflight/network/wait_ready.py
 
 ok "✅ PrimusBench completed!"
+
