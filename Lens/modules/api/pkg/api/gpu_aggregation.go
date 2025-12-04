@@ -308,19 +308,6 @@ func getNamespaceHourlyStats(ctx *gin.Context) {
 	facade := database.GetFacadeForCluster(clients.ClusterName).GetGpuAggregation()
 
 	if req.Namespace != "" {
-		// Check if the requested namespace should be excluded
-		if cfg != nil && shouldExcludeNamespace(req.Namespace, cfg) {
-			// Return empty result for excluded namespace
-			response := PaginatedResponse{
-				Total:      0,
-				Page:       1,
-				PageSize:   opts.PageSize,
-				TotalPages: 0,
-				Data:       []*dbmodel.NamespaceGpuHourlyStats{},
-			}
-			ctx.JSON(http.StatusOK, rest.SuccessResp(ctx, response))
-			return
-		}
 		// Query specific namespace
 		result, err = facade.GetNamespaceHourlyStatsPaginated(ctx, req.Namespace, startTime, endTime, opts)
 	} else {
