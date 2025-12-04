@@ -1,0 +1,37 @@
+# Codecov configuration file
+# Configure code coverage reporting and ignore rules
+
+coverage:
+  status:
+    project:
+      default:
+        target: auto
+        threshold: 1%
+    patch:
+      default:
+        target: auto
+        threshold: 1%
+
+# Ignore rules - exclude auto-generated code and untestable code
+ignore:
+  # Ignore all .gen.go files (auto-generated files)
+  - "**/*.gen.go"
+  
+  # Ignore entire database directory (DAL, models, and other database-related code)
+  - "Lens/modules/core/pkg/database/**"
+  
+  # Other common file types that don't need test coverage
+  - "**/*_mock.go"        # Mock files
+  - "**/*_test.go"        # Test files themselves
+  - "**/vendor/**"        # Third-party dependencies
+  - "**/testdata/**"      # Test data
+  - "**/docs/**"          # Documentation
+  - "**/*.pb.go"          # Protobuf auto-generated files
+  - "**/*.swagger.go"     # Swagger auto-generated files
+
+# Comment configuration
+comment:
+  layout: "reach,diff,flags,files,footer"
+  behavior: default
+  require_changes: false
+

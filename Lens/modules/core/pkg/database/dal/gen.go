@@ -27,6 +27,7 @@ func Use(db *gorm.DB, opts ...gen.DOOption) *Query {
 		AlertRules:                newAlertRules(db, opts...),
 		AlertSilences:             newAlertSilences(db, opts...),
 		AlertStatistics:           newAlertStatistics(db, opts...),
+		CheckpointEvent:           newCheckpointEvent(db, opts...),
 		ClusterGpuHourlyStats:     newClusterGpuHourlyStats(db, opts...),
 		ClusterOverviewCache:      newClusterOverviewCache(db, opts...),
 		DetectionConflictLog:      newDetectionConflictLog(db, opts...),
@@ -86,6 +87,7 @@ type Query struct {
 	AlertRules                alertRules
 	AlertSilences             alertSilences
 	AlertStatistics           alertStatistics
+	CheckpointEvent           checkpointEvent
 	ClusterGpuHourlyStats     clusterGpuHourlyStats
 	ClusterOverviewCache      clusterOverviewCache
 	DetectionConflictLog      detectionConflictLog
@@ -146,6 +148,7 @@ func (q *Query) clone(db *gorm.DB) *Query {
 		AlertRules:                q.AlertRules.clone(db),
 		AlertSilences:             q.AlertSilences.clone(db),
 		AlertStatistics:           q.AlertStatistics.clone(db),
+		CheckpointEvent:           q.CheckpointEvent.clone(db),
 		ClusterGpuHourlyStats:     q.ClusterGpuHourlyStats.clone(db),
 		ClusterOverviewCache:      q.ClusterOverviewCache.clone(db),
 		DetectionConflictLog:      q.DetectionConflictLog.clone(db),
@@ -213,6 +216,7 @@ func (q *Query) ReplaceDB(db *gorm.DB) *Query {
 		AlertRules:                q.AlertRules.replaceDB(db),
 		AlertSilences:             q.AlertSilences.replaceDB(db),
 		AlertStatistics:           q.AlertStatistics.replaceDB(db),
+		CheckpointEvent:           q.CheckpointEvent.replaceDB(db),
 		ClusterGpuHourlyStats:     q.ClusterGpuHourlyStats.replaceDB(db),
 		ClusterOverviewCache:      q.ClusterOverviewCache.replaceDB(db),
 		DetectionConflictLog:      q.DetectionConflictLog.replaceDB(db),
@@ -270,6 +274,7 @@ type queryCtx struct {
 	AlertRules                *alertRulesDo
 	AlertSilences             *alertSilencesDo
 	AlertStatistics           *alertStatisticsDo
+	CheckpointEvent           *checkpointEventDo
 	ClusterGpuHourlyStats     *clusterGpuHourlyStatsDo
 	ClusterOverviewCache      *clusterOverviewCacheDo
 	DetectionConflictLog      *detectionConflictLogDo
@@ -327,6 +332,7 @@ func (q *Query) WithContext(ctx context.Context) *queryCtx {
 		AlertRules:                q.AlertRules.WithContext(ctx),
 		AlertSilences:             q.AlertSilences.WithContext(ctx),
 		AlertStatistics:           q.AlertStatistics.WithContext(ctx),
+		CheckpointEvent:           q.CheckpointEvent.WithContext(ctx),
 		ClusterGpuHourlyStats:     q.ClusterGpuHourlyStats.WithContext(ctx),
 		ClusterOverviewCache:      q.ClusterOverviewCache.WithContext(ctx),
 		DetectionConflictLog:      q.DetectionConflictLog.WithContext(ctx),

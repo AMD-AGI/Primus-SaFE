@@ -33,7 +33,11 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		workloadGroup.GET(":uid", getWorkloadInfo)
 		workloadGroup.GET(":uid/metrics", getWorkloadMetrics)
 		workloadGroup.GET(":uid/trainingPerformance", GetWorkloadTrainingPerformance)
-
+		// Training performance new APIs
+		workloadGroup.GET(":uid/metrics/sources", GetDataSources)
+		workloadGroup.GET(":uid/metrics/available", GetAvailableMetrics)
+		workloadGroup.GET(":uid/metrics/data", GetMetricsData)
+		workloadGroup.GET(":uid/metrics/iteration-times", GetIterationTimes)
 	}
 	group.GET("workloadMetadata", getWorkloadsMetadata)
 	storageGroup := group.Group("/storage")
@@ -137,6 +141,30 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		jobHistoryGroup.GET("/:id", GetJobExecutionHistory)
 	}
 
+	// AI Workload Metadata routes - AI workload metadata management with conflict detection
+	aiMetadataGroup := group.Group("/ai-workload-metadata")
+	{
+		// List all AI workload metadata
+		aiMetadataGroup.GET("", ListAiWorkloadMetadata)
+		// Get specific AI workload metadata by workload UID
+		aiMetadataGroup.GET("/:workload_uid", GetAiWorkloadMetadata)
+		// Annotate workload framework (user annotation)
+		aiMetadataGroup.POST("/:workload_uid/annotate", AnnotateWorkloadFramework)
+		// Update AI workload metadata (full update)
+		aiMetadataGroup.PUT("/:workload_uid", UpdateAiWorkloadMetadata)
+		// Delete AI workload metadata
+		aiMetadataGroup.DELETE("/:workload_uid", DeleteAiWorkloadMetadata)
+		// Get detection conflict logs for a specific workload
+		aiMetadataGroup.GET("/:workload_uid/conflicts", GetDetectionConflictLogs)
+	}
+
+	// Detection Conflict routes - Detection conflict logs query
+	conflictGroup := group.Group("/detection-conflicts")
+	{
+		// List all recent detection conflicts across workloads
+		conflictGroup.GET("", ListAllDetectionConflicts)
+	}
+
 	// Weekly Report routes - GPU usage weekly reports
 	weeklyReportGroup := group.Group("/weekly-reports/gpu_utilization")
 	{
@@ -150,6 +178,32 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		weeklyReportGroup.GET("/:id/html", DownloadWeeklyReportHTML)
 		weeklyReportGroup.GET("/:id/pdf", DownloadWeeklyReportPDF)
 		weeklyReportGroup.GET("/:id/json", DownloadWeeklyReportJSON)
+	}
+
+	// Detection Config routes - Framework log parsing configuration management
+	detectionConfigGroup := group.Group("/detection-configs")
+	{
+		// Framework configuration management
+		frameworkGroup := detectionConfigGroup.Group("/frameworks")
+		{
+			// List all enabled frameworks
+			frameworkGroup.GET("", ListFrameworks)
+			// Get specific framework configuration
+			frameworkGroup.GET("/:name", GetFrameworkConfig)
+			// Update framework configuration
+			frameworkGroup.PUT("/:name", UpdateFrameworkConfig)
+		}
+		
+		// Cache management
+		cacheGroup := detectionConfigGroup.Group("/cache")
+		{
+			// Refresh configuration cache
+			cacheGroup.POST("/refresh", RefreshDetectionConfigCache)
+			// Get cache TTL
+			cacheGroup.GET("/ttl", GetCacheTTL)
+			// Set cache TTL
+			cacheGroup.PUT("/ttl", SetCacheTTL)
+		}
 	}
 
 	return nil

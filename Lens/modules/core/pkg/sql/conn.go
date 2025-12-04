@@ -3,6 +3,7 @@ package sql
 import (
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"gorm.io/gorm"
@@ -90,6 +91,38 @@ func InitGormDB(key string, conf DatabaseConfig, opts ...opts) (*gorm.DB, error)
 	if err != nil {
 		return nil, err
 	}
+
+	// Configure connection pool parameters to ensure connections are periodically refreshed
+	// This prevents connecting to old nodes after master-slave failover
+	sqlDB, err := gormDB.DB()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get sql.DB: %w", err)
+	}
+
+	// Set connection pool parameters
+	if conf.MaxIdleConn > 0 {
+		sqlDB.SetMaxIdleConns(conf.MaxIdleConn)
+	} else {
+		sqlDB.SetMaxIdleConns(10) // Default max idle connections
+	}
+
+	if conf.MaxOpenConn > 0 {
+		sqlDB.SetMaxOpenConns(conf.MaxOpenConn)
+	} else {
+		sqlDB.SetMaxOpenConns(40) // Default max open connections
+	}
+
+	// Set maximum connection lifetime: force close and re-establish connections after 5 minutes
+	// This ensures old connections are replaced within 5 minutes after master-slave failover
+	sqlDB.SetConnMaxLifetime(5 * time.Minute)
+
+	// Set maximum idle connection lifetime: close idle connections after 2 minutes
+	// This helps to quickly clean up idle connections pointing to old nodes
+	sqlDB.SetConnMaxIdleTime(2 * time.Minute)
+
+	log.Infof("Configured connection pool for '%s': MaxIdleConn=%d, MaxOpenConn=%d, ConnMaxLifetime=5m, ConnMaxIdleTime=2m",
+		key, conf.MaxIdleConn, conf.MaxOpenConn)
+
 	for _, opt := range opts {
 		opt(gormDB)
 	}

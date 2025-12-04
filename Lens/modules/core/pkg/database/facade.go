@@ -36,6 +36,12 @@ type FacadeInterface interface {
 	GetNamespaceInfo() NamespaceInfoFacadeInterface
 	// GetWorkloadStatistic returns the WorkloadStatistic Facade interface
 	GetWorkloadStatistic() WorkloadStatisticFacadeInterface
+	// GetAiWorkloadMetadata returns the AiWorkloadMetadata Facade interface
+	GetAiWorkloadMetadata() AiWorkloadMetadataFacadeInterface
+	// GetCheckpointEvent returns the CheckpointEvent Facade interface
+	GetCheckpointEvent() CheckpointEventFacadeInterface
+	// GetDetectionConflictLog returns the DetectionConflictLog Facade interface
+	GetDetectionConflictLog() DetectionConflictLogFacadeInterface
 	// GetGpuUsageWeeklyReport returns the GpuUsageWeeklyReport Facade interface
 	GetGpuUsageWeeklyReport() GpuUsageWeeklyReportFacadeInterface
 	// WithCluster returns a new Facade instance using the specified cluster
@@ -60,6 +66,9 @@ type Facade struct {
 	SystemConfig         SystemConfigFacadeInterface
 	JobExecutionHistory  JobExecutionHistoryFacadeInterface
 	NamespaceInfo        NamespaceInfoFacadeInterface
+	AiWorkloadMetadata   AiWorkloadMetadataFacadeInterface
+	CheckpointEvent      CheckpointEventFacadeInterface
+	DetectionConflictLog DetectionConflictLogFacadeInterface
 	WorkloadStatistic    WorkloadStatisticFacadeInterface
 	GpuUsageWeeklyReport GpuUsageWeeklyReportFacadeInterface
 }
@@ -83,6 +92,9 @@ func NewFacade() *Facade {
 		SystemConfig:         NewSystemConfigFacade(),
 		JobExecutionHistory:  NewJobExecutionHistoryFacade(),
 		NamespaceInfo:        NewNamespaceInfoFacade(),
+		AiWorkloadMetadata:   NewAiWorkloadMetadataFacade(),
+		CheckpointEvent:      NewCheckpointEventFacade(),
+		DetectionConflictLog: NewDetectionConflictLogFacade(),
 		WorkloadStatistic:    NewWorkloadStatisticFacade(),
 		GpuUsageWeeklyReport: NewGpuUsageWeeklyReportFacade(),
 	}
@@ -173,6 +185,21 @@ func (f *Facade) GetWorkloadStatistic() WorkloadStatisticFacadeInterface {
 	return f.WorkloadStatistic
 }
 
+// GetAiWorkloadMetadata returns the AiWorkloadMetadata Facade interface
+func (f *Facade) GetAiWorkloadMetadata() AiWorkloadMetadataFacadeInterface {
+	return f.AiWorkloadMetadata
+}
+
+// GetCheckpointEvent returns the CheckpointEvent Facade interface
+func (f *Facade) GetCheckpointEvent() CheckpointEventFacadeInterface {
+	return f.CheckpointEvent
+}
+
+// GetDetectionConflictLog returns the DetectionConflictLog Facade interface
+func (f *Facade) GetDetectionConflictLog() DetectionConflictLogFacadeInterface {
+	return f.DetectionConflictLog
+}
+
 // GetGpuUsageWeeklyReport returns the GpuUsageWeeklyReport Facade interface
 func (f *Facade) GetGpuUsageWeeklyReport() GpuUsageWeeklyReportFacadeInterface {
 	return f.GpuUsageWeeklyReport
@@ -197,6 +224,9 @@ func (f *Facade) WithCluster(clusterName string) FacadeInterface {
 		SystemConfig:         f.SystemConfig.WithCluster(clusterName),
 		JobExecutionHistory:  f.JobExecutionHistory.WithCluster(clusterName),
 		NamespaceInfo:        f.NamespaceInfo.WithCluster(clusterName),
+		AiWorkloadMetadata:   f.AiWorkloadMetadata.WithCluster(clusterName),
+		CheckpointEvent:      f.CheckpointEvent.WithCluster(clusterName),
+		DetectionConflictLog: f.DetectionConflictLog.WithCluster(clusterName),
 		WorkloadStatistic:    f.WorkloadStatistic.WithCluster(clusterName),
 		GpuUsageWeeklyReport: f.GpuUsageWeeklyReport.WithCluster(clusterName),
 	}
