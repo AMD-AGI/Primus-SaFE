@@ -6,10 +6,86 @@ import (
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
+	dbmodel "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/errors"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/config"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/model"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/model/rest"
 	"github.com/gin-gonic/gin"
 )
+
+const (
+	// ConfigKeyGpuAggregation is the configuration key for GPU aggregation
+	ConfigKeyGpuAggregation = "job.gpu_aggregation.config"
+)
+
+// systemNamespaces defines the list of Kubernetes system namespaces
+var systemNamespaces = []string{"kube-system", "kube-public", "kube-node-lease"}
+
+// getGpuAggregationConfig loads GPU aggregation config from config manager
+func getGpuAggregationConfig(ctx *gin.Context, clusterName string) (*model.GpuAggregationConfig, error) {
+	configManager := config.GetConfigManagerForCluster(clusterName)
+	var cfg model.GpuAggregationConfig
+	err := configManager.Get(ctx, ConfigKeyGpuAggregation, &cfg)
+	if err != nil {
+		return nil, err
+	}
+	return &cfg, nil
+}
+
+// shouldExcludeNamespace determines whether a namespace should be excluded based on config
+func shouldExcludeNamespace(namespace string, cfg *model.GpuAggregationConfig) bool {
+	if cfg == nil {
+		return false
+	}
+
+	// Check if in exclusion list
+	for _, excluded := range cfg.Dimensions.Namespace.ExcludeNamespaces {
+		if namespace == excluded {
+			return true
+		}
+	}
+
+	// Check if it's a system namespace
+	if !cfg.Dimensions.Namespace.IncludeSystemNamespaces {
+		for _, sysNs := range systemNamespaces {
+			if namespace == sysNs {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// getExcludeNamespacesList returns the list of namespaces to exclude based on config
+func getExcludeNamespacesList(cfg *model.GpuAggregationConfig) []string {
+	if cfg == nil {
+		return nil
+	}
+
+	excludeSet := make(map[string]struct{})
+
+	// Add configured exclusion namespaces
+	for _, ns := range cfg.Dimensions.Namespace.ExcludeNamespaces {
+		excludeSet[ns] = struct{}{}
+	}
+
+	// Add system namespaces if not included
+	if !cfg.Dimensions.Namespace.IncludeSystemNamespaces {
+		for _, sysNs := range systemNamespaces {
+			excludeSet[sysNs] = struct{}{}
+		}
+	}
+
+	// Convert set to slice
+	result := make([]string, 0, len(excludeSet))
+	for ns := range excludeSet {
+		result = append(result, ns)
+	}
+	return result
+}
 
 // ClusterHourlyStatsRequest cluster hourly statistics query request
 type ClusterHourlyStatsRequest struct {
@@ -217,6 +293,16 @@ func getNamespaceHourlyStats(ctx *gin.Context) {
 		OrderDirection: req.OrderDirection,
 	}
 
+	// Load config for namespace filtering
+	cfg, err := getGpuAggregationConfig(ctx, clients.ClusterName)
+	if err != nil {
+		log.Warnf("Failed to load GPU aggregation config for namespace filtering: %v", err)
+		// Continue without filtering if config not found
+	}
+
+	// Get exclude namespaces list from config
+	excludeNamespaces := getExcludeNamespacesList(cfg)
+
 	// Query data
 	var result *database.PaginatedResult
 	facade := database.GetFacadeForCluster(clients.ClusterName).GetGpuAggregation()
@@ -225,8 +311,8 @@ func getNamespaceHourlyStats(ctx *gin.Context) {
 		// Query specific namespace
 		result, err = facade.GetNamespaceHourlyStatsPaginated(ctx, req.Namespace, startTime, endTime, opts)
 	} else {
-		// Query all namespaces
-		result, err = facade.ListNamespaceHourlyStatsPaginated(ctx, startTime, endTime, opts)
+		// Query all namespaces with exclusion at database level
+		result, err = facade.ListNamespaceHourlyStatsPaginatedWithExclusion(ctx, startTime, endTime, excludeNamespaces, opts)
 	}
 
 	if err != nil {
@@ -385,9 +471,33 @@ func getWorkloadHourlyStats(ctx *gin.Context) {
 		OrderDirection: req.OrderDirection,
 	}
 
-	// Query data
+	// Load config for namespace filtering
+	cfg, configErr := getGpuAggregationConfig(ctx, clients.ClusterName)
+	if configErr != nil {
+		log.Warnf("Failed to load GPU aggregation config for namespace filtering: %v", configErr)
+		// Continue without filtering if config not found
+	}
+
+	// Check if the requested namespace should be excluded (when specific namespace is requested)
+	if req.Namespace != "" && cfg != nil && shouldExcludeNamespace(req.Namespace, cfg) {
+		// Return empty result for excluded namespace
+		response := PaginatedResponse{
+			Total:      0,
+			Page:       1,
+			PageSize:   opts.PageSize,
+			TotalPages: 0,
+			Data:       []*dbmodel.WorkloadGpuHourlyStats{},
+		}
+		ctx.JSON(http.StatusOK, rest.SuccessResp(ctx, response))
+		return
+	}
+
+	// Get exclude namespaces list from config
+	excludeNamespaces := getExcludeNamespacesList(cfg)
+
+	// Query data with exclusion at database level
 	result, err := database.GetFacadeForCluster(clients.ClusterName).GetGpuAggregation().
-		GetWorkloadHourlyStatsPaginated(ctx, req.Namespace, req.WorkloadName, req.WorkloadType, startTime, endTime, opts)
+		GetWorkloadHourlyStatsPaginatedWithExclusion(ctx, req.Namespace, req.WorkloadName, req.WorkloadType, startTime, endTime, excludeNamespaces, opts)
 	if err != nil {
 		_ = ctx.Error(errors.WrapError(err, "Failed to get workload hourly stats", errors.CodeDatabaseError))
 		return
@@ -558,23 +668,25 @@ func getNamespaces(ctx *gin.Context) {
 		return
 	}
 
-	// Query data
+	// Load config for namespace filtering
+	cfg, configErr := getGpuAggregationConfig(ctx, clients.ClusterName)
+	if configErr != nil {
+		log.Warnf("Failed to load GPU aggregation config for namespace filtering: %v", configErr)
+		// Continue without filtering if config not found
+	}
+
+	// Get exclude namespaces list from config
+	excludeNamespaces := getExcludeNamespacesList(cfg)
+
+	// Query data with exclusion at database level
 	namespaces, err := database.GetFacadeForCluster(clients.ClusterName).GetGpuAggregation().
-		GetDistinctNamespaces(ctx, startTime, endTime)
+		GetDistinctNamespacesWithExclusion(ctx, startTime, endTime, excludeNamespaces)
 	if err != nil {
 		_ = ctx.Error(errors.WrapError(err, "Failed to get namespaces", errors.CodeDatabaseError))
 		return
 	}
 
-	// Filter out "default" namespace
-	filteredNamespaces := make([]string, 0, len(namespaces))
-	for _, ns := range namespaces {
-		if ns != "default" {
-			filteredNamespaces = append(filteredNamespaces, ns)
-		}
-	}
-
-	ctx.JSON(http.StatusOK, rest.SuccessResp(ctx, filteredNamespaces))
+	ctx.JSON(http.StatusOK, rest.SuccessResp(ctx, namespaces))
 }
 
 // getDimensionKeys gets dimension keys list within specified time range

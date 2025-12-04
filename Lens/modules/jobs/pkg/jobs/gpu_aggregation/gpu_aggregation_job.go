@@ -488,11 +488,6 @@ func (j *GpuAggregationJob) collectNamespaceDataFromDB(
 
 	namespace := dbPod.Namespace
 
-	// Check if this namespace should be excluded
-	if j.shouldExcludeNamespace(namespace) {
-		return
-	}
-
 	nsData, exists := snapshot.NamespaceData[namespace]
 	if !exists {
 		nsData = &NamespaceGpuData{
@@ -665,11 +660,6 @@ func (j *GpuAggregationJob) collectWorkloadDataFromDB(
 
 	// Only collect top-level workloads (workloads without parent)
 	if workload.ParentUID != "" {
-		return
-	}
-
-	// Check if this namespace should be excluded
-	if j.shouldExcludeNamespace(dbPod.Namespace) {
 		return
 	}
 

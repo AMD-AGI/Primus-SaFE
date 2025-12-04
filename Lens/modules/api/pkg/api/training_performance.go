@@ -12,7 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// wandb数据源中的元数据字段，这些不是实际的指标
+// wandbMetadataFields defines metadata fields in wandb data source that are not actual metrics
 var wandbMetadataFields = map[string]bool{
 	"step":       true,
 	"run_id":     true,
@@ -22,30 +22,30 @@ var wandbMetadataFields = map[string]bool{
 	"updated_at": true,
 }
 
-// MetricInfo 指标信息
+// MetricInfo represents metric information
 type MetricInfo struct {
-	Name       string   `json:"name"`        // 指标名称
-	DataSource []string `json:"data_source"` // 数据来源列表
-	Count      int      `json:"count"`       // 该指标的数据点数量
+	Name       string   `json:"name"`        // Metric name
+	DataSource []string `json:"data_source"` // List of data sources
+	Count      int      `json:"count"`       // Number of data points for this metric
 }
 
-// AvailableMetricsResponse 可用指标响应
+// AvailableMetricsResponse represents available metrics response
 type AvailableMetricsResponse struct {
 	WorkloadUID string       `json:"workload_uid"`
 	Metrics     []MetricInfo `json:"metrics"`
-	TotalCount  int          `json:"total_count"` // 总指标数量
+	TotalCount  int          `json:"total_count"` // Total number of metrics
 }
 
-// MetricDataPoint 指标数据点
+// MetricDataPoint represents a single metric data point
 type MetricDataPoint struct {
-	MetricName string  `json:"metric_name"` // 指标名称
-	Value      float64 `json:"value"`       // 指标值
-	Timestamp  int64   `json:"timestamp"`   // 时间戳（毫秒）
-	Iteration  int32   `json:"iteration"`   // 训练步数/迭代次数
-	DataSource string  `json:"data_source"` // 数据来源
+	MetricName string  `json:"metric_name"` // Metric name
+	Value      float64 `json:"value"`       // Metric value
+	Timestamp  int64   `json:"timestamp"`   // Timestamp in milliseconds
+	Iteration  int32   `json:"iteration"`   // Training step/iteration number
+	DataSource string  `json:"data_source"` // Data source
 }
 
-// MetricsDataResponse 指标数据响应
+// MetricsDataResponse represents metrics data response
 type MetricsDataResponse struct {
 	WorkloadUID string            `json:"workload_uid"`
 	DataSource  string            `json:"data_source,omitempty"`
@@ -53,35 +53,35 @@ type MetricsDataResponse struct {
 	TotalCount  int               `json:"total_count"`
 }
 
-// DataSourceInfo 数据源信息
+// DataSourceInfo represents data source information
 type DataSourceInfo struct {
-	Name  string `json:"name"`  // 数据源名称
-	Count int    `json:"count"` // 该数据源的数据点数量
+	Name  string `json:"name"`  // Data source name
+	Count int    `json:"count"` // Number of data points for this data source
 }
 
-// DataSourcesResponse 数据源列表响应
+// DataSourcesResponse represents data sources list response
 type DataSourcesResponse struct {
 	WorkloadUID string           `json:"workload_uid"`
 	DataSources []DataSourceInfo `json:"data_sources"`
 	TotalCount  int              `json:"total_count"`
 }
 
-// isMetricField 判断字段是否为实际指标（根据数据源类型）
+// isMetricField determines if a field is an actual metric based on data source type
 func isMetricField(fieldName string, dataSource string) bool {
 	switch dataSource {
 	case "wandb":
-		// wandb数据源需要过滤元数据字段
+		// wandb data source needs to filter out metadata fields
 		return !wandbMetadataFields[fieldName]
 	case "log", "tensorflow":
-		// log和tensorflow数据源的所有字段都是指标
+		// All fields in log and tensorflow data sources are metrics
 		return true
 	default:
-		// 默认都视为指标
+		// Default: treat all fields as metrics
 		return true
 	}
 }
 
-// GetDataSources 获取指定 workload 的所有数据源
+// GetDataSources retrieves all data sources for a specified workload
 // GET /workloads/:uid/metrics/sources
 func GetDataSources(ctx *gin.Context) {
 	workloadUID := ctx.Param("uid")
@@ -99,7 +99,7 @@ func GetDataSources(ctx *gin.Context) {
 		return
 	}
 
-	// 获取所有训练性能数据
+	// Get all training performance data
 	performances, err := database.GetFacadeForCluster(clients.ClusterName).GetTraining().
 		ListTrainingPerformanceByWorkloadUID(ctx, workloadUID)
 	if err != nil {
@@ -107,13 +107,13 @@ func GetDataSources(ctx *gin.Context) {
 		return
 	}
 
-	// 统计数据源
+	// Count data sources
 	sourceMap := make(map[string]int) // data_source -> count
 	for _, p := range performances {
 		sourceMap[p.DataSource]++
 	}
 
-	// 构建响应
+	// Build response
 	dataSources := make([]DataSourceInfo, 0, len(sourceMap))
 	for source, count := range sourceMap {
 		dataSources = append(dataSources, DataSourceInfo{
@@ -131,10 +131,10 @@ func GetDataSources(ctx *gin.Context) {
 	ctx.JSON(200, response)
 }
 
-// GetAvailableMetrics 获取指定 workload 的所有可用指标
+// GetAvailableMetrics retrieves all available metrics for a specified workload
 // GET /workloads/:uid/metrics/available
 // Query Parameters:
-//   - data_source: 数据来源 (可选，如 "log", "wandb", "tensorflow")
+//   - data_source: Data source (optional, e.g., "log", "wandb", "tensorflow")
 func GetAvailableMetrics(ctx *gin.Context) {
 	workloadUID := ctx.Param("uid")
 	if workloadUID == "" {
@@ -151,18 +151,18 @@ func GetAvailableMetrics(ctx *gin.Context) {
 		return
 	}
 
-	// 获取数据源参数
+	// Get data source parameter
 	dataSource := ctx.Query("data_source")
 
-	// 获取训练性能数据
+	// Get training performance data
 	var performances []*model.TrainingPerformance
 
 	if dataSource != "" {
-		// 按数据源过滤
+		// Filter by data source
 		performances, err = database.GetFacadeForCluster(clients.ClusterName).GetTraining().
 			ListTrainingPerformanceByWorkloadUIDAndDataSource(ctx, workloadUID, dataSource)
 	} else {
-		// 获取所有数据源
+		// Get all data sources
 		performances, err = database.GetFacadeForCluster(clients.ClusterName).GetTraining().
 			ListTrainingPerformanceByWorkloadUID(ctx, workloadUID)
 	}
@@ -172,11 +172,11 @@ func GetAvailableMetrics(ctx *gin.Context) {
 		return
 	}
 
-	// 统计所有可用指标
+	// Count all available metrics
 	metricMap := make(map[string]map[string]int) // metric_name -> {data_source -> count}
 	for _, p := range performances {
 		for metricName := range p.Performance {
-			// 根据数据源类型过滤字段
+			// Filter fields based on data source type
 			if !isMetricField(metricName, p.DataSource) {
 				continue
 			}
@@ -188,7 +188,7 @@ func GetAvailableMetrics(ctx *gin.Context) {
 		}
 	}
 
-	// 构建响应
+	// Build response
 	metrics := make([]MetricInfo, 0, len(metricMap))
 	for metricName, sources := range metricMap {
 		sourceList := make([]string, 0, len(sources))
@@ -213,13 +213,13 @@ func GetAvailableMetrics(ctx *gin.Context) {
 	ctx.JSON(200, response)
 }
 
-// GetMetricsData 获取指定指标的数据
+// GetMetricsData retrieves data for specified metrics
 // GET /workloads/:uid/metrics/data
 // Query Parameters:
-//   - data_source: 数据来源 (可选，如 "log", "wandb", "tensorflow")
-//   - metrics: 指标名称列表，逗号分隔 (可选，支持 "all" 返回所有指标，或指定具体指标名，不指定则返回所有)
-//   - start: 开始时间戳（毫秒）(可选)
-//   - end: 结束时间戳（毫秒）(可选)
+//   - data_source: Data source (optional, e.g., "log", "wandb", "tensorflow")
+//   - metrics: Comma-separated list of metric names (optional, supports "all" to return all metrics, or specific metric names; returns all if not specified)
+//   - start: Start timestamp in milliseconds (optional)
+//   - end: End timestamp in milliseconds (optional)
 func GetMetricsData(ctx *gin.Context) {
 	workloadUID := ctx.Param("uid")
 	if workloadUID == "" {
@@ -227,34 +227,34 @@ func GetMetricsData(ctx *gin.Context) {
 		return
 	}
 
-	// 解析查询参数
+	// Parse query parameters
 	dataSource := ctx.Query("data_source")
 	metricsStr := ctx.Query("metrics")
 	startStr := ctx.Query("start")
 	endStr := ctx.Query("end")
 
-	// 解析指标列表
+	// Parse metrics list
 	var requestedMetrics []string
-	var returnAllMetrics bool = true // 默认返回所有指标
+	var returnAllMetrics bool = true // Default: return all metrics
 
 	if metricsStr != "" {
-		// 去除首尾空格
+		// Trim leading and trailing spaces
 		metricsStr = strings.TrimSpace(metricsStr)
 
-		// 如果明确指定 "all"，返回所有指标
+		// If explicitly specified "all", return all metrics
 		if strings.ToLower(metricsStr) == "all" {
 			returnAllMetrics = true
 		} else {
-			// 支持 Grafana 格式：{metric1,metric2} 或普通格式：metric1,metric2
-			// 去除花括号（如果存在）
+			// Support Grafana format: {metric1,metric2} or plain format: metric1,metric2
+			// Remove curly braces if present
 			if strings.HasPrefix(metricsStr, "{") && strings.HasSuffix(metricsStr, "}") {
 				metricsStr = metricsStr[1 : len(metricsStr)-1]
 			}
 
-			// 指定了具体的指标名称
+			// Specific metric names specified
 			if metricsStr != "" {
 				requestedMetrics = strings.Split(metricsStr, ",")
-				// 去除空格
+				// Trim spaces
 				for i := range requestedMetrics {
 					requestedMetrics[i] = strings.TrimSpace(requestedMetrics[i])
 				}
@@ -263,7 +263,7 @@ func GetMetricsData(ctx *gin.Context) {
 		}
 	}
 
-	// 解析时间范围
+	// Parse time range
 	var startTime, endTime time.Time
 	var hasTimeRange bool
 
@@ -294,7 +294,7 @@ func GetMetricsData(ctx *gin.Context) {
 		return
 	}
 
-	// 查询数据
+	// Query data
 	var performances []*model.TrainingPerformance
 
 	if hasTimeRange {
@@ -314,11 +314,11 @@ func GetMetricsData(ctx *gin.Context) {
 		return
 	}
 
-	// 构建数据点列表
+	// Build data points list
 	dataPoints := make([]MetricDataPoint, 0)
 	metricsSet := make(map[string]bool)
 
-	// 如果不是返回所有指标，构建指标集合用于过滤
+	// If not returning all metrics, build metrics set for filtering
 	if !returnAllMetrics && len(requestedMetrics) > 0 {
 		for _, m := range requestedMetrics {
 			metricsSet[m] = true
@@ -327,12 +327,12 @@ func GetMetricsData(ctx *gin.Context) {
 
 	for _, p := range performances {
 		for metricName, value := range p.Performance {
-			// 根据数据源类型过滤元数据字段
+			// Filter metadata fields based on data source type
 			if !isMetricField(metricName, p.DataSource) {
 				continue
 			}
 
-			// 如果不是返回所有指标且指定了指标列表，只返回请求的指标
+			// If not returning all metrics and metrics list is specified, only return requested metrics
 			if !returnAllMetrics && len(metricsSet) > 0 && !metricsSet[metricName] {
 				continue
 			}
@@ -362,16 +362,16 @@ func GetMetricsData(ctx *gin.Context) {
 	ctx.JSON(200, response)
 }
 
-// GetIterationTimes 获取每个 iteration 的时间信息
+// GetIterationTimes retrieves time information for each iteration
 // GET /workloads/:uid/metrics/iteration-times
 // Query Parameters:
-//   - data_source: 数据来源 (可选，如 "log", "wandb", "tensorflow")
-//   - start: 开始时间戳（毫秒）(可选)
-//   - end: 结束时间戳（毫秒）(可选)
+//   - data_source: Data source (optional, e.g., "log", "wandb", "tensorflow")
+//   - start: Start timestamp in milliseconds (optional)
+//   - end: End timestamp in milliseconds (optional)
 //
-// 返回格式与 GetMetricsData 相同，包含两个指标：
-//   - metric_name: "iteration" - 当前迭代次数
-//   - metric_name: "target_iteration" - 目标迭代次数
+// Returns the same format as GetMetricsData, containing two metrics:
+//   - metric_name: "iteration" - Current iteration number
+//   - metric_name: "target_iteration" - Target iteration number
 func GetIterationTimes(ctx *gin.Context) {
 	workloadUID := ctx.Param("uid")
 	if workloadUID == "" {
@@ -388,12 +388,12 @@ func GetIterationTimes(ctx *gin.Context) {
 		return
 	}
 
-	// 解析查询参数
+	// Parse query parameters
 	dataSource := ctx.Query("data_source")
 	startStr := ctx.Query("start")
 	endStr := ctx.Query("end")
 
-	// 解析时间范围
+	// Parse time range
 	var startTime, endTime time.Time
 	var hasTimeRange bool
 
@@ -415,7 +415,7 @@ func GetIterationTimes(ctx *gin.Context) {
 		hasTimeRange = true
 	}
 
-	// 查询数据
+	// Query data
 	var performances []*model.TrainingPerformance
 
 	if hasTimeRange {
@@ -435,8 +435,8 @@ func GetIterationTimes(ctx *gin.Context) {
 		return
 	}
 
-	// 构建指标数据点列表
-	// 使用 map 去重，因为同一个 iteration 可能有多个指标记录
+	// Build metric data points list
+	// Use map for deduplication since the same iteration may have multiple metric records
 	type IterationInfo struct {
 		Timestamp       int64
 		TargetIteration *float64
@@ -447,7 +447,7 @@ func GetIterationTimes(ctx *gin.Context) {
 	for _, p := range performances {
 		timestamp := p.CreatedAt.UnixMilli()
 
-		// 提取 TargetIteration（如果存在）
+		// Extract TargetIteration if it exists
 		var targetIteration *float64
 		if targetIterValue, exists := p.Performance["target_iteration"]; exists {
 			targetIterFloat := convertToFloat(targetIterValue)
@@ -456,7 +456,7 @@ func GetIterationTimes(ctx *gin.Context) {
 			}
 		}
 
-		// 如果这个 iteration 还没记录，或者当前记录的时间更早，则更新
+		// If this iteration hasn't been recorded, or current record's timestamp is earlier, update it
 		if existing, exists := iterationMap[p.Iteration]; !exists || timestamp < existing.Timestamp {
 			iterationMap[p.Iteration] = &IterationInfo{
 				Timestamp:       timestamp,
@@ -466,11 +466,11 @@ func GetIterationTimes(ctx *gin.Context) {
 		}
 	}
 
-	// 转换为 MetricDataPoint 数组
+	// Convert to MetricDataPoint array
 	dataPoints := make([]MetricDataPoint, 0, len(iterationMap)*2)
 
 	for iteration, info := range iterationMap {
-		// 添加 iteration 数据点
+		// Add iteration data point
 		dataPoints = append(dataPoints, MetricDataPoint{
 			MetricName: "iteration",
 			Value:      float64(iteration),
@@ -479,7 +479,7 @@ func GetIterationTimes(ctx *gin.Context) {
 			DataSource: info.DataSource,
 		})
 
-		// 如果有 target_iteration，添加对应的数据点
+		// If target_iteration exists, add corresponding data point
 		if info.TargetIteration != nil {
 			dataPoints = append(dataPoints, MetricDataPoint{
 				MetricName: "target_iteration",
