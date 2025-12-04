@@ -354,6 +354,7 @@ data:
         icon TEXT,
         label VARCHAR(64),
         tags TEXT,
+        max_tokens INTEGER DEFAULT 0,
         version VARCHAR(64),
         source_url TEXT,
         access_mode VARCHAR(32),
@@ -371,5 +372,7 @@ data:
     create index if not exists T_MODEL_INFERENCE_PHASE_INDEX on model (inference_phase, is_deleted);
     create index if not exists T_MODEL_ACCESS_MODE_INDEX on model (access_mode, is_deleted);
     create index if not exists T_MODEL_CREATED_AT_INDEX on model (created_at, is_deleted);
+
+    ALTER TABLE model ADD COLUMN IF NOT EXISTS max_tokens INTEGER DEFAULT 0;
 
     alter table model owner to "primus-safe";

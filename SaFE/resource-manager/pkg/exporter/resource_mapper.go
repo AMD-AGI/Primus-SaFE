@@ -361,6 +361,7 @@ func modelMapper(obj *unstructured.Unstructured) *dbclient.Model {
 		Icon:           cr.Spec.Icon,
 		Label:          cr.Spec.Label,
 		Tags:           strings.Join(cr.Spec.Tags, ","),
+		MaxTokens:      cr.Spec.MaxTokens,
 		SourceURL:      cr.Spec.Source.URL,
 		AccessMode:     string(cr.Spec.Source.AccessMode),
 		Phase:          string(cr.Status.Phase),

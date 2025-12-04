@@ -265,6 +265,7 @@ type Model struct {
 	Icon           string      `gorm:"column:icon" json:"icon" db:"icon"`
 	Label          string      `gorm:"column:label" json:"label" db:"label"`
 	Tags           string      `gorm:"column:tags" json:"tags" db:"tags"`
+	MaxTokens      int         `gorm:"column:max_tokens" json:"maxTokens" db:"max_tokens"`
 	Version        string      `gorm:"column:version" json:"version" db:"version"`
 	SourceURL      string      `gorm:"column:source_url" json:"sourceURL" db:"source_url"`
 	AccessMode     string      `gorm:"column:access_mode" json:"accessMode" db:"access_mode"`
