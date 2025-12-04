@@ -1,0 +1,246 @@
+package pythoninspector
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+	"os/exec"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
+)
+
+var (
+	inspectorInstance *Inspector
+	once              sync.Once
+)
+
+// Inspector is the main inspection engine
+type Inspector struct {
+	scriptsDir    string
+	scriptManager *ScriptManager
+	timeout       time.Duration
+	cache         sync.Map // pid -> InspectionResult
+}
+
+// InitInspector initializes the inspector
+func InitInspector(ctx context.Context, scriptsDir string) error {
+	var initErr error
+	once.Do(func() {
+		inspectorInstance = &Inspector{
+			scriptsDir:    scriptsDir,
+			scriptManager: NewScriptManager(scriptsDir),
+			timeout:       30 * time.Second,
+		}
+
+		// Load all scripts
+		if err := inspectorInstance.scriptManager.LoadScripts(); err != nil {
+			log.Errorf("Failed to load scripts: %v", err)
+			initErr = err
+		}
+
+		log.Info("Python Inspector initialized")
+	})
+	return initErr
+}
+
+// GetInspector returns the global inspector instance
+func GetInspector() *Inspector {
+	return inspectorInstance
+}
+
+// GetScriptManager returns the script manager
+func (i *Inspector) GetScriptManager() *ScriptManager {
+	return i.scriptManager
+}
+
+// InspectWithScripts inspects a process using specified scripts
+func (i *Inspector) InspectWithScripts(ctx context.Context, pid int, scriptNames []string, timeout int) (*InspectionResult, error) {
+	// Verify process exists
+	if !i.processExists(pid) {
+		return nil, fmt.Errorf("process %d not found", pid)
+	}
+
+	if !i.isPythonProcess(pid) {
+		return nil, fmt.Errorf("process %d is not a Python process", pid)
+	}
+
+	// If no scripts specified, use all enabled scripts
+	if len(scriptNames) == 0 {
+		enabledScripts := i.scriptManager.ListEnabledScripts()
+		for _, script := range enabledScripts {
+			scriptNames = append(scriptNames, script.Metadata.Name)
+		}
+	}
+
+	// Validate all scripts exist
+	scripts := make([]*InspectionScript, 0, len(scriptNames))
+	for _, name := range scriptNames {
+		script, err := i.scriptManager.GetScript(name)
+		if err != nil {
+			log.Warnf("Script %s not available: %v", name, err)
+			continue
+		}
+		scripts = append(scripts, script)
+	}
+
+	if len(scripts) == 0 {
+		return nil, fmt.Errorf("no valid scripts to execute")
+	}
+
+	// Execute inspection
+	results := make(map[string]interface{})
+
+	for _, script := range scripts {
+		result, err := i.executeScript(ctx, pid, script, timeout)
+		if err != nil {
+			log.Errorf("Failed to execute script %s: %v", script.Metadata.Name, err)
+			results[script.Metadata.Name] = map[string]interface{}{
+				"error": err.Error(),
+			}
+			continue
+		}
+		results[script.Metadata.Name] = result
+	}
+
+	inspectionResult := &InspectionResult{
+		Success:   true,
+		PID:       pid,
+		Timestamp: time.Now(),
+		Results:   results,
+	}
+
+	// Cache the result
+	i.cache.Store(pid, inspectionResult)
+
+	return inspectionResult, nil
+}
+
+// executeScript executes a single script
+func (i *Inspector) executeScript(ctx context.Context, pid int, script *InspectionScript, timeoutSec int) (interface{}, error) {
+	outputFile := fmt.Sprintf("/tmp/python_inspect_%s_%d_%d.json",
+		script.Metadata.Name, pid, time.Now().Unix())
+	defer os.Remove(outputFile)
+
+	// Determine timeout
+	timeout := i.timeout
+	if timeoutSec > 0 {
+		timeout = time.Duration(timeoutSec) * time.Second
+	} else if script.Metadata.Timeout > 0 {
+		timeout = time.Duration(script.Metadata.Timeout) * time.Second
+	}
+
+	cmdCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	// Use pyrasite to inject script
+	cmd := exec.CommandContext(cmdCtx, "pyrasite",
+		strconv.Itoa(pid),
+		script.ScriptPath,
+		outputFile,
+	)
+
+	log.Debugf("Executing script %s on PID %d", script.Metadata.Name, pid)
+
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("script execution failed: %w", err)
+	}
+
+	// Read result
+	data, err := os.ReadFile(outputFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read result: %w", err)
+	}
+
+	var result interface{}
+	if err := json.Unmarshal(data, &result); err != nil {
+		return nil, fmt.Errorf("failed to parse result: %w", err)
+	}
+
+	return result, nil
+}
+
+// ListPythonProcesses lists all Python processes
+func (i *Inspector) ListPythonProcesses() ([]ProcessInfo, error) {
+	var processes []ProcessInfo
+
+	entries, err := os.ReadDir("/proc")
+	if err != nil {
+		return nil, err
+	}
+
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+
+		pidStr := entry.Name()
+		pid, err := strconv.Atoi(pidStr)
+		if err != nil {
+			continue
+		}
+
+		if i.isPythonProcess(pid) {
+			info := i.getProcessInfo(pid)
+			processes = append(processes, info)
+		}
+	}
+
+	return processes, nil
+}
+
+// processExists checks if a process exists
+func (i *Inspector) processExists(pid int) bool {
+	_, err := os.Stat(fmt.Sprintf("/proc/%d", pid))
+	return err == nil
+}
+
+// isPythonProcess checks if a process is a Python process
+func (i *Inspector) isPythonProcess(pid int) bool {
+	cmdline, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid))
+	if err != nil {
+		return false
+	}
+	return strings.Contains(string(cmdline), "python")
+}
+
+// getProcessInfo retrieves process information
+func (i *Inspector) getProcessInfo(pid int) ProcessInfo {
+	info := ProcessInfo{PID: pid}
+
+	// Read cmdline
+	if data, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid)); err == nil {
+		info.Cmdline = strings.ReplaceAll(string(data), "\x00", " ")
+	}
+
+	// Read cwd
+	if cwd, err := os.Readlink(fmt.Sprintf("/proc/%d/cwd", pid)); err == nil {
+		info.WorkingDir = cwd
+	}
+
+	// Try to get container ID
+	if cgroupData, err := os.ReadFile(fmt.Sprintf("/proc/%d/cgroup", pid)); err == nil {
+		info.ContainerID = extractContainerID(string(cgroupData))
+	}
+
+	return info
+}
+
+// extractContainerID extracts container ID from cgroup data
+func extractContainerID(cgroup string) string {
+	lines := strings.Split(cgroup, "\n")
+	for _, line := range lines {
+		if strings.Contains(line, "docker") || strings.Contains(line, "containerd") {
+			parts := strings.Split(line, "/")
+			if len(parts) > 0 {
+				return parts[len(parts)-1]
+			}
+		}
+	}
+	return ""
+}
+

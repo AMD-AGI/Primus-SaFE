@@ -5,6 +5,7 @@ import (
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/api/handlers"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/detection"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/metadata"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/config"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
 	configHelper "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/config"
@@ -57,6 +58,16 @@ func Bootstrap(ctx context.Context) error {
 			// Don't block startup, but warn
 		} else {
 			log.Info("Detection manager initialized successfully")
+		}
+
+		// Initialize metadata collector
+		// Create storage using the metadata facade (which has DB access internally)
+		storage := metadata.NewFacadeStorage(metadataFacade)
+		if err := metadata.InitCollector(ctx, storage); err != nil {
+			log.Errorf("Failed to initialize metadata collector: %v", err)
+			// Don't block startup, but warn
+		} else {
+			log.Info("Metadata collector initialized successfully")
 		}
 
 		// Initialize handlers
@@ -139,6 +150,25 @@ func initRouter(group *gin.RouterGroup) error {
 	wandbGroup := group.Group("/wandb")
 	{
 		wandbGroup.POST("/detection", wandbHandler.ReceiveDetection)
+	}
+
+	// Workload Metadata APIs
+	metadataGroup := group.Group("/metadata")
+	{
+		// Collect metadata for a workload
+		metadataGroup.POST("/collect", handlers.CollectWorkloadMetadata)
+
+		// Query metadata
+		metadataGroup.GET("/workloads/:uid", middleware.WithTracingRate(0.001), handlers.GetWorkloadMetadata)
+		metadataGroup.POST("/query", handlers.QueryWorkloadMetadata)
+		metadataGroup.GET("/recent", handlers.ListRecentMetadata)
+		metadataGroup.GET("/frameworks/:framework", handlers.GetMetadataByFramework)
+
+		// Statistics
+		metadataGroup.GET("/stats", handlers.GetMetadataStatistics)
+
+		// Management
+		metadataGroup.DELETE("/workloads/:uid", handlers.DeleteWorkloadMetadata)
 	}
 
 	// Health check
