@@ -28,7 +28,7 @@ export NCCL_SOCKET_IFNAME=${NCCL_SOCKET_IFNAME:-"eth0"}
 export SSH_PORT=${SSH_PORT:-22}
 export BNIC=${BNIC:-48}
 export BXGMI=${BXGMI:-315}
-export MAX_RETRY=${MAX_RETRY:-1}
+export MAX_RETRY=${MAX_RETRY:-2}
 export NCCL_IB_GID_INDEX=${NCCL_IB_GID_INDEX:-3}
 export NCCL_PXN_DISABLE=${NCCL_PXN_DISABLE:-1}
 export NCCL_P2P_NET_CHUNKSIZE=${NCCL_P2P_NET_CHUNKSIZE:-524288}
@@ -164,6 +164,7 @@ if [[ "$RANK" == "0" ]]; then
 
     if [[ $test_ret -ne 0 ]]; then
       echo "${LOG_HEADER}[$(date +'%Y-%m-%d %H:%M:%S')] Diagnosis failed for ib_write_bw in run $run"
+      echo "test_output: $test_output, weileeeeeeeeeeeeeeeeei"
       unhealthy_list=$(python3 extract_nodes.py "$test_output")
       if [ -n "$unhealthy_list" ]; then
         IFS=',' read -ra nodes <<< "$unhealthy_list"
