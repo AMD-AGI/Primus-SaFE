@@ -128,6 +128,13 @@ jobs:
         else
           echo "multi_cluster_config_exporter_changed=false" >> $GITHUB_OUTPUT
         fi
+        
+        # ai_advisor: Lens/modules/ai-advisor/** or Lens/modules/core/**
+        if echo "$CHANGED_FILES" | grep -qE '^Lens/modules/ai-advisor/|^Lens/modules/core/'; then
+          echo "ai_advisor_changed=true" >> $GITHUB_OUTPUT
+        else
+          echo "ai_advisor_changed=false" >> $GITHUB_OUTPUT
+        fi
     
     - name: Generate matrix
       id: generate-matrix
@@ -159,6 +166,9 @@ jobs:
           fi
           if [[ "${{ steps.detect-changes.outputs.multi_cluster_config_exporter_changed }}" == "true" ]]; then
             MATRIX+='{"name":"multi-cluster-config-exporter","buildpath":"cmd/multi-cluster-config-exporter","basepath":"Lens/modules/exporters/multi-cluster-config-exporter/"},'
+          fi
+          if [[ "${{ steps.detect-changes.outputs.ai_advisor_changed }}" == "true" ]]; then
+            MATRIX+='{"name":"ai-advisor","buildpath":"cmd/ai-advisor","basepath":"Lens/modules/ai-advisor/"},'
           fi
           MATRIX=${MATRIX%,} # remove trailing comma
           MATRIX+=']}'

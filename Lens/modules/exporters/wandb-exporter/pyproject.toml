@@ -1,0 +1,56 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "primus-lens-wandb-exporter"
+version = "0.1.4"
+description = "Tool for automatically intercepting WandB reporting without modifying user code"
+readme = "README.md"
+requires-python = ">=3.7"
+license = {text = "Apache-2.0"}
+authors = [
+    {name = "Primus Team", email = "primus@example.com"}
+]
+maintainers = [
+    {name = "Primus Team", email = "primus@example.com"}
+]
+keywords = ["machine-learning", "monitoring", "wandb", "telemetry", "observability", "mlops", "pytorch", "tensorflow"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.7",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: System :: Monitoring",
+]
+dependencies = [
+    "psutil>=5.8.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/AMD-AGI/Primus-SaFE"
+Documentation = "https://github.com/AMD-AGI/Primus-SaFE/tree/main/Lens/modules/exporters/wandb-exporter"
+Repository = "https://github.com/AMD-AGI/Primus-SaFE"
+Issues = "https://github.com/AMD-AGI/Primus-SaFE/issues"
+Changelog = "https://github.com/AMD-AGI/Primus-SaFE/blob/main/Lens/modules/exporters/wandb-exporter/CHANGELOG.md"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=3.0.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+primus_lens_wandb_exporter = ["*.pth"]
+

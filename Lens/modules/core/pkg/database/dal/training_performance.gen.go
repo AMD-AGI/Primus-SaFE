@@ -34,6 +34,7 @@ func newTrainingPerformance(db *gorm.DB, opts ...gen.DOOption) trainingPerforman
 	_trainingPerformance.CreatedAt = field.NewTime(tableName, "created_at")
 	_trainingPerformance.Serial = field.NewInt32(tableName, "serial")
 	_trainingPerformance.WorkloadUID = field.NewString(tableName, "workload_uid")
+	_trainingPerformance.DataSource = field.NewString(tableName, "data_source")
 
 	_trainingPerformance.fillFieldMap()
 
@@ -51,6 +52,7 @@ type trainingPerformance struct {
 	CreatedAt   field.Time
 	Serial      field.Int32
 	WorkloadUID field.String
+	DataSource  field.String // Source of training performance data: log (parsed from logs), wandb (from W&B API), or tensorflow (from TensorFlow/TensorBoard)
 
 	fieldMap map[string]field.Expr
 }
@@ -74,6 +76,7 @@ func (t *trainingPerformance) updateTableName(table string) *trainingPerformance
 	t.CreatedAt = field.NewTime(table, "created_at")
 	t.Serial = field.NewInt32(table, "serial")
 	t.WorkloadUID = field.NewString(table, "workload_uid")
+	t.DataSource = field.NewString(table, "data_source")
 
 	t.fillFieldMap()
 
@@ -102,7 +105,7 @@ func (t *trainingPerformance) GetFieldByName(fieldName string) (field.OrderExpr,
 }
 
 func (t *trainingPerformance) fillFieldMap() {
-	t.fieldMap = make(map[string]field.Expr, 7)
+	t.fieldMap = make(map[string]field.Expr, 8)
 	t.fieldMap["id"] = t.ID
 	t.fieldMap["pod_uuid"] = t.PodUUID
 	t.fieldMap["performance"] = t.Performance
@@ -110,6 +113,7 @@ func (t *trainingPerformance) fillFieldMap() {
 	t.fieldMap["created_at"] = t.CreatedAt
 	t.fieldMap["serial"] = t.Serial
 	t.fieldMap["workload_uid"] = t.WorkloadUID
+	t.fieldMap["data_source"] = t.DataSource
 }
 
 func (t trainingPerformance) clone(db *gorm.DB) trainingPerformance {
