@@ -69,41 +69,16 @@ spec:
               displayName:
                 description: DisplayName is the friendly name shown in the UI
                 type: string
-              downloadTarget:
-                description: DownloadTarget defines where to store the pulled model
-                properties:
-                  localPath:
-                    description: LocalPath is the absolute path on the host (for type
-                      "Local")
-                    type: string
-                  s3Config:
-                    description: S3Config specifies the S3 bucket details (for type
-                      "S3")
-                    properties:
-                      accessKeyID:
-                        type: string
-                      bucket:
-                        type: string
-                      endpoint:
-                        type: string
-                      region:
-                        type: string
-                      secretAccessKey:
-                        type: string
-                    type: object
-                  type:
-                    description: 'Type specifies where to store the model: "Local"
-                      or "S3"'
-                    type: string
-                required:
-                - type
-                type: object
               icon:
                 description: Icon is the URL or Base64 of the model icon
                 type: string
               label:
                 description: Label is the model label
                 type: string
+              maxTokens:
+                description: MaxTokens is the maximum context length of the model
+                  (from config.json max_position_embeddings)
+                type: integer
               source:
                 description: Source defines where to pull the model from
                 properties:
