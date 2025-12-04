@@ -32,11 +32,18 @@ for i in "${!scripts[@]}"; do
     done <<< "$output"
   fi
 
-  if [ $exit_code -ne 0 ]; then
+  if [ $exit_code -eq 0 ]; then
+    echo "${LOG_HEADER}[$(date +'%Y-%m-%d %H:%M:%S')] [${script}] [SUCCESS] test passed"
+  else
+    # Record error regardless of output
     if [ -n "$errors" ]; then
-      errors+=" | "
+      errors="${errors} | "
     fi
-    errors+="[$(date +'%Y-%m-%d %H:%M:%S')] [$script] $last_line"
+    if [ -n "$last_line" ]; then
+      errors="${errors}[$(date +'%Y-%m-%d %H:%M:%S')] [$script] $last_line"
+    else
+      errors="${errors}[$(date +'%Y-%m-%d %H:%M:%S')] [$script] Failed with exit code $exit_code"
+    fi
   fi
 done
 
