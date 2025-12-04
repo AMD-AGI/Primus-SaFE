@@ -1262,9 +1262,11 @@ func cvtDBWorkloadToAdminWorkload(dbItem *dbclient.Workload) *v1.Workload {
 			Name: commonutils.GenerateName(dbItem.DisplayName),
 			Labels: map[string]string{
 				v1.DisplayNameLabel: dbItem.DisplayName,
+				v1.UserIdLabel:      dbutils.ParseNullString(dbItem.UserId),
 			},
 			Annotations: map[string]string{
 				v1.DescriptionAnnotation: dbutils.ParseNullString(dbItem.Description),
+				v1.UserNameAnnotation:    dbutils.ParseNullString(dbItem.UserName),
 			},
 		},
 		Spec: v1.WorkloadSpec{

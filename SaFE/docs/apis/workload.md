@@ -169,11 +169,11 @@ Notes for CICD (AutoscalingRunnerSet):
 | maxRetry                     | int | No       | Maximum retry count, default 0                                                                                                           |
 | env                          | object | No       | Environment variable key-value pairs                                                                                                     |
 | specifiedNodes               | []string | No       | List of nodes to run on                                                                                                                  |
-| excludedNodes               | []string | No       | List of nodes to avoid running on. If `specifiedNodes` is provided, this field will be ignored.                                          |                                                                                                  |
+| excludedNodes               | []string | No       | List of nodes to avoid running on. If `specifiedNodes` is provided, this field will be ignored.                                          |                                                                                                  
 | isSupervised                 | bool | No       | When enabled, it performs operations like hang detection                                                                                 |
 | ttlSecondsAfterFinished      | int | No       | The lifecycle of the workload after completion, in seconds. Default is 60                                                                |
 | customerLabels               | object | No       | The workload will run on nodes with the user-specified labels                                                                            |
-| liveness.path                | string | No       | Liveness probe HTTP path. lveness is only for Deployment/StatefulSet                                                                     |
+| liveness.path                | string | No       | Liveness probe HTTP path. liveness is only for Deployment/StatefulSet                                                                     |
 | liveness.port                | int | No       | Liveness probe port                                                                                                                      |
 | liveness.initialDelaySeconds | int | No       | Liveness initial delay seconds, default 600                                                                                              |
 | liveness.periodSeconds       | int | No       | Liveness check period seconds, default 3                                                                                                 |
