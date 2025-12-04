@@ -262,8 +262,13 @@ func (r *ReuseEngine) calculateSimilarities(
 		cacheKey := r.buildSimilarityCacheKey(signature, candidate.Signature)
 		if cached, found := r.similarityCache.Get(cacheKey); found {
 			r.metrics.RecordCacheHit("similarity")
-			if result, ok := cached.(*coreModel.SimilarityResult); ok {
-				result.WorkloadUID = candidate.WorkloadUID
+			if cachedResult, ok := cached.(*coreModel.SimilarityResult); ok {
+				// Create a copy to avoid modifying the cached object
+				result := &coreModel.SimilarityResult{
+					WorkloadUID: candidate.WorkloadUID,
+					Score:       cachedResult.Score,
+					Details:     cachedResult.Details,
+				}
 				results = append(results, result)
 				continue
 			}

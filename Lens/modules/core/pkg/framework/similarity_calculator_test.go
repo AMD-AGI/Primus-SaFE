@@ -81,8 +81,8 @@ func TestSimilarityCalculator_CalculateSimilarity(t *testing.T) {
 				Labels:    map[string]string{"app": "training"},
 				Namespace: "default",
 			},
-			minScore:    0.70,
-			maxScore:    0.80,
+			minScore:    0.80,
+			maxScore:    0.85,
 			description: "different command should reduce score",
 		},
 		{

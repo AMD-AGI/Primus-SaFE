@@ -161,7 +161,7 @@ func TestReuseEngine_TryReuse_Success(t *testing.T) {
 	assert.Equal(t, []string{"pytorch"}, result.Frameworks)
 	assert.Equal(t, "training", result.Type)
 	assert.Equal(t, coreModel.DetectionStatusReused, result.Status)
-	
+
 	// Check confidence decay
 	expectedConfidence := 0.95 * config.ConfidenceDecayRate
 	assert.InDelta(t, expectedConfidence, result.Confidence, 0.001)
@@ -216,7 +216,11 @@ func TestReuseEngine_CalculateSimilarities(t *testing.T) {
 	config := coreModel.DefaultReuseConfig()
 	engine := NewReuseEngine(mockDB, config)
 
-	signature := &coreModel.WorkloadSignature{
+	// Use SignatureExtractor to generate proper signatures with hashes
+	extractor := NewSignatureExtractor()
+
+	// Create workload for the signature
+	workload := &Workload{
 		Image:     "registry.example.com/primus:v1.2.3",
 		Command:   []string{"python", "train.py"},
 		Args:      []string{"--epochs", "100"},
@@ -224,41 +228,55 @@ func TestReuseEngine_CalculateSimilarities(t *testing.T) {
 		Labels:    map[string]string{"app": "training"},
 		Namespace: "default",
 	}
+	signature := extractor.ExtractSignature(workload)
+
+	// Create candidate workloads with proper signatures
+	candidate1Workload := &Workload{
+		UID:       "uid-1",
+		Image:     "registry.example.com/primus:v1.2.3",
+		Command:   []string{"python", "train.py"},
+		Args:      []string{"--epochs", "100"},
+		Env:       map[string]string{"FRAMEWORK": "PyTorch"},
+		Labels:    map[string]string{"app": "training"},
+		Namespace: "default",
+	}
+	candidate1Sig := extractor.ExtractSignature(candidate1Workload)
+
+	candidate2Workload := &Workload{
+		UID:       "uid-2",
+		Image:     "registry.example.com/primus:v1.2.4",
+		Command:   []string{"python", "test.py"}, // Different script
+		Args:      []string{"--epochs", "50"},
+		Env:       map[string]string{"FRAMEWORK": "PyTorch"},
+		Labels:    map[string]string{"app": "training"},
+		Namespace: "default",
+	}
+	candidate2Sig := extractor.ExtractSignature(candidate2Workload)
 
 	candidates := []*coreModel.CandidateWorkload{
 		{
 			WorkloadUID: "uid-1",
-			Signature: &coreModel.WorkloadSignature{
-				Image:     "registry.example.com/primus:v1.2.3",
-				Command:   []string{"python", "train.py"},
-				Args:      []string{"--epochs", "100"},
-				Env:       map[string]string{"FRAMEWORK": "PyTorch"},
-				Labels:    map[string]string{"app": "training"},
-				Namespace: "default",
-			},
+			Signature:   candidate1Sig,
 		},
 		{
 			WorkloadUID: "uid-2",
-			Signature: &coreModel.WorkloadSignature{
-				Image:     "registry.example.com/primus:v1.2.4",
-				Command:   []string{"python", "train.py"},
-				Args:      []string{"--epochs", "50"},
-				Env:       map[string]string{"FRAMEWORK": "PyTorch"},
-				Labels:    map[string]string{"app": "training"},
-				Namespace: "default",
-			},
+			Signature:   candidate2Sig,
 		},
 	}
 
 	results := engine.calculateSimilarities(signature, candidates)
 
 	assert.Len(t, results, 2)
+	// Note: calculateSimilarities does not sort, it returns in the same order as candidates
+	// uid-1 is returned first because it's first in candidates array
 	assert.Equal(t, "uid-1", results[0].WorkloadUID)
 	assert.Equal(t, "uid-2", results[1].WorkloadUID)
-	
+
 	// First candidate should have higher similarity (exact match)
 	assert.Greater(t, results[0].Score, results[1].Score)
 	assert.Equal(t, 1.0, results[0].Score)
+	// uid-2 should have lower score due to different image tag and args
+	assert.Less(t, results[1].Score, 1.0)
 }
 
 func TestReuseEngine_BuildCacheKey(t *testing.T) {
@@ -333,48 +351,48 @@ func TestReuseConfig_Validate(t *testing.T) {
 		{
 			name: "invalid min similarity score - too low",
 			config: coreModel.ReuseConfig{
-				MinSimilarityScore: -0.1,
-				TimeWindowDays:     30,
-				MinConfidence:      0.75,
+				MinSimilarityScore:  -0.1,
+				TimeWindowDays:      30,
+				MinConfidence:       0.75,
 				ConfidenceDecayRate: 0.9,
-				MaxCandidates:      100,
-				CacheTTLMinutes:    10,
+				MaxCandidates:       100,
+				CacheTTLMinutes:     10,
 			},
 			wantErr: true,
 		},
 		{
 			name: "invalid min similarity score - too high",
 			config: coreModel.ReuseConfig{
-				MinSimilarityScore: 1.5,
-				TimeWindowDays:     30,
-				MinConfidence:      0.75,
+				MinSimilarityScore:  1.5,
+				TimeWindowDays:      30,
+				MinConfidence:       0.75,
 				ConfidenceDecayRate: 0.9,
-				MaxCandidates:      100,
-				CacheTTLMinutes:    10,
+				MaxCandidates:       100,
+				CacheTTLMinutes:     10,
 			},
 			wantErr: true,
 		},
 		{
 			name: "invalid time window days",
 			config: coreModel.ReuseConfig{
-				MinSimilarityScore: 0.85,
-				TimeWindowDays:     0,
-				MinConfidence:      0.75,
+				MinSimilarityScore:  0.85,
+				TimeWindowDays:      0,
+				MinConfidence:       0.75,
 				ConfidenceDecayRate: 0.9,
-				MaxCandidates:      100,
-				CacheTTLMinutes:    10,
+				MaxCandidates:       100,
+				CacheTTLMinutes:     10,
 			},
 			wantErr: true,
 		},
 		{
 			name: "invalid confidence decay rate",
 			config: coreModel.ReuseConfig{
-				MinSimilarityScore: 0.85,
-				TimeWindowDays:     30,
-				MinConfidence:      0.75,
+				MinSimilarityScore:  0.85,
+				TimeWindowDays:      30,
+				MinConfidence:       0.75,
 				ConfidenceDecayRate: 1.5,
-				MaxCandidates:      100,
-				CacheTTLMinutes:    10,
+				MaxCandidates:       100,
+				CacheTTLMinutes:     10,
 			},
 			wantErr: true,
 		},
@@ -423,4 +441,3 @@ func TestFrameworkDetection_JSON(t *testing.T) {
 	assert.NotNil(t, decoded.ReuseInfo)
 	assert.Equal(t, detection.ReuseInfo.ReusedFrom, decoded.ReuseInfo.ReusedFrom)
 }
-

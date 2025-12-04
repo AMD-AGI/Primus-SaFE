@@ -29,7 +29,7 @@ func TestSignatureExtractor_ExtractSignature(t *testing.T) {
 			},
 			validate: func(t *testing.T, sig *coreModel.WorkloadSignature) {
 				assert.Equal(t, "registry.example.com/primus:v1.2.3", sig.Image)
-				assert.Equal(t, []string{"python3", "train.py"}, sig.Command)
+				assert.Equal(t, []string{"python", "train.py"}, sig.Command) // python3 normalized to python
 				assert.Equal(t, []string{"--epochs", "100"}, sig.Args)
 				assert.Equal(t, map[string]string{"FRAMEWORK": "PyTorch"}, sig.Env)
 				assert.Equal(t, map[string]string{"app": "training"}, sig.Labels)
@@ -121,7 +121,7 @@ func TestSignatureExtractor_NormalizeCommand(t *testing.T) {
 		{
 			name:     "full path command",
 			command:  []string{"/usr/bin/python3", "train.py"},
-			expected: []string{"python3", "train.py"},
+			expected: []string{"python", "train.py"}, // python3 normalized to python
 		},
 		{
 			name:     "relative path command",

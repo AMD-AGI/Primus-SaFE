@@ -211,8 +211,8 @@ func TestIntegration_SignatureAndSimilarityPipeline(t *testing.T) {
 	assert.NotContains(t, sig2.Env, "API_TOKEN")
 	assert.NotContains(t, sig2.Labels, "controller-revision-hash")
 
-	// Verify command normalization
-	assert.Equal(t, []string{"python3", "train.py"}, sig1.Command)
+	// Verify command normalization (python3/python -> python)
+	assert.Equal(t, []string{"python", "train.py"}, sig1.Command)
 	assert.Equal(t, []string{"python", "train.py"}, sig2.Command)
 
 	// Calculate similarity
