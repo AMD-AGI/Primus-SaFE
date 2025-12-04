@@ -692,8 +692,10 @@ func (h *Handler) generateWorkload(ctx context.Context,
 			return nil, fmt.Errorf("the authoring can only be created with one node")
 		}
 	}
-	genCustomerLabelsByNodes(workload, req.SpecifiedNodes)
-	if len(req.SpecifiedNodes) > 0 {
+	genCustomerLabelsByNodes(workload, req.SpecifiedNodes, v1.K8sHostName)
+	if len(req.SpecifiedNodes) == 0 {
+		genCustomerLabelsByNodes(workload, req.ExcludedNodes, common.ExcludedNodes)
+	} else {
 		workload.Spec.Resource.Replica = len(req.SpecifiedNodes)
 	}
 	if req.WorkspaceId != "" {
@@ -805,12 +807,12 @@ func (h *Handler) handleBatchWorkloads(c *gin.Context, action WorkloadBatchActio
 }
 
 // genCustomerLabelsByNodes generates customer labels based on specified nodes.
-func genCustomerLabelsByNodes(workload *v1.Workload, nodeList []string) {
+func genCustomerLabelsByNodes(workload *v1.Workload, nodeList []string, labelKey string) {
 	if len(nodeList) == 0 {
 		return
 	}
 	if len(workload.Spec.CustomerLabels) > 0 {
-		if _, ok := workload.Spec.CustomerLabels[v1.K8sHostName]; ok {
+		if _, ok := workload.Spec.CustomerLabels[labelKey]; ok {
 			return
 		}
 	} else {
@@ -823,7 +825,7 @@ func genCustomerLabelsByNodes(workload *v1.Workload, nodeList []string) {
 		}
 		nodeNames += nodeList[i]
 	}
-	workload.Spec.CustomerLabels[v1.K8sHostName] = nodeNames
+	workload.Spec.CustomerLabels[labelKey] = nodeNames
 }
 
 // parseListWorkloadQuery parses and validates the query parameters for listing workloads.
@@ -1125,7 +1127,7 @@ func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context,
 		var customerLabels map[string]string
 		json.Unmarshal([]byte(str), &customerLabels)
 		if len(customerLabels) > 0 {
-			result.CustomerLabels, result.SpecifiedNodes = parseCustomerLabelsAndNodes(customerLabels)
+			result.CustomerLabels, result.SpecifiedNodes, result.ExcludedNodes = parseCustomerLabels(customerLabels)
 		}
 	}
 	if str := dbutils.ParseNullString(dbWorkload.Liveness); str != "" {
@@ -1167,19 +1169,23 @@ func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context,
 	return result
 }
 
-// parseCustomerLabelsAndNodes separates customer labels from node-specific labels.
-// Extracts node list from customer labels and returns remaining labels separately.
-func parseCustomerLabelsAndNodes(labels map[string]string) (map[string]string, []string) {
-	var nodeList []string
+// parseCustomerLabels separates user-defined labels from node selection labels.
+// Returns custom labels, specified nodes, and excluded nodes.
+func parseCustomerLabels(labels map[string]string) (map[string]string, []string, []string) {
+	var specifiedNodes []string
+	var excludedNodes []string
 	customerLabels := make(map[string]string)
 	for key, val := range labels {
-		if key == v1.K8sHostName {
-			nodeList = strings.Split(val, " ")
-		} else {
+		switch key {
+		case v1.K8sHostName:
+			specifiedNodes = strings.Split(val, " ")
+		case common.ExcludedNodes:
+			excludedNodes = strings.Split(val, " ")
+		default:
 			customerLabels[key] = val
 		}
 	}
-	return customerLabels, nodeList
+	return customerLabels, specifiedNodes, excludedNodes
 }
 
 // buildSSHAddress constructs the SSH address for accessing a workload pod.
@@ -1256,11 +1262,9 @@ func cvtDBWorkloadToAdminWorkload(dbItem *dbclient.Workload) *v1.Workload {
 			Name: commonutils.GenerateName(dbItem.DisplayName),
 			Labels: map[string]string{
 				v1.DisplayNameLabel: dbItem.DisplayName,
-				v1.UserIdLabel:      dbutils.ParseNullString(dbItem.UserId),
 			},
 			Annotations: map[string]string{
 				v1.DescriptionAnnotation: dbutils.ParseNullString(dbItem.Description),
-				v1.UserNameAnnotation:    dbutils.ParseNullString(dbItem.UserName),
 			},
 		},
 		Spec: v1.WorkloadSpec{

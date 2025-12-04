@@ -570,11 +570,19 @@ func buildMatchExpression(workload *v1.Workload) []interface{} {
 		for i := range parts {
 			values = append(values, parts[i])
 		}
-		result = append(result, map[string]interface{}{
-			"key":      key,
-			"operator": "In",
-			"values":   values,
-		})
+		if key == common.ExcludedNodes {
+			result = append(result, map[string]interface{}{
+				"key":      v1.K8sHostName,
+				"operator": "NotIn",
+				"values":   values,
+			})
+		} else {
+			result = append(result, map[string]interface{}{
+				"key":      key,
+				"operator": "In",
+				"values":   values,
+			})
+		}
 	}
 	return result
 }
