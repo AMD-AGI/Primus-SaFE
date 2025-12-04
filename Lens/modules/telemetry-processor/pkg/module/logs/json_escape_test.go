@@ -18,19 +18,21 @@ func TestJSONEscaping(t *testing.T) {
 		desc        string
 	}{
 		{
-			name:        "Direct string (no escaping)",
+			name:        "Direct string (raw string literal)",
 			jsonPattern: `.*iteration\s+(?P<CurrentIteration>\d+)\s*/\s*(?P<TargetIteration>\d+)`,
-			desc:        "This is the final expected regular expression",
+			desc:        "Raw string literal with single backslash - this is the correct regex pattern",
 		},
 		{
-			name:        "Single-level escaping in JSON",
-			jsonPattern: `.*iteration\\s+(?P<CurrentIteration>\\d+)\\s*/\\s*(?P<TargetIteration>\\d+)`,
-			desc:        "Backslashes need to be escaped once in JSON string literals",
+			name:        "Regular string (double-quoted)",
+			jsonPattern: ".*iteration\\s+(?P<CurrentIteration>\\d+)\\s*/\\s*(?P<TargetIteration>\\d+)",
+			desc:        "Double-quoted string requires escaping backslashes",
 		},
 		{
-			name:        "Double-level escaping in JSON (SQL form)",
-			jsonPattern: `.*iteration\\\\s+(?P<CurrentIteration>\\\\d+)\\\\s*/\\\\s*(?P<TargetIteration>\\\\d+)`,
-			desc:        "Double escaping is needed when JSON is a SQL string literal",
+			name:        "Simulating JSON-parsed string",
+			// In raw string, we put what the result would be AFTER JSON parsing
+			// JSON "\\s" becomes single \s after parsing
+			jsonPattern: `.*iteration\s+(?P<CurrentIteration>\d+)\s*/\s*(?P<TargetIteration>\d+)`,
+			desc:        "After JSON unmarshaling, double backslash becomes single backslash",
 		},
 	}
 
@@ -90,9 +92,10 @@ func TestJSONEscaping(t *testing.T) {
 
 	// Now test complete JSON parsing flow
 	t.Run("Complete JSON parsing flow", func(t *testing.T) {
-		// This is the JSON stored in database (with double escaping)
+		// This is the JSON as stored in database or config file
+		// In JSON, backslashes must be escaped, so \s becomes \\s
 		jsonStr := `{
-			"pattern": ".*iteration\\\\s+(?P<CurrentIteration>\\\\d+)\\\\s*/\\\\s*(?P<TargetIteration>\\\\d+)"
+			"pattern": ".*iteration\\s+(?P<CurrentIteration>\\d+)\\s*/\\s*(?P<TargetIteration>\\d+)"
 		}`
 
 		var config struct {
@@ -115,7 +118,7 @@ func TestJSONEscaping(t *testing.T) {
 
 		matches := re.FindStringSubmatch(log)
 		if matches == nil {
-			t.Fatal("Pattern did not match")
+			t.Fatalf("Pattern did not match")
 		}
 
 		groups := make(map[string]string)
@@ -132,6 +135,12 @@ func TestJSONEscaping(t *testing.T) {
 			t.Errorf("❌ CurrentIteration: got %q, want \"126\"", groups["CurrentIteration"])
 		} else {
 			t.Logf("✓ CurrentIteration = 126")
+		}
+		
+		if groups["TargetIteration"] != "5000" {
+			t.Errorf("❌ TargetIteration: got %q, want \"5000\"", groups["TargetIteration"])
+		} else {
+			t.Logf("✓ TargetIteration = 5000")
 		}
 	})
 }

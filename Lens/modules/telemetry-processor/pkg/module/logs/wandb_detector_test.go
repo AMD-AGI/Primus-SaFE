@@ -10,11 +10,12 @@ func TestWandBFrameworkDetector_DetectFromEnvVars(t *testing.T) {
 	detector := &WandBFrameworkDetector{}
 
 	tests := []struct {
-		name          string
-		env           map[string]string
-		expectedFw    string
-		expectedConf  float64
-		expectedNil   bool
+		name           string
+		env            map[string]string
+		expectedFw     string
+		expectedConf   float64
+		expectedNil    bool
+		expectedMethod string // optional, defaults to "env_vars"
 	}{
 		{
 			name: "Primus environment variables",
@@ -49,9 +50,10 @@ func TestWandBFrameworkDetector_DetectFromEnvVars(t *testing.T) {
 			env: map[string]string{
 				"FRAMEWORK": "PyTorch",
 			},
-			expectedFw:   "pytorch",
-			expectedConf: 0.75,
-			expectedNil:  false,
+			expectedFw:     "pytorch",
+			expectedConf:   0.75,
+			expectedNil:    false,
+			expectedMethod: "env_framework", // Generic FRAMEWORK env var uses different detection method
 		},
 		{
 			name:        "No matching environment variables",
@@ -69,7 +71,13 @@ func TestWandBFrameworkDetector_DetectFromEnvVars(t *testing.T) {
 				assert.NotNil(t, result)
 				assert.Equal(t, tt.expectedFw, result.Framework)
 				assert.Equal(t, tt.expectedConf, result.Confidence)
-				assert.Equal(t, "env_vars", result.Method)
+
+				// Use expectedMethod, default to "env_vars" if not set
+				expectedMethod := tt.expectedMethod
+				if expectedMethod == "" {
+					expectedMethod = "env_vars"
+				}
+				assert.Equal(t, expectedMethod, result.Method)
 			}
 		})
 	}
@@ -302,7 +310,7 @@ func TestWandBFrameworkDetector_ProcessWandBDetection_ValidationErrors(t *testin
 	// Skip this test because it requires a real DetectionManager
 	// Will be covered in integration tests
 	t.Skip("Requires full DetectionManager setup - tested in integration tests")
-	
+
 	tests := []struct {
 		name    string
 		req     *WandBDetectionRequest
@@ -338,4 +346,3 @@ func TestWandBFrameworkDetector_ProcessWandBDetection_ValidationErrors(t *testin
 		})
 	}
 }
-
