@@ -27,6 +27,7 @@ type Interface interface {
 	WorkloadStatisticInterface
 	NodeStatisticInterface
 	UserTokenInterface
+	CDInterface
 }
 
 type WorkloadInterface interface {

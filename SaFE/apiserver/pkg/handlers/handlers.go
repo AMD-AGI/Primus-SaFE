@@ -12,6 +12,7 @@ import (
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/cd"
 	customhandler "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/custom-handlers"
 	image_handlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/image-handlers"
 	sshhandler "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/ssh-handlers"
@@ -43,6 +44,11 @@ func InitHttpHandlers(_ context.Context, mgr ctrlruntime.Manager) (*gin.Engine, 
 		return nil, err
 	}
 	customhandler.InitCustomRouters(engine, customHandler)
+	cdHandler, err := cd.NewHandler(mgr)
+	if err != nil {
+		return nil, err
+	}
+	cd.InitCDRouters(engine, cdHandler)
 	imageHandler, err := image_handlers.NewImageHandler(mgr)
 	if err != nil {
 		return nil, err
