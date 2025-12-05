@@ -6,6 +6,7 @@
 package v1
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/constvar"
@@ -43,7 +44,7 @@ type (
 		// BaseUrl is the inference service URL
 		BaseUrl string `json:"baseUrl,omitempty"`
 		// ApiKey is the inference service API key
-		ApiKey string `json:"apiKey,omitempty"`
+		ApiKey *corev1.LocalObjectReference `json:"apiKey,omitempty"`
 		// Model is the model name for OpenAI API requests (e.g., "gpt-4", "deepseek-chat")
 		// If not specified, will fallback to Inference.Spec.ModelName
 		Model string `json:"model,omitempty"`

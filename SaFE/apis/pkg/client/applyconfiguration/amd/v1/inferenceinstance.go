@@ -6,13 +6,17 @@
 
 package v1
 
+import (
+	corev1 "k8s.io/api/core/v1"
+)
+
 // InferenceInstanceApplyConfiguration represents a declarative configuration of the InferenceInstance type for use
 // with apply.
 type InferenceInstanceApplyConfiguration struct {
-	BaseUrl    *string `json:"baseUrl,omitempty"`
-	ApiKey     *string `json:"apiKey,omitempty"`
-	Model      *string `json:"model,omitempty"`
-	WorkloadID *string `json:"workloadID,omitempty"`
+	BaseUrl    *string                      `json:"baseUrl,omitempty"`
+	ApiKey     *corev1.LocalObjectReference `json:"apiKey,omitempty"`
+	Model      *string                      `json:"model,omitempty"`
+	WorkloadID *string                      `json:"workloadID,omitempty"`
 }
 
 // InferenceInstanceApplyConfiguration constructs a declarative configuration of the InferenceInstance type for use with
@@ -32,7 +36,7 @@ func (b *InferenceInstanceApplyConfiguration) WithBaseUrl(value string) *Inferen
 // WithApiKey sets the ApiKey field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the ApiKey field is set to the value of the last call.
-func (b *InferenceInstanceApplyConfiguration) WithApiKey(value string) *InferenceInstanceApplyConfiguration {
+func (b *InferenceInstanceApplyConfiguration) WithApiKey(value corev1.LocalObjectReference) *InferenceInstanceApplyConfiguration {
 	b.ApiKey = &value
 	return b
 }
