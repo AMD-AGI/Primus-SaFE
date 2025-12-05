@@ -17,17 +17,31 @@ ENGINE="${ENGINE:-psync}"
 RUNTIME="${RUNTIME:-30}"
 
 # ==== Output styles ====
-GREEN="\033[1;32m"
-YELLOW="\033[1;33m"
-RED="\033[1;31m"
-BLUE="\033[1;34m"
-MAGENTA="\033[1;35m"
-RESET="\033[0m"
+# Detect if terminal supports colors
+if [ -t 1 ] && [ -n "${TERM:-}" ] && [ "${TERM}" != "dumb" ] && [ "${NO_COLOR:-}" != "1" ]; then
+    # Terminal supports colors
+    GREEN="\033[1;32m"
+    YELLOW="\033[1;33m"
+    RED="\033[1;31m"
+    BLUE="\033[1;34m"
+    MAGENTA="\033[1;35m"
+    RESET="\033[0m"
+    COLOR_FLAG="-e"
+else
+    # No color support or disabled
+    GREEN=""
+    YELLOW=""
+    RED=""
+    BLUE=""
+    MAGENTA=""
+    RESET=""
+    COLOR_FLAG=""
+fi
 
-log()    { echo -e "${BLUE}[$(date '+%Y-%m-%d %H:%M:%S')]${RESET} $1"; }
-ok()     { echo -e "${GREEN}✔ $1${RESET}"; }
-warn()   { echo -e "${YELLOW}⚠ $1${RESET}"; }
-err()    { echo -e "${RED}✘ $1${RESET}"; }
+log()    { echo $COLOR_FLAG "${BLUE}[$(date '+%Y-%m-%d %H:%M:%S')]${RESET} $1"; }
+ok()     { echo $COLOR_FLAG "${GREEN}✔ $1${RESET}"; }
+warn()   { echo $COLOR_FLAG "${YELLOW}⚠ $1${RESET}"; }
+err()    { echo $COLOR_FLAG "${RED}✘ $1${RESET}"; }
 
 # ==== Step 1: Start FIO server ====
 if [ -n "${IO_BENCHMARK_MOUNT:-}" ]; then
@@ -55,7 +69,11 @@ if [[ "$RANK" == "0" ]]; then
         fi
     fi
     mkdir -p "$OUTPUT_PATH"
-    log "📂 Output directory: ${YELLOW}$OUTPUT_PATH${RESET}"
+    if [ -n "$YELLOW" ]; then
+        log "📂 Output directory: ${YELLOW}$OUTPUT_PATH${RESET}"
+    else
+        log "📂 Output directory: $OUTPUT_PATH"
+    fi
 
     # ==== Step 4: IO Benchmarks ====
     if [ -n "${IO_BENCHMARK_MOUNT:-}" ]; then
@@ -182,7 +200,11 @@ if [[ "$RANK" == "0" ]]; then
     else
         unhealthy_nodes=()
     fi
-    log "Unhealthy nodes detected: ${YELLOW}${unhealthy_nodes[*]:-none}${RESET}"
+    if [ -n "$YELLOW" ]; then
+        log "Unhealthy nodes detected: ${YELLOW}${unhealthy_nodes[*]:-none}${RESET}"
+    else
+        log "Unhealthy nodes detected: ${unhealthy_nodes[*]:-none}"
+    fi
     
     # Write network check results to bench.md
     echo "## Network Check Results" >> "$BENCH_REPORT"
