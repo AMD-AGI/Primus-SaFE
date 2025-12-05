@@ -17,7 +17,6 @@ import (
 	"k8s.io/klog/v2"
 
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
-
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/crypto"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/model"
 )
