@@ -599,7 +599,6 @@ func (j *WorkloadStatsBackfillJob) getWorkloadReplicaCountForHour(
 
 // Schedule returns the job's scheduling expression
 func (j *WorkloadStatsBackfillJob) Schedule() string {
-	// Run every 1 minutes
 	return "@every 1m"
 }
 
