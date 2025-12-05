@@ -182,6 +182,27 @@ func (r *InferenceReconciler) delete(ctx context.Context, inference *v1.Inferenc
 		}
 	}
 
+	// Clean up ApiKey Secret manually (cannot use OwnerReference because
+	// Inference is cluster-scoped and Secret is namespace-scoped)
+	if inference.Spec.Instance.ApiKey != nil && inference.Spec.Instance.ApiKey.Name != "" {
+		apiKeySecret := &corev1.Secret{}
+		apiKeySecretKey := client.ObjectKey{
+			Name:      inference.Spec.Instance.ApiKey.Name,
+			Namespace: common.PrimusSafeNamespace,
+		}
+		if err := r.Get(ctx, apiKeySecretKey, apiKeySecret); err != nil {
+			if !errors.IsNotFound(err) {
+				klog.ErrorS(err, "Failed to get apiKey secret", "secret", apiKeySecretKey.Name)
+			}
+		} else {
+			if err := r.Delete(ctx, apiKeySecret); err != nil && !errors.IsNotFound(err) {
+				klog.ErrorS(err, "Failed to delete apiKey secret", "secret", apiKeySecretKey.Name)
+			} else {
+				klog.InfoS("ApiKey secret deleted", "secret", apiKeySecretKey.Name, "inference", inference.Name)
+			}
+		}
+	}
+
 	// Remove finalizer
 	return utils.RemoveFinalizer(ctx, r.Client, inference, v1.InferenceFinalizer)
 }
@@ -371,9 +392,35 @@ func (r *InferenceReconciler) createWorkload(ctx context.Context, inference *v1.
 	env := map[string]string{
 		"MODEL_NAME": inference.Spec.ModelName, // e.g., "model-fb7q8"
 	}
-	// Add MODEL_PATH if configured
-	if inference.Spec.Config.ModelPath != "" {
-		env["MODEL_PATH"] = inference.Spec.Config.ModelPath // e.g., "/apps/models/Qwen-Qwen2.5-7B-Instruct"
+
+	// Calculate MODEL_PATH automatically for local models
+	modelPath := inference.Spec.Config.ModelPath
+	if modelPath == "" && inference.IsFromModelSquare() {
+		// Get Model to calculate path
+		model := &v1.Model{}
+		if err := r.Get(ctx, client.ObjectKey{Name: inference.Spec.ModelName}, model); err == nil {
+			// Get workspace mount path
+			workspace := &v1.Workspace{}
+			if err := r.Get(ctx, client.ObjectKey{Name: inference.Spec.Resource.Workspace}, workspace); err == nil {
+				localBasePath := getWorkspaceMountPath(workspace)
+				if localBasePath != "" {
+					modelPath = fmt.Sprintf("%s/models/%s", localBasePath, model.GetSafeDisplayName())
+					klog.InfoS("Auto-calculated MODEL_PATH", "inference", inference.Name, "modelPath", modelPath)
+				}
+			}
+		}
+	}
+	if modelPath != "" {
+		env["MODEL_PATH"] = modelPath
+	}
+
+	// Get userName from User CR
+	userName := inference.Spec.UserName
+	if userName == "" && inference.Spec.UserID != "" {
+		user := &v1.User{}
+		if err := r.Get(ctx, client.ObjectKey{Name: inference.Spec.UserID}, user); err == nil {
+			userName = v1.GetUserName(user)
+		}
 	}
 
 	workload := &v1.Workload{
@@ -383,6 +430,9 @@ func (r *InferenceReconciler) createWorkload(ctx context.Context, inference *v1.
 				v1.InferenceIdLabel: inference.Name,
 				v1.UserIdLabel:      inference.Spec.UserID,
 				v1.DisplayNameLabel: normalizedDisplayName,
+			},
+			Annotations: map[string]string{
+				v1.UserNameAnnotation: userName,
 			},
 		},
 		Spec: v1.WorkloadSpec{
@@ -567,6 +617,19 @@ func (r *InferenceReconciler) ensureModelDownloaded(ctx context.Context, inferen
 	// Check job status
 	if downloadJob.Status.Succeeded > 0 {
 		klog.Infof("Download job %s completed for inference %s", downloadJobName, inference.Name)
+
+		// Save ModelPath to Inference after download completes
+		if inference.Spec.Config.ModelPath != localModelPath {
+			originalInference := inference.DeepCopy()
+			inference.Spec.Config.ModelPath = localModelPath
+			if err := r.Patch(ctx, inference, client.MergeFrom(originalInference)); err != nil {
+				klog.ErrorS(err, "failed to update inference with ModelPath", "inference", inference.Name, "modelPath", localModelPath)
+				// Don't fail the whole operation, just log the error
+			} else {
+				klog.InfoS("Saved ModelPath to Inference", "inference", inference.Name, "modelPath", localModelPath)
+			}
+		}
+
 		// Delete the job after success
 		if err := r.Delete(ctx, downloadJob, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil && !errors.IsNotFound(err) {
 			klog.ErrorS(err, "failed to delete completed download job", "job", downloadJobName)

@@ -411,8 +411,8 @@ func TestToggleModel_Enable(t *testing.T) {
 	// Create a test LOCAL model (remote_api models create inference at creation time)
 	testModel := &v1.Model{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-model",
-			Namespace: common.PrimusSafeNamespace,
+			Name: "test-model",
+			// Note: Model is cluster-scoped, no namespace needed
 		},
 		Spec: v1.ModelSpec{
 			DisplayName: "Test Model",
@@ -501,8 +501,8 @@ func TestToggleModel_RemoteAPI(t *testing.T) {
 	// Create a remote API model with existing inference
 	testModel := &v1.Model{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-api-model",
-			Namespace: common.PrimusSafeNamespace,
+			Name: "test-api-model",
+			// Note: Model is cluster-scoped, no namespace needed
 		},
 		Spec: v1.ModelSpec{
 			DisplayName: "Test API Model",
@@ -532,7 +532,10 @@ func TestToggleModel_RemoteAPI(t *testing.T) {
 	// Try to toggle ON a remote API model that already has inference
 	reqBody := ToggleModelRequest{
 		Enabled: true,
-		ApiKey:  "sk-test",
+		Instance: &ToggleInstanceReq{
+			ApiKey: "sk-test",
+			Model:  "gpt-3.5-turbo",
+		},
 	}
 
 	bodyBytes, _ := json.Marshal(reqBody)
@@ -575,8 +578,8 @@ func TestToggleModel_Disable(t *testing.T) {
 	// Create a test model with inference running
 	testModel := &v1.Model{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-model",
-			Namespace: common.PrimusSafeNamespace,
+			Name: "test-model",
+			// Note: Model is cluster-scoped, no namespace needed
 		},
 		Spec: v1.ModelSpec{
 			DisplayName: "Test Model",
@@ -653,8 +656,8 @@ func TestDeleteModel(t *testing.T) {
 	// Create a test model with secret reference
 	testModel := &v1.Model{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-model",
-			Namespace: common.PrimusSafeNamespace,
+			Name: "test-model",
+			// Note: Model is cluster-scoped, no namespace needed
 		},
 		Spec: v1.ModelSpec{
 			DisplayName: "Test Model",

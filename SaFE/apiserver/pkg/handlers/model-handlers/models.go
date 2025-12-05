@@ -186,6 +186,9 @@ func (h *Handler) createModel(c *gin.Context) (interface{}, error) {
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      tokenSecretName,
 				Namespace: common.PrimusSafeNamespace,
+				Labels: map[string]string{
+					v1.ModelIdLabel: name, // Label for manual cleanup when Model is deleted
+				},
 			},
 			StringData: map[string]string{
 				"token": req.Source.Token, // Store plaintext token in Secret
@@ -193,13 +196,8 @@ func (h *Handler) createModel(c *gin.Context) (interface{}, error) {
 			Type: corev1.SecretTypeOpaque,
 		}
 
-		// Set Model as owner of Secret for automatic cascade deletion
-		if err := controllerutil.SetControllerReference(k8sModel, secret, h.k8sClient.Scheme()); err != nil {
-			klog.ErrorS(err, "Failed to set owner reference for token secret", "model", name)
-			// Clean up: delete the model we just created
-			_ = h.k8sClient.Delete(ctx, k8sModel)
-			return nil, commonerrors.NewInternalError("failed to set owner reference: " + err.Error())
-		}
+		// Note: Cannot use OwnerReference here because Model is cluster-scoped
+		// and Secret is namespace-scoped. Will delete manually in deleteModel.
 
 		if err := h.k8sClient.Create(ctx, secret); err != nil {
 			klog.ErrorS(err, "Failed to create token Secret")
@@ -207,7 +205,7 @@ func (h *Handler) createModel(c *gin.Context) (interface{}, error) {
 			_ = h.k8sClient.Delete(ctx, k8sModel)
 			return nil, commonerrors.NewInternalError("failed to create token secret: " + err.Error())
 		}
-		klog.Infof("Created token Secret: %s with Model %s as owner", tokenSecretName, name)
+		klog.Infof("Created token Secret: %s for Model %s", tokenSecretName, name)
 
 		// Update Model to reference the Secret
 		k8sModel.Spec.Source.Token = &corev1.LocalObjectReference{
@@ -411,8 +409,8 @@ func (h *Handler) toggleModel(c *gin.Context) (interface{}, error) {
 
 		if k8sModel.IsRemoteAPI() {
 			// Remote API mode: create API-type inference
-			if req.ApiKey == "" {
-				return nil, commonerrors.NewBadRequest("apiKey is required for remote_api model")
+			if req.Instance == nil || req.Instance.ApiKey == "" {
+				return nil, commonerrors.NewBadRequest("instance.apiKey is required for remote_api model")
 			}
 
 			apiKeySecretName := infId // Secret name same as inference ID
@@ -437,6 +435,7 @@ func (h *Handler) toggleModel(c *gin.Context) (interface{}, error) {
 					Instance: v1.InferenceInstance{
 						ApiKey:  &corev1.LocalObjectReference{Name: apiKeySecretName},
 						BaseUrl: k8sModel.Spec.Source.URL,
+						Model:   req.Instance.Model, // Optional: model name for API calls
 					},
 				},
 				Status: v1.InferenceStatus{
@@ -456,7 +455,18 @@ func (h *Handler) toggleModel(c *gin.Context) (interface{}, error) {
 				return nil, commonerrors.NewInternalError("failed to start inference: " + err.Error())
 			}
 
-			// 2. Create ApiKey Secret with Inference as owner
+			// Update Status separately (Status is a subresource, not saved by Create)
+			inference.Status.Phase = constvar.InferencePhaseRunning
+			inference.Status.Message = "Inference service is running"
+			inference.Status.UpdateTime = &metav1.Time{Time: time.Now().UTC()}
+			if err := h.k8sClient.Status().Update(ctx, inference); err != nil {
+				klog.ErrorS(err, "Failed to update inference status to Running", "inference", infId)
+				// Don't fail the whole operation, controller will reconcile
+			}
+
+			// 2. Create ApiKey Secret (without OwnerReference - will be deleted manually)
+			// Note: Cannot use OwnerReference here because Inference is cluster-scoped
+			// and Secret is namespace-scoped.
 			apiKeySecret := &corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      apiKeySecretName,
@@ -468,15 +478,8 @@ func (h *Handler) toggleModel(c *gin.Context) (interface{}, error) {
 				},
 				Type: corev1.SecretTypeOpaque,
 				StringData: map[string]string{
-					"apiKey": req.ApiKey,
+					"apiKey": req.Instance.ApiKey,
 				},
-			}
-
-			// Set Inference as owner of ApiKey Secret for automatic cascade deletion
-			if err := controllerutil.SetControllerReference(inference, apiKeySecret, h.k8sClient.Scheme()); err != nil {
-				klog.ErrorS(err, "Failed to set owner reference for API key secret", "inference", infId)
-				_ = h.k8sClient.Delete(ctx, inference)
-				return nil, commonerrors.NewInternalError("failed to set owner reference: " + err.Error())
 			}
 
 			if err := h.k8sClient.Create(ctx, apiKeySecret); err != nil && !errors.IsAlreadyExists(err) {
@@ -616,7 +619,8 @@ func (h *Handler) toggleModel(c *gin.Context) (interface{}, error) {
 }
 
 // deleteModel implements the model deletion logic.
-// Note: Inference, Token Secret will be automatically deleted by Kubernetes garbage collection (OwnerReference)
+// Note: Inference will be automatically deleted by Kubernetes garbage collection (OwnerReference)
+// Token Secret must be deleted manually (cluster-scoped owner cannot own namespace-scoped resource)
 func (h *Handler) deleteModel(c *gin.Context) (interface{}, error) {
 	modelId := c.Param("id")
 	if modelId == "" {
@@ -627,7 +631,7 @@ func (h *Handler) deleteModel(c *gin.Context) (interface{}, error) {
 
 	// Check if model exists in K8s
 	k8sModel := &v1.Model{}
-	if err := h.k8sClient.Get(ctx, ctrlclient.ObjectKey{Name: modelId, Namespace: common.PrimusSafeNamespace}, k8sModel); err != nil {
+	if err := h.k8sClient.Get(ctx, ctrlclient.ObjectKey{Name: modelId}, k8sModel); err != nil {
 		if errors.IsNotFound(err) {
 			// Model not found in K8s, try to delete from DB only
 			klog.InfoS("Model not found in K8s, attempting DB deletion only", "model", modelId)
@@ -636,15 +640,37 @@ func (h *Handler) deleteModel(c *gin.Context) (interface{}, error) {
 			return nil, commonerrors.NewInternalError("failed to fetch model: " + err.Error())
 		}
 	} else {
-		// Delete K8s Model CR
-		// Associated resources (Inference, Token Secret) will be automatically deleted via OwnerReference
+		// 1. Delete Token Secret manually (if exists)
+		// Token Secret cannot be deleted via OwnerReference because Model is cluster-scoped
+		// and Secret is namespace-scoped
+		if k8sModel.Spec.Source.Token != nil && k8sModel.Spec.Source.Token.Name != "" {
+			tokenSecret := &corev1.Secret{}
+			tokenSecretKey := ctrlclient.ObjectKey{
+				Name:      k8sModel.Spec.Source.Token.Name,
+				Namespace: common.PrimusSafeNamespace,
+			}
+			if err := h.k8sClient.Get(ctx, tokenSecretKey, tokenSecret); err != nil {
+				if !errors.IsNotFound(err) {
+					klog.ErrorS(err, "Failed to get token secret", "secret", tokenSecretKey.Name)
+				}
+			} else {
+				if err := h.k8sClient.Delete(ctx, tokenSecret); err != nil && !errors.IsNotFound(err) {
+					klog.ErrorS(err, "Failed to delete token secret", "secret", tokenSecretKey.Name)
+				} else {
+					klog.InfoS("Token secret deleted", "secret", tokenSecretKey.Name, "model", modelId)
+				}
+			}
+		}
+
+		// 2. Delete K8s Model CR
+		// Inference will be automatically deleted via OwnerReference (both are cluster-scoped)
 		if err := h.k8sClient.Delete(ctx, k8sModel); err != nil {
 			if !errors.IsNotFound(err) {
 				klog.ErrorS(err, "Failed to delete model from K8s", "model", modelId)
 				return nil, commonerrors.NewInternalError("failed to delete model: " + err.Error())
 			}
 		}
-		klog.InfoS("Model deleted from K8s (cascade delete: Inference, Token Secret)", "model", modelId)
+		klog.InfoS("Model deleted from K8s (cascade: Inference; manual: Token Secret)", "model", modelId)
 	}
 
 	return gin.H{"message": "model deleted successfully", "id": modelId}, nil

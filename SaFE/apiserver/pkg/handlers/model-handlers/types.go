@@ -222,14 +222,20 @@ type ListModelResponse struct {
 type ToggleModelRequest struct {
 	Enabled bool `json:"enabled"`
 
-	// Required: API key for authentication for remote_api mode
-	ApiKey string `json:"apiKey"`
+	// Instance configuration for remote_api mode (required when enabled=true for remote_api)
+	Instance *ToggleInstanceReq `json:"instance,omitempty"`
 
 	// Resource configuration for the inference service (required when enabled=true for local mode)
 	Resource *ToggleResourceReq `json:"resource,omitempty"`
 
 	// Config contains additional configuration for the inference service (required when enabled=true for local mode)
 	Config *ToggleConfigReq `json:"config,omitempty"`
+}
+
+// ToggleInstanceReq contains instance configuration for remote_api inference
+type ToggleInstanceReq struct {
+	ApiKey string `json:"apiKey"` // Required: API key for authentication
+	Model  string `json:"model"`  // Optional: model name (e.g., "gpt-4", "gpt-3.5-turbo")
 }
 
 // ToggleResourceReq contains resource requirements for enabling inference

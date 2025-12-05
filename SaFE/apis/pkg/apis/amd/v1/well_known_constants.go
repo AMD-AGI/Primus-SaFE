@@ -128,6 +128,10 @@ const (
 	AddonFinalizer    = AddonPrefix + "finalizer"
 	AddonDefaultLabel = AddonPrefix + "default"
 
+	// model
+	ModelPrefix  = PrimusSafePrefix + "model."
+	ModelIdLabel = ModelPrefix + "id"
+
 	// inference
 	InferencePrefix    = PrimusSafePrefix + "inference."
 	InferenceFinalizer = PrimusSafeDomain + "inference.finalizer"
