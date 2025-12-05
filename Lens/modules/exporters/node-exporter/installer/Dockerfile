@@ -55,7 +55,8 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Install pyrasite for process injection
-RUN pip3 install pyrasite --break-system-packages
+# Ubuntu 22.04's pip 22.0.2 doesn't support --break-system-packages option
+RUN pip3 install pyrasite
 
 # Copy application binary
 COPY --from=builder /app/$BASEPATH/$APPNAME .
