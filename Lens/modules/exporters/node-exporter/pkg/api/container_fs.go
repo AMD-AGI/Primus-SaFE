@@ -3,14 +3,15 @@ package api
 import (
 	"net/http"
 
-	containerfs "github.com/AMD-AGI/Primus-SaFE/Lens/node-exporter/pkg/collector/container-fs"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/model/rest"
+	containerfs "github.com/AMD-AGI/Primus-SaFE/Lens/node-exporter/pkg/collector/container-fs"
 	"github.com/gin-gonic/gin"
 )
 
 var (
-	fsReader           *containerfs.FSReader
-	tensorboardReader  *containerfs.TensorBoardReader
+	fsReader          *containerfs.FSReader
+	tensorboardReader *containerfs.TensorBoardReader
 )
 
 // InitContainerFS initializes container filesystem readers
@@ -34,10 +35,12 @@ func InitContainerFS() {
 func ReadContainerFile(c *gin.Context) {
 	var req containerfs.ReadRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, Response{
-			Code: http.StatusBadRequest,
-			Msg:  "Invalid request: " + err.Error(),
-		})
+		c.JSON(http.StatusBadRequest, rest.ErrorResp(
+			c.Request.Context(),
+			http.StatusBadRequest,
+			"Invalid request: "+err.Error(),
+			err,
+		))
 		return
 	}
 
@@ -47,18 +50,16 @@ func ReadContainerFile(c *gin.Context) {
 	response, err := fsReader.ReadFile(c.Request.Context(), &req)
 	if err != nil {
 		log.Errorf("Failed to read container file: %v", err)
-		c.JSON(http.StatusInternalServerError, Response{
-			Code: http.StatusInternalServerError,
-			Msg:  "Failed to read file: " + err.Error(),
-		})
+		c.JSON(http.StatusInternalServerError, rest.ErrorResp(
+			c.Request.Context(),
+			http.StatusInternalServerError,
+			"Failed to read file: "+err.Error(),
+			err,
+		))
 		return
 	}
 
-	c.JSON(http.StatusOK, Response{
-		Code: 0,
-		Data: response,
-		Msg:  "success",
-	})
+	c.JSON(http.StatusOK, rest.SuccessResp(c, response))
 }
 
 // ListContainerDirectory lists files in a container directory
@@ -75,10 +76,12 @@ func ReadContainerFile(c *gin.Context) {
 func ListContainerDirectory(c *gin.Context) {
 	var req containerfs.ListRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, Response{
-			Code: http.StatusBadRequest,
-			Msg:  "Invalid request: " + err.Error(),
-		})
+		c.JSON(http.StatusBadRequest, rest.ErrorResp(
+			c.Request.Context(),
+			http.StatusBadRequest,
+			"Invalid request: "+err.Error(),
+			err,
+		))
 		return
 	}
 
@@ -88,18 +91,16 @@ func ListContainerDirectory(c *gin.Context) {
 	response, err := fsReader.ListDirectory(c.Request.Context(), &req)
 	if err != nil {
 		log.Errorf("Failed to list container directory: %v", err)
-		c.JSON(http.StatusInternalServerError, Response{
-			Code: http.StatusInternalServerError,
-			Msg:  "Failed to list directory: " + err.Error(),
-		})
+		c.JSON(http.StatusInternalServerError, rest.ErrorResp(
+			c.Request.Context(),
+			http.StatusInternalServerError,
+			"Failed to list directory: "+err.Error(),
+			err,
+		))
 		return
 	}
 
-	c.JSON(http.StatusOK, Response{
-		Code: 0,
-		Data: response,
-		Msg:  "success",
-	})
+	c.JSON(http.StatusOK, rest.SuccessResp(c, response))
 }
 
 // GetContainerFileInfo gets file metadata from container
@@ -120,10 +121,12 @@ func GetContainerFileInfo(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, Response{
-			Code: http.StatusBadRequest,
-			Msg:  "Invalid request: " + err.Error(),
-		})
+		c.JSON(http.StatusBadRequest, rest.ErrorResp(
+			c.Request.Context(),
+			http.StatusBadRequest,
+			"Invalid request: "+err.Error(),
+			err,
+		))
 		return
 	}
 
@@ -132,18 +135,16 @@ func GetContainerFileInfo(c *gin.Context) {
 	fileInfo, err := fsReader.GetFileInfo(c.Request.Context(), req.PID, req.Path)
 	if err != nil {
 		log.Errorf("Failed to get container file info: %v", err)
-		c.JSON(http.StatusInternalServerError, Response{
-			Code: http.StatusInternalServerError,
-			Msg:  "Failed to get file info: " + err.Error(),
-		})
+		c.JSON(http.StatusInternalServerError, rest.ErrorResp(
+			c.Request.Context(),
+			http.StatusInternalServerError,
+			"Failed to get file info: "+err.Error(),
+			err,
+		))
 		return
 	}
 
-	c.JSON(http.StatusOK, Response{
-		Code: 0,
-		Data: fileInfo,
-		Msg:  "success",
-	})
+	c.JSON(http.StatusOK, rest.SuccessResp(c, fileInfo))
 }
 
 // GetTensorBoardLogs retrieves TensorBoard event files from container
@@ -164,10 +165,12 @@ func GetTensorBoardLogs(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, Response{
-			Code: http.StatusBadRequest,
-			Msg:  "Invalid request: " + err.Error(),
-		})
+		c.JSON(http.StatusBadRequest, rest.ErrorResp(
+			c.Request.Context(),
+			http.StatusBadRequest,
+			"Invalid request: "+err.Error(),
+			err,
+		))
 		return
 	}
 
@@ -176,18 +179,16 @@ func GetTensorBoardLogs(c *gin.Context) {
 	logInfo, err := tensorboardReader.GetTensorBoardLogs(c.Request.Context(), req.PID, req.LogDir)
 	if err != nil {
 		log.Errorf("Failed to get TensorBoard logs: %v", err)
-		c.JSON(http.StatusInternalServerError, Response{
-			Code: http.StatusInternalServerError,
-			Msg:  "Failed to get TensorBoard logs: " + err.Error(),
-		})
+		c.JSON(http.StatusInternalServerError, rest.ErrorResp(
+			c.Request.Context(),
+			http.StatusInternalServerError,
+			"Failed to get TensorBoard logs: "+err.Error(),
+			err,
+		))
 		return
 	}
 
-	c.JSON(http.StatusOK, Response{
-		Code: 0,
-		Data: logInfo,
-		Msg:  "success",
-	})
+	c.JSON(http.StatusOK, rest.SuccessResp(c, logInfo))
 }
 
 // ReadTensorBoardEvent reads a TensorBoard event file
@@ -210,10 +211,12 @@ func ReadTensorBoardEvent(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, Response{
-			Code: http.StatusBadRequest,
-			Msg:  "Invalid request: " + err.Error(),
-		})
+		c.JSON(http.StatusBadRequest, rest.ErrorResp(
+			c.Request.Context(),
+			http.StatusBadRequest,
+			"Invalid request: "+err.Error(),
+			err,
+		))
 		return
 	}
 
@@ -225,17 +228,14 @@ func ReadTensorBoardEvent(c *gin.Context) {
 	)
 	if err != nil {
 		log.Errorf("Failed to read TensorBoard event: %v", err)
-		c.JSON(http.StatusInternalServerError, Response{
-			Code: http.StatusInternalServerError,
-			Msg:  "Failed to read event file: " + err.Error(),
-		})
+		c.JSON(http.StatusInternalServerError, rest.ErrorResp(
+			c.Request.Context(),
+			http.StatusInternalServerError,
+			"Failed to read event file: "+err.Error(),
+			err,
+		))
 		return
 	}
 
-	c.JSON(http.StatusOK, Response{
-		Code: 0,
-		Data: response,
-		Msg:  "success",
-	})
+	c.JSON(http.StatusOK, rest.SuccessResp(c, response))
 }
-
