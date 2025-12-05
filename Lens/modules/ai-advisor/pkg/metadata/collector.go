@@ -62,6 +62,7 @@ func InitCollector(ctx context.Context, storage Storage) error {
 	return initErr
 }
 
+
 // GetCollector returns the global collector instance
 func GetCollector() *Collector {
 	return collectorInstance

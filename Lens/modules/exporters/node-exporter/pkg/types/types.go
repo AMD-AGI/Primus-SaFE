@@ -16,6 +16,7 @@ type ProcessTreeRequest struct {
 	IncludeResources bool   `json:"include_resources"`
 }
 
+
 // ProcessInfo represents process information
 type ProcessInfo struct {
 	HostPID       int            `json:"host_pid"`
