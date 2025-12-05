@@ -1,7 +1,9 @@
 package middleware
 
 import (
+	"math/rand"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -12,8 +14,58 @@ import (
 	oteltrace "go.opentelemetry.io/otel/trace"
 )
 
+const (
+	// tracingSampleRateKey is used to store the sample rate in gin.Context
+	tracingSampleRateKey = "tracing_sample_rate"
+)
+
+// WithTracingRate sets a custom tracing sample rate for specific endpoints
+// Sample rate range: 0.0 - 1.0, where 1.0 means 100% sampling, 0.1 means 10% sampling
+// Usage example: group.POST("wandb/batch", middleware.WithTracingRate(0.1), logs.ReceiveWandBBatch)
+func WithTracingRate(rate float64) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// Ensure sample rate is within valid range [0.0, 1.0]
+		if rate < 0.0 {
+			rate = 0.0
+		}
+		if rate > 1.0 {
+			rate = 1.0
+		}
+		c.Set(tracingSampleRateKey, rate)
+		c.Next()
+	}
+}
+
+// shouldSample determines whether to sample based on the sample rate
+func shouldSample(sampleRate float64) bool {
+	if sampleRate >= 1.0 {
+		return true
+	}
+	if sampleRate <= 0.0 {
+		return false
+	}
+	return rand.Float64() < sampleRate
+}
+
 func HandleTracing() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// Check if custom sample rate is set
+		var shouldTrace bool = true
+		if rateValue, exists := c.Get(tracingSampleRateKey); exists {
+			if rate, ok := rateValue.(float64); ok {
+				shouldTrace = shouldSample(rate)
+				// Add sample rate info to response headers (optional, for debugging)
+				c.Header("X-Trace-Sample-Rate", strconv.FormatFloat(rate, 'f', 2, 64))
+				c.Header("X-Trace-Sampled", strconv.FormatBool(shouldTrace))
+			}
+		}
+
+		// If sampling decision is to skip, just continue without tracing
+		if !shouldTrace {
+			c.Next()
+			return
+		}
+
 		// Record start time for duration calculation
 		startTime := time.Now()
 

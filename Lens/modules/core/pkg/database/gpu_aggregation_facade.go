@@ -42,6 +42,7 @@ type GpuAggregationFacadeInterface interface {
 	ListNamespaceHourlyStats(ctx context.Context, startTime, endTime time.Time) ([]*dbmodel.NamespaceGpuHourlyStats, error)
 	GetNamespaceHourlyStatsPaginated(ctx context.Context, namespace string, startTime, endTime time.Time, opts PaginationOptions) (*PaginatedResult, error)
 	ListNamespaceHourlyStatsPaginated(ctx context.Context, startTime, endTime time.Time, opts PaginationOptions) (*PaginatedResult, error)
+	ListNamespaceHourlyStatsPaginatedWithExclusion(ctx context.Context, startTime, endTime time.Time, excludeNamespaces []string, opts PaginationOptions) (*PaginatedResult, error)
 
 	// LabelGpuHourlyStats operations
 	SaveLabelHourlyStats(ctx context.Context, stats *dbmodel.LabelGpuHourlyStats) error
@@ -58,6 +59,7 @@ type GpuAggregationFacadeInterface interface {
 	ListWorkloadHourlyStats(ctx context.Context, startTime, endTime time.Time) ([]*dbmodel.WorkloadGpuHourlyStats, error)
 	ListWorkloadHourlyStatsByNamespace(ctx context.Context, namespace string, startTime, endTime time.Time) ([]*dbmodel.WorkloadGpuHourlyStats, error)
 	GetWorkloadHourlyStatsPaginated(ctx context.Context, namespace, workloadName, workloadType string, startTime, endTime time.Time, opts PaginationOptions) (*PaginatedResult, error)
+	GetWorkloadHourlyStatsPaginatedWithExclusion(ctx context.Context, namespace, workloadName, workloadType string, startTime, endTime time.Time, excludeNamespaces []string, opts PaginationOptions) (*PaginatedResult, error)
 	ListWorkloadHourlyStatsPaginated(ctx context.Context, startTime, endTime time.Time, opts PaginationOptions) (*PaginatedResult, error)
 	ListWorkloadHourlyStatsByNamespacePaginated(ctx context.Context, namespace string, startTime, endTime time.Time, opts PaginationOptions) (*PaginatedResult, error)
 
@@ -72,6 +74,7 @@ type GpuAggregationFacadeInterface interface {
 
 	// Metadata queries
 	GetDistinctNamespaces(ctx context.Context, startTime, endTime time.Time) ([]string, error)
+	GetDistinctNamespacesWithExclusion(ctx context.Context, startTime, endTime time.Time, excludeNamespaces []string) ([]string, error)
 	GetDistinctDimensionKeys(ctx context.Context, dimensionType string, startTime, endTime time.Time) ([]string, error)
 	GetDistinctDimensionValues(ctx context.Context, dimensionType, dimensionKey string, startTime, endTime time.Time) ([]string, error)
 
@@ -460,6 +463,32 @@ func (f *GpuAggregationFacade) GetDistinctNamespaces(ctx context.Context, startT
 	return namespaces, nil
 }
 
+// GetDistinctNamespacesWithExclusion gets all distinct namespaces within specified time range, excluding specified namespaces
+func (f *GpuAggregationFacade) GetDistinctNamespacesWithExclusion(ctx context.Context, startTime, endTime time.Time, excludeNamespaces []string) ([]string, error) {
+	q := f.getDAL().NamespaceGpuHourlyStats
+
+	query := q.WithContext(ctx).
+		Where(q.StatHour.Gte(startTime)).
+		Where(q.StatHour.Lte(endTime))
+
+	// Add exclusion condition if excludeNamespaces is not empty
+	if len(excludeNamespaces) > 0 {
+		query = query.Where(q.Namespace.NotIn(excludeNamespaces...))
+	}
+
+	var namespaces []string
+	err := query.Distinct(q.Namespace).Pluck(q.Namespace, &namespaces)
+
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return []string{}, nil
+		}
+		return nil, err
+	}
+
+	return namespaces, nil
+}
+
 // GetDistinctDimensionKeys gets all distinct dimension keys within specified time range
 func (f *GpuAggregationFacade) GetDistinctDimensionKeys(ctx context.Context, dimensionType string, startTime, endTime time.Time) ([]string, error) {
 	q := f.getDAL().LabelGpuHourlyStats
@@ -681,6 +710,75 @@ func (f *GpuAggregationFacade) ListNamespaceHourlyStatsPaginated(ctx context.Con
 			result, err = baseQuery.Order(q.StatHour.Desc()).Find()
 		} else {
 			result, err = baseQuery.Order(q.StatHour).Find()
+		}
+	}
+
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			result = []*dbmodel.NamespaceGpuHourlyStats{}
+		} else {
+			return nil, err
+		}
+	}
+
+	return &PaginatedResult{
+		Total:      total,
+		Page:       opts.Page,
+		PageSize:   opts.PageSize,
+		TotalPages: totalPages,
+		Data:       result,
+	}, nil
+}
+
+// ListNamespaceHourlyStatsPaginatedWithExclusion queries hourly statistics for all namespaces with pagination, excluding specified namespaces
+func (f *GpuAggregationFacade) ListNamespaceHourlyStatsPaginatedWithExclusion(ctx context.Context, startTime, endTime time.Time, excludeNamespaces []string, opts PaginationOptions) (*PaginatedResult, error) {
+	q := f.getDAL().NamespaceGpuHourlyStats
+
+	// Build base condition
+	baseQuery := q.WithContext(ctx).
+		Where(q.StatHour.Gte(startTime)).
+		Where(q.StatHour.Lte(endTime))
+
+	// Add exclusion condition if excludeNamespaces is not empty
+	if len(excludeNamespaces) > 0 {
+		baseQuery = baseQuery.Where(q.Namespace.NotIn(excludeNamespaces...))
+	}
+
+	// Query total count
+	total, err := baseQuery.Count()
+	if err != nil {
+		return nil, err
+	}
+
+	// Calculate pagination parameters
+	offset, limit, totalPages := calculatePagination(opts.Page, opts.PageSize, total)
+
+	// Build query with pagination
+	paginatedQuery := q.WithContext(ctx).
+		Where(q.StatHour.Gte(startTime)).
+		Where(q.StatHour.Lte(endTime)).
+		Offset(offset).
+		Limit(limit)
+
+	// Add exclusion condition
+	if len(excludeNamespaces) > 0 {
+		paginatedQuery = paginatedQuery.Where(q.Namespace.NotIn(excludeNamespaces...))
+	}
+
+	// Apply sorting
+	var result []*dbmodel.NamespaceGpuHourlyStats
+	if opts.OrderBy == "utilization" {
+		if opts.OrderDirection == "desc" {
+			result, err = paginatedQuery.Order(q.AvgUtilization.Desc()).Find()
+		} else {
+			result, err = paginatedQuery.Order(q.AvgUtilization).Find()
+		}
+	} else {
+		// Default sort by time
+		if opts.OrderDirection == "desc" {
+			result, err = paginatedQuery.Order(q.StatHour.Desc()).Find()
+		} else {
+			result, err = paginatedQuery.Order(q.StatHour).Find()
 		}
 	}
 
@@ -962,6 +1060,82 @@ func (f *GpuAggregationFacade) GetWorkloadHourlyStatsPaginated(ctx context.Conte
 	}
 	if workloadType != "" {
 		query = query.Where(q.WorkloadType.Eq(workloadType))
+	}
+
+	// Query total count
+	total, err := query.Count()
+	if err != nil {
+		return nil, err
+	}
+
+	// Calculate pagination parameters
+	offset, limit, totalPages := calculatePagination(opts.Page, opts.PageSize, total)
+
+	// Add pagination
+	query = query.Offset(offset).Limit(limit)
+
+	// Apply sorting
+	var result []*dbmodel.WorkloadGpuHourlyStats
+	if opts.OrderBy == "utilization" {
+		if opts.OrderDirection == "desc" {
+			result, err = query.Order(q.AvgUtilization.Desc()).Find()
+		} else {
+			result, err = query.Order(q.AvgUtilization).Find()
+		}
+	} else if opts.OrderBy == "allocated_gpu_count" {
+		if opts.OrderDirection == "desc" {
+			result, err = query.Order(q.AllocatedGpuCount.Desc()).Find()
+		} else {
+			result, err = query.Order(q.AllocatedGpuCount).Find()
+		}
+	} else {
+		// Default sort by time
+		if opts.OrderDirection == "desc" {
+			result, err = query.Order(q.StatHour.Desc()).Find()
+		} else {
+			result, err = query.Order(q.StatHour).Find()
+		}
+	}
+
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			result = []*dbmodel.WorkloadGpuHourlyStats{}
+		} else {
+			return nil, err
+		}
+	}
+
+	return &PaginatedResult{
+		Total:      total,
+		Page:       opts.Page,
+		PageSize:   opts.PageSize,
+		TotalPages: totalPages,
+		Data:       result,
+	}, nil
+}
+
+// GetWorkloadHourlyStatsPaginatedWithExclusion queries workload hourly statistics with pagination, excluding specified namespaces
+func (f *GpuAggregationFacade) GetWorkloadHourlyStatsPaginatedWithExclusion(ctx context.Context, namespace, workloadName, workloadType string, startTime, endTime time.Time, excludeNamespaces []string, opts PaginationOptions) (*PaginatedResult, error) {
+	q := f.getDAL().WorkloadGpuHourlyStats
+
+	// Build base query with filters
+	query := q.WithContext(ctx).
+		Where(q.StatHour.Gte(startTime)).
+		Where(q.StatHour.Lte(endTime))
+
+	if namespace != "" {
+		query = query.Where(q.Namespace.Eq(namespace))
+	}
+	if workloadName != "" {
+		query = query.Where(q.WorkloadName.Eq(workloadName))
+	}
+	if workloadType != "" {
+		query = query.Where(q.WorkloadType.Eq(workloadType))
+	}
+
+	// Add exclusion condition if excludeNamespaces is not empty
+	if len(excludeNamespaces) > 0 {
+		query = query.Where(q.Namespace.NotIn(excludeNamespaces...))
 	}
 
 	// Query total count

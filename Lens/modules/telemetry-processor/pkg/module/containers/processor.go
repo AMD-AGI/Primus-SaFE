@@ -142,7 +142,6 @@ func processK8sContainerEvent(ctx context.Context, req *ContainerEventRequest) e
 		}
 	}
 
-	log.Infof("Successfully processed K8s container event: container=%s, type=%s, node=%s", req.ContainerID, req.Type, req.Node)
 	return nil
 }
 

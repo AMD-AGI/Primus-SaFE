@@ -24,7 +24,8 @@ import (
 )
 
 type WorkloadReconciler struct {
-	client *clientsets.K8SClientSet
+	client             *clientsets.K8SClientSet
+	frameworkDetection *FrameworkDetectionIntegration
 }
 
 func (r *WorkloadReconciler) Init(ctx context.Context) error {
@@ -36,6 +37,18 @@ func (r *WorkloadReconciler) Init(ctx context.Context) error {
 	}
 	r.client = currentCluster.K8SClientSet
 	log.Info("WorkloadReconciler initialized with K8S client")
+
+	// Initialize framework detection integration
+	facade := database.GetFacade()
+	frameworkDetection, err := NewFrameworkDetectionIntegration(facade.GetAiWorkloadMetadata())
+	if err != nil {
+		log.Errorf("Failed to initialize framework detection: %v", err)
+		// Don't fail, continue with degraded functionality
+	} else {
+		r.frameworkDetection = frameworkDetection
+		log.Info("Framework detection integration initialized")
+	}
+
 	return nil
 }
 
@@ -62,6 +75,19 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req reconcile.Reques
 	err = r.saveWorkloadToDB(ctx, workload)
 	if err != nil {
 		return reconcile.Result{}, err
+	}
+
+	// Trigger framework detection for new or pending workloads
+	if r.frameworkDetection != nil {
+		if workload.Status.Phase == "" || workload.Status.Phase == primusSafeV1.WorkloadPending {
+			// Run framework detection asynchronously to avoid blocking reconcile
+			go func() {
+				detectionCtx := context.Background()
+				if err := r.frameworkDetection.OnWorkloadCreated(detectionCtx, workload); err != nil {
+					log.Errorf("Framework detection failed for workload %s: %v", workload.UID, err)
+				}
+			}()
+		}
 	}
 	if workload.DeletionTimestamp != nil {
 		if !controllerutil.RemoveFinalizer(workload, constant.PrimusLensGpuWorkloadExporterFinalizer) {

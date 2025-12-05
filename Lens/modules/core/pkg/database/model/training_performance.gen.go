@@ -19,6 +19,7 @@ type TrainingPerformance struct {
 	CreatedAt   time.Time `gorm:"column:created_at" json:"created_at"`
 	Serial      int32     `gorm:"column:serial" json:"serial"`
 	WorkloadUID string    `gorm:"column:workload_uid" json:"workload_uid"`
+	DataSource  string    `gorm:"column:data_source;default:log;comment:Source of training performance data: log (parsed from logs), wandb (from W&B API), or tensorflow (from TensorFlow/TensorBoard)" json:"data_source"` // Source of training performance data: log (parsed from logs), wandb (from W&B API), or tensorflow (from TensorFlow/TensorBoard)
 }
 
 // TableName TrainingPerformance's table name
