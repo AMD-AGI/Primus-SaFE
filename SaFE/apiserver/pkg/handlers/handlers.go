@@ -55,20 +55,20 @@ func InitHttpHandlers(_ context.Context, mgr ctrlruntime.Manager) (*gin.Engine, 
 		return nil, err
 	}
 	sshhandler.InitWebShellRouters(engine, sshHandler)
-
-	// Initialize model and playground handlers
-	if commonconfig.IsDBEnable() {
-		modelHandler := InitModelHandlers(mgr)
-		model_handlers.InitInferenceRouters(engine, modelHandler)
-	}
+	modelHandler := InitModelHandlers(mgr)
+	model_handlers.InitInferenceRouters(engine, modelHandler)
 
 	return engine, nil
 }
 
 // InitModelHandlers initializes the model handlers for the API server.
 // It creates and returns a new model handler instance configured with the provided manager.
+// If database is not enabled, dbClient will be nil and handlers will use K8s API only.
 func InitModelHandlers(mgr ctrlruntime.Manager) *model_handlers.Handler {
-	dbClient := dbclient.NewClient()
+	var dbClient dbclient.Interface
+	if commonconfig.IsDBEnable() {
+		dbClient = dbclient.NewClient()
+	}
 	accessController := authority.NewAccessController(mgr.GetClient())
 	return model_handlers.NewHandler(mgr.GetClient(), dbClient, accessController)
 }

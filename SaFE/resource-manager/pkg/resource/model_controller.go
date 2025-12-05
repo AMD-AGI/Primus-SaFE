@@ -174,18 +174,8 @@ func (r *ModelReconciler) needsCleanup(model *v1.Model) bool {
 }
 
 // handleDelete handles the deletion of a Model resource
+// Note: Inference will be automatically deleted by Kubernetes garbage collection (OwnerReference)
 func (r *ModelReconciler) handleDelete(ctx context.Context, model *v1.Model) (ctrl.Result, error) {
-	// Delete associated Inference if exists
-	if model.Status.InferenceID != "" {
-		inference := &v1.Inference{}
-		if err := r.Get(ctx, client.ObjectKey{Name: model.Status.InferenceID}, inference); err == nil {
-			klog.InfoS("Deleting associated inference", "model", model.Name, "inference", model.Status.InferenceID)
-			if err := r.Delete(ctx, inference); err != nil && !errors.IsNotFound(err) {
-				klog.ErrorS(err, "Failed to delete associated inference", "inference", model.Status.InferenceID)
-			}
-		}
-	}
-
 	// If no finalizer, nothing to do
 	if !controllerutil.ContainsFinalizer(model, ModelFinalizer) {
 		return ctrl.Result{}, nil
@@ -288,8 +278,8 @@ func (r *ModelReconciler) constructCleanupJob(model *v1.Model) (*batchv1.Job, er
 
 	s3Path := fmt.Sprintf("s3://%s/%s", s3Bucket, model.GetS3Path())
 
-	// Use the same downloader image which has awscli installed
-	image := "harbor.tas.primus-safe.amd.com/proxy/primussafe/model-downloader:latest"
+	// Use the model downloader image from config (has awscli installed)
+	image := commonconfig.GetModelDownloaderImage()
 
 	backoffLimit := int32(1)
 	ttlSeconds := int32(60) // Auto-delete job and pod 60 seconds after completion
@@ -513,8 +503,8 @@ func (r *ModelReconciler) constructDownloadJob(model *v1.Model) (*batchv1.Job, e
 		return nil, fmt.Errorf("S3 configuration is incomplete")
 	}
 
-	// Use custom image with pre-installed huggingface-cli and awscli
-	image := "harbor.tas.primus-safe.amd.com/proxy/primussafe/model-downloader:latest"
+	// Use model downloader image from config (has huggingface-cli and awscli installed)
+	image := commonconfig.GetModelDownloaderImage()
 
 	// Mount HF_TOKEN from Secret if provided
 	if model.Spec.Source.Token != nil {

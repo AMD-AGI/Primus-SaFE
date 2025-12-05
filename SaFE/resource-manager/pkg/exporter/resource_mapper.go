@@ -368,7 +368,8 @@ func modelMapper(obj *unstructured.Unstructured) *dbclient.Model {
 		Message:        cr.Status.Message,
 		InferenceID:    cr.Status.InferenceID,
 		InferencePhase: cr.Status.InferencePhase,
-		CreatedAt:      cr.CreationTimestamp.Time,
+		CreatedAt:      dbutils.NullTime(cr.CreationTimestamp.Time),
+		UpdatedAt:      dbutils.NullMetaV1Time(cr.Status.UpdateTime),
 		DeletionTime:   dbutils.NullMetaV1Time(cr.GetDeletionTimestamp()),
 		IsDeleted:      !cr.GetDeletionTimestamp().IsZero(),
 	}

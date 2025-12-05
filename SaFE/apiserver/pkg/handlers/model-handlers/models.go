@@ -19,6 +19,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
@@ -72,40 +73,43 @@ func (h *Handler) createModel(c *gin.Context) (interface{}, error) {
 		return nil, commonerrors.NewBadRequest("accessMode must be 'local' or 'remote_api'")
 	}
 
-	// Check if model with same URL already exists
 	// Normalize URL for consistent matching (trim trailing slash and spaces)
 	normalizedURL := strings.TrimSuffix(strings.TrimSpace(req.Source.URL), "/")
 
-	// Check with normalized URL first
-	existingModel, _ := h.findModelBySourceURL(ctx, normalizedURL)
-	if existingModel == nil {
-		// Also try with trailing slash (in case stored with slash)
-		existingModel, _ = h.findModelBySourceURL(ctx, normalizedURL+"/")
-	}
+	// Check if model with same URL already exists (only for local mode)
+	// Remote API mode skips duplicate check since each user has their own API key
+	if req.Source.AccessMode == string(v1.AccessModeLocal) && normalizedURL != "" {
+		// Check with normalized URL first
+		existingModel, _ := h.findModelBySourceURL(ctx, normalizedURL)
+		if existingModel == nil {
+			// Also try with trailing slash (in case stored with slash)
+			existingModel, _ = h.findModelBySourceURL(ctx, normalizedURL+"/")
+		}
 
-	// For local models, also check by repo_id to handle both URL and repo_id format
-	if existingModel == nil && req.Source.AccessMode == string(v1.AccessModeLocal) {
-		// Try to find by normalized repo_id (e.g., "microsoft/phi-2" from "https://huggingface.co/microsoft/phi-2")
-		repoId := cleanRepoID(normalizedURL)
-		if repoId != normalizedURL {
-			existingModel, _ = h.findModelBySourceURL(ctx, repoId)
+		// For local models, also check by repo_id to handle both URL and repo_id format
+		if existingModel == nil {
+			// Try to find by normalized repo_id (e.g., "microsoft/phi-2" from "https://huggingface.co/microsoft/phi-2")
+			repoId := cleanRepoID(normalizedURL)
+			if repoId != normalizedURL {
+				existingModel, _ = h.findModelBySourceURL(ctx, repoId)
+			}
+			// Also try the full URL if user provided repo_id
+			if existingModel == nil && !isFullURL(normalizedURL) {
+				fullURL := fmt.Sprintf("https://huggingface.co/%s", normalizedURL)
+				existingModel, _ = h.findModelBySourceURL(ctx, fullURL)
+			}
 		}
-		// Also try the full URL if user provided repo_id
-		if existingModel == nil && !isFullURL(normalizedURL) {
-			fullURL := fmt.Sprintf("https://huggingface.co/%s", normalizedURL)
-			existingModel, _ = h.findModelBySourceURL(ctx, fullURL)
-		}
-	}
 
-	if existingModel != nil {
-		if existingModel.Phase == string(v1.ModelPhaseReady) {
-			return nil, commonerrors.NewBadRequest(fmt.Sprintf("model with URL '%s' already exists and is ready (id: %s)", existingModel.SourceURL, existingModel.ID))
-		} else if existingModel.Phase == string(v1.ModelPhasePulling) {
-			return nil, commonerrors.NewBadRequest(fmt.Sprintf("model with URL '%s' is currently being downloaded (id: %s)", existingModel.SourceURL, existingModel.ID))
-		} else if existingModel.Phase == string(v1.ModelPhasePending) {
-			return nil, commonerrors.NewBadRequest(fmt.Sprintf("model with URL '%s' already exists and is pending (id: %s)", existingModel.SourceURL, existingModel.ID))
+		if existingModel != nil {
+			if existingModel.Phase == string(v1.ModelPhaseReady) {
+				return nil, commonerrors.NewBadRequest(fmt.Sprintf("model with URL '%s' already exists and is ready (id: %s)", existingModel.SourceURL, existingModel.ID))
+			} else if existingModel.Phase == string(v1.ModelPhasePulling) {
+				return nil, commonerrors.NewBadRequest(fmt.Sprintf("model with URL '%s' is currently being downloaded (id: %s)", existingModel.SourceURL, existingModel.ID))
+			} else if existingModel.Phase == string(v1.ModelPhasePending) {
+				return nil, commonerrors.NewBadRequest(fmt.Sprintf("model with URL '%s' already exists and is pending (id: %s)", existingModel.SourceURL, existingModel.ID))
+			}
+			// If model exists but failed, allow re-creation
 		}
-		// If model exists but failed, allow re-creation
 	}
 
 	var (
@@ -138,46 +142,19 @@ func (h *Handler) createModel(c *gin.Context) (interface{}, error) {
 		if req.DisplayName == "" {
 			return nil, commonerrors.NewBadRequest("displayName is required for remote_api mode")
 		}
-		if req.Label == "" {
-			return nil, commonerrors.NewBadRequest("label is required for remote_api mode")
-		}
-		if req.Description == "" {
-			return nil, commonerrors.NewBadRequest("description is required for remote_api mode")
-		}
 		displayName = req.DisplayName
-		description = req.Description
-		icon = req.Icon
-		label = req.Label
-		tags = req.Tags
-		maxTokens = req.MaxTokens
+		description = req.Description // Optional
+		icon = req.Icon               // Optional
+		label = req.Label             // Optional
+		tags = req.Tags               // Optional
+		maxTokens = req.MaxTokens     // Optional
 		klog.InfoS("Using user-provided metadata for remote API model", "displayName", displayName)
 	}
 
 	// Generate Name
 	name := commonutils.GenerateName("model")
 
-	// 1. If user provided a token, create a Secret first
-	var tokenSecretName string
-	if req.Source.Token != "" {
-		tokenSecretName = name // Secret name: model-xxx
-		secret := &corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      tokenSecretName,
-				Namespace: common.PrimusSafeNamespace,
-			},
-			StringData: map[string]string{
-				"token": req.Source.Token, // Store plaintext token in Secret
-			},
-			Type: corev1.SecretTypeOpaque,
-		}
-		if err := h.k8sClient.Create(ctx, secret); err != nil {
-			klog.ErrorS(err, "Failed to create token Secret")
-			return nil, commonerrors.NewInternalError("failed to create token secret: " + err.Error())
-		}
-		klog.Infof("Created token Secret: %s", tokenSecretName)
-	}
-
-	// 2. Create K8s CR
+	// 1. Create K8s Model CR first
 	k8sModel := &v1.Model{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
@@ -197,69 +174,48 @@ func (h *Handler) createModel(c *gin.Context) (interface{}, error) {
 		},
 	}
 
-	// Reference the Secret we just created
-	if tokenSecretName != "" {
-		k8sModel.Spec.Source.Token = &corev1.LocalObjectReference{
-			Name: tokenSecretName,
-		}
-	}
-
 	if err := h.k8sClient.Create(ctx, k8sModel); err != nil {
 		klog.ErrorS(err, "Failed to create Model CR")
 		return nil, commonerrors.NewInternalError("failed to create model resource: " + err.Error())
 	}
 
-	// For remote_api mode, automatically create Inference CR
-	if req.Source.AccessMode == string(v1.AccessModeRemoteAPI) {
-		userId := c.GetString("userId")
-		userName := c.GetString("userName")
-
-		infId := commonutils.GenerateName(name)
-
-		// Normalize displayName for K8s label (must be lowercase alphanumeric, '-', max 45 chars)
-		normalizedDisplayName := stringutil.NormalizeForDNS(displayName)
-
-		inference := &v1.Inference{
+	// 2. If user provided a token, create a Secret with Model as owner
+	if req.Source.Token != "" {
+		tokenSecretName := name // Secret name: model-xxx
+		secret := &corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{
-				Name: infId,
-				Labels: map[string]string{
-					v1.InferenceIdLabel: infId,
-					v1.UserIdLabel:      userId,
-					v1.DisplayNameLabel: normalizedDisplayName,
-				},
+				Name:      tokenSecretName,
+				Namespace: common.PrimusSafeNamespace,
 			},
-			Spec: v1.InferenceSpec{
-				DisplayName: displayName,
-				Description: description,
-				UserID:      userId,
-				UserName:    userName,
-				ModelForm:   constvar.InferenceModelFormAPI,
-				ModelName:   name,
-				Instance: v1.InferenceInstance{
-					BaseUrl: req.Source.URL,
-					ApiKey:  req.Source.ApiKey,
-				},
-				// Resource and Config are empty for remote_api mode
+			StringData: map[string]string{
+				"token": req.Source.Token, // Store plaintext token in Secret
 			},
-			Status: v1.InferenceStatus{
-				Phase:      constvar.InferencePhaseRunning, // Remote API is immediately ready
-				UpdateTime: &metav1.Time{Time: time.Now().UTC()},
-			},
+			Type: corev1.SecretTypeOpaque,
 		}
 
-		if err := h.k8sClient.Create(ctx, inference); err != nil {
-			klog.ErrorS(err, "Failed to create Inference for remote API model", "model", name)
-			// Don't fail the model creation, just log the error
-		} else {
-			klog.Infof("Created Inference %s for remote API model %s", infId, name)
+		// Set Model as owner of Secret for automatic cascade deletion
+		if err := controllerutil.SetControllerReference(k8sModel, secret, h.k8sClient.Scheme()); err != nil {
+			klog.ErrorS(err, "Failed to set owner reference for token secret", "model", name)
+			// Clean up: delete the model we just created
+			_ = h.k8sClient.Delete(ctx, k8sModel)
+			return nil, commonerrors.NewInternalError("failed to set owner reference: " + err.Error())
+		}
 
-			// Update Model status with inference ID
-			k8sModel.Status.InferenceID = infId
-			k8sModel.Status.InferencePhase = string(constvar.InferencePhaseRunning)
-			k8sModel.Status.Phase = v1.ModelPhaseReady // Remote API models are immediately ready
-			if err := h.k8sClient.Status().Update(ctx, k8sModel); err != nil {
-				klog.ErrorS(err, "Failed to update Model status with inference ID", "model", name)
-			}
+		if err := h.k8sClient.Create(ctx, secret); err != nil {
+			klog.ErrorS(err, "Failed to create token Secret")
+			// Clean up: delete the model we just created
+			_ = h.k8sClient.Delete(ctx, k8sModel)
+			return nil, commonerrors.NewInternalError("failed to create token secret: " + err.Error())
+		}
+		klog.Infof("Created token Secret: %s with Model %s as owner", tokenSecretName, name)
+
+		// Update Model to reference the Secret
+		k8sModel.Spec.Source.Token = &corev1.LocalObjectReference{
+			Name: tokenSecretName,
+		}
+		if err := h.k8sClient.Update(ctx, k8sModel); err != nil {
+			klog.ErrorS(err, "Failed to update Model with token reference")
+			return nil, commonerrors.NewInternalError("failed to update model with token: " + err.Error())
 		}
 	}
 
@@ -288,7 +244,14 @@ func (h *Handler) getModel(c *gin.Context) (interface{}, error) {
 		return model, nil
 	}
 
-	return nil, commonerrors.NewInternalError("database client type mismatch")
+	// Fallback to K8s API
+	k8sModel := &v1.Model{}
+	if err := h.k8sClient.Get(c.Request.Context(), ctrlclient.ObjectKey{Name: modelId}, k8sModel); err != nil {
+		return nil, commonerrors.NewNotFound("playground model", modelId)
+	}
+
+	// Convert K8s Model to response format
+	return h.convertK8sModelToResponse(k8sModel), nil
 }
 
 func parseListModelQuery(c *gin.Context) (*ListModelQuery, error) {
@@ -351,7 +314,59 @@ func (h *Handler) listModels(c *gin.Context) (interface{}, error) {
 		}, nil
 	}
 
-	return nil, commonerrors.NewInternalError("database client type mismatch")
+	// Fallback to K8s API
+	k8sModelList := &v1.ModelList{}
+	if err := h.k8sClient.List(c.Request.Context(), k8sModelList); err != nil {
+		return nil, commonerrors.NewInternalError("failed to list models from K8s: " + err.Error())
+	}
+
+	// Filter and convert models
+	var items []interface{}
+	for _, k8sModel := range k8sModelList.Items {
+		// Apply filters
+		if queryArgs.AccessMode != "" && string(k8sModel.Spec.Source.AccessMode) != queryArgs.AccessMode {
+			continue
+		}
+		if queryArgs.InferenceStatus != "" && k8sModel.Status.InferencePhase != queryArgs.InferenceStatus {
+			continue
+		}
+		items = append(items, h.convertK8sModelToResponse(&k8sModel))
+	}
+
+	// Apply pagination
+	total := int64(len(items))
+	start := queryArgs.Offset
+	end := queryArgs.Offset + queryArgs.Limit
+	if start > int(total) {
+		start = int(total)
+	}
+	if end > int(total) {
+		end = int(total)
+	}
+
+	return gin.H{
+		"total": total,
+		"items": items[start:end],
+	}, nil
+}
+
+// convertK8sModelToResponse converts a K8s Model CR to API response format
+func (h *Handler) convertK8sModelToResponse(k8sModel *v1.Model) gin.H {
+	return gin.H{
+		"id":             k8sModel.Name,
+		"displayName":    k8sModel.Spec.DisplayName,
+		"description":    k8sModel.Spec.Description,
+		"icon":           k8sModel.Spec.Icon,
+		"label":          k8sModel.Spec.Label,
+		"tags":           k8sModel.Spec.Tags,
+		"maxTokens":      k8sModel.Spec.MaxTokens,
+		"accessMode":     k8sModel.Spec.Source.AccessMode,
+		"url":            k8sModel.Spec.Source.URL,
+		"phase":          k8sModel.Status.Phase,
+		"inferenceId":    k8sModel.Status.InferenceID,
+		"inferencePhase": k8sModel.Status.InferencePhase,
+		"creationTime":   k8sModel.CreationTimestamp.Time,
+	}
 }
 
 // toggleModel handles enabling/disabling an inference service for the model.
@@ -380,67 +395,10 @@ func (h *Handler) toggleModel(c *gin.Context) (interface{}, error) {
 		return nil, commonerrors.NewNotFound("playground model", modelId)
 	}
 
-	// For remote_api mode, toggle is not needed - inference is always available
-	if k8sModel.IsRemoteAPI() {
-		if k8sModel.Status.InferenceID != "" {
-			return gin.H{
-				"message":     "remote API model is always available, toggle is not needed",
-				"inferenceId": k8sModel.Status.InferenceID,
-			}, nil
-		}
-		return nil, commonerrors.NewInternalError("remote API model has no inference, please check model status")
-	}
-
 	if req.Enabled {
 		// Toggle ON
 		if k8sModel.Status.InferenceID != "" {
 			return nil, commonerrors.NewBadRequest(fmt.Sprintf("inference already exists, inferenceId: %s", k8sModel.Status.InferenceID))
-		}
-
-		// At this point, we know it's a local model (remote_api already returned above)
-		modelForm := constvar.InferenceModelFormModelSquare
-
-		// Validate required fields for local model inference
-		if req.Resource == nil || req.Config == nil {
-			return nil, commonerrors.NewBadRequest("resource and config are required for local model inference")
-		}
-		var missingFields []string
-		if req.Resource.Workspace == "" {
-			missingFields = append(missingFields, "workspace")
-		}
-		if req.Resource.Replica <= 0 {
-			missingFields = append(missingFields, "replica")
-		}
-		if req.Config.Image == "" {
-			missingFields = append(missingFields, "image")
-		}
-		if req.Config.EntryPoint == "" {
-			missingFields = append(missingFields, "entryPoint")
-		}
-		if len(missingFields) > 0 {
-			return nil, commonerrors.NewBadRequest(fmt.Sprintf("missing required fields for inference: %v", missingFields))
-		}
-
-		// Build Resource from request
-		var inferenceResource v1.InferenceResource
-		if req.Resource != nil {
-			inferenceResource = v1.InferenceResource{
-				Workspace: req.Resource.Workspace,
-				Replica:   req.Resource.Replica,
-				Cpu:       req.Resource.CPU,
-				Memory:    req.Resource.Memory,
-				Gpu:       req.Resource.GPU,
-			}
-		}
-
-		// Build Config from request
-		var inferenceConfig v1.InferenceConfig
-		if req.Config != nil {
-			inferenceConfig = v1.InferenceConfig{
-				Image:      req.Config.Image,
-				EntryPoint: req.Config.EntryPoint,
-				ModelPath:  req.Config.ModelPath,
-			}
 		}
 
 		// Generate new inference ID
@@ -449,30 +407,161 @@ func (h *Handler) toggleModel(c *gin.Context) (interface{}, error) {
 		// Normalize displayName for K8s label (must be lowercase alphanumeric, '-', max 45 chars)
 		normalizedDisplayName := stringutil.NormalizeForDNS(k8sModel.Spec.DisplayName)
 
-		// Create Inference CRD
-		inference := &v1.Inference{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: infId,
-				Labels: map[string]string{
-					v1.InferenceIdLabel: infId,
-					v1.UserIdLabel:      userId,
-					v1.DisplayNameLabel: normalizedDisplayName,
+		var inference *v1.Inference
+
+		if k8sModel.IsRemoteAPI() {
+			// Remote API mode: create API-type inference
+			if req.ApiKey == "" {
+				return nil, commonerrors.NewBadRequest("apiKey is required for remote_api model")
+			}
+
+			apiKeySecretName := infId // Secret name same as inference ID
+
+			// 1. Create Inference first (without ApiKey reference)
+			inference = &v1.Inference{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: infId,
+					Labels: map[string]string{
+						v1.InferenceIdLabel: infId,
+						v1.UserIdLabel:      userId,
+						v1.DisplayNameLabel: normalizedDisplayName,
+					},
 				},
-			},
-			Spec: v1.InferenceSpec{
-				DisplayName: k8sModel.Spec.DisplayName,
-				Description: k8sModel.Spec.Description,
-				UserID:      userId,
-				UserName:    userName,
-				ModelForm:   modelForm,
-				ModelName:   modelId,
-				Resource:    inferenceResource,
-				Config:      inferenceConfig,
-			},
-			Status: v1.InferenceStatus{
-				Phase:      constvar.InferencePhasePending,
-				UpdateTime: &metav1.Time{Time: time.Now().UTC()},
-			},
+				Spec: v1.InferenceSpec{
+					DisplayName: k8sModel.Spec.DisplayName,
+					Description: k8sModel.Spec.Description,
+					UserID:      userId,
+					UserName:    userName,
+					ModelForm:   constvar.InferenceModelFormAPI,
+					ModelName:   modelId,
+					Instance: v1.InferenceInstance{
+						ApiKey:  &corev1.LocalObjectReference{Name: apiKeySecretName},
+						BaseUrl: k8sModel.Spec.Source.URL,
+					},
+				},
+				Status: v1.InferenceStatus{
+					Phase:      constvar.InferencePhaseRunning, // Remote API is immediately ready
+					UpdateTime: &metav1.Time{Time: time.Now().UTC()},
+				},
+			}
+
+			// Set Model as owner of Inference for automatic cascade deletion
+			if err := controllerutil.SetControllerReference(k8sModel, inference, h.k8sClient.Scheme()); err != nil {
+				klog.ErrorS(err, "Failed to set owner reference", "model", modelId, "inference", infId)
+				return nil, commonerrors.NewInternalError("failed to set owner reference: " + err.Error())
+			}
+
+			if err := h.k8sClient.Create(ctx, inference); err != nil {
+				klog.ErrorS(err, "Failed to create inference", "id", infId)
+				return nil, commonerrors.NewInternalError("failed to start inference: " + err.Error())
+			}
+
+			// 2. Create ApiKey Secret with Inference as owner
+			apiKeySecret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      apiKeySecretName,
+					Namespace: common.PrimusSafeNamespace,
+					Labels: map[string]string{
+						v1.InferenceIdLabel: infId,
+						v1.UserIdLabel:      userId,
+					},
+				},
+				Type: corev1.SecretTypeOpaque,
+				StringData: map[string]string{
+					"apiKey": req.ApiKey,
+				},
+			}
+
+			// Set Inference as owner of ApiKey Secret for automatic cascade deletion
+			if err := controllerutil.SetControllerReference(inference, apiKeySecret, h.k8sClient.Scheme()); err != nil {
+				klog.ErrorS(err, "Failed to set owner reference for API key secret", "inference", infId)
+				_ = h.k8sClient.Delete(ctx, inference)
+				return nil, commonerrors.NewInternalError("failed to set owner reference: " + err.Error())
+			}
+
+			if err := h.k8sClient.Create(ctx, apiKeySecret); err != nil && !errors.IsAlreadyExists(err) {
+				klog.ErrorS(err, "Failed to create API key secret", "secret", apiKeySecretName)
+				_ = h.k8sClient.Delete(ctx, inference)
+				return nil, commonerrors.NewInternalError("failed to create API key secret: " + err.Error())
+			}
+
+			// Update Model Status with InferenceID
+			k8sModel.Status.InferenceID = infId
+			k8sModel.Status.InferencePhase = string(inference.Status.Phase)
+			if err := h.k8sClient.Status().Update(ctx, k8sModel); err != nil {
+				klog.ErrorS(err, "Failed to update model status with inference ID", "model", modelId)
+			}
+
+			klog.InfoS("Toggle ON (remote_api): inference created", "model", modelId, "inference", infId)
+			return gin.H{"message": "inference started", "inferenceId": infId}, nil
+		} else {
+			// Local mode: create ModelSquare-type inference
+			if req.Resource == nil || req.Config == nil {
+				return nil, commonerrors.NewBadRequest("resource and config are required for local model inference")
+			}
+			var missingFields []string
+			if req.Resource.Workspace == "" {
+				missingFields = append(missingFields, "workspace")
+			}
+			if req.Resource.Replica <= 0 {
+				missingFields = append(missingFields, "replica")
+			}
+			if req.Config.Image == "" {
+				missingFields = append(missingFields, "image")
+			}
+			if req.Config.EntryPoint == "" {
+				missingFields = append(missingFields, "entryPoint")
+			}
+			if len(missingFields) > 0 {
+				return nil, commonerrors.NewBadRequest(fmt.Sprintf("missing required fields for inference: %v", missingFields))
+			}
+
+			// Build Resource from request
+			inferenceResource := v1.InferenceResource{
+				Workspace: req.Resource.Workspace,
+				Replica:   req.Resource.Replica,
+				Cpu:       req.Resource.CPU,
+				Memory:    req.Resource.Memory,
+				Gpu:       req.Resource.GPU,
+			}
+
+			// Build Config from request
+			inferenceConfig := v1.InferenceConfig{
+				Image:      req.Config.Image,
+				EntryPoint: req.Config.EntryPoint,
+				ModelPath:  req.Config.ModelPath,
+			}
+
+			inference = &v1.Inference{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: infId,
+					Labels: map[string]string{
+						v1.InferenceIdLabel: infId,
+						v1.UserIdLabel:      userId,
+						v1.DisplayNameLabel: normalizedDisplayName,
+					},
+				},
+				Spec: v1.InferenceSpec{
+					DisplayName: k8sModel.Spec.DisplayName,
+					Description: k8sModel.Spec.Description,
+					UserID:      userId,
+					UserName:    userName,
+					ModelForm:   constvar.InferenceModelFormModelSquare,
+					ModelName:   modelId,
+					Resource:    inferenceResource,
+					Config:      inferenceConfig,
+				},
+				Status: v1.InferenceStatus{
+					Phase:      constvar.InferencePhasePending,
+					UpdateTime: &metav1.Time{Time: time.Now().UTC()},
+				},
+			}
+		}
+
+		// Set Model as owner of Inference for automatic cascade deletion
+		if err := controllerutil.SetControllerReference(k8sModel, inference, h.k8sClient.Scheme()); err != nil {
+			klog.ErrorS(err, "Failed to set owner reference", "model", modelId, "inference", infId)
+			return nil, commonerrors.NewInternalError("failed to set owner reference: " + err.Error())
 		}
 
 		if err := h.k8sClient.Create(ctx, inference); err != nil {
@@ -482,6 +571,7 @@ func (h *Handler) toggleModel(c *gin.Context) (interface{}, error) {
 
 		// Update Model Status with InferenceID
 		k8sModel.Status.InferenceID = infId
+		k8sModel.Status.InferencePhase = string(inference.Status.Phase)
 		if err := h.k8sClient.Status().Update(ctx, k8sModel); err != nil {
 			klog.ErrorS(err, "Failed to update model status with inference ID", "model", modelId)
 		}
@@ -526,6 +616,7 @@ func (h *Handler) toggleModel(c *gin.Context) (interface{}, error) {
 }
 
 // deleteModel implements the model deletion logic.
+// Note: Inference, Token Secret will be automatically deleted by Kubernetes garbage collection (OwnerReference)
 func (h *Handler) deleteModel(c *gin.Context) (interface{}, error) {
 	modelId := c.Param("id")
 	if modelId == "" {
@@ -534,9 +625,7 @@ func (h *Handler) deleteModel(c *gin.Context) (interface{}, error) {
 
 	ctx := c.Request.Context()
 
-	var tokenSecretName string
-
-	// 1. Check if model exists in K8s and get token secret name
+	// Check if model exists in K8s
 	k8sModel := &v1.Model{}
 	if err := h.k8sClient.Get(ctx, ctrlclient.ObjectKey{Name: modelId, Namespace: common.PrimusSafeNamespace}, k8sModel); err != nil {
 		if errors.IsNotFound(err) {
@@ -547,45 +636,22 @@ func (h *Handler) deleteModel(c *gin.Context) (interface{}, error) {
 			return nil, commonerrors.NewInternalError("failed to fetch model: " + err.Error())
 		}
 	} else {
-		// Get token secret name from Model spec
-		if k8sModel.Spec.Source.Token != nil {
-			tokenSecretName = k8sModel.Spec.Source.Token.Name
-		}
-
-		// 2. Delete associated Secret if exists
-		if tokenSecretName != "" {
-			secret := &corev1.Secret{}
-			if err := h.k8sClient.Get(ctx, ctrlclient.ObjectKey{Name: tokenSecretName, Namespace: common.PrimusSafeNamespace}, secret); err != nil {
-				if !errors.IsNotFound(err) {
-					klog.ErrorS(err, "Failed to get token secret", "secret", tokenSecretName)
-				}
-			} else {
-				if err := h.k8sClient.Delete(ctx, secret); err != nil {
-					if !errors.IsNotFound(err) {
-						klog.ErrorS(err, "Failed to delete token secret", "secret", tokenSecretName)
-						// Continue with model deletion even if secret deletion fails
-					}
-				} else {
-					klog.InfoS("Token secret deleted", "secret", tokenSecretName)
-				}
-			}
-		}
-
-		// 3. Delete K8s Model CR (will cascade delete Job via OwnerReference)
+		// Delete K8s Model CR
+		// Associated resources (Inference, Token Secret) will be automatically deleted via OwnerReference
 		if err := h.k8sClient.Delete(ctx, k8sModel); err != nil {
 			if !errors.IsNotFound(err) {
 				klog.ErrorS(err, "Failed to delete model from K8s", "model", modelId)
 				return nil, commonerrors.NewInternalError("failed to delete model: " + err.Error())
 			}
 		}
-		klog.InfoS("Model deleted from K8s", "model", modelId)
+		klog.InfoS("Model deleted from K8s (cascade delete: Inference, Token Secret)", "model", modelId)
 	}
 
 	return gin.H{"message": "model deleted successfully", "id": modelId}, nil
 }
 
-// findModelBySourceURL checks if a model with the given source URL already exists in the database.
-// Returns the existing model if found, nil otherwise.
+// findModelBySourceURL checks if a model with the given source URL already exists.
+// Checks both K8s and database (if available). Returns the existing model if found, nil otherwise.
 func (h *Handler) findModelBySourceURL(ctx context.Context, sourceURL string) (*dbclient.Model, error) {
 	// First, check K8s directly for immediate consistency (no sync delay)
 	// This is critical for detecting duplicates when user creates models quickly
@@ -604,9 +670,11 @@ func (h *Handler) findModelBySourceURL(ctx context.Context, sourceURL string) (*
 	}
 
 	// Also check database for models that might not be in K8s yet or soft-deleted
+	// Skip if database is not enabled
 	client, ok := h.dbClient.(*dbclient.Client)
 	if !ok {
-		return nil, fmt.Errorf("database client type mismatch")
+		// No database client, return nil (not found in K8s)
+		return nil, nil
 	}
 
 	db, err := client.GetGormDB()

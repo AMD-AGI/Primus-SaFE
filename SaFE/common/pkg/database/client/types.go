@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
-	"time"
 
 	"github.com/lib/pq"
 )
@@ -282,10 +281,4 @@ type Model struct {
 
 func (Model) TableName() string {
 	return "model"
-}
-
-// GetModelFieldTags returns the ModelFieldTags value.
-func GetModelFieldTags() map[string]string {
-	m := Model{}
-	return getFieldTags(m)
 }

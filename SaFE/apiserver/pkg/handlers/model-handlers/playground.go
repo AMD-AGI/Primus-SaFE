@@ -22,9 +22,13 @@ import (
 	"github.com/gin-gonic/gin/binding"
 	"github.com/lib/pq"
 	openai "github.com/sashabaranov/go-openai"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/klog/v2"
+	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/constvar"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
@@ -45,42 +49,75 @@ func (h *Handler) Chat(c *gin.Context) {
 		return
 	}
 
-	// Get inference from database
-	dbInference, err := h.dbClient.GetInference(c.Request.Context(), req.InferenceId)
-	if err != nil {
-		c.JSON(404, gin.H{"error": fmt.Sprintf("inference not found: %v", err)})
-		return
+	var baseUrl, modelName, apiKey string
+	var phase string
+
+	// Get inference - try database first, fallback to K8s
+	if h.dbClient != nil {
+		// Get inference from database
+		dbInference, err := h.dbClient.GetInference(c.Request.Context(), req.InferenceId)
+		if err != nil {
+			c.JSON(404, gin.H{"error": fmt.Sprintf("inference not found: %v", err)})
+			return
+		}
+
+		phase = getString(dbInference.Phase)
+		modelName = dbInference.ModelName
+
+		// Parse instance to get base URL
+		var instanceData map[string]interface{}
+		if dbInference.Instance.Valid {
+			if err := jsonutils.Unmarshal([]byte(dbInference.Instance.String), &instanceData); err != nil {
+				c.JSON(500, gin.H{"error": "failed to parse instance data"})
+				return
+			}
+		}
+
+		baseUrl, _ = instanceData["baseUrl"].(string)
+
+		// Get API key from Secret (if apiKey reference exists)
+		if apiKeyRef, ok := instanceData["apiKey"].(map[string]interface{}); ok {
+			if secretName, ok := apiKeyRef["name"].(string); ok && secretName != "" {
+				apiKey = h.getApiKeyFromSecret(c.Request.Context(), secretName)
+			}
+		}
+
+		// Get model name from instance if available
+		if instanceModel, ok := instanceData["model"].(string); ok && instanceModel != "" {
+			modelName = instanceModel
+		}
+	} else {
+		// Get inference from K8s directly
+		k8sInference := &v1.Inference{}
+		if err := h.k8sClient.Get(c.Request.Context(), ctrlclient.ObjectKey{Name: req.InferenceId}, k8sInference); err != nil {
+			c.JSON(404, gin.H{"error": fmt.Sprintf("inference not found: %v", err)})
+			return
+		}
+
+		phase = string(k8sInference.Status.Phase)
+		baseUrl = k8sInference.Spec.Instance.BaseUrl
+		modelName = k8sInference.Spec.ModelName
+
+		// Get model name from instance if available
+		if k8sInference.Spec.Instance.Model != "" {
+			modelName = k8sInference.Spec.Instance.Model
+		}
+
+		// Get API key from Secret (if apiKey reference exists)
+		if k8sInference.Spec.Instance.ApiKey != nil && k8sInference.Spec.Instance.ApiKey.Name != "" {
+			apiKey = h.getApiKeyFromSecret(c.Request.Context(), k8sInference.Spec.Instance.ApiKey.Name)
+		}
 	}
 
 	// Check inference is running
-	phase := getString(dbInference.Phase)
-	if phase != "Running" {
+	if phase != string(constvar.InferencePhaseRunning) {
 		c.JSON(400, gin.H{"error": fmt.Sprintf("inference is not running, current phase: %s", phase)})
 		return
 	}
 
-	// Parse instance to get base URL
-	var instanceData map[string]interface{}
-	if dbInference.Instance.Valid {
-		if err := jsonutils.Unmarshal([]byte(dbInference.Instance.String), &instanceData); err != nil {
-			c.JSON(500, gin.H{"error": "failed to parse instance data"})
-			return
-		}
-	}
-
-	baseUrl, ok := instanceData["baseUrl"].(string)
-	if !ok || baseUrl == "" {
+	if baseUrl == "" {
 		c.JSON(400, gin.H{"error": "inference service base URL not available"})
 		return
-	}
-
-	// Get API key from instance (optional)
-	apiKey, _ := instanceData["apiKey"].(string)
-
-	// Get model name: prioritize instance.model, fallback to inference.model_name
-	modelName := dbInference.ModelName
-	if instanceModel, ok := instanceData["model"].(string); ok && instanceModel != "" {
-		modelName = instanceModel
 	}
 
 	if modelName == "" {
@@ -94,6 +131,22 @@ func (h *Handler) Chat(c *gin.Context) {
 	} else {
 		h.nonStreamChat(c, baseUrl, apiKey, modelName, req)
 	}
+}
+
+// getApiKeyFromSecret retrieves API key from a Kubernetes Secret
+func (h *Handler) getApiKeyFromSecret(ctx context.Context, secretName string) string {
+	secret := &corev1.Secret{}
+	if err := h.k8sClient.Get(ctx, ctrlclient.ObjectKey{
+		Name:      secretName,
+		Namespace: common.PrimusSafeNamespace,
+	}, secret); err != nil {
+		klog.ErrorS(err, "failed to get API key secret", "secret", secretName)
+		return ""
+	}
+	if key, exists := secret.Data["apiKey"]; exists {
+		return string(key)
+	}
+	return ""
 }
 
 // SaveSession handles saving a chat session (create or update).
@@ -118,6 +171,10 @@ func (h *Handler) DeletePlaygroundSession(c *gin.Context) {
 
 // deletePlaygroundSession implements the session deletion logic.
 func (h *Handler) deletePlaygroundSession(c *gin.Context) (interface{}, error) {
+	if h.dbClient == nil {
+		return nil, commonerrors.NewInternalError("session management requires database")
+	}
+
 	sessionIdStr := c.Param("id")
 	if sessionIdStr == "" {
 		return nil, commonerrors.NewBadRequest("session id is required")
@@ -323,6 +380,10 @@ func (h *Handler) nonStreamChat(c *gin.Context, baseUrl string, apiKey string, m
 
 // saveSession implements the session save logic - saves or updates a session.
 func (h *Handler) saveSession(c *gin.Context) (interface{}, error) {
+	if h.dbClient == nil {
+		return nil, commonerrors.NewInternalError("session management requires database")
+	}
+
 	req := &SaveSessionRequest{}
 	if err := c.ShouldBindJSON(req); err != nil {
 		return nil, commonerrors.NewBadRequest(fmt.Sprintf("invalid request body: %v", err))
@@ -395,6 +456,10 @@ func (h *Handler) saveSession(c *gin.Context) (interface{}, error) {
 
 // listPlaygroundSession implements the session listing logic.
 func (h *Handler) listPlaygroundSession(c *gin.Context) (interface{}, error) {
+	if h.dbClient == nil {
+		return nil, commonerrors.NewInternalError("session management requires database")
+	}
+
 	query, err := parseListPlaygroundSessionQuery(c)
 	if err != nil {
 		return nil, err
@@ -442,6 +507,10 @@ func (h *Handler) listPlaygroundSession(c *gin.Context) (interface{}, error) {
 
 // getPlaygroundSession implements the session retrieval logic.
 func (h *Handler) getPlaygroundSession(c *gin.Context) (interface{}, error) {
+	if h.dbClient == nil {
+		return nil, commonerrors.NewInternalError("session management requires database")
+	}
+
 	sessionIdStr := c.Param("id")
 	if sessionIdStr == "" {
 		return nil, commonerrors.NewBadRequest("session id is required")

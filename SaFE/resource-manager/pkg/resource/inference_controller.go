@@ -172,22 +172,8 @@ func (r *InferenceReconciler) Reconcile(ctx context.Context, req ctrlruntime.Req
 }
 
 // delete handles the deletion of an Inference resource.
+// Note: Workload will be automatically deleted by Kubernetes garbage collection (OwnerReference)
 func (r *InferenceReconciler) delete(ctx context.Context, inference *v1.Inference) error {
-	// Delete associated workload if exists
-	if inference.Spec.Instance.WorkloadID != "" {
-		workload := &v1.Workload{}
-		err := r.Get(ctx, client.ObjectKey{Name: inference.Spec.Instance.WorkloadID}, workload)
-		if err == nil {
-			klog.Infof("Deleting workload %s for inference %s", workload.Name, inference.Name)
-			if err := r.Delete(ctx, workload); err != nil {
-				klog.ErrorS(err, "failed to delete workload", "workload", workload.Name)
-				return err
-			}
-		} else {
-			klog.V(4).Infof("Workload %s not found, may already be deleted", inference.Spec.Instance.WorkloadID)
-		}
-	}
-
 	// Clean up local model files if this is a local model
 	if inference.IsFromModelSquare() {
 		if err := r.cleanupLocalModel(ctx, inference); err != nil {
@@ -230,6 +216,34 @@ func (r *InferenceReconciler) processModelSquareInference(ctx context.Context, i
 // handlePending creates a workload for the pending inference
 func (r *InferenceReconciler) handlePending(ctx context.Context, inference *v1.Inference) (ctrlruntime.Result, error) {
 	klog.Infof("Processing pending inference %s", inference.Name)
+
+	// If workloadID is already set, skip download check and go directly to workload sync
+	// This handles the case where workload was created but inference status wasn't updated
+	if inference.Spec.Instance.WorkloadID != "" {
+		workload := &v1.Workload{}
+		if err := r.Get(ctx, client.ObjectKey{Name: inference.Spec.Instance.WorkloadID}, workload); err == nil {
+			klog.Infof("Workload %s already exists for inference %s, syncing status", workload.Name, inference.Name)
+			// Check workload status and sync to inference
+			if workload.Status.Phase == v1.WorkloadRunning || workload.Status.Phase == v1.WorkloadFailed {
+				return r.syncWorkloadStatus(ctx, inference, workload)
+			}
+			// Workload still pending
+			if inference.Status.Message != "Workload created, waiting for running" {
+				if _, err := r.updatePhase(ctx, inference, constvar.InferencePhasePending, "Workload created, waiting for running"); err != nil {
+					return ctrlruntime.Result{}, err
+				}
+			}
+			return ctrlruntime.Result{RequeueAfter: 10 * time.Second}, nil
+		}
+		// Workload not found, clear workloadID and continue with normal flow
+		klog.Warningf("Workload %s not found for inference %s, clearing workloadID", inference.Spec.Instance.WorkloadID, inference.Name)
+		originalInference := inference.DeepCopy()
+		inference.Spec.Instance.WorkloadID = ""
+		if err := r.Patch(ctx, inference, client.MergeFrom(originalInference)); err != nil {
+			klog.ErrorS(err, "failed to clear workloadID")
+			return ctrlruntime.Result{}, err
+		}
+	}
 
 	// For ModelSquare models, download from S3 to local workspace first
 	if inference.IsFromModelSquare() {
@@ -353,6 +367,15 @@ func (r *InferenceReconciler) createWorkload(ctx context.Context, inference *v1.
 		normalizedDisplayName = stringutil.NormalizeForDNS(inference.Spec.DisplayName)
 	}
 
+	// Build environment variables for workload
+	env := map[string]string{
+		"MODEL_NAME": inference.Spec.ModelName, // e.g., "model-fb7q8"
+	}
+	// Add MODEL_PATH if configured
+	if inference.Spec.Config.ModelPath != "" {
+		env["MODEL_PATH"] = inference.Spec.Config.ModelPath // e.g., "/apps/models/Qwen-Qwen2.5-7B-Instruct"
+	}
+
 	workload := &v1.Workload{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: fmt.Sprintf("inference-%s-%d", inference.Name, time.Now().Unix()),
@@ -372,12 +395,25 @@ func (r *InferenceReconciler) createWorkload(ctx context.Context, inference *v1.
 			Workspace:  inference.Spec.Resource.Workspace,
 			Image:      inference.Spec.Config.Image,
 			EntryPoint: inference.Spec.Config.EntryPoint,
+			Env:        env,
 			GroupVersionKind: v1.GroupVersionKind{
-				Kind:    common.PytorchJobKind,
+				Kind:    common.DeploymentKind,
 				Version: "v1",
+			},
+			Service: &v1.Service{
+				Protocol:    corev1.ProtocolTCP,
+				Port:        8000,
+				TargetPort:  8000,
+				ServiceType: corev1.ServiceTypeClusterIP,
 			},
 			Priority: 1,
 		},
+	}
+
+	// Set Inference as owner of Workload for automatic cascade deletion
+	if err := controllerutil.SetControllerReference(inference, workload, r.Client.Scheme()); err != nil {
+		klog.ErrorS(err, "failed to set owner reference", "inference", inference.Name, "workload", workload.Name)
+		return nil, err
 	}
 
 	if err := r.Create(ctx, workload); err != nil {
@@ -447,21 +483,14 @@ func (r *InferenceReconciler) updateInferenceInstance(ctx context.Context, infer
 	originalInference := inference.DeepCopy()
 	needsUpdate := false
 
-	// Always update BaseUrl from current pod IP (pod IP may change after restart)
-	if len(workload.Status.Pods) > 0 {
-		pod := workload.Status.Pods[0]
-		newBaseUrl := fmt.Sprintf("http://%s:8000", pod.PodIp)
-		if inference.Spec.Instance.BaseUrl != newBaseUrl {
-			inference.Spec.Instance.BaseUrl = newBaseUrl
-			needsUpdate = true
-			klog.Infof("Updated inference %s baseUrl to %s", inference.Name, newBaseUrl)
-		}
-	}
-
-	if inference.Spec.Instance.ApiKey == "" {
-		// Generate API key if not set
-		inference.Spec.Instance.ApiKey = fmt.Sprintf("sk-%s", inference.Name)
+	// Use Service DNS instead of Pod IP for stable access
+	// Service name is the same as workload name
+	newBaseUrl := fmt.Sprintf("http://%s.%s.svc.cluster.local:8000",
+		workload.Name, workload.Spec.Workspace)
+	if inference.Spec.Instance.BaseUrl != newBaseUrl {
+		inference.Spec.Instance.BaseUrl = newBaseUrl
 		needsUpdate = true
+		klog.Infof("Updated inference %s baseUrl to %s", inference.Name, newBaseUrl)
 	}
 
 	if !needsUpdate {
@@ -573,8 +602,8 @@ func (r *InferenceReconciler) constructInferenceDownloadJob(inference *v1.Infere
 
 	s3Path := fmt.Sprintf("s3://%s/%s", s3Bucket, model.GetS3Path())
 
-	// Use the model-downloader image which has awscli installed
-	image := "harbor.tas.primus-safe.amd.com/proxy/primussafe/model-downloader:latest"
+	// Use model downloader image from config (has awscli installed)
+	image := commonconfig.GetModelDownloaderImage()
 
 	backoffLimit := int32(3)
 	ttlSeconds := int32(60)
@@ -704,7 +733,8 @@ func (r *InferenceReconciler) cleanupLocalModel(ctx context.Context, inference *
 
 // constructInferenceCleanupJob creates a job to delete local model files
 func (r *InferenceReconciler) constructInferenceCleanupJob(inference *v1.Inference, localBasePath, localModelPath string) (*batchv1.Job, error) {
-	image := "alpine:3.18"
+	// Use cleanup image from config
+	image := commonconfig.GetModelCleanupImage()
 
 	backoffLimit := int32(1)
 	ttlSeconds := int32(60)

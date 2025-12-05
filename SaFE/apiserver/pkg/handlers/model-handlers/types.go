@@ -181,8 +181,7 @@ type CreateModelRequest struct {
 type ModelSourceReq struct {
 	URL        string `json:"url"`
 	AccessMode string `json:"accessMode"` // "remote_api", "local"
-	Token      string `json:"token"`      // Plaintext token (for downloading models)
-	ApiKey     string `json:"apiKey"`     // API key for remote_api mode
+	Token      string `json:"token"`      // Plaintext token (for downloading models from HuggingFace)
 }
 
 type ResourceReq struct {
@@ -223,10 +222,13 @@ type ListModelResponse struct {
 type ToggleModelRequest struct {
 	Enabled bool `json:"enabled"`
 
-	// Resource configuration for the inference service (required when enabled=true)
+	// Required: API key for authentication for remote_api mode
+	ApiKey string `json:"apiKey"`
+
+	// Resource configuration for the inference service (required when enabled=true for local mode)
 	Resource *ToggleResourceReq `json:"resource,omitempty"`
 
-	// Config contains additional configuration for the inference service (required when enabled=true)
+	// Config contains additional configuration for the inference service (required when enabled=true for local mode)
 	Config *ToggleConfigReq `json:"config,omitempty"`
 }
 
