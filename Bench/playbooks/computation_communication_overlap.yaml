@@ -1,13 +1,13 @@
 - hosts: all
   vars:
-    workspace: '{{ workspace | default(/opt/primus-bench) }}'
+    workspace: "{{ workspace | default('/opt/primus-bench') }}"
   tasks:
     - name: Collect all node IPs from inventory
       set_fact:
         nodes: "{{ groups['all'] | list }}"
     - name: Run network check script
       shell: |
-        LOG={{ output_dir }}/{{ inventory_hostname}}
+        LOG={{ output_dir }}/{{ inventory_hostname }}
         mkdir -p $LOG
         echo $LOG
         NNODES={{ nodes | length }} \
