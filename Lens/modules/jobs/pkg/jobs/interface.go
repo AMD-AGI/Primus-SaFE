@@ -22,6 +22,7 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/gpu_workload"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/storage_scan"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/workload_statistic"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/workload_stats_backfill"
 )
 
 // JobMode defines the running mode of jobs service
@@ -105,8 +106,9 @@ func initDataJobs() []Job {
 		&gpu_history_cache_6h.GpuHistoryCache6hJob{},   // Every 5m - 6 hour history
 		&gpu_history_cache_24h.GpuHistoryCache24hJob{}, // Every 10m - 24 hour history
 		gpu_aggregation.NewGpuAggregationJob(),
-		gpu_aggregation_backfill.NewGpuAggregationBackfillJob(), // Every hour at :30 - backfill missing aggregation data
-		workload_statistic.NewWorkloadStatisticJob(),            // Every 30s - workload GPU utilization statistics
+		gpu_aggregation_backfill.NewGpuAggregationBackfillJob(),     // Every hour at :30 - backfill missing aggregation data
+		workload_statistic.NewWorkloadStatisticJob(),                // Every 30s - workload GPU utilization statistics
+		workload_stats_backfill.NewWorkloadStatsBackfillJob(),       // Every 10m - backfill missing workload hourly stats
 	}
 }
 
