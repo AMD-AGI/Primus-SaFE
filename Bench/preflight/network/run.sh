@@ -137,7 +137,7 @@ if [[ "$RANK" == "0" ]]; then
 
       if [[ $test_ret -ne 0 ]]; then
         echo "${LOG_HEADER}[$(date +'%Y-%m-%d %H:%M:%S')] Diagnosis failed for $test_name in run $run"
-        unhealthy_list=$(python3 extract_nodes.py "$test_output")
+        unhealthy_list=$(echo "$test_output" | python3 extract_nodes.py)
         if [ -n "$unhealthy_list" ]; then
           IFS=',' read -ra nodes <<< "$unhealthy_list"
           for node in "${nodes[@]}"; do
@@ -164,8 +164,8 @@ if [[ "$RANK" == "0" ]]; then
 
     if [[ $test_ret -ne 0 ]]; then
       echo "${LOG_HEADER}[$(date +'%Y-%m-%d %H:%M:%S')] Diagnosis failed for ib_write_bw in run $run"
-      echo "test_output: $test_output, weileeeeeeeeeeeeeeeeei"
-      unhealthy_list=$(python3 extract_nodes.py "$test_output")
+      # Debug output removed to avoid "Argument list too long" error when echoing large variables
+      unhealthy_list=$(echo "$test_output" | python3 extract_nodes.py)
       if [ -n "$unhealthy_list" ]; then
         IFS=',' read -ra nodes <<< "$unhealthy_list"
         for node in "${nodes[@]}"; do

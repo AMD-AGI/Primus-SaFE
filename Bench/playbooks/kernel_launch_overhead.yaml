@@ -1,35 +1,69 @@
 - hosts: all
   gather_facts: no
-  vars:
-    results: []
   tasks:
     - name: Run kernel_launch_overhead
       command: kernel_launch_overhead -w 100 -n 2000000 -i 2000
       register: overhead_result
       ignore_errors: yes
+    - name: Ensure node output directory exists
+      file:
+        path: "{{ output_dir }}/{{ inventory_hostname }}"
+        state: directory
+      delegate_to: localhost
     - name: Write raw output to node-specific log
       copy:
         content: "{{ overhead_result.stdout | default('No output') }}"
         dest: "{{ output_dir }}/{{ inventory_hostname }}/kernel_launch.log"
       delegate_to: localhost
-    - name: Parse event & wall time safely
-      set_fact:
-        event_time: >-
-          {{ (overhead_result.stdout | default('') | 
-          regex_findall('event time[:：]\\s*([0-9.]+)\\s*ms') | first | default('0', true)) | float }}
-        wall_time: >-
-          {{ (overhead_result.stdout | default('') | 
-          regex_findall('wall time[:：]\\s*([0-9.]+)\\s*ms') | first | default('0', true)) | float }}
-    - name: Append result
-      set_fact:
-        results: "{{ results + [ {'node': inventory_hostname, 'event_time_ms': event_time, 'wall_time_ms': wall_time } ] }}"
-    - name: Show results
-      debug:
-        var: results
-    - name: Save aggregated results JSON once
+
+- name: Aggregate results
+  hosts: localhost
+  connection: local
+  gather_facts: no
+  vars:
+    output_dir: "{{ hostvars[groups['all'][0]].output_dir }}"
+  tasks:
+    - name: Read log files and parse results
+      shell: |
+        python3 << 'EOF'
+        import json
+        import re
+        import os
+        
+        results = []
+        nodes = {{ groups['all'] | to_json }}
+        output_dir = "{{ output_dir }}"
+        
+        for node in nodes:
+            log_file = os.path.join(output_dir, node, "kernel_launch.log")
+            event_time = 0.0
+            wall_time = 0.0
+            
+            if os.path.exists(log_file):
+                with open(log_file, 'r') as f:
+                    content = f.read()
+                    event_match = re.search(r'event time[:：]\s*([0-9.]+)\s*ms', content)
+                    wall_match = re.search(r'wall time[:：]\s*([0-9.]+)\s*ms', content)
+                    
+                    if event_match:
+                        event_time = float(event_match.group(1))
+                    if wall_match:
+                        wall_time = float(wall_match.group(1))
+            
+            results.append({
+                'node': node,
+                'event_time_ms': event_time,
+                'wall_time_ms': wall_time
+            })
+        
+        print(json.dumps(results, indent=4))
+        EOF
+      register: parsed_results
+    - name: Save aggregated results JSON
       copy:
-        content: "{{ results | to_nice_json }}"
+        content: "{{ parsed_results.stdout }}"
         dest: "{{ output_dir }}/kernel_overhead_results.json"
-      delegate_to: localhost
-      run_once: true
+    - name: Show aggregated results
+      debug:
+        msg: "{{ parsed_results.stdout }}"
 
