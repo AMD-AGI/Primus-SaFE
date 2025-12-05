@@ -35,8 +35,10 @@ COPY . .
 
 RUN cd $BASEPATH && CGO_ENABLED=0 go build -tags nosqlite -a -installsuffix cgo -o $APPNAME $BUILDPATH/main.go
 
-# Stage 2: Runtime stage - with Python Inspector support
-FROM --platform=linux/amd64 docker.io/primussafe/ubuntu-rdma-base:0.0.1
+# Stage 2: Runtime stage - use pre-built base image with dependencies
+# To build the base image first:
+#   docker build -f Dockerfile.base -t primussafe/primus-lens-node-exporter-base:latest .
+FROM --platform=linux/amd64 docker.io/primussafe/primus-lens-node-exporter-base:latest
 
 ARG APPNAME
 ARG BASEPATH
@@ -46,17 +48,6 @@ ENV APPNAME=${APPNAME}
 WORKDIR /root/
 
 RUN echo "APPNAME: $APPNAME"
-
-# Install Python Inspector dependencies
-RUN apt-get update && apt-get install -y \
-    python3 \
-    python3-pip \
-    gdb \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install pyrasite for process injection
-# Ubuntu 22.04's pip 22.0.2 doesn't support --break-system-packages option
-RUN pip3 install pyrasite
 
 # Copy application binary
 COPY --from=builder /app/$BASEPATH/$APPNAME .
