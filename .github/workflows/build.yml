@@ -36,6 +36,7 @@ jobs:
       run: |
         FORMATTED_DATE=$(TZ='Asia/Shanghai' date +'%Y%m%d%H%M')
         echo "date_time=$FORMATTED_DATE" >> $GITHUB_OUTPUT
+        echo "Formatted date: $FORMATTED_DATE"
     - name: Detect changed files with git diff
       id: detect-changes
       run: |

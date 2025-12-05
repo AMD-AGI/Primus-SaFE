@@ -14,9 +14,11 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	customhandler "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/custom-handlers"
 	image_handlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/image-handlers"
+	model_handlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/model-handlers"
 	sshhandler "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/ssh-handlers"
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
+	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 )
 
@@ -53,7 +55,22 @@ func InitHttpHandlers(_ context.Context, mgr ctrlruntime.Manager) (*gin.Engine, 
 		return nil, err
 	}
 	sshhandler.InitWebShellRouters(engine, sshHandler)
+	modelHandler := InitModelHandlers(mgr)
+	model_handlers.InitInferenceRouters(engine, modelHandler)
+
 	return engine, nil
+}
+
+// InitModelHandlers initializes the model handlers for the API server.
+// It creates and returns a new model handler instance configured with the provided manager.
+// If database is not enabled, dbClient will be nil and handlers will use K8s API only.
+func InitModelHandlers(mgr ctrlruntime.Manager) *model_handlers.Handler {
+	var dbClient dbclient.Interface
+	if commonconfig.IsDBEnable() {
+		dbClient = dbclient.NewClient()
+	}
+	accessController := authority.NewAccessController(mgr.GetClient())
+	return model_handlers.NewHandler(mgr.GetClient(), dbClient, accessController)
 }
 
 // InitSshHandlers initializes the SSH handlers for the API server.
