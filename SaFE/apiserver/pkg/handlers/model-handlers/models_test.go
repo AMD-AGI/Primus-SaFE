@@ -337,14 +337,14 @@ func TestCreateModel_ValidationErrors(t *testing.T) {
 		expectedErr string
 	}{
 		{
-			name: "missing URL",
+			name: "missing URL for local mode",
 			reqBody: CreateModelRequest{
 				Source: ModelSourceReq{
 					URL:        "",
 					AccessMode: string(v1.AccessModeLocal),
 				},
 			},
-			expectedErr: "url is required",
+			expectedErr: "url is required for local mode",
 		},
 		{
 			name: "invalid AccessMode",
@@ -360,8 +360,6 @@ func TestCreateModel_ValidationErrors(t *testing.T) {
 			name: "remote_api missing displayName",
 			reqBody: CreateModelRequest{
 				DisplayName: "",
-				Description: "Test",
-				Label:       "Test",
 				Source: ModelSourceReq{
 					URL:        "https://api.test.com",
 					AccessMode: string(v1.AccessModeRemoteAPI),
@@ -369,32 +367,7 @@ func TestCreateModel_ValidationErrors(t *testing.T) {
 			},
 			expectedErr: "displayName is required",
 		},
-		{
-			name: "remote_api missing label",
-			reqBody: CreateModelRequest{
-				DisplayName: "Test Model",
-				Description: "Test",
-				Label:       "",
-				Source: ModelSourceReq{
-					URL:        "https://api.test.com",
-					AccessMode: string(v1.AccessModeRemoteAPI),
-				},
-			},
-			expectedErr: "label is required",
-		},
-		{
-			name: "remote_api missing description",
-			reqBody: CreateModelRequest{
-				DisplayName: "Test Model",
-				Description: "",
-				Label:       "TestOrg",
-				Source: ModelSourceReq{
-					URL:        "https://api.test.com",
-					AccessMode: string(v1.AccessModeRemoteAPI),
-				},
-			},
-			expectedErr: "description is required",
-		},
+		// Note: label and description are now optional for remote_api mode
 	}
 
 	for _, tt := range tests {
@@ -517,7 +490,7 @@ func TestToggleModel_Enable(t *testing.T) {
 	assert.Equal(t, "test-user", inference.Spec.UserID)
 }
 
-// TestToggleModel_RemoteAPI tests that remote API models don't need toggle
+// TestToggleModel_RemoteAPI tests toggle for remote API models
 func TestToggleModel_RemoteAPI(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -525,7 +498,7 @@ func TestToggleModel_RemoteAPI(t *testing.T) {
 	_ = v1.AddToScheme(scheme)
 	_ = corev1.AddToScheme(scheme)
 
-	// Create a remote API model with existing inference (created at model creation time)
+	// Create a remote API model with existing inference
 	testModel := &v1.Model{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "test-api-model",
@@ -556,9 +529,10 @@ func TestToggleModel_RemoteAPI(t *testing.T) {
 		k8sClient: k8sClient,
 	}
 
-	// Try to toggle a remote API model
+	// Try to toggle ON a remote API model that already has inference
 	reqBody := ToggleModelRequest{
 		Enabled: true,
+		ApiKey:  "sk-test",
 	}
 
 	bodyBytes, _ := json.Marshal(reqBody)
@@ -573,14 +547,10 @@ func TestToggleModel_RemoteAPI(t *testing.T) {
 
 	result, err := handler.toggleModel(c)
 
-	// Should succeed with message indicating no action needed
-	require.NoError(t, err)
-	require.NotNil(t, result)
-
-	respMap, ok := result.(gin.H)
-	require.True(t, ok)
-	// Remote API models should indicate they're always available
-	assert.Contains(t, respMap["message"], "remote API model")
+	// Should fail because inference already exists
+	require.Error(t, err)
+	require.Nil(t, result)
+	assert.Contains(t, err.Error(), "inference already exists")
 }
 
 // TestToggleModel_Disable tests disabling a model (stopping inference)

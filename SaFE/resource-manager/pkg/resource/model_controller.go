@@ -607,6 +607,5 @@ func extractHFRepoId(url string) string {
 		}
 	}
 
-	// Already a repo_id or unknown format, return as-is
 	return url
 }
