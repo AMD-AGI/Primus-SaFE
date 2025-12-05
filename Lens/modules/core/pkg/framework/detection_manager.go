@@ -38,6 +38,9 @@ type FrameworkDetectionManager struct {
 
 	// Workload hierarchy cache: workloadUID -> parentUID
 	hierarchyCache *cache.Cache
+
+	// Event dispatcher for detection events
+	eventDispatcher *EventDispatcher
 }
 
 // NewFrameworkDetectionManager creates a new framework detection manager
@@ -81,6 +84,7 @@ func NewFrameworkDetectionManagerWithFacades(
 		config:               config,
 		cache:                cacheInstance,
 		hierarchyCache:       hierarchyCacheInstance,
+		eventDispatcher:      NewEventDispatcher(),
 	}
 }
 
@@ -222,6 +226,10 @@ func (m *FrameworkDetectionManager) ReportDetectionWithLayers(
 		logrus.Infof("Detection reported successfully: workload=%s (root=%s), frameworks=%v, status=%s, confidence=%.2f",
 			workloadUID, rootUID, merged.Frameworks, merged.Status, merged.Confidence)
 	}
+
+	// Dispatch detection event
+	eventType := m.determineEventType(merged, existing)
+	m.dispatchDetectionEvent(ctx, eventType, workloadUID, merged)
 
 	return nil
 }
@@ -618,4 +626,54 @@ func (m *FrameworkDetectionManager) getParentWorkload(
 	}
 
 	return parentUID, nil
+}
+
+// RegisterListener registers a detection event listener
+func (m *FrameworkDetectionManager) RegisterListener(listener DetectionEventListener) {
+	m.eventDispatcher.RegisterListener(listener)
+}
+
+// UnregisterListener removes a detection event listener
+func (m *FrameworkDetectionManager) UnregisterListener(listener DetectionEventListener) {
+	m.eventDispatcher.UnregisterListener(listener)
+}
+
+// GetListenerCount returns the number of registered event listeners
+func (m *FrameworkDetectionManager) GetListenerCount() int {
+	return m.eventDispatcher.GetListenerCount()
+}
+
+// dispatchDetectionEvent dispatches a detection event to all registered listeners
+func (m *FrameworkDetectionManager) dispatchDetectionEvent(
+	ctx context.Context,
+	eventType DetectionEventType,
+	workloadUID string,
+	detection *model.FrameworkDetection,
+) {
+	event := &DetectionEvent{
+		Type:        eventType,
+		WorkloadUID: workloadUID,
+		Detection:   detection,
+	}
+
+	m.eventDispatcher.Dispatch(ctx, event)
+}
+
+// determineEventType determines the appropriate event type based on detection state
+func (m *FrameworkDetectionManager) determineEventType(
+	merged *model.FrameworkDetection,
+	existing *model.FrameworkDetection,
+) DetectionEventType {
+	// New detection
+	if existing == nil {
+		return DetectionEventTypeCompleted
+	}
+
+	// Conflict detected
+	if merged.Status == model.DetectionStatusConflict {
+		return DetectionEventTypeConflict
+	}
+
+	// Updated detection
+	return DetectionEventTypeUpdated
 }

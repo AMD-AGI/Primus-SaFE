@@ -2,10 +2,16 @@ package bootstrap
 
 import (
 	"context"
+	"fmt"
+	"math/rand"
+	"os"
+	"time"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/api/handlers"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/detection"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/metadata"
+	advisorTask "github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/task"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/tensorboard"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/config"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
 	configHelper "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/config"
@@ -13,6 +19,7 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/router"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/router/middleware"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/server"
+	coreTask "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/task"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/trace"
 	"github.com/gin-gonic/gin"
 )
@@ -27,6 +34,19 @@ var (
 	insightsHandler       *handlers.InsightsHandler
 	wandbHandler          *handlers.WandBHandler
 )
+
+// generateInstanceID 生成实例 ID
+func generateInstanceID() string {
+	hostname, err := os.Hostname()
+	if err != nil {
+		hostname = "unknown"
+	}
+
+	rand.Seed(time.Now().UnixNano())
+	randomSuffix := rand.Intn(10000)
+
+	return fmt.Sprintf("ai-advisor-%s-%d", hostname, randomSuffix)
+}
 
 func Bootstrap(ctx context.Context) error {
 	// Initialize OpenTelemetry tracer
@@ -51,8 +71,12 @@ func Bootstrap(ctx context.Context) error {
 		metadataFacade := database.NewAiWorkloadMetadataFacade()
 		systemConfigMgr := configHelper.GetDefaultConfigManager()
 
+		// Generate instance ID for this AI Advisor instance
+		instanceID := generateInstanceID()
+		log.Infof("AI Advisor instance ID: %s", instanceID)
+
 		// Initialize detection manager
-		detectionMgr, err := detection.InitializeDetectionManager(metadataFacade, systemConfigMgr)
+		detectionMgr, err := detection.InitializeDetectionManager(metadataFacade, systemConfigMgr, instanceID)
 		if err != nil {
 			log.Errorf("Failed to initialize detection manager: %v", err)
 			// Don't block startup, but warn
@@ -69,6 +93,53 @@ func Bootstrap(ctx context.Context) error {
 		} else {
 			log.Info("Metadata collector initialized successfully")
 		}
+
+		// Initialize TensorBoard reader
+		handlers.InitTensorBoardReader()
+
+		// Initialize TensorBoard stream reader
+		handlers.InitStreamReader()
+
+		// Create StreamReader for task executor and WorkloadMonitor
+		streamReader := tensorboard.NewStreamReader(tensorboard.NewReader())
+
+		// Initialize task scheduler
+		taskScheduler := coreTask.NewTaskScheduler(instanceID, coreTask.DefaultSchedulerConfig())
+		
+		// Register metadata collection executor
+		metadataExecutor := advisorTask.NewMetadataCollectionExecutor(metadata.GetCollector())
+		if err := taskScheduler.RegisterExecutor(metadataExecutor); err != nil {
+			log.Errorf("Failed to register metadata collection executor: %v", err)
+		} else {
+			log.Info("Metadata collection executor registered")
+		}
+
+		// Register TensorBoard stream executor
+		tensorboardStreamExecutor := advisorTask.NewTensorBoardStreamExecutor(streamReader)
+		if err := taskScheduler.RegisterExecutor(tensorboardStreamExecutor); err != nil {
+			log.Errorf("Failed to register tensorboard stream executor: %v", err)
+		} else {
+			log.Info("TensorBoard stream executor registered")
+		}
+
+		// Start task scheduler
+		if err := taskScheduler.Start(); err != nil {
+			log.Errorf("Failed to start task scheduler: %v", err)
+		} else {
+			log.Infof("Task scheduler started (instance: %s)", instanceID)
+		}
+
+		// Register cleanup for task scheduler
+		go func() {
+			<-ctx.Done()
+			log.Info("Shutting down task scheduler...")
+			if err := taskScheduler.Stop(); err != nil {
+				log.Errorf("Error stopping task scheduler: %v", err)
+			}
+		}()
+
+		// Initialize task monitor handler (for API)
+		handlers.InitTaskMonitor()
 
 		// Initialize handlers
 		detectionHandler = handlers.NewDetectionHandler(detectionMgr)
@@ -152,6 +223,25 @@ func initRouter(group *gin.RouterGroup) error {
 		wandbGroup.POST("/detection", wandbHandler.ReceiveDetection)
 	}
 
+	// Task Monitor APIs (替代原 WorkloadMonitor APIs)
+	taskGroup := group.Group("/tasks")
+	{
+		// 任务统计
+		taskGroup.GET("/stats", handlers.GetTaskStatistics)
+
+		// 任务列表
+		taskGroup.GET("", handlers.ListAllTasks) // 支持 ?status=xxx&task_type=xxx
+
+		// 特定任务详情
+		taskGroup.GET("/:workload_uid/:task_type", handlers.GetTask)
+
+		// 某个 workload 的所有任务
+		taskGroup.GET("/workload/:workload_uid", handlers.ListWorkloadTasks)
+
+		// 活跃的流式任务
+		taskGroup.GET("/streams/active", handlers.GetActiveStreams)
+	}
+
 	// Workload Metadata APIs
 	metadataGroup := group.Group("/metadata")
 	{
@@ -169,6 +259,42 @@ func initRouter(group *gin.RouterGroup) error {
 
 		// Management
 		metadataGroup.DELETE("/workloads/:uid", handlers.DeleteWorkloadMetadata)
+	}
+
+	// TensorBoard Log Access APIs (Non-intrusive)
+	tensorboardGroup := group.Group("/tensorboard")
+	{
+		// Get TensorBoard log files information
+		tensorboardGroup.POST("/logs", handlers.GetTensorBoardLogs)
+
+		// Read specific event file
+		tensorboardGroup.POST("/event", handlers.ReadTensorBoardEvent)
+
+		// List all event files
+		tensorboardGroup.POST("/files", handlers.ListTensorBoardEventFiles)
+
+		// Generic container file operations (with security restrictions)
+		tensorboardGroup.POST("/file/read", handlers.ReadContainerFile)
+		tensorboardGroup.POST("/file/info", handlers.GetContainerFileInfo)
+
+		// Streaming APIs
+		streamGroup := tensorboardGroup.Group("/stream")
+		{
+			// WebSocket streaming
+			streamGroup.GET("/ws", handlers.StartTensorBoardStream)
+
+			// Server-Sent Events streaming
+			streamGroup.POST("/sse", handlers.StreamTensorBoardSSE)
+
+			// Resume from saved state
+			streamGroup.POST("/resume", handlers.ResumeStream)
+
+			// Get stream state
+			streamGroup.GET("/:workload_uid/state", handlers.GetStreamState)
+
+			// Stop stream
+			streamGroup.POST("/:workload_uid/stop", handlers.StopTensorBoardStream)
+		}
 	}
 
 	// Health check

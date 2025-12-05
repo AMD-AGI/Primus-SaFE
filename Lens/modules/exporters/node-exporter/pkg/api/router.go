@@ -61,5 +61,18 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		processTreeGroup.POST("/python", FindPythonProcessesInPod)
 	}
 
+	// Container filesystem routes
+	containerFSGroup := group.Group("/container-fs")
+	{
+		// File operations
+		containerFSGroup.POST("/read", ReadContainerFile)
+		containerFSGroup.POST("/list", ListContainerDirectory)
+		containerFSGroup.POST("/info", GetContainerFileInfo)
+
+		// TensorBoard-specific operations
+		containerFSGroup.POST("/tensorboard/logs", GetTensorBoardLogs)
+		containerFSGroup.POST("/tensorboard/event", ReadTensorBoardEvent)
+	}
+
 	return nil
 }

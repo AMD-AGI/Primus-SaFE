@@ -15,12 +15,14 @@ var (
 	wandbDetector        *WandBFrameworkDetector
 	configManager        *FrameworkConfigManager
 	patternMatchers      map[string]*PatternMatcher
+	taskCreator          *TaskCreator
 )
 
 // InitializeDetectionManager initializes framework detection manager and all components
 func InitializeDetectionManager(
 	metadataFacade database.AiWorkloadMetadataFacadeInterface,
 	systemConfigMgr *configHelper.Manager,
+	instanceID string,
 ) (*framework.FrameworkDetectionManager, error) {
 	
 	// 1. Create detection manager with default config
@@ -62,6 +64,11 @@ func InitializeDetectionManager(
 	wandbDetector = NewWandBFrameworkDetector(detectionManager)
 	log.Info("WandB framework detector initialized")
 
+	// 6. Initialize and register TaskCreator
+	// TaskCreator 会在检测完成后自动创建 metadata collection 任务
+	taskCreator = RegisterTaskCreatorWithDetectionManager(detectionManager, instanceID)
+	log.Info("TaskCreator registered - metadata collection tasks will be created automatically after detection")
+
 	log.Infof("Framework detection system initialized with %d frameworks", len(patternMatchers))
 	return detectionManager, nil
 }
@@ -95,5 +102,10 @@ func ListAvailableFrameworks() []string {
 		return []string{}
 	}
 	return configManager.ListFrameworks()
+}
+
+// GetTaskCreator returns the global task creator
+func GetTaskCreator() *TaskCreator {
+	return taskCreator
 }
 

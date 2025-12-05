@@ -7,10 +7,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/nodeexporter"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/node-exporter/pkg/client"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/node-exporter/pkg/types"
 )
 
 var (
@@ -25,7 +26,7 @@ type Collector struct {
 	cacheTTL time.Duration
 
 	// Node-specific client cache
-	clientCache sync.Map // nodeName -> *nodeexporter.Client
+	clientCache sync.Map // nodeName -> *client.Client
 
 	// Node Exporter configuration
 	nodeExporterPort int
@@ -108,7 +109,7 @@ func (c *Collector) CollectMetadata(ctx context.Context, req *CollectionRequest)
 
 	// Step 1: Get process tree
 	log.Debugf("Getting process tree for pod %s on node %s", req.PodUID, req.NodeName)
-	processTree, err := client.GetPodProcessTree(ctx, &nodeexporter.ProcessTreeRequest{
+	processTree, err := client.GetPodProcessTree(ctx, &types.ProcessTreeRequest{
 		PodName:          req.PodName,
 		PodNamespace:     req.PodNamespace,
 		PodUID:           req.PodUID,
@@ -204,7 +205,8 @@ func (c *Collector) CollectMetadata(ctx context.Context, req *CollectionRequest)
 				continue
 			}
 
-			nodeexporter.LogInspectionResult(inspResult)
+			log.Infof("Inspection successful: script=%s, pid=%d, duration=%.2fs",
+				inspResult.Script, inspResult.PID, inspResult.Duration)
 			inspectedCount++
 			foundValidData = true
 
@@ -284,7 +286,7 @@ func (c *Collector) CollectMetadata(ctx context.Context, req *CollectionRequest)
 }
 
 // parsePyTorchData parses PyTorch inspection data
-func parsePyTorchData(result *nodeexporter.InspectionResult) (*PyTorchMetadata, error) {
+func parsePyTorchData(result *types.InspectionResult) (*PyTorchMetadata, error) {
 	data := result.Data
 
 	pytorch := &PyTorchMetadata{}
@@ -344,7 +346,7 @@ func parsePyTorchData(result *nodeexporter.InspectionResult) (*PyTorchMetadata, 
 }
 
 // parseTensorBoardData parses TensorBoard inspection data
-func parseTensorBoardData(result *nodeexporter.InspectionResult) (*TensorBoardMetadata, error) {
+func parseTensorBoardData(result *types.InspectionResult) (*TensorBoardMetadata, error) {
 	data := result.Data
 
 	tb := &TensorBoardMetadata{
@@ -375,7 +377,7 @@ func parseTensorBoardData(result *nodeexporter.InspectionResult) (*TensorBoardMe
 }
 
 // parseMegatronData parses Megatron-LM inspection data
-func parseMegatronData(result *nodeexporter.InspectionResult) (*MegatronMetadata, error) {
+func parseMegatronData(result *types.InspectionResult) (*MegatronMetadata, error) {
 	data := result.Data
 
 	megatron := &MegatronMetadata{}
@@ -440,7 +442,7 @@ func parseMegatronData(result *nodeexporter.InspectionResult) (*MegatronMetadata
 }
 
 // detectPrimusFromProcesses detects Primus wrapper by analyzing process cmdlines
-func (c *Collector) detectPrimusFromProcesses(processes []*nodeexporter.ProcessInfo) *PrimusMetadata {
+func (c *Collector) detectPrimusFromProcesses(processes []*types.ProcessInfo) *PrimusMetadata {
 	for _, proc := range processes {
 		cmdline := strings.ToLower(proc.Cmdline)
 
@@ -495,8 +497,8 @@ func (c *Collector) InvalidateCache(workloadUID string) {
 
 // findRootPythonProcesses finds the root (top-level) Python processes from process tree
 // These are typically the main training processes
-func (c *Collector) findRootPythonProcesses(processTree *nodeexporter.PodProcessTree) []*nodeexporter.ProcessInfo {
-	var rootProcesses []*nodeexporter.ProcessInfo
+func (c *Collector) findRootPythonProcesses(processTree *types.PodProcessTree) []*types.ProcessInfo {
+	var rootProcesses []*types.ProcessInfo
 
 	// Iterate through all containers in the pod
 	for _, container := range processTree.Containers {
@@ -506,13 +508,13 @@ func (c *Collector) findRootPythonProcesses(processTree *nodeexporter.PodProcess
 		if len(pythonProcesses) > 0 {
 			// Find the Python process with the smallest depth (closest to root)
 			minDepth := -1
-			var rootPython []*nodeexporter.ProcessInfo
+			var rootPython []*types.ProcessInfo
 
 			for _, proc := range pythonProcesses {
 				depth := c.calculateProcessDepth(proc, container.RootProcess)
 				if minDepth == -1 || depth < minDepth {
 					minDepth = depth
-					rootPython = []*nodeexporter.ProcessInfo{proc}
+					rootPython = []*types.ProcessInfo{proc}
 				} else if depth == minDepth {
 					rootPython = append(rootPython, proc)
 				}
@@ -533,8 +535,8 @@ func (c *Collector) findRootPythonProcesses(processTree *nodeexporter.PodProcess
 }
 
 // findPythonProcessesInTree recursively finds all Python processes in the tree
-func (c *Collector) findPythonProcessesInTree(root *nodeexporter.ProcessInfo) []*nodeexporter.ProcessInfo {
-	var pythonProcesses []*nodeexporter.ProcessInfo
+func (c *Collector) findPythonProcessesInTree(root *types.ProcessInfo) []*types.ProcessInfo {
+	var pythonProcesses []*types.ProcessInfo
 
 	if root == nil {
 		return pythonProcesses
@@ -554,7 +556,7 @@ func (c *Collector) findPythonProcessesInTree(root *nodeexporter.ProcessInfo) []
 }
 
 // calculateProcessDepth calculates the depth of a process in the tree
-func (c *Collector) calculateProcessDepth(target *nodeexporter.ProcessInfo, root *nodeexporter.ProcessInfo) int {
+func (c *Collector) calculateProcessDepth(target *types.ProcessInfo, root *types.ProcessInfo) int {
 	if root == nil {
 		return -1
 	}
@@ -574,7 +576,7 @@ func (c *Collector) calculateProcessDepth(target *nodeexporter.ProcessInfo, root
 }
 
 // selectScriptsFromDetection selects inspection scripts based on detection and available scripts
-func (c *Collector) selectScriptsFromDetection(ctx context.Context, client *nodeexporter.Client, workloadUID string) ([]string, error) {
+func (c *Collector) selectScriptsFromDetection(ctx context.Context, nodeExporterClient *client.Client, workloadUID string) ([]string, error) {
 	// Step 1: Query detection results from database
 	detection, err := c.detectionFacade.GetAiWorkloadMetadata(ctx, workloadUID)
 	if err != nil {
@@ -583,11 +585,11 @@ func (c *Collector) selectScriptsFromDetection(ctx context.Context, client *node
 
 	if detection == nil {
 		log.Debugf("No detection found for workload %s, will use universal scripts", workloadUID)
-		return c.getUniversalScripts(ctx, client)
+		return c.getUniversalScripts(ctx, nodeExporterClient)
 	}
 
 	// Step 2: Get available scripts from node-exporter
-	availableScripts, err := client.ListAvailableScripts(ctx)
+	availableScripts, err := nodeExporterClient.ListAvailableScripts(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list available scripts: %w", err)
 	}
@@ -622,7 +624,7 @@ func (c *Collector) selectScriptsFromDetection(ctx context.Context, client *node
 	if len(selectedScripts) == 0 {
 		log.Warnf("No applicable scripts found for frameworks %v", frameworks)
 		// Fallback to universal scripts
-		return c.getUniversalScripts(ctx, client)
+		return c.getUniversalScripts(ctx, nodeExporterClient)
 	}
 
 	log.Infof("Selected %d inspection scripts based on detection: %v", len(selectedScripts), selectedScripts)
@@ -679,7 +681,7 @@ func (c *Collector) extractFrameworksFromDetection(detection *model.AiWorkloadMe
 }
 
 // isScriptApplicable checks if a script is applicable for given frameworks
-func (c *Collector) isScriptApplicable(script *nodeexporter.ScriptMetadata, frameworks []string) bool {
+func (c *Collector) isScriptApplicable(script *types.ScriptMetadata, frameworks []string) bool {
 	// Universal scripts (empty frameworks list) are always applicable
 	if len(script.Frameworks) == 0 {
 		log.Debugf("Script '%s' is universal (category: universal)", script.Name)
@@ -700,8 +702,8 @@ func (c *Collector) isScriptApplicable(script *nodeexporter.ScriptMetadata, fram
 }
 
 // getUniversalScripts returns only universal scripts (applicable to all frameworks)
-func (c *Collector) getUniversalScripts(ctx context.Context, client *nodeexporter.Client) ([]string, error) {
-	availableScripts, err := client.ListAvailableScripts(ctx)
+func (c *Collector) getUniversalScripts(ctx context.Context, nodeExporterClient *client.Client) ([]string, error) {
+	availableScripts, err := nodeExporterClient.ListAvailableScripts(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -769,23 +771,23 @@ func (c *Collector) getNodeInfoFromDB(ctx context.Context, podUID string) (nodeN
 }
 
 // getNodeExporterClientByIP gets or creates a node-exporter client using node IP
-func (c *Collector) getNodeExporterClientByIP(nodeIP, nodeName string) (*nodeexporter.Client, error) {
+func (c *Collector) getNodeExporterClientByIP(nodeIP, nodeName string) (*client.Client, error) {
 	// Use nodeName as cache key
 	cacheKey := nodeName
 
 	// Check cache first
 	if cached, ok := c.clientCache.Load(cacheKey); ok {
-		return cached.(*nodeexporter.Client), nil
+		return cached.(*client.Client), nil
 	}
 
 	// Create client with node IP
 	// Node exporter runs on hostNetwork, so we use node IP + port
 	baseURL := fmt.Sprintf("http://%s:%d", nodeIP, c.nodeExporterPort)
-	client := nodeexporter.NewClient(nodeexporter.DefaultConfig(baseURL))
+	nodeExporterClient := client.NewClient(client.DefaultConfig(baseURL))
 
 	// Cache the client
-	c.clientCache.Store(cacheKey, client)
+	c.clientCache.Store(cacheKey, nodeExporterClient)
 
 	log.Infof("Created node-exporter client for node %s at %s", nodeName, baseURL)
-	return client, nil
+	return nodeExporterClient, nil
 }
