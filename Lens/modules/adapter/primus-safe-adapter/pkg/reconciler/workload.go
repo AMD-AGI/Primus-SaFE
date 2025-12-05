@@ -77,18 +77,6 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req reconcile.Reques
 		return reconcile.Result{}, err
 	}
 
-	// Trigger framework detection for new or pending workloads
-	if r.frameworkDetection != nil {
-		if workload.Status.Phase == "" || workload.Status.Phase == primusSafeV1.WorkloadPending {
-			// Run framework detection asynchronously to avoid blocking reconcile
-			go func() {
-				detectionCtx := context.Background()
-				if err := r.frameworkDetection.OnWorkloadCreated(detectionCtx, workload); err != nil {
-					log.Errorf("Framework detection failed for workload %s: %v", workload.UID, err)
-				}
-			}()
-		}
-	}
 	if workload.DeletionTimestamp != nil {
 		if !controllerutil.RemoveFinalizer(workload, constant.PrimusLensGpuWorkloadExporterFinalizer) {
 			return reconcile.Result{}, nil

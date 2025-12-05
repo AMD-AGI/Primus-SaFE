@@ -10,6 +10,7 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/cluster_overview"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/device_info"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/gpu_aggregation"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/gpu_aggregation_backfill"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/gpu_allocation"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/gpu_consumers"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/gpu_history_cache_1h"
@@ -104,7 +105,8 @@ func initDataJobs() []Job {
 		&gpu_history_cache_6h.GpuHistoryCache6hJob{},   // Every 5m - 6 hour history
 		&gpu_history_cache_24h.GpuHistoryCache24hJob{}, // Every 10m - 24 hour history
 		gpu_aggregation.NewGpuAggregationJob(),
-		workload_statistic.NewWorkloadStatisticJob(), // Every 30s - workload GPU utilization statistics
+		gpu_aggregation_backfill.NewGpuAggregationBackfillJob(), // Every hour at :30 - backfill missing aggregation data
+		workload_statistic.NewWorkloadStatisticJob(),            // Every 30s - workload GPU utilization statistics
 	}
 }
 
