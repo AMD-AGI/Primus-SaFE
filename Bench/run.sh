@@ -180,47 +180,56 @@ if [[ "$RANK" == "0" ]]; then
     ok "Network check complete. Healthy nodes (${#healthy_nodes_ip[@]}/${#all_nodes[@]}): ${healthy_nodes_ip[*]}"
     
 
-    # Initialize bench.md file
-    BENCH_REPORT="${OUTPUT_PATH}/bench.md"
-    echo "# PrimusBench Node Check Report" > "$BENCH_REPORT"
+    # Initialize bench report file
+    BENCH_REPORT="${OUTPUT_PATH}/bench_report.txt"
+    echo "================================================================================" > "$BENCH_REPORT"
+    echo "                    PrimusBench Node Check Report" >> "$BENCH_REPORT"
+    echo "================================================================================" >> "$BENCH_REPORT"
     echo "Generated at: $(date '+%Y-%m-%d %H:%M:%S')" >> "$BENCH_REPORT"
-    echo "**Summary:** ${#healthy_nodes_ip[@]} healthy nodes out of ${#all_nodes[@]} total nodes checked" >> "$BENCH_REPORT"
     echo "" >> "$BENCH_REPORT"
-    # Write failed nodes to bench.md
-    echo "### ❌ Failed Nodes (Node Check) - ${#failed_nodes[@]} nodes" >> "$BENCH_REPORT"
+    echo "Summary: ${#healthy_nodes_ip[@]} healthy nodes out of ${#all_nodes[@]} total nodes checked" >> "$BENCH_REPORT"
+    echo "" >> "$BENCH_REPORT"
+    echo "================================================================================" >> "$BENCH_REPORT"
+    echo "" >> "$BENCH_REPORT"
+    # Write failed nodes to report
+    echo "Failed Nodes (Node Check) - ${#failed_nodes[@]} nodes" >> "$BENCH_REPORT"
+    echo "--------------------------------------------------------------------------------" >> "$BENCH_REPORT"
     if [ ${#failed_nodes[@]} -gt 0 ]; then
         for node in "${failed_nodes[@]}"; do
             nodeIP="${node_ip_map[$node]:-unknown}"
-            echo "- $node ($nodeIP)" >> "$BENCH_REPORT"
+            echo "  $node ($nodeIP)" >> "$BENCH_REPORT"
         done
     else
-        echo "-" >> "$BENCH_REPORT"
+        echo "  -" >> "$BENCH_REPORT"
     fi
     echo "" >> "$BENCH_REPORT"
 
-    # Write network check results to bench.md
-    echo "### ❌ Failed Nodes (Network Check) - ${#unhealthy_nodes[@]} nodes" >> "$BENCH_REPORT"
+    # Write network check results to report
+    echo "Failed Nodes (Network Check) - ${#unhealthy_nodes[@]} nodes" >> "$BENCH_REPORT"
+    echo "--------------------------------------------------------------------------------" >> "$BENCH_REPORT"
     if [ ${#unhealthy_nodes[@]} -gt 0 ]; then
         for unhealthy_ip in "${unhealthy_nodes[@]}"; do
             unhealthy_node="${ip_node_map[$unhealthy_ip]:-$unhealthy_ip}"
-            echo "- $unhealthy_node ($unhealthy_ip)" >> "$BENCH_REPORT"
+            echo "  $unhealthy_node ($unhealthy_ip)" >> "$BENCH_REPORT"
         done
     else
-        echo "-" >> "$BENCH_REPORT"
+        echo "  -" >> "$BENCH_REPORT"
     fi
     echo "" >> "$BENCH_REPORT"
     
-    # Write healthy nodes to bench.md
-    echo "### ✅ Healthy Nodes - ${#healthy_nodes_ip[@]} nodes" >> "$BENCH_REPORT"
+    # Write healthy nodes to report
+    echo "Healthy Nodes (Passed All Checks) - ${#healthy_nodes_ip[@]} nodes" >> "$BENCH_REPORT"
+    echo "--------------------------------------------------------------------------------" >> "$BENCH_REPORT"
     if [ ${#healthy_nodes_ip[@]} -gt 0 ]; then
         for ip in "${healthy_nodes_ip[@]}"; do
             healthy_node="${ip_node_map[$ip]}"
-            echo "- $healthy_node ($ip)" >> "$BENCH_REPORT"
+            echo "  $healthy_node ($ip)" >> "$BENCH_REPORT"
         done
     else
-        echo "-" >> "$BENCH_REPORT"
+        echo "  -" >> "$BENCH_REPORT"
     fi
     echo "" >> "$BENCH_REPORT"
+    echo "================================================================================" >> "$BENCH_REPORT"
     
     # Exit if no healthy nodes
     if [ ${#healthy_nodes_ip[@]} -eq 0 ]; then
