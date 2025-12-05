@@ -274,8 +274,8 @@ type Model struct {
 	Message        string      `gorm:"column:message" json:"message" db:"message"`
 	InferenceID    string      `gorm:"column:inference_id" json:"inferenceID" db:"inference_id"`
 	InferencePhase string      `gorm:"column:inference_phase" json:"inferencePhase" db:"inference_phase"`
-	CreatedAt      time.Time   `gorm:"column:created_at;autoCreateTime" json:"createdAt" db:"created_at"`
-	UpdatedAt      time.Time   `gorm:"column:updated_at;autoUpdateTime" json:"updatedAt" db:"updated_at"`
+	CreatedAt      pq.NullTime `gorm:"column:created_at;autoCreateTime" json:"createdAt" db:"created_at"`
+	UpdatedAt      pq.NullTime `gorm:"column:updated_at;autoUpdateTime" json:"updatedAt" db:"updated_at"`
 	DeletionTime   pq.NullTime `gorm:"column:deletion_time" json:"deletionTime" db:"deletion_time"`
 	IsDeleted      bool        `gorm:"column:is_deleted" json:"isDeleted" db:"is_deleted"`
 }
