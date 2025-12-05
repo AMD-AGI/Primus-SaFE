@@ -53,6 +53,53 @@ def ensure_base64(s: str) -> str:
     return s if is_base64(s) else base64.b64encode(s.encode("utf-8")).decode("ascii")
 
 
+# Path where Kubernetes downwardAPI mounts pod metadata
+PODINFO_DIR = "/etc/podinfo"
+PODINFO_LABELS_FILE = os.path.join(PODINFO_DIR, "labels")
+PODINFO_ANNOTATIONS_FILE = os.path.join(PODINFO_DIR, "annotations")
+
+
+def parse_podinfo_file(filepath: str) -> Dict[str, str]:
+    """
+    Parse a Kubernetes downwardAPI metadata file (labels or annotations).
+    Format is: key="value" per line.
+    Returns a dict of key-value pairs, filtering out keys starting with 'primus-safe.'
+    """
+    result: Dict[str, str] = {}
+    if not os.path.isfile(filepath):
+        return result
+    try:
+        with open(filepath, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or "=" not in line:
+                    continue
+                # Format: key="value"
+                eq_idx = line.index("=")
+                key = line[:eq_idx]
+                value = line[eq_idx + 1:]
+                # Remove surrounding quotes if present
+                if value.startswith('"') and value.endswith('"'):
+                    value = value[1:-1]
+                # Filter out system labels/annotations starting with 'primus-safe.'
+                if key.startswith("primus-safe."):
+                    continue
+                result[key] = value
+    except Exception as e:
+        print(f"[warn] failed to parse podinfo file '{filepath}': {e}", file=sys.stderr)
+    return result
+
+
+def get_pod_labels() -> Dict[str, str]:
+    """Read user-defined labels from downwardAPI mounted file."""
+    return parse_podinfo_file(PODINFO_LABELS_FILE)
+
+
+def get_pod_annotations() -> Dict[str, str]:
+    """Read user-defined annotations from downwardAPI mounted file."""
+    return parse_podinfo_file(PODINFO_ANNOTATIONS_FILE)
+
+
 def parse_resources(env_value: str) -> Dict[str, Any]:
     try:
         obj = json.loads(env_value)
@@ -104,6 +151,10 @@ def build_payload() -> Dict[str, Any]:
     if val is not None:
         env_map["SCALE_RUNNER_ID"] = val
 
+    # Read user-defined labels and annotations from downwardAPI mounted files
+    pod_labels = get_pod_labels()
+    pod_annotations = get_pod_annotations()
+
     # Compose request (CreateWorkloadRequest embeds WorkloadSpec)
     payload: Dict[str, Any] = {
         "displayName": display_name,
@@ -119,6 +170,12 @@ def build_payload() -> Dict[str, Any]:
         "timeout": timeout_secs,
         "ttlSecondsAfterFinished": 20,
     }
+    # Add user-defined labels and annotations if present
+    if pod_labels:
+        payload["labels"] = pod_labels
+    if pod_annotations:
+        payload["annotations"] = pod_annotations
+
     return payload
 
 

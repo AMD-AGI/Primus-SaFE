@@ -58,7 +58,13 @@ Create a new workload.
       "type": "image"
     }
   ],
-  "isTolerateAll": false
+  "isTolerateAll": false,
+  "labels": {
+    "team": "ml-platform"
+  },
+  "annotations": {
+    "description": "Training job for model v2"
+  }
 }
 ```
 
@@ -190,6 +196,8 @@ Notes for CICD (AutoscalingRunnerSet):
  | secrets                     | []object | No       | Secrets automatically use all image secrets bound to the workspace.  You can also define your own Secret, such as a token used for CI/CD |
  | secrets[].id                 | string | Yes      | Secret ID                                                                                                                                |
  | isTolerateAll                | bool | No       | Whether to tolerate all node taints                                                                                                      |
+| labels                       | object | No       | User-defined labels (key-value pairs). Keys cannot start with "primus-safe."                                                             |
+| annotations                  | object | No       | User-defined annotations (key-value pairs). Keys cannot start with "primus-safe."                                                        |
 
  
 

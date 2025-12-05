@@ -143,9 +143,7 @@ func modifyContainers(obj *unstructured.Unstructured,
 
 		name := jobutils.GetUnstructuredString(container, []string{"name"})
 		if name == mainContainerName {
-			if !commonworkload.IsCICD(workload) {
-				container["ports"] = buildPorts(workload)
-			}
+			container["ports"] = buildPorts(workload)
 			if healthz := buildHealthCheck(workload.Spec.Liveness); healthz != nil {
 				container["livenessProbe"] = healthz
 			}
@@ -409,27 +407,39 @@ func buildEntryPoint(workload *v1.Workload) string {
 	return result
 }
 
-// buildLabels creates a map of labels for workload identification and tracking.
+// buildLabels creates a map of labels for object tracking.
 func buildLabels(workload *v1.Workload) map[string]interface{} {
 	result := map[string]interface{}{
 		v1.WorkloadIdLabel:          workload.Name,
 		v1.WorkloadDispatchCntLabel: buildDispatchCount(workload),
 	}
+	for key, value := range workload.Labels {
+		if !strings.HasPrefix(key, v1.PrimusSafePrefix) {
+			result[key] = value
+		}
+	}
+	return result
+}
+
+// buildAnnotations creates a map of annotations for object tracking.
+func buildAnnotations(workload *v1.Workload) map[string]string {
+	result := make(map[string]string)
+	for key, value := range workload.Annotations {
+		if !strings.HasPrefix(key, v1.PrimusSafePrefix) {
+			result[key] = value
+		}
+	}
+	if v1.GetUserName(workload) != "" {
+		result[v1.UserNameAnnotation] = v1.GetUserName(workload)
+	}
 	return result
 }
 
 // buildResources constructs resource requirements for the workload container.
-func buildResources(workload *v1.Workload) map[string]interface{} {
-	result := map[string]interface{}{
-		string(corev1.ResourceCPU):              workload.Spec.Resource.CPU,
-		string(corev1.ResourceMemory):           workload.Spec.Resource.Memory,
-		string(corev1.ResourceEphemeralStorage): workload.Spec.Resource.EphemeralStorage,
-	}
-	if workload.Spec.Resource.GPU != "" {
-		result[workload.Spec.Resource.GPUName] = workload.Spec.Resource.GPU
-	}
-	if workload.Spec.Resource.RdmaResource != "" && commonconfig.GetRdmaName() != "" {
-		result[commonconfig.GetRdmaName()] = workload.Spec.Resource.RdmaResource
+func buildResources(workloadResource corev1.ResourceList) map[string]interface{} {
+	result := make(map[string]interface{})
+	for key, val := range workloadResource {
+		result[string(key)] = val.String()
 	}
 	return result
 }

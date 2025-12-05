@@ -540,7 +540,7 @@ func (h *Handler) cvtToGetWorkspaceResponse(ctx context.Context, workspace *v1.W
 	}
 	nfResource := nf.ToResourceList(commonconfig.GetRdmaName())
 
-	abnormalQuota := quantity.MultiResource(nfResource, int64(result.AbnormalNodeCount))
+	abnormalQuota := quantity.MultiResource(nfResource, float64(result.AbnormalNodeCount))
 	result.TotalQuota = cvtToResourceList(workspace.Status.TotalResources)
 	result.AbnormalQuota = cvtToResourceList(abnormalQuota)
 

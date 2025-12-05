@@ -169,17 +169,21 @@ func IsConcernedResource(name corev1.ResourceName) bool {
 	return false
 }
 
-// MultiResource multiplies resource quantities by a scalar.
-func MultiResource(inputs corev1.ResourceList, replica int64) corev1.ResourceList {
+// MultiResource multiplies resource quantities by a float scalar
+func MultiResource(inputs corev1.ResourceList, multiplier float64) corev1.ResourceList {
+	if floatutil.FloatEqual(multiplier, 1) {
+		return Copy(inputs)
+	}
 	result := corev1.ResourceList{}
 	for k, v := range inputs {
-		result[k] = *resource.NewQuantity(replica*v.Value(), v.Format)
+		scaledValue := float64(v.Value()) * multiplier
+		result[k] = *resource.NewQuantity(int64(scaledValue), v.Format)
 	}
 	return result
 }
 
 // CvtToResourceList converts individual values to a ResourceList.
-func CvtToResourceList(cpu, memory, gpu, gpuName, ephemeralStore, rdmaResource string, replica int64) (corev1.ResourceList, error) {
+func CvtToResourceList(cpu, memory, gpu, gpuName, ephemeralStore, rdmaResource string, replica float64) (corev1.ResourceList, error) {
 	if replica <= 0 {
 		return nil, nil
 	}
