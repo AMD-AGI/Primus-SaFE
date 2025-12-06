@@ -84,6 +84,8 @@ data:
               name: work
             - mountPath: /var/run
               name: dind-sock
+            - mountPath: /home/runner/externals
+              name: dind-externals
         restartPolicy: Never
         dnsPolicy: ClusterFirst
         enableServiceLinks: true
