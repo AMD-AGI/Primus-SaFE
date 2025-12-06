@@ -205,10 +205,13 @@ func (c *GpuAllocationCalculator) calculateGpuAllocation(
 
 	for _, workload := range workloads {
 		pods := topLevelWorkloadPods[workload.UID]
+
 		detail := c.calculateWorkloadAllocation(workload, pods, startTime, endTime, totalDuration, endTime)
-		result.Details = append(result.Details, detail)
-		result.TotalAllocatedGpu += detail.AllocatedGpu
-		result.PodCount += detail.PodCount
+		if len(detail.PodDetails) > 0 {
+			result.Details = append(result.Details, detail)
+			result.TotalAllocatedGpu += detail.AllocatedGpu
+			result.PodCount += detail.PodCount
+		}
 	}
 
 	result.WorkloadCount = len(workloads)
@@ -319,10 +322,10 @@ func (c *GpuAllocationCalculator) calculatePodAllocation(
 	// Determine pod lifetime based on Phase
 	podCreatedAt := pod.CreatedAt
 	var podEndAt time.Time
-	if pod.Phase == "Running" {
-		podEndAt = now
-	} else {
+	if pod.Phase != "Running" || pod.Deleted {
 		podEndAt = pod.UpdatedAt
+	} else {
+		podEndAt = now
 	}
 
 	// Check if pod has any overlap with the query time range
