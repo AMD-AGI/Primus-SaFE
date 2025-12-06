@@ -5,32 +5,35 @@
 # See LICENSE for license information.
 ###############################################################################
 
+# Source unified configuration
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/config.sh"
+
 print_usage() {
 cat << EOF
 Usage: bash $(basename "$0") [--help]
 
-Environment variables (must set before running):
+Environment variables (configured in config.sh, can be overridden):
 
-    NNODES=1                                    # Number of nodes (default: 1)
-    MASTER_PORT=12345     Master port [default: 12345]
-    IMAGE=primussafe/primusbench:202510221446   # Image of SuperBench (default: primussafe/primusbench:202510221446)
-    NCCL_SOCKET_IFNAME=eno0                     # NCCL socket interface name (default: eno0)
-    GLOO_SOCKET_IFNAME=rdma0,rdma1,rdma2,rdma3,rdma4,rdma5,rdma6,rdma7                      # Gloo socket interface name (default: rdma0,rdma1,rdma2,rdma3,rdma4,rdma5,rdma6,rdma7)
+    NNODES              Number of nodes (default: ${NNODES})
+    MASTER_PORT         Master port (default: ${MASTER_PORT})
+    IMAGE               Container image (default: ${IMAGE})
+    NCCL_SOCKET_IFNAME  NCCL socket interface (default: ${NCCL_SOCKET_IFNAME})
+    GLOO_SOCKET_IFNAME  Gloo socket interface (default: ${GLOO_SOCKET_IFNAME})
+
 Example:
 
-    NNODES=2 IMAGE=primussafe/primusbench:202510221446 bash salloc_slurm.sh
+    NNODES=2 bash $(basename "$0")
 
 EOF
 }
 
+# Override NNODES default to 2 for slurm
 export NNODES=${NNODES:-2}
-export IMAGE=${IMAGE:-primussafe/primusbench:202510221446}
-export PARTITION=${PARTITION:-amd-tw}
-export TIME=${TIME:-4:30:00}
-export MASTER_PORT=${MASTER_PORT:-12345}
-export SSH_PORT=$(( RANDOM % 9999 + 30001 ))
-export PRIMUSBENCH_PATH=$(pwd)
-export LOG_DIR=${LOG_DIR:-"./outputs"}
+export PRIMUSBENCH_PATH="${PRIMUSBENCH_PATH:-$(pwd)}"
+
+
+
 LOG_FILE="${LOG_DIR}/log_slurm.txt"
 mkdir -p "$LOG_DIR"
 
@@ -38,7 +41,6 @@ srun -N "${NNODES}" \
     --exclusive \
     --export ALL \
     --ntasks-per-node=1 \
-    --cpus-per-task="${CPUS_PER_TASK:-256}" \
     bash -c "
         readarray -t node_array < <(scontrol show hostnames \"\$SLURM_JOB_NODELIST\")
         if [ \"\$SLURM_NODEID\" = \"0\" ]; then
@@ -56,5 +58,6 @@ srun -N "${NNODES}" \
         export IMAGE=\${IMAGE}
         export NCCL_SOCKET_IFNAME=\${NCCL_SOCKET_IFNAME}
         export GLOO_SOCKET_IFNAME=\${GLOO_SOCKET_IFNAME}
+        export HF_TOKEN=\${HF_TOKEN}
         cd ${PRIMUSBENCH_PATH} && bash run_local.sh \"\$@\" 2>&1 | tee ${LOG_FILE}
     " bash "$@"

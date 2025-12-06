@@ -5,22 +5,18 @@
 # See LICENSE for license information.
 ###############################################################################
 
-export NCCL_TIMEOUT=7200
-export TORCH_DISTRIBUTED_DEFAULT_TIMEOUT=$NCCL_TIMEOUT
-export GLOO_TIMEOUT=$NCCL_TIMEOUT
-export PRIMUSBENCH_PATH=$(pwd)
-export LOG_HEADER="[$(hostname)] [NODE-$RANK]"
-export HF_TOKEN=${HF_TOKEN}
+# Source unified configuration
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/config.sh"
 
-HOSTS=/root/hosts
-ENGINE="${ENGINE:-psync}"
-RUNTIME="${RUNTIME:-30}"
+export PRIMUSBENCH_PATH="${PRIMUSBENCH_PATH:-$(pwd)}"
+export LOG_HEADER="[$(hostname)] [NODE-$RANK]"
 
 log()    { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"; }
 ok()     { echo "✔ $1"; }
 warn()   { echo "⚠ $1"; }
 err()    { echo "✘ $1"; }
-
+print_config
 # ==== Step 1: Start FIO server ====
 if [ -n "${IO_BENCHMARK_MOUNT:-}" ]; then
     log "Starting FIO server..."
@@ -28,7 +24,6 @@ if [ -n "${IO_BENCHMARK_MOUNT:-}" ]; then
 fi
 
 # ==== Step 2: SSH preflight ====
-export SSH_PORT=${SSH_PORT:-22366}
 cd "${PRIMUSBENCH_PATH}/preflight/ssh"
 bash run.sh
 

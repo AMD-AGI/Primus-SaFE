@@ -91,7 +91,7 @@ class TrainingConfig:
     checkpoint_dir: str = "./.checkpoints"  # Hidden directory, auto-created
     
     # Early stopping
-    patience: int = 10
+    patience: int = 1000  # Increased from 1000 for longer training
     min_delta: float = 1e-4
 
 
