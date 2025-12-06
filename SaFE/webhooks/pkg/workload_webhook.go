@@ -618,9 +618,6 @@ func (v *WorkloadValidator) validateCommon(ctx context.Context, workload *v1.Wor
 	if err := v.validateTemplate(ctx, workload); err != nil {
 		return err
 	}
-	if err := validateDisplayName(v1.GetDisplayName(workload)); err != nil {
-		return err
-	}
 	if err := validateLabels(workload.Spec.CustomerLabels); err != nil {
 		return err
 	}
@@ -633,13 +630,15 @@ func (v *WorkloadValidator) validateRequiredParams(workload *v1.Workload) error 
 	if v1.GetDisplayName(workload) == "" {
 		errs = append(errs, fmt.Errorf("the displayName is empty"))
 	}
+	if err := validateDisplayName(v1.GetDisplayName(workload)); err != nil {
+		errs = append(errs, err)
+	}
 	if v1.GetClusterId(workload) == "" {
 		errs = append(errs, fmt.Errorf("the cluster is empty"))
 	}
 	if workload.Spec.Workspace == "" {
 		errs = append(errs, fmt.Errorf("the workspace is empty"))
 	}
-
 	if workload.Spec.GroupVersionKind.Kind == "" || workload.Spec.GroupVersionKind.Version == "" {
 		errs = append(errs, fmt.Errorf("the gvk is empty"))
 	}

@@ -13,7 +13,7 @@ import (
 
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	customhandler "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/custom-handlers"
-	image_handlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/image-handlers"
+	imagehandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/image-handlers"
 	sshhandler "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/ssh-handlers"
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
@@ -43,11 +43,11 @@ func InitHttpHandlers(_ context.Context, mgr ctrlruntime.Manager) (*gin.Engine, 
 		return nil, err
 	}
 	customhandler.InitCustomRouters(engine, customHandler)
-	imageHandler, err := image_handlers.NewImageHandler(mgr)
+	imageHandler, err := imagehandlers.NewImageHandler(mgr)
 	if err != nil {
 		return nil, err
 	}
-	image_handlers.InitImageRouter(engine, imageHandler)
+	imagehandlers.InitImageRouter(engine, imageHandler)
 	sshHandler, err := InitSshHandlers(context.Background(), mgr)
 	if err != nil {
 		return nil, err
