@@ -3,11 +3,27 @@ import base64
 import atexit
 import json
 import os
+import signal
 import sys
 import time
 import shutil
 from typing import Any, Dict, Optional, Tuple
 import requests
+
+
+def _signal_handler(signum: int, frame: Any) -> None:
+    """
+    Handle SIGTERM/SIGINT by calling sys.exit() so that atexit handlers run.
+    Without this, atexit handlers won't execute when container is terminated.
+    """
+    sig_name = signal.Signals(signum).name if hasattr(signal, 'Signals') else str(signum)
+    print(f"[info] received {sig_name}, exiting gracefully...", file=sys.stderr)
+    sys.exit(128 + signum)
+
+
+# Register signal handlers early to ensure atexit callbacks run on termination
+signal.signal(signal.SIGTERM, _signal_handler)
+signal.signal(signal.SIGINT, _signal_handler)
 
 timeout_secs = 36000
 
