@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
@@ -13,6 +14,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/watch"
+	"k8s.io/utils/env"
 )
 
 // MultiClusterStorageConfigListener watches for changes in multi-cluster config secrets
@@ -20,18 +22,142 @@ import (
 type MultiClusterStorageConfigListener struct {
 	ctx            context.Context
 	cancel         context.CancelFunc
-	syncTaskCancel context.CancelFunc // Used to cancel sync task
-	syncInterval   time.Duration      // Sync interval
+	syncTaskCancel context.CancelFunc  // Used to cancel sync task
+	syncInterval   time.Duration       // Sync interval
+	excludeNodes   map[string][]string // Nodes to exclude per cluster: map[clusterName][]nodeName
 }
+
+// Environment variable names for exclude nodes configuration
+const (
+	// ExcludeControlPlaneNodesEnv is the environment variable name for exclude nodes configuration
+	// Format: "node1,node2,node3" for global exclusion (applies to all clusters)
+	// Or: "cluster1:node1,node2;cluster2:node3,node4" for per-cluster exclusion
+	// Or: "*:node1,node2;cluster-a:node3" for mixed global and per-cluster exclusion
+	// The "*" key means the exclusion applies to all clusters
+	ExcludeControlPlaneNodesEnv = "EXCLUDE_CONTROL_PLANE_NODES"
+)
 
 // NewMultiClusterStorageConfigListener creates a new multi-cluster storage config listener
 func NewMultiClusterStorageConfigListener(ctx context.Context) *MultiClusterStorageConfigListener {
 	childCtx, cancel := context.WithCancel(ctx)
-	return &MultiClusterStorageConfigListener{
+	listener := &MultiClusterStorageConfigListener{
 		ctx:          childCtx,
 		cancel:       cancel,
-		syncInterval: 30 * time.Second, // Default sync every 30 seconds
+		syncInterval: 30 * time.Second,          // Default sync every 30 seconds
+		excludeNodes: make(map[string][]string), // Initialize empty exclude nodes map
 	}
+
+	// Load exclude nodes from environment variable
+	listener.loadExcludeNodesFromEnv()
+
+	return listener
+}
+
+// loadExcludeNodesFromEnv loads exclude nodes configuration from environment variable
+// Supported formats:
+//   - Simple: "node1,node2,node3" - applies to all clusters (stored with "*" key)
+//   - Per-cluster: "cluster1:node1,node2;cluster2:node3,node4"
+//   - Mixed: "*:node1,node2;cluster-a:node3" - global and per-cluster
+func (m *MultiClusterStorageConfigListener) loadExcludeNodesFromEnv() {
+	excludeNodesStr := env.GetString(ExcludeControlPlaneNodesEnv, "")
+	if excludeNodesStr == "" {
+		log.Info("No exclude control plane nodes configured via environment variable")
+		return
+	}
+
+	log.Infof("Loading exclude control plane nodes from env %s: %s", ExcludeControlPlaneNodesEnv, excludeNodesStr)
+
+	// Check if it contains cluster-specific configuration (contains ":")
+	if strings.Contains(excludeNodesStr, ":") {
+		// Per-cluster format: "cluster1:node1,node2;cluster2:node3,node4"
+		clusterConfigs := strings.Split(excludeNodesStr, ";")
+		for _, clusterConfig := range clusterConfigs {
+			clusterConfig = strings.TrimSpace(clusterConfig)
+			if clusterConfig == "" {
+				continue
+			}
+
+			parts := strings.SplitN(clusterConfig, ":", 2)
+			if len(parts) != 2 {
+				log.Warnf("Invalid exclude nodes format for cluster config: %s, expected 'cluster:node1,node2'", clusterConfig)
+				continue
+			}
+
+			clusterName := strings.TrimSpace(parts[0])
+			nodeNamesStr := strings.TrimSpace(parts[1])
+
+			if clusterName == "" || nodeNamesStr == "" {
+				log.Warnf("Invalid exclude nodes format: empty cluster name or node names in %s", clusterConfig)
+				continue
+			}
+
+			nodeNames := parseNodeNames(nodeNamesStr)
+			if len(nodeNames) > 0 {
+				m.excludeNodes[clusterName] = nodeNames
+				if clusterName == "*" {
+					log.Infof("Loaded global exclude nodes (all clusters): %v", nodeNames)
+				} else {
+					log.Infof("Loaded exclude nodes for cluster %s: %v", clusterName, nodeNames)
+				}
+			}
+		}
+	} else {
+		// Simple format: "node1,node2,node3" - applies to all clusters
+		nodeNames := parseNodeNames(excludeNodesStr)
+		if len(nodeNames) > 0 {
+			m.excludeNodes["*"] = nodeNames
+			log.Infof("Loaded global exclude nodes (all clusters): %v", nodeNames)
+		}
+	}
+}
+
+// parseNodeNames parses comma-separated node names and returns a cleaned slice
+func parseNodeNames(nodeNamesStr string) []string {
+	parts := strings.Split(nodeNamesStr, ",")
+	nodeNames := make([]string, 0, len(parts))
+	for _, name := range parts {
+		name = strings.TrimSpace(name)
+		if name != "" {
+			nodeNames = append(nodeNames, name)
+		}
+	}
+	return nodeNames
+}
+
+// SetExcludeNodes sets the nodes to exclude for a specific cluster
+// clusterName: the name of the cluster
+// nodeNames: list of node names to exclude when selecting control-plane nodes
+func (m *MultiClusterStorageConfigListener) SetExcludeNodes(clusterName string, nodeNames []string) {
+	m.excludeNodes[clusterName] = nodeNames
+	log.Infof("Set exclude nodes for cluster %s: %v", clusterName, nodeNames)
+}
+
+// SetExcludeNodesForAllClusters sets the nodes to exclude for all clusters (using "*" as key)
+// nodeNames: list of node names to exclude when selecting control-plane nodes from any cluster
+func (m *MultiClusterStorageConfigListener) SetExcludeNodesForAllClusters(nodeNames []string) {
+	m.excludeNodes["*"] = nodeNames
+	log.Infof("Set global exclude nodes for all clusters: %v", nodeNames)
+}
+
+// isNodeExcluded checks if a node should be excluded for a given cluster
+func (m *MultiClusterStorageConfigListener) isNodeExcluded(clusterName, nodeName string) bool {
+	// Check cluster-specific exclusions
+	if excludedNodes, ok := m.excludeNodes[clusterName]; ok {
+		for _, excludedNode := range excludedNodes {
+			if excludedNode == nodeName {
+				return true
+			}
+		}
+	}
+	// Check global exclusions (using "*" as key)
+	if excludedNodes, ok := m.excludeNodes["*"]; ok {
+		for _, excludedNode := range excludedNodes {
+			if excludedNode == nodeName {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // Start starts the listener and begins watching K8S secret changes
@@ -357,6 +483,12 @@ func (m *MultiClusterStorageConfigListener) getReadyControlPlaneNodeIPs(clusterN
 	// Filter Ready control-plane nodes and extract IPs
 	nodeIPs := make([]string, 0, 3)
 	for _, node := range nodes.Items {
+		// Check if node is excluded
+		if m.isNodeExcluded(clusterName, node.Name) {
+			log.Infof("Skipping excluded node %s for cluster %s", node.Name, clusterName)
+			continue
+		}
+
 		// Only select control-plane nodes
 		_, hasControlPlaneLabel := node.Labels["node-role.kubernetes.io/control-plane"]
 		_, hasMasterLabel := node.Labels["node-role.kubernetes.io/master"]
