@@ -7,6 +7,10 @@
 
 set -e
 
+# Source unified configuration
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/config.sh"
+
 # ------------------ Usage Help ------------------
 
 print_usage() {
@@ -15,14 +19,15 @@ Usage: bash run_local.sh
 
 This script launches a Primus bench task inside a Docker/Podman container.
 
-Environment Variables:
-    IMAGE   Docker image to use [Default: primussafe/primusbench:202510221446]
-    MASTER_ADDR    Master node IP or hostname [Default: localhost]
-    MASTER_PORT    Master node port [Default: 1234]
-    NNODES         Total number of nodes [Default: 1]
-    NODE_RANK      Rank of this node [Default: 0]
-    GPUS_PER_NODE  GPUs per node [Default: 8]
-    PRIMUS_*       Any environment variable prefixed with PRIMUS_ will be passed into the container.
+Environment Variables (configured in config.sh, can be overridden):
+    IMAGE           Docker image [Default: ${IMAGE}]
+    MASTER_ADDR     Master node IP or hostname [Default: ${MASTER_ADDR}]
+    MASTER_PORT     Master node port [Default: ${MASTER_PORT}]
+    NNODES          Total number of nodes [Default: ${NNODES}]
+    NODE_RANK       Rank of this node [Default: 0]
+    GPUS_PER_NODE   GPUs per node [Default: ${GPUS_PER_NODE}]
+    IP_INTERFACE    Network interface [Default: ${IP_INTERFACE}]
+    PRIMUS_*        Any environment variable prefixed with PRIMUS_ will be passed into the container.
 
 Example:
    bash run_local.sh
@@ -35,14 +40,8 @@ if [[ "$1" == "--help" || "$1" == "-h" ]]; then
     exit 0
 fi
 
-IMAGE=${IMAGE:-"primussafe/primusbench:202510221446"}
-
-export PRIMUSBENCH_PATH=$(pwd)
-MASTER_ADDR=${MASTER_ADDR:-localhost}
-MASTER_PORT=${MASTER_PORT:-12345}
-NNODES=${NNODES:-1}
+export PRIMUSBENCH_PATH="${PRIMUSBENCH_PATH:-$(pwd)}"
 NODE_RANK=${NODE_RANK:-0}
-GPUS_PER_NODE=${GPUS_PER_NODE:-8}
 
 if [ "$NODE_RANK" = "0" ]; then
     echo "========== Cluster info =========="
@@ -58,8 +57,6 @@ ARGS=("$@")
 
 VOLUME_ARGS=(-v "$PRIMUSBENCH_PATH":"$PRIMUSBENCH_PATH")
 
-export CLEAN_DOCKER_CONTAINER=${CLEAN_DOCKER_CONTAINER:-0}
-
 # ------------------ Optional Container Cleanup ------------------
 docker_podman_proxy() {
     if command -v podman &>/dev/null; then
@@ -72,7 +69,7 @@ docker_podman_proxy() {
     fi
 }
 
-if [[ "${CLEAN_DOCKER_CONTAINER:-0}" == "1" ]]; then
+if [[ "${CLEAN_DOCKER_CONTAINER}" == "1" ]]; then
     echo "Node-${NODE_RANK}: Cleaning up existing containers..."
     CONTAINERS=$(docker_podman_proxy ps -aq)
     if [[ -n "$CONTAINERS" ]]; then
@@ -85,30 +82,7 @@ if [[ "${CLEAN_DOCKER_CONTAINER:-0}" == "1" ]]; then
     fi
 fi
 
-# Note: Modify specific network configurations according to the current cluster
-export NCCL_IB_HCA=${NCCL_IB_HCA:-"bnxt_re0:1,bnxt_re1:1,bnxt_re2:1,bnxt_re3:1,bnxt_re4:1,bnxt_re5:1,bnxt_re6:1,bnxt_re7:1"}
-export IP_INTERFACE=${IP_INTERFACE:-"ens51f0"}
-export GPU_PRODUCT=${GPU_PRODUCT:-"MI325X"}
-
-# Enable high-speed DMA transfers on AMD GPUs
-export HSA_ENABLE_SDMA=1  # Enable system DMA (SDMA) engine for better GPU IO throughput
-# Prevent scratch memory space from being reclaimed
-export HSA_NO_SCRATCH_RECLAIM=1  # Helps stabilize large memory usage patterns (e.g. KV cache, MoE experts)
-export NCCL_IB_GID_INDEX=3
-export NCCL_CROSS_NIC=0
-export NCCL_IB_GDR_LEVEL=2
-export NCCL_NET_GDR_LEVEL=2
-export NCCL_SOCKET_IFNAME=${NCCL_SOCKET_IFNAME:-${IP_INTERFACE}}
-export GLOO_SOCKET_IFNAME=${GLOO_SOCKET_IFNAME:-${IP_INTERFACE}}
-export CUDA_DEVICE_MAX_CONNECTIONS=1 # Reducing to 1 ensures no PCIE traffic (even on single node)
-export RCCL_MSCCL_ENABLE=0
-export NCCL_CHECKS_DISABLE=1
-export OMP_NUM_THREADS=1
-export GPU_MAX_HW_QUEUES=2
-export TORCH_NCCL_HIGH_PRIORITY=1
-# VERSION, WARN, INFO, DEBUG
-export NCCL_DEBUG="VERSION"
-
+# GPU visibility (all environment variables already configured via config.sh)
 HIP_VISIBLE_DEVICES=$(seq -s, 0 $((GPUS_PER_NODE - 1)))
 export HIP_VISIBLE_DEVICES
 
@@ -125,20 +99,21 @@ docker_podman_proxy run \
     --env TORCH_NCCL_HIGH_PRIORITY=${TORCH_NCCL_HIGH_PRIORITY} \
     --env NCCL_DEBUG=${NCCL_DEBUG} \
     --env NCCL_CHECKS_DISABLE=${NCCL_CHECKS_DISABLE} \
-    --env NCCL_IB_GDR_LEVEL=2 \
-    --env NCCL_NET_GDR_LEVEL=2 \
+    --env NCCL_IB_GDR_LEVEL=${NCCL_IB_GDR_LEVEL} \
+    --env NCCL_NET_GDR_LEVEL=${NCCL_NET_GDR_LEVEL} \
     --env NCCL_IB_HCA=${NCCL_IB_HCA} \
     --env NCCL_IB_GID_INDEX=${NCCL_IB_GID_INDEX} \
     --env NCCL_CROSS_NIC=${NCCL_CROSS_NIC} \
     --env HSA_ENABLE_SDMA=${HSA_ENABLE_SDMA} \
+    --env HSA_NO_SCRATCH_RECLAIM=${HSA_NO_SCRATCH_RECLAIM} \
     --env NCCL_SOCKET_IFNAME=${NCCL_SOCKET_IFNAME} \
     --env GLOO_SOCKET_IFNAME=${GLOO_SOCKET_IFNAME} \
     --env CUDA_DEVICE_MAX_CONNECTIONS=${CUDA_DEVICE_MAX_CONNECTIONS} \
     --env RCCL_MSCCL_ENABLE=${RCCL_MSCCL_ENABLE} \
     --env SSH_PORT=${SSH_PORT} \
-    --env ADD_LOG_HEADER=true \
-    --env BNIC=50 \
-    --env BXGMI=315 \
+    --env ADD_LOG_HEADER=${ADD_LOG_HEADER} \
+    --env BNIC=${BNIC} \
+    --env BXGMI=${BXGMI} \
     --ipc=host --network=host --pid=host \
     --device=/dev/kfd --device=/dev/dri \
     --cap-add=SYS_PTRACE --cap-add=CAP_SYS_ADMIN \
