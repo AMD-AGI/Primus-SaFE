@@ -422,8 +422,8 @@ func buildLabels(workload *v1.Workload) map[string]interface{} {
 }
 
 // buildAnnotations creates a map of annotations for object tracking.
-func buildAnnotations(workload *v1.Workload) map[string]string {
-	result := make(map[string]string)
+func buildAnnotations(workload *v1.Workload) map[string]interface{} {
+	result := make(map[string]interface{})
 	for key, value := range workload.Annotations {
 		if !strings.HasPrefix(key, v1.PrimusSafePrefix) {
 			result[key] = value

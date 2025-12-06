@@ -291,7 +291,9 @@ func setK8sObjectMeta(result *unstructured.Unstructured, adminWorkload *v1.Workl
 		targetAnnotations = make(map[string]string)
 	}
 	for key, val := range buildAnnotations(adminWorkload) {
-		targetAnnotations[key] = val
+		if strValue, ok := val.(string); ok {
+			targetAnnotations[key] = strValue
+		}
 	}
 	result.SetAnnotations(targetAnnotations)
 }
@@ -504,6 +506,9 @@ func updateUnstructuredObject(obj *unstructured.Unstructured,
 		if err := updateReplica(adminWorkload, obj, t, replica); err != nil {
 			return fmt.Errorf("failed to update replica: %v", err.Error())
 		}
+		if err := updateMetadata(adminWorkload, obj, t); err != nil {
+			return fmt.Errorf("failed to update main container: %v", err.Error())
+		}
 		if err := updateContainers(adminWorkload, obj, t); err != nil {
 			return fmt.Errorf("failed to update main container: %v", err.Error())
 		}
@@ -650,6 +655,21 @@ func getNfsPathFromWorkspace(workspace *v1.Workspace) string {
 		result = workspace.Spec.Volumes[0].MountPath
 	}
 	return result
+}
+
+// updateMetadata updates the template metadata annotations in the unstructured object.
+func updateMetadata(adminWorkload *v1.Workload,
+	obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec) error {
+	_, found, err := unstructured.NestedMap(obj.Object, resourceSpec.GetTemplatePath()...)
+	if err != nil || !found {
+		return err
+	}
+	annotations := buildAnnotations(adminWorkload)
+	path := append(resourceSpec.GetTemplatePath(), "metadata", "annotations")
+	if err = unstructured.SetNestedMap(obj.Object, annotations, path...); err != nil {
+		return err
+	}
+	return nil
 }
 
 // updateContainers updates all container configurations in the unstructured object.

@@ -319,14 +319,21 @@ func checkHostPid(t *testing.T, obj *unstructured.Unstructured, workload *v1.Wor
 }
 
 func checkLabels(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec) {
-	path := append(resourceSpec.PrePaths, resourceSpec.TemplatePaths...)
-	path = append(path, "metadata", "labels")
+	rootPath := append(resourceSpec.PrePaths, resourceSpec.TemplatePaths...)
+	path := append(rootPath, "metadata", "labels")
 
 	labels, found, err := unstructured.NestedMap(obj.Object, path...)
 	assert.NilError(t, err)
 	assert.Equal(t, found, true)
 	assert.Equal(t, labels[v1.WorkloadDispatchCntLabel].(string), "1")
 	assert.Equal(t, labels[v1.WorkloadIdLabel].(string), workload.Name)
+
+	path = append(rootPath, "metadata", "annotations")
+	annotations, found, err := unstructured.NestedMap(obj.Object, path...)
+	assert.NilError(t, err)
+	assert.Equal(t, found, true)
+	assert.Equal(t, annotations[v1.UserNameAnnotation].(string), v1.GetUserName(workload))
+	assert.Equal(t, annotations["key"].(string), "val")
 }
 
 func checkSelector(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload) {
