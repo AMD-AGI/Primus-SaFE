@@ -58,74 +58,84 @@ func (s *NamespaceSyncService) Run(ctx context.Context) error {
 
 	log.Infof("Found %d workspaces", len(workspaces))
 
-	// Build workspace name set for quick lookup
-	workspaceNames := make(map[string]*primusSafeV1.Workspace)
+	// 2. Group workspaces by cluster ID
+	// clusterWorkspaces: clusterID -> map[workspaceName]*Workspace
+	clusterWorkspaces := make(map[string]map[string]*primusSafeV1.Workspace)
 	for i := range workspaces {
-		workspaceNames[workspaces[i].Name] = &workspaces[i]
+		workspace := &workspaces[i]
+		clusterID := primusSafeV1.GetClusterId(workspace)
+		if clusterWorkspaces[clusterID] == nil {
+			clusterWorkspaces[clusterID] = make(map[string]*primusSafeV1.Workspace)
+		}
+		clusterWorkspaces[clusterID][workspace.Name] = workspace
 	}
 
-	// 2. Get all namespace_info records (including soft deleted for recovery)
-	allNamespaceInfos, err := s.listAllNamespaceInfos(ctx)
-	if err != nil {
-		log.Errorf("Failed to list namespace infos: %v", err)
-		return err
-	}
-
-	log.Infof("Found %d namespace_info records (including soft deleted)", len(allNamespaceInfos))
-
-	// Build namespace_info name set
-	namespaceInfoMap := make(map[string]*model.NamespaceInfo)
-	for _, nsInfo := range allNamespaceInfos {
-		namespaceInfoMap[nsInfo.Name] = nsInfo
-	}
-
-	// 3. Sync: create or update namespace_info for each workspace
+	// 3. Process each cluster separately
 	createdCount := 0
 	updatedCount := 0
 	recoveredCount := 0
+	deletedCount := 0
 
-	for _, workspace := range workspaces {
-		clusterID := primusSafeV1.GetClusterId(&workspace)
+	for clusterID, workspaceMap := range clusterWorkspaces {
 		facade := s.getFacade(clusterID)
 
-		existingInfo := namespaceInfoMap[workspace.Name]
-		created, updated, recovered, err := s.syncWorkspaceToNamespaceInfo(ctx, &workspace, existingInfo, facade)
+		// 3.1 Get all namespace_info records for this cluster (including soft deleted)
+		clusterNamespaceInfos, err := facade.GetNamespaceInfo().ListAllIncludingDeleted(ctx)
 		if err != nil {
-			log.Errorf("Failed to sync workspace %s: %v", workspace.Name, err)
+			log.Errorf("Failed to list namespace infos for cluster %s: %v", clusterID, err)
 			continue
 		}
 
-		if created {
-			createdCount++
-		}
-		if updated {
-			updatedCount++
-		}
-		if recovered {
-			recoveredCount++
-		}
-	}
-
-	// 4. Soft delete namespace_info records that no longer have corresponding workspace
-	deletedCount := 0
-	for name, nsInfo := range namespaceInfoMap {
-		// Skip already soft deleted records
-		if nsInfo.DeletedAt.Valid {
-			continue
+		// Build namespace_info map for this cluster
+		namespaceInfoMap := make(map[string]*model.NamespaceInfo)
+		for _, nsInfo := range clusterNamespaceInfos {
+			namespaceInfoMap[nsInfo.Name] = nsInfo
 		}
 
-		// If workspace doesn't exist, soft delete the namespace_info
-		if _, exists := workspaceNames[name]; !exists {
-			if err := s.softDeleteNamespaceInfo(ctx, nsInfo); err != nil {
-				log.Errorf("Failed to soft delete namespace_info %s: %v", name, err)
+		log.Debugf("Cluster %s: found %d namespace_info records, %d workspaces",
+			clusterID, len(clusterNamespaceInfos), len(workspaceMap))
+
+		// 3.2 Sync each workspace in this cluster
+		for _, workspace := range workspaceMap {
+			existingInfo := namespaceInfoMap[workspace.Name]
+
+			created, updated, recovered, err := s.syncWorkspaceToNamespaceInfo(ctx, workspace, existingInfo, facade)
+			if err != nil {
+				log.Errorf("Failed to sync workspace %s: %v", workspace.Name, err)
 				continue
 			}
-			deletedCount++
-			log.Infof("Soft deleted namespace_info: %s (workspace no longer exists)", name)
+
+			if created {
+				createdCount++
+			}
+			if updated {
+				updatedCount++
+			}
+			if recovered {
+				recoveredCount++
+			}
+		}
+
+		// 3.3 Soft delete namespace_info records that no longer have corresponding workspace in this cluster
+		for name, nsInfo := range namespaceInfoMap {
+			// Skip already soft deleted records
+			if nsInfo.DeletedAt.Valid {
+				continue
+			}
+
+			// If workspace doesn't exist in this cluster, soft delete the namespace_info
+			if _, exists := workspaceMap[name]; !exists {
+				if err := facade.GetNamespaceInfo().DeleteByName(ctx, name); err != nil {
+					log.Errorf("Failed to soft delete namespace_info %s in cluster %s: %v", name, clusterID, err)
+					continue
+				}
+				deletedCount++
+				log.Infof("Soft deleted namespace_info: %s (workspace no longer exists in cluster %s)", name, clusterID)
+			}
 		}
 	}
 
-	// 5. Sync node-namespace mappings
+	// 4. Sync node-namespace mappings
 	nodeMappingStats, err := s.syncNodeNamespaceMappings(ctx, workspaces)
 	if err != nil {
 		log.Errorf("Failed to sync node namespace mappings: %v", err)
@@ -147,12 +157,6 @@ func (s *NamespaceSyncService) listAllWorkspaces(ctx context.Context) ([]primusS
 		return nil, err
 	}
 	return workspaceList.Items, nil
-}
-
-// listAllNamespaceInfos lists all namespace_info records including soft deleted ones
-func (s *NamespaceSyncService) listAllNamespaceInfos(ctx context.Context) ([]*model.NamespaceInfo, error) {
-	facade := database.GetFacade()
-	return facade.GetNamespaceInfo().ListAllIncludingDeleted(ctx)
 }
 
 // syncWorkspaceToNamespaceInfo syncs a single workspace to namespace_info
@@ -262,12 +266,6 @@ func (s *NamespaceSyncService) getFacade(clusterID string) database.FacadeInterf
 		return database.GetFacadeForCluster(clusterID)
 	}
 	return database.GetFacade()
-}
-
-// softDeleteNamespaceInfo performs soft delete on a namespace_info record
-func (s *NamespaceSyncService) softDeleteNamespaceInfo(ctx context.Context, nsInfo *model.NamespaceInfo) error {
-	facade := database.GetFacade()
-	return facade.GetNamespaceInfo().DeleteByName(ctx, nsInfo.Name)
 }
 
 // recoverNamespaceInfo recovers a soft deleted namespace_info record

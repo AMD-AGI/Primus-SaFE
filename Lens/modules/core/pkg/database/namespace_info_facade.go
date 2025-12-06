@@ -13,6 +13,8 @@ import (
 type NamespaceInfoFacadeInterface interface {
 	// GetByName retrieves a namespace info by name
 	GetByName(ctx context.Context, name string) (*model.NamespaceInfo, error)
+	// GetByNameIncludingDeleted retrieves a namespace info by name including soft deleted records
+	GetByNameIncludingDeleted(ctx context.Context, name string) (*model.NamespaceInfo, error)
 	// Create creates a new namespace info
 	Create(ctx context.Context, namespaceInfo *model.NamespaceInfo) error
 	// Update updates an existing namespace info
@@ -50,6 +52,24 @@ func (f *NamespaceInfoFacade) GetByName(ctx context.Context, name string) (*mode
 		return nil, err
 	}
 	return item, nil
+}
+
+// GetByNameIncludingDeleted retrieves a namespace info by name including soft deleted records
+func (f *NamespaceInfoFacade) GetByNameIncludingDeleted(ctx context.Context, name string) (*model.NamespaceInfo, error) {
+	db := f.getDB()
+	if db == nil {
+		return nil, nil
+	}
+
+	var result model.NamespaceInfo
+	err := db.WithContext(ctx).Unscoped().Where("name = ?", name).First(&result).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &result, nil
 }
 
 // Create creates a new namespace info
@@ -120,4 +140,3 @@ func (f *NamespaceInfoFacade) WithCluster(clusterName string) NamespaceInfoFacad
 		BaseFacade: f.withCluster(clusterName),
 	}
 }
-
