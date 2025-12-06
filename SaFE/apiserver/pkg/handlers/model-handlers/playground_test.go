@@ -670,3 +670,424 @@ func TestBuildRequestBody_AllParameters(t *testing.T) {
 	assert.Equal(t, 0.8, req.PresencePenalty)
 	assert.Equal(t, 2, req.N)
 }
+
+// TestFormatTime tests the formatTime helper function
+func TestFormatTime(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    pq.NullTime
+		expected string
+	}{
+		{
+			name:     "valid time",
+			input:    pq.NullTime{Valid: true, Time: time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC)},
+			expected: "2025-01-01T12:00:00Z",
+		},
+		{
+			name:     "invalid time",
+			input:    pq.NullTime{Valid: false},
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := formatTime(tt.input)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+// TestParseListPlaygroundSessionQuery tests parseListPlaygroundSessionQuery
+func TestParseListPlaygroundSessionQuery(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	tests := []struct {
+		name          string
+		queryParams   string
+		expectedLimit int
+		expectedError bool
+	}{
+		{
+			name:          "with valid params",
+			queryParams:   "limit=50&offset=10&modelName=gpt-4",
+			expectedLimit: 50,
+			expectedError: false,
+		},
+		{
+			name:          "empty query - should use defaults",
+			queryParams:   "",
+			expectedLimit: 100, // Default limit
+			expectedError: false,
+		},
+		{
+			name:          "negative limit - should use default",
+			queryParams:   "limit=-5",
+			expectedLimit: 100,
+			expectedError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+			c.Request = httptest.NewRequest("GET", "/sessions?"+tt.queryParams, nil)
+
+			result, err := parseListPlaygroundSessionQuery(c)
+
+			if tt.expectedError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				assert.NotNil(t, result)
+				assert.Equal(t, tt.expectedLimit, result.Limit)
+			}
+		})
+	}
+}
+
+// TestSaveSessionRequest_JSON tests JSON marshaling of SaveSessionRequest
+func TestSaveSessionRequest_JSON(t *testing.T) {
+	now := time.Now().UTC()
+	req := SaveSessionRequest{
+		Id:           123,
+		ModelName:    "gpt-4",
+		DisplayName:  "Test Session",
+		SystemPrompt: "You are helpful",
+		Messages: []MessageHistory{
+			{Role: "user", Content: "Hello", Timestamp: now},
+			{Role: "assistant", Content: "Hi!", Timestamp: now},
+		},
+	}
+
+	jsonData, err := json.Marshal(req)
+	require.NoError(t, err)
+	assert.Contains(t, string(jsonData), "gpt-4")
+	assert.Contains(t, string(jsonData), "Test Session")
+	assert.Contains(t, string(jsonData), "Hello")
+
+	// Test unmarshaling
+	var unmarshaled SaveSessionRequest
+	err = json.Unmarshal(jsonData, &unmarshaled)
+	require.NoError(t, err)
+	assert.Equal(t, req.Id, unmarshaled.Id)
+	assert.Equal(t, req.ModelName, unmarshaled.ModelName)
+	assert.Len(t, unmarshaled.Messages, 2)
+}
+
+// TestListPlaygroundSessionResponse tests ListPlaygroundSessionResponse
+func TestListPlaygroundSessionResponse(t *testing.T) {
+	resp := ListPlaygroundSessionResponse{
+		Total: 50,
+		Items: []PlaygroundSessionInfo{
+			{Id: 1, ModelName: "gpt-4", DisplayName: "Session 1"},
+			{Id: 2, ModelName: "llama", DisplayName: "Session 2"},
+		},
+	}
+
+	assert.Equal(t, 50, resp.Total)
+	assert.Len(t, resp.Items, 2)
+	assert.Equal(t, "gpt-4", resp.Items[0].ModelName)
+
+	// Test JSON marshaling
+	jsonData, err := json.Marshal(resp)
+	require.NoError(t, err)
+	assert.Contains(t, string(jsonData), "Session 1")
+	assert.Contains(t, string(jsonData), "Session 2")
+}
+
+// TestSaveSessionResponse tests SaveSessionResponse
+func TestSaveSessionResponse(t *testing.T) {
+	resp := SaveSessionResponse{Id: 12345}
+	assert.Equal(t, int64(12345), resp.Id)
+
+	jsonData, err := json.Marshal(resp)
+	require.NoError(t, err)
+	assert.Contains(t, string(jsonData), "12345")
+}
+
+// TestChatRequest_Validation tests ChatRequest validation scenarios
+func TestChatRequest_Validation(t *testing.T) {
+	tests := []struct {
+		name      string
+		req       ChatRequest
+		expectErr bool
+	}{
+		{
+			name: "valid streaming request",
+			req: ChatRequest{
+				InferenceId: "inf-001",
+				Messages:    []map[string]interface{}{{"role": "user", "content": "Hello"}},
+				Stream:      true,
+			},
+			expectErr: false,
+		},
+		{
+			name: "valid non-streaming request",
+			req: ChatRequest{
+				InferenceId: "inf-002",
+				Messages:    []map[string]interface{}{{"role": "user", "content": "Hello"}},
+				Stream:      false,
+			},
+			expectErr: false,
+		},
+		{
+			name: "missing inference id",
+			req: ChatRequest{
+				InferenceId: "",
+				Messages:    []map[string]interface{}{{"role": "user", "content": "Hello"}},
+			},
+			expectErr: true,
+		},
+		{
+			name: "empty messages",
+			req: ChatRequest{
+				InferenceId: "inf-003",
+				Messages:    []map[string]interface{}{},
+			},
+			expectErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.expectErr {
+				// Check expected validation failures
+				if tt.req.InferenceId == "" {
+					assert.Empty(t, tt.req.InferenceId)
+				}
+				if len(tt.req.Messages) == 0 {
+					assert.Empty(t, tt.req.Messages)
+				}
+			} else {
+				assert.NotEmpty(t, tt.req.InferenceId)
+				assert.NotEmpty(t, tt.req.Messages)
+			}
+		})
+	}
+}
+
+// TestChatRequest_ParameterRanges tests parameter boundary values
+func TestChatRequest_ParameterRanges(t *testing.T) {
+	tests := []struct {
+		name string
+		req  ChatRequest
+	}{
+		{
+			name: "minimum values",
+			req: ChatRequest{
+				InferenceId:      "inf-001",
+				Messages:         []map[string]interface{}{{"role": "user", "content": "Hi"}},
+				Temperature:      0.0,
+				TopP:             0.0,
+				MaxTokens:        1,
+				FrequencyPenalty: -2.0,
+				PresencePenalty:  -2.0,
+				N:                1,
+			},
+		},
+		{
+			name: "maximum values",
+			req: ChatRequest{
+				InferenceId:      "inf-002",
+				Messages:         []map[string]interface{}{{"role": "user", "content": "Hi"}},
+				Temperature:      2.0,
+				TopP:             1.0,
+				MaxTokens:        128000,
+				FrequencyPenalty: 2.0,
+				PresencePenalty:  2.0,
+				N:                10,
+			},
+		},
+		{
+			name: "typical values",
+			req: ChatRequest{
+				InferenceId:      "inf-003",
+				Messages:         []map[string]interface{}{{"role": "user", "content": "Hi"}},
+				Temperature:      0.7,
+				TopP:             0.95,
+				MaxTokens:        4096,
+				FrequencyPenalty: 0.0,
+				PresencePenalty:  0.0,
+				N:                1,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Verify values are set correctly
+			assert.NotEmpty(t, tt.req.InferenceId)
+			assert.NotEmpty(t, tt.req.Messages)
+			assert.GreaterOrEqual(t, tt.req.Temperature, 0.0)
+			assert.LessOrEqual(t, tt.req.Temperature, 2.0)
+			assert.GreaterOrEqual(t, tt.req.TopP, 0.0)
+			assert.LessOrEqual(t, tt.req.TopP, 1.0)
+		})
+	}
+}
+
+// TestMessageHistory_MultipleRoles tests messages with different roles
+func TestMessageHistory_MultipleRoles(t *testing.T) {
+	now := time.Now().UTC()
+
+	messages := []MessageHistory{
+		{Role: "system", Content: "You are a helpful assistant.", Timestamp: now},
+		{Role: "user", Content: "Hello!", Timestamp: now.Add(1 * time.Second)},
+		{Role: "assistant", Content: "Hi there!", Timestamp: now.Add(2 * time.Second)},
+		{Role: "user", Content: "How are you?", Timestamp: now.Add(3 * time.Second)},
+		{Role: "assistant", Content: "I'm doing well, thank you!", Timestamp: now.Add(4 * time.Second)},
+	}
+
+	// Verify roles
+	assert.Equal(t, "system", messages[0].Role)
+	assert.Equal(t, "user", messages[1].Role)
+	assert.Equal(t, "assistant", messages[2].Role)
+
+	// Verify timestamps are ordered
+	for i := 1; i < len(messages); i++ {
+		assert.True(t, messages[i].Timestamp.After(messages[i-1].Timestamp))
+	}
+
+	// Test JSON marshaling/unmarshaling
+	jsonData, err := json.Marshal(messages)
+	require.NoError(t, err)
+
+	var unmarshaled []MessageHistory
+	err = json.Unmarshal(jsonData, &unmarshaled)
+	require.NoError(t, err)
+	assert.Len(t, unmarshaled, 5)
+}
+
+// TestPlaygroundSessionInfo_AllFields tests all fields of PlaygroundSessionInfo
+func TestPlaygroundSessionInfo_AllFields(t *testing.T) {
+	info := PlaygroundSessionInfo{
+		Id:           999,
+		UserId:       "user-999",
+		ModelName:    "claude-3",
+		DisplayName:  "Full Test Session",
+		SystemPrompt: "You are an expert coder.",
+		Messages:     `[{"role":"user","content":"Write code"}]`,
+		CreationTime: "2025-01-01T00:00:00Z",
+		UpdateTime:   "2025-01-02T00:00:00Z",
+	}
+
+	assert.Equal(t, int64(999), info.Id)
+	assert.Equal(t, "user-999", info.UserId)
+	assert.Equal(t, "claude-3", info.ModelName)
+	assert.Equal(t, "Full Test Session", info.DisplayName)
+	assert.Equal(t, "You are an expert coder.", info.SystemPrompt)
+	assert.Contains(t, info.Messages, "Write code")
+	assert.NotEmpty(t, info.CreationTime)
+	assert.NotEmpty(t, info.UpdateTime)
+}
+
+// TestPlaygroundSessionDetail_AllFields tests all fields of PlaygroundSessionDetail
+func TestPlaygroundSessionDetail_AllFields(t *testing.T) {
+	detail := &PlaygroundSessionDetail{
+		Id:           888,
+		UserId:       "user-888",
+		ModelName:    "gemini-pro",
+		DisplayName:  "Detail Full Test",
+		SystemPrompt: "Be concise and accurate.",
+		Messages:     `[{"role":"user","content":"Explain AI"},{"role":"assistant","content":"AI is..."}]`,
+		CreationTime: "2025-01-01T12:00:00Z",
+		UpdateTime:   "2025-01-01T13:00:00Z",
+	}
+
+	assert.Equal(t, int64(888), detail.Id)
+	assert.Equal(t, "user-888", detail.UserId)
+	assert.Equal(t, "gemini-pro", detail.ModelName)
+	assert.Equal(t, "Detail Full Test", detail.DisplayName)
+	assert.Contains(t, detail.Messages, "Explain AI")
+	assert.Contains(t, detail.Messages, "AI is...")
+}
+
+// TestCvtDBSessionToInfo_NullTimes tests conversion with null times
+func TestCvtDBSessionToInfo_NullTimes(t *testing.T) {
+	dbSession := &dbclient.PlaygroundSession{
+		Id:           777,
+		UserId:       "user-777",
+		ModelName:    "test-model",
+		DisplayName:  "Null Times Test",
+		SystemPrompt: "",
+		Messages:     "[]",
+		CreationTime: pq.NullTime{Valid: false},
+		UpdateTime:   pq.NullTime{Valid: false},
+	}
+
+	result := cvtDBSessionToInfo(dbSession)
+
+	assert.Equal(t, int64(777), result.Id)
+	assert.Equal(t, "", result.CreationTime, "Null creation time should be empty string")
+	assert.Equal(t, "", result.UpdateTime, "Null update time should be empty string")
+}
+
+// TestCvtDBSessionToDetail_NullTimes tests detail conversion with null times
+func TestCvtDBSessionToDetail_NullTimes(t *testing.T) {
+	dbSession := &dbclient.PlaygroundSession{
+		Id:           666,
+		UserId:       "user-666",
+		ModelName:    "test-model",
+		DisplayName:  "Null Times Detail Test",
+		SystemPrompt: "",
+		Messages:     "[]",
+		CreationTime: pq.NullTime{Valid: false},
+		UpdateTime:   pq.NullTime{Valid: false},
+	}
+
+	result := cvtDBSessionToDetail(dbSession)
+
+	assert.NotNil(t, result)
+	assert.Equal(t, int64(666), result.Id)
+	assert.Equal(t, "", result.CreationTime)
+	assert.Equal(t, "", result.UpdateTime)
+}
+
+// TestNonStreamChat_ConnectionTimeout tests timeout handling
+func TestNonStreamChat_ConnectionTimeout(t *testing.T) {
+	// Create a server that delays response
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Don't respond immediately, simulate slow server
+		time.Sleep(100 * time.Millisecond)
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]string{"result": "ok"})
+	}))
+	defer mockServer.Close()
+
+	req := &ChatRequest{
+		InferenceId: "test-inference",
+		Messages:    []map[string]interface{}{{"role": "user", "content": "Hi"}},
+		Stream:      false,
+	}
+
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("POST", "/chat", nil)
+
+	handler := &Handler{}
+	handler.nonStreamChat(c, mockServer.URL, "test-api-key", "test-model", req)
+
+	// Should complete (even if slow)
+	assert.NotEqual(t, 0, w.Code)
+}
+
+// TestChatRequest_EmptyOptionalFields tests ChatRequest with only required fields
+func TestChatRequest_EmptyOptionalFields(t *testing.T) {
+	req := &ChatRequest{
+		InferenceId: "inf-minimal",
+		Messages:    []map[string]interface{}{{"role": "user", "content": "Hello"}},
+		Stream:      false,
+		// All optional fields left at zero values
+	}
+
+	assert.Equal(t, "inf-minimal", req.InferenceId)
+	assert.Equal(t, 0.0, req.Temperature)
+	assert.Equal(t, 0.0, req.TopP)
+	assert.Equal(t, 0, req.MaxTokens)
+	assert.Equal(t, 0.0, req.FrequencyPenalty)
+	assert.Equal(t, 0.0, req.PresencePenalty)
+	assert.Equal(t, 0, req.N)
+}

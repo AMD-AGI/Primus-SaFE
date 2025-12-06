@@ -79,11 +79,6 @@ cicd:
   # cicd component image version. used for starting jobs for runner
   runner: "cicd-runner-proxy:latest"
   unified_job: "cicd-unified-job-proxy:latest"
-model:
-  # Image for downloading models from HuggingFace and uploading to S3
-  downloader_image: "harbor.tas.primus-safe.amd.com/proxy/primussafe/model-downloader:latest"
-  # Image for cleaning up local model files
-  cleanup_image: "alpine:3.18"
 db:
   # Enable database for historical job queries, defaults to true
   enable: true

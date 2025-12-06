@@ -9,7 +9,6 @@ import (
 	"time"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
-	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 )
 
 // CreateInferenceRequest represents the request to create an inference service.
@@ -213,10 +212,32 @@ type PatchModelRequest struct {
 	Description *string `json:"description"`
 }
 
+// ModelInfo represents the API response for a model.
+type ModelInfo struct {
+	ID             string `json:"id"`
+	DisplayName    string `json:"displayName"`
+	Description    string `json:"description"`
+	Icon           string `json:"icon"`
+	Label          string `json:"label"`
+	Tags           string `json:"tags"`
+	MaxTokens      int    `json:"maxTokens"`
+	Version        string `json:"version"`
+	SourceURL      string `json:"sourceURL"`
+	AccessMode     string `json:"accessMode"`
+	Phase          string `json:"phase"`
+	Message        string `json:"message"`
+	InferenceID    string `json:"inferenceID"`
+	InferencePhase string `json:"inferencePhase"`
+	CreatedAt      string `json:"createdAt,omitempty"`
+	UpdatedAt      string `json:"updatedAt,omitempty"`
+	DeletionTime   string `json:"deletionTime,omitempty"`
+	IsDeleted      bool   `json:"isDeleted"`
+}
+
 // ListModelResponse represents the response for listing models.
 type ListModelResponse struct {
-	Total int64            `json:"total"`
-	Items []dbclient.Model `json:"items"`
+	Total int64       `json:"total"`
+	Items []ModelInfo `json:"items"`
 }
 
 type ToggleModelRequest struct {

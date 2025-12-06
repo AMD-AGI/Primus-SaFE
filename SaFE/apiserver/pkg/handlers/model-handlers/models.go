@@ -14,6 +14,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/constvar"
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
+	"github.com/lib/pq"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -239,7 +240,7 @@ func (h *Handler) getModel(c *gin.Context) (interface{}, error) {
 			return nil, commonerrors.NewNotFound("playground model", modelId)
 		}
 
-		return model, nil
+		return cvtDBModelToInfo(&model), nil
 	}
 
 	// Fallback to K8s API
@@ -306,9 +307,15 @@ func (h *Handler) listModels(c *gin.Context) (interface{}, error) {
 			return nil, commonerrors.NewInternalError("failed to fetch models")
 		}
 
+		// Convert to ModelInfo
+		items := make([]ModelInfo, len(models))
+		for i, model := range models {
+			items[i] = cvtDBModelToInfo(&model)
+		}
+
 		return &ListModelResponse{
 			Total: total,
-			Items: models,
+			Items: items,
 		}, nil
 	}
 
@@ -727,4 +734,36 @@ func (h *Handler) findModelBySourceURL(ctx context.Context, sourceURL string) (*
 // isFullURL checks if the input is a full URL (starts with http:// or https://)
 func isFullURL(input string) bool {
 	return len(input) > 7 && (input[:7] == "http://" || input[:8] == "https://")
+}
+
+// cvtDBModelToInfo converts database model to ModelInfo.
+func cvtDBModelToInfo(dbModel *dbclient.Model) ModelInfo {
+	return ModelInfo{
+		ID:             dbModel.ID,
+		DisplayName:    dbModel.DisplayName,
+		Description:    dbModel.Description,
+		Icon:           dbModel.Icon,
+		Label:          dbModel.Label,
+		Tags:           dbModel.Tags,
+		MaxTokens:      dbModel.MaxTokens,
+		Version:        dbModel.Version,
+		SourceURL:      dbModel.SourceURL,
+		AccessMode:     dbModel.AccessMode,
+		Phase:          dbModel.Phase,
+		Message:        dbModel.Message,
+		InferenceID:    dbModel.InferenceID,
+		InferencePhase: dbModel.InferencePhase,
+		CreatedAt:      formatNullTime(dbModel.CreatedAt),
+		UpdatedAt:      formatNullTime(dbModel.UpdatedAt),
+		DeletionTime:   formatNullTime(dbModel.DeletionTime),
+		IsDeleted:      dbModel.IsDeleted,
+	}
+}
+
+// formatNullTime formats pq.NullTime to RFC3339 string.
+func formatNullTime(nt pq.NullTime) string {
+	if nt.Valid {
+		return nt.Time.Format(time.RFC3339)
+	}
+	return ""
 }

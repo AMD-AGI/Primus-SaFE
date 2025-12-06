@@ -23,7 +23,6 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
-	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 )
 
 // TestCreateModelRequest_Validation tests the CreateModelRequest validation
@@ -156,7 +155,7 @@ func TestListModelQuery_DefaultValues(t *testing.T) {
 func TestListModelResponse(t *testing.T) {
 	resp := ListModelResponse{
 		Total: 100,
-		Items: []dbclient.Model{
+		Items: []ModelInfo{
 			{
 				ID:          "model-001",
 				DisplayName: "GPT-2",
@@ -746,4 +745,743 @@ func TestCreateModelRequest_JSON(t *testing.T) {
 	assert.Equal(t, req.DisplayName, unmarshaled.DisplayName)
 	assert.Equal(t, req.Source.URL, unmarshaled.Source.URL)
 	assert.Equal(t, req.Resources.GPU, unmarshaled.Resources.GPU)
+}
+
+// TestIsFullURL tests the isFullURL helper function
+func TestIsFullURL(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected bool
+	}{
+		{"https://huggingface.co/gpt2", true},
+		{"http://example.com/model", true},
+		{"https://api.openai.com/v1", true},
+		{"microsoft/phi-2", false},
+		{"gpt2", false},
+		{"", false},
+		{"http://", false},
+		{"https:/", false},
+		{"ftp://example.com", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			result := isFullURL(tt.input)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+// TestGetModel_NotFound tests getModel when model doesn't exist
+func TestGetModel_NotFound(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	scheme := runtime.NewScheme()
+	_ = v1.AddToScheme(scheme)
+
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		Build()
+
+	handler := &Handler{
+		k8sClient: k8sClient,
+	}
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/models/non-existent-model", nil)
+	c.Params = gin.Params{gin.Param{Key: "id", Value: "non-existent-model"}}
+
+	result, err := handler.getModel(c)
+
+	assert.Error(t, err)
+	assert.Nil(t, result)
+	assert.Contains(t, err.Error(), "not found")
+}
+
+// TestGetModel_MissingID tests getModel without model ID
+func TestGetModel_MissingID(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	handler := &Handler{}
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/models/", nil)
+	c.Params = gin.Params{gin.Param{Key: "id", Value: ""}}
+
+	result, err := handler.getModel(c)
+
+	assert.Error(t, err)
+	assert.Nil(t, result)
+	assert.Contains(t, err.Error(), "model id is required")
+}
+
+// TestGetModel_K8sFallback tests getModel using K8s API fallback
+func TestGetModel_K8sFallback(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	scheme := runtime.NewScheme()
+	_ = v1.AddToScheme(scheme)
+
+	testModel := &v1.Model{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "test-model",
+		},
+		Spec: v1.ModelSpec{
+			DisplayName: "Test Model",
+			Description: "A test model",
+			Icon:        "https://example.com/icon.png",
+			Label:       "TestOrg",
+			Tags:        []string{"test"},
+			MaxTokens:   4096,
+			Source: v1.ModelSource{
+				URL:        "https://huggingface.co/test/model",
+				AccessMode: v1.AccessModeLocal,
+			},
+		},
+		Status: v1.ModelStatus{
+			Phase: v1.ModelPhaseReady,
+		},
+	}
+
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(testModel).
+		Build()
+
+	handler := &Handler{
+		k8sClient: k8sClient,
+		dbClient:  nil, // No DB client, will use K8s fallback
+	}
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/models/test-model", nil)
+	c.Params = gin.Params{gin.Param{Key: "id", Value: "test-model"}}
+
+	result, err := handler.getModel(c)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	respMap, ok := result.(gin.H)
+	require.True(t, ok)
+	assert.Equal(t, "test-model", respMap["id"])
+	assert.Equal(t, "Test Model", respMap["displayName"])
+}
+
+// TestListModels_K8sFallback tests listModels using K8s API fallback
+func TestListModels_K8sFallback(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	scheme := runtime.NewScheme()
+	_ = v1.AddToScheme(scheme)
+
+	testModels := []v1.Model{
+		{
+			ObjectMeta: metav1.ObjectMeta{Name: "model-1"},
+			Spec: v1.ModelSpec{
+				DisplayName: "Model 1",
+				Source:      v1.ModelSource{AccessMode: v1.AccessModeLocal},
+			},
+			Status: v1.ModelStatus{Phase: v1.ModelPhaseReady},
+		},
+		{
+			ObjectMeta: metav1.ObjectMeta{Name: "model-2"},
+			Spec: v1.ModelSpec{
+				DisplayName: "Model 2",
+				Source:      v1.ModelSource{AccessMode: v1.AccessModeRemoteAPI},
+			},
+			Status: v1.ModelStatus{Phase: v1.ModelPhaseReady},
+		},
+	}
+
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithLists(&v1.ModelList{Items: testModels}).
+		Build()
+
+	handler := &Handler{
+		k8sClient: k8sClient,
+		dbClient:  nil,
+	}
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/models?limit=10&offset=0", nil)
+
+	result, err := handler.listModels(c)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	respMap, ok := result.(gin.H)
+	require.True(t, ok)
+	assert.Equal(t, int64(2), respMap["total"])
+}
+
+// TestListModels_WithAccessModeFilter tests listModels with access mode filter
+func TestListModels_WithAccessModeFilter(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	scheme := runtime.NewScheme()
+	_ = v1.AddToScheme(scheme)
+
+	testModels := []v1.Model{
+		{
+			ObjectMeta: metav1.ObjectMeta{Name: "model-local"},
+			Spec: v1.ModelSpec{
+				DisplayName: "Local Model",
+				Source:      v1.ModelSource{AccessMode: v1.AccessModeLocal},
+			},
+		},
+		{
+			ObjectMeta: metav1.ObjectMeta{Name: "model-api"},
+			Spec: v1.ModelSpec{
+				DisplayName: "API Model",
+				Source:      v1.ModelSource{AccessMode: v1.AccessModeRemoteAPI},
+			},
+		},
+	}
+
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithLists(&v1.ModelList{Items: testModels}).
+		Build()
+
+	handler := &Handler{
+		k8sClient: k8sClient,
+		dbClient:  nil,
+	}
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/models?accessMode=local", nil)
+
+	result, err := handler.listModels(c)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	respMap, ok := result.(gin.H)
+	require.True(t, ok)
+	assert.Equal(t, int64(1), respMap["total"])
+}
+
+// TestConvertK8sModelToResponse tests the K8s model conversion
+func TestConvertK8sModelToResponse(t *testing.T) {
+	handler := &Handler{}
+
+	k8sModel := &v1.Model{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "test-model",
+			CreationTimestamp: metav1.Now(),
+		},
+		Spec: v1.ModelSpec{
+			DisplayName: "Test Model",
+			Description: "A test description",
+			Icon:        "https://example.com/icon.png",
+			Label:       "TestOrg",
+			Tags:        []string{"test", "model"},
+			MaxTokens:   8192,
+			Source: v1.ModelSource{
+				URL:        "https://huggingface.co/test/model",
+				AccessMode: v1.AccessModeLocal,
+			},
+		},
+		Status: v1.ModelStatus{
+			Phase:          v1.ModelPhaseReady,
+			InferenceID:    "inf-123",
+			InferencePhase: "Running",
+		},
+	}
+
+	result := handler.convertK8sModelToResponse(k8sModel)
+
+	assert.Equal(t, "test-model", result["id"])
+	assert.Equal(t, "Test Model", result["displayName"])
+	assert.Equal(t, "A test description", result["description"])
+	assert.Equal(t, "https://example.com/icon.png", result["icon"])
+	assert.Equal(t, "TestOrg", result["label"])
+	assert.Equal(t, []string{"test", "model"}, result["tags"])
+	assert.Equal(t, 8192, result["maxTokens"])
+	assert.Equal(t, v1.AccessModeLocal, result["accessMode"])
+	assert.Equal(t, "https://huggingface.co/test/model", result["url"])
+	assert.Equal(t, v1.ModelPhaseReady, result["phase"])
+	assert.Equal(t, "inf-123", result["inferenceId"])
+	assert.Equal(t, "Running", result["inferencePhase"])
+}
+
+// TestToggleModel_MissingID tests toggleModel without model ID
+func TestToggleModel_MissingID(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	handler := &Handler{}
+
+	reqBody := ToggleModelRequest{Enabled: true}
+	bodyBytes, _ := json.Marshal(reqBody)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("POST", "/models//toggle", bytes.NewBuffer(bodyBytes))
+	c.Request.Header.Set("Content-Type", "application/json")
+	c.Params = gin.Params{gin.Param{Key: "id", Value: ""}}
+
+	result, err := handler.toggleModel(c)
+
+	assert.Error(t, err)
+	assert.Nil(t, result)
+	assert.Contains(t, err.Error(), "model id is required")
+}
+
+// TestToggleModel_NotAuthenticated tests toggleModel without user authentication
+func TestToggleModel_NotAuthenticated(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	scheme := runtime.NewScheme()
+	_ = v1.AddToScheme(scheme)
+
+	testModel := &v1.Model{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-model"},
+		Spec:       v1.ModelSpec{DisplayName: "Test"},
+	}
+
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(testModel).
+		Build()
+
+	handler := &Handler{k8sClient: k8sClient}
+
+	reqBody := ToggleModelRequest{Enabled: true}
+	bodyBytes, _ := json.Marshal(reqBody)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("POST", "/models/test-model/toggle", bytes.NewBuffer(bodyBytes))
+	c.Request.Header.Set("Content-Type", "application/json")
+	c.Params = gin.Params{gin.Param{Key: "id", Value: "test-model"}}
+	// Not setting UserId
+
+	result, err := handler.toggleModel(c)
+
+	assert.Error(t, err)
+	assert.Nil(t, result)
+	assert.Contains(t, err.Error(), "user not authenticated")
+}
+
+// TestToggleModel_ModelNotFound tests toggleModel when model doesn't exist
+func TestToggleModel_ModelNotFound(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	scheme := runtime.NewScheme()
+	_ = v1.AddToScheme(scheme)
+
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		Build()
+
+	handler := &Handler{k8sClient: k8sClient}
+
+	reqBody := ToggleModelRequest{Enabled: true}
+	bodyBytes, _ := json.Marshal(reqBody)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("POST", "/models/non-existent/toggle", bytes.NewBuffer(bodyBytes))
+	c.Request.Header.Set("Content-Type", "application/json")
+	c.Params = gin.Params{gin.Param{Key: "id", Value: "non-existent"}}
+	c.Set(common.UserId, "test-user")
+	c.Set(common.UserName, "Test User")
+
+	result, err := handler.toggleModel(c)
+
+	assert.Error(t, err)
+	assert.Nil(t, result)
+	assert.Contains(t, err.Error(), "not found")
+}
+
+// TestToggleModel_DisableNoInference tests toggle OFF when no inference exists
+func TestToggleModel_DisableNoInference(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	scheme := runtime.NewScheme()
+	_ = v1.AddToScheme(scheme)
+
+	testModel := &v1.Model{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-model"},
+		Spec:       v1.ModelSpec{DisplayName: "Test"},
+		Status: v1.ModelStatus{
+			InferenceID: "", // No inference
+		},
+	}
+
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(testModel).
+		WithStatusSubresource(&v1.Model{}).
+		Build()
+
+	handler := &Handler{k8sClient: k8sClient}
+
+	reqBody := ToggleModelRequest{Enabled: false}
+	bodyBytes, _ := json.Marshal(reqBody)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("POST", "/models/test-model/toggle", bytes.NewBuffer(bodyBytes))
+	c.Request.Header.Set("Content-Type", "application/json")
+	c.Params = gin.Params{gin.Param{Key: "id", Value: "test-model"}}
+	c.Set(common.UserId, "test-user")
+	c.Set(common.UserName, "Test User")
+
+	result, err := handler.toggleModel(c)
+
+	assert.Error(t, err)
+	assert.Nil(t, result)
+	assert.Contains(t, err.Error(), "inference not found or already stopped")
+}
+
+// TestToggleModel_LocalMissingResource tests toggle ON local model without resource
+func TestToggleModel_LocalMissingResource(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	scheme := runtime.NewScheme()
+	_ = v1.AddToScheme(scheme)
+
+	testModel := &v1.Model{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-model"},
+		Spec: v1.ModelSpec{
+			DisplayName: "Test",
+			Source:      v1.ModelSource{AccessMode: v1.AccessModeLocal},
+		},
+		Status: v1.ModelStatus{InferenceID: ""},
+	}
+
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(testModel).
+		Build()
+
+	handler := &Handler{k8sClient: k8sClient}
+
+	reqBody := ToggleModelRequest{
+		Enabled:  true,
+		Resource: nil, // Missing resource
+		Config:   nil, // Missing config
+	}
+	bodyBytes, _ := json.Marshal(reqBody)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("POST", "/models/test-model/toggle", bytes.NewBuffer(bodyBytes))
+	c.Request.Header.Set("Content-Type", "application/json")
+	c.Params = gin.Params{gin.Param{Key: "id", Value: "test-model"}}
+	c.Set(common.UserId, "test-user")
+	c.Set(common.UserName, "Test User")
+
+	result, err := handler.toggleModel(c)
+
+	assert.Error(t, err)
+	assert.Nil(t, result)
+	assert.Contains(t, err.Error(), "resource and config are required")
+}
+
+// TestToggleModel_RemoteAPIMissingApiKey tests toggle ON remote API model without API key
+func TestToggleModel_RemoteAPIMissingApiKey(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	scheme := runtime.NewScheme()
+	_ = v1.AddToScheme(scheme)
+
+	testModel := &v1.Model{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-api-model"},
+		Spec: v1.ModelSpec{
+			DisplayName: "Test API",
+			Source:      v1.ModelSource{AccessMode: v1.AccessModeRemoteAPI, URL: "https://api.test.com"},
+		},
+		Status: v1.ModelStatus{InferenceID: ""},
+	}
+
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(testModel).
+		Build()
+
+	handler := &Handler{k8sClient: k8sClient}
+
+	reqBody := ToggleModelRequest{
+		Enabled:  true,
+		Instance: nil, // Missing instance with API key
+	}
+	bodyBytes, _ := json.Marshal(reqBody)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("POST", "/models/test-api-model/toggle", bytes.NewBuffer(bodyBytes))
+	c.Request.Header.Set("Content-Type", "application/json")
+	c.Params = gin.Params{gin.Param{Key: "id", Value: "test-api-model"}}
+	c.Set(common.UserId, "test-user")
+	c.Set(common.UserName, "Test User")
+
+	result, err := handler.toggleModel(c)
+
+	assert.Error(t, err)
+	assert.Nil(t, result)
+	assert.Contains(t, err.Error(), "instance.apiKey is required")
+}
+
+// TestDeleteModel_NotFound tests deleteModel when model doesn't exist
+func TestDeleteModel_NotFound(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	scheme := runtime.NewScheme()
+	_ = v1.AddToScheme(scheme)
+
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		Build()
+
+	handler := &Handler{k8sClient: k8sClient}
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("DELETE", "/models/non-existent", nil)
+	c.Params = gin.Params{gin.Param{Key: "id", Value: "non-existent"}}
+
+	result, err := handler.deleteModel(c)
+
+	// Should still succeed (idempotent delete)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	respMap, ok := result.(gin.H)
+	require.True(t, ok)
+	assert.Equal(t, "model deleted successfully", respMap["message"])
+}
+
+// TestDeleteModel_MissingID tests deleteModel without model ID
+func TestDeleteModel_MissingID(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	handler := &Handler{}
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("DELETE", "/models/", nil)
+	c.Params = gin.Params{gin.Param{Key: "id", Value: ""}}
+
+	result, err := handler.deleteModel(c)
+
+	assert.Error(t, err)
+	assert.Nil(t, result)
+	assert.Contains(t, err.Error(), "model id is required")
+}
+
+// TestModelInfo_Struct tests the ModelInfo struct fields
+func TestModelInfo_Struct(t *testing.T) {
+	info := ModelInfo{
+		ID:             "model-123",
+		DisplayName:    "Test Model",
+		Description:    "A test model",
+		Icon:           "https://example.com/icon.png",
+		Label:          "TestOrg",
+		Tags:           "test,nlp",
+		MaxTokens:      4096,
+		Version:        "1.0",
+		SourceURL:      "https://huggingface.co/test",
+		AccessMode:     "local",
+		Phase:          "Ready",
+		Message:        "Model is ready",
+		InferenceID:    "inf-456",
+		InferencePhase: "Running",
+		CreatedAt:      "2025-01-01T00:00:00Z",
+		UpdatedAt:      "2025-01-02T00:00:00Z",
+		IsDeleted:      false,
+	}
+
+	assert.Equal(t, "model-123", info.ID)
+	assert.Equal(t, "Test Model", info.DisplayName)
+	assert.Equal(t, 4096, info.MaxTokens)
+	assert.Equal(t, "test,nlp", info.Tags)
+	assert.False(t, info.IsDeleted)
+
+	// Test JSON marshaling
+	jsonData, err := json.Marshal(info)
+	require.NoError(t, err)
+	assert.Contains(t, string(jsonData), "model-123")
+	assert.Contains(t, string(jsonData), "Test Model")
+}
+
+// TestToggleInstanceReq tests the ToggleInstanceReq struct
+func TestToggleInstanceReq(t *testing.T) {
+	instance := ToggleInstanceReq{
+		ApiKey: "sk-test-key",
+		Model:  "gpt-4",
+	}
+
+	assert.Equal(t, "sk-test-key", instance.ApiKey)
+	assert.Equal(t, "gpt-4", instance.Model)
+
+	// Test JSON marshaling
+	jsonData, err := json.Marshal(instance)
+	require.NoError(t, err)
+	assert.Contains(t, string(jsonData), "sk-test-key")
+	assert.Contains(t, string(jsonData), "gpt-4")
+}
+
+// TestToggleResourceReq tests the ToggleResourceReq struct
+func TestToggleResourceReq(t *testing.T) {
+	resource := ToggleResourceReq{
+		Workspace: "ws-001",
+		Replica:   2,
+		CPU:       8,
+		Memory:    32,
+		GPU:       "2",
+	}
+
+	assert.Equal(t, "ws-001", resource.Workspace)
+	assert.Equal(t, 2, resource.Replica)
+	assert.Equal(t, 8, resource.CPU)
+	assert.Equal(t, 32, resource.Memory)
+	assert.Equal(t, "2", resource.GPU)
+}
+
+// TestToggleConfigReq tests the ToggleConfigReq struct
+func TestToggleConfigReq(t *testing.T) {
+	config := ToggleConfigReq{
+		Image:      "vllm/vllm:latest",
+		EntryPoint: "vllm serve /models/test",
+		ModelPath:  "/apps/models/test-model",
+	}
+
+	assert.Equal(t, "vllm/vllm:latest", config.Image)
+	assert.Equal(t, "vllm serve /models/test", config.EntryPoint)
+	assert.Equal(t, "/apps/models/test-model", config.ModelPath)
+}
+
+// TestParseListModelQuery_InvalidLimit tests parseListModelQuery with invalid limit
+func TestParseListModelQuery_InvalidLimit(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/models?limit=-5", nil)
+
+	result, err := parseListModelQuery(c)
+
+	// Should not error, but apply default
+	require.NoError(t, err)
+	assert.Equal(t, 10, result.Limit) // Default limit
+}
+
+// TestParseListModelQuery_InvalidOffset tests parseListModelQuery with invalid offset
+func TestParseListModelQuery_InvalidOffset(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/models?offset=-10", nil)
+
+	result, err := parseListModelQuery(c)
+
+	require.NoError(t, err)
+	assert.Equal(t, 0, result.Offset) // Should be corrected to 0
+}
+
+// TestCreateModel_InvalidJSON tests createModel with invalid JSON body
+func TestCreateModel_InvalidJSON(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	handler := &Handler{}
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("POST", "/models", bytes.NewBufferString("invalid json"))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	result, err := handler.createModel(c)
+
+	assert.Error(t, err)
+	assert.Nil(t, result)
+	assert.Contains(t, err.Error(), "invalid request body")
+}
+
+// TestToggleModel_InvalidJSON tests toggleModel with invalid JSON body
+func TestToggleModel_InvalidJSON(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	handler := &Handler{}
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("POST", "/models/test/toggle", bytes.NewBufferString("invalid json"))
+	c.Request.Header.Set("Content-Type", "application/json")
+	c.Params = gin.Params{gin.Param{Key: "id", Value: "test"}}
+
+	result, err := handler.toggleModel(c)
+
+	assert.Error(t, err)
+	assert.Nil(t, result)
+	assert.Contains(t, err.Error(), "invalid request body")
+}
+
+// TestCreateModel_InvalidAccessMode tests createModel with invalid access mode
+func TestCreateModel_InvalidAccessMode(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	scheme := runtime.NewScheme()
+	_ = v1.AddToScheme(scheme)
+
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		Build()
+
+	handler := &Handler{k8sClient: k8sClient}
+
+	reqBody := CreateModelRequest{
+		Source: ModelSourceReq{
+			URL:        "https://test.com",
+			AccessMode: "invalid_mode",
+		},
+	}
+	bodyBytes, _ := json.Marshal(reqBody)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("POST", "/models", bytes.NewBuffer(bodyBytes))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	result, err := handler.createModel(c)
+
+	assert.Error(t, err)
+	assert.Nil(t, result)
+	assert.Contains(t, err.Error(), "accessMode must be")
+}
+
+// TestCreateModel_MissingURL tests createModel without URL
+func TestCreateModel_MissingURL(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	handler := &Handler{}
+
+	reqBody := CreateModelRequest{
+		Source: ModelSourceReq{
+			URL:        "",
+			AccessMode: string(v1.AccessModeLocal),
+		},
+	}
+	bodyBytes, _ := json.Marshal(reqBody)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("POST", "/models", bytes.NewBuffer(bodyBytes))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	result, err := handler.createModel(c)
+
+	assert.Error(t, err)
+	assert.Nil(t, result)
+	assert.Contains(t, err.Error(), "url is required")
 }
