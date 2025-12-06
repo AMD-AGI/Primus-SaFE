@@ -1,0 +1,416 @@
+package gpu_aggregation_backfill
+
+import (
+	"context"
+	"fmt"
+	"sort"
+	"time"
+
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
+	dbmodel "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/statistics"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/trace"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/common"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+)
+
+const (
+	// DefaultNamespaceBackfillDays is the default number of days to backfill for namespace stats
+	DefaultNamespaceBackfillDays = 7
+
+	// DefaultNamespaceBatchSize is the default batch size for processing hours
+	DefaultNamespaceBatchSize = 24
+)
+
+// NamespaceGpuAggregationBackfillConfig is the configuration for namespace backfill job
+type NamespaceGpuAggregationBackfillConfig struct {
+	// Enabled controls whether the job is enabled
+	Enabled bool `json:"enabled"`
+
+	// BackfillDays is the number of days to scan for missing data
+	BackfillDays int `json:"backfill_days"`
+
+	// BatchSize is the number of hours to process in each batch
+	BatchSize int `json:"batch_size"`
+
+	// ExcludeNamespaces is the list of namespaces to exclude from backfill
+	ExcludeNamespaces []string `json:"exclude_namespaces"`
+
+	// IncludeSystemNamespaces controls whether to include system namespaces
+	IncludeSystemNamespaces bool `json:"include_system_namespaces"`
+}
+
+// NamespaceGpuAggregationBackfillJob is the job for backfilling missing namespace GPU aggregation data
+type NamespaceGpuAggregationBackfillJob struct {
+	config      *NamespaceGpuAggregationBackfillConfig
+	clusterName string
+}
+
+// NewNamespaceGpuAggregationBackfillJob creates a new namespace backfill job with default config
+func NewNamespaceGpuAggregationBackfillJob() *NamespaceGpuAggregationBackfillJob {
+	clusterName := clientsets.GetClusterManager().GetCurrentClusterName()
+	return &NamespaceGpuAggregationBackfillJob{
+		config: &NamespaceGpuAggregationBackfillConfig{
+			Enabled:                 true,
+			BackfillDays:            DefaultNamespaceBackfillDays,
+			BatchSize:               DefaultNamespaceBatchSize,
+			ExcludeNamespaces:       []string{},
+			IncludeSystemNamespaces: false,
+		},
+		clusterName: clusterName,
+	}
+}
+
+// NewNamespaceGpuAggregationBackfillJobWithConfig creates a new namespace backfill job with custom config
+func NewNamespaceGpuAggregationBackfillJobWithConfig(cfg *NamespaceGpuAggregationBackfillConfig) *NamespaceGpuAggregationBackfillJob {
+	clusterName := clientsets.GetClusterManager().GetCurrentClusterName()
+	return &NamespaceGpuAggregationBackfillJob{
+		config:      cfg,
+		clusterName: clusterName,
+	}
+}
+
+// Run executes the namespace backfill job
+func (j *NamespaceGpuAggregationBackfillJob) Run(ctx context.Context,
+	k8sClientSet *clientsets.K8SClientSet,
+	storageClientSet *clientsets.StorageClientSet) (*common.ExecutionStats, error) {
+
+	span, ctx := trace.StartSpanFromContext(ctx, "namespace_gpu_aggregation_backfill_job.Run")
+	defer trace.FinishSpan(span)
+
+	stats := common.NewExecutionStats()
+	jobStartTime := time.Now()
+
+	clusterName := j.clusterName
+	if clusterName == "" {
+		clusterName = clientsets.GetClusterManager().GetCurrentClusterName()
+	}
+
+	span.SetAttributes(
+		attribute.String("job.name", "namespace_gpu_aggregation_backfill"),
+		attribute.String("cluster.name", clusterName),
+		attribute.Int("config.backfill_days", j.config.BackfillDays),
+	)
+
+	if !j.config.Enabled {
+		log.Debugf("Namespace GPU aggregation backfill job is disabled")
+		stats.AddMessage("Namespace GPU aggregation backfill job is disabled")
+		return stats, nil
+	}
+
+	// Calculate time range
+	// Exclude current hour to avoid conflict with ongoing aggregation
+	endTime := time.Now().Truncate(time.Hour).Add(-time.Hour)
+	startTime := endTime.Add(-time.Duration(j.config.BackfillDays) * 24 * time.Hour)
+
+	log.Infof("Starting namespace GPU aggregation backfill job for cluster: %s, time range: %v to %v (excluding current hour)",
+		clusterName, startTime, endTime)
+
+	// 1. Generate all hours in the time range
+	allHours := generateAllHours(startTime, endTime)
+	log.Infof("Generated %d hours to check for namespace backfill", len(allHours))
+
+	if len(allHours) == 0 {
+		log.Infof("No hours to process")
+		stats.AddMessage("No hours to process")
+		return stats, nil
+	}
+
+	// 2. Find missing namespace stats for all hours
+	missingSpan, missingCtx := trace.StartSpanFromContext(ctx, "findMissingNamespaceStats")
+	missingNamespaceHours, err := j.findMissingNamespaceStats(missingCtx, clusterName, allHours)
+	if err != nil {
+		missingSpan.RecordError(err)
+		missingSpan.SetStatus(codes.Error, err.Error())
+		trace.FinishSpan(missingSpan)
+		return stats, fmt.Errorf("failed to find missing namespace stats: %w", err)
+	}
+	missingSpan.SetAttributes(attribute.Int("missing.namespace_hours", len(missingNamespaceHours)))
+	missingSpan.SetStatus(codes.Ok, "")
+	trace.FinishSpan(missingSpan)
+
+	log.Infof("Found %d missing namespace hours", len(missingNamespaceHours))
+	stats.AddCustomMetric("missing_namespace_hours", len(missingNamespaceHours))
+
+	// 3. Backfill namespace stats using time-weighted calculation
+	if len(missingNamespaceHours) > 0 {
+		backfillSpan, backfillCtx := trace.StartSpanFromContext(ctx, "backfillNamespaceStats")
+		backfillSpan.SetAttributes(attribute.Int("hours.count", len(missingNamespaceHours)))
+
+		count, backfillErr := j.backfillNamespaceStats(backfillCtx, clusterName, missingNamespaceHours)
+		if backfillErr != nil {
+			backfillSpan.RecordError(backfillErr)
+			backfillSpan.SetStatus(codes.Error, backfillErr.Error())
+			trace.FinishSpan(backfillSpan)
+			stats.ErrorCount++
+			log.Errorf("Failed to backfill namespace stats: %v", backfillErr)
+		} else {
+			backfillSpan.SetAttributes(attribute.Int64("backfilled.count", count))
+			backfillSpan.SetStatus(codes.Ok, "")
+			trace.FinishSpan(backfillSpan)
+			stats.ItemsCreated = count
+			log.Infof("Backfilled %d namespace hourly stats", count)
+		}
+	}
+
+	totalDuration := time.Since(jobStartTime)
+	span.SetAttributes(attribute.Float64("total_duration_ms", float64(totalDuration.Milliseconds())))
+	span.SetStatus(codes.Ok, "")
+
+	stats.ProcessDuration = totalDuration.Seconds()
+	stats.AddMessage(fmt.Sprintf("Namespace backfill completed: %d namespace stats created", stats.ItemsCreated))
+
+	log.Infof("Namespace GPU aggregation backfill job completed in %v", totalDuration)
+	return stats, nil
+}
+
+// findMissingNamespaceStats finds hours and namespaces that are missing stats
+// Uses namespace_info table as the source of truth for namespace list
+func (j *NamespaceGpuAggregationBackfillJob) findMissingNamespaceStats(
+	ctx context.Context,
+	clusterName string,
+	allHours []time.Time) (map[time.Time][]string, error) {
+
+	if len(allHours) == 0 {
+		return nil, nil
+	}
+
+	facade := database.GetFacadeForCluster(clusterName).GetGpuAggregation()
+
+	startTime := allHours[0]
+	endTime := allHours[len(allHours)-1].Add(time.Hour)
+
+	// Get all namespaces from namespace_info table (source of truth)
+	namespaceInfoList, err := database.GetFacadeForCluster(clusterName).GetNamespaceInfo().List(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list namespace info: %w", err)
+	}
+
+	// Build namespace list from namespace_info
+	allNamespaces := make([]string, 0, len(namespaceInfoList))
+	for _, nsInfo := range namespaceInfoList {
+		if !j.shouldExcludeNamespace(nsInfo.Name) {
+			allNamespaces = append(allNamespaces, nsInfo.Name)
+		}
+	}
+
+	log.Infof("Found %d namespaces from namespace_info table", len(allNamespaces))
+
+	// Get existing namespace stats
+	namespaceStats, err := facade.ListNamespaceHourlyStats(ctx, startTime, endTime)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list namespace hourly stats: %w", err)
+	}
+
+	// Build hour -> namespaces map for existing stats
+	existingNamespaceHours := make(map[time.Time]map[string]struct{})
+	for _, stat := range namespaceStats {
+		hour := stat.StatHour.Truncate(time.Hour)
+		if _, exists := existingNamespaceHours[hour]; !exists {
+			existingNamespaceHours[hour] = make(map[string]struct{})
+		}
+		existingNamespaceHours[hour][stat.Namespace] = struct{}{}
+	}
+
+	// Find missing namespace hours
+	// For each hour, check if all namespaces from namespace_info have stats
+	// Key: hour, Value: list of missing namespaces
+	missingNamespaceHours := make(map[time.Time][]string)
+	for _, hour := range allHours {
+		existingNamespaces := existingNamespaceHours[hour]
+
+		for _, namespace := range allNamespaces {
+			// Check if already exists
+			if existingNamespaces != nil {
+				if _, exists := existingNamespaces[namespace]; exists {
+					continue
+				}
+			}
+
+			// Missing namespace for this hour
+			if missingNamespaceHours[hour] == nil {
+				missingNamespaceHours[hour] = make([]string, 0)
+			}
+			missingNamespaceHours[hour] = append(missingNamespaceHours[hour], namespace)
+		}
+	}
+
+	return missingNamespaceHours, nil
+}
+
+// shouldExcludeNamespace checks if a namespace should be excluded from backfill
+func (j *NamespaceGpuAggregationBackfillJob) shouldExcludeNamespace(namespace string) bool {
+	// Check if in exclusion list
+	for _, excluded := range j.config.ExcludeNamespaces {
+		if namespace == excluded {
+			return true
+		}
+	}
+
+	// Check if it's a system namespace
+	if !j.config.IncludeSystemNamespaces {
+		systemNamespaces := []string{"kube-system", "kube-public", "kube-node-lease"}
+		for _, sysNs := range systemNamespaces {
+			if namespace == sysNs {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// backfillNamespaceStats backfills missing namespace hourly stats using time-weighted calculation
+func (j *NamespaceGpuAggregationBackfillJob) backfillNamespaceStats(
+	ctx context.Context,
+	clusterName string,
+	missingNamespaceHours map[time.Time][]string) (int64, error) {
+
+	if len(missingNamespaceHours) == 0 {
+		return 0, nil
+	}
+
+	facade := database.GetFacadeForCluster(clusterName).GetGpuAggregation()
+	calculator := statistics.NewGpuAllocationCalculator(clusterName)
+	var createdCount int64
+
+	// Get namespace GPU quotas
+	namespaceQuotas, err := j.getNamespaceGpuQuotas(ctx, clusterName)
+	if err != nil {
+		log.Warnf("Failed to get namespace GPU quotas: %v", err)
+		namespaceQuotas = make(map[string]int32)
+	}
+
+	for hour, namespaces := range missingNamespaceHours {
+		// Create namespace stats for each missing namespace
+		for _, namespace := range namespaces {
+			// Use time-weighted calculation for this namespace
+			result, err := calculator.CalculateHourlyNamespaceGpuAllocation(ctx, namespace, hour)
+			if err != nil {
+				log.Warnf("Failed to calculate GPU allocation for namespace %s at hour %v: %v", namespace, hour, err)
+				result = &statistics.GpuAllocationResult{}
+			}
+
+			var nsStats *dbmodel.NamespaceGpuHourlyStats
+			if result.WorkloadCount == 0 {
+				// No workload data for this namespace in this hour, fill with zero values
+				nsStats = j.createZeroNamespaceStats(clusterName, namespace, hour)
+				log.Debugf("Creating zero-value namespace stats for %s at %v (no workload data)", namespace, hour)
+			} else {
+				// Build namespace stats from time-weighted calculation result
+				nsStats = j.buildNamespaceStatsFromResult(clusterName, namespace, hour, result)
+			}
+
+			// Set GPU quota if available and calculate allocation rate
+			if quota, exists := namespaceQuotas[namespace]; exists && quota > 0 {
+				nsStats.TotalGpuCapacity = quota
+				if nsStats.AllocatedGpuCount > 0 {
+					nsStats.AllocationRate = (nsStats.AllocatedGpuCount / float64(quota)) * 100
+				}
+			}
+
+			// Save namespace stats
+			if err := facade.SaveNamespaceHourlyStats(ctx, nsStats); err != nil {
+				log.Errorf("Failed to save namespace stats for %s at %v: %v", namespace, hour, err)
+				continue
+			}
+
+			createdCount++
+			log.Debugf("Backfilled namespace stats for %s at %v: allocated=%.2f, workloads=%d",
+				namespace, hour, nsStats.AllocatedGpuCount, result.WorkloadCount)
+		}
+	}
+
+	return createdCount, nil
+}
+
+// buildNamespaceStatsFromResult builds NamespaceGpuHourlyStats from time-weighted calculation result
+func (j *NamespaceGpuAggregationBackfillJob) buildNamespaceStatsFromResult(
+	clusterName, namespace string,
+	hour time.Time,
+	result *statistics.GpuAllocationResult) *dbmodel.NamespaceGpuHourlyStats {
+
+	stats := &dbmodel.NamespaceGpuHourlyStats{
+		ClusterName:         clusterName,
+		Namespace:           namespace,
+		StatHour:            hour,
+		AllocatedGpuCount:   result.TotalAllocatedGpu,
+		ActiveWorkloadCount: int32(result.WorkloadCount),
+	}
+
+	// Calculate utilization statistics from workload details
+	if len(result.Details) > 0 {
+		utilizationValues := make([]float64, 0, len(result.Details))
+
+		// For backfill, we don't have real-time utilization data
+		// We set utilization to 0 as we don't have Prometheus data for historical hours
+		for range result.Details {
+			utilizationValues = append(utilizationValues, 0)
+		}
+
+		sort.Float64s(utilizationValues)
+		stats.MinUtilization = utilizationValues[0]
+		stats.MaxUtilization = utilizationValues[len(utilizationValues)-1]
+
+		var utilizationSum float64
+		for _, v := range utilizationValues {
+			utilizationSum += v
+		}
+		stats.AvgUtilization = utilizationSum / float64(len(utilizationValues))
+	}
+
+	return stats
+}
+
+// createZeroNamespaceStats creates a namespace stats record with zero values
+func (j *NamespaceGpuAggregationBackfillJob) createZeroNamespaceStats(
+	clusterName, namespace string,
+	hour time.Time) *dbmodel.NamespaceGpuHourlyStats {
+
+	return &dbmodel.NamespaceGpuHourlyStats{
+		ClusterName:         clusterName,
+		Namespace:           namespace,
+		StatHour:            hour,
+		TotalGpuCapacity:    0,
+		AllocatedGpuCount:   0,
+		AllocationRate:      0,
+		AvgUtilization:      0,
+		MaxUtilization:      0,
+		MinUtilization:      0,
+		ActiveWorkloadCount: 0,
+	}
+}
+
+// getNamespaceGpuQuotas gets the GPU quotas for all namespaces
+func (j *NamespaceGpuAggregationBackfillJob) getNamespaceGpuQuotas(ctx context.Context, clusterName string) (map[string]int32, error) {
+	namespaceInfoList, err := database.GetFacadeForCluster(clusterName).GetNamespaceInfo().List(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list namespace info: %w", err)
+	}
+
+	quotas := make(map[string]int32)
+	for _, nsInfo := range namespaceInfoList {
+		quotas[nsInfo.Name] = nsInfo.GpuResource
+	}
+
+	return quotas, nil
+}
+
+// Schedule returns the job's scheduling expression
+func (j *NamespaceGpuAggregationBackfillJob) Schedule() string {
+	return "@every 5m"
+}
+
+// SetConfig sets the job configuration
+func (j *NamespaceGpuAggregationBackfillJob) SetConfig(cfg *NamespaceGpuAggregationBackfillConfig) {
+	j.config = cfg
+}
+
+// GetConfig returns the current configuration
+func (j *NamespaceGpuAggregationBackfillJob) GetConfig() *NamespaceGpuAggregationBackfillConfig {
+	return j.config
+}
+

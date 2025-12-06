@@ -112,7 +112,7 @@ func (j *ClusterGpuAggregationJob) Run(ctx context.Context,
 			attribute.String("stat.hour", hourToProcess.Format(time.RFC3339)),
 		)
 
-		if err := j.aggregateClusterStats(aggCtx, clusterName, hourToProcess); err != nil {
+		if err := j.aggregateClusterStats(aggCtx, clusterName, hourToProcess, storageClientSet); err != nil {
 			aggSpan.RecordError(err)
 			aggSpan.SetStatus(codes.Error, err.Error())
 			trace.FinishSpan(aggSpan)
@@ -172,7 +172,8 @@ func (j *ClusterGpuAggregationJob) setLastProcessedHour(ctx context.Context, clu
 func (j *ClusterGpuAggregationJob) aggregateClusterStats(
 	ctx context.Context,
 	clusterName string,
-	hour time.Time) error {
+	hour time.Time,
+	storageClientSet *clientsets.StorageClientSet) error {
 
 	// Use time-weighted calculation from statistics package
 	calculator := statistics.NewGpuAllocationCalculator(clusterName)
@@ -202,8 +203,13 @@ func (j *ClusterGpuAggregationJob) aggregateClusterStats(
 		clusterStats.AllocationRate = (clusterStats.AllocatedGpuCount / float64(totalCapacity)) * 100
 	}
 
-	// Note: Utilization data requires Prometheus queries which is handled by workload job
-	// For cluster-level, we can leave utilization as 0 or query from workload stats later
+	// Query cluster-level GPU utilization from Prometheus using avg(gpu_utilization{})
+	avgUtilization, err := statistics.QueryClusterHourlyGpuUtilization(ctx, storageClientSet, hour)
+	if err != nil {
+		log.Warnf("Failed to query cluster GPU utilization: %v", err)
+		avgUtilization = 0
+	}
+	clusterStats.AvgUtilization = avgUtilization
 
 	// Save cluster stats
 	facade := database.GetFacadeForCluster(clusterName).GetGpuAggregation()
@@ -211,8 +217,8 @@ func (j *ClusterGpuAggregationJob) aggregateClusterStats(
 		return fmt.Errorf("failed to save cluster stats: %w", err)
 	}
 
-	log.Infof("Cluster stats saved for %s at %v: allocated=%.2f/%d, rate=%.2f%%",
-		clusterName, hour, clusterStats.AllocatedGpuCount, totalCapacity, clusterStats.AllocationRate)
+	log.Infof("Cluster stats saved for %s at %v: allocated=%.2f/%d, rate=%.2f%%, utilization=%.2f%%",
+		clusterName, hour, clusterStats.AllocatedGpuCount, totalCapacity, clusterStats.AllocationRate, avgUtilization)
 
 	return nil
 }
