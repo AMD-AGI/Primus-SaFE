@@ -139,11 +139,13 @@ func TestModelReconciler_HandleDelete_NoFinalizer(t *testing.T) {
 	_ = v1.AddToScheme(scheme)
 	_ = batchv1.AddToScheme(scheme)
 
+	// Note: fake client requires finalizers when deletionTimestamp is set
+	// So we test with a model that has no finalizer and no deletionTimestamp,
+	// then manually set deletionTimestamp after creation
 	model := &v1.Model{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:              "test-model",
-			DeletionTimestamp: &metav1.Time{Time: time.Now()},
-			// No finalizer
+			Name: "test-model",
+			// No finalizer, no deletionTimestamp initially
 		},
 		Spec: v1.ModelSpec{
 			Source: v1.ModelSource{
@@ -162,6 +164,9 @@ func TestModelReconciler_HandleDelete_NoFinalizer(t *testing.T) {
 			Client: k8sClient,
 		},
 	}
+
+	// Manually set deletionTimestamp for test
+	model.DeletionTimestamp = &metav1.Time{Time: time.Now()}
 
 	result, err := r.handleDelete(context.Background(), model)
 	require.NoError(t, err)

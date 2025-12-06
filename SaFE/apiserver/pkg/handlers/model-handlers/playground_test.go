@@ -721,10 +721,10 @@ func TestParseListPlaygroundSessionQuery(t *testing.T) {
 			expectedError: false,
 		},
 		{
-			name:          "negative limit - should use default",
+			name:          "negative limit - should error due to min validation",
 			queryParams:   "limit=-5",
-			expectedLimit: 100,
-			expectedError: false,
+			expectedLimit: 0,
+			expectedError: true, // Binding validation fails for min=1
 		},
 	}
 
@@ -738,6 +738,7 @@ func TestParseListPlaygroundSessionQuery(t *testing.T) {
 
 			if tt.expectedError {
 				assert.Error(t, err)
+				assert.Nil(t, result)
 			} else {
 				assert.NoError(t, err)
 				assert.NotNil(t, result)
