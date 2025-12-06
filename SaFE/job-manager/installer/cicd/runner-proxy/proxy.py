@@ -1,13 +1,18 @@
 #!/usr/bin/env python3
-import base64
+
+#  Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+#  See LICENSE for license information.
+
 import atexit
+import base64
 import json
 import os
+import shutil
 import signal
 import sys
 import time
-import shutil
 from typing import Any, Dict, Optional, Tuple
+
 import requests
 
 
@@ -96,7 +101,6 @@ def parse_podinfo_file(filepath: str) -> Dict[str, str]:
         "job-name",
         "pod-template-hash",
     }
-
 
     result: Dict[str, str] = {}
     if not os.path.isfile(filepath):
