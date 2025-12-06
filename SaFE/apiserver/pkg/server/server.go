@@ -12,7 +12,6 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/opensearch"
 	"github.com/gin-gonic/gin"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -32,6 +31,7 @@ import (
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	commonklog "github.com/AMD-AIG-AIMA/SAFE/common/pkg/klog"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/opensearch"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/options"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/netutil"
 )

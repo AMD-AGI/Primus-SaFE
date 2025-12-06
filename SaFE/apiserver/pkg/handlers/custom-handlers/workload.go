@@ -701,6 +701,16 @@ func (h *Handler) generateWorkload(ctx context.Context,
 	if req.WorkspaceId != "" {
 		workload.Spec.Workspace = req.WorkspaceId
 	}
+	for key, val := range req.Labels {
+		if !strings.HasPrefix(key, v1.PrimusSafePrefix) {
+			workload.Labels[key] = val
+		}
+	}
+	for key, val := range req.Annotations {
+		if !strings.HasPrefix(key, v1.PrimusSafePrefix) {
+			workload.Annotations[key] = val
+		}
+	}
 	if commonworkload.IsCICDScalingRunnerSet(workload) {
 		if err = h.generateCICDScaleRunnerSet(ctx, workload, requestUser); err != nil {
 			return nil, err

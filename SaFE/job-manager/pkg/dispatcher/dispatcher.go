@@ -212,9 +212,6 @@ func (r *DispatcherReconciler) dispatch(ctx context.Context,
 
 // generateUniquePorts generates unique job and SSH ports for the workload to avoid conflicts.
 func (r *DispatcherReconciler) generateUniquePorts(ctx context.Context, workload *v1.Workload) error {
-	if commonworkload.IsCICD(workload) {
-		return nil
-	}
 	rand.Seed(time.Now().UnixNano())
 	ports := make(map[int]bool)
 
@@ -277,30 +274,28 @@ func (r *DispatcherReconciler) generateK8sObject(ctx context.Context,
 func setK8sObjectMeta(result *unstructured.Unstructured, adminWorkload *v1.Workload) {
 	result.SetName(adminWorkload.Name)
 	result.SetNamespace(adminWorkload.Spec.Workspace)
-	labels := result.GetLabels()
-	if len(labels) == 0 {
-		labels = make(map[string]string)
-	}
 
-	newLabels := buildLabels(adminWorkload)
-	for key, val := range newLabels {
+	targetLabels := result.GetLabels()
+	if len(targetLabels) == 0 {
+		targetLabels = make(map[string]string)
+	}
+	for key, val := range buildLabels(adminWorkload) {
 		if strValue, ok := val.(string); ok {
-			labels[key] = strValue
+			targetLabels[key] = strValue
 		}
 	}
-	annotations := result.GetAnnotations()
-	if len(annotations) == 0 {
-		annotations = make(map[string]string)
+	result.SetLabels(targetLabels)
+
+	targetAnnotations := result.GetAnnotations()
+	if len(targetAnnotations) == 0 {
+		targetAnnotations = make(map[string]string)
 	}
-	if v1.GetUserName(adminWorkload) != "" {
-		annotations[v1.UserNameAnnotation] = v1.GetUserName(adminWorkload)
+	for key, val := range buildAnnotations(adminWorkload) {
+		if strValue, ok := val.(string); ok {
+			targetAnnotations[key] = strValue
+		}
 	}
-	if len(labels) > 0 {
-		result.SetLabels(labels)
-	}
-	if len(annotations) > 0 {
-		result.SetAnnotations(annotations)
-	}
+	result.SetAnnotations(targetAnnotations)
 }
 
 // getWorkloadTemplate retrieves the workload template configuration based on its version and kind.
@@ -486,7 +481,9 @@ func isPriorityClassChanged(adminWorkload *v1.Workload, obj *unstructured.Unstru
 func updateUnstructuredObject(obj *unstructured.Unstructured,
 	adminWorkload *v1.Workload, workspace *v1.Workspace, rt *v1.ResourceTemplate) error {
 	if commonworkload.IsCICDScalingRunnerSet(adminWorkload) {
-		return updateCICDScaleSet(obj, adminWorkload, workspace, rt)
+		if err := updateCICDScaleSet(obj, adminWorkload, workspace, rt); err != nil {
+			return err
+		}
 	}
 
 	var preAllocatedReplica int64 = 0
@@ -509,6 +506,9 @@ func updateUnstructuredObject(obj *unstructured.Unstructured,
 		if err := updateReplica(adminWorkload, obj, t, replica); err != nil {
 			return fmt.Errorf("failed to update replica: %v", err.Error())
 		}
+		if err := updateMetadata(adminWorkload, obj, t); err != nil {
+			return fmt.Errorf("failed to update main container: %v", err.Error())
+		}
 		if err := updateContainers(adminWorkload, obj, t); err != nil {
 			return fmt.Errorf("failed to update main container: %v", err.Error())
 		}
@@ -525,6 +525,9 @@ func updateUnstructuredObject(obj *unstructured.Unstructured,
 // updateReplica updates the replica count in the unstructured object.
 func updateReplica(adminWorkload *v1.Workload,
 	obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec, replica int64) error {
+	if len(resourceSpec.ReplicasPaths) == 0 {
+		return nil
+	}
 	path := resourceSpec.PrePaths
 	path = append(path, resourceSpec.ReplicasPaths...)
 	if err := unstructured.SetNestedField(obj.Object, replica, path...); err != nil {
@@ -590,8 +593,7 @@ func updateCICDGithub(adminWorkload *v1.Workload,
 
 // updateCICDEnvironments configures environment variables for CICD workloads based on unified build settings.
 // When unified build is enabled, it updates all containers with NFS paths and environment variables,
-// with additional resource variables for the main container.
-// When unified build is disabled, it keeps only the main container with resource variables.
+// When unified build is disabled, it keeps only the main container with environment variables.
 func updateCICDEnvironments(obj *unstructured.Unstructured,
 	adminWorkload *v1.Workload, workspace *v1.Workspace, resourceSpec v1.ResourceSpec) error {
 	containers, path, err := getContainers(obj, resourceSpec)
@@ -603,7 +605,6 @@ func updateCICDEnvironments(obj *unstructured.Unstructured,
 	envs[jobutils.PriorityEnv] = strconv.Itoa(adminWorkload.Spec.Priority)
 	envs[common.ScaleRunnerSetID] = adminWorkload.Name
 	envs[jobutils.WorkspaceIdEnv] = adminWorkload.Spec.Workspace
-	mainContainerName := v1.GetMainContainer(adminWorkload)
 
 	val, ok := adminWorkload.Spec.Env[common.UnifiedJobEnable]
 	if ok && val == v1.TrueStr {
@@ -614,36 +615,21 @@ func updateCICDEnvironments(obj *unstructured.Unstructured,
 		envs[jobutils.NfsPathEnv] = pfsPath + "/cicd"
 		envs[jobutils.NfsInputEnv] = UnifiedJobInput
 		envs[jobutils.NfsOutputEnv] = UnifiedJobOutput
-
 		// When unified build is enabled, update all containers with envs
-		// and add resource variables to main container
 		for i := range containers {
 			container := containers[i].(map[string]interface{})
-			name := jobutils.GetUnstructuredString(container, []string{"name"})
-			if name == mainContainerName {
-				// For main container, also add resource variables
-				newEnvs := maps.Copy(envs)
-				newEnvs[jobutils.ResourcesEnv] = string(jsonutils.MarshalSilently(adminWorkload.Spec.Resource))
-				newEnvs[jobutils.ImageEnv] = adminWorkload.Spec.Image
-				newEnvs[jobutils.EntrypointEnv] = buildEntryPoint(adminWorkload)
-				updateContainerEnv(newEnvs, container)
-			} else {
-				updateContainerEnv(envs, container)
-			}
+			updateContainerEnv(envs, container)
 		}
 		if err = unstructured.SetNestedField(obj.Object, containers, path...); err != nil {
 			return err
 		}
 	} else {
+		mainContainerName := v1.GetMainContainer(adminWorkload)
 		// When unified build is disabled, keep only main container with resource variables
 		for i := range containers {
 			container := containers[i].(map[string]interface{})
 			name := jobutils.GetUnstructuredString(container, []string{"name"})
 			if name == mainContainerName {
-				// Only update main container with resource variables
-				envs[jobutils.ResourcesEnv] = string(jsonutils.MarshalSilently(adminWorkload.Spec.Resource))
-				envs[jobutils.ImageEnv] = adminWorkload.Spec.Image
-				envs[jobutils.EntrypointEnv] = buildEntryPoint(adminWorkload)
 				updateContainerEnv(envs, container)
 				// Keep only the main container and remove other container
 				newContainers := []interface{}{container}
@@ -671,6 +657,21 @@ func getNfsPathFromWorkspace(workspace *v1.Workspace) string {
 	return result
 }
 
+// updateMetadata updates the template metadata annotations in the unstructured object.
+func updateMetadata(adminWorkload *v1.Workload,
+	obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec) error {
+	_, found, err := unstructured.NestedMap(obj.Object, resourceSpec.GetTemplatePath()...)
+	if err != nil || !found {
+		return err
+	}
+	annotations := buildAnnotations(adminWorkload)
+	path := append(resourceSpec.GetTemplatePath(), "metadata", "annotations")
+	if err = unstructured.SetNestedMap(obj.Object, annotations, path...); err != nil {
+		return err
+	}
+	return nil
+}
+
 // updateContainers updates all container configurations in the unstructured object.
 // For each container, it updates environment variables. For the main container,
 // it also updates resources, image, and command based on the workload spec.
@@ -682,20 +683,31 @@ func updateContainers(adminWorkload *v1.Workload,
 	}
 
 	mainContainerName := v1.GetMainContainer(adminWorkload)
-	resources := buildResources(adminWorkload)
+	res := &adminWorkload.Spec.Resource
+	resourceList, err := quantity.CvtToResourceList(res.CPU, res.Memory, res.GPU,
+		res.GPUName, res.EphemeralStorage, res.RdmaResource, 1.0/float64(len(containers)))
+	if err != nil {
+		return commonerrors.NewBadRequest(err.Error())
+	}
+
+	resources := buildResources(resourceList)
 	for i := range containers {
 		container := containers[i].(map[string]interface{})
 		if len(adminWorkload.Spec.Env) > 0 {
 			updateContainerEnv(adminWorkload.Spec.Env, container)
 		}
+		container["resources"] = map[string]interface{}{
+			"limits":   resources,
+			"requests": resources,
+		}
 		name := jobutils.GetUnstructuredString(container, []string{"name"})
 		if name == mainContainerName {
-			container["resources"] = map[string]interface{}{
-				"limits":   resources,
-				"requests": resources,
+			if adminWorkload.Spec.Image != "" {
+				container["image"] = adminWorkload.Spec.Image
 			}
-			container["image"] = adminWorkload.Spec.Image
-			container["command"] = buildCommands(adminWorkload)
+			if adminWorkload.Spec.EntryPoint != "" {
+				container["command"] = buildCommands(adminWorkload)
+			}
 		}
 	}
 	if err = unstructured.SetNestedField(obj.Object, containers, path...); err != nil {

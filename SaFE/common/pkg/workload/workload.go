@@ -177,7 +177,7 @@ func GetActiveResources(workload *v1.Workload, filterNode func(nodeName string) 
 func CvtToResourceList(w *v1.Workload) (corev1.ResourceList, error) {
 	res := &w.Spec.Resource
 	result, err := quantity.CvtToResourceList(res.CPU, res.Memory, res.GPU,
-		res.GPUName, res.EphemeralStorage, res.RdmaResource, int64(res.Replica))
+		res.GPUName, res.EphemeralStorage, res.RdmaResource, float64(res.Replica))
 	if err != nil {
 		return nil, commonerrors.NewBadRequest(err.Error())
 	}
