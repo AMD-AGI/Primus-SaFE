@@ -3,7 +3,6 @@ package gpu_aggregation_backfill
 import (
 	"context"
 	"fmt"
-	"sort"
 	"time"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
@@ -140,7 +139,7 @@ func (j *NamespaceGpuAggregationBackfillJob) Run(ctx context.Context,
 		backfillSpan, backfillCtx := trace.StartSpanFromContext(ctx, "backfillNamespaceStats")
 		backfillSpan.SetAttributes(attribute.Int("hours.count", len(missingNamespaceHours)))
 
-		count, backfillErr := j.backfillNamespaceStats(backfillCtx, clusterName, missingNamespaceHours)
+		count, backfillErr := j.backfillNamespaceStats(backfillCtx, clusterName, missingNamespaceHours, storageClientSet)
 		if backfillErr != nil {
 			backfillSpan.RecordError(backfillErr)
 			backfillSpan.SetStatus(codes.Error, backfillErr.Error())
@@ -267,14 +266,16 @@ func (j *NamespaceGpuAggregationBackfillJob) shouldExcludeNamespace(namespace st
 func (j *NamespaceGpuAggregationBackfillJob) backfillNamespaceStats(
 	ctx context.Context,
 	clusterName string,
-	missingNamespaceHours map[time.Time][]string) (int64, error) {
+	missingNamespaceHours map[time.Time][]string,
+	storageClientSet *clientsets.StorageClientSet) (int64, error) {
 
 	if len(missingNamespaceHours) == 0 {
 		return 0, nil
 	}
 
 	facade := database.GetFacadeForCluster(clusterName).GetGpuAggregation()
-	calculator := statistics.NewGpuAllocationCalculator(clusterName)
+	allocationCalculator := statistics.NewGpuAllocationCalculator(clusterName)
+	utilizationCalculator := statistics.NewNamespaceUtilizationCalculator(clusterName, storageClientSet)
 	var createdCount int64
 
 	// Get namespace GPU quotas
@@ -288,7 +289,7 @@ func (j *NamespaceGpuAggregationBackfillJob) backfillNamespaceStats(
 		// Create namespace stats for each missing namespace
 		for _, namespace := range namespaces {
 			// Use time-weighted calculation for this namespace
-			result, err := calculator.CalculateHourlyNamespaceGpuAllocation(ctx, namespace, hour)
+			result, err := allocationCalculator.CalculateHourlyNamespaceGpuAllocation(ctx, namespace, hour)
 			if err != nil {
 				log.Warnf("Failed to calculate GPU allocation for namespace %s at hour %v: %v", namespace, hour, err)
 				result = &statistics.GpuAllocationResult{}
@@ -301,7 +302,7 @@ func (j *NamespaceGpuAggregationBackfillJob) backfillNamespaceStats(
 				log.Debugf("Creating zero-value namespace stats for %s at %v (no workload data)", namespace, hour)
 			} else {
 				// Build namespace stats from time-weighted calculation result
-				nsStats = j.buildNamespaceStatsFromResult(clusterName, namespace, hour, result)
+				nsStats = j.buildNamespaceStatsFromResult(clusterName, namespace, hour, result, utilizationCalculator)
 			}
 
 			// Set GPU quota if available and calculate allocation rate
@@ -319,8 +320,8 @@ func (j *NamespaceGpuAggregationBackfillJob) backfillNamespaceStats(
 			}
 
 			createdCount++
-			log.Debugf("Backfilled namespace stats for %s at %v: allocated=%.2f, workloads=%d",
-				namespace, hour, nsStats.AllocatedGpuCount, result.WorkloadCount)
+			log.Debugf("Backfilled namespace stats for %s at %v: allocated=%.2f, workloads=%d, avg_util=%.2f%%",
+				namespace, hour, nsStats.AllocatedGpuCount, result.WorkloadCount, nsStats.AvgUtilization)
 		}
 	}
 
@@ -331,7 +332,8 @@ func (j *NamespaceGpuAggregationBackfillJob) backfillNamespaceStats(
 func (j *NamespaceGpuAggregationBackfillJob) buildNamespaceStatsFromResult(
 	clusterName, namespace string,
 	hour time.Time,
-	result *statistics.GpuAllocationResult) *dbmodel.NamespaceGpuHourlyStats {
+	result *statistics.GpuAllocationResult,
+	utilizationCalculator *statistics.NamespaceUtilizationCalculator) *dbmodel.NamespaceGpuHourlyStats {
 
 	stats := &dbmodel.NamespaceGpuHourlyStats{
 		ClusterName:         clusterName,
@@ -341,26 +343,13 @@ func (j *NamespaceGpuAggregationBackfillJob) buildNamespaceStatsFromResult(
 		ActiveWorkloadCount: int32(result.WorkloadCount),
 	}
 
-	// Calculate utilization statistics from workload details
-	if len(result.Details) > 0 {
-		utilizationValues := make([]float64, 0, len(result.Details))
+	// Try to get utilization data from Prometheus using the shared calculator
+	utilizationResult := utilizationCalculator.CalculateHourlyNamespaceUtilization(
+		context.Background(), namespace, result, hour)
 
-		// For backfill, we don't have real-time utilization data
-		// We set utilization to 0 as we don't have Prometheus data for historical hours
-		for range result.Details {
-			utilizationValues = append(utilizationValues, 0)
-		}
-
-		sort.Float64s(utilizationValues)
-		stats.MinUtilization = utilizationValues[0]
-		stats.MaxUtilization = utilizationValues[len(utilizationValues)-1]
-
-		var utilizationSum float64
-		for _, v := range utilizationValues {
-			utilizationSum += v
-		}
-		stats.AvgUtilization = utilizationSum / float64(len(utilizationValues))
-	}
+	stats.AvgUtilization = utilizationResult.AvgUtilization
+	stats.MinUtilization = utilizationResult.MinUtilization
+	stats.MaxUtilization = utilizationResult.MaxUtilization
 
 	return stats
 }
@@ -413,4 +402,3 @@ func (j *NamespaceGpuAggregationBackfillJob) SetConfig(cfg *NamespaceGpuAggregat
 func (j *NamespaceGpuAggregationBackfillJob) GetConfig() *NamespaceGpuAggregationBackfillConfig {
 	return j.config
 }
-

@@ -119,7 +119,7 @@ func (j *NamespaceGpuAggregationJob) Run(ctx context.Context,
 			attribute.String("stat.hour", hourToProcess.Format(time.RFC3339)),
 		)
 
-		count, err := j.aggregateNamespaceStats(aggCtx, clusterName, hourToProcess)
+		count, err := j.aggregateNamespaceStats(aggCtx, clusterName, hourToProcess, storageClientSet)
 		if err != nil {
 			aggSpan.RecordError(err)
 			aggSpan.SetStatus(codes.Error, err.Error())
@@ -181,7 +181,8 @@ func (j *NamespaceGpuAggregationJob) setLastProcessedHour(ctx context.Context, c
 func (j *NamespaceGpuAggregationJob) aggregateNamespaceStats(
 	ctx context.Context,
 	clusterName string,
-	hour time.Time) (int64, error) {
+	hour time.Time,
+	storageClientSet *clientsets.StorageClientSet) (int64, error) {
 
 	// Get all namespaces from namespace_info table
 	namespaceInfoList, err := database.GetFacadeForCluster(clusterName).GetNamespaceInfo().List(ctx)
@@ -201,13 +202,14 @@ func (j *NamespaceGpuAggregationJob) aggregateNamespaceStats(
 
 	log.Infof("Aggregating stats for %d namespaces at hour %v", len(namespaces), hour)
 
-	calculator := statistics.NewGpuAllocationCalculator(clusterName)
+	allocationCalculator := statistics.NewGpuAllocationCalculator(clusterName)
+	utilizationCalculator := statistics.NewNamespaceUtilizationCalculator(clusterName, storageClientSet)
 	facade := database.GetFacadeForCluster(clusterName).GetGpuAggregation()
 	var createdCount int64
 
 	for _, namespace := range namespaces {
 		// Use time-weighted calculation for this namespace
-		result, err := calculator.CalculateHourlyNamespaceGpuAllocation(ctx, namespace, hour)
+		result, err := allocationCalculator.CalculateHourlyNamespaceGpuAllocation(ctx, namespace, hour)
 		if err != nil {
 			log.Warnf("Failed to calculate GPU allocation for namespace %s at hour %v: %v",
 				namespace, hour, err)
@@ -231,8 +233,11 @@ func (j *NamespaceGpuAggregationJob) aggregateNamespaceStats(
 			}
 		}
 
-		// Note: Utilization data will be aggregated from workload stats later
-		// For now, we set utilization to 0
+		// Query utilization from Prometheus using the shared calculator
+		utilizationResult := utilizationCalculator.CalculateHourlyNamespaceUtilization(ctx, namespace, result, hour)
+		nsStats.AvgUtilization = utilizationResult.AvgUtilization
+		nsStats.MinUtilization = utilizationResult.MinUtilization
+		nsStats.MaxUtilization = utilizationResult.MaxUtilization
 
 		// Save namespace stats
 		if err := facade.SaveNamespaceHourlyStats(ctx, nsStats); err != nil {
@@ -241,8 +246,8 @@ func (j *NamespaceGpuAggregationJob) aggregateNamespaceStats(
 		}
 
 		createdCount++
-		log.Debugf("Namespace stats saved for %s at %v: allocated=%.2f, workloads=%d",
-			namespace, hour, nsStats.AllocatedGpuCount, result.WorkloadCount)
+		log.Debugf("Namespace stats saved for %s at %v: allocated=%.2f, workloads=%d, avg_util=%.2f%%",
+			namespace, hour, nsStats.AllocatedGpuCount, result.WorkloadCount, nsStats.AvgUtilization)
 	}
 
 	return createdCount, nil
