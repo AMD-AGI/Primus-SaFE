@@ -165,48 +165,47 @@ func (c *GpuAllocationCalculator) calculateGpuAllocation(
 		return &GpuAllocationResult{}, nil
 	}
 
-	// 2. Build workload UID to workload mapping
-	workloadMap := make(map[string]*model.GpuWorkload)
+	// 2. Build workload UID list
 	workloadUIDs := make([]string, 0, len(workloads))
 	for _, w := range workloads {
-		workloadMap[w.UID] = w
 		workloadUIDs = append(workloadUIDs, w.UID)
 	}
 
-	// 3. Get all descendant workloads (for finding all related pods)
-	allWorkloadUIDs, err := c.collectAllDescendantWorkloadUIDs(ctx, workloadUIDs)
+	// 3. Get pod references for top-level workloads only (no need to traverse descendants)
+	// Pods should be directly associated with top-level workloads
+	podRefs, err := c.getTopLevelWorkloadPodReferences(ctx, workloadUIDs)
 	if err != nil {
 		return nil, err
 	}
 
-	// 4. Get pod references for all workloads (including descendants)
-	podRefs, err := c.getWorkloadPodReferences(ctx, allWorkloadUIDs)
-	if err != nil {
-		return nil, err
-	}
-
-	// 5. Get pod resources for all referenced pods
+	// 4. Get gpu_pods for all referenced pods
 	podUIDs := make([]string, 0, len(podRefs))
 	for podUID := range podRefs {
 		podUIDs = append(podUIDs, podUID)
 	}
 
-	podResources, err := c.getPodResources(ctx, podUIDs)
+	gpuPods, err := c.podFacade.ListPodsByUids(ctx, podUIDs)
 	if err != nil {
 		return nil, err
 	}
 
-	// 6. Build workload -> pods mapping (map descendant pods to top-level workloads)
-	topLevelWorkloadPods := c.buildTopLevelWorkloadPodsMapping(workloadUIDs, allWorkloadUIDs, podRefs, podResources)
+	// Convert to map
+	gpuPodsMap := make(map[string]*model.GpuPods, len(gpuPods))
+	for _, pod := range gpuPods {
+		gpuPodsMap[pod.UID] = pod
+	}
 
-	// 7. Calculate time-weighted GPU allocation for each top-level workload
+	// 5. Build workload -> pods mapping
+	topLevelWorkloadPods := c.buildWorkloadPodsMapping(workloadUIDs, podRefs, gpuPodsMap)
+
+	// 6. Calculate time-weighted GPU allocation for each top-level workload
 	result := &GpuAllocationResult{
 		Details: make([]WorkloadAllocationDetail, 0, len(workloads)),
 	}
 
 	for _, workload := range workloads {
 		pods := topLevelWorkloadPods[workload.UID]
-		detail := c.calculateWorkloadAllocation(workload, pods, startTime, endTime, totalDuration)
+		detail := c.calculateWorkloadAllocation(workload, pods, startTime, endTime, totalDuration, endTime)
 		result.Details = append(result.Details, detail)
 		result.TotalAllocatedGpu += detail.AllocatedGpu
 		result.PodCount += detail.PodCount
@@ -217,56 +216,15 @@ func (c *GpuAllocationCalculator) calculateGpuAllocation(
 	return result, nil
 }
 
-// collectAllDescendantWorkloadUIDs collects all descendant workload UIDs starting from the given top-level UIDs
-func (c *GpuAllocationCalculator) collectAllDescendantWorkloadUIDs(
+// getTopLevelWorkloadPodReferences gets pod references for top-level workloads only
+// Returns a map: podUID -> workloadUID
+func (c *GpuAllocationCalculator) getTopLevelWorkloadPodReferences(
 	ctx context.Context,
-	topLevelUIDs []string,
-) (map[string]string, error) {
-	// Map: workloadUID -> topLevelParentUID
-	result := make(map[string]string)
-
-	// Initialize with top-level workloads
-	for _, uid := range topLevelUIDs {
-		result[uid] = uid
-	}
-
-	// BFS to find all descendants
-	currentLevel := topLevelUIDs
-	for len(currentLevel) > 0 {
-		var nextLevel []string
-
-		for _, parentUID := range currentLevel {
-			topLevelParent := result[parentUID]
-
-			children, err := c.workloadFacade.ListChildrenWorkloadByParentUid(ctx, parentUID)
-			if err != nil {
-				log.Warnf("Failed to get children for workload %s: %v", parentUID, err)
-				continue
-			}
-
-			for _, child := range children {
-				if _, exists := result[child.UID]; !exists {
-					result[child.UID] = topLevelParent
-					nextLevel = append(nextLevel, child.UID)
-				}
-			}
-		}
-
-		currentLevel = nextLevel
-	}
-
-	return result, nil
-}
-
-// getWorkloadPodReferences gets pod references for the given workload UIDs
-// Returns a map: podUID -> topLevelWorkloadUID
-func (c *GpuAllocationCalculator) getWorkloadPodReferences(
-	ctx context.Context,
-	workloadUIDs map[string]string,
+	workloadUIDs []string,
 ) (map[string]string, error) {
 	result := make(map[string]string)
 
-	for workloadUID, topLevelUID := range workloadUIDs {
+	for _, workloadUID := range workloadUIDs {
 		refs, err := c.workloadFacade.ListWorkloadPodReferenceByWorkloadUid(ctx, workloadUID)
 		if err != nil {
 			log.Warnf("Failed to get pod references for workload %s: %v", workloadUID, err)
@@ -274,56 +232,30 @@ func (c *GpuAllocationCalculator) getWorkloadPodReferences(
 		}
 
 		for _, ref := range refs {
-			// Map pod to its top-level workload
-			result[ref.PodUID] = topLevelUID
+			result[ref.PodUID] = workloadUID
 		}
 	}
 
 	return result, nil
 }
 
-// getPodResources gets PodResource for the given pod UIDs using batch query
-func (c *GpuAllocationCalculator) getPodResources(
-	ctx context.Context,
-	podUIDs []string,
-) (map[string]*model.PodResource, error) {
-	if len(podUIDs) == 0 {
-		return make(map[string]*model.PodResource), nil
-	}
-
-	// Use batch query from database layer
-	resources, err := c.podFacade.ListPodResourcesByUids(ctx, podUIDs)
-	if err != nil {
-		return nil, err
-	}
-
-	// Convert to map
-	result := make(map[string]*model.PodResource, len(resources))
-	for _, r := range resources {
-		result[r.UID] = r
-	}
-
-	return result, nil
-}
-
-// buildTopLevelWorkloadPodsMapping builds a mapping from top-level workload UID to its pods
-func (c *GpuAllocationCalculator) buildTopLevelWorkloadPodsMapping(
-	topLevelUIDs []string,
-	allWorkloadUIDs map[string]string,
+// buildWorkloadPodsMapping builds a mapping from workload UID to its pods
+func (c *GpuAllocationCalculator) buildWorkloadPodsMapping(
+	workloadUIDs []string,
 	podRefs map[string]string,
-	podResources map[string]*model.PodResource,
-) map[string][]*model.PodResource {
-	result := make(map[string][]*model.PodResource)
+	gpuPods map[string]*model.GpuPods,
+) map[string][]*model.GpuPods {
+	result := make(map[string][]*model.GpuPods)
 
-	// Initialize result map with top-level UIDs
-	for _, uid := range topLevelUIDs {
-		result[uid] = make([]*model.PodResource, 0)
+	// Initialize result map with workload UIDs
+	for _, uid := range workloadUIDs {
+		result[uid] = make([]*model.GpuPods, 0)
 	}
 
-	// Map pods to their top-level workloads
-	for podUID, topLevelUID := range podRefs {
-		if resource, exists := podResources[podUID]; exists {
-			result[topLevelUID] = append(result[topLevelUID], resource)
+	// Map pods to their workloads
+	for podUID, workloadUID := range podRefs {
+		if pod, exists := gpuPods[podUID]; exists {
+			result[workloadUID] = append(result[workloadUID], pod)
 		}
 	}
 
@@ -333,9 +265,10 @@ func (c *GpuAllocationCalculator) buildTopLevelWorkloadPodsMapping(
 // calculateWorkloadAllocation calculates time-weighted GPU allocation for a workload
 func (c *GpuAllocationCalculator) calculateWorkloadAllocation(
 	workload *model.GpuWorkload,
-	pods []*model.PodResource,
+	pods []*model.GpuPods,
 	startTime, endTime time.Time,
 	totalDuration float64,
+	now time.Time,
 ) WorkloadAllocationDetail {
 	detail := WorkloadAllocationDetail{
 		WorkloadUID:  workload.UID,
@@ -360,9 +293,11 @@ func (c *GpuAllocationCalculator) calculateWorkloadAllocation(
 	var totalWeightedGpu float64
 
 	for _, pod := range pods {
-		podDetail := c.calculatePodAllocation(pod, startTime, endTime, totalDuration)
-		detail.PodDetails = append(detail.PodDetails, podDetail)
-		totalWeightedGpu += float64(pod.GpuAllocated) * podDetail.ActiveDuration / totalDuration
+		podDetail := c.calculatePodAllocation(pod, startTime, endTime, totalDuration, now)
+		if podDetail != nil {
+			detail.PodDetails = append(detail.PodDetails, *podDetail)
+			totalWeightedGpu += float64(pod.GpuAllocated) * podDetail.ActiveDuration / totalDuration
+		}
 	}
 
 	detail.AllocatedGpu = totalWeightedGpu
@@ -372,24 +307,47 @@ func (c *GpuAllocationCalculator) calculateWorkloadAllocation(
 }
 
 // calculatePodAllocation calculates the active duration and weighted allocation for a pod
+// Pod lifetime is determined by Phase:
+// - If Phase is "Running": lifetime is [created_at, now]
+// - If Phase is not "Running": lifetime is [created_at, updated_at]
 func (c *GpuAllocationCalculator) calculatePodAllocation(
-	pod *model.PodResource,
+	pod *model.GpuPods,
 	startTime, endTime time.Time,
 	totalDuration float64,
-) PodAllocationDetail {
-	// Calculate the overlap between pod lifetime and the query time range
-	podStart := maxTime(pod.CreatedAt, startTime)
-	podEnd := endTime
-	if !pod.EndAt.IsZero() && pod.EndAt.Before(endTime) {
-		podEnd = pod.EndAt
+	now time.Time,
+) *PodAllocationDetail {
+	// Determine pod lifetime based on Phase
+	podCreatedAt := pod.CreatedAt
+	var podEndAt time.Time
+	if pod.Phase == "Running" {
+		podEndAt = now
+	} else {
+		podEndAt = pod.UpdatedAt
 	}
 
-	var activeDuration float64
-	if podEnd.After(podStart) {
-		activeDuration = podEnd.Sub(podStart).Seconds()
+	// Check if pod has any overlap with the query time range
+	// Case 1: Pod ended before query start time - no overlap
+	if !podEndAt.After(startTime) {
+		return nil
+	}
+	// Case 2: Pod created after query end time - no overlap
+	if podCreatedAt.After(endTime) || podCreatedAt.Equal(endTime) {
+		return &PodAllocationDetail{
+			PodUID:         pod.UID,
+			GpuCount:       pod.GpuAllocated,
+			ActiveDuration: 0,
+			StartTime:      endTime,
+			EndTime:        endTime,
+		}
 	}
 
-	return PodAllocationDetail{
+	// Calculate overlap
+	podStart := maxTime(podCreatedAt, startTime)
+	podEnd := minTime(podEndAt, endTime)
+
+	activeDuration := podEnd.Sub(podStart).Seconds()
+
+	return &PodAllocationDetail{
 		PodUID:         pod.UID,
 		GpuCount:       pod.GpuAllocated,
 		ActiveDuration: activeDuration,
@@ -401,6 +359,13 @@ func (c *GpuAllocationCalculator) calculatePodAllocation(
 // maxTime returns the later of two time values
 func maxTime(a, b time.Time) time.Time {
 	if a.After(b) {
+		return a
+	}
+	return b
+}
+
+func minTime(a, b time.Time) time.Time {
+	if a.Before(b) {
 		return a
 	}
 	return b
