@@ -30,6 +30,7 @@ data:
       app.kubernetes.io/version: 0.13.0
   spec:
     minRunners: 0
+    maxRunners: 100
     template:
       spec:
         containers:
