@@ -12,6 +12,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/filter"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	primusSafeV1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
@@ -285,121 +286,135 @@ type NodeMappingSyncStats struct {
 func (s *NamespaceSyncService) syncNodeNamespaceMappings(ctx context.Context, workspaces []primusSafeV1.Workspace) (*NodeMappingSyncStats, error) {
 	stats := &NodeMappingSyncStats{}
 
-	// Get all nodes from K8s
-	nodeList := &corev1.NodeList{}
-	if err := s.k8sClient.List(ctx, nodeList); err != nil {
-		return stats, err
-	}
-
-	// Build a map of workspace name -> nodes
-	workspaceNodes := make(map[string][]corev1.Node)
-	for _, node := range nodeList.Items {
-		workspaceID := node.Labels[primusSafeV1.WorkspaceIdLabel]
-		if workspaceID != "" {
-			workspaceNodes[workspaceID] = append(workspaceNodes[workspaceID], node)
+	// Group workspaces by cluster ID
+	clusterWorkspaces := make(map[string]map[string]*primusSafeV1.Workspace)
+	for i := range workspaces {
+		workspace := &workspaces[i]
+		clusterID := primusSafeV1.GetClusterId(workspace)
+		if clusterWorkspaces[clusterID] == nil {
+			clusterWorkspaces[clusterID] = make(map[string]*primusSafeV1.Workspace)
 		}
+		clusterWorkspaces[clusterID][workspace.Name] = workspace
 	}
 
-	// Process each workspace
-	for _, workspace := range workspaces {
-		clusterID := primusSafeV1.GetClusterId(&workspace)
+	// Process each cluster separately
+	for clusterID, workspaceMap := range clusterWorkspaces {
 		facade := s.getFacade(clusterID)
 
-		// Get namespace_info for this workspace
-		nsInfo, err := facade.GetNamespaceInfo().GetByName(ctx, workspace.Name)
+		// Get all Ready nodes from database for this cluster
+		readyStatus := "Ready"
+		dbNodes, _, err := facade.GetNode().SearchNode(ctx, filter.NodeFilter{
+			K8sStatus: &readyStatus,
+		})
 		if err != nil {
-			log.Errorf("Failed to get namespace_info for %s: %v", workspace.Name, err)
-			continue
-		}
-		if nsInfo == nil {
-			log.Debugf("No namespace_info found for workspace %s, skipping node mapping sync", workspace.Name)
+			log.Errorf("Failed to get nodes from DB for cluster %s: %v", clusterID, err)
 			continue
 		}
 
-		// Get current nodes for this workspace
-		currentNodes := workspaceNodes[workspace.Name]
-		currentNodeNames := make(map[string]corev1.Node)
-		for _, node := range currentNodes {
-			currentNodeNames[node.Name] = node
-		}
-
-		// Get existing mappings from database
-		existingMappings, err := facade.GetNodeNamespaceMapping().ListActiveByNamespaceName(ctx, workspace.Name)
-		if err != nil {
-			log.Errorf("Failed to list existing mappings for %s: %v", workspace.Name, err)
-			continue
-		}
-
-		existingNodeNames := make(map[string]*model.NodeNamespaceMapping)
-		for _, mapping := range existingMappings {
-			existingNodeNames[mapping.NodeName] = mapping
-		}
-
-		now := time.Now()
-
-		// Find nodes to add (in K8s but not in DB)
-		for nodeName := range currentNodeNames {
-			if _, exists := existingNodeNames[nodeName]; !exists {
-				// Get node from DB to get node ID
-				dbNode, err := facade.GetNode().GetNodeByName(ctx, nodeName)
-				if err != nil {
-					log.Errorf("Failed to get node %s from DB: %v", nodeName, err)
-					continue
-				}
-				if dbNode == nil {
-					log.Debugf("Node %s not found in DB, skipping", nodeName)
-					continue
-				}
-
-				// Create new mapping
-				newMapping := &model.NodeNamespaceMapping{
-					NodeID:        dbNode.ID,
-					NodeName:      nodeName,
-					NamespaceID:   nsInfo.ID,
-					NamespaceName: workspace.Name,
-					CreatedAt:     now,
-					UpdatedAt:     now,
-				}
-
-				if err := facade.GetNodeNamespaceMapping().Create(ctx, newMapping); err != nil {
-					log.Errorf("Failed to create mapping for node %s -> namespace %s: %v", nodeName, workspace.Name, err)
-					continue
-				}
-
-				// Create history record
-				if err := s.createOrUpdateHistory(ctx, facade, dbNode.ID, nodeName, nsInfo.ID, workspace.Name, newMapping.ID, "added", now); err != nil {
-					log.Errorf("Failed to create history for node %s -> namespace %s: %v", nodeName, workspace.Name, err)
-				}
-
-				stats.Added++
-				log.Infof("Added node-namespace mapping: node=%s, namespace=%s", nodeName, workspace.Name)
+		// Build a map of workspace name -> nodes based on node labels
+		workspaceNodes := make(map[string][]*model.Node)
+		for _, dbNode := range dbNodes {
+			if dbNode.Labels == nil {
+				continue
+			}
+			workspaceID := dbNode.Labels.GetStringValue(primusSafeV1.WorkspaceIdLabel)
+			if workspaceID != "" {
+				workspaceNodes[workspaceID] = append(workspaceNodes[workspaceID], dbNode)
 			}
 		}
 
-		// Find nodes to remove (in DB but not in K8s)
-		for nodeName, mapping := range existingNodeNames {
-			if _, exists := currentNodeNames[nodeName]; !exists {
-				// Soft delete the mapping
-				if err := facade.GetNodeNamespaceMapping().SoftDelete(ctx, mapping.ID); err != nil {
-					log.Errorf("Failed to soft delete mapping for node %s -> namespace %s: %v", nodeName, workspace.Name, err)
-					continue
-				}
+		log.Debugf("Cluster %s: found %d nodes, %d workspaces with nodes",
+			clusterID, len(dbNodes), len(workspaceNodes))
 
-				// Update history record_end to mark the node has left this namespace
-				latestHistory, err := facade.GetNodeNamespaceMapping().GetLatestHistoryByNodeAndNamespace(ctx, mapping.NodeID, mapping.NamespaceID)
-				if err != nil {
-					log.Errorf("Failed to get latest history for node %s -> namespace %s: %v", nodeName, workspace.Name, err)
-				} else if latestHistory != nil && latestHistory.RecordEnd.IsZero() {
-					if err := facade.GetNodeNamespaceMapping().UpdateHistoryRecordEnd(ctx, latestHistory.ID, now); err != nil {
-						log.Errorf("Failed to update history record_end for node %s -> namespace %s: %v", nodeName, workspace.Name, err)
-					} else {
-						log.Debugf("Updated history record_end for node %s -> namespace %s at %v", nodeName, workspace.Name, now)
+		// Process each workspace in this cluster
+		for workspaceName, workspace := range workspaceMap {
+			// Get namespace_info for this workspace
+			nsInfo, err := facade.GetNamespaceInfo().GetByName(ctx, workspaceName)
+			if err != nil {
+				log.Errorf("Failed to get namespace_info for %s: %v", workspaceName, err)
+				continue
+			}
+			if nsInfo == nil {
+				log.Debugf("No namespace_info found for workspace %s, skipping node mapping sync", workspaceName)
+				continue
+			}
+
+			// Get current nodes for this workspace from database
+			currentNodes := workspaceNodes[workspaceName]
+			currentNodeMap := make(map[string]*model.Node)
+			for _, node := range currentNodes {
+				currentNodeMap[node.Name] = node
+			}
+
+			// Get existing mappings from database
+			existingMappings, err := facade.GetNodeNamespaceMapping().ListActiveByNamespaceName(ctx, workspaceName)
+			if err != nil {
+				log.Errorf("Failed to list existing mappings for %s: %v", workspaceName, err)
+				continue
+			}
+
+			existingNodeNames := make(map[string]*model.NodeNamespaceMapping)
+			for _, mapping := range existingMappings {
+				existingNodeNames[mapping.NodeName] = mapping
+			}
+
+			now := time.Now()
+
+			// Find nodes to add (in current workspace but not in mapping)
+			for nodeName, dbNode := range currentNodeMap {
+				if _, exists := existingNodeNames[nodeName]; !exists {
+					// Create new mapping
+					newMapping := &model.NodeNamespaceMapping{
+						NodeID:        dbNode.ID,
+						NodeName:      nodeName,
+						NamespaceID:   nsInfo.ID,
+						NamespaceName: workspaceName,
+						CreatedAt:     now,
+						UpdatedAt:     now,
 					}
-				}
 
-				stats.Removed++
-				log.Infof("Removed node-namespace mapping: node=%s, namespace=%s", nodeName, workspace.Name)
+					if err := facade.GetNodeNamespaceMapping().Create(ctx, newMapping); err != nil {
+						log.Errorf("Failed to create mapping for node %s -> namespace %s: %v", nodeName, workspaceName, err)
+						continue
+					}
+
+					// Create history record
+					if err := s.createOrUpdateHistory(ctx, facade, dbNode.ID, nodeName, nsInfo.ID, workspaceName, newMapping.ID, "added", now); err != nil {
+						log.Errorf("Failed to create history for node %s -> namespace %s: %v", nodeName, workspaceName, err)
+					}
+
+					stats.Added++
+					log.Infof("Added node-namespace mapping: node=%s, namespace=%s", nodeName, workspaceName)
+				}
 			}
+
+			// Find nodes to remove (in mapping but not in current workspace)
+			for nodeName, mapping := range existingNodeNames {
+				if _, exists := currentNodeMap[nodeName]; !exists {
+					// Soft delete the mapping
+					if err := facade.GetNodeNamespaceMapping().SoftDelete(ctx, mapping.ID); err != nil {
+						log.Errorf("Failed to soft delete mapping for node %s -> namespace %s: %v", nodeName, workspaceName, err)
+						continue
+					}
+
+					// Update history record_end to mark the node has left this namespace
+					latestHistory, err := facade.GetNodeNamespaceMapping().GetLatestHistoryByNodeAndNamespace(ctx, mapping.NodeID, mapping.NamespaceID)
+					if err != nil {
+						log.Errorf("Failed to get latest history for node %s -> namespace %s: %v", nodeName, workspaceName, err)
+					} else if latestHistory != nil && latestHistory.RecordEnd.IsZero() {
+						if err := facade.GetNodeNamespaceMapping().UpdateHistoryRecordEnd(ctx, latestHistory.ID, now); err != nil {
+							log.Errorf("Failed to update history record_end for node %s -> namespace %s: %v", nodeName, workspaceName, err)
+						} else {
+							log.Debugf("Updated history record_end for node %s -> namespace %s at %v", nodeName, workspaceName, now)
+						}
+					}
+
+					stats.Removed++
+					log.Infof("Removed node-namespace mapping: node=%s, namespace=%s", nodeName, workspaceName)
+				}
+			}
+
+			_ = workspace // avoid unused variable warning
 		}
 	}
 
