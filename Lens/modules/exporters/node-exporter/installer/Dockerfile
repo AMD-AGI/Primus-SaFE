@@ -37,8 +37,8 @@ RUN cd $BASEPATH && CGO_ENABLED=0 go build -tags nosqlite -a -installsuffix cgo 
 
 # Stage 2: Runtime stage - use pre-built base image with dependencies
 # To build the base image first:
-#   docker build -f Dockerfile.base -t primussafe/primus-lens-node-exporter-base:latest .
-FROM --platform=linux/amd64 docker.io/primussafe/primus-lens-node-exporter-base:latest
+#   docker build -f Dockerfile.base -t primussafe/primus-lens-node-exporter-base:0.0.1 .
+FROM --platform=linux/amd64 docker.io/primussafe/primus-lens-node-exporter-base:0.0.1
 
 ARG APPNAME
 ARG BASEPATH
