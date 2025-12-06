@@ -671,6 +671,7 @@ var (
 			},
 			Annotations: map[string]string{
 				v1.UserNameAnnotation: "test-user",
+				"key":                 "val",
 			},
 			CreationTimestamp: metav1.NewTime(time.Now()),
 		},

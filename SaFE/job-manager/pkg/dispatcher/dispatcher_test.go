@@ -512,10 +512,10 @@ func TestCreateCICDScaleSet(t *testing.T) {
 	checkLabels(t, obj, workload, &templates[0])
 	checkSecurityContext(t, obj, workload, &templates[0])
 	checkEnvs(t, obj, workload, &templates[0])
-	checkImage(t, obj, "docker.io/primussafe/cicd-runner-proxy:latest", &templates[0])
+	checkImage(t, obj, workload.Spec.Image, &templates[0])
 	checkHostNetwork(t, obj, workload, &templates[0])
 	envs := getEnvs(t, obj, &templates[0])
-	checkCICDEnvs(t, envs, workload, true)
+	checkCICDEnvs(t, envs, workload)
 
 	assert.Equal(t, getContainer(obj, "runner", &templates[0]) != nil, true)
 	assert.Equal(t, getContainer(obj, "unified_job", &templates[0]) != nil, false)
@@ -556,7 +556,7 @@ func TestCICDScaleSetWithUnifiedJob(t *testing.T) {
 	checkHostNetwork(t, obj, workload, &templates[0])
 
 	checkCICDContainer(t, obj, workload, &templates[0],
-		"runner", "docker.io/primussafe/cicd-runner-proxy:latest")
+		"runner", workload.Spec.Image)
 	checkCICDContainer(t, obj, workload, &templates[0],
 		"unified_job", "docker.io/primussafe/cicd-unified-job-proxy:latest")
 }
@@ -587,24 +587,11 @@ func checkCICDContainer(t *testing.T, obj *unstructured.Unstructured, workload *
 	envs, found, err := unstructured.NestedSlice(container, []string{"env"}...)
 	assert.NilError(t, err)
 	assert.Equal(t, found, true)
-
-	needCheckResource := false
-	if containerName == v1.GetMainContainer(workload) {
-		needCheckResource = true
-	}
-	checkCICDEnvs(t, envs, workload, needCheckResource)
+	checkCICDEnvs(t, envs, workload)
 }
 
-func checkCICDEnvs(t *testing.T, envs []interface{}, workload *v1.Workload, needCheckResource bool) {
+func checkCICDEnvs(t *testing.T, envs []interface{}, workload *v1.Workload) {
 	var ok bool
-	if needCheckResource {
-		ok = findEnv(envs, jobutils.EntrypointEnv, buildEntryPoint(workload))
-		assert.Equal(t, ok, true)
-		ok = findEnv(envs, jobutils.ImageEnv, workload.Spec.Image)
-		assert.Equal(t, ok, true)
-		ok = findEnv(envs, jobutils.ResourcesEnv, string(jsonutils.MarshalSilently(workload.Spec.Resource)))
-		assert.Equal(t, ok, true)
-	}
 	ok = findEnv(envs, common.ScaleRunnerSetID, workload.Name)
 	assert.Equal(t, ok, true)
 	ok = findEnv(envs, common.AdminControlPlane, "10.0.0.1")
