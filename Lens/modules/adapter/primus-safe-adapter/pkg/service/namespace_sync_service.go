@@ -387,29 +387,16 @@ func (s *NamespaceSyncService) syncNodeNamespaceMappings(ctx context.Context, wo
 					continue
 				}
 
-				// Update history record_end
+				// Update history record_end to mark the node has left this namespace
 				latestHistory, err := facade.GetNodeNamespaceMapping().GetLatestHistoryByNodeAndNamespace(ctx, mapping.NodeID, mapping.NamespaceID)
 				if err != nil {
 					log.Errorf("Failed to get latest history for node %s -> namespace %s: %v", nodeName, workspace.Name, err)
 				} else if latestHistory != nil && latestHistory.RecordEnd.IsZero() {
 					if err := facade.GetNodeNamespaceMapping().UpdateHistoryRecordEnd(ctx, latestHistory.ID, now); err != nil {
 						log.Errorf("Failed to update history record_end for node %s -> namespace %s: %v", nodeName, workspace.Name, err)
+					} else {
+						log.Debugf("Updated history record_end for node %s -> namespace %s at %v", nodeName, workspace.Name, now)
 					}
-				}
-
-				// Create a new history record for removal
-				newHistory := &model.NodeNamespaceMappingHistory{
-					MappingID:     mapping.ID,
-					NodeID:        mapping.NodeID,
-					NodeName:      nodeName,
-					NamespaceID:   mapping.NamespaceID,
-					NamespaceName: workspace.Name,
-					Action:        "removed",
-					RecordStart:   now,
-					RecordEnd:     now, // Removal record ends immediately
-				}
-				if err := facade.GetNodeNamespaceMapping().CreateHistory(ctx, newHistory); err != nil {
-					log.Errorf("Failed to create removal history for node %s -> namespace %s: %v", nodeName, workspace.Name, err)
 				}
 
 				stats.Removed++
