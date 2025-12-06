@@ -436,9 +436,9 @@ func buildAnnotations(workload *v1.Workload) map[string]interface{} {
 }
 
 // buildResources constructs resource requirements for the workload container.
-func buildResources(workloadResource corev1.ResourceList) map[string]interface{} {
+func buildResources(resourceList corev1.ResourceList) map[string]interface{} {
 	result := make(map[string]interface{})
-	for key, val := range workloadResource {
+	for key, val := range resourceList {
 		result[string(key)] = val.String()
 	}
 	return result

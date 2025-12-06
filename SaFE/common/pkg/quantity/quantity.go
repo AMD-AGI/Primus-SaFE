@@ -177,7 +177,7 @@ func MultiResource(inputs corev1.ResourceList, multiplier float64) corev1.Resour
 	result := corev1.ResourceList{}
 	for k, v := range inputs {
 		scaledValue := float64(v.Value()) * multiplier
-		result[k] = *resource.NewQuantity(int64(scaledValue), v.Format)
+		result[k] = *resource.NewQuantity(int64(math.Round(scaledValue)), v.Format)
 	}
 	return result
 }

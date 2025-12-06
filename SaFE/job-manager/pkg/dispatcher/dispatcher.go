@@ -685,7 +685,7 @@ func updateContainers(adminWorkload *v1.Workload,
 	mainContainerName := v1.GetMainContainer(adminWorkload)
 	res := &adminWorkload.Spec.Resource
 	resourceList, err := quantity.CvtToResourceList(res.CPU, res.Memory, res.GPU,
-		res.GPUName, res.EphemeralStorage, res.RdmaResource, 1/float64(len(containers)))
+		res.GPUName, res.EphemeralStorage, res.RdmaResource, 1.0/float64(len(containers)))
 	if err != nil {
 		return commonerrors.NewBadRequest(err.Error())
 	}
