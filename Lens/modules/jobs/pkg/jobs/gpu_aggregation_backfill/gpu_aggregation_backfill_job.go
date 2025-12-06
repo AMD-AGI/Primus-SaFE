@@ -11,6 +11,7 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/filter"
 	dbmodel "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/statistics"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/trace"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/common"
@@ -139,7 +140,7 @@ func (j *GpuAggregationBackfillJob) Run(ctx context.Context,
 	stats.AddCustomMetric("missing_cluster_hours", len(missingClusterHours))
 	stats.AddCustomMetric("missing_namespace_hours", len(missingNamespaceHours))
 
-	// 3. Backfill cluster stats
+	// 3. Backfill cluster stats using time-weighted calculation
 	if len(missingClusterHours) > 0 {
 		clusterBackfillSpan, clusterBackfillCtx := trace.StartSpanFromContext(ctx, "backfillClusterStats")
 		clusterBackfillSpan.SetAttributes(attribute.Int("hours.count", len(missingClusterHours)))
@@ -160,7 +161,7 @@ func (j *GpuAggregationBackfillJob) Run(ctx context.Context,
 		}
 	}
 
-	// 4. Backfill namespace stats
+	// 4. Backfill namespace stats using time-weighted calculation
 	if len(missingNamespaceHours) > 0 {
 		nsBackfillSpan, nsBackfillCtx := trace.StartSpanFromContext(ctx, "backfillNamespaceStats")
 		nsBackfillSpan.SetAttributes(attribute.Int("hours.count", len(missingNamespaceHours)))
@@ -207,39 +208,6 @@ func (j *GpuAggregationBackfillJob) generateAllHours(startTime, endTime time.Tim
 	}
 
 	return hours
-}
-
-// findHoursWithWorkloadData finds all distinct hours that have workload data
-func (j *GpuAggregationBackfillJob) findHoursWithWorkloadData(
-	ctx context.Context,
-	clusterName string,
-	startTime, endTime time.Time) ([]time.Time, error) {
-
-	facade := database.GetFacadeForCluster(clusterName).GetGpuAggregation()
-
-	// Get all workload stats in the time range
-	workloadStats, err := facade.ListWorkloadHourlyStats(ctx, startTime, endTime)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list workload hourly stats: %w", err)
-	}
-
-	// Extract unique hours
-	hourSet := make(map[time.Time]struct{})
-	for _, stat := range workloadStats {
-		hour := stat.StatHour.Truncate(time.Hour)
-		hourSet[hour] = struct{}{}
-	}
-
-	// Convert to sorted slice
-	hours := make([]time.Time, 0, len(hourSet))
-	for hour := range hourSet {
-		hours = append(hours, hour)
-	}
-	sort.Slice(hours, func(i, j int) bool {
-		return hours[i].Before(hours[j])
-	})
-
-	return hours, nil
 }
 
 // findMissingStats finds hours that are missing cluster or namespace stats
@@ -346,8 +314,8 @@ func (j *GpuAggregationBackfillJob) shouldExcludeNamespace(namespace string) boo
 	return false
 }
 
-// backfillClusterStats backfills missing cluster hourly stats from workload data
-// If no workload data exists for an hour, it fills with zero values
+// backfillClusterStats backfills missing cluster hourly stats using time-weighted calculation
+// It calculates GPU allocation based on actual pod activity during each hour
 func (j *GpuAggregationBackfillJob) backfillClusterStats(
 	ctx context.Context,
 	clusterName string,
@@ -358,6 +326,7 @@ func (j *GpuAggregationBackfillJob) backfillClusterStats(
 	}
 
 	facade := database.GetFacadeForCluster(clusterName).GetGpuAggregation()
+	calculator := statistics.NewGpuAllocationCalculator(clusterName)
 	var createdCount int64
 
 	// Get cluster GPU capacity once (reuse for all hours)
@@ -368,25 +337,25 @@ func (j *GpuAggregationBackfillJob) backfillClusterStats(
 	}
 
 	for _, hour := range missingHours {
-		// Get workload stats for this hour
-		workloadStats, err := facade.ListWorkloadHourlyStats(ctx, hour, hour.Add(time.Hour))
+		// Use time-weighted calculation from statistics package
+		result, err := calculator.CalculateHourlyGpuAllocation(ctx, hour)
 		if err != nil {
-			log.Warnf("Failed to get workload stats for hour %v: %v", hour, err)
-			// Continue to fill zero values even if query fails
-			workloadStats = []*dbmodel.WorkloadGpuHourlyStats{}
+			log.Warnf("Failed to calculate GPU allocation for hour %v: %v", hour, err)
+			// Create zero-value stats on error
+			result = &statistics.GpuAllocationResult{}
 		}
 
 		var clusterStats *dbmodel.ClusterGpuHourlyStats
-		if len(workloadStats) == 0 {
+		if result.WorkloadCount == 0 {
 			// No workload data for this hour, fill with zero values
 			clusterStats = j.createZeroClusterStats(clusterName, hour)
 			log.Debugf("Creating zero-value cluster stats for hour %v (no workload data)", hour)
 		} else {
-			// Aggregate cluster stats from workload data
-			clusterStats = j.aggregateClusterStatsFromWorkloads(clusterName, hour, workloadStats)
+			// Build cluster stats from time-weighted calculation result
+			clusterStats = j.buildClusterStatsFromResult(clusterName, hour, result)
 		}
 
-		// Set GPU capacity
+		// Set GPU capacity and calculate allocation rate
 		clusterStats.TotalGpuCapacity = int32(totalCapacity)
 		if totalCapacity > 0 && clusterStats.AllocatedGpuCount > 0 {
 			clusterStats.AllocationRate = (clusterStats.AllocatedGpuCount / float64(totalCapacity)) * 100
@@ -399,11 +368,51 @@ func (j *GpuAggregationBackfillJob) backfillClusterStats(
 		}
 
 		createdCount++
-		log.Debugf("Backfilled cluster stats for hour %v: allocated=%.2f, utilization=%.2f%%",
-			hour, clusterStats.AllocatedGpuCount, clusterStats.AvgUtilization)
+		log.Debugf("Backfilled cluster stats for hour %v: allocated=%.2f, workloads=%d, pods=%d",
+			hour, clusterStats.AllocatedGpuCount, result.WorkloadCount, result.PodCount)
 	}
 
 	return createdCount, nil
+}
+
+// buildClusterStatsFromResult builds ClusterGpuHourlyStats from time-weighted calculation result
+func (j *GpuAggregationBackfillJob) buildClusterStatsFromResult(
+	clusterName string,
+	hour time.Time,
+	result *statistics.GpuAllocationResult) *dbmodel.ClusterGpuHourlyStats {
+
+	stats := &dbmodel.ClusterGpuHourlyStats{
+		ClusterName:       clusterName,
+		StatHour:          hour,
+		AllocatedGpuCount: result.TotalAllocatedGpu,
+		SampleCount:       int32(result.WorkloadCount),
+	}
+
+	// Calculate utilization statistics from workload details
+	if len(result.Details) > 0 {
+		utilizationValues := make([]float64, 0, len(result.Details))
+
+		// For backfill, we don't have real-time utilization data
+		// We can only estimate based on allocation
+		// Here we set utilization to 0 as we don't have Prometheus data for historical hours
+		for range result.Details {
+			utilizationValues = append(utilizationValues, 0)
+		}
+
+		sort.Float64s(utilizationValues)
+		stats.MinUtilization = utilizationValues[0]
+		stats.MaxUtilization = utilizationValues[len(utilizationValues)-1]
+		stats.P50Utilization = calculatePercentile(utilizationValues, 0.50)
+		stats.P95Utilization = calculatePercentile(utilizationValues, 0.95)
+
+		var utilizationSum float64
+		for _, v := range utilizationValues {
+			utilizationSum += v
+		}
+		stats.AvgUtilization = utilizationSum / float64(len(utilizationValues))
+	}
+
+	return stats
 }
 
 // createZeroClusterStats creates a cluster stats record with zero values
@@ -426,8 +435,8 @@ func (j *GpuAggregationBackfillJob) createZeroClusterStats(
 	}
 }
 
-// backfillNamespaceStats backfills missing namespace hourly stats from workload data
-// If no workload data exists for a namespace in an hour, it fills with zero values
+// backfillNamespaceStats backfills missing namespace hourly stats using time-weighted calculation
+// It calculates GPU allocation based on actual pod activity during each hour for each namespace
 func (j *GpuAggregationBackfillJob) backfillNamespaceStats(
 	ctx context.Context,
 	clusterName string,
@@ -438,6 +447,7 @@ func (j *GpuAggregationBackfillJob) backfillNamespaceStats(
 	}
 
 	facade := database.GetFacadeForCluster(clusterName).GetGpuAggregation()
+	calculator := statistics.NewGpuAllocationCalculator(clusterName)
 	var createdCount int64
 
 	// Get namespace GPU quotas
@@ -448,35 +458,26 @@ func (j *GpuAggregationBackfillJob) backfillNamespaceStats(
 	}
 
 	for hour, namespaces := range missingNamespaceHours {
-		// Get workload stats for this hour
-		workloadStats, err := facade.ListWorkloadHourlyStats(ctx, hour, hour.Add(time.Hour))
-		if err != nil {
-			log.Warnf("Failed to get workload stats for hour %v: %v", hour, err)
-			// Continue to fill zero values even if query fails
-			workloadStats = []*dbmodel.WorkloadGpuHourlyStats{}
-		}
-
-		// Group workload stats by namespace
-		workloadsByNamespace := make(map[string][]*dbmodel.WorkloadGpuHourlyStats)
-		for _, stat := range workloadStats {
-			workloadsByNamespace[stat.Namespace] = append(workloadsByNamespace[stat.Namespace], stat)
-		}
-
 		// Create namespace stats for each missing namespace
 		for _, namespace := range namespaces {
-			nsWorkloads := workloadsByNamespace[namespace]
+			// Use time-weighted calculation for this namespace
+			result, err := calculator.CalculateHourlyNamespaceGpuAllocation(ctx, namespace, hour)
+			if err != nil {
+				log.Warnf("Failed to calculate GPU allocation for namespace %s at hour %v: %v", namespace, hour, err)
+				result = &statistics.GpuAllocationResult{}
+			}
 
 			var nsStats *dbmodel.NamespaceGpuHourlyStats
-			if len(nsWorkloads) == 0 {
+			if result.WorkloadCount == 0 {
 				// No workload data for this namespace in this hour, fill with zero values
 				nsStats = j.createZeroNamespaceStats(clusterName, namespace, hour)
 				log.Debugf("Creating zero-value namespace stats for %s at %v (no workload data)", namespace, hour)
 			} else {
-				// Aggregate from workload data
-				nsStats = j.aggregateNamespaceStatsFromWorkloads(clusterName, namespace, hour, nsWorkloads)
+				// Build namespace stats from time-weighted calculation result
+				nsStats = j.buildNamespaceStatsFromResult(clusterName, namespace, hour, result)
 			}
 
-			// Set GPU quota if available
+			// Set GPU quota if available and calculate allocation rate
 			if quota, exists := namespaceQuotas[namespace]; exists && quota > 0 {
 				nsStats.TotalGpuCapacity = quota
 				if nsStats.AllocatedGpuCount > 0 {
@@ -491,12 +492,50 @@ func (j *GpuAggregationBackfillJob) backfillNamespaceStats(
 			}
 
 			createdCount++
-			log.Debugf("Backfilled namespace stats for %s at %v: allocated=%.2f, utilization=%.2f%%",
-				namespace, hour, nsStats.AllocatedGpuCount, nsStats.AvgUtilization)
+			log.Debugf("Backfilled namespace stats for %s at %v: allocated=%.2f, workloads=%d",
+				namespace, hour, nsStats.AllocatedGpuCount, result.WorkloadCount)
 		}
 	}
 
 	return createdCount, nil
+}
+
+// buildNamespaceStatsFromResult builds NamespaceGpuHourlyStats from time-weighted calculation result
+func (j *GpuAggregationBackfillJob) buildNamespaceStatsFromResult(
+	clusterName, namespace string,
+	hour time.Time,
+	result *statistics.GpuAllocationResult) *dbmodel.NamespaceGpuHourlyStats {
+
+	stats := &dbmodel.NamespaceGpuHourlyStats{
+		ClusterName:         clusterName,
+		Namespace:           namespace,
+		StatHour:            hour,
+		AllocatedGpuCount:   result.TotalAllocatedGpu,
+		ActiveWorkloadCount: int32(result.WorkloadCount),
+	}
+
+	// Calculate utilization statistics from workload details
+	if len(result.Details) > 0 {
+		utilizationValues := make([]float64, 0, len(result.Details))
+
+		// For backfill, we don't have real-time utilization data
+		// We set utilization to 0 as we don't have Prometheus data for historical hours
+		for range result.Details {
+			utilizationValues = append(utilizationValues, 0)
+		}
+
+		sort.Float64s(utilizationValues)
+		stats.MinUtilization = utilizationValues[0]
+		stats.MaxUtilization = utilizationValues[len(utilizationValues)-1]
+
+		var utilizationSum float64
+		for _, v := range utilizationValues {
+			utilizationSum += v
+		}
+		stats.AvgUtilization = utilizationSum / float64(len(utilizationValues))
+	}
+
+	return stats
 }
 
 // createZeroNamespaceStats creates a namespace stats record with zero values
@@ -516,97 +555,6 @@ func (j *GpuAggregationBackfillJob) createZeroNamespaceStats(
 		MinUtilization:      0,
 		ActiveWorkloadCount: 0,
 	}
-}
-
-// aggregateClusterStatsFromWorkloads aggregates cluster stats from workload data
-func (j *GpuAggregationBackfillJob) aggregateClusterStatsFromWorkloads(
-	clusterName string,
-	hour time.Time,
-	workloads []*dbmodel.WorkloadGpuHourlyStats) *dbmodel.ClusterGpuHourlyStats {
-
-	stats := &dbmodel.ClusterGpuHourlyStats{
-		ClusterName: clusterName,
-		StatHour:    hour,
-		SampleCount: int32(len(workloads)),
-	}
-
-	if len(workloads) == 0 {
-		return stats
-	}
-
-	// Collect utilization values for percentile calculation
-	utilizationValues := make([]float64, 0, len(workloads))
-	var allocatedSum float64
-
-	for _, workload := range workloads {
-		allocatedSum += workload.AllocatedGpuCount
-		utilizationValues = append(utilizationValues, workload.AvgUtilization)
-	}
-
-	stats.AllocatedGpuCount = allocatedSum
-
-	// Calculate utilization statistics
-	sort.Float64s(utilizationValues)
-
-	if len(utilizationValues) > 0 {
-		stats.MinUtilization = utilizationValues[0]
-		stats.MaxUtilization = utilizationValues[len(utilizationValues)-1]
-		stats.P50Utilization = calculatePercentile(utilizationValues, 0.50)
-		stats.P95Utilization = calculatePercentile(utilizationValues, 0.95)
-
-		var utilizationSum float64
-		for _, v := range utilizationValues {
-			utilizationSum += v
-		}
-		stats.AvgUtilization = utilizationSum / float64(len(utilizationValues))
-	}
-
-	return stats
-}
-
-// aggregateNamespaceStatsFromWorkloads aggregates namespace stats from workload data
-func (j *GpuAggregationBackfillJob) aggregateNamespaceStatsFromWorkloads(
-	clusterName, namespace string,
-	hour time.Time,
-	workloads []*dbmodel.WorkloadGpuHourlyStats) *dbmodel.NamespaceGpuHourlyStats {
-
-	stats := &dbmodel.NamespaceGpuHourlyStats{
-		ClusterName:         clusterName,
-		Namespace:           namespace,
-		StatHour:            hour,
-		ActiveWorkloadCount: int32(len(workloads)),
-	}
-
-	if len(workloads) == 0 {
-		return stats
-	}
-
-	// Collect utilization values
-	utilizationValues := make([]float64, 0, len(workloads))
-	var allocatedSum float64
-
-	for _, workload := range workloads {
-		allocatedSum += workload.AllocatedGpuCount
-		utilizationValues = append(utilizationValues, workload.AvgUtilization)
-	}
-
-	stats.AllocatedGpuCount = allocatedSum
-
-	// Calculate utilization statistics
-	sort.Float64s(utilizationValues)
-
-	if len(utilizationValues) > 0 {
-		stats.MinUtilization = utilizationValues[0]
-		stats.MaxUtilization = utilizationValues[len(utilizationValues)-1]
-
-		var utilizationSum float64
-		for _, v := range utilizationValues {
-			utilizationSum += v
-		}
-		stats.AvgUtilization = utilizationSum / float64(len(utilizationValues))
-	}
-
-	return stats
 }
 
 // getClusterGpuCapacity gets the total GPU capacity of the cluster

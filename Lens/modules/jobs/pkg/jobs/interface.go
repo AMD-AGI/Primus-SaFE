@@ -105,7 +105,9 @@ func initDataJobs() []Job {
 		&gpu_history_cache_1h.GpuHistoryCache1hJob{},   // Every 1m - 1 hour history
 		&gpu_history_cache_6h.GpuHistoryCache6hJob{},   // Every 5m - 6 hour history
 		&gpu_history_cache_24h.GpuHistoryCache24hJob{}, // Every 10m - 24 hour history
-		gpu_aggregation.NewGpuAggregationJob(),
+		gpu_aggregation.NewClusterGpuAggregationJob(),                  // Every 5m - cluster-level GPU aggregation
+		gpu_aggregation.NewNamespaceGpuAggregationJob(),                // Every 5m - namespace-level GPU aggregation
+		gpu_aggregation.NewWorkloadGpuAggregationJob(),                 // Every 5m - workload-level GPU aggregation
 		gpu_aggregation_backfill.NewGpuAggregationBackfillJob(),     // Every hour at :30 - backfill missing aggregation data
 		workload_statistic.NewWorkloadStatisticJob(),                // Every 30s - workload GPU utilization statistics
 		workload_stats_backfill.NewWorkloadStatsBackfillJob(),       // Every 10m - backfill missing workload hourly stats
