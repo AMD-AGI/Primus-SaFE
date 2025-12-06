@@ -53,6 +53,53 @@ def ensure_base64(s: str) -> str:
     return s if is_base64(s) else base64.b64encode(s.encode("utf-8")).decode("ascii")
 
 
+# Path where Kubernetes downwardAPI mounts pod metadata
+PODINFO_DIR = "/etc/podinfo"
+PODINFO_LABELS_FILE = os.path.join(PODINFO_DIR, "labels")
+PODINFO_ANNOTATIONS_FILE = os.path.join(PODINFO_DIR, "annotations")
+
+
+def parse_podinfo_file(filepath: str) -> Dict[str, str]:
+    """
+    Parse a Kubernetes downwardAPI metadata file (labels or annotations).
+    Format is: key="value" per line.
+    Returns a dict of key-value pairs, filtering out keys starting with 'primus-safe.'
+    """
+    result: Dict[str, str] = {}
+    if not os.path.isfile(filepath):
+        return result
+    try:
+        with open(filepath, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or "=" not in line:
+                    continue
+                # Format: key="value"
+                eq_idx = line.index("=")
+                key = line[:eq_idx]
+                value = line[eq_idx + 1:]
+                # Remove surrounding quotes if present
+                if value.startswith('"') and value.endswith('"'):
+                    value = value[1:-1]
+                # Filter out system labels/annotations starting with 'primus-safe.'
+                if key.startswith("primus-safe."):
+                    continue
+                result[key] = value
+    except Exception as e:
+        print(f"[warn] failed to parse podinfo file '{filepath}': {e}", file=sys.stderr)
+    return result
+
+
+def get_pod_labels() -> Dict[str, str]:
+    """Read user-defined labels from downwardAPI mounted file."""
+    return parse_podinfo_file(PODINFO_LABELS_FILE)
+
+
+def get_pod_annotations() -> Dict[str, str]:
+    """Read user-defined annotations from downwardAPI mounted file."""
+    return parse_podinfo_file(PODINFO_ANNOTATIONS_FILE)
+
+
 def parse_resources(env_value: str) -> Dict[str, Any]:
     try:
         obj = json.loads(env_value)
@@ -81,7 +128,9 @@ def build_payload() -> Dict[str, Any]:
     # Optional metadata/config
     workspace_id = getenv_str("WORKSPACE_ID")
     priority = getenv_int("PRIORITY", 0)
-    display_name = getenv_str("SCALE_RUNNER_SET_ID") + "-runner"
+    display_name = getenv_str("SCALE_RUNNER_SET_ID")
+    if display_name and len(display_name) > 30:
+        display_name = display_name[:30]
     kind = "AutoscalingRunner"
     version = "v1"
 
@@ -102,6 +151,10 @@ def build_payload() -> Dict[str, Any]:
     if val is not None:
         env_map["SCALE_RUNNER_ID"] = val
 
+    # Read user-defined labels and annotations from downwardAPI mounted files
+    pod_labels = get_pod_labels()
+    pod_annotations = get_pod_annotations()
+
     # Compose request (CreateWorkloadRequest embeds WorkloadSpec)
     payload: Dict[str, Any] = {
         "displayName": display_name,
@@ -117,6 +170,12 @@ def build_payload() -> Dict[str, Any]:
         "timeout": timeout_secs,
         "ttlSecondsAfterFinished": 20,
     }
+    # Add user-defined labels and annotations if present
+    if pod_labels:
+        payload["labels"] = pod_labels
+    if pod_annotations:
+        payload["annotations"] = pod_annotations
+
     return payload
 
 
@@ -182,13 +241,17 @@ def get_unified_nfs_path() -> Optional[str]:
     return None
 
 def main() -> int:
+    print("[info] runner-proxy starting...")
+    
     # Unified build mode: extend timeout and manage NFS path lifecycle
     unified_build_enabled = getenv_bool("UNIFIED_JOB_ENABLE", False)
     cleanup_path: Optional[str] = None
     if unified_build_enabled:
         global timeout_secs
         timeout_secs = 24 * 60 * 60  # 24h
+        print(f"[info] unified build mode enabled, timeout set to {timeout_secs}s (24h)")
         nfs_path = get_unified_nfs_path()
+        print(f"[info] unified NFS path: {nfs_path}")
         # Handle case where NFS path could not be constructed
         if nfs_path is None:
             print("[error] Failed to construct NFS path: missing SAFE_NFS_PATH or POD_NAME", file=sys.stderr)
@@ -197,50 +260,70 @@ def main() -> int:
             try:
                 os.makedirs(nfs_path, exist_ok=True)
                 cleanup_path = nfs_path
+                print(f"[info] NFS directory created: {nfs_path}")
             except Exception as e:
                 print(f"[warn] failed to create SAFE_NFS_PATH directory '{nfs_path}': {e}", file=sys.stderr)
         if cleanup_path:
             def _cleanup() -> None:
+                print(f"[info] cleaning up NFS directory: {cleanup_path}")
                 try:
                     shutil.rmtree(cleanup_path, ignore_errors=True)
                 except Exception:
                     pass
             atexit.register(_cleanup)
+            print("[info] cleanup handler registered")
 
+    print("[info] building payload and session...")
     try:
         payload = build_payload()
         session, base_url = build_session()
+        print(f"[info] session established, base_url: {base_url}")
     except Exception as e:
         print(f"[error] initialization failed: {e}", file=sys.stderr)
         return 2
 
+    print("[info] creating workload...")
     try:
         workload_id = create_workload(session, base_url, payload)
         print(f"[info] workload created: {workload_id}")
         # Ensure workload is stopped when the container (process) exits
         def _stop_on_exit() -> None:
+            print(f"[info] stopping workload on exit: {workload_id}")
             stop_workload(session, base_url, workload_id)
         atexit.register(_stop_on_exit)
+        print("[info] stop-on-exit handler registered")
     except Exception as e:
         print(f"[error] create workload failed: {e}", file=sys.stderr)
         return 3
 
- # 0 = no timeout
+    # 0 = no timeout
     start_time = time.time()
+    last_phase = None
+    poll_count = 0
 
+    print(f"[info] starting to poll workload status (timeout: {timeout_secs}s)...")
     terminal_phases = {"Succeeded", "Failed", "Stopped"}
     while True:
         try:
             phase = get_workload_phase(session, base_url, workload_id)
+            poll_count += 1
+            # Log phase changes or periodically every 60 polls (~5 min)
+            if phase != last_phase:
+                print(f"[info] workload {workload_id} phase: {phase}")
+                last_phase = phase
+            elif poll_count % 60 == 0:
+                elapsed = int(time.time() - start_time)
+                print(f"[info] workload {workload_id} still in phase: {phase} (elapsed: {elapsed}s)")
+            
             if phase in terminal_phases:
+                elapsed = int(time.time() - start_time)
                 if phase == "Succeeded":
-                    print(f"[info] workload {workload_id} completed successfully")
+                    print(f"[info] workload {workload_id} completed successfully (elapsed: {elapsed}s)")
                     return 0
-                print(f"[warn] workload {workload_id} finished with phase: {phase}")
+                print(f"[warn] workload {workload_id} finished with phase: {phase} (elapsed: {elapsed}s)")
                 return 1
         except Exception as e:
-            # Empty exception handler - does nothing
-            pass
+            print(f"[warn] failed to get workload phase: {e}", file=sys.stderr)
 
         if timeout_secs > 0 and (time.time() - start_time) >= timeout_secs:
             print(f"[error] polling timed out after {timeout_secs}s", file=sys.stderr)

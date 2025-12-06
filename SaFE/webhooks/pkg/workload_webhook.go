@@ -274,7 +274,7 @@ func (m *WorkloadMutator) mutateResource(workload *v1.Workload, workspace *v1.Wo
 	return isChanged
 }
 
-// mutateHostpath removes hostpath duplicated by the workspace; workloads inherit workspace hostpaths.
+// mutateHostpath removes hostpath duplicated by the workspace; workloads inherit workspace hostpath.
 func (m *WorkloadMutator) mutateHostpath(workload *v1.Workload, workspace *v1.Workspace) {
 	if len(workload.Spec.Hostpath) == 0 {
 		return
@@ -618,7 +618,7 @@ func (v *WorkloadValidator) validateCommon(ctx context.Context, workload *v1.Wor
 	if err := v.validateTemplate(ctx, workload); err != nil {
 		return err
 	}
-	if err := v.validateDisplayName(workload); err != nil {
+	if err := validateDisplayName(v1.GetDisplayName(workload)); err != nil {
 		return err
 	}
 	if err := validateLabels(workload.Spec.CustomerLabels); err != nil {
@@ -639,25 +639,61 @@ func (v *WorkloadValidator) validateRequiredParams(workload *v1.Workload) error 
 	if workload.Spec.Workspace == "" {
 		errs = append(errs, fmt.Errorf("the workspace is empty"))
 	}
-	if workload.Spec.EntryPoint == "" {
-		errs = append(errs, fmt.Errorf("the entryPoint is empty"))
-	}
-	if workload.Spec.Image == "" {
-		errs = append(errs, fmt.Errorf("the image is empty"))
-	}
+
 	if workload.Spec.GroupVersionKind.Kind == "" || workload.Spec.GroupVersionKind.Version == "" {
 		errs = append(errs, fmt.Errorf("the gvk is empty"))
 	}
-	if workload.Spec.Resource.Replica <= 0 {
+	if commonworkload.IsCICDScalingRunnerSet(workload) {
+		if err := v.validateCICDScalingRunnerSet(workload); err != nil {
+			errs = append(errs, err)
+		}
+	} else {
+		if workload.Spec.EntryPoint == "" {
+			errs = append(errs, fmt.Errorf("the entryPoint is empty"))
+		}
+		if workload.Spec.Image == "" {
+			errs = append(errs, fmt.Errorf("the image is empty"))
+		}
+	}
+	if err := v.validateResource(&workload.Spec.Resource); err != nil {
+		errs = append(errs, err)
+	}
+	if err := utilerrors.NewAggregate(errs); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (v *WorkloadValidator) validateCICDScalingRunnerSet(workload *v1.Workload) error {
+	keys := []string{common.ResourcesEnv, common.EntrypointEnv, common.ImageEnv}
+	for _, key := range keys {
+		if val, ok := workload.Spec.Env[key]; !ok || val == "" {
+			return fmt.Errorf("the %s of workload environment variables is empty", key)
+		}
+	}
+	workloadResource := &v1.WorkloadResource{}
+	err := json.Unmarshal([]byte(workload.Spec.Env[common.ResourcesEnv]), workloadResource)
+	if err != nil {
+		return err
+	}
+	if err = v.validateResource(workloadResource); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (v *WorkloadValidator) validateResource(resource *v1.WorkloadResource) error {
+	var errs []error
+	if resource.Replica <= 0 {
 		errs = append(errs, fmt.Errorf("the replica is empty"))
 	}
-	if workload.Spec.Resource.CPU == "" {
+	if resource.CPU == "" {
 		errs = append(errs, fmt.Errorf("the cpu is empty"))
 	}
-	if workload.Spec.Resource.Memory == "" {
+	if resource.Memory == "" {
 		errs = append(errs, fmt.Errorf("the memory is empty"))
 	}
-	if workload.Spec.Resource.EphemeralStorage == "" {
+	if resource.EphemeralStorage == "" {
 		errs = append(errs, fmt.Errorf("the ephemeralStorage is empty"))
 	}
 	if err := utilerrors.NewAggregate(errs); err != nil {
@@ -799,18 +835,6 @@ func (v *WorkloadValidator) validateTemplate(ctx context.Context, workload *v1.W
 	_, err := commonworkload.GetWorkloadTemplate(ctx, v.Client, workload)
 	if err != nil {
 		return err
-	}
-	return nil
-}
-
-// validateDisplayName ensures workload display name is unique within the workspace.
-func (v *WorkloadValidator) validateDisplayName(workload *v1.Workload) error {
-	l := len(v1.GetDisplayName(workload))
-	if l > commonutils.MaxDisplayNameLen {
-		return fmt.Errorf("the maximum length of the workload name [%s] is %d",
-			v1.GetDisplayName(workload), commonutils.MaxDisplayNameLen)
-	} else if l == 0 {
-		return fmt.Errorf("the display name is empty")
 	}
 	return nil
 }

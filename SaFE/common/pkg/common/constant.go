@@ -35,6 +35,9 @@ const (
 	UnifiedJobEnable  = "UNIFIED_JOB_ENABLE"
 	ScaleRunnerSetID  = "SCALE_RUNNER_SET_ID"
 	ScaleRunnerID     = "SCALE_RUNNER_ID"
+	ResourcesEnv      = "RESOURCES"
+	ImageEnv          = "IMAGE"
+	EntrypointEnv     = "ENTRYPOINT"
 
 	HigressClassname = "higress"
 	HigressNamespace = "higress-system"
