@@ -171,9 +171,11 @@ def build_payload() -> Dict[str, Any]:
     kind = "AutoscalingRunner"
     version = "v1"
 
-    # Inject only the two requested environment variables if present
+    # Inject environment variables to copied pod
+    # NOTE: Do NOT pass ACTIONS_RUNNER_INPUT_JITCONFIG - it contains unique runner identity
+    # that would cause "session conflict" errors when multiple pods use the same JIT config
     env_map: Dict[str, str] = {}
-    for key in ("ACTIONS_RUNNER_INPUT_JITCONFIG", "GITHUB_ACTIONS_RUNNER_EXTRA_USER_AGENT",
+    for key in ("GITHUB_ACTIONS_RUNNER_EXTRA_USER_AGENT",
                 "SCALE_RUNNER_SET_ID", "SAFE_NFS_INPUT", "SAFE_NFS_OUTPUT"):
         val = getenv_str(key)
         if val is not None:
