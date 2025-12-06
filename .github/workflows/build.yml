@@ -175,10 +175,10 @@ jobs:
           MATRIX+='{"name":"preprocess","basepath":"SaFE/job-manager/installer/preprocess","dockerfile_path":"SaFE/job-manager/installer/preprocess/Dockerfile"},'
         fi
         if [[ "${{ steps.detect-changes.outputs.cicd_runner_proxy_changed }}" == "true" ]]; then
-          MATRIX+='{"name":"cicd_runner_proxy","basepath":"SaFE/job-manager/installer/cicd/runner-proxy","dockerfile_path":"SaFE/job-manager/installer/cicd/runner-proxy/Dockerfile"},'
+          MATRIX+='{"name":"cicd-runner-proxy","basepath":"SaFE/job-manager/installer/cicd/runner-proxy","dockerfile_path":"SaFE/job-manager/installer/cicd/runner-proxy/Dockerfile"},'
         fi
         if [[ "${{ steps.detect-changes.outputs.cicd_unified_job_proxy_changed }}" == "true" ]]; then
-          MATRIX+='{"name":"cicd_unified_job_proxy","basepath":"SaFE/job-manager/installer/cicd/unified-job-proxy","dockerfile_path":"SaFE/job-manager/installer/cicd/unified-job-proxy/Dockerfile"},'
+          MATRIX+='{"name":"cicd-unified-job-proxy","basepath":"SaFE/job-manager/installer/cicd/unified-job-proxy","dockerfile_path":"SaFE/job-manager/installer/cicd/unified-job-proxy/Dockerfile"},'
         fi
         if [[ "${{ steps.detect-changes.outputs.webhooks_changed }}" == "true" ]]; then
           MATRIX+='{"name":"webhooks","basepath":"SaFE/webhooks","dockerfile_path":"SaFE/webhooks/installer/Dockerfile"},'
