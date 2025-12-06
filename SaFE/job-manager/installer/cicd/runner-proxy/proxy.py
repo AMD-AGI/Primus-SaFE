@@ -63,8 +63,25 @@ def parse_podinfo_file(filepath: str) -> Dict[str, str]:
     """
     Parse a Kubernetes downwardAPI metadata file (labels or annotations).
     Format is: key="value" per line.
-    Returns a dict of key-value pairs, filtering out keys starting with 'primus-safe.'
+    Returns a dict of key-value pairs, filtering out keys that should not be copied
+    to new runner pods (unique identifiers, controller-managed fields, etc.).
     """
+    # Keys that should NOT be copied (exact match)
+    EXCLUDED_KEYS = {
+        # Annotations - unique identifiers that cause signature validation failure
+        "actions.github.com/patch-id",
+        "actions.github.com/runner-spec-hash",
+        "kubernetes.io/config.seen",
+        "kubernetes.io/config.source",
+        # Labels - controller-managed unique identifiers
+        "batch.kubernetes.io/controller-uid",
+        "batch.kubernetes.io/job-name",
+        "controller-uid",
+        "job-name",
+        "pod-template-hash",
+    }
+
+
     result: Dict[str, str] = {}
     if not os.path.isfile(filepath):
         return result
@@ -81,8 +98,8 @@ def parse_podinfo_file(filepath: str) -> Dict[str, str]:
                 # Remove surrounding quotes if present
                 if value.startswith('"') and value.endswith('"'):
                     value = value[1:-1]
-                # Filter out system labels/annotations starting with 'primus-safe.'
-                if key.startswith("primus-safe."):
+                # Filter out excluded keys (exact match)
+                if key in EXCLUDED_KEYS:
                     continue
                 result[key] = value
     except Exception as e:
