@@ -87,7 +87,7 @@ func (c *Client) GetPodProcessTree(ctx context.Context, req *types.ProcessTreeRe
 		SetContext(ctx).
 		SetBody(req).
 		SetResult(&response).
-		Post("/process-tree/pod")
+		Post("/v1/process-tree/pod")
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to get pod process tree: %w", err)
@@ -120,7 +120,7 @@ func (c *Client) FindPythonProcesses(ctx context.Context, podUID string) ([]*typ
 		SetContext(ctx).
 		SetBody(&Request{PodUID: podUID}).
 		SetResult(&response).
-		Post("/process-tree/python")
+		Post("/v1/process-tree/python")
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to find Python processes: %w", err)
@@ -157,7 +157,7 @@ func (c *Client) InspectPythonProcess(ctx context.Context, pid int, scripts []st
 		SetContext(ctx).
 		SetBody(req).
 		SetResult(&response).
-		Post("/inspector/inspect")
+		Post("/v1/inspector/inspect")
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to inspect Python process: %w", err)
@@ -185,7 +185,7 @@ func (c *Client) ListAvailableScripts(ctx context.Context) ([]*types.ScriptMetad
 	resp, err := c.client.R().
 		SetContext(ctx).
 		SetResult(&response).
-		Get("/inspector/scripts")
+		Get("/v1/inspector/scripts")
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to list scripts: %w", err)
@@ -221,7 +221,7 @@ func (c *Client) SearchScripts(ctx context.Context, capability, framework string
 		req.SetQueryParam("framework", framework)
 	}
 
-	resp, err := req.Get("/inspector/scripts/search")
+	resp, err := req.Get("/v1/inspector/scripts/search")
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to search scripts: %w", err)
@@ -293,7 +293,7 @@ func (c *Client) ReadContainerFile(ctx context.Context, req *types.ContainerFile
 		SetContext(ctx).
 		SetBody(req).
 		SetResult(&response).
-		Post("/container-fs/read")
+		Post("/v1/container-fs/read")
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to read container file: %w", err)
@@ -322,7 +322,7 @@ func (c *Client) ListContainerDirectory(ctx context.Context, req *types.Containe
 		SetContext(ctx).
 		SetBody(req).
 		SetResult(&response).
-		Post("/container-fs/list")
+		Post("/v1/container-fs/list")
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to list container directory: %w", err)
@@ -359,7 +359,7 @@ func (c *Client) GetContainerFileInfo(ctx context.Context, pid int, path string)
 		SetContext(ctx).
 		SetBody(req).
 		SetResult(&response).
-		Post("/container-fs/info")
+		Post("/v1/container-fs/info")
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to get container file info: %w", err)
@@ -396,7 +396,7 @@ func (c *Client) GetTensorBoardLogs(ctx context.Context, pid int, logDir string)
 		SetContext(ctx).
 		SetBody(req).
 		SetResult(&response).
-		Post("/container-fs/tensorboard/logs")
+		Post("/v1/container-fs/tensorboard/logs")
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to get TensorBoard logs: %w", err)
@@ -437,7 +437,7 @@ func (c *Client) ReadTensorBoardEvent(ctx context.Context, pid int, eventFile st
 		SetContext(ctx).
 		SetBody(req).
 		SetResult(&response).
-		Post("/container-fs/tensorboard/event")
+		Post("/v1/container-fs/tensorboard/event")
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to read TensorBoard event: %w", err)

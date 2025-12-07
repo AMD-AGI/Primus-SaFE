@@ -222,23 +222,7 @@ func (e *MetadataCollectionExecutor) selectTargetPod(ctx context.Context, worklo
 		log.Infof("Found %d pods for workload %s via workload_pod_reference", len(pods), workloadUID)
 	}
 
-	// 方法2：回退到直接查询 owner_uid（向后兼容）
-	if len(pods) == 0 {
-		db := database.GetFacade().GetSystemConfig().GetDB()
-		err = db.WithContext(ctx).
-			Where("owner_uid = ? AND deleted = ?", workloadUID, false).
-			Find(&pods).Error
-
-		if err != nil {
-			return nil, fmt.Errorf("failed to query pods by owner_uid: %w", err)
-		}
-
-		if len(pods) > 0 {
-			log.Infof("Found %d pods for workload %s via owner_uid", len(pods), workloadUID)
-		}
-	}
-
-	// 方法3：查找子 workload 的 pod（递归查找层级结构）
+	// 方法2：查找子 workload 的 pod（递归查找层级结构）
 	if len(pods) == 0 {
 		childWorkloads, err := workloadFacade.ListChildrenWorkloadByParentUid(ctx, workloadUID)
 		if err != nil {
