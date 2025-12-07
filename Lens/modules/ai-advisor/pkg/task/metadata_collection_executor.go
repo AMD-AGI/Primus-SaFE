@@ -188,6 +188,7 @@ func (e *MetadataCollectionExecutor) extractScripts(detection *model.AiWorkloadM
 	if !contains(scripts, "tensorboard") {
 		scripts = append(scripts, "tensorboard")
 	}
+	
 
 	return scripts
 }
