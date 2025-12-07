@@ -784,7 +784,7 @@ func (c *Collector) getNodeExporterClientByIP(nodeIP, nodeName string) (*client.
 	// Get node-exporter pod on the target node using existing clientsets implementation
 	ctx := context.Background()
 	k8sClient := clientsets.GetClusterManager().GetCurrentClusterClients().K8SClientSet.ControllerRuntimeClient
-	
+
 	nodeExporterK8sClient, err := clientsets.GetOrInitNodeExportersClient(ctx, nodeName, k8sClient)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get node-exporter client for node %s: %w", nodeName, err)

@@ -13,6 +13,7 @@ import (
 	advisorTask "github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/task"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/tensorboard"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/config"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/controller"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
 	configHelper "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/config"
 	log "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
@@ -22,7 +23,13 @@ import (
 	coreTask "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/task"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/trace"
 	"github.com/gin-gonic/gin"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 )
+
+var schemes = &runtime.SchemeBuilder{
+	corev1.AddToScheme,
+}
 
 // Global handlers
 var (
@@ -65,6 +72,13 @@ func Bootstrap(ctx context.Context) error {
 			log.Errorf("Failed to close tracer: %v", err)
 		}
 	}()
+
+	// Register Kubernetes scheme
+	if err := controller.RegisterScheme(schemes); err != nil {
+		log.Errorf("Failed to register Kubernetes scheme: %v", err)
+		return fmt.Errorf("failed to register scheme: %w", err)
+	}
+	log.Info("Kubernetes scheme registered successfully")
 
 	return server.InitServerWithPreInitFunc(ctx, func(ctx context.Context, cfg *config.Config) error {
 		// Initialize dependencies
