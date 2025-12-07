@@ -227,9 +227,10 @@ func (m *FrameworkDetectionManager) ReportDetectionWithLayers(
 			workloadUID, rootUID, merged.Frameworks, merged.Status, merged.Confidence)
 	}
 
-	// Dispatch detection event
+	// Dispatch detection event using root workload UID
+	// This ensures event listeners receive the correct workload UID where detection is stored
 	eventType := m.determineEventType(merged, existing)
-	m.dispatchDetectionEvent(ctx, eventType, workloadUID, merged)
+	m.dispatchDetectionEvent(ctx, eventType, rootUID, merged)
 
 	return nil
 }

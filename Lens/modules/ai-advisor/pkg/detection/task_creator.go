@@ -46,9 +46,10 @@ func (tc *TaskCreator) OnDetectionCompleted(
 		return nil
 	}
 
-	// 只为已确认的检测创建任务
-	if detection.Status != coreModel.DetectionStatusConfirmed {
-		log.Debugf("Detection status is %s (not confirmed), skipping task creation for workload %s",
+	// 只为已确认或验证的检测创建任务（confirmed 或 verified）
+	if detection.Status != coreModel.DetectionStatusConfirmed &&
+		detection.Status != coreModel.DetectionStatusVerified {
+		log.Debugf("Detection status is %s (not confirmed/verified), skipping task creation for workload %s",
 			detection.Status, workloadUID)
 		return nil
 	}
