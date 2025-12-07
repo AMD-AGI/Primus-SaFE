@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
@@ -61,7 +62,6 @@ func InitCollector(ctx context.Context, storage Storage) error {
 	})
 	return initErr
 }
-
 
 // GetCollector returns the global collector instance
 func GetCollector() *Collector {
@@ -771,7 +771,7 @@ func (c *Collector) getNodeInfoFromDB(ctx context.Context, podUID string) (nodeN
 	return nodeName, nodeIP, nil
 }
 
-// getNodeExporterClientByIP gets or creates a node-exporter client using node IP
+// getNodeExporterClientByIP gets or creates a node-exporter client by finding the pod on the target node
 func (c *Collector) getNodeExporterClientByIP(nodeIP, nodeName string) (*client.Client, error) {
 	// Use nodeName as cache key
 	cacheKey := nodeName
@@ -781,9 +781,19 @@ func (c *Collector) getNodeExporterClientByIP(nodeIP, nodeName string) (*client.
 		return cached.(*client.Client), nil
 	}
 
-	// Create client with node IP
-	// Node exporter runs on hostNetwork, so we use node IP + port
-	baseURL := fmt.Sprintf("http://%s:%d", nodeIP, c.nodeExporterPort)
+	// Get node-exporter pod on the target node using existing clientsets implementation
+	ctx := context.Background()
+	k8sClient := clientsets.GetClusterManager().GetCurrentClusterClients().K8SClientSet.ControllerRuntimeClient
+	
+	nodeExporterK8sClient, err := clientsets.GetOrInitNodeExportersClient(ctx, nodeName, k8sClient)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get node-exporter client for node %s: %w", nodeName, err)
+	}
+
+	// Convert to our client type by creating a new client with the baseURL
+	// The address from GetOrInitNodeExportersClient already includes http:// and port
+	// We need to add /v1 prefix as node-exporter uses core router
+	baseURL := nodeExporterK8sClient.GetRestyClient().BaseURL + "/v1"
 	nodeExporterClient := client.NewClient(client.DefaultConfig(baseURL))
 
 	// Cache the client
