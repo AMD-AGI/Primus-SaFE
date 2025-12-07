@@ -792,8 +792,8 @@ func (c *Collector) getNodeExporterClientByIP(nodeIP, nodeName string) (*client.
 
 	// Convert to our client type by creating a new client with the baseURL
 	// The address from GetOrInitNodeExportersClient already includes http:// and port
-	// We need to add /v1 prefix as node-exporter uses core router
-	baseURL := nodeExporterK8sClient.GetRestyClient().BaseURL + "/v1"
+	// Client request paths include /v1 prefix, so baseURL should not include it
+	baseURL := nodeExporterK8sClient.GetRestyClient().BaseURL
 	nodeExporterClient := client.NewClient(client.DefaultConfig(baseURL))
 
 	// Cache the client
