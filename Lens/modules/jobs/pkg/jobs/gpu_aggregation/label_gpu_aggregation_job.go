@@ -2,6 +2,7 @@ package gpu_aggregation
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -9,7 +10,6 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
 	dbmodel "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
-	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/prom"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/statistics"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/trace"
@@ -22,6 +22,9 @@ import (
 const (
 	// CacheKeyLabelGpuAggregationLastHour is the cache key for storing the last processed hour
 	CacheKeyLabelGpuAggregationLastHour = "job.label_gpu_aggregation.last_processed_hour"
+
+	// SystemConfigKeyGpuAggregation is the system_config key for GPU aggregation configuration
+	SystemConfigKeyGpuAggregation = "job.gpu_aggregation.config"
 )
 
 // LabelGpuAggregationConfig is the configuration for label GPU aggregation job
@@ -40,6 +43,21 @@ type LabelGpuAggregationConfig struct {
 
 	// PromQueryStep is the step for Prometheus queries (in seconds)
 	PromQueryStep int `json:"prom_query_step"`
+}
+
+// GpuAggregationSystemConfig represents the full system_config structure for GPU aggregation
+type GpuAggregationSystemConfig struct {
+	Dimensions struct {
+		Label struct {
+			Enabled        bool     `json:"enabled"`
+			LabelKeys      []string `json:"label_keys"`
+			AnnotationKeys []string `json:"annotation_keys"`
+			DefaultValue   string   `json:"default_value"`
+		} `json:"label"`
+	} `json:"dimensions"`
+	Prometheus struct {
+		QueryStep int `json:"query_step"`
+	} `json:"prometheus"`
 }
 
 // LabelGpuAggregationJob aggregates GPU statistics by label/annotation dimensions
@@ -92,6 +110,11 @@ func (j *LabelGpuAggregationJob) Run(ctx context.Context,
 		attribute.String("job.name", "label_gpu_aggregation"),
 		attribute.String("cluster.name", clusterName),
 	)
+
+	// Load configuration from system_config
+	if err := j.loadConfigFromSystemConfig(ctx, clusterName); err != nil {
+		log.Warnf("Failed to load label aggregation config from system_config, using defaults: %v", err)
+	}
 
 	if !j.config.Enabled {
 		log.Debugf("Label GPU aggregation job is disabled")
@@ -227,18 +250,8 @@ func (j *LabelGpuAggregationJob) aggregateLabelStats(
 	var createdCount int64
 
 	for _, agg := range summary.Results {
-		// Query utilization for all workloads in this aggregation
-		for _, workloadUID := range agg.WorkloadUIDs {
-			utilizationValues, err := j.queryWorkloadUtilizationForHour(ctx, storageClientSet, workloadUID, hourStart, hourEnd)
-			if err != nil {
-				log.Warnf("Failed to query utilization for workload %s: %v", workloadUID, err)
-				continue
-			}
-			agg.AddUtilizationValues(utilizationValues)
-		}
-
-		// Calculate utilization statistics
-		utilizationStats := agg.CalculateUtilizationStats()
+		// Query utilization for all workloads in this aggregation (weighted by GPU count)
+		utilizationStats := statistics.CalculateWorkloadsUtilizationWeighted(ctx, storageClientSet, agg.WorkloadGpuCounts, hourStart, hourEnd, j.config.PromQueryStep)
 
 		// Build label hourly stats
 		stats := &dbmodel.LabelGpuHourlyStats{
@@ -270,53 +283,43 @@ func (j *LabelGpuAggregationJob) aggregateLabelStats(
 	return createdCount, nil
 }
 
-// queryWorkloadUtilizationForHour queries the GPU utilization for a workload in a specific hour
-func (j *LabelGpuAggregationJob) queryWorkloadUtilizationForHour(
-	ctx context.Context,
-	storageClientSet *clientsets.StorageClientSet,
-	workloadUID string,
-	startTime, endTime time.Time) ([]float64, error) {
-
-	span, ctx := trace.StartSpanFromContext(ctx, "queryWorkloadUtilizationForHour")
-	defer trace.FinishSpan(span)
-
-	query := fmt.Sprintf(WorkloadUtilizationQueryTemplate, workloadUID)
-
-	span.SetAttributes(
-		attribute.String("workload.uid", workloadUID),
-		attribute.String("prometheus.query", query),
-		attribute.String("start_time", startTime.Format(time.RFC3339)),
-		attribute.String("end_time", endTime.Format(time.RFC3339)),
-	)
-
-	series, err := prom.QueryRange(ctx, storageClientSet, query, startTime, endTime,
-		j.config.PromQueryStep, map[string]struct{}{"__name__": {}})
-
+// loadConfigFromSystemConfig loads configuration from system_config table
+func (j *LabelGpuAggregationJob) loadConfigFromSystemConfig(ctx context.Context, clusterName string) error {
+	configFacade := database.GetFacadeForCluster(clusterName).GetSystemConfig()
+	sysConfig, err := configFacade.GetByKey(ctx, SystemConfigKeyGpuAggregation)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
-		return nil, err
+		return fmt.Errorf("failed to get system config: %w", err)
+	}
+	if sysConfig == nil {
+		return fmt.Errorf("system config key %s not found", SystemConfigKeyGpuAggregation)
 	}
 
-	if len(series) == 0 || len(series[0].Values) == 0 {
-		span.SetAttributes(attribute.Int("data_points.count", 0))
-		span.SetStatus(codes.Ok, "No data points")
-		return []float64{}, nil
+	// Parse the JSON value
+	configBytes, err := json.Marshal(sysConfig.Value)
+	if err != nil {
+		return fmt.Errorf("failed to marshal config value: %w", err)
 	}
 
-	// Collect all data points
-	values := make([]float64, 0, len(series[0].Values))
-	for _, point := range series[0].Values {
-		values = append(values, point.Value)
+	var gpuAggConfig GpuAggregationSystemConfig
+	if err := json.Unmarshal(configBytes, &gpuAggConfig); err != nil {
+		return fmt.Errorf("failed to unmarshal config: %w", err)
 	}
 
-	span.SetAttributes(
-		attribute.Int("series.count", len(series)),
-		attribute.Int("data_points.count", len(values)),
-	)
-	span.SetStatus(codes.Ok, "")
+	// Update job config from system config
+	labelConfig := gpuAggConfig.Dimensions.Label
+	j.config.Enabled = labelConfig.Enabled
+	j.config.LabelKeys = labelConfig.LabelKeys
+	j.config.AnnotationKeys = labelConfig.AnnotationKeys
+	j.config.DefaultValue = labelConfig.DefaultValue
 
-	return values, nil
+	if gpuAggConfig.Prometheus.QueryStep > 0 {
+		j.config.PromQueryStep = gpuAggConfig.Prometheus.QueryStep
+	}
+
+	log.Debugf("Loaded label aggregation config: enabled=%v, labelKeys=%v, annotationKeys=%v, defaultValue=%s",
+		j.config.Enabled, j.config.LabelKeys, j.config.AnnotationKeys, j.config.DefaultValue)
+
+	return nil
 }
 
 // Schedule returns the job's scheduling expression

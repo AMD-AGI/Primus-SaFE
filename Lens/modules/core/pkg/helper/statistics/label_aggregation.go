@@ -52,6 +52,9 @@ type LabelAggregationResult struct {
 	// WorkloadUIDs is the list of workload UIDs in this aggregation
 	WorkloadUIDs []string
 
+	// WorkloadGpuCounts maps workload UID to its GPU count (for weighted utilization calculation)
+	WorkloadGpuCounts map[string]int32
+
 	// UtilizationValues contains all utilization data points for this aggregation
 	UtilizationValues []float64
 }
@@ -195,14 +198,16 @@ func (c *LabelAggregationCalculator) aggregateWorkloads(
 
 			if _, exists := summary.Results[key]; !exists {
 				summary.Results[key] = &LabelAggregationResult{
-					DimensionType:  DimensionTypeLabel,
-					DimensionKey:   labelKey,
-					DimensionValue: value,
-					WorkloadUIDs:   make([]string, 0),
+					DimensionType:     DimensionTypeLabel,
+					DimensionKey:      labelKey,
+					DimensionValue:    value,
+					WorkloadUIDs:      make([]string, 0),
+					WorkloadGpuCounts: make(map[string]int32),
 				}
 			}
 			summary.Results[key].TotalAllocatedGpu += float64(workload.GpuRequest)
 			summary.Results[key].WorkloadUIDs = append(summary.Results[key].WorkloadUIDs, workload.UID)
+			summary.Results[key].WorkloadGpuCounts[workload.UID] = workload.GpuRequest
 			summary.Results[key].ActiveWorkloadCount++
 		}
 
@@ -213,14 +218,16 @@ func (c *LabelAggregationCalculator) aggregateWorkloads(
 
 			if _, exists := summary.Results[key]; !exists {
 				summary.Results[key] = &LabelAggregationResult{
-					DimensionType:  DimensionTypeAnnotation,
-					DimensionKey:   annotationKey,
-					DimensionValue: value,
-					WorkloadUIDs:   make([]string, 0),
+					DimensionType:     DimensionTypeAnnotation,
+					DimensionKey:      annotationKey,
+					DimensionValue:    value,
+					WorkloadUIDs:      make([]string, 0),
+					WorkloadGpuCounts: make(map[string]int32),
 				}
 			}
 			summary.Results[key].TotalAllocatedGpu += float64(workload.GpuRequest)
 			summary.Results[key].WorkloadUIDs = append(summary.Results[key].WorkloadUIDs, workload.UID)
+			summary.Results[key].WorkloadGpuCounts[workload.UID] = workload.GpuRequest
 			summary.Results[key].ActiveWorkloadCount++
 		}
 	}

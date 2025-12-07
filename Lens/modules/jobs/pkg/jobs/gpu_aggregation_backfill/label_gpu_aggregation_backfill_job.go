@@ -2,6 +2,7 @@ package gpu_aggregation_backfill
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"time"
@@ -23,7 +24,22 @@ const (
 
 	// DefaultLabelBatchSize is the default batch size for processing hours
 	DefaultLabelBatchSize = 24
+
+	// SystemConfigKeyGpuAggregationBackfill is the system_config key for GPU aggregation configuration
+	SystemConfigKeyGpuAggregationBackfill = "job.gpu_aggregation.config"
 )
+
+// LabelGpuAggregationSystemConfig represents the full system_config structure for label GPU aggregation
+type LabelGpuAggregationSystemConfig struct {
+	Dimensions struct {
+		Label struct {
+			Enabled        bool     `json:"enabled"`
+			LabelKeys      []string `json:"label_keys"`
+			AnnotationKeys []string `json:"annotation_keys"`
+			DefaultValue   string   `json:"default_value"`
+		} `json:"label"`
+	} `json:"dimensions"`
+}
 
 // LabelGpuAggregationBackfillConfig is the configuration for label backfill job
 type LabelGpuAggregationBackfillConfig struct {
@@ -99,6 +115,11 @@ func (j *LabelGpuAggregationBackfillJob) Run(ctx context.Context,
 		attribute.Int("config.backfill_days", j.config.BackfillDays),
 	)
 
+	// Load configuration from system_config
+	if err := j.loadConfigFromSystemConfig(ctx, clusterName); err != nil {
+		log.Warnf("Failed to load label aggregation config from system_config, using defaults: %v", err)
+	}
+
 	if !j.config.Enabled {
 		log.Debugf("Label GPU aggregation backfill job is disabled")
 		stats.AddMessage("Label GPU aggregation backfill job is disabled")
@@ -122,7 +143,7 @@ func (j *LabelGpuAggregationBackfillJob) Run(ctx context.Context,
 
 	// 1. Generate all hours in the time range
 	allHours := generateAllHours(startTime, endTime)
-	log.Infof("Generated %d hours to check for label backfill", len(allHours))
+	log.Infof("Generated %d hours to process for label backfill", len(allHours))
 
 	if len(allHours) == 0 {
 		log.Infof("No hours to process")
@@ -130,41 +151,27 @@ func (j *LabelGpuAggregationBackfillJob) Run(ctx context.Context,
 		return stats, nil
 	}
 
-	// 2. Find missing label stats for all hours
-	missingSpan, missingCtx := trace.StartSpanFromContext(ctx, "findMissingLabelStats")
-	missingLabelHours, err := j.findMissingLabelStats(missingCtx, clusterName, allHours)
-	if err != nil {
-		missingSpan.RecordError(err)
-		missingSpan.SetStatus(codes.Error, err.Error())
-		trace.FinishSpan(missingSpan)
-		return stats, fmt.Errorf("failed to find missing label stats: %w", err)
-	}
-	missingSpan.SetAttributes(attribute.Int("missing.label_hours", len(missingLabelHours)))
-	missingSpan.SetStatus(codes.Ok, "")
-	trace.FinishSpan(missingSpan)
+	// 2. Process each hour and backfill missing stats
+	backfillSpan, backfillCtx := trace.StartSpanFromContext(ctx, "backfillLabelStats")
+	backfillSpan.SetAttributes(attribute.Int("hours.count", len(allHours)))
 
-	log.Infof("Found %d missing label hours", len(missingLabelHours))
-	stats.AddCustomMetric("missing_label_hours", len(missingLabelHours))
-
-	// 3. Backfill label stats
-	if len(missingLabelHours) > 0 {
-		backfillSpan, backfillCtx := trace.StartSpanFromContext(ctx, "backfillLabelStats")
-		backfillSpan.SetAttributes(attribute.Int("hours.count", len(missingLabelHours)))
-
-		count, backfillErr := j.backfillLabelStats(backfillCtx, clusterName, missingLabelHours)
-		if backfillErr != nil {
-			backfillSpan.RecordError(backfillErr)
-			backfillSpan.SetStatus(codes.Error, backfillErr.Error())
-			trace.FinishSpan(backfillSpan)
-			stats.ErrorCount++
-			log.Errorf("Failed to backfill label stats: %v", backfillErr)
-		} else {
-			backfillSpan.SetAttributes(attribute.Int64("backfilled.count", count))
-			backfillSpan.SetStatus(codes.Ok, "")
-			trace.FinishSpan(backfillSpan)
-			stats.ItemsCreated = count
-			log.Infof("Backfilled %d label hourly stats", count)
-		}
+	count, skipped, backfillErr := j.backfillLabelStats(backfillCtx, clusterName, allHours, storageClientSet)
+	if backfillErr != nil {
+		backfillSpan.RecordError(backfillErr)
+		backfillSpan.SetStatus(codes.Error, backfillErr.Error())
+		trace.FinishSpan(backfillSpan)
+		stats.ErrorCount++
+		log.Errorf("Failed to backfill label stats: %v", backfillErr)
+	} else {
+		backfillSpan.SetAttributes(
+			attribute.Int64("backfilled.count", count),
+			attribute.Int64("skipped.count", skipped),
+		)
+		backfillSpan.SetStatus(codes.Ok, "")
+		trace.FinishSpan(backfillSpan)
+		stats.ItemsCreated = count
+		stats.AddCustomMetric("skipped_existing", int(skipped))
+		log.Infof("Backfilled %d label hourly stats, skipped %d existing", count, skipped)
 	}
 
 	totalDuration := time.Since(jobStartTime)
@@ -178,133 +185,24 @@ func (j *LabelGpuAggregationBackfillJob) Run(ctx context.Context,
 	return stats, nil
 }
 
-// findMissingLabelStats finds hours that are missing label stats
-// Returns a slice of hours that need backfill
-func (j *LabelGpuAggregationBackfillJob) findMissingLabelStats(
-	ctx context.Context,
-	clusterName string,
-	allHours []time.Time) ([]time.Time, error) {
-
-	if len(allHours) == 0 {
-		return nil, nil
-	}
-
-	facade := database.GetFacadeForCluster(clusterName).GetGpuAggregation()
-
-	startTime := allHours[0]
-	endTime := allHours[len(allHours)-1].Add(time.Hour)
-
-	// Get existing label stats for all configured keys
-	existingStats := make(map[time.Time]map[string]struct{})
-
-	// Query existing stats for each label key
-	for _, labelKey := range j.config.LabelKeys {
-		stats, err := facade.ListLabelHourlyStatsByKey(ctx, statistics.DimensionTypeLabel, labelKey, startTime, endTime)
-		if err != nil {
-			log.Warnf("Failed to query existing label stats for key %s: %v", labelKey, err)
-			continue
-		}
-
-		for _, stat := range stats {
-			hour := stat.StatHour.Truncate(time.Hour)
-			if existingStats[hour] == nil {
-				existingStats[hour] = make(map[string]struct{})
-			}
-			key := statistics.BuildDimensionKey(stat.DimensionType, stat.DimensionKey, stat.DimensionValue)
-			existingStats[hour][key] = struct{}{}
-		}
-	}
-
-	// Query existing stats for each annotation key
-	for _, annotationKey := range j.config.AnnotationKeys {
-		stats, err := facade.ListLabelHourlyStatsByKey(ctx, statistics.DimensionTypeAnnotation, annotationKey, startTime, endTime)
-		if err != nil {
-			log.Warnf("Failed to query existing annotation stats for key %s: %v", annotationKey, err)
-			continue
-		}
-
-		for _, stat := range stats {
-			hour := stat.StatHour.Truncate(time.Hour)
-			if existingStats[hour] == nil {
-				existingStats[hour] = make(map[string]struct{})
-			}
-			key := statistics.BuildDimensionKey(stat.DimensionType, stat.DimensionKey, stat.DimensionValue)
-			existingStats[hour][key] = struct{}{}
-		}
-	}
-
-	// Find missing hours - hours without any label stats for configured keys
-	var missingHours []time.Time
-
-	for _, hour := range allHours {
-		existingForHour := existingStats[hour]
-		if existingForHour == nil {
-			// No stats exist for this hour at all - needs backfill
-			missingHours = append(missingHours, hour)
-			continue
-		}
-
-		// Check if all configured keys have stats for this hour
-		hasAllKeys := j.checkAllKeysExist(existingForHour)
-		if !hasAllKeys {
-			missingHours = append(missingHours, hour)
-		}
-	}
-
-	return missingHours, nil
-}
-
-// checkAllKeysExist checks if all configured keys have stats for an hour
-func (j *LabelGpuAggregationBackfillJob) checkAllKeysExist(existingForHour map[string]struct{}) bool {
-	// Check label keys
-	for _, labelKey := range j.config.LabelKeys {
-		found := false
-		prefix := fmt.Sprintf("%s:%s:", statistics.DimensionTypeLabel, labelKey)
-		for key := range existingForHour {
-			if len(key) > len(prefix) && key[:len(prefix)] == prefix {
-				found = true
-				break
-			}
-		}
-		if !found {
-			return false
-		}
-	}
-
-	// Check annotation keys
-	for _, annotationKey := range j.config.AnnotationKeys {
-		found := false
-		prefix := fmt.Sprintf("%s:%s:", statistics.DimensionTypeAnnotation, annotationKey)
-		for key := range existingForHour {
-			if len(key) > len(prefix) && key[:len(prefix)] == prefix {
-				found = true
-				break
-			}
-		}
-		if !found {
-			return false
-		}
-	}
-
-	return true
-}
-
-// backfillLabelStats backfills missing label hourly stats
+// backfillLabelStats processes each hour, calculates aggregation, and saves only missing stats
+// Returns: (created count, skipped count, error)
 func (j *LabelGpuAggregationBackfillJob) backfillLabelStats(
 	ctx context.Context,
 	clusterName string,
-	missingHours []time.Time) (int64, error) {
+	allHours []time.Time,
+	storageClientSet *clientsets.StorageClientSet) (int64, int64, error) {
 
-	if len(missingHours) == 0 {
-		return 0, nil
+	if len(allHours) == 0 {
+		return 0, 0, nil
 	}
 
 	facade := database.GetFacadeForCluster(clusterName).GetGpuAggregation()
-	var createdCount int64
+	var createdCount, skippedCount int64
 
 	// Sort hours for consistent processing
-	sort.Slice(missingHours, func(i, j int) bool {
-		return missingHours[i].Before(missingHours[j])
+	sort.Slice(allHours, func(i, k int) bool {
+		return allHours[i].Before(allHours[k])
 	})
 
 	// Create calculator with configuration
@@ -314,7 +212,10 @@ func (j *LabelGpuAggregationBackfillJob) backfillLabelStats(
 		DefaultValue:   j.config.DefaultValue,
 	})
 
-	for _, hour := range missingHours {
+	for _, hour := range allHours {
+		hourStart := hour
+		hourEnd := hour.Add(time.Hour)
+
 		// Calculate aggregation for this hour
 		summary, err := calculator.CalculateHourlyLabelAggregation(ctx, hour)
 		if err != nil {
@@ -323,14 +224,33 @@ func (j *LabelGpuAggregationBackfillJob) backfillLabelStats(
 		}
 
 		if summary.TotalWorkloads == 0 {
-			// No workloads for this hour - create zero-value stats for all configured keys
-			count := j.createZeroValueStats(ctx, facade, clusterName, hour)
-			createdCount += count
+			// No workloads for this hour - skip (no need to create zero-value stats)
+			log.Debugf("No workloads found for hour %v, skipping", hour)
 			continue
 		}
 
-		// Save aggregations to database
+		// Process each aggregation result
 		for _, agg := range summary.Results {
+			// Check if this specific key-value-hour combination already exists
+			exists, err := facade.LabelHourlyStatsExists(ctx, clusterName, agg.DimensionType, agg.DimensionKey, agg.DimensionValue, hour)
+			if err != nil {
+				log.Warnf("Failed to check existence for %s:%s=%s at %v: %v",
+					agg.DimensionType, agg.DimensionKey, agg.DimensionValue, hour, err)
+				continue
+			}
+
+			if exists {
+				// Already exists, skip
+				skippedCount++
+				log.Debugf("Skipped existing label stats for %s:%s=%s at %v",
+					agg.DimensionType, agg.DimensionKey, agg.DimensionValue, hour)
+				continue
+			}
+
+			// Query utilization for all workloads in this aggregation (weighted by GPU count)
+			utilizationStats := statistics.CalculateWorkloadsUtilizationWeighted(ctx, storageClientSet, agg.WorkloadGpuCounts, hourStart, hourEnd, 0)
+
+			// Create new stats record
 			stats := &dbmodel.LabelGpuHourlyStats{
 				ClusterName:         clusterName,
 				DimensionType:       agg.DimensionType,
@@ -339,10 +259,9 @@ func (j *LabelGpuAggregationBackfillJob) backfillLabelStats(
 				StatHour:            hour,
 				AllocatedGpuCount:   agg.TotalAllocatedGpu,
 				ActiveWorkloadCount: int32(agg.ActiveWorkloadCount),
-				// Note: Utilization is not available for backfill (no Prometheus data)
-				AvgUtilization: 0,
-				MaxUtilization: 0,
-				MinUtilization: 0,
+				AvgUtilization:      utilizationStats.AvgUtilization,
+				MaxUtilization:      utilizationStats.MaxUtilization,
+				MinUtilization:      utilizationStats.MinUtilization,
 			}
 
 			if err := facade.SaveLabelHourlyStats(ctx, stats); err != nil {
@@ -352,69 +271,48 @@ func (j *LabelGpuAggregationBackfillJob) backfillLabelStats(
 			}
 
 			createdCount++
-			log.Debugf("Backfilled label stats for %s:%s=%s at %v: allocated=%.2f, workloads=%d",
+			log.Debugf("Backfilled label stats for %s:%s=%s at %v: allocated=%.2f, workloads=%d, avgUtil=%.2f%%",
 				agg.DimensionType, agg.DimensionKey, agg.DimensionValue, hour,
-				stats.AllocatedGpuCount, agg.ActiveWorkloadCount)
+				stats.AllocatedGpuCount, agg.ActiveWorkloadCount, stats.AvgUtilization)
 		}
 	}
 
-	return createdCount, nil
+	return createdCount, skippedCount, nil
 }
 
-// createZeroValueStats creates zero-value stats for all configured keys
-func (j *LabelGpuAggregationBackfillJob) createZeroValueStats(
-	ctx context.Context,
-	facade database.GpuAggregationFacadeInterface,
-	clusterName string,
-	hour time.Time) int64 {
-
-	var count int64
-
-	// Create zero-value stats for label keys with default value
-	for _, labelKey := range j.config.LabelKeys {
-		stats := &dbmodel.LabelGpuHourlyStats{
-			ClusterName:         clusterName,
-			DimensionType:       statistics.DimensionTypeLabel,
-			DimensionKey:        labelKey,
-			DimensionValue:      j.config.DefaultValue,
-			StatHour:            hour,
-			AllocatedGpuCount:   0,
-			ActiveWorkloadCount: 0,
-			AvgUtilization:      0,
-			MaxUtilization:      0,
-			MinUtilization:      0,
-		}
-
-		if err := facade.SaveLabelHourlyStats(ctx, stats); err != nil {
-			log.Warnf("Failed to save zero-value label stats for %s at %v: %v", labelKey, hour, err)
-			continue
-		}
-		count++
+// loadConfigFromSystemConfig loads configuration from system_config table
+func (j *LabelGpuAggregationBackfillJob) loadConfigFromSystemConfig(ctx context.Context, clusterName string) error {
+	configFacade := database.GetFacadeForCluster(clusterName).GetSystemConfig()
+	sysConfig, err := configFacade.GetByKey(ctx, SystemConfigKeyGpuAggregationBackfill)
+	if err != nil {
+		return fmt.Errorf("failed to get system config: %w", err)
+	}
+	if sysConfig == nil {
+		return fmt.Errorf("system config key %s not found", SystemConfigKeyGpuAggregationBackfill)
 	}
 
-	// Create zero-value stats for annotation keys with default value
-	for _, annotationKey := range j.config.AnnotationKeys {
-		stats := &dbmodel.LabelGpuHourlyStats{
-			ClusterName:         clusterName,
-			DimensionType:       statistics.DimensionTypeAnnotation,
-			DimensionKey:        annotationKey,
-			DimensionValue:      j.config.DefaultValue,
-			StatHour:            hour,
-			AllocatedGpuCount:   0,
-			ActiveWorkloadCount: 0,
-			AvgUtilization:      0,
-			MaxUtilization:      0,
-			MinUtilization:      0,
-		}
-
-		if err := facade.SaveLabelHourlyStats(ctx, stats); err != nil {
-			log.Warnf("Failed to save zero-value annotation stats for %s at %v: %v", annotationKey, hour, err)
-			continue
-		}
-		count++
+	// Parse the JSON value
+	configBytes, err := json.Marshal(sysConfig.Value)
+	if err != nil {
+		return fmt.Errorf("failed to marshal config value: %w", err)
 	}
 
-	return count
+	var gpuAggConfig LabelGpuAggregationSystemConfig
+	if err := json.Unmarshal(configBytes, &gpuAggConfig); err != nil {
+		return fmt.Errorf("failed to unmarshal config: %w", err)
+	}
+
+	// Update job config from system config
+	labelConfig := gpuAggConfig.Dimensions.Label
+	j.config.Enabled = labelConfig.Enabled
+	j.config.LabelKeys = labelConfig.LabelKeys
+	j.config.AnnotationKeys = labelConfig.AnnotationKeys
+	j.config.DefaultValue = labelConfig.DefaultValue
+
+	log.Debugf("Loaded label backfill config: enabled=%v, labelKeys=%v, annotationKeys=%v, defaultValue=%s",
+		j.config.Enabled, j.config.LabelKeys, j.config.AnnotationKeys, j.config.DefaultValue)
+
+	return nil
 }
 
 // Schedule returns the job's scheduling expression

@@ -7,9 +7,18 @@ import (
 	"time"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/prom"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	v1 "github.com/prometheus/client_golang/api/prometheus/v1"
 	promModel "github.com/prometheus/common/model"
+)
+
+const (
+	// WorkloadUtilizationQueryTemplate is the PromQL query template for workload GPU utilization
+	WorkloadUtilizationQueryTemplate = `avg(workload_gpu_utilization{workload_uid="%s"})`
+
+	// DefaultWorkloadPromQueryStep is the default step for workload Prometheus queries (in seconds)
+	DefaultWorkloadPromQueryStep = 60
 )
 
 // GpuUtilizationResult represents the result of GPU utilization query
@@ -147,4 +156,153 @@ func QueryClusterInstantGpuUtilization(
 	}
 
 	return float64(vectorVal[0].Value), nil
+}
+
+// CalculateWorkloadsUtilizationWeighted queries GPU utilization for multiple workloads
+// and calculates weighted average based on each workload's GPU count.
+// Returns UtilizationStats with weighted avg, max, and min.
+//
+// Parameters:
+//   - ctx: context for the query
+//   - storageClientSet: storage client set containing Prometheus client
+//   - workloadGpuCounts: map of workload UID to its GPU count
+//   - startTime: start time of the query range
+//   - endTime: end time of the query range
+//   - promQueryStep: step for Prometheus queries (in seconds), use 0 for default
+//
+// Returns:
+//   - UtilizationStats: weighted utilization statistics
+func CalculateWorkloadsUtilizationWeighted(
+	ctx context.Context,
+	storageClientSet *clientsets.StorageClientSet,
+	workloadGpuCounts map[string]int32,
+	startTime, endTime time.Time,
+	promQueryStep int,
+) UtilizationStats {
+	result := UtilizationStats{
+		AvgUtilization: 0,
+		MaxUtilization: 0,
+		MinUtilization: 0,
+	}
+
+	if len(workloadGpuCounts) == 0 {
+		return result
+	}
+
+	if promQueryStep <= 0 {
+		promQueryStep = DefaultWorkloadPromQueryStep
+	}
+
+	// Collect per-workload average utilization with GPU weight
+	type workloadUtilization struct {
+		avgUtilization float64
+		maxUtilization float64
+		minUtilization float64
+		gpuCount       int32
+		hasData        bool
+	}
+
+	workloadUtils := make([]workloadUtilization, 0, len(workloadGpuCounts))
+	var totalGpuWithData int32
+
+	for workloadUID, gpuCount := range workloadGpuCounts {
+		values, err := QueryWorkloadUtilizationRange(ctx, storageClientSet, workloadUID, startTime, endTime, promQueryStep)
+		if err != nil {
+			log.Debugf("Failed to query utilization for workload %s: %v", workloadUID, err)
+			continue
+		}
+
+		if len(values) == 0 {
+			continue
+		}
+
+		// Calculate stats for this workload
+		stats := CalculateUtilizationStats(values)
+		workloadUtils = append(workloadUtils, workloadUtilization{
+			avgUtilization: stats.AvgUtilization,
+			maxUtilization: stats.MaxUtilization,
+			minUtilization: stats.MinUtilization,
+			gpuCount:       gpuCount,
+			hasData:        true,
+		})
+		totalGpuWithData += gpuCount
+	}
+
+	if len(workloadUtils) == 0 || totalGpuWithData == 0 {
+		return result
+	}
+
+	// Calculate weighted average utilization
+	var weightedSum float64
+	var maxUtil, minUtil float64
+	minUtil = 100.0 // Initialize with max possible value
+
+	for _, wu := range workloadUtils {
+		if !wu.hasData {
+			continue
+		}
+		// Weight by GPU count
+		weightedSum += wu.avgUtilization * float64(wu.gpuCount)
+
+		// Track overall max and min
+		if wu.maxUtilization > maxUtil {
+			maxUtil = wu.maxUtilization
+		}
+		if wu.minUtilization < minUtil {
+			minUtil = wu.minUtilization
+		}
+	}
+
+	result.AvgUtilization = weightedSum / float64(totalGpuWithData)
+	result.MaxUtilization = maxUtil
+	result.MinUtilization = minUtil
+
+	return result
+}
+
+// QueryWorkloadUtilizationRange queries the GPU utilization for a workload in a time range
+// Returns all data points for detailed statistics.
+//
+// Parameters:
+//   - ctx: context for the query
+//   - storageClientSet: storage client set containing Prometheus client
+//   - workloadUID: the workload UID to query
+//   - startTime: start time of the query range
+//   - endTime: end time of the query range
+//   - promQueryStep: step for Prometheus queries (in seconds)
+//
+// Returns:
+//   - []float64: utilization values
+//   - error: if the query fails
+func QueryWorkloadUtilizationRange(
+	ctx context.Context,
+	storageClientSet *clientsets.StorageClientSet,
+	workloadUID string,
+	startTime, endTime time.Time,
+	promQueryStep int,
+) ([]float64, error) {
+	if promQueryStep <= 0 {
+		promQueryStep = DefaultWorkloadPromQueryStep
+	}
+
+	query := fmt.Sprintf(WorkloadUtilizationQueryTemplate, workloadUID)
+
+	series, err := prom.QueryRange(ctx, storageClientSet, query, startTime, endTime,
+		promQueryStep, map[string]struct{}{"__name__": {}})
+
+	if err != nil {
+		return nil, err
+	}
+
+	if len(series) == 0 || len(series[0].Values) == 0 {
+		return []float64{}, nil
+	}
+
+	// Collect all data points
+	values := make([]float64, 0, len(series[0].Values))
+	for _, point := range series[0].Values {
+		values = append(values, point.Value)
+	}
+
+	return values, nil
 }
