@@ -51,6 +51,8 @@ const (
 	DefaultMaxUnavailable      = "25%"
 	DefaultMaxMaxSurge         = "25%"
 	DefaultMaxFailover         = 50
+
+	MaxCICDScaleSetNameLen = 39
 )
 
 // AddWorkloadWebhook registers the workload validation and mutation webhooks.
@@ -664,6 +666,9 @@ func (v *WorkloadValidator) validateRequiredParams(workload *v1.Workload) error 
 }
 
 func (v *WorkloadValidator) validateCICDScalingRunnerSet(workload *v1.Workload) error {
+	if len(v1.GetDisplayName(workload)) > MaxCICDScaleSetNameLen {
+		return fmt.Errorf("the displayName is too long, maximum length is %d characters", MaxCICDScaleSetNameLen)
+	}
 	keys := []string{common.ResourcesEnv, common.EntrypointEnv, common.ImageEnv}
 	for _, key := range keys {
 		if val, ok := workload.Spec.Env[key]; !ok || val == "" {
@@ -678,6 +683,7 @@ func (v *WorkloadValidator) validateCICDScalingRunnerSet(workload *v1.Workload) 
 	if err = v.validateResource(workloadResource); err != nil {
 		return err
 	}
+
 	return nil
 }
 

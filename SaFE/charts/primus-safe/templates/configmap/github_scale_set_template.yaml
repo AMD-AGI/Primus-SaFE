@@ -30,13 +30,15 @@ data:
       app.kubernetes.io/version: 0.13.0
   spec:
     minRunners: 0
-    maxRunners: 100
+    maxRunners: 20
     template:
       spec:
         containers:
         - name: runner
           env:
             - name: RUNNER_ALLOW_RUNASROOT
+              value: "1"
+            - name: ACTIONS_RUNNER_PRINT_LOG_TO_STDOUT
               value: "1"
             - name: APISERVER_NODE_PORT
               value: "{{ .Values.apiserver.node_port }}"
