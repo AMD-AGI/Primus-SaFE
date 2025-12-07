@@ -195,7 +195,9 @@ func (c *LabelAggregationCalculator) aggregateWorkloads(
 		for _, labelKey := range c.config.LabelKeys {
 			value := GetLabelValue(workload.Labels, labelKey, c.config.DefaultValue)
 			key := BuildDimensionKey(DimensionTypeLabel, labelKey, value)
-
+			if value == c.config.DefaultValue {
+				continue
+			}
 			if _, exists := summary.Results[key]; !exists {
 				summary.Results[key] = &LabelAggregationResult{
 					DimensionType:     DimensionTypeLabel,
@@ -337,4 +339,3 @@ func (c *LabelAggregationConfig) GetAllKeys() []struct {
 
 	return result
 }
-
