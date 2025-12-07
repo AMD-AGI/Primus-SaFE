@@ -273,10 +273,6 @@ func (m *FrameworkDetectionManager) GetDetection(
 		}
 
 		if detection != nil {
-			// Found detection in hierarchy
-			if uid != workloadUID {
-				logrus.Infof("Found detection for workload %s from parent %s", workloadUID, uid)
-			}
 
 			// Update cache for the queried workload
 			if m.cache != nil {
@@ -560,7 +556,6 @@ func (m *FrameworkDetectionManager) getWorkloadHierarchyChain(
 
 		// Check for cycles
 		if visited[parentUID] {
-			logrus.Warnf("Detected cycle in workload hierarchy at %s", parentUID)
 			break
 		}
 
@@ -672,6 +667,14 @@ func (m *FrameworkDetectionManager) determineEventType(
 	// Conflict detected
 	if merged.Status == model.DetectionStatusConflict {
 		return DetectionEventTypeConflict
+	}
+
+	// Status changed to verified - this is a significant milestone
+	if merged.Status == model.DetectionStatusVerified &&
+		(existing.Status != model.DetectionStatusVerified) {
+		logrus.Infof("Detection status changed to verified: %s -> %s",
+			existing.Status, merged.Status)
+		return DetectionEventTypeCompleted
 	}
 
 	// Updated detection
