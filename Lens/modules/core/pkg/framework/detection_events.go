@@ -54,7 +54,7 @@ func NewEventDispatcher() *EventDispatcher {
 func (d *EventDispatcher) RegisterListener(listener DetectionEventListener) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	
+
 	d.listeners = append(d.listeners, listener)
 	log.Infof("Registered detection event listener (total: %d)", len(d.listeners))
 }
@@ -63,7 +63,7 @@ func (d *EventDispatcher) RegisterListener(listener DetectionEventListener) {
 func (d *EventDispatcher) UnregisterListener(listener DetectionEventListener) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	
+
 	for i, l := range d.listeners {
 		if l == listener {
 			d.listeners = append(d.listeners[:i], d.listeners[i+1:]...)
@@ -80,33 +80,38 @@ func (d *EventDispatcher) Dispatch(ctx context.Context, event *DetectionEvent) {
 	listeners := make([]DetectionEventListener, len(d.listeners))
 	copy(listeners, d.listeners)
 	d.mu.RUnlock()
-	
+
 	if len(listeners) == 0 {
-		log.Debugf("No listeners registered for detection event: type=%s, workload=%s", 
+		log.Debugf("No listeners registered for detection event: type=%s, workload=%s",
 			event.Type, event.WorkloadUID)
 		return
 	}
-	
-	log.Debugf("Dispatching detection event: type=%s, workload=%s to %d listeners", 
+
+	log.Debugf("Dispatching detection event: type=%s, workload=%s to %d listeners",
 		event.Type, event.WorkloadUID, len(listeners))
-	
+
 	// Dispatch to all listeners concurrently
 	for _, listener := range listeners {
 		// Create a copy for the goroutine
 		l := listener
-		
+
 		go func() {
 			defer func() {
 				if r := recover(); r != nil {
 					log.Errorf("Listener panicked: %v", r)
 				}
 			}()
-			
-			if err := l.OnDetectionEvent(ctx, event); err != nil {
-				log.Errorf("Listener error for event type=%s, workload=%s: %v", 
+
+			// Use a new context to avoid transaction context issues
+			// The parent context might be bound to a DB transaction that will be
+			// committed/rolled back before this goroutine executes
+			listenerCtx := context.Background()
+
+			if err := l.OnDetectionEvent(listenerCtx, event); err != nil {
+				log.Errorf("Listener error for event type=%s, workload=%s: %v",
 					event.Type, event.WorkloadUID, err)
 			} else {
-				log.Debugf("Listener handled event successfully: type=%s, workload=%s", 
+				log.Debugf("Listener handled event successfully: type=%s, workload=%s",
 					event.Type, event.WorkloadUID)
 			}
 		}()
@@ -119,4 +124,3 @@ func (d *EventDispatcher) GetListenerCount() int {
 	defer d.mu.RUnlock()
 	return len(d.listeners)
 }
-
