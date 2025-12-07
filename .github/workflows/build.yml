@@ -7,7 +7,7 @@ on:
       - '**'
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: ${{ github.workflow }}-${{ github.run_id }}
   cancel-in-progress: false
 
 jobs:
@@ -195,9 +195,9 @@ jobs:
   build:
     needs: detect-changes
     runs-on: primus-safe-cicd-tnznd
+    timeout-minutes: 60
     outputs:
       primary_tag: ${{ steps.build-and-push.outputs.primary_tag }}
-    timeout-minutes: 7200
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
