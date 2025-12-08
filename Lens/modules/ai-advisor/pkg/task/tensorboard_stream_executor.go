@@ -427,35 +427,65 @@ func (e *TensorBoardStreamExecutor) parseEventFiles(eventFilesRaw interface{}) (
 // selectTargetPod 从 workload 的所有 pod 中选择目标 pod
 // 优先选择名称以 master-0 结尾的 pod，否则返回第一个
 func (e *TensorBoardStreamExecutor) selectTargetPod(ctx context.Context, workloadUID string) (*model.GpuPods, error) {
-	// 获取数据库连接
-	db := database.GetFacade().GetSystemConfig().GetDB()
-
-	// 查询 owner_uid = workloadUID 且未删除的 pod
-	var pods []*model.GpuPods
-	err := db.WithContext(ctx).
-		Where("owner_uid = ? AND deleted = ?", workloadUID, false).
-		Find(&pods).Error
-
+	// 方法1：通过 workload_pod_reference 表查找 pod（推荐方式，支持层级关系）
+	workloadFacade := database.GetFacade().GetWorkload()
+	podRefs, err := workloadFacade.ListWorkloadPodReferenceByWorkloadUid(ctx, workloadUID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query pods: %w", err)
+		log.Warnf("Failed to query workload_pod_reference for workload %s: %v", workloadUID, err)
+	}
+
+	var pods []*model.GpuPods
+	if len(podRefs) > 0 {
+		// 通过 pod UID 列表查询 pod 详情
+		podUIDs := make([]string, 0, len(podRefs))
+		for _, ref := range podRefs {
+			podUIDs = append(podUIDs, ref.PodUID)
+		}
+
+		// 获取 pod 详情
+		db := database.GetFacade().GetSystemConfig().GetDB()
+		err = db.WithContext(ctx).
+			Where("uid IN ? AND deleted = ?", podUIDs, false).
+			Find(&pods).Error
+		if err != nil {
+			return nil, fmt.Errorf("failed to query pods by references: %w", err)
+		}
+
+		log.Infof("Found %d pods for workload %s via workload_pod_reference", len(pods), workloadUID)
+	}
+
+	// 方法2：查找子 workload 的 pod（递归查找层级结构）
+	if len(pods) == 0 {
+		childWorkloads, err := workloadFacade.ListChildrenWorkloadByParentUid(ctx, workloadUID)
+		if err != nil {
+			log.Warnf("Failed to query child workloads for %s: %v", workloadUID, err)
+		} else if len(childWorkloads) > 0 {
+			log.Infof("Found %d child workloads for %s, searching their pods", len(childWorkloads), workloadUID)
+
+			for _, child := range childWorkloads {
+				childPods, err := e.selectTargetPod(ctx, child.UID)
+				if err == nil && childPods != nil {
+					return childPods, nil
+				}
+			}
+		}
 	}
 
 	if len(pods) == 0 {
 		return nil, fmt.Errorf("no pods found for workload %s", workloadUID)
 	}
 
-	log.Infof("Found %d pods for workload %s", len(pods), workloadUID)
-
 	// 优先选择以 master-0 结尾的 pod
 	for _, pod := range pods {
 		if strings.HasSuffix(pod.Name, "master-0") {
-			log.Infof("Selected master-0 pod: %s/%s", pod.Namespace, pod.Name)
+			log.Infof("Selected master-0 pod: %s/%s for workload %s", pod.Namespace, pod.Name, workloadUID)
 			return pod, nil
 		}
 	}
 
 	// 如果没有 master-0，返回第一个 pod
 	selectedPod := pods[0]
-	log.Infof("No master-0 pod found, selected first pod: %s/%s", selectedPod.Namespace, selectedPod.Name)
+	log.Infof("No master-0 pod found, selected first pod: %s/%s for workload %s",
+		selectedPod.Namespace, selectedPod.Name, workloadUID)
 	return selectedPod, nil
 }

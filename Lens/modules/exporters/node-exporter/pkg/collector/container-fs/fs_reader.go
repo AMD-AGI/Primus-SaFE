@@ -32,12 +32,12 @@ func NewFSReader() *FSReader {
 			"/tmp",
 			"/home",
 			"/opt",
-			"/wekafs",  // WekaFS storage system
-			"/gpfs",    // IBM GPFS/Spectrum Scale
-			"/lustre",  // Lustre parallel file system
-			"/cephfs",  // Ceph file system
-			"/mnt",     // Common mount point for NFS and other storage
-			"/nfs",     // NFS mounts
+			"/wekafs", // WekaFS storage system
+			"/gpfs",   // IBM GPFS/Spectrum Scale
+			"/lustre", // Lustre parallel file system
+			"/cephfs", // Ceph file system
+			"/mnt",    // Common mount point for NFS and other storage
+			"/nfs",    // NFS mounts
 		},
 		maxFileSize: 100 * 1024 * 1024, // 100MB default
 	}
