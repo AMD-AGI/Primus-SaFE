@@ -428,6 +428,113 @@ jobs:
           path: coverage-summary.md
           retention-days: 90
 
+      - name: Write Job Summary
+        if: always()
+        run: |
+          # Write combined summary to GitHub Job Summary for direct viewing in Actions page
+          echo "# 🧪 Unit Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "*Generated at: $(date -u '+%Y-%m-%d %H:%M:%S UTC')*" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # ==================== Coverage Table ====================
+          echo "## 📊 Coverage Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # SaFE modules coverage table
+          echo "### SaFE Modules" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Module | Coverage |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|----------|" >> $GITHUB_STEP_SUMMARY
+          
+          for dir in coverage-reports/coverage-safe-*/; do
+            if [ -d "$dir" ]; then
+              module=$(basename "$dir" | sed 's/coverage-safe-//')
+              coverage="N/A"
+              
+              if [ -f "$dir/coverage.out" ]; then
+                coverage=$(go tool cover -func="$dir/coverage.out" 2>/dev/null | grep total | awk '{print $3}' || echo "N/A")
+              fi
+              
+              echo "| $module | $coverage |" >> $GITHUB_STEP_SUMMARY
+            fi
+          done
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Lens modules coverage table
+          echo "### Lens Modules" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Module | Coverage |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|----------|" >> $GITHUB_STEP_SUMMARY
+          
+          for dir in coverage-reports/coverage-lens-*/; do
+            if [ -d "$dir" ]; then
+              module=$(basename "$dir" | sed 's/coverage-lens-//')
+              coverage="N/A"
+              
+              if [ -f "$dir/coverage.out" ]; then
+                coverage=$(go tool cover -func="$dir/coverage.out" 2>/dev/null | grep total | awk '{print $3}' || echo "N/A")
+              fi
+              
+              echo "| $module | $coverage |" >> $GITHUB_STEP_SUMMARY
+            fi
+          done
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # ==================== Failed Tests Table ====================
+          echo "## ❌ Failed Tests" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Module | Failed Test | Duration |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------------|----------|" >> $GITHUB_STEP_SUMMARY
+          
+          HAS_FAILURES=false
+          
+          # Extract failed tests from SaFE modules
+          for dir in failed-tests-reports/failed-tests-safe-*/; do
+            if [ -d "$dir" ]; then
+              module=$(basename "$dir" | sed 's/failed-tests-safe-//')
+              if [ -f "$dir/failed-tests.md" ]; then
+                # Extract lines matching "--- FAIL: TestName (duration)"
+                while IFS= read -r line; do
+                  if [ -n "$line" ]; then
+                    HAS_FAILURES=true
+                    # Parse test name and duration from "--- FAIL: TestName (0.00s)"
+                    test_name=$(echo "$line" | sed -E 's/^--- FAIL: ([^ ]+).*/\1/')
+                    duration=$(echo "$line" | sed -E 's/.*\(([^)]+)\).*/\1/')
+                    echo "| SaFE/$module | \`$test_name\` | $duration |" >> $GITHUB_STEP_SUMMARY
+                  fi
+                done < <(grep -E "^--- FAIL:" "$dir/failed-tests.md" 2>/dev/null || true)
+              fi
+            fi
+          done
+          
+          # Extract failed tests from Lens modules
+          for dir in failed-tests-reports/failed-tests-lens-*/; do
+            if [ -d "$dir" ]; then
+              module=$(basename "$dir" | sed 's/failed-tests-lens-//')
+              if [ -f "$dir/failed-tests.md" ]; then
+                # Extract lines matching "--- FAIL: TestName (duration)"
+                while IFS= read -r line; do
+                  if [ -n "$line" ]; then
+                    HAS_FAILURES=true
+                    # Parse test name and duration from "--- FAIL: TestName (0.00s)"
+                    test_name=$(echo "$line" | sed -E 's/^--- FAIL: ([^ ]+).*/\1/')
+                    duration=$(echo "$line" | sed -E 's/.*\(([^)]+)\).*/\1/')
+                    echo "| Lens/$module | \`$test_name\` | $duration |" >> $GITHUB_STEP_SUMMARY
+                  fi
+                done < <(grep -E "^--- FAIL:" "$dir/failed-tests.md" 2>/dev/null || true)
+              fi
+            fi
+          done
+          
+          if [ "$HAS_FAILURES" = "false" ]; then
+            echo "| - | ✅ All tests passed | - |" >> $GITHUB_STEP_SUMMARY
+          fi
+
       - name: Comment PR with Coverage
         if: github.event_name == 'pull_request'
         uses: actions/github-script@v7
