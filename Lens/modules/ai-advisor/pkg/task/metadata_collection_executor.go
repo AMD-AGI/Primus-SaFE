@@ -293,7 +293,6 @@ func (e *MetadataCollectionExecutor) selectTargetPod(ctx context.Context, worklo
 			return nil, fmt.Errorf("failed to query pods by references: %w", err)
 		}
 
-		log.Infof("Found %d pods for workload %s via workload_pod_reference", len(pods), workloadUID)
 	}
 
 	// 方法2：查找子 workload 的 pod（递归查找层级结构）
