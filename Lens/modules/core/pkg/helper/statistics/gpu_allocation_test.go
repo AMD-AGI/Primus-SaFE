@@ -29,69 +29,80 @@ func TestCalculatePodAllocation(t *testing.T) {
 
 	testCases := []struct {
 		name           string
-		pod            *model.PodResource
+		pod            *model.GpuPods
 		startTime      time.Time
 		endTime        time.Time
+		now            time.Time
 		expectedActive float64
 	}{
 		{
 			name: "Pod fully within time range",
-			pod: &model.PodResource{
+			pod: &model.GpuPods{
 				UID:          "pod-1",
 				GpuAllocated: 4,
 				CreatedAt:    time.Date(2024, 1, 1, 10, 30, 0, 0, time.UTC),
-				EndAt:        time.Date(2024, 1, 1, 10, 45, 0, 0, time.UTC),
+				UpdatedAt:    time.Date(2024, 1, 1, 10, 45, 0, 0, time.UTC),
+				Phase:        "Succeeded",
 			},
 			startTime:      time.Date(2024, 1, 1, 10, 0, 0, 0, time.UTC),
 			endTime:        time.Date(2024, 1, 1, 11, 0, 0, 0, time.UTC),
+			now:            time.Date(2024, 1, 1, 11, 0, 0, 0, time.UTC),
 			expectedActive: 15 * 60, // 15 minutes = 900 seconds
 		},
 		{
 			name: "Pod started before time range",
-			pod: &model.PodResource{
+			pod: &model.GpuPods{
 				UID:          "pod-2",
 				GpuAllocated: 8,
 				CreatedAt:    time.Date(2024, 1, 1, 9, 0, 0, 0, time.UTC),
-				EndAt:        time.Date(2024, 1, 1, 10, 30, 0, 0, time.UTC),
+				UpdatedAt:    time.Date(2024, 1, 1, 10, 30, 0, 0, time.UTC),
+				Phase:        "Succeeded",
 			},
 			startTime:      time.Date(2024, 1, 1, 10, 0, 0, 0, time.UTC),
 			endTime:        time.Date(2024, 1, 1, 11, 0, 0, 0, time.UTC),
+			now:            time.Date(2024, 1, 1, 11, 0, 0, 0, time.UTC),
 			expectedActive: 30 * 60, // 30 minutes = 1800 seconds
 		},
 		{
 			name: "Pod ended after time range",
-			pod: &model.PodResource{
+			pod: &model.GpuPods{
 				UID:          "pod-3",
 				GpuAllocated: 2,
 				CreatedAt:    time.Date(2024, 1, 1, 10, 30, 0, 0, time.UTC),
-				EndAt:        time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC),
+				UpdatedAt:    time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC),
+				Phase:        "Succeeded",
 			},
 			startTime:      time.Date(2024, 1, 1, 10, 0, 0, 0, time.UTC),
 			endTime:        time.Date(2024, 1, 1, 11, 0, 0, 0, time.UTC),
+			now:            time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC),
 			expectedActive: 30 * 60, // 30 minutes = 1800 seconds
 		},
 		{
 			name: "Pod spans entire time range",
-			pod: &model.PodResource{
+			pod: &model.GpuPods{
 				UID:          "pod-4",
 				GpuAllocated: 1,
 				CreatedAt:    time.Date(2024, 1, 1, 9, 0, 0, 0, time.UTC),
-				EndAt:        time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC),
+				UpdatedAt:    time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC),
+				Phase:        "Succeeded",
 			},
 			startTime:      time.Date(2024, 1, 1, 10, 0, 0, 0, time.UTC),
 			endTime:        time.Date(2024, 1, 1, 11, 0, 0, 0, time.UTC),
+			now:            time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC),
 			expectedActive: 60 * 60, // 60 minutes = 3600 seconds
 		},
 		{
-			name: "Pod still running (zero EndAt)",
-			pod: &model.PodResource{
+			name: "Pod still running",
+			pod: &model.GpuPods{
 				UID:          "pod-5",
 				GpuAllocated: 4,
 				CreatedAt:    time.Date(2024, 1, 1, 10, 30, 0, 0, time.UTC),
-				EndAt:        time.Time{}, // Zero time = still running
+				UpdatedAt:    time.Date(2024, 1, 1, 10, 30, 0, 0, time.UTC),
+				Phase:        "Running", // Running phase = still running
 			},
 			startTime:      time.Date(2024, 1, 1, 10, 0, 0, 0, time.UTC),
 			endTime:        time.Date(2024, 1, 1, 11, 0, 0, 0, time.UTC),
+			now:            time.Date(2024, 1, 1, 11, 0, 0, 0, time.UTC),
 			expectedActive: 30 * 60, // 30 minutes = 1800 seconds
 		},
 	}
@@ -99,7 +110,11 @@ func TestCalculatePodAllocation(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			totalDuration := tc.endTime.Sub(tc.startTime).Seconds()
-			result := calculator.calculatePodAllocation(tc.pod, tc.startTime, tc.endTime, totalDuration)
+			result := calculator.calculatePodAllocation(tc.pod, tc.startTime, tc.endTime, totalDuration, tc.now)
+
+			if result == nil {
+				t.Fatal("Expected non-nil result")
+			}
 
 			if result.ActiveDuration != tc.expectedActive {
 				t.Errorf("ActiveDuration = %v, want %v", result.ActiveDuration, tc.expectedActive)
@@ -117,6 +132,7 @@ func TestCalculateWorkloadAllocation(t *testing.T) {
 
 	startTime := time.Date(2024, 1, 1, 10, 0, 0, 0, time.UTC)
 	endTime := time.Date(2024, 1, 1, 11, 0, 0, 0, time.UTC)
+	now := time.Date(2024, 1, 1, 11, 0, 0, 0, time.UTC)
 	totalDuration := endTime.Sub(startTime).Seconds() // 3600 seconds
 
 	workload := &model.GpuWorkload{
@@ -129,22 +145,24 @@ func TestCalculateWorkloadAllocation(t *testing.T) {
 	}
 
 	// Two pods: one runs first 30 min with 4 GPUs, another runs last 30 min with 8 GPUs
-	pods := []*model.PodResource{
+	pods := []*model.GpuPods{
 		{
 			UID:          "pod-1",
 			GpuAllocated: 4,
 			CreatedAt:    time.Date(2024, 1, 1, 10, 0, 0, 0, time.UTC),
-			EndAt:        time.Date(2024, 1, 1, 10, 30, 0, 0, time.UTC),
+			UpdatedAt:    time.Date(2024, 1, 1, 10, 30, 0, 0, time.UTC),
+			Phase:        "Succeeded",
 		},
 		{
 			UID:          "pod-2",
 			GpuAllocated: 8,
 			CreatedAt:    time.Date(2024, 1, 1, 10, 30, 0, 0, time.UTC),
-			EndAt:        time.Date(2024, 1, 1, 11, 0, 0, 0, time.UTC),
+			UpdatedAt:    time.Date(2024, 1, 1, 11, 0, 0, 0, time.UTC),
+			Phase:        "Succeeded",
 		},
 	}
 
-	result := calculator.calculateWorkloadAllocation(workload, pods, startTime, endTime, totalDuration)
+	result := calculator.calculateWorkloadAllocation(workload, pods, startTime, endTime, totalDuration, now)
 
 	// Expected allocation: (4 * 1800/3600) + (8 * 1800/3600) = 2 + 4 = 6
 	expectedAllocation := 6.0
@@ -166,6 +184,7 @@ func TestCalculateWorkloadAllocation_NoOverlap(t *testing.T) {
 
 	startTime := time.Date(2024, 1, 1, 10, 0, 0, 0, time.UTC)
 	endTime := time.Date(2024, 1, 1, 11, 0, 0, 0, time.UTC)
+	now := time.Date(2024, 1, 1, 11, 0, 0, 0, time.UTC)
 	totalDuration := 3600.0 // 1 hour
 
 	// Scenario: 100 GPU cluster, two non-overlapping workloads
@@ -192,26 +211,28 @@ func TestCalculateWorkloadAllocation_NoOverlap(t *testing.T) {
 		EndAt:     time.Date(2024, 1, 1, 11, 0, 0, 0, time.UTC),
 	}
 
-	podsA := []*model.PodResource{
+	podsA := []*model.GpuPods{
 		{
 			UID:          "pod-a",
 			GpuAllocated: 80,
 			CreatedAt:    time.Date(2024, 1, 1, 10, 0, 0, 0, time.UTC),
-			EndAt:        time.Date(2024, 1, 1, 10, 30, 0, 0, time.UTC),
+			UpdatedAt:    time.Date(2024, 1, 1, 10, 30, 0, 0, time.UTC),
+			Phase:        "Succeeded",
 		},
 	}
 
-	podsB := []*model.PodResource{
+	podsB := []*model.GpuPods{
 		{
 			UID:          "pod-b",
 			GpuAllocated: 60,
 			CreatedAt:    time.Date(2024, 1, 1, 10, 30, 0, 0, time.UTC),
-			EndAt:        time.Date(2024, 1, 1, 11, 0, 0, 0, time.UTC),
+			UpdatedAt:    time.Date(2024, 1, 1, 11, 0, 0, 0, time.UTC),
+			Phase:        "Succeeded",
 		},
 	}
 
-	resultA := calculator.calculateWorkloadAllocation(workloadA, podsA, startTime, endTime, totalDuration)
-	resultB := calculator.calculateWorkloadAllocation(workloadB, podsB, startTime, endTime, totalDuration)
+	resultA := calculator.calculateWorkloadAllocation(workloadA, podsA, startTime, endTime, totalDuration, now)
+	resultB := calculator.calculateWorkloadAllocation(workloadB, podsB, startTime, endTime, totalDuration, now)
 
 	// Workload A: 80 GPUs * 0.5 = 40 GPUs average
 	expectedA := 40.0
@@ -277,4 +298,3 @@ func TestWorkloadAllocationDetail_Fields(t *testing.T) {
 		t.Errorf("AllocatedGpu = %v, want 8.5", detail.AllocatedGpu)
 	}
 }
-
