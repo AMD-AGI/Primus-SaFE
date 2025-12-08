@@ -70,6 +70,8 @@ func GetK8sResourceStatus(unstructuredObj *unstructured.Unstructured, rt *v1.Res
 			result.Phase = string(v1.K8sRunning)
 			result.Message = "the job is running"
 		}
+	case common.CICDScaleRunnerSetKind:
+		result.RunnerScaleSetId = v1.GetAnnotation(unstructuredObj, v1.CICDScaleSetIdAnnotation)
 	default:
 		err = getResourceStatusImpl(unstructuredObj, rt, result)
 	}

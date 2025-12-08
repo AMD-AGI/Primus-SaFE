@@ -11,7 +11,6 @@ import (
 	"reflect"
 	"time"
 
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -112,9 +111,6 @@ func (r *SyncerReconciler) getK8sResourceStatus(ctx context.Context, message *re
 	if status == nil {
 		return nil, nil
 	}
-	if message.gvk.Kind == common.CICDScaleRunnerSetKind {
-		status.RunnerScaleSetId = v1.GetCICDRunnerScaleSetId(k8sObject)
-	}
 
 	// Obtain detailed failure information from the Pod upon failure
 	if status.Phase == string(v1.K8sFailed) {
@@ -163,10 +159,24 @@ func (r *SyncerReconciler) waitJobDeleted(ctx context.Context, adminWorkload *v1
 // Manages workload phase transitions and condition updates.
 func (r *SyncerReconciler) updateAdminWorkloadStatus(ctx context.Context, originalWorkload *v1.Workload,
 	status *jobutils.K8sResourceStatus, message *resourceMessage) (*v1.Workload, error) {
-	if originalWorkload.IsEnd() || status == nil || status.Phase == "" {
+	if originalWorkload.IsEnd() || status == nil {
 		return originalWorkload, nil
 	}
 	adminWorkload := originalWorkload.DeepCopy()
+	if commonworkload.IsCICDScalingRunnerSet(adminWorkload) {
+		if adminWorkload.Status.RunnerScaleSetId != status.RunnerScaleSetId {
+			patch := client.MergeFrom(originalWorkload)
+			adminWorkload.Status.RunnerScaleSetId = status.RunnerScaleSetId
+			if err := r.Status().Patch(ctx, adminWorkload, patch); err != nil {
+				return nil, err
+			}
+		}
+		return adminWorkload, nil
+	}
+
+	if status.Phase == "" {
+		return originalWorkload, nil
+	}
 	r.updateAdminWorkloadPhase(adminWorkload, status, message)
 	if adminWorkload.Status.StartTime == nil {
 		adminWorkload.Status.StartTime = &metav1.Time{Time: time.Now().UTC()}
@@ -178,7 +188,6 @@ func (r *SyncerReconciler) updateAdminWorkloadStatus(ctx context.Context, origin
 		adminWorkload.Status.Message = ""
 	}
 	adminWorkload.Status.K8sObjectUid = string(message.uid)
-	adminWorkload.Status.RunnerScaleSetId = status.RunnerScaleSetId
 	cond := jobutils.NewCondition(status.Phase, status.Message,
 		commonworkload.GenerateDispatchReason(message.dispatchCount))
 	updateWorkloadCondition(adminWorkload, cond)

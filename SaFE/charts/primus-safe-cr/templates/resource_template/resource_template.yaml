@@ -299,7 +299,7 @@ metadata:
     meta.helm.sh/release-namespace: {{ .Release.Namespace }}
 spec:
   groupVersionKind:
-    group: "actions.github.com"
+    group: actions.github.com
     version: v1alpha1
     kind: AutoscalingRunnerSet
   resourceSpecs:
