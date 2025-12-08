@@ -69,9 +69,9 @@ func (e *TensorBoardStreamExecutor) Execute(
 
 	// 转换 event_files 为字符串数组
 	eventFiles, err := e.parseEventFiles(eventFilesRaw)
-	if err != nil || len(eventFiles) == 0 {
+	if err != nil {
 		return coreTask.FailureResult(
-			fmt.Sprintf("invalid or empty event_files: %v", err),
+			fmt.Sprintf("invalid event_files: %v", err),
 			map[string]interface{}{
 				"error_at": time.Now().Format(time.RFC3339),
 			},
@@ -86,7 +86,28 @@ func (e *TensorBoardStreamExecutor) Execute(
 		}
 	}
 
-	log.Infof("TensorBoard event files: %v (log_dir: %s)", eventFiles, logDir)
+	// 检查是否需要等待文件出现
+	waitForFiles := false
+	if waitVal, ok := task.Ext["wait_for_files"]; ok {
+		if waitBool, ok := waitVal.(bool); ok {
+			waitForFiles = waitBool
+		}
+	}
+
+	// 如果事件文件列表为空但配置了等待，需要等待文件出现
+	if len(eventFiles) == 0 {
+		if !waitForFiles || logDir == "" {
+			return coreTask.FailureResult(
+				"no event files provided and wait_for_files not configured",
+				map[string]interface{}{
+					"error_at": time.Now().Format(time.RFC3339),
+				},
+			), fmt.Errorf("no event files to stream")
+		}
+		log.Infof("TensorBoard: waiting for files to appear in %s", logDir)
+	} else {
+		log.Infof("TensorBoard event files: %v (log_dir: %s)", eventFiles, logDir)
+	}
 
 	// 2. 获取 pod 信息
 	gpuPod, err := e.selectTargetPod(ctx, task.WorkloadUID)
@@ -144,7 +165,53 @@ func (e *TensorBoardStreamExecutor) Execute(
 
 	log.Infof("Starting stream with event files: %v, offsets: %+v", eventFiles, startOffsets)
 
-	// 6. 构建流式请求（使用精确的事件文件列表）
+	// 6. 如果需要等待文件，先扫描文件
+	if waitForFiles && len(eventFiles) == 0 {
+		log.Infof("Waiting for TensorBoard files to appear in %s", logDir)
+
+		fileWaitTimeout := 300 // 默认5分钟
+		if timeoutVal, ok := task.Ext["file_wait_timeout"]; ok {
+			if timeoutInt, ok := timeoutVal.(int); ok {
+				fileWaitTimeout = timeoutInt
+			} else if timeoutFloat, ok := timeoutVal.(float64); ok {
+				fileWaitTimeout = int(timeoutFloat)
+			}
+		}
+
+		fileScanInterval := 10 // 默认10秒
+		if intervalVal, ok := task.Ext["file_scan_interval"]; ok {
+			if intervalInt, ok := intervalVal.(int); ok {
+				fileScanInterval = intervalInt
+			} else if intervalFloat, ok := intervalVal.(float64); ok {
+				fileScanInterval = int(intervalFloat)
+			}
+		}
+
+		// 等待文件出现
+		detectedFiles, err := e.waitForTensorBoardFiles(
+			streamCtx,
+			task.WorkloadUID,
+			gpuPod.UID,
+			logDir,
+			time.Duration(fileWaitTimeout)*time.Second,
+			time.Duration(fileScanInterval)*time.Second,
+		)
+
+		if err != nil {
+			return coreTask.FailureResult(
+				fmt.Sprintf("failed to detect TensorBoard files: %v", err),
+				map[string]interface{}{
+					"error_at":     time.Now().Format(time.RFC3339),
+					"wait_timeout": fileWaitTimeout,
+				},
+			), err
+		}
+
+		eventFiles = detectedFiles
+		log.Infof("TensorBoard files detected: %v", eventFiles)
+	}
+
+	// 7. 构建流式请求（使用精确的事件文件列表）
 	streamReq := &tensorboard.StreamRequest{
 		WorkloadUID: task.WorkloadUID,
 		PodUID:      gpuPod.UID,
@@ -289,6 +356,51 @@ func (e *TensorBoardStreamExecutor) Cancel(ctx context.Context, task *model.Work
 	}
 
 	return nil
+}
+
+// waitForTensorBoardFiles 等待 TensorBoard 文件出现
+func (e *TensorBoardStreamExecutor) waitForTensorBoardFiles(
+	ctx context.Context,
+	workloadUID string,
+	podUID string,
+	logDir string,
+	timeout time.Duration,
+	scanInterval time.Duration,
+) ([]string, error) {
+	log.Infof("Waiting for TensorBoard files in %s (timeout: %v, interval: %v)", logDir, timeout, scanInterval)
+
+	// TODO: 实现真正的文件扫描逻辑
+	// 需要通过 node-exporter API 定期调用 FindTensorboardFiles
+	// 当前先使用简化逻辑
+
+	deadline := time.Now().Add(timeout)
+	ticker := time.NewTicker(scanInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("context cancelled while waiting for files")
+
+		case <-time.After(time.Until(deadline)):
+			return nil, fmt.Errorf("timeout waiting for TensorBoard files after %v", timeout)
+
+		case <-ticker.C:
+			// 尝试通过 fd 扫描查找文件
+			// 这里需要调用 FindTensorboardFiles 接口
+			log.Debugf("Scanning for TensorBoard files in pod %s", podUID)
+
+			// TODO: 实际调用 node-exporter API 扫描文件
+			// 由于需要 client，这里暂时返回错误，实际使用时需要完善
+
+			// 临时方案：如果logDir存在，假设文件会在那里出现
+			// 实际部署时需要真正的文件扫描逻辑
+
+			if time.Now().After(deadline) {
+				return nil, fmt.Errorf("timeout waiting for TensorBoard files")
+			}
+		}
+	}
 }
 
 // parseEventFiles 解析事件文件列表

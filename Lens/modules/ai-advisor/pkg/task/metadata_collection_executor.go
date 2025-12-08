@@ -3,6 +3,8 @@ package task
 import (
 	"context"
 	"fmt"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -13,6 +15,7 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	coreTask "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/task"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/node-exporter/pkg/types"
+	"gopkg.in/yaml.v3"
 )
 
 // MetadataCollectionExecutor 元数据收集任务执行器
@@ -149,39 +152,59 @@ func (e *MetadataCollectionExecutor) Execute(
 	}
 
 	// 7. 解析 TensorBoard 结果
-	tensorboardEnabled := len(tensorboardResult.Files) > 0
-	updates["tensorboard_enabled"] = tensorboardEnabled
+	filesDetected := len(tensorboardResult.Files) > 0
+	updates["tensorboard_files_detected"] = filesDetected
 	updates["tensorboard_result"] = tensorboardResult
 
-	if tensorboardEnabled {
-		// 提取所有唯一的事件文件路径（去重）
-		uniqueFilePaths := extractUniqueFilePaths(tensorboardResult.Files)
+	// 8. 检查框架配置是否启用了 TensorBoard（即使文件还没出现）
+	tensorboardConfigured, configLogDir := e.checkTensorBoardConfiguration(ctx, detectionInfo, gpuPod, nodeExporterClient)
+	updates["tensorboard_configured"] = tensorboardConfigured
 
-		// 从第一个文件路径中提取目录作为 log_dir 参考
-		logDir := ""
-		if len(uniqueFilePaths) > 0 {
-			logDir = extractLogDir(uniqueFilePaths[0])
+	// 决定是否启用 TensorBoard stream
+	tensorboardEnabled := filesDetected || tensorboardConfigured
+
+	if tensorboardEnabled {
+		var uniqueFilePaths []string
+		var logDir string
+
+		if filesDetected {
+			// 文件已存在 - 使用实际扫描到的文件
+			uniqueFilePaths = extractUniqueFilePaths(tensorboardResult.Files)
+			if len(uniqueFilePaths) > 0 {
+				logDir = extractLogDir(uniqueFilePaths[0])
+			}
+
+			updates["tensorboard_log_dir"] = logDir
+			updates["tensorboard_event_files"] = uniqueFilePaths
+			updates["tensorboard_files_count"] = len(uniqueFilePaths)
+			updates["tensorboard_pids"] = extractUniquePIDs(tensorboardResult.Files)
+
+			log.Infof("TensorBoard files detected for workload %s: log_dir=%s, files=%d",
+				task.WorkloadUID, logDir, len(uniqueFilePaths))
+		} else {
+			// 文件未出现，但配置显示会启用 - 使用配置中的路径
+			logDir = configLogDir
+			updates["tensorboard_log_dir"] = logDir
+			updates["tensorboard_event_files"] = []string{} // 空列表，等待文件出现
+			updates["tensorboard_files_count"] = 0
+			updates["tensorboard_detection_mode"] = "config_based"
+
+			log.Infof("TensorBoard configured (not yet initialized) for workload %s: log_dir=%s",
+				task.WorkloadUID, logDir)
 		}
 
-		updates["tensorboard_log_dir"] = logDir
-		updates["tensorboard_event_files"] = uniqueFilePaths // 精确的事件文件路径列表
-		updates["tensorboard_files_count"] = len(uniqueFilePaths)
-		updates["tensorboard_pids"] = extractUniquePIDs(tensorboardResult.Files)
-
-		log.Infof("TensorBoard detected for workload %s: enabled=true, log_dir=%s, event_files=%d, unique_files=%v",
-			task.WorkloadUID, logDir, len(uniqueFilePaths), uniqueFilePaths)
-
-		// 8. 创建 TensorBoard 流式读取任务
-		if err := e.createTensorBoardStreamTask(ctx, task.WorkloadUID, uniqueFilePaths, logDir); err != nil {
+		// 9. 创建 TensorBoard 流式读取任务（无论文件是否已出现）
+		if err := e.createTensorBoardStreamTask(ctx, task.WorkloadUID, uniqueFilePaths, logDir, !filesDetected); err != nil {
 			log.Warnf("Failed to create TensorBoard stream task for workload %s: %v", task.WorkloadUID, err)
 			updates["stream_task_created"] = false
 			updates["stream_task_error"] = err.Error()
 		} else {
-			log.Infof("TensorBoard stream task created for workload %s", task.WorkloadUID)
+			log.Infof("TensorBoard stream task created for workload %s (wait_for_files=%v)", task.WorkloadUID, !filesDetected)
 			updates["stream_task_created"] = true
 		}
 	} else {
-		log.Infof("TensorBoard not detected for workload %s (no event files found)", task.WorkloadUID)
+		log.Infof("TensorBoard not enabled for workload %s (no files detected and not configured)", task.WorkloadUID)
+		updates["tensorboard_enabled"] = false
 	}
 
 	return coreTask.SuccessResult(updates), nil
@@ -305,6 +328,7 @@ func (e *MetadataCollectionExecutor) createTensorBoardStreamTask(
 	workloadUID string,
 	eventFiles []string,
 	logDir string,
+	waitForFiles bool, // 是否等待文件出现
 ) error {
 	// 检查是否已经存在 TensorBoard stream 任务
 	existingTask, err := e.taskFacade.GetTask(ctx, workloadUID, constant.TaskTypeTensorBoardStream)
@@ -325,9 +349,12 @@ func (e *MetadataCollectionExecutor) createTensorBoardStreamTask(
 		Status:      constant.TaskStatusPending,
 		Ext: model.ExtType{
 			// TensorBoard 配置
-			"event_files":   eventFiles, // 精确的事件文件列表
-			"log_dir":       logDir,     // 日志目录（参考）
-			"poll_interval": 5,          // 5 秒轮询间隔
+			"event_files":        eventFiles,   // 精确的事件文件列表（可能为空）
+			"log_dir":            logDir,       // 日志目录
+			"wait_for_files":     waitForFiles, // 是否等待文件出现
+			"poll_interval":      5,            // 5 秒轮询间隔
+			"file_wait_timeout":  300,          // 文件等待超时（5分钟）
+			"file_scan_interval": 10,           // 文件扫描间隔（10秒）
 
 			// 任务配置
 			"auto_restart": true,
@@ -339,6 +366,10 @@ func (e *MetadataCollectionExecutor) createTensorBoardStreamTask(
 			"created_by":   "metadata_collection",
 			"created_at":   time.Now().Format(time.RFC3339),
 			"triggered_by": "tensorboard_detection",
+			"detection_mode": map[string]interface{}{
+				"files_detected": len(eventFiles) > 0,
+				"config_based":   waitForFiles,
+			},
 		},
 	}
 
@@ -347,8 +378,310 @@ func (e *MetadataCollectionExecutor) createTensorBoardStreamTask(
 		return fmt.Errorf("failed to create TensorBoard stream task: %w", err)
 	}
 
-	log.Infof("TensorBoard stream task created for workload %s with %d event files", workloadUID, len(eventFiles))
+	if waitForFiles {
+		log.Infof("TensorBoard stream task created for workload %s (waiting for files in %s)", workloadUID, logDir)
+	} else {
+		log.Infof("TensorBoard stream task created for workload %s with %d event files", workloadUID, len(eventFiles))
+	}
 	return nil
+}
+
+// checkTensorBoardConfiguration 检查框架配置是否启用了 TensorBoard
+func (e *MetadataCollectionExecutor) checkTensorBoardConfiguration(
+	ctx context.Context,
+	detectionInfo *model.AiWorkloadMetadata,
+	gpuPod *model.GpuPods,
+	nodeExporterClient interface{},
+) (bool, string) {
+	if detectionInfo == nil || detectionInfo.Metadata == nil {
+		return false, ""
+	}
+
+	framework := strings.ToLower(detectionInfo.Framework)
+	log.Infof("Checking TensorBoard configuration for framework: %s", framework)
+
+	// 根据不同框架检查配置
+	switch framework {
+	case "primus":
+		return e.checkPrimusTensorBoard(ctx, detectionInfo.Metadata, gpuPod, nodeExporterClient)
+	case "megatron", "megatron-lm":
+		return e.checkMegatronTensorBoard(detectionInfo.Metadata)
+	case "pytorch":
+		return e.checkPyTorchTensorBoard(detectionInfo.Metadata)
+	default:
+		// 对于未知框架，尝试从 metadata 中查找通用的 tensorboard 配置
+		return e.checkGenericTensorBoard(detectionInfo.Metadata)
+	}
+}
+
+// checkPrimusTensorBoard 检查 Primus 配置
+func (e *MetadataCollectionExecutor) checkPrimusTensorBoard(
+	ctx context.Context,
+	metadata model.ExtType,
+	gpuPod *model.GpuPods,
+	nodeExporterClient interface{},
+) (bool, string) {
+	// Get process tree to find top-level Python process
+	processTree, err := e.getProcessTree(ctx, gpuPod, nodeExporterClient)
+	if err != nil {
+		log.Warnf("Failed to get process tree for pod %s: %v", gpuPod.Name, err)
+		return e.checkPrimusTensorBoardLegacy(metadata)
+	}
+
+	// Find top-level Python process
+	pythonProc := e.findTopLevelPythonProcess(processTree)
+	if pythonProc == nil {
+		log.Warnf("No top-level Python process found in pod %s", gpuPod.Name)
+		return e.checkPrimusTensorBoardLegacy(metadata)
+	}
+
+	log.Infof("Found top-level Python process: PID=%d, cmdline=%s", pythonProc.HostPID, pythonProc.Cmdline)
+
+	// Extract config file path from env or cmdline
+	configPath := e.extractConfigPath(pythonProc)
+	if configPath == "" {
+		log.Debugf("No config path found in process env or cmdline")
+		return e.checkPrimusTensorBoardLegacy(metadata)
+	}
+
+	// Convert relative path to absolute using cwd
+	if !filepath.IsAbs(configPath) && pythonProc.Cwd != "" {
+		configPath = filepath.Join(pythonProc.Cwd, configPath)
+	}
+
+	log.Infof("Reading config file from container: %s", configPath)
+
+	// Read config file from container
+	configContent, err := e.readContainerFile(ctx, pythonProc.HostPID, configPath, nodeExporterClient)
+	if err != nil {
+		log.Warnf("Failed to read config file %s: %v", configPath, err)
+		return e.checkPrimusTensorBoardLegacy(metadata)
+	}
+
+	// Parse YAML and check tensorboard configuration
+	enabled := e.parsePrimusConfig(configContent)
+	if enabled {
+		log.Infof("Primus: TensorBoard enabled from config file")
+		return true, ""
+	}
+
+	return false, ""
+}
+
+// checkPrimusTensorBoardLegacy legacy method using metadata
+func (e *MetadataCollectionExecutor) checkPrimusTensorBoardLegacy(metadata model.ExtType) (bool, string) {
+	if expConfig, ok := metadata["exp_config"].(map[string]interface{}); ok {
+		if disableTB, ok := expConfig["disable_tensorboard"].(bool); ok {
+			if !disableTB {
+				log.Infof("Primus: TensorBoard enabled (legacy, disable_tensorboard=false)")
+				return true, ""
+			}
+		}
+	}
+	return false, ""
+}
+
+// getProcessTree retrieves process tree from node-exporter
+func (e *MetadataCollectionExecutor) getProcessTree(
+	ctx context.Context,
+	gpuPod *model.GpuPods,
+	nodeExporterClient interface{},
+) (*types.PodProcessTree, error) {
+	client, ok := nodeExporterClient.(interface {
+		GetPodProcessTree(ctx context.Context, req *types.ProcessTreeRequest) (*types.PodProcessTree, error)
+	})
+	if !ok {
+		return nil, fmt.Errorf("invalid node-exporter client type")
+	}
+
+	req := &types.ProcessTreeRequest{
+		PodName:        gpuPod.Name,
+		PodNamespace:   gpuPod.Namespace,
+		PodUID:         gpuPod.UID,
+		IncludeEnv:     true,
+		IncludeCmdline: true,
+	}
+
+	return client.GetPodProcessTree(ctx, req)
+}
+
+// findTopLevelPythonProcess finds the top-level Python process in the tree
+func (e *MetadataCollectionExecutor) findTopLevelPythonProcess(tree *types.PodProcessTree) *types.ProcessInfo {
+	if tree == nil {
+		return nil
+	}
+
+	for _, container := range tree.Containers {
+		if container.RootProcess != nil {
+			proc := e.findPythonProcessInTree(container.RootProcess)
+			if proc != nil {
+				return proc
+			}
+		}
+	}
+
+	return nil
+}
+
+// findPythonProcessInTree recursively searches for Python process
+func (e *MetadataCollectionExecutor) findPythonProcessInTree(proc *types.ProcessInfo) *types.ProcessInfo {
+	if proc == nil {
+		return nil
+	}
+
+	if proc.IsPython {
+		return proc
+	}
+
+	for _, child := range proc.Children {
+		if result := e.findPythonProcessInTree(child); result != nil {
+			return result
+		}
+	}
+
+	return nil
+}
+
+// extractConfigPath extracts config file path from env or cmdline
+func (e *MetadataCollectionExecutor) extractConfigPath(proc *types.ProcessInfo) string {
+	// First, check env for EXP variable
+	for _, envVar := range proc.Env {
+		if strings.HasPrefix(envVar, "EXP=") {
+			return strings.TrimPrefix(envVar, "EXP=")
+		}
+	}
+
+	// Second, check cmdline for --config flag
+	configRegex := regexp.MustCompile(`--config\s+(\S+)`)
+	if matches := configRegex.FindStringSubmatch(proc.Cmdline); len(matches) > 1 {
+		return matches[1]
+	}
+
+	return ""
+}
+
+// readContainerFile reads a file from container filesystem
+func (e *MetadataCollectionExecutor) readContainerFile(
+	ctx context.Context,
+	pid int,
+	path string,
+	nodeExporterClient interface{},
+) (string, error) {
+	client, ok := nodeExporterClient.(interface {
+		ReadContainerFile(ctx context.Context, req *types.ContainerFileReadRequest) (*types.ContainerFileReadResponse, error)
+	})
+	if !ok {
+		return "", fmt.Errorf("invalid node-exporter client type")
+	}
+
+	req := &types.ContainerFileReadRequest{
+		PID:            pid,
+		Path:           path,
+		FollowSymlinks: true,
+	}
+
+	resp, err := client.ReadContainerFile(ctx, req)
+	if err != nil {
+		return "", err
+	}
+
+	return resp.Content, nil
+}
+
+// parsePrimusConfig parses Primus YAML config and checks tensorboard setting
+func (e *MetadataCollectionExecutor) parsePrimusConfig(content string) bool {
+	var config map[string]interface{}
+	if err := yaml.Unmarshal([]byte(content), &config); err != nil {
+		log.Warnf("Failed to parse YAML config: %v", err)
+		return false
+	}
+
+	// Navigate: modules.pre_trainer.overrides.disable_tensorboard
+	modules, ok := config["modules"].(map[string]interface{})
+	if !ok {
+		log.Debugf("No 'modules' key in config")
+		return false
+	}
+
+	preTrainer, ok := modules["pre_trainer"].(map[string]interface{})
+	if !ok {
+		log.Debugf("No 'modules.pre_trainer' key in config")
+		return false
+	}
+
+	overrides, ok := preTrainer["overrides"].(map[string]interface{})
+	if !ok {
+		log.Debugf("No 'modules.pre_trainer.overrides' key in config")
+		return false
+	}
+
+	disableTB, ok := overrides["disable_tensorboard"].(bool)
+	if !ok {
+		// If key doesn't exist, assume tensorboard is enabled
+		log.Debugf("'disable_tensorboard' not found, assuming enabled")
+		return true
+	}
+
+	if !disableTB {
+		// tensorboard is enabled
+		log.Debugf("disable_tensorboard=false, tensorboard enabled")
+		return true
+	}
+
+	log.Debugf("disable_tensorboard=true, tensorboard disabled")
+	return false
+}
+
+// checkMegatronTensorBoard 检查 Megatron 配置
+func (e *MetadataCollectionExecutor) checkMegatronTensorBoard(metadata model.ExtType) (bool, string) {
+	// 检查 tensorboard-dir 参数或环境变量
+	if megatronConfig, ok := metadata["megatron_config"].(map[string]interface{}); ok {
+		if tbDir, ok := megatronConfig["tensorboard_dir"].(string); ok && tbDir != "" {
+			log.Infof("Megatron: TensorBoard enabled (tensorboard-dir=%s)", tbDir)
+			return true, tbDir
+		}
+	}
+
+	// 检查环境变量
+	if env, ok := metadata["environment"].(map[string]interface{}); ok {
+		if tbDir, ok := env["TENSORBOARD_DIR"].(string); ok && tbDir != "" {
+			log.Infof("Megatron: TensorBoard enabled (TENSORBOARD_DIR=%s)", tbDir)
+			return true, tbDir
+		}
+	}
+
+	return false, ""
+}
+
+// checkPyTorchTensorBoard 检查 PyTorch 配置
+func (e *MetadataCollectionExecutor) checkPyTorchTensorBoard(metadata model.ExtType) (bool, string) {
+	// PyTorch 通常通过 SummaryWriter 使用，检查是否有相关配置
+	if tbInfo, ok := metadata["tensorboard_config"].(map[string]interface{}); ok {
+		if logDir, ok := tbInfo["log_dir"].(string); ok && logDir != "" {
+			log.Infof("PyTorch: TensorBoard enabled (log_dir=%s)", logDir)
+			return true, logDir
+		}
+	}
+
+	return false, ""
+}
+
+// checkGenericTensorBoard 检查通用 TensorBoard 配置
+func (e *MetadataCollectionExecutor) checkGenericTensorBoard(metadata model.ExtType) (bool, string) {
+	// 查找可能的 tensorboard 相关字段
+	if tbConfig, ok := metadata["tensorboard"].(map[string]interface{}); ok {
+		if enabled, ok := tbConfig["enabled"].(bool); ok && enabled {
+			logDir, _ := tbConfig["log_dir"].(string)
+			log.Infof("Generic: TensorBoard enabled (log_dir=%s)", logDir)
+			return true, logDir
+		}
+		if logDir, ok := tbConfig["log_dir"].(string); ok && logDir != "" {
+			log.Infof("Generic: TensorBoard enabled (log_dir=%s)", logDir)
+			return true, logDir
+		}
+	}
+
+	return false, ""
 }
 
 // extractLogDir 从 TensorBoard 事件文件路径中提取目录
