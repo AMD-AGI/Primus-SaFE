@@ -533,10 +533,9 @@ func (r *InferenceReconciler) updateInferenceInstance(ctx context.Context, infer
 	originalInference := inference.DeepCopy()
 	needsUpdate := false
 
-	// Use Service DNS instead of Pod IP for stable access
-	// Service name is the same as workload name
-	newBaseUrl := fmt.Sprintf("http://%s.%s.svc.cluster.local:8000",
-		workload.Name, workload.Spec.Workspace)
+	newBaseUrl := fmt.Sprintf("http://%s/%s/%s/%s",
+		commonconfig.GetSystemHost(), v1.GetClusterId(workload), workload.Spec.Workspace, workload.Name)
+
 	if inference.Spec.Instance.BaseUrl != newBaseUrl {
 		inference.Spec.Instance.BaseUrl = newBaseUrl
 		needsUpdate = true
