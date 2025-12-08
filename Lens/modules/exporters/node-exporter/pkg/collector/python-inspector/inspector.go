@@ -159,8 +159,21 @@ func (i *Inspector) executeScript(ctx context.Context, pid int, script *Inspecti
 
 	log.Debugf("Executing script %s on PID %d", script.Metadata.Name, pid)
 
-	if err := cmd.Run(); err != nil {
+	// Capture stdout and stderr
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		// Include command output in error message
+		outputStr := strings.TrimSpace(string(output))
+		if outputStr != "" {
+			log.Errorf("Script %s execution output: %s", script.Metadata.Name, outputStr)
+			return nil, fmt.Errorf("script execution failed: %w, output: %s", err, outputStr)
+		}
 		return nil, fmt.Errorf("script execution failed: %w", err)
+	}
+
+	// Log output for debugging even on success
+	if len(output) > 0 {
+		log.Debugf("Script %s output: %s", script.Metadata.Name, strings.TrimSpace(string(output)))
 	}
 
 	// Read result
