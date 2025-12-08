@@ -229,6 +229,7 @@ type ModelInfo struct {
 	Message         string            `json:"message"`
 	InferenceID     string            `json:"inferenceID"`
 	InferencePhase  string            `json:"inferencePhase"`
+	WorkloadID      string            `json:"workloadID,omitempty"` // Associated workload ID from inference
 	CreatedAt       string            `json:"createdAt,omitempty"`
 	UpdatedAt       string            `json:"updatedAt,omitempty"`
 	DeletionTime    string            `json:"deletionTime,omitempty"`

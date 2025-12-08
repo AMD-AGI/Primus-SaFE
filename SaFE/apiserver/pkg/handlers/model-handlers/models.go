@@ -55,6 +55,11 @@ func (h *Handler) DeleteModel(c *gin.Context) {
 	handle(c, h.deleteModel)
 }
 
+// RetryModel handles retrying a failed model download.
+func (h *Handler) RetryModel(c *gin.Context) {
+	handle(c, h.retryModel)
+}
+
 // createModel implements the model creation logic.
 func (h *Handler) createModel(c *gin.Context) (interface{}, error) {
 	var req CreateModelRequest
@@ -76,6 +81,13 @@ func (h *Handler) createModel(c *gin.Context) (interface{}, error) {
 
 	// Normalize URL for consistent matching (trim trailing slash and spaces)
 	normalizedURL := strings.TrimSuffix(strings.TrimSpace(req.Source.URL), "/")
+
+	// For local mode: ensure URL has complete HuggingFace prefix
+	// This handles cases like "Qwen/Qwen2.5-7B-Instruct" -> "https://huggingface.co/Qwen/Qwen2.5-7B-Instruct"
+	if req.Source.AccessMode == string(v1.AccessModeLocal) && !isFullURL(normalizedURL) {
+		normalizedURL = fmt.Sprintf("https://huggingface.co/%s", normalizedURL)
+		klog.InfoS("Added HuggingFace URL prefix", "original", req.Source.URL, "normalized", normalizedURL)
+	}
 
 	// Check if model with same URL already exists (only for local mode)
 	// Remote API mode skips duplicate check since each user has their own API key
@@ -108,8 +120,10 @@ func (h *Handler) createModel(c *gin.Context) (interface{}, error) {
 				return nil, commonerrors.NewBadRequest(fmt.Sprintf("model with URL '%s' is currently being downloaded (id: %s)", existingModel.SourceURL, existingModel.ID))
 			} else if existingModel.Phase == string(v1.ModelPhasePending) {
 				return nil, commonerrors.NewBadRequest(fmt.Sprintf("model with URL '%s' already exists and is pending (id: %s)", existingModel.SourceURL, existingModel.ID))
+			} else if existingModel.Phase == string(v1.ModelPhaseFailed) {
+				// If model exists but failed, user should use retry API instead of creating a new one
+				return nil, commonerrors.NewBadRequest(fmt.Sprintf("model with URL '%s' already exists but failed (id: %s). Please use the retry API (POST /models/%s/retry) to re-download", existingModel.SourceURL, existingModel.ID, existingModel.ID))
 			}
-			// If model exists but failed, allow re-creation
 		}
 	}
 
@@ -240,7 +254,17 @@ func (h *Handler) getModel(c *gin.Context) (interface{}, error) {
 			return nil, commonerrors.NewNotFound("playground model", modelId)
 		}
 
-		return cvtDBModelToInfo(&model), nil
+		modelInfo := cvtDBModelToInfo(&model)
+
+		// 2. If model has an inference, fetch WorkloadID from Inference CR
+		if model.InferenceID != "" {
+			inference := &v1.Inference{}
+			if err := h.k8sClient.Get(c.Request.Context(), ctrlclient.ObjectKey{Name: model.InferenceID}, inference); err == nil {
+				modelInfo.WorkloadID = inference.Spec.Instance.WorkloadID
+			}
+		}
+
+		return modelInfo, nil
 	}
 
 	// Fallback to K8s API
@@ -681,6 +705,52 @@ func (h *Handler) deleteModel(c *gin.Context) (interface{}, error) {
 	}
 
 	return gin.H{"message": "model deleted successfully", "id": modelId}, nil
+}
+
+// retryModel implements the logic to retry a failed model download.
+// It resets the model phase from Failed to Pending, allowing the controller to restart the download.
+func (h *Handler) retryModel(c *gin.Context) (interface{}, error) {
+	modelId := c.Param("id")
+	if modelId == "" {
+		return nil, commonerrors.NewBadRequest("model id is required")
+	}
+
+	ctx := c.Request.Context()
+
+	// 1. Get the model from K8s
+	k8sModel := &v1.Model{}
+	if err := h.k8sClient.Get(ctx, ctrlclient.ObjectKey{Name: modelId}, k8sModel); err != nil {
+		if errors.IsNotFound(err) {
+			return nil, commonerrors.NewNotFound("model", modelId)
+		}
+		klog.ErrorS(err, "Failed to get model from K8s", "model", modelId)
+		return nil, commonerrors.NewInternalError("failed to fetch model: " + err.Error())
+	}
+
+	// 2. Check if model is in Failed phase
+	if k8sModel.Status.Phase != v1.ModelPhaseFailed {
+		return nil, commonerrors.NewBadRequest(fmt.Sprintf("model is not in Failed phase, current phase: %s. Only failed models can be retried", k8sModel.Status.Phase))
+	}
+
+	// 3. Reset model status to Pending
+	// The model controller will detect this change and restart the download process
+	originalPhase := k8sModel.Status.Phase
+	k8sModel.Status.Phase = v1.ModelPhasePending
+	k8sModel.Status.Message = "Retry requested, re-downloading model..."
+
+	if err := h.k8sClient.Status().Update(ctx, k8sModel); err != nil {
+		klog.ErrorS(err, "Failed to update model status", "model", modelId)
+		return nil, commonerrors.NewInternalError("failed to update model status: " + err.Error())
+	}
+
+	klog.InfoS("Model retry initiated", "model", modelId, "previousPhase", originalPhase, "newPhase", v1.ModelPhasePending)
+
+	return gin.H{
+		"message":       "model retry initiated successfully",
+		"id":            modelId,
+		"previousPhase": string(originalPhase),
+		"currentPhase":  string(v1.ModelPhasePending),
+	}, nil
 }
 
 // findModelBySourceURL checks if a model with the given source URL already exists.

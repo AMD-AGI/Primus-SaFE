@@ -31,5 +31,6 @@ func InitInferenceRouters(e *gin.Engine, h *Handler) {
 		group.GET("playground/models/:id", h.GetModel)
 		group.DELETE("playground/models/:id", h.DeleteModel)
 		group.POST("playground/models/:id/toggle", h.ToggleModel)
+		group.POST("playground/models/:id/retry", h.RetryModel) // Retry failed model download
 	}
 }
