@@ -194,6 +194,15 @@ exec(open('%s').read())
 	// Capture stdout and stderr
 	output, err := cmd.CombinedOutput()
 
+	// CRITICAL: Immediately send SIGCONT to resume the process
+	// pyrasite uses gdb which stops the process, we need to resume it ASAP
+	resumeCmd := exec.Command("kill", "-CONT", strconv.Itoa(pid))
+	if resumeErr := resumeCmd.Run(); resumeErr != nil {
+		log.Warnf("Failed to send SIGCONT to PID %d: %v", pid, resumeErr)
+	} else {
+		log.Debugf("Sent SIGCONT to PID %d to resume execution", pid)
+	}
+
 	// Always log the output for debugging
 	outputStr := strings.TrimSpace(string(output))
 	if outputStr != "" {

@@ -12,6 +12,7 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	coreTask "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/task"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/node-exporter/pkg/types"
 )
 
 // MetadataCollectionExecutor 元数据收集任务执行器
@@ -98,61 +99,75 @@ func (e *MetadataCollectionExecutor) Execute(
 		), fmt.Errorf("no pod found for workload")
 	}
 
-	// 3. 从 ext 字段获取收集配置
-	timeout := e.GetExtInt(task, "timeout")
-	if timeout == 0 {
-		timeout = 30 // 默认 30 秒
-	}
+	// 3. 从 ext 字段获取收集配置 (暂时未使用)
+	// timeout := e.GetExtInt(task, "timeout")
+	// if timeout == 0 {
+	// 	timeout = 30 // 默认 30 秒
+	// }
 
-	// includeTensorBoard := e.GetExtBool(task, "include_tensorboard")
-	// 总是包含 TensorBoard（在 scripts 中指定）
-
-	// 4. 构建收集请求
-	collectionReq := &metadata.CollectionRequest{
-		WorkloadUID:  task.WorkloadUID,
-		PodName:      gpuPod.Name,
-		PodNamespace: gpuPod.Namespace,
-		PodUID:       gpuPod.UID,
-		NodeName:     gpuPod.NodeName,
-		Timeout:      timeout,
-		Force:        false, // 使用缓存
-		Scripts:      e.extractScripts(detectionInfo),
-	}
-
-	log.Infof("Collecting metadata for pod %s/%s (node: %s)",
+	log.Infof("Detecting TensorBoard for pod %s/%s (node: %s)",
 		gpuPod.Namespace, gpuPod.Name, gpuPod.NodeName)
 
-	// 5. 执行元数据收集
-	result, err := e.collector.CollectMetadata(ctx, collectionReq)
+	// 4. 获取 node-exporter client
+	nodeExporterClient, err := e.collector.GetNodeExporterClientForPod(ctx, gpuPod.NodeName)
 	if err != nil {
 		return coreTask.FailureResult(
-			fmt.Sprintf("metadata collection failed: %v", err),
+			fmt.Sprintf("failed to get node-exporter client: %v", err),
 			map[string]interface{}{
-				"error_at":        time.Now().Format(time.RFC3339),
-				"pod_name":        gpuPod.Name,
-				"pod_namespace":   gpuPod.Namespace,
-				"collection_time": result.Duration,
+				"error_at":      time.Now().Format(time.RFC3339),
+				"pod_name":      gpuPod.Name,
+				"pod_namespace": gpuPod.Namespace,
+				"node_name":     gpuPod.NodeName,
 			},
 		), err
 	}
 
+	// 5. 调用 TensorBoard fd 扫描接口
+	tensorboardResult, err := nodeExporterClient.FindTensorboardFiles(
+		ctx,
+		gpuPod.UID,
+		gpuPod.Name,
+		gpuPod.Namespace,
+	)
+
 	// 6. 构建返回结果
-	// 直接存储整个 result 用于排查问题
 	updates := map[string]interface{}{
-		"completed_at":      time.Now().Format(time.RFC3339),
-		"collection_result": result,
-		"pod_name":          gpuPod.Name,
-		"pod_namespace":     gpuPod.Namespace,
-		"node_name":         gpuPod.NodeName,
+		"completed_at":  time.Now().Format(time.RFC3339),
+		"pod_name":      gpuPod.Name,
+		"pod_namespace": gpuPod.Namespace,
+		"node_name":     gpuPod.NodeName,
 	}
 
-	if result.Success {
-		log.Infof("Metadata collection completed successfully for workload %s", task.WorkloadUID)
-		return coreTask.SuccessResult(updates), nil
-	} else {
-		log.Warnf("Metadata collection failed for workload %s: %s", task.WorkloadUID, result.Error)
-		return coreTask.FailureResult(result.Error, updates), fmt.Errorf("collection failed: %s", result.Error)
+	if err != nil {
+		errMsg := fmt.Sprintf("tensorboard detection failed: %v", err)
+		log.Warnf("TensorBoard detection failed for workload %s: %v", task.WorkloadUID, err)
+		updates["error"] = errMsg
+		updates["tensorboard_enabled"] = false
+		return coreTask.FailureResult(errMsg, updates), err
 	}
+
+	// 7. 解析 TensorBoard 结果
+	tensorboardEnabled := len(tensorboardResult.Files) > 0
+	updates["tensorboard_enabled"] = tensorboardEnabled
+	updates["tensorboard_result"] = tensorboardResult
+
+	if tensorboardEnabled {
+		// 提取第一个 TensorBoard 文件的路径作为 log_dir
+		firstFile := tensorboardResult.Files[0]
+		// 从文件路径中提取目录
+		logDir := extractLogDir(firstFile.FilePath)
+		
+		updates["tensorboard_log_dir"] = logDir
+		updates["tensorboard_files_count"] = len(tensorboardResult.Files)
+		updates["tensorboard_pids"] = extractUniquePIDs(tensorboardResult.Files)
+		
+		log.Infof("TensorBoard detected for workload %s: enabled=true, log_dir=%s, files=%d",
+			task.WorkloadUID, logDir, len(tensorboardResult.Files))
+	} else {
+		log.Infof("TensorBoard not detected for workload %s (no event files found)", task.WorkloadUID)
+	}
+
+	return coreTask.SuccessResult(updates), nil
 }
 
 // Cancel 取消任务
@@ -266,4 +281,29 @@ func contains(slice []string, item string) bool {
 		}
 	}
 	return false
+}
+
+// extractLogDir 从 TensorBoard 事件文件路径中提取目录
+func extractLogDir(filePath string) string {
+	// 找到最后一个 '/' 的位置
+	lastSlash := strings.LastIndex(filePath, "/")
+	if lastSlash > 0 {
+		return filePath[:lastSlash]
+	}
+	return filePath
+}
+
+// extractUniquePIDs 从 TensorBoard 文件列表中提取唯一的 PID 列表
+func extractUniquePIDs(files []*types.TensorboardFileInfo) []int {
+	pidMap := make(map[int]bool)
+	var pids []int
+	
+	for _, file := range files {
+		if !pidMap[file.PID] {
+			pidMap[file.PID] = true
+			pids = append(pids, file.PID)
+		}
+	}
+	
+	return pids
 }

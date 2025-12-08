@@ -248,3 +248,48 @@ func (c *Collector) FindPythonProcesses(ctx context.Context, podUID string) ([]*
 func (c *Collector) InvalidateCache(podUID string) {
 	c.cache.Delete(podUID)
 }
+
+// FindTensorboardFiles finds all tensorboard event files opened by processes in a pod
+func (c *Collector) FindTensorboardFiles(ctx context.Context, podUID, podName, podNamespace string) (*TensorboardFilesResponse, error) {
+	// Find all containers in the pod
+	var containers []*ContainerInfo
+	if c.containerReader != nil {
+		var err error
+		containers, err = c.containerReader.GetPodContainers(ctx, podUID)
+		if err != nil {
+			log.Warnf("Failed to get containers from containerd: %v", err)
+		}
+	}
+
+	// Fallback: find containers by scanning /proc
+	if len(containers) == 0 {
+		containers = c.procReader.FindPodContainersByUID(podUID)
+	}
+
+	if len(containers) == 0 {
+		return nil, fmt.Errorf("no containers found for pod UID %s", podUID)
+	}
+
+	// Collect all PIDs from all containers
+	var allPids []int
+	for _, container := range containers {
+		pids := c.procReader.FindContainerProcesses(container.ID)
+		allPids = append(allPids, pids...)
+	}
+
+	if len(allPids) == 0 {
+		return nil, fmt.Errorf("no processes found for pod UID %s", podUID)
+	}
+
+	// Scan for tensorboard files
+	tensorboardFiles := c.procReader.ScanTensorboardFiles(allPids)
+
+	return &TensorboardFilesResponse{
+		PodUID:         podUID,
+		PodName:        podName,
+		PodNamespace:   podNamespace,
+		Files:          tensorboardFiles,
+		TotalProcesses: len(allPids),
+		CollectedAt:    time.Now(),
+	}, nil
+}

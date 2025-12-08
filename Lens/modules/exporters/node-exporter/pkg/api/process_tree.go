@@ -58,3 +58,30 @@ func FindPythonProcessesInPod(c *gin.Context) {
 	c.JSON(http.StatusOK, rest.SuccessResp(c, processes))
 }
 
+// FindTensorboardFilesInPod finds all tensorboard event files opened by processes in a pod
+func FindTensorboardFilesInPod(c *gin.Context) {
+	var req struct {
+		PodUID       string `json:"pod_uid" binding:"required"`
+		PodName      string `json:"pod_name"`
+		PodNamespace string `json:"pod_namespace"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, rest.ErrorResp(c, http.StatusBadRequest, err.Error(), nil))
+		return
+	}
+
+	collector := processtree.GetCollector()
+	if collector == nil {
+		c.JSON(http.StatusInternalServerError, rest.ErrorResp(c, http.StatusInternalServerError, "process tree collector not initialized", nil))
+		return
+	}
+
+	tensorboardFiles, err := collector.FindTensorboardFiles(c.Request.Context(), req.PodUID, req.PodName, req.PodNamespace)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, rest.ErrorResp(c, http.StatusInternalServerError, err.Error(), nil))
+		return
+	}
+
+	c.JSON(http.StatusOK, rest.SuccessResp(c, tensorboardFiles))
+}

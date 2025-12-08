@@ -16,24 +16,41 @@ def inspect_tensorboard():
     """Detect TensorBoard SummaryWriter instances"""
     results = {
         "enabled": False,
-        "instances": []
+        "instances": [],
+        "scan_info": {
+            "total_objects": 0,
+            "candidates_found": 0
+        }
     }
     
     try:
+        objects = gc.get_objects()
+        results["scan_info"]["total_objects"] = len(objects)
+        
         # Search all objects in memory
-        for obj in gc.get_objects():
-            # PyTorch TensorBoard
-            if obj.__class__.__name__ == 'SummaryWriter':
-                results["enabled"] = True
-                instance = {
-                    "log_dir": getattr(obj, 'log_dir', None),
-                    "comment": getattr(obj, 'comment', ''),
-                    "flush_secs": getattr(obj, 'flush_secs', 120),
-                }
-                results["instances"].append(instance)
+        for obj in objects:
+            class_name = obj.__class__.__name__
+            module_name = obj.__class__.__module__ if hasattr(obj.__class__, '__module__') else ''
+            
+            # PyTorch TensorBoard (torch.utils.tensorboard.SummaryWriter)
+            if class_name == 'SummaryWriter':
+                results["scan_info"]["candidates_found"] += 1
+                
+                # 验证是否真的是TensorBoard的SummaryWriter
+                if 'tensorboard' in module_name.lower() or 'torch' in module_name.lower():
+                    results["enabled"] = True
+                    instance = {
+                        "class": class_name,
+                        "module": module_name,
+                        "log_dir": getattr(obj, 'log_dir', None),
+                        "comment": getattr(obj, 'comment', ''),
+                        "flush_secs": getattr(obj, 'flush_secs', None),
+                    }
+                    results["instances"].append(instance)
             
             # TensorFlow TensorBoard
-            elif 'FileWriter' in obj.__class__.__name__:
+            elif 'FileWriter' in class_name and 'tensorboard' in module_name.lower():
+                results["scan_info"]["candidates_found"] += 1
                 results["enabled"] = True
                 try:
                     log_dir = obj.get_logdir() if hasattr(obj, 'get_logdir') else None
@@ -41,9 +58,24 @@ def inspect_tensorboard():
                     log_dir = None
                 
                 instance = {
+                    "class": class_name,
+                    "module": module_name,
                     "log_dir": log_dir,
                 }
                 results["instances"].append(instance)
+            
+            # 其他可能的Writer类（用于调试）
+            elif 'writer' in class_name.lower() and ('log' in class_name.lower() or 'event' in class_name.lower()):
+                results["scan_info"]["candidates_found"] += 1
+                # 记录候选对象（但不算作enabled）
+                if "other_candidates" not in results:
+                    results["other_candidates"] = []
+                if len(results["other_candidates"]) < 5:  # 最多记录5个
+                    results["other_candidates"].append({
+                        "class": class_name,
+                        "module": module_name
+                    })
+                    
     except Exception as e:
         results["error"] = str(e)
         results["traceback"] = traceback.format_exc()

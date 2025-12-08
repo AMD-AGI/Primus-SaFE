@@ -802,3 +802,23 @@ func (c *Collector) getNodeExporterClientByIP(nodeIP, nodeName string) (*client.
 	log.Infof("Created node-exporter client for node %s at %s", nodeName, baseURL)
 	return nodeExporterClient, nil
 }
+
+// GetNodeExporterClientForPod gets a node-exporter client for a specific node (public method)
+func (c *Collector) GetNodeExporterClientForPod(ctx context.Context, nodeName string) (*client.Client, error) {
+	// Query node info from database
+	node, err := c.nodeFacade.GetNodeByName(ctx, nodeName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query node %s: %w", nodeName, err)
+	}
+
+	if node == nil {
+		return nil, fmt.Errorf("node %s not found", nodeName)
+	}
+
+	nodeIP := node.Address
+	if nodeIP == "" {
+		nodeIP = nodeName // Fallback to nodeName as hostname
+	}
+
+	return c.getNodeExporterClientByIP(nodeIP, nodeName)
+}

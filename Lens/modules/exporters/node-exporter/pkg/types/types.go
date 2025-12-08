@@ -154,3 +154,23 @@ type TensorBoardLogInfo struct {
 	LatestUpdate time.Time           `json:"latest_update"`
 }
 
+// ============ TensorBoard Detection Types ============
+
+// TensorboardFileInfo represents information about an open tensorboard file
+type TensorboardFileInfo struct {
+	PID      int    `json:"pid"`
+	FD       string `json:"fd"`
+	FilePath string `json:"file_path"`
+	FileName string `json:"file_name"`
+}
+
+// TensorboardFilesResponse represents the response for tensorboard file scan
+type TensorboardFilesResponse struct {
+	PodUID         string                 `json:"pod_uid"`
+	PodName        string                 `json:"pod_name,omitempty"`
+	PodNamespace   string                 `json:"pod_namespace,omitempty"`
+	Files          []*TensorboardFileInfo `json:"files"`
+	TotalProcesses int                    `json:"total_processes"`
+	CollectedAt    time.Time              `json:"collected_at"`
+}
+

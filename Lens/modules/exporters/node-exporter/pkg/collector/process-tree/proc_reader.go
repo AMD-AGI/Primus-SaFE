@@ -303,3 +303,47 @@ func isAlphanumeric(s string) bool {
 	return len(s) > 0
 }
 
+// ScanTensorboardFiles scans all processes for open tensorboard event files
+func (r *ProcReader) ScanTensorboardFiles(pids []int) []*TensorboardFileInfo {
+	var tensorboardFiles []*TensorboardFileInfo
+	
+	for _, pid := range pids {
+		// Read /proc/[pid]/fd directory
+		fdDir := fmt.Sprintf("/proc/%d/fd", pid)
+		fdEntries, err := os.ReadDir(fdDir)
+		if err != nil {
+			continue
+		}
+		
+		// Check each file descriptor
+		for _, fdEntry := range fdEntries {
+			fdPath := fmt.Sprintf("%s/%s", fdDir, fdEntry.Name())
+			target, err := os.Readlink(fdPath)
+			if err != nil {
+				continue
+			}
+			
+			// Check if the file is a tensorboard event file
+			if strings.Contains(target, "tensorboard") || strings.Contains(target, "tfevents") {
+				tensorboardFiles = append(tensorboardFiles, &TensorboardFileInfo{
+					PID:      pid,
+					FD:       fdEntry.Name(),
+					FilePath: target,
+					FileName: extractFileName(target),
+				})
+			}
+		}
+	}
+	
+	return tensorboardFiles
+}
+
+// extractFileName extracts the filename from a full path
+func extractFileName(path string) string {
+	parts := strings.Split(path, "/")
+	if len(parts) > 0 {
+		return parts[len(parts)-1]
+	}
+	return path
+}
+

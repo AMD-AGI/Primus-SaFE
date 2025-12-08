@@ -137,6 +137,45 @@ func (c *Client) FindPythonProcesses(ctx context.Context, podUID string) ([]*typ
 	return response.Data, nil
 }
 
+// FindTensorboardFiles finds all tensorboard event files opened by processes in a pod
+func (c *Client) FindTensorboardFiles(ctx context.Context, podUID, podName, podNamespace string) (*types.TensorboardFilesResponse, error) {
+	type Request struct {
+		PodUID       string `json:"pod_uid"`
+		PodName      string `json:"pod_name,omitempty"`
+		PodNamespace string `json:"pod_namespace,omitempty"`
+	}
+
+	var response struct {
+		Code int                           `json:"code"`
+		Data *types.TensorboardFilesResponse `json:"data"`
+		Msg  string                        `json:"msg,omitempty"`
+	}
+
+	resp, err := c.client.R().
+		SetContext(ctx).
+		SetBody(&Request{
+			PodUID:       podUID,
+			PodName:      podName,
+			PodNamespace: podNamespace,
+		}).
+		SetResult(&response).
+		Post("/v1/process-tree/tensorboard")
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to find tensorboard files: %w", err)
+	}
+
+	if resp.IsError() {
+		return nil, fmt.Errorf("process tree API error: %s", resp.String())
+	}
+
+	if response.Code != 0 {
+		return nil, fmt.Errorf("process tree API returned code %d: %s", response.Code, response.Msg)
+	}
+
+	return response.Data, nil
+}
+
 // ============ Python Inspector APIs ============
 
 // InspectPythonProcess inspects a Python process with given scripts
