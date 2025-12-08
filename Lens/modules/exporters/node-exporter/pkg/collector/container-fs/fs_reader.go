@@ -319,6 +319,11 @@ func (r *FSReader) GetFileInfo(ctx context.Context, pid int, path string) (*File
 	return r.getFileInfo(containerPath, path)
 }
 
+// ResolvePID resolves PID from either direct PID or pod information
+func (r *FSReader) ResolvePID(ctx context.Context, pid int, podUID, podName, podNamespace, containerName string) (int, error) {
+	return r.resolvePID(ctx, pid, podUID, podName, podNamespace, containerName)
+}
+
 // TensorBoardReader provides specialized reading for TensorBoard event files
 type TensorBoardReader struct {
 	fsReader *FSReader

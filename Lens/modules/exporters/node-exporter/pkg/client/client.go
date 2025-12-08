@@ -455,13 +455,19 @@ func (c *Client) ListContainerDirectory(ctx context.Context, req *types.Containe
 }
 
 // GetContainerFileInfo gets file metadata from container
-func (c *Client) GetContainerFileInfo(ctx context.Context, pid int, path string) (*types.ContainerFileInfo, error) {
+func (c *Client) GetContainerFileInfo(ctx context.Context, podUID, podName, podNamespace, containerName, path string) (*types.ContainerFileInfo, error) {
 	req := struct {
-		PID  int    `json:"pid"`
-		Path string `json:"path"`
+		PodUID        string `json:"pod_uid,omitempty"`
+		PodName       string `json:"pod_name,omitempty"`
+		PodNamespace  string `json:"pod_namespace,omitempty"`
+		ContainerName string `json:"container_name,omitempty"`
+		Path          string `json:"path"`
 	}{
-		PID:  pid,
-		Path: path,
+		PodUID:        podUID,
+		PodName:       podName,
+		PodNamespace:  podNamespace,
+		ContainerName: containerName,
+		Path:          path,
 	}
 
 	var response struct {
@@ -492,13 +498,19 @@ func (c *Client) GetContainerFileInfo(ctx context.Context, pid int, path string)
 }
 
 // GetTensorBoardLogs retrieves TensorBoard event files from container
-func (c *Client) GetTensorBoardLogs(ctx context.Context, pid int, logDir string) (*types.TensorBoardLogInfo, error) {
+func (c *Client) GetTensorBoardLogs(ctx context.Context, podUID, podName, podNamespace, containerName, logDir string) (*types.TensorBoardLogInfo, error) {
 	req := struct {
-		PID    int    `json:"pid"`
-		LogDir string `json:"log_dir"`
+		PodUID        string `json:"pod_uid,omitempty"`
+		PodName       string `json:"pod_name,omitempty"`
+		PodNamespace  string `json:"pod_namespace,omitempty"`
+		ContainerName string `json:"container_name,omitempty"`
+		LogDir        string `json:"log_dir"`
 	}{
-		PID:    pid,
-		LogDir: logDir,
+		PodUID:        podUID,
+		PodName:       podName,
+		PodNamespace:  podNamespace,
+		ContainerName: containerName,
+		LogDir:        logDir,
 	}
 
 	var response struct {
@@ -529,17 +541,23 @@ func (c *Client) GetTensorBoardLogs(ctx context.Context, pid int, logDir string)
 }
 
 // ReadTensorBoardEvent reads a TensorBoard event file
-func (c *Client) ReadTensorBoardEvent(ctx context.Context, pid int, eventFile string, offset, length int64) (*types.ContainerFileReadResponse, error) {
+func (c *Client) ReadTensorBoardEvent(ctx context.Context, podUID, podName, podNamespace, containerName, eventFile string, offset, length int64) (*types.ContainerFileReadResponse, error) {
 	req := struct {
-		PID       int    `json:"pid"`
-		EventFile string `json:"event_file"`
-		Offset    int64  `json:"offset,omitempty"`
-		Length    int64  `json:"length,omitempty"`
+		PodUID        string `json:"pod_uid,omitempty"`
+		PodName       string `json:"pod_name,omitempty"`
+		PodNamespace  string `json:"pod_namespace,omitempty"`
+		ContainerName string `json:"container_name,omitempty"`
+		EventFile     string `json:"event_file"`
+		Offset        int64  `json:"offset,omitempty"`
+		Length        int64  `json:"length,omitempty"`
 	}{
-		PID:       pid,
-		EventFile: eventFile,
-		Offset:    offset,
-		Length:    length,
+		PodUID:        podUID,
+		PodName:       podName,
+		PodNamespace:  podNamespace,
+		ContainerName: containerName,
+		EventFile:     eventFile,
+		Offset:        offset,
+		Length:        length,
 	}
 
 	var response struct {

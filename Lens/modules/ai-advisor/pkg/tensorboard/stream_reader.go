@@ -328,34 +328,21 @@ func (session *StreamSession) readFileIncremental(reader *Reader, tracker *FileT
 
 // refreshFileList refreshes the list of event files
 func (session *StreamSession) refreshFileList(reader *Reader) error {
-	var files []*types.ContainerFileInfo
-	var err error
+	// EventFiles must be provided (from FindTensorboardFiles)
+	if len(session.EventFiles) == 0 {
+		return fmt.Errorf("EventFiles must be provided (from FindTensorboardFiles)")
+	}
 
-	// 如果提供了精确的事件文件列表，直接使用它们
-	if len(session.EventFiles) > 0 {
-		log.Infof("Using provided event files list (%d files)", len(session.EventFiles))
-		// 为每个文件获取文件信息
-		for _, filePath := range session.EventFiles {
-			// 这里简化处理，直接创建 FileTracker
-			// 在实际读取时会获取真实的文件信息
-			files = append(files, &types.ContainerFileInfo{
-				Path:  filePath,
-				IsDir: false,
-			})
-		}
-	} else if session.LogDir != "" {
-		// 否则从目录中发现文件
-		log.Infof("Discovering event files from log_dir: %s", session.LogDir)
-		files, err = reader.ListEventFiles(session.ctx, &LogReadRequest{
-			WorkloadUID: session.WorkloadUID,
-			PodUID:      session.PodUID,
-			LogDir:      session.LogDir,
+	log.Infof("Using provided event files list (%d files)", len(session.EventFiles))
+
+	// Create file info list from provided event files
+	var files []*types.ContainerFileInfo
+	for _, filePath := range session.EventFiles {
+		// Create basic file info, actual metadata will be fetched during read
+		files = append(files, &types.ContainerFileInfo{
+			Path:  filePath,
+			IsDir: false,
 		})
-		if err != nil {
-			return err
-		}
-	} else {
-		return fmt.Errorf("neither EventFiles nor LogDir provided")
 	}
 
 	session.fileMutex.Lock()

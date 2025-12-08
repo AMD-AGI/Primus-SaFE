@@ -119,14 +119,22 @@ func ListContainerDirectory(c *gin.Context) {
 // @Tags container-fs
 // @Accept json
 // @Produce json
-// @Param request body object{pid=int,path=string} true "File info request"
+// @Param request body object{pid=int,pod_uid=string,pod_name=string,pod_namespace=string,container_name=string,path=string} true "File info request"
 // @Success 200 {object} Response{data=containerfs.FileInfo}
 // @Failure 400 {object} Response
 // @Failure 500 {object} Response
 // @Router /container-fs/info [post]
 func GetContainerFileInfo(c *gin.Context) {
 	var req struct {
-		PID  int    `json:"pid" binding:"required"`
+		// Option 1: Specify PID directly (highest priority)
+		PID int `json:"pid,omitempty"`
+
+		// Option 2: Specify Pod (will auto-select first process in main container)
+		PodUID        string `json:"pod_uid,omitempty"`
+		PodName       string `json:"pod_name,omitempty"`
+		PodNamespace  string `json:"pod_namespace,omitempty"`
+		ContainerName string `json:"container_name,omitempty"`
+
 		Path string `json:"path" binding:"required"`
 	}
 
@@ -140,9 +148,27 @@ func GetContainerFileInfo(c *gin.Context) {
 		return
 	}
 
-	log.Infof("Getting container file info: pid=%d, path=%s", req.PID, req.Path)
+	if req.PID > 0 {
+		log.Infof("Getting container file info: pid=%d, path=%s", req.PID, req.Path)
+	} else {
+		log.Infof("Getting container file info: pod_uid=%s, container=%s, path=%s",
+			req.PodUID, req.ContainerName, req.Path)
+	}
 
-	fileInfo, err := fsReader.GetFileInfo(c.Request.Context(), req.PID, req.Path)
+	// Resolve PID if pod parameters are provided
+	pid, err := fsReader.ResolvePID(c.Request.Context(), req.PID, req.PodUID, req.PodName, req.PodNamespace, req.ContainerName)
+	if err != nil {
+		log.Errorf("Failed to resolve PID: %v", err)
+		c.JSON(http.StatusInternalServerError, rest.ErrorResp(
+			c.Request.Context(),
+			http.StatusInternalServerError,
+			"Failed to resolve PID: "+err.Error(),
+			err,
+		))
+		return
+	}
+
+	fileInfo, err := fsReader.GetFileInfo(c.Request.Context(), pid, req.Path)
 	if err != nil {
 		log.Errorf("Failed to get container file info: %v", err)
 		c.JSON(http.StatusInternalServerError, rest.ErrorResp(
@@ -163,14 +189,22 @@ func GetContainerFileInfo(c *gin.Context) {
 // @Tags container-fs
 // @Accept json
 // @Produce json
-// @Param request body object{pid=int,log_dir=string} true "TensorBoard log request"
+// @Param request body object{pid=int,pod_uid=string,pod_name=string,pod_namespace=string,container_name=string,log_dir=string} true "TensorBoard log request"
 // @Success 200 {object} Response{data=containerfs.TensorBoardLogInfo}
 // @Failure 400 {object} Response
 // @Failure 500 {object} Response
 // @Router /container-fs/tensorboard/logs [post]
 func GetTensorBoardLogs(c *gin.Context) {
 	var req struct {
-		PID    int    `json:"pid" binding:"required"`
+		// Option 1: Specify PID directly (highest priority)
+		PID int `json:"pid,omitempty"`
+
+		// Option 2: Specify Pod (will auto-select first process in main container)
+		PodUID        string `json:"pod_uid,omitempty"`
+		PodName       string `json:"pod_name,omitempty"`
+		PodNamespace  string `json:"pod_namespace,omitempty"`
+		ContainerName string `json:"container_name,omitempty"`
+
 		LogDir string `json:"log_dir" binding:"required"`
 	}
 
@@ -184,9 +218,27 @@ func GetTensorBoardLogs(c *gin.Context) {
 		return
 	}
 
-	log.Infof("Getting TensorBoard logs: pid=%d, log_dir=%s", req.PID, req.LogDir)
+	if req.PID > 0 {
+		log.Infof("Getting TensorBoard logs: pid=%d, log_dir=%s", req.PID, req.LogDir)
+	} else {
+		log.Infof("Getting TensorBoard logs: pod_uid=%s, container=%s, log_dir=%s",
+			req.PodUID, req.ContainerName, req.LogDir)
+	}
 
-	logInfo, err := tensorboardReader.GetTensorBoardLogs(c.Request.Context(), req.PID, req.LogDir)
+	// Resolve PID if pod parameters are provided
+	pid, err := fsReader.ResolvePID(c.Request.Context(), req.PID, req.PodUID, req.PodName, req.PodNamespace, req.ContainerName)
+	if err != nil {
+		log.Errorf("Failed to resolve PID: %v", err)
+		c.JSON(http.StatusInternalServerError, rest.ErrorResp(
+			c.Request.Context(),
+			http.StatusInternalServerError,
+			"Failed to resolve PID: "+err.Error(),
+			err,
+		))
+		return
+	}
+
+	logInfo, err := tensorboardReader.GetTensorBoardLogs(c.Request.Context(), pid, req.LogDir)
 	if err != nil {
 		log.Errorf("Failed to get TensorBoard logs: %v", err)
 		c.JSON(http.StatusInternalServerError, rest.ErrorResp(
@@ -207,14 +259,22 @@ func GetTensorBoardLogs(c *gin.Context) {
 // @Tags container-fs
 // @Accept json
 // @Produce json
-// @Param request body object{pid=int,event_file=string,offset=int64,length=int64} true "Event read request"
+// @Param request body object{pid=int,pod_uid=string,pod_name=string,pod_namespace=string,container_name=string,event_file=string,offset=int64,length=int64} true "Event read request"
 // @Success 200 {object} Response{data=containerfs.ReadResponse}
 // @Failure 400 {object} Response
 // @Failure 500 {object} Response
 // @Router /container-fs/tensorboard/event [post]
 func ReadTensorBoardEvent(c *gin.Context) {
 	var req struct {
-		PID       int    `json:"pid" binding:"required"`
+		// Option 1: Specify PID directly (highest priority)
+		PID int `json:"pid,omitempty"`
+
+		// Option 2: Specify Pod (will auto-select first process in main container)
+		PodUID        string `json:"pod_uid,omitempty"`
+		PodName       string `json:"pod_name,omitempty"`
+		PodNamespace  string `json:"pod_namespace,omitempty"`
+		ContainerName string `json:"container_name,omitempty"`
+
 		EventFile string `json:"event_file" binding:"required"`
 		Offset    int64  `json:"offset,omitempty"`
 		Length    int64  `json:"length,omitempty"`
@@ -230,11 +290,29 @@ func ReadTensorBoardEvent(c *gin.Context) {
 		return
 	}
 
-	log.Infof("Reading TensorBoard event: pid=%d, file=%s, offset=%d, length=%d",
-		req.PID, req.EventFile, req.Offset, req.Length)
+	if req.PID > 0 {
+		log.Infof("Reading TensorBoard event: pid=%d, file=%s, offset=%d, length=%d",
+			req.PID, req.EventFile, req.Offset, req.Length)
+	} else {
+		log.Infof("Reading TensorBoard event: pod_uid=%s, container=%s, file=%s, offset=%d, length=%d",
+			req.PodUID, req.ContainerName, req.EventFile, req.Offset, req.Length)
+	}
+
+	// Resolve PID if pod parameters are provided
+	pid, err := fsReader.ResolvePID(c.Request.Context(), req.PID, req.PodUID, req.PodName, req.PodNamespace, req.ContainerName)
+	if err != nil {
+		log.Errorf("Failed to resolve PID: %v", err)
+		c.JSON(http.StatusInternalServerError, rest.ErrorResp(
+			c.Request.Context(),
+			http.StatusInternalServerError,
+			"Failed to resolve PID: "+err.Error(),
+			err,
+		))
+		return
+	}
 
 	response, err := tensorboardReader.ReadTensorBoardEvent(
-		c.Request.Context(), req.PID, req.EventFile, req.Offset, req.Length,
+		c.Request.Context(), pid, req.EventFile, req.Offset, req.Length,
 	)
 	if err != nil {
 		log.Errorf("Failed to read TensorBoard event: %v", err)

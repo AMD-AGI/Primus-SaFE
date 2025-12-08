@@ -37,21 +37,22 @@ func NewReader() *Reader {
 
 // LogReadRequest represents a request to read TensorBoard logs
 type LogReadRequest struct {
-	WorkloadUID  string `json:"workload_uid" binding:"required"`
-	PodUID       string `json:"pod_uid" binding:"required"`
-	LogDir       string `json:"log_dir" binding:"required"`
-	IncludeFiles bool   `json:"include_files,omitempty"` // Whether to include file list
+	WorkloadUID  string   `json:"workload_uid" binding:"required"`
+	PodUID       string   `json:"pod_uid" binding:"required"`
+	LogDir       string   `json:"log_dir,omitempty"`              // For reference only, not used for scanning
+	EventFiles   []string `json:"event_files" binding:"required"` // Pre-discovered event files from FindTensorboardFiles
+	IncludeFiles bool     `json:"include_files,omitempty"`        // Whether to include file list in response
 }
 
 // LogReadResponse represents TensorBoard log information
 type LogReadResponse struct {
-	WorkloadUID  string                  `json:"workload_uid"`
-	LogDir       string                  `json:"log_dir"`
+	WorkloadUID  string                     `json:"workload_uid"`
+	LogDir       string                     `json:"log_dir"`
 	EventFiles   []*types.ContainerFileInfo `json:"event_files,omitempty"`
-	TotalSize    int64                   `json:"total_size"`
-	LatestUpdate time.Time               `json:"latest_update"`
-	FileCount    int                     `json:"file_count"`
-	AccessMethod string                  `json:"access_method"` // "proc_fs"
+	TotalSize    int64                      `json:"total_size"`
+	LatestUpdate time.Time                  `json:"latest_update"`
+	FileCount    int                        `json:"file_count"`
+	AccessMethod string                     `json:"access_method"` // "proc_fs"
 }
 
 // EventReadRequest represents a request to read a specific event file
@@ -65,45 +66,64 @@ type EventReadRequest struct {
 
 // EventReadResponse represents event file content
 type EventReadResponse struct {
-	EventFile   string                  `json:"event_file"`
-	Content     string                  `json:"content"`
-	FileInfo    *types.ContainerFileInfo `json:"file_info"`
-	BytesRead   int64                   `json:"bytes_read"`
-	EOF         bool                    `json:"eof"`
-	IsBinary    bool                    `json:"is_binary"`
+	EventFile string                   `json:"event_file"`
+	Content   string                   `json:"content"`
+	FileInfo  *types.ContainerFileInfo `json:"file_info"`
+	BytesRead int64                    `json:"bytes_read"`
+	EOF       bool                     `json:"eof"`
+	IsBinary  bool                     `json:"is_binary"`
 }
 
 // ReadLogs retrieves TensorBoard log files information
+// EventFiles must be provided (from FindTensorboardFiles)
 func (r *Reader) ReadLogs(ctx context.Context, req *LogReadRequest) (*LogReadResponse, error) {
-	log.Infof("Reading TensorBoard logs for workload %s, log_dir=%s", req.WorkloadUID, req.LogDir)
+	log.Infof("Reading TensorBoard logs for workload %s, files: %d",
+		req.WorkloadUID, len(req.EventFiles))
 
-	// Get node and PID information
-	nodeClient, pid, err := r.getNodeClientAndPID(ctx, req.PodUID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get node client: %w", err)
+	if len(req.EventFiles) == 0 {
+		return nil, fmt.Errorf("EventFiles must be provided (from FindTensorboardFiles)")
 	}
 
-	// Get TensorBoard logs via node-exporter
-	logInfo, err := nodeClient.GetTensorBoardLogs(ctx, pid, req.LogDir)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get TensorBoard logs: %w", err)
+	var eventFiles []*types.ContainerFileInfo
+	var totalSize int64
+	var latestUpdate time.Time
+
+	// Get file metadata to calculate total size and latest update
+	for _, filePath := range req.EventFiles {
+		fileInfo, err := r.GetFileInfo(ctx, req.PodUID, filePath)
+		if err != nil {
+			log.Warnf("Failed to get file info for %s: %v", filePath, err)
+			continue
+		}
+
+		// Always add to eventFiles for calculation
+		eventFiles = append(eventFiles, fileInfo)
+		totalSize += fileInfo.Size
+		if fileInfo.ModTime.After(latestUpdate) {
+			latestUpdate = fileInfo.ModTime
+		}
+	}
+
+	fileCount := len(req.EventFiles)
+	if len(req.EventFiles) == 0 {
+		fileCount = len(eventFiles)
 	}
 
 	response := &LogReadResponse{
 		WorkloadUID:  req.WorkloadUID,
 		LogDir:       req.LogDir,
-		TotalSize:    logInfo.TotalSize,
-		LatestUpdate: logInfo.LatestUpdate,
-		FileCount:    len(logInfo.EventFiles),
+		TotalSize:    totalSize,
+		LatestUpdate: latestUpdate,
+		FileCount:    fileCount,
 		AccessMethod: "proc_fs",
 	}
 
 	if req.IncludeFiles {
-		response.EventFiles = logInfo.EventFiles
+		response.EventFiles = eventFiles
 	}
 
-	log.Infof("Found %d TensorBoard event files, total size: %d bytes",
-		response.FileCount, response.TotalSize)
+	log.Infof("TensorBoard logs summary: %d files, total size: %d bytes",
+		fileCount, totalSize)
 
 	return response, nil
 }
@@ -113,14 +133,14 @@ func (r *Reader) ReadEvent(ctx context.Context, req *EventReadRequest) (*EventRe
 	log.Infof("Reading TensorBoard event file: workload=%s, file=%s, offset=%d, length=%d",
 		req.WorkloadUID, req.EventFile, req.Offset, req.Length)
 
-	// Get node and PID information
-	nodeClient, pid, err := r.getNodeClientAndPID(ctx, req.PodUID)
+	// Get node client and pod information
+	nodeClient, podInfo, err := r.getNodeClientAndPodInfo(ctx, req.PodUID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get node client: %w", err)
 	}
 
-	// Read event file via node-exporter
-	fileResp, err := nodeClient.ReadTensorBoardEvent(ctx, pid, req.EventFile, req.Offset, req.Length)
+	// Read event file via node-exporter using pod parameters
+	fileResp, err := nodeClient.ReadTensorBoardEvent(ctx, podInfo.UID, podInfo.Name, podInfo.Namespace, podInfo.ContainerName, req.EventFile, req.Offset, req.Length)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read event file: %w", err)
 	}
@@ -140,22 +160,26 @@ func (r *Reader) ReadEvent(ctx context.Context, req *EventReadRequest) (*EventRe
 }
 
 // ListEventFiles lists all TensorBoard event files in a directory
+// Deprecated: Use FindTensorboardFiles instead to avoid scanning extra files
 func (r *Reader) ListEventFiles(ctx context.Context, req *LogReadRequest) ([]*types.ContainerFileInfo, error) {
 	log.Infof("Listing TensorBoard event files: workload=%s, log_dir=%s",
 		req.WorkloadUID, req.LogDir)
 
-	// Get node and PID information
-	nodeClient, pid, err := r.getNodeClientAndPID(ctx, req.PodUID)
+	// Get node client and pod information
+	nodeClient, podInfo, err := r.getNodeClientAndPodInfo(ctx, req.PodUID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get node client: %w", err)
 	}
 
-	// List directory via node-exporter
+	// List directory via node-exporter using pod parameters
 	listReq := &types.ContainerDirectoryListRequest{
-		PID:       pid,
-		Path:      req.LogDir,
-		Recursive: true,
-		Pattern:   "events.out.tfevents.*",
+		PodUID:        podInfo.UID,
+		PodName:       podInfo.Name,
+		PodNamespace:  podInfo.Namespace,
+		ContainerName: podInfo.ContainerName,
+		Path:          req.LogDir,
+		Recursive:     true,
+		Pattern:       "events.out.tfevents.*",
 	}
 
 	listResp, err := nodeClient.ListContainerDirectory(ctx, listReq)
@@ -172,18 +196,21 @@ func (r *Reader) ReadFile(ctx context.Context, podUID, filePath string, offset, 
 	log.Infof("Reading container file: pod=%s, path=%s, offset=%d, length=%d",
 		podUID, filePath, offset, length)
 
-	// Get node and PID information
-	nodeClient, pid, err := r.getNodeClientAndPID(ctx, podUID)
+	// Get node client and pod information
+	nodeClient, podInfo, err := r.getNodeClientAndPodInfo(ctx, podUID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get node client: %w", err)
 	}
 
-	// Read file via node-exporter
+	// Read file via node-exporter using pod parameters
 	readReq := &types.ContainerFileReadRequest{
-		PID:    pid,
-		Path:   filePath,
-		Offset: offset,
-		Length: length,
+		PodUID:        podInfo.UID,
+		PodName:       podInfo.Name,
+		PodNamespace:  podInfo.Namespace,
+		ContainerName: podInfo.ContainerName,
+		Path:          filePath,
+		Offset:        offset,
+		Length:        length,
 	}
 
 	response, err := nodeClient.ReadContainerFile(ctx, readReq)
@@ -199,12 +226,12 @@ func (r *Reader) ReadFile(ctx context.Context, podUID, filePath string, offset, 
 func (r *Reader) GetFileInfo(ctx context.Context, podUID, filePath string) (*types.ContainerFileInfo, error) {
 	log.Debugf("Getting file info: pod=%s, path=%s", podUID, filePath)
 
-	nodeClient, pid, err := r.getNodeClientAndPID(ctx, podUID)
+	nodeClient, podInfo, err := r.getNodeClientAndPodInfo(ctx, podUID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get node client: %w", err)
 	}
 
-	fileInfo, err := nodeClient.GetContainerFileInfo(ctx, pid, filePath)
+	fileInfo, err := nodeClient.GetContainerFileInfo(ctx, podInfo.UID, podInfo.Name, podInfo.Namespace, podInfo.ContainerName, filePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get file info: %w", err)
 	}
@@ -214,31 +241,39 @@ func (r *Reader) GetFileInfo(ctx context.Context, podUID, filePath string) (*typ
 
 // Helper methods
 
-// getNodeClientAndPID gets the node-exporter client and a representative PID for the pod
-func (r *Reader) getNodeClientAndPID(ctx context.Context, podUID string) (*client.Client, int, error) {
+// PodInfo contains pod information needed for file access
+type PodInfo struct {
+	UID           string
+	Name          string
+	Namespace     string
+	ContainerName string
+}
+
+// getNodeClientAndPodInfo gets the node-exporter client and pod information
+func (r *Reader) getNodeClientAndPodInfo(ctx context.Context, podUID string) (*client.Client, *PodInfo, error) {
 	// Get node information from database
 	gpuPod, err := r.podFacade.GetGpuPodsByPodUid(ctx, podUID)
 	if err != nil {
-		return nil, 0, fmt.Errorf("failed to query pod: %w", err)
+		return nil, nil, fmt.Errorf("failed to query pod: %w", err)
 	}
 
 	if gpuPod == nil {
-		return nil, 0, fmt.Errorf("pod with UID %s not found", podUID)
+		return nil, nil, fmt.Errorf("pod with UID %s not found", podUID)
 	}
 
 	nodeName := gpuPod.NodeName
 	if nodeName == "" {
-		return nil, 0, fmt.Errorf("node name is empty for pod %s", podUID)
+		return nil, nil, fmt.Errorf("node name is empty for pod %s", podUID)
 	}
 
 	// Get node IP
 	node, err := r.nodeFacade.GetNodeByName(ctx, nodeName)
 	if err != nil {
-		return nil, 0, fmt.Errorf("failed to query node: %w", err)
+		return nil, nil, fmt.Errorf("failed to query node: %w", err)
 	}
 
 	if node == nil {
-		return nil, 0, fmt.Errorf("node %s not found", nodeName)
+		return nil, nil, fmt.Errorf("node %s not found", nodeName)
 	}
 
 	nodeIP := node.Address
@@ -249,8 +284,7 @@ func (r *Reader) getNodeClientAndPID(ctx context.Context, podUID string) (*clien
 	// Get or create client for this node
 	nodeClient := r.getOrCreateClient(nodeIP, nodeName)
 
-	// Get process tree to find a representative PID
-	// We need a PID from this pod to access its filesystem via /proc/[pid]/root
+	// Get process tree to determine the main container
 	processTreeReq := &types.ProcessTreeRequest{
 		PodName:        gpuPod.Name,
 		PodNamespace:   gpuPod.Namespace,
@@ -261,27 +295,57 @@ func (r *Reader) getNodeClientAndPID(ctx context.Context, podUID string) (*clien
 
 	processTree, err := nodeClient.GetPodProcessTree(ctx, processTreeReq)
 	if err != nil {
-		return nil, 0, fmt.Errorf("failed to get process tree: %w", err)
+		return nil, nil, fmt.Errorf("failed to get process tree: %w", err)
 	}
 
 	if len(processTree.Containers) == 0 {
-		return nil, 0, fmt.Errorf("no containers found in pod")
+		return nil, nil, fmt.Errorf("no containers found in pod")
 	}
 
-	// Use the first container's root process PID
+	// Use the first container
 	firstContainer := processTree.Containers[0]
-	if firstContainer.RootProcess == nil {
-		return nil, 0, fmt.Errorf("no root process in container")
+	containerName := firstContainer.ContainerName
+
+	podInfo := &PodInfo{
+		UID:           podUID,
+		Name:          gpuPod.Name,
+		Namespace:     gpuPod.Namespace,
+		ContainerName: containerName,
 	}
 
-	pid := firstContainer.RootProcess.HostPID
-	if pid == 0 {
-		return nil, 0, fmt.Errorf("invalid PID for container")
+	log.Debugf("Using container %s to access pod %s/%s filesystem",
+		containerName, gpuPod.Namespace, gpuPod.Name)
+
+	return nodeClient, podInfo, nil
+}
+
+// getNodeClientAndPID is deprecated, use getNodeClientAndPodInfo instead
+// Kept for backward compatibility
+func (r *Reader) getNodeClientAndPID(ctx context.Context, podUID string) (*client.Client, int, error) {
+	nodeClient, podInfo, err := r.getNodeClientAndPodInfo(ctx, podUID)
+	if err != nil {
+		return nil, 0, err
 	}
 
-	log.Debugf("Using PID %d from container %s to access pod filesystem",
-		pid, firstContainer.ContainerName)
+	// Get process tree to find PID (for backward compatibility)
+	processTreeReq := &types.ProcessTreeRequest{
+		PodName:        podInfo.Name,
+		PodNamespace:   podInfo.Namespace,
+		PodUID:         podUID,
+		IncludeCmdline: false,
+		IncludeEnv:     false,
+	}
 
+	processTree, err := nodeClient.GetPodProcessTree(ctx, processTreeReq)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to get process tree: %w", err)
+	}
+
+	if len(processTree.Containers) == 0 || processTree.Containers[0].RootProcess == nil {
+		return nil, 0, fmt.Errorf("no process found in pod")
+	}
+
+	pid := processTree.Containers[0].RootProcess.HostPID
 	return nodeClient, pid, nil
 }
 
@@ -337,4 +401,3 @@ func NormalizeLogPath(logPath string) string {
 
 	return cleanPath
 }
-
