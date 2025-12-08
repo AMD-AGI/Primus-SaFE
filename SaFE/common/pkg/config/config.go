@@ -419,11 +419,11 @@ func GetCICDControllerNamespace() string {
 // GetModelDownloaderImage returns the image for model downloader job.
 // Used for downloading models from HuggingFace and uploading to S3.
 func GetModelDownloaderImage() string {
-	return getString(modelDownloaderImage, "harbor.tas.primus-safe.amd.com/proxy/primussafe/model-downloader:latest")
+	return getString(modelDownloaderImage, "docker.io/primussafe/model-downloader:latest")
 }
 
 // GetModelCleanupImage returns the image for model cleanup job.
 // Used for deleting local model files.
 func GetModelCleanupImage() string {
-	return getString(modelCleanupImage, "alpine:3.18")
+	return getString(modelCleanupImage, "docker.io/library/alpine:3.18")
 }

@@ -81,7 +81,8 @@ data:
       controller_name: "arc-gha-rs-controller"
     model:
       # Image for downloading models from HuggingFace and uploading to S3
-      downloader_image: {{ default "harbor.tw325.primus-safe.amd.com/proxy/primussafe/model-downloader:latest" (default .Values.model).downloader_image }}
+      # Uses global.image_registry to support different registry environments
+      downloader_image: {{ default (printf "%s/primussafe/model-downloader:latest" .Values.global.image_registry) (default .Values.model).downloader_image }}
       # Image for cleaning up local model files
       cleanup_image: {{ default "alpine:3.18" (default .Values.model).cleanup_image }}
 {{- if .Values.addon }}
