@@ -147,9 +147,8 @@ func (e *TensorBoardStreamExecutor) Execute(
 		MaxHistoricalBytes: 0,
 	}
 
-	// 5. 启动流式读取
-	streamCtx, streamCancel := context.WithCancel(ctx)
-	defer streamCancel()
+	// 5. 使用传入的 ctx 让任务系统控制生命周期
+	// Stream will run until task is cancelled by task manager
 
 	// 从 checkpoint 恢复 offset
 	startOffsets := make(map[string]int64)
@@ -189,7 +188,7 @@ func (e *TensorBoardStreamExecutor) Execute(
 
 		// 等待文件出现
 		detectedFiles, err := e.waitForTensorBoardFiles(
-			streamCtx,
+			ctx,
 			task.WorkloadUID,
 			gpuPod.UID,
 			logDir,
@@ -230,7 +229,7 @@ func (e *TensorBoardStreamExecutor) Execute(
 	}
 
 	// 7. 启动流式会话
-	session, err := e.streamReader.StartStream(streamCtx, streamReq)
+	session, err := e.streamReader.StartStream(ctx, streamReq)
 	if err != nil {
 		return coreTask.FailureResult(
 			fmt.Sprintf("failed to start stream: %v", err),
@@ -240,19 +239,21 @@ func (e *TensorBoardStreamExecutor) Execute(
 		), err
 	}
 
-	// 8. 持续读取流数据并更新 offset
-	go e.processStreamUpdates(ctx, task, gpuPod, session)
+	log.Infof("Stream session started for workload %s, entering blocking mode", task.WorkloadUID)
 
-	// 9. 返回进行中状态（任务不会立即完成，会持续运行）
-	return coreTask.ProgressResult(map[string]interface{}{
-		"started_at":    time.Now().Format(time.RFC3339),
+	// 8. 同步处理流数据直到任务被取消
+	// This blocks until context is cancelled or stream ends
+	e.processStreamUpdates(ctx, task, gpuPod, session)
+
+	// 9. Stream ended, return final result
+	log.Infof("TensorBoard stream ended for workload %s", task.WorkloadUID)
+	return coreTask.SuccessResult(map[string]interface{}{
+		"ended_at":      time.Now().Format(time.RFC3339),
 		"pod_name":      gpuPod.Name,
 		"pod_namespace": gpuPod.Namespace,
 		"event_files":   eventFiles,
 		"files_count":   len(eventFiles),
-		"log_dir":       logDir,
-		"poll_interval": pollInterval,
-		"status":        "streaming",
+		"status":        "completed",
 	}), nil
 }
 
