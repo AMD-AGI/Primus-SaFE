@@ -135,9 +135,20 @@ func (i *Inspector) InspectWithScripts(ctx context.Context, pid int, scriptNames
 
 // executeScript executes a single script
 func (i *Inspector) executeScript(ctx context.Context, pid int, script *InspectionScript, timeoutSec int) (interface{}, error) {
-	outputFile := fmt.Sprintf("/tmp/python_inspect_%s_%d_%d.json",
+	// Output file path as seen by the target process (in its /tmp)
+	outputFileName := fmt.Sprintf("python_inspect_%s_%d_%d.json",
 		script.Metadata.Name, pid, time.Now().Unix())
-	defer os.Remove(outputFile)
+	outputFileInTarget := fmt.Sprintf("/tmp/%s", outputFileName)
+
+	// Path to read the file from the target process's filesystem via /proc
+	outputFileToRead := fmt.Sprintf("/proc/%d/root/tmp/%s", pid, outputFileName)
+
+	// Cleanup: remove from target process's /tmp via /proc
+	defer func() {
+		if err := os.Remove(outputFileToRead); err != nil {
+			log.Debugf("Failed to cleanup output file %s: %v", outputFileToRead, err)
+		}
+	}()
 
 	// Determine timeout
 	timeout := i.timeout
@@ -156,10 +167,11 @@ func (i *Inspector) executeScript(ctx context.Context, pid int, script *Inspecti
 		script.ScriptPath,
 	)
 
-	// Pass output file path via environment variable
-	cmd.Env = append(os.Environ(), fmt.Sprintf("INSPECTOR_OUTPUT_FILE=%s", outputFile))
+	// Pass output file path via environment variable (path in target process's filesystem)
+	cmd.Env = append(os.Environ(), fmt.Sprintf("INSPECTOR_OUTPUT_FILE=%s", outputFileInTarget))
 
-	log.Debugf("Executing script %s on PID %d, output file: %s", script.Metadata.Name, pid, outputFile)
+	log.Debugf("Executing script %s on PID %d, output file in target: %s, read from: %s",
+		script.Metadata.Name, pid, outputFileInTarget, outputFileToRead)
 
 	// Capture stdout and stderr
 	output, err := cmd.CombinedOutput()
@@ -178,10 +190,13 @@ func (i *Inspector) executeScript(ctx context.Context, pid int, script *Inspecti
 		log.Debugf("Script %s output: %s", script.Metadata.Name, strings.TrimSpace(string(output)))
 	}
 
-	// Read result
-	data, err := os.ReadFile(outputFile)
+	// Wait a bit for the file to be written
+	time.Sleep(100 * time.Millisecond)
+
+	// Read result from target process's filesystem via /proc
+	data, err := os.ReadFile(outputFileToRead)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read result: %w", err)
+		return nil, fmt.Errorf("failed to read result from %s: %w (make sure /proc is mounted)", outputFileToRead, err)
 	}
 
 	var result interface{}
