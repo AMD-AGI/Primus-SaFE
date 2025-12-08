@@ -1373,9 +1373,10 @@ func TestParseListModelQuery_InvalidLimit(t *testing.T) {
 
 	result, err := parseListModelQuery(c)
 
-	// Should not error, but apply default
-	require.NoError(t, err)
-	assert.Equal(t, 10, result.Limit) // Default limit
+	// Should error due to min=1 validation
+	require.Error(t, err)
+	assert.Nil(t, result)
+	assert.Contains(t, err.Error(), "invalid query")
 }
 
 // TestParseListModelQuery_InvalidOffset tests parseListModelQuery with invalid offset
@@ -1388,8 +1389,10 @@ func TestParseListModelQuery_InvalidOffset(t *testing.T) {
 
 	result, err := parseListModelQuery(c)
 
-	require.NoError(t, err)
-	assert.Equal(t, 0, result.Offset) // Should be corrected to 0
+	// Should error due to min=0 validation
+	require.Error(t, err)
+	assert.Nil(t, result)
+	assert.Contains(t, err.Error(), "invalid query")
 }
 
 // TestCreateModel_InvalidJSON tests createModel with invalid JSON body
