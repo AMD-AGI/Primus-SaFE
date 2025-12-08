@@ -11,6 +11,7 @@ import (
 	"reflect"
 	"time"
 
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -111,6 +112,9 @@ func (r *SyncerReconciler) getK8sResourceStatus(ctx context.Context, message *re
 	if status == nil {
 		return nil, nil
 	}
+	if message.gvk.Kind == common.CICDScaleRunnerSetKind {
+		status.RunnerScaleSetId = v1.GetCICDRunnerScaleSetId(k8sObject)
+	}
 
 	// Obtain detailed failure information from the Pod upon failure
 	if status.Phase == string(v1.K8sFailed) {
@@ -174,6 +178,7 @@ func (r *SyncerReconciler) updateAdminWorkloadStatus(ctx context.Context, origin
 		adminWorkload.Status.Message = ""
 	}
 	adminWorkload.Status.K8sObjectUid = string(message.uid)
+	adminWorkload.Status.RunnerScaleSetId = status.RunnerScaleSetId
 	cond := jobutils.NewCondition(status.Phase, status.Message,
 		commonworkload.GenerateDispatchReason(message.dispatchCount))
 	updateWorkloadCondition(adminWorkload, cond)

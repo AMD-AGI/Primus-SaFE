@@ -10,7 +10,7 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     primus-safe.workload.version: v1
-    primus-safe.workload.kind: AutoscalingRunner
+    primus-safe.workload.kind: EphemeralRunner
     app.kubernetes.io/managed-by: Helm
   annotations:
     # The main container name should match the configuration defined in the template below
@@ -19,8 +19,8 @@ metadata:
     meta.helm.sh/release-namespace: {{ .Release.Namespace }}
 data:
  template: |
-  apiVersion: batch/v1
-  kind: Job
+  apiVersion: actions.github.com/v1alpha1
+  kind: EphemeralRunner
   spec:
     template:
       spec:
@@ -67,6 +67,8 @@ data:
           imagePullPolicy: IfNotPresent
           env:
             - name: RUNNER_ALLOW_RUNASROOT
+              value: "1"
+            - name: ACTIONS_RUNNER_PRINT_LOG_TO_STDOUT
               value: "1"
             - name: DOCKER_HOST
               value: unix:///var/run/docker.sock

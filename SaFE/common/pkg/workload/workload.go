@@ -206,7 +206,7 @@ func GetScope(w *v1.Workload) v1.WorkspaceScope {
 		return v1.InferScope
 	case common.AuthoringKind:
 		return v1.AuthoringScope
-	case common.CICDScaleRunnerSetKind, common.CICDScaleRunnerKind:
+	case common.CICDScaleRunnerSetKind, common.CICDEphemeralRunnerKind:
 		return v1.CICDScope
 	default:
 		return ""
@@ -242,7 +242,7 @@ func IsAuthoring(w *v1.Workload) bool {
 
 // IsCICD returns true if workload is about cicd
 func IsCICD(w *v1.Workload) bool {
-	if w.SpecKind() == common.CICDScaleRunnerSetKind || w.SpecKind() == common.CICDScaleRunnerKind {
+	if w.SpecKind() == common.CICDScaleRunnerSetKind || w.SpecKind() == common.CICDEphemeralRunnerKind {
 		return true
 	}
 	return false
@@ -251,6 +251,14 @@ func IsCICD(w *v1.Workload) bool {
 // IsCICDScalingRunnerSet returns true if the workload is an AutoscalingRunnerSet type.
 func IsCICDScalingRunnerSet(w *v1.Workload) bool {
 	if w.SpecKind() == common.CICDScaleRunnerSetKind {
+		return true
+	}
+	return false
+}
+
+// IsCICDEphemeralRunner returns true if the workload is an EphemeralRunner type.
+func IsCICDEphemeralRunner(w *v1.Workload) bool {
+	if w.SpecKind() == common.CICDEphemeralRunnerKind {
 		return true
 	}
 	return false

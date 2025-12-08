@@ -725,11 +725,7 @@ func (h *Handler) generateCICDScaleRunnerSet(ctx context.Context, workload *v1.W
 	if !commonconfig.IsCICDEnable() {
 		return commonerrors.NewNotImplemented("the CICD is not enabled")
 	}
-	val, _ := workload.Spec.Env[common.GithubConfigUrl]
-	if val == "" {
-		return commonerrors.NewBadRequest("the github config url is empty")
-	}
-	val, _ = workload.Spec.Env[common.GithubPAT]
+	val, _ := workload.Spec.Env[common.GithubPAT]
 	if val == "" {
 		return commonerrors.NewBadRequest("the github pat(token) is empty")
 	}
@@ -744,6 +740,8 @@ func (h *Handler) generateCICDScaleRunnerSet(ctx context.Context, workload *v1.W
 			},
 		},
 	}
+	delete(workload.Spec.Env, common.GithubPAT)
+
 	secret, err := h.createSecretImpl(ctx, createSecretReq, requestUser)
 	if err != nil {
 		return err
@@ -1153,7 +1151,6 @@ func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context,
 		json.Unmarshal([]byte(str), &result.Env)
 		result.Env = maps.RemoveValue(result.Env, "")
 		if result.GroupVersionKind.Kind == common.CICDScaleRunnerSetKind {
-			delete(result.Env, common.GithubPAT)
 			delete(result.Env, common.AdminControlPlane)
 		}
 	}

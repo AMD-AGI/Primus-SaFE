@@ -399,14 +399,15 @@ func isResourceChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructure
 		klog.ErrorS(err, "failed to get resource", "rt", rt.Name, "obj", obj.GetName())
 		return false
 	}
-	var totalReplica int64 = 0
-	for _, n := range replicaList {
-		totalReplica += n
+	if len(replicaList) > 0 {
+		var totalReplica int64 = 0
+		for _, n := range replicaList {
+			totalReplica += n
+		}
+		if int(totalReplica) != adminWorkload.Spec.Resource.Replica {
+			return true
+		}
 	}
-	if int(totalReplica) != adminWorkload.Spec.Resource.Replica {
-		return true
-	}
-
 	podResource, err := commonworkload.GetPodResources(&adminWorkload.Spec.Resource)
 	if err != nil {
 		return false
@@ -484,6 +485,10 @@ func updateUnstructuredObject(obj *unstructured.Unstructured,
 		if err := updateCICDScaleSet(obj, adminWorkload, workspace, rt); err != nil {
 			return err
 		}
+	} else if commonworkload.IsCICDEphemeralRunner(adminWorkload) {
+		if err := updateCICDEphemeralRunner(obj, adminWorkload, rt); err != nil {
+			return err
+		}
 	}
 
 	var preAllocatedReplica int64 = 0
@@ -556,7 +561,7 @@ func updateCICDScaleSet(obj *unstructured.Unstructured,
 	if len(rt.Spec.ResourceSpecs) == 0 {
 		return fmt.Errorf("no resource template found")
 	}
-	if err := updateCICDGithub(adminWorkload, obj, rt); err != nil {
+	if err := updateCICDGithub(adminWorkload, obj); err != nil {
 		return err
 	}
 	if err := updateCICDEnvironments(obj, adminWorkload, workspace, rt.Spec.ResourceSpecs[0]); err != nil {
@@ -565,15 +570,21 @@ func updateCICDScaleSet(obj *unstructured.Unstructured,
 	return nil
 }
 
-// updateCICDGithub updates the CICD scale set configuration in the unstructured object.
-// It updates the GitHub configuration and then configures environment variables based on unified build settings.
-// Returns an error if no resource templates are found or if any update operation fails.
-func updateCICDGithub(adminWorkload *v1.Workload,
-	obj *unstructured.Unstructured, rt *v1.ResourceTemplate) error {
+// updateCICDEphemeralRunner updates the CICD ephemeral runner configuration
+func updateCICDEphemeralRunner(obj *unstructured.Unstructured, adminWorkload *v1.Workload, rt *v1.ResourceTemplate) error {
 	if len(rt.Spec.ResourceSpecs) == 0 {
 		return fmt.Errorf("no resource template found")
 	}
+	if err := updateCICDGithub(adminWorkload, obj); err != nil {
+		return err
+	}
+	return nil
+}
 
+// updateCICDGithub updates the CICD scale set configuration in the unstructured object.
+// It updates the GitHub configuration and then configures environment variables based on unified build settings.
+// Returns an error if no resource templates are found or if any update operation fails.
+func updateCICDGithub(adminWorkload *v1.Workload, obj *unstructured.Unstructured) error {
 	specObject, ok, err := unstructured.NestedMap(obj.Object, "spec")
 	if err != nil {
 		return err
@@ -584,6 +595,11 @@ func updateCICDGithub(adminWorkload *v1.Workload,
 	githubConfig := buildGithubConfig(adminWorkload)
 	for key, val := range githubConfig {
 		specObject[key] = val
+	}
+	if commonworkload.IsCICDEphemeralRunner(adminWorkload) {
+		if runnerSetId := v1.GetCICDRunnerScaleSetId(adminWorkload); runnerSetId != "" {
+			specObject["runnerScaleSetId"] = runnerSetId
+		}
 	}
 	if err = unstructured.SetNestedMap(obj.Object, specObject, "spec"); err != nil {
 		return err

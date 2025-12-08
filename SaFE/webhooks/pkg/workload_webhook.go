@@ -189,7 +189,7 @@ func (m *WorkloadMutator) mutateMeta(ctx context.Context, workload *v1.Workload,
 func (m *WorkloadMutator) mutateOwnerReference(ctx context.Context, workload *v1.Workload, workspace *v1.Workspace) {
 	var err error
 	switch workload.SpecKind() {
-	case common.CICDScaleRunnerKind:
+	case common.CICDEphemeralRunnerKind:
 		scaleRunnerSetId := workload.GetEnv(common.ScaleRunnerSetID)
 		if scaleRunnerSetId == "" {
 			break
@@ -199,6 +199,7 @@ func (m *WorkloadMutator) mutateOwnerReference(ctx context.Context, workload *v1
 			if !hasOwnerReferences(workload, scaleRunnerSetId) {
 				err = controllerutil.SetControllerReference(scaleRunnerSetWorkload, workload, m.Client.Scheme())
 			}
+			v1.SetAnnotation(workload, v1.CICDScaleSetIdAnnotation, scaleRunnerSetWorkload.Status.RunnerScaleSetId)
 		}
 	case common.UnifiedJobKind:
 		scaleRunnerId := workload.GetEnv(common.ScaleRunnerID)
@@ -206,7 +207,7 @@ func (m *WorkloadMutator) mutateOwnerReference(ctx context.Context, workload *v1
 			break
 		}
 		labelSelector := labels.SelectorFromSet(map[string]string{
-			v1.WorkloadKindLabel: common.CICDScaleRunnerKind, v1.ScaleRunnerIdLabel: scaleRunnerId})
+			v1.WorkloadKindLabel: common.CICDEphemeralRunnerKind, v1.ScaleRunnerIdLabel: scaleRunnerId})
 		scaleRunnerWorkloads := &v1.WorkloadList{}
 		if err = m.List(ctx, scaleRunnerWorkloads, &client.ListOptions{LabelSelector: labelSelector}); err == nil {
 			if len(scaleRunnerWorkloads.Items) > 0 && !hasOwnerReferences(workload, scaleRunnerWorkloads.Items[0].Name) {
@@ -418,6 +419,9 @@ func (m *WorkloadMutator) mutateEnv(oldWorkload, newWorkload *v1.Workload) {
 	if oldWorkload != nil {
 		for key := range oldWorkload.Spec.Env {
 			if _, ok := newWorkload.Spec.Env[key]; !ok {
+				if key == common.AdminControlPlane {
+					continue
+				}
 				newWorkload.Spec.Env[key] = ""
 			}
 		}
@@ -669,7 +673,7 @@ func (v *WorkloadValidator) validateCICDScalingRunnerSet(workload *v1.Workload) 
 	if len(v1.GetDisplayName(workload)) > MaxCICDScaleSetNameLen {
 		return fmt.Errorf("the displayName is too long, maximum length is %d characters", MaxCICDScaleSetNameLen)
 	}
-	keys := []string{common.ResourcesEnv, common.EntrypointEnv, common.ImageEnv}
+	keys := []string{common.ResourcesEnv, common.EntrypointEnv, common.ImageEnv, common.GithubConfigUrl}
 	for _, key := range keys {
 		if val, ok := workload.Spec.Env[key]; !ok || val == "" {
 			return fmt.Errorf("the %s of workload environment variables is empty", key)

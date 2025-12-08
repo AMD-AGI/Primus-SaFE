@@ -13,14 +13,14 @@ const (
 	PrimusRouterCustomRootPath = "api/" + DefaultVersion
 	ImageImportSecretName      = "primus-safe-image-import-reg-cred"
 
-	AuthoringKind          = "Authoring"
-	PytorchJobKind         = "PyTorchJob"
-	JobKind                = "Job"
-	DeploymentKind         = "Deployment"
-	StatefulSetKind        = "StatefulSet"
-	CICDScaleRunnerSetKind = "AutoscalingRunnerSet"
-	CICDScaleRunnerKind    = "AutoscalingRunner"
-	UnifiedJobKind         = "UnifiedJob"
+	AuthoringKind           = "Authoring"
+	PytorchJobKind          = "PyTorchJob"
+	JobKind                 = "Job"
+	DeploymentKind          = "Deployment"
+	StatefulSetKind         = "StatefulSet"
+	CICDScaleRunnerSetKind  = "AutoscalingRunnerSet"
+	CICDEphemeralRunnerKind = "EphemeralRunner"
+	UnifiedJobKind          = "UnifiedJob"
 
 	PodKind            = "Pod"
 	EventKind          = "Event"
