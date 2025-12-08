@@ -56,6 +56,10 @@ func (r *ProcReader) GetProcessInfo(pid int, req *ProcessTreeRequest) (*ProcessI
 	if req.IncludeEnv {
 		if env, err := r.readEnviron(pid); err == nil {
 			info.Env = env
+		} else {
+			// Log warning when environment read fails (usually due to permission issues)
+			// Still continue processing other process information
+			info.Env = []string{}
 		}
 	}
 

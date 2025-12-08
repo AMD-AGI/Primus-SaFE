@@ -17,7 +17,7 @@ type ProcessInfo struct {
 	Comm    string   `json:"comm"`
 	Exe     string   `json:"exe,omitempty"`
 	Args    []string `json:"args,omitempty"`
-	Env     []string `json:"env,omitempty"`
+	Env     []string `json:"env"`
 	Cwd     string   `json:"cwd,omitempty"`
 
 	// Process state
@@ -53,7 +53,7 @@ type ContainerProcessTree struct {
 	ContainerName string         `json:"container_name"`
 	ImageName     string         `json:"image_name,omitempty"`
 	RootProcess   *ProcessInfo   `json:"root_process"`
-	AllProcesses  []*ProcessInfo `json:"all_processes"`
+	AllProcesses  []*ProcessInfo `json:"-"` // Skip serialization to reduce network payload
 	ProcessCount  int            `json:"process_count"`
 	PythonCount   int            `json:"python_count"`
 }

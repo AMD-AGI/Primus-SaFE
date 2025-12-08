@@ -21,8 +21,16 @@ type Collector struct {
 	kubeletReader   *KubeletReader
 	nsenterExecutor *NsenterExecutor
 
-	cache    sync.Map // podUID -> *PodProcessTree
+	cache    sync.Map // cacheKey -> *PodProcessTree
 	cacheTTL time.Duration
+}
+
+// cacheKey represents a unique cache key including request parameters
+type cacheKey struct {
+	PodUID           string
+	IncludeEnv       bool
+	IncludeCmdline   bool
+	IncludeResources bool
 }
 
 // InitCollector initializes the process tree collector
@@ -62,11 +70,20 @@ func GetCollector() *Collector {
 
 // GetPodProcessTree retrieves the complete process tree for a pod
 func (c *Collector) GetPodProcessTree(ctx context.Context, req *ProcessTreeRequest) (*PodProcessTree, error) {
+	// Create cache key with request parameters
+	key := cacheKey{
+		PodUID:           req.PodUID,
+		IncludeEnv:       req.IncludeEnv,
+		IncludeCmdline:   req.IncludeCmdline,
+		IncludeResources: req.IncludeResources,
+	}
+
 	// Check cache
-	if cached, ok := c.cache.Load(req.PodUID); ok {
+	if cached, ok := c.cache.Load(key); ok {
 		tree := cached.(*PodProcessTree)
 		if time.Since(tree.CollectedAt) < c.cacheTTL {
-			log.Debugf("Using cached process tree for pod %s", req.PodUID)
+			log.Debugf("Using cached process tree for pod %s (env:%v, cmdline:%v, resources:%v)",
+				req.PodUID, req.IncludeEnv, req.IncludeCmdline, req.IncludeResources)
 			return tree, nil
 		}
 	}
@@ -78,7 +95,7 @@ func (c *Collector) GetPodProcessTree(ctx context.Context, req *ProcessTreeReque
 	}
 
 	// Update cache
-	c.cache.Store(req.PodUID, tree)
+	c.cache.Store(key, tree)
 
 	return tree, nil
 }
@@ -244,9 +261,15 @@ func (c *Collector) FindPythonProcesses(ctx context.Context, podUID string) ([]*
 	return pythonProcesses, nil
 }
 
-// InvalidateCache invalidates the cache for a pod
+// InvalidateCache invalidates all cache entries for a pod
 func (c *Collector) InvalidateCache(podUID string) {
-	c.cache.Delete(podUID)
+	// Delete all cache entries for this pod (with different parameter combinations)
+	c.cache.Range(func(key, value interface{}) bool {
+		if k, ok := key.(cacheKey); ok && k.PodUID == podUID {
+			c.cache.Delete(key)
+		}
+		return true
+	})
 }
 
 // GetProcessEnvironment gets environment variables for processes in a pod
