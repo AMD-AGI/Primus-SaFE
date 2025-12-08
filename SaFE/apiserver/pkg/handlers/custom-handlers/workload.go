@@ -147,7 +147,13 @@ func (h *Handler) createWorkload(c *gin.Context) (interface{}, error) {
 	}
 	roles := h.accessController.GetRoles(c.Request.Context(), requestUser)
 
-	return h.createWorkloadImpl(c, workload, requestUser, roles)
+	resp, err := h.createWorkloadImpl(c, workload, requestUser, roles)
+	if err != nil {
+		// Cleanup secrets created for CICD scaling runner set if workload creation fails
+		h.cleanupCICDSecrets(c.Request.Context(), workload)
+		return nil, err
+	}
+	return resp, nil
 }
 
 // createWorkloadImpl performs the actual workload creation in the system.
@@ -750,10 +756,26 @@ func (h *Handler) generateCICDScaleRunnerSet(ctx context.Context, workload *v1.W
 		v1.SecretEntity{Id: secret.Name, Type: v1.SecretGeneral})
 	controlPlaneIp, err := h.getAdminControlPlaneIp(ctx)
 	if err != nil {
+		h.cleanupCICDSecrets(ctx, workload)
 		return err
 	}
 	commonworkload.SetEnv(workload, common.AdminControlPlane, controlPlaneIp)
 	return nil
+}
+
+// cleanupCICDSecrets deletes secrets created for CICD scaling runner set workloads.
+// This is called when workload creation fails to ensure orphaned secrets are cleaned up.
+func (h *Handler) cleanupCICDSecrets(ctx context.Context, workload *v1.Workload) {
+	if !commonworkload.IsCICDScalingRunnerSet(workload) {
+		return
+	}
+	if err := h.clientSet.CoreV1().Secrets(common.PrimusSafeNamespace).Delete(
+		ctx, v1.GetDisplayName(workload), metav1.DeleteOptions{}); err != nil {
+		if !apierrors.IsNotFound(err) {
+			klog.ErrorS(err, "failed to delete secret", "name", v1.GetDisplayName(workload))
+		}
+	}
+	klog.Infof("cleaned up CICD secret %s after workload %s creation failure", v1.GetDisplayName(workload), workload.Name)
 }
 
 func (h *Handler) getAdminControlPlaneIp(ctx context.Context) (string, error) {
