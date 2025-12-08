@@ -218,7 +218,7 @@ COPY . .
 RUN cd $BASEPATH && CGO_ENABLED=0 go build -tags nosqlite -a -installsuffix cgo -o $APPNAME $BUILDPATH/main.go
 
 # Stage 2: Runtime
-FROM --platform=linux/amd64 primussafe/ubuntu-rdma-base:0.0.1
+FROM --platform=linux/amd64 docker.io/primussafe/ubuntu-rdma-base:0.0.1
 
 ARG APPNAME
 ARG BASEPATH

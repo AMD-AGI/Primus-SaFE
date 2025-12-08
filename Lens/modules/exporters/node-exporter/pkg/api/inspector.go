@@ -119,7 +119,52 @@ func InspectPythonProcess(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, rest.SuccessResp(c, result))
+	// Convert to the format expected by the client
+	// Client expects map[string]*InspectionResult where each script has its own result
+	response := make(map[string]interface{})
+	for scriptName, scriptResult := range result.Results {
+		// The scriptResult now contains {success, data/error, duration}
+		resultMap, ok := scriptResult.(map[string]interface{})
+		if !ok {
+			// Fallback for unexpected format
+			response[scriptName] = map[string]interface{}{
+				"pid":       result.PID,
+				"success":   true,
+				"script":    scriptName,
+				"data":      scriptResult,
+				"timestamp": result.Timestamp,
+				"duration":  0,
+			}
+			continue
+		}
+
+		success, _ := resultMap["success"].(bool)
+		duration, _ := resultMap["duration"].(float64)
+
+		if success {
+			// Successful execution
+			response[scriptName] = map[string]interface{}{
+				"pid":       result.PID,
+				"success":   true,
+				"script":    scriptName,
+				"data":      resultMap["data"],
+				"timestamp": result.Timestamp,
+				"duration":  duration,
+			}
+		} else {
+			// Failed execution
+			response[scriptName] = map[string]interface{}{
+				"pid":       result.PID,
+				"success":   false,
+				"script":    scriptName,
+				"error":     resultMap["error"],
+				"timestamp": result.Timestamp,
+				"duration":  duration,
+			}
+		}
+	}
+
+	c.JSON(http.StatusOK, rest.SuccessResp(c, response))
 }
 
 // ListPythonProcesses lists all Python processes

@@ -94,23 +94,36 @@ func (i *Inspector) InspectWithScripts(ctx context.Context, pid int, scriptNames
 
 	// Execute inspection
 	results := make(map[string]interface{})
+	startTime := time.Now()
 
 	for _, script := range scripts {
+		scriptStart := time.Now()
 		result, err := i.executeScript(ctx, pid, script, timeout)
+		scriptDuration := time.Since(scriptStart).Seconds()
+
 		if err != nil {
 			log.Errorf("Failed to execute script %s: %v", script.Metadata.Name, err)
+			// Store error result with metadata
 			results[script.Metadata.Name] = map[string]interface{}{
-				"error": err.Error(),
+				"success":  false,
+				"error":    err.Error(),
+				"duration": scriptDuration,
 			}
 			continue
 		}
-		results[script.Metadata.Name] = result
+
+		// Store successful result with metadata
+		results[script.Metadata.Name] = map[string]interface{}{
+			"success":  true,
+			"data":     result,
+			"duration": scriptDuration,
+		}
 	}
 
 	inspectionResult := &InspectionResult{
 		Success:   true,
 		PID:       pid,
-		Timestamp: time.Now(),
+		Timestamp: startTime,
 		Results:   results,
 	}
 
@@ -243,4 +256,3 @@ func extractContainerID(cgroup string) string {
 	}
 	return ""
 }
-
