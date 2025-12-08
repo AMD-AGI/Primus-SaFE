@@ -127,7 +127,21 @@ func (e *MetadataCollectionExecutor) Execute(
 		), err
 	}
 
-	// 5. 调用 TensorBoard fd 扫描接口
+	// 5. 获取进程树，找到第一个 Python 进程
+	processTree, err := e.getProcessTree(ctx, gpuPod, nodeExporterClient)
+	var pythonProcess *types.ProcessInfo
+	if err != nil {
+		log.Warnf("Failed to get process tree for pod %s: %v", gpuPod.Name, err)
+	} else {
+		pythonProcess = e.findTopLevelPythonProcess(processTree)
+		if pythonProcess != nil {
+			// Remove children to avoid storing unnecessary data
+			pythonProcess.Children = nil
+			log.Infof("Found top-level Python process: PID=%d, cmdline=%s", pythonProcess.HostPID, pythonProcess.Cmdline)
+		}
+	}
+
+	// 6. 调用 TensorBoard fd 扫描接口
 	tensorboardResult, err := nodeExporterClient.FindTensorboardFiles(
 		ctx,
 		gpuPod.UID,
@@ -135,12 +149,17 @@ func (e *MetadataCollectionExecutor) Execute(
 		gpuPod.Namespace,
 	)
 
-	// 6. 构建返回结果
+	// 7. 构建返回结果
 	updates := map[string]interface{}{
 		"completed_at":  time.Now().Format(time.RFC3339),
 		"pod_name":      gpuPod.Name,
 		"pod_namespace": gpuPod.Namespace,
 		"node_name":     gpuPod.NodeName,
+	}
+
+	// 保存 Python 进程信息到 metadata（不含 children）
+	if pythonProcess != nil {
+		updates["python_process"] = e.serializeProcessInfo(pythonProcess)
 	}
 
 	if err != nil {
@@ -151,13 +170,13 @@ func (e *MetadataCollectionExecutor) Execute(
 		return coreTask.FailureResult(errMsg, updates), err
 	}
 
-	// 7. 解析 TensorBoard 结果
+	// 8. 解析 TensorBoard 结果
 	filesDetected := len(tensorboardResult.Files) > 0
 	updates["tensorboard_files_detected"] = filesDetected
 	updates["tensorboard_result"] = tensorboardResult
 
-	// 8. 检查框架配置是否启用了 TensorBoard（即使文件还没出现）
-	tensorboardConfigured, configLogDir := e.checkTensorBoardConfiguration(ctx, detectionInfo, gpuPod, nodeExporterClient)
+	// 9. 检查框架配置是否启用了 TensorBoard（即使文件还没出现）
+	tensorboardConfigured, configLogDir := e.checkTensorBoardConfiguration(ctx, detectionInfo, pythonProcess, nodeExporterClient)
 	updates["tensorboard_configured"] = tensorboardConfigured
 
 	// 决定是否启用 TensorBoard stream
@@ -193,7 +212,7 @@ func (e *MetadataCollectionExecutor) Execute(
 				task.WorkloadUID, logDir)
 		}
 
-		// 9. 创建 TensorBoard 流式读取任务（无论文件是否已出现）
+		// 10. 创建 TensorBoard 流式读取任务（无论文件是否已出现）
 		if err := e.createTensorBoardStreamTask(ctx, task.WorkloadUID, uniqueFilePaths, logDir, !filesDetected); err != nil {
 			log.Warnf("Failed to create TensorBoard stream task for workload %s: %v", task.WorkloadUID, err)
 			updates["stream_task_created"] = false
@@ -390,7 +409,7 @@ func (e *MetadataCollectionExecutor) createTensorBoardStreamTask(
 func (e *MetadataCollectionExecutor) checkTensorBoardConfiguration(
 	ctx context.Context,
 	detectionInfo *model.AiWorkloadMetadata,
-	gpuPod *model.GpuPods,
+	pythonProcess *types.ProcessInfo,
 	nodeExporterClient interface{},
 ) (bool, string) {
 	if detectionInfo == nil || detectionInfo.Metadata == nil {
@@ -403,7 +422,7 @@ func (e *MetadataCollectionExecutor) checkTensorBoardConfiguration(
 	// 根据不同框架检查配置
 	switch framework {
 	case "primus":
-		return e.checkPrimusTensorBoard(ctx, detectionInfo.Metadata, gpuPod, nodeExporterClient)
+		return e.checkPrimusTensorBoard(ctx, pythonProcess, nodeExporterClient)
 	case "megatron", "megatron-lm":
 		return e.checkMegatronTensorBoard(detectionInfo.Metadata)
 	case "pytorch":
@@ -417,45 +436,36 @@ func (e *MetadataCollectionExecutor) checkTensorBoardConfiguration(
 // checkPrimusTensorBoard 检查 Primus 配置
 func (e *MetadataCollectionExecutor) checkPrimusTensorBoard(
 	ctx context.Context,
-	metadata model.ExtType,
-	gpuPod *model.GpuPods,
+	pythonProcess *types.ProcessInfo,
 	nodeExporterClient interface{},
 ) (bool, string) {
-	// Get process tree to find top-level Python process
-	processTree, err := e.getProcessTree(ctx, gpuPod, nodeExporterClient)
-	if err != nil {
-		log.Warnf("Failed to get process tree for pod %s: %v", gpuPod.Name, err)
-		return e.checkPrimusTensorBoardLegacy(metadata)
+	// Check if Python process is available
+	if pythonProcess == nil {
+		log.Warnf("No Python process available for TensorBoard config check")
+		return false, ""
 	}
 
-	// Find top-level Python process
-	pythonProc := e.findTopLevelPythonProcess(processTree)
-	if pythonProc == nil {
-		log.Warnf("No top-level Python process found in pod %s", gpuPod.Name)
-		return e.checkPrimusTensorBoardLegacy(metadata)
-	}
-
-	log.Infof("Found top-level Python process: PID=%d, cmdline=%s", pythonProc.HostPID, pythonProc.Cmdline)
+	log.Infof("Checking Primus TensorBoard config from process: PID=%d", pythonProcess.HostPID)
 
 	// Extract config file path from env or cmdline
-	configPath := e.extractConfigPath(pythonProc)
+	configPath := e.extractConfigPath(pythonProcess)
 	if configPath == "" {
 		log.Debugf("No config path found in process env or cmdline")
-		return e.checkPrimusTensorBoardLegacy(metadata)
+		return false, ""
 	}
 
 	// Convert relative path to absolute using cwd
-	if !filepath.IsAbs(configPath) && pythonProc.Cwd != "" {
-		configPath = filepath.Join(pythonProc.Cwd, configPath)
+	if !filepath.IsAbs(configPath) && pythonProcess.Cwd != "" {
+		configPath = filepath.Join(pythonProcess.Cwd, configPath)
 	}
 
 	log.Infof("Reading config file from container: %s", configPath)
 
 	// Read config file from container
-	configContent, err := e.readContainerFile(ctx, pythonProc.HostPID, configPath, nodeExporterClient)
+	configContent, err := e.readContainerFile(ctx, pythonProcess.HostPID, configPath, nodeExporterClient)
 	if err != nil {
 		log.Warnf("Failed to read config file %s: %v", configPath, err)
-		return e.checkPrimusTensorBoardLegacy(metadata)
+		return false, ""
 	}
 
 	// Parse YAML and check tensorboard configuration
@@ -468,17 +478,37 @@ func (e *MetadataCollectionExecutor) checkPrimusTensorBoard(
 	return false, ""
 }
 
-// checkPrimusTensorBoardLegacy legacy method using metadata
-func (e *MetadataCollectionExecutor) checkPrimusTensorBoardLegacy(metadata model.ExtType) (bool, string) {
-	if expConfig, ok := metadata["exp_config"].(map[string]interface{}); ok {
-		if disableTB, ok := expConfig["disable_tensorboard"].(bool); ok {
-			if !disableTB {
-				log.Infof("Primus: TensorBoard enabled (legacy, disable_tensorboard=false)")
-				return true, ""
-			}
-		}
+// serializeProcessInfo serializes process info without children
+func (e *MetadataCollectionExecutor) serializeProcessInfo(proc *types.ProcessInfo) map[string]interface{} {
+	if proc == nil {
+		return nil
 	}
-	return false, ""
+
+	return map[string]interface{}{
+		"host_pid":       proc.HostPID,
+		"host_ppid":      proc.HostPPID,
+		"container_pid":  proc.ContainerPID,
+		"container_ppid": proc.ContainerPPID,
+		"cmdline":        proc.Cmdline,
+		"comm":           proc.Comm,
+		"exe":            proc.Exe,
+		"args":           proc.Args,
+		"env":            proc.Env,
+		"cwd":            proc.Cwd,
+		"state":          proc.State,
+		"threads":        proc.Threads,
+		"cpu_time":       proc.CPUTime,
+		"memory_rss":     proc.MemoryRSS,
+		"memory_virtual": proc.MemoryVirtual,
+		"container_id":   proc.ContainerID,
+		"container_name": proc.ContainerName,
+		"pod_uid":        proc.PodUID,
+		"pod_name":       proc.PodName,
+		"pod_namespace":  proc.PodNamespace,
+		"is_python":      proc.IsPython,
+		"is_java":        proc.IsJava,
+		"start_time":     proc.StartTime,
+	}
 }
 
 // getProcessTree retrieves process tree from node-exporter
