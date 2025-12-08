@@ -343,7 +343,7 @@ func TestCreateModel_ValidationErrors(t *testing.T) {
 					AccessMode: string(v1.AccessModeLocal),
 				},
 			},
-			expectedErr: "url is required for local mode",
+			expectedErr: "model source url is required",
 		},
 		{
 			name: "invalid AccessMode",
