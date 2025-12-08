@@ -24,7 +24,7 @@ type FSReader struct {
 // NewFSReader creates a new file system reader with security constraints
 func NewFSReader() *FSReader {
 	return &FSReader{
-		// Only allow reading from common ML/AI log directories
+		// Only allow reading from common ML/AI log directories and distributed storage
 		allowedPrefixes: []string{
 			"/workspace",
 			"/data",
@@ -32,6 +32,12 @@ func NewFSReader() *FSReader {
 			"/tmp",
 			"/home",
 			"/opt",
+			"/wekafs",  // WekaFS storage system
+			"/gpfs",    // IBM GPFS/Spectrum Scale
+			"/lustre",  // Lustre parallel file system
+			"/cephfs",  // Ceph file system
+			"/mnt",     // Common mount point for NFS and other storage
+			"/nfs",     // NFS mounts
 		},
 		maxFileSize: 100 * 1024 * 1024, // 100MB default
 	}
