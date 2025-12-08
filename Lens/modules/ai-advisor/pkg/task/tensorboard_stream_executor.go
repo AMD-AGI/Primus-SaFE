@@ -6,12 +6,16 @@ import (
 	"strings"
 	"time"
 
+	"sync"
+
 	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/tensorboard"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/constant"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	coreTask "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/task"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/node-exporter/pkg/client"
 )
 
 // TensorBoardStreamExecutor TensorBoard 流式读取任务执行器
@@ -23,10 +27,14 @@ type TensorBoardStreamExecutor struct {
 	podFacade      database.PodFacadeInterface
 	taskFacade     database.WorkloadTaskFacadeInterface
 	trainingFacade database.TrainingFacadeInterface
+	nodeFacade     database.NodeFacadeInterface
 	eventParser    *tensorboard.EventParser
 
 	// 文件解析状态管理
 	fileBuffers map[string]*FileParseState // 每个文件的解析状态
+
+	// Node-exporter client cache
+	clientCache sync.Map // nodeName -> *client.Client
 }
 
 // FileParseState 文件解析状态
@@ -43,6 +51,7 @@ func NewTensorBoardStreamExecutor(streamReader *tensorboard.StreamReader) *Tenso
 		podFacade:      database.NewPodFacade(),
 		taskFacade:     database.NewWorkloadTaskFacade(),
 		trainingFacade: database.NewTrainingFacade(),
+		nodeFacade:     database.NewNodeFacade(),
 		eventParser:    tensorboard.NewEventParser(),
 		fileBuffers:    make(map[string]*FileParseState),
 	}
@@ -70,26 +79,17 @@ func (e *TensorBoardStreamExecutor) Execute(
 
 	log.Infof("Starting TensorBoard streaming for workload %s", task.WorkloadUID)
 
-	// 1. 从任务 ext 中获取 TensorBoard 事件文件列表
+	// 1. 从任务 ext 中获取 TensorBoard 事件文件列表（允许为空）
+	var eventFiles []string
 	eventFilesRaw, ok := task.Ext["event_files"]
-	if !ok || eventFilesRaw == nil {
-		return coreTask.FailureResult(
-			"no event_files found in task ext",
-			map[string]interface{}{
-				"error_at": time.Now().Format(time.RFC3339),
-			},
-		), fmt.Errorf("event_files not found in task ext")
-	}
-
-	// 转换 event_files 为字符串数组
-	eventFiles, err := e.parseEventFiles(eventFilesRaw)
-	if err != nil {
-		return coreTask.FailureResult(
-			fmt.Sprintf("invalid event_files: %v", err),
-			map[string]interface{}{
-				"error_at": time.Now().Format(time.RFC3339),
-			},
-		), fmt.Errorf("invalid event_files")
+	if ok && eventFilesRaw != nil {
+		// 转换 event_files 为字符串数组
+		var err error
+		eventFiles, err = e.parseEventFiles(eventFilesRaw)
+		if err != nil {
+			log.Warnf("Failed to parse event_files: %v, will wait for files to appear", err)
+			eventFiles = []string{} // 设置为空数组，继续执行
+		}
 	}
 
 	// 获取可选的 log_dir
@@ -100,25 +100,13 @@ func (e *TensorBoardStreamExecutor) Execute(
 		}
 	}
 
-	// 检查是否需要等待文件出现
-	waitForFiles := false
-	if waitVal, ok := task.Ext["wait_for_files"]; ok {
-		if waitBool, ok := waitVal.(bool); ok {
-			waitForFiles = waitBool
-		}
-	}
-
-	// 如果事件文件列表为空但配置了等待，需要等待文件出现
+	// 如果事件文件列表为空，需要等待文件出现（只要 pod 还在就一直扫描）
 	if len(eventFiles) == 0 {
-		if !waitForFiles || logDir == "" {
-			return coreTask.FailureResult(
-				"no event files provided and wait_for_files not configured",
-				map[string]interface{}{
-					"error_at": time.Now().Format(time.RFC3339),
-				},
-			), fmt.Errorf("no event files to stream")
+		if logDir == "" {
+			log.Infof("TensorBoard: waiting for files to appear (log_dir not specified, will scan container)")
+		} else {
+			log.Infof("TensorBoard: waiting for files to appear in %s", logDir)
 		}
-		log.Infof("TensorBoard: waiting for files to appear in %s", logDir)
 	} else {
 		log.Infof("TensorBoard event files: %v (log_dir: %s)", eventFiles, logDir)
 	}
@@ -178,9 +166,20 @@ func (e *TensorBoardStreamExecutor) Execute(
 
 	log.Infof("Starting stream with event files: %v, offsets: %+v", eventFiles, startOffsets)
 
-	// 6. 如果需要等待文件，先扫描文件
-	if waitForFiles && len(eventFiles) == 0 {
-		log.Infof("Waiting for TensorBoard files to appear in %s", logDir)
+	// 6. 获取 node-exporter client
+	nodeExporterClient, err := e.getNodeExporterClient(ctx, gpuPod.NodeName)
+	if err != nil {
+		return coreTask.FailureResult(
+			fmt.Sprintf("failed to get node-exporter client: %v", err),
+			map[string]interface{}{
+				"error_at": time.Now().Format(time.RFC3339),
+			},
+		), err
+	}
+
+	// 7. 如果文件列表为空，先扫描文件
+	if len(eventFiles) == 0 {
+		log.Infof("Waiting for TensorBoard files to appear")
 
 		fileWaitTimeout := 300 // 默认5分钟
 		if timeoutVal, ok := task.Ext["file_wait_timeout"]; ok {
@@ -208,14 +207,18 @@ func (e *TensorBoardStreamExecutor) Execute(
 			logDir,
 			time.Duration(fileWaitTimeout)*time.Second,
 			time.Duration(fileScanInterval)*time.Second,
+			nodeExporterClient,
+			gpuPod,
 		)
 
 		if err != nil {
 			return coreTask.FailureResult(
 				fmt.Sprintf("failed to detect TensorBoard files: %v", err),
 				map[string]interface{}{
-					"error_at":     time.Now().Format(time.RFC3339),
-					"wait_timeout": fileWaitTimeout,
+					"error_at":      time.Now().Format(time.RFC3339),
+					"wait_timeout":  fileWaitTimeout,
+					"scan_interval": fileScanInterval,
+					"log_dir":       logDir,
 				},
 			), err
 		}
@@ -396,12 +399,15 @@ func (e *TensorBoardStreamExecutor) waitForTensorBoardFiles(
 	logDir string,
 	timeout time.Duration,
 	scanInterval time.Duration,
+	nodeExporterClient *client.Client,
+	gpuPod *model.GpuPods,
 ) ([]string, error) {
-	log.Infof("Waiting for TensorBoard files in %s (timeout: %v, interval: %v)", logDir, timeout, scanInterval)
-
-	// TODO: 实现真正的文件扫描逻辑
-	// 需要通过 node-exporter API 定期调用 FindTensorboardFiles
-	// 当前先使用简化逻辑
+	if logDir == "" {
+		log.Infof("Waiting for TensorBoard files in pod %s (no specific dir, will scan /proc/fd) (timeout: %v, interval: %v)",
+			podUID, timeout, scanInterval)
+	} else {
+		log.Infof("Waiting for TensorBoard files in %s (timeout: %v, interval: %v)", logDir, timeout, scanInterval)
+	}
 
 	deadline := time.Now().Add(timeout)
 	ticker := time.NewTicker(scanInterval)
@@ -412,23 +418,38 @@ func (e *TensorBoardStreamExecutor) waitForTensorBoardFiles(
 		case <-ctx.Done():
 			return nil, fmt.Errorf("context cancelled while waiting for files")
 
-		case <-time.After(time.Until(deadline)):
-			return nil, fmt.Errorf("timeout waiting for TensorBoard files after %v", timeout)
-
 		case <-ticker.C:
-			// 尝试通过 fd 扫描查找文件
-			// 这里需要调用 FindTensorboardFiles 接口
+			// 检查是否超时
+			if time.Now().After(deadline) {
+				return nil, fmt.Errorf("timeout waiting for TensorBoard files after %v", timeout)
+			}
+
+			// 调用 FindTensorboardFiles 扫描文件
 			log.Debugf("Scanning for TensorBoard files in pod %s", podUID)
 
-			// TODO: 实际调用 node-exporter API 扫描文件
-			// 由于需要 client，这里暂时返回错误，实际使用时需要完善
-
-			// 临时方案：如果logDir存在，假设文件会在那里出现
-			// 实际部署时需要真正的文件扫描逻辑
-
-			if time.Now().After(deadline) {
-				return nil, fmt.Errorf("timeout waiting for TensorBoard files")
+			findResp, err := nodeExporterClient.FindTensorboardFiles(ctx, podUID, gpuPod.Name, gpuPod.Namespace)
+			if err != nil {
+				log.Warnf("Failed to scan for TensorBoard files: %v, will retry", err)
+				continue
 			}
+
+			// 提取文件路径并去重
+			fileSet := make(map[string]bool)
+			var eventFiles []string
+			for _, fileInfo := range findResp.Files {
+				// 去重：只添加未见过的文件
+				if !fileSet[fileInfo.FilePath] {
+					fileSet[fileInfo.FilePath] = true
+					eventFiles = append(eventFiles, fileInfo.FilePath)
+				}
+			}
+
+			if len(eventFiles) > 0 {
+				log.Infof("Found %d unique TensorBoard event files in pod %s", len(eventFiles), podUID)
+				return eventFiles, nil
+			}
+
+			log.Debugf("No TensorBoard files found yet, waiting...")
 		}
 	}
 }
@@ -682,4 +703,34 @@ func (e *TensorBoardStreamExecutor) parseTensorBoardEvents(
 		log.Infof("Processed %d scalar events from %s (stored: %d, duplicates: %d)",
 			scalarEventCount, update.File, successCount, duplicateCount)
 	}
+}
+
+// getNodeExporterClient gets or creates a node-exporter client for a specific node
+func (e *TensorBoardStreamExecutor) getNodeExporterClient(ctx context.Context, nodeName string) (*client.Client, error) {
+	cacheKey := nodeName
+
+	// Check cache first
+	if cached, ok := e.clientCache.Load(cacheKey); ok {
+		return cached.(*client.Client), nil
+	}
+
+	// Get node-exporter pod on the target node using existing clientsets implementation
+	k8sClient := clientsets.GetClusterManager().GetCurrentClusterClients().K8SClientSet.ControllerRuntimeClient
+
+	nodeExporterK8sClient, err := clientsets.GetOrInitNodeExportersClient(ctx, nodeName, k8sClient)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get node-exporter client for node %s: %w", nodeName, err)
+	}
+
+	// Convert to our client type by creating a new client with the baseURL
+	// The address from GetOrInitNodeExportersClient already includes http:// and port
+	// Client request paths include /v1 prefix, so baseURL should not include it
+	baseURL := nodeExporterK8sClient.GetRestyClient().BaseURL
+	nodeExporterClient := client.NewClient(client.DefaultConfig(baseURL))
+
+	// Cache the client
+	e.clientCache.Store(cacheKey, nodeExporterClient)
+
+	log.Infof("Created node-exporter client for node %s at %s", nodeName, baseURL)
+	return nodeExporterClient, nil
 }
