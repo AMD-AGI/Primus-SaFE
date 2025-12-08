@@ -598,7 +598,10 @@ func updateCICDGithub(adminWorkload *v1.Workload, obj *unstructured.Unstructured
 	}
 	if commonworkload.IsCICDEphemeralRunner(adminWorkload) {
 		if runnerSetId := v1.GetCICDRunnerScaleSetId(adminWorkload); runnerSetId != "" {
-			specObject["runnerScaleSetId"] = runnerSetId
+			specObject["runnerScaleSetId"], err = strconv.Atoi(runnerSetId)
+			if err != nil {
+				return commonerrors.NewInternalError(fmt.Sprintf("invalid runner scale set id %s", runnerSetId))
+			}
 		}
 	}
 	if err = unstructured.SetNestedMap(obj.Object, specObject, "spec"); err != nil {
