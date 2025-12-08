@@ -22,6 +22,17 @@ type TensorBoardStreamExecutor struct {
 	metadataFacade database.AiWorkloadMetadataFacadeInterface
 	podFacade      database.PodFacadeInterface
 	taskFacade     database.WorkloadTaskFacadeInterface
+	trainingFacade database.TrainingFacadeInterface
+	eventParser    *tensorboard.EventParser
+
+	// 文件解析状态管理
+	fileBuffers map[string]*FileParseState // 每个文件的解析状态
+}
+
+// FileParseState 文件解析状态
+type FileParseState struct {
+	Buffer          []byte // 缓存的不完整数据
+	LastValidOffset int64  // 最后一个完整解析的 record 结束位置
 }
 
 // NewTensorBoardStreamExecutor 创建 TensorBoard 流式读取执行器
@@ -31,6 +42,9 @@ func NewTensorBoardStreamExecutor(streamReader *tensorboard.StreamReader) *Tenso
 		metadataFacade: database.NewAiWorkloadMetadataFacade(),
 		podFacade:      database.NewPodFacade(),
 		taskFacade:     database.NewWorkloadTaskFacade(),
+		trainingFacade: database.NewTrainingFacade(),
+		eventParser:    tensorboard.NewEventParser(),
+		fileBuffers:    make(map[string]*FileParseState),
 	}
 }
 
@@ -310,6 +324,12 @@ func (e *TensorBoardStreamExecutor) processStreamUpdates(
 			log.Debugf("Received update for workload %s: file=%s, offset=%d->%d, bytes=%d",
 				task.WorkloadUID, update.File, update.Offset, update.NewOffset, update.BytesRead)
 
+			// 解析 TensorBoard event 数据并存储
+			// TensorBoard event 文件以 "events.out.tfevents" 开头
+			if len(update.Content) > 0 && e.isTensorBoardEventFile(update.File) {
+				e.parseTensorBoardEvents(ctx, task, gpuPod, update)
+			}
+
 		case <-ticker.C:
 			// 定期更新 checkpoint
 			if len(fileOffsets) > 0 {
@@ -489,4 +509,126 @@ func (e *TensorBoardStreamExecutor) selectTargetPod(ctx context.Context, workloa
 	log.Infof("No master-0 pod found, selected first pod: %s/%s for workload %s",
 		selectedPod.Namespace, selectedPod.Name, workloadUID)
 	return selectedPod, nil
+}
+
+// isTensorBoardEventFile 检查文件名是否为 TensorBoard event 文件
+func (e *TensorBoardStreamExecutor) isTensorBoardEventFile(filePath string) bool {
+	// TensorBoard event 文件格式: events.out.tfevents.*
+	fileName := filePath
+	if idx := strings.LastIndex(filePath, "/"); idx >= 0 {
+		fileName = filePath[idx+1:]
+	}
+	return strings.HasPrefix(fileName, "events.out.tfevents")
+}
+
+// parseTensorBoardEvents 解析 TensorBoard event 数据并存储到数据库
+// 实现流式解析：处理不完整的 record，维护缓冲区
+func (e *TensorBoardStreamExecutor) parseTensorBoardEvents(
+	ctx context.Context,
+	task *model.WorkloadTaskState,
+	gpuPod *model.GpuPods,
+	update *tensorboard.StreamUpdate,
+) {
+	// TensorBoard event 文件是二进制格式
+	if !e.isTensorBoardEventFile(update.File) {
+		log.Debugf("Skipping non-event file: %s", update.File)
+		return
+	}
+
+	// Content 字段包含二进制数据（作为字符串）
+	newData := []byte(update.Content)
+
+	if len(newData) == 0 {
+		log.Debugf("Empty content for file: %s", update.File)
+		return
+	}
+
+	// 1. 获取或创建该文件的解析状态
+	fileState, exists := e.fileBuffers[update.File]
+	if !exists {
+		fileState = &FileParseState{
+			Buffer:          make([]byte, 0),
+			LastValidOffset: update.Offset, // 从当前 offset 开始
+		}
+		e.fileBuffers[update.File] = fileState
+	}
+
+	// 2. 将新数据追加到缓冲区
+	fileState.Buffer = append(fileState.Buffer, newData...)
+
+	log.Debugf("File %s: buffer size=%d bytes (added %d new bytes)",
+		update.File, len(fileState.Buffer), len(newData))
+
+	// 3. 尝试从缓冲区解析完整的 events
+	events, consumedBytes, err := e.eventParser.ParseEventsWithBuffer(fileState.Buffer)
+	if err != nil {
+		log.Warnf("Failed to parse TensorBoard events from %s: %v", update.File, err)
+		// 如果解析失败，可能是数据损坏，清空缓冲区
+		fileState.Buffer = fileState.Buffer[:0]
+		return
+	}
+
+	if len(events) == 0 {
+		// 没有解析出完整的 event，缓冲区数据保留，等待下次
+		log.Debugf("No complete events in buffer for %s, waiting for more data (buffer: %d bytes)",
+			update.File, len(fileState.Buffer))
+		return
+	}
+
+	log.Infof("Parsed %d complete events from %s (consumed %d bytes, remaining %d bytes in buffer)",
+		len(events), update.File, consumedBytes, len(fileState.Buffer)-consumedBytes)
+
+	// 4. 移除已解析的数据，保留未完成的部分
+	if consumedBytes > 0 {
+		// 更新 last valid offset
+		fileState.LastValidOffset += int64(consumedBytes)
+
+		// 保留未消费的数据
+		if consumedBytes < len(fileState.Buffer) {
+			fileState.Buffer = fileState.Buffer[consumedBytes:]
+			log.Debugf("Retained %d bytes in buffer for next parse", len(fileState.Buffer))
+		} else {
+			fileState.Buffer = fileState.Buffer[:0]
+		}
+	}
+
+	// 5. 存储每个 event 的 scalar 数据到 training_performance 表
+	scalarEventCount := 0
+	for _, event := range events {
+		if !event.IsScalarEvent() {
+			continue
+		}
+
+		scalarEventCount++
+
+		// 将所有 scalars 合并到一个 performance 记录中
+		performance := model.ExtType{
+			"wall_time": event.WallTime,
+			"step":      event.Step,
+			"scalars":   event.Scalars,
+			"tags":      event.Tags,
+		}
+
+		trainingPerf := &model.TrainingPerformance{
+			WorkloadUID: task.WorkloadUID,
+			PodUUID:     gpuPod.UID,
+			Performance: performance,
+			Iteration:   int32(event.Step),
+			Serial:      0, // 可以从 pod 名称或其他地方提取
+			DataSource:  "tensorflow",
+			CreatedAt:   time.Now(),
+		}
+
+		// 存储到数据库
+		err := e.trainingFacade.CreateTrainingPerformance(ctx, trainingPerf)
+		if err != nil {
+			log.Warnf("Failed to store training performance for step %d: %v", event.Step, err)
+		} else {
+			log.Debugf("Stored training performance: step=%d, scalars=%v", event.Step, event.Scalars)
+		}
+	}
+
+	if scalarEventCount > 0 {
+		log.Infof("Stored %d scalar events from %s", scalarEventCount, update.File)
+	}
 }
