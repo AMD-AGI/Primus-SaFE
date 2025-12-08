@@ -302,8 +302,6 @@ func (e *MetadataCollectionExecutor) selectTargetPod(ctx context.Context, worklo
 		if err != nil {
 			log.Warnf("Failed to query child workloads for %s: %v", workloadUID, err)
 		} else if len(childWorkloads) > 0 {
-			log.Infof("Found %d child workloads for %s, searching their pods", len(childWorkloads), workloadUID)
-
 			for _, child := range childWorkloads {
 				childPods, err := e.selectTargetPod(ctx, child.UID)
 				if err == nil && childPods != nil {

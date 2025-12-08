@@ -316,11 +316,6 @@ func (e *TensorBoardStreamExecutor) processStreamUpdates(
 				continue
 			}
 
-			// 更新文件 offset
-			fileOffsets[update.File] = update.NewOffset
-			totalBytesRead += update.BytesRead
-			updateCount++
-
 			log.Debugf("Received update for workload %s: file=%s, offset=%d->%d, bytes=%d",
 				task.WorkloadUID, update.File, update.Offset, update.NewOffset, update.BytesRead)
 
@@ -329,6 +324,20 @@ func (e *TensorBoardStreamExecutor) processStreamUpdates(
 			if len(update.Content) > 0 && e.isTensorBoardEventFile(update.File) {
 				e.parseTensorBoardEvents(ctx, task, gpuPod, update)
 			}
+
+			// 更新文件 offset - 使用解析后的实际有效 offset
+			// 这确保我们只记录已经成功解析的位置
+			if fileState, exists := e.fileBuffers[update.File]; exists {
+				fileOffsets[update.File] = fileState.LastValidOffset
+				log.Debugf("Updated offset for %s to %d (parsed position)",
+					update.File, fileState.LastValidOffset)
+			} else {
+				// 如果不是 event 文件或解析失败，使用原始 offset
+				fileOffsets[update.File] = update.NewOffset
+			}
+
+			totalBytesRead += update.BytesRead
+			updateCount++
 
 		case <-ticker.C:
 			// 定期更新 checkpoint
@@ -481,8 +490,6 @@ func (e *TensorBoardStreamExecutor) selectTargetPod(ctx context.Context, workloa
 		if err != nil {
 			log.Warnf("Failed to query child workloads for %s: %v", workloadUID, err)
 		} else if len(childWorkloads) > 0 {
-			log.Infof("Found %d child workloads for %s, searching their pods", len(childWorkloads), workloadUID)
-
 			for _, child := range childWorkloads {
 				childPods, err := e.selectTargetPod(ctx, child.UID)
 				if err == nil && childPods != nil {
@@ -546,25 +553,33 @@ func (e *TensorBoardStreamExecutor) parseTensorBoardEvents(
 	// 1. 获取或创建该文件的解析状态
 	fileState, exists := e.fileBuffers[update.File]
 	if !exists {
+		// 初始化文件解析状态
+		// LastValidOffset 初始化为 update.Offset（这是 stream reader 开始读取的位置）
 		fileState = &FileParseState{
 			Buffer:          make([]byte, 0),
-			LastValidOffset: update.Offset, // 从当前 offset 开始
+			LastValidOffset: update.Offset,
 		}
 		e.fileBuffers[update.File] = fileState
+		log.Debugf("Initialized parse state for %s at offset %d", update.File, update.Offset)
 	}
 
 	// 2. 将新数据追加到缓冲区
 	fileState.Buffer = append(fileState.Buffer, newData...)
 
-	log.Debugf("File %s: buffer size=%d bytes (added %d new bytes)",
-		update.File, len(fileState.Buffer), len(newData))
+	log.Infof("File %s: buffer=%d bytes (added %d), file_offset=%d, last_valid=%d",
+		update.File, len(fileState.Buffer), len(newData),
+		update.Offset, fileState.LastValidOffset)
 
 	// 3. 尝试从缓冲区解析完整的 events
 	events, consumedBytes, err := e.eventParser.ParseEventsWithBuffer(fileState.Buffer)
 	if err != nil {
-		log.Warnf("Failed to parse TensorBoard events from %s: %v", update.File, err)
-		// 如果解析失败，可能是数据损坏，清空缓冲区
+		log.Errorf("Failed to parse TensorBoard events from %s: %v", update.File, err)
+		// 如果解析失败，可能是数据损坏或者 offset 错位
+		// 清空缓冲区，下次从新位置重新开始
 		fileState.Buffer = fileState.Buffer[:0]
+		// 尝试重置到当前更新的起始位置
+		fileState.LastValidOffset = update.Offset
+		log.Warnf("Reset parse state for %s to offset %d", update.File, update.Offset)
 		return
 	}
 
@@ -572,6 +587,14 @@ func (e *TensorBoardStreamExecutor) parseTensorBoardEvents(
 		// 没有解析出完整的 event，缓冲区数据保留，等待下次
 		log.Debugf("No complete events in buffer for %s, waiting for more data (buffer: %d bytes)",
 			update.File, len(fileState.Buffer))
+
+		// 防止缓冲区无限增长（如果一直无法解析）
+		if len(fileState.Buffer) > 1024*1024 { // 超过 1MB
+			log.Warnf("Buffer for %s exceeds 1MB without complete event, may be corrupted. Clearing buffer.",
+				update.File)
+			fileState.Buffer = fileState.Buffer[:0]
+			fileState.LastValidOffset = update.NewOffset
+		}
 		return
 	}
 
@@ -594,6 +617,9 @@ func (e *TensorBoardStreamExecutor) parseTensorBoardEvents(
 
 	// 5. 存储每个 event 的 scalar 数据到 training_performance 表
 	scalarEventCount := 0
+	successCount := 0
+	duplicateCount := 0
+
 	for _, event := range events {
 		if !event.IsScalarEvent() {
 			continue
@@ -607,6 +633,7 @@ func (e *TensorBoardStreamExecutor) parseTensorBoardEvents(
 			"step":      event.Step,
 			"scalars":   event.Scalars,
 			"tags":      event.Tags,
+			"file":      update.File, // 记录来源文件
 		}
 
 		trainingPerf := &model.TrainingPerformance{
@@ -619,16 +646,40 @@ func (e *TensorBoardStreamExecutor) parseTensorBoardEvents(
 			CreatedAt:   time.Now(),
 		}
 
-		// 存储到数据库
-		err := e.trainingFacade.CreateTrainingPerformance(ctx, trainingPerf)
+		// 检查是否已存在（防止重复插入）
+		existing, err := e.trainingFacade.GetTrainingPerformanceByWorkloadIdSerialAndIteration(
+			ctx, task.WorkloadUID, 0, int(event.Step))
+
 		if err != nil {
-			log.Warnf("Failed to store training performance for step %d: %v", event.Step, err)
+			log.Warnf("Failed to check existing record for step %d: %v", event.Step, err)
+		} else if existing != nil {
+			// 记录已存在，跳过
+			duplicateCount++
+			if duplicateCount <= 3 {
+				log.Debugf("Skipping duplicate event: step=%d (already in database)", event.Step)
+			}
+			continue
+		}
+
+		// 存储到数据库
+		err = e.trainingFacade.CreateTrainingPerformance(ctx, trainingPerf)
+		if err != nil {
+			// 可能是唯一键冲突（并发插入），不算错误
+			if strings.Contains(err.Error(), "duplicate") || strings.Contains(err.Error(), "unique") {
+				duplicateCount++
+			} else {
+				log.Warnf("Failed to store training performance for step %d: %v", event.Step, err)
+			}
 		} else {
-			log.Debugf("Stored training performance: step=%d, scalars=%v", event.Step, event.Scalars)
+			successCount++
+			if successCount <= 5 {
+				log.Debugf("Stored training performance: step=%d, scalars=%v", event.Step, event.Scalars)
+			}
 		}
 	}
 
 	if scalarEventCount > 0 {
-		log.Infof("Stored %d scalar events from %s", scalarEventCount, update.File)
+		log.Infof("Processed %d scalar events from %s (stored: %d, duplicates: %d)",
+			scalarEventCount, update.File, successCount, duplicateCount)
 	}
 }
