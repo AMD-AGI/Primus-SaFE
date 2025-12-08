@@ -395,7 +395,6 @@ func (h *Handler) toggleModel(c *gin.Context) (interface{}, error) {
 	ctx := c.Request.Context()
 
 	// Fetch Model Info first to check status
-	// Note: Model is cluster-scoped, no namespace needed
 	k8sModel := &v1.Model{}
 	if err := h.k8sClient.Get(ctx, ctrlclient.ObjectKey{Name: modelId}, k8sModel); err != nil {
 		return nil, commonerrors.NewNotFound("playground model", modelId)
@@ -739,6 +738,11 @@ func isFullURL(input string) bool {
 
 // cvtDBModelToInfo converts database model to ModelInfo.
 func cvtDBModelToInfo(dbModel *dbclient.Model) ModelInfo {
+	// Determine whether to include unmatched tags based on access mode:
+	// - remote_api: include all tags (user-defined, may have custom tags)
+	// - local: only include matched tags (filtered from HuggingFace)
+	includeUnmatched := dbModel.AccessMode == string(v1.AccessModeRemoteAPI)
+
 	return ModelInfo{
 		ID:              dbModel.ID,
 		DisplayName:     dbModel.DisplayName,
@@ -746,7 +750,7 @@ func cvtDBModelToInfo(dbModel *dbclient.Model) ModelInfo {
 		Icon:            dbModel.Icon,
 		Label:           dbModel.Label,
 		Tags:            dbModel.Tags,
-		CategorizedTags: CategorizeTagString(dbModel.Tags), // Convert tags to categorized format with colors
+		CategorizedTags: CategorizeTagString(dbModel.Tags, includeUnmatched),
 		MaxTokens:       dbModel.MaxTokens,
 		Version:         dbModel.Version,
 		SourceURL:       dbModel.SourceURL,

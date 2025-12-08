@@ -296,9 +296,9 @@ var trainingMethodTags = map[string]bool{
 var modelSizePattern = regexp.MustCompile(`(?i)^(\d+\.?\d*)(b|m)$`)
 
 // filterModelTags processes input tags and returns them with color information.
-// Matched tags get their category color, unmatched tags get gray color.
-// It performs case-insensitive matching and handles common tag format variations.
-func filterModelTags(tags []string) []TagWithCategory {
+// If includeUnmatched is true, unmatched tags are included with gray color.
+// If includeUnmatched is false, only tags matching the 6 categories are returned.
+func filterModelTags(tags []string, includeUnmatched bool) []TagWithCategory {
 	if len(tags) == 0 {
 		return []TagWithCategory{}
 	}
@@ -324,7 +324,11 @@ func filterModelTags(tags []string) []TagWithCategory {
 		if category != "" {
 			color = categoryColorMap[category]
 		} else {
-			// Unmatched tags get gray color
+			// Unmatched tags
+			if !includeUnmatched {
+				// Skip unmatched tags for local mode
+				continue
+			}
 			color = TagColorGray
 		}
 
@@ -414,14 +418,18 @@ func extractTagValues(tags []TagWithCategory) []string {
 }
 
 // CategorizeTags converts a plain string tag array to categorized tags with color info.
-// This is used when retrieving tags from storage and returning to frontend.
-func CategorizeTags(tags []string) []TagWithCategory {
-	return filterModelTags(tags)
+// includeUnmatched: if true, include unmatched tags with gray color (for remote mode)
+//
+//	if false, only include tags matching the 6 categories (for local mode)
+func CategorizeTags(tags []string, includeUnmatched bool) []TagWithCategory {
+	return filterModelTags(tags, includeUnmatched)
 }
 
 // CategorizeTagString converts a comma-separated tag string to categorized tags.
-// This is useful when tags are stored as a single string in database.
-func CategorizeTagString(tagsStr string) []TagWithCategory {
+// includeUnmatched: if true, include unmatched tags with gray color (for remote mode)
+//
+//	if false, only include tags matching the 6 categories (for local mode)
+func CategorizeTagString(tagsStr string, includeUnmatched bool) []TagWithCategory {
 	if tagsStr == "" {
 		return []TagWithCategory{}
 	}
@@ -430,7 +438,7 @@ func CategorizeTagString(tagsStr string) []TagWithCategory {
 	for i, tag := range tags {
 		tags[i] = strings.TrimSpace(tag)
 	}
-	return filterModelTags(tags)
+	return filterModelTags(tags, includeUnmatched)
 }
 
 // matchesProviderPrefix checks if tag starts with any known provider name
@@ -590,9 +598,10 @@ func fetchJSON(url string, info *HFModelInfo) error {
 
 	info.DisplayName = meta.ID
 	info.Label = meta.Author
-	// Filter tags to only include those matching our classification categories:
+	// Filter tags to only include those matching our classification categories (local mode):
 	// Provider, Task/Modality, Model Size, Precision/Quantization, Architecture, Training Method
-	categorizedTags := filterModelTags(meta.Tags)
+	// For local mode, we exclude unmatched tags (gray) during storage
+	categorizedTags := filterModelTags(meta.Tags, false) // false = exclude unmatched (local mode)
 	info.CategorizedTags = categorizedTags
 	info.Tags = extractTagValues(categorizedTags) // Plain string array for storage
 	return nil
