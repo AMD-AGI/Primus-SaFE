@@ -395,8 +395,9 @@ func (h *Handler) toggleModel(c *gin.Context) (interface{}, error) {
 	ctx := c.Request.Context()
 
 	// Fetch Model Info first to check status
+	// Note: Model is cluster-scoped, no namespace needed
 	k8sModel := &v1.Model{}
-	if err := h.k8sClient.Get(ctx, ctrlclient.ObjectKey{Name: modelId, Namespace: common.PrimusSafeNamespace}, k8sModel); err != nil {
+	if err := h.k8sClient.Get(ctx, ctrlclient.ObjectKey{Name: modelId}, k8sModel); err != nil {
 		return nil, commonerrors.NewNotFound("playground model", modelId)
 	}
 
@@ -739,24 +740,25 @@ func isFullURL(input string) bool {
 // cvtDBModelToInfo converts database model to ModelInfo.
 func cvtDBModelToInfo(dbModel *dbclient.Model) ModelInfo {
 	return ModelInfo{
-		ID:             dbModel.ID,
-		DisplayName:    dbModel.DisplayName,
-		Description:    dbModel.Description,
-		Icon:           dbModel.Icon,
-		Label:          dbModel.Label,
-		Tags:           dbModel.Tags,
-		MaxTokens:      dbModel.MaxTokens,
-		Version:        dbModel.Version,
-		SourceURL:      dbModel.SourceURL,
-		AccessMode:     dbModel.AccessMode,
-		Phase:          dbModel.Phase,
-		Message:        dbModel.Message,
-		InferenceID:    dbModel.InferenceID,
-		InferencePhase: dbModel.InferencePhase,
-		CreatedAt:      formatNullTime(dbModel.CreatedAt),
-		UpdatedAt:      formatNullTime(dbModel.UpdatedAt),
-		DeletionTime:   formatNullTime(dbModel.DeletionTime),
-		IsDeleted:      dbModel.IsDeleted,
+		ID:              dbModel.ID,
+		DisplayName:     dbModel.DisplayName,
+		Description:     dbModel.Description,
+		Icon:            dbModel.Icon,
+		Label:           dbModel.Label,
+		Tags:            dbModel.Tags,
+		CategorizedTags: CategorizeTagString(dbModel.Tags), // Convert tags to categorized format with colors
+		MaxTokens:       dbModel.MaxTokens,
+		Version:         dbModel.Version,
+		SourceURL:       dbModel.SourceURL,
+		AccessMode:      dbModel.AccessMode,
+		Phase:           dbModel.Phase,
+		Message:         dbModel.Message,
+		InferenceID:     dbModel.InferenceID,
+		InferencePhase:  dbModel.InferencePhase,
+		CreatedAt:       formatNullTime(dbModel.CreatedAt),
+		UpdatedAt:       formatNullTime(dbModel.UpdatedAt),
+		DeletionTime:    formatNullTime(dbModel.DeletionTime),
+		IsDeleted:       dbModel.IsDeleted,
 	}
 }
 

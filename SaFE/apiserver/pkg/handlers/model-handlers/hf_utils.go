@@ -18,6 +18,451 @@ import (
 	"k8s.io/klog/v2"
 )
 
+// ============================================================================
+// Model Tag Classification System
+// Categories: Provider, Task/Modality, Model Size, Precision/Quantization, Architecture, Training Method
+// ============================================================================
+
+// TagCategory represents the category type for model tags
+type TagCategory string
+
+const (
+	TagCategoryProvider     TagCategory = "provider"     // Blue - Brand, trust, professional
+	TagCategoryTask         TagCategory = "task"         // Green - Function, capability, action
+	TagCategorySize         TagCategory = "size"         // Purple - Scale, magnitude
+	TagCategoryPrecision    TagCategory = "precision"    // Orange - Technical optimization, performance
+	TagCategoryArchitecture TagCategory = "architecture" // Red - Core, structural importance
+	TagCategoryTraining     TagCategory = "training"     // Yellow - Method, process
+	TagCategoryOther        TagCategory = "other"        // Gray - Unclassified, secondary
+)
+
+// TagColor represents the color enum for frontend display
+type TagColor string
+
+const (
+	TagColorBlue   TagColor = "blue"   // Provider
+	TagColorGreen  TagColor = "green"  // Task
+	TagColorPurple TagColor = "purple" // Size
+	TagColorOrange TagColor = "orange" // Precision
+	TagColorRed    TagColor = "red"    // Architecture
+	TagColorYellow TagColor = "yellow" // Training
+	TagColorGray   TagColor = "gray"   // Other
+)
+
+// TagWithCategory represents a tag with its color information for frontend display
+type TagWithCategory struct {
+	Value string   `json:"value"` // Original tag value
+	Color TagColor `json:"color"` // Color for frontend display
+}
+
+// categoryColorMap maps category to color
+var categoryColorMap = map[TagCategory]TagColor{
+	TagCategoryProvider:     TagColorBlue,
+	TagCategoryTask:         TagColorGreen,
+	TagCategorySize:         TagColorPurple,
+	TagCategoryPrecision:    TagColorOrange,
+	TagCategoryArchitecture: TagColorRed,
+	TagCategoryTraining:     TagColorYellow,
+	TagCategoryOther:        TagColorGray,
+}
+
+// providerTags contains tags for model providers/vendors
+var providerTags = map[string]bool{
+	"openai":      true,
+	"anthropic":   true,
+	"google":      true,
+	"meta":        true,
+	"facebook":    true, // Meta's legacy name on HuggingFace
+	"microsoft":   true,
+	"alibaba":     true,
+	"bytedance":   true,
+	"tencent":     true,
+	"baidu":       true,
+	"deepseek":    true,
+	"qwen":        true,
+	"llama":       true,
+	"mistral":     true,
+	"cohere":      true,
+	"xai":         true,
+	"yi":          true,
+	"minimax":     true,
+	"internlm":    true,
+	"sensetime":   true,
+	"huawei":      true,
+	"zhipu":       true, // GLM series
+	"chatglm":     true,
+	"glm":         true,
+	"gemma":       true, // Google's Gemma
+	"phi":         true, // Microsoft's Phi
+	"falcon":      true, // TII
+	"starcoder":   true, // BigCode
+	"codellama":   true, // Meta's Code Llama
+	"vicuna":      true,
+	"wizardlm":    true,
+	"openchat":    true,
+	"neural-chat": true,
+	"custom":      true,
+	"internal":    true,
+}
+
+// taskModalityTags contains tags for model task types and modalities
+var taskModalityTags = map[string]bool{
+	// Text tasks
+	"text-generation":       true,
+	"chat":                  true,
+	"instruction-following": true,
+	"code-generation":       true,
+	"reasoning":             true,
+	"rag":                   true,
+	"conversational":        true,
+	"text2text-generation":  true,
+	"question-answering":    true,
+	"summarization":         true,
+	"translation":           true,
+	"fill-mask":             true,
+	"text-classification":   true,
+	"token-classification":  true,
+	"sentence-similarity":   true,
+	"feature-extraction":    true,
+	// Multimodal tasks
+	"vision-language":              true,
+	"image-understanding":          true,
+	"image-generation":             true,
+	"video-understanding":          true,
+	"audio-understanding":          true,
+	"speech-recognition":           true,
+	"speech-synthesis":             true,
+	"image-to-text":                true,
+	"text-to-image":                true,
+	"text-to-video":                true,
+	"text-to-audio":                true,
+	"text-to-speech":               true,
+	"automatic-speech-recognition": true,
+	"image-classification":         true,
+	"object-detection":             true,
+	"image-segmentation":           true,
+	"video-classification":         true,
+	"visual-question-answering":    true,
+	"document-question-answering":  true,
+	"image-text-to-text":           true,
+	// Special tasks
+	"agent":                    true,
+	"embedding":                true,
+	"embeddings":               true,
+	"classifier":               true,
+	"rl":                       true,
+	"rlhf":                     true,
+	"tokenizer":                true,
+	"zero-shot-classification": true,
+}
+
+// modelSizeTags contains tags for model parameter sizes
+var modelSizeTags = map[string]bool{
+	"1b":    true,
+	"2b":    true,
+	"3b":    true,
+	"4b":    true,
+	"7b":    true,
+	"8b":    true,
+	"13b":   true,
+	"14b":   true,
+	"32b":   true,
+	"34b":   true,
+	"70b":   true,
+	"72b":   true,
+	"110b":  true,
+	"400b":  true,
+	"500b":  true,
+	"500b+": true,
+	// Also match variations with decimals
+	"0.5b": true,
+	"1.5b": true,
+	"1.8b": true,
+	"2.7b": true,
+	"6.7b": true,
+	"7.1b": true,
+}
+
+// precisionQuantizationTags contains tags for model precision and quantization methods
+var precisionQuantizationTags = map[string]bool{
+	// Standard precision
+	"fp32": true,
+	"fp16": true,
+	"bf16": true,
+	"fp8":  true,
+	"int8": true,
+	"int4": true,
+	"nf4":  true,
+	// GGUF/GGML quantization formats
+	"q4_k_m": true,
+	"q4_k_s": true,
+	"q5_k_m": true,
+	"q5_k_s": true,
+	"q6_k":   true,
+	"q8_0":   true,
+	"q2_k":   true,
+	"q3_k_m": true,
+	"q3_k_s": true,
+	"q3_k_l": true,
+	"q4_0":   true,
+	"q4_1":   true,
+	"q5_0":   true,
+	"q5_1":   true,
+	// GPTQ formats
+	"gptq":      true,
+	"gptq-4bit": true,
+	"gptq-8bit": true,
+	// AWQ formats
+	"awq":      true,
+	"awq-4bit": true,
+	// Ascend (Huawei NPU) specific
+	"fp16-acl": true,
+	"bf16-acl": true,
+	"8bit-a2":  true,
+	// Quantization method tags
+	"4bit":         true,
+	"8bit":         true,
+	"quantized":    true,
+	"gguf":         true,
+	"ggml":         true,
+	"exl2":         true,
+	"bitsandbytes": true,
+}
+
+// architectureTags contains tags for model architectures
+var architectureTags = map[string]bool{
+	// Transformer variants
+	"transformer":        true,
+	"decoder-only":       true,
+	"encoder-only":       true,
+	"encoder-decoder":    true,
+	"mixture-of-experts": true,
+	"moe":                true,
+	"sparse-moe":         true,
+	// Alternative architectures
+	"rwkv":        true,
+	"mamba":       true,
+	"ssm":         true,
+	"state-space": true,
+	// Vision architectures
+	"swin":               true,
+	"vit":                true,
+	"vision-transformer": true,
+	"clip":               true,
+	"dino":               true,
+	// Audio architectures
+	"conformer":            true,
+	"whisper":              true,
+	"whisper-architecture": true,
+	"wav2vec":              true,
+	// High-level model types
+	"llm":              true,
+	"vlm":              true,
+	"diffusion":        true,
+	"stable-diffusion": true,
+	"gan":              true,
+	"autoregressive":   true,
+	"bert":             true,
+	"gpt":              true,
+	"t5":               true,
+	"bart":             true,
+	"roberta":          true,
+	"xlnet":            true,
+	"electra":          true,
+}
+
+// trainingMethodTags contains tags for training methods and data sources
+var trainingMethodTags = map[string]bool{
+	"rlhf":        true,
+	"sft":         true,
+	"dpo":         true,
+	"ppo":         true,
+	"aligned":     true,
+	"unaligned":   true,
+	"pretrained":  true,
+	"fine-tuned":  true,
+	"finetuned":   true,
+	"instruct":    true,
+	"instruction": true,
+	"chat-tuned":  true,
+	"base":        true,
+	"lora":        true,
+	"qlora":       true,
+	"adapter":     true,
+	"merged":      true,
+}
+
+// modelSizePattern matches model size patterns like "7b", "70B", "1.5B", etc.
+var modelSizePattern = regexp.MustCompile(`(?i)^(\d+\.?\d*)(b|m)$`)
+
+// filterModelTags processes input tags and returns them with color information.
+// Matched tags get their category color, unmatched tags get gray color.
+// It performs case-insensitive matching and handles common tag format variations.
+func filterModelTags(tags []string) []TagWithCategory {
+	if len(tags) == 0 {
+		return []TagWithCategory{}
+	}
+
+	result := make([]TagWithCategory, 0, len(tags))
+	seen := make(map[string]bool)
+
+	for _, tag := range tags {
+		// Normalize tag for matching (lowercase, trim spaces)
+		normalizedTag := strings.ToLower(strings.TrimSpace(tag))
+		if normalizedTag == "" {
+			continue
+		}
+
+		// Skip if we've already added this tag (avoid duplicates)
+		if seen[normalizedTag] {
+			continue
+		}
+
+		// Get the category for this tag and map to color
+		category := getTagCategory(normalizedTag)
+		var color TagColor
+		if category != "" {
+			color = categoryColorMap[category]
+		} else {
+			// Unmatched tags get gray color
+			color = TagColorGray
+		}
+
+		result = append(result, TagWithCategory{
+			Value: tag, // Keep original case
+			Color: color,
+		})
+		seen[normalizedTag] = true
+	}
+
+	return result
+}
+
+// getTagCategory determines which category a tag belongs to.
+// Returns empty string if tag doesn't match any category.
+func getTagCategory(tag string) TagCategory {
+	// Check exact matches first (order matters for priority)
+
+	// 1. Provider (exact match)
+	if providerTags[tag] {
+		return TagCategoryProvider
+	}
+
+	// 2. Task/Modality (exact match)
+	if taskModalityTags[tag] {
+		return TagCategoryTask
+	}
+
+	// 3. Model Size (exact match)
+	if modelSizeTags[tag] {
+		return TagCategorySize
+	}
+
+	// 4. Precision/Quantization (exact match)
+	if precisionQuantizationTags[tag] {
+		return TagCategoryPrecision
+	}
+
+	// 5. Architecture (exact match)
+	if architectureTags[tag] {
+		return TagCategoryArchitecture
+	}
+
+	// 6. Training Method (exact match)
+	if trainingMethodTags[tag] {
+		return TagCategoryTraining
+	}
+
+	// Check pattern matches
+
+	// Model size pattern (e.g., "7b", "13B", "1.5b")
+	if modelSizePattern.MatchString(tag) {
+		return TagCategorySize
+	}
+
+	// Quantization pattern (e.g., "q4_k_m", "q8_0")
+	if strings.HasPrefix(tag, "q") && (strings.Contains(tag, "_") || len(tag) <= 5) {
+		if matched, _ := regexp.MatchString(`^q\d+`, tag); matched {
+			return TagCategoryPrecision
+		}
+	}
+
+	// Provider prefix match (e.g., "llama-3" matches "llama", "qwen2" matches "qwen")
+	if matchesProviderPrefix(tag) {
+		return TagCategoryProvider
+	}
+
+	// Architecture prefix match (e.g., "bert-base" matches "bert", "gpt-4" matches "gpt")
+	if matchesArchitecturePrefix(tag) {
+		return TagCategoryArchitecture
+	}
+
+	return "" // No match
+}
+
+// extractTagValues extracts plain string values from categorized tags.
+// Used for backward compatible storage.
+func extractTagValues(tags []TagWithCategory) []string {
+	if len(tags) == 0 {
+		return []string{}
+	}
+	result := make([]string, len(tags))
+	for i, tag := range tags {
+		result[i] = tag.Value
+	}
+	return result
+}
+
+// CategorizeTags converts a plain string tag array to categorized tags with color info.
+// This is used when retrieving tags from storage and returning to frontend.
+func CategorizeTags(tags []string) []TagWithCategory {
+	return filterModelTags(tags)
+}
+
+// CategorizeTagString converts a comma-separated tag string to categorized tags.
+// This is useful when tags are stored as a single string in database.
+func CategorizeTagString(tagsStr string) []TagWithCategory {
+	if tagsStr == "" {
+		return []TagWithCategory{}
+	}
+	tags := strings.Split(tagsStr, ",")
+	// Trim whitespace from each tag
+	for i, tag := range tags {
+		tags[i] = strings.TrimSpace(tag)
+	}
+	return filterModelTags(tags)
+}
+
+// matchesProviderPrefix checks if tag starts with any known provider name
+// This handles cases like "llama-3", "qwen2", "qwen2.5", "mistral-7b-instruct"
+func matchesProviderPrefix(tag string) bool {
+	for provider := range providerTags {
+		if strings.HasPrefix(tag, provider) && len(tag) > len(provider) {
+			// Ensure the match is at a word boundary (followed by digit, hyphen, or underscore)
+			nextChar := tag[len(provider)]
+			if nextChar == '-' || nextChar == '_' || nextChar == '.' || (nextChar >= '0' && nextChar <= '9') {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// matchesArchitecturePrefix checks if tag starts with any known architecture name
+// This handles cases like "bert-base", "gpt-4", "t5-large", "whisper-large-v3"
+func matchesArchitecturePrefix(tag string) bool {
+	for arch := range architectureTags {
+		if strings.HasPrefix(tag, arch) && len(tag) > len(arch) {
+			// Ensure the match is at a word boundary (followed by digit, hyphen, or underscore)
+			nextChar := tag[len(arch)]
+			if nextChar == '-' || nextChar == '_' || nextChar == '.' || (nextChar >= '0' && nextChar <= '9') {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // createHTTPClient creates an HTTP client that skips TLS verification
 // This is needed for environments with corporate proxies using self-signed certificates
 func createHTTPClient() *http.Client {
@@ -39,12 +484,13 @@ type HFModelMetadata struct {
 
 // HFModelInfo contains the extracted information
 type HFModelInfo struct {
-	DisplayName string
-	Description string
-	Icon        string
-	Label       string
-	Tags        []string
-	MaxTokens   int // Maximum context length from config.json (max_position_embeddings)
+	DisplayName     string
+	Description     string
+	Icon            string
+	Label           string
+	Tags            []string          // Plain tags for storage (backward compatible)
+	CategorizedTags []TagWithCategory // Tags with category and color information for frontend display
+	MaxTokens       int               // Maximum context length from config.json (max_position_embeddings)
 }
 
 // GetHFModelInfo fetches metadata and readme from Hugging Face to extract model info.
@@ -144,7 +590,11 @@ func fetchJSON(url string, info *HFModelInfo) error {
 
 	info.DisplayName = meta.ID
 	info.Label = meta.Author
-	info.Tags = meta.Tags
+	// Filter tags to only include those matching our classification categories:
+	// Provider, Task/Modality, Model Size, Precision/Quantization, Architecture, Training Method
+	categorizedTags := filterModelTags(meta.Tags)
+	info.CategorizedTags = categorizedTags
+	info.Tags = extractTagValues(categorizedTags) // Plain string array for storage
 	return nil
 }
 

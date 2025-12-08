@@ -10,7 +10,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -409,10 +408,10 @@ func TestToggleModel_Enable(t *testing.T) {
 	_ = corev1.AddToScheme(scheme)
 
 	// Create a test LOCAL model (remote_api models create inference at creation time)
+	// Note: Model is cluster-scoped, no namespace needed
 	testModel := &v1.Model{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "test-model",
-			// Note: Model is cluster-scoped, no namespace needed
 		},
 		Spec: v1.ModelSpec{
 			DisplayName: "Test Model",
@@ -499,10 +498,10 @@ func TestToggleModel_RemoteAPI(t *testing.T) {
 	_ = corev1.AddToScheme(scheme)
 
 	// Create a remote API model with existing inference
+	// Note: Model is cluster-scoped, no namespace needed
 	testModel := &v1.Model{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "test-api-model",
-			// Note: Model is cluster-scoped, no namespace needed
 		},
 		Spec: v1.ModelSpec{
 			DisplayName: "Test API Model",
@@ -1110,9 +1109,12 @@ func TestToggleModel_DisableNoInference(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = v1.AddToScheme(scheme)
 
+	// Note: Model is cluster-scoped, no namespace needed
 	testModel := &v1.Model{
-		ObjectMeta: metav1.ObjectMeta{Name: "test-model"},
-		Spec:       v1.ModelSpec{DisplayName: "Test"},
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "test-model",
+		},
+		Spec: v1.ModelSpec{DisplayName: "Test"},
 		Status: v1.ModelStatus{
 			InferenceID: "", // No inference
 		},
@@ -1141,8 +1143,7 @@ func TestToggleModel_DisableNoInference(t *testing.T) {
 
 	assert.Error(t, err)
 	assert.Nil(t, result)
-	// Model is cluster-scoped but code uses namespace, or inference not found
-	assert.True(t, strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "inference not found or already stopped"))
+	assert.Contains(t, err.Error(), "inference not found or already stopped")
 }
 
 // TestToggleModel_LocalMissingResource tests toggle ON local model without resource
@@ -1152,8 +1153,11 @@ func TestToggleModel_LocalMissingResource(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = v1.AddToScheme(scheme)
 
+	// Note: Model is cluster-scoped, no namespace needed
 	testModel := &v1.Model{
-		ObjectMeta: metav1.ObjectMeta{Name: "test-model"},
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "test-model",
+		},
 		Spec: v1.ModelSpec{
 			DisplayName: "Test",
 			Source:      v1.ModelSource{AccessMode: v1.AccessModeLocal},
@@ -1197,8 +1201,11 @@ func TestToggleModel_RemoteAPIMissingApiKey(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = v1.AddToScheme(scheme)
 
+	// Note: Model is cluster-scoped, no namespace needed
 	testModel := &v1.Model{
-		ObjectMeta: metav1.ObjectMeta{Name: "test-api-model"},
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "test-api-model",
+		},
 		Spec: v1.ModelSpec{
 			DisplayName: "Test API",
 			Source:      v1.ModelSource{AccessMode: v1.AccessModeRemoteAPI, URL: "https://api.test.com"},

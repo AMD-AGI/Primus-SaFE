@@ -214,24 +214,25 @@ type PatchModelRequest struct {
 
 // ModelInfo represents the API response for a model.
 type ModelInfo struct {
-	ID             string `json:"id"`
-	DisplayName    string `json:"displayName"`
-	Description    string `json:"description"`
-	Icon           string `json:"icon"`
-	Label          string `json:"label"`
-	Tags           string `json:"tags"`
-	MaxTokens      int    `json:"maxTokens"`
-	Version        string `json:"version"`
-	SourceURL      string `json:"sourceURL"`
-	AccessMode     string `json:"accessMode"`
-	Phase          string `json:"phase"`
-	Message        string `json:"message"`
-	InferenceID    string `json:"inferenceID"`
-	InferencePhase string `json:"inferencePhase"`
-	CreatedAt      string `json:"createdAt,omitempty"`
-	UpdatedAt      string `json:"updatedAt,omitempty"`
-	DeletionTime   string `json:"deletionTime,omitempty"`
-	IsDeleted      bool   `json:"isDeleted"`
+	ID              string            `json:"id"`
+	DisplayName     string            `json:"displayName"`
+	Description     string            `json:"description"`
+	Icon            string            `json:"icon"`
+	Label           string            `json:"label"`
+	Tags            string            `json:"tags"`                      // Plain tags string (backward compatible)
+	CategorizedTags []TagWithCategory `json:"categorizedTags,omitempty"` // Tags with category and color for frontend display
+	MaxTokens       int               `json:"maxTokens"`
+	Version         string            `json:"version"`
+	SourceURL       string            `json:"sourceURL"`
+	AccessMode      string            `json:"accessMode"`
+	Phase           string            `json:"phase"`
+	Message         string            `json:"message"`
+	InferenceID     string            `json:"inferenceID"`
+	InferencePhase  string            `json:"inferencePhase"`
+	CreatedAt       string            `json:"createdAt,omitempty"`
+	UpdatedAt       string            `json:"updatedAt,omitempty"`
+	DeletionTime    string            `json:"deletionTime,omitempty"`
+	IsDeleted       bool              `json:"isDeleted"`
 }
 
 // ListModelResponse represents the response for listing models.
