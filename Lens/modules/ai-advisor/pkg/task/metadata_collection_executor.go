@@ -22,6 +22,7 @@ type MetadataCollectionExecutor struct {
 	collector      *metadata.Collector
 	metadataFacade database.AiWorkloadMetadataFacadeInterface
 	podFacade      database.PodFacadeInterface
+	taskFacade     database.WorkloadTaskFacadeInterface
 }
 
 // NewMetadataCollectionExecutor 创建元数据收集执行器
@@ -30,6 +31,7 @@ func NewMetadataCollectionExecutor(collector *metadata.Collector) *MetadataColle
 		collector:      collector,
 		metadataFacade: database.NewAiWorkloadMetadataFacade(),
 		podFacade:      database.NewPodFacade(),
+		taskFacade:     database.NewWorkloadTaskFacade(),
 	}
 }
 
@@ -152,17 +154,32 @@ func (e *MetadataCollectionExecutor) Execute(
 	updates["tensorboard_result"] = tensorboardResult
 
 	if tensorboardEnabled {
-		// 提取第一个 TensorBoard 文件的路径作为 log_dir
-		firstFile := tensorboardResult.Files[0]
-		// 从文件路径中提取目录
-		logDir := extractLogDir(firstFile.FilePath)
+		// 提取所有唯一的事件文件路径（去重）
+		uniqueFilePaths := extractUniqueFilePaths(tensorboardResult.Files)
+
+		// 从第一个文件路径中提取目录作为 log_dir 参考
+		logDir := ""
+		if len(uniqueFilePaths) > 0 {
+			logDir = extractLogDir(uniqueFilePaths[0])
+		}
 
 		updates["tensorboard_log_dir"] = logDir
-		updates["tensorboard_files_count"] = len(tensorboardResult.Files)
+		updates["tensorboard_event_files"] = uniqueFilePaths // 精确的事件文件路径列表
+		updates["tensorboard_files_count"] = len(uniqueFilePaths)
 		updates["tensorboard_pids"] = extractUniquePIDs(tensorboardResult.Files)
 
-		log.Infof("TensorBoard detected for workload %s: enabled=true, log_dir=%s, files=%d",
-			task.WorkloadUID, logDir, len(tensorboardResult.Files))
+		log.Infof("TensorBoard detected for workload %s: enabled=true, log_dir=%s, event_files=%d, unique_files=%v",
+			task.WorkloadUID, logDir, len(uniqueFilePaths), uniqueFilePaths)
+
+		// 8. 创建 TensorBoard 流式读取任务
+		if err := e.createTensorBoardStreamTask(ctx, task.WorkloadUID, uniqueFilePaths, logDir); err != nil {
+			log.Warnf("Failed to create TensorBoard stream task for workload %s: %v", task.WorkloadUID, err)
+			updates["stream_task_created"] = false
+			updates["stream_task_error"] = err.Error()
+		} else {
+			log.Infof("TensorBoard stream task created for workload %s", task.WorkloadUID)
+			updates["stream_task_created"] = true
+		}
 	} else {
 		log.Infof("TensorBoard not detected for workload %s (no event files found)", task.WorkloadUID)
 	}
@@ -282,6 +299,58 @@ func contains(slice []string, item string) bool {
 	return false
 }
 
+// createTensorBoardStreamTask 创建 TensorBoard 流式读取任务
+func (e *MetadataCollectionExecutor) createTensorBoardStreamTask(
+	ctx context.Context,
+	workloadUID string,
+	eventFiles []string,
+	logDir string,
+) error {
+	// 检查是否已经存在 TensorBoard stream 任务
+	existingTask, err := e.taskFacade.GetTask(ctx, workloadUID, constant.TaskTypeTensorBoardStream)
+	if err != nil {
+		log.Debugf("Failed to check existing TensorBoard stream task: %v", err)
+	}
+
+	// 如果任务已存在且正在运行，不创建新任务
+	if existingTask != nil && (existingTask.Status == constant.TaskStatusRunning || existingTask.Status == constant.TaskStatusPending) {
+		log.Infof("TensorBoard stream task already exists for workload %s (status: %s)", workloadUID, existingTask.Status)
+		return nil
+	}
+
+	// 创建新任务
+	streamTask := &model.WorkloadTaskState{
+		WorkloadUID: workloadUID,
+		TaskType:    constant.TaskTypeTensorBoardStream,
+		Status:      constant.TaskStatusPending,
+		Ext: model.ExtType{
+			// TensorBoard 配置
+			"event_files":   eventFiles, // 精确的事件文件列表
+			"log_dir":       logDir,     // 日志目录（参考）
+			"poll_interval": 5,          // 5 秒轮询间隔
+
+			// 任务配置
+			"auto_restart": true,
+			"priority":     90, // 稍低于元数据收集任务
+			"max_retries":  5,
+			"retry_count":  0,
+
+			// 任务元数据
+			"created_by":   "metadata_collection",
+			"created_at":   time.Now().Format(time.RFC3339),
+			"triggered_by": "tensorboard_detection",
+		},
+	}
+
+	// 使用 Upsert 创建或更新任务
+	if err := e.taskFacade.UpsertTask(ctx, streamTask); err != nil {
+		return fmt.Errorf("failed to create TensorBoard stream task: %w", err)
+	}
+
+	log.Infof("TensorBoard stream task created for workload %s with %d event files", workloadUID, len(eventFiles))
+	return nil
+}
+
 // extractLogDir 从 TensorBoard 事件文件路径中提取目录
 func extractLogDir(filePath string) string {
 	// 找到最后一个 '/' 的位置
@@ -290,6 +359,22 @@ func extractLogDir(filePath string) string {
 		return filePath[:lastSlash]
 	}
 	return filePath
+}
+
+// extractUniqueFilePaths 从 TensorBoard 文件列表中提取唯一的文件路径（去重）
+func extractUniqueFilePaths(files []*types.TensorboardFileInfo) []string {
+	filePathMap := make(map[string]bool)
+	var uniquePaths []string
+
+	for _, file := range files {
+		// 使用文件路径作为键进行去重
+		if !filePathMap[file.FilePath] {
+			filePathMap[file.FilePath] = true
+			uniquePaths = append(uniquePaths, file.FilePath)
+		}
+	}
+
+	return uniquePaths
 }
 
 // extractUniquePIDs 从 TensorBoard 文件列表中提取唯一的 PID 列表

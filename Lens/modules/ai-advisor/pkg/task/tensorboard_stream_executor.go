@@ -56,41 +56,39 @@ func (e *TensorBoardStreamExecutor) Execute(
 
 	log.Infof("Starting TensorBoard streaming for workload %s", task.WorkloadUID)
 
-	// 1. 从 ai_workload_metadata 获取 TensorBoard 信息
-	metadataInfo, err := e.metadataFacade.GetAiWorkloadMetadata(ctx, task.WorkloadUID)
-	if err != nil {
+	// 1. 从任务 ext 中获取 TensorBoard 事件文件列表
+	eventFilesRaw, ok := task.Ext["event_files"]
+	if !ok || eventFilesRaw == nil {
 		return coreTask.FailureResult(
-			fmt.Sprintf("failed to get metadata: %v", err),
+			"no event_files found in task ext",
 			map[string]interface{}{
 				"error_at": time.Now().Format(time.RFC3339),
 			},
-		), err
+		), fmt.Errorf("event_files not found in task ext")
 	}
 
-	if metadataInfo == nil || metadataInfo.Metadata == nil {
+	// 转换 event_files 为字符串数组
+	eventFiles, err := e.parseEventFiles(eventFilesRaw)
+	if err != nil || len(eventFiles) == 0 {
 		return coreTask.FailureResult(
-			"no metadata found for workload",
+			fmt.Sprintf("invalid or empty event_files: %v", err),
 			map[string]interface{}{
 				"error_at": time.Now().Format(time.RFC3339),
 			},
-		), fmt.Errorf("metadata not found")
+		), fmt.Errorf("invalid event_files")
 	}
 
-	// 2. 提取 TensorBoard 信息
-	tensorboardInfo := e.extractTensorBoardInfo(metadataInfo.Metadata)
-	if tensorboardInfo == nil || tensorboardInfo["log_dir"] == "" {
-		return coreTask.FailureResult(
-			"no tensorboard log_dir found in metadata",
-			map[string]interface{}{
-				"error_at": time.Now().Format(time.RFC3339),
-			},
-		), fmt.Errorf("tensorboard log_dir not found")
+	// 获取可选的 log_dir
+	logDir := ""
+	if logDirVal, ok := task.Ext["log_dir"]; ok {
+		if logDirStr, ok := logDirVal.(string); ok {
+			logDir = logDirStr
+		}
 	}
 
-	logDir := tensorboardInfo["log_dir"].(string)
-	log.Infof("TensorBoard log_dir: %s", logDir)
+	log.Infof("TensorBoard event files: %v (log_dir: %s)", eventFiles, logDir)
 
-	// 3. 获取 pod 信息
+	// 2. 获取 pod 信息
 	gpuPod, err := e.selectTargetPod(ctx, task.WorkloadUID)
 	if err != nil {
 		return coreTask.FailureResult(
@@ -101,14 +99,24 @@ func (e *TensorBoardStreamExecutor) Execute(
 		), err
 	}
 
-	// 4. 从 ext 获取配置和 checkpoint
-	checkpoint := e.GetExtMap(task, "checkpoint")
-	pollInterval := e.GetExtInt(task, "poll_interval")
-	if pollInterval == 0 {
-		pollInterval = 5 // 默认 5 秒
+	// 3. 从 ext 获取配置和 checkpoint
+	var checkpoint map[string]interface{}
+	if checkpointVal, ok := task.Ext["checkpoint"]; ok {
+		if checkpointMap, ok := checkpointVal.(map[string]interface{}); ok {
+			checkpoint = checkpointMap
+		}
 	}
 
-	// 5. 构建流式配置
+	pollInterval := 5 // 默认 5 秒
+	if pollIntervalVal, ok := task.Ext["poll_interval"]; ok {
+		if pollIntervalInt, ok := pollIntervalVal.(int); ok {
+			pollInterval = pollIntervalInt
+		} else if pollIntervalFloat, ok := pollIntervalVal.(float64); ok {
+			pollInterval = int(pollIntervalFloat)
+		}
+	}
+
+	// 4. 构建流式配置
 	streamConfig := &tensorboard.StreamConfig{
 		PollInterval:       time.Duration(pollInterval) * time.Second,
 		ChunkSize:          65536, // 64KB
@@ -118,7 +126,7 @@ func (e *TensorBoardStreamExecutor) Execute(
 		MaxHistoricalBytes: 0,
 	}
 
-	// 6. 启动流式读取
+	// 5. 启动流式读取
 	streamCtx, streamCancel := context.WithCancel(ctx)
 	defer streamCancel()
 
@@ -134,13 +142,14 @@ func (e *TensorBoardStreamExecutor) Execute(
 		}
 	}
 
-	log.Infof("Starting stream with offsets: %+v", startOffsets)
+	log.Infof("Starting stream with event files: %v, offsets: %+v", eventFiles, startOffsets)
 
-	// 7. 构建流式请求
+	// 6. 构建流式请求（使用精确的事件文件列表）
 	streamReq := &tensorboard.StreamRequest{
 		WorkloadUID: task.WorkloadUID,
 		PodUID:      gpuPod.UID,
-		LogDir:      logDir,
+		EventFiles:  eventFiles, // 使用精确的事件文件列表
+		LogDir:      logDir,     // 保留作为参考
 		Config:      streamConfig,
 	}
 
@@ -153,7 +162,7 @@ func (e *TensorBoardStreamExecutor) Execute(
 		}
 	}
 
-	// 8. 启动流式会话
+	// 7. 启动流式会话
 	session, err := e.streamReader.StartStream(streamCtx, streamReq)
 	if err != nil {
 		return coreTask.FailureResult(
@@ -164,14 +173,16 @@ func (e *TensorBoardStreamExecutor) Execute(
 		), err
 	}
 
-	// 9. 持续读取流数据并更新 offset
+	// 8. 持续读取流数据并更新 offset
 	go e.processStreamUpdates(ctx, task, gpuPod, session)
 
-	// 10. 返回进行中状态（任务不会立即完成，会持续运行）
+	// 9. 返回进行中状态（任务不会立即完成，会持续运行）
 	return coreTask.ProgressResult(map[string]interface{}{
 		"started_at":    time.Now().Format(time.RFC3339),
 		"pod_name":      gpuPod.Name,
 		"pod_namespace": gpuPod.Namespace,
+		"event_files":   eventFiles,
+		"files_count":   len(eventFiles),
 		"log_dir":       logDir,
 		"poll_interval": pollInterval,
 		"status":        "streaming",
@@ -280,23 +291,25 @@ func (e *TensorBoardStreamExecutor) Cancel(ctx context.Context, task *model.Work
 	return nil
 }
 
-// extractTensorBoardInfo 从 metadata 中提取 TensorBoard 信息
-func (e *TensorBoardStreamExecutor) extractTensorBoardInfo(metadata model.ExtType) map[string]interface{} {
-	if metadata == nil {
-		return nil
+// parseEventFiles 解析事件文件列表
+func (e *TensorBoardStreamExecutor) parseEventFiles(eventFilesRaw interface{}) ([]string, error) {
+	var eventFiles []string
+
+	// 尝试将接口类型转换为字符串切片
+	switch v := eventFilesRaw.(type) {
+	case []interface{}:
+		for _, item := range v {
+			if str, ok := item.(string); ok {
+				eventFiles = append(eventFiles, str)
+			}
+		}
+	case []string:
+		eventFiles = v
+	default:
+		return nil, fmt.Errorf("unsupported event_files type: %T", eventFilesRaw)
 	}
 
-	// 尝试从 tensorboard 字段获取
-	if tb, ok := metadata["tensorboard"].(map[string]interface{}); ok {
-		return tb
-	}
-
-	// 尝试从 tensorboard_info 字段获取
-	if tb, ok := metadata["tensorboard_info"].(map[string]interface{}); ok {
-		return tb
-	}
-
-	return nil
+	return eventFiles, nil
 }
 
 // selectTargetPod 从 workload 的所有 pod 中选择目标 pod
