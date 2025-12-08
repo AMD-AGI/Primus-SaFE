@@ -4,7 +4,7 @@ PyTorch Inspector Script
 
 This script detects PyTorch models and configurations in a running Python process.
 """
-import sys
+import os
 import json
 import gc
 
@@ -72,7 +72,8 @@ def inspect_pytorch():
 
 
 if __name__ == "__main__":
-    output_file = sys.argv[1] if len(sys.argv) > 1 else "/tmp/inspection_result.json"
+    # Read output file path from environment variable
+    output_file = os.environ.get('INSPECTOR_OUTPUT_FILE', '/tmp/inspection_result.json')
     
     result = inspect_pytorch()
     

@@ -154,10 +154,12 @@ func (i *Inspector) executeScript(ctx context.Context, pid int, script *Inspecti
 	cmd := exec.CommandContext(cmdCtx, "pyrasite",
 		strconv.Itoa(pid),
 		script.ScriptPath,
-		outputFile,
 	)
 
-	log.Debugf("Executing script %s on PID %d", script.Metadata.Name, pid)
+	// Pass output file path via environment variable
+	cmd.Env = append(os.Environ(), fmt.Sprintf("INSPECTOR_OUTPUT_FILE=%s", outputFile))
+
+	log.Debugf("Executing script %s on PID %d, output file: %s", script.Metadata.Name, pid, outputFile)
 
 	// Capture stdout and stderr
 	output, err := cmd.CombinedOutput()
