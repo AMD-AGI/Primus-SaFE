@@ -322,6 +322,59 @@ Starts or stops an inference service for the model. This creates or deletes an I
 
 ---
 
+### 6. Retry Failed Model Download
+
+**Endpoint**: `POST /api/v1/playground/models/{id}/retry`
+
+**Authentication Required**: Yes
+
+**Description**:
+Retries a failed model download. This operation resets the model status from "Failed" to "Pending", triggering the controller to restart the download process. Only models in "Failed" phase can be retried.
+
+**Request Body**: None required
+
+**Request Example**:
+```bash
+curl -X POST http://localhost:8080/api/v1/playground/models/model-a3k9x/retry \
+  -H "Authorization: Bearer <your-token>"
+```
+
+**Response (Success)**:
+```json
+{
+  "message": "model retry initiated successfully",
+  "id": "model-a3k9x",
+  "previousPhase": "Failed",
+  "currentPhase": "Pending"
+}
+```
+
+**Response (Not Failed)**:
+```json
+{
+  "error": "model is not in Failed phase, current phase: Ready. Only failed models can be retried",
+  "code": 400
+}
+```
+
+**Response (Not Found)**:
+```json
+{
+  "error": "model not found: model-xyz",
+  "code": 404
+}
+```
+
+**Notes**:
+- Only models with `phase: "Failed"` can be retried
+- The retry operation resets the model status to "Pending"
+- The Model Controller will detect the status change and create a new download Job
+- Previous failed Job is automatically cleaned up, so retry will start fresh
+- S3 storage uses incremental sync (`aws s3 sync`), so partial downloads are preserved
+- If you want to re-create the model instead of retrying, you must first delete it
+
+---
+
 ## Model Lifecycle
 
 ### Phase Transitions
@@ -336,6 +389,14 @@ Create Model (POST /playground/models)
 [Ready] → Model available for use
     or
 [Failed] → Download failed
+    ↓
+Retry (POST /playground/models/:id/retry)
+    ↓
+[Pending] → Controller creates new download Job
+    ↓
+[Pulling] → Download in progress
+    ↓
+[Ready] or [Failed]
 
 Toggle ON (POST /playground/models/:id/toggle with enabled=true)
     ↓
@@ -481,7 +542,27 @@ curl -X POST http://localhost:8080/api/v1/playground/models/model-a3k9x/toggle \
   }'
 ```
 
-### Example 6: Delete Model
+### Example 6: Retry Failed Model Download
+
+```bash
+# Check model status first
+curl -X GET http://localhost:8080/api/v1/playground/models/model-a3k9x \
+  -H "Authorization: Bearer <your-token>"
+
+# If phase is "Failed", retry the download
+curl -X POST http://localhost:8080/api/v1/playground/models/model-a3k9x/retry \
+  -H "Authorization: Bearer <your-token>"
+
+# Response:
+# {
+#   "message": "model retry initiated successfully",
+#   "id": "model-a3k9x",
+#   "previousPhase": "Failed",
+#   "currentPhase": "Pending"
+# }
+```
+
+### Example 7: Delete Model
 
 ```bash
 curl -X DELETE http://localhost:8080/api/v1/playground/models/model-a3k9x \
