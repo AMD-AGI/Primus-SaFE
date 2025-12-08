@@ -146,9 +146,9 @@ func (c *Client) FindTensorboardFiles(ctx context.Context, podUID, podName, podN
 	}
 
 	var response struct {
-		Code int                           `json:"code"`
+		Code int                             `json:"code"`
 		Data *types.TensorboardFilesResponse `json:"data"`
-		Msg  string                        `json:"msg,omitempty"`
+		Msg  string                          `json:"msg,omitempty"`
 	}
 
 	resp, err := c.client.R().

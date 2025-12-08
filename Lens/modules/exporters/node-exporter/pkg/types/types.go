@@ -16,7 +16,6 @@ type ProcessTreeRequest struct {
 	IncludeResources bool   `json:"include_resources"`
 }
 
-
 // ProcessInfo represents process information
 type ProcessInfo struct {
 	HostPID       int            `json:"host_pid"`
@@ -148,10 +147,10 @@ type ContainerDirectoryListResponse struct {
 
 // TensorBoardLogInfo represents TensorBoard log directory information
 type TensorBoardLogInfo struct {
-	LogDir       string              `json:"log_dir"`
+	LogDir       string               `json:"log_dir"`
 	EventFiles   []*ContainerFileInfo `json:"event_files"`
-	TotalSize    int64               `json:"total_size"`
-	LatestUpdate time.Time           `json:"latest_update"`
+	TotalSize    int64                `json:"total_size"`
+	LatestUpdate time.Time            `json:"latest_update"`
 }
 
 // ============ TensorBoard Detection Types ============
@@ -173,4 +172,3 @@ type TensorboardFilesResponse struct {
 	TotalProcesses int                    `json:"total_processes"`
 	CollectedAt    time.Time              `json:"collected_at"`
 }
-

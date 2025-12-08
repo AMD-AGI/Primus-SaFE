@@ -156,11 +156,11 @@ func (e *MetadataCollectionExecutor) Execute(
 		firstFile := tensorboardResult.Files[0]
 		// 从文件路径中提取目录
 		logDir := extractLogDir(firstFile.FilePath)
-		
+
 		updates["tensorboard_log_dir"] = logDir
 		updates["tensorboard_files_count"] = len(tensorboardResult.Files)
 		updates["tensorboard_pids"] = extractUniquePIDs(tensorboardResult.Files)
-		
+
 		log.Infof("TensorBoard detected for workload %s: enabled=true, log_dir=%s, files=%d",
 			task.WorkloadUID, logDir, len(tensorboardResult.Files))
 	} else {
@@ -203,7 +203,6 @@ func (e *MetadataCollectionExecutor) extractScripts(detection *model.AiWorkloadM
 	if !contains(scripts, "tensorboard") {
 		scripts = append(scripts, "tensorboard")
 	}
-	
 
 	return scripts
 }
@@ -297,13 +296,13 @@ func extractLogDir(filePath string) string {
 func extractUniquePIDs(files []*types.TensorboardFileInfo) []int {
 	pidMap := make(map[int]bool)
 	var pids []int
-	
+
 	for _, file := range files {
 		if !pidMap[file.PID] {
 			pidMap[file.PID] = true
 			pids = append(pids, file.PID)
 		}
 	}
-	
+
 	return pids
 }
