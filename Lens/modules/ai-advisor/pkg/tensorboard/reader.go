@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"sync"
 	"time"
 
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/node-exporter/pkg/client"
@@ -18,20 +20,16 @@ type Reader struct {
 	nodeFacade database.NodeFacadeInterface
 	podFacade  database.PodFacadeInterface
 
-	// Node Exporter configuration
-	nodeExporterPort int
-
-	// Client cache for node-specific clients
-	clientCache map[string]*client.Client
+	// Client cache for node-specific clients (thread-safe)
+	clientCache sync.Map // nodeName -> *client.Client
 }
 
 // NewReader creates a new TensorBoard reader
 func NewReader() *Reader {
 	return &Reader{
-		nodeFacade:       database.NewNodeFacade(),
-		podFacade:        database.NewPodFacade(),
-		nodeExporterPort: 8989,
-		clientCache:      make(map[string]*client.Client),
+		nodeFacade: database.NewNodeFacade(),
+		podFacade:  database.NewPodFacade(),
+		// clientCache is sync.Map, no initialization needed
 	}
 }
 
@@ -281,8 +279,11 @@ func (r *Reader) getNodeClientAndPodInfo(ctx context.Context, podUID string) (*c
 		nodeIP = nodeName // Fallback to node name as hostname
 	}
 
-	// Get or create client for this node
-	nodeClient := r.getOrCreateClient(nodeIP, nodeName)
+	// Get or create client for this node using K8s clientsets
+	nodeClient, err := r.getOrCreateClient(nodeIP, nodeName)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get node-exporter client: %w", err)
+	}
 
 	// Get process tree to determine the main container
 	processTreeReq := &types.ProcessTreeRequest{
@@ -349,21 +350,35 @@ func (r *Reader) getNodeClientAndPID(ctx context.Context, podUID string) (*clien
 	return nodeClient, pid, nil
 }
 
-// getOrCreateClient gets or creates a node-exporter client for a node
-func (r *Reader) getOrCreateClient(nodeIP, nodeName string) *client.Client {
+// getOrCreateClient gets or creates a node-exporter client for a node using K8s clientsets
+func (r *Reader) getOrCreateClient(nodeIP, nodeName string) (*client.Client, error) {
 	cacheKey := nodeName
 
-	if cached, exists := r.clientCache[cacheKey]; exists {
-		return cached
+	// Check cache first
+	if cached, ok := r.clientCache.Load(cacheKey); ok {
+		return cached.(*client.Client), nil
 	}
 
-	baseURL := fmt.Sprintf("http://%s:%d", nodeIP, r.nodeExporterPort)
+	// Get node-exporter pod on the target node using existing clientsets implementation
+	ctx := context.Background()
+	k8sClient := clientsets.GetClusterManager().GetCurrentClusterClients().K8SClientSet.ControllerRuntimeClient
+
+	nodeExporterK8sClient, err := clientsets.GetOrInitNodeExportersClient(ctx, nodeName, k8sClient)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get node-exporter client for node %s: %w", nodeName, err)
+	}
+
+	// Convert to our client type by creating a new client with the baseURL
+	// The address from GetOrInitNodeExportersClient already includes http:// and port
+	// Client request paths include /v1 prefix, so baseURL should not include it
+	baseURL := nodeExporterK8sClient.GetRestyClient().BaseURL
 	nodeClient := client.NewClient(client.DefaultConfig(baseURL))
 
-	r.clientCache[cacheKey] = nodeClient
-	log.Infof("Created node-exporter client for node %s at %s", nodeName, baseURL)
+	// Cache the client
+	r.clientCache.Store(cacheKey, nodeClient)
 
-	return nodeClient
+	log.Infof("Created node-exporter client for node %s at %s", nodeName, baseURL)
+	return nodeClient, nil
 }
 
 // ParseLogDirFromMetadata extracts log directory from various sources
