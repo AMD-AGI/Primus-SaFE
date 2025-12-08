@@ -838,7 +838,7 @@ func validateResourceEnough(nf *v1.NodeFlavor, res *v1.WorkloadResource) error {
 
 // validateTemplate ensures the resource template and task template for the workload kind exist.
 func (v *WorkloadValidator) validateTemplate(ctx context.Context, workload *v1.Workload) error {
-	if _, err := commonworkload.GetResourceTemplate(ctx, v.Client, workload.ToSchemaGVK()); err != nil {
+	if _, err := commonworkload.GetResourceTemplate(ctx, v.Client, workload); err != nil {
 		return err
 	}
 	_, err := commonworkload.GetWorkloadTemplate(ctx, v.Client, workload)

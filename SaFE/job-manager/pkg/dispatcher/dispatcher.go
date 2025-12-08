@@ -141,48 +141,48 @@ func (r *DispatcherReconciler) Reconcile(ctx context.Context, req ctrlruntime.Re
 }
 
 // processWorkload processes a workload resource and updates its state.
-func (r *DispatcherReconciler) processWorkload(ctx context.Context, workload *v1.Workload) (ctrlruntime.Result, error) {
-	clusterInformer, err := syncer.GetClusterInformer(r.clusterInformers, v1.GetClusterId(workload))
+func (r *DispatcherReconciler) processWorkload(ctx context.Context, adminWorkload *v1.Workload) (ctrlruntime.Result, error) {
+	clusterInformer, err := syncer.GetClusterInformer(r.clusterInformers, v1.GetClusterId(adminWorkload))
 	if err != nil {
 		return ctrlruntime.Result{RequeueAfter: time.Second}, nil
 	}
-	rt, err := commonworkload.GetResourceTemplate(ctx, r.Client, workload.ToSchemaGVK())
+	rt, err := commonworkload.GetResourceTemplate(ctx, r.Client, adminWorkload)
 	if err != nil {
 		return ctrlruntime.Result{}, err
 	}
 	obj, err := jobutils.GetObject(ctx,
-		clusterInformer.ClientFactory(), workload.Name, workload.Spec.Workspace, rt.ToSchemaGVK())
+		clusterInformer.ClientFactory(), adminWorkload.Name, adminWorkload.Spec.Workspace, rt.ToSchemaGVK())
 	result := ctrlruntime.Result{}
 
 	switch {
-	case !v1.IsWorkloadDispatched(workload):
+	case !v1.IsWorkloadDispatched(adminWorkload):
 		if apierrors.IsNotFound(err) {
-			if result, err = r.dispatch(ctx, workload, clusterInformer); err != nil || result.RequeueAfter > 0 {
+			if result, err = r.dispatch(ctx, adminWorkload, clusterInformer); err != nil || result.RequeueAfter > 0 {
 				break
 			}
 		} else if err != nil {
 			break
 		}
-		if err = r.updateDispatched(ctx, workload); err != nil {
+		if err = r.updateDispatched(ctx, adminWorkload); err != nil {
 			break
 		}
 		klog.Infof("the workload is dispatched, name: %s, dispatch count: %d, max retry: %d",
-			workload.Name, v1.GetWorkloadDispatchCnt(workload), workload.Spec.MaxRetry)
+			adminWorkload.Name, v1.GetWorkloadDispatchCnt(adminWorkload), adminWorkload.Spec.MaxRetry)
 	case err == nil:
 		// update the workload which is already dispatched
-		if err = r.updateK8sObject(ctx, workload, clusterInformer, obj); err != nil {
+		if err = r.updateK8sObject(ctx, adminWorkload, clusterInformer, obj); err != nil {
 			break
 		}
 		// sync service according to latest spec
-		if result, err = r.updateService(ctx, workload, clusterInformer, obj); err != nil || result.RequeueAfter > 0 {
+		if result, err = r.updateService(ctx, adminWorkload, clusterInformer, obj); err != nil || result.RequeueAfter > 0 {
 			break
 		}
 		// Sync corresponding ingress
-		if result, err = r.updateIngress(ctx, workload, clusterInformer, obj); err != nil || result.RequeueAfter > 0 {
+		if result, err = r.updateIngress(ctx, adminWorkload, clusterInformer, obj); err != nil || result.RequeueAfter > 0 {
 			break
 		}
 		klog.Infof("the workload is updated, name: %s, dispatch count: %d, max retry: %d",
-			workload.Name, v1.GetWorkloadDispatchCnt(workload), workload.Spec.MaxRetry)
+			adminWorkload.Name, v1.GetWorkloadDispatchCnt(adminWorkload), adminWorkload.Spec.MaxRetry)
 	}
 	return result, err
 }
@@ -248,7 +248,7 @@ func (r *DispatcherReconciler) generateK8sObject(ctx context.Context,
 		return nil, err
 	}
 
-	rt, err := commonworkload.GetResourceTemplate(ctx, r.Client, adminWorkload.ToSchemaGVK())
+	rt, err := commonworkload.GetResourceTemplate(ctx, r.Client, adminWorkload)
 	if err != nil {
 		klog.Error(err.Error())
 		return nil, err
@@ -354,7 +354,7 @@ func (r *DispatcherReconciler) updateDispatched(ctx context.Context, workload *v
 // updateK8sObject updates the existing Kubernetes object when workload specs change.
 func (r *DispatcherReconciler) updateK8sObject(ctx context.Context, adminWorkload *v1.Workload,
 	clusterInformer *syncer.ClusterInformer, obj *unstructured.Unstructured) error {
-	rt, err := commonworkload.GetResourceTemplate(ctx, r.Client, adminWorkload.ToSchemaGVK())
+	rt, err := commonworkload.GetResourceTemplate(ctx, r.Client, adminWorkload)
 	if err != nil {
 		klog.ErrorS(err, "", "gvk", adminWorkload.Spec.GroupVersionKind)
 		return err
