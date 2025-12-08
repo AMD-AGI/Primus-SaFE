@@ -176,6 +176,82 @@ func (c *Client) FindTensorboardFiles(ctx context.Context, podUID, podName, podN
 	return response.Data, nil
 }
 
+// GetProcessEnvironment gets environment variables for processes in a pod
+func (c *Client) GetProcessEnvironment(ctx context.Context, podUID string, pid int, filterPrefix string) (*types.ProcessEnvResponse, error) {
+	type Request struct {
+		PodUID       string `json:"pod_uid"`
+		PID          int    `json:"pid,omitempty"`
+		FilterPrefix string `json:"filter_prefix,omitempty"`
+	}
+
+	var response struct {
+		Code int                       `json:"code"`
+		Data *types.ProcessEnvResponse `json:"data"`
+		Msg  string                    `json:"msg,omitempty"`
+	}
+
+	resp, err := c.client.R().
+		SetContext(ctx).
+		SetBody(&Request{
+			PodUID:       podUID,
+			PID:          pid,
+			FilterPrefix: filterPrefix,
+		}).
+		SetResult(&response).
+		Post("/v1/process-tree/env")
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to get process environment: %w", err)
+	}
+
+	if resp.IsError() {
+		return nil, fmt.Errorf("process tree API error: %s", resp.String())
+	}
+
+	if response.Code != 0 {
+		return nil, fmt.Errorf("process tree API returned code %d: %s", response.Code, response.Msg)
+	}
+
+	return response.Data, nil
+}
+
+// GetProcessArguments gets command line arguments for processes in a pod
+func (c *Client) GetProcessArguments(ctx context.Context, podUID string, pid int) (*types.ProcessArgsResponse, error) {
+	type Request struct {
+		PodUID string `json:"pod_uid"`
+		PID    int    `json:"pid,omitempty"`
+	}
+
+	var response struct {
+		Code int                        `json:"code"`
+		Data *types.ProcessArgsResponse `json:"data"`
+		Msg  string                     `json:"msg,omitempty"`
+	}
+
+	resp, err := c.client.R().
+		SetContext(ctx).
+		SetBody(&Request{
+			PodUID: podUID,
+			PID:    pid,
+		}).
+		SetResult(&response).
+		Post("/v1/process-tree/args")
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to get process arguments: %w", err)
+	}
+
+	if resp.IsError() {
+		return nil, fmt.Errorf("process tree API error: %s", resp.String())
+	}
+
+	if response.Code != 0 {
+		return nil, fmt.Errorf("process tree API returned code %d: %s", response.Code, response.Msg)
+	}
+
+	return response.Data, nil
+}
+
 // ============ Python Inspector APIs ============
 
 // InspectPythonProcess inspects a Python process with given scripts

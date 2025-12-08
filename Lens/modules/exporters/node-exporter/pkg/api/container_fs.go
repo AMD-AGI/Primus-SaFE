@@ -44,8 +44,13 @@ func ReadContainerFile(c *gin.Context) {
 		return
 	}
 
-	log.Infof("Reading container file: pid=%d, path=%s, offset=%d, length=%d",
-		req.PID, req.Path, req.Offset, req.Length)
+	if req.PID > 0 {
+		log.Infof("Reading container file: pid=%d, path=%s, offset=%d, length=%d",
+			req.PID, req.Path, req.Offset, req.Length)
+	} else {
+		log.Infof("Reading container file: pod_uid=%s, container=%s, path=%s, offset=%d, length=%d",
+			req.PodUID, req.ContainerName, req.Path, req.Offset, req.Length)
+	}
 
 	response, err := fsReader.ReadFile(c.Request.Context(), &req)
 	if err != nil {
@@ -85,8 +90,13 @@ func ListContainerDirectory(c *gin.Context) {
 		return
 	}
 
-	log.Infof("Listing container directory: pid=%d, path=%s, recursive=%v",
-		req.PID, req.Path, req.Recursive)
+	if req.PID > 0 {
+		log.Infof("Listing container directory: pid=%d, path=%s, recursive=%v",
+			req.PID, req.Path, req.Recursive)
+	} else {
+		log.Infof("Listing container directory: pod_uid=%s, container=%s, path=%s, recursive=%v",
+			req.PodUID, req.ContainerName, req.Path, req.Recursive)
+	}
 
 	response, err := fsReader.ListDirectory(c.Request.Context(), &req)
 	if err != nil {

@@ -115,7 +115,16 @@ type ContainerFileInfo struct {
 
 // ContainerFileReadRequest represents a file read request
 type ContainerFileReadRequest struct {
-	PID            int    `json:"pid" binding:"required"`
+	// Option 1: Specify PID directly (highest priority)
+	PID int `json:"pid,omitempty"` // Process ID to access container filesystem
+
+	// Option 2: Specify Pod (will auto-select first process in main container)
+	PodUID        string `json:"pod_uid,omitempty"`        // Pod UID (alternative to PID)
+	PodName       string `json:"pod_name,omitempty"`       // Pod name (for logging/identification)
+	PodNamespace  string `json:"pod_namespace,omitempty"`  // Pod namespace (for logging/identification)
+	ContainerName string `json:"container_name,omitempty"` // Specific container name (optional)
+
+	// File access parameters
 	Path           string `json:"path" binding:"required"`
 	Offset         int64  `json:"offset,omitempty"`
 	Length         int64  `json:"length,omitempty"`
@@ -133,7 +142,16 @@ type ContainerFileReadResponse struct {
 
 // ContainerDirectoryListRequest represents a directory listing request
 type ContainerDirectoryListRequest struct {
-	PID       int    `json:"pid" binding:"required"`
+	// Option 1: Specify PID directly (highest priority)
+	PID int `json:"pid,omitempty"` // Process ID to access container filesystem
+
+	// Option 2: Specify Pod (will auto-select first process in main container)
+	PodUID        string `json:"pod_uid,omitempty"`        // Pod UID (alternative to PID)
+	PodName       string `json:"pod_name,omitempty"`       // Pod name (for logging/identification)
+	PodNamespace  string `json:"pod_namespace,omitempty"`  // Pod namespace (for logging/identification)
+	ContainerName string `json:"container_name,omitempty"` // Specific container name (optional)
+
+	// Directory listing parameters
 	Path      string `json:"path" binding:"required"`
 	Recursive bool   `json:"recursive,omitempty"`
 	Pattern   string `json:"pattern,omitempty"`
@@ -171,4 +189,47 @@ type TensorboardFilesResponse struct {
 	Files          []*TensorboardFileInfo `json:"files"`
 	TotalProcesses int                    `json:"total_processes"`
 	CollectedAt    time.Time              `json:"collected_at"`
+}
+
+// ============ Process Environment & Arguments Types ============
+
+// ProcessEnvRequest represents a request to get process environment variables
+type ProcessEnvRequest struct {
+	PodUID       string `json:"pod_uid" binding:"required"`
+	PID          int    `json:"pid,omitempty"`           // 指定进程PID，0表示获取所有进程
+	FilterPrefix string `json:"filter_prefix,omitempty"` // 环境变量前缀过滤
+}
+
+// ProcessEnvResponse represents process environment variables response
+type ProcessEnvResponse struct {
+	PodUID    string            `json:"pod_uid"`
+	Processes []*ProcessEnvInfo `json:"processes"`
+	Collected time.Time         `json:"collected_at"`
+}
+
+// ProcessEnvInfo represents environment variables for a single process
+type ProcessEnvInfo struct {
+	PID         int               `json:"pid"`
+	Cmdline     string            `json:"cmdline,omitempty"`
+	Environment map[string]string `json:"environment"`
+}
+
+// ProcessArgsRequest represents a request to get process arguments
+type ProcessArgsRequest struct {
+	PodUID string `json:"pod_uid" binding:"required"`
+	PID    int    `json:"pid,omitempty"` // 指定进程PID，0表示获取所有Python进程
+}
+
+// ProcessArgsResponse represents process arguments response
+type ProcessArgsResponse struct {
+	PodUID    string            `json:"pod_uid"`
+	Processes []*ProcessArgInfo `json:"processes"`
+	Collected time.Time         `json:"collected_at"`
+}
+
+// ProcessArgInfo represents arguments for a single process
+type ProcessArgInfo struct {
+	PID     int      `json:"pid"`
+	Cmdline string   `json:"cmdline"`
+	Args    []string `json:"args"`
 }

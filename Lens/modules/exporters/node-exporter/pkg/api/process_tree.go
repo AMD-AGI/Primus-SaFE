@@ -85,3 +85,51 @@ func FindTensorboardFilesInPod(c *gin.Context) {
 
 	c.JSON(http.StatusOK, rest.SuccessResp(c, tensorboardFiles))
 }
+
+// GetProcessEnvironment gets environment variables for processes in a pod
+func GetProcessEnvironment(c *gin.Context) {
+	var req processtree.ProcessEnvRequest
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, rest.ErrorResp(c, http.StatusBadRequest, err.Error(), nil))
+		return
+	}
+
+	collector := processtree.GetCollector()
+	if collector == nil {
+		c.JSON(http.StatusInternalServerError, rest.ErrorResp(c, http.StatusInternalServerError, "process tree collector not initialized", nil))
+		return
+	}
+
+	envResponse, err := collector.GetProcessEnvironment(c.Request.Context(), &req)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, rest.ErrorResp(c, http.StatusInternalServerError, err.Error(), nil))
+		return
+	}
+
+	c.JSON(http.StatusOK, rest.SuccessResp(c, envResponse))
+}
+
+// GetProcessArguments gets command line arguments for processes in a pod
+func GetProcessArguments(c *gin.Context) {
+	var req processtree.ProcessArgsRequest
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, rest.ErrorResp(c, http.StatusBadRequest, err.Error(), nil))
+		return
+	}
+
+	collector := processtree.GetCollector()
+	if collector == nil {
+		c.JSON(http.StatusInternalServerError, rest.ErrorResp(c, http.StatusInternalServerError, "process tree collector not initialized", nil))
+		return
+	}
+
+	argsResponse, err := collector.GetProcessArguments(c.Request.Context(), &req)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, rest.ErrorResp(c, http.StatusInternalServerError, err.Error(), nil))
+		return
+	}
+
+	c.JSON(http.StatusOK, rest.SuccessResp(c, argsResponse))
+}

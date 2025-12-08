@@ -60,6 +60,8 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		processTreeGroup.POST("/pod", GetPodProcessTree)
 		processTreeGroup.POST("/python", FindPythonProcessesInPod)
 		processTreeGroup.POST("/tensorboard", FindTensorboardFilesInPod)
+		processTreeGroup.POST("/env", GetProcessEnvironment)
+		processTreeGroup.POST("/args", GetProcessArguments)
 	}
 
 	// Container filesystem routes

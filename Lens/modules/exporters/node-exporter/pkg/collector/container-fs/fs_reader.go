@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
+	processtree "github.com/AMD-AGI/Primus-SaFE/Lens/node-exporter/pkg/collector/process-tree"
 )
 
 // FSReader provides safe file system access to container files via /proc/[pid]/root
@@ -38,23 +39,32 @@ func NewFSReader() *FSReader {
 
 // FileInfo represents file metadata
 type FileInfo struct {
-	Path         string    `json:"path"`
-	Size         int64     `json:"size"`
-	Mode         string    `json:"mode"`
-	ModTime      time.Time `json:"mod_time"`
-	IsDir        bool      `json:"is_dir"`
-	IsSymlink    bool      `json:"is_symlink"`
-	SymlinkTarget string   `json:"symlink_target,omitempty"`
+	Path          string    `json:"path"`
+	Size          int64     `json:"size"`
+	Mode          string    `json:"mode"`
+	ModTime       time.Time `json:"mod_time"`
+	IsDir         bool      `json:"is_dir"`
+	IsSymlink     bool      `json:"is_symlink"`
+	SymlinkTarget string    `json:"symlink_target,omitempty"`
 }
 
 // ReadRequest represents a file read request
 type ReadRequest struct {
-	PID       int    `json:"pid" binding:"required"`        // Process ID to access container filesystem
-	Path      string `json:"path" binding:"required"`       // File path within container
-	Offset    int64  `json:"offset,omitempty"`              // Read offset
-	Length    int64  `json:"length,omitempty"`              // Bytes to read (0 = all, limited by maxFileSize)
-	Recursive bool   `json:"recursive,omitempty"`           // For directory listing
-	FollowSymlinks bool `json:"follow_symlinks,omitempty"` // Whether to follow symlinks
+	// Option 1: Specify PID directly (highest priority)
+	PID int `json:"pid,omitempty"` // Process ID to access container filesystem
+
+	// Option 2: Specify Pod (will auto-select first process in main container)
+	PodUID        string `json:"pod_uid,omitempty"`        // Pod UID (alternative to PID)
+	PodName       string `json:"pod_name,omitempty"`       // Pod name (for logging/identification)
+	PodNamespace  string `json:"pod_namespace,omitempty"`  // Pod namespace (for logging/identification)
+	ContainerName string `json:"container_name,omitempty"` // Specific container name (optional)
+
+	// File access parameters
+	Path           string `json:"path" binding:"required"`   // File path within container
+	Offset         int64  `json:"offset,omitempty"`          // Read offset
+	Length         int64  `json:"length,omitempty"`          // Bytes to read (0 = all, limited by maxFileSize)
+	Recursive      bool   `json:"recursive,omitempty"`       // For directory listing
+	FollowSymlinks bool   `json:"follow_symlinks,omitempty"` // Whether to follow symlinks
 }
 
 // ReadResponse represents file read response
@@ -68,7 +78,16 @@ type ReadResponse struct {
 
 // ListRequest represents a directory listing request
 type ListRequest struct {
-	PID       int    `json:"pid" binding:"required"`
+	// Option 1: Specify PID directly (highest priority)
+	PID int `json:"pid,omitempty"` // Process ID to access container filesystem
+
+	// Option 2: Specify Pod (will auto-select first process in main container)
+	PodUID        string `json:"pod_uid,omitempty"`        // Pod UID (alternative to PID)
+	PodName       string `json:"pod_name,omitempty"`       // Pod name (for logging/identification)
+	PodNamespace  string `json:"pod_namespace,omitempty"`  // Pod namespace (for logging/identification)
+	ContainerName string `json:"container_name,omitempty"` // Specific container name (optional)
+
+	// Directory listing parameters
 	Path      string `json:"path" binding:"required"`
 	Recursive bool   `json:"recursive,omitempty"`
 	Pattern   string `json:"pattern,omitempty"` // Glob pattern filter
@@ -87,12 +106,18 @@ func (r *FSReader) ReadFile(ctx context.Context, req *ReadRequest) (*ReadRespons
 		return nil, fmt.Errorf("invalid path: %w", err)
 	}
 
+	// Resolve PID if not directly provided
+	pid, err := r.resolvePID(ctx, req.PID, req.PodUID, req.PodName, req.PodNamespace, req.ContainerName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve PID: %w", err)
+	}
+
 	// Construct container filesystem path
-	containerPath := fmt.Sprintf("/proc/%d/root%s", req.PID, req.Path)
+	containerPath := fmt.Sprintf("/proc/%d/root%s", pid, req.Path)
 
 	// Check if process exists
-	if _, err := os.Stat(fmt.Sprintf("/proc/%d", req.PID)); err != nil {
-		return nil, fmt.Errorf("process %d not found or not accessible", req.PID)
+	if _, err := os.Stat(fmt.Sprintf("/proc/%d", pid)); err != nil {
+		return nil, fmt.Errorf("process %d not found or not accessible", pid)
 	}
 
 	// Get file info
@@ -152,7 +177,7 @@ func (r *FSReader) ReadFile(ctx context.Context, req *ReadRequest) (*ReadRespons
 	}
 
 	log.Debugf("Read %d bytes from container file: pid=%d, path=%s, offset=%d",
-		bytesRead, req.PID, req.Path, req.Offset)
+		bytesRead, pid, req.Path, req.Offset)
 
 	return response, nil
 }
@@ -164,12 +189,18 @@ func (r *FSReader) ListDirectory(ctx context.Context, req *ListRequest) (*ListRe
 		return nil, fmt.Errorf("invalid path: %w", err)
 	}
 
+	// Resolve PID if not directly provided
+	pid, err := r.resolvePID(ctx, req.PID, req.PodUID, req.PodName, req.PodNamespace, req.ContainerName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve PID: %w", err)
+	}
+
 	// Construct container filesystem path
-	containerPath := fmt.Sprintf("/proc/%d/root%s", req.PID, req.Path)
+	containerPath := fmt.Sprintf("/proc/%d/root%s", pid, req.Path)
 
 	// Check if process exists
-	if _, err := os.Stat(fmt.Sprintf("/proc/%d", req.PID)); err != nil {
-		return nil, fmt.Errorf("process %d not found or not accessible", req.PID)
+	if _, err := os.Stat(fmt.Sprintf("/proc/%d", pid)); err != nil {
+		return nil, fmt.Errorf("process %d not found or not accessible", pid)
 	}
 
 	var files []*FileInfo
@@ -183,7 +214,7 @@ func (r *FSReader) ListDirectory(ctx context.Context, req *ListRequest) (*ListRe
 			}
 
 			// Convert absolute path back to container path
-			relPath := strings.TrimPrefix(path, fmt.Sprintf("/proc/%d/root", req.PID))
+			relPath := strings.TrimPrefix(path, fmt.Sprintf("/proc/%d/root", pid))
 			if relPath == "" {
 				relPath = "/"
 			}
@@ -264,7 +295,7 @@ func (r *FSReader) ListDirectory(ctx context.Context, req *ListRequest) (*ListRe
 	}
 
 	log.Debugf("Listed %d files in container directory: pid=%d, path=%s, recursive=%v",
-		len(files), req.PID, req.Path, req.Recursive)
+		len(files), pid, req.Path, req.Recursive)
 
 	return &ListResponse{
 		Files: files,
@@ -416,3 +447,70 @@ func (r *FSReader) isBinaryContent(data []byte) bool {
 	return float64(nonPrintable)/float64(len(data)) > 0.3
 }
 
+// resolvePID resolves the PID to use for file access
+// Priority: direct PID > pod_uid lookup
+func (r *FSReader) resolvePID(ctx context.Context, pid int, podUID, podName, podNamespace, containerName string) (int, error) {
+	// If PID is directly provided, use it
+	if pid > 0 {
+		return pid, nil
+	}
+
+	// If pod_uid is provided, lookup the PID
+	if podUID != "" {
+		collector := processtree.GetCollector()
+		if collector == nil {
+			return 0, fmt.Errorf("process tree collector not initialized")
+		}
+
+		// Get pod process tree
+		treeReq := &processtree.ProcessTreeRequest{
+			PodUID:       podUID,
+			PodName:      podName,
+			PodNamespace: podNamespace,
+		}
+
+		tree, err := collector.GetPodProcessTree(ctx, treeReq)
+		if err != nil {
+			return 0, fmt.Errorf("failed to get pod process tree: %w", err)
+		}
+
+		if len(tree.Containers) == 0 {
+			return 0, fmt.Errorf("no containers found in pod %s", podUID)
+		}
+
+		// Find the specified container or use the first one
+		var targetContainer *processtree.ContainerProcessTree
+		if containerName != "" {
+			for _, container := range tree.Containers {
+				if container.ContainerName == containerName {
+					targetContainer = container
+					break
+				}
+			}
+			if targetContainer == nil {
+				return 0, fmt.Errorf("container %s not found in pod %s", containerName, podUID)
+			}
+		} else {
+			// Use the first container (usually the main container)
+			targetContainer = tree.Containers[0]
+		}
+
+		// Get the first PID from the container
+		if targetContainer.RootProcess != nil && targetContainer.RootProcess.HostPID > 0 {
+			log.Debugf("Resolved PID %d (root process) for pod %s, container %s",
+				targetContainer.RootProcess.HostPID, podUID, targetContainer.ContainerName)
+			return targetContainer.RootProcess.HostPID, nil
+		}
+
+		if len(targetContainer.AllProcesses) > 0 {
+			pid := targetContainer.AllProcesses[0].HostPID
+			log.Debugf("Resolved PID %d (first process) for pod %s, container %s",
+				pid, podUID, targetContainer.ContainerName)
+			return pid, nil
+		}
+
+		return 0, fmt.Errorf("no processes found in container %s of pod %s", targetContainer.ContainerName, podUID)
+	}
+
+	return 0, fmt.Errorf("either pid or pod_uid must be provided")
+}

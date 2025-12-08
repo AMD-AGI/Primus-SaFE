@@ -249,6 +249,146 @@ func (c *Collector) InvalidateCache(podUID string) {
 	c.cache.Delete(podUID)
 }
 
+// GetProcessEnvironment gets environment variables for processes in a pod
+func (c *Collector) GetProcessEnvironment(ctx context.Context, req *ProcessEnvRequest) (*ProcessEnvResponse, error) {
+	// Find all containers in the pod
+	var containers []*ContainerInfo
+	if c.containerReader != nil {
+		var err error
+		containers, err = c.containerReader.GetPodContainers(ctx, req.PodUID)
+		if err != nil {
+			log.Warnf("Failed to get containers from containerd: %v", err)
+		}
+	}
+
+	// Fallback: find containers by scanning /proc
+	if len(containers) == 0 {
+		containers = c.procReader.FindPodContainersByUID(req.PodUID)
+	}
+
+	if len(containers) == 0 {
+		return nil, fmt.Errorf("no containers found for pod UID %s", req.PodUID)
+	}
+
+	// Collect all PIDs from all containers
+	var allPids []int
+	for _, container := range containers {
+		pids := c.procReader.FindContainerProcesses(container.ID)
+		allPids = append(allPids, pids...)
+	}
+
+	if len(allPids) == 0 {
+		return nil, fmt.Errorf("no processes found for pod UID %s", req.PodUID)
+	}
+
+	// If specific PID is requested, filter
+	if req.PID != 0 {
+		found := false
+		for _, pid := range allPids {
+			if pid == req.PID {
+				allPids = []int{req.PID}
+				found = true
+				break
+			}
+		}
+		if !found {
+			return nil, fmt.Errorf("PID %d not found in pod", req.PID)
+		}
+	}
+
+	// Get environment variables for each process
+	var processEnvs []*ProcessEnvInfo
+	for _, pid := range allPids {
+		env, cmdline, err := c.procReader.GetProcessEnvironment(pid, req.FilterPrefix)
+		if err != nil {
+			log.Debugf("Failed to get environment for PID %d: %v", pid, err)
+			continue
+		}
+
+		processEnvs = append(processEnvs, &ProcessEnvInfo{
+			PID:         pid,
+			Cmdline:     cmdline,
+			Environment: env,
+		})
+	}
+
+	return &ProcessEnvResponse{
+		PodUID:    req.PodUID,
+		Processes: processEnvs,
+		Collected: time.Now(),
+	}, nil
+}
+
+// GetProcessArguments gets command line arguments for processes in a pod
+func (c *Collector) GetProcessArguments(ctx context.Context, req *ProcessArgsRequest) (*ProcessArgsResponse, error) {
+	// Find all containers in the pod
+	var containers []*ContainerInfo
+	if c.containerReader != nil {
+		var err error
+		containers, err = c.containerReader.GetPodContainers(ctx, req.PodUID)
+		if err != nil {
+			log.Warnf("Failed to get containers from containerd: %v", err)
+		}
+	}
+
+	// Fallback: find containers by scanning /proc
+	if len(containers) == 0 {
+		containers = c.procReader.FindPodContainersByUID(req.PodUID)
+	}
+
+	if len(containers) == 0 {
+		return nil, fmt.Errorf("no containers found for pod UID %s", req.PodUID)
+	}
+
+	// Collect all PIDs from all containers
+	var allPids []int
+	for _, container := range containers {
+		pids := c.procReader.FindContainerProcesses(container.ID)
+		allPids = append(allPids, pids...)
+	}
+
+	if len(allPids) == 0 {
+		return nil, fmt.Errorf("no processes found for pod UID %s", req.PodUID)
+	}
+
+	// If specific PID is requested, filter
+	if req.PID != 0 {
+		found := false
+		for _, pid := range allPids {
+			if pid == req.PID {
+				allPids = []int{req.PID}
+				found = true
+				break
+			}
+		}
+		if !found {
+			return nil, fmt.Errorf("PID %d not found in pod", req.PID)
+		}
+	}
+
+	// Get arguments for each process
+	var processArgs []*ProcessArgInfo
+	for _, pid := range allPids {
+		cmdline, args, err := c.procReader.GetProcessArguments(pid)
+		if err != nil {
+			log.Debugf("Failed to get arguments for PID %d: %v", pid, err)
+			continue
+		}
+
+		processArgs = append(processArgs, &ProcessArgInfo{
+			PID:     pid,
+			Cmdline: cmdline,
+			Args:    args,
+		})
+	}
+
+	return &ProcessArgsResponse{
+		PodUID:    req.PodUID,
+		Processes: processArgs,
+		Collected: time.Now(),
+	}, nil
+}
+
 // FindTensorboardFiles finds all tensorboard event files opened by processes in a pod
 func (c *Collector) FindTensorboardFiles(ctx context.Context, podUID, podName, podNamespace string) (*TensorboardFilesResponse, error) {
 	// Find all containers in the pod
