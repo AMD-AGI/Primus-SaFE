@@ -118,4 +118,9 @@ const (
 	cicdRoleName            = cicdPrefix + "role_name"
 	cicdControllerName      = cicdPrefix + "controller_name"
 	cicdControllerNamespace = cicdPrefix + "controller_namespace"
+
+	// model
+	modelPrefix          = "model."
+	modelDownloaderImage = modelPrefix + "downloader_image"
+	modelCleanupImage    = modelPrefix + "cleanup_image"
 )
