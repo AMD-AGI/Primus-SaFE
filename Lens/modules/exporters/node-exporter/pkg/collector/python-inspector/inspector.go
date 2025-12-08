@@ -150,6 +150,27 @@ func (i *Inspector) executeScript(ctx context.Context, pid int, script *Inspecti
 		}
 	}()
 
+	// Create a temporary wrapper script that sets the output file and calls the actual script
+	// This is more reliable than passing environment variables through pyrasite
+	wrapperScript := fmt.Sprintf(`
+import os
+import sys
+
+# Set the output file environment variable
+os.environ['INSPECTOR_OUTPUT_FILE'] = '%s'
+
+# Execute the actual inspection script
+exec(open('%s').read())
+`, outputFileInTarget, script.ScriptPath)
+
+	// Write wrapper script to a temp file
+	wrapperFile := fmt.Sprintf("/tmp/inspector_wrapper_%s_%d_%d.py",
+		script.Metadata.Name, pid, time.Now().Unix())
+	if err := os.WriteFile(wrapperFile, []byte(wrapperScript), 0644); err != nil {
+		return nil, fmt.Errorf("failed to create wrapper script: %w", err)
+	}
+	defer os.Remove(wrapperFile)
+
 	// Determine timeout
 	timeout := i.timeout
 	if timeoutSec > 0 {
@@ -161,37 +182,30 @@ func (i *Inspector) executeScript(ctx context.Context, pid int, script *Inspecti
 	cmdCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	// Use pyrasite to inject script
+	// Use pyrasite to inject wrapper script
 	cmd := exec.CommandContext(cmdCtx, "pyrasite",
 		strconv.Itoa(pid),
-		script.ScriptPath,
+		wrapperFile,
 	)
-
-	// Pass output file path via environment variable (path in target process's filesystem)
-	cmd.Env = append(os.Environ(), fmt.Sprintf("INSPECTOR_OUTPUT_FILE=%s", outputFileInTarget))
 
 	log.Debugf("Executing script %s on PID %d, output file in target: %s, read from: %s",
 		script.Metadata.Name, pid, outputFileInTarget, outputFileToRead)
 
 	// Capture stdout and stderr
 	output, err := cmd.CombinedOutput()
-	if err != nil {
-		// Include command output in error message
-		outputStr := strings.TrimSpace(string(output))
-		if outputStr != "" {
-			log.Errorf("Script %s execution output: %s", script.Metadata.Name, outputStr)
-			return nil, fmt.Errorf("script execution failed: %w, output: %s", err, outputStr)
-		}
-		return nil, fmt.Errorf("script execution failed: %w", err)
+
+	// Always log the output for debugging
+	outputStr := strings.TrimSpace(string(output))
+	if outputStr != "" {
+		log.Infof("Script %s execution output: %s", script.Metadata.Name, outputStr)
 	}
 
-	// Log output for debugging even on success
-	if len(output) > 0 {
-		log.Debugf("Script %s output: %s", script.Metadata.Name, strings.TrimSpace(string(output)))
+	if err != nil {
+		return nil, fmt.Errorf("script execution failed: %w, output: %s", err, outputStr)
 	}
 
 	// Wait a bit for the file to be written
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(200 * time.Millisecond)
 
 	// Read result from target process's filesystem via /proc
 	data, err := os.ReadFile(outputFileToRead)
