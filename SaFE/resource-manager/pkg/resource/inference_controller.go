@@ -536,7 +536,7 @@ func (r *InferenceReconciler) updateInferenceInstance(ctx context.Context, infer
 	originalInference := inference.DeepCopy()
 	needsUpdate := false
 
-	newBaseUrl := fmt.Sprintf("https://%s/%s/%s/%s",
+	newBaseUrl := fmt.Sprintf("http://%s/%s/%s/%s",
 		commonconfig.GetSystemHost(), v1.GetClusterId(workload), workload.Spec.Workspace, workload.Name)
 
 	if inference.Spec.Instance.BaseUrl != newBaseUrl {
@@ -578,41 +578,27 @@ func buildModelDownloadScript(urls map[string]string, modelPath string) string {
 		return ""
 	}
 
-	// Collect all unique directories that need to be created
-	dirMap := make(map[string]bool)
-	for filename := range urls {
-		// Get directory path for this file
-		dir := ""
-		if idx := strings.LastIndex(filename, "/"); idx > 0 {
-			dir = modelPath + "/" + filename[:idx]
-			dirMap[dir] = true
-		}
-	}
-
-	// Build directory creation commands (done once at the beginning)
-	var mkdirCmds string
-	if len(dirMap) > 0 {
-		mkdirCmds = "mkdir -p"
-		for dir := range dirMap {
-			mkdirCmds += fmt.Sprintf(" '%s'", dir)
-		}
-		mkdirCmds += "\n"
-	}
-
-	// Build download commands for each file (one-liner format)
-	var downloadCmds string
+	// Build file list in format: "filename|url"
+	var fileList strings.Builder
 	for filename, url := range urls {
-		// Escape special characters in URL for shell
+		// Escape special characters in URL for shell (single quotes in URL)
 		escapedURL := strings.ReplaceAll(url, "'", "'\\''")
-		filepath := fmt.Sprintf("%s/%s", modelPath, filename)
-		downloadCmds += fmt.Sprintf(`
-[ -f '%s' ] || curl -sSL -o '%s' '%s'`, filepath, filepath, escapedURL)
+		fileList.WriteString(fmt.Sprintf("%s|%s\n", filename, escapedURL))
 	}
 
+	// Generate compact script using while read loop
 	script := fmt.Sprintf(`echo "=== Downloading model to %s ==="
-%s%s
+mkdir -p "%s"
+cat <<'EOF_FILES' | while IFS='|' read -r file url; do
+  filepath="%s/$file"
+  if [ ! -f "$filepath" ]; then
+    echo "Downloading $file..."
+    mkdir -p "$(dirname "$filepath")" && curl -sSL -o "$filepath" "$url" || echo "Failed to download $file"
+  fi
+done
+%sEOF_FILES
 echo "=== Model download completed ==="
-`, modelPath, mkdirCmds, downloadCmds)
+`, modelPath, modelPath, modelPath, fileList.String())
 
 	return script
 }
