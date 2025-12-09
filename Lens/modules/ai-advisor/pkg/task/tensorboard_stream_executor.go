@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -25,7 +24,7 @@ import (
 type TensorBoardStreamExecutor struct {
 	coreTask.BaseExecutor
 
-	streamReader   *tensorboard.StreamReader
+	reader         *tensorboard.Reader
 	metadataFacade database.AiWorkloadMetadataFacadeInterface
 	podFacade      database.PodFacadeInterface
 	taskFacade     database.WorkloadTaskFacadeInterface
@@ -33,21 +32,22 @@ type TensorBoardStreamExecutor struct {
 	nodeFacade     database.NodeFacadeInterface
 	eventParser    *tensorboard.EventParser
 
-	// 文件解析状态管理
-	fileBuffers map[string]*FileParseState // 每个文件的解析状态
+	// 文件读取状态管理（每个文件维护一个状态）
+	fileStates map[string]*FileStreamState
 
 	// Node-exporter client cache
 	clientCache sync.Map // nodeName -> *client.Client
 }
 
-// FileParseState 文件解析状态
-type FileParseState struct {
-	Buffer            []byte         // 缓存的不完整数据
-	LastValidOffset   int64          // 最后一个完整解析的 record 结束位置
-	DebugFile         *os.File       // 调试文件句柄
-	DebugFilePath     string         // 调试文件路径
-	TotalBytesWritten int64          // 已写入调试文件的字节数
-	Metadata          *DebugMetadata // 调试元信息
+// FileStreamState 文件流式读取状态
+type FileStreamState struct {
+	FilePath         string         // 文件路径
+	CurrentOffset    int64          // 下次读取的起始位置（基于成功解析的位置）
+	LastReadTime     time.Time      // 最后读取时间
+	DebugFile        *os.File       // 调试文件句柄（可选）
+	DebugFilePath    string         // 调试文件路径
+	TotalBytesParsed int64          // 已成功解析的总字节数
+	Metadata         *DebugMetadata // 调试元信息（可选）
 }
 
 // DebugMetadata 调试元信息
@@ -71,16 +71,16 @@ type ErrorInfo struct {
 }
 
 // NewTensorBoardStreamExecutor 创建 TensorBoard 流式读取执行器
-func NewTensorBoardStreamExecutor(streamReader *tensorboard.StreamReader) *TensorBoardStreamExecutor {
+func NewTensorBoardStreamExecutor() *TensorBoardStreamExecutor {
 	return &TensorBoardStreamExecutor{
-		streamReader:   streamReader,
+		reader:         tensorboard.NewReader(),
 		metadataFacade: database.NewAiWorkloadMetadataFacade(),
 		podFacade:      database.NewPodFacade(),
 		taskFacade:     database.NewWorkloadTaskFacade(),
 		trainingFacade: database.NewTrainingFacade(),
 		nodeFacade:     database.NewNodeFacade(),
 		eventParser:    tensorboard.NewEventParser(),
-		fileBuffers:    make(map[string]*FileParseState),
+		fileStates:     make(map[string]*FileStreamState),
 	}
 }
 
@@ -166,34 +166,32 @@ func (e *TensorBoardStreamExecutor) Execute(
 		}
 	}
 
-	// 4. 构建流式配置
-	streamConfig := &tensorboard.StreamConfig{
-		PollInterval:       time.Duration(pollInterval) * time.Second,
-		ChunkSize:          65536, // 64KB
-		BufferSize:         100,
-		ReadHistorical:     false, // 不读取历史数据，只读取新增
-		FollowRotation:     true,
-		MaxHistoricalBytes: 0,
+	chunkSize := int64(65536) // 默认 64KB
+	if chunkSizeVal, ok := task.Ext["chunk_size"]; ok {
+		if chunkSizeInt, ok := chunkSizeVal.(int); ok {
+			chunkSize = int64(chunkSizeInt)
+		} else if chunkSizeFloat, ok := chunkSizeVal.(float64); ok {
+			chunkSize = int64(chunkSizeFloat)
+		}
 	}
 
-	// 5. 使用传入的 ctx 让任务系统控制生命周期
-	// Stream will run until task is cancelled by task manager
-
-	// 从 checkpoint 恢复 offset
-	startOffsets := make(map[string]int64)
+	// 4. 从 checkpoint 恢复 offset 并初始化文件状态
 	if checkpoint != nil {
 		if fileOffsets, ok := checkpoint["file_offsets"].(map[string]interface{}); ok {
 			for file, offset := range fileOffsets {
 				if offsetVal, ok := offset.(float64); ok {
-					startOffsets[file] = int64(offsetVal)
+					e.fileStates[file] = &FileStreamState{
+						FilePath:      file,
+						CurrentOffset: int64(offsetVal),
+					}
 				}
 			}
 		}
 	}
 
-	log.Infof("Starting stream with event files: %v, offsets: %+v", eventFiles, startOffsets)
+	log.Infof("Starting stream with event files: %v, initial offsets: %+v", eventFiles, e.getFileOffsets())
 
-	// 6. 获取 node-exporter client
+	// 5. 获取 node-exporter client
 	nodeExporterClient, err := e.getNodeExporterClient(ctx, gpuPod.NodeName)
 	if err != nil {
 		return coreTask.FailureResult(
@@ -204,7 +202,7 @@ func (e *TensorBoardStreamExecutor) Execute(
 		), err
 	}
 
-	// 7. 如果文件列表为空，先扫描文件
+	// 6. 如果文件列表为空，先扫描文件
 	if len(eventFiles) == 0 {
 		log.Infof("Waiting for TensorBoard files to appear")
 
@@ -254,40 +252,21 @@ func (e *TensorBoardStreamExecutor) Execute(
 		log.Infof("TensorBoard files detected: %v", eventFiles)
 	}
 
-	// 7. 构建流式请求（使用精确的事件文件列表）
-	streamReq := &tensorboard.StreamRequest{
-		WorkloadUID: task.WorkloadUID,
-		PodUID:      gpuPod.UID,
-		EventFiles:  eventFiles, // 使用精确的事件文件列表
-		LogDir:      logDir,     // 保留作为参考
-		Config:      streamConfig,
-	}
-
-	// 如果有 checkpoint，设置恢复状态
-	if len(startOffsets) > 0 {
-		streamReq.ResumeState = &tensorboard.StreamState{
-			WorkloadUID: task.WorkloadUID,
-			FileOffsets: startOffsets,
-			LastUpdate:  time.Now(),
+	// 7. 初始化文件状态（如果还没有从 checkpoint 恢复）
+	for _, filePath := range eventFiles {
+		if _, exists := e.fileStates[filePath]; !exists {
+			e.fileStates[filePath] = &FileStreamState{
+				FilePath:      filePath,
+				CurrentOffset: 0,
+			}
 		}
 	}
 
-	// 7. 启动流式会话
-	session, err := e.streamReader.StartStream(ctx, streamReq)
-	if err != nil {
-		return coreTask.FailureResult(
-			fmt.Sprintf("failed to start stream: %v", err),
-			map[string]interface{}{
-				"error_at": time.Now().Format(time.RFC3339),
-			},
-		), err
-	}
+	log.Infof("Stream started for workload %s with %d files, poll interval %ds, chunk size %d",
+		task.WorkloadUID, len(eventFiles), pollInterval, chunkSize)
 
-	log.Infof("Stream session started for workload %s, entering blocking mode", task.WorkloadUID)
-
-	// 8. 同步处理流数据直到任务被取消
-	// This blocks until context is cancelled or stream ends
-	e.processStreamUpdates(ctx, task, gpuPod, session)
+	// 8. 进入流式读取循环（同步阻塞直到任务被取消）
+	e.streamLoop(ctx, task, gpuPod, eventFiles, time.Duration(pollInterval)*time.Second, chunkSize)
 
 	// 9. Stream ended, return final result
 	log.Infof("TensorBoard stream ended for workload %s", task.WorkloadUID)
@@ -301,94 +280,228 @@ func (e *TensorBoardStreamExecutor) Execute(
 	}), nil
 }
 
-// processStreamUpdates 处理流式更新并定期更新 offset
-func (e *TensorBoardStreamExecutor) processStreamUpdates(
+// streamLoop 流式读取主循环
+func (e *TensorBoardStreamExecutor) streamLoop(
 	ctx context.Context,
 	task *model.WorkloadTaskState,
 	gpuPod *model.GpuPods,
-	session *tensorboard.StreamSession,
+	eventFiles []string,
+	pollInterval time.Duration,
+	chunkSize int64,
 ) {
-	defer session.Stop()
 	defer e.cleanupDebugFiles()
 
-	// 用于聚合 offset 更新
-	fileOffsets := make(map[string]int64)
-	updateInterval := 10 * time.Second // 每 10 秒更新一次 offset
+	ticker := time.NewTicker(pollInterval)
+	defer ticker.Stop()
+
+	checkpointTicker := time.NewTicker(10 * time.Second) // 每 10 秒更新一次 checkpoint
+	defer checkpointTicker.Stop()
 
 	totalBytesRead := int64(0)
 	updateCount := 0
 
-	ticker := time.NewTicker(updateInterval)
-	defer ticker.Stop()
-
-	log.Infof("Started processing stream updates for workload %s", task.WorkloadUID)
+	log.Infof("Started stream loop for workload %s", task.WorkloadUID)
 
 	for {
 		select {
 		case <-ctx.Done():
-			log.Infof("Stream processing stopped by context for workload %s", task.WorkloadUID)
-
-			// 最后一次更新 offset
-			e.updateCheckpoint(ctx, task, fileOffsets, totalBytesRead, updateCount)
+			log.Infof("Stream loop stopped by context for workload %s", task.WorkloadUID)
+			// 最后一次更新 checkpoint
+			e.updateCheckpoint(ctx, task, totalBytesRead, updateCount)
 			return
 
-		case update, ok := <-session.Updates():
-			if !ok {
-				// 通道已关闭，流结束
-				log.Infof("Stream closed for workload %s", task.WorkloadUID)
-
-				// 最后一次更新 offset
-				e.updateCheckpoint(ctx, task, fileOffsets, totalBytesRead, updateCount)
-				return
-			}
-
-			if update == nil {
-				log.Warnf("Received nil update for workload %s", task.WorkloadUID)
-				continue
-			}
-
-			log.Debugf("Received update for workload %s: file=%s, offset=%d->%d, bytes=%d",
-				task.WorkloadUID, update.File, update.Offset, update.NewOffset, update.BytesRead)
-
-			// 解析 TensorBoard event 数据并存储
-			// TensorBoard event 文件以 "events.out.tfevents" 开头
-			if len(update.Content) > 0 && e.isTensorBoardEventFile(update.File) {
-				e.parseTensorBoardEvents(ctx, task, gpuPod, update)
-			}
-
-			// 更新文件 offset - 使用解析后的实际有效 offset
-			// 这确保我们只记录已经成功解析的位置
-			if fileState, exists := e.fileBuffers[update.File]; exists {
-				fileOffsets[update.File] = fileState.LastValidOffset
-				log.Debugf("Updated offset for %s to %d (parsed position)",
-					update.File, fileState.LastValidOffset)
-			} else {
-				// 如果不是 event 文件或解析失败，使用原始 offset
-				fileOffsets[update.File] = update.NewOffset
-			}
-
-			totalBytesRead += update.BytesRead
-			updateCount++
-
 		case <-ticker.C:
+			// 轮询每个文件，检查是否有新数据
+			for _, filePath := range eventFiles {
+				if ctx.Err() != nil {
+					return
+				}
+
+				fileState := e.fileStates[filePath]
+
+				// 读取、解析并更新 offset（基于成功解析的位置）
+				bytesRead, err := e.readAndParseFile(ctx, task, gpuPod, filePath, fileState, chunkSize)
+				if err != nil {
+					log.Errorf("Failed to read/parse file %s: %v", filePath, err)
+					continue
+				}
+
+				if bytesRead > 0 {
+					totalBytesRead += bytesRead
+					updateCount++
+				}
+			}
+
+		case <-checkpointTicker.C:
 			// 定期更新 checkpoint
-			if len(fileOffsets) > 0 {
-				e.updateCheckpoint(ctx, task, fileOffsets, totalBytesRead, updateCount)
+			e.updateCheckpoint(ctx, task, totalBytesRead, updateCount)
+		}
+	}
+}
+
+// readAndParseFile 读取文件、解析事件、更新offset（基于成功解析的位置）
+func (e *TensorBoardStreamExecutor) readAndParseFile(
+	ctx context.Context,
+	task *model.WorkloadTaskState,
+	gpuPod *model.GpuPods,
+	filePath string,
+	fileState *FileStreamState,
+	chunkSize int64,
+) (int64, error) {
+	// 1. 获取文件信息
+	fileInfo, err := e.reader.GetFileInfo(ctx, gpuPod.UID, filePath)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get file info: %w", err)
+	}
+
+	// 2. 检查是否有新数据
+	if fileInfo.Size <= fileState.CurrentOffset {
+		return 0, nil // 没有新数据
+	}
+
+	// 3. 计算读取大小
+	remaining := fileInfo.Size - fileState.CurrentOffset
+	toRead := chunkSize
+	if toRead > remaining {
+		toRead = remaining
+	}
+
+	// 4. 读取数据块
+	resp, err := e.reader.ReadFile(ctx, gpuPod.UID, filePath, fileState.CurrentOffset, toRead)
+	if err != nil {
+		return 0, fmt.Errorf("failed to read file: %w", err)
+	}
+
+	if resp.BytesRead == 0 {
+		return 0, nil
+	}
+
+	log.Debugf("Read from %s: offset=%d, bytes=%d", filePath, fileState.CurrentOffset, resp.BytesRead)
+
+	// 5. 解析事件（返回成功解析的字节数）
+	dataBytes := []byte(resp.Content)
+	events, consumedBytes, parseErr := e.eventParser.ParseEventsWithBuffer(dataBytes)
+
+	if parseErr != nil {
+		log.Warnf("Parse error for %s at offset %d: %v", filePath, fileState.CurrentOffset, parseErr)
+	}
+
+	log.Debugf("Parse result for %s: events=%d, consumed=%d/%d bytes (%.1f%%)",
+		filePath, len(events), consumedBytes, len(dataBytes), float64(consumedBytes)*100/max(float64(len(dataBytes)), 1))
+
+	// 6. 关键：只更新成功解析的部分，丢弃无法解析的数据
+	// 下次读取从解析成功的位置开始
+	if consumedBytes > 0 {
+		fileState.CurrentOffset += int64(consumedBytes)
+		fileState.TotalBytesParsed += int64(consumedBytes)
+		fileState.LastReadTime = time.Now()
+
+		log.Debugf("Updated offset for %s: %d (consumed %d bytes, discarded %d bytes)",
+			filePath, fileState.CurrentOffset, consumedBytes, len(dataBytes)-consumedBytes)
+	} else if len(dataBytes) > 1024*1024 {
+		// 如果超过 1MB 还无法解析，可能数据损坏，跳过这部分
+		log.Warnf("Unable to parse %d bytes from %s, skipping to avoid infinite loop",
+			len(dataBytes), filePath)
+		fileState.CurrentOffset += int64(len(dataBytes))
+		return 0, nil
+	}
+
+	// 7. 存储解析成功的事件到数据库
+	if len(events) > 0 {
+		e.storeEvents(ctx, task, gpuPod, filePath, events)
+	}
+
+	return int64(consumedBytes), nil
+}
+
+// storeEvents 存储事件到数据库
+func (e *TensorBoardStreamExecutor) storeEvents(
+	ctx context.Context,
+	task *model.WorkloadTaskState,
+	gpuPod *model.GpuPods,
+	filePath string,
+	events []*tensorboard.ParsedEvent,
+) {
+	successCount := 0
+	duplicateCount := 0
+
+	for _, event := range events {
+		if !event.IsScalarEvent() {
+			continue
+		}
+
+		// 合并所有 scalars 到一个 performance 记录中
+		performance := model.ExtType{
+			"wall_time": event.WallTime,
+			"step":      event.Step,
+			"scalars":   event.Scalars,
+			"tags":      event.Tags,
+			"file":      filePath,
+		}
+
+		trainingPerf := &model.TrainingPerformance{
+			WorkloadUID: task.WorkloadUID,
+			PodUUID:     gpuPod.UID,
+			Performance: performance,
+			Iteration:   int32(event.Step),
+			Serial:      0,
+			DataSource:  "tensorflow",
+			CreatedAt:   time.Now(),
+		}
+
+		// 检查是否已存在（防止重复插入）
+		existing, err := e.trainingFacade.GetTrainingPerformanceByWorkloadIdSerialAndIteration(
+			ctx, task.WorkloadUID, 0, int(event.Step))
+
+		if err != nil {
+			log.Warnf("Failed to check existing record for step %d: %v", event.Step, err)
+		} else if existing != nil {
+			duplicateCount++
+			if duplicateCount <= 3 {
+				log.Debugf("Skipping duplicate event: step=%d", event.Step)
+			}
+			continue
+		}
+
+		// 存储到数据库
+		err = e.trainingFacade.CreateTrainingPerformance(ctx, trainingPerf)
+		if err != nil {
+			if strings.Contains(err.Error(), "duplicate") || strings.Contains(err.Error(), "unique") {
+				duplicateCount++
+			} else {
+				log.Warnf("Failed to store training performance for step %d: %v", event.Step, err)
+			}
+		} else {
+			successCount++
+			if successCount <= 5 {
+				log.Debugf("Stored training performance: step=%d, scalars=%v", event.Step, event.Scalars)
 			}
 		}
 	}
+
+	if successCount > 0 || duplicateCount > 0 {
+		log.Infof("Stored events from %s: %d new, %d duplicates", filePath, successCount, duplicateCount)
+	}
+}
+
+// getFileOffsets 获取所有文件的当前 offset
+func (e *TensorBoardStreamExecutor) getFileOffsets() map[string]int64 {
+	offsets := make(map[string]int64)
+	for filePath, state := range e.fileStates {
+		offsets[filePath] = state.CurrentOffset
+	}
+	return offsets
 }
 
 // updateCheckpoint 更新 checkpoint 到数据库
 func (e *TensorBoardStreamExecutor) updateCheckpoint(
 	ctx context.Context,
 	task *model.WorkloadTaskState,
-	fileOffsets map[string]int64,
 	totalBytesRead int64,
 	updateCount int,
 ) {
 	checkpoint := map[string]interface{}{
-		"file_offsets":     fileOffsets,
+		"file_offsets":     e.getFileOffsets(),
 		"total_bytes_read": totalBytesRead,
 		"update_count":     updateCount,
 		"last_update_at":   time.Now().Format(time.RFC3339),
@@ -402,20 +515,14 @@ func (e *TensorBoardStreamExecutor) updateCheckpoint(
 		log.Errorf("Failed to update checkpoint for workload %s: %v", task.WorkloadUID, err)
 	} else {
 		log.Debugf("Updated checkpoint for workload %s: %d files, %d bytes, %d updates",
-			task.WorkloadUID, len(fileOffsets), totalBytesRead, updateCount)
+			task.WorkloadUID, len(e.fileStates), totalBytesRead, updateCount)
 	}
 }
 
 // Cancel 取消任务
 func (e *TensorBoardStreamExecutor) Cancel(ctx context.Context, task *model.WorkloadTaskState) error {
 	log.Infof("Cancelling TensorBoard stream for workload %s", task.WorkloadUID)
-
-	// 停止流式会话
-	err := e.streamReader.StopStream(task.WorkloadUID)
-	if err != nil {
-		log.Warnf("Failed to stop stream for workload %s: %v", task.WorkloadUID, err)
-	}
-
+	// 任务取消通过 context 控制，这里不需要额外操作
 	return nil
 }
 
@@ -566,236 +673,6 @@ func (e *TensorBoardStreamExecutor) selectTargetPod(ctx context.Context, workloa
 	return selectedPod, nil
 }
 
-// isTensorBoardEventFile 检查文件名是否为 TensorBoard event 文件
-func (e *TensorBoardStreamExecutor) isTensorBoardEventFile(filePath string) bool {
-	// TensorBoard event 文件格式: events.out.tfevents.*
-	fileName := filePath
-	if idx := strings.LastIndex(filePath, "/"); idx >= 0 {
-		fileName = filePath[idx+1:]
-	}
-	return strings.HasPrefix(fileName, "events.out.tfevents")
-}
-
-// parseTensorBoardEvents 解析 TensorBoard event 数据并存储到数据库
-// 实现流式解析：处理不完整的 record，维护缓冲区
-func (e *TensorBoardStreamExecutor) parseTensorBoardEvents(
-	ctx context.Context,
-	task *model.WorkloadTaskState,
-	gpuPod *model.GpuPods,
-	update *tensorboard.StreamUpdate,
-) {
-	// TensorBoard event 文件是二进制格式
-	if !e.isTensorBoardEventFile(update.File) {
-		log.Debugf("Skipping non-event file: %s", update.File)
-		return
-	}
-
-	// Content 字段包含二进制数据（作为字符串）
-	newData := []byte(update.Content)
-
-	if len(newData) == 0 {
-		log.Debugf("Empty content for file: %s", update.File)
-		return
-	}
-
-	// 1. 获取或创建该文件的解析状态
-	fileState, exists := e.fileBuffers[update.File]
-	if !exists {
-		// 初始化文件解析状态
-		fileState = &FileParseState{
-			Buffer:          make([]byte, 0),
-			LastValidOffset: update.Offset,
-		}
-
-		// 创建调试文件
-		debugFileName := filepath.Base(update.File) + ".debug"
-		debugFilePath := filepath.Join("/tmp", debugFileName)
-		debugFile, err := os.OpenFile(debugFilePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
-		if err != nil {
-			log.Warnf("Failed to create debug file %s: %v", debugFilePath, err)
-		} else {
-			fileState.DebugFile = debugFile
-			fileState.DebugFilePath = debugFilePath
-			fileState.Metadata = &DebugMetadata{
-				FileName:     filepath.Base(update.File),
-				OriginalPath: update.File,
-				CreatedAt:    time.Now(),
-				Errors:       make([]ErrorInfo, 0),
-			}
-			log.Infof("Created debug file: %s", debugFilePath)
-		}
-
-		e.fileBuffers[update.File] = fileState
-		log.Infof("Initialized parse state for %s at offset %d", update.File, update.Offset)
-	}
-
-	// 2. 写入调试数据到文件
-	if fileState.DebugFile != nil {
-		n, err := fileState.DebugFile.Write(newData)
-		if err != nil {
-			log.Warnf("Failed to write to debug file: %v", err)
-		} else {
-			fileState.TotalBytesWritten += int64(n)
-			if fileState.Metadata != nil {
-				fileState.Metadata.TotalBytesWritten = fileState.TotalBytesWritten
-			}
-		}
-	}
-
-	// 3. 将新数据追加到缓冲区
-	oldBufferSize := len(fileState.Buffer)
-	fileState.Buffer = append(fileState.Buffer, newData...)
-
-	log.Infof("File %s: buffer=%d bytes (was %d, added %d), offset=%d->%d, last_valid=%d",
-		update.File, len(fileState.Buffer), oldBufferSize, len(newData),
-		update.Offset, update.NewOffset, fileState.LastValidOffset)
-
-	// Check for potential offset mismatch
-	if update.Offset != fileState.LastValidOffset {
-		log.Warnf("OFFSET MISMATCH: update.Offset=%d, but last_valid=%d, diff=%d",
-			update.Offset, fileState.LastValidOffset, update.Offset-fileState.LastValidOffset)
-	}
-
-	// 4. 尝试从缓冲区解析完整的 events
-	events, consumedBytes, parseErr := e.eventParser.ParseEventsWithBuffer(fileState.Buffer)
-
-	log.Infof("Parse result: events=%d, consumed=%d/%d bytes (%.2f%%)",
-		len(events), consumedBytes, len(fileState.Buffer),
-		float64(consumedBytes)*100/max(float64(len(fileState.Buffer)), 1))
-
-	// 记录错误到元信息
-	if parseErr != nil || (len(events) == 0 && len(fileState.Buffer) > 1024) {
-		errorInfo := ErrorInfo{
-			Offset:        fileState.LastValidOffset,
-			BufferSize:    len(fileState.Buffer),
-			BytesConsumed: consumedBytes,
-			EventsParsed:  len(events),
-			Timestamp:     time.Now(),
-		}
-		if parseErr != nil {
-			errorInfo.Error = parseErr.Error()
-		} else {
-			errorInfo.Error = "No events parsed with large buffer"
-		}
-
-		if fileState.Metadata != nil {
-			fileState.Metadata.Errors = append(fileState.Metadata.Errors, errorInfo)
-			fileState.Metadata.LastUpdated = time.Now()
-
-			// 保存元信息到 .meta 文件
-			e.saveMetadata(fileState)
-		}
-
-		log.Errorf("Parse FAILED for %s at offset %d: %v", update.File, fileState.LastValidOffset, errorInfo.Error)
-
-		// 如果解析失败，清空缓冲区
-		fileState.Buffer = fileState.Buffer[:0]
-		fileState.LastValidOffset = update.NewOffset
-		log.Warnf("Reset parse state for %s to offset %d", update.File, update.NewOffset)
-		return
-	}
-
-	if len(events) == 0 {
-		// 没有解析出完整的 event，缓冲区数据保留，等待下次
-		log.Debugf("No complete events in buffer for %s, waiting for more data (buffer: %d bytes)",
-			update.File, len(fileState.Buffer))
-
-		// 防止缓冲区无限增长（如果一直无法解析）
-		if len(fileState.Buffer) > 1024*1024 { // 超过 1MB
-			log.Warnf("Buffer for %s exceeds 1MB without complete event, may be corrupted. Clearing buffer.",
-				update.File)
-			fileState.Buffer = fileState.Buffer[:0]
-			fileState.LastValidOffset = update.NewOffset
-		}
-		return
-	}
-
-	log.Infof("Parsed %d complete events from %s (consumed %d bytes, remaining %d bytes in buffer)",
-		len(events), update.File, consumedBytes, len(fileState.Buffer)-consumedBytes)
-
-	// 4. 移除已解析的数据，保留未完成的部分
-	if consumedBytes > 0 {
-		// 更新 last valid offset
-		fileState.LastValidOffset += int64(consumedBytes)
-
-		// 保留未消费的数据
-		if consumedBytes < len(fileState.Buffer) {
-			fileState.Buffer = fileState.Buffer[consumedBytes:]
-			log.Debugf("Retained %d bytes in buffer for next parse", len(fileState.Buffer))
-		} else {
-			fileState.Buffer = fileState.Buffer[:0]
-		}
-	}
-
-	// 5. 存储每个 event 的 scalar 数据到 training_performance 表
-	scalarEventCount := 0
-	successCount := 0
-	duplicateCount := 0
-
-	for _, event := range events {
-		if !event.IsScalarEvent() {
-			continue
-		}
-
-		scalarEventCount++
-
-		// 将所有 scalars 合并到一个 performance 记录中
-		performance := model.ExtType{
-			"wall_time": event.WallTime,
-			"step":      event.Step,
-			"scalars":   event.Scalars,
-			"tags":      event.Tags,
-			"file":      update.File, // 记录来源文件
-		}
-
-		trainingPerf := &model.TrainingPerformance{
-			WorkloadUID: task.WorkloadUID,
-			PodUUID:     gpuPod.UID,
-			Performance: performance,
-			Iteration:   int32(event.Step),
-			Serial:      0, // 可以从 pod 名称或其他地方提取
-			DataSource:  "tensorflow",
-			CreatedAt:   time.Now(),
-		}
-
-		// 检查是否已存在（防止重复插入）
-		existing, err := e.trainingFacade.GetTrainingPerformanceByWorkloadIdSerialAndIteration(
-			ctx, task.WorkloadUID, 0, int(event.Step))
-
-		if err != nil {
-			log.Warnf("Failed to check existing record for step %d: %v", event.Step, err)
-		} else if existing != nil {
-			// 记录已存在，跳过
-			duplicateCount++
-			if duplicateCount <= 3 {
-				log.Debugf("Skipping duplicate event: step=%d (already in database)", event.Step)
-			}
-			continue
-		}
-
-		// 存储到数据库
-		err = e.trainingFacade.CreateTrainingPerformance(ctx, trainingPerf)
-		if err != nil {
-			// 可能是唯一键冲突（并发插入），不算错误
-			if strings.Contains(err.Error(), "duplicate") || strings.Contains(err.Error(), "unique") {
-				duplicateCount++
-			} else {
-				log.Warnf("Failed to store training performance for step %d: %v", event.Step, err)
-			}
-		} else {
-			successCount++
-			if successCount <= 5 {
-				log.Debugf("Stored training performance: step=%d, scalars=%v", event.Step, event.Scalars)
-			}
-		}
-	}
-
-	if scalarEventCount > 0 {
-		log.Infof("Processed %d scalar events from %s (stored: %d, duplicates: %d)",
-			scalarEventCount, update.File, successCount, duplicateCount)
-	}
-}
-
 // getNodeExporterClient gets or creates a node-exporter client for a specific node
 func (e *TensorBoardStreamExecutor) getNodeExporterClient(ctx context.Context, nodeName string) (*client.Client, error) {
 	cacheKey := nodeName
@@ -842,8 +719,28 @@ func max(a, b float64) float64 {
 	return b
 }
 
+// cleanupDebugFiles closes and finalizes debug files (if enabled)
+func (e *TensorBoardStreamExecutor) cleanupDebugFiles() {
+	for filePath, fileState := range e.fileStates {
+		if fileState.DebugFile != nil {
+			// Save final metadata
+			if fileState.Metadata != nil {
+				fileState.Metadata.LastUpdated = time.Now()
+				e.saveMetadata(fileState)
+			}
+
+			// Close file
+			if err := fileState.DebugFile.Close(); err != nil {
+				log.Warnf("Failed to close debug file for %s: %v", filePath, err)
+			} else {
+				log.Infof("Closed debug file: %s", fileState.DebugFilePath)
+			}
+		}
+	}
+}
+
 // saveMetadata saves metadata to a .meta file
-func (e *TensorBoardStreamExecutor) saveMetadata(fileState *FileParseState) {
+func (e *TensorBoardStreamExecutor) saveMetadata(fileState *FileStreamState) {
 	if fileState.Metadata == nil || fileState.DebugFilePath == "" {
 		return
 	}
@@ -859,26 +756,6 @@ func (e *TensorBoardStreamExecutor) saveMetadata(fileState *FileParseState) {
 	if err != nil {
 		log.Warnf("Failed to write metadata to %s: %v", metaPath, err)
 	} else {
-		log.Infof("Saved metadata to %s", metaPath)
-	}
-}
-
-// cleanupDebugFiles closes and finalizes debug files
-func (e *TensorBoardStreamExecutor) cleanupDebugFiles() {
-	for filePath, fileState := range e.fileBuffers {
-		if fileState.DebugFile != nil {
-			// Save final metadata
-			if fileState.Metadata != nil {
-				fileState.Metadata.LastUpdated = time.Now()
-				e.saveMetadata(fileState)
-			}
-
-			// Close file
-			if err := fileState.DebugFile.Close(); err != nil {
-				log.Warnf("Failed to close debug file for %s: %v", filePath, err)
-			} else {
-				log.Infof("Closed debug file: %s", fileState.DebugFilePath)
-			}
-		}
+		log.Debugf("Saved metadata to %s", metaPath)
 	}
 }

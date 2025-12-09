@@ -11,7 +11,6 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/detection"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/metadata"
 	advisorTask "github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/task"
-	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/tensorboard"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/config"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/controller"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
@@ -111,15 +110,13 @@ func Bootstrap(ctx context.Context) error {
 		// Initialize TensorBoard reader
 		handlers.InitTensorBoardReader()
 
-		// Initialize TensorBoard stream reader
-		handlers.InitStreamReader()
-
-		// Create StreamReader for task executor and WorkloadMonitor
-		streamReader := tensorboard.NewStreamReader(tensorboard.NewReader())
+		// Note: TensorBoard stream HTTP APIs are disabled.
+		// Stream functionality is available through task executor only.
+		// handlers.InitStreamReader()
 
 		// Initialize task scheduler
 		taskScheduler := coreTask.NewTaskScheduler(instanceID, coreTask.DefaultSchedulerConfig())
-		
+
 		// Register metadata collection executor
 		metadataExecutor := advisorTask.NewMetadataCollectionExecutor(metadata.GetCollector())
 		if err := taskScheduler.RegisterExecutor(metadataExecutor); err != nil {
@@ -129,7 +126,7 @@ func Bootstrap(ctx context.Context) error {
 		}
 
 		// Register TensorBoard stream executor
-		tensorboardStreamExecutor := advisorTask.NewTensorBoardStreamExecutor(streamReader)
+		tensorboardStreamExecutor := advisorTask.NewTensorBoardStreamExecutor()
 		if err := taskScheduler.RegisterExecutor(tensorboardStreamExecutor); err != nil {
 			log.Errorf("Failed to register tensorboard stream executor: %v", err)
 		} else {
@@ -291,24 +288,6 @@ func initRouter(group *gin.RouterGroup) error {
 		tensorboardGroup.POST("/file/read", handlers.ReadContainerFile)
 		tensorboardGroup.POST("/file/info", handlers.GetContainerFileInfo)
 
-		// Streaming APIs
-		streamGroup := tensorboardGroup.Group("/stream")
-		{
-			// WebSocket streaming
-			streamGroup.GET("/ws", handlers.StartTensorBoardStream)
-
-			// Server-Sent Events streaming
-			streamGroup.POST("/sse", handlers.StreamTensorBoardSSE)
-
-			// Resume from saved state
-			streamGroup.POST("/resume", handlers.ResumeStream)
-
-			// Get stream state
-			streamGroup.GET("/:workload_uid/state", handlers.GetStreamState)
-
-			// Stop stream
-			streamGroup.POST("/:workload_uid/stop", handlers.StopTensorBoardStream)
-		}
 	}
 
 	// Health check
