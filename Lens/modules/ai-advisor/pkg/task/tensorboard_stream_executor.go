@@ -2,11 +2,14 @@ package task
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io/ioutil"
+	"os"
+	"path/filepath"
 	"strings"
-	"time"
-
 	"sync"
+	"time"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/tensorboard"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
@@ -39,8 +42,32 @@ type TensorBoardStreamExecutor struct {
 
 // FileParseState 文件解析状态
 type FileParseState struct {
-	Buffer          []byte // 缓存的不完整数据
-	LastValidOffset int64  // 最后一个完整解析的 record 结束位置
+	Buffer            []byte         // 缓存的不完整数据
+	LastValidOffset   int64          // 最后一个完整解析的 record 结束位置
+	DebugFile         *os.File       // 调试文件句柄
+	DebugFilePath     string         // 调试文件路径
+	TotalBytesWritten int64          // 已写入调试文件的字节数
+	Metadata          *DebugMetadata // 调试元信息
+}
+
+// DebugMetadata 调试元信息
+type DebugMetadata struct {
+	FileName          string      `json:"file_name"`
+	OriginalPath      string      `json:"original_path"`
+	TotalBytesWritten int64       `json:"total_bytes_written"`
+	Errors            []ErrorInfo `json:"errors"`
+	CreatedAt         time.Time   `json:"created_at"`
+	LastUpdated       time.Time   `json:"last_updated"`
+}
+
+// ErrorInfo 错误信息
+type ErrorInfo struct {
+	Offset        int64     `json:"offset"`
+	BufferSize    int       `json:"buffer_size"`
+	Error         string    `json:"error"`
+	Timestamp     time.Time `json:"timestamp"`
+	BytesConsumed int       `json:"bytes_consumed"`
+	EventsParsed  int       `json:"events_parsed"`
 }
 
 // NewTensorBoardStreamExecutor 创建 TensorBoard 流式读取执行器
@@ -282,6 +309,7 @@ func (e *TensorBoardStreamExecutor) processStreamUpdates(
 	session *tensorboard.StreamSession,
 ) {
 	defer session.Stop()
+	defer e.cleanupDebugFiles()
 
 	// 用于聚合 offset 更新
 	fileOffsets := make(map[string]int64)
@@ -574,32 +602,96 @@ func (e *TensorBoardStreamExecutor) parseTensorBoardEvents(
 	fileState, exists := e.fileBuffers[update.File]
 	if !exists {
 		// 初始化文件解析状态
-		// LastValidOffset 初始化为 update.Offset（这是 stream reader 开始读取的位置）
 		fileState = &FileParseState{
 			Buffer:          make([]byte, 0),
 			LastValidOffset: update.Offset,
 		}
+
+		// 创建调试文件
+		debugFileName := filepath.Base(update.File) + ".debug"
+		debugFilePath := filepath.Join("/tmp", debugFileName)
+		debugFile, err := os.OpenFile(debugFilePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+		if err != nil {
+			log.Warnf("Failed to create debug file %s: %v", debugFilePath, err)
+		} else {
+			fileState.DebugFile = debugFile
+			fileState.DebugFilePath = debugFilePath
+			fileState.Metadata = &DebugMetadata{
+				FileName:     filepath.Base(update.File),
+				OriginalPath: update.File,
+				CreatedAt:    time.Now(),
+				Errors:       make([]ErrorInfo, 0),
+			}
+			log.Infof("Created debug file: %s", debugFilePath)
+		}
+
 		e.fileBuffers[update.File] = fileState
-		log.Debugf("Initialized parse state for %s at offset %d", update.File, update.Offset)
+		log.Infof("Initialized parse state for %s at offset %d", update.File, update.Offset)
 	}
 
-	// 2. 将新数据追加到缓冲区
+	// 2. 写入调试数据到文件
+	if fileState.DebugFile != nil {
+		n, err := fileState.DebugFile.Write(newData)
+		if err != nil {
+			log.Warnf("Failed to write to debug file: %v", err)
+		} else {
+			fileState.TotalBytesWritten += int64(n)
+			if fileState.Metadata != nil {
+				fileState.Metadata.TotalBytesWritten = fileState.TotalBytesWritten
+			}
+		}
+	}
+
+	// 3. 将新数据追加到缓冲区
+	oldBufferSize := len(fileState.Buffer)
 	fileState.Buffer = append(fileState.Buffer, newData...)
 
-	log.Infof("File %s: buffer=%d bytes (added %d), file_offset=%d, last_valid=%d",
-		update.File, len(fileState.Buffer), len(newData),
-		update.Offset, fileState.LastValidOffset)
+	log.Infof("File %s: buffer=%d bytes (was %d, added %d), offset=%d->%d, last_valid=%d",
+		update.File, len(fileState.Buffer), oldBufferSize, len(newData),
+		update.Offset, update.NewOffset, fileState.LastValidOffset)
 
-	// 3. 尝试从缓冲区解析完整的 events
-	events, consumedBytes, err := e.eventParser.ParseEventsWithBuffer(fileState.Buffer)
-	if err != nil {
-		log.Errorf("Failed to parse TensorBoard events from %s: %v", update.File, err)
-		// 如果解析失败，可能是数据损坏或者 offset 错位
-		// 清空缓冲区，下次从新位置重新开始
+	// Check for potential offset mismatch
+	if update.Offset != fileState.LastValidOffset {
+		log.Warnf("OFFSET MISMATCH: update.Offset=%d, but last_valid=%d, diff=%d",
+			update.Offset, fileState.LastValidOffset, update.Offset-fileState.LastValidOffset)
+	}
+
+	// 4. 尝试从缓冲区解析完整的 events
+	events, consumedBytes, parseErr := e.eventParser.ParseEventsWithBuffer(fileState.Buffer)
+
+	log.Infof("Parse result: events=%d, consumed=%d/%d bytes (%.2f%%)",
+		len(events), consumedBytes, len(fileState.Buffer),
+		float64(consumedBytes)*100/max(float64(len(fileState.Buffer)), 1))
+
+	// 记录错误到元信息
+	if parseErr != nil || (len(events) == 0 && len(fileState.Buffer) > 1024) {
+		errorInfo := ErrorInfo{
+			Offset:        fileState.LastValidOffset,
+			BufferSize:    len(fileState.Buffer),
+			BytesConsumed: consumedBytes,
+			EventsParsed:  len(events),
+			Timestamp:     time.Now(),
+		}
+		if parseErr != nil {
+			errorInfo.Error = parseErr.Error()
+		} else {
+			errorInfo.Error = "No events parsed with large buffer"
+		}
+
+		if fileState.Metadata != nil {
+			fileState.Metadata.Errors = append(fileState.Metadata.Errors, errorInfo)
+			fileState.Metadata.LastUpdated = time.Now()
+
+			// 保存元信息到 .meta 文件
+			e.saveMetadata(fileState)
+		}
+
+		log.Errorf("Parse FAILED for %s at offset %d: %v", update.File, fileState.LastValidOffset, errorInfo.Error)
+
+		// 如果解析失败，清空缓冲区
 		fileState.Buffer = fileState.Buffer[:0]
-		// 尝试重置到当前更新的起始位置
-		fileState.LastValidOffset = update.Offset
-		log.Warnf("Reset parse state for %s to offset %d", update.File, update.Offset)
+		fileState.LastValidOffset = update.NewOffset
+		log.Warnf("Reset parse state for %s to offset %d", update.File, update.NewOffset)
 		return
 	}
 
@@ -732,4 +824,61 @@ func (e *TensorBoardStreamExecutor) getNodeExporterClient(ctx context.Context, n
 
 	log.Infof("Created node-exporter client for node %s at %s", nodeName, baseURL)
 	return nodeExporterClient, nil
+}
+
+// min returns the minimum of two integers
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+// max returns the maximum of two float64
+func max(a, b float64) float64 {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+// saveMetadata saves metadata to a .meta file
+func (e *TensorBoardStreamExecutor) saveMetadata(fileState *FileParseState) {
+	if fileState.Metadata == nil || fileState.DebugFilePath == "" {
+		return
+	}
+
+	metaPath := fileState.DebugFilePath + ".meta"
+	data, err := json.MarshalIndent(fileState.Metadata, "", "  ")
+	if err != nil {
+		log.Warnf("Failed to marshal metadata: %v", err)
+		return
+	}
+
+	err = ioutil.WriteFile(metaPath, data, 0644)
+	if err != nil {
+		log.Warnf("Failed to write metadata to %s: %v", metaPath, err)
+	} else {
+		log.Infof("Saved metadata to %s", metaPath)
+	}
+}
+
+// cleanupDebugFiles closes and finalizes debug files
+func (e *TensorBoardStreamExecutor) cleanupDebugFiles() {
+	for filePath, fileState := range e.fileBuffers {
+		if fileState.DebugFile != nil {
+			// Save final metadata
+			if fileState.Metadata != nil {
+				fileState.Metadata.LastUpdated = time.Now()
+				e.saveMetadata(fileState)
+			}
+
+			// Close file
+			if err := fileState.DebugFile.Close(); err != nil {
+				log.Warnf("Failed to close debug file for %s: %v", filePath, err)
+			} else {
+				log.Infof("Closed debug file: %s", fileState.DebugFilePath)
+			}
+		}
+	}
 }

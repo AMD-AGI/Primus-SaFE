@@ -317,21 +317,20 @@ func (session *StreamSession) readFileIncremental(reader *Reader, tracker *FileT
 	combinedData := tracker.incompleteBuffer
 	combinedData = append(combinedData, []byte(resp.Content)...)
 
-	log.Debugf("Read %d bytes from file offset %d, combined with %d bytes from buffer, total %d bytes to parse",
-		resp.BytesRead, tracker.Offset, len(tracker.incompleteBuffer), len(combinedData))
+	log.Debugf("Stream read: file=%s, file_offset=%d, read_size=%d, buffer_size=%d, combined_size=%d",
+		tracker.Path, tracker.Offset, resp.BytesRead, len(tracker.incompleteBuffer), len(combinedData))
 
 	// Parse events to find actual consumption boundary
 	parser := NewEventParser()
 	events, consumed, err := parser.ParseEventsWithBuffer(combinedData)
 	if err != nil {
 		log.Warnf("Failed to parse events from %s: %v", tracker.Path, err)
-		// Even with error, we should advance if some data was consumed
 	}
 
-	log.Debugf("Parsed %d events, consumed %d/%d bytes", len(events), consumed, len(combinedData))
+	log.Debugf("Parse result: events=%d, consumed=%d/%d bytes",
+		len(events), consumed, len(combinedData))
 
 	// Calculate how much of the NEW file data was actually consumed
-	// consumed includes both incomplete buffer and new data
 	consumedFromBuffer := 0
 	if len(tracker.incompleteBuffer) > 0 {
 		if consumed >= len(tracker.incompleteBuffer) {
@@ -352,34 +351,49 @@ func (session *StreamSession) readFileIncremental(reader *Reader, tracker *FileT
 	if consumed < len(combinedData) {
 		tracker.incompleteBuffer = make([]byte, len(combinedData)-consumed)
 		copy(tracker.incompleteBuffer, combinedData[consumed:])
-		log.Debugf("Saved %d bytes of incomplete event data for next read", len(tracker.incompleteBuffer))
+		log.Debugf("Saved %d bytes to incomplete buffer", len(tracker.incompleteBuffer))
 	} else {
 		tracker.incompleteBuffer = nil
 	}
 
 	// If no events were parsed, return nil (wait for more data)
 	if len(events) == 0 {
-		log.Debugf("No complete events available, waiting for more data")
+		log.Debugf("No complete events parsed, waiting for more data")
 		return nil, nil
 	}
 
-	// Create update with the consumed portion
-	// Note: We return the raw content that was consumed, not the parsed events
-	// The consumer can parse again if needed
+	// Return only the NEW file data that was consumed
+	newContentConsumed := int64(consumedFromFile)
+	if newContentConsumed < 0 {
+		newContentConsumed = 0
+	}
+	if newContentConsumed > resp.BytesRead {
+		newContentConsumed = resp.BytesRead
+	}
+
+	contentToReturn := string([]byte(resp.Content)[:newContentConsumed])
+
 	update := &StreamUpdate{
 		File:      tracker.Path,
-		Content:   string(combinedData[:consumed]),
-		Offset:    oldOffset - int64(consumedFromBuffer), // Starting offset (accounting for buffer)
+		Content:   contentToReturn,
+		Offset:    oldOffset,
 		NewOffset: tracker.Offset,
-		BytesRead: int64(consumed),
+		BytesRead: newContentConsumed,
 		Timestamp: time.Now(),
 		FileInfo:  resp.FileInfo,
 	}
 
-	log.Debugf("Stream update: file_offset %d -> %d, consumed %d bytes, %d events, %d bytes buffered",
-		oldOffset, tracker.Offset, consumed, len(events), len(tracker.incompleteBuffer))
+	log.Debugf("Stream update: file_offset=%d->%d, bytes=%d, events=%d",
+		oldOffset, tracker.Offset, newContentConsumed, len(events))
 
 	return update, nil
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // refreshFileList refreshes the list of event files
