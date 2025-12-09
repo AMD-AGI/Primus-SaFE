@@ -64,7 +64,6 @@ func (m *MultiClusterStorageConfigListener) loadExcludeNodesFromEnv() {
 		log.Info("No exclude control plane nodes configured via environment variable")
 		return
 	}
-
 	log.Infof("Loading exclude control plane nodes from env %s: %s", ExcludeControlPlaneNodesEnv, excludeNodesStr)
 
 	// Check if it contains cluster-specific configuration (contains ":")
