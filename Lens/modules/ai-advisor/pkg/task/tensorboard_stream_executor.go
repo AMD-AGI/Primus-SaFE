@@ -41,13 +41,15 @@ type TensorBoardStreamExecutor struct {
 
 // FileStreamState 文件流式读取状态
 type FileStreamState struct {
-	FilePath         string         // 文件路径
-	CurrentOffset    int64          // 下次读取的起始位置（基于成功解析的位置）
-	LastReadTime     time.Time      // 最后读取时间
-	DebugFile        *os.File       // 调试文件句柄（可选）
-	DebugFilePath    string         // 调试文件路径
-	TotalBytesParsed int64          // 已成功解析的总字节数
-	Metadata         *DebugMetadata // 调试元信息（可选）
+	FilePath            string         // 文件路径
+	CurrentOffset       int64          // 下次读取的起始位置（基于成功解析的位置）
+	LastReadTime        time.Time      // 最后读取时间
+	DebugFile           *os.File       // 调试文件句柄（可选）
+	DebugFilePath       string         // 调试文件路径
+	TotalBytesParsed    int64          // 已成功解析的总字节数
+	Metadata            *DebugMetadata // 调试元信息（可选）
+	ConsecutiveFailures int            // 连续解析失败次数（用于动态调整chunk size）
+	CurrentChunkSize    int64          // 当前使用的chunk size
 }
 
 // DebugMetadata 调试元信息
@@ -256,8 +258,15 @@ func (e *TensorBoardStreamExecutor) Execute(
 	for _, filePath := range eventFiles {
 		if _, exists := e.fileStates[filePath]; !exists {
 			e.fileStates[filePath] = &FileStreamState{
-				FilePath:      filePath,
-				CurrentOffset: 0,
+				FilePath:            filePath,
+				CurrentOffset:       0,
+				CurrentChunkSize:    chunkSize,
+				ConsecutiveFailures: 0,
+			}
+		} else {
+			// 从checkpoint恢复的状态，也要初始化chunk size
+			if e.fileStates[filePath].CurrentChunkSize == 0 {
+				e.fileStates[filePath].CurrentChunkSize = chunkSize
 			}
 		}
 	}
@@ -359,9 +368,9 @@ func (e *TensorBoardStreamExecutor) readAndParseFile(
 		return 0, nil // 没有新数据
 	}
 
-	// 3. 计算读取大小
+	// 3. 计算读取大小（使用fileState中的动态chunk size）
 	remaining := fileInfo.Size - fileState.CurrentOffset
-	toRead := chunkSize
+	toRead := fileState.CurrentChunkSize
 	if toRead > remaining {
 		toRead = remaining
 	}
@@ -380,38 +389,101 @@ func (e *TensorBoardStreamExecutor) readAndParseFile(
 
 	// 5. 解析事件（返回成功解析的字节数）
 	dataBytes := []byte(resp.Content)
+
+	// Debug: verify data length consistency
+	if len(dataBytes) != int(resp.BytesRead) {
+		log.Warnf("Data length mismatch: BytesRead=%d, len(dataBytes)=%d", resp.BytesRead, len(dataBytes))
+	}
+
 	events, consumedBytes, parseErr := e.eventParser.ParseEventsWithBuffer(dataBytes)
 
 	if parseErr != nil {
 		log.Warnf("Parse error for %s at offset %d: %v", filePath, fileState.CurrentOffset, parseErr)
 	}
 
-	log.Debugf("Parse result for %s: events=%d, consumed=%d/%d bytes (%.1f%%)",
-		filePath, len(events), consumedBytes, len(dataBytes), float64(consumedBytes)*100/max(float64(len(dataBytes)), 1))
+	log.Debugf("Parse result for %s: events=%d, consumed=%d/%d bytes (%.1f%%), scalars=%d, texts=%d",
+		filePath, len(events), consumedBytes, len(dataBytes),
+		float64(consumedBytes)*100/max(float64(len(dataBytes)), 1),
+		e.countScalars(events), e.countTexts(events))
 
-	// 6. 关键：只更新成功解析的部分，丢弃无法解析的数据
-	// 下次读取从解析成功的位置开始
-	if consumedBytes > 0 {
+	// 6. 核心策略：只有成功解析出事件时才更新offset
+	// 如果没有解析出事件，保持offset不变，下次重新读取
+	if len(events) > 0 {
+		// 成功解析出事件，更新offset到已消费的位置
 		fileState.CurrentOffset += int64(consumedBytes)
 		fileState.TotalBytesParsed += int64(consumedBytes)
 		fileState.LastReadTime = time.Now()
+		fileState.ConsecutiveFailures = 0 // 重置失败计数
 
-		log.Debugf("Updated offset for %s: %d (consumed %d bytes, discarded %d bytes)",
-			filePath, fileState.CurrentOffset, consumedBytes, len(dataBytes)-consumedBytes)
-	} else if len(dataBytes) > 1024*1024 {
-		// 如果超过 1MB 还无法解析，可能数据损坏，跳过这部分
-		log.Warnf("Unable to parse %d bytes from %s, skipping to avoid infinite loop",
-			len(dataBytes), filePath)
-		fileState.CurrentOffset += int64(len(dataBytes))
+		log.Infof("Successfully parsed %d events from %s: offset %d -> %d (+%d bytes, %d scalars, %d texts)",
+			len(events), filePath, fileState.CurrentOffset-int64(consumedBytes),
+			fileState.CurrentOffset, consumedBytes, e.countScalars(events), e.countTexts(events))
+
+		// 存储解析成功的事件到数据库
+		e.storeEvents(ctx, task, gpuPod, filePath, events)
+
+		return int64(consumedBytes), nil
+	} else {
+		// 没有解析出事件，增加失败计数
+		fileState.ConsecutiveFailures++
+
+		// 检查是否需要增大读取大小
+		if len(dataBytes) >= int(fileState.CurrentChunkSize) {
+			// 已经读取了完整的chunk size，但仍无法解析出事件
+			// 可能是事件太大，需要增大chunk size重试
+			if fileState.ConsecutiveFailures >= 3 && fileState.CurrentChunkSize < 10*1024*1024 {
+				// 连续3次失败，且chunk size小于10MB，则加倍chunk size
+				oldSize := fileState.CurrentChunkSize
+				fileState.CurrentChunkSize = fileState.CurrentChunkSize * 2
+				if fileState.CurrentChunkSize > 10*1024*1024 {
+					fileState.CurrentChunkSize = 10 * 1024 * 1024 // 最大10MB
+				}
+				log.Warnf("Increasing chunk size for %s: %d -> %d bytes (consecutive failures: %d)",
+					filePath, oldSize, fileState.CurrentChunkSize, fileState.ConsecutiveFailures)
+				fileState.ConsecutiveFailures = 0 // 重置计数
+			} else {
+				log.Debugf("No events parsed from %d bytes at offset %d in %s (failure %d), waiting for more data",
+					len(dataBytes), fileState.CurrentOffset, filePath, fileState.ConsecutiveFailures)
+			}
+
+			// 如果chunk size已经达到最大（10MB）且连续失败很多次，可能数据损坏
+			if fileState.CurrentChunkSize >= 10*1024*1024 && fileState.ConsecutiveFailures >= 10 {
+				log.Errorf("Unable to parse events from %s at offset %d after %d attempts with 10MB chunks, likely corrupted",
+					filePath, fileState.CurrentOffset, fileState.ConsecutiveFailures)
+				// 跳过一小段数据（1KB）尝试恢复
+				fileState.CurrentOffset += 1024
+				fileState.ConsecutiveFailures = 0
+				return 0, fmt.Errorf("skipped corrupted data")
+			}
+		} else {
+			// 读取的数据小于chunk size，说明已经到文件末尾，等待更多数据
+			log.Debugf("Incomplete data at offset %d in %s (%d/%d bytes), waiting for more data",
+				fileState.CurrentOffset, filePath, len(dataBytes), fileState.CurrentChunkSize)
+			// 等待更多数据时不算作失败
+			fileState.ConsecutiveFailures = 0
+		}
+
+		// offset不变，下次重新读取
 		return 0, nil
 	}
+}
 
-	// 7. 存储解析成功的事件到数据库
-	if len(events) > 0 {
-		e.storeEvents(ctx, task, gpuPod, filePath, events)
+// countScalars counts total number of scalar metrics in events
+func (e *TensorBoardStreamExecutor) countScalars(events []*tensorboard.ParsedEvent) int {
+	count := 0
+	for _, event := range events {
+		count += len(event.Scalars)
 	}
+	return count
+}
 
-	return int64(consumedBytes), nil
+// countTexts counts total number of text metadata in events
+func (e *TensorBoardStreamExecutor) countTexts(events []*tensorboard.ParsedEvent) int {
+	count := 0
+	for _, event := range events {
+		count += len(event.Texts)
+	}
+	return count
 }
 
 // storeEvents 存储事件到数据库

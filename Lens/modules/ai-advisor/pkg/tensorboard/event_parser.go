@@ -27,6 +27,7 @@ type ParsedEvent struct {
 	WallTime float64            `json:"wall_time"`
 	Step     int64              `json:"step"`
 	Scalars  map[string]float32 `json:"scalars,omitempty"`
+	Texts    map[string]string  `json:"texts,omitempty"` // Text metadata
 	Tags     []string           `json:"tags,omitempty"`
 	RawEvent *Event             `json:"-"` // Raw protobuf event
 }
@@ -82,12 +83,14 @@ func (p *EventParser) ParseEventsWithBuffer(buffer []byte) ([]*ParsedEvent, int,
 		}
 
 		if err != nil {
-			// 尝试跳过一些字节继续
+			// 解析出错，记录详细信息并跳过
+			log.Warnf("Event parse error at offset %d: %v (will skip %d bytes)", offset, err, consumed)
 			if consumed > 0 {
 				offset += consumed
 				totalConsumed += consumed
 			} else {
 				// 无法确定跳过多少，停止解析
+				log.Warnf("Cannot determine bytes to skip at offset %d, stopping parse", offset)
 				break
 			}
 			continue
@@ -225,10 +228,11 @@ func (p *EventParser) convertEvent(event *Event) *ParsedEvent {
 		WallTime: event.WallTime,
 		Step:     event.Step,
 		Scalars:  make(map[string]float32),
+		Texts:    make(map[string]string),
 		RawEvent: event,
 	}
 
-	// Extract scalar values from Summary
+	// Extract scalar and text values from Summary
 	if event.Summary != nil {
 		for _, value := range event.Summary.Value {
 			tag := value.Tag
@@ -237,6 +241,14 @@ func (p *EventParser) convertEvent(event *Event) *ParsedEvent {
 			// Extract simple scalar value
 			if value.SimpleValue != nil {
 				parsed.Scalars[tag] = *value.SimpleValue
+			}
+
+			// Extract text value from tensor
+			if value.Tensor != nil && value.Tensor.Dtype == DT_STRING {
+				// Text data is stored in StringVal field
+				if len(value.Tensor.StringVal) > 0 {
+					parsed.Texts[tag] = string(value.Tensor.StringVal[0])
+				}
 			}
 		}
 	}
@@ -260,6 +272,17 @@ func (e *ParsedEvent) IsScalarEvent() bool {
 // GetScalar gets a specific scalar value by tag
 func (e *ParsedEvent) GetScalar(tag string) (float32, bool) {
 	val, ok := e.Scalars[tag]
+	return val, ok
+}
+
+// IsTextEvent checks if an event contains text values
+func (e *ParsedEvent) IsTextEvent() bool {
+	return len(e.Texts) > 0
+}
+
+// GetText gets a specific text value by tag
+func (e *ParsedEvent) GetText(tag string) (string, bool) {
+	val, ok := e.Texts[tag]
 	return val, ok
 }
 
@@ -436,6 +459,44 @@ func (p *EventParser) parseSummaryValue(data []byte) (*SummaryValue, error) {
 			}
 			value.SimpleValue = &floatVal
 
+		case 8: // tensor (message - TensorProto)
+			if wireType != 2 { // length-delimited
+				return nil, fmt.Errorf("invalid wire type for tensor: %d", wireType)
+			}
+			length, err := p.readVarint(buf)
+			if err != nil {
+				return nil, err
+			}
+			tensorData := make([]byte, length)
+			if _, err := io.ReadFull(buf, tensorData); err != nil {
+				return nil, err
+			}
+			tensor, err := p.parseTensorProto(tensorData)
+			if err != nil {
+				log.Warnf("Failed to parse tensor: %v", err)
+			} else {
+				value.Tensor = tensor
+			}
+
+		case 9: // metadata (message - SummaryMetadata)
+			if wireType != 2 { // length-delimited
+				return nil, fmt.Errorf("invalid wire type for metadata: %d", wireType)
+			}
+			length, err := p.readVarint(buf)
+			if err != nil {
+				return nil, err
+			}
+			metadataData := make([]byte, length)
+			if _, err := io.ReadFull(buf, metadataData); err != nil {
+				return nil, err
+			}
+			metadata, err := p.parseSummaryMetadata(metadataData)
+			if err != nil {
+				log.Warnf("Failed to parse metadata: %v", err)
+			} else {
+				value.Metadata = metadata
+			}
+
 		default:
 			if err := p.skipField(buf, wireType); err != nil {
 				return nil, err
@@ -487,4 +548,187 @@ func (p *EventParser) skipField(buf io.Reader, wireType uint64) error {
 	default:
 		return fmt.Errorf("unsupported wire type: %d", wireType)
 	}
+}
+
+// parseTensorProto parses a TensorProto message
+func (p *EventParser) parseTensorProto(data []byte) (*TensorProto, error) {
+	tensor := &TensorProto{}
+	buf := bytes.NewReader(data)
+
+	for buf.Len() > 0 {
+		tag, err := p.readVarint(buf)
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return nil, err
+		}
+
+		fieldNum := tag >> 3
+		wireType := tag & 0x7
+
+		switch fieldNum {
+		case 1: // dtype (varint - enum)
+			if wireType != 0 {
+				return nil, fmt.Errorf("invalid wire type for dtype: %d", wireType)
+			}
+			dtype, err := p.readVarint(buf)
+			if err != nil {
+				return nil, err
+			}
+			tensor.Dtype = DataType(dtype)
+
+		case 8: // string_val (repeated bytes)
+			if wireType != 2 { // length-delimited
+				return nil, fmt.Errorf("invalid wire type for string_val: %d", wireType)
+			}
+			length, err := p.readVarint(buf)
+			if err != nil {
+				return nil, err
+			}
+			strData := make([]byte, length)
+			if _, err := io.ReadFull(buf, strData); err != nil {
+				return nil, err
+			}
+			tensor.StringVal = append(tensor.StringVal, strData)
+
+		default:
+			if err := p.skipField(buf, wireType); err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	return tensor, nil
+}
+
+// parseSummaryMetadata parses a SummaryMetadata message
+func (p *EventParser) parseSummaryMetadata(data []byte) (*SummaryMetadata, error) {
+	metadata := &SummaryMetadata{}
+	buf := bytes.NewReader(data)
+
+	for buf.Len() > 0 {
+		tag, err := p.readVarint(buf)
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return nil, err
+		}
+
+		fieldNum := tag >> 3
+		wireType := tag & 0x7
+
+		switch fieldNum {
+		case 1: // plugin_data (message - PluginData)
+			if wireType != 2 { // length-delimited
+				return nil, fmt.Errorf("invalid wire type for plugin_data: %d", wireType)
+			}
+			length, err := p.readVarint(buf)
+			if err != nil {
+				return nil, err
+			}
+			pluginData := make([]byte, length)
+			if _, err := io.ReadFull(buf, pluginData); err != nil {
+				return nil, err
+			}
+			plugin, err := p.parsePluginData(pluginData)
+			if err != nil {
+				log.Warnf("Failed to parse plugin data: %v", err)
+			} else {
+				metadata.PluginData = plugin
+			}
+
+		case 2: // display_name (string)
+			if wireType != 2 { // length-delimited
+				return nil, fmt.Errorf("invalid wire type for display_name: %d", wireType)
+			}
+			length, err := p.readVarint(buf)
+			if err != nil {
+				return nil, err
+			}
+			strData := make([]byte, length)
+			if _, err := io.ReadFull(buf, strData); err != nil {
+				return nil, err
+			}
+			metadata.DisplayName = string(strData)
+
+		case 3: // summary_description (string)
+			if wireType != 2 { // length-delimited
+				return nil, fmt.Errorf("invalid wire type for summary_description: %d", wireType)
+			}
+			length, err := p.readVarint(buf)
+			if err != nil {
+				return nil, err
+			}
+			strData := make([]byte, length)
+			if _, err := io.ReadFull(buf, strData); err != nil {
+				return nil, err
+			}
+			metadata.SummaryDescription = string(strData)
+
+		default:
+			if err := p.skipField(buf, wireType); err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	return metadata, nil
+}
+
+// parsePluginData parses a PluginData message
+func (p *EventParser) parsePluginData(data []byte) (*PluginData, error) {
+	plugin := &PluginData{}
+	buf := bytes.NewReader(data)
+
+	for buf.Len() > 0 {
+		tag, err := p.readVarint(buf)
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return nil, err
+		}
+
+		fieldNum := tag >> 3
+		wireType := tag & 0x7
+
+		switch fieldNum {
+		case 1: // plugin_name (string)
+			if wireType != 2 { // length-delimited
+				return nil, fmt.Errorf("invalid wire type for plugin_name: %d", wireType)
+			}
+			length, err := p.readVarint(buf)
+			if err != nil {
+				return nil, err
+			}
+			strData := make([]byte, length)
+			if _, err := io.ReadFull(buf, strData); err != nil {
+				return nil, err
+			}
+			plugin.PluginName = string(strData)
+
+		case 2: // content (bytes)
+			if wireType != 2 { // length-delimited
+				return nil, fmt.Errorf("invalid wire type for content: %d", wireType)
+			}
+			length, err := p.readVarint(buf)
+			if err != nil {
+				return nil, err
+			}
+			content := make([]byte, length)
+			if _, err := io.ReadFull(buf, content); err != nil {
+				return nil, err
+			}
+			plugin.Content = content
+
+		default:
+			if err := p.skipField(buf, wireType); err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	return plugin, nil
 }
