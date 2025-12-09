@@ -31,6 +31,13 @@ var tensorflowMetadataFields = map[string]bool{
 	"texts":     true, // 原始 texts 结构（用于调试）
 }
 
+// commonMetadataFields defines common metadata fields across all data sources
+// These are not actual metrics and should be filtered in GetAvailableMetrics and GetMetricsData
+var commonMetadataFields = map[string]bool{
+	"iteration":        true, // Returned by GetIterationTimes
+	"target_iteration": true, // Returned by GetIterationTimes
+}
+
 // MetricInfo represents metric information
 type MetricInfo struct {
 	Name       string   `json:"name"`        // Metric name
@@ -73,6 +80,13 @@ type DataSourcesResponse struct {
 	WorkloadUID string           `json:"workload_uid"`
 	DataSources []DataSourceInfo `json:"data_sources"`
 	TotalCount  int              `json:"total_count"`
+}
+
+// IterationInfo represents iteration information for deduplication
+type IterationInfo struct {
+	Timestamp       int64
+	TargetIteration *float64
+	DataSource      string
 }
 
 // isMetricField determines if a field is an actual metric based on data source type
@@ -195,6 +209,11 @@ func GetAvailableMetrics(ctx *gin.Context) {
 	metricMap := make(map[string]map[string]int) // metric_name -> {data_source -> count}
 	for _, p := range performances {
 		for metricName := range p.Performance {
+			// Filter out common metadata fields (iteration-related)
+			if commonMetadataFields[metricName] {
+				continue
+			}
+
 			// Filter fields based on data source type
 			if !isMetricField(metricName, p.DataSource) {
 				continue
@@ -346,6 +365,11 @@ func GetMetricsData(ctx *gin.Context) {
 
 	for _, p := range performances {
 		for metricName, value := range p.Performance {
+			// Filter out common metadata fields (iteration-related)
+			if commonMetadataFields[metricName] {
+				continue
+			}
+
 			// Filter metadata fields based on data source type
 			if !isMetricField(metricName, p.DataSource) {
 				continue
@@ -489,6 +513,84 @@ func deduplicateTensorflowDataPoints(dataPoints []MetricDataPoint) []MetricDataP
 	return result
 }
 
+// hasTensorflowData checks if the iteration map contains tensorflow data
+func hasTensorflowData(iterationMap map[int32]*IterationInfo) bool {
+	for _, info := range iterationMap {
+		if info.DataSource == "tensorflow" {
+			return true
+		}
+	}
+	return false
+}
+
+// filterAnomalousIterations removes anomalous iteration values from tensorflow data
+// Anomalous iterations are typically samples (several times or tens of times larger than normal iterations)
+func filterAnomalousIterations(iterationMap map[int32]*IterationInfo) map[int32]*IterationInfo {
+	if len(iterationMap) == 0 {
+		return iterationMap
+	}
+
+	// 收集所有 iteration 值并排序
+	iterations := make([]int32, 0, len(iterationMap))
+	for iter := range iterationMap {
+		iterations = append(iterations, iter)
+	}
+
+	// 简单冒泡排序
+	for i := 0; i < len(iterations); i++ {
+		for j := i + 1; j < len(iterations); j++ {
+			if iterations[i] > iterations[j] {
+				iterations[i], iterations[j] = iterations[j], iterations[i]
+			}
+		}
+	}
+
+	if len(iterations) < 3 {
+		// 数据点太少，不进行过滤
+		return iterationMap
+	}
+
+	// 策略：计算相邻 iteration 之间的比率，识别突变点
+	// 如果某个 iteration 相对于前面的值增长超过10倍，认为是异常值
+	const anomalyRatioThreshold = 10.0
+
+	// 找到第一个异常的 iteration（通常是从 iteration 突然变成 samples）
+	anomalyStartIndex := -1
+	for i := 1; i < len(iterations); i++ {
+		if iterations[i-1] == 0 {
+			continue
+		}
+
+		ratio := float64(iterations[i]) / float64(iterations[i-1])
+		if ratio >= anomalyRatioThreshold {
+			anomalyStartIndex = i
+			break
+		}
+	}
+
+	// 如果没有发现异常，返回原始数据
+	if anomalyStartIndex == -1 {
+		return iterationMap
+	}
+
+	// 过滤掉异常的 iteration
+	filtered := make(map[int32]*IterationInfo)
+	for i := 0; i < anomalyStartIndex; i++ {
+		iter := iterations[i]
+		filtered[iter] = iterationMap[iter]
+	}
+
+	// 如果过滤后数据太少，可能判断错误，返回原始数据
+	if len(filtered) < len(iterationMap)/2 {
+		// 过滤掉了超过一半的数据，可能判断有误
+		// 尝试反向策略：保留较大的值
+		// 但这种情况比较少见，为了安全起见，返回原始数据
+		return iterationMap
+	}
+
+	return filtered
+}
+
 // GetIterationTimes retrieves time information for each iteration
 // GET /workloads/:uid/metrics/iteration-times
 // Query Parameters:
@@ -564,11 +666,6 @@ func GetIterationTimes(ctx *gin.Context) {
 
 	// Build metric data points list
 	// Use map for deduplication since the same iteration may have multiple metric records
-	type IterationInfo struct {
-		Timestamp       int64
-		TargetIteration *float64
-		DataSource      string
-	}
 	iterationMap := make(map[int32]*IterationInfo)
 
 	for _, p := range performances {
@@ -591,6 +688,12 @@ func GetIterationTimes(ctx *gin.Context) {
 				DataSource:      p.DataSource,
 			}
 		}
+	}
+
+	// 对于 tensorflow 数据源，先过滤异常的 iteration 值
+	// 这些异常值通常是 samples（正常 iteration 的几倍到几十倍）
+	if dataSource == "tensorflow" || (dataSource == "" && hasTensorflowData(iterationMap)) {
+		iterationMap = filterAnomalousIterations(iterationMap)
 	}
 
 	// Convert to MetricDataPoint array
