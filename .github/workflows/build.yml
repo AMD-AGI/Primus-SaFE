@@ -195,7 +195,7 @@ jobs:
   build:
     needs: detect-changes
     runs-on: primus-safe-cicd-tnznd
-    timeout-minutes: 60
+    timeout-minutes: 120
     outputs:
       primary_tag: ${{ steps.build-and-push.outputs.primary_tag }}
     strategy:
