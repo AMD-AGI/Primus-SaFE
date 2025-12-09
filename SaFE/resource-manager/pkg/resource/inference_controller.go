@@ -536,7 +536,7 @@ func (r *InferenceReconciler) updateInferenceInstance(ctx context.Context, infer
 	originalInference := inference.DeepCopy()
 	needsUpdate := false
 
-	newBaseUrl := fmt.Sprintf("http://%s/%s/%s/%s",
+	newBaseUrl := fmt.Sprintf("https://%s/%s/%s/%s",
 		commonconfig.GetSystemHost(), v1.GetClusterId(workload), workload.Spec.Workspace, workload.Name)
 
 	if inference.Spec.Instance.BaseUrl != newBaseUrl {
@@ -578,23 +578,41 @@ func buildModelDownloadScript(urls map[string]string, modelPath string) string {
 		return ""
 	}
 
-	// Build download commands for each file
+	// Collect all unique directories that need to be created
+	dirMap := make(map[string]bool)
+	for filename := range urls {
+		// Get directory path for this file
+		dir := ""
+		if idx := strings.LastIndex(filename, "/"); idx > 0 {
+			dir = modelPath + "/" + filename[:idx]
+			dirMap[dir] = true
+		}
+	}
+
+	// Build directory creation commands (done once at the beginning)
+	var mkdirCmds string
+	if len(dirMap) > 0 {
+		mkdirCmds = "mkdir -p"
+		for dir := range dirMap {
+			mkdirCmds += fmt.Sprintf(" '%s'", dir)
+		}
+		mkdirCmds += "\n"
+	}
+
+	// Build download commands for each file (one-liner format)
 	var downloadCmds string
 	for filename, url := range urls {
 		// Escape special characters in URL for shell
 		escapedURL := strings.ReplaceAll(url, "'", "'\\''")
+		filepath := fmt.Sprintf("%s/%s", modelPath, filename)
 		downloadCmds += fmt.Sprintf(`
-  filepath="%s/%s"
-  mkdir -p "$(dirname "$filepath")"
-  if [ ! -f "$filepath" ]; then
-    echo "Downloading %s..."
-    curl -sSL -o "$filepath" '%s'
-  fi`, modelPath, filename, filename, escapedURL)
+[ -f '%s' ] || curl -sSL -o '%s' '%s'`, filepath, filepath, escapedURL)
 	}
 
-	script := fmt.Sprintf(`echo "=== Downloading model to %s ===" %s
+	script := fmt.Sprintf(`echo "=== Downloading model to %s ==="
+%s%s
 echo "=== Model download completed ==="
-`, modelPath, downloadCmds)
+`, modelPath, mkdirCmds, downloadCmds)
 
 	return script
 }
