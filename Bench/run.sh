@@ -12,11 +12,14 @@ source "${SCRIPT_DIR}/config.sh"
 export PRIMUSBENCH_PATH="${PRIMUSBENCH_PATH:-$(pwd)}"
 export LOG_HEADER="[$(hostname)] [NODE-$RANK]"
 
+# Convert environment variables to JSON for Ansible
+CONTAINER_ENV_JSON=$(python3 -c 'import os, json; print(json.dumps({"container_env": dict(os.environ)}))')
+
 log()    { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"; }
 ok()     { echo "✔ $1"; }
 warn()   { echo "⚠ $1"; }
 err()    { echo "✘ $1"; }
-print_config
+
 # ==== Step 1: Start FIO server ====
 if [ -n "${IO_BENCHMARK_MOUNT:-}" ]; then
     log "Starting FIO server..."
@@ -67,16 +70,35 @@ if [[ "$RANK" == "0" ]]; then
     log "🔍 Running node preflight check..."
     NODE_CHECK_MASTER_PORT=$((RANDOM % 9999 + 30001))
     ansible-playbook -i "$HOSTS_INI" "$PALYBOOKS/node_check.yaml" \
-        -e workspace="$PRIMUSBENCH_PATH"  -e hf_token="$HF_TOKEN" -e master_port="$NODE_CHECK_MASTER_PORT"  -vvv -f "$WORLD_SIZE" \
+        -e workspace="$PRIMUSBENCH_PATH" \
+        -e hf_token="$HF_TOKEN" \
+        -e master_port="$NODE_CHECK_MASTER_PORT" \
+        --extra-vars "$CONTAINER_ENV_JSON" \
+        -vvv -f "$WORLD_SIZE" \
         > "$preflight_node_logname" 2>&1 &
     ansible_pid=$!
 
     NODE_LOG="/tmp/node.log"
-    while [ ! -f "$NODE_LOG" ]; do sleep 1; done
-    tail --pid=$ansible_pid -f "$NODE_LOG"
+    TIMEOUT=60
+    ELAPSED=0
+    while [ ! -f "$NODE_LOG" ]; do
+        # Check if ansible process is still running
+        if ! kill -0 $ansible_pid 2>/dev/null; then
+            warn "Ansible process exited before creating log file"
+            break
+        fi
+        # Check timeout
+        if [ $ELAPSED -ge $TIMEOUT ]; then
+            warn "Timeout waiting for node log file"
+            break
+        fi
+        sleep 1
+        ((ELAPSED++))
+    done
+    if [ -f "$NODE_LOG" ]; then
+        tail --pid=$ansible_pid -f "$NODE_LOG"
+    fi
     wait $ansible_pid || true
-
-
 
     successed_nodes=()
     successed_nodes_ip=()
@@ -261,6 +283,7 @@ if [[ "$RANK" == "0" ]]; then
     cco_logname="$OUTPUT_PATH/cco_ansible.log"
     ansible-playbook -i "$INVENTORY_FILE" "$PALYBOOKS/computation_communication_overlap.yaml" \
         -e workspace="$PRIMUSBENCH_PATH" -e master_port="$CCO_MASTER_PORT" -e output_dir="$OUTPUT_PATH" \
+        --extra-vars "$CONTAINER_ENV_JSON" \
         -vvv -f "$WORLD_SIZE" > "$cco_logname" 2>&1 &
     ansible_pid=$!
     first_ip="${healthy_nodes_ip[0]}"
@@ -268,20 +291,52 @@ if [[ "$RANK" == "0" ]]; then
     echo first_ip=$first_ip first_node=$first_node
     LOG="$OUTPUT_PATH/$first_node/cco.log"
     echo $LOG
-    while [ ! -f "$LOG" ]; do sleep 1; done
-    tail --pid=$ansible_pid -f "$LOG"
+    TIMEOUT=120
+    ELAPSED=0
+    while [ ! -f "$LOG" ]; do
+        if ! kill -0 $ansible_pid 2>/dev/null; then
+            warn "Ansible process exited before creating log file"
+            break
+        fi
+        if [ $ELAPSED -ge $TIMEOUT ]; then
+            warn "Timeout waiting for CCO log file"
+            break
+        fi
+        sleep 1
+        ((ELAPSED++))
+    done
+    if [ -f "$LOG" ]; then
+        tail --pid=$ansible_pid -f "$LOG"
+    fi
     wait $ansible_pid || true
     ok "Computation-Communication benchmark completed."
 
     log "⚙ Running Kernel Launch Overhead benchmark..."
     kernel_launch_logname="$OUTPUT_PATH/kernel_launch_ansible.log"
     ansible-playbook -i "$INVENTORY_FILE" "$PALYBOOKS/kernel_launch_overhead.yaml" \
-        -e output_dir="$OUTPUT_PATH" -vvv -f "$WORLD_SIZE" \
+        -e output_dir="$OUTPUT_PATH" \
+        --extra-vars "$CONTAINER_ENV_JSON" \
+        -vvv -f "$WORLD_SIZE" \
         > "$kernel_launch_logname" 2>&1 &
     ansible_pid=$!
     LOG="$OUTPUT_PATH/$first_node/kernel_launch.log"
-    while [ ! -f "$LOG" ]; do sleep 1; done
-    tail --pid=$ansible_pid -f "$LOG"
+    TIMEOUT=120
+    ELAPSED=0
+    while [ ! -f "$LOG" ]; do
+        if ! kill -0 $ansible_pid 2>/dev/null; then
+            warn "Ansible process exited before creating log file"
+            break
+        fi
+        if [ $ELAPSED -ge $TIMEOUT ]; then
+            warn "Timeout waiting for kernel launch log file"
+            break
+        fi
+        sleep 1
+        ((ELAPSED++))
+    done
+    if [ -f "$LOG" ]; then
+        tail --pid=$ansible_pid -f "$LOG"
+    fi
     wait $ansible_pid || true
     ok "Kernel Launch Overhead benchmark completed."
 
