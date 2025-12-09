@@ -244,7 +244,7 @@ func (r *SchedulerReconciler) waitObjectDeleted(ctx context.Context,
 			return ctrlruntime.Result{}, client.IgnoreNotFound(patchErr)
 		}
 	}
-	return ctrlruntime.Result{RequeueAfter: time.Second * 3}, nil
+	return ctrlruntime.Result{RequeueAfter: time.Second * 10}, nil
 }
 
 // deleteRelatedSecrets removes all secrets associated with a CICD scaling runner set workload.
