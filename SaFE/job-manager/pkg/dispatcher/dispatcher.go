@@ -141,48 +141,48 @@ func (r *DispatcherReconciler) Reconcile(ctx context.Context, req ctrlruntime.Re
 }
 
 // processWorkload processes a workload resource and updates its state.
-func (r *DispatcherReconciler) processWorkload(ctx context.Context, workload *v1.Workload) (ctrlruntime.Result, error) {
-	clusterInformer, err := syncer.GetClusterInformer(r.clusterInformers, v1.GetClusterId(workload))
+func (r *DispatcherReconciler) processWorkload(ctx context.Context, adminWorkload *v1.Workload) (ctrlruntime.Result, error) {
+	clusterInformer, err := syncer.GetClusterInformer(r.clusterInformers, v1.GetClusterId(adminWorkload))
 	if err != nil {
 		return ctrlruntime.Result{RequeueAfter: time.Second}, nil
 	}
-	rt, err := commonworkload.GetResourceTemplate(ctx, r.Client, workload.ToSchemaGVK())
+	rt, err := commonworkload.GetResourceTemplate(ctx, r.Client, adminWorkload)
 	if err != nil {
 		return ctrlruntime.Result{}, err
 	}
 	obj, err := jobutils.GetObject(ctx,
-		clusterInformer.ClientFactory(), workload.Name, workload.Spec.Workspace, rt.ToSchemaGVK())
+		clusterInformer.ClientFactory(), adminWorkload.Name, adminWorkload.Spec.Workspace, rt.ToSchemaGVK())
 	result := ctrlruntime.Result{}
 
 	switch {
-	case !v1.IsWorkloadDispatched(workload):
+	case !v1.IsWorkloadDispatched(adminWorkload):
 		if apierrors.IsNotFound(err) {
-			if result, err = r.dispatch(ctx, workload, clusterInformer); err != nil || result.RequeueAfter > 0 {
+			if result, err = r.dispatch(ctx, adminWorkload, clusterInformer); err != nil || result.RequeueAfter > 0 {
 				break
 			}
 		} else if err != nil {
 			break
 		}
-		if err = r.updateDispatched(ctx, workload); err != nil {
+		if err = r.updateDispatched(ctx, adminWorkload); err != nil {
 			break
 		}
 		klog.Infof("the workload is dispatched, name: %s, dispatch count: %d, max retry: %d",
-			workload.Name, v1.GetWorkloadDispatchCnt(workload), workload.Spec.MaxRetry)
+			adminWorkload.Name, v1.GetWorkloadDispatchCnt(adminWorkload), adminWorkload.Spec.MaxRetry)
 	case err == nil:
 		// update the workload which is already dispatched
-		if err = r.updateK8sObject(ctx, workload, clusterInformer, obj); err != nil {
+		if err = r.updateK8sObject(ctx, adminWorkload, clusterInformer, obj); err != nil {
 			break
 		}
 		// sync service according to latest spec
-		if result, err = r.updateService(ctx, workload, clusterInformer, obj); err != nil || result.RequeueAfter > 0 {
+		if result, err = r.updateService(ctx, adminWorkload, clusterInformer, obj); err != nil || result.RequeueAfter > 0 {
 			break
 		}
 		// Sync corresponding ingress
-		if result, err = r.updateIngress(ctx, workload, clusterInformer, obj); err != nil || result.RequeueAfter > 0 {
+		if result, err = r.updateIngress(ctx, adminWorkload, clusterInformer, obj); err != nil || result.RequeueAfter > 0 {
 			break
 		}
 		klog.Infof("the workload is updated, name: %s, dispatch count: %d, max retry: %d",
-			workload.Name, v1.GetWorkloadDispatchCnt(workload), workload.Spec.MaxRetry)
+			adminWorkload.Name, v1.GetWorkloadDispatchCnt(adminWorkload), adminWorkload.Spec.MaxRetry)
 	}
 	return result, err
 }
@@ -248,7 +248,7 @@ func (r *DispatcherReconciler) generateK8sObject(ctx context.Context,
 		return nil, err
 	}
 
-	rt, err := commonworkload.GetResourceTemplate(ctx, r.Client, adminWorkload.ToSchemaGVK())
+	rt, err := commonworkload.GetResourceTemplate(ctx, r.Client, adminWorkload)
 	if err != nil {
 		klog.Error(err.Error())
 		return nil, err
@@ -354,7 +354,7 @@ func (r *DispatcherReconciler) updateDispatched(ctx context.Context, workload *v
 // updateK8sObject updates the existing Kubernetes object when workload specs change.
 func (r *DispatcherReconciler) updateK8sObject(ctx context.Context, adminWorkload *v1.Workload,
 	clusterInformer *syncer.ClusterInformer, obj *unstructured.Unstructured) error {
-	rt, err := commonworkload.GetResourceTemplate(ctx, r.Client, adminWorkload.ToSchemaGVK())
+	rt, err := commonworkload.GetResourceTemplate(ctx, r.Client, adminWorkload)
 	if err != nil {
 		klog.ErrorS(err, "", "gvk", adminWorkload.Spec.GroupVersionKind)
 		return err
@@ -399,14 +399,15 @@ func isResourceChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructure
 		klog.ErrorS(err, "failed to get resource", "rt", rt.Name, "obj", obj.GetName())
 		return false
 	}
-	var totalReplica int64 = 0
-	for _, n := range replicaList {
-		totalReplica += n
+	if len(replicaList) > 0 {
+		var totalReplica int64 = 0
+		for _, n := range replicaList {
+			totalReplica += n
+		}
+		if int(totalReplica) != adminWorkload.Spec.Resource.Replica {
+			return true
+		}
 	}
-	if int(totalReplica) != adminWorkload.Spec.Resource.Replica {
-		return true
-	}
-
 	podResource, err := commonworkload.GetPodResources(&adminWorkload.Spec.Resource)
 	if err != nil {
 		return false
@@ -484,6 +485,10 @@ func updateUnstructuredObject(obj *unstructured.Unstructured,
 		if err := updateCICDScaleSet(obj, adminWorkload, workspace, rt); err != nil {
 			return err
 		}
+	} else if commonworkload.IsCICDEphemeralRunner(adminWorkload) {
+		if err := updateCICDEphemeralRunner(obj, adminWorkload, rt); err != nil {
+			return err
+		}
 	}
 
 	var preAllocatedReplica int64 = 0
@@ -556,7 +561,7 @@ func updateCICDScaleSet(obj *unstructured.Unstructured,
 	if len(rt.Spec.ResourceSpecs) == 0 {
 		return fmt.Errorf("no resource template found")
 	}
-	if err := updateCICDGithub(adminWorkload, obj, rt); err != nil {
+	if err := updateCICDGithub(adminWorkload, obj); err != nil {
 		return err
 	}
 	if err := updateCICDEnvironments(obj, adminWorkload, workspace, rt.Spec.ResourceSpecs[0]); err != nil {
@@ -565,15 +570,21 @@ func updateCICDScaleSet(obj *unstructured.Unstructured,
 	return nil
 }
 
-// updateCICDGithub updates the CICD scale set configuration in the unstructured object.
-// It updates the GitHub configuration and then configures environment variables based on unified build settings.
-// Returns an error if no resource templates are found or if any update operation fails.
-func updateCICDGithub(adminWorkload *v1.Workload,
-	obj *unstructured.Unstructured, rt *v1.ResourceTemplate) error {
+// updateCICDEphemeralRunner updates the CICD ephemeral runner configuration
+func updateCICDEphemeralRunner(obj *unstructured.Unstructured, adminWorkload *v1.Workload, rt *v1.ResourceTemplate) error {
 	if len(rt.Spec.ResourceSpecs) == 0 {
 		return fmt.Errorf("no resource template found")
 	}
+	if err := updateCICDGithub(adminWorkload, obj); err != nil {
+		return err
+	}
+	return nil
+}
 
+// updateCICDGithub updates the CICD scale set configuration in the unstructured object.
+// It updates the GitHub configuration and then configures environment variables based on unified build settings.
+// Returns an error if no resource templates are found or if any update operation fails.
+func updateCICDGithub(adminWorkload *v1.Workload, obj *unstructured.Unstructured) error {
 	specObject, ok, err := unstructured.NestedMap(obj.Object, "spec")
 	if err != nil {
 		return err
@@ -581,9 +592,19 @@ func updateCICDGithub(adminWorkload *v1.Workload,
 	if !ok {
 		return fmt.Errorf("failed to find object with path: [spec]")
 	}
-	githubConfig := buildGithubConfig(adminWorkload)
-	for key, val := range githubConfig {
-		specObject[key] = val
+	if adminWorkload.Spec.Env[common.GithubSecretId] == "" || adminWorkload.Spec.Env[common.GithubConfigUrl] == "" {
+		return commonerrors.NewInternalError("github config is not set")
+	}
+
+	specObject["githubConfigSecret"] = adminWorkload.Spec.Env[common.GithubSecretId]
+	specObject["githubConfigUrl"] = adminWorkload.Spec.Env[common.GithubConfigUrl]
+	if commonworkload.IsCICDEphemeralRunner(adminWorkload) {
+		if runnerSetId := v1.GetCICDRunnerScaleSetId(adminWorkload); runnerSetId != "" {
+			specObject["runnerScaleSetId"], err = strconv.ParseInt(runnerSetId, 10, 0)
+			if err != nil {
+				return commonerrors.NewInternalError(fmt.Sprintf("invalid runner scale set id %s", runnerSetId))
+			}
+		}
 	}
 	if err = unstructured.SetNestedMap(obj.Object, specObject, "spec"); err != nil {
 		return err
@@ -603,8 +624,8 @@ func updateCICDEnvironments(obj *unstructured.Unstructured,
 	envs := maps.Copy(adminWorkload.Spec.Env)
 	envs[jobutils.UserIdEnv] = v1.GetUserId(adminWorkload)
 	envs[jobutils.PriorityEnv] = strconv.Itoa(adminWorkload.Spec.Priority)
-	envs[common.ScaleRunnerSetID] = adminWorkload.Name
 	envs[jobutils.WorkspaceIdEnv] = adminWorkload.Spec.Workspace
+	envs[common.ScaleRunnerSetID] = adminWorkload.Name
 
 	val, ok := adminWorkload.Spec.Env[common.UnifiedJobEnable]
 	if ok && val == v1.TrueStr {

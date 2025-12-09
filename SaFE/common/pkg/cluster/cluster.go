@@ -9,12 +9,11 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
-
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 )
 
 // GetEndpoint retrieve the endpoint address of the given cluster.
