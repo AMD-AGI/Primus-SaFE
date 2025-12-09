@@ -53,6 +53,10 @@ const (
 	DefaultMaxFailover         = 50
 
 	MaxCICDScaleSetNameLen = 39
+
+	ResourcesEnv  = "RESOURCES"
+	ImageEnv      = "IMAGE"
+	EntrypointEnv = "ENTRYPOINT"
 )
 
 // AddWorkloadWebhook registers the workload validation and mutation webhooks.
@@ -419,8 +423,10 @@ func (m *WorkloadMutator) mutateEnv(oldWorkload, newWorkload *v1.Workload) {
 	if oldWorkload != nil {
 		for key := range oldWorkload.Spec.Env {
 			if _, ok := newWorkload.Spec.Env[key]; !ok {
-				if key == common.AdminControlPlane {
-					continue
+				if commonworkload.IsCICD(newWorkload) {
+					if key == common.AdminControlPlane || key == common.GithubSecretId {
+						continue
+					}
 				}
 				newWorkload.Spec.Env[key] = ""
 			}
@@ -673,14 +679,14 @@ func (v *WorkloadValidator) validateCICDScalingRunnerSet(workload *v1.Workload) 
 	if len(v1.GetDisplayName(workload)) > MaxCICDScaleSetNameLen {
 		return fmt.Errorf("the displayName is too long, maximum length is %d characters", MaxCICDScaleSetNameLen)
 	}
-	keys := []string{common.ResourcesEnv, common.EntrypointEnv, common.ImageEnv, common.GithubConfigUrl}
+	keys := []string{ResourcesEnv, EntrypointEnv, ImageEnv, common.GithubConfigUrl}
 	for _, key := range keys {
 		if val, ok := workload.Spec.Env[key]; !ok || val == "" {
 			return fmt.Errorf("the %s of workload environment variables is empty", key)
 		}
 	}
 	workloadResource := &v1.WorkloadResource{}
-	err := json.Unmarshal([]byte(workload.Spec.Env[common.ResourcesEnv]), workloadResource)
+	err := json.Unmarshal([]byte(workload.Spec.Env[ResourcesEnv]), workloadResource)
 	if err != nil {
 		return err
 	}

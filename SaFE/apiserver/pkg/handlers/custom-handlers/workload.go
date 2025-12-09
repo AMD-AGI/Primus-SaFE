@@ -57,6 +57,8 @@ const (
 	BatchDelete WorkloadBatchAction = "delete"
 	BatchStop   WorkloadBatchAction = "stop"
 	BatchClone  WorkloadBatchAction = "clone"
+
+	GithubPAT = "GITHUB_PAT"
 )
 
 // CreateWorkload handles the creation of a new workload resource.
@@ -145,8 +147,8 @@ func (h *Handler) createWorkload(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, commonerrors.NewBadRequest(err.Error())
 	}
-	roles := h.accessController.GetRoles(c.Request.Context(), requestUser)
 
+	roles := h.accessController.GetRoles(c.Request.Context(), requestUser)
 	resp, err := h.createWorkloadImpl(c, workload, requestUser, roles)
 	if err != nil {
 		// Cleanup secrets created for CICD scaling runner set if workload creation fails
@@ -731,7 +733,13 @@ func (h *Handler) generateCICDScaleRunnerSet(ctx context.Context, workload *v1.W
 	if !commonconfig.IsCICDEnable() {
 		return commonerrors.NewNotImplemented("the CICD is not enabled")
 	}
-	val, _ := workload.Spec.Env[common.GithubPAT]
+	controlPlaneIp, err := h.getAdminControlPlaneIp(ctx)
+	if err != nil {
+		return err
+	}
+	commonworkload.SetEnv(workload, common.AdminControlPlane, controlPlaneIp)
+
+	val, _ := workload.Spec.Env[GithubPAT]
 	if val == "" {
 		return commonerrors.NewBadRequest("the github pat(token) is empty")
 	}
@@ -742,24 +750,17 @@ func (h *Handler) generateCICDScaleRunnerSet(ctx context.Context, workload *v1.W
 		Owner:        workload.Name,
 		Params: []map[types.SecretParam]string{
 			{
-				common.GithubToken: stringutil.Base64Encode(val),
+				"github_token": stringutil.Base64Encode(val),
 			},
 		},
 	}
-	delete(workload.Spec.Env, common.GithubPAT)
 
 	secret, err := h.createSecretImpl(ctx, createSecretReq, requestUser)
 	if err != nil {
 		return err
 	}
-	workload.Spec.Secrets = append(workload.Spec.Secrets,
-		v1.SecretEntity{Id: secret.Name, Type: v1.SecretGeneral})
-	controlPlaneIp, err := h.getAdminControlPlaneIp(ctx)
-	if err != nil {
-		h.cleanupCICDSecrets(ctx, workload)
-		return err
-	}
-	commonworkload.SetEnv(workload, common.AdminControlPlane, controlPlaneIp)
+	delete(workload.Spec.Env, GithubPAT)
+	workload.Spec.Env[common.GithubSecretId] = secret.Name
 	return nil
 }
 
@@ -1172,8 +1173,10 @@ func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context,
 	if str := dbutils.ParseNullString(dbWorkload.Env); str != "" {
 		json.Unmarshal([]byte(str), &result.Env)
 		result.Env = maps.RemoveValue(result.Env, "")
-		if result.GroupVersionKind.Kind == common.CICDScaleRunnerSetKind {
+		if result.GroupVersionKind.Kind == common.CICDScaleRunnerSetKind ||
+			result.GroupVersionKind.Kind == common.CICDEphemeralRunnerKind {
 			delete(result.Env, common.AdminControlPlane)
+			delete(result.Env, common.GithubSecretId)
 		}
 	}
 	if str := dbutils.ParseNullString(dbWorkload.Dependencies); str != "" {

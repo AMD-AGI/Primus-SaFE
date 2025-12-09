@@ -29,15 +29,11 @@ const (
 	ServiceAccountKind = "ServiceAccount"
 
 	GithubConfigUrl   = "GITHUB_CONFIG_URL"
-	GithubPAT         = "GITHUB_PAT"
-	GithubToken       = "github_token"
+	GithubSecretId    = "GITHUB_SECRET_ID"
 	AdminControlPlane = "ADMIN_CONTROL_PLANE"
 	UnifiedJobEnable  = "UNIFIED_JOB_ENABLE"
 	ScaleRunnerSetID  = "SCALE_RUNNER_SET_ID"
 	ScaleRunnerID     = "SCALE_RUNNER_ID"
-	ResourcesEnv      = "RESOURCES"
-	ImageEnv          = "IMAGE"
-	EntrypointEnv     = "ENTRYPOINT"
 
 	HigressClassname = "higress"
 	HigressNamespace = "higress-system"

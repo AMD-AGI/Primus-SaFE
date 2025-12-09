@@ -640,22 +640,6 @@ func buildImageSecret(secretId string) interface{} {
 	}
 }
 
-// buildGithubConfig constructs GitHub configuration parameters for a workload.
-func buildGithubConfig(workload *v1.Workload) map[string]interface{} {
-	secretId := ""
-	for _, item := range workload.Spec.Secrets {
-		if item.Type == v1.SecretGeneral {
-			secretId = item.Id
-			break
-		}
-	}
-	configUrl := workload.Spec.Env[common.GithubConfigUrl]
-	return map[string]interface{}{
-		"githubConfigSecret": secretId,
-		"githubConfigUrl":    configUrl,
-	}
-}
-
 // convertEnvsToStringMap extracts name-value pairs from environment variable definitions.
 func convertEnvsToStringMap(envs []interface{}) map[string]string {
 	result := make(map[string]string)

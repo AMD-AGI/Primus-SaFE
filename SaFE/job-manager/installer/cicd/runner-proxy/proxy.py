@@ -171,11 +171,8 @@ def build_payload() -> Dict[str, Any]:
     kind = "EphemeralRunner"
     version = "v1"
 
-    # Inject environment variables to copied pod
-    # NOTE: ACTIONS_RUNNER_INPUT_JITCONFIG contains unique runner identity
-    # Only ONE pod can use each JIT config - multiple pods will cause session conflicts
     env_map: Dict[str, str] = {}
-    for key in ("SCALE_RUNNER_SET_ID", "SAFE_NFS_INPUT", "SAFE_NFS_OUTPUT"):
+    for key in ("SCALE_RUNNER_SET_ID", "SAFE_NFS_INPUT", "SAFE_NFS_OUTPUT", "GITHUB_CONFIG_URL", "GITHUB_SECRET_ID"):
         val = getenv_str(key)
         if val is not None:
             env_map[key] = val

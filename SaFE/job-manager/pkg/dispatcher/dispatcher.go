@@ -592,10 +592,9 @@ func updateCICDGithub(adminWorkload *v1.Workload, obj *unstructured.Unstructured
 	if !ok {
 		return fmt.Errorf("failed to find object with path: [spec]")
 	}
-	githubConfig := buildGithubConfig(adminWorkload)
-	for key, val := range githubConfig {
-		specObject[key] = val
-	}
+
+	specObject["githubConfigSecret"] = adminWorkload.Spec.Env[common.GithubSecretId]
+	specObject["githubConfigUrl"] = adminWorkload.Spec.Env[common.GithubConfigUrl]
 	if commonworkload.IsCICDEphemeralRunner(adminWorkload) {
 		if runnerSetId := v1.GetCICDRunnerScaleSetId(adminWorkload); runnerSetId != "" {
 			specObject["runnerScaleSetId"], err = strconv.ParseInt(runnerSetId, 10, 0)
@@ -622,8 +621,8 @@ func updateCICDEnvironments(obj *unstructured.Unstructured,
 	envs := maps.Copy(adminWorkload.Spec.Env)
 	envs[jobutils.UserIdEnv] = v1.GetUserId(adminWorkload)
 	envs[jobutils.PriorityEnv] = strconv.Itoa(adminWorkload.Spec.Priority)
-	envs[common.ScaleRunnerSetID] = adminWorkload.Name
 	envs[jobutils.WorkspaceIdEnv] = adminWorkload.Spec.Workspace
+	envs[common.ScaleRunnerSetID] = adminWorkload.Name
 
 	val, ok := adminWorkload.Spec.Env[common.UnifiedJobEnable]
 	if ok && val == v1.TrueStr {
