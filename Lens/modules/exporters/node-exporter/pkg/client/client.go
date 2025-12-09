@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -397,6 +398,7 @@ func LogInspectionResult(result *types.InspectionResult) {
 // ============ Container Filesystem APIs ============
 
 // ReadContainerFile reads a file from container filesystem
+// The Content field in the response is automatically decoded from base64
 func (c *Client) ReadContainerFile(ctx context.Context, req *types.ContainerFileReadRequest) (*types.ContainerFileReadResponse, error) {
 	var response struct {
 		Code int                              `json:"code"`
@@ -420,6 +422,16 @@ func (c *Client) ReadContainerFile(ctx context.Context, req *types.ContainerFile
 
 	if response.Code != 0 {
 		return nil, fmt.Errorf("container fs API returned code %d: %s", response.Code, response.Msg)
+	}
+
+	// Decode base64 content automatically
+	// The server always sends base64-encoded data to prevent corruption
+	if response.Data != nil && response.Data.Content != "" {
+		decoded, err := base64.StdEncoding.DecodeString(response.Data.Content)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode base64 content: %w", err)
+		}
+		response.Data.Content = string(decoded)
 	}
 
 	return response.Data, nil

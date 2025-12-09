@@ -172,27 +172,20 @@ func (r *FSReader) ReadFile(ctx context.Context, req *ReadRequest) (*ReadRespons
 		return nil, fmt.Errorf("failed to read file: %w", err)
 	}
 
-	// Check if binary
-	isBinary := r.isBinaryContent(buffer[:bytesRead])
-
-	// Encode binary data as base64 to prevent corruption during JSON transport
-	var content string
-	if isBinary {
-		content = base64.StdEncoding.EncodeToString(buffer[:bytesRead])
-	} else {
-		content = string(buffer[:bytesRead])
-	}
+	// Always encode as base64 to prevent corruption during JSON transport
+	// This ensures binary data (like TensorBoard files) is transmitted correctly
+	content := base64.StdEncoding.EncodeToString(buffer[:bytesRead])
 
 	response := &ReadResponse{
 		Content:   content,
 		FileInfo:  fileInfo,
 		BytesRead: int64(bytesRead),
 		EOF:       req.Offset+int64(bytesRead) >= fileInfo.Size,
-		IsBinary:  isBinary,
+		IsBinary:  true, // Always true since we always use base64
 	}
 
-	log.Debugf("Read %d bytes from container file: pid=%d, path=%s, offset=%d, binary=%v",
-		bytesRead, pid, req.Path, req.Offset, isBinary)
+	log.Debugf("Read %d bytes from container file: pid=%d, path=%s, offset=%d (base64 encoded)",
+		bytesRead, pid, req.Path, req.Offset)
 
 	return response, nil
 }
@@ -449,22 +442,6 @@ func (r *FSReader) getFileInfo(absolutePath string, displayPath string) (*FileIn
 	}
 
 	return fileInfo, nil
-}
-
-func (r *FSReader) isBinaryContent(data []byte) bool {
-	// Simple heuristic: if more than 30% non-printable characters, consider binary
-	if len(data) == 0 {
-		return false
-	}
-
-	nonPrintable := 0
-	for _, b := range data {
-		if b < 32 && b != '\n' && b != '\r' && b != '\t' {
-			nonPrintable++
-		}
-	}
-
-	return float64(nonPrintable)/float64(len(data)) > 0.3
 }
 
 // resolvePID resolves the PID to use for file access
