@@ -536,7 +536,7 @@ func (r *InferenceReconciler) updateInferenceInstance(ctx context.Context, infer
 	originalInference := inference.DeepCopy()
 	needsUpdate := false
 
-	newBaseUrl := fmt.Sprintf("http://%s/%s/%s/%s",
+	newBaseUrl := fmt.Sprintf("https://%s/%s/%s/%s",
 		commonconfig.GetSystemHost(), v1.GetClusterId(workload), workload.Spec.Workspace, workload.Name)
 
 	if inference.Spec.Instance.BaseUrl != newBaseUrl {
