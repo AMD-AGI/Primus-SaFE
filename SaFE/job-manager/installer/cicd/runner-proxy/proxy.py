@@ -11,24 +11,78 @@ import shutil
 import signal
 import sys
 import time
+import threading
 from typing import Any, Dict, Optional, Tuple
 
 import requests
 
 
+# Global cleanup context - set after workload creation
+_cleanup_context: Dict[str, Any] = {
+    "session": None,
+    "base_url": None,
+    "workload_id": None,
+    "cleanup_path": None,
+    "cleaned_up": False,
+    "lock": threading.Lock(),
+}
+
+
+def _do_cleanup() -> None:
+    """
+    Perform cleanup: stop workload and remove NFS directory.
+    Thread-safe and idempotent - can be called multiple times safely.
+    """
+    with _cleanup_context["lock"]:
+        if _cleanup_context["cleaned_up"]:
+            return
+        _cleanup_context["cleaned_up"] = True
+
+        # Stop workload if created
+        session = _cleanup_context["session"]
+        base_url = _cleanup_context["base_url"]
+        workload_id = _cleanup_context["workload_id"]
+        if session and base_url and workload_id:
+            print(f"[info] stopping workload on exit: {workload_id}", file=sys.stderr)
+            try:
+                url = f"{base_url}/api/v1/workloads/{workload_id}/stop"
+                print(f"[debug] POST {url}", file=sys.stderr)
+                resp = session.post(url, timeout=10)  # Shorter timeout for cleanup
+                if resp.status_code >= 300:
+                    print(f"[warn] stop workload failed: HTTP {resp.status_code} {resp.text}", file=sys.stderr)
+                else:
+                    print(f"[info] workload {workload_id} stop request sent", file=sys.stderr)
+            except Exception as e:
+                print(f"[warn] stop workload exception: {e}", file=sys.stderr)
+
+        # Clean up NFS directory if created
+        cleanup_path = _cleanup_context["cleanup_path"]
+        if cleanup_path:
+            print(f"[info] cleaning up NFS directory: {cleanup_path}", file=sys.stderr)
+            try:
+                shutil.rmtree(cleanup_path, ignore_errors=True)
+            except Exception:
+                pass
+
+
 def _signal_handler(signum: int, frame: Any) -> None:
     """
-    Handle SIGTERM/SIGINT by calling sys.exit() so that atexit handlers run.
-    Without this, atexit handlers won't execute when container is terminated.
+    Handle SIGTERM/SIGINT by performing cleanup directly, then exit.
+    This ensures cleanup happens even if atexit handlers don't run.
     """
     sig_name = signal.Signals(signum).name if hasattr(signal, 'Signals') else str(signum)
-    print(f"[info] received {sig_name}, exiting gracefully...", file=sys.stderr)
+    print(f"[info] received {sig_name}, performing cleanup...", file=sys.stderr)
+    _do_cleanup()
+    print(f"[info] cleanup done, exiting...", file=sys.stderr)
     sys.exit(128 + signum)
 
 
-# Register signal handlers early to ensure atexit callbacks run on termination
+# Register signal handlers early
 signal.signal(signal.SIGTERM, _signal_handler)
 signal.signal(signal.SIGINT, _signal_handler)
+
+# Also register atexit as a fallback for normal exits
+atexit.register(_do_cleanup)
 
 timeout_secs = 36000
 
@@ -258,15 +312,19 @@ def get_workload_phase(s: requests.Session, base_url: str, workload_id: str) -> 
     return phase
 
 
-def stop_workload(s: requests.Session, base_url: str, workload_id: str) -> None:
+def stop_workload(s: requests.Session, base_url: str, workload_id: str) -> bool:
+    """Stop workload and return True if successful."""
     try:
         url = f"{base_url}/api/v1/workloads/{workload_id}/stop"
         print(f"[debug] POST {url}")
         resp = s.post(url, timeout=30)
         if resp.status_code >= 300:
             print(f"[warn] stop workload failed: HTTP {resp.status_code} {resp.text}", file=sys.stderr)
+            return False
+        return True
     except Exception as e:
         print(f"[warn] stop workload exception: {e}", file=sys.stderr)
+        return False
 
 def get_unified_nfs_path() -> Optional[str]:
     nfs_path = getenv_str("SAFE_NFS_PATH")
@@ -280,7 +338,6 @@ def main() -> int:
     
     # Unified build mode: extend timeout and manage NFS path lifecycle
     unified_build_enabled = getenv_bool("UNIFIED_JOB_ENABLE", False)
-    cleanup_path: Optional[str] = None
     if unified_build_enabled:
         global timeout_secs
         timeout_secs = 24 * 60 * 60  # 24h
@@ -294,19 +351,11 @@ def main() -> int:
         if nfs_path:
             try:
                 os.makedirs(nfs_path, exist_ok=True)
-                cleanup_path = nfs_path
+                # Store cleanup path in global context for signal handler
+                _cleanup_context["cleanup_path"] = nfs_path
                 print(f"[info] NFS directory created: {nfs_path}")
             except Exception as e:
                 print(f"[warn] failed to create SAFE_NFS_PATH directory '{nfs_path}': {e}", file=sys.stderr)
-        if cleanup_path:
-            def _cleanup() -> None:
-                print(f"[info] cleaning up NFS directory: {cleanup_path}")
-                try:
-                    shutil.rmtree(cleanup_path, ignore_errors=True)
-                except Exception:
-                    pass
-            atexit.register(_cleanup)
-            print("[info] cleanup handler registered")
 
     print("[info] building payload and session...")
     try:
@@ -321,12 +370,11 @@ def main() -> int:
     try:
         workload_id = create_workload(session, base_url, payload)
         print(f"[info] workload created: {workload_id}")
-        # Ensure workload is stopped when the container (process) exits
-        def _stop_on_exit() -> None:
-            print(f"[info] stopping workload on exit: {workload_id}")
-            stop_workload(session, base_url, workload_id)
-        atexit.register(_stop_on_exit)
-        print("[info] stop-on-exit handler registered")
+        # Store cleanup context for signal handler and atexit
+        _cleanup_context["session"] = session
+        _cleanup_context["base_url"] = base_url
+        _cleanup_context["workload_id"] = workload_id
+        print("[info] cleanup context registered for signal handler")
     except Exception as e:
         print(f"[error] create workload failed: {e}", file=sys.stderr)
         return 3
@@ -352,6 +400,9 @@ def main() -> int:
             
             if phase in terminal_phases:
                 elapsed = int(time.time() - start_time)
+                # Workload already in terminal state, mark as cleaned up to skip stop on exit
+                with _cleanup_context["lock"]:
+                    _cleanup_context["workload_id"] = None  # Don't stop already-finished workload
                 if phase == "Succeeded":
                     print(f"[info] workload {workload_id} completed successfully (elapsed: {elapsed}s)")
                     return 0
