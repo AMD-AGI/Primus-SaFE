@@ -309,3 +309,26 @@ func TestGetPytorchJobPriorityClass(t *testing.T) {
 	assert.NilError(t, err)
 	assert.Equal(t, name, "test-med-priority")
 }
+
+func TestGetCICDEphemeralRunnerPhase(t *testing.T) {
+	data, err := jsonutils.ParseYamlToJson(TestCICDEphemeralRunnerData)
+	assert.NilError(t, err)
+	rt := TestCICDEphemeralRunnerTemplate.DeepCopy()
+
+	status, err := GetK8sResourceStatus(data, rt)
+	assert.NilError(t, err)
+	assert.Equal(t, status.Phase, string(v1.K8sRunning))
+
+	newStatus := map[string]interface{}{
+		"phase":   "Failed",
+		"message": "Job has reached the specified backoff limit",
+		"reason":  "BackoffLimitExceeded",
+	}
+	err = unstructured.SetNestedMap(data.Object, newStatus, "status")
+	assert.NilError(t, err)
+
+	status, err = GetK8sResourceStatus(data, rt)
+	assert.NilError(t, err)
+	assert.Equal(t, status.Phase, "K8sFailed")
+	assert.Equal(t, status.Message, "Job has reached the specified backoff limit")
+}

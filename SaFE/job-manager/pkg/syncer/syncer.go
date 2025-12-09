@@ -173,7 +173,8 @@ func (r *SyncerReconciler) Do(ctx context.Context, message *resourceMessage) (ct
 
 	var result ctrlruntime.Result
 	switch message.gvk.Kind {
-	case common.PytorchJobKind, common.DeploymentKind, common.StatefulSetKind, common.JobKind:
+	case common.PytorchJobKind, common.DeploymentKind, common.StatefulSetKind, common.JobKind,
+		common.CICDScaleRunnerSetKind, common.CICDEphemeralRunnerKind:
 		result, err = r.handleJob(ctx, message, informer)
 	case common.PodKind:
 		result, err = r.handlePod(ctx, message, informer)

@@ -487,9 +487,9 @@ func TestCreateCICDScaleSet(t *testing.T) {
 		Version: "v1",
 		Kind:    common.CICDScaleRunnerSetKind,
 	}
-	workload.Spec.Secrets = []v1.SecretEntity{{Id: "test-secret", Type: v1.SecretGeneral}}
 	workload.Spec.Env[common.GithubConfigUrl] = "test-url"
 	workload.Spec.Env[common.AdminControlPlane] = "10.0.0.1"
+	workload.Spec.Env[common.GithubSecretId] = "test-secret"
 	workload.Spec.Workspace = workspace.Name
 	workload.Spec.EntryPoint = stringutil.Base64Encode("bash test.sh")
 
@@ -529,8 +529,8 @@ func TestCICDScaleSetWithUnifiedJob(t *testing.T) {
 		Kind:    common.CICDScaleRunnerSetKind,
 	}
 	workload.Spec.Resource.Replica = 2
-	workload.Spec.Secrets = []v1.SecretEntity{{Id: "test-secret", Type: v1.SecretGeneral}}
 	workload.Spec.Env[common.GithubConfigUrl] = "test-url"
+	workload.Spec.Env[common.GithubSecretId] = "test-secret"
 	workload.Spec.Env[common.AdminControlPlane] = "10.0.0.1"
 	workload.Spec.Env[common.UnifiedJobEnable] = v1.TrueStr
 	workload.Spec.Workspace = workspace.Name

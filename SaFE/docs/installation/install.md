@@ -112,7 +112,7 @@ The script performs the following steps after configuration:
 - `.env` file (in `bootstrap/`) with the following keys for future upgrades:
   - `ethernet_nic`, `rdma_nic`, `cluster_scale`, `storage_class`
   - `lens_enable`, `s3_enable`, `sso_enable`
-  - `ingress`, `sub_domain`, `higress_node_port`
+  - `ingress`, `sub_domain`
   - `install_node_agent`
 
 ### 🔄 Install Command

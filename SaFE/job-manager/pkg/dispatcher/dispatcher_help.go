@@ -399,7 +399,7 @@ func buildEntryPoint(workload *v1.Workload) string {
 	switch workload.SpecKind() {
 	case common.CICDScaleRunnerSetKind:
 		result = workload.Spec.EntryPoint
-	case common.CICDScaleRunnerKind:
+	case common.CICDEphemeralRunnerKind:
 		result = stringutil.Base64Decode(workload.Spec.EntryPoint)
 	default:
 		result = Launcher + " '" + workload.Spec.EntryPoint + "'"
@@ -637,22 +637,6 @@ func buildSelector(workload *v1.Workload) map[string]interface{} {
 func buildImageSecret(secretId string) interface{} {
 	return map[string]interface{}{
 		"name": secretId,
-	}
-}
-
-// buildGithubConfig constructs GitHub configuration parameters for a workload.
-func buildGithubConfig(workload *v1.Workload) map[string]interface{} {
-	secretId := ""
-	for _, item := range workload.Spec.Secrets {
-		if item.Type == v1.SecretGeneral {
-			secretId = item.Id
-			break
-		}
-	}
-	configUrl := workload.Spec.Env[common.GithubConfigUrl]
-	return map[string]interface{}{
-		"githubConfigSecret": secretId,
-		"githubConfigUrl":    configUrl,
 	}
 }
 

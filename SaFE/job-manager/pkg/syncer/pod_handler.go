@@ -182,10 +182,12 @@ func updateCICDScalingRunnerSetPhase(adminWorkload *v1.Workload, pod *corev1.Pod
 	}
 	switch pod.Status.Phase {
 	case corev1.PodRunning:
+		adminWorkload.Status.Message = ""
 		adminWorkload.Status.Phase = v1.WorkloadRunning
 	case corev1.PodPending:
 		adminWorkload.Status.Phase = v1.WorkloadPending
 	default:
+		adminWorkload.Status.Message = ""
 		adminWorkload.Status.Phase = v1.WorkloadNotReady
 	}
 }

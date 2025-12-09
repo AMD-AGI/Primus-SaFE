@@ -758,7 +758,7 @@ func (r *ClusterReconciler) guaranteeForwardEndpoints(ctx context.Context, clust
 
 	desiredPorts := []corev1.EndpointPort{{
 		Name:     "http",
-		Port:     int32(commonconfig.GetHigressNodePort()),
+		Port:     80,
 		Protocol: corev1.ProtocolTCP,
 	}}
 	if err == nil {
