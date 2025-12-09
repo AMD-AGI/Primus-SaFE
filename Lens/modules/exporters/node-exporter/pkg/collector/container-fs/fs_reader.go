@@ -2,6 +2,7 @@ package containerfs
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"os"
@@ -174,16 +175,24 @@ func (r *FSReader) ReadFile(ctx context.Context, req *ReadRequest) (*ReadRespons
 	// Check if binary
 	isBinary := r.isBinaryContent(buffer[:bytesRead])
 
+	// Encode binary data as base64 to prevent corruption during JSON transport
+	var content string
+	if isBinary {
+		content = base64.StdEncoding.EncodeToString(buffer[:bytesRead])
+	} else {
+		content = string(buffer[:bytesRead])
+	}
+
 	response := &ReadResponse{
-		Content:   string(buffer[:bytesRead]),
+		Content:   content,
 		FileInfo:  fileInfo,
 		BytesRead: int64(bytesRead),
 		EOF:       req.Offset+int64(bytesRead) >= fileInfo.Size,
 		IsBinary:  isBinary,
 	}
 
-	log.Debugf("Read %d bytes from container file: pid=%d, path=%s, offset=%d",
-		bytesRead, pid, req.Path, req.Offset)
+	log.Debugf("Read %d bytes from container file: pid=%d, path=%s, offset=%d, binary=%v",
+		bytesRead, pid, req.Path, req.Offset, isBinary)
 
 	return response, nil
 }

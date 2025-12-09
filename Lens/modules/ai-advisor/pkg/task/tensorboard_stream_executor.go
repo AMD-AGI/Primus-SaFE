@@ -2,6 +2,7 @@ package task
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -385,14 +386,25 @@ func (e *TensorBoardStreamExecutor) readAndParseFile(
 		return 0, nil
 	}
 
-	log.Debugf("Read from %s: offset=%d, bytes=%d", filePath, fileState.CurrentOffset, resp.BytesRead)
+	log.Debugf("Read from %s: offset=%d, bytes=%d, binary=%v", filePath, fileState.CurrentOffset, resp.BytesRead, resp.IsBinary)
 
 	// 5. 解析事件（返回成功解析的字节数）
-	dataBytes := []byte(resp.Content)
-
+	var dataBytes []byte
+	
+	// Decode base64 if content is binary
+	if resp.IsBinary {
+		dataBytes, err = base64.StdEncoding.DecodeString(resp.Content)
+		if err != nil {
+			return 0, fmt.Errorf("failed to decode base64 content: %w", err)
+		}
+	} else {
+		dataBytes = []byte(resp.Content)
+	}
+	
 	// Debug: verify data length consistency
 	if len(dataBytes) != int(resp.BytesRead) {
-		log.Warnf("Data length mismatch: BytesRead=%d, len(dataBytes)=%d", resp.BytesRead, len(dataBytes))
+		log.Warnf("Data length mismatch: BytesRead=%d, len(dataBytes)=%d, binary=%v", 
+			resp.BytesRead, len(dataBytes), resp.IsBinary)
 	}
 
 	events, consumedBytes, parseErr := e.eventParser.ParseEventsWithBuffer(dataBytes)
