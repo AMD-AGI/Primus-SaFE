@@ -10,14 +10,14 @@ RUN mkdir -p ${APP_HOME}/node/config_check
 RUN mkdir -p ${APP_HOME}/node/node_check
 RUN mkdir -p ${APP_HOME}/install
 
-COPY ./preflight/ssh/* ${APP_HOME}/ssh
-COPY ./preflight/network/*.py ${APP_HOME}/network
-COPY ./preflight/network/*.sh ${APP_HOME}/network
-COPY ./preflight/node/*.sh ${APP_HOME}/node
-COPY ./preflight/node/config_check/* ${APP_HOME}/node/config_check
-COPY ./preflight/node/node_check/* ${APP_HOME}/node/node_check
-COPY ./preflight/node/install/* ${APP_HOME}/install
-COPY ./preflight/network/install/* ${APP_HOME}/install
+COPY ./ssh/* ${APP_HOME}/ssh
+COPY ./network/*.py ${APP_HOME}/network
+COPY ./network/*.sh ${APP_HOME}/network
+COPY ./node/*.sh ${APP_HOME}/node
+COPY ./node/config_check/* ${APP_HOME}/node/config_check
+COPY ./node/node_check/* ${APP_HOME}/node/node_check
+COPY ./node/install/* ${APP_HOME}/install
+COPY ./network/install/* ${APP_HOME}/install
 
 RUN apt update && \
     apt install -y --no-install-recommends \
