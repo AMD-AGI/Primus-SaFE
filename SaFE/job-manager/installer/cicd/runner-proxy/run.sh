@@ -11,7 +11,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 pip install -r "${SCRIPT_DIR}/requirements.txt" > /dev/null
 
-exec python3 "${SCRIPT_DIR}/proxy.py"
+python3 "${SCRIPT_DIR}/proxy.py"
 exit_code=$?
 
 echo "runner proxy exited with code: ${exit_code}"
