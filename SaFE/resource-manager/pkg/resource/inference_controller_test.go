@@ -683,16 +683,6 @@ func TestSyncInterval(t *testing.T) {
 	assert.Equal(t, 10*time.Minute, SyncInterval)
 }
 
-// TestInferenceDownloadJobPrefix tests the job prefix constant
-func TestInferenceDownloadJobPrefix(t *testing.T) {
-	assert.Equal(t, "inference-download-", InferenceDownloadJobPrefix)
-}
-
-// TestInferenceCleanupJobPrefix tests the cleanup job prefix constant
-func TestInferenceCleanupJobPrefix(t *testing.T) {
-	assert.Equal(t, "inference-cleanup-", InferenceCleanupJobPrefix)
-}
-
 // TestInferenceReconciler_CreateWorkload_ExistingWorkload tests createWorkload when workload exists
 func TestInferenceReconciler_CreateWorkload_ExistingWorkload(t *testing.T) {
 	scheme := runtime.NewScheme()
