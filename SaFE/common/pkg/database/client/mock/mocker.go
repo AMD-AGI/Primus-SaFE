@@ -52,6 +52,21 @@ func (mr *MockInterfaceMockRecorder) CountFaults(ctx, query interface{}) *gomock
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountFaults", reflect.TypeOf((*MockInterface)(nil).CountFaults), ctx, query)
 }
 
+// CountInferences mocks base method.
+func (m *MockInterface) CountInferences(ctx context.Context, query squirrel.Sqlizer) (int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountInferences", ctx, query)
+	ret0, _ := ret[0].(int)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountInferences indicates an expected call of CountInferences.
+func (mr *MockInterfaceMockRecorder) CountInferences(ctx, query interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountInferences", reflect.TypeOf((*MockInterface)(nil).CountInferences), ctx, query)
+}
+
 // CountJobs mocks base method.
 func (m *MockInterface) CountJobs(ctx context.Context, query squirrel.Sqlizer) (int, error) {
 	m.ctrl.T.Helper()
@@ -65,6 +80,21 @@ func (m *MockInterface) CountJobs(ctx context.Context, query squirrel.Sqlizer) (
 func (mr *MockInterfaceMockRecorder) CountJobs(ctx, query interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountJobs", reflect.TypeOf((*MockInterface)(nil).CountJobs), ctx, query)
+}
+
+// CountPlaygroundSessions mocks base method.
+func (m *MockInterface) CountPlaygroundSessions(ctx context.Context, query squirrel.Sqlizer) (int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountPlaygroundSessions", ctx, query)
+	ret0, _ := ret[0].(int)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountPlaygroundSessions indicates an expected call of CountPlaygroundSessions.
+func (mr *MockInterfaceMockRecorder) CountPlaygroundSessions(ctx, query interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountPlaygroundSessions", reflect.TypeOf((*MockInterface)(nil).CountPlaygroundSessions), ctx, query)
 }
 
 // CountPublicKeys mocks base method.
@@ -95,6 +125,34 @@ func (m *MockInterface) CountWorkloads(ctx context.Context, query squirrel.Sqliz
 func (mr *MockInterfaceMockRecorder) CountWorkloads(ctx, query interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountWorkloads", reflect.TypeOf((*MockInterface)(nil).CountWorkloads), ctx, query)
+}
+
+// CreateNodeStatistic mocks base method.
+func (m *MockInterface) CreateNodeStatistic(ctx context.Context, stat *model.NodeStatistic) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateNodeStatistic", ctx, stat)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CreateNodeStatistic indicates an expected call of CreateNodeStatistic.
+func (mr *MockInterfaceMockRecorder) CreateNodeStatistic(ctx, stat interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateNodeStatistic", reflect.TypeOf((*MockInterface)(nil).CreateNodeStatistic), ctx, stat)
+}
+
+// CreateWorkloadStatistic mocks base method.
+func (m *MockInterface) CreateWorkloadStatistic(ctx context.Context, stat *model.WorkloadStatistic) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateWorkloadStatistic", ctx, stat)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CreateWorkloadStatistic indicates an expected call of CreateWorkloadStatistic.
+func (mr *MockInterfaceMockRecorder) CreateWorkloadStatistic(ctx, stat interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateWorkloadStatistic", reflect.TypeOf((*MockInterface)(nil).CreateWorkloadStatistic), ctx, stat)
 }
 
 // DeleteFault mocks base method.
@@ -139,6 +197,48 @@ func (mr *MockInterfaceMockRecorder) DeleteImageDigest(ctx, id interface{}) *gom
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteImageDigest", reflect.TypeOf((*MockInterface)(nil).DeleteImageDigest), ctx, id)
 }
 
+// DeleteNodeStatistic mocks base method.
+func (m *MockInterface) DeleteNodeStatistic(ctx context.Context, id int32) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteNodeStatistic", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteNodeStatistic indicates an expected call of DeleteNodeStatistic.
+func (mr *MockInterfaceMockRecorder) DeleteNodeStatistic(ctx, id interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteNodeStatistic", reflect.TypeOf((*MockInterface)(nil).DeleteNodeStatistic), ctx, id)
+}
+
+// DeleteNodeStatisticByClusterAndNode mocks base method.
+func (m *MockInterface) DeleteNodeStatisticByClusterAndNode(ctx context.Context, cluster, nodeName string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteNodeStatisticByClusterAndNode", ctx, cluster, nodeName)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteNodeStatisticByClusterAndNode indicates an expected call of DeleteNodeStatisticByClusterAndNode.
+func (mr *MockInterfaceMockRecorder) DeleteNodeStatisticByClusterAndNode(ctx, cluster, nodeName interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteNodeStatisticByClusterAndNode", reflect.TypeOf((*MockInterface)(nil).DeleteNodeStatisticByClusterAndNode), ctx, cluster, nodeName)
+}
+
+// DeleteNodeStatisticsByCluster mocks base method.
+func (m *MockInterface) DeleteNodeStatisticsByCluster(ctx context.Context, cluster string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteNodeStatisticsByCluster", ctx, cluster)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteNodeStatisticsByCluster indicates an expected call of DeleteNodeStatisticsByCluster.
+func (mr *MockInterfaceMockRecorder) DeleteNodeStatisticsByCluster(ctx, cluster interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteNodeStatisticsByCluster", reflect.TypeOf((*MockInterface)(nil).DeleteNodeStatisticsByCluster), ctx, cluster)
+}
+
 // DeletePublicKey mocks base method.
 func (m *MockInterface) DeletePublicKey(ctx context.Context, userId string, id int64) error {
 	m.ctrl.T.Helper()
@@ -165,6 +265,34 @@ func (m *MockInterface) DeleteRegistryInfo(ctx context.Context, id int32) error 
 func (mr *MockInterfaceMockRecorder) DeleteRegistryInfo(ctx, id interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteRegistryInfo", reflect.TypeOf((*MockInterface)(nil).DeleteRegistryInfo), ctx, id)
+}
+
+// DeleteWorkloadStatistic mocks base method.
+func (m *MockInterface) DeleteWorkloadStatistic(ctx context.Context, id int32) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteWorkloadStatistic", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteWorkloadStatistic indicates an expected call of DeleteWorkloadStatistic.
+func (mr *MockInterfaceMockRecorder) DeleteWorkloadStatistic(ctx, id interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteWorkloadStatistic", reflect.TypeOf((*MockInterface)(nil).DeleteWorkloadStatistic), ctx, id)
+}
+
+// DeleteWorkloadStatisticsByWorkloadID mocks base method.
+func (m *MockInterface) DeleteWorkloadStatisticsByWorkloadID(ctx context.Context, workloadID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteWorkloadStatisticsByWorkloadID", ctx, workloadID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteWorkloadStatisticsByWorkloadID indicates an expected call of DeleteWorkloadStatisticsByWorkloadID.
+func (mr *MockInterfaceMockRecorder) DeleteWorkloadStatisticsByWorkloadID(ctx, workloadID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteWorkloadStatisticsByWorkloadID", reflect.TypeOf((*MockInterface)(nil).DeleteWorkloadStatisticsByWorkloadID), ctx, workloadID)
 }
 
 // GetDefaultRegistryInfo mocks base method.
@@ -272,6 +400,111 @@ func (mr *MockInterfaceMockRecorder) GetImportImageByImageID(ctx, imageID interf
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetImportImageByImageID", reflect.TypeOf((*MockInterface)(nil).GetImportImageByImageID), ctx, imageID)
 }
 
+// GetInference mocks base method.
+func (m *MockInterface) GetInference(ctx context.Context, inferenceId string) (*client.Inference, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetInference", ctx, inferenceId)
+	ret0, _ := ret[0].(*client.Inference)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetInference indicates an expected call of GetInference.
+func (mr *MockInterfaceMockRecorder) GetInference(ctx, inferenceId interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetInference", reflect.TypeOf((*MockInterface)(nil).GetInference), ctx, inferenceId)
+}
+
+// GetNodeGpuUtilizationMap mocks base method.
+func (m *MockInterface) GetNodeGpuUtilizationMap(ctx context.Context, cluster string, nodeNames []string) (map[string]float64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetNodeGpuUtilizationMap", ctx, cluster, nodeNames)
+	ret0, _ := ret[0].(map[string]float64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetNodeGpuUtilizationMap indicates an expected call of GetNodeGpuUtilizationMap.
+func (mr *MockInterfaceMockRecorder) GetNodeGpuUtilizationMap(ctx, cluster, nodeNames interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetNodeGpuUtilizationMap", reflect.TypeOf((*MockInterface)(nil).GetNodeGpuUtilizationMap), ctx, cluster, nodeNames)
+}
+
+// GetNodeStatisticByClusterAndNode mocks base method.
+func (m *MockInterface) GetNodeStatisticByClusterAndNode(ctx context.Context, cluster, nodeName string) (*model.NodeStatistic, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetNodeStatisticByClusterAndNode", ctx, cluster, nodeName)
+	ret0, _ := ret[0].(*model.NodeStatistic)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetNodeStatisticByClusterAndNode indicates an expected call of GetNodeStatisticByClusterAndNode.
+func (mr *MockInterfaceMockRecorder) GetNodeStatisticByClusterAndNode(ctx, cluster, nodeName interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetNodeStatisticByClusterAndNode", reflect.TypeOf((*MockInterface)(nil).GetNodeStatisticByClusterAndNode), ctx, cluster, nodeName)
+}
+
+// GetNodeStatisticByID mocks base method.
+func (m *MockInterface) GetNodeStatisticByID(ctx context.Context, id int32) (*model.NodeStatistic, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetNodeStatisticByID", ctx, id)
+	ret0, _ := ret[0].(*model.NodeStatistic)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetNodeStatisticByID indicates an expected call of GetNodeStatisticByID.
+func (mr *MockInterfaceMockRecorder) GetNodeStatisticByID(ctx, id interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetNodeStatisticByID", reflect.TypeOf((*MockInterface)(nil).GetNodeStatisticByID), ctx, id)
+}
+
+// GetNodeStatisticsByCluster mocks base method.
+func (m *MockInterface) GetNodeStatisticsByCluster(ctx context.Context, cluster string) ([]*model.NodeStatistic, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetNodeStatisticsByCluster", ctx, cluster)
+	ret0, _ := ret[0].([]*model.NodeStatistic)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetNodeStatisticsByCluster indicates an expected call of GetNodeStatisticsByCluster.
+func (mr *MockInterfaceMockRecorder) GetNodeStatisticsByCluster(ctx, cluster interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetNodeStatisticsByCluster", reflect.TypeOf((*MockInterface)(nil).GetNodeStatisticsByCluster), ctx, cluster)
+}
+
+// GetNodeStatisticsByNodeNames mocks base method.
+func (m *MockInterface) GetNodeStatisticsByNodeNames(ctx context.Context, cluster string, nodeNames []string) ([]*model.NodeStatistic, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetNodeStatisticsByNodeNames", ctx, cluster, nodeNames)
+	ret0, _ := ret[0].([]*model.NodeStatistic)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetNodeStatisticsByNodeNames indicates an expected call of GetNodeStatisticsByNodeNames.
+func (mr *MockInterfaceMockRecorder) GetNodeStatisticsByNodeNames(ctx, cluster, nodeNames interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetNodeStatisticsByNodeNames", reflect.TypeOf((*MockInterface)(nil).GetNodeStatisticsByNodeNames), ctx, cluster, nodeNames)
+}
+
+// GetPlaygroundSession mocks base method.
+func (m *MockInterface) GetPlaygroundSession(ctx context.Context, id int64) (*client.PlaygroundSession, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetPlaygroundSession", ctx, id)
+	ret0, _ := ret[0].(*client.PlaygroundSession)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetPlaygroundSession indicates an expected call of GetPlaygroundSession.
+func (mr *MockInterfaceMockRecorder) GetPlaygroundSession(ctx, id interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPlaygroundSession", reflect.TypeOf((*MockInterface)(nil).GetPlaygroundSession), ctx, id)
+}
+
 // GetPublicKeyByUserId mocks base method.
 func (m *MockInterface) GetPublicKeyByUserId(ctx context.Context, userId string) ([]*client.PublicKey, error) {
 	m.ctrl.T.Helper()
@@ -330,6 +563,125 @@ func (m *MockInterface) GetWorkload(ctx context.Context, workloadId string) (*cl
 func (mr *MockInterfaceMockRecorder) GetWorkload(ctx, workloadId interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWorkload", reflect.TypeOf((*MockInterface)(nil).GetWorkload), ctx, workloadId)
+}
+
+// GetWorkloadStatisticByID mocks base method.
+func (m *MockInterface) GetWorkloadStatisticByID(ctx context.Context, id int32) (*model.WorkloadStatistic, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetWorkloadStatisticByID", ctx, id)
+	ret0, _ := ret[0].(*model.WorkloadStatistic)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetWorkloadStatisticByID indicates an expected call of GetWorkloadStatisticByID.
+func (mr *MockInterfaceMockRecorder) GetWorkloadStatisticByID(ctx, id interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWorkloadStatisticByID", reflect.TypeOf((*MockInterface)(nil).GetWorkloadStatisticByID), ctx, id)
+}
+
+// GetWorkloadStatisticByWorkloadID mocks base method.
+func (m *MockInterface) GetWorkloadStatisticByWorkloadID(ctx context.Context, workloadID string) (*model.WorkloadStatistic, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetWorkloadStatisticByWorkloadID", ctx, workloadID)
+	ret0, _ := ret[0].(*model.WorkloadStatistic)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetWorkloadStatisticByWorkloadID indicates an expected call of GetWorkloadStatisticByWorkloadID.
+func (mr *MockInterfaceMockRecorder) GetWorkloadStatisticByWorkloadID(ctx, workloadID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWorkloadStatisticByWorkloadID", reflect.TypeOf((*MockInterface)(nil).GetWorkloadStatisticByWorkloadID), ctx, workloadID)
+}
+
+// GetWorkloadStatisticByWorkloadUID mocks base method.
+func (m *MockInterface) GetWorkloadStatisticByWorkloadUID(ctx context.Context, workloadUID string) (*model.WorkloadStatistic, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetWorkloadStatisticByWorkloadUID", ctx, workloadUID)
+	ret0, _ := ret[0].(*model.WorkloadStatistic)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetWorkloadStatisticByWorkloadUID indicates an expected call of GetWorkloadStatisticByWorkloadUID.
+func (mr *MockInterfaceMockRecorder) GetWorkloadStatisticByWorkloadUID(ctx, workloadUID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWorkloadStatisticByWorkloadUID", reflect.TypeOf((*MockInterface)(nil).GetWorkloadStatisticByWorkloadUID), ctx, workloadUID)
+}
+
+// GetWorkloadStatisticsByClusterAndWorkspace mocks base method.
+func (m *MockInterface) GetWorkloadStatisticsByClusterAndWorkspace(ctx context.Context, cluster, workspace string) ([]*model.WorkloadStatistic, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetWorkloadStatisticsByClusterAndWorkspace", ctx, cluster, workspace)
+	ret0, _ := ret[0].([]*model.WorkloadStatistic)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetWorkloadStatisticsByClusterAndWorkspace indicates an expected call of GetWorkloadStatisticsByClusterAndWorkspace.
+func (mr *MockInterfaceMockRecorder) GetWorkloadStatisticsByClusterAndWorkspace(ctx, cluster, workspace interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWorkloadStatisticsByClusterAndWorkspace", reflect.TypeOf((*MockInterface)(nil).GetWorkloadStatisticsByClusterAndWorkspace), ctx, cluster, workspace)
+}
+
+// GetWorkloadStatisticsByType mocks base method.
+func (m *MockInterface) GetWorkloadStatisticsByType(ctx context.Context, statisticType string) ([]*model.WorkloadStatistic, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetWorkloadStatisticsByType", ctx, statisticType)
+	ret0, _ := ret[0].([]*model.WorkloadStatistic)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetWorkloadStatisticsByType indicates an expected call of GetWorkloadStatisticsByType.
+func (mr *MockInterfaceMockRecorder) GetWorkloadStatisticsByType(ctx, statisticType interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWorkloadStatisticsByType", reflect.TypeOf((*MockInterface)(nil).GetWorkloadStatisticsByType), ctx, statisticType)
+}
+
+// GetWorkloadStatisticsByWorkloadID mocks base method.
+func (m *MockInterface) GetWorkloadStatisticsByWorkloadID(ctx context.Context, workloadID string) ([]*model.WorkloadStatistic, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetWorkloadStatisticsByWorkloadID", ctx, workloadID)
+	ret0, _ := ret[0].([]*model.WorkloadStatistic)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetWorkloadStatisticsByWorkloadID indicates an expected call of GetWorkloadStatisticsByWorkloadID.
+func (mr *MockInterfaceMockRecorder) GetWorkloadStatisticsByWorkloadID(ctx, workloadID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWorkloadStatisticsByWorkloadID", reflect.TypeOf((*MockInterface)(nil).GetWorkloadStatisticsByWorkloadID), ctx, workloadID)
+}
+
+// GetWorkloadStatisticsByWorkloadUID mocks base method.
+func (m *MockInterface) GetWorkloadStatisticsByWorkloadUID(ctx context.Context, workloadUID string) ([]*model.WorkloadStatistic, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetWorkloadStatisticsByWorkloadUID", ctx, workloadUID)
+	ret0, _ := ret[0].([]*model.WorkloadStatistic)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetWorkloadStatisticsByWorkloadUID indicates an expected call of GetWorkloadStatisticsByWorkloadUID.
+func (mr *MockInterfaceMockRecorder) GetWorkloadStatisticsByWorkloadUID(ctx, workloadUID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWorkloadStatisticsByWorkloadUID", reflect.TypeOf((*MockInterface)(nil).GetWorkloadStatisticsByWorkloadUID), ctx, workloadUID)
+}
+
+// InsertPlaygroundSession mocks base method.
+func (m *MockInterface) InsertPlaygroundSession(ctx context.Context, session *client.PlaygroundSession) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "InsertPlaygroundSession", ctx, session)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// InsertPlaygroundSession indicates an expected call of InsertPlaygroundSession.
+func (mr *MockInterfaceMockRecorder) InsertPlaygroundSession(ctx, session interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertPlaygroundSession", reflect.TypeOf((*MockInterface)(nil).InsertPlaygroundSession), ctx, session)
 }
 
 // InsertPublicKey mocks base method.
@@ -422,6 +774,21 @@ func (mr *MockInterfaceMockRecorder) SelectImages(ctx, filter interface{}) *gomo
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SelectImages", reflect.TypeOf((*MockInterface)(nil).SelectImages), ctx, filter)
 }
 
+// SelectInferences mocks base method.
+func (m *MockInterface) SelectInferences(ctx context.Context, query squirrel.Sqlizer, orderBy []string, limit, offset int) ([]*client.Inference, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SelectInferences", ctx, query, orderBy, limit, offset)
+	ret0, _ := ret[0].([]*client.Inference)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SelectInferences indicates an expected call of SelectInferences.
+func (mr *MockInterfaceMockRecorder) SelectInferences(ctx, query, orderBy, limit, offset interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SelectInferences", reflect.TypeOf((*MockInterface)(nil).SelectInferences), ctx, query, orderBy, limit, offset)
+}
+
 // SelectJobs mocks base method.
 func (m *MockInterface) SelectJobs(ctx context.Context, query squirrel.Sqlizer, orderBy []string, limit, offset int) ([]*client.OpsJob, error) {
 	m.ctrl.T.Helper()
@@ -435,6 +802,21 @@ func (m *MockInterface) SelectJobs(ctx context.Context, query squirrel.Sqlizer, 
 func (mr *MockInterfaceMockRecorder) SelectJobs(ctx, query, orderBy, limit, offset interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SelectJobs", reflect.TypeOf((*MockInterface)(nil).SelectJobs), ctx, query, orderBy, limit, offset)
+}
+
+// SelectPlaygroundSessions mocks base method.
+func (m *MockInterface) SelectPlaygroundSessions(ctx context.Context, query squirrel.Sqlizer, orderBy []string, limit, offset int) ([]*client.PlaygroundSession, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SelectPlaygroundSessions", ctx, query, orderBy, limit, offset)
+	ret0, _ := ret[0].([]*client.PlaygroundSession)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SelectPlaygroundSessions indicates an expected call of SelectPlaygroundSessions.
+func (mr *MockInterfaceMockRecorder) SelectPlaygroundSessions(ctx, query, orderBy, limit, offset interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SelectPlaygroundSessions", reflect.TypeOf((*MockInterface)(nil).SelectPlaygroundSessions), ctx, query, orderBy, limit, offset)
 }
 
 // SelectPublicKeys mocks base method.
@@ -482,18 +864,46 @@ func (mr *MockInterfaceMockRecorder) SelectWorkloads(ctx, query, orderBy, limit,
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SelectWorkloads", reflect.TypeOf((*MockInterface)(nil).SelectWorkloads), ctx, query, orderBy, limit, offset)
 }
 
-// SetOpsJobDeleted mocks base method.
-func (m *MockInterface) SetOpsJobDeleted(ctx context.Context, opsJobId, userId string) error {
+// SetInferenceDeleted mocks base method.
+func (m *MockInterface) SetInferenceDeleted(ctx context.Context, inferenceId string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SetOpsJobDeleted", ctx, opsJobId, userId)
+	ret := m.ctrl.Call(m, "SetInferenceDeleted", ctx, inferenceId)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetInferenceDeleted indicates an expected call of SetInferenceDeleted.
+func (mr *MockInterfaceMockRecorder) SetInferenceDeleted(ctx, inferenceId interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetInferenceDeleted", reflect.TypeOf((*MockInterface)(nil).SetInferenceDeleted), ctx, inferenceId)
+}
+
+// SetOpsJobDeleted mocks base method.
+func (m *MockInterface) SetOpsJobDeleted(ctx context.Context, opsJobId string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetOpsJobDeleted", ctx, opsJobId)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // SetOpsJobDeleted indicates an expected call of SetOpsJobDeleted.
-func (mr *MockInterfaceMockRecorder) SetOpsJobDeleted(ctx, opsJobId, userId interface{}) *gomock.Call {
+func (mr *MockInterfaceMockRecorder) SetOpsJobDeleted(ctx, opsJobId interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetOpsJobDeleted", reflect.TypeOf((*MockInterface)(nil).SetOpsJobDeleted), ctx, opsJobId, userId)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetOpsJobDeleted", reflect.TypeOf((*MockInterface)(nil).SetOpsJobDeleted), ctx, opsJobId)
+}
+
+// SetPlaygroundSessionDeleted mocks base method.
+func (m *MockInterface) SetPlaygroundSessionDeleted(ctx context.Context, id int64) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetPlaygroundSessionDeleted", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetPlaygroundSessionDeleted indicates an expected call of SetPlaygroundSessionDeleted.
+func (mr *MockInterfaceMockRecorder) SetPlaygroundSessionDeleted(ctx, id interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetPlaygroundSessionDeleted", reflect.TypeOf((*MockInterface)(nil).SetPlaygroundSessionDeleted), ctx, id)
 }
 
 // SetPublicKeyDescription mocks base method.
@@ -608,6 +1018,20 @@ func (mr *MockInterfaceMockRecorder) UpdateImageImportJob(ctx, job interface{}) 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateImageImportJob", reflect.TypeOf((*MockInterface)(nil).UpdateImageImportJob), ctx, job)
 }
 
+// UpdateNodeStatistic mocks base method.
+func (m *MockInterface) UpdateNodeStatistic(ctx context.Context, stat *model.NodeStatistic) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateNodeStatistic", ctx, stat)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateNodeStatistic indicates an expected call of UpdateNodeStatistic.
+func (mr *MockInterfaceMockRecorder) UpdateNodeStatistic(ctx, stat interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateNodeStatistic", reflect.TypeOf((*MockInterface)(nil).UpdateNodeStatistic), ctx, stat)
+}
+
 // UpdateNotification mocks base method.
 func (m *MockInterface) UpdateNotification(ctx context.Context, data *model.Notification) error {
 	m.ctrl.T.Helper()
@@ -620,6 +1044,34 @@ func (m *MockInterface) UpdateNotification(ctx context.Context, data *model.Noti
 func (mr *MockInterfaceMockRecorder) UpdateNotification(ctx, data interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateNotification", reflect.TypeOf((*MockInterface)(nil).UpdateNotification), ctx, data)
+}
+
+// UpdatePlaygroundSession mocks base method.
+func (m *MockInterface) UpdatePlaygroundSession(ctx context.Context, session *client.PlaygroundSession) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdatePlaygroundSession", ctx, session)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdatePlaygroundSession indicates an expected call of UpdatePlaygroundSession.
+func (mr *MockInterfaceMockRecorder) UpdatePlaygroundSession(ctx, session interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdatePlaygroundSession", reflect.TypeOf((*MockInterface)(nil).UpdatePlaygroundSession), ctx, session)
+}
+
+// UpdateWorkloadStatistic mocks base method.
+func (m *MockInterface) UpdateWorkloadStatistic(ctx context.Context, stat *model.WorkloadStatistic) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateWorkloadStatistic", ctx, stat)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateWorkloadStatistic indicates an expected call of UpdateWorkloadStatistic.
+func (mr *MockInterfaceMockRecorder) UpdateWorkloadStatistic(ctx, stat interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateWorkloadStatistic", reflect.TypeOf((*MockInterface)(nil).UpdateWorkloadStatistic), ctx, stat)
 }
 
 // UpsertFault mocks base method.
@@ -678,6 +1130,20 @@ func (mr *MockInterfaceMockRecorder) UpsertImageImportJob(ctx, job interface{}) 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertImageImportJob", reflect.TypeOf((*MockInterface)(nil).UpsertImageImportJob), ctx, job)
 }
 
+// UpsertInference mocks base method.
+func (m *MockInterface) UpsertInference(ctx context.Context, inference *client.Inference) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpsertInference", ctx, inference)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpsertInference indicates an expected call of UpsertInference.
+func (mr *MockInterfaceMockRecorder) UpsertInference(ctx, inference interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertInference", reflect.TypeOf((*MockInterface)(nil).UpsertInference), ctx, inference)
+}
+
 // UpsertJob mocks base method.
 func (m *MockInterface) UpsertJob(ctx context.Context, job *client.OpsJob) error {
 	m.ctrl.T.Helper()
@@ -690,6 +1156,20 @@ func (m *MockInterface) UpsertJob(ctx context.Context, job *client.OpsJob) error
 func (mr *MockInterfaceMockRecorder) UpsertJob(ctx, job interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertJob", reflect.TypeOf((*MockInterface)(nil).UpsertJob), ctx, job)
+}
+
+// UpsertNodeStatistic mocks base method.
+func (m *MockInterface) UpsertNodeStatistic(ctx context.Context, stat *model.NodeStatistic) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpsertNodeStatistic", ctx, stat)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpsertNodeStatistic indicates an expected call of UpsertNodeStatistic.
+func (mr *MockInterfaceMockRecorder) UpsertNodeStatistic(ctx, stat interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertNodeStatistic", reflect.TypeOf((*MockInterface)(nil).UpsertNodeStatistic), ctx, stat)
 }
 
 // UpsertRegistryInfo mocks base method.
@@ -732,6 +1212,20 @@ func (m *MockInterface) UpsertWorkload(ctx context.Context, workload *client.Wor
 func (mr *MockInterfaceMockRecorder) UpsertWorkload(ctx, workload interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertWorkload", reflect.TypeOf((*MockInterface)(nil).UpsertWorkload), ctx, workload)
+}
+
+// UpsertWorkloadStatistic mocks base method.
+func (m *MockInterface) UpsertWorkloadStatistic(ctx context.Context, stat *model.WorkloadStatistic) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpsertWorkloadStatistic", ctx, stat)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpsertWorkloadStatistic indicates an expected call of UpsertWorkloadStatistic.
+func (mr *MockInterfaceMockRecorder) UpsertWorkloadStatistic(ctx, stat interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertWorkloadStatistic", reflect.TypeOf((*MockInterface)(nil).UpsertWorkloadStatistic), ctx, stat)
 }
 
 // MockWorkloadInterface is a mock of WorkloadInterface interface.
@@ -1008,17 +1502,17 @@ func (mr *MockOpsJobInterfaceMockRecorder) SelectJobs(ctx, query, orderBy, limit
 }
 
 // SetOpsJobDeleted mocks base method.
-func (m *MockOpsJobInterface) SetOpsJobDeleted(ctx context.Context, opsJobId, userId string) error {
+func (m *MockOpsJobInterface) SetOpsJobDeleted(ctx context.Context, opsJobId string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SetOpsJobDeleted", ctx, opsJobId, userId)
+	ret := m.ctrl.Call(m, "SetOpsJobDeleted", ctx, opsJobId)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // SetOpsJobDeleted indicates an expected call of SetOpsJobDeleted.
-func (mr *MockOpsJobInterfaceMockRecorder) SetOpsJobDeleted(ctx, opsJobId, userId interface{}) *gomock.Call {
+func (mr *MockOpsJobInterfaceMockRecorder) SetOpsJobDeleted(ctx, opsJobId interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetOpsJobDeleted", reflect.TypeOf((*MockOpsJobInterface)(nil).SetOpsJobDeleted), ctx, opsJobId, userId)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetOpsJobDeleted", reflect.TypeOf((*MockOpsJobInterface)(nil).SetOpsJobDeleted), ctx, opsJobId)
 }
 
 // UpsertJob mocks base method.
@@ -1632,6 +2126,386 @@ func (mr *MockNotificationInterfaceMockRecorder) UpdateNotification(ctx, data in
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateNotification", reflect.TypeOf((*MockNotificationInterface)(nil).UpdateNotification), ctx, data)
 }
 
+// MockWorkloadStatisticInterface is a mock of WorkloadStatisticInterface interface.
+type MockWorkloadStatisticInterface struct {
+	ctrl     *gomock.Controller
+	recorder *MockWorkloadStatisticInterfaceMockRecorder
+}
+
+// MockWorkloadStatisticInterfaceMockRecorder is the mock recorder for MockWorkloadStatisticInterface.
+type MockWorkloadStatisticInterfaceMockRecorder struct {
+	mock *MockWorkloadStatisticInterface
+}
+
+// NewMockWorkloadStatisticInterface creates a new mock instance.
+func NewMockWorkloadStatisticInterface(ctrl *gomock.Controller) *MockWorkloadStatisticInterface {
+	mock := &MockWorkloadStatisticInterface{ctrl: ctrl}
+	mock.recorder = &MockWorkloadStatisticInterfaceMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockWorkloadStatisticInterface) EXPECT() *MockWorkloadStatisticInterfaceMockRecorder {
+	return m.recorder
+}
+
+// CreateWorkloadStatistic mocks base method.
+func (m *MockWorkloadStatisticInterface) CreateWorkloadStatistic(ctx context.Context, stat *model.WorkloadStatistic) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateWorkloadStatistic", ctx, stat)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CreateWorkloadStatistic indicates an expected call of CreateWorkloadStatistic.
+func (mr *MockWorkloadStatisticInterfaceMockRecorder) CreateWorkloadStatistic(ctx, stat interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateWorkloadStatistic", reflect.TypeOf((*MockWorkloadStatisticInterface)(nil).CreateWorkloadStatistic), ctx, stat)
+}
+
+// DeleteWorkloadStatistic mocks base method.
+func (m *MockWorkloadStatisticInterface) DeleteWorkloadStatistic(ctx context.Context, id int32) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteWorkloadStatistic", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteWorkloadStatistic indicates an expected call of DeleteWorkloadStatistic.
+func (mr *MockWorkloadStatisticInterfaceMockRecorder) DeleteWorkloadStatistic(ctx, id interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteWorkloadStatistic", reflect.TypeOf((*MockWorkloadStatisticInterface)(nil).DeleteWorkloadStatistic), ctx, id)
+}
+
+// DeleteWorkloadStatisticsByWorkloadID mocks base method.
+func (m *MockWorkloadStatisticInterface) DeleteWorkloadStatisticsByWorkloadID(ctx context.Context, workloadID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteWorkloadStatisticsByWorkloadID", ctx, workloadID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteWorkloadStatisticsByWorkloadID indicates an expected call of DeleteWorkloadStatisticsByWorkloadID.
+func (mr *MockWorkloadStatisticInterfaceMockRecorder) DeleteWorkloadStatisticsByWorkloadID(ctx, workloadID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteWorkloadStatisticsByWorkloadID", reflect.TypeOf((*MockWorkloadStatisticInterface)(nil).DeleteWorkloadStatisticsByWorkloadID), ctx, workloadID)
+}
+
+// GetWorkloadStatisticByID mocks base method.
+func (m *MockWorkloadStatisticInterface) GetWorkloadStatisticByID(ctx context.Context, id int32) (*model.WorkloadStatistic, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetWorkloadStatisticByID", ctx, id)
+	ret0, _ := ret[0].(*model.WorkloadStatistic)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetWorkloadStatisticByID indicates an expected call of GetWorkloadStatisticByID.
+func (mr *MockWorkloadStatisticInterfaceMockRecorder) GetWorkloadStatisticByID(ctx, id interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWorkloadStatisticByID", reflect.TypeOf((*MockWorkloadStatisticInterface)(nil).GetWorkloadStatisticByID), ctx, id)
+}
+
+// GetWorkloadStatisticByWorkloadID mocks base method.
+func (m *MockWorkloadStatisticInterface) GetWorkloadStatisticByWorkloadID(ctx context.Context, workloadID string) (*model.WorkloadStatistic, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetWorkloadStatisticByWorkloadID", ctx, workloadID)
+	ret0, _ := ret[0].(*model.WorkloadStatistic)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetWorkloadStatisticByWorkloadID indicates an expected call of GetWorkloadStatisticByWorkloadID.
+func (mr *MockWorkloadStatisticInterfaceMockRecorder) GetWorkloadStatisticByWorkloadID(ctx, workloadID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWorkloadStatisticByWorkloadID", reflect.TypeOf((*MockWorkloadStatisticInterface)(nil).GetWorkloadStatisticByWorkloadID), ctx, workloadID)
+}
+
+// GetWorkloadStatisticByWorkloadUID mocks base method.
+func (m *MockWorkloadStatisticInterface) GetWorkloadStatisticByWorkloadUID(ctx context.Context, workloadUID string) (*model.WorkloadStatistic, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetWorkloadStatisticByWorkloadUID", ctx, workloadUID)
+	ret0, _ := ret[0].(*model.WorkloadStatistic)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetWorkloadStatisticByWorkloadUID indicates an expected call of GetWorkloadStatisticByWorkloadUID.
+func (mr *MockWorkloadStatisticInterfaceMockRecorder) GetWorkloadStatisticByWorkloadUID(ctx, workloadUID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWorkloadStatisticByWorkloadUID", reflect.TypeOf((*MockWorkloadStatisticInterface)(nil).GetWorkloadStatisticByWorkloadUID), ctx, workloadUID)
+}
+
+// GetWorkloadStatisticsByClusterAndWorkspace mocks base method.
+func (m *MockWorkloadStatisticInterface) GetWorkloadStatisticsByClusterAndWorkspace(ctx context.Context, cluster, workspace string) ([]*model.WorkloadStatistic, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetWorkloadStatisticsByClusterAndWorkspace", ctx, cluster, workspace)
+	ret0, _ := ret[0].([]*model.WorkloadStatistic)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetWorkloadStatisticsByClusterAndWorkspace indicates an expected call of GetWorkloadStatisticsByClusterAndWorkspace.
+func (mr *MockWorkloadStatisticInterfaceMockRecorder) GetWorkloadStatisticsByClusterAndWorkspace(ctx, cluster, workspace interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWorkloadStatisticsByClusterAndWorkspace", reflect.TypeOf((*MockWorkloadStatisticInterface)(nil).GetWorkloadStatisticsByClusterAndWorkspace), ctx, cluster, workspace)
+}
+
+// GetWorkloadStatisticsByType mocks base method.
+func (m *MockWorkloadStatisticInterface) GetWorkloadStatisticsByType(ctx context.Context, statisticType string) ([]*model.WorkloadStatistic, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetWorkloadStatisticsByType", ctx, statisticType)
+	ret0, _ := ret[0].([]*model.WorkloadStatistic)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetWorkloadStatisticsByType indicates an expected call of GetWorkloadStatisticsByType.
+func (mr *MockWorkloadStatisticInterfaceMockRecorder) GetWorkloadStatisticsByType(ctx, statisticType interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWorkloadStatisticsByType", reflect.TypeOf((*MockWorkloadStatisticInterface)(nil).GetWorkloadStatisticsByType), ctx, statisticType)
+}
+
+// GetWorkloadStatisticsByWorkloadID mocks base method.
+func (m *MockWorkloadStatisticInterface) GetWorkloadStatisticsByWorkloadID(ctx context.Context, workloadID string) ([]*model.WorkloadStatistic, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetWorkloadStatisticsByWorkloadID", ctx, workloadID)
+	ret0, _ := ret[0].([]*model.WorkloadStatistic)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetWorkloadStatisticsByWorkloadID indicates an expected call of GetWorkloadStatisticsByWorkloadID.
+func (mr *MockWorkloadStatisticInterfaceMockRecorder) GetWorkloadStatisticsByWorkloadID(ctx, workloadID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWorkloadStatisticsByWorkloadID", reflect.TypeOf((*MockWorkloadStatisticInterface)(nil).GetWorkloadStatisticsByWorkloadID), ctx, workloadID)
+}
+
+// GetWorkloadStatisticsByWorkloadUID mocks base method.
+func (m *MockWorkloadStatisticInterface) GetWorkloadStatisticsByWorkloadUID(ctx context.Context, workloadUID string) ([]*model.WorkloadStatistic, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetWorkloadStatisticsByWorkloadUID", ctx, workloadUID)
+	ret0, _ := ret[0].([]*model.WorkloadStatistic)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetWorkloadStatisticsByWorkloadUID indicates an expected call of GetWorkloadStatisticsByWorkloadUID.
+func (mr *MockWorkloadStatisticInterfaceMockRecorder) GetWorkloadStatisticsByWorkloadUID(ctx, workloadUID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWorkloadStatisticsByWorkloadUID", reflect.TypeOf((*MockWorkloadStatisticInterface)(nil).GetWorkloadStatisticsByWorkloadUID), ctx, workloadUID)
+}
+
+// UpdateWorkloadStatistic mocks base method.
+func (m *MockWorkloadStatisticInterface) UpdateWorkloadStatistic(ctx context.Context, stat *model.WorkloadStatistic) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateWorkloadStatistic", ctx, stat)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateWorkloadStatistic indicates an expected call of UpdateWorkloadStatistic.
+func (mr *MockWorkloadStatisticInterfaceMockRecorder) UpdateWorkloadStatistic(ctx, stat interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateWorkloadStatistic", reflect.TypeOf((*MockWorkloadStatisticInterface)(nil).UpdateWorkloadStatistic), ctx, stat)
+}
+
+// UpsertWorkloadStatistic mocks base method.
+func (m *MockWorkloadStatisticInterface) UpsertWorkloadStatistic(ctx context.Context, stat *model.WorkloadStatistic) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpsertWorkloadStatistic", ctx, stat)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpsertWorkloadStatistic indicates an expected call of UpsertWorkloadStatistic.
+func (mr *MockWorkloadStatisticInterfaceMockRecorder) UpsertWorkloadStatistic(ctx, stat interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertWorkloadStatistic", reflect.TypeOf((*MockWorkloadStatisticInterface)(nil).UpsertWorkloadStatistic), ctx, stat)
+}
+
+// MockNodeStatisticInterface is a mock of NodeStatisticInterface interface.
+type MockNodeStatisticInterface struct {
+	ctrl     *gomock.Controller
+	recorder *MockNodeStatisticInterfaceMockRecorder
+}
+
+// MockNodeStatisticInterfaceMockRecorder is the mock recorder for MockNodeStatisticInterface.
+type MockNodeStatisticInterfaceMockRecorder struct {
+	mock *MockNodeStatisticInterface
+}
+
+// NewMockNodeStatisticInterface creates a new mock instance.
+func NewMockNodeStatisticInterface(ctrl *gomock.Controller) *MockNodeStatisticInterface {
+	mock := &MockNodeStatisticInterface{ctrl: ctrl}
+	mock.recorder = &MockNodeStatisticInterfaceMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockNodeStatisticInterface) EXPECT() *MockNodeStatisticInterfaceMockRecorder {
+	return m.recorder
+}
+
+// CreateNodeStatistic mocks base method.
+func (m *MockNodeStatisticInterface) CreateNodeStatistic(ctx context.Context, stat *model.NodeStatistic) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateNodeStatistic", ctx, stat)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CreateNodeStatistic indicates an expected call of CreateNodeStatistic.
+func (mr *MockNodeStatisticInterfaceMockRecorder) CreateNodeStatistic(ctx, stat interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateNodeStatistic", reflect.TypeOf((*MockNodeStatisticInterface)(nil).CreateNodeStatistic), ctx, stat)
+}
+
+// DeleteNodeStatistic mocks base method.
+func (m *MockNodeStatisticInterface) DeleteNodeStatistic(ctx context.Context, id int32) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteNodeStatistic", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteNodeStatistic indicates an expected call of DeleteNodeStatistic.
+func (mr *MockNodeStatisticInterfaceMockRecorder) DeleteNodeStatistic(ctx, id interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteNodeStatistic", reflect.TypeOf((*MockNodeStatisticInterface)(nil).DeleteNodeStatistic), ctx, id)
+}
+
+// DeleteNodeStatisticByClusterAndNode mocks base method.
+func (m *MockNodeStatisticInterface) DeleteNodeStatisticByClusterAndNode(ctx context.Context, cluster, nodeName string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteNodeStatisticByClusterAndNode", ctx, cluster, nodeName)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteNodeStatisticByClusterAndNode indicates an expected call of DeleteNodeStatisticByClusterAndNode.
+func (mr *MockNodeStatisticInterfaceMockRecorder) DeleteNodeStatisticByClusterAndNode(ctx, cluster, nodeName interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteNodeStatisticByClusterAndNode", reflect.TypeOf((*MockNodeStatisticInterface)(nil).DeleteNodeStatisticByClusterAndNode), ctx, cluster, nodeName)
+}
+
+// DeleteNodeStatisticsByCluster mocks base method.
+func (m *MockNodeStatisticInterface) DeleteNodeStatisticsByCluster(ctx context.Context, cluster string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteNodeStatisticsByCluster", ctx, cluster)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteNodeStatisticsByCluster indicates an expected call of DeleteNodeStatisticsByCluster.
+func (mr *MockNodeStatisticInterfaceMockRecorder) DeleteNodeStatisticsByCluster(ctx, cluster interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteNodeStatisticsByCluster", reflect.TypeOf((*MockNodeStatisticInterface)(nil).DeleteNodeStatisticsByCluster), ctx, cluster)
+}
+
+// GetNodeGpuUtilizationMap mocks base method.
+func (m *MockNodeStatisticInterface) GetNodeGpuUtilizationMap(ctx context.Context, cluster string, nodeNames []string) (map[string]float64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetNodeGpuUtilizationMap", ctx, cluster, nodeNames)
+	ret0, _ := ret[0].(map[string]float64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetNodeGpuUtilizationMap indicates an expected call of GetNodeGpuUtilizationMap.
+func (mr *MockNodeStatisticInterfaceMockRecorder) GetNodeGpuUtilizationMap(ctx, cluster, nodeNames interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetNodeGpuUtilizationMap", reflect.TypeOf((*MockNodeStatisticInterface)(nil).GetNodeGpuUtilizationMap), ctx, cluster, nodeNames)
+}
+
+// GetNodeStatisticByClusterAndNode mocks base method.
+func (m *MockNodeStatisticInterface) GetNodeStatisticByClusterAndNode(ctx context.Context, cluster, nodeName string) (*model.NodeStatistic, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetNodeStatisticByClusterAndNode", ctx, cluster, nodeName)
+	ret0, _ := ret[0].(*model.NodeStatistic)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetNodeStatisticByClusterAndNode indicates an expected call of GetNodeStatisticByClusterAndNode.
+func (mr *MockNodeStatisticInterfaceMockRecorder) GetNodeStatisticByClusterAndNode(ctx, cluster, nodeName interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetNodeStatisticByClusterAndNode", reflect.TypeOf((*MockNodeStatisticInterface)(nil).GetNodeStatisticByClusterAndNode), ctx, cluster, nodeName)
+}
+
+// GetNodeStatisticByID mocks base method.
+func (m *MockNodeStatisticInterface) GetNodeStatisticByID(ctx context.Context, id int32) (*model.NodeStatistic, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetNodeStatisticByID", ctx, id)
+	ret0, _ := ret[0].(*model.NodeStatistic)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetNodeStatisticByID indicates an expected call of GetNodeStatisticByID.
+func (mr *MockNodeStatisticInterfaceMockRecorder) GetNodeStatisticByID(ctx, id interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetNodeStatisticByID", reflect.TypeOf((*MockNodeStatisticInterface)(nil).GetNodeStatisticByID), ctx, id)
+}
+
+// GetNodeStatisticsByCluster mocks base method.
+func (m *MockNodeStatisticInterface) GetNodeStatisticsByCluster(ctx context.Context, cluster string) ([]*model.NodeStatistic, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetNodeStatisticsByCluster", ctx, cluster)
+	ret0, _ := ret[0].([]*model.NodeStatistic)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetNodeStatisticsByCluster indicates an expected call of GetNodeStatisticsByCluster.
+func (mr *MockNodeStatisticInterfaceMockRecorder) GetNodeStatisticsByCluster(ctx, cluster interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetNodeStatisticsByCluster", reflect.TypeOf((*MockNodeStatisticInterface)(nil).GetNodeStatisticsByCluster), ctx, cluster)
+}
+
+// GetNodeStatisticsByNodeNames mocks base method.
+func (m *MockNodeStatisticInterface) GetNodeStatisticsByNodeNames(ctx context.Context, cluster string, nodeNames []string) ([]*model.NodeStatistic, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetNodeStatisticsByNodeNames", ctx, cluster, nodeNames)
+	ret0, _ := ret[0].([]*model.NodeStatistic)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetNodeStatisticsByNodeNames indicates an expected call of GetNodeStatisticsByNodeNames.
+func (mr *MockNodeStatisticInterfaceMockRecorder) GetNodeStatisticsByNodeNames(ctx, cluster, nodeNames interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetNodeStatisticsByNodeNames", reflect.TypeOf((*MockNodeStatisticInterface)(nil).GetNodeStatisticsByNodeNames), ctx, cluster, nodeNames)
+}
+
+// UpdateNodeStatistic mocks base method.
+func (m *MockNodeStatisticInterface) UpdateNodeStatistic(ctx context.Context, stat *model.NodeStatistic) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateNodeStatistic", ctx, stat)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateNodeStatistic indicates an expected call of UpdateNodeStatistic.
+func (mr *MockNodeStatisticInterfaceMockRecorder) UpdateNodeStatistic(ctx, stat interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateNodeStatistic", reflect.TypeOf((*MockNodeStatisticInterface)(nil).UpdateNodeStatistic), ctx, stat)
+}
+
+// UpsertNodeStatistic mocks base method.
+func (m *MockNodeStatisticInterface) UpsertNodeStatistic(ctx context.Context, stat *model.NodeStatistic) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpsertNodeStatistic", ctx, stat)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpsertNodeStatistic indicates an expected call of UpsertNodeStatistic.
+func (mr *MockNodeStatisticInterfaceMockRecorder) UpsertNodeStatistic(ctx, stat interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertNodeStatistic", reflect.TypeOf((*MockNodeStatisticInterface)(nil).UpsertNodeStatistic), ctx, stat)
+}
+
 // MockUserTokenInterface is a mock of UserTokenInterface interface.
 type MockUserTokenInterface struct {
 	ctrl     *gomock.Controller
@@ -1682,4 +2556,210 @@ func (m *MockUserTokenInterface) UpsertUserToken(ctx context.Context, userToken 
 func (mr *MockUserTokenInterfaceMockRecorder) UpsertUserToken(ctx, userToken interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertUserToken", reflect.TypeOf((*MockUserTokenInterface)(nil).UpsertUserToken), ctx, userToken)
+}
+
+// MockInferenceInterface is a mock of InferenceInterface interface.
+type MockInferenceInterface struct {
+	ctrl     *gomock.Controller
+	recorder *MockInferenceInterfaceMockRecorder
+}
+
+// MockInferenceInterfaceMockRecorder is the mock recorder for MockInferenceInterface.
+type MockInferenceInterfaceMockRecorder struct {
+	mock *MockInferenceInterface
+}
+
+// NewMockInferenceInterface creates a new mock instance.
+func NewMockInferenceInterface(ctrl *gomock.Controller) *MockInferenceInterface {
+	mock := &MockInferenceInterface{ctrl: ctrl}
+	mock.recorder = &MockInferenceInterfaceMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockInferenceInterface) EXPECT() *MockInferenceInterfaceMockRecorder {
+	return m.recorder
+}
+
+// CountInferences mocks base method.
+func (m *MockInferenceInterface) CountInferences(ctx context.Context, query squirrel.Sqlizer) (int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountInferences", ctx, query)
+	ret0, _ := ret[0].(int)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountInferences indicates an expected call of CountInferences.
+func (mr *MockInferenceInterfaceMockRecorder) CountInferences(ctx, query interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountInferences", reflect.TypeOf((*MockInferenceInterface)(nil).CountInferences), ctx, query)
+}
+
+// GetInference mocks base method.
+func (m *MockInferenceInterface) GetInference(ctx context.Context, inferenceId string) (*client.Inference, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetInference", ctx, inferenceId)
+	ret0, _ := ret[0].(*client.Inference)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetInference indicates an expected call of GetInference.
+func (mr *MockInferenceInterfaceMockRecorder) GetInference(ctx, inferenceId interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetInference", reflect.TypeOf((*MockInferenceInterface)(nil).GetInference), ctx, inferenceId)
+}
+
+// SelectInferences mocks base method.
+func (m *MockInferenceInterface) SelectInferences(ctx context.Context, query squirrel.Sqlizer, orderBy []string, limit, offset int) ([]*client.Inference, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SelectInferences", ctx, query, orderBy, limit, offset)
+	ret0, _ := ret[0].([]*client.Inference)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SelectInferences indicates an expected call of SelectInferences.
+func (mr *MockInferenceInterfaceMockRecorder) SelectInferences(ctx, query, orderBy, limit, offset interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SelectInferences", reflect.TypeOf((*MockInferenceInterface)(nil).SelectInferences), ctx, query, orderBy, limit, offset)
+}
+
+// SetInferenceDeleted mocks base method.
+func (m *MockInferenceInterface) SetInferenceDeleted(ctx context.Context, inferenceId string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetInferenceDeleted", ctx, inferenceId)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetInferenceDeleted indicates an expected call of SetInferenceDeleted.
+func (mr *MockInferenceInterfaceMockRecorder) SetInferenceDeleted(ctx, inferenceId interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetInferenceDeleted", reflect.TypeOf((*MockInferenceInterface)(nil).SetInferenceDeleted), ctx, inferenceId)
+}
+
+// UpsertInference mocks base method.
+func (m *MockInferenceInterface) UpsertInference(ctx context.Context, inference *client.Inference) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpsertInference", ctx, inference)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpsertInference indicates an expected call of UpsertInference.
+func (mr *MockInferenceInterfaceMockRecorder) UpsertInference(ctx, inference interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertInference", reflect.TypeOf((*MockInferenceInterface)(nil).UpsertInference), ctx, inference)
+}
+
+// MockPlaygroundSessionInterface is a mock of PlaygroundSessionInterface interface.
+type MockPlaygroundSessionInterface struct {
+	ctrl     *gomock.Controller
+	recorder *MockPlaygroundSessionInterfaceMockRecorder
+}
+
+// MockPlaygroundSessionInterfaceMockRecorder is the mock recorder for MockPlaygroundSessionInterface.
+type MockPlaygroundSessionInterfaceMockRecorder struct {
+	mock *MockPlaygroundSessionInterface
+}
+
+// NewMockPlaygroundSessionInterface creates a new mock instance.
+func NewMockPlaygroundSessionInterface(ctrl *gomock.Controller) *MockPlaygroundSessionInterface {
+	mock := &MockPlaygroundSessionInterface{ctrl: ctrl}
+	mock.recorder = &MockPlaygroundSessionInterfaceMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockPlaygroundSessionInterface) EXPECT() *MockPlaygroundSessionInterfaceMockRecorder {
+	return m.recorder
+}
+
+// CountPlaygroundSessions mocks base method.
+func (m *MockPlaygroundSessionInterface) CountPlaygroundSessions(ctx context.Context, query squirrel.Sqlizer) (int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountPlaygroundSessions", ctx, query)
+	ret0, _ := ret[0].(int)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountPlaygroundSessions indicates an expected call of CountPlaygroundSessions.
+func (mr *MockPlaygroundSessionInterfaceMockRecorder) CountPlaygroundSessions(ctx, query interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountPlaygroundSessions", reflect.TypeOf((*MockPlaygroundSessionInterface)(nil).CountPlaygroundSessions), ctx, query)
+}
+
+// GetPlaygroundSession mocks base method.
+func (m *MockPlaygroundSessionInterface) GetPlaygroundSession(ctx context.Context, id int64) (*client.PlaygroundSession, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetPlaygroundSession", ctx, id)
+	ret0, _ := ret[0].(*client.PlaygroundSession)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetPlaygroundSession indicates an expected call of GetPlaygroundSession.
+func (mr *MockPlaygroundSessionInterfaceMockRecorder) GetPlaygroundSession(ctx, id interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPlaygroundSession", reflect.TypeOf((*MockPlaygroundSessionInterface)(nil).GetPlaygroundSession), ctx, id)
+}
+
+// InsertPlaygroundSession mocks base method.
+func (m *MockPlaygroundSessionInterface) InsertPlaygroundSession(ctx context.Context, session *client.PlaygroundSession) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "InsertPlaygroundSession", ctx, session)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// InsertPlaygroundSession indicates an expected call of InsertPlaygroundSession.
+func (mr *MockPlaygroundSessionInterfaceMockRecorder) InsertPlaygroundSession(ctx, session interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertPlaygroundSession", reflect.TypeOf((*MockPlaygroundSessionInterface)(nil).InsertPlaygroundSession), ctx, session)
+}
+
+// SelectPlaygroundSessions mocks base method.
+func (m *MockPlaygroundSessionInterface) SelectPlaygroundSessions(ctx context.Context, query squirrel.Sqlizer, orderBy []string, limit, offset int) ([]*client.PlaygroundSession, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SelectPlaygroundSessions", ctx, query, orderBy, limit, offset)
+	ret0, _ := ret[0].([]*client.PlaygroundSession)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SelectPlaygroundSessions indicates an expected call of SelectPlaygroundSessions.
+func (mr *MockPlaygroundSessionInterfaceMockRecorder) SelectPlaygroundSessions(ctx, query, orderBy, limit, offset interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SelectPlaygroundSessions", reflect.TypeOf((*MockPlaygroundSessionInterface)(nil).SelectPlaygroundSessions), ctx, query, orderBy, limit, offset)
+}
+
+// SetPlaygroundSessionDeleted mocks base method.
+func (m *MockPlaygroundSessionInterface) SetPlaygroundSessionDeleted(ctx context.Context, id int64) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetPlaygroundSessionDeleted", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetPlaygroundSessionDeleted indicates an expected call of SetPlaygroundSessionDeleted.
+func (mr *MockPlaygroundSessionInterfaceMockRecorder) SetPlaygroundSessionDeleted(ctx, id interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetPlaygroundSessionDeleted", reflect.TypeOf((*MockPlaygroundSessionInterface)(nil).SetPlaygroundSessionDeleted), ctx, id)
+}
+
+// UpdatePlaygroundSession mocks base method.
+func (m *MockPlaygroundSessionInterface) UpdatePlaygroundSession(ctx context.Context, session *client.PlaygroundSession) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdatePlaygroundSession", ctx, session)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdatePlaygroundSession indicates an expected call of UpdatePlaygroundSession.
+func (mr *MockPlaygroundSessionInterfaceMockRecorder) UpdatePlaygroundSession(ctx, session interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdatePlaygroundSession", reflect.TypeOf((*MockPlaygroundSessionInterface)(nil).UpdatePlaygroundSession), ctx, session)
 }
