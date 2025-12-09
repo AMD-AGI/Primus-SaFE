@@ -22,6 +22,15 @@ var wandbMetadataFields = map[string]bool{
 	"updated_at": true,
 }
 
+// tensorflowMetadataFields defines metadata fields in tensorflow data source that are not actual metrics
+var tensorflowMetadataFields = map[string]bool{
+	"step":      true,
+	"wall_time": true,
+	"file":      true,
+	"scalars":   true, // 原始 scalars 结构（用于调试）
+	"texts":     true, // 原始 texts 结构（用于调试）
+}
+
 // MetricInfo represents metric information
 type MetricInfo struct {
 	Name       string   `json:"name"`        // Metric name
@@ -72,8 +81,18 @@ func isMetricField(fieldName string, dataSource string) bool {
 	case "wandb":
 		// wandb data source needs to filter out metadata fields
 		return !wandbMetadataFields[fieldName]
-	case "log", "tensorflow":
-		// All fields in log and tensorflow data sources are metrics
+	case "tensorflow":
+		// tensorflow data source needs to filter out metadata fields and "vs samples" metrics
+		if tensorflowMetadataFields[fieldName] {
+			return false
+		}
+		// 暂时不支持 "vs samples" 和 "vs steps" 视图
+		if strings.Contains(fieldName, " vs samples") || strings.Contains(fieldName, " vs steps") {
+			return false
+		}
+		return true
+	case "log":
+		// All fields in log data source are metrics
 		return true
 	default:
 		// Default: treat all fields as metrics
@@ -352,6 +371,12 @@ func GetMetricsData(ctx *gin.Context) {
 		}
 	}
 
+	// 对 tensorflow 数据源进行去重处理
+	// 移除时间相近但 step 明显不同的重复数据点（多X轴问题）
+	if dataSource == "tensorflow" || (dataSource == "" && len(dataPoints) > 0 && dataPoints[0].DataSource == "tensorflow") {
+		dataPoints = deduplicateTensorflowDataPoints(dataPoints)
+	}
+
 	response := MetricsDataResponse{
 		WorkloadUID: workloadUID,
 		DataSource:  dataSource,
@@ -360,6 +385,108 @@ func GetMetricsData(ctx *gin.Context) {
 	}
 
 	ctx.JSON(200, response)
+}
+
+// deduplicateTensorflowDataPoints removes duplicate data points from TensorFlow data source
+// that have similar timestamps but significantly different iteration values (multi x-axis issue)
+func deduplicateTensorflowDataPoints(dataPoints []MetricDataPoint) []MetricDataPoint {
+	if len(dataPoints) == 0 {
+		return dataPoints
+	}
+
+	// 按 metric_name 分组
+	metricGroups := make(map[string][]MetricDataPoint)
+	for _, dp := range dataPoints {
+		metricGroups[dp.MetricName] = append(metricGroups[dp.MetricName], dp)
+	}
+
+	result := make([]MetricDataPoint, 0, len(dataPoints))
+
+	// 对每个 metric 进行去重
+	for metricName, points := range metricGroups {
+		if len(points) == 0 {
+			continue
+		}
+
+		// 按时间戳排序
+		sortedPoints := make([]MetricDataPoint, len(points))
+		copy(sortedPoints, points)
+		// 简单冒泡排序（数据量通常不大）
+		for i := 0; i < len(sortedPoints); i++ {
+			for j := i + 1; j < len(sortedPoints); j++ {
+				if sortedPoints[i].Timestamp > sortedPoints[j].Timestamp {
+					sortedPoints[i], sortedPoints[j] = sortedPoints[j], sortedPoints[i]
+				}
+			}
+		}
+
+		// 去重：对于时间相近的数据点，只保留 iteration 较小的
+		kept := make([]bool, len(sortedPoints))
+		for i := 0; i < len(sortedPoints); i++ {
+			kept[i] = true
+		}
+
+		const timeWindowMs = 10000           // 10秒时间窗口
+		const iterationRatioThreshold = 10.0 // iteration 相差10倍以上认为是重复
+
+		for i := 0; i < len(sortedPoints); i++ {
+			if !kept[i] {
+				continue
+			}
+
+			// 检查后续的数据点
+			for j := i + 1; j < len(sortedPoints); j++ {
+				if !kept[j] {
+					continue
+				}
+
+				// 时间差异超过窗口，后续的点肯定也超过
+				timeDiff := sortedPoints[j].Timestamp - sortedPoints[i].Timestamp
+				if timeDiff > timeWindowMs {
+					break
+				}
+
+				// 时间相近，检查 iteration
+				iter1 := float64(sortedPoints[i].Iteration)
+				iter2 := float64(sortedPoints[j].Iteration)
+
+				if iter1 == 0 || iter2 == 0 {
+					continue
+				}
+
+				ratio := iter2 / iter1
+				if ratio < 1 {
+					ratio = 1 / ratio
+				}
+
+				// 如果 iteration 相差很大（可能是 samples vs iteration），保留较小的
+				if ratio >= iterationRatioThreshold {
+					if sortedPoints[i].Iteration < sortedPoints[j].Iteration {
+						kept[j] = false
+					} else {
+						kept[i] = false
+						break // i 已被标记为不保留，跳出内层循环
+					}
+				}
+			}
+		}
+
+		// 收集保留的数据点
+		keptCount := 0
+		for i, point := range sortedPoints {
+			if kept[i] {
+				result = append(result, point)
+				keptCount++
+			}
+		}
+
+		// 记录去重信息（用于调试）
+		if keptCount < len(sortedPoints) {
+			_ = metricName // 避免未使用变量警告
+		}
+	}
+
+	return result
 }
 
 // GetIterationTimes retrieves time information for each iteration
@@ -489,6 +616,11 @@ func GetIterationTimes(ctx *gin.Context) {
 				DataSource: info.DataSource,
 			})
 		}
+	}
+
+	// 对 tensorflow 数据源进行去重处理
+	if dataSource == "tensorflow" || (dataSource == "" && len(dataPoints) > 0 && dataPoints[0].DataSource == "tensorflow") {
+		dataPoints = deduplicateTensorflowDataPoints(dataPoints)
 	}
 
 	response := MetricsDataResponse{
