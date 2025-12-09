@@ -592,6 +592,9 @@ func updateCICDGithub(adminWorkload *v1.Workload, obj *unstructured.Unstructured
 	if !ok {
 		return fmt.Errorf("failed to find object with path: [spec]")
 	}
+	if adminWorkload.Spec.Env[common.GithubSecretId] == "" || adminWorkload.Spec.Env[common.GithubConfigUrl] == "" {
+		return commonerrors.NewInternalError("github config is not set")
+	}
 
 	specObject["githubConfigSecret"] = adminWorkload.Spec.Env[common.GithubSecretId]
 	specObject["githubConfigUrl"] = adminWorkload.Spec.Env[common.GithubConfigUrl]

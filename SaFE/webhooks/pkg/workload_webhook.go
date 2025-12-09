@@ -679,7 +679,7 @@ func (v *WorkloadValidator) validateCICDScalingRunnerSet(workload *v1.Workload) 
 	if len(v1.GetDisplayName(workload)) > MaxCICDScaleSetNameLen {
 		return fmt.Errorf("the displayName is too long, maximum length is %d characters", MaxCICDScaleSetNameLen)
 	}
-	keys := []string{ResourcesEnv, EntrypointEnv, ImageEnv, common.GithubConfigUrl}
+	keys := []string{ResourcesEnv, EntrypointEnv, ImageEnv, common.GithubConfigUrl, common.GithubSecretId}
 	for _, key := range keys {
 		if val, ok := workload.Spec.Env[key]; !ok || val == "" {
 			return fmt.Errorf("the %s of workload environment variables is empty", key)
