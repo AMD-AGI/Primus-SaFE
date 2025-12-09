@@ -24,7 +24,6 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/controller"
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
-	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 )
 
 const (
@@ -107,13 +106,10 @@ func (r *ClusterInformer) ClientFactory() *commonclient.ClientFactory {
 }
 
 // GetResourceInformer retrieves the resource informer for a given GVK.
-func (r *ClusterInformer) GetResourceInformer(ctx context.Context, gvk schema.GroupVersionKind) (informers.GenericInformer, error) {
+func (r *ClusterInformer) GetResourceInformer(_ context.Context, gvk schema.GroupVersionKind) (informers.GenericInformer, error) {
 	informer := r.getResourceInformer(gvk)
 	if informer != nil {
 		return informer.GenericInformer, nil
-	}
-	if _, err := commonworkload.GetResourceTemplate(ctx, r.adminClient, gvk); err != nil {
-		return nil, err
 	}
 	return nil, fmt.Errorf("failed to find informer, gvk: %v", gvk)
 }

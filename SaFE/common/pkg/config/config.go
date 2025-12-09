@@ -375,11 +375,6 @@ func GetIngress() string {
 	return getString(ingress, "")
 }
 
-// GetHigressNodePort returns the node port of higress gateway
-func GetHigressNodePort() int {
-	return getInt(higressNodePort, 0)
-}
-
 func IsSSOEnable() bool {
 	return getBool(ssoEnable, false)
 }

@@ -2,6 +2,7 @@
 import base64
 import json
 import os
+import signal
 import sys
 import time
 import atexit
@@ -241,12 +242,35 @@ def main() -> int:
         print(f"[info] workload created: {workload_id}")
         # Register stop on exit unless workload already reached terminal phase
         finished = {"done": False}
-        def _stop_on_exit() -> None:
+        cleanup_called = {"done": False}
+
+        def _do_cleanup(signum: Optional[int] = None, frame: Optional[object] = None) -> None:
+            # Avoid running cleanup multiple times
+            if cleanup_called["done"]:
+                return
+            cleanup_called["done"] = True
+            if signum is not None:
+                sig_name = signal.Signals(signum).name if hasattr(signal, 'Signals') else str(signum)
+                print(f"[info] received signal {sig_name}, cleaning up...")
             if not finished["done"]:
                 print(f"[info] stopping workload on exit: {workload_id}")
                 stop_workload(session, base_url, workload_id)
-        atexit.register(_stop_on_exit)
-        print("[info] stop-on-exit handler registered")
+                # Write output as Failed when killed by signal
+                if signum is not None:
+                    try:
+                        write_output(output_path, "Failed")
+                        print(f"[info] wrote 'Failed' to {output_path} due to signal")
+                    except Exception as e:
+                        print(f"[warn] failed to write output on signal: {e}", file=sys.stderr)
+            if signum is not None:
+                sys.exit(1)
+
+        # Register for normal exit
+        atexit.register(_do_cleanup)
+        # Register for signals (SIGTERM is sent by docker stop/k8s pod termination, SIGINT is Ctrl+C)
+        signal.signal(signal.SIGTERM, _do_cleanup)
+        signal.signal(signal.SIGINT, _do_cleanup)
+        print("[info] cleanup handlers registered (atexit, SIGTERM, SIGINT)")
     except Exception as e:
         print(f"[error] create workload failed: {e}", file=sys.stderr)
         write_output(output_path, "Failed")

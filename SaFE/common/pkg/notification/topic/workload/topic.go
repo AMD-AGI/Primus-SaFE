@@ -13,11 +13,12 @@ import (
 	"strings"
 	"time"
 
+	"k8s.io/klog/v2"
+
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/notification/model"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
-	"k8s.io/klog/v2"
 )
 
 type Topic struct {
