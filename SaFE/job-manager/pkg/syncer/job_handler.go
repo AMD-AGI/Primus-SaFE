@@ -11,6 +11,7 @@ import (
 	"reflect"
 	"time"
 
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -34,8 +35,14 @@ const (
 // Manages the lifecycle of workload resources and handles failure scenarios.
 func (r *SyncerReconciler) handleJob(ctx context.Context, message *resourceMessage, informer *ClusterInformer) (ctrlruntime.Result, error) {
 	adminWorkload, err := r.getAdminWorkload(ctx, message.workloadId)
-	if adminWorkload == nil || adminWorkload.IsEnd() {
+	if err != nil {
 		return ctrlruntime.Result{}, err
+	}
+	if adminWorkload.IsEnd() || message.namespace != adminWorkload.Spec.Workspace {
+		return ctrlruntime.Result{}, nil
+	}
+	if commonworkload.IsCICDScalingRunnerSet(adminWorkload) && message.gvk.Kind != common.CICDScaleRunnerSetKind {
+		return ctrlruntime.Result{}, nil
 	}
 	if !v1.IsWorkloadDispatched(adminWorkload) {
 		return ctrlruntime.Result{RequeueAfter: time.Second}, nil
@@ -163,7 +170,7 @@ func (r *SyncerReconciler) updateAdminWorkloadStatus(ctx context.Context, origin
 		return originalWorkload, nil
 	}
 	adminWorkload := originalWorkload.DeepCopy()
-	if commonworkload.IsCICDScalingRunnerSet(adminWorkload) {
+	if commonworkload.IsCICDScalingRunnerSet(adminWorkload) && status.RunnerScaleSetId != "" {
 		if adminWorkload.Status.RunnerScaleSetId != status.RunnerScaleSetId {
 			patch := client.MergeFrom(originalWorkload)
 			adminWorkload.Status.RunnerScaleSetId = status.RunnerScaleSetId
