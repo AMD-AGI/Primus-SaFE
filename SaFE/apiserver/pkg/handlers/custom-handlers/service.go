@@ -71,7 +71,7 @@ func (h *Handler) getWorkloadService(c *gin.Context) (interface{}, error) {
 		".svc.cluster.local:" + strconv.Itoa(int(service.Spec.Ports[0].Port))
 	result.InternalDomain = internalDomain
 	if commonconfig.GetIngress() == common.HigressClassname && commonconfig.GetSystemHost() != "" {
-		result.ExternalDomain = "http://" + commonconfig.GetSystemHost() +
+		result.ExternalDomain = "https://" + commonconfig.GetSystemHost() +
 			"/" + v1.GetClusterId(adminWorkload) + "/" + adminWorkload.Spec.Workspace + "/" + adminWorkload.Name
 	}
 	return result, nil
