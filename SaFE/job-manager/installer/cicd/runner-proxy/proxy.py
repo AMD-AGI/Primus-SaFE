@@ -10,12 +10,11 @@ import os
 import shutil
 import signal
 import sys
-import time
 import threading
+import time
 from typing import Any, Dict, Optional, Tuple
 
 import requests
-
 
 # Global cleanup context - set after workload creation
 _cleanup_context: Dict[str, Any] = {
@@ -50,8 +49,6 @@ def _do_cleanup() -> None:
                 resp = session.post(url, timeout=10)  # Shorter timeout for cleanup
                 if resp.status_code >= 300:
                     print(f"[warn] stop workload failed: HTTP {resp.status_code} {resp.text}", file=sys.stderr)
-                else:
-                    print(f"[info] workload {workload_id} stop request sent", file=sys.stderr)
             except Exception as e:
                 print(f"[warn] stop workload exception: {e}", file=sys.stderr)
 
