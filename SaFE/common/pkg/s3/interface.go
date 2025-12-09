@@ -30,4 +30,5 @@ type Interface interface {
 	DeleteObject(ctx context.Context, key string, timeout int64) error
 
 	GeneratePresignedURL(ctx context.Context, key string, expireHour int32) (string, error)
+	PresignModelFiles(ctx context.Context, prefix string, expireHour int32) (map[string]string, error)
 }
