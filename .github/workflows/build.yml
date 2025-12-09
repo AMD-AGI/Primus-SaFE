@@ -194,7 +194,7 @@ jobs:
         echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
   build:
     needs: detect-changes
-    runs-on: test-safe-cicd3-jpnch
+    runs-on: test-safe-cicd6-757gb
     timeout-minutes: 60
     outputs:
       primary_tag: ${{ steps.build-and-push.outputs.primary_tag }}
