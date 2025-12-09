@@ -82,8 +82,6 @@ func (p *EventParser) ParseEventsWithBuffer(buffer []byte) ([]*ParsedEvent, int,
 		}
 
 		if err != nil {
-			// 解析错误，可能是数据损坏
-			log.Warnf("Failed to parse event at offset %d: %v, skipping", offset, err)
 			// 尝试跳过一些字节继续
 			if consumed > 0 {
 				offset += consumed

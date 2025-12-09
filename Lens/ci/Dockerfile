@@ -2,6 +2,7 @@ ARG GO_VERSION=1.24.7
 ARG BUILDPATH
 ARG APPNAME
 ARG BASEPATH
+ARG GOPROXY=https://proxy.golang.org,direct
 
 FROM golang:${GO_VERSION} AS builder
 WORKDIR /app
@@ -10,9 +11,11 @@ ARG GITHUB_TOKEN
 ARG BASEPATH
 ARG BUILDPATH
 ARG APPNAME
+ARG GOPROXY
 ENV BUILDPATH=${BUILDPATH}
 ENV APPNAME=${APPNAME}
 ENV BASEPATH=${BASEPATH}
+ENV GOPROXY=${GOPROXY}
 
 ENV GOPRIVATE="github.com/AMD-AGI/*"
 SHELL ["/bin/bash", "-c"]
@@ -20,12 +23,13 @@ SHELL ["/bin/bash", "-c"]
 RUN echo "✅ GOPRIVATE=$GOPRIVATE" && \
     echo "✅ BUILDPATH=$BUILDPATH" && \
     echo "✅ BASEPATH=$BASEPATH" && \
-    echo "✅ APPNAME=$APPNAME"
+    echo "✅ APPNAME=$APPNAME" && \
+    echo "✅ GOPROXY=$GOPROXY"
     
 RUN echo "BUILDPATH: $BUILDPATH" && \
     echo "BASEPATH: $BASEPATH" && \
-        echo "APPNAME: $APPNAME" && \
-        echo "GOPROXY: $GOPROXY"
+    echo "APPNAME: $APPNAME" && \
+    echo "GOPROXY: $GOPROXY"
 
 COPY . .
 
