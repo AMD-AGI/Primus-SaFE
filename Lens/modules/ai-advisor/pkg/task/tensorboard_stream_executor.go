@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/hyperparameters"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/tensorboard"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/constant"
@@ -31,6 +32,12 @@ type TensorBoardStreamExecutor struct {
 	trainingFacade database.TrainingFacadeInterface
 	nodeFacade     database.NodeFacadeInterface
 	eventParser    *tensorboard.EventParser
+
+	// Hyperparameters collection
+	hpCollector      *hyperparameters.Collector
+	hpStorage        *hyperparameters.Storage
+	hpCollected      bool       // 标志位：是否已收集过超参数
+	hpCollectedMutex sync.Mutex // 保护 hpCollected 的互斥锁
 
 	// 文件读取状态管理（每个文件维护一个状态）
 	fileStates map[string]*FileStreamState
@@ -82,6 +89,9 @@ func NewTensorBoardStreamExecutor() *TensorBoardStreamExecutor {
 		trainingFacade: database.NewTrainingFacade(),
 		nodeFacade:     database.NewNodeFacade(),
 		eventParser:    tensorboard.NewEventParser(),
+		hpCollector:    hyperparameters.NewCollector(),
+		hpStorage:      hyperparameters.NewStorage(),
+		hpCollected:    false,
 		fileStates:     make(map[string]*FileStreamState),
 	}
 }
@@ -473,7 +483,7 @@ func (e *TensorBoardStreamExecutor) readAndParseFile(
 // aggregatedStepData 聚合同一个 iteration 的所有数据
 type aggregatedStepData struct {
 	Step     int64              // iteration (统一后的主维度)
-	WallTime float64             // 时间戳
+	WallTime float64            // 时间戳
 	Scalars  map[string]float32 // 包含 samples 字段
 	Texts    map[string]string  // 配置元数据
 	Tags     []string           // 所有 tag 列表
@@ -494,7 +504,7 @@ func (e *TensorBoardStreamExecutor) extractBatchSize(events []*tensorboard.Parse
 			}
 		}
 	}
-	
+
 	// 从 scalar 中查找
 	for _, event := range events {
 		if batchSize, ok := event.Scalars["batch-size"]; ok && batchSize > 0 {
@@ -504,7 +514,7 @@ func (e *TensorBoardStreamExecutor) extractBatchSize(events []*tensorboard.Parse
 			return int64(batchSize)
 		}
 	}
-	
+
 	// 默认值：128（LLM 训练常见值）
 	return 128
 }
@@ -516,13 +526,13 @@ func (e *TensorBoardStreamExecutor) normalizeStep(step int64, batchSize int64) (
 	if step < 100000 {
 		return step, step * batchSize
 	}
-	
+
 	// 策略2：如果 step 能被 batch_size 整除，认为是 samples
 	if batchSize > 0 && step%batchSize == 0 {
 		iteration := step / batchSize
 		return iteration, step
 	}
-	
+
 	// 策略3：step 很大但不能整除，可能是自定义维度，保持原样
 	// 这种情况较少见，假设是 iteration
 	log.Debugf("Ambiguous step value %d (batch_size=%d), treating as iteration", step, batchSize)
@@ -533,10 +543,10 @@ func (e *TensorBoardStreamExecutor) normalizeStep(step int64, batchSize int64) (
 func (e *TensorBoardStreamExecutor) cleanTagName(tag string) string {
 	// 去掉 " vs samples" 后缀
 	tag = strings.TrimSuffix(tag, " vs samples")
-	
+
 	// 去掉 " vs steps" 后缀
 	tag = strings.TrimSuffix(tag, " vs steps")
-	
+
 	return tag
 }
 
@@ -576,19 +586,22 @@ func (e *TensorBoardStreamExecutor) storeEvents(
 	filePath string,
 	events []*tensorboard.ParsedEvent,
 ) {
+	// Step 0: 尝试提取超参数（只在首次遇到包含超参数的事件时执行）
+	e.tryCollectHyperparameters(ctx, task, filePath, events)
+
 	// Step 1: 提取 batch_size（用于判断和转换 step）
 	batchSize := e.extractBatchSize(events)
-	
+
 	// Step 2: 按 iteration 聚合所有事件的数据（统一 step 维度）
 	iterationAggregated := make(map[int64]*aggregatedStepData)
 
 	for _, event := range events {
 		// 智能判断 step 类型并转换为 iteration
 		iteration, samples := e.normalizeStep(event.Step, batchSize)
-		
+
 		if iterationAggregated[iteration] == nil {
 			iterationAggregated[iteration] = &aggregatedStepData{
-				Step:     iteration,  // 使用 iteration 作为主 step
+				Step:     iteration, // 使用 iteration 作为主 step
 				WallTime: event.WallTime,
 				Scalars:  make(map[string]float32),
 				Texts:    make(map[string]string),
@@ -620,7 +633,7 @@ func (e *TensorBoardStreamExecutor) storeEvents(
 		if existingSamples, ok := agg.Scalars["samples"]; !ok || float32(samples) > existingSamples {
 			agg.Scalars["samples"] = float32(samples)
 		}
-		
+
 		// 使用最新的 wall_time
 		if event.WallTime > agg.WallTime {
 			agg.WallTime = event.WallTime
@@ -639,9 +652,9 @@ func (e *TensorBoardStreamExecutor) storeEvents(
 
 		// 构建 performance JSON，包含所有维度和指标
 		performance := model.ExtType{
-			"iteration": iteration,                    // 主维度
-			"samples":   agg.Scalars["samples"],       // 累计样本数
-			"wall_time": agg.WallTime,                 // 时间戳
+			"iteration": iteration,              // 主维度
+			"samples":   agg.Scalars["samples"], // 累计样本数
+			"wall_time": agg.WallTime,           // 时间戳
 			"file":      filePath,
 		}
 
@@ -1025,5 +1038,94 @@ func (e *TensorBoardStreamExecutor) saveMetadata(fileState *FileStreamState) {
 		log.Warnf("Failed to write metadata to %s: %v", metaPath, err)
 	} else {
 		log.Debugf("Saved metadata to %s", metaPath)
+	}
+}
+
+// tryCollectHyperparameters 尝试从 TensorBoard 事件中提取超参数
+// 只在首次遇到包含超参数的事件时执行（通常是 step=0 的文本事件）
+func (e *TensorBoardStreamExecutor) tryCollectHyperparameters(
+	ctx context.Context,
+	task *model.WorkloadTaskState,
+	filePath string,
+	events []*tensorboard.ParsedEvent,
+) {
+	// 快速检查：是否已经收集过
+	e.hpCollectedMutex.Lock()
+	if e.hpCollected {
+		e.hpCollectedMutex.Unlock()
+		return
+	}
+
+	// 检查是否有包含超参数的事件
+	hasHyperparams := false
+	for _, event := range events {
+		// 超参数通常在 step=0 且包含文本数据
+		if event.Step == 0 && len(event.Texts) > 0 {
+			hasHyperparams = true
+			break
+		}
+	}
+
+	if !hasHyperparams {
+		e.hpCollectedMutex.Unlock()
+		return
+	}
+
+	// 标记为已收集（避免重复）
+	e.hpCollected = true
+	e.hpCollectedMutex.Unlock()
+
+	log.Infof("Detected hyperparameters in TensorBoard events, starting collection for workload %s", task.WorkloadUID)
+
+	// 提取 log_dir
+	logDir := ""
+	if logDirVal, ok := task.Ext["log_dir"]; ok {
+		if logDirStr, ok := logDirVal.(string); ok {
+			logDir = logDirStr
+		}
+	}
+
+	// 准备收集选项
+	opts := hyperparameters.CollectionOptions{
+		TensorBoardEvents: events,
+		TensorBoardLogDir: logDir,
+	}
+
+	// 收集超参数
+	hparams, err := e.hpCollector.CollectAll(ctx, task.WorkloadUID, opts)
+	if err != nil {
+		log.Errorf("Failed to collect hyperparameters for workload %s: %v", task.WorkloadUID, err)
+		return
+	}
+
+	if len(hparams.Merged) == 0 {
+		log.Warnf("No hyperparameters extracted for workload %s", task.WorkloadUID)
+		return
+	}
+
+	log.Infof("Collected %d hyperparameters from %d sources for workload %s",
+		len(hparams.Merged), len(hparams.Sources), task.WorkloadUID)
+
+	// 存储到 workload annotations
+	if err := e.hpStorage.Save(ctx, hparams); err != nil {
+		log.Errorf("Failed to save hyperparameters for workload %s: %v", task.WorkloadUID, err)
+		return
+	}
+
+	log.Infof("Successfully saved hyperparameters to workload %s annotations (version %d, %d parameters)",
+		task.WorkloadUID, hparams.Version, len(hparams.Merged))
+
+	// 记录关键超参数到日志
+	if hparams.Summary.LearningRate != nil {
+		log.Infof("  Learning Rate: %v", hparams.Summary.LearningRate)
+	}
+	if hparams.Summary.GlobalBatchSize != nil {
+		log.Infof("  Global Batch Size: %v", hparams.Summary.GlobalBatchSize)
+	}
+	if hparams.Summary.NumLayers != nil {
+		log.Infof("  Num Layers: %v", hparams.Summary.NumLayers)
+	}
+	if hparams.Summary.Framework != "" {
+		log.Infof("  Framework: %s", hparams.Summary.Framework)
 	}
 }
