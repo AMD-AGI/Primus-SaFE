@@ -84,7 +84,7 @@ signal.signal(signal.SIGINT, _signal_handler)
 # Also register atexit as a fallback for normal exits
 atexit.register(_do_cleanup)
 
-timeout_secs = 36000
+timeout_secs = 10800
 
 def getenv_str(name: str, default: Optional[str] = None) -> Optional[str]:
     val = os.environ.get(name)
