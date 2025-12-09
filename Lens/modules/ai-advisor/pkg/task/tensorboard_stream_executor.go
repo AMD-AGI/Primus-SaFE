@@ -470,6 +470,15 @@ func (e *TensorBoardStreamExecutor) readAndParseFile(
 	}
 }
 
+// aggregatedStepData 聚合同一个 step 的所有数据
+type aggregatedStepData struct {
+	Step     int64
+	WallTime float64
+	Scalars  map[string]float32
+	Texts    map[string]string
+	Tags     []string
+}
+
 // countScalars counts total number of scalar metrics in events
 func (e *TensorBoardStreamExecutor) countScalars(events []*tensorboard.ParsedEvent) int {
 	count := 0
@@ -496,59 +505,148 @@ func (e *TensorBoardStreamExecutor) storeEvents(
 	filePath string,
 	events []*tensorboard.ParsedEvent,
 ) {
+	// Step 1: 按 step 聚合所有事件的数据
+	stepAggregated := make(map[int64]*aggregatedStepData)
+
+	for _, event := range events {
+		step := event.Step
+		if stepAggregated[step] == nil {
+			stepAggregated[step] = &aggregatedStepData{
+				Step:     step,
+				WallTime: event.WallTime,
+				Scalars:  make(map[string]float32),
+				Texts:    make(map[string]string),
+				Tags:     make([]string, 0),
+			}
+		}
+
+		agg := stepAggregated[step]
+
+		// 合并 scalars
+		for tag, value := range event.Scalars {
+			agg.Scalars[tag] = value
+			if !contains(agg.Tags, tag) {
+				agg.Tags = append(agg.Tags, tag)
+			}
+		}
+
+		// 合并 texts
+		for tag, text := range event.Texts {
+			agg.Texts[tag] = text
+			if !contains(agg.Tags, tag) {
+				agg.Tags = append(agg.Tags, tag)
+			}
+		}
+
+		// 使用最新的 wall_time
+		if event.WallTime > agg.WallTime {
+			agg.WallTime = event.WallTime
+		}
+	}
+
+	// Step 2: 存储聚合后的数据
 	successCount := 0
 	duplicateCount := 0
 
-	for _, event := range events {
-		if !event.IsScalarEvent() {
+	for step, agg := range stepAggregated {
+		// 只存储有数据的 step
+		if len(agg.Scalars) == 0 && len(agg.Texts) == 0 {
 			continue
 		}
 
-		// 合并所有 scalars 到一个 performance 记录中
+		// 构建 performance JSON，包含所有指标
 		performance := model.ExtType{
-			"wall_time": event.WallTime,
-			"step":      event.Step,
-			"scalars":   event.Scalars,
-			"tags":      event.Tags,
+			"step":      step,
+			"wall_time": agg.WallTime,
 			"file":      filePath,
+		}
+
+		// 将 scalars 和 texts 的内容展平到 performance 根级别
+		for tag, value := range agg.Scalars {
+			performance[tag] = value
+		}
+		for tag, text := range agg.Texts {
+			performance[tag] = text
+		}
+
+		// 保留原始的 scalars 和 texts 结构（可选）
+		if len(agg.Scalars) > 0 {
+			performance["scalars"] = agg.Scalars
+		}
+		if len(agg.Texts) > 0 {
+			performance["texts"] = agg.Texts
 		}
 
 		trainingPerf := &model.TrainingPerformance{
 			WorkloadUID: task.WorkloadUID,
 			PodUUID:     gpuPod.UID,
 			Performance: performance,
-			Iteration:   int32(event.Step),
+			Iteration:   int32(step),
 			Serial:      0,
 			DataSource:  "tensorflow",
 			CreatedAt:   time.Now(),
 		}
 
-		// 检查是否已存在（防止重复插入）
+		// 检查是否已存在
 		existing, err := e.trainingFacade.GetTrainingPerformanceByWorkloadIdSerialAndIteration(
-			ctx, task.WorkloadUID, 0, int(event.Step))
+			ctx, task.WorkloadUID, 0, int(step))
 
 		if err != nil {
-			log.Warnf("Failed to check existing record for step %d: %v", event.Step, err)
-		} else if existing != nil {
-			duplicateCount++
-			if duplicateCount <= 3 {
-				log.Debugf("Skipping duplicate event: step=%d", event.Step)
-			}
+			log.Warnf("Failed to check existing record for step %d: %v", step, err)
 			continue
 		}
 
-		// 存储到数据库
-		err = e.trainingFacade.CreateTrainingPerformance(ctx, trainingPerf)
-		if err != nil {
-			if strings.Contains(err.Error(), "duplicate") || strings.Contains(err.Error(), "unique") {
-				duplicateCount++
+		if existing != nil {
+			// 记录已存在，合并新数据到现有记录
+			existingPerf := existing.Performance
+			if existingPerf == nil {
+				existingPerf = make(model.ExtType)
+			}
+
+			mergedCount := 0
+			newCount := 0
+
+			// 合并新数据（新值会覆盖旧值）
+			for key, value := range performance {
+				if _, exists := existingPerf[key]; exists {
+					mergedCount++
+				} else {
+					newCount++
+				}
+				existingPerf[key] = value
+			}
+
+			// 更新记录（UpdateTrainingPerformance 会保留原始的 CreatedAt）
+			existing.Performance = existingPerf
+
+			err = e.trainingFacade.UpdateTrainingPerformance(ctx, existing)
+			if err != nil {
+				log.Warnf("Failed to merge training performance for step %d: %v", step, err)
 			} else {
-				log.Warnf("Failed to store training performance for step %d: %v", event.Step, err)
+				successCount++
+				if successCount <= 5 {
+					log.Debugf("Merged performance for step=%d: %d updated, %d new (total=%d metrics)",
+						step, mergedCount, newCount, len(existingPerf))
+				}
 			}
 		} else {
-			successCount++
-			if successCount <= 5 {
-				log.Debugf("Stored training performance: step=%d, scalars=%v", event.Step, event.Scalars)
+			// 记录不存在，创建新记录
+			err = e.trainingFacade.CreateTrainingPerformance(ctx, trainingPerf)
+			if err != nil {
+				if strings.Contains(err.Error(), "duplicate") || strings.Contains(err.Error(), "unique") {
+					duplicateCount++
+					if duplicateCount <= 3 {
+						log.Debugf("Race condition: step %d was created by another process", step)
+					}
+				} else {
+					log.Warnf("Failed to store training performance for step %d: %v", step, err)
+				}
+			} else {
+				successCount++
+				if successCount <= 5 {
+					log.Debugf("Created performance for step=%d: %d metrics (scalars=%d, texts=%d)",
+						step, len(agg.Scalars)+len(agg.Texts), len(agg.Scalars), len(agg.Texts))
+				}
 			}
 		}
 	}
