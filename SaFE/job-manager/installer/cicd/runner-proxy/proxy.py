@@ -289,8 +289,8 @@ def build_session() -> Tuple[requests.Session, str]:
 def create_workload(s: requests.Session, base_url: str, payload: Dict[str, Any]) -> str:
     url = f"{base_url}/api/v1/workloads"
     body = json.dumps(payload, ensure_ascii=False)
-    print(f"[debug] POST {url}")
-    print(f"[debug] body: {body}")
+    print(f"[debug] POST {url}", flush=True)
+    print(f"[debug] body: {body}", flush=True)
     resp = s.post(url, data=body, timeout=30)
     if resp.status_code >= 300:
         raise RuntimeError(f"CreateWorkload failed: HTTP {resp.status_code} {resp.text}")
@@ -316,7 +316,7 @@ def stop_workload(s: requests.Session, base_url: str, workload_id: str) -> bool:
     """Stop workload and return True if successful."""
     try:
         url = f"{base_url}/api/v1/workloads/{workload_id}/stop"
-        print(f"[debug] POST {url}")
+        print(f"[debug] POST {url}", flush=True)
         resp = s.post(url, timeout=30)
         if resp.status_code >= 300:
             print(f"[warn] stop workload failed: HTTP {resp.status_code} {resp.text}", file=sys.stderr)
@@ -334,16 +334,16 @@ def get_unified_nfs_path() -> Optional[str]:
     return None
 
 def main() -> int:
-    print("[info] runner-proxy starting...")
+    print(f"[info] runner-proxy starting... (pid={os.getpid()})", flush=True)
     
     # Unified build mode: extend timeout and manage NFS path lifecycle
     unified_build_enabled = getenv_bool("UNIFIED_JOB_ENABLE", False)
     if unified_build_enabled:
         global timeout_secs
         timeout_secs = 24 * 60 * 60  # 24h
-        print(f"[info] unified build mode enabled, timeout set to {timeout_secs}s (24h)")
+        print(f"[info] unified build mode enabled, timeout set to {timeout_secs}s (24h)", flush=True)
         nfs_path = get_unified_nfs_path()
-        print(f"[info] unified NFS path: {nfs_path}")
+        print(f"[info] unified NFS path: {nfs_path}", flush=True)
         # Handle case where NFS path could not be constructed
         if nfs_path is None:
             print("[error] Failed to construct NFS path: missing SAFE_NFS_PATH or POD_NAME", file=sys.stderr)
@@ -353,28 +353,28 @@ def main() -> int:
                 os.makedirs(nfs_path, exist_ok=True)
                 # Store cleanup path in global context for signal handler
                 _cleanup_context["cleanup_path"] = nfs_path
-                print(f"[info] NFS directory created: {nfs_path}")
+                print(f"[info] NFS directory created: {nfs_path}", flush=True)
             except Exception as e:
                 print(f"[warn] failed to create SAFE_NFS_PATH directory '{nfs_path}': {e}", file=sys.stderr)
 
-    print("[info] building payload and session...")
+    print("[info] building payload and session...", flush=True)
     try:
         payload = build_payload()
         session, base_url = build_session()
-        print(f"[info] session established, base_url: {base_url}")
+        print(f"[info] session established, base_url: {base_url}", flush=True)
     except Exception as e:
         print(f"[error] initialization failed: {e}", file=sys.stderr)
         return 2
 
-    print("[info] creating workload...")
+    print("[info] creating workload...", flush=True)
     try:
         workload_id = create_workload(session, base_url, payload)
-        print(f"[info] workload created: {workload_id}")
+        print(f"[info] workload created: {workload_id}", flush=True)
         # Store cleanup context for signal handler and atexit
         _cleanup_context["session"] = session
         _cleanup_context["base_url"] = base_url
         _cleanup_context["workload_id"] = workload_id
-        print("[info] cleanup context registered for signal handler")
+        print("[info] cleanup context registered for signal handler", flush=True)
     except Exception as e:
         print(f"[error] create workload failed: {e}", file=sys.stderr)
         return 3
@@ -384,7 +384,7 @@ def main() -> int:
     last_phase = None
     poll_count = 0
 
-    print(f"[info] starting to poll workload status (timeout: {timeout_secs}s)...")
+    print(f"[info] starting to poll workload status (timeout: {timeout_secs}s)...", flush=True)
     terminal_phases = {"Succeeded", "Failed", "Stopped"}
     while True:
         try:
@@ -392,11 +392,11 @@ def main() -> int:
             poll_count += 1
             # Log phase changes or periodically every 60 polls (~5 min)
             if phase != last_phase:
-                print(f"[info] workload {workload_id} phase: {phase}")
+                print(f"[info] workload {workload_id} phase: {phase}", flush=True)
                 last_phase = phase
             elif poll_count % 60 == 0:
                 elapsed = int(time.time() - start_time)
-                print(f"[info] workload {workload_id} still in phase: {phase} (elapsed: {elapsed}s)")
+                print(f"[info] workload {workload_id} still in phase: {phase} (elapsed: {elapsed}s)", flush=True)
             
             if phase in terminal_phases:
                 elapsed = int(time.time() - start_time)
@@ -404,9 +404,9 @@ def main() -> int:
                 with _cleanup_context["lock"]:
                     _cleanup_context["workload_id"] = None  # Don't stop already-finished workload
                 if phase == "Succeeded":
-                    print(f"[info] workload {workload_id} completed successfully (elapsed: {elapsed}s)")
+                    print(f"[info] workload {workload_id} completed successfully (elapsed: {elapsed}s)", flush=True)
                     return 0
-                print(f"[warn] workload {workload_id} finished with phase: {phase} (elapsed: {elapsed}s)")
+                print(f"[warn] workload {workload_id} finished with phase: {phase} (elapsed: {elapsed}s)", flush=True)
                 return 1
         except Exception as e:
             print(f"[warn] failed to get workload phase: {e}", file=sys.stderr)
