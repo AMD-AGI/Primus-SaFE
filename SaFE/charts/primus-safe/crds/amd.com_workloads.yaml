@@ -428,6 +428,10 @@ spec:
                     type: string
                   type: array
                 type: array
+              runnerScaleSetId:
+                description: The corresponding ID applied to the cicd AutoscalingRunnerSet
+                  object.
+                type: string
               startTime:
                 description: Workload start time
                 format: date-time

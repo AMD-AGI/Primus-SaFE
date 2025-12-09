@@ -242,6 +242,11 @@ func GetMainContainer(obj metav1.Object) string {
 	return GetAnnotation(obj, MainContainerAnnotation)
 }
 
+// GetCICDRunnerScaleSetId returns the cicd runner scale set id
+func GetCICDRunnerScaleSetId(obj metav1.Object) string {
+	return GetAnnotation(obj, CICDScaleSetIdAnnotation)
+}
+
 // GetWorkloadId retrieves the workload ID from a resource's labels.
 func GetWorkloadId(obj metav1.Object) string {
 	return GetLabel(obj, WorkloadIdLabel)

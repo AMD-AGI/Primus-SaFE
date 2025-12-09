@@ -25,6 +25,7 @@ type WorkloadStatusApplyConfiguration struct {
 	Nodes             [][]string                                              `json:"nodes,omitempty"`
 	Ranks             [][]string                                              `json:"ranks,omitempty"`
 	K8sObjectUid      *string                                                 `json:"k8sObjectUid,omitempty"`
+	RunnerScaleSetId  *string                                                 `json:"runnerScaleSetId,omitempty"`
 	DependenciesPhase map[string]amdv1.WorkloadPhase                          `json:"dependenciesPhase,omitempty"`
 }
 
@@ -125,6 +126,14 @@ func (b *WorkloadStatusApplyConfiguration) WithRanks(values ...[]string) *Worklo
 // If called multiple times, the K8sObjectUid field is set to the value of the last call.
 func (b *WorkloadStatusApplyConfiguration) WithK8sObjectUid(value string) *WorkloadStatusApplyConfiguration {
 	b.K8sObjectUid = &value
+	return b
+}
+
+// WithRunnerScaleSetId sets the RunnerScaleSetId field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the RunnerScaleSetId field is set to the value of the last call.
+func (b *WorkloadStatusApplyConfiguration) WithRunnerScaleSetId(value string) *WorkloadStatusApplyConfiguration {
+	b.RunnerScaleSetId = &value
 	return b
 }
 

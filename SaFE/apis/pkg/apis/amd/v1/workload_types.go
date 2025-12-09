@@ -191,6 +191,8 @@ type WorkloadStatus struct {
 	Ranks [][]string `json:"ranks,omitempty"`
 	// The corresponding UID applied to the Kubernetes object.
 	K8sObjectUid string `json:"k8sObjectUid,omitempty"`
+	// The corresponding ID applied to the cicd AutoscalingRunnerSet object.
+	RunnerScaleSetId string `json:"runnerScaleSetId,omitempty"`
 	// The phase of each dependency workload.
 	DependenciesPhase map[string]WorkloadPhase `json:"dependenciesPhase,omitempty"`
 }

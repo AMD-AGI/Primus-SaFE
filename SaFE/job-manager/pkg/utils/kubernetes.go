@@ -33,14 +33,14 @@ const (
 )
 
 // GenObjectReference constructs a reference object pointing to a k8s object based on the workload.
-func GenObjectReference(ctx context.Context, adminClient client.Client, workload *v1.Workload) (*unstructured.Unstructured, error) {
-	rt, err := commonworkload.GetResourceTemplate(ctx, adminClient, workload.ToSchemaGVK())
+func GenObjectReference(ctx context.Context, adminClient client.Client, adminWorkload *v1.Workload) (*unstructured.Unstructured, error) {
+	rt, err := commonworkload.GetResourceTemplate(ctx, adminClient, adminWorkload)
 	if err != nil {
 		return nil, err
 	}
 	obj := &unstructured.Unstructured{}
-	obj.SetName(workload.Name)
-	obj.SetNamespace(workload.Spec.Workspace)
+	obj.SetName(adminWorkload.Name)
+	obj.SetNamespace(adminWorkload.Spec.Workspace)
 	obj.SetGroupVersionKind(rt.ToSchemaGVK())
 	return obj, nil
 }

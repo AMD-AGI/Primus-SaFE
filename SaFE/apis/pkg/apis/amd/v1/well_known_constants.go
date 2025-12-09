@@ -23,11 +23,12 @@ const (
 	// the label for Control-plane node
 	KubernetesControlPlane = "node-role.kubernetes.io/control-plane"
 	// total retry count
-	RetryCountAnnotation    = PrimusSafePrefix + "retry.count"
-	DescriptionAnnotation   = PrimusSafePrefix + "description"
-	ProtectLabel            = PrimusSafePrefix + "protect"
-	MainContainerAnnotation = PrimusSafePrefix + "main.container"
-	OwnerLabel              = PrimusSafePrefix + "owner"
+	RetryCountAnnotation     = PrimusSafePrefix + "retry.count"
+	DescriptionAnnotation    = PrimusSafePrefix + "description"
+	ProtectLabel             = PrimusSafePrefix + "protect"
+	MainContainerAnnotation  = PrimusSafePrefix + "main.container"
+	OwnerLabel               = PrimusSafePrefix + "owner"
+	CICDScaleSetIdAnnotation = "runner-scale-set-id"
 
 	// node
 	NodePrefix    = PrimusSafePrefix + "node."

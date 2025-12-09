@@ -20,6 +20,8 @@ RUN apt update && \
         && \
     apt clean && rm -rf /var/lib/apt/lists/*
 
+RUN python3 -m pip install --upgrade pip
+
 RUN bash ${TMP_HOME}/install.sh && rm -rf /opt/primus-bench
 
 RUN python3 --version && pip3 --version

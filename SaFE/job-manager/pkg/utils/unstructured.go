@@ -32,10 +32,12 @@ const (
 )
 
 type K8sResourceStatus struct {
-	Phase         string
-	Message       string
-	SpecReplica   int
-	ActiveReplica int
+	Phase       string
+	Message     string
+	SpecReplica int
+	// only for cicd AutoscalingRunnerSet
+	RunnerScaleSetId string
+	ActiveReplica    int
 }
 
 func (s *K8sResourceStatus) IsPending() bool {
@@ -68,6 +70,8 @@ func GetK8sResourceStatus(unstructuredObj *unstructured.Unstructured, rt *v1.Res
 			result.Phase = string(v1.K8sRunning)
 			result.Message = "the job is running"
 		}
+	case common.CICDScaleRunnerSetKind:
+		result.RunnerScaleSetId = v1.GetAnnotation(unstructuredObj, v1.CICDScaleSetIdAnnotation)
 	default:
 		err = getResourceStatusImpl(unstructuredObj, rt, result)
 	}
@@ -206,18 +210,21 @@ func GetResources(unstructuredObj *unstructured.Unstructured,
 	var replicaList []int64
 	var resourceList []corev1.ResourceList
 	for _, t := range rt.Spec.ResourceSpecs {
-		path := t.PrePaths
-		path = append(path, t.ReplicasPaths...)
-		replica, found, err := unstructured.NestedInt64(unstructuredObj.Object, path...)
-		if err != nil {
-			klog.ErrorS(err, "failed to find replica", "path", path)
-			return nil, nil, err
-		}
-		if !found {
-			continue
+		if len(t.ReplicasPaths) > 0 {
+			path := t.PrePaths
+			path = append(path, t.ReplicasPaths...)
+			replica, found, err := unstructured.NestedInt64(unstructuredObj.Object, path...)
+			if err != nil {
+				klog.ErrorS(err, "failed to find replica", "path", path)
+				return nil, nil, err
+			}
+			if !found {
+				continue
+			}
+			replicaList = append(replicaList, replica)
 		}
 
-		path = t.PrePaths
+		path := t.PrePaths
 		path = append(path, t.TemplatePaths...)
 		path = append(path, "spec", "containers")
 		containers, found, err := unstructured.NestedSlice(unstructuredObj.Object, path...)
@@ -255,10 +262,6 @@ func GetResources(unstructuredObj *unstructured.Unstructured,
 			resourceList = append(resourceList, rl)
 			break
 		}
-		replicaList = append(replicaList, replica)
-	}
-	if len(replicaList) != len(resourceList) {
-		return nil, nil, fmt.Errorf("internal error. the replica and limits is not match")
 	}
 	return replicaList, resourceList, nil
 }
