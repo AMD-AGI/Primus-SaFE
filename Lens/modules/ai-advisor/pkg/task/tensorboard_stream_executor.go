@@ -470,13 +470,84 @@ func (e *TensorBoardStreamExecutor) readAndParseFile(
 	}
 }
 
-// aggregatedStepData 聚合同一个 step 的所有数据
+// aggregatedStepData 聚合同一个 iteration 的所有数据
 type aggregatedStepData struct {
-	Step     int64
-	WallTime float64
-	Scalars  map[string]float32
-	Texts    map[string]string
-	Tags     []string
+	Step     int64              // iteration (统一后的主维度)
+	WallTime float64             // 时间戳
+	Scalars  map[string]float32 // 包含 samples 字段
+	Texts    map[string]string  // 配置元数据
+	Tags     []string           // 所有 tag 列表
+}
+
+// extractBatchSize 从事件中提取 batch_size
+func (e *TensorBoardStreamExecutor) extractBatchSize(events []*tensorboard.ParsedEvent) int64 {
+	// 从 text metadata 中查找 batch-size 或 global_batch_size
+	for _, event := range events {
+		if batchSizeStr, ok := event.Texts["batch-size"]; ok {
+			if bs := e.parseIntFromString(batchSizeStr); bs > 0 {
+				return bs
+			}
+		}
+		if batchSizeStr, ok := event.Texts["global_batch_size"]; ok {
+			if bs := e.parseIntFromString(batchSizeStr); bs > 0 {
+				return bs
+			}
+		}
+	}
+	
+	// 从 scalar 中查找
+	for _, event := range events {
+		if batchSize, ok := event.Scalars["batch-size"]; ok && batchSize > 0 {
+			return int64(batchSize)
+		}
+		if batchSize, ok := event.Scalars["global_batch_size"]; ok && batchSize > 0 {
+			return int64(batchSize)
+		}
+	}
+	
+	// 默认值：128（LLM 训练常见值）
+	return 128
+}
+
+// normalizeStep 智能判断 step 类型并转换为 iteration
+// 返回：(iteration, samples)
+func (e *TensorBoardStreamExecutor) normalizeStep(step int64, batchSize int64) (int64, int64) {
+	// 策略1：如果 step 很小（< 100000），认为是 iteration
+	if step < 100000 {
+		return step, step * batchSize
+	}
+	
+	// 策略2：如果 step 能被 batch_size 整除，认为是 samples
+	if batchSize > 0 && step%batchSize == 0 {
+		iteration := step / batchSize
+		return iteration, step
+	}
+	
+	// 策略3：step 很大但不能整除，可能是自定义维度，保持原样
+	// 这种情况较少见，假设是 iteration
+	log.Debugf("Ambiguous step value %d (batch_size=%d), treating as iteration", step, batchSize)
+	return step, step * batchSize
+}
+
+// cleanTagName 清理 tag 名称，去掉 " vs samples" 等后缀
+func (e *TensorBoardStreamExecutor) cleanTagName(tag string) string {
+	// 去掉 " vs samples" 后缀
+	tag = strings.TrimSuffix(tag, " vs samples")
+	
+	// 去掉 " vs steps" 后缀
+	tag = strings.TrimSuffix(tag, " vs steps")
+	
+	return tag
+}
+
+// parseIntFromString 从字符串解析整数
+func (e *TensorBoardStreamExecutor) parseIntFromString(s string) int64 {
+	var value int64
+	_, err := fmt.Sscanf(s, "%d", &value)
+	if err != nil {
+		return 0
+	}
+	return value
 }
 
 // countScalars counts total number of scalar metrics in events
@@ -505,14 +576,19 @@ func (e *TensorBoardStreamExecutor) storeEvents(
 	filePath string,
 	events []*tensorboard.ParsedEvent,
 ) {
-	// Step 1: 按 step 聚合所有事件的数据
-	stepAggregated := make(map[int64]*aggregatedStepData)
+	// Step 1: 提取 batch_size（用于判断和转换 step）
+	batchSize := e.extractBatchSize(events)
+	
+	// Step 2: 按 iteration 聚合所有事件的数据（统一 step 维度）
+	iterationAggregated := make(map[int64]*aggregatedStepData)
 
 	for _, event := range events {
-		step := event.Step
-		if stepAggregated[step] == nil {
-			stepAggregated[step] = &aggregatedStepData{
-				Step:     step,
+		// 智能判断 step 类型并转换为 iteration
+		iteration, samples := e.normalizeStep(event.Step, batchSize)
+		
+		if iterationAggregated[iteration] == nil {
+			iterationAggregated[iteration] = &aggregatedStepData{
+				Step:     iteration,  // 使用 iteration 作为主 step
 				WallTime: event.WallTime,
 				Scalars:  make(map[string]float32),
 				Texts:    make(map[string]string),
@@ -520,56 +596,67 @@ func (e *TensorBoardStreamExecutor) storeEvents(
 			}
 		}
 
-		agg := stepAggregated[step]
+		agg := iterationAggregated[iteration]
 
-		// 合并 scalars
+		// 合并 scalars（去掉 " vs samples" 等后缀）
 		for tag, value := range event.Scalars {
-			agg.Scalars[tag] = value
-			if !contains(agg.Tags, tag) {
-				agg.Tags = append(agg.Tags, tag)
+			cleanTag := e.cleanTagName(tag)
+			agg.Scalars[cleanTag] = value
+			if !contains(agg.Tags, cleanTag) {
+				agg.Tags = append(agg.Tags, cleanTag)
 			}
 		}
 
-		// 合并 texts
+		// 合并 texts（去掉 " vs samples" 等后缀）
 		for tag, text := range event.Texts {
-			agg.Texts[tag] = text
-			if !contains(agg.Tags, tag) {
-				agg.Tags = append(agg.Tags, tag)
+			cleanTag := e.cleanTagName(tag)
+			agg.Texts[cleanTag] = text
+			if !contains(agg.Tags, cleanTag) {
+				agg.Tags = append(agg.Tags, cleanTag)
 			}
 		}
 
+		// 更新 samples（如果当前事件提供了更大的值）
+		if existingSamples, ok := agg.Scalars["samples"]; !ok || float32(samples) > existingSamples {
+			agg.Scalars["samples"] = float32(samples)
+		}
+		
 		// 使用最新的 wall_time
 		if event.WallTime > agg.WallTime {
 			agg.WallTime = event.WallTime
 		}
 	}
 
-	// Step 2: 存储聚合后的数据
+	// Step 3: 存储聚合后的数据
 	successCount := 0
 	duplicateCount := 0
 
-	for step, agg := range stepAggregated {
-		// 只存储有数据的 step
+	for iteration, agg := range iterationAggregated {
+		// 只存储有数据的 iteration
 		if len(agg.Scalars) == 0 && len(agg.Texts) == 0 {
 			continue
 		}
 
-		// 构建 performance JSON，包含所有指标
+		// 构建 performance JSON，包含所有维度和指标
 		performance := model.ExtType{
-			"step":      step,
-			"wall_time": agg.WallTime,
+			"iteration": iteration,                    // 主维度
+			"samples":   agg.Scalars["samples"],       // 累计样本数
+			"wall_time": agg.WallTime,                 // 时间戳
 			"file":      filePath,
 		}
 
 		// 将 scalars 和 texts 的内容展平到 performance 根级别
 		for tag, value := range agg.Scalars {
-			performance[tag] = value
+			// samples 已经单独处理，跳过重复
+			if tag != "samples" {
+				performance[tag] = value
+			}
 		}
 		for tag, text := range agg.Texts {
 			performance[tag] = text
 		}
 
-		// 保留原始的 scalars 和 texts 结构（可选）
+		// 保留原始的 scalars 和 texts 结构（可选，用于调试）
 		if len(agg.Scalars) > 0 {
 			performance["scalars"] = agg.Scalars
 		}
@@ -581,7 +668,7 @@ func (e *TensorBoardStreamExecutor) storeEvents(
 			WorkloadUID: task.WorkloadUID,
 			PodUUID:     gpuPod.UID,
 			Performance: performance,
-			Iteration:   int32(step),
+			Iteration:   int32(iteration), // 使用统一的 iteration
 			Serial:      0,
 			DataSource:  "tensorflow",
 			CreatedAt:   time.Now(),
@@ -589,10 +676,10 @@ func (e *TensorBoardStreamExecutor) storeEvents(
 
 		// 检查是否已存在
 		existing, err := e.trainingFacade.GetTrainingPerformanceByWorkloadIdSerialAndIteration(
-			ctx, task.WorkloadUID, 0, int(step))
+			ctx, task.WorkloadUID, 0, int(iteration))
 
 		if err != nil {
-			log.Warnf("Failed to check existing record for step %d: %v", step, err)
+			log.Warnf("Failed to check existing record for iteration %d: %v", iteration, err)
 			continue
 		}
 
@@ -621,12 +708,16 @@ func (e *TensorBoardStreamExecutor) storeEvents(
 
 			err = e.trainingFacade.UpdateTrainingPerformance(ctx, existing)
 			if err != nil {
-				log.Warnf("Failed to merge training performance for step %d: %v", step, err)
+				log.Warnf("Failed to merge training performance for iteration %d: %v", iteration, err)
 			} else {
 				successCount++
 				if successCount <= 5 {
-					log.Debugf("Merged performance for step=%d: %d updated, %d new (total=%d metrics)",
-						step, mergedCount, newCount, len(existingPerf))
+					samples := int64(0)
+					if s, ok := agg.Scalars["samples"]; ok {
+						samples = int64(s)
+					}
+					log.Debugf("Merged performance: iteration=%d (samples=%d): %d updated, %d new (total=%d metrics)",
+						iteration, samples, mergedCount, newCount, len(existingPerf))
 				}
 			}
 		} else {
@@ -636,23 +727,28 @@ func (e *TensorBoardStreamExecutor) storeEvents(
 				if strings.Contains(err.Error(), "duplicate") || strings.Contains(err.Error(), "unique") {
 					duplicateCount++
 					if duplicateCount <= 3 {
-						log.Debugf("Race condition: step %d was created by another process", step)
+						log.Debugf("Race condition: iteration %d was created by another process", iteration)
 					}
 				} else {
-					log.Warnf("Failed to store training performance for step %d: %v", step, err)
+					log.Warnf("Failed to store training performance for iteration %d: %v", iteration, err)
 				}
 			} else {
 				successCount++
 				if successCount <= 5 {
-					log.Debugf("Created performance for step=%d: %d metrics (scalars=%d, texts=%d)",
-						step, len(agg.Scalars)+len(agg.Texts), len(agg.Scalars), len(agg.Texts))
+					samples := int64(0)
+					if s, ok := agg.Scalars["samples"]; ok {
+						samples = int64(s)
+					}
+					log.Debugf("Created performance: iteration=%d (samples=%d): %d metrics (scalars=%d, texts=%d)",
+						iteration, samples, len(agg.Scalars)+len(agg.Texts), len(agg.Scalars), len(agg.Texts))
 				}
 			}
 		}
 	}
 
 	if successCount > 0 || duplicateCount > 0 {
-		log.Infof("Stored events from %s: %d new, %d duplicates", filePath, successCount, duplicateCount)
+		log.Infof("Stored events from %s: %d created/merged, %d skipped (unique iterations: %d)",
+			filePath, successCount, duplicateCount, len(iterationAggregated))
 	}
 }
 
