@@ -10,7 +10,7 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     primus-safe.workload.version: v1
-    primus-safe.workload.kind: AutoscalingRunner
+    primus-safe.workload.kind: EphemeralRunner
     app.kubernetes.io/managed-by: Helm
   annotations:
     # The main container name should match the configuration defined in the template below
@@ -19,99 +19,102 @@ metadata:
     meta.helm.sh/release-namespace: {{ .Release.Namespace }}
 data:
  template: |
-  apiVersion: batch/v1
-  kind: Job
+  apiVersion: actions.github.com/v1alpha1
+  kind: EphemeralRunner
   spec:
-    template:
-      spec:
-        initContainers:
-          - name: init-dind-externals
-            command:
-            - cp
-            - -r
-            - /home/runner/externals/.
-            - /home/runner/tmpDir/
-            image: ghcr.io/actions/actions-runner:latest
-            volumeMounts:
-            - mountPath: /home/runner/tmpDir
-              name: dind-externals
-          - name: dind
-            args:
-            - dockerd
-            - --host=unix:///var/run/docker.sock
-            - --group=$(DOCKER_GROUP_GID)
-            env:
-            - name: DOCKER_GROUP_GID
-              value: "123"
-            image: docker:dind
-            restartPolicy: Always
-            securityContext:
-              privileged: true
-            startupProbe:
-              exec:
-                command:
-                - docker
-                - info
-              failureThreshold: 24
-              initialDelaySeconds: 0
-              periodSeconds: 5
-            volumeMounts:
-            - mountPath: /home/runner/_work
-              name: work
-            - mountPath: /var/run
-              name: dind-sock
-            - mountPath: /home/runner/externals
-              name: dind-externals
-        containers:
-        - name: runner
-          imagePullPolicy: IfNotPresent
+    spec:
+      initContainers:
+        - name: init-dind-externals
+          command:
+          - cp
+          - -r
+          - /home/runner/externals/.
+          - /home/runner/tmpDir/
+          image: ghcr.io/actions/actions-runner:latest
+          volumeMounts:
+          - mountPath: /home/runner/tmpDir
+            name: dind-externals
+        - name: dind
+          args:
+          - dockerd
+          - --host=unix:///var/run/docker.sock
+          - --group=$(DOCKER_GROUP_GID)
           env:
-            - name: RUNNER_ALLOW_RUNASROOT
-              value: "1"
-            - name: DOCKER_HOST
-              value: unix:///var/run/docker.sock
-            - name: RUNNER_WAIT_FOR_DOCKER_IN_SECONDS
-              value: "120"
+          - name: DOCKER_GROUP_GID
+            value: "123"
+          image: docker:dind
+          restartPolicy: Always
           securityContext:
             privileged: true
-          terminationMessagePath: /dev/termination-log
-          terminationMessagePolicy: File
+          startupProbe:
+            exec:
+              command:
+              - docker
+              - info
+            failureThreshold: 24
+            initialDelaySeconds: 0
+            periodSeconds: 5
           volumeMounts:
-            - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
-              name: kube-api-access-gq8sq
-              readOnly: true
-            - mountPath: /home/runner/_work
-              name: work
-            - mountPath: /var/run
-              name: dind-sock
-        restartPolicy: Never
-        dnsPolicy: ClusterFirst
-        enableServiceLinks: true
-        schedulerName: kube-scheduler-plugins
-        serviceAccountName: "{{ .Values.cicd.role_name }}-no-permission"
-        terminationGracePeriodSeconds: 30
-        volumes:
-        - name: kube-api-access-gq8sq
-          projected:
-            defaultMode: 420
-            sources:
-            - serviceAccountToken:
-                expirationSeconds: 3607
-                path: token
-            - configMap:
-                items:
-                - key: ca.crt
-                  path: ca.crt
-                name: kube-root-ca.crt
-            - downwardAPI:
-                items:
-                - fieldRef:
-                    apiVersion: v1
-                    fieldPath: metadata.namespace
-                  path: namespace
-        - name: work
-          emptyDir: {}
-        - name: dind-sock
-          emptyDir: {}
-        - name: dind-externals
-          emptyDir: {}
+          - mountPath: /home/runner/_work
+            name: work
+          - mountPath: /var/run
+            name: dind-sock
+          - mountPath: /home/runner/externals
+            name: dind-externals
+      containers:
+      - name: runner
+        imagePullPolicy: IfNotPresent
+        env:
+          - name: RUNNER_ALLOW_RUNASROOT
+            value: "1"
+          - name: ACTIONS_RUNNER_PRINT_LOG_TO_STDOUT
+            value: "1"
+          - name: DOCKER_HOST
+            value: unix:///var/run/docker.sock
+          - name: RUNNER_WAIT_FOR_DOCKER_IN_SECONDS
+            value: "120"
+        securityContext:
+          privileged: true
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+          - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+            name: kube-api-access-gq8sq
+            readOnly: true
+          - mountPath: /home/runner/_work
+            name: work
+          - mountPath: /var/run
+            name: dind-sock
+          - mountPath: /home/runner/externals
+            name: dind-externals
+      restartPolicy: Never
+      dnsPolicy: ClusterFirst
+      enableServiceLinks: true
+      schedulerName: kube-scheduler-plugins
+      serviceAccountName: "{{ .Values.cicd.role_name }}-no-permission"
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - name: kube-api-access-gq8sq
+        projected:
+          defaultMode: 420
+          sources:
+          - serviceAccountToken:
+              expirationSeconds: 3607
+              path: token
+          - configMap:
+              items:
+              - key: ca.crt
+                path: ca.crt
+              name: kube-root-ca.crt
+          - downwardAPI:
+              items:
+              - fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.namespace
+                path: namespace
+      - name: work
+        emptyDir: {}
+      - name: dind-sock
+        emptyDir: {}
+      - name: dind-externals
+        emptyDir: {}

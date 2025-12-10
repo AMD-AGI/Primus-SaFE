@@ -12,10 +12,9 @@ const (
 	domain       = globalPrefix + "domain"
 	subDomain    = globalPrefix + "sub_domain"
 
-	netPrefix       = "net."
-	rdmaName        = netPrefix + "rdma_name"
-	ingress         = netPrefix + "ingress"
-	higressNodePort = netPrefix + "higress_node_port"
+	netPrefix = "net."
+	rdmaName  = netPrefix + "rdma_name"
+	ingress   = netPrefix + "ingress"
 
 	// crypto
 	cryptoPrefix     = "crypto."

@@ -13,7 +13,6 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -206,7 +205,7 @@ func GetScope(w *v1.Workload) v1.WorkspaceScope {
 		return v1.InferScope
 	case common.AuthoringKind:
 		return v1.AuthoringScope
-	case common.CICDScaleRunnerSetKind, common.CICDScaleRunnerKind:
+	case common.CICDScaleRunnerSetKind, common.CICDEphemeralRunnerKind:
 		return v1.CICDScope
 	default:
 		return ""
@@ -242,7 +241,7 @@ func IsAuthoring(w *v1.Workload) bool {
 
 // IsCICD returns true if workload is about cicd
 func IsCICD(w *v1.Workload) bool {
-	if w.SpecKind() == common.CICDScaleRunnerSetKind || w.SpecKind() == common.CICDScaleRunnerKind {
+	if w.SpecKind() == common.CICDScaleRunnerSetKind || w.SpecKind() == common.CICDEphemeralRunnerKind {
 		return true
 	}
 	return false
@@ -251,6 +250,14 @@ func IsCICD(w *v1.Workload) bool {
 // IsCICDScalingRunnerSet returns true if the workload is an AutoscalingRunnerSet type.
 func IsCICDScalingRunnerSet(w *v1.Workload) bool {
 	if w.SpecKind() == common.CICDScaleRunnerSetKind {
+		return true
+	}
+	return false
+}
+
+// IsCICDEphemeralRunner returns true if the workload is an EphemeralRunner type.
+func IsCICDEphemeralRunner(w *v1.Workload) bool {
+	if w.SpecKind() == common.CICDEphemeralRunnerKind {
 		return true
 	}
 	return false
@@ -346,7 +353,8 @@ func GenerateMaxAvailResource(nf *v1.NodeFlavor) *v1.WorkloadResource {
 }
 
 // GetResourceTemplate Retrieve the corresponding resource_template based on the workload's GVK.
-func GetResourceTemplate(ctx context.Context, cli client.Client, gvk schema.GroupVersionKind) (*v1.ResourceTemplate, error) {
+func GetResourceTemplate(ctx context.Context, cli client.Client, workload *v1.Workload) (*v1.ResourceTemplate, error) {
+	gvk := workload.ToSchemaGVK()
 	templateList := &v1.ResourceTemplateList{}
 	labelSelector := labels.SelectorFromSet(map[string]string{v1.WorkloadVersionLabel: gvk.Version})
 	if err := cli.List(ctx, templateList, &client.ListOptions{LabelSelector: labelSelector}); err != nil {

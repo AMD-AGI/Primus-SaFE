@@ -51,6 +51,12 @@ const (
 	DefaultMaxUnavailable      = "25%"
 	DefaultMaxMaxSurge         = "25%"
 	DefaultMaxFailover         = 50
+
+	MaxCICDScaleSetNameLen = 39
+
+	ResourcesEnv  = "RESOURCES"
+	ImageEnv      = "IMAGE"
+	EntrypointEnv = "ENTRYPOINT"
 )
 
 // AddWorkloadWebhook registers the workload validation and mutation webhooks.
@@ -187,7 +193,7 @@ func (m *WorkloadMutator) mutateMeta(ctx context.Context, workload *v1.Workload,
 func (m *WorkloadMutator) mutateOwnerReference(ctx context.Context, workload *v1.Workload, workspace *v1.Workspace) {
 	var err error
 	switch workload.SpecKind() {
-	case common.CICDScaleRunnerKind:
+	case common.CICDEphemeralRunnerKind:
 		scaleRunnerSetId := workload.GetEnv(common.ScaleRunnerSetID)
 		if scaleRunnerSetId == "" {
 			break
@@ -197,6 +203,7 @@ func (m *WorkloadMutator) mutateOwnerReference(ctx context.Context, workload *v1
 			if !hasOwnerReferences(workload, scaleRunnerSetId) {
 				err = controllerutil.SetControllerReference(scaleRunnerSetWorkload, workload, m.Client.Scheme())
 			}
+			v1.SetAnnotation(workload, v1.CICDScaleSetIdAnnotation, scaleRunnerSetWorkload.Status.RunnerScaleSetId)
 		}
 	case common.UnifiedJobKind:
 		scaleRunnerId := workload.GetEnv(common.ScaleRunnerID)
@@ -204,7 +211,7 @@ func (m *WorkloadMutator) mutateOwnerReference(ctx context.Context, workload *v1
 			break
 		}
 		labelSelector := labels.SelectorFromSet(map[string]string{
-			v1.WorkloadKindLabel: common.CICDScaleRunnerKind, v1.ScaleRunnerIdLabel: scaleRunnerId})
+			v1.WorkloadKindLabel: common.CICDEphemeralRunnerKind, v1.ScaleRunnerIdLabel: scaleRunnerId})
 		scaleRunnerWorkloads := &v1.WorkloadList{}
 		if err = m.List(ctx, scaleRunnerWorkloads, &client.ListOptions{LabelSelector: labelSelector}); err == nil {
 			if len(scaleRunnerWorkloads.Items) > 0 && !hasOwnerReferences(workload, scaleRunnerWorkloads.Items[0].Name) {
@@ -416,6 +423,11 @@ func (m *WorkloadMutator) mutateEnv(oldWorkload, newWorkload *v1.Workload) {
 	if oldWorkload != nil {
 		for key := range oldWorkload.Spec.Env {
 			if _, ok := newWorkload.Spec.Env[key]; !ok {
+				if commonworkload.IsCICD(newWorkload) {
+					if key == common.AdminControlPlane || key == common.GithubSecretId {
+						continue
+					}
+				}
 				newWorkload.Spec.Env[key] = ""
 			}
 		}
@@ -618,9 +630,6 @@ func (v *WorkloadValidator) validateCommon(ctx context.Context, workload *v1.Wor
 	if err := v.validateTemplate(ctx, workload); err != nil {
 		return err
 	}
-	if err := validateDisplayName(v1.GetDisplayName(workload)); err != nil {
-		return err
-	}
 	if err := validateLabels(workload.Spec.CustomerLabels); err != nil {
 		return err
 	}
@@ -633,13 +642,15 @@ func (v *WorkloadValidator) validateRequiredParams(workload *v1.Workload) error 
 	if v1.GetDisplayName(workload) == "" {
 		errs = append(errs, fmt.Errorf("the displayName is empty"))
 	}
+	if err := validateDisplayName(v1.GetDisplayName(workload)); err != nil {
+		errs = append(errs, err)
+	}
 	if v1.GetClusterId(workload) == "" {
 		errs = append(errs, fmt.Errorf("the cluster is empty"))
 	}
 	if workload.Spec.Workspace == "" {
 		errs = append(errs, fmt.Errorf("the workspace is empty"))
 	}
-
 	if workload.Spec.GroupVersionKind.Kind == "" || workload.Spec.GroupVersionKind.Version == "" {
 		errs = append(errs, fmt.Errorf("the gvk is empty"))
 	}
@@ -665,20 +676,24 @@ func (v *WorkloadValidator) validateRequiredParams(workload *v1.Workload) error 
 }
 
 func (v *WorkloadValidator) validateCICDScalingRunnerSet(workload *v1.Workload) error {
-	keys := []string{common.ResourcesEnv, common.EntrypointEnv, common.ImageEnv}
+	if len(v1.GetDisplayName(workload)) > MaxCICDScaleSetNameLen {
+		return fmt.Errorf("the displayName is too long, maximum length is %d characters", MaxCICDScaleSetNameLen)
+	}
+	keys := []string{ResourcesEnv, EntrypointEnv, ImageEnv, common.GithubConfigUrl, common.GithubSecretId}
 	for _, key := range keys {
 		if val, ok := workload.Spec.Env[key]; !ok || val == "" {
 			return fmt.Errorf("the %s of workload environment variables is empty", key)
 		}
 	}
 	workloadResource := &v1.WorkloadResource{}
-	err := json.Unmarshal([]byte(workload.Spec.Env[common.ResourcesEnv]), workloadResource)
+	err := json.Unmarshal([]byte(workload.Spec.Env[ResourcesEnv]), workloadResource)
 	if err != nil {
 		return err
 	}
 	if err = v.validateResource(workloadResource); err != nil {
 		return err
 	}
+
 	return nil
 }
 
@@ -829,7 +844,7 @@ func validateResourceEnough(nf *v1.NodeFlavor, res *v1.WorkloadResource) error {
 
 // validateTemplate ensures the resource template and task template for the workload kind exist.
 func (v *WorkloadValidator) validateTemplate(ctx context.Context, workload *v1.Workload) error {
-	if _, err := commonworkload.GetResourceTemplate(ctx, v.Client, workload.ToSchemaGVK()); err != nil {
+	if _, err := commonworkload.GetResourceTemplate(ctx, v.Client, workload); err != nil {
 		return err
 	}
 	_, err := commonworkload.GetWorkloadTemplate(ctx, v.Client, workload)

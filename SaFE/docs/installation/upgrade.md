@@ -46,7 +46,7 @@ The script performs the following steps:
      - NCCL network configs (`nccl_socket_ifname`, `nccl_ib_hca`)
      - `replicas`, `cpu`, `memory`, `storage_class`
      - Image pull secret name (`primus-safe-image`)
-     - Ingress selection; when `higress`, sets `sub_domain` and `higress_node_port`
+     - Ingress selection; when `higress`, sets `sub_domain`
      - `opensearch.enable` and `grafana.enable` based on `lens_enable`
        - If enabled, injects Grafana password from `primus-lens` secret automatically
      - `s3.enable` and `s3.secret` when S3 is enabled
@@ -75,7 +75,7 @@ Unlike [install.sh](https://github.com/AMD-AGI/Primus-SaFE/blob/main/SaFE/bootst
 - Ensure the environment configuration and code directory have not changed
 - Custom images must be built and pushed before running the upgrade
 - Manual updates to chart `values.yaml` are required for image version changes
-- If `ingress=higress`, both `sub_domain` and `higress_node_port` from `.env` are applied
+- If `ingress=higress`, both `sub_domain` from `.env` are applied
 - If `lens_enable=true`, Grafana password is synced from the `primus-lens` secret automatically
 - Backup your configuration before performing upgrades
 - Test upgrades in a non-production environment first

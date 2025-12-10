@@ -21,8 +21,6 @@ net:
   rdma_name: "rdma/hca"
   # Ingress component name selected during install.sh
   ingress: "higress"
-  # The node port of higress gateway. Only needed when using Higress Ingress.
-  higress_node_port: 32608
 apiserver:
   # Apiserver component image version
   image: "apiserver:latest"
