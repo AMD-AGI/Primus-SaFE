@@ -37,6 +37,7 @@ func TestBasic(t *testing.T) {
 	s1.Clear()
 	assert.Equal(t, s1.Len(), 0)
 	assert.Equal(t, s2.Len(), 2)
+
 }
 
 func TestDifference(t *testing.T) {
@@ -49,6 +50,13 @@ func TestDifference(t *testing.T) {
 
 	resp = s2.Difference(s1)
 	assert.Equal(t, resp.Equal(NewSetByKeys("a4", "a5")), true)
+}
+
+func TestNewEmptyValues(t *testing.T) {
+	var nullList []string
+	nullList = nil
+	s := NewSetByKeys(nullList...)
+	assert.Equal(t, s.Len(), 0)
 }
 
 func TestUnion(t *testing.T) {

@@ -343,7 +343,7 @@ func (r *SchedulerReconciler) scheduleWorkloads(ctx context.Context, message *Sc
 				continue
 			}
 		}
-		if err = r.updateScheduled(ctx, schedulingWorkloads[i]); err != nil {
+		if err = r.markAsScheduled(ctx, schedulingWorkloads[i]); err != nil {
 			return err
 		}
 		klog.Infof("the workload is scheduled, name: %s, dispatch count: %d",
@@ -563,8 +563,8 @@ func (r *SchedulerReconciler) getLeftTotalResources(ctx context.Context,
 	return leftAvailResource, leftTotalResource, nil
 }
 
-// updateScheduled updates a workload's status to indicate it has been scheduled.
-func (r *SchedulerReconciler) updateScheduled(ctx context.Context, workload *v1.Workload) error {
+// markAsScheduled updates a workload's status to indicate it has been scheduled.
+func (r *SchedulerReconciler) markAsScheduled(ctx context.Context, workload *v1.Workload) error {
 	name := workload.Name
 	if err := backoff.ConflictRetry(func() error {
 		if innerError := r.updateStatus(ctx, workload); innerError == nil {

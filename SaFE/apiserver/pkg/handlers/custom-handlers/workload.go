@@ -41,7 +41,6 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/backoff"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/concurrent"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
-	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/maps"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/netutil"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
@@ -1172,7 +1171,6 @@ func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context,
 	}
 	if str := dbutils.ParseNullString(dbWorkload.Env); str != "" {
 		json.Unmarshal([]byte(str), &result.Env)
-		result.Env = maps.RemoveValue(result.Env, "")
 		if result.GroupVersionKind.Kind == common.CICDScaleRunnerSetKind ||
 			result.GroupVersionKind.Kind == common.CICDEphemeralRunnerKind {
 			delete(result.Env, common.AdminControlPlane)

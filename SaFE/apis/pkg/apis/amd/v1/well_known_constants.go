@@ -96,6 +96,7 @@ const (
 	WorkloadEnablePreemptAnnotation   = WorkloadPrefix + "enable.preempt"
 	CronJobTimestampAnnotation        = WorkloadPrefix + "cronjob"
 	ScaleRunnerIdLabel                = PrimusSafePrefix + "scale.runner.id"
+	EnvToBeRemovedAnnotation          = WorkloadPrefix + "env.to.remove"
 
 	// user
 	UserPrefix              = PrimusSafePrefix + "user."
