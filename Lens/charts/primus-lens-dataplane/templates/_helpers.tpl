@@ -1,6 +1,6 @@
 {{/*
-Primus Lens Helper Templates
-This file contains reusable template functions for the Primus Lens chart.
+Primus Lens Data Plane Helper Templates
+This file contains reusable template functions for the Primus Lens Data Plane chart.
 */}}
 
 {{/*
@@ -12,17 +12,13 @@ Expand the name of the chart.
 
 {{/*
 Create a default fully qualified app name.
+Always use "primus-lens" as the base name for consistency with infrastructure resources.
 */}}
 {{- define "primus-lens.fullname" -}}
 {{- if .Values.fullnameOverride -}}
 {{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" -}}
 {{- else -}}
-{{- $name := default .Chart.Name .Values.nameOverride -}}
-{{- if contains $name .Release.Name -}}
-{{- .Release.Name | trunc 63 | trimSuffix "-" -}}
-{{- else -}}
-{{- printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" -}}
-{{- end -}}
+{{- "primus-lens" -}}
 {{- end -}}
 {{- end -}}
 
@@ -234,12 +230,12 @@ Generate database environment variables
 Hook weight for different phases
 Updated deployment order:
 - Phase 0: pre-install hooks (-100 to -90)
-- Phase 1: Operators (子 Charts 自动部署)
+- Phase 1: Operators (sub-charts auto-deployed)
 - Phase 2: pre-install hook (0) - wait for operators
-- Phase 3: 正常资源 - OpenSearch CR, VMCluster CR, PostgreSQL CR
+- Phase 3: normal resources - OpenSearch CR, VMCluster CR, PostgreSQL CR
 - Phase 4: post-install hook (5) - wait for infrastructure
 - Phase 5: post-install hook (10) - postgres init
-- Phase 6: 正常资源 - Apps (API, Web, exporters)
+- Phase 6: normal resources - Apps (via primus-lens-apps sub-chart)
 - Phase 7: post-install hook (100) - FluentBit & VMAgent (depends on telemetry-processor)
 */}}
 {{- define "primus-lens.hookWeight.namespace" -}}-100{{- end -}}

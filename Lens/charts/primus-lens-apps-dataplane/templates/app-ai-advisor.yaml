@@ -1,0 +1,108 @@
+{{- if .Values.apps.aiAdvisor.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "lens.fullname" . }}-ai-advisor-config
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "lens.labels" . | nindent 4 }}
+    app: ai-advisor
+    component: ai-services
+data:
+  config.yaml: |
+    httpPort: {{ .Values.apps.aiAdvisor.httpPort | default 8080 }}
+    multiCluster: false
+    loadK8SClient: true
+    loadStorageClient: true
+    middleware:
+      enableLogging: {{ .Values.apps.aiAdvisor.config.middleware.enableLogging | default false }}
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "lens.fullname" . }}-ai-advisor
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "lens.labels" . | nindent 4 }}
+    app: ai-advisor
+    component: ai-services
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: {{ .Values.apps.aiAdvisor.httpPort | default 8080 }}
+      targetPort: {{ .Values.apps.aiAdvisor.httpPort | default 8080 }}
+      protocol: TCP
+    - name: health
+      port: {{ .Values.apps.aiAdvisor.healthPort | default 8081 }}
+      targetPort: {{ .Values.apps.aiAdvisor.healthPort | default 8081 }}
+      protocol: TCP
+  selector:
+    {{- include "lens.selectorLabels" . | nindent 4 }}
+    app: ai-advisor
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "lens.fullname" . }}-ai-advisor
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "lens.labels" . | nindent 4 }}
+    app: ai-advisor
+    component: ai-services
+spec:
+  replicas: {{ .Values.apps.aiAdvisor.replicas | default 1 }}
+  selector:
+    matchLabels:
+      {{- include "lens.selectorLabels" . | nindent 6 }}
+      app: ai-advisor
+  template:
+    metadata:
+      labels:
+        {{- include "lens.selectorLabels" . | nindent 8 }}
+        app: ai-advisor
+        component: ai-services
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "{{ .Values.apps.aiAdvisor.healthPort | default 8081 }}"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: {{ include "lens.serviceAccountName" . }}
+      {{- if .Values.global.imageRegistry.pullSecret }}
+      imagePullSecrets:
+        - name: {{ .Values.global.imageRegistry.pullSecret }}
+      {{- end }}
+      containers:
+        - name: ai-advisor
+          image: "{{ .Values.global.imageRegistry.url }}/{{ .Values.apps.aiAdvisor.image }}"
+          imagePullPolicy: {{ .Values.global.imageRegistry.pullPolicy | default "IfNotPresent" }}
+          env:
+            - name: CONFIG_PATH
+              value: /etc/ai-advisor/config.yaml
+            - name: LOG_LEVEL
+              value: {{ .Values.apps.aiAdvisor.logLevel | default "info" }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.apps.aiAdvisor.httpPort | default 8080 }}
+              protocol: TCP
+            - name: health
+              containerPort: {{ .Values.apps.aiAdvisor.healthPort | default 8081 }}
+              protocol: TCP
+          volumeMounts:
+            - name: config-volume
+              mountPath: /etc/ai-advisor/config.yaml
+              subPath: config.yaml
+          resources:
+            {{- toYaml .Values.apps.aiAdvisor.resources | nindent 12 }}
+      volumes:
+        - name: config-volume
+          configMap:
+            name: {{ include "lens.fullname" . }}-ai-advisor-config
+            items:
+              - key: config.yaml
+                path: config.yaml
+      restartPolicy: Always
+{{- end }}

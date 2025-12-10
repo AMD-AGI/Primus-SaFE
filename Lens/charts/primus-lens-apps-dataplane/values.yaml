@@ -1,0 +1,136 @@
+#
+# Primus Lens Apps Data Plane - Configuration
+#
+# Data plane components:
+# - Telemetry Collector: Log and metrics processing
+# - Jobs: Job scheduling and management
+# - Node Exporter: Node-level metrics (DaemonSet)
+# - GPU Resource Exporter: GPU metrics
+# - System Tuner: System optimization (DaemonSet)
+# - Web: Web console
+# - AI Advisor: AI recommendations
+#
+
+# ============================================================================
+# Global Configuration
+# ============================================================================
+global:
+  clusterName: "my-cluster"
+  namespace: "primus-lens"
+  
+  imageRegistry:
+    url: "docker.io"
+    pullPolicy: "IfNotPresent"
+    pullSecret: ""
+  
+  tracing:
+    enabled: false
+    endpoint: ""
+    sampler: "traceidratio"
+    samplerArg: "1.0"
+
+# ============================================================================
+# Infrastructure Dependencies
+# ============================================================================
+infrastructure:
+  # Wait for PostgreSQL to be ready before starting apps that require DB
+  # Set to true only when deploying alongside infrastructure for the first time
+  waitForPostgres: false
+
+# ============================================================================
+# Data Plane Components
+# ============================================================================
+apps:
+  telemetryCollector:
+    enabled: true
+    image: "primussafe/telemetry-processor:v1.0.0"
+    replicas: 1
+    httpPort: 8989
+    prometheusPort: 8990
+    resources: {}
+  
+  jobs:
+    enabled: true
+    image: "primussafe/primus-lens-jobs:v1.0.0"
+    replicas: 1
+    httpPort: 8989
+    grpcPort: 8991
+    resources: {}
+    config:
+      environment: "production"
+      prometheusPort: 8990
+      controller:
+        leaderElectionId: "primus-lens-core"
+        metricsPort: 19193
+        healthzPort: 19194
+        pprofPort: 19195
+  
+  nodeExporter:
+    enabled: true
+    image: "primussafe/primus-lens-node-exporter:v1.0.0"
+    httpPort: 8989
+    maxUnavailable: 10
+    resources: {}
+  
+  gpuResourceExporter:
+    enabled: true
+    image: "primussafe/gpu-resource-exporter:v1.0.0"
+    replicas: 1
+    httpPort: 8989
+    grpcPort: 8991
+    resources: {}
+    config:
+      loadK8SClient: true
+      loadStorageClient: true
+      prometheusPort: 8990
+      controller:
+        leaderElectionId: "primus-lens-gpu-resource"
+        metricsPort: 19193
+        healthzPort: 19194
+        pprofPort: 19195
+  
+  systemTuner:
+    enabled: true
+    image: "primuslens/system-tuner:v1.0.0"
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "128Mi"
+      limits:
+        cpu: "200m"
+        memory: "256Mi"
+  
+  web:
+    enabled: true
+    image: "primussafe/primus-lens-web:v1.0.0"
+    replicas: 1
+    containerPort: 80
+    resources: {}
+    service:
+      port: 80
+  
+  aiAdvisor:
+    enabled: true
+    image: "primuslens/ai-advisor:v1.0.0"
+    replicas: 1
+    httpPort: 8080
+    healthPort: 8081
+    logLevel: "info"
+    resources:
+      requests:
+        cpu: "2000m"
+        memory: "2Gi"
+      limits:
+        cpu: "2000m"
+        memory: "2Gi"
+    config:
+      middleware:
+        enableLogging: false
+
+# ============================================================================
+# Service Account Configuration
+# ============================================================================
+serviceAccount:
+  create: false
+  name: "primus-lens-app"
+

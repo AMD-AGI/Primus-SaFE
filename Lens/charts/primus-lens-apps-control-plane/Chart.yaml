@@ -1,0 +1,23 @@
+apiVersion: v2
+name: primus-lens-apps-control-plane
+description: Primus Lens Control Plane - API, Adapter and Config Exporter
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+keywords:
+  - observability
+  - monitoring
+  - ai
+  - control-plane
+  - api
+home: https://github.com/AMD-AGI/Primus-SaFE
+sources:
+  - https://github.com/AMD-AGI/Primus-SaFE
+maintainers:
+  - name: AMD AGI Team
+
+# Control plane components:
+# - primus-lens-api: Main API service
+# - primus-safe-adapter: Primus Safe integration
+# - multi-cluster-config-exporter: Multi-cluster configuration
+

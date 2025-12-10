@@ -1,11 +1,8 @@
 #
-# Primus Lens - Default Configuration Values
+# Primus Lens Data Plane - Default Configuration Values
 # 
-# This file contains all configurable values for Primus Lens deployment.
-# You can override these values by:
-# 1. Creating a custom values file: helm install -f custom-values.yaml
-# 2. Using --set flags: helm install --set global.clusterName=my-cluster
-# 3. Using environment-specific files: values-dev.yaml, values-prod.yaml
+# This chart deploys infrastructure components and data plane applications.
+# Control plane (API, Adapter) should be deployed separately via primus-lens-apps-control-plane.
 #
 
 # ============================================================================
@@ -128,179 +125,119 @@ profiles:
         memory: "4Gi"
 
 # ============================================================================
-# Application Components Configuration
+# Application Components (Data Plane only)
 # ============================================================================
 apps:
-  api:
-    enabled: true
-    image: "primuslens/api:v1.0.0"
-    replicas: 2
-    httpPort: 8080
-    resources:
-      requests:
-        cpu: "500m"
-        memory: "1Gi"
-      limits:
-        cpu: "2000m"
-        memory: "4Gi"
-    config:
-      multiCluster: true  # API 默认支持多集群
-      loadK8SClient: true
-      loadStorageClient: false
-      controller:
-        metricsPort: 19270
-        healthzPort: 19271
-        pprofPort: 19272
+  enabled: true
+
+# ============================================================================
+# Data Plane Configuration (primus-lens-apps-dataplane sub-chart)
+# Components: Telemetry, Jobs, Exporters, Web, AI Advisor
+# ============================================================================
+primus-lens-apps-dataplane:
+  global:
+    clusterName: "my-cluster"
+    namespace: "primus-lens"
+    imageRegistry:
+      url: "docker.io"
+      pullPolicy: "IfNotPresent"
+      pullSecret: ""
+    tracing:
+      enabled: false
   
-  telemetryCollector:
-    enabled: true
-    image: "primuslens/telemetry-collector:v1.0.0"
-    replicas: 2
-    resources:
-      requests:
-        cpu: "500m"
-        memory: "512Mi"
-      limits:
-        cpu: "1000m"
-        memory: "2Gi"
+  infrastructure:
+    waitForPostgres: true
   
-  jobs:
-    enabled: true
-    image: "primuslens/jobs:v1.0.0"
-    replicas: 2
-    httpPort: 8082
-    resources:
-      requests:
-        cpu: "500m"
-        memory: "1Gi"
-      limits:
-        cpu: "2000m"
-        memory: "4Gi"
-    config:
-      multiCluster: false
-      loadK8SClient: true
-      loadStorageClient: false
-      jobs:
-        grpcPort: 8991
-        mode: "standalone"  # data, management, or standalone
-      controller:
-        leaderElectionId: "primus-lens-jobs"
-        metricsPort: 19285
-        healthzPort: 19286
-        pprofPort: 19287
+  apps:
+    telemetryCollector:
+      enabled: true
+      image: "primussafe/telemetry-processor:v1.0.0"
+      replicas: 1
+      httpPort: 8989
+      prometheusPort: 8990
+      resources: {}
+    
+    jobs:
+      enabled: true
+      image: "primussafe/primus-lens-jobs:v1.0.0"
+      replicas: 1
+      httpPort: 8989
+      grpcPort: 8991
+      resources: {}
+      config:
+        environment: "production"
+        prometheusPort: 8990
+        controller:
+          leaderElectionId: "primus-lens-core"
+          metricsPort: 19193
+          healthzPort: 19194
+          pprofPort: 19195
+    
+    nodeExporter:
+      enabled: true
+      image: "primussafe/primus-lens-node-exporter:v1.0.0"
+      httpPort: 8989
+      maxUnavailable: 10
+      resources: {}
+    
+    gpuResourceExporter:
+      enabled: true
+      image: "primussafe/gpu-resource-exporter:v1.0.0"
+      replicas: 1
+      httpPort: 8989
+      grpcPort: 8991
+      resources: {}
+      config:
+        loadK8SClient: true
+        loadStorageClient: true
+        prometheusPort: 8990
+        controller:
+          leaderElectionId: "primus-lens-gpu-resource"
+          metricsPort: 19193
+          healthzPort: 19194
+          pprofPort: 19195
+    
+    systemTuner:
+      enabled: true
+      image: "primuslens/system-tuner:v1.0.0"
+      resources:
+        requests:
+          cpu: "100m"
+          memory: "128Mi"
+        limits:
+          cpu: "200m"
+          memory: "256Mi"
+    
+    web:
+      enabled: true
+      image: "primussafe/primus-lens-web:v1.0.0"
+      replicas: 1
+      containerPort: 80
+      resources: {}
+      service:
+        port: 80
+    
+    aiAdvisor:
+      enabled: true
+      image: "primuslens/ai-advisor:v1.0.0"
+      replicas: 1
+      httpPort: 8080
+      healthPort: 8081
+      logLevel: "info"
+      resources:
+        requests:
+          cpu: "2000m"
+          memory: "2Gi"
+        limits:
+          cpu: "2000m"
+          memory: "2Gi"
+      config:
+        middleware:
+          enableLogging: false
   
-  nodeExporter:
-    enabled: true
-    image: "primuslens/node-exporter:v1.0.0"
-    resources:
-      requests:
-        cpu: "100m"
-        memory: "128Mi"
-      limits:
-        cpu: "500m"
-        memory: "512Mi"
-  
-  gpuResourceExporter:
-    enabled: true
-    image: "primuslens/gpu-resource-exporter:v1.0.0"
-    resources:
-      requests:
-        cpu: "100m"
-        memory: "128Mi"
-      limits:
-        cpu: "500m"
-        memory: "512Mi"
-  
-  systemTuner:
-    enabled: true
-    image: "primuslens/system-tuner:v1.0.0"
-    resources:
-      requests:
-        cpu: "100m"
-        memory: "128Mi"
-      limits:
-        cpu: "200m"
-        memory: "256Mi"
-  
-  web:
-    enabled: true
-    image: "primuslens/web-console:v1.0.0"
-    replicas: 2
-    resources:
-      requests:
-        cpu: "200m"
-        memory: "256Mi"
-      limits:
-        cpu: "1000m"
-        memory: "1Gi"
-    service:
-      type: NodePort
-      nodePort: 30180
-      port: 80
-  
-  aiAdvisor:
-    enabled: true
-    image: "primuslens/ai-advisor:v1.0.0"
-    replicas: 1
-    httpPort: 8080
-    resources:
-      requests:
-        cpu: "500m"
-        memory: "1Gi"
-      limits:
-        cpu: "2000m"
-        memory: "4Gi"
-    config:
-      multiCluster: false
-      loadK8SClient: false
-      loadStorageClient: false
-      controller:
-        metricsPort: 19290
-        healthzPort: 19291
-        pprofPort: 19292
-  
-  primusSafeAdapter:
-    enabled: true
-    image: "primuslens/primus-safe-adapter:v1.0.0"
-    replicas: 1
-    httpPort: 8080
-    resources:
-      requests:
-        cpu: "1000m"
-        memory: "1Gi"
-      limits:
-        cpu: "1000m"
-        memory: "1Gi"
-    config:
-      multiCluster: true
-      loadK8SClient: true
-      loadStorageClient: true
-      controller:
-        leaderElectionId: "primus-safe-adapter"
-        metricsPort: 19293
-        healthzPort: 19294
-        pprofPort: 19295
-  
-  multiClusterConfigExporter:
-    enabled: true
-    image: "primuslens/multi-cluster-config-exporter:v1.0.0"
-    replicas: 1
-    httpPort: 8989
-    resources:
-      requests:
-        cpu: "200m"
-        memory: "256Mi"
-      limits:
-        cpu: "500m"
-        memory: "512Mi"
-    config:
-      multiCluster: true  # Multi-Cluster Config Exporter 默认支持多集群
-      loadK8SClient: true
-      controller:
-        leaderElectionId: "primus-lens-multi-cluster-config"
-        metricsPort: 8990
-        healthzPort: 8991
-        pprofPort: 8992
+  serviceAccount:
+    create: false
+    name: "primus-lens-app"
 
 # ============================================================================
 # Database Configuration
@@ -467,4 +404,3 @@ kube-state-metrics:
     requests:
       cpu: 50m
       memory: 128Mi
-
