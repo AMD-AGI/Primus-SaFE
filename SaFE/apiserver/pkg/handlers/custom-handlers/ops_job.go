@@ -842,6 +842,11 @@ func cvtToGetOpsJobResponse(job *dbclient.OpsJob) types.GetOpsJobResponse {
 		json.Unmarshal([]byte(conditions), &result.Conditions)
 	}
 	result.Inputs = deserializeParams(string(job.Inputs))
+	if result.Type == v1.OpsJobAddonType || result.Type == v1.OpsJobPreflightType {
+		if hasParameters(result.Inputs, v1.ParameterWorkload, v1.ParameterWorkspace, v1.ParameterCluster) {
+			result.Inputs = getParametersExcept(result.Inputs, v1.ParameterNode)
+		}
+	}
 	if outputs := dbutils.ParseNullString(job.Outputs); outputs != "" {
 		json.Unmarshal([]byte(outputs), &result.Outputs)
 	}
@@ -879,4 +884,28 @@ func deserializeParams(strInput string) []v1.Parameter {
 		}
 	}
 	return result
+}
+
+// getParametersExcept returns all parameters except those with the specified name
+func getParametersExcept(inputs []v1.Parameter, ignoreName string) []v1.Parameter {
+	var result []v1.Parameter
+	for i, param := range inputs {
+		if param.Name == ignoreName {
+			continue
+		}
+		result = append(result, inputs[i])
+	}
+	return result
+}
+
+// hasParameters checks if a parameter with the given names exist.
+func hasParameters(inputs []v1.Parameter, names ...string) bool {
+	for _, name := range names {
+		for _, param := range inputs {
+			if param.Name == name {
+				return true
+			}
+		}
+	}
+	return false
 }

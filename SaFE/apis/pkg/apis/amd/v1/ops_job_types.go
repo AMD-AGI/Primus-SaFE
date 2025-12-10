@@ -181,30 +181,6 @@ func (job *OpsJob) GetParameters(name string) []*Parameter {
 	return result
 }
 
-// GetParametersExcept returns all parameters except those with the specified name
-func (job *OpsJob) GetParametersExcept(ignoreName string) []*Parameter {
-	var result []*Parameter
-	for i, param := range job.Spec.Inputs {
-		if param.Name == ignoreName {
-			continue
-		}
-		result = append(result, &job.Spec.Inputs[i])
-	}
-	return result
-}
-
-// HasParameters checks if a parameter with the given names exist.
-func (job *OpsJob) HasParameters(names ...string) bool {
-	for _, name := range names {
-		for _, param := range job.Spec.Inputs {
-			if param.Name == name {
-				return true
-			}
-		}
-	}
-	return false
-}
-
 // CvtParamToString converts data to the target format.
 func CvtParamToString(p *Parameter) string {
 	return p.Name + ":" + p.Value
