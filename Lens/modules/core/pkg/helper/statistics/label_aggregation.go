@@ -217,7 +217,9 @@ func (c *LabelAggregationCalculator) aggregateWorkloads(
 		for _, annotationKey := range c.config.AnnotationKeys {
 			value := GetAnnotationValue(workload.Annotations, annotationKey, c.config.DefaultValue)
 			key := BuildDimensionKey(DimensionTypeAnnotation, annotationKey, value)
-
+			if value == c.config.DefaultValue {
+				continue
+			}
 			if _, exists := summary.Results[key]; !exists {
 				summary.Results[key] = &LabelAggregationResult{
 					DimensionType:     DimensionTypeAnnotation,
