@@ -293,7 +293,7 @@ func (h *Handler) generateAddonJob(c *gin.Context, body []byte) (*v1.OpsJob, err
 	if req.AvailableRatio == nil || *req.AvailableRatio <= 0 {
 		req.AvailableRatio = pointer.Float64(1.0)
 	}
-	job := genDefaultOpsJob(c, &req.BaseOpsJobRequest)
+	job := genDefaultOpsJob(&req.BaseOpsJobRequest, requestUser)
 	if req.SecurityUpgrade {
 		v1.SetAnnotation(job, v1.OpsJobSecurityUpgradeAnnotation, "")
 	}
@@ -321,7 +321,7 @@ func (h *Handler) generatePreflightJob(c *gin.Context, body []byte) (*v1.OpsJob,
 		return nil, err
 	}
 
-	job := genDefaultOpsJob(c, &req.BaseOpsJobRequest)
+	job := genDefaultOpsJob(&req.BaseOpsJobRequest, requestUser)
 	job.Spec.Resource = req.Resource
 	job.Spec.Image = req.Image
 	job.Spec.EntryPoint = req.EntryPoint
@@ -365,7 +365,7 @@ func (h *Handler) generateDumpLogJob(c *gin.Context, body []byte) (*v1.OpsJob, e
 	if err = jsonutils.Unmarshal(body, req); err != nil {
 		return nil, err
 	}
-	job := genDefaultOpsJob(c, &req.BaseOpsJobRequest)
+	job := genDefaultOpsJob(&req.BaseOpsJobRequest, requestUser)
 
 	workloadParam := job.GetParameter(v1.ParameterWorkload)
 	if workloadParam == nil {
@@ -410,7 +410,7 @@ func (h *Handler) generateRebootJob(c *gin.Context, body []byte) (*v1.OpsJob, er
 		return nil, err
 	}
 
-	return genDefaultOpsJob(c, req), nil
+	return genDefaultOpsJob(req, requestUser), nil
 }
 
 // generateExportImageJob creates an export-image-type ops job.
@@ -488,7 +488,7 @@ func (h *Handler) generateExportImageJob(c *gin.Context, body []byte) (*v1.OpsJo
 	}
 
 	// Generate base OpsJob using genDefaultOpsJob
-	job := genDefaultOpsJob(c, jobReq)
+	job := genDefaultOpsJob(jobReq, requestUser)
 
 	// Add export-image specific labels
 	job.Labels[v1.WorkloadIdLabel] = workloadId
@@ -559,7 +559,7 @@ func (h *Handler) generatePrewarmImageJob(c *gin.Context, body []byte) (*v1.OpsJ
 	}
 
 	// Generate base OpsJob using genDefaultOpsJob
-	job := genDefaultOpsJob(c, jobReq)
+	job := genDefaultOpsJob(jobReq, requestUser)
 
 	// Add workspace and cluster labels for statistics and tracking
 	job.Labels[v1.WorkspaceIdLabel] = workspace
@@ -570,16 +570,16 @@ func (h *Handler) generatePrewarmImageJob(c *gin.Context, body []byte) (*v1.OpsJ
 
 // genDefaultOpsJob creates a default ops job object with common properties.
 // It sets up the job metadata including name, labels, annotations, and basic specifications.
-func genDefaultOpsJob(c *gin.Context, req *types.BaseOpsJobRequest) *v1.OpsJob {
+func genDefaultOpsJob(req *types.BaseOpsJobRequest, requestUser *v1.User) *v1.OpsJob {
 	job := &v1.OpsJob{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: commonutils.GenerateName(req.Name),
 			Labels: map[string]string{
-				v1.UserIdLabel:      c.GetString(common.UserId),
+				v1.UserIdLabel:      requestUser.Name,
 				v1.DisplayNameLabel: req.Name,
 			},
 			Annotations: map[string]string{
-				v1.UserNameAnnotation: c.GetString(common.UserName),
+				v1.UserNameAnnotation: v1.GetUserName(requestUser),
 			},
 		},
 		Spec: v1.OpsJobSpec{
