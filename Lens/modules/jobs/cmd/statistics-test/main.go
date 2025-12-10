@@ -130,7 +130,7 @@ func parseFlags() *Config {
 }
 
 func printHelp() {
-	fmt.Println(`Statistics Test CLI - Test statistics package functionality
+	fmt.Print(`Statistics Test CLI - Test statistics package functionality
 
 Usage:
   statistics-test -cmd <command> [options]
@@ -171,7 +171,7 @@ Output Options:
 
 Examples:
   # Test GPU allocation for the last hour
-  statistics-test -cmd gpu-allocation -db-password mypass -hour "$(date -u +%Y-%m-%dT%H:00)"
+  statistics-test -cmd gpu-allocation -db-password mypass -hour "$(date -u +%%Y-%%m-%%dT%%H:00)"
 
   # Test label aggregation with specific keys
   statistics-test -cmd label-aggregation -db-password mypass \
