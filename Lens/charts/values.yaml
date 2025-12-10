@@ -1,0 +1,470 @@
+#
+# Primus Lens - Default Configuration Values
+# 
+# This file contains all configurable values for Primus Lens deployment.
+# You can override these values by:
+# 1. Creating a custom values file: helm install -f custom-values.yaml
+# 2. Using --set flags: helm install --set global.clusterName=my-cluster
+# 3. Using environment-specific files: values-dev.yaml, values-prod.yaml
+#
+
+# ============================================================================
+# Global Configuration
+# ============================================================================
+global:
+  # Cluster identification
+  clusterName: "my-cluster"  # Must be lowercase, alphanumeric or '-', max 16 chars
+  namespace: "primus-lens"
+  
+  # Storage configuration
+  storageClass: "local-path"
+  accessMode: "ReadWriteOnce"  # Use "ReadWriteMany" if your storage supports it
+  
+  # Image registry settings
+  imageRegistry: "docker.io"
+  
+  # Image pull secrets configuration
+  # Leave credentials empty to create placeholder secret (update manually after deployment)
+  imagePullSecrets:
+    - name: primus-lens-image
+      credentials:
+        registry: "docker.io"
+        username: ""  # Set via --set or keep empty for placeholder
+        password: ""  # Set via --set or keep empty for placeholder
+  
+  # Access configuration
+  accessType: "ssh-tunnel"  # Options: "ssh-tunnel" or "ingress"
+  domain: "lens-primus.ai"  # Used when accessType is "ingress"
+
+# ============================================================================
+# Resource Profile Selection
+# Choose profile based on your cluster size:
+# - minimal: Small clusters, testing environments
+# - normal: Production clusters with moderate workloads
+# - large: Large-scale production clusters with high workloads
+# ============================================================================
+profile: "normal"
+
+profiles:
+  minimal:
+    opensearch:
+      diskSize: "30Gi"
+      memory: "2Gi"
+      cpu: "1000m"
+    postgres:
+      backupSize: "10Gi"
+      dataSize: "20Gi"
+      replicas: 1
+    victoriametrics:
+      vmagent:
+        cpu: "500m"
+        memory: "512Mi"
+      vmstorage:
+        replicas: 1
+        cpu: "1000m"
+        memory: "2Gi"
+        size: "30Gi"
+      vmselect:
+        replicas: 1
+        cpu: "500m"
+        memory: "1Gi"
+      vminsert:
+        replicas: 1
+        cpu: "500m"
+        memory: "1Gi"
+  
+  normal:
+    opensearch:
+      diskSize: "50Gi"
+      memory: "4Gi"
+      cpu: "2000m"
+    postgres:
+      backupSize: "20Gi"
+      dataSize: "50Gi"
+      replicas: 2
+    victoriametrics:
+      vmagent:
+        cpu: "1000m"
+        memory: "1Gi"
+      vmstorage:
+        replicas: 2
+        cpu: "2000m"
+        memory: "4Gi"
+        size: "50Gi"
+      vmselect:
+        replicas: 2
+        cpu: "1000m"
+        memory: "2Gi"
+      vminsert:
+        replicas: 2
+        cpu: "1000m"
+        memory: "2Gi"
+  
+  large:
+    opensearch:
+      diskSize: "100Gi"
+      memory: "8Gi"
+      cpu: "4000m"
+    postgres:
+      backupSize: "50Gi"
+      dataSize: "100Gi"
+      replicas: 3
+    victoriametrics:
+      vmagent:
+        cpu: "2000m"
+        memory: "2Gi"
+      vmstorage:
+        replicas: 3
+        cpu: "4000m"
+        memory: "8Gi"
+        size: "100Gi"
+      vmselect:
+        replicas: 3
+        cpu: "2000m"
+        memory: "4Gi"
+      vminsert:
+        replicas: 3
+        cpu: "2000m"
+        memory: "4Gi"
+
+# ============================================================================
+# Application Components Configuration
+# ============================================================================
+apps:
+  api:
+    enabled: true
+    image: "primuslens/api:v1.0.0"
+    replicas: 2
+    httpPort: 8080
+    resources:
+      requests:
+        cpu: "500m"
+        memory: "1Gi"
+      limits:
+        cpu: "2000m"
+        memory: "4Gi"
+    config:
+      multiCluster: true  # API 默认支持多集群
+      loadK8SClient: true
+      loadStorageClient: false
+      controller:
+        metricsPort: 19270
+        healthzPort: 19271
+        pprofPort: 19272
+  
+  telemetryCollector:
+    enabled: true
+    image: "primuslens/telemetry-collector:v1.0.0"
+    replicas: 2
+    resources:
+      requests:
+        cpu: "500m"
+        memory: "512Mi"
+      limits:
+        cpu: "1000m"
+        memory: "2Gi"
+  
+  jobs:
+    enabled: true
+    image: "primuslens/jobs:v1.0.0"
+    replicas: 2
+    httpPort: 8082
+    resources:
+      requests:
+        cpu: "500m"
+        memory: "1Gi"
+      limits:
+        cpu: "2000m"
+        memory: "4Gi"
+    config:
+      multiCluster: false
+      loadK8SClient: true
+      loadStorageClient: false
+      jobs:
+        grpcPort: 8991
+        mode: "standalone"  # data, management, or standalone
+      controller:
+        leaderElectionId: "primus-lens-jobs"
+        metricsPort: 19285
+        healthzPort: 19286
+        pprofPort: 19287
+  
+  nodeExporter:
+    enabled: true
+    image: "primuslens/node-exporter:v1.0.0"
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "128Mi"
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+  
+  gpuResourceExporter:
+    enabled: true
+    image: "primuslens/gpu-resource-exporter:v1.0.0"
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "128Mi"
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+  
+  systemTuner:
+    enabled: true
+    image: "primuslens/system-tuner:v1.0.0"
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "128Mi"
+      limits:
+        cpu: "200m"
+        memory: "256Mi"
+  
+  web:
+    enabled: true
+    image: "primuslens/web-console:v1.0.0"
+    replicas: 2
+    resources:
+      requests:
+        cpu: "200m"
+        memory: "256Mi"
+      limits:
+        cpu: "1000m"
+        memory: "1Gi"
+    service:
+      type: NodePort
+      nodePort: 30180
+      port: 80
+  
+  aiAdvisor:
+    enabled: true
+    image: "primuslens/ai-advisor:v1.0.0"
+    replicas: 1
+    httpPort: 8080
+    resources:
+      requests:
+        cpu: "500m"
+        memory: "1Gi"
+      limits:
+        cpu: "2000m"
+        memory: "4Gi"
+    config:
+      multiCluster: false
+      loadK8SClient: false
+      loadStorageClient: false
+      controller:
+        metricsPort: 19290
+        healthzPort: 19291
+        pprofPort: 19292
+  
+  primusSafeAdapter:
+    enabled: true
+    image: "primuslens/primus-safe-adapter:v1.0.0"
+    replicas: 1
+    httpPort: 8080
+    resources:
+      requests:
+        cpu: "1000m"
+        memory: "1Gi"
+      limits:
+        cpu: "1000m"
+        memory: "1Gi"
+    config:
+      multiCluster: true
+      loadK8SClient: true
+      loadStorageClient: true
+      controller:
+        leaderElectionId: "primus-safe-adapter"
+        metricsPort: 19293
+        healthzPort: 19294
+        pprofPort: 19295
+  
+  multiClusterConfigExporter:
+    enabled: true
+    image: "primuslens/multi-cluster-config-exporter:v1.0.0"
+    replicas: 1
+    httpPort: 8989
+    resources:
+      requests:
+        cpu: "200m"
+        memory: "256Mi"
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+    config:
+      multiCluster: true  # Multi-Cluster Config Exporter 默认支持多集群
+      loadK8SClient: true
+      controller:
+        leaderElectionId: "primus-lens-multi-cluster-config"
+        metricsPort: 8990
+        healthzPort: 8991
+        pprofPort: 8992
+
+# ============================================================================
+# Database Configuration
+# ============================================================================
+database:
+  enabled: true
+  # PostgreSQL initialization SQL script
+  initScript: "setup_primus_lens.sql"
+  # Note: Password is automatically generated by PGO and read from
+  # the pguser secret, no need to configure here
+
+# ============================================================================
+# OpenSearch Configuration (Log Storage)
+# ============================================================================
+opensearch:
+  enabled: true
+  clusterName: "primus-lens-logs"
+  # Note: Admin password is read from the opensearch-operator-generated secret
+  # No need to configure here, it will be automatically retrieved
+  nodeSets:
+    - name: "nodes"
+      replicas: 3
+      roles:
+        - master
+        - data
+        - ingest
+
+# ============================================================================
+# VictoriaMetrics Configuration (Metrics Storage)
+# ============================================================================
+victoriametrics:
+  enabled: true
+
+# ============================================================================
+# Logging Configuration
+# ============================================================================
+logging:
+  enabled: true
+  fluentbit:
+    outputs:
+      opensearch:
+        enabled: true
+
+# ============================================================================
+# Grafana Configuration
+# ============================================================================
+grafana:
+  enabled: true
+  adminPassword: "admin"  # Change this in production!
+  # Dashboards to import automatically
+  dashboards:
+    enabled: true
+    folders:
+      - name: "Default"
+        dashboards:
+          - node-history
+          - node-stat
+          - workload-metrics
+      - name: "Node"
+        dashboards:
+          - node-exporter
+          - node-rdma
+      - name: "Kubernetes"
+        dashboards:
+          - k8s-overview
+          - kubernetes-nodes
+          - etcd-cluster-overview
+      - name: "Middleware"
+        dashboards:
+          - opensearch-prometheus
+          - victoriametrics-cluster
+          - victoriametrics-operator
+          - victoriametrics-vmagent
+
+# ============================================================================
+# Monitoring Configuration
+# ============================================================================
+monitoring:
+  kubeStateMetrics:
+    enabled: true
+
+# ============================================================================
+# Ingress Configuration
+# ============================================================================
+ingress:
+  enabled: false  # Automatically set based on global.accessType
+  className: "nginx"
+  annotations: {}
+  tls:
+    enabled: true
+    secretName: "primus-lens-tls"
+
+# ============================================================================
+# Operator Configurations (Sub-charts)
+# These values are passed to the respective operator charts
+# ============================================================================
+
+# VictoriaMetrics Operator
+vm-operator:
+  enabled: true
+  operator:
+    enable_converter_ownership: true
+    resources:
+      limits:
+        cpu: 200m
+        memory: 150Mi
+      requests:
+        cpu: 50m
+        memory: 100Mi
+
+# Fluent Operator
+fluent-operator:
+  enabled: true
+  operator:
+    resources:
+      limits:
+        cpu: 200m
+        memory: 200Mi
+      requests:
+        cpu: 50m
+        memory: 100Mi
+
+# OpenSearch Operator
+opensearch-operator:
+  enabled: true
+  manager:
+    resources:
+      limits:
+        cpu: 200m
+        memory: 256Mi
+      requests:
+        cpu: 50m
+        memory: 128Mi
+
+# PostgreSQL Operator (PGO)
+pgo:
+  enabled: true
+  resources:
+    limits:
+      cpu: 200m
+      memory: 256Mi
+    requests:
+      cpu: 50m
+      memory: 128Mi
+
+# Grafana Operator
+grafana-operator:
+  enabled: true
+  resources:
+    limits:
+      cpu: 200m
+      memory: 256Mi
+    requests:
+      cpu: 50m
+      memory: 128Mi
+
+# Kube State Metrics
+kube-state-metrics:
+  enabled: true
+  resources:
+    limits:
+      cpu: 200m
+      memory: 256Mi
+    requests:
+      cpu: 50m
+      memory: 128Mi
+

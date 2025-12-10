@@ -1,0 +1,98 @@
+{{/*
+Grafana Custom Resource
+Defines the Grafana instance managed by Grafana Operator.
+*/}}
+{{- if .Values.grafana.enabled }}
+apiVersion: grafana.integreatly.org/v1beta1
+kind: Grafana
+metadata:
+  name: primus-lens-grafana
+  namespace: {{ include "primus-lens.namespace" . }}
+  labels:
+    {{- include "primus-lens.labels" . | nindent 4 }}
+    app.kubernetes.io/component: grafana
+    dashboards: "primus-lens"
+spec:
+  config:
+    log:
+      mode: "console"
+      level: "info"
+    
+    server:
+      root_url: {{ include "primus-lens.grafanaRootUrl" . }}
+      {{- if eq .Values.global.accessType "ingress" }}
+      domain: {{ include "primus-lens.grafanaDomain" . }}
+      {{- end }}
+    
+    auth:
+      disable_login_form: false
+    
+    auth.anonymous:
+      enabled: false
+    
+    security:
+      admin_user: admin
+      admin_password: {{ .Values.grafana.adminPassword }}
+    
+    database:
+      type: postgres
+      host: {{ include "primus-lens.postgresHost" . }}:5432
+      name: grafana
+      user: primus_lens
+      password: $__file{/etc/secrets/db/password}
+      ssl_mode: disable
+  
+  deployment:
+    spec:
+      replicas: 2
+      
+      template:
+        spec:
+          {{- include "primus-lens.imagePullSecrets" . | nindent 10 }}
+          
+          volumes:
+            - name: db-secret
+              secret:
+                secretName: primus-lens-pguser-primus-lens
+          
+          containers:
+            - name: grafana
+              volumeMounts:
+                - name: db-secret
+                  mountPath: /etc/secrets/db
+                  readOnly: true
+              
+              resources:
+                requests:
+                  cpu: "200m"
+                  memory: "256Mi"
+                limits:
+                  cpu: "1000m"
+                  memory: "1Gi"
+  
+  # Service configuration
+  service:
+    metadata:
+      labels:
+        app: grafana
+    spec:
+      type: {{ if eq .Values.global.accessType "ssh-tunnel" }}NodePort{{ else }}ClusterIP{{ end }}
+      {{- if eq .Values.global.accessType "ssh-tunnel" }}
+      ports:
+        - name: http
+          port: 3000
+          targetPort: 3000
+          nodePort: 30182
+      {{- end }}
+  
+  # Persistence for dashboard storage
+  persistentVolumeClaim:
+    spec:
+      accessModes:
+        - {{ include "primus-lens.accessMode" . }}
+      resources:
+        requests:
+          storage: "10Gi"
+      storageClassName: {{ include "primus-lens.storageClass" . }}
+{{- end }}
+

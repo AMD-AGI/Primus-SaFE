@@ -1,0 +1,162 @@
+{{- if .Values.apps.primusSafeAdapter.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "lens.fullname" . }}-primus-safe-adapter-config
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "lens.labels" . | nindent 4 }}
+    app.kubernetes.io/component: primus-safe-adapter
+data:
+  config.yaml: |
+    httpPort: {{ .Values.apps.primusSafeAdapter.httpPort }}
+    multiCluster: {{ .Values.apps.primusSafeAdapter.config.multiCluster }}
+    loadK8SClient: {{ .Values.apps.primusSafeAdapter.config.loadK8SClient }}
+    loadStorageClient: {{ .Values.apps.primusSafeAdapter.config.loadStorageClient }}
+    controller:
+      namespace: {{ .Values.global.namespace }}
+      leaderElectionId: {{ .Values.apps.primusSafeAdapter.config.controller.leaderElectionId }}
+      metricsPort: {{ .Values.apps.primusSafeAdapter.config.controller.metricsPort }}
+      healthzPort: {{ .Values.apps.primusSafeAdapter.config.controller.healthzPort }}
+      pprofPort: {{ .Values.apps.primusSafeAdapter.config.controller.pprofPort }}
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "lens.fullname" . }}-primus-safe-adapter
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "lens.labels" . | nindent 4 }}
+    app.kubernetes.io/component: primus-safe-adapter
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: {{ .Values.apps.primusSafeAdapter.httpPort }}
+      targetPort: http
+      protocol: TCP
+    - name: metrics
+      port: {{ .Values.apps.primusSafeAdapter.config.controller.metricsPort }}
+      targetPort: metrics
+      protocol: TCP
+    - name: healthz
+      port: {{ .Values.apps.primusSafeAdapter.config.controller.healthzPort }}
+      targetPort: healthz
+      protocol: TCP
+  selector:
+    {{- include "lens.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: primus-safe-adapter
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "lens.fullname" . }}-primus-safe-adapter
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "lens.labels" . | nindent 4 }}
+    app.kubernetes.io/component: primus-safe-adapter
+spec:
+  replicas: {{ .Values.apps.primusSafeAdapter.replicas }}
+  selector:
+    matchLabels:
+      {{- include "lens.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: primus-safe-adapter
+  template:
+    metadata:
+      labels:
+        {{- include "lens.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: primus-safe-adapter
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "{{ .Values.apps.primusSafeAdapter.config.controller.metricsPort }}"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: {{ include "lens.serviceAccountName" . }}
+      {{- if .Values.global.imageRegistry.pullSecret }}
+      imagePullSecrets:
+        - name: {{ .Values.global.imageRegistry.pullSecret }}
+      {{- end }}
+      containers:
+        - name: adapter
+          image: "{{ .Values.global.imageRegistry.url }}/{{ .Values.apps.primusSafeAdapter.image }}"
+          imagePullPolicy: {{ .Values.global.imageRegistry.pullPolicy }}
+          env:
+            - name: CONFIG_PATH
+              value: /etc/primus-safe-adapter/config.yaml
+            - name: HTTP_PORT
+              value: "{{ .Values.apps.primusSafeAdapter.httpPort }}"
+            - name: METRICS_PORT
+              value: "{{ .Values.apps.primusSafeAdapter.config.controller.metricsPort }}"
+            - name: HEALTHZ_PORT
+              value: "{{ .Values.apps.primusSafeAdapter.config.controller.healthzPort }}"
+            - name: PPROF_PORT
+              value: "{{ .Values.apps.primusSafeAdapter.config.controller.pprofPort }}"
+            - name: NAMESPACE
+              value: {{ .Values.global.namespace }}
+            - name: DB_HOST
+              value: "{{ include "lens.fullname" . }}-postgres-primary.{{ .Values.global.namespace }}.svc.cluster.local"
+            - name: DB_PORT
+              value: "5432"
+            - name: DB_NAME
+              value: "primus_lens"
+            - name: DB_USER
+              value: "primus_lens"
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "lens.fullname" . }}-postgres-pguser-primus-lens
+                  key: password
+            - name: DB_SSL_MODE
+              value: "require"
+            {{- if .Values.global.tracing.enabled }}
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "{{ .Values.global.tracing.endpoint }}"
+            - name: OTEL_SERVICE_NAME
+              value: "primus-safe-adapter"
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.apps.primusSafeAdapter.httpPort }}
+              protocol: TCP
+            - name: metrics
+              containerPort: {{ .Values.apps.primusSafeAdapter.config.controller.metricsPort }}
+              protocol: TCP
+            - name: healthz
+              containerPort: {{ .Values.apps.primusSafeAdapter.config.controller.healthzPort }}
+              protocol: TCP
+            - name: pprof
+              containerPort: {{ .Values.apps.primusSafeAdapter.config.controller.pprofPort }}
+              protocol: TCP
+          volumeMounts:
+            - name: config
+              mountPath: /etc/primus-safe-adapter/config.yaml
+              subPath: config.yaml
+              readOnly: true
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: healthz
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: healthz
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.apps.primusSafeAdapter.resources | nindent 12 }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "lens.fullname" . }}-primus-safe-adapter-config
+      restartPolicy: Always
+{{- end }}
+

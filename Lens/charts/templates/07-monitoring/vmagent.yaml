@@ -1,0 +1,89 @@
+{{/*
+VictoriaMetrics Agent Custom Resource
+Defines the VMAgent for metrics collection and scraping.
+Deployed after applications are running (post-install hook).
+Depends on telemetry-processor being available.
+*/}}
+{{- if .Values.victoriametrics.enabled }}
+{{- $profile := include "primus-lens.profileConfig" . | fromYaml }}
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMAgent
+metadata:
+  name: primus-lens-vmagent
+  namespace: {{ include "primus-lens.namespace" . }}
+  labels:
+    {{- include "primus-lens.labels" . | nindent 4 }}
+    app.kubernetes.io/component: metrics-collector
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "100"
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  # Number of agent replicas
+  replicaCount: 2
+  
+  # Resources
+  resources:
+    requests:
+      cpu: {{ $profile.victoriametrics.vmagent.cpu }}
+      memory: {{ $profile.victoriametrics.vmagent.memory }}
+    limits:
+      cpu: {{ $profile.victoriametrics.vmagent.cpu }}
+      memory: {{ $profile.victoriametrics.vmagent.memory }}
+  
+  # Remote write configuration - write to VMCluster
+  remoteWrite:
+    - url: "http://vminsert-primus-lens-vmcluster.{{ include "primus-lens.namespace" . }}.svc.cluster.local:8480/insert/0/prometheus/api/v1/write"
+  
+  # Service scrape selector - scrape all VMServiceScrape resources
+  serviceScrapeSelector: {}
+  serviceScrapeNamespaceSelector: {}
+  
+  # Pod scrape selector - scrape all VMPodScrape resources
+  podScrapeSelector: {}
+  podScrapeNamespaceSelector: {}
+  
+  # Node scrape selector
+  nodeScrapeSelector: {}
+  nodeScrapeNamespaceSelector: {}
+  
+  # Static scrape selector
+  staticScrapeSelector: {}
+  staticScrapeNamespaceSelector: {}
+  
+  # Probe selector
+  probeSelector: {}
+  probeNamespaceSelector: {}
+  
+  # External labels to add to all metrics
+  externalLabels:
+    cluster: {{ .Values.global.clusterName }}
+    environment: {{ .Values.profile }}
+  
+  # Additional scrape configs
+  additionalScrapeConfigs:
+    name: primus-lens-additional-scrape-configs
+    key: scrape-configs.yaml
+{{- end }}
+---
+{{/*
+Additional Scrape Configs Secret
+*/}}
+{{- if .Values.victoriametrics.enabled }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: primus-lens-additional-scrape-configs
+  namespace: {{ include "primus-lens.namespace" . }}
+  labels:
+    {{- include "primus-lens.labels" . | nindent 4 }}
+type: Opaque
+stringData:
+  scrape-configs.yaml: |
+    # Additional scrape configurations can be added here
+    # Example:
+    # - job_name: 'custom-metrics'
+    #   static_configs:
+    #     - targets: ['custom-service:9090']
+{{- end }}
+

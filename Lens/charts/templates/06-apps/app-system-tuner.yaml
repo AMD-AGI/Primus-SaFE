@@ -1,0 +1,91 @@
+{{/*
+Primus Lens System Tuner DaemonSet
+Optimizes system parameters on each node for AI training workloads.
+Runs as a privileged DaemonSet with host access.
+*/}}
+{{- if .Values.apps.systemTuner.enabled }}
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: primus-lens-system-tuner
+  namespace: {{ include "primus-lens.namespace" . }}
+  labels:
+    {{- include "primus-lens.labels" . | nindent 4 }}
+    app: primus-lens-system-tuner
+    app.kubernetes.io/component: system-tuner
+spec:
+  selector:
+    matchLabels:
+      app: primus-lens-system-tuner
+  template:
+    metadata:
+      labels:
+        app: primus-lens-system-tuner
+        {{- include "primus-lens.selectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: primus-lens-app
+      {{- include "primus-lens.imagePullSecrets" . | nindent 6 }}
+      
+      # Run as root to modify system parameters
+      securityContext:
+        runAsUser: 0
+        runAsGroup: 0
+        fsGroup: 0
+      
+      hostNetwork: false
+      hostPID: false
+      
+      # Tolerations to run on all nodes including masters
+      tolerations:
+      - operator: Exists
+      
+      volumes:
+      - name: host-etc
+        hostPath:
+          path: /etc
+          type: Directory
+      - name: host-proc
+        hostPath:
+          path: /proc
+          type: Directory
+      
+      containers:
+      - name: system-tuner
+        image: {{ include "primus-lens.image" (dict "registry" .Values.global.imageRegistry "image" .Values.apps.systemTuner.image) }}
+        imagePullPolicy: IfNotPresent
+        
+        # Privileged mode required for system tuning
+        securityContext:
+          privileged: true
+          capabilities:
+            add:
+            - SYS_ADMIN
+            - NET_ADMIN
+        
+        env:
+        {{- include "primus-lens.commonEnv" . | nindent 8 }}
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        
+        volumeMounts:
+        - name: host-etc
+          mountPath: /etc
+          readOnly: false
+        - name: host-proc
+          mountPath: /host-proc
+          readOnly: true
+        
+        resources:
+          {{- toYaml .Values.apps.systemTuner.resources | nindent 10 }}
+      
+      restartPolicy: Always
+  
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 10
+{{- end }}
+

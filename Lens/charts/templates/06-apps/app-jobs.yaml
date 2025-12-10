@@ -1,0 +1,151 @@
+{{/*
+Primus Lens Jobs Service Deployment
+Manages job scheduling and lifecycle for training workloads.
+*/}}
+{{- if .Values.apps.jobs.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: primus-lens-jobs-config
+  namespace: {{ include "primus-lens.namespace" . }}
+  labels:
+    {{- include "primus-lens.labels" . | nindent 4 }}
+    app: primus-lens-jobs
+data:
+  config.yaml: |
+    httpPort: {{ .Values.apps.jobs.httpPort }}
+    multiCluster: {{ .Values.apps.jobs.config.multiCluster }}
+    loadK8SClient: {{ .Values.apps.jobs.config.loadK8SClient }}
+    loadStorageClient: {{ .Values.apps.jobs.config.loadStorageClient }}
+    jobs:
+      grpcPort: {{ .Values.apps.jobs.config.jobs.grpcPort }}
+      mode: {{ .Values.apps.jobs.config.jobs.mode }}
+    controller:
+      namespace: {{ include "primus-lens.namespace" . }}
+      leaderElectionId: {{ .Values.apps.jobs.config.controller.leaderElectionId }}
+      metricsPort: {{ .Values.apps.jobs.config.controller.metricsPort }}
+      healthzPort: {{ .Values.apps.jobs.config.controller.healthzPort }}
+      pprofPort: {{ .Values.apps.jobs.config.controller.pprofPort }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: primus-lens-jobs
+  namespace: {{ include "primus-lens.namespace" . }}
+  labels:
+    {{- include "primus-lens.labels" . | nindent 4 }}
+    app: primus-lens-jobs
+    app.kubernetes.io/component: jobs
+spec:
+  replicas: {{ .Values.apps.jobs.replicas }}
+  selector:
+    matchLabels:
+      app: primus-lens-jobs
+  template:
+    metadata:
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "19193"
+        prometheus.io/path: "/metrics"
+      labels:
+        app: primus-lens-jobs
+        {{- include "primus-lens.selectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: primus-lens-app
+      {{- include "primus-lens.imagePullSecrets" . | nindent 6 }}
+      
+      containers:
+      - name: jobs
+        image: {{ include "primus-lens.image" (dict "registry" .Values.global.imageRegistry "image" .Values.apps.jobs.image) }}
+        imagePullPolicy: IfNotPresent
+        
+        env:
+        - name: CONFIG_PATH
+          value: /etc/primus-lens-jobs/config.yaml
+        - name: PG_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: primus-lens-pguser-primus-lens
+              key: password
+        {{- include "primus-lens.commonEnv" . | nindent 8 }}
+        
+        ports:
+        - name: http
+          containerPort: 8989
+          protocol: TCP
+        - name: grpc
+          containerPort: 8991
+          protocol: TCP
+        - name: metrics
+          containerPort: 19193
+          protocol: TCP
+        - name: health
+          containerPort: 19194
+          protocol: TCP
+        - name: pprof
+          containerPort: 19195
+          protocol: TCP
+        
+        volumeMounts:
+        - name: config-volume
+          mountPath: /etc/primus-lens-jobs/config.yaml
+          subPath: config.yaml
+          readOnly: true
+        
+        resources:
+          {{- toYaml .Values.apps.jobs.resources | nindent 10 }}
+        
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: health
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: health
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+      
+      volumes:
+      - name: config-volume
+        configMap:
+          name: primus-lens-jobs-config
+          items:
+          - key: config.yaml
+            path: config.yaml
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: primus-lens-jobs
+  namespace: {{ include "primus-lens.namespace" . }}
+  labels:
+    {{- include "primus-lens.labels" . | nindent 4 }}
+    app: primus-lens-jobs
+spec:
+  type: ClusterIP
+  ports:
+  - name: http
+    port: 8989
+    targetPort: http
+    protocol: TCP
+  - name: grpc
+    port: 8991
+    targetPort: grpc
+    protocol: TCP
+  - name: metrics
+    port: 19193
+    targetPort: metrics
+    protocol: TCP
+  selector:
+    app: primus-lens-jobs
+{{- end }}
+

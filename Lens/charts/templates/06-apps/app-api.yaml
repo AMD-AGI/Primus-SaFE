@@ -1,0 +1,149 @@
+{{/*
+Primus Lens API Service Deployment
+*/}}
+{{- if .Values.apps.api.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: primus-lens-api-config
+  namespace: {{ include "primus-lens.namespace" . }}
+  labels:
+    {{- include "primus-lens.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+data:
+  config.yaml: |
+    httpPort: {{ .Values.apps.api.httpPort }}
+    multiCluster: {{ .Values.apps.api.config.multiCluster }}
+    loadK8SClient: {{ .Values.apps.api.config.loadK8SClient }}
+    loadStorageClient: {{ .Values.apps.api.config.loadStorageClient }}
+    controller:
+      namespace: {{ include "primus-lens.namespace" . }}
+      metricsPort: {{ .Values.apps.api.config.controller.metricsPort }}
+      healthzPort: {{ .Values.apps.api.config.controller.healthzPort }}
+      pprofPort: {{ .Values.apps.api.config.controller.pprofPort }}
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: primus-lens-api
+  namespace: {{ include "primus-lens.namespace" . }}
+  labels:
+    {{- include "primus-lens.labels" . | nindent 4 }}
+    app: primus-lens-api
+    app.kubernetes.io/component: api
+spec:
+  replicas: {{ .Values.apps.api.replicas }}
+  selector:
+    matchLabels:
+      app: primus-lens-api
+  template:
+    metadata:
+      labels:
+        app: primus-lens-api
+        {{- include "primus-lens.selectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: primus-lens-app
+      {{- include "primus-lens.imagePullSecrets" . | nindent 6 }}
+      
+      containers:
+      - name: api
+        image: {{ include "primus-lens.image" (dict "registry" .Values.global.imageRegistry "image" .Values.apps.api.image) }}
+        imagePullPolicy: IfNotPresent
+        
+        ports:
+        - name: http
+          containerPort: {{ .Values.apps.api.httpPort }}
+          protocol: TCP
+        - name: grpc
+          containerPort: 9090
+          protocol: TCP
+        - name: metrics
+          containerPort: {{ .Values.apps.api.config.controller.metricsPort }}
+          protocol: TCP
+        - name: healthz
+          containerPort: {{ .Values.apps.api.config.controller.healthzPort }}
+          protocol: TCP
+        - name: pprof
+          containerPort: {{ .Values.apps.api.config.controller.pprofPort }}
+          protocol: TCP
+        
+        env:
+        {{- include "primus-lens.commonEnv" . | nindent 8 }}
+        {{- include "primus-lens.dbEnv" . | nindent 8 }}
+        
+        - name: CONFIG_PATH
+          value: /etc/primus-lens/api/config.yaml
+        
+        - name: OPENSEARCH_ENDPOINT
+          value: {{ include "primus-lens.opensearchEndpoint" . }}
+        - name: OPENSEARCH_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.opensearch.clusterName }}-admin-password
+              key: username
+        - name: OPENSEARCH_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.opensearch.clusterName }}-admin-password
+              key: password
+        
+        - name: VMSELECT_ENDPOINT
+          value: {{ include "primus-lens.vmSelectEndpoint" . }}
+        
+        volumeMounts:
+        - name: config
+          mountPath: /etc/primus-lens/api/config.yaml
+          subPath: config.yaml
+          readOnly: true
+        
+        resources:
+          {{- toYaml .Values.apps.api.resources | nindent 10 }}
+        
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: http
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: http
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+      
+      volumes:
+      - name: config
+        configMap:
+          name: primus-lens-api-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: primus-lens-api
+  namespace: {{ include "primus-lens.namespace" . }}
+  labels:
+    {{- include "primus-lens.labels" . | nindent 4 }}
+    app: primus-lens-api
+spec:
+  type: ClusterIP
+  ports:
+  - name: http
+    port: 8080
+    targetPort: http
+    protocol: TCP
+  - name: grpc
+    port: 9090
+    targetPort: grpc
+    protocol: TCP
+  selector:
+    app: primus-lens-api
+{{- end }}
+

@@ -1,0 +1,115 @@
+{{/*
+FluentBit Configuration
+Deployed after applications are running (post-install hook).
+Depends on telemetry-processor being available.
+*/}}
+{{- if .Values.logging.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "primus-lens.fullname" . }}-fluentbit-config
+  namespace: {{ include "primus-lens.namespace" . }}
+  labels:
+    {{- include "primus-lens.labels" . | nindent 4 }}
+    app.kubernetes.io/component: logging
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "100"
+    "helm.sh/hook-delete-policy": before-hook-creation
+data:
+  fluent-bit.conf: |
+    [SERVICE]
+        Flush        5
+        Daemon       Off
+        Log_Level    info
+        Parsers_File parsers.conf
+
+    [INPUT]
+        Name              tail
+        Path              /var/log/containers/*.log
+        Parser            docker
+        Tag               kube.*
+        Refresh_Interval  5
+        Mem_Buf_Limit     50MB
+        Skip_Long_Lines   On
+
+    [FILTER]
+        Name                kubernetes
+        Match               kube.*
+        Kube_URL            https://kubernetes.default.svc:443
+        Kube_CA_File        /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+        Kube_Token_File     /var/run/secrets/kubernetes.io/serviceaccount/token
+        Kube_Tag_Prefix     kube.var.log.containers.
+        Merge_Log           On
+        Keep_Log            Off
+        K8S-Logging.Parser  On
+        K8S-Logging.Exclude On
+
+    {{- if .Values.opensearch.enabled }}
+    [OUTPUT]
+        Name            opensearch
+        Match           *
+        Host            {{ include "primus-lens.opensearchEndpoint" . | split ":" | first }}
+        Port            9200
+        HTTP_User       admin
+        HTTP_Passwd     ${OPENSEARCH_PASSWORD}
+        Index           primus-lens
+        Type            _doc
+        Logstash_Format On
+        Logstash_Prefix primus-lens
+        Retry_Limit     5
+        tls             Off
+        tls.verify      Off
+    {{- end }}
+
+  parsers.conf: |
+    [PARSER]
+        Name        docker
+        Format      json
+        Time_Key    time
+        Time_Format %Y-%m-%dT%H:%M:%S.%LZ
+        Time_Keep   On
+---
+apiVersion: fluentbit.fluent.io/v1alpha2
+kind: FluentBit
+metadata:
+  name: primus-lens-fluentbit
+  namespace: {{ include "primus-lens.namespace" . }}
+  labels:
+    {{- include "primus-lens.labels" . | nindent 4 }}
+    app.kubernetes.io/component: logging
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "100"
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  image: fluent/fluent-bit:2.1.0
+  
+  # Resource limits
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  
+  # Mount configuration
+  fluentBitConfigName: {{ include "primus-lens.fullname" . }}-fluentbit-config
+  
+  # Environment variables
+  envVars:
+    - name: OPENSEARCH_PASSWORD
+      valueFrom:
+        secretKeyRef:
+          name: {{ .Values.opensearch.clusterName }}-admin-password
+          key: password
+  
+  # Service account
+  serviceAccount: primus-lens-app
+  
+  # Tolerations to run on all nodes
+  tolerations:
+    - operator: Exists
+{{- end }}
+
