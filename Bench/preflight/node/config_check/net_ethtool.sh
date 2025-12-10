@@ -18,8 +18,17 @@ fi
 
 while read -r line; do
   netdev=$(echo "$line" | awk '{print $NF}')
-  nsenter --target 1 --mount --uts --ipc --net --pid -- /usr/sbin/ethtool -t $netdev online |grep "FAIL" > /dev/null
-  if [ $? -eq 0 ]; then
+  # Capture ethtool output and check for both failures and unsupported operations
+  output=$(nsenter --target 1 --mount --uts --ipc --net --pid -- /usr/sbin/ethtool -t $netdev online 2>&1)
+  
+  # Check if operation is not supported (skip this device)
+  if echo "$output" | grep -q "Operation not supported"; then
+      echo "Skipping $netdev: ethtool self-test not supported"
+      continue
+  fi
+  
+  # Check for actual test failures
+  if echo "$output" | grep -q "FAIL"; then
       echo "\"FAIL\" found in \"ethtool -t $netdev\""
       exit 1
   fi
