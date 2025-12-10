@@ -12,51 +12,51 @@ import (
 	log "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 )
 
-// TaskScheduler 任务调度器
-// 负责从数据库拉取任务并分发给对应的执行器
+// TaskScheduler task scheduler
+// Responsible for pulling tasks from database and dispatching them to corresponding executors
 type TaskScheduler struct {
 	ctx        context.Context
 	cancel     context.CancelFunc
 	wg         sync.WaitGroup
 	instanceID string
 
-	// 数据库 facade
+	// Database facade
 	taskFacade database.WorkloadTaskFacadeInterface
 
-	// 执行器注册表 task_type -> executor
+	// Executor registry: task_type -> executor
 	executors map[string]TaskExecutor
 	mu        sync.RWMutex
 
-	// 运行中的任务 task_id -> context
+	// Running tasks: task_id -> context
 	runningTasks map[int64]context.CancelFunc
 	runningMu    sync.RWMutex
 
-	// 配置
+	// Configuration
 	config *SchedulerConfig
 }
 
-// SchedulerConfig 调度器配置
+// SchedulerConfig scheduler configuration
 type SchedulerConfig struct {
-	// 扫描间隔
+	// Scan interval
 	ScanInterval time.Duration
 
-	// 锁持有时长
+	// Lock hold duration
 	LockDuration time.Duration
 
-	// 心跳间隔
+	// Heartbeat interval
 	HeartbeatInterval time.Duration
 
-	// 最大并发任务数
+	// Maximum concurrent tasks
 	MaxConcurrentTasks int
 
-	// 过期锁清理间隔
+	// Stale lock cleanup interval
 	StaleLockCleanupInterval time.Duration
 
-	// 是否自动启动
+	// Whether to auto start
 	AutoStart bool
 }
 
-// DefaultSchedulerConfig 默认配置
+// DefaultSchedulerConfig default configuration
 func DefaultSchedulerConfig() *SchedulerConfig {
 	return &SchedulerConfig{
 		ScanInterval:             10 * time.Second,
@@ -68,7 +68,7 @@ func DefaultSchedulerConfig() *SchedulerConfig {
 	}
 }
 
-// NewTaskScheduler 创建任务调度器
+// NewTaskScheduler creates task scheduler
 func NewTaskScheduler(instanceID string, config *SchedulerConfig) *TaskScheduler {
 	if config == nil {
 		config = DefaultSchedulerConfig()
@@ -87,7 +87,7 @@ func NewTaskScheduler(instanceID string, config *SchedulerConfig) *TaskScheduler
 	}
 }
 
-// RegisterExecutor 注册任务执行器
+// RegisterExecutor registers task executor
 func (s *TaskScheduler) RegisterExecutor(executor TaskExecutor) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -102,7 +102,7 @@ func (s *TaskScheduler) RegisterExecutor(executor TaskExecutor) error {
 	return nil
 }
 
-// GetExecutor 获取执行器
+// GetExecutor gets executor
 func (s *TaskScheduler) GetExecutor(taskType string) (TaskExecutor, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -111,25 +111,25 @@ func (s *TaskScheduler) GetExecutor(taskType string) (TaskExecutor, bool) {
 	return executor, exists
 }
 
-// Start 启动调度器
+// Start starts scheduler
 func (s *TaskScheduler) Start() error {
 	log.Infof("Starting task scheduler (instance: %s)", s.instanceID)
 
-	// 1. 清理过期锁
+	// 1. Cleanup stale locks
 	if err := s.cleanupStaleLocks(); err != nil {
 		log.Warnf("Failed to cleanup stale locks on startup: %v", err)
 	}
 
-	// 2. 恢复未完成的任务
+	// 2. Recover unfinished tasks
 	if err := s.recoverTasks(); err != nil {
 		log.Warnf("Failed to recover tasks on startup: %v", err)
 	}
 
-	// 3. 启动扫描循环
+	// 3. Start scan loop
 	s.wg.Add(1)
 	go s.scanLoop()
 
-	// 4. 启动过期锁清理循环
+	// 4. Start stale lock cleanup loop
 	s.wg.Add(1)
 	go s.staleLockCleanupLoop()
 
@@ -137,14 +137,14 @@ func (s *TaskScheduler) Start() error {
 	return nil
 }
 
-// Stop 停止调度器
+// Stop stops scheduler
 func (s *TaskScheduler) Stop() error {
 	log.Info("Stopping task scheduler...")
 
-	// 1. 取消上下文
+	// 1. Cancel context
 	s.cancel()
 
-	// 2. 取消所有运行中的任务
+	// 2. Cancel all running tasks
 	s.runningMu.Lock()
 	for taskID, cancelFunc := range s.runningTasks {
 		log.Infof("Cancelling task %d", taskID)
@@ -152,17 +152,17 @@ func (s *TaskScheduler) Stop() error {
 	}
 	s.runningMu.Unlock()
 
-	// 3. 等待所有 goroutine 完成
+	// 3. Wait for all goroutines to complete
 	s.wg.Wait()
 
-	// 4. 释放所有锁
+	// 4. Release all locks
 	s.releaseAllLocks()
 
 	log.Info("Task scheduler stopped")
 	return nil
 }
 
-// scanLoop 扫描待执行任务的循环
+// scanLoop scan loop for pending tasks
 func (s *TaskScheduler) scanLoop() {
 	defer s.wg.Done()
 
@@ -179,7 +179,7 @@ func (s *TaskScheduler) scanLoop() {
 	}
 }
 
-// staleLockCleanupLoop 清理过期锁的循环
+// staleLockCleanupLoop loop for cleaning up stale locks
 func (s *TaskScheduler) staleLockCleanupLoop() {
 	defer s.wg.Done()
 
@@ -198,9 +198,9 @@ func (s *TaskScheduler) staleLockCleanupLoop() {
 	}
 }
 
-// scanAndExecuteTasks 扫描并执行任务
+// scanAndExecuteTasks scans and executes tasks
 func (s *TaskScheduler) scanAndExecuteTasks() {
-	// 检查当前运行任务数
+	// Check current running task count
 	s.runningMu.RLock()
 	runningCount := len(s.runningTasks)
 	s.runningMu.RUnlock()
@@ -210,7 +210,7 @@ func (s *TaskScheduler) scanAndExecuteTasks() {
 		return
 	}
 
-	// 查询待执行的任务
+	// Query pending tasks
 	tasks, err := s.taskFacade.ListTasksByStatus(s.ctx, constant.TaskStatusPending)
 	if err != nil {
 		log.Errorf("Failed to list pending tasks: %v", err)
@@ -223,9 +223,9 @@ func (s *TaskScheduler) scanAndExecuteTasks() {
 
 	log.Debugf("Found %d pending tasks", len(tasks))
 
-	// 尝试执行每个任务
+	// Try to execute each task
 	for _, task := range tasks {
-		// 检查是否达到最大并发数
+		// Check if maximum concurrency reached
 		s.runningMu.RLock()
 		runningCount := len(s.runningTasks)
 		s.runningMu.RUnlock()
@@ -235,14 +235,14 @@ func (s *TaskScheduler) scanAndExecuteTasks() {
 			break
 		}
 
-		// 尝试获取锁并执行任务
+		// Try to acquire lock and execute task
 		s.tryExecuteTask(task)
 	}
 }
 
-// tryExecuteTask 尝试获取锁并执行任务
+// tryExecuteTask tries to acquire lock and execute task
 func (s *TaskScheduler) tryExecuteTask(task *model.WorkloadTaskState) {
-	// 1. 尝试获取锁
+	// 1. Try to acquire lock
 	acquired, err := s.taskFacade.TryAcquireLock(
 		s.ctx,
 		task.WorkloadUID,
@@ -263,20 +263,20 @@ func (s *TaskScheduler) tryExecuteTask(task *model.WorkloadTaskState) {
 		return
 	}
 
-	// 2. 获取执行器
+	// 2. Get executor
 	executor, exists := s.GetExecutor(task.TaskType)
 	if !exists {
 		log.Warnf("No executor registered for task type: %s", task.TaskType)
-		// 释放锁
+		// Release lock
 		s.taskFacade.ReleaseLock(s.ctx, task.WorkloadUID, task.TaskType, s.instanceID)
 		return
 	}
 
-	// 3. 验证任务参数
+	// 3. Validate task parameters
 	if err := executor.Validate(task); err != nil {
 		log.Errorf("Task validation failed for %s/%s: %v",
 			task.WorkloadUID, task.TaskType, err)
-		// 更新任务状态为失败
+		// Update task status to failed
 		s.taskFacade.UpdateTaskStatus(s.ctx, task.WorkloadUID, task.TaskType, constant.TaskStatusFailed)
 		s.taskFacade.UpdateTaskExt(s.ctx, task.WorkloadUID, task.TaskType, model.ExtType{
 			"error": fmt.Sprintf("validation failed: %v", err),
@@ -288,20 +288,20 @@ func (s *TaskScheduler) tryExecuteTask(task *model.WorkloadTaskState) {
 	log.Infof("Acquired lock for task %s/%s, starting execution",
 		task.WorkloadUID, task.TaskType)
 
-	// 4. 启动任务执行
+	// 4. Start task execution
 	s.wg.Add(1)
 	go s.executeTask(task, executor)
 }
 
-// executeTask 执行任务
+// executeTask executes task
 func (s *TaskScheduler) executeTask(task *model.WorkloadTaskState, executor TaskExecutor) {
 	defer s.wg.Done()
 
-	// 创建任务专用的 context
+	// Create task-specific context
 	taskCtx, taskCancel := context.WithCancel(s.ctx)
 	defer taskCancel()
 
-	// 注册到运行任务列表
+	// Register to running tasks list
 	s.runningMu.Lock()
 	s.runningTasks[task.ID] = taskCancel
 	s.runningMu.Unlock()
@@ -311,47 +311,47 @@ func (s *TaskScheduler) executeTask(task *model.WorkloadTaskState, executor Task
 		delete(s.runningTasks, task.ID)
 		s.runningMu.Unlock()
 
-		// 释放锁
+		// Release lock
 		s.taskFacade.ReleaseLock(taskCtx, task.WorkloadUID, task.TaskType, s.instanceID)
 	}()
 
-	// 启动心跳
+	// Start heartbeat
 	heartbeatCtx, cancelHeartbeat := context.WithCancel(taskCtx)
 	defer cancelHeartbeat()
 
 	s.wg.Add(1)
 	go s.heartbeatLoop(heartbeatCtx, task)
 
-	// 构建执行上下文
+	// Build execution context
 	execCtx := &ExecutionContext{
 		Task:       task,
 		InstanceID: s.instanceID,
 		Cancel:     taskCancel,
 	}
 
-	// 执行任务
+	// Execute task
 	log.Infof("Executing task %s/%s (executor: %s)",
 		task.WorkloadUID, task.TaskType, executor.GetTaskType())
 
 	result, err := executor.Execute(taskCtx, execCtx)
 
-	// 处理执行结果
+	// Handle execution result
 	if err != nil {
 		log.Errorf("Task execution failed %s/%s: %v",
 			task.WorkloadUID, task.TaskType, err)
 
-		// 更新任务状态
+		// Update task status
 		s.handleTaskFailure(taskCtx, task, err.Error(), result)
 	} else if result != nil {
 		log.Infof("Task execution result %s/%s: success=%v, status=%s",
 			task.WorkloadUID, task.TaskType, result.Success, result.NewStatus)
 
-		// 更新任务状态和 ext
+		// Update task status and ext
 		s.handleTaskResult(taskCtx, task, result)
 	}
 }
 
-// heartbeatLoop 心跳循环
+// heartbeatLoop heartbeat loop
 func (s *TaskScheduler) heartbeatLoop(ctx context.Context, task *model.WorkloadTaskState) {
 	defer s.wg.Done()
 
@@ -388,16 +388,16 @@ func (s *TaskScheduler) heartbeatLoop(ctx context.Context, task *model.WorkloadT
 	}
 }
 
-// handleTaskResult 处理任务执行结果
+// handleTaskResult handles task execution result
 func (s *TaskScheduler) handleTaskResult(ctx context.Context, task *model.WorkloadTaskState, result *ExecutionResult) {
-	// 更新状态
+	// Update status
 	if result.NewStatus != "" {
 		if err := s.taskFacade.UpdateTaskStatus(ctx, task.WorkloadUID, task.TaskType, result.NewStatus); err != nil {
 			log.Errorf("Failed to update task status: %v", err)
 		}
 	}
 
-	// 更新 ext 字段
+	// Update ext field
 	if len(result.UpdateExt) > 0 {
 		if result.Error != "" {
 			result.UpdateExt["error"] = result.Error
@@ -408,7 +408,7 @@ func (s *TaskScheduler) handleTaskResult(ctx context.Context, task *model.Worklo
 	}
 }
 
-// handleTaskFailure 处理任务失败
+// handleTaskFailure handles task failure
 func (s *TaskScheduler) handleTaskFailure(ctx context.Context, task *model.WorkloadTaskState, errorMsg string, result *ExecutionResult) {
 	updates := model.ExtType{
 		"error":      errorMsg,
@@ -416,19 +416,19 @@ func (s *TaskScheduler) handleTaskFailure(ctx context.Context, task *model.Workl
 		"updated_by": s.instanceID,
 	}
 
-	// 合并 result 中的更新
+	// Merge updates from result
 	if result != nil && len(result.UpdateExt) > 0 {
 		for k, v := range result.UpdateExt {
 			updates[k] = v
 		}
 	}
 
-	// 更新状态为失败
+	// Update status to failed
 	s.taskFacade.UpdateTaskStatus(ctx, task.WorkloadUID, task.TaskType, constant.TaskStatusFailed)
 	s.taskFacade.UpdateTaskExt(ctx, task.WorkloadUID, task.TaskType, updates)
 }
 
-// cleanupStaleLocks 清理过期锁
+// cleanupStaleLocks cleans up stale locks
 func (s *TaskScheduler) cleanupStaleLocks() error {
 	released, err := s.taskFacade.ReleaseStaleLocks(s.ctx)
 	if err != nil {
@@ -442,7 +442,7 @@ func (s *TaskScheduler) cleanupStaleLocks() error {
 	return nil
 }
 
-// recoverTasks 恢复未完成的任务
+// recoverTasks recovers unfinished tasks
 func (s *TaskScheduler) recoverTasks() error {
 	tasks, err := s.taskFacade.ListRecoverableTasks(s.ctx)
 	if err != nil {
@@ -456,9 +456,9 @@ func (s *TaskScheduler) recoverTasks() error {
 
 	log.Infof("Found %d recoverable tasks", len(tasks))
 
-	// 重新调度这些任务
+	// Reschedule these tasks
 	for _, task := range tasks {
-		// 重置状态为 pending
+		// Reset status to pending
 		s.taskFacade.UpdateTaskStatus(s.ctx, task.WorkloadUID, task.TaskType, constant.TaskStatusPending)
 		log.Infof("Reset task %s/%s to pending for recovery", task.WorkloadUID, task.TaskType)
 	}
@@ -466,7 +466,7 @@ func (s *TaskScheduler) recoverTasks() error {
 	return nil
 }
 
-// releaseAllLocks 释放所有锁
+// releaseAllLocks releases all locks
 func (s *TaskScheduler) releaseAllLocks() {
 	tasks, err := s.taskFacade.ListTasksByStatus(s.ctx, constant.TaskStatusRunning)
 	if err != nil {
@@ -486,14 +486,14 @@ func (s *TaskScheduler) releaseAllLocks() {
 	}
 }
 
-// GetRunningTaskCount 获取运行中的任务数量
+// GetRunningTaskCount gets running task count
 func (s *TaskScheduler) GetRunningTaskCount() int {
 	s.runningMu.RLock()
 	defer s.runningMu.RUnlock()
 	return len(s.runningTasks)
 }
 
-// GetRegisteredExecutors 获取已注册的执行器类型
+// GetRegisteredExecutors gets registered executor types
 func (s *TaskScheduler) GetRegisteredExecutors() []string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

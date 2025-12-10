@@ -40,20 +40,6 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		h.ServeHTTP(c.Writer, c.Request)
 	})
 
-	// Python Inspector routes
-	inspectorGroup := group.Group("/inspector")
-	{
-		// Script management
-		inspectorGroup.GET("/scripts", ListAvailableScripts)
-		inspectorGroup.GET("/scripts/search", SearchScripts)
-		inspectorGroup.GET("/scripts/:name", GetScriptDetail)
-
-		// Process inspection
-		inspectorGroup.POST("/inspect", InspectPythonProcess)
-		inspectorGroup.GET("/processes", ListPythonProcesses)
-		inspectorGroup.GET("/processes/:pid/status", GetProcessStatus)
-	}
-
 	// Process tree routes
 	processTreeGroup := group.Group("/process-tree")
 	{

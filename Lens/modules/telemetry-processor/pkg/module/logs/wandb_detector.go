@@ -502,7 +502,7 @@ func (d *WandBFrameworkDetector) detectFromPyTorchModules(pytorch *PyTorchInfo) 
 		}
 	}
 
-	// Base frameworks (按优先级检查)
+	// Base frameworks (check by priority)
 	if modules["deepspeed"] {
 		return &DetectionResult{
 			Framework:      "deepspeed",

@@ -41,7 +41,7 @@ var (
 	wandbHandler          *handlers.WandBHandler
 )
 
-// generateInstanceID 生成实例 ID
+// generateInstanceID generates instance ID
 func generateInstanceID() string {
 	hostname, err := os.Hostname()
 	if err != nil {
@@ -234,22 +234,22 @@ func initRouter(group *gin.RouterGroup) error {
 		wandbGroup.POST("/detection", wandbHandler.ReceiveDetection)
 	}
 
-	// Task Monitor APIs (替代原 WorkloadMonitor APIs)
+	// Task Monitor APIs (replaces original WorkloadMonitor APIs)
 	taskGroup := group.Group("/tasks")
 	{
-		// 任务统计
+		// Task statistics
 		taskGroup.GET("/stats", handlers.GetTaskStatistics)
 
-		// 任务列表
-		taskGroup.GET("", handlers.ListAllTasks) // 支持 ?status=xxx&task_type=xxx
+		// Task list
+		taskGroup.GET("", handlers.ListAllTasks) // supports ?status=xxx&task_type=xxx
 
-		// 特定任务详情
+		// Specific task details
 		taskGroup.GET("/:workload_uid/:task_type", handlers.GetTask)
 
-		// 某个 workload 的所有任务
+		// All tasks for a workload
 		taskGroup.GET("/workload/:workload_uid", handlers.ListWorkloadTasks)
 
-		// 活跃的流式任务
+		// Active streaming tasks
 		taskGroup.GET("/streams/active", handlers.GetActiveStreams)
 	}
 

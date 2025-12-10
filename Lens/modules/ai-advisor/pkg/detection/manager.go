@@ -65,7 +65,7 @@ func InitializeDetectionManager(
 	log.Info("WandB framework detector initialized")
 
 	// 6. Initialize and register TaskCreator
-	// TaskCreator 会在检测完成后自动创建 metadata collection 任务
+	// TaskCreator will automatically create metadata collection tasks after detection completes
 	taskCreator = RegisterTaskCreatorWithDetectionManager(detectionManager, instanceID)
 	log.Info("TaskCreator registered - metadata collection tasks will be created automatically after detection")
 

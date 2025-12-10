@@ -125,8 +125,8 @@ type TensorboardFilesResponse struct {
 // ProcessEnvRequest represents a request to get process environment variables
 type ProcessEnvRequest struct {
 	PodUID       string `json:"pod_uid" binding:"required"`
-	PID          int    `json:"pid,omitempty"`           // 指定进程PID，0表示获取所有进程
-	FilterPrefix string `json:"filter_prefix,omitempty"` // 环境变量前缀过滤
+	PID          int    `json:"pid,omitempty"`           // specify process PID, 0 means get all processes
+	FilterPrefix string `json:"filter_prefix,omitempty"` // environment variable prefix filter
 }
 
 // ProcessEnvResponse represents process environment variables response
@@ -146,7 +146,7 @@ type ProcessEnvInfo struct {
 // ProcessArgsRequest represents a request to get process arguments
 type ProcessArgsRequest struct {
 	PodUID string `json:"pod_uid" binding:"required"`
-	PID    int    `json:"pid,omitempty"` // 指定进程PID，0表示获取所有Python进程
+	PID    int    `json:"pid,omitempty"` // specify process PID, 0 means get all Python processes
 }
 
 // ProcessArgsResponse represents process arguments response

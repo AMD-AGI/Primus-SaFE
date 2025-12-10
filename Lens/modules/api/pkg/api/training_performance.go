@@ -27,8 +27,8 @@ var tensorflowMetadataFields = map[string]bool{
 	"step":      true,
 	"wall_time": true,
 	"file":      true,
-	"scalars":   true, // 原始 scalars 结构（用于调试）
-	"texts":     true, // 原始 texts 结构（用于调试）
+	"scalars":   true, // raw scalars structure (for debugging)
+	"texts":     true, // raw texts structure (for debugging)
 }
 
 // commonMetadataFields defines common metadata fields across all data sources
@@ -100,7 +100,7 @@ func isMetricField(fieldName string, dataSource string) bool {
 		if tensorflowMetadataFields[fieldName] {
 			return false
 		}
-		// 暂时不支持 "vs samples" 和 "vs steps" 视图
+		// temporarily do not support "vs samples" and "vs steps" views
 		if strings.Contains(fieldName, " vs samples") || strings.Contains(fieldName, " vs steps") {
 			return false
 		}
@@ -395,8 +395,8 @@ func GetMetricsData(ctx *gin.Context) {
 		}
 	}
 
-	// 对 tensorflow 数据源进行去重处理
-	// 移除时间相近但 step 明显不同的重复数据点（多X轴问题）
+	// Perform deduplication for tensorflow data source
+	// Remove duplicate data points with similar timestamps but significantly different step values (multi x-axis issue)
 	if dataSource == "tensorflow" || (dataSource == "" && len(dataPoints) > 0 && dataPoints[0].DataSource == "tensorflow") {
 		dataPoints = deduplicateTensorflowDataPoints(dataPoints)
 	}
@@ -418,7 +418,7 @@ func deduplicateTensorflowDataPoints(dataPoints []MetricDataPoint) []MetricDataP
 		return dataPoints
 	}
 
-	// 按 metric_name 分组
+	// Group by metric_name
 	metricGroups := make(map[string][]MetricDataPoint)
 	for _, dp := range dataPoints {
 		metricGroups[dp.MetricName] = append(metricGroups[dp.MetricName], dp)
@@ -426,16 +426,16 @@ func deduplicateTensorflowDataPoints(dataPoints []MetricDataPoint) []MetricDataP
 
 	result := make([]MetricDataPoint, 0, len(dataPoints))
 
-	// 对每个 metric 进行去重
+	// Deduplicate each metric
 	for metricName, points := range metricGroups {
 		if len(points) == 0 {
 			continue
 		}
 
-		// 按时间戳排序
+		// Sort by timestamp
 		sortedPoints := make([]MetricDataPoint, len(points))
 		copy(sortedPoints, points)
-		// 简单冒泡排序（数据量通常不大）
+		// Simple bubble sort (data volume is usually small)
 		for i := 0; i < len(sortedPoints); i++ {
 			for j := i + 1; j < len(sortedPoints); j++ {
 				if sortedPoints[i].Timestamp > sortedPoints[j].Timestamp {
@@ -444,33 +444,33 @@ func deduplicateTensorflowDataPoints(dataPoints []MetricDataPoint) []MetricDataP
 			}
 		}
 
-		// 去重：对于时间相近的数据点，只保留 iteration 较小的
+		// Deduplicate: for data points with similar timestamps, only keep the one with smaller iteration
 		kept := make([]bool, len(sortedPoints))
 		for i := 0; i < len(sortedPoints); i++ {
 			kept[i] = true
 		}
 
-		const timeWindowMs = 10000           // 10秒时间窗口
-		const iterationRatioThreshold = 10.0 // iteration 相差10倍以上认为是重复
+		const timeWindowMs = 10000           // 10 second time window
+		const iterationRatioThreshold = 10.0 // iteration difference of 10x or more is considered duplicate
 
 		for i := 0; i < len(sortedPoints); i++ {
 			if !kept[i] {
 				continue
 			}
 
-			// 检查后续的数据点
+			// Check subsequent data points
 			for j := i + 1; j < len(sortedPoints); j++ {
 				if !kept[j] {
 					continue
 				}
 
-				// 时间差异超过窗口，后续的点肯定也超过
+				// If time difference exceeds window, subsequent points will also exceed
 				timeDiff := sortedPoints[j].Timestamp - sortedPoints[i].Timestamp
 				if timeDiff > timeWindowMs {
 					break
 				}
 
-				// 时间相近，检查 iteration
+				// Similar timestamps, check iteration
 				iter1 := float64(sortedPoints[i].Iteration)
 				iter2 := float64(sortedPoints[j].Iteration)
 
@@ -483,19 +483,19 @@ func deduplicateTensorflowDataPoints(dataPoints []MetricDataPoint) []MetricDataP
 					ratio = 1 / ratio
 				}
 
-				// 如果 iteration 相差很大（可能是 samples vs iteration），保留较小的
+				// If iteration differs significantly (possibly samples vs iteration), keep the smaller one
 				if ratio >= iterationRatioThreshold {
 					if sortedPoints[i].Iteration < sortedPoints[j].Iteration {
 						kept[j] = false
 					} else {
 						kept[i] = false
-						break // i 已被标记为不保留，跳出内层循环
+						break // i has been marked as not kept, break out of inner loop
 					}
 				}
 			}
 		}
 
-		// 收集保留的数据点
+		// Collect kept data points
 		keptCount := 0
 		for i, point := range sortedPoints {
 			if kept[i] {
@@ -504,9 +504,9 @@ func deduplicateTensorflowDataPoints(dataPoints []MetricDataPoint) []MetricDataP
 			}
 		}
 
-		// 记录去重信息（用于调试）
+		// Log deduplication info (for debugging)
 		if keptCount < len(sortedPoints) {
-			_ = metricName // 避免未使用变量警告
+			_ = metricName // avoid unused variable warning
 		}
 	}
 
@@ -530,13 +530,13 @@ func filterAnomalousIterations(iterationMap map[int32]*IterationInfo) map[int32]
 		return iterationMap
 	}
 
-	// 收集所有 iteration 值并排序
+	// Collect all iteration values and sort
 	iterations := make([]int32, 0, len(iterationMap))
 	for iter := range iterationMap {
 		iterations = append(iterations, iter)
 	}
 
-	// 简单冒泡排序
+	// Simple bubble sort
 	for i := 0; i < len(iterations); i++ {
 		for j := i + 1; j < len(iterations); j++ {
 			if iterations[i] > iterations[j] {
@@ -546,15 +546,15 @@ func filterAnomalousIterations(iterationMap map[int32]*IterationInfo) map[int32]
 	}
 
 	if len(iterations) < 3 {
-		// 数据点太少，不进行过滤
+		// Too few data points, do not filter
 		return iterationMap
 	}
 
-	// 策略：计算相邻 iteration 之间的比率，识别突变点
-	// 如果某个 iteration 相对于前面的值增长超过10倍，认为是异常值
+	// Strategy: calculate ratio between adjacent iterations to identify sudden changes
+	// If an iteration grows more than 10x compared to previous values, consider it anomalous
 	const anomalyRatioThreshold = 10.0
 
-	// 找到第一个异常的 iteration（通常是从 iteration 突然变成 samples）
+	// Find first anomalous iteration (usually when it suddenly changes from iteration to samples)
 	anomalyStartIndex := -1
 	for i := 1; i < len(iterations); i++ {
 		if iterations[i-1] == 0 {
@@ -568,23 +568,23 @@ func filterAnomalousIterations(iterationMap map[int32]*IterationInfo) map[int32]
 		}
 	}
 
-	// 如果没有发现异常，返回原始数据
+	// If no anomaly found, return original data
 	if anomalyStartIndex == -1 {
 		return iterationMap
 	}
 
-	// 过滤掉异常的 iteration
+	// Filter out anomalous iterations
 	filtered := make(map[int32]*IterationInfo)
 	for i := 0; i < anomalyStartIndex; i++ {
 		iter := iterations[i]
 		filtered[iter] = iterationMap[iter]
 	}
 
-	// 如果过滤后数据太少，可能判断错误，返回原始数据
+	// If filtered data is too small, judgment may be incorrect, return original data
 	if len(filtered) < len(iterationMap)/2 {
-		// 过滤掉了超过一半的数据，可能判断有误
-		// 尝试反向策略：保留较大的值
-		// 但这种情况比较少见，为了安全起见，返回原始数据
+		// Filtered out more than half the data, judgment may be incorrect
+		// Could try reverse strategy: keep larger values
+		// But this case is rare, for safety return original data
 		return iterationMap
 	}
 
@@ -690,8 +690,8 @@ func GetIterationTimes(ctx *gin.Context) {
 		}
 	}
 
-	// 对于 tensorflow 数据源，先过滤异常的 iteration 值
-	// 这些异常值通常是 samples（正常 iteration 的几倍到几十倍）
+	// For tensorflow data source, first filter anomalous iteration values
+	// These anomalous values are usually samples (several to tens of times normal iteration)
 	if dataSource == "tensorflow" || (dataSource == "" && hasTensorflowData(iterationMap)) {
 		iterationMap = filterAnomalousIterations(iterationMap)
 	}
@@ -721,7 +721,7 @@ func GetIterationTimes(ctx *gin.Context) {
 		}
 	}
 
-	// 对 tensorflow 数据源进行去重处理
+	// Perform deduplication for tensorflow data source
 	if dataSource == "tensorflow" || (dataSource == "" && len(dataPoints) > 0 && dataPoints[0].DataSource == "tensorflow") {
 		dataPoints = deduplicateTensorflowDataPoints(dataPoints)
 	}

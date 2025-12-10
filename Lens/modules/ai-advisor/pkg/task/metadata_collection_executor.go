@@ -18,7 +18,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// MetadataCollectionExecutor 元数据收集任务执行器
+// MetadataCollectionExecutor metadata collection task executor
 type MetadataCollectionExecutor struct {
 	coreTask.BaseExecutor
 
@@ -28,7 +28,7 @@ type MetadataCollectionExecutor struct {
 	taskFacade     database.WorkloadTaskFacadeInterface
 }
 
-// NewMetadataCollectionExecutor 创建元数据收集执行器
+// NewMetadataCollectionExecutor creates metadata collection executor
 func NewMetadataCollectionExecutor(collector *metadata.Collector) *MetadataCollectionExecutor {
 	return &MetadataCollectionExecutor{
 		collector:      collector,
@@ -38,14 +38,14 @@ func NewMetadataCollectionExecutor(collector *metadata.Collector) *MetadataColle
 	}
 }
 
-// GetTaskType 返回任务类型
+// GetTaskType returns task type
 func (e *MetadataCollectionExecutor) GetTaskType() string {
 	return constant.TaskTypeMetadataCollection
 }
 
-// Validate 验证任务参数
+// Validate validates task parameters
 func (e *MetadataCollectionExecutor) Validate(task *model.WorkloadTaskState) error {
-	// 检查必要的参数
+	// Check required parameters
 	if task.WorkloadUID == "" {
 		return fmt.Errorf("workload_uid is required")
 	}
@@ -53,7 +53,7 @@ func (e *MetadataCollectionExecutor) Validate(task *model.WorkloadTaskState) err
 	return nil
 }
 
-// Execute 执行元数据收集任务
+// Execute executes metadata collection task
 func (e *MetadataCollectionExecutor) Execute(
 	ctx context.Context,
 	execCtx *coreTask.ExecutionContext,
@@ -62,7 +62,7 @@ func (e *MetadataCollectionExecutor) Execute(
 
 	log.Infof("Starting metadata collection for workload %s", task.WorkloadUID)
 
-	// 1. 从 ai_workload_metadata 表获取检测信息
+	// 1. Get detection info from ai_workload_metadata table
 	detectionInfo, err := e.metadataFacade.GetAiWorkloadMetadata(ctx, task.WorkloadUID)
 	if err != nil {
 		return coreTask.FailureResult(
@@ -82,9 +82,9 @@ func (e *MetadataCollectionExecutor) Execute(
 		), fmt.Errorf("detection info not found")
 	}
 
-	// 2. 从 gpu_pods 表获取 pod 信息
-	// workload_uid 对应 gpu_pods 表的 owner_uid 字段
-	// 优先选择以 master-0 结尾的 pod
+	// 2. Get pod info from gpu_pods table
+	// workload_uid corresponds to owner_uid field in gpu_pods table
+	// Prioritize pods ending with master-0
 	gpuPod, err := e.selectTargetPod(ctx, task.WorkloadUID)
 	if err != nil {
 		return coreTask.FailureResult(
@@ -104,16 +104,16 @@ func (e *MetadataCollectionExecutor) Execute(
 		), fmt.Errorf("no pod found for workload")
 	}
 
-	// 3. 从 ext 字段获取收集配置 (暂时未使用)
+	// 3. Get collection config from ext field (not currently used)
 	// timeout := e.GetExtInt(task, "timeout")
 	// if timeout == 0 {
-	// 	timeout = 30 // 默认 30 秒
+	// 	timeout = 30 // default 30 seconds
 	// }
 
 	log.Infof("Detecting TensorBoard for pod %s/%s (node: %s)",
 		gpuPod.Namespace, gpuPod.Name, gpuPod.NodeName)
 
-	// 4. 获取 node-exporter client
+	// 4. Get node-exporter client
 	nodeExporterClient, err := e.collector.GetNodeExporterClientForPod(ctx, gpuPod.NodeName)
 	if err != nil {
 		return coreTask.FailureResult(
@@ -127,7 +127,7 @@ func (e *MetadataCollectionExecutor) Execute(
 		), err
 	}
 
-	// 5. 获取进程树，找到第一个 Python 进程
+	// 5. Get process tree, find first Python process
 	processTree, err := e.getProcessTree(ctx, gpuPod, nodeExporterClient)
 	var pythonProcess *types.ProcessInfo
 	if err != nil {
@@ -141,7 +141,7 @@ func (e *MetadataCollectionExecutor) Execute(
 		}
 	}
 
-	// 6. 调用 TensorBoard fd 扫描接口
+	// 6. Call TensorBoard fd scan interface
 	tensorboardResult, err := nodeExporterClient.FindTensorboardFiles(
 		ctx,
 		gpuPod.UID,
@@ -149,7 +149,7 @@ func (e *MetadataCollectionExecutor) Execute(
 		gpuPod.Namespace,
 	)
 
-	// 7. 构建返回结果
+	// 7. Build return result
 	updates := map[string]interface{}{
 		"completed_at":  time.Now().Format(time.RFC3339),
 		"pod_name":      gpuPod.Name,
@@ -157,7 +157,7 @@ func (e *MetadataCollectionExecutor) Execute(
 		"node_name":     gpuPod.NodeName,
 	}
 
-	// 保存 Python 进程信息到 metadata（不含 children）
+	// Save Python process info to metadata (without children)
 	if pythonProcess != nil {
 		updates["python_process"] = e.serializeProcessInfo(pythonProcess)
 	}
@@ -170,16 +170,16 @@ func (e *MetadataCollectionExecutor) Execute(
 		return coreTask.FailureResult(errMsg, updates), err
 	}
 
-	// 8. 解析 TensorBoard 结果
+	// 8. Parse TensorBoard result
 	filesDetected := len(tensorboardResult.Files) > 0
 	updates["tensorboard_files_detected"] = filesDetected
 	updates["tensorboard_result"] = tensorboardResult
 
-	// 9. 检查框架配置是否启用了 TensorBoard（即使文件还没出现）
+	// 9. Check if framework config has TensorBoard enabled (even if files haven't appeared yet)
 	tensorboardConfigured, configLogDir := e.checkTensorBoardConfiguration(ctx, detectionInfo, pythonProcess, nodeExporterClient)
 	updates["tensorboard_configured"] = tensorboardConfigured
 
-	// 决定是否启用 TensorBoard stream
+	// Decide whether to enable TensorBoard stream
 	tensorboardEnabled := filesDetected || tensorboardConfigured
 
 	if tensorboardEnabled {
@@ -187,7 +187,7 @@ func (e *MetadataCollectionExecutor) Execute(
 		var logDir string
 
 		if filesDetected {
-			// 文件已存在 - 使用实际扫描到的文件
+			// Files exist - use actually scanned files
 			uniqueFilePaths = extractUniqueFilePaths(tensorboardResult.Files)
 			if len(uniqueFilePaths) > 0 {
 				logDir = extractLogDir(uniqueFilePaths[0])
@@ -201,10 +201,10 @@ func (e *MetadataCollectionExecutor) Execute(
 			log.Infof("TensorBoard files detected for workload %s: log_dir=%s, files=%d",
 				task.WorkloadUID, logDir, len(uniqueFilePaths))
 		} else {
-			// 文件未出现，但配置显示会启用 - 使用配置中的路径
+			// Files not appeared yet, but config shows it will be enabled - use path from config
 			logDir = configLogDir
 			updates["tensorboard_log_dir"] = logDir
-			updates["tensorboard_event_files"] = []string{} // 空列表，等待文件出现
+			updates["tensorboard_event_files"] = []string{} // empty list, wait for files to appear
 			updates["tensorboard_files_count"] = 0
 			updates["tensorboard_detection_mode"] = "config_based"
 
@@ -212,7 +212,7 @@ func (e *MetadataCollectionExecutor) Execute(
 				task.WorkloadUID, logDir)
 		}
 
-		// 10. 创建 TensorBoard 流式读取任务（无论文件是否已出现）
+		// 10. Create TensorBoard streaming task (regardless of whether files have appeared)
 		if err := e.createTensorBoardStreamTask(ctx, task.WorkloadUID, uniqueFilePaths, logDir, !filesDetected); err != nil {
 			log.Warnf("Failed to create TensorBoard stream task for workload %s: %v", task.WorkloadUID, err)
 			updates["stream_task_created"] = false
@@ -229,24 +229,24 @@ func (e *MetadataCollectionExecutor) Execute(
 	return coreTask.SuccessResult(updates), nil
 }
 
-// Cancel 取消任务
+// Cancel cancels task
 func (e *MetadataCollectionExecutor) Cancel(ctx context.Context, task *model.WorkloadTaskState) error {
-	// 元数据收集任务可以直接取消（通过 context）
+	// Metadata collection task can be cancelled directly (through context)
 	log.Infof("Metadata collection task cancelled for workload %s", task.WorkloadUID)
 	return nil
 }
 
-// extractScripts 从检测信息中提取需要运行的脚本
+// extractScripts extracts scripts to run from detection info
 func (e *MetadataCollectionExecutor) extractScripts(detection *model.AiWorkloadMetadata) []string {
 	scripts := []string{}
 
-	// 根据检测的框架选择脚本
+	// Select scripts based on detected framework
 	framework := detection.Framework
 	if framework != "" {
 		scripts = append(scripts, framework)
 	}
 
-	// 从 metadata 中获取额外的框架信息
+	// Get additional framework info from metadata
 	if detection.Metadata != nil {
 		if wrapperFw, ok := detection.Metadata["wrapper_framework"].(string); ok && wrapperFw != "" {
 			scripts = append(scripts, wrapperFw)
@@ -258,7 +258,7 @@ func (e *MetadataCollectionExecutor) extractScripts(detection *model.AiWorkloadM
 		}
 	}
 
-	// 总是包含 tensorboard 脚本（通用）
+	// Always include tensorboard script (generic)
 	if !contains(scripts, "tensorboard") {
 		scripts = append(scripts, "tensorboard")
 	}
@@ -266,10 +266,10 @@ func (e *MetadataCollectionExecutor) extractScripts(detection *model.AiWorkloadM
 	return scripts
 }
 
-// selectTargetPod 从 workload 的所有 pod 中选择目标 pod
-// 优先选择名称以 master-0 结尾的 pod，否则返回第一个
+// selectTargetPod selects target pod from all pods of a workload
+// Prioritizes pods with names ending in master-0, otherwise returns the first one
 func (e *MetadataCollectionExecutor) selectTargetPod(ctx context.Context, workloadUID string) (*model.GpuPods, error) {
-	// 方法1：通过 workload_pod_reference 表查找 pod（推荐方式，支持层级关系）
+	// Method 1: Find pod through workload_pod_reference table (recommended, supports hierarchical relationship)
 	workloadFacade := database.GetFacade().GetWorkload()
 	podRefs, err := workloadFacade.ListWorkloadPodReferenceByWorkloadUid(ctx, workloadUID)
 	if err != nil {
@@ -278,13 +278,13 @@ func (e *MetadataCollectionExecutor) selectTargetPod(ctx context.Context, worklo
 
 	var pods []*model.GpuPods
 	if len(podRefs) > 0 {
-		// 通过 pod UID 列表查询 pod 详情
+		// Query pod details through pod UID list
 		podUIDs := make([]string, 0, len(podRefs))
 		for _, ref := range podRefs {
 			podUIDs = append(podUIDs, ref.PodUID)
 		}
 
-		// 获取 pod 详情
+		// Get pod details
 		db := database.GetFacade().GetSystemConfig().GetDB()
 		err = db.WithContext(ctx).
 			Where("uid IN ? AND deleted = ?", podUIDs, false).
@@ -295,7 +295,7 @@ func (e *MetadataCollectionExecutor) selectTargetPod(ctx context.Context, worklo
 
 	}
 
-	// 方法2：查找子 workload 的 pod（递归查找层级结构）
+	// Method 2: Find pods of child workload (recursively search hierarchical structure)
 	if len(pods) == 0 {
 		childWorkloads, err := workloadFacade.ListChildrenWorkloadByParentUid(ctx, workloadUID)
 		if err != nil {
@@ -314,7 +314,7 @@ func (e *MetadataCollectionExecutor) selectTargetPod(ctx context.Context, worklo
 		return nil, fmt.Errorf("no pods found for workload %s", workloadUID)
 	}
 
-	// 优先选择以 master-0 结尾的 pod
+	// Prioritize pods ending with master-0
 	for _, pod := range pods {
 		if strings.HasSuffix(pod.Name, "master-0") {
 			log.Infof("Selected master-0 pod: %s/%s for workload %s", pod.Namespace, pod.Name, workloadUID)
@@ -322,7 +322,7 @@ func (e *MetadataCollectionExecutor) selectTargetPod(ctx context.Context, worklo
 		}
 	}
 
-	// 如果没有 master-0，返回第一个 pod
+	// If no master-0, return first pod
 	selectedPod := pods[0]
 	log.Infof("No master-0 pod found, selected first pod: %s/%s for workload %s",
 		selectedPod.Namespace, selectedPod.Name, workloadUID)
@@ -338,47 +338,47 @@ func contains(slice []string, item string) bool {
 	return false
 }
 
-// createTensorBoardStreamTask 创建 TensorBoard 流式读取任务
+// createTensorBoardStreamTask creates TensorBoard streaming task
 func (e *MetadataCollectionExecutor) createTensorBoardStreamTask(
 	ctx context.Context,
 	workloadUID string,
 	eventFiles []string,
 	logDir string,
-	waitForFiles bool, // 是否等待文件出现
+	waitForFiles bool, // whether to wait for files to appear
 ) error {
-	// 检查是否已经存在 TensorBoard stream 任务
+	// Check if TensorBoard stream task already exists
 	existingTask, err := e.taskFacade.GetTask(ctx, workloadUID, constant.TaskTypeTensorBoardStream)
 	if err != nil {
 		log.Debugf("Failed to check existing TensorBoard stream task: %v", err)
 	}
 
-	// 如果任务已存在且正在运行，不创建新任务
+	// If task already exists and is running, don't create new task
 	if existingTask != nil && (existingTask.Status == constant.TaskStatusRunning || existingTask.Status == constant.TaskStatusPending) {
 		log.Infof("TensorBoard stream task already exists for workload %s (status: %s)", workloadUID, existingTask.Status)
 		return nil
 	}
 
-	// 创建新任务
+	// Create new task
 	streamTask := &model.WorkloadTaskState{
 		WorkloadUID: workloadUID,
 		TaskType:    constant.TaskTypeTensorBoardStream,
 		Status:      constant.TaskStatusPending,
 		Ext: model.ExtType{
-			// TensorBoard 配置
-			"event_files":        eventFiles,   // 精确的事件文件列表（可能为空）
-			"log_dir":            logDir,       // 日志目录
-			"wait_for_files":     waitForFiles, // 是否等待文件出现
-			"poll_interval":      5,            // 5 秒轮询间隔
-			"file_wait_timeout":  300,          // 文件等待超时（5分钟）
-			"file_scan_interval": 10,           // 文件扫描间隔（10秒）
+			// TensorBoard configuration
+			"event_files":        eventFiles,   // precise event file list (may be empty)
+			"log_dir":            logDir,       // log directory
+			"wait_for_files":     waitForFiles, // whether to wait for files to appear
+			"poll_interval":      5,            // 5 second polling interval
+			"file_wait_timeout":  300,          // file wait timeout (5 minutes)
+			"file_scan_interval": 10,           // file scan interval (10 seconds)
 
-			// 任务配置
+			// Task configuration
 			"auto_restart": true,
-			"priority":     90, // 稍低于元数据收集任务
+			"priority":     90, // slightly lower than metadata collection task
 			"max_retries":  5,
 			"retry_count":  0,
 
-			// 任务元数据
+			// Task metadata
 			"created_by":   "metadata_collection",
 			"created_at":   time.Now().Format(time.RFC3339),
 			"triggered_by": "tensorboard_detection",
@@ -389,7 +389,7 @@ func (e *MetadataCollectionExecutor) createTensorBoardStreamTask(
 		},
 	}
 
-	// 使用 Upsert 创建或更新任务
+	// Use Upsert to create or update task
 	if err := e.taskFacade.UpsertTask(ctx, streamTask); err != nil {
 		return fmt.Errorf("failed to create TensorBoard stream task: %w", err)
 	}
@@ -402,7 +402,7 @@ func (e *MetadataCollectionExecutor) createTensorBoardStreamTask(
 	return nil
 }
 
-// checkTensorBoardConfiguration 检查框架配置是否启用了 TensorBoard
+// checkTensorBoardConfiguration checks if framework config has TensorBoard enabled
 func (e *MetadataCollectionExecutor) checkTensorBoardConfiguration(
 	ctx context.Context,
 	detectionInfo *model.AiWorkloadMetadata,
@@ -416,7 +416,7 @@ func (e *MetadataCollectionExecutor) checkTensorBoardConfiguration(
 	framework := strings.ToLower(detectionInfo.Framework)
 	log.Infof("Checking TensorBoard configuration for framework: %s", framework)
 
-	// 根据不同框架检查配置
+	// Check config based on different frameworks
 	switch framework {
 	case "primus":
 		return e.checkPrimusTensorBoard(ctx, pythonProcess, nodeExporterClient)
@@ -425,12 +425,12 @@ func (e *MetadataCollectionExecutor) checkTensorBoardConfiguration(
 	case "pytorch":
 		return e.checkPyTorchTensorBoard(detectionInfo.Metadata)
 	default:
-		// 对于未知框架，尝试从 metadata 中查找通用的 tensorboard 配置
+		// For unknown frameworks, try to find generic tensorboard config from metadata
 		return e.checkGenericTensorBoard(detectionInfo.Metadata)
 	}
 }
 
-// checkPrimusTensorBoard 检查 Primus 配置
+// checkPrimusTensorBoard checks Primus configuration
 func (e *MetadataCollectionExecutor) checkPrimusTensorBoard(
 	ctx context.Context,
 	pythonProcess *types.ProcessInfo,
@@ -659,9 +659,9 @@ func (e *MetadataCollectionExecutor) parsePrimusConfig(content string) bool {
 	return false
 }
 
-// checkMegatronTensorBoard 检查 Megatron 配置
+// checkMegatronTensorBoard checks Megatron configuration
 func (e *MetadataCollectionExecutor) checkMegatronTensorBoard(metadata model.ExtType) (bool, string) {
-	// 检查 tensorboard-dir 参数或环境变量
+	// Check tensorboard-dir parameter or environment variable
 	if megatronConfig, ok := metadata["megatron_config"].(map[string]interface{}); ok {
 		if tbDir, ok := megatronConfig["tensorboard_dir"].(string); ok && tbDir != "" {
 			log.Infof("Megatron: TensorBoard enabled (tensorboard-dir=%s)", tbDir)
@@ -669,7 +669,7 @@ func (e *MetadataCollectionExecutor) checkMegatronTensorBoard(metadata model.Ext
 		}
 	}
 
-	// 检查环境变量
+	// Check environment variable
 	if env, ok := metadata["environment"].(map[string]interface{}); ok {
 		if tbDir, ok := env["TENSORBOARD_DIR"].(string); ok && tbDir != "" {
 			log.Infof("Megatron: TensorBoard enabled (TENSORBOARD_DIR=%s)", tbDir)
@@ -680,9 +680,9 @@ func (e *MetadataCollectionExecutor) checkMegatronTensorBoard(metadata model.Ext
 	return false, ""
 }
 
-// checkPyTorchTensorBoard 检查 PyTorch 配置
+// checkPyTorchTensorBoard checks PyTorch configuration
 func (e *MetadataCollectionExecutor) checkPyTorchTensorBoard(metadata model.ExtType) (bool, string) {
-	// PyTorch 通常通过 SummaryWriter 使用，检查是否有相关配置
+	// PyTorch typically uses SummaryWriter, check if there's related config
 	if tbInfo, ok := metadata["tensorboard_config"].(map[string]interface{}); ok {
 		if logDir, ok := tbInfo["log_dir"].(string); ok && logDir != "" {
 			log.Infof("PyTorch: TensorBoard enabled (log_dir=%s)", logDir)
@@ -693,9 +693,9 @@ func (e *MetadataCollectionExecutor) checkPyTorchTensorBoard(metadata model.ExtT
 	return false, ""
 }
 
-// checkGenericTensorBoard 检查通用 TensorBoard 配置
+// checkGenericTensorBoard checks generic TensorBoard configuration
 func (e *MetadataCollectionExecutor) checkGenericTensorBoard(metadata model.ExtType) (bool, string) {
-	// 查找可能的 tensorboard 相关字段
+	// Look for possible tensorboard related fields
 	if tbConfig, ok := metadata["tensorboard"].(map[string]interface{}); ok {
 		if enabled, ok := tbConfig["enabled"].(bool); ok && enabled {
 			logDir, _ := tbConfig["log_dir"].(string)
@@ -711,9 +711,9 @@ func (e *MetadataCollectionExecutor) checkGenericTensorBoard(metadata model.ExtT
 	return false, ""
 }
 
-// extractLogDir 从 TensorBoard 事件文件路径中提取目录
+// extractLogDir extracts directory from TensorBoard event file path
 func extractLogDir(filePath string) string {
-	// 找到最后一个 '/' 的位置
+	// Find position of last '/'
 	lastSlash := strings.LastIndex(filePath, "/")
 	if lastSlash > 0 {
 		return filePath[:lastSlash]
@@ -721,13 +721,13 @@ func extractLogDir(filePath string) string {
 	return filePath
 }
 
-// extractUniqueFilePaths 从 TensorBoard 文件列表中提取唯一的文件路径（去重）
+// extractUniqueFilePaths extracts unique file paths from TensorBoard file list (deduplication)
 func extractUniqueFilePaths(files []*types.TensorboardFileInfo) []string {
 	filePathMap := make(map[string]bool)
 	var uniquePaths []string
 
 	for _, file := range files {
-		// 使用文件路径作为键进行去重
+		// Use file path as key for deduplication
 		if !filePathMap[file.FilePath] {
 			filePathMap[file.FilePath] = true
 			uniquePaths = append(uniquePaths, file.FilePath)
@@ -737,7 +737,7 @@ func extractUniqueFilePaths(files []*types.TensorboardFileInfo) []string {
 	return uniquePaths
 }
 
-// extractUniquePIDs 从 TensorBoard 文件列表中提取唯一的 PID 列表
+// extractUniquePIDs extracts unique PID list from TensorBoard file list
 func extractUniquePIDs(files []*types.TensorboardFileInfo) []int {
 	pidMap := make(map[int]bool)
 	var pids []int

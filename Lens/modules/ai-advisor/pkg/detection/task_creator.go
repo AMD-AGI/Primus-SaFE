@@ -13,29 +13,29 @@ import (
 	coreModel "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/model"
 )
 
-// TaskCreator 负责在框架检测完成后创建元数据收集任务
+// TaskCreator responsible for creating metadata collection tasks after framework detection completes
 type TaskCreator struct {
 	taskFacade     database.WorkloadTaskFacadeInterface
 	instanceID     string
-	autoCreateTask bool // 是否自动创建任务
+	autoCreateTask bool // whether to auto create tasks
 }
 
-// NewTaskCreator 创建任务创建器
+// NewTaskCreator creates task creator
 func NewTaskCreator(instanceID string) *TaskCreator {
 	return &TaskCreator{
 		taskFacade:     database.NewWorkloadTaskFacade(),
 		instanceID:     instanceID,
-		autoCreateTask: true, // 默认启用自动创建
+		autoCreateTask: true, // auto creation enabled by default
 	}
 }
 
-// SetAutoCreateTask 设置是否自动创建任务
+// SetAutoCreateTask sets whether to auto create tasks
 func (tc *TaskCreator) SetAutoCreateTask(auto bool) {
 	tc.autoCreateTask = auto
 }
 
-// OnDetectionCompleted 当检测完成时被调用
-// 根据检测结果创建元数据收集任务
+// OnDetectionCompleted called when detection completes
+// Creates metadata collection task based on detection result
 func (tc *TaskCreator) OnDetectionCompleted(
 	ctx context.Context,
 	workloadUID string,
@@ -46,7 +46,7 @@ func (tc *TaskCreator) OnDetectionCompleted(
 		return nil
 	}
 
-	// 只为已确认或验证的检测创建任务（confirmed 或 verified）
+	// Only create tasks for confirmed or verified detections
 	if detection.Status != coreModel.DetectionStatusConfirmed &&
 		detection.Status != coreModel.DetectionStatusVerified {
 		log.Debugf("Detection status is %s (not confirmed/verified), skipping task creation for workload %s",
@@ -54,7 +54,7 @@ func (tc *TaskCreator) OnDetectionCompleted(
 		return nil
 	}
 
-	// 只为训练任务创建元数据收集任务
+	// Only create metadata collection tasks for training workloads
 	if !tc.isTrainingWorkload(detection) {
 		log.Debugf("Workload %s is not a training task, skipping metadata collection task", workloadUID)
 		return nil
@@ -63,35 +63,35 @@ func (tc *TaskCreator) OnDetectionCompleted(
 	log.Infof("Creating metadata collection task for workload %s (frameworks: %v)",
 		workloadUID, detection.Frameworks)
 
-	// 创建任务
-	// 注意：workload 相关的具体信息（pod、node 等）存储在 ai_workload_metadata 表
-	// 这里的 ext 只存储任务执行上下文
+	// Create task
+	// Note: workload-related specific info (pod, node, etc.) is stored in ai_workload_metadata table
+	// ext here only stores task execution context
 	task := &model.WorkloadTaskState{
 		WorkloadUID: workloadUID,
 		TaskType:    constant.TaskTypeMetadataCollection,
 		Status:      constant.TaskStatusPending,
 		Ext: model.ExtType{
-			// 任务执行配置
+			// Task execution configuration
 			"auto_restart":        true,
 			"priority":            100,
 			"max_retries":         3,
 			"retry_count":         0,
-			"timeout":             30, // 30 秒超时
+			"timeout":             30, // 30 second timeout
 			"include_tensorboard": true,
 			"include_metrics":     true,
 
-			// 任务元数据
+			// Task metadata
 			"created_by":   "detection_manager",
 			"created_at":   time.Now().Format(time.RFC3339),
 			"triggered_by": "framework_detection",
 
-			// 检测概要信息（用于日志和调试）
+			// Detection summary info (for logging and debugging)
 			"detection_frameworks": detection.Frameworks,
 			"detection_confidence": detection.Confidence,
 		},
 	}
 
-	// 使用 Upsert 创建或更新任务
+	// Use Upsert to create or update task
 	if err := tc.taskFacade.UpsertTask(ctx, task); err != nil {
 		return fmt.Errorf("failed to create metadata collection task: %w", err)
 	}
@@ -101,21 +101,21 @@ func (tc *TaskCreator) OnDetectionCompleted(
 	return nil
 }
 
-// isTrainingWorkload 判断是否为训练任务
+// isTrainingWorkload determines if it's a training workload
 func (tc *TaskCreator) isTrainingWorkload(detection *coreModel.FrameworkDetection) bool {
-	// 检查 TaskType
+	// Check TaskType
 	for _, source := range detection.Sources {
-		// 如果任何一个来源标记为 training，则认为是训练任务
+		// If any source is marked as training, consider it a training task
 		if source.Type == "training" || source.Type == "" {
 			return true
 		}
 	}
 
-	// 默认认为是训练任务（除非明确标记为 inference）
+	// Default to training task (unless explicitly marked as inference)
 	return true
 }
 
-// extractSourceNames 提取检测来源名称
+// extractSourceNames extracts detection source names
 func (tc *TaskCreator) extractSourceNames(detection *coreModel.FrameworkDetection) []string {
 	sources := []string{}
 	seen := make(map[string]bool)
@@ -130,15 +130,15 @@ func (tc *TaskCreator) extractSourceNames(detection *coreModel.FrameworkDetectio
 	return sources
 }
 
-// RegisterWithDetectionManager 将 TaskCreator 注册到 DetectionManager
-// 作为检测事件的监听器
+// RegisterWithDetectionManager registers TaskCreator with DetectionManager
+// as a detection event listener
 func RegisterTaskCreatorWithDetectionManager(
 	detectionMgr *framework.FrameworkDetectionManager,
 	instanceID string,
 ) *TaskCreator {
 	taskCreator := NewTaskCreator(instanceID)
 
-	// 创建一个适配器，将 DetectionEvent 转换为 TaskCreator 调用
+	// Create an adapter to convert DetectionEvent to TaskCreator calls
 	listener := &detectionEventAdapter{
 		taskCreator: taskCreator,
 	}
@@ -149,17 +149,17 @@ func RegisterTaskCreatorWithDetectionManager(
 	return taskCreator
 }
 
-// detectionEventAdapter 适配 DetectionEvent 到 TaskCreator
+// detectionEventAdapter adapts DetectionEvent to TaskCreator
 type detectionEventAdapter struct {
 	taskCreator *TaskCreator
 }
 
-// OnDetectionEvent 实现 DetectionEventListener 接口
+// OnDetectionEvent implements DetectionEventListener interface
 func (a *detectionEventAdapter) OnDetectionEvent(
 	ctx context.Context,
 	event *framework.DetectionEvent,
 ) error {
-	// 只处理completed 和 updated 事件
+	// Only handle completed and updated events
 	if event.Type != framework.DetectionEventTypeUpdated &&
 		event.Type != framework.DetectionEventTypeCompleted {
 		return nil
@@ -169,6 +169,6 @@ func (a *detectionEventAdapter) OnDetectionEvent(
 		return nil
 	}
 
-	// 调用 TaskCreator 创建任务
+	// Call TaskCreator to create task
 	return a.taskCreator.OnDetectionCompleted(ctx, event.WorkloadUID, event.Detection)
 }

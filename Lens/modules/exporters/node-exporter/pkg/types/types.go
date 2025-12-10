@@ -67,39 +67,6 @@ type PodProcessTree struct {
 	CollectedAt    time.Time               `json:"collected_at"`
 }
 
-// ============ Python Inspector Types ============
-
-// InspectRequest represents inspection request
-type InspectRequest struct {
-	PID     int      `json:"pid"`
-	Scripts []string `json:"scripts"`
-	Timeout int      `json:"timeout,omitempty"` // seconds
-}
-
-// InspectionResult represents inspection result
-type InspectionResult struct {
-	PID       int                    `json:"pid"`
-	Success   bool                   `json:"success"`
-	Script    string                 `json:"script"`
-	Data      map[string]interface{} `json:"data,omitempty"`
-	Error     string                 `json:"error,omitempty"`
-	Timestamp time.Time              `json:"timestamp"`
-	Duration  float64                `json:"duration"` // seconds
-}
-
-// ScriptMetadata represents inspection script metadata
-type ScriptMetadata struct {
-	Name         string                 `json:"name"`
-	Version      string                 `json:"version"`
-	Description  string                 `json:"description"`
-	Author       string                 `json:"author,omitempty"`
-	Category     string                 `json:"category,omitempty"` // universal, framework_specific
-	Capabilities []string               `json:"capabilities"`
-	Frameworks   []string               `json:"frameworks"` // Empty means universal
-	Tags         []string               `json:"tags,omitempty"`
-	Parameters   map[string]interface{} `json:"parameters,omitempty"`
-}
-
 // ============ Container Filesystem Types ============
 
 // ContainerFileInfo represents file metadata from container
@@ -196,8 +163,8 @@ type TensorboardFilesResponse struct {
 // ProcessEnvRequest represents a request to get process environment variables
 type ProcessEnvRequest struct {
 	PodUID       string `json:"pod_uid" binding:"required"`
-	PID          int    `json:"pid,omitempty"`           // 指定进程PID，0表示获取所有进程
-	FilterPrefix string `json:"filter_prefix,omitempty"` // 环境变量前缀过滤
+	PID          int    `json:"pid,omitempty"`           // specify process PID, 0 means get all processes
+	FilterPrefix string `json:"filter_prefix,omitempty"` // environment variable prefix filter
 }
 
 // ProcessEnvResponse represents process environment variables response
@@ -217,7 +184,7 @@ type ProcessEnvInfo struct {
 // ProcessArgsRequest represents a request to get process arguments
 type ProcessArgsRequest struct {
 	PodUID string `json:"pod_uid" binding:"required"`
-	PID    int    `json:"pid,omitempty"` // 指定进程PID，0表示获取所有Python进程
+	PID    int    `json:"pid,omitempty"` // specify process PID, 0 means get all Python processes
 }
 
 // ProcessArgsResponse represents process arguments response

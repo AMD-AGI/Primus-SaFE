@@ -60,9 +60,9 @@ func (p *EventParser) ParseEvents(content []byte) ([]*ParsedEvent, error) {
 	return events, nil
 }
 
-// ParseEventsWithBuffer 从缓冲区解析完整的 events，返回解析的 events 和已消费的字节数
-// 如果缓冲区包含不完整的 record，会停止解析并返回已解析的部分
-// 返回值: (events, consumedBytes, error)
+// ParseEventsWithBuffer parses complete events from buffer, returns parsed events and consumed byte count
+// If buffer contains incomplete record, will stop parsing and return already parsed portion
+// Return values: (events, consumedBytes, error)
 func (p *EventParser) ParseEventsWithBuffer(buffer []byte) ([]*ParsedEvent, int, error) {
 	if len(buffer) == 0 {
 		return nil, 0, nil
@@ -73,11 +73,11 @@ func (p *EventParser) ParseEventsWithBuffer(buffer []byte) ([]*ParsedEvent, int,
 	offset := 0
 
 	for offset < len(buffer) {
-		// 尝试读取一个完整的 event
+		// Try to read a complete event
 		event, consumed, err := p.tryReadEventAt(buffer[offset:])
 
 		if err == io.EOF || err == io.ErrUnexpectedEOF {
-			// 数据不完整，停止解析
+			// Data incomplete, stop parsing
 			log.Debugf("Incomplete event at offset %d, need more data", offset)
 			break
 		}
@@ -87,7 +87,7 @@ func (p *EventParser) ParseEventsWithBuffer(buffer []byte) ([]*ParsedEvent, int,
 				offset += consumed
 				totalConsumed += consumed
 			} else {
-				// 无法确定跳过多少，停止解析
+				// Cannot determine how many bytes to skip, stop parsing
 				log.Warnf("Cannot determine bytes to skip at offset %d, stopping parse", offset)
 				break
 			}
@@ -106,12 +106,12 @@ func (p *EventParser) ParseEventsWithBuffer(buffer []byte) ([]*ParsedEvent, int,
 	return events, totalConsumed, nil
 }
 
-// tryReadEventAt 尝试从指定位置读取一个完整的 event
-// 返回: (event, consumedBytes, error)
-// 如果数据不完整，返回 io.ErrUnexpectedEOF
+// tryReadEventAt tries to read a complete event from specified position
+// Returns: (event, consumedBytes, error)
+// If data is incomplete, returns io.ErrUnexpectedEOF
 func (p *EventParser) tryReadEventAt(data []byte) (*ParsedEvent, int, error) {
 	if len(data) < 12 {
-		// 至少需要 length(8) + length_crc(4) = 12 字节
+		// Need at least length(8) + length_crc(4) = 12 bytes
 		return nil, 0, io.ErrUnexpectedEOF
 	}
 
@@ -135,7 +135,7 @@ func (p *EventParser) tryReadEventAt(data []byte) (*ParsedEvent, int, error) {
 	// 4. Check if we have enough data for the event data + data CRC
 	totalNeeded := offset + int(length) + 4 // current offset + data length + data CRC (4 bytes)
 	if len(data) < totalNeeded {
-		// 数据不完整
+		// Data incomplete
 		return nil, 0, io.ErrUnexpectedEOF
 	}
 

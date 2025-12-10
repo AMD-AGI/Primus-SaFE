@@ -21,7 +21,7 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/node-exporter/pkg/client"
 )
 
-// TensorBoardStreamExecutor TensorBoard 流式读取任务执行器
+// TensorBoardStreamExecutor TensorBoard streaming task executor
 type TensorBoardStreamExecutor struct {
 	coreTask.BaseExecutor
 
@@ -36,30 +36,30 @@ type TensorBoardStreamExecutor struct {
 	// Hyperparameters collection
 	hpCollector      *hyperparameters.Collector
 	hpStorage        *hyperparameters.Storage
-	hpCollected      bool       // 标志位：是否已收集过超参数
-	hpCollectedMutex sync.Mutex // 保护 hpCollected 的互斥锁
+	hpCollected      bool       // flag: whether hyperparameters have been collected
+	hpCollectedMutex sync.Mutex // mutex to protect hpCollected
 
-	// 文件读取状态管理（每个文件维护一个状态）
+	// File reading state management (one state per file)
 	fileStates map[string]*FileStreamState
 
 	// Node-exporter client cache
 	clientCache sync.Map // nodeName -> *client.Client
 }
 
-// FileStreamState 文件流式读取状态
+// FileStreamState file streaming read state
 type FileStreamState struct {
-	FilePath            string         // 文件路径
-	CurrentOffset       int64          // 下次读取的起始位置（基于成功解析的位置）
-	LastReadTime        time.Time      // 最后读取时间
-	DebugFile           *os.File       // 调试文件句柄（可选）
-	DebugFilePath       string         // 调试文件路径
-	TotalBytesParsed    int64          // 已成功解析的总字节数
-	Metadata            *DebugMetadata // 调试元信息（可选）
-	ConsecutiveFailures int            // 连续解析失败次数（用于动态调整chunk size）
-	CurrentChunkSize    int64          // 当前使用的chunk size
+	FilePath            string         // file path
+	CurrentOffset       int64          // starting position for next read (based on successfully parsed position)
+	LastReadTime        time.Time      // last read time
+	DebugFile           *os.File       // debug file handle (optional)
+	DebugFilePath       string         // debug file path
+	TotalBytesParsed    int64          // total bytes successfully parsed
+	Metadata            *DebugMetadata // debug metadata (optional)
+	ConsecutiveFailures int            // consecutive parse failure count (for dynamic chunk size adjustment)
+	CurrentChunkSize    int64          // current chunk size in use
 }
 
-// DebugMetadata 调试元信息
+// DebugMetadata debug metadata
 type DebugMetadata struct {
 	FileName          string      `json:"file_name"`
 	OriginalPath      string      `json:"original_path"`
@@ -69,7 +69,7 @@ type DebugMetadata struct {
 	LastUpdated       time.Time   `json:"last_updated"`
 }
 
-// ErrorInfo 错误信息
+// ErrorInfo error information
 type ErrorInfo struct {
 	Offset        int64     `json:"offset"`
 	BufferSize    int       `json:"buffer_size"`
@@ -79,7 +79,7 @@ type ErrorInfo struct {
 	EventsParsed  int       `json:"events_parsed"`
 }
 
-// NewTensorBoardStreamExecutor 创建 TensorBoard 流式读取执行器
+// NewTensorBoardStreamExecutor creates TensorBoard streaming executor
 func NewTensorBoardStreamExecutor() *TensorBoardStreamExecutor {
 	return &TensorBoardStreamExecutor{
 		reader:         tensorboard.NewReader(),
@@ -96,12 +96,12 @@ func NewTensorBoardStreamExecutor() *TensorBoardStreamExecutor {
 	}
 }
 
-// GetTaskType 返回任务类型
+// GetTaskType returns task type
 func (e *TensorBoardStreamExecutor) GetTaskType() string {
 	return constant.TaskTypeTensorBoardStream
 }
 
-// Validate 验证任务参数
+// Validate validates task parameters
 func (e *TensorBoardStreamExecutor) Validate(task *model.WorkloadTaskState) error {
 	if task.WorkloadUID == "" {
 		return fmt.Errorf("workload_uid is required")
@@ -109,7 +109,7 @@ func (e *TensorBoardStreamExecutor) Validate(task *model.WorkloadTaskState) erro
 	return nil
 }
 
-// Execute 执行 TensorBoard 流式读取任务
+// Execute executes TensorBoard streaming task
 func (e *TensorBoardStreamExecutor) Execute(
 	ctx context.Context,
 	execCtx *coreTask.ExecutionContext,
@@ -118,20 +118,20 @@ func (e *TensorBoardStreamExecutor) Execute(
 
 	log.Infof("Starting TensorBoard streaming for workload %s", task.WorkloadUID)
 
-	// 1. 从任务 ext 中获取 TensorBoard 事件文件列表（允许为空）
+	// 1. Get TensorBoard event files list from task ext (can be empty)
 	var eventFiles []string
 	eventFilesRaw, ok := task.Ext["event_files"]
 	if ok && eventFilesRaw != nil {
-		// 转换 event_files 为字符串数组
+		// Convert event_files to string array
 		var err error
 		eventFiles, err = e.parseEventFiles(eventFilesRaw)
 		if err != nil {
 			log.Warnf("Failed to parse event_files: %v, will wait for files to appear", err)
-			eventFiles = []string{} // 设置为空数组，继续执行
+			eventFiles = []string{} // set to empty array, continue execution
 		}
 	}
 
-	// 获取可选的 log_dir
+	// Get optional log_dir
 	logDir := ""
 	if logDirVal, ok := task.Ext["log_dir"]; ok {
 		if logDirStr, ok := logDirVal.(string); ok {
@@ -139,7 +139,7 @@ func (e *TensorBoardStreamExecutor) Execute(
 		}
 	}
 
-	// 如果事件文件列表为空，需要等待文件出现（只要 pod 还在就一直扫描）
+	// If event files list is empty, need to wait for files to appear (keep scanning as long as pod exists)
 	if len(eventFiles) == 0 {
 		if logDir == "" {
 			log.Infof("TensorBoard: waiting for files to appear (log_dir not specified, will scan container)")
@@ -150,7 +150,7 @@ func (e *TensorBoardStreamExecutor) Execute(
 		log.Infof("TensorBoard event files: %v (log_dir: %s)", eventFiles, logDir)
 	}
 
-	// 2. 获取 pod 信息
+	// 2. Get pod information
 	gpuPod, err := e.selectTargetPod(ctx, task.WorkloadUID)
 	if err != nil {
 		return coreTask.FailureResult(
@@ -161,7 +161,7 @@ func (e *TensorBoardStreamExecutor) Execute(
 		), err
 	}
 
-	// 3. 从 ext 获取配置和 checkpoint
+	// 3. Get configuration and checkpoint from ext
 	var checkpoint map[string]interface{}
 	if checkpointVal, ok := task.Ext["checkpoint"]; ok {
 		if checkpointMap, ok := checkpointVal.(map[string]interface{}); ok {
@@ -169,7 +169,7 @@ func (e *TensorBoardStreamExecutor) Execute(
 		}
 	}
 
-	pollInterval := 5 // 默认 5 秒
+	pollInterval := 5 // default 5 seconds
 	if pollIntervalVal, ok := task.Ext["poll_interval"]; ok {
 		if pollIntervalInt, ok := pollIntervalVal.(int); ok {
 			pollInterval = pollIntervalInt
@@ -178,7 +178,7 @@ func (e *TensorBoardStreamExecutor) Execute(
 		}
 	}
 
-	chunkSize := int64(65536) // 默认 64KB
+	chunkSize := int64(65536) // default 64KB
 	if chunkSizeVal, ok := task.Ext["chunk_size"]; ok {
 		if chunkSizeInt, ok := chunkSizeVal.(int); ok {
 			chunkSize = int64(chunkSizeInt)
@@ -187,7 +187,7 @@ func (e *TensorBoardStreamExecutor) Execute(
 		}
 	}
 
-	// 4. 从 checkpoint 恢复 offset 并初始化文件状态
+	// 4. Restore offset from checkpoint and initialize file state
 	if checkpoint != nil {
 		if fileOffsets, ok := checkpoint["file_offsets"].(map[string]interface{}); ok {
 			for file, offset := range fileOffsets {
@@ -203,7 +203,7 @@ func (e *TensorBoardStreamExecutor) Execute(
 
 	log.Infof("Starting stream with event files: %v, initial offsets: %+v", eventFiles, e.getFileOffsets())
 
-	// 5. 获取 node-exporter client
+	// 5. Get node-exporter client
 	nodeExporterClient, err := e.getNodeExporterClient(ctx, gpuPod.NodeName)
 	if err != nil {
 		return coreTask.FailureResult(
@@ -214,11 +214,11 @@ func (e *TensorBoardStreamExecutor) Execute(
 		), err
 	}
 
-	// 6. 如果文件列表为空，先扫描文件
+	// 6. If file list is empty, scan for files first
 	if len(eventFiles) == 0 {
 		log.Infof("Waiting for TensorBoard files to appear")
 
-		fileWaitTimeout := 300 // 默认5分钟
+		fileWaitTimeout := 300 // default 5 minutes
 		if timeoutVal, ok := task.Ext["file_wait_timeout"]; ok {
 			if timeoutInt, ok := timeoutVal.(int); ok {
 				fileWaitTimeout = timeoutInt
@@ -227,7 +227,7 @@ func (e *TensorBoardStreamExecutor) Execute(
 			}
 		}
 
-		fileScanInterval := 10 // 默认10秒
+		fileScanInterval := 10 // default 10 seconds
 		if intervalVal, ok := task.Ext["file_scan_interval"]; ok {
 			if intervalInt, ok := intervalVal.(int); ok {
 				fileScanInterval = intervalInt
@@ -236,7 +236,7 @@ func (e *TensorBoardStreamExecutor) Execute(
 			}
 		}
 
-		// 等待文件出现
+		// Wait for files to appear
 		detectedFiles, err := e.waitForTensorBoardFiles(
 			ctx,
 			task.WorkloadUID,
@@ -264,7 +264,7 @@ func (e *TensorBoardStreamExecutor) Execute(
 		log.Infof("TensorBoard files detected: %v", eventFiles)
 	}
 
-	// 7. 初始化文件状态（如果还没有从 checkpoint 恢复）
+	// 7. Initialize file state (if not yet restored from checkpoint)
 	for _, filePath := range eventFiles {
 		if _, exists := e.fileStates[filePath]; !exists {
 			e.fileStates[filePath] = &FileStreamState{
@@ -274,7 +274,7 @@ func (e *TensorBoardStreamExecutor) Execute(
 				ConsecutiveFailures: 0,
 			}
 		} else {
-			// 从checkpoint恢复的状态，也要初始化chunk size
+			// For state restored from checkpoint, also initialize chunk size
 			if e.fileStates[filePath].CurrentChunkSize == 0 {
 				e.fileStates[filePath].CurrentChunkSize = chunkSize
 			}
@@ -284,7 +284,7 @@ func (e *TensorBoardStreamExecutor) Execute(
 	log.Infof("Stream started for workload %s with %d files, poll interval %ds, chunk size %d",
 		task.WorkloadUID, len(eventFiles), pollInterval, chunkSize)
 
-	// 8. 进入流式读取循环（同步阻塞直到任务被取消）
+	// 8. Enter streaming read loop (blocks synchronously until task is cancelled)
 	e.streamLoop(ctx, task, gpuPod, eventFiles, time.Duration(pollInterval)*time.Second, chunkSize)
 
 	// 9. Stream ended, return final result
@@ -299,7 +299,7 @@ func (e *TensorBoardStreamExecutor) Execute(
 	}), nil
 }
 
-// streamLoop 流式读取主循环
+// streamLoop main streaming read loop
 func (e *TensorBoardStreamExecutor) streamLoop(
 	ctx context.Context,
 	task *model.WorkloadTaskState,
@@ -313,7 +313,7 @@ func (e *TensorBoardStreamExecutor) streamLoop(
 	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
 
-	checkpointTicker := time.NewTicker(10 * time.Second) // 每 10 秒更新一次 checkpoint
+	checkpointTicker := time.NewTicker(10 * time.Second) // update checkpoint every 10 seconds
 	defer checkpointTicker.Stop()
 
 	totalBytesRead := int64(0)
@@ -325,12 +325,12 @@ func (e *TensorBoardStreamExecutor) streamLoop(
 		select {
 		case <-ctx.Done():
 			log.Infof("Stream loop stopped by context for workload %s", task.WorkloadUID)
-			// 最后一次更新 checkpoint
+			// Last checkpoint update
 			e.updateCheckpoint(ctx, task, totalBytesRead, updateCount)
 			return
 
 		case <-ticker.C:
-			// 轮询每个文件，检查是否有新数据
+			// Poll each file to check for new data
 			for _, filePath := range eventFiles {
 				if ctx.Err() != nil {
 					return
@@ -338,7 +338,7 @@ func (e *TensorBoardStreamExecutor) streamLoop(
 
 				fileState := e.fileStates[filePath]
 
-				// 读取、解析并更新 offset（基于成功解析的位置）
+				// Read, parse and update offset (based on successfully parsed position)
 				bytesRead, err := e.readAndParseFile(ctx, task, gpuPod, filePath, fileState, chunkSize)
 				if err != nil {
 					log.Errorf("Failed to read/parse file %s: %v", filePath, err)
@@ -352,13 +352,13 @@ func (e *TensorBoardStreamExecutor) streamLoop(
 			}
 
 		case <-checkpointTicker.C:
-			// 定期更新 checkpoint
+			// Periodically update checkpoint
 			e.updateCheckpoint(ctx, task, totalBytesRead, updateCount)
 		}
 	}
 }
 
-// readAndParseFile 读取文件、解析事件、更新offset（基于成功解析的位置）
+// readAndParseFile reads file, parses events, updates offset (based on successfully parsed position)
 func (e *TensorBoardStreamExecutor) readAndParseFile(
 	ctx context.Context,
 	task *model.WorkloadTaskState,
@@ -367,25 +367,25 @@ func (e *TensorBoardStreamExecutor) readAndParseFile(
 	fileState *FileStreamState,
 	chunkSize int64,
 ) (int64, error) {
-	// 1. 获取文件信息
+	// 1. Get file information
 	fileInfo, err := e.reader.GetFileInfo(ctx, gpuPod.UID, filePath)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get file info: %w", err)
 	}
 
-	// 2. 检查是否有新数据
+	// 2. Check if there is new data
 	if fileInfo.Size <= fileState.CurrentOffset {
-		return 0, nil // 没有新数据
+		return 0, nil // no new data
 	}
 
-	// 3. 计算读取大小（使用fileState中的动态chunk size）
+	// 3. Calculate read size (using dynamic chunk size from fileState)
 	remaining := fileInfo.Size - fileState.CurrentOffset
 	toRead := fileState.CurrentChunkSize
 	if toRead > remaining {
 		toRead = remaining
 	}
 
-	// 4. 读取数据块
+	// 4. Read data chunk
 	resp, err := e.reader.ReadFile(ctx, gpuPod.UID, filePath, fileState.CurrentOffset, toRead)
 	if err != nil {
 		return 0, fmt.Errorf("failed to read file: %w", err)
@@ -397,7 +397,7 @@ func (e *TensorBoardStreamExecutor) readAndParseFile(
 
 	log.Debugf("Read from %s: offset=%d, bytes=%d", filePath, fileState.CurrentOffset, resp.BytesRead)
 
-	// 5. 解析事件（返回成功解析的字节数）
+	// 5. Parse events (returns successfully parsed byte count)
 	// Content is already decoded from base64 by the client
 	dataBytes := []byte(resp.Content)
 
@@ -418,80 +418,80 @@ func (e *TensorBoardStreamExecutor) readAndParseFile(
 		float64(consumedBytes)*100/max(float64(len(dataBytes)), 1),
 		e.countScalars(events), e.countTexts(events))
 
-	// 6. 核心策略：只有成功解析出事件时才更新offset
-	// 如果没有解析出事件，保持offset不变，下次重新读取
+	// 6. Core strategy: only update offset when events are successfully parsed
+	// If no events parsed, keep offset unchanged and reread next time
 	if len(events) > 0 {
-		// 成功解析出事件，更新offset到已消费的位置
+		// Successfully parsed events, update offset to consumed position
 		fileState.CurrentOffset += int64(consumedBytes)
 		fileState.TotalBytesParsed += int64(consumedBytes)
 		fileState.LastReadTime = time.Now()
-		fileState.ConsecutiveFailures = 0 // 重置失败计数
+		fileState.ConsecutiveFailures = 0 // reset failure count
 
 		log.Infof("Successfully parsed %d events from %s: offset %d -> %d (+%d bytes, %d scalars, %d texts)",
 			len(events), filePath, fileState.CurrentOffset-int64(consumedBytes),
 			fileState.CurrentOffset, consumedBytes, e.countScalars(events), e.countTexts(events))
 
-		// 存储解析成功的事件到数据库
+		// Store successfully parsed events to database
 		e.storeEvents(ctx, task, gpuPod, filePath, events)
 
 		return int64(consumedBytes), nil
 	} else {
-		// 没有解析出事件，增加失败计数
+		// No events parsed, increase failure count
 		fileState.ConsecutiveFailures++
 
-		// 检查是否需要增大读取大小
+		// Check if need to increase read size
 		if len(dataBytes) >= int(fileState.CurrentChunkSize) {
-			// 已经读取了完整的chunk size，但仍无法解析出事件
-			// 可能是事件太大，需要增大chunk size重试
+			// Already read full chunk size but still unable to parse events
+			// Possibly event is too large, need to increase chunk size and retry
 			if fileState.ConsecutiveFailures >= 3 && fileState.CurrentChunkSize < 10*1024*1024 {
-				// 连续3次失败，且chunk size小于10MB，则加倍chunk size
+				// 3 consecutive failures and chunk size < 10MB, double the chunk size
 				oldSize := fileState.CurrentChunkSize
 				fileState.CurrentChunkSize = fileState.CurrentChunkSize * 2
 				if fileState.CurrentChunkSize > 10*1024*1024 {
-					fileState.CurrentChunkSize = 10 * 1024 * 1024 // 最大10MB
+					fileState.CurrentChunkSize = 10 * 1024 * 1024 // maximum 10MB
 				}
 				log.Warnf("Increasing chunk size for %s: %d -> %d bytes (consecutive failures: %d)",
 					filePath, oldSize, fileState.CurrentChunkSize, fileState.ConsecutiveFailures)
-				fileState.ConsecutiveFailures = 0 // 重置计数
+				fileState.ConsecutiveFailures = 0 // reset count
 			} else {
 				log.Debugf("No events parsed from %d bytes at offset %d in %s (failure %d), waiting for more data",
 					len(dataBytes), fileState.CurrentOffset, filePath, fileState.ConsecutiveFailures)
 			}
 
-			// 如果chunk size已经达到最大（10MB）且连续失败很多次，可能数据损坏
+			// If chunk size has reached maximum (10MB) and consecutive failures are many, data may be corrupted
 			if fileState.CurrentChunkSize >= 10*1024*1024 && fileState.ConsecutiveFailures >= 10 {
 				log.Errorf("Unable to parse events from %s at offset %d after %d attempts with 10MB chunks, likely corrupted",
 					filePath, fileState.CurrentOffset, fileState.ConsecutiveFailures)
-				// 跳过一小段数据（1KB）尝试恢复
+				// Skip a small segment of data (1KB) to attempt recovery
 				fileState.CurrentOffset += 1024
 				fileState.ConsecutiveFailures = 0
 				return 0, fmt.Errorf("skipped corrupted data")
 			}
 		} else {
-			// 读取的数据小于chunk size，说明已经到文件末尾，等待更多数据
+			// Data read is less than chunk size, reached end of file, wait for more data
 			log.Debugf("Incomplete data at offset %d in %s (%d/%d bytes), waiting for more data",
 				fileState.CurrentOffset, filePath, len(dataBytes), fileState.CurrentChunkSize)
-			// 等待更多数据时不算作失败
+			// Don't count as failure when waiting for more data
 			fileState.ConsecutiveFailures = 0
 		}
 
-		// offset不变，下次重新读取
+		// Offset unchanged, reread next time
 		return 0, nil
 	}
 }
 
-// aggregatedStepData 聚合同一个 iteration 的所有数据
+// aggregatedStepData aggregates all data for the same iteration
 type aggregatedStepData struct {
-	Step     int64              // iteration (统一后的主维度)
-	WallTime float64            // 时间戳
-	Scalars  map[string]float32 // 包含 samples 字段
-	Texts    map[string]string  // 配置元数据
-	Tags     []string           // 所有 tag 列表
+	Step     int64              // iteration (unified primary dimension)
+	WallTime float64            // timestamp
+	Scalars  map[string]float32 // includes samples field
+	Texts    map[string]string  // configuration metadata
+	Tags     []string           // list of all tags
 }
 
-// extractBatchSize 从事件中提取 batch_size
+// extractBatchSize extracts batch_size from events
 func (e *TensorBoardStreamExecutor) extractBatchSize(events []*tensorboard.ParsedEvent) int64 {
-	// 从 text metadata 中查找 batch-size 或 global_batch_size
+	// Search for batch-size or global_batch_size in text metadata
 	for _, event := range events {
 		if batchSizeStr, ok := event.Texts["batch-size"]; ok {
 			if bs := e.parseIntFromString(batchSizeStr); bs > 0 {
@@ -505,7 +505,7 @@ func (e *TensorBoardStreamExecutor) extractBatchSize(events []*tensorboard.Parse
 		}
 	}
 
-	// 从 scalar 中查找
+	// Search in scalars
 	for _, event := range events {
 		if batchSize, ok := event.Scalars["batch-size"]; ok && batchSize > 0 {
 			return int64(batchSize)
@@ -515,42 +515,42 @@ func (e *TensorBoardStreamExecutor) extractBatchSize(events []*tensorboard.Parse
 		}
 	}
 
-	// 默认值：128（LLM 训练常见值）
+	// Default value: 128 (common for LLM training)
 	return 128
 }
 
-// normalizeStep 智能判断 step 类型并转换为 iteration
-// 返回：(iteration, samples)
+// normalizeStep intelligently determines step type and converts to iteration
+// Returns: (iteration, samples)
 func (e *TensorBoardStreamExecutor) normalizeStep(step int64, batchSize int64) (int64, int64) {
-	// 策略1：如果 step 很小（< 100000），认为是 iteration
+	// Strategy 1: If step is small (< 100000), consider it as iteration
 	if step < 100000 {
 		return step, step * batchSize
 	}
 
-	// 策略2：如果 step 能被 batch_size 整除，认为是 samples
+	// Strategy 2: If step is divisible by batch_size, consider it as samples
 	if batchSize > 0 && step%batchSize == 0 {
 		iteration := step / batchSize
 		return iteration, step
 	}
 
-	// 策略3：step 很大但不能整除，可能是自定义维度，保持原样
-	// 这种情况较少见，假设是 iteration
+	// Strategy 3: step is large but not divisible, may be custom dimension, keep as is
+	// This case is rare, assume it's iteration
 	log.Debugf("Ambiguous step value %d (batch_size=%d), treating as iteration", step, batchSize)
 	return step, step * batchSize
 }
 
-// cleanTagName 清理 tag 名称，去掉 " vs samples" 等后缀
+// cleanTagName cleans tag name, removes " vs samples" and similar suffixes
 func (e *TensorBoardStreamExecutor) cleanTagName(tag string) string {
-	// 去掉 " vs samples" 后缀
+	// Remove " vs samples" suffix
 	tag = strings.TrimSuffix(tag, " vs samples")
 
-	// 去掉 " vs steps" 后缀
+	// Remove " vs steps" suffix
 	tag = strings.TrimSuffix(tag, " vs steps")
 
 	return tag
 }
 
-// parseIntFromString 从字符串解析整数
+// parseIntFromString parses integer from string
 func (e *TensorBoardStreamExecutor) parseIntFromString(s string) int64 {
 	var value int64
 	_, err := fmt.Sscanf(s, "%d", &value)
@@ -578,7 +578,7 @@ func (e *TensorBoardStreamExecutor) countTexts(events []*tensorboard.ParsedEvent
 	return count
 }
 
-// storeEvents 存储事件到数据库
+// storeEvents stores events to database
 func (e *TensorBoardStreamExecutor) storeEvents(
 	ctx context.Context,
 	task *model.WorkloadTaskState,
@@ -586,22 +586,22 @@ func (e *TensorBoardStreamExecutor) storeEvents(
 	filePath string,
 	events []*tensorboard.ParsedEvent,
 ) {
-	// Step 0: 尝试提取超参数（只在首次遇到包含超参数的事件时执行）
+	// Step 0: Try to extract hyperparameters (only execute on first encounter with events containing hyperparameters)
 	e.tryCollectHyperparameters(ctx, task, filePath, events)
 
-	// Step 1: 提取 batch_size（用于判断和转换 step）
+	// Step 1: Extract batch_size (for determining and converting step)
 	batchSize := e.extractBatchSize(events)
 
-	// Step 2: 按 iteration 聚合所有事件的数据（统一 step 维度）
+	// Step 2: Aggregate all event data by iteration (unify step dimension)
 	iterationAggregated := make(map[int64]*aggregatedStepData)
 
 	for _, event := range events {
-		// 智能判断 step 类型并转换为 iteration
+		// Intelligently determine step type and convert to iteration
 		iteration, samples := e.normalizeStep(event.Step, batchSize)
 
 		if iterationAggregated[iteration] == nil {
 			iterationAggregated[iteration] = &aggregatedStepData{
-				Step:     iteration, // 使用 iteration 作为主 step
+				Step:     iteration, // use iteration as primary step
 				WallTime: event.WallTime,
 				Scalars:  make(map[string]float32),
 				Texts:    make(map[string]string),
@@ -611,7 +611,7 @@ func (e *TensorBoardStreamExecutor) storeEvents(
 
 		agg := iterationAggregated[iteration]
 
-		// 合并 scalars（去掉 " vs samples" 等后缀）
+		// Merge scalars (remove " vs samples" and similar suffixes)
 		for tag, value := range event.Scalars {
 			cleanTag := e.cleanTagName(tag)
 			agg.Scalars[cleanTag] = value
@@ -620,7 +620,7 @@ func (e *TensorBoardStreamExecutor) storeEvents(
 			}
 		}
 
-		// 合并 texts（去掉 " vs samples" 等后缀）
+		// Merge texts (remove " vs samples" and similar suffixes)
 		for tag, text := range event.Texts {
 			cleanTag := e.cleanTagName(tag)
 			agg.Texts[cleanTag] = text
@@ -629,38 +629,38 @@ func (e *TensorBoardStreamExecutor) storeEvents(
 			}
 		}
 
-		// 更新 samples（如果当前事件提供了更大的值）
+		// Update samples (if current event provides a larger value)
 		if existingSamples, ok := agg.Scalars["samples"]; !ok || float32(samples) > existingSamples {
 			agg.Scalars["samples"] = float32(samples)
 		}
 
-		// 使用最新的 wall_time
+		// Use latest wall_time
 		if event.WallTime > agg.WallTime {
 			agg.WallTime = event.WallTime
 		}
 	}
 
-	// Step 3: 存储聚合后的数据
+	// Step 3: Store aggregated data
 	successCount := 0
 	duplicateCount := 0
 
 	for iteration, agg := range iterationAggregated {
-		// 只存储有数据的 iteration
+		// Only store iterations with data
 		if len(agg.Scalars) == 0 && len(agg.Texts) == 0 {
 			continue
 		}
 
-		// 构建 performance JSON，包含所有维度和指标
+		// Build performance JSON, containing all dimensions and metrics
 		performance := model.ExtType{
-			"iteration": iteration,              // 主维度
-			"samples":   agg.Scalars["samples"], // 累计样本数
-			"wall_time": agg.WallTime,           // 时间戳
+			"iteration": iteration,              // primary dimension
+			"samples":   agg.Scalars["samples"], // cumulative sample count
+			"wall_time": agg.WallTime,           // timestamp
 			"file":      filePath,
 		}
 
-		// 将 scalars 和 texts 的内容展平到 performance 根级别
+		// Flatten scalars and texts content to performance root level
 		for tag, value := range agg.Scalars {
-			// samples 已经单独处理，跳过重复
+			// samples already processed separately, skip duplicate
 			if tag != "samples" {
 				performance[tag] = value
 			}
@@ -669,7 +669,7 @@ func (e *TensorBoardStreamExecutor) storeEvents(
 			performance[tag] = text
 		}
 
-		// 保留原始的 scalars 和 texts 结构（可选，用于调试）
+		// Keep original scalars and texts structure (optional, for debugging)
 		if len(agg.Scalars) > 0 {
 			performance["scalars"] = agg.Scalars
 		}
@@ -681,13 +681,13 @@ func (e *TensorBoardStreamExecutor) storeEvents(
 			WorkloadUID: task.WorkloadUID,
 			PodUUID:     gpuPod.UID,
 			Performance: performance,
-			Iteration:   int32(iteration), // 使用统一的 iteration
+			Iteration:   int32(iteration), // use unified iteration
 			Serial:      0,
 			DataSource:  "tensorflow",
 			CreatedAt:   time.Now(),
 		}
 
-		// 检查是否已存在
+		// Check if already exists
 		existing, err := e.trainingFacade.GetTrainingPerformanceByWorkloadIdSerialAndIteration(
 			ctx, task.WorkloadUID, 0, int(iteration))
 
@@ -697,7 +697,7 @@ func (e *TensorBoardStreamExecutor) storeEvents(
 		}
 
 		if existing != nil {
-			// 记录已存在，合并新数据到现有记录
+			// Record already exists, merge new data into existing record
 			existingPerf := existing.Performance
 			if existingPerf == nil {
 				existingPerf = make(model.ExtType)
@@ -706,7 +706,7 @@ func (e *TensorBoardStreamExecutor) storeEvents(
 			mergedCount := 0
 			newCount := 0
 
-			// 合并新数据（新值会覆盖旧值）
+			// Merge new data (new values will overwrite old values)
 			for key, value := range performance {
 				if _, exists := existingPerf[key]; exists {
 					mergedCount++
@@ -716,7 +716,7 @@ func (e *TensorBoardStreamExecutor) storeEvents(
 				existingPerf[key] = value
 			}
 
-			// 更新记录（UpdateTrainingPerformance 会保留原始的 CreatedAt）
+			// Update record (UpdateTrainingPerformance will preserve original CreatedAt)
 			existing.Performance = existingPerf
 
 			err = e.trainingFacade.UpdateTrainingPerformance(ctx, existing)
@@ -734,7 +734,7 @@ func (e *TensorBoardStreamExecutor) storeEvents(
 				}
 			}
 		} else {
-			// 记录不存在，创建新记录
+			// Record does not exist, create new record
 			err = e.trainingFacade.CreateTrainingPerformance(ctx, trainingPerf)
 			if err != nil {
 				if strings.Contains(err.Error(), "duplicate") || strings.Contains(err.Error(), "unique") {
@@ -765,7 +765,7 @@ func (e *TensorBoardStreamExecutor) storeEvents(
 	}
 }
 
-// getFileOffsets 获取所有文件的当前 offset
+// getFileOffsets gets current offset for all files
 func (e *TensorBoardStreamExecutor) getFileOffsets() map[string]int64 {
 	offsets := make(map[string]int64)
 	for filePath, state := range e.fileStates {
@@ -774,7 +774,7 @@ func (e *TensorBoardStreamExecutor) getFileOffsets() map[string]int64 {
 	return offsets
 }
 
-// updateCheckpoint 更新 checkpoint 到数据库
+// updateCheckpoint updates checkpoint to database
 func (e *TensorBoardStreamExecutor) updateCheckpoint(
 	ctx context.Context,
 	task *model.WorkloadTaskState,
@@ -800,14 +800,14 @@ func (e *TensorBoardStreamExecutor) updateCheckpoint(
 	}
 }
 
-// Cancel 取消任务
+// Cancel cancels task
 func (e *TensorBoardStreamExecutor) Cancel(ctx context.Context, task *model.WorkloadTaskState) error {
 	log.Infof("Cancelling TensorBoard stream for workload %s", task.WorkloadUID)
-	// 任务取消通过 context 控制，这里不需要额外操作
+	// Task cancellation is controlled through context, no additional operation needed here
 	return nil
 }
 
-// waitForTensorBoardFiles 等待 TensorBoard 文件出现
+// waitForTensorBoardFiles waits for TensorBoard files to appear
 func (e *TensorBoardStreamExecutor) waitForTensorBoardFiles(
 	ctx context.Context,
 	workloadUID string,
@@ -835,12 +835,12 @@ func (e *TensorBoardStreamExecutor) waitForTensorBoardFiles(
 			return nil, fmt.Errorf("context cancelled while waiting for files")
 
 		case <-ticker.C:
-			// 检查是否超时
+			// Check if timeout
 			if time.Now().After(deadline) {
 				return nil, fmt.Errorf("timeout waiting for TensorBoard files after %v", timeout)
 			}
 
-			// 调用 FindTensorboardFiles 扫描文件
+			// Call FindTensorboardFiles to scan files
 			log.Debugf("Scanning for TensorBoard files in pod %s", podUID)
 
 			findResp, err := nodeExporterClient.FindTensorboardFiles(ctx, podUID, gpuPod.Name, gpuPod.Namespace)
@@ -849,11 +849,11 @@ func (e *TensorBoardStreamExecutor) waitForTensorBoardFiles(
 				continue
 			}
 
-			// 提取文件路径并去重
+			// Extract file paths and deduplicate
 			fileSet := make(map[string]bool)
 			var eventFiles []string
 			for _, fileInfo := range findResp.Files {
-				// 去重：只添加未见过的文件
+				// Deduplicate: only add files not seen before
 				if !fileSet[fileInfo.FilePath] {
 					fileSet[fileInfo.FilePath] = true
 					eventFiles = append(eventFiles, fileInfo.FilePath)
@@ -870,11 +870,11 @@ func (e *TensorBoardStreamExecutor) waitForTensorBoardFiles(
 	}
 }
 
-// parseEventFiles 解析事件文件列表
+// parseEventFiles parses event files list
 func (e *TensorBoardStreamExecutor) parseEventFiles(eventFilesRaw interface{}) ([]string, error) {
 	var eventFiles []string
 
-	// 尝试将接口类型转换为字符串切片
+	// Try to convert interface type to string slice
 	switch v := eventFilesRaw.(type) {
 	case []interface{}:
 		for _, item := range v {
@@ -891,10 +891,10 @@ func (e *TensorBoardStreamExecutor) parseEventFiles(eventFilesRaw interface{}) (
 	return eventFiles, nil
 }
 
-// selectTargetPod 从 workload 的所有 pod 中选择目标 pod
-// 优先选择名称以 master-0 结尾的 pod，否则返回第一个
+// selectTargetPod selects target pod from all pods of a workload
+// Prioritizes pods with names ending in master-0, otherwise returns the first one
 func (e *TensorBoardStreamExecutor) selectTargetPod(ctx context.Context, workloadUID string) (*model.GpuPods, error) {
-	// 方法1：通过 workload_pod_reference 表查找 pod（推荐方式，支持层级关系）
+	// Method 1: Find pod through workload_pod_reference table (recommended, supports hierarchical relationship)
 	workloadFacade := database.GetFacade().GetWorkload()
 	podRefs, err := workloadFacade.ListWorkloadPodReferenceByWorkloadUid(ctx, workloadUID)
 	if err != nil {
@@ -903,13 +903,13 @@ func (e *TensorBoardStreamExecutor) selectTargetPod(ctx context.Context, workloa
 
 	var pods []*model.GpuPods
 	if len(podRefs) > 0 {
-		// 通过 pod UID 列表查询 pod 详情
+		// Query pod details through pod UID list
 		podUIDs := make([]string, 0, len(podRefs))
 		for _, ref := range podRefs {
 			podUIDs = append(podUIDs, ref.PodUID)
 		}
 
-		// 获取 pod 详情
+		// Get pod details
 		db := database.GetFacade().GetSystemConfig().GetDB()
 		err = db.WithContext(ctx).
 			Where("uid IN ? AND deleted = ?", podUIDs, false).
@@ -920,7 +920,7 @@ func (e *TensorBoardStreamExecutor) selectTargetPod(ctx context.Context, workloa
 
 	}
 
-	// 方法2：查找子 workload 的 pod（递归查找层级结构）
+	// Method 2: Find pods of child workload (recursively search hierarchical structure)
 	if len(pods) == 0 {
 		childWorkloads, err := workloadFacade.ListChildrenWorkloadByParentUid(ctx, workloadUID)
 		if err != nil {
@@ -939,7 +939,7 @@ func (e *TensorBoardStreamExecutor) selectTargetPod(ctx context.Context, workloa
 		return nil, fmt.Errorf("no pods found for workload %s", workloadUID)
 	}
 
-	// 优先选择以 master-0 结尾的 pod
+	// Prioritize pods ending with master-0
 	for _, pod := range pods {
 		if strings.HasSuffix(pod.Name, "master-0") {
 			log.Infof("Selected master-0 pod: %s/%s for workload %s", pod.Namespace, pod.Name, workloadUID)
@@ -947,7 +947,7 @@ func (e *TensorBoardStreamExecutor) selectTargetPod(ctx context.Context, workloa
 		}
 	}
 
-	// 如果没有 master-0，返回第一个 pod
+	// If no master-0, return first pod
 	selectedPod := pods[0]
 	log.Infof("No master-0 pod found, selected first pod: %s/%s for workload %s",
 		selectedPod.Namespace, selectedPod.Name, workloadUID)
@@ -1041,25 +1041,25 @@ func (e *TensorBoardStreamExecutor) saveMetadata(fileState *FileStreamState) {
 	}
 }
 
-// tryCollectHyperparameters 尝试从 TensorBoard 事件中提取超参数
-// 只在首次遇到包含超参数的事件时执行（通常是 step=0 的文本事件）
+// tryCollectHyperparameters tries to extract hyperparameters from TensorBoard events
+// Only executes on first encounter with events containing hyperparameters (usually text events at step=0)
 func (e *TensorBoardStreamExecutor) tryCollectHyperparameters(
 	ctx context.Context,
 	task *model.WorkloadTaskState,
 	filePath string,
 	events []*tensorboard.ParsedEvent,
 ) {
-	// 快速检查：是否已经收集过
+	// Quick check: whether already collected
 	e.hpCollectedMutex.Lock()
 	if e.hpCollected {
 		e.hpCollectedMutex.Unlock()
 		return
 	}
 
-	// 检查是否有包含超参数的事件
+	// Check if there are events containing hyperparameters
 	hasHyperparams := false
 	for _, event := range events {
-		// 超参数通常在 step=0 且包含文本数据
+		// Hyperparameters are usually at step=0 and contain text data
 		if event.Step == 0 && len(event.Texts) > 0 {
 			hasHyperparams = true
 			break
@@ -1071,13 +1071,13 @@ func (e *TensorBoardStreamExecutor) tryCollectHyperparameters(
 		return
 	}
 
-	// 标记为已收集（避免重复）
+	// Mark as collected (avoid duplication)
 	e.hpCollected = true
 	e.hpCollectedMutex.Unlock()
 
 	log.Infof("Detected hyperparameters in TensorBoard events, starting collection for workload %s", task.WorkloadUID)
 
-	// 提取 log_dir
+	// Extract log_dir
 	logDir := ""
 	if logDirVal, ok := task.Ext["log_dir"]; ok {
 		if logDirStr, ok := logDirVal.(string); ok {
@@ -1085,13 +1085,13 @@ func (e *TensorBoardStreamExecutor) tryCollectHyperparameters(
 		}
 	}
 
-	// 准备收集选项
+	// Prepare collection options
 	opts := hyperparameters.CollectionOptions{
 		TensorBoardEvents: events,
 		TensorBoardLogDir: logDir,
 	}
 
-	// 收集超参数
+	// Collect hyperparameters
 	hparams, err := e.hpCollector.CollectAll(ctx, task.WorkloadUID, opts)
 	if err != nil {
 		log.Errorf("Failed to collect hyperparameters for workload %s: %v", task.WorkloadUID, err)
@@ -1106,7 +1106,7 @@ func (e *TensorBoardStreamExecutor) tryCollectHyperparameters(
 	log.Infof("Collected %d hyperparameters from %d sources for workload %s",
 		len(hparams.Merged), len(hparams.Sources), task.WorkloadUID)
 
-	// 存储到 workload annotations
+	// Store to workload annotations
 	if err := e.hpStorage.Save(ctx, hparams); err != nil {
 		log.Errorf("Failed to save hyperparameters for workload %s: %v", task.WorkloadUID, err)
 		return
@@ -1115,7 +1115,7 @@ func (e *TensorBoardStreamExecutor) tryCollectHyperparameters(
 	log.Infof("Successfully saved hyperparameters to workload %s annotations (version %d, %d parameters)",
 		task.WorkloadUID, hparams.Version, len(hparams.Merged))
 
-	// 记录关键超参数到日志
+	// Log key hyperparameters
 	if hparams.Summary.LearningRate != nil {
 		log.Infof("  Learning Rate: %v", hparams.Summary.LearningRate)
 	}

@@ -87,7 +87,7 @@ func TestParseRealEventFile(t *testing.T) {
 }
 
 func TestParseEventFileInChunks(t *testing.T) {
-	// 读取实际的 event 文件
+	// Read actual event file
 	filePath := "../../data/events.out.tfevents.1765203259.primus-exporter-test-vl4wv-master-0.335.0"
 	data, err := ioutil.ReadFile(filePath)
 	if err != nil {
@@ -97,17 +97,17 @@ func TestParseEventFileInChunks(t *testing.T) {
 	fmt.Printf("\n=== Testing chunked parsing ===\n")
 	fmt.Printf("File size: %d bytes\n", len(data))
 
-	// 创建解析器
+	// Create parser
 	parser := NewEventParser()
 
-	// 模拟流式读取：每次读取 64KB
+	// Simulate streaming read: read 64KB each time
 	chunkSize := 64 * 1024
 	buffer := make([]byte, 0)
 	totalEvents := 0
 	offset := 0
 
 	for offset < len(data) {
-		// 读取一块数据
+		// Read a chunk of data
 		end := offset + chunkSize
 		if end > len(data) {
 			end = len(data)
@@ -115,11 +115,11 @@ func TestParseEventFileInChunks(t *testing.T) {
 		chunk := data[offset:end]
 		offset = end
 
-		// 追加到缓冲区
+		// Append to buffer
 		buffer = append(buffer, chunk...)
 		fmt.Printf("\nChunk: added %d bytes, buffer now %d bytes\n", len(chunk), len(buffer))
 
-		// 解析缓冲区
+		// Parse buffer
 		events, consumed, err := parser.ParseEventsWithBuffer(buffer)
 		if err != nil {
 			t.Errorf("Parse error at offset %d: %v", offset, err)
@@ -128,14 +128,14 @@ func TestParseEventFileInChunks(t *testing.T) {
 		fmt.Printf("Parsed %d events, consumed %d bytes, remaining %d bytes\n",
 			len(events), consumed, len(buffer)-consumed)
 
-		// 更新缓冲区
+		// Update buffer
 		if consumed > 0 {
 			buffer = buffer[consumed:]
 		}
 
 		totalEvents += len(events)
 
-		// 打印第一个事件
+		// Print first event
 		if len(events) > 0 {
 			fmt.Printf("First event: step=%d, scalars=%v\n",
 				events[0].Step, events[0].Scalars)
@@ -159,7 +159,7 @@ func TestCRC32Implementation(t *testing.T) {
 
 	fmt.Printf("Test CRC32 for length=18: 0x%08x\n", crc)
 
-	// 读取实际文件的第一个 record
+	// Read first record of actual file
 	filePath := "../../data/events.out.tfevents.1765203259.primus-exporter-test-vl4wv-master-0.335.0"
 	data, err := ioutil.ReadFile(filePath)
 	if err != nil {
@@ -170,14 +170,14 @@ func TestCRC32Implementation(t *testing.T) {
 		t.Fatal("File too small")
 	}
 
-	// 读取前 12 字节
+	// Read first 12 bytes
 	fmt.Printf("\nFirst 20 bytes (hex): ")
 	for i := 0; i < 20 && i < len(data); i++ {
 		fmt.Printf("%02x ", data[i])
 	}
 	fmt.Printf("\n")
 
-	// 解析第一个 record 的 header
+	// Parse first record's header
 	lengthRead := uint64(data[0]) | uint64(data[1])<<8 | uint64(data[2])<<16 | uint64(data[3])<<24 |
 		uint64(data[4])<<32 | uint64(data[5])<<40 | uint64(data[6])<<48 | uint64(data[7])<<56
 
@@ -186,7 +186,7 @@ func TestCRC32Implementation(t *testing.T) {
 	fmt.Printf("Length: %d (0x%x)\n", lengthRead, lengthRead)
 	fmt.Printf("Length CRC from file: 0x%08x\n", lengthCRC)
 
-	// 计算 CRC
+	// Calculate CRC
 	computedCRC := parser.maskedCRC32(data[0:8])
 	fmt.Printf("Computed CRC: 0x%08x\n", computedCRC)
 
@@ -198,7 +198,7 @@ func TestCRC32Implementation(t *testing.T) {
 }
 
 func TestParseFromMiddleOffset(t *testing.T) {
-	// 测试从文件中间开始解析的情况
+	// Test parsing starting from middle of file
 	filePath := "../../data/events.out.tfevents.1765203259.primus-exporter-test-vl4wv-master-0.335.0"
 	data, err := ioutil.ReadFile(filePath)
 	if err != nil {
@@ -207,13 +207,13 @@ func TestParseFromMiddleOffset(t *testing.T) {
 
 	fmt.Printf("\n=== Testing parsing from middle offset ===\n")
 
-	// 先完整解析一次，找到某个合适的 offset
+	// First parse completely to find a suitable offset
 	parser := NewEventParser()
 	_, consumedFirst, _ := parser.ParseEventsWithBuffer(data[:100000])
 
 	fmt.Printf("First 100KB parsed, consumed %d bytes\n", consumedFirst)
 
-	// 现在从 consumedFirst 位置开始解析剩余数据
+	// Now parse remaining data starting from consumedFirst position
 	fmt.Printf("\nNow parsing from offset %d (simulating resume)\n", consumedFirst)
 
 	remainingData := data[consumedFirst:]
@@ -538,7 +538,7 @@ func TestStreamReaderWithIncompleteEvents(t *testing.T) {
 }
 
 func TestSimulateStreamingWithBuffer(t *testing.T) {
-	// 完全模拟流式读取的场景，包括缓冲区管理
+	// Completely simulate streaming read scenario, including buffer management
 	filePath := "../../data/events.out.tfevents.1765203259.primus-exporter-test-vl4wv-master-0.335.0"
 	data, err := ioutil.ReadFile(filePath)
 	if err != nil {
@@ -550,17 +550,17 @@ func TestSimulateStreamingWithBuffer(t *testing.T) {
 
 	parser := NewEventParser()
 
-	// 模拟文件解析状态
+	// Simulate file parsing state
 	buffer := make([]byte, 0)
 	lastValidOffset := int64(0)
 	totalEvents := 0
 
-	// 模拟从文件读取数据，每次读取 80000 字节（接近用户报告的大小）
+	// Simulate reading data from file, 80000 bytes each time (close to user-reported size)
 	chunkSize := 80000
 	fileReadOffset := int64(0)
 
 	for fileReadOffset < int64(len(data)) {
-		// 读取一块数据
+		// Read a chunk of data
 		end := fileReadOffset + int64(chunkSize)
 		if end > int64(len(data)) {
 			end = int64(len(data))
@@ -569,11 +569,11 @@ func TestSimulateStreamingWithBuffer(t *testing.T) {
 
 		fmt.Printf("\n--- Read chunk: offset=%d, size=%d ---\n", fileReadOffset, len(chunk))
 
-		// 追加到缓冲区
+		// Append to buffer
 		buffer = append(buffer, chunk...)
 		fmt.Printf("Buffer: %d bytes total\n", len(buffer))
 
-		// 解析缓冲区
+		// Parse buffer
 		events, consumed, err := parser.ParseEventsWithBuffer(buffer)
 		if err != nil {
 			t.Errorf("Parse error at file_offset=%d: %v", fileReadOffset, err)
@@ -586,7 +586,7 @@ func TestSimulateStreamingWithBuffer(t *testing.T) {
 			fmt.Printf("Sample event: step=%d\n", events[len(events)-1].Step)
 		}
 
-		// 更新状态
+		// Update state
 		if consumed > 0 {
 			lastValidOffset += int64(consumed)
 			buffer = buffer[consumed:]
