@@ -1055,6 +1055,9 @@ func modifyWorkload(adminWorkload *v1.Workload, req *types.PatchWorkloadRequest)
 	if req.CronJobs != nil {
 		adminWorkload.Spec.CronJobs = *req.CronJobs
 	}
+	if req.Service != nil {
+		adminWorkload.Spec.Service = req.Service
+	}
 	return nil
 }
 

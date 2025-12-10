@@ -42,6 +42,8 @@ type CreatePreflightRequest struct {
 	Env map[string]string `json:"env,omitempty"`
 	// The hostpath for opsjob mounting.
 	Hostpath []string `json:"hostpath,omitempty"`
+	// The workspace which the job belongs to
+	WorkspaceId string `json:"workspaceId"`
 }
 
 type CreateAddonRequest struct {
@@ -83,6 +85,8 @@ type ListOpsJobInput struct {
 	Until string `form:"until" binding:"omitempty"`
 	// The cluster which the job belongs to
 	ClusterId string `form:"clusterId" binding:"omitempty,max=64"`
+	// The workspace which the job belongs to
+	WorkspaceId string `form:"workspaceId" binding:"omitempty,max=64"`
 	// Filter by submitter username (fuzzy match)
 	UserName string `form:"userName" binding:"omitempty,max=64"`
 	// The job phase, e.g. Succeeded, Failed, Running, Pending

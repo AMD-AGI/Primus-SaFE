@@ -214,6 +214,8 @@ type PatchWorkloadRequest struct {
 	MaxRetry *int `json:"maxRetry,omitempty"`
 	// Cron Job configuration
 	CronJobs *[]v1.CronJob `json:"cronJobs,omitempty"`
+	// Service configuration
+	Service *v1.Service `json:"service,omitempty"`
 }
 
 type GetPodLogRequest struct {

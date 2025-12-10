@@ -311,30 +311,35 @@ func (h *Handler) generateAddonJob(c *gin.Context, body []byte) (*v1.OpsJob, err
 // It authorizes the request for system admin,
 // and generates a job object with resource, image, and entrypoint specifications.
 func (h *Handler) generatePreflightJob(c *gin.Context, body []byte) (*v1.OpsJob, error) {
+	req := &types.CreatePreflightRequest{}
+	if err := jsonutils.Unmarshal(body, req); err != nil {
+		return nil, err
+	}
+
 	requestUser, err := h.getAndSetUsername(c)
 	if err != nil {
 		return nil, err
 	}
-	if err = h.accessController.Authorize(authority.AccessInput{
-		Context:      c.Request.Context(),
-		ResourceKind: authority.PreflightKind,
-		Verb:         v1.CreateVerb,
-		User:         requestUser,
-	}); err != nil {
-		return nil, err
-	}
 
-	req := &types.CreatePreflightRequest{}
-	if err = jsonutils.Unmarshal(body, req); err != nil {
-		return nil, err
-	}
 	job := genDefaultOpsJob(c, &req.BaseOpsJobRequest)
 	job.Spec.Resource = req.Resource
 	job.Spec.Image = req.Image
 	job.Spec.EntryPoint = req.EntryPoint
 	job.Spec.Env = req.Env
 	job.Spec.Hostpath = req.Hostpath
+	if req.WorkspaceId != "" {
+		v1.SetLabel(job, v1.WorkspaceIdLabel, req.WorkspaceId)
+	}
 	if err = h.generateOpsJobNodesInput(c.Request.Context(), job, &req.BaseOpsJobRequest); err != nil {
+		return nil, err
+	}
+	if err = h.accessController.Authorize(authority.AccessInput{
+		Context:      c.Request.Context(),
+		ResourceKind: authority.PreflightKind,
+		Verb:         v1.CreateVerb,
+		Workspaces:   []string{v1.GetWorkspaceId(job)},
+		User:         requestUser,
+	}); err != nil {
 		return nil, err
 	}
 	return job, nil
@@ -596,11 +601,20 @@ func genDefaultOpsJob(c *gin.Context, req *types.BaseOpsJobRequest) *v1.OpsJob {
 // and populates the job inputs with the corresponding node names. Nodes in the excludedNodes(parameter of request) list
 // are filtered out. The function ensures that ops jobs are ultimately executed on a per-node basis.
 func (h *Handler) generateOpsJobNodesInput(ctx context.Context, job *v1.OpsJob, req *types.BaseOpsJobRequest) error {
-	if job.GetParameter(v1.ParameterNode) != nil {
-		return nil
-	}
 	excludedNodesSet := sets.NewSetByKeys(req.ExcludedNodes...)
-	if workloadParam := job.GetParameter(v1.ParameterWorkload); workloadParam != nil {
+	if workloadParam := job.GetParameter(v1.ParameterNode); workloadParam != nil {
+		allNodes := job.GetParameters(v1.ParameterNode)
+		newInputs := make([]v1.Parameter, 0, len(allNodes))
+		for i, n := range allNodes {
+			if excludedNodesSet.Has(n.Value) {
+				continue
+			}
+			newInputs = append(newInputs, *allNodes[i])
+		}
+		if len(newInputs) != len(allNodes) {
+			job.Spec.Inputs = newInputs
+		}
+	} else if workloadParam = job.GetParameter(v1.ParameterWorkload); workloadParam != nil {
 		nodes, workspaceId, err := h.getNodesOfWorkload(ctx, workloadParam.Value)
 		if err != nil {
 			return err
@@ -625,6 +639,9 @@ func (h *Handler) generateOpsJobNodesInput(ctx context.Context, job *v1.OpsJob, 
 		}
 		v1.SetLabel(job, v1.WorkspaceIdLabel, workspaceParam.Value)
 	} else if clusterParam := job.GetParameter(v1.ParameterCluster); clusterParam != nil {
+		if v1.GetWorkspaceId(job) != "" {
+			return commonerrors.NewBadRequest("cannot run cluster-wide job when workspaceId is already specified")
+		}
 		nodes, err := commonnodes.GetNodesOfCluster(ctx, h.Client, clusterParam.Value, nil)
 		if err != nil {
 			return err
@@ -635,7 +652,6 @@ func (h *Handler) generateOpsJobNodesInput(ctx context.Context, job *v1.OpsJob, 
 			}
 			job.Spec.Inputs = append(job.Spec.Inputs, v1.Parameter{Name: v1.ParameterNode, Value: n.Name})
 		}
-
 	} else {
 		return commonerrors.NewBadRequest("the nodes of ops-job is not specified")
 	}
@@ -730,6 +746,9 @@ func cvtToListOpsJobSql(query *types.ListOpsJobRequest) (sqrl.Sqlizer, []string)
 	}
 	if clusterId := strings.TrimSpace(query.ClusterId); clusterId != "" {
 		dbSql = append(dbSql, sqrl.Eq{dbclient.GetFieldTag(dbTags, "Cluster"): clusterId})
+	}
+	if workspaceId := strings.TrimSpace(query.WorkspaceId); workspaceId != "" {
+		dbSql = append(dbSql, sqrl.Eq{dbclient.GetFieldTag(dbTags, "Workspace"): workspaceId})
 	}
 	if phase := strings.TrimSpace(string(query.Phase)); phase != "" {
 		dbSql = append(dbSql, sqrl.Eq{dbclient.GetFieldTag(dbTags, "Phase"): phase})

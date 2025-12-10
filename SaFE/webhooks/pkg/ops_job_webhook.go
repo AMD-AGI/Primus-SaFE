@@ -455,6 +455,7 @@ func (v *OpsJobValidator) listRelatedRunningJobs(ctx context.Context, cluster st
 }
 
 // validateNodes ensures all nodes belong to the same cluster and flavor.
+// If a job specifies a workspace, it will also check whether the node belongs to that workspace.
 // Additionally, both cluster and node flavor must not be empty.
 func (v *OpsJobValidator) validateNodes(ctx context.Context, job *v1.OpsJob) error {
 	if job.Spec.Type == v1.OpsJobRebootType || job.Spec.Type == v1.OpsJobExportImageType || job.Spec.Type == v1.OpsJobPrewarmType {
@@ -467,6 +468,9 @@ func (v *OpsJobValidator) validateNodes(ctx context.Context, job *v1.OpsJob) err
 		adminNode, err := getNode(ctx, v.Client, param.Value)
 		if err != nil {
 			return err
+		}
+		if v1.GetWorkspaceId(job) != "" && v1.GetWorkspaceId(adminNode) != v1.GetWorkspaceId(job) {
+			return fmt.Errorf("The node(%s) is not managed by the workspace.", v1.GetWorkspaceId(job))
 		}
 		if clusterId == "" {
 			if clusterId = v1.GetClusterId(adminNode); clusterId == "" {
