@@ -760,7 +760,7 @@ func (h *Handler) generatePreheatWorkload(ctx context.Context,
 	preheatWorkload.Spec.EntryPoint = stringutil.Base64Encode("preheat finished")
 	preheatWorkload.Spec.IsSupervised = false
 	preheatWorkload.Spec.MaxRetry = 0
-	preheatWorkload.Spec.TTLSecondsAfterFinished = pointer.Int(0)
+	preheatWorkload.Spec.TTLSecondsAfterFinished = pointer.Int(10)
 	preheatWorkload.Spec.CronJobs = nil
 	preheatWorkload.Spec.Dependencies = nil
 	preheatWorkload.Spec.Resource = v1.WorkloadResource{
