@@ -578,27 +578,23 @@ func buildModelDownloadScript(urls map[string]string, modelPath string) string {
 		return ""
 	}
 
-	// Build file list in format: "filename|url"
-	var fileList strings.Builder
+	// Build download commands for each file
+	var downloadCmds string
 	for filename, url := range urls {
-		// Escape special characters in URL for shell (single quotes in URL)
+		// Escape special characters in URL for shell
 		escapedURL := strings.ReplaceAll(url, "'", "'\\''")
-		fileList.WriteString(fmt.Sprintf("%s|%s\n", filename, escapedURL))
+		downloadCmds += fmt.Sprintf(`
+  filepath="%s/%s"
+  mkdir -p "$(dirname "$filepath")"
+  if [ ! -f "$filepath" ]; then
+    echo "Downloading %s..."
+    curl -sSL -o "$filepath" '%s'
+  fi`, modelPath, filename, filename, escapedURL)
 	}
 
-	// Generate compact script using while read loop
-	script := fmt.Sprintf(`echo "=== Downloading model to %s ==="
-mkdir -p "%s"
-cat <<'EOF_FILES' | while IFS='|' read -r file url; do
-  filepath="%s/$file"
-  if [ ! -f "$filepath" ]; then
-    echo "Downloading $file..."
-    mkdir -p "$(dirname "$filepath")" && curl -sSL -o "$filepath" "$url" || echo "Failed to download $file"
-  fi
-done
-%sEOF_FILES
+	script := fmt.Sprintf(`echo "=== Downloading model to %s ===" %s
 echo "=== Model download completed ==="
-`, modelPath, modelPath, modelPath, fileList.String())
+`, modelPath, downloadCmds)
 
 	return script
 }
