@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
+
+#  Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+#  See LICENSE for license information.
+
+import atexit
 import base64
 import json
 import os
 import signal
 import sys
 import time
-import atexit
 from typing import Any, Dict, Optional, Tuple
+
 import requests
 
 # Environment variable keys
@@ -323,8 +328,9 @@ def main() -> int:
         print(f"[error] failed to write output: {e}", file=sys.stderr)
         return 6
 
-    return 0 if final_phase == "Succeeded" else 1
-
+    if final_phase == "Succeeded" or final_phase == "Stopped":
+        return 0
+    return 1
 
 if __name__ == "__main__":
     sys.exit(main())

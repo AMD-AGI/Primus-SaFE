@@ -400,7 +400,7 @@ def main() -> int:
                 # Workload already in terminal state, mark as cleaned up to skip stop on exit
                 with _cleanup_context["lock"]:
                     _cleanup_context["workload_id"] = None  # Don't stop already-finished workload
-                if phase == "Succeeded":
+                if phase == "Succeeded" or phase == "Stopped":
                     print(f"[info] workload {workload_id} completed successfully (elapsed: {elapsed}s)", flush=True)
                     return 0
                 print(f"[warn] workload {workload_id} finished with phase: {phase} (elapsed: {elapsed}s)", flush=True)
