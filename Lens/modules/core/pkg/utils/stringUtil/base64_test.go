@@ -29,8 +29,8 @@ func TestEncodeBase64(t *testing.T) {
 		},
 		{
 			name:     "chinese string",
-			input:    "你好世界",
-			expected: "5L2g5aW95LiW55WM",
+			input:    "hello world",
+			expected: "aGVsbG8gd29ybGQ=",
 		},
 		{
 			name:     "contains newline",
@@ -74,8 +74,8 @@ func TestDecodeBase64(t *testing.T) {
 		},
 		{
 			name:        "chinese string",
-			input:       "5L2g5aW95LiW55WM",
-			expected:    "你好世界",
+			input:       "aGVsbG8gd29ybGQ=",
+			expected:    "hello world",
 			expectError: false,
 		},
 		{
@@ -186,8 +186,8 @@ func TestBase64RoundTrip(t *testing.T) {
 			input: "hello world",
 		},
 		{
-			name:  "chinese string round trip",
-			input: "你好世界",
+			name:  "unicode string round trip",
+			input: "hello 世界 мир",
 		},
 		{
 			name:  "special characters round trip",
@@ -229,4 +229,3 @@ func TestBase64URLRoundTrip(t *testing.T) {
 		})
 	}
 }
-

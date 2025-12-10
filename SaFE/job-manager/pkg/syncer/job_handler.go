@@ -11,11 +11,13 @@ import (
 	"reflect"
 	"time"
 
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
@@ -33,10 +35,13 @@ const (
 // Manages the lifecycle of workload resources and handles failure scenarios.
 func (r *SyncerReconciler) handleJob(ctx context.Context, message *resourceMessage, informer *ClusterInformer) (ctrlruntime.Result, error) {
 	adminWorkload, err := r.getAdminWorkload(ctx, message.workloadId)
-	if adminWorkload == nil {
+	if err != nil || adminWorkload == nil {
 		return ctrlruntime.Result{}, err
 	}
-	if !adminWorkload.GetDeletionTimestamp().IsZero() {
+	if adminWorkload.IsEnd() || message.namespace != adminWorkload.Spec.Workspace {
+		return ctrlruntime.Result{}, nil
+	}
+	if commonworkload.IsCICDScalingRunnerSet(adminWorkload) && message.gvk.Kind != common.CICDScaleRunnerSetKind {
 		return ctrlruntime.Result{}, nil
 	}
 	if !v1.IsWorkloadDispatched(adminWorkload) {
@@ -95,18 +100,12 @@ func (r *SyncerReconciler) getK8sResourceStatus(ctx context.Context, message *re
 			Message: fmt.Sprintf("%s %s is deleted", message.gvk.Kind, message.name),
 		}, nil
 	}
-
-	informer, err := clusterInformer.GetResourceInformer(ctx, message.gvk)
-	if err != nil {
-		klog.ErrorS(err, "failed to get resource informer")
-		return nil, err
-	}
-	k8sObject, err := jobutils.GetObject(informer, message.name, message.namespace)
+	k8sObject, err := jobutils.GetObject(ctx, clusterInformer.ClientFactory(), message.name, message.namespace, message.gvk)
 	if err != nil {
 		klog.ErrorS(err, "failed to get k8s object", "name", message.name, "namespace", message.namespace)
 		return nil, err
 	}
-	rt, err := commonworkload.GetResourceTemplate(ctx, r.Client, message.gvk)
+	rt, err := commonworkload.GetResourceTemplate(ctx, r.Client, adminWorkload)
 	if err != nil {
 		klog.ErrorS(err, "failed to get resource template", "name", message.name, "kind", message.gvk.Kind)
 		return nil, err
@@ -167,10 +166,24 @@ func (r *SyncerReconciler) waitJobDeleted(ctx context.Context, adminWorkload *v1
 // Manages workload phase transitions and condition updates.
 func (r *SyncerReconciler) updateAdminWorkloadStatus(ctx context.Context, originalWorkload *v1.Workload,
 	status *jobutils.K8sResourceStatus, message *resourceMessage) (*v1.Workload, error) {
-	if originalWorkload.IsEnd() || status == nil || status.Phase == "" {
+	if originalWorkload.IsEnd() || status == nil {
 		return originalWorkload, nil
 	}
 	adminWorkload := originalWorkload.DeepCopy()
+	if commonworkload.IsCICDScalingRunnerSet(adminWorkload) && status.RunnerScaleSetId != "" {
+		if adminWorkload.Status.RunnerScaleSetId != status.RunnerScaleSetId {
+			patch := client.MergeFrom(originalWorkload)
+			adminWorkload.Status.RunnerScaleSetId = status.RunnerScaleSetId
+			if err := r.Status().Patch(ctx, adminWorkload, patch); err != nil {
+				return nil, err
+			}
+		}
+		return adminWorkload, nil
+	}
+
+	if status.Phase == "" {
+		return originalWorkload, nil
+	}
 	r.updateAdminWorkloadPhase(adminWorkload, status, message)
 	if adminWorkload.Status.StartTime == nil {
 		adminWorkload.Status.StartTime = &metav1.Time{Time: time.Now().UTC()}
@@ -209,8 +222,7 @@ func (r *SyncerReconciler) updateAdminWorkloadPhase(adminWorkload *v1.Workload,
 	case v1.K8sFailed, v1.K8sDeleted:
 		if isWorkloadEnd(adminWorkload, status, message.dispatchCount) {
 			adminWorkload.Status.Phase = v1.WorkloadFailed
-		} else if adminWorkload.IsRunning() &&
-			(commonworkload.IsApplication(adminWorkload) || commonworkload.IsCICDScalingRunnerSet(adminWorkload)) {
+		} else if adminWorkload.IsRunning() && commonworkload.IsApplication(adminWorkload) {
 			adminWorkload.Status.Phase = v1.WorkloadNotReady
 		}
 	case v1.K8sRunning:
@@ -253,13 +265,11 @@ func (r *SyncerReconciler) reSchedule(ctx context.Context, workload *v1.Workload
 	}
 
 	if v1.IsWorkloadDispatched(workload) {
-		annotations := workload.GetAnnotations()
-		delete(annotations, v1.WorkloadDispatchedAnnotation)
-		delete(annotations, v1.WorkloadScheduledAnnotation)
-		// Upon rescheduling, the task is enqueued with high priority
-		annotations[v1.WorkloadReScheduledAnnotation] = ""
-		workload.SetAnnotations(annotations)
-		if err := r.Update(ctx, workload); err != nil {
+		patch := client.MergeFrom(workload.DeepCopy())
+		v1.RemoveAnnotation(workload, v1.WorkloadScheduledAnnotation)
+		v1.RemoveAnnotation(workload, v1.WorkloadDispatchedAnnotation)
+		v1.SetAnnotation(workload, v1.WorkloadReScheduledAnnotation, "")
+		if err := r.Patch(ctx, workload, patch); err != nil {
 			return err
 		}
 	}

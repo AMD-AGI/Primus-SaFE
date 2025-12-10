@@ -6,14 +6,19 @@
 package custom_handlers
 
 import (
-	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
+	"strconv"
+
 	"github.com/gin-gonic/gin"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/custom-handlers/types"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
+	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 )
 
 // GetWorkloadService Obtain the service started by the data plane corresponding to this workload.
@@ -34,7 +39,7 @@ func (h *Handler) getWorkloadService(c *gin.Context) (interface{}, error) {
 	ctx := c.Request.Context()
 	adminWorkload, err := h.getAdminWorkload(ctx, name)
 	if err != nil {
-		return nil, commonerrors.NewNotFoundWithMessage(err.Error())
+		return nil, client.IgnoreNotFound(err)
 	}
 	workspace := adminWorkload.Spec.Workspace
 	if err = h.accessController.Authorize(authority.AccessInput{
@@ -54,5 +59,20 @@ func (h *Handler) getWorkloadService(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	return service.Spec, nil
+	if len(service.Spec.Ports) == 0 {
+		return nil, commonerrors.NewNotFoundWithMessage("service does not have any ports")
+	}
+	result := &types.GetWorkloadServiceResponse{
+		Port:      service.Spec.Ports[0],
+		ClusterIp: service.Spec.ClusterIP,
+		Type:      service.Spec.Type,
+	}
+	internalDomain := adminWorkload.Name + "." + adminWorkload.Spec.Workspace +
+		".svc.cluster.local:" + strconv.Itoa(int(service.Spec.Ports[0].Port))
+	result.InternalDomain = internalDomain
+	if commonconfig.GetIngress() == common.HigressClassname && commonconfig.GetSystemHost() != "" {
+		result.ExternalDomain = "https://" + commonconfig.GetSystemHost() +
+			"/" + v1.GetClusterId(adminWorkload) + "/" + adminWorkload.Spec.Workspace + "/" + adminWorkload.Name
+	}
+	return result, nil
 }

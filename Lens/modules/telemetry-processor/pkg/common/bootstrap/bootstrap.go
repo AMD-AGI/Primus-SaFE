@@ -2,12 +2,15 @@ package bootstrap
 
 import (
 	"context"
+	"os"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/config"
+	configHelper "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/config"
 	log "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/router"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/server"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/trace"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/telemetry-processor/pkg/api"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/telemetry-processor/pkg/module/alerts"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/telemetry-processor/pkg/module/containers"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/telemetry-processor/pkg/module/logs"
@@ -35,6 +38,22 @@ func Bootstrap(ctx context.Context) error {
 	}()
 
 	return server.InitServerWithPreInitFunc(ctx, func(ctx context.Context, cfg *config.Config) error {
+		// Initialize WandB handler and log processing with AI Advisor client
+		systemConfigMgr := configHelper.GetDefaultConfigManager()
+
+		// Get AI Advisor URL from environment variable or use default
+		aiAdvisorURL := os.Getenv("AI_ADVISOR_URL")
+		if aiAdvisorURL == "" {
+			aiAdvisorURL = "http://ai-advisor:8080" // Default value
+		}
+
+		if err := logs.InitializeWandBHandlerAndLogProcessing(aiAdvisorURL, systemConfigMgr); err != nil {
+			log.Errorf("Failed to initialize WandB handler and log processing: %v", err)
+			// Don't block startup, degrade to limited functionality
+		} else {
+			log.Infof("WandB handler and log processing initialized successfully with AI Advisor at %s", aiAdvisorURL)
+		}
+
 		router.RegisterGroup(initRouter)
 		pods.StartRefreshCaches(ctx)
 		return nil
@@ -47,13 +66,27 @@ func initRouter(group *gin.RouterGroup) error {
 	group.GET("pods/cache", metrics.GetPodCache)
 	group.GET("pods/workload/cache", metrics.GetPodWorkloadCache)
 	group.POST("logs", logs.ReceiveHttpLogs)
-	
+
+	// WandB data reporting endpoints
+	group.POST("wandb/detection", logs.ReceiveWandBDetection)
+	group.POST("wandb/metrics", logs.ReceiveWandBMetrics)
+	group.POST("wandb/logs", logs.ReceiveWandBLogs)
+	group.POST("wandb/batch", logs.ReceiveWandBBatch)
+
 	// Metrics debug endpoints
 	group.POST("metrics/debug/config", metrics.SetDebugConfigHandler)
 	group.GET("metrics/debug/config", metrics.GetDebugConfigHandler)
 	group.GET("metrics/debug/records", metrics.GetDebugRecordsHandler)
 	group.DELETE("metrics/debug/records", metrics.ClearDebugRecordsHandler)
 	group.POST("metrics/debug/disable", metrics.DisableDebugHandler)
+
+	// Active metrics endpoint
+	group.GET("metrics/active", metrics.GetActiveMetricsHandler)
+
+	// Log pattern matching debug endpoints
+	group.POST("debug/test-log-match", logs.DebugTestLogMatch)
+	group.GET("debug/frameworks", logs.DebugListFrameworks)
+	group.GET("debug/frameworks/:name/patterns", logs.DebugFrameworkPatterns)
 
 	// Container event endpoints
 	group.POST("container-events", containers.ReceiveContainerEvent)
@@ -82,6 +115,10 @@ func initRouter(group *gin.RouterGroup) error {
 	group.POST("silences", alerts.CreateSilence)
 	group.GET("silences", alerts.ListSilences)
 	group.DELETE("silences/:id", alerts.DeleteSilence)
+
+	// Legacy debug endpoints (kept for backward compatibility)
+	group.GET("debug/pattern-matchers", api.GetPatternMatchers)
+	group.GET("debug/pattern-matchers/:framework", api.GetPatternMatcherByFramework)
 
 	return nil
 }

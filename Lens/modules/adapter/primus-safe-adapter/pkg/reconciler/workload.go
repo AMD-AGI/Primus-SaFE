@@ -2,6 +2,7 @@ package reconciler
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"runtime/debug"
 	"strconv"
@@ -15,6 +16,7 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	primusSafeConstant "github.com/AMD-AGI/Primus-SaFE/Lens/primus-safe-adapter/pkg/constant"
 	primusSafeV1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -22,7 +24,8 @@ import (
 )
 
 type WorkloadReconciler struct {
-	client *clientsets.K8SClientSet
+	client             *clientsets.K8SClientSet
+	frameworkDetection *FrameworkDetectionIntegration
 }
 
 func (r *WorkloadReconciler) Init(ctx context.Context) error {
@@ -34,6 +37,18 @@ func (r *WorkloadReconciler) Init(ctx context.Context) error {
 	}
 	r.client = currentCluster.K8SClientSet
 	log.Info("WorkloadReconciler initialized with K8S client")
+
+	// Initialize framework detection integration
+	facade := database.GetFacade()
+	frameworkDetection, err := NewFrameworkDetectionIntegration(facade.GetAiWorkloadMetadata())
+	if err != nil {
+		log.Errorf("Failed to initialize framework detection: %v", err)
+		// Don't fail, continue with degraded functionality
+	} else {
+		r.frameworkDetection = frameworkDetection
+		log.Info("Framework detection integration initialized")
+	}
+
 	return nil
 }
 
@@ -61,18 +76,57 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req reconcile.Reques
 	if err != nil {
 		return reconcile.Result{}, err
 	}
+
+	// Trigger framework detection for new or pending workloads
+	if r.frameworkDetection != nil {
+		if workload.Status.Phase == "" || workload.Status.Phase == primusSafeV1.WorkloadPending {
+			// Run framework detection asynchronously to avoid blocking reconcile
+			go func() {
+				detectionCtx := context.Background()
+				if err := r.frameworkDetection.OnWorkloadCreated(detectionCtx, workload); err != nil {
+					log.Errorf("Framework detection failed for workload %s: %v", workload.UID, err)
+				}
+			}()
+		}
+	}
 	if workload.DeletionTimestamp != nil {
-		controllerutil.RemoveFinalizer(workload, constant.PrimusLensGpuWorkloadExporterFinalizer)
-		err = r.client.ControllerRuntimeClient.Update(ctx, workload)
+		if !controllerutil.RemoveFinalizer(workload, constant.PrimusLensGpuWorkloadExporterFinalizer) {
+			return reconcile.Result{}, nil
+		}
+		finalizers := workload.GetFinalizers()
+		patchObj := map[string]any{
+			"metadata": map[string]any{
+				"resourceVersion": workload.ResourceVersion,
+				"finalizers":      finalizers,
+			},
+		}
+		p, err := json.Marshal(patchObj)
 		if err != nil {
+			log.Errorf("Failed to marshal patch object for removing finalizer: %v", err)
+			return reconcile.Result{}, err
+		}
+		if err = r.client.ControllerRuntimeClient.Patch(ctx, workload, client.RawPatch(types.MergePatchType, p)); err != nil {
+			log.Errorf("Failed to patch workload for removing finalizer: %v", err)
 			return reconcile.Result{}, err
 		}
 		return reconcile.Result{}, nil
 	}
-	if !controllerutil.ContainsFinalizer(workload, constant.PrimusLensGpuWorkloadExporterFinalizer) {
-		controllerutil.AddFinalizer(workload, constant.PrimusLensGpuWorkloadExporterFinalizer)
-		err = r.client.ControllerRuntimeClient.Update(ctx, workload)
+	if controllerutil.AddFinalizer(workload, constant.PrimusLensGpuWorkloadExporterFinalizer) {
+		// Use raw patch with resource version to add finalizer
+		finalizers := workload.GetFinalizers()
+		patchObj := map[string]any{
+			"metadata": map[string]any{
+				"resourceVersion": workload.ResourceVersion,
+				"finalizers":      finalizers,
+			},
+		}
+		p, err := json.Marshal(patchObj)
 		if err != nil {
+			log.Errorf("Failed to marshal patch object for adding finalizer: %v", err)
+			return reconcile.Result{}, err
+		}
+		if err = r.client.ControllerRuntimeClient.Patch(ctx, workload, client.RawPatch(types.MergePatchType, p)); err != nil {
+			log.Errorf("Failed to patch workload for adding finalizer: %v", err)
 			return reconcile.Result{}, err
 		}
 	}

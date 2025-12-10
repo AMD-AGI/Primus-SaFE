@@ -117,7 +117,6 @@ func ReceiveBatchContainerEvents(c *gin.Context) {
 		return
 	}
 
-	log.Infof("Batch container event processing completed successfully: total=%d", successCount)
 	c.JSON(http.StatusOK, rest.SuccessResp(c.Request.Context(), gin.H{
 		"message": "All container events processed successfully",
 		"total":   successCount,

@@ -57,8 +57,8 @@ The [install.sh](https://github.com/AMD-AGI/Primus-SaFE/blob/main/SaFE/bootstrap
       - SSO redirect uri: The redirect URL registered for your client in the IdP
         - This should point to your Primus‑SaFE Web Console base URL
         - Examples based on ingress choice:
-          - nginx (NodePort): `http://<node-ip>:30183` (or `http://<node-ip>:30183/<your-callback-path>` if required by IdP)
-          - higress (domain): `https://<cluster>.safe-primus.ai` (or `https://<cluster>.safe-primus.ai/<your-callback-path>`)
+          - nginx (NodePort): `http://<node-ip>:30183` 
+          - higress (domain): `https://<cluster>.primus-safe.amd.com`
     - What the installer does:
       - Creates a Kubernetes secret `primus-safe-sso` in namespace `primus-safe` with keys: `id`, `secret`, `endpoint`, `redirect_uri`
       - Enables the `sso.enable` flag and wires the secret into the Primus‑SaFE Helm values
@@ -73,21 +73,47 @@ The [install.sh](https://github.com/AMD-AGI/Primus-SaFE/blob/main/SaFE/bootstrap
 - **Ingress Gateway**
     - External service gateway
     - Supports `nginx` (default) and `higress` types
-    - If `higress` is selected, you must enter a cluster name to be used as the subdomain
-    - If `nginx` is selected, after installation you can access the web service via any Kubernetes node HostIP on port 30183 (NodePort), e.g., http://10.0.0.31:30183
-    - If `higress` is selected, after installation you can open the web service at: http://<cluster>.safe-primus.ai
+    - If `higress` is selected:
+      - You must enter a cluster name (used as the subdomain)
+      - You will also enter the Higress gateway NodePort (default: `32608`)
+      - After installation, you can access the web service at: `http://<cluster>.primus-safe.amd.com`
+    - If `nginx` is selected, after installation you can access the web service via any Kubernetes node HostIP on port `30183` (NodePort), e.g., `http://10.0.0.31:30183`
     - You must configure external access for the chosen address (e.g., a public DNS/domain)
+
+#### Image Pull Secret
+
+- Authentication information for component image downloads
+- Requires users to provide image registry address, username, and password
+- If you choose not to provide registry credentials, the installer still creates an empty image pull secret with the correct type so all components reference a consistent secret name
 
 ### 🚀 Installation Process
 
 The script performs the following steps after configuration:
 
 1. Collects user input configuration parameters
-2. Creates image pull secret for authentication
+2. Creates required Kubernetes secrets:
+   - Image pull secret (real or empty placeholder, same name used by all components)
+   - Optional S3 secret (when S3 enabled)
+   - Optional SSO secret (when SSO enabled)
 3. Installs grafana-operator monitoring component
-4. Deploys Primus-SaFE admin plane components
-5. Deploys Primus-SaFE data plane components (`node-agent`)
+4. Deploys Primus‑SaFE admin plane components:
+   - Installs `primus-pgo` (Postgres Operator)
+   - Installs/Upgrades `primus-safe` (apiserver, webhooks, controllers)
+   - Installs `primus-safe-cr` (custom resources)
+5. Optionally deploys Primus‑SaFE data plane components (`node-agent`)
 6. Saves configuration parameters to `.env` file for future upgrades
+
+### 📄 Artifacts Created
+
+- Kubernetes Secrets (namespace `primus-safe`):
+  - `primus-safe-image`: image pull secret (type `kubernetes.io/dockerconfigjson`)
+  - `primus-safe-s3`: only when S3 is enabled
+  - `primus-safe-sso`: only when SSO is enabled, keys: `id`, `secret`, `endpoint`, `redirect_uri`
+- `.env` file (in `bootstrap/`) with the following keys for future upgrades:
+  - `ethernet_nic`, `rdma_nic`, `cluster_scale`, `storage_class`
+  - `lens_enable`, `s3_enable`, `sso_enable`
+  - `ingress`, `sub_domain`
+  - `install_node_agent`
 
 ### 🔄 Install Command
 

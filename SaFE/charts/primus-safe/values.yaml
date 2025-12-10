@@ -12,8 +12,6 @@ global:
   image_pull_secret: "primus-safe-image"
   # Kubernetes storage class for persistent storage
   storage_class: "local-path"
-  # Ingress component name selected during install.sh
-  ingress: "higress"
 net:
   # Network interface for NCCL socket communication
   nccl_socket_ifname: "eno0"
@@ -21,6 +19,8 @@ net:
   nccl_ib_hca: "rdma0,rdma1,rdma2,rdma3,rdma4,rdma5,rdma6,rdma7"
   # RDMA resource name
   rdma_name: "rdma/hca"
+  # Ingress component name selected during install.sh
+  ingress: "higress"
 apiserver:
   # Apiserver component image version
   image: "apiserver:latest"

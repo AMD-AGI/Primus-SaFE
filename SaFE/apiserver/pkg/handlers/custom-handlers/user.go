@@ -441,7 +441,7 @@ func (h *Handler) login(c *gin.Context) (interface{}, error) {
 	}
 	user, resp, err := tokenInstance.Login(c.Request.Context(), tokenInput)
 	if err != nil {
-		klog.ErrorS(err, "user login failed", "userName", query.Name)
+		klog.ErrorS(err, "user login failed", "userName", query.Name, "code", query.Code)
 		return nil, err
 	}
 	result := &types.UserLoginResponse{
@@ -487,7 +487,7 @@ func (h *Handler) cvtToUserResponseItem(ctx context.Context, user *v1.User) type
 		RestrictedType: user.Spec.RestrictedType,
 		AvatarUrl:      v1.GetUserAvatarUrl(user),
 	}
-	if !user.IsSystemAdmin() && !user.IsSystemAdminReadonly() {
+	if !user.IsSystemAdmin() {
 		workspaces := commonuser.GetWorkspace(user)
 		for _, id := range workspaces {
 			workspace := &v1.Workspace{}
@@ -498,9 +498,8 @@ func (h *Handler) cvtToUserResponseItem(ctx context.Context, user *v1.User) type
 				Id: id, Name: v1.GetDisplayName(workspace),
 			})
 		}
-	}
-	if !user.IsSystemAdmin() {
-		workspaces := commonuser.GetManagedWorkspace(user)
+
+		workspaces = commonuser.GetManagedWorkspace(user)
 		for _, id := range workspaces {
 			workspace := &v1.Workspace{}
 			if err := h.Get(ctx, client.ObjectKey{Name: id}, workspace); err != nil {

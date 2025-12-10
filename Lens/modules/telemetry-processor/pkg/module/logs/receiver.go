@@ -42,7 +42,7 @@ func parseAndProcess(ctx context.Context, bodyData []byte, agentIp string) error
 			continue
 		}
 		logItem.Time = timeStamp
-		latency := time.Now().Sub(timeStamp).Seconds()
+		latency := time.Since(timeStamp).Seconds()
 		host := agentIp
 		if logItem.Kubernetes != nil {
 			host = logItem.Kubernetes.Host

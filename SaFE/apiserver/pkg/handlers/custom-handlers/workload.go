@@ -21,6 +21,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -50,12 +51,14 @@ type WorkloadBatchAction string
 
 const (
 	defaultLogTailLine int64 = 1000
-	defaultRetryCount        = 3
-	defaultRetryDelay        = 100 * time.Millisecond
+	defaultRetryCount        = 5
+	defaultRetryDelay        = 200 * time.Millisecond
 
 	BatchDelete WorkloadBatchAction = "delete"
 	BatchStop   WorkloadBatchAction = "stop"
 	BatchClone  WorkloadBatchAction = "clone"
+
+	GithubPAT = "GITHUB_PAT"
 )
 
 // CreateWorkload handles the creation of a new workload resource.
@@ -140,13 +143,19 @@ func (h *Handler) createWorkload(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	workload, err := h.generateWorkload(c.Request.Context(), req, body)
+	workload, err := h.generateWorkload(c.Request.Context(), req, body, requestUser)
 	if err != nil {
 		return nil, commonerrors.NewBadRequest(err.Error())
 	}
-	roles := h.accessController.GetRoles(c.Request.Context(), requestUser)
 
-	return h.createWorkloadImpl(c, workload, requestUser, roles)
+	roles := h.accessController.GetRoles(c.Request.Context(), requestUser)
+	resp, err := h.createWorkloadImpl(c, workload, requestUser, roles)
+	if err != nil {
+		// Cleanup secrets created for CICD scaling runner set if workload creation fails
+		h.cleanupCICDSecrets(c.Request.Context(), workload)
+		return nil, err
+	}
+	return resp, nil
 }
 
 // createWorkloadImpl performs the actual workload creation in the system.
@@ -326,11 +335,12 @@ func (h *Handler) deleteWorkloadImpl(c *gin.Context, name string, requestUser *v
 // Sets the workload phase to stopped and deletes the resource from etcd.
 func (h *Handler) deleteAdminWorkload(ctx context.Context, adminWorkload *v1.Workload, message string) error {
 	cond := &metav1.Condition{
-		Type:    string(v1.AdminStopped),
-		Status:  metav1.ConditionTrue,
-		Message: message,
+		Type:               string(v1.AdminStopped),
+		Status:             metav1.ConditionTrue,
+		Message:            message,
+		LastTransitionTime: metav1.NewTime(time.Now()),
+		Reason:             commonworkload.GenerateDispatchReason(v1.GetWorkloadDispatchCnt(adminWorkload)),
 	}
-
 	if err := h.updateWorkloadPhase(ctx, adminWorkload, v1.WorkloadStopped, cond); err != nil {
 		return err
 	}
@@ -474,6 +484,9 @@ func (h *Handler) cloneWorkloadImpl(c *gin.Context, name string, requestUser *v1
 		return nil, err
 	}
 	workload := cvtDBWorkloadToAdminWorkload(dbWorkload)
+	if commonworkload.IsCICDScalingRunnerSet(workload) {
+		return nil, commonerrors.NewNotImplemented("the clone function is not supported for cicd scaling runner")
+	}
 	if err = h.accessController.Authorize(authority.AccessInput{
 		Context:  c.Request.Context(),
 		Resource: workload,
@@ -526,24 +539,36 @@ func (h *Handler) getWorkloadPodLog(c *gin.Context) (interface{}, error) {
 // Handles status updates including setting end time for stopped workloads.
 func (h *Handler) updateWorkloadPhase(ctx context.Context,
 	workload *v1.Workload, phase v1.WorkloadPhase, cond *metav1.Condition) error {
+	shouldUpdateConditions := func(workload *v1.Workload, cond *metav1.Condition) bool {
+		if cond == nil {
+			return false
+		}
+		return meta.FindStatusCondition(workload.Status.Conditions, cond.Type) == nil
+	}
 	name := workload.Name
 	if err := backoff.ConflictRetry(func() error {
-		if phase != "" {
-			workload.Status.Phase = phase
+		if phase == workload.Status.Phase && !shouldUpdateConditions(workload, cond) {
+			return nil
+		}
+		// Build a minimal JSON merge patch for status subresource with RV precondition
+		statusPatch := map[string]any{}
+		if phase != workload.Status.Phase {
+			statusPatch["phase"] = phase
 			if phase == v1.WorkloadStopped && workload.Status.EndTime == nil {
-				workload.Status.EndTime = &metav1.Time{Time: time.Now().UTC()}
+				statusPatch["endTime"] = &metav1.Time{Time: time.Now().UTC()}
 			}
 		}
-		if cond != nil {
-			cond.LastTransitionTime = metav1.NewTime(time.Now())
-			cond.Reason = commonworkload.GenerateDispatchReason(v1.GetWorkloadDispatchCnt(workload))
-			if cond2 := workload.GetLastCondition(); cond2 != nil && cond2.Type == cond.Type {
-				meta.SetStatusCondition(&workload.Status.Conditions, *cond)
-			} else {
-				workload.Status.Conditions = append(workload.Status.Conditions, *cond)
-			}
+		if shouldUpdateConditions(workload, cond) {
+			statusPatch["conditions"] = append(workload.Status.Conditions, *cond)
 		}
-		if innerError := h.Status().Update(ctx, workload); innerError == nil {
+		patchObj := map[string]any{
+			"metadata": map[string]any{
+				"resourceVersion": workload.ResourceVersion,
+			},
+			"status": statusPatch,
+		}
+		p := jsonutils.MarshalSilently(patchObj)
+		if innerError := h.Status().Patch(ctx, workload, client.RawPatch(apitypes.MergePatchType, p)); innerError == nil {
 			return nil
 		} else {
 			if apierrors.IsConflict(innerError) {
@@ -557,7 +582,6 @@ func (h *Handler) updateWorkloadPhase(ctx context.Context,
 		klog.ErrorS(err, "failed to update workload status", "name", workload.Name)
 		return err
 	}
-
 	return nil
 }
 
@@ -653,7 +677,8 @@ func (h *Handler) authWorkloadPriority(c *gin.Context, adminWorkload *v1.Workloa
 
 // generateWorkload creates a new workload object based on the creation request.
 // Populates workload metadata, specifications, and customer labels.
-func (h *Handler) generateWorkload(ctx context.Context, req *types.CreateWorkloadRequest, body []byte) (*v1.Workload, error) {
+func (h *Handler) generateWorkload(ctx context.Context,
+	req *types.CreateWorkloadRequest, body []byte, requestUser *v1.User) (*v1.Workload, error) {
 	workload := &v1.Workload{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: commonutils.GenerateName(req.DisplayName),
@@ -675,25 +700,83 @@ func (h *Handler) generateWorkload(ctx context.Context, req *types.CreateWorkloa
 			return nil, fmt.Errorf("the authoring can only be created with one node")
 		}
 	}
-	genCustomerLabelsByNodes(workload, req.SpecifiedNodes)
-	if len(req.SpecifiedNodes) > 0 {
+	genCustomerLabelsByNodes(workload, req.SpecifiedNodes, v1.K8sHostName)
+	if len(req.SpecifiedNodes) == 0 {
+		genCustomerLabelsByNodes(workload, req.ExcludedNodes, common.ExcludedNodes)
+	} else {
 		workload.Spec.Resource.Replica = len(req.SpecifiedNodes)
 	}
 	if req.WorkspaceId != "" {
 		workload.Spec.Workspace = req.WorkspaceId
 	}
-	if commonworkload.IsCICDScalingRunnerSet(workload) {
-		if !commonconfig.IsCICDEnable() {
-			return nil, commonerrors.NewNotImplemented("the CICD is not enabled")
+	for key, val := range req.Labels {
+		if !strings.HasPrefix(key, v1.PrimusSafePrefix) {
+			workload.Labels[key] = val
 		}
-		workload.Name = req.DisplayName
-		controlPlaneIp, err := h.getAdminControlPlaneIp(ctx)
-		if err != nil {
+	}
+	for key, val := range req.Annotations {
+		if !strings.HasPrefix(key, v1.PrimusSafePrefix) {
+			workload.Annotations[key] = val
+		}
+	}
+	if commonworkload.IsCICDScalingRunnerSet(workload) {
+		if err = h.generateCICDScaleRunnerSet(ctx, workload, requestUser); err != nil {
 			return nil, err
 		}
-		commonworkload.SetEnv(workload, common.AdminControlPlane, controlPlaneIp)
 	}
 	return workload, nil
+}
+
+// generateCICDScaleRunnerSet configures a workload for CICD scaling runner set.
+// It validates CICD settings, creates a GitHub token secret, and sets the control plane IP.
+func (h *Handler) generateCICDScaleRunnerSet(ctx context.Context, workload *v1.Workload, requestUser *v1.User) error {
+	if !commonconfig.IsCICDEnable() {
+		return commonerrors.NewNotImplemented("the CICD is not enabled")
+	}
+	controlPlaneIp, err := h.getAdminControlPlaneIp(ctx)
+	if err != nil {
+		return err
+	}
+	commonworkload.SetEnv(workload, common.AdminControlPlane, controlPlaneIp)
+
+	val, _ := workload.Spec.Env[GithubPAT]
+	if val == "" {
+		return commonerrors.NewBadRequest("the github pat(token) is empty")
+	}
+	createSecretReq := &types.CreateSecretRequest{
+		Name:         v1.GetDisplayName(workload),
+		WorkspaceIds: []string{workload.Spec.Workspace},
+		Type:         v1.SecretGeneral,
+		Owner:        workload.Name,
+		Params: []map[types.SecretParam]string{
+			{
+				"github_token": stringutil.Base64Encode(val),
+			},
+		},
+	}
+
+	secret, err := h.createSecretImpl(ctx, createSecretReq, requestUser)
+	if err != nil {
+		return err
+	}
+	delete(workload.Spec.Env, GithubPAT)
+	workload.Spec.Env[common.GithubSecretId] = secret.Name
+	return nil
+}
+
+// cleanupCICDSecrets deletes secrets created for CICD scaling runner set workloads.
+// This is called when workload creation fails to ensure orphaned secrets are cleaned up.
+func (h *Handler) cleanupCICDSecrets(ctx context.Context, workload *v1.Workload) {
+	if !commonworkload.IsCICDScalingRunnerSet(workload) {
+		return
+	}
+	if err := h.clientSet.CoreV1().Secrets(common.PrimusSafeNamespace).Delete(
+		ctx, v1.GetDisplayName(workload), metav1.DeleteOptions{}); err != nil {
+		if !apierrors.IsNotFound(err) {
+			klog.ErrorS(err, "failed to delete secret", "name", v1.GetDisplayName(workload))
+		}
+	}
+	klog.Infof("cleaned up CICD secret %s after workload %s creation failure", v1.GetDisplayName(workload), workload.Name)
 }
 
 func (h *Handler) getAdminControlPlaneIp(ctx context.Context) (string, error) {
@@ -755,12 +838,12 @@ func (h *Handler) handleBatchWorkloads(c *gin.Context, action WorkloadBatchActio
 }
 
 // genCustomerLabelsByNodes generates customer labels based on specified nodes.
-func genCustomerLabelsByNodes(workload *v1.Workload, nodeList []string) {
+func genCustomerLabelsByNodes(workload *v1.Workload, nodeList []string, labelKey string) {
 	if len(nodeList) == 0 {
 		return
 	}
 	if len(workload.Spec.CustomerLabels) > 0 {
-		if _, ok := workload.Spec.CustomerLabels[v1.K8sHostName]; ok {
+		if _, ok := workload.Spec.CustomerLabels[labelKey]; ok {
 			return
 		}
 	} else {
@@ -773,7 +856,7 @@ func genCustomerLabelsByNodes(workload *v1.Workload, nodeList []string) {
 		}
 		nodeNames += nodeList[i]
 	}
-	workload.Spec.CustomerLabels[v1.K8sHostName] = nodeNames
+	workload.Spec.CustomerLabels[labelKey] = nodeNames
 }
 
 // parseListWorkloadQuery parses and validates the query parameters for listing workloads.
@@ -1075,7 +1158,7 @@ func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context,
 		var customerLabels map[string]string
 		json.Unmarshal([]byte(str), &customerLabels)
 		if len(customerLabels) > 0 {
-			result.CustomerLabels, result.SpecifiedNodes = parseCustomerLabelsAndNodes(customerLabels)
+			result.CustomerLabels, result.SpecifiedNodes, result.ExcludedNodes = parseCustomerLabels(customerLabels)
 		}
 	}
 	if str := dbutils.ParseNullString(dbWorkload.Liveness); str != "" {
@@ -1090,6 +1173,11 @@ func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context,
 	if str := dbutils.ParseNullString(dbWorkload.Env); str != "" {
 		json.Unmarshal([]byte(str), &result.Env)
 		result.Env = maps.RemoveValue(result.Env, "")
+		if result.GroupVersionKind.Kind == common.CICDScaleRunnerSetKind ||
+			result.GroupVersionKind.Kind == common.CICDEphemeralRunnerKind {
+			delete(result.Env, common.AdminControlPlane)
+			delete(result.Env, common.GithubSecretId)
+		}
 	}
 	if str := dbutils.ParseNullString(dbWorkload.Dependencies); str != "" {
 		json.Unmarshal([]byte(str), &result.Dependencies)
@@ -1113,19 +1201,23 @@ func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context,
 	return result
 }
 
-// parseCustomerLabelsAndNodes separates customer labels from node-specific labels.
-// Extracts node list from customer labels and returns remaining labels separately.
-func parseCustomerLabelsAndNodes(labels map[string]string) (map[string]string, []string) {
-	var nodeList []string
+// parseCustomerLabels separates user-defined labels from node selection labels.
+// Returns custom labels, specified nodes, and excluded nodes.
+func parseCustomerLabels(labels map[string]string) (map[string]string, []string, []string) {
+	var specifiedNodes []string
+	var excludedNodes []string
 	customerLabels := make(map[string]string)
 	for key, val := range labels {
-		if key == v1.K8sHostName {
-			nodeList = strings.Split(val, " ")
-		} else {
+		switch key {
+		case v1.K8sHostName:
+			specifiedNodes = strings.Split(val, " ")
+		case common.ExcludedNodes:
+			excludedNodes = strings.Split(val, " ")
+		default:
 			customerLabels[key] = val
 		}
 	}
-	return customerLabels, nodeList
+	return customerLabels, specifiedNodes, excludedNodes
 }
 
 // buildSSHAddress constructs the SSH address for accessing a workload pod.

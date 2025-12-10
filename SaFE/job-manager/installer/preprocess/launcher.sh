@@ -33,7 +33,9 @@ if [ "${ENABLE_SUPERVISE}" = "true" ]; then
         kill -0 $pid1 2>/dev/null
         if [ $? -ne 0 ]; then
             wait $pid1
-            exit $?
+            exit_code=$?
+            echo "=== LAUNCHER: run.sh exited with code $exit_code ===" >&2
+            exit $exit_code
         fi
 
         if [ -n "$pid2" ]; then
@@ -42,6 +44,7 @@ if [ "${ENABLE_SUPERVISE}" = "true" ]; then
                 wait $pid2
                 exit_code=$?
                 if [ $exit_code -ne 0 ]; then
+                    echo "=== LAUNCHER: run_check.sh exited with code $exit_code ===" >&2
                     exit $exit_code
                 else
                     pid2=""
@@ -52,5 +55,7 @@ if [ "${ENABLE_SUPERVISE}" = "true" ]; then
     done
 else
     wait $pid1
-    exit $?
+    exit_code=$?
+    echo "=== LAUNCHER: run.sh exited with code $exit_code ===" >&2
+    exit $exit_code
 fi

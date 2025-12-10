@@ -7,10 +7,15 @@ apiVersion: v1
 data:
   config.yaml: |
     global:
-      # RDMA device name
-      rdma_name: {{ .Values.net.rdma_name }}
       # Image pull secret for primus-safe. If set to empty, the secret will not be used.
       image_secret: {{ .Values.global.image_pull_secret }}
+      domain: {{ .Values.global.domain }}
+      sub_domain: {{ .Values.global.sub_domain }}
+    net:
+      # RDMA device name
+      rdma_name: {{ .Values.net.rdma_name }}
+      # Ingress component name selected during install.sh
+      ingress: {{ .Values.net.ingress }}
     notification:
       enable: false
     health_check:
@@ -72,6 +77,12 @@ data:
       role_name: {{ .Values.cicd.role_name }}
       controller_namespace: "arc-systems"
       controller_name: "arc-gha-rs-controller"
+    model:
+      # Image for downloading models from HuggingFace and uploading to S3
+      # Uses global.image_registry to support different registry environments
+      downloader_image: {{ default (printf "%s/primussafe/model-downloader:latest" .Values.global.image_registry) (default .Values.model).downloader_image }}
+      # Image for cleaning up local model files
+      cleanup_image: {{ default "alpine:3.18" (default .Values.model).cleanup_image }}
 {{- if .Values.addon }}
     addon:
 {{ toYaml .Values.addon | indent 6 }}

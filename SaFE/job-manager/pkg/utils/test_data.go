@@ -397,6 +397,104 @@ status:
   replicas: 2
   updatedReplicas: 2
       `
+
+	TestCICDEphemeralRunnerData = `
+apiVersion: actions.github.com/v1alpha1
+kind: EphemeralRunner
+metadata:
+  annotations:
+    actions.github.com/patch-id: "1622"
+    actions.github.com/runner-group-name: Default
+    actions.github.com/runner-scale-set-name: primus-safe-cicd-tnznd
+    actions.github.com/runner-spec-hash: 599f54dcc4
+  creationTimestamp: "2025-12-08T02:18:34Z"
+  finalizers:
+  - ephemeralrunner.actions.github.com/finalizer
+  - ephemeralrunner.actions.github.com/runner-registration-finalizer
+  generateName: primus-safe-cicd-tnznd-xvt59-runner-
+  generation: 1
+  labels:
+    actions.github.com/organization: AMD-AGI
+    actions.github.com/repository: Primus-SaFE
+    actions.github.com/scale-set-name: primus-safe-cicd-tnznd
+    actions.github.com/scale-set-namespace: tw-project2-control-plane
+    app.kubernetes.io/component: runner
+    app.kubernetes.io/part-of: gha-runner-scale-set
+    app.kubernetes.io/version: 0.13.0
+    primus-safe.workload.dispatch.count: "1"
+    primus-safe.workload.id: primus-safe-cicd-tnznd
+  name: primus-safe-cicd-tnznd-xvt59-runner-469t5
+  namespace: tw-project2-control-plane
+  ownerReferences:
+  - apiVersion: actions.github.com/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: EphemeralRunnerSet
+    name: primus-safe-cicd-tnznd-xvt59
+    uid: 4a555601-6a79-4e17-b867-2d1cf1dc7049
+  resourceVersion: "352896351"
+  uid: 06d551f9-1c13-4405-9629-ce714942298a
+spec:
+  githubConfigSecret: primus-safe-cicd
+  githubConfigUrl: https://github.com/AMD-AGI/Primus-SaFE
+  runnerScaleSetId: 13
+  spec:
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: primus-safe.workspace.id
+              operator: In
+              values:
+              - tw-project2-control-plane
+    containers:
+    - env:
+      - name: RUNNER_ALLOW_RUNASROOT
+        value: "1"
+      - name: ACTIONS_RUNNER_PRINT_LOG_TO_STDOUT
+        value: "1"
+      image: docker.io/test-cicd-runner:latest
+      name: runner
+      resources:
+        limits:
+          cpu: "1"
+          ephemeral-storage: 10Gi
+          memory: 4Gi
+        requests:
+          cpu: "1"
+          ephemeral-storage: 10Gi
+          memory: 4Gi
+      securityContext:
+        privileged: true
+      volumeMounts:
+      - mountPath: /etc/podinfo
+        name: podinfo
+      - mountPath: /home
+        name: hostpath-1
+    imagePullSecrets:
+    - name: primus-safe-image
+    priorityClassName: tw-project2-med-priority
+    restartPolicy: Never
+    serviceAccountName: gha-rs-manager-no-permission
+    volumes:
+    - downwardAPI:
+        items:
+        - fieldRef:
+            fieldPath: metadata.labels
+          path: labels
+        - fieldRef:
+            fieldPath: metadata.annotations
+          path: annotations
+      name: podinfo
+    - hostPath:
+        path: /home
+      name: hostpath-1
+status:
+  phase: Running
+  ready: true
+  runnerId: 4345
+  runnerName: primus-safe-cicd-tnznd-xvt59-runner-469t5`
 )
 
 var (
@@ -663,6 +761,54 @@ var (
 		},
 	}
 
+	TestCICDEphemeralRunnerTemplate = &v1.ResourceTemplate{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "job",
+			Labels: map[string]string{
+				v1.WorkloadVersionLabel: "v1",
+			},
+			Annotations: map[string]string{
+				v1.WorkloadKindLabel: common.CICDEphemeralRunnerKind,
+			},
+		},
+		Spec: v1.ResourceTemplateSpec{
+			GroupVersionKind: v1.GroupVersionKind{
+				Group:   "actions.github.com",
+				Version: "v1alpha1",
+				Kind:    "EphemeralRunner",
+			},
+			ResourceSpecs: []v1.ResourceSpec{{
+				PrePaths: []string{"spec"},
+			}},
+			ResourceStatus: v1.ResourceStatus{
+				PrePaths:     []string{"status"},
+				MessagePaths: []string{"message"},
+				ReasonPaths:  []string{"reason"},
+				Phases: []v1.PhaseExpression{{
+					MatchExpressions: map[string]string{
+						"phase": "Running",
+					},
+					Phase: string(v1.K8sRunning),
+				}, {
+					MatchExpressions: map[string]string{
+						"phase": "Failed",
+					},
+					Phase: string(v1.K8sFailed),
+				}, {
+					MatchExpressions: map[string]string{
+						"phase": "Succeeded",
+					},
+					Phase: string(v1.K8sSucceeded),
+				}, {
+					MatchExpressions: map[string]string{
+						"phase": "Pending",
+					},
+					Phase: string(v1.K8sPending),
+				}},
+			},
+		},
+	}
+
 	TestWorkloadData = &v1.Workload{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "test-workload",
@@ -671,6 +817,7 @@ var (
 			},
 			Annotations: map[string]string{
 				v1.UserNameAnnotation: "test-user",
+				"key":                 "val",
 			},
 			CreationTimestamp: metav1.NewTime(time.Now()),
 		},

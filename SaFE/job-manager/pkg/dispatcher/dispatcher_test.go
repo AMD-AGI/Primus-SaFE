@@ -72,8 +72,8 @@ func parseConfigmap(content string) (*corev1.ConfigMap, error) {
 }
 
 func TestCreatePytorchJob(t *testing.T) {
-	commonconfig.SetValue("global.rdma_name", "rdma/hca")
-	defer commonconfig.SetValue("global.rdma_name", "")
+	commonconfig.SetValue("net.rdma_name", "rdma/hca")
+	defer commonconfig.SetValue("net.rdma_name", "")
 	workspace := jobutils.TestWorkspaceData.DeepCopy()
 	workload := jobutils.TestWorkloadData.DeepCopy()
 	workload.Spec.Workspace = workspace.Name
@@ -133,8 +133,8 @@ func TestCreatePytorchJob(t *testing.T) {
 }
 
 func TestCreateDeployment(t *testing.T) {
-	commonconfig.SetValue("global.rdma_name", "rdma/hca")
-	defer commonconfig.SetValue("global.rdma_name", "")
+	commonconfig.SetValue("net.rdma_name", "rdma/hca")
+	defer commonconfig.SetValue("net.rdma_name", "")
 	workspace := jobutils.TestWorkspaceData.DeepCopy()
 	workload := jobutils.TestWorkloadData.DeepCopy()
 	workload.Spec.Workspace = workspace.Name
@@ -211,8 +211,8 @@ func TestUpdateDeployment(t *testing.T) {
 }
 
 func TestUpdatePytorchJob(t *testing.T) {
-	commonconfig.SetValue("global.rdma_name", "rdma/hca")
-	defer commonconfig.SetValue("global.rdma_name", "")
+	commonconfig.SetValue("net.rdma_name", "rdma/hca")
+	defer commonconfig.SetValue("net.rdma_name", "")
 
 	workloadObj, err := jsonutils.ParseYamlToJson(jobutils.TestPytorchData)
 	assert.NilError(t, err)
@@ -263,8 +263,8 @@ func TestUpdatePytorchJob(t *testing.T) {
 }
 
 func TestUpdatePytorchJobMaster(t *testing.T) {
-	commonconfig.SetValue("global.rdma_name", "rdma/hca")
-	defer commonconfig.SetValue("global.rdma_name", "")
+	commonconfig.SetValue("net.rdma_name", "rdma/hca")
+	defer commonconfig.SetValue("net.rdma_name", "")
 
 	workloadObj, err := jsonutils.ParseYamlToJson(jobutils.TestPytorchData)
 	assert.NilError(t, err)
@@ -439,8 +439,8 @@ func TestUpdateDeploymentEnv(t *testing.T) {
 }
 
 func TestCreateK8sJob(t *testing.T) {
-	commonconfig.SetValue("global.rdma_name", "rdma/hca")
-	defer commonconfig.SetValue("global.rdma_name", "")
+	commonconfig.SetValue("net.rdma_name", "rdma/hca")
+	defer commonconfig.SetValue("net.rdma_name", "")
 
 	workload := jobutils.TestWorkloadData.DeepCopy()
 	workload.Spec.GroupVersionKind = v1.GroupVersionKind{
@@ -487,9 +487,9 @@ func TestCreateCICDScaleSet(t *testing.T) {
 		Version: "v1",
 		Kind:    common.CICDScaleRunnerSetKind,
 	}
-	workload.Spec.Secrets = []v1.SecretEntity{{Id: "test-secret", Type: v1.SecretGeneral}}
 	workload.Spec.Env[common.GithubConfigUrl] = "test-url"
 	workload.Spec.Env[common.AdminControlPlane] = "10.0.0.1"
+	workload.Spec.Env[common.GithubSecretId] = "test-secret"
 	workload.Spec.Workspace = workspace.Name
 	workload.Spec.EntryPoint = stringutil.Base64Encode("bash test.sh")
 
@@ -512,10 +512,10 @@ func TestCreateCICDScaleSet(t *testing.T) {
 	checkLabels(t, obj, workload, &templates[0])
 	checkSecurityContext(t, obj, workload, &templates[0])
 	checkEnvs(t, obj, workload, &templates[0])
-	checkImage(t, obj, "docker.io/primussafe/cicd-runner-proxy:latest", &templates[0])
+	checkImage(t, obj, workload.Spec.Image, &templates[0])
 	checkHostNetwork(t, obj, workload, &templates[0])
 	envs := getEnvs(t, obj, &templates[0])
-	checkCICDEnvs(t, envs, workload, true)
+	checkCICDEnvs(t, envs, workload)
 
 	assert.Equal(t, getContainer(obj, "runner", &templates[0]) != nil, true)
 	assert.Equal(t, getContainer(obj, "unified_job", &templates[0]) != nil, false)
@@ -529,8 +529,8 @@ func TestCICDScaleSetWithUnifiedJob(t *testing.T) {
 		Kind:    common.CICDScaleRunnerSetKind,
 	}
 	workload.Spec.Resource.Replica = 2
-	workload.Spec.Secrets = []v1.SecretEntity{{Id: "test-secret", Type: v1.SecretGeneral}}
 	workload.Spec.Env[common.GithubConfigUrl] = "test-url"
+	workload.Spec.Env[common.GithubSecretId] = "test-secret"
 	workload.Spec.Env[common.AdminControlPlane] = "10.0.0.1"
 	workload.Spec.Env[common.UnifiedJobEnable] = v1.TrueStr
 	workload.Spec.Workspace = workspace.Name
@@ -556,7 +556,7 @@ func TestCICDScaleSetWithUnifiedJob(t *testing.T) {
 	checkHostNetwork(t, obj, workload, &templates[0])
 
 	checkCICDContainer(t, obj, workload, &templates[0],
-		"runner", "docker.io/primussafe/cicd-runner-proxy:latest")
+		"runner", workload.Spec.Image)
 	checkCICDContainer(t, obj, workload, &templates[0],
 		"unified_job", "docker.io/primussafe/cicd-unified-job-proxy:latest")
 }
@@ -587,24 +587,11 @@ func checkCICDContainer(t *testing.T, obj *unstructured.Unstructured, workload *
 	envs, found, err := unstructured.NestedSlice(container, []string{"env"}...)
 	assert.NilError(t, err)
 	assert.Equal(t, found, true)
-
-	needCheckResource := false
-	if containerName == v1.GetMainContainer(workload) {
-		needCheckResource = true
-	}
-	checkCICDEnvs(t, envs, workload, needCheckResource)
+	checkCICDEnvs(t, envs, workload)
 }
 
-func checkCICDEnvs(t *testing.T, envs []interface{}, workload *v1.Workload, needCheckResource bool) {
+func checkCICDEnvs(t *testing.T, envs []interface{}, workload *v1.Workload) {
 	var ok bool
-	if needCheckResource {
-		ok = findEnv(envs, jobutils.EntrypointEnv, buildEntryPoint(workload))
-		assert.Equal(t, ok, true)
-		ok = findEnv(envs, jobutils.ImageEnv, workload.Spec.Image)
-		assert.Equal(t, ok, true)
-		ok = findEnv(envs, jobutils.ResourcesEnv, string(jsonutils.MarshalSilently(workload.Spec.Resource)))
-		assert.Equal(t, ok, true)
-	}
 	ok = findEnv(envs, common.ScaleRunnerSetID, workload.Name)
 	assert.Equal(t, ok, true)
 	ok = findEnv(envs, common.AdminControlPlane, "10.0.0.1")

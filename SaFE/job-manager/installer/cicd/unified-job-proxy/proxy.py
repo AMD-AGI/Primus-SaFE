@@ -2,6 +2,7 @@
 import base64
 import json
 import os
+import signal
 import sys
 import time
 import atexit
@@ -33,6 +34,14 @@ def getenv_str(name: str, default: Optional[str] = None) -> Optional[str]:
         return default
     return val
 
+def getenv_int(name: str, default: Optional[int] = None) -> Optional[int]:
+    val = getenv_str(name)
+    if val is None:
+        return default
+    try:
+        return int(val)
+    except ValueError:
+        return default
 
 def is_base64(s: str) -> bool:
     try:
@@ -93,8 +102,11 @@ def build_payload_from_input(inp: Dict[str, Any]) -> Dict[str, Any]:
     workspace_id = getenv_str(WORKSPACE_ID_ENV)
     gvk_kind = "UnifiedJob"
     gvk_version = "v1"
-    display_name = getenv_str(SCALE_RUNNER_SET_ENV) + "-unified-trainer"
+    display_name = getenv_str(SCALE_RUNNER_SET_ENV)
+    if display_name and len(display_name) > 30:
+        display_name = display_name[:30]
     description = "model: " + model
+    priority = getenv_int("PRIORITY", 0)
 
     payload: Dict[str, Any] = {
         "displayName": display_name,
@@ -105,6 +117,8 @@ def build_payload_from_input(inp: Dict[str, Any]) -> Dict[str, Any]:
         "env": env_map,
         "groupVersionKind": {"kind": gvk_kind, "version": gvk_version},
         "description": description,
+        "ttlSecondsAfterFinished": 20,
+        "priority": priority,
     }
     if isinstance(timeout, int) and timeout > 0:
         payload["timeout"] = timeout
@@ -173,9 +187,13 @@ def get_unified_nfs_path() -> Optional[str]:
     return None
 
 def main() -> int:
+    print("[info] unified-job-proxy starting...")
+    
     nfs_root = get_unified_nfs_path()
     nfs_input_rel = getenv_str(NFS_INPUT_ENV)
     nfs_output_rel = getenv_str(NFS_OUTPUT_ENV)
+    print(f"[info] NFS root: {nfs_root}, input_rel: {nfs_input_rel}, output_rel: {nfs_output_rel}")
+    
     if not nfs_root:
         print(f"[error] {NFS_PATH_ENV} OR POD_NAME not set", file=sys.stderr)
         return 2
@@ -188,6 +206,7 @@ def main() -> int:
 
     input_path = os.path.join(nfs_root, nfs_input_rel)
     output_path = os.path.join(nfs_root, nfs_output_rel)
+    print(f"[info] input_path: {input_path}, output_path: {output_path}")
 
     print(f"[info] waiting for input file: {input_path} (timeout: {DEFAULT_POLL_TIMEOUT_SECS}s)")
     if not wait_for_file(input_path, poll_interval=2, timeout_secs=DEFAULT_POLL_TIMEOUT_SECS):
@@ -198,30 +217,60 @@ def main() -> int:
             pass
         return 4
 
+    print(f"[info] input file found, loading JSON...")
     try:
         inp = load_input_json(input_path)
+        print(f"[info] input JSON loaded successfully")
     except Exception as e:
         print(f"[error] failed to parse input JSON: {e}", file=sys.stderr)
         write_output(output_path, "Failed")
         return 3
 
+    print("[info] building payload and session...")
     try:
         payload = build_payload_from_input(inp)
         session, base_url = build_session()
+        print(f"[info] session established, base_url: {base_url}")
     except Exception as e:
         print(f"[error] initialization failed: {e}", file=sys.stderr)
         write_output(output_path, "Failed")
         return 4
 
+    print("[info] creating workload...")
     try:
         workload_id = create_workload(session, base_url, payload)
         print(f"[info] workload created: {workload_id}")
         # Register stop on exit unless workload already reached terminal phase
         finished = {"done": False}
-        def _stop_on_exit() -> None:
+        cleanup_called = {"done": False}
+
+        def _do_cleanup(signum: Optional[int] = None, frame: Optional[object] = None) -> None:
+            # Avoid running cleanup multiple times
+            if cleanup_called["done"]:
+                return
+            cleanup_called["done"] = True
+            if signum is not None:
+                sig_name = signal.Signals(signum).name if hasattr(signal, 'Signals') else str(signum)
+                print(f"[info] received signal {sig_name}, cleaning up...")
             if not finished["done"]:
+                print(f"[info] stopping workload on exit: {workload_id}")
                 stop_workload(session, base_url, workload_id)
-        atexit.register(_stop_on_exit)
+                # Write output as Failed when killed by signal
+                if signum is not None:
+                    try:
+                        write_output(output_path, "Failed")
+                        print(f"[info] wrote 'Failed' to {output_path} due to signal")
+                    except Exception as e:
+                        print(f"[warn] failed to write output on signal: {e}", file=sys.stderr)
+            if signum is not None:
+                sys.exit(1)
+
+        # Register for normal exit
+        atexit.register(_do_cleanup)
+        # Register for signals (SIGTERM is sent by docker stop/k8s pod termination, SIGINT is Ctrl+C)
+        signal.signal(signal.SIGTERM, _do_cleanup)
+        signal.signal(signal.SIGINT, _do_cleanup)
+        print("[info] cleanup handlers registered (atexit, SIGTERM, SIGINT)")
     except Exception as e:
         print(f"[error] create workload failed: {e}", file=sys.stderr)
         write_output(output_path, "Failed")
@@ -229,26 +278,43 @@ def main() -> int:
 
     poll_timeout = inp.get("timeout") if isinstance(inp.get("timeout"), int) else DEFAULT_POLL_TIMEOUT_SECS
     start_time = time.time()
+    last_phase = None
+    poll_count = 0
+    
+    print(f"[info] starting to poll workload status (timeout: {poll_timeout}s)...")
     terminal_phases = {"Succeeded", "Failed", "Stopped"}
     final_phase = None
     while True:
         try:
             phase = get_workload_phase(session, base_url, workload_id)
+            poll_count += 1
+            # Log phase changes or periodically every 60 polls (~5 min)
+            if phase != last_phase:
+                print(f"[info] workload {workload_id} phase: {phase}")
+                last_phase = phase
+            elif poll_count % 60 == 0:
+                elapsed = int(time.time() - start_time)
+                print(f"[info] workload {workload_id} still in phase: {phase} (elapsed: {elapsed}s)")
+            
             if phase in terminal_phases:
                 final_phase = phase
                 # mark finished to avoid stopping on exit
                 finished["done"] = True
                 break
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[warn] failed to get workload phase: {e}", file=sys.stderr)
 
         if poll_timeout > 0 and (time.time() - start_time) >= poll_timeout:
+            print(f"[error] polling timed out after {poll_timeout}s", file=sys.stderr)
             final_phase = "Failed"
             # mark finished to avoid stopping on exit
             finished["done"] = True
             break
         time.sleep(POLL_INTERVAL_SECS)
 
+    elapsed = int(time.time() - start_time)
+    print(f"[info] workload {workload_id} finished with phase: {final_phase} (elapsed: {elapsed}s)")
+    
     try:
         write_output(output_path, final_phase or "")
         print(f"[info] wrote final phase '{final_phase}' to {output_path}")

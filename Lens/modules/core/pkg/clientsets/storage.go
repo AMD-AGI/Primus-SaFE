@@ -163,6 +163,7 @@ func initStorageClients(ctx context.Context, clusterName string, cfg PrimusLensC
 	gormDb, err := sql.InitGormDB(clusterName, sqlConfig,
 		sql.WithTracingCallback(),
 		sql.WithErrorStackCallback(),
+		sql.WithReconnectCallback(), // Automatically handle master-slave failover and reconnection
 	)
 	if err != nil {
 		return nil, errors.NewError().

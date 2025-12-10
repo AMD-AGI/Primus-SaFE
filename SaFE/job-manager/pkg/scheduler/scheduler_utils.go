@@ -92,6 +92,9 @@ func buildReason(workload *v1.Workload, podResources corev1.ResourceList, nodes 
 	reason := ""
 	if len(nodes) == 0 {
 		reason = "All nodes are unavailable"
+		if len(workload.Spec.CustomerLabels) > 0 {
+			reason += " or not enough nodes match the specified label."
+		}
 	} else {
 		sort.Slice(nodes, func(i, j int) bool {
 			if floatutil.FloatEqual(nodes[i].resourceScore, nodes[j].resourceScore) {
@@ -100,10 +103,8 @@ func buildReason(workload *v1.Workload, podResources corev1.ResourceList, nodes 
 			return nodes[i].resourceScore > nodes[j].resourceScore
 		})
 		_, key := quantity.IsSubResource(podResources, nodes[0].resource)
-		reason = fmt.Sprintf("Insufficient %s due to node fragmentation", formatResourceName(key))
-	}
-	if len(workload.Spec.CustomerLabels) > 0 {
-		reason += " or not enough nodes match the specified label."
+		reason = fmt.Sprintf("Insufficient %s on %s due to node fragmentation",
+			formatResourceName(key), nodes[0].node.Name)
 	}
 	return reason
 }
@@ -122,6 +123,11 @@ func isMatchNodeLabel(node *v1.Node, workload *v1.Workload) bool {
 		if key == v1.K8sHostName {
 			nodeNames := strings.Split(val, " ")
 			if !sliceutil.Contains(nodeNames, v1.GetDisplayName(node)) {
+				return false
+			}
+		} else if key == common.ExcludedNodes {
+			nodeNames := strings.Split(val, " ")
+			if sliceutil.Contains(nodeNames, v1.GetDisplayName(node)) {
 				return false
 			}
 		} else if node.Labels[key] != val {

@@ -18,6 +18,7 @@ import (
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
@@ -26,9 +27,14 @@ import (
 	dbutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/utils"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/notification/channel"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/notification/model"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/httpclient"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 	sqrl "github.com/Masterminds/squirrel"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/klog/v2"
 )
 
@@ -63,6 +69,7 @@ type Handler struct {
 	httpClient       httpclient.Interface
 	clientManager    *commonutils.ObjectManager
 	accessController *authority.AccessController
+	emailChannel     *channel.EmailChannel
 }
 
 func NewHandler(mgr ctrlruntime.Manager) (*Handler, error) {
@@ -86,6 +93,22 @@ func NewHandler(mgr ctrlruntime.Manager) (*Handler, error) {
 		httpClient:       httpclient.NewClient(),
 		clientManager:    commonutils.NewObjectManagerSingleton(),
 		accessController: authority.NewAccessController(mgr.GetClient()),
+	}
+
+	// Initialize email channel if notification is enabled
+	if commonconfig.IsNotificationEnable() {
+		conf, err := channel.ReadConfigFromFile(commonconfig.GetNotificationConfig())
+		if err != nil {
+			klog.Warningf("Failed to read notification config: %v", err)
+		} else if conf.Email != nil {
+			emailCh := &channel.EmailChannel{}
+			if err := emailCh.Init(*conf); err != nil {
+				klog.Warningf("Failed to initialize email channel: %v", err)
+			} else {
+				h.emailChannel = emailCh
+				klog.Info("Email channel initialized for CD handler")
+			}
+		}
 	}
 
 	return h, nil
@@ -238,6 +261,87 @@ func (h *Handler) getDeploymentRequest(c *gin.Context) (interface{}, error) {
 	return resp, nil
 }
 
+// getUserEmail retrieves the email address for a given username.
+// Returns empty string if user not found or email not set.
+func (h *Handler) getUserEmail(ctx context.Context, username string) string {
+	// Build label selector to find user by username (MD5 hash)
+	req, err := labels.NewRequirement(v1.UserNameMd5Label, selection.Equals, []string{stringutil.MD5(username)})
+	if err != nil {
+		klog.ErrorS(err, "Failed to create label requirement", "username", username)
+		return ""
+	}
+	selector := labels.NewSelector().Add(*req)
+
+	userList := &v1.UserList{}
+	if err := h.List(ctx, userList, &client.ListOptions{LabelSelector: selector}); err != nil {
+		klog.ErrorS(err, "Failed to get user for email lookup", "username", username)
+		return ""
+	}
+
+	if len(userList.Items) == 0 {
+		klog.Warningf("User not found: %s", username)
+		return ""
+	}
+
+	return v1.GetUserEmail(&userList.Items[0])
+}
+
+// sendDeploymentFailureEmail sends an email notification when deployment fails.
+// It looks up the deployer's email and sends a failure notification.
+func (h *Handler) sendDeploymentFailureEmail(ctx context.Context, req *dbclient.DeploymentRequest, failReason string) {
+	if h.emailChannel == nil {
+		klog.Warning("Email channel not initialized, skipping failure notification")
+		return
+	}
+
+	// Get deployer's email
+	email := h.getUserEmail(ctx, req.DeployName)
+	if email == "" {
+		klog.Warningf("No email found for user %s, skipping failure notification", req.DeployName)
+		return
+	}
+
+	// Build email content
+	message := &model.Message{
+		Email: &model.EmailMessage{
+			To:    []string{email},
+			Title: fmt.Sprintf("[CD Deployment Failed] Request #%d Failed", req.Id),
+			Content: fmt.Sprintf(`
+				<h2>Deployment Failure Notification</h2>
+				<table style="border-collapse: collapse; width: 100%%;">
+					<tr>
+						<td style="padding: 8px; border: 1px solid #ddd;"><strong>Request ID</strong></td>
+						<td style="padding: 8px; border: 1px solid #ddd;">%d</td>
+					</tr>
+					<tr>
+						<td style="padding: 8px; border: 1px solid #ddd;"><strong>Deployer</strong></td>
+						<td style="padding: 8px; border: 1px solid #ddd;">%s</td>
+					</tr>
+					<tr>
+						<td style="padding: 8px; border: 1px solid #ddd;"><strong>Approver</strong></td>
+						<td style="padding: 8px; border: 1px solid #ddd;">%s</td>
+					</tr>
+					<tr>
+						<td style="padding: 8px; border: 1px solid #ddd;"><strong>Failure Reason</strong></td>
+						<td style="padding: 8px; border: 1px solid #ddd; color: #c53030;">%s</td>
+					</tr>
+					<tr>
+						<td style="padding: 8px; border: 1px solid #ddd;"><strong>Time</strong></td>
+						<td style="padding: 8px; border: 1px solid #ddd;">%s</td>
+					</tr>
+				</table>
+				<p style="margin-top: 16px; color: #666;">Please check the deployment logs for more details.</p>
+			`, req.Id, req.DeployName, req.ApproverName.String, failReason, time.Now().Format(time.DateTime)),
+		},
+	}
+
+	if err := h.emailChannel.Send(ctx, message); err != nil {
+		klog.ErrorS(err, "Failed to send deployment failure email", "id", req.Id, "email", email)
+	} else {
+		klog.Infof("Deployment failure email sent for request %d to %s", req.Id, email)
+	}
+}
+
 func (h *Handler) approveDeploymentRequest(c *gin.Context) (interface{}, error) {
 	idStr := c.Param("id")
 	id, err := strconv.ParseInt(idStr, 10, 64)
@@ -283,6 +387,7 @@ func (h *Handler) approveDeploymentRequest(c *gin.Context) (interface{}, error) 
 			if err != nil {
 				klog.ErrorS(err, "Deployment failed", "id", req.Id)
 				h.service.UpdateRequestStatus(ctx, req.Id, StatusFailed, "Deployment execution failed")
+				h.sendDeploymentFailureEmail(ctx, req, fmt.Sprintf("Deployment execution failed: %v", err))
 				return
 			}
 
@@ -290,6 +395,7 @@ func (h *Handler) approveDeploymentRequest(c *gin.Context) (interface{}, error) 
 			if err := h.service.WaitForJobCompletion(ctx, jobName, JobNamespace); err != nil {
 				klog.ErrorS(err, "Job execution failed", "job", jobName)
 				h.service.UpdateRequestStatus(ctx, req.Id, StatusFailed, err.Error())
+				h.sendDeploymentFailureEmail(ctx, req, fmt.Sprintf("Job execution failed: %v", err))
 				return
 			}
 
@@ -297,6 +403,7 @@ func (h *Handler) approveDeploymentRequest(c *gin.Context) (interface{}, error) 
 			if err := h.service.VerifyDeploymentRollout(ctx, req.EnvConfig); err != nil {
 				klog.ErrorS(err, "Deployment verification failed", "id", req.Id)
 				h.service.UpdateRequestStatus(ctx, req.Id, StatusFailed, fmt.Sprintf("Job succeeded but rollout failed: %v", err))
+				h.sendDeploymentFailureEmail(ctx, req, fmt.Sprintf("Rollout verification failed: %v", err))
 				return
 			}
 

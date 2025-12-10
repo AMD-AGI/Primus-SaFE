@@ -39,25 +39,11 @@ Create a new workload.
     "CUDA_VISIBLE_DEVICES": "0,1,2,3,4,5,6,7"
   },
   "specifiedNodes": [],
+  "excludedNodes": [],
   "isSupervised": false,
   "ttlSecondsAfterFinished": 60,
   "customerLabels": {
     "key": "val"
-  },
-  "liveness": {
-    "path": "/status",
-    "port": 8088,
-    "initialDelaySeconds": 600,
-    "periodSeconds": 3,
-    "failureThreshold": 3
-  },
-  "service": {
-    "protocol": "TCP",
-    "port": 8080,
-    "nodePort": 12345,
-    "targetPort": 8088,
-    "serviceType": "NodePort",
-    "extends": {}
   },
   "dependencies": ["my-pre-training-job"],
   "cronJobs": [
@@ -72,7 +58,67 @@ Create a new workload.
       "type": "image"
     }
   ],
-  "isTolerateAll": false
+  "isTolerateAll": false,
+  "labels": {
+    "team": "ml-platform"
+  },
+  "annotations": {
+    "description": "Training job for model v2"
+  }
+}
+```
+
+***Deployment Request Example***:
+```json
+{
+  "displayName": "my-infer-job",
+  "description": "Infer job description",
+  "workspaceId": "cluster-workspace",
+  "groupVersionKind": {
+    "kind": "Deployment",
+    "version": "v1"
+  },
+  "image": "harbor.example.com/ai/infer:1.0",
+  "entryPoint": "cHl0aG9uIHRyYWluLnB5",
+  "resource": {
+    "cpu": "128",
+    "gpu": "8",
+    "memory": "256Gi",
+    "replica": 1
+  },
+  "priority": 2,
+  "env": {
+    "NCCL_DEBUG": "INFO",
+    "CUDA_VISIBLE_DEVICES": "0,1,2,3,4,5,6,7"
+  },
+  "liveness": {
+    "path": "/health",
+    "port": 8088,
+    "initialDelaySeconds": 600,
+    "periodSeconds": 3,
+    "failureThreshold": 3
+  },
+  "readiness": {
+    "path": "/health",
+    "port": 8088,
+    "initialDelaySeconds": 600,
+    "periodSeconds": 3,
+    "failureThreshold": 3
+  },
+  "service": {
+    "protocol": "TCP",
+    "port": 8080,
+    "nodePort": 12345,
+    "targetPort": 8088,
+    "serviceType": "NodePort",
+    "extends": {}
+  },
+  "secrets": [
+    {
+      "id": "test-secret-id1",
+      "type": "image"
+    }
+  ]
 }
 ```
 
@@ -95,21 +141,19 @@ Create a new workload.
     "ephemeralStorage": "100Gi"
   },
   "env": {
-    "GITHUB_CONFIG_URL": "https://github.com/AMD-AGI/Primus-SaFE"
-  },
-  "secrets": [
-    {
-      "id": "primus-safe-github-token"
-    }
-  ]
+    "GITHUB_CONFIG_URL": "https://github.com/AMD-AGI/Primus-SaFE",
+    "GITHUB_PAT": "your token"
+  }
 }
 ```
 
 Notes for CICD (AutoscalingRunnerSet):
+- Only GitHub is supported for CICD integration at this time. Other providers are not supported.
 - Required env: `GITHUB_CONFIG_URL` must be set in `env` to the GitHub repository/organization URL.
-- Required secret: a GitHub token secret must be included in `secrets` (e.g., a general-type secret storing a PAT), otherwise the workload creation will be rejected.
+- Required env: `GITHUB_PAT` must be provided in `env` (GitHub Personal Access Token). The system will automatically create a secret (with key `github_token`) from this PAT and attach it to the workload(Its lifecycle is also controlled by the workload)
 - Multi-node evaluation: set `"UNIFIED_JOB_ENABLE": "true"` in `env` to enable multi-node evaluation in CICD.
 - Required NFS storage: CICD workloads require NFS storage support enabled in the workspace. This is especially important when `UNIFIED_JOB_ENABLE` is set to `true` in the environment variables for multi-node evaluation scenarios.
+
 
 **Field Description**:
 
@@ -130,11 +174,12 @@ Notes for CICD (AutoscalingRunnerSet):
 | timeout                      | int | No       | Timeout in seconds, 0 means no timeout                                                                                                   |
 | maxRetry                     | int | No       | Maximum retry count, default 0                                                                                                           |
 | env                          | object | No       | Environment variable key-value pairs                                                                                                     |
-| specifiedNodes               | []string | No       | List of specified nodes to run on                                                                                                        |
+| specifiedNodes               | []string | No       | List of nodes to run on                                                                                                                  |
+| excludedNodes               | []string | No       | List of nodes to avoid running on. If `specifiedNodes` is provided, this field will be ignored.                                          |                                                                                                  
 | isSupervised                 | bool | No       | When enabled, it performs operations like hang detection                                                                                 |
 | ttlSecondsAfterFinished      | int | No       | The lifecycle of the workload after completion, in seconds. Default is 60                                                                |
 | customerLabels               | object | No       | The workload will run on nodes with the user-specified labels                                                                            |
-| liveness.path                | string | No       | Liveness probe HTTP path                                                                                                                 |
+| liveness.path                | string | No       | Liveness probe HTTP path. liveness is only for Deployment/StatefulSet                                                                     |
 | liveness.port                | int | No       | Liveness probe port                                                                                                                      |
 | liveness.initialDelaySeconds | int | No       | Liveness initial delay seconds, default 600                                                                                              |
 | liveness.periodSeconds       | int | No       | Liveness check period seconds, default 3                                                                                                 |
@@ -143,7 +188,7 @@ Notes for CICD (AutoscalingRunnerSet):
 | service.port                 | int | No       | Service port for external access                                                                                                         |
 | service.nodePort             | int | No       | Service NodePort (for NodePort type)                                                                                                     |
 | service.targetPort           | int | No       | Target container port                                                                                                                    |
-| service.serviceType          | string | No       | Service type, e.g. ClusterIP/NodePort/LoadBalancer                                                                                       |
+| service.serviceType          | string | No       | Service type, e.g. ClusterIP/NodePort                                                                                                    |
 | service.extends              | object | No       | Additional service fields (advanced)                                                                                                     |
 | dependencies                 | []string | No       | Dependent workload IDs that must complete first                                                                                          |
 | cronJobs[].schedule          | string | No       | Scheduled trigger time (RFC3339 Milli timestamp)                                                                                         |
@@ -151,6 +196,8 @@ Notes for CICD (AutoscalingRunnerSet):
  | secrets                     | []object | No       | Secrets automatically use all image secrets bound to the workspace.  You can also define your own Secret, such as a token used for CI/CD |
  | secrets[].id                 | string | Yes      | Secret ID                                                                                                                                |
  | isTolerateAll                | bool | No       | Whether to tolerate all node taints                                                                                                      |
+| labels                       | object | No       | User-defined labels (key-value pairs). Keys cannot start with "primus-safe."                                                             |
+| annotations                  | object | No       | User-defined annotations (key-value pairs). Keys cannot start with "primus-safe."                                                        |
 
  
 
@@ -180,22 +227,22 @@ Get workload list with filtering and pagination support.
 
 **Query Parameters**:
 
-| Parameter | Type | Required | Description                                                                   |
-|-----------|------|----------|-------------------------------------------------------------------------------|
-| workspaceId | string | No | Filter by workspace ID                                                        |
-| clusterId | string | No | Filter by cluster ID                                                          |
-| userId | string | No | Filter by user ID                                                             |
-| userName | string | No | Filter by username (fuzzy match)                                              |
-| phase | string | No | Filter by status: Succeeded/Failed/Pending/Running/Stopped (comma-separated)  |
-| kind | string | No | Filter by type: Deployment/PyTorchJob/StatefulSet/Authoring/AutoscalingRunnerSet (comma-separated) |
-| description | string | No | Filter by description (fuzzy match)                                           |
-| workloadId | string | No | Filter by workload ID (fuzzy match)                                           |
-| since | string | No | Start time, RFC3339 Milli format: 2006-01-02T15:04:05.000Z                    |
-| until | string | No | End time, similar to since                                                    |
-| offset | int | No | Pagination offset, default 0                                                  |
-| limit | int | No | Records per page, default 100                                                 |
-| sortBy | string | No | Sort field, default creationTime                                               |
-| order | string | No | Sort order: desc/asc, default desc                                            |
+| Parameter | Type | Required | Description                                                                                                                    |
+|-----------|------|----------|--------------------------------------------------------------------------------------------------------------------------------|
+| workspaceId | string | No | Filter by workspace ID                                                                                                         |
+| clusterId | string | No | Filter by cluster ID                                                                                                           |
+| userId | string | No | Filter by user ID                                                                                                              |
+| userName | string | No | Filter by username (fuzzy match)                                                                                               |
+| phase | string | No | Filter by status: Succeeded/Failed/Pending/Running/Stopped/Updating/NotReady (comma-separated)                                 |
+| kind | string | No | Filter by type: Deployment/PyTorchJob/StatefulSet/Authoring/AutoscalingRunnerSet (comma-separated)                             |
+| description | string | No | Filter by description (fuzzy match)                                                                                            |
+| workloadId | string | No | Filter by workload ID (fuzzy match)                                                                                            |
+| since | string | No | Start time, RFC3339 Milli format: 2006-01-02T15:04:05.000Z                                                                     |
+| until | string | No | End time, similar to since                                                                                                     |
+| offset | int | No | Pagination offset, default 0                                                                                                   |
+| limit | int | No | Records per page, default 100                                                                                                  |
+| sortBy | string | No | Sort field, default creationTime                                                                                               |
+| order | string | No | Sort order: desc/asc, default desc                                                                                             |
 | scaleRunnerSet | string | No | Filter by Scale Runner Set ID. This is the ID of the CICD-created AutoscalingRunnerSet; lists all workloads associated with it |
 
 **Response Example**:
@@ -244,41 +291,41 @@ Get workload list with filtering and pagination support.
 ```
 **Field Description**:
 
-| Field | Type | Description |
-|-------|------|-------------|
-| totalCount | int | Total number of workloads matching the query (not limited by pagination) |
-| workloadId | string | Workload ID |
-| displayName | string | Workload display name |
-| description | string | Workload description |
-| workspaceId | string | Workspace the workload belongs to |
-| clusterId | string | Cluster the workload belongs to |
-| userId | string | ID of the user who submitted the workload |
-| userName | string | Username of the submitter |
-| phase | string | Status: Pending/Running/Succeeded/Failed/Stopped/Updating |
-| message | string | Pending reason (shown when applicable) |
-| priority | int | Scheduling priority (0-2), default 0 |
-| creationTime | string | Creation time (RFC3339), e.g. "2025-01-15T10:30:00" |
-| startTime | string | Start time (RFC3339) |
-| endTime | string | End time (RFC3339), empty if not finished |
-| deletionTime | string | Deletion time (RFC3339), empty if not deleted |
-| duration | string | Human-readable duration from start to end (or now), e.g. "1h30m45s" |
-| secondsUntilTimeout | int | Seconds until timeout from start; -1 if not started |
-| queuePosition | int | Queue position when workload is pending |
-| dispatchCount | int | Number of dispatch attempts |
-| isTolerateAll | bool | Whether to tolerate all node taints |
+| Field | Type | Description                                                                     |
+|-------|------|---------------------------------------------------------------------------------|
+| totalCount | int | Total number of workloads matching the query (not limited by pagination)        |
+| workloadId | string | Workload ID                                                                     |
+| displayName | string | Workload display name                                                           |
+| description | string | Workload description                                                            |
+| workspaceId | string | Workspace the workload belongs to                                               |
+| clusterId | string | Cluster the workload belongs to                                                 |
+| userId | string | ID of the user who submitted the workload                                       |
+| userName | string | Username of the submitter                                                       |
+| phase | string | Status: Pending/Running/Succeeded/Failed/Stopped/Updating/NotReady                      |
+| message | string | Pending reason (shown when applicable)                                          |
+| priority | int | Scheduling priority (0-2), default 0                                            |
+| creationTime | string | Creation time (RFC3339), e.g. "2025-01-15T10:30:00"                             |
+| startTime | string | Start time (RFC3339)                                                            |
+| endTime | string | End time (RFC3339), empty if not finished                                       |
+| deletionTime | string | Deletion time (RFC3339), empty if not deleted                                   |
+| duration | string | Human-readable duration from start to end (or now), e.g. "1h30m45s"             |
+| secondsUntilTimeout | int | Seconds until timeout from start; -1 if not started                             |
+| queuePosition | int | Queue position when workload is pending                                         |
+| dispatchCount | int | Number of dispatch attempts                                                     |
+| isTolerateAll | bool | Whether to tolerate all node taints                                             |
 | groupVersionKind.kind | string | Workload type: PyTorchJob/Deployment/StatefulSet/Authoring/AutoscalingRunnerSet |
-| groupVersionKind.version | string | API version (usually v1) |
-| timeout | int | Timeout seconds (0 means no timeout) |
-| workloadUid | string | Workload UID |
-| k8sObjectUid | string | Corresponding Kubernetes object UID (e.g., PyTorchJob UID) |
-| avgGpuUsage | float | Average GPU usage in the last 3 hours; -1 if unavailable |
-| scaleRunnerSet | string | Associated Scale Runner Set ID for CI/CD workloads (if any) |
-| resource.cpu | string | CPU cores, e.g. "128" |
-| resource.gpu | string | GPU cards, e.g. "8" |
-| resource.memory | string | Memory size, e.g. "256Gi" |
-| resource.ephemeralStorage | string | Ephemeral storage size, e.g. "256Gi" |
-| resource.sharedMemory | string | Shared memory size, e.g. "64Gi" |
-| resource.replica | int | Replica count |
+| groupVersionKind.version | string | API version (usually v1)                                                        |
+| timeout | int | Timeout seconds (0 means no timeout)                                            |
+| workloadUid | string | Workload UID                                                                    |
+| k8sObjectUid | string | Corresponding Kubernetes object UID (e.g., PyTorchJob UID)                      |
+| avgGpuUsage | float | Average GPU usage in the last 3 hours; -1 if unavailable                        |
+| scaleRunnerSet | string | Associated Scale Runner Set ID for CI/CD workloads (if any)                     |
+| resource.cpu | string | CPU cores, e.g. "128"                                                           |
+| resource.gpu | string | GPU cards, e.g. "8"                                                             |
+| resource.memory | string | Memory size, e.g. "256Gi"                                                       |
+| resource.ephemeralStorage | string | Ephemeral storage size, e.g. "256Gi"                                            |
+| resource.sharedMemory | string | Shared memory size, e.g. "64Gi"                                                 |
+| resource.replica | int | Replica count                                                                   |
 ---
 
 ### 3. Get Workload Details
@@ -353,6 +400,7 @@ Get detailed information about a specific workload.
   "ranks": [["0"]],
   "customerLabels": {},
   "specifiedNodes": [],
+  "excludedNodes": [],
   "cronJobs": [
     {
       "schedule": "2025-10-26T10:41:00.000Z",
@@ -377,45 +425,45 @@ Get detailed information about a specific workload.
 
 Only fields not already covered by "List Workloads" are listed below. Other fields share the same meaning as in the list response.
 
-| Field | Type      | Description                                                                                                                            |
-|-------|-----------|----------------------------------------------------------------------------------------------------------------------------------------|
-| image | string    | Image address used by the workload                                                                                                     |
-| entryPoint | string    | Startup command/script (in base64 encoding)                                                                                            |
-| isSupervised | bool      | When enabled, it performs operations like hang detection                                                                               |
-| maxRetry | int       | Failure retry limit. default 0                                                                                                         |
-| ttlSecondsAfterFinished | int       | The lifecycle after completion, in seconds, default 60.                                                                                |
-| env | object    | Environment variables key-value pairs                                                                                                  |
+| Field | Type      | Description                                                                                                                             |
+|-------|-----------|-----------------------------------------------------------------------------------------------------------------------------------------|
+| image | string    | Image address used by the workload                                                                                                      |
+| entryPoint | string    | Startup command/script (in base64 encoding)                                                                                             |
+| isSupervised | bool      | When enabled, it performs operations like hang detection                                                                                |
+| maxRetry | int       | Failure retry limit. default 0                                                                                                          |
+| ttlSecondsAfterFinished | int       | The lifecycle after completion, in seconds, default 60.                                                                                 |
+| env | object    | Environment variables key-value pairs                                                                                                   |
 | conditions[].type | string    | Condition type, e.g. AdminScheduled/AdminDispatched/K8sPending/K8sSucceeded/K8sFailed/K8sRunning/AdminFailover/AdminFailed/AdminStopped |
-| conditions[].status | string    | Condition status: True/False/Unknown                                                                                                   |
-| conditions[].lastTransitionTime | string    | Last transition time of the condition                                                                                                  |
-| conditions[].reason | string    | Dispatch count                                                                                                                         |
-| conditions[].message | string    | Human-readable message for the condition                                                                                               |
-| pods[].podId | string    | Pod ID of a workload pod                                                                                                               |
-| pods[].phase | string    | Pod phase, e.g. Pending/Running/Succeeded/Failed                                                                                       |
-| pods[].k8sNodeName | string    | The Kubernetes node that the Pod is scheduled on                                                                                       |
-| pods[].adminNodeName | string    | The Admin Node name where the pod is scheduled on                                                                                      |
-| pods[].sshAddr | string    | SSH address for direct login into the container                                                                                        |
-| pods[].startTime | string    | Pod start time                                                                                                                         |
-| pods[].endTime | string    | Pod end time                                                                                                                           |
-| pods[].hostIP | string    | The node IP address where the Pod is running                                                                                           |
-| pods[].podIP | string    | The pod IP address where the Pod is running                                                                                            |
-| pods[].rank | string    | The rank of pod, only for pytorch-job                                                                                                  |
-| pods[].containers[].name | string    | Container name                                                                                                                         |
-| pods[].containers[].reason | string    | (brief) reason from the last termination of the container                                                                              |
-| pods[].containers[].message | string    | Message regarding the last termination of the container                                                                                |
-| pods[].containers[].exitCode | int32     | Exit status from the last termination of the container                                                                                 |
-| nodes | [][]string | The node used for each workload execution, e.g. [["node-001"]]                                                                         |
-| ranks | [][]string | The rank is only valid for the PyTorch job and corresponds one-to-one with the nodes listed above, e.g. [["0"]]                        |
-| customerLabels | object    | Custom labels associated with the workload                                                                                             |
-| specifiedNodes | []string  | The nodes explicitly specified to run on                                                                                               |
-| liveness | object    | Refer to the CreateWorkload parameter                                                                                                  |
-| readiness | object    | Refer to the CreateWorkload parameter                                                                                                  |
-| service | object    | Refer to the CreateWorkload parameter                                                                                                  |
-| dependencies | object    | Refer to the CreateWorkload parameter                                                                                                  |
-| cronJobs | object    | Refer to the CreateWorkload parameter                                                                                                  |
-| secrets  | object  | Refer to the CreateWorkload parameter                                                            |
-| workloadUid | string    | UID of the workload                                                                                                                    |
-| k8sObjectUid | string    | K8s object UID corresponding to the workload. e.g. Associated PyTorchJob UID                                                           |
+| conditions[].status | string    | Condition status: True/False/Unknown                                                                                                    |
+| conditions[].lastTransitionTime | string    | Last transition time of the condition                                                                                                   |
+| conditions[].reason | string    | Dispatch count                                                                                                                          |
+| conditions[].message | string    | Human-readable message for the condition                                                                                                |
+| pods[].podId | string    | Pod ID of a workload pod                                                                                                                |
+| pods[].phase | string    | Pod phase, e.g. Pending/Running/Succeeded/Failed                                                                                        |
+| pods[].k8sNodeName | string    | The Kubernetes node that the Pod is scheduled on                                                                                        |
+| pods[].adminNodeName | string    | The Admin Node name where the pod is scheduled on                                                                                       |
+| pods[].sshAddr | string    | SSH address for direct login into the container                                                                                         |
+| pods[].startTime | string    | Pod start time                                                                                                                          |
+| pods[].endTime | string    | Pod end time                                                                                                                            |
+| pods[].hostIP | string    | The node IP address where the Pod is running                                                                                            |
+| pods[].podIP | string    | The pod IP address where the Pod is running                                                                                             |
+| pods[].rank | string    | The rank of pod, only for pytorch-job                                                                                                   |
+| pods[].containers[].name | string    | Container name                                                                                                                          |
+| pods[].containers[].reason | string    | (brief) reason from the last termination of the container                                                                               |
+| pods[].containers[].message | string    | Message regarding the last termination of the container                                                                                 |
+| pods[].containers[].exitCode | int32     | Exit status from the last termination of the container                                                                                  |
+| nodes | [][]string | The node used for each workload execution, e.g. [["node-001"]]                                                                          |
+| ranks | [][]string | The rank is only valid for the PyTorch job and corresponds one-to-one with the nodes listed above, e.g. [["0"]]                         |
+| customerLabels | object    | Custom labels associated with the workload                                                                                              |
+| specifiedNodes | []string  | The nodes explicitly specified to run on                                                                                                |
+| liveness | object    | Refer to the CreateWorkload parameter                                                                                                   |
+| readiness | object    | Refer to the CreateWorkload parameter                                                                                                   |
+| service | object    | Refer to the CreateWorkload parameter                                                                                                   |
+| dependencies | object    | Refer to the CreateWorkload parameter                                                                                                   |
+| cronJobs | object    | Refer to the CreateWorkload parameter                                                                                                   |
+| secrets  | object  | Refer to the CreateWorkload parameter                                                                                                   |
+| workloadUid | string    | UID of the workload                                                                                                                     |
+| k8sObjectUid | string    | K8s object UID corresponding to the workload. e.g. Associated PyTorchJob UID                                                            |
 
 > Other fields not listed here are identical to those in the "List Workloads" Field Description.
 
@@ -689,33 +737,50 @@ Get Service information associated with the workload.
 
 ```json
 {
-  "serviceName": "my-training-job-abc123",
-  "clusterIP": "10.96.0.100",
-  "ports": [
-    {
-      "name": "http",
-      "port": 8080,
-      "targetPort": 8080,
-      "nodePort": 30000,
-      "protocol": "TCP"
-    }
-  ]
+    "port": {
+        "protocol": "TCP",
+        "port": 8080,
+        "targetPort": 8080,
+        "nodePort": 12345
+    },
+    "externalDomain": "http://tas.primus-safe.amd.com/safe-cluster/safe-cluster-dev/test-infer-htmqc",
+    "internalDomain": "test-infer-htmqc.safe-cluster-dev.svc.cluster.local:8080",
+    "clusterIp": "10.254.205.115",
+    "type": "ClusterIP"
 }
 ```
+
+**Field Description**:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| port | object | Kubernetes Service port info (protocol, port, targetPort). |
+| externalDomain | string | Public URL via Higress when enabled and system host is set; empty otherwise. |
+| internalDomain | string | In-cluster DNS address of the Service with port (service.namespace.svc.cluster.local:port). |
+| clusterIp | string | ClusterIP assigned to the Service; empty for headless/None. |
+| type | string | Service type: ClusterIP, NodePort. |
+
+Port fields:
+| Field | Type | Description |
+|-------|------|-------------|
+| protocol | string | Protocol of the service port (e.g., TCP/UDP). |
+| port | integer | Service port exposed by the Service. |
+| targetPort | integer | Container port targeted by the Service. |
+| nodePort | integer | Node port allocated when Service type is NodePort; 0 or omitted otherwise. |
 
 ---
 
 ## Workload Status
 
-| Status | Description |
-|--------|-------------|
-| Pending | Waiting for scheduling |
-| Running | Currently running |
-| Succeeded | Completed successfully |
-| Failed | Execution failed |
-| Stopped | Stopped |
-| Updating | Being updated |
-| NotReady | not ready, only for deployment/AutoscalingRunnerSet |
+| Status | Description                                                     |
+|--------|-----------------------------------------------------------------|
+| Pending | Waiting for scheduling                                          |
+| Running | Currently running                                               |
+| Succeeded | Completed successfully                                          |
+| Failed | Execution failed                                                |
+| Stopped | Stopped                                                         |
+| Updating | Being updated, only for Deployment/StatefulSet                                                 |
+| NotReady | not ready, only for Deployment/StatefulSet/AutoscalingRunnerSet |
 
 
 ## Workload Types

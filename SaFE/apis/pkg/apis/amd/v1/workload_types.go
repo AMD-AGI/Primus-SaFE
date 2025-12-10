@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -88,13 +88,13 @@ type HealthCheck struct {
 type Service struct {
 	// Service protocol, e.g. TCP/UDP, default TCP
 	Protocol corev1.Protocol `json:"protocol"`
-	// Service port for external access
-	Port int `json:"port"`
-	// Service NodePort (for NodePort type)
+	// Service port for external access, Defaults to targetPort.
+	Port int `json:"port,omitempty"`
+	// Port of Host Node (for NodePort type)
 	NodePort int `json:"nodePort,omitempty"`
 	// Target container port
 	TargetPort int `json:"targetPort"`
-	// Service type, e.g. ClusterIP/NodePort/LoadBalancer
+	// Service type, e.g. ClusterIP/NodePort
 	ServiceType corev1.ServiceType `json:"serviceType"`
 	// Extended environment variable
 	Extends map[string]string `json:"extends,omitempty"`
@@ -191,6 +191,8 @@ type WorkloadStatus struct {
 	Ranks [][]string `json:"ranks,omitempty"`
 	// The corresponding UID applied to the Kubernetes object.
 	K8sObjectUid string `json:"k8sObjectUid,omitempty"`
+	// The corresponding ID applied to the cicd AutoscalingRunnerSet object.
+	RunnerScaleSetId string `json:"runnerScaleSetId,omitempty"`
 	// The phase of each dependency workload.
 	DependenciesPhase map[string]WorkloadPhase `json:"dependenciesPhase,omitempty"`
 }

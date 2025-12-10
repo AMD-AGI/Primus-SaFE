@@ -6,7 +6,6 @@
 package utils
 
 import (
-	"encoding/json"
 	"fmt"
 	"reflect"
 
@@ -19,27 +18,26 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
-	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/slice"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 )
 
 const (
-	ResourcesEnv   = "RESOURCES"
-	ImageEnv       = "IMAGE"
-	EntrypointEnv  = "ENTRYPOINT"
 	WorkspaceIdEnv = "WORKSPACE_ID"
 	UserIdEnv      = "USER_ID"
+	PriorityEnv    = "PRIORITY"
 	NfsPathEnv     = "SAFE_NFS_PATH"
 	NfsInputEnv    = "SAFE_NFS_INPUT"
 	NfsOutputEnv   = "SAFE_NFS_OUTPUT"
 )
 
 type K8sResourceStatus struct {
-	Phase         string
-	Message       string
-	SpecReplica   int
-	ActiveReplica int
+	Phase       string
+	Message     string
+	SpecReplica int
+	// only for cicd AutoscalingRunnerSet
+	RunnerScaleSetId string
+	ActiveReplica    int
 }
 
 func (s *K8sResourceStatus) IsPending() bool {
@@ -72,6 +70,8 @@ func GetK8sResourceStatus(unstructuredObj *unstructured.Unstructured, rt *v1.Res
 			result.Phase = string(v1.K8sRunning)
 			result.Message = "the job is running"
 		}
+	case common.CICDScaleRunnerSetKind:
+		result.RunnerScaleSetId = v1.GetAnnotation(unstructuredObj, v1.CICDScaleSetIdAnnotation)
 	default:
 		err = getResourceStatusImpl(unstructuredObj, rt, result)
 	}
@@ -209,37 +209,22 @@ func GetResources(unstructuredObj *unstructured.Unstructured,
 	rt *v1.ResourceTemplate, mainContainer, gpuName string) ([]int64, []corev1.ResourceList, error) {
 	var replicaList []int64
 	var resourceList []corev1.ResourceList
-	if unstructuredObj.GetKind() == common.CICDScaleRunnerSetKind {
-		resourceStr, err := getEnvValue(unstructuredObj, rt, mainContainer, ResourcesEnv)
-		if err != nil {
-			return nil, nil, err
-		}
-		workloadResource := &v1.WorkloadResource{}
-		if err = json.Unmarshal([]byte(resourceStr), workloadResource); err != nil {
-			return nil, nil, err
-		}
-		podResource, err := commonworkload.GetPodResources(workloadResource)
-		if err != nil {
-			return nil, nil, err
-		}
-		replicaList = append(replicaList, int64(workloadResource.Replica))
-		resourceList = append(resourceList, podResource)
-		return replicaList, resourceList, nil
-	}
-
 	for _, t := range rt.Spec.ResourceSpecs {
-		path := t.PrePaths
-		path = append(path, t.ReplicasPaths...)
-		replica, found, err := unstructured.NestedInt64(unstructuredObj.Object, path...)
-		if err != nil {
-			klog.ErrorS(err, "failed to find replica", "path", path)
-			return nil, nil, err
-		}
-		if !found {
-			continue
+		if len(t.ReplicasPaths) > 0 {
+			path := t.PrePaths
+			path = append(path, t.ReplicasPaths...)
+			replica, found, err := unstructured.NestedInt64(unstructuredObj.Object, path...)
+			if err != nil {
+				klog.ErrorS(err, "failed to find replica", "path", path)
+				return nil, nil, err
+			}
+			if !found {
+				continue
+			}
+			replicaList = append(replicaList, replica)
 		}
 
-		path = t.PrePaths
+		path := t.PrePaths
 		path = append(path, t.TemplatePaths...)
 		path = append(path, "spec", "containers")
 		containers, found, err := unstructured.NestedSlice(unstructuredObj.Object, path...)
@@ -277,10 +262,6 @@ func GetResources(unstructuredObj *unstructured.Unstructured,
 			resourceList = append(resourceList, rl)
 			break
 		}
-		replicaList = append(replicaList, replica)
-	}
-	if len(replicaList) != len(resourceList) {
-		return nil, nil, fmt.Errorf("internal error. the replica and limits is not match")
 	}
 	return replicaList, resourceList, nil
 }
@@ -288,11 +269,6 @@ func GetResources(unstructuredObj *unstructured.Unstructured,
 // GetCommand Retrieve the command of the main container.
 func GetCommand(unstructuredObj *unstructured.Unstructured,
 	rt *v1.ResourceTemplate, mainContainer string) ([]string, error) {
-	if unstructuredObj.GetKind() == common.CICDScaleRunnerSetKind {
-		val, err := getEnvValue(unstructuredObj, rt, mainContainer, EntrypointEnv)
-		return []string{val}, err
-	}
-
 	for _, t := range rt.Spec.ResourceSpecs {
 		path := t.PrePaths
 		path = append(path, t.TemplatePaths...)
@@ -337,10 +313,6 @@ func GetCommand(unstructuredObj *unstructured.Unstructured,
 // GetImage Retrieve the image address of the main container.
 func GetImage(unstructuredObj *unstructured.Unstructured,
 	rt *v1.ResourceTemplate, mainContainer string) (string, error) {
-	if unstructuredObj.GetKind() == common.CICDScaleRunnerSetKind {
-		return getEnvValue(unstructuredObj, rt, mainContainer, ImageEnv)
-	}
-
 	for _, t := range rt.Spec.ResourceSpecs {
 		path := t.PrePaths
 		path = append(path, t.TemplatePaths...)
@@ -430,6 +402,10 @@ func GetSpecReplica(unstructuredObj *unstructured.Unstructured, rt *v1.ResourceT
 	}
 	replica := 0
 	for _, t := range rt.Spec.ResourceSpecs {
+		if t.Replica > 0 {
+			replica += int(t.Replica)
+			continue
+		}
 		l := len(t.ReplicasPaths)
 		if l == 0 {
 			continue

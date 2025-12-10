@@ -13,26 +13,29 @@ const (
 	PrimusRouterCustomRootPath = "api/" + DefaultVersion
 	ImageImportSecretName      = "primus-safe-image-import-reg-cred"
 
-	AuthoringKind          = "Authoring"
-	PytorchJobKind         = "PyTorchJob"
-	JobKind                = "Job"
-	DeploymentKind         = "Deployment"
-	StatefulSetKind        = "StatefulSet"
-	CICDScaleRunnerSetKind = "AutoscalingRunnerSet"
-	CICDScaleRunnerKind    = "AutoscalingRunner"
-	UnifiedJobKind         = "UnifiedJob"
-	PodKind                = "Pod"
-	EventKind              = "Event"
-	ConfigmapKind          = "ConfigMap"
-	ClusterRoleKind        = "ClusterRole"
-	ServiceAccountKind     = "ServiceAccount"
+	AuthoringKind           = "Authoring"
+	PytorchJobKind          = "PyTorchJob"
+	JobKind                 = "Job"
+	DeploymentKind          = "Deployment"
+	StatefulSetKind         = "StatefulSet"
+	CICDScaleRunnerSetKind  = "AutoscalingRunnerSet"
+	CICDEphemeralRunnerKind = "EphemeralRunner"
+	UnifiedJobKind          = "UnifiedJob"
+
+	PodKind            = "Pod"
+	EventKind          = "Event"
+	ConfigmapKind      = "ConfigMap"
+	ClusterRoleKind    = "ClusterRole"
+	ServiceAccountKind = "ServiceAccount"
 
 	GithubConfigUrl   = "GITHUB_CONFIG_URL"
+	GithubSecretId    = "GITHUB_SECRET_ID"
 	AdminControlPlane = "ADMIN_CONTROL_PLANE"
 	UnifiedJobEnable  = "UNIFIED_JOB_ENABLE"
 	ScaleRunnerSetID  = "SCALE_RUNNER_SET_ID"
 	ScaleRunnerID     = "SCALE_RUNNER_ID"
 
+	HigressClassname = "higress"
 	HigressNamespace = "higress-system"
 	HigressGateway   = "higress-gateway"
 	HigressSSHPort   = 22
@@ -44,6 +47,7 @@ const (
 	SSHPortName            = "ssh-port"
 	JsonContentType        = "application/json; charset=utf-8"
 	KubernetesControlPlane = "node-role.kubernetes.io/control-plane"
+	ExcludedNodes          = "excluded-nodes"
 
 	DefaultBurst = 1000
 	DefaultQPS   = 1000

@@ -27,105 +27,167 @@ jobs:
       run: |
         if [[ $GITHUB_REF == refs/tags/* ]]; then
           TAG=${GITHUB_REF#refs/tags/}
-          echo "::set-output name=ImageVersion::$TAG"
+          echo "image_version=$TAG" >> $GITHUB_OUTPUT
         else
-          echo "::set-output name=image_version::latest"
+          echo "image_version=latest" >> $GITHUB_OUTPUT
         fi
     - name: Get Current Time
       id: get-current-time
       run: |
         FORMATTED_DATE=$(TZ='Asia/Shanghai' date +'%Y%m%d%H%M')
-        echo "::set-output name=date_time::$FORMATTED_DATE"
+        echo "date_time=$FORMATTED_DATE" >> $GITHUB_OUTPUT
         echo "Formatted date: $FORMATTED_DATE"
-    - name: Get changed files
-      id: changed-files
-      uses: tj-actions/changed-files@v40
-      with:
-        files_yaml: |
-          apiserver:
-            - SaFE/apis/**
-            - SaFE/apiserver/**
-            - SaFE/charts/primus-safe/templates/apiserver/**
-            - SaFE/common/**
-            - SaFE/utils/**
-          resource_manager:
-            - SaFE/apis/**
-            - SaFE/resource-manager/**
-            - SaFE/charts/primus-safe/templates/resource-manager/**
-            - SaFE/common/**
-            - SaFE/utils/**
-          job_manager:
-            - SaFE/apis/**
-            - SaFE/job-manager/pkg/**
-            - SaFE/job-manager/cmd/** 
-            - SaFE/job-manager/installer/run.sh
-            - SaFE/job-manager/installer/Dockerfile
-            - SaFE/charts/primus-safe/templates/job-manager/**
-            - SaFE/common/**
-            - SaFE/utils/**
-          preprocess:
-            - SaFE/job-manager/installer/preprocess/**
-          cicd_runner_proxy:
-            - SaFE/job-manager/installer/cicd/runner-proxy/**
-          cicd_unified_job_proxy:
-            - SaFE/job-manager/installer/cicd/unified-job-proxy/**
-          webhooks:
-            - SaFE/apis/**
-            - SaFE/webhooks/**
-            - SaFE/charts/primus-safe/templates/webhooks/**
-            - SaFE/common/**
-            - SaFE/utils/**
-          node_agent:
-            - SaFE/node-agent/**
-            - SaFE/common/**
-            - SaFE/utils/**
-          sync_image:
-            - SaFE/tools/sync-image/**
-          telemetry_processor:
-            - modules/telemetry-processor/**
-            - modules/core/**
-          gpu_resource_exporter:
-            - modules/exporters/gpu-resource-exporter/**
-            - modules/core/**
-          system_tuner:
-            - modules/system-tuner/**
-          primus_safe_adapter:
-            - modules/adapter/primus-safe-adapter/**
-            - modules/core/**
-        files_ignore_yaml: |      
-          node_agent:
-            - SaFE/node-agent/charts/node-agent/values.yaml
-            - SaFE/node-agent/charts/node-agent/Chart.yaml
+    - name: Detect changed files with git diff
+      id: detect-changes
+      run: |
+        set -e
+        
+        # Determine the base commit for comparison
+        if [[ "${{ github.event_name }}" == "push" ]]; then
+          if [[ "${{ github.event.before }}" == "0000000000000000000000000000000000000000" ]]; then
+            # New branch, compare HEAD with previous commit
+            BASE_COMMIT="HEAD^"
+          else
+            # Use event.before as the base
+            BASE_COMMIT="${{ github.event.before }}"
+          fi
+          HEAD_COMMIT="${{ github.sha }}"
+        else
+          # For other event types (e.g. tag), compare the last two commits
+          BASE_COMMIT="HEAD^"
+          HEAD_COMMIT="HEAD"
+        fi
+        
+        echo "Comparing $BASE_COMMIT...$HEAD_COMMIT"
+        
+        # Get the list of changed files
+        CHANGED_FILES=$(git diff --name-only $BASE_COMMIT $HEAD_COMMIT || echo "")
+        
+        echo "Changed files:"
+        echo "$CHANGED_FILES"
+        
+        # Check if each module has changes
+        # apiserver: SaFE/apis/**, SaFE/apiserver/**, SaFE/charts/primus-safe/templates/apiserver/**, SaFE/common/**, SaFE/utils/**
+        if echo "$CHANGED_FILES" | grep -qE '^SaFE/(apis|apiserver|charts/primus-safe/templates/apiserver|common|utils)/'; then
+          echo "apiserver_changed=true" >> $GITHUB_OUTPUT
+        else
+          echo "apiserver_changed=false" >> $GITHUB_OUTPUT
+        fi
+        
+        # resource_manager: SaFE/apis/**, SaFE/resource-manager/**, SaFE/charts/primus-safe/templates/resource-manager/**, SaFE/common/**, SaFE/utils/**
+        if echo "$CHANGED_FILES" | grep -qE '^SaFE/(apis|resource-manager|charts/primus-safe/templates/resource-manager|common|utils)/'; then
+          echo "resource_manager_changed=true" >> $GITHUB_OUTPUT
+        else
+          echo "resource_manager_changed=false" >> $GITHUB_OUTPUT
+        fi
+        
+        # job_manager: SaFE/apis/**, SaFE/job-manager/pkg/**, SaFE/job-manager/cmd/**, run.sh, Dockerfile, templates/job-manager/**, SaFE/common/**, SaFE/utils/**
+        if echo "$CHANGED_FILES" | grep -qE '^SaFE/(apis|job-manager/(pkg|cmd)|job-manager/installer/(run\.sh|Dockerfile)|charts/primus-safe/templates/job-manager|common|utils)/'; then
+          echo "job_manager_changed=true" >> $GITHUB_OUTPUT
+        else
+          echo "job_manager_changed=false" >> $GITHUB_OUTPUT
+        fi
+        
+        # preprocess: SaFE/job-manager/installer/preprocess/**
+        if echo "$CHANGED_FILES" | grep -qE '^SaFE/job-manager/installer/preprocess/'; then
+          echo "preprocess_changed=true" >> $GITHUB_OUTPUT
+        else
+          echo "preprocess_changed=false" >> $GITHUB_OUTPUT
+        fi
+        
+        # cicd_runner_proxy: SaFE/job-manager/installer/cicd/runner-proxy/**
+        if echo "$CHANGED_FILES" | grep -qE '^SaFE/job-manager/installer/cicd/runner-proxy/'; then
+          echo "cicd_runner_proxy_changed=true" >> $GITHUB_OUTPUT
+        else
+          echo "cicd_runner_proxy_changed=false" >> $GITHUB_OUTPUT
+        fi
+        
+        # cicd_unified_job_proxy: SaFE/job-manager/installer/cicd/unified-job-proxy/**
+        if echo "$CHANGED_FILES" | grep -qE '^SaFE/job-manager/installer/cicd/unified-job-proxy/'; then
+          echo "cicd_unified_job_proxy_changed=true" >> $GITHUB_OUTPUT
+        else
+          echo "cicd_unified_job_proxy_changed=false" >> $GITHUB_OUTPUT
+        fi
+        
+        # webhooks: SaFE/apis/**, SaFE/webhooks/**, SaFE/charts/primus-safe/templates/webhooks/**, SaFE/common/**, SaFE/utils/**
+        if echo "$CHANGED_FILES" | grep -qE '^SaFE/(apis|webhooks|charts/primus-safe/templates/webhooks|common|utils)/'; then
+          echo "webhooks_changed=true" >> $GITHUB_OUTPUT
+        else
+          echo "webhooks_changed=false" >> $GITHUB_OUTPUT
+        fi
+        
+        # node_agent: SaFE/node-agent/**, SaFE/common/**, SaFE/utils/** (excluding values.yaml and Chart.yaml)
+        if echo "$CHANGED_FILES" | grep -E '^SaFE/(node-agent|common|utils)/' | grep -vE 'SaFE/node-agent/charts/node-agent/(values|Chart)\.yaml$' | grep -q .; then
+          echo "node_agent_changed=true" >> $GITHUB_OUTPUT
+        else
+          echo "node_agent_changed=false" >> $GITHUB_OUTPUT
+        fi
+        
+        # sync_image: SaFE/tools/sync-image/**
+        if echo "$CHANGED_FILES" | grep -qE '^SaFE/tools/sync-image/'; then
+          echo "sync_image_changed=true" >> $GITHUB_OUTPUT
+        else
+          echo "sync_image_changed=false" >> $GITHUB_OUTPUT
+        fi
+        
+        # telemetry_processor: modules/telemetry-processor/** or modules/core/**
+        if echo "$CHANGED_FILES" | grep -qE '^modules/(telemetry-processor|core)/'; then
+          echo "telemetry_processor_changed=true" >> $GITHUB_OUTPUT
+        else
+          echo "telemetry_processor_changed=false" >> $GITHUB_OUTPUT
+        fi
+        
+        # gpu_resource_exporter: modules/exporters/gpu-resource-exporter/** or modules/core/**
+        if echo "$CHANGED_FILES" | grep -qE '^modules/(exporters/gpu-resource-exporter|core)/'; then
+          echo "gpu_resource_exporter_changed=true" >> $GITHUB_OUTPUT
+        else
+          echo "gpu_resource_exporter_changed=false" >> $GITHUB_OUTPUT
+        fi
+        
+        # system_tuner: modules/system-tuner/**
+        if echo "$CHANGED_FILES" | grep -qE '^modules/system-tuner/'; then
+          echo "system_tuner_changed=true" >> $GITHUB_OUTPUT
+        else
+          echo "system_tuner_changed=false" >> $GITHUB_OUTPUT
+        fi
+        
+        # primus_safe_adapter: modules/adapter/primus-safe-adapter/** or modules/core/**
+        if echo "$CHANGED_FILES" | grep -qE '^modules/(adapter/primus-safe-adapter|core)/'; then
+          echo "primus_safe_adapter_changed=true" >> $GITHUB_OUTPUT
+        else
+          echo "primus_safe_adapter_changed=false" >> $GITHUB_OUTPUT
+        fi
+    
     - name: Generate matrix
       id: generate-matrix
       run: |
         MATRIX='{"include":['
-        if [[ "${{ steps.changed-files.outputs.apiserver_any_changed }}" == "true" ]]; then
-          MATRIX+='{"name":"apiserver","basepath":"SaFE/apiserver",dockerfile_path:"SaFE/apiserver/installer/Dockerfile"},'
+        if [[ "${{ steps.detect-changes.outputs.apiserver_changed }}" == "true" ]]; then
+          MATRIX+='{"name":"apiserver","basepath":"SaFE/apiserver","dockerfile_path":"SaFE/apiserver/installer/Dockerfile"},'
         fi
-        if [[ "${{ steps.changed-files.outputs.resource_manager_any_changed }}" == "true" ]]; then
-          MATRIX+='{"name":"resource-manager","basepath":"SaFE/resource-manager",dockerfile_path:"SaFE/resource-manager/installer/Dockerfile"},'
+        if [[ "${{ steps.detect-changes.outputs.resource_manager_changed }}" == "true" ]]; then
+          MATRIX+='{"name":"resource-manager","basepath":"SaFE/resource-manager","dockerfile_path":"SaFE/resource-manager/installer/Dockerfile"},'
         fi
-        if [[ "${{ steps.changed-files.outputs.job_manager_any_changed }}" == "true" ]]; then
-          MATRIX+='{"name":"job-manager","basepath":"SaFE/job-manager",dockerfile_path:"SaFE/job-manager/installer/Dockerfile"},'
+        if [[ "${{ steps.detect-changes.outputs.job_manager_changed }}" == "true" ]]; then
+          MATRIX+='{"name":"job-manager","basepath":"SaFE/job-manager","dockerfile_path":"SaFE/job-manager/installer/Dockerfile"},'
         fi
-        if [[ "${{ steps.changed-files.outputs.preprocess_any_changed }}" == "true" ]]; then
-          MATRIX+='{"name":"preprocess","basepath":"SaFE/job-manager/installer/preprocess",dockerfile_path:"SaFE/job-manager/installer/preprocess/Dockerfile"},'
+        if [[ "${{ steps.detect-changes.outputs.preprocess_changed }}" == "true" ]]; then
+          MATRIX+='{"name":"preprocess","basepath":"SaFE/job-manager/installer/preprocess","dockerfile_path":"SaFE/job-manager/installer/preprocess/Dockerfile"},'
         fi
-        if [[ "${{ steps.changed-files.outputs.cicd_runner_proxy_any_changed }}" == "true" ]]; then
-          MATRIX+='{"name":"cicd_runner_proxy","basepath":"SaFE/job-manager/installer/cicd/runner-proxy",dockerfile_path:"SaFE/job-manager/installer/cicd/runner-proxy/Dockerfile"},'
+        if [[ "${{ steps.detect-changes.outputs.cicd_runner_proxy_changed }}" == "true" ]]; then
+          MATRIX+='{"name":"cicd-runner-proxy","basepath":"SaFE/job-manager/installer/cicd/runner-proxy","dockerfile_path":"SaFE/job-manager/installer/cicd/runner-proxy/Dockerfile"},'
         fi
-        if [[ "${{ steps.changed-files.outputs.cicd_unified_job_proxy_any_changed }}" == "true" ]]; then
-          MATRIX+='{"name":"cicd_unified_job_proxy","basepath":"SaFE/job-manager/installer/cicd/unified-job-proxy",dockerfile_path:"SaFE/job-manager/installer/cicd/unified-job-proxy/Dockerfile"},'
+        if [[ "${{ steps.detect-changes.outputs.cicd_unified_job_proxy_changed }}" == "true" ]]; then
+          MATRIX+='{"name":"cicd-unified-job-proxy","basepath":"SaFE/job-manager/installer/cicd/unified-job-proxy","dockerfile_path":"SaFE/job-manager/installer/cicd/unified-job-proxy/Dockerfile"},'
         fi
-        if [[ "${{ steps.changed-files.outputs.webhooks_any_changed }}" == "true" ]]; then
-          MATRIX+='{"name":"webhooks","basepath":"SaFE/webhooks",dockerfile_path:"SaFE/webhooks/installer/Dockerfile"},'
+        if [[ "${{ steps.detect-changes.outputs.webhooks_changed }}" == "true" ]]; then
+          MATRIX+='{"name":"webhooks","basepath":"SaFE/webhooks","dockerfile_path":"SaFE/webhooks/installer/Dockerfile"},'
         fi
-        if [[ "${{ steps.changed-files.outputs.node_agent_any_changed }}" == "true" ]]; then
-          MATRIX+='{"name":"node-agent","basepath":"SaFE/node-agent",dockerfile_path:"SaFE/node-agent/installer/Dockerfile"},'
+        if [[ "${{ steps.detect-changes.outputs.node_agent_changed }}" == "true" ]]; then
+          MATRIX+='{"name":"node-agent","basepath":"SaFE/node-agent","dockerfile_path":"SaFE/node-agent/installer/Dockerfile"},'
         fi
-        if [[ "${{ steps.changed-files.outputs.sync_image_any_changed }}" == "true" ]]; then
-          MATRIX+='{"name":"sync-image","basepath":"SaFE/tools/sync-image",dockerfile_path:"SaFE/tools/sync-image/Dockerfile"},'
+        if [[ "${{ steps.detect-changes.outputs.sync_image_changed }}" == "true" ]]; then
+          MATRIX+='{"name":"sync-image","basepath":"SaFE/tools/sync-image","dockerfile_path":"SaFE/tools/sync-image/Dockerfile"},'
         fi
         MATRIX=${MATRIX%,} # remove trailing comma
         MATRIX+=']}'
@@ -133,10 +195,10 @@ jobs:
         echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
   build:
     needs: detect-changes
-    runs-on: primus-safe-tw
+    runs-on: primus-safe-cicd-tnznd
+    timeout-minutes: 120
     outputs:
       primary_tag: ${{ steps.build-and-push.outputs.primary_tag }}
-    timeout-minutes: 7200
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.detect-changes.outputs.matrix) }}

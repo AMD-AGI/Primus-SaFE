@@ -1,0 +1,45 @@
+{
+    "debug": {
+        "enabled": false,
+        "log_level": "INFO"
+    },
+    "model": {
+        "model_type": "llama",
+        "model_path": "meta-llama/Llama-3.1-8B-Instruct",
+        "num_layers": 4,
+        "init_std": 0.02,
+        "use_flash_attention": true
+    },
+    "training": {
+        "batch_size": 4,
+        "grad_accum_nums": 8,
+        "context_length": 8192,
+        "max_steps": 20,
+        "warmup_steps": 10,
+        "learning_rate": 5e-4,
+        "weight_decay": 0.1,
+        "adam_beta1": 0.9,
+        "adam_beta2": 0.95,
+        "adam_epsilon": 1e-8,
+        "max_grad_norm": 1.0,
+        "use_amp": true,
+        "amp_dtype": "bfloat16",
+        "save_interval": 50,
+        "eval_interval": 50,
+        "patience": 1000,
+        "min_delta": 1e-4
+    },
+    "data": {
+        "dataset_name": "wikitext",
+        "num_workers": 4,
+        "pin_memory": true,
+        "prefetch_factor": 2
+    },
+    "system": {
+        "device": "cuda",
+        "seed": 42,
+        "gradient_checkpointing": false,
+        "empty_cache_interval": 10
+    },
+    "experiment_name": "llama_production"
+}

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -37,11 +37,6 @@ func (gvk GroupVersionKind) String() string {
 // VersionKind returns a string representation of version and kind.
 func (gvk GroupVersionKind) VersionKind() string {
 	return gvk.Kind + "/" + gvk.Version
-}
-
-// Empty returns true if the GroupVersionKind is unset.
-func (gvk GroupVersionKind) Empty() bool {
-	return gvk.Group == "" && gvk.Version == "" && gvk.Kind == ""
 }
 
 type ResourceTemplateSpec struct {

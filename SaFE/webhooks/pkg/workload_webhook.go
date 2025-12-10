@@ -18,6 +18,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/types"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/klog/v2"
@@ -38,7 +39,6 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/floatutil"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/maps"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
-	sliceutil "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/slice"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
@@ -51,6 +51,12 @@ const (
 	DefaultMaxUnavailable      = "25%"
 	DefaultMaxMaxSurge         = "25%"
 	DefaultMaxFailover         = 50
+
+	MaxCICDScaleSetNameLen = 39
+
+	ResourcesEnv  = "RESOURCES"
+	ImageEnv      = "IMAGE"
+	EntrypointEnv = "ENTRYPOINT"
 )
 
 // AddWorkloadWebhook registers the workload validation and mutation webhooks.
@@ -110,47 +116,41 @@ func (m *WorkloadMutator) mutateOnCreation(ctx context.Context, workload *v1.Wor
 	workspace, _ := getWorkspace(ctx, m.Client, workload.Spec.Workspace)
 	m.mutateGvk(workload)
 	m.mutateMeta(ctx, workload, workspace)
-
-	switch workload.SpecKind() {
-	case common.DeploymentKind:
-		m.mutateDeployment(workload)
-	case common.StatefulSetKind:
-		m.mutateStatefulSet(workload)
-	case common.AuthoringKind:
-		m.mutateAuthoring(workload)
-	case common.CICDScaleRunnerSetKind:
-		m.mutateCICDScaleSet(workload)
-	}
-
-	m.mutateCommon(ctx, workload, workspace)
-	m.mutateHealthCheck(workload)
-	m.mutateService(workload)
-	m.mutateMaxRetry(workload)
-	m.mutateEnv(nil, workload)
 	m.mutateTTLSeconds(workload)
-	m.mutateImageSecrets(workload, workspace)
+	m.mutateCommon(ctx, nil, workload, workspace)
 	return true
 }
 
 // mutateOnUpdate applies mutations during updates.
 func (m *WorkloadMutator) mutateOnUpdate(ctx context.Context, oldWorkload, newWorkload *v1.Workload) bool {
 	workspace, _ := getWorkspace(ctx, m.Client, newWorkload.Spec.Workspace)
-	m.mutateCommon(ctx, newWorkload, workspace)
-	m.mutateEnv(oldWorkload, newWorkload)
+	m.mutateCommon(ctx, oldWorkload, newWorkload, workspace)
 	return true
 }
 
-// mutateCommon normalizes resources, hostpaths, priority, image, entry point, host network,
-// customer labels and cron jobs.
-func (m *WorkloadMutator) mutateCommon(ctx context.Context, workload *v1.Workload, workspace *v1.Workspace) bool {
-	m.mutateResource(workload, workspace)
-	m.mutateHostpath(workload, workspace)
-	m.mutatePriority(workload)
-	m.mutateImage(workload)
-	m.mutateEntryPoint(workload)
-	m.mutateHostNetwork(ctx, workload)
-	m.mutateCustomerLabels(workload)
-	m.mutateCronJobs(workload)
+// mutateCommon normalizes resources, hostpath, priority, image, entry point, host network and so on
+func (m *WorkloadMutator) mutateCommon(ctx context.Context, oldWorkload, newWorkload *v1.Workload, workspace *v1.Workspace) bool {
+	switch newWorkload.SpecKind() {
+	case common.DeploymentKind, common.StatefulSetKind:
+		m.mutateDeployment(newWorkload)
+	case common.AuthoringKind:
+		m.mutateAuthoring(newWorkload)
+	case common.CICDScaleRunnerSetKind:
+		m.mutateCICDScaleSet(newWorkload)
+	}
+	m.mutateResource(newWorkload, workspace)
+	m.mutateHostpath(newWorkload, workspace)
+	m.mutatePriority(newWorkload)
+	m.mutateImage(newWorkload)
+	m.mutateEntryPoint(newWorkload)
+	m.mutateEnv(oldWorkload, newWorkload)
+	m.mutateMaxRetry(newWorkload)
+	m.mutateHostNetwork(ctx, newWorkload)
+	m.mutateCustomerLabels(newWorkload)
+	m.mutateCronJobs(newWorkload)
+	m.mutateHealthCheck(newWorkload)
+	m.mutateService(newWorkload)
+	m.mutateSecrets(ctx, newWorkload, workspace)
 	return true
 }
 
@@ -193,7 +193,7 @@ func (m *WorkloadMutator) mutateMeta(ctx context.Context, workload *v1.Workload,
 func (m *WorkloadMutator) mutateOwnerReference(ctx context.Context, workload *v1.Workload, workspace *v1.Workspace) {
 	var err error
 	switch workload.SpecKind() {
-	case common.CICDScaleRunnerKind:
+	case common.CICDEphemeralRunnerKind:
 		scaleRunnerSetId := workload.GetEnv(common.ScaleRunnerSetID)
 		if scaleRunnerSetId == "" {
 			break
@@ -203,6 +203,7 @@ func (m *WorkloadMutator) mutateOwnerReference(ctx context.Context, workload *v1
 			if !hasOwnerReferences(workload, scaleRunnerSetId) {
 				err = controllerutil.SetControllerReference(scaleRunnerSetWorkload, workload, m.Client.Scheme())
 			}
+			v1.SetAnnotation(workload, v1.CICDScaleSetIdAnnotation, scaleRunnerSetWorkload.Status.RunnerScaleSetId)
 		}
 	case common.UnifiedJobKind:
 		scaleRunnerId := workload.GetEnv(common.ScaleRunnerID)
@@ -210,7 +211,7 @@ func (m *WorkloadMutator) mutateOwnerReference(ctx context.Context, workload *v1
 			break
 		}
 		labelSelector := labels.SelectorFromSet(map[string]string{
-			v1.WorkloadKindLabel: common.CICDScaleRunnerKind, v1.ScaleRunnerIdLabel: scaleRunnerId})
+			v1.WorkloadKindLabel: common.CICDEphemeralRunnerKind, v1.ScaleRunnerIdLabel: scaleRunnerId})
 		scaleRunnerWorkloads := &v1.WorkloadList{}
 		if err = m.List(ctx, scaleRunnerWorkloads, &client.ListOptions{LabelSelector: labelSelector}); err == nil {
 			if len(scaleRunnerWorkloads.Items) > 0 && !hasOwnerReferences(workload, scaleRunnerWorkloads.Items[0].Name) {
@@ -280,7 +281,7 @@ func (m *WorkloadMutator) mutateResource(workload *v1.Workload, workspace *v1.Wo
 	return isChanged
 }
 
-// mutateHostpath removes hostpaths duplicated by the workspace; workloads inherit workspace hostpaths.
+// mutateHostpath removes hostpath duplicated by the workspace; workloads inherit workspace hostpath.
 func (m *WorkloadMutator) mutateHostpath(workload *v1.Workload, workspace *v1.Workspace) {
 	if len(workload.Spec.Hostpath) == 0 {
 		return
@@ -305,6 +306,11 @@ func (m *WorkloadMutator) mutateHostpath(workload *v1.Workload, workspace *v1.Wo
 
 // mutateHealthCheck fills default probe timings for liveness/readiness.
 func (m *WorkloadMutator) mutateHealthCheck(workload *v1.Workload) {
+	if !commonworkload.IsApplication(workload) {
+		workload.Spec.Readiness = nil
+		workload.Spec.Liveness = nil
+		return
+	}
 	if workload.Spec.Readiness != nil {
 		mutateHealthCheck(workload.Spec.Readiness)
 	}
@@ -336,6 +342,18 @@ func (m *WorkloadMutator) mutateService(workload *v1.Workload) {
 	} else {
 		workload.Spec.Service.Protocol = corev1.ProtocolTCP
 	}
+	if workload.Spec.Service.Port == 0 {
+		workload.Spec.Service.Port = workload.Spec.Service.TargetPort
+	}
+	if workload.Spec.Service.Extends == nil {
+		workload.Spec.Service.Extends = make(map[string]string)
+	}
+	if _, ok := workload.Spec.Service.Extends["maxUnavailable"]; !ok {
+		workload.Spec.Service.Extends["maxUnavailable"] = DefaultMaxUnavailable
+	}
+	if _, ok := workload.Spec.Service.Extends["maxSurge"]; !ok {
+		workload.Spec.Service.Extends["maxSurge"] = DefaultMaxMaxSurge
+	}
 }
 
 // isHostNetworkEnabled Check whether to enable hostNetwork. It should only be set to true.
@@ -361,24 +379,7 @@ func (m *WorkloadMutator) isHostNetworkEnabled(workload *v1.Workload, nf *v1.Nod
 func (m *WorkloadMutator) mutateDeployment(workload *v1.Workload) {
 	workload.Spec.IsSupervised = false
 	workload.Spec.MaxRetry = 0
-	if workload.Spec.Service == nil {
-		return
-	}
-	if workload.Spec.Service.Extends == nil {
-		workload.Spec.Service.Extends = make(map[string]string)
-	}
-	if _, ok := workload.Spec.Service.Extends["maxUnavailable"]; !ok {
-		workload.Spec.Service.Extends["maxUnavailable"] = DefaultMaxUnavailable
-	}
-	if _, ok := workload.Spec.Service.Extends["maxSurge"]; !ok {
-		workload.Spec.Service.Extends["maxSurge"] = DefaultMaxMaxSurge
-	}
-}
-
-// mutateStatefulSet resets supervision and retries for StatefulSets.
-func (m *WorkloadMutator) mutateStatefulSet(workload *v1.Workload) {
-	workload.Spec.IsSupervised = false
-	workload.Spec.MaxRetry = 0
+	workload.Spec.Dependencies = nil
 }
 
 // mutateAuthoring sets one-replica, entrypoint for Authoring.
@@ -403,7 +404,6 @@ func (m *WorkloadMutator) mutateCICDScaleSet(workload *v1.Workload) {
 // mutateImage trims image name and entry point.
 func (m *WorkloadMutator) mutateImage(workload *v1.Workload) {
 	workload.Spec.Image = strings.TrimSpace(workload.Spec.Image)
-	workload.Spec.EntryPoint = strings.TrimSpace(workload.Spec.EntryPoint)
 }
 
 // mutateMaxRetry bounds MaxRetry to [0, DefaultMaxFailover].
@@ -423,6 +423,11 @@ func (m *WorkloadMutator) mutateEnv(oldWorkload, newWorkload *v1.Workload) {
 	if oldWorkload != nil {
 		for key := range oldWorkload.Spec.Env {
 			if _, ok := newWorkload.Spec.Env[key]; !ok {
+				if commonworkload.IsCICD(newWorkload) {
+					if key == common.AdminControlPlane || key == common.GithubSecretId {
+						continue
+					}
+				}
 				newWorkload.Spec.Env[key] = ""
 			}
 		}
@@ -438,6 +443,7 @@ func (m *WorkloadMutator) mutateTTLSeconds(workload *v1.Workload) {
 
 // mutateEntryPoint base64-encodes entry point for the required jobs.
 func (m *WorkloadMutator) mutateEntryPoint(workload *v1.Workload) {
+	workload.Spec.EntryPoint = strings.TrimSpace(workload.Spec.EntryPoint)
 	if commonworkload.IsAuthoring(workload) || commonworkload.IsOpsJob(workload) {
 		return
 	}
@@ -498,15 +504,23 @@ func (m *WorkloadMutator) mutateCronJobs(workload *v1.Workload) {
 	}
 }
 
-// mutateImageSecrets handles workload Secrets configuration, ensuring necessary image pull secrets are added
-// 1. Inherit ImageSecrets from workspace if available
-// 2. Add default cluster image secret if no workspace but global config exists
-func (m *WorkloadMutator) mutateImageSecrets(workload *v1.Workload, workspace *v1.Workspace) {
+// mutateSecrets handles workload Secrets configuration by:
+// 1. Filtering out invalid/duplicate secrets from the workload spec
+// 2. Inheriting ImageSecrets from workspace when available
+// 3. Adding default cluster image secret when no workspace exists but global config is present
+func (m *WorkloadMutator) mutateSecrets(ctx context.Context, workload *v1.Workload, workspace *v1.Workspace) {
 	secretsSet := sets.NewSet()
-	for _, s := range workload.Spec.Secrets {
-		if s.Type == v1.SecretImage {
-			secretsSet.Insert(s.Id)
+	newSecrets := make([]v1.SecretEntity, 0, len(workload.Spec.Secrets))
+	for i, s := range workload.Spec.Secrets {
+		if secretsSet.Has(s.Id) {
+			continue
 		}
+		secret := &corev1.Secret{}
+		if m.Get(ctx, types.NamespacedName{Name: s.Id, Namespace: common.PrimusSafeNamespace}, secret) != nil {
+			continue
+		}
+		secretsSet.Insert(s.Id)
+		newSecrets = append(newSecrets, workload.Spec.Secrets[i])
 	}
 	if workspace != nil {
 		for _, s := range workspace.Spec.ImageSecrets {
@@ -514,14 +528,15 @@ func (m *WorkloadMutator) mutateImageSecrets(workload *v1.Workload, workspace *v
 				continue
 			}
 			secretsSet.Insert(s.Name)
-			workload.Spec.Secrets = append(workload.Spec.Secrets, v1.SecretEntity{Id: s.Name, Type: v1.SecretImage})
+			newSecrets = append(newSecrets, v1.SecretEntity{Id: s.Name, Type: v1.SecretImage})
 		}
 	} else if commonconfig.GetImageSecret() != "" {
 		clusterSecretId := commonutils.GenerateClusterSecret(v1.GetClusterId(workload), commonconfig.GetImageSecret())
 		if !secretsSet.Has(clusterSecretId) {
-			workload.Spec.Secrets = append(workload.Spec.Secrets, v1.SecretEntity{Id: clusterSecretId, Type: v1.SecretImage})
+			newSecrets = append(newSecrets, v1.SecretEntity{Id: clusterSecretId, Type: v1.SecretImage})
 		}
 	}
+	workload.Spec.Secrets = newSecrets
 }
 
 // WorkloadValidator validates Workload resources on create and update operations.
@@ -570,9 +585,6 @@ func (v *WorkloadValidator) validateOnCreation(ctx context.Context, workload *v1
 	if err := validateDNSName(v1.GetDisplayName(workload)); err != nil {
 		return err
 	}
-	if err := v.validateResource(workload); err != nil {
-		return err
-	}
 	if err := v.validateScope(ctx, workload); err != nil {
 		return err
 	}
@@ -588,9 +600,6 @@ func (v *WorkloadValidator) validateOnUpdate(ctx context.Context, newWorkload, o
 		return err
 	}
 	if err := v.validateCommon(ctx, newWorkload); err != nil {
-		return err
-	}
-	if err := v.validateSpecChanged(newWorkload, oldWorkload); err != nil {
 		return err
 	}
 	if !reflect.DeepEqual(oldWorkload.Spec.CronJobs, newWorkload.Spec.CronJobs) {
@@ -621,9 +630,6 @@ func (v *WorkloadValidator) validateCommon(ctx context.Context, workload *v1.Wor
 	if err := v.validateTemplate(ctx, workload); err != nil {
 		return err
 	}
-	if err := v.validateDisplayName(workload); err != nil {
-		return err
-	}
 	if err := validateLabels(workload.Spec.CustomerLabels); err != nil {
 		return err
 	}
@@ -636,31 +642,73 @@ func (v *WorkloadValidator) validateRequiredParams(workload *v1.Workload) error 
 	if v1.GetDisplayName(workload) == "" {
 		errs = append(errs, fmt.Errorf("the displayName is empty"))
 	}
+	if err := validateDisplayName(v1.GetDisplayName(workload)); err != nil {
+		errs = append(errs, err)
+	}
 	if v1.GetClusterId(workload) == "" {
 		errs = append(errs, fmt.Errorf("the cluster is empty"))
 	}
 	if workload.Spec.Workspace == "" {
 		errs = append(errs, fmt.Errorf("the workspace is empty"))
 	}
-	if workload.Spec.EntryPoint == "" {
-		errs = append(errs, fmt.Errorf("the entryPoint is empty"))
-	}
-	if workload.Spec.Image == "" {
-		errs = append(errs, fmt.Errorf("the image is empty"))
-	}
-	if workload.Spec.GroupVersionKind.Empty() {
+	if workload.Spec.GroupVersionKind.Kind == "" || workload.Spec.GroupVersionKind.Version == "" {
 		errs = append(errs, fmt.Errorf("the gvk is empty"))
 	}
-	if workload.Spec.Resource.Replica <= 0 {
+	if commonworkload.IsCICDScalingRunnerSet(workload) {
+		if err := v.validateCICDScalingRunnerSet(workload); err != nil {
+			errs = append(errs, err)
+		}
+	} else {
+		if workload.Spec.EntryPoint == "" {
+			errs = append(errs, fmt.Errorf("the entryPoint is empty"))
+		}
+		if workload.Spec.Image == "" {
+			errs = append(errs, fmt.Errorf("the image is empty"))
+		}
+	}
+	if err := v.validateResource(&workload.Spec.Resource); err != nil {
+		errs = append(errs, err)
+	}
+	if err := utilerrors.NewAggregate(errs); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (v *WorkloadValidator) validateCICDScalingRunnerSet(workload *v1.Workload) error {
+	if len(v1.GetDisplayName(workload)) > MaxCICDScaleSetNameLen {
+		return fmt.Errorf("the displayName is too long, maximum length is %d characters", MaxCICDScaleSetNameLen)
+	}
+	keys := []string{ResourcesEnv, EntrypointEnv, ImageEnv, common.GithubConfigUrl, common.GithubSecretId}
+	for _, key := range keys {
+		if val, ok := workload.Spec.Env[key]; !ok || val == "" {
+			return fmt.Errorf("the %s of workload environment variables is empty", key)
+		}
+	}
+	workloadResource := &v1.WorkloadResource{}
+	err := json.Unmarshal([]byte(workload.Spec.Env[ResourcesEnv]), workloadResource)
+	if err != nil {
+		return err
+	}
+	if err = v.validateResource(workloadResource); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (v *WorkloadValidator) validateResource(resource *v1.WorkloadResource) error {
+	var errs []error
+	if resource.Replica <= 0 {
 		errs = append(errs, fmt.Errorf("the replica is empty"))
 	}
-	if workload.Spec.Resource.CPU == "" {
+	if resource.CPU == "" {
 		errs = append(errs, fmt.Errorf("the cpu is empty"))
 	}
-	if workload.Spec.Resource.Memory == "" {
+	if resource.Memory == "" {
 		errs = append(errs, fmt.Errorf("the memory is empty"))
 	}
-	if workload.Spec.Resource.EphemeralStorage == "" {
+	if resource.EphemeralStorage == "" {
 		errs = append(errs, fmt.Errorf("the ephemeralStorage is empty"))
 	}
 	if err := utilerrors.NewAggregate(errs); err != nil {
@@ -694,6 +742,11 @@ func (v *WorkloadValidator) validateService(workload *v1.Workload) error {
 		return fmt.Errorf("the service type only supports %s and %s",
 			corev1.ServiceTypeClusterIP, corev1.ServiceTypeNodePort)
 	}
+	if workload.Spec.Service.ServiceType == corev1.ServiceTypeNodePort {
+		if workload.Spec.Service.NodePort <= 0 {
+			return fmt.Errorf("the nodePort is empty")
+		}
+	}
 	return nil
 }
 
@@ -714,27 +767,6 @@ func (v *WorkloadValidator) validateHealthCheck(workload *v1.Workload) error {
 		if err := validatePort("readiness", workload.Spec.Readiness.Port); err != nil {
 			return err
 		}
-	}
-	return nil
-}
-
-// validateResource validates GPU resource name if GPU is requested.
-func (v *WorkloadValidator) validateResource(workload *v1.Workload) error {
-	var errs []error
-	if workload.Spec.Resource.Replica <= 0 {
-		errs = append(errs, fmt.Errorf("the replica is zero"))
-	}
-	if workload.Spec.Resource.CPU == "" {
-		errs = append(errs, fmt.Errorf("the cpu is empty"))
-	}
-	if workload.Spec.Resource.Memory == "" {
-		errs = append(errs, fmt.Errorf("the memory is empty"))
-	}
-	if workload.Spec.Resource.EphemeralStorage == "" {
-		errs = append(errs, fmt.Errorf("the ephemeralStorage is empty"))
-	}
-	if err := utilerrors.NewAggregate(errs); err != nil {
-		return err
 	}
 	return nil
 }
@@ -812,24 +844,12 @@ func validateResourceEnough(nf *v1.NodeFlavor, res *v1.WorkloadResource) error {
 
 // validateTemplate ensures the resource template and task template for the workload kind exist.
 func (v *WorkloadValidator) validateTemplate(ctx context.Context, workload *v1.Workload) error {
-	if _, err := commonworkload.GetResourceTemplate(ctx, v.Client, workload.ToSchemaGVK()); err != nil {
+	if _, err := commonworkload.GetResourceTemplate(ctx, v.Client, workload); err != nil {
 		return err
 	}
 	_, err := commonworkload.GetWorkloadTemplate(ctx, v.Client, workload)
 	if err != nil {
 		return err
-	}
-	return nil
-}
-
-// validateDisplayName ensures workload display name is unique within the workspace.
-func (v *WorkloadValidator) validateDisplayName(workload *v1.Workload) error {
-	l := len(v1.GetDisplayName(workload))
-	if l > commonutils.MaxDisplayNameLen {
-		return fmt.Errorf("the maximum length of the workload name [%s] is %d",
-			v1.GetDisplayName(workload), commonutils.MaxDisplayNameLen)
-	} else if l == 0 {
-		return fmt.Errorf("the display name is empty")
 	}
 	return nil
 }
@@ -841,37 +861,6 @@ func (v *WorkloadValidator) validateImmutableFields(newWorkload, oldWorkload *v1
 	}
 	if newWorkload.Spec.GroupVersionKind != oldWorkload.Spec.GroupVersionKind {
 		return field.Forbidden(field.NewPath("spec").Key("gvk"), "immutable")
-	}
-	if oldWorkload.Spec.Service != nil && (newWorkload.Spec.Service == nil ||
-		!reflect.DeepEqual(*oldWorkload.Spec.Service, *newWorkload.Spec.Service)) {
-		return field.Forbidden(
-			field.NewPath("spec", "service"), "immutable")
-	}
-	return nil
-}
-
-// validateSpecChanged forbids spec changes for workloads that have been scheduled.
-func (v *WorkloadValidator) validateSpecChanged(newWorkload, oldWorkload *v1.Workload) error {
-	if !v1.IsWorkloadScheduled(newWorkload) {
-		return nil
-	}
-	if !sliceutil.EqualIgnoreOrder(oldWorkload.Spec.Hostpath, newWorkload.Spec.Hostpath) {
-		return commonerrors.NewForbidden("hostpath cannot be changed once the workload has been scheduled")
-	}
-	if commonworkload.IsApplication(newWorkload) || commonworkload.IsCICDScalingRunnerSet(newWorkload) {
-		return nil
-	}
-	if oldWorkload.Spec.EntryPoint != newWorkload.Spec.EntryPoint {
-		return commonerrors.NewForbidden("EntryPoint cannot be changed once the workload has been scheduled")
-	}
-	if oldWorkload.Spec.Image != newWorkload.Spec.Image {
-		return commonerrors.NewForbidden("Image cannot be changed once the workload has been scheduled")
-	}
-	if !commonworkload.IsResourceEqual(oldWorkload, newWorkload) {
-		return commonerrors.NewForbidden("Resources cannot be changed once the workload has been scheduled")
-	}
-	if !maps.EqualIgnoreOrder(oldWorkload.Spec.Env, newWorkload.Spec.Env) {
-		return commonerrors.NewForbidden("Env cannot be changed once the workload has been scheduled")
 	}
 	return nil
 }

@@ -7,7 +7,6 @@ package scheduler
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"reflect"
 	"sort"
@@ -15,7 +14,9 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/labels"
+	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -29,7 +30,6 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/controller"
-	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
@@ -201,13 +201,74 @@ func (r *SchedulerReconciler) delete(ctx context.Context, adminWorkload *v1.Work
 		klog.ErrorS(err, "failed to delete k8s object")
 		return ctrlruntime.Result{}, err
 	}
+	if result, err := r.waitObjectDeleted(ctx, obj, clusterInformer); err != nil || result.RequeueAfter > 0 {
+		return result, err
+	}
+
+	if commonworkload.IsCICDScalingRunnerSet(adminWorkload) {
+		if err = r.deleteRelatedSecrets(ctx, adminWorkload); err != nil {
+			return ctrlruntime.Result{}, err
+		}
+	}
 	if controllerutil.RemoveFinalizer(adminWorkload, v1.WorkloadFinalizer) {
-		if err = r.Update(ctx, adminWorkload); err != nil {
+		if err = commonutils.PatchObjectFinalizer(ctx, r.Client, adminWorkload); err != nil {
 			return ctrlruntime.Result{}, err
 		}
 	}
 	klog.Infof("delete workload, name: %s", adminWorkload.Name)
 	return ctrlruntime.Result{}, nil
+}
+
+// waitObjectDeleted waits for an object to be fully deleted from the cluster.
+// If the object still exists after 3 minutes of deletion timestamp, it forcefully removes finalizers.
+func (r *SchedulerReconciler) waitObjectDeleted(ctx context.Context,
+	obj *unstructured.Unstructured, clusterInformer *syncer.ClusterInformer) (ctrlruntime.Result, error) {
+
+	k8sClientFactory := clusterInformer.ClientFactory()
+	gvk := obj.GroupVersionKind()
+	current, getErr := jobutils.GetObject(ctx, k8sClientFactory, obj.GetName(), obj.GetNamespace(), gvk)
+	if getErr != nil {
+		return ctrlruntime.Result{}, client.IgnoreNotFound(getErr)
+	}
+
+	// object still exists
+	if ts := current.GetDeletionTimestamp(); ts != nil && !ts.IsZero() && time.Since(ts.Time) > 3*time.Minute {
+		patchObj := map[string]any{
+			"metadata": map[string]any{
+				"finalizers": []string{},
+			},
+		}
+		p := jsonutils.MarshalSilently(patchObj)
+		if patchErr := jobutils.PatchObject(ctx,
+			k8sClientFactory, obj.GetName(), obj.GetNamespace(), gvk, p); patchErr != nil {
+			return ctrlruntime.Result{}, client.IgnoreNotFound(patchErr)
+		}
+	}
+	return ctrlruntime.Result{RequeueAfter: time.Second * 10}, nil
+}
+
+// deleteRelatedSecrets removes all secrets associated with a CICD scaling runner set workload.
+// This ensures proper cleanup of GitHub token secrets when the workload is deleted.
+func (r *SchedulerReconciler) deleteRelatedSecrets(ctx context.Context, adminWorkload *v1.Workload) error {
+	secList := &corev1.SecretList{}
+	selector := labels.SelectorFromSet(map[string]string{v1.OwnerLabel: adminWorkload.Name})
+	if err := r.List(ctx, secList, &client.ListOptions{
+		Namespace:     common.PrimusSafeNamespace,
+		LabelSelector: selector,
+	}); err != nil {
+		klog.ErrorS(err, "failed to list cicd token secrets", "workload", adminWorkload.Name)
+		return err
+	}
+	for i := range secList.Items {
+		sec := &secList.Items[i]
+		if delErr := r.Client.Delete(ctx, sec); delErr != nil && !apierrors.IsNotFound(delErr) {
+			klog.ErrorS(delErr, "failed to delete cicd token secret", "secret", sec.Name, "workload", adminWorkload.Name)
+			return delErr
+		} else {
+			klog.Infof("deleted cicd token secret %s for workload %s", sec.Name, adminWorkload.Name)
+		}
+	}
+	return nil
 }
 
 // Start implements Runnable interface in controller runtime package.
@@ -510,9 +571,8 @@ func (r *SchedulerReconciler) updateScheduled(ctx context.Context, workload *v1.
 			return nil
 		} else {
 			if apierrors.IsConflict(innerError) {
-				r.Get(ctx, client.ObjectKey{Name: name}, workload)
-				if workload == nil {
-					return commonerrors.NewNotFoundWithMessage(fmt.Sprintf("The workload %s is not found", name))
+				if getErr := r.Get(ctx, client.ObjectKey{Name: name}, workload); getErr != nil {
+					return getErr
 				}
 			}
 			return innerError
@@ -522,14 +582,10 @@ func (r *SchedulerReconciler) updateScheduled(ctx context.Context, workload *v1.
 		return err
 	}
 
-	annotations := workload.GetAnnotations()
-	if annotations == nil {
-		annotations = make(map[string]string)
-	}
-	annotations[v1.WorkloadScheduledAnnotation] = timeutil.FormatRFC3339(time.Now().UTC())
-	delete(annotations, v1.WorkloadReScheduledAnnotation)
-	workload.SetAnnotations(annotations)
-	if err := r.Update(ctx, workload); err != nil {
+	patch := client.MergeFrom(workload.DeepCopy())
+	v1.RemoveAnnotation(workload, v1.WorkloadReScheduledAnnotation)
+	v1.SetAnnotation(workload, v1.WorkloadScheduledAnnotation, timeutil.FormatRFC3339(time.Now().UTC()))
+	if err := r.Patch(ctx, workload, patch); err != nil {
 		klog.ErrorS(err, "failed to update workload", "name", workload.Name)
 		return err
 	}
@@ -543,12 +599,23 @@ func (r *SchedulerReconciler) updateStatus(ctx context.Context, workload *v1.Wor
 	if jobutils.FindCondition(workload, cond) != nil {
 		return nil
 	}
-	workload.Status.Conditions = append(workload.Status.Conditions, *cond)
-	workload.Status.QueuePosition = 0
+
+	statusPatch := map[string]any{}
 	if workload.Status.Phase == "" {
-		workload.Status.Phase = v1.WorkloadPending
+		statusPatch["phase"] = v1.WorkloadPending
 	}
-	if err := r.Status().Update(ctx, workload); err != nil {
+	if workload.Status.QueuePosition > 0 {
+		statusPatch["queuePosition"] = 0
+	}
+	statusPatch["conditions"] = append(workload.Status.Conditions, *cond)
+	patchObj := map[string]any{
+		"metadata": map[string]any{
+			"resourceVersion": workload.ResourceVersion,
+		},
+		"status": statusPatch,
+	}
+	p := jsonutils.MarshalSilently(patchObj)
+	if err := r.Status().Patch(ctx, workload, client.RawPatch(apitypes.MergePatchType, p)); err != nil {
 		return err
 	}
 	return nil
@@ -561,6 +628,7 @@ func (r *SchedulerReconciler) updateUnScheduled(ctx context.Context, workloads [
 		if v1.IsWorkloadScheduled(w) || w.IsEnd() {
 			continue
 		}
+		patch := client.MergeFrom(workloads[i].DeepCopy())
 		isChanged := false
 		if workloads[i].Status.QueuePosition != position {
 			workloads[i].Status.QueuePosition = position
@@ -575,21 +643,7 @@ func (r *SchedulerReconciler) updateUnScheduled(ctx context.Context, workloads [
 			isChanged = true
 		}
 		if isChanged {
-			patchObj := map[string]any{
-				"metadata": map[string]any{
-					"resourceVersion": workloads[i].ResourceVersion,
-				},
-				"status": map[string]any{
-					"queuePosition": position,
-					"message":       reason,
-				},
-			}
-			p, err := json.Marshal(patchObj)
-			if err != nil {
-				klog.ErrorS(err, "failed to marshal patch object")
-				continue
-			}
-			if err := r.Status().Patch(ctx, workloads[i], client.RawPatch(types.MergePatchType, p)); err != nil {
+			if err := r.Status().Patch(ctx, workloads[i], patch); err != nil {
 				klog.ErrorS(err, "failed to patch workload status", "name", workloads[i].Name)
 			}
 		}

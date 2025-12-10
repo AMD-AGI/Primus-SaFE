@@ -7,10 +7,15 @@ package config
 
 const (
 	// global
-	globalPrefix  = "global."
-	rdmaName      = globalPrefix + "rdma_name"
-	imageSecret   = globalPrefix + "image_secret"
-	systemBaseUrl = globalPrefix + "system_base_url"
+	globalPrefix = "global."
+	imageSecret  = globalPrefix + "image_secret"
+	domain       = globalPrefix + "domain"
+	subDomain    = globalPrefix + "sub_domain"
+
+	netPrefix = "net."
+	rdmaName  = netPrefix + "rdma_name"
+	ingress   = netPrefix + "ingress"
+
 	// crypto
 	cryptoPrefix     = "crypto."
 	cryptoEnable     = cryptoPrefix + "enable"
@@ -112,4 +117,9 @@ const (
 	cicdRoleName            = cicdPrefix + "role_name"
 	cicdControllerName      = cicdPrefix + "controller_name"
 	cicdControllerNamespace = cicdPrefix + "controller_namespace"
+
+	// model
+	modelPrefix          = "model."
+	modelDownloaderImage = modelPrefix + "downloader_image"
+	modelCleanupImage    = modelPrefix + "cleanup_image"
 )

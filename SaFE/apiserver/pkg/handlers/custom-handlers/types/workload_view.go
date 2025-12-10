@@ -6,6 +6,7 @@
 package types
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
@@ -15,6 +16,8 @@ type CreateWorkloadRequest struct {
 	v1.WorkloadSpec
 	// When specifying a workload run on nodes, the replica count will be overwritten with the node count.
 	SpecifiedNodes []string `json:"specifiedNodes,omitempty"`
+	// ExcludedNodes is a list of node names that the workload should avoid running on.
+	ExcludedNodes []string `json:"excludedNodes,omitempty"`
 	// The Workload name(display only). Used to generate the workload ID,
 	// which will do normalization processing, e.g. lowercase and random suffix
 	DisplayName string `json:"displayName"`
@@ -22,6 +25,10 @@ type CreateWorkloadRequest struct {
 	Description string `json:"description,omitempty"`
 	// Workspace ID to which the workload is delivered
 	WorkspaceId string `json:"workspaceId,omitempty"`
+	// User-defined labels. Keys cannot start with "primus-safe."
+	Labels map[string]string `json:"labels,omitempty"`
+	// User-defined annotations. Keys cannot start with "primus-safe."
+	Annotations map[string]string `json:"annotations,omitempty"`
 }
 
 type CreateWorkloadResponse struct {
@@ -131,6 +138,8 @@ type GetWorkloadResponse struct {
 	WorkloadResponseItem
 	// The node specified by the user when creating the workload
 	SpecifiedNodes []string `json:"specifiedNodes,omitempty"`
+	// ExcludedNodes is a list of node names that the workload should avoid running on.
+	ExcludedNodes []string `json:"excludedNodes,omitempty"`
 	// The address of the image used by the workload
 	Image string `json:"image"`
 	// Workload startup command, in base64 encoding
@@ -230,6 +239,19 @@ type GetWorkloadPodLogResponse struct {
 type BatchWorkloadsRequest struct {
 	// List of workload IDs to be processed
 	WorkloadIds []string `json:"workloadIds"`
+}
+
+type GetWorkloadServiceResponse struct {
+	// The Service port information (protocol/port/targetPort) from the first port.
+	Port corev1.ServicePort `json:"port"`
+	// Externally accessible URL via Higress when enabled and system host is configured; empty otherwise.
+	ExternalDomain string `json:"externalDomain"`
+	// In-cluster DNS address of the Service with port, e.g. <name>.<namespace>.svc.cluster.local:<port>.
+	InternalDomain string `json:"internalDomain"`
+	// ClusterIP assigned to the Service (empty for headless or None).
+	ClusterIp string `json:"clusterIp"`
+	// Kubernetes Service type: ClusterIP, NodePort.
+	Type corev1.ServiceType `json:"type"`
 }
 
 type WorkloadSlice []v1.Workload

@@ -45,3 +45,16 @@ func WithTracingCallback() opts {
 		}
 	}
 }
+
+// WithReconnectCallback registers auto-reconnect callbacks for handling master-slave failover scenarios
+// Automatically reconnects to the new master when read-only transaction errors are detected
+func WithReconnectCallback() opts {
+	return func(db *gorm.DB) {
+		err := callbacks.RegisterReconnectCallbacks(db)
+		if err != nil {
+			// Log error but don't fail database initialization
+			logger := db.Logger
+			logger.Error(db.Statement.Context, "Failed to register reconnect callbacks: %v", err)
+		}
+	}
+}

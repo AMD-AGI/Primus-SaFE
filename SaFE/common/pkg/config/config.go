@@ -360,9 +360,19 @@ func GetNotificationConfig() string {
 	return getFromFile(notificationSecretPath, "config")
 }
 
-// GetSystemBaseUrl returns the base URL of the system.
-func GetSystemBaseUrl() string {
-	return getString(systemBaseUrl, "")
+// GetSystemHost returns the host of the system. e.g. tw325.primus-safe.amd.com
+func GetSystemHost() string {
+	subDomainConfig := getString(subDomain, "")
+	domainConfig := getString(domain, "")
+	if subDomainConfig == "" || domainConfig == "" {
+		return ""
+	}
+	return subDomainConfig + "." + domainConfig
+}
+
+// GetIngress returns the ingress class name of the system.
+func GetIngress() string {
+	return getString(ingress, "")
 }
 
 func IsSSOEnable() bool {
@@ -399,4 +409,16 @@ func GetCICDControllerName() string {
 
 func GetCICDControllerNamespace() string {
 	return getString(cicdControllerNamespace, "")
+}
+
+// GetModelDownloaderImage returns the image for model downloader job.
+// Used for downloading models from HuggingFace and uploading to S3.
+func GetModelDownloaderImage() string {
+	return getString(modelDownloaderImage, "docker.io/primussafe/model-downloader:latest")
+}
+
+// GetModelCleanupImage returns the image for model cleanup job.
+// Used for deleting local model files.
+func GetModelCleanupImage() string {
+	return getString(modelCleanupImage, "docker.io/library/alpine:3.18")
 }

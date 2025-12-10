@@ -42,16 +42,18 @@ type SecretReconciler struct {
 }
 
 func SetupSecretController(mgr manager.Manager) error {
+	baseReconciler, err := newClusterBaseReconciler(mgr)
+	if err != nil {
+		return err
+	}
 	r := &SecretReconciler{
-		ClusterBaseReconciler: &ClusterBaseReconciler{
-			Client: mgr.GetClient(),
-		},
-		clientManager: commonutils.NewObjectManagerSingleton(),
+		ClusterBaseReconciler: baseReconciler,
+		clientManager:         commonutils.NewObjectManagerSingleton(),
 	}
 	if r.clientManager == nil {
 		return fmt.Errorf("failed to new clientManager")
 	}
-	err := ctrlruntime.NewControllerManagedBy(mgr).
+	err = ctrlruntime.NewControllerManagedBy(mgr).
 		For(&corev1.Secret{}, builder.WithPredicates(relevantChangePredicate{})).
 		Complete(r)
 	if err != nil {
@@ -83,7 +85,7 @@ func (relevantChangePredicate) Update(e event.UpdateEvent) bool {
 	if !ok1 || !ok2 || newSecret.Namespace != common.PrimusSafeNamespace {
 		return false
 	}
-	if v1.GetAnnotation(newSecret, v1.WorkspaceIdsAnnotation) != "" && !newSecret.GetDeletionTimestamp().IsZero() {
+	if oldSecret.GetDeletionTimestamp().IsZero() && !newSecret.GetDeletionTimestamp().IsZero() {
 		return true
 	}
 	if v1.GetAnnotation(oldSecret, v1.WorkspaceIdsAnnotation) != v1.GetAnnotation(newSecret, v1.WorkspaceIdsAnnotation) {
@@ -132,10 +134,12 @@ func (r *SecretReconciler) delete(ctx context.Context, secret *corev1.Secret) er
 	if err := r.removeSecretFromWorkspaces(ctx, secret); err != nil {
 		return err
 	}
-	// If deleting, try to cleanup mirrored copies
-	if err := r.cleanupMirroredSecrets(ctx, secret.Name, nil); err != nil {
-		klog.ErrorS(err, "failed to cleanup mirrored secrets on delete", "name", secret.Name)
-		return err
+	if len(v1.GetAnnotation(secret, v1.WorkspaceIdsAnnotation)) > 0 {
+		// If deleting, try to cleanup mirrored copies
+		if err := r.cleanupMirroredSecrets(ctx, secret.Name, nil); err != nil {
+			klog.ErrorS(err, "failed to cleanup mirrored secrets on delete", "name", secret.Name)
+			return err
+		}
 	}
 	return utils.RemoveFinalizer(ctx, r.Client, secret, v1.SecretFinalizer)
 }
@@ -299,8 +303,9 @@ func (r *SecretReconciler) removeSecretFromCluster(ctx context.Context, secret *
 		if imageSecret == nil || imageSecret.Name != secret.Name {
 			continue
 		}
+		patch := client.MergeFrom(cluster.DeepCopy())
 		cluster.Spec.ControlPlane.ImageSecret = nil
-		if err := r.Update(ctx, &cluster); err != nil {
+		if err := r.Patch(ctx, &cluster, patch); err != nil {
 			return err
 		}
 	}
@@ -336,8 +341,9 @@ func (r *SecretReconciler) removeSecretFromWorkspace(ctx context.Context, secret
 		newSecrets = append(newSecrets, workspace.Spec.ImageSecrets[i])
 	}
 	if len(newSecrets) != len(workspace.Spec.ImageSecrets) {
+		patch := client.MergeFrom(workspace.DeepCopy())
 		workspace.Spec.ImageSecrets = newSecrets
-		if err := r.Update(ctx, workspace); err != nil {
+		if err := r.Patch(ctx, workspace, patch); err != nil {
 			return err
 		}
 		klog.Infof("remove secret reference from workspace: %s/%s", workspace.Name, secretName)
@@ -354,8 +360,9 @@ func (r *SecretReconciler) updateWorkspaceRefSecret(ctx context.Context, secret 
 			continue
 		}
 		if currentSecret.ResourceVersion != secretRef.ResourceVersion {
+			patch := client.MergeFrom(workspace.DeepCopy())
 			workspace.Spec.ImageSecrets[i] = *secretRef
-			if err := r.Update(ctx, workspace); err != nil {
+			if err := r.Patch(ctx, workspace, patch); err != nil {
 				return err
 			}
 		}
@@ -376,8 +383,9 @@ func (r *SecretReconciler) updateClusterRefSecret(ctx context.Context, secret *c
 			continue
 		}
 		if imageSecret.ResourceVersion != secret.ResourceVersion {
+			patch := client.MergeFrom(cluster.DeepCopy())
 			cluster.Spec.ControlPlane.ImageSecret = commonutils.GenObjectReference(secret.TypeMeta, secret.ObjectMeta)
-			if err := r.Update(ctx, &cluster); err != nil {
+			if err := r.Patch(ctx, &cluster, patch); err != nil {
 				return err
 			}
 		}
