@@ -302,7 +302,8 @@ def main() -> int:
                 finished["done"] = True
                 break
         except Exception as e:
-            print(f"[warn] failed to get workload phase: {e}", file=sys.stderr)
+            if (time.time() - start_time) >= 10:
+                print(f"[warn] failed to get workload phase: {e}", file=sys.stderr)
 
         if poll_timeout > 0 and (time.time() - start_time) >= poll_timeout:
             print(f"[error] polling timed out after {poll_timeout}s", file=sys.stderr)
