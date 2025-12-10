@@ -130,7 +130,7 @@ func (c *Collector) CollectMetadata(ctx context.Context, req *CollectionRequest)
 	if processTree.TotalPython == 0 {
 		result.Error = "no Python processes found in pod"
 		result.Duration = time.Since(startTime).Seconds()
-		return result, fmt.Errorf(result.Error)
+		return result, fmt.Errorf("%s", result.Error)
 	}
 
 	log.Infof("Found %d Python processes in pod %s", processTree.TotalPython, req.PodName)
@@ -140,7 +140,7 @@ func (c *Collector) CollectMetadata(ctx context.Context, req *CollectionRequest)
 	if len(rootPythonProcesses) == 0 {
 		result.Error = "no root Python processes found in pod"
 		result.Duration = time.Since(startTime).Seconds()
-		return result, fmt.Errorf(result.Error)
+		return result, fmt.Errorf("%s", result.Error)
 	}
 
 	log.Infof("Found %d root Python processes in pod %s", len(rootPythonProcesses), req.PodName)
