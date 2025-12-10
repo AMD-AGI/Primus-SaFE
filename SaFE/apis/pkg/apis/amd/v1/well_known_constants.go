@@ -29,6 +29,7 @@ const (
 	MainContainerAnnotation  = PrimusSafePrefix + "main.container"
 	OwnerLabel               = PrimusSafePrefix + "owner"
 	CICDScaleSetIdAnnotation = "runner-scale-set-id"
+	CICDScaleRunnerIdLabel   = PrimusSafePrefix + "scale.runner.id"
 
 	// node
 	NodePrefix    = PrimusSafePrefix + "node."
@@ -95,7 +96,6 @@ const (
 	WorkloadDisableFailoverAnnotation = WorkloadPrefix + "disable.failover"
 	WorkloadEnablePreemptAnnotation   = WorkloadPrefix + "enable.preempt"
 	CronJobTimestampAnnotation        = WorkloadPrefix + "cronjob"
-	ScaleRunnerIdLabel                = PrimusSafePrefix + "scale.runner.id"
 	EnvToBeRemovedAnnotation          = WorkloadPrefix + "env.to.remove"
 
 	// user

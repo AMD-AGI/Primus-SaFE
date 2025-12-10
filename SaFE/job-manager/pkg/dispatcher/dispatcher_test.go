@@ -91,7 +91,7 @@ func TestCreatePytorchJob(t *testing.T) {
 	adminClient := fake.NewClientBuilder().WithObjects(configmap, jobutils.TestPytorchResourceTemplate, workspace).WithScheme(scheme).Build()
 
 	r := DispatcherReconciler{Client: adminClient}
-	obj, err := r.generateK8sObject(context.Background(), workload)
+	obj, err := r.generateK8sObject(context.Background(), workload, nil)
 	assert.NilError(t, err)
 	templates := jobutils.TestPytorchResourceTemplate.Spec.ResourceSpecs
 
@@ -115,7 +115,7 @@ func TestCreatePytorchJob(t *testing.T) {
 	workload.Spec.Resource.Replica = 3
 	workload.Spec.IsTolerateAll = true
 	metav1.SetMetaDataAnnotation(&workload.ObjectMeta, v1.EnableHostNetworkAnnotation, "true")
-	obj, err = r.generateK8sObject(context.Background(), workload)
+	obj, err = r.generateK8sObject(context.Background(), workload, nil)
 	assert.NilError(t, err)
 	checkResources(t, obj, workload, &templates[1], 2)
 	checkEnvs(t, obj, workload, &templates[1])
@@ -160,7 +160,7 @@ func TestCreateDeployment(t *testing.T) {
 	adminClient := fake.NewClientBuilder().WithObjects(configmap, jobutils.TestDeploymentTemplate, workspace).WithScheme(scheme).Build()
 
 	r := DispatcherReconciler{Client: adminClient}
-	obj, err := r.generateK8sObject(context.Background(), workload)
+	obj, err := r.generateK8sObject(context.Background(), workload, nil)
 	assert.NilError(t, err)
 	templates := jobutils.TestDeploymentTemplate.Spec.ResourceSpecs
 
@@ -184,7 +184,7 @@ func TestUpdateDeployment(t *testing.T) {
 	adminWorkload := jobutils.TestWorkloadData.DeepCopy()
 	metav1.SetMetaDataAnnotation(&adminWorkload.ObjectMeta, v1.MainContainerAnnotation, "test")
 
-	err = applyWorkloadSpecToObject(workloadObj, adminWorkload, nil, jobutils.TestDeploymentTemplate)
+	err = applyWorkloadSpecToObject(context.Background(), nil, workloadObj, adminWorkload, nil, jobutils.TestDeploymentTemplate)
 	assert.NilError(t, err)
 	deployment := &appsv1.Deployment{}
 	err = unstructuredutils.ConvertUnstructuredToObject(workloadObj, deployment)
@@ -229,7 +229,7 @@ func TestUpdatePytorchJob(t *testing.T) {
 	}
 	metav1.SetMetaDataAnnotation(&adminWorkload.ObjectMeta, v1.EnableHostNetworkAnnotation, "true")
 	metav1.SetMetaDataAnnotation(&adminWorkload.ObjectMeta, v1.MainContainerAnnotation, "pytorch")
-	err = applyWorkloadSpecToObject(workloadObj, adminWorkload, nil, jobutils.TestPytorchResourceTemplate)
+	err = applyWorkloadSpecToObject(context.Background(), nil, workloadObj, adminWorkload, nil, jobutils.TestPytorchResourceTemplate)
 	assert.NilError(t, err)
 
 	pytorchJob := &PytorchJob{}
@@ -271,7 +271,7 @@ func TestUpdatePytorchJobMaster(t *testing.T) {
 	adminWorkload := jobutils.TestWorkloadData.DeepCopy()
 	adminWorkload.Spec.Resource.RdmaResource = ""
 	metav1.SetMetaDataAnnotation(&adminWorkload.ObjectMeta, v1.MainContainerAnnotation, "pytorch")
-	err = applyWorkloadSpecToObject(workloadObj, adminWorkload, nil, jobutils.TestPytorchResourceTemplate)
+	err = applyWorkloadSpecToObject(context.Background(), nil, workloadObj, adminWorkload, nil, jobutils.TestPytorchResourceTemplate)
 	assert.NilError(t, err)
 
 	pytorchJob := &PytorchJob{}
@@ -379,7 +379,7 @@ func TestUpdateDeploymentEnv(t *testing.T) {
 	adminWorkload := jobutils.TestWorkloadData.DeepCopy()
 	metav1.SetMetaDataAnnotation(&adminWorkload.ObjectMeta, v1.MainContainerAnnotation, "test")
 
-	err = applyWorkloadSpecToObject(workloadObj, adminWorkload, nil, jobutils.TestDeploymentTemplate)
+	err = applyWorkloadSpecToObject(context.Background(), nil, workloadObj, adminWorkload, nil, jobutils.TestDeploymentTemplate)
 	assert.NilError(t, err)
 	envs, err := jobutils.GetEnv(workloadObj, jobutils.TestDeploymentTemplate, "test")
 	assert.NilError(t, err)
@@ -401,7 +401,7 @@ func TestUpdateDeploymentEnv(t *testing.T) {
 		"NCCL_SOCKET_IFNAME": "eth1",
 		"key":                "val",
 	}
-	err = applyWorkloadSpecToObject(workloadObj, adminWorkload, nil, jobutils.TestDeploymentTemplate)
+	err = applyWorkloadSpecToObject(context.Background(), nil, workloadObj, adminWorkload, nil, jobutils.TestDeploymentTemplate)
 	assert.NilError(t, err)
 	envs, err = jobutils.GetEnv(workloadObj, jobutils.TestDeploymentTemplate, "test")
 	assert.NilError(t, err)
@@ -423,7 +423,7 @@ func TestUpdateDeploymentEnv(t *testing.T) {
 		"NCCL_SOCKET_IFNAME": "eth1",
 	}
 	v1.SetAnnotation(adminWorkload, v1.EnvToBeRemovedAnnotation, string(jsonutils.MarshalSilently([]string{"key"})))
-	err = applyWorkloadSpecToObject(workloadObj, adminWorkload, nil, jobutils.TestDeploymentTemplate)
+	err = applyWorkloadSpecToObject(context.Background(), nil, workloadObj, adminWorkload, nil, jobutils.TestDeploymentTemplate)
 	assert.NilError(t, err)
 	envs, err = jobutils.GetEnv(workloadObj, jobutils.TestDeploymentTemplate, "test")
 	assert.NilError(t, err)
@@ -463,7 +463,7 @@ func TestCreateK8sJob(t *testing.T) {
 	adminClient := fake.NewClientBuilder().WithObjects(configmap, jobutils.TestJobTemplate).WithScheme(scheme).Build()
 
 	r := DispatcherReconciler{Client: adminClient}
-	obj, err := r.generateK8sObject(context.Background(), workload)
+	obj, err := r.generateK8sObject(context.Background(), workload, nil)
 	assert.NilError(t, err)
 	// fmt.Println(unstructuredutils.ToString(obj))
 
@@ -502,7 +502,7 @@ func TestCreateCICDScaleSet(t *testing.T) {
 		jobutils.TestCICDScaleSetTemplate, workspace).WithScheme(scheme).Build()
 
 	r := DispatcherReconciler{Client: adminClient}
-	obj, err := r.generateK8sObject(context.Background(), workload)
+	obj, err := r.generateK8sObject(context.Background(), workload, nil)
 	assert.NilError(t, err)
 	// fmt.Println(unstructuredutils.ToString(obj))
 
@@ -544,7 +544,7 @@ func TestCICDScaleSetWithUnifiedJob(t *testing.T) {
 		jobutils.TestCICDScaleSetTemplate, workspace).WithScheme(scheme).Build()
 
 	r := DispatcherReconciler{Client: adminClient}
-	obj, err := r.generateK8sObject(context.Background(), workload)
+	obj, err := r.generateK8sObject(context.Background(), workload, nil)
 	assert.NilError(t, err)
 	// fmt.Println(unstructuredutils.ToString(obj))
 

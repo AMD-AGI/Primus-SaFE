@@ -13,7 +13,6 @@ import (
 
 	admissionv1 "k8s.io/api/admission/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
@@ -134,14 +133,4 @@ func validatePort(name string, port int) error {
 				name, port, MinPort, MaxPort))
 	}
 	return nil
-}
-
-// hasOwnerReferences checks if an object has an owner reference with the specified name.
-func hasOwnerReferences(obj metav1.Object, name string) bool {
-	for _, r := range obj.GetOwnerReferences() {
-		if r.Name == name {
-			return true
-		}
-	}
-	return false
 }

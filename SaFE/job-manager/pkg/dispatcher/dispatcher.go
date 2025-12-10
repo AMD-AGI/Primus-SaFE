@@ -194,7 +194,7 @@ func (r *DispatcherReconciler) dispatch(ctx context.Context,
 	if err := r.generateUniquePorts(ctx, adminWorkload); err != nil {
 		return ctrlruntime.Result{}, err
 	}
-	k8sObject, err := r.generateK8sObject(ctx, adminWorkload)
+	k8sObject, err := r.generateK8sObject(ctx, adminWorkload, clusterInformer)
 	if err != nil {
 		klog.ErrorS(err, "failed to create k8s unstructured object. ",
 			"name", adminWorkload.Name, "gvk", adminWorkload.Spec.GroupVersionKind)
@@ -242,7 +242,7 @@ func (r *DispatcherReconciler) generateUniquePorts(ctx context.Context, workload
 
 // generateK8sObject creates the unstructured Kubernetes object from the workload specification.
 func (r *DispatcherReconciler) generateK8sObject(ctx context.Context,
-	adminWorkload *v1.Workload) (*unstructured.Unstructured, error) {
+	adminWorkload *v1.Workload, clusterInformer *syncer.ClusterInformer) (*unstructured.Unstructured, error) {
 	workspace, err := r.getWorkspace(ctx, adminWorkload)
 	if err != nil {
 		return nil, err
@@ -259,7 +259,7 @@ func (r *DispatcherReconciler) generateK8sObject(ctx context.Context,
 		klog.Error(err.Error())
 		return nil, err
 	}
-	if err = applyWorkloadSpecToObject(result, adminWorkload, workspace, rt); err != nil {
+	if err = applyWorkloadSpecToObject(ctx, clusterInformer, result, adminWorkload, workspace, rt); err != nil {
 		return nil, commonerrors.NewInternalError(err.Error())
 	}
 	for _, t := range rt.Spec.ResourceSpecs {
@@ -382,7 +382,7 @@ func (r *DispatcherReconciler) syncWorkloadToObject(ctx context.Context, adminWo
 	if err != nil {
 		return err
 	}
-	if err = applyWorkloadSpecToObject(obj, adminWorkload, workspace, rt); err != nil {
+	if err = applyWorkloadSpecToObject(ctx, clusterInformer, obj, adminWorkload, workspace, rt); err != nil {
 		return commonerrors.NewBadRequest(err.Error())
 	}
 
@@ -492,14 +492,14 @@ func isPriorityClassChanged(adminWorkload *v1.Workload, obj *unstructured.Unstru
 // It handles different workload types and updates various object properties including replicas,
 // network settings, containers, and volumes based on the workload specification.
 
-func applyWorkloadSpecToObject(obj *unstructured.Unstructured,
+func applyWorkloadSpecToObject(ctx context.Context, clusterInformer *syncer.ClusterInformer, obj *unstructured.Unstructured,
 	adminWorkload *v1.Workload, workspace *v1.Workspace, rt *v1.ResourceTemplate) error {
 	if commonworkload.IsCICDScalingRunnerSet(adminWorkload) {
 		if err := updateCICDScaleSet(obj, adminWorkload, workspace, rt); err != nil {
 			return err
 		}
 	} else if commonworkload.IsCICDEphemeralRunner(adminWorkload) {
-		if err := updateCICDEphemeralRunner(obj, adminWorkload, rt); err != nil {
+		if err := updateCICDEphemeralRunner(ctx, clusterInformer, obj, adminWorkload, rt); err != nil {
 			return err
 		}
 	}
@@ -584,12 +584,32 @@ func updateCICDScaleSet(obj *unstructured.Unstructured,
 }
 
 // updateCICDEphemeralRunner updates the CICD ephemeral runner configuration
-func updateCICDEphemeralRunner(obj *unstructured.Unstructured, adminWorkload *v1.Workload, rt *v1.ResourceTemplate) error {
+func updateCICDEphemeralRunner(ctx context.Context, clusterInformer *syncer.ClusterInformer,
+	obj *unstructured.Unstructured, adminWorkload *v1.Workload, rt *v1.ResourceTemplate) error {
 	if len(rt.Spec.ResourceSpecs) == 0 {
 		return fmt.Errorf("no resource template found")
 	}
 	if err := updateCICDGithub(adminWorkload, obj); err != nil {
 		return err
+	}
+	// Set owner reference to the parent scale runner if CICDScaleRunnerIdLabel is present
+	if scaleRunnerId := v1.GetLabel(adminWorkload, v1.CICDScaleRunnerIdLabel); scaleRunnerId != "" {
+		if clusterInformer != nil && !commonutils.HasOwnerReferences(obj, scaleRunnerId) {
+			ownerObj, err := jobutils.GetObject(ctx,
+				clusterInformer.ClientFactory(), scaleRunnerId, adminWorkload.Spec.Workspace, rt.ToSchemaGVK())
+			if err != nil {
+				return commonerrors.NewInternalError(fmt.Sprintf("failed to get owner scale runner: %v", err.Error()))
+			}
+			ownerRef := metav1.OwnerReference{
+				APIVersion:         ownerObj.GetAPIVersion(),
+				Kind:               ownerObj.GetKind(),
+				Name:               ownerObj.GetName(),
+				UID:                ownerObj.GetUID(),
+				BlockOwnerDeletion: pointer.Bool(true),
+				Controller:         pointer.Bool(true),
+			}
+			obj.SetOwnerReferences([]metav1.OwnerReference{ownerRef})
+		}
 	}
 	return nil
 }

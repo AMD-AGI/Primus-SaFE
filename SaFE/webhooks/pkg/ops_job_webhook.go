@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"reflect"
 
+	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	admissionv1 "k8s.io/api/admission/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/selection"
@@ -90,7 +91,7 @@ func (m *OpsJobMutator) mutateMeta(ctx context.Context, job *v1.OpsJob) bool {
 	}
 	if clusterId := v1.GetClusterId(job); clusterId != "" {
 		if cl, err := getCluster(ctx, m.Client, clusterId); err == nil {
-			if !hasOwnerReferences(job, cl.Name) {
+			if !commonutils.HasOwnerReferences(job, cl.Name) {
 				if err = controllerutil.SetControllerReference(cl, job, m.Client.Scheme()); err != nil {
 					klog.ErrorS(err, "failed to SetControllerReference")
 				}

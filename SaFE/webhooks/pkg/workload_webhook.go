@@ -170,7 +170,7 @@ func (m *WorkloadMutator) mutateMeta(ctx context.Context, workload *v1.Workload,
 	}
 
 	if val := workload.GetEnv(common.ScaleRunnerID); val != "" {
-		v1.SetLabel(workload, v1.ScaleRunnerIdLabel, val)
+		v1.SetLabel(workload, v1.CICDScaleRunnerIdLabel, val)
 	}
 	v1.SetLabel(workload, v1.WorkspaceIdLabel, workload.Spec.Workspace)
 	v1.SetLabel(workload, v1.WorkloadKindLabel, workload.Spec.Kind)
@@ -198,7 +198,7 @@ func (m *WorkloadMutator) mutateOwnerReference(ctx context.Context, workload *v1
 		}
 		scaleRunnerSetWorkload := &v1.Workload{}
 		if err = m.Get(ctx, client.ObjectKey{Name: scaleRunnerSetId}, scaleRunnerSetWorkload); err == nil {
-			if !hasOwnerReferences(workload, scaleRunnerSetId) {
+			if !commonutils.HasOwnerReferences(workload, scaleRunnerSetId) {
 				err = controllerutil.SetControllerReference(scaleRunnerSetWorkload, workload, m.Client.Scheme())
 			}
 			v1.SetAnnotation(workload, v1.CICDScaleSetIdAnnotation, scaleRunnerSetWorkload.Status.RunnerScaleSetId)
@@ -209,15 +209,15 @@ func (m *WorkloadMutator) mutateOwnerReference(ctx context.Context, workload *v1
 			break
 		}
 		labelSelector := labels.SelectorFromSet(map[string]string{
-			v1.WorkloadKindLabel: common.CICDEphemeralRunnerKind, v1.ScaleRunnerIdLabel: scaleRunnerId})
+			v1.WorkloadKindLabel: common.CICDEphemeralRunnerKind, v1.CICDScaleRunnerIdLabel: scaleRunnerId})
 		scaleRunnerWorkloads := &v1.WorkloadList{}
 		if err = m.List(ctx, scaleRunnerWorkloads, &client.ListOptions{LabelSelector: labelSelector}); err == nil {
-			if len(scaleRunnerWorkloads.Items) > 0 && !hasOwnerReferences(workload, scaleRunnerWorkloads.Items[0].Name) {
+			if len(scaleRunnerWorkloads.Items) > 0 && !commonutils.HasOwnerReferences(workload, scaleRunnerWorkloads.Items[0].Name) {
 				err = controllerutil.SetControllerReference(&scaleRunnerWorkloads.Items[0], workload, m.Client.Scheme())
 			}
 		}
 	default:
-		if workspace != nil && !hasOwnerReferences(workload, workspace.Name) {
+		if workspace != nil && !commonutils.HasOwnerReferences(workload, workspace.Name) {
 			err = controllerutil.SetControllerReference(workspace, workload, m.Client.Scheme())
 		}
 	}

@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	admissionv1 "k8s.io/api/admission/v1"
 	"k8s.io/klog/v2"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
@@ -72,7 +73,7 @@ func (m *FaultMutator) mutateOnCreation(ctx context.Context, fault *v1.Fault) {
 			return
 		}
 		v1.SetLabel(node, v1.NodeIdLabel, adminNodeName)
-		if !hasOwnerReferences(fault, adminNodeName) {
+		if !commonutils.HasOwnerReferences(fault, adminNodeName) {
 			if err := controllerutil.SetControllerReference(node, fault, m.Client.Scheme()); err != nil {
 				klog.ErrorS(err, "failed to SetControllerReference")
 			}
@@ -85,6 +86,7 @@ type FaultValidator struct {
 	client.Client
 	decoder admission.Decoder
 }
+
 // Handle validates fault resources on create, update, and delete operations.
 func (v *FaultValidator) Handle(_ context.Context, req admission.Request) admission.Response {
 	fault := &v1.Fault{}
