@@ -107,13 +107,6 @@ func Bootstrap(ctx context.Context) error {
 			log.Info("Metadata collector initialized successfully")
 		}
 
-		// Initialize TensorBoard reader
-		handlers.InitTensorBoardReader()
-
-		// Note: TensorBoard stream HTTP APIs are disabled.
-		// Stream functionality is available through task executor only.
-		// handlers.InitStreamReader()
-
 		// Initialize task scheduler
 		taskScheduler := coreTask.NewTaskScheduler(instanceID, coreTask.DefaultSchedulerConfig())
 
@@ -148,9 +141,6 @@ func Bootstrap(ctx context.Context) error {
 				log.Errorf("Error stopping task scheduler: %v", err)
 			}
 		}()
-
-		// Initialize task monitor handler (for API)
-		handlers.InitTaskMonitor()
 
 		// Initialize handlers
 		detectionHandler = handlers.NewDetectionHandler(detectionMgr)
@@ -234,25 +224,6 @@ func initRouter(group *gin.RouterGroup) error {
 		wandbGroup.POST("/detection", wandbHandler.ReceiveDetection)
 	}
 
-	// Task Monitor APIs (replaces original WorkloadMonitor APIs)
-	taskGroup := group.Group("/tasks")
-	{
-		// Task statistics
-		taskGroup.GET("/stats", handlers.GetTaskStatistics)
-
-		// Task list
-		taskGroup.GET("", handlers.ListAllTasks) // supports ?status=xxx&task_type=xxx
-
-		// Specific task details
-		taskGroup.GET("/:workload_uid/:task_type", handlers.GetTask)
-
-		// All tasks for a workload
-		taskGroup.GET("/workload/:workload_uid", handlers.ListWorkloadTasks)
-
-		// Active streaming tasks
-		taskGroup.GET("/streams/active", handlers.GetActiveStreams)
-	}
-
 	// Workload Metadata APIs
 	metadataGroup := group.Group("/metadata")
 	{
@@ -270,24 +241,6 @@ func initRouter(group *gin.RouterGroup) error {
 
 		// Management
 		metadataGroup.DELETE("/workloads/:uid", handlers.DeleteWorkloadMetadata)
-	}
-
-	// TensorBoard Log Access APIs (Non-intrusive)
-	tensorboardGroup := group.Group("/tensorboard")
-	{
-		// Get TensorBoard log files information
-		tensorboardGroup.POST("/logs", handlers.GetTensorBoardLogs)
-
-		// Read specific event file
-		tensorboardGroup.POST("/event", handlers.ReadTensorBoardEvent)
-
-		// List all event files
-		tensorboardGroup.POST("/files", handlers.ListTensorBoardEventFiles)
-
-		// Generic container file operations (with security restrictions)
-		tensorboardGroup.POST("/file/read", handlers.ReadContainerFile)
-		tensorboardGroup.POST("/file/info", handlers.GetContainerFileInfo)
-
 	}
 
 	// Health check
