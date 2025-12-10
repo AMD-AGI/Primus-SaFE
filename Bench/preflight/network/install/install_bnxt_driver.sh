@@ -17,9 +17,22 @@ if [ ! -f "${full_package}" ]; then
 fi
 
 apt update > /dev/null
-apt -y install linux-headers-"$(uname -r)"
-if [ $? -ne 0 ]; then
-  exit 1
+
+# Try to install exact kernel version headers first
+KERNEL_VERSION=$(uname -r)
+echo "Trying to install linux-headers for kernel: $KERNEL_VERSION"
+
+if apt-cache show linux-headers-"$KERNEL_VERSION" > /dev/null 2>&1; then
+  echo "Installing exact kernel headers: linux-headers-$KERNEL_VERSION"
+  apt -y install linux-headers-"$KERNEL_VERSION"
+else
+  echo "Exact kernel headers not found, trying generic headers..."
+  # Try to install generic headers as fallback
+  apt -y install linux-headers-generic || {
+    echo "Warning: Could not install linux-headers. Some features may not work."
+    echo "Continuing without kernel headers..."
+    # Don't exit with error since this might not be critical in container
+  }
 fi
 
 tar xzf "${full_package}" -C /tmp/

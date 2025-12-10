@@ -5,9 +5,19 @@
 # See LICENSE for license information.
 #
 
-CMDLINE=`nsenter --target 1 --mount --uts --ipc --net --pid -- cat /proc/cmdline`
-if [ $? -ne 0 ]; then
-  exit 2
+# Try to get cmdline from nsenter first (for container environments)
+if command -v nsenter &> /dev/null; then
+  CMDLINE=`nsenter --target 1 --mount --uts --ipc --net --pid -- cat /proc/cmdline 2>/dev/null`
+  if [ $? -ne 0 ]; then
+    # Fall back to direct read if nsenter fails
+    CMDLINE=`cat /proc/cmdline 2>/dev/null`
+    if [ $? -ne 0 ]; then
+      exit 2
+    fi
+  fi
+else
+  # Direct read if nsenter is not available
+  CMDLINE=`cat /proc/cmdline`
 fi
 for cmd in `echo $CMDLINE`
 do

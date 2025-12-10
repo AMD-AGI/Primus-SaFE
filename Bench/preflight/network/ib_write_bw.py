@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 
+import os
 import subprocess
 import sys
 import time
 import re
+import socket
+import glob
 import argparse
 from datetime import datetime
 from typing import List
@@ -430,10 +433,22 @@ def main():
     # Parse command line arguments
     args = parse_args()
 
-    # Access arguments
-    ib_hca_list = args.ib_hca.split(',')
+    # Access arguments and handle default values
+    if args.ib_hca:
+        ib_hca_list = args.ib_hca.split(',')
+    else:
+        # Auto-detect IB devices if not specified
+        import glob
+        ib_devices = glob.glob('/sys/class/infiniband/*')
+        if ib_devices:
+            ib_hca_list = [os.path.basename(dev) for dev in sorted(ib_devices)]
+            log(f"Auto-detected IB HCA devices: {','.join(ib_hca_list)}")
+        else:
+            log("ERROR: No IB HCA specified and no InfiniBand devices found in /sys/class/infiniband/")
+            sys.exit(1)
+    
     socket_ifname = args.socket_ifname
-    ib_gid_index = args.ib_gid_index
+    ib_gid_index = args.ib_gid_index if args.ib_gid_index else '3'
     ssh_cmd = build_ssh_cmd(args.ssh_port)
     nodes = get_hosts(args.nodes_file)
     if len(nodes) < 2:
