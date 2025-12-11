@@ -219,7 +219,7 @@ func TestNamespaceGpuAggregationJob_ShouldExcludeNamespace(t *testing.T) {
 			job := &NamespaceGpuAggregationJob{
 				config: tt.config,
 			}
-			result := job.shouldExcludeNamespace(tt.namespace)
+			result := ShouldExcludeNamespace(tt.namespace, job.config.ExcludeNamespaces, job.config.IncludeSystemNamespaces)
 			assert.Equal(t, tt.expected, result, "Exclusion result should match expected")
 		})
 	}
@@ -697,7 +697,7 @@ func TestNamespaceGpuAggregationJob_ShouldExcludeNamespace_EdgeCases(t *testing.
 			job := &NamespaceGpuAggregationJob{
 				config: tt.config,
 			}
-			result := job.shouldExcludeNamespace(tt.namespace)
+			result := ShouldExcludeNamespace(tt.namespace, job.config.ExcludeNamespaces, job.config.IncludeSystemNamespaces)
 			assert.Equal(t, tt.expected, result, "Exclusion result should match expected")
 		})
 	}
@@ -990,14 +990,14 @@ func TestNamespaceGpuAggregationJob_AllSystemNamespaces(t *testing.T) {
 	job := &NamespaceGpuAggregationJob{config: config}
 
 	for _, ns := range systemNamespaces {
-		excluded := job.shouldExcludeNamespace(ns)
+		excluded := ShouldExcludeNamespace(ns, job.config.ExcludeNamespaces, job.config.IncludeSystemNamespaces)
 		assert.True(t, excluded, "System namespace %s should be excluded when IncludeSystemNamespaces is false", ns)
 	}
 
 	config.IncludeSystemNamespaces = true
 
 	for _, ns := range systemNamespaces {
-		excluded := job.shouldExcludeNamespace(ns)
+		excluded := ShouldExcludeNamespace(ns, job.config.ExcludeNamespaces, job.config.IncludeSystemNamespaces)
 		assert.False(t, excluded, "System namespace %s should not be excluded when IncludeSystemNamespaces is true", ns)
 	}
 }
@@ -1011,11 +1011,11 @@ func TestNamespaceGpuAggregationJob_ExclusionListPriority(t *testing.T) {
 
 	job := &NamespaceGpuAggregationJob{config: config}
 
-	assert.True(t, job.shouldExcludeNamespace("custom-exclude"))
+	assert.True(t, ShouldExcludeNamespace("custom-exclude", job.config.ExcludeNamespaces, job.config.IncludeSystemNamespaces))
 
-	assert.False(t, job.shouldExcludeNamespace("kube-system"))
+	assert.False(t, ShouldExcludeNamespace("kube-system", job.config.ExcludeNamespaces, job.config.IncludeSystemNamespaces))
 
-	assert.False(t, job.shouldExcludeNamespace("production"))
+	assert.False(t, ShouldExcludeNamespace("production", job.config.ExcludeNamespaces, job.config.IncludeSystemNamespaces))
 }
 
 func TestGpuAggregationSystemConfig_FullStructure(t *testing.T) {
@@ -1507,13 +1507,13 @@ func TestNamespaceGpuAggregationJob_SystemNamespacesList(t *testing.T) {
 	job := &NamespaceGpuAggregationJob{config: config}
 
 	for _, ns := range systemNamespaces {
-		assert.True(t, job.shouldExcludeNamespace(ns),
+		assert.True(t, ShouldExcludeNamespace(ns, job.config.ExcludeNamespaces, job.config.IncludeSystemNamespaces),
 			"System namespace %s should be excluded", ns)
 	}
 
 	config.IncludeSystemNamespaces = true
 	for _, ns := range systemNamespaces {
-		assert.False(t, job.shouldExcludeNamespace(ns),
+		assert.False(t, ShouldExcludeNamespace(ns, job.config.ExcludeNamespaces, job.config.IncludeSystemNamespaces),
 			"System namespace %s should be included", ns)
 	}
 }
@@ -1991,12 +1991,12 @@ func TestNamespaceGpuAggregationJob_ShouldExcludeNamespace_Combined(t *testing.T
 	}
 	job := &NamespaceGpuAggregationJob{config: config}
 
-	assert.True(t, job.shouldExcludeNamespace("dev"))
-	assert.True(t, job.shouldExcludeNamespace("test"))
-	assert.True(t, job.shouldExcludeNamespace("staging"))
-	assert.True(t, job.shouldExcludeNamespace("kube-system"))
-	assert.False(t, job.shouldExcludeNamespace("kube-public"))
-	assert.False(t, job.shouldExcludeNamespace("production"))
+	assert.True(t, ShouldExcludeNamespace("dev", job.config.ExcludeNamespaces, job.config.IncludeSystemNamespaces))
+	assert.True(t, ShouldExcludeNamespace("test", job.config.ExcludeNamespaces, job.config.IncludeSystemNamespaces))
+	assert.True(t, ShouldExcludeNamespace("staging", job.config.ExcludeNamespaces, job.config.IncludeSystemNamespaces))
+	assert.True(t, ShouldExcludeNamespace("kube-system", job.config.ExcludeNamespaces, job.config.IncludeSystemNamespaces))
+	assert.False(t, ShouldExcludeNamespace("kube-public", job.config.ExcludeNamespaces, job.config.IncludeSystemNamespaces))
+	assert.False(t, ShouldExcludeNamespace("production", job.config.ExcludeNamespaces, job.config.IncludeSystemNamespaces))
 }
 
 // TestConfigKeyGpuAggregation tests config key constant
@@ -2189,8 +2189,8 @@ func TestNamespaceGpuAggregationJob_ShouldExcludeNamespace_EmptyConfig(t *testin
 		},
 	}
 
-	assert.False(t, job.shouldExcludeNamespace("any-namespace"))
-	assert.False(t, job.shouldExcludeNamespace("kube-system"))
+	assert.False(t, ShouldExcludeNamespace("any-namespace", job.config.ExcludeNamespaces, job.config.IncludeSystemNamespaces))
+	assert.False(t, ShouldExcludeNamespace("kube-system", job.config.ExcludeNamespaces, job.config.IncludeSystemNamespaces))
 }
 
 // TestQueryTemplates_ValidPromQL tests that query templates produce valid PromQL

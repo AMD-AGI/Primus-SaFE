@@ -23,6 +23,31 @@ const (
 	CacheKeyNamespaceGpuAggregationLastHour = "job.namespace_gpu_aggregation.last_processed_hour"
 )
 
+// SystemNamespaces is the list of system namespaces to exclude by default
+var SystemNamespaces = []string{"kube-system", "kube-public", "kube-node-lease"}
+
+// NamespaceFacadeGetter is the function signature for getting database facade
+type NamespaceFacadeGetter func(clusterName string) database.FacadeInterface
+
+// NamespaceClusterNameGetter is the function signature for getting cluster name
+type NamespaceClusterNameGetter func() string
+
+// AllocationCalculatorFactory creates a GpuAllocationCalculator
+type AllocationCalculatorFactory func(clusterName string) AllocationCalculatorInterface
+
+// UtilizationCalculatorFactory creates a NamespaceUtilizationCalculator
+type UtilizationCalculatorFactory func(clusterName string, storageClientSet *clientsets.StorageClientSet) UtilizationCalculatorInterface
+
+// AllocationCalculatorInterface defines the interface for GPU allocation calculation
+type AllocationCalculatorInterface interface {
+	CalculateHourlyNamespaceGpuAllocation(ctx context.Context, namespace string, hour time.Time) (*statistics.GpuAllocationResult, error)
+}
+
+// UtilizationCalculatorInterface defines the interface for utilization calculation
+type UtilizationCalculatorInterface interface {
+	CalculateHourlyNamespaceUtilization(ctx context.Context, namespace string, allocationResult *statistics.GpuAllocationResult, hour time.Time) *statistics.NamespaceUtilizationResult
+}
+
 // NamespaceGpuAggregationConfig is the configuration for namespace GPU aggregation job
 type NamespaceGpuAggregationConfig struct {
 	// Enabled controls whether the job is enabled
@@ -37,30 +62,120 @@ type NamespaceGpuAggregationConfig struct {
 
 // NamespaceGpuAggregationJob aggregates namespace-level GPU statistics using time-weighted calculation
 type NamespaceGpuAggregationJob struct {
-	config      *NamespaceGpuAggregationConfig
-	clusterName string
+	config                       *NamespaceGpuAggregationConfig
+	clusterName                  string
+	facadeGetter                 NamespaceFacadeGetter
+	clusterNameGetter            NamespaceClusterNameGetter
+	allocationCalculatorFactory  AllocationCalculatorFactory
+	utilizationCalculatorFactory UtilizationCalculatorFactory
+}
+
+// NamespaceJobOption is a function that configures a NamespaceGpuAggregationJob
+type NamespaceJobOption func(*NamespaceGpuAggregationJob)
+
+// WithNamespaceFacadeGetter sets the facade getter function
+func WithNamespaceFacadeGetter(getter NamespaceFacadeGetter) NamespaceJobOption {
+	return func(j *NamespaceGpuAggregationJob) {
+		j.facadeGetter = getter
+	}
+}
+
+// WithNamespaceClusterNameGetter sets the cluster name getter function
+func WithNamespaceClusterNameGetter(getter NamespaceClusterNameGetter) NamespaceJobOption {
+	return func(j *NamespaceGpuAggregationJob) {
+		j.clusterNameGetter = getter
+	}
+}
+
+// WithNamespaceClusterName sets the cluster name directly
+func WithNamespaceClusterName(name string) NamespaceJobOption {
+	return func(j *NamespaceGpuAggregationJob) {
+		j.clusterName = name
+	}
+}
+
+// WithAllocationCalculatorFactory sets the allocation calculator factory
+func WithAllocationCalculatorFactory(factory AllocationCalculatorFactory) NamespaceJobOption {
+	return func(j *NamespaceGpuAggregationJob) {
+		j.allocationCalculatorFactory = factory
+	}
+}
+
+// WithUtilizationCalculatorFactory sets the utilization calculator factory
+func WithUtilizationCalculatorFactory(factory UtilizationCalculatorFactory) NamespaceJobOption {
+	return func(j *NamespaceGpuAggregationJob) {
+		j.utilizationCalculatorFactory = factory
+	}
+}
+
+// defaultNamespaceFacadeGetter is the default implementation using database package
+func defaultNamespaceFacadeGetter(clusterName string) database.FacadeInterface {
+	return database.GetFacadeForCluster(clusterName)
+}
+
+// defaultNamespaceClusterNameGetter is the default implementation using clientsets package
+func defaultNamespaceClusterNameGetter() string {
+	return clientsets.GetClusterManager().GetCurrentClusterName()
+}
+
+// defaultAllocationCalculatorFactory is the default implementation
+func defaultAllocationCalculatorFactory(clusterName string) AllocationCalculatorInterface {
+	return statistics.NewGpuAllocationCalculator(clusterName)
+}
+
+// defaultUtilizationCalculatorFactory is the default implementation
+func defaultUtilizationCalculatorFactory(clusterName string, storageClientSet *clientsets.StorageClientSet) UtilizationCalculatorInterface {
+	return statistics.NewNamespaceUtilizationCalculator(clusterName, storageClientSet)
 }
 
 // NewNamespaceGpuAggregationJob creates a new namespace GPU aggregation job
-func NewNamespaceGpuAggregationJob() *NamespaceGpuAggregationJob {
-	clusterName := clientsets.GetClusterManager().GetCurrentClusterName()
-	return &NamespaceGpuAggregationJob{
+func NewNamespaceGpuAggregationJob(opts ...NamespaceJobOption) *NamespaceGpuAggregationJob {
+	j := &NamespaceGpuAggregationJob{
 		config: &NamespaceGpuAggregationConfig{
 			Enabled:                 true,
 			ExcludeNamespaces:       []string{},
 			IncludeSystemNamespaces: false,
 		},
-		clusterName: clusterName,
+		facadeGetter:                 defaultNamespaceFacadeGetter,
+		clusterNameGetter:            defaultNamespaceClusterNameGetter,
+		allocationCalculatorFactory:  defaultAllocationCalculatorFactory,
+		utilizationCalculatorFactory: defaultUtilizationCalculatorFactory,
 	}
+
+	// Apply options
+	for _, opt := range opts {
+		opt(j)
+	}
+
+	// Set cluster name if not already set
+	if j.clusterName == "" {
+		j.clusterName = j.clusterNameGetter()
+	}
+
+	return j
 }
 
 // NewNamespaceGpuAggregationJobWithConfig creates a new namespace GPU aggregation job with custom config
-func NewNamespaceGpuAggregationJobWithConfig(cfg *NamespaceGpuAggregationConfig) *NamespaceGpuAggregationJob {
-	clusterName := clientsets.GetClusterManager().GetCurrentClusterName()
-	return &NamespaceGpuAggregationJob{
-		config:      cfg,
-		clusterName: clusterName,
+func NewNamespaceGpuAggregationJobWithConfig(cfg *NamespaceGpuAggregationConfig, opts ...NamespaceJobOption) *NamespaceGpuAggregationJob {
+	j := &NamespaceGpuAggregationJob{
+		config:                       cfg,
+		facadeGetter:                 defaultNamespaceFacadeGetter,
+		clusterNameGetter:            defaultNamespaceClusterNameGetter,
+		allocationCalculatorFactory:  defaultAllocationCalculatorFactory,
+		utilizationCalculatorFactory: defaultUtilizationCalculatorFactory,
 	}
+
+	// Apply options
+	for _, opt := range opts {
+		opt(j)
+	}
+
+	// Set cluster name if not already set
+	if j.clusterName == "" {
+		j.clusterName = j.clusterNameGetter()
+	}
+
+	return j
 }
 
 // Run executes the namespace GPU aggregation job
@@ -76,7 +191,7 @@ func (j *NamespaceGpuAggregationJob) Run(ctx context.Context,
 
 	clusterName := j.clusterName
 	if clusterName == "" {
-		clusterName = clientsets.GetClusterManager().GetCurrentClusterName()
+		clusterName = j.clusterNameGetter()
 	}
 
 	span.SetAttributes(
@@ -150,7 +265,7 @@ func (j *NamespaceGpuAggregationJob) Run(ctx context.Context,
 
 // getLastProcessedHour retrieves the last processed hour from cache
 func (j *NamespaceGpuAggregationJob) getLastProcessedHour(ctx context.Context, clusterName string) (time.Time, error) {
-	cacheFacade := database.GetFacadeForCluster(clusterName).GetGenericCache()
+	cacheFacade := j.facadeGetter(clusterName).GetGenericCache()
 
 	var lastHourStr string
 	err := cacheFacade.Get(ctx, CacheKeyNamespaceGpuAggregationLastHour, &lastHourStr)
@@ -171,7 +286,7 @@ func (j *NamespaceGpuAggregationJob) getLastProcessedHour(ctx context.Context, c
 
 // setLastProcessedHour stores the last processed hour in cache
 func (j *NamespaceGpuAggregationJob) setLastProcessedHour(ctx context.Context, clusterName string, hour time.Time) error {
-	cacheFacade := database.GetFacadeForCluster(clusterName).GetGenericCache()
+	cacheFacade := j.facadeGetter(clusterName).GetGenericCache()
 
 	hourStr := hour.Format(time.RFC3339)
 	return cacheFacade.Set(ctx, CacheKeyNamespaceGpuAggregationLastHour, hourStr, nil)
@@ -185,7 +300,7 @@ func (j *NamespaceGpuAggregationJob) aggregateNamespaceStats(
 	storageClientSet *clientsets.StorageClientSet) (int64, error) {
 
 	// Get all namespaces from namespace_info table
-	namespaceInfoList, err := database.GetFacadeForCluster(clusterName).GetNamespaceInfo().List(ctx)
+	namespaceInfoList, err := j.facadeGetter(clusterName).GetNamespaceInfo().List(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("failed to list namespace info: %w", err)
 	}
@@ -194,7 +309,7 @@ func (j *NamespaceGpuAggregationJob) aggregateNamespaceStats(
 	namespaceQuotas := make(map[string]int32)
 	namespaces := make([]string, 0, len(namespaceInfoList))
 	for _, nsInfo := range namespaceInfoList {
-		if !j.shouldExcludeNamespace(nsInfo.Name) {
+		if !ShouldExcludeNamespace(nsInfo.Name, j.config.ExcludeNamespaces, j.config.IncludeSystemNamespaces) {
 			namespaces = append(namespaces, nsInfo.Name)
 			namespaceQuotas[nsInfo.Name] = nsInfo.GpuResource
 		}
@@ -202,9 +317,9 @@ func (j *NamespaceGpuAggregationJob) aggregateNamespaceStats(
 
 	log.Infof("Aggregating stats for %d namespaces at hour %v", len(namespaces), hour)
 
-	allocationCalculator := statistics.NewGpuAllocationCalculator(clusterName)
-	utilizationCalculator := statistics.NewNamespaceUtilizationCalculator(clusterName, storageClientSet)
-	facade := database.GetFacadeForCluster(clusterName).GetGpuAggregation()
+	allocationCalculator := j.allocationCalculatorFactory(clusterName)
+	utilizationCalculator := j.utilizationCalculatorFactory(clusterName, storageClientSet)
+	facade := j.facadeGetter(clusterName).GetGpuAggregation()
 	var createdCount int64
 
 	for _, namespace := range namespaces {
@@ -216,28 +331,11 @@ func (j *NamespaceGpuAggregationJob) aggregateNamespaceStats(
 			result = &statistics.GpuAllocationResult{}
 		}
 
-		// Build namespace stats
-		nsStats := &dbmodel.NamespaceGpuHourlyStats{
-			ClusterName:         clusterName,
-			Namespace:           namespace,
-			StatHour:            hour,
-			AllocatedGpuCount:   result.TotalAllocatedGpu,
-			ActiveWorkloadCount: int32(result.WorkloadCount),
-		}
-
-		// Set GPU quota if available and calculate allocation rate
-		if quota, exists := namespaceQuotas[namespace]; exists && quota > 0 {
-			nsStats.TotalGpuCapacity = quota
-			if nsStats.AllocatedGpuCount > 0 {
-				nsStats.AllocationRate = (nsStats.AllocatedGpuCount / float64(quota)) * 100
-			}
-		}
-
 		// Query utilization from Prometheus using the shared calculator
 		utilizationResult := utilizationCalculator.CalculateHourlyNamespaceUtilization(ctx, namespace, result, hour)
-		nsStats.AvgUtilization = utilizationResult.AvgUtilization
-		nsStats.MinUtilization = utilizationResult.MinUtilization
-		nsStats.MaxUtilization = utilizationResult.MaxUtilization
+
+		// Build namespace stats
+		nsStats := BuildNamespaceGpuHourlyStats(clusterName, namespace, hour, result, utilizationResult, namespaceQuotas[namespace])
 
 		// Save namespace stats
 		if err := facade.SaveNamespaceHourlyStats(ctx, nsStats); err != nil {
@@ -253,19 +351,55 @@ func (j *NamespaceGpuAggregationJob) aggregateNamespaceStats(
 	return createdCount, nil
 }
 
-// shouldExcludeNamespace checks if a namespace should be excluded
-func (j *NamespaceGpuAggregationJob) shouldExcludeNamespace(namespace string) bool {
+// BuildNamespaceGpuHourlyStats builds a namespace GPU hourly stats record
+// This is exported for testing purposes
+func BuildNamespaceGpuHourlyStats(
+	clusterName string,
+	namespace string,
+	hour time.Time,
+	allocationResult *statistics.GpuAllocationResult,
+	utilizationResult *statistics.NamespaceUtilizationResult,
+	gpuQuota int32,
+) *dbmodel.NamespaceGpuHourlyStats {
+	nsStats := &dbmodel.NamespaceGpuHourlyStats{
+		ClusterName:         clusterName,
+		Namespace:           namespace,
+		StatHour:            hour,
+		AllocatedGpuCount:   allocationResult.TotalAllocatedGpu,
+		ActiveWorkloadCount: int32(allocationResult.WorkloadCount),
+	}
+
+	// Set GPU quota if available and calculate allocation rate
+	if gpuQuota > 0 {
+		nsStats.TotalGpuCapacity = gpuQuota
+		if nsStats.AllocatedGpuCount > 0 {
+			nsStats.AllocationRate = (nsStats.AllocatedGpuCount / float64(gpuQuota)) * 100
+		}
+	}
+
+	// Set utilization stats
+	if utilizationResult != nil {
+		nsStats.AvgUtilization = utilizationResult.AvgUtilization
+		nsStats.MinUtilization = utilizationResult.MinUtilization
+		nsStats.MaxUtilization = utilizationResult.MaxUtilization
+	}
+
+	return nsStats
+}
+
+// ShouldExcludeNamespace checks if a namespace should be excluded
+// This is exported for testing purposes
+func ShouldExcludeNamespace(namespace string, excludeList []string, includeSystemNamespaces bool) bool {
 	// Check if in exclusion list
-	for _, excluded := range j.config.ExcludeNamespaces {
+	for _, excluded := range excludeList {
 		if namespace == excluded {
 			return true
 		}
 	}
 
 	// Check if it's a system namespace
-	if !j.config.IncludeSystemNamespaces {
-		systemNamespaces := []string{"kube-system", "kube-public", "kube-node-lease"}
-		for _, sysNs := range systemNamespaces {
+	if !includeSystemNamespaces {
+		for _, sysNs := range SystemNamespaces {
 			if namespace == sysNs {
 				return true
 			}
