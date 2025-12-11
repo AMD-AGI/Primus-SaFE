@@ -255,7 +255,6 @@ def build_payload() -> Dict[str, Any]:
         "priority": priority,
         "timeout": timeout_secs,
         "ttlSecondsAfterFinished": 20,
-        "preheat": True,
     }
     # Add user-defined labels and annotations if present
     if pod_labels:
