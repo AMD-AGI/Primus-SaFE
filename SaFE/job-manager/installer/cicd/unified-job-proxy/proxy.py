@@ -124,6 +124,7 @@ def build_payload_from_input(inp: Dict[str, Any]) -> Dict[str, Any]:
         "description": description,
         "ttlSecondsAfterFinished": 20,
         "priority": priority,
+        "preheat": True,
     }
     if isinstance(timeout, int) and timeout > 0:
         payload["timeout"] = timeout
