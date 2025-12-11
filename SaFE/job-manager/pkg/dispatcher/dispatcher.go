@@ -492,8 +492,8 @@ func isPriorityClassChanged(adminWorkload *v1.Workload, obj *unstructured.Unstru
 // It handles different workload types and updates various object properties including replicas,
 // network settings, containers, and volumes based on the workload specification.
 
-func applyWorkloadSpecToObject(ctx context.Context, clusterInformer *syncer.ClusterInformer, obj *unstructured.Unstructured,
-	adminWorkload *v1.Workload, workspace *v1.Workspace, rt *v1.ResourceTemplate) error {
+func applyWorkloadSpecToObject(ctx context.Context, clusterInformer *syncer.ClusterInformer,
+	obj *unstructured.Unstructured, adminWorkload *v1.Workload, workspace *v1.Workspace, rt *v1.ResourceTemplate) error {
 	if commonworkload.IsCICDScalingRunnerSet(adminWorkload) {
 		if err := updateCICDScaleSet(obj, adminWorkload, workspace, rt); err != nil {
 			return err

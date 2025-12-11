@@ -757,7 +757,7 @@ func (h *Handler) generatePreheatWorkload(ctx context.Context,
 	v1.SetLabel(preheatWorkload, v1.UserIdLabel, common.UserSystem)
 	v1.SetAnnotation(preheatWorkload, v1.UserNameAnnotation, common.UserSystem)
 
-	preheatWorkload.Spec.EntryPoint = stringutil.Base64Encode("sleep 1000; preheat finished")
+	preheatWorkload.Spec.EntryPoint = stringutil.Base64Encode("preheat finished; sleep 1000")
 	preheatWorkload.Spec.IsSupervised = false
 	preheatWorkload.Spec.MaxRetry = 0
 	preheatWorkload.Spec.TTLSecondsAfterFinished = pointer.Int(10)

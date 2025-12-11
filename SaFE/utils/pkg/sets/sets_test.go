@@ -37,7 +37,6 @@ func TestBasic(t *testing.T) {
 	s1.Clear()
 	assert.Equal(t, s1.Len(), 0)
 	assert.Equal(t, s2.Len(), 2)
-
 }
 
 func TestDifference(t *testing.T) {
