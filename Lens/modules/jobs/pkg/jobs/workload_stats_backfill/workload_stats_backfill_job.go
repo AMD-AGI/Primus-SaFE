@@ -10,6 +10,7 @@ import (
 	dbmodel "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/prom"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/model"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/trace"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/common"
 	"go.opentelemetry.io/otel/attribute"
@@ -33,6 +34,15 @@ const (
 	WorkloadGpuMemoryTotalQueryTemplate = `avg(workload_gpu_total_vram{workload_uid="%s"})`
 )
 
+// PromQueryFunc is the function signature for Prometheus range queries
+type PromQueryFunc func(ctx context.Context, storageClientSet *clientsets.StorageClientSet, query string, startTime, endTime time.Time, step int, labelFilter map[string]struct{}) ([]model.MetricsSeries, error)
+
+// FacadeGetter is the function signature for getting database facade
+type FacadeGetter func(clusterName string) database.FacadeInterface
+
+// ClusterNameGetter is the function signature for getting cluster name
+type ClusterNameGetter func() string
+
 // WorkloadStatsBackfillConfig is the configuration for workload stats backfill job
 type WorkloadStatsBackfillConfig struct {
 	// Enabled controls whether the job is enabled
@@ -47,30 +57,105 @@ type WorkloadStatsBackfillConfig struct {
 
 // WorkloadStatsBackfillJob is the job for backfilling missing workload GPU stats
 type WorkloadStatsBackfillJob struct {
-	config      *WorkloadStatsBackfillConfig
-	clusterName string
+	config            *WorkloadStatsBackfillConfig
+	clusterName       string
+	facadeGetter      FacadeGetter
+	promQueryFunc     PromQueryFunc
+	clusterNameGetter ClusterNameGetter
+}
+
+// JobOption is a function that configures a WorkloadStatsBackfillJob
+type JobOption func(*WorkloadStatsBackfillJob)
+
+// WithFacadeGetter sets the facade getter function
+func WithFacadeGetter(getter FacadeGetter) JobOption {
+	return func(j *WorkloadStatsBackfillJob) {
+		j.facadeGetter = getter
+	}
+}
+
+// WithPromQueryFunc sets the Prometheus query function
+func WithPromQueryFunc(fn PromQueryFunc) JobOption {
+	return func(j *WorkloadStatsBackfillJob) {
+		j.promQueryFunc = fn
+	}
+}
+
+// WithClusterNameGetter sets the cluster name getter function
+func WithClusterNameGetter(getter ClusterNameGetter) JobOption {
+	return func(j *WorkloadStatsBackfillJob) {
+		j.clusterNameGetter = getter
+	}
+}
+
+// WithClusterName sets the cluster name directly
+func WithClusterName(name string) JobOption {
+	return func(j *WorkloadStatsBackfillJob) {
+		j.clusterName = name
+	}
+}
+
+// defaultFacadeGetter is the default implementation using database package
+func defaultFacadeGetter(clusterName string) database.FacadeInterface {
+	return database.GetFacadeForCluster(clusterName)
+}
+
+// defaultPromQueryFunc is the default implementation using prom package
+func defaultPromQueryFunc(ctx context.Context, storageClientSet *clientsets.StorageClientSet, query string, startTime, endTime time.Time, step int, labelFilter map[string]struct{}) ([]model.MetricsSeries, error) {
+	return prom.QueryRange(ctx, storageClientSet, query, startTime, endTime, step, labelFilter)
+}
+
+// defaultClusterNameGetter is the default implementation using clientsets package
+func defaultClusterNameGetter() string {
+	return clientsets.GetClusterManager().GetCurrentClusterName()
 }
 
 // NewWorkloadStatsBackfillJob creates a new workload stats backfill job with default config
-func NewWorkloadStatsBackfillJob() *WorkloadStatsBackfillJob {
-	clusterName := clientsets.GetClusterManager().GetCurrentClusterName()
-	return &WorkloadStatsBackfillJob{
+func NewWorkloadStatsBackfillJob(opts ...JobOption) *WorkloadStatsBackfillJob {
+	j := &WorkloadStatsBackfillJob{
 		config: &WorkloadStatsBackfillConfig{
 			Enabled:       true,
 			BackfillDays:  DefaultBackfillDays,
 			PromQueryStep: DefaultPromQueryStep,
 		},
-		clusterName: clusterName,
+		facadeGetter:      defaultFacadeGetter,
+		promQueryFunc:     defaultPromQueryFunc,
+		clusterNameGetter: defaultClusterNameGetter,
 	}
+
+	// Apply options
+	for _, opt := range opts {
+		opt(j)
+	}
+
+	// Set cluster name if not already set
+	if j.clusterName == "" {
+		j.clusterName = j.clusterNameGetter()
+	}
+
+	return j
 }
 
 // NewWorkloadStatsBackfillJobWithConfig creates a new workload stats backfill job with custom config
-func NewWorkloadStatsBackfillJobWithConfig(cfg *WorkloadStatsBackfillConfig) *WorkloadStatsBackfillJob {
-	clusterName := clientsets.GetClusterManager().GetCurrentClusterName()
-	return &WorkloadStatsBackfillJob{
-		config:      cfg,
-		clusterName: clusterName,
+func NewWorkloadStatsBackfillJobWithConfig(cfg *WorkloadStatsBackfillConfig, opts ...JobOption) *WorkloadStatsBackfillJob {
+	j := &WorkloadStatsBackfillJob{
+		config:            cfg,
+		facadeGetter:      defaultFacadeGetter,
+		promQueryFunc:     defaultPromQueryFunc,
+		clusterNameGetter: defaultClusterNameGetter,
 	}
+
+	// Apply options
+	for _, opt := range opts {
+		opt(j)
+	}
+
+	// Set cluster name if not already set
+	if j.clusterName == "" {
+		j.clusterName = j.clusterNameGetter()
+	}
+
+	return j
 }
 
 // Run executes the workload stats backfill job
@@ -86,7 +171,7 @@ func (j *WorkloadStatsBackfillJob) Run(ctx context.Context,
 
 	clusterName := j.clusterName
 	if clusterName == "" {
-		clusterName = clientsets.GetClusterManager().GetCurrentClusterName()
+		clusterName = j.clusterNameGetter()
 	}
 
 	span.SetAttributes(
@@ -199,7 +284,7 @@ func (j *WorkloadStatsBackfillJob) getRecentlyActiveTopLevelWorkloads(
 		attribute.String("end_time", endTime.Format(time.RFC3339)),
 	)
 
-	facade := database.GetFacadeForCluster(clusterName).GetWorkload()
+	facade := j.facadeGetter(clusterName).GetWorkload()
 
 	// Get all workloads that have not ended (including running and pending)
 	allWorkloads, err := facade.GetWorkloadNotEnd(ctx)
@@ -210,8 +295,21 @@ func (j *WorkloadStatsBackfillJob) getRecentlyActiveTopLevelWorkloads(
 	}
 
 	// Filter for top-level workloads (parent_uid is empty) that were active during the time range
+	activeWorkloads := FilterActiveTopLevelWorkloads(allWorkloads, startTime, endTime)
+
+	span.SetAttributes(
+		attribute.Int("total_workloads.count", len(allWorkloads)),
+		attribute.Int("active_top_level_workloads.count", len(activeWorkloads)),
+	)
+	span.SetStatus(codes.Ok, "")
+	return activeWorkloads, nil
+}
+
+// FilterActiveTopLevelWorkloads filters workloads to find top-level ones active in the time range
+// This is exported for testing purposes
+func FilterActiveTopLevelWorkloads(workloads []*dbmodel.GpuWorkload, startTime, endTime time.Time) []*dbmodel.GpuWorkload {
 	var activeWorkloads []*dbmodel.GpuWorkload
-	for _, workload := range allWorkloads {
+	for _, workload := range workloads {
 		// Skip non-top-level workloads
 		if workload.ParentUID != "" {
 			continue
@@ -230,13 +328,7 @@ func (j *WorkloadStatsBackfillJob) getRecentlyActiveTopLevelWorkloads(
 
 		activeWorkloads = append(activeWorkloads, workload)
 	}
-
-	span.SetAttributes(
-		attribute.Int("total_workloads.count", len(allWorkloads)),
-		attribute.Int("active_top_level_workloads.count", len(activeWorkloads)),
-	)
-	span.SetStatus(codes.Ok, "")
-	return activeWorkloads, nil
+	return activeWorkloads
 }
 
 // WorkloadHourEntry represents a workload and a specific hour that needs backfilling
@@ -255,7 +347,7 @@ func (j *WorkloadStatsBackfillJob) findMissingWorkloadStats(
 	span, ctx := trace.StartSpanFromContext(ctx, "findMissingWorkloadStats")
 	defer trace.FinishSpan(span)
 
-	facade := database.GetFacadeForCluster(clusterName).GetGpuAggregation()
+	facade := j.facadeGetter(clusterName).GetGpuAggregation()
 
 	// Get all existing workload stats in the time range
 	existingStats, err := facade.ListWorkloadHourlyStats(ctx, startTime, endTime.Add(time.Hour))
@@ -266,15 +358,32 @@ func (j *WorkloadStatsBackfillJob) findMissingWorkloadStats(
 	}
 
 	// Build a map of existing stats: namespace/workloadName/hour -> exists
-	existingStatsMap := make(map[string]struct{})
-	for _, stat := range existingStats {
-		key := fmt.Sprintf("%s/%s/%s", stat.Namespace, stat.WorkloadName, stat.StatHour.Format(time.RFC3339))
-		existingStatsMap[key] = struct{}{}
-	}
+	existingStatsMap := BuildExistingStatsMap(existingStats)
 
 	span.SetAttributes(attribute.Int("existing_stats.count", len(existingStatsMap)))
 
 	// Find missing entries for each workload
+	missingEntries := FindMissingEntries(workloads, existingStatsMap, startTime, endTime)
+
+	span.SetAttributes(attribute.Int("missing_entries.count", len(missingEntries)))
+	span.SetStatus(codes.Ok, "")
+	return missingEntries, nil
+}
+
+// BuildExistingStatsMap builds a map of existing stats for quick lookup
+// This is exported for testing purposes
+func BuildExistingStatsMap(stats []*dbmodel.WorkloadGpuHourlyStats) map[string]struct{} {
+	existingStatsMap := make(map[string]struct{})
+	for _, stat := range stats {
+		key := fmt.Sprintf("%s/%s/%s", stat.Namespace, stat.WorkloadName, stat.StatHour.Format(time.RFC3339))
+		existingStatsMap[key] = struct{}{}
+	}
+	return existingStatsMap
+}
+
+// FindMissingEntries finds missing workload hour entries
+// This is exported for testing purposes
+func FindMissingEntries(workloads []*dbmodel.GpuWorkload, existingStatsMap map[string]struct{}, startTime, endTime time.Time) []WorkloadHourEntry {
 	missingEntries := make([]WorkloadHourEntry, 0)
 
 	for _, workload := range workloads {
@@ -305,9 +414,7 @@ func (j *WorkloadStatsBackfillJob) findMissingWorkloadStats(
 		}
 	}
 
-	span.SetAttributes(attribute.Int("missing_entries.count", len(missingEntries)))
-	span.SetStatus(codes.Ok, "")
-	return missingEntries, nil
+	return missingEntries
 }
 
 // backfillWorkloadStats backfills missing workload stats by querying Prometheus
@@ -320,7 +427,7 @@ func (j *WorkloadStatsBackfillJob) backfillWorkloadStats(
 	span, ctx := trace.StartSpanFromContext(ctx, "backfillWorkloadStats")
 	defer trace.FinishSpan(span)
 
-	facade := database.GetFacadeForCluster(clusterName).GetGpuAggregation()
+	facade := j.facadeGetter(clusterName).GetGpuAggregation()
 	var backfilledCount, errorCount int64
 
 	for _, entry := range missingEntries {
@@ -342,43 +449,8 @@ func (j *WorkloadStatsBackfillJob) backfillWorkloadStats(
 		// Get replica count from database (active pods during this hour)
 		avgReplicaCount, maxReplicaCount, minReplicaCount := j.getWorkloadReplicaCountForHour(ctx, clusterName, entry.Workload.UID, hourStart, hourEnd)
 
-		// Ensure Labels and Annotations are not nil (required for JSONB fields)
-		labels := entry.Workload.Labels
-		if labels == nil {
-			labels = dbmodel.ExtType{}
-		}
-		annotations := entry.Workload.Annotations
-		if annotations == nil {
-			annotations = dbmodel.ExtType{}
-		}
-
-		// Create workload hourly stats record
-		stats := &dbmodel.WorkloadGpuHourlyStats{
-			ClusterName:       clusterName,
-			Namespace:         entry.Workload.Namespace,
-			WorkloadName:      entry.Workload.Name,
-			WorkloadType:      entry.Workload.Kind,
-			StatHour:          entry.Hour,
-			AllocatedGpuCount: float64(entry.Workload.GpuRequest),
-			RequestedGpuCount: float64(entry.Workload.GpuRequest),
-			AvgUtilization:    avgUtilization,
-			MaxUtilization:    avgUtilization, // Using avg as approximation since we don't have granular data
-			MinUtilization:    avgUtilization,
-			P50Utilization:    avgUtilization,
-			P95Utilization:    avgUtilization,
-			AvgGpuMemoryUsed:  avgMemoryUsedGB,
-			MaxGpuMemoryUsed:  avgMemoryUsedGB, // Using avg as approximation
-			AvgGpuMemoryTotal: avgMemoryTotalGB,
-			AvgReplicaCount:   avgReplicaCount,
-			MaxReplicaCount:   maxReplicaCount,
-			MinReplicaCount:   minReplicaCount,
-			WorkloadStatus:    entry.Workload.Status,
-			SampleCount:       1,
-			OwnerUID:          entry.Workload.ParentUID,
-			OwnerName:         "",
-			Labels:            labels,
-			Annotations:       annotations,
-		}
+		// Build stats record
+		stats := BuildWorkloadHourlyStats(clusterName, entry, avgUtilization, avgMemoryUsedGB, avgMemoryTotalGB, avgReplicaCount, maxReplicaCount, minReplicaCount)
 
 		// Save to database
 		if err := facade.SaveWorkloadHourlyStats(ctx, stats); err != nil {
@@ -401,6 +473,47 @@ func (j *WorkloadStatsBackfillJob) backfillWorkloadStats(
 	return backfilledCount, errorCount
 }
 
+// BuildWorkloadHourlyStats builds a WorkloadGpuHourlyStats record from the given data
+// This is exported for testing purposes
+func BuildWorkloadHourlyStats(clusterName string, entry WorkloadHourEntry, avgUtilization, avgMemoryUsedGB, avgMemoryTotalGB float64, avgReplicaCount float64, maxReplicaCount, minReplicaCount int32) *dbmodel.WorkloadGpuHourlyStats {
+	// Ensure Labels and Annotations are not nil (required for JSONB fields)
+	labels := entry.Workload.Labels
+	if labels == nil {
+		labels = dbmodel.ExtType{}
+	}
+	annotations := entry.Workload.Annotations
+	if annotations == nil {
+		annotations = dbmodel.ExtType{}
+	}
+
+	return &dbmodel.WorkloadGpuHourlyStats{
+		ClusterName:       clusterName,
+		Namespace:         entry.Workload.Namespace,
+		WorkloadName:      entry.Workload.Name,
+		WorkloadType:      entry.Workload.Kind,
+		StatHour:          entry.Hour,
+		AllocatedGpuCount: float64(entry.Workload.GpuRequest),
+		RequestedGpuCount: float64(entry.Workload.GpuRequest),
+		AvgUtilization:    avgUtilization,
+		MaxUtilization:    avgUtilization, // Using avg as approximation since we don't have granular data
+		MinUtilization:    avgUtilization,
+		P50Utilization:    avgUtilization,
+		P95Utilization:    avgUtilization,
+		AvgGpuMemoryUsed:  avgMemoryUsedGB,
+		MaxGpuMemoryUsed:  avgMemoryUsedGB, // Using avg as approximation
+		AvgGpuMemoryTotal: avgMemoryTotalGB,
+		AvgReplicaCount:   avgReplicaCount,
+		MaxReplicaCount:   maxReplicaCount,
+		MinReplicaCount:   minReplicaCount,
+		WorkloadStatus:    entry.Workload.Status,
+		SampleCount:       1,
+		OwnerUID:          entry.Workload.ParentUID,
+		OwnerName:         "",
+		Labels:            labels,
+		Annotations:       annotations,
+	}
+}
+
 // queryWorkloadUtilizationForHour queries the average GPU utilization for a workload in a specific hour
 func (j *WorkloadStatsBackfillJob) queryWorkloadUtilizationForHour(
 	ctx context.Context,
@@ -420,7 +533,7 @@ func (j *WorkloadStatsBackfillJob) queryWorkloadUtilizationForHour(
 		attribute.String("end_time", endTime.Format(time.RFC3339)),
 	)
 
-	series, err := prom.QueryRange(ctx, storageClientSet, query, startTime, endTime,
+	series, err := j.promQueryFunc(ctx, storageClientSet, query, startTime, endTime,
 		j.config.PromQueryStep, map[string]struct{}{"__name__": {}})
 
 	if err != nil {
@@ -429,30 +542,32 @@ func (j *WorkloadStatsBackfillJob) queryWorkloadUtilizationForHour(
 		return 0, err
 	}
 
+	avg := CalculateAverageFromSeries(series)
+
+	span.SetAttributes(
+		attribute.Int("series.count", len(series)),
+		attribute.Float64("utilization.avg", avg),
+	)
+	if len(series) > 0 && len(series[0].Values) > 0 {
+		span.SetAttributes(attribute.Int("data_points.count", len(series[0].Values)))
+	}
+	span.SetStatus(codes.Ok, "")
+
+	return avg, nil
+}
+
+// CalculateAverageFromSeries calculates the average value from Prometheus series
+// This is exported for testing purposes
+func CalculateAverageFromSeries(series []model.MetricsSeries) float64 {
 	if len(series) == 0 || len(series[0].Values) == 0 {
-		span.SetAttributes(
-			attribute.Int("series.count", 0),
-			attribute.Float64("utilization.avg", 0),
-		)
-		span.SetStatus(codes.Ok, "No data points")
-		return 0, nil
+		return 0
 	}
 
-	// Calculate average utilization from all data points
 	sum := 0.0
 	for _, point := range series[0].Values {
 		sum += point.Value
 	}
-	avg := sum / float64(len(series[0].Values))
-
-	span.SetAttributes(
-		attribute.Int("series.count", len(series)),
-		attribute.Int("data_points.count", len(series[0].Values)),
-		attribute.Float64("utilization.avg", avg),
-	)
-	span.SetStatus(codes.Ok, "")
-
-	return avg, nil
+	return sum / float64(len(series[0].Values))
 }
 
 // queryWorkloadGpuMemoryForHour queries the average GPU memory usage for a workload in a specific hour
@@ -476,34 +591,24 @@ func (j *WorkloadStatsBackfillJob) queryWorkloadGpuMemoryForHour(
 
 	// Query GPU memory used
 	memUsedQuery := fmt.Sprintf(WorkloadGpuMemoryUsedQueryTemplate, workloadUID)
-	memUsedSeries, err := prom.QueryRange(ctx, storageClientSet, memUsedQuery, startTime, endTime,
+	memUsedSeries, err := j.promQueryFunc(ctx, storageClientSet, memUsedQuery, startTime, endTime,
 		j.config.PromQueryStep, map[string]struct{}{"__name__": {}})
 
 	if err != nil {
 		log.Debugf("Failed to query GPU memory used for workload %s: %v", workloadUID, err)
-	} else if len(memUsedSeries) > 0 && len(memUsedSeries[0].Values) > 0 {
-		sum := 0.0
-		for _, point := range memUsedSeries[0].Values {
-			sum += point.Value
-		}
-		// Convert from bytes to GB
-		avgMemoryUsedGB = (sum / float64(len(memUsedSeries[0].Values))) / (1024 * 1024 * 1024)
+	} else {
+		avgMemoryUsedGB = BytesToGB(CalculateAverageFromSeries(memUsedSeries))
 	}
 
 	// Query GPU memory total
 	memTotalQuery := fmt.Sprintf(WorkloadGpuMemoryTotalQueryTemplate, workloadUID)
-	memTotalSeries, err := prom.QueryRange(ctx, storageClientSet, memTotalQuery, startTime, endTime,
+	memTotalSeries, err := j.promQueryFunc(ctx, storageClientSet, memTotalQuery, startTime, endTime,
 		j.config.PromQueryStep, map[string]struct{}{"__name__": {}})
 
 	if err != nil {
 		log.Debugf("Failed to query GPU memory total for workload %s: %v", workloadUID, err)
-	} else if len(memTotalSeries) > 0 && len(memTotalSeries[0].Values) > 0 {
-		sum := 0.0
-		for _, point := range memTotalSeries[0].Values {
-			sum += point.Value
-		}
-		// Convert from bytes to GB
-		avgMemoryTotalGB = (sum / float64(len(memTotalSeries[0].Values))) / (1024 * 1024 * 1024)
+	} else {
+		avgMemoryTotalGB = BytesToGB(CalculateAverageFromSeries(memTotalSeries))
 	}
 
 	span.SetAttributes(
@@ -513,6 +618,12 @@ func (j *WorkloadStatsBackfillJob) queryWorkloadGpuMemoryForHour(
 	span.SetStatus(codes.Ok, "")
 
 	return avgMemoryUsedGB, avgMemoryTotalGB
+}
+
+// BytesToGB converts bytes to gigabytes
+// This is exported for testing purposes
+func BytesToGB(bytes float64) float64 {
+	return bytes / (1024 * 1024 * 1024)
 }
 
 // getWorkloadReplicaCountForHour gets the replica count for a workload during a specific hour
@@ -533,7 +644,7 @@ func (j *WorkloadStatsBackfillJob) getWorkloadReplicaCountForHour(
 		attribute.String("hour_end", hourEnd.Format(time.RFC3339)),
 	)
 
-	facade := database.GetFacadeForCluster(clusterName)
+	facade := j.facadeGetter(clusterName)
 
 	// Get pod references for this workload
 	podRefs, err := facade.GetWorkload().ListWorkloadPodReferenceByWorkloadUid(ctx, workloadUID)
@@ -572,9 +683,22 @@ func (j *WorkloadStatsBackfillJob) getWorkloadReplicaCountForHour(
 	}
 
 	// Count pods that were active during the hour
-	// A pod is considered active during the hour if:
-	// - It was created before hourEnd
-	// - It was running (Running=true) or created during this hour
+	activePodCount := CountActivePodsInHour(pods, hourStart, hourEnd)
+
+	span.SetAttributes(
+		attribute.Int("pod_refs.count", len(podRefs)),
+		attribute.Int("pods.count", len(pods)),
+		attribute.Int("active_pods.count", int(activePodCount)),
+	)
+	span.SetStatus(codes.Ok, "")
+
+	// For backfill, we use the same value for avg/max/min since we don't have granular data
+	return float64(activePodCount), activePodCount, activePodCount
+}
+
+// CountActivePodsInHour counts pods that were active during the specified hour
+// This is exported for testing purposes
+func CountActivePodsInHour(pods []*dbmodel.GpuPods, hourStart, hourEnd time.Time) int32 {
 	activePodCount := int32(0)
 	for _, pod := range pods {
 		// Check if pod was created before the hour ended
@@ -596,15 +720,7 @@ func (j *WorkloadStatsBackfillJob) getWorkloadReplicaCountForHour(
 		activePodCount = 1
 	}
 
-	span.SetAttributes(
-		attribute.Int("pod_refs.count", len(podRefs)),
-		attribute.Int("pods.count", len(pods)),
-		attribute.Int("active_pods.count", int(activePodCount)),
-	)
-	span.SetStatus(codes.Ok, "")
-
-	// For backfill, we use the same value for avg/max/min since we don't have granular data
-	return float64(activePodCount), activePodCount, activePodCount
+	return activePodCount
 }
 
 // Schedule returns the job's scheduling expression

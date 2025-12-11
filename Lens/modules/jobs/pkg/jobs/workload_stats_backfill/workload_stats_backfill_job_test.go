@@ -1,13 +1,361 @@
 package workload_stats_backfill
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
 
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/filter"
 	dbmodel "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/model"
 	"github.com/stretchr/testify/assert"
 )
+
+// ==================== Mock Implementations ====================
+
+// MockFacade implements database.FacadeInterface for testing
+type MockFacade struct {
+	workloadFacade       database.WorkloadFacadeInterface
+	podFacade            database.PodFacadeInterface
+	gpuAggregationFacade database.GpuAggregationFacadeInterface
+}
+
+func (m *MockFacade) GetWorkload() database.WorkloadFacadeInterface {
+	return m.workloadFacade
+}
+
+func (m *MockFacade) GetPod() database.PodFacadeInterface {
+	return m.podFacade
+}
+
+func (m *MockFacade) GetGpuAggregation() database.GpuAggregationFacadeInterface {
+	return m.gpuAggregationFacade
+}
+
+// Implement other methods with nil returns (not used in tests)
+func (m *MockFacade) GetNode() database.NodeFacadeInterface                       { return nil }
+func (m *MockFacade) GetContainer() database.ContainerFacadeInterface             { return nil }
+func (m *MockFacade) GetTraining() database.TrainingFacadeInterface               { return nil }
+func (m *MockFacade) GetStorage() database.StorageFacadeInterface                 { return nil }
+func (m *MockFacade) GetAlert() database.AlertFacadeInterface                     { return nil }
+func (m *MockFacade) GetMetricAlertRule() database.MetricAlertRuleFacadeInterface { return nil }
+func (m *MockFacade) GetLogAlertRule() database.LogAlertRuleFacadeInterface       { return nil }
+func (m *MockFacade) GetAlertRuleAdvice() database.AlertRuleAdviceFacadeInterface { return nil }
+func (m *MockFacade) GetClusterOverviewCache() database.ClusterOverviewCacheFacadeInterface {
+	return nil
+}
+func (m *MockFacade) GetGenericCache() database.GenericCacheFacadeInterface               { return nil }
+func (m *MockFacade) GetSystemConfig() database.SystemConfigFacadeInterface               { return nil }
+func (m *MockFacade) GetJobExecutionHistory() database.JobExecutionHistoryFacadeInterface { return nil }
+func (m *MockFacade) GetNamespaceInfo() database.NamespaceInfoFacadeInterface             { return nil }
+func (m *MockFacade) GetWorkloadStatistic() database.WorkloadStatisticFacadeInterface     { return nil }
+func (m *MockFacade) GetAiWorkloadMetadata() database.AiWorkloadMetadataFacadeInterface   { return nil }
+func (m *MockFacade) GetCheckpointEvent() database.CheckpointEventFacadeInterface         { return nil }
+func (m *MockFacade) GetDetectionConflictLog() database.DetectionConflictLogFacadeInterface {
+	return nil
+}
+func (m *MockFacade) GetGpuUsageWeeklyReport() database.GpuUsageWeeklyReportFacadeInterface {
+	return nil
+}
+func (m *MockFacade) GetNodeNamespaceMapping() database.NodeNamespaceMappingFacadeInterface {
+	return nil
+}
+func (m *MockFacade) WithCluster(clusterName string) database.FacadeInterface { return m }
+
+// MockWorkloadFacade implements database.WorkloadFacadeInterface for testing
+type MockWorkloadFacade struct {
+	GetWorkloadNotEndFunc                     func(ctx context.Context) ([]*dbmodel.GpuWorkload, error)
+	ListWorkloadPodReferenceByWorkloadUidFunc func(ctx context.Context, workloadUID string) ([]*dbmodel.WorkloadPodReference, error)
+}
+
+func (m *MockWorkloadFacade) GetWorkloadNotEnd(ctx context.Context) ([]*dbmodel.GpuWorkload, error) {
+	if m.GetWorkloadNotEndFunc != nil {
+		return m.GetWorkloadNotEndFunc(ctx)
+	}
+	return nil, nil
+}
+
+func (m *MockWorkloadFacade) ListWorkloadPodReferenceByWorkloadUid(ctx context.Context, workloadUID string) ([]*dbmodel.WorkloadPodReference, error) {
+	if m.ListWorkloadPodReferenceByWorkloadUidFunc != nil {
+		return m.ListWorkloadPodReferenceByWorkloadUidFunc(ctx, workloadUID)
+	}
+	return nil, nil
+}
+
+// Implement other required methods
+func (m *MockWorkloadFacade) WithCluster(clusterName string) database.WorkloadFacadeInterface {
+	return m
+}
+func (m *MockWorkloadFacade) GetGpuWorkloadByUid(ctx context.Context, uid string) (*dbmodel.GpuWorkload, error) {
+	return nil, nil
+}
+func (m *MockWorkloadFacade) CreateGpuWorkload(ctx context.Context, gpuWorkload *dbmodel.GpuWorkload) error {
+	return nil
+}
+func (m *MockWorkloadFacade) UpdateGpuWorkload(ctx context.Context, gpuWorkload *dbmodel.GpuWorkload) error {
+	return nil
+}
+func (m *MockWorkloadFacade) QueryWorkload(ctx context.Context, f *filter.WorkloadFilter) ([]*dbmodel.GpuWorkload, int, error) {
+	return nil, 0, nil
+}
+func (m *MockWorkloadFacade) GetWorkloadsNamespaceList(ctx context.Context) ([]string, error) {
+	return nil, nil
+}
+func (m *MockWorkloadFacade) GetWorkloadKindList(ctx context.Context) ([]string, error) {
+	return nil, nil
+}
+func (m *MockWorkloadFacade) ListRunningWorkload(ctx context.Context) ([]*dbmodel.GpuWorkload, error) {
+	return nil, nil
+}
+func (m *MockWorkloadFacade) ListWorkloadsByUids(ctx context.Context, uids []string) ([]*dbmodel.GpuWorkload, error) {
+	return nil, nil
+}
+func (m *MockWorkloadFacade) GetNearestWorkloadByPodUid(ctx context.Context, podUid string) (*dbmodel.GpuWorkload, error) {
+	return nil, nil
+}
+func (m *MockWorkloadFacade) ListTopLevelWorkloadByUids(ctx context.Context, uids []string) ([]*dbmodel.GpuWorkload, error) {
+	return nil, nil
+}
+func (m *MockWorkloadFacade) ListChildrenWorkloadByParentUid(ctx context.Context, parentUid string) ([]*dbmodel.GpuWorkload, error) {
+	return nil, nil
+}
+func (m *MockWorkloadFacade) ListWorkloadByLabelValue(ctx context.Context, labelKey, labelValue string) ([]*dbmodel.GpuWorkload, error) {
+	return nil, nil
+}
+func (m *MockWorkloadFacade) ListWorkloadNotEndByKind(ctx context.Context, kind string) ([]*dbmodel.GpuWorkload, error) {
+	return nil, nil
+}
+func (m *MockWorkloadFacade) ListActiveTopLevelWorkloads(ctx context.Context, startTime, endTime time.Time, namespace string) ([]*dbmodel.GpuWorkload, error) {
+	return nil, nil
+}
+func (m *MockWorkloadFacade) CreateGpuWorkloadSnapshot(ctx context.Context, gpuWorkloadSnapshot *dbmodel.GpuWorkloadSnapshot) error {
+	return nil
+}
+func (m *MockWorkloadFacade) UpdateGpuWorkloadSnapshot(ctx context.Context, gpuWorkloadSnapshot *dbmodel.GpuWorkloadSnapshot) error {
+	return nil
+}
+func (m *MockWorkloadFacade) GetLatestGpuWorkloadSnapshotByUid(ctx context.Context, uid string, resourceVersion int) (*dbmodel.GpuWorkloadSnapshot, error) {
+	return nil, nil
+}
+func (m *MockWorkloadFacade) CreateWorkloadPodReference(ctx context.Context, workloadUid, podUid string) error {
+	return nil
+}
+func (m *MockWorkloadFacade) ListWorkloadPodReferencesByPodUids(ctx context.Context, podUids []string) ([]*dbmodel.WorkloadPodReference, error) {
+	return nil, nil
+}
+func (m *MockWorkloadFacade) GetWorkloadEventByWorkloadUidAndNearestWorkloadIdAndType(ctx context.Context, workloadUid, nearestWorkloadId, typ string) (*dbmodel.WorkloadEvent, error) {
+	return nil, nil
+}
+func (m *MockWorkloadFacade) CreateWorkloadEvent(ctx context.Context, workloadEvent *dbmodel.WorkloadEvent) error {
+	return nil
+}
+func (m *MockWorkloadFacade) UpdateWorkloadEvent(ctx context.Context, workloadEvent *dbmodel.WorkloadEvent) error {
+	return nil
+}
+func (m *MockWorkloadFacade) GetLatestEvent(ctx context.Context, workloadUid, nearestWorkloadId string) (*dbmodel.WorkloadEvent, error) {
+	return nil, nil
+}
+func (m *MockWorkloadFacade) GetLatestOtherWorkloadEvent(ctx context.Context, workloadUid, nearestWorkloadId string) (*dbmodel.WorkloadEvent, error) {
+	return nil, nil
+}
+
+// MockPodFacade implements database.PodFacadeInterface for testing
+type MockPodFacade struct {
+	ListPodsByUidsFunc func(ctx context.Context, uids []string) ([]*dbmodel.GpuPods, error)
+}
+
+func (m *MockPodFacade) ListPodsByUids(ctx context.Context, uids []string) ([]*dbmodel.GpuPods, error) {
+	if m.ListPodsByUidsFunc != nil {
+		return m.ListPodsByUidsFunc(ctx, uids)
+	}
+	return nil, nil
+}
+
+// Implement other required methods
+func (m *MockPodFacade) WithCluster(clusterName string) database.PodFacadeInterface { return m }
+func (m *MockPodFacade) CreateGpuPods(ctx context.Context, gpuPods *dbmodel.GpuPods) error {
+	return nil
+}
+func (m *MockPodFacade) UpdateGpuPods(ctx context.Context, gpuPods *dbmodel.GpuPods) error {
+	return nil
+}
+func (m *MockPodFacade) GetGpuPodsByPodUid(ctx context.Context, podUid string) (*dbmodel.GpuPods, error) {
+	return nil, nil
+}
+func (m *MockPodFacade) GetActiveGpuPodByNodeName(ctx context.Context, nodeName string) ([]*dbmodel.GpuPods, error) {
+	return nil, nil
+}
+func (m *MockPodFacade) GetHistoryGpuPodByNodeName(ctx context.Context, nodeName string, pageNum, pageSize int) ([]*dbmodel.GpuPods, int, error) {
+	return nil, 0, nil
+}
+func (m *MockPodFacade) ListActivePodsByUids(ctx context.Context, uids []string) ([]*dbmodel.GpuPods, error) {
+	return nil, nil
+}
+func (m *MockPodFacade) ListActiveGpuPods(ctx context.Context) ([]*dbmodel.GpuPods, error) {
+	return nil, nil
+}
+func (m *MockPodFacade) CreateGpuPodsEvent(ctx context.Context, gpuPods *dbmodel.GpuPodsEvent) error {
+	return nil
+}
+func (m *MockPodFacade) UpdateGpuPodsEvent(ctx context.Context, gpuPods *dbmodel.GpuPods) error {
+	return nil
+}
+func (m *MockPodFacade) CreatePodSnapshot(ctx context.Context, podSnapshot *dbmodel.PodSnapshot) error {
+	return nil
+}
+func (m *MockPodFacade) UpdatePodSnapshot(ctx context.Context, podSnapshot *dbmodel.PodSnapshot) error {
+	return nil
+}
+func (m *MockPodFacade) GetLastPodSnapshot(ctx context.Context, podUid string, resourceVersion int) (*dbmodel.PodSnapshot, error) {
+	return nil, nil
+}
+func (m *MockPodFacade) GetPodResourceByUid(ctx context.Context, uid string) (*dbmodel.PodResource, error) {
+	return nil, nil
+}
+func (m *MockPodFacade) CreatePodResource(ctx context.Context, podResource *dbmodel.PodResource) error {
+	return nil
+}
+func (m *MockPodFacade) UpdatePodResource(ctx context.Context, podResource *dbmodel.PodResource) error {
+	return nil
+}
+func (m *MockPodFacade) ListPodResourcesByUids(ctx context.Context, uids []string) ([]*dbmodel.PodResource, error) {
+	return nil, nil
+}
+
+// MockGpuAggregationFacade implements database.GpuAggregationFacadeInterface for testing
+type MockGpuAggregationFacade struct {
+	ListWorkloadHourlyStatsFunc func(ctx context.Context, startTime, endTime time.Time) ([]*dbmodel.WorkloadGpuHourlyStats, error)
+	SaveWorkloadHourlyStatsFunc func(ctx context.Context, stats *dbmodel.WorkloadGpuHourlyStats) error
+	savedStats                  []*dbmodel.WorkloadGpuHourlyStats
+}
+
+func (m *MockGpuAggregationFacade) ListWorkloadHourlyStats(ctx context.Context, startTime, endTime time.Time) ([]*dbmodel.WorkloadGpuHourlyStats, error) {
+	if m.ListWorkloadHourlyStatsFunc != nil {
+		return m.ListWorkloadHourlyStatsFunc(ctx, startTime, endTime)
+	}
+	return nil, nil
+}
+
+func (m *MockGpuAggregationFacade) SaveWorkloadHourlyStats(ctx context.Context, stats *dbmodel.WorkloadGpuHourlyStats) error {
+	if m.SaveWorkloadHourlyStatsFunc != nil {
+		return m.SaveWorkloadHourlyStatsFunc(ctx, stats)
+	}
+	m.savedStats = append(m.savedStats, stats)
+	return nil
+}
+
+// Implement other required methods
+func (m *MockGpuAggregationFacade) WithCluster(clusterName string) database.GpuAggregationFacadeInterface {
+	return m
+}
+func (m *MockGpuAggregationFacade) SaveClusterHourlyStats(ctx context.Context, stats *dbmodel.ClusterGpuHourlyStats) error {
+	return nil
+}
+func (m *MockGpuAggregationFacade) BatchSaveClusterHourlyStats(ctx context.Context, stats []*dbmodel.ClusterGpuHourlyStats) error {
+	return nil
+}
+func (m *MockGpuAggregationFacade) GetClusterHourlyStats(ctx context.Context, startTime, endTime time.Time) ([]*dbmodel.ClusterGpuHourlyStats, error) {
+	return nil, nil
+}
+func (m *MockGpuAggregationFacade) GetClusterHourlyStatsPaginated(ctx context.Context, startTime, endTime time.Time, opts database.PaginationOptions) (*database.PaginatedResult, error) {
+	return nil, nil
+}
+func (m *MockGpuAggregationFacade) SaveNamespaceHourlyStats(ctx context.Context, stats *dbmodel.NamespaceGpuHourlyStats) error {
+	return nil
+}
+func (m *MockGpuAggregationFacade) BatchSaveNamespaceHourlyStats(ctx context.Context, stats []*dbmodel.NamespaceGpuHourlyStats) error {
+	return nil
+}
+func (m *MockGpuAggregationFacade) GetNamespaceHourlyStats(ctx context.Context, namespace string, startTime, endTime time.Time) ([]*dbmodel.NamespaceGpuHourlyStats, error) {
+	return nil, nil
+}
+func (m *MockGpuAggregationFacade) ListNamespaceHourlyStats(ctx context.Context, startTime, endTime time.Time) ([]*dbmodel.NamespaceGpuHourlyStats, error) {
+	return nil, nil
+}
+func (m *MockGpuAggregationFacade) GetNamespaceHourlyStatsPaginated(ctx context.Context, namespace string, startTime, endTime time.Time, opts database.PaginationOptions) (*database.PaginatedResult, error) {
+	return nil, nil
+}
+func (m *MockGpuAggregationFacade) ListNamespaceHourlyStatsPaginated(ctx context.Context, startTime, endTime time.Time, opts database.PaginationOptions) (*database.PaginatedResult, error) {
+	return nil, nil
+}
+func (m *MockGpuAggregationFacade) ListNamespaceHourlyStatsPaginatedWithExclusion(ctx context.Context, startTime, endTime time.Time, excludeNamespaces []string, opts database.PaginationOptions) (*database.PaginatedResult, error) {
+	return nil, nil
+}
+func (m *MockGpuAggregationFacade) SaveLabelHourlyStats(ctx context.Context, stats *dbmodel.LabelGpuHourlyStats) error {
+	return nil
+}
+func (m *MockGpuAggregationFacade) BatchSaveLabelHourlyStats(ctx context.Context, stats []*dbmodel.LabelGpuHourlyStats) error {
+	return nil
+}
+func (m *MockGpuAggregationFacade) GetLabelHourlyStats(ctx context.Context, dimensionType, dimensionKey, dimensionValue string, startTime, endTime time.Time) ([]*dbmodel.LabelGpuHourlyStats, error) {
+	return nil, nil
+}
+func (m *MockGpuAggregationFacade) ListLabelHourlyStatsByKey(ctx context.Context, dimensionType, dimensionKey string, startTime, endTime time.Time) ([]*dbmodel.LabelGpuHourlyStats, error) {
+	return nil, nil
+}
+func (m *MockGpuAggregationFacade) GetLabelHourlyStatsPaginated(ctx context.Context, dimensionType, dimensionKey, dimensionValue string, startTime, endTime time.Time, opts database.PaginationOptions) (*database.PaginatedResult, error) {
+	return nil, nil
+}
+func (m *MockGpuAggregationFacade) ListLabelHourlyStatsByKeyPaginated(ctx context.Context, dimensionType, dimensionKey string, startTime, endTime time.Time, opts database.PaginationOptions) (*database.PaginatedResult, error) {
+	return nil, nil
+}
+func (m *MockGpuAggregationFacade) LabelHourlyStatsExists(ctx context.Context, clusterName, dimensionType, dimensionKey, dimensionValue string, hour time.Time) (bool, error) {
+	return false, nil
+}
+func (m *MockGpuAggregationFacade) BatchSaveWorkloadHourlyStats(ctx context.Context, stats []*dbmodel.WorkloadGpuHourlyStats) error {
+	return nil
+}
+func (m *MockGpuAggregationFacade) GetWorkloadHourlyStats(ctx context.Context, namespace, workloadName string, startTime, endTime time.Time) ([]*dbmodel.WorkloadGpuHourlyStats, error) {
+	return nil, nil
+}
+func (m *MockGpuAggregationFacade) ListWorkloadHourlyStatsByNamespace(ctx context.Context, namespace string, startTime, endTime time.Time) ([]*dbmodel.WorkloadGpuHourlyStats, error) {
+	return nil, nil
+}
+func (m *MockGpuAggregationFacade) GetWorkloadHourlyStatsPaginated(ctx context.Context, namespace, workloadName, workloadType string, startTime, endTime time.Time, opts database.PaginationOptions) (*database.PaginatedResult, error) {
+	return nil, nil
+}
+func (m *MockGpuAggregationFacade) GetWorkloadHourlyStatsPaginatedWithExclusion(ctx context.Context, namespace, workloadName, workloadType string, startTime, endTime time.Time, excludeNamespaces []string, opts database.PaginationOptions) (*database.PaginatedResult, error) {
+	return nil, nil
+}
+func (m *MockGpuAggregationFacade) ListWorkloadHourlyStatsPaginated(ctx context.Context, startTime, endTime time.Time, opts database.PaginationOptions) (*database.PaginatedResult, error) {
+	return nil, nil
+}
+func (m *MockGpuAggregationFacade) ListWorkloadHourlyStatsByNamespacePaginated(ctx context.Context, namespace string, startTime, endTime time.Time, opts database.PaginationOptions) (*database.PaginatedResult, error) {
+	return nil, nil
+}
+func (m *MockGpuAggregationFacade) SaveSnapshot(ctx context.Context, snapshot *dbmodel.GpuAllocationSnapshots) error {
+	return nil
+}
+func (m *MockGpuAggregationFacade) GetLatestSnapshot(ctx context.Context) (*dbmodel.GpuAllocationSnapshots, error) {
+	return nil, nil
+}
+func (m *MockGpuAggregationFacade) ListSnapshots(ctx context.Context, startTime, endTime time.Time) ([]*dbmodel.GpuAllocationSnapshots, error) {
+	return nil, nil
+}
+func (m *MockGpuAggregationFacade) CleanupOldSnapshots(ctx context.Context, beforeTime time.Time) (int64, error) {
+	return 0, nil
+}
+func (m *MockGpuAggregationFacade) CleanupOldHourlyStats(ctx context.Context, beforeTime time.Time) (int64, error) {
+	return 0, nil
+}
+func (m *MockGpuAggregationFacade) GetDistinctNamespaces(ctx context.Context, startTime, endTime time.Time) ([]string, error) {
+	return nil, nil
+}
+func (m *MockGpuAggregationFacade) GetDistinctNamespacesWithExclusion(ctx context.Context, startTime, endTime time.Time, excludeNamespaces []string) ([]string, error) {
+	return nil, nil
+}
+func (m *MockGpuAggregationFacade) GetDistinctDimensionKeys(ctx context.Context, dimensionType string, startTime, endTime time.Time) ([]string, error) {
+	return nil, nil
+}
+func (m *MockGpuAggregationFacade) GetDistinctDimensionValues(ctx context.Context, dimensionType, dimensionKey string, startTime, endTime time.Time) ([]string, error) {
+	return nil, nil
+}
+
+// ==================== Test Cases ====================
 
 func TestWorkloadStatsBackfillConfig_DefaultValues(t *testing.T) {
 	config := &WorkloadStatsBackfillConfig{}
@@ -102,197 +450,550 @@ func TestWorkloadHourEntry_Structure(t *testing.T) {
 	assert.Equal(t, "test-namespace", entry.Workload.Namespace)
 }
 
-func TestWorkloadStatsBackfillConfig_AllFields(t *testing.T) {
+// ==================== Tests for Exported Helper Functions ====================
+
+func TestFilterActiveTopLevelWorkloads(t *testing.T) {
+	startTime := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	endTime := time.Date(2025, 1, 3, 0, 0, 0, 0, time.UTC)
+
+	workloads := []*dbmodel.GpuWorkload{
+		{UID: "uid-1", Name: "top-level-active", ParentUID: "", CreatedAt: time.Date(2024, 12, 1, 0, 0, 0, 0, time.UTC), EndAt: time.Time{}},
+		{UID: "uid-2", Name: "child-workload", ParentUID: "uid-1", CreatedAt: time.Date(2024, 12, 1, 0, 0, 0, 0, time.UTC), EndAt: time.Time{}},
+		{UID: "uid-3", Name: "created-after-end", ParentUID: "", CreatedAt: time.Date(2025, 1, 4, 0, 0, 0, 0, time.UTC), EndAt: time.Time{}},
+		{UID: "uid-4", Name: "ended-before-start", ParentUID: "", CreatedAt: time.Date(2024, 12, 1, 0, 0, 0, 0, time.UTC), EndAt: time.Date(2024, 12, 31, 0, 0, 0, 0, time.UTC)},
+		{UID: "uid-5", Name: "active-during-range", ParentUID: "", CreatedAt: time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC), EndAt: time.Time{}},
+	}
+
+	result := FilterActiveTopLevelWorkloads(workloads, startTime, endTime)
+
+	assert.Equal(t, 2, len(result))
+	assert.Equal(t, "uid-1", result[0].UID)
+	assert.Equal(t, "uid-5", result[1].UID)
+}
+
+func TestBuildExistingStatsMap(t *testing.T) {
+	stats := []*dbmodel.WorkloadGpuHourlyStats{
+		{Namespace: "ns-1", WorkloadName: "wl-1", StatHour: time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC)},
+		{Namespace: "ns-1", WorkloadName: "wl-1", StatHour: time.Date(2025, 1, 1, 11, 0, 0, 0, time.UTC)},
+		{Namespace: "ns-2", WorkloadName: "wl-2", StatHour: time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC)},
+	}
+
+	result := BuildExistingStatsMap(stats)
+
+	assert.Equal(t, 3, len(result))
+	_, exists := result["ns-1/wl-1/2025-01-01T10:00:00Z"]
+	assert.True(t, exists)
+	_, exists = result["ns-1/wl-1/2025-01-01T11:00:00Z"]
+	assert.True(t, exists)
+	_, exists = result["ns-2/wl-2/2025-01-01T10:00:00Z"]
+	assert.True(t, exists)
+}
+
+func TestFindMissingEntries(t *testing.T) {
+	workloads := []*dbmodel.GpuWorkload{
+		{UID: "uid-1", Name: "wl-1", Namespace: "ns-1", CreatedAt: time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC), EndAt: time.Time{}},
+	}
+
+	existingStatsMap := map[string]struct{}{
+		"ns-1/wl-1/2025-01-01T10:00:00Z": {},
+	}
+
+	startTime := time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC)
+	endTime := time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC)
+
+	result := FindMissingEntries(workloads, existingStatsMap, startTime, endTime)
+
+	assert.Equal(t, 2, len(result))
+	assert.Equal(t, time.Date(2025, 1, 1, 11, 0, 0, 0, time.UTC), result[0].Hour)
+	assert.Equal(t, time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC), result[1].Hour)
+}
+
+func TestCalculateAverageFromSeries(t *testing.T) {
+	tests := []struct {
+		name     string
+		series   []model.MetricsSeries
+		expected float64
+	}{
+		{
+			name:     "empty series",
+			series:   []model.MetricsSeries{},
+			expected: 0,
+		},
+		{
+			name: "series with no values",
+			series: []model.MetricsSeries{
+				{Values: []model.TimePoint{}},
+			},
+			expected: 0,
+		},
+		{
+			name: "series with single value",
+			series: []model.MetricsSeries{
+				{Values: []model.TimePoint{{Value: 50.0}}},
+			},
+			expected: 50.0,
+		},
+		{
+			name: "series with multiple values",
+			series: []model.MetricsSeries{
+				{Values: []model.TimePoint{{Value: 10.0}, {Value: 20.0}, {Value: 30.0}}},
+			},
+			expected: 20.0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := CalculateAverageFromSeries(tt.series)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestBytesToGB(t *testing.T) {
+	tests := []struct {
+		name     string
+		bytes    float64
+		expected float64
+	}{
+		{"zero bytes", 0, 0},
+		{"1 GB", 1024 * 1024 * 1024, 1.0},
+		{"2 GB", 2 * 1024 * 1024 * 1024, 2.0},
+		{"0.5 GB", 512 * 1024 * 1024, 0.5},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := BytesToGB(tt.bytes)
+			assert.InDelta(t, tt.expected, result, 0.001)
+		})
+	}
+}
+
+func TestCountActivePodsInHour(t *testing.T) {
+	hourStart := time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC)
+	hourEnd := time.Date(2025, 1, 1, 11, 0, 0, 0, time.UTC)
+
+	tests := []struct {
+		name     string
+		pods     []*dbmodel.GpuPods
+		expected int32
+	}{
+		{
+			name:     "no pods returns 1",
+			pods:     []*dbmodel.GpuPods{},
+			expected: 1,
+		},
+		{
+			name: "running pod",
+			pods: []*dbmodel.GpuPods{
+				{UID: "pod-1", Running: true, CreatedAt: time.Date(2025, 1, 1, 9, 0, 0, 0, time.UTC)},
+			},
+			expected: 1,
+		},
+		{
+			name: "pod created during hour",
+			pods: []*dbmodel.GpuPods{
+				{UID: "pod-1", Running: false, CreatedAt: time.Date(2025, 1, 1, 10, 30, 0, 0, time.UTC)},
+			},
+			expected: 1,
+		},
+		{
+			name: "pod created after hour end",
+			pods: []*dbmodel.GpuPods{
+				{UID: "pod-1", Running: false, CreatedAt: time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC)},
+			},
+			expected: 1,
+		},
+		{
+			name: "multiple running pods",
+			pods: []*dbmodel.GpuPods{
+				{UID: "pod-1", Running: true, CreatedAt: time.Date(2025, 1, 1, 9, 0, 0, 0, time.UTC)},
+				{UID: "pod-2", Running: true, CreatedAt: time.Date(2025, 1, 1, 9, 30, 0, 0, time.UTC)},
+				{UID: "pod-3", Running: true, CreatedAt: time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC)},
+			},
+			expected: 3,
+		},
+		{
+			name: "pod existed before hour and not deleted",
+			pods: []*dbmodel.GpuPods{
+				{UID: "pod-1", Running: false, Deleted: false, CreatedAt: time.Date(2025, 1, 1, 8, 0, 0, 0, time.UTC)},
+			},
+			expected: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := CountActivePodsInHour(tt.pods, hourStart, hourEnd)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestBuildWorkloadHourlyStats(t *testing.T) {
+	entry := WorkloadHourEntry{
+		Workload: &dbmodel.GpuWorkload{
+			UID:        "test-uid",
+			Name:       "test-workload",
+			Namespace:  "test-ns",
+			Kind:       "Deployment",
+			GpuRequest: 4,
+			Status:     "Running",
+			ParentUID:  "",
+			Labels:     dbmodel.ExtType{"app": "test"},
+		},
+		Hour: time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC),
+	}
+
+	stats := BuildWorkloadHourlyStats("test-cluster", entry, 75.5, 8.0, 16.0, 2.0, 2, 2)
+
+	assert.Equal(t, "test-cluster", stats.ClusterName)
+	assert.Equal(t, "test-ns", stats.Namespace)
+	assert.Equal(t, "test-workload", stats.WorkloadName)
+	assert.Equal(t, "Deployment", stats.WorkloadType)
+	assert.Equal(t, float64(4), stats.AllocatedGpuCount)
+	assert.Equal(t, 75.5, stats.AvgUtilization)
+	assert.Equal(t, 8.0, stats.AvgGpuMemoryUsed)
+	assert.Equal(t, 16.0, stats.AvgGpuMemoryTotal)
+	assert.Equal(t, float64(2), stats.AvgReplicaCount)
+	assert.NotNil(t, stats.Labels)
+}
+
+func TestBuildWorkloadHourlyStats_NilLabelsAndAnnotations(t *testing.T) {
+	entry := WorkloadHourEntry{
+		Workload: &dbmodel.GpuWorkload{
+			UID:         "test-uid",
+			Name:        "test-workload",
+			Namespace:   "test-ns",
+			Labels:      nil,
+			Annotations: nil,
+		},
+		Hour: time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC),
+	}
+
+	stats := BuildWorkloadHourlyStats("test-cluster", entry, 0, 0, 0, 1, 1, 1)
+
+	assert.NotNil(t, stats.Labels)
+	assert.NotNil(t, stats.Annotations)
+}
+
+// ==================== Integration Tests with Dependency Injection ====================
+
+func TestNewWorkloadStatsBackfillJob_WithOptions(t *testing.T) {
+	mockFacadeGetter := func(clusterName string) database.FacadeInterface {
+		return &MockFacade{}
+	}
+
+	mockPromQueryFunc := func(ctx context.Context, storageClientSet *clientsets.StorageClientSet, query string, startTime, endTime time.Time, step int, labelFilter map[string]struct{}) ([]model.MetricsSeries, error) {
+		return []model.MetricsSeries{}, nil
+	}
+
+	job := NewWorkloadStatsBackfillJob(
+		WithFacadeGetter(mockFacadeGetter),
+		WithPromQueryFunc(mockPromQueryFunc),
+		WithClusterName("test-cluster"),
+	)
+
+	assert.NotNil(t, job)
+	assert.Equal(t, "test-cluster", job.clusterName)
+	assert.NotNil(t, job.facadeGetter)
+	assert.NotNil(t, job.promQueryFunc)
+}
+
+func TestNewWorkloadStatsBackfillJobWithConfig_WithOptions(t *testing.T) {
 	config := &WorkloadStatsBackfillConfig{
 		Enabled:       true,
-		BackfillDays:  7,
+		BackfillDays:  5,
 		PromQueryStep: 30,
 	}
 
-	assert.True(t, config.Enabled)
-	assert.Equal(t, 7, config.BackfillDays)
-	assert.Equal(t, 30, config.PromQueryStep)
+	job := NewWorkloadStatsBackfillJobWithConfig(config,
+		WithClusterName("custom-cluster"),
+	)
+
+	assert.NotNil(t, job)
+	assert.Equal(t, "custom-cluster", job.clusterName)
+	assert.True(t, job.config.Enabled)
+	assert.Equal(t, 5, job.config.BackfillDays)
+	assert.Equal(t, 30, job.config.PromQueryStep)
 }
 
-func TestWorkloadStatsBackfillJob_ConfigValidation(t *testing.T) {
-	tests := []struct {
-		name          string
-		config        *WorkloadStatsBackfillConfig
-		expectEnabled bool
-	}{
-		{
-			name: "enabled with valid config",
-			config: &WorkloadStatsBackfillConfig{
-				Enabled:       true,
-				BackfillDays:  7,
-				PromQueryStep: 60,
-			},
-			expectEnabled: true,
-		},
-		{
-			name: "disabled",
-			config: &WorkloadStatsBackfillConfig{
-				Enabled:       false,
-				BackfillDays:  7,
-				PromQueryStep: 60,
-			},
-			expectEnabled: false,
-		},
-		{
-			name: "zero backfill days",
-			config: &WorkloadStatsBackfillConfig{
-				Enabled:       true,
-				BackfillDays:  0,
-				PromQueryStep: 60,
-			},
-			expectEnabled: true,
-		},
-		{
-			name: "zero prom query step",
-			config: &WorkloadStatsBackfillConfig{
-				Enabled:       true,
-				BackfillDays:  7,
-				PromQueryStep: 0,
-			},
-			expectEnabled: true,
+func TestWorkloadStatsBackfillJob_Run_Disabled(t *testing.T) {
+	job := NewWorkloadStatsBackfillJob(
+		WithClusterName("test-cluster"),
+	)
+	job.config.Enabled = false
+
+	ctx := context.Background()
+	stats, err := job.Run(ctx, nil, nil)
+
+	assert.NoError(t, err)
+	assert.NotNil(t, stats)
+	assert.Contains(t, stats.Messages, "Workload stats backfill job is disabled")
+}
+
+func TestWorkloadStatsBackfillJob_Run_NoActiveWorkloads(t *testing.T) {
+	mockWorkloadFacade := &MockWorkloadFacade{
+		GetWorkloadNotEndFunc: func(ctx context.Context) ([]*dbmodel.GpuWorkload, error) {
+			return []*dbmodel.GpuWorkload{}, nil
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			job := &WorkloadStatsBackfillJob{
-				config: tt.config,
-			}
-			assert.Equal(t, tt.expectEnabled, job.config.Enabled)
-		})
+	mockFacade := &MockFacade{
+		workloadFacade: mockWorkloadFacade,
 	}
+
+	job := NewWorkloadStatsBackfillJob(
+		WithFacadeGetter(func(clusterName string) database.FacadeInterface {
+			return mockFacade
+		}),
+		WithClusterName("test-cluster"),
+	)
+
+	ctx := context.Background()
+	stats, err := job.Run(ctx, nil, nil)
+
+	assert.NoError(t, err)
+	assert.NotNil(t, stats)
+	assert.Contains(t, stats.Messages, "No active top-level workloads found")
 }
 
-func TestWorkloadHourEntry_MultipleEntries(t *testing.T) {
-	workload1 := &dbmodel.GpuWorkload{
-		UID:       "uid-1",
-		Name:      "workload-1",
-		Namespace: "ns-1",
-	}
-
-	workload2 := &dbmodel.GpuWorkload{
-		UID:       "uid-2",
-		Name:      "workload-2",
-		Namespace: "ns-2",
-	}
-
-	hour1 := time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC)
-	hour2 := time.Date(2025, 1, 1, 11, 0, 0, 0, time.UTC)
-
-	entries := []WorkloadHourEntry{
-		{Workload: workload1, Hour: hour1},
-		{Workload: workload1, Hour: hour2},
-		{Workload: workload2, Hour: hour1},
-		{Workload: workload2, Hour: hour2},
-	}
-
-	assert.Equal(t, 4, len(entries))
-
-	assert.Equal(t, "uid-1", entries[0].Workload.UID)
-	assert.Equal(t, hour1, entries[0].Hour)
-
-	assert.Equal(t, "uid-1", entries[1].Workload.UID)
-	assert.Equal(t, hour2, entries[1].Hour)
-
-	assert.Equal(t, "uid-2", entries[2].Workload.UID)
-	assert.Equal(t, hour1, entries[2].Hour)
-
-	assert.Equal(t, "uid-2", entries[3].Workload.UID)
-	assert.Equal(t, hour2, entries[3].Hour)
-}
-
-func TestQueryTemplates_SpecialCharacters(t *testing.T) {
-	tests := []struct {
-		name     string
-		uid      string
-		template string
-	}{
-		{
-			name:     "uid with hyphens",
-			uid:      "pod-abc-123-xyz",
-			template: WorkloadUtilizationQueryTemplate,
-		},
-		{
-			name:     "uid with underscores",
-			uid:      "pod_abc_123_xyz",
-			template: WorkloadGpuMemoryUsedQueryTemplate,
-		},
-		{
-			name:     "long uid",
-			uid:      "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-			template: WorkloadGpuMemoryTotalQueryTemplate,
+func TestWorkloadStatsBackfillJob_Run_GetWorkloadError(t *testing.T) {
+	mockWorkloadFacade := &MockWorkloadFacade{
+		GetWorkloadNotEndFunc: func(ctx context.Context) ([]*dbmodel.GpuWorkload, error) {
+			return nil, errors.New("database error")
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := fmt.Sprintf(tt.template, tt.uid)
-			assert.Contains(t, result, tt.uid, "Query should contain the UID")
-			assert.Contains(t, result, "workload_uid=", "Query should have workload_uid label")
-		})
-	}
-}
-
-func TestWorkloadStatsBackfillJob_ClusterName(t *testing.T) {
-	job := &WorkloadStatsBackfillJob{
-		config:      &WorkloadStatsBackfillConfig{Enabled: true},
-		clusterName: "test-cluster",
+	mockFacade := &MockFacade{
+		workloadFacade: mockWorkloadFacade,
 	}
 
-	assert.Equal(t, "test-cluster", job.clusterName)
+	job := NewWorkloadStatsBackfillJob(
+		WithFacadeGetter(func(clusterName string) database.FacadeInterface {
+			return mockFacade
+		}),
+		WithClusterName("test-cluster"),
+	)
+
+	ctx := context.Background()
+	_, err := job.Run(ctx, nil, nil)
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to get recently active workloads")
 }
 
-func TestWorkloadStatsBackfillJob_EmptyClusterName(t *testing.T) {
-	job := &WorkloadStatsBackfillJob{
-		config:      &WorkloadStatsBackfillConfig{Enabled: true},
-		clusterName: "",
-	}
-
-	assert.Empty(t, job.clusterName)
-}
-
-func TestWorkloadHourEntry_NilWorkload(t *testing.T) {
-	testHour := time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC)
-
-	entry := WorkloadHourEntry{
-		Workload: nil,
-		Hour:     testHour,
-	}
-
-	assert.Nil(t, entry.Workload)
-	assert.Equal(t, testHour, entry.Hour)
-}
-
-func TestWorkloadHourEntry_ZeroHour(t *testing.T) {
+func TestWorkloadStatsBackfillJob_Run_NoMissingStats(t *testing.T) {
+	now := time.Now()
 	workload := &dbmodel.GpuWorkload{
-		UID:  "test-uid",
-		Name: "test-workload",
+		UID:       "test-uid",
+		Name:      "test-workload",
+		Namespace: "test-ns",
+		ParentUID: "",
+		CreatedAt: now.Add(-48 * time.Hour),
+		EndAt:     time.Time{},
 	}
 
-	entry := WorkloadHourEntry{
-		Workload: workload,
-		Hour:     time.Time{},
+	mockWorkloadFacade := &MockWorkloadFacade{
+		GetWorkloadNotEndFunc: func(ctx context.Context) ([]*dbmodel.GpuWorkload, error) {
+			return []*dbmodel.GpuWorkload{workload}, nil
+		},
 	}
 
-	assert.True(t, entry.Hour.IsZero())
+	existingStats := make([]*dbmodel.WorkloadGpuHourlyStats, 0)
+	endTime := now.Truncate(time.Hour).Add(-time.Hour)
+	startTime := endTime.Add(-48 * time.Hour)
+	for h := startTime; !h.After(endTime); h = h.Add(time.Hour) {
+		existingStats = append(existingStats, &dbmodel.WorkloadGpuHourlyStats{
+			Namespace:    "test-ns",
+			WorkloadName: "test-workload",
+			StatHour:     h,
+		})
+	}
+
+	mockGpuAggregationFacade := &MockGpuAggregationFacade{
+		ListWorkloadHourlyStatsFunc: func(ctx context.Context, st, et time.Time) ([]*dbmodel.WorkloadGpuHourlyStats, error) {
+			return existingStats, nil
+		},
+	}
+
+	mockFacade := &MockFacade{
+		workloadFacade:       mockWorkloadFacade,
+		gpuAggregationFacade: mockGpuAggregationFacade,
+	}
+
+	job := NewWorkloadStatsBackfillJob(
+		WithFacadeGetter(func(clusterName string) database.FacadeInterface {
+			return mockFacade
+		}),
+		WithClusterName("test-cluster"),
+	)
+
+	ctx := context.Background()
+	stats, err := job.Run(ctx, nil, nil)
+
+	assert.NoError(t, err)
+	assert.NotNil(t, stats)
+	assert.Contains(t, stats.Messages, "No missing workload stats found")
 }
 
-func TestConfigJSON_Tags(t *testing.T) {
-	config := WorkloadStatsBackfillConfig{
-		Enabled:       true,
-		BackfillDays:  5,
-		PromQueryStep: 45,
+func TestWorkloadStatsBackfillJob_Run_SuccessfulBackfill(t *testing.T) {
+	now := time.Now()
+	workload := &dbmodel.GpuWorkload{
+		UID:        "test-uid",
+		Name:       "test-workload",
+		Namespace:  "test-ns",
+		Kind:       "Deployment",
+		ParentUID:  "",
+		GpuRequest: 4,
+		Status:     "Running",
+		CreatedAt:  now.Add(-2 * time.Hour),
+		EndAt:      time.Time{},
+		Labels:     dbmodel.ExtType{},
 	}
 
-	assert.True(t, config.Enabled)
-	assert.Equal(t, 5, config.BackfillDays)
-	assert.Equal(t, 45, config.PromQueryStep)
+	mockWorkloadFacade := &MockWorkloadFacade{
+		GetWorkloadNotEndFunc: func(ctx context.Context) ([]*dbmodel.GpuWorkload, error) {
+			return []*dbmodel.GpuWorkload{workload}, nil
+		},
+		ListWorkloadPodReferenceByWorkloadUidFunc: func(ctx context.Context, workloadUID string) ([]*dbmodel.WorkloadPodReference, error) {
+			return []*dbmodel.WorkloadPodReference{
+				{WorkloadUID: workloadUID, PodUID: "pod-1"},
+			}, nil
+		},
+	}
+
+	mockPodFacade := &MockPodFacade{
+		ListPodsByUidsFunc: func(ctx context.Context, uids []string) ([]*dbmodel.GpuPods, error) {
+			return []*dbmodel.GpuPods{
+				{UID: "pod-1", Running: true, CreatedAt: now.Add(-2 * time.Hour)},
+			}, nil
+		},
+	}
+
+	savedStats := make([]*dbmodel.WorkloadGpuHourlyStats, 0)
+	mockGpuAggregationFacade := &MockGpuAggregationFacade{
+		ListWorkloadHourlyStatsFunc: func(ctx context.Context, st, et time.Time) ([]*dbmodel.WorkloadGpuHourlyStats, error) {
+			return []*dbmodel.WorkloadGpuHourlyStats{}, nil
+		},
+		SaveWorkloadHourlyStatsFunc: func(ctx context.Context, stats *dbmodel.WorkloadGpuHourlyStats) error {
+			savedStats = append(savedStats, stats)
+			return nil
+		},
+	}
+
+	mockFacade := &MockFacade{
+		workloadFacade:       mockWorkloadFacade,
+		podFacade:            mockPodFacade,
+		gpuAggregationFacade: mockGpuAggregationFacade,
+	}
+
+	mockPromQueryFunc := func(ctx context.Context, storageClientSet *clientsets.StorageClientSet, query string, startTime, endTime time.Time, step int, labelFilter map[string]struct{}) ([]model.MetricsSeries, error) {
+		return []model.MetricsSeries{
+			{Values: []model.TimePoint{{Value: 50.0}, {Value: 60.0}}},
+		}, nil
+	}
+
+	job := NewWorkloadStatsBackfillJob(
+		WithFacadeGetter(func(clusterName string) database.FacadeInterface {
+			return mockFacade
+		}),
+		WithPromQueryFunc(mockPromQueryFunc),
+		WithClusterName("test-cluster"),
+	)
+
+	ctx := context.Background()
+	stats, err := job.Run(ctx, nil, nil)
+
+	assert.NoError(t, err)
+	assert.NotNil(t, stats)
+	assert.Greater(t, stats.ItemsCreated, int64(0))
 }
+
+// ==================== Edge Case Tests ====================
+
+func TestFilterActiveTopLevelWorkloads_EmptyInput(t *testing.T) {
+	startTime := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	endTime := time.Date(2025, 1, 3, 0, 0, 0, 0, time.UTC)
+
+	result := FilterActiveTopLevelWorkloads([]*dbmodel.GpuWorkload{}, startTime, endTime)
+	assert.Equal(t, 0, len(result))
+}
+
+func TestBuildExistingStatsMap_EmptyInput(t *testing.T) {
+	result := BuildExistingStatsMap([]*dbmodel.WorkloadGpuHourlyStats{})
+	assert.Equal(t, 0, len(result))
+}
+
+func TestFindMissingEntries_NoWorkloads(t *testing.T) {
+	result := FindMissingEntries([]*dbmodel.GpuWorkload{}, map[string]struct{}{}, time.Now(), time.Now())
+	assert.Equal(t, 0, len(result))
+}
+
+func TestCalculateAverageFromSeries_NilInput(t *testing.T) {
+	result := CalculateAverageFromSeries(nil)
+	assert.Equal(t, float64(0), result)
+}
+
+func TestCountActivePodsInHour_EmptyPods(t *testing.T) {
+	result := CountActivePodsInHour([]*dbmodel.GpuPods{}, time.Now(), time.Now().Add(time.Hour))
+	assert.Equal(t, int32(1), result)
+}
+
+// ==================== Option Functions Tests ====================
+
+func TestWithFacadeGetter(t *testing.T) {
+	called := false
+	mockGetter := func(clusterName string) database.FacadeInterface {
+		called = true
+		return &MockFacade{}
+	}
+
+	job := &WorkloadStatsBackfillJob{}
+	opt := WithFacadeGetter(mockGetter)
+	opt(job)
+
+	job.facadeGetter("test")
+	assert.True(t, called)
+}
+
+func TestWithPromQueryFunc(t *testing.T) {
+	called := false
+	mockFunc := func(ctx context.Context, storageClientSet *clientsets.StorageClientSet, query string, startTime, endTime time.Time, step int, labelFilter map[string]struct{}) ([]model.MetricsSeries, error) {
+		called = true
+		return nil, nil
+	}
+
+	job := &WorkloadStatsBackfillJob{}
+	opt := WithPromQueryFunc(mockFunc)
+	opt(job)
+
+	job.promQueryFunc(context.Background(), nil, "", time.Now(), time.Now(), 60, nil)
+	assert.True(t, called)
+}
+
+func TestWithClusterNameGetter(t *testing.T) {
+	mockGetter := func() string {
+		return "mock-cluster"
+	}
+
+	job := &WorkloadStatsBackfillJob{}
+	opt := WithClusterNameGetter(mockGetter)
+	opt(job)
+
+	assert.Equal(t, "mock-cluster", job.clusterNameGetter())
+}
+
+func TestWithClusterName(t *testing.T) {
+	job := &WorkloadStatsBackfillJob{}
+	opt := WithClusterName("my-cluster")
+	opt(job)
+
+	assert.Equal(t, "my-cluster", job.clusterName)
+}
+
+// ==================== Additional Tests for Coverage ====================
 
 func TestTimeRangeCalculation(t *testing.T) {
 	now := time.Now()
@@ -329,16 +1030,6 @@ func TestHourTruncation(t *testing.T) {
 			input:    time.Date(2025, 1, 1, 10, 0, 45, 0, time.UTC),
 			expected: time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC),
 		},
-		{
-			name:     "with nanoseconds",
-			input:    time.Date(2025, 1, 1, 10, 0, 0, 123456789, time.UTC),
-			expected: time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC),
-		},
-		{
-			name:     "with all components",
-			input:    time.Date(2025, 1, 1, 10, 30, 45, 123456789, time.UTC),
-			expected: time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC),
-		},
 	}
 
 	for _, tt := range tests {
@@ -346,90 +1037,6 @@ func TestHourTruncation(t *testing.T) {
 			result := tt.input.Truncate(time.Hour)
 			assert.Equal(t, tt.expected, result)
 		})
-	}
-}
-
-func TestWorkloadActiveTimeRange(t *testing.T) {
-	startTime := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
-	endTime := time.Date(2025, 1, 3, 0, 0, 0, 0, time.UTC)
-
-	tests := []struct {
-		name              string
-		workloadCreatedAt time.Time
-		workloadEndAt     time.Time
-		expectedActive    bool
-	}{
-		{
-			name:              "workload created before and not ended",
-			workloadCreatedAt: time.Date(2024, 12, 31, 0, 0, 0, 0, time.UTC),
-			workloadEndAt:     time.Time{},
-			expectedActive:    true,
-		},
-		{
-			name:              "workload created during range",
-			workloadCreatedAt: time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC),
-			workloadEndAt:     time.Time{},
-			expectedActive:    true,
-		},
-		{
-			name:              "workload created after range",
-			workloadCreatedAt: time.Date(2025, 1, 4, 0, 0, 0, 0, time.UTC),
-			workloadEndAt:     time.Time{},
-			expectedActive:    false,
-		},
-		{
-			name:              "workload ended before range",
-			workloadCreatedAt: time.Date(2024, 12, 1, 0, 0, 0, 0, time.UTC),
-			workloadEndAt:     time.Date(2024, 12, 31, 0, 0, 0, 0, time.UTC),
-			expectedActive:    false,
-		},
-		{
-			name:              "workload ended during range",
-			workloadCreatedAt: time.Date(2024, 12, 1, 0, 0, 0, 0, time.UTC),
-			workloadEndAt:     time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC),
-			expectedActive:    true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			isActive := false
-
-			if !tt.workloadCreatedAt.After(endTime) {
-				if tt.workloadEndAt.IsZero() || !tt.workloadEndAt.Before(startTime) {
-					isActive = true
-				}
-			}
-
-			assert.Equal(t, tt.expectedActive, isActive)
-		})
-	}
-}
-
-func TestGenerateHoursForWorkload(t *testing.T) {
-	workloadStartTime := time.Date(2025, 1, 1, 10, 30, 0, 0, time.UTC)
-	workloadEndTime := time.Date(2025, 1, 1, 14, 45, 0, 0, time.UTC)
-
-	currentHour := workloadStartTime.Truncate(time.Hour)
-	endHour := workloadEndTime.Truncate(time.Hour)
-
-	hours := make([]time.Time, 0)
-	for !currentHour.After(endHour) {
-		hours = append(hours, currentHour)
-		currentHour = currentHour.Add(time.Hour)
-	}
-
-	expectedHours := []time.Time{
-		time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC),
-		time.Date(2025, 1, 1, 11, 0, 0, 0, time.UTC),
-		time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC),
-		time.Date(2025, 1, 1, 13, 0, 0, 0, time.UTC),
-		time.Date(2025, 1, 1, 14, 0, 0, 0, time.UTC),
-	}
-
-	assert.Equal(t, len(expectedHours), len(hours))
-	for i, expected := range expectedHours {
-		assert.Equal(t, expected, hours[i])
 	}
 }
 
@@ -444,972 +1051,24 @@ func TestMissingStatsMapKey(t *testing.T) {
 	assert.Equal(t, expectedKey, key)
 }
 
-func TestMissingStatsMapKeyUniqueness(t *testing.T) {
-	keys := make(map[string]struct{})
-
-	testCases := []struct {
-		namespace    string
-		workloadName string
-		hour         time.Time
-	}{
-		{"ns1", "workload1", time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC)},
-		{"ns1", "workload1", time.Date(2025, 1, 1, 11, 0, 0, 0, time.UTC)},
-		{"ns1", "workload2", time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC)},
-		{"ns2", "workload1", time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC)},
-	}
-
-	for _, tc := range testCases {
-		key := fmt.Sprintf("%s/%s/%s", tc.namespace, tc.workloadName, tc.hour.Format(time.RFC3339))
-		keys[key] = struct{}{}
-	}
-
-	assert.Equal(t, 4, len(keys), "All keys should be unique")
-}
-
-func TestWorkloadStatsBackfillJob_Structure(t *testing.T) {
-	config := &WorkloadStatsBackfillConfig{
-		Enabled:       true,
-		BackfillDays:  7,
-		PromQueryStep: 30,
-	}
-
+func TestWorkloadStatsBackfillJob_ClusterName(t *testing.T) {
 	job := &WorkloadStatsBackfillJob{
-		config:      config,
+		config:      &WorkloadStatsBackfillConfig{Enabled: true},
 		clusterName: "test-cluster",
 	}
 
 	assert.Equal(t, "test-cluster", job.clusterName)
-	assert.True(t, job.config.Enabled)
-	assert.Equal(t, 7, job.config.BackfillDays)
-	assert.Equal(t, 30, job.config.PromQueryStep)
 }
 
-func TestWorkloadStatsBackfillConfig_AllCombinations(t *testing.T) {
-	tests := []struct {
-		name          string
-		config        *WorkloadStatsBackfillConfig
-		expectEnabled bool
-		expectDays    int
-		expectStep    int
-	}{
-		{
-			name: "default values",
-			config: &WorkloadStatsBackfillConfig{
-				Enabled:       true,
-				BackfillDays:  DefaultBackfillDays,
-				PromQueryStep: DefaultPromQueryStep,
-			},
-			expectEnabled: true,
-			expectDays:    2,
-			expectStep:    60,
-		},
-		{
-			name: "custom values",
-			config: &WorkloadStatsBackfillConfig{
-				Enabled:       true,
-				BackfillDays:  7,
-				PromQueryStep: 30,
-			},
-			expectEnabled: true,
-			expectDays:    7,
-			expectStep:    30,
-		},
-		{
-			name: "disabled",
-			config: &WorkloadStatsBackfillConfig{
-				Enabled:       false,
-				BackfillDays:  7,
-				PromQueryStep: 60,
-			},
-			expectEnabled: false,
-			expectDays:    7,
-			expectStep:    60,
-		},
-		{
-			name: "large backfill days",
-			config: &WorkloadStatsBackfillConfig{
-				Enabled:       true,
-				BackfillDays:  30,
-				PromQueryStep: 60,
-			},
-			expectEnabled: true,
-			expectDays:    30,
-			expectStep:    60,
-		},
-		{
-			name: "small query step",
-			config: &WorkloadStatsBackfillConfig{
-				Enabled:       true,
-				BackfillDays:  2,
-				PromQueryStep: 15,
-			},
-			expectEnabled: true,
-			expectDays:    2,
-			expectStep:    15,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.expectEnabled, tt.config.Enabled)
-			assert.Equal(t, tt.expectDays, tt.config.BackfillDays)
-			assert.Equal(t, tt.expectStep, tt.config.PromQueryStep)
-		})
-	}
-}
-
-func TestWorkloadHourEntry_Initialization(t *testing.T) {
-	tests := []struct {
-		name      string
-		workload  *dbmodel.GpuWorkload
-		hour      time.Time
-		expectNil bool
-	}{
-		{
-			name: "with valid workload",
-			workload: &dbmodel.GpuWorkload{
-				UID:        "uid-123",
-				Name:       "test-workload",
-				Namespace:  "test-namespace",
-				Kind:       "Deployment",
-				GpuRequest: 4,
-			},
-			hour:      time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC),
-			expectNil: false,
-		},
-		{
-			name:      "with nil workload",
-			workload:  nil,
-			hour:      time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC),
-			expectNil: true,
-		},
-		{
-			name: "with zero time",
-			workload: &dbmodel.GpuWorkload{
-				UID:  "uid-456",
-				Name: "another-workload",
-			},
-			hour:      time.Time{},
-			expectNil: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			entry := WorkloadHourEntry{
-				Workload: tt.workload,
-				Hour:     tt.hour,
-			}
-
-			if tt.expectNil {
-				assert.Nil(t, entry.Workload)
-			} else {
-				assert.NotNil(t, entry.Workload)
-			}
-			assert.Equal(t, tt.hour, entry.Hour)
-		})
-	}
-}
-
-func TestWorkloadHourEntry_WorkloadFields(t *testing.T) {
-	workload := &dbmodel.GpuWorkload{
-		UID:        "uid-abc-123",
-		Name:       "ml-training-job",
-		Namespace:  "ml-namespace",
-		Kind:       "Job",
-		GpuRequest: 8,
-		Status:     "Running",
-	}
-
-	entry := WorkloadHourEntry{
-		Workload: workload,
-		Hour:     time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC),
-	}
-
-	assert.Equal(t, "uid-abc-123", entry.Workload.UID)
-	assert.Equal(t, "ml-training-job", entry.Workload.Name)
-	assert.Equal(t, "ml-namespace", entry.Workload.Namespace)
-	assert.Equal(t, "Job", entry.Workload.Kind)
-	assert.Equal(t, int32(8), entry.Workload.GpuRequest)
-	assert.Equal(t, "Running", entry.Workload.Status)
-}
-
-func TestQueryTemplates_Formatting(t *testing.T) {
-	tests := []struct {
-		name     string
-		template string
-		uid      string
-		contains []string
-	}{
-		{
-			name:     "utilization query",
-			template: WorkloadUtilizationQueryTemplate,
-			uid:      "test-uid-1",
-			contains: []string{"avg(", "workload_gpu_utilization", "workload_uid=", "test-uid-1"},
-		},
-		{
-			name:     "memory used query",
-			template: WorkloadGpuMemoryUsedQueryTemplate,
-			uid:      "test-uid-2",
-			contains: []string{"avg(", "workload_gpu_used_vram", "workload_uid=", "test-uid-2"},
-		},
-		{
-			name:     "memory total query",
-			template: WorkloadGpuMemoryTotalQueryTemplate,
-			uid:      "test-uid-3",
-			contains: []string{"avg(", "workload_gpu_total_vram", "workload_uid=", "test-uid-3"},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := fmt.Sprintf(tt.template, tt.uid)
-			for _, expected := range tt.contains {
-				assert.Contains(t, result, expected)
-			}
-		})
-	}
-}
-
-func TestQueryTemplates_UIDVariations(t *testing.T) {
-	uids := []string{
-		"simple-uid",
-		"uid-with-numbers-123",
-		"a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-		"namespace_name_workload",
-		"very-long-uid-that-contains-many-hyphens-and-numbers-123456789",
-	}
-
-	for _, uid := range uids {
-		utilQuery := fmt.Sprintf(WorkloadUtilizationQueryTemplate, uid)
-		assert.Contains(t, utilQuery, fmt.Sprintf(`workload_uid="%s"`, uid))
-
-		memUsedQuery := fmt.Sprintf(WorkloadGpuMemoryUsedQueryTemplate, uid)
-		assert.Contains(t, memUsedQuery, fmt.Sprintf(`workload_uid="%s"`, uid))
-
-		memTotalQuery := fmt.Sprintf(WorkloadGpuMemoryTotalQueryTemplate, uid)
-		assert.Contains(t, memTotalQuery, fmt.Sprintf(`workload_uid="%s"`, uid))
-	}
-}
-
-func TestTimeRangeCalculation_EdgeCases(t *testing.T) {
-	tests := []struct {
-		name         string
-		now          time.Time
-		backfillDays int
-	}{
-		{
-			name:         "start of day",
-			now:          time.Date(2025, 1, 1, 0, 30, 0, 0, time.UTC),
-			backfillDays: 2,
-		},
-		{
-			name:         "end of day",
-			now:          time.Date(2025, 1, 1, 23, 30, 0, 0, time.UTC),
-			backfillDays: 2,
-		},
-		{
-			name:         "middle of day",
-			now:          time.Date(2025, 1, 1, 12, 30, 0, 0, time.UTC),
-			backfillDays: 2,
-		},
-		{
-			name:         "large backfill",
-			now:          time.Date(2025, 1, 15, 10, 30, 0, 0, time.UTC),
-			backfillDays: 30,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			endTime := tt.now.Truncate(time.Hour).Add(-time.Hour)
-			startTime := endTime.Add(-time.Duration(tt.backfillDays) * 24 * time.Hour)
-
-			assert.True(t, startTime.Before(endTime))
-			assert.True(t, endTime.Before(tt.now))
-
-			expectedDuration := time.Duration(tt.backfillDays) * 24 * time.Hour
-			actualDuration := endTime.Sub(startTime)
-			assert.Equal(t, expectedDuration, actualDuration)
-
-			assert.Equal(t, 0, endTime.Minute())
-			assert.Equal(t, 0, endTime.Second())
-			assert.Equal(t, 0, startTime.Minute())
-			assert.Equal(t, 0, startTime.Second())
-		})
-	}
-}
-
-func TestWorkloadActiveTimeRange_EdgeCases(t *testing.T) {
-	startTime := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
-	endTime := time.Date(2025, 1, 3, 0, 0, 0, 0, time.UTC)
-
-	tests := []struct {
-		name              string
-		workloadCreatedAt time.Time
-		workloadEndAt     time.Time
-		expectedActive    bool
-	}{
-		{
-			name:              "created exactly at start time",
-			workloadCreatedAt: startTime,
-			workloadEndAt:     time.Time{},
-			expectedActive:    true,
-		},
-		{
-			name:              "created exactly at end time - still active since not after",
-			workloadCreatedAt: endTime,
-			workloadEndAt:     time.Time{},
-			expectedActive:    true,
-		},
-		{
-			name:              "ended exactly at start time - still considered active",
-			workloadCreatedAt: time.Date(2024, 12, 1, 0, 0, 0, 0, time.UTC),
-			workloadEndAt:     startTime,
-			expectedActive:    true,
-		},
-		{
-			name:              "ended before start time - not active",
-			workloadCreatedAt: time.Date(2024, 12, 1, 0, 0, 0, 0, time.UTC),
-			workloadEndAt:     time.Date(2024, 12, 31, 0, 0, 0, 0, time.UTC),
-			expectedActive:    false,
-		},
-		{
-			name:              "created and ended within range",
-			workloadCreatedAt: time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC),
-			workloadEndAt:     time.Date(2025, 1, 2, 12, 0, 0, 0, time.UTC),
-			expectedActive:    true,
-		},
-		{
-			name:              "spans entire range",
-			workloadCreatedAt: time.Date(2024, 12, 1, 0, 0, 0, 0, time.UTC),
-			workloadEndAt:     time.Date(2025, 2, 1, 0, 0, 0, 0, time.UTC),
-			expectedActive:    true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			isActive := false
-
-			if !tt.workloadCreatedAt.After(endTime) {
-				if tt.workloadEndAt.IsZero() || !tt.workloadEndAt.Before(startTime) {
-					isActive = true
-				}
-			}
-
-			assert.Equal(t, tt.expectedActive, isActive)
-		})
-	}
-}
-
-func TestGenerateHoursForWorkload_EdgeCases(t *testing.T) {
-	tests := []struct {
-		name           string
-		workloadStart  time.Time
-		workloadEnd    time.Time
-		expectedHours  int
-	}{
-		{
-			name:          "same hour",
-			workloadStart: time.Date(2025, 1, 1, 10, 15, 0, 0, time.UTC),
-			workloadEnd:   time.Date(2025, 1, 1, 10, 45, 0, 0, time.UTC),
-			expectedHours: 1,
-		},
-		{
-			name:          "consecutive hours",
-			workloadStart: time.Date(2025, 1, 1, 10, 45, 0, 0, time.UTC),
-			workloadEnd:   time.Date(2025, 1, 1, 11, 15, 0, 0, time.UTC),
-			expectedHours: 2,
-		},
-		{
-			name:          "full day",
-			workloadStart: time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
-			workloadEnd:   time.Date(2025, 1, 1, 23, 59, 0, 0, time.UTC),
-			expectedHours: 24,
-		},
-		{
-			name:          "cross midnight",
-			workloadStart: time.Date(2025, 1, 1, 22, 0, 0, 0, time.UTC),
-			workloadEnd:   time.Date(2025, 1, 2, 2, 0, 0, 0, time.UTC),
-			expectedHours: 5,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			currentHour := tt.workloadStart.Truncate(time.Hour)
-			endHour := tt.workloadEnd.Truncate(time.Hour)
-
-			hours := make([]time.Time, 0)
-			for !currentHour.After(endHour) {
-				hours = append(hours, currentHour)
-				currentHour = currentHour.Add(time.Hour)
-			}
-
-			assert.Equal(t, tt.expectedHours, len(hours))
-		})
-	}
-}
-
-func TestMissingStatsMapKey_Variations(t *testing.T) {
-	tests := []struct {
-		name         string
-		namespace    string
-		workloadName string
-		hour         time.Time
-		expectedKey  string
-	}{
-		{
-			name:         "simple names",
-			namespace:    "default",
-			workloadName: "nginx",
-			hour:         time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC),
-			expectedKey:  "default/nginx/2025-01-01T10:00:00Z",
-		},
-		{
-			name:         "names with hyphens",
-			namespace:    "my-namespace",
-			workloadName: "my-workload",
-			hour:         time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC),
-			expectedKey:  "my-namespace/my-workload/2025-01-01T10:00:00Z",
-		},
-		{
-			name:         "long names",
-			namespace:    "very-long-namespace-name",
-			workloadName: "very-long-workload-name-with-many-chars",
-			hour:         time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC),
-			expectedKey:  "very-long-namespace-name/very-long-workload-name-with-many-chars/2025-01-01T10:00:00Z",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			key := fmt.Sprintf("%s/%s/%s", tt.namespace, tt.workloadName, tt.hour.Format(time.RFC3339))
-			assert.Equal(t, tt.expectedKey, key)
-		})
-	}
-}
-
-func TestWorkloadStatsBackfillJob_ScheduleValue(t *testing.T) {
-	job := &WorkloadStatsBackfillJob{}
-
-	schedule := job.Schedule()
-	assert.Equal(t, "@every 1m", schedule)
-	assert.NotEqual(t, "@every 5m", schedule)
-}
-
-func TestDefaultConstants_Values(t *testing.T) {
-	assert.Equal(t, 2, DefaultBackfillDays, "Default backfill days should be 2")
-	assert.Equal(t, 60, DefaultPromQueryStep, "Default prom query step should be 60")
-}
-
-func TestWorkloadHourEntry_MultipleWorkloads(t *testing.T) {
-	workloads := []*dbmodel.GpuWorkload{
-		{UID: "uid-1", Name: "workload-1", Namespace: "ns-1", Kind: "Deployment", GpuRequest: 2},
-		{UID: "uid-2", Name: "workload-2", Namespace: "ns-1", Kind: "StatefulSet", GpuRequest: 4},
-		{UID: "uid-3", Name: "workload-3", Namespace: "ns-2", Kind: "Job", GpuRequest: 8},
-	}
-
-	hours := []time.Time{
-		time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC),
-		time.Date(2025, 1, 1, 11, 0, 0, 0, time.UTC),
-		time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC),
-	}
-
-	var entries []WorkloadHourEntry
-	for _, workload := range workloads {
-		for _, hour := range hours {
-			entries = append(entries, WorkloadHourEntry{
-				Workload: workload,
-				Hour:     hour,
-			})
-		}
-	}
-
-	assert.Equal(t, 9, len(entries), "Should create 9 entries (3 workloads x 3 hours)")
-
-	uniqueWorkloads := make(map[string]bool)
-	for _, entry := range entries {
-		uniqueWorkloads[entry.Workload.UID] = true
-	}
-	assert.Equal(t, 3, len(uniqueWorkloads), "Should have 3 unique workloads")
-
-	uniqueHours := make(map[time.Time]bool)
-	for _, entry := range entries {
-		uniqueHours[entry.Hour] = true
-	}
-	assert.Equal(t, 3, len(uniqueHours), "Should have 3 unique hours")
-}
-
-func TestWorkloadStatsBackfillConfig_SetterGetter(t *testing.T) {
+func TestWorkloadStatsBackfillJob_EmptyClusterName(t *testing.T) {
 	job := &WorkloadStatsBackfillJob{
-		config: &WorkloadStatsBackfillConfig{
-			Enabled:       false,
-			BackfillDays:  1,
-			PromQueryStep: 30,
-		},
+		config:      &WorkloadStatsBackfillConfig{Enabled: true},
+		clusterName: "",
 	}
 
-	originalConfig := job.GetConfig()
-	assert.False(t, originalConfig.Enabled)
-	assert.Equal(t, 1, originalConfig.BackfillDays)
-
-	newConfig := &WorkloadStatsBackfillConfig{
-		Enabled:       true,
-		BackfillDays:  7,
-		PromQueryStep: 60,
-	}
-	job.SetConfig(newConfig)
-
-	updatedConfig := job.GetConfig()
-	assert.True(t, updatedConfig.Enabled)
-	assert.Equal(t, 7, updatedConfig.BackfillDays)
-	assert.Equal(t, 60, updatedConfig.PromQueryStep)
+	assert.Empty(t, job.clusterName)
 }
 
-func TestHourTruncation_AllComponents(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    time.Time
-		expected time.Time
-	}{
-		{
-			name:     "only nanoseconds",
-			input:    time.Date(2025, 1, 1, 10, 0, 0, 999999999, time.UTC),
-			expected: time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC),
-		},
-		{
-			name:     "only seconds",
-			input:    time.Date(2025, 1, 1, 10, 0, 59, 0, time.UTC),
-			expected: time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC),
-		},
-		{
-			name:     "only minutes",
-			input:    time.Date(2025, 1, 1, 10, 59, 0, 0, time.UTC),
-			expected: time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC),
-		},
-		{
-			name:     "all components",
-			input:    time.Date(2025, 1, 1, 10, 59, 59, 999999999, time.UTC),
-			expected: time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC),
-		},
-		{
-			name:     "already truncated",
-			input:    time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC),
-			expected: time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC),
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := tt.input.Truncate(time.Hour)
-			assert.Equal(t, tt.expected, result)
-			assert.Equal(t, 0, result.Minute())
-			assert.Equal(t, 0, result.Second())
-			assert.Equal(t, 0, result.Nanosecond())
-		})
-	}
-}
-
-func TestWorkloadGpuWorkload_FieldAccess(t *testing.T) {
-	workload := &dbmodel.GpuWorkload{
-		UID:         "uid-test-123",
-		Name:        "test-workload",
-		Namespace:   "test-namespace",
-		Kind:        "Deployment",
-		GpuRequest:  4,
-		Status:      "Running",
-		ParentUID:   "",
-		Labels:      dbmodel.ExtType{"app": "test"},
-		Annotations: dbmodel.ExtType{"project": "ml"},
-	}
-
-	assert.Equal(t, "uid-test-123", workload.UID)
-	assert.Equal(t, "test-workload", workload.Name)
-	assert.Equal(t, "test-namespace", workload.Namespace)
-	assert.Equal(t, "Deployment", workload.Kind)
-	assert.Equal(t, int32(4), workload.GpuRequest)
-	assert.Equal(t, "Running", workload.Status)
-	assert.Empty(t, workload.ParentUID)
-	assert.NotNil(t, workload.Labels)
-	assert.NotNil(t, workload.Annotations)
-}
-
-func TestWorkloadHourEntry_TopLevelWorkloadFiltering(t *testing.T) {
-	workloads := []*dbmodel.GpuWorkload{
-		{UID: "uid-1", Name: "top-level-1", Namespace: "ns-1", ParentUID: ""},
-		{UID: "uid-2", Name: "child-1", Namespace: "ns-1", ParentUID: "uid-1"},
-		{UID: "uid-3", Name: "top-level-2", Namespace: "ns-1", ParentUID: ""},
-		{UID: "uid-4", Name: "child-2", Namespace: "ns-1", ParentUID: "uid-3"},
-	}
-
-	var topLevelWorkloads []*dbmodel.GpuWorkload
-	for _, w := range workloads {
-		if w.ParentUID == "" {
-			topLevelWorkloads = append(topLevelWorkloads, w)
-		}
-	}
-
-	assert.Equal(t, 2, len(topLevelWorkloads), "Should have 2 top-level workloads")
-	for _, w := range topLevelWorkloads {
-		assert.Empty(t, w.ParentUID, "Top-level workloads should have empty ParentUID")
-	}
-}
-
-// TestWorkloadStatsBackfillConfig_EnabledToggle tests enabled flag behavior
-func TestWorkloadStatsBackfillConfig_EnabledToggle(t *testing.T) {
-	config := &WorkloadStatsBackfillConfig{Enabled: false}
-	assert.False(t, config.Enabled)
-
-	config.Enabled = true
-	assert.True(t, config.Enabled)
-
-	config.Enabled = false
-	assert.False(t, config.Enabled)
-}
-
-// TestWorkloadStatsBackfillConfig_BackfillDaysValidation tests backfill days values
-func TestWorkloadStatsBackfillConfig_BackfillDaysValidation(t *testing.T) {
-	tests := []struct {
-		name         string
-		backfillDays int
-		valid        bool
-	}{
-		{"default", DefaultBackfillDays, true},
-		{"one day", 1, true},
-		{"one week", 7, true},
-		{"one month", 30, true},
-		{"zero", 0, false},
-		{"negative", -1, false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			config := &WorkloadStatsBackfillConfig{BackfillDays: tt.backfillDays}
-			isValid := config.BackfillDays > 0
-			assert.Equal(t, tt.valid, isValid)
-		})
-	}
-}
-
-// TestWorkloadStatsBackfillConfig_PromQueryStepValidation tests PromQueryStep values
-func TestWorkloadStatsBackfillConfig_PromQueryStepValidation(t *testing.T) {
-	tests := []struct {
-		name          string
-		promQueryStep int
-		valid         bool
-	}{
-		{"default", DefaultPromQueryStep, true},
-		{"small", 15, true},
-		{"large", 300, true},
-		{"zero", 0, false},
-		{"negative", -1, false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			config := &WorkloadStatsBackfillConfig{PromQueryStep: tt.promQueryStep}
-			isValid := config.PromQueryStep > 0
-			assert.Equal(t, tt.valid, isValid)
-		})
-	}
-}
-
-// TestWorkloadHourEntry_HourConsistency tests hour consistency in entries
-func TestWorkloadHourEntry_HourConsistency(t *testing.T) {
-	workload := &dbmodel.GpuWorkload{
-		UID:       "test-uid",
-		Name:      "test-workload",
-		Namespace: "test-namespace",
-	}
-
-	hours := []time.Time{
-		time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
-		time.Date(2025, 1, 1, 1, 0, 0, 0, time.UTC),
-		time.Date(2025, 1, 1, 2, 0, 0, 0, time.UTC),
-	}
-
-	entries := make([]WorkloadHourEntry, 0)
-	for _, hour := range hours {
-		entries = append(entries, WorkloadHourEntry{
-			Workload: workload,
-			Hour:     hour,
-		})
-	}
-
-	for i, entry := range entries {
-		assert.Equal(t, hours[i], entry.Hour)
-		assert.Equal(t, 0, entry.Hour.Minute())
-		assert.Equal(t, 0, entry.Hour.Second())
-		assert.Equal(t, 0, entry.Hour.Nanosecond())
-	}
-}
-
-// TestWorkloadActiveTimeRange_AllCases tests all workload active time range cases
-func TestWorkloadActiveTimeRange_AllCases(t *testing.T) {
-	startTime := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
-	endTime := time.Date(2025, 1, 3, 0, 0, 0, 0, time.UTC)
-
-	tests := []struct {
-		name              string
-		workloadCreatedAt time.Time
-		workloadEndAt     time.Time
-		expectedActive    bool
-	}{
-		{
-			name:              "workload active entire range",
-			workloadCreatedAt: time.Date(2024, 12, 1, 0, 0, 0, 0, time.UTC),
-			workloadEndAt:     time.Time{},
-			expectedActive:    true,
-		},
-		{
-			name:              "workload created at start",
-			workloadCreatedAt: startTime,
-			workloadEndAt:     time.Time{},
-			expectedActive:    true,
-		},
-		{
-			name:              "workload created in middle",
-			workloadCreatedAt: time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC),
-			workloadEndAt:     time.Time{},
-			expectedActive:    true,
-		},
-		{
-			name:              "workload created after end",
-			workloadCreatedAt: time.Date(2025, 1, 4, 0, 0, 0, 0, time.UTC),
-			workloadEndAt:     time.Time{},
-			expectedActive:    false,
-		},
-		{
-			name:              "workload ended before start",
-			workloadCreatedAt: time.Date(2024, 12, 1, 0, 0, 0, 0, time.UTC),
-			workloadEndAt:     time.Date(2024, 12, 31, 0, 0, 0, 0, time.UTC),
-			expectedActive:    false,
-		},
-		{
-			name:              "workload ended during range",
-			workloadCreatedAt: time.Date(2024, 12, 1, 0, 0, 0, 0, time.UTC),
-			workloadEndAt:     time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC),
-			expectedActive:    true,
-		},
-		{
-			name:              "workload started and ended in range",
-			workloadCreatedAt: time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC),
-			workloadEndAt:     time.Date(2025, 1, 2, 12, 0, 0, 0, time.UTC),
-			expectedActive:    true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			isActive := false
-
-			if !tt.workloadCreatedAt.After(endTime) {
-				if tt.workloadEndAt.IsZero() || !tt.workloadEndAt.Before(startTime) {
-					isActive = true
-				}
-			}
-
-			assert.Equal(t, tt.expectedActive, isActive)
-		})
-	}
-}
-
-// TestMissingStatsMapKey_EmptyValues tests map key generation with empty values
-func TestMissingStatsMapKey_EmptyValues(t *testing.T) {
-	tests := []struct {
-		name         string
-		namespace    string
-		workloadName string
-		hour         time.Time
-	}{
-		{
-			name:         "empty namespace",
-			namespace:    "",
-			workloadName: "workload",
-			hour:         time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC),
-		},
-		{
-			name:         "empty workload name",
-			namespace:    "namespace",
-			workloadName: "",
-			hour:         time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC),
-		},
-		{
-			name:         "both empty",
-			namespace:    "",
-			workloadName: "",
-			hour:         time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC),
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			key := fmt.Sprintf("%s/%s/%s", tt.namespace, tt.workloadName, tt.hour.Format(time.RFC3339))
-			assert.NotEmpty(t, key)
-			assert.Contains(t, key, "/")
-		})
-	}
-}
-
-// TestQueryTemplates_EmptyUID tests query templates with empty UID
-func TestQueryTemplates_EmptyUID(t *testing.T) {
-	emptyUID := ""
-
-	utilQuery := fmt.Sprintf(WorkloadUtilizationQueryTemplate, emptyUID)
-	assert.Contains(t, utilQuery, `workload_uid=""`)
-
-	memUsedQuery := fmt.Sprintf(WorkloadGpuMemoryUsedQueryTemplate, emptyUID)
-	assert.Contains(t, memUsedQuery, `workload_uid=""`)
-
-	memTotalQuery := fmt.Sprintf(WorkloadGpuMemoryTotalQueryTemplate, emptyUID)
-	assert.Contains(t, memTotalQuery, `workload_uid=""`)
-}
-
-// TestWorkloadStatsBackfillJob_ScheduleValue tests schedule value
-func TestWorkloadStatsBackfillJob_ScheduleValue_IsValid(t *testing.T) {
-	job := &WorkloadStatsBackfillJob{}
-	schedule := job.Schedule()
-
-	assert.NotEmpty(t, schedule)
-	assert.Contains(t, schedule, "@every")
-	assert.Equal(t, "@every 1m", schedule)
-}
-
-// TestGenerateHoursForWorkload_CrossDays tests hour generation across multiple days
-func TestGenerateHoursForWorkload_CrossDays(t *testing.T) {
-	workloadStartTime := time.Date(2025, 1, 1, 22, 0, 0, 0, time.UTC)
-	workloadEndTime := time.Date(2025, 1, 3, 2, 0, 0, 0, time.UTC)
-
-	currentHour := workloadStartTime.Truncate(time.Hour)
-	endHour := workloadEndTime.Truncate(time.Hour)
-
-	hours := make([]time.Time, 0)
-	for !currentHour.After(endHour) {
-		hours = append(hours, currentHour)
-		currentHour = currentHour.Add(time.Hour)
-	}
-
-	assert.Equal(t, 29, len(hours))
-	assert.Equal(t, time.Date(2025, 1, 1, 22, 0, 0, 0, time.UTC), hours[0])
-	assert.Equal(t, time.Date(2025, 1, 3, 2, 0, 0, 0, time.UTC), hours[len(hours)-1])
-}
-
-// TestWorkloadHourEntry_WorkloadKinds tests different workload kinds
-func TestWorkloadHourEntry_WorkloadKinds(t *testing.T) {
-	kinds := []string{"Deployment", "StatefulSet", "Job", "CronJob", "DaemonSet", "ReplicaSet"}
-
-	for _, kind := range kinds {
-		workload := &dbmodel.GpuWorkload{
-			UID:  "test-uid",
-			Name: "test-workload",
-			Kind: kind,
-		}
-
-		entry := WorkloadHourEntry{
-			Workload: workload,
-			Hour:     time.Now().Truncate(time.Hour),
-		}
-
-		assert.Equal(t, kind, entry.Workload.Kind)
-	}
-}
-
-// TestWorkloadGpuRequest_Values tests different GPU request values
-func TestWorkloadGpuRequest_Values(t *testing.T) {
-	tests := []struct {
-		name       string
-		gpuRequest int32
-	}{
-		{"zero", 0},
-		{"one", 1},
-		{"small", 4},
-		{"medium", 8},
-		{"large", 16},
-		{"very large", 64},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			workload := &dbmodel.GpuWorkload{
-				UID:        "test-uid",
-				GpuRequest: tt.gpuRequest,
-			}
-
-			assert.Equal(t, tt.gpuRequest, workload.GpuRequest)
-		})
-	}
-}
-
-// TestTimeRangeCalculation_Precision tests time range calculation precision
-func TestTimeRangeCalculation_Precision(t *testing.T) {
-	tests := []struct {
-		name         string
-		now          time.Time
-		backfillDays int
-	}{
-		{
-			name:         "precise hour",
-			now:          time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC),
-			backfillDays: 2,
-		},
-		{
-			name:         "with minutes",
-			now:          time.Date(2025, 1, 1, 12, 30, 0, 0, time.UTC),
-			backfillDays: 2,
-		},
-		{
-			name:         "with seconds",
-			now:          time.Date(2025, 1, 1, 12, 30, 45, 0, time.UTC),
-			backfillDays: 2,
-		},
-		{
-			name:         "with nanoseconds",
-			now:          time.Date(2025, 1, 1, 12, 30, 45, 123456789, time.UTC),
-			backfillDays: 2,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			endTime := tt.now.Truncate(time.Hour).Add(-time.Hour)
-			startTime := endTime.Add(-time.Duration(tt.backfillDays) * 24 * time.Hour)
-
-			assert.Equal(t, 0, endTime.Minute())
-			assert.Equal(t, 0, endTime.Second())
-			assert.Equal(t, 0, endTime.Nanosecond())
-			assert.Equal(t, 0, startTime.Minute())
-			assert.Equal(t, 0, startTime.Second())
-			assert.Equal(t, 0, startTime.Nanosecond())
-		})
-	}
-}
-
-// TestWorkloadHourEntry_CrossMonthBoundary tests entries across month boundaries
-func TestWorkloadHourEntry_CrossMonthBoundary(t *testing.T) {
-	workload := &dbmodel.GpuWorkload{
-		UID:       "test-uid",
-		Name:      "test-workload",
-		Namespace: "test-namespace",
-	}
-
-	entry1 := WorkloadHourEntry{
-		Workload: workload,
-		Hour:     time.Date(2025, 1, 31, 23, 0, 0, 0, time.UTC),
-	}
-
-	entry2 := WorkloadHourEntry{
-		Workload: workload,
-		Hour:     time.Date(2025, 2, 1, 0, 0, 0, 0, time.UTC),
-	}
-
-	assert.Equal(t, time.January, entry1.Hour.Month())
-	assert.Equal(t, time.February, entry2.Hour.Month())
-	assert.Equal(t, time.Hour, entry2.Hour.Sub(entry1.Hour))
-}
-
-// TestWorkloadLabelsAndAnnotations tests labels and annotations handling
 func TestWorkloadLabelsAndAnnotations(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -1471,78 +1130,11 @@ func TestWorkloadLabelsAndAnnotations(t *testing.T) {
 	}
 }
 
-// TestWorkloadStatus_Values tests different workload status values
-func TestWorkloadStatus_Values(t *testing.T) {
-	statuses := []string{"Running", "Pending", "Completed", "Failed", "Unknown", ""}
-
-	for _, status := range statuses {
-		workload := &dbmodel.GpuWorkload{
-			UID:    "test-uid",
-			Status: status,
-		}
-
-		entry := WorkloadHourEntry{
-			Workload: workload,
-			Hour:     time.Now().Truncate(time.Hour),
-		}
-
-		assert.Equal(t, status, entry.Workload.Status)
-	}
+func TestDefaultConstants_Values(t *testing.T) {
+	assert.Equal(t, 2, DefaultBackfillDays, "Default backfill days should be 2")
+	assert.Equal(t, 60, DefaultPromQueryStep, "Default prom query step should be 60")
 }
 
-// TestMissingStatsMapKey_LongValues tests map key generation with long values
-func TestMissingStatsMapKey_LongValues(t *testing.T) {
-	longNamespace := "very-long-namespace-name-that-is-quite-long"
-	longWorkloadName := "very-long-workload-name-that-is-also-quite-long"
-	hour := time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC)
-
-	key := fmt.Sprintf("%s/%s/%s", longNamespace, longWorkloadName, hour.Format(time.RFC3339))
-
-	assert.Contains(t, key, longNamespace)
-	assert.Contains(t, key, longWorkloadName)
-	assert.Contains(t, key, "2025-01-01T10:00:00Z")
-}
-
-// TestWorkloadHourEntry_ManyEntries tests creating many entries
-func TestWorkloadHourEntry_ManyEntries(t *testing.T) {
-	workloads := make([]*dbmodel.GpuWorkload, 100)
-	for i := 0; i < 100; i++ {
-		workloads[i] = &dbmodel.GpuWorkload{
-			UID:        fmt.Sprintf("uid-%d", i),
-			Name:       fmt.Sprintf("workload-%d", i),
-			Namespace:  fmt.Sprintf("ns-%d", i%10),
-			GpuRequest: int32(i % 8),
-		}
-	}
-
-	hours := make([]time.Time, 24)
-	baseHour := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
-	for i := 0; i < 24; i++ {
-		hours[i] = baseHour.Add(time.Duration(i) * time.Hour)
-	}
-
-	entries := make([]WorkloadHourEntry, 0)
-	for _, w := range workloads {
-		for _, h := range hours {
-			entries = append(entries, WorkloadHourEntry{
-				Workload: w,
-				Hour:     h,
-			})
-		}
-	}
-
-	assert.Equal(t, 2400, len(entries))
-}
-
-// TestDefaultConstants_Relationship tests relationship between default constants
-func TestDefaultConstants_Relationship(t *testing.T) {
-	assert.True(t, DefaultBackfillDays > 0)
-	assert.True(t, DefaultPromQueryStep > 0)
-	assert.True(t, DefaultPromQueryStep <= 300)
-	assert.True(t, DefaultBackfillDays <= 30)
-}
-
-// TestQueryTemplates_AllFormats tests all query template formats
 func TestQueryTemplates_AllFormats(t *testing.T) {
 	uid := "test-workload-uid-12345"
 
@@ -1567,38 +1159,17 @@ func TestQueryTemplates_AllFormats(t *testing.T) {
 	}
 }
 
-// TestWorkloadStatsBackfillJob_StructInitialization tests struct initialization
-func TestWorkloadStatsBackfillJob_StructInitialization(t *testing.T) {
-	config := &WorkloadStatsBackfillConfig{
-		Enabled:       true,
-		BackfillDays:  5,
-		PromQueryStep: 30,
-	}
-	job := &WorkloadStatsBackfillJob{
-		config:      config,
-		clusterName: "init-test-cluster",
-	}
-
-	assert.NotNil(t, job.config)
-	assert.Equal(t, "init-test-cluster", job.clusterName)
-	assert.True(t, job.config.Enabled)
-	assert.Equal(t, 5, job.config.BackfillDays)
-	assert.Equal(t, 30, job.config.PromQueryStep)
-}
-
-// TestWorkloadStatsBackfillJob_NilConfig tests nil config handling
 func TestWorkloadStatsBackfillJob_NilConfig(t *testing.T) {
 	job := &WorkloadStatsBackfillJob{config: nil}
 	assert.Nil(t, job.GetConfig())
 }
 
-// TestWorkloadStatsBackfillConfig_Validation tests config validation
 func TestWorkloadStatsBackfillConfig_Validation(t *testing.T) {
 	tests := []struct {
-		name         string
-		config       *WorkloadStatsBackfillConfig
-		isValidDays  bool
-		isValidStep  bool
+		name        string
+		config      *WorkloadStatsBackfillConfig
+		isValidDays bool
+		isValidStep bool
 	}{
 		{
 			name: "valid config",
@@ -1621,16 +1192,6 @@ func TestWorkloadStatsBackfillConfig_Validation(t *testing.T) {
 			isValidStep: true,
 		},
 		{
-			name: "zero step",
-			config: &WorkloadStatsBackfillConfig{
-				Enabled:       true,
-				BackfillDays:  2,
-				PromQueryStep: 0,
-			},
-			isValidDays: true,
-			isValidStep: false,
-		},
-		{
 			name: "negative days",
 			config: &WorkloadStatsBackfillConfig{
 				Enabled:       true,
@@ -1639,16 +1200,6 @@ func TestWorkloadStatsBackfillConfig_Validation(t *testing.T) {
 			},
 			isValidDays: false,
 			isValidStep: true,
-		},
-		{
-			name: "negative step",
-			config: &WorkloadStatsBackfillConfig{
-				Enabled:       true,
-				BackfillDays:  2,
-				PromQueryStep: -1,
-			},
-			isValidDays: true,
-			isValidStep: false,
 		},
 	}
 
@@ -1659,608 +1210,3 @@ func TestWorkloadStatsBackfillConfig_Validation(t *testing.T) {
 		})
 	}
 }
-
-// TestWorkloadHourEntry_Equality tests entry equality
-func TestWorkloadHourEntry_Equality(t *testing.T) {
-	workload := &dbmodel.GpuWorkload{
-		UID:       "test-uid",
-		Name:      "test-workload",
-		Namespace: "test-ns",
-	}
-	hour := time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC)
-
-	entry1 := WorkloadHourEntry{
-		Workload: workload,
-		Hour:     hour,
-	}
-	entry2 := WorkloadHourEntry{
-		Workload: workload,
-		Hour:     hour,
-	}
-
-	assert.Equal(t, entry1.Workload.UID, entry2.Workload.UID)
-	assert.Equal(t, entry1.Hour, entry2.Hour)
-}
-
-// TestWorkloadHourEntry_DifferentHours tests entries with different hours
-func TestWorkloadHourEntry_DifferentHours(t *testing.T) {
-	workload := &dbmodel.GpuWorkload{
-		UID:  "test-uid",
-		Name: "test-workload",
-	}
-
-	hour1 := time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC)
-	hour2 := time.Date(2025, 1, 1, 11, 0, 0, 0, time.UTC)
-
-	entry1 := WorkloadHourEntry{Workload: workload, Hour: hour1}
-	entry2 := WorkloadHourEntry{Workload: workload, Hour: hour2}
-
-	assert.Equal(t, entry1.Workload.UID, entry2.Workload.UID)
-	assert.NotEqual(t, entry1.Hour, entry2.Hour)
-}
-
-// TestWorkloadHourEntry_DifferentWorkloads tests entries with different workloads
-func TestWorkloadHourEntry_DifferentWorkloads(t *testing.T) {
-	workload1 := &dbmodel.GpuWorkload{UID: "uid-1", Name: "workload-1"}
-	workload2 := &dbmodel.GpuWorkload{UID: "uid-2", Name: "workload-2"}
-
-	hour := time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC)
-
-	entry1 := WorkloadHourEntry{Workload: workload1, Hour: hour}
-	entry2 := WorkloadHourEntry{Workload: workload2, Hour: hour}
-
-	assert.NotEqual(t, entry1.Workload.UID, entry2.Workload.UID)
-	assert.Equal(t, entry1.Hour, entry2.Hour)
-}
-
-// TestMissingStatsMapKey_Format tests map key format
-func TestMissingStatsMapKey_Format(t *testing.T) {
-	testCases := []struct {
-		namespace    string
-		workloadName string
-		hour         time.Time
-	}{
-		{"ns-1", "wl-1", time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC)},
-		{"ns-2", "wl-2", time.Date(2025, 6, 15, 12, 0, 0, 0, time.UTC)},
-		{"default", "nginx", time.Date(2025, 12, 31, 23, 0, 0, 0, time.UTC)},
-	}
-
-	for _, tc := range testCases {
-		key := fmt.Sprintf("%s/%s/%s", tc.namespace, tc.workloadName, tc.hour.Format(time.RFC3339))
-
-		assert.Contains(t, key, tc.namespace)
-		assert.Contains(t, key, tc.workloadName)
-		assert.Contains(t, key, "/")
-
-		parts := 3
-		assert.Equal(t, parts, len(splitBySlash(key)))
-	}
-}
-
-func splitBySlash(s string) []string {
-	result := make([]string, 0)
-	current := ""
-	for _, c := range s {
-		if c == '/' {
-			result = append(result, current)
-			current = ""
-		} else {
-			current += string(c)
-		}
-	}
-	if current != "" {
-		result = append(result, current)
-	}
-	return result
-}
-
-// TestTimeCalculation_BackfillRange tests backfill time range calculation
-func TestTimeCalculation_BackfillRange(t *testing.T) {
-	tests := []struct {
-		name         string
-		backfillDays int
-	}{
-		{"1 day", 1},
-		{"2 days (default)", 2},
-		{"7 days", 7},
-		{"30 days", 30},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			now := time.Now()
-			endTime := now.Truncate(time.Hour).Add(-time.Hour)
-			startTime := endTime.Add(-time.Duration(tt.backfillDays) * 24 * time.Hour)
-
-			assert.True(t, startTime.Before(endTime))
-			assert.True(t, endTime.Before(now))
-
-			expectedDuration := time.Duration(tt.backfillDays) * 24 * time.Hour
-			assert.Equal(t, expectedDuration, endTime.Sub(startTime))
-		})
-	}
-}
-
-// TestWorkloadGpuWorkload_AllFields tests all GpuWorkload fields
-func TestWorkloadGpuWorkload_AllFields(t *testing.T) {
-	now := time.Now()
-	workload := &dbmodel.GpuWorkload{
-		UID:         "uid-123-456",
-		Name:        "ml-training-job",
-		Namespace:   "ml-namespace",
-		Kind:        "Job",
-		GpuRequest:  8,
-		Status:      "Running",
-		ParentUID:   "",
-		Labels:      dbmodel.ExtType{"app": "ml", "team": "research"},
-		Annotations: dbmodel.ExtType{"project": "vision", "cost-center": "rd-001"},
-		CreatedAt:   now.Add(-24 * time.Hour),
-		EndAt:       time.Time{},
-	}
-
-	assert.Equal(t, "uid-123-456", workload.UID)
-	assert.Equal(t, "ml-training-job", workload.Name)
-	assert.Equal(t, "ml-namespace", workload.Namespace)
-	assert.Equal(t, "Job", workload.Kind)
-	assert.Equal(t, int32(8), workload.GpuRequest)
-	assert.Equal(t, "Running", workload.Status)
-	assert.Empty(t, workload.ParentUID)
-	assert.NotNil(t, workload.Labels)
-	assert.NotNil(t, workload.Annotations)
-	assert.False(t, workload.CreatedAt.IsZero())
-	assert.True(t, workload.EndAt.IsZero())
-}
-
-// TestWorkloadActiveTimeRange_Filtering tests workload active time range filtering
-func TestWorkloadActiveTimeRange_Filtering(t *testing.T) {
-	startTime := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
-	endTime := time.Date(2025, 1, 3, 0, 0, 0, 0, time.UTC)
-
-	workloads := []*dbmodel.GpuWorkload{
-		{
-			UID:       "uid-1",
-			Name:      "active-before-and-during",
-			CreatedAt: time.Date(2024, 12, 1, 0, 0, 0, 0, time.UTC),
-			EndAt:     time.Time{},
-			ParentUID: "",
-		},
-		{
-			UID:       "uid-2",
-			Name:      "created-during",
-			CreatedAt: time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC),
-			EndAt:     time.Time{},
-			ParentUID: "",
-		},
-		{
-			UID:       "uid-3",
-			Name:      "created-after",
-			CreatedAt: time.Date(2025, 1, 4, 0, 0, 0, 0, time.UTC),
-			EndAt:     time.Time{},
-			ParentUID: "",
-		},
-		{
-			UID:       "uid-4",
-			Name:      "ended-before",
-			CreatedAt: time.Date(2024, 12, 1, 0, 0, 0, 0, time.UTC),
-			EndAt:     time.Date(2024, 12, 31, 0, 0, 0, 0, time.UTC),
-			ParentUID: "",
-		},
-		{
-			UID:       "uid-5",
-			Name:      "child-workload",
-			CreatedAt: time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
-			EndAt:     time.Time{},
-			ParentUID: "parent-uid",
-		},
-	}
-
-	activeWorkloads := make([]*dbmodel.GpuWorkload, 0)
-	for _, w := range workloads {
-		if w.ParentUID != "" {
-			continue
-		}
-		if w.CreatedAt.After(endTime) {
-			continue
-		}
-		if !w.EndAt.IsZero() && w.EndAt.Before(startTime) {
-			continue
-		}
-		activeWorkloads = append(activeWorkloads, w)
-	}
-
-	assert.Equal(t, 2, len(activeWorkloads))
-	assert.Equal(t, "uid-1", activeWorkloads[0].UID)
-	assert.Equal(t, "uid-2", activeWorkloads[1].UID)
-}
-
-// TestHourGeneration_ForWorkload tests hour generation for a workload
-func TestHourGeneration_ForWorkload(t *testing.T) {
-	workloadStart := time.Date(2025, 1, 1, 10, 30, 0, 0, time.UTC)
-	workloadEnd := time.Date(2025, 1, 1, 14, 15, 0, 0, time.UTC)
-
-	currentHour := workloadStart.Truncate(time.Hour)
-	endHour := workloadEnd.Truncate(time.Hour)
-
-	hours := make([]time.Time, 0)
-	for !currentHour.After(endHour) {
-		hours = append(hours, currentHour)
-		currentHour = currentHour.Add(time.Hour)
-	}
-
-	assert.Equal(t, 5, len(hours))
-	assert.Equal(t, time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC), hours[0])
-	assert.Equal(t, time.Date(2025, 1, 1, 14, 0, 0, 0, time.UTC), hours[4])
-}
-
-// TestWorkloadStatsBackfillJob_ScheduleFrequency tests schedule frequency
-func TestWorkloadStatsBackfillJob_ScheduleFrequency(t *testing.T) {
-	job := &WorkloadStatsBackfillJob{}
-	schedule := job.Schedule()
-
-	assert.Equal(t, "@every 1m", schedule)
-	assert.NotEqual(t, "@every 5m", schedule)
-	assert.Contains(t, schedule, "@every")
-}
-
-// TestWorkloadHourEntry_LargeScale tests creating many entries
-func TestWorkloadHourEntry_LargeScale(t *testing.T) {
-	numWorkloads := 50
-	numHours := 48
-
-	workloads := make([]*dbmodel.GpuWorkload, numWorkloads)
-	for i := 0; i < numWorkloads; i++ {
-		workloads[i] = &dbmodel.GpuWorkload{
-			UID:        fmt.Sprintf("uid-%d", i),
-			Name:       fmt.Sprintf("workload-%d", i),
-			Namespace:  fmt.Sprintf("ns-%d", i%10),
-			GpuRequest: int32(i%8 + 1),
-		}
-	}
-
-	baseHour := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
-	hours := make([]time.Time, numHours)
-	for i := 0; i < numHours; i++ {
-		hours[i] = baseHour.Add(time.Duration(i) * time.Hour)
-	}
-
-	entries := make([]WorkloadHourEntry, 0)
-	for _, w := range workloads {
-		for _, h := range hours {
-			entries = append(entries, WorkloadHourEntry{
-				Workload: w,
-				Hour:     h,
-			})
-		}
-	}
-
-	assert.Equal(t, numWorkloads*numHours, len(entries))
-}
-
-// TestDefaultConstants_RelationshipAndBounds tests relationship and bounds between default constants
-func TestDefaultConstants_RelationshipAndBounds(t *testing.T) {
-	assert.True(t, DefaultBackfillDays > 0)
-	assert.True(t, DefaultPromQueryStep > 0)
-	assert.True(t, DefaultBackfillDays <= 30)
-	assert.True(t, DefaultPromQueryStep <= 600)
-}
-
-// TestQueryTemplates_PromQLSyntax tests PromQL syntax
-func TestQueryTemplates_PromQLSyntax(t *testing.T) {
-	uids := []string{
-		"simple-uid",
-		"uid-with-dashes-123",
-		"a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-	}
-
-	templates := []string{
-		WorkloadUtilizationQueryTemplate,
-		WorkloadGpuMemoryUsedQueryTemplate,
-		WorkloadGpuMemoryTotalQueryTemplate,
-	}
-
-	for _, uid := range uids {
-		for _, template := range templates {
-			query := fmt.Sprintf(template, uid)
-
-			assert.Contains(t, query, "avg(")
-			assert.Contains(t, query, ")")
-			assert.Contains(t, query, "{")
-			assert.Contains(t, query, "}")
-			assert.Contains(t, query, fmt.Sprintf(`workload_uid="%s"`, uid))
-		}
-	}
-}
-
-// TestWorkloadStatsBackfillConfig_SetterGetter tests setter and getter
-func TestWorkloadStatsBackfillConfig_SetterGetter_Detailed(t *testing.T) {
-	job := &WorkloadStatsBackfillJob{
-		config: &WorkloadStatsBackfillConfig{
-			Enabled:       false,
-			BackfillDays:  1,
-			PromQueryStep: 30,
-		},
-		clusterName: "initial-cluster",
-	}
-
-	assert.False(t, job.GetConfig().Enabled)
-	assert.Equal(t, 1, job.GetConfig().BackfillDays)
-	assert.Equal(t, 30, job.GetConfig().PromQueryStep)
-
-	newConfig := &WorkloadStatsBackfillConfig{
-		Enabled:       true,
-		BackfillDays:  7,
-		PromQueryStep: 60,
-	}
-	job.SetConfig(newConfig)
-
-	assert.True(t, job.GetConfig().Enabled)
-	assert.Equal(t, 7, job.GetConfig().BackfillDays)
-	assert.Equal(t, 60, job.GetConfig().PromQueryStep)
-}
-
-// TestHourTruncation_Precision tests hour truncation precision
-func TestHourTruncation_Precision(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    time.Time
-		expected time.Time
-	}{
-		{
-			name:     "max nanoseconds",
-			input:    time.Date(2025, 1, 1, 10, 59, 59, 999999999, time.UTC),
-			expected: time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC),
-		},
-		{
-			name:     "exactly on hour",
-			input:    time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC),
-			expected: time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC),
-		},
-		{
-			name:     "1 nanosecond past hour",
-			input:    time.Date(2025, 1, 1, 10, 0, 0, 1, time.UTC),
-			expected: time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC),
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := tt.input.Truncate(time.Hour)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
-}
-
-// TestWorkloadHourEntry_WorkloadFieldAccess tests workload field access
-func TestWorkloadHourEntry_WorkloadFieldAccess(t *testing.T) {
-	workload := &dbmodel.GpuWorkload{
-		UID:         "uid-access-test",
-		Name:        "access-test-workload",
-		Namespace:   "access-test-ns",
-		Kind:        "Deployment",
-		GpuRequest:  4,
-		Status:      "Running",
-		Labels:      dbmodel.ExtType{"app": "test"},
-		Annotations: dbmodel.ExtType{"project": "access-test"},
-	}
-
-	entry := WorkloadHourEntry{
-		Workload: workload,
-		Hour:     time.Now().Truncate(time.Hour),
-	}
-
-	assert.Equal(t, "uid-access-test", entry.Workload.UID)
-	assert.Equal(t, "access-test-workload", entry.Workload.Name)
-	assert.Equal(t, "access-test-ns", entry.Workload.Namespace)
-	assert.Equal(t, "Deployment", entry.Workload.Kind)
-	assert.Equal(t, int32(4), entry.Workload.GpuRequest)
-	assert.Equal(t, "Running", entry.Workload.Status)
-	assert.NotNil(t, entry.Workload.Labels)
-	assert.NotNil(t, entry.Workload.Annotations)
-}
-
-// TestMissingStatsMapKey_Collision tests map key collision potential
-func TestMissingStatsMapKey_Collision(t *testing.T) {
-	keys := make(map[string]bool)
-
-	testCases := []struct {
-		namespace    string
-		workloadName string
-		hour         time.Time
-	}{
-		{"ns1", "wl1", time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC)},
-		{"ns1", "wl1", time.Date(2025, 1, 1, 11, 0, 0, 0, time.UTC)},
-		{"ns1", "wl2", time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC)},
-		{"ns2", "wl1", time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC)},
-		{"ns1/wl1", "fake", time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC)},
-	}
-
-	for _, tc := range testCases {
-		key := fmt.Sprintf("%s/%s/%s", tc.namespace, tc.workloadName, tc.hour.Format(time.RFC3339))
-		keys[key] = true
-	}
-
-	assert.Equal(t, 5, len(keys))
-}
-
-// TestWorkloadStatus_AllPossibleValues tests all possible status values
-func TestWorkloadStatus_AllPossibleValues(t *testing.T) {
-	statuses := []string{
-		"Running",
-		"Pending",
-		"Succeeded",
-		"Failed",
-		"Unknown",
-		"Terminating",
-		"",
-	}
-
-	for _, status := range statuses {
-		workload := &dbmodel.GpuWorkload{
-			UID:    "test-uid",
-			Status: status,
-		}
-
-		entry := WorkloadHourEntry{
-			Workload: workload,
-			Hour:     time.Now().Truncate(time.Hour),
-		}
-
-		assert.Equal(t, status, entry.Workload.Status)
-	}
-}
-
-// TestWorkloadKind_AllPossibleValues tests all possible kind values
-func TestWorkloadKind_AllPossibleValues(t *testing.T) {
-	kinds := []string{
-		"Deployment",
-		"StatefulSet",
-		"Job",
-		"CronJob",
-		"DaemonSet",
-		"ReplicaSet",
-		"Pod",
-	}
-
-	for _, kind := range kinds {
-		workload := &dbmodel.GpuWorkload{
-			UID:  "test-uid",
-			Kind: kind,
-		}
-
-		entry := WorkloadHourEntry{
-			Workload: workload,
-			Hour:     time.Now().Truncate(time.Hour),
-		}
-
-		assert.Equal(t, kind, entry.Workload.Kind)
-	}
-}
-
-// TestTimeRangeExclusion tests that current hour is excluded
-func TestTimeRangeExclusion(t *testing.T) {
-	now := time.Now()
-	currentHour := now.Truncate(time.Hour)
-	endTime := currentHour.Add(-time.Hour)
-
-	assert.True(t, endTime.Before(currentHour))
-	assert.True(t, currentHour.Sub(endTime) >= time.Hour)
-}
-
-// TestWorkloadHourEntry_EmptyWorkload tests empty workload fields
-func TestWorkloadHourEntry_EmptyWorkload(t *testing.T) {
-	workload := &dbmodel.GpuWorkload{
-		UID:       "",
-		Name:      "",
-		Namespace: "",
-		Kind:      "",
-		Status:    "",
-	}
-
-	entry := WorkloadHourEntry{
-		Workload: workload,
-		Hour:     time.Now().Truncate(time.Hour),
-	}
-
-	assert.Empty(t, entry.Workload.UID)
-	assert.Empty(t, entry.Workload.Name)
-	assert.Empty(t, entry.Workload.Namespace)
-	assert.Empty(t, entry.Workload.Kind)
-	assert.Empty(t, entry.Workload.Status)
-}
-
-// TestBackfillDaysToHours tests conversion from days to hours
-func TestBackfillDaysToHoursConversion(t *testing.T) {
-	tests := []struct {
-		days          int
-		expectedHours int
-	}{
-		{1, 24},
-		{2, 48},
-		{7, 168},
-		{14, 336},
-		{30, 720},
-	}
-
-	for _, tt := range tests {
-		t.Run(fmt.Sprintf("%d_days", tt.days), func(t *testing.T) {
-			hours := tt.days * 24
-			assert.Equal(t, tt.expectedHours, hours)
-		})
-	}
-}
-
-// TestConfigEnabledBehavior tests config enabled behavior
-func TestConfigEnabledBehavior(t *testing.T) {
-	config := &WorkloadStatsBackfillConfig{Enabled: false}
-	assert.False(t, config.Enabled)
-
-	config.Enabled = true
-	assert.True(t, config.Enabled)
-
-	config.Enabled = false
-	assert.False(t, config.Enabled)
-}
-
-// TestWorkloadHourEntry_CrossDayBoundary tests entries across day boundaries
-func TestWorkloadHourEntry_CrossDayBoundary(t *testing.T) {
-	workload := &dbmodel.GpuWorkload{
-		UID:  "test-uid",
-		Name: "test-workload",
-	}
-
-	entry1 := WorkloadHourEntry{
-		Workload: workload,
-		Hour:     time.Date(2025, 1, 1, 23, 0, 0, 0, time.UTC),
-	}
-	entry2 := WorkloadHourEntry{
-		Workload: workload,
-		Hour:     time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC),
-	}
-
-	assert.Equal(t, 1, entry1.Hour.Day())
-	assert.Equal(t, 2, entry2.Hour.Day())
-	assert.Equal(t, time.Hour, entry2.Hour.Sub(entry1.Hour))
-}
-
-// TestWorkloadHourEntry_CrossMonthBoundary tests entries across month boundaries
-func TestWorkloadHourEntry_CrossMonthBoundaryDetailed(t *testing.T) {
-	workload := &dbmodel.GpuWorkload{
-		UID:  "test-uid",
-		Name: "test-workload",
-	}
-
-	entry1 := WorkloadHourEntry{
-		Workload: workload,
-		Hour:     time.Date(2025, 1, 31, 23, 0, 0, 0, time.UTC),
-	}
-	entry2 := WorkloadHourEntry{
-		Workload: workload,
-		Hour:     time.Date(2025, 2, 1, 0, 0, 0, 0, time.UTC),
-	}
-
-	assert.Equal(t, time.January, entry1.Hour.Month())
-	assert.Equal(t, time.February, entry2.Hour.Month())
-	assert.Equal(t, time.Hour, entry2.Hour.Sub(entry1.Hour))
-}
-
-// TestWorkloadHourEntry_CrossYearBoundary tests entries across year boundaries
-func TestWorkloadHourEntry_CrossYearBoundary(t *testing.T) {
-	workload := &dbmodel.GpuWorkload{
-		UID:  "test-uid",
-		Name: "test-workload",
-	}
-
-	entry1 := WorkloadHourEntry{
-		Workload: workload,
-		Hour:     time.Date(2024, 12, 31, 23, 0, 0, 0, time.UTC),
-	}
-	entry2 := WorkloadHourEntry{
-		Workload: workload,
-		Hour:     time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
-	}
-
-	assert.Equal(t, 2024, entry1.Hour.Year())
-	assert.Equal(t, 2025, entry2.Hour.Year())
-	assert.Equal(t, time.Hour, entry2.Hour.Sub(entry1.Hour))
-}
-
