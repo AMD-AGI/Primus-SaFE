@@ -35,8 +35,8 @@ COPY . .
 
 RUN cd $BASEPATH && CGO_ENABLED=0 go build -tags nosqlite -a -installsuffix cgo -o $APPNAME $BUILDPATH/main.go
 
-# Stage 2: Runtime stage - lightweight
-FROM --platform=linux/amd64 primussafe/ubuntu-rdma-base:0.0.1
+# Stage 2: Runtime stage - use pre-built base image with dependencies
+FROM --platform=linux/amd64 docker.io/primussafe/ubuntu-rdma-base:0.0.1
 
 ARG APPNAME
 ARG BASEPATH
@@ -47,9 +47,11 @@ WORKDIR /root/
 
 RUN echo "APPNAME: $APPNAME"
 
+# Copy application binary
 COPY --from=builder /app/$BASEPATH/$APPNAME .
 COPY --from=builder /app/Lens/ci/run.sh .
 RUN chmod +x run.sh
+
 
 CMD ["./run.sh"]
 

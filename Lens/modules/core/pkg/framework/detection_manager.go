@@ -38,6 +38,9 @@ type FrameworkDetectionManager struct {
 
 	// Workload hierarchy cache: workloadUID -> parentUID
 	hierarchyCache *cache.Cache
+
+	// Event dispatcher for detection events
+	eventDispatcher *EventDispatcher
 }
 
 // NewFrameworkDetectionManager creates a new framework detection manager
@@ -81,6 +84,7 @@ func NewFrameworkDetectionManagerWithFacades(
 		config:               config,
 		cache:                cacheInstance,
 		hierarchyCache:       hierarchyCacheInstance,
+		eventDispatcher:      NewEventDispatcher(),
 	}
 }
 
@@ -223,6 +227,11 @@ func (m *FrameworkDetectionManager) ReportDetectionWithLayers(
 			workloadUID, rootUID, merged.Frameworks, merged.Status, merged.Confidence)
 	}
 
+	// Dispatch detection event using root workload UID
+	// This ensures event listeners receive the correct workload UID where detection is stored
+	eventType := m.determineEventType(merged, existing)
+	m.dispatchDetectionEvent(ctx, eventType, rootUID, merged)
+
 	return nil
 }
 
@@ -265,10 +274,6 @@ func (m *FrameworkDetectionManager) GetDetection(
 		}
 
 		if detection != nil {
-			// Found detection in hierarchy
-			if uid != workloadUID {
-				logrus.Infof("Found detection for workload %s from parent %s", workloadUID, uid)
-			}
 
 			// Update cache for the queried workload
 			if m.cache != nil {
@@ -552,7 +557,6 @@ func (m *FrameworkDetectionManager) getWorkloadHierarchyChain(
 
 		// Check for cycles
 		if visited[parentUID] {
-			logrus.Warnf("Detected cycle in workload hierarchy at %s", parentUID)
 			break
 		}
 
@@ -618,4 +622,62 @@ func (m *FrameworkDetectionManager) getParentWorkload(
 	}
 
 	return parentUID, nil
+}
+
+// RegisterListener registers a detection event listener
+func (m *FrameworkDetectionManager) RegisterListener(listener DetectionEventListener) {
+	m.eventDispatcher.RegisterListener(listener)
+}
+
+// UnregisterListener removes a detection event listener
+func (m *FrameworkDetectionManager) UnregisterListener(listener DetectionEventListener) {
+	m.eventDispatcher.UnregisterListener(listener)
+}
+
+// GetListenerCount returns the number of registered event listeners
+func (m *FrameworkDetectionManager) GetListenerCount() int {
+	return m.eventDispatcher.GetListenerCount()
+}
+
+// dispatchDetectionEvent dispatches a detection event to all registered listeners
+func (m *FrameworkDetectionManager) dispatchDetectionEvent(
+	ctx context.Context,
+	eventType DetectionEventType,
+	workloadUID string,
+	detection *model.FrameworkDetection,
+) {
+	event := &DetectionEvent{
+		Type:        eventType,
+		WorkloadUID: workloadUID,
+		Detection:   detection,
+	}
+
+	m.eventDispatcher.Dispatch(ctx, event)
+}
+
+// determineEventType determines the appropriate event type based on detection state
+func (m *FrameworkDetectionManager) determineEventType(
+	merged *model.FrameworkDetection,
+	existing *model.FrameworkDetection,
+) DetectionEventType {
+	// New detection
+	if existing == nil {
+		return DetectionEventTypeCompleted
+	}
+
+	// Conflict detected
+	if merged.Status == model.DetectionStatusConflict {
+		return DetectionEventTypeConflict
+	}
+
+	// Status changed to verified - this is a significant milestone
+	if merged.Status == model.DetectionStatusVerified &&
+		(existing.Status != model.DetectionStatusVerified) {
+		logrus.Infof("Detection status changed to verified: %s -> %s",
+			existing.Status, merged.Status)
+		return DetectionEventTypeCompleted
+	}
+
+	// Updated detection
+	return DetectionEventTypeUpdated
 }

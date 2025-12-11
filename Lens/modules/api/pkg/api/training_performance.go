@@ -22,6 +22,22 @@ var wandbMetadataFields = map[string]bool{
 	"updated_at": true,
 }
 
+// tensorflowMetadataFields defines metadata fields in tensorflow data source that are not actual metrics
+var tensorflowMetadataFields = map[string]bool{
+	"step":      true,
+	"wall_time": true,
+	"file":      true,
+	"scalars":   true, // raw scalars structure (for debugging)
+	"texts":     true, // raw texts structure (for debugging)
+}
+
+// commonMetadataFields defines common metadata fields across all data sources
+// These are not actual metrics and should be filtered in GetAvailableMetrics and GetMetricsData
+var commonMetadataFields = map[string]bool{
+	"iteration":        true, // Returned by GetIterationTimes
+	"target_iteration": true, // Returned by GetIterationTimes
+}
+
 // MetricInfo represents metric information
 type MetricInfo struct {
 	Name       string   `json:"name"`        // Metric name
@@ -66,14 +82,31 @@ type DataSourcesResponse struct {
 	TotalCount  int              `json:"total_count"`
 }
 
+// IterationInfo represents iteration information for deduplication
+type IterationInfo struct {
+	Timestamp       int64
+	TargetIteration *float64
+	DataSource      string
+}
+
 // isMetricField determines if a field is an actual metric based on data source type
 func isMetricField(fieldName string, dataSource string) bool {
 	switch dataSource {
 	case "wandb":
 		// wandb data source needs to filter out metadata fields
 		return !wandbMetadataFields[fieldName]
-	case "log", "tensorflow":
-		// All fields in log and tensorflow data sources are metrics
+	case "tensorflow":
+		// tensorflow data source needs to filter out metadata fields and "vs samples" metrics
+		if tensorflowMetadataFields[fieldName] {
+			return false
+		}
+		// temporarily do not support "vs samples" and "vs steps" views
+		if strings.Contains(fieldName, " vs samples") || strings.Contains(fieldName, " vs steps") {
+			return false
+		}
+		return true
+	case "log":
+		// All fields in log data source are metrics
 		return true
 	default:
 		// Default: treat all fields as metrics
@@ -176,6 +209,11 @@ func GetAvailableMetrics(ctx *gin.Context) {
 	metricMap := make(map[string]map[string]int) // metric_name -> {data_source -> count}
 	for _, p := range performances {
 		for metricName := range p.Performance {
+			// Filter out common metadata fields (iteration-related)
+			if commonMetadataFields[metricName] {
+				continue
+			}
+
 			// Filter fields based on data source type
 			if !isMetricField(metricName, p.DataSource) {
 				continue
@@ -327,6 +365,11 @@ func GetMetricsData(ctx *gin.Context) {
 
 	for _, p := range performances {
 		for metricName, value := range p.Performance {
+			// Filter out common metadata fields (iteration-related)
+			if commonMetadataFields[metricName] {
+				continue
+			}
+
 			// Filter metadata fields based on data source type
 			if !isMetricField(metricName, p.DataSource) {
 				continue
@@ -352,6 +395,12 @@ func GetMetricsData(ctx *gin.Context) {
 		}
 	}
 
+	// Perform deduplication for tensorflow data source
+	// Remove duplicate data points with similar timestamps but significantly different step values (multi x-axis issue)
+	if dataSource == "tensorflow" || (dataSource == "" && len(dataPoints) > 0 && dataPoints[0].DataSource == "tensorflow") {
+		dataPoints = deduplicateTensorflowDataPoints(dataPoints)
+	}
+
 	response := MetricsDataResponse{
 		WorkloadUID: workloadUID,
 		DataSource:  dataSource,
@@ -360,6 +409,186 @@ func GetMetricsData(ctx *gin.Context) {
 	}
 
 	ctx.JSON(200, response)
+}
+
+// deduplicateTensorflowDataPoints removes duplicate data points from TensorFlow data source
+// that have similar timestamps but significantly different iteration values (multi x-axis issue)
+func deduplicateTensorflowDataPoints(dataPoints []MetricDataPoint) []MetricDataPoint {
+	if len(dataPoints) == 0 {
+		return dataPoints
+	}
+
+	// Group by metric_name
+	metricGroups := make(map[string][]MetricDataPoint)
+	for _, dp := range dataPoints {
+		metricGroups[dp.MetricName] = append(metricGroups[dp.MetricName], dp)
+	}
+
+	result := make([]MetricDataPoint, 0, len(dataPoints))
+
+	// Deduplicate each metric
+	for metricName, points := range metricGroups {
+		if len(points) == 0 {
+			continue
+		}
+
+		// Sort by timestamp
+		sortedPoints := make([]MetricDataPoint, len(points))
+		copy(sortedPoints, points)
+		// Simple bubble sort (data volume is usually small)
+		for i := 0; i < len(sortedPoints); i++ {
+			for j := i + 1; j < len(sortedPoints); j++ {
+				if sortedPoints[i].Timestamp > sortedPoints[j].Timestamp {
+					sortedPoints[i], sortedPoints[j] = sortedPoints[j], sortedPoints[i]
+				}
+			}
+		}
+
+		// Deduplicate: for data points with similar timestamps, only keep the one with smaller iteration
+		kept := make([]bool, len(sortedPoints))
+		for i := 0; i < len(sortedPoints); i++ {
+			kept[i] = true
+		}
+
+		const timeWindowMs = 10000           // 10 second time window
+		const iterationRatioThreshold = 10.0 // iteration difference of 10x or more is considered duplicate
+
+		for i := 0; i < len(sortedPoints); i++ {
+			if !kept[i] {
+				continue
+			}
+
+			// Check subsequent data points
+			for j := i + 1; j < len(sortedPoints); j++ {
+				if !kept[j] {
+					continue
+				}
+
+				// If time difference exceeds window, subsequent points will also exceed
+				timeDiff := sortedPoints[j].Timestamp - sortedPoints[i].Timestamp
+				if timeDiff > timeWindowMs {
+					break
+				}
+
+				// Similar timestamps, check iteration
+				iter1 := float64(sortedPoints[i].Iteration)
+				iter2 := float64(sortedPoints[j].Iteration)
+
+				if iter1 == 0 || iter2 == 0 {
+					continue
+				}
+
+				ratio := iter2 / iter1
+				if ratio < 1 {
+					ratio = 1 / ratio
+				}
+
+				// If iteration differs significantly (possibly samples vs iteration), keep the smaller one
+				if ratio >= iterationRatioThreshold {
+					if sortedPoints[i].Iteration < sortedPoints[j].Iteration {
+						kept[j] = false
+					} else {
+						kept[i] = false
+						break // i has been marked as not kept, break out of inner loop
+					}
+				}
+			}
+		}
+
+		// Collect kept data points
+		keptCount := 0
+		for i, point := range sortedPoints {
+			if kept[i] {
+				result = append(result, point)
+				keptCount++
+			}
+		}
+
+		// Log deduplication info (for debugging)
+		if keptCount < len(sortedPoints) {
+			_ = metricName // avoid unused variable warning
+		}
+	}
+
+	return result
+}
+
+// hasTensorflowData checks if the iteration map contains tensorflow data
+func hasTensorflowData(iterationMap map[int32]*IterationInfo) bool {
+	for _, info := range iterationMap {
+		if info.DataSource == "tensorflow" {
+			return true
+		}
+	}
+	return false
+}
+
+// filterAnomalousIterations removes anomalous iteration values from tensorflow data
+// Anomalous iterations are typically samples (several times or tens of times larger than normal iterations)
+func filterAnomalousIterations(iterationMap map[int32]*IterationInfo) map[int32]*IterationInfo {
+	if len(iterationMap) == 0 {
+		return iterationMap
+	}
+
+	// Collect all iteration values and sort
+	iterations := make([]int32, 0, len(iterationMap))
+	for iter := range iterationMap {
+		iterations = append(iterations, iter)
+	}
+
+	// Simple bubble sort
+	for i := 0; i < len(iterations); i++ {
+		for j := i + 1; j < len(iterations); j++ {
+			if iterations[i] > iterations[j] {
+				iterations[i], iterations[j] = iterations[j], iterations[i]
+			}
+		}
+	}
+
+	if len(iterations) < 3 {
+		// Too few data points, do not filter
+		return iterationMap
+	}
+
+	// Strategy: calculate ratio between adjacent iterations to identify sudden changes
+	// If an iteration grows more than 10x compared to previous values, consider it anomalous
+	const anomalyRatioThreshold = 10.0
+
+	// Find first anomalous iteration (usually when it suddenly changes from iteration to samples)
+	anomalyStartIndex := -1
+	for i := 1; i < len(iterations); i++ {
+		if iterations[i-1] == 0 {
+			continue
+		}
+
+		ratio := float64(iterations[i]) / float64(iterations[i-1])
+		if ratio >= anomalyRatioThreshold {
+			anomalyStartIndex = i
+			break
+		}
+	}
+
+	// If no anomaly found, return original data
+	if anomalyStartIndex == -1 {
+		return iterationMap
+	}
+
+	// Filter out anomalous iterations
+	filtered := make(map[int32]*IterationInfo)
+	for i := 0; i < anomalyStartIndex; i++ {
+		iter := iterations[i]
+		filtered[iter] = iterationMap[iter]
+	}
+
+	// If filtered data is too small, judgment may be incorrect, return original data
+	if len(filtered) < len(iterationMap)/2 {
+		// Filtered out more than half the data, judgment may be incorrect
+		// Could try reverse strategy: keep larger values
+		// But this case is rare, for safety return original data
+		return iterationMap
+	}
+
+	return filtered
 }
 
 // GetIterationTimes retrieves time information for each iteration
@@ -437,11 +666,6 @@ func GetIterationTimes(ctx *gin.Context) {
 
 	// Build metric data points list
 	// Use map for deduplication since the same iteration may have multiple metric records
-	type IterationInfo struct {
-		Timestamp       int64
-		TargetIteration *float64
-		DataSource      string
-	}
 	iterationMap := make(map[int32]*IterationInfo)
 
 	for _, p := range performances {
@@ -464,6 +688,12 @@ func GetIterationTimes(ctx *gin.Context) {
 				DataSource:      p.DataSource,
 			}
 		}
+	}
+
+	// For tensorflow data source, first filter anomalous iteration values
+	// These anomalous values are usually samples (several to tens of times normal iteration)
+	if dataSource == "tensorflow" || (dataSource == "" && hasTensorflowData(iterationMap)) {
+		iterationMap = filterAnomalousIterations(iterationMap)
 	}
 
 	// Convert to MetricDataPoint array
@@ -489,6 +719,11 @@ func GetIterationTimes(ctx *gin.Context) {
 				DataSource: info.DataSource,
 			})
 		}
+	}
+
+	// Perform deduplication for tensorflow data source
+	if dataSource == "tensorflow" || (dataSource == "" && len(dataPoints) > 0 && dataPoints[0].DataSource == "tensorflow") {
+		dataPoints = deduplicateTensorflowDataPoints(dataPoints)
 	}
 
 	response := MetricsDataResponse{

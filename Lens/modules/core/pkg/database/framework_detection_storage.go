@@ -167,7 +167,7 @@ func (s *FrameworkDetectionStorage) extractDetectionFromMetadata(
 
 	detectionData, ok := metadataMap["framework_detection"]
 	if !ok {
-		return nil, fmt.Errorf("no framework_detection in metadata")
+		return nil, nil
 	}
 
 	detectionJSON, err := json.Marshal(detectionData)

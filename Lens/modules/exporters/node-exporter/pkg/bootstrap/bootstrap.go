@@ -35,6 +35,9 @@ func Bootstrap(ctx context.Context) error {
 			return err
 		}
 
+		// Initialize container filesystem readers
+		api.InitContainerFS()
+
 		router.RegisterGroup(api.RegisterRouter)
 		collector.Start(ctx)
 		return nil

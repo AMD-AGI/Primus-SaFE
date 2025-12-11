@@ -72,6 +72,7 @@ func Use(db *gorm.DB, opts ...gen.DOOption) *Query {
 		WorkloadResource:          newWorkloadResource(db, opts...),
 		WorkloadSimilarityCache:   newWorkloadSimilarityCache(db, opts...),
 		WorkloadStatistic:         newWorkloadStatistic(db, opts...),
+		WorkloadTaskState:         newWorkloadTaskState(db, opts...),
 	}
 }
 
@@ -132,6 +133,7 @@ type Query struct {
 	WorkloadResource          workloadResource
 	WorkloadSimilarityCache   workloadSimilarityCache
 	WorkloadStatistic         workloadStatistic
+	WorkloadTaskState         workloadTaskState
 }
 
 func (q *Query) Available() bool { return q.db != nil }
@@ -193,6 +195,7 @@ func (q *Query) clone(db *gorm.DB) *Query {
 		WorkloadResource:          q.WorkloadResource.clone(db),
 		WorkloadSimilarityCache:   q.WorkloadSimilarityCache.clone(db),
 		WorkloadStatistic:         q.WorkloadStatistic.clone(db),
+		WorkloadTaskState:         q.WorkloadTaskState.clone(db),
 	}
 }
 
@@ -261,6 +264,7 @@ func (q *Query) ReplaceDB(db *gorm.DB) *Query {
 		WorkloadResource:          q.WorkloadResource.replaceDB(db),
 		WorkloadSimilarityCache:   q.WorkloadSimilarityCache.replaceDB(db),
 		WorkloadStatistic:         q.WorkloadStatistic.replaceDB(db),
+		WorkloadTaskState:         q.WorkloadTaskState.replaceDB(db),
 	}
 }
 
@@ -319,6 +323,7 @@ type queryCtx struct {
 	WorkloadResource          *workloadResourceDo
 	WorkloadSimilarityCache   *workloadSimilarityCacheDo
 	WorkloadStatistic         *workloadStatisticDo
+	WorkloadTaskState         *workloadTaskStateDo
 }
 
 func (q *Query) WithContext(ctx context.Context) *queryCtx {
@@ -377,6 +382,7 @@ func (q *Query) WithContext(ctx context.Context) *queryCtx {
 		WorkloadResource:          q.WorkloadResource.WithContext(ctx),
 		WorkloadSimilarityCache:   q.WorkloadSimilarityCache.WithContext(ctx),
 		WorkloadStatistic:         q.WorkloadStatistic.WithContext(ctx),
+		WorkloadTaskState:         q.WorkloadTaskState.WithContext(ctx),
 	}
 }
 
