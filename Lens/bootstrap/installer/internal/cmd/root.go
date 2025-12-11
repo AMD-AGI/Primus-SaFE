@@ -14,6 +14,7 @@ var (
 	verbose   bool
 )
 
+
 // rootCmd represents the base command
 var rootCmd = &cobra.Command{
 	Use:   "primus-lens-installer",

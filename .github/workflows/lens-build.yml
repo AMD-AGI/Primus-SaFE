@@ -17,6 +17,7 @@ jobs:
       matrix: ${{ steps.generate-matrix.outputs.matrix }}
       image_version: ${{ steps.get-image-version.outputs.image_version }}
       date_time: ${{ steps.get-current-time.outputs.date_time }}
+      installer_changed: ${{ steps.detect-changes.outputs.installer_changed }}
     steps:
     - name: Checkout Repository
       uses: actions/checkout@v4
@@ -262,42 +263,16 @@ jobs:
     needs: detect-changes
     runs-on: primus-safe-builder
     timeout-minutes: 30
-    if: ${{ needs.detect-changes.outputs.matrix != '' && contains(toJson(needs.detect-changes.outputs), 'installer_changed') }}
+    if: ${{ needs.detect-changes.outputs.installer_changed == 'true' }}
     steps:
       - uses: actions/checkout@v4
       
-      - name: Check if installer changed
-        id: check-installer
-        run: |
-          # Re-detect installer changes
-          if [[ "${{ github.event_name }}" == "push" ]]; then
-            if [[ "${{ github.event.before }}" == "0000000000000000000000000000000000000000" ]]; then
-              BASE_COMMIT="HEAD^"
-            else
-              BASE_COMMIT="${{ github.event.before }}"
-            fi
-            HEAD_COMMIT="${{ github.sha }}"
-          else
-            BASE_COMMIT="HEAD^"
-            HEAD_COMMIT="HEAD"
-          fi
-          
-          CHANGED_FILES=$(git diff --name-only $BASE_COMMIT $HEAD_COMMIT || echo "")
-          
-          if echo "$CHANGED_FILES" | grep -qE '^Lens/bootstrap/installer/|^Lens/charts/'; then
-            echo "should_build=true" >> $GITHUB_OUTPUT
-          else
-            echo "should_build=false" >> $GITHUB_OUTPUT
-          fi
-      
       - name: Login registries
-        if: steps.check-installer.outputs.should_build == 'true'
         run: |
           buildah login -u "${{ secrets.DOCKER_USERNAME }}" -p "${{ secrets.DOCKER_PASSWORD }}" docker.io
           buildah login --tls-verify=false -u "${{ secrets.HARBOR_USERNAME }}" -p "${{ secrets.HARBOR_PASSWORD }}" "${{ secrets.HARBOR_HOST }}"
 
       - name: Build and push installer
-        if: steps.check-installer.outputs.should_build == 'true'
         env:
           DOCKERIO_REPOSITORY: docker.io/primussafe
           HARBOR_REPOSITORY: ${{ secrets.HARBOR_HOST }}/primussafe
