@@ -181,16 +181,6 @@ func (job *OpsJob) GetParameters(name string) []*Parameter {
 	return result
 }
 
-// HasParameter checks if a parameter with the given name and value exists.
-func (job *OpsJob) HasParameter(name, value string) bool {
-	for _, param := range job.Spec.Inputs {
-		if param.Name == name && param.Value == value {
-			return true
-		}
-	}
-	return false
-}
-
 // CvtParamToString converts data to the target format.
 func CvtParamToString(p *Parameter) string {
 	return p.Name + ":" + p.Value

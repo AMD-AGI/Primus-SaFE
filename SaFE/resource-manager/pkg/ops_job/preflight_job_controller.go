@@ -205,14 +205,13 @@ func (r *PreflightJobReconciler) generatePreflightWorkload(ctx context.Context, 
 			Labels: map[string]string{
 				v1.ClusterIdLabel:    v1.GetClusterId(job),
 				v1.NodeFlavorIdLabel: v1.GetNodeFlavorId(node),
+				v1.UserIdLabel:       v1.GetUserId(job),
 				v1.OpsJobIdLabel:     job.Name,
 				v1.OpsJobTypeLabel:   string(job.Spec.Type),
 				v1.DisplayNameLabel:  job.Name,
 			},
 			Annotations: map[string]string{
-				v1.UserNameAnnotation: common.UserSystem,
-				// Dispatch the workload immediately, skipping the queue.
-				v1.WorkloadScheduledAnnotation: timeutil.FormatRFC3339(time.Now().UTC()),
+				v1.UserNameAnnotation: v1.GetUserName(job),
 			},
 		},
 		Spec: v1.WorkloadSpec{
@@ -227,11 +226,16 @@ func (r *PreflightJobReconciler) generatePreflightWorkload(ctx context.Context, 
 			CustomerLabels: map[string]string{
 				v1.K8sHostName: nodeNames,
 			},
-			Workspace: corev1.NamespaceDefault,
+			Workspace: v1.GetWorkspaceId(job),
 			Image:     *job.Spec.Image,
 			Env:       job.Spec.Env,
 			Hostpath:  job.Spec.Hostpath,
 		},
+	}
+	if workload.Spec.Workspace == "" {
+		workload.Spec.Workspace = corev1.NamespaceDefault
+		// Dispatch the workload immediately, skipping the queue.
+		v1.SetAnnotation(workload, v1.WorkloadScheduledAnnotation, timeutil.FormatRFC3339(time.Now().UTC()))
 	}
 	if job.Spec.TimeoutSecond > 0 {
 		workload.Spec.Timeout = pointer.Int(job.Spec.TimeoutSecond)

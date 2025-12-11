@@ -202,14 +202,14 @@ func (r *ClusterInformer) handleResource(_ context.Context, oldObj, newObj inter
 
 	switch action {
 	case ResourceAdd:
-		klog.Infof("create object: %s/%s, uid: %s, workload:%s, kind: %s, generation: %d, dispatch.cnt: %d",
+		klog.Infof("create object: %s/%s, uid: %s, kind: %s, generation: %d, dispatch.cnt: %d",
 			newUnstructured.GetNamespace(), newUnstructured.GetName(), newUnstructured.GetUID(),
-			msg.workloadId, msg.gvk.Kind, newUnstructured.GetGeneration(), msg.dispatchCount)
+			msg.gvk.Kind, newUnstructured.GetGeneration(), msg.dispatchCount)
 	case ResourceDel:
 		if oldUnstructured, ok := oldObj.(*unstructured.Unstructured); ok {
-			klog.Infof("delete object: %s/%s, uid: %s, workload:%s, kind: %s, generation: %d, dispatch.cnt: %d",
+			klog.Infof("delete object: %s/%s, uid: %s, kind: %s, generation: %d, dispatch.cnt: %d",
 				oldUnstructured.GetNamespace(), oldUnstructured.GetName(), oldUnstructured.GetUID(),
-				msg.workloadId, msg.gvk.Kind, oldUnstructured.GetGeneration(), msg.dispatchCount)
+				msg.gvk.Kind, oldUnstructured.GetGeneration(), msg.dispatchCount)
 		}
 	}
 	r.handler(msg)

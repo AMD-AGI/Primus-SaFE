@@ -212,7 +212,8 @@ func (r *SyncerReconciler) updateAdminWorkloadStatus(ctx context.Context, origin
 // updateAdminWorkloadPhase updates the workload phase based on resource status.
 func (r *SyncerReconciler) updateAdminWorkloadPhase(adminWorkload *v1.Workload,
 	status *jobutils.K8sResourceStatus, message *resourceMessage) {
-	switch v1.WorkloadConditionType(status.Phase) {
+	phase := v1.WorkloadConditionType(status.Phase)
+	switch phase {
 	case v1.K8sPending:
 		adminWorkload.Status.Phase = v1.WorkloadPending
 	case v1.K8sSucceeded:
@@ -221,7 +222,11 @@ func (r *SyncerReconciler) updateAdminWorkloadPhase(adminWorkload *v1.Workload,
 		}
 	case v1.K8sFailed, v1.K8sDeleted:
 		if isWorkloadEnd(adminWorkload, status, message.dispatchCount) {
-			adminWorkload.Status.Phase = v1.WorkloadFailed
+			if phase == v1.K8sFailed {
+				adminWorkload.Status.Phase = v1.WorkloadFailed
+			} else {
+				adminWorkload.Status.Phase = v1.WorkloadStopped
+			}
 		} else if adminWorkload.IsRunning() && commonworkload.IsApplication(adminWorkload) {
 			adminWorkload.Status.Phase = v1.WorkloadNotReady
 		}

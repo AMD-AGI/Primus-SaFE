@@ -559,7 +559,7 @@ func (h *Handler) getNodePodLog(c *gin.Context) (interface{}, error) {
 		v1.ClusterManageClusterLabel: clusterName, v1.ClusterManageNodeLabel: node.Name})
 	podName, err := h.getLatestPodName(c, labelSelector)
 	if err != nil {
-		return nil, commonerrors.NewNotImplemented("Logging service is only available during node managing or unmanaging processes")
+		return nil, err
 	}
 	podLogs, err := h.getPodLog(c, h.clientSet, common.PrimusSafeNamespace, podName, "")
 	if err != nil {

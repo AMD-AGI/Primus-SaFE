@@ -54,7 +54,6 @@ rules:
     - workload/med-priority
     - user
     - secret
-    - preflight
     - opsjob
   grantedUsers:
     - owner
@@ -107,6 +106,7 @@ rules:
     - "*"
 - resources:
     - secret
+    - opsjob/preflight
   grantedUsers:
     - workspace-user
   verbs:
