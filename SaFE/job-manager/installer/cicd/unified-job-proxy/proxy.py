@@ -30,7 +30,7 @@ SCALE_RUNNER_SET_ENV = "SCALE_RUNNER_SET_ID"
 GVK_KIND_ENV = "GVK_KIND"        # default: Deployment
 GVK_VERSION_ENV = "GVK_VERSION"  # default: v1
 POLL_INTERVAL_SECS = 5
-DEFAULT_POLL_TIMEOUT_SECS = 36000
+DEFAULT_POLL_TIMEOUT_SECS = 604800
 
 
 def getenv_str(name: str, default: Optional[str] = None) -> Optional[str]:
@@ -123,6 +123,7 @@ def build_payload_from_input(inp: Dict[str, Any]) -> Dict[str, Any]:
         "groupVersionKind": {"kind": gvk_kind, "version": gvk_version},
         "description": description,
         "ttlSecondsAfterFinished": 20,
+        "timeout": DEFAULT_POLL_TIMEOUT_SECS,
         "priority": priority,
         "preheat": True,
     }
