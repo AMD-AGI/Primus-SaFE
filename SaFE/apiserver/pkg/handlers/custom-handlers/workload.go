@@ -416,7 +416,7 @@ func (h *Handler) stopWorkloadImpl(c *gin.Context, name string, requestUser *v1.
 			return nil, err
 		}
 	} else {
-		if adminWorkload.IsEnd() || adminWorkload.IsStopped() {
+		if adminWorkload.IsEnd() {
 			return nil, nil
 		}
 		if err = h.authWorkloadAction(c, adminWorkload, v1.DeleteVerb, requestUser, roles); err != nil {
