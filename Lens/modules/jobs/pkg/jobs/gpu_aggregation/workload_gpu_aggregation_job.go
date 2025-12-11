@@ -13,6 +13,7 @@ import (
 	dbmodel "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/prom"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/model"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/trace"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/common"
 	"go.opentelemetry.io/otel/attribute"
@@ -21,8 +22,11 @@ import (
 )
 
 const (
-	// DefaultPromQueryStep is the default step for Prometheus queries (in seconds)
-	DefaultPromQueryStep = 60
+	// DefaultWorkloadPromQueryStep is the default step for Prometheus queries (in seconds)
+	DefaultWorkloadPromQueryStep = 60
+
+	// DefaultPromQueryStep is an alias for backwards compatibility
+	DefaultPromQueryStep = DefaultWorkloadPromQueryStep
 
 	// WorkloadUtilizationQueryTemplate is the PromQL query template for workload GPU utilization
 	WorkloadUtilizationQueryTemplate = `avg(workload_gpu_utilization{workload_uid="%s"})`
@@ -37,6 +41,15 @@ const (
 	CacheKeyWorkloadGpuAggregationLastHour = "job.workload_gpu_aggregation.last_processed_hour"
 )
 
+// WorkloadPromQueryFunc is the function signature for Prometheus range queries
+type WorkloadPromQueryFunc func(ctx context.Context, storageClientSet *clientsets.StorageClientSet, query string, startTime, endTime time.Time, step int, labelFilter map[string]struct{}) ([]model.MetricsSeries, error)
+
+// WorkloadFacadeGetter is the function signature for getting database facade
+type WorkloadFacadeGetter func(clusterName string) database.FacadeInterface
+
+// WorkloadClusterNameGetter is the function signature for getting cluster name
+type WorkloadClusterNameGetter func() string
+
 // WorkloadGpuAggregationConfig is the configuration for workload GPU aggregation job
 type WorkloadGpuAggregationConfig struct {
 	// Enabled controls whether the job is enabled
@@ -48,29 +61,104 @@ type WorkloadGpuAggregationConfig struct {
 
 // WorkloadGpuAggregationJob aggregates workload-level GPU statistics by querying Prometheus
 type WorkloadGpuAggregationJob struct {
-	config      *WorkloadGpuAggregationConfig
-	clusterName string
+	config            *WorkloadGpuAggregationConfig
+	clusterName       string
+	facadeGetter      WorkloadFacadeGetter
+	promQueryFunc     WorkloadPromQueryFunc
+	clusterNameGetter WorkloadClusterNameGetter
+}
+
+// WorkloadJobOption is a function that configures a WorkloadGpuAggregationJob
+type WorkloadJobOption func(*WorkloadGpuAggregationJob)
+
+// WithWorkloadFacadeGetter sets the facade getter function
+func WithWorkloadFacadeGetter(getter WorkloadFacadeGetter) WorkloadJobOption {
+	return func(j *WorkloadGpuAggregationJob) {
+		j.facadeGetter = getter
+	}
+}
+
+// WithWorkloadPromQueryFunc sets the Prometheus query function
+func WithWorkloadPromQueryFunc(fn WorkloadPromQueryFunc) WorkloadJobOption {
+	return func(j *WorkloadGpuAggregationJob) {
+		j.promQueryFunc = fn
+	}
+}
+
+// WithWorkloadClusterNameGetter sets the cluster name getter function
+func WithWorkloadClusterNameGetter(getter WorkloadClusterNameGetter) WorkloadJobOption {
+	return func(j *WorkloadGpuAggregationJob) {
+		j.clusterNameGetter = getter
+	}
+}
+
+// WithWorkloadClusterName sets the cluster name directly
+func WithWorkloadClusterName(name string) WorkloadJobOption {
+	return func(j *WorkloadGpuAggregationJob) {
+		j.clusterName = name
+	}
+}
+
+// defaultWorkloadFacadeGetter is the default implementation using database package
+func defaultWorkloadFacadeGetter(clusterName string) database.FacadeInterface {
+	return database.GetFacadeForCluster(clusterName)
+}
+
+// defaultWorkloadPromQueryFunc is the default implementation using prom package
+func defaultWorkloadPromQueryFunc(ctx context.Context, storageClientSet *clientsets.StorageClientSet, query string, startTime, endTime time.Time, step int, labelFilter map[string]struct{}) ([]model.MetricsSeries, error) {
+	return prom.QueryRange(ctx, storageClientSet, query, startTime, endTime, step, labelFilter)
+}
+
+// defaultWorkloadClusterNameGetter is the default implementation using clientsets package
+func defaultWorkloadClusterNameGetter() string {
+	return clientsets.GetClusterManager().GetCurrentClusterName()
 }
 
 // NewWorkloadGpuAggregationJob creates a new workload GPU aggregation job
-func NewWorkloadGpuAggregationJob() *WorkloadGpuAggregationJob {
-	clusterName := clientsets.GetClusterManager().GetCurrentClusterName()
-	return &WorkloadGpuAggregationJob{
+func NewWorkloadGpuAggregationJob(opts ...WorkloadJobOption) *WorkloadGpuAggregationJob {
+	j := &WorkloadGpuAggregationJob{
 		config: &WorkloadGpuAggregationConfig{
 			Enabled:       true,
-			PromQueryStep: DefaultPromQueryStep,
+			PromQueryStep: DefaultWorkloadPromQueryStep,
 		},
-		clusterName: clusterName,
+		facadeGetter:      defaultWorkloadFacadeGetter,
+		promQueryFunc:     defaultWorkloadPromQueryFunc,
+		clusterNameGetter: defaultWorkloadClusterNameGetter,
 	}
+
+	// Apply options
+	for _, opt := range opts {
+		opt(j)
+	}
+
+	// Set cluster name if not already set
+	if j.clusterName == "" {
+		j.clusterName = j.clusterNameGetter()
+	}
+
+	return j
 }
 
 // NewWorkloadGpuAggregationJobWithConfig creates a new workload GPU aggregation job with custom config
-func NewWorkloadGpuAggregationJobWithConfig(cfg *WorkloadGpuAggregationConfig) *WorkloadGpuAggregationJob {
-	clusterName := clientsets.GetClusterManager().GetCurrentClusterName()
-	return &WorkloadGpuAggregationJob{
-		config:      cfg,
-		clusterName: clusterName,
+func NewWorkloadGpuAggregationJobWithConfig(cfg *WorkloadGpuAggregationConfig, opts ...WorkloadJobOption) *WorkloadGpuAggregationJob {
+	j := &WorkloadGpuAggregationJob{
+		config:            cfg,
+		facadeGetter:      defaultWorkloadFacadeGetter,
+		promQueryFunc:     defaultWorkloadPromQueryFunc,
+		clusterNameGetter: defaultWorkloadClusterNameGetter,
 	}
+
+	// Apply options
+	for _, opt := range opts {
+		opt(j)
+	}
+
+	// Set cluster name if not already set
+	if j.clusterName == "" {
+		j.clusterName = j.clusterNameGetter()
+	}
+
+	return j
 }
 
 // Run executes the workload GPU aggregation job
@@ -86,7 +174,7 @@ func (j *WorkloadGpuAggregationJob) Run(ctx context.Context,
 
 	clusterName := j.clusterName
 	if clusterName == "" {
-		clusterName = clientsets.GetClusterManager().GetCurrentClusterName()
+		clusterName = j.clusterNameGetter()
 	}
 
 	span.SetAttributes(
@@ -160,7 +248,7 @@ func (j *WorkloadGpuAggregationJob) Run(ctx context.Context,
 
 // getLastProcessedHour retrieves the last processed hour from cache
 func (j *WorkloadGpuAggregationJob) getLastProcessedHour(ctx context.Context, clusterName string) (time.Time, error) {
-	cacheFacade := database.GetFacadeForCluster(clusterName).GetGenericCache()
+	cacheFacade := j.facadeGetter(clusterName).GetGenericCache()
 
 	var lastHourStr string
 	err := cacheFacade.Get(ctx, CacheKeyWorkloadGpuAggregationLastHour, &lastHourStr)
@@ -181,7 +269,7 @@ func (j *WorkloadGpuAggregationJob) getLastProcessedHour(ctx context.Context, cl
 
 // setLastProcessedHour stores the last processed hour in cache
 func (j *WorkloadGpuAggregationJob) setLastProcessedHour(ctx context.Context, clusterName string, hour time.Time) error {
-	cacheFacade := database.GetFacadeForCluster(clusterName).GetGenericCache()
+	cacheFacade := j.facadeGetter(clusterName).GetGenericCache()
 
 	hourStr := hour.Format(time.RFC3339)
 	return cacheFacade.Set(ctx, CacheKeyWorkloadGpuAggregationLastHour, hourStr, nil)
@@ -209,7 +297,7 @@ func (j *WorkloadGpuAggregationJob) aggregateWorkloadStats(
 		return 0, nil
 	}
 
-	facade := database.GetFacadeForCluster(clusterName).GetGpuAggregation()
+	facade := j.facadeGetter(clusterName).GetGpuAggregation()
 	var createdCount int64
 	var errorCount int64
 
@@ -232,53 +320,10 @@ func (j *WorkloadGpuAggregationJob) aggregateWorkloadStats(
 		avgReplicaCount, maxReplicaCount, minReplicaCount := j.getWorkloadReplicaCountForHour(
 			ctx, clusterName, workload.UID, hourStart, hourEnd)
 
-		// Ensure Labels and Annotations are not nil (required for JSONB fields)
-		labels := workload.Labels
-		if labels == nil {
-			labels = dbmodel.ExtType{}
-		}
-		annotations := workload.Annotations
-		if annotations == nil {
-			annotations = dbmodel.ExtType{}
-		}
-
 		// Build workload hourly stats
-		stats := &dbmodel.WorkloadGpuHourlyStats{
-			ClusterName:       clusterName,
-			Namespace:         workload.Namespace,
-			WorkloadName:      workload.Name,
-			WorkloadType:      workload.Kind,
-			StatHour:          hour,
-			AllocatedGpuCount: float64(workload.GpuRequest),
-			RequestedGpuCount: float64(workload.GpuRequest),
-			AvgGpuMemoryUsed:  avgMemoryUsedGB,
-			MaxGpuMemoryUsed:  maxMemoryUsedGB,
-			AvgGpuMemoryTotal: avgMemoryTotalGB,
-			AvgReplicaCount:   avgReplicaCount,
-			MaxReplicaCount:   maxReplicaCount,
-			MinReplicaCount:   minReplicaCount,
-			WorkloadStatus:    workload.Status,
-			SampleCount:       int32(len(utilizationValues)),
-			OwnerUID:          workload.ParentUID,
-			OwnerName:         "",
-			Labels:            labels,
-			Annotations:       annotations,
-		}
-
-		// Calculate utilization statistics
-		if len(utilizationValues) > 0 {
-			sort.Float64s(utilizationValues)
-			stats.MinUtilization = utilizationValues[0]
-			stats.MaxUtilization = utilizationValues[len(utilizationValues)-1]
-			stats.P50Utilization = calculatePercentile(utilizationValues, 0.50)
-			stats.P95Utilization = calculatePercentile(utilizationValues, 0.95)
-
-			var utilizationSum float64
-			for _, v := range utilizationValues {
-				utilizationSum += v
-			}
-			stats.AvgUtilization = utilizationSum / float64(len(utilizationValues))
-		}
+		stats := BuildWorkloadGpuHourlyStats(clusterName, workload, hour, utilizationValues,
+			avgMemoryUsedGB, maxMemoryUsedGB, avgMemoryTotalGB,
+			avgReplicaCount, maxReplicaCount, minReplicaCount)
 
 		// Save to database
 		if err := facade.SaveWorkloadHourlyStats(ctx, stats); err != nil {
@@ -300,6 +345,66 @@ func (j *WorkloadGpuAggregationJob) aggregateWorkloadStats(
 	return createdCount, nil
 }
 
+// BuildWorkloadGpuHourlyStats builds workload hourly stats record
+// This is exported for testing purposes
+func BuildWorkloadGpuHourlyStats(
+	clusterName string,
+	workload *dbmodel.GpuWorkload,
+	hour time.Time,
+	utilizationValues []float64,
+	avgMemoryUsedGB, maxMemoryUsedGB, avgMemoryTotalGB float64,
+	avgReplicaCount float64, maxReplicaCount, minReplicaCount int32) *dbmodel.WorkloadGpuHourlyStats {
+
+	// Ensure Labels and Annotations are not nil (required for JSONB fields)
+	labels := workload.Labels
+	if labels == nil {
+		labels = dbmodel.ExtType{}
+	}
+	annotations := workload.Annotations
+	if annotations == nil {
+		annotations = dbmodel.ExtType{}
+	}
+
+	stats := &dbmodel.WorkloadGpuHourlyStats{
+		ClusterName:       clusterName,
+		Namespace:         workload.Namespace,
+		WorkloadName:      workload.Name,
+		WorkloadType:      workload.Kind,
+		StatHour:          hour,
+		AllocatedGpuCount: float64(workload.GpuRequest),
+		RequestedGpuCount: float64(workload.GpuRequest),
+		AvgGpuMemoryUsed:  avgMemoryUsedGB,
+		MaxGpuMemoryUsed:  maxMemoryUsedGB,
+		AvgGpuMemoryTotal: avgMemoryTotalGB,
+		AvgReplicaCount:   avgReplicaCount,
+		MaxReplicaCount:   maxReplicaCount,
+		MinReplicaCount:   minReplicaCount,
+		WorkloadStatus:    workload.Status,
+		SampleCount:       int32(len(utilizationValues)),
+		OwnerUID:          workload.ParentUID,
+		OwnerName:         "",
+		Labels:            labels,
+		Annotations:       annotations,
+	}
+
+	// Calculate utilization statistics
+	if len(utilizationValues) > 0 {
+		sort.Float64s(utilizationValues)
+		stats.MinUtilization = utilizationValues[0]
+		stats.MaxUtilization = utilizationValues[len(utilizationValues)-1]
+		stats.P50Utilization = CalculatePercentile(utilizationValues, 0.50)
+		stats.P95Utilization = CalculatePercentile(utilizationValues, 0.95)
+
+		var utilizationSum float64
+		for _, v := range utilizationValues {
+			utilizationSum += v
+		}
+		stats.AvgUtilization = utilizationSum / float64(len(utilizationValues))
+	}
+
+	return stats
+}
+
 // getActiveTopLevelWorkloads gets workloads that were active during the specified hour
 // Only returns top-level workloads (parent_uid is empty)
 func (j *WorkloadGpuAggregationJob) getActiveTopLevelWorkloads(
@@ -307,7 +412,7 @@ func (j *WorkloadGpuAggregationJob) getActiveTopLevelWorkloads(
 	clusterName string,
 	startTime, endTime time.Time) ([]*dbmodel.GpuWorkload, error) {
 
-	facade := database.GetFacadeForCluster(clusterName).GetWorkload()
+	facade := j.facadeGetter(clusterName).GetWorkload()
 
 	// Get all workloads that have not ended
 	allWorkloads, err := facade.GetWorkloadNotEnd(ctx)
@@ -316,8 +421,16 @@ func (j *WorkloadGpuAggregationJob) getActiveTopLevelWorkloads(
 	}
 
 	// Filter for top-level workloads (parent_uid is empty) that were active during the time range
+	activeWorkloads := FilterWorkloadActiveTopLevel(allWorkloads, startTime, endTime)
+
+	return activeWorkloads, nil
+}
+
+// FilterWorkloadActiveTopLevel filters workloads to find top-level ones active in the time range
+// This is exported for testing purposes
+func FilterWorkloadActiveTopLevel(workloads []*dbmodel.GpuWorkload, startTime, endTime time.Time) []*dbmodel.GpuWorkload {
 	var activeWorkloads []*dbmodel.GpuWorkload
-	for _, workload := range allWorkloads {
+	for _, workload := range workloads {
 		// Skip non-top-level workloads
 		if workload.ParentUID != "" {
 			continue
@@ -336,8 +449,7 @@ func (j *WorkloadGpuAggregationJob) getActiveTopLevelWorkloads(
 
 		activeWorkloads = append(activeWorkloads, workload)
 	}
-
-	return activeWorkloads, nil
+	return activeWorkloads
 }
 
 // queryWorkloadUtilizationForHour queries the GPU utilization for a workload in a specific hour
@@ -360,7 +472,7 @@ func (j *WorkloadGpuAggregationJob) queryWorkloadUtilizationForHour(
 		attribute.String("end_time", endTime.Format(time.RFC3339)),
 	)
 
-	series, err := prom.QueryRange(ctx, storageClientSet, query, startTime, endTime,
+	series, err := j.promQueryFunc(ctx, storageClientSet, query, startTime, endTime,
 		j.config.PromQueryStep, map[string]struct{}{"__name__": {}})
 
 	if err != nil {
@@ -369,17 +481,7 @@ func (j *WorkloadGpuAggregationJob) queryWorkloadUtilizationForHour(
 		return nil, err
 	}
 
-	if len(series) == 0 || len(series[0].Values) == 0 {
-		span.SetAttributes(attribute.Int("data_points.count", 0))
-		span.SetStatus(codes.Ok, "No data points")
-		return []float64{}, nil
-	}
-
-	// Collect all data points
-	values := make([]float64, 0, len(series[0].Values))
-	for _, point := range series[0].Values {
-		values = append(values, point.Value)
-	}
+	values := ExtractValuesFromSeries(series)
 
 	span.SetAttributes(
 		attribute.Int("series.count", len(series)),
@@ -388,6 +490,20 @@ func (j *WorkloadGpuAggregationJob) queryWorkloadUtilizationForHour(
 	span.SetStatus(codes.Ok, "")
 
 	return values, nil
+}
+
+// ExtractValuesFromSeries extracts float64 values from Prometheus series
+// This is exported for testing purposes
+func ExtractValuesFromSeries(series []model.MetricsSeries) []float64 {
+	if len(series) == 0 || len(series[0].Values) == 0 {
+		return []float64{}
+	}
+
+	values := make([]float64, 0, len(series[0].Values))
+	for _, point := range series[0].Values {
+		values = append(values, point.Value)
+	}
+	return values
 }
 
 // queryWorkloadGpuMemoryForHour queries the GPU memory usage for a workload in a specific hour
@@ -411,28 +527,18 @@ func (j *WorkloadGpuAggregationJob) queryWorkloadGpuMemoryForHour(
 
 	// Query GPU memory used
 	memUsedQuery := fmt.Sprintf(WorkloadGpuMemoryUsedQueryTemplate, workloadUID)
-	memUsedSeries, err := prom.QueryRange(ctx, storageClientSet, memUsedQuery, startTime, endTime,
+	memUsedSeries, err := j.promQueryFunc(ctx, storageClientSet, memUsedQuery, startTime, endTime,
 		j.config.PromQueryStep, map[string]struct{}{"__name__": {}})
 
 	if err != nil {
 		log.Debugf("Failed to query GPU memory used for workload %s: %v", workloadUID, err)
-	} else if len(memUsedSeries) > 0 && len(memUsedSeries[0].Values) > 0 {
-		sum := 0.0
-		maxVal := 0.0
-		for _, point := range memUsedSeries[0].Values {
-			sum += point.Value
-			if point.Value > maxVal {
-				maxVal = point.Value
-			}
-		}
-		// Convert from bytes to GB
-		avgMemoryUsedGB = (sum / float64(len(memUsedSeries[0].Values))) / (1024 * 1024 * 1024)
-		maxMemoryUsedGB = maxVal / (1024 * 1024 * 1024)
+	} else {
+		avgMemoryUsedGB, maxMemoryUsedGB = CalculateMemoryStats(memUsedSeries)
 	}
 
 	// Query GPU memory total
 	memTotalQuery := fmt.Sprintf(WorkloadGpuMemoryTotalQueryTemplate, workloadUID)
-	memTotalSeries, err := prom.QueryRange(ctx, storageClientSet, memTotalQuery, startTime, endTime,
+	memTotalSeries, err := j.promQueryFunc(ctx, storageClientSet, memTotalQuery, startTime, endTime,
 		j.config.PromQueryStep, map[string]struct{}{"__name__": {}})
 
 	if err != nil {
@@ -456,6 +562,27 @@ func (j *WorkloadGpuAggregationJob) queryWorkloadGpuMemoryForHour(
 	return avgMemoryUsedGB, maxMemoryUsedGB, avgMemoryTotalGB
 }
 
+// CalculateMemoryStats calculates average and max memory from Prometheus series (returns values in GB)
+// This is exported for testing purposes
+func CalculateMemoryStats(series []model.MetricsSeries) (float64, float64) {
+	if len(series) == 0 || len(series[0].Values) == 0 {
+		return 0, 0
+	}
+
+	sum := 0.0
+	maxVal := 0.0
+	for _, point := range series[0].Values {
+		sum += point.Value
+		if point.Value > maxVal {
+			maxVal = point.Value
+		}
+	}
+	// Convert from bytes to GB
+	avgGB := (sum / float64(len(series[0].Values))) / (1024 * 1024 * 1024)
+	maxGB := maxVal / (1024 * 1024 * 1024)
+	return avgGB, maxGB
+}
+
 // getWorkloadReplicaCountForHour gets the replica count for a workload during a specific hour
 // Returns (avgReplicaCount, maxReplicaCount, minReplicaCount)
 func (j *WorkloadGpuAggregationJob) getWorkloadReplicaCountForHour(
@@ -473,7 +600,7 @@ func (j *WorkloadGpuAggregationJob) getWorkloadReplicaCountForHour(
 		attribute.String("hour_end", hourEnd.Format(time.RFC3339)),
 	)
 
-	facade := database.GetFacadeForCluster(clusterName)
+	facade := j.facadeGetter(clusterName)
 
 	// Get pod references for this workload
 	podRefs, err := facade.GetWorkload().ListWorkloadPodReferenceByWorkloadUid(ctx, workloadUID)
@@ -512,6 +639,22 @@ func (j *WorkloadGpuAggregationJob) getWorkloadReplicaCountForHour(
 	}
 
 	// Count pods that were active during the hour
+	activePodCount := CountWorkloadActivePodsInHour(pods, hourStart, hourEnd)
+
+	span.SetAttributes(
+		attribute.Int("pod_refs.count", len(podRefs)),
+		attribute.Int("pods.count", len(pods)),
+		attribute.Int("active_pods.count", int(activePodCount)),
+	)
+	span.SetStatus(codes.Ok, "")
+
+	// For now, we use the same value for avg/max/min since we don't have granular data
+	return float64(activePodCount), activePodCount, activePodCount
+}
+
+// CountWorkloadActivePodsInHour counts pods that were active during the specified hour
+// This is exported for testing purposes
+func CountWorkloadActivePodsInHour(pods []*dbmodel.GpuPods, hourStart, hourEnd time.Time) int32 {
 	activePodCount := int32(0)
 	for _, pod := range pods {
 		// Check if pod was created before the hour ended
@@ -533,19 +676,17 @@ func (j *WorkloadGpuAggregationJob) getWorkloadReplicaCountForHour(
 		activePodCount = 1
 	}
 
-	span.SetAttributes(
-		attribute.Int("pod_refs.count", len(podRefs)),
-		attribute.Int("pods.count", len(pods)),
-		attribute.Int("active_pods.count", int(activePodCount)),
-	)
-	span.SetStatus(codes.Ok, "")
-
-	// For now, we use the same value for avg/max/min since we don't have granular data
-	return float64(activePodCount), activePodCount, activePodCount
+	return activePodCount
 }
 
-// calculatePercentile calculates percentile value from sorted values
+// calculatePercentile is an alias for backwards compatibility
 func calculatePercentile(sortedValues []float64, percentile float64) float64 {
+	return CalculatePercentile(sortedValues, percentile)
+}
+
+// CalculatePercentile calculates percentile value from sorted values
+// This is exported for testing purposes
+func CalculatePercentile(sortedValues []float64, percentile float64) float64 {
 	if len(sortedValues) == 0 {
 		return 0
 	}
