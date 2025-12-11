@@ -516,7 +516,7 @@ Partially update workload configuration (only when running).
     "targetPort": 8088,
     "serviceType": "NodePort",
     "extends": {}
-  },
+  }
 }
 ```
 

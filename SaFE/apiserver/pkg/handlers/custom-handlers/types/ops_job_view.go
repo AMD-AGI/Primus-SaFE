@@ -43,6 +43,8 @@ type CreatePreflightRequest struct {
 	// The hostpath for opsjob mounting.
 	Hostpath []string `json:"hostpath,omitempty"`
 	// The workspace which the job belongs to
+	// If specified, "cluster" cannot be selected as an input, and the nodes must belong to this workspace.
+	// Non-admin users must specify a workspace.
 	WorkspaceId string `json:"workspaceId"`
 }
 
@@ -83,15 +85,15 @@ type ListOpsJobInput struct {
 	Since string `form:"since" binding:"omitempty"`
 	// Query the end time of the job, similar to since. default now
 	Until string `form:"until" binding:"omitempty"`
-	// The cluster which the job belongs to
+	// Filter by cluster ID
 	ClusterId string `form:"clusterId" binding:"omitempty,max=64"`
-	// The workspace which the job belongs to
+	// Filter by workspace ID, This parameter only works if a workspace was set when creating.
 	WorkspaceId string `form:"workspaceId" binding:"omitempty,max=64"`
 	// Filter by submitter username (fuzzy match)
 	UserName string `form:"userName" binding:"omitempty,max=64"`
-	// The job phase, e.g. Succeeded, Failed, Running, Pending
+	// Filter by job phase, e.g. Succeeded, Failed, Running, Pending
 	Phase v1.OpsJobPhase `form:"phase" binding:"omitempty"`
-	// The job type, e.g. addon, dumplog, preflight, reboot
+	// Filter by job type, e.g. addon, dumplog, preflight, reboot
 	Type v1.OpsJobType `form:"type" binding:"omitempty,max=64"`
 }
 
