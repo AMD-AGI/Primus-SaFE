@@ -2,19 +2,33 @@ package bootstrap
 
 import (
 	"context"
+	"fmt"
+	"math/rand"
+	"os"
+	"time"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/api/handlers"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/detection"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/metadata"
+	advisorTask "github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/task"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/config"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/controller"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
 	configHelper "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/config"
 	log "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/router"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/router/middleware"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/server"
+	coreTask "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/task"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/trace"
 	"github.com/gin-gonic/gin"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 )
+
+var schemes = &runtime.SchemeBuilder{
+	corev1.AddToScheme,
+}
 
 // Global handlers
 var (
@@ -26,6 +40,19 @@ var (
 	insightsHandler       *handlers.InsightsHandler
 	wandbHandler          *handlers.WandBHandler
 )
+
+// generateInstanceID generates instance ID
+func generateInstanceID() string {
+	hostname, err := os.Hostname()
+	if err != nil {
+		hostname = "unknown"
+	}
+
+	rand.Seed(time.Now().UnixNano())
+	randomSuffix := rand.Intn(10000)
+
+	return fmt.Sprintf("ai-advisor-%s-%d", hostname, randomSuffix)
+}
 
 func Bootstrap(ctx context.Context) error {
 	// Initialize OpenTelemetry tracer
@@ -45,19 +72,75 @@ func Bootstrap(ctx context.Context) error {
 		}
 	}()
 
+	// Register Kubernetes scheme
+	if err := controller.RegisterScheme(schemes); err != nil {
+		log.Errorf("Failed to register Kubernetes scheme: %v", err)
+		return fmt.Errorf("failed to register scheme: %w", err)
+	}
+	log.Info("Kubernetes scheme registered successfully")
+
 	return server.InitServerWithPreInitFunc(ctx, func(ctx context.Context, cfg *config.Config) error {
 		// Initialize dependencies
 		metadataFacade := database.NewAiWorkloadMetadataFacade()
 		systemConfigMgr := configHelper.GetDefaultConfigManager()
 
+		// Generate instance ID for this AI Advisor instance
+		instanceID := generateInstanceID()
+		log.Infof("AI Advisor instance ID: %s", instanceID)
+
 		// Initialize detection manager
-		detectionMgr, err := detection.InitializeDetectionManager(metadataFacade, systemConfigMgr)
+		detectionMgr, err := detection.InitializeDetectionManager(metadataFacade, systemConfigMgr, instanceID)
 		if err != nil {
 			log.Errorf("Failed to initialize detection manager: %v", err)
 			// Don't block startup, but warn
 		} else {
 			log.Info("Detection manager initialized successfully")
 		}
+
+		// Initialize metadata collector
+		// Create storage using the metadata facade (which has DB access internally)
+		storage := metadata.NewFacadeStorage(metadataFacade)
+		if err := metadata.InitCollector(ctx, storage); err != nil {
+			log.Errorf("Failed to initialize metadata collector: %v", err)
+			// Don't block startup, but warn
+		} else {
+			log.Info("Metadata collector initialized successfully")
+		}
+
+		// Initialize task scheduler
+		taskScheduler := coreTask.NewTaskScheduler(instanceID, coreTask.DefaultSchedulerConfig())
+
+		// Register metadata collection executor
+		metadataExecutor := advisorTask.NewMetadataCollectionExecutor(metadata.GetCollector())
+		if err := taskScheduler.RegisterExecutor(metadataExecutor); err != nil {
+			log.Errorf("Failed to register metadata collection executor: %v", err)
+		} else {
+			log.Info("Metadata collection executor registered")
+		}
+
+		// Register TensorBoard stream executor
+		tensorboardStreamExecutor := advisorTask.NewTensorBoardStreamExecutor()
+		if err := taskScheduler.RegisterExecutor(tensorboardStreamExecutor); err != nil {
+			log.Errorf("Failed to register tensorboard stream executor: %v", err)
+		} else {
+			log.Info("TensorBoard stream executor registered")
+		}
+
+		// Start task scheduler
+		if err := taskScheduler.Start(); err != nil {
+			log.Errorf("Failed to start task scheduler: %v", err)
+		} else {
+			log.Infof("Task scheduler started (instance: %s)", instanceID)
+		}
+
+		// Register cleanup for task scheduler
+		go func() {
+			<-ctx.Done()
+			log.Info("Shutting down task scheduler...")
+			if err := taskScheduler.Stop(); err != nil {
+				log.Errorf("Error stopping task scheduler: %v", err)
+			}
+		}()
 
 		// Initialize handlers
 		detectionHandler = handlers.NewDetectionHandler(detectionMgr)
@@ -139,6 +222,25 @@ func initRouter(group *gin.RouterGroup) error {
 	wandbGroup := group.Group("/wandb")
 	{
 		wandbGroup.POST("/detection", wandbHandler.ReceiveDetection)
+	}
+
+	// Workload Metadata APIs
+	metadataGroup := group.Group("/metadata")
+	{
+		// Collect metadata for a workload
+		metadataGroup.POST("/collect", handlers.CollectWorkloadMetadata)
+
+		// Query metadata
+		metadataGroup.GET("/workloads/:uid", middleware.WithTracingRate(0.001), handlers.GetWorkloadMetadata)
+		metadataGroup.POST("/query", handlers.QueryWorkloadMetadata)
+		metadataGroup.GET("/recent", handlers.ListRecentMetadata)
+		metadataGroup.GET("/frameworks/:framework", handlers.GetMetadataByFramework)
+
+		// Statistics
+		metadataGroup.GET("/stats", handlers.GetMetadataStatistics)
+
+		// Management
+		metadataGroup.DELETE("/workloads/:uid", handlers.DeleteWorkloadMetadata)
 	}
 
 	// Health check

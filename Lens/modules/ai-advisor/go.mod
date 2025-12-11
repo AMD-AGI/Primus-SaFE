@@ -4,16 +4,20 @@ go 1.24.7
 
 replace github.com/AMD-AGI/Primus-SaFE/Lens/core => ../core
 
+replace github.com/AMD-AGI/Primus-SaFE/Lens/node-exporter => ../exporters/node-exporter
+
 require (
 	github.com/AMD-AGI/Primus-SaFE/Lens/core v0.0.0-00010101000000-000000000000
+	github.com/AMD-AGI/Primus-SaFE/Lens/node-exporter v0.0.0-00010101000000-000000000000
 	github.com/gin-gonic/gin v1.10.1
 	github.com/go-resty/resty/v2 v2.16.5
+	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
+	gorm.io/gorm v1.30.0
 )
 
 require (
 	filippo.io/edwards25519 v1.1.0 // indirect
-	github.com/VictoriaMetrics/VictoriaMetrics v1.96.0 // indirect
-	github.com/VictoriaMetrics/fasthttp v1.2.0 // indirect
+	github.com/VictoriaMetrics/VictoriaMetrics v1.122.0 // indirect
 	github.com/VictoriaMetrics/metrics v1.38.0 // indirect
 	github.com/VictoriaMetrics/metricsql v0.84.6 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
@@ -83,6 +87,7 @@ require (
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/valyala/fastrand v1.1.0 // indirect
 	github.com/valyala/histogram v1.2.0 // indirect
+	github.com/valyala/quicktemplate v1.8.0 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	go.opentelemetry.io/auto/sdk v1.1.0 // indirect
 	go.opentelemetry.io/otel v1.37.0 // indirect
@@ -98,7 +103,7 @@ require (
 	go.yaml.in/yaml/v2 v2.4.2 // indirect
 	golang.org/x/arch v0.8.0 // indirect
 	golang.org/x/crypto v0.40.0 // indirect
-	golang.org/x/mod v0.25.0 // indirect
+	golang.org/x/mod v0.26.0 // indirect
 	golang.org/x/net v0.42.0 // indirect
 	golang.org/x/oauth2 v0.30.0 // indirect
 	golang.org/x/sync v0.16.0 // indirect
@@ -121,7 +126,6 @@ require (
 	gorm.io/driver/mysql v1.6.0 // indirect
 	gorm.io/driver/postgres v1.6.0 // indirect
 	gorm.io/gen v0.3.27 // indirect
-	gorm.io/gorm v1.30.0 // indirect
 	gorm.io/hints v1.1.0 // indirect
 	gorm.io/plugin/dbresolver v1.6.0 // indirect
 	k8s.io/api v0.33.3 // indirect
