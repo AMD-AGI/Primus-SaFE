@@ -20,6 +20,7 @@ GOMOD := $(GOCMD) mod
 GOFMT := gofmt
 GOLINT := golangci-lint
 
+
 # Directories
 CMD_DIR := ./cmd/installer
 BUILD_DIR := ./build
