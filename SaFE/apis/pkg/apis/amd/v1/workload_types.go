@@ -279,18 +279,11 @@ func (w *Workload) IsRunning() bool {
 	return false
 }
 
-// IsStopped returns whether the tomb has been stopped.
-func (w *Workload) IsStopped() bool {
-	if w.Status.Phase == WorkloadStopped {
-		return true
-	}
-	return false
-}
-
 // IsEnd returns true if the fault has ended (completed or failed).
 func (w *Workload) IsEnd() bool {
 	if w.Status.Phase == WorkloadSucceeded ||
-		w.Status.Phase == WorkloadFailed {
+		w.Status.Phase == WorkloadFailed ||
+		w.Status.Phase == WorkloadStopped {
 		return true
 	}
 	if !w.GetDeletionTimestamp().IsZero() {
