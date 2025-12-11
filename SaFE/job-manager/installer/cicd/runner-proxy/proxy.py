@@ -26,6 +26,7 @@ _cleanup_context: Dict[str, Any] = {
     "lock": threading.Lock(),
 }
 
+timeout_secs = 604800
 
 def _do_cleanup() -> None:
     """
@@ -80,8 +81,6 @@ signal.signal(signal.SIGINT, _signal_handler)
 
 # Also register atexit as a fallback for normal exits
 atexit.register(_do_cleanup)
-
-timeout_secs = 10800
 
 def getenv_str(name: str, default: Optional[str] = None) -> Optional[str]:
     val = os.environ.get(name)
@@ -331,14 +330,12 @@ def get_unified_nfs_path() -> Optional[str]:
     return None
 
 def main() -> int:
-    print(f"[info] runner-proxy starting... (pid={os.getpid()})", flush=True)
+    print(f"[info] runner-proxy starting... (pid={os.getpid()}), timeout set to {timeout_secs}s", flush=True)
     
     # Unified build mode: extend timeout and manage NFS path lifecycle
     unified_build_enabled = getenv_bool("UNIFIED_JOB_ENABLE", False)
     if unified_build_enabled:
-        global timeout_secs
-        timeout_secs = 24 * 60 * 60  # 24h
-        print(f"[info] unified build mode enabled, timeout set to {timeout_secs}s (24h)", flush=True)
+        print(f"[info] unified build mode enabled", flush=True)
         nfs_path = get_unified_nfs_path()
         print(f"[info] unified NFS path: {nfs_path}", flush=True)
         # Handle case where NFS path could not be constructed
@@ -381,7 +378,7 @@ def main() -> int:
     last_phase = None
     poll_count = 0
 
-    print(f"[info] starting to poll workload status (timeout: {timeout_secs}s)...", flush=True)
+    print(f"[info] starting to poll workload status...", flush=True)
     terminal_phases = {"Succeeded", "Failed", "Stopped"}
     while True:
         try:
