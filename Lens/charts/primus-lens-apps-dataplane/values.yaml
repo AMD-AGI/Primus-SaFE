@@ -7,8 +7,9 @@
 # - Node Exporter: Node-level metrics (DaemonSet)
 # - GPU Resource Exporter: GPU metrics
 # - System Tuner: System optimization (DaemonSet)
-# - Web: Web console
 # - AI Advisor: AI recommendations
+#
+# NOTE: Web console is part of control-plane, not data-plane
 #
 
 # ============================================================================
@@ -43,7 +44,7 @@ infrastructure:
 apps:
   telemetryCollector:
     enabled: true
-    image: "primussafe/telemetry-processor:v1.0.0"
+    image: "primussafe/telemetry-processor:202512101641"
     replicas: 1
     httpPort: 8989
     prometheusPort: 8990
@@ -51,7 +52,7 @@ apps:
   
   jobs:
     enabled: true
-    image: "primussafe/primus-lens-jobs:v1.0.0"
+    image: "primussafe/primus-lens-jobs:202512101526"
     replicas: 1
     httpPort: 8989
     grpcPort: 8991
@@ -67,14 +68,14 @@ apps:
   
   nodeExporter:
     enabled: true
-    image: "primussafe/primus-lens-node-exporter:v1.0.0"
+    image: "primussafe/primus-lens-node-exporter:202512101526"
     httpPort: 8989
     maxUnavailable: 10
     resources: {}
   
   gpuResourceExporter:
     enabled: true
-    image: "primussafe/gpu-resource-exporter:v1.0.0"
+    image: "primussafe/gpu-resource-exporter:202512101526"
     replicas: 1
     httpPort: 8989
     grpcPort: 8991
@@ -91,7 +92,7 @@ apps:
   
   systemTuner:
     enabled: true
-    image: "primuslens/system-tuner:v1.0.0"
+    image: "primussafe/system-tuner:202512101526"
     resources:
       requests:
         cpu: "100m"
@@ -100,18 +101,12 @@ apps:
         cpu: "200m"
         memory: "256Mi"
   
-  web:
-    enabled: true
-    image: "primussafe/primus-lens-web:v1.0.0"
-    replicas: 1
-    containerPort: 80
-    resources: {}
-    service:
-      port: 80
+  # NOTE: web is part of control-plane, not data-plane
+  # See primus-lens-apps-controlplane chart
   
   aiAdvisor:
     enabled: true
-    image: "primuslens/ai-advisor:v1.0.0"
+    image: "primussafe/ai-advisor:202512101630"
     replicas: 1
     httpPort: 8080
     healthPort: 8081

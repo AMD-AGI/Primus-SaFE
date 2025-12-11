@@ -40,7 +40,7 @@ global:
 # - normal: Production clusters with moderate workloads
 # - large: Large-scale production clusters with high workloads
 # ============================================================================
-profile: "normal"
+profile: "minimal"
 
 profiles:
   minimal:
@@ -136,7 +136,7 @@ apps:
 # ============================================================================
 primus-lens-apps-dataplane:
   global:
-    clusterName: "my-cluster"
+    clusterName: "tas"
     namespace: "primus-lens"
     imageRegistry:
       url: "docker.io"
@@ -151,7 +151,7 @@ primus-lens-apps-dataplane:
   apps:
     telemetryCollector:
       enabled: true
-      image: "primussafe/telemetry-processor:v1.0.0"
+      image: "primussafe/telemetry-processor:202512101641"
       replicas: 1
       httpPort: 8989
       prometheusPort: 8990
@@ -159,7 +159,7 @@ primus-lens-apps-dataplane:
     
     jobs:
       enabled: true
-      image: "primussafe/primus-lens-jobs:v1.0.0"
+      image: "primussafe/primus-lens-jobs:202512101526"
       replicas: 1
       httpPort: 8989
       grpcPort: 8991
@@ -175,14 +175,14 @@ primus-lens-apps-dataplane:
     
     nodeExporter:
       enabled: true
-      image: "primussafe/primus-lens-node-exporter:v1.0.0"
+      image: "primussafe/primus-lens-node-exporter:202512101526"
       httpPort: 8989
       maxUnavailable: 10
       resources: {}
     
     gpuResourceExporter:
       enabled: true
-      image: "primussafe/gpu-resource-exporter:v1.0.0"
+      image: "primussafe/gpu-resource-exporter:202512101526"
       replicas: 1
       httpPort: 8989
       grpcPort: 8991
@@ -199,7 +199,7 @@ primus-lens-apps-dataplane:
     
     systemTuner:
       enabled: true
-      image: "primuslens/system-tuner:v1.0.0"
+      image: "primussafe/system-tuner:202512101526"
       resources:
         requests:
           cpu: "100m"
@@ -210,7 +210,7 @@ primus-lens-apps-dataplane:
     
     web:
       enabled: true
-      image: "primussafe/primus-lens-web:v1.0.0"
+      image: "primussafe/primus-lens-web:202512091046"
       replicas: 1
       containerPort: 80
       resources: {}
@@ -219,7 +219,7 @@ primus-lens-apps-dataplane:
     
     aiAdvisor:
       enabled: true
-      image: "primuslens/ai-advisor:v1.0.0"
+      image: "primussafe/ai-advisor:202512101630"
       replicas: 1
       httpPort: 8080
       healthPort: 8081

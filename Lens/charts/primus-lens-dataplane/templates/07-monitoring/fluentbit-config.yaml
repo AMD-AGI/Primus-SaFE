@@ -30,7 +30,7 @@ data:
         Parser            docker
         Tag               kube.*
         Refresh_Interval  5
-        Mem_Buf_Limit     50MB
+        Mem_Buf_Limit     100MB
         Skip_Long_Lines   On
 
     [FILTER]
@@ -85,14 +85,14 @@ metadata:
 spec:
   image: fluent/fluent-bit:2.1.0
   
-  # Resource limits
+  # Resource limits (increased memory to avoid OOM)
   resources:
     requests:
       cpu: 100m
-      memory: 128Mi
+      memory: 256Mi
     limits:
       cpu: 500m
-      memory: 512Mi
+      memory: 1Gi
   
   # Mount configuration
   fluentBitConfigName: {{ include "primus-lens.fullname" . }}-fluentbit-config

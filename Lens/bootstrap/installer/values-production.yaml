@@ -1,0 +1,93 @@
+#
+# Primus Lens Installer - Production Configuration
+#
+# Use this for production deployments.
+# Includes high availability settings and proper resource allocation.
+#
+# IMPORTANT: Review and customize before deploying!
+#
+# Usage:
+#   primus-lens-installer install dataplane --config values-production.yaml
+#
+
+global:
+  # CHANGE: Set your cluster name
+  clusterName: "prod-cluster"
+  namespace: "primus-lens"
+  
+  # CHANGE: Set your storage class
+  storageClass: "fast-ssd"
+  accessMode: "ReadWriteOnce"
+  
+  # CHANGE: Set your access type
+  accessType: "ingress"
+  
+  # CHANGE: Set your domain
+  domain: "example.com"
+
+# Use normal or large profile for production
+profile: "normal"
+
+# High availability settings
+opensearch:
+  enabled: true
+  clusterName: "primus-lens-logs"
+  nodeSets:
+    - name: "nodes"
+      replicas: 3              # HA: 3 replicas
+      roles:
+        - master
+        - data
+        - ingest
+
+database:
+  enabled: true
+  initScript: "setup_primus_lens.sql"
+
+victoriametrics:
+  enabled: true
+
+logging:
+  enabled: true
+
+grafana:
+  enabled: true
+  # CHANGE: Set a strong password!
+  adminPassword: "CHANGE_ME_TO_STRONG_PASSWORD"
+
+monitoring:
+  kubeStateMetrics:
+    enabled: true
+
+apps:
+  enabled: true
+
+# Production resource profiles
+profiles:
+  normal:
+    opensearch:
+      diskSize: "100Gi"
+      memory: "4Gi"
+      cpu: "2000m"
+    postgres:
+      backupSize: "50Gi"
+      dataSize: "100Gi"
+      replicas: 2
+    victoriametrics:
+      vmagent:
+        cpu: "1000m"
+        memory: "1Gi"
+      vmstorage:
+        replicas: 2
+        cpu: "2000m"
+        memory: "4Gi"
+        size: "100Gi"
+      vmselect:
+        replicas: 2
+        cpu: "1000m"
+        memory: "2Gi"
+      vminsert:
+        replicas: 2
+        cpu: "1000m"
+        memory: "2Gi"
+

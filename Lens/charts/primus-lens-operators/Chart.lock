@@ -1,0 +1,21 @@
+dependencies:
+- name: victoria-metrics-operator
+  repository: https://victoriametrics.github.io/helm-charts/
+  version: 0.35.2
+- name: fluent-operator
+  repository: https://fluent.github.io/helm-charts
+  version: 3.1.0
+- name: opensearch-operator
+  repository: https://opensearch-project.github.io/opensearch-k8s-operator/
+  version: 2.6.0
+- name: pgo
+  repository: oci://registry.developers.crunchydata.com/crunchydata
+  version: 5.7.0
+- name: grafana-operator
+  repository: https://grafana.github.io/helm-charts
+  version: v5.15.1
+- name: kube-state-metrics
+  repository: https://prometheus-community.github.io/helm-charts
+  version: 5.27.0
+digest: sha256:ca85ebff97488c4fb7af3cc8b4a132fe9b66f2578ce789480bfb7cbdb42630d7
+generated: "2025-12-10T10:34:50.24127334Z"

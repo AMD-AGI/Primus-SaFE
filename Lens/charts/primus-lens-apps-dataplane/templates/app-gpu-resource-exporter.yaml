@@ -14,8 +14,8 @@ metadata:
     app: {{ include "lens.fullname" . }}-gpu-resource-exporter
 data:
   config.yaml: |
-    loadK8SClient: {{ .Values.apps.gpuResourceExporter.config.loadK8SClient | default true }}
-    loadStorageClient: {{ .Values.apps.gpuResourceExporter.config.loadStorageClient | default true }}
+    loadK8SClient: true
+    loadStorageClient: true
     httpPort: {{ .Values.apps.gpuResourceExporter.httpPort | default 8989 }}
     controller:
       namespace: {{ .Values.global.namespace }}
@@ -64,11 +64,6 @@ spec:
         env:
         - name: CONFIG_PATH
           value: /etc/primus-lens-gpu-resource-exporter/config.yaml
-        - name: DB_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: {{ include "lens.fullname" . }}-pguser-{{ .Values.apps.gpuResourceExporter.config.db.userName | default "primus-lens" }}
-              key: password
         ports:
         - containerPort: {{ .Values.apps.gpuResourceExporter.httpPort | default 8989 }}
           protocol: TCP
