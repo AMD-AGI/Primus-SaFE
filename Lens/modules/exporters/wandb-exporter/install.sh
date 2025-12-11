@@ -126,7 +126,7 @@ install_package() {
     fi
     
     print_info "Installing primus-lens-wandb-exporter (with --upgrade --no-cache-dir)..."
-    # 使用 --upgrade 强制更新，--no-cache-dir 清除缓存，确保获取最新版本
+    # Use --upgrade to force update, --no-cache-dir to clear cache, ensure getting latest version
     if $PIP_CMD install --upgrade --no-cache-dir primus-lens-wandb-exporter; then
         VERSION=$($PYTHON_CMD -c "import primus_lens_wandb_exporter; print(primus_lens_wandb_exporter.__version__)" 2>/dev/null)
         print_success "Package installed successfully (v$VERSION)"

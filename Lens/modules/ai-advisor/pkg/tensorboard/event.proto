@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+package tensorboard;
+
+option go_package = "github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/tensorboard";
+
+// Event protocol buffer for TensorBoard
+message Event {
+  double wall_time = 1;
+  int64 step = 2;
+
+  oneof what {
+    Summary summary = 5;
+    string file_version = 3;
+  }
+}
+
+// Summary protocol buffer
+message Summary {
+  repeated Value value = 1;
+
+  message Value {
+    string tag = 1;
+    
+    oneof value {
+      float simple_value = 2;
+    }
+  }
+}
+

@@ -40,5 +40,28 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		h.ServeHTTP(c.Writer, c.Request)
 	})
 
+	// Process tree routes
+	processTreeGroup := group.Group("/process-tree")
+	{
+		processTreeGroup.POST("/pod", GetPodProcessTree)
+		processTreeGroup.POST("/python", FindPythonProcessesInPod)
+		processTreeGroup.POST("/tensorboard", FindTensorboardFilesInPod)
+		processTreeGroup.POST("/env", GetProcessEnvironment)
+		processTreeGroup.POST("/args", GetProcessArguments)
+	}
+
+	// Container filesystem routes
+	containerFSGroup := group.Group("/container-fs")
+	{
+		// File operations
+		containerFSGroup.POST("/read", ReadContainerFile)
+		containerFSGroup.POST("/list", ListContainerDirectory)
+		containerFSGroup.POST("/info", GetContainerFileInfo)
+
+		// TensorBoard-specific operations
+		containerFSGroup.POST("/tensorboard/logs", GetTensorBoardLogs)
+		containerFSGroup.POST("/tensorboard/event", ReadTensorBoardEvent)
+	}
+
 	return nil
 }

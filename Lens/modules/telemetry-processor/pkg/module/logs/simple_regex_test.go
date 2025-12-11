@@ -93,7 +93,7 @@ func TestSimpleRegexParts(t *testing.T) {
 				return
 			}
 
-			// 提取命名组
+			// Extract named groups
 			groups := make(map[string]string)
 			names := re.SubexpNames()
 			for i, name := range names {

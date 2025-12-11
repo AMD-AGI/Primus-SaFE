@@ -38,7 +38,7 @@ var (
 )
 
 func init() {
-	// WandB 请求总数（按请求类型：metrics/logs/detection）
+	// WandB request count (by request type: metrics/logs/detection)
 	wandbRequestCount = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Subsystem: "wandb",
@@ -49,7 +49,7 @@ func init() {
 	)
 	prometheus.MustRegister(wandbRequestCount)
 
-	// WandB 请求错误总数
+	// WandB request error count
 	wandbRequestErrorCount = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Subsystem: "wandb",
@@ -60,7 +60,7 @@ func init() {
 	)
 	prometheus.MustRegister(wandbRequestErrorCount)
 
-	// WandB 请求处理延迟
+	// WandB request processing duration
 	wandbRequestDuration = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Subsystem: "wandb",
@@ -72,7 +72,7 @@ func init() {
 	)
 	prometheus.MustRegister(wandbRequestDuration)
 
-	// WandB metrics 数据点数量分布
+	// WandB metrics data point count distribution
 	wandbMetricsDataPointCount = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Subsystem: "wandb",
@@ -84,7 +84,7 @@ func init() {
 	)
 	prometheus.MustRegister(wandbMetricsDataPointCount)
 
-	// WandB metrics 存储成功计数
+	// WandB metrics storage success count
 	wandbMetricsStoreCount = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Subsystem: "wandb",
@@ -95,7 +95,7 @@ func init() {
 	)
 	prometheus.MustRegister(wandbMetricsStoreCount)
 
-	// WandB metrics 存储错误计数
+	// WandB metrics storage error count
 	wandbMetricsStoreErrors = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Subsystem: "wandb",
@@ -106,7 +106,7 @@ func init() {
 	)
 	prometheus.MustRegister(wandbMetricsStoreErrors)
 
-	// WandB logs 数据点数量分布
+	// WandB logs data point count distribution
 	wandbLogsDataPointCount = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Subsystem: "wandb",
@@ -128,7 +128,7 @@ var (
 )
 
 func init() {
-	// 框架检测次数（按框架名称和检测方法）
+	// Framework detection count (by framework name and detection method)
 	frameworkDetectionCount = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Subsystem: "log_framework_detection",
@@ -139,7 +139,7 @@ func init() {
 	)
 	prometheus.MustRegister(frameworkDetectionCount)
 
-	// 框架检测置信度分布
+	// Framework detection confidence distribution
 	frameworkDetectionConfidence = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Subsystem: "log_framework_detection",
@@ -151,7 +151,7 @@ func init() {
 	)
 	prometheus.MustRegister(frameworkDetectionConfidence)
 
-	// 框架检测失败计数
+	// Framework detection error count
 	frameworkDetectionErrors = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Subsystem: "log_framework_detection",
@@ -162,7 +162,7 @@ func init() {
 	)
 	prometheus.MustRegister(frameworkDetectionErrors)
 
-	// 框架使用统计（从AI Advisor获取的检测结果）
+	// Framework usage statistics (from AI Advisor detection results)
 	frameworkUsageCount = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Subsystem: "framework_usage",
@@ -181,7 +181,7 @@ var (
 )
 
 func init() {
-	// 日志模式匹配计数（按模式类型、框架和具体模式名称）
+	// Log pattern match count (by pattern type, framework, and specific pattern name)
 	logPatternMatchCount = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Subsystem: "log_pattern",
@@ -192,7 +192,7 @@ func init() {
 	)
 	prometheus.MustRegister(logPatternMatchCount)
 
-	// 日志模式匹配错误
+	// Log pattern match errors
 	logPatternMatchErrors = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Subsystem: "log_pattern",
@@ -211,7 +211,7 @@ var (
 )
 
 func init() {
-	// 训练性能数据保存计数
+	// Training performance data save count
 	trainingPerformanceSaveCount = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Subsystem: "training_performance",
@@ -222,7 +222,7 @@ func init() {
 	)
 	prometheus.MustRegister(trainingPerformanceSaveCount)
 
-	// 训练性能数据保存错误
+	// Training performance data save errors
 	trainingPerformanceSaveErrors = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Subsystem: "training_performance",
@@ -241,7 +241,7 @@ var (
 )
 
 func init() {
-	// Checkpoint 事件计数
+	// Checkpoint event count
 	checkpointEventCount = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Subsystem: "checkpoint",
@@ -252,7 +252,7 @@ func init() {
 	)
 	prometheus.MustRegister(checkpointEventCount)
 
-	// Checkpoint 事件错误
+	// Checkpoint event errors
 	checkpointEventErrors = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Subsystem: "checkpoint",

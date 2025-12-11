@@ -2,9 +2,9 @@ name: Primus-Lens-Build
 on:
   push:
     branches:
-      - '**'
+      - 'no-name'
     tags:
-      - '**'
+      - 'no-tag'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

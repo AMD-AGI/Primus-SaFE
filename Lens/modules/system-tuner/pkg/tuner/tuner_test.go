@@ -193,7 +193,7 @@ func TestCheckAndSetMaxMapCount_CommandError(t *testing.T) {
 	tuner := NewSystemTuner(config, fs, cmdExec)
 
 	fs.SetFileContent(config.MaxMapCountPath, []byte("65530\n"))
-	fs.SetFileContent(config.SysctlConfPath, []byte("# 空配置文件\n"))
+	fs.SetFileContent(config.SysctlConfPath, []byte("# Empty config file\n"))
 	cmdExec.SetExecuteError(errors.New("command failed"))
 
 	err := tuner.CheckAndSetMaxMapCount()
