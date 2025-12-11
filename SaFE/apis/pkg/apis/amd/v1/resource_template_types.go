@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -58,6 +58,8 @@ type ResourceSpec struct {
 	TemplatePaths []string `json:"templatePaths,omitempty"`
 	// The relative path of pod replica
 	ReplicasPaths []string `json:"replicasPaths,omitempty"`
+	// The relative path of pod completions(only for job)
+	CompletionsPaths []string `json:"completionsPaths,omitempty"`
 	// If the replica count is set to a non-zero value, it will be used as a fixed allocation when the task is submitted
 	// This applies only to the master role of a PyTorchJob (or similar structures).
 	Replica int64 `json:"replica,omitempty"`

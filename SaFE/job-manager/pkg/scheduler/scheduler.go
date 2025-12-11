@@ -61,13 +61,14 @@ type SchedulerMessage struct {
 
 // SetupSchedulerController initializes and registers the SchedulerReconciler with the controller manager.
 func SetupSchedulerController(ctx context.Context, mgr manager.Manager) error {
-	if err := mgr.GetFieldIndexer().IndexField(ctx, &v1.Workload{}, "spec.dependencies", func(object client.Object) []string {
-		workload := object.(*v1.Workload)
-		if len(workload.Spec.Dependencies) == 0 {
-			return nil
-		}
-		return workload.Spec.Dependencies
-	}); err != nil {
+	if err := mgr.GetFieldIndexer().IndexField(ctx,
+		&v1.Workload{}, "spec.dependencies", func(object client.Object) []string {
+			workload := object.(*v1.Workload)
+			if len(workload.Spec.Dependencies) == 0 {
+				return nil
+			}
+			return workload.Spec.Dependencies
+		}); err != nil {
 		return fmt.Errorf("failed to setup field indexer for workload dependencies: %v", err)
 	}
 
@@ -220,7 +221,7 @@ func (r *SchedulerReconciler) delete(ctx context.Context, adminWorkload *v1.Work
 }
 
 // waitObjectDeleted waits for an object to be fully deleted from the cluster.
-// If the object still exists after 2 minutes of deletion timestamp, it forcefully removes finalizers.
+// If the object still exists after 3 minutes of deletion timestamp, it forcefully removes finalizers.
 func (r *SchedulerReconciler) waitObjectDeleted(ctx context.Context,
 	obj *unstructured.Unstructured, clusterInformer *syncer.ClusterInformer) (ctrlruntime.Result, error) {
 
@@ -232,7 +233,7 @@ func (r *SchedulerReconciler) waitObjectDeleted(ctx context.Context,
 	}
 
 	// object still exists
-	if ts := current.GetDeletionTimestamp(); ts != nil && !ts.IsZero() && time.Since(ts.Time) > 2*time.Minute {
+	if ts := current.GetDeletionTimestamp(); ts != nil && !ts.IsZero() && time.Since(ts.Time) > 3*time.Minute {
 		patchObj := map[string]any{
 			"metadata": map[string]any{
 				"finalizers": []string{},
@@ -244,7 +245,7 @@ func (r *SchedulerReconciler) waitObjectDeleted(ctx context.Context,
 			return ctrlruntime.Result{}, client.IgnoreNotFound(patchErr)
 		}
 	}
-	return ctrlruntime.Result{RequeueAfter: time.Second * 3}, nil
+	return ctrlruntime.Result{RequeueAfter: time.Second * 10}, nil
 }
 
 // deleteRelatedSecrets removes all secrets associated with a CICD scaling runner set workload.
@@ -262,7 +263,8 @@ func (r *SchedulerReconciler) deleteRelatedSecrets(ctx context.Context, adminWor
 	for i := range secList.Items {
 		sec := &secList.Items[i]
 		if delErr := r.Client.Delete(ctx, sec); delErr != nil && !apierrors.IsNotFound(delErr) {
-			klog.ErrorS(delErr, "failed to delete cicd token secret", "secret", sec.Name, "workload", adminWorkload.Name)
+			klog.ErrorS(delErr, "failed to delete cicd token secret",
+				"secret", sec.Name, "workload", adminWorkload.Name)
 			return delErr
 		} else {
 			klog.Infof("deleted cicd token secret %s for workload %s", sec.Name, adminWorkload.Name)
@@ -343,7 +345,7 @@ func (r *SchedulerReconciler) scheduleWorkloads(ctx context.Context, message *Sc
 				continue
 			}
 		}
-		if err = r.updateScheduled(ctx, schedulingWorkloads[i]); err != nil {
+		if err = r.markAsScheduled(ctx, schedulingWorkloads[i]); err != nil {
 			return err
 		}
 		klog.Infof("the workload is scheduled, name: %s, dispatch count: %d",
@@ -414,7 +416,8 @@ func (r *SchedulerReconciler) checkWorkloadDependencies(ctx context.Context, wor
 			depWorkload := &v1.Workload{}
 			if err := r.Get(ctx, client.ObjectKey{Name: dep, Namespace: workload.Namespace}, depWorkload); err != nil {
 				if apierrors.IsNotFound(err) {
-					if err = jobutils.SetWorkloadFailed(ctx, r.Client, workload, fmt.Sprintf("dependency workload %s not found", dep)); err != nil {
+					message := fmt.Sprintf("dependency workload %s not found", dep)
+					if err = jobutils.SetWorkloadFailed(ctx, r.Client, workload, message); err != nil {
 						klog.Errorf("failed to set workload %s dependency failed", workload.Name)
 						return true, err
 					}
@@ -502,8 +505,10 @@ func (r *SchedulerReconciler) getAdminSecret(ctx context.Context, secretId strin
 	return secret, nil
 }
 
-// getUnfinishedWorkloads Retrieve the list of unfinished workloads, sorted by priority and other criteria, including both queued and running ones.
-func (r *SchedulerReconciler) getUnfinishedWorkloads(ctx context.Context, workspace *v1.Workspace) ([]*v1.Workload, []*v1.Workload, error) {
+// getUnfinishedWorkloads Retrieve the list of unfinished workloads,
+// sorted by priority and other criteria, including both queued and running ones.
+func (r *SchedulerReconciler) getUnfinishedWorkloads(ctx context.Context,
+	workspace *v1.Workspace) ([]*v1.Workload, []*v1.Workload, error) {
 	filterFunc := func(w *v1.Workload) bool {
 		return w.IsEnd()
 	}
@@ -529,7 +534,8 @@ func (r *SchedulerReconciler) getUnfinishedWorkloads(ctx context.Context, worksp
 	return schedulingWorkloads, scheduledWorkloads, nil
 }
 
-// getLeftTotalResources Retrieve the total amount of left resources. The system usually reserves a certain amount of CPU, memory, and other resources.
+// getLeftTotalResources Retrieve the total amount of left resources.
+// The system usually reserves a certain amount of CPU, memory, and other resources.
 func (r *SchedulerReconciler) getLeftTotalResources(ctx context.Context,
 	workspace *v1.Workspace, workloads []*v1.Workload) (corev1.ResourceList, corev1.ResourceList, error) {
 	filterFunc := func(nodeName string) bool {
@@ -558,13 +564,13 @@ func (r *SchedulerReconciler) getLeftTotalResources(ctx context.Context,
 	leftAvailResource := quantity.SubResource(availResource, usedResource)
 	totalResource := quantity.GetAvailableResource(workspace.Status.TotalResources)
 	leftTotalResource := quantity.SubResource(totalResource, usedResource)
-	klog.Infof("total resource: %v, total used: %v, left total: %v, left avail: %v",
-		totalResource, usedResource, leftTotalResource, leftAvailResource)
+	// klog.Infof("total resource: %v, total used: %v, left total: %v, left avail: %v",
+	// totalResource, usedResource, leftTotalResource, leftAvailResource)
 	return leftAvailResource, leftTotalResource, nil
 }
 
-// updateScheduled updates a workload's status to indicate it has been scheduled.
-func (r *SchedulerReconciler) updateScheduled(ctx context.Context, workload *v1.Workload) error {
+// markAsScheduled updates a workload's status to indicate it has been scheduled.
+func (r *SchedulerReconciler) markAsScheduled(ctx context.Context, workload *v1.Workload) error {
 	name := workload.Name
 	if err := backoff.ConflictRetry(func() error {
 		if innerError := r.updateStatus(ctx, workload); innerError == nil {
@@ -622,7 +628,8 @@ func (r *SchedulerReconciler) updateStatus(ctx context.Context, workload *v1.Wor
 }
 
 // updateUnScheduled updates the status of unscheduled workloads with ordering and reasons.
-func (r *SchedulerReconciler) updateUnScheduled(ctx context.Context, workloads []*v1.Workload, unScheduledReasons map[string]string) {
+func (r *SchedulerReconciler) updateUnScheduled(ctx context.Context,
+	workloads []*v1.Workload, unScheduledReasons map[string]string) {
 	position := 1
 	for i, w := range workloads {
 		if v1.IsWorkloadScheduled(w) || w.IsEnd() {
@@ -663,7 +670,8 @@ func (r *SchedulerReconciler) updateDependentsPhase(ctx context.Context, workloa
 	}
 	for _, depWorkload := range dependents.Items {
 		if err := r.setDependenciesPhase(ctx, workload, &depWorkload); err != nil {
-			klog.Errorf("failed to set dependency phase for workload %s in dependent workload %s: %v", workload.Name, depWorkload.Name, err)
+			klog.ErrorS(err, "failed to set dependency phase",
+				"workload", workload.Name, "depend", depWorkload.Name)
 			return err
 		}
 	}
@@ -675,7 +683,8 @@ func (r *SchedulerReconciler) updateDependentsPhase(ctx context.Context, workloa
 func (r *SchedulerReconciler) setDependenciesPhase(ctx context.Context, workload, depWorkload *v1.Workload) error {
 	depWorkload.SetDependenciesPhase(workload.Name, workload.Status.Phase)
 	if workload.Status.Phase != v1.WorkloadSucceeded {
-		if err := jobutils.SetWorkloadFailed(ctx, r.Client, depWorkload, fmt.Sprintf("dependency workload %s failed", workload.Name)); err != nil {
+		if err := jobutils.SetWorkloadFailed(ctx, r.Client, depWorkload,
+			fmt.Sprintf("dependency workload %s failed", workload.Name)); err != nil {
 			return err
 		}
 		return nil

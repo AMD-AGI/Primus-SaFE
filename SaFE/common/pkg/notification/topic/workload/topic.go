@@ -13,11 +13,13 @@ import (
 	"strings"
 	"time"
 
+	sliceutil "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/slice"
+	"k8s.io/klog/v2"
+
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/notification/model"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
-	"k8s.io/klog/v2"
 )
 
 type Topic struct {
@@ -31,12 +33,13 @@ func (t *Topic) Name() string {
 // Filter determines if the notification should be sent based on the data.
 func (t *Topic) Filter(data map[string]interface{}) bool {
 	if condition, ok := data["condition"].(string); ok {
-		if !commonutils.StringsIn(condition, []string{
+		targetConditions := []string{
 			string(v1.AdminScheduled),
 			string(v1.K8sPending),
 			string(v1.K8sUpdating),
 			string(v1.K8sDeleted),
-		}) {
+		}
+		if !sliceutil.Contains(targetConditions, condition) {
 			return true
 		}
 	}
@@ -57,9 +60,8 @@ func (t *Topic) BuildMessage(ctx context.Context, data map[string]interface{}) (
 		ScheduleTime: topicData.Workload.CreationTimestamp.Time.Format(time.DateTime),
 		JobURL:       getWorkloadUrl(topicData.Workload.Name),
 	}
-	if commonutils.StringsIn(topicData.Condition, []string{
-		string(v1.K8sFailed), string(v1.AdminFailed), string(v1.AdminFailover),
-	}) {
+	targetConditions := []string{string(v1.K8sFailed), string(v1.AdminFailed), string(v1.AdminFailover)}
+	if sliceutil.Contains(targetConditions, topicData.Condition) {
 		emailData.ErrorMessage = topicData.Message
 	}
 	emailContent, err := renderEmailTemplate(emailData)

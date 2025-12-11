@@ -1,0 +1,150 @@
+#
+# Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.17.2
+  name: models.amd.com
+spec:
+  group: amd.com
+  names:
+    kind: Model
+    listKind: ModelList
+    plural: models
+    singular: model
+  scope: Cluster
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.displayName
+      name: DisplayName
+      type: string
+    - jsonPath: .spec.source.accessMode
+      name: AccessMode
+      type: string
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .status.inferenceID
+      name: InferenceID
+      type: string
+    - jsonPath: .status.inferencePhase
+      name: InferencePhase
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1
+    schema:
+      openAPIV3Schema:
+        description: Model defines a model item in the model playground
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: ModelSpec defines the desired state of Model
+            properties:
+              description:
+                description: Description describes the model
+                type: string
+              displayName:
+                description: DisplayName is the friendly name shown in the UI
+                type: string
+              icon:
+                description: Icon is the URL or Base64 of the model icon
+                type: string
+              label:
+                description: Label is the model label
+                type: string
+              maxTokens:
+                description: MaxTokens is the maximum context length of the model
+                  (from config.json max_position_embeddings)
+                type: integer
+              source:
+                description: Source defines where to pull the model from
+                properties:
+                  accessMode:
+                    description: |-
+                      AccessMode defines how to access the model:
+                        - "remote_api": Call external API directly (e.g., OpenAI, DeepSeek)
+                        - "local": Download model and run inference service locally
+                    type: string
+                  token:
+                    description: Token references a Secret containing the auth token
+                      for pulling the model or API access
+                    properties:
+                      name:
+                        default: ""
+                        description: |-
+                          Name of the referent.
+                          This field is effectively required, but due to backwards compatibility is
+                          allowed to be empty. Instances of this type with an empty value here are
+                          almost certainly wrong.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                        type: string
+                    type: object
+                    x-kubernetes-map-type: atomic
+                  url:
+                    description: URL is the pull address (e.g., "meta-llama/Llama-2-7b",
+                      "s3://bucket/model", "https://api.openai.com")
+                    type: string
+                required:
+                - url
+                type: object
+              tags:
+                description: Tags are used for search and classification (e.g. "LLM",
+                  "CV", "ASR")
+                items:
+                  type: string
+                type: array
+            required:
+            - source
+            type: object
+          status:
+            description: ModelStatus defines the observed state of Model
+            properties:
+              inferenceID:
+                description: |-
+                  InferenceID is the ID of the associated Inference CR (when user starts the model)
+                  Empty if the model hasn't been started yet
+                type: string
+              inferencePhase:
+                description: |-
+                  InferencePhase is the current phase of the associated Inference service
+                  Empty if no inference is running
+                type: string
+              message:
+                description: Message contains additional status information
+                type: string
+              phase:
+                description: Phase is the current phase of the model
+                type: string
+              updateTime:
+                description: UpdateTime is the last update time
+                format: date-time
+                type: string
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

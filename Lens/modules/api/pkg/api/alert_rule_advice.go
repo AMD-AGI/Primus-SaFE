@@ -150,7 +150,6 @@ func BatchCreateAlertRuleAdvices(ctx *gin.Context) {
 	}))
 }
 
-
 // ListAlertRuleAdvices handles GET /v1/alert-rule-advices
 func ListAlertRuleAdvices(ctx *gin.Context) {
 	// Parse filter parameters

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -23,11 +23,13 @@ const (
 	// the label for Control-plane node
 	KubernetesControlPlane = "node-role.kubernetes.io/control-plane"
 	// total retry count
-	RetryCountAnnotation    = PrimusSafePrefix + "retry.count"
-	DescriptionAnnotation   = PrimusSafePrefix + "description"
-	ProtectLabel            = PrimusSafePrefix + "protect"
-	MainContainerAnnotation = PrimusSafePrefix + "main.container"
-	OwnerLabel              = PrimusSafePrefix + "owner"
+	RetryCountAnnotation     = PrimusSafePrefix + "retry.count"
+	DescriptionAnnotation    = PrimusSafePrefix + "description"
+	ProtectLabel             = PrimusSafePrefix + "protect"
+	MainContainerAnnotation  = PrimusSafePrefix + "main.container"
+	OwnerLabel               = PrimusSafePrefix + "owner"
+	CICDScaleSetIdAnnotation = "runner-scale-set-id"
+	CICDScaleRunnerIdLabel   = PrimusSafePrefix + "scale.runner.id"
 
 	// node
 	NodePrefix    = PrimusSafePrefix + "node."
@@ -94,7 +96,7 @@ const (
 	WorkloadDisableFailoverAnnotation = WorkloadPrefix + "disable.failover"
 	WorkloadEnablePreemptAnnotation   = WorkloadPrefix + "enable.preempt"
 	CronJobTimestampAnnotation        = WorkloadPrefix + "cronjob"
-	ScaleRunnerIdLabel                = PrimusSafePrefix + "scale.runner.id"
+	EnvToBeRemovedAnnotation          = WorkloadPrefix + "env.to.remove"
 
 	// user
 	UserPrefix              = PrimusSafePrefix + "user."
@@ -127,6 +129,15 @@ const (
 	AddonPrefix       = PrimusSafePrefix + "addon."
 	AddonFinalizer    = AddonPrefix + "finalizer"
 	AddonDefaultLabel = AddonPrefix + "default"
+
+	// model
+	ModelPrefix  = PrimusSafePrefix + "model."
+	ModelIdLabel = ModelPrefix + "id"
+
+	// inference
+	InferencePrefix    = PrimusSafePrefix + "inference."
+	InferenceFinalizer = PrimusSafeDomain + "inference.finalizer"
+	InferenceIdLabel   = InferencePrefix + "id"
 )
 
 type SecretType string

@@ -1,27 +1,41 @@
 - hosts: all
+  gather_facts: true
   vars:
-    workspace: '{{ workspace | default(/opt/primus-bench) }}'
+    workspace: "{{ workspace | default('/opt/primus-bench') }}"
+    master_port: "{{ master_port | default('29500') }}"
+    container_env: "{{ container_env | default({}) }}"
   tasks:
     - name: Collect all node IPs from inventory
       set_fact:
         nodes: "{{ groups['all'] | list }}"
+
+    - name: Build final environment (container_env + overrides)
+      set_fact:
+        final_env: >-
+          {{
+            container_env | combine({
+              'NNODES': nodes|length,
+              'WORLD_SIZE': nodes|length,
+              'LOCAL_WORLD_SIZE': nodes|length,
+              'RANK': nodes.index(inventory_hostname),
+              'LOCAL_RANK': nodes.index(inventory_hostname),
+              'NODE_RANK': nodes.index(inventory_hostname),
+              'MASTER_ADDR': nodes|first,
+              'MASTER_PORT': master_port
+            })
+          }}
+
     - name: Run network check script
       shell: |
-        LOG={{ output_dir }}/{{ inventory_hostname}}
+        LOG={{ output_dir }}/{{ inventory_hostname }}
         mkdir -p $LOG
         echo $LOG
-        NNODES={{ nodes | length }} \
-        WORLD_SIZE={{ nodes | length }} \
-        LOCAL_WORLD_SIZE={{ nodes | length }} \
-        RANK={{ nodes.index(inventory_hostname) }} \
-        LOCAL_RANK={{ nodes.index(inventory_hostname) }} \
-        NODE_RANK={{ nodes.index(inventory_hostname) }} \
-        MASTER_ADDR={{ nodes | first }} \
-        MASTER_PORT={{ master_port}} \
         bash computation-communication-overlap.sh 2>&1 | tee $LOG/cco.log
       args:
-        chdir: '{{ workspace }}/benchmarks/micro_benchmarks'
+        chdir: "{{ workspace }}/benchmarks/micro_benchmarks"
         executable: /bin/bash
+      environment: "{{ final_env }}"
+
 - name: Fetch Results
   hosts: "{{ groups['all'][0] }}"
   gather_facts: no

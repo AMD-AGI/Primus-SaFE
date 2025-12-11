@@ -100,6 +100,7 @@ spec:
     version: v1
     kind: PyTorchJob
   resourceSpecs:
+    # The master configuration must come before the worker configuration
     - prePaths:
         - spec
         - pytorchReplicaSpecs
@@ -249,7 +250,7 @@ metadata:
     app.kubernetes.io/managed-by: Helm
     primus-safe.workload.version: v1
   annotations:
-    primus-safe.workload.kind: "Job,AutoscalingRunner"
+    primus-safe.workload.kind: "Job"
     meta.helm.sh/release-name: {{ .Release.Name }}
     meta.helm.sh/release-namespace: {{ .Release.Namespace }}
 spec:
@@ -264,6 +265,8 @@ spec:
         - template
       replicasPaths:
         - parallelism
+      completionsPaths:
+        - completions
   resourceStatus:
     prePaths:
       - status
@@ -299,7 +302,7 @@ metadata:
     meta.helm.sh/release-namespace: {{ .Release.Namespace }}
 spec:
   groupVersionKind:
-    group: "actions.github.com"
+    group: actions.github.com
     version: v1alpha1
     kind: AutoscalingRunnerSet
   resourceSpecs:
@@ -308,3 +311,43 @@ spec:
       templatePaths:
         - template
       replica: 1
+---
+apiVersion: amd.com/v1
+kind: ResourceTemplate
+metadata:
+  name: ephemeral-runner
+  labels:
+    app.kubernetes.io/managed-by: Helm
+    primus-safe.workload.version: v1
+  annotations:
+    primus-safe.workload.kind: "EphemeralRunner"
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
+spec:
+  groupVersionKind:
+    group: actions.github.com
+    version: v1alpha1
+    kind: EphemeralRunner
+  resourceSpecs:
+    - prePaths:
+        - spec
+  resourceStatus:
+    prePaths:
+      - status
+    messagePaths:
+      - message
+    reasonPaths:
+      - reason
+    phases:
+      - matchExpressions:
+          phase: 'Succeeded'
+        phase: K8sSucceeded
+      - matchExpressions:
+          phase: 'Failed'
+        phase: K8sFailed
+      - matchExpressions:
+          phase: 'Pending'
+        phase: K8sPending
+      - matchExpressions:
+          phase: 'Running'
+        phase: K8sRunning

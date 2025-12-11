@@ -16,6 +16,12 @@ def extract_unhealthy_nodes(log_line):
         return ''
 
 if __name__ == "__main__":
+    # Read from stdin if no arguments, otherwise from argument
     if len(sys.argv) > 1:
-        result = extract_unhealthy_nodes(sys.argv[1])
-        print(result)
+        input_data = sys.argv[1]
+    else:
+        # Read all input from stdin
+        input_data = sys.stdin.read()
+    
+    result = extract_unhealthy_nodes(input_data)
+    print(result)

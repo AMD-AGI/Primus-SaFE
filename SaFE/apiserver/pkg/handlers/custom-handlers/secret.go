@@ -251,18 +251,21 @@ func (h *Handler) authSecretUpdate(c *gin.Context, req *types.PatchSecretRequest
 	}); err != nil {
 		return err
 	}
+
 	if req.WorkspaceIds != nil {
 		currentWorkspaceIds := commonsecret.GetSecretWorkspaces(secret)
 		workspaceIdsToAdd := sliceutil.Difference(*req.WorkspaceIds, currentWorkspaceIds)
-		if err = h.accessController.Authorize(authority.AccessInput{
-			Context:      c.Request.Context(),
-			ResourceKind: authority.SecretResourceKind,
-			Verb:         v1.CreateVerb,
-			Workspaces:   workspaceIdsToAdd,
-			User:         requestUser,
-			Roles:        roles,
-		}); err != nil {
-			return err
+		if len(workspaceIdsToAdd) > 0 {
+			if err = h.accessController.Authorize(authority.AccessInput{
+				Context:      c.Request.Context(),
+				ResourceKind: authority.SecretResourceKind,
+				Verb:         v1.CreateVerb,
+				Workspaces:   workspaceIdsToAdd,
+				User:         requestUser,
+				Roles:        roles,
+			}); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

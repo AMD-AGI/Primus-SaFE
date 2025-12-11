@@ -9,10 +9,11 @@ package v1
 // ResourceSpecApplyConfiguration represents a declarative configuration of the ResourceSpec type for use
 // with apply.
 type ResourceSpecApplyConfiguration struct {
-	PrePaths      []string `json:"prePaths,omitempty"`
-	TemplatePaths []string `json:"templatePaths,omitempty"`
-	ReplicasPaths []string `json:"replicasPaths,omitempty"`
-	Replica       *int64   `json:"replica,omitempty"`
+	PrePaths         []string `json:"prePaths,omitempty"`
+	TemplatePaths    []string `json:"templatePaths,omitempty"`
+	ReplicasPaths    []string `json:"replicasPaths,omitempty"`
+	CompletionsPaths []string `json:"completionsPaths,omitempty"`
+	Replica          *int64   `json:"replica,omitempty"`
 }
 
 // ResourceSpecApplyConfiguration constructs a declarative configuration of the ResourceSpec type for use with
@@ -47,6 +48,16 @@ func (b *ResourceSpecApplyConfiguration) WithTemplatePaths(values ...string) *Re
 func (b *ResourceSpecApplyConfiguration) WithReplicasPaths(values ...string) *ResourceSpecApplyConfiguration {
 	for i := range values {
 		b.ReplicasPaths = append(b.ReplicasPaths, values[i])
+	}
+	return b
+}
+
+// WithCompletionsPaths adds the given value to the CompletionsPaths field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the CompletionsPaths field.
+func (b *ResourceSpecApplyConfiguration) WithCompletionsPaths(values ...string) *ResourceSpecApplyConfiguration {
+	for i := range values {
+		b.CompletionsPaths = append(b.CompletionsPaths, values[i])
 	}
 	return b
 }

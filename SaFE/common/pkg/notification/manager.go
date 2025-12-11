@@ -9,11 +9,12 @@ import (
 	"context"
 	"time"
 
+	"k8s.io/klog/v2"
+
 	dbClient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/model"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/notification/channel"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/notification/topic"
-	"k8s.io/klog/v2"
 )
 
 var (

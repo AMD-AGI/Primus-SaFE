@@ -375,11 +375,6 @@ func GetIngress() string {
 	return getString(ingress, "")
 }
 
-// GetHigressNodePort returns the node port of higress gateway
-func GetHigressNodePort() int {
-	return getInt(higressNodePort, 0)
-}
-
 func IsSSOEnable() bool {
 	return getBool(ssoEnable, false)
 }
@@ -414,4 +409,16 @@ func GetCICDControllerName() string {
 
 func GetCICDControllerNamespace() string {
 	return getString(cicdControllerNamespace, "")
+}
+
+// GetModelDownloaderImage returns the image for model downloader job.
+// Used for downloading models from HuggingFace and uploading to S3.
+func GetModelDownloaderImage() string {
+	return getString(modelDownloaderImage, "docker.io/primussafe/model-downloader:latest")
+}
+
+// GetModelCleanupImage returns the image for model cleanup job.
+// Used for deleting local model files.
+func GetModelCleanupImage() string {
+	return getString(modelCleanupImage, "docker.io/library/alpine:3.18")
 }

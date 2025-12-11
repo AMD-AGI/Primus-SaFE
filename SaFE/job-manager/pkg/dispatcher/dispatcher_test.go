@@ -91,7 +91,7 @@ func TestCreatePytorchJob(t *testing.T) {
 	adminClient := fake.NewClientBuilder().WithObjects(configmap, jobutils.TestPytorchResourceTemplate, workspace).WithScheme(scheme).Build()
 
 	r := DispatcherReconciler{Client: adminClient}
-	obj, err := r.generateK8sObject(context.Background(), workload)
+	obj, err := r.generateK8sObject(context.Background(), workload, nil)
 	assert.NilError(t, err)
 	templates := jobutils.TestPytorchResourceTemplate.Spec.ResourceSpecs
 
@@ -115,7 +115,7 @@ func TestCreatePytorchJob(t *testing.T) {
 	workload.Spec.Resource.Replica = 3
 	workload.Spec.IsTolerateAll = true
 	metav1.SetMetaDataAnnotation(&workload.ObjectMeta, v1.EnableHostNetworkAnnotation, "true")
-	obj, err = r.generateK8sObject(context.Background(), workload)
+	obj, err = r.generateK8sObject(context.Background(), workload, nil)
 	assert.NilError(t, err)
 	checkResources(t, obj, workload, &templates[1], 2)
 	checkEnvs(t, obj, workload, &templates[1])
@@ -160,7 +160,7 @@ func TestCreateDeployment(t *testing.T) {
 	adminClient := fake.NewClientBuilder().WithObjects(configmap, jobutils.TestDeploymentTemplate, workspace).WithScheme(scheme).Build()
 
 	r := DispatcherReconciler{Client: adminClient}
-	obj, err := r.generateK8sObject(context.Background(), workload)
+	obj, err := r.generateK8sObject(context.Background(), workload, nil)
 	assert.NilError(t, err)
 	templates := jobutils.TestDeploymentTemplate.Spec.ResourceSpecs
 
@@ -184,7 +184,7 @@ func TestUpdateDeployment(t *testing.T) {
 	adminWorkload := jobutils.TestWorkloadData.DeepCopy()
 	metav1.SetMetaDataAnnotation(&adminWorkload.ObjectMeta, v1.MainContainerAnnotation, "test")
 
-	err = updateUnstructuredObject(workloadObj, adminWorkload, nil, jobutils.TestDeploymentTemplate)
+	err = applyWorkloadSpecToObject(context.Background(), nil, workloadObj, adminWorkload, nil, jobutils.TestDeploymentTemplate)
 	assert.NilError(t, err)
 	deployment := &appsv1.Deployment{}
 	err = unstructuredutils.ConvertUnstructuredToObject(workloadObj, deployment)
@@ -229,7 +229,7 @@ func TestUpdatePytorchJob(t *testing.T) {
 	}
 	metav1.SetMetaDataAnnotation(&adminWorkload.ObjectMeta, v1.EnableHostNetworkAnnotation, "true")
 	metav1.SetMetaDataAnnotation(&adminWorkload.ObjectMeta, v1.MainContainerAnnotation, "pytorch")
-	err = updateUnstructuredObject(workloadObj, adminWorkload, nil, jobutils.TestPytorchResourceTemplate)
+	err = applyWorkloadSpecToObject(context.Background(), nil, workloadObj, adminWorkload, nil, jobutils.TestPytorchResourceTemplate)
 	assert.NilError(t, err)
 
 	pytorchJob := &PytorchJob{}
@@ -271,7 +271,7 @@ func TestUpdatePytorchJobMaster(t *testing.T) {
 	adminWorkload := jobutils.TestWorkloadData.DeepCopy()
 	adminWorkload.Spec.Resource.RdmaResource = ""
 	metav1.SetMetaDataAnnotation(&adminWorkload.ObjectMeta, v1.MainContainerAnnotation, "pytorch")
-	err = updateUnstructuredObject(workloadObj, adminWorkload, nil, jobutils.TestPytorchResourceTemplate)
+	err = applyWorkloadSpecToObject(context.Background(), nil, workloadObj, adminWorkload, nil, jobutils.TestPytorchResourceTemplate)
 	assert.NilError(t, err)
 
 	pytorchJob := &PytorchJob{}
@@ -379,7 +379,7 @@ func TestUpdateDeploymentEnv(t *testing.T) {
 	adminWorkload := jobutils.TestWorkloadData.DeepCopy()
 	metav1.SetMetaDataAnnotation(&adminWorkload.ObjectMeta, v1.MainContainerAnnotation, "test")
 
-	err = updateUnstructuredObject(workloadObj, adminWorkload, nil, jobutils.TestDeploymentTemplate)
+	err = applyWorkloadSpecToObject(context.Background(), nil, workloadObj, adminWorkload, nil, jobutils.TestDeploymentTemplate)
 	assert.NilError(t, err)
 	envs, err := jobutils.GetEnv(workloadObj, jobutils.TestDeploymentTemplate, "test")
 	assert.NilError(t, err)
@@ -401,7 +401,7 @@ func TestUpdateDeploymentEnv(t *testing.T) {
 		"NCCL_SOCKET_IFNAME": "eth1",
 		"key":                "val",
 	}
-	err = updateUnstructuredObject(workloadObj, adminWorkload, nil, jobutils.TestDeploymentTemplate)
+	err = applyWorkloadSpecToObject(context.Background(), nil, workloadObj, adminWorkload, nil, jobutils.TestDeploymentTemplate)
 	assert.NilError(t, err)
 	envs, err = jobutils.GetEnv(workloadObj, jobutils.TestDeploymentTemplate, "test")
 	assert.NilError(t, err)
@@ -421,9 +421,9 @@ func TestUpdateDeploymentEnv(t *testing.T) {
 
 	adminWorkload.Spec.Env = map[string]string{
 		"NCCL_SOCKET_IFNAME": "eth1",
-		"key":                "",
 	}
-	err = updateUnstructuredObject(workloadObj, adminWorkload, nil, jobutils.TestDeploymentTemplate)
+	v1.SetAnnotation(adminWorkload, v1.EnvToBeRemovedAnnotation, string(jsonutils.MarshalSilently([]string{"key"})))
+	err = applyWorkloadSpecToObject(context.Background(), nil, workloadObj, adminWorkload, nil, jobutils.TestDeploymentTemplate)
 	assert.NilError(t, err)
 	envs, err = jobutils.GetEnv(workloadObj, jobutils.TestDeploymentTemplate, "test")
 	assert.NilError(t, err)
@@ -463,7 +463,7 @@ func TestCreateK8sJob(t *testing.T) {
 	adminClient := fake.NewClientBuilder().WithObjects(configmap, jobutils.TestJobTemplate).WithScheme(scheme).Build()
 
 	r := DispatcherReconciler{Client: adminClient}
-	obj, err := r.generateK8sObject(context.Background(), workload)
+	obj, err := r.generateK8sObject(context.Background(), workload, nil)
 	assert.NilError(t, err)
 	// fmt.Println(unstructuredutils.ToString(obj))
 
@@ -487,9 +487,9 @@ func TestCreateCICDScaleSet(t *testing.T) {
 		Version: "v1",
 		Kind:    common.CICDScaleRunnerSetKind,
 	}
-	workload.Spec.Secrets = []v1.SecretEntity{{Id: "test-secret", Type: v1.SecretGeneral}}
 	workload.Spec.Env[common.GithubConfigUrl] = "test-url"
 	workload.Spec.Env[common.AdminControlPlane] = "10.0.0.1"
+	workload.Spec.Env[common.GithubSecretId] = "test-secret"
 	workload.Spec.Workspace = workspace.Name
 	workload.Spec.EntryPoint = stringutil.Base64Encode("bash test.sh")
 
@@ -502,7 +502,7 @@ func TestCreateCICDScaleSet(t *testing.T) {
 		jobutils.TestCICDScaleSetTemplate, workspace).WithScheme(scheme).Build()
 
 	r := DispatcherReconciler{Client: adminClient}
-	obj, err := r.generateK8sObject(context.Background(), workload)
+	obj, err := r.generateK8sObject(context.Background(), workload, nil)
 	assert.NilError(t, err)
 	// fmt.Println(unstructuredutils.ToString(obj))
 
@@ -512,10 +512,10 @@ func TestCreateCICDScaleSet(t *testing.T) {
 	checkLabels(t, obj, workload, &templates[0])
 	checkSecurityContext(t, obj, workload, &templates[0])
 	checkEnvs(t, obj, workload, &templates[0])
-	checkImage(t, obj, "docker.io/primussafe/cicd-runner-proxy:latest", &templates[0])
+	checkImage(t, obj, workload.Spec.Image, &templates[0])
 	checkHostNetwork(t, obj, workload, &templates[0])
 	envs := getEnvs(t, obj, &templates[0])
-	checkCICDEnvs(t, envs, workload, true)
+	checkCICDEnvs(t, envs, workload)
 
 	assert.Equal(t, getContainer(obj, "runner", &templates[0]) != nil, true)
 	assert.Equal(t, getContainer(obj, "unified_job", &templates[0]) != nil, false)
@@ -529,8 +529,8 @@ func TestCICDScaleSetWithUnifiedJob(t *testing.T) {
 		Kind:    common.CICDScaleRunnerSetKind,
 	}
 	workload.Spec.Resource.Replica = 2
-	workload.Spec.Secrets = []v1.SecretEntity{{Id: "test-secret", Type: v1.SecretGeneral}}
 	workload.Spec.Env[common.GithubConfigUrl] = "test-url"
+	workload.Spec.Env[common.GithubSecretId] = "test-secret"
 	workload.Spec.Env[common.AdminControlPlane] = "10.0.0.1"
 	workload.Spec.Env[common.UnifiedJobEnable] = v1.TrueStr
 	workload.Spec.Workspace = workspace.Name
@@ -544,7 +544,7 @@ func TestCICDScaleSetWithUnifiedJob(t *testing.T) {
 		jobutils.TestCICDScaleSetTemplate, workspace).WithScheme(scheme).Build()
 
 	r := DispatcherReconciler{Client: adminClient}
-	obj, err := r.generateK8sObject(context.Background(), workload)
+	obj, err := r.generateK8sObject(context.Background(), workload, nil)
 	assert.NilError(t, err)
 	// fmt.Println(unstructuredutils.ToString(obj))
 
@@ -556,7 +556,7 @@ func TestCICDScaleSetWithUnifiedJob(t *testing.T) {
 	checkHostNetwork(t, obj, workload, &templates[0])
 
 	checkCICDContainer(t, obj, workload, &templates[0],
-		"runner", "docker.io/primussafe/cicd-runner-proxy:latest")
+		"runner", workload.Spec.Image)
 	checkCICDContainer(t, obj, workload, &templates[0],
 		"unified_job", "docker.io/primussafe/cicd-unified-job-proxy:latest")
 }
@@ -587,24 +587,11 @@ func checkCICDContainer(t *testing.T, obj *unstructured.Unstructured, workload *
 	envs, found, err := unstructured.NestedSlice(container, []string{"env"}...)
 	assert.NilError(t, err)
 	assert.Equal(t, found, true)
-
-	needCheckResource := false
-	if containerName == v1.GetMainContainer(workload) {
-		needCheckResource = true
-	}
-	checkCICDEnvs(t, envs, workload, needCheckResource)
+	checkCICDEnvs(t, envs, workload)
 }
 
-func checkCICDEnvs(t *testing.T, envs []interface{}, workload *v1.Workload, needCheckResource bool) {
+func checkCICDEnvs(t *testing.T, envs []interface{}, workload *v1.Workload) {
 	var ok bool
-	if needCheckResource {
-		ok = findEnv(envs, jobutils.EntrypointEnv, buildEntryPoint(workload))
-		assert.Equal(t, ok, true)
-		ok = findEnv(envs, jobutils.ImageEnv, workload.Spec.Image)
-		assert.Equal(t, ok, true)
-		ok = findEnv(envs, jobutils.ResourcesEnv, string(jsonutils.MarshalSilently(workload.Spec.Resource)))
-		assert.Equal(t, ok, true)
-	}
 	ok = findEnv(envs, common.ScaleRunnerSetID, workload.Name)
 	assert.Equal(t, ok, true)
 	ok = findEnv(envs, common.AdminControlPlane, "10.0.0.1")
@@ -620,5 +607,246 @@ func checkCICDEnvs(t *testing.T, envs []interface{}, workload *v1.Workload, need
 		assert.Equal(t, ok, true)
 		ok = findEnv(envs, jobutils.NfsOutputEnv, UnifiedJobOutput)
 		assert.Equal(t, ok, true)
+	}
+}
+
+func TestUpdateContainerEnv(t *testing.T) {
+	tests := []struct {
+		name            string
+		envs            map[string]string
+		container       map[string]interface{}
+		toBeRemovedKeys []string
+		expectedEnvs    []map[string]interface{}
+		expectNoChange  bool
+	}{
+		{
+			name:            "empty envs and toBeRemovedKeys should not change container",
+			envs:            map[string]string{},
+			container:       map[string]interface{}{},
+			toBeRemovedKeys: []string{},
+			expectedEnvs:    nil,
+			expectNoChange:  true,
+		},
+		{
+			name: "add new envs to container with no existing envs",
+			envs: map[string]string{
+				"KEY1": "value1",
+				"KEY2": "value2",
+			},
+			container:       map[string]interface{}{},
+			toBeRemovedKeys: []string{},
+			expectedEnvs: []map[string]interface{}{
+				{"name": "KEY1", "value": "value1"},
+				{"name": "KEY2", "value": "value2"},
+			},
+		},
+		{
+			name: "add new envs to container with existing envs",
+			envs: map[string]string{
+				"KEY3": "value3",
+			},
+			container: map[string]interface{}{
+				"env": []interface{}{
+					map[string]interface{}{"name": "KEY1", "value": "value1"},
+					map[string]interface{}{"name": "KEY2", "value": "value2"},
+				},
+			},
+			toBeRemovedKeys: []string{},
+			expectedEnvs: []map[string]interface{}{
+				{"name": "KEY1", "value": "value1"},
+				{"name": "KEY2", "value": "value2"},
+				{"name": "KEY3", "value": "value3"},
+			},
+		},
+		{
+			name: "update existing env value",
+			envs: map[string]string{
+				"KEY1": "new_value1",
+			},
+			container: map[string]interface{}{
+				"env": []interface{}{
+					map[string]interface{}{"name": "KEY1", "value": "old_value1"},
+					map[string]interface{}{"name": "KEY2", "value": "value2"},
+				},
+			},
+			toBeRemovedKeys: []string{},
+			expectedEnvs: []map[string]interface{}{
+				{"name": "KEY1", "value": "new_value1"},
+				{"name": "KEY2", "value": "value2"},
+			},
+		},
+		{
+			name: "remove env vars",
+			envs: map[string]string{},
+			container: map[string]interface{}{
+				"env": []interface{}{
+					map[string]interface{}{"name": "KEY1", "value": "value1"},
+					map[string]interface{}{"name": "KEY2", "value": "value2"},
+					map[string]interface{}{"name": "KEY3", "value": "value3"},
+				},
+			},
+			toBeRemovedKeys: []string{"KEY2"},
+			expectedEnvs: []map[string]interface{}{
+				{"name": "KEY1", "value": "value1"},
+				{"name": "KEY3", "value": "value3"},
+			},
+		},
+		{
+			name: "combined add update and remove",
+			envs: map[string]string{
+				"KEY1": "updated_value1",
+				"KEY4": "value4",
+			},
+			container: map[string]interface{}{
+				"env": []interface{}{
+					map[string]interface{}{"name": "KEY1", "value": "value1"},
+					map[string]interface{}{"name": "KEY2", "value": "value2"},
+					map[string]interface{}{"name": "KEY3", "value": "value3"},
+				},
+			},
+			toBeRemovedKeys: []string{"KEY2"},
+			expectedEnvs: []map[string]interface{}{
+				{"name": "KEY1", "value": "updated_value1"},
+				{"name": "KEY3", "value": "value3"},
+				{"name": "KEY4", "value": "value4"},
+			},
+		},
+		{
+			name: "no changes when existing values match new values",
+			envs: map[string]string{
+				"KEY1": "value1",
+			},
+			container: map[string]interface{}{
+				"env": []interface{}{
+					map[string]interface{}{"name": "KEY1", "value": "value1"},
+				},
+			},
+			toBeRemovedKeys: []string{},
+			expectedEnvs:    nil,
+			expectNoChange:  true,
+		},
+		{
+			name: "skip malformed env entry without name",
+			envs: map[string]string{
+				"KEY2": "value2",
+			},
+			container: map[string]interface{}{
+				"env": []interface{}{
+					map[string]interface{}{"value": "value1"},
+					map[string]interface{}{"name": "KEY3", "value": "value3"},
+				},
+			},
+			toBeRemovedKeys: []string{},
+			expectedEnvs: []map[string]interface{}{
+				{"name": "KEY3", "value": "value3"},
+				{"name": "KEY2", "value": "value2"},
+			},
+		},
+		{
+			name: "skip non-map env entry",
+			envs: map[string]string{
+				"KEY2": "value2",
+			},
+			container: map[string]interface{}{
+				"env": []interface{}{
+					"invalid_entry",
+					map[string]interface{}{"name": "KEY3", "value": "value3"},
+				},
+			},
+			toBeRemovedKeys: []string{},
+			expectedEnvs: []map[string]interface{}{
+				{"name": "KEY3", "value": "value3"},
+				{"name": "KEY2", "value": "value2"},
+			},
+		},
+		{
+			name: "remove multiple keys",
+			envs: map[string]string{},
+			container: map[string]interface{}{
+				"env": []interface{}{
+					map[string]interface{}{"name": "KEY1", "value": "value1"},
+					map[string]interface{}{"name": "KEY2", "value": "value2"},
+					map[string]interface{}{"name": "KEY3", "value": "value3"},
+				},
+			},
+			toBeRemovedKeys: []string{"KEY1", "KEY3"},
+			expectedEnvs: []map[string]interface{}{
+				{"name": "KEY2", "value": "value2"},
+			},
+		},
+		{
+			name: "env entry without value field should be preserved when not updated",
+			envs: map[string]string{
+				"KEY2": "new_value2",
+			},
+			container: map[string]interface{}{
+				"env": []interface{}{
+					map[string]interface{}{"name": "KEY1", "valueFrom": map[string]interface{}{"secretKeyRef": "secret"}},
+					map[string]interface{}{"name": "KEY2", "value": "value2"},
+				},
+			},
+			toBeRemovedKeys: []string{},
+			expectedEnvs: []map[string]interface{}{
+				{"name": "KEY1", "valueFrom": map[string]interface{}{"secretKeyRef": "secret"}},
+				{"name": "KEY2", "value": "new_value2"},
+			},
+		},
+		{
+			name: "update env that has valueFrom to value",
+			envs: map[string]string{
+				"KEY1": "new_value1",
+			},
+			container: map[string]interface{}{
+				"env": []interface{}{
+					map[string]interface{}{"name": "KEY1", "valueFrom": map[string]interface{}{"secretKeyRef": "secret"}},
+				},
+			},
+			toBeRemovedKeys: []string{},
+			expectedEnvs:    nil,
+			expectNoChange:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			containerCopy := make(map[string]interface{})
+			for k, v := range tt.container {
+				containerCopy[k] = v
+			}
+
+			updateContainerEnv(tt.envs, containerCopy, tt.toBeRemovedKeys)
+
+			if tt.expectNoChange {
+				if tt.container["env"] == nil {
+					_, exists := containerCopy["env"]
+					assert.Equal(t, exists, false, "env should not be added when no changes")
+				}
+				return
+			}
+
+			envs, ok := containerCopy["env"].([]interface{})
+			assert.Equal(t, ok, true, "env should exist in container")
+
+			assert.Equal(t, len(envs), len(tt.expectedEnvs), "env count mismatch")
+
+			for _, expectedEnv := range tt.expectedEnvs {
+				found := false
+				expectedName := expectedEnv["name"].(string)
+				for _, env := range envs {
+					envMap := env.(map[string]interface{})
+					if envMap["name"] == expectedName {
+						found = true
+						if expectedVal, hasVal := expectedEnv["value"]; hasVal {
+							assert.Equal(t, envMap["value"], expectedVal, "value mismatch for "+expectedName)
+						}
+						if expectedValFrom, hasValFrom := expectedEnv["valueFrom"]; hasValFrom {
+							assert.DeepEqual(t, envMap["valueFrom"], expectedValFrom)
+						}
+						break
+					}
+				}
+				assert.Equal(t, found, true, "expected env "+expectedName+" not found")
+			}
+		})
 	}
 }

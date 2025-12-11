@@ -25,6 +25,12 @@ type CreateWorkloadRequest struct {
 	Description string `json:"description,omitempty"`
 	// Workspace ID to which the workload is delivered
 	WorkspaceId string `json:"workspaceId,omitempty"`
+	// User-defined labels. Keys cannot start with "primus-safe."
+	Labels map[string]string `json:"labels,omitempty"`
+	// User-defined annotations. Keys cannot start with "primus-safe."
+	Annotations map[string]string `json:"annotations,omitempty"`
+	// Preheat indicates whether to preheat the workload to prepare image in advance
+	Preheat bool `json:"preheat,omitempty"`
 }
 
 type CreateWorkloadResponse struct {
@@ -210,6 +216,8 @@ type PatchWorkloadRequest struct {
 	MaxRetry *int `json:"maxRetry,omitempty"`
 	// Cron Job configuration
 	CronJobs *[]v1.CronJob `json:"cronJobs,omitempty"`
+	// Service configuration
+	Service *v1.Service `json:"service,omitempty"`
 }
 
 type GetPodLogRequest struct {

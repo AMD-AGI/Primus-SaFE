@@ -5,6 +5,7 @@ Provides structured logging with different verbosity levels.
 
 import logging
 import sys
+import os
 from typing import Optional, Union, Any
 from pathlib import Path
 import torch
@@ -18,23 +19,48 @@ class ColoredFormatter(logging.Formatter):
     def __init__(self, *args, gpu_id=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.gpu_id = gpu_id
-    
-    COLORS = {
-        'DEBUG': '\033[36m',    # Cyan
-        'INFO': '\033[32m',     # Green
-        'WARNING': '\033[33m',  # Yellow
-        'ERROR': '\033[31m',    # Red
-        'CRITICAL': '\033[35m', # Magenta
-    }
-    RESET = '\033[0m'
+        
+        # Detect if terminal supports colors
+        self.use_colors = (
+            hasattr(sys.stdout, 'isatty') and sys.stdout.isatty() and
+            os.environ.get('TERM', '') != 'dumb' and
+            os.environ.get('NO_COLOR', '') != '1'
+        )
+        
+        if self.use_colors:
+            self.COLORS = {
+                'DEBUG': '\033[36m',    # Cyan
+                'INFO': '\033[32m',     # Green
+                'WARNING': '\033[33m',  # Yellow
+                'ERROR': '\033[31m',    # Red
+                'CRITICAL': '\033[35m', # Magenta
+            }
+            self.RESET = '\033[0m'
+        else:
+            # No colors when not supported
+            self.COLORS = {
+                'DEBUG': '',
+                'INFO': '',
+                'WARNING': '',
+                'ERROR': '',
+                'CRITICAL': '',
+            }
+            self.RESET = ''
     
     def format(self, record):
         log_color = self.COLORS.get(record.levelname, self.RESET)
         # Add GPU ID if available
         if self.gpu_id is not None:
-            record.levelname = f"{log_color}GPU{self.gpu_id}:{record.levelname}{self.RESET}"
+            if self.use_colors:
+                record.levelname = f"{log_color}GPU{self.gpu_id}:{record.levelname}{self.RESET}"
+            else:
+                record.levelname = f"GPU{self.gpu_id}:{record.levelname}"
         else:
-            record.levelname = f"{log_color}{record.levelname}{self.RESET}"
+            if self.use_colors:
+                record.levelname = f"{log_color}{record.levelname}{self.RESET}"
+            else:
+                # Keep levelname unchanged when no colors
+                pass
         return super().format(record)
 
 
@@ -96,7 +122,6 @@ class ProgressLogger:
     """Logger for training progress"""
     
     def __init__(self, logger: logging.Logger):
-        import os
         self.logger = logger
         self.start_time = None
         self.step_times = []
@@ -168,7 +193,6 @@ def setup_logger(
     Returns:
         Configured logger instance
     """
-    import os
     
     # Get GPU ID from environment or CUDA device
     gpu_id = None
