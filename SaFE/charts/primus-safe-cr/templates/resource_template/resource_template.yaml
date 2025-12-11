@@ -100,6 +100,7 @@ spec:
     version: v1
     kind: PyTorchJob
   resourceSpecs:
+    # The master configuration must come before the worker configuration
     - prePaths:
         - spec
         - pytorchReplicaSpecs
@@ -264,6 +265,8 @@ spec:
         - template
       replicasPaths:
         - parallelism
+      completionsPaths:
+        - completions
   resourceStatus:
     prePaths:
       - status

@@ -753,11 +753,12 @@ func (h *Handler) generatePreheatWorkload(ctx context.Context,
 	mainWorkload *v1.Workload, mainQuery *types.CreateWorkloadRequest) (*v1.Workload, error) {
 	preheatWorkload := mainWorkload.DeepCopy()
 	preheatWorkload.Name = commonutils.GenerateName(v1.GetDisplayName(mainWorkload))
+	preheatWorkload.Spec.GroupVersionKind = v1.GroupVersionKind{Kind: common.JobKind, Version: common.DefaultVersion}
 	v1.SetLabel(preheatWorkload, v1.DisplayNameLabel, v1.GetDisplayName(mainWorkload)+"-preheat")
 	v1.SetLabel(preheatWorkload, v1.UserIdLabel, common.UserSystem)
 	v1.SetAnnotation(preheatWorkload, v1.UserNameAnnotation, common.UserSystem)
 
-	preheatWorkload.Spec.EntryPoint = stringutil.Base64Encode("preheat finished; sleep 1000")
+	preheatWorkload.Spec.EntryPoint = stringutil.Base64Encode("preheat finished")
 	preheatWorkload.Spec.IsSupervised = false
 	preheatWorkload.Spec.MaxRetry = 0
 	preheatWorkload.Spec.TTLSecondsAfterFinished = pointer.Int(10)

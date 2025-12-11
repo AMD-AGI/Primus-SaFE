@@ -506,11 +506,9 @@ func applyWorkloadSpecToObject(ctx context.Context, clusterInformer *syncer.Clus
 
 	var preAllocatedReplica int64 = 0
 	for _, t := range rt.Spec.ResourceSpecs {
-		preAllocatedReplica += t.Replica
-	}
-	for _, t := range rt.Spec.ResourceSpecs {
 		replica := t.Replica
 		// A webhook validation was previously to ensure that only one template could have replica=0
+		// TODO: remove this preAllocatedReplica
 		if replica == 0 {
 			replica = int64(adminWorkload.Spec.Resource.Replica) - preAllocatedReplica
 		}
@@ -521,8 +519,11 @@ func applyWorkloadSpecToObject(ctx context.Context, clusterInformer *syncer.Clus
 		if err := updateHostNetwork(adminWorkload, obj, t); err != nil {
 			return fmt.Errorf("failed to update host network: %v", err.Error())
 		}
-		if err := updateReplica(adminWorkload, obj, t, replica); err != nil {
+		if err := updateReplica(obj, t, replica); err != nil {
 			return fmt.Errorf("failed to update replica: %v", err.Error())
+		}
+		if err := updateCompletions(obj, t, replica); err != nil {
+			return fmt.Errorf("failed to update completions: %v", err.Error())
 		}
 		if err := updateMetadata(adminWorkload, obj, t); err != nil {
 			return fmt.Errorf("failed to update main container: %v", err.Error())
@@ -536,33 +537,30 @@ func applyWorkloadSpecToObject(ctx context.Context, clusterInformer *syncer.Clus
 		if err := updatePriorityClass(adminWorkload, obj, t); err != nil {
 			return fmt.Errorf("failed to update priority: %v", err.Error())
 		}
+		preAllocatedReplica += replica
 	}
 	return nil
 }
 
 // updateReplica updates the replica count in the unstructured object.
-func updateReplica(adminWorkload *v1.Workload,
-	obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec, replica int64) error {
+func updateReplica(obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec, replica int64) error {
 	if len(resourceSpec.ReplicasPaths) == 0 {
 		return nil
 	}
 	path := resourceSpec.PrePaths
 	path = append(path, resourceSpec.ReplicasPaths...)
-	if err := unstructured.SetNestedField(obj.Object, replica, path...); err != nil {
-		return err
+	return unstructured.SetNestedField(obj.Object, replica, path...)
+}
+
+// updateCompletions updates the completions count in the unstructured object. only for job
+// The current job's completions is equal to its parallelism, meaning all tasks run concurrently and all must succeed.
+func updateCompletions(obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec, replica int64) error {
+	if len(resourceSpec.CompletionsPaths) == 0 {
+		return nil
 	}
-	if adminWorkload.SpecKind() == common.JobKind {
-		end := len(path) - 1
-		if end < 0 {
-			end = 0
-		}
-		path = path[:end]
-		path = append(path, "completions")
-		if err := unstructured.SetNestedField(obj.Object, replica, path...); err != nil {
-			return err
-		}
-	}
-	return nil
+	path := resourceSpec.PrePaths
+	path = append(path, resourceSpec.CompletionsPaths...)
+	return unstructured.SetNestedField(obj.Object, replica, path...)
 }
 
 // updateCICDScaleSet updates the CICD scale set configuration in the unstructured object.
