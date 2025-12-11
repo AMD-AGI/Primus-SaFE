@@ -24,8 +24,6 @@ data:
     spec:
       completionMode: NonIndexed
       backoffLimit: 0
-      completions: 1
-      parallelism: 1
       suspend: false
       template:
         spec:
