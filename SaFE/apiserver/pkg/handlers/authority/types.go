@@ -11,7 +11,7 @@ const (
 	UserWorkspaceResource = "user/workspace"
 	UserIdentityResource  = "user/identity"
 	SecretResourceKind    = "secret"
-	PreflightKind         = "preflight"
+	PreflightKind         = "opsjob/preflight"
 	PublicKeyKind         = "PublicKey"
 	ImageImportKind       = "ImageImport"
 	ImageRegisterKind     = "ImageRegister"

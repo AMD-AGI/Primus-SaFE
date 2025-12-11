@@ -255,6 +255,7 @@ def build_payload() -> Dict[str, Any]:
         "priority": priority,
         "timeout": timeout_secs,
         "ttlSecondsAfterFinished": 20,
+        "preheat": True,
     }
     # Add user-defined labels and annotations if present
     if pod_labels:
@@ -400,13 +401,14 @@ def main() -> int:
                 # Workload already in terminal state, mark as cleaned up to skip stop on exit
                 with _cleanup_context["lock"]:
                     _cleanup_context["workload_id"] = None  # Don't stop already-finished workload
-                if phase == "Succeeded":
+                if phase == "Succeeded" or phase == "Stopped":
                     print(f"[info] workload {workload_id} completed successfully (elapsed: {elapsed}s)", flush=True)
                     return 0
                 print(f"[warn] workload {workload_id} finished with phase: {phase} (elapsed: {elapsed}s)", flush=True)
                 return 1
         except Exception as e:
-            print(f"[warn] failed to get workload phase: {e}", file=sys.stderr)
+            if (time.time() - start_time) >= 10:
+                print(f"[warn] failed to get workload phase: {e}", file=sys.stderr)
 
         if timeout_secs > 0 and (time.time() - start_time) >= timeout_secs:
             print(f"[error] polling timed out after {timeout_secs}s", file=sys.stderr)

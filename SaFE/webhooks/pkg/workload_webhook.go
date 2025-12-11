@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -37,7 +38,6 @@ import (
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/floatutil"
-	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/maps"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
@@ -170,7 +170,7 @@ func (m *WorkloadMutator) mutateMeta(ctx context.Context, workload *v1.Workload,
 	}
 
 	if val := workload.GetEnv(common.ScaleRunnerID); val != "" {
-		v1.SetLabel(workload, v1.ScaleRunnerIdLabel, val)
+		v1.SetLabel(workload, v1.CICDScaleRunnerIdLabel, val)
 	}
 	v1.SetLabel(workload, v1.WorkspaceIdLabel, workload.Spec.Workspace)
 	v1.SetLabel(workload, v1.WorkloadKindLabel, workload.Spec.Kind)
@@ -178,9 +178,7 @@ func (m *WorkloadMutator) mutateMeta(ctx context.Context, workload *v1.Workload,
 	if v1.GetUserName(workload) == "" {
 		v1.SetAnnotation(workload, v1.UserNameAnnotation, v1.GetUserId(workload))
 	}
-	if v1.GetUserName(workload) != "" {
-		v1.SetLabel(workload, v1.UserNameMd5Label, stringutil.MD5(v1.GetUserName(workload)))
-	}
+	v1.SetLabel(workload, v1.UserNameMd5Label, stringutil.MD5(v1.GetUserName(workload)))
 	if v1.GetMainContainer(workload) == "" {
 		cm, err := commonworkload.GetWorkloadTemplate(ctx, m.Client, workload)
 		if err == nil {
@@ -200,7 +198,7 @@ func (m *WorkloadMutator) mutateOwnerReference(ctx context.Context, workload *v1
 		}
 		scaleRunnerSetWorkload := &v1.Workload{}
 		if err = m.Get(ctx, client.ObjectKey{Name: scaleRunnerSetId}, scaleRunnerSetWorkload); err == nil {
-			if !hasOwnerReferences(workload, scaleRunnerSetId) {
+			if !commonutils.HasOwnerReferences(workload, scaleRunnerSetId) {
 				err = controllerutil.SetControllerReference(scaleRunnerSetWorkload, workload, m.Client.Scheme())
 			}
 			v1.SetAnnotation(workload, v1.CICDScaleSetIdAnnotation, scaleRunnerSetWorkload.Status.RunnerScaleSetId)
@@ -211,15 +209,15 @@ func (m *WorkloadMutator) mutateOwnerReference(ctx context.Context, workload *v1
 			break
 		}
 		labelSelector := labels.SelectorFromSet(map[string]string{
-			v1.WorkloadKindLabel: common.CICDEphemeralRunnerKind, v1.ScaleRunnerIdLabel: scaleRunnerId})
+			v1.WorkloadKindLabel: common.CICDEphemeralRunnerKind, v1.CICDScaleRunnerIdLabel: scaleRunnerId})
 		scaleRunnerWorkloads := &v1.WorkloadList{}
 		if err = m.List(ctx, scaleRunnerWorkloads, &client.ListOptions{LabelSelector: labelSelector}); err == nil {
-			if len(scaleRunnerWorkloads.Items) > 0 && !hasOwnerReferences(workload, scaleRunnerWorkloads.Items[0].Name) {
+			if len(scaleRunnerWorkloads.Items) > 0 && !commonutils.HasOwnerReferences(workload, scaleRunnerWorkloads.Items[0].Name) {
 				err = controllerutil.SetControllerReference(&scaleRunnerWorkloads.Items[0], workload, m.Client.Scheme())
 			}
 		}
 	default:
-		if workspace != nil && !hasOwnerReferences(workload, workspace.Name) {
+		if workspace != nil && !commonutils.HasOwnerReferences(workload, workspace.Name) {
 			err = controllerutil.SetControllerReference(workspace, workload, m.Client.Scheme())
 		}
 	}
@@ -418,18 +416,26 @@ func (m *WorkloadMutator) mutateMaxRetry(workload *v1.Workload) {
 
 // mutateEnv removes empty values and preserves deletions from the old spec.
 func (m *WorkloadMutator) mutateEnv(oldWorkload, newWorkload *v1.Workload) {
-	newWorkload.Spec.Env = maps.RemoveValue(newWorkload.Spec.Env, "")
-	// A null or empty value means the field should be removed.
+	newEnv := make(map[string]string)
+	for key, val := range newWorkload.Spec.Env {
+		newEnv[strings.TrimSpace(key)] = val
+	}
+	newWorkload.Spec.Env = newEnv
+
 	if oldWorkload != nil {
+		var envToBeRemoved []string
 		for key := range oldWorkload.Spec.Env {
-			if _, ok := newWorkload.Spec.Env[key]; !ok {
+			if _, ok := newEnv[key]; !ok {
 				if commonworkload.IsCICD(newWorkload) {
 					if key == common.AdminControlPlane || key == common.GithubSecretId {
 						continue
 					}
 				}
-				newWorkload.Spec.Env[key] = ""
+				envToBeRemoved = append(envToBeRemoved, key)
 			}
+		}
+		if len(envToBeRemoved) > 0 {
+			v1.SetAnnotation(newWorkload, v1.EnvToBeRemovedAnnotation, string(jsonutils.MarshalSilently(envToBeRemoved)))
 		}
 	}
 }

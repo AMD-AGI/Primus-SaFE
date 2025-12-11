@@ -90,16 +90,6 @@ func TransMapToStruct(m map[string]interface{}, out interface{}) error {
 	return nil
 }
 
-// StringsIn checks if a string is present in a slice of strings.
-func StringsIn(str string, strs []string) bool {
-	for _, s := range strs {
-		if s == str {
-			return true
-		}
-	}
-	return false
-}
-
 // PatchObjectFinalizer updates the finalizers of a structured Kubernetes object using a merge patch.
 // This function is used to add or remove finalizers from Kubernetes resources.
 func PatchObjectFinalizer(ctx context.Context, cli client.Client, object client.Object) error {
@@ -122,4 +112,13 @@ func PatchObjectFinalizer(ctx context.Context, cli client.Client, object client.
 		return err
 	}
 	return nil
+}
+
+func HasOwnerReferences(obj metav1.Object, name string) bool {
+	for _, r := range obj.GetOwnerReferences() {
+		if r.Name == name {
+			return true
+		}
+	}
+	return false
 }

@@ -465,7 +465,7 @@ func (h *Handler) getLatestPodName(c *gin.Context, labelSelector labels.Selector
 		return "", err
 	}
 	if len(podList.Items) == 0 {
-		return "", fmt.Errorf("no running pod found")
+		return "", commonerrors.NewNotFoundWithMessage("no running pod found")
 	}
 	sort.Slice(podList.Items, func(i, j int) bool {
 		return podList.Items[i].CreationTimestamp.Time.After(podList.Items[j].CreationTimestamp.Time)

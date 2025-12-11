@@ -70,6 +70,11 @@ spec:
                   object
                 items:
                   properties:
+                    completionsPaths:
+                      description: The relative path of pod completions(only for job)
+                      items:
+                        type: string
+                      type: array
                     prePaths:
                       description: Pre-path to k8s object's spec
                       items:

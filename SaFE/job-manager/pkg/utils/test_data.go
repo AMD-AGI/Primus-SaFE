@@ -578,9 +578,10 @@ var (
 				Kind:    common.JobKind,
 			},
 			ResourceSpecs: []v1.ResourceSpec{{
-				PrePaths:      []string{"spec"},
-				TemplatePaths: []string{"template"},
-				ReplicasPaths: []string{"parallelism"},
+				PrePaths:         []string{"spec"},
+				TemplatePaths:    []string{"template"},
+				ReplicasPaths:    []string{"parallelism"},
+				CompletionsPaths: []string{"completions"},
 			}},
 			ResourceStatus: v1.ResourceStatus{
 				PrePaths:     []string{"status", "conditions"},
