@@ -27,10 +27,10 @@ const (
 	Launcher           = "chmod +x /shared-data/launcher.sh; /bin/sh /shared-data/launcher.sh"
 )
 
-// modifyObjectOnCreation modifies various aspects of a Kubernetes object during workload creation.
+// initializeObject modifies various aspects of a Kubernetes object during workload creation.
 // It applies labels, node selectors, container configurations, volumes, and other settings.
 // based on the admin workload specification and workspace configuration.
-func modifyObjectOnCreation(obj *unstructured.Unstructured,
+func initializeObject(obj *unstructured.Unstructured,
 	workload *v1.Workload, workspace *v1.Workspace, resourceSpec *v1.ResourceSpec) error {
 	_, found, err := unstructured.NestedFieldNoCopy(obj.Object, resourceSpec.PrePaths...)
 	if err != nil || !found {
@@ -399,7 +399,7 @@ func buildEntryPoint(workload *v1.Workload) string {
 	switch workload.SpecKind() {
 	case common.CICDScaleRunnerSetKind:
 		result = workload.Spec.EntryPoint
-	case common.CICDEphemeralRunnerKind:
+	case common.CICDEphemeralRunnerKind, common.JobKind:
 		result = stringutil.Base64Decode(workload.Spec.EntryPoint)
 	default:
 		result = Launcher + " '" + workload.Spec.EntryPoint + "'"
@@ -448,42 +448,33 @@ func buildResources(resourceList corev1.ResourceList) map[string]interface{} {
 func buildEnvironment(workload *v1.Workload) []interface{} {
 	var result []interface{}
 	if workload.Spec.IsSupervised {
-		result = append(result, map[string]interface{}{
-			"name":  "ENABLE_SUPERVISE",
-			"value": v1.TrueStr,
-		})
+		result = addEnvVar(result, workload, "ENABLE_SUPERVISE", v1.TrueStr)
 		if commonconfig.GetWorkloadHangCheckInterval() > 0 {
-			result = append(result, map[string]interface{}{
-				"name":  "HANG_CHECK_INTERVAL",
-				"value": strconv.Itoa(commonconfig.GetWorkloadHangCheckInterval()),
-			})
+			result = addEnvVar(result, workload, "HANG_CHECK_INTERVAL",
+				strconv.Itoa(commonconfig.GetWorkloadHangCheckInterval()))
 		}
 	}
 	if workload.Spec.Resource.GPU != "" {
-		result = append(result, map[string]interface{}{
-			"name":  "GPUS_PER_NODE",
-			"value": workload.Spec.Resource.GPU,
-		})
+		result = addEnvVar(result, workload, "GPUS_PER_NODE", workload.Spec.Resource.GPU)
 	}
-	result = append(result, map[string]interface{}{
-		"name":  "WORKLOAD_ID",
-		"value": workload.Name,
-	})
-	result = append(result, map[string]interface{}{
-		"name":  "WORKLOAD_KIND",
-		"value": workload.Spec.Kind,
-	})
-	result = append(result, map[string]interface{}{
-		"name":  "DISPATCH_COUNT",
-		"value": strconv.Itoa(v1.GetWorkloadDispatchCnt(workload) + 1),
-	})
+	result = addEnvVar(result, workload, "WORKLOAD_ID", workload.Name)
+	result = addEnvVar(result, workload, "WORKLOAD_KIND", workload.SpecKind())
+	result = addEnvVar(result, workload, "DISPATCH_COUNT", strconv.Itoa(v1.GetWorkloadDispatchCnt(workload)+1))
 	if workload.Spec.SSHPort > 0 {
-		result = append(result, map[string]interface{}{
-			"name":  "SSH_PORT",
-			"value": strconv.Itoa(workload.Spec.SSHPort),
-		})
+		result = addEnvVar(result, workload, "SSH_PORT", strconv.Itoa(workload.Spec.SSHPort))
 	}
 	return result
+}
+
+func addEnvVar(result []interface{}, workload *v1.Workload, name, value string) []interface{} {
+	_, ok := workload.Spec.Env[name]
+	if ok {
+		return result
+	}
+	return append(result, map[string]interface{}{
+		"name":  name,
+		"value": value,
+	})
 }
 
 // buildPorts constructs port definitions for the workload container.
