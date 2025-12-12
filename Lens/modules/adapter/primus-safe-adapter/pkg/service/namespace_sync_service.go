@@ -28,16 +28,106 @@ const (
 	DefaultHistoryStartOffset = -48 * time.Hour
 )
 
+// NamespaceSyncFacadeGetter is the function signature for getting database facade
+type NamespaceSyncFacadeGetter func(clusterID string) database.FacadeInterface
+
+// NamespaceSyncDefaultFacadeGetter is the function signature for getting default database facade
+type NamespaceSyncDefaultFacadeGetter func() database.FacadeInterface
+
+// NamespaceSyncTimeNowFunc is the function signature for getting current time
+type NamespaceSyncTimeNowFunc func() time.Time
+
+// WorkspaceLister is the interface for listing workspaces
+type WorkspaceLister interface {
+	ListWorkspaces(ctx context.Context) ([]primusSafeV1.Workspace, error)
+}
+
 // NamespaceSyncService provides workspace to namespace_info synchronization service
 type NamespaceSyncService struct {
-	k8sClient client.Client
+	k8sClient           client.Client
+	facadeGetter        NamespaceSyncFacadeGetter
+	defaultFacadeGetter NamespaceSyncDefaultFacadeGetter
+	timeNow             NamespaceSyncTimeNowFunc
+	workspaceLister     WorkspaceLister
+}
+
+// NamespaceSyncOption is a function that configures a NamespaceSyncService
+type NamespaceSyncOption func(*NamespaceSyncService)
+
+// WithNamespaceSyncFacadeGetter sets the facade getter function
+func WithNamespaceSyncFacadeGetter(getter NamespaceSyncFacadeGetter) NamespaceSyncOption {
+	return func(s *NamespaceSyncService) {
+		s.facadeGetter = getter
+	}
+}
+
+// WithNamespaceSyncDefaultFacadeGetter sets the default facade getter function
+func WithNamespaceSyncDefaultFacadeGetter(getter NamespaceSyncDefaultFacadeGetter) NamespaceSyncOption {
+	return func(s *NamespaceSyncService) {
+		s.defaultFacadeGetter = getter
+	}
+}
+
+// WithNamespaceSyncTimeNow sets the time function
+func WithNamespaceSyncTimeNow(fn NamespaceSyncTimeNowFunc) NamespaceSyncOption {
+	return func(s *NamespaceSyncService) {
+		s.timeNow = fn
+	}
+}
+
+// WithNamespaceSyncWorkspaceLister sets the workspace lister
+func WithNamespaceSyncWorkspaceLister(lister WorkspaceLister) NamespaceSyncOption {
+	return func(s *NamespaceSyncService) {
+		s.workspaceLister = lister
+	}
+}
+
+// defaultFacadeGetterImpl is the default implementation
+func defaultFacadeGetterImpl(clusterID string) database.FacadeInterface {
+	if clusterID != "" {
+		return database.GetFacadeForCluster(clusterID)
+	}
+	return database.GetFacade()
+}
+
+// defaultDefaultFacadeGetterImpl is the default implementation
+func defaultDefaultFacadeGetterImpl() database.FacadeInterface {
+	return database.GetFacade()
+}
+
+// k8sWorkspaceLister is the default workspace lister using k8s client
+type k8sWorkspaceLister struct {
+	client client.Client
+}
+
+func (l *k8sWorkspaceLister) ListWorkspaces(ctx context.Context) ([]primusSafeV1.Workspace, error) {
+	workspaceList := &primusSafeV1.WorkspaceList{}
+	err := l.client.List(ctx, workspaceList)
+	if err != nil {
+		return nil, err
+	}
+	return workspaceList.Items, nil
 }
 
 // NewNamespaceSyncService creates a new namespace sync service
-func NewNamespaceSyncService(k8sClient client.Client) *NamespaceSyncService {
-	return &NamespaceSyncService{
-		k8sClient: k8sClient,
+func NewNamespaceSyncService(k8sClient client.Client, opts ...NamespaceSyncOption) *NamespaceSyncService {
+	s := &NamespaceSyncService{
+		k8sClient:           k8sClient,
+		facadeGetter:        defaultFacadeGetterImpl,
+		defaultFacadeGetter: defaultDefaultFacadeGetterImpl,
+		timeNow:             time.Now,
 	}
+
+	for _, opt := range opts {
+		opt(s)
+	}
+
+	// Set default workspace lister if not provided
+	if s.workspaceLister == nil && k8sClient != nil {
+		s.workspaceLister = &k8sWorkspaceLister{client: k8sClient}
+	}
+
+	return s
 }
 
 // Name returns the task name
@@ -47,7 +137,7 @@ func (s *NamespaceSyncService) Name() string {
 
 // Run executes the namespace sync task
 func (s *NamespaceSyncService) Run(ctx context.Context) error {
-	startTime := time.Now()
+	startTime := s.timeNow()
 	log.Info("Starting namespace sync from Workspace CRs")
 
 	// 1. Get all Workspaces from K8s
@@ -60,16 +150,7 @@ func (s *NamespaceSyncService) Run(ctx context.Context) error {
 	log.Infof("Found %d workspaces", len(workspaces))
 
 	// 2. Group workspaces by cluster ID
-	// clusterWorkspaces: clusterID -> map[workspaceName]*Workspace
-	clusterWorkspaces := make(map[string]map[string]*primusSafeV1.Workspace)
-	for i := range workspaces {
-		workspace := &workspaces[i]
-		clusterID := primusSafeV1.GetClusterId(workspace)
-		if clusterWorkspaces[clusterID] == nil {
-			clusterWorkspaces[clusterID] = make(map[string]*primusSafeV1.Workspace)
-		}
-		clusterWorkspaces[clusterID][workspace.Name] = workspace
-	}
+	clusterWorkspaces := GroupWorkspacesByCluster(workspaces)
 
 	// 3. Process each cluster separately
 	createdCount := 0
@@ -143,15 +224,33 @@ func (s *NamespaceSyncService) Run(ctx context.Context) error {
 		// Continue even if mapping sync fails
 	}
 
-	duration := time.Since(startTime)
+	duration := s.timeNow().Sub(startTime)
 	log.Infof("Namespace sync completed: created=%d, updated=%d, recovered=%d, deleted=%d, node_mappings=%+v, duration=%v",
 		createdCount, updatedCount, recoveredCount, deletedCount, nodeMappingStats, duration)
 
 	return nil
 }
 
+// GroupWorkspacesByCluster groups workspaces by cluster ID
+// This is exported for testing purposes
+func GroupWorkspacesByCluster(workspaces []primusSafeV1.Workspace) map[string]map[string]*primusSafeV1.Workspace {
+	clusterWorkspaces := make(map[string]map[string]*primusSafeV1.Workspace)
+	for i := range workspaces {
+		workspace := &workspaces[i]
+		clusterID := primusSafeV1.GetClusterId(workspace)
+		if clusterWorkspaces[clusterID] == nil {
+			clusterWorkspaces[clusterID] = make(map[string]*primusSafeV1.Workspace)
+		}
+		clusterWorkspaces[clusterID][workspace.Name] = workspace
+	}
+	return clusterWorkspaces
+}
+
 // listAllWorkspaces lists all Workspace CRs from K8s
 func (s *NamespaceSyncService) listAllWorkspaces(ctx context.Context) ([]primusSafeV1.Workspace, error) {
+	if s.workspaceLister != nil {
+		return s.workspaceLister.ListWorkspaces(ctx)
+	}
 	workspaceList := &primusSafeV1.WorkspaceList{}
 	err := s.k8sClient.List(ctx, workspaceList)
 	if err != nil {
@@ -170,16 +269,16 @@ func (s *NamespaceSyncService) syncWorkspaceToNamespaceInfo(
 ) (created, updated, recovered bool, err error) {
 
 	// Extract GPU resource from workspace
-	gpuResource := s.extractGpuResource(workspace)
+	gpuResource := ExtractGpuResource(workspace)
 	if gpuResource == 0 {
 		log.Debugf("Workspace %s has no GPU resource, skipping", workspace.Name)
 		return false, false, false, nil
 	}
 
 	// Get GPU model
-	gpuModel := s.getGpuModel(workspace)
+	gpuModel := GetGpuModel(workspace)
 
-	now := time.Now()
+	now := s.timeNow()
 
 	if existingInfo == nil {
 		// Create new namespace_info
@@ -233,8 +332,9 @@ func (s *NamespaceSyncService) syncWorkspaceToNamespaceInfo(
 	return false, false, false, nil
 }
 
-// extractGpuResource extracts GPU resource count from workspace status
-func (s *NamespaceSyncService) extractGpuResource(workspace *primusSafeV1.Workspace) int32 {
+// ExtractGpuResource extracts GPU resource count from workspace status
+// This is exported for testing purposes
+func ExtractGpuResource(workspace *primusSafeV1.Workspace) int32 {
 	if workspace.Status.TotalResources == nil {
 		return 0
 	}
@@ -252,8 +352,9 @@ func (s *NamespaceSyncService) extractGpuResource(workspace *primusSafeV1.Worksp
 	return 0
 }
 
-// getGpuModel gets GPU model from workspace
-func (s *NamespaceSyncService) getGpuModel(workspace *primusSafeV1.Workspace) string {
+// GetGpuModel gets GPU model from workspace
+// This is exported for testing purposes
+func GetGpuModel(workspace *primusSafeV1.Workspace) string {
 	// Use node flavor as GPU model if available
 	if workspace.Spec.NodeFlavor != "" {
 		return workspace.Spec.NodeFlavor
@@ -263,15 +364,12 @@ func (s *NamespaceSyncService) getGpuModel(workspace *primusSafeV1.Workspace) st
 
 // getFacade returns the appropriate facade based on cluster ID
 func (s *NamespaceSyncService) getFacade(clusterID string) database.FacadeInterface {
-	if clusterID != "" {
-		return database.GetFacadeForCluster(clusterID)
-	}
-	return database.GetFacade()
+	return s.facadeGetter(clusterID)
 }
 
 // recoverNamespaceInfo recovers a soft deleted namespace_info record
 func (s *NamespaceSyncService) recoverNamespaceInfo(ctx context.Context, nsInfo *model.NamespaceInfo, gpuModel string, gpuResource int32) error {
-	facade := database.GetFacade()
+	facade := s.defaultFacadeGetter()
 	return facade.GetNamespaceInfo().Recover(ctx, nsInfo.Name, gpuModel, gpuResource)
 }
 
@@ -287,15 +385,7 @@ func (s *NamespaceSyncService) syncNodeNamespaceMappings(ctx context.Context, wo
 	stats := &NodeMappingSyncStats{}
 
 	// Group workspaces by cluster ID
-	clusterWorkspaces := make(map[string]map[string]*primusSafeV1.Workspace)
-	for i := range workspaces {
-		workspace := &workspaces[i]
-		clusterID := primusSafeV1.GetClusterId(workspace)
-		if clusterWorkspaces[clusterID] == nil {
-			clusterWorkspaces[clusterID] = make(map[string]*primusSafeV1.Workspace)
-		}
-		clusterWorkspaces[clusterID][workspace.Name] = workspace
-	}
+	clusterWorkspaces := GroupWorkspacesByCluster(workspaces)
 
 	// Process each cluster separately
 	for clusterID, workspaceMap := range clusterWorkspaces {
@@ -312,16 +402,7 @@ func (s *NamespaceSyncService) syncNodeNamespaceMappings(ctx context.Context, wo
 		}
 
 		// Build a map of workspace name -> nodes based on node labels
-		workspaceNodes := make(map[string][]*model.Node)
-		for _, dbNode := range dbNodes {
-			if dbNode.Labels == nil {
-				continue
-			}
-			workspaceID := dbNode.Labels.GetStringValue(primusSafeV1.WorkspaceIdLabel)
-			if workspaceID != "" {
-				workspaceNodes[workspaceID] = append(workspaceNodes[workspaceID], dbNode)
-			}
-		}
+		workspaceNodes := BuildWorkspaceNodesMap(dbNodes)
 
 		log.Debugf("Cluster %s: found %d nodes, %d workspaces with nodes",
 			clusterID, len(dbNodes), len(workspaceNodes))
@@ -358,7 +439,7 @@ func (s *NamespaceSyncService) syncNodeNamespaceMappings(ctx context.Context, wo
 				existingNodeNames[mapping.NodeName] = mapping
 			}
 
-			now := time.Now()
+			now := s.timeNow()
 
 			// Find nodes to add (in current workspace but not in mapping)
 			for nodeName, dbNode := range currentNodeMap {
@@ -419,6 +500,22 @@ func (s *NamespaceSyncService) syncNodeNamespaceMappings(ctx context.Context, wo
 	}
 
 	return stats, nil
+}
+
+// BuildWorkspaceNodesMap builds a map of workspace name -> nodes based on node labels
+// This is exported for testing purposes
+func BuildWorkspaceNodesMap(dbNodes []*model.Node) map[string][]*model.Node {
+	workspaceNodes := make(map[string][]*model.Node)
+	for _, dbNode := range dbNodes {
+		if dbNode.Labels == nil {
+			continue
+		}
+		workspaceID := dbNode.Labels.GetStringValue(primusSafeV1.WorkspaceIdLabel)
+		if workspaceID != "" {
+			workspaceNodes[workspaceID] = append(workspaceNodes[workspaceID], dbNode)
+		}
+	}
+	return workspaceNodes
 }
 
 // createOrUpdateHistory creates or updates history record for a node-namespace mapping
