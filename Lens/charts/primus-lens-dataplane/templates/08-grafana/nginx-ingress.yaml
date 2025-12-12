@@ -1,0 +1,78 @@
+{{/*
+Nginx Ingress for Primus Lens
+Only created when accessType is "ingress" and ingress class is nginx.
+*/}}
+{{- if and (eq .Values.global.accessType "ingress") (eq .Values.ingress.className "nginx") }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: primus-lens-console
+  namespace: {{ include "primus-lens.namespace" . }}
+  labels:
+    {{- include "primus-lens.labels" . | nindent 4 }}
+  annotations:
+    {{- if .Values.ingress.annotations }}
+    {{- toYaml .Values.ingress.annotations | nindent 4 }}
+    {{- end }}
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/ssl-redirect: "{{ .Values.ingress.tls.enabled }}"
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  
+  {{- if .Values.ingress.tls.enabled }}
+  tls:
+    - hosts:
+        - {{ .Values.global.clusterName }}.{{ .Values.global.domain }}
+      secretName: {{ .Values.ingress.tls.secretName }}
+  {{- end }}
+  
+  rules:
+    # Web Console
+    - host: {{ .Values.global.clusterName }}.{{ .Values.global.domain }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: primus-lens-web
+                port:
+                  number: 80
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: primus-lens-grafana
+  namespace: {{ include "primus-lens.namespace" . }}
+  labels:
+    {{- include "primus-lens.labels" . | nindent 4 }}
+  annotations:
+    {{- if .Values.ingress.annotations }}
+    {{- toYaml .Values.ingress.annotations | nindent 4 }}
+    {{- end }}
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+    nginx.ingress.kubernetes.io/ssl-redirect: "{{ .Values.ingress.tls.enabled }}"
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  
+  {{- if .Values.ingress.tls.enabled }}
+  tls:
+    - hosts:
+        - {{ .Values.global.clusterName }}.{{ .Values.global.domain }}
+      secretName: {{ .Values.ingress.tls.secretName }}
+  {{- end }}
+  
+  rules:
+    # Grafana
+    - host: {{ .Values.global.clusterName }}.{{ .Values.global.domain }}
+      http:
+        paths:
+          - path: /grafana(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: grafana-service
+                port:
+                  number: 3000
+{{- end }}
+

@@ -1,0 +1,56 @@
+🚀 Primus Lens Dataplane Installation Started!
+
+The installer job has been created and is now deploying the following components:
+
+📦 Operators:
+{{- if (index .Values "vm-operator").enabled }}
+  ✓ VictoriaMetrics Operator
+{{- end }}
+{{- if .Values.pgo.enabled }}
+  ✓ PostgreSQL Operator (PGO)
+{{- end }}
+{{- if (index .Values "opensearch-operator").enabled }}
+  ✓ OpenSearch Operator
+{{- end }}
+{{- if (index .Values "grafana-operator").enabled }}
+  ✓ Grafana Operator
+{{- end }}
+{{- if (index .Values "fluent-operator").enabled }}
+  ✓ Fluent Operator
+{{- end }}
+{{- if (index .Values "kube-state-metrics").enabled }}
+  ✓ Kube State Metrics
+{{- end }}
+
+🏗️ Infrastructure:
+{{- if .Values.database.enabled }}
+  ✓ PostgreSQL Cluster
+{{- end }}
+{{- if .Values.opensearch.enabled }}
+  ✓ OpenSearch Cluster ({{ .Values.opensearch.clusterName }})
+{{- end }}
+{{- if .Values.victoriametrics.enabled }}
+  ✓ VictoriaMetrics Cluster
+{{- end }}
+
+📱 Applications:
+{{- if .Values.apps.enabled }}
+  ✓ Telemetry Processor
+  ✓ Background Jobs
+  ✓ GPU Resource Exporter
+{{- end }}
+
+📊 Monitor installation progress:
+  kubectl logs -f job/{{ include "installer.fullname" . }} -n {{ include "installer.namespace" . }}
+
+📋 Check job status:
+  kubectl get job {{ include "installer.fullname" . }} -n {{ include "installer.namespace" . }}
+
+🔍 View all pods:
+  kubectl get pods -n {{ include "installer.namespace" . }}
+
+⚙️ Configuration:
+  Profile: {{ .Values.profile }}
+  Namespace: {{ include "installer.namespace" . }}
+  Storage Class: {{ .Values.global.storageClass }}
+

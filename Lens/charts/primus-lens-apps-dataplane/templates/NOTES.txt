@@ -1,0 +1,37 @@
+
+=======================================================================
+  Primus Lens Apps - Data Plane Deployed!
+=======================================================================
+
+Data plane components deployed:
+
+{{- if .Values.apps.telemetryCollector.enabled }}
+  * Telemetry Processor: {{ include "lens.fullname" . }}-telemetry-processor
+{{- end }}
+{{- if .Values.apps.jobs.enabled }}
+  * Jobs Service: {{ include "lens.fullname" . }}-jobs
+{{- end }}
+{{- if .Values.apps.nodeExporter.enabled }}
+  * Node Exporter: {{ include "lens.fullname" . }}-node-exporter (DaemonSet)
+{{- end }}
+{{- if .Values.apps.gpuResourceExporter.enabled }}
+  * GPU Resource Exporter: {{ include "lens.fullname" . }}-gpu-resource-exporter
+{{- end }}
+{{- if .Values.apps.systemTuner.enabled }}
+  * System Tuner: {{ include "lens.fullname" . }}-system-tuner (DaemonSet)
+{{- end }}
+{{- if .Values.apps.aiAdvisor.enabled }}
+  * AI Advisor: {{ include "lens.fullname" . }}-ai-advisor
+{{- end }}
+
+NOTE: Web Console is part of control-plane deployment, not data-plane.
+
+To check the status:
+  kubectl get pods -n {{ .Values.global.namespace }} -l app.kubernetes.io/instance={{ .Release.Name }}
+
+To upgrade data plane components:
+  helm upgrade {{ .Release.Name }} primus-lens-apps-dataplane \
+    --set apps.telemetryCollector.image=primussafe/telemetry-processor:v2.0.0
+
+=======================================================================
+

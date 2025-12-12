@@ -1,0 +1,56 @@
+apiVersion: v2
+name: primus-lens-operators
+description: Primus Lens Operators - Kubernetes operators for infrastructure management
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+keywords:
+  - observability
+  - monitoring
+  - operators
+  - kubernetes
+home: https://github.com/AMD-AGI/Primus-SaFE
+sources:
+  - https://github.com/AMD-AGI/Primus-SaFE
+maintainers:
+  - name: AMD AGI Team
+
+# Operator Dependencies
+dependencies:
+  # VictoriaMetrics Operator for metrics collection and storage
+  - name: victoria-metrics-operator
+    version: "0.35.2"
+    repository: https://victoriametrics.github.io/helm-charts/
+    condition: victoriametrics.enabled
+    alias: vm-operator
+
+  # Fluent Operator for log collection and processing
+  - name: fluent-operator
+    version: "3.1.0"
+    repository: https://fluent.github.io/helm-charts
+    condition: logging.enabled
+
+  # OpenSearch Operator for log storage and search
+  - name: opensearch-operator
+    version: "2.6.0"
+    repository: https://opensearch-project.github.io/opensearch-k8s-operator/
+    condition: opensearch.enabled
+
+  # PostgreSQL Operator (Crunchy) for database management
+  - name: pgo
+    version: "5.7.0"
+    repository: oci://registry.developers.crunchydata.com/crunchydata
+    condition: database.enabled
+
+  # Grafana Operator for dashboard management
+  - name: grafana-operator
+    version: "v5.15.1"
+    repository: https://grafana.github.io/helm-charts
+    condition: grafana.enabled
+
+  # Kube State Metrics for Kubernetes cluster metrics
+  - name: kube-state-metrics
+    version: "5.27.0"
+    repository: https://prometheus-community.github.io/helm-charts
+    condition: monitoring.kubeStateMetrics.enabled
+

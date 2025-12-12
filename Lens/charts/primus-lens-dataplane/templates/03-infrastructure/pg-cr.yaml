@@ -1,0 +1,118 @@
+{{/*
+PostgreSQL Cluster Custom Resource
+Defines the PostgreSQL cluster managed by Crunchy PostgreSQL Operator.
+Uses the selected profile for resource sizing.
+*/}}
+{{- if .Values.database.enabled }}
+{{- $profile := include "primus-lens.profileConfig" . | fromYaml }}
+apiVersion: postgres-operator.crunchydata.com/v1beta1
+kind: PostgresCluster
+metadata:
+  name: primus-lens
+  namespace: {{ include "primus-lens.namespace" . }}
+  labels:
+    {{- include "primus-lens.labels" . | nindent 4 }}
+    app.kubernetes.io/component: database
+spec:
+  postgresVersion: 16
+  
+  # PostgreSQL instances configuration
+  instances:
+    - name: instance1
+      replicas: {{ $profile.postgres.replicas }}
+      
+      dataVolumeClaimSpec:
+        accessModes:
+          - {{ include "primus-lens.accessMode" . }}
+        resources:
+          requests:
+            storage: {{ $profile.postgres.dataSize }}
+        storageClassName: {{ include "primus-lens.storageClass" . }}
+      
+      # Resource limits
+      resources:
+        limits:
+          cpu: "2000m"
+          memory: "4Gi"
+        requests:
+          cpu: "500m"
+          memory: "2Gi"
+      
+      # Affinity for high availability
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    postgres-operator.crunchydata.com/cluster: primus-lens
+  
+  # Backup configuration
+  backups:
+    pgbackrest:
+      # Configuration
+      configuration:
+        - secret:
+            name: primus-lens-pgbackrest-secrets
+      
+      # Global backup options
+      global:
+        repo1-retention-full: "14"
+        repo1-retention-full-type: time
+      
+      # Repositories
+      repos:
+        - name: repo1
+          schedules:
+            full: "0 2 * * 0"  # Weekly full backup at 2 AM Sunday
+            differential: "0 2 * * 1-6"  # Daily differential backup at 2 AM
+          volume:
+            volumeClaimSpec:
+              accessModes:
+                - {{ include "primus-lens.accessMode" . }}
+              resources:
+                requests:
+                  storage: {{ $profile.postgres.backupSize }}
+              storageClassName: {{ include "primus-lens.storageClass" . }}
+  
+  # PostgreSQL configuration
+  patroni:
+    dynamicConfiguration:
+      postgresql:
+        parameters:
+          max_connections: "200"
+          shared_buffers: "256MB"
+          effective_cache_size: "1GB"
+          maintenance_work_mem: "64MB"
+          checkpoint_completion_target: "0.9"
+          wal_buffers: "16MB"
+          default_statistics_target: "100"
+          random_page_cost: "1.1"
+          effective_io_concurrency: "200"
+          work_mem: "2MB"
+          min_wal_size: "1GB"
+          max_wal_size: "4GB"
+  
+  # Monitoring
+  monitoring:
+    pgmonitor:
+      exporter:
+        image: registry.developers.crunchydata.com/crunchydata/crunchy-postgres-exporter:ubi8-5.7.0-0
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 256Mi
+  
+  # Users - Primus Lens application user will be created
+  users:
+    - name: primus-lens
+      databases:
+        - primus_lens
+      options: "SUPERUSER"
+{{- end }}
+

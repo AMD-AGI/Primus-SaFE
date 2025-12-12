@@ -1,0 +1,192 @@
+{{/*
+Wait for Infrastructure Resources Job
+This job waits for PostgreSQL, OpenSearch, and VictoriaMetrics clusters to be ready.
+Runs as a post-install hook after the CRs are created but before database initialization.
+*/}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "primus-lens.fullname" . }}-wait-infrastructure
+  namespace: {{ include "primus-lens.namespace" . }}
+  labels:
+    {{- include "primus-lens.labels" . | nindent 4 }}
+    app.kubernetes.io/component: init-job
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 60  # Allow up to 60 retries (about 30 minutes with exponential backoff)
+  template:
+    metadata:
+      name: wait-infrastructure
+      labels:
+        {{- include "primus-lens.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: init-job
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: primus-lens-installer
+      {{- include "primus-lens.imagePullSecrets" . | nindent 6 }}
+      containers:
+      - name: wait
+        image: bitnami/kubectl:latest
+        imagePullPolicy: IfNotPresent
+        command:
+        - /bin/bash
+        - -c
+        - |
+          set -e
+          echo "========================================="
+          echo "⏳ Waiting for infrastructure to be ready..."
+          echo "========================================="
+          echo ""
+          
+          {{- if .Values.database.enabled }}
+          echo "🔍 Checking PostgreSQL Cluster..."
+          MAX_ATTEMPTS=120
+          ATTEMPT=0
+          
+          # Wait for PostgresCluster to exist
+          while ! kubectl get postgrescluster primus-lens -n {{ include "primus-lens.namespace" . }} &>/dev/null; do
+            ATTEMPT=$((ATTEMPT + 1))
+            if [ $ATTEMPT -ge 30 ]; then
+              echo "❌ PostgresCluster not found after 30 attempts (2.5 minutes)"
+              exit 1
+            fi
+            echo "⏳ [$ATTEMPT/30] Waiting for PostgresCluster CR to be created..."
+            sleep 5
+          done
+          echo "✓ PostgresCluster CR exists"
+          
+          # Wait for PostgreSQL pods to be ready
+          ATTEMPT=0
+          while true; do
+            READY_PODS=$(kubectl get pods -n {{ include "primus-lens.namespace" . }} \
+              -l postgres-operator.crunchydata.com/cluster=primus-lens,postgres-operator.crunchydata.com/instance \
+              -o jsonpath='{.items[?(@.status.phase=="Running")].metadata.name}' 2>/dev/null | wc -w || echo "0")
+            
+            if [ "$READY_PODS" -gt 0 ]; then
+              echo "✅ PostgreSQL Cluster is ready (${READY_PODS} pod(s) running)"
+              break
+            fi
+            
+            ATTEMPT=$((ATTEMPT + 1))
+            if [ $ATTEMPT -ge $MAX_ATTEMPTS ]; then
+              echo "❌ PostgreSQL Cluster is not ready after $MAX_ATTEMPTS attempts (10 minutes)"
+              echo "   Checking pods status:"
+              kubectl get pods -n {{ include "primus-lens.namespace" . }} \
+                -l postgres-operator.crunchydata.com/cluster=primus-lens
+              exit 1
+            fi
+            
+            echo "⏳ [$ATTEMPT/$MAX_ATTEMPTS] Waiting for PostgreSQL pods to be running..."
+            sleep 5
+          done
+          echo ""
+          {{- end }}
+          
+          {{- if .Values.opensearch.enabled }}
+          echo "🔍 Checking OpenSearch Cluster..."
+          MAX_ATTEMPTS=120
+          ATTEMPT=0
+          
+          # Wait for OpenSearchCluster to exist
+          while ! kubectl get opensearchcluster {{ .Values.opensearch.clusterName }} -n {{ include "primus-lens.namespace" . }} &>/dev/null; do
+            ATTEMPT=$((ATTEMPT + 1))
+            if [ $ATTEMPT -ge 30 ]; then
+              echo "❌ OpenSearchCluster not found after 30 attempts (2.5 minutes)"
+              exit 1
+            fi
+            echo "⏳ [$ATTEMPT/30] Waiting for OpenSearchCluster CR to be created..."
+            sleep 5
+          done
+          echo "✓ OpenSearchCluster CR exists"
+          
+          # Wait for OpenSearch pods to be ready
+          ATTEMPT=0
+          while true; do
+            READY_PODS=$(kubectl get pods -n {{ include "primus-lens.namespace" . }} \
+              -l opensearch.cluster.name={{ .Values.opensearch.clusterName }} \
+              -o jsonpath='{.items[?(@.status.phase=="Running")].metadata.name}' 2>/dev/null | wc -w || echo "0")
+            
+            if [ "$READY_PODS" -gt 0 ]; then
+              echo "✅ OpenSearch Cluster is ready (${READY_PODS} pod(s) running)"
+              break
+            fi
+            
+            ATTEMPT=$((ATTEMPT + 1))
+            if [ $ATTEMPT -ge $MAX_ATTEMPTS ]; then
+              echo "❌ OpenSearch Cluster is not ready after $MAX_ATTEMPTS attempts (10 minutes)"
+              echo "   Checking pods status:"
+              kubectl get pods -n {{ include "primus-lens.namespace" . }} \
+                -l opensearch.cluster.name={{ .Values.opensearch.clusterName }}
+              exit 1
+            fi
+            
+            echo "⏳ [$ATTEMPT/$MAX_ATTEMPTS] Waiting for OpenSearch pods to be running..."
+            sleep 5
+          done
+          echo ""
+          {{- end }}
+          
+          {{- if .Values.victoriametrics.enabled }}
+          echo "🔍 Checking VictoriaMetrics Cluster..."
+          MAX_ATTEMPTS=120
+          ATTEMPT=0
+          
+          # Wait for VMCluster to exist
+          while ! kubectl get vmcluster primus-lens-vmcluster -n {{ include "primus-lens.namespace" . }} &>/dev/null; do
+            ATTEMPT=$((ATTEMPT + 1))
+            if [ $ATTEMPT -ge 30 ]; then
+              echo "❌ VMCluster not found after 30 attempts (2.5 minutes)"
+              exit 1
+            fi
+            echo "⏳ [$ATTEMPT/30] Waiting for VMCluster CR to be created..."
+            sleep 5
+          done
+          echo "✓ VMCluster CR exists"
+          
+          # Wait for VictoriaMetrics components to be ready
+          ATTEMPT=0
+          while true; do
+            VMSTORAGE_READY=$(kubectl get pods -n {{ include "primus-lens.namespace" . }} \
+              -l app.kubernetes.io/name=vmstorage,app.kubernetes.io/instance=primus-lens-vmcluster \
+              -o jsonpath='{.items[?(@.status.phase=="Running")].metadata.name}' 2>/dev/null | wc -w || echo "0")
+            VMSELECT_READY=$(kubectl get pods -n {{ include "primus-lens.namespace" . }} \
+              -l app.kubernetes.io/name=vmselect,app.kubernetes.io/instance=primus-lens-vmcluster \
+              -o jsonpath='{.items[?(@.status.phase=="Running")].metadata.name}' 2>/dev/null | wc -w || echo "0")
+            VMINSERT_READY=$(kubectl get pods -n {{ include "primus-lens.namespace" . }} \
+              -l app.kubernetes.io/name=vminsert,app.kubernetes.io/instance=primus-lens-vmcluster \
+              -o jsonpath='{.items[?(@.status.phase=="Running")].metadata.name}' 2>/dev/null | wc -w || echo "0")
+            
+            if [ "$VMSTORAGE_READY" -gt 0 ] && [ "$VMSELECT_READY" -gt 0 ] && [ "$VMINSERT_READY" -gt 0 ]; then
+              echo "✅ VictoriaMetrics Cluster is ready"
+              echo "   - VMStorage: ${VMSTORAGE_READY} pod(s)"
+              echo "   - VMSelect: ${VMSELECT_READY} pod(s)"
+              echo "   - VMInsert: ${VMINSERT_READY} pod(s)"
+              break
+            fi
+            
+            ATTEMPT=$((ATTEMPT + 1))
+            if [ $ATTEMPT -ge $MAX_ATTEMPTS ]; then
+              echo "❌ VictoriaMetrics Cluster is not ready after $MAX_ATTEMPTS attempts (10 minutes)"
+              echo "   Component status:"
+              echo "   - VMStorage: ${VMSTORAGE_READY} pod(s)"
+              echo "   - VMSelect: ${VMSELECT_READY} pod(s)"
+              echo "   - VMInsert: ${VMINSERT_READY} pod(s)"
+              kubectl get pods -n {{ include "primus-lens.namespace" . }} \
+                -l app.kubernetes.io/instance=primus-lens-vmcluster
+              exit 1
+            fi
+            
+            echo "⏳ [$ATTEMPT/$MAX_ATTEMPTS] Waiting for VictoriaMetrics components..."
+            echo "   - VMStorage: ${VMSTORAGE_READY}, VMSelect: ${VMSELECT_READY}, VMInsert: ${VMINSERT_READY}"
+            sleep 5
+          done
+          echo ""
+          {{- end }}
+          
+          echo "========================================="
+          echo "🎉 All infrastructure is ready!"
+          echo "========================================="
+

@@ -1,0 +1,134 @@
+{{/*
+PostgreSQL Initialization SQL Script ConfigMap
+Contains the SQL script for initializing Primus Lens database schema.
+*/}}
+{{- if .Values.database.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "primus-lens.fullname" . }}-postgres-init-script
+  namespace: {{ include "primus-lens.namespace" . }}
+  labels:
+    {{- include "primus-lens.labels" . | nindent 4 }}
+    app.kubernetes.io/component: database-init
+data:
+  setup_primus_lens.sql: |
+    -- Primus Lens Database Initialization Script
+    -- This script creates the necessary database schema for Primus Lens
+    
+    -- Create database if not exists (run as postgres user)
+    SELECT 'CREATE DATABASE primus_lens'
+    WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'primus_lens')\gexec
+    
+    -- Connect to primus_lens database
+    \c primus_lens
+    
+    -- Create user if not exists
+    DO
+    $$
+    BEGIN
+      IF NOT EXISTS (SELECT FROM pg_user WHERE usename = 'primus_lens') THEN
+        CREATE USER primus_lens WITH PASSWORD '{{ randAlphaNum 32 }}';
+      END IF;
+    END
+    $$;
+    
+    -- Grant privileges
+    GRANT ALL PRIVILEGES ON DATABASE primus_lens TO primus_lens;
+    GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO primus_lens;
+    GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO primus_lens;
+    
+    -- Create extensions
+    CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+    CREATE EXTENSION IF NOT EXISTS "pg_trgm";
+    
+    -- Create tables (example schema - adjust based on actual requirements)
+    
+    -- Workloads table
+    CREATE TABLE IF NOT EXISTS workloads (
+      id SERIAL PRIMARY KEY,
+      uuid UUID DEFAULT uuid_generate_v4() UNIQUE NOT NULL,
+      name VARCHAR(255) NOT NULL,
+      namespace VARCHAR(255) NOT NULL,
+      cluster_name VARCHAR(255) NOT NULL,
+      status VARCHAR(50),
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      metadata JSONB
+    );
+    
+    -- Metrics table
+    CREATE TABLE IF NOT EXISTS metrics (
+      id SERIAL PRIMARY KEY,
+      workload_id INTEGER REFERENCES workloads(id) ON DELETE CASCADE,
+      metric_name VARCHAR(255) NOT NULL,
+      metric_value DOUBLE PRECISION,
+      timestamp TIMESTAMP NOT NULL,
+      labels JSONB
+    );
+    
+    -- Logs table
+    CREATE TABLE IF NOT EXISTS logs (
+      id SERIAL PRIMARY KEY,
+      workload_id INTEGER REFERENCES workloads(id) ON DELETE CASCADE,
+      log_level VARCHAR(50),
+      message TEXT,
+      timestamp TIMESTAMP NOT NULL,
+      metadata JSONB
+    );
+    
+    -- Training profiles table
+    CREATE TABLE IF NOT EXISTS training_profiles (
+      id SERIAL PRIMARY KEY,
+      name VARCHAR(255) UNIQUE NOT NULL,
+      framework VARCHAR(100),
+      pattern_config JSONB,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    
+    -- Create indexes for performance
+    CREATE INDEX IF NOT EXISTS idx_workloads_cluster_name ON workloads(cluster_name);
+    CREATE INDEX IF NOT EXISTS idx_workloads_namespace ON workloads(namespace);
+    CREATE INDEX IF NOT EXISTS idx_workloads_status ON workloads(status);
+    CREATE INDEX IF NOT EXISTS idx_workloads_created_at ON workloads(created_at);
+    
+    CREATE INDEX IF NOT EXISTS idx_metrics_workload_id ON metrics(workload_id);
+    CREATE INDEX IF NOT EXISTS idx_metrics_timestamp ON metrics(timestamp);
+    CREATE INDEX IF NOT EXISTS idx_metrics_name ON metrics(metric_name);
+    
+    CREATE INDEX IF NOT EXISTS idx_logs_workload_id ON logs(workload_id);
+    CREATE INDEX IF NOT EXISTS idx_logs_timestamp ON logs(timestamp);
+    CREATE INDEX IF NOT EXISTS idx_logs_level ON logs(log_level);
+    
+    -- Create updated_at trigger function
+    CREATE OR REPLACE FUNCTION update_updated_at_column()
+    RETURNS TRIGGER AS $$
+    BEGIN
+      NEW.updated_at = CURRENT_TIMESTAMP;
+      RETURN NEW;
+    END;
+    $$ LANGUAGE plpgsql;
+    
+    -- Create triggers
+    CREATE TRIGGER update_workloads_updated_at
+      BEFORE UPDATE ON workloads
+      FOR EACH ROW
+      EXECUTE FUNCTION update_updated_at_column();
+    
+    CREATE TRIGGER update_training_profiles_updated_at
+      BEFORE UPDATE ON training_profiles
+      FOR EACH ROW
+      EXECUTE FUNCTION update_updated_at_column();
+    
+    -- Insert default training profiles
+    INSERT INTO training_profiles (name, framework, pattern_config)
+    VALUES 
+      ('pytorch-default', 'pytorch', '{"patterns": []}'),
+      ('tensorflow-default', 'tensorflow', '{"patterns": []}')
+    ON CONFLICT (name) DO NOTHING;
+    
+    -- Final message
+    \echo 'Primus Lens database initialized successfully!'
+{{- end }}
+

@@ -1,0 +1,109 @@
+{{/*
+Primus Lens Storage Config Secret Creation Job
+Creates the storage-config secret by reading credentials from operator-managed secrets
+This runs after PostgreSQL init job
+*/}}
+{{- if .Values.database.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "primus-lens-init.fullname" . }}-storage-config
+  namespace: {{ include "primus-lens-init.namespace" . }}
+  labels:
+    {{- include "primus-lens-init.labels" . | nindent 4 }}
+    app.kubernetes.io/component: storage-config
+spec:
+  ttlSecondsAfterFinished: 3600
+  backoffLimit: 10
+  template:
+    metadata:
+      labels:
+        {{- include "primus-lens-init.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: storage-config
+    spec:
+      serviceAccountName: primus-lens-installer
+      restartPolicy: OnFailure
+      containers:
+        - name: create-storage-config
+          image: bitnami/kubectl:latest
+          command:
+            - /bin/bash
+            - -c
+            - |
+              set -e
+              
+              echo "=== Creating Storage Config Secret ==="
+              
+              NAMESPACE="{{ include "primus-lens-init.namespace" . }}"
+              PG_SECRET_NAME="primus-lens-pguser-primus-lens"
+              TARGET_SECRET_NAME="primus-lens-storage-config"
+              
+              # Check if target secret already exists
+              if kubectl get secret "$TARGET_SECRET_NAME" -n "$NAMESPACE" >/dev/null 2>&1; then
+                echo "Storage config secret already exists, updating..."
+              fi
+              
+              # Wait for PostgreSQL secret to be available
+              echo "Waiting for PostgreSQL secret: $PG_SECRET_NAME"
+              RETRY=0
+              MAX_RETRIES=60
+              until kubectl get secret "$PG_SECRET_NAME" -n "$NAMESPACE" >/dev/null 2>&1; do
+                RETRY=$((RETRY+1))
+                if [ $RETRY -ge $MAX_RETRIES ]; then
+                  echo "ERROR: PostgreSQL secret not found after $MAX_RETRIES attempts"
+                  exit 1
+                fi
+                echo "Waiting for PostgreSQL secret... ($RETRY/$MAX_RETRIES)"
+                sleep 5
+              done
+              
+              # Read PostgreSQL credentials
+              echo "Reading PostgreSQL credentials from secret: $PG_SECRET_NAME"
+              PG_PASSWORD=$(kubectl get secret "$PG_SECRET_NAME" -n "$NAMESPACE" -o jsonpath='{.data.password}' | base64 -d)
+              PG_USER=$(kubectl get secret "$PG_SECRET_NAME" -n "$NAMESPACE" -o jsonpath='{.data.user}' | base64 -d)
+              PG_DBNAME=$(kubectl get secret "$PG_SECRET_NAME" -n "$NAMESPACE" -o jsonpath='{.data.dbname}' | base64 -d)
+              PG_HOST_FULL=$(kubectl get secret "$PG_SECRET_NAME" -n "$NAMESPACE" -o jsonpath='{.data.host}' | base64 -d)
+              # Extract just the service name (remove .namespace.svc suffix)
+              # PGO generates: primus-lens-primary.primus-lens.svc
+              # App expects: primus-lens-primary (and adds namespace.svc.cluster.local itself)
+              PG_HOST=$(echo "$PG_HOST_FULL" | cut -d'.' -f1)
+              PG_PORT=$(kubectl get secret "$PG_SECRET_NAME" -n "$NAMESPACE" -o jsonpath='{.data.port}' | base64 -d)
+              echo "PostgreSQL host: $PG_HOST_FULL -> $PG_HOST"
+              
+              echo "Creating storage config secret: $TARGET_SECRET_NAME"
+              
+              # Create the storage config secret
+              cat <<EOF | kubectl apply -f -
+              apiVersion: v1
+              kind: Secret
+              metadata:
+                name: $TARGET_SECRET_NAME
+                namespace: $NAMESPACE
+                labels:
+                  app.kubernetes.io/name: primus-lens
+                  app.kubernetes.io/component: storage-config
+              type: Opaque
+              stringData:
+                prometheus: |
+                  {
+                    "write_service": "vminsert-primus-lens-vmcluster",
+                    "write_port": 8480,
+                    "read_service": "vmselect-primus-lens-vmcluster",
+                    "read_port": 8481,
+                    "namespace": "$NAMESPACE"
+                  }
+                postgres: |
+                  {
+                    "service": "$PG_HOST",
+                    "port": $PG_PORT,
+                    "namespace": "$NAMESPACE",
+                    "username": "$PG_USER",
+                    "password": "$PG_PASSWORD",
+                    "db_name": "$PG_DBNAME",
+                    "ssl_mode": "require"
+                  }
+              EOF
+              
+              echo "=== Storage Config Secret created successfully ==="
+{{- end }}
+

@@ -1,0 +1,94 @@
+#
+# Primus Lens Apps Control Plane - Configuration
+#
+# Control plane components:
+# - API: Main API service
+# - Primus Safe Adapter: Integration with Primus Safe
+# - Multi-Cluster Config Exporter: Multi-cluster configuration management
+#
+
+# ============================================================================
+# Global Configuration
+# ============================================================================
+global:
+  clusterName: "my-cluster"
+  namespace: "primus-lens"
+  
+  imageRegistry:
+    url: "docker.io"
+    pullPolicy: "IfNotPresent"
+    pullSecret: ""
+  
+  tracing:
+    enabled: false
+    endpoint: ""
+    sampler: "traceidratio"
+    samplerArg: "1.0"
+
+# ============================================================================
+# Infrastructure Dependencies
+# ============================================================================
+infrastructure:
+  # Wait for PostgreSQL to be ready before starting apps that require DB
+  # Set to true only when deploying alongside infrastructure for the first time
+  waitForPostgres: false
+
+# ============================================================================
+# Control Plane Components
+# ============================================================================
+apps:
+  api:
+    enabled: true
+    image: "primussafe/primus-lens-api:202512111803"
+    replicas: 2
+    httpPort: 8989
+    resources: {}
+    config:
+      defaultClusterName: ""
+      environment: "production"
+      db:
+        userName: "primus-lens"
+      controllerConfig:
+        leaderElectionId: "primus-lens-core"
+        metricsPort: 19193
+        healthzPort: 19194
+        pprofPort: 19195
+  
+  primusSafeAdapter:
+    enabled: true
+    image: "primussafe/primus-safe-adapter:202512111803"
+    replicas: 1
+    httpPort: 8080
+    resources:
+      requests:
+        cpu: "1"
+        memory: "1Gi"
+      limits:
+        cpu: "1"
+        memory: "1Gi"
+    config:
+      controller:
+        leaderElectionId: "primus-safe-adapter"
+        metricsPort: 19293
+        healthzPort: 19294
+        pprofPort: 19295
+  
+  multiClusterConfigExporter:
+    enabled: true
+    image: "primussafe/multi-cluster-config-exporter:202512111803"
+    replicas: 1
+    httpPort: 8989
+    resources: {}
+    config:
+      prometheusPort: 8990
+      excludeControlPlaneNodes: ""
+      controller:
+        leaderElectionId: "primus-lens-multi-cluster-config"
+
+# ============================================================================
+# Service Account Configuration
+# ============================================================================
+serviceAccount:
+  create: false
+  name: "primus-lens-app"
+

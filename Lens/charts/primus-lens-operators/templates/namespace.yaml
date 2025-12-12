@@ -1,0 +1,11 @@
+{{/*
+Namespace creation for Primus Lens
+*/}}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ include "primus-lens-operators.namespace" . }}
+  labels:
+    {{- include "primus-lens-operators.labels" . | nindent 4 }}
+    primus-lens/managed: "true"
+

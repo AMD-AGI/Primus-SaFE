@@ -1,0 +1,134 @@
+{{/*
+PostgreSQL Initialization Job
+This job initializes the PostgreSQL database with the Primus Lens schema.
+Uses connection info from the PGO-generated secret: primus-lens-pguser-primus-lens
+*/}}
+{{- if .Values.database.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "primus-lens-init.fullname" . }}-postgres-init
+  namespace: {{ include "primus-lens-init.namespace" . }}
+  labels:
+    {{- include "primus-lens-init.labels" . | nindent 4 }}
+    app.kubernetes.io/component: database-init
+spec:
+  backoffLimit: 10
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      name: postgres-init
+      labels:
+        {{- include "primus-lens-init.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: database-init
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: primus-lens-installer
+      
+      # Wait for PostgreSQL to be ready
+      initContainers:
+      - name: wait-postgres
+        image: postgres:16
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: PGHOST
+          valueFrom:
+            secretKeyRef:
+              name: primus-lens-pguser-primus-lens
+              key: host
+        - name: PGPORT
+          valueFrom:
+            secretKeyRef:
+              name: primus-lens-pguser-primus-lens
+              key: port
+        - name: PGUSER
+          valueFrom:
+            secretKeyRef:
+              name: primus-lens-pguser-primus-lens
+              key: user
+        command:
+        - /bin/bash
+        - -c
+        - |
+          set -e
+          echo "========================================="
+          echo "Waiting for PostgreSQL to be ready..."
+          echo "Host: $PGHOST, Port: $PGPORT, User: $PGUSER"
+          echo "========================================="
+          
+          MAX_ATTEMPTS=60
+          ATTEMPT=0
+          
+          until pg_isready -h "$PGHOST" -p "$PGPORT" -U "$PGUSER"; do
+            ATTEMPT=$((ATTEMPT + 1))
+            if [ $ATTEMPT -ge $MAX_ATTEMPTS ]; then
+              echo "ERROR: PostgreSQL is not ready after $MAX_ATTEMPTS attempts (5 minutes)"
+              exit 1
+            fi
+            echo "[$ATTEMPT/$MAX_ATTEMPTS] PostgreSQL is not ready yet, waiting..."
+            sleep 5
+          done
+          
+          echo "PostgreSQL is ready!"
+      
+      containers:
+      - name: init-db
+        image: postgres:16
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: PGHOST
+          valueFrom:
+            secretKeyRef:
+              name: primus-lens-pguser-primus-lens
+              key: host
+        - name: PGPORT
+          valueFrom:
+            secretKeyRef:
+              name: primus-lens-pguser-primus-lens
+              key: port
+        - name: PGUSER
+          valueFrom:
+            secretKeyRef:
+              name: primus-lens-pguser-primus-lens
+              key: user
+        - name: PGPASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: primus-lens-pguser-primus-lens
+              key: password
+        - name: PGDATABASE
+          valueFrom:
+            secretKeyRef:
+              name: primus-lens-pguser-primus-lens
+              key: dbname
+        - name: PGSSLMODE
+          value: "require"
+        
+        volumeMounts:
+        - name: init-script
+          mountPath: /scripts
+          readOnly: true
+        
+        command:
+        - /bin/bash
+        - -c
+        - |
+          set -e
+          echo "========================================="
+          echo "Initializing PostgreSQL database..."
+          echo "Host: $PGHOST, Port: $PGPORT, User: $PGUSER, Database: $PGDATABASE"
+          echo "========================================="
+          
+          # Execute initialization script
+          psql -f /scripts/{{ .Values.database.initScript }}
+          
+          echo "========================================="
+          echo "Database initialized successfully!"
+          echo "========================================="
+      
+      volumes:
+      - name: init-script
+        configMap:
+          name: {{ include "primus-lens-init.fullname" . }}-postgres-init-script
+{{- end }}
+

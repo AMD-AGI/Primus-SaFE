@@ -1,0 +1,17 @@
+{{/*
+ConfigMap containing PostgreSQL initialization script
+*/}}
+{{- if .Values.database.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "primus-lens-init.fullname" . }}-postgres-init-script
+  namespace: {{ include "primus-lens-init.namespace" . }}
+  labels:
+    {{- include "primus-lens-init.labels" . | nindent 4 }}
+    app.kubernetes.io/component: database-init
+data:
+  {{ .Values.database.initScript }}: |
+{{ .Files.Get (printf "files/%s" .Values.database.initScript) | indent 4 }}
+{{- end }}
+
