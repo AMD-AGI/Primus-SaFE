@@ -172,7 +172,7 @@ func (a *AccessController) authorize(in AccessInput) error {
 	}
 
 	return commonerrors.NewForbidden(
-		fmt.Sprintf("The user is not allowed to %s %s", in.Verb, resourceKind))
+		fmt.Sprintf("The user is not allowed to %s %s, workspace: %s", in.Verb, resourceKind, in.Workspaces))
 }
 
 // checkUserStatus checks UserStatus and returns the result.

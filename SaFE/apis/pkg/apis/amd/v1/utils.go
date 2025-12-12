@@ -1,11 +1,12 @@
 /*
- * Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
 package v1
 
 import (
+	"encoding/json"
 	"strconv"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -242,6 +243,11 @@ func GetMainContainer(obj metav1.Object) string {
 	return GetAnnotation(obj, MainContainerAnnotation)
 }
 
+// GetCICDRunnerScaleSetId returns the cicd runner scale set id
+func GetCICDRunnerScaleSetId(obj metav1.Object) string {
+	return GetAnnotation(obj, CICDScaleSetIdAnnotation)
+}
+
 // GetWorkloadId retrieves the workload ID from a resource's labels.
 func GetWorkloadId(obj metav1.Object) string {
 	return GetLabel(obj, WorkloadIdLabel)
@@ -310,6 +316,26 @@ func GetSecretType(obj metav1.Object) string {
 // GetCronjobTimestamp retrieves the cronjob timestamp from annotations.
 func GetCronjobTimestamp(obj metav1.Object) string {
 	return GetAnnotation(obj, CronJobTimestampAnnotation)
+}
+
+func GetEnvToBeRemoved(obj metav1.Object) []string {
+	str := GetAnnotation(obj, EnvToBeRemovedAnnotation)
+	if str == "" {
+		return nil
+	}
+	var result []string
+	if json.Unmarshal([]byte(str), &result) != nil {
+		return nil
+	}
+	return result
+}
+
+func GetGithubSecretId(obj metav1.Object) string {
+	return GetAnnotation(obj, GithubSecretIdAnnotation)
+}
+
+func GetAdminControlPlane(obj metav1.Object) string {
+	return GetAnnotation(obj, AdminControlPlaneAnnotation)
 }
 
 // atoi converts a string to an integer, returning 0 if conversion fails.

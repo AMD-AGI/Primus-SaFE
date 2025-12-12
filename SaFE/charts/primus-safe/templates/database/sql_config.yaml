@@ -70,6 +70,7 @@ data:
     alter table workload add column if not exists cron_jobs TEXT;
     alter table workload add column if not exists secrets TEXT;
     alter table workload add column if not exists scale_runner_set VARCHAR(64);
+    alter table workload add column if not exists scale_runner_id VARCHAR(128);
 
     create table if not exists fault
     (
@@ -122,6 +123,7 @@ data:
     alter table ops_job add column if not exists entrypoint TEXT;
     alter table ops_job add column if not exists is_tolerate_all boolean default false;
     alter table ops_job add column if not exists hostpath TEXT;
+    alter table ops_job add column if not exists excluded_nodes TEXT;
 
     create table if not exists registry_info
     (
@@ -199,7 +201,7 @@ data:
     alter table image
         owner to "primus-safe";
 
-    CREATE TABLE public_key (
+    CREATE TABLE IF NOT EXISTS public_key (
        id BIGSERIAL PRIMARY KEY,
        user_id VARCHAR(64) NOT NULL,
        description VARCHAR(100) NOT NULL,
@@ -210,11 +212,11 @@ data:
        delete_time TIMESTAMP
     );
 
-    CREATE INDEX idx_publickey_userid ON public_key(user_id);
-    CREATE UNIQUE INDEX idx_publickey_userid_pubkey ON public_key(user_id, public_key, delete_time);
+    CREATE INDEX IF NOT EXISTS idx_publickey_userid ON public_key(user_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_publickey_userid_pubkey ON public_key(user_id, public_key, delete_time);
     alter table public_key owner to "primus-safe";
 
-    CREATE TABLE ssh_session_records (
+    CREATE TABLE IF NOT EXISTS ssh_session_records (
        id BIGSERIAL PRIMARY KEY,
        user_id VARCHAR(64) NOT NULL,
        ssh_type VARCHAR(64) NOT NULL,
@@ -227,7 +229,7 @@ data:
     );
 
     alter table ssh_session_records owner to "primus-safe";
-    create table notification
+    create table if not exists notification
     (
         id         serial,
         kind       varchar(64),
@@ -298,3 +300,81 @@ data:
     create index if not exists T_NODE_STAT_CREATED_AT_INDEX on node_statistic (created_at);
 
     alter table node_statistic owner to "primus-safe";
+
+
+    create table if not exists inference
+    (
+        id BIGSERIAL PRIMARY KEY,
+        inference_id VARCHAR(64) NOT NULL,
+        display_name VARCHAR(128) NOT NULL,
+        description TEXT,
+        user_id VARCHAR(64) NOT NULL,
+        user_name VARCHAR(128),
+        model_form VARCHAR(64) NOT NULL,
+        model_name VARCHAR(128) NOT NULL,
+        instance JSONB,
+        resource JSONB,
+        config JSONB,
+        phase VARCHAR(32),
+        events JSONB,
+        message TEXT,
+        creation_time TIMESTAMPTZ,
+        update_time TIMESTAMPTZ,
+        deletion_time TIMESTAMPTZ,
+        is_deleted BOOLEAN DEFAULT FALSE
+    );
+
+    create unique index if not exists T_INFERENCE_ID_INDEX on inference (inference_id);
+    create index if not exists T_INFERENCE_USER_QUERY_INDEX on inference (user_id, is_deleted);
+    create index if not exists T_INFERENCE_MODEL_QUERY_INDEX on inference (model_name, phase, is_deleted);
+
+    alter table inference owner to "primus-safe";
+
+
+    create table if not exists playground_session
+    (
+        id BIGSERIAL PRIMARY KEY,
+        user_id VARCHAR(64) NOT NULL,
+        model_name VARCHAR(128) NOT NULL,
+        display_name VARCHAR(128) NOT NULL,
+        system_prompt TEXT,
+        messages JSONB,
+        creation_time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        update_time TIMESTAMPTZ,
+        is_deleted BOOLEAN DEFAULT FALSE
+    );
+
+    create index if not exists T_PLAYGROUND_SESSION_QUERY_INDEX on playground_session (user_id, model_name, is_deleted, update_time DESC);
+
+    alter table playground_session owner to "primus-safe";
+
+    create table if not exists model
+    (
+        id VARCHAR(64) PRIMARY KEY,
+        display_name VARCHAR(128),
+        description TEXT,
+        icon TEXT,
+        label VARCHAR(64),
+        tags TEXT,
+        max_tokens INTEGER DEFAULT 0,
+        version VARCHAR(64),
+        source_url TEXT,
+        access_mode VARCHAR(32),
+        source_token VARCHAR(128),
+        phase VARCHAR(32),
+        message TEXT,
+        inference_id VARCHAR(64),
+        inference_phase VARCHAR(32),
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ,
+        deletion_time TIMESTAMPTZ,
+        is_deleted BOOLEAN DEFAULT FALSE
+    );
+
+    create index if not exists T_MODEL_INFERENCE_PHASE_INDEX on model (inference_phase, is_deleted);
+    create index if not exists T_MODEL_ACCESS_MODE_INDEX on model (access_mode, is_deleted);
+    create index if not exists T_MODEL_CREATED_AT_INDEX on model (created_at, is_deleted);
+
+    ALTER TABLE model ADD COLUMN IF NOT EXISTS max_tokens INTEGER DEFAULT 0;
+
+    alter table model owner to "primus-safe";

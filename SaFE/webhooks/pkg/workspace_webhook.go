@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"strings"
 
+	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -142,7 +143,7 @@ func (m *WorkspaceMutator) mutateMeta(ctx context.Context, workspace *v1.Workspa
 		if err != nil {
 			return err
 		}
-		if !hasOwnerReferences(workspace, cl.Name) {
+		if !commonutils.HasOwnerReferences(workspace, cl.Name) {
 			if err = controllerutil.SetControllerReference(cl, workspace, m.Client.Scheme()); err != nil {
 				klog.ErrorS(err, "failed to SetControllerReference")
 			}

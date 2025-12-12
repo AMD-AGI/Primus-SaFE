@@ -30,6 +30,7 @@ data:
       app.kubernetes.io/version: 0.13.0
   spec:
     minRunners: 0
+    maxRunners: 20
     template:
       spec:
         containers:
@@ -37,12 +38,17 @@ data:
           env:
             - name: RUNNER_ALLOW_RUNASROOT
               value: "1"
+            - name: ACTIONS_RUNNER_PRINT_LOG_TO_STDOUT
+              value: "1"
             - name: APISERVER_NODE_PORT
               value: "{{ .Values.apiserver.node_port }}"
             - name: POD_NAME
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
+          volumeMounts:
+          - name: podinfo
+            mountPath: /etc/podinfo
           image: {{ .Values.global.image_registry }}/primussafe/{{ .Values.cicd.runner }}
           resources:
             limits:
@@ -75,3 +81,13 @@ data:
             privileged: true
         restartPolicy: Never
         serviceAccountName: "{{ .Values.cicd.role_name }}-no-permission"
+        volumes:
+        - name: podinfo
+          downwardAPI:
+            items:
+            - path: "labels"
+              fieldRef:
+                fieldPath: metadata.labels
+            - path: "annotations"
+              fieldRef:
+                fieldPath: metadata.annotations

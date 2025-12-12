@@ -52,7 +52,6 @@ echo "✅ Support SSO: \"$sso_enable\""
 echo "✅ Ingress Name: \"$ingress\""
 if [[ "$ingress" == "higress" ]]; then
   echo "✅ Cluster Name: \"$sub_domain\""
-  echo "✅ Higress Gateway Node Port: \"$higress_node_port\""
 fi
 echo "✅ Upgrade node-agent: \"$install_node_agent\""
 
@@ -92,7 +91,6 @@ sed -i "s/nccl_socket_ifname: \".*\"/nccl_socket_ifname: \"$ethernet_nic\"/" "$v
 sed -i "s/nccl_ib_hca: \".*\"/nccl_ib_hca: \"$rdma_nic\"/" "$values_yaml"
 if [[ "$ingress" == "higress" ]]; then
   sed -i "s/^.*sub_domain:.*/  sub_domain: \"$sub_domain\"/" "$values_yaml"
-  sed -i "s/higress_node_port: \".*\"/higress_node_port: \"$higress_node_port\"/" "$values_yaml"
 fi
 sed -i "s/replicas: [0-9]*/replicas: $replicas/" "$values_yaml"
 sed -i "s/^.*cpu:.*/  cpu: $cpu/" "$values_yaml"

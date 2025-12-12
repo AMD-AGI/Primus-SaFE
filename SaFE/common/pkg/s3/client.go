@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -244,6 +245,54 @@ func (c *Client) GeneratePresignedURL(ctx context.Context, key string, expireHou
 		return "", err
 	}
 	return resp.URL, nil
+}
+
+// PresignModelFiles generates presigned URLs for all files under the given S3 prefix.
+// Returns a map of relative file path to presigned URL.
+func (c *Client) PresignModelFiles(ctx context.Context, prefix string, expireHour int32) (map[string]string, error) {
+	if c == nil {
+		return nil, fmt.Errorf("please init client first")
+	}
+
+	// List all objects under prefix
+	result, err := c.s3Client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
+		Bucket: c.Bucket,
+		Prefix: aws.String(prefix),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list objects: %w", err)
+	}
+	if len(result.Contents) == 0 {
+		return nil, fmt.Errorf("no objects found with prefix: %s", prefix)
+	}
+
+	// Generate presigned URL for each file
+	presigner := s3.NewPresignClient(c.s3Client)
+	urls := make(map[string]string)
+
+	for _, obj := range result.Contents {
+		key := *obj.Key
+		if strings.HasSuffix(key, "/") {
+			continue // skip directories
+		}
+
+		resp, err := presigner.PresignGetObject(ctx, &s3.GetObjectInput{
+			Bucket: c.Bucket,
+			Key:    aws.String(key),
+		}, func(o *s3.PresignOptions) {
+			o.Expires = time.Duration(expireHour) * time.Hour
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to presign %s: %w", key, err)
+		}
+
+		// Use relative path (remove prefix) as key
+		relativePath := strings.TrimPrefix(key, prefix)
+		relativePath = strings.TrimPrefix(relativePath, "/")
+		urls[relativePath] = resp.URL
+	}
+
+	return urls, nil
 }
 
 // WithOptionalTimeout add optional timeout to context.

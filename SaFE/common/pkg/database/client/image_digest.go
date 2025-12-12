@@ -8,11 +8,13 @@ package client
 import (
 	"context"
 	"errors"
+
+	"gorm.io/gorm"
+	"k8s.io/klog/v2"
+
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/dal"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/model"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
-	"gorm.io/gorm"
-	"k8s.io/klog/v2"
 )
 
 // UpsertImageDigest performs the UpsertImageDigest operation.

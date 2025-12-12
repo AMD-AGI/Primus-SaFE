@@ -1,15 +1,24 @@
 - hosts: all
-  gather_facts: no
+  gather_facts: true
+  vars:
+    container_env: "{{ container_env | default({}) }}"
   tasks:
+    - name: Build final environment (container_env)
+      set_fact:
+        final_env: "{{ container_env }}"
+
     - name: Run kernel_launch_overhead
       command: kernel_launch_overhead -w 100 -n 2000000 -i 2000
       register: overhead_result
       ignore_errors: yes
+      environment: "{{ final_env }}"
+
     - name: Ensure node output directory exists
       file:
         path: "{{ output_dir }}/{{ inventory_hostname }}"
         state: directory
       delegate_to: localhost
+
     - name: Write raw output to node-specific log
       copy:
         content: "{{ overhead_result.stdout | default('No output') }}"
@@ -59,11 +68,12 @@
         print(json.dumps(results, indent=4))
         EOF
       register: parsed_results
+
     - name: Save aggregated results JSON
       copy:
         content: "{{ parsed_results.stdout }}"
         dest: "{{ output_dir }}/kernel_overhead_results.json"
+
     - name: Show aggregated results
       debug:
         msg: "{{ parsed_results.stdout }}"
-

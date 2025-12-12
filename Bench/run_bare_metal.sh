@@ -7,10 +7,11 @@
 
 set -euo pipefail
 
-# ==== Environment variables ====
-export PRIMUSBENCH_PATH=$(pwd)
-export IMAGE=${IMAGE:-"primussafe/primusbench:202510210028"}
-export INVENTORY_FILE=${INVENTORY_FILE:-"hosts.ini"}
+# Source unified configuration
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/config.sh"
+
+export PRIMUSBENCH_PATH="${PRIMUSBENCH_PATH:-$(pwd)}"
 PALYBOOKS="$PRIMUSBENCH_PATH/playbooks"
 TIMESTMAP=$(date +'%Y-%m-%d_%H-%M-%S')
 PRIMUSBENCH_OUTPUTS="$PRIMUSBENCH_PATH/outputs/$TIMESTMAP"

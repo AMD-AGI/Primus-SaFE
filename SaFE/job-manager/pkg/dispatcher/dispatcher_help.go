@@ -27,10 +27,10 @@ const (
 	Launcher           = "chmod +x /shared-data/launcher.sh; /bin/sh /shared-data/launcher.sh"
 )
 
-// modifyObjectOnCreation modifies various aspects of a Kubernetes object during workload creation.
+// initializeObject modifies various aspects of a Kubernetes object during workload creation.
 // It applies labels, node selectors, container configurations, volumes, and other settings.
 // based on the admin workload specification and workspace configuration.
-func modifyObjectOnCreation(obj *unstructured.Unstructured,
+func initializeObject(obj *unstructured.Unstructured,
 	workload *v1.Workload, workspace *v1.Workspace, resourceSpec *v1.ResourceSpec) error {
 	_, found, err := unstructured.NestedFieldNoCopy(obj.Object, resourceSpec.PrePaths...)
 	if err != nil || !found {
@@ -143,9 +143,7 @@ func modifyContainers(obj *unstructured.Unstructured,
 
 		name := jobutils.GetUnstructuredString(container, []string{"name"})
 		if name == mainContainerName {
-			if !commonworkload.IsCICD(workload) {
-				container["ports"] = buildPorts(workload)
-			}
+			container["ports"] = buildPorts(workload)
 			if healthz := buildHealthCheck(workload.Spec.Liveness); healthz != nil {
 				container["livenessProbe"] = healthz
 			}
@@ -401,7 +399,7 @@ func buildEntryPoint(workload *v1.Workload) string {
 	switch workload.SpecKind() {
 	case common.CICDScaleRunnerSetKind:
 		result = workload.Spec.EntryPoint
-	case common.CICDScaleRunnerKind:
+	case common.CICDEphemeralRunnerKind, common.JobKind:
 		result = stringutil.Base64Decode(workload.Spec.EntryPoint)
 	default:
 		result = Launcher + " '" + workload.Spec.EntryPoint + "'"
@@ -409,27 +407,39 @@ func buildEntryPoint(workload *v1.Workload) string {
 	return result
 }
 
-// buildLabels creates a map of labels for workload identification and tracking.
+// buildLabels creates a map of labels for object tracking.
 func buildLabels(workload *v1.Workload) map[string]interface{} {
 	result := map[string]interface{}{
 		v1.WorkloadIdLabel:          workload.Name,
 		v1.WorkloadDispatchCntLabel: buildDispatchCount(workload),
 	}
+	for key, value := range workload.Labels {
+		if !strings.HasPrefix(key, v1.PrimusSafePrefix) {
+			result[key] = value
+		}
+	}
+	return result
+}
+
+// buildAnnotations creates a map of annotations for object tracking.
+func buildAnnotations(workload *v1.Workload) map[string]interface{} {
+	result := make(map[string]interface{})
+	for key, value := range workload.Annotations {
+		if !strings.HasPrefix(key, v1.PrimusSafePrefix) {
+			result[key] = value
+		}
+	}
+	if v1.GetUserName(workload) != "" {
+		result[v1.UserNameAnnotation] = v1.GetUserName(workload)
+	}
 	return result
 }
 
 // buildResources constructs resource requirements for the workload container.
-func buildResources(workload *v1.Workload) map[string]interface{} {
-	result := map[string]interface{}{
-		string(corev1.ResourceCPU):              workload.Spec.Resource.CPU,
-		string(corev1.ResourceMemory):           workload.Spec.Resource.Memory,
-		string(corev1.ResourceEphemeralStorage): workload.Spec.Resource.EphemeralStorage,
-	}
-	if workload.Spec.Resource.GPU != "" {
-		result[workload.Spec.Resource.GPUName] = workload.Spec.Resource.GPU
-	}
-	if workload.Spec.Resource.RdmaResource != "" && commonconfig.GetRdmaName() != "" {
-		result[commonconfig.GetRdmaName()] = workload.Spec.Resource.RdmaResource
+func buildResources(resourceList corev1.ResourceList) map[string]interface{} {
+	result := make(map[string]interface{})
+	for key, val := range resourceList {
+		result[string(key)] = val.String()
 	}
 	return result
 }
@@ -438,42 +448,33 @@ func buildResources(workload *v1.Workload) map[string]interface{} {
 func buildEnvironment(workload *v1.Workload) []interface{} {
 	var result []interface{}
 	if workload.Spec.IsSupervised {
-		result = append(result, map[string]interface{}{
-			"name":  "ENABLE_SUPERVISE",
-			"value": v1.TrueStr,
-		})
+		result = addEnvVar(result, workload, "ENABLE_SUPERVISE", v1.TrueStr)
 		if commonconfig.GetWorkloadHangCheckInterval() > 0 {
-			result = append(result, map[string]interface{}{
-				"name":  "HANG_CHECK_INTERVAL",
-				"value": strconv.Itoa(commonconfig.GetWorkloadHangCheckInterval()),
-			})
+			result = addEnvVar(result, workload, "HANG_CHECK_INTERVAL",
+				strconv.Itoa(commonconfig.GetWorkloadHangCheckInterval()))
 		}
 	}
 	if workload.Spec.Resource.GPU != "" {
-		result = append(result, map[string]interface{}{
-			"name":  "GPUS_PER_NODE",
-			"value": workload.Spec.Resource.GPU,
-		})
+		result = addEnvVar(result, workload, "GPUS_PER_NODE", workload.Spec.Resource.GPU)
 	}
-	result = append(result, map[string]interface{}{
-		"name":  "WORKLOAD_ID",
-		"value": workload.Name,
-	})
-	result = append(result, map[string]interface{}{
-		"name":  "WORKLOAD_KIND",
-		"value": workload.Spec.Kind,
-	})
-	result = append(result, map[string]interface{}{
-		"name":  "DISPATCH_COUNT",
-		"value": strconv.Itoa(v1.GetWorkloadDispatchCnt(workload) + 1),
-	})
+	result = addEnvVar(result, workload, "WORKLOAD_ID", workload.Name)
+	result = addEnvVar(result, workload, "WORKLOAD_KIND", workload.SpecKind())
+	result = addEnvVar(result, workload, "DISPATCH_COUNT", strconv.Itoa(v1.GetWorkloadDispatchCnt(workload)+1))
 	if workload.Spec.SSHPort > 0 {
-		result = append(result, map[string]interface{}{
-			"name":  "SSH_PORT",
-			"value": strconv.Itoa(workload.Spec.SSHPort),
-		})
+		result = addEnvVar(result, workload, "SSH_PORT", strconv.Itoa(workload.Spec.SSHPort))
 	}
 	return result
+}
+
+func addEnvVar(result []interface{}, workload *v1.Workload, name, value string) []interface{} {
+	_, ok := workload.Spec.Env[name]
+	if ok {
+		return result
+	}
+	return append(result, map[string]interface{}{
+		"name":  name,
+		"value": value,
+	})
 }
 
 // buildPorts constructs port definitions for the workload container.
@@ -627,22 +628,6 @@ func buildSelector(workload *v1.Workload) map[string]interface{} {
 func buildImageSecret(secretId string) interface{} {
 	return map[string]interface{}{
 		"name": secretId,
-	}
-}
-
-// buildGithubConfig constructs GitHub configuration parameters for a workload.
-func buildGithubConfig(workload *v1.Workload) map[string]interface{} {
-	secretId := ""
-	for _, item := range workload.Spec.Secrets {
-		if item.Type == v1.SecretGeneral {
-			secretId = item.Id
-			break
-		}
-	}
-	configUrl := workload.Spec.Env[common.GithubConfigUrl]
-	return map[string]interface{}{
-		"githubConfigSecret": secretId,
-		"githubConfigUrl":    configUrl,
 	}
 }
 

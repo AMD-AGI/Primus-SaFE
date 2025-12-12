@@ -7,6 +7,7 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/node-exporter/pkg/collector/containerd"
 	k8s_ephemeral_storage "github.com/AMD-AGI/Primus-SaFE/Lens/node-exporter/pkg/collector/k8s-ephemeral-storage"
+	processtree "github.com/AMD-AGI/Primus-SaFE/Lens/node-exporter/pkg/collector/process-tree"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/node-exporter/pkg/collector/report"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/node-exporter/pkg/kubelet"
 	"k8s.io/utils/env"
@@ -60,6 +61,13 @@ func Init(ctx context.Context, cfg config.Config) error {
 	if err != nil {
 		return err
 	}
+
+	// Initialize Process Tree Collector
+	if err := processtree.InitCollector(ctx); err != nil {
+		log.Warnf("Failed to initialize Process Tree Collector: %v", err)
+		// Don't block startup, collector is an optional feature
+	}
+
 	return nil
 }
 

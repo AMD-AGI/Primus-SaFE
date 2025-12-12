@@ -24,8 +24,6 @@ data:
     spec:
       completionMode: NonIndexed
       backoffLimit: 0
-      completions: 1
-      parallelism: 1
       suspend: false
       template:
         spec:
@@ -46,7 +44,7 @@ data:
               securityContext:
                 capabilities:
                   add: [ "IPC_LOCK", "SYS_PTRACE", "SYS_RESOURCE"]
-          schedulerName: kube-scheduler-plugins
+          schedulerName: default-scheduler
           volumes:
             - name: podinfo
               downwardAPI:

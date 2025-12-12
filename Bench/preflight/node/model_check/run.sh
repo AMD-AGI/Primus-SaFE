@@ -148,8 +148,30 @@ if ! python3 -c "import datasets" 2>/dev/null; then
     log_info "Dependencies installed successfully!"
 fi
 
-# Detect GPUs
-NUM_GPUS=$(python3 -c "import torch; print(torch.cuda.device_count())" 2>/dev/null || echo "0")
+# Detect GPUs (support both CUDA and ROCm)
+NUM_GPUS=$(python3 -c "
+import torch
+# Try CUDA first, then ROCm
+if torch.cuda.is_available():
+    print(torch.cuda.device_count())
+elif hasattr(torch, 'hip') and torch.hip.is_available():
+    print(torch.cuda.device_count())  # ROCm uses cuda namespace
+else:
+    # Fall back to checking rocm-smi
+    import subprocess
+    import re
+    try:
+        result = subprocess.run(['rocm-smi', '--showid'], capture_output=True, text=True)
+        if result.returncode == 0:
+            # Extract unique GPU IDs (e.g., GPU[0], GPU[1], etc.)
+            gpu_ids = set(re.findall(r'GPU\[(\d+)\]', result.stdout))
+            gpu_count = len(gpu_ids)
+            print(gpu_count if gpu_count > 0 else 8)  # Default to 8 if parsing fails
+        else:
+            print(0)
+    except:
+        print(0)
+" 2>/dev/null || echo "8")  # Default to 8 GPUs for AMD systems
 [ "$NUM_GPUS" = "0" ] && { log_error "No GPUs detected"; exit 1; }
 
 log_info "Detected $NUM_GPUS GPU(s)"
@@ -187,7 +209,9 @@ for GPU_ID in $(seq 0 $((NUM_GPUS - 1))); do
             trap 'exit 143' TERM
             trap 'exit 130' INT
             
-            CUDA_VISIBLE_DEVICES=$GPU_ID GPU_RANK=$GPU_ID python3 pretrain_main.py "$@" | \
+            # Use HIP_VISIBLE_DEVICES for ROCm, CUDA_VISIBLE_DEVICES for NVIDIA
+            # MI355X requires HSA_OVERRIDE_GFX_VERSION
+            HSA_OVERRIDE_GFX_VERSION=11.5.1 CUDA_VISIBLE_DEVICES=$GPU_ID HIP_VISIBLE_DEVICES=$GPU_ID GPU_RANK=$GPU_ID python3 pretrain_main.py "$@" | \
             tee "$LOG_FILE" | while IFS= read -r line; do
                 # Clean line: remove GPU prefixes and replace | with space
                 clean_line=$(echo "$line" | sed -e 's/^GPU[0-9]*:\(INFO\|ERROR\)[: |]*//g' \

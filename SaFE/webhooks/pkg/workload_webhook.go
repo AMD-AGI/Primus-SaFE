@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -37,7 +38,6 @@ import (
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/floatutil"
-	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/maps"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
@@ -51,6 +51,12 @@ const (
 	DefaultMaxUnavailable      = "25%"
 	DefaultMaxMaxSurge         = "25%"
 	DefaultMaxFailover         = 50
+
+	MaxCICDScaleSetNameLen = 39
+
+	ResourcesEnv  = "RESOURCES"
+	ImageEnv      = "IMAGE"
+	EntrypointEnv = "ENTRYPOINT"
 )
 
 // AddWorkloadWebhook registers the workload validation and mutation webhooks.
@@ -164,7 +170,7 @@ func (m *WorkloadMutator) mutateMeta(ctx context.Context, workload *v1.Workload,
 	}
 
 	if val := workload.GetEnv(common.ScaleRunnerID); val != "" {
-		v1.SetLabel(workload, v1.ScaleRunnerIdLabel, val)
+		v1.SetLabel(workload, v1.CICDScaleRunnerIdLabel, val)
 	}
 	v1.SetLabel(workload, v1.WorkspaceIdLabel, workload.Spec.Workspace)
 	v1.SetLabel(workload, v1.WorkloadKindLabel, workload.Spec.Kind)
@@ -172,9 +178,7 @@ func (m *WorkloadMutator) mutateMeta(ctx context.Context, workload *v1.Workload,
 	if v1.GetUserName(workload) == "" {
 		v1.SetAnnotation(workload, v1.UserNameAnnotation, v1.GetUserId(workload))
 	}
-	if v1.GetUserName(workload) != "" {
-		v1.SetLabel(workload, v1.UserNameMd5Label, stringutil.MD5(v1.GetUserName(workload)))
-	}
+	v1.SetLabel(workload, v1.UserNameMd5Label, stringutil.MD5(v1.GetUserName(workload)))
 	if v1.GetMainContainer(workload) == "" {
 		cm, err := commonworkload.GetWorkloadTemplate(ctx, m.Client, workload)
 		if err == nil {
@@ -187,16 +191,17 @@ func (m *WorkloadMutator) mutateMeta(ctx context.Context, workload *v1.Workload,
 func (m *WorkloadMutator) mutateOwnerReference(ctx context.Context, workload *v1.Workload, workspace *v1.Workspace) {
 	var err error
 	switch workload.SpecKind() {
-	case common.CICDScaleRunnerKind:
+	case common.CICDEphemeralRunnerKind:
 		scaleRunnerSetId := workload.GetEnv(common.ScaleRunnerSetID)
 		if scaleRunnerSetId == "" {
 			break
 		}
 		scaleRunnerSetWorkload := &v1.Workload{}
 		if err = m.Get(ctx, client.ObjectKey{Name: scaleRunnerSetId}, scaleRunnerSetWorkload); err == nil {
-			if !hasOwnerReferences(workload, scaleRunnerSetId) {
+			if !commonutils.HasOwnerReferences(workload, scaleRunnerSetId) {
 				err = controllerutil.SetControllerReference(scaleRunnerSetWorkload, workload, m.Client.Scheme())
 			}
+			v1.SetAnnotation(workload, v1.CICDScaleSetIdAnnotation, scaleRunnerSetWorkload.Status.RunnerScaleSetId)
 		}
 	case common.UnifiedJobKind:
 		scaleRunnerId := workload.GetEnv(common.ScaleRunnerID)
@@ -204,15 +209,15 @@ func (m *WorkloadMutator) mutateOwnerReference(ctx context.Context, workload *v1
 			break
 		}
 		labelSelector := labels.SelectorFromSet(map[string]string{
-			v1.WorkloadKindLabel: common.CICDScaleRunnerKind, v1.ScaleRunnerIdLabel: scaleRunnerId})
+			v1.WorkloadKindLabel: common.CICDEphemeralRunnerKind, v1.CICDScaleRunnerIdLabel: scaleRunnerId})
 		scaleRunnerWorkloads := &v1.WorkloadList{}
 		if err = m.List(ctx, scaleRunnerWorkloads, &client.ListOptions{LabelSelector: labelSelector}); err == nil {
-			if len(scaleRunnerWorkloads.Items) > 0 && !hasOwnerReferences(workload, scaleRunnerWorkloads.Items[0].Name) {
+			if len(scaleRunnerWorkloads.Items) > 0 && !commonutils.HasOwnerReferences(workload, scaleRunnerWorkloads.Items[0].Name) {
 				err = controllerutil.SetControllerReference(&scaleRunnerWorkloads.Items[0], workload, m.Client.Scheme())
 			}
 		}
 	default:
-		if workspace != nil && !hasOwnerReferences(workload, workspace.Name) {
+		if workspace != nil && !commonutils.HasOwnerReferences(workload, workspace.Name) {
 			err = controllerutil.SetControllerReference(workspace, workload, m.Client.Scheme())
 		}
 	}
@@ -274,7 +279,7 @@ func (m *WorkloadMutator) mutateResource(workload *v1.Workload, workspace *v1.Wo
 	return isChanged
 }
 
-// mutateHostpath removes hostpath duplicated by the workspace; workloads inherit workspace hostpaths.
+// mutateHostpath removes hostpath duplicated by the workspace; workloads inherit workspace hostpath.
 func (m *WorkloadMutator) mutateHostpath(workload *v1.Workload, workspace *v1.Workspace) {
 	if len(workload.Spec.Hostpath) == 0 {
 		return
@@ -411,13 +416,21 @@ func (m *WorkloadMutator) mutateMaxRetry(workload *v1.Workload) {
 
 // mutateEnv removes empty values and preserves deletions from the old spec.
 func (m *WorkloadMutator) mutateEnv(oldWorkload, newWorkload *v1.Workload) {
-	newWorkload.Spec.Env = maps.RemoveValue(newWorkload.Spec.Env, "")
-	// A null or empty value means the field should be removed.
+	newEnv := make(map[string]string)
+	for key, val := range newWorkload.Spec.Env {
+		newEnv[strings.TrimSpace(key)] = val
+	}
+	newWorkload.Spec.Env = newEnv
+
 	if oldWorkload != nil {
+		var envToBeRemoved []string
 		for key := range oldWorkload.Spec.Env {
-			if _, ok := newWorkload.Spec.Env[key]; !ok {
-				newWorkload.Spec.Env[key] = ""
+			if _, ok := newEnv[key]; !ok {
+				envToBeRemoved = append(envToBeRemoved, key)
 			}
+		}
+		if len(envToBeRemoved) > 0 {
+			v1.SetAnnotation(newWorkload, v1.EnvToBeRemovedAnnotation, string(jsonutils.MarshalSilently(envToBeRemoved)))
 		}
 	}
 }
@@ -618,9 +631,6 @@ func (v *WorkloadValidator) validateCommon(ctx context.Context, workload *v1.Wor
 	if err := v.validateTemplate(ctx, workload); err != nil {
 		return err
 	}
-	if err := v.validateDisplayName(workload); err != nil {
-		return err
-	}
 	if err := validateLabels(workload.Spec.CustomerLabels); err != nil {
 		return err
 	}
@@ -633,31 +643,72 @@ func (v *WorkloadValidator) validateRequiredParams(workload *v1.Workload) error 
 	if v1.GetDisplayName(workload) == "" {
 		errs = append(errs, fmt.Errorf("the displayName is empty"))
 	}
+	if err := validateDisplayName(v1.GetDisplayName(workload)); err != nil {
+		errs = append(errs, err)
+	}
 	if v1.GetClusterId(workload) == "" {
 		errs = append(errs, fmt.Errorf("the cluster is empty"))
 	}
 	if workload.Spec.Workspace == "" {
 		errs = append(errs, fmt.Errorf("the workspace is empty"))
 	}
-	if workload.Spec.EntryPoint == "" {
-		errs = append(errs, fmt.Errorf("the entryPoint is empty"))
-	}
-	if workload.Spec.Image == "" {
-		errs = append(errs, fmt.Errorf("the image is empty"))
-	}
 	if workload.Spec.GroupVersionKind.Kind == "" || workload.Spec.GroupVersionKind.Version == "" {
 		errs = append(errs, fmt.Errorf("the gvk is empty"))
 	}
-	if workload.Spec.Resource.Replica <= 0 {
+	if commonworkload.IsCICDScalingRunnerSet(workload) {
+		if err := v.validateCICDScalingRunnerSet(workload); err != nil {
+			errs = append(errs, err)
+		}
+	} else {
+		if workload.Spec.EntryPoint == "" {
+			errs = append(errs, fmt.Errorf("the entryPoint is empty"))
+		}
+		if workload.Spec.Image == "" {
+			errs = append(errs, fmt.Errorf("the image is empty"))
+		}
+	}
+	if err := v.validateResource(&workload.Spec.Resource); err != nil {
+		errs = append(errs, err)
+	}
+	if err := utilerrors.NewAggregate(errs); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (v *WorkloadValidator) validateCICDScalingRunnerSet(workload *v1.Workload) error {
+	if len(v1.GetDisplayName(workload)) > MaxCICDScaleSetNameLen {
+		return fmt.Errorf("the displayName is too long, maximum length is %d characters", MaxCICDScaleSetNameLen)
+	}
+	keys := []string{ResourcesEnv, EntrypointEnv, ImageEnv, common.GithubConfigUrl}
+	for _, key := range keys {
+		if val, ok := workload.Spec.Env[key]; !ok || val == "" {
+			return fmt.Errorf("the %s of workload environment variables is empty", key)
+		}
+	}
+	workloadResource := &v1.WorkloadResource{}
+	err := json.Unmarshal([]byte(workload.Spec.Env[ResourcesEnv]), workloadResource)
+	if err != nil {
+		return err
+	}
+	if err = v.validateResource(workloadResource); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (v *WorkloadValidator) validateResource(resource *v1.WorkloadResource) error {
+	var errs []error
+	if resource.Replica <= 0 {
 		errs = append(errs, fmt.Errorf("the replica is empty"))
 	}
-	if workload.Spec.Resource.CPU == "" {
+	if resource.CPU == "" {
 		errs = append(errs, fmt.Errorf("the cpu is empty"))
 	}
-	if workload.Spec.Resource.Memory == "" {
+	if resource.Memory == "" {
 		errs = append(errs, fmt.Errorf("the memory is empty"))
 	}
-	if workload.Spec.Resource.EphemeralStorage == "" {
+	if resource.EphemeralStorage == "" {
 		errs = append(errs, fmt.Errorf("the ephemeralStorage is empty"))
 	}
 	if err := utilerrors.NewAggregate(errs); err != nil {
@@ -793,24 +844,12 @@ func validateResourceEnough(nf *v1.NodeFlavor, res *v1.WorkloadResource) error {
 
 // validateTemplate ensures the resource template and task template for the workload kind exist.
 func (v *WorkloadValidator) validateTemplate(ctx context.Context, workload *v1.Workload) error {
-	if _, err := commonworkload.GetResourceTemplate(ctx, v.Client, workload.ToSchemaGVK()); err != nil {
+	if _, err := commonworkload.GetResourceTemplate(ctx, v.Client, workload); err != nil {
 		return err
 	}
 	_, err := commonworkload.GetWorkloadTemplate(ctx, v.Client, workload)
 	if err != nil {
 		return err
-	}
-	return nil
-}
-
-// validateDisplayName ensures workload display name is unique within the workspace.
-func (v *WorkloadValidator) validateDisplayName(workload *v1.Workload) error {
-	l := len(v1.GetDisplayName(workload))
-	if l > commonutils.MaxDisplayNameLen {
-		return fmt.Errorf("the maximum length of the workload name [%s] is %d",
-			v1.GetDisplayName(workload), commonutils.MaxDisplayNameLen)
-	} else if l == 0 {
-		return fmt.Errorf("the display name is empty")
 	}
 	return nil
 }
@@ -822,6 +861,13 @@ func (v *WorkloadValidator) validateImmutableFields(newWorkload, oldWorkload *v1
 	}
 	if newWorkload.Spec.GroupVersionKind != oldWorkload.Spec.GroupVersionKind {
 		return field.Forbidden(field.NewPath("spec").Key("gvk"), "immutable")
+	}
+	if commonworkload.IsCICDScalingRunnerSet(newWorkload) {
+		val1, _ := oldWorkload.Spec.Env[common.UnifiedJobEnable]
+		val2, _ := newWorkload.Spec.Env[common.UnifiedJobEnable]
+		if val1 != val2 {
+			return field.Forbidden(field.NewPath("spec").Key("env").Key(common.UnifiedJobEnable), "immutable")
+		}
 	}
 	return nil
 }

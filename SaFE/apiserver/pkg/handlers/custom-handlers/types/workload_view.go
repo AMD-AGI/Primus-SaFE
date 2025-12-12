@@ -25,6 +25,12 @@ type CreateWorkloadRequest struct {
 	Description string `json:"description,omitempty"`
 	// Workspace ID to which the workload is delivered
 	WorkspaceId string `json:"workspaceId,omitempty"`
+	// User-defined labels. Keys cannot start with "primus-safe."
+	Labels map[string]string `json:"labels,omitempty"`
+	// User-defined annotations. Keys cannot start with "primus-safe."
+	Annotations map[string]string `json:"annotations,omitempty"`
+	// Preheat indicates whether to preheat the workload to prepare image in advance
+	Preheat bool `json:"preheat,omitempty"`
 }
 
 type CreateWorkloadResponse struct {
@@ -64,6 +70,8 @@ type ListWorkloadRequest struct {
 	WorkloadId string `form:"workloadId" binding:"omitempty,max=64"`
 	// Filter by scale runner set.
 	ScaleRunnerSet string `form:"scaleRunnerSet" binding:"omitempty,max=64"`
+	// Filter by github action runner id.
+	ScaleRunnerId string `form:"scaleRunnerId" binding:"omitempty,max=64"`
 }
 
 type ListWorkloadResponse struct {
@@ -128,6 +136,8 @@ type WorkloadResponseItem struct {
 	AvgGpuUsage float64 `json:"avgGpuUsage"`
 	// If it is a CI/CD workload, it would be associated with a scale runner set.
 	ScaleRunnerSet string `json:"scaleRunnerSet,omitempty"`
+	// If it is a CI/CD workload, it would be associated with a github runner action id.
+	ScaleRunnerId string `json:"scaleRunnerId,omitempty"`
 }
 
 type GetWorkloadResponse struct {
@@ -210,6 +220,8 @@ type PatchWorkloadRequest struct {
 	MaxRetry *int `json:"maxRetry,omitempty"`
 	// Cron Job configuration
 	CronJobs *[]v1.CronJob `json:"cronJobs,omitempty"`
+	// Service configuration
+	Service *v1.Service `json:"service,omitempty"`
 }
 
 type GetPodLogRequest struct {

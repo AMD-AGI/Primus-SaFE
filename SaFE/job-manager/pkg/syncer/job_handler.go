@@ -11,6 +11,7 @@ import (
 	"reflect"
 	"time"
 
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -34,8 +35,14 @@ const (
 // Manages the lifecycle of workload resources and handles failure scenarios.
 func (r *SyncerReconciler) handleJob(ctx context.Context, message *resourceMessage, informer *ClusterInformer) (ctrlruntime.Result, error) {
 	adminWorkload, err := r.getAdminWorkload(ctx, message.workloadId)
-	if adminWorkload == nil || adminWorkload.IsEnd() {
+	if err != nil || adminWorkload == nil {
 		return ctrlruntime.Result{}, err
+	}
+	if adminWorkload.IsEnd() || message.namespace != adminWorkload.Spec.Workspace {
+		return ctrlruntime.Result{}, nil
+	}
+	if commonworkload.IsCICDScalingRunnerSet(adminWorkload) && message.gvk.Kind != common.CICDScaleRunnerSetKind {
+		return ctrlruntime.Result{}, nil
 	}
 	if !v1.IsWorkloadDispatched(adminWorkload) {
 		return ctrlruntime.Result{RequeueAfter: time.Second}, nil
@@ -98,7 +105,7 @@ func (r *SyncerReconciler) getK8sResourceStatus(ctx context.Context, message *re
 		klog.ErrorS(err, "failed to get k8s object", "name", message.name, "namespace", message.namespace)
 		return nil, err
 	}
-	rt, err := commonworkload.GetResourceTemplate(ctx, r.Client, message.gvk)
+	rt, err := commonworkload.GetResourceTemplate(ctx, r.Client, adminWorkload)
 	if err != nil {
 		klog.ErrorS(err, "failed to get resource template", "name", message.name, "kind", message.gvk.Kind)
 		return nil, err
@@ -159,10 +166,24 @@ func (r *SyncerReconciler) waitJobDeleted(ctx context.Context, adminWorkload *v1
 // Manages workload phase transitions and condition updates.
 func (r *SyncerReconciler) updateAdminWorkloadStatus(ctx context.Context, originalWorkload *v1.Workload,
 	status *jobutils.K8sResourceStatus, message *resourceMessage) (*v1.Workload, error) {
-	if originalWorkload.IsEnd() || status == nil || status.Phase == "" {
+	if originalWorkload.IsEnd() || status == nil {
 		return originalWorkload, nil
 	}
 	adminWorkload := originalWorkload.DeepCopy()
+	if commonworkload.IsCICDScalingRunnerSet(adminWorkload) && status.RunnerScaleSetId != "" {
+		if adminWorkload.Status.RunnerScaleSetId != status.RunnerScaleSetId {
+			patch := client.MergeFrom(originalWorkload)
+			adminWorkload.Status.RunnerScaleSetId = status.RunnerScaleSetId
+			if err := r.Status().Patch(ctx, adminWorkload, patch); err != nil {
+				return nil, err
+			}
+		}
+		return adminWorkload, nil
+	}
+
+	if status.Phase == "" {
+		return originalWorkload, nil
+	}
 	r.updateAdminWorkloadPhase(adminWorkload, status, message)
 	if adminWorkload.Status.StartTime == nil {
 		adminWorkload.Status.StartTime = &metav1.Time{Time: time.Now().UTC()}
@@ -188,19 +209,24 @@ func (r *SyncerReconciler) updateAdminWorkloadStatus(ctx context.Context, origin
 	return adminWorkload, nil
 }
 
-// updateAdminWorkloadPhase updates the workload phase based on resource status.
+// updateAdminWorkloadPhase updates the workload phase based on k8s resource status.
 func (r *SyncerReconciler) updateAdminWorkloadPhase(adminWorkload *v1.Workload,
 	status *jobutils.K8sResourceStatus, message *resourceMessage) {
-	switch v1.WorkloadConditionType(status.Phase) {
+	phase := v1.WorkloadConditionType(status.Phase)
+	switch phase {
 	case v1.K8sPending:
 		adminWorkload.Status.Phase = v1.WorkloadPending
 	case v1.K8sSucceeded:
-		if isWorkloadEnd(adminWorkload, status, message.dispatchCount) {
+		if shouldTerminateWorkload(adminWorkload, status, message.dispatchCount) {
 			adminWorkload.Status.Phase = v1.WorkloadSucceeded
 		}
 	case v1.K8sFailed, v1.K8sDeleted:
-		if isWorkloadEnd(adminWorkload, status, message.dispatchCount) {
-			adminWorkload.Status.Phase = v1.WorkloadFailed
+		if shouldTerminateWorkload(adminWorkload, status, message.dispatchCount) {
+			if phase == v1.K8sFailed {
+				adminWorkload.Status.Phase = v1.WorkloadFailed
+			} else {
+				adminWorkload.Status.Phase = v1.WorkloadStopped
+			}
 		} else if adminWorkload.IsRunning() && commonworkload.IsApplication(adminWorkload) {
 			adminWorkload.Status.Phase = v1.WorkloadNotReady
 		}
@@ -209,8 +235,6 @@ func (r *SyncerReconciler) updateAdminWorkloadPhase(adminWorkload *v1.Workload,
 	case v1.K8sUpdating:
 		// only for deployment/statefulSet
 		adminWorkload.Status.Phase = v1.WorkloadUpdating
-	case v1.AdminStopped:
-		adminWorkload.Status.Phase = v1.WorkloadStopped
 	}
 }
 
@@ -289,9 +313,9 @@ func updateWorkloadCondition(adminWorkload *v1.Workload, newCondition *metav1.Co
 	}
 }
 
-// isWorkloadEnd determines if a workload has reached its end state.
+// shouldTerminateWorkload determines if a workload has reached its end state.
 // Considers retry limits and failover settings.
-func isWorkloadEnd(adminWorkload *v1.Workload, status *jobutils.K8sResourceStatus, count int) bool {
+func shouldTerminateWorkload(adminWorkload *v1.Workload, status *jobutils.K8sResourceStatus, count int) bool {
 	if commonworkload.IsApplication(adminWorkload) || v1.IsWorkloadPreempted(adminWorkload) ||
 		commonworkload.IsCICDScalingRunnerSet(adminWorkload) {
 		return false

@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"reflect"
 
+	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	admissionv1 "k8s.io/api/admission/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/selection"
@@ -90,7 +91,7 @@ func (m *OpsJobMutator) mutateMeta(ctx context.Context, job *v1.OpsJob) bool {
 	}
 	if clusterId := v1.GetClusterId(job); clusterId != "" {
 		if cl, err := getCluster(ctx, m.Client, clusterId); err == nil {
-			if !hasOwnerReferences(job, cl.Name) {
+			if !commonutils.HasOwnerReferences(job, cl.Name) {
 				if err = controllerutil.SetControllerReference(cl, job, m.Client.Scheme()); err != nil {
 					klog.ErrorS(err, "failed to SetControllerReference")
 				}
@@ -455,6 +456,7 @@ func (v *OpsJobValidator) listRelatedRunningJobs(ctx context.Context, cluster st
 }
 
 // validateNodes ensures all nodes belong to the same cluster and flavor.
+// If a job specifies a workspace, it will also check whether the node belongs to that workspace.
 // Additionally, both cluster and node flavor must not be empty.
 func (v *OpsJobValidator) validateNodes(ctx context.Context, job *v1.OpsJob) error {
 	if job.Spec.Type == v1.OpsJobRebootType || job.Spec.Type == v1.OpsJobExportImageType || job.Spec.Type == v1.OpsJobPrewarmType {
@@ -467,6 +469,9 @@ func (v *OpsJobValidator) validateNodes(ctx context.Context, job *v1.OpsJob) err
 		adminNode, err := getNode(ctx, v.Client, param.Value)
 		if err != nil {
 			return err
+		}
+		if v1.GetWorkspaceId(job) != "" && v1.GetWorkspaceId(adminNode) != v1.GetWorkspaceId(job) {
+			return fmt.Errorf("The node(%s) is not managed by the workspace.", v1.GetWorkspaceId(job))
 		}
 		if clusterId == "" {
 			if clusterId = v1.GetClusterId(adminNode); clusterId == "" {

@@ -36,6 +36,7 @@ jobs:
       run: |
         FORMATTED_DATE=$(TZ='Asia/Shanghai' date +'%Y%m%d%H%M')
         echo "date_time=$FORMATTED_DATE" >> $GITHUB_OUTPUT
+        echo "Formatted date: $FORMATTED_DATE"
     - name: Detect changed files with git diff
       id: detect-changes
       run: |
@@ -174,10 +175,10 @@ jobs:
           MATRIX+='{"name":"preprocess","basepath":"SaFE/job-manager/installer/preprocess","dockerfile_path":"SaFE/job-manager/installer/preprocess/Dockerfile"},'
         fi
         if [[ "${{ steps.detect-changes.outputs.cicd_runner_proxy_changed }}" == "true" ]]; then
-          MATRIX+='{"name":"cicd_runner_proxy","basepath":"SaFE/job-manager/installer/cicd/runner-proxy","dockerfile_path":"SaFE/job-manager/installer/cicd/runner-proxy/Dockerfile"},'
+          MATRIX+='{"name":"cicd-runner-proxy","basepath":"SaFE/job-manager/installer/cicd/runner-proxy","dockerfile_path":"SaFE/job-manager/installer/cicd/runner-proxy/Dockerfile"},'
         fi
         if [[ "${{ steps.detect-changes.outputs.cicd_unified_job_proxy_changed }}" == "true" ]]; then
-          MATRIX+='{"name":"cicd_unified_job_proxy","basepath":"SaFE/job-manager/installer/cicd/unified-job-proxy","dockerfile_path":"SaFE/job-manager/installer/cicd/unified-job-proxy/Dockerfile"},'
+          MATRIX+='{"name":"cicd-unified-job-proxy","basepath":"SaFE/job-manager/installer/cicd/unified-job-proxy","dockerfile_path":"SaFE/job-manager/installer/cicd/unified-job-proxy/Dockerfile"},'
         fi
         if [[ "${{ steps.detect-changes.outputs.webhooks_changed }}" == "true" ]]; then
           MATRIX+='{"name":"webhooks","basepath":"SaFE/webhooks","dockerfile_path":"SaFE/webhooks/installer/Dockerfile"},'
@@ -195,9 +196,9 @@ jobs:
   build:
     needs: detect-changes
     runs-on: primus-safe-cicd-tnznd
+    timeout-minutes: 120
     outputs:
       primary_tag: ${{ steps.build-and-push.outputs.primary_tag }}
-    timeout-minutes: 7200
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.detect-changes.outputs.matrix) }}

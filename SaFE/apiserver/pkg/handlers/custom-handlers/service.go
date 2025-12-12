@@ -10,6 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
@@ -38,7 +39,7 @@ func (h *Handler) getWorkloadService(c *gin.Context) (interface{}, error) {
 	ctx := c.Request.Context()
 	adminWorkload, err := h.getAdminWorkload(ctx, name)
 	if err != nil {
-		return nil, commonerrors.NewNotFoundWithMessage(err.Error())
+		return nil, client.IgnoreNotFound(err)
 	}
 	workspace := adminWorkload.Spec.Workspace
 	if err = h.accessController.Authorize(authority.AccessInput{
@@ -70,8 +71,8 @@ func (h *Handler) getWorkloadService(c *gin.Context) (interface{}, error) {
 		".svc.cluster.local:" + strconv.Itoa(int(service.Spec.Ports[0].Port))
 	result.InternalDomain = internalDomain
 	if commonconfig.GetIngress() == common.HigressClassname && commonconfig.GetSystemHost() != "" {
-		result.ExternalDomain = "http://" + commonconfig.GetSystemHost() +
-			"/" + v1.GetClusterId(adminWorkload) + "/" + adminWorkload.Spec.Workspace + "/" + adminWorkload.Name
+		result.ExternalDomain = "https://" + commonconfig.GetSystemHost() +
+			"/" + v1.GetClusterId(adminWorkload) + "/" + adminWorkload.Spec.Workspace + "/" + adminWorkload.Name + "/"
 	}
 	return result, nil
 }

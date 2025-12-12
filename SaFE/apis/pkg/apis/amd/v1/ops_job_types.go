@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -69,6 +69,8 @@ type OpsJobSpec struct {
 	IsTolerateAll bool `json:"isTolerateAll"`
 	// The hostpath for opsjob mounting.
 	Hostpath []string `json:"hostpath,omitempty"`
+	// The nodes to be excluded
+	ExcludedNodes []string `json:"excludedNodes,omitempty"`
 }
 
 type OpsJobStatus struct {
@@ -179,16 +181,6 @@ func (job *OpsJob) GetParameters(name string) []*Parameter {
 		}
 	}
 	return result
-}
-
-// HasParameter checks if a parameter with the given name and value exists.
-func (job *OpsJob) HasParameter(name, value string) bool {
-	for _, param := range job.Spec.Inputs {
-		if param.Name == name && param.Value == value {
-			return true
-		}
-	}
-	return false
 }
 
 // CvtParamToString converts data to the target format.

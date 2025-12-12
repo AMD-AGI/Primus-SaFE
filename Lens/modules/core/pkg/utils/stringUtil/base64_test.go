@@ -187,7 +187,7 @@ func TestBase64RoundTrip(t *testing.T) {
 		},
 		{
 			name:  "unicode string round trip",
-			input: "hello 世界 мир",
+			input: "hello world мир",
 		},
 		{
 			name:  "special characters round trip",

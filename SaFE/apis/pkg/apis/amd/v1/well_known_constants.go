@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -28,6 +28,11 @@ const (
 	ProtectLabel            = PrimusSafePrefix + "protect"
 	MainContainerAnnotation = PrimusSafePrefix + "main.container"
 	OwnerLabel              = PrimusSafePrefix + "owner"
+
+	// cicd
+	CICDScaleSetIdAnnotation = "runner-scale-set-id"
+	CICDScaleRunnerIdLabel   = PrimusSafePrefix + "scale.runner.id"
+	GithubSecretIdAnnotation = PrimusSafePrefix + "github.secret.id"
 
 	// node
 	NodePrefix    = PrimusSafePrefix + "node."
@@ -94,7 +99,8 @@ const (
 	WorkloadDisableFailoverAnnotation = WorkloadPrefix + "disable.failover"
 	WorkloadEnablePreemptAnnotation   = WorkloadPrefix + "enable.preempt"
 	CronJobTimestampAnnotation        = WorkloadPrefix + "cronjob"
-	ScaleRunnerIdLabel                = PrimusSafePrefix + "scale.runner.id"
+	EnvToBeRemovedAnnotation          = WorkloadPrefix + "env.to.remove"
+	AdminControlPlaneAnnotation       = WorkloadPrefix + "admin.control.plane"
 
 	// user
 	UserPrefix              = PrimusSafePrefix + "user."
@@ -127,6 +133,15 @@ const (
 	AddonPrefix       = PrimusSafePrefix + "addon."
 	AddonFinalizer    = AddonPrefix + "finalizer"
 	AddonDefaultLabel = AddonPrefix + "default"
+
+	// model
+	ModelPrefix  = PrimusSafePrefix + "model."
+	ModelIdLabel = ModelPrefix + "id"
+
+	// inference
+	InferencePrefix    = PrimusSafePrefix + "inference."
+	InferenceFinalizer = PrimusSafeDomain + "inference.finalizer"
+	InferenceIdLabel   = InferencePrefix + "id"
 )
 
 type SecretType string
