@@ -1,0 +1,77 @@
+{{/*
+ConfigMap containing the installer configuration.
+The installer job reads this to get the values for all sub-charts.
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "installer.fullname" . }}-config
+  namespace: {{ include "installer.namespace" . }}
+  labels:
+    {{- include "installer.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": before-hook-creation
+data:
+  values.yaml: |
+    # Auto-generated from Helm values
+    global:
+      clusterName: {{ .Values.global.clusterName | quote }}
+      namespace: {{ include "installer.namespace" . | quote }}
+      storageClass: {{ .Values.global.storageClass | quote }}
+      accessMode: {{ .Values.global.accessMode | quote }}
+      imageRegistry: {{ .Values.global.imageRegistry | quote }}
+      accessType: {{ .Values.global.accessType | quote }}
+      domain: {{ .Values.global.domain | quote }}
+    
+    profile: {{ .Values.profile | quote }}
+    
+    database:
+      enabled: {{ .Values.database.enabled }}
+      initScript: {{ .Values.database.initScript | quote }}
+    
+    opensearch:
+      enabled: {{ .Values.opensearch.enabled }}
+      clusterName: {{ .Values.opensearch.clusterName | quote }}
+      nodeSets:
+        {{- toYaml .Values.opensearch.nodeSets | nindent 8 }}
+    
+    victoriametrics:
+      enabled: {{ .Values.victoriametrics.enabled }}
+    
+    logging:
+      enabled: {{ .Values.logging.enabled }}
+    
+    grafana:
+      enabled: {{ .Values.grafana.enabled }}
+      adminPassword: {{ .Values.grafana.adminPassword | quote }}
+    
+    monitoring:
+      kubeStateMetrics:
+        enabled: {{ .Values.monitoring.kubeStateMetrics.enabled }}
+    
+    apps:
+      enabled: {{ .Values.apps.enabled }}
+    
+    profiles:
+      {{- toYaml .Values.profiles | nindent 6 }}
+    
+    vm-operator:
+      {{- toYaml (index .Values "vm-operator") | nindent 6 }}
+    
+    fluent-operator:
+      {{- toYaml (index .Values "fluent-operator") | nindent 6 }}
+    
+    opensearch-operator:
+      {{- toYaml (index .Values "opensearch-operator") | nindent 6 }}
+    
+    pgo:
+      {{- toYaml .Values.pgo | nindent 6 }}
+    
+    grafana-operator:
+      {{- toYaml (index .Values "grafana-operator") | nindent 6 }}
+    
+    kube-state-metrics:
+      {{- toYaml (index .Values "kube-state-metrics") | nindent 6 }}
+

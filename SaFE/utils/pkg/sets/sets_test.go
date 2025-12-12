@@ -51,6 +51,13 @@ func TestDifference(t *testing.T) {
 	assert.Equal(t, resp.Equal(NewSetByKeys("a4", "a5")), true)
 }
 
+func TestNewEmptyValues(t *testing.T) {
+	var nullList []string
+	nullList = nil
+	s := NewSetByKeys(nullList...)
+	assert.Equal(t, s.Len(), 0)
+}
+
 func TestUnion(t *testing.T) {
 	s1 := NewSetByKeys("a1", "a2")
 	s2 := NewSetByKeys("a1", "a3")

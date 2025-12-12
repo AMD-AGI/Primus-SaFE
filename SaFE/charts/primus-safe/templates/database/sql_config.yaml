@@ -70,6 +70,7 @@ data:
     alter table workload add column if not exists cron_jobs TEXT;
     alter table workload add column if not exists secrets TEXT;
     alter table workload add column if not exists scale_runner_set VARCHAR(64);
+    alter table workload add column if not exists scale_runner_id VARCHAR(128);
 
     create table if not exists fault
     (
@@ -122,6 +123,7 @@ data:
     alter table ops_job add column if not exists entrypoint TEXT;
     alter table ops_job add column if not exists is_tolerate_all boolean default false;
     alter table ops_job add column if not exists hostpath TEXT;
+    alter table ops_job add column if not exists excluded_nodes TEXT;
 
     create table if not exists registry_info
     (

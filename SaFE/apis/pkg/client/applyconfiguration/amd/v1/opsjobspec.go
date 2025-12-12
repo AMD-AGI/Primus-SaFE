@@ -23,6 +23,7 @@ type OpsJobSpecApplyConfiguration struct {
 	Env                     map[string]string                   `json:"env,omitempty"`
 	IsTolerateAll           *bool                               `json:"isTolerateAll,omitempty"`
 	Hostpath                []string                            `json:"hostpath,omitempty"`
+	ExcludedNodes           []string                            `json:"excludedNodes,omitempty"`
 }
 
 // OpsJobSpecApplyConfiguration constructs a declarative configuration of the OpsJobSpec type for use with
@@ -120,6 +121,16 @@ func (b *OpsJobSpecApplyConfiguration) WithIsTolerateAll(value bool) *OpsJobSpec
 func (b *OpsJobSpecApplyConfiguration) WithHostpath(values ...string) *OpsJobSpecApplyConfiguration {
 	for i := range values {
 		b.Hostpath = append(b.Hostpath, values[i])
+	}
+	return b
+}
+
+// WithExcludedNodes adds the given value to the ExcludedNodes field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the ExcludedNodes field.
+func (b *OpsJobSpecApplyConfiguration) WithExcludedNodes(values ...string) *OpsJobSpecApplyConfiguration {
+	for i := range values {
+		b.ExcludedNodes = append(b.ExcludedNodes, values[i])
 	}
 	return b
 }

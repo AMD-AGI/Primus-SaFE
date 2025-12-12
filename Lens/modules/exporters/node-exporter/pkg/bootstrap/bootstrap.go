@@ -25,7 +25,7 @@ var schemes = &runtime.SchemeBuilder{
 func Bootstrap(ctx context.Context) error {
 	// Setup graceful shutdown handler
 	setupGracefulShutdown()
-	
+
 	return server.InitServerWithPreInitFunc(ctx, func(ctx context.Context, cfg *config.Config) error {
 		err := controller.RegisterScheme(schemes)
 		if err != nil {
@@ -34,6 +34,9 @@ func Bootstrap(ctx context.Context) error {
 		if err := collector.Init(ctx, *cfg); err != nil {
 			return err
 		}
+
+		// Initialize container filesystem readers
+		api.InitContainerFS()
 
 		router.RegisterGroup(api.RegisterRouter)
 		collector.Start(ctx)
@@ -45,14 +48,14 @@ func Bootstrap(ctx context.Context) error {
 func setupGracefulShutdown() {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-	
+
 	go func() {
 		sig := <-sigChan
 		log.Infof("Received signal %v, shutting down gracefully...", sig)
-		
+
 		// Shutdown HTTP reporter to flush any buffered events
 		report.Shutdown()
-		
+
 		log.Info("Graceful shutdown completed")
 		os.Exit(0)
 	}()

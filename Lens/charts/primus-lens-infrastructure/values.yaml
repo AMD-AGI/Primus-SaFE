@@ -1,0 +1,131 @@
+#
+# Primus Lens Infrastructure - Default Configuration Values
+#
+# This chart deploys infrastructure CRs:
+# - PostgreSQL Cluster
+# - OpenSearch Cluster
+# - VictoriaMetrics Cluster
+#
+
+# ============================================================================
+# Global Configuration
+# ============================================================================
+global:
+  clusterName: "my-cluster"
+  namespace: "primus-lens"
+  storageClass: "local-path"
+  accessMode: "ReadWriteOnce"
+
+# ============================================================================
+# Resource Profile Selection
+# ============================================================================
+profile: "minimal"
+
+profiles:
+  minimal:
+    opensearch:
+      diskSize: "30Gi"
+      memory: "2Gi"
+      cpu: "1000m"
+    postgres:
+      backupSize: "10Gi"
+      dataSize: "20Gi"
+      replicas: 1
+    victoriametrics:
+      vmagent:
+        cpu: "500m"
+        memory: "512Mi"
+      vmstorage:
+        replicas: 1
+        cpu: "1000m"
+        memory: "2Gi"
+        size: "30Gi"
+      vmselect:
+        replicas: 1
+        cpu: "500m"
+        memory: "1Gi"
+      vminsert:
+        replicas: 1
+        cpu: "500m"
+        memory: "1Gi"
+  
+  normal:
+    opensearch:
+      diskSize: "50Gi"
+      memory: "4Gi"
+      cpu: "2000m"
+    postgres:
+      backupSize: "20Gi"
+      dataSize: "50Gi"
+      replicas: 2
+    victoriametrics:
+      vmagent:
+        cpu: "1000m"
+        memory: "1Gi"
+      vmstorage:
+        replicas: 2
+        cpu: "2000m"
+        memory: "4Gi"
+        size: "50Gi"
+      vmselect:
+        replicas: 2
+        cpu: "1000m"
+        memory: "2Gi"
+      vminsert:
+        replicas: 2
+        cpu: "1000m"
+        memory: "2Gi"
+  
+  large:
+    opensearch:
+      diskSize: "100Gi"
+      memory: "8Gi"
+      cpu: "4000m"
+    postgres:
+      backupSize: "50Gi"
+      dataSize: "100Gi"
+      replicas: 3
+    victoriametrics:
+      vmagent:
+        cpu: "2000m"
+        memory: "2Gi"
+      vmstorage:
+        replicas: 3
+        cpu: "4000m"
+        memory: "8Gi"
+        size: "100Gi"
+      vmselect:
+        replicas: 3
+        cpu: "2000m"
+        memory: "4Gi"
+      vminsert:
+        replicas: 3
+        cpu: "2000m"
+        memory: "4Gi"
+
+# ============================================================================
+# Database Configuration
+# ============================================================================
+database:
+  enabled: true
+
+# ============================================================================
+# OpenSearch Configuration
+# ============================================================================
+opensearch:
+  enabled: true
+  clusterName: "primus-lens-logs"
+  nodeSets:
+    - name: "nodes"
+      replicas: 3
+      roles:
+        - master
+        - data
+        - ingest
+
+# ============================================================================
+# VictoriaMetrics Configuration
+# ============================================================================
+victoriametrics:
+  enabled: true
+

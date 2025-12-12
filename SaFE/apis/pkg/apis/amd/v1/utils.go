@@ -6,6 +6,7 @@
 package v1
 
 import (
+	"encoding/json"
 	"strconv"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -315,6 +316,26 @@ func GetSecretType(obj metav1.Object) string {
 // GetCronjobTimestamp retrieves the cronjob timestamp from annotations.
 func GetCronjobTimestamp(obj metav1.Object) string {
 	return GetAnnotation(obj, CronJobTimestampAnnotation)
+}
+
+func GetEnvToBeRemoved(obj metav1.Object) []string {
+	str := GetAnnotation(obj, EnvToBeRemovedAnnotation)
+	if str == "" {
+		return nil
+	}
+	var result []string
+	if json.Unmarshal([]byte(str), &result) != nil {
+		return nil
+	}
+	return result
+}
+
+func GetGithubSecretId(obj metav1.Object) string {
+	return GetAnnotation(obj, GithubSecretIdAnnotation)
+}
+
+func GetAdminControlPlane(obj metav1.Object) string {
+	return GetAnnotation(obj, AdminControlPlaneAnnotation)
 }
 
 // atoi converts a string to an integer, returning 0 if conversion fails.

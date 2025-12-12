@@ -119,7 +119,9 @@ class DataConfig:
 class SystemConfig:
     """System and hardware configuration"""
     # Device settings
-    device: str = "cuda" if torch.cuda.is_available() else "cpu"
+    # Support both CUDA and ROCm
+    device: str = "cuda" if (torch.cuda.is_available() or 
+                            (hasattr(torch, 'hip') and torch.hip.is_available())) else "cpu"
     device_id: int = 0
     
     # Distributed training
@@ -241,10 +243,22 @@ class Config:
     
     def validate(self):
         """Validate configuration settings"""
-        # Check device
-        if self.system.device == "cuda" and not torch.cuda.is_available():
-            logging.warning("CUDA requested but not available, falling back to CPU")
-            self.system.device = "cpu"
+        # Check device (support both CUDA and ROCm)
+        if self.system.device == "cuda":
+            if not torch.cuda.is_available():
+                # Check if ROCm is available (AMD GPUs)
+                try:
+                    import subprocess
+                    result = subprocess.run(['rocm-smi', '--showid'], capture_output=True, text=True)
+                    if result.returncode == 0:
+                        logging.info("ROCm GPUs detected, using cuda interface (ROCm PyTorch required)")
+                        # ROCm PyTorch uses cuda namespace, so keep device as "cuda"
+                    else:
+                        logging.warning("Neither CUDA nor ROCm available, falling back to CPU")
+                        self.system.device = "cpu"
+                except:
+                    logging.warning("GPU detection failed, falling back to CPU")
+                    self.system.device = "cpu"
         
         # Check paths
         if self.system.output_dir:

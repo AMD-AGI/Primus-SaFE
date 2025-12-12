@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
+
+#  Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+#  See LICENSE for license information.
+
+import atexit
 import base64
 import json
 import os
 import signal
 import sys
 import time
-import atexit
 from typing import Any, Dict, Optional, Tuple
+
 import requests
 
 # Environment variable keys
@@ -25,7 +30,7 @@ SCALE_RUNNER_SET_ENV = "SCALE_RUNNER_SET_ID"
 GVK_KIND_ENV = "GVK_KIND"        # default: Deployment
 GVK_VERSION_ENV = "GVK_VERSION"  # default: v1
 POLL_INTERVAL_SECS = 5
-DEFAULT_POLL_TIMEOUT_SECS = 36000
+DEFAULT_POLL_TIMEOUT_SECS = 604800
 
 
 def getenv_str(name: str, default: Optional[str] = None) -> Optional[str]:
@@ -118,7 +123,9 @@ def build_payload_from_input(inp: Dict[str, Any]) -> Dict[str, Any]:
         "groupVersionKind": {"kind": gvk_kind, "version": gvk_version},
         "description": description,
         "ttlSecondsAfterFinished": 20,
+        "timeout": DEFAULT_POLL_TIMEOUT_SECS,
         "priority": priority,
+        "preheat": True,
     }
     if isinstance(timeout, int) and timeout > 0:
         payload["timeout"] = timeout
@@ -302,7 +309,8 @@ def main() -> int:
                 finished["done"] = True
                 break
         except Exception as e:
-            print(f"[warn] failed to get workload phase: {e}", file=sys.stderr)
+            if (time.time() - start_time) >= 10:
+                print(f"[warn] failed to get workload phase: {e}", file=sys.stderr)
 
         if poll_timeout > 0 and (time.time() - start_time) >= poll_timeout:
             print(f"[error] polling timed out after {poll_timeout}s", file=sys.stderr)
@@ -322,8 +330,9 @@ def main() -> int:
         print(f"[error] failed to write output: {e}", file=sys.stderr)
         return 6
 
-    return 0 if final_phase == "Succeeded" else 1
-
+    if final_phase == "Succeeded" or final_phase == "Stopped":
+        return 0
+    return 1
 
 if __name__ == "__main__":
     sys.exit(main())

@@ -1,0 +1,21 @@
+apiVersion: v2
+name: primus-lens-installer
+description: Primus Lens Dataplane Installer - One-click deployment of all dataplane components
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+
+keywords:
+  - primus
+  - lens
+  - monitoring
+  - observability
+  - dataplane
+
+maintainers:
+  - name: Primus Team
+    email: primus@amd.com
+
+annotations:
+  category: Monitoring
+

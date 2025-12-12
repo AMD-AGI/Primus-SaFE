@@ -1,0 +1,26 @@
+
+=======================================================================
+  Primus Lens Apps - Control Plane Deployed!
+=======================================================================
+
+Control plane components deployed:
+
+{{- if .Values.apps.api.enabled }}
+  * API Service: {{ include "lens.fullname" . }}-api
+{{- end }}
+{{- if .Values.apps.primusSafeAdapter.enabled }}
+  * Primus Safe Adapter: {{ include "lens.fullname" . }}-primus-safe-adapter
+{{- end }}
+{{- if .Values.apps.multiClusterConfigExporter.enabled }}
+  * Multi-Cluster Config Exporter: {{ include "lens.fullname" . }}-multi-cluster-config-exporter
+{{- end }}
+
+To check the status:
+  kubectl get pods -n {{ .Values.global.namespace }} -l app.kubernetes.io/instance={{ .Release.Name }}
+
+To upgrade control plane components:
+  helm upgrade {{ .Release.Name }} primus-lens-apps-control-plane \
+    --set apps.api.image=primuslens/primus-lens-api:v2.0.0
+
+=======================================================================
+

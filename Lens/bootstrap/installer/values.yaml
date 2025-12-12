@@ -1,0 +1,245 @@
+#
+# Primus Lens Installer - Unified Configuration
+#
+# This is the main configuration file for the Primus Lens Installer.
+# It contains settings for all stages: operators, infrastructure, init, and apps.
+#
+# Usage:
+#   primus-lens-installer install dataplane --config values.yaml
+#
+
+# ============================================================================
+# Global Configuration
+# ============================================================================
+global:
+  # Cluster name - used for labeling and identification
+  # Must be lowercase, alphanumeric or '-', max 16 chars
+  clusterName: "tas"
+  
+  # Kubernetes namespace for all components
+  namespace: "primus-lens"
+  
+  # Storage class for persistent volumes
+  # Run: kubectl get storageclass - to see available options
+  storageClass: "local-path"
+  
+  # Access mode for persistent volumes
+  # Options: "ReadWriteOnce" or "ReadWriteMany" (if your storage supports it)
+  accessMode: "ReadWriteOnce"
+  
+  # Image registry settings
+  imageRegistry: "docker.io"
+  
+  # Access type for services
+  # Options: "ssh-tunnel" (port-forward) or "ingress" (requires ingress controller)
+  accessType: "ssh-tunnel"
+  
+  # Domain for ingress (only used when accessType is "ingress")
+  domain: "lens-primus.ai"
+
+# ============================================================================
+# Resource Profile Selection
+# ============================================================================
+# Choose profile based on your cluster size:
+# - minimal: Small clusters, testing environments (recommended for getting started)
+# - normal:  Production clusters with moderate workloads
+# - large:   Large-scale production clusters with high workloads
+profile: "minimal"
+
+# ============================================================================
+# Component Enable/Disable
+# ============================================================================
+# Set to false to skip installing specific components
+
+database:
+  enabled: true
+  initScript: "setup_primus_lens.sql"
+
+opensearch:
+  enabled: true
+  clusterName: "primus-lens-logs"
+  nodeSets:
+    - name: "nodes"
+      replicas: 1          # Set to 3 for production
+      roles:
+        - master
+        - data
+        - ingest
+
+victoriametrics:
+  enabled: true
+
+logging:
+  enabled: true
+
+grafana:
+  enabled: true
+  adminPassword: "admin"   # CHANGE THIS IN PRODUCTION!
+
+monitoring:
+  kubeStateMetrics:
+    enabled: true
+
+apps:
+  enabled: true
+
+# ============================================================================
+# Resource Profiles (Don't modify unless you know what you're doing)
+# ============================================================================
+profiles:
+  minimal:
+    opensearch:
+      diskSize: "30Gi"
+      memory: "2Gi"
+      cpu: "1000m"
+    postgres:
+      backupSize: "10Gi"
+      dataSize: "20Gi"
+      replicas: 1
+    victoriametrics:
+      vmagent:
+        cpu: "500m"
+        memory: "512Mi"
+      vmstorage:
+        replicas: 1
+        cpu: "1000m"
+        memory: "2Gi"
+        size: "30Gi"
+      vmselect:
+        replicas: 1
+        cpu: "500m"
+        memory: "1Gi"
+      vminsert:
+        replicas: 1
+        cpu: "500m"
+        memory: "1Gi"
+  
+  normal:
+    opensearch:
+      diskSize: "50Gi"
+      memory: "4Gi"
+      cpu: "2000m"
+    postgres:
+      backupSize: "20Gi"
+      dataSize: "50Gi"
+      replicas: 2
+    victoriametrics:
+      vmagent:
+        cpu: "1000m"
+        memory: "1Gi"
+      vmstorage:
+        replicas: 2
+        cpu: "2000m"
+        memory: "4Gi"
+        size: "50Gi"
+      vmselect:
+        replicas: 2
+        cpu: "1000m"
+        memory: "2Gi"
+      vminsert:
+        replicas: 2
+        cpu: "1000m"
+        memory: "2Gi"
+  
+  large:
+    opensearch:
+      diskSize: "100Gi"
+      memory: "8Gi"
+      cpu: "4000m"
+    postgres:
+      backupSize: "50Gi"
+      dataSize: "100Gi"
+      replicas: 3
+    victoriametrics:
+      vmagent:
+        cpu: "2000m"
+        memory: "2Gi"
+      vmstorage:
+        replicas: 3
+        cpu: "4000m"
+        memory: "8Gi"
+        size: "100Gi"
+      vmselect:
+        replicas: 3
+        cpu: "2000m"
+        memory: "4Gi"
+      vminsert:
+        replicas: 3
+        cpu: "2000m"
+        memory: "4Gi"
+
+# ============================================================================
+# Operator Configurations (Sub-charts)
+# These values are passed to the operator Helm charts
+# ============================================================================
+
+# VictoriaMetrics Operator
+vm-operator:
+  enabled: true
+  operator:
+    enable_converter_ownership: true
+    resources:
+      limits:
+        cpu: 200m
+        memory: 150Mi
+      requests:
+        cpu: 50m
+        memory: 100Mi
+
+# Fluent Operator
+fluent-operator:
+  enabled: true
+  operator:
+    resources:
+      limits:
+        cpu: 200m
+        memory: 200Mi
+      requests:
+        cpu: 50m
+        memory: 100Mi
+
+# OpenSearch Operator
+opensearch-operator:
+  enabled: true
+  manager:
+    resources:
+      limits:
+        cpu: 200m
+        memory: 256Mi
+      requests:
+        cpu: 50m
+        memory: 128Mi
+
+# PostgreSQL Operator (PGO)
+pgo:
+  enabled: true
+  resources:
+    limits:
+      cpu: 200m
+      memory: 256Mi
+    requests:
+      cpu: 50m
+      memory: 128Mi
+
+# Grafana Operator
+grafana-operator:
+  enabled: true
+  resources:
+    limits:
+      cpu: 200m
+      memory: 256Mi
+    requests:
+      cpu: 50m
+      memory: 128Mi
+
+# Kube State Metrics
+kube-state-metrics:
+  enabled: true
+  resources:
+    limits:
+      cpu: 200m
+      memory: 256Mi
+    requests:
+      cpu: 50m
+      memory: 128Mi
+

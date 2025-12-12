@@ -293,7 +293,7 @@ func (h *Handler) generateAddonJob(c *gin.Context, body []byte) (*v1.OpsJob, err
 	if req.AvailableRatio == nil || *req.AvailableRatio <= 0 {
 		req.AvailableRatio = pointer.Float64(1.0)
 	}
-	job := genDefaultOpsJob(c, &req.BaseOpsJobRequest)
+	job := genDefaultOpsJob(&req.BaseOpsJobRequest, requestUser)
 	if req.SecurityUpgrade {
 		v1.SetAnnotation(job, v1.OpsJobSecurityUpgradeAnnotation, "")
 	}
@@ -311,30 +311,35 @@ func (h *Handler) generateAddonJob(c *gin.Context, body []byte) (*v1.OpsJob, err
 // It authorizes the request for system admin,
 // and generates a job object with resource, image, and entrypoint specifications.
 func (h *Handler) generatePreflightJob(c *gin.Context, body []byte) (*v1.OpsJob, error) {
+	req := &types.CreatePreflightRequest{}
+	if err := jsonutils.Unmarshal(body, req); err != nil {
+		return nil, err
+	}
+
 	requestUser, err := h.getAndSetUsername(c)
 	if err != nil {
+		return nil, err
+	}
+
+	job := genDefaultOpsJob(&req.BaseOpsJobRequest, requestUser)
+	job.Spec.Resource = req.Resource
+	job.Spec.Image = req.Image
+	job.Spec.EntryPoint = req.EntryPoint
+	job.Spec.Env = req.Env
+	job.Spec.Hostpath = req.Hostpath
+	if req.WorkspaceId != "" {
+		v1.SetLabel(job, v1.WorkspaceIdLabel, req.WorkspaceId)
+	}
+	if err = h.generateOpsJobNodesInput(c.Request.Context(), job, &req.BaseOpsJobRequest); err != nil {
 		return nil, err
 	}
 	if err = h.accessController.Authorize(authority.AccessInput{
 		Context:      c.Request.Context(),
 		ResourceKind: authority.PreflightKind,
 		Verb:         v1.CreateVerb,
+		Workspaces:   []string{v1.GetWorkspaceId(job)},
 		User:         requestUser,
 	}); err != nil {
-		return nil, err
-	}
-
-	req := &types.CreatePreflightRequest{}
-	if err = jsonutils.Unmarshal(body, req); err != nil {
-		return nil, err
-	}
-	job := genDefaultOpsJob(c, &req.BaseOpsJobRequest)
-	job.Spec.Resource = req.Resource
-	job.Spec.Image = req.Image
-	job.Spec.EntryPoint = req.EntryPoint
-	job.Spec.Env = req.Env
-	job.Spec.Hostpath = req.Hostpath
-	if err = h.generateOpsJobNodesInput(c.Request.Context(), job, &req.BaseOpsJobRequest); err != nil {
 		return nil, err
 	}
 	return job, nil
@@ -360,7 +365,7 @@ func (h *Handler) generateDumpLogJob(c *gin.Context, body []byte) (*v1.OpsJob, e
 	if err = jsonutils.Unmarshal(body, req); err != nil {
 		return nil, err
 	}
-	job := genDefaultOpsJob(c, &req.BaseOpsJobRequest)
+	job := genDefaultOpsJob(&req.BaseOpsJobRequest, requestUser)
 
 	workloadParam := job.GetParameter(v1.ParameterWorkload)
 	if workloadParam == nil {
@@ -405,7 +410,7 @@ func (h *Handler) generateRebootJob(c *gin.Context, body []byte) (*v1.OpsJob, er
 		return nil, err
 	}
 
-	return genDefaultOpsJob(c, req), nil
+	return genDefaultOpsJob(req, requestUser), nil
 }
 
 // generateExportImageJob creates an export-image-type ops job.
@@ -483,7 +488,7 @@ func (h *Handler) generateExportImageJob(c *gin.Context, body []byte) (*v1.OpsJo
 	}
 
 	// Generate base OpsJob using genDefaultOpsJob
-	job := genDefaultOpsJob(c, jobReq)
+	job := genDefaultOpsJob(jobReq, requestUser)
 
 	// Add export-image specific labels
 	job.Labels[v1.WorkloadIdLabel] = workloadId
@@ -554,7 +559,7 @@ func (h *Handler) generatePrewarmImageJob(c *gin.Context, body []byte) (*v1.OpsJ
 	}
 
 	// Generate base OpsJob using genDefaultOpsJob
-	job := genDefaultOpsJob(c, jobReq)
+	job := genDefaultOpsJob(jobReq, requestUser)
 
 	// Add workspace and cluster labels for statistics and tracking
 	job.Labels[v1.WorkspaceIdLabel] = workspace
@@ -565,16 +570,16 @@ func (h *Handler) generatePrewarmImageJob(c *gin.Context, body []byte) (*v1.OpsJ
 
 // genDefaultOpsJob creates a default ops job object with common properties.
 // It sets up the job metadata including name, labels, annotations, and basic specifications.
-func genDefaultOpsJob(c *gin.Context, req *types.BaseOpsJobRequest) *v1.OpsJob {
+func genDefaultOpsJob(req *types.BaseOpsJobRequest, requestUser *v1.User) *v1.OpsJob {
 	job := &v1.OpsJob{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: commonutils.GenerateName(req.Name),
 			Labels: map[string]string{
-				v1.UserIdLabel:      c.GetString(common.UserId),
+				v1.UserIdLabel:      requestUser.Name,
 				v1.DisplayNameLabel: req.Name,
 			},
 			Annotations: map[string]string{
-				v1.UserNameAnnotation: c.GetString(common.UserName),
+				v1.UserNameAnnotation: v1.GetUserName(requestUser),
 			},
 		},
 		Spec: v1.OpsJobSpec{
@@ -583,6 +588,7 @@ func genDefaultOpsJob(c *gin.Context, req *types.BaseOpsJobRequest) *v1.OpsJob {
 			TimeoutSecond:           req.TimeoutSecond,
 			TTLSecondsAfterFinished: req.TTLSecondsAfterFinished,
 			IsTolerateAll:           req.IsTolerateAll,
+			ExcludedNodes:           req.ExcludedNodes,
 		},
 	}
 	if v1.GetUserName(job) == "" {
@@ -596,11 +602,20 @@ func genDefaultOpsJob(c *gin.Context, req *types.BaseOpsJobRequest) *v1.OpsJob {
 // and populates the job inputs with the corresponding node names. Nodes in the excludedNodes(parameter of request) list
 // are filtered out. The function ensures that ops jobs are ultimately executed on a per-node basis.
 func (h *Handler) generateOpsJobNodesInput(ctx context.Context, job *v1.OpsJob, req *types.BaseOpsJobRequest) error {
-	if job.GetParameter(v1.ParameterNode) != nil {
-		return nil
-	}
 	excludedNodesSet := sets.NewSetByKeys(req.ExcludedNodes...)
-	if workloadParam := job.GetParameter(v1.ParameterWorkload); workloadParam != nil {
+	if workloadParam := job.GetParameter(v1.ParameterNode); workloadParam != nil {
+		allNodes := job.GetParameters(v1.ParameterNode)
+		newInputs := make([]v1.Parameter, 0, len(allNodes))
+		for i, n := range allNodes {
+			if excludedNodesSet.Has(n.Value) {
+				continue
+			}
+			newInputs = append(newInputs, *allNodes[i])
+		}
+		if len(newInputs) != len(allNodes) {
+			job.Spec.Inputs = newInputs
+		}
+	} else if workloadParam = job.GetParameter(v1.ParameterWorkload); workloadParam != nil {
 		nodes, workspaceId, err := h.getNodesOfWorkload(ctx, workloadParam.Value)
 		if err != nil {
 			return err
@@ -625,6 +640,9 @@ func (h *Handler) generateOpsJobNodesInput(ctx context.Context, job *v1.OpsJob, 
 		}
 		v1.SetLabel(job, v1.WorkspaceIdLabel, workspaceParam.Value)
 	} else if clusterParam := job.GetParameter(v1.ParameterCluster); clusterParam != nil {
+		if v1.GetWorkspaceId(job) != "" {
+			return commonerrors.NewBadRequest("cannot run cluster-wide job when workspaceId is already specified")
+		}
 		nodes, err := commonnodes.GetNodesOfCluster(ctx, h.Client, clusterParam.Value, nil)
 		if err != nil {
 			return err
@@ -635,7 +653,6 @@ func (h *Handler) generateOpsJobNodesInput(ctx context.Context, job *v1.OpsJob, 
 			}
 			job.Spec.Inputs = append(job.Spec.Inputs, v1.Parameter{Name: v1.ParameterNode, Value: n.Name})
 		}
-
 	} else {
 		return commonerrors.NewBadRequest("the nodes of ops-job is not specified")
 	}
@@ -731,6 +748,9 @@ func cvtToListOpsJobSql(query *types.ListOpsJobRequest) (sqrl.Sqlizer, []string)
 	if clusterId := strings.TrimSpace(query.ClusterId); clusterId != "" {
 		dbSql = append(dbSql, sqrl.Eq{dbclient.GetFieldTag(dbTags, "Cluster"): clusterId})
 	}
+	if workspaceId := strings.TrimSpace(query.WorkspaceId); workspaceId != "" {
+		dbSql = append(dbSql, sqrl.Eq{dbclient.GetFieldTag(dbTags, "Workspace"): workspaceId})
+	}
 	if phase := strings.TrimSpace(string(query.Phase)); phase != "" {
 		dbSql = append(dbSql, sqrl.Eq{dbclient.GetFieldTag(dbTags, "Phase"): phase})
 	}
@@ -823,6 +843,11 @@ func cvtToGetOpsJobResponse(job *dbclient.OpsJob) types.GetOpsJobResponse {
 		json.Unmarshal([]byte(conditions), &result.Conditions)
 	}
 	result.Inputs = deserializeParams(string(job.Inputs))
+	if result.Type == v1.OpsJobAddonType || result.Type == v1.OpsJobPreflightType {
+		if hasParameters(result.Inputs, v1.ParameterWorkload, v1.ParameterWorkspace, v1.ParameterCluster) {
+			result.Inputs = getParametersExcept(result.Inputs, v1.ParameterNode)
+		}
+	}
 	if outputs := dbutils.ParseNullString(job.Outputs); outputs != "" {
 		json.Unmarshal([]byte(outputs), &result.Outputs)
 	}
@@ -840,6 +865,9 @@ func cvtToGetOpsJobResponse(job *dbclient.OpsJob) types.GetOpsJobResponse {
 	}
 	if hostpath := dbutils.ParseNullString(job.Hostpath); hostpath != "" {
 		json.Unmarshal([]byte(hostpath), &result.Hostpath)
+	}
+	if nodes := dbutils.ParseNullString(job.ExcludedNodes); nodes != "" {
+		json.Unmarshal([]byte(nodes), &result.ExcludedNodes)
 	}
 	return result
 }
@@ -860,4 +888,28 @@ func deserializeParams(strInput string) []v1.Parameter {
 		}
 	}
 	return result
+}
+
+// getParametersExcept returns all parameters except those with the specified name
+func getParametersExcept(inputs []v1.Parameter, ignoreName string) []v1.Parameter {
+	var result []v1.Parameter
+	for i, param := range inputs {
+		if param.Name == ignoreName {
+			continue
+		}
+		result = append(result, inputs[i])
+	}
+	return result
+}
+
+// hasParameters checks if a parameter with the given names exist.
+func hasParameters(inputs []v1.Parameter, names ...string) bool {
+	for _, name := range names {
+		for _, param := range inputs {
+			if param.Name == name {
+				return true
+			}
+		}
+	}
+	return false
 }

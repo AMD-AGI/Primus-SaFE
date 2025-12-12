@@ -41,7 +41,6 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/backoff"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/concurrent"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
-	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/maps"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/netutil"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
@@ -148,20 +147,38 @@ func (h *Handler) createWorkload(c *gin.Context) (interface{}, error) {
 		return nil, commonerrors.NewBadRequest(err.Error())
 	}
 
+	isSucceed := false
+	defer func() {
+		if !isSucceed {
+			h.cleanupCICDSecrets(c.Request.Context(), workload)
+		}
+	}()
+
 	roles := h.accessController.GetRoles(c.Request.Context(), requestUser)
+	if req.Preheat {
+		preheatWorkload, err := h.generatePreheatWorkload(c.Request.Context(), workload, req)
+		if err != nil {
+			return nil, err
+		}
+		resp, err := h.createWorkloadImpl(c, preheatWorkload, requestUser, roles)
+		if err != nil {
+			return nil, err
+		}
+		workload.Spec.Dependencies = []string{resp.WorkloadId}
+	}
+
 	resp, err := h.createWorkloadImpl(c, workload, requestUser, roles)
 	if err != nil {
-		// Cleanup secrets created for CICD scaling runner set if workload creation fails
-		h.cleanupCICDSecrets(c.Request.Context(), workload)
 		return nil, err
 	}
+	isSucceed = true
 	return resp, nil
 }
 
 // createWorkloadImpl performs the actual workload creation in the system.
 // Handles authorization checks, workload creation in etcd, and initial phase setting.
 func (h *Handler) createWorkloadImpl(c *gin.Context,
-	workload *v1.Workload, requestUser *v1.User, roles []*v1.Role) (interface{}, error) {
+	workload *v1.Workload, requestUser *v1.User, roles []*v1.Role) (*types.CreateWorkloadResponse, error) {
 	var err error
 	if err = h.authWorkloadAction(c, workload, v1.CreateVerb, requestUser, roles); err != nil {
 		klog.ErrorS(err, "failed to auth workload", "workload", workload.Name,
@@ -182,9 +199,12 @@ func (h *Handler) createWorkloadImpl(c *gin.Context,
 		}
 		workload.Spec.Secrets[i].Type = v1.SecretType(v1.GetSecretType(secret))
 	}
-
-	v1.SetLabel(workload, v1.UserIdLabel, requestUser.Name)
-	v1.SetAnnotation(workload, v1.UserNameAnnotation, v1.GetUserName(requestUser))
+	if v1.GetUserId(workload) == "" {
+		v1.SetLabel(workload, v1.UserIdLabel, requestUser.Name)
+	}
+	if v1.GetUserName(workload) == "" {
+		v1.SetAnnotation(workload, v1.UserNameAnnotation, v1.GetUserName(requestUser))
+	}
 	if err = h.Create(c.Request.Context(), workload); err != nil {
 		return nil, err
 	}
@@ -396,7 +416,7 @@ func (h *Handler) stopWorkloadImpl(c *gin.Context, name string, requestUser *v1.
 			return nil, err
 		}
 	} else {
-		if adminWorkload.IsEnd() || adminWorkload.IsStopped() {
+		if adminWorkload.IsEnd() {
 			return nil, nil
 		}
 		if err = h.authWorkloadAction(c, adminWorkload, v1.DeleteVerb, requestUser, roles); err != nil {
@@ -496,6 +516,8 @@ func (h *Handler) cloneWorkloadImpl(c *gin.Context, name string, requestUser *v1
 	}); err != nil {
 		return nil, err
 	}
+	v1.RemoveLabel(workload, v1.UserIdLabel)
+	v1.RemoveAnnotation(workload, v1.UserNameAnnotation)
 	klog.Infof("cloning workload from %s to %s", name, workload.Name)
 	return h.createWorkloadImpl(c, workload, requestUser, roles)
 }
@@ -727,6 +749,42 @@ func (h *Handler) generateWorkload(ctx context.Context,
 	return workload, nil
 }
 
+func (h *Handler) generatePreheatWorkload(ctx context.Context,
+	mainWorkload *v1.Workload, mainQuery *types.CreateWorkloadRequest) (*v1.Workload, error) {
+	preheatWorkload := mainWorkload.DeepCopy()
+	preheatWorkload.Name = commonutils.GenerateName(v1.GetDisplayName(mainWorkload))
+	preheatWorkload.Spec.GroupVersionKind = v1.GroupVersionKind{Kind: common.JobKind, Version: common.DefaultVersion}
+	v1.SetLabel(preheatWorkload, v1.DisplayNameLabel, v1.GetDisplayName(mainWorkload)+"-preheat")
+	v1.SetLabel(preheatWorkload, v1.UserIdLabel, common.UserSystem)
+	v1.SetAnnotation(preheatWorkload, v1.UserNameAnnotation, common.UserSystem)
+
+	preheatWorkload.Spec.EntryPoint = stringutil.Base64Encode("echo \"preheat finished\"")
+	preheatWorkload.Spec.IsSupervised = false
+	preheatWorkload.Spec.MaxRetry = 0
+	preheatWorkload.Spec.TTLSecondsAfterFinished = pointer.Int(10)
+	preheatWorkload.Spec.CronJobs = nil
+	preheatWorkload.Spec.Dependencies = nil
+	preheatWorkload.Spec.Resource = v1.WorkloadResource{
+		CPU:              "1",
+		Memory:           "8Gi",
+		EphemeralStorage: "50Gi",
+	}
+	if len(mainQuery.SpecifiedNodes) > 0 {
+		preheatWorkload.Spec.Resource.Replica = len(mainQuery.SpecifiedNodes)
+	} else {
+		workspace, err := h.getAdminWorkspace(ctx, preheatWorkload.Spec.Workspace)
+		if err != nil {
+			return nil, err
+		}
+		if mainWorkload.Spec.IsTolerateAll {
+			preheatWorkload.Spec.Resource.Replica = workspace.CurrentReplica()
+		} else {
+			preheatWorkload.Spec.Resource.Replica = workspace.Status.AvailableReplica
+		}
+	}
+	return preheatWorkload, nil
+}
+
 // generateCICDScaleRunnerSet configures a workload for CICD scaling runner set.
 // It validates CICD settings, creates a GitHub token secret, and sets the control plane IP.
 func (h *Handler) generateCICDScaleRunnerSet(ctx context.Context, workload *v1.Workload, requestUser *v1.User) error {
@@ -737,7 +795,7 @@ func (h *Handler) generateCICDScaleRunnerSet(ctx context.Context, workload *v1.W
 	if err != nil {
 		return err
 	}
-	commonworkload.SetEnv(workload, common.AdminControlPlane, controlPlaneIp)
+	v1.SetAnnotation(workload, v1.AdminControlPlaneAnnotation, controlPlaneIp)
 
 	val, _ := workload.Spec.Env[GithubPAT]
 	if val == "" {
@@ -760,7 +818,7 @@ func (h *Handler) generateCICDScaleRunnerSet(ctx context.Context, workload *v1.W
 		return err
 	}
 	delete(workload.Spec.Env, GithubPAT)
-	workload.Spec.Env[common.GithubSecretId] = secret.Name
+	v1.SetAnnotation(workload, v1.GithubSecretIdAnnotation, secret.Name)
 	return nil
 }
 
@@ -975,6 +1033,9 @@ func cvtToListWorkloadSql(query *types.ListWorkloadRequest) (sqrl.Sqlizer, []str
 	if scaleRunnerSet := strings.TrimSpace(query.ScaleRunnerSet); scaleRunnerSet != "" {
 		dbSql = append(dbSql, sqrl.Eq{dbclient.GetFieldTag(dbTags, "ScaleRunnerSet"): scaleRunnerSet})
 	}
+	if scaleRunnerId := strings.TrimSpace(query.ScaleRunnerId); scaleRunnerId != "" {
+		dbSql = append(dbSql, sqrl.Eq{dbclient.GetFieldTag(dbTags, "ScaleRunnerId"): scaleRunnerId})
+	}
 	orderBy := buildOrderBy(query.SortBy, query.Order, dbTags)
 	return dbSql, orderBy
 }
@@ -1056,6 +1117,9 @@ func modifyWorkload(adminWorkload *v1.Workload, req *types.PatchWorkloadRequest)
 	if req.CronJobs != nil {
 		adminWorkload.Spec.CronJobs = *req.CronJobs
 	}
+	if req.Service != nil {
+		adminWorkload.Spec.Service = req.Service
+	}
 	return nil
 }
 
@@ -1085,6 +1149,7 @@ func (h *Handler) cvtDBWorkloadToResponseItem(ctx context.Context,
 		K8sObjectUid:   dbutils.ParseNullString(w.K8sObjectUid),
 		AvgGpuUsage:    -1, // Default value when statistics are not available
 		ScaleRunnerSet: dbutils.ParseNullString(w.ScaleRunnerSet),
+		ScaleRunnerId:  dbutils.ParseNullString(w.ScaleRunnerId),
 	}
 	if result.EndTime == "" && result.DeletionTime != "" {
 		result.EndTime = result.DeletionTime
@@ -1172,12 +1237,6 @@ func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context,
 	}
 	if str := dbutils.ParseNullString(dbWorkload.Env); str != "" {
 		json.Unmarshal([]byte(str), &result.Env)
-		result.Env = maps.RemoveValue(result.Env, "")
-		if result.GroupVersionKind.Kind == common.CICDScaleRunnerSetKind ||
-			result.GroupVersionKind.Kind == common.CICDEphemeralRunnerKind {
-			delete(result.Env, common.AdminControlPlane)
-			delete(result.Env, common.GithubSecretId)
-		}
 	}
 	if str := dbutils.ParseNullString(dbWorkload.Dependencies); str != "" {
 		json.Unmarshal([]byte(str), &result.Dependencies)

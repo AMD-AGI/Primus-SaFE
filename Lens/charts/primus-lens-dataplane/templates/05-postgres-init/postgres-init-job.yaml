@@ -1,0 +1,112 @@
+{{/*
+PostgreSQL Initialization Job
+This job initializes the PostgreSQL database with the Primus Lens schema.
+It waits for PostgreSQL to be ready using an initContainer, then executes the SQL script.
+Runs as a post-install hook after infrastructure is deployed.
+*/}}
+{{- if .Values.database.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "primus-lens.fullname" . }}-postgres-init
+  namespace: {{ include "primus-lens.namespace" . }}
+  labels:
+    {{- include "primus-lens.labels" . | nindent 4 }}
+    app.kubernetes.io/component: database-init
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "10"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 5
+  template:
+    metadata:
+      name: postgres-init
+      labels:
+        {{- include "primus-lens.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: database-init
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: primus-lens-installer
+      {{- include "primus-lens.imagePullSecrets" . | nindent 6 }}
+      
+      # Wait for PostgreSQL to be ready
+      initContainers:
+      - name: wait-postgres
+        image: postgres:16
+        imagePullPolicy: IfNotPresent
+        command:
+        - /bin/bash
+        - -c
+        - |
+          set -e
+          echo "========================================="
+          echo "⏳ Waiting for PostgreSQL to be ready..."
+          echo "========================================="
+          
+          POSTGRES_HOST="{{ include "primus-lens.postgresHost" . }}"
+          MAX_ATTEMPTS=60
+          ATTEMPT=0
+          
+          until pg_isready -h "$POSTGRES_HOST" -p 5432 -U postgres; do
+            ATTEMPT=$((ATTEMPT + 1))
+            if [ $ATTEMPT -ge $MAX_ATTEMPTS ]; then
+              echo "❌ PostgreSQL is not ready after $MAX_ATTEMPTS attempts (5 minutes)"
+              echo "   Checking PostgreSQL pods:"
+              exit 1
+            fi
+            echo "⏳ [$ATTEMPT/$MAX_ATTEMPTS] PostgreSQL is not ready yet, waiting..."
+            sleep 5
+          done
+          
+          echo "✅ PostgreSQL is ready!"
+          echo ""
+      
+      containers:
+      - name: init-db
+        image: postgres:16
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: PGHOST
+          value: {{ include "primus-lens.postgresHost" . }}
+        - name: PGPORT
+          value: "5432"
+        - name: PGUSER
+          value: postgres
+        - name: PGPASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: primus-lens-pguser-postgres
+              key: password
+        - name: PGDATABASE
+          value: postgres
+        
+        volumeMounts:
+        - name: init-script
+          mountPath: /scripts
+          readOnly: true
+        
+        command:
+        - /bin/bash
+        - -c
+        - |
+          set -e
+          echo "========================================="
+          echo "📥 Initializing PostgreSQL database..."
+          echo "========================================="
+          echo ""
+          
+          # Execute initialization script
+          psql -f /scripts/{{ .Values.database.initScript }}
+          
+          echo ""
+          echo "========================================="
+          echo "✅ Database initialized successfully!"
+          echo "========================================="
+      
+      volumes:
+      - name: init-script
+        configMap:
+          name: {{ include "primus-lens.fullname" . }}-postgres-init-script
+{{- end }}
+

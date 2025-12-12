@@ -1,0 +1,60 @@
+{{/*
+Installer Job - Runs the primus-lens-installer to deploy all dataplane components.
+
+Installation Order:
+1. Operators (VM, PGO, OpenSearch, Grafana, Fluent, KSM)
+2. Infrastructure CRs (PostgreSQL, OpenSearch, VictoriaMetrics clusters)
+3. Init Jobs (Database initialization, storage config)
+4. Applications (telemetry-processor, jobs, etc.)
+*/}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "installer.fullname" . }}
+  namespace: {{ include "installer.namespace" . }}
+  labels:
+    {{- include "installer.labels" . | nindent 4 }}
+    app.kubernetes.io/component: installer
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  ttlSecondsAfterFinished: {{ .Values.installer.ttlSecondsAfterFinished }}
+  backoffLimit: {{ .Values.installer.backoffLimit }}
+  activeDeadlineSeconds: {{ .Values.installer.activeDeadlineSeconds }}
+  template:
+    metadata:
+      labels:
+        {{- include "installer.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: installer
+    spec:
+      serviceAccountName: {{ include "installer.serviceAccountName" . }}
+      restartPolicy: OnFailure
+      containers:
+        - name: installer
+          image: "{{ .Values.installer.image.repository }}:{{ .Values.installer.image.tag }}"
+          imagePullPolicy: {{ .Values.installer.image.pullPolicy }}
+          command:
+            - /primus-lens-installer
+            - install
+            - dataplane
+            - --config
+            - /config/values.yaml
+            - --verbose
+          env:
+            - name: NAMESPACE
+              value: {{ include "installer.namespace" . | quote }}
+            - name: CHARTS_DIR
+              value: "/charts"
+          volumeMounts:
+            - name: config
+              mountPath: /config
+              readOnly: true
+          resources:
+            {{- toYaml .Values.installer.resources | nindent 12 }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "installer.fullname" . }}-config
+

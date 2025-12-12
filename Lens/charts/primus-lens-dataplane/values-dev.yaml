@@ -1,0 +1,50 @@
+# Development Environment Configuration
+# Override default values for development/testing environments
+
+global:
+  clusterName: "dev-cluster"
+  namespace: "primus-lens-dev"
+  storageClass: "local-path"
+  accessMode: "ReadWriteOnce"
+  imageRegistry: "docker.io"
+  accessType: "ssh-tunnel"
+  domain: "lens-primus-dev.ai"
+
+# Use minimal profile for development
+profile: "minimal"
+
+# Reduce replicas for dev environment
+apps:
+  api:
+    replicas: 1
+  telemetryCollector:
+    replicas: 1
+  jobs:
+    replicas: 1
+  web:
+    replicas: 1
+
+# Simplified database configuration
+database:
+  enabled: true
+
+# Simplified monitoring
+victoriametrics:
+  enabled: true
+
+# Optional components - can be disabled to save resources
+opensearch:
+  enabled: true
+
+logging:
+  enabled: true
+
+grafana:
+  enabled: true
+  adminPassword: "admin"  # Default password for dev
+
+# Disable kube-state-metrics in dev if not needed
+monitoring:
+  kubeStateMetrics:
+    enabled: false
+
