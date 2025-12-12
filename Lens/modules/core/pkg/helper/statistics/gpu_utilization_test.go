@@ -201,11 +201,11 @@ func TestCalculatePercentile_SingleValue(t *testing.T) {
 
 func TestCalculatePercentile_TwoValues(t *testing.T) {
 	values := []float64{50.0, 100.0}
-	
+
 	// P50 should be exactly in the middle
 	p50 := calculatePercentile(values, 0.5)
 	assert.Equal(t, 75.0, p50)
-	
+
 	// P95 should be close to the max
 	p95 := calculatePercentile(values, 0.95)
 	assert.InDelta(t, 97.5, p95, 0.1)
@@ -214,11 +214,11 @@ func TestCalculatePercentile_TwoValues(t *testing.T) {
 func TestCalculatePercentile_MultipleValues(t *testing.T) {
 	// Sorted values: 10, 20, 30, 40, 50, 60, 70, 80, 90, 100
 	values := []float64{10, 20, 30, 40, 50, 60, 70, 80, 90, 100}
-	
+
 	// P50 (median) should be between 50 and 60
 	p50 := calculatePercentile(values, 0.5)
 	assert.InDelta(t, 55.0, p50, 0.1)
-	
+
 	// P95 should be close to 100
 	p95 := calculatePercentile(values, 0.95)
 	assert.InDelta(t, 95.5, p95, 1.0)
@@ -226,11 +226,11 @@ func TestCalculatePercentile_MultipleValues(t *testing.T) {
 
 func TestCalculatePercentile_BoundaryConditions(t *testing.T) {
 	values := []float64{10, 20, 30, 40, 50}
-	
+
 	// P0 should be the minimum
 	p0 := calculatePercentile(values, 0.0)
 	assert.Equal(t, 10.0, p0)
-	
+
 	// P100 should be the maximum
 	p100 := calculatePercentile(values, 1.0)
 	assert.Equal(t, 50.0, p100)
@@ -238,7 +238,7 @@ func TestCalculatePercentile_BoundaryConditions(t *testing.T) {
 
 func TestCalculateUtilizationStatsWithPercentiles_EmptyValues(t *testing.T) {
 	stats := calculateUtilizationStatsWithPercentiles([]float64{})
-	
+
 	assert.Equal(t, 0.0, stats.AvgUtilization)
 	assert.Equal(t, 0.0, stats.MaxUtilization)
 	assert.Equal(t, 0.0, stats.MinUtilization)
@@ -249,7 +249,7 @@ func TestCalculateUtilizationStatsWithPercentiles_EmptyValues(t *testing.T) {
 func TestCalculateUtilizationStatsWithPercentiles_SingleValue(t *testing.T) {
 	values := []float64{75.5}
 	stats := calculateUtilizationStatsWithPercentiles(values)
-	
+
 	// All stats should be the same value
 	assert.Equal(t, 75.5, stats.AvgUtilization)
 	assert.Equal(t, 75.5, stats.MaxUtilization)
@@ -264,9 +264,9 @@ func TestCalculateUtilizationStatsWithPercentiles_UniformValues(t *testing.T) {
 	for i := 0; i < 30; i++ {
 		values[i] = 70.0 // All GPUs at 70% utilization
 	}
-	
+
 	stats := calculateUtilizationStatsWithPercentiles(values)
-	
+
 	assert.Equal(t, 70.0, stats.AvgUtilization)
 	assert.Equal(t, 70.0, stats.MaxUtilization)
 	assert.Equal(t, 70.0, stats.MinUtilization)
@@ -281,22 +281,22 @@ func TestCalculateUtilizationStatsWithPercentiles_VariedValues(t *testing.T) {
 		60, 65, 70, 75, 80, 85, 90, 95, 100, 95,
 		90, 85, 80, 75, 70, 65, 60, 55, 50, 45,
 	}
-	
+
 	stats := calculateUtilizationStatsWithPercentiles(values)
-	
+
 	// Average should be around the middle
 	assert.InDelta(t, 62.5, stats.AvgUtilization, 5.0)
-	
+
 	// Max should be 100
 	assert.Equal(t, 100.0, stats.MaxUtilization)
-	
+
 	// Min should be 10
 	assert.Equal(t, 10.0, stats.MinUtilization)
-	
+
 	// P50 should be around the median
 	assert.Greater(t, stats.P50Utilization, 50.0)
 	assert.Less(t, stats.P50Utilization, 80.0)
-	
+
 	// P95 should be high
 	assert.Greater(t, stats.P95Utilization, 90.0)
 }
@@ -309,20 +309,20 @@ func TestCalculateUtilizationStatsWithPercentiles_RealWorldScenario(t *testing.T
 		75, 80, 85, 88, 90, 92, 95, 96, 97, 98,
 		97, 96, 95, 94, 93, 92, 90, 88, 85, 82,
 	}
-	
+
 	stats := calculateUtilizationStatsWithPercentiles(values)
-	
+
 	// Verify statistics are reasonable
 	assert.Greater(t, stats.AvgUtilization, 70.0)
 	assert.Less(t, stats.AvgUtilization, 80.0)
-	
+
 	assert.Equal(t, 98.0, stats.MaxUtilization)
 	assert.Equal(t, 30.0, stats.MinUtilization)
-	
+
 	// P50 should be around the middle of the distribution
 	assert.Greater(t, stats.P50Utilization, 80.0)
 	assert.Less(t, stats.P50Utilization, 95.0)
-	
+
 	// P95 should be close to max
 	assert.Greater(t, stats.P95Utilization, 95.0)
 	assert.LessOrEqual(t, stats.P95Utilization, 98.0)
@@ -333,10 +333,9 @@ func TestCalculateUtilizationStatsWithPercentiles_DoesNotModifyInput(t *testing.
 	values := []float64{90, 10, 50, 70, 30}
 	originalValues := make([]float64, len(values))
 	copy(originalValues, values)
-	
+
 	calculateUtilizationStatsWithPercentiles(values)
-	
+
 	// Verify input slice is unchanged
 	assert.Equal(t, originalValues, values)
 }
-

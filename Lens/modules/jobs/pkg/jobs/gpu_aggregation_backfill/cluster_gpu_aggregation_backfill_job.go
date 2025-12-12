@@ -284,6 +284,15 @@ func (j *ClusterGpuAggregationBackfillJob) findMissingClusterStats(
 		return nil, fmt.Errorf("failed to get cluster hourly stats: %w", err)
 	}
 
+	// Debug logging to help diagnose the issue
+	log.Debugf("Backfill query range: %v to %v", startTime, endTime)
+	log.Debugf("Database returned %d existing cluster stats records", len(clusterStats))
+	if len(clusterStats) > 0 {
+		log.Debugf("First existing record time: %v", clusterStats[0].StatHour)
+		log.Debugf("Last existing record time: %v", clusterStats[len(clusterStats)-1].StatHour)
+	}
+	log.Debugf("Total hours to check: %d", len(allHours))
+
 	// Find missing hours using helper function
 	missingClusterHours := FindMissingClusterHours(allHours, clusterStats)
 
@@ -331,6 +340,7 @@ func (j *ClusterGpuAggregationBackfillJob) backfillClusterStats(
 	}
 
 	for _, hour := range missingHours {
+		log.Debugf("Processing cluster GPU aggregation backfill for hour %v", hour)
 		// Use time-weighted calculation from statistics package
 		result, err := calculator.CalculateHourlyGpuAllocation(ctx, hour)
 		if err != nil {
