@@ -87,8 +87,8 @@ func (c *Client) SelectWorkloads(ctx context.Context, query sqrl.Sqlizer, orderB
 	defer func() {
 		if query != nil {
 			strQuery := dbutils.CvtToSqlStr(query)
-			klog.Infof("select workload, query: %s, limit: %d, offset: %d, cost (%v)",
-				strQuery, limit, offset, time.Since(startTime))
+			klog.Infof("select workload, query: %s, orderBy: %v, limit: %d, offset: %d, cost (%v)",
+				strQuery, orderBy, limit, offset, time.Since(startTime))
 		}
 	}()
 	db, err := c.getDB()

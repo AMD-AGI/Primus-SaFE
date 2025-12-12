@@ -623,11 +623,11 @@ func updateCICDGithub(adminWorkload *v1.Workload, obj *unstructured.Unstructured
 	if !ok {
 		return fmt.Errorf("failed to find object with path: [spec]")
 	}
-	if adminWorkload.Spec.Env[common.GithubSecretId] == "" || adminWorkload.Spec.Env[common.GithubConfigUrl] == "" {
+	if v1.GetGithubSecretId(adminWorkload) == "" || adminWorkload.Spec.Env[common.GithubConfigUrl] == "" {
 		return commonerrors.NewInternalError("github config is not set")
 	}
 
-	specObject["githubConfigSecret"] = adminWorkload.Spec.Env[common.GithubSecretId]
+	specObject["githubConfigSecret"] = v1.GetGithubSecretId(adminWorkload)
 	specObject["githubConfigUrl"] = adminWorkload.Spec.Env[common.GithubConfigUrl]
 	if commonworkload.IsCICDEphemeralRunner(adminWorkload) {
 		if runnerSetId := v1.GetCICDRunnerScaleSetId(adminWorkload); runnerSetId != "" {
@@ -656,6 +656,8 @@ func updateCICDEnvironments(obj *unstructured.Unstructured,
 	envs[jobutils.UserIdEnv] = v1.GetUserId(adminWorkload)
 	envs[jobutils.PriorityEnv] = strconv.Itoa(adminWorkload.Spec.Priority)
 	envs[jobutils.WorkspaceIdEnv] = adminWorkload.Spec.Workspace
+	envs[jobutils.AdminControlPlaneEnv] = v1.GetAdminControlPlane(adminWorkload)
+	envs[jobutils.GithubSecretEnv] = v1.GetGithubSecretId(adminWorkload)
 	envs[common.ScaleRunnerSetID] = adminWorkload.Name
 
 	val, ok := adminWorkload.Spec.Env[common.UnifiedJobEnable]

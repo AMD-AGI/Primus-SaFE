@@ -64,6 +64,7 @@ type Workload struct {
 	CronJobs       sql.NullString `db:"cron_jobs"`
 	Secrets        sql.NullString `db:"secrets"`
 	ScaleRunnerSet sql.NullString `db:"scale_runner_set"`
+	ScaleRunnerId  sql.NullString `db:"scale_runner_id"`
 }
 
 // GetWorkloadFieldTags returns the WorkloadFieldTags value.
@@ -117,6 +118,7 @@ type OpsJob struct {
 	EntryPoint    sql.NullString `db:"entrypoint"`
 	IsTolerateAll bool           `db:"is_tolerate_all"`
 	Hostpath      sql.NullString `db:"hostpath"`
+	ExcludedNodes sql.NullString `db:"excluded_nodes"`
 }
 
 // GetOpsJobFieldTags returns the OpsJobFieldTags value.

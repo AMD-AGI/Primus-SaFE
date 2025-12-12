@@ -163,4 +163,6 @@ type GetOpsJobResponse struct {
 	IsTolerateAll bool `json:"isTolerateAll"`
 	// The hostpath for opsjob mounting.
 	Hostpath []string `json:"hostpath"`
+	// Nodes to be excluded, not participating in the ops job
+	ExcludedNodes []string `json:"excludedNodes,omitempty"`
 }

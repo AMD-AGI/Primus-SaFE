@@ -69,6 +69,8 @@ type OpsJobSpec struct {
 	IsTolerateAll bool `json:"isTolerateAll"`
 	// The hostpath for opsjob mounting.
 	Hostpath []string `json:"hostpath,omitempty"`
+	// The nodes to be excluded
+	ExcludedNodes []string `json:"excludedNodes,omitempty"`
 }
 
 type OpsJobStatus struct {
