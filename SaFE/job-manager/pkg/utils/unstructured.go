@@ -23,12 +23,14 @@ import (
 )
 
 const (
-	WorkspaceIdEnv = "WORKSPACE_ID"
-	UserIdEnv      = "USER_ID"
-	PriorityEnv    = "PRIORITY"
-	NfsPathEnv     = "SAFE_NFS_PATH"
-	NfsInputEnv    = "SAFE_NFS_INPUT"
-	NfsOutputEnv   = "SAFE_NFS_OUTPUT"
+	WorkspaceIdEnv       = "WORKSPACE_ID"
+	UserIdEnv            = "USER_ID"
+	PriorityEnv          = "PRIORITY"
+	AdminControlPlaneEnv = "ADMIN_CONTROL_PLANE"
+	GithubSecretEnv      = "GITHUB_SECRET_ID"
+	NfsPathEnv           = "SAFE_NFS_PATH"
+	NfsInputEnv          = "SAFE_NFS_INPUT"
+	NfsOutputEnv         = "SAFE_NFS_OUTPUT"
 )
 
 type K8sResourceStatus struct {

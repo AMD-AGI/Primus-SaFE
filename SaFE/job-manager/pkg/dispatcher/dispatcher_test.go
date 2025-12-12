@@ -488,8 +488,8 @@ func TestCreateCICDScaleSet(t *testing.T) {
 		Kind:    common.CICDScaleRunnerSetKind,
 	}
 	workload.Spec.Env[common.GithubConfigUrl] = "test-url"
-	workload.Spec.Env[common.AdminControlPlane] = "10.0.0.1"
-	workload.Spec.Env[common.GithubSecretId] = "test-secret"
+	v1.SetAnnotation(workload, v1.AdminControlPlaneAnnotation, "10.0.0.1")
+	v1.SetAnnotation(workload, v1.GithubSecretIdAnnotation, "test-secret")
 	workload.Spec.Workspace = workspace.Name
 	workload.Spec.EntryPoint = stringutil.Base64Encode("bash test.sh")
 
@@ -530,8 +530,8 @@ func TestCICDScaleSetWithUnifiedJob(t *testing.T) {
 	}
 	workload.Spec.Resource.Replica = 2
 	workload.Spec.Env[common.GithubConfigUrl] = "test-url"
-	workload.Spec.Env[common.GithubSecretId] = "test-secret"
-	workload.Spec.Env[common.AdminControlPlane] = "10.0.0.1"
+	v1.SetAnnotation(workload, v1.GithubSecretIdAnnotation, "test-secret")
+	v1.SetAnnotation(workload, v1.AdminControlPlaneAnnotation, "10.0.0.1")
 	workload.Spec.Env[common.UnifiedJobEnable] = v1.TrueStr
 	workload.Spec.Workspace = workspace.Name
 
@@ -594,7 +594,7 @@ func checkCICDEnvs(t *testing.T, envs []interface{}, workload *v1.Workload) {
 	var ok bool
 	ok = findEnv(envs, common.ScaleRunnerSetID, workload.Name)
 	assert.Equal(t, ok, true)
-	ok = findEnv(envs, common.AdminControlPlane, "10.0.0.1")
+	ok = findEnv(envs, jobutils.AdminControlPlaneEnv, "10.0.0.1")
 	assert.Equal(t, ok, true)
 	ok = findEnv(envs, "APISERVER_NODE_PORT", "32495")
 	assert.Equal(t, ok, true)

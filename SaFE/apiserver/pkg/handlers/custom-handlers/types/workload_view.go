@@ -70,6 +70,8 @@ type ListWorkloadRequest struct {
 	WorkloadId string `form:"workloadId" binding:"omitempty,max=64"`
 	// Filter by scale runner set.
 	ScaleRunnerSet string `form:"scaleRunnerSet" binding:"omitempty,max=64"`
+	// Filter by github action runner id.
+	ScaleRunnerId string `form:"scaleRunnerId" binding:"omitempty,max=64"`
 }
 
 type ListWorkloadResponse struct {
@@ -134,6 +136,8 @@ type WorkloadResponseItem struct {
 	AvgGpuUsage float64 `json:"avgGpuUsage"`
 	// If it is a CI/CD workload, it would be associated with a scale runner set.
 	ScaleRunnerSet string `json:"scaleRunnerSet,omitempty"`
+	// If it is a CI/CD workload, it would be associated with a github runner action id.
+	ScaleRunnerId string `json:"scaleRunnerId,omitempty"`
 }
 
 type GetWorkloadResponse struct {

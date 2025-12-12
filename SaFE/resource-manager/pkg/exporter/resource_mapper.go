@@ -127,6 +127,9 @@ func workloadMapper(obj *unstructured.Unstructured) *dbclient.Workload {
 	if val := workload.GetEnv(common.ScaleRunnerSetID); val != "" {
 		result.ScaleRunnerSet = dbutils.NullString(val)
 	}
+	if val := workload.GetEnv(common.ScaleRunnerID); val != "" {
+		result.ScaleRunnerId = dbutils.NullString(val)
+	}
 	return result
 }
 
@@ -341,6 +344,9 @@ func opsJobMapper(obj *unstructured.Unstructured) *dbclient.OpsJob {
 	}
 	if len(job.Spec.Hostpath) > 0 {
 		result.Hostpath = dbutils.NullString(string(jsonutils.MarshalSilently(job.Spec.Hostpath)))
+	}
+	if len(job.Spec.ExcludedNodes) > 0 {
+		result.ExcludedNodes = dbutils.NullString(string(jsonutils.MarshalSilently(job.Spec.ExcludedNodes)))
 	}
 	return result
 }

@@ -23,13 +23,16 @@ const (
 	// the label for Control-plane node
 	KubernetesControlPlane = "node-role.kubernetes.io/control-plane"
 	// total retry count
-	RetryCountAnnotation     = PrimusSafePrefix + "retry.count"
-	DescriptionAnnotation    = PrimusSafePrefix + "description"
-	ProtectLabel             = PrimusSafePrefix + "protect"
-	MainContainerAnnotation  = PrimusSafePrefix + "main.container"
-	OwnerLabel               = PrimusSafePrefix + "owner"
+	RetryCountAnnotation    = PrimusSafePrefix + "retry.count"
+	DescriptionAnnotation   = PrimusSafePrefix + "description"
+	ProtectLabel            = PrimusSafePrefix + "protect"
+	MainContainerAnnotation = PrimusSafePrefix + "main.container"
+	OwnerLabel              = PrimusSafePrefix + "owner"
+
+	// cicd
 	CICDScaleSetIdAnnotation = "runner-scale-set-id"
 	CICDScaleRunnerIdLabel   = PrimusSafePrefix + "scale.runner.id"
+	GithubSecretIdAnnotation = PrimusSafePrefix + "github.secret.id"
 
 	// node
 	NodePrefix    = PrimusSafePrefix + "node."
@@ -97,6 +100,7 @@ const (
 	WorkloadEnablePreemptAnnotation   = WorkloadPrefix + "enable.preempt"
 	CronJobTimestampAnnotation        = WorkloadPrefix + "cronjob"
 	EnvToBeRemovedAnnotation          = WorkloadPrefix + "env.to.remove"
+	AdminControlPlaneAnnotation       = WorkloadPrefix + "admin.control.plane"
 
 	// user
 	UserPrefix              = PrimusSafePrefix + "user."

@@ -72,7 +72,7 @@ func (h *Handler) getWorkloadService(c *gin.Context) (interface{}, error) {
 	result.InternalDomain = internalDomain
 	if commonconfig.GetIngress() == common.HigressClassname && commonconfig.GetSystemHost() != "" {
 		result.ExternalDomain = "https://" + commonconfig.GetSystemHost() +
-			"/" + v1.GetClusterId(adminWorkload) + "/" + adminWorkload.Spec.Workspace + "/" + adminWorkload.Name
+			"/" + v1.GetClusterId(adminWorkload) + "/" + adminWorkload.Spec.Workspace + "/" + adminWorkload.Name + "/"
 	}
 	return result, nil
 }

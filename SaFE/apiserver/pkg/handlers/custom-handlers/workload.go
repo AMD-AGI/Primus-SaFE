@@ -795,7 +795,7 @@ func (h *Handler) generateCICDScaleRunnerSet(ctx context.Context, workload *v1.W
 	if err != nil {
 		return err
 	}
-	commonworkload.SetEnv(workload, common.AdminControlPlane, controlPlaneIp)
+	v1.SetAnnotation(workload, v1.AdminControlPlaneAnnotation, controlPlaneIp)
 
 	val, _ := workload.Spec.Env[GithubPAT]
 	if val == "" {
@@ -818,7 +818,7 @@ func (h *Handler) generateCICDScaleRunnerSet(ctx context.Context, workload *v1.W
 		return err
 	}
 	delete(workload.Spec.Env, GithubPAT)
-	workload.Spec.Env[common.GithubSecretId] = secret.Name
+	v1.SetAnnotation(workload, v1.GithubSecretIdAnnotation, secret.Name)
 	return nil
 }
 
@@ -1033,6 +1033,9 @@ func cvtToListWorkloadSql(query *types.ListWorkloadRequest) (sqrl.Sqlizer, []str
 	if scaleRunnerSet := strings.TrimSpace(query.ScaleRunnerSet); scaleRunnerSet != "" {
 		dbSql = append(dbSql, sqrl.Eq{dbclient.GetFieldTag(dbTags, "ScaleRunnerSet"): scaleRunnerSet})
 	}
+	if scaleRunnerId := strings.TrimSpace(query.ScaleRunnerId); scaleRunnerId != "" {
+		dbSql = append(dbSql, sqrl.Eq{dbclient.GetFieldTag(dbTags, "ScaleRunnerId"): scaleRunnerId})
+	}
 	orderBy := buildOrderBy(query.SortBy, query.Order, dbTags)
 	return dbSql, orderBy
 }
@@ -1146,6 +1149,7 @@ func (h *Handler) cvtDBWorkloadToResponseItem(ctx context.Context,
 		K8sObjectUid:   dbutils.ParseNullString(w.K8sObjectUid),
 		AvgGpuUsage:    -1, // Default value when statistics are not available
 		ScaleRunnerSet: dbutils.ParseNullString(w.ScaleRunnerSet),
+		ScaleRunnerId:  dbutils.ParseNullString(w.ScaleRunnerId),
 	}
 	if result.EndTime == "" && result.DeletionTime != "" {
 		result.EndTime = result.DeletionTime
@@ -1233,11 +1237,6 @@ func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context,
 	}
 	if str := dbutils.ParseNullString(dbWorkload.Env); str != "" {
 		json.Unmarshal([]byte(str), &result.Env)
-		if result.GroupVersionKind.Kind == common.CICDScaleRunnerSetKind ||
-			result.GroupVersionKind.Kind == common.CICDEphemeralRunnerKind {
-			delete(result.Env, common.AdminControlPlane)
-			delete(result.Env, common.GithubSecretId)
-		}
 	}
 	if str := dbutils.ParseNullString(dbWorkload.Dependencies); str != "" {
 		json.Unmarshal([]byte(str), &result.Dependencies)

@@ -330,6 +330,14 @@ func GetEnvToBeRemoved(obj metav1.Object) []string {
 	return result
 }
 
+func GetGithubSecretId(obj metav1.Object) string {
+	return GetAnnotation(obj, GithubSecretIdAnnotation)
+}
+
+func GetAdminControlPlane(obj metav1.Object) string {
+	return GetAnnotation(obj, AdminControlPlaneAnnotation)
+}
+
 // atoi converts a string to an integer, returning 0 if conversion fails.
 func atoi(str string) int {
 	if str == "" {
