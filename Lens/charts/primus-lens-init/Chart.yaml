@@ -1,0 +1,16 @@
+apiVersion: v2
+name: primus-lens-init
+description: Primus Lens Init - Database initialization and setup jobs
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+keywords:
+  - initialization
+  - database
+  - setup
+home: https://github.com/AMD-AGI/Primus-SaFE
+sources:
+  - https://github.com/AMD-AGI/Primus-SaFE
+maintainers:
+  - name: AMD AGI Team
+

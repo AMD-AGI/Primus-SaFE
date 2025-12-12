@@ -1,0 +1,93 @@
+{{/*
+Primus Lens System Tuner DaemonSet
+Optimizes system parameters on each node for AI training workloads.
+Runs as a privileged DaemonSet with host access.
+*/}}
+{{- if .Values.apps.systemTuner.enabled }}
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "lens.fullname" . }}-system-tuner
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "lens.labels" . | nindent 4 }}
+    app: {{ include "lens.fullname" . }}-system-tuner
+    app.kubernetes.io/component: system-tuner
+spec:
+  selector:
+    matchLabels:
+      app: {{ include "lens.fullname" . }}-system-tuner
+  template:
+    metadata:
+      labels:
+        app: {{ include "lens.fullname" . }}-system-tuner
+        {{- include "lens.selectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "lens.serviceAccountName" . }}
+      {{- if .Values.global.imageRegistry.pullSecret }}
+      imagePullSecrets:
+        - name: {{ .Values.global.imageRegistry.pullSecret }}
+      {{- end }}
+      
+      # Run as root to modify system parameters
+      securityContext:
+        runAsUser: 0
+        runAsGroup: 0
+        fsGroup: 0
+      
+      hostNetwork: false
+      hostPID: false
+      
+      # Tolerations to run on all nodes including masters
+      tolerations:
+      - operator: Exists
+      
+      volumes:
+      - name: host-etc
+        hostPath:
+          path: /etc
+          type: Directory
+      - name: host-proc
+        hostPath:
+          path: /proc
+          type: Directory
+      
+      containers:
+      - name: system-tuner
+        image: "{{ .Values.global.imageRegistry.url }}/{{ .Values.apps.systemTuner.image }}"
+        imagePullPolicy: {{ .Values.global.imageRegistry.pullPolicy | default "IfNotPresent" }}
+        
+        # Privileged mode required for system tuning
+        securityContext:
+          privileged: true
+          capabilities:
+            add:
+            - SYS_ADMIN
+            - NET_ADMIN
+        
+        env:
+        {{- include "lens.commonEnv" . | nindent 8 }}
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        
+        volumeMounts:
+        - name: host-etc
+          mountPath: /etc
+          readOnly: false
+        - name: host-proc
+          mountPath: /host-proc
+          readOnly: true
+        
+        resources:
+          {{- toYaml .Values.apps.systemTuner.resources | nindent 10 }}
+      
+      restartPolicy: Always
+  
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 10
+{{- end }}

@@ -1,0 +1,89 @@
+{{/*
+VictoriaMetrics Cluster Custom Resource
+Defines the VictoriaMetrics cluster for metrics storage.
+*/}}
+{{- if .Values.victoriametrics.enabled }}
+{{- $profile := include "primus-lens-infra.profileConfig" . | fromYaml }}
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMCluster
+metadata:
+  name: primus-lens-vmcluster
+  namespace: {{ include "primus-lens-infra.namespace" . }}
+  labels:
+    {{- include "primus-lens-infra.labels" . | nindent 4 }}
+    app.kubernetes.io/component: metrics-storage
+spec:
+  # Retention period for metrics
+  retentionPeriod: "30d"
+  
+  # VMStorage component - stores the actual metrics data
+  vmstorage:
+    replicaCount: {{ $profile.victoriametrics.vmstorage.replicas }}
+    
+    resources:
+      requests:
+        cpu: {{ $profile.victoriametrics.vmstorage.cpu }}
+        memory: {{ $profile.victoriametrics.vmstorage.memory }}
+      limits:
+        cpu: {{ $profile.victoriametrics.vmstorage.cpu }}
+        memory: {{ $profile.victoriametrics.vmstorage.memory }}
+    
+    storage:
+      volumeClaimTemplate:
+        spec:
+          accessModes:
+            - {{ include "primus-lens-infra.accessMode" . }}
+          resources:
+            requests:
+              storage: {{ $profile.victoriametrics.vmstorage.size }}
+          storageClassName: {{ include "primus-lens-infra.storageClass" . }}
+    
+    # Anti-affinity for high availability
+    affinity:
+      podAntiAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              topologyKey: kubernetes.io/hostname
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/name: vmstorage
+                  app.kubernetes.io/instance: primus-lens-vmcluster
+  
+  # VMSelect component - handles read queries
+  vmselect:
+    replicaCount: {{ $profile.victoriametrics.vmselect.replicas }}
+    
+    resources:
+      requests:
+        cpu: {{ $profile.victoriametrics.vmselect.cpu }}
+        memory: {{ $profile.victoriametrics.vmselect.memory }}
+      limits:
+        cpu: {{ $profile.victoriametrics.vmselect.cpu }}
+        memory: {{ $profile.victoriametrics.vmselect.memory }}
+    
+    cacheMountPath: /select-cache
+    
+    storage:
+      volumeClaimTemplate:
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: "10Gi"
+          storageClassName: {{ include "primus-lens-infra.storageClass" . }}
+  
+  # VMInsert component - handles write requests
+  vminsert:
+    replicaCount: {{ $profile.victoriametrics.vminsert.replicas }}
+    
+    resources:
+      requests:
+        cpu: {{ $profile.victoriametrics.vminsert.cpu }}
+        memory: {{ $profile.victoriametrics.vminsert.memory }}
+      limits:
+        cpu: {{ $profile.victoriametrics.vminsert.cpu }}
+        memory: {{ $profile.victoriametrics.vminsert.memory }}
+{{- end }}
+

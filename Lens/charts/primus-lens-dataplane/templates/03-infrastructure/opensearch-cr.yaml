@@ -1,0 +1,108 @@
+{{/*
+OpenSearch Cluster Custom Resource
+Defines the OpenSearch cluster for log storage and search.
+Uses the selected profile for resource sizing.
+*/}}
+{{- if .Values.opensearch.enabled }}
+{{- $profile := include "primus-lens.profileConfig" . | fromYaml }}
+apiVersion: opensearch.opster.io/v1
+kind: OpenSearchCluster
+metadata:
+  name: {{ .Values.opensearch.clusterName }}
+  namespace: {{ include "primus-lens.namespace" . }}
+  labels:
+    {{- include "primus-lens.labels" . | nindent 4 }}
+    app.kubernetes.io/component: log-storage
+spec:
+  general:
+    serviceName: {{ .Values.opensearch.clusterName }}
+    version: "2.11.0"
+    httpPort: 9200
+    
+    # Security configuration
+    security:
+      config:
+        adminCredentialsSecret:
+          name: {{ .Values.opensearch.clusterName }}-admin-password
+        
+        securityConfigSecret:
+          name: {{ .Values.opensearch.clusterName }}-security-config
+  
+  # Dashboard configuration (OpenSearch Dashboards)
+  dashboards:
+    enable: true
+    replicas: 1
+    version: "2.11.0"
+    
+    resources:
+      requests:
+        cpu: "200m"
+        memory: "512Mi"
+      limits:
+        cpu: "1000m"
+        memory: "2Gi"
+  
+  # Node pools configuration
+  nodePools:
+    {{- range .Values.opensearch.nodeSets }}
+    - component: {{ .name }}
+      replicas: {{ .replicas }}
+      
+      # Node roles
+      roles:
+        {{- range .roles }}
+        - {{ . }}
+        {{- end }}
+      
+      # Disk configuration
+      diskSize: {{ $profile.opensearch.diskSize }}
+      
+      # Resource limits
+      resources:
+        requests:
+          cpu: {{ $profile.opensearch.cpu }}
+          memory: {{ $profile.opensearch.memory }}
+        limits:
+          cpu: {{ $profile.opensearch.cpu }}
+          memory: {{ $profile.opensearch.memory }}
+      
+      # JVM configuration
+      jvm: "-Xmx{{ div (include "primus-lens.memoryToMi" $profile.opensearch.memory) 2 }}m -Xms{{ div (include "primus-lens.memoryToMi" $profile.opensearch.memory) 2 }}m"
+      
+      # Persistence
+      persistence:
+        pvc:
+          storageClassName: {{ include "primus-lens.storageClass" $ }}
+          accessModes:
+            - {{ include "primus-lens.accessMode" $ }}
+      
+      # Anti-affinity for high availability
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    opensearch.cluster.name: {{ $.Values.opensearch.clusterName }}
+    {{- end }}
+{{- end }}
+---
+{{/*
+OpenSearch Admin Password Secret
+*/}}
+{{- if .Values.opensearch.enabled }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ .Values.opensearch.clusterName }}-admin-password
+  namespace: {{ include "primus-lens.namespace" . }}
+  labels:
+    {{- include "primus-lens.labels" . | nindent 4 }}
+type: Opaque
+stringData:
+  username: admin
+  password: {{ randAlphaNum 32 | quote }}
+{{- end }}
+

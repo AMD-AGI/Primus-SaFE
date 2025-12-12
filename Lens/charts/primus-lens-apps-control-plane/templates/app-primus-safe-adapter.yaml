@@ -1,0 +1,104 @@
+{{- if .Values.apps.primusSafeAdapter.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "lens.fullname" . }}-primus-safe-adapter-config
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "lens.labels" . | nindent 4 }}
+    app: primus-safe-adapter
+    component: config
+data:
+  config.yaml: |
+    httpPort: {{ .Values.apps.primusSafeAdapter.httpPort | default 8080 }}
+    multiCluster: true
+    loadK8SClient: true
+    loadStorageClient: true
+    controller:
+      namespace: {{ .Values.global.namespace }}
+      leaderElectionId: {{ .Values.apps.primusSafeAdapter.config.controller.leaderElectionId | default "primus-safe-adapter" }}
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "lens.fullname" . }}-primus-safe-adapter
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "lens.labels" . | nindent 4 }}
+    app: primus-safe-adapter
+    component: service
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: {{ .Values.apps.primusSafeAdapter.httpPort | default 8080 }}
+      targetPort: {{ .Values.apps.primusSafeAdapter.httpPort | default 8080 }}
+      protocol: TCP
+    - name: metrics
+      port: {{ .Values.apps.primusSafeAdapter.config.controller.metricsPort | default 19293 }}
+      targetPort: {{ .Values.apps.primusSafeAdapter.config.controller.metricsPort | default 19293 }}
+      protocol: TCP
+    - name: healthz
+      port: {{ .Values.apps.primusSafeAdapter.config.controller.healthzPort | default 19294 }}
+      targetPort: {{ .Values.apps.primusSafeAdapter.config.controller.healthzPort | default 19294 }}
+      protocol: TCP
+  selector:
+    app: primus-safe-adapter
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "lens.fullname" . }}-primus-safe-adapter
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "lens.labels" . | nindent 4 }}
+    app: primus-safe-adapter
+    component: deployment
+spec:
+  replicas: {{ .Values.apps.primusSafeAdapter.replicas | default 1 }}
+  selector:
+    matchLabels:
+      app: primus-safe-adapter
+  template:
+    metadata:
+      labels:
+        app: primus-safe-adapter
+        {{- include "lens.selectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "lens.serviceAccountName" . }}
+      containers:
+        - name: adapter
+          image: "{{ .Values.global.imageRegistry.url }}/{{ .Values.apps.primusSafeAdapter.image }}"
+          imagePullPolicy: {{ .Values.global.imageRegistry.pullPolicy | default "IfNotPresent" }}
+          env:
+            - name: CONFIG_PATH
+              value: /etc/primus-safe-adapter/config.yaml
+          ports:
+            - name: http
+              containerPort: {{ .Values.apps.primusSafeAdapter.httpPort | default 8080 }}
+              protocol: TCP
+            - name: metrics
+              containerPort: {{ .Values.apps.primusSafeAdapter.config.controller.metricsPort | default 19293 }}
+              protocol: TCP
+            - name: healthz
+              containerPort: {{ .Values.apps.primusSafeAdapter.config.controller.healthzPort | default 19294 }}
+              protocol: TCP
+            - name: pprof
+              containerPort: {{ .Values.apps.primusSafeAdapter.config.controller.pprofPort | default 19295 }}
+              protocol: TCP
+          volumeMounts:
+            - name: config
+              mountPath: /etc/primus-safe-adapter/config.yaml
+              subPath: config.yaml
+              readOnly: true
+          resources:
+            {{- toYaml .Values.apps.primusSafeAdapter.resources | nindent 12 }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "lens.fullname" . }}-primus-safe-adapter-config
+      restartPolicy: Always
+{{- end }}

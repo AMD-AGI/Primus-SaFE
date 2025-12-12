@@ -1,0 +1,25 @@
+{{/*
+Grafana Folders
+Defines folder structure for organizing dashboards.
+*/}}
+{{- if and .Values.grafana.enabled .Values.grafana.dashboards.enabled }}
+{{- range .Values.grafana.dashboards.folders }}
+---
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaFolder
+metadata:
+  name: {{ lower .name | replace " " "-" }}
+  namespace: {{ include "primus-lens.namespace" $ }}
+  labels:
+    {{- include "primus-lens.labels" $ | nindent 4 }}
+    dashboards: "primus-lens"
+    folder: {{ .name | quote }}
+spec:
+  instanceSelector:
+    matchLabels:
+      dashboards: "primus-lens"
+  
+  title: {{ .name }}
+{{- end }}
+{{- end }}
+

@@ -1,0 +1,122 @@
+{{/*
+Wait for Operators Job
+This job waits for all enabled operators to be ready before proceeding with infrastructure deployment.
+It runs as a pre-install hook to ensure proper ordering.
+*/}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "primus-lens.fullname" . }}-wait-operators
+  namespace: {{ include "primus-lens.namespace" . }}
+  labels:
+    {{- include "primus-lens.labels" . | nindent 4 }}
+    app.kubernetes.io/component: init-job
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": {{ include "primus-lens.hookWeight.waitOperators" . | quote }}
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 30  # Allow up to 30 retries (about 15 minutes with exponential backoff)
+  template:
+    metadata:
+      name: wait-operators
+      labels:
+        {{- include "primus-lens.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: init-job
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: primus-lens-installer
+      {{- include "primus-lens.imagePullSecrets" . | nindent 6 }}
+      containers:
+      - name: wait
+        image: bitnami/kubectl:latest
+        imagePullPolicy: IfNotPresent
+        command:
+        - /bin/bash
+        - -c
+        - |
+          set -e
+          echo "========================================="
+          echo "⏳ Waiting for operators to be ready..."
+          echo "========================================="
+          echo ""
+          
+          {{- if index .Values "vm-operator" "enabled" }}
+          echo "🔍 Checking VictoriaMetrics Operator..."
+          kubectl wait --for=condition=ready pod \
+            -l app.kubernetes.io/name=victoria-metrics-operator \
+            -n {{ include "primus-lens.namespace" . }} \
+            --timeout=300s || {
+              echo "❌ VictoriaMetrics Operator is not ready within 5 minutes"
+              echo "   Checking pods status:"
+              kubectl get pods -n {{ include "primus-lens.namespace" . }} -l app.kubernetes.io/name=victoria-metrics-operator
+              exit 1
+            }
+          echo "✅ VictoriaMetrics Operator is ready"
+          echo ""
+          {{- end }}
+          
+          {{- if index .Values "fluent-operator" "enabled" }}
+          echo "🔍 Checking Fluent Operator..."
+          kubectl wait --for=condition=ready pod \
+            -l app.kubernetes.io/name=fluent-operator \
+            -n {{ include "primus-lens.namespace" . }} \
+            --timeout=300s || {
+              echo "❌ Fluent Operator is not ready within 5 minutes"
+              echo "   Checking pods status:"
+              kubectl get pods -n {{ include "primus-lens.namespace" . }} -l app.kubernetes.io/name=fluent-operator
+              exit 1
+            }
+          echo "✅ Fluent Operator is ready"
+          echo ""
+          {{- end }}
+          
+          {{- if index .Values "opensearch-operator" "enabled" }}
+          echo "🔍 Checking OpenSearch Operator..."
+          kubectl wait --for=condition=ready pod \
+            -l app.kubernetes.io/name=opensearch-operator \
+            -n {{ include "primus-lens.namespace" . }} \
+            --timeout=300s || {
+              echo "❌ OpenSearch Operator is not ready within 5 minutes"
+              echo "   Checking pods status:"
+              kubectl get pods -n {{ include "primus-lens.namespace" . }} -l app.kubernetes.io/name=opensearch-operator
+              exit 1
+            }
+          echo "✅ OpenSearch Operator is ready"
+          echo ""
+          {{- end }}
+          
+          {{- if .Values.pgo.enabled }}
+          echo "🔍 Checking PostgreSQL Operator (PGO)..."
+          kubectl wait --for=condition=ready pod \
+            -l postgres-operator.crunchydata.com/control-plane=postgres-operator \
+            -n {{ include "primus-lens.namespace" . }} \
+            --timeout=300s || {
+              echo "❌ PostgreSQL Operator is not ready within 5 minutes"
+              echo "   Checking pods status:"
+              kubectl get pods -n {{ include "primus-lens.namespace" . }} -l postgres-operator.crunchydata.com/control-plane=postgres-operator
+              exit 1
+            }
+          echo "✅ PostgreSQL Operator is ready"
+          echo ""
+          {{- end }}
+          
+          {{- if index .Values "grafana-operator" "enabled" }}
+          echo "🔍 Checking Grafana Operator..."
+          kubectl wait --for=condition=ready pod \
+            -l app.kubernetes.io/name=grafana-operator \
+            -n {{ include "primus-lens.namespace" . }} \
+            --timeout=300s || {
+              echo "❌ Grafana Operator is not ready within 5 minutes"
+              echo "   Checking pods status:"
+              kubectl get pods -n {{ include "primus-lens.namespace" . }} -l app.kubernetes.io/name=grafana-operator
+              exit 1
+            }
+          echo "✅ Grafana Operator is ready"
+          echo ""
+          {{- end }}
+          
+          echo "========================================="
+          echo "🎉 All operators are ready!"
+          echo "========================================="
+

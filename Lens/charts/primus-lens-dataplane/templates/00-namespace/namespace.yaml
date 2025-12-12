@@ -1,0 +1,16 @@
+{{/*
+Namespace creation
+This resource is created as a pre-install hook to ensure namespace exists before any other resources.
+*/}}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ include "primus-lens.namespace" . }}
+  labels:
+    {{- include "primus-lens.labels" . | nindent 4 }}
+    primus-lens/managed: "true"
+  annotations:
+    "helm.sh/hook": pre-install
+    "helm.sh/hook-weight": {{ include "primus-lens.hookWeight.namespace" . | quote }}
+    "helm.sh/hook-delete-policy": before-hook-creation
+

@@ -17,6 +17,7 @@ jobs:
       matrix: ${{ steps.generate-matrix.outputs.matrix }}
       image_version: ${{ steps.get-image-version.outputs.image_version }}
       date_time: ${{ steps.get-current-time.outputs.date_time }}
+      installer_changed: ${{ steps.detect-changes.outputs.installer_changed }}
     steps:
     - name: Checkout Repository
       uses: actions/checkout@v4
@@ -135,6 +136,13 @@ jobs:
         else
           echo "ai_advisor_changed=false" >> $GITHUB_OUTPUT
         fi
+        
+        # installer: Lens/bootstrap/installer/** or Lens/charts/**
+        if echo "$CHANGED_FILES" | grep -qE '^Lens/bootstrap/installer/|^Lens/charts/'; then
+          echo "installer_changed=true" >> $GITHUB_OUTPUT
+        else
+          echo "installer_changed=false" >> $GITHUB_OUTPUT
+        fi
     
     - name: Generate matrix
       id: generate-matrix
@@ -249,5 +257,74 @@ jobs:
             buildah push --tls-verify=false ${repo}/${{ matrix.name }}:${DATE_TIME}
           done
 
+  # Special build job for primus-lens-installer
+  # This requires bundling all Helm charts into the image
+  build-installer:
+    needs: detect-changes
+    runs-on: primus-safe-builder
+    timeout-minutes: 30
+    if: ${{ needs.detect-changes.outputs.installer_changed == 'true' }}
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Login registries
+        run: |
+          buildah login -u "${{ secrets.DOCKER_USERNAME }}" -p "${{ secrets.DOCKER_PASSWORD }}" docker.io
+          buildah login --tls-verify=false -u "${{ secrets.HARBOR_USERNAME }}" -p "${{ secrets.HARBOR_PASSWORD }}" "${{ secrets.HARBOR_HOST }}"
+
+      - name: Build and push installer
+        env:
+          DOCKERIO_REPOSITORY: docker.io/primussafe
+          HARBOR_REPOSITORY: ${{ secrets.HARBOR_HOST }}/primussafe
+          IMAGE_VERSION: ${{ needs.detect-changes.outputs.image_version }}
+          DATE_TIME: ${{ needs.detect-changes.outputs.date_time }}
+        run: |
+          set -e
+          echo "🚧 Building primus-lens-installer..."
+          
+          INSTALLER_DIR="Lens/bootstrap/installer"
+          CHARTS_DIR="Lens/charts"
+          BUILD_CONTEXT="$INSTALLER_DIR/build-context"
+          
+          # Create build context with installer source and all charts
+          rm -rf "$BUILD_CONTEXT"
+          mkdir -p "$BUILD_CONTEXT"
+          
+          # Copy installer source files
+          cp "$INSTALLER_DIR/go.mod" "$INSTALLER_DIR/go.sum" "$BUILD_CONTEXT/"
+          cp -r "$INSTALLER_DIR/cmd" "$BUILD_CONTEXT/"
+          cp -r "$INSTALLER_DIR/pkg" "$BUILD_CONTEXT/"
+          cp -r "$INSTALLER_DIR/internal" "$BUILD_CONTEXT/"
+          
+          # Copy all Helm charts
+          cp -r "$CHARTS_DIR" "$BUILD_CONTEXT/charts"
+          
+          # Copy Dockerfile
+          cp "$INSTALLER_DIR/Dockerfile" "$BUILD_CONTEXT/"
+          
+          echo "📄 Build context created at $BUILD_CONTEXT"
+          ls -la "$BUILD_CONTEXT"
+          
+          # Build the image
+          buildah bud \
+            --layers \
+            -t primus-lens-installer:${IMAGE_VERSION} \
+            -t primus-lens-installer:${DATE_TIME} \
+            -f "$BUILD_CONTEXT/Dockerfile" \
+            "$BUILD_CONTEXT"
+          
+          # Push to registries
+          for repo in ${DOCKERIO_REPOSITORY} ${HARBOR_REPOSITORY}; do
+            echo "🚀 Pushing primus-lens-installer to $repo..."
+            buildah tag primus-lens-installer:${IMAGE_VERSION} ${repo}/primus-lens-installer:${IMAGE_VERSION}
+            buildah tag primus-lens-installer:${DATE_TIME} ${repo}/primus-lens-installer:${DATE_TIME}
+            buildah push --tls-verify=false ${repo}/primus-lens-installer:${IMAGE_VERSION}
+            buildah push --tls-verify=false ${repo}/primus-lens-installer:${DATE_TIME}
+          done
+          
+          # Cleanup
+          rm -rf "$BUILD_CONTEXT"
+          
+          echo "✅ primus-lens-installer build and push completed!"
 
   

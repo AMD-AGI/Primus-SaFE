@@ -1,0 +1,133 @@
+========================================
+🎉 Primus Lens has been deployed!
+========================================
+
+Release Name:   {{ .Release.Name }}
+Namespace:      {{ include "primus-lens.namespace" . }}
+Cluster Name:   {{ .Values.global.clusterName }}
+Profile:        {{ .Values.profile }}
+Access Type:    {{ .Values.global.accessType }}
+
+========================================
+📊 Access Information
+========================================
+
+{{- if eq .Values.global.accessType "ssh-tunnel" }}
+
+To access Primus Lens components via SSH tunnel:
+
+1. Web Console:
+   kubectl port-forward -n {{ include "primus-lens.namespace" . }} svc/primus-lens-web 30180:80
+   Then open: http://localhost:30180
+
+2. Grafana:
+   kubectl port-forward -n {{ include "primus-lens.namespace" . }} svc/grafana-service 30182:3000
+   Then open: http://localhost:30182/grafana
+   Default credentials: admin / {{ .Values.grafana.adminPassword }}
+
+3. VictoriaMetrics UI:
+   kubectl port-forward -n {{ include "primus-lens.namespace" . }} svc/vmselect-primus-lens-vmcluster 8481:8481
+   Then open: http://localhost:8481/select/0/vmui
+
+{{- else if eq .Values.global.accessType "ingress" }}
+
+Access URLs (via Ingress):
+1. Web Console: https://{{ .Values.global.clusterName }}.{{ .Values.global.domain }}
+2. Grafana: https://{{ .Values.global.clusterName }}.{{ .Values.global.domain }}/grafana
+   Default credentials: admin / {{ .Values.grafana.adminPassword }}
+
+{{- end }}
+
+========================================
+🔍 Check Deployment Status
+========================================
+
+# Check all pods
+kubectl get pods -n {{ include "primus-lens.namespace" . }}
+
+# Check operators
+kubectl get pods -n {{ include "primus-lens.namespace" . }} | grep operator
+
+# Check application components
+kubectl get pods -n {{ include "primus-lens.namespace" . }} | grep primus-lens
+
+# Check database
+kubectl get postgrescluster -n {{ include "primus-lens.namespace" . }}
+
+# Check OpenSearch
+kubectl get opensearchcluster -n {{ include "primus-lens.namespace" . }}
+
+# Check VictoriaMetrics
+kubectl get vmcluster,vmagent -n {{ include "primus-lens.namespace" . }}
+
+========================================
+📝 Useful Commands
+========================================
+
+# View all resources
+helm list -n {{ include "primus-lens.namespace" . }}
+helm status {{ .Release.Name }} -n {{ include "primus-lens.namespace" . }}
+
+# View logs of specific component
+kubectl logs -n {{ include "primus-lens.namespace" . }} -l app=primus-lens-api
+kubectl logs -n {{ include "primus-lens.namespace" . }} -l app=primus-lens-telemetry-collector
+
+# Upgrade deployment
+helm upgrade {{ .Release.Name }} ./charts -f values-custom.yaml
+
+# Rollback to previous version
+helm rollback {{ .Release.Name }} -n {{ include "primus-lens.namespace" . }}
+
+========================================
+🔧 Troubleshooting
+========================================
+
+If you encounter issues:
+
+1. Check initialization jobs:
+   kubectl get jobs -n {{ include "primus-lens.namespace" . }}
+   kubectl logs -n {{ include "primus-lens.namespace" . }} job/primus-lens-wait-operators
+   kubectl logs -n {{ include "primus-lens.namespace" . }} job/primus-lens-postgres-init
+
+2. Check operator status:
+   kubectl get pods -n {{ include "primus-lens.namespace" . }} -l app.kubernetes.io/component=operator
+
+3. Check persistent volumes:
+   kubectl get pvc -n {{ include "primus-lens.namespace" . }}
+
+4. Get detailed resource info:
+   kubectl describe postgrescluster primus-lens -n {{ include "primus-lens.namespace" . }}
+   kubectl describe opensearchcluster {{ .Values.opensearch.clusterName }} -n {{ include "primus-lens.namespace" . }}
+
+========================================
+📚 Documentation
+========================================
+
+For more information, visit:
+- GitHub: https://github.com/AMD-AGI/Primus-SaFE
+- Documentation: ./docs/
+
+========================================
+⚠️  Important Notes
+========================================
+
+{{- if not (and .Values.global.imagePullSecrets (index .Values.global.imagePullSecrets 0).credentials.username) }}
+🔐 Image Pull Secret: You created an empty placeholder secret.
+   Update it with actual credentials if needed:
+   kubectl create secret docker-registry primus-lens-image \
+     --docker-server={{ .Values.global.imageRegistry }} \
+     --docker-username=<your-username> \
+     --docker-password=<your-password> \
+     -n {{ include "primus-lens.namespace" . }} \
+     --dry-run=client -o yaml | kubectl apply -f -
+{{- end }}
+
+{{- if eq .Values.grafana.adminPassword "admin" }}
+🔑 Grafana Password: Change the default admin password!
+   Access Grafana and update the password in Settings.
+{{- end }}
+
+========================================
+Happy Monitoring! 🚀
+========================================
+

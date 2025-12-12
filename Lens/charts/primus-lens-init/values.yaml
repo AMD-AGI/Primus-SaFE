@@ -1,0 +1,29 @@
+#
+# Primus Lens Init - Default Configuration Values
+#
+# This chart runs initialization jobs:
+# - PostgreSQL database initialization
+# - Grafana setup
+#
+
+# ============================================================================
+# Global Configuration
+# ============================================================================
+global:
+  clusterName: "my-cluster"
+  namespace: "primus-lens"
+
+# ============================================================================
+# Database Configuration
+# ============================================================================
+database:
+  enabled: true
+  initScript: "setup_primus_lens.sql"
+
+# ============================================================================
+# Grafana Configuration
+# ============================================================================
+grafana:
+  enabled: true
+  adminPassword: "admin"
+
