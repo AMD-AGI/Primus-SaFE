@@ -422,6 +422,11 @@ func (m *WorkloadMutator) mutateEnv(oldWorkload, newWorkload *v1.Workload) {
 	}
 	newWorkload.Spec.Env = newEnv
 
+	val, ok := newWorkload.Spec.Env["GITHUB_SECRET_ID"]
+	if ok && val != "" {
+		v1.SetAnnotation(newWorkload, v1.GithubSecretIdAnnotation, val)
+	}
+
 	if oldWorkload != nil {
 		var envToBeRemoved []string
 		for key := range oldWorkload.Spec.Env {
