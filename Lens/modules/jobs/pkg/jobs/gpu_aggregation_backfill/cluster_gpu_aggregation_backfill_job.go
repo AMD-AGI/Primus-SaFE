@@ -34,8 +34,8 @@ type ClusterBackfillClusterNameGetter func() string
 // ClusterBackfillAllocationCalculatorFactory creates an allocation calculator
 type ClusterBackfillAllocationCalculatorFactory func(clusterName string) ClusterBackfillAllocationCalculatorInterface
 
-// ClusterBackfillUtilizationQueryFunc queries cluster-level GPU utilization
-type ClusterBackfillUtilizationQueryFunc func(ctx context.Context, storageClientSet *clientsets.StorageClientSet, hour time.Time) (float64, error)
+// ClusterBackfillUtilizationQueryFunc queries cluster-level GPU utilization statistics
+type ClusterBackfillUtilizationQueryFunc func(ctx context.Context, storageClientSet *clientsets.StorageClientSet, hour time.Time) (*statistics.ClusterGpuUtilizationStats, error)
 
 // ClusterBackfillAllocationCalculatorInterface defines the interface for cluster GPU allocation calculation
 type ClusterBackfillAllocationCalculatorInterface interface {
@@ -118,8 +118,8 @@ func defaultClusterBackfillAllocationCalculatorFactory(clusterName string) Clust
 }
 
 // defaultClusterBackfillUtilizationQueryFunc is the default implementation
-func defaultClusterBackfillUtilizationQueryFunc(ctx context.Context, storageClientSet *clientsets.StorageClientSet, hour time.Time) (float64, error) {
-	return statistics.QueryClusterHourlyGpuUtilization(ctx, storageClientSet, hour)
+func defaultClusterBackfillUtilizationQueryFunc(ctx context.Context, storageClientSet *clientsets.StorageClientSet, hour time.Time) (*statistics.ClusterGpuUtilizationStats, error) {
+	return statistics.QueryClusterHourlyGpuUtilizationStats(ctx, storageClientSet, hour)
 }
 
 // NewClusterGpuAggregationBackfillJob creates a new cluster backfill job with default config
@@ -339,11 +339,11 @@ func (j *ClusterGpuAggregationBackfillJob) backfillClusterStats(
 			result = &statistics.GpuAllocationResult{}
 		}
 
-		// Query cluster-level GPU utilization from Prometheus
-		avgUtilization, err := j.utilizationQueryFunc(ctx, storageClientSet, hour)
+		// Query cluster-level GPU utilization statistics from Prometheus
+		utilizationStats, err := j.utilizationQueryFunc(ctx, storageClientSet, hour)
 		if err != nil {
 			log.Warnf("Failed to query cluster GPU utilization for hour %v: %v", hour, err)
-			avgUtilization = 0
+			utilizationStats = &statistics.ClusterGpuUtilizationStats{}
 		}
 
 		// Build cluster stats
@@ -357,8 +357,12 @@ func (j *ClusterGpuAggregationBackfillJob) backfillClusterStats(
 			clusterStats = BuildClusterStatsFromResult(clusterName, hour, result)
 		}
 
-		// Set GPU utilization from Prometheus query
-		clusterStats.AvgUtilization = avgUtilization
+		// Set GPU utilization statistics from Prometheus query
+		clusterStats.AvgUtilization = utilizationStats.AvgUtilization
+		clusterStats.MaxUtilization = utilizationStats.MaxUtilization
+		clusterStats.MinUtilization = utilizationStats.MinUtilization
+		clusterStats.P50Utilization = utilizationStats.P50Utilization
+		clusterStats.P95Utilization = utilizationStats.P95Utilization
 
 		// Set GPU capacity and calculate allocation rate
 		clusterStats.TotalGpuCapacity = int32(totalCapacity)
@@ -373,8 +377,9 @@ func (j *ClusterGpuAggregationBackfillJob) backfillClusterStats(
 		}
 
 		createdCount++
-		log.Debugf("Backfilled cluster stats for hour %v: allocated=%.2f, workloads=%d, utilization=%.2f%%",
-			hour, clusterStats.AllocatedGpuCount, result.WorkloadCount, avgUtilization)
+		log.Debugf("Backfilled cluster stats for hour %v: allocated=%.2f, workloads=%d, utilization=%.2f%% (max=%.2f%%, min=%.2f%%)",
+			hour, clusterStats.AllocatedGpuCount, result.WorkloadCount, 
+			clusterStats.AvgUtilization, clusterStats.MaxUtilization, clusterStats.MinUtilization)
 	}
 
 	return createdCount, nil

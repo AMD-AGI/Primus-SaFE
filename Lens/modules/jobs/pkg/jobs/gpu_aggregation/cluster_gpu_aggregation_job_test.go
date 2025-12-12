@@ -48,12 +48,18 @@ func (m *ClusterMockFacade) GetAlertRuleAdvice() database.AlertRuleAdviceFacadeI
 func (m *ClusterMockFacade) GetClusterOverviewCache() database.ClusterOverviewCacheFacadeInterface {
 	return nil
 }
-func (m *ClusterMockFacade) GetSystemConfig() database.SystemConfigFacadeInterface               { return nil }
-func (m *ClusterMockFacade) GetJobExecutionHistory() database.JobExecutionHistoryFacadeInterface { return nil }
-func (m *ClusterMockFacade) GetNamespaceInfo() database.NamespaceInfoFacadeInterface             { return nil }
-func (m *ClusterMockFacade) GetWorkloadStatistic() database.WorkloadStatisticFacadeInterface     { return nil }
-func (m *ClusterMockFacade) GetAiWorkloadMetadata() database.AiWorkloadMetadataFacadeInterface   { return nil }
-func (m *ClusterMockFacade) GetCheckpointEvent() database.CheckpointEventFacadeInterface         { return nil }
+func (m *ClusterMockFacade) GetSystemConfig() database.SystemConfigFacadeInterface { return nil }
+func (m *ClusterMockFacade) GetJobExecutionHistory() database.JobExecutionHistoryFacadeInterface {
+	return nil
+}
+func (m *ClusterMockFacade) GetNamespaceInfo() database.NamespaceInfoFacadeInterface { return nil }
+func (m *ClusterMockFacade) GetWorkloadStatistic() database.WorkloadStatisticFacadeInterface {
+	return nil
+}
+func (m *ClusterMockFacade) GetAiWorkloadMetadata() database.AiWorkloadMetadataFacadeInterface {
+	return nil
+}
+func (m *ClusterMockFacade) GetCheckpointEvent() database.CheckpointEventFacadeInterface { return nil }
 func (m *ClusterMockFacade) GetDetectionConflictLog() database.DetectionConflictLogFacadeInterface {
 	return nil
 }
@@ -368,7 +374,15 @@ func TestBuildClusterGpuHourlyStats(t *testing.T) {
 		PodCount:          20,
 	}
 
-	stats := BuildClusterGpuHourlyStats("test-cluster", hour, allocationResult, 100, 75.0)
+	utilizationStats := &statistics.ClusterGpuUtilizationStats{
+		AvgUtilization: 75.0,
+		MaxUtilization: 95.0,
+		MinUtilization: 50.0,
+		P50Utilization: 72.0,
+		P95Utilization: 90.0,
+	}
+
+	stats := BuildClusterGpuHourlyStats("test-cluster", hour, allocationResult, 100, utilizationStats)
 
 	assert.Equal(t, "test-cluster", stats.ClusterName)
 	assert.Equal(t, hour, stats.StatHour)
@@ -376,6 +390,10 @@ func TestBuildClusterGpuHourlyStats(t *testing.T) {
 	assert.Equal(t, 64.0, stats.AllocatedGpuCount)
 	assert.Equal(t, int32(10), stats.SampleCount)
 	assert.Equal(t, 75.0, stats.AvgUtilization)
+	assert.Equal(t, 95.0, stats.MaxUtilization)
+	assert.Equal(t, 50.0, stats.MinUtilization)
+	assert.Equal(t, 72.0, stats.P50Utilization)
+	assert.Equal(t, 90.0, stats.P95Utilization)
 	assert.Equal(t, 64.0, stats.AllocationRate) // (64/100) * 100 = 64%
 }
 
@@ -386,7 +404,11 @@ func TestBuildClusterGpuHourlyStats_NoCapacity(t *testing.T) {
 		TotalAllocatedGpu: 8.0,
 	}
 
-	stats := BuildClusterGpuHourlyStats("test-cluster", hour, allocationResult, 0, 50.0)
+	utilizationStats := &statistics.ClusterGpuUtilizationStats{
+		AvgUtilization: 50.0,
+	}
+
+	stats := BuildClusterGpuHourlyStats("test-cluster", hour, allocationResult, 0, utilizationStats)
 
 	assert.Equal(t, int32(0), stats.TotalGpuCapacity)
 	assert.Equal(t, float64(0), stats.AllocationRate) // No capacity, no rate
@@ -399,7 +421,9 @@ func TestBuildClusterGpuHourlyStats_ZeroAllocation(t *testing.T) {
 		TotalAllocatedGpu: 0,
 	}
 
-	stats := BuildClusterGpuHourlyStats("test-cluster", hour, allocationResult, 100, 0)
+	utilizationStats := &statistics.ClusterGpuUtilizationStats{}
+
+	stats := BuildClusterGpuHourlyStats("test-cluster", hour, allocationResult, 100, utilizationStats)
 
 	assert.Equal(t, float64(0), stats.AllocatedGpuCount)
 	assert.Equal(t, float64(0), stats.AllocationRate)
@@ -510,9 +534,15 @@ func TestWithClusterAllocationCalculatorFactory(t *testing.T) {
 
 func TestWithClusterUtilizationQueryFunc(t *testing.T) {
 	called := false
-	mockFunc := func(ctx context.Context, storageClientSet *clientsets.StorageClientSet, hour time.Time) (float64, error) {
+	mockFunc := func(ctx context.Context, storageClientSet *clientsets.StorageClientSet, hour time.Time) (*statistics.ClusterGpuUtilizationStats, error) {
 		called = true
-		return 50.0, nil
+		return &statistics.ClusterGpuUtilizationStats{
+			AvgUtilization: 50.0,
+			MaxUtilization: 70.0,
+			MinUtilization: 30.0,
+			P50Utilization: 48.0,
+			P95Utilization: 68.0,
+		}, nil
 	}
 
 	job := &ClusterGpuAggregationJob{}
@@ -522,7 +552,12 @@ func TestWithClusterUtilizationQueryFunc(t *testing.T) {
 	result, err := job.utilizationQueryFunc(context.Background(), nil, time.Now())
 	assert.True(t, called)
 	assert.NoError(t, err)
-	assert.Equal(t, 50.0, result)
+	assert.NotNil(t, result)
+	assert.Equal(t, 50.0, result.AvgUtilization)
+	assert.Equal(t, 70.0, result.MaxUtilization)
+	assert.Equal(t, 30.0, result.MinUtilization)
+	assert.Equal(t, 48.0, result.P50Utilization)
+	assert.Equal(t, 68.0, result.P95Utilization)
 }
 
 // ==================== Constants Tests ====================
@@ -598,8 +633,14 @@ func TestClusterGpuAggregationJob_Run_SuccessfulAggregation(t *testing.T) {
 		},
 	}
 
-	mockUtilizationQuery := func(ctx context.Context, storageClientSet *clientsets.StorageClientSet, hour time.Time) (float64, error) {
-		return 75.0, nil
+	mockUtilizationQuery := func(ctx context.Context, storageClientSet *clientsets.StorageClientSet, hour time.Time) (*statistics.ClusterGpuUtilizationStats, error) {
+		return &statistics.ClusterGpuUtilizationStats{
+			AvgUtilization: 75.0,
+			MaxUtilization: 90.0,
+			MinUtilization: 60.0,
+			P50Utilization: 73.0,
+			P95Utilization: 88.0,
+		}, nil
 	}
 
 	job := NewClusterGpuAggregationJob(
@@ -704,8 +745,8 @@ func TestClusterGpuAggregationJob_Run_GetNodesError(t *testing.T) {
 		WithClusterAllocationCalculatorFactory(func(clusterName string) ClusterAllocationCalculatorInterface {
 			return mockAllocationCalc
 		}),
-		WithClusterUtilizationQueryFunc(func(ctx context.Context, storageClientSet *clientsets.StorageClientSet, hour time.Time) (float64, error) {
-			return 0, nil
+		WithClusterUtilizationQueryFunc(func(ctx context.Context, storageClientSet *clientsets.StorageClientSet, hour time.Time) (*statistics.ClusterGpuUtilizationStats, error) {
+			return &statistics.ClusterGpuUtilizationStats{}, nil
 		}),
 		WithClusterClusterName("test-cluster"),
 	)
@@ -763,8 +804,8 @@ func TestClusterGpuAggregationJob_Run_UtilizationQueryError(t *testing.T) {
 		WithClusterAllocationCalculatorFactory(func(clusterName string) ClusterAllocationCalculatorInterface {
 			return mockAllocationCalc
 		}),
-		WithClusterUtilizationQueryFunc(func(ctx context.Context, storageClientSet *clientsets.StorageClientSet, hour time.Time) (float64, error) {
-			return 0, errors.New("prometheus error")
+		WithClusterUtilizationQueryFunc(func(ctx context.Context, storageClientSet *clientsets.StorageClientSet, hour time.Time) (*statistics.ClusterGpuUtilizationStats, error) {
+			return nil, errors.New("prometheus error")
 		}),
 		WithClusterClusterName("test-cluster"),
 	)
@@ -790,7 +831,8 @@ func TestBuildClusterGpuHourlyStats_NilAllocationResult(t *testing.T) {
 
 	// This would panic if not handled properly, but we test with valid input
 	allocationResult := &statistics.GpuAllocationResult{}
-	stats := BuildClusterGpuHourlyStats("test-cluster", hour, allocationResult, 8, 0)
+	utilizationStats := &statistics.ClusterGpuUtilizationStats{}
+	stats := BuildClusterGpuHourlyStats("test-cluster", hour, allocationResult, 8, utilizationStats)
 
 	assert.Equal(t, float64(0), stats.AllocatedGpuCount)
 	assert.Equal(t, float64(0), stats.AllocationRate)
@@ -844,7 +886,8 @@ func TestAllocationRateCalculation_Cluster(t *testing.T) {
 				TotalAllocatedGpu: tt.allocated,
 			}
 
-			stats := BuildClusterGpuHourlyStats("test-cluster", hour, allocationResult, tt.capacity, 0)
+			utilizationStats := &statistics.ClusterGpuUtilizationStats{}
+			stats := BuildClusterGpuHourlyStats("test-cluster", hour, allocationResult, tt.capacity, utilizationStats)
 
 			assert.InDelta(t, tt.expectedRate, stats.AllocationRate, 0.001)
 		})
@@ -870,3 +913,182 @@ func TestClusterHourTruncation(t *testing.T) {
 	assert.Equal(t, expected, result)
 }
 
+// ==================== Full Utilization Stats Tests ====================
+
+func TestBuildClusterGpuHourlyStats_FullUtilizationStats(t *testing.T) {
+	hour := time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC)
+
+	allocationResult := &statistics.GpuAllocationResult{
+		TotalAllocatedGpu: 50.0,
+		WorkloadCount:     15,
+		PodCount:          30,
+	}
+
+	utilizationStats := &statistics.ClusterGpuUtilizationStats{
+		AvgUtilization: 65.5,
+		MaxUtilization: 98.2,
+		MinUtilization: 12.3,
+		P50Utilization: 63.7,
+		P95Utilization: 95.1,
+	}
+
+	stats := BuildClusterGpuHourlyStats("test-cluster", hour, allocationResult, 100, utilizationStats)
+
+	assert.Equal(t, "test-cluster", stats.ClusterName)
+	assert.Equal(t, hour, stats.StatHour)
+	assert.Equal(t, int32(100), stats.TotalGpuCapacity)
+	assert.Equal(t, 50.0, stats.AllocatedGpuCount)
+	assert.Equal(t, int32(15), stats.SampleCount)
+	assert.Equal(t, 50.0, stats.AllocationRate)
+
+	// Verify all utilization statistics are properly set
+	assert.Equal(t, 65.5, stats.AvgUtilization)
+	assert.Equal(t, 98.2, stats.MaxUtilization)
+	assert.Equal(t, 12.3, stats.MinUtilization)
+	assert.Equal(t, 63.7, stats.P50Utilization)
+	assert.Equal(t, 95.1, stats.P95Utilization)
+}
+
+func TestBuildClusterGpuHourlyStats_ZeroUtilizationStats(t *testing.T) {
+	hour := time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC)
+
+	allocationResult := &statistics.GpuAllocationResult{
+		TotalAllocatedGpu: 25.0,
+		WorkloadCount:     5,
+	}
+
+	utilizationStats := &statistics.ClusterGpuUtilizationStats{
+		AvgUtilization: 0,
+		MaxUtilization: 0,
+		MinUtilization: 0,
+		P50Utilization: 0,
+		P95Utilization: 0,
+	}
+
+	stats := BuildClusterGpuHourlyStats("test-cluster", hour, allocationResult, 50, utilizationStats)
+
+	assert.Equal(t, 25.0, stats.AllocatedGpuCount)
+	assert.Equal(t, 50.0, stats.AllocationRate)
+	assert.Equal(t, 0.0, stats.AvgUtilization)
+	assert.Equal(t, 0.0, stats.MaxUtilization)
+	assert.Equal(t, 0.0, stats.MinUtilization)
+	assert.Equal(t, 0.0, stats.P50Utilization)
+	assert.Equal(t, 0.0, stats.P95Utilization)
+}
+
+func TestBuildClusterGpuHourlyStats_HighUtilization(t *testing.T) {
+	hour := time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC)
+
+	allocationResult := &statistics.GpuAllocationResult{
+		TotalAllocatedGpu: 95.0,
+		WorkloadCount:     20,
+	}
+
+	utilizationStats := &statistics.ClusterGpuUtilizationStats{
+		AvgUtilization: 92.5,
+		MaxUtilization: 99.9,
+		MinUtilization: 85.0,
+		P50Utilization: 93.0,
+		P95Utilization: 98.5,
+	}
+
+	stats := BuildClusterGpuHourlyStats("test-cluster", hour, allocationResult, 100, utilizationStats)
+
+	assert.Equal(t, 95.0, stats.AllocatedGpuCount)
+	assert.Equal(t, 95.0, stats.AllocationRate)
+	assert.Equal(t, 92.5, stats.AvgUtilization)
+	assert.Equal(t, 99.9, stats.MaxUtilization)
+	assert.Equal(t, 85.0, stats.MinUtilization)
+	assert.Equal(t, 93.0, stats.P50Utilization)
+	assert.Equal(t, 98.5, stats.P95Utilization)
+}
+
+func TestClusterGpuAggregationJob_Run_WithFullUtilizationStats(t *testing.T) {
+	now := time.Now()
+	previousHour := now.Truncate(time.Hour).Add(-time.Hour)
+	twoHoursAgo := previousHour.Add(-time.Hour)
+
+	mockCacheFacade := &ClusterMockGenericCacheFacade{
+		GetFunc: func(ctx context.Context, key string, value interface{}) error {
+			if v, ok := value.(*string); ok {
+				*v = twoHoursAgo.Format(time.RFC3339)
+			}
+			return nil
+		},
+		SetFunc: func(ctx context.Context, key string, value interface{}, expiration *time.Time) error {
+			return nil
+		},
+	}
+
+	mockNodeFacade := &ClusterMockNodeFacade{
+		SearchNodeFunc: func(ctx context.Context, f filter.NodeFilter) ([]*dbmodel.Node, int, error) {
+			return []*dbmodel.Node{
+				{Name: "node-1", GpuCount: 8},
+				{Name: "node-2", GpuCount: 8},
+			}, 2, nil
+		},
+	}
+
+	savedStats := make([]*dbmodel.ClusterGpuHourlyStats, 0)
+	mockGpuAggregationFacade := &ClusterMockGpuAggregationFacade{
+		SaveClusterHourlyStatsFunc: func(ctx context.Context, stats *dbmodel.ClusterGpuHourlyStats) error {
+			savedStats = append(savedStats, stats)
+			return nil
+		},
+	}
+
+	mockFacade := &ClusterMockFacade{
+		nodeFacade:           mockNodeFacade,
+		gpuAggregationFacade: mockGpuAggregationFacade,
+		genericCacheFacade:   mockCacheFacade,
+	}
+
+	mockAllocationCalc := &ClusterMockAllocationCalculator{
+		CalculateHourlyGpuAllocationFunc: func(ctx context.Context, hour time.Time) (*statistics.GpuAllocationResult, error) {
+			return &statistics.GpuAllocationResult{
+				TotalAllocatedGpu: 12.5,
+				WorkloadCount:     8,
+			}, nil
+		},
+	}
+
+	mockUtilizationQuery := func(ctx context.Context, storageClientSet *clientsets.StorageClientSet, hour time.Time) (*statistics.ClusterGpuUtilizationStats, error) {
+		return &statistics.ClusterGpuUtilizationStats{
+			AvgUtilization: 78.3,
+			MaxUtilization: 96.7,
+			MinUtilization: 42.1,
+			P50Utilization: 76.5,
+			P95Utilization: 94.2,
+		}, nil
+	}
+
+	job := NewClusterGpuAggregationJob(
+		WithClusterFacadeGetter(func(clusterName string) database.FacadeInterface {
+			return mockFacade
+		}),
+		WithClusterAllocationCalculatorFactory(func(clusterName string) ClusterAllocationCalculatorInterface {
+			return mockAllocationCalc
+		}),
+		WithClusterUtilizationQueryFunc(mockUtilizationQuery),
+		WithClusterClusterName("test-cluster"),
+	)
+
+	ctx := context.Background()
+	stats, err := job.Run(ctx, nil, nil)
+
+	assert.NoError(t, err)
+	assert.NotNil(t, stats)
+	assert.Equal(t, int64(1), stats.ItemsCreated)
+	assert.Equal(t, 1, len(savedStats))
+
+	// Verify allocation stats
+	assert.Equal(t, 12.5, savedStats[0].AllocatedGpuCount)
+	assert.Equal(t, int32(16), savedStats[0].TotalGpuCapacity)
+
+	// Verify all utilization statistics
+	assert.Equal(t, 78.3, savedStats[0].AvgUtilization)
+	assert.Equal(t, 96.7, savedStats[0].MaxUtilization)
+	assert.Equal(t, 42.1, savedStats[0].MinUtilization)
+	assert.Equal(t, 76.5, savedStats[0].P50Utilization)
+	assert.Equal(t, 94.2, savedStats[0].P95Utilization)
+}

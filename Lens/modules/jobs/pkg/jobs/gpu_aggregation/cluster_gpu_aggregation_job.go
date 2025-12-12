@@ -33,8 +33,8 @@ type ClusterClusterNameGetter func() string
 // ClusterAllocationCalculatorFactory creates a ClusterAllocationCalculatorInterface
 type ClusterAllocationCalculatorFactory func(clusterName string) ClusterAllocationCalculatorInterface
 
-// ClusterUtilizationQueryFunc queries cluster-level GPU utilization
-type ClusterUtilizationQueryFunc func(ctx context.Context, storageClientSet *clientsets.StorageClientSet, hour time.Time) (float64, error)
+// ClusterUtilizationQueryFunc queries cluster-level GPU utilization statistics
+type ClusterUtilizationQueryFunc func(ctx context.Context, storageClientSet *clientsets.StorageClientSet, hour time.Time) (*statistics.ClusterGpuUtilizationStats, error)
 
 // ClusterAllocationCalculatorInterface defines the interface for cluster GPU allocation calculation
 type ClusterAllocationCalculatorInterface interface {
@@ -111,8 +111,8 @@ func defaultClusterAllocationCalculatorFactory(clusterName string) ClusterAlloca
 }
 
 // defaultClusterUtilizationQueryFunc is the default implementation
-func defaultClusterUtilizationQueryFunc(ctx context.Context, storageClientSet *clientsets.StorageClientSet, hour time.Time) (float64, error) {
-	return statistics.QueryClusterHourlyGpuUtilization(ctx, storageClientSet, hour)
+func defaultClusterUtilizationQueryFunc(ctx context.Context, storageClientSet *clientsets.StorageClientSet, hour time.Time) (*statistics.ClusterGpuUtilizationStats, error) {
+	return statistics.QueryClusterHourlyGpuUtilizationStats(ctx, storageClientSet, hour)
 }
 
 // NewClusterGpuAggregationJob creates a new cluster GPU aggregation job
@@ -296,15 +296,15 @@ func (j *ClusterGpuAggregationJob) aggregateClusterStats(
 		totalCapacity = 0
 	}
 
-	// Query cluster-level GPU utilization from Prometheus
-	avgUtilization, err := j.utilizationQueryFunc(ctx, storageClientSet, hour)
+	// Query cluster-level GPU utilization statistics from Prometheus
+	utilizationStats, err := j.utilizationQueryFunc(ctx, storageClientSet, hour)
 	if err != nil {
 		log.Warnf("Failed to query cluster GPU utilization: %v", err)
-		avgUtilization = 0
+		utilizationStats = &statistics.ClusterGpuUtilizationStats{}
 	}
 
 	// Build cluster stats from calculation result
-	clusterStats := BuildClusterGpuHourlyStats(clusterName, hour, result, totalCapacity, avgUtilization)
+	clusterStats := BuildClusterGpuHourlyStats(clusterName, hour, result, totalCapacity, utilizationStats)
 
 	// Save cluster stats
 	facade := j.facadeGetter(clusterName).GetGpuAggregation()
@@ -312,8 +312,9 @@ func (j *ClusterGpuAggregationJob) aggregateClusterStats(
 		return fmt.Errorf("failed to save cluster stats: %w", err)
 	}
 
-	log.Infof("Cluster stats saved for %s at %v: allocated=%.2f/%d, rate=%.2f%%, utilization=%.2f%%",
-		clusterName, hour, clusterStats.AllocatedGpuCount, totalCapacity, clusterStats.AllocationRate, avgUtilization)
+	log.Infof("Cluster stats saved for %s at %v: allocated=%.2f/%d, rate=%.2f%%, utilization=%.2f%% (max=%.2f%%, min=%.2f%%)",
+		clusterName, hour, clusterStats.AllocatedGpuCount, totalCapacity, clusterStats.AllocationRate,
+		clusterStats.AvgUtilization, clusterStats.MaxUtilization, clusterStats.MinUtilization)
 
 	return nil
 }
@@ -325,7 +326,7 @@ func BuildClusterGpuHourlyStats(
 	hour time.Time,
 	allocationResult *statistics.GpuAllocationResult,
 	totalCapacity int,
-	avgUtilization float64,
+	utilizationStats *statistics.ClusterGpuUtilizationStats,
 ) *dbmodel.ClusterGpuHourlyStats {
 	clusterStats := &dbmodel.ClusterGpuHourlyStats{
 		ClusterName:       clusterName,
@@ -333,7 +334,11 @@ func BuildClusterGpuHourlyStats(
 		TotalGpuCapacity:  int32(totalCapacity),
 		AllocatedGpuCount: allocationResult.TotalAllocatedGpu,
 		SampleCount:       int32(allocationResult.WorkloadCount),
-		AvgUtilization:    avgUtilization,
+		AvgUtilization:    utilizationStats.AvgUtilization,
+		MaxUtilization:    utilizationStats.MaxUtilization,
+		MinUtilization:    utilizationStats.MinUtilization,
+		P50Utilization:    utilizationStats.P50Utilization,
+		P95Utilization:    utilizationStats.P95Utilization,
 	}
 
 	// Calculate allocation rate

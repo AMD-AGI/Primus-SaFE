@@ -316,8 +316,14 @@ func TestClusterGpuAggregationBackfillJob_Run_SuccessfulBackfill(t *testing.T) {
 		WithClusterBackfillAllocationCalculatorFactory(func(clusterName string) ClusterBackfillAllocationCalculatorInterface {
 			return mockAllocationCalc
 		}),
-		WithClusterBackfillUtilizationQueryFunc(func(ctx context.Context, storageClientSet *clientsets.StorageClientSet, hour time.Time) (float64, error) {
-			return 75.0, nil
+		WithClusterBackfillUtilizationQueryFunc(func(ctx context.Context, storageClientSet *clientsets.StorageClientSet, hour time.Time) (*statistics.ClusterGpuUtilizationStats, error) {
+			return &statistics.ClusterGpuUtilizationStats{
+				AvgUtilization: 75.0,
+				MaxUtilization: 90.0,
+				MinUtilization: 60.0,
+				P50Utilization: 73.0,
+				P95Utilization: 88.0,
+			}, nil
 		}),
 		WithClusterBackfillClusterName("test-cluster"),
 	)
