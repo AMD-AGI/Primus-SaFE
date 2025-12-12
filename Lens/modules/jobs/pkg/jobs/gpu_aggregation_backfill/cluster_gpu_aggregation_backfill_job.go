@@ -25,6 +25,23 @@ const (
 	DefaultClusterBatchSize = 24
 )
 
+// ClusterBackfillFacadeGetter is the function signature for getting database facade
+type ClusterBackfillFacadeGetter func(clusterName string) database.FacadeInterface
+
+// ClusterBackfillClusterNameGetter is the function signature for getting cluster name
+type ClusterBackfillClusterNameGetter func() string
+
+// ClusterBackfillAllocationCalculatorFactory creates an allocation calculator
+type ClusterBackfillAllocationCalculatorFactory func(clusterName string) ClusterBackfillAllocationCalculatorInterface
+
+// ClusterBackfillUtilizationQueryFunc queries cluster-level GPU utilization
+type ClusterBackfillUtilizationQueryFunc func(ctx context.Context, storageClientSet *clientsets.StorageClientSet, hour time.Time) (float64, error)
+
+// ClusterBackfillAllocationCalculatorInterface defines the interface for cluster GPU allocation calculation
+type ClusterBackfillAllocationCalculatorInterface interface {
+	CalculateHourlyGpuAllocation(ctx context.Context, hour time.Time) (*statistics.GpuAllocationResult, error)
+}
+
 // ClusterGpuAggregationBackfillConfig is the configuration for cluster backfill job
 type ClusterGpuAggregationBackfillConfig struct {
 	// Enabled controls whether the job is enabled
@@ -39,30 +56,116 @@ type ClusterGpuAggregationBackfillConfig struct {
 
 // ClusterGpuAggregationBackfillJob is the job for backfilling missing cluster GPU aggregation data
 type ClusterGpuAggregationBackfillJob struct {
-	config      *ClusterGpuAggregationBackfillConfig
-	clusterName string
+	config                      *ClusterGpuAggregationBackfillConfig
+	clusterName                 string
+	facadeGetter                ClusterBackfillFacadeGetter
+	clusterNameGetter           ClusterBackfillClusterNameGetter
+	allocationCalculatorFactory ClusterBackfillAllocationCalculatorFactory
+	utilizationQueryFunc        ClusterBackfillUtilizationQueryFunc
+}
+
+// ClusterBackfillJobOption is a function that configures a ClusterGpuAggregationBackfillJob
+type ClusterBackfillJobOption func(*ClusterGpuAggregationBackfillJob)
+
+// WithClusterBackfillFacadeGetter sets the facade getter function
+func WithClusterBackfillFacadeGetter(getter ClusterBackfillFacadeGetter) ClusterBackfillJobOption {
+	return func(j *ClusterGpuAggregationBackfillJob) {
+		j.facadeGetter = getter
+	}
+}
+
+// WithClusterBackfillClusterNameGetter sets the cluster name getter function
+func WithClusterBackfillClusterNameGetter(getter ClusterBackfillClusterNameGetter) ClusterBackfillJobOption {
+	return func(j *ClusterGpuAggregationBackfillJob) {
+		j.clusterNameGetter = getter
+	}
+}
+
+// WithClusterBackfillClusterName sets the cluster name directly
+func WithClusterBackfillClusterName(name string) ClusterBackfillJobOption {
+	return func(j *ClusterGpuAggregationBackfillJob) {
+		j.clusterName = name
+	}
+}
+
+// WithClusterBackfillAllocationCalculatorFactory sets the allocation calculator factory
+func WithClusterBackfillAllocationCalculatorFactory(factory ClusterBackfillAllocationCalculatorFactory) ClusterBackfillJobOption {
+	return func(j *ClusterGpuAggregationBackfillJob) {
+		j.allocationCalculatorFactory = factory
+	}
+}
+
+// WithClusterBackfillUtilizationQueryFunc sets the utilization query function
+func WithClusterBackfillUtilizationQueryFunc(fn ClusterBackfillUtilizationQueryFunc) ClusterBackfillJobOption {
+	return func(j *ClusterGpuAggregationBackfillJob) {
+		j.utilizationQueryFunc = fn
+	}
+}
+
+// defaultClusterBackfillFacadeGetter is the default implementation
+func defaultClusterBackfillFacadeGetter(clusterName string) database.FacadeInterface {
+	return database.GetFacadeForCluster(clusterName)
+}
+
+// defaultClusterBackfillClusterNameGetter is the default implementation
+func defaultClusterBackfillClusterNameGetter() string {
+	return clientsets.GetClusterManager().GetCurrentClusterName()
+}
+
+// defaultClusterBackfillAllocationCalculatorFactory is the default implementation
+func defaultClusterBackfillAllocationCalculatorFactory(clusterName string) ClusterBackfillAllocationCalculatorInterface {
+	return statistics.NewGpuAllocationCalculator(clusterName)
+}
+
+// defaultClusterBackfillUtilizationQueryFunc is the default implementation
+func defaultClusterBackfillUtilizationQueryFunc(ctx context.Context, storageClientSet *clientsets.StorageClientSet, hour time.Time) (float64, error) {
+	return statistics.QueryClusterHourlyGpuUtilization(ctx, storageClientSet, hour)
 }
 
 // NewClusterGpuAggregationBackfillJob creates a new cluster backfill job with default config
-func NewClusterGpuAggregationBackfillJob() *ClusterGpuAggregationBackfillJob {
-	clusterName := clientsets.GetClusterManager().GetCurrentClusterName()
-	return &ClusterGpuAggregationBackfillJob{
+func NewClusterGpuAggregationBackfillJob(opts ...ClusterBackfillJobOption) *ClusterGpuAggregationBackfillJob {
+	j := &ClusterGpuAggregationBackfillJob{
 		config: &ClusterGpuAggregationBackfillConfig{
 			Enabled:      true,
 			BackfillDays: DefaultClusterBackfillDays,
 			BatchSize:    DefaultClusterBatchSize,
 		},
-		clusterName: clusterName,
+		facadeGetter:                defaultClusterBackfillFacadeGetter,
+		clusterNameGetter:           defaultClusterBackfillClusterNameGetter,
+		allocationCalculatorFactory: defaultClusterBackfillAllocationCalculatorFactory,
+		utilizationQueryFunc:        defaultClusterBackfillUtilizationQueryFunc,
 	}
+
+	for _, opt := range opts {
+		opt(j)
+	}
+
+	if j.clusterName == "" {
+		j.clusterName = j.clusterNameGetter()
+	}
+
+	return j
 }
 
 // NewClusterGpuAggregationBackfillJobWithConfig creates a new cluster backfill job with custom config
-func NewClusterGpuAggregationBackfillJobWithConfig(cfg *ClusterGpuAggregationBackfillConfig) *ClusterGpuAggregationBackfillJob {
-	clusterName := clientsets.GetClusterManager().GetCurrentClusterName()
-	return &ClusterGpuAggregationBackfillJob{
-		config:      cfg,
-		clusterName: clusterName,
+func NewClusterGpuAggregationBackfillJobWithConfig(cfg *ClusterGpuAggregationBackfillConfig, opts ...ClusterBackfillJobOption) *ClusterGpuAggregationBackfillJob {
+	j := &ClusterGpuAggregationBackfillJob{
+		config:                      cfg,
+		facadeGetter:                defaultClusterBackfillFacadeGetter,
+		clusterNameGetter:           defaultClusterBackfillClusterNameGetter,
+		allocationCalculatorFactory: defaultClusterBackfillAllocationCalculatorFactory,
+		utilizationQueryFunc:        defaultClusterBackfillUtilizationQueryFunc,
 	}
+
+	for _, opt := range opts {
+		opt(j)
+	}
+
+	if j.clusterName == "" {
+		j.clusterName = j.clusterNameGetter()
+	}
+
+	return j
 }
 
 // Run executes the cluster backfill job
@@ -78,7 +181,7 @@ func (j *ClusterGpuAggregationBackfillJob) Run(ctx context.Context,
 
 	clusterName := j.clusterName
 	if clusterName == "" {
-		clusterName = clientsets.GetClusterManager().GetCurrentClusterName()
+		clusterName = j.clusterNameGetter()
 	}
 
 	span.SetAttributes(
@@ -170,7 +273,7 @@ func (j *ClusterGpuAggregationBackfillJob) findMissingClusterStats(
 		return nil, nil
 	}
 
-	facade := database.GetFacadeForCluster(clusterName).GetGpuAggregation()
+	facade := j.facadeGetter(clusterName).GetGpuAggregation()
 
 	startTime := allHours[0]
 	endTime := allHours[len(allHours)-1].Add(time.Hour)
@@ -181,12 +284,20 @@ func (j *ClusterGpuAggregationBackfillJob) findMissingClusterStats(
 		return nil, fmt.Errorf("failed to get cluster hourly stats: %w", err)
 	}
 
+	// Find missing hours using helper function
+	missingClusterHours := FindMissingClusterHours(allHours, clusterStats)
+
+	return missingClusterHours, nil
+}
+
+// FindMissingClusterHours finds hours that are missing from existing stats
+// This is exported for testing purposes
+func FindMissingClusterHours(allHours []time.Time, existingStats []*dbmodel.ClusterGpuHourlyStats) []time.Time {
 	existingClusterHours := make(map[time.Time]struct{})
-	for _, stat := range clusterStats {
+	for _, stat := range existingStats {
 		existingClusterHours[stat.StatHour.Truncate(time.Hour)] = struct{}{}
 	}
 
-	// Find missing cluster hours
 	missingClusterHours := make([]time.Time, 0)
 	for _, hour := range allHours {
 		if _, exists := existingClusterHours[hour]; !exists {
@@ -194,7 +305,7 @@ func (j *ClusterGpuAggregationBackfillJob) findMissingClusterStats(
 		}
 	}
 
-	return missingClusterHours, nil
+	return missingClusterHours
 }
 
 // backfillClusterStats backfills missing cluster hourly stats using time-weighted calculation
@@ -208,8 +319,8 @@ func (j *ClusterGpuAggregationBackfillJob) backfillClusterStats(
 		return 0, nil
 	}
 
-	facade := database.GetFacadeForCluster(clusterName).GetGpuAggregation()
-	calculator := statistics.NewGpuAllocationCalculator(clusterName)
+	facade := j.facadeGetter(clusterName).GetGpuAggregation()
+	calculator := j.allocationCalculatorFactory(clusterName)
 	var createdCount int64
 
 	// Get cluster GPU capacity once (reuse for all hours)
@@ -229,20 +340,21 @@ func (j *ClusterGpuAggregationBackfillJob) backfillClusterStats(
 		}
 
 		// Query cluster-level GPU utilization from Prometheus
-		avgUtilization, err := statistics.QueryClusterHourlyGpuUtilization(ctx, storageClientSet, hour)
+		avgUtilization, err := j.utilizationQueryFunc(ctx, storageClientSet, hour)
 		if err != nil {
 			log.Warnf("Failed to query cluster GPU utilization for hour %v: %v", hour, err)
 			avgUtilization = 0
 		}
 
+		// Build cluster stats
 		var clusterStats *dbmodel.ClusterGpuHourlyStats
 		if result.WorkloadCount == 0 {
 			// No workload data for this hour, fill with zero values
-			clusterStats = j.createZeroClusterStats(clusterName, hour)
+			clusterStats = CreateZeroClusterStats(clusterName, hour)
 			log.Debugf("Creating zero-value cluster stats for hour %v (no workload data)", hour)
 		} else {
 			// Build cluster stats from time-weighted calculation result
-			clusterStats = j.buildClusterStatsFromResult(clusterName, hour, result)
+			clusterStats = BuildClusterStatsFromResult(clusterName, hour, result)
 		}
 
 		// Set GPU utilization from Prometheus query
@@ -268,8 +380,9 @@ func (j *ClusterGpuAggregationBackfillJob) backfillClusterStats(
 	return createdCount, nil
 }
 
-// buildClusterStatsFromResult builds ClusterGpuHourlyStats from time-weighted calculation result
-func (j *ClusterGpuAggregationBackfillJob) buildClusterStatsFromResult(
+// BuildClusterStatsFromResult builds ClusterGpuHourlyStats from time-weighted calculation result
+// This is exported for testing purposes
+func BuildClusterStatsFromResult(
 	clusterName string,
 	hour time.Time,
 	result *statistics.GpuAllocationResult) *dbmodel.ClusterGpuHourlyStats {
@@ -282,8 +395,9 @@ func (j *ClusterGpuAggregationBackfillJob) buildClusterStatsFromResult(
 	}
 }
 
-// createZeroClusterStats creates a cluster stats record with zero values
-func (j *ClusterGpuAggregationBackfillJob) createZeroClusterStats(
+// CreateZeroClusterStats creates a cluster stats record with zero values
+// This is exported for testing purposes
+func CreateZeroClusterStats(
 	clusterName string,
 	hour time.Time) *dbmodel.ClusterGpuHourlyStats {
 
@@ -306,7 +420,7 @@ func (j *ClusterGpuAggregationBackfillJob) createZeroClusterStats(
 func (j *ClusterGpuAggregationBackfillJob) getClusterGpuCapacity(ctx context.Context, clusterName string) (int, error) {
 	// Query all GPU nodes from database and sum capacity
 	readyStatus := "Ready"
-	nodes, _, err := database.GetFacadeForCluster(clusterName).GetNode().
+	nodes, _, err := j.facadeGetter(clusterName).GetNode().
 		SearchNode(ctx, filter.NodeFilter{
 			K8sStatus: &readyStatus,
 			Limit:     10000,
@@ -316,14 +430,20 @@ func (j *ClusterGpuAggregationBackfillJob) getClusterGpuCapacity(ctx context.Con
 		return 0, fmt.Errorf("failed to query nodes: %w", err)
 	}
 
+	totalCapacity := CalculateClusterBackfillGpuCapacity(nodes)
+	return totalCapacity, nil
+}
+
+// CalculateClusterBackfillGpuCapacity calculates total GPU capacity from nodes
+// This is exported for testing purposes
+func CalculateClusterBackfillGpuCapacity(nodes []*dbmodel.Node) int {
 	totalCapacity := 0
 	for _, node := range nodes {
 		if node.GpuCount > 0 {
 			totalCapacity += int(node.GpuCount)
 		}
 	}
-
-	return totalCapacity, nil
+	return totalCapacity
 }
 
 // Schedule returns the job's scheduling expression

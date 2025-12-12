@@ -29,6 +29,23 @@ const (
 	SystemConfigKeyGpuAggregationBackfill = "job.gpu_aggregation.config"
 )
 
+// LabelBackfillFacadeGetter is the function signature for getting database facade
+type LabelBackfillFacadeGetter func(clusterName string) database.FacadeInterface
+
+// LabelBackfillClusterNameGetter is the function signature for getting cluster name
+type LabelBackfillClusterNameGetter func() string
+
+// LabelBackfillAggregationCalculatorFactory creates a label aggregation calculator
+type LabelBackfillAggregationCalculatorFactory func(clusterName string, config *statistics.LabelAggregationConfig) LabelBackfillAggregationCalculatorInterface
+
+// LabelBackfillUtilizationCalcFunc calculates weighted utilization for workloads
+type LabelBackfillUtilizationCalcFunc func(ctx context.Context, storageClientSet *clientsets.StorageClientSet, workloadGpuCounts map[string]int32, startTime, endTime time.Time, step int) statistics.UtilizationStats
+
+// LabelBackfillAggregationCalculatorInterface defines the interface for label aggregation calculation
+type LabelBackfillAggregationCalculatorInterface interface {
+	CalculateHourlyLabelAggregation(ctx context.Context, hour time.Time) (*statistics.LabelAggregationSummary, error)
+}
+
 // LabelGpuAggregationSystemConfig represents the full system_config structure for label GPU aggregation
 type LabelGpuAggregationSystemConfig struct {
 	Dimensions struct {
@@ -64,14 +81,75 @@ type LabelGpuAggregationBackfillConfig struct {
 
 // LabelGpuAggregationBackfillJob is the job for backfilling missing label GPU aggregation data
 type LabelGpuAggregationBackfillJob struct {
-	config      *LabelGpuAggregationBackfillConfig
-	clusterName string
+	config                         *LabelGpuAggregationBackfillConfig
+	clusterName                    string
+	facadeGetter                   LabelBackfillFacadeGetter
+	clusterNameGetter              LabelBackfillClusterNameGetter
+	aggregationCalculatorFactory   LabelBackfillAggregationCalculatorFactory
+	utilizationCalcFunc            LabelBackfillUtilizationCalcFunc
+}
+
+// LabelBackfillJobOption is a function that configures a LabelGpuAggregationBackfillJob
+type LabelBackfillJobOption func(*LabelGpuAggregationBackfillJob)
+
+// WithLabelBackfillFacadeGetter sets the facade getter function
+func WithLabelBackfillFacadeGetter(getter LabelBackfillFacadeGetter) LabelBackfillJobOption {
+	return func(j *LabelGpuAggregationBackfillJob) {
+		j.facadeGetter = getter
+	}
+}
+
+// WithLabelBackfillClusterNameGetter sets the cluster name getter function
+func WithLabelBackfillClusterNameGetter(getter LabelBackfillClusterNameGetter) LabelBackfillJobOption {
+	return func(j *LabelGpuAggregationBackfillJob) {
+		j.clusterNameGetter = getter
+	}
+}
+
+// WithLabelBackfillClusterName sets the cluster name directly
+func WithLabelBackfillClusterName(name string) LabelBackfillJobOption {
+	return func(j *LabelGpuAggregationBackfillJob) {
+		j.clusterName = name
+	}
+}
+
+// WithLabelBackfillAggregationCalculatorFactory sets the aggregation calculator factory
+func WithLabelBackfillAggregationCalculatorFactory(factory LabelBackfillAggregationCalculatorFactory) LabelBackfillJobOption {
+	return func(j *LabelGpuAggregationBackfillJob) {
+		j.aggregationCalculatorFactory = factory
+	}
+}
+
+// WithLabelBackfillUtilizationCalcFunc sets the utilization calculation function
+func WithLabelBackfillUtilizationCalcFunc(fn LabelBackfillUtilizationCalcFunc) LabelBackfillJobOption {
+	return func(j *LabelGpuAggregationBackfillJob) {
+		j.utilizationCalcFunc = fn
+	}
+}
+
+// defaultLabelBackfillFacadeGetter is the default implementation
+func defaultLabelBackfillFacadeGetter(clusterName string) database.FacadeInterface {
+	return database.GetFacadeForCluster(clusterName)
+}
+
+// defaultLabelBackfillClusterNameGetter is the default implementation
+func defaultLabelBackfillClusterNameGetter() string {
+	return clientsets.GetClusterManager().GetCurrentClusterName()
+}
+
+// defaultLabelBackfillAggregationCalculatorFactory is the default implementation
+func defaultLabelBackfillAggregationCalculatorFactory(clusterName string, config *statistics.LabelAggregationConfig) LabelBackfillAggregationCalculatorInterface {
+	return statistics.NewLabelAggregationCalculator(clusterName, config)
+}
+
+// defaultLabelBackfillUtilizationCalcFunc is the default implementation
+func defaultLabelBackfillUtilizationCalcFunc(ctx context.Context, storageClientSet *clientsets.StorageClientSet, workloadGpuCounts map[string]int32, startTime, endTime time.Time, step int) statistics.UtilizationStats {
+	return statistics.CalculateWorkloadsUtilizationWeighted(ctx, storageClientSet, workloadGpuCounts, startTime, endTime, step)
 }
 
 // NewLabelGpuAggregationBackfillJob creates a new label backfill job with default config
-func NewLabelGpuAggregationBackfillJob() *LabelGpuAggregationBackfillJob {
-	clusterName := clientsets.GetClusterManager().GetCurrentClusterName()
-	return &LabelGpuAggregationBackfillJob{
+func NewLabelGpuAggregationBackfillJob(opts ...LabelBackfillJobOption) *LabelGpuAggregationBackfillJob {
+	j := &LabelGpuAggregationBackfillJob{
 		config: &LabelGpuAggregationBackfillConfig{
 			Enabled:        true,
 			BackfillDays:   DefaultLabelBackfillDays,
@@ -80,17 +158,42 @@ func NewLabelGpuAggregationBackfillJob() *LabelGpuAggregationBackfillJob {
 			AnnotationKeys: []string{},
 			DefaultValue:   "unknown",
 		},
-		clusterName: clusterName,
+		facadeGetter:                   defaultLabelBackfillFacadeGetter,
+		clusterNameGetter:              defaultLabelBackfillClusterNameGetter,
+		aggregationCalculatorFactory:   defaultLabelBackfillAggregationCalculatorFactory,
+		utilizationCalcFunc:            defaultLabelBackfillUtilizationCalcFunc,
 	}
+
+	for _, opt := range opts {
+		opt(j)
+	}
+
+	if j.clusterName == "" {
+		j.clusterName = j.clusterNameGetter()
+	}
+
+	return j
 }
 
 // NewLabelGpuAggregationBackfillJobWithConfig creates a new label backfill job with custom config
-func NewLabelGpuAggregationBackfillJobWithConfig(cfg *LabelGpuAggregationBackfillConfig) *LabelGpuAggregationBackfillJob {
-	clusterName := clientsets.GetClusterManager().GetCurrentClusterName()
-	return &LabelGpuAggregationBackfillJob{
-		config:      cfg,
-		clusterName: clusterName,
+func NewLabelGpuAggregationBackfillJobWithConfig(cfg *LabelGpuAggregationBackfillConfig, opts ...LabelBackfillJobOption) *LabelGpuAggregationBackfillJob {
+	j := &LabelGpuAggregationBackfillJob{
+		config:                         cfg,
+		facadeGetter:                   defaultLabelBackfillFacadeGetter,
+		clusterNameGetter:              defaultLabelBackfillClusterNameGetter,
+		aggregationCalculatorFactory:   defaultLabelBackfillAggregationCalculatorFactory,
+		utilizationCalcFunc:            defaultLabelBackfillUtilizationCalcFunc,
 	}
+
+	for _, opt := range opts {
+		opt(j)
+	}
+
+	if j.clusterName == "" {
+		j.clusterName = j.clusterNameGetter()
+	}
+
+	return j
 }
 
 // Run executes the label backfill job
@@ -106,7 +209,7 @@ func (j *LabelGpuAggregationBackfillJob) Run(ctx context.Context,
 
 	clusterName := j.clusterName
 	if clusterName == "" {
-		clusterName = clientsets.GetClusterManager().GetCurrentClusterName()
+		clusterName = j.clusterNameGetter()
 	}
 
 	span.SetAttributes(
@@ -197,7 +300,7 @@ func (j *LabelGpuAggregationBackfillJob) backfillLabelStats(
 		return 0, 0, nil
 	}
 
-	facade := database.GetFacadeForCluster(clusterName).GetGpuAggregation()
+	facade := j.facadeGetter(clusterName).GetGpuAggregation()
 	var createdCount, skippedCount int64
 
 	// Sort hours for consistent processing
@@ -206,7 +309,7 @@ func (j *LabelGpuAggregationBackfillJob) backfillLabelStats(
 	})
 
 	// Create calculator with configuration
-	calculator := statistics.NewLabelAggregationCalculator(clusterName, &statistics.LabelAggregationConfig{
+	calculator := j.aggregationCalculatorFactory(clusterName, &statistics.LabelAggregationConfig{
 		LabelKeys:      j.config.LabelKeys,
 		AnnotationKeys: j.config.AnnotationKeys,
 		DefaultValue:   j.config.DefaultValue,
@@ -248,21 +351,10 @@ func (j *LabelGpuAggregationBackfillJob) backfillLabelStats(
 			}
 
 			// Query utilization for all workloads in this aggregation (weighted by GPU count)
-			utilizationStats := statistics.CalculateWorkloadsUtilizationWeighted(ctx, storageClientSet, agg.WorkloadGpuCounts, hourStart, hourEnd, 0)
+			utilizationStats := j.utilizationCalcFunc(ctx, storageClientSet, agg.WorkloadGpuCounts, hourStart, hourEnd, 0)
 
 			// Create new stats record
-			stats := &dbmodel.LabelGpuHourlyStats{
-				ClusterName:         clusterName,
-				DimensionType:       agg.DimensionType,
-				DimensionKey:        agg.DimensionKey,
-				DimensionValue:      agg.DimensionValue,
-				StatHour:            hour,
-				AllocatedGpuCount:   agg.TotalAllocatedGpu,
-				ActiveWorkloadCount: int32(agg.ActiveWorkloadCount),
-				AvgUtilization:      utilizationStats.AvgUtilization,
-				MaxUtilization:      utilizationStats.MaxUtilization,
-				MinUtilization:      utilizationStats.MinUtilization,
-			}
+			stats := BuildLabelStatsFromAggregation(clusterName, hour, agg, &utilizationStats)
 
 			if err := facade.SaveLabelHourlyStats(ctx, stats); err != nil {
 				log.Errorf("Failed to save label stats for %s:%s=%s at %v: %v",
@@ -280,9 +372,36 @@ func (j *LabelGpuAggregationBackfillJob) backfillLabelStats(
 	return createdCount, skippedCount, nil
 }
 
+// BuildLabelStatsFromAggregation builds LabelGpuHourlyStats from aggregation result
+// This is exported for testing purposes
+func BuildLabelStatsFromAggregation(
+	clusterName string,
+	hour time.Time,
+	agg *statistics.LabelAggregationResult,
+	utilizationStats *statistics.UtilizationStats) *dbmodel.LabelGpuHourlyStats {
+
+	stats := &dbmodel.LabelGpuHourlyStats{
+		ClusterName:         clusterName,
+		DimensionType:       agg.DimensionType,
+		DimensionKey:        agg.DimensionKey,
+		DimensionValue:      agg.DimensionValue,
+		StatHour:            hour,
+		AllocatedGpuCount:   agg.TotalAllocatedGpu,
+		ActiveWorkloadCount: int32(agg.ActiveWorkloadCount),
+	}
+
+	if utilizationStats != nil {
+		stats.AvgUtilization = utilizationStats.AvgUtilization
+		stats.MaxUtilization = utilizationStats.MaxUtilization
+		stats.MinUtilization = utilizationStats.MinUtilization
+	}
+
+	return stats
+}
+
 // loadConfigFromSystemConfig loads configuration from system_config table
 func (j *LabelGpuAggregationBackfillJob) loadConfigFromSystemConfig(ctx context.Context, clusterName string) error {
-	configFacade := database.GetFacadeForCluster(clusterName).GetSystemConfig()
+	configFacade := j.facadeGetter(clusterName).GetSystemConfig()
 	sysConfig, err := configFacade.GetByKey(ctx, SystemConfigKeyGpuAggregationBackfill)
 	if err != nil {
 		return fmt.Errorf("failed to get system config: %w", err)

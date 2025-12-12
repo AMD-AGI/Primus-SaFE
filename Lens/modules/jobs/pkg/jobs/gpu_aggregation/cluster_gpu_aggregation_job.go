@@ -24,6 +24,23 @@ const (
 	CacheKeyClusterGpuAggregationLastHour = "job.cluster_gpu_aggregation.last_processed_hour"
 )
 
+// ClusterFacadeGetter is the function signature for getting database facade
+type ClusterFacadeGetter func(clusterName string) database.FacadeInterface
+
+// ClusterClusterNameGetter is the function signature for getting cluster name
+type ClusterClusterNameGetter func() string
+
+// ClusterAllocationCalculatorFactory creates a ClusterAllocationCalculatorInterface
+type ClusterAllocationCalculatorFactory func(clusterName string) ClusterAllocationCalculatorInterface
+
+// ClusterUtilizationQueryFunc queries cluster-level GPU utilization
+type ClusterUtilizationQueryFunc func(ctx context.Context, storageClientSet *clientsets.StorageClientSet, hour time.Time) (float64, error)
+
+// ClusterAllocationCalculatorInterface defines the interface for cluster GPU allocation calculation
+type ClusterAllocationCalculatorInterface interface {
+	CalculateHourlyGpuAllocation(ctx context.Context, hour time.Time) (*statistics.GpuAllocationResult, error)
+}
+
 // ClusterGpuAggregationConfig is the configuration for cluster GPU aggregation job
 type ClusterGpuAggregationConfig struct {
 	// Enabled controls whether the job is enabled
@@ -32,28 +49,118 @@ type ClusterGpuAggregationConfig struct {
 
 // ClusterGpuAggregationJob aggregates cluster-level GPU statistics using time-weighted calculation
 type ClusterGpuAggregationJob struct {
-	config      *ClusterGpuAggregationConfig
-	clusterName string
+	config                      *ClusterGpuAggregationConfig
+	clusterName                 string
+	facadeGetter                ClusterFacadeGetter
+	clusterNameGetter           ClusterClusterNameGetter
+	allocationCalculatorFactory ClusterAllocationCalculatorFactory
+	utilizationQueryFunc        ClusterUtilizationQueryFunc
+}
+
+// ClusterJobOption is a function that configures a ClusterGpuAggregationJob
+type ClusterJobOption func(*ClusterGpuAggregationJob)
+
+// WithClusterFacadeGetter sets the facade getter function
+func WithClusterFacadeGetter(getter ClusterFacadeGetter) ClusterJobOption {
+	return func(j *ClusterGpuAggregationJob) {
+		j.facadeGetter = getter
+	}
+}
+
+// WithClusterClusterNameGetter sets the cluster name getter function
+func WithClusterClusterNameGetter(getter ClusterClusterNameGetter) ClusterJobOption {
+	return func(j *ClusterGpuAggregationJob) {
+		j.clusterNameGetter = getter
+	}
+}
+
+// WithClusterClusterName sets the cluster name directly
+func WithClusterClusterName(name string) ClusterJobOption {
+	return func(j *ClusterGpuAggregationJob) {
+		j.clusterName = name
+	}
+}
+
+// WithClusterAllocationCalculatorFactory sets the allocation calculator factory
+func WithClusterAllocationCalculatorFactory(factory ClusterAllocationCalculatorFactory) ClusterJobOption {
+	return func(j *ClusterGpuAggregationJob) {
+		j.allocationCalculatorFactory = factory
+	}
+}
+
+// WithClusterUtilizationQueryFunc sets the utilization query function
+func WithClusterUtilizationQueryFunc(fn ClusterUtilizationQueryFunc) ClusterJobOption {
+	return func(j *ClusterGpuAggregationJob) {
+		j.utilizationQueryFunc = fn
+	}
+}
+
+// defaultClusterFacadeGetter is the default implementation using database package
+func defaultClusterFacadeGetter(clusterName string) database.FacadeInterface {
+	return database.GetFacadeForCluster(clusterName)
+}
+
+// defaultClusterClusterNameGetter is the default implementation using clientsets package
+func defaultClusterClusterNameGetter() string {
+	return clientsets.GetClusterManager().GetCurrentClusterName()
+}
+
+// defaultClusterAllocationCalculatorFactory is the default implementation
+func defaultClusterAllocationCalculatorFactory(clusterName string) ClusterAllocationCalculatorInterface {
+	return statistics.NewGpuAllocationCalculator(clusterName)
+}
+
+// defaultClusterUtilizationQueryFunc is the default implementation
+func defaultClusterUtilizationQueryFunc(ctx context.Context, storageClientSet *clientsets.StorageClientSet, hour time.Time) (float64, error) {
+	return statistics.QueryClusterHourlyGpuUtilization(ctx, storageClientSet, hour)
 }
 
 // NewClusterGpuAggregationJob creates a new cluster GPU aggregation job
-func NewClusterGpuAggregationJob() *ClusterGpuAggregationJob {
-	clusterName := clientsets.GetClusterManager().GetCurrentClusterName()
-	return &ClusterGpuAggregationJob{
+func NewClusterGpuAggregationJob(opts ...ClusterJobOption) *ClusterGpuAggregationJob {
+	j := &ClusterGpuAggregationJob{
 		config: &ClusterGpuAggregationConfig{
 			Enabled: true,
 		},
-		clusterName: clusterName,
+		facadeGetter:                defaultClusterFacadeGetter,
+		clusterNameGetter:           defaultClusterClusterNameGetter,
+		allocationCalculatorFactory: defaultClusterAllocationCalculatorFactory,
+		utilizationQueryFunc:        defaultClusterUtilizationQueryFunc,
 	}
+
+	// Apply options
+	for _, opt := range opts {
+		opt(j)
+	}
+
+	// Set cluster name if not already set
+	if j.clusterName == "" {
+		j.clusterName = j.clusterNameGetter()
+	}
+
+	return j
 }
 
 // NewClusterGpuAggregationJobWithConfig creates a new cluster GPU aggregation job with custom config
-func NewClusterGpuAggregationJobWithConfig(cfg *ClusterGpuAggregationConfig) *ClusterGpuAggregationJob {
-	clusterName := clientsets.GetClusterManager().GetCurrentClusterName()
-	return &ClusterGpuAggregationJob{
-		config:      cfg,
-		clusterName: clusterName,
+func NewClusterGpuAggregationJobWithConfig(cfg *ClusterGpuAggregationConfig, opts ...ClusterJobOption) *ClusterGpuAggregationJob {
+	j := &ClusterGpuAggregationJob{
+		config:                      cfg,
+		facadeGetter:                defaultClusterFacadeGetter,
+		clusterNameGetter:           defaultClusterClusterNameGetter,
+		allocationCalculatorFactory: defaultClusterAllocationCalculatorFactory,
+		utilizationQueryFunc:        defaultClusterUtilizationQueryFunc,
 	}
+
+	// Apply options
+	for _, opt := range opts {
+		opt(j)
+	}
+
+	// Set cluster name if not already set
+	if j.clusterName == "" {
+		j.clusterName = j.clusterNameGetter()
+	}
+
+	return j
 }
 
 // Run executes the cluster GPU aggregation job
@@ -69,7 +176,7 @@ func (j *ClusterGpuAggregationJob) Run(ctx context.Context,
 
 	clusterName := j.clusterName
 	if clusterName == "" {
-		clusterName = clientsets.GetClusterManager().GetCurrentClusterName()
+		clusterName = j.clusterNameGetter()
 	}
 
 	span.SetAttributes(
@@ -141,7 +248,7 @@ func (j *ClusterGpuAggregationJob) Run(ctx context.Context,
 
 // getLastProcessedHour retrieves the last processed hour from cache
 func (j *ClusterGpuAggregationJob) getLastProcessedHour(ctx context.Context, clusterName string) (time.Time, error) {
-	cacheFacade := database.GetFacadeForCluster(clusterName).GetGenericCache()
+	cacheFacade := j.facadeGetter(clusterName).GetGenericCache()
 
 	var lastHourStr string
 	err := cacheFacade.Get(ctx, CacheKeyClusterGpuAggregationLastHour, &lastHourStr)
@@ -162,7 +269,7 @@ func (j *ClusterGpuAggregationJob) getLastProcessedHour(ctx context.Context, clu
 
 // setLastProcessedHour stores the last processed hour in cache
 func (j *ClusterGpuAggregationJob) setLastProcessedHour(ctx context.Context, clusterName string, hour time.Time) error {
-	cacheFacade := database.GetFacadeForCluster(clusterName).GetGenericCache()
+	cacheFacade := j.facadeGetter(clusterName).GetGenericCache()
 
 	hourStr := hour.Format(time.RFC3339)
 	return cacheFacade.Set(ctx, CacheKeyClusterGpuAggregationLastHour, hourStr, nil)
@@ -176,7 +283,7 @@ func (j *ClusterGpuAggregationJob) aggregateClusterStats(
 	storageClientSet *clientsets.StorageClientSet) error {
 
 	// Use time-weighted calculation from statistics package
-	calculator := statistics.NewGpuAllocationCalculator(clusterName)
+	calculator := j.allocationCalculatorFactory(clusterName)
 	result, err := calculator.CalculateHourlyGpuAllocation(ctx, hour)
 	if err != nil {
 		return fmt.Errorf("failed to calculate GPU allocation: %w", err)
@@ -189,30 +296,18 @@ func (j *ClusterGpuAggregationJob) aggregateClusterStats(
 		totalCapacity = 0
 	}
 
-	// Build cluster stats from calculation result
-	clusterStats := &dbmodel.ClusterGpuHourlyStats{
-		ClusterName:       clusterName,
-		StatHour:          hour,
-		TotalGpuCapacity:  int32(totalCapacity),
-		AllocatedGpuCount: result.TotalAllocatedGpu,
-		SampleCount:       int32(result.WorkloadCount),
-	}
-
-	// Calculate allocation rate
-	if totalCapacity > 0 && clusterStats.AllocatedGpuCount > 0 {
-		clusterStats.AllocationRate = (clusterStats.AllocatedGpuCount / float64(totalCapacity)) * 100
-	}
-
-	// Query cluster-level GPU utilization from Prometheus using avg(gpu_utilization{})
-	avgUtilization, err := statistics.QueryClusterHourlyGpuUtilization(ctx, storageClientSet, hour)
+	// Query cluster-level GPU utilization from Prometheus
+	avgUtilization, err := j.utilizationQueryFunc(ctx, storageClientSet, hour)
 	if err != nil {
 		log.Warnf("Failed to query cluster GPU utilization: %v", err)
 		avgUtilization = 0
 	}
-	clusterStats.AvgUtilization = avgUtilization
+
+	// Build cluster stats from calculation result
+	clusterStats := BuildClusterGpuHourlyStats(clusterName, hour, result, totalCapacity, avgUtilization)
 
 	// Save cluster stats
-	facade := database.GetFacadeForCluster(clusterName).GetGpuAggregation()
+	facade := j.facadeGetter(clusterName).GetGpuAggregation()
 	if err := facade.SaveClusterHourlyStats(ctx, clusterStats); err != nil {
 		return fmt.Errorf("failed to save cluster stats: %w", err)
 	}
@@ -223,10 +318,36 @@ func (j *ClusterGpuAggregationJob) aggregateClusterStats(
 	return nil
 }
 
+// BuildClusterGpuHourlyStats builds cluster GPU hourly stats record
+// This is exported for testing purposes
+func BuildClusterGpuHourlyStats(
+	clusterName string,
+	hour time.Time,
+	allocationResult *statistics.GpuAllocationResult,
+	totalCapacity int,
+	avgUtilization float64,
+) *dbmodel.ClusterGpuHourlyStats {
+	clusterStats := &dbmodel.ClusterGpuHourlyStats{
+		ClusterName:       clusterName,
+		StatHour:          hour,
+		TotalGpuCapacity:  int32(totalCapacity),
+		AllocatedGpuCount: allocationResult.TotalAllocatedGpu,
+		SampleCount:       int32(allocationResult.WorkloadCount),
+		AvgUtilization:    avgUtilization,
+	}
+
+	// Calculate allocation rate
+	if totalCapacity > 0 && clusterStats.AllocatedGpuCount > 0 {
+		clusterStats.AllocationRate = (clusterStats.AllocatedGpuCount / float64(totalCapacity)) * 100
+	}
+
+	return clusterStats
+}
+
 // getClusterGpuCapacity gets the total GPU capacity of the cluster
 func (j *ClusterGpuAggregationJob) getClusterGpuCapacity(ctx context.Context, clusterName string) (int, error) {
 	readyStatus := "Ready"
-	nodes, _, err := database.GetFacadeForCluster(clusterName).GetNode().
+	nodes, _, err := j.facadeGetter(clusterName).GetNode().
 		SearchNode(ctx, filter.NodeFilter{
 			K8sStatus: &readyStatus,
 			Limit:     10000,
@@ -236,14 +357,20 @@ func (j *ClusterGpuAggregationJob) getClusterGpuCapacity(ctx context.Context, cl
 		return 0, fmt.Errorf("failed to query nodes: %w", err)
 	}
 
+	totalCapacity := CalculateClusterGpuCapacity(nodes)
+	return totalCapacity, nil
+}
+
+// CalculateClusterGpuCapacity calculates total GPU capacity from nodes
+// This is exported for testing purposes
+func CalculateClusterGpuCapacity(nodes []*dbmodel.Node) int {
 	totalCapacity := 0
 	for _, node := range nodes {
 		if node.GpuCount > 0 {
 			totalCapacity += int(node.GpuCount)
 		}
 	}
-
-	return totalCapacity, nil
+	return totalCapacity
 }
 
 // Schedule returns the job's scheduling expression

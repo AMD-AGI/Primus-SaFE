@@ -270,10 +270,7 @@ func TestNamespaceGpuAggregationBackfillJob_ShouldExcludeNamespace(t *testing.T)
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			job := &NamespaceGpuAggregationBackfillJob{
-				config: tt.config,
-			}
-			result := job.shouldExcludeNamespace(tt.namespace)
+			result := ShouldExcludeNamespaceBackfill(tt.namespace, tt.config.ExcludeNamespaces, tt.config.IncludeSystemNamespaces)
 			assert.Equal(t, tt.expected, result, "Exclusion result should match expected")
 		})
 	}
@@ -358,8 +355,6 @@ func TestConstants(t *testing.T) {
 }
 
 func TestClusterGpuAggregationBackfillJob_BuildClusterStatsFromResult(t *testing.T) {
-	job := &ClusterGpuAggregationBackfillJob{}
-
 	testHour := time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC)
 
 	tests := []struct {
@@ -386,7 +381,7 @@ func TestClusterGpuAggregationBackfillJob_BuildClusterStatsFromResult(t *testing
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			stats := job.createZeroClusterStats(tt.clusterName, tt.hour)
+			stats := CreateZeroClusterStats(tt.clusterName, tt.hour)
 
 			assert.NotNil(t, stats)
 			assert.Equal(t, tt.clusterName, stats.ClusterName)
@@ -396,12 +391,10 @@ func TestClusterGpuAggregationBackfillJob_BuildClusterStatsFromResult(t *testing
 }
 
 func TestClusterGpuAggregationBackfillJob_CreateZeroClusterStats(t *testing.T) {
-	job := &ClusterGpuAggregationBackfillJob{}
-
 	clusterName := "test-cluster"
 	testHour := time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC)
 
-	stats := job.createZeroClusterStats(clusterName, testHour)
+	stats := CreateZeroClusterStats(clusterName, testHour)
 
 	assert.NotNil(t, stats)
 	assert.Equal(t, clusterName, stats.ClusterName)
@@ -418,13 +411,11 @@ func TestClusterGpuAggregationBackfillJob_CreateZeroClusterStats(t *testing.T) {
 }
 
 func TestNamespaceGpuAggregationBackfillJob_CreateZeroNamespaceStats(t *testing.T) {
-	job := &NamespaceGpuAggregationBackfillJob{}
-
 	clusterName := "test-cluster"
 	namespace := "test-namespace"
 	testHour := time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC)
 
-	stats := job.createZeroNamespaceStats(clusterName, namespace, testHour)
+	stats := CreateZeroNamespaceStats(clusterName, namespace, testHour)
 
 	assert.NotNil(t, stats)
 	assert.Equal(t, clusterName, stats.ClusterName)
@@ -612,16 +603,14 @@ func TestNamespaceGpuAggregationBackfillJob_ShouldExcludeNamespace_AllSystemNs(t
 		IncludeSystemNamespaces: false,
 	}
 
-	job := &NamespaceGpuAggregationBackfillJob{config: config}
-
 	for _, ns := range systemNamespaces {
-		excluded := job.shouldExcludeNamespace(ns)
+		excluded := ShouldExcludeNamespaceBackfill(ns, config.ExcludeNamespaces, config.IncludeSystemNamespaces)
 		assert.True(t, excluded, "System namespace %s should be excluded when IncludeSystemNamespaces is false", ns)
 	}
 
 	config.IncludeSystemNamespaces = true
 	for _, ns := range systemNamespaces {
-		excluded := job.shouldExcludeNamespace(ns)
+		excluded := ShouldExcludeNamespaceBackfill(ns, config.ExcludeNamespaces, config.IncludeSystemNamespaces)
 		assert.False(t, excluded, "System namespace %s should not be excluded when IncludeSystemNamespaces is true", ns)
 	}
 }
@@ -633,12 +622,10 @@ func TestNamespaceGpuAggregationBackfillJob_ShouldExcludeNamespace_ExclusionList
 		IncludeSystemNamespaces: true,
 	}
 
-	job := &NamespaceGpuAggregationBackfillJob{config: config}
-
-	assert.True(t, job.shouldExcludeNamespace("custom-exclude"))
-	assert.True(t, job.shouldExcludeNamespace("another-exclude"))
-	assert.False(t, job.shouldExcludeNamespace("kube-system"))
-	assert.False(t, job.shouldExcludeNamespace("production"))
+	assert.True(t, ShouldExcludeNamespaceBackfill("custom-exclude", config.ExcludeNamespaces, config.IncludeSystemNamespaces))
+	assert.True(t, ShouldExcludeNamespaceBackfill("another-exclude", config.ExcludeNamespaces, config.IncludeSystemNamespaces))
+	assert.False(t, ShouldExcludeNamespaceBackfill("kube-system", config.ExcludeNamespaces, config.IncludeSystemNamespaces))
+	assert.False(t, ShouldExcludeNamespaceBackfill("production", config.ExcludeNamespaces, config.IncludeSystemNamespaces))
 }
 
 func TestNamespaceGpuAggregationBackfillJob_ShouldExcludeNamespace_EdgeCases(t *testing.T) {
@@ -692,15 +679,13 @@ func TestNamespaceGpuAggregationBackfillJob_ShouldExcludeNamespace_EdgeCases(t *
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			job := &NamespaceGpuAggregationBackfillJob{config: tt.config}
-			result := job.shouldExcludeNamespace(tt.namespace)
+			result := ShouldExcludeNamespaceBackfill(tt.namespace, tt.config.ExcludeNamespaces, tt.config.IncludeSystemNamespaces)
 			assert.Equal(t, tt.expected, result)
 		})
 	}
 }
 
 func TestClusterGpuAggregationBackfillJob_CreateZeroClusterStats_Consistency(t *testing.T) {
-	job := &ClusterGpuAggregationBackfillJob{}
 
 	hours := []time.Time{
 		time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC),
@@ -711,7 +696,7 @@ func TestClusterGpuAggregationBackfillJob_CreateZeroClusterStats_Consistency(t *
 	clusterName := "test-cluster"
 
 	for _, hour := range hours {
-		stats := job.createZeroClusterStats(clusterName, hour)
+		stats := CreateZeroClusterStats(clusterName, hour)
 
 		assert.Equal(t, clusterName, stats.ClusterName)
 		assert.Equal(t, hour, stats.StatHour)
@@ -728,14 +713,12 @@ func TestClusterGpuAggregationBackfillJob_CreateZeroClusterStats_Consistency(t *
 }
 
 func TestNamespaceGpuAggregationBackfillJob_CreateZeroNamespaceStats_Consistency(t *testing.T) {
-	job := &NamespaceGpuAggregationBackfillJob{}
-
 	namespaces := []string{"ns1", "ns2", "ns3"}
 	clusterName := "test-cluster"
 	testHour := time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC)
 
 	for _, ns := range namespaces {
-		stats := job.createZeroNamespaceStats(clusterName, ns, testHour)
+		stats := CreateZeroNamespaceStats(clusterName, ns, testHour)
 
 		assert.Equal(t, clusterName, stats.ClusterName)
 		assert.Equal(t, ns, stats.Namespace)
@@ -1014,13 +997,11 @@ func TestGenerateAllHours_AllHoursAreTruncated(t *testing.T) {
 
 // TestClusterGpuAggregationBackfillJob_CreateZeroClusterStats_Fields tests all fields
 func TestClusterGpuAggregationBackfillJob_CreateZeroClusterStats_Fields(t *testing.T) {
-	job := &ClusterGpuAggregationBackfillJob{}
-
 	clusters := []string{"cluster-1", "cluster-2", "prod-cluster", "dev-cluster"}
 	testHour := time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC)
 
 	for _, cluster := range clusters {
-		stats := job.createZeroClusterStats(cluster, testHour)
+		stats := CreateZeroClusterStats(cluster, testHour)
 
 		assert.Equal(t, cluster, stats.ClusterName)
 		assert.Equal(t, testHour, stats.StatHour)
@@ -1038,14 +1019,12 @@ func TestClusterGpuAggregationBackfillJob_CreateZeroClusterStats_Fields(t *testi
 
 // TestNamespaceGpuAggregationBackfillJob_CreateZeroNamespaceStats_Fields tests all fields
 func TestNamespaceGpuAggregationBackfillJob_CreateZeroNamespaceStats_Fields(t *testing.T) {
-	job := &NamespaceGpuAggregationBackfillJob{}
-
 	namespaces := []string{"default", "production", "staging", "dev"}
 	clusterName := "test-cluster"
 	testHour := time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC)
 
 	for _, ns := range namespaces {
-		stats := job.createZeroNamespaceStats(clusterName, ns, testHour)
+		stats := CreateZeroNamespaceStats(clusterName, ns, testHour)
 
 		assert.Equal(t, clusterName, stats.ClusterName)
 		assert.Equal(t, ns, stats.Namespace)
@@ -1114,15 +1093,13 @@ func TestLabelGpuAggregationBackfillConfig_KeyValidation(t *testing.T) {
 
 // TestNamespaceGpuAggregationBackfillJob_ShouldExcludeNamespace_EmptyConfig tests empty config
 func TestNamespaceGpuAggregationBackfillJob_ShouldExcludeNamespace_EmptyConfig(t *testing.T) {
-	job := &NamespaceGpuAggregationBackfillJob{
-		config: &NamespaceGpuAggregationBackfillConfig{
-			ExcludeNamespaces:       nil,
-			IncludeSystemNamespaces: true,
-		},
+	config := &NamespaceGpuAggregationBackfillConfig{
+		ExcludeNamespaces:       nil,
+		IncludeSystemNamespaces: true,
 	}
 
-	assert.False(t, job.shouldExcludeNamespace("any-namespace"))
-	assert.False(t, job.shouldExcludeNamespace("kube-system"))
+	assert.False(t, ShouldExcludeNamespaceBackfill("any-namespace", config.ExcludeNamespaces, config.IncludeSystemNamespaces))
+	assert.False(t, ShouldExcludeNamespaceBackfill("kube-system", config.ExcludeNamespaces, config.IncludeSystemNamespaces))
 }
 
 // TestBackfillDaysToHours tests conversion from days to hours
@@ -1254,16 +1231,15 @@ func TestNamespaceGpuAggregationBackfillJob_MultipleExclusions(t *testing.T) {
 		ExcludeNamespaces:       []string{"dev", "test", "staging", "qa"},
 		IncludeSystemNamespaces: false,
 	}
-	job := &NamespaceGpuAggregationBackfillJob{config: config}
 
 	for _, ns := range config.ExcludeNamespaces {
-		assert.True(t, job.shouldExcludeNamespace(ns))
+		assert.True(t, ShouldExcludeNamespaceBackfill(ns, config.ExcludeNamespaces, config.IncludeSystemNamespaces))
 	}
 
-	assert.False(t, job.shouldExcludeNamespace("production"))
-	assert.False(t, job.shouldExcludeNamespace("default"))
+	assert.False(t, ShouldExcludeNamespaceBackfill("production", config.ExcludeNamespaces, config.IncludeSystemNamespaces))
+	assert.False(t, ShouldExcludeNamespaceBackfill("default", config.ExcludeNamespaces, config.IncludeSystemNamespaces))
 
-	assert.True(t, job.shouldExcludeNamespace("kube-system"))
+	assert.True(t, ShouldExcludeNamespaceBackfill("kube-system", config.ExcludeNamespaces, config.IncludeSystemNamespaces))
 }
 
 // TestClusterGpuAggregationBackfillConfig_BatchSizeValidation tests batch size values
@@ -1477,7 +1453,6 @@ func TestNamespaceGpuAggregationBackfillJob_ShouldExcludeNamespace_Comprehensive
 		ExcludeNamespaces:       []string{"exclude-1", "exclude-2"},
 		IncludeSystemNamespaces: false,
 	}
-	job := &NamespaceGpuAggregationBackfillJob{config: config}
 
 	testCases := []struct {
 		namespace string
@@ -1495,7 +1470,7 @@ func TestNamespaceGpuAggregationBackfillJob_ShouldExcludeNamespace_Comprehensive
 
 	for _, tc := range testCases {
 		t.Run(tc.namespace, func(t *testing.T) {
-			result := job.shouldExcludeNamespace(tc.namespace)
+			result := ShouldExcludeNamespaceBackfill(tc.namespace, config.ExcludeNamespaces, config.IncludeSystemNamespaces)
 			assert.Equal(t, tc.excluded, result, "namespace %s", tc.namespace)
 		})
 	}
@@ -1503,10 +1478,9 @@ func TestNamespaceGpuAggregationBackfillJob_ShouldExcludeNamespace_Comprehensive
 
 // TestClusterGpuAggregationBackfillJob_CreateZeroClusterStats_AllFieldsValidation tests zero stats all fields
 func TestClusterGpuAggregationBackfillJob_CreateZeroClusterStats_AllFieldsValidation(t *testing.T) {
-	job := &ClusterGpuAggregationBackfillJob{}
 	testHour := time.Date(2025, 6, 15, 10, 0, 0, 0, time.UTC)
 
-	stats := job.createZeroClusterStats("zero-test-cluster", testHour)
+	stats := CreateZeroClusterStats("zero-test-cluster", testHour)
 
 	assert.Equal(t, "zero-test-cluster", stats.ClusterName)
 	assert.Equal(t, testHour, stats.StatHour)
@@ -1523,10 +1497,9 @@ func TestClusterGpuAggregationBackfillJob_CreateZeroClusterStats_AllFieldsValida
 
 // TestNamespaceGpuAggregationBackfillJob_CreateZeroNamespaceStats_AllFieldsValidation tests zero stats all fields
 func TestNamespaceGpuAggregationBackfillJob_CreateZeroNamespaceStats_AllFieldsValidation(t *testing.T) {
-	job := &NamespaceGpuAggregationBackfillJob{}
 	testHour := time.Date(2025, 6, 15, 10, 0, 0, 0, time.UTC)
 
-	stats := job.createZeroNamespaceStats("zero-cluster", "zero-ns", testHour)
+	stats := CreateZeroNamespaceStats("zero-cluster", "zero-ns", testHour)
 
 	assert.Equal(t, "zero-cluster", stats.ClusterName)
 	assert.Equal(t, "zero-ns", stats.Namespace)
@@ -1793,15 +1766,13 @@ func TestLabelGpuAggregationBackfillJob_NilConfig(t *testing.T) {
 
 // TestNamespaceGpuAggregationBackfillJob_ShouldExcludeNamespace_NilExclusions tests nil exclusions
 func TestNamespaceGpuAggregationBackfillJob_ShouldExcludeNamespace_NilExclusions(t *testing.T) {
-	job := &NamespaceGpuAggregationBackfillJob{
-		config: &NamespaceGpuAggregationBackfillConfig{
-			ExcludeNamespaces:       nil,
-			IncludeSystemNamespaces: true,
-		},
+	config := &NamespaceGpuAggregationBackfillConfig{
+		ExcludeNamespaces:       nil,
+		IncludeSystemNamespaces: true,
 	}
 
-	assert.False(t, job.shouldExcludeNamespace("any-namespace"))
-	assert.False(t, job.shouldExcludeNamespace("kube-system"))
+	assert.False(t, ShouldExcludeNamespaceBackfill("any-namespace", config.ExcludeNamespaces, config.IncludeSystemNamespaces))
+	assert.False(t, ShouldExcludeNamespaceBackfill("kube-system", config.ExcludeNamespaces, config.IncludeSystemNamespaces))
 }
 
 // TestGenerateAllHours_SingleMinute tests generation with times in same minute
@@ -1864,8 +1835,6 @@ func TestDefaultBatchSize_Values(t *testing.T) {
 
 // TestClusterGpuAggregationBackfillJob_CreateZeroClusterStats_DifferentHours tests different hours
 func TestClusterGpuAggregationBackfillJob_CreateZeroClusterStats_DifferentHours(t *testing.T) {
-	job := &ClusterGpuAggregationBackfillJob{}
-
 	hours := []time.Time{
 		time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
 		time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC),
@@ -1875,7 +1844,7 @@ func TestClusterGpuAggregationBackfillJob_CreateZeroClusterStats_DifferentHours(
 	}
 
 	for _, hour := range hours {
-		stats := job.createZeroClusterStats("test-cluster", hour)
+		stats := CreateZeroClusterStats("test-cluster", hour)
 		assert.Equal(t, hour, stats.StatHour)
 		assert.Equal(t, "test-cluster", stats.ClusterName)
 	}
@@ -1883,7 +1852,6 @@ func TestClusterGpuAggregationBackfillJob_CreateZeroClusterStats_DifferentHours(
 
 // TestNamespaceGpuAggregationBackfillJob_CreateZeroNamespaceStats_DifferentNamespaces tests different namespaces
 func TestNamespaceGpuAggregationBackfillJob_CreateZeroNamespaceStats_DifferentNamespaces(t *testing.T) {
-	job := &NamespaceGpuAggregationBackfillJob{}
 	testHour := time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC)
 
 	namespaces := []string{
@@ -1896,7 +1864,7 @@ func TestNamespaceGpuAggregationBackfillJob_CreateZeroNamespaceStats_DifferentNa
 	}
 
 	for _, ns := range namespaces {
-		stats := job.createZeroNamespaceStats("cluster", ns, testHour)
+		stats := CreateZeroNamespaceStats("cluster", ns, testHour)
 		assert.Equal(t, ns, stats.Namespace)
 		assert.Equal(t, "cluster", stats.ClusterName)
 	}
