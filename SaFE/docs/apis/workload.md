@@ -228,23 +228,24 @@ Get workload list with filtering and pagination support.
 
 **Query Parameters**:
 
-| Parameter | Type | Required | Description                                                                                                                    |
-|-----------|------|----------|--------------------------------------------------------------------------------------------------------------------------------|
-| workspaceId | string | No | Filter by workspace ID                                                                                                         |
-| clusterId | string | No | Filter by cluster ID                                                                                                           |
-| userId | string | No | Filter by user ID                                                                                                              |
-| userName | string | No | Filter by username (fuzzy match)                                                                                               |
-| phase | string | No | Filter by status: Succeeded/Failed/Pending/Running/Stopped/Updating/NotReady (comma-separated)                                 |
-| kind | string | No | Filter by type: Deployment/PyTorchJob/StatefulSet/Authoring/AutoscalingRunnerSet (comma-separated)                             |
-| description | string | No | Filter by description (fuzzy match)                                                                                            |
-| workloadId | string | No | Filter by workload ID (fuzzy match)                                                                                            |
-| since | string | No | Start time, RFC3339 Milli format: 2006-01-02T15:04:05.000Z                                                                     |
-| until | string | No | End time, similar to since                                                                                                     |
-| offset | int | No | Pagination offset, default 0                                                                                                   |
-| limit | int | No | Records per page, default 100                                                                                                  |
-| sortBy | string | No | Sort field, default creationTime                                                                                               |
-| order | string | No | Sort order: desc/asc, default desc                                                                                             |
-| scaleRunnerSet | string | No | Filter by Scale Runner Set ID. This is the ID of the CICD-created AutoscalingRunnerSet; lists all workloads associated with it |
+| Parameter | Type | Required | Description                                                                                                                        |
+|-----------|------|----------|------------------------------------------------------------------------------------------------------------------------------------|
+| workspaceId | string | No | Filter by workspace ID                                                                                                             |
+| clusterId | string | No | Filter by cluster ID                                                                                                               |
+| userId | string | No | Filter by user ID                                                                                                                  |
+| userName | string | No | Filter by username (fuzzy match)                                                                                                   |
+| phase | string | No | Filter by status: Succeeded/Failed/Pending/Running/Stopped/Updating/NotReady (comma-separated)                                     |
+| kind | string | No | Filter by type: Deployment/PyTorchJob/StatefulSet/Authoring/AutoscalingRunnerSet (comma-separated)                                 |
+| description | string | No | Filter by description (fuzzy match)                                                                                                |
+| workloadId | string | No | Filter by workload ID (fuzzy match)                                                                                                |
+| since | string | No | Start time, RFC3339 Milli format: 2006-01-02T15:04:05.000Z                                                                         |
+| until | string | No | End time, similar to since                                                                                                         |
+| offset | int | No | Pagination offset, default 0                                                                                                       |
+| limit | int | No | Records per page, default 100                                                                                                      |
+| sortBy | string | No | Sort field, default creationTime                                                                                                   |
+| order | string | No | Sort order: desc/asc, default desc                                                                                                 |
+| scaleRunnerSet | string | No | Filter by Scale Runner Set ID. This is the ID of the CICD-created AutoscalingRunnerSet; lists all workloads associated with it     |
+| scaleRunnerId | string | No | Filter by Github Action Runner ID. |
 
 **Response Example**:
 
@@ -292,41 +293,42 @@ Get workload list with filtering and pagination support.
 ```
 **Field Description**:
 
-| Field | Type | Description                                                                     |
-|-------|------|---------------------------------------------------------------------------------|
-| totalCount | int | Total number of workloads matching the query (not limited by pagination)        |
-| workloadId | string | Workload ID                                                                     |
-| displayName | string | Workload display name                                                           |
-| description | string | Workload description                                                            |
-| workspaceId | string | Workspace the workload belongs to                                               |
-| clusterId | string | Cluster the workload belongs to                                                 |
-| userId | string | ID of the user who submitted the workload                                       |
-| userName | string | Username of the submitter                                                       |
-| phase | string | Status: Pending/Running/Succeeded/Failed/Stopped/Updating/NotReady                      |
-| message | string | Pending reason (shown when applicable)                                          |
-| priority | int | Scheduling priority (0-2), default 0                                            |
-| creationTime | string | Creation time (RFC3339), e.g. "2025-01-15T10:30:00"                             |
-| startTime | string | Start time (RFC3339)                                                            |
-| endTime | string | End time (RFC3339), empty if not finished                                       |
-| deletionTime | string | Deletion time (RFC3339), empty if not deleted                                   |
-| duration | string | Human-readable duration from start to end (or now), e.g. "1h30m45s"             |
-| secondsUntilTimeout | int | Seconds until timeout from start; -1 if not started                             |
-| queuePosition | int | Queue position when workload is pending                                         |
-| dispatchCount | int | Number of dispatch attempts                                                     |
-| isTolerateAll | bool | Whether to tolerate all node taints                                             |
-| groupVersionKind.kind | string | Workload type: PyTorchJob/Deployment/StatefulSet/Authoring/AutoscalingRunnerSet |
-| groupVersionKind.version | string | API version (usually v1)                                                        |
-| timeout | int | Timeout seconds (0 means no timeout)                                            |
-| workloadUid | string | Workload UID                                                                    |
-| k8sObjectUid | string | Corresponding Kubernetes object UID (e.g., PyTorchJob UID)                      |
-| avgGpuUsage | float | Average GPU usage in the last 3 hours; -1 if unavailable                        |
-| scaleRunnerSet | string | Associated Scale Runner Set ID for CI/CD workloads (if any)                     |
-| resource.cpu | string | CPU cores, e.g. "128"                                                           |
-| resource.gpu | string | GPU cards, e.g. "8"                                                             |
-| resource.memory | string | Memory size, e.g. "256Gi"                                                       |
-| resource.ephemeralStorage | string | Ephemeral storage size, e.g. "256Gi"                                            |
-| resource.sharedMemory | string | Shared memory size, e.g. "64Gi"                                                 |
-| resource.replica | int | Replica count                                                                   |
+| Field                     | Type | Description                                                                    |
+|---------------------------|------|--------------------------------------------------------------------------------|
+| totalCount                | int | Total number of workloads matching the query (not limited by pagination)       |
+| workloadId                | string | Workload ID                                                                    |
+| displayName               | string | Workload display name                                                          |
+| description               | string | Workload description                                                           |
+| workspaceId               | string | Workspace the workload belongs to                                              |
+| clusterId                 | string | Cluster the workload belongs to                                                |
+| userId                    | string | ID of the user who submitted the workload                                      |
+| userName                  | string | Username of the submitter                                                      |
+| phase                     | string | Status: Pending/Running/Succeeded/Failed/Stopped/Updating/NotReady             |
+| message                   | string | Pending reason (shown when applicable)                                         |
+| priority                  | int | Scheduling priority (0-2), default 0                                           |
+| creationTime              | string | Creation time (RFC3339), e.g. "2025-01-15T10:30:00"                            |
+| startTime                 | string | Start time (RFC3339)                                                           |
+| endTime                   | string | End time (RFC3339), empty if not finished                                      |
+| deletionTime              | string | Deletion time (RFC3339), empty if not deleted                                  |
+| duration                  | string | Human-readable duration from start to end (or now), e.g. "1h30m45s"            |
+| secondsUntilTimeout       | int | Seconds until timeout from start; -1 if not started                            |
+| queuePosition             | int | Queue position when workload is pending                                        |
+| dispatchCount             | int | Number of dispatch attempts                                                    |
+| isTolerateAll             | bool | Whether to tolerate all node taints                                            |
+| groupVersionKind.kind     | string | Workload type: PyTorchJob/Deployment/StatefulSet/Authoring/AutoscalingRunnerSet |
+| groupVersionKind.version  | string | API version (usually v1)                                                       |
+| timeout                   | int | Timeout seconds (0 means no timeout)                                           |
+| workloadUid               | string | Workload UID                                                                   |
+| k8sObjectUid              | string | Corresponding Kubernetes object UID (e.g., PyTorchJob UID)                     |
+| avgGpuUsage               | float | Average GPU usage in the last 3 hours; -1 if unavailable                       |
+| scaleRunnerSet            | string | Associated Scale Runner Set ID for CI/CD workloads (if any)                    |
+| scaleRunnerId              | string | Associated Github Action Runner ID for CI/CD workloads (if any)             |
+| resource.cpu              | string | CPU cores, e.g. "128"                                                          |
+| resource.gpu              | string | GPU cards, e.g. "8"                                                            |
+| resource.memory           | string | Memory size, e.g. "256Gi"                                                      |
+| resource.ephemeralStorage | string | Ephemeral storage size, e.g. "256Gi"                                           |
+| resource.sharedMemory     | string | Shared memory size, e.g. "64Gi"                                                |
+| resource.replica          | int | Replica count                                                                  |
 ---
 
 ### 3. Get Workload Details

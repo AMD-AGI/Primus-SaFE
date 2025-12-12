@@ -28,12 +28,10 @@ const (
 	ClusterRoleKind    = "ClusterRole"
 	ServiceAccountKind = "ServiceAccount"
 
-	GithubConfigUrl   = "GITHUB_CONFIG_URL"
-	GithubSecretId    = "GITHUB_SECRET_ID"
-	AdminControlPlane = "ADMIN_CONTROL_PLANE"
-	UnifiedJobEnable  = "UNIFIED_JOB_ENABLE"
-	ScaleRunnerSetID  = "SCALE_RUNNER_SET_ID"
-	ScaleRunnerID     = "SCALE_RUNNER_ID"
+	GithubConfigUrl  = "GITHUB_CONFIG_URL"
+	UnifiedJobEnable = "UNIFIED_JOB_ENABLE"
+	ScaleRunnerSetID = "SCALE_RUNNER_SET_ID"
+	ScaleRunnerID    = "SCALE_RUNNER_ID"
 
 	HigressClassname = "higress"
 	HigressNamespace = "higress-system"

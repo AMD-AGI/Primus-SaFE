@@ -127,6 +127,9 @@ func workloadMapper(obj *unstructured.Unstructured) *dbclient.Workload {
 	if val := workload.GetEnv(common.ScaleRunnerSetID); val != "" {
 		result.ScaleRunnerSet = dbutils.NullString(val)
 	}
+	if val := workload.GetEnv(common.ScaleRunnerID); val != "" {
+		result.ScaleRunnerId = dbutils.NullString(val)
+	}
 	return result
 }
 
