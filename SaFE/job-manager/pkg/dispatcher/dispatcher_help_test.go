@@ -278,6 +278,32 @@ func checkNodeSelectorTerms(t *testing.T, obj *unstructured.Unstructured, worklo
 	assert.Equal(t, valuesSlice[0].(string) == val, true)
 }
 
+func checkPodAntiAffinity(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec) {
+	podAntiAffinityPath := append(resourceSpec.PrePaths, resourceSpec.TemplatePaths...)
+	podAntiAffinityPath = append(podAntiAffinityPath, "spec", "affinity", "podAntiAffinity",
+		"requiredDuringSchedulingIgnoredDuringExecution")
+
+	antiAffinities, found, err := unstructured.NestedSlice(obj.Object, podAntiAffinityPath...)
+	assert.NilError(t, err)
+	assert.Equal(t, found, true)
+	assert.Equal(t, len(antiAffinities), 1)
+
+	antiAffinity := antiAffinities[0].(map[string]interface{})
+	topologyKey, ok := antiAffinity["topologyKey"]
+	assert.Equal(t, ok, true)
+	assert.Equal(t, topologyKey, "kubernetes.io/hostname")
+
+	labelSelectorObj, ok := antiAffinity["labelSelector"]
+	assert.Equal(t, ok, true)
+	labelSelector, ok := labelSelectorObj.(map[string]interface{})
+	assert.Equal(t, ok, true)
+	matchLabelsObj, ok := labelSelector["matchLabels"]
+	assert.Equal(t, ok, true)
+	matchLabels, ok := matchLabelsObj.(map[string]interface{})
+	assert.Equal(t, ok, true)
+	assert.Equal(t, matchLabels[v1.WorkloadIdLabel], workload.Name)
+}
+
 func checkImage(t *testing.T, obj *unstructured.Unstructured, inputImage string, resourceSpec *v1.ResourceSpec) {
 	containerPath := append(resourceSpec.PrePaths, resourceSpec.TemplatePaths...)
 	containerPath = append(containerPath, "spec", "containers")
@@ -468,4 +494,79 @@ func getContainer(obj *unstructured.Unstructured, name string, resourceSpec *v1.
 		}
 	}
 	return nil
+}
+
+func TestModifyPodAntiAffinity(t *testing.T) {
+	tests := []struct {
+		name           string
+		existingTerms  []interface{}
+		workloadName   string
+		expectedCount  int
+		expectedLabels map[string]interface{}
+	}{
+		{
+			name:          "add anti-affinity to empty object",
+			existingTerms: nil,
+			workloadName:  "test-workload",
+			expectedCount: 1,
+			expectedLabels: map[string]interface{}{
+				v1.WorkloadIdLabel: "test-workload",
+			},
+		},
+		{
+			name: "append anti-affinity to existing terms",
+			existingTerms: []interface{}{
+				map[string]interface{}{
+					"labelSelector": map[string]interface{}{
+						"matchLabels": map[string]interface{}{
+							"existing-label": "existing-value",
+						},
+					},
+					"topologyKey": "kubernetes.io/hostname",
+				},
+			},
+			workloadName:  "new-workload",
+			expectedCount: 2,
+			expectedLabels: map[string]interface{}{
+				v1.WorkloadIdLabel: "new-workload",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			obj := &unstructured.Unstructured{
+				Object: map[string]interface{}{},
+			}
+			path := []string{"spec", "affinity", "podAntiAffinity", "requiredDuringSchedulingIgnoredDuringExecution"}
+
+			if tt.existingTerms != nil {
+				err := unstructured.SetNestedSlice(obj.Object, tt.existingTerms, path...)
+				assert.NilError(t, err)
+			}
+
+			workload := &v1.Workload{}
+			workload.Name = tt.workloadName
+
+			err := modifyPodAntiAffinity(obj, workload, path)
+			assert.NilError(t, err)
+
+			terms, found, err := unstructured.NestedSlice(obj.Object, path...)
+			assert.NilError(t, err)
+			assert.Equal(t, found, true)
+			assert.Equal(t, len(terms), tt.expectedCount)
+
+			// Check the last term (newly added)
+			lastTerm := terms[len(terms)-1].(map[string]interface{})
+			topologyKey, ok := lastTerm["topologyKey"]
+			assert.Equal(t, ok, true)
+			assert.Equal(t, topologyKey, "kubernetes.io/hostname")
+
+			labelSelector, ok := lastTerm["labelSelector"].(map[string]interface{})
+			assert.Equal(t, ok, true)
+			matchLabels, ok := labelSelector["matchLabels"].(map[string]interface{})
+			assert.Equal(t, ok, true)
+			assert.Equal(t, matchLabels[v1.WorkloadIdLabel], tt.expectedLabels[v1.WorkloadIdLabel])
+		})
+	}
 }
