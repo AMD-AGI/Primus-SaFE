@@ -1,0 +1,120 @@
+{{/*
+Primus Lens Node Exporter DaemonSet
+Runs on every node to export node-level metrics.
+*/}}
+{{- if .Values.apps.nodeExporter.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "lens.fullname" . }}-node-exporter-config
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "lens.labels" . | nindent 4 }}
+    app: {{ include "lens.fullname" . }}-node-exporter
+data:
+  config.yaml: |
+    loadK8SClient: true
+    httpPort: {{ .Values.apps.nodeExporter.httpPort | default 8989 }}
+    nodeExporter:
+      containerd_socket_path: /hostrun/containerd/containerd.sock
+      grpc_server: {{ include "lens.fullname" . }}-jobs.{{ .Values.global.namespace }}.svc.cluster.local:8991
+      telemetry_processor_url: http://{{ include "lens.fullname" . }}-telemetry-processor.{{ .Values.global.namespace }}.svc.cluster.local:8989
+
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "lens.fullname" . }}-node-exporter
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "lens.labels" . | nindent 4 }}
+    app: {{ include "lens.fullname" . }}-node-exporter
+spec:
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: {{ include "lens.fullname" . }}-node-exporter
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: {{ .Values.apps.nodeExporter.maxUnavailable | default 10 }}
+  template:
+    metadata:
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "{{ .Values.apps.nodeExporter.httpPort | default 8989 }}"
+        prometheus.io/path: "/v1/metrics"
+      labels:
+        app: {{ include "lens.fullname" . }}-node-exporter
+        {{- include "lens.selectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "lens.serviceAccountName" . }}
+      {{- if .Values.global.imageRegistry.pullSecret }}
+      imagePullSecrets:
+        - name: {{ .Values.global.imageRegistry.pullSecret }}
+      {{- end }}
+      hostPID: true
+      priorityClassName: system-cluster-critical
+      terminationGracePeriodSeconds: 10
+      tolerations:
+        - effect: NoSchedule
+          operator: Exists
+      containers:
+        - name: {{ include "lens.fullname" . }}-node-exporter
+          image: "{{ .Values.global.imageRegistry.url }}/{{ .Values.apps.nodeExporter.image }}"
+          imagePullPolicy: Always
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: spec.nodeName
+            - name: NODE_IP
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: status.hostIP
+            - name: CONFIG_PATH
+              value: /etc/primus-lens-node-exporter/config.yaml
+          ports:
+            - containerPort: {{ .Values.apps.nodeExporter.httpPort | default 8989 }}
+              protocol: TCP
+          securityContext:
+            privileged: true
+          volumeMounts:
+            - name: config-volume
+              mountPath: /etc/primus-lens-node-exporter/config.yaml
+              subPath: config.yaml
+            - name: host-dev
+              mountPath: /hostdev
+            - name: host-run
+              mountPath: /hostrun
+            - name: proc
+              mountPath: /proc
+          {{- if .Values.apps.nodeExporter.resources }}
+          resources:
+            {{- toYaml .Values.apps.nodeExporter.resources | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: proc
+          hostPath:
+            path: /proc
+            type: Directory
+        - name: config-volume
+          configMap:
+            name: {{ include "lens.fullname" . }}-node-exporter-config
+            items:
+              - key: config.yaml
+                path: config.yaml
+        - name: host-dev
+          hostPath:
+            path: /dev
+            type: Directory
+        - name: host-run
+          hostPath:
+            path: /run
+            type: Directory
+      restartPolicy: Always
+{{- end }}

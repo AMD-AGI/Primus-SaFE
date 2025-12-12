@@ -1,0 +1,109 @@
+#
+# Primus Lens Operators - Default Configuration Values
+#
+# This chart deploys all required Kubernetes operators.
+#
+
+# ============================================================================
+# Global Configuration
+# ============================================================================
+global:
+  clusterName: "my-cluster"
+  namespace: "primus-lens"
+
+# ============================================================================
+# Component Enable Flags
+# ============================================================================
+victoriametrics:
+  enabled: true
+
+logging:
+  enabled: true
+
+opensearch:
+  enabled: true
+
+database:
+  enabled: true
+
+grafana:
+  enabled: true
+
+monitoring:
+  kubeStateMetrics:
+    enabled: true
+
+# ============================================================================
+# Operator Configurations (Sub-charts)
+# ============================================================================
+
+# VictoriaMetrics Operator
+vm-operator:
+  enabled: true
+  operator:
+    enable_converter_ownership: true
+    resources:
+      limits:
+        cpu: 200m
+        memory: 150Mi
+      requests:
+        cpu: 50m
+        memory: 100Mi
+
+# Fluent Operator
+fluent-operator:
+  enabled: true
+  operator:
+    resources:
+      limits:
+        cpu: 200m
+        memory: 200Mi
+      requests:
+        cpu: 50m
+        memory: 100Mi
+
+# OpenSearch Operator
+opensearch-operator:
+  enabled: true
+  manager:
+    resources:
+      limits:
+        cpu: 200m
+        memory: 256Mi
+      requests:
+        cpu: 50m
+        memory: 128Mi
+
+# PostgreSQL Operator (PGO)
+pgo:
+  enabled: true
+  resources:
+    limits:
+      cpu: 200m
+      memory: 256Mi
+    requests:
+      cpu: 50m
+      memory: 128Mi
+
+# Grafana Operator
+grafana-operator:
+  enabled: true
+  resources:
+    limits:
+      cpu: 200m
+      memory: 256Mi
+    requests:
+      cpu: 50m
+      memory: 128Mi
+
+# Kube State Metrics
+kube-state-metrics:
+  enabled: true
+  resources:
+    limits:
+      cpu: 200m
+      memory: 256Mi
+    requests:
+      cpu: 50m
+      memory: 128Mi
+

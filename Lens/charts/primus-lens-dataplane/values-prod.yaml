@@ -1,0 +1,86 @@
+# Production Environment Configuration
+# Override default values for production environments
+
+global:
+  clusterName: "prod-cluster"
+  namespace: "primus-lens"
+  storageClass: "ceph-rbd"  # Use high-performance storage in production
+  accessMode: "ReadWriteMany"  # Assuming RWX support in production
+  imageRegistry: "registry.company.com"
+  accessType: "ingress"
+  domain: "lens-primus.ai"
+  
+  imagePullSecrets:
+    - name: primus-lens-image
+      credentials:
+        registry: "registry.company.com"
+        username: ""  # Set via --set or external secrets
+        password: ""  # Set via --set or external secrets
+
+# Use large profile for production
+profile: "large"
+
+# Production-ready replicas
+apps:
+  api:
+    replicas: 3
+    resources:
+      requests:
+        cpu: "1000m"
+        memory: "2Gi"
+      limits:
+        cpu: "4000m"
+        memory: "8Gi"
+  
+  telemetryCollector:
+    replicas: 3
+  
+  jobs:
+    replicas: 3
+  
+  web:
+    replicas: 3
+
+# Production database with backups
+database:
+  enabled: true
+
+# Full monitoring stack
+victoriametrics:
+  enabled: true
+
+opensearch:
+  enabled: true
+  nodeSets:
+    - name: "master"
+      replicas: 3
+      roles:
+        - master
+    - name: "data"
+      replicas: 3
+      roles:
+        - data
+        - ingest
+
+logging:
+  enabled: true
+
+grafana:
+  enabled: true
+  adminPassword: ""  # Must be set via --set or external secrets in production!
+
+monitoring:
+  kubeStateMetrics:
+    enabled: true
+
+# Ingress with TLS
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+  tls:
+    enabled: true
+    secretName: "primus-lens-tls"
+
