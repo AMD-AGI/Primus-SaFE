@@ -378,7 +378,7 @@ func (j *ClusterGpuAggregationBackfillJob) backfillClusterStats(
 
 		createdCount++
 		log.Debugf("Backfilled cluster stats for hour %v: allocated=%.2f, workloads=%d, utilization=%.2f%% (max=%.2f%%, min=%.2f%%)",
-			hour, clusterStats.AllocatedGpuCount, result.WorkloadCount, 
+			hour, clusterStats.AllocatedGpuCount, result.WorkloadCount,
 			clusterStats.AvgUtilization, clusterStats.MaxUtilization, clusterStats.MinUtilization)
 	}
 

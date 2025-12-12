@@ -325,8 +325,86 @@ func QueryWorkloadUtilizationRange(
 	return values, nil
 }
 
+// calculateUtilizationStatsWithPercentiles calculates comprehensive statistics from a set of utilization values
+// including average, max, min, and percentiles (p50, p95)
+func calculateUtilizationStatsWithPercentiles(values []float64) *ClusterGpuUtilizationStats {
+	stats := &ClusterGpuUtilizationStats{}
+
+	if len(values) == 0 {
+		return stats
+	}
+
+	// Calculate avg, max, min
+	var sum, max, min float64
+	min = 100.0 // Initialize with max possible value
+	max = 0.0
+
+	for _, v := range values {
+		sum += v
+		if v > max {
+			max = v
+		}
+		if v < min {
+			min = v
+		}
+	}
+
+	stats.AvgUtilization = sum / float64(len(values))
+	stats.MaxUtilization = max
+	stats.MinUtilization = min
+
+	// Calculate percentiles by sorting and indexing
+	// Make a copy to avoid modifying the original slice
+	sortedValues := make([]float64, len(values))
+	copy(sortedValues, values)
+
+	// Simple insertion sort (efficient for small datasets like 30 points)
+	for i := 1; i < len(sortedValues); i++ {
+		key := sortedValues[i]
+		j := i - 1
+		for j >= 0 && sortedValues[j] > key {
+			sortedValues[j+1] = sortedValues[j]
+			j--
+		}
+		sortedValues[j+1] = key
+	}
+
+	// Calculate percentiles using linear interpolation
+	stats.P50Utilization = calculatePercentile(sortedValues, 0.50)
+	stats.P95Utilization = calculatePercentile(sortedValues, 0.95)
+
+	return stats
+}
+
+// calculatePercentile calculates the percentile value from a sorted array
+// Uses linear interpolation between values if needed
+func calculatePercentile(sortedValues []float64, percentile float64) float64 {
+	if len(sortedValues) == 0 {
+		return 0
+	}
+	if len(sortedValues) == 1 {
+		return sortedValues[0]
+	}
+
+	// Calculate the index position
+	pos := percentile * float64(len(sortedValues)-1)
+	lower := int(pos)
+	upper := lower + 1
+
+	if upper >= len(sortedValues) {
+		return sortedValues[len(sortedValues)-1]
+	}
+
+	// Linear interpolation
+	fraction := pos - float64(lower)
+	return sortedValues[lower]*(1-fraction) + sortedValues[upper]*fraction
+}
+
 // QueryClusterHourlyGpuUtilizationStats queries complete GPU utilization statistics for the entire cluster
 // for a specific hour including avg, max, min, and percentiles (p50, p95)
+//
+// This function uses a single range query with 120s step to reduce Prometheus pressure,
+// then calculates all statistics from the returned data points.
 //
 // Parameters:
 //   - ctx: context for the query
@@ -345,84 +423,36 @@ func QueryClusterHourlyGpuUtilizationStats(
 		return nil, fmt.Errorf("prometheus client is not initialized")
 	}
 
-	promAPI := v1.NewAPI(storageClientSet.PrometheusRead)
+	// Truncate to hour boundary
+	startTime := hour.Truncate(time.Hour)
+	endTime := startTime.Add(time.Hour)
 
-	// Query time is at the end of the hour to get complete data
-	queryTime := hour.Truncate(time.Hour).Add(time.Hour)
+	// Use 120s step for the range query (30 data points per hour)
+	step := 120
+	query := "avg(gpu_utilization{})"
 
-	stats := &ClusterGpuUtilizationStats{}
-
-	// Query average utilization
-	avgQuery := "avg(avg_over_time(gpu_utilization{}[1h]))"
-	avgResult, warnings, err := promAPI.Query(ctx, avgQuery, queryTime)
+	// Query range data for the hour
+	series, err := prom.QueryRange(ctx, storageClientSet, query, startTime, endTime, step, map[string]struct{}{"__name__": {}})
 	if err != nil {
-		return nil, fmt.Errorf("failed to query avg utilization: %w", err)
-	}
-	if len(warnings) > 0 {
-		log.Warnf("Prometheus query warnings for avg GPU utilization: %v", warnings)
-	}
-	if avgVec, ok := avgResult.(promModel.Vector); ok && len(avgVec) > 0 {
-		stats.AvgUtilization = float64(avgVec[0].Value)
+		return nil, fmt.Errorf("failed to query GPU utilization range: %w", err)
 	}
 
-	// Query max utilization
-	maxQuery := "max(max_over_time(gpu_utilization{}[1h]))"
-	maxResult, warnings, err := promAPI.Query(ctx, maxQuery, queryTime)
-	if err != nil {
-		log.Warnf("Failed to query max utilization: %v", err)
-	} else {
-		if len(warnings) > 0 {
-			log.Warnf("Prometheus query warnings for max GPU utilization: %v", warnings)
-		}
-		if maxVec, ok := maxResult.(promModel.Vector); ok && len(maxVec) > 0 {
-			stats.MaxUtilization = float64(maxVec[0].Value)
-		}
+	if len(series) == 0 || len(series[0].Values) == 0 {
+		log.Debugf("No GPU utilization data returned for hour %v", hour)
+		return &ClusterGpuUtilizationStats{}, nil
 	}
 
-	// Query min utilization
-	minQuery := "min(min_over_time(gpu_utilization{}[1h]))"
-	minResult, warnings, err := promAPI.Query(ctx, minQuery, queryTime)
-	if err != nil {
-		log.Warnf("Failed to query min utilization: %v", err)
-	} else {
-		if len(warnings) > 0 {
-			log.Warnf("Prometheus query warnings for min GPU utilization: %v", warnings)
-		}
-		if minVec, ok := minResult.(promModel.Vector); ok && len(minVec) > 0 {
-			stats.MinUtilization = float64(minVec[0].Value)
-		}
+	// Extract values from the time series
+	values := make([]float64, 0, len(series[0].Values))
+	for _, point := range series[0].Values {
+		values = append(values, point.Value)
 	}
 
-	// Query p50 (median) utilization
-	p50Query := "quantile(0.5, avg_over_time(gpu_utilization{}[1h]))"
-	p50Result, warnings, err := promAPI.Query(ctx, p50Query, queryTime)
-	if err != nil {
-		log.Warnf("Failed to query p50 utilization: %v", err)
-	} else {
-		if len(warnings) > 0 {
-			log.Warnf("Prometheus query warnings for p50 GPU utilization: %v", warnings)
-		}
-		if p50Vec, ok := p50Result.(promModel.Vector); ok && len(p50Vec) > 0 {
-			stats.P50Utilization = float64(p50Vec[0].Value)
-		}
-	}
+	// Calculate statistics from the values
+	stats := calculateUtilizationStatsWithPercentiles(values)
 
-	// Query p95 utilization
-	p95Query := "quantile(0.95, avg_over_time(gpu_utilization{}[1h]))"
-	p95Result, warnings, err := promAPI.Query(ctx, p95Query, queryTime)
-	if err != nil {
-		log.Warnf("Failed to query p95 utilization: %v", err)
-	} else {
-		if len(warnings) > 0 {
-			log.Warnf("Prometheus query warnings for p95 GPU utilization: %v", warnings)
-		}
-		if p95Vec, ok := p95Result.(promModel.Vector); ok && len(p95Vec) > 0 {
-			stats.P95Utilization = float64(p95Vec[0].Value)
-		}
-	}
-
-	log.Debugf("Cluster GPU utilization stats for hour %v: avg=%.2f%%, max=%.2f%%, min=%.2f%%, p50=%.2f%%, p95=%.2f%%",
-		hour, stats.AvgUtilization, stats.MaxUtilization, stats.MinUtilization, stats.P50Utilization, stats.P95Utilization)
+	log.Debugf("Cluster GPU utilization stats for hour %v: avg=%.2f%%, max=%.2f%%, min=%.2f%%, p50=%.2f%%, p95=%.2f%% (samples=%d)",
+		hour, stats.AvgUtilization, stats.MaxUtilization, stats.MinUtilization, stats.P50Utilization, stats.P95Utilization, len(values))
 
 	return stats, nil
 }
