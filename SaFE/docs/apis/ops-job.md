@@ -164,7 +164,7 @@ Notes:
 - For addon, typically include `addon.template` and one of node/workload/workspace/cluster.
 - For preflight, inputs must include one of node/workload/workspace/cluster.
 - For exportimage, inputs must include a workload selector. The job will export the workload's image to Harbor registry.
-- For prewarm, inputs must include both `image` and `workspace`. The job will pre-pull the image to all nodes in the workspace.
+- For preheat, inputs must include both `image` and `workspace`. The job will pre-pull the image to all nodes in the workspace.
 
 **Response**: `{ "jobId": "opsjob-abc123" }`
 
@@ -311,7 +311,7 @@ Only fields not already covered by "List Ops Jobs" are listed below. Other field
 | entryPoint | string | Preflight only: startup command (Base64)                                                   |
 | isTolerateAll | bool | Whether the job tolerates node taints                                                      |
 | hostpath | []string | Preflight only: host paths to mount                                                        |
-| excludedNodes           | []string |  Nodes to exclude from execution                                                 |
+| excludedNodes  | []string |  Nodes to exclude from execution                                                 |
 
 ---
 
