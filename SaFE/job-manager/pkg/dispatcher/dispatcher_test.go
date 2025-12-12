@@ -453,6 +453,7 @@ func TestCreateK8sJob(t *testing.T) {
 	}
 	workload.Spec.Resource.Replica = 2
 	v1.SetAnnotation(workload, v1.UserNameAnnotation, common.UserSystem)
+	v1.SetAnnotation(workload, v1.RequireNodeSpreadAnnotation, v1.TrueStr)
 	v1.SetLabel(workload, v1.OpsJobTypeLabel, string(v1.OpsJobPreflightType))
 
 	configmap, err := parseConfigmap(TestJobTemplateConfig)
@@ -471,6 +472,7 @@ func TestCreateK8sJob(t *testing.T) {
 	checkResources(t, obj, workload, &templates[0], workload.Spec.Resource.Replica)
 	checkPorts(t, obj, workload, &templates[0])
 	checkNodeSelectorTerms(t, obj, workload, &templates[0])
+	checkPodAntiAffinity(t, obj, workload, &templates[0])
 	checkEnvs(t, obj, workload, &templates[0])
 	checkImage(t, obj, workload.Spec.Image, &templates[0])
 	checkLabels(t, obj, workload, &templates[0])

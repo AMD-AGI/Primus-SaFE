@@ -47,6 +47,13 @@ func initializeObject(obj *unstructured.Unstructured,
 	if err = modifyNodeSelectorTerms(obj, workload, path); err != nil {
 		return fmt.Errorf("failed to modify nodeSelectorTerms: %v", err.Error())
 	}
+	if v1.IsRequireNodeSpread(workload) {
+		path = append(templatePath, "spec",
+			"affinity", "podAntiAffinity", "requiredDuringSchedulingIgnoredDuringExecution")
+		if err = modifyPodAntiAffinity(obj, workload, path); err != nil {
+			return fmt.Errorf("failed to modify podAntiAffinity: %v", err.Error())
+		}
+	}
 	path = append(templatePath, "spec", "containers")
 	if err = modifyContainers(obj, workload, workspace, path); err != nil {
 		return fmt.Errorf("failed to modify main container: %v", err.Error())
@@ -122,6 +129,28 @@ func modifyNodeSelectorTerms(obj *unstructured.Unstructured, workload *v1.Worklo
 	return nil
 }
 
+// modifyPodAntiAffinity adds pod anti-affinity configuration to spread pods across nodes.
+// It configures requiredDuringSchedulingIgnoredDuringExecution with topology key kubernetes.io/hostname.
+func modifyPodAntiAffinity(obj *unstructured.Unstructured, workload *v1.Workload, path []string) error {
+	podAntiAffinityTerms, _, err := unstructured.NestedSlice(obj.Object, path...)
+	if err != nil {
+		return err
+	}
+	antiAffinityTerm := map[string]interface{}{
+		"labelSelector": map[string]interface{}{
+			"matchLabels": map[string]interface{}{
+				v1.WorkloadIdLabel: workload.Name,
+			},
+		},
+		"topologyKey": "kubernetes.io/hostname",
+	}
+	podAntiAffinityTerms = append(podAntiAffinityTerms, antiAffinityTerm)
+	if err = unstructured.SetNestedSlice(obj.Object, podAntiAffinityTerms, path...); err != nil {
+		return err
+	}
+	return nil
+}
+
 // modifyContainers configures the containers of a workload with environment variables,
 // volume mounts, security context, ports, and health checks based on the workload specification.
 func modifyContainers(obj *unstructured.Unstructured,
@@ -139,7 +168,7 @@ func modifyContainers(obj *unstructured.Unstructured,
 		container := containers[i].(map[string]interface{})
 		modifyEnv(container, env, v1.IsEnableHostNetwork(workload))
 		modifyVolumeMounts(container, workload, workspace)
-		modifySecurityContext(container, workload)
+		modifyPrivilegedSecurity(container, workload)
 
 		name := jobutils.GetUnstructuredString(container, []string{"name"})
 		if name == mainContainerName {
@@ -209,9 +238,7 @@ func modifyVolumeMounts(container map[string]interface{}, workload *v1.Workload,
 	if ok {
 		volumeMounts = volumeMountObjs.([]interface{})
 	}
-	if !commonworkload.IsCICDScalingRunnerSet(workload) {
-		volumeMounts = append(volumeMounts, buildVolumeMount(SharedMemoryVolume, "/dev/shm", "", false))
-	}
+	volumeMounts = append(volumeMounts, buildVolumeMount(SharedMemoryVolume, "/dev/shm", "", false))
 	maxId := 0
 	if workspace != nil {
 		for _, vol := range workspace.Spec.Volumes {
@@ -304,9 +331,9 @@ func modifyImageSecrets(obj *unstructured.Unstructured, workload *v1.Workload, p
 	return nil
 }
 
-// modifySecurityContext configures the security context for OpsJob preflight operations.
+// modifyPrivilegedSecurity configures the security context for OpsJob preflight operations.
 // Sets privileged mode for preflight checks.
-func modifySecurityContext(container map[string]interface{}, workload *v1.Workload) {
+func modifyPrivilegedSecurity(container map[string]interface{}, workload *v1.Workload) {
 	if v1.GetOpsJobType(workload) == string(v1.OpsJobPreflightType) {
 		container["securityContext"] = map[string]interface{}{
 			"privileged": true,
