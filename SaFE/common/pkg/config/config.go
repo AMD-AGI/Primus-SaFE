@@ -422,3 +422,8 @@ func GetModelDownloaderImage() string {
 func GetModelCleanupImage() string {
 	return getString(modelCleanupImage, "docker.io/library/alpine:3.18")
 }
+
+// GetComponents returns the list of deployable components.
+func GetComponents() []string {
+	return viper.GetStringSlice(components)
+}

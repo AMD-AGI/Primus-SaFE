@@ -144,6 +144,17 @@ func (h *Handler) GetCurrentEnvConfig(c *gin.Context) {
 	handle(c, h.getCurrentEnvConfig)
 }
 
+// GetDeployableComponents returns the list of deployable components
+func (h *Handler) GetDeployableComponents(c *gin.Context) {
+	handle(c, h.getDeployableComponents)
+}
+
+func (h *Handler) getDeployableComponents(c *gin.Context) (interface{}, error) {
+	// Read components from config (sourced from values.yaml via ConfigMap)
+	components := commonconfig.GetComponents()
+	return GetDeployableComponentsResp{Components: components}, nil
+}
+
 func (h *Handler) createDeploymentRequest(c *gin.Context) (interface{}, error) {
 	var req CreateDeploymentRequestReq
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -383,7 +394,7 @@ func (h *Handler) approveDeploymentRequest(c *gin.Context) (interface{}, error) 
 		// Execute Deployment (Async)
 		go func() {
 			ctx := context.Background()
-			jobName, err := h.service.ExecuteDeployment(ctx, req)
+			result, err := h.service.ExecuteDeployment(ctx, req)
 			if err != nil {
 				klog.ErrorS(err, "Deployment failed", "id", req.Id)
 				h.service.UpdateRequestStatus(ctx, req.Id, StatusFailed, "Deployment execution failed")
@@ -391,12 +402,32 @@ func (h *Handler) approveDeploymentRequest(c *gin.Context) (interface{}, error) 
 				return
 			}
 
-			// Wait for job completion
-			if err := h.service.WaitForJobCompletion(ctx, jobName, JobNamespace); err != nil {
-				klog.ErrorS(err, "Job execution failed", "job", jobName)
+			// Wait for local job completion
+			if err := h.service.WaitForJobCompletion(ctx, result.LocalJobName, JobNamespace); err != nil {
+				klog.ErrorS(err, "Job execution failed", "job", result.LocalJobName)
 				h.service.UpdateRequestStatus(ctx, req.Id, StatusFailed, err.Error())
 				h.sendDeploymentFailureEmail(ctx, req, fmt.Sprintf("Job execution failed: %v", err))
 				return
+			}
+
+			// If there are remote cluster updates (node_agent or cicd), execute them
+			if result.HasNodeAgent || result.HasCICD {
+				klog.Infof("Remote cluster updates needed: node_agent=%v, cicd=%v", result.HasNodeAgent, result.HasCICD)
+				remoteJobName, err := h.service.ExecuteRemoteClusterUpdates(ctx, req.Id, result)
+				if err != nil {
+					klog.ErrorS(err, "Remote cluster update failed", "id", req.Id)
+					h.service.UpdateRequestStatus(ctx, req.Id, StatusFailed, fmt.Sprintf("Remote cluster update failed: %v", err))
+					h.sendDeploymentFailureEmail(ctx, req, fmt.Sprintf("Remote cluster update failed: %v", err))
+					return
+				}
+
+				// Wait for remote job completion
+				if err := h.service.WaitForJobCompletion(ctx, remoteJobName, JobNamespace); err != nil {
+					klog.ErrorS(err, "Remote cluster job failed", "job", remoteJobName)
+					h.service.UpdateRequestStatus(ctx, req.Id, StatusFailed, fmt.Sprintf("Remote cluster job failed: %v", err))
+					h.sendDeploymentFailureEmail(ctx, req, fmt.Sprintf("Remote cluster job failed: %v", err))
+					return
+				}
 			}
 
 			// Verify Deployment Rollout (Check if pods are actually running)

@@ -21,6 +21,17 @@ net:
   rdma_name: "rdma/hca"
   # Ingress component name selected during install.sh
   ingress: "higress"
+# This list is of deployable components
+components:
+  - apiserver
+  - resource_manager
+  - job_manager
+  - webhooks
+  - web
+  - preprocess
+  - node_agent
+  - cicd_runner
+  - cicd_unified_job
 apiserver:
   # Apiserver component image version
   image: "apiserver:latest"

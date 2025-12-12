@@ -83,3 +83,8 @@ type ConfigDiffResp struct {
 type GetCurrentEnvConfigResp struct {
 	EnvFileConfig string `json:"env_file_config"` // Current .env file content
 }
+
+// GetDeployableComponentsResp returns the list of deployable component names
+type GetDeployableComponentsResp struct {
+	Components []string `json:"components"`
+}

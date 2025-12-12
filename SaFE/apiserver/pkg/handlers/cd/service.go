@@ -11,7 +11,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -23,6 +22,7 @@ import (
 	"k8s.io/utils/ptr"
 
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	dbutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/utils"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
@@ -30,20 +30,33 @@ import (
 
 // Service handles business logic for CD
 type Service struct {
-	dbClient  *dbclient.Client
-	clientSet kubernetes.Interface
+	dbClient      *dbclient.Client
+	clientSet     kubernetes.Interface
+	clientManager *commonutils.ObjectManager
 }
 
 func NewService(dbClient *dbclient.Client, clientSet kubernetes.Interface) *Service {
 	return &Service{
-		dbClient:  dbClient,
-		clientSet: clientSet,
+		dbClient:      dbClient,
+		clientSet:     clientSet,
+		clientManager: commonutils.NewObjectManagerSingleton(),
 	}
 }
 
 const (
-	JobNamespace = common.PrimusSafeNamespace // primus-safe system namespace
-	JobImage     = "bitnami/kubectl:latest"   // Image with bash and necessary tools
+	JobNamespace = common.PrimusSafeNamespace  // primus-safe system namespace
+	JobImage     = "dtzar/helm-kubectl:latest" // Image with bash and necessary tools
+
+	// Git repository URL for Primus-SaFE
+	PrimusSaFERepoURL = "https://github.com/AMD-AGI/Primus-SaFE.git"
+	// Container mount path for CD workspace
+	ContainerMountPath = "/home/primus-safe-cd"
+	// Host path on the node for persistent storage
+	HostMountPath = "/mnt/primus-safe-cd"
+
+	// AdminClusterID is the cluster.id of the admin/management cluster
+	// This cluster doesn't need remote kubeconfig connection
+	AdminClusterID = "tw-project2"
 )
 
 type JobParams struct {
@@ -55,35 +68,70 @@ type JobParams struct {
 	EnvFileConfig string
 }
 
-// ExecuteDeployment simulates the deployment process
-func (s *Service) ExecuteDeployment(ctx context.Context, req *dbclient.DeploymentRequest) (string, error) {
+// RemoteClusterJobParams contains parameters for remote cluster update job
+type RemoteClusterJobParams struct {
+	Name             string
+	Namespace        string
+	Image            string
+	NodeAgentImage   string // New node-agent image to deploy
+	CICDRunnerImage  string // New cicd-runner image
+	CICDUnifiedImage string // New cicd-unified-job image
+	HasNodeAgent     bool
+	HasCICD          bool
+}
+
+// DeploymentResult contains the result of ExecuteDeployment
+type DeploymentResult struct {
+	LocalJobName     string
+	HasNodeAgent     bool
+	HasCICD          bool
+	NodeAgentImage   string
+	CICDRunnerImage  string
+	CICDUnifiedImage string
+}
+
+// ExecuteDeployment executes the deployment process and returns deployment result
+func (s *Service) ExecuteDeployment(ctx context.Context, req *dbclient.DeploymentRequest) (*DeploymentResult, error) {
 	klog.Infof("Starting deployment for request %d: %s", req.Id, req.DeployName)
 
 	// 1. Parse config
 	var config DeploymentConfig
 	if err := json.Unmarshal([]byte(req.EnvConfig), &config); err != nil {
-		return "", fmt.Errorf("failed to parse config: %v", err)
+		return nil, fmt.Errorf("failed to parse config: %v", err)
 	}
 
-	// Validate expected components
-	expectedComponents := []string{
-		"apiserver", "resource_manager", "job_manager",
-		"webhooks", "web", "preprocess", "node_agent",
+	// Get deployable components from config
+	expectedComponents := commonconfig.GetComponents()
+
+	// CICD components have special format in values.yaml: cicd.runner, cicd.unified_job
+	cicdComponentsMap := map[string]string{
+		"cicd_runner":      "cicd.runner",
+		"cicd_unified_job": "cicd.unified_job",
 	}
 
-	// Build tags string for sed/yq
+	// Build tags string for sed/yq and detect remote updates needed
 	componentTags := ""
 	nodeAgentTags := ""
+	result := &DeploymentResult{}
 
 	for _, comp := range expectedComponents {
 		if tag, ok := config.ImageVersions[comp]; ok {
-			if comp == "node_agent" {
+			// Check if it's a CICD component with special format
+			if yamlKey, isCICD := cicdComponentsMap[comp]; isCICD {
+				componentTags += fmt.Sprintf("%s=%s;", yamlKey, tag)
+				result.HasCICD = true
+				if comp == "cicd_runner" {
+					result.CICDRunnerImage = tag
+				} else if comp == "cicd_unified_job" {
+					result.CICDUnifiedImage = tag
+				}
+			} else if comp == "node_agent" {
 				// node_agent format in values.yaml is "node_agent.image"
-				// Assuming input is just the tag like "node-agent:latest"
-				// We will pass "image: <tag>" to replace
 				nodeAgentTags += fmt.Sprintf("%s=%s;", "image", tag)
+				result.HasNodeAgent = true
+				result.NodeAgentImage = tag
 			} else {
-				// others format: "component.image"
+				// Standard format: "component.image"
 				componentTags += fmt.Sprintf("%s.image=%s;", comp, tag)
 			}
 		}
@@ -91,6 +139,7 @@ func (s *Service) ExecuteDeployment(ctx context.Context, req *dbclient.Deploymen
 
 	// 2. Prepare Job Params
 	jobName := commonutils.GenerateName(fmt.Sprintf("cd-upgrade-%d", req.Id))
+	result.LocalJobName = jobName
 
 	params := JobParams{
 		Name:          jobName,
@@ -103,7 +152,7 @@ func (s *Service) ExecuteDeployment(ctx context.Context, req *dbclient.Deploymen
 
 	// 3. Create Job
 	if err := s.createK8sJob(ctx, params); err != nil {
-		return "", fmt.Errorf("failed to create k8s job: %v", err)
+		return nil, fmt.Errorf("failed to create k8s job: %v", err)
 	}
 
 	// 4. Update DB status to deploying
@@ -118,10 +167,11 @@ func (s *Service) ExecuteDeployment(ctx context.Context, req *dbclient.Deploymen
 	req.Description = dbutils.NullString(desc)
 
 	if err := s.dbClient.UpdateDeploymentRequest(ctx, req); err != nil {
-		return jobName, err
+		return result, err
 	}
 
-	return jobName, nil
+	klog.Infof("Deployment result: hasNodeAgent=%v, hasCICD=%v", result.HasNodeAgent, result.HasCICD)
+	return result, nil
 }
 
 func (s *Service) createK8sJob(ctx context.Context, params JobParams) error {
@@ -133,9 +183,33 @@ func (s *Service) createK8sJob(ctx context.Context, params JobParams) error {
 
 	argsScript := fmt.Sprintf(`
 set -e
-PRIMUS_VALUES="/primus/Primus-SaFE/SaFE/charts/primus-safe/values.yaml"
-NODE_AGENT_VALUES="/primus/Primus-SaFE/SaFE/node-agent/charts/node-agent/values.yaml"
-ENV_FILE="/primus/Primus-SaFE/SaFE/bootstrap/.env"
+
+# Configuration - paths are relative to the mount point
+MOUNT_DIR="%s"
+REPO_URL="%s"
+REPO_NAME="Primus-SaFE"
+REPO_DIR="$MOUNT_DIR/$REPO_NAME"
+
+PRIMUS_VALUES="$REPO_DIR/SaFE/charts/primus-safe/values.yaml"
+NODE_AGENT_VALUES="$REPO_DIR/SaFE/node-agent/charts/node-agent/values.yaml"
+ENV_FILE="$REPO_DIR/SaFE/bootstrap/.env"
+
+echo "=========================================="
+echo "Step 1: Preparing repository..."
+echo "=========================================="
+
+# Ensure mount directory exists
+mkdir -p "$MOUNT_DIR"
+
+# Always do a fresh clone to ensure we have the latest code
+if [ -d "$REPO_DIR" ]; then
+    echo "Removing existing repository at $REPO_DIR..."
+    rm -rf "$REPO_DIR"
+fi
+
+echo "Cloning repository from $REPO_URL..."
+git clone --depth 1 "$REPO_URL" "$REPO_DIR"
+echo "✓ Repository cloned successfully"
 
 # Helper function to update yaml using sed (simple implementation)
 # Usage: update_yaml "key.subkey" "new_value" "file"
@@ -162,12 +236,16 @@ update_yaml() {
     fi
 }
 
-# Update .env file if provided
+echo "=========================================="
+echo "Step 2: Updating configuration files..."
+echo "=========================================="
+
+# Create .env file from user request config
 ENV_CONTENT="%s"
 if [ -n "$ENV_CONTENT" ]; then
-    echo "Updating .env file..."
+    echo "Creating .env file..."
     echo "$ENV_CONTENT" | base64 -d > "$ENV_FILE"
-    echo "✓ .env file updated"
+    echo "✓ .env file created"
 fi
 
 # Update components
@@ -194,10 +272,11 @@ for agent in "${AGENTS[@]}"; do
 done
 
 echo "=========================================="
-echo "Starting upgrade script..."
+echo "Step 3: Starting upgrade script..."
 echo "=========================================="
-/bin/bash /primus/Primus-SaFE/SaFE/bootstrap/newUpgrade.sh
-`, envFileBase64, params.ComponentTags, params.NodeAgentTags)
+cd "$REPO_DIR/SaFE/bootstrap/"
+/bin/bash ./upgrade.sh
+`, ContainerMountPath, PrimusSaFERepoURL, envFileBase64, params.ComponentTags, params.NodeAgentTags)
 
 	job := &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
@@ -209,7 +288,8 @@ echo "=========================================="
 			BackoffLimit:            ptr.To(int32(3)),
 			Template: corev1.PodTemplateSpec{
 				Spec: corev1.PodSpec{
-					RestartPolicy: corev1.RestartPolicyOnFailure,
+					ServiceAccountName: common.PrimusSafeNamespace,
+					RestartPolicy:      corev1.RestartPolicyOnFailure,
 					Containers: []corev1.Container{
 						{
 							Name:    "upgrade-task",
@@ -218,19 +298,19 @@ echo "=========================================="
 							Args:    []string{argsScript},
 							VolumeMounts: []corev1.VolumeMount{
 								{
-									Name:      "primus-dir",
-									MountPath: "/primus",
+									Name:      "cd-workspace",
+									MountPath: ContainerMountPath,
 								},
 							},
 						},
 					},
 					Volumes: []corev1.Volume{
 						{
-							Name: "primus-dir",
+							Name: "cd-workspace",
 							VolumeSource: corev1.VolumeSource{
 								HostPath: &corev1.HostPathVolumeSource{
-									Path: "/primus",
-									Type: ptr.To(corev1.HostPathDirectory),
+									Path: HostMountPath,
+									Type: ptr.To(corev1.HostPathDirectoryOrCreate),
 								},
 							},
 						},
@@ -242,6 +322,325 @@ echo "=========================================="
 
 	_, err := s.clientSet.BatchV1().Jobs(params.Namespace).Create(ctx, job, metav1.CreateOptions{})
 	return err
+}
+
+// ExecuteRemoteClusterUpdates creates a job to update node-agent and/or cicd on remote clusters
+func (s *Service) ExecuteRemoteClusterUpdates(ctx context.Context, reqId int64, result *DeploymentResult) (string, error) {
+	klog.Infof("Creating remote cluster update job for request %d", reqId)
+
+	jobName := commonutils.GenerateName(fmt.Sprintf("cd-remote-%d", reqId))
+
+	// Build the script for remote cluster updates
+	script := s.buildRemoteClusterScript(result)
+
+	job := &batchv1.Job{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      jobName,
+			Namespace: JobNamespace,
+		},
+		Spec: batchv1.JobSpec{
+			TTLSecondsAfterFinished: ptr.To(int32(3600)),
+			BackoffLimit:            ptr.To(int32(1)), // Less retries for remote operations
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					ServiceAccountName: common.PrimusSafeNamespace,
+					RestartPolicy:      corev1.RestartPolicyNever,
+					Containers: []corev1.Container{
+						{
+							Name:    "remote-update",
+							Image:   JobImage, // dtzar/helm-kubectl
+							Command: []string{"/bin/bash", "-c"},
+							Args:    []string{script},
+							VolumeMounts: []corev1.VolumeMount{
+								{
+									Name:      "cd-workspace",
+									MountPath: ContainerMountPath,
+								},
+							},
+						},
+					},
+					Volumes: []corev1.Volume{
+						{
+							Name: "cd-workspace",
+							VolumeSource: corev1.VolumeSource{
+								HostPath: &corev1.HostPathVolumeSource{
+									Path: HostMountPath,
+									Type: ptr.To(corev1.HostPathDirectoryOrCreate),
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	_, err := s.clientSet.BatchV1().Jobs(JobNamespace).Create(ctx, job, metav1.CreateOptions{})
+	if err != nil {
+		return "", fmt.Errorf("failed to create remote cluster update job: %v", err)
+	}
+
+	klog.Infof("Remote cluster update job created: %s", jobName)
+	return jobName, nil
+}
+
+// buildRemoteClusterScript builds the shell script for remote cluster updates
+func (s *Service) buildRemoteClusterScript(result *DeploymentResult) string {
+	script := fmt.Sprintf(`
+set -e
+
+echo "=========================================="
+echo "Cluster Update Job (node-agent + CICD)"
+echo "=========================================="
+echo "NodeAgent update: %v (image: %s)"
+echo "CICD update: %v (runner: %s, unified: %s)"
+echo "=========================================="
+
+# Configuration
+WORK_DIR="%s"
+REPO_DIR="$WORK_DIR/Primus-SaFE"
+NODE_AGENT_CHART="$REPO_DIR/SaFE/node-agent/charts/node-agent"
+HAS_NODE_AGENT=%t
+HAS_CICD=%t
+NODE_AGENT_IMAGE="%s"
+CICD_RUNNER_IMAGE="%s"
+CICD_UNIFIED_IMAGE="%s"
+ADMIN_CLUSTER_ID="%s"
+
+mkdir -p "$WORK_DIR"
+
+# Clone repo if node-agent update needed (for helm chart)
+if [ "$HAS_NODE_AGENT" = "true" ]; then
+    echo "Cloning repository for node-agent chart..."
+    if [ -d "$REPO_DIR" ]; then
+        rm -rf "$REPO_DIR"
+    fi
+    git clone --depth 1 "%s" "$REPO_DIR"
+    echo "✓ Repository cloned"
+fi
+
+echo "=========================================="
+echo "Step 1: Discover clusters from Workloads"
+echo "=========================================="
+
+# Get all unique cluster IDs from AutoscalingRunnerSet workloads
+if [ "$HAS_CICD" = "true" ]; then
+    ALL_CLUSTER_IDS=$(kubectl get workload -l "primus-safe.workload.kind=AutoscalingRunnerSet" -o jsonpath='{.items[*].metadata.labels.primus-safe\.cluster\.id}' 2>/dev/null | tr ' ' '\n' | sort -u | tr '\n' ' ')
+    echo "Found clusters with CICD workloads: $ALL_CLUSTER_IDS"
+else
+    # If only node-agent update, get all clusters
+    ALL_CLUSTER_IDS=$(kubectl get cluster -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || echo "")
+    # Also add admin cluster for node-agent
+    ALL_CLUSTER_IDS="$ADMIN_CLUSTER_ID $ALL_CLUSTER_IDS"
+    echo "Found clusters for node-agent update: $ALL_CLUSTER_IDS"
+fi
+
+# Remove duplicates
+ALL_CLUSTER_IDS=$(echo "$ALL_CLUSTER_IDS" | tr ' ' '\n' | sort -u | tr '\n' ' ')
+
+for CLUSTER_ID in $ALL_CLUSTER_IDS; do
+    [ -z "$CLUSTER_ID" ] && continue
+    
+    echo ""
+    echo "=========================================="
+    echo "Processing cluster: $CLUSTER_ID"
+    echo "=========================================="
+    
+    # Check if this is the admin cluster (no remote connection needed)
+    if [ "$CLUSTER_ID" = "$ADMIN_CLUSTER_ID" ]; then
+        echo "This is the ADMIN cluster, using in-cluster config"
+        KUBECONFIG_OPT=""
+    else
+        echo "This is a REMOTE cluster, generating kubeconfig..."
+        
+        # Get cluster info from Cluster resource
+        CLUSTER_JSON=$(kubectl get cluster "$CLUSTER_ID" -o json 2>/dev/null || echo "")
+        
+        if [ -z "$CLUSTER_JSON" ]; then
+            echo "⚠ Cluster resource not found for $CLUSTER_ID, skipping..."
+            continue
+        fi
+        
+        # Extract kubeconfig components from cluster status
+        CA_DATA=$(echo "$CLUSTER_JSON" | jq -r '.status.controlPlaneStatus.CAData // empty')
+        CERT_DATA=$(echo "$CLUSTER_JSON" | jq -r '.status.controlPlaneStatus.certData // empty')
+        KEY_DATA=$(echo "$CLUSTER_JSON" | jq -r '.status.controlPlaneStatus.keyData // empty')
+        ENDPOINT_RAW=$(echo "$CLUSTER_JSON" | jq -r '.status.controlPlaneStatus.endpoints[0] // empty')
+        PHASE=$(echo "$CLUSTER_JSON" | jq -r '.status.controlPlaneStatus.phase // empty')
+        
+        # Extract host from endpoint and force use API Server port 6443
+        # e.g., "https://10.32.80.60:2379" -> "https://10.32.80.60:6443"
+        ENDPOINT_HOST=$(echo "$ENDPOINT_RAW" | sed 's|^\(https\?://[^:/]*\).*|\1|')
+        ENDPOINTS="${ENDPOINT_HOST}:6443"
+        
+        # Skip if cluster is not ready or missing credentials
+        if [ -z "$CA_DATA" ] || [ -z "$CERT_DATA" ] || [ -z "$KEY_DATA" ] || [ -z "$ENDPOINTS" ]; then
+            echo "⚠ Skipping cluster $CLUSTER_ID: missing kubeconfig data"
+            continue
+        fi
+        
+        if [ "$PHASE" != "Ready" ]; then
+            echo "⚠ Skipping cluster $CLUSTER_ID: not in Ready phase (phase: $PHASE)"
+            continue
+        fi
+        
+        # Generate kubeconfig for this cluster
+        KUBECONFIG_FILE="$WORK_DIR/kubeconfig-$CLUSTER_ID"
+        cat > "$KUBECONFIG_FILE" << EOF
+apiVersion: v1
+kind: Config
+clusters:
+- cluster:
+    certificate-authority-data: $CA_DATA
+    server: $ENDPOINTS
+  name: $CLUSTER_ID
+contexts:
+- context:
+    cluster: $CLUSTER_ID
+    user: $CLUSTER_ID-admin
+  name: $CLUSTER_ID
+current-context: $CLUSTER_ID
+users:
+- name: $CLUSTER_ID-admin
+  user:
+    client-certificate-data: $CERT_DATA
+    client-key-data: $KEY_DATA
+EOF
+        
+        echo "✓ Generated kubeconfig for $CLUSTER_ID"
+        
+        # Test connection
+        if ! kubectl --kubeconfig="$KUBECONFIG_FILE" get nodes > /dev/null 2>&1; then
+            echo "⚠ Cannot connect to cluster $CLUSTER_ID, skipping..."
+            continue
+        fi
+        echo "✓ Connected to cluster $CLUSTER_ID"
+        
+        KUBECONFIG_OPT="--kubeconfig=$KUBECONFIG_FILE"
+    fi
+    
+    # Update node-agent if needed (skip admin cluster - handled by Job 1's upgrade.sh)
+    if [ "$HAS_NODE_AGENT" = "true" ] && [ "$CLUSTER_ID" != "$ADMIN_CLUSTER_ID" ]; then
+        echo "Updating node-agent on $CLUSTER_ID..."
+        
+        # Copy values.yaml to temporary file (like upgrade.sh does)
+        NODE_AGENT_VALUES="$NODE_AGENT_CHART/.values.yaml"
+        cp "$NODE_AGENT_CHART/values.yaml" "$NODE_AGENT_VALUES"
+        
+        # Update the image in temporary values.yaml
+        sed -i "s|image: \".*\"|image: \"$NODE_AGENT_IMAGE\"|" "$NODE_AGENT_VALUES"
+        
+        # Helm upgrade (like upgrade.sh: helm upgrade -i node-agent ./node-agent -n primus-safe -f values.yaml)
+        helm $KUBECONFIG_OPT upgrade -i node-agent "$NODE_AGENT_CHART" \
+            -n primus-safe --create-namespace \
+            -f "$NODE_AGENT_VALUES" \
+            || echo "⚠ helm upgrade failed for $CLUSTER_ID, continuing..."
+        
+        # Cleanup temporary values file
+        rm -f "$NODE_AGENT_VALUES"
+        
+        echo "✓ node-agent updated on $CLUSTER_ID"
+    elif [ "$HAS_NODE_AGENT" = "true" ] && [ "$CLUSTER_ID" = "$ADMIN_CLUSTER_ID" ]; then
+        echo "Skipping node-agent on admin cluster (already handled by upgrade.sh in Job 1)"
+    fi
+    
+    # Update CICD if needed
+    if [ "$HAS_CICD" = "true" ]; then
+        echo "Updating CICD on $CLUSTER_ID..."
+        
+        # Get all AutoscalingRunnerSet workloads for this cluster (from admin cluster)
+        WORKLOADS=$(kubectl get workload -l "primus-safe.workload.kind=AutoscalingRunnerSet,primus-safe.cluster.id=$CLUSTER_ID" -o json 2>/dev/null || echo '{"items":[]}')
+        WORKLOAD_COUNT=$(echo "$WORKLOADS" | jq '.items | length')
+        
+        echo "Found $WORKLOAD_COUNT AutoscalingRunnerSet workloads for cluster $CLUSTER_ID"
+        
+        for i in $(seq 0 $((WORKLOAD_COUNT - 1))); do
+            WORKLOAD_NAME=$(echo "$WORKLOADS" | jq -r ".items[$i].metadata.name")
+            WORKSPACE=$(echo "$WORKLOADS" | jq -r ".items[$i].spec.workspace")
+            
+            # Extract UNIFIED_JOB_ENABLE from Workload's spec.env (in admin cluster)
+            UNIFIED_JOB_ENABLE=$(echo "$WORKLOADS" | jq -r ".items[$i].spec.env.UNIFIED_JOB_ENABLE // \"false\"")
+            [ -z "$UNIFIED_JOB_ENABLE" ] && UNIFIED_JOB_ENABLE="false"
+            
+            echo "  Processing workload: $WORKLOAD_NAME (namespace: $WORKSPACE, UNIFIED_JOB_ENABLE: $UNIFIED_JOB_ENABLE)"
+            
+            # Get current ARS to extract registry prefix from existing image
+            CURRENT_ARS=$(kubectl $KUBECONFIG_OPT get autoscalingrunnersets "$WORKLOAD_NAME" -n "$WORKSPACE" -o json 2>/dev/null || echo "")
+            
+            if [ -z "$CURRENT_ARS" ]; then
+                echo "  ⚠ AutoscalingRunnerSet not found, skipping..."
+                continue
+            fi
+            
+            # Get current runner image to extract registry prefix
+            # e.g., "harbor.tw325.../primussafe/cicd-runner-proxy:旧版本"
+            CURRENT_RUNNER_IMAGE=$(echo "$CURRENT_ARS" | jq -r '.spec.template.spec.containers[0].image')
+            
+            # Extract registry prefix (everything before the image name)
+            # e.g., "harbor.tw325.../primussafe/"
+            REGISTRY_PREFIX=$(echo "$CURRENT_RUNNER_IMAGE" | sed 's|/[^/]*$|/|')
+            
+            # Build full image path: registry prefix + new image name:tag
+            # e.g., "harbor.tw325.../primussafe/" + "cicd-runner-proxy:202512111349"
+            FULL_RUNNER_IMAGE="${REGISTRY_PREFIX}${CICD_RUNNER_IMAGE}"
+            
+            echo "  Current image: $CURRENT_RUNNER_IMAGE"
+            echo "  New image: $FULL_RUNNER_IMAGE"
+            
+            # Patch runner container (containers[0])
+            PATCH_RUNNER='[{"op": "replace", "path": "/spec/template/spec/containers/0/image", "value": "'"$FULL_RUNNER_IMAGE"'"}]'
+            
+            kubectl $KUBECONFIG_OPT patch autoscalingrunnersets "$WORKLOAD_NAME" \
+                -n "$WORKSPACE" --type='json' -p="$PATCH_RUNNER" \
+                || echo "  ⚠ Failed to patch runner for $WORKLOAD_NAME"
+            
+            echo "  ✓ Updated runner image"
+            
+            # If UNIFIED_JOB_ENABLE=true, also patch unified-job container (containers[1])
+            if [ "$UNIFIED_JOB_ENABLE" = "true" ] && [ -n "$CICD_UNIFIED_IMAGE" ]; then
+                # Build full unified-job image path with same registry prefix
+                FULL_UNIFIED_IMAGE="${REGISTRY_PREFIX}${CICD_UNIFIED_IMAGE}"
+                
+                echo "  New unified-job image: $FULL_UNIFIED_IMAGE"
+                
+                PATCH_UNIFIED='[{"op": "replace", "path": "/spec/template/spec/containers/1/image", "value": "'"$FULL_UNIFIED_IMAGE"'"}]'
+                kubectl $KUBECONFIG_OPT patch autoscalingrunnersets "$WORKLOAD_NAME" \
+                    -n "$WORKSPACE" --type='json' -p="$PATCH_UNIFIED" \
+                    || echo "  ⚠ Failed to patch unified-job for $WORKLOAD_NAME"
+                
+                echo "  ✓ Updated unified-job image"
+            fi
+            
+            echo "  ✓ Completed $WORKLOAD_NAME"
+        done
+        
+        echo "✓ CICD updated on $CLUSTER_ID"
+    fi
+    
+    # Cleanup kubeconfig for remote cluster
+    if [ "$CLUSTER_ID" != "$ADMIN_CLUSTER_ID" ] && [ -n "$KUBECONFIG_FILE" ]; then
+        rm -f "$KUBECONFIG_FILE"
+    fi
+done
+
+echo ""
+echo "=========================================="
+echo "✓ All cluster updates completed!"
+echo "=========================================="
+`,
+		result.HasNodeAgent, result.NodeAgentImage,
+		result.HasCICD, result.CICDRunnerImage, result.CICDUnifiedImage,
+		ContainerMountPath,
+		result.HasNodeAgent,
+		result.HasCICD,
+		result.NodeAgentImage,
+		result.CICDRunnerImage,
+		result.CICDUnifiedImage,
+		AdminClusterID,
+		PrimusSaFERepoURL,
+	)
+
+	return script
 }
 
 // WaitForJobCompletion waits for the K8s job to complete or fail
@@ -286,18 +685,22 @@ func (s *Service) VerifyDeploymentRollout(ctx context.Context, envConfig string)
 		return fmt.Errorf("failed to parse config during verification: %v", err)
 	}
 
-	// 2. Define component mapping: key from ImageVersions -> K8s Deployment Name
-	// Based on "kgd -n primus-safe"
-	componentMap := map[string]string{
-		"apiserver":        "primus-safe-apiserver",
-		"resource_manager": "primus-safe-resource-manager",
-		"job_manager":      "primus-safe-job-manager",
-		"webhooks":         "primus-safe-webhooks",
-		"web":              "primus-safe-web",
-		// TODO Add other mappings if needed
+	// 2. Verify CICD ConfigMap updates (if any CICD components were updated)
+	if err := s.verifyCICDConfigMapUpdate(ctx, config.ImageVersions); err != nil {
+		return fmt.Errorf("CICD ConfigMap verification failed: %v", err)
 	}
 
-	// 3. Poll for readiness
+	// 3. Components to skip (not Deployments)
+	skipComponents := map[string]bool{
+		"cicd_runner":      true, // Verified via ConfigMap
+		"cicd_unified_job": true, // Verified via ConfigMap
+		"node_agent":       true, // DaemonSet, verified in ticker loop
+	}
+
+	// Check if node_agent needs verification
+	_, hasNodeAgent := config.ImageVersions["node_agent"]
+
+	// 4. Poll for readiness
 	// We wait up to 5 minutes for the pods to be ready
 	timeout := time.After(5 * time.Minute)
 	ticker := time.NewTicker(5 * time.Second)
@@ -315,12 +718,15 @@ func (s *Service) VerifyDeploymentRollout(ctx context.Context, envConfig string)
 			allReady := true
 			notReadyList := []string{}
 
-			for comp, _ := range config.ImageVersions {
-				// Skip if not in our mapping (e.g. node_agent is DaemonSet, handled differently or ignored for now)
-				deploymentName, ok := componentMap[comp]
-				if !ok {
+			// Check Deployments
+			for comp := range config.ImageVersions {
+				// Skip non-Deployment components
+				if skipComponents[comp] {
 					continue
 				}
+
+				// Generate deployment name: primus-safe-{component} (replace _ with -)
+				deploymentName := "primus-safe-" + strings.ReplaceAll(comp, "_", "-")
 
 				if err := s.checkDeploymentStatus(ctx, deploymentName, JobNamespace); err != nil {
 					// If it's a critical image error, fail immediately
@@ -333,6 +739,19 @@ func (s *Service) VerifyDeploymentRollout(ctx context.Context, envConfig string)
 				}
 			}
 
+			// Check node-agent DaemonSet on all clusters (if node_agent was updated)
+			if hasNodeAgent {
+				if err := s.verifyNodeAgentDaemonSet(ctx); err != nil {
+					// If it's a critical image error, fail immediately
+					if strings.Contains(err.Error(), "ImagePullBackOff") || strings.Contains(err.Error(), "ErrImagePull") {
+						return fmt.Errorf("node-agent DaemonSet failed: %v", err)
+					}
+					// Otherwise just not ready yet
+					allReady = false
+					notReadyList = append(notReadyList, "node-agent-daemonset")
+				}
+			}
+
 			if allReady {
 				klog.Infof("All deployed components are ready.")
 				return nil
@@ -341,6 +760,134 @@ func (s *Service) VerifyDeploymentRollout(ctx context.Context, envConfig string)
 			}
 		}
 	}
+}
+
+// verifyCICDConfigMapUpdate verifies that CICD component images are updated in the ConfigMap
+func (s *Service) verifyCICDConfigMapUpdate(ctx context.Context, imageVersions map[string]string) error {
+	// Check if any CICD components need verification
+	runnerImage, hasRunner := imageVersions["cicd_runner"]
+	unifiedJobImage, hasUnifiedJob := imageVersions["cicd_unified_job"]
+
+	if !hasRunner && !hasUnifiedJob {
+		// No CICD components to verify
+		return nil
+	}
+
+	klog.Infof("Verifying CICD ConfigMap updates...")
+
+	// Get the ConfigMap
+	cm, err := s.clientSet.CoreV1().ConfigMaps(JobNamespace).Get(ctx, "github-scale-set-template", metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to get github-scale-set-template ConfigMap: %v", err)
+	}
+
+	template, ok := cm.Data["template"]
+	if !ok {
+		return fmt.Errorf("ConfigMap does not contain 'template' key")
+	}
+
+	// Verify runner image
+	if hasRunner {
+		if !strings.Contains(template, runnerImage) {
+			return fmt.Errorf("runner image '%s' not found in ConfigMap template", runnerImage)
+		}
+		klog.Infof("✓ CICD runner image verified: %s", runnerImage)
+	}
+
+	// Verify unified_job image
+	if hasUnifiedJob {
+		if !strings.Contains(template, unifiedJobImage) {
+			return fmt.Errorf("unified_job image '%s' not found in ConfigMap template", unifiedJobImage)
+		}
+		klog.Infof("✓ CICD unified_job image verified: %s", unifiedJobImage)
+	}
+
+	return nil
+}
+
+// verifyNodeAgentDaemonSet verifies node-agent DaemonSet status on all clusters
+// It checks if DESIRED == CURRENT for each cluster's DaemonSet
+func (s *Service) verifyNodeAgentDaemonSet(ctx context.Context) error {
+	klog.Infof("Verifying node-agent DaemonSet on all clusters...")
+
+	const daemonSetName = "primus-safe-node-agent"
+	const namespace = JobNamespace
+
+	// Get all cluster IDs from client manager
+	clusterIDs, _ := s.clientManager.GetAll()
+
+	verifiedClusters := []string{}
+	failedClusters := []string{}
+
+	// Check all clusters
+	for _, clusterID := range clusterIDs {
+		// Get client factory for this cluster
+		clientFactory, err := commonutils.GetK8sClientFactory(s.clientManager, clusterID)
+		if err != nil {
+			klog.V(4).Infof("Failed to get client for cluster %s: %v, skipping", clusterID, err)
+			continue
+		}
+
+		if !clientFactory.IsValid() {
+			klog.V(4).Infof("Client for cluster %s is not valid, skipping", clusterID)
+			continue
+		}
+
+		clusterClientSet := clientFactory.ClientSet()
+		if clusterClientSet == nil {
+			klog.V(4).Infof("ClientSet for cluster %s is nil, skipping", clusterID)
+			continue
+		}
+
+		if err := s.checkDaemonSetStatus(ctx, clusterClientSet, daemonSetName, namespace); err != nil {
+			// If DaemonSet not found, it's ok (maybe not deployed on this cluster)
+			if strings.Contains(err.Error(), "not found") {
+				klog.V(4).Infof("node-agent DaemonSet not found on cluster %s, skipping", clusterID)
+			} else {
+				failedClusters = append(failedClusters, fmt.Sprintf("%s: %v", clusterID, err))
+			}
+		} else {
+			verifiedClusters = append(verifiedClusters, clusterID)
+		}
+	}
+
+	// Report results
+	if len(verifiedClusters) > 0 {
+		klog.Infof("✓ node-agent DaemonSet verified on clusters: %v", verifiedClusters)
+	}
+
+	if len(failedClusters) > 0 {
+		return fmt.Errorf("node-agent DaemonSet verification failed on clusters: %v", failedClusters)
+	}
+
+	if len(verifiedClusters) == 0 {
+		klog.Infof("No node-agent DaemonSet found on any cluster (might not be deployed)")
+	}
+
+	return nil
+}
+
+// checkDaemonSetStatus checks if a DaemonSet's DESIRED == CURRENT (ready)
+func (s *Service) checkDaemonSetStatus(ctx context.Context, clientSet kubernetes.Interface, name, namespace string) error {
+	ds, err := clientSet.AppsV1().DaemonSets(namespace).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to get daemonset %s: %v", name, err)
+	}
+
+	desired := ds.Status.DesiredNumberScheduled
+	current := ds.Status.CurrentNumberScheduled
+
+	// Check if DESIRED == CURRENT
+	if desired == 0 {
+		return fmt.Errorf("daemonset %s has no desired pods scheduled", name)
+	}
+
+	if current != desired {
+		return fmt.Errorf("daemonset %s: CURRENT(%d) != DESIRED(%d)", name, current, desired)
+	}
+
+	klog.V(4).Infof("DaemonSet %s: DESIRED=%d, CURRENT=%d", name, desired, current)
+	return nil
 }
 
 // checkDeploymentStatus checks if a deployment is fully available and free of image errors
@@ -444,25 +991,14 @@ func (s *Service) Rollback(ctx context.Context, reqId int64, username string) (i
 // GetCurrentEnvConfig reads the current .env file content
 // It tries to read from the actual file first, and falls back to the latest snapshot if file read fails
 func (s *Service) GetCurrentEnvConfig(ctx context.Context) (content string, err error) {
-	envFilePath := "/primus/Primus-SaFE/SaFE/bootstrap/.env"
-
-	// 1. Try to read actual file (recommended approach)
-	fileContent, readErr := os.ReadFile(envFilePath)
-	if readErr == nil {
-		return string(fileContent), nil
-	}
-
-	klog.Warningf("Failed to read .env file at %s, falling back to latest snapshot: %v", envFilePath, readErr)
-
-	// 2. Fallback: Get from the latest successful deployment snapshot
-	// Query the most recent snapshot
+	// Get from the latest successful deployment snapshot
 	snapshots, err := s.dbClient.ListEnvironmentSnapshots(ctx, nil, []string{"created_at DESC"}, 1, 0)
 	if err != nil {
-		return "", fmt.Errorf("failed to read .env file and no snapshot available: file_error=%v, db_error=%v", readErr, err)
+		return "", fmt.Errorf("failed to read last .env record and no snapshot available: db_error=%v", err)
 	}
 
 	if len(snapshots) == 0 {
-		return "", fmt.Errorf("failed to read .env file and no snapshot available: %v", readErr)
+		return "", fmt.Errorf("failed to read last .env record and no snapshot available: %v", err)
 	}
 
 	// Parse the snapshot config

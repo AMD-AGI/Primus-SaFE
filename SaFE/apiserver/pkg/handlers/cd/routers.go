@@ -22,5 +22,8 @@ func InitCDRouters(e *gin.Engine, h *Handler) {
 
 		// Get current environment configuration
 		group.GET("/env-config", h.GetCurrentEnvConfig)
+
+		// Get deployable components list
+		group.GET("/components", h.GetDeployableComponents)
 	}
 }

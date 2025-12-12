@@ -68,7 +68,10 @@ func (c *Client) CreateDeploymentRequest(ctx context.Context, req *DeploymentReq
 
 	var id int64
 	if rows.Next() {
-		rows.Scan(&id)
+		if err := rows.Scan(&id); err != nil {
+			klog.ErrorS(err, "failed to scan inserted deployment request ID")
+			return 0, err
+		}
 	}
 	return id, nil
 }

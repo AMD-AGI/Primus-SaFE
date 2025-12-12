@@ -122,4 +122,7 @@ const (
 	modelPrefix          = "model."
 	modelDownloaderImage = modelPrefix + "downloader_image"
 	modelCleanupImage    = modelPrefix + "cleanup_image"
+
+	// Deployable components for CD
+	components = "components"
 )
