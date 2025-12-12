@@ -345,6 +345,9 @@ func opsJobMapper(obj *unstructured.Unstructured) *dbclient.OpsJob {
 	if len(job.Spec.Hostpath) > 0 {
 		result.Hostpath = dbutils.NullString(string(jsonutils.MarshalSilently(job.Spec.Hostpath)))
 	}
+	if len(job.Spec.ExcludedNodes) > 0 {
+		result.ExcludedNodes = dbutils.NullString(string(jsonutils.MarshalSilently(job.Spec.ExcludedNodes)))
+	}
 	return result
 }
 

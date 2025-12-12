@@ -118,6 +118,7 @@ type OpsJob struct {
 	EntryPoint    sql.NullString `db:"entrypoint"`
 	IsTolerateAll bool           `db:"is_tolerate_all"`
 	Hostpath      sql.NullString `db:"hostpath"`
+	ExcludedNodes sql.NullString `db:"excluded_nodes"`
 }
 
 // GetOpsJobFieldTags returns the OpsJobFieldTags value.
