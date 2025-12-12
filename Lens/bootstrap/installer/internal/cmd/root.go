@@ -47,16 +47,25 @@ func init() {
 }
 
 func getKubeconfig() string {
+	// If explicitly set via flag, use it
 	if kubeconfig != "" {
 		return kubeconfig
 	}
+	// If set via environment variable, use it
 	if env := os.Getenv("KUBECONFIG"); env != "" {
 		return env
 	}
+	// Check if default kubeconfig exists
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return ""
 	}
-	return fmt.Sprintf("%s/.kube/config", home)
+	defaultPath := fmt.Sprintf("%s/.kube/config", home)
+	// Only return the path if the file exists
+	// Otherwise return empty string to use in-cluster config
+	if _, err := os.Stat(defaultPath); err == nil {
+		return defaultPath
+	}
+	return ""
 }
 

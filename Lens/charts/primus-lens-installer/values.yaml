@@ -15,7 +15,7 @@ installer:
   # Installer container image
   image:
     repository: primussafe/primus-lens-installer
-    tag: "latest"
+    tag: "202512111841"
     pullPolicy: IfNotPresent
   
   # Job configuration
