@@ -466,9 +466,6 @@ func isEnvChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructured, rt
 
 // isSharedMemoryChanged checks if the shared memory configuration of the workload has changed.
 func isSharedMemoryChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructured, rt *v1.ResourceTemplate) bool {
-	if commonworkload.IsCICDScalingRunnerSet(adminWorkload) {
-		return false
-	}
 	memoryStorageSize, err := jobutils.GetMemoryStorageSize(obj, rt)
 	if err != nil {
 		if adminWorkload.Spec.Resource.SharedMemory == "" {
@@ -829,9 +826,6 @@ func updateContainerEnv(envs map[string]string, container map[string]interface{}
 
 // updateSharedMemory updates the shared memory volume configuration.
 func updateSharedMemory(adminWorkload *v1.Workload, obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec) error {
-	if commonworkload.IsCICDScalingRunnerSet(adminWorkload) {
-		return nil
-	}
 	path := resourceSpec.PrePaths
 	path = append(path, resourceSpec.TemplatePaths...)
 	path = append(path, "spec", "volumes")

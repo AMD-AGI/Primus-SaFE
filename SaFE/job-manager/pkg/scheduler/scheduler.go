@@ -192,6 +192,11 @@ func (r *SchedulerReconciler) delete(ctx context.Context, adminWorkload *v1.Work
 			v1.GetClusterId(adminWorkload), adminWorkload.Spec.Workspace, adminWorkload.Name)
 		return ctrlruntime.Result{}, err
 	}
+	if commonworkload.IsCICDScalingRunnerSet(adminWorkload) {
+		if err = r.deleteRelatedSecrets(ctx, adminWorkload); err != nil {
+			return ctrlruntime.Result{}, err
+		}
+	}
 	// generate the related resource reference
 	obj, err := jobutils.GenObjectReference(ctx, r.Client, adminWorkload)
 	if err != nil {
@@ -206,11 +211,6 @@ func (r *SchedulerReconciler) delete(ctx context.Context, adminWorkload *v1.Work
 		return result, err
 	}
 
-	if commonworkload.IsCICDScalingRunnerSet(adminWorkload) {
-		if err = r.deleteRelatedSecrets(ctx, adminWorkload); err != nil {
-			return ctrlruntime.Result{}, err
-		}
-	}
 	if controllerutil.RemoveFinalizer(adminWorkload, v1.WorkloadFinalizer) {
 		if err = commonutils.PatchObjectFinalizer(ctx, r.Client, adminWorkload); err != nil {
 			return ctrlruntime.Result{}, err
@@ -266,9 +266,8 @@ func (r *SchedulerReconciler) deleteRelatedSecrets(ctx context.Context, adminWor
 			klog.ErrorS(delErr, "failed to delete cicd token secret",
 				"secret", sec.Name, "workload", adminWorkload.Name)
 			return delErr
-		} else {
-			klog.Infof("deleted cicd token secret %s for workload %s", sec.Name, adminWorkload.Name)
 		}
+		klog.Infof("deleted cicd token secret %s for workload %s", sec.Name, adminWorkload.Name)
 	}
 	return nil
 }
