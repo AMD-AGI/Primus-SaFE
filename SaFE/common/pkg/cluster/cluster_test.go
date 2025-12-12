@@ -31,7 +31,7 @@ func TestGetEndpoint(t *testing.T) {
 		errMsg    string
 	}{
 		{
-			name:    "nil cluster",
+			name:    "nil    cluster",
 			cluster: nil,
 			wantErr: true,
 			errMsg:  "cluster is not ready",
