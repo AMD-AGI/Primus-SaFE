@@ -14,8 +14,8 @@
 installer:
   # Installer container image
   image:
-    repository: primussafe/primus-lens-installer
-    tag: "202512111841"
+    repository: harbor.tw325.primus-safe.amd.com/primussafe/primus-lens-installer
+    tag: "202512121129"
     pullPolicy: IfNotPresent
   
   # Job configuration
@@ -49,7 +49,7 @@ global:
   accessMode: "ReadWriteOnce"
   
   # Image registry settings
-  imageRegistry: "docker.io"
+  imageRegistry: "harbor.tw325.primus-safe.amd.com"
   
   # Access type for services: "ssh-tunnel" or "ingress"
   accessType: "ssh-tunnel"
