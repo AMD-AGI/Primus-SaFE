@@ -338,6 +338,10 @@ func GetAdminControlPlane(obj metav1.Object) string {
 	return GetAnnotation(obj, AdminControlPlaneAnnotation)
 }
 
+func IsRequireNodeSpread(obj metav1.Object) bool {
+	return GetAnnotation(obj, RequireNodeSpreadAnnotation) == TrueStr
+}
+
 // atoi converts a string to an integer, returning 0 if conversion fails.
 func atoi(str string) int {
 	if str == "" {
