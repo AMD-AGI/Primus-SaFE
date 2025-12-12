@@ -426,11 +426,6 @@ func (m *WorkloadMutator) mutateEnv(oldWorkload, newWorkload *v1.Workload) {
 		var envToBeRemoved []string
 		for key := range oldWorkload.Spec.Env {
 			if _, ok := newEnv[key]; !ok {
-				if commonworkload.IsCICD(newWorkload) {
-					if key == common.AdminControlPlane || key == common.GithubSecretId {
-						continue
-					}
-				}
 				envToBeRemoved = append(envToBeRemoved, key)
 			}
 		}
@@ -685,7 +680,7 @@ func (v *WorkloadValidator) validateCICDScalingRunnerSet(workload *v1.Workload) 
 	if len(v1.GetDisplayName(workload)) > MaxCICDScaleSetNameLen {
 		return fmt.Errorf("the displayName is too long, maximum length is %d characters", MaxCICDScaleSetNameLen)
 	}
-	keys := []string{ResourcesEnv, EntrypointEnv, ImageEnv, common.GithubConfigUrl, common.GithubSecretId}
+	keys := []string{ResourcesEnv, EntrypointEnv, ImageEnv, common.GithubConfigUrl}
 	for _, key := range keys {
 		if val, ok := workload.Spec.Env[key]; !ok || val == "" {
 			return fmt.Errorf("the %s of workload environment variables is empty", key)
@@ -699,7 +694,6 @@ func (v *WorkloadValidator) validateCICDScalingRunnerSet(workload *v1.Workload) 
 	if err = v.validateResource(workloadResource); err != nil {
 		return err
 	}
-
 	return nil
 }
 
@@ -867,6 +861,13 @@ func (v *WorkloadValidator) validateImmutableFields(newWorkload, oldWorkload *v1
 	}
 	if newWorkload.Spec.GroupVersionKind != oldWorkload.Spec.GroupVersionKind {
 		return field.Forbidden(field.NewPath("spec").Key("gvk"), "immutable")
+	}
+	if commonworkload.IsCICDScalingRunnerSet(newWorkload) {
+		val1, _ := oldWorkload.Spec.Env[common.UnifiedJobEnable]
+		val2, _ := newWorkload.Spec.Env[common.UnifiedJobEnable]
+		if val1 != val2 {
+			return field.Forbidden(field.NewPath("spec").Key("env").Key(common.UnifiedJobEnable), "immutable")
+		}
 	}
 	return nil
 }

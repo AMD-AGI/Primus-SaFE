@@ -588,6 +588,7 @@ func genDefaultOpsJob(req *types.BaseOpsJobRequest, requestUser *v1.User) *v1.Op
 			TimeoutSecond:           req.TimeoutSecond,
 			TTLSecondsAfterFinished: req.TTLSecondsAfterFinished,
 			IsTolerateAll:           req.IsTolerateAll,
+			ExcludedNodes:           req.ExcludedNodes,
 		},
 	}
 	if v1.GetUserName(job) == "" {
@@ -864,6 +865,9 @@ func cvtToGetOpsJobResponse(job *dbclient.OpsJob) types.GetOpsJobResponse {
 	}
 	if hostpath := dbutils.ParseNullString(job.Hostpath); hostpath != "" {
 		json.Unmarshal([]byte(hostpath), &result.Hostpath)
+	}
+	if nodes := dbutils.ParseNullString(job.ExcludedNodes); nodes != "" {
+		json.Unmarshal([]byte(nodes), &result.ExcludedNodes)
 	}
 	return result
 }

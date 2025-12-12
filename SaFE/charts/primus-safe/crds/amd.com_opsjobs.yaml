@@ -51,6 +51,11 @@ spec:
                   type: string
                 description: Environment variables
                 type: object
+              excludedNodes:
+                description: The nodes to be excluded
+                items:
+                  type: string
+                type: array
               hostpath:
                 description: The hostpath for opsjob mounting.
                 items:

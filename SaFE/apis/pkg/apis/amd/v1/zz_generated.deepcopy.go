@@ -1659,6 +1659,11 @@ func (in *OpsJobSpec) DeepCopyInto(out *OpsJobSpec) {
 		*out = make([]string, len(*in))
 		copy(*out, *in)
 	}
+	if in.ExcludedNodes != nil {
+		in, out := &in.ExcludedNodes, &out.ExcludedNodes
+		*out = make([]string, len(*in))
+		copy(*out, *in)
+	}
 	return
 }
 
