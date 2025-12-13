@@ -33,6 +33,7 @@ func newNamespaceInfo(db *gorm.DB, opts ...gen.DOOption) namespaceInfo {
 	_namespaceInfo.GpuResource = field.NewInt32(tableName, "gpu_resource")
 	_namespaceInfo.CreatedAt = field.NewTime(tableName, "created_at")
 	_namespaceInfo.UpdatedAt = field.NewTime(tableName, "updated_at")
+	_namespaceInfo.DeletedAt = field.NewField(tableName, "deleted_at")
 
 	_namespaceInfo.fillFieldMap()
 
@@ -49,6 +50,7 @@ type namespaceInfo struct {
 	GpuResource field.Int32  // Number of GPU cards allocated to this namespace
 	CreatedAt   field.Time   // Timestamp when the namespace info was first created
 	UpdatedAt   field.Time   // Timestamp when the namespace info was last updated
+	DeletedAt   field.Field  // Timestamp when the namespace info was soft deleted (NULL means not deleted)
 
 	fieldMap map[string]field.Expr
 }
@@ -71,6 +73,7 @@ func (n *namespaceInfo) updateTableName(table string) *namespaceInfo {
 	n.GpuResource = field.NewInt32(table, "gpu_resource")
 	n.CreatedAt = field.NewTime(table, "created_at")
 	n.UpdatedAt = field.NewTime(table, "updated_at")
+	n.DeletedAt = field.NewField(table, "deleted_at")
 
 	n.fillFieldMap()
 
@@ -99,13 +102,14 @@ func (n *namespaceInfo) GetFieldByName(fieldName string) (field.OrderExpr, bool)
 }
 
 func (n *namespaceInfo) fillFieldMap() {
-	n.fieldMap = make(map[string]field.Expr, 6)
+	n.fieldMap = make(map[string]field.Expr, 7)
 	n.fieldMap["id"] = n.ID
 	n.fieldMap["name"] = n.Name
 	n.fieldMap["gpu_model"] = n.GpuModel
 	n.fieldMap["gpu_resource"] = n.GpuResource
 	n.fieldMap["created_at"] = n.CreatedAt
 	n.fieldMap["updated_at"] = n.UpdatedAt
+	n.fieldMap["deleted_at"] = n.DeletedAt
 }
 
 func (n namespaceInfo) clone(db *gorm.DB) namespaceInfo {

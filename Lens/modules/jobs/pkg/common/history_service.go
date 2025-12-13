@@ -58,6 +58,10 @@ func (h *HistoryService) RecordJobExecution(
 		}
 	}
 
+	// Truncate fields to fit database column limits
+	clusterName := truncateString(h.clusterName, 100) // cluster_name VARCHAR(100)
+	hostname := truncateString(h.hostname, 255)       // hostname VARCHAR(255)
+
 	// Build history record
 	history := &dbmodel.JobExecutionHistory{
 		JobName:         jobName,
@@ -67,8 +71,8 @@ func (h *HistoryService) RecordJobExecution(
 		StartedAt:       result.StartTime,
 		EndedAt:         result.EndTime,
 		DurationSeconds: result.Duration,
-		ClusterName:     h.clusterName,
-		Hostname:        h.hostname,
+		ClusterName:     clusterName,
+		Hostname:        hostname,
 	}
 
 	// Set error information
@@ -109,21 +113,59 @@ func (h *HistoryService) RecordJobExecution(
 	return nil
 }
 
-// getJobType gets the full type name of the Job
+// getJobType gets the type name of the Job (shortened to fit database column limit)
 func getJobType(job Job) string {
 	jobType := reflect.TypeOf(job)
 	if jobType.Kind() == reflect.Ptr {
 		jobType = jobType.Elem()
 	}
 
-	// Return package name + type name
+	// Return shortened package name + type name to fit VARCHAR(100) column
 	pkgPath := jobType.PkgPath()
 	typeName := jobType.Name()
 
 	if pkgPath != "" {
-		return pkgPath + "." + typeName
+		// Extract only the last part of the package path (e.g., "gpu_aggregation_backfill")
+		// to avoid exceeding the 100 character limit
+		parts := splitPath(pkgPath)
+		if len(parts) > 0 {
+			shortPkg := parts[len(parts)-1]
+			result := shortPkg + "." + typeName
+			// Ensure result fits in 100 characters
+			if len(result) > 100 {
+				return typeName // Fall back to just the type name
+			}
+			return result
+		}
 	}
 	return typeName
+}
+
+// splitPath splits a path by "/" separator
+func splitPath(path string) []string {
+	result := make([]string, 0)
+	start := 0
+	for i, c := range path {
+		if c == '/' {
+			if i > start {
+				result = append(result, path[start:i])
+			}
+			start = i + 1
+		}
+	}
+	if start < len(path) {
+		result = append(result, path[start:])
+	}
+	return result
+}
+
+// truncateString truncates a string to the specified maximum length
+// This is used to ensure strings fit within database column limits
+func truncateString(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen]
 }
 
 // getJobName returns the job name (using type name)

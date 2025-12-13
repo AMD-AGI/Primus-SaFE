@@ -32,6 +32,8 @@ type Node struct {
 	Os                string    `gorm:"column:os" json:"os"`
 	DriverVersion     string    `gorm:"column:driver_version" json:"driver_version"`
 	Taints            ExtType   `gorm:"column:taints" json:"taints"`
+	Labels            ExtType   `gorm:"column:labels;default:{};comment:Kubernetes node labels stored as JSONB key-value pairs" json:"labels"`                // Kubernetes node labels stored as JSONB key-value pairs
+	Annotations       ExtType   `gorm:"column:annotations;default:{};comment:Kubernetes node annotations stored as JSONB key-value pairs" json:"annotations"` // Kubernetes node annotations stored as JSONB key-value pairs
 }
 
 // TableName Node's table name

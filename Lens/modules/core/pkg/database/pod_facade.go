@@ -34,6 +34,8 @@ type PodFacadeInterface interface {
 	GetPodResourceByUid(ctx context.Context, uid string) (*model.PodResource, error)
 	CreatePodResource(ctx context.Context, podResource *model.PodResource) error
 	UpdatePodResource(ctx context.Context, podResource *model.PodResource) error
+	// ListPodResourcesByUids returns PodResource records for the given UIDs that have GPU allocation > 0
+	ListPodResourcesByUids(ctx context.Context, uids []string) ([]*model.PodResource, error)
 
 	// WithCluster method
 	WithCluster(clusterName string) PodFacadeInterface
@@ -199,4 +201,25 @@ func (f *PodFacade) CreatePodResource(ctx context.Context, podResource *model.Po
 
 func (f *PodFacade) UpdatePodResource(ctx context.Context, podResource *model.PodResource) error {
 	return f.getDAL().PodResource.WithContext(ctx).Save(podResource)
+}
+
+// ListPodResourcesByUids returns PodResource records for the given UIDs that have GPU allocation > 0
+func (f *PodFacade) ListPodResourcesByUids(ctx context.Context, uids []string) ([]*model.PodResource, error) {
+	if len(uids) == 0 {
+		return []*model.PodResource{}, nil
+	}
+
+	q := f.getDAL().PodResource
+	results, err := q.WithContext(ctx).
+		Where(q.UID.In(uids...)).
+		Where(q.GpuAllocated.Gt(0)).
+		Find()
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return []*model.PodResource{}, nil
+		}
+		return nil, err
+	}
+
+	return results, nil
 }

@@ -257,6 +257,8 @@ func (n *NodeReconciler) reconcileNodeInfo(ctx context.Context, k8sNode *corev1.
 		KubeletVersion:    k8sNode.Status.NodeInfo.KubeletVersion,
 		ContainerdVersion: k8sNode.Status.NodeInfo.ContainerRuntimeVersion,
 		Taints:            n.convertTaintsToExtType(k8sNode.Spec.Taints),
+		Labels:            n.convertMapToExtType(k8sNode.Labels),
+		Annotations:       n.convertMapToExtType(k8sNode.Annotations),
 	}
 
 	// Get driver version from node exporter
@@ -361,6 +363,19 @@ func (n *NodeReconciler) convertTaintsToExtType(taints []corev1.Taint) model.Ext
 	}
 
 	result["taints"] = taintsList
+	return result
+}
+
+// convertMapToExtType converts map[string]string to ExtType for labels and annotations
+func (n *NodeReconciler) convertMapToExtType(m map[string]string) model.ExtType {
+	if len(m) == 0 {
+		return model.ExtType{}
+	}
+
+	result := make(model.ExtType, len(m))
+	for k, v := range m {
+		result[k] = v
+	}
 	return result
 }
 
