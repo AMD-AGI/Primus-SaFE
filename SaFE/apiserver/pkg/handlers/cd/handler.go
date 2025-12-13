@@ -451,9 +451,19 @@ func (h *Handler) approveDeploymentRequest(c *gin.Context) (interface{}, error) 
 		if err := h.dbClient.UpdateDeploymentRequest(c.Request.Context(), req); err != nil {
 			return nil, err
 		}
+
+		return ApprovalResp{
+			Id:      req.Id,
+			Status:  StatusRejected,
+			Message: "Deployment request rejected",
+		}, nil
 	}
 
-	return nil, nil
+	return ApprovalResp{
+		Id:      req.Id,
+		Status:  StatusApproved,
+		Message: "Deployment approved and started, running in background",
+	}, nil
 }
 
 func (h *Handler) rollbackDeployment(c *gin.Context) (interface{}, error) {

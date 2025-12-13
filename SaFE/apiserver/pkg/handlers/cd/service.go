@@ -94,11 +94,26 @@ type DeploymentResult struct {
 func (s *Service) ExecuteDeployment(ctx context.Context, req *dbclient.DeploymentRequest) (*DeploymentResult, error) {
 	klog.Infof("Starting deployment for request %d: %s", req.Id, req.DeployName)
 
-	// 1. Parse config
+	// 1. Parse current request config
 	var config DeploymentConfig
 	if err := json.Unmarshal([]byte(req.EnvConfig), &config); err != nil {
 		return nil, fmt.Errorf("failed to parse config: %v", err)
 	}
+
+	// 2. Read latest snapshot and merge with current request
+	// This ensures we have all historical image versions, and only update the ones specified in current request
+	config, err := s.mergeWithLatestSnapshot(ctx, config)
+	if err != nil {
+		klog.Warningf("Failed to merge with latest snapshot (will use request config only): %v", err)
+		// Continue with request config only, don't fail the deployment
+	}
+
+	// Update the request's EnvConfig with merged config for snapshot creation later
+	mergedConfigJSON, err := json.Marshal(config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal merged config: %v", err)
+	}
+	req.EnvConfig = string(mergedConfigJSON)
 
 	// Get deployable components from config
 	expectedComponents := commonconfig.GetComponents()
@@ -644,8 +659,21 @@ echo "=========================================="
 }
 
 // WaitForJobCompletion waits for the K8s job to complete or fail
+// It will delete the job after completion (success or failure)
 func (s *Service) WaitForJobCompletion(ctx context.Context, jobName, namespace string) error {
-	// Simple polling mechanism
+	// Wait for job and get result
+	jobErr := s.waitForJob(ctx, jobName, namespace)
+
+	// Always delete the job after completion (success or failure)
+	if err := s.DeleteJob(ctx, jobName, namespace); err != nil {
+		klog.ErrorS(err, "Failed to delete job after completion", "job", jobName)
+	}
+
+	return jobErr
+}
+
+// waitForJob polls the job status until completion or timeout
+func (s *Service) waitForJob(ctx context.Context, jobName, namespace string) error {
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
@@ -675,6 +703,24 @@ func (s *Service) WaitForJobCompletion(ctx context.Context, jobName, namespace s
 			}
 		}
 	}
+}
+
+// DeleteJob deletes a Kubernetes Job and its associated pods
+func (s *Service) DeleteJob(ctx context.Context, jobName, namespace string) error {
+	klog.Infof("Deleting job %s in namespace %s", jobName, namespace)
+
+	// Delete with propagation policy to also delete pods
+	propagationPolicy := metav1.DeletePropagationBackground
+	deleteOptions := metav1.DeleteOptions{
+		PropagationPolicy: &propagationPolicy,
+	}
+
+	if err := s.clientSet.BatchV1().Jobs(namespace).Delete(ctx, jobName, deleteOptions); err != nil {
+		return fmt.Errorf("failed to delete job %s: %v", jobName, err)
+	}
+
+	klog.Infof("Job %s deleted successfully", jobName)
+	return nil
 }
 
 // VerifyDeploymentRollout checks if the workloads defined in config are actually running
@@ -986,6 +1032,53 @@ func (s *Service) Rollback(ctx context.Context, reqId int64, username string) (i
 	}
 
 	return s.dbClient.CreateDeploymentRequest(ctx, newReq)
+}
+
+// mergeWithLatestSnapshot merges current request config with the latest snapshot
+// This ensures all historical image versions are preserved, and only the specified ones are updated
+func (s *Service) mergeWithLatestSnapshot(ctx context.Context, currentConfig DeploymentConfig) (DeploymentConfig, error) {
+	// Get the latest snapshot
+	snapshots, err := s.dbClient.ListEnvironmentSnapshots(ctx, nil, []string{"created_at DESC"}, 1, 0)
+	if err != nil {
+		return currentConfig, fmt.Errorf("failed to get latest snapshot: %v", err)
+	}
+
+	if len(snapshots) == 0 {
+		klog.Infof("No previous snapshot found, using current config only")
+		return currentConfig, nil
+	}
+
+	// Parse the snapshot config
+	var snapshotConfig DeploymentConfig
+	if err := json.Unmarshal([]byte(snapshots[0].EnvConfig), &snapshotConfig); err != nil {
+		return currentConfig, fmt.Errorf("failed to parse snapshot config: %v", err)
+	}
+
+	// Merge image versions: start with snapshot, then override with current request
+	mergedImageVersions := make(map[string]string)
+
+	// First, copy all image versions from snapshot
+	for k, v := range snapshotConfig.ImageVersions {
+		mergedImageVersions[k] = v
+	}
+
+	// Then, override with current request's image versions
+	for k, v := range currentConfig.ImageVersions {
+		mergedImageVersions[k] = v
+		klog.Infof("Updating component %s: %s -> %s", k, snapshotConfig.ImageVersions[k], v)
+	}
+
+	// Merge env_file_config: use current if provided, otherwise use snapshot
+	mergedEnvFileConfig := currentConfig.EnvFileConfig
+	if mergedEnvFileConfig == "" {
+		mergedEnvFileConfig = snapshotConfig.EnvFileConfig
+		klog.Infof("Using env_file_config from latest snapshot")
+	}
+
+	return DeploymentConfig{
+		ImageVersions: mergedImageVersions,
+		EnvFileConfig: mergedEnvFileConfig,
+	}, nil
 }
 
 // GetCurrentEnvConfig reads the current .env file content

@@ -39,6 +39,13 @@ type ApprovalReq struct {
 	Reason   string `json:"reason"` // Optional rejection reason
 }
 
+// ApprovalResp is the response for approval action
+type ApprovalResp struct {
+	Id      int64  `json:"id"`
+	Status  string `json:"status"`
+	Message string `json:"message"`
+}
+
 // DeploymentRequestItem is the view model for the list
 type DeploymentRequestItem struct {
 	Id              int64  `json:"id"`
