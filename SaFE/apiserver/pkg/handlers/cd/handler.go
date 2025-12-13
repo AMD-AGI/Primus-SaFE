@@ -65,7 +65,7 @@ type Handler struct {
 	client.Client
 	service          *Service
 	clientSet        kubernetes.Interface
-	dbClient         *dbclient.Client
+	dbClient         dbclient.Interface
 	httpClient       httpclient.Interface
 	clientManager    *commonutils.ObjectManager
 	accessController *authority.AccessController

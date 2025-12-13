@@ -36,8 +36,8 @@ func setupTestHandler(ctrl *gomock.Controller) (*Handler, *mock_client.MockInter
 
 	h := &Handler{
 		clientSet: fakeK8s,
-		dbClient:  &dbclient.Client{Interface: mockDB},
-		service:   NewService(&dbclient.Client{Interface: mockDB}, fakeK8s),
+		dbClient:  mockDB,
+		service:   NewService(mockDB, fakeK8s),
 	}
 
 	return h, mockDB

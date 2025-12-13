@@ -32,7 +32,7 @@ func TestNewService(t *testing.T) {
 	mockDB := mock_client.NewMockInterface(ctrl)
 	fakeK8s := fake.NewSimpleClientset()
 
-	svc := NewService(&dbclient.Client{Interface: mockDB}, fakeK8s)
+	svc := NewService(mockDB, fakeK8s)
 
 	assert.NotNil(t, svc)
 	assert.NotNil(t, svc.clientSet)
@@ -46,7 +46,7 @@ func TestSetDeploymentFailureCallback(t *testing.T) {
 	mockDB := mock_client.NewMockInterface(ctrl)
 	fakeK8s := fake.NewSimpleClientset()
 
-	svc := NewService(&dbclient.Client{Interface: mockDB}, fakeK8s)
+	svc := NewService(mockDB, fakeK8s)
 
 	callbackCalled := false
 	callback := func(ctx context.Context, req *dbclient.DeploymentRequest, reason string) {
@@ -66,7 +66,7 @@ func TestNotifyDeploymentFailureNoCallback(t *testing.T) {
 	mockDB := mock_client.NewMockInterface(ctrl)
 	fakeK8s := fake.NewSimpleClientset()
 
-	svc := NewService(&dbclient.Client{Interface: mockDB}, fakeK8s)
+	svc := NewService(mockDB, fakeK8s)
 
 	// Should not panic when callback is nil
 	assert.NotPanics(t, func() {
@@ -81,7 +81,7 @@ func TestExtractJobNameFromDescription(t *testing.T) {
 	mockDB := mock_client.NewMockInterface(ctrl)
 	fakeK8s := fake.NewSimpleClientset()
 
-	svc := NewService(&dbclient.Client{Interface: mockDB}, fakeK8s)
+	svc := NewService(mockDB, fakeK8s)
 
 	tests := []struct {
 		name        string
@@ -130,7 +130,7 @@ func TestCvtDBRequestToItem(t *testing.T) {
 	mockDB := mock_client.NewMockInterface(ctrl)
 	fakeK8s := fake.NewSimpleClientset()
 
-	svc := NewService(&dbclient.Client{Interface: mockDB}, fakeK8s)
+	svc := NewService(mockDB, fakeK8s)
 
 	now := time.Now().UTC()
 
@@ -185,7 +185,7 @@ func TestUpdateRequestStatus(t *testing.T) {
 	t.Run("update status successfully", func(t *testing.T) {
 		mockDB := mock_client.NewMockInterface(ctrl)
 		fakeK8s := fake.NewSimpleClientset()
-		svc := NewService(&dbclient.Client{Interface: mockDB}, fakeK8s)
+		svc := NewService(mockDB, fakeK8s)
 
 		req := &dbclient.DeploymentRequest{
 			Id:         1,
@@ -207,7 +207,7 @@ func TestUpdateRequestStatus(t *testing.T) {
 	t.Run("update status with failure reason", func(t *testing.T) {
 		mockDB := mock_client.NewMockInterface(ctrl)
 		fakeK8s := fake.NewSimpleClientset()
-		svc := NewService(&dbclient.Client{Interface: mockDB}, fakeK8s)
+		svc := NewService(mockDB, fakeK8s)
 
 		req := &dbclient.DeploymentRequest{
 			Id:         2,
@@ -237,7 +237,7 @@ func TestCreateSnapshot(t *testing.T) {
 	t.Run("create snapshot with new config", func(t *testing.T) {
 		mockDB := mock_client.NewMockInterface(ctrl)
 		fakeK8s := fake.NewSimpleClientset()
-		svc := NewService(&dbclient.Client{Interface: mockDB}, fakeK8s)
+		svc := NewService(mockDB, fakeK8s)
 
 		newConfig := DeploymentConfig{
 			ImageVersions: map[string]string{
@@ -271,7 +271,7 @@ func TestCreateSnapshot(t *testing.T) {
 	t.Run("create snapshot merging with previous", func(t *testing.T) {
 		mockDB := mock_client.NewMockInterface(ctrl)
 		fakeK8s := fake.NewSimpleClientset()
-		svc := NewService(&dbclient.Client{Interface: mockDB}, fakeK8s)
+		svc := NewService(mockDB, fakeK8s)
 
 		previousConfig := DeploymentConfig{
 			ImageVersions: map[string]string{
@@ -324,7 +324,7 @@ func TestMergeWithLatestSnapshot(t *testing.T) {
 	t.Run("merge with existing snapshot", func(t *testing.T) {
 		mockDB := mock_client.NewMockInterface(ctrl)
 		fakeK8s := fake.NewSimpleClientset()
-		svc := NewService(&dbclient.Client{Interface: mockDB}, fakeK8s)
+		svc := NewService(mockDB, fakeK8s)
 
 		snapshotConfig := DeploymentConfig{
 			ImageVersions: map[string]string{
@@ -363,7 +363,7 @@ func TestMergeWithLatestSnapshot(t *testing.T) {
 	t.Run("no snapshot available", func(t *testing.T) {
 		mockDB := mock_client.NewMockInterface(ctrl)
 		fakeK8s := fake.NewSimpleClientset()
-		svc := NewService(&dbclient.Client{Interface: mockDB}, fakeK8s)
+		svc := NewService(mockDB, fakeK8s)
 
 		mockDB.EXPECT().ListEnvironmentSnapshots(ctx, nil, []string{"created_at DESC"}, 1, 0).
 			Return([]*dbclient.EnvironmentSnapshot{}, nil)
@@ -393,7 +393,7 @@ func TestRollback(t *testing.T) {
 	t.Run("rollback from deployed request with snapshot", func(t *testing.T) {
 		mockDB := mock_client.NewMockInterface(ctrl)
 		fakeK8s := fake.NewSimpleClientset()
-		svc := NewService(&dbclient.Client{Interface: mockDB}, fakeK8s)
+		svc := NewService(mockDB, fakeK8s)
 
 		targetReq := &dbclient.DeploymentRequest{
 			Id:        10,
@@ -427,7 +427,7 @@ func TestRollback(t *testing.T) {
 	t.Run("cannot rollback non-deployed request", func(t *testing.T) {
 		mockDB := mock_client.NewMockInterface(ctrl)
 		fakeK8s := fake.NewSimpleClientset()
-		svc := NewService(&dbclient.Client{Interface: mockDB}, fakeK8s)
+		svc := NewService(mockDB, fakeK8s)
 
 		targetReq := &dbclient.DeploymentRequest{
 			Id:     5,

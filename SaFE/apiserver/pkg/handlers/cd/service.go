@@ -31,14 +31,14 @@ import (
 
 // Service handles business logic for CD
 type Service struct {
-	dbClient      *dbclient.Client
+	dbClient      dbclient.Interface
 	clientSet     kubernetes.Interface
 	clientManager *commonutils.ObjectManager
 	// onDeploymentFailure is called when a deployment fails (for email notification, etc.)
 	onDeploymentFailure func(ctx context.Context, req *dbclient.DeploymentRequest, reason string)
 }
 
-func NewService(dbClient *dbclient.Client, clientSet kubernetes.Interface) *Service {
+func NewService(dbClient dbclient.Interface, clientSet kubernetes.Interface) *Service {
 	return &Service{
 		dbClient:      dbClient,
 		clientSet:     clientSet,
@@ -784,26 +784,31 @@ func (s *Service) VerifyDeploymentRollout(ctx context.Context, envConfig string)
 				deploymentName := "primus-safe-" + strings.ReplaceAll(comp, "_", "-")
 
 				if err := s.checkDeploymentStatus(ctx, deploymentName, JobNamespace); err != nil {
-					// If it's a critical image error, fail immediately
-					if strings.Contains(err.Error(), "ImagePullBackOff") || strings.Contains(err.Error(), "ErrImagePull") {
+					// Unrecoverable errors - fail immediately
+					// These won't fix themselves with retries
+					if strings.Contains(err.Error(), "InvalidImageName") ||
+						strings.Contains(err.Error(), "CreateContainerConfigError") ||
+						strings.Contains(err.Error(), "Unschedulable") {
 						return fmt.Errorf("deployment failed for %s: %v", deploymentName, err)
 					}
-					// Otherwise just not ready yet
+					// Recoverable errors (ImagePullBackOff, CrashLoopBackOff, etc.)
+					// Continue polling, K8s will retry automatically
 					allReady = false
-					notReadyList = append(notReadyList, deploymentName)
+					notReadyList = append(notReadyList, fmt.Sprintf("%s (%v)", deploymentName, err))
 				}
 			}
 
 			// Check node-agent DaemonSet on all clusters (if node_agent was updated)
 			if hasNodeAgent {
 				if err := s.verifyNodeAgentDaemonSet(ctx); err != nil {
-					// If it's a critical image error, fail immediately
-					if strings.Contains(err.Error(), "ImagePullBackOff") || strings.Contains(err.Error(), "ErrImagePull") {
+					// Unrecoverable errors - fail immediately
+					if strings.Contains(err.Error(), "InvalidImageName") ||
+						strings.Contains(err.Error(), "CreateContainerConfigError") {
 						return fmt.Errorf("node-agent DaemonSet failed: %v", err)
 					}
-					// Otherwise just not ready yet
+					// Recoverable errors - continue polling
 					allReady = false
-					notReadyList = append(notReadyList, "node-agent-daemonset")
+					notReadyList = append(notReadyList, fmt.Sprintf("node-agent-daemonset (%v)", err))
 				}
 			}
 
@@ -953,14 +958,9 @@ func (s *Service) checkDeploymentStatus(ctx context.Context, name, namespace str
 		return fmt.Errorf("failed to get deployment %s: %v", name, err)
 	}
 
-	// Check readiness
-	if deploy.Status.AvailableReplicas == *deploy.Spec.Replicas {
-		// Ready!
-		return nil
-	}
-
-	// 2. Deep dive into Pods to check for Image errors
-	// Select pods for this deployment
+	// 2. First check ALL pods for critical errors (ImagePullBackOff, etc.)
+	// This must be done BEFORE checking AvailableReplicas because during rolling update
+	// old pods may still be running while new pods fail to pull images
 	labelSelector := metav1.FormatLabelSelector(deploy.Spec.Selector)
 	pods, err := s.clientSet.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{
 		LabelSelector: labelSelector,
@@ -969,26 +969,94 @@ func (s *Service) checkDeploymentStatus(ctx context.Context, name, namespace str
 		return fmt.Errorf("failed to list pods for %s: %v", name, err)
 	}
 
+	// Critical waiting reasons that indicate deployment failure
+	criticalWaitingReasons := map[string]bool{
+		"ImagePullBackOff":           true,
+		"ErrImagePull":               true,
+		"CrashLoopBackOff":           true,
+		"CreateContainerConfigError": true,
+		"CreateContainerError":       true,
+		"InvalidImageName":           true,
+		"RunContainerError":          true,
+		"PreStartHookError":          true,
+		"PostStartHookError":         true,
+	}
+
 	for _, pod := range pods.Items {
+		// Check Pod-level failure (Unschedulable, Evicted, etc.)
+		if pod.Status.Phase == corev1.PodFailed {
+			return fmt.Errorf("%s: Pod failed - %s", pod.Name, pod.Status.Reason)
+		}
+
+		// Check for scheduling issues
+		for _, condition := range pod.Status.Conditions {
+			if condition.Type == corev1.PodScheduled && condition.Status == corev1.ConditionFalse {
+				if condition.Reason == "Unschedulable" {
+					return fmt.Errorf("%s: Unschedulable - %s", pod.Name, condition.Message)
+				}
+			}
+		}
+
 		// Check container statuses
 		for _, containerStatus := range pod.Status.ContainerStatuses {
-			// Check Waiting state (ImagePullBackOff, CrashLoopBackOff, etc.)
+			// Check Waiting state
 			if !containerStatus.Ready && containerStatus.State.Waiting != nil {
 				reason := containerStatus.State.Waiting.Reason
-				if reason == "ImagePullBackOff" || reason == "ErrImagePull" || reason == "CrashLoopBackOff" {
+				if criticalWaitingReasons[reason] {
 					return fmt.Errorf("%s: %s (%s)", pod.Name, reason, containerStatus.State.Waiting.Message)
 				}
 			}
 
-			// Check Terminated state (Container crashed)
+			// Check Terminated state (Container crashed or OOMKilled)
+			if containerStatus.State.Terminated != nil {
+				terminated := containerStatus.State.Terminated
+				if terminated.ExitCode != 0 {
+					return fmt.Errorf("%s: Container terminated with exit code %d (%s: %s)",
+						pod.Name, terminated.ExitCode, terminated.Reason, terminated.Message)
+				}
+				// OOMKilled has exit code 137, but also check reason
+				if terminated.Reason == "OOMKilled" {
+					return fmt.Errorf("%s: Container OOMKilled", pod.Name)
+				}
+			}
+		}
+
+		// Also check init container statuses
+		for _, containerStatus := range pod.Status.InitContainerStatuses {
+			if !containerStatus.Ready && containerStatus.State.Waiting != nil {
+				reason := containerStatus.State.Waiting.Reason
+				if criticalWaitingReasons[reason] {
+					return fmt.Errorf("%s (init): %s (%s)", pod.Name, reason, containerStatus.State.Waiting.Message)
+				}
+			}
+
+			// Init container terminated with error
 			if containerStatus.State.Terminated != nil && containerStatus.State.Terminated.ExitCode != 0 {
-				return fmt.Errorf("%s: Container terminated with exit code %d (%s)",
-					pod.Name, containerStatus.State.Terminated.ExitCode, containerStatus.State.Terminated.Reason)
+				return fmt.Errorf("%s (init): terminated with exit code %d",
+					pod.Name, containerStatus.State.Terminated.ExitCode)
 			}
 		}
 	}
 
-	return fmt.Errorf("not ready")
+	// 3. Check Deployment conditions for rollout issues
+	for _, condition := range deploy.Status.Conditions {
+		if condition.Type == "Progressing" && condition.Status == "False" {
+			return fmt.Errorf("deployment rollout failed: %s", condition.Message)
+		}
+	}
+
+	// 4. Now check if deployment is ready (all replicas updated and available)
+	// UpdatedReplicas: pods with new template
+	// AvailableReplicas: pods ready to serve
+	if deploy.Status.UpdatedReplicas == *deploy.Spec.Replicas &&
+		deploy.Status.AvailableReplicas == *deploy.Spec.Replicas &&
+		deploy.Status.UnavailableReplicas == 0 {
+		return nil
+	}
+
+	return fmt.Errorf("not ready: updated=%d, available=%d, unavailable=%d, desired=%d",
+		deploy.Status.UpdatedReplicas, deploy.Status.AvailableReplicas,
+		deploy.Status.UnavailableReplicas, *deploy.Spec.Replicas)
 }
 
 func (s *Service) UpdateRequestStatus(ctx context.Context, reqId int64, status, failureReason string) error {
