@@ -750,6 +750,7 @@ func (s *Service) VerifyDeploymentRollout(ctx context.Context, envConfig string)
 		"cicd_runner":      true, // Verified via ConfigMap
 		"cicd_unified_job": true, // Verified via ConfigMap
 		"node_agent":       true, // DaemonSet, verified in ticker loop
+		"preprocess":       true, // Job image, not a Deployment
 	}
 
 	// Check if node_agent needs verification
