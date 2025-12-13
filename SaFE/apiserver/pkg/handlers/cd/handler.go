@@ -111,6 +111,21 @@ func NewHandler(mgr ctrlruntime.Manager) (*Handler, error) {
 		}
 	}
 
+	// Set deployment failure callback for email notification
+	h.service.SetDeploymentFailureCallback(func(ctx context.Context, req *dbclient.DeploymentRequest, reason string) {
+		h.sendDeploymentFailureEmail(ctx, req, reason)
+	})
+
+	// Recover any stuck deploying requests after apiserver restart
+	go func() {
+		// Wait a bit for all services to be ready
+		time.Sleep(5 * time.Second)
+		ctx := context.Background()
+		if err := h.service.RecoverDeployingRequests(ctx); err != nil {
+			klog.ErrorS(err, "Failed to recover deploying requests")
+		}
+	}()
+
 	return h, nil
 }
 

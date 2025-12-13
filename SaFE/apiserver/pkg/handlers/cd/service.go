@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	sqrl "github.com/Masterminds/squirrel"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -33,6 +34,8 @@ type Service struct {
 	dbClient      *dbclient.Client
 	clientSet     kubernetes.Interface
 	clientManager *commonutils.ObjectManager
+	// onDeploymentFailure is called when a deployment fails (for email notification, etc.)
+	onDeploymentFailure func(ctx context.Context, req *dbclient.DeploymentRequest, reason string)
 }
 
 func NewService(dbClient *dbclient.Client, clientSet kubernetes.Interface) *Service {
@@ -40,6 +43,18 @@ func NewService(dbClient *dbclient.Client, clientSet kubernetes.Interface) *Serv
 		dbClient:      dbClient,
 		clientSet:     clientSet,
 		clientManager: commonutils.NewObjectManagerSingleton(),
+	}
+}
+
+// SetDeploymentFailureCallback sets the callback function for deployment failures
+func (s *Service) SetDeploymentFailureCallback(callback func(ctx context.Context, req *dbclient.DeploymentRequest, reason string)) {
+	s.onDeploymentFailure = callback
+}
+
+// notifyDeploymentFailure calls the failure callback if set
+func (s *Service) notifyDeploymentFailure(ctx context.Context, req *dbclient.DeploymentRequest, reason string) {
+	if s.onDeploymentFailure != nil {
+		s.onDeploymentFailure(ctx, req, reason)
 	}
 }
 
@@ -217,7 +232,7 @@ if [ -d "$REPO_DIR" ]; then
 fi
 
 echo "Cloning repository from $REPO_URL..."
-git clone --depth 1 "$REPO_URL" "$REPO_DIR"
+git clone --depth 1 -b feature/chenyi/cicd_upgrad "$REPO_URL" "$REPO_DIR"
 echo "✓ Repository cloned successfully"
 
 # Helper function to update yaml using sed (simple implementation)
@@ -424,7 +439,7 @@ if [ "$HAS_NODE_AGENT" = "true" ]; then
     if [ -d "$REPO_DIR" ]; then
         rm -rf "$REPO_DIR"
     fi
-    git clone --depth 1 "%s" "$REPO_DIR"
+    git clone --depth 1 -b feature/chenyi/cicd_upgrad "%s" "$REPO_DIR"
     echo "✓ Repository cloned"
 fi
 
@@ -989,6 +1004,208 @@ func (s *Service) UpdateRequestStatus(ctx context.Context, reqId int64, status, 
 	}
 
 	return s.dbClient.UpdateDeploymentRequest(ctx, req)
+}
+
+// RecoverDeployingRequests checks for requests stuck in "deploying" status after apiserver restart
+// and recovers them based on the corresponding Job status
+func (s *Service) RecoverDeployingRequests(ctx context.Context) error {
+	klog.Info("Checking for stuck deploying requests after restart...")
+
+	// Query all requests with "deploying" status
+	dbTags := dbclient.GetDeploymentRequestFieldTags()
+	query := sqrl.Eq{dbclient.GetFieldTag(dbTags, "Status"): StatusDeploying}
+	requests, err := s.dbClient.ListDeploymentRequests(ctx, query, nil, 100, 0)
+	if err != nil {
+		klog.ErrorS(err, "Failed to list deploying requests")
+		return err
+	}
+
+	if len(requests) == 0 {
+		klog.Info("No stuck deploying requests found")
+		return nil
+	}
+
+	klog.Infof("Found %d stuck deploying requests, recovering...", len(requests))
+
+	for _, req := range requests {
+		// Extract job name from description (format: "xxx | Job: cd-upgrade-123-xxxx")
+		jobName := s.extractJobNameFromDescription(req.Description.String)
+		if jobName == "" {
+			klog.Warningf("Request %d has no job name in description, marking as failed", req.Id)
+			failReason := "Recovery failed: no job name found"
+			s.UpdateRequestStatus(ctx, req.Id, StatusFailed, failReason)
+			s.notifyDeploymentFailure(ctx, req, failReason)
+			continue
+		}
+
+		klog.Infof("Recovering request %d with job %s", req.Id, jobName)
+
+		// Check job status
+		job, err := s.clientSet.BatchV1().Jobs(JobNamespace).Get(ctx, jobName, metav1.GetOptions{})
+		if err != nil {
+			// Job not found - probably deleted or never created
+			klog.Warningf("Job %s not found for request %d, marking as failed", jobName, req.Id)
+			failReason := "Recovery failed: job not found (may have been deleted)"
+			s.UpdateRequestStatus(ctx, req.Id, StatusFailed, failReason)
+			s.notifyDeploymentFailure(ctx, req, failReason)
+			continue
+		}
+
+		// Check job completion status
+		if job.Status.Succeeded > 0 {
+			// Job succeeded - need to check if there's a remote job and then finalize
+			klog.Infof("Job %s succeeded, checking for remote job for request %d", jobName, req.Id)
+			// Start background monitoring to handle potential remote job and finalization
+			go s.finalizeRecoveredDeployment(ctx, req)
+			// Delete the completed local job
+			s.DeleteJob(ctx, jobName, JobNamespace)
+		} else if job.Status.Failed > 0 && job.Status.Failed >= *job.Spec.BackoffLimit+1 {
+			// Job failed
+			klog.Infof("Job %s failed, updating request %d to failed", jobName, req.Id)
+			failReason := "Job execution failed (recovered after restart)"
+			s.UpdateRequestStatus(ctx, req.Id, StatusFailed, failReason)
+			s.notifyDeploymentFailure(ctx, req, failReason)
+			// Delete the failed job
+			s.DeleteJob(ctx, jobName, JobNamespace)
+		} else {
+			// Job still running - start monitoring in background
+			klog.Infof("Job %s still running, resuming monitoring for request %d", jobName, req.Id)
+			go s.resumeDeploymentMonitoring(ctx, req, jobName)
+		}
+	}
+
+	return nil
+}
+
+// extractJobNameFromDescription extracts job name from description string
+// Format: "xxx | Job: cd-upgrade-123-xxxx"
+func (s *Service) extractJobNameFromDescription(description string) string {
+	if description == "" {
+		return ""
+	}
+	// Look for "Job: " prefix
+	prefix := "Job: "
+	idx := strings.Index(description, prefix)
+	if idx == -1 {
+		return ""
+	}
+	return strings.TrimSpace(description[idx+len(prefix):])
+}
+
+// resumeDeploymentMonitoring resumes monitoring a deployment after apiserver restart
+func (s *Service) resumeDeploymentMonitoring(ctx context.Context, req *dbclient.DeploymentRequest, jobName string) {
+	klog.Infof("Resuming monitoring for request %d, job %s", req.Id, jobName)
+
+	// Wait for local job completion
+	if err := s.WaitForJobCompletion(ctx, jobName, JobNamespace); err != nil {
+		klog.ErrorS(err, "Job execution failed during recovery", "job", jobName)
+		failReason := fmt.Sprintf("Job failed during recovery: %v", err)
+		s.UpdateRequestStatus(ctx, req.Id, StatusFailed, failReason)
+		s.notifyDeploymentFailure(ctx, req, failReason)
+		return
+	}
+
+	// Check if there's a remote cluster job (for node-agent or CICD updates)
+	// Parse config to check if remote updates were needed
+	var config DeploymentConfig
+	if err := json.Unmarshal([]byte(req.EnvConfig), &config); err == nil {
+		hasNodeAgent := config.ImageVersions["node_agent"] != ""
+		hasCICD := config.ImageVersions["cicd_runner"] != "" || config.ImageVersions["cicd_unified_job"] != ""
+
+		if hasNodeAgent || hasCICD {
+			// Check if remote job exists and wait for it
+			remoteJobPrefix := fmt.Sprintf("cd-remote-%d-", req.Id)
+			remoteJobName := s.findJobByPrefix(ctx, remoteJobPrefix, JobNamespace)
+
+			if remoteJobName != "" {
+				klog.Infof("Found remote job %s for request %d, waiting for completion", remoteJobName, req.Id)
+				if err := s.WaitForJobCompletion(ctx, remoteJobName, JobNamespace); err != nil {
+					klog.ErrorS(err, "Remote job execution failed during recovery", "job", remoteJobName)
+					failReason := fmt.Sprintf("Remote cluster job failed during recovery: %v", err)
+					s.UpdateRequestStatus(ctx, req.Id, StatusFailed, failReason)
+					s.notifyDeploymentFailure(ctx, req, failReason)
+					return
+				}
+			}
+		}
+	}
+
+	// Verify deployment rollout
+	if err := s.VerifyDeploymentRollout(ctx, req.EnvConfig); err != nil {
+		klog.ErrorS(err, "Deployment verification failed during recovery", "id", req.Id)
+		failReason := fmt.Sprintf("Rollout verification failed during recovery: %v", err)
+		s.UpdateRequestStatus(ctx, req.Id, StatusFailed, failReason)
+		s.notifyDeploymentFailure(ctx, req, failReason)
+		return
+	}
+
+	// Success
+	s.UpdateRequestStatus(ctx, req.Id, StatusDeployed, "")
+	if err := s.CreateSnapshot(ctx, req.Id, req.EnvConfig); err != nil {
+		klog.ErrorS(err, "Failed to create snapshot during recovery", "id", req.Id)
+	}
+	klog.Infof("Successfully recovered request %d", req.Id)
+}
+
+// findJobByPrefix finds a job by name prefix
+func (s *Service) findJobByPrefix(ctx context.Context, prefix, namespace string) string {
+	jobs, err := s.clientSet.BatchV1().Jobs(namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		klog.ErrorS(err, "Failed to list jobs", "namespace", namespace)
+		return ""
+	}
+
+	for _, job := range jobs.Items {
+		if strings.HasPrefix(job.Name, prefix) {
+			return job.Name
+		}
+	}
+	return ""
+}
+
+// finalizeRecoveredDeployment handles the case where local job succeeded but we need to check remote job
+func (s *Service) finalizeRecoveredDeployment(ctx context.Context, req *dbclient.DeploymentRequest) {
+	klog.Infof("Finalizing recovered deployment for request %d", req.Id)
+
+	// Check if there's a remote cluster job (for node-agent or CICD updates)
+	var config DeploymentConfig
+	if err := json.Unmarshal([]byte(req.EnvConfig), &config); err == nil {
+		hasNodeAgent := config.ImageVersions["node_agent"] != ""
+		hasCICD := config.ImageVersions["cicd_runner"] != "" || config.ImageVersions["cicd_unified_job"] != ""
+
+		if hasNodeAgent || hasCICD {
+			// Check if remote job exists and wait for it
+			remoteJobPrefix := fmt.Sprintf("cd-remote-%d-", req.Id)
+			remoteJobName := s.findJobByPrefix(ctx, remoteJobPrefix, JobNamespace)
+
+			if remoteJobName != "" {
+				klog.Infof("Found remote job %s for request %d, waiting for completion", remoteJobName, req.Id)
+				if err := s.WaitForJobCompletion(ctx, remoteJobName, JobNamespace); err != nil {
+					klog.ErrorS(err, "Remote job execution failed during recovery", "job", remoteJobName)
+					failReason := fmt.Sprintf("Remote cluster job failed during recovery: %v", err)
+					s.UpdateRequestStatus(ctx, req.Id, StatusFailed, failReason)
+					s.notifyDeploymentFailure(ctx, req, failReason)
+					return
+				}
+			}
+		}
+	}
+
+	// Verify deployment rollout
+	if err := s.VerifyDeploymentRollout(ctx, req.EnvConfig); err != nil {
+		klog.ErrorS(err, "Deployment verification failed during recovery", "id", req.Id)
+		failReason := fmt.Sprintf("Rollout verification failed during recovery: %v", err)
+		s.UpdateRequestStatus(ctx, req.Id, StatusFailed, failReason)
+		s.notifyDeploymentFailure(ctx, req, failReason)
+		return
+	}
+
+	// Success
+	s.UpdateRequestStatus(ctx, req.Id, StatusDeployed, "")
+	if err := s.CreateSnapshot(ctx, req.Id, req.EnvConfig); err != nil {
+		klog.ErrorS(err, "Failed to create snapshot during recovery", "id", req.Id)
+	}
+	klog.Infof("Successfully finalized recovered deployment for request %d", req.Id)
 }
 
 // Rollback creates a new request based on a previous snapshot
