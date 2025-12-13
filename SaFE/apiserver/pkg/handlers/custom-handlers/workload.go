@@ -757,6 +757,7 @@ func (h *Handler) generatePreheatWorkload(ctx context.Context,
 	v1.SetLabel(preheatWorkload, v1.DisplayNameLabel, v1.GetDisplayName(mainWorkload)+"-preheat")
 	v1.SetLabel(preheatWorkload, v1.UserIdLabel, common.UserSystem)
 	v1.SetAnnotation(preheatWorkload, v1.UserNameAnnotation, common.UserSystem)
+	v1.SetAnnotation(preheatWorkload, v1.RequireNodeSpreadAnnotation, v1.TrueStr)
 
 	preheatWorkload.Spec.EntryPoint = stringutil.Base64Encode("echo \"preheat finished\"")
 	preheatWorkload.Spec.IsSupervised = false
