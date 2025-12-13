@@ -10,22 +10,22 @@ type FrameworkLogPatterns struct {
 	Version     string `json:"version"`      // Config version
 	Priority    int    `json:"priority"`     // Priority for matching (higher = higher priority)
 	Enabled     bool   `json:"enabled"`      // Whether this framework is enabled
-	
+
 	// Framework identification pattern (for auto-detection)
 	IdentifyPatterns []PatternConfig `json:"identify_patterns"`
-	
+
 	// Performance log patterns
 	PerformancePatterns []PatternConfig `json:"performance_patterns"`
-	
+
 	// Training lifecycle events
 	TrainingEvents TrainingEventPatterns `json:"training_events"`
-	
+
 	// Checkpoint events
 	CheckpointEvents CheckpointEventPatterns `json:"checkpoint_events"`
-	
+
 	// Extension fields
 	Extensions map[string]interface{} `json:"extensions,omitempty"`
-	
+
 	// Metadata
 	UpdatedAt time.Time `json:"updated_at"`
 	CreatedAt time.Time `json:"created_at"`
@@ -102,4 +102,3 @@ func (p *PatternConfig) Validate() error {
 	}
 	return nil
 }
-

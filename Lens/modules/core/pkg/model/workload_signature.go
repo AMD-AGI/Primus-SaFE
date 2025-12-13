@@ -15,4 +15,3 @@ type WorkloadSignature struct {
 	CommandHash string `json:"command_hash"` // MD5(sorted_command)
 	EnvHash     string `json:"env_hash"`     // MD5(sorted_key_env_vars)
 }
-

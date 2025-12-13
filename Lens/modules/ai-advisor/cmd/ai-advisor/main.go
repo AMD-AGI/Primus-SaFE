@@ -15,4 +15,3 @@ func main() {
 		log.Infof("AI Advisor started successfully")
 	}
 }
-

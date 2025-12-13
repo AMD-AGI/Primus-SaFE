@@ -399,4 +399,3 @@ func ExampleWrapMessage() {
 	fmt.Printf("Error code: %d\n", err.Code)
 	// Output: Error code: 4001
 }
-

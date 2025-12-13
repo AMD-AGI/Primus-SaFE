@@ -40,4 +40,3 @@ type ResourceStatus struct {
 	State   State  `json:"state"`
 	Message string `json:"message,omitempty"`
 }
-

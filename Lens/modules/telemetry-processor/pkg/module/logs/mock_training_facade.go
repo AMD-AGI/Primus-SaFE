@@ -220,4 +220,3 @@ func (m *MockTrainingFacade) GetStoredData() map[string]*model.TrainingPerforman
 	}
 	return result
 }
-

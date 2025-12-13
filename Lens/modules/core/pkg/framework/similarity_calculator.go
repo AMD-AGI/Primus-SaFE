@@ -252,4 +252,3 @@ func (c *SimilarityCalculator) toSet(slice []string) map[string]bool {
 	}
 	return set
 }
-

@@ -14,7 +14,7 @@ import (
 func main() {
 	// File path relative to jobs directory
 	baseDir := filepath.Join("..", "..")
-	
+
 	// Read report_data.json
 	inputPath := filepath.Join(baseDir, "report_data.json")
 	fmt.Printf("📖 Reading %s...\n", inputPath)
@@ -84,4 +84,3 @@ func main() {
 		fmt.Printf("    Total GPUs should display as: %d\n", reportData.Summary.TotalGPUs)
 	}
 }
-

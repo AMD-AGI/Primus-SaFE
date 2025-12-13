@@ -93,4 +93,3 @@ func HandleMetrics() gin.HandlerFunc {
 		httpRequestDuration.WithLabelValues(method, path).Observe(duration)
 	}
 }
-

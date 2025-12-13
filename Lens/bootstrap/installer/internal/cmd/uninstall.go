@@ -14,8 +14,8 @@ import (
 )
 
 var (
-	force         bool
-	deleteData    bool
+	force            bool
+	deleteData       bool
 	uninstallTimeout time.Duration
 )
 
@@ -103,4 +103,3 @@ func runUninstall(cmd *cobra.Command, args []string) error {
 	fmt.Printf("✅ %s uninstallation completed!\n", workflowName)
 	return nil
 }
-

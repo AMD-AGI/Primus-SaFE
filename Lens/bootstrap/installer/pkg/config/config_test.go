@@ -112,4 +112,3 @@ func TestLoadFromFileInvalidYAML(t *testing.T) {
 	_, err = LoadFromFile(configPath)
 	assert.Error(t, err)
 }
-

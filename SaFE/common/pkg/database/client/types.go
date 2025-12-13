@@ -284,3 +284,37 @@ type Model struct {
 func (Model) TableName() string {
 	return "model"
 }
+
+type DeploymentRequest struct {
+	Id              int64          `db:"id"`
+	DeployName      string         `db:"deploy_name"`
+	Status          string         `db:"status"`
+	ApproverName    sql.NullString `db:"approver_name"`
+	ApprovalResult  sql.NullString `db:"approval_result"`
+	EnvConfig       string         `db:"env_config"` // JSON string
+	Description     sql.NullString `db:"description"`
+	RejectionReason sql.NullString `db:"rejection_reason"`
+	FailureReason   sql.NullString `db:"failure_reason"`
+	RollbackFromId  sql.NullInt64  `db:"rollback_from_id"`
+	CreatedAt       pq.NullTime    `db:"created_at"`
+	UpdatedAt       pq.NullTime    `db:"updated_at"`
+	ApprovedAt      pq.NullTime    `db:"approved_at"`
+}
+
+func GetDeploymentRequestFieldTags() map[string]string {
+	d := DeploymentRequest{}
+	return getFieldTags(d)
+}
+
+type EnvironmentSnapshot struct {
+	Id                  int64       `db:"id"`
+	DeploymentRequestId int64       `db:"deployment_request_id"`
+	EnvConfig           string      `db:"env_config"` // JSON string
+	CreatedAt           pq.NullTime `db:"created_at"`
+	UpdatedAt           pq.NullTime `db:"updated_at"`
+}
+
+func GetEnvironmentSnapshotFieldTags() map[string]string {
+	e := EnvironmentSnapshot{}
+	return getFieldTags(e)
+}

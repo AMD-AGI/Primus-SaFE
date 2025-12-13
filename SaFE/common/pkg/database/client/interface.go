@@ -27,6 +27,7 @@ type Interface interface {
 	WorkloadStatisticInterface
 	NodeStatisticInterface
 	UserTokenInterface
+	CDInterface
 	InferenceInterface
 	PlaygroundSessionInterface
 }

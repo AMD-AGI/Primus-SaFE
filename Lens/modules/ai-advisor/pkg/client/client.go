@@ -96,7 +96,6 @@ func (c *Client) SetHeader(key, value string) *Client {
 
 // ============ Detection APIs ============
 
-
 // ReportDetection reports a framework detection from any source
 func (c *Client) ReportDetection(req *common.DetectionRequest) (*common.Detection, error) {
 	var result common.Detection

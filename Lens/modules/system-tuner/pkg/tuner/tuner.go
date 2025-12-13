@@ -194,4 +194,3 @@ func (st *SystemTuner) GetCurrentMaxMapCount() (int, error) {
 
 	return val, nil
 }
-

@@ -193,7 +193,7 @@ func RegisterRouter(group *gin.RouterGroup) error {
 			// Update framework configuration
 			frameworkGroup.PUT("/:name", UpdateFrameworkConfig)
 		}
-		
+
 		// Cache management
 		cacheGroup := detectionConfigGroup.Group("/cache")
 		{

@@ -19,4 +19,3 @@ const (
 	TaskTypeLogCollection      = "log_collection"
 	TaskTypeCheckpointMonitor  = "checkpoint_monitor"
 )
-

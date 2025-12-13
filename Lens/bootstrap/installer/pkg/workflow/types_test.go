@@ -67,4 +67,3 @@ func TestStateConstants(t *testing.T) {
 	assert.Equal(t, State("Ready"), StateReady)
 	assert.Equal(t, State("Failed"), StateFailed)
 }
-

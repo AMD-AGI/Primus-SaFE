@@ -11,13 +11,12 @@ var (
 	ErrInvalidConfidence    = errors.New("invalid confidence")
 	ErrConfigNotFound       = errors.New("config not found")
 	ErrConfigParseFailed    = errors.New("config parse failed")
-	
+
 	// Pattern matching errors
 	ErrPatternCompileFailed = errors.New("pattern compile failed")
 	ErrNoPatternMatched     = errors.New("no pattern matched")
-	
+
 	// Framework detection errors
 	ErrFrameworkNotDetected = errors.New("framework not detected")
 	ErrNoMatcherFound       = errors.New("no matcher found")
 )
-

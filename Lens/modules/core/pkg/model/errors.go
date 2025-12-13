@@ -15,4 +15,3 @@ func (e ConfigError) Error() string {
 func ErrInvalidConfig(message string) error {
 	return ConfigError{Message: fmt.Sprintf("invalid config: %s", message)}
 }
-

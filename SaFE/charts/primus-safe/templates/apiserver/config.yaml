@@ -81,6 +81,10 @@ data:
       enable: {{ .Values.sso.enable }}
     cicd:
       enable: {{ .Values.cicd.enable }}
+    components:
+      {{- range .Values.components }}
+      - {{ . }}
+      {{- end }}
 kind: ConfigMap
 metadata:
   name: {{ .Release.Name }}-apiserver

@@ -55,6 +55,20 @@ if [[ "$ingress" == "higress" ]]; then
 fi
 echo "✅ Upgrade node-agent: \"$install_node_agent\""
 
+# Set proxy_image_registry and ssh_server_ip based on sub_domain (tas or tw)
+if [[ "$sub_domain" == "tas" ]]; then
+  proxy_image_registry="harbor.tas.primus-safe.amd.com/proxy"
+  ssh_server_ip="127.0.0.1"
+elif [[ "$sub_domain" == "tw325" ]]; then
+  proxy_image_registry="harbor.tw325.primus-safe.amd.com/proxy"
+  ssh_server_ip=""
+else
+  echo "Error: Unknown sub_domain '$sub_domain'. Expected 'tas' or 'tw325'."
+  exit 1
+fi
+echo "✅ Image Registry: \"$proxy_image_registry\""
+echo "✅ SSH Server IP: \"$ssh_server_ip\""
+
 echo
 
 replicas=1
@@ -87,6 +101,13 @@ fi
 values_yaml="primus-safe/.values.yaml"
 cp "$src_values_yaml" "${values_yaml}"
 
+safe_image=$(printf '%s\n' "$proxy_image_registry" | sed 's/[&/\]/\\&/g')
+sed -i '/global:/,/^[a-z]/ s/image_registry: .*/image_registry: "'"$safe_image"'"/' "$values_yaml"
+
+if [[ -n "$ssh_server_ip" ]]; then
+  sed -i '/^ssh:/,/^[a-z]/ s#server_ip: ".*"#server_ip: "'"$ssh_server_ip"'"#' "$values_yaml"
+fi
+
 sed -i "s/nccl_socket_ifname: \".*\"/nccl_socket_ifname: \"$ethernet_nic\"/" "$values_yaml"
 sed -i "s/nccl_ib_hca: \".*\"/nccl_ib_hca: \"$rdma_nic\"/" "$values_yaml"
 if [[ "$ingress" == "higress" ]]; then
@@ -115,11 +136,11 @@ fi
 
 chart_name="primus-safe"
 if helm -n "$NAMESPACE" list | grep -q "^$chart_name "; then
-  kubectl replace -f $chart_name/crds/ -n "$NAMESPACE"
+  kubectl replace -f $chart_name/crds/ -n "$NAMESPACE" || kubectl create -f $chart_name/crds/ -n "$NAMESPACE"
   mkdir -p output
   helm template "$chart_name" -f "$values_yaml" -n "$NAMESPACE" "$chart_name" --output-dir ./output 1>/dev/null
-  kubectl replace -f output/$chart_name/templates/rbac/role.yaml
-  kubectl replace -f output/$chart_name/templates/webhooks/manifests.yaml
+  kubectl replace -f output/$chart_name/templates/rbac/role.yaml || kubectl create -f output/$chart_name/templates/rbac/role.yaml
+  kubectl replace -f output/$chart_name/templates/webhooks/manifests.yaml || kubectl create -f output/$chart_name/templates/webhooks/manifests.yaml
   echo
   rm -rf output
 fi
@@ -142,6 +163,8 @@ if [[ "$install_node_agent" == "y" ]]; then
   fi
   values_yaml="node-agent/.values.yaml"
   cp "$src_values_yaml" "${values_yaml}"
+
+  sed -i '/node_agent:/,/^[a-z]/ s/image_registry: .*/image_registry: "'"$safe_image"'"/' "$values_yaml"
 
   sed -i "s/nccl_socket_ifname: \".*\"/nccl_socket_ifname: \"$ethernet_nic\"/" "$values_yaml"
   sed -i "s/nccl_ib_hca: \".*\"/nccl_ib_hca: \"$rdma_nic\"/" "$values_yaml"

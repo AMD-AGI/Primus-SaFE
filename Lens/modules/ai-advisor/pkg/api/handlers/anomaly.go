@@ -77,4 +77,3 @@ func (h *AnomalyHandler) GetLatestAnomalies(c *gin.Context) {
 		"anomalies":    []interface{}{},
 	})
 }
-
