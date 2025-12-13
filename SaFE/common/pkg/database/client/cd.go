@@ -36,6 +36,7 @@ type CDInterface interface {
 
 	CreateEnvironmentSnapshot(ctx context.Context, snapshot *EnvironmentSnapshot) (int64, error)
 	GetEnvironmentSnapshot(ctx context.Context, id int64) (*EnvironmentSnapshot, error)
+	GetEnvironmentSnapshotByRequestId(ctx context.Context, reqId int64) (*EnvironmentSnapshot, error)
 	ListEnvironmentSnapshots(ctx context.Context, query sqrl.Sqlizer, orderBy []string, limit, offset int) ([]*EnvironmentSnapshot, error)
 }
 

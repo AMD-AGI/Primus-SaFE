@@ -94,26 +94,20 @@ type DeploymentResult struct {
 func (s *Service) ExecuteDeployment(ctx context.Context, req *dbclient.DeploymentRequest) (*DeploymentResult, error) {
 	klog.Infof("Starting deployment for request %d: %s", req.Id, req.DeployName)
 
-	// 1. Parse current request config
-	var config DeploymentConfig
-	if err := json.Unmarshal([]byte(req.EnvConfig), &config); err != nil {
+	// 1. Parse current request config (user's incremental request)
+	var requestConfig DeploymentConfig
+	if err := json.Unmarshal([]byte(req.EnvConfig), &requestConfig); err != nil {
 		return nil, fmt.Errorf("failed to parse config: %v", err)
 	}
 
-	// 2. Read latest snapshot and merge with current request
-	// This ensures we have all historical image versions, and only update the ones specified in current request
-	config, err := s.mergeWithLatestSnapshot(ctx, config)
+	// 2. Read latest snapshot and merge with current request for deployment
+	// This ensures we have all historical image versions for the deployment
+	// Note: We don't modify req.EnvConfig, it keeps the user's incremental request
+	mergedConfig, err := s.mergeWithLatestSnapshot(ctx, requestConfig)
 	if err != nil {
 		klog.Warningf("Failed to merge with latest snapshot (will use request config only): %v", err)
-		// Continue with request config only, don't fail the deployment
+		mergedConfig = requestConfig // Fallback to request config
 	}
-
-	// Update the request's EnvConfig with merged config for snapshot creation later
-	mergedConfigJSON, err := json.Marshal(config)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal merged config: %v", err)
-	}
-	req.EnvConfig = string(mergedConfigJSON)
 
 	// Get deployable components from config
 	expectedComponents := commonconfig.GetComponents()
@@ -130,7 +124,7 @@ func (s *Service) ExecuteDeployment(ctx context.Context, req *dbclient.Deploymen
 	result := &DeploymentResult{}
 
 	for _, comp := range expectedComponents {
-		if tag, ok := config.ImageVersions[comp]; ok {
+		if tag, ok := mergedConfig.ImageVersions[comp]; ok {
 			// Check if it's a CICD component with special format
 			if yamlKey, isCICD := cicdComponentsMap[comp]; isCICD {
 				componentTags += fmt.Sprintf("%s=%s;", yamlKey, tag)
@@ -152,7 +146,7 @@ func (s *Service) ExecuteDeployment(ctx context.Context, req *dbclient.Deploymen
 		}
 	}
 
-	// 2. Prepare Job Params
+	// 3. Prepare Job Params
 	jobName := commonutils.GenerateName(fmt.Sprintf("cd-upgrade-%d", req.Id))
 	result.LocalJobName = jobName
 
@@ -162,7 +156,7 @@ func (s *Service) ExecuteDeployment(ctx context.Context, req *dbclient.Deploymen
 		Image:         JobImage,
 		ComponentTags: componentTags,
 		NodeAgentTags: nodeAgentTags,
-		EnvFileConfig: config.EnvFileConfig,
+		EnvFileConfig: mergedConfig.EnvFileConfig,
 	}
 
 	// 3. Create Job

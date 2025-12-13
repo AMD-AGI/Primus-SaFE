@@ -440,7 +440,12 @@ func (h *Handler) approveDeploymentRequest(c *gin.Context) (interface{}, error) 
 
 			// Success: Update status and create snapshot
 			h.service.UpdateRequestStatus(ctx, req.Id, StatusDeployed, "")
-			h.service.CreateSnapshot(ctx, req.Id, req.EnvConfig)
+			if err := h.service.CreateSnapshot(ctx, req.Id, req.EnvConfig); err != nil {
+				klog.ErrorS(err, "Failed to create snapshot", "id", req.Id)
+				// Don't fail the deployment, snapshot is for historical record
+			} else {
+				klog.Infof("Snapshot created for request %d", req.Id)
+			}
 		}()
 
 	} else {
