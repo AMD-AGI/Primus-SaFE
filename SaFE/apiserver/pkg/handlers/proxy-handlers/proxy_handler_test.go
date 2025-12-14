@@ -148,13 +148,15 @@ func TestCreateProxyHandler(t *testing.T) {
 	backendCalled := false
 	receivedPath := ""
 	receivedUserId := ""
-	
+	receivedUserName := ""
+
 	// Create a test backend server
 	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		backendCalled = true
 		receivedPath = r.URL.Path
 		receivedUserId = r.Header.Get(common.UserId)
-		
+		receivedUserName = r.Header.Get(common.UserName)
+
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`{"status":"success"}`))
 	}))
@@ -177,8 +179,9 @@ func TestCreateProxyHandler(t *testing.T) {
 	// Create test request using real HTTP client
 	router := gin.New()
 	router.GET("/api/test/*proxyPath", func(c *gin.Context) {
-		// Simulate authentication middleware setting userId
+		// Simulate authentication middleware setting userId and userName
 		c.Set(common.UserId, "test-user-123")
+		c.Set(common.UserName, "Test User")
 		handler.createProxyHandler(handler.proxies["/api/test"])(c)
 	})
 
@@ -195,15 +198,16 @@ func TestCreateProxyHandler(t *testing.T) {
 	assert.True(t, backendCalled)
 	assert.Equal(t, "/endpoint", receivedPath)
 	assert.Equal(t, "test-user-123", receivedUserId)
+	assert.Equal(t, "Test User", receivedUserName)
 }
 
 // TestPrefixStripping tests that URL prefixes are correctly stripped
 func TestPrefixStripping(t *testing.T) {
 	tests := []struct {
-		name           string
-		prefix         string
-		requestPath    string
-		expectedPath   string
+		name         string
+		prefix       string
+		requestPath  string
+		expectedPath string
 	}{
 		{
 			name:         "simple prefix",
@@ -270,39 +274,62 @@ func TestPrefixStripping(t *testing.T) {
 	}
 }
 
-// TestUserIdHeaderInjection tests that userId is properly injected into headers
+// TestUserIdHeaderInjection tests that userId and userName are properly injected into headers
 func TestUserIdHeaderInjection(t *testing.T) {
 	tests := []struct {
-		name           string
-		setUserId      bool
-		userId         string
-		expectedUserId string
+		name             string
+		setUserId        bool
+		userId           string
+		setUserName      bool
+		userName         string
+		expectedUserId   string
+		expectedUserName string
 	}{
 		{
-			name:           "userId present",
-			setUserId:      true,
-			userId:         "user-123",
-			expectedUserId: "user-123",
+			name:             "userId and userName present",
+			setUserId:        true,
+			userId:           "user-123",
+			setUserName:      true,
+			userName:         "John Doe",
+			expectedUserId:   "user-123",
+			expectedUserName: "John Doe",
 		},
 		{
-			name:           "userId empty string",
-			setUserId:      true,
-			userId:         "",
-			expectedUserId: "",
+			name:             "only userId present",
+			setUserId:        true,
+			userId:           "user-456",
+			setUserName:      false,
+			userName:         "",
+			expectedUserId:   "user-456",
+			expectedUserName: "",
 		},
 		{
-			name:           "userId not set",
-			setUserId:      false,
-			userId:         "",
-			expectedUserId: "",
+			name:             "userId empty string",
+			setUserId:        true,
+			userId:           "",
+			setUserName:      true,
+			userName:         "Jane Doe",
+			expectedUserId:   "",
+			expectedUserName: "Jane Doe",
+		},
+		{
+			name:             "neither set",
+			setUserId:        false,
+			userId:           "",
+			setUserName:      false,
+			userName:         "",
+			expectedUserId:   "",
+			expectedUserName: "",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			receivedUserId := ""
+			receivedUserName := ""
 			backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				receivedUserId = r.Header.Get(common.UserId)
+				receivedUserName = r.Header.Get(common.UserName)
 				w.WriteHeader(http.StatusOK)
 			}))
 			defer backend.Close()
@@ -325,6 +352,9 @@ func TestUserIdHeaderInjection(t *testing.T) {
 				if tt.setUserId {
 					c.Set(common.UserId, tt.userId)
 				}
+				if tt.setUserName {
+					c.Set(common.UserName, tt.userName)
+				}
 				handler.createProxyHandler(handler.proxies["/api/test"])(c)
 			})
 
@@ -337,6 +367,7 @@ func TestUserIdHeaderInjection(t *testing.T) {
 
 			assert.Equal(t, http.StatusOK, resp.StatusCode)
 			assert.Equal(t, tt.expectedUserId, receivedUserId)
+			assert.Equal(t, tt.expectedUserName, receivedUserName)
 		})
 	}
 }
@@ -409,7 +440,7 @@ func TestGetProxyInfo(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	body, _ := io.ReadAll(w.Body)
-	
+
 	// Verify response contains both services
 	assert.Contains(t, string(body), "service1")
 	assert.Contains(t, string(body), "service2")
@@ -508,4 +539,3 @@ func TestHTTPMethods(t *testing.T) {
 		})
 	}
 }
-
