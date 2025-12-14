@@ -20,14 +20,14 @@ AINIC_BUNDLE_VERSION="1.117.5-a-38"
 AINIC_BUNDLE_FILE="./ainic_bundle_${AINIC_BUNDLE_VERSION}.tar.gz"
 ## install ainic driver
 echo "AINIC_BUNDLE_FILE: ${AINIC_BUNDLE_FILE}"
-sleep 10
+
 
 cp $AINIC_BUNDLE_FILE $WORKDIR
 cd $WORKDIR
 apt install jq dpkg-dev kmod xz-utils  -y 
 sudo apt install -y libibverbs-dev ibverbs-utils infiniband-diags -y 
 apt install initramfs-tools -y
-tar zxf $AINIC_BUNDLE_VERSION.tar.gz
+tar zxf $AINIC_BUNDLE_FILE
 tar zxf host_sw_pkg.tar.gz
 cd host_sw_pkg && ./install.sh --domain=user -y
 cd /opt
