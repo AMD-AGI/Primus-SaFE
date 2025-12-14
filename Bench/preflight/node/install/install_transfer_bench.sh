@@ -11,7 +11,7 @@ fi
 
 cd "./TransferBench" || exit 1
 # current supports mi300x or mi325x
-CC=hipcc make GPU_TARGETS=gfx942 > /dev/null
+CC=hipcc make GPU_TARGETS=gfx950 > /dev/null
 if [ $? -ne 0 ]; then
   exit 1
 fi
