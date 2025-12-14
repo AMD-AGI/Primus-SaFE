@@ -99,6 +99,9 @@ func (relevantChangePredicate) Update(e event.UpdateEvent) bool {
 	if !shouldDispatch(oldWorkload) && shouldDispatch(newWorkload) {
 		return true
 	}
+	if v1.GetGithubSecretId(oldWorkload) != v1.GetGithubSecretId(newWorkload) {
+		return true
+	}
 	if !commonworkload.IsResourceEqual(oldWorkload, newWorkload) ||
 		oldWorkload.Spec.Resource.SharedMemory != newWorkload.Spec.Resource.SharedMemory {
 		return true
@@ -366,7 +369,8 @@ func (r *DispatcherReconciler) syncWorkloadToObject(ctx context.Context, adminWo
 	}
 
 	functions := []func(adminWorkload *v1.Workload, obj *unstructured.Unstructured, rt *v1.ResourceTemplate) bool{
-		isResourceChanged, isImageChanged, isEntryPointChanged, isSharedMemoryChanged, isEnvChanged, isPriorityClassChanged,
+		isResourceChanged, isImageChanged, isEntryPointChanged, isSharedMemoryChanged,
+		isEnvChanged, isPriorityClassChanged, isGithubSecretChanged,
 	}
 	isChanged := false
 	for _, f := range functions {
@@ -483,6 +487,18 @@ func isPriorityClassChanged(adminWorkload *v1.Workload, obj *unstructured.Unstru
 		return true
 	}
 	return commonworkload.GeneratePriorityClass(adminWorkload) != priorityClassName
+}
+
+// isGithubSecretChanged checks if the GitHub secret of the workload has changed.
+func isGithubSecretChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructured, _ *v1.ResourceTemplate) bool {
+	if !commonworkload.IsCICDScalingRunnerSet(adminWorkload) {
+		return false
+	}
+	secretId, err := jobutils.GetGithubConfigSecret(obj)
+	if err != nil {
+		return true
+	}
+	return v1.GetGithubSecretId(adminWorkload) != secretId
 }
 
 // applyWorkloadSpecToObject applies the workload specifications to the unstructured Kubernetes object.
