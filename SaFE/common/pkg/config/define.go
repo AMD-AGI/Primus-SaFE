@@ -122,4 +122,8 @@ const (
 	modelPrefix          = "model."
 	modelDownloaderImage = modelPrefix + "downloader_image"
 	modelCleanupImage    = modelPrefix + "cleanup_image"
+
+	// proxy
+	proxyPrefix = "proxy."
+	proxyList   = proxyPrefix + "services"
 )
