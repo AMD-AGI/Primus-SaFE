@@ -4,7 +4,7 @@ fi
 
 REPO_URL="https://github.com/ROCm/rocBLAS.git"
 cd /opt
-git clone --branch rocm-6.4.3 --depth 1 "$REPO_URL"
+git clone --branch rocm-7.1.1 --depth 1 "$REPO_URL"
 if [ $? -ne 0 ]; then
   exit 1
 fi
