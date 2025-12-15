@@ -123,6 +123,7 @@ func parseNodeNames(nodeNamesStr string) []string {
 	return nodeNames
 }
 
+
 // SetExcludeNodes sets the nodes to exclude for a specific cluster
 // clusterName: the name of the cluster
 // nodeNames: list of node names to exclude when selecting control-plane nodes
