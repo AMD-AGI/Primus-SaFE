@@ -588,7 +588,7 @@ func updateCICDScaleSet(obj *unstructured.Unstructured,
 	if err := updateCICDGithub(adminWorkload, obj); err != nil {
 		return err
 	}
-	if err := updateCICDEnvironments(obj, adminWorkload, workspace, rt.Spec.ResourceSpecs[0]); err != nil {
+	if err := updateCICDScaleSetEnvs(obj, adminWorkload, workspace, rt.Spec.ResourceSpecs[0]); err != nil {
 		return err
 	}
 	return nil
@@ -656,10 +656,10 @@ func updateCICDGithub(adminWorkload *v1.Workload, obj *unstructured.Unstructured
 	return nil
 }
 
-// updateCICDEnvironments configures environment variables for CICD workloads based on unified build settings.
+// updateCICDScaleSetEnvs configures environment variables for CICD workloads based on unified build settings.
 // When unified build is enabled, it updates all containers with NFS paths and environment variables,
 // When unified build is disabled, it keeps only the main container with environment variables.
-func updateCICDEnvironments(obj *unstructured.Unstructured,
+func updateCICDScaleSetEnvs(obj *unstructured.Unstructured,
 	adminWorkload *v1.Workload, workspace *v1.Workspace, resourceSpec v1.ResourceSpec) error {
 	containers, path, err := getContainers(obj, resourceSpec)
 	if err != nil {
