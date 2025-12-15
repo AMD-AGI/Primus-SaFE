@@ -253,11 +253,21 @@ data:
         user_id    varchar(64) NOT NULL PRIMARY KEY,
         session_id VARCHAR(64) NOT NULL,
         token      TEXT NOT NULL,
+        refresh_token TEXT,
         creation_time bigint,
         expire_time bigint
         );
     create index if not exists T_SESSION_ID_INDEX on user_token (session_id);
     alter table user_token owner to "primus-safe";
+    
+    -- Add refresh_token column if it doesn't exist (for existing installations)
+    DO $$ 
+    BEGIN 
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                       WHERE table_name='user_token' AND column_name='refresh_token') THEN
+            ALTER TABLE user_token ADD COLUMN refresh_token TEXT;
+        END IF;
+    END $$;
 
 
     create table if not exists workload_statistic

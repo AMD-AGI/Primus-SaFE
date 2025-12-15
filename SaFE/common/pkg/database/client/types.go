@@ -204,6 +204,7 @@ type UserToken struct {
 	UserId       string `db:"user_id"`
 	SessionId    string `db:"session_id"`
 	Token        string `db:"token"`
+	RefreshToken string `db:"refresh_token"`
 	CreationTime int64  `db:"creation_time"`
 	ExpireTime   int64  `db:"expire_time"`
 }

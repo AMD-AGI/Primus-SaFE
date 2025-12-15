@@ -101,6 +101,12 @@ ssh:
 user:
   # Require token for user access, can be disabled in internal networks
   token_required: false
+  # Enable automatic OAuth2 token refresh to avoid frequent re-logins
+  token_refresh_enable: true
+  # Interval in seconds between token refresh checks (20 minutes)
+  token_refresh_interval: 1200
+  # Threshold in seconds before expiration to trigger refresh (30 minutes)
+  token_refresh_threshold: 1800
 sso:
   # Enable sso login
   enable: true
