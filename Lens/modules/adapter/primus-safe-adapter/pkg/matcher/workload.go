@@ -125,10 +125,6 @@ func (w *WorkloadMatcher) scanForSingleWorkload(ctx context.Context, dbWorkload 
 		}
 	}
 
-	log.Infof("Copying pod references from child workloads to parent workload %s/%s.Children count: %d", dbWorkload.Namespace, dbWorkload.Name, len(children))
-	for _, child := range referencedWorkload {
-		log.Infof("Child workload: %s/%s, Parent UID: %s", child.Namespace, child.Name, child.ParentUID)
-	}
 	// Always copy pod references from child workloads to parent workload
 	// This ensures that pod changes in child workloads are always synced to parent
 	err = w.copyChildPodReferencesToParent(ctx, facade, dbWorkload, referencedWorkload)
@@ -180,7 +176,6 @@ func (w *WorkloadMatcher) copyChildPodReferencesToParent(ctx context.Context, fa
 	}
 
 	// Create pod references for parent workload that don't exist yet
-	createdCount := 0
 	for podUID := range allChildPodUIDs {
 		if !existingPodUIDs[podUID] {
 			err := facade.GetWorkload().CreateWorkloadPodReference(ctx, parentWorkload.UID, podUID)
@@ -189,13 +184,7 @@ func (w *WorkloadMatcher) copyChildPodReferencesToParent(ctx context.Context, fa
 					parentWorkload.Namespace, parentWorkload.Name, podUID, err)
 				continue
 			}
-			createdCount++
 		}
-	}
-
-	if createdCount > 0 {
-		log.Infof("copied %d pod references from child workloads to parent workload %s/%s",
-			createdCount, parentWorkload.Namespace, parentWorkload.Name)
 	}
 
 	return nil
@@ -236,8 +225,6 @@ func (w *WorkloadMatcher) scanCluster(ctx context.Context, clusterName string) e
 	if err != nil {
 		return err
 	}
-
-	log.Infof("scanning %d workloads in cluster %s", len(workloads), clusterName)
 
 	for i := range workloads {
 		err := w.scanForSingleWorkload(ctx, workloads[i])
