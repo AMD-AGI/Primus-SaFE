@@ -452,6 +452,20 @@ func GetPriorityClassName(unstructuredObj *unstructured.Unstructured, rt *v1.Res
 	return "", fmt.Errorf("no priorityClassName found")
 }
 
+// GetGithubConfigSecret retrieves the githubConfigSecret from the unstructured object.
+func GetGithubConfigSecret(unstructuredObj *unstructured.Unstructured) (string, error) {
+	path := []string{"spec", "githubConfigSecret"}
+	val, found, err := unstructured.NestedString(unstructuredObj.Object, path...)
+	if err != nil {
+		klog.ErrorS(err, "failed to find githubConfigSecret", "path", path)
+		return "", err
+	}
+	if !found {
+		return "", fmt.Errorf("no githubConfigSecret found")
+	}
+	return val, nil
+}
+
 // getReplica retrieves replica count based on pre-paths and replica path of resource template.
 func getReplica(unstructuredObj *unstructured.Unstructured, prePaths []string, name string) (int, error) {
 	m, found, err := unstructured.NestedFieldNoCopy(unstructuredObj.Object, prePaths...)

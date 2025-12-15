@@ -73,37 +73,42 @@ func checkDBWritable(ctx context.Context, sqlDB *sql.DB) error {
 	return nil
 }
 
-// reconnectDB re-establishes the database connection
+// reconnectDB re-establishes the database connection by forcing connection pool refresh
+// NOTE: Do NOT call sqlDB.Close() as it permanently closes the connection pool
+// and sql.DB does not automatically reopen after Close() is called.
 func reconnectDB(db *gorm.DB) error {
 	sqlDB, err := db.DB()
 	if err != nil {
 		return fmt.Errorf("failed to get sql.DB: %w", err)
 	}
 
-	// Close all existing connections
-	log.Infof("Closing all existing database connections...")
-	if err := sqlDB.Close(); err != nil {
-		log.Warnf("Failed to close existing connections: %v", err)
-	}
+	log.Infof("Forcing database connection pool refresh...")
 
-	// Wait briefly for connections to fully close
+	// Save current pool settings
+	stats := sqlDB.Stats()
+	maxOpenConns := stats.MaxOpenConnections
+
+	// Force all existing connections to expire immediately
+	// This will cause the pool to create new connections on next use
+	sqlDB.SetConnMaxLifetime(1 * time.Nanosecond)
+	sqlDB.SetConnMaxIdleTime(1 * time.Nanosecond)
+
+	// Wait briefly for idle connections to be cleaned up
 	time.Sleep(100 * time.Millisecond)
 
-	// GORM will automatically reopen the connection pool
-	// Trigger reconnection by pinging
+	// Restore reasonable connection pool settings
+	sqlDB.SetConnMaxLifetime(5 * time.Minute)
+	sqlDB.SetConnMaxIdleTime(2 * time.Minute)
+
+	// Verify the connection works by pinging
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	sqlDB, err = db.DB()
-	if err != nil {
-		return fmt.Errorf("failed to get sql.DB after close: %w", err)
-	}
-
 	if err := sqlDB.PingContext(ctx); err != nil {
-		return fmt.Errorf("failed to ping database after reconnect: %w", err)
+		return fmt.Errorf("failed to ping database after connection refresh: %w", err)
 	}
 
-	log.Infof("Successfully reconnected to database")
+	log.Infof("Successfully refreshed database connection pool (maxOpenConns=%d)", maxOpenConns)
 	return nil
 }
 
