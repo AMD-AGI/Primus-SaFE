@@ -105,4 +105,8 @@ func TestCopy(t *testing.T) {
 	}
 	m2 := Copy(m1)
 	assert.DeepEqual(t, reflect.DeepEqual(m1, m2), true)
+
+	m2 = Copy(m1, "key1")
+	assert.DeepEqual(t, len(m2), 1)
+	assert.DeepEqual(t, m2["key2"], "value2")
 }

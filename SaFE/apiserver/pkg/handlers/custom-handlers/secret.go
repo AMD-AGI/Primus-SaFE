@@ -211,7 +211,7 @@ func (h *Handler) patchSecret(c *gin.Context) (interface{}, error) {
 
 	if err = backoff.ConflictRetry(func() error {
 		var innerError error
-		if innerError = modifySecret(secret, req); innerError != nil {
+		if innerError = applySecretPatch(secret, req); innerError != nil {
 			return innerError
 		}
 		if innerError = h.Update(c.Request.Context(), secret); innerError == nil {
@@ -271,8 +271,8 @@ func (h *Handler) authSecretUpdate(c *gin.Context, req *types.PatchSecretRequest
 	return nil
 }
 
-// modifySecret applies updates to a secret based on the patch request.
-func modifySecret(secret *corev1.Secret, req *types.PatchSecretRequest) error {
+// applySecretPatch applies updates to a secret based on the patch request.
+func applySecretPatch(secret *corev1.Secret, req *types.PatchSecretRequest) error {
 	if req.Params != nil {
 		reqType := v1.SecretType(v1.GetSecretType(secret))
 		if err := buildSecretData(reqType, *req.Params, secret); err != nil {
@@ -285,31 +285,40 @@ func modifySecret(secret *corev1.Secret, req *types.PatchSecretRequest) error {
 	return nil
 }
 
-// deleteSecret implements secret deletion logic.
-// Removes the secret from the Kubernetes cluster and cleans up references
+// deleteSecret delete secret from admin plane
+// It also will remove the secret from the data plane and cleans up references
 // in associated clusters and workspaces.
 func (h *Handler) deleteSecret(c *gin.Context) (interface{}, error) {
-	name := c.GetString(common.Name)
-	secret, err := h.getAdminSecret(c.Request.Context(), name)
+	requestUser, err := h.getAndSetUsername(c)
 	if err != nil {
 		return nil, err
 	}
+	name := c.GetString(common.Name)
+	return nil, h.deleteSecretImpl(c.Request.Context(), name, requestUser)
+}
+
+// deleteSecretImpl implements secret deletion logic.
+func (h *Handler) deleteSecretImpl(ctx context.Context, name string, requestUser *v1.User) error {
+	secret, err := h.getAdminSecret(ctx, name)
+	if err != nil {
+		return err
+	}
 	if err = h.accessController.Authorize(authority.AccessInput{
-		Context:      c.Request.Context(),
+		Context:      ctx,
 		Resource:     secret,
 		ResourceKind: authority.SecretResourceKind,
 		Verb:         v1.DeleteVerb,
-		UserId:       c.GetString(common.UserId),
+		User:         requestUser,
 		Workspaces:   commonsecret.GetSecretWorkspaces(secret),
 	}); err != nil {
-		return nil, err
+		return err
 	}
 	if err = h.clientSet.CoreV1().Secrets(common.PrimusSafeNamespace).Delete(
-		c.Request.Context(), name, metav1.DeleteOptions{}); err != nil {
-		return nil, err
+		ctx, name, metav1.DeleteOptions{}); err != nil {
+		return client.IgnoreNotFound(err)
 	}
 	klog.Infof("delete secret %s", name)
-	return nil, nil
+	return nil
 }
 
 // getAdminSecret retrieves a secret resource by name without authorization.

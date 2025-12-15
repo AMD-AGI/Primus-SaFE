@@ -466,7 +466,7 @@ func (h *Handler) patchNode(c *gin.Context) (interface{}, error) {
 	}
 
 	if err = backoff.ConflictRetry(func() error {
-		shouldUpdate, innerErr := h.modifyNode(ctx, node, req)
+		shouldUpdate, innerErr := h.applyNodePatch(ctx, node, req)
 		if innerErr != nil || !shouldUpdate {
 			return innerErr
 		}
@@ -792,9 +792,9 @@ func parseListNodeQuery(c *gin.Context) (*types.ListNodeRequest, error) {
 	return query, nil
 }
 
-// modifyNode applies updates to a node based on the patch request.
+// applyNodePatch applies updates to a node based on the patch request.
 // Handles label updates, taint modifications, flavor/template changes, and port updates.
-func (h *Handler) modifyNode(ctx context.Context, node *v1.Node, req *types.PatchNodeRequest) (bool, error) {
+func (h *Handler) applyNodePatch(ctx context.Context, node *v1.Node, req *types.PatchNodeRequest) (bool, error) {
 	shouldUpdate := false
 	nodesLabelAction := generateNodeLabelAction(node, req)
 	if len(nodesLabelAction) > 0 {

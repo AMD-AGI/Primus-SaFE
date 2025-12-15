@@ -99,6 +99,9 @@ func (relevantChangePredicate) Update(e event.UpdateEvent) bool {
 	if !shouldDispatch(oldWorkload) && shouldDispatch(newWorkload) {
 		return true
 	}
+	if v1.GetGithubSecretId(oldWorkload) != v1.GetGithubSecretId(newWorkload) {
+		return true
+	}
 	if !commonworkload.IsResourceEqual(oldWorkload, newWorkload) ||
 		oldWorkload.Spec.Resource.SharedMemory != newWorkload.Spec.Resource.SharedMemory {
 		return true
@@ -366,7 +369,8 @@ func (r *DispatcherReconciler) syncWorkloadToObject(ctx context.Context, adminWo
 	}
 
 	functions := []func(adminWorkload *v1.Workload, obj *unstructured.Unstructured, rt *v1.ResourceTemplate) bool{
-		isResourceChanged, isImageChanged, isEntryPointChanged, isSharedMemoryChanged, isEnvChanged, isPriorityClassChanged,
+		isResourceChanged, isImageChanged, isEntryPointChanged, isSharedMemoryChanged,
+		isEnvChanged, isPriorityClassChanged, isGithubSecretChanged,
 	}
 	isChanged := false
 	for _, f := range functions {
@@ -485,6 +489,18 @@ func isPriorityClassChanged(adminWorkload *v1.Workload, obj *unstructured.Unstru
 	return commonworkload.GeneratePriorityClass(adminWorkload) != priorityClassName
 }
 
+// isGithubSecretChanged checks if the GitHub secret of the workload has changed.
+func isGithubSecretChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructured, _ *v1.ResourceTemplate) bool {
+	if !commonworkload.IsCICDScalingRunnerSet(adminWorkload) {
+		return false
+	}
+	secretId, err := jobutils.GetGithubConfigSecret(obj)
+	if err != nil {
+		return true
+	}
+	return v1.GetGithubSecretId(adminWorkload) != secretId
+}
+
 // applyWorkloadSpecToObject applies the workload specifications to the unstructured Kubernetes object.
 // It handles different workload types and updates various object properties including replicas,
 // network settings, containers, and volumes based on the workload specification.
@@ -572,7 +588,7 @@ func updateCICDScaleSet(obj *unstructured.Unstructured,
 	if err := updateCICDGithub(adminWorkload, obj); err != nil {
 		return err
 	}
-	if err := updateCICDEnvironments(obj, adminWorkload, workspace, rt.Spec.ResourceSpecs[0]); err != nil {
+	if err := updateCICDScaleSetEnvs(obj, adminWorkload, workspace, rt.Spec.ResourceSpecs[0]); err != nil {
 		return err
 	}
 	return nil
@@ -640,10 +656,10 @@ func updateCICDGithub(adminWorkload *v1.Workload, obj *unstructured.Unstructured
 	return nil
 }
 
-// updateCICDEnvironments configures environment variables for CICD workloads based on unified build settings.
+// updateCICDScaleSetEnvs configures environment variables for CICD workloads based on unified build settings.
 // When unified build is enabled, it updates all containers with NFS paths and environment variables,
 // When unified build is disabled, it keeps only the main container with environment variables.
-func updateCICDEnvironments(obj *unstructured.Unstructured,
+func updateCICDScaleSetEnvs(obj *unstructured.Unstructured,
 	adminWorkload *v1.Workload, workspace *v1.Workspace, resourceSpec v1.ResourceSpec) error {
 	containers, path, err := getContainers(obj, resourceSpec)
 	if err != nil {
