@@ -29,6 +29,11 @@ type WorkloadFacadeInterface interface {
 	ListChildrenWorkloadByParentUid(ctx context.Context, parentUid string) ([]*model.GpuWorkload, error)
 	ListWorkloadByLabelValue(ctx context.Context, labelKey, labelValue string) ([]*model.GpuWorkload, error)
 	ListWorkloadNotEndByKind(ctx context.Context, kind string) ([]*model.GpuWorkload, error)
+	// ListActiveTopLevelWorkloads queries top-level workloads active within a time range
+	// A workload is considered active if: CreatedAt <= endTime AND (EndAt is null/zero OR EndAt >= startTime)
+	// Only returns workloads where ParentUID == "" (top-level)
+	// If namespace is empty, returns workloads from all namespaces
+	ListActiveTopLevelWorkloads(ctx context.Context, startTime, endTime time.Time, namespace string) ([]*model.GpuWorkload, error)
 
 	// GpuWorkloadSnapshot operations
 	CreateGpuWorkloadSnapshot(ctx context.Context, gpuWorkloadSnapshot *model.GpuWorkloadSnapshot) error
@@ -268,6 +273,34 @@ func (f *WorkloadFacade) ListWorkloadNotEndByKind(ctx context.Context, kind stri
 		return nil, err
 	}
 	return results, nil
+}
+
+// ListActiveTopLevelWorkloads queries top-level workloads active within a time range
+func (f *WorkloadFacade) ListActiveTopLevelWorkloads(ctx context.Context, startTime, endTime time.Time, namespace string) ([]*model.GpuWorkload, error) {
+	db := f.getDB()
+	if db == nil {
+		return nil, nil
+	}
+
+	query := db.WithContext(ctx).Model(&model.GpuWorkload{}).
+		Where("parent_uid = ?", "").                                                    // Top-level workloads only
+		Where("created_at <= ?", endTime).                                              // Created before or at end time
+		Where("(end_at IS NULL OR end_at = ? OR end_at >= ?)", time.Time{}, startTime). // Still active or ended after start time
+		Where("(deleted_at IS NULL OR deleted_at > ?)", endTime)                        // Not deleted before end time
+
+	if namespace != "" {
+		query = query.Where("namespace = ?", namespace)
+	}
+
+	var workloads []*model.GpuWorkload
+	if err := query.Find(&workloads).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return []*model.GpuWorkload{}, nil
+		}
+		return nil, err
+	}
+
+	return workloads, nil
 }
 
 // GpuWorkloadSnapshot operation implementations

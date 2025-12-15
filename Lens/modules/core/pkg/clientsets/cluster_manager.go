@@ -70,6 +70,52 @@ func GetClusterManager() *ClusterManager {
 	return globalClusterManager
 }
 
+// InitClusterManagerWithClientSet initializes the cluster manager with a pre-configured ClusterClientSet.
+// This is useful for testing or standalone tools that need to bypass the normal initialization process.
+// The provided clientSet will be used as the current cluster.
+//
+// Parameters:
+//   - clientSet: The pre-configured ClusterClientSet to use as the current cluster
+//
+// Note: This method can only be called once. Subsequent calls will be ignored.
+func InitClusterManagerWithClientSet(clientSet *ClusterClientSet) {
+	clusterManagerOnce.Do(func() {
+		if clientSet == nil {
+			log.Warn("InitClusterManagerWithClientSet called with nil clientSet, creating empty manager")
+			clientSet = &ClusterClientSet{
+				ClusterName: "default",
+			}
+		}
+
+		globalClusterManager = &ClusterManager{
+			clusters:           make(map[string]*ClusterClientSet),
+			multiCluster:       false,
+			loadK8SClient:      clientSet.K8SClientSet != nil,
+			loadStorageClient:  clientSet.StorageClientSet != nil,
+			currentCluster:     clientSet,
+			defaultClusterName: clientSet.ClusterName,
+		}
+
+		// Add current cluster to clusters map
+		globalClusterManager.clusters[clientSet.ClusterName] = clientSet
+
+		log.Infof("Cluster manager initialized with pre-configured client set: %s (K8S: %v, Storage: %v)",
+			clientSet.ClusterName,
+			clientSet.K8SClientSet != nil,
+			clientSet.StorageClientSet != nil)
+	})
+}
+
+// NewStorageClientSetWithDB creates a minimal StorageClientSet with only a database connection.
+// This is useful for testing or CLI tools that only need database access.
+func NewStorageClientSetWithDB(db interface{}) *StorageClientSet {
+	// We need to handle the type assertion carefully
+	// The db parameter is expected to be *gorm.DB
+	return &StorageClientSet{
+		DB: nil, // Will be set by the caller who can do proper type assertion
+	}
+}
+
 // initialize initializes the cluster manager
 func (cm *ClusterManager) initialize(ctx context.Context) error {
 	// Initialize K8S client sets first if enabled

@@ -51,6 +51,7 @@ type GpuAggregationFacadeInterface interface {
 	ListLabelHourlyStatsByKey(ctx context.Context, dimensionType, dimensionKey string, startTime, endTime time.Time) ([]*dbmodel.LabelGpuHourlyStats, error)
 	GetLabelHourlyStatsPaginated(ctx context.Context, dimensionType, dimensionKey, dimensionValue string, startTime, endTime time.Time, opts PaginationOptions) (*PaginatedResult, error)
 	ListLabelHourlyStatsByKeyPaginated(ctx context.Context, dimensionType, dimensionKey string, startTime, endTime time.Time, opts PaginationOptions) (*PaginatedResult, error)
+	LabelHourlyStatsExists(ctx context.Context, clusterName, dimensionType, dimensionKey, dimensionValue string, hour time.Time) (bool, error)
 
 	// WorkloadGpuHourlyStats operations
 	SaveWorkloadHourlyStats(ctx context.Context, stats *dbmodel.WorkloadGpuHourlyStats) error
@@ -334,6 +335,25 @@ func (f *GpuAggregationFacade) ListLabelHourlyStatsByKey(ctx context.Context, di
 	}
 
 	return result, nil
+}
+
+// LabelHourlyStatsExists checks if a label hourly stats record exists for the given combination
+func (f *GpuAggregationFacade) LabelHourlyStatsExists(ctx context.Context, clusterName, dimensionType, dimensionKey, dimensionValue string, hour time.Time) (bool, error) {
+	q := f.getDAL().LabelGpuHourlyStats
+
+	count, err := q.WithContext(ctx).
+		Where(q.ClusterName.Eq(clusterName)).
+		Where(q.DimensionType.Eq(dimensionType)).
+		Where(q.DimensionKey.Eq(dimensionKey)).
+		Where(q.DimensionValue.Eq(dimensionValue)).
+		Where(q.StatHour.Eq(hour)).
+		Count()
+
+	if err != nil {
+		return false, err
+	}
+
+	return count > 0, nil
 }
 
 // ==================== GpuAllocationSnapshot operations implementation ====================
