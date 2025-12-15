@@ -73,10 +73,19 @@ func Contain(m1, m2 map[string]string) bool {
 }
 
 // Copy creates a shallow copy of the given map.
-func Copy(m map[string]string) map[string]string {
+func Copy(m map[string]string, ignoreKeys ...string) map[string]string {
 	result := make(map[string]string)
 	for key, val := range m {
-		result[key] = val
+		isIgnored := false
+		for _, ignoreKey := range ignoreKeys {
+			if key == ignoreKey {
+				isIgnored = true
+				break
+			}
+		}
+		if !isIgnored {
+			result[key] = val
+		}
 	}
 	return result
 }
