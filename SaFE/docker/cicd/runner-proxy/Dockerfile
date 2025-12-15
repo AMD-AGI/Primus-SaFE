@@ -10,9 +10,9 @@ RUN apt update && \
         python3 python3-pip python3-distutils python3-setuptools python3-wheel && \
     apt clean && rm -rf /var/lib/apt/lists/*
 
-COPY ./SaFE/job-manager/installer/cicd/runner-proxy/*.sh ${APP_HOME}
-COPY ./SaFE/job-manager/installer/cicd/runner-proxy/*.py ${APP_HOME}
-COPY ./SaFE/job-manager/installer/cicd/runner-proxy/requirements.txt ${APP_HOME}
+COPY ./SaFE/docker/cicd/runner-proxy/*.sh ${APP_HOME}
+COPY ./SaFE/docker/cicd/runner-proxy/*.py ${APP_HOME}
+COPY ./SaFE/docker/cicd/runner-proxy/requirements.txt ${APP_HOME}
 
 RUN chmod +x ${APP_HOME}/*.sh
 RUN chmod +x ${APP_HOME}/*.py
