@@ -77,18 +77,6 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req reconcile.Reques
 		return reconcile.Result{}, err
 	}
 
-	// Trigger framework detection for new or pending workloads
-	if r.frameworkDetection != nil {
-		if workload.Status.Phase == "" || workload.Status.Phase == primusSafeV1.WorkloadPending {
-			// Run framework detection asynchronously to avoid blocking reconcile
-			go func() {
-				detectionCtx := context.Background()
-				if err := r.frameworkDetection.OnWorkloadCreated(detectionCtx, workload); err != nil {
-					log.Errorf("Framework detection failed for workload %s: %v", workload.UID, err)
-				}
-			}()
-		}
-	}
 	if workload.DeletionTimestamp != nil {
 		if !controllerutil.RemoveFinalizer(workload, constant.PrimusLensGpuWorkloadExporterFinalizer) {
 			return reconcile.Result{}, nil
@@ -229,7 +217,6 @@ func (r *WorkloadReconciler) saveWorkloadToDB(ctx context.Context, workload *pri
 }
 
 func (r *WorkloadReconciler) linkChildrenWorkloads(ctx context.Context, workload *primusSafeV1.Workload, facade database.FacadeInterface) error {
-	log.Debugf("Linking children workloads for parent workload: name=%s, uid=%s", workload.Name, workload.UID)
 
 	// Find all gpu_workloads with label "primus-safe.workload.id" = workload.Name
 	childWorkloads, err := facade.GetWorkload().ListWorkloadByLabelValue(ctx, primusSafeConstant.WorkloadIdLabel, workload.Name)
@@ -244,10 +231,7 @@ func (r *WorkloadReconciler) linkChildrenWorkloads(ctx context.Context, workload
 		return nil
 	}
 
-	log.Infof("Found %d potential child workloads for parent %s (uid=%s)", len(childWorkloads), workload.Name, workload.UID)
-
 	// Set the parent_uid of found child workloads to current Workload's UID
-	updatedCount := 0
 	for _, child := range childWorkloads {
 		// Only update workloads that don't have parent_uid set yet
 		if child.ParentUID == "" {
@@ -260,14 +244,8 @@ func (r *WorkloadReconciler) linkChildrenWorkloads(ctx context.Context, workload
 					child.Namespace, child.Name, child.UID, err)
 				continue
 			}
-			updatedCount++
-			log.Infof("Successfully linked child workload %s/%s (uid=%s) to parent %s (uid=%s)",
-				child.Namespace, child.Name, child.UID, workload.Name, workload.UID)
 		}
 	}
-
-	log.Infof("Completed linking children workloads for parent %s: updated %d out of %d workloads",
-		workload.Name, updatedCount, len(childWorkloads))
 
 	return nil
 }

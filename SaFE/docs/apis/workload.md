@@ -133,27 +133,39 @@ Create a new workload.
     "kind": "AutoscalingRunnerSet",
     "version": "v1"
   },
-  "entryPoint": "bash run.sh",
-  "image": "primussafe/buildah-runner:v2.329.0-3",
   "resource": {
     "replica": 1,
-    "cpu": "8",
-    "memory": "16Gi",
-    "ephemeralStorage": "100Gi"
+    "cpu": "1",
+    "memory": "4Gi",
+    "ephemeralStorage": "10Gi"
   },
   "env": {
+    "ENTRYPOINT": "ZXhlYyAvaG9tZS9ydW5uZXIvYWN0aW9ucy1ydW5uZXIvcnVuLnNo",
+    "IMAGE": "primussafe/buildah-runner:v2.329.0-3",
+    "RESOURCES": "{\"replica\":1,\"cpu\":\"2\",\"gpu\":\"0\",\"memory\":\"8Gi\",\"sharedMemory\":\"4Gi\",\"ephemeralStorage\":\"100Gi\"}",
+    "UNIFIED_JOB_ENABLE": "false",
     "GITHUB_CONFIG_URL": "https://github.com/AMD-AGI/Primus-SaFE",
     "GITHUB_PAT": "your token"
   }
 }
 ```
 
-Notes for CICD (AutoscalingRunnerSet):
-- Only GitHub is supported for CICD integration at this time. Other providers are not supported.
-- Required env: `GITHUB_CONFIG_URL` must be set in `env` to the GitHub repository/organization URL.
-- Required env: `GITHUB_PAT` must be provided in `env` (GitHub Personal Access Token). The system will automatically create a secret (with key `github_token`) from this PAT and attach it to the workload(Its lifecycle is also controlled by the workload)
-- Multi-node evaluation: set `"UNIFIED_JOB_ENABLE": "true"` in `env` to enable multi-node evaluation in CICD.
-- Required NFS storage: CICD workloads require NFS storage support enabled in the workspace. This is especially important when `UNIFIED_JOB_ENABLE` is set to `true` in the environment variables for multi-node evaluation scenarios.
+**Notes for CICD (AutoscalingRunnerSet)**:
+
+1. **Resource Configuration Structure**:
+   - `resource` field (lines 136-141): Specifies resources for the **workload proxy container itself** (not the runner)
+   - `env.RESOURCES` (line 145): JSON string defining resources for the **actual GitHub runner** that executes workflows
+   - `env.IMAGE` (line 144): Docker image for the **actual GitHub runner** container
+   - `env.ENTRYPOINT` (line 143): Base64-encoded entrypoint command for the **actual GitHub runner**
+
+2. **GitHub Integration Requirements**:
+   - Only GitHub is supported for CICD integration at this time. Other providers are not supported.
+   - Required env: `GITHUB_CONFIG_URL` must be set in `env` to the GitHub repository/organization URL.
+   - Required env: `GITHUB_PAT` must be provided in `env` (GitHub Personal Access Token). The system will automatically create a secret (with key `github_token`) from this PAT and attach it to the workload (its lifecycle is also controlled by the workload).
+
+3. **Multi-node Evaluation**:
+   - Set `"UNIFIED_JOB_ENABLE": "true"` in `env` to enable multi-node evaluation in CICD.
+   - Required NFS storage: CICD workloads require NFS storage support enabled in the workspace. This is especially important when `UNIFIED_JOB_ENABLE` is set to `true` for multi-node evaluation scenarios.
 
 
 **Field Description**:
@@ -488,6 +500,8 @@ Partially update workload configuration (only when running).
 
 **Request Parameters**:
 
+***General Workload Update Example***:
+
 ```json
 {
   "priority": 1,
@@ -521,6 +535,21 @@ Partially update workload configuration (only when running).
   }
 }
 ```
+
+***CICD Workload Update Example (Updating GitHub PAT)***:
+
+```json
+{
+  "env": {
+    "GITHUB_PAT": "your_new_github_token"
+  }
+}
+```
+
+**Notes for CICD Workload Updates**:
+- When updating a CICD (AutoscalingRunnerSet) workload, you can update the GitHub Personal Access Token by specifying `GITHUB_PAT` in the `env` field.
+- The system will automatically create a new secret with the new token and update the workload annotation.
+- The old secret will be deleted automatically after the new secret is successfully created.
 
 **Field Description**: All fields are optional; only provided fields will be updated
 
