@@ -252,7 +252,7 @@ func (h *Handler) patchUser(c *gin.Context) (interface{}, error) {
 	}
 
 	if err = backoff.ConflictRetry(func() error {
-		modifyUser(targetUser, req)
+		applyUserPatch(targetUser, req)
 		if innerError := h.Update(c.Request.Context(), targetUser); innerError == nil {
 			return nil
 		} else {
@@ -273,9 +273,9 @@ func (h *Handler) patchUser(c *gin.Context) (interface{}, error) {
 	return nil, nil
 }
 
-// modifyUser updates the target user with values from the patch request.
+// applyUserPatch updates the target user with values from the patch request.
 // Only modifies fields that are present in the request.
-func modifyUser(targetUser *v1.User, req *types.PatchUserRequest) {
+func applyUserPatch(targetUser *v1.User, req *types.PatchUserRequest) {
 	if req.Workspaces != nil {
 		commonuser.AssignWorkspace(targetUser, *req.Workspaces...)
 	}

@@ -211,7 +211,7 @@ func (h *Handler) patchSecret(c *gin.Context) (interface{}, error) {
 
 	if err = backoff.ConflictRetry(func() error {
 		var innerError error
-		if innerError = modifySecret(secret, req); innerError != nil {
+		if innerError = applySecretPatch(secret, req); innerError != nil {
 			return innerError
 		}
 		if innerError = h.Update(c.Request.Context(), secret); innerError == nil {
@@ -271,8 +271,8 @@ func (h *Handler) authSecretUpdate(c *gin.Context, req *types.PatchSecretRequest
 	return nil
 }
 
-// modifySecret applies updates to a secret based on the patch request.
-func modifySecret(secret *corev1.Secret, req *types.PatchSecretRequest) error {
+// applySecretPatch applies updates to a secret based on the patch request.
+func applySecretPatch(secret *corev1.Secret, req *types.PatchSecretRequest) error {
 	if req.Params != nil {
 		reqType := v1.SecretType(v1.GetSecretType(secret))
 		if err := buildSecretData(reqType, *req.Params, secret); err != nil {

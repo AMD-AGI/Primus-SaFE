@@ -88,22 +88,22 @@ jobs:
           echo "job_manager_changed=false" >> $GITHUB_OUTPUT
         fi
         
-        # preprocess: SaFE/job-manager/installer/preprocess/**
-        if echo "$CHANGED_FILES" | grep -qE '^SaFE/job-manager/installer/preprocess/'; then
+        # preprocess: SaFE/docker/preprocess/**
+        if echo "$CHANGED_FILES" | grep -qE '^SaFE/docker/preprocess/'; then
           echo "preprocess_changed=true" >> $GITHUB_OUTPUT
         else
           echo "preprocess_changed=false" >> $GITHUB_OUTPUT
         fi
         
-        # cicd_runner_proxy: SaFE/job-manager/installer/cicd/runner-proxy/**
-        if echo "$CHANGED_FILES" | grep -qE '^SaFE/job-manager/installer/cicd/runner-proxy/'; then
+        # cicd_runner_proxy: SaFE/docker/cicd/runner-proxy/**
+        if echo "$CHANGED_FILES" | grep -qE '^SaFE/docker/cicd/runner-proxy/'; then
           echo "cicd_runner_proxy_changed=true" >> $GITHUB_OUTPUT
         else
           echo "cicd_runner_proxy_changed=false" >> $GITHUB_OUTPUT
         fi
         
-        # cicd_unified_job_proxy: SaFE/job-manager/installer/cicd/unified-job-proxy/**
-        if echo "$CHANGED_FILES" | grep -qE '^SaFE/job-manager/installer/cicd/unified-job-proxy/'; then
+        # cicd_unified_job_proxy: SaFE/docker/cicd/unified-job-proxy/**
+        if echo "$CHANGED_FILES" | grep -qE '^SaFE/docker/cicd/unified-job-proxy/'; then
           echo "cicd_unified_job_proxy_changed=true" >> $GITHUB_OUTPUT
         else
           echo "cicd_unified_job_proxy_changed=false" >> $GITHUB_OUTPUT
@@ -172,13 +172,13 @@ jobs:
           MATRIX+='{"name":"job-manager","basepath":"SaFE/job-manager","dockerfile_path":"SaFE/job-manager/installer/Dockerfile"},'
         fi
         if [[ "${{ steps.detect-changes.outputs.preprocess_changed }}" == "true" ]]; then
-          MATRIX+='{"name":"preprocess","basepath":"SaFE/job-manager/installer/preprocess","dockerfile_path":"SaFE/job-manager/installer/preprocess/Dockerfile"},'
+          MATRIX+='{"name":"preprocess","basepath":"SaFE/docker/preprocess","dockerfile_path":"SaFE/docker/preprocess/Dockerfile"},'
         fi
         if [[ "${{ steps.detect-changes.outputs.cicd_runner_proxy_changed }}" == "true" ]]; then
-          MATRIX+='{"name":"cicd-runner-proxy","basepath":"SaFE/job-manager/installer/cicd/runner-proxy","dockerfile_path":"SaFE/job-manager/installer/cicd/runner-proxy/Dockerfile"},'
+          MATRIX+='{"name":"cicd-runner-proxy","basepath":"SaFE/docker/cicd/runner-proxy","dockerfile_path":"SaFE/docker/cicd/runner-proxy/Dockerfile"},'
         fi
         if [[ "${{ steps.detect-changes.outputs.cicd_unified_job_proxy_changed }}" == "true" ]]; then
-          MATRIX+='{"name":"cicd-unified-job-proxy","basepath":"SaFE/job-manager/installer/cicd/unified-job-proxy","dockerfile_path":"SaFE/job-manager/installer/cicd/unified-job-proxy/Dockerfile"},'
+          MATRIX+='{"name":"cicd-unified-job-proxy","basepath":"SaFE/docker/cicd/unified-job-proxy","dockerfile_path":"SaFE/docker/cicd/unified-job-proxy/Dockerfile"},'
         fi
         if [[ "${{ steps.detect-changes.outputs.webhooks_changed }}" == "true" ]]; then
           MATRIX+='{"name":"webhooks","basepath":"SaFE/webhooks","dockerfile_path":"SaFE/webhooks/installer/Dockerfile"},'

@@ -41,6 +41,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/backoff"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/concurrent"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
+	maputil "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/maps"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/netutil"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
@@ -56,9 +57,6 @@ const (
 	BatchDelete WorkloadBatchAction = "delete"
 	BatchStop   WorkloadBatchAction = "stop"
 	BatchClone  WorkloadBatchAction = "clone"
-
-	GithubPAT   = "GITHUB_PAT"
-	GitHubToken = "github_token"
 )
 
 // CreateWorkload handles the creation of a new workload resource.
@@ -467,10 +465,10 @@ func (h *Handler) patchWorkload(c *gin.Context) (interface{}, error) {
 
 	if err = backoff.ConflictRetry(func() error {
 		var innerError error
-		if innerError = h.modifyWorkload(ctx, adminWorkload, req, requestUser); innerError != nil {
+		if innerError = applyWorkloadPatch(adminWorkload, req); innerError != nil {
 			return innerError
 		}
-		if innerError = h.Update(ctx, adminWorkload); innerError == nil {
+		if innerError = h.updateWorkload(ctx, adminWorkload, requestUser, req); innerError == nil {
 			return nil
 		}
 		if apierrors.IsConflict(innerError) {
@@ -486,6 +484,31 @@ func (h *Handler) patchWorkload(c *gin.Context) (interface{}, error) {
 	}
 	klog.Infof("update workload, name: %s, request: %s", name, string(jsonutils.MarshalSilently(*req)))
 	return nil, nil
+}
+
+// updateWorkload updates the workload in the system and handles CICD secret updates
+// if a new GitHub PAT token is provided in the request
+func (h *Handler) updateWorkload(ctx context.Context,
+	adminWorkload *v1.Workload, requestUser *v1.User, req *types.PatchWorkloadRequest) error {
+	err := h.Update(ctx, adminWorkload)
+	if err != nil {
+		return err
+	}
+
+	if req.Env != nil && commonworkload.IsCICDScalingRunnerSet(adminWorkload) {
+		if newToken := (*req.Env)[GithubPAT]; newToken != "" {
+			patch := client.MergeFrom(adminWorkload.DeepCopy())
+			if err = h.updateCICDSecret(ctx, adminWorkload, requestUser, newToken); err != nil {
+				klog.ErrorS(err, "failed to update cicd secret")
+				return err
+			}
+			if err = h.Patch(ctx, adminWorkload, patch); err != nil {
+				klog.ErrorS(err, "failed to patch workload")
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // cloneWorkloads implements batch workload cloning logic.
@@ -573,7 +596,7 @@ func (h *Handler) updateWorkloadPhase(ctx context.Context,
 		if phase == workload.Status.Phase && !shouldUpdateConditions(workload, cond) {
 			return nil
 		}
-		// Build a minimal JSON merge patch for status subresource with RV precondition
+		// Build a minimal JSON merge patch for status sub-resource with RV precondition
 		statusPatch := map[string]any{}
 		if phase != workload.Status.Phase {
 			statusPatch["phase"] = phase
@@ -785,105 +808,6 @@ func (h *Handler) generatePreheatWorkload(ctx context.Context,
 		}
 	}
 	return preheatWorkload, nil
-}
-
-// generateCICDScaleRunnerSet configures a workload for CICD scaling runner set.
-// It validates CICD settings, creates a GitHub token secret, and sets the control plane IP.
-func (h *Handler) generateCICDScaleRunnerSet(ctx context.Context, workload *v1.Workload, requestUser *v1.User) error {
-	if !commonconfig.IsCICDEnable() {
-		return commonerrors.NewNotImplemented("the CICD is not enabled")
-	}
-	controlPlaneIp, err := h.getAdminControlPlaneIp(ctx)
-	if err != nil {
-		return err
-	}
-	v1.SetAnnotation(workload, v1.AdminControlPlaneAnnotation, controlPlaneIp)
-
-	val, _ := workload.Spec.Env[GithubPAT]
-	if val == "" {
-		return commonerrors.NewBadRequest("the github pat(token) is empty")
-	}
-	secret, err := h.createCICDSecret(ctx, workload, requestUser, val)
-	if err != nil {
-		return err
-	}
-	delete(workload.Spec.Env, GithubPAT)
-	v1.SetAnnotation(workload, v1.GithubSecretIdAnnotation, secret.Name)
-	return nil
-}
-
-func (h *Handler) createCICDSecret(ctx context.Context,
-	workload *v1.Workload, requestUser *v1.User, token string) (*corev1.Secret, error) {
-	name := commonutils.GenerateName(v1.GetDisplayName(workload))
-	createSecretReq := &types.CreateSecretRequest{
-		Name:         name,
-		WorkspaceIds: []string{workload.Spec.Workspace},
-		Type:         v1.SecretGeneral,
-		Owner:        workload.Name,
-		Params: []map[types.SecretParam]string{
-			{
-				GitHubToken: stringutil.Base64Encode(token),
-			},
-		},
-	}
-	secret, err := h.createSecretImpl(ctx, createSecretReq, requestUser)
-	if err != nil {
-		klog.ErrorS(err, "failed to create secret", "name", createSecretReq.Name)
-		return nil, err
-	}
-	return secret, nil
-}
-
-// updateCICDSecret updates the CICD secret by creating a new secret and deleting the old one.
-// This replaces the existing GitHub PAT secret with a new one for CICD scaling runner workloads.
-func (h *Handler) updateCICDSecret(ctx context.Context,
-	workload *v1.Workload, requestUser *v1.User, newToken string) error {
-	// Get the old secret to compare tokens
-	oldSecretId := v1.GetGithubSecretId(workload)
-	if oldSecretId != "" {
-		oldSecret, err := h.getAdminSecret(ctx, oldSecretId)
-		if err == nil && oldSecret != nil {
-			// Extract the old token from secret data
-			if oldTokenBytes, ok := oldSecret.Data[GitHubToken]; ok {
-				oldToken := string(oldTokenBytes)
-				if oldToken == newToken {
-					// Token hasn't changed, no need to update
-					return nil
-				}
-			}
-		}
-	}
-
-	newSecret, err := h.createCICDSecret(ctx, workload, requestUser, newToken)
-	if err != nil {
-		return err
-	}
-	if oldSecretId != "" {
-		if err = h.deleteSecretImpl(ctx, oldSecretId, requestUser); err != nil {
-			if innerErr := h.deleteSecretImpl(ctx, newSecret.Name, requestUser); innerErr != nil {
-				klog.ErrorS(innerErr, "failed to delete secret", "secretId", newSecret.Name)
-			}
-			return err
-		}
-	}
-
-	v1.SetAnnotation(workload, v1.GithubSecretIdAnnotation, newSecret.Name)
-	return nil
-}
-
-// cleanupCICDSecrets deletes secrets created for CICD scaling runner set workloads.
-// This is called when workload creation fails to ensure orphaned secrets are cleaned up.
-func (h *Handler) cleanupCICDSecrets(ctx context.Context, workload *v1.Workload) {
-	if !commonworkload.IsCICDScalingRunnerSet(workload) {
-		return
-	}
-	if err := h.clientSet.CoreV1().Secrets(common.PrimusSafeNamespace).Delete(
-		ctx, v1.GetDisplayName(workload), metav1.DeleteOptions{}); err != nil {
-		if !apierrors.IsNotFound(err) {
-			klog.ErrorS(err, "failed to delete secret", "name", v1.GetDisplayName(workload))
-		}
-	}
-	klog.Infof("cleaned up CICD secret %s after workload %s creation failure", v1.GetDisplayName(workload), workload.Name)
 }
 
 func (h *Handler) getAdminControlPlaneIp(ctx context.Context) (string, error) {
@@ -1117,10 +1041,9 @@ func buildOrderBy(sortBy, order string, dbTags map[string]string) []string {
 	return orderBy
 }
 
-// modifyWorkload applies updates to a workload based on the patch request.
+// applyWorkloadPatch applies updates to a workload based on the patch request.
 // Handles changes to priority, resources, image, entrypoint, and other workload properties.
-func (h *Handler) modifyWorkload(ctx context.Context,
-	adminWorkload *v1.Workload, req *types.PatchWorkloadRequest, requestUser *v1.User) error {
+func applyWorkloadPatch(adminWorkload *v1.Workload, req *types.PatchWorkloadRequest) error {
 	if req.Priority != nil {
 		adminWorkload.Spec.Priority = *req.Priority
 	}
@@ -1159,14 +1082,7 @@ func (h *Handler) modifyWorkload(ctx context.Context,
 		adminWorkload.Spec.Timeout = pointer.Int(*req.Timeout)
 	}
 	if req.Env != nil {
-		if newToken := (*req.Env)[GithubPAT]; newToken != "" {
-			if err := h.updateCICDSecret(ctx, adminWorkload, requestUser, newToken); err != nil {
-				klog.ErrorS(err, "failed to update cicd secret")
-				return err
-			}
-			delete(*req.Env, GithubPAT)
-		}
-		adminWorkload.Spec.Env = *req.Env
+		adminWorkload.Spec.Env = maputil.Copy(*req.Env, GithubPAT)
 	}
 	if req.MaxRetry != nil {
 		adminWorkload.Spec.MaxRetry = *req.MaxRetry
