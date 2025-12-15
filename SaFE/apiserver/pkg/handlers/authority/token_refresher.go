@@ -88,6 +88,10 @@ func (r *TokenRefresher) Stop() {
 
 // refreshTokens checks for tokens nearing expiration and attempts to refresh them using OAuth2.
 func (r *TokenRefresher) refreshTokens() {
+	if r.ssoToken == nil {
+		klog.Warning("Cannot refresh tokens: SSO token handler is nil")
+		return
+	}
 	klog.V(4).Info("Checking for tokens to refresh...")
 	dbTags := dbclient.GetUserTokenFieldTags()
 	now := time.Now().Unix()
