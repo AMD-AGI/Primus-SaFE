@@ -127,7 +127,7 @@ func (h *ProxyHandler) createProxyHandler(config *proxyConfig) gin.HandlerFunc {
 			}
 		}
 
-		// Get user name from gin context and add to request header
+		// Get username from gin context and add to request header
 		if userName, exists := c.Get(common.UserName); exists {
 			if userNameStr, ok := userName.(string); ok {
 				c.Request.Header.Set(common.UserName, userNameStr)
