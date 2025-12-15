@@ -495,6 +495,145 @@ status:
   ready: true
   runnerId: 4345
   runnerName: primus-safe-cicd-tnznd-xvt59-runner-469t5`
+
+	TestAutoscalingRunnerSetData = `
+apiVersion: actions.github.com/v1alpha1
+kind: AutoscalingRunnerSet
+metadata:
+  annotations:
+    actions.github.com/runner-group-name: Default
+    actions.github.com/runner-scale-set-name: primus-safe-cicd-tnznd
+    primus-safe.user.name: Wei, Lei
+    runner-scale-set-id: "13"
+  creationTimestamp: "2025-12-04T08:38:31Z"
+  finalizers:
+  - autoscalingrunnerset.actions.github.com/finalizer
+  generation: 14
+  labels:
+    actions.github.com/organization: AMD-AGI
+    actions.github.com/repository: Primus-SaFE
+    app.kubernetes.io/component: autoscaling-runner-set
+    app.kubernetes.io/part-of: gha-rs
+    app.kubernetes.io/version: 0.13.0
+    primus-safe.workload.dispatch.count: "1"
+    primus-safe.workload.id: primus-safe-cicd-tnznd
+  name: primus-safe-cicd-tnznd
+  namespace: tw-project2-control-plane
+  resourceVersion: "361771183"
+  uid: 22071ca9-1ece-4fe9-8599-39802e752d12
+spec:
+  githubConfigSecret: primus-safe-cicd
+  githubConfigUrl: https://github.com/AMD-AGI/Primus-SaFE
+  maxRunners: 20
+  minRunners: 0
+  template:
+    metadata:
+      annotations:
+        primus-safe.user.name: Wei, Lei
+      labels:
+        primus-safe.workload.dispatch.count: "1"
+        primus-safe.workload.id: primus-safe-cicd-tnznd
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: primus-safe.workspace.id
+                operator: In
+                values:
+                - tw-project2-control-plane
+      containers:
+      - env:
+        - name: RUNNER_ALLOW_RUNASROOT
+          value: "1"
+        - name: ACTIONS_RUNNER_PRINT_LOG_TO_STDOUT
+          value: "1"
+        - name: APISERVER_NODE_PORT
+          value: "32495"
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: USER_ID
+          value: 7fda556669b09dcec5d779438e7432c5
+        - name: PRIORITY
+          value: "1"
+        - name: RESOURCES
+          value: '{"replica":1,"cpu":"4","memory":"16Gi","sharedMemory":"8Gi","ephemeralStorage":"50Gi"}'
+        - name: IMAGE
+          value: primussafe/buildah-runner:v2.329.0-3
+        - name: GITHUB_CONFIG_URL
+          value: https://github.com/AMD-AGI/Primus-SaFE
+        - name: UNIFIED_JOB_ENABLE
+          value: "false"
+        - name: SCALE_RUNNER_SET_ID
+          value: primus-safe-cicd-tnznd
+        - name: WORKSPACE_ID
+          value: tw-project2-control-plane
+        - name: ENTRYPOINT
+          value: ZXhlYyAvaG9tZS9ydW5uZXIvYWN0aW9ucy1ydW5uZXIvcnVuLnNo
+        - name: WORKLOAD_ID
+          value: primus-safe-cicd-tnznd
+        - name: WORKLOAD_KIND
+          value: AutoscalingRunnerSet
+        - name: DISPATCH_COUNT
+          value: "1"
+        - name: GITHUB_SECRET_ID
+          value: primus-safe-cicd
+        - name: ADMIN_CONTROL_PLANE
+          value: 10.32.80.102
+        image: harbor.tw325.primus-safe.amd.com/proxy/primussafe/cicd-runner-proxy:202512111845
+        name: runner
+        resources:
+          limits:
+            cpu: "1"
+            ephemeral-storage: 10Gi
+            memory: 4Gi
+          requests:
+            cpu: "1"
+            ephemeral-storage: 10Gi
+            memory: 4Gi
+        securityContext:
+          privileged: true
+        volumeMounts:
+        - mountPath: /etc/podinfo
+          name: podinfo
+        - mountPath: /home
+          name: hostpath-1
+          readOnly: false
+        - mountPath: /etc/secrets/primus-safe-cicd
+          name: primus-safe-cicd
+          readOnly: true
+      hostNetwork: false
+      imagePullSecrets:
+      - name: rocm-private
+      - name: primus-safe-image
+      - name: tas-private
+      priorityClassName: tw-project2-med-priority
+      restartPolicy: Never
+      serviceAccountName: gha-rs-manager-no-permission
+      volumes:
+      - downwardAPI:
+          items:
+          - fieldRef:
+              fieldPath: metadata.labels
+            path: labels
+          - fieldRef:
+              fieldPath: metadata.annotations
+            path: annotations
+        name: podinfo
+      - hostPath:
+          path: /home
+        name: hostpath-1
+      - name: primus-safe-cicd
+        secret:
+          secretName: primus-safe-cicd
+status:
+  currentRunners: 0
+  pendingEphemeralRunners: 0
+  runningEphemeralRunners: 0
+`
 )
 
 var (

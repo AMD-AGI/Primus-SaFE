@@ -221,7 +221,7 @@ func (r *SchedulerReconciler) delete(ctx context.Context, adminWorkload *v1.Work
 }
 
 // waitObjectDeleted waits for an object to be fully deleted from the cluster.
-// If the object still exists after 2 minutes of deletion timestamp, it forcefully removes finalizers.
+// If the object still exists after 1 minutes of deletion timestamp, it forcefully removes finalizers.
 func (r *SchedulerReconciler) waitObjectDeleted(ctx context.Context,
 	obj *unstructured.Unstructured, clusterInformer *syncer.ClusterInformer) (ctrlruntime.Result, error) {
 
@@ -233,7 +233,7 @@ func (r *SchedulerReconciler) waitObjectDeleted(ctx context.Context,
 	}
 
 	// object still exists
-	if ts := current.GetDeletionTimestamp(); ts != nil && !ts.IsZero() && time.Since(ts.Time) > 2*time.Minute {
+	if ts := current.GetDeletionTimestamp(); ts != nil && !ts.IsZero() && time.Since(ts.Time) >= 1*time.Minute {
 		patchObj := map[string]any{
 			"metadata": map[string]any{
 				"finalizers": []string{},
@@ -245,7 +245,7 @@ func (r *SchedulerReconciler) waitObjectDeleted(ctx context.Context,
 			return ctrlruntime.Result{}, client.IgnoreNotFound(patchErr)
 		}
 	}
-	return ctrlruntime.Result{RequeueAfter: time.Second * 10}, nil
+	return ctrlruntime.Result{RequeueAfter: time.Second * 20}, nil
 }
 
 // deleteRelatedSecrets removes all secrets associated with a CICD scaling runner set workload.
