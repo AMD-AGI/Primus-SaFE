@@ -267,7 +267,7 @@ func (h *Handler) patchCluster(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 
-	isChanged, err := h.modifyCluster(ctx, cluster, req)
+	isChanged, err := applyClusterPatch(cluster, req)
 	if err != nil {
 		return nil, err
 	}
@@ -277,9 +277,9 @@ func (h *Handler) patchCluster(c *gin.Context) (interface{}, error) {
 	return nil, h.Update(ctx, cluster)
 }
 
-// modifyCluster applies updates to a cluster based on the patch request.
+// applyClusterPatch applies updates to a cluster based on the patch request.
 // Handles changes to cluster protection status and image secret references.
-func (h *Handler) modifyCluster(_ context.Context, cluster *v1.Cluster, req *types.PatchClusterRequest) (bool, error) {
+func applyClusterPatch(cluster *v1.Cluster, req *types.PatchClusterRequest) (bool, error) {
 	isChanged := false
 	if req.IsProtected != nil && *req.IsProtected != v1.IsProtected(cluster) {
 		if *req.IsProtected {
