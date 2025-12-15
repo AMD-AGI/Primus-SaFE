@@ -68,8 +68,9 @@ func parseTokenFromRequest(c *gin.Context) error {
 		return commonerrors.NewUnauthorized(ErrInvalidToken)
 	}
 	c.Set(common.UserId, userInfo.Id)
+	c.Set(common.UserName, userInfo.Name)
 	c.Set(common.UserType, userType)
-	klog.Infof("User %s of type %s validated successfully", userInfo.Id, userType)
+	klog.Infof("User %s (name: %s) of type %s validated successfully", userInfo.Id, userInfo.Name, userType)
 	return nil
 }
 
