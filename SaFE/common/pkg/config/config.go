@@ -350,6 +350,25 @@ func IsUserTokenRequired() bool {
 	return getBool(userTokenRequired, true)
 }
 
+// IsTokenRefreshEnable returns whether automatic token refresh is enabled.
+// When enabled, the system will periodically refresh tokens using OAuth2 refresh tokens for active users.
+func IsTokenRefreshEnable() bool {
+	return getBool(userTokenRefreshEnable, true)
+}
+
+// GetTokenRefreshInterval returns the interval in seconds between token refresh checks.
+// Default is 1200 seconds (20 minutes) if not configured.
+func GetTokenRefreshInterval() int {
+	return getInt(userTokenRefreshInterval, 1200)
+}
+
+// GetTokenRefreshThreshold returns the threshold in seconds before expiration to trigger refresh.
+// Tokens will be refreshed when remaining time is less than this value.
+// Default is 1800 seconds (30 minutes) if not configured.
+func GetTokenRefreshThreshold() int {
+	return getInt(userTokenRefreshThreshold, 1800)
+}
+
 // IsNotificationEnable returns whether notifications are enabled.
 func IsNotificationEnable() bool {
 	return getBool(notificationEnable, true)

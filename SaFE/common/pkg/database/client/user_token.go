@@ -25,6 +25,7 @@ ON CONFLICT (user_id)
 DO UPDATE SET
     session_id = EXCLUDED.session_id,
     token = EXCLUDED.token,
+    refresh_token = EXCLUDED.refresh_token,
     creation_time = EXCLUDED.creation_time,
     expire_time = EXCLUDED.expire_time
 `

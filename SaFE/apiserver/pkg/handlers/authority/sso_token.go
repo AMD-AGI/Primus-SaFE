@@ -36,7 +36,7 @@ var (
 	ssoInitOnce sync.Once
 	ssoInstance *ssoToken
 
-	DefaultOIDCScopes = []string{oidc.ScopeOpenID, "profile", "email"}
+	DefaultOIDCScopes = []string{oidc.ScopeOpenID, "profile", "email", oidc.ScopeOfflineAccess}
 )
 
 // ssoToken implements TokenInterface for OAuth2/OpenID Connect authentication
@@ -144,7 +144,7 @@ func (c *ssoToken) Login(ctx context.Context, input TokenInput) (*v1.User, *Toke
 	}
 	userToken := ""
 	if commonconfig.IsDBEnable() {
-		if userToken, err = c.updateUserInfoInDB(ctx, rawIDToken, userInfo); err != nil {
+		if userToken, err = c.updateUserInfoInDB(ctx, rawIDToken, token.RefreshToken, userInfo); err != nil {
 			return nil, nil, err
 		}
 	} else {
@@ -252,12 +252,13 @@ func (c *ssoToken) synchronizeUser(ctx context.Context, userInfo *UserInfo) (*v1
 // updateUserInfoInDB updates user token information in database
 // Generates a new session ID and stores user token with expiration time
 // Returns the session ID for successful update
-func (c *ssoToken) updateUserInfoInDB(ctx context.Context, rawIDToken string, userInfo *UserInfo) (string, error) {
+func (c *ssoToken) updateUserInfoInDB(ctx context.Context, rawIDToken string, refreshToken string, userInfo *UserInfo) (string, error) {
 	sessionId := string(uuid.NewUUID())
 	err := c.dbClient.UpsertUserToken(ctx, &dbclient.UserToken{
 		UserId:       userInfo.Id,
 		SessionId:    sessionId,
 		Token:        rawIDToken,
+		RefreshToken: refreshToken,
 		CreationTime: time.Now().UTC().Unix(),
 		ExpireTime:   userInfo.Exp,
 	})
@@ -284,6 +285,61 @@ func (c *ssoToken) AuthURL() string {
 	scope := url.QueryEscape(strings.Join(DefaultOIDCScopes, " "))
 	return fmt.Sprintf("%s?client_id=%s&redirect_uri=%s&response_type=code&scope=%s",
 		c.provider.Endpoint().AuthURL, c.clientId, redirectUri, scope)
+}
+
+// RefreshWithOAuth2 uses the stored refresh token to obtain a new ID token and updates the database.
+func (c *ssoToken) RefreshWithOAuth2(ctx context.Context, userToken *dbclient.UserToken) (*dbclient.UserToken, error) {
+	if userToken.RefreshToken == "" {
+		return nil, fmt.Errorf("no refresh token available for user %s", userToken.UserId)
+	}
+
+	ctx = oidc.ClientContext(ctx, c.httpClient.GetBaseClient())
+	config := c.oauth2Config()
+	tokenSource := config.TokenSource(ctx, &oauth2.Token{
+		RefreshToken: userToken.RefreshToken,
+	})
+
+	newToken, err := tokenSource.Token()
+	if err != nil {
+		return nil, fmt.Errorf("failed to refresh token for user %s: %v", userToken.UserId, err)
+	}
+
+	rawIDToken, ok := newToken.Extra("id_token").(string)
+	if !ok {
+		return nil, fmt.Errorf("no id_token in refreshed token response for user %s", userToken.UserId)
+	}
+
+	userInfo, err := c.validate(ctx, rawIDToken)
+	if err != nil {
+		return nil, fmt.Errorf("failed to validate refreshed ID token for user %s: %v", userToken.UserId, err)
+	}
+
+	updatedToken := &dbclient.UserToken{
+		UserId:       userToken.UserId,
+		SessionId:    userToken.SessionId,
+		Token:        rawIDToken,
+		CreationTime: time.Now().UTC().Unix(),
+		ExpireTime:   userInfo.Exp,
+	}
+
+	// Handle refresh token rotation: if a new refresh token is provided, use it.
+	if newToken.RefreshToken != "" {
+		updatedToken.RefreshToken = newToken.RefreshToken
+	} else {
+		updatedToken.RefreshToken = userToken.RefreshToken // Keep the old one if no new one is provided
+	}
+
+	err = c.dbClient.UpsertUserToken(ctx, updatedToken)
+	if err != nil {
+		return nil, commonerrors.NewInternalError(fmt.Sprintf("failed to upsert refreshed user token: %v", err))
+	}
+
+	return updatedToken, nil
+}
+
+// GetDBClient returns the database client instance
+func (c *ssoToken) GetDBClient() dbclient.Interface {
+	return c.dbClient
 }
 
 // generateSSOUserId generates a unique user ID based on sub or email

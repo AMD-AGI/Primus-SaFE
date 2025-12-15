@@ -97,9 +97,12 @@ const (
 	addonDefault = addonPrefix + "default"
 
 	// user
-	userPrefix            = "user."
-	userTokenRequired     = userPrefix + "token_required"
-	userTokenExpireSecond = userPrefix + "token_expire"
+	userPrefix                = "user."
+	userTokenRequired         = userPrefix + "token_required"
+	userTokenExpireSecond     = userPrefix + "token_expire"
+	userTokenRefreshEnable    = userPrefix + "token_refresh_enable"
+	userTokenRefreshInterval  = userPrefix + "token_refresh_interval"
+	userTokenRefreshThreshold = userPrefix + "token_refresh_threshold"
 
 	// notification
 	notificationPrefix     = "notification."

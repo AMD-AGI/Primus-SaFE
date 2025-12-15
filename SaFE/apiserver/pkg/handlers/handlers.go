@@ -33,8 +33,17 @@ func InitHttpHandlers(_ context.Context, mgr ctrlruntime.Manager) (*gin.Engine, 
 		apiutils.AbortWithApiError(c, commonerrors.NewNotFoundWithMessage(c.Request.RequestURI+" not found"))
 	})
 	if commonconfig.IsSSOEnable() {
-		if authority.NewSSOToken(mgr.GetClient()) == nil {
+		ssoTokenInstance := authority.NewSSOToken(mgr.GetClient())
+		if ssoTokenInstance == nil {
 			return nil, commonerrors.NewInternalError("failed to new sso token")
+		}
+		// Start the token refresher if SSO and DB are enabled
+		if commonconfig.IsDBEnable() && commonconfig.IsTokenRefreshEnable() {
+			dbClient := ssoTokenInstance.GetDBClient()
+			if dbClient != nil {
+				refresher := authority.NewTokenRefresher(context.Background(), dbClient, ssoTokenInstance)
+				go refresher.Start() // Run in a goroutine
+			}
 		}
 	}
 	if authority.NewDefaultToken(mgr.GetClient()) == nil {
