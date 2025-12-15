@@ -332,3 +332,12 @@ func TestGetCICDEphemeralRunnerPhase(t *testing.T) {
 	assert.Equal(t, status.Phase, "K8sFailed")
 	assert.Equal(t, status.Message, "Job has reached the specified backoff limit")
 }
+
+func TestGetGithubConfigSecret(t *testing.T) {
+	runnerSetData, err := jsonutils.ParseYamlToJson(TestAutoscalingRunnerSetData)
+	assert.NilError(t, err)
+
+	val, err := GetGithubConfigSecret(runnerSetData)
+	assert.NilError(t, err)
+	assert.Equal(t, val, "primus-safe-cicd")
+}

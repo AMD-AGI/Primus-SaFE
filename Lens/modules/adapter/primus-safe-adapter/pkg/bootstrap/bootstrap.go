@@ -151,6 +151,9 @@ func initScheduledTasks(ctx context.Context, cfg *config.Config) error {
 	// Create node stats service
 	nodeStatsService := service.NewNodeStatsService(safeDB)
 
+	// Create namespace sync service
+	namespaceSyncService := service.NewNamespaceSyncService(k8sClient)
+
 	// Create and configure scheduler
 	globalScheduler = scheduler.NewScheduler()
 
@@ -160,10 +163,13 @@ func initScheduledTasks(ctx context.Context, cfg *config.Config) error {
 	// Add node stats collection task (runs every 60 seconds)
 	globalScheduler.AddTask(nodeStatsService, 60*time.Second)
 
+	// Add namespace sync task (runs every 60 seconds)
+	globalScheduler.AddTask(namespaceSyncService, 60*time.Second)
+
 	// Start scheduler in background
 	go globalScheduler.Start(ctx)
 
-	log.Info("Scheduler started with workload stats collection task (interval: 30s) and node stats collection task (interval: 60s)")
+	log.Info("Scheduler started with workload stats (30s), node stats (60s), and namespace sync (60s) tasks")
 	return nil
 }
 

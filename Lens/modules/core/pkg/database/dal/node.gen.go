@@ -47,6 +47,8 @@ func newNode(db *gorm.DB, opts ...gen.DOOption) node {
 	_node.Os = field.NewString(tableName, "os")
 	_node.DriverVersion = field.NewString(tableName, "driver_version")
 	_node.Taints = field.NewField(tableName, "taints")
+	_node.Labels = field.NewField(tableName, "labels")
+	_node.Annotations = field.NewField(tableName, "annotations")
 
 	_node.fillFieldMap()
 
@@ -77,6 +79,8 @@ type node struct {
 	Os                field.String
 	DriverVersion     field.String
 	Taints            field.Field
+	Labels            field.Field // Kubernetes node labels stored as JSONB key-value pairs
+	Annotations       field.Field // Kubernetes node annotations stored as JSONB key-value pairs
 
 	fieldMap map[string]field.Expr
 }
@@ -113,6 +117,8 @@ func (n *node) updateTableName(table string) *node {
 	n.Os = field.NewString(table, "os")
 	n.DriverVersion = field.NewString(table, "driver_version")
 	n.Taints = field.NewField(table, "taints")
+	n.Labels = field.NewField(table, "labels")
+	n.Annotations = field.NewField(table, "annotations")
 
 	n.fillFieldMap()
 
@@ -137,7 +143,7 @@ func (n *node) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 }
 
 func (n *node) fillFieldMap() {
-	n.fieldMap = make(map[string]field.Expr, 20)
+	n.fieldMap = make(map[string]field.Expr, 22)
 	n.fieldMap["id"] = n.ID
 	n.fieldMap["name"] = n.Name
 	n.fieldMap["address"] = n.Address
@@ -158,6 +164,8 @@ func (n *node) fillFieldMap() {
 	n.fieldMap["os"] = n.Os
 	n.fieldMap["driver_version"] = n.DriverVersion
 	n.fieldMap["taints"] = n.Taints
+	n.fieldMap["labels"] = n.Labels
+	n.fieldMap["annotations"] = n.Annotations
 }
 
 func (n node) clone(db *gorm.DB) node {

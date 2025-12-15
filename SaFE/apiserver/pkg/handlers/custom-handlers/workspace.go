@@ -253,7 +253,7 @@ func (h *Handler) patchWorkspace(c *gin.Context) (interface{}, error) {
 
 	if err = backoff.ConflictRetry(func() error {
 		var innerError error
-		if innerError = h.modifyWorkspace(ctx, workspace, requestUser, req); innerError != nil {
+		if innerError = h.applyWorkspacePatch(ctx, workspace, requestUser, req); innerError != nil {
 			return innerError
 		}
 		if innerError = h.Update(ctx, workspace); innerError == nil {
@@ -275,10 +275,11 @@ func (h *Handler) patchWorkspace(c *gin.Context) (interface{}, error) {
 	return nil, nil
 }
 
-// modifyWorkspace applies updates to a workspace based on the patch request.
+// applyWorkspacePatch applies updates to a workspace based on the patch request.
 // Handles changes to description, flavor, replica count, queue policy, scopes,
 // volumes, preemption settings, managers, default status, and image secrets.
-func (h *Handler) modifyWorkspace(ctx context.Context, workspace *v1.Workspace, requestUser *v1.User, req *types.PatchWorkspaceRequest) error {
+func (h *Handler) applyWorkspacePatch(ctx context.Context,
+	workspace *v1.Workspace, requestUser *v1.User, req *types.PatchWorkspaceRequest) error {
 	if req.Description != nil {
 		v1.SetAnnotation(workspace, v1.DescriptionAnnotation, *req.Description)
 	}
@@ -319,7 +320,8 @@ func (h *Handler) modifyWorkspace(ctx context.Context, workspace *v1.Workspace, 
 // updates the secret's workspace annotations if needed, and sets the image secrets in the workspace spec.
 // Additionally, when a secret is bound to a workspace, the secret will be copied into the
 // workspace’s Kubernetes namespace so workloads in that workspace can use it for image pulls.
-func (h *Handler) updateWorkspaceImageSecrets(ctx context.Context, workspace *v1.Workspace, requestUser *v1.User, secretIds []string) error {
+func (h *Handler) updateWorkspaceImageSecrets(ctx context.Context,
+	workspace *v1.Workspace, requestUser *v1.User, secretIds []string) error {
 	uniqueSecretIds := sets.NewSet()
 	targetSecrets := make([]*corev1.Secret, 0, len(secretIds))
 	for _, id := range secretIds {
