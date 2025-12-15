@@ -488,6 +488,8 @@ Partially update workload configuration (only when running).
 
 **Request Parameters**:
 
+***Example 1: General Workload Update***
+
 ```json
 {
   "priority": 1,
@@ -503,7 +505,8 @@ Partially update workload configuration (only when running).
   "timeout": 7200,
   "maxRetry": 3,
   "env": {
-    "NEW_VAR": "value"
+    "NEW_VAR": "value",
+    "EXISTING_VAR": "keep_this_value"
   },
   "cronJobs": [
     {
@@ -521,6 +524,31 @@ Partially update workload configuration (only when running).
   }
 }
 ```
+
+***Example 2: CICD Workload - Update GitHub PAT***
+
+```json
+{
+  "env": {
+    "GITHUB_CONFIG_URL": "https://github.com/your-org/your-repo",
+    "GITHUB_PAT": "ghp_new_token_value_here",
+    "UNIFIED_JOB_ENABLE": "true"
+  }
+}
+```
+Note: All existing environment variables must be included when updating `env`.
+
+**Important Notes**:
+
+1. **Full Field Update Required**: When updating object or array fields (such as `env`, `cronJobs`, `service`), you must provide the **complete** updated value for that field, not just the changed parts. The system will replace the entire field with your provided value.
+   - Example: If updating `env`, include all environment variables you want to keep, not just new/changed ones
+   - Example: If updating `cronJobs`, include all cron jobs you want, not just new ones
+
+2. **Updating CICD GitHub PAT**: For CICD (AutoscalingRunnerSet) workloads, to update the GitHub Personal Access Token:
+   - Include `GITHUB_PAT` with the new token value in the `env` field
+   - The system will automatically create a new Kubernetes secret and update the workload annotation
+   - The old secret will be deleted after successful update
+   - The `GITHUB_PAT` itself is not persisted in the workload environment; it's only used for secret management
 
 **Field Description**: All fields are optional; only provided fields will be updated
 

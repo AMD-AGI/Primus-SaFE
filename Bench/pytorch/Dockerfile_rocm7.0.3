@@ -1,7 +1,10 @@
 ARG REGISTRY=docker.io
 
 FROM ${REGISTRY}/library/ubuntu:22.04
+
 ENV DEBIAN_FRONTEND=noninteractive
+ENV ROCM_VERSION="7.0.3"
+
 
 ARG TMP_HOME=/opt/primus-bench/pytorch
 RUN mkdir -p ${TMP_HOME}
