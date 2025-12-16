@@ -3,6 +3,7 @@ package framework
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -19,8 +20,8 @@ import (
 type FrameworkDetectionManager struct {
 	mu sync.RWMutex
 
-	// Storage layer
-	storage           *database.FrameworkDetectionStorage
+	// Storage layer (V2)
+	v2Storage         *V2DetectionStorage
 	workloadFacade    database.AiWorkloadMetadataFacadeInterface
 	gpuWorkloadFacade database.WorkloadFacadeInterface // For hierarchy queries
 
@@ -62,7 +63,8 @@ func NewFrameworkDetectionManagerWithFacades(
 		config = DefaultDetectionConfig()
 	}
 
-	storage := database.NewFrameworkDetectionStorage(metadataFacade)
+	// Use V2 storage (stores as MultiDimensionalDetection)
+	v2Storage := NewV2DetectionStorage()
 
 	var cacheInstance *cache.Cache
 	var hierarchyCacheInstance *cache.Cache
@@ -74,7 +76,7 @@ func NewFrameworkDetectionManagerWithFacades(
 	}
 
 	return &FrameworkDetectionManager{
-		storage:              storage,
+		v2Storage:            v2Storage,
 		workloadFacade:       metadataFacade,
 		gpuWorkloadFacade:    gpuWorkloadFacade, // Can be nil, will use global facade
 		confidenceCalculator: NewConfidenceCalculator(config),
@@ -263,8 +265,8 @@ func (m *FrameworkDetectionManager) GetDetection(
 			}
 		}
 
-		// Load from storage
-		detection, err := m.storage.GetDetection(ctx, uid)
+		// Load from storage (V2, converted to V1)
+		detection, err := m.loadDetection(ctx, uid)
 		if err != nil {
 			if err == gorm.ErrRecordNotFound {
 				// Try next in chain
@@ -423,12 +425,60 @@ func (m *FrameworkDetectionManager) validateInput(
 	return nil
 }
 
-// loadDetection loads detection from storage
+// loadDetection loads detection from V2 storage and converts to V1 for compatibility
 func (m *FrameworkDetectionManager) loadDetection(
 	ctx context.Context,
 	workloadUID string,
 ) (*model.FrameworkDetection, error) {
-	return m.storage.GetDetection(ctx, workloadUID)
+	// Load V2 detection
+	v2, err := m.v2Storage.LoadDetection(ctx, workloadUID)
+	if err != nil {
+		return nil, err
+	}
+
+	if v2 == nil {
+		return nil, gorm.ErrRecordNotFound
+	}
+
+	// Convert V2 back to V1 for backward compatibility
+	return m.convertV2ToV1(v2), nil
+}
+
+// convertV2ToV1 converts V2 MultiDimensionalDetection back to V1 FrameworkDetection
+func (m *FrameworkDetectionManager) convertV2ToV1(v2 *model.MultiDimensionalDetection) *model.FrameworkDetection {
+	v1 := &model.FrameworkDetection{
+		Confidence: v2.Confidence,
+		Status:     v2.Status,
+		UpdatedAt:  v2.UpdatedAt,
+		Sources:    []model.DetectionSource{}, // Sources not stored in V2
+		Frameworks: []string{},
+	}
+
+	// Extract behavior (type)
+	if behaviors, ok := v2.Dimensions[model.DimensionBehavior]; ok && len(behaviors) > 0 {
+		v1.Type = behaviors[0].Value
+	}
+
+	// Extract wrapper framework
+	if wrappers, ok := v2.Dimensions[model.DimensionWrapperFramework]; ok && len(wrappers) > 0 {
+		v1.WrapperFramework = wrappers[0].Value
+		v1.Frameworks = append(v1.Frameworks, wrappers[0].Value)
+	}
+
+	// Extract base framework
+	if bases, ok := v2.Dimensions[model.DimensionBaseFramework]; ok && len(bases) > 0 {
+		v1.BaseFramework = bases[0].Value
+		v1.Frameworks = append(v1.Frameworks, bases[0].Value)
+	}
+
+	// Set framework layer
+	if v1.WrapperFramework != "" {
+		v1.FrameworkLayer = "wrapper"
+	} else if v1.BaseFramework != "" {
+		v1.FrameworkLayer = "base"
+	}
+
+	return v1
 }
 
 // saveDetection saves detection to storage
@@ -437,7 +487,121 @@ func (m *FrameworkDetectionManager) saveDetection(
 	workloadUID string,
 	detection *model.FrameworkDetection,
 ) error {
-	return m.storage.UpsertDetection(ctx, workloadUID, detection)
+	// Convert V1 FrameworkDetection to V2 MultiDimensionalDetection
+	v2Detection := m.convertToV2Detection(detection)
+	v2Detection.WorkloadUID = workloadUID
+
+	// Save as V2 format
+	return m.v2Storage.SaveDetection(ctx, v2Detection)
+}
+
+// convertToV2Detection converts V1 FrameworkDetection to V2 MultiDimensionalDetection
+func (m *FrameworkDetectionManager) convertToV2Detection(v1 *model.FrameworkDetection) *model.MultiDimensionalDetection {
+	v2 := &model.MultiDimensionalDetection{
+		Version:    "2.0",
+		Dimensions: make(map[model.DetectionDimension][]model.DimensionValue),
+		Conflicts:  make(map[model.DetectionDimension][]model.DetectionConflict),
+		Confidence: v1.Confidence,
+		Status:     v1.Status,
+		UpdatedAt:  time.Now(),
+	}
+
+	// Convert behavior (type)
+	if v1.Type != "" {
+		v2.Dimensions[model.DimensionBehavior] = []model.DimensionValue{
+			{
+				Value:      v1.Type,
+				Confidence: v1.Confidence,
+				Source:     "detection_manager",
+				DetectedAt: time.Now(),
+				Evidence:   map[string]interface{}{"method": "v1_type_field"},
+			},
+		}
+	}
+
+	// Convert wrapper framework
+	if v1.WrapperFramework != "" {
+		v2.Dimensions[model.DimensionWrapperFramework] = []model.DimensionValue{
+			{
+				Value:      v1.WrapperFramework,
+				Confidence: v1.Confidence,
+				Source:     "detection_manager",
+				DetectedAt: time.Now(),
+				Evidence:   map[string]interface{}{"method": "v1_wrapper_framework_field"},
+			},
+		}
+	}
+
+	// Convert base framework
+	if v1.BaseFramework != "" {
+		v2.Dimensions[model.DimensionBaseFramework] = []model.DimensionValue{
+			{
+				Value:      v1.BaseFramework,
+				Confidence: v1.Confidence,
+				Source:     "detection_manager",
+				DetectedAt: time.Now(),
+				Evidence:   map[string]interface{}{"method": "v1_base_framework_field"},
+			},
+		}
+
+		// Infer runtime from base framework
+		runtime := m.inferRuntimeFromFramework(v1.BaseFramework)
+		if runtime != "" {
+			v2.Dimensions[model.DimensionRuntime] = []model.DimensionValue{
+				{
+					Value:      runtime,
+					Confidence: v1.Confidence * 0.9,
+					Source:     "detection_manager_inference",
+					DetectedAt: time.Now(),
+					Evidence: map[string]interface{}{
+						"method":         "inferred_from_base_framework",
+						"base_framework": v1.BaseFramework,
+					},
+				},
+			}
+		}
+	}
+
+	// Infer language from sources (wandb typically means Python)
+	for _, source := range v1.Sources {
+		if source.Source == "wandb" {
+			v2.Dimensions[model.DimensionLanguage] = []model.DimensionValue{
+				{
+					Value:      "python",
+					Confidence: v1.Confidence * 0.8,
+					Source:     "detection_manager_inference",
+					DetectedAt: time.Now(),
+					Evidence:   map[string]interface{}{"method": "inferred_from_wandb_source"},
+				},
+			}
+			break
+		}
+	}
+
+	return v2
+}
+
+// inferRuntimeFromFramework infers runtime from framework name
+func (m *FrameworkDetectionManager) inferRuntimeFromFramework(framework string) string {
+	fw := strings.ToLower(framework)
+
+	// PyTorch-based frameworks
+	if fw == "megatron" || fw == "deepspeed" || fw == "fairscale" ||
+		fw == "pytorch" || fw == "torch" {
+		return "pytorch"
+	}
+
+	// TensorFlow-based frameworks
+	if fw == "tensorflow" || fw == "keras" {
+		return "tensorflow"
+	}
+
+	// JAX-based frameworks
+	if fw == "jax" || fw == "flax" {
+		return "jax"
+	}
+
+	return ""
 }
 
 // recordMetrics records detection metrics
@@ -508,11 +672,22 @@ func (m *FrameworkDetectionManager) GetStatistics(
 	logrus.Debugf("Getting statistics: startTime=%s, endTime=%s, namespace=%s",
 		startTime, endTime, namespace)
 
-	// Call storage layer statistics method
-	stats, err := m.storage.GetStatistics(ctx, startTime, endTime, namespace)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get statistics: %w", err)
+	// Statistics not yet implemented for V2 storage
+	// TODO: Implement statistics aggregation from V2 detection data
+	stats := &DetectionStatistics{
+		StartTime:         startTime,
+		EndTime:           endTime,
+		Namespace:         namespace,
+		TotalWorkloads:    0,
+		ByFramework:       make(map[string]int64),
+		ByStatus:          make(map[string]int64),
+		BySource:          make(map[string]int64),
+		AverageConfidence: 0,
+		ConflictRate:      0,
+		ReuseRate:         0,
 	}
+
+	logrus.Warn("GetStatistics not yet implemented for V2 detection storage")
 
 	// Construct return result
 	result := &DetectionStatistics{

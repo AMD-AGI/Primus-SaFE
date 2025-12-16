@@ -462,7 +462,7 @@ func (m *V1Migrator) MigrateWorkload(ctx context.Context, workloadUID string) er
 	err = m.db.WithContext(ctx).
 		Table("ai_workload_metadata").
 		Where("workload_uid = ?", workloadUID).
-		Update("metadata", gorm.Expr("jsonb_set(metadata, '{framework_detection}', ?::jsonb)", 
+		Update("metadata", gorm.Expr("jsonb_set(metadata, '{framework_detection}', ?::jsonb)",
 			toJSON(v2Detection))).Error
 
 	if err != nil {
