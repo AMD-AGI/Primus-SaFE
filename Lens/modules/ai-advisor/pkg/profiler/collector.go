@@ -491,7 +491,7 @@ func (c *Collector) CollectProfilerFilesFromLocations(
 					fileInfo.Path, fileInfo.Size, c.config.Filter.MaxFileSize)
 				result.SkippedFiles++
 				result.Files = append(result.Files, &ArchivedFileInfo{
-					FileName:   fileInfo.Name,
+					FileName:   filepath.Base(fileInfo.Path),
 					FilePath:   fileInfo.Path,
 					FileSize:   fileInfo.Size,
 					Skipped:    true,
@@ -509,7 +509,7 @@ func (c *Collector) CollectProfilerFilesFromLocations(
 			// Convert to ProfilerFileInfo for collection
 			profilerFile := &ProfilerFileInfo{
 				FilePath:   fileInfo.Path,
-				FileName:   fileInfo.Name,
+				FileName:   filepath.Base(fileInfo.Path),
 				FileSize:   fileInfo.Size,
 				FileType:   c.detectFileType(fileInfo.Path),
 				Confidence: "high", // Files matching patterns have high confidence
