@@ -20,7 +20,7 @@ src_image:
     shared: 
       auth_file_path: ""
     deprecated_tls_verify: {}
-    auth_file_path: ${SRC_AUTH_FILE_PATH:-/root/.docker/config.json}
+    auth_file_path: /root/.docker/config.json
     creds_option: ""
     username: ${SOURCE_USERNAME}                          
     password: ${SOURCE_PASSWORD}                            
@@ -38,7 +38,7 @@ dest_image:
       shared: 
         auth_file_path: ""
       deprecated_tls_verify: {}
-      auth_file_path: ${DEST_AUTH_FILE_PATH:-/root/.docker/config.json}
+      auth_file_path: /root/.docker/config.json
       creds_option: ""
       username: ${DESTINATION_USERNAME}                    
       password: ${DESTINATION_PASSWORD}                     

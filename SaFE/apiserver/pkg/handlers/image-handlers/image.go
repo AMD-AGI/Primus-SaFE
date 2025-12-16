@@ -521,11 +521,23 @@ func (h *ImageHandler) retryDispatchImportImageJob(c *gin.Context) (interface{},
 
 // dispatchImportImageJob creates and submits a Kubernetes Job to import an image.
 // Configures the job with source/dest info, registry auth, and image pull secrets.
+// If customSecretId is provided, merges user secret with system secret for authentication.
 func (h *ImageHandler) dispatchImportImageJob(c *gin.Context, image *model.Image, info *model.ImageImportJob) (*batchv1.Job, error) {
 	jobName := generateImportImageJobName(image.ID)
 	imagePullSecrets, err := h.listImagePullSecretsName(c, h.Client, common.PrimusSafeNamespace)
 	if err != nil {
 		return nil, err
+	}
+
+	// Determine which secret to use for registry auth
+	authSecretName := common.ImageImportSecretName
+	if image.SecretID != "" {
+		// Merge user secret with system secret and create a temporary secret
+		mergedSecretName, err := h.createMergedAuthSecret(c.Request.Context(), jobName, image.SecretID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create merged auth secret: %w", err)
+		}
+		authSecretName = mergedSecretName
 	}
 
 	job, err := newImportImageJob(
@@ -541,7 +553,7 @@ func (h *ImageHandler) dispatchImportImageJob(c *gin.Context, image *model.Image
 			Arch:            info.Arch,
 		},
 		image.CreatedBy,
-		image.SecretID, // Pass the custom secret ID for source registry authentication
+		authSecretName,
 	)
 	if err != nil {
 		return nil, err
@@ -555,7 +567,7 @@ func (h *ImageHandler) dispatchImportImageJob(c *gin.Context, image *model.Image
 
 // newImportImageJob constructs a Kubernetes Job spec for importing an image.
 // Configures container with sync-image tool, environment variables, and registry authentication.
-// If customSecretId is provided, it will be used for source registry authentication.
+// authSecretName is the secret containing merged registry credentials (system + user if provided).
 func newImportImageJob(
 	imageId int32,
 	jobName,
@@ -563,7 +575,7 @@ func newImportImageJob(
 	imagePullSecrets []string,
 	env *ImportImageEnv,
 	userName string,
-	customSecretId string,
+	authSecretName string,
 ) (*batchv1.Job, error) {
 	namespace := common.PrimusSafeNamespace
 	envs := defaultSyncImageEnv()
@@ -577,56 +589,6 @@ func newImportImageJob(
 	}
 	envs[SrcImageEnv] = env.SourceImageName
 	envs[DestImageEnv] = env.DestImageName
-
-	// Build volume mounts and volumes
-	volumeMounts := []corev1.VolumeMount{
-		{
-			Name:      "dest-registry-auth",
-			ReadOnly:  true,
-			MountPath: "/root/.docker",
-		},
-	}
-	volumes := []corev1.Volume{
-		{
-			Name: "dest-registry-auth",
-			VolumeSource: corev1.VolumeSource{
-				Secret: &corev1.SecretVolumeSource{
-					SecretName: common.ImageImportSecretName,
-				},
-			},
-		},
-	}
-
-	// Set destination auth file path (always use system secret)
-	envs["DEST_AUTH_FILE_PATH"] = "/root/.docker/config.json"
-
-	// If custom secret is provided for source registry authentication, mount it
-	if customSecretId != "" {
-		volumeMounts = append(volumeMounts, corev1.VolumeMount{
-			Name:      "src-registry-auth",
-			ReadOnly:  true,
-			MountPath: "/root/.docker-src",
-		})
-		volumes = append(volumes, corev1.Volume{
-			Name: "src-registry-auth",
-			VolumeSource: corev1.VolumeSource{
-				Secret: &corev1.SecretVolumeSource{
-					SecretName: customSecretId,
-					Items: []corev1.KeyToPath{
-						{
-							Key:  ".dockerconfigjson",
-							Path: "config.json",
-						},
-					},
-				},
-			},
-		})
-		// Set source auth file path to custom secret
-		envs["SRC_AUTH_FILE_PATH"] = "/root/.docker-src/config.json"
-	} else {
-		// Use system secret for source as well
-		envs["SRC_AUTH_FILE_PATH"] = "/root/.docker/config.json"
-	}
 
 	job := &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
@@ -653,15 +615,30 @@ func newImportImageJob(
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{
 						{
-							Name:         "import-image",
-							Image:        syncImage,
-							Env:          transEnvMapToEnv(envs),
-							VolumeMounts: volumeMounts,
+							Name:  "import-image",
+							Image: syncImage,
+							Env:   transEnvMapToEnv(envs),
+							VolumeMounts: []corev1.VolumeMount{
+								{
+									Name:      "registry-auth",
+									ReadOnly:  true,
+									MountPath: "/root/.docker",
+								},
+							},
 						},
 					},
 					RestartPolicy:    corev1.RestartPolicyNever,
 					ImagePullSecrets: buildImagePullSecrets(imagePullSecrets),
-					Volumes:          volumes,
+					Volumes: []corev1.Volume{
+						{
+							Name: "registry-auth",
+							VolumeSource: corev1.VolumeSource{
+								Secret: &corev1.SecretVolumeSource{
+									SecretName: authSecretName,
+								},
+							},
+						},
+					},
 				},
 			},
 		},
@@ -1278,4 +1255,86 @@ func (h *ImageHandler) validateImageSecret(ctx context.Context, secretId string)
 	}
 
 	return nil
+}
+
+// createMergedAuthSecret creates a temporary secret that merges system registry auth with user's custom secret.
+// This allows the import job to authenticate against both the destination Harbor and the source private registry.
+// Returns the name of the created merged secret.
+func (h *ImageHandler) createMergedAuthSecret(ctx context.Context, jobName, userSecretId string) (string, error) {
+	// Read system secret
+	systemSecret := &corev1.Secret{}
+	if err := h.Client.Get(ctx, client.ObjectKey{
+		Name:      common.ImageImportSecretName,
+		Namespace: common.PrimusSafeNamespace,
+	}, systemSecret); err != nil {
+		klog.ErrorS(err, "failed to get system secret")
+		return "", fmt.Errorf("failed to get system secret: %w", err)
+	}
+
+	// Read user secret
+	userSecret := &corev1.Secret{}
+	if err := h.Client.Get(ctx, client.ObjectKey{
+		Name:      userSecretId,
+		Namespace: common.PrimusSafeNamespace,
+	}, userSecret); err != nil {
+		klog.ErrorS(err, "failed to get user secret", "secretId", userSecretId)
+		return "", fmt.Errorf("failed to get user secret: %w", err)
+	}
+
+	// Parse system secret auths (stored in "config.json" key)
+	systemAuths := &RegistryAuth{Auths: make(map[string]RegistryAuthItem)}
+	if configData, ok := systemSecret.Data["config.json"]; ok {
+		if err := json.Unmarshal(configData, systemAuths); err != nil {
+			klog.ErrorS(err, "failed to parse system secret config.json")
+			return "", fmt.Errorf("failed to parse system secret: %w", err)
+		}
+	}
+
+	// Parse user secret auths (stored in ".dockerconfigjson" key for kubernetes.io/dockerconfigjson type)
+	userAuths := &RegistryAuth{Auths: make(map[string]RegistryAuthItem)}
+	if configData, ok := userSecret.Data[".dockerconfigjson"]; ok {
+		if err := json.Unmarshal(configData, userAuths); err != nil {
+			klog.ErrorS(err, "failed to parse user secret .dockerconfigjson")
+			return "", fmt.Errorf("failed to parse user secret: %w", err)
+		}
+	}
+
+	// Merge auths: user auths take precedence (in case of conflict)
+	mergedAuths := &RegistryAuth{Auths: make(map[string]RegistryAuthItem)}
+	for registry, auth := range systemAuths.Auths {
+		mergedAuths.Auths[registry] = auth
+	}
+	for registry, auth := range userAuths.Auths {
+		mergedAuths.Auths[registry] = RegistryAuthItem{Auth: auth.Auth}
+	}
+
+	// Create merged config.json
+	mergedConfigJSON, err := json.Marshal(mergedAuths)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal merged auths: %w", err)
+	}
+
+	// Create temporary secret with merged auths
+	mergedSecretName := fmt.Sprintf("%s-auth", jobName)
+	mergedSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      mergedSecretName,
+			Namespace: common.PrimusSafeNamespace,
+			Labels: map[string]string{
+				ImportImageJobLabelKey: StringValueTrue, // Mark as import job related for cleanup
+			},
+		},
+		Data: map[string][]byte{
+			"config.json": mergedConfigJSON,
+		},
+		Type: corev1.SecretTypeOpaque,
+	}
+
+	if err := h.Client.Create(ctx, mergedSecret); err != nil {
+		klog.ErrorS(err, "failed to create merged auth secret", "secretName", mergedSecretName)
+		return "", fmt.Errorf("failed to create merged auth secret: %w", err)
+	}
+
+	klog.V(4).Infof("Created merged auth secret %s with %d registry entries", mergedSecretName, len(mergedAuths.Auths))
+	return mergedSecretName, nil
 }
