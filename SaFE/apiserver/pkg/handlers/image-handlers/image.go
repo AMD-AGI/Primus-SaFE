@@ -506,7 +506,16 @@ func (h *ImageHandler) retryDispatchImportImageJob(c *gin.Context) (interface{},
 		return nil, commonerrors.NewNotFound("get import image by id", strconv.Itoa(int(id)))
 	}
 
-	job, err := h.dispatchImportImageJob(c, existImage, importImage)
+	// Get user secret if needed for retry
+	var userSecret *corev1.Secret
+	if existImage.SecretID != "" {
+		userSecret, err = h.getAndValidateImageSecret(c.Request.Context(), existImage.SecretID)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	job, err := h.dispatchImportImageJob(c, existImage, importImage, userSecret)
 	if err != nil {
 		return nil, err
 	}
@@ -525,8 +534,8 @@ func (h *ImageHandler) retryDispatchImportImageJob(c *gin.Context) (interface{},
 
 // dispatchImportImageJob creates and submits a Kubernetes Job to import an image.
 // Configures the job with source/dest info, registry auth, and image pull secrets.
-// If userSecretId is provided, merges system and user auth configs into a ConfigMap.
-func (h *ImageHandler) dispatchImportImageJob(c *gin.Context, image *model.Image, info *model.ImageImportJob) (*batchv1.Job, error) {
+// If userSecret is provided, merges system and user auth configs into a ConfigMap.
+func (h *ImageHandler) dispatchImportImageJob(c *gin.Context, image *model.Image, info *model.ImageImportJob, userSecret *corev1.Secret) (*batchv1.Job, error) {
 	jobName := generateImportImageJobName(image.ID)
 	imagePullSecrets, err := h.listImagePullSecretsName(c, h.Client, common.PrimusSafeNamespace)
 	if err != nil {
@@ -536,8 +545,8 @@ func (h *ImageHandler) dispatchImportImageJob(c *gin.Context, image *model.Image
 	// If user secret is provided, merge auth configs and create ConfigMap
 	var authConfigMap *corev1.ConfigMap
 	var authConfigMapName string
-	if image.SecretID != "" {
-		cm, err := h.createMergedAuthConfigMap(c.Request.Context(), jobName, image.SecretID)
+	if userSecret != nil {
+		cm, err := h.createMergedAuthConfigMap(c.Request.Context(), jobName, userSecret)
 		if err != nil {
 			return nil, err
 		}
@@ -705,7 +714,7 @@ func buildAuthVolumes(authConfigMapName string) ([]corev1.Volume, []corev1.Volum
 // createMergedAuthConfigMap creates a ConfigMap containing merged auth configs from system and user secrets.
 // The merged config combines the "auths" sections from both secrets, with user auths overriding system auths for the same registry.
 // Returns the created ConfigMap object for setting OwnerReference later.
-func (h *ImageHandler) createMergedAuthConfigMap(ctx context.Context, jobName, userSecretId string) (*corev1.ConfigMap, error) {
+func (h *ImageHandler) createMergedAuthConfigMap(ctx context.Context, jobName string, userSecret *corev1.Secret) (*corev1.ConfigMap, error) {
 	namespace := common.PrimusSafeNamespace
 
 	// Get system secret
@@ -716,16 +725,6 @@ func (h *ImageHandler) createMergedAuthConfigMap(ctx context.Context, jobName, u
 	}, systemSecret); err != nil {
 		klog.ErrorS(err, "failed to get system secret", "secretName", common.ImageImportSecretName)
 		return nil, fmt.Errorf("failed to get system secret: %w", err)
-	}
-
-	// Get user secret
-	userSecret := &corev1.Secret{}
-	if err := h.Client.Get(ctx, client.ObjectKey{
-		Name:      userSecretId,
-		Namespace: namespace,
-	}, userSecret); err != nil {
-		klog.ErrorS(err, "failed to get user secret", "secretId", userSecretId)
-		return nil, fmt.Errorf("failed to get user secret: %w", err)
 	}
 
 	// Parse system auth config
@@ -739,7 +738,7 @@ func (h *ImageHandler) createMergedAuthConfigMap(ctx context.Context, jobName, u
 		}
 	}
 
-	// Parse user auth config
+	// Parse user auth config (userSecret is already fetched, no need to Get again)
 	userAuths := make(map[string]interface{})
 	if configData, ok := userSecret.Data[".dockerconfigjson"]; ok {
 		var userConfig struct {
