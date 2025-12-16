@@ -179,8 +179,18 @@ func (e *MetadataCollectionExecutor) Execute(
 	// 9. Collect and save framework config (for profiler collection and other downstream tasks)
 	framework := strings.ToLower(detectionInfo.Framework)
 	var frameworkConfig *profiler.FrameworkConfig
-	if framework == "primus" || framework == "megatron" || framework == "deepspeed" {
-		frameworkConfig, err = e.collectAndSaveFrameworkConfig(ctx, task.WorkloadUID, framework, pythonProcess, nodeExporterClient)
+	// Use strings.Contains to check for framework in comma-separated list (e.g., "primus,megatron,pytorch")
+	if strings.Contains(framework, "primus") || strings.Contains(framework, "megatron") || strings.Contains(framework, "deepspeed") {
+		// Determine primary framework for config collection (prioritize primus > megatron > deepspeed)
+		primaryFramework := "pytorch"
+		if strings.Contains(framework, "primus") {
+			primaryFramework = "primus"
+		} else if strings.Contains(framework, "megatron") {
+			primaryFramework = "megatron"
+		} else if strings.Contains(framework, "deepspeed") {
+			primaryFramework = "deepspeed"
+		}
+		frameworkConfig, err = e.collectAndSaveFrameworkConfig(ctx, task.WorkloadUID, primaryFramework, pythonProcess, nodeExporterClient)
 		if err != nil {
 			log.Warnf("Failed to collect framework config for workload %s: %v", task.WorkloadUID, err)
 		} else {
