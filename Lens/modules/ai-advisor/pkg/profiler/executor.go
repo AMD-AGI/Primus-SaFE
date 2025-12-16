@@ -17,8 +17,10 @@ import (
 type ProfilerCollectionExecutor struct {
 	coreTask.BaseExecutor
 
-	collector   *Collector
-	metadataMgr *MetadataManager
+	collector      *Collector
+	metadataMgr    *MetadataManager
+	metadataFacade database.AiWorkloadMetadataFacadeInterface
+	configService  *FrameworkConfigService
 }
 
 // NewProfilerCollectionExecutor creates profiler collection executor
@@ -27,8 +29,10 @@ func NewProfilerCollectionExecutor(
 	metadataMgr *MetadataManager,
 ) *ProfilerCollectionExecutor {
 	return &ProfilerCollectionExecutor{
-		collector:   collector,
-		metadataMgr: metadataMgr,
+		collector:      collector,
+		metadataMgr:    metadataMgr,
+		metadataFacade: database.NewAiWorkloadMetadataFacade(),
+		configService:  NewFrameworkConfigService(),
 	}
 }
 
@@ -75,7 +79,7 @@ func (e *ProfilerCollectionExecutor) Execute(
 		log.Debugf("No pod found for workload %s yet, will retry later", workloadUID)
 		// No pod yet, keep task pending for retry
 		return &coreTask.ExecutionResult{
-			Success:   true,
+			Success: true,
 			UpdateExt: map[string]interface{}{
 				"last_check": time.Now().Format(time.RFC3339),
 				"status":     "waiting_for_pod",
@@ -86,37 +90,87 @@ func (e *ProfilerCollectionExecutor) Execute(
 
 	log.Infof("Selected pod %s/%s for profiler collection", gpuPod.Namespace, gpuPod.Name)
 
-	// 3. Execute collection
-	// TODO: Implement CollectProfilerFiles in Collector
-	_ = config // Suppress unused variable warning
-	// result, err := e.collector.CollectProfilerFiles(ctx, workloadUID, gpuPod.UID, config)
-	// if err != nil {
-	// 	log.Errorf("Failed to collect profiler files: %v", err)
-	// 	return coreTask.FailureResult(err.Error(), map[string]interface{}{
-	// 		"last_error":    err.Error(),
-	// 		"last_executed": time.Now().Format(time.RFC3339),
-	// 		"pod_name":      gpuPod.Name,
-	// 		"pod_namespace": gpuPod.Namespace,
-	// 	}), nil
-	// }
+	// 3. Load framework config for precise directory scanning
+	// Wait for metadata collection to save framework_config before proceeding
+	frameworkConfig, err := e.loadFrameworkConfig(ctx, workloadUID)
+	if err != nil {
+		// Check wait count to avoid infinite waiting
+		waitCount := e.GetExtInt(taskState, "config_wait_count")
+		maxWaitCount := 10 // Wait up to ~50 seconds (5s interval * 10)
 
-	// 4. Update statistics (placeholder until CollectProfilerFiles is implemented)
-	updates := map[string]interface{}{
-		"last_executed": time.Now().Format(time.RFC3339),
-		// "total_collected": result.TotalFiles,
-		// "archived_count":  result.ArchivedFiles,
-		// "last_result":     result,
-		"pod_name":      gpuPod.Name,
-		"pod_namespace": gpuPod.Namespace,
-		"node_name":     gpuPod.NodeName,
+		if waitCount < maxWaitCount {
+			// framework_config not ready yet, wait for metadata collection to complete
+			log.Infof("Framework config not ready for workload %s (wait %d/%d), will retry later",
+				workloadUID, waitCount+1, maxWaitCount)
+			return &coreTask.ExecutionResult{
+				Success: true,
+				UpdateExt: map[string]interface{}{
+					"last_check":        time.Now().Format(time.RFC3339),
+					"status":            "waiting_for_framework_config",
+					"config_wait_count": waitCount + 1,
+					"wait_reason":       err.Error(),
+				},
+				NewStatus: constant.TaskStatusPending,
+			}, nil
+		}
+
+		// Exceeded max wait count, proceed with fallback locations
+		log.Warnf("Framework config wait timeout for workload %s after %d attempts, using fallback locations: %v",
+			workloadUID, waitCount, err)
 	}
+
+	// 4. Get profiler locations to scan
+	profilerLocations := e.configService.GetProfilerLocations(frameworkConfig)
+	log.Infof("Profiler locations to scan for workload %s: %d locations", workloadUID, len(profilerLocations))
+	for _, loc := range profilerLocations {
+		log.Debugf("  - %s (patterns: %v, source: %s)", loc.Directory, loc.Patterns, loc.Source)
+	}
+
+	// 5. Execute collection using precise directories
+	_ = config // Suppress unused variable warning for now
+	updates := map[string]interface{}{
+		"last_executed":     time.Now().Format(time.RFC3339),
+		"pod_name":          gpuPod.Name,
+		"pod_namespace":     gpuPod.Namespace,
+		"node_name":         gpuPod.NodeName,
+		"scan_locations":    len(profilerLocations),
+		"config_based_scan": frameworkConfig != nil,
+	}
+
+	// Store profiler locations for reference
+	if frameworkConfig != nil && frameworkConfig.ExtractedPaths != nil {
+		updates["profiler_dir"] = frameworkConfig.ExtractedPaths.ProfilerDir
+		updates["scan_source"] = "framework_config"
+	} else {
+		updates["scan_source"] = "fallback"
+	}
+
+	// TODO: Implement actual file collection using profilerLocations
+	// This will involve:
+	// 1. For each location, call node-exporter to scan the directory
+	// 2. Filter files by patterns
+	// 3. Read and archive files
+	//
+	// result, err := e.collector.CollectProfilerFilesFromLocations(ctx, &CollectionRequest{
+	//     WorkloadUID:  workloadUID,
+	//     PodUID:       gpuPod.UID,
+	//     PodName:      gpuPod.Name,
+	//     PodNamespace: gpuPod.Namespace,
+	//     Locations:    profilerLocations,
+	// })
+	// if err != nil {
+	//     log.Errorf("Failed to collect profiler files: %v", err)
+	//     return coreTask.FailureResult(err.Error(), updates), nil
+	// }
+	// updates["total_collected"] = result.TotalFiles
+	// updates["archived_count"] = result.ArchivedFiles
 
 	// Increment execution count
 	executionCount := e.GetExtInt(taskState, "execution_count")
 	executionCount++
 	updates["execution_count"] = executionCount
 
-	// 5. Check if should continue execution
+	// 6. Check if should continue execution
 	if e.shouldContinue(ctx, taskState, executionCount) {
 		log.Debugf("Profiler collection will continue for workload %s (execution %d)",
 			workloadUID, executionCount)
@@ -128,12 +182,104 @@ func (e *ProfilerCollectionExecutor) Execute(
 		}, nil
 	}
 
-	// 6. Task completed
+	// 7. Task completed
 	log.Infof("Profiler collection completed for workload: %s", workloadUID)
-	// log.Infof("Profiler collection completed for workload: %s, archived: %d/%d files",
-	// 	workloadUID, result.ArchivedFiles, result.TotalFiles)
 
 	return coreTask.SuccessResult(updates), nil
+}
+
+// loadFrameworkConfig loads framework config from ai_workload_metadata
+func (e *ProfilerCollectionExecutor) loadFrameworkConfig(
+	ctx context.Context,
+	workloadUID string,
+) (*FrameworkConfig, error) {
+	// Get metadata from database
+	metadata, err := e.metadataFacade.GetAiWorkloadMetadata(ctx, workloadUID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get metadata: %w", err)
+	}
+
+	if metadata == nil {
+		return nil, fmt.Errorf("metadata not found for workload %s", workloadUID)
+	}
+
+	// Extract framework_config from metadata
+	frameworkConfigData, ok := metadata.Metadata["framework_config"]
+	if !ok {
+		return nil, fmt.Errorf("framework_config not found in metadata")
+	}
+
+	// Convert to FrameworkConfig
+	configMap, ok := frameworkConfigData.(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("invalid framework_config format")
+	}
+
+	config := &FrameworkConfig{
+		CollectedAt: time.Now(),
+	}
+
+	// Parse framework
+	if framework, ok := configMap["framework"].(string); ok {
+		config.Framework = framework
+	}
+
+	// Parse version
+	if version, ok := configMap["version"].(string); ok {
+		config.Version = version
+	}
+
+	// Parse source
+	if sourceData, ok := configMap["source"].(map[string]interface{}); ok {
+		config.Source = &ConfigSource{}
+		if sourceType, ok := sourceData["type"].(string); ok {
+			config.Source.Type = sourceType
+		}
+		if sourcePath, ok := sourceData["path"].(string); ok {
+			config.Source.Path = sourcePath
+		}
+	}
+
+	// Parse extracted_paths
+	if pathsData, ok := configMap["extracted_paths"].(map[string]interface{}); ok {
+		config.ExtractedPaths = &ExtractedPaths{
+			CustomPaths: make(map[string]string),
+		}
+		if profilerDir, ok := pathsData["profiler_dir"].(string); ok {
+			config.ExtractedPaths.ProfilerDir = profilerDir
+		}
+		if tensorboardDir, ok := pathsData["tensorboard_dir"].(string); ok {
+			config.ExtractedPaths.TensorBoardDir = tensorboardDir
+		}
+		if checkpointDir, ok := pathsData["checkpoint_dir"].(string); ok {
+			config.ExtractedPaths.CheckpointDir = checkpointDir
+		}
+		if logDir, ok := pathsData["log_dir"].(string); ok {
+			config.ExtractedPaths.LogDir = logDir
+		}
+		if workspaceDir, ok := pathsData["workspace_dir"].(string); ok {
+			config.ExtractedPaths.WorkspaceDir = workspaceDir
+		}
+		if customPaths, ok := pathsData["custom_paths"].(map[string]interface{}); ok {
+			for k, v := range customPaths {
+				if strVal, ok := v.(string); ok {
+					config.ExtractedPaths.CustomPaths[k] = strVal
+				}
+			}
+		}
+	}
+
+	// Parse collected_at
+	if collectedAtStr, ok := configMap["collected_at"].(string); ok {
+		if t, err := time.Parse(time.RFC3339, collectedAtStr); err == nil {
+			config.CollectedAt = t
+		}
+	}
+
+	log.Infof("Loaded framework config for workload %s: framework=%s, profiler_dir=%s",
+		workloadUID, config.Framework, config.ExtractedPaths.ProfilerDir)
+
+	return config, nil
 }
 
 // Cancel cancels task
@@ -245,7 +391,7 @@ func (e *ProfilerCollectionExecutor) shouldContinue(
 	// For now, continue if auto_restart is true and max_executions not reached
 	workloadUID := taskState.WorkloadUID
 	_ = workloadUID // Suppress unused variable warning
-	
+
 	// workloadFacade := database.GetFacade().GetWorkload()
 	// workload, err := workloadFacade.GetWorkloadByUID(ctx, workloadUID)
 	// if err != nil {
@@ -268,4 +414,3 @@ func (e *ProfilerCollectionExecutor) shouldContinue(
 	log.Debugf("Workload %s continuing profiler collection (workload status check not yet implemented)", workloadUID)
 	return true
 }
-

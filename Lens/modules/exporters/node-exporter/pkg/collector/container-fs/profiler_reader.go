@@ -65,15 +65,15 @@ type ProfilerReadRequest struct {
 
 // ProfilerReadResponse represents profiler file read response
 type ProfilerReadResponse struct {
-	Content          string                       `json:"content,omitempty"`    // File content (base64 encoded)
-	FileInfo         *FileInfo                    `json:"file_info"`            // Original file metadata
-	BytesRead        int64                        `json:"bytes_read"`           // Actual bytes read
-	EOF              bool                         `json:"eof"`                  // End of file reached
-	Compressed       bool                         `json:"compressed"`           // Original file is compressed
-	Decompressed     bool                         `json:"decompressed"`         // Content was decompressed
-	OriginalSize     int64                        `json:"original_size"`        // Compressed file size
-	UncompressedSize int64                        `json:"uncompressed_size"`    // Decompressed size (if applicable)
-	ChunkInfo        *ChunkInfo                   `json:"chunk_info,omitempty"` // Chunked reading info
+	Content          string                              `json:"content,omitempty"`    // File content (base64 encoded)
+	FileInfo         *FileInfo                           `json:"file_info"`            // Original file metadata
+	BytesRead        int64                               `json:"bytes_read"`           // Actual bytes read
+	EOF              bool                                `json:"eof"`                  // End of file reached
+	Compressed       bool                                `json:"compressed"`           // Original file is compressed
+	Decompressed     bool                                `json:"decompressed"`         // Content was decompressed
+	OriginalSize     int64                               `json:"original_size"`        // Compressed file size
+	UncompressedSize int64                               `json:"uncompressed_size"`    // Decompressed size (if applicable)
+	ChunkInfo        *ChunkInfo                          `json:"chunk_info,omitempty"` // Chunked reading info
 	FileType         processtree.PyTorchProfilerFileType `json:"file_type"`            // Profiler file type
 }
 
@@ -191,7 +191,7 @@ func (p *ProfilerReader) readAndDecompress(
 
 	response.Content = encoded
 	response.BytesRead = bytesRead
-	response.EOF = (start + bytesRead >= uncompressedSize)
+	response.EOF = (start+bytesRead >= uncompressedSize)
 	response.Decompressed = true
 	response.UncompressedSize = uncompressedSize
 
@@ -385,3 +385,198 @@ func identifyProfilerFileType(path string) processtree.PyTorchProfilerFileType {
 	return processtree.ProfilerTypeUnknown
 }
 
+// ListDirectoryRequest represents a directory listing request
+type ListDirectoryRequest struct {
+	// PID or Pod identification
+	PID           int    `json:"pid,omitempty"`
+	PodUID        string `json:"pod_uid,omitempty"`
+	PodName       string `json:"pod_name,omitempty"`
+	PodNamespace  string `json:"pod_namespace,omitempty"`
+	ContainerName string `json:"container_name,omitempty"`
+
+	// Directory path
+	Path string `json:"path" binding:"required"`
+
+	// Listing options
+	Patterns  []string `json:"patterns,omitempty"`  // File patterns to match (glob patterns)
+	Recursive bool     `json:"recursive,omitempty"` // Scan subdirectories
+	MaxDepth  int      `json:"max_depth,omitempty"` // Max recursion depth (0 = no limit)
+}
+
+// ListDirectoryResponse represents directory listing response
+type ListDirectoryResponse struct {
+	Files       []*ProfilerFileEntry `json:"files"`
+	TotalFiles  int                  `json:"total_files"`
+	ScannedDirs int                  `json:"scanned_dirs"`
+	Path        string               `json:"path"`
+}
+
+// ProfilerFileEntry represents a profiler file entry in directory listing
+type ProfilerFileEntry struct {
+	Path       string                              `json:"path"`
+	Name       string                              `json:"name"`
+	Size       int64                               `json:"size"`
+	ModTime    string                              `json:"mod_time"`
+	IsDir      bool                                `json:"is_dir"`
+	FileType   processtree.PyTorchProfilerFileType `json:"file_type"`
+	Confidence string                              `json:"confidence"`
+}
+
+// ListProfilerDirectory lists a directory for profiler files
+func (p *ProfilerReader) ListProfilerDirectory(ctx context.Context, req *ListDirectoryRequest) (*ListDirectoryResponse, error) {
+	// Resolve PID
+	pid, err := p.fsReader.ResolvePID(ctx, req.PID, req.PodUID, req.PodName, req.PodNamespace, req.ContainerName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve PID: %w", err)
+	}
+
+	// Build container path
+	containerPath := fmt.Sprintf("/proc/%d/root%s", pid, req.Path)
+
+	// Check if path exists and is a directory
+	info, err := os.Stat(containerPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, fmt.Errorf("directory does not exist: %s", req.Path)
+		}
+		return nil, fmt.Errorf("failed to stat directory: %w", err)
+	}
+
+	if !info.IsDir() {
+		return nil, fmt.Errorf("path is not a directory: %s", req.Path)
+	}
+
+	// List files
+	response := &ListDirectoryResponse{
+		Files:       make([]*ProfilerFileEntry, 0),
+		Path:        req.Path,
+		ScannedDirs: 0,
+	}
+
+	maxDepth := req.MaxDepth
+	if maxDepth <= 0 {
+		maxDepth = 10 // Default max depth to prevent infinite recursion
+	}
+
+	err = p.scanDirectory(containerPath, req.Path, req.Patterns, req.Recursive, maxDepth, 0, response)
+	if err != nil {
+		return nil, fmt.Errorf("failed to scan directory: %w", err)
+	}
+
+	response.TotalFiles = len(response.Files)
+
+	log.Infof("Listed directory for profiler files: pid=%d, path=%s, files=%d, dirs_scanned=%d",
+		pid, req.Path, response.TotalFiles, response.ScannedDirs)
+
+	return response, nil
+}
+
+// scanDirectory recursively scans a directory for profiler files
+func (p *ProfilerReader) scanDirectory(
+	containerPath string,
+	relativePath string,
+	patterns []string,
+	recursive bool,
+	maxDepth int,
+	currentDepth int,
+	response *ListDirectoryResponse,
+) error {
+	response.ScannedDirs++
+
+	entries, err := os.ReadDir(containerPath)
+	if err != nil {
+		log.Warnf("Failed to read directory %s: %v", containerPath, err)
+		return nil // Don't fail on permission errors, just skip
+	}
+
+	for _, entry := range entries {
+		entryPath := filepath.Join(containerPath, entry.Name())
+		relativeEntryPath := filepath.Join(relativePath, entry.Name())
+
+		if entry.IsDir() {
+			// Recurse into subdirectory if enabled and within depth limit
+			if recursive && currentDepth < maxDepth {
+				err := p.scanDirectory(entryPath, relativeEntryPath, patterns, recursive, maxDepth, currentDepth+1, response)
+				if err != nil {
+					log.Warnf("Failed to scan subdirectory %s: %v", entryPath, err)
+				}
+			}
+			continue
+		}
+
+		// Check if file matches patterns
+		if len(patterns) > 0 && !matchAnyPattern(entry.Name(), patterns) {
+			continue
+		}
+
+		// Get file info
+		info, err := entry.Info()
+		if err != nil {
+			log.Warnf("Failed to get file info for %s: %v", entryPath, err)
+			continue
+		}
+
+		// Identify profiler file type and confidence
+		fileType := identifyProfilerFileType(entry.Name())
+		confidence := getProfilerFileConfidence(entry.Name(), fileType)
+
+		// Only include files that look like profiler files
+		if fileType == processtree.ProfilerTypeUnknown && len(patterns) == 0 {
+			continue
+		}
+
+		response.Files = append(response.Files, &ProfilerFileEntry{
+			Path:       relativeEntryPath,
+			Name:       entry.Name(),
+			Size:       info.Size(),
+			ModTime:    info.ModTime().Format("2006-01-02T15:04:05Z07:00"),
+			IsDir:      false,
+			FileType:   fileType,
+			Confidence: confidence,
+		})
+	}
+
+	return nil
+}
+
+// matchAnyPattern checks if filename matches any of the glob patterns
+func matchAnyPattern(filename string, patterns []string) bool {
+	for _, pattern := range patterns {
+		matched, err := filepath.Match(pattern, filename)
+		if err != nil {
+			log.Warnf("Invalid pattern %s: %v", pattern, err)
+			continue
+		}
+		if matched {
+			return true
+		}
+	}
+	return false
+}
+
+// getProfilerFileConfidence returns confidence level for a profiler file
+func getProfilerFileConfidence(filename string, fileType processtree.PyTorchProfilerFileType) string {
+	lowerName := strings.ToLower(filename)
+
+	// High confidence patterns
+	if fileType == processtree.ProfilerTypePyTorchTrace ||
+		fileType == processtree.ProfilerTypeKineto ||
+		strings.Contains(lowerName, "primus-megatron") {
+		return "high"
+	}
+
+	// Medium confidence patterns
+	if fileType == processtree.ProfilerTypeStackTrace ||
+		fileType == processtree.ProfilerTypeMemoryDump ||
+		strings.Contains(lowerName, "profiler") ||
+		strings.Contains(lowerName, "torch_profiler") {
+		return "medium"
+	}
+
+	// Low confidence - generic JSON files in profiler directories
+	if strings.HasSuffix(lowerName, ".json") || strings.HasSuffix(lowerName, ".json.gz") {
+		return "low"
+	}
+
+	return "unknown"
+}

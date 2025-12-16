@@ -5,31 +5,33 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/profiler/storage"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/node-exporter/pkg/client"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/node-exporter/pkg/types"
 )
 
 // CollectorConfig represents profiler collector configuration
 type CollectorConfig struct {
-	AutoCollect   bool                 `yaml:"auto_collect"`
-	Interval      int                  `yaml:"interval"` // Collection interval in seconds
-	Filter        *FilterConfig        `yaml:"filter"`
-	Storage       *storage.StorageConfig `yaml:"storage"`
+	AutoCollect bool                   `yaml:"auto_collect"`
+	Interval    int                    `yaml:"interval"` // Collection interval in seconds
+	Filter      *FilterConfig          `yaml:"filter"`
+	Storage     *storage.StorageConfig `yaml:"storage"`
 }
 
 // FilterConfig represents file filtering configuration
 type FilterConfig struct {
-	MinConfidence  string   `yaml:"min_confidence"`   // "high", "medium", "low"
-	MaxFileSize    int64    `yaml:"max_file_size"`    // Maximum file size in bytes
-	AllowedTypes   []string `yaml:"allowed_types"`    // Allowed file types
-	RequireFramework bool   `yaml:"require_framework"` // Require framework detection
+	MinConfidence    string   `yaml:"min_confidence"`    // "high", "medium", "low"
+	MaxFileSize      int64    `yaml:"max_file_size"`     // Maximum file size in bytes
+	AllowedTypes     []string `yaml:"allowed_types"`     // Allowed file types
+	RequireFramework bool     `yaml:"require_framework"` // Require framework detection
 }
 
 // Collector collects and archives profiler files
 type Collector struct {
 	config         *CollectorConfig
 	storageBackend storage.StorageBackend
-	nodeClient     *NodeExporterClient
+	nodeClient     *client.Client // Use official node-exporter client directly
 }
 
 // NewCollector creates a new profiler collector
@@ -56,10 +58,14 @@ func NewCollector(config *CollectorConfig, storageBackend storage.StorageBackend
 		}
 	}
 
+	// Create official node-exporter client with extended timeout for large files
+	clientConfig := client.DefaultConfig(nodeExporterURL)
+	clientConfig.Timeout = 5 * time.Minute // Extended timeout for large profiler files
+
 	collector := &Collector{
 		config:         config,
 		storageBackend: storageBackend,
-		nodeClient:     NewNodeExporterClient(nodeExporterURL),
+		nodeClient:     client.NewClient(clientConfig),
 	}
 
 	log.Infof("Initialized profiler collector: auto_collect=%v, interval=%ds, storage=%s",
@@ -70,14 +76,14 @@ func NewCollector(config *CollectorConfig, storageBackend storage.StorageBackend
 
 // ProfilerFileInfo represents discovered profiler file information
 type ProfilerFileInfo struct {
-	PID          int       `json:"pid"`
-	FD           string    `json:"fd"`
-	FilePath     string    `json:"file_path"`
-	FileName     string    `json:"file_name"`
-	FileType     string    `json:"file_type"`
-	FileSize     int64     `json:"file_size"`
-	Confidence   string    `json:"confidence"` // high/medium/low
-	DetectedAt   time.Time `json:"detected_at"`
+	PID        int       `json:"pid"`
+	FD         string    `json:"fd"`
+	FilePath   string    `json:"file_path"`
+	FileName   string    `json:"file_name"`
+	FileType   string    `json:"file_type"`
+	FileSize   int64     `json:"file_size"`
+	Confidence string    `json:"confidence"` // high/medium/low
+	DetectedAt time.Time `json:"detected_at"`
 }
 
 // CollectionRequest represents a collection request
@@ -104,16 +110,16 @@ type CollectionResult struct {
 
 // ArchivedFileInfo represents an archived file
 type ArchivedFileInfo struct {
-	FileName     string    `json:"file_name"`
-	FilePath     string    `json:"file_path"`
-	FileType     string    `json:"file_type"`
-	FileSize     int64     `json:"file_size"`
-	StorageType  string    `json:"storage_type"`
-	StoragePath  string    `json:"storage_path"`
-	DownloadURL  string    `json:"download_url"`
-	CollectedAt  time.Time `json:"collected_at"`
-	Skipped      bool      `json:"skipped,omitempty"`
-	SkipReason   string    `json:"skip_reason,omitempty"`
+	FileName    string    `json:"file_name"`
+	FilePath    string    `json:"file_path"`
+	FileType    string    `json:"file_type"`
+	FileSize    int64     `json:"file_size"`
+	StorageType string    `json:"storage_type"`
+	StoragePath string    `json:"storage_path"`
+	DownloadURL string    `json:"download_url"`
+	CollectedAt time.Time `json:"collected_at"`
+	Skipped     bool      `json:"skipped,omitempty"`
+	SkipReason  string    `json:"skip_reason,omitempty"`
 }
 
 // CollectFiles collects profiler files based on discovery results
@@ -266,19 +272,8 @@ func (c *Collector) collectSingleFile(
 	log.Infof("Collecting file: %s (type=%s, size=%d bytes)",
 		fileInfo.FileName, fileInfo.FileType, fileInfo.FileSize)
 
-	// Step 1: Read file from node-exporter
-	var content []byte
-	var err error
-
-	// Use chunked reading for large files (> 50MB)
-	chunkThreshold := int64(50 * 1024 * 1024)
-	if fileInfo.FileSize > chunkThreshold {
-		log.Debugf("Using chunked reading for large file: %s (%d bytes)", fileInfo.FileName, fileInfo.FileSize)
-		content, err = c.nodeClient.ReadProfilerFileChunked(ctx, req.PodUID, fileInfo.FilePath, 10*1024*1024)
-	} else {
-		content, err = c.nodeClient.ReadProfilerFile(ctx, req.PodUID, fileInfo.FilePath)
-	}
-
+	// Step 1: Read file from node-exporter using the official client
+	content, err := c.readFileFromContainer(ctx, req, fileInfo)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read file from node-exporter: %w", err)
 	}
@@ -295,11 +290,11 @@ func (c *Collector) collectSingleFile(
 		Content:     content,
 		Compressed:  false, // Content from node-exporter is not compressed
 		Metadata: map[string]string{
-			"pod_uid":      req.PodUID,
-			"pod_name":     req.PodName,
+			"pod_uid":       req.PodUID,
+			"pod_name":      req.PodName,
 			"pod_namespace": req.PodNamespace,
-			"confidence":   fileInfo.Confidence,
-			"detected_at":  fileInfo.DetectedAt.Format(time.RFC3339),
+			"confidence":    fileInfo.Confidence,
+			"detected_at":   fileInfo.DetectedAt.Format(time.RFC3339),
 		},
 	}
 
@@ -330,6 +325,72 @@ func (c *Collector) collectSingleFile(
 	}, nil
 }
 
+// readFileFromContainer reads a file from container using the official node-exporter client
+func (c *Collector) readFileFromContainer(
+	ctx context.Context,
+	req *CollectionRequest,
+	fileInfo *ProfilerFileInfo,
+) ([]byte, error) {
+	// Use chunked reading for large files (> 50MB)
+	chunkThreshold := int64(50 * 1024 * 1024)
+
+	if fileInfo.FileSize > chunkThreshold {
+		log.Debugf("Using chunked reading for large file: %s (%d bytes)", fileInfo.FileName, fileInfo.FileSize)
+		return c.readFileChunked(ctx, req.PodUID, fileInfo.FilePath, 10*1024*1024)
+	}
+
+	// Read entire file at once for smaller files
+	readReq := &types.ContainerFileReadRequest{
+		PodUID: req.PodUID,
+		Path:   fileInfo.FilePath,
+	}
+
+	resp, err := c.nodeClient.ReadContainerFile(ctx, readReq)
+	if err != nil {
+		return nil, err
+	}
+
+	log.Infof("Successfully read profiler file: path=%s, size=%d bytes", fileInfo.FilePath, len(resp.Content))
+	return []byte(resp.Content), nil
+}
+
+// readFileChunked reads a large file in chunks using the official client
+func (c *Collector) readFileChunked(
+	ctx context.Context,
+	podUID string,
+	filePath string,
+	chunkSize int64,
+) ([]byte, error) {
+	var fullContent []byte
+	offset := int64(0)
+
+	for {
+		readReq := &types.ContainerFileReadRequest{
+			PodUID: podUID,
+			Path:   filePath,
+			Offset: offset,
+			Length: chunkSize,
+		}
+
+		resp, err := c.nodeClient.ReadContainerFile(ctx, readReq)
+		if err != nil {
+			return nil, err
+		}
+
+		fullContent = append(fullContent, []byte(resp.Content)...)
+		offset += resp.BytesRead
+
+		log.Debugf("Read chunk: offset=%d, bytes=%d, eof=%v", offset, resp.BytesRead, resp.EOF)
+
+		if resp.EOF {
+			break
+		}
+	}
+
+	log.Infof("Successfully read profiler file in chunks: path=%s, total_size=%d bytes", filePath, len(fullContent))
+	return fullContent, nil
+}
+
 // generateFileID generates a unique file ID
 func generateFileID(workloadUID, fileName string) string {
 	timestamp := time.Now().Unix()
@@ -346,3 +407,7 @@ func (c *Collector) GetStorageBackend() storage.StorageBackend {
 	return c.storageBackend
 }
 
+// GetNodeClient returns the node-exporter client for reuse in other components
+func (c *Collector) GetNodeClient() *client.Client {
+	return c.nodeClient
+}
