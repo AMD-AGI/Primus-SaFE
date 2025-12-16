@@ -3,6 +3,8 @@ package profiler
 import (
 	"context"
 	"fmt"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/profiler/storage"
@@ -410,4 +412,320 @@ func (c *Collector) GetStorageBackend() storage.StorageBackend {
 // GetNodeClient returns the node-exporter client for reuse in other components
 func (c *Collector) GetNodeClient() *client.Client {
 	return c.nodeClient
+}
+
+// LocationCollectionRequest represents a request to collect profiler files from locations
+type LocationCollectionRequest struct {
+	WorkloadUID   string              `json:"workload_uid"`
+	PodUID        string              `json:"pod_uid"`
+	PodName       string              `json:"pod_name"`
+	PodNamespace  string              `json:"pod_namespace"`
+	ContainerName string              `json:"container_name,omitempty"`
+	Framework     string              `json:"framework,omitempty"`
+	Locations     []ProfilerLocation  `json:"locations"`
+	NodeClient    *client.Client      `json:"-"` // Node-exporter client (injected)
+}
+
+// CollectProfilerFilesFromLocations collects profiler files from specified locations
+func (c *Collector) CollectProfilerFilesFromLocations(
+	ctx context.Context,
+	req *LocationCollectionRequest,
+) (*CollectionResult, error) {
+	result := &CollectionResult{
+		WorkloadUID: req.WorkloadUID,
+		CollectedAt: time.Now(),
+		Files:       make([]*ArchivedFileInfo, 0),
+		Errors:      make([]string, 0),
+	}
+
+	log.Infof("Starting profiler file collection from %d locations for workload %s",
+		len(req.Locations), req.WorkloadUID)
+
+	// Use provided nodeClient or fallback to collector's default client
+	nodeClient := req.NodeClient
+	if nodeClient == nil {
+		nodeClient = c.nodeClient
+	}
+
+	// Track already collected files to avoid duplicates
+	collectedFiles := make(map[string]bool)
+
+	for _, location := range req.Locations {
+		log.Debugf("Scanning location: %s (patterns: %v)", location.Directory, location.Patterns)
+
+		// List files in directory
+		listReq := &types.ContainerDirectoryListRequest{
+			PodUID:        req.PodUID,
+			PodName:       req.PodName,
+			PodNamespace:  req.PodNamespace,
+			ContainerName: req.ContainerName,
+			Path:          location.Directory,
+			Recursive:     location.Recursive,
+		}
+
+		listResp, err := nodeClient.ListContainerDirectory(ctx, listReq)
+		if err != nil {
+			errMsg := fmt.Sprintf("failed to list directory %s: %v", location.Directory, err)
+			log.Warnf(errMsg)
+			result.Errors = append(result.Errors, errMsg)
+			continue
+		}
+
+		log.Debugf("Found %d files in %s", listResp.Total, location.Directory)
+
+		// Filter files by patterns
+		for _, fileInfo := range listResp.Files {
+			// Skip if already collected
+			if collectedFiles[fileInfo.Path] {
+				continue
+			}
+
+			// Check if file matches any pattern
+			if !c.matchesAnyPattern(fileInfo.Path, location.Patterns) {
+				continue
+			}
+
+			// Skip if file is too large
+			if fileInfo.Size > c.config.Filter.MaxFileSize {
+				log.Debugf("Skipping file %s: too large (%d > %d bytes)",
+					fileInfo.Path, fileInfo.Size, c.config.Filter.MaxFileSize)
+				result.SkippedFiles++
+				result.Files = append(result.Files, &ArchivedFileInfo{
+					FileName:   fileInfo.Name,
+					FilePath:   fileInfo.Path,
+					FileSize:   fileInfo.Size,
+					Skipped:    true,
+					SkipReason: fmt.Sprintf("file too large (%d bytes)", fileInfo.Size),
+				})
+				continue
+			}
+
+			log.Infof("Found matching profiler file: %s (%d bytes)", fileInfo.Path, fileInfo.Size)
+
+			// Mark as collected to avoid duplicates
+			collectedFiles[fileInfo.Path] = true
+			result.TotalFiles++
+
+			// Convert to ProfilerFileInfo for collection
+			profilerFile := &ProfilerFileInfo{
+				FilePath:   fileInfo.Path,
+				FileName:   fileInfo.Name,
+				FileSize:   fileInfo.Size,
+				FileType:   c.detectFileType(fileInfo.Path),
+				Confidence: "high", // Files matching patterns have high confidence
+				DetectedAt: time.Now(),
+			}
+
+			// Collect the file
+			collectionReq := &CollectionRequest{
+				WorkloadUID:  req.WorkloadUID,
+				PodUID:       req.PodUID,
+				PodName:      req.PodName,
+				PodNamespace: req.PodNamespace,
+				Framework:    req.Framework,
+			}
+
+			archived, err := c.collectSingleFileWithClient(ctx, nodeClient, collectionReq, profilerFile)
+			if err != nil {
+				result.FailedFiles++
+				result.Errors = append(result.Errors, fmt.Sprintf("%s: %v", fileInfo.Path, err))
+				log.Errorf("Failed to collect file %s: %v", fileInfo.Path, err)
+				continue
+			}
+
+			result.ArchivedFiles++
+			result.Files = append(result.Files, archived)
+		}
+	}
+
+	log.Infof("Profiler file collection completed: workload=%s, total=%d, archived=%d, skipped=%d, failed=%d",
+		req.WorkloadUID, result.TotalFiles, result.ArchivedFiles, result.SkippedFiles, result.FailedFiles)
+
+	return result, nil
+}
+
+// matchesAnyPattern checks if a file path matches any of the given patterns
+func (c *Collector) matchesAnyPattern(filePath string, patterns []string) bool {
+	fileName := filepath.Base(filePath)
+	
+	for _, pattern := range patterns {
+		// Try matching both full path and filename
+		if matched, _ := filepath.Match(pattern, fileName); matched {
+			return true
+		}
+		if matched, _ := filepath.Match(pattern, filePath); matched {
+			return true
+		}
+		// Handle patterns with brackets (like primus-megatron-exp[...])
+		// filepath.Match treats [...] as character class, so we need special handling
+		if strings.Contains(pattern, "[") && strings.Contains(pattern, "]") {
+			// Simple containment check for bracket patterns
+			patternParts := strings.Split(pattern, "*")
+			allMatch := true
+			remaining := fileName
+			for _, part := range patternParts {
+				if part == "" {
+					continue
+				}
+				idx := strings.Index(remaining, part)
+				if idx == -1 {
+					allMatch = false
+					break
+				}
+				remaining = remaining[idx+len(part):]
+			}
+			if allMatch {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// detectFileType detects the profiler file type based on filename
+func (c *Collector) detectFileType(filePath string) string {
+	fileName := strings.ToLower(filepath.Base(filePath))
+	
+	if strings.HasSuffix(fileName, ".pt.trace.json.gz") || strings.HasSuffix(fileName, ".pt.trace.json") {
+		return "pytorch_trace"
+	}
+	if strings.Contains(fileName, "kineto") {
+		return "kineto"
+	}
+	if strings.HasSuffix(fileName, ".json") || strings.HasSuffix(fileName, ".json.gz") {
+		return "chrome_trace"
+	}
+	return "unknown"
+}
+
+// collectSingleFileWithClient collects a single profiler file using provided client
+func (c *Collector) collectSingleFileWithClient(
+	ctx context.Context,
+	nodeClient *client.Client,
+	req *CollectionRequest,
+	fileInfo *ProfilerFileInfo,
+) (*ArchivedFileInfo, error) {
+	log.Infof("Collecting file: %s (type=%s, size=%d bytes)",
+		fileInfo.FileName, fileInfo.FileType, fileInfo.FileSize)
+
+	// Step 1: Read file from node-exporter using the provided client
+	content, err := c.readFileWithClient(ctx, nodeClient, req.PodUID, fileInfo)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read file from node-exporter: %w", err)
+	}
+
+	// Step 2: Generate unique file ID
+	fileID := generateFileID(req.WorkloadUID, fileInfo.FileName)
+
+	// Step 3: Store file to storage backend
+	storeReq := &storage.StoreRequest{
+		FileID:      fileID,
+		WorkloadUID: req.WorkloadUID,
+		FileName:    fileInfo.FileName,
+		FileType:    fileInfo.FileType,
+		Content:     content,
+		Compressed:  strings.HasSuffix(fileInfo.FileName, ".gz"),
+		Metadata: map[string]string{
+			"pod_uid":       req.PodUID,
+			"pod_name":      req.PodName,
+			"pod_namespace": req.PodNamespace,
+			"file_type":     fileInfo.FileType,
+			"detected_at":   fileInfo.DetectedAt.Format(time.RFC3339),
+			"original_path": fileInfo.FilePath,
+		},
+	}
+
+	storeResp, err := c.storageBackend.Store(ctx, storeReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to store file: %w", err)
+	}
+
+	// Step 4: Generate download URL
+	downloadURL, err := c.storageBackend.GenerateDownloadURL(ctx, storeResp.StoragePath, 7*24*time.Hour)
+	if err != nil {
+		log.Warnf("Failed to generate download URL: %v", err)
+		downloadURL = fmt.Sprintf("/api/v1/profiler/files/%s/download", fileID)
+	}
+
+	log.Infof("Successfully archived file: %s -> %s (%s)",
+		fileInfo.FileName, storeResp.StoragePath, storeResp.StorageType)
+
+	return &ArchivedFileInfo{
+		FileName:    fileInfo.FileName,
+		FilePath:    fileInfo.FilePath,
+		FileType:    fileInfo.FileType,
+		FileSize:    storeResp.Size,
+		StorageType: storeResp.StorageType,
+		StoragePath: storeResp.StoragePath,
+		DownloadURL: downloadURL,
+		CollectedAt: time.Now(),
+	}, nil
+}
+
+// readFileWithClient reads a file from container using provided node-exporter client
+func (c *Collector) readFileWithClient(
+	ctx context.Context,
+	nodeClient *client.Client,
+	podUID string,
+	fileInfo *ProfilerFileInfo,
+) ([]byte, error) {
+	// Use chunked reading for large files (> 50MB)
+	chunkThreshold := int64(50 * 1024 * 1024)
+
+	if fileInfo.FileSize > chunkThreshold {
+		log.Debugf("Using chunked reading for large file: %s (%d bytes)", fileInfo.FileName, fileInfo.FileSize)
+		return c.readFileChunkedWithClient(ctx, nodeClient, podUID, fileInfo.FilePath, 10*1024*1024)
+	}
+
+	// Read entire file at once for smaller files
+	readReq := &types.ContainerFileReadRequest{
+		PodUID: podUID,
+		Path:   fileInfo.FilePath,
+	}
+
+	resp, err := nodeClient.ReadContainerFile(ctx, readReq)
+	if err != nil {
+		return nil, err
+	}
+
+	log.Infof("Successfully read profiler file: path=%s, size=%d bytes", fileInfo.FilePath, len(resp.Content))
+	return []byte(resp.Content), nil
+}
+
+// readFileChunkedWithClient reads a large file in chunks using provided client
+func (c *Collector) readFileChunkedWithClient(
+	ctx context.Context,
+	nodeClient *client.Client,
+	podUID string,
+	filePath string,
+	chunkSize int64,
+) ([]byte, error) {
+	var fullContent []byte
+	offset := int64(0)
+
+	for {
+		readReq := &types.ContainerFileReadRequest{
+			PodUID: podUID,
+			Path:   filePath,
+			Offset: offset,
+			Length: chunkSize,
+		}
+
+		resp, err := nodeClient.ReadContainerFile(ctx, readReq)
+		if err != nil {
+			return nil, err
+		}
+
+		fullContent = append(fullContent, []byte(resp.Content)...)
+		offset += resp.BytesRead
+
+		log.Debugf("Read chunk: offset=%d, bytes=%d, eof=%v", offset, resp.BytesRead, resp.EOF)
+
+		if resp.EOF {
+			break
+		}
+	}
+
+	log.Infof("Successfully read profiler file in chunks: path=%s, total_size=%d bytes", filePath, len(fullContent))
+	return fullContent, nil
 }

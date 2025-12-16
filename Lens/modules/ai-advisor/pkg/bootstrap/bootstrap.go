@@ -107,8 +107,10 @@ func Bootstrap(ctx context.Context) error {
 			log.Info("Metadata collector initialized successfully")
 		}
 
-		// Initialize task scheduler
-		taskScheduler := coreTask.NewTaskScheduler(instanceID, coreTask.DefaultSchedulerConfig())
+		// Initialize task scheduler with custom config
+		schedulerConfig := coreTask.DefaultSchedulerConfig()
+		schedulerConfig.MaxConcurrentTasks = 20 // Increase from default 10 to 20
+		taskScheduler := coreTask.NewTaskScheduler(instanceID, schedulerConfig)
 
 		// Register metadata collection executor
 		metadataExecutor := advisorTask.NewMetadataCollectionExecutor(metadata.GetCollector())
@@ -127,7 +129,8 @@ func Bootstrap(ctx context.Context) error {
 		}
 
 		// Initialize profiler services (includes ProfilerCollectionExecutor registration)
-		if err := InitProfilerServices(ctx, taskScheduler); err != nil {
+		// Pass metadata collector for node-exporter client access
+		if err := InitProfilerServices(ctx, taskScheduler, metadata.GetCollector()); err != nil {
 			log.Errorf("Failed to initialize profiler services: %v", err)
 			// Don't block startup, but warn
 		} else {
