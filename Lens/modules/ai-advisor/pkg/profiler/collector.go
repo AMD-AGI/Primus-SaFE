@@ -112,16 +112,22 @@ type CollectionResult struct {
 
 // ArchivedFileInfo represents an archived file
 type ArchivedFileInfo struct {
-	FileName    string    `json:"file_name"`
-	FilePath    string    `json:"file_path"`
-	FileType    string    `json:"file_type"`
-	FileSize    int64     `json:"file_size"`
-	StorageType string    `json:"storage_type"`
-	StoragePath string    `json:"storage_path"`
-	DownloadURL string    `json:"download_url"`
-	CollectedAt time.Time `json:"collected_at"`
-	Skipped     bool      `json:"skipped,omitempty"`
-	SkipReason  string    `json:"skip_reason,omitempty"`
+	FileName           string               `json:"file_name"`
+	FilePath           string               `json:"file_path"`
+	FileType           string               `json:"file_type"`
+	FileSize           int64                `json:"file_size"`
+	StorageType        string               `json:"storage_type"`
+	StoragePath        string               `json:"storage_path"`
+	DownloadURL        string               `json:"download_url"`
+	CollectedAt        time.Time            `json:"collected_at"`
+	Skipped            bool                 `json:"skipped,omitempty"`
+	SkipReason         string               `json:"skip_reason,omitempty"`
+	// Workload matching fields
+	MatchedWorkloads   []FileWorkloadMatch  `json:"matched_workloads,omitempty"`
+	PrimaryWorkloadUID string               `json:"primary_workload_uid,omitempty"`
+	MatchConfidence    string               `json:"match_confidence,omitempty"`
+	HasConflict        bool                 `json:"has_conflict,omitempty"`
+	ConflictReason     string               `json:"conflict_reason,omitempty"`
 }
 
 // CollectFiles collects profiler files based on discovery results
@@ -416,15 +422,16 @@ func (c *Collector) GetNodeClient() *client.Client {
 
 // LocationCollectionRequest represents a request to collect profiler files from locations
 type LocationCollectionRequest struct {
-	WorkloadUID   string              `json:"workload_uid"`
-	PodUID        string              `json:"pod_uid"`
-	PodName       string              `json:"pod_name"`
-	PodNamespace  string              `json:"pod_namespace"`
-	ContainerName string              `json:"container_name,omitempty"`
-	Framework     string              `json:"framework,omitempty"`
-	Locations     []ProfilerLocation  `json:"locations"`
-	NodeClient    *client.Client      `json:"-"` // Node-exporter client (injected)
-	WorkingDir    string              `json:"working_dir,omitempty"` // Pod's working directory for resolving relative paths
+	WorkloadUID        string              `json:"workload_uid"`
+	PodUID             string              `json:"pod_uid"`
+	PodName            string              `json:"pod_name"`
+	PodNamespace       string              `json:"pod_namespace"`
+	ContainerName      string              `json:"container_name,omitempty"`
+	Framework          string              `json:"framework,omitempty"`
+	Locations          []ProfilerLocation  `json:"locations"`
+	NodeClient         *client.Client      `json:"-"` // Node-exporter client (injected)
+	WorkingDir         string              `json:"working_dir,omitempty"` // Pod's working directory for resolving relative paths
+	EnableFileMatcher  bool                `json:"enable_file_matcher,omitempty"` // Enable file-workload timestamp matching
 }
 
 // CollectProfilerFilesFromLocations collects profiler files from specified locations
@@ -446,6 +453,13 @@ func (c *Collector) CollectProfilerFilesFromLocations(
 	nodeClient := req.NodeClient
 	if nodeClient == nil {
 		nodeClient = c.nodeClient
+	}
+
+	// Initialize file-workload matcher if enabled
+	var fileMatcher *FileWorkloadMatcher
+	if req.EnableFileMatcher {
+		fileMatcher = NewFileWorkloadMatcher()
+		log.Infof("File-workload timestamp matching enabled for workload %s", req.WorkloadUID)
 	}
 
 	// Track already collected files to avoid duplicates
@@ -539,6 +553,30 @@ func (c *Collector) CollectProfilerFilesFromLocations(
 				result.Errors = append(result.Errors, fmt.Sprintf("%s: %v", fileInfo.Path, err))
 				log.Errorf("Failed to collect file %s: %v", fileInfo.Path, err)
 				continue
+			}
+
+			// Apply file-workload matching if enabled
+			if fileMatcher != nil {
+				matchResult, matchErr := fileMatcher.MatchFileToWorkloads(ctx, fileInfo.Path, req.PodNamespace)
+				if matchErr != nil {
+					log.Warnf("Failed to match file %s to workloads: %v", fileInfo.Path, matchErr)
+				} else if matchResult != nil {
+					archived.MatchedWorkloads = matchResult.Matches
+					archived.MatchConfidence = matchResult.GetConfidence()
+					archived.HasConflict = matchResult.HasConflict
+					archived.ConflictReason = matchResult.ConflictReason
+					
+					if matchResult.PrimaryMatch != nil {
+						archived.PrimaryWorkloadUID = matchResult.PrimaryMatch.WorkloadUID
+						
+						// Log conflict warning
+						if matchResult.HasConflict {
+							workloadUIDs := matchResult.GetAllMatchedWorkloadUIDs()
+							log.Warnf("File %s has conflict: matched to %d workloads: %v (primary: %s)",
+								fileInfo.Path, len(workloadUIDs), workloadUIDs, archived.PrimaryWorkloadUID)
+						}
+					}
+				}
 			}
 
 			result.ArchivedFiles++

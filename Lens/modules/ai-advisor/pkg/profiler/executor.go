@@ -164,13 +164,14 @@ func (e *ProfilerCollectionExecutor) Execute(
 	if nodeClient != nil && e.collector != nil {
 		// Build collection request with ProfilerLocation slice
 		collectionReq := &LocationCollectionRequest{
-			WorkloadUID:  workloadUID,
-			PodUID:       gpuPod.UID,
-			PodName:      gpuPod.Name,
-			PodNamespace: gpuPod.Namespace,
-			Framework:    "",
-			Locations:    profilerLocations,
-			NodeClient:   nodeClient,
+			WorkloadUID:       workloadUID,
+			PodUID:            gpuPod.UID,
+			PodName:           gpuPod.Name,
+			PodNamespace:      gpuPod.Namespace,
+			Framework:         "",
+			Locations:         profilerLocations,
+			NodeClient:        nodeClient,
+			EnableFileMatcher: true, // Enable file-workload timestamp matching for conflict detection
 		}
 
 		// Set framework if available
