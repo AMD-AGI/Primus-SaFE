@@ -126,6 +126,14 @@ func Bootstrap(ctx context.Context) error {
 			log.Info("TensorBoard stream executor registered")
 		}
 
+		// Initialize profiler services (includes ProfilerCollectionExecutor registration)
+		if err := InitProfilerServices(ctx, taskScheduler); err != nil {
+			log.Errorf("Failed to initialize profiler services: %v", err)
+			// Don't block startup, but warn
+		} else {
+			log.Info("Profiler services initialized successfully")
+		}
+
 		// Start task scheduler
 		if err := taskScheduler.Start(); err != nil {
 			log.Errorf("Failed to start task scheduler: %v", err)
