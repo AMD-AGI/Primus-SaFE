@@ -543,23 +543,29 @@ func (e *MetadataCollectionExecutor) collectAndSaveFrameworkConfig(
 	configService := profiler.NewFrameworkConfigService()
 	frameworkConfig := configService.BuildFrameworkConfig(ctx, framework, rawConfig, configPath, env)
 
-	// Save to metadata
-	if err := e.saveFrameworkConfig(ctx, workloadUID, frameworkConfig); err != nil {
+	// Save to metadata (including working directory for profiler collection)
+	workingDir := ""
+	if pythonProcess != nil && pythonProcess.Cwd != "" {
+		workingDir = pythonProcess.Cwd
+	}
+	if err := e.saveFrameworkConfig(ctx, workloadUID, frameworkConfig, workingDir); err != nil {
 		log.Warnf("Failed to save framework config for workload %s: %v", workloadUID, err)
 		// Don't fail the entire operation, just log the error
 	} else {
-		log.Infof("Framework config saved for workload %s: profiler_dir=%s",
-			workloadUID, frameworkConfig.ExtractedPaths.ProfilerDir)
+		log.Infof("Framework config saved for workload %s: profiler_dir=%s, working_dir=%s",
+			workloadUID, frameworkConfig.ExtractedPaths.ProfilerDir, workingDir)
 	}
 
 	return frameworkConfig, nil
 }
 
 // saveFrameworkConfig saves framework config to ai_workload_metadata.metadata.framework_config
+// Also saves working_dir for profiler collection to resolve relative paths
 func (e *MetadataCollectionExecutor) saveFrameworkConfig(
 	ctx context.Context,
 	workloadUID string,
 	config *profiler.FrameworkConfig,
+	workingDir string,
 ) error {
 	// Get current metadata
 	currentMetadata, err := e.metadataFacade.GetAiWorkloadMetadata(ctx, workloadUID)
@@ -609,6 +615,11 @@ func (e *MetadataCollectionExecutor) saveFrameworkConfig(
 
 	// Update metadata
 	currentMetadata.Metadata["framework_config"] = frameworkConfigMap
+
+	// Also save working_dir for profiler collection to resolve relative paths
+	if workingDir != "" {
+		currentMetadata.Metadata["working_dir"] = workingDir
+	}
 
 	// Save back to database
 	if err := e.metadataFacade.UpdateAiWorkloadMetadata(ctx, currentMetadata); err != nil {
