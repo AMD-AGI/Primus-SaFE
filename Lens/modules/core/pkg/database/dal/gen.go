@@ -61,6 +61,9 @@ func Use(db *gorm.DB, opts ...gen.DOOption) *Query {
 		NodeNamespaceMappingHistory: newNodeNamespaceMappingHistory(db, opts...),
 		PodResource:                 newPodResource(db, opts...),
 		PodSnapshot:                 newPodSnapshot(db, opts...),
+		ProfilerAnalysis:            newProfilerAnalysis(db, opts...),
+		ProfilerFileContent:         newProfilerFileContent(db, opts...),
+		ProfilerFiles:               newProfilerFiles(db, opts...),
 		RdmaDevice:                  newRdmaDevice(db, opts...),
 		ReuseEffectivenessLog:       newReuseEffectivenessLog(db, opts...),
 		SilencedAlerts:              newSilencedAlerts(db, opts...),
@@ -124,6 +127,9 @@ type Query struct {
 	NodeNamespaceMappingHistory nodeNamespaceMappingHistory
 	PodResource                 podResource
 	PodSnapshot                 podSnapshot
+	ProfilerAnalysis            profilerAnalysis
+	ProfilerFileContent         profilerFileContent
+	ProfilerFiles               profilerFiles
 	RdmaDevice                  rdmaDevice
 	ReuseEffectivenessLog       reuseEffectivenessLog
 	SilencedAlerts              silencedAlerts
@@ -188,6 +194,9 @@ func (q *Query) clone(db *gorm.DB) *Query {
 		NodeNamespaceMappingHistory: q.NodeNamespaceMappingHistory.clone(db),
 		PodResource:                 q.PodResource.clone(db),
 		PodSnapshot:                 q.PodSnapshot.clone(db),
+		ProfilerAnalysis:            q.ProfilerAnalysis.clone(db),
+		ProfilerFileContent:         q.ProfilerFileContent.clone(db),
+		ProfilerFiles:               q.ProfilerFiles.clone(db),
 		RdmaDevice:                  q.RdmaDevice.clone(db),
 		ReuseEffectivenessLog:       q.ReuseEffectivenessLog.clone(db),
 		SilencedAlerts:              q.SilencedAlerts.clone(db),
@@ -259,6 +268,9 @@ func (q *Query) ReplaceDB(db *gorm.DB) *Query {
 		NodeNamespaceMappingHistory: q.NodeNamespaceMappingHistory.replaceDB(db),
 		PodResource:                 q.PodResource.replaceDB(db),
 		PodSnapshot:                 q.PodSnapshot.replaceDB(db),
+		ProfilerAnalysis:            q.ProfilerAnalysis.replaceDB(db),
+		ProfilerFileContent:         q.ProfilerFileContent.replaceDB(db),
+		ProfilerFiles:               q.ProfilerFiles.replaceDB(db),
 		RdmaDevice:                  q.RdmaDevice.replaceDB(db),
 		ReuseEffectivenessLog:       q.ReuseEffectivenessLog.replaceDB(db),
 		SilencedAlerts:              q.SilencedAlerts.replaceDB(db),
@@ -320,6 +332,9 @@ type queryCtx struct {
 	NodeNamespaceMappingHistory *nodeNamespaceMappingHistoryDo
 	PodResource                 *podResourceDo
 	PodSnapshot                 *podSnapshotDo
+	ProfilerAnalysis            *profilerAnalysisDo
+	ProfilerFileContent         *profilerFileContentDo
+	ProfilerFiles               *profilerFilesDo
 	RdmaDevice                  *rdmaDeviceDo
 	ReuseEffectivenessLog       *reuseEffectivenessLogDo
 	SilencedAlerts              *silencedAlertsDo
@@ -381,6 +396,9 @@ func (q *Query) WithContext(ctx context.Context) *queryCtx {
 		NodeNamespaceMappingHistory: q.NodeNamespaceMappingHistory.WithContext(ctx),
 		PodResource:                 q.PodResource.WithContext(ctx),
 		PodSnapshot:                 q.PodSnapshot.WithContext(ctx),
+		ProfilerAnalysis:            q.ProfilerAnalysis.WithContext(ctx),
+		ProfilerFileContent:         q.ProfilerFileContent.WithContext(ctx),
+		ProfilerFiles:               q.ProfilerFiles.WithContext(ctx),
 		RdmaDevice:                  q.RdmaDevice.WithContext(ctx),
 		ReuseEffectivenessLog:       q.ReuseEffectivenessLog.WithContext(ctx),
 		SilencedAlerts:              q.SilencedAlerts.WithContext(ctx),

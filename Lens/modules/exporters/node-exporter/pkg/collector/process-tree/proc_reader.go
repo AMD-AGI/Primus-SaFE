@@ -5,6 +5,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // ProcReader reads process information from /proc filesystem
@@ -414,4 +415,92 @@ func (r *ProcReader) GetProcessArguments(pid int) (string, []string, error) {
 	cmdline := strings.Join(args, " ")
 
 	return cmdline, args, nil
+}
+
+// ScanPyTorchProfilerFiles scans all processes for PyTorch Profiler files
+func (r *ProcReader) ScanPyTorchProfilerFiles(pids []int) []*PyTorchProfilerFileInfo {
+	var profilerFiles []*PyTorchProfilerFileInfo
+
+	for _, pid := range pids {
+		fdDir := fmt.Sprintf("/proc/%d/fd", pid)
+		fdEntries, err := os.ReadDir(fdDir)
+		if err != nil {
+			continue
+		}
+
+		for _, fdEntry := range fdEntries {
+			fdPath := fmt.Sprintf("%s/%s", fdDir, fdEntry.Name())
+			target, err := os.Readlink(fdPath)
+			if err != nil {
+				continue
+			}
+
+			fileInfo := r.identifyProfilerFile(pid, fdEntry.Name(), target)
+			if fileInfo != nil {
+				profilerFiles = append(profilerFiles, fileInfo)
+			}
+		}
+	}
+
+	return profilerFiles
+}
+
+// identifyProfilerFile identifies if a file is a PyTorch Profiler file and returns its metadata
+func (r *ProcReader) identifyProfilerFile(pid int, fd, filePath string) *PyTorchProfilerFileInfo {
+	fileName := extractFileName(filePath)
+	fileType := ProfilerTypeUnknown
+	confidence := "low"
+
+	lowerPath := strings.ToLower(filePath)
+	lowerName := strings.ToLower(fileName)
+
+	// High confidence patterns
+	if strings.HasSuffix(lowerName, ".pt.trace.json") {
+		fileType = ProfilerTypePyTorchTrace
+		confidence = "high"
+	} else if strings.HasSuffix(lowerName, ".stacks") {
+		fileType = ProfilerTypeStackTrace
+		confidence = "high"
+	} else if strings.Contains(lowerName, "kineto") && strings.HasSuffix(lowerName, ".json") {
+		fileType = ProfilerTypeKineto
+		confidence = "high"
+	} else if strings.Contains(lowerName, "memory_snapshot") && (strings.HasSuffix(lowerName, ".pickle") || strings.HasSuffix(lowerName, ".pkl")) {
+		fileType = ProfilerTypeMemoryDump
+		confidence = "medium"
+	} else if (strings.Contains(lowerName, "profiler") || strings.Contains(lowerName, "torch_profiler")) &&
+		(strings.HasSuffix(lowerName, ".json") || strings.HasSuffix(lowerName, ".json.gz")) {
+		fileType = ProfilerTypeChromeTrace
+		confidence = "high"
+	} else if strings.Contains(lowerPath, "/profiler") || strings.Contains(lowerPath, "/torch_profiler") {
+		if strings.HasSuffix(lowerName, ".json") || strings.HasSuffix(lowerName, ".json.gz") {
+			fileType = ProfilerTypeChromeTrace
+			confidence = "medium"
+		}
+	} else {
+		return nil
+	}
+
+	var fileSize int64
+	if stat, err := os.Stat(filePath); err == nil {
+		fileSize = stat.Size()
+	}
+
+	if fileSize < 1024 || fileSize > 10*1024*1024*1024 {
+		return nil
+	}
+
+	return &PyTorchProfilerFileInfo{
+		PID:        pid,
+		FD:         fd,
+		FilePath:   filePath,
+		FileName:   fileName,
+		FileType:   fileType,
+		FileSize:   fileSize,
+		Confidence: confidence,
+		DetectedAt: getCurrentTime(),
+	}
+}
+
+func getCurrentTime() time.Time {
+	return time.Now()
 }
