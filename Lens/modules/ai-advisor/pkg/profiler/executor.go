@@ -178,11 +178,13 @@ func (e *ProfilerCollectionExecutor) Execute(
 			collectionReq.Framework = frameworkConfig.Framework
 		}
 
-		// Get working directory from task state ext (python_process.cwd)
-		if pythonProcess := e.GetExtMap(taskState, "python_process"); pythonProcess != nil {
-			if cwd, ok := pythonProcess["cwd"].(string); ok && cwd != "" {
-				collectionReq.WorkingDir = cwd
-				log.Debugf("Using working directory from python_process: %s", cwd)
+		// Get working directory from ai_workload_metadata.metadata.working_dir
+		// (saved by metadata_collection_executor when collecting framework config)
+		metadata, err := e.metadataFacade.GetAiWorkloadMetadata(ctx, workloadUID)
+		if err == nil && metadata != nil && metadata.Metadata != nil {
+			if workingDir, ok := metadata.Metadata["working_dir"].(string); ok && workingDir != "" {
+				collectionReq.WorkingDir = workingDir
+				log.Debugf("Using working directory from ai_workload_metadata: %s", workingDir)
 			}
 		}
 
