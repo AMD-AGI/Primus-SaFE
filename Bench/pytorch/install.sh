@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
+# Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
 # See LICENSE for license information.
 #
 
@@ -10,6 +10,7 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 export ROCM_VERSION=$ROCM_VERSION
+echo "Using ROCM_VERSION: $ROCM_VERSION"
 
 pip3 install torch torchvision --index-url https://download.pytorch.org/whl/rocm6.4
 if [ $? -ne 0 ]; then
