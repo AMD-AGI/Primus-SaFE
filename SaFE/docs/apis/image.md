@@ -38,7 +38,16 @@ An image represents a container image artifact stored in the internal Harbor reg
     "tag": "pytorch:2.0-cuda11.8",
     "description": "PyTorch 2.0 with CUDA 11.8",
     "created_at": 1705305600,
-    "created_by": "admin"
+    "created_by": "admin",
+    "secretId": ""
+  },
+  {
+    "id": 124,
+    "tag": "my-private-image:v1",
+    "description": "Private image requiring authentication",
+    "created_at": 1705305700,
+    "created_by": "admin",
+    "secretId": "my-image-secret"
   }
 ]
 ```
@@ -63,13 +72,31 @@ An image represents a container image artifact stored in the internal Harbor reg
           "arch": "amd64",
           "os": "linux",
           "digest": "sha256:abc123...",
-          "includeType": "full"
+          "includeType": "full",
+          "secretId": ""
+        },
+        {
+          "imageTag": "private-v1",
+          "description": "Private image",
+          "createdTime": "2025-01-15T11:00:00",
+          "userName": "admin",
+          "status": "ready",
+          "id": 124,
+          "size": 2147483648,
+          "arch": "amd64",
+          "os": "linux",
+          "digest": "sha256:def456...",
+          "includeType": "full",
+          "secretId": "my-image-secret"
         }
       ]
     }
   ]
 }
 ```
+
+**New Field for Private Image Support**:
+- `secretId`: The secret ID associated with the image for source registry authentication (empty if not provided)
 
 ---
 
@@ -102,9 +129,18 @@ Import image from external registry to internal Harbor.
 }
 ```
 
+**Request Example (Private Image with Secret)**:
+```json
+{
+  "source": "my-private-registry.com/myrepo/myimage:v1",
+  "secretId": "my-image-secret-id"
+}
+```
+
 **Field Description**:
 - `source`: Source image full address
 - `sourceRegistry`: Source image registry address (optional)
+- `secretId`: Optional secret ID for private image authentication. The secret must be of type "image" (created via `/api/v1/secrets` with `type=image`). If provided, the image will be marked as private and require this secret to pull.
 
 **Response Example**:
 ```json
@@ -119,6 +155,11 @@ Import image from external registry to internal Harbor.
 - `0`: Import failed
 - `1`: Import started
 - `2`: Image already exists
+
+**Notes on Private Images**:
+- When `secretId` is provided, the secret is used to authenticate against the source registry during import
+- The secret must exist in the system and be of type "image"
+- When listing images, check if `secretId` is empty to determine if it was imported from a private source
 
 ---
 

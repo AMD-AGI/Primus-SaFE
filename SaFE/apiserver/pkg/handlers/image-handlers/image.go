@@ -151,6 +151,7 @@ func cvtImageToFlatResponse(images []*model.Image) []Image {
 			Description: image.Description,
 			CreatedBy:   image.CreatedBy,
 			CreatedAt:   image.CreatedAt.Unix(),
+			SecretId:    image.SecretID,
 		})
 	}
 	return res
@@ -316,6 +317,7 @@ func cvtImageToResponse(images []*model.Image, os, arch string) []GetImageRespon
 			Status:      image.Status,
 			Id:          image.ID,
 			IncludeType: image.Source,
+			SecretId:    image.SecretID,
 		}
 
 		// Extract platform-specific digest and size
@@ -391,6 +393,13 @@ func (h *ImageHandler) importImage(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 
+	// Validate secret if provided
+	if body.SecretId != "" {
+		if err := h.validateImageSecret(c.Request.Context(), body.SecretId); err != nil {
+			return nil, err
+		}
+	}
+
 	userName := c.GetString(common.UserName)
 	imageInfo, err := h.getImportImageInfo(c, body)
 	if err != nil {
@@ -421,6 +430,7 @@ func (h *ImageHandler) importImage(c *gin.Context) (interface{}, error) {
 		Status:         common.ImageImportPendingStatus,
 		RelationDigest: relationDigest,
 		Source:         "import",
+		SecretID:       body.SecretId, // Associate secret with image for private image authentication
 	}
 	if err := h.dbClient.UpsertImage(c, dbImage); err != nil {
 		return nil, err
@@ -531,6 +541,7 @@ func (h *ImageHandler) dispatchImportImageJob(c *gin.Context, image *model.Image
 			Arch:            info.Arch,
 		},
 		image.CreatedBy,
+		image.SecretID, // Pass the custom secret ID for source registry authentication
 	)
 	if err != nil {
 		return nil, err
@@ -544,6 +555,7 @@ func (h *ImageHandler) dispatchImportImageJob(c *gin.Context, image *model.Image
 
 // newImportImageJob constructs a Kubernetes Job spec for importing an image.
 // Configures container with sync-image tool, environment variables, and registry authentication.
+// If customSecretId is provided, it will be used for source registry authentication.
 func newImportImageJob(
 	imageId int32,
 	jobName,
@@ -551,6 +563,7 @@ func newImportImageJob(
 	imagePullSecrets []string,
 	env *ImportImageEnv,
 	userName string,
+	customSecretId string,
 ) (*batchv1.Job, error) {
 	namespace := common.PrimusSafeNamespace
 	envs := defaultSyncImageEnv()
@@ -564,6 +577,56 @@ func newImportImageJob(
 	}
 	envs[SrcImageEnv] = env.SourceImageName
 	envs[DestImageEnv] = env.DestImageName
+
+	// Build volume mounts and volumes
+	volumeMounts := []corev1.VolumeMount{
+		{
+			Name:      "dest-registry-auth",
+			ReadOnly:  true,
+			MountPath: "/root/.docker",
+		},
+	}
+	volumes := []corev1.Volume{
+		{
+			Name: "dest-registry-auth",
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{
+					SecretName: common.ImageImportSecretName,
+				},
+			},
+		},
+	}
+
+	// Set destination auth file path (always use system secret)
+	envs["DEST_AUTH_FILE_PATH"] = "/root/.docker/config.json"
+
+	// If custom secret is provided for source registry authentication, mount it
+	if customSecretId != "" {
+		volumeMounts = append(volumeMounts, corev1.VolumeMount{
+			Name:      "src-registry-auth",
+			ReadOnly:  true,
+			MountPath: "/root/.docker-src",
+		})
+		volumes = append(volumes, corev1.Volume{
+			Name: "src-registry-auth",
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{
+					SecretName: customSecretId,
+					Items: []corev1.KeyToPath{
+						{
+							Key:  ".dockerconfigjson",
+							Path: "config.json",
+						},
+					},
+				},
+			},
+		})
+		// Set source auth file path to custom secret
+		envs["SRC_AUTH_FILE_PATH"] = "/root/.docker-src/config.json"
+	} else {
+		// Use system secret for source as well
+		envs["SRC_AUTH_FILE_PATH"] = "/root/.docker/config.json"
+	}
 
 	job := &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
@@ -590,30 +653,15 @@ func newImportImageJob(
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{
 						{
-							Name:  "import-image",
-							Image: syncImage,
-							Env:   transEnvMapToEnv(envs),
-							VolumeMounts: []corev1.VolumeMount{
-								{
-									Name:      "registry-auth",
-									ReadOnly:  true,
-									MountPath: "/root/.docker",
-								},
-							},
+							Name:         "import-image",
+							Image:        syncImage,
+							Env:          transEnvMapToEnv(envs),
+							VolumeMounts: volumeMounts,
 						},
 					},
 					RestartPolicy:    corev1.RestartPolicyNever,
 					ImagePullSecrets: buildImagePullSecrets(imagePullSecrets),
-					Volumes: []corev1.Volume{
-						{
-							Name: "registry-auth",
-							VolumeSource: corev1.VolumeSource{
-								Secret: &corev1.SecretVolumeSource{
-									SecretName: common.ImageImportSecretName,
-								},
-							},
-						},
-					},
+					Volumes:          volumes,
 				},
 			},
 		},
@@ -1209,4 +1257,25 @@ func convertOpsJobToExportedImageList(jobs []*dbClient.OpsJob) []ExportedImageLi
 	}
 
 	return result
+}
+
+// validateImageSecret validates that the provided secret ID exists and is of type "image".
+// Returns an error if the secret doesn't exist or is not an image-type secret.
+func (h *ImageHandler) validateImageSecret(ctx context.Context, secretId string) error {
+	secret := &corev1.Secret{}
+	if err := h.Client.Get(ctx, client.ObjectKey{
+		Name:      secretId,
+		Namespace: common.PrimusSafeNamespace,
+	}, secret); err != nil {
+		klog.ErrorS(err, "failed to get secret", "secretId", secretId)
+		return commonerrors.NewNotFound("secret", secretId)
+	}
+
+	// Check if the secret is of type "image"
+	secretType := secret.Labels[v1.SecretTypeLabel]
+	if secretType != string(v1.SecretImage) {
+		return commonerrors.NewBadRequest(fmt.Sprintf("secret %s is not an image-type secret, got type: %s", secretId, secretType))
+	}
+
+	return nil
 }

@@ -37,6 +37,7 @@ type ArtifactItem struct {
 	Os          string `json:"os"`
 	Digest      string `json:"digest,omitempty"`
 	IncludeType string `json:"includeType"`
+	SecretId    string `json:"secretId,omitempty"`
 }
 
 type GetImageResponseItem struct {
@@ -68,6 +69,7 @@ type ImportImageEnv struct {
 type ImportImageServiceRequest struct {
 	Source         string `json:"source"`
 	SourceRegistry string `json:"sourceRegistry,omitempty"`
+	SecretId       string `json:"secretId,omitempty"`
 }
 
 type ImportImageMetaInfo struct {
@@ -203,6 +205,7 @@ type Image struct {
 	Description string `json:"description,omitempty"`
 	CreatedAt   int64  `json:"created_at"`
 	CreatedBy   string `json:"created_by"`
+	SecretId    string `json:"secretId,omitempty"`
 }
 
 // ExportedImageListResponse represents the response for listing exported images.
