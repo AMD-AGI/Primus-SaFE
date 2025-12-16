@@ -6,33 +6,38 @@ import (
 	"strings"
 	"time"
 
+	metadataCollector "github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/metadata"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/constant"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	coreTask "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/task"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/node-exporter/pkg/client"
 )
 
 // ProfilerCollectionExecutor Profiler file collection task executor
 type ProfilerCollectionExecutor struct {
 	coreTask.BaseExecutor
 
-	collector      *Collector
-	metadataMgr    *MetadataManager
-	metadataFacade database.AiWorkloadMetadataFacadeInterface
-	configService  *FrameworkConfigService
+	collector           *Collector
+	metadataMgr         *MetadataManager
+	metadataFacade      database.AiWorkloadMetadataFacadeInterface
+	configService       *FrameworkConfigService
+	metadataCollector   *metadataCollector.Collector // For getting node-exporter client
 }
 
 // NewProfilerCollectionExecutor creates profiler collection executor
 func NewProfilerCollectionExecutor(
 	collector *Collector,
 	metadataMgr *MetadataManager,
+	metaCollector *metadataCollector.Collector,
 ) *ProfilerCollectionExecutor {
 	return &ProfilerCollectionExecutor{
-		collector:      collector,
-		metadataMgr:    metadataMgr,
-		metadataFacade: database.NewAiWorkloadMetadataFacade(),
-		configService:  NewFrameworkConfigService(),
+		collector:         collector,
+		metadataMgr:       metadataMgr,
+		metadataFacade:    database.NewAiWorkloadMetadataFacade(),
+		configService:     NewFrameworkConfigService(),
+		metadataCollector: metaCollector,
 	}
 }
 
@@ -126,7 +131,17 @@ func (e *ProfilerCollectionExecutor) Execute(
 		log.Debugf("  - %s (patterns: %v, source: %s)", loc.Directory, loc.Patterns, loc.Source)
 	}
 
-	// 5. Execute collection using precise directories
+	// 5. Get node-exporter client for the pod's node
+	var nodeClient *client.Client
+	if e.metadataCollector != nil {
+		var nodeClientErr error
+		nodeClient, nodeClientErr = e.metadataCollector.GetNodeExporterClientForPod(ctx, gpuPod.NodeName)
+		if nodeClientErr != nil {
+			log.Warnf("Failed to get node-exporter client for node %s: %v", gpuPod.NodeName, nodeClientErr)
+		}
+	}
+
+	// 6. Execute collection using precise directories
 	_ = config // Suppress unused variable warning for now
 	updates := map[string]interface{}{
 		"last_executed":     time.Now().Format(time.RFC3339),
@@ -145,25 +160,44 @@ func (e *ProfilerCollectionExecutor) Execute(
 		updates["scan_source"] = "fallback"
 	}
 
-	// TODO: Implement actual file collection using profilerLocations
-	// This will involve:
-	// 1. For each location, call node-exporter to scan the directory
-	// 2. Filter files by patterns
-	// 3. Read and archive files
-	//
-	// result, err := e.collector.CollectProfilerFilesFromLocations(ctx, &CollectionRequest{
-	//     WorkloadUID:  workloadUID,
-	//     PodUID:       gpuPod.UID,
-	//     PodName:      gpuPod.Name,
-	//     PodNamespace: gpuPod.Namespace,
-	//     Locations:    profilerLocations,
-	// })
-	// if err != nil {
-	//     log.Errorf("Failed to collect profiler files: %v", err)
-	//     return coreTask.FailureResult(err.Error(), updates), nil
-	// }
-	// updates["total_collected"] = result.TotalFiles
-	// updates["archived_count"] = result.ArchivedFiles
+	// Execute actual file collection
+	if nodeClient != nil && e.collector != nil {
+		// Build collection request with ProfilerLocation slice
+		collectionReq := &LocationCollectionRequest{
+			WorkloadUID:  workloadUID,
+			PodUID:       gpuPod.UID,
+			PodName:      gpuPod.Name,
+			PodNamespace: gpuPod.Namespace,
+			Framework:    "",
+			Locations:    profilerLocations,
+			NodeClient:   nodeClient,
+		}
+
+		// Set framework if available
+		if frameworkConfig != nil {
+			collectionReq.Framework = frameworkConfig.Framework
+		}
+
+		// Use the collector's method with the client from metadataCollector
+		result, collectionErr := e.collector.CollectProfilerFilesFromLocations(ctx, collectionReq)
+		if collectionErr != nil {
+			log.Errorf("Failed to collect profiler files: %v", collectionErr)
+			updates["collection_error"] = collectionErr.Error()
+		} else {
+			updates["total_files"] = result.TotalFiles
+			updates["archived_count"] = result.ArchivedFiles
+			updates["skipped_count"] = result.SkippedFiles
+			updates["failed_count"] = result.FailedFiles
+			if len(result.Errors) > 0 {
+				updates["collection_errors"] = result.Errors
+			}
+			log.Infof("Profiler collection result: total=%d, archived=%d, skipped=%d, failed=%d",
+				result.TotalFiles, result.ArchivedFiles, result.SkippedFiles, result.FailedFiles)
+		}
+	} else {
+		log.Warnf("Node client or collector not available, skipping file collection")
+		updates["collection_skipped"] = "node_client_or_collector_unavailable"
+	}
 
 	// Increment execution count
 	executionCount := e.GetExtInt(taskState, "execution_count")

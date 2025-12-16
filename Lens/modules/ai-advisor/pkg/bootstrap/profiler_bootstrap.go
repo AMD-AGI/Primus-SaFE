@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	metadataCollector "github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/metadata"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/profiler"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/profiler/storage"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
@@ -17,6 +18,7 @@ import (
 func InitProfilerServices(
 	ctx context.Context,
 	scheduler *task.TaskScheduler,
+	metaCollector *metadataCollector.Collector,
 ) error {
 	log.Info("Initializing Profiler services...")
 
@@ -65,10 +67,11 @@ func InitProfilerServices(
 		profiler.DefaultLifecycleConfig(),
 	)
 
-	// 6. Create task executor
+	// 6. Create task executor with metadata collector for node-exporter client access
 	executor := profiler.NewProfilerCollectionExecutor(
 		collector,
 		metadataMgr,
+		metaCollector,
 	)
 
 	// 7. Register executor to scheduler
