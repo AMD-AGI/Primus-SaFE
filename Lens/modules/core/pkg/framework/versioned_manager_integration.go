@@ -9,14 +9,14 @@ import (
 	"gorm.io/gorm"
 )
 
-// MultiDimensionalDetectionManagerWithVersioning extends the manager with versioned storage
+// MultiDimensionalDetectionManagerWithVersioning extends the manager with persistence to ai_workload_metadata
 type MultiDimensionalDetectionManagerWithVersioning struct {
 	*MultiDimensionalDetectionManager
-	versionedStorage *VersionedDetectionStorage
-	db               *gorm.DB
+	v2Storage *V2DetectionStorage
+	db        *gorm.DB
 }
 
-// NewMultiDimensionalDetectionManagerWithVersioning creates manager with version support
+// NewMultiDimensionalDetectionManagerWithVersioning creates manager with V2 storage
 func NewMultiDimensionalDetectionManagerWithVersioning(
 	db *gorm.DB,
 	config *DetectionConfig,
@@ -24,11 +24,11 @@ func NewMultiDimensionalDetectionManagerWithVersioning(
 	if config == nil {
 		config = DefaultDetectionConfig()
 	}
-	
+
 	return &MultiDimensionalDetectionManagerWithVersioning{
 		MultiDimensionalDetectionManager: NewMultiDimensionalDetectionManager(config),
-		versionedStorage:                  NewVersionedDetectionStorage(db),
-		db:                                db,
+		v2Storage:                        NewV2DetectionStorage(),
+		db:                               db,
 	}
 }
 
@@ -39,20 +39,20 @@ func (m *MultiDimensionalDetectionManagerWithVersioning) LoadDetection(
 ) (*model.MultiDimensionalDetection, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	
-	// Load from database with version awareness
-	detection, err := m.versionedStorage.LoadDetection(ctx, workloadUID)
+
+	// Load from database (V2 only)
+	detection, err := m.v2Storage.LoadDetection(ctx, workloadUID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load versioned detection: %w", err)
+		return nil, fmt.Errorf("failed to load detection: %w", err)
 	}
-	
+
 	if detection == nil {
 		return nil, nil
 	}
-	
+
 	// Cache in memory
 	m.storage.Save(workloadUID, detection)
-	
+
 	return detection, nil
 }
 
@@ -63,18 +63,18 @@ func (m *MultiDimensionalDetectionManagerWithVersioning) SaveDetection(
 ) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	// Get from memory
 	detection := m.storage.Get(workloadUID)
 	if detection == nil {
 		return fmt.Errorf("no detection found in memory for workload %s", workloadUID)
 	}
-	
-	// Save to database as v2
-	if err := m.versionedStorage.SaveDetection(ctx, detection); err != nil {
-		return fmt.Errorf("failed to save versioned detection: %w", err)
+
+	// Save to database as V2
+	if err := m.v2Storage.SaveDetection(ctx, detection); err != nil {
+		return fmt.Errorf("failed to save detection: %w", err)
 	}
-	
+
 	return nil
 }
 
@@ -92,12 +92,12 @@ func (m *MultiDimensionalDetectionManagerWithVersioning) ReportDimensionDetectio
 	if err := m.ReportDimensionDetection(ctx, workloadUID, dimension, value, source, confidence, evidence); err != nil {
 		return err
 	}
-	
+
 	// Then, persist to database
 	if err := m.SaveDetection(ctx, workloadUID); err != nil {
 		return fmt.Errorf("failed to persist detection: %w", err)
 	}
-	
+
 	return nil
 }
 
@@ -111,58 +111,19 @@ func (m *MultiDimensionalDetectionManagerWithVersioning) GetOrLoadDetection(
 	if detection != nil {
 		return detection, nil
 	}
-	
+
 	// Load from database
 	detection, err := m.LoadDetection(ctx, workloadUID)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	return detection, nil
 }
 
-// MigrateWorkload migrates a specific workload to v2
-func (m *MultiDimensionalDetectionManagerWithVersioning) MigrateWorkload(
-	ctx context.Context,
-	workloadUID string,
-) error {
-	// Load (will auto-convert if v1)
-	detection, err := m.LoadDetection(ctx, workloadUID)
-	if err != nil {
-		return fmt.Errorf("failed to load workload for migration: %w", err)
-	}
-	
-	if detection == nil {
-		return fmt.Errorf("workload not found: %s", workloadUID)
-	}
-	
-	// Save as v2
-	if err := m.versionedStorage.SaveDetection(ctx, detection); err != nil {
-		return fmt.Errorf("failed to save migrated workload: %w", err)
-	}
-	
-	log.Infof("Successfully migrated workload %s to v2", workloadUID)
-	return nil
-}
-
-// MigrateAll migrates all v1 workloads to v2
-func (m *MultiDimensionalDetectionManagerWithVersioning) MigrateAll(ctx context.Context) (int, error) {
-	return m.versionedStorage.MigrateAllV1ToV2(ctx)
-}
-
-// GetVersionStats returns version distribution
-func (m *MultiDimensionalDetectionManagerWithVersioning) GetVersionStats(ctx context.Context) (map[string]int, error) {
-	return m.versionedStorage.GetVersionStats(ctx)
-}
-
-// EnsureSchema ensures the database schema exists
+// EnsureSchema is a no-op since we use existing ai_workload_metadata table
 func (m *MultiDimensionalDetectionManagerWithVersioning) EnsureSchema(ctx context.Context) error {
-	// Auto-migrate the table
-	if err := m.db.WithContext(ctx).AutoMigrate(&DetectionRecord{}); err != nil {
-		return fmt.Errorf("failed to migrate schema: %w", err)
-	}
-	
-	log.Info("Detection schema ensured")
+	// No new table needed - using ai_workload_metadata.metadata.framework_detection
+	log.Info("Using existing ai_workload_metadata table for detection storage")
 	return nil
 }
-
