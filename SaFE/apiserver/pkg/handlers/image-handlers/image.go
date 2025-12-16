@@ -7,6 +7,7 @@ package image_handlers
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -401,7 +402,7 @@ func (h *ImageHandler) importImage(c *gin.Context) (interface{}, error) {
 	}
 
 	userName := c.GetString(common.UserName)
-	imageInfo, err := h.getImportImageInfo(c, body)
+	imageInfo, err := h.getImportImageInfo(c.Request.Context(), body)
 	if err != nil {
 		return nil, err
 	}
@@ -698,7 +699,8 @@ func generateImportImageJobName(imageId int32) string {
 
 // getImportImageInfo validates and prepares image metadata for import operation.
 // Checks source image existence, calculates size, and determines destination name.
-func (h *ImageHandler) getImportImageInfo(c context.Context, req *ImportImageServiceRequest) (*ImportImageMetaInfo, error) {
+// If req.SecretId is provided, it will be used for authenticating against the source registry.
+func (h *ImageHandler) getImportImageInfo(ctx context.Context, req *ImportImageServiceRequest) (*ImportImageMetaInfo, error) {
 	imageInfo := &ImportImageMetaInfo{
 		SourceImageName: req.Source,
 		OsArch:          fmt.Sprintf(OSArchFormat, DefaultOS, DefaultArch),
@@ -712,7 +714,7 @@ func (h *ImageHandler) getImportImageInfo(c context.Context, req *ImportImageSer
 	}
 
 	// Get default push registry
-	defaultPushRegistry, err := h.dbClient.GetDefaultRegistryInfo(c)
+	defaultPushRegistry, err := h.dbClient.GetDefaultRegistryInfo(ctx)
 	if err != nil {
 		klog.ErrorS(err, "GetPushRegistryInfo error")
 		return nil, commonerrors.NewInternalError("Database Error")
@@ -726,7 +728,7 @@ func (h *ImageHandler) getImportImageInfo(c context.Context, req *ImportImageSer
 		return nil, err
 	}
 
-	if err := h.checkImageExistsUsingLibrary(c, req.Source, imageInfo); err != nil {
+	if err := h.checkImageExistsUsingLibrary(ctx, req.Source, imageInfo, req.SecretId); err != nil {
 		return nil, err
 	}
 
@@ -760,7 +762,8 @@ func (h *ImageHandler) existImageValid(c context.Context, destImageName string) 
 
 // checkImageExistsUsingLibrary verifies source image exists and retrieves its size.
 // Uses container image library to inspect manifest and calculate total layer sizes.
-func (h *ImageHandler) checkImageExistsUsingLibrary(ctx context.Context, imageName string, imageInfo *ImportImageMetaInfo) error {
+// If secretId is provided, it will be used for authenticating against the source registry.
+func (h *ImageHandler) checkImageExistsUsingLibrary(ctx context.Context, imageName string, imageInfo *ImportImageMetaInfo, secretId string) error {
 	list := strings.Split(imageInfo.OsArch, "/")
 	if len(list) != 2 {
 		return commonerrors.NewBadRequest("invalid os/arch format")
@@ -768,7 +771,7 @@ func (h *ImageHandler) checkImageExistsUsingLibrary(ctx context.Context, imageNa
 	hostName := strings.Split(imageInfo.SourceImageName, "/")[0]
 	os, arch := list[0], list[1]
 
-	sysCtx, err := h.getImageSystemCtx(ctx, hostName, imageName)
+	sysCtx, err := h.getImageSystemCtx(ctx, hostName, imageName, secretId)
 	if err != nil {
 		klog.Errorf("Error getting system context: %s", err)
 		return commonerrors.NewInternalError(fmt.Sprintf("Getting Registry Auth Error: %s", err))
@@ -892,10 +895,24 @@ func (h *ImageHandler) calculateManifestSize(manifest []byte, manifestType strin
 }
 
 // getImageSystemCtx creates a SystemContext with authentication for accessing a registry.
-// Fetches registry credentials from database or Docker Hub token for public registries.
-func (h *ImageHandler) getImageSystemCtx(ctx context.Context, hostName string, imageName string) (*v5types.SystemContext, error) {
+// Fetches registry credentials from user secret (if provided), database, or Docker Hub token for public registries.
+// Priority: user secret > database registry_info > Docker Hub anonymous token
+func (h *ImageHandler) getImageSystemCtx(ctx context.Context, hostName string, imageName string, secretId string) (*v5types.SystemContext, error) {
 	sysCtx := &v5types.SystemContext{DockerInsecureSkipTLSVerify: v5types.OptionalBoolTrue}
 
+	// If user provided a secret, try to use it first
+	if secretId != "" {
+		authConfig, err := h.getAuthFromUserSecret(ctx, hostName, secretId)
+		if err != nil {
+			klog.ErrorS(err, "failed to get auth from user secret", "secretId", secretId)
+			// Fall through to try other auth methods
+		} else if authConfig != nil {
+			sysCtx.DockerAuthConfig = authConfig
+			return sysCtx, nil
+		}
+	}
+
+	// Try to get auth from database registry_info
 	accountInfo, err := h.dbClient.GetRegistryInfoByUrl(ctx, hostName)
 	if err != nil {
 		// Special handling for Docker Hub
@@ -934,6 +951,75 @@ func (h *ImageHandler) getDockerHubSystemCtx(ctx context.Context, imageName stri
 		DockerInsecureSkipTLSVerify: v5types.OptionalBoolTrue,
 		DockerBearerRegistryToken:   token,
 	}, nil
+}
+
+// getAuthFromUserSecret extracts authentication for a specific registry from user's secret.
+// Returns nil if the secret doesn't contain auth for the specified hostName.
+func (h *ImageHandler) getAuthFromUserSecret(ctx context.Context, hostName string, secretId string) (*v5types.DockerAuthConfig, error) {
+	secret := &corev1.Secret{}
+	if err := h.Client.Get(ctx, client.ObjectKey{
+		Name:      secretId,
+		Namespace: common.PrimusSafeNamespace,
+	}, secret); err != nil {
+		return nil, fmt.Errorf("failed to get user secret: %w", err)
+	}
+
+	// Parse user secret auths (stored in ".dockerconfigjson" key for kubernetes.io/dockerconfigjson type)
+	configData, ok := secret.Data[".dockerconfigjson"]
+	if !ok {
+		return nil, nil
+	}
+
+	var dockerConfig struct {
+		Auths map[string]struct {
+			Username string `json:"username"`
+			Password string `json:"password"`
+			Auth     string `json:"auth"`
+		} `json:"auths"`
+	}
+
+	if err := json.Unmarshal(configData, &dockerConfig); err != nil {
+		return nil, fmt.Errorf("failed to parse user secret: %w", err)
+	}
+
+	// Look for auth matching the hostName
+	for host, authItem := range dockerConfig.Auths {
+		matched := strings.Contains(host, hostName)
+		if !matched && strings.HasSuffix(hostName, "docker.io") {
+			matched = strings.Contains(host, "docker.io")
+		}
+		if !matched {
+			continue
+		}
+
+		// If username/password are provided directly, use them
+		if authItem.Username != "" && authItem.Password != "" {
+			return &v5types.DockerAuthConfig{
+				Username: authItem.Username,
+				Password: authItem.Password,
+			}, nil
+		}
+		// Otherwise decode from auth field (base64 of "username:password")
+		if authItem.Auth != "" {
+			decoded, err := base64.StdEncoding.DecodeString(authItem.Auth)
+			if err != nil {
+				decoded, err = base64.URLEncoding.DecodeString(authItem.Auth)
+				if err != nil {
+					continue
+				}
+			}
+			parts := strings.SplitN(string(decoded), ":", 2)
+			if len(parts) == 2 {
+				return &v5types.DockerAuthConfig{
+					Username: parts[0],
+					Password: parts[1],
+				}, nil
+			}
+		}
+	}
+
+	klog.V(4).Infof("No matching auth found in user secret %s for host %s", secretId, hostName)
+	return nil, nil
 }
 
 // decryptRegistryAuth decrypts username and password from registry account info.
