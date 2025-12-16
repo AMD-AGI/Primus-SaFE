@@ -205,15 +205,43 @@ func (tc *TaskCreator) isTrainingWorkload(detection *coreModel.FrameworkDetectio
 }
 
 // isPyTorchFramework checks if detection contains PyTorch framework
+// Checks multiple indicators:
+// 1. Framework name contains "pytorch" or "torch"
+// 2. Detection sources contain PyTorch indicators
+// 3. Base framework or wrapper framework uses PyTorch (megatron is PyTorch-based)
 func (tc *TaskCreator) isPyTorchFramework(detection *coreModel.FrameworkDetection) bool {
 	if detection == nil {
 		return false
 	}
 
+	// Check 1: Framework list contains "pytorch" or "torch"
 	for _, framework := range detection.Frameworks {
 		fw := strings.ToLower(framework)
 		if fw == "pytorch" || strings.Contains(fw, "torch") {
 			return true
+		}
+	}
+
+	// Check 2: Megatron is PyTorch-based, so if megatron is detected, consider it PyTorch
+	for _, framework := range detection.Frameworks {
+		fw := strings.ToLower(framework)
+		if fw == "megatron" || strings.Contains(fw, "megatron") {
+			log.Debugf("Detected Megatron framework (PyTorch-based), treating as PyTorch workload")
+			return true
+		}
+	}
+
+	// Check 3: Check detection sources for PyTorch evidence
+	for _, source := range detection.Sources {
+		for _, fw := range source.Frameworks {
+			fwLower := strings.ToLower(fw)
+			if fwLower == "pytorch" || strings.Contains(fwLower, "torch") {
+				return true
+			}
+			// Megatron is also PyTorch-based
+			if fwLower == "megatron" || strings.Contains(fwLower, "megatron") {
+				return true
+			}
 		}
 	}
 
