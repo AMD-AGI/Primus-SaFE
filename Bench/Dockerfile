@@ -1,50 +1,39 @@
-ARG BASE_IMAGE=primussafe/pytorch:rocm7.0.3_ubuntu22.04_py3.10
-
+ARG ROCM_VERSION=6.4.3
+FROM primussafe/pytorch:rocm${ROCM_VERSION}_ubuntu22.04_py3.10
 FROM ${BASE_IMAGE}
 
 LABEL maintainer="PrimusBench"
 
 ENV DEBIAN_FRONTEND=noninteractive
+ENV ROCM_VERSION=${ROCM_VERSION}
+ENV AINIC_BUNDLE_PATH=${AINIC_BUNDLE_PATH}
+
 RUN apt-get update && \
     apt-get -q install -y --no-install-recommends  \
-    autoconf \
-    automake \
-    bc \
-    build-essential \
-    curl \
+    curl bc \
     dmidecode \
-    git \
     hipify-clang \
     iproute2 \
-    jq \
     libaio-dev \
-    libboost-program-options-dev \
+    libboost-all-dev \
     libcap2 \
     libcurl4-openssl-dev \
-    libnuma-dev \
-    libpci-dev \
-    libssl-dev \
     libtinfo5 \
-    libtool \
     lshw \
     net-tools \
-    numactl \
-    openssh-client \
-    openssh-server \
+    openssh-client openssh-server \
     pciutils \
     python3-mpi4py \
+    libnuma-dev libfmt-dev \
     rsync \
     sudo \
-    util-linux \
+    util-linux kmod xz-utils numactl \
     vim \
-    wget \
     dnsutils \
     rocm-cmake \
-    net-tools bc \
-    perftest libgtest-dev bc \
-    openssh-server \
-    openmpi-bin openmpi-common libopenmpi-dev \
-    rocm-validation-suite gfortran libgfortran-12-dev python3-yaml \
+    net-tools \
+    perftest libgtest-dev \
+    gfortran libgfortran-12-dev python3-yaml \
     && \
     rm -rf /tmp/*
 

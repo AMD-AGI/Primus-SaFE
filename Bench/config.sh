@@ -1,14 +1,11 @@
 #!/bin/bash
-###############################################################################
-# Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
 #
+# Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
 # See LICENSE for license information.
-###############################################################################
 #
+
 # Unified environment configuration for PrimusBench
 # Source this file in all entry scripts: source config.sh
-#
-###############################################################################
 
 # ==============================================================================
 # Container Configuration
@@ -39,7 +36,7 @@ export NCCL_SOCKET_IFNAME="${NCCL_SOCKET_IFNAME:-${IP_INTERFACE}}"
 export GLOO_SOCKET_IFNAME="${GLOO_SOCKET_IFNAME:-${IP_INTERFACE}}"
 
 # ==============================================================================
-# GPU Configuration (AMD MI300/MI325X)
+# GPU Configuration (MI300X/MI325X/MI355X)
 # ==============================================================================
 export GPU_PRODUCT="${GPU_PRODUCT:-MI325X}"
 export HSA_ENABLE_SDMA="${HSA_ENABLE_SDMA:-1}"

@@ -35,6 +35,7 @@ export RANK=$RANK
 export NCCL_SOCKET_IFNAME=${NCCL_SOCKET_IFNAME:-"eth0"}
 export NCCL_IB_HCA=${NCCL_IB_HCA:-""}
 export TEST_LEVEL=${TEST_LEVEL:-"BASIC"}
+export ROCM_VERSION=${ROCM_VERSION:-"6.4.3"}
 
 # ============================================================================
 # Helper function to run check scripts

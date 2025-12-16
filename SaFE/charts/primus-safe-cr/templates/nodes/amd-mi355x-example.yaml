@@ -12,24 +12,24 @@ metadata:
   annotations:
     meta.helm.sh/release-name: {{ .Release.Name }}
     meta.helm.sh/release-namespace: {{ .Release.Namespace }}
-  name: amd-mi300x-example
+  name: amd-mi355x-example
 spec:
   cpu:
-    product: AMD_EPYC_9554
-    quantity: "256"
+    product: AMD_EPYC_9575F
+    quantity: "128"
   dataDisk:
-    count: 9
-    quantity: 7864Gi
+    count: 8
+    quantity: 6.99Ti
     type: nvme
   extendedResources:
-    ephemeral-storage: 6695573390Ki
+    ephemeral-storage: 13496617142Ki
     rdma/hca: 1k
   gpu:
-    product: MI300X
+    product: MI355X
     quantity: "8"
     resourceName: amd.com/gpu
-  memory: 1584032704Ki
+  memory: 3030263404Ki
   rootDisk:
     count: 1
-    quantity: 7864Gi
-    type: nvme
+    quantity: 838Gi
+    type: ssd
