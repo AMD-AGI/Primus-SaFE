@@ -424,6 +424,7 @@ type LocationCollectionRequest struct {
 	Framework     string              `json:"framework,omitempty"`
 	Locations     []ProfilerLocation  `json:"locations"`
 	NodeClient    *client.Client      `json:"-"` // Node-exporter client (injected)
+	WorkingDir    string              `json:"working_dir,omitempty"` // Pod's working directory for resolving relative paths
 }
 
 // CollectProfilerFilesFromLocations collects profiler files from specified locations
@@ -451,7 +452,14 @@ func (c *Collector) CollectProfilerFilesFromLocations(
 	collectedFiles := make(map[string]bool)
 
 	for _, location := range req.Locations {
-		log.Debugf("Scanning location: %s (patterns: %v)", location.Directory, location.Patterns)
+		// Resolve relative paths to absolute paths using working directory
+		scanPath := location.Directory
+		if !filepath.IsAbs(scanPath) && req.WorkingDir != "" {
+			scanPath = filepath.Join(req.WorkingDir, scanPath)
+			log.Debugf("Resolved relative path %s to absolute path %s", location.Directory, scanPath)
+		}
+
+		log.Debugf("Scanning location: %s (patterns: %v)", scanPath, location.Patterns)
 
 		// List files in directory
 		listReq := &types.ContainerDirectoryListRequest{
@@ -459,7 +467,7 @@ func (c *Collector) CollectProfilerFilesFromLocations(
 			PodName:       req.PodName,
 			PodNamespace:  req.PodNamespace,
 			ContainerName: req.ContainerName,
-			Path:          location.Directory,
+			Path:          scanPath,
 			Recursive:     location.Recursive,
 		}
 

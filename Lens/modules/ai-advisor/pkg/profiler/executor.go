@@ -178,6 +178,14 @@ func (e *ProfilerCollectionExecutor) Execute(
 			collectionReq.Framework = frameworkConfig.Framework
 		}
 
+		// Get working directory from task state ext (python_process.cwd)
+		if pythonProcess := e.GetExtMap(taskState, "python_process"); pythonProcess != nil {
+			if cwd, ok := pythonProcess["cwd"].(string); ok && cwd != "" {
+				collectionReq.WorkingDir = cwd
+				log.Debugf("Using working directory from python_process: %s", cwd)
+			}
+		}
+
 		// Use the collector's method with the client from metadataCollector
 		result, collectionErr := e.collector.CollectProfilerFilesFromLocations(ctx, collectionReq)
 		if collectionErr != nil {
