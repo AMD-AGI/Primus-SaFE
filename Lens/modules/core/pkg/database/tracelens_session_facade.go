@@ -31,7 +31,6 @@ type TraceLensSessionFacadeInterface interface {
 
 	// Query operations
 	ListByWorkloadUID(ctx context.Context, workloadUID string) ([]*model.TracelensSessions, error)
-	ListByUserID(ctx context.Context, userID string) ([]*model.TracelensSessions, error)
 	ListByStatus(ctx context.Context, status string) ([]*model.TracelensSessions, error)
 	ListActive(ctx context.Context) ([]*model.TracelensSessions, error)
 	ListExpired(ctx context.Context) ([]*model.TracelensSessions, error)
@@ -187,17 +186,6 @@ func (f *TraceLensSessionFacade) ListByWorkloadUID(ctx context.Context, workload
 
 	return q.WithContext(ctx).Where(
 		q.WorkloadUID.Eq(workloadUID),
-		q.Status.NotIn(tracelens.StatusDeleted),
-	).Order(q.CreatedAt.Desc()).Find()
-}
-
-// ListByUserID lists sessions for a user
-func (f *TraceLensSessionFacade) ListByUserID(ctx context.Context, userID string) ([]*model.TracelensSessions, error) {
-	db := f.getDB()
-	q := dal.Use(db).TracelensSessions
-
-	return q.WithContext(ctx).Where(
-		q.UserID.Eq(userID),
 		q.Status.NotIn(tracelens.StatusDeleted),
 	).Order(q.CreatedAt.Desc()).Find()
 }
