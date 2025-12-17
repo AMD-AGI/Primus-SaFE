@@ -94,7 +94,11 @@ spec:
                 description: GPU configuration, optional
                 properties:
                   product:
-                    description: Gpu product name, e.g. AMD MI300X
+                    description: Gpu product name, e.g. MI300X/MI325X/MI355X
+                    enum:
+                    - MI300X
+                    - MI325X
+                    - MI355X
                     type: string
                   quantity:
                     anyOf:

@@ -18,8 +18,9 @@ get_input_with_default() {
 
 # Prompt user for image version (default: current date YYYYMMDD)
 DEFAULT_VERSION=$(date +%Y%m%d)
+DEFAULT_AINIC="/mnt/shared/Primus-SaFE/Bench/ainic_bundle_1.117.5-a-38.tar.gz"
 IMAGE_VERSION=$(get_input_with_default "Enter image version(${DEFAULT_VERSION}): " "${DEFAULT_VERSION}")
-AINIC_BUNDLE_PATH=$(get_input_with_default "Enter ainic package path (empty to disable ainic): " "")
+AINIC_BUNDLE_PATH=$(get_input_with_default "Enter ainic package path (${DEFAULT_AINIC}): " "${DEFAULT_AINIC}")
 
 docker buildx build . -f ./Dockerfile \
   --build-arg ROCM_VERSION=7.0.3 \
