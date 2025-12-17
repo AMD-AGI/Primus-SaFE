@@ -96,17 +96,43 @@ func (b *DatabaseStorageBackend) Store(ctx context.Context, req *StoreRequest) (
 	}
 	defer tx.Rollback()
 
+	// Step 1: Insert file metadata into profiler_files and get the generated ID
+	var profilerFileID int64
+	err = tx.QueryRowContext(ctx, `
+		INSERT INTO profiler_files 
+		(workload_uid, pod_uid, pod_name, pod_namespace, file_name, file_path, file_type, file_size, storage_type, confidence, metadata)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'database', $9, $10)
+		RETURNING id
+	`,
+		req.WorkloadUID,
+		req.Metadata["pod_uid"],
+		req.Metadata["pod_name"],
+		req.Metadata["pod_namespace"],
+		req.FileName,
+		req.Metadata["file_path"],
+		req.FileType,
+		originalSize,
+		req.Metadata["confidence"],
+		"{}",
+	).Scan(&profilerFileID)
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to insert file metadata: %w", err)
+	}
+
+	log.Debugf("Created profiler_files record with ID: %d", profilerFileID)
+
 	// Determine encoding
 	encoding := "none"
 	if compressed {
 		encoding = "gzip"
 	}
 
-	// Store chunks (parallel or sequential)
+	// Step 2: Store chunks using the integer profiler_file_id
 	if totalChunks > 1 && b.maxConcurrentChunks > 1 {
-		err = b.storeChunksParallel(ctx, tx, req.FileID, chunks, encoding, md5Hash)
+		err = b.storeChunksParallel(ctx, tx, profilerFileID, chunks, encoding, md5Hash)
 	} else {
-		err = b.storeChunksSequential(ctx, tx, req.FileID, chunks, encoding, md5Hash)
+		err = b.storeChunksSequential(ctx, tx, profilerFileID, chunks, encoding, md5Hash)
 	}
 
 	if err != nil {
@@ -118,18 +144,22 @@ func (b *DatabaseStorageBackend) Store(ctx context.Context, req *StoreRequest) (
 		return nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
+	// Use the integer ID as storage path
+	storagePath := fmt.Sprintf("%d", profilerFileID)
+
 	return &StoreResponse{
 		FileID:      req.FileID,
-		StoragePath: req.FileID, // Use file_id as storage path for database
+		StoragePath: storagePath,
 		StorageType: "database",
 		Size:        originalSize,
 		MD5:         md5Hash,
 		Metadata: map[string]interface{}{
-			"compressed":     compressed,
-			"chunks":         totalChunks,
-			"chunk_size":     b.chunkSize,
-			"stored_size":    len(content),
-			"compress_ratio": float64(len(content)) / float64(originalSize),
+			"compressed":       compressed,
+			"chunks":           totalChunks,
+			"chunk_size":       b.chunkSize,
+			"stored_size":      len(content),
+			"compress_ratio":   float64(len(content)) / float64(originalSize),
+			"profiler_file_id": profilerFileID,
 		},
 	}, nil
 }
@@ -138,7 +168,7 @@ func (b *DatabaseStorageBackend) Store(ctx context.Context, req *StoreRequest) (
 func (b *DatabaseStorageBackend) storeChunksSequential(
 	ctx context.Context,
 	tx *sql.Tx,
-	fileID string,
+	profilerFileID int64,
 	chunks [][]byte,
 	encoding string,
 	md5Hash string,
@@ -148,7 +178,7 @@ func (b *DatabaseStorageBackend) storeChunksSequential(
 			INSERT INTO profiler_file_content 
 			(profiler_file_id, content, content_encoding, chunk_index, total_chunks, chunk_size, md5_hash)
 			VALUES ($1, $2, $3, $4, $5, $6, $7)
-		`, fileID, chunk, encoding, i, len(chunks), len(chunk), md5Hash)
+		`, profilerFileID, chunk, encoding, i, len(chunks), len(chunk), md5Hash)
 
 		if err != nil {
 			return fmt.Errorf("failed to store chunk %d: %w", i, err)
@@ -163,7 +193,7 @@ func (b *DatabaseStorageBackend) storeChunksSequential(
 func (b *DatabaseStorageBackend) storeChunksParallel(
 	ctx context.Context,
 	tx *sql.Tx,
-	fileID string,
+	profilerFileID int64,
 	chunks [][]byte,
 	encoding string,
 	md5Hash string,
@@ -191,7 +221,7 @@ func (b *DatabaseStorageBackend) storeChunksParallel(
 					INSERT INTO profiler_file_content 
 					(profiler_file_id, content, content_encoding, chunk_index, total_chunks, chunk_size, md5_hash)
 					VALUES ($1, $2, $3, $4, $5, $6, $7)
-				`, fileID, job.data, encoding, job.index, totalChunks, len(job.data), md5Hash)
+				`, profilerFileID, job.data, encoding, job.index, totalChunks, len(job.data), md5Hash)
 
 				if err != nil {
 					errors <- fmt.Errorf("worker %d failed on chunk %d: %w", workerID, job.index, err)
@@ -224,6 +254,16 @@ func (b *DatabaseStorageBackend) storeChunksParallel(
 
 // Retrieve retrieves a file from database
 func (b *DatabaseStorageBackend) Retrieve(ctx context.Context, req *RetrieveRequest) (*RetrieveResponse, error) {
+	// Parse storage path as integer (profiler_file_id)
+	var profilerFileID int64
+	if req.StoragePath != "" {
+		if _, err := fmt.Sscanf(req.StoragePath, "%d", &profilerFileID); err != nil {
+			return nil, fmt.Errorf("invalid storage path (expected integer): %s", req.StoragePath)
+		}
+	} else {
+		return nil, fmt.Errorf("storage path is required for database retrieval")
+	}
+
 	// Query file info (get total chunks)
 	var totalChunks int
 	var encoding string
@@ -232,7 +272,7 @@ func (b *DatabaseStorageBackend) Retrieve(ctx context.Context, req *RetrieveRequ
 		FROM profiler_file_content
 		WHERE profiler_file_id = $1
 		GROUP BY content_encoding
-	`, req.FileID).Scan(&totalChunks, &encoding)
+	`, profilerFileID).Scan(&totalChunks, &encoding)
 
 	if err != nil {
 		return nil, fmt.Errorf("file not found: %w", err)
@@ -245,13 +285,13 @@ func (b *DatabaseStorageBackend) Retrieve(ctx context.Context, req *RetrieveRequ
 
 	if totalChunks == 1 {
 		// Single chunk file
-		fullContent, err = b.retrieveSingleChunk(ctx, req.FileID)
+		fullContent, err = b.retrieveSingleChunk(ctx, profilerFileID)
 	} else if totalChunks <= 5 {
 		// Few chunks, sequential read
-		fullContent, err = b.retrieveChunksSequential(ctx, req.FileID, totalChunks)
+		fullContent, err = b.retrieveChunksSequential(ctx, profilerFileID, totalChunks)
 	} else {
 		// Many chunks, parallel read
-		fullContent, err = b.retrieveChunksParallel(ctx, req.FileID, totalChunks)
+		fullContent, err = b.retrieveChunksParallel(ctx, profilerFileID, totalChunks)
 	}
 
 	if err != nil {
@@ -287,13 +327,13 @@ func (b *DatabaseStorageBackend) Retrieve(ctx context.Context, req *RetrieveRequ
 }
 
 // retrieveSingleChunk retrieves a single chunk
-func (b *DatabaseStorageBackend) retrieveSingleChunk(ctx context.Context, fileID string) ([]byte, error) {
+func (b *DatabaseStorageBackend) retrieveSingleChunk(ctx context.Context, profilerFileID int64) ([]byte, error) {
 	var content []byte
 	err := b.db.QueryRowContext(ctx, `
 		SELECT content 
 		FROM profiler_file_content
 		WHERE profiler_file_id = $1 AND chunk_index = 0
-	`, fileID).Scan(&content)
+	`, profilerFileID).Scan(&content)
 
 	return content, err
 }
@@ -301,7 +341,7 @@ func (b *DatabaseStorageBackend) retrieveSingleChunk(ctx context.Context, fileID
 // retrieveChunksSequential retrieves chunks sequentially
 func (b *DatabaseStorageBackend) retrieveChunksSequential(
 	ctx context.Context,
-	fileID string,
+	profilerFileID int64,
 	totalChunks int,
 ) ([]byte, error) {
 	rows, err := b.db.QueryContext(ctx, `
@@ -309,7 +349,7 @@ func (b *DatabaseStorageBackend) retrieveChunksSequential(
 		FROM profiler_file_content
 		WHERE profiler_file_id = $1
 		ORDER BY chunk_index
-	`, fileID)
+	`, profilerFileID)
 	if err != nil {
 		return nil, err
 	}
@@ -334,7 +374,7 @@ func (b *DatabaseStorageBackend) retrieveChunksSequential(
 // retrieveChunksParallel retrieves chunks in parallel
 func (b *DatabaseStorageBackend) retrieveChunksParallel(
 	ctx context.Context,
-	fileID string,
+	profilerFileID int64,
 	totalChunks int,
 ) ([]byte, error) {
 	type chunkResult struct {
@@ -364,7 +404,7 @@ func (b *DatabaseStorageBackend) retrieveChunksParallel(
 				FROM profiler_file_content
 				WHERE profiler_file_id = $1 AND chunk_index >= $2 AND chunk_index < $3
 				ORDER BY chunk_index
-			`, fileID, start, end)
+			`, profilerFileID, start, end)
 
 			if err != nil {
 				results <- chunkResult{err: err}
@@ -418,18 +458,35 @@ func (b *DatabaseStorageBackend) retrieveChunksParallel(
 
 // Delete deletes a file from database
 func (b *DatabaseStorageBackend) Delete(ctx context.Context, fileID string) error {
-	// Delete chunks (CASCADE should handle this, but explicit is safer)
+	// Parse fileID as integer (it's the profiler_file_id from profiler_files table)
+	var profilerFileID int64
+	if _, err := fmt.Sscanf(fileID, "%d", &profilerFileID); err != nil {
+		return fmt.Errorf("invalid file ID (expected integer): %s", fileID)
+	}
+
+	// Delete chunks first
 	result, err := b.db.ExecContext(ctx, `
 		DELETE FROM profiler_file_content
 		WHERE profiler_file_id = $1
-	`, fileID)
+	`, profilerFileID)
 
 	if err != nil {
 		return fmt.Errorf("failed to delete file chunks: %w", err)
 	}
 
-	rowsAffected, _ := result.RowsAffected()
-	log.Infof("Deleted file from database: file_id=%s, chunks=%d", fileID, rowsAffected)
+	chunksDeleted, _ := result.RowsAffected()
+
+	// Delete file metadata
+	_, err = b.db.ExecContext(ctx, `
+		DELETE FROM profiler_files
+		WHERE id = $1
+	`, profilerFileID)
+
+	if err != nil {
+		return fmt.Errorf("failed to delete file metadata: %w", err)
+	}
+
+	log.Infof("Deleted file from database: file_id=%d, chunks=%d", profilerFileID, chunksDeleted)
 
 	return nil
 }
@@ -447,12 +504,18 @@ func (b *DatabaseStorageBackend) GetStorageType() string {
 
 // Exists checks if a file exists in database
 func (b *DatabaseStorageBackend) Exists(ctx context.Context, fileID string) (bool, error) {
+	// Parse fileID as integer
+	var profilerFileID int64
+	if _, err := fmt.Sscanf(fileID, "%d", &profilerFileID); err != nil {
+		return false, fmt.Errorf("invalid file ID (expected integer): %s", fileID)
+	}
+
 	var count int
 	err := b.db.QueryRowContext(ctx, `
 		SELECT COUNT(*)
 		FROM profiler_file_content
 		WHERE profiler_file_id = $1
-	`, fileID).Scan(&count)
+	`, profilerFileID).Scan(&count)
 
 	if err != nil {
 		return false, fmt.Errorf("failed to check file existence: %w", err)
