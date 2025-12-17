@@ -204,6 +204,29 @@ func (b *ObjectStorageBackend) Exists(ctx context.Context, fileID string) (bool,
 	return true, nil
 }
 
+// ExistsByWorkloadAndFilename checks if a file with the same name already exists for the workload
+// For object storage, we check if the object key pattern exists
+func (b *ObjectStorageBackend) ExistsByWorkloadAndFilename(ctx context.Context, workloadUID string, fileName string) (bool, error) {
+	// List objects with prefix matching the workload
+	prefix := fmt.Sprintf("profiler/%s/", workloadUID)
+	objectCh := b.client.ListObjects(ctx, b.bucket, minio.ListObjectsOptions{
+		Prefix:    prefix,
+		Recursive: true,
+	})
+
+	for object := range objectCh {
+		if object.Err != nil {
+			return false, fmt.Errorf("failed to list objects: %w", object.Err)
+		}
+		// Check if filename matches
+		if len(object.Key) > len(fileName) && object.Key[len(object.Key)-len(fileName):] == fileName {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
 // Helper methods
 
 func (b *ObjectStorageBackend) generateObjectKey(workloadUID, fileType, fileName string) string {
