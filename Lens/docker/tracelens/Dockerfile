@@ -25,6 +25,7 @@ WORKDIR /app
 # Install Python dependencies
 # TraceLens from GitHub + required packages for Streamlit UI
 RUN pip install --no-cache-dir \
+    torch>=2.0.0 \
     git+https://github.com/AMD-AGI/TraceLens.git \
     streamlit>=1.28.0 \
     openpyxl>=3.1.0 \
