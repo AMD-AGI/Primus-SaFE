@@ -7,6 +7,7 @@ package image_handlers
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -151,6 +152,7 @@ func cvtImageToFlatResponse(images []*model.Image) []Image {
 			Description: image.Description,
 			CreatedBy:   image.CreatedBy,
 			CreatedAt:   image.CreatedAt.Unix(),
+			SecretId:    image.SecretID,
 		})
 	}
 	return res
@@ -316,6 +318,7 @@ func cvtImageToResponse(images []*model.Image, os, arch string) []GetImageRespon
 			Status:      image.Status,
 			Id:          image.ID,
 			IncludeType: image.Source,
+			SecretId:    image.SecretID,
 		}
 
 		// Extract platform-specific digest and size
@@ -391,8 +394,18 @@ func (h *ImageHandler) importImage(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 
+	// Get and validate user secret once if provided, reuse throughout the flow
+	var userSecret *corev1.Secret
+	if body.SecretId != "" {
+		var err error
+		userSecret, err = h.getAndValidateImageSecret(c.Request.Context(), body.SecretId)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	userName := c.GetString(common.UserName)
-	imageInfo, err := h.getImportImageInfo(c, body)
+	imageInfo, err := h.getImportImageInfo(c.Request.Context(), body, userSecret)
 	if err != nil {
 		return nil, err
 	}
@@ -421,6 +434,7 @@ func (h *ImageHandler) importImage(c *gin.Context) (interface{}, error) {
 		Status:         common.ImageImportPendingStatus,
 		RelationDigest: relationDigest,
 		Source:         "import",
+		SecretID:       body.SecretId, // Associate secret with image for private image authentication
 	}
 	if err := h.dbClient.UpsertImage(c, dbImage); err != nil {
 		return nil, err
@@ -439,8 +453,8 @@ func (h *ImageHandler) importImage(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 
-	// Dispatch Kubernetes job
-	job, err := h.dispatchImportImageJob(c, dbImage, importImageInfo)
+	// Dispatch Kubernetes job (pass userSecret to avoid re-fetching)
+	job, err := h.dispatchImportImageJob(c, dbImage, importImageInfo, userSecret)
 	if err != nil {
 		return nil, err
 	}
@@ -492,7 +506,16 @@ func (h *ImageHandler) retryDispatchImportImageJob(c *gin.Context) (interface{},
 		return nil, commonerrors.NewNotFound("get import image by id", strconv.Itoa(int(id)))
 	}
 
-	job, err := h.dispatchImportImageJob(c, existImage, importImage)
+	// Get user secret if needed for retry
+	var userSecret *corev1.Secret
+	if existImage.SecretID != "" {
+		userSecret, err = h.getAndValidateImageSecret(c.Request.Context(), existImage.SecretID)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	job, err := h.dispatchImportImageJob(c, existImage, importImage, userSecret)
 	if err != nil {
 		return nil, err
 	}
@@ -511,11 +534,24 @@ func (h *ImageHandler) retryDispatchImportImageJob(c *gin.Context) (interface{},
 
 // dispatchImportImageJob creates and submits a Kubernetes Job to import an image.
 // Configures the job with source/dest info, registry auth, and image pull secrets.
-func (h *ImageHandler) dispatchImportImageJob(c *gin.Context, image *model.Image, info *model.ImageImportJob) (*batchv1.Job, error) {
+// If userSecret is provided, merges system and user auth configs into a ConfigMap.
+func (h *ImageHandler) dispatchImportImageJob(c *gin.Context, image *model.Image, info *model.ImageImportJob, userSecret *corev1.Secret) (*batchv1.Job, error) {
 	jobName := generateImportImageJobName(image.ID)
 	imagePullSecrets, err := h.listImagePullSecretsName(c, h.Client, common.PrimusSafeNamespace)
 	if err != nil {
 		return nil, err
+	}
+
+	// If user secret is provided, merge auth configs and create ConfigMap
+	var authConfigMap *corev1.ConfigMap
+	var authConfigMapName string
+	if userSecret != nil {
+		cm, err := h.createMergedAuthConfigMap(c.Request.Context(), jobName, userSecret)
+		if err != nil {
+			return nil, err
+		}
+		authConfigMap = cm
+		authConfigMapName = cm.Name
 	}
 
 	job, err := newImportImageJob(
@@ -531,6 +567,7 @@ func (h *ImageHandler) dispatchImportImageJob(c *gin.Context, image *model.Image
 			Arch:            info.Arch,
 		},
 		image.CreatedBy,
+		authConfigMapName, // Pass ConfigMap name (empty if no user secret)
 	)
 	if err != nil {
 		return nil, err
@@ -539,11 +576,26 @@ func (h *ImageHandler) dispatchImportImageJob(c *gin.Context, image *model.Image
 	if err := h.Client.Create(c.Request.Context(), job); err != nil {
 		return nil, err
 	}
+
+	// Set ConfigMap owner reference to Job for auto cleanup (after Job is created, now we have UID)
+	if authConfigMap != nil {
+		authConfigMap.OwnerReferences = []metav1.OwnerReference{
+			{
+				APIVersion: "batch/v1",
+				Kind:       "Job",
+				Name:       job.Name,
+				UID:        job.UID,
+			},
+		}
+		_ = h.Client.Update(c.Request.Context(), authConfigMap)
+	}
+
 	return job, nil
 }
 
 // newImportImageJob constructs a Kubernetes Job spec for importing an image.
 // Configures container with sync-image tool, environment variables, and registry authentication.
+// If authConfigMapName is provided, mounts ConfigMap; otherwise mounts system secret directly.
 func newImportImageJob(
 	imageId int32,
 	jobName,
@@ -551,6 +603,7 @@ func newImportImageJob(
 	imagePullSecrets []string,
 	env *ImportImageEnv,
 	userName string,
+	authConfigMapName string,
 ) (*batchv1.Job, error) {
 	namespace := common.PrimusSafeNamespace
 	envs := defaultSyncImageEnv()
@@ -564,6 +617,9 @@ func newImportImageJob(
 	}
 	envs[SrcImageEnv] = env.SourceImageName
 	envs[DestImageEnv] = env.DestImageName
+
+	// Build volumes based on whether ConfigMap is provided
+	volumes, volumeMounts := buildAuthVolumes(authConfigMapName)
 
 	job := &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
@@ -590,35 +646,142 @@ func newImportImageJob(
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{
 						{
-							Name:  "import-image",
-							Image: syncImage,
-							Env:   transEnvMapToEnv(envs),
-							VolumeMounts: []corev1.VolumeMount{
-								{
-									Name:      "registry-auth",
-									ReadOnly:  true,
-									MountPath: "/root/.docker",
-								},
-							},
+							Name:         "import-image",
+							Image:        syncImage,
+							Env:          transEnvMapToEnv(envs),
+							VolumeMounts: volumeMounts,
 						},
 					},
 					RestartPolicy:    corev1.RestartPolicyNever,
 					ImagePullSecrets: buildImagePullSecrets(imagePullSecrets),
-					Volumes: []corev1.Volume{
-						{
-							Name: "registry-auth",
-							VolumeSource: corev1.VolumeSource{
-								Secret: &corev1.SecretVolumeSource{
-									SecretName: common.ImageImportSecretName,
-								},
-							},
-						},
-					},
+					Volumes:          volumes,
 				},
 			},
 		},
 	}
 	return job, nil
+}
+
+// buildAuthVolumes builds volumes and volume mounts for auth config.
+// If authConfigMapName is provided, mounts the ConfigMap; otherwise mounts system secret.
+func buildAuthVolumes(authConfigMapName string) ([]corev1.Volume, []corev1.VolumeMount) {
+	var volumes []corev1.Volume
+
+	if authConfigMapName == "" {
+		volumes = []corev1.Volume{
+			{
+				Name: "registry-auth",
+				VolumeSource: corev1.VolumeSource{
+					Secret: &corev1.SecretVolumeSource{
+						SecretName: common.ImageImportSecretName,
+					},
+				},
+			},
+		}
+	} else {
+		volumes = []corev1.Volume{
+			{
+				Name: "registry-auth",
+				VolumeSource: corev1.VolumeSource{
+					ConfigMap: &corev1.ConfigMapVolumeSource{
+						LocalObjectReference: corev1.LocalObjectReference{
+							Name: authConfigMapName,
+						},
+					},
+				},
+			},
+		}
+	}
+
+	volumeMounts := []corev1.VolumeMount{
+		{
+			Name:      "registry-auth",
+			ReadOnly:  true,
+			MountPath: "/root/.docker",
+		},
+	}
+
+	return volumes, volumeMounts
+}
+
+// createMergedAuthConfigMap creates a ConfigMap containing merged auth configs from system and user secrets.
+// The merged config combines the "auths" sections from both secrets, with user auths overriding system auths for the same registry.
+// Returns the created ConfigMap object for setting OwnerReference later.
+func (h *ImageHandler) createMergedAuthConfigMap(ctx context.Context, jobName string, userSecret *corev1.Secret) (*corev1.ConfigMap, error) {
+	namespace := common.PrimusSafeNamespace
+
+	// Get system secret
+	systemSecret := &corev1.Secret{}
+	if err := h.Client.Get(ctx, client.ObjectKey{
+		Name:      common.ImageImportSecretName,
+		Namespace: namespace,
+	}, systemSecret); err != nil {
+		klog.ErrorS(err, "failed to get system secret", "secretName", common.ImageImportSecretName)
+		return nil, fmt.Errorf("failed to get system secret: %w", err)
+	}
+
+	// Parse system auth config
+	systemAuths := make(map[string]interface{})
+	if configData, ok := systemSecret.Data["config.json"]; ok {
+		var systemConfig struct {
+			Auths map[string]interface{} `json:"auths"`
+		}
+		if err := json.Unmarshal(configData, &systemConfig); err == nil {
+			systemAuths = systemConfig.Auths
+		}
+	}
+
+	// Parse user auth config (userSecret is already fetched, no need to Get again)
+	userAuths := make(map[string]interface{})
+	if configData, ok := userSecret.Data[".dockerconfigjson"]; ok {
+		var userConfig struct {
+			Auths map[string]interface{} `json:"auths"`
+		}
+		if err := json.Unmarshal(configData, &userConfig); err == nil {
+			userAuths = userConfig.Auths
+		}
+	}
+
+	// Merge auths (user auths override system auths)
+	mergedAuths := make(map[string]interface{})
+	for k, v := range systemAuths {
+		mergedAuths[k] = v
+	}
+	for k, v := range userAuths {
+		mergedAuths[k] = v
+	}
+
+	// Create merged config JSON
+	mergedConfig := map[string]interface{}{
+		"auths": mergedAuths,
+	}
+	mergedConfigJSON, err := json.Marshal(mergedConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal merged config: %w", err)
+	}
+
+	// Create ConfigMap
+	configMapName := fmt.Sprintf("%s-auth", jobName)
+	configMap := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      configMapName,
+			Namespace: namespace,
+			Labels: map[string]string{
+				ImportImageJobLabelKey: StringValueTrue,
+			},
+		},
+		Data: map[string]string{
+			"config.json": string(mergedConfigJSON),
+		},
+	}
+
+	if err := h.Client.Create(ctx, configMap); err != nil {
+		klog.ErrorS(err, "failed to create auth ConfigMap", "configMapName", configMapName)
+		return nil, fmt.Errorf("failed to create auth ConfigMap: %w", err)
+	}
+
+	klog.V(4).InfoS("created merged auth ConfigMap", "configMapName", configMapName)
+	return configMap, nil
 }
 
 // buildImagePullSecrets converts a list of secret names to LocalObjectReference slice.
@@ -673,7 +836,8 @@ func generateImportImageJobName(imageId int32) string {
 
 // getImportImageInfo validates and prepares image metadata for import operation.
 // Checks source image existence, calculates size, and determines destination name.
-func (h *ImageHandler) getImportImageInfo(c context.Context, req *ImportImageServiceRequest) (*ImportImageMetaInfo, error) {
+// If userSecret is provided, it will be used for authenticating against the source registry.
+func (h *ImageHandler) getImportImageInfo(ctx context.Context, req *ImportImageServiceRequest, userSecret *corev1.Secret) (*ImportImageMetaInfo, error) {
 	imageInfo := &ImportImageMetaInfo{
 		SourceImageName: req.Source,
 		OsArch:          fmt.Sprintf(OSArchFormat, DefaultOS, DefaultArch),
@@ -682,12 +846,8 @@ func (h *ImageHandler) getImportImageInfo(c context.Context, req *ImportImageSer
 		Status:          common.ImageImportingStatus,
 	}
 
-	if req.SourceRegistry != "" {
-		imageInfo.SourceImageName = fmt.Sprintf("%s/%s", req.SourceRegistry, req.Source)
-	}
-
 	// Get default push registry
-	defaultPushRegistry, err := h.dbClient.GetDefaultRegistryInfo(c)
+	defaultPushRegistry, err := h.dbClient.GetDefaultRegistryInfo(ctx)
 	if err != nil {
 		klog.ErrorS(err, "GetPushRegistryInfo error")
 		return nil, commonerrors.NewInternalError("Database Error")
@@ -701,7 +861,7 @@ func (h *ImageHandler) getImportImageInfo(c context.Context, req *ImportImageSer
 		return nil, err
 	}
 
-	if err := h.checkImageExistsUsingLibrary(c, req.Source, imageInfo); err != nil {
+	if err := h.checkImageExistsUsingLibrary(ctx, req.Source, imageInfo, userSecret); err != nil {
 		return nil, err
 	}
 
@@ -735,7 +895,8 @@ func (h *ImageHandler) existImageValid(c context.Context, destImageName string) 
 
 // checkImageExistsUsingLibrary verifies source image exists and retrieves its size.
 // Uses container image library to inspect manifest and calculate total layer sizes.
-func (h *ImageHandler) checkImageExistsUsingLibrary(ctx context.Context, imageName string, imageInfo *ImportImageMetaInfo) error {
+// If userSecret is provided, it will be used for authenticating against the source registry.
+func (h *ImageHandler) checkImageExistsUsingLibrary(ctx context.Context, imageName string, imageInfo *ImportImageMetaInfo, userSecret *corev1.Secret) error {
 	list := strings.Split(imageInfo.OsArch, "/")
 	if len(list) != 2 {
 		return commonerrors.NewBadRequest("invalid os/arch format")
@@ -743,7 +904,7 @@ func (h *ImageHandler) checkImageExistsUsingLibrary(ctx context.Context, imageNa
 	hostName := strings.Split(imageInfo.SourceImageName, "/")[0]
 	os, arch := list[0], list[1]
 
-	sysCtx, err := h.getImageSystemCtx(ctx, hostName, imageName)
+	sysCtx, err := h.getImageSystemCtx(ctx, hostName, imageName, userSecret)
 	if err != nil {
 		klog.Errorf("Error getting system context: %s", err)
 		return commonerrors.NewInternalError(fmt.Sprintf("Getting Registry Auth Error: %s", err))
@@ -867,10 +1028,24 @@ func (h *ImageHandler) calculateManifestSize(manifest []byte, manifestType strin
 }
 
 // getImageSystemCtx creates a SystemContext with authentication for accessing a registry.
-// Fetches registry credentials from database or Docker Hub token for public registries.
-func (h *ImageHandler) getImageSystemCtx(ctx context.Context, hostName string, imageName string) (*v5types.SystemContext, error) {
+// Fetches registry credentials from user secret (if provided), database, or Docker Hub token for public registries.
+// Priority: user secret > database registry_info > Docker Hub anonymous token
+func (h *ImageHandler) getImageSystemCtx(ctx context.Context, hostName string, imageName string, userSecret *corev1.Secret) (*v5types.SystemContext, error) {
 	sysCtx := &v5types.SystemContext{DockerInsecureSkipTLSVerify: v5types.OptionalBoolTrue}
 
+	// If user provided a secret, try to use it first
+	if userSecret != nil {
+		authConfig, err := h.extractAuthFromSecret(hostName, userSecret)
+		if err != nil {
+			klog.ErrorS(err, "failed to get auth from user secret", "secretName", userSecret.Name)
+			// Fall through to try other auth methods
+		} else if authConfig != nil {
+			sysCtx.DockerAuthConfig = authConfig
+			return sysCtx, nil
+		}
+	}
+
+	// Try to get auth from database registry_info
 	accountInfo, err := h.dbClient.GetRegistryInfoByUrl(ctx, hostName)
 	if err != nil {
 		// Special handling for Docker Hub
@@ -909,6 +1084,67 @@ func (h *ImageHandler) getDockerHubSystemCtx(ctx context.Context, imageName stri
 		DockerInsecureSkipTLSVerify: v5types.OptionalBoolTrue,
 		DockerBearerRegistryToken:   token,
 	}, nil
+}
+
+// extractAuthFromSecret extracts authentication for a specific registry from a secret object.
+// Returns nil if the secret doesn't contain auth for the specified hostName.
+func (h *ImageHandler) extractAuthFromSecret(hostName string, secret *corev1.Secret) (*v5types.DockerAuthConfig, error) {
+	// Parse user secret auths (stored in ".dockerconfigjson" key for kubernetes.io/dockerconfigjson type)
+	configData, ok := secret.Data[".dockerconfigjson"]
+	if !ok {
+		return nil, nil
+	}
+
+	var dockerConfig struct {
+		Auths map[string]struct {
+			Username string `json:"username"`
+			Password string `json:"password"`
+			Auth     string `json:"auth"`
+		} `json:"auths"`
+	}
+
+	if err := json.Unmarshal(configData, &dockerConfig); err != nil {
+		return nil, fmt.Errorf("failed to parse user secret: %w", err)
+	}
+
+	// Look for auth matching the hostName
+	for host, authItem := range dockerConfig.Auths {
+		matched := strings.Contains(host, hostName)
+		if !matched && strings.HasSuffix(hostName, "docker.io") {
+			matched = strings.Contains(host, "docker.io")
+		}
+		if !matched {
+			continue
+		}
+
+		// If username/password are provided directly, use them
+		if authItem.Username != "" && authItem.Password != "" {
+			return &v5types.DockerAuthConfig{
+				Username: authItem.Username,
+				Password: authItem.Password,
+			}, nil
+		}
+		// Otherwise decode from auth field (base64 of "username:password")
+		if authItem.Auth != "" {
+			decoded, err := base64.StdEncoding.DecodeString(authItem.Auth)
+			if err != nil {
+				decoded, err = base64.URLEncoding.DecodeString(authItem.Auth)
+				if err != nil {
+					continue
+				}
+			}
+			parts := strings.SplitN(string(decoded), ":", 2)
+			if len(parts) == 2 {
+				return &v5types.DockerAuthConfig{
+					Username: parts[0],
+					Password: parts[1],
+				}, nil
+			}
+		}
+	}
+
+	klog.V(4).Infof("No matching auth found in user secret %s for host %s", secret.Name, hostName)
+	return nil, nil
 }
 
 // decryptRegistryAuth decrypts username and password from registry account info.
@@ -1209,4 +1445,25 @@ func convertOpsJobToExportedImageList(jobs []*dbClient.OpsJob) []ExportedImageLi
 	}
 
 	return result
+}
+
+// getAndValidateImageSecret gets and validates that the provided secret ID exists and is of type "image".
+// Returns the secret object for reuse, avoiding multiple API calls.
+func (h *ImageHandler) getAndValidateImageSecret(ctx context.Context, secretId string) (*corev1.Secret, error) {
+	secret := &corev1.Secret{}
+	if err := h.Client.Get(ctx, client.ObjectKey{
+		Name:      secretId,
+		Namespace: common.PrimusSafeNamespace,
+	}, secret); err != nil {
+		klog.ErrorS(err, "failed to get secret", "secretId", secretId)
+		return nil, commonerrors.NewNotFound("secret", secretId)
+	}
+
+	// Check if the secret is of type "image"
+	secretType := secret.Labels[v1.SecretTypeLabel]
+	if secretType != string(v1.SecretImage) {
+		return nil, commonerrors.NewBadRequest(fmt.Sprintf("secret %s is not an image-type secret, got type: %s", secretId, secretType))
+	}
+
+	return secret, nil
 }
