@@ -1,6 +1,7 @@
 package tracelens
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"time"
@@ -203,11 +204,15 @@ func DeleteSession(c *gin.Context) {
 		return
 	}
 
-	// Delete pod if exists
+	// Delete pod if exists (pods are in management cluster)
 	if session.PodName != "" {
+		podName := session.PodName
+		podNamespace := session.PodNamespace
 		go func() {
-			if err := DeletePod(c, clients.ClusterName, session.PodName, session.PodNamespace); err != nil {
-				log.Warnf("Failed to delete pod %s: %v", session.PodName, err)
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			if err := DeletePod(ctx, podName, podNamespace); err != nil {
+				log.Warnf("Failed to delete pod %s: %v", podName, err)
 			}
 		}()
 	}

@@ -26,6 +26,7 @@ const (
 	DefaultSessionTTL = 1 * time.Hour
 
 	// DefaultPodNamespace is the default namespace for TraceLens pods
+	// Pods are created in the management cluster
 	DefaultPodNamespace = "primus-lens"
 
 	// DefaultPodPort is the default port for Streamlit UI
@@ -36,6 +37,9 @@ const (
 
 	// SessionIDPrefix is the prefix for session IDs
 	SessionIDPrefix = "tls"
+
+	// DefaultTraceLensImage is the default container image for TraceLens pods
+	DefaultTraceLensImage = "harbor.tw325.primus-safe.amd.com/primussafe/tracelens:latest"
 )
 
 // ValidStatuses returns all valid session statuses

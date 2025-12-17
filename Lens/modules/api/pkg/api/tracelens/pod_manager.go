@@ -19,16 +19,18 @@ import (
 )
 
 // CreatePodAsync creates a TraceLens pod asynchronously (stateless)
-func CreatePodAsync(ctx context.Context, clusterName string, session *model.TracelensSessions, profilerFilePath string) {
+// Note: Pod is always created in the management cluster (where API runs),
+// regardless of which data cluster the profiler file belongs to.
+func CreatePodAsync(ctx context.Context, dataClusterName string, session *model.TracelensSessions, profilerFilePath string) {
 	go func() {
 		// Create a new context with timeout
 		createCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
 
-		if err := CreatePod(createCtx, clusterName, session, profilerFilePath); err != nil {
+		if err := CreatePod(createCtx, dataClusterName, session, profilerFilePath); err != nil {
 			log.Errorf("Failed to create pod for session %s: %v", session.SessionID, err)
-			// Mark session as failed
-			facade := database.GetFacadeForCluster(clusterName).GetTraceLensSession()
+			// Mark session as failed in the data cluster's database
+			facade := database.GetFacadeForCluster(dataClusterName).GetTraceLensSession()
 			if updateErr := facade.MarkFailed(createCtx, session.SessionID, err.Error()); updateErr != nil {
 				log.Errorf("Failed to mark session as failed: %v", updateErr)
 			}
@@ -37,16 +39,20 @@ func CreatePodAsync(ctx context.Context, clusterName string, session *model.Trac
 }
 
 // CreatePod creates a TraceLens pod synchronously
-func CreatePod(ctx context.Context, clusterName string, session *model.TracelensSessions, profilerFilePath string) error {
-	// Get kubernetes client
+// Pod is created in the management cluster (current cluster where API runs),
+// but session metadata is stored in the data cluster's database.
+func CreatePod(ctx context.Context, dataClusterName string, session *model.TracelensSessions, profilerFilePath string) error {
+	// Get kubernetes client for the MANAGEMENT cluster (where API runs)
+	// This is the current cluster, not the data cluster
 	cm := clientsets.GetClusterManager()
-	clients, err := cm.GetClientSetByClusterName(clusterName)
-	if err != nil {
-		return fmt.Errorf("failed to get cluster clients: %w", err)
+	mgmtClients := cm.GetCurrentClusterClients()
+	if mgmtClients == nil {
+		return fmt.Errorf("failed to get management cluster clients")
 	}
 
-	k8sClient := clients.K8SClientSet.Clientsets
-	facade := database.GetFacadeForCluster(clusterName).GetTraceLensSession()
+	k8sClient := mgmtClients.K8SClientSet.Clientsets
+	// Session metadata is stored in the DATA cluster's database
+	facade := database.GetFacadeForCluster(dataClusterName).GetTraceLensSession()
 
 	// Update session status to creating
 	if err := facade.UpdateStatus(ctx, session.SessionID, tlconst.StatusCreating, "Creating pod"); err != nil {
@@ -98,20 +104,21 @@ func CreatePod(ctx context.Context, clusterName string, session *model.Tracelens
 	return nil
 }
 
-// DeletePod deletes a TraceLens pod
-func DeletePod(ctx context.Context, clusterName, podName, namespace string) error {
+// DeletePod deletes a TraceLens pod from the management cluster
+// Note: Pods are always in the management cluster, regardless of which data cluster the session belongs to
+func DeletePod(ctx context.Context, podName, namespace string) error {
 	cm := clientsets.GetClusterManager()
-	clients, err := cm.GetClientSetByClusterName(clusterName)
-	if err != nil {
-		return fmt.Errorf("failed to get cluster clients: %w", err)
+	mgmtClients := cm.GetCurrentClusterClients()
+	if mgmtClients == nil {
+		return fmt.Errorf("failed to get management cluster clients")
 	}
 
-	k8sClient := clients.K8SClientSet.Clientsets
+	k8sClient := mgmtClients.K8SClientSet.Clientsets
 
 	// Delete pod with grace period
 	gracePeriod := int64(0) // Force delete
 	deletePolicy := metav1.DeletePropagationForeground
-	err = k8sClient.CoreV1().Pods(namespace).Delete(ctx, podName, metav1.DeleteOptions{
+	err := k8sClient.CoreV1().Pods(namespace).Delete(ctx, podName, metav1.DeleteOptions{
 		GracePeriodSeconds: &gracePeriod,
 		PropagationPolicy:  &deletePolicy,
 	})
@@ -182,14 +189,18 @@ func buildPodSpec(session *model.TracelensSessions, podName, profilerFilePath st
 	// Get resource limits based on profile
 	memoryLimit, cpuLimit := getResourceLimits(session.ResourceProfile)
 
-	// Build base URL path for Streamlit
-	baseURLPath := fmt.Sprintf("/api/v1/tracelens/sessions/%s/ui", session.SessionID)
+	// Build base URL path for Streamlit (matches proxy route)
+	baseURLPath := fmt.Sprintf("/v1/tracelens/sessions/%s/ui", session.SessionID)
 
 	labels := map[string]string{
 		"app":                            "tracelens",
 		"tracelens.lens.primus/session":  session.SessionID,
 		"tracelens.lens.primus/workload": session.WorkloadUID,
 	}
+
+	// API base URL for fetching profiler files
+	// Since pod runs in management cluster, it can access API via cluster service
+	apiBaseURL := "http://primus-lens-api.primus-lens.svc.cluster.local:8989"
 
 	return &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
@@ -206,15 +217,7 @@ func buildPodSpec(session *model.TracelensSessions, podName, profilerFilePath st
 			Containers: []corev1.Container{
 				{
 					Name:  "tracelens",
-					Image: "primussafe/tracelens:latest", // TODO: Make configurable
-					Args: []string{
-						"streamlit", "run", "/app/TraceLens/UI/trace_analyser.py",
-						"--server.port=8501",
-						"--server.headless=true",
-						"--server.enableCORS=false",
-						"--server.enableXsrfProtection=false",
-						fmt.Sprintf("--server.baseUrlPath=%s", baseURLPath),
-					},
+					Image: tlconst.DefaultTraceLensImage,
 					Ports: []corev1.ContainerPort{
 						{
 							Name:          "http",
@@ -223,6 +226,22 @@ func buildPodSpec(session *model.TracelensSessions, podName, profilerFilePath st
 						},
 					},
 					Env: []corev1.EnvVar{
+						{
+							Name:  "SESSION_ID",
+							Value: session.SessionID,
+						},
+						{
+							Name:  "PROFILER_FILE_ID",
+							Value: fmt.Sprintf("%d", session.ProfilerFileID),
+						},
+						{
+							Name:  "API_BASE_URL",
+							Value: apiBaseURL,
+						},
+						{
+							Name:  "BASE_URL_PATH",
+							Value: baseURLPath,
+						},
 						{
 							Name:  "TRACE_FILE_PATH",
 							Value: profilerFilePath,
