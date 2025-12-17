@@ -1,6 +1,5 @@
 ARG ROCM_VERSION=6.4.3
 FROM primussafe/pytorch:rocm${ROCM_VERSION}_ubuntu22.04_py3.10
-FROM ${BASE_IMAGE}
 
 LABEL maintainer="PrimusBench"
 
