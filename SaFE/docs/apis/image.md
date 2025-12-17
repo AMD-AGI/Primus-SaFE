@@ -124,8 +124,7 @@ Import image from external registry to internal Harbor.
 **Request Example**:
 ```json
 {
-  "source": "docker.io/pytorch/pytorch:2.0.0-cuda11.7-cudnn8-runtime",
-  "sourceRegistry": "docker.io"
+  "source": "docker.io/pytorch/pytorch:2.0.0-cuda11.7-cudnn8-runtime"
 }
 ```
 
@@ -138,8 +137,7 @@ Import image from external registry to internal Harbor.
 ```
 
 **Field Description**:
-- `source`: Source image full address
-- `sourceRegistry`: Source image registry address (optional)
+- `source`: Source image full address (e.g., `docker.io/library/nginx:latest`)
 - `secretId`: Optional secret ID for private image authentication. The secret must be of type "image" (created via `/api/v1/secrets` with `type=image`). If provided, the image will be marked as private and require this secret to pull.
 
 **Response Example**:

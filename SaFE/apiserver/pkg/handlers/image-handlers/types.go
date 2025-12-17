@@ -67,9 +67,8 @@ type ImportImageEnv struct {
 }
 
 type ImportImageServiceRequest struct {
-	Source         string `json:"source"`
-	SourceRegistry string `json:"sourceRegistry,omitempty"`
-	SecretId       string `json:"secretId,omitempty"`
+	Source   string `json:"source"`
+	SecretId string `json:"secretId,omitempty"`
 }
 
 type ImportImageMetaInfo struct {

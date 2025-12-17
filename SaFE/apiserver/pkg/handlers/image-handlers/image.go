@@ -846,10 +846,6 @@ func (h *ImageHandler) getImportImageInfo(ctx context.Context, req *ImportImageS
 		Status:          common.ImageImportingStatus,
 	}
 
-	if req.SourceRegistry != "" {
-		imageInfo.SourceImageName = fmt.Sprintf("%s/%s", req.SourceRegistry, req.Source)
-	}
-
 	// Get default push registry
 	defaultPushRegistry, err := h.dbClient.GetDefaultRegistryInfo(ctx)
 	if err != nil {
