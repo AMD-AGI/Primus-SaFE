@@ -35,6 +35,7 @@ RUN apt-get update && \
     net-tools \
     perftest libgtest-dev \
     gfortran libgfortran-12-dev python3-yaml \
+    libyaml-cpp-dev \
     && \
     rm -rf /tmp/*
 

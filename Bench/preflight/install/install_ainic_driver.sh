@@ -6,9 +6,6 @@
 echo "============== begin to install AMD AINIC Driver =============="
 set -e
 
-AINIC_VERSION="1.117.5-a-38"
-AINIC_TARBALL="ainic_bundle_${AINIC_VERSION}.tar.gz"
-AINIC_DIR="ainic_bundle_${AINIC_VERSION}"
 WORKDIR="/opt"
 
 cd ${WORKDIR}
@@ -20,12 +17,16 @@ if [ -z "${AINIC_BUNDLE_PATH}" ]; then
 fi
 
 # Check if source tarball exists
-if [ ! -f "${AINIC_BUNDLE_PATH}/${AINIC_TARBALL}" ]; then
-  echo "Error: AINIC bundle not found at ${AINIC_BUNDLE_PATH}/${AINIC_TARBALL}"
+if [ ! -f "${AINIC_BUNDLE_PATH}" ]; then
+  echo "Error: AINIC bundle not found at ${AINIC_BUNDLE_PATH}"
   exit 1
 fi
 
-cp ${AINIC_BUNDLE_PATH}/${AINIC_TARBALL} ${WORKDIR}/
+# Extract tarball name and directory name from full path
+AINIC_TARBALL=$(basename "${AINIC_BUNDLE_PATH}")
+AINIC_DIR="${AINIC_TARBALL%.tar.gz}"
+
+cp ${AINIC_BUNDLE_PATH} ${WORKDIR}/
 if [ $? -ne 0 ]; then
   echo "Error: Failed to copy AINIC bundle"
   exit 1
@@ -61,4 +62,4 @@ cd ${WORKDIR}
 rm -f ${AINIC_TARBALL}
 rm -rf ${AINIC_DIR}
 
-echo "============== install AMD AINIC Driver ${AINIC_VERSION} successfully =============="
+echo "============== install AMD AINIC Driver ${AINIC_DIR} successfully =============="
