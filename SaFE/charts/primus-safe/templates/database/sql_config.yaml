@@ -191,6 +191,7 @@ data:
         source          varchar(128),
         status          varchar(64),
         relation_digest jsonb,
+        secret_id       varchar(64),
         created_at      timestamp with time zone,
         created_by      varchar(128),
         updated_at      timestamp with time zone,
@@ -200,6 +201,8 @@ data:
 
     alter table image
         owner to "primus-safe";
+
+    alter table image add column if not exists secret_id varchar(64);
 
     CREATE TABLE IF NOT EXISTS public_key (
        id BIGSERIAL PRIMARY KEY,
