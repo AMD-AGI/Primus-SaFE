@@ -229,9 +229,7 @@ func RegisterRouter(group *gin.RouterGroup) error {
 			sessionsGroup.DELETE("/:session_id", tracelens.DeleteSession)
 
 			// Phase 4: UI Proxy - Proxy HTTP/WebSocket requests to TraceLens pod
-			// Health check endpoint for session pod
-			sessionsGroup.GET("/:session_id/ui/health", tracelens.ProxyUIHealthCheck)
-			// Catch-all proxy for all UI paths
+			// Catch-all proxy for all UI paths (includes health check at /ui/health)
 			sessionsGroup.Any("/:session_id/ui/*path", tracelens.ProxyUI)
 		}
 		// List sessions for a workload
