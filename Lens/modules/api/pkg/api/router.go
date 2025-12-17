@@ -209,6 +209,18 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		}
 	}
 
+	// Profiler file routes - Download profiler file content
+	profilerGroup := group.Group("/profiler")
+	{
+		filesGroup := profilerGroup.Group("/files")
+		{
+			// Get profiler file metadata
+			filesGroup.GET("/:id", tracelens.GetProfilerFileInfo)
+			// Download profiler file content
+			filesGroup.GET("/:id/content", tracelens.GetProfilerFileContent)
+		}
+	}
+
 	// TraceLens Session routes - On-demand trace analysis
 	tracelensGroup := group.Group("/tracelens")
 	{
