@@ -117,7 +117,8 @@ func proxyHTTP(c *gin.Context, targetHost, path, sessionID string) {
 		originalDirector(req)
 
 		// Build the full path including the base URL path that Streamlit expects
-		basePath := fmt.Sprintf("/api/v1/tracelens/sessions/%s/ui", sessionID)
+		// Note: This must match BASE_URL_PATH env var in pod (without /api prefix)
+		basePath := fmt.Sprintf("/v1/tracelens/sessions/%s/ui", sessionID)
 		req.URL.Path = basePath + path
 		req.URL.RawPath = basePath + path
 
@@ -178,7 +179,8 @@ func proxyWebSocket(c *gin.Context, targetHost, path, sessionID string) {
 	defer clientConn.Close()
 
 	// Build backend WebSocket URL
-	basePath := fmt.Sprintf("/api/v1/tracelens/sessions/%s/ui", sessionID)
+	// Note: This must match BASE_URL_PATH env var in pod (without /api prefix)
+	basePath := fmt.Sprintf("/v1/tracelens/sessions/%s/ui", sessionID)
 	backendURL := fmt.Sprintf("ws://%s%s%s", targetHost, basePath, path)
 
 	// Copy headers for backend connection
