@@ -4,6 +4,8 @@ FROM ${BASE_IMAGE}
 
 LABEL maintainer="PrimusBench"
 
+ARG ROCM_VERSION=6.4.3
+ARG AINIC_BUNDLE_PATH=""
 ENV DEBIAN_FRONTEND=noninteractive
 ENV ROCM_VERSION=${ROCM_VERSION}
 ENV AINIC_BUNDLE_PATH=${AINIC_BUNDLE_PATH}
@@ -60,6 +62,7 @@ RUN mkdir -p ${PREFLIGHT_HOME}/network
 RUN mkdir -p ${PREFLIGHT_HOME}/node
 RUN mkdir -p ${PREFLIGHT_HOME}/node/config_check
 RUN mkdir -p ${PREFLIGHT_HOME}/node/node_check
+RUN mkdir -p ${PREFLIGHT_HOME}/node/model_check
 RUN mkdir -p ${PREFLIGHT_HOME}/install
 
 COPY ./preflight/ssh/* ${PREFLIGHT_HOME}/ssh/
@@ -68,10 +71,10 @@ COPY ./preflight/network/*.sh ${PREFLIGHT_HOME}/network/
 COPY ./preflight/node/*.sh ${PREFLIGHT_HOME}/node/
 COPY ./preflight/node/config_check/* ${PREFLIGHT_HOME}/node/config_check/
 COPY ./preflight/node/node_check/* ${PREFLIGHT_HOME}/node/node_check/
-COPY ./preflight/node/install/* ${PREFLIGHT_HOME}/install/
-COPY ./preflight/network/install/* ${PREFLIGHT_HOME}/install/
+COPY ./preflight/node/model_check/* ${PREFLIGHT_HOME}/node/model_check/
+COPY ./preflight/install/* ${PREFLIGHT_HOME}/install/
 
-RUN bash ${PREFLIGHT_HOME}/install/install_network.sh && bash ${PREFLIGHT_HOME}/install/install_node.sh && rm -rf ${PREFLIGHT_HOME}/install
+RUN bash ${PREFLIGHT_HOME}/install/install.sh && rm -rf ${PREFLIGHT_HOME}/install
 
 ARG NUM_MAKE_JOBS=64
 

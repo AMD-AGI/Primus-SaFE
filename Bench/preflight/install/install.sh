@@ -3,7 +3,7 @@
 # See LICENSE for license information.
 #
 
-echo "============== begin to install node components =============="
+echo "============== begin to install preflight components =============="
 set -e
 set -o pipefail
 
@@ -15,6 +15,7 @@ if [ -z "${ROCM_VERSION}" ]; then
   echo "Error: ROCM_VERSION environment variable is not set"
   exit 1
 fi
+export ROCM_VERSION=${ROCM_VERSION}
 echo "ROCM_VERSION: ${ROCM_VERSION}"
 
 # Function to run a script and check result
@@ -35,9 +36,11 @@ COMMON_SCRIPTS=(
     "install_ucx.sh"
     "install_open_mpi.sh"
     "install_rocm_validation.sh"
-    "install_rccl_test.sh"
     "install_roc_blas.sh"
     "install_transfer_bench.sh"
+    "install_mpich.sh"
+    "install_rccl_test.sh"
+    "install_rdma_test.sh"
 )
 
 for script in "${COMMON_SCRIPTS[@]}"; do
@@ -59,4 +62,4 @@ else
   done
 fi
 
-echo "============== install node components successfully =============="
+echo "============== install preflight components successfully =============="

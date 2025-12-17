@@ -33,7 +33,8 @@ const (
 
 // handleJob processes job resource events and synchronizes status between data plane and admin plane.
 // Manages the lifecycle of workload resources and handles failure scenarios.
-func (r *SyncerReconciler) handleJob(ctx context.Context, message *resourceMessage, informer *ClusterInformer) (ctrlruntime.Result, error) {
+func (r *SyncerReconciler) handleJob(ctx context.Context,
+	message *resourceMessage, informer *ClusterInformer) (ctrlruntime.Result, error) {
 	adminWorkload, err := r.getAdminWorkload(ctx, message.workloadId)
 	if err != nil || adminWorkload == nil {
 		return ctrlruntime.Result{}, err
@@ -210,6 +211,7 @@ func (r *SyncerReconciler) updateAdminWorkloadStatus(ctx context.Context, origin
 }
 
 // updateAdminWorkloadPhase updates the workload phase based on k8s resource status.
+// It was previously determined that the workload has not reached a terminal state.
 func (r *SyncerReconciler) updateAdminWorkloadPhase(adminWorkload *v1.Workload,
 	status *jobutils.K8sResourceStatus, message *resourceMessage) {
 	phase := v1.WorkloadConditionType(status.Phase)
@@ -217,17 +219,24 @@ func (r *SyncerReconciler) updateAdminWorkloadPhase(adminWorkload *v1.Workload,
 	case v1.K8sPending:
 		adminWorkload.Status.Phase = v1.WorkloadPending
 	case v1.K8sSucceeded:
+		adminWorkload.Status.Phase = v1.WorkloadSucceeded
+	case v1.K8sFailed:
 		if shouldTerminateWorkload(adminWorkload, status, message.dispatchCount) {
-			adminWorkload.Status.Phase = v1.WorkloadSucceeded
+			adminWorkload.Status.Phase = v1.WorkloadFailed
+		} else if commonworkload.IsApplication(adminWorkload) {
+			adminWorkload.Status.Phase = v1.WorkloadNotReady
 		}
-	case v1.K8sFailed, v1.K8sDeleted:
+	case v1.K8sDeleted:
 		if shouldTerminateWorkload(adminWorkload, status, message.dispatchCount) {
-			if phase == v1.K8sFailed {
-				adminWorkload.Status.Phase = v1.WorkloadFailed
+			if commonworkload.IsCICDEphemeralRunner(adminWorkload) {
+				// Currently, when an EphemeralRunner successfully completes,
+				// it does not set a success status but is instead deleted directly.
+				// refer: actions-runner-controller/ephemeralrunner_controller.go: 374-381
+				adminWorkload.Status.Phase = v1.WorkloadSucceeded
 			} else {
 				adminWorkload.Status.Phase = v1.WorkloadStopped
 			}
-		} else if adminWorkload.IsRunning() && commonworkload.IsApplication(adminWorkload) {
+		} else if commonworkload.IsApplication(adminWorkload) {
 			adminWorkload.Status.Phase = v1.WorkloadNotReady
 		}
 	case v1.K8sRunning:
@@ -316,10 +325,10 @@ func updateWorkloadCondition(adminWorkload *v1.Workload, newCondition *metav1.Co
 // shouldTerminateWorkload determines if a workload has reached its end state.
 // Considers retry limits and failover settings.
 func shouldTerminateWorkload(adminWorkload *v1.Workload, status *jobutils.K8sResourceStatus, count int) bool {
-	if commonworkload.IsApplication(adminWorkload) || v1.IsWorkloadPreempted(adminWorkload) ||
-		commonworkload.IsCICDScalingRunnerSet(adminWorkload) {
+	if commonworkload.IsApplication(adminWorkload) || v1.IsWorkloadPreempted(adminWorkload) {
 		return false
 	}
+
 	switch v1.WorkloadConditionType(status.Phase) {
 	case v1.K8sSucceeded:
 		return true
