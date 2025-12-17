@@ -17,7 +17,7 @@ get_input_with_default() {
 }
 
 # Prompt user for image version (default: current date YYYYMMDD)
-DEFAULT_VERSION=$(date +%Y%m%d%H%M%S)
+DEFAULT_VERSION=$(date +%Y%m%d%H%M)
 IMAGE_VERSION=$(get_input_with_default "Enter image version (${DEFAULT_VERSION}): " "${DEFAULT_VERSION}")
 AINIC_BUNDLE_PATH=$(get_input_with_default "Enter ainic package path (empty to skip): " "")
 
@@ -35,7 +35,7 @@ docker buildx build . -f ./Dockerfile \
   --progress=plain \
   --build-arg ROCM_VERSION=7.0.3 \
   --build-arg AINIC_BUNDLE_FILENAME="${AINIC_FILENAME}" \
-  -t primussafe/primusbench:${IMAGE_VERSION} 2>&1 | tee build.log
+  -t primussafe/primusbench:rocm7.0.3_ainic_${IMAGE_VERSION} 2>&1 | tee build.log
 
 # Cleanup: remove copied AINIC file after build
 if [ -n "${AINIC_FILENAME}" ] && [ -f "./preflight/install/${AINIC_FILENAME}" ]; then

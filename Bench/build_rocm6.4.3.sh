@@ -16,10 +16,10 @@ get_input_with_default() {
   fi
 }
 
-DEFAULT_VERSION=$(date +%Y%m%d%H%M%S)
+DEFAULT_VERSION=$(date +%Y%m%d%H%M)
 IMAGE_VERSION=$(get_input_with_default "Enter image version(${DEFAULT_VERSION}): " "${DEFAULT_VERSION}")
 
 docker buildx build . -f ./Dockerfile \
   --progress=plain \
   --build-arg ROCM_VERSION=6.4.3 \
-  -t primussafe/primusbench:${IMAGE_VERSION} | tee build.log
+  -t primussafe/primusbench:rocm6.4.3_${IMAGE_VERSION} | tee build.log
