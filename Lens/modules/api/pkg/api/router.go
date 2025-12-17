@@ -1,6 +1,9 @@
 package api
 
-import "github.com/gin-gonic/gin"
+import (
+	"github.com/AMD-AGI/Primus-SaFE/Lens/api/pkg/api/tracelens"
+	"github.com/gin-gonic/gin"
+)
 
 func RegisterRouter(group *gin.RouterGroup) error {
 	nodeGroup := group.Group("/nodes")
@@ -204,6 +207,31 @@ func RegisterRouter(group *gin.RouterGroup) error {
 			// Set cache TTL
 			cacheGroup.PUT("/ttl", SetCacheTTL)
 		}
+	}
+
+	// TraceLens Session routes - On-demand trace analysis
+	tracelensGroup := group.Group("/tracelens")
+	{
+		// Session management
+		sessionsGroup := tracelensGroup.Group("/sessions")
+		{
+			// Create a new analysis session
+			sessionsGroup.POST("", tracelens.CreateSession)
+			// List active sessions
+			sessionsGroup.GET("", tracelens.ListActiveSessions)
+			// Get session statistics
+			sessionsGroup.GET("/stats", tracelens.GetSessionStats)
+			// Get a specific session
+			sessionsGroup.GET("/:session_id", tracelens.GetSession)
+			// Extend session TTL
+			sessionsGroup.POST("/:session_id/extend", tracelens.ExtendSession)
+			// Delete a session
+			sessionsGroup.DELETE("/:session_id", tracelens.DeleteSession)
+			// TODO: Phase 4 - Add proxy routes
+			// sessionsGroup.Any("/:session_id/ui/*path", tracelens.ProxyUI)
+		}
+		// List sessions for a workload
+		tracelensGroup.GET("/workloads/:workload_uid/sessions", tracelens.ListWorkloadSessions)
 	}
 
 	return nil
