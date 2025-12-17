@@ -70,6 +70,7 @@ func Use(db *gorm.DB, opts ...gen.DOOption) *Query {
 		Storage:                     newStorage(db, opts...),
 		SystemConfig:                newSystemConfig(db, opts...),
 		SystemConfigHistory:         newSystemConfigHistory(db, opts...),
+		TracelensSessions:           newTracelensSessions(db, opts...),
 		TrainingPerformance:         newTrainingPerformance(db, opts...),
 		WorkloadEvent:               newWorkloadEvent(db, opts...),
 		WorkloadGpuHourlyStats:      newWorkloadGpuHourlyStats(db, opts...),
@@ -136,6 +137,7 @@ type Query struct {
 	Storage                     storage
 	SystemConfig                systemConfig
 	SystemConfigHistory         systemConfigHistory
+	TracelensSessions           tracelensSessions
 	TrainingPerformance         trainingPerformance
 	WorkloadEvent               workloadEvent
 	WorkloadGpuHourlyStats      workloadGpuHourlyStats
@@ -203,6 +205,7 @@ func (q *Query) clone(db *gorm.DB) *Query {
 		Storage:                     q.Storage.clone(db),
 		SystemConfig:                q.SystemConfig.clone(db),
 		SystemConfigHistory:         q.SystemConfigHistory.clone(db),
+		TracelensSessions:           q.TracelensSessions.clone(db),
 		TrainingPerformance:         q.TrainingPerformance.clone(db),
 		WorkloadEvent:               q.WorkloadEvent.clone(db),
 		WorkloadGpuHourlyStats:      q.WorkloadGpuHourlyStats.clone(db),
@@ -277,6 +280,7 @@ func (q *Query) ReplaceDB(db *gorm.DB) *Query {
 		Storage:                     q.Storage.replaceDB(db),
 		SystemConfig:                q.SystemConfig.replaceDB(db),
 		SystemConfigHistory:         q.SystemConfigHistory.replaceDB(db),
+		TracelensSessions:           q.TracelensSessions.replaceDB(db),
 		TrainingPerformance:         q.TrainingPerformance.replaceDB(db),
 		WorkloadEvent:               q.WorkloadEvent.replaceDB(db),
 		WorkloadGpuHourlyStats:      q.WorkloadGpuHourlyStats.replaceDB(db),
@@ -341,6 +345,7 @@ type queryCtx struct {
 	Storage                     *storageDo
 	SystemConfig                *systemConfigDo
 	SystemConfigHistory         *systemConfigHistoryDo
+	TracelensSessions           *tracelensSessionsDo
 	TrainingPerformance         *trainingPerformanceDo
 	WorkloadEvent               *workloadEventDo
 	WorkloadGpuHourlyStats      *workloadGpuHourlyStatsDo
@@ -405,6 +410,7 @@ func (q *Query) WithContext(ctx context.Context) *queryCtx {
 		Storage:                     q.Storage.WithContext(ctx),
 		SystemConfig:                q.SystemConfig.WithContext(ctx),
 		SystemConfigHistory:         q.SystemConfigHistory.WithContext(ctx),
+		TracelensSessions:           q.TracelensSessions.WithContext(ctx),
 		TrainingPerformance:         q.TrainingPerformance.WithContext(ctx),
 		WorkloadEvent:               q.WorkloadEvent.WithContext(ctx),
 		WorkloadGpuHourlyStats:      q.WorkloadGpuHourlyStats.WithContext(ctx),
