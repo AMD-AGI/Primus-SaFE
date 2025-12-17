@@ -4,7 +4,7 @@
 # Build: docker build -t tracelens:latest .
 # Run: docker run -p 8501:8501 -e TRACE_FILE_PATH=/path/to/trace tracelens:latest
 
-FROM python:3.10-slim
+FROM pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime
 
 LABEL maintainer="AMD AGI Team"
 LABEL description="TraceLens - GPU Trace Analysis Tool with Streamlit UI"
@@ -22,10 +22,9 @@ RUN useradd -m -u 1000 -s /bin/bash tracelens
 # Set working directory
 WORKDIR /app
 
-# Install Python dependencies
+# Install Python dependencies (PyTorch already included in base image)
 # TraceLens from GitHub + required packages for Streamlit UI
 RUN pip install --no-cache-dir \
-    torch>=2.0.0 \
     git+https://github.com/AMD-AGI/TraceLens.git \
     streamlit>=1.28.0 \
     openpyxl>=3.1.0 \
