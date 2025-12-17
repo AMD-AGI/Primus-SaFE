@@ -23,15 +23,18 @@ RUN useradd -m -u 1000 -s /bin/bash tracelens
 WORKDIR /app
 
 # Install Python dependencies (PyTorch already included in base image)
-# TraceLens from GitHub + required packages for Streamlit UI
+# First install other packages
 RUN pip install --no-cache-dir \
-    git+https://github.com/AMD-AGI/TraceLens.git \
     streamlit>=1.28.0 \
     openpyxl>=3.1.0 \
     plotly>=5.18.0 \
     requests>=2.31.0 \
     pandas>=2.0.0 \
     numpy>=1.24.0
+
+# Install TraceLens from GitHub separately with verbose output
+ENV GIT_TRACE=1
+RUN pip install --no-cache-dir -v git+https://github.com/AMD-AGI/TraceLens.git
 
 # Copy application files
 COPY analyze_trace.py /app/
