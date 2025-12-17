@@ -15,10 +15,18 @@ func (e ExtType) Value() (driver.Value, error) {
 }
 
 func (e *ExtType) Scan(value interface{}) error {
-    if b, ok := value.([]byte); ok {
-       return json.Unmarshal(b, &e)
+    if value == nil {
+       *e = make(ExtType)
+       return nil
     }
-    return errors.New("type assertion to []byte failed")
+    switch v := value.(type) {
+    case []byte:
+       return json.Unmarshal(v, &e)
+    case string:
+       return json.Unmarshal([]byte(v), &e)
+    default:
+       return errors.New("type assertion to []byte or string failed")
+    }
 }
 
 func (e *ExtType) GetStringValue(key string) string {
