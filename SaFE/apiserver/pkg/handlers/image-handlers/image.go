@@ -665,9 +665,10 @@ func newImportImageJob(
 // buildAuthVolumes builds volumes and volume mounts for auth config.
 // If authConfigMapName is provided, mounts the ConfigMap; otherwise mounts system secret.
 func buildAuthVolumes(authConfigMapName string) ([]corev1.Volume, []corev1.VolumeMount) {
+	var volumes []corev1.Volume
+
 	if authConfigMapName == "" {
-		// No ConfigMap - directly mount system secret
-		volumes := []corev1.Volume{
+		volumes = []corev1.Volume{
 			{
 				Name: "registry-auth",
 				VolumeSource: corev1.VolumeSource{
@@ -677,29 +678,21 @@ func buildAuthVolumes(authConfigMapName string) ([]corev1.Volume, []corev1.Volum
 				},
 			},
 		}
-		volumeMounts := []corev1.VolumeMount{
+	} else {
+		volumes = []corev1.Volume{
 			{
-				Name:      "registry-auth",
-				ReadOnly:  true,
-				MountPath: "/root/.docker",
-			},
-		}
-		return volumes, volumeMounts
-	}
-
-	// ConfigMap provided - mount it
-	volumes := []corev1.Volume{
-		{
-			Name: "registry-auth",
-			VolumeSource: corev1.VolumeSource{
-				ConfigMap: &corev1.ConfigMapVolumeSource{
-					LocalObjectReference: corev1.LocalObjectReference{
-						Name: authConfigMapName,
+				Name: "registry-auth",
+				VolumeSource: corev1.VolumeSource{
+					ConfigMap: &corev1.ConfigMapVolumeSource{
+						LocalObjectReference: corev1.LocalObjectReference{
+							Name: authConfigMapName,
+						},
 					},
 				},
 			},
-		},
+		}
 	}
+
 	volumeMounts := []corev1.VolumeMount{
 		{
 			Name:      "registry-auth",
