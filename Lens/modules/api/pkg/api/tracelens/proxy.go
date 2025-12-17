@@ -20,9 +20,16 @@ import (
 
 // ProxyUI proxies requests to the TraceLens pod UI (Streamlit)
 // Handles both HTTP and WebSocket connections
+// Also handles /health endpoint for session status check
 func ProxyUI(c *gin.Context) {
 	sessionID := c.Param("session_id")
 	path := c.Param("path")
+
+	// Handle health check endpoint
+	if path == "/health" || path == "health" {
+		proxyUIHealthCheckInternal(c, sessionID)
+		return
+	}
 
 	// Get cluster
 	cm := clientsets.GetClusterManager()
@@ -239,10 +246,8 @@ func copyWebSocket(dst, src *websocket.Conn, errChan chan<- error) {
 	}
 }
 
-// ProxyUIHealthCheck is a simple health check endpoint for the proxy
-func ProxyUIHealthCheck(c *gin.Context) {
-	sessionID := c.Param("session_id")
-
+// proxyUIHealthCheckInternal handles health check requests internally
+func proxyUIHealthCheckInternal(c *gin.Context, sessionID string) {
 	// Get cluster
 	cm := clientsets.GetClusterManager()
 	clusterName := c.Query("cluster")
