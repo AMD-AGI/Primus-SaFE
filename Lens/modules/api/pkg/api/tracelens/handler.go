@@ -91,14 +91,10 @@ func CreateSession(c *gin.Context) {
 
 	log.Infof("Created TraceLens session %s for workload %s, file %d", sessionID, req.WorkloadUID, req.ProfilerFileID)
 
-	// Get profiler file path from database
-	profilerFilePath, err := getProfilerFilePath(c, clients.ClusterName, req.ProfilerFileID)
-	if err != nil {
-		log.Warnf("Failed to get profiler file path: %v, pod creation will be skipped", err)
-	} else {
-		// Trigger pod creation asynchronously
-		CreatePodAsync(c, clients.ClusterName, session, profilerFilePath)
-	}
+	// In the new architecture, profiler files are stored in database (profiler_file_content table)
+	// file_path is optional and used only for legacy/backward compatibility
+	// Trigger pod creation asynchronously - pod will fetch content via API
+	CreatePodAsync(c, clients.ClusterName, session, "")
 
 	c.JSON(http.StatusCreated, rest.SuccessResp(c, toSessionResponse(session)))
 }
