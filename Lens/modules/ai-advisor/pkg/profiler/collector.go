@@ -522,7 +522,55 @@ func (c *Collector) CollectProfilerFilesFromLocations(
 				continue
 			}
 
-			log.Infof("Found matching profiler file: %s (%d bytes)", fileInfo.Path, fileInfo.Size)
+			log.Debugf("Found matching profiler file: %s (%d bytes)", fileInfo.Path, fileInfo.Size)
+
+			// Apply file-workload timestamp matching BEFORE collection to filter out files
+			// that don't belong to the current workload
+			var matchResult *FileMatchResult
+			if fileMatcher != nil {
+				var matchErr error
+				matchResult, matchErr = fileMatcher.MatchFileToWorkloads(ctx, fileInfo.Path, req.PodNamespace)
+				if matchErr != nil {
+					log.Warnf("Failed to match file %s to workloads: %v", fileInfo.Path, matchErr)
+				} else if matchResult != nil {
+					// Check if the file matches the current workload
+					fileMatchesCurrentWorkload := false
+					for _, match := range matchResult.Matches {
+						if match.WorkloadUID == req.WorkloadUID {
+							fileMatchesCurrentWorkload = true
+							break
+						}
+					}
+					
+					// If file doesn't match current workload based on timestamp, skip it
+					if !fileMatchesCurrentWorkload {
+						log.Debugf("Skipping file %s: timestamp doesn't match workload %s (file time: %s)",
+							fileInfo.Path, req.WorkloadUID, matchResult.FileTime)
+						result.SkippedFiles++
+						result.Files = append(result.Files, &ArchivedFileInfo{
+							FileName:   filepath.Base(fileInfo.Path),
+							FilePath:   fileInfo.Path,
+							FileSize:   fileInfo.Size,
+							Skipped:    true,
+							SkipReason: fmt.Sprintf("timestamp doesn't match workload (file time: %s)", matchResult.FileTime),
+						})
+						continue
+					}
+				}
+			}
+
+			// Check if file is already stored to avoid duplicates
+			fileName := filepath.Base(fileInfo.Path)
+			exists, existErr := c.storageBackend.ExistsByWorkloadAndFilename(ctx, req.WorkloadUID, fileName)
+			if existErr != nil {
+				log.Warnf("Failed to check file existence for %s: %v", fileInfo.Path, existErr)
+			} else if exists {
+				log.Debugf("Skipping file %s: already stored for workload %s", fileInfo.Path, req.WorkloadUID)
+				collectedFiles[fileInfo.Path] = true
+				continue
+			}
+
+			log.Infof("Collecting profiler file: %s (%d bytes)", fileInfo.Path, fileInfo.Size)
 
 			// Mark as collected to avoid duplicates
 			collectedFiles[fileInfo.Path] = true
@@ -531,7 +579,7 @@ func (c *Collector) CollectProfilerFilesFromLocations(
 			// Convert to ProfilerFileInfo for collection
 			profilerFile := &ProfilerFileInfo{
 				FilePath:   fileInfo.Path,
-				FileName:   filepath.Base(fileInfo.Path),
+				FileName:   fileName,
 				FileSize:   fileInfo.Size,
 				FileType:   c.detectFileType(fileInfo.Path),
 				Confidence: "high", // Files matching patterns have high confidence
@@ -555,26 +603,21 @@ func (c *Collector) CollectProfilerFilesFromLocations(
 				continue
 			}
 
-			// Apply file-workload matching if enabled
-			if fileMatcher != nil {
-				matchResult, matchErr := fileMatcher.MatchFileToWorkloads(ctx, fileInfo.Path, req.PodNamespace)
-				if matchErr != nil {
-					log.Warnf("Failed to match file %s to workloads: %v", fileInfo.Path, matchErr)
-				} else if matchResult != nil {
-					archived.MatchedWorkloads = matchResult.Matches
-					archived.MatchConfidence = matchResult.GetConfidence()
-					archived.HasConflict = matchResult.HasConflict
-					archived.ConflictReason = matchResult.ConflictReason
+			// Apply match result if available
+			if matchResult != nil {
+				archived.MatchedWorkloads = matchResult.Matches
+				archived.MatchConfidence = matchResult.GetConfidence()
+				archived.HasConflict = matchResult.HasConflict
+				archived.ConflictReason = matchResult.ConflictReason
+				
+				if matchResult.PrimaryMatch != nil {
+					archived.PrimaryWorkloadUID = matchResult.PrimaryMatch.WorkloadUID
 					
-					if matchResult.PrimaryMatch != nil {
-						archived.PrimaryWorkloadUID = matchResult.PrimaryMatch.WorkloadUID
-						
-						// Log conflict warning
-						if matchResult.HasConflict {
-							workloadUIDs := matchResult.GetAllMatchedWorkloadUIDs()
-							log.Warnf("File %s has conflict: matched to %d workloads: %v (primary: %s)",
-								fileInfo.Path, len(workloadUIDs), workloadUIDs, archived.PrimaryWorkloadUID)
-						}
+					// Log conflict warning
+					if matchResult.HasConflict {
+						workloadUIDs := matchResult.GetAllMatchedWorkloadUIDs()
+						log.Warnf("File %s has conflict: matched to %d workloads: %v (primary: %s)",
+							fileInfo.Path, len(workloadUIDs), workloadUIDs, archived.PrimaryWorkloadUID)
 					}
 				}
 			}

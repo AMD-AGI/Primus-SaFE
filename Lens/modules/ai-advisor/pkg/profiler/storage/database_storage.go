@@ -524,6 +524,22 @@ func (b *DatabaseStorageBackend) Exists(ctx context.Context, fileID string) (boo
 	return count > 0, nil
 }
 
+// ExistsByWorkloadAndFilename checks if a file with the same name already exists for the workload
+func (b *DatabaseStorageBackend) ExistsByWorkloadAndFilename(ctx context.Context, workloadUID string, fileName string) (bool, error) {
+	var count int
+	err := b.db.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM profiler_files
+		WHERE workload_uid = $1 AND file_name = $2
+	`, workloadUID, fileName).Scan(&count)
+
+	if err != nil {
+		return false, fmt.Errorf("failed to check file existence: %w", err)
+	}
+
+	return count > 0, nil
+}
+
 // Helper methods
 
 func (b *DatabaseStorageBackend) splitIntoChunks(content []byte) [][]byte {

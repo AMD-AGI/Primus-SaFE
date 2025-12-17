@@ -24,6 +24,9 @@ type StorageBackend interface {
 
 	// Exists checks if a file exists
 	Exists(ctx context.Context, fileID string) (bool, error)
+
+	// ExistsByWorkloadAndFilename checks if a file with the same name already exists for the workload
+	ExistsByWorkloadAndFilename(ctx context.Context, workloadUID string, fileName string) (bool, error)
 }
 
 // StoreRequest represents a file storage request
