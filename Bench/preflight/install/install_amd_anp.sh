@@ -42,7 +42,7 @@ fi
 
 # Build
 echo "Building AMD ANP driver..."
-make -j 16 RCCL_BUILD=/opt/rccl/build/release \
+make -j 16 RCCL_HOME=/opt/rccl/build/release \
            MPI_INCLUDE=/opt/openmpi/include/ \
            MPI_LIB_PATH=/opt/openmpi/lib/ \
            ROCM_PATH=/opt/rocm 2>&1 | tee log_amd_anp_build.txt
