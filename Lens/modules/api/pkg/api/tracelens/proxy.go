@@ -48,7 +48,8 @@ func ProxyUI(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get session"})
 		return
 	}
-	if session == nil {
+	// Note: gorm gen First() may return empty struct with ID=0 instead of nil
+	if session == nil || session.ID == 0 {
 		c.JSON(http.StatusNotFound, gin.H{"error": "session not found"})
 		return
 	}
@@ -264,7 +265,8 @@ func proxyUIHealthCheckInternal(c *gin.Context, sessionID string) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get session"})
 		return
 	}
-	if session == nil {
+	// Note: gorm gen First() may return empty struct with ID=0 instead of nil
+	if session == nil || session.ID == 0 {
 		c.JSON(http.StatusNotFound, gin.H{"error": "session not found"})
 		return
 	}
