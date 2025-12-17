@@ -1,0 +1,275 @@
+package tracelens
+
+import (
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"net/http/httputil"
+	"net/url"
+	"strings"
+	"time"
+
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
+	tlconst "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/tracelens"
+	"github.com/gin-gonic/gin"
+	"github.com/gorilla/websocket"
+)
+
+// ProxyUI proxies requests to the TraceLens pod UI (Streamlit)
+// Handles both HTTP and WebSocket connections
+func ProxyUI(c *gin.Context) {
+	sessionID := c.Param("session_id")
+	path := c.Param("path")
+
+	// Get cluster
+	cm := clientsets.GetClusterManager()
+	clusterName := c.Query("cluster")
+	clients, err := cm.GetClusterClientsOrDefault(clusterName)
+	if err != nil {
+		_ = c.Error(err)
+		return
+	}
+
+	// Get session from database
+	facade := database.GetFacadeForCluster(clients.ClusterName).GetTraceLensSession()
+	session, err := facade.GetBySessionID(c, sessionID)
+	if err != nil {
+		log.Errorf("Failed to get session %s: %v", sessionID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get session"})
+		return
+	}
+	if session == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "session not found"})
+		return
+	}
+
+	// Check session status
+	if session.Status != tlconst.StatusReady {
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"error":   "session not ready",
+			"status":  session.Status,
+			"message": session.StatusMessage,
+		})
+		return
+	}
+
+	// Validate pod IP and port
+	if session.PodIP == "" {
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"error":  "session pod IP not available",
+			"status": session.Status,
+		})
+		return
+	}
+
+	// Update last accessed timestamp
+	if err := facade.UpdateLastAccessed(c, sessionID); err != nil {
+		log.Warnf("Failed to update last accessed for session %s: %v", sessionID, err)
+	}
+
+	// Build target URL
+	podPort := session.PodPort
+	if podPort == 0 {
+		podPort = int32(tlconst.DefaultPodPort)
+	}
+	targetHost := fmt.Sprintf("%s:%d", session.PodIP, podPort)
+
+	// Check if this is a WebSocket upgrade request
+	if isWebSocketUpgrade(c.Request) {
+		proxyWebSocket(c, targetHost, path, sessionID)
+		return
+	}
+
+	// Proxy HTTP request
+	proxyHTTP(c, targetHost, path, sessionID)
+}
+
+// isWebSocketUpgrade checks if the request is a WebSocket upgrade
+func isWebSocketUpgrade(r *http.Request) bool {
+	return strings.ToLower(r.Header.Get("Upgrade")) == "websocket" &&
+		strings.Contains(strings.ToLower(r.Header.Get("Connection")), "upgrade")
+}
+
+// proxyHTTP proxies HTTP requests to the TraceLens pod
+func proxyHTTP(c *gin.Context, targetHost, path, sessionID string) {
+	targetURL := &url.URL{
+		Scheme: "http",
+		Host:   targetHost,
+	}
+
+	// Create reverse proxy
+	proxy := httputil.NewSingleHostReverseProxy(targetURL)
+
+	// Custom director to modify the request
+	originalDirector := proxy.Director
+	proxy.Director = func(req *http.Request) {
+		originalDirector(req)
+
+		// Build the full path including the base URL path that Streamlit expects
+		basePath := fmt.Sprintf("/api/v1/tracelens/sessions/%s/ui", sessionID)
+		req.URL.Path = basePath + path
+		req.URL.RawPath = basePath + path
+
+		// Preserve the original host header for proper routing
+		req.Host = targetHost
+
+		log.Debugf("Proxying HTTP request to %s%s", targetHost, req.URL.Path)
+	}
+
+	// Custom error handler
+	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
+		log.Errorf("Proxy error for session %s: %v", sessionID, err)
+		w.WriteHeader(http.StatusBadGateway)
+		w.Write([]byte(fmt.Sprintf(`{"error": "proxy error", "message": "%s"}`, err.Error())))
+	}
+
+	// Custom transport with timeouts
+	proxy.Transport = &http.Transport{
+		DialContext: (&net.Dialer{
+			Timeout:   10 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+		MaxIdleConns:          100,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+		ResponseHeaderTimeout: 60 * time.Second,
+	}
+
+	// Modify response to handle any necessary header adjustments
+	proxy.ModifyResponse = func(resp *http.Response) error {
+		// Remove security headers that might conflict
+		resp.Header.Del("X-Frame-Options")
+		return nil
+	}
+
+	// Serve the request
+	proxy.ServeHTTP(c.Writer, c.Request)
+}
+
+// proxyWebSocket proxies WebSocket connections to the TraceLens pod
+func proxyWebSocket(c *gin.Context, targetHost, path, sessionID string) {
+	// WebSocket upgrader for client connection
+	upgrader := websocket.Upgrader{
+		CheckOrigin: func(r *http.Request) bool {
+			return true // Allow all origins for now
+		},
+		ReadBufferSize:  1024,
+		WriteBufferSize: 1024,
+	}
+
+	// Upgrade client connection
+	clientConn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
+	if err != nil {
+		log.Errorf("Failed to upgrade client WebSocket for session %s: %v", sessionID, err)
+		return
+	}
+	defer clientConn.Close()
+
+	// Build backend WebSocket URL
+	basePath := fmt.Sprintf("/api/v1/tracelens/sessions/%s/ui", sessionID)
+	backendURL := fmt.Sprintf("ws://%s%s%s", targetHost, basePath, path)
+
+	// Copy headers for backend connection
+	requestHeader := http.Header{}
+	for key, values := range c.Request.Header {
+		// Skip hop-by-hop headers
+		if key == "Upgrade" || key == "Connection" || key == "Sec-Websocket-Key" ||
+			key == "Sec-Websocket-Version" || key == "Sec-Websocket-Extensions" ||
+			key == "Sec-Websocket-Protocol" {
+			continue
+		}
+		for _, value := range values {
+			requestHeader.Add(key, value)
+		}
+	}
+
+	// Connect to backend
+	dialer := websocket.Dialer{
+		HandshakeTimeout: 10 * time.Second,
+	}
+	backendConn, _, err := dialer.Dial(backendURL, requestHeader)
+	if err != nil {
+		log.Errorf("Failed to connect to backend WebSocket for session %s: %v", sessionID, err)
+		return
+	}
+	defer backendConn.Close()
+
+	log.Debugf("WebSocket proxy established for session %s: client <-> %s", sessionID, backendURL)
+
+	// Error channel to track both connections
+	errChan := make(chan error, 2)
+
+	// Client -> Backend
+	go copyWebSocket(backendConn, clientConn, errChan)
+
+	// Backend -> Client
+	go copyWebSocket(clientConn, backendConn, errChan)
+
+	// Wait for either connection to close
+	<-errChan
+	log.Debugf("WebSocket proxy closed for session %s", sessionID)
+}
+
+// copyWebSocket copies messages from src to dst WebSocket connection
+func copyWebSocket(dst, src *websocket.Conn, errChan chan<- error) {
+	for {
+		messageType, message, err := src.ReadMessage()
+		if err != nil {
+			if !websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
+				// Only log if it's not a normal close
+				if err != io.EOF {
+					log.Debugf("WebSocket read error: %v", err)
+				}
+			}
+			errChan <- err
+			return
+		}
+
+		if err := dst.WriteMessage(messageType, message); err != nil {
+			if err != io.EOF {
+				log.Debugf("WebSocket write error: %v", err)
+			}
+			errChan <- err
+			return
+		}
+	}
+}
+
+// ProxyUIHealthCheck is a simple health check endpoint for the proxy
+func ProxyUIHealthCheck(c *gin.Context) {
+	sessionID := c.Param("session_id")
+
+	// Get cluster
+	cm := clientsets.GetClusterManager()
+	clusterName := c.Query("cluster")
+	clients, err := cm.GetClusterClientsOrDefault(clusterName)
+	if err != nil {
+		_ = c.Error(err)
+		return
+	}
+
+	// Get session
+	facade := database.GetFacadeForCluster(clients.ClusterName).GetTraceLensSession()
+	session, err := facade.GetBySessionID(c, sessionID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get session"})
+		return
+	}
+	if session == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "session not found"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"session_id": sessionID,
+		"status":     session.Status,
+		"pod_ip":     session.PodIP,
+		"pod_port":   session.PodPort,
+		"ready":      session.Status == tlconst.StatusReady,
+	})
+}
+

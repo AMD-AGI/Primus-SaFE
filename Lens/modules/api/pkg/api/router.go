@@ -227,8 +227,12 @@ func RegisterRouter(group *gin.RouterGroup) error {
 			sessionsGroup.POST("/:session_id/extend", tracelens.ExtendSession)
 			// Delete a session
 			sessionsGroup.DELETE("/:session_id", tracelens.DeleteSession)
-			// TODO: Phase 4 - Add proxy routes
-			// sessionsGroup.Any("/:session_id/ui/*path", tracelens.ProxyUI)
+
+			// Phase 4: UI Proxy - Proxy HTTP/WebSocket requests to TraceLens pod
+			// Health check endpoint for session pod
+			sessionsGroup.GET("/:session_id/ui/health", tracelens.ProxyUIHealthCheck)
+			// Catch-all proxy for all UI paths
+			sessionsGroup.Any("/:session_id/ui/*path", tracelens.ProxyUI)
 		}
 		// List sessions for a workload
 		tracelensGroup.GET("/workloads/:workload_uid/sessions", tracelens.ListWorkloadSessions)
