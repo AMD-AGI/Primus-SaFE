@@ -107,9 +107,8 @@ func Bootstrap(ctx context.Context) error {
 			log.Info("Metadata collector initialized successfully")
 		}
 
-		// Initialize task scheduler with custom config
+		// Initialize task scheduler with default config (MaxConcurrentTasks=20)
 		schedulerConfig := coreTask.DefaultSchedulerConfig()
-		schedulerConfig.MaxConcurrentTasks = 20 // Increase from default 10 to 20
 		taskScheduler := coreTask.NewTaskScheduler(instanceID, schedulerConfig)
 
 		// Register metadata collection executor
