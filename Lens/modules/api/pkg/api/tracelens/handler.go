@@ -38,7 +38,8 @@ func CreateSession(c *gin.Context) {
 	if err != nil {
 		log.Warnf("Failed to check existing session: %v", err)
 	}
-	if existing != nil {
+	// Note: gorm gen First() may return empty struct with ID=0 instead of nil
+	if existing != nil && existing.ID != 0 {
 		// Extend TTL and return existing session
 		ttl := req.TTLMinutes
 		if ttl <= 0 {
