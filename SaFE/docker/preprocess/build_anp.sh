@@ -49,8 +49,8 @@ if [ $? -ne 0 ]; then
 fi
 
 # Fix libibverbs compatibility: replace active_speed_ex with active_speed
-# echo "Fixing libibverbs compatibility in net_ib.cc..."
-# sed -i 's/active_speed_ex/active_speed/g' ./src/net_ib.cc
+echo "Fixing libibverbs compatibility in net_ib.cc..."
+sed -i 's/active_speed_ex/active_speed/g' ./src/net_ib.cc
 
 # Build
 echo "Building AMD ANP driver..."
