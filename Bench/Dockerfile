@@ -4,10 +4,9 @@ FROM primussafe/pytorch:rocm${ROCM_VERSION}_ubuntu22.04_py3.10
 LABEL maintainer="PrimusBench"
 
 ARG ROCM_VERSION=6.4.3
-ARG AINIC_BUNDLE_PATH=""
+ARG AINIC_BUNDLE_FILENAME=""
 ENV DEBIAN_FRONTEND=noninteractive
 ENV ROCM_VERSION=${ROCM_VERSION}
-ENV AINIC_BUNDLE_PATH=${AINIC_BUNDLE_PATH}
 
 RUN apt-get update && \
     apt-get -q install -y --no-install-recommends  \
@@ -74,7 +73,12 @@ COPY ./preflight/node/node_check/* ${PREFLIGHT_HOME}/node/node_check/
 COPY ./preflight/node/model_check/* ${PREFLIGHT_HOME}/node/model_check/
 COPY ./preflight/install/* ${PREFLIGHT_HOME}/install/
 
-RUN bash ${PREFLIGHT_HOME}/install/install.sh && rm -rf ${PREFLIGHT_HOME}/install
+# Set AINIC_BUNDLE_PATH if filename was provided (file already copied via COPY above)
+RUN if [ -n "${AINIC_BUNDLE_FILENAME}" ]; then \
+      export AINIC_BUNDLE_PATH="${PREFLIGHT_HOME}/install/${AINIC_BUNDLE_FILENAME}"; \
+      echo "AINIC bundle path: ${AINIC_BUNDLE_PATH}"; \
+    fi && \
+    bash ${PREFLIGHT_HOME}/install/install.sh && rm -rf ${PREFLIGHT_HOME}/install
 
 ARG NUM_MAKE_JOBS=64
 
