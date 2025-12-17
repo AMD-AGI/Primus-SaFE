@@ -17,7 +17,7 @@ get_input_with_default() {
 }
 
 # Prompt user for image version (default: current date YYYYMMDD)
-DEFAULT_VERSION=$(date +%Y%m%d)
+DEFAULT_VERSION=$(date +%Y%m%d%H%M%S)
 IMAGE_VERSION=$(get_input_with_default "Enter image version (${DEFAULT_VERSION}): " "${DEFAULT_VERSION}")
 AINIC_BUNDLE_PATH=$(get_input_with_default "Enter ainic package path (empty to skip): " "")
 

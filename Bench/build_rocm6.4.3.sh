@@ -16,7 +16,7 @@ get_input_with_default() {
   fi
 }
 
-DEFAULT_VERSION=$(date +%Y%m%d)
+DEFAULT_VERSION=$(date +%Y%m%d%H%M%S)
 IMAGE_VERSION=$(get_input_with_default "Enter image version(${DEFAULT_VERSION}): " "${DEFAULT_VERSION}")
 
 docker buildx build . -f ./Dockerfile \
