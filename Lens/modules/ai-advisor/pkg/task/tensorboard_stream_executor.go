@@ -16,6 +16,7 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/constant"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/metadata"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	coreTask "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/task"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/node-exporter/pkg/client"
@@ -25,13 +26,14 @@ import (
 type TensorBoardStreamExecutor struct {
 	coreTask.BaseExecutor
 
-	reader         *tensorboard.Reader
-	metadataFacade database.AiWorkloadMetadataFacadeInterface
-	podFacade      database.PodFacadeInterface
-	taskFacade     database.WorkloadTaskFacadeInterface
-	trainingFacade database.TrainingFacadeInterface
-	nodeFacade     database.NodeFacadeInterface
-	eventParser    *tensorboard.EventParser
+	reader          *tensorboard.Reader
+	metadataFacade  database.AiWorkloadMetadataFacadeInterface
+	podFacade       database.PodFacadeInterface
+	taskFacade      database.WorkloadTaskFacadeInterface
+	trainingFacade  database.TrainingFacadeInterface
+	nodeFacade      database.NodeFacadeInterface
+	workloadFacade  database.WorkloadFacadeInterface
+	eventParser     *tensorboard.EventParser
 
 	// Hyperparameters collection
 	hpCollector      *hyperparameters.Collector
@@ -88,6 +90,7 @@ func NewTensorBoardStreamExecutor() *TensorBoardStreamExecutor {
 		taskFacade:     database.NewWorkloadTaskFacade(),
 		trainingFacade: database.NewTrainingFacade(),
 		nodeFacade:     database.NewNodeFacade(),
+		workloadFacade: database.NewWorkloadFacade(),
 		eventParser:    tensorboard.NewEventParser(),
 		hpCollector:    hyperparameters.NewCollector(),
 		hpStorage:      hyperparameters.NewStorage(),
@@ -316,6 +319,10 @@ func (e *TensorBoardStreamExecutor) streamLoop(
 	checkpointTicker := time.NewTicker(10 * time.Second) // update checkpoint every 10 seconds
 	defer checkpointTicker.Stop()
 
+	// Check workload status every 30 seconds
+	workloadCheckTicker := time.NewTicker(30 * time.Second)
+	defer workloadCheckTicker.Stop()
+
 	totalBytesRead := int64(0)
 	updateCount := 0
 
@@ -328,6 +335,14 @@ func (e *TensorBoardStreamExecutor) streamLoop(
 			// Last checkpoint update
 			e.updateCheckpoint(ctx, task, totalBytesRead, updateCount)
 			return
+
+		case <-workloadCheckTicker.C:
+			// Check if workload has ended
+			if e.isWorkloadEnded(ctx, task.WorkloadUID) {
+				log.Infof("Workload %s has ended, stopping TensorBoard stream", task.WorkloadUID)
+				e.updateCheckpoint(ctx, task, totalBytesRead, updateCount)
+				return
+			}
 
 		case <-ticker.C:
 			// Poll each file to check for new data
@@ -1128,4 +1143,36 @@ func (e *TensorBoardStreamExecutor) tryCollectHyperparameters(
 	if hparams.Summary.Framework != "" {
 		log.Infof("  Framework: %s", hparams.Summary.Framework)
 	}
+}
+
+// isWorkloadEnded checks if the workload has ended (Done, Deleted, or Failed status)
+func (e *TensorBoardStreamExecutor) isWorkloadEnded(ctx context.Context, workloadUID string) bool {
+	workload, err := e.workloadFacade.GetGpuWorkloadByUid(ctx, workloadUID)
+	if err != nil {
+		log.Warnf("Failed to get workload %s status: %v", workloadUID, err)
+		return false
+	}
+
+	if workload == nil {
+		// Workload not found, consider it as ended
+		log.Infof("Workload %s not found in database, treating as ended", workloadUID)
+		return true
+	}
+
+	// Check if workload status indicates it has ended
+	status := workload.Status
+	if status == metadata.WorkloadStatusDone ||
+		status == metadata.WorkloadStatusDeleted ||
+		status == metadata.WorkloadStatusFailed {
+		log.Debugf("Workload %s has status %s, treating as ended", workloadUID, status)
+		return true
+	}
+
+	// Also check EndAt field
+	if !workload.EndAt.IsZero() {
+		log.Debugf("Workload %s has EndAt set (%v), treating as ended", workloadUID, workload.EndAt)
+		return true
+	}
+
+	return false
 }

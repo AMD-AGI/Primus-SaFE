@@ -10,6 +10,7 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/constant"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/metadata"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	coreTask "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/task"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/node-exporter/pkg/client"
@@ -22,6 +23,7 @@ type ProfilerCollectionExecutor struct {
 	collector           *Collector
 	metadataMgr         *MetadataManager
 	metadataFacade      database.AiWorkloadMetadataFacadeInterface
+	workloadFacade      database.WorkloadFacadeInterface
 	configService       *FrameworkConfigService
 	metadataCollector   *metadataCollector.Collector // For getting node-exporter client
 }
@@ -36,6 +38,7 @@ func NewProfilerCollectionExecutor(
 		collector:         collector,
 		metadataMgr:       metadataMgr,
 		metadataFacade:    database.NewAiWorkloadMetadataFacade(),
+		workloadFacade:    database.NewWorkloadFacade(),
 		configService:     NewFrameworkConfigService(),
 		metadataCollector: metaCollector,
 	}
@@ -432,30 +435,34 @@ func (e *ProfilerCollectionExecutor) shouldContinue(
 	}
 
 	// 3. Check if training workload is still running
-	// TODO: Implement workload status check
-	// For now, continue if auto_restart is true and max_executions not reached
 	workloadUID := taskState.WorkloadUID
-	_ = workloadUID // Suppress unused variable warning
 
-	// workloadFacade := database.GetFacade().GetWorkload()
-	// workload, err := workloadFacade.GetWorkloadByUID(ctx, workloadUID)
-	// if err != nil {
-	// 	log.Warnf("Failed to query workload status: %v", err)
-	// 	return true // If query fails, continue by default
-	// }
-	//
-	// if workload == nil {
-	// 	log.Warnf("Workload %s not found, stopping collection", workloadUID)
-	// 	return false
-	// }
-	//
-	// // Check if workload is still active
-	// status := strings.ToLower(workload.Status)
-	// if status == "succeeded" || status == "failed" || status == "completed" {
-	// 	log.Infof("Workload %s is %s, stopping profiler collection", workloadUID, status)
-	// 	return false
-	// }
+	workload, err := e.workloadFacade.GetGpuWorkloadByUid(ctx, workloadUID)
+	if err != nil {
+		log.Warnf("Failed to query workload status for %s: %v", workloadUID, err)
+		return true // If query fails, continue by default
+	}
 
-	log.Debugf("Workload %s continuing profiler collection (workload status check not yet implemented)", workloadUID)
+	if workload == nil {
+		log.Infof("Workload %s not found, stopping profiler collection", workloadUID)
+		return false
+	}
+
+	// Check if workload has ended (Done, Deleted, or Failed status)
+	status := workload.Status
+	if status == metadata.WorkloadStatusDone ||
+		status == metadata.WorkloadStatusDeleted ||
+		status == metadata.WorkloadStatusFailed {
+		log.Infof("Workload %s has status %s, stopping profiler collection", workloadUID, status)
+		return false
+	}
+
+	// Also check EndAt field
+	if !workload.EndAt.IsZero() {
+		log.Infof("Workload %s has EndAt set (%v), stopping profiler collection", workloadUID, workload.EndAt)
+		return false
+	}
+
+	log.Debugf("Workload %s is still running, continuing profiler collection", workloadUID)
 	return true
 }
