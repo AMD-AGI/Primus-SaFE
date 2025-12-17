@@ -5,9 +5,17 @@
 
 set -e
 
-ANP_VERSION="v1.3.0"
-
 echo "============== begin to install AMD AINIC Network Plugin (amd-anp) ${ANP_VERSION} =============="
+
+# Set ANP version based on ROCM_VERSION
+if [ "$ROCM_VERSION" = "7.0.3" ]; then
+  ANP_VERSION="v1.2.0"
+elif [ "$ROCM_VERSION" = "7.1" ]; then
+  ANP_VERSION="v1.3.0"
+else
+  echo "Error: Unsupported ROCM_VERSION '$ROCM_VERSION'. Only 7.0.3 and 7.1 are supported."
+  exit 1
+fi
 
 ANP_REPO="https://github.com/rocm/amd-anp.git"
 ANP_DIR="amd-anp"
@@ -23,7 +31,7 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 
-# Checkout specific version
+# Checkout specific version or branch
 echo "Checking out version ${ANP_VERSION}..."
 cd ${ANP_DIR}
 git checkout tags/${ANP_VERSION}
