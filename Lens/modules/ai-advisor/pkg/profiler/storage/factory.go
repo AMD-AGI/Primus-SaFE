@@ -207,3 +207,24 @@ func (a *AutoSelectBackend) Exists(ctx context.Context, fileID string) (bool, er
 	return false, nil
 }
 
+// ExistsByWorkloadAndFilename checks if a file with the same name already exists for the workload
+func (a *AutoSelectBackend) ExistsByWorkloadAndFilename(ctx context.Context, workloadUID string, fileName string) (bool, error) {
+	// Check database first
+	if a.databaseBackend != nil {
+		exists, err := a.databaseBackend.ExistsByWorkloadAndFilename(ctx, workloadUID, fileName)
+		if err == nil && exists {
+			return true, nil
+		}
+	}
+
+	// Check object storage
+	if a.objectBackend != nil {
+		exists, err := a.objectBackend.ExistsByWorkloadAndFilename(ctx, workloadUID, fileName)
+		if err == nil && exists {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
