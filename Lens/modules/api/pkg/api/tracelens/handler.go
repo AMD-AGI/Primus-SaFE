@@ -89,8 +89,14 @@ func CreateSession(c *gin.Context) {
 
 	log.Infof("Created TraceLens session %s for workload %s, file %d", sessionID, req.WorkloadUID, req.ProfilerFileID)
 
-	// TODO: In Phase 3, trigger pod creation here
-	// go podManager.CreatePod(context.Background(), clients.ClusterName, session)
+	// Get profiler file path from database
+	profilerFilePath, err := getProfilerFilePath(c, clients.ClusterName, req.ProfilerFileID)
+	if err != nil {
+		log.Warnf("Failed to get profiler file path: %v, pod creation will be skipped", err)
+	} else {
+		// Trigger pod creation asynchronously
+		CreatePodAsync(c, clients.ClusterName, session, profilerFilePath)
+	}
 
 	c.JSON(http.StatusCreated, rest.SuccessResp(c, toSessionResponse(session)))
 }
@@ -193,10 +199,14 @@ func DeleteSession(c *gin.Context) {
 		return
 	}
 
-	// TODO: In Phase 3, delete pod here if exists
-	// if session.PodName != "" {
-	//     go podManager.DeletePod(context.Background(), session.PodName, session.PodNamespace)
-	// }
+	// Delete pod if exists
+	if session.PodName != "" {
+		go func() {
+			if err := DeletePod(c, clients.ClusterName, session.PodName, session.PodNamespace); err != nil {
+				log.Warnf("Failed to delete pod %s: %v", session.PodName, err)
+			}
+		}()
+	}
 
 	// Mark session as deleted
 	if err := facade.Delete(c, sessionID); err != nil {
@@ -291,6 +301,27 @@ func GetSessionStats(c *gin.Context) {
 }
 
 // Helper functions
+
+func getProfilerFilePath(c *gin.Context, clusterName string, profilerFileID int32) (string, error) {
+	// Query profiler_files table to get file path
+	facade := database.GetFacadeForCluster(clusterName)
+	db := facade.GetTraceLensSession().GetDB()
+
+	var filePath string
+	err := db.WithContext(c).
+		Table("profiler_files").
+		Select("file_path").
+		Where("id = ?", profilerFileID).
+		Scan(&filePath).Error
+
+	if err != nil {
+		return "", fmt.Errorf("failed to query profiler file: %w", err)
+	}
+	if filePath == "" {
+		return "", fmt.Errorf("profiler file not found: %d", profilerFileID)
+	}
+	return filePath, nil
+}
 
 func generateSessionID(workloadUID string, fileID int32) string {
 	prefix := workloadUID
