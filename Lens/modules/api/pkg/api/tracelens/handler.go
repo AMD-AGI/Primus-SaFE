@@ -69,17 +69,11 @@ func CreateSession(c *gin.Context) {
 		return
 	}
 
-	// Get user info from context (if available from auth middleware)
-	userID := c.GetString("user_id")
-	userEmail := c.GetString("user_email")
-
 	// Create session record
 	session := &model.TracelensSessions{
 		SessionID:       sessionID,
 		WorkloadUID:     req.WorkloadUID,
 		ProfilerFileID:  req.ProfilerFileID,
-		UserID:          userID,
-		UserEmail:       userEmail,
 		PodNamespace:    tlconst.DefaultPodNamespace,
 		PodPort:         tlconst.DefaultPodPort,
 		Status:          tlconst.StatusPending,
