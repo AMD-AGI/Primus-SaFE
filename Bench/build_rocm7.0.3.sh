@@ -29,11 +29,13 @@ if [ -n "${AINIC_BUNDLE_PATH}" ] && [ -f "${AINIC_BUNDLE_PATH}" ]; then
   echo "Copied AINIC bundle to ./preflight/install/${AINIC_FILENAME}"
 fi
 
-# Build docker image
+# Build docker image (--progress=plain shows full output for debugging)
+# Build log saved to build.log in current directory
 docker buildx build . -f ./Dockerfile \
+  --progress=plain \
   --build-arg ROCM_VERSION=7.0.3 \
   --build-arg AINIC_BUNDLE_FILENAME="${AINIC_FILENAME}" \
-  -t primussafe/primusbench:${IMAGE_VERSION}
+  -t primussafe/primusbench:${IMAGE_VERSION} 2>&1 | tee build.log
 
 # Cleanup: remove copied AINIC file after build
 if [ -n "${AINIC_FILENAME}" ] && [ -f "./preflight/install/${AINIC_FILENAME}" ]; then

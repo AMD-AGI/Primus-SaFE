@@ -37,17 +37,17 @@ cd ${OPENMPI_DIR}
 mkdir -p build
 cd build
 ../configure --with-ucx=/opt/ucx --prefix=/opt/openmpi \
-    --disable-oshmem --disable-mpi-fortran 2>&1 | tee log_mpi_configure.txt
-if [ ${PIPESTATUS[0]} -ne 0 ]; then
-  echo "Error: Failed to configure Open MPI. See log_mpi_configure.txt for details."
+    --disable-oshmem --disable-mpi-fortran
+if [ $? -ne 0 ]; then
+  echo "Error: Failed to configure Open MPI."
   exit 1
 fi
 
 # Build
 echo "Building Open MPI (this may take a while)..."
-make -j 16 2>&1 | tee log_mpi_build.txt
-if [ ${PIPESTATUS[0]} -ne 0 ]; then
-  echo "Error: Failed to build Open MPI. See log_mpi_build.txt for details."
+make -j 16
+if [ $? -ne 0 ]; then
+  echo "Error: Failed to build Open MPI."
   exit 1
 fi
 

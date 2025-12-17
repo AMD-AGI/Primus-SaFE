@@ -36,17 +36,17 @@ echo "Configuring UCX..."
 cd ${UCX_DIR}
 mkdir -p build
 cd build
-../configure --prefix=${WORKDIR}/ucx --with-rocm=/opt/rocm 2>&1 | tee log_ucx_configure.txt
-if [ ${PIPESTATUS[0]} -ne 0 ]; then
-  echo "Error: Failed to configure UCX. See log_ucx_configure.txt for details."
+../configure --prefix=${WORKDIR}/ucx --with-rocm=/opt/rocm
+if [ $? -ne 0 ]; then
+  echo "Error: Failed to configure UCX."
   exit 1
 fi
 
 # Build
 echo "Building UCX (this may take a while)..."
-make -j 16 2>&1 | tee log_ucx_build.txt
-if [ ${PIPESTATUS[0]} -ne 0 ]; then
-  echo "Error: Failed to build UCX. See log_ucx_build.txt for details."
+make -j 16
+if [ $? -ne 0 ]; then
+  echo "Error: Failed to build UCX."
   exit 1
 fi
 

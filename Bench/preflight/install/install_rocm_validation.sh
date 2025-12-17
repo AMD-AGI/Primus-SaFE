@@ -40,9 +40,9 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 
-make -j 16 2>&1 | tee log_rvs_build.txt
-if [ ${PIPESTATUS[0]} -ne 0 ]; then
-  echo "Error: Failed to build ROCm Validation Suite. See log_rvs_build.txt for details."
+make -j 16
+if [ $? -ne 0 ]; then
+  echo "Error: Failed to build ROCm Validation Suite."
   exit 1
 fi
 

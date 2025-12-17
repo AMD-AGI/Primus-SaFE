@@ -50,9 +50,9 @@ fi
 # Run installation script
 echo "Running AINIC installation script..."
 cd host_sw_pkg
-./install.sh --domain=user -y 2>&1 | tee log_install.txt
-if [ ${PIPESTATUS[0]} -ne 0 ]; then
-  echo "Error: Failed to install AINIC driver. See log_install.txt for details."
+./install.sh --domain=user -y
+if [ $? -ne 0 ]; then
+  echo "Error: Failed to install AINIC driver."
   exit 1
 fi
 

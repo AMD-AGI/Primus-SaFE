@@ -45,9 +45,9 @@ echo "Building AMD ANP driver..."
 make -j 16 RCCL_HOME=/opt/rccl \
            MPI_INCLUDE=/opt/openmpi/include/ \
            MPI_LIB_PATH=/opt/openmpi/lib/ \
-           ROCM_PATH=/opt/rocm 2>&1 | tee log_amd_anp_build.txt
-if [ ${PIPESTATUS[0]} -ne 0 ]; then
-  echo "Error: Failed to build AMD ANP driver. See log_amd_anp_build.txt for details."
+           ROCM_PATH=/opt/rocm
+if [ $? -ne 0 ]; then
+  echo "Error: Failed to build AMD ANP driver."
   exit 1
 fi
 
