@@ -9,7 +9,7 @@ echo "============== begin to install AMD AINIC Network Plugin (amd-anp) ${ANP_V
 
 # Set ANP version based on ROCM_VERSION
 if [ "$ROCM_VERSION" = "7.0.3" ]; then
-  ANP_VERSION="v1.2.0"
+  ANP_VERSION="v1.1.0-5"
 elif [ "$ROCM_VERSION" = "7.1" ]; then
   ANP_VERSION="v1.3.0"
 else
@@ -47,6 +47,10 @@ if [ $? -ne 0 ]; then
   echo "Error: Failed to modify Makefile"
   exit 1
 fi
+
+# Fix libibverbs compatibility: replace active_speed_ex with active_speed
+echo "Fixing libibverbs compatibility in net_ib.cc..."
+sed -i 's/active_speed_ex/active_speed/g' ./src/net_ib.cc
 
 # Build
 echo "Building AMD ANP driver..."
