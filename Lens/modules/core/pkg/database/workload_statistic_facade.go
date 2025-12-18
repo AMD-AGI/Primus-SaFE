@@ -55,13 +55,14 @@ func (f *WorkloadStatisticFacade) GetOrCreate(ctx context.Context, clusterName s
 	workloadUID := workload.UID
 
 	// Try to query existing record
+	// Use Take() instead of First() to avoid ORDER BY id which prevents using uid index
 	record, err := q.WithContext(ctx).Where(
 		q.ClusterName.Eq(clusterName),
 		q.Namespace.Eq(workload.Namespace),
 		q.WorkloadName.Eq(workload.Name),
 		q.UID.Eq(workloadUID),
 		q.WorkloadStatus.In("Running", "Pending"),
-	).First()
+	).Take()
 
 	// If found existing record, return it
 	if err == nil && record.ID > 0 {
@@ -120,13 +121,14 @@ func (f *WorkloadStatisticFacade) Update(ctx context.Context, record *model.Work
 	// If create failed due to unique constraint violation (concurrent insert),
 	// try to find the existing record and update it
 	if strings.Contains(err.Error(), "duplicate key") || strings.Contains(err.Error(), "unique constraint") {
+		// Use Take() instead of First() to avoid ORDER BY id which prevents using uid index
 		existingRecord, findErr := q.WithContext(ctx).Where(
 			q.ClusterName.Eq(record.ClusterName),
 			q.Namespace.Eq(record.Namespace),
 			q.WorkloadName.Eq(record.WorkloadName),
 			q.UID.Eq(record.UID),
 			q.WorkloadStatus.In("Running", "Pending"),
-		).First()
+		).Take()
 
 		if findErr == nil && existingRecord.ID > 0 {
 			// Found the record created by another goroutine, update it
@@ -144,9 +146,10 @@ func (f *WorkloadStatisticFacade) GetByUID(ctx context.Context, uid string) (*mo
 	db := f.getDB()
 	q := dal.Use(db).WorkloadStatistic
 
+	// Use Take() instead of First() to avoid ORDER BY id which prevents using uid index
 	record, err := q.WithContext(ctx).Where(
 		q.UID.Eq(uid),
-	).First()
+	).Take()
 
 	if err != nil && err != gorm.ErrRecordNotFound {
 		return nil, err
