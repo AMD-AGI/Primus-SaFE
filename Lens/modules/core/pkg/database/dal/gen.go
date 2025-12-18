@@ -61,12 +61,16 @@ func Use(db *gorm.DB, opts ...gen.DOOption) *Query {
 		NodeNamespaceMappingHistory: newNodeNamespaceMappingHistory(db, opts...),
 		PodResource:                 newPodResource(db, opts...),
 		PodSnapshot:                 newPodSnapshot(db, opts...),
+		ProfilerAnalysis:            newProfilerAnalysis(db, opts...),
+		ProfilerFileContent:         newProfilerFileContent(db, opts...),
+		ProfilerFiles:               newProfilerFiles(db, opts...),
 		RdmaDevice:                  newRdmaDevice(db, opts...),
 		ReuseEffectivenessLog:       newReuseEffectivenessLog(db, opts...),
 		SilencedAlerts:              newSilencedAlerts(db, opts...),
 		Storage:                     newStorage(db, opts...),
 		SystemConfig:                newSystemConfig(db, opts...),
 		SystemConfigHistory:         newSystemConfigHistory(db, opts...),
+		TracelensSessions:           newTracelensSessions(db, opts...),
 		TrainingPerformance:         newTrainingPerformance(db, opts...),
 		WorkloadEvent:               newWorkloadEvent(db, opts...),
 		WorkloadGpuHourlyStats:      newWorkloadGpuHourlyStats(db, opts...),
@@ -124,12 +128,16 @@ type Query struct {
 	NodeNamespaceMappingHistory nodeNamespaceMappingHistory
 	PodResource                 podResource
 	PodSnapshot                 podSnapshot
+	ProfilerAnalysis            profilerAnalysis
+	ProfilerFileContent         profilerFileContent
+	ProfilerFiles               profilerFiles
 	RdmaDevice                  rdmaDevice
 	ReuseEffectivenessLog       reuseEffectivenessLog
 	SilencedAlerts              silencedAlerts
 	Storage                     storage
 	SystemConfig                systemConfig
 	SystemConfigHistory         systemConfigHistory
+	TracelensSessions           tracelensSessions
 	TrainingPerformance         trainingPerformance
 	WorkloadEvent               workloadEvent
 	WorkloadGpuHourlyStats      workloadGpuHourlyStats
@@ -188,12 +196,16 @@ func (q *Query) clone(db *gorm.DB) *Query {
 		NodeNamespaceMappingHistory: q.NodeNamespaceMappingHistory.clone(db),
 		PodResource:                 q.PodResource.clone(db),
 		PodSnapshot:                 q.PodSnapshot.clone(db),
+		ProfilerAnalysis:            q.ProfilerAnalysis.clone(db),
+		ProfilerFileContent:         q.ProfilerFileContent.clone(db),
+		ProfilerFiles:               q.ProfilerFiles.clone(db),
 		RdmaDevice:                  q.RdmaDevice.clone(db),
 		ReuseEffectivenessLog:       q.ReuseEffectivenessLog.clone(db),
 		SilencedAlerts:              q.SilencedAlerts.clone(db),
 		Storage:                     q.Storage.clone(db),
 		SystemConfig:                q.SystemConfig.clone(db),
 		SystemConfigHistory:         q.SystemConfigHistory.clone(db),
+		TracelensSessions:           q.TracelensSessions.clone(db),
 		TrainingPerformance:         q.TrainingPerformance.clone(db),
 		WorkloadEvent:               q.WorkloadEvent.clone(db),
 		WorkloadGpuHourlyStats:      q.WorkloadGpuHourlyStats.clone(db),
@@ -259,12 +271,16 @@ func (q *Query) ReplaceDB(db *gorm.DB) *Query {
 		NodeNamespaceMappingHistory: q.NodeNamespaceMappingHistory.replaceDB(db),
 		PodResource:                 q.PodResource.replaceDB(db),
 		PodSnapshot:                 q.PodSnapshot.replaceDB(db),
+		ProfilerAnalysis:            q.ProfilerAnalysis.replaceDB(db),
+		ProfilerFileContent:         q.ProfilerFileContent.replaceDB(db),
+		ProfilerFiles:               q.ProfilerFiles.replaceDB(db),
 		RdmaDevice:                  q.RdmaDevice.replaceDB(db),
 		ReuseEffectivenessLog:       q.ReuseEffectivenessLog.replaceDB(db),
 		SilencedAlerts:              q.SilencedAlerts.replaceDB(db),
 		Storage:                     q.Storage.replaceDB(db),
 		SystemConfig:                q.SystemConfig.replaceDB(db),
 		SystemConfigHistory:         q.SystemConfigHistory.replaceDB(db),
+		TracelensSessions:           q.TracelensSessions.replaceDB(db),
 		TrainingPerformance:         q.TrainingPerformance.replaceDB(db),
 		WorkloadEvent:               q.WorkloadEvent.replaceDB(db),
 		WorkloadGpuHourlyStats:      q.WorkloadGpuHourlyStats.replaceDB(db),
@@ -320,12 +336,16 @@ type queryCtx struct {
 	NodeNamespaceMappingHistory *nodeNamespaceMappingHistoryDo
 	PodResource                 *podResourceDo
 	PodSnapshot                 *podSnapshotDo
+	ProfilerAnalysis            *profilerAnalysisDo
+	ProfilerFileContent         *profilerFileContentDo
+	ProfilerFiles               *profilerFilesDo
 	RdmaDevice                  *rdmaDeviceDo
 	ReuseEffectivenessLog       *reuseEffectivenessLogDo
 	SilencedAlerts              *silencedAlertsDo
 	Storage                     *storageDo
 	SystemConfig                *systemConfigDo
 	SystemConfigHistory         *systemConfigHistoryDo
+	TracelensSessions           *tracelensSessionsDo
 	TrainingPerformance         *trainingPerformanceDo
 	WorkloadEvent               *workloadEventDo
 	WorkloadGpuHourlyStats      *workloadGpuHourlyStatsDo
@@ -381,12 +401,16 @@ func (q *Query) WithContext(ctx context.Context) *queryCtx {
 		NodeNamespaceMappingHistory: q.NodeNamespaceMappingHistory.WithContext(ctx),
 		PodResource:                 q.PodResource.WithContext(ctx),
 		PodSnapshot:                 q.PodSnapshot.WithContext(ctx),
+		ProfilerAnalysis:            q.ProfilerAnalysis.WithContext(ctx),
+		ProfilerFileContent:         q.ProfilerFileContent.WithContext(ctx),
+		ProfilerFiles:               q.ProfilerFiles.WithContext(ctx),
 		RdmaDevice:                  q.RdmaDevice.WithContext(ctx),
 		ReuseEffectivenessLog:       q.ReuseEffectivenessLog.WithContext(ctx),
 		SilencedAlerts:              q.SilencedAlerts.WithContext(ctx),
 		Storage:                     q.Storage.WithContext(ctx),
 		SystemConfig:                q.SystemConfig.WithContext(ctx),
 		SystemConfigHistory:         q.SystemConfigHistory.WithContext(ctx),
+		TracelensSessions:           q.TracelensSessions.WithContext(ctx),
 		TrainingPerformance:         q.TrainingPerformance.WithContext(ctx),
 		WorkloadEvent:               q.WorkloadEvent.WithContext(ctx),
 		WorkloadGpuHourlyStats:      q.WorkloadGpuHourlyStats.WithContext(ctx),

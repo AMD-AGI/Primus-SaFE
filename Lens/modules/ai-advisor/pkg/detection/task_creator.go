@@ -3,6 +3,7 @@ package detection
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/constant"
@@ -35,7 +36,7 @@ func (tc *TaskCreator) SetAutoCreateTask(auto bool) {
 }
 
 // OnDetectionCompleted called when detection completes
-// Creates metadata collection task based on detection result
+// Creates metadata collection task and profiler collection task based on detection result
 func (tc *TaskCreator) OnDetectionCompleted(
 	ctx context.Context,
 	workloadUID string,
@@ -46,10 +47,22 @@ func (tc *TaskCreator) OnDetectionCompleted(
 		return nil
 	}
 
+	log.Infof("Processing detection for workload %s (frameworks: %v, status: %s)",
+		workloadUID, detection.Frameworks, detection.Status)
+
+	// 1. Try to create profiler collection task early (less strict requirements)
+	// Only requires: PyTorch framework + Training workload
+	// Don't wait for detection status to be confirmed/verified to avoid missing early profiler files
+	if err := tc.createProfilerCollectionTask(ctx, workloadUID, detection); err != nil {
+		log.Warnf("Failed to create profiler collection task for workload %s: %v", workloadUID, err)
+		// Continue - don't block metadata collection task creation
+	}
+
+	// 2. Create metadata collection task (requires confirmed/verified status)
 	// Only create tasks for confirmed or verified detections
 	if detection.Status != coreModel.DetectionStatusConfirmed &&
 		detection.Status != coreModel.DetectionStatusVerified {
-		log.Debugf("Detection status is %s (not confirmed/verified), skipping task creation for workload %s",
+		log.Debugf("Detection status is %s (not confirmed/verified), skipping metadata collection task for workload %s",
 			detection.Status, workloadUID)
 		return nil
 	}
@@ -63,7 +76,19 @@ func (tc *TaskCreator) OnDetectionCompleted(
 	log.Infof("Creating metadata collection task for workload %s (frameworks: %v)",
 		workloadUID, detection.Frameworks)
 
-	// Create task
+	if err := tc.createMetadataCollectionTask(ctx, workloadUID, detection); err != nil {
+		return fmt.Errorf("failed to create metadata collection task: %w", err)
+	}
+
+	return nil
+}
+
+// createMetadataCollectionTask creates metadata collection task
+func (tc *TaskCreator) createMetadataCollectionTask(
+	ctx context.Context,
+	workloadUID string,
+	detection *coreModel.FrameworkDetection,
+) error {
 	// Note: workload-related specific info (pod, node, etc.) is stored in ai_workload_metadata table
 	// ext here only stores task execution context
 	task := &model.WorkloadTaskState{
@@ -91,13 +116,77 @@ func (tc *TaskCreator) OnDetectionCompleted(
 		},
 	}
 
-	// Use Upsert to create or update task
 	if err := tc.taskFacade.UpsertTask(ctx, task); err != nil {
-		return fmt.Errorf("failed to create metadata collection task: %w", err)
+		return fmt.Errorf("failed to upsert task: %w", err)
 	}
 
-	log.Infof("Metadata collection task created successfully for workload %s", workloadUID)
+	log.Infof("Metadata collection task created for workload %s", workloadUID)
+	return nil
+}
 
+// createProfilerCollectionTask creates profiler collection task
+// Requirements: PyTorch framework + Training workload (no detection status check)
+// This allows early profiler file collection to avoid missing training startup files
+func (tc *TaskCreator) createProfilerCollectionTask(
+	ctx context.Context,
+	workloadUID string,
+	detection *coreModel.FrameworkDetection,
+) error {
+	// Check 1: Must be PyTorch framework
+	if !tc.isPyTorchFramework(detection) {
+		log.Debugf("Workload %s is not PyTorch, skipping profiler collection", workloadUID)
+		return nil
+	}
+
+	// Check 2: Must be training workload
+	if !tc.isTrainingWorkload(detection) {
+		log.Debugf("Workload %s is not a training task, skipping profiler collection", workloadUID)
+		return nil
+	}
+
+	log.Infof("Creating profiler collection task for PyTorch training workload %s (early trigger, detection status: %s)",
+		workloadUID, detection.Status)
+
+	task := &model.WorkloadTaskState{
+		WorkloadUID: workloadUID,
+		TaskType:    constant.TaskTypeProfilerCollection,
+		Status:      constant.TaskStatusPending,
+		Ext: model.ExtType{
+			// Task execution configuration
+			"auto_restart":        true,
+			"priority":            50, // Lower than metadata collection
+			"max_retries":         3,
+			"retry_count":         0,
+			"timeout":             600, // 10 minutes
+			"collection_interval": 300, // 5 minutes
+			"max_executions":      0,   // Unlimited, until training stops
+			"execution_count":     0,
+
+			// Collection configuration
+			"auto_collect":   true,
+			"min_confidence": "medium",
+			"max_file_size":  1073741824, // 1GB
+
+			// Task metadata
+			"created_by":   "detection_manager",
+			"created_at":   time.Now().Format(time.RFC3339),
+			"triggered_by": "framework_detection_early", // Early trigger (no status check)
+
+			// Detection summary info (for logging and debugging)
+			"detection_frameworks": detection.Frameworks,
+			"detection_confidence": detection.Confidence,
+			"detection_status":     string(detection.Status), // Record detection status for reference
+
+			// Note: Task created early (before detection confirmed) to avoid missing startup profiler files
+			"early_trigger": true,
+		},
+	}
+
+	if err := tc.taskFacade.UpsertTask(ctx, task); err != nil {
+		return fmt.Errorf("failed to upsert task: %w", err)
+	}
+
+	log.Infof("Profiler collection task created successfully for workload %s", workloadUID)
 	return nil
 }
 
@@ -113,6 +202,50 @@ func (tc *TaskCreator) isTrainingWorkload(detection *coreModel.FrameworkDetectio
 
 	// Default to training task (unless explicitly marked as inference)
 	return true
+}
+
+// isPyTorchFramework checks if detection contains PyTorch framework
+// Checks multiple indicators:
+// 1. Framework name contains "pytorch" or "torch"
+// 2. Detection sources contain PyTorch indicators
+// 3. Base framework or wrapper framework uses PyTorch (megatron is PyTorch-based)
+func (tc *TaskCreator) isPyTorchFramework(detection *coreModel.FrameworkDetection) bool {
+	if detection == nil {
+		return false
+	}
+
+	// Check 1: Framework list contains "pytorch" or "torch"
+	for _, framework := range detection.Frameworks {
+		fw := strings.ToLower(framework)
+		if fw == "pytorch" || strings.Contains(fw, "torch") {
+			return true
+		}
+	}
+
+	// Check 2: Megatron is PyTorch-based, so if megatron is detected, consider it PyTorch
+	for _, framework := range detection.Frameworks {
+		fw := strings.ToLower(framework)
+		if fw == "megatron" || strings.Contains(fw, "megatron") {
+			log.Debugf("Detected Megatron framework (PyTorch-based), treating as PyTorch workload")
+			return true
+		}
+	}
+
+	// Check 3: Check detection sources for PyTorch evidence
+	for _, source := range detection.Sources {
+		for _, fw := range source.Frameworks {
+			fwLower := strings.ToLower(fw)
+			if fwLower == "pytorch" || strings.Contains(fwLower, "torch") {
+				return true
+			}
+			// Megatron is also PyTorch-based
+			if fwLower == "megatron" || strings.Contains(fwLower, "megatron") {
+				return true
+			}
+		}
+	}
+
+	return false
 }
 
 // extractSourceNames extracts detection source names

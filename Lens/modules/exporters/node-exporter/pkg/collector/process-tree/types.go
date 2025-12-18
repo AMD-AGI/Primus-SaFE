@@ -162,3 +162,39 @@ type ProcessArgInfo struct {
 	Cmdline string   `json:"cmdline"`
 	Args    []string `json:"args"`
 }
+
+// ============ PyTorch Profiler Types ============
+
+// PyTorchProfilerFileType represents the type of profiler file
+type PyTorchProfilerFileType string
+
+const (
+	ProfilerTypeChromeTrace  PyTorchProfilerFileType = "chrome_trace"
+	ProfilerTypePyTorchTrace PyTorchProfilerFileType = "pytorch_trace"
+	ProfilerTypeStackTrace   PyTorchProfilerFileType = "stack_trace"
+	ProfilerTypeMemoryDump   PyTorchProfilerFileType = "memory_dump"
+	ProfilerTypeKineto       PyTorchProfilerFileType = "kineto"
+	ProfilerTypeUnknown      PyTorchProfilerFileType = "unknown"
+)
+
+// PyTorchProfilerFileInfo represents metadata for a PyTorch Profiler file
+type PyTorchProfilerFileInfo struct {
+	PID        int                     `json:"pid"`
+	FD         string                  `json:"fd"`
+	FilePath   string                  `json:"file_path"`
+	FileName   string                  `json:"file_name"`
+	FileType   PyTorchProfilerFileType `json:"file_type"`
+	FileSize   int64                   `json:"file_size,omitempty"`
+	Confidence string                  `json:"confidence"`
+	DetectedAt time.Time               `json:"detected_at"`
+}
+
+// PyTorchProfilerFilesResponse represents the response for profiler file scan
+type PyTorchProfilerFilesResponse struct {
+	PodUID         string                     `json:"pod_uid"`
+	PodName        string                     `json:"pod_name,omitempty"`
+	PodNamespace   string                     `json:"pod_namespace,omitempty"`
+	Files          []*PyTorchProfilerFileInfo `json:"files"`
+	TotalProcesses int                        `json:"total_processes"`
+	CollectedAt    time.Time                  `json:"collected_at"`
+}

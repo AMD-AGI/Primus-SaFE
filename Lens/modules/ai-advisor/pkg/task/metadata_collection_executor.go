@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/metadata"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/profiler"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/constant"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
@@ -175,7 +176,32 @@ func (e *MetadataCollectionExecutor) Execute(
 	updates["tensorboard_files_detected"] = filesDetected
 	updates["tensorboard_result"] = tensorboardResult
 
-	// 9. Check if framework config has TensorBoard enabled (even if files haven't appeared yet)
+	// 9. Collect and save framework config (for profiler collection and other downstream tasks)
+	framework := strings.ToLower(detectionInfo.Framework)
+	var frameworkConfig *profiler.FrameworkConfig
+	// Use strings.Contains to check for framework in comma-separated list (e.g., "primus,megatron,pytorch")
+	if strings.Contains(framework, "primus") || strings.Contains(framework, "megatron") || strings.Contains(framework, "deepspeed") {
+		// Determine primary framework for config collection (prioritize primus > megatron > deepspeed)
+		primaryFramework := "pytorch"
+		if strings.Contains(framework, "primus") {
+			primaryFramework = "primus"
+		} else if strings.Contains(framework, "megatron") {
+			primaryFramework = "megatron"
+		} else if strings.Contains(framework, "deepspeed") {
+			primaryFramework = "deepspeed"
+		}
+		frameworkConfig, err = e.collectAndSaveFrameworkConfig(ctx, task.WorkloadUID, primaryFramework, pythonProcess, nodeExporterClient)
+		if err != nil {
+			log.Warnf("Failed to collect framework config for workload %s: %v", task.WorkloadUID, err)
+		} else {
+			updates["framework_config_collected"] = true
+			if frameworkConfig.ExtractedPaths != nil {
+				updates["profiler_dir"] = frameworkConfig.ExtractedPaths.ProfilerDir
+			}
+		}
+	}
+
+	// 10. Check if framework config has TensorBoard enabled (even if files haven't appeared yet)
 	tensorboardConfigured, configLogDir := e.checkTensorBoardConfiguration(ctx, detectionInfo, pythonProcess, nodeExporterClient)
 	updates["tensorboard_configured"] = tensorboardConfigured
 
@@ -473,6 +499,151 @@ func (e *MetadataCollectionExecutor) checkPrimusTensorBoard(
 	}
 
 	return false, ""
+}
+
+// collectAndSaveFrameworkConfig collects framework config and saves to metadata
+func (e *MetadataCollectionExecutor) collectAndSaveFrameworkConfig(
+	ctx context.Context,
+	workloadUID string,
+	framework string,
+	pythonProcess *types.ProcessInfo,
+	nodeExporterClient interface{},
+) (*profiler.FrameworkConfig, error) {
+	if pythonProcess == nil {
+		return nil, fmt.Errorf("no Python process available")
+	}
+
+	// Extract config file path
+	configPath := e.extractConfigPath(pythonProcess)
+	if configPath == "" {
+		return nil, fmt.Errorf("no config path found")
+	}
+
+	// Convert relative path to absolute
+	if !filepath.IsAbs(configPath) && pythonProcess.Cwd != "" {
+		configPath = filepath.Join(pythonProcess.Cwd, configPath)
+	}
+
+	// Read config file
+	configContent, err := e.readContainerFile(ctx, pythonProcess.HostPID, configPath, nodeExporterClient)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read config file: %w", err)
+	}
+
+	// Parse config to map
+	var rawConfig map[string]interface{}
+	if err := yaml.Unmarshal([]byte(configContent), &rawConfig); err != nil {
+		return nil, fmt.Errorf("failed to parse config: %w", err)
+	}
+
+	// Extract environment variables from process
+	env := e.extractEnvMap(pythonProcess)
+
+	// Build framework config using the service
+	configService := profiler.NewFrameworkConfigService()
+	frameworkConfig := configService.BuildFrameworkConfig(ctx, framework, rawConfig, configPath, env)
+
+	// Save to metadata (including working directory for profiler collection)
+	workingDir := ""
+	if pythonProcess != nil && pythonProcess.Cwd != "" {
+		workingDir = pythonProcess.Cwd
+	}
+	if err := e.saveFrameworkConfig(ctx, workloadUID, frameworkConfig, workingDir); err != nil {
+		log.Warnf("Failed to save framework config for workload %s: %v", workloadUID, err)
+		// Don't fail the entire operation, just log the error
+	} else {
+		log.Infof("Framework config saved for workload %s: profiler_dir=%s, working_dir=%s",
+			workloadUID, frameworkConfig.ExtractedPaths.ProfilerDir, workingDir)
+	}
+
+	return frameworkConfig, nil
+}
+
+// saveFrameworkConfig saves framework config to ai_workload_metadata.metadata.framework_config
+// Also saves working_dir for profiler collection to resolve relative paths
+func (e *MetadataCollectionExecutor) saveFrameworkConfig(
+	ctx context.Context,
+	workloadUID string,
+	config *profiler.FrameworkConfig,
+	workingDir string,
+) error {
+	// Get current metadata
+	currentMetadata, err := e.metadataFacade.GetAiWorkloadMetadata(ctx, workloadUID)
+	if err != nil {
+		return fmt.Errorf("failed to get current metadata: %w", err)
+	}
+
+	if currentMetadata == nil {
+		return fmt.Errorf("metadata not found for workload %s", workloadUID)
+	}
+
+	// Ensure metadata map exists
+	if currentMetadata.Metadata == nil {
+		currentMetadata.Metadata = make(model.ExtType)
+	}
+
+	// Convert FrameworkConfig to map for storage
+	frameworkConfigMap := map[string]interface{}{
+		"framework":    config.Framework,
+		"version":      config.Version,
+		"collected_at": config.CollectedAt.Format(time.RFC3339),
+	}
+
+	if config.Source != nil {
+		frameworkConfigMap["source"] = map[string]interface{}{
+			"type": config.Source.Type,
+			"path": config.Source.Path,
+		}
+	}
+
+	if config.ExtractedPaths != nil {
+		extractedPaths := map[string]interface{}{
+			"profiler_dir":    config.ExtractedPaths.ProfilerDir,
+			"tensorboard_dir": config.ExtractedPaths.TensorBoardDir,
+			"checkpoint_dir":  config.ExtractedPaths.CheckpointDir,
+			"log_dir":         config.ExtractedPaths.LogDir,
+			"workspace_dir":   config.ExtractedPaths.WorkspaceDir,
+		}
+		if len(config.ExtractedPaths.CustomPaths) > 0 {
+			extractedPaths["custom_paths"] = config.ExtractedPaths.CustomPaths
+		}
+		frameworkConfigMap["extracted_paths"] = extractedPaths
+	}
+
+	// Optionally store raw config (can be large, consider limiting)
+	// frameworkConfigMap["raw_config"] = config.RawConfig
+
+	// Update metadata
+	currentMetadata.Metadata["framework_config"] = frameworkConfigMap
+
+	// Also save working_dir for profiler collection to resolve relative paths
+	if workingDir != "" {
+		currentMetadata.Metadata["working_dir"] = workingDir
+	}
+
+	// Save back to database
+	if err := e.metadataFacade.UpdateAiWorkloadMetadata(ctx, currentMetadata); err != nil {
+		return fmt.Errorf("failed to update metadata: %w", err)
+	}
+
+	return nil
+}
+
+// extractEnvMap extracts environment variables from process info to a map
+func (e *MetadataCollectionExecutor) extractEnvMap(proc *types.ProcessInfo) map[string]string {
+	env := make(map[string]string)
+	if proc == nil {
+		return env
+	}
+
+	for _, envVar := range proc.Env {
+		parts := strings.SplitN(envVar, "=", 2)
+		if len(parts) == 2 {
+			env[parts[0]] = parts[1]
+		}
+	}
+
+	return env
 }
 
 // serializeProcessInfo serializes process info without children

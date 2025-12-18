@@ -60,7 +60,8 @@ func (m *WorkloadMockFacade) GetCheckpointEvent() database.CheckpointEventFacade
 func (m *WorkloadMockFacade) GetDetectionConflictLog() database.DetectionConflictLogFacadeInterface { return nil }
 func (m *WorkloadMockFacade) GetGpuUsageWeeklyReport() database.GpuUsageWeeklyReportFacadeInterface { return nil }
 func (m *WorkloadMockFacade) GetNodeNamespaceMapping() database.NodeNamespaceMappingFacadeInterface { return nil }
-func (m *WorkloadMockFacade) WithCluster(clusterName string) database.FacadeInterface             { return m }
+func (m *WorkloadMockFacade) GetTraceLensSession() database.TraceLensSessionFacadeInterface        { return nil }
+func (m *WorkloadMockFacade) WithCluster(clusterName string) database.FacadeInterface              { return m }
 
 // WorkloadMockWorkloadFacade implements database.WorkloadFacadeInterface for testing
 type WorkloadMockWorkloadFacade struct {
