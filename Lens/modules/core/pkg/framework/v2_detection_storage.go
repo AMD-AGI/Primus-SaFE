@@ -27,6 +27,14 @@ func NewV2DetectionStorage() *V2DetectionStorage {
 	}
 }
 
+// NewV2DetectionStorageWithFacade creates a new V2 detection storage with custom facade
+// This is useful for testing with mock facades
+func NewV2DetectionStorageWithFacade(facade database.AiWorkloadMetadataFacadeInterface) *V2DetectionStorage {
+	return &V2DetectionStorage{
+		metadataFacade: facade,
+	}
+}
+
 // LoadDetection loads V2 detection from ai_workload_metadata.metadata.framework_detection
 func (s *V2DetectionStorage) LoadDetection(
 	ctx context.Context,

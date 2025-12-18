@@ -63,8 +63,8 @@ func NewFrameworkDetectionManagerWithFacades(
 		config = DefaultDetectionConfig()
 	}
 
-	// Use V2 storage (stores as MultiDimensionalDetection)
-	v2Storage := NewV2DetectionStorage()
+	// Use V2 storage with the provided facade (stores as MultiDimensionalDetection)
+	v2Storage := NewV2DetectionStorageWithFacade(metadataFacade)
 
 	var cacheInstance *cache.Cache
 	var hierarchyCacheInstance *cache.Cache
