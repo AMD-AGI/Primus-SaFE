@@ -214,6 +214,8 @@ func RegisterRouter(group *gin.RouterGroup) error {
 	{
 		filesGroup := profilerGroup.Group("/files")
 		{
+			// List profiler files for a workload
+			filesGroup.GET("", tracelens.ListProfilerFiles)
 			// Get profiler file metadata
 			filesGroup.GET("/:id", tracelens.GetProfilerFileInfo)
 			// Download profiler file content
