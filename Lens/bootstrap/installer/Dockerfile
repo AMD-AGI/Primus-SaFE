@@ -7,6 +7,9 @@
 # Build stage - compile the installer
 FROM golang:1.22-alpine AS builder
 
+ARG GOPROXY=https://proxy.golang.org,direct
+ENV GOPROXY=${GOPROXY}
+
 WORKDIR /build
 
 # Install build dependencies

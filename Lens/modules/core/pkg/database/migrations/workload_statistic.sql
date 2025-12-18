@@ -52,6 +52,11 @@ CREATE TABLE IF NOT EXISTS workload_statistic (
 );
 
 -- Index design
+-- Single uid index: for fast lookups by uid without ORDER BY id overhead
+-- This prevents full table scans when querying by uid with LIMIT 1
+CREATE INDEX IF NOT EXISTS idx_workload_statistic_uid 
+    ON workload_statistic(uid);
+
 -- Primary query index: by uid and time
 CREATE INDEX IF NOT EXISTS idx_workload_statistic_uid_time 
     ON workload_statistic(uid, stat_end_time DESC);
