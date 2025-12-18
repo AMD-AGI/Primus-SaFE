@@ -12,6 +12,11 @@ import (
 	log "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 )
 
+func init() {
+	// Set initial capacity metric on package load
+	TaskQueueCapacity.Set(float64(20)) // Default value
+}
+
 // TaskScheduler task scheduler
 // Responsible for pulling tasks from database and dispatching them to corresponding executors
 type TaskScheduler struct {
@@ -62,7 +67,7 @@ func DefaultSchedulerConfig() *SchedulerConfig {
 		ScanInterval:             10 * time.Second,
 		LockDuration:             5 * time.Minute,
 		HeartbeatInterval:        30 * time.Second,
-		MaxConcurrentTasks:       10,
+		MaxConcurrentTasks:       20, // Increased from 10 to support more parallel task execution
 		StaleLockCleanupInterval: 1 * time.Minute,
 		AutoStart:                true,
 	}
@@ -205,6 +210,12 @@ func (s *TaskScheduler) scanAndExecuteTasks() {
 	runningCount := len(s.runningTasks)
 	s.runningMu.RUnlock()
 
+	// Update queue utilization metrics
+	TaskQueueCapacity.Set(float64(s.config.MaxConcurrentTasks))
+	if s.config.MaxConcurrentTasks > 0 {
+		TaskQueueUtilization.Set(float64(runningCount) / float64(s.config.MaxConcurrentTasks))
+	}
+
 	if runningCount >= s.config.MaxConcurrentTasks {
 		log.Debugf("Max concurrent tasks reached (%d), skipping scan", s.config.MaxConcurrentTasks)
 		return
@@ -215,6 +226,15 @@ func (s *TaskScheduler) scanAndExecuteTasks() {
 	if err != nil {
 		log.Errorf("Failed to list pending tasks: %v", err)
 		return
+	}
+
+	// Update pending task metrics by type
+	pendingByType := make(map[string]int)
+	for _, task := range tasks {
+		pendingByType[task.TaskType]++
+	}
+	for taskType, count := range pendingByType {
+		TaskQueuePendingTotal.WithLabelValues(taskType).Set(float64(count))
 	}
 
 	if len(tasks) == 0 {
@@ -254,6 +274,7 @@ func (s *TaskScheduler) tryExecuteTask(task *model.WorkloadTaskState) {
 	if err != nil {
 		log.Errorf("Failed to acquire lock for task %s/%s: %v",
 			task.WorkloadUID, task.TaskType, err)
+		TaskLockAcquisitionFailures.WithLabelValues(task.TaskType).Inc()
 		return
 	}
 
@@ -297,6 +318,9 @@ func (s *TaskScheduler) tryExecuteTask(task *model.WorkloadTaskState) {
 func (s *TaskScheduler) executeTask(task *model.WorkloadTaskState, executor TaskExecutor) {
 	defer s.wg.Done()
 
+	// Record execution start time
+	startTime := time.Now()
+
 	// Create task-specific context
 	taskCtx, taskCancel := context.WithCancel(s.ctx)
 	defer taskCancel()
@@ -304,12 +328,18 @@ func (s *TaskScheduler) executeTask(task *model.WorkloadTaskState, executor Task
 	// Register to running tasks list
 	s.runningMu.Lock()
 	s.runningTasks[task.ID] = taskCancel
+	TaskQueueRunningTotal.WithLabelValues(task.TaskType).Inc()
 	s.runningMu.Unlock()
 
 	defer func() {
 		s.runningMu.Lock()
 		delete(s.runningTasks, task.ID)
+		TaskQueueRunningTotal.WithLabelValues(task.TaskType).Dec()
 		s.runningMu.Unlock()
+
+		// Record execution duration
+		duration := time.Since(startTime).Seconds()
+		TaskExecutionDuration.WithLabelValues(task.TaskType).Observe(duration)
 
 		// Release lock
 		s.taskFacade.ReleaseLock(taskCtx, task.WorkloadUID, task.TaskType, s.instanceID)
@@ -340,11 +370,21 @@ func (s *TaskScheduler) executeTask(task *model.WorkloadTaskState, executor Task
 		log.Errorf("Task execution failed %s/%s: %v",
 			task.WorkloadUID, task.TaskType, err)
 
+		// Update metrics
+		TaskExecutionsTotal.WithLabelValues(task.TaskType, "failed").Inc()
+
 		// Update task status
 		s.handleTaskFailure(taskCtx, task, err.Error(), result)
 	} else if result != nil {
 		log.Infof("Task execution result %s/%s: success=%v, status=%s",
 			task.WorkloadUID, task.TaskType, result.Success, result.NewStatus)
+
+		// Update metrics
+		if result.Success {
+			TaskExecutionsTotal.WithLabelValues(task.TaskType, "success").Inc()
+		} else {
+			TaskExecutionsTotal.WithLabelValues(task.TaskType, "failed").Inc()
+		}
 
 		// Update task status and ext
 		s.handleTaskResult(taskCtx, task, result)
@@ -437,6 +477,7 @@ func (s *TaskScheduler) cleanupStaleLocks() error {
 
 	if released > 0 {
 		log.Infof("Released %d stale locks", released)
+		TaskStaleLocksCleaned.Add(float64(released))
 	}
 
 	return nil

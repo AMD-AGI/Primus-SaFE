@@ -23,12 +23,26 @@ import (
 
 var (
 	tracerProvider *sdktrace.TracerProvider
+	traceOptions   TraceOptions
 )
 
-// InitTracer initializes OpenTelemetry tracer
+// InitTracer initializes OpenTelemetry tracer with default options (error_only mode)
 // Uses environment variables for configuration, compatible with OpenTelemetry standard environment variables
 func InitTracer(serviceName string) error {
-	log.Infof("Starting OpenTelemetry tracer initialization for service: %s", serviceName)
+	return InitTracerWithOptions(serviceName, DefaultTraceOptions())
+}
+
+// InitTracerWithOptions initializes OpenTelemetry tracer with custom options
+// Uses environment variables for configuration, compatible with OpenTelemetry standard environment variables
+//
+// TraceOptions:
+//   - Mode: "error_only" (default) - only exports traces when an error occurs
+//   - Mode: "always" - exports all traces (subject to sampling ratio)
+//   - SamplingRatio: sampling ratio for "always" mode (0.0 to 1.0, default 0.1)
+//   - ErrorSamplingRatio: sampling ratio for error traces in "error_only" mode (0.0 to 1.0, default 1.0)
+func InitTracerWithOptions(serviceName string, opts TraceOptions) error {
+	traceOptions = opts
+	log.Infof("Starting OpenTelemetry tracer initialization for service: %s, mode: %s", serviceName, opts.Mode)
 	ctx := context.Background()
 
 	// Read OTLP endpoint
@@ -46,30 +60,28 @@ func InitTracer(serviceName string) error {
 		log.Infof("Using OTEL_EXPORTER_OTLP_ENDPOINT: %s", endpoint)
 	}
 
-	// Read sampling configuration
-	samplingRatio := 1.0 // Default: 100% sampling
-	if ratioStr := os.Getenv("OTEL_TRACES_SAMPLER_ARG"); ratioStr != "" {
-		if ratio, err := strconv.ParseFloat(ratioStr, 64); err == nil {
-			samplingRatio = ratio
-			log.Infof("Using sampling ratio from OTEL_TRACES_SAMPLER_ARG: %.2f", samplingRatio)
+	// Determine sampling ratio based on mode and environment variables
+	var samplingRatio float64
+	switch opts.Mode {
+	case TraceModeAlways:
+		// For "always" mode, use configured sampling ratio or environment variable
+		samplingRatio = opts.SamplingRatio
+		if ratioStr := os.Getenv("OTEL_TRACES_SAMPLER_ARG"); ratioStr != "" {
+			if ratio, err := strconv.ParseFloat(ratioStr, 64); err == nil {
+				samplingRatio = ratio
+			}
+		} else if paramStr := os.Getenv("JAEGER_SAMPLER_PARAM"); paramStr != "" {
+			if ratio, err := strconv.ParseFloat(paramStr, 64); err == nil {
+				samplingRatio = ratio
+			}
 		}
-	} else if paramStr := os.Getenv("JAEGER_SAMPLER_PARAM"); paramStr != "" {
-		// Compatible with legacy Jaeger environment variable
-		if ratio, err := strconv.ParseFloat(paramStr, 64); err == nil {
-			samplingRatio = ratio
-			log.Infof("Using sampling ratio from JAEGER_SAMPLER_PARAM: %.2f", samplingRatio)
-		}
-	} else {
-		log.Infof("Using default sampling ratio: %.2f", samplingRatio)
-	}
-
-	// Read sampler type
-	samplerType := os.Getenv("OTEL_TRACES_SAMPLER")
-	if samplerType == "" {
-		samplerType = "traceidratio" // Default: use trace ID ratio sampling
-		log.Infof("OTEL_TRACES_SAMPLER not set, using default: %s", samplerType)
-	} else {
-		log.Infof("Using sampler type: %s", samplerType)
+		log.Infof("Trace mode: always, sampling ratio: %.2f", samplingRatio)
+	case TraceModeErrorOnly:
+		fallthrough
+	default:
+		// For "error_only" mode, always sample but filter on export
+		samplingRatio = 1.0
+		log.Infof("Trace mode: error_only, error sampling ratio: %.2f", opts.ErrorSamplingRatio)
 	}
 
 	// Create OTLP gRPC exporter
@@ -120,33 +132,36 @@ func InitTracer(serviceName string) error {
 	}
 	log.Infof("Successfully created resource")
 
-	// Select sampler
-	var sampler sdktrace.Sampler
-	switch samplerType {
-	case "always_on":
-		sampler = sdktrace.AlwaysSample()
-		log.Infof("Using AlwaysSample sampler")
-	case "always_off":
-		sampler = sdktrace.NeverSample()
-		log.Infof("Using NeverSample sampler")
-	case "traceidratio", "parentbased_traceidratio":
-		sampler = sdktrace.ParentBased(sdktrace.TraceIDRatioBased(samplingRatio))
-		log.Infof("Using ParentBased TraceIDRatio sampler with ratio: %.2f", samplingRatio)
+	// Create tracer provider based on mode
+	var providerOpts []sdktrace.TracerProviderOption
+	providerOpts = append(providerOpts, sdktrace.WithResource(res))
+
+	switch opts.Mode {
+	case TraceModeAlways:
+		// For "always" mode, use standard batcher with sampling
+		sampler := sdktrace.ParentBased(sdktrace.TraceIDRatioBased(samplingRatio))
+		providerOpts = append(providerOpts,
+			sdktrace.WithSampler(sampler),
+			sdktrace.WithBatcher(exporter,
+				sdktrace.WithBatchTimeout(5*time.Second),
+				sdktrace.WithMaxExportBatchSize(512),
+			),
+		)
+		log.Infof("Using standard batcher with ParentBased TraceIDRatio sampler (ratio: %.2f)", samplingRatio)
+	case TraceModeErrorOnly:
+		fallthrough
 	default:
-		sampler = sdktrace.ParentBased(sdktrace.TraceIDRatioBased(samplingRatio))
-		log.Infof("Using default ParentBased TraceIDRatio sampler with ratio: %.2f", samplingRatio)
+		// For "error_only" mode, use custom ErrorOnlySpanProcessor
+		// Always sample to record spans, but only export on error
+		providerOpts = append(providerOpts,
+			sdktrace.WithSampler(sdktrace.AlwaysSample()),
+			sdktrace.WithSpanProcessor(NewErrorOnlySpanProcessor(exporter, opts.ErrorSamplingRatio)),
+		)
+		log.Infof("Using ErrorOnlySpanProcessor (error sampling ratio: %.2f)", opts.ErrorSamplingRatio)
 	}
 
-	// Create tracer provider
-	log.Infof("Creating tracer provider with batch timeout: 5s, max batch size: 512")
-	tracerProvider = sdktrace.NewTracerProvider(
-		sdktrace.WithBatcher(exporter,
-			sdktrace.WithBatchTimeout(5*time.Second),
-			sdktrace.WithMaxExportBatchSize(512),
-		),
-		sdktrace.WithResource(res),
-		sdktrace.WithSampler(sampler),
-	)
+	log.Infof("Creating tracer provider")
+	tracerProvider = sdktrace.NewTracerProvider(providerOpts...)
 	log.Infof("Successfully created tracer provider")
 
 	// Set global tracer provider
@@ -160,11 +175,46 @@ func InitTracer(serviceName string) error {
 	))
 	log.Infof("Set global text map propagator (TraceContext + Baggage)")
 
-	log.Infof("✓ OpenTelemetry tracer initialized successfully: service=%s, endpoint=%s, sampler=%s(%.2f)",
-		serviceName, endpoint, samplerType, samplingRatio)
+	log.Infof("✓ OpenTelemetry tracer initialized successfully: service=%s, endpoint=%s, mode=%s",
+		serviceName, endpoint, opts.Mode)
 	log.Infof("✓ Trace export is now active and ready to send spans to %s", endpoint)
 
 	return nil
+}
+
+// GetTraceOptions returns the current trace options
+func GetTraceOptions() TraceOptions {
+	return traceOptions
+}
+
+// IsErrorOnlyMode returns true if the tracer is in error-only mode
+func IsErrorOnlyMode() bool {
+	return traceOptions.Mode == TraceModeErrorOnly || traceOptions.Mode == ""
+}
+
+// TraceOptionsFromConfig creates TraceOptions from mode and sampling ratios
+// This is a helper function to create TraceOptions from configuration values
+func TraceOptionsFromConfig(mode string, samplingRatio, errorSamplingRatio float64) TraceOptions {
+	opts := DefaultTraceOptions()
+
+	switch mode {
+	case "always":
+		opts.Mode = TraceModeAlways
+	case "error_only":
+		opts.Mode = TraceModeErrorOnly
+	default:
+		opts.Mode = TraceModeErrorOnly
+	}
+
+	if samplingRatio >= 0 && samplingRatio <= 1 {
+		opts.SamplingRatio = samplingRatio
+	}
+
+	if errorSamplingRatio >= 0 && errorSamplingRatio <= 1 {
+		opts.ErrorSamplingRatio = errorSamplingRatio
+	}
+
+	return opts
 }
 
 // CloseTracer closes the tracer and flushes all pending spans

@@ -620,3 +620,304 @@ func BenchmarkConvertToAttribute(b *testing.B) {
 	}
 }
 
+// TestDefaultTraceOptions tests DefaultTraceOptions function
+func TestDefaultTraceOptions(t *testing.T) {
+	opts := DefaultTraceOptions()
+
+	assert.Equal(t, TraceModeErrorOnly, opts.Mode)
+	assert.Equal(t, 0.1, opts.SamplingRatio)
+	assert.Equal(t, 1.0, opts.ErrorSamplingRatio)
+}
+
+// TestGetTraceOptions tests GetTraceOptions function
+func TestGetTraceOptions(t *testing.T) {
+	// Set traceOptions
+	expectedOpts := TraceOptions{
+		Mode:               TraceModeAlways,
+		SamplingRatio:      0.5,
+		ErrorSamplingRatio: 0.8,
+	}
+	traceOptions = expectedOpts
+
+	opts := GetTraceOptions()
+
+	assert.Equal(t, expectedOpts.Mode, opts.Mode)
+	assert.Equal(t, expectedOpts.SamplingRatio, opts.SamplingRatio)
+	assert.Equal(t, expectedOpts.ErrorSamplingRatio, opts.ErrorSamplingRatio)
+}
+
+// TestIsErrorOnlyMode tests IsErrorOnlyMode function
+func TestIsErrorOnlyMode(t *testing.T) {
+	tests := []struct {
+		name     string
+		mode     TraceMode
+		expected bool
+	}{
+		{
+			name:     "error_only mode",
+			mode:     TraceModeErrorOnly,
+			expected: true,
+		},
+		{
+			name:     "always mode",
+			mode:     TraceModeAlways,
+			expected: false,
+		},
+		{
+			name:     "empty mode (defaults to error_only)",
+			mode:     "",
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			traceOptions = TraceOptions{Mode: tt.mode}
+			result := IsErrorOnlyMode()
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+// TestTraceOptionsFromConfig tests TraceOptionsFromConfig function
+func TestTraceOptionsFromConfig(t *testing.T) {
+	tests := []struct {
+		name               string
+		mode               string
+		samplingRatio      float64
+		errorSamplingRatio float64
+		expectedMode       TraceMode
+		expectedSampling   float64
+		expectedError      float64
+	}{
+		{
+			name:               "always mode",
+			mode:               "always",
+			samplingRatio:      0.5,
+			errorSamplingRatio: 0.8,
+			expectedMode:       TraceModeAlways,
+			expectedSampling:   0.5,
+			expectedError:      0.8,
+		},
+		{
+			name:               "error_only mode",
+			mode:               "error_only",
+			samplingRatio:      0.3,
+			errorSamplingRatio: 0.9,
+			expectedMode:       TraceModeErrorOnly,
+			expectedSampling:   0.3,
+			expectedError:      0.9,
+		},
+		{
+			name:               "unknown mode defaults to error_only",
+			mode:               "unknown",
+			samplingRatio:      0.5,
+			errorSamplingRatio: 0.5,
+			expectedMode:       TraceModeErrorOnly,
+			expectedSampling:   0.5,
+			expectedError:      0.5,
+		},
+		{
+			name:               "empty mode defaults to error_only",
+			mode:               "",
+			samplingRatio:      0.5,
+			errorSamplingRatio: 0.5,
+			expectedMode:       TraceModeErrorOnly,
+			expectedSampling:   0.5,
+			expectedError:      0.5,
+		},
+		{
+			name:               "zero ratios",
+			mode:               "always",
+			samplingRatio:      0.0,
+			errorSamplingRatio: 0.0,
+			expectedMode:       TraceModeAlways,
+			expectedSampling:   0.0,
+			expectedError:      0.0,
+		},
+		{
+			name:               "full ratios",
+			mode:               "always",
+			samplingRatio:      1.0,
+			errorSamplingRatio: 1.0,
+			expectedMode:       TraceModeAlways,
+			expectedSampling:   1.0,
+			expectedError:      1.0,
+		},
+		{
+			name:               "negative sampling ratio uses default",
+			mode:               "always",
+			samplingRatio:      -0.5,
+			errorSamplingRatio: 0.5,
+			expectedMode:       TraceModeAlways,
+			expectedSampling:   0.1, // default
+			expectedError:      0.5,
+		},
+		{
+			name:               "sampling ratio > 1 uses default",
+			mode:               "always",
+			samplingRatio:      1.5,
+			errorSamplingRatio: 0.5,
+			expectedMode:       TraceModeAlways,
+			expectedSampling:   0.1, // default
+			expectedError:      0.5,
+		},
+		{
+			name:               "negative error sampling ratio uses default",
+			mode:               "error_only",
+			samplingRatio:      0.5,
+			errorSamplingRatio: -0.5,
+			expectedMode:       TraceModeErrorOnly,
+			expectedSampling:   0.5,
+			expectedError:      1.0, // default
+		},
+		{
+			name:               "error sampling ratio > 1 uses default",
+			mode:               "error_only",
+			samplingRatio:      0.5,
+			errorSamplingRatio: 1.5,
+			expectedMode:       TraceModeErrorOnly,
+			expectedSampling:   0.5,
+			expectedError:      1.0, // default
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			opts := TraceOptionsFromConfig(tt.mode, tt.samplingRatio, tt.errorSamplingRatio)
+
+			assert.Equal(t, tt.expectedMode, opts.Mode)
+			assert.Equal(t, tt.expectedSampling, opts.SamplingRatio)
+			assert.Equal(t, tt.expectedError, opts.ErrorSamplingRatio)
+		})
+	}
+}
+
+// TestTraceMode_Constants tests TraceMode constants
+func TestTraceMode_Constants(t *testing.T) {
+	assert.Equal(t, TraceMode("error_only"), TraceModeErrorOnly)
+	assert.Equal(t, TraceMode("always"), TraceModeAlways)
+}
+
+// TestTraceOptions_Integration tests TraceOptions with different configurations
+func TestTraceOptions_Integration(t *testing.T) {
+	tests := []struct {
+		name string
+		opts TraceOptions
+	}{
+		{
+			name: "default options",
+			opts: DefaultTraceOptions(),
+		},
+		{
+			name: "custom always mode",
+			opts: TraceOptions{
+				Mode:               TraceModeAlways,
+				SamplingRatio:      0.25,
+				ErrorSamplingRatio: 0.75,
+			},
+		},
+		{
+			name: "custom error_only mode",
+			opts: TraceOptions{
+				Mode:               TraceModeErrorOnly,
+				SamplingRatio:      0.1,
+				ErrorSamplingRatio: 0.5,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Set options and verify
+			traceOptions = tt.opts
+
+			retrieved := GetTraceOptions()
+			assert.Equal(t, tt.opts.Mode, retrieved.Mode)
+			assert.Equal(t, tt.opts.SamplingRatio, retrieved.SamplingRatio)
+			assert.Equal(t, tt.opts.ErrorSamplingRatio, retrieved.ErrorSamplingRatio)
+
+			// Test IsErrorOnlyMode
+			expectedErrorOnly := tt.opts.Mode == TraceModeErrorOnly || tt.opts.Mode == ""
+			assert.Equal(t, expectedErrorOnly, IsErrorOnlyMode())
+		})
+	}
+}
+
+// TestTraceOptionsFromConfig_EdgeCases tests edge cases
+func TestTraceOptionsFromConfig_EdgeCases(t *testing.T) {
+	tests := []struct {
+		name               string
+		mode               string
+		samplingRatio      float64
+		errorSamplingRatio float64
+	}{
+		{
+			name:               "boundary 0",
+			mode:               "always",
+			samplingRatio:      0.0,
+			errorSamplingRatio: 0.0,
+		},
+		{
+			name:               "boundary 1",
+			mode:               "always",
+			samplingRatio:      1.0,
+			errorSamplingRatio: 1.0,
+		},
+		{
+			name:               "very small ratio",
+			mode:               "always",
+			samplingRatio:      0.001,
+			errorSamplingRatio: 0.001,
+		},
+		{
+			name:               "near 1 ratio",
+			mode:               "always",
+			samplingRatio:      0.999,
+			errorSamplingRatio: 0.999,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			opts := TraceOptionsFromConfig(tt.mode, tt.samplingRatio, tt.errorSamplingRatio)
+			assert.NotPanics(t, func() {
+				_ = opts.Mode
+				_ = opts.SamplingRatio
+				_ = opts.ErrorSamplingRatio
+			})
+		})
+	}
+}
+
+// Benchmark tests for new functions
+func BenchmarkDefaultTraceOptions(b *testing.B) {
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = DefaultTraceOptions()
+	}
+}
+
+func BenchmarkGetTraceOptions(b *testing.B) {
+	traceOptions = DefaultTraceOptions()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = GetTraceOptions()
+	}
+}
+
+func BenchmarkIsErrorOnlyMode(b *testing.B) {
+	traceOptions = TraceOptions{Mode: TraceModeErrorOnly}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = IsErrorOnlyMode()
+	}
+}
+
+func BenchmarkTraceOptionsFromConfig(b *testing.B) {
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = TraceOptionsFromConfig("always", 0.5, 0.8)
+	}
+}
+

@@ -62,7 +62,8 @@ func (m *NamespaceMockFacade) GetGpuUsageWeeklyReport() database.GpuUsageWeeklyR
 func (m *NamespaceMockFacade) GetNodeNamespaceMapping() database.NodeNamespaceMappingFacadeInterface {
 	return nil
 }
-func (m *NamespaceMockFacade) WithCluster(clusterName string) database.FacadeInterface { return m }
+func (m *NamespaceMockFacade) GetTraceLensSession() database.TraceLensSessionFacadeInterface { return nil }
+func (m *NamespaceMockFacade) WithCluster(clusterName string) database.FacadeInterface       { return m }
 
 // NamespaceMockNamespaceInfoFacade implements database.NamespaceInfoFacadeInterface for testing
 type NamespaceMockNamespaceInfoFacade struct {

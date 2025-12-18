@@ -21,6 +21,7 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/gpu_usage_weekly_report"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/gpu_workload"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/storage_scan"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/tracelens_cleanup"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/workload_statistic"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/workload_stats_backfill"
 )
@@ -120,6 +121,10 @@ func initDataJobs() []Job {
 // initManagementJobs initializes all management jobs
 func initManagementJobs(cfg *config.JobsConfig) []Job {
 	var jobs []Job
+
+	// Add TraceLens cleanup job - runs every 5 minutes to clean up expired sessions
+	jobs = append(jobs, tracelens_cleanup.NewTraceLensCleanupJob())
+	log.Info("TraceLens cleanup job registered")
 
 	// Add weekly report job if configured
 	if cfg != nil && cfg.WeeklyReport != nil && cfg.WeeklyReport.Enabled {
