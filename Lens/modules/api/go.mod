@@ -8,15 +8,17 @@ require (
 	github.com/AMD-AGI/Primus-SaFE/Lens/core v0.0.0-00010101000000-000000000000
 	github.com/gin-gonic/gin v1.10.1
 	github.com/google/uuid v1.6.0
+	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
 	github.com/stretchr/testify v1.10.0
 	gorm.io/gorm v1.30.0
 	k8s.io/api v0.33.3
 	k8s.io/apimachinery v0.33.3
+	k8s.io/client-go v0.33.0
 )
 
 require (
 	filippo.io/edwards25519 v1.1.0 // indirect
-	github.com/VictoriaMetrics/VictoriaMetrics v1.122.0 // indirect
+	github.com/VictoriaMetrics/VictoriaMetrics v1.116.0 // indirect
 	github.com/VictoriaMetrics/metrics v1.38.0 // indirect
 	github.com/VictoriaMetrics/metricsql v0.84.6 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
@@ -64,7 +66,6 @@ require (
 	github.com/lib/pq v1.10.9 // indirect
 	github.com/mailru/easyjson v0.7.7 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
-	github.com/mattn/go-sqlite3 v1.14.15 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
@@ -125,16 +126,14 @@ require (
 	gorm.io/datatypes v1.2.4 // indirect
 	gorm.io/driver/mysql v1.6.0 // indirect
 	gorm.io/driver/postgres v1.6.0 // indirect
-	gorm.io/driver/sqlite v1.4.3 // indirect
 	gorm.io/gen v0.3.27 // indirect
 	gorm.io/hints v1.1.0 // indirect
 	gorm.io/plugin/dbresolver v1.6.0 // indirect
 	k8s.io/apiextensions-apiserver v0.33.0 // indirect
-	k8s.io/client-go v0.33.3 // indirect
 	k8s.io/cri-api v0.33.3 // indirect
 	k8s.io/klog/v2 v2.130.1 // indirect
 	k8s.io/kube-openapi v0.0.0-20250318190949-c8a335a9a2ff // indirect
-	k8s.io/kubelet v0.33.3 // indirect
+	k8s.io/kubelet v0.33.0-beta.0 // indirect
 	k8s.io/utils v0.0.0-20250604170112-4c0f3b243397 // indirect
 	sigs.k8s.io/controller-runtime v0.21.0 // indirect
 	sigs.k8s.io/json v0.0.0-20241010143419-9aa6b5e7a4b3 // indirect

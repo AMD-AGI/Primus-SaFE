@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 	"time"
 
@@ -274,10 +275,11 @@ func TestNewClient(t *testing.T) {
 		tokenFileEnvVar string
 	}{
 		{
-			name:           "client with nil config and no token file",
-			kubeletAddress: "https://10.0.0.1:10250",
-			config:         nil,
-			wantErr:        true, // Will fail because token file doesn't exist
+			name:            "client with nil config and no token file",
+			kubeletAddress:  "https://10.0.0.1:10250",
+			config:          nil,
+			wantErr:         true, // Will fail because token file doesn't exist
+			tokenFileEnvVar: "/nonexistent/path/to/token/file",
 		},
 		{
 			name:           "client with cluster config",
@@ -310,6 +312,13 @@ func TestNewClient(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// Set environment variable for token file if specified
+			if tt.tokenFileEnvVar != "" {
+				oldEnv := os.Getenv("KUBELET_TOKEN_FILE")
+				os.Setenv("KUBELET_TOKEN_FILE", tt.tokenFileEnvVar)
+				defer os.Setenv("KUBELET_TOKEN_FILE", oldEnv)
+			}
+
 			client, err := NewClient(tt.kubeletAddress, tt.config)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("NewClient() error = %v, wantErr %v", err, tt.wantErr)

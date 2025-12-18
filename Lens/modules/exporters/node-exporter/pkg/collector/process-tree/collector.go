@@ -456,3 +456,48 @@ func (c *Collector) FindTensorboardFiles(ctx context.Context, podUID, podName, p
 		CollectedAt:    time.Now(),
 	}, nil
 }
+
+// FindPyTorchProfilerFiles finds all PyTorch Profiler files opened by processes in a pod
+func (c *Collector) FindPyTorchProfilerFiles(ctx context.Context, podUID, podName, podNamespace string) (*PyTorchProfilerFilesResponse, error) {
+	// Find all containers in the pod
+	var containers []*ContainerInfo
+	if c.containerReader != nil {
+		var err error
+		containers, err = c.containerReader.GetPodContainers(ctx, podUID)
+		if err != nil {
+			log.Warnf("Failed to get containers from containerd: %v", err)
+		}
+	}
+
+	// Fallback: find containers by scanning /proc
+	if len(containers) == 0 {
+		containers = c.procReader.FindPodContainersByUID(podUID)
+	}
+
+	if len(containers) == 0 {
+		return nil, fmt.Errorf("no containers found for pod UID %s", podUID)
+	}
+
+	// Collect all PIDs from all containers
+	var allPids []int
+	for _, container := range containers {
+		pids := c.procReader.FindContainerProcesses(container.ID)
+		allPids = append(allPids, pids...)
+	}
+
+	if len(allPids) == 0 {
+		return nil, fmt.Errorf("no processes found for pod UID %s", podUID)
+	}
+
+	// Scan for PyTorch Profiler files
+	profilerFiles := c.procReader.ScanPyTorchProfilerFiles(allPids)
+
+	return &PyTorchProfilerFilesResponse{
+		PodUID:         podUID,
+		PodName:        podName,
+		PodNamespace:   podNamespace,
+		Files:          profilerFiles,
+		TotalProcesses: len(allPids),
+		CollectedAt:    time.Now(),
+	}, nil
+}

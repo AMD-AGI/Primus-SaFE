@@ -163,8 +163,49 @@ func (n NetFlow) GetScanPortListenInterval() time.Duration {
 
 // MiddlewareConfig middleware configuration
 type MiddlewareConfig struct {
-	EnableLogging *bool `json:"enableLogging" yaml:"enableLogging"` // Whether to enable request logging middleware
-	EnableTracing *bool `json:"enableTracing" yaml:"enableTracing"` // Whether to enable distributed tracing middleware
+	EnableLogging *bool        `json:"enableLogging" yaml:"enableLogging"` // Whether to enable request logging middleware
+	EnableTracing *bool        `json:"enableTracing" yaml:"enableTracing"` // Whether to enable distributed tracing middleware
+	Trace         *TraceConfig `json:"trace" yaml:"trace"`                 // Trace configuration
+}
+
+// TraceConfig contains trace-specific configuration
+type TraceConfig struct {
+	// Mode controls when traces are exported:
+	// - "error_only": Only export traces when an error occurs (default)
+	// - "always": Always export traces (subject to sampling ratio)
+	Mode string `json:"mode" yaml:"mode"`
+
+	// SamplingRatio controls the sampling ratio when mode is "always" (0.0 to 1.0)
+	// Default: 0.1 (10%)
+	SamplingRatio *float64 `json:"samplingRatio" yaml:"samplingRatio"`
+
+	// ErrorSamplingRatio controls the sampling ratio for error traces in "error_only" mode (0.0 to 1.0)
+	// Default: 1.0 (100% of errors are sampled)
+	ErrorSamplingRatio *float64 `json:"errorSamplingRatio" yaml:"errorSamplingRatio"`
+}
+
+// GetTraceMode returns the trace mode, default is "error_only"
+func (m MiddlewareConfig) GetTraceMode() string {
+	if m.Trace == nil || m.Trace.Mode == "" {
+		return "error_only"
+	}
+	return m.Trace.Mode
+}
+
+// GetSamplingRatio returns the sampling ratio for "always" mode, default is 0.1
+func (m MiddlewareConfig) GetSamplingRatio() float64 {
+	if m.Trace == nil || m.Trace.SamplingRatio == nil {
+		return 0.1
+	}
+	return *m.Trace.SamplingRatio
+}
+
+// GetErrorSamplingRatio returns the error sampling ratio for "error_only" mode, default is 1.0
+func (m MiddlewareConfig) GetErrorSamplingRatio() float64 {
+	if m.Trace == nil || m.Trace.ErrorSamplingRatio == nil {
+		return 1.0
+	}
+	return *m.Trace.ErrorSamplingRatio
 }
 
 // IsLoggingEnabled returns whether logging middleware is enabled, default enabled

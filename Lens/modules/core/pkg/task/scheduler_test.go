@@ -191,7 +191,7 @@ func TestDefaultSchedulerConfig(t *testing.T) {
 	assert.Equal(t, 10*time.Second, config.ScanInterval)
 	assert.Equal(t, 5*time.Minute, config.LockDuration)
 	assert.Equal(t, 30*time.Second, config.HeartbeatInterval)
-	assert.Equal(t, 10, config.MaxConcurrentTasks)
+	assert.Equal(t, 20, config.MaxConcurrentTasks)
 	assert.Equal(t, 1*time.Minute, config.StaleLockCleanupInterval)
 	assert.True(t, config.AutoStart)
 }
