@@ -297,6 +297,12 @@ func (m *MockStorageBackend) Exists(ctx context.Context, fileID string) (bool, e
 	return exists, nil
 }
 
+func (m *MockStorageBackend) ExistsByWorkloadAndFilename(ctx context.Context, workloadUID string, fileName string) (bool, error) {
+	key := workloadUID + "/" + fileName
+	_, exists := m.files[key]
+	return exists, nil
+}
+
 func TestMockStorageBackend(t *testing.T) {
 	ctx := context.Background()
 	backend := NewMockStorageBackend()
