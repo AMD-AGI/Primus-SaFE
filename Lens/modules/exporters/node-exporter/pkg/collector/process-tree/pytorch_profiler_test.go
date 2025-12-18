@@ -3,6 +3,7 @@ package processtree
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -81,9 +82,23 @@ func TestIdentifyProfilerFile(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Create a temporary file with the expected filename pattern
 			tmpDir := t.TempDir()
-			// Extract the filename from the expected path to use in temp file
+
+			// Extract the filename and any important directory parts from the expected path
 			expectedFileName := filepath.Base(tt.filePath)
-			testFile := filepath.Join(tmpDir, expectedFileName)
+			expectedDir := filepath.Dir(tt.filePath)
+
+			// If the expected path contains "profiler" directory, recreate that structure
+			var testFile string
+			if strings.Contains(expectedDir, "profiler") || strings.Contains(expectedDir, "torch_profiler") {
+				// Create the profiler subdirectory
+				profilerDir := filepath.Join(tmpDir, "profiler")
+				err := os.MkdirAll(profilerDir, 0755)
+				assert.NoError(t, err)
+				testFile = filepath.Join(profilerDir, expectedFileName)
+			} else {
+				testFile = filepath.Join(tmpDir, expectedFileName)
+			}
+
 			// Create file with enough content to pass size check (>1KB)
 			content := make([]byte, 2*1024) // 2KB
 			err := os.WriteFile(testFile, content, 0644)
