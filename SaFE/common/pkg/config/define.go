@@ -125,4 +125,8 @@ const (
 
 	// Deployable components for CD
 	components = "components"
+
+	// proxy
+	proxyPrefix = "proxy."
+	proxyList   = proxyPrefix + "services"
 )

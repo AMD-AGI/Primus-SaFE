@@ -15,6 +15,14 @@ import (
 	"github.com/spf13/viper"
 )
 
+// ProxyService represents a proxy service configuration
+type ProxyService struct {
+	Name    string `json:"name" yaml:"name"`       // Service name
+	Prefix  string `json:"prefix" yaml:"prefix"`   // URL prefix for the proxy route
+	Target  string `json:"target" yaml:"target"`   // Target service URL
+	Enabled bool   `json:"enabled" yaml:"enabled"` // Whether the proxy is enabled
+}
+
 // SetValue sets a configuration value for the specified key.
 func SetValue(key, value string) {
 	viper.Set(key, value)
@@ -423,7 +431,17 @@ func GetModelCleanupImage() string {
 	return getString(modelCleanupImage, "docker.io/library/alpine:3.18")
 }
 
+<<<<<<< HEAD
 // GetComponents returns the list of deployable components.
 func GetComponents() []string {
 	return viper.GetStringSlice(components)
+=======
+// GetProxyServices returns the list of configured proxy services.
+func GetProxyServices() []ProxyService {
+	var services []ProxyService
+	if err := viper.UnmarshalKey(proxyList, &services); err != nil {
+		return []ProxyService{}
+	}
+	return services
+>>>>>>> origin/main
 }

@@ -17,185 +17,203 @@ import (
 
 func Use(db *gorm.DB, opts ...gen.DOOption) *Query {
 	return &Query{
-		db:                        db,
-		AiWorkloadMetadata:        newAiWorkloadMetadata(db, opts...),
-		AlertCorrelations:         newAlertCorrelations(db, opts...),
-		AlertEvents:               newAlertEvents(db, opts...),
-		AlertNotifications:        newAlertNotifications(db, opts...),
-		AlertRuleAdviceStatistics: newAlertRuleAdviceStatistics(db, opts...),
-		AlertRuleAdvices:          newAlertRuleAdvices(db, opts...),
-		AlertRules:                newAlertRules(db, opts...),
-		AlertSilences:             newAlertSilences(db, opts...),
-		AlertStatistics:           newAlertStatistics(db, opts...),
-		CheckpointEvent:           newCheckpointEvent(db, opts...),
-		ClusterGpuHourlyStats:     newClusterGpuHourlyStats(db, opts...),
-		ClusterOverviewCache:      newClusterOverviewCache(db, opts...),
-		DetectionConflictLog:      newDetectionConflictLog(db, opts...),
-		DetectionSourcePriority:   newDetectionSourcePriority(db, opts...),
-		Fault:                     newFault(db, opts...),
-		FrameworkConfig:           newFrameworkConfig(db, opts...),
-		FrameworkDetectionMetrics: newFrameworkDetectionMetrics(db, opts...),
-		GenericCache:              newGenericCache(db, opts...),
-		GpuAllocationSnapshots:    newGpuAllocationSnapshots(db, opts...),
-		GpuDevice:                 newGpuDevice(db, opts...),
-		GpuPods:                   newGpuPods(db, opts...),
-		GpuPodsEvent:              newGpuPodsEvent(db, opts...),
-		GpuUsageWeeklyReports:     newGpuUsageWeeklyReports(db, opts...),
-		GpuWorkload:               newGpuWorkload(db, opts...),
-		GpuWorkloadSnapshot:       newGpuWorkloadSnapshot(db, opts...),
-		JobExecutionHistory:       newJobExecutionHistory(db, opts...),
-		LabelGpuHourlyStats:       newLabelGpuHourlyStats(db, opts...),
-		LogAlertRuleStatistics:    newLogAlertRuleStatistics(db, opts...),
-		LogAlertRuleTemplates:     newLogAlertRuleTemplates(db, opts...),
-		LogAlertRuleVersions:      newLogAlertRuleVersions(db, opts...),
-		LogAlertRules:             newLogAlertRules(db, opts...),
-		MetricAlertRules:          newMetricAlertRules(db, opts...),
-		NamespaceGpuHourlyStats:   newNamespaceGpuHourlyStats(db, opts...),
-		NamespaceInfo:             newNamespaceInfo(db, opts...),
-		Node:                      newNode(db, opts...),
-		NodeContainer:             newNodeContainer(db, opts...),
-		NodeContainerDevices:      newNodeContainerDevices(db, opts...),
-		NodeContainerEvent:        newNodeContainerEvent(db, opts...),
-		NodeDeviceChangelog:       newNodeDeviceChangelog(db, opts...),
-		PodResource:               newPodResource(db, opts...),
-		PodSnapshot:               newPodSnapshot(db, opts...),
-		RdmaDevice:                newRdmaDevice(db, opts...),
-		ReuseEffectivenessLog:     newReuseEffectivenessLog(db, opts...),
-		SilencedAlerts:            newSilencedAlerts(db, opts...),
-		Storage:                   newStorage(db, opts...),
-		SystemConfig:              newSystemConfig(db, opts...),
-		SystemConfigHistory:       newSystemConfigHistory(db, opts...),
-		TrainingPerformance:       newTrainingPerformance(db, opts...),
-		WorkloadEvent:             newWorkloadEvent(db, opts...),
-		WorkloadGpuHourlyStats:    newWorkloadGpuHourlyStats(db, opts...),
-		WorkloadPodReference:      newWorkloadPodReference(db, opts...),
-		WorkloadResource:          newWorkloadResource(db, opts...),
-		WorkloadSimilarityCache:   newWorkloadSimilarityCache(db, opts...),
-		WorkloadStatistic:         newWorkloadStatistic(db, opts...),
-		WorkloadTaskState:         newWorkloadTaskState(db, opts...),
+		db:                          db,
+		AiWorkloadMetadata:          newAiWorkloadMetadata(db, opts...),
+		AlertCorrelations:           newAlertCorrelations(db, opts...),
+		AlertEvents:                 newAlertEvents(db, opts...),
+		AlertNotifications:          newAlertNotifications(db, opts...),
+		AlertRuleAdviceStatistics:   newAlertRuleAdviceStatistics(db, opts...),
+		AlertRuleAdvices:            newAlertRuleAdvices(db, opts...),
+		AlertRules:                  newAlertRules(db, opts...),
+		AlertSilences:               newAlertSilences(db, opts...),
+		AlertStatistics:             newAlertStatistics(db, opts...),
+		CheckpointEvent:             newCheckpointEvent(db, opts...),
+		ClusterGpuHourlyStats:       newClusterGpuHourlyStats(db, opts...),
+		ClusterOverviewCache:        newClusterOverviewCache(db, opts...),
+		DetectionConflictLog:        newDetectionConflictLog(db, opts...),
+		DetectionSourcePriority:     newDetectionSourcePriority(db, opts...),
+		Fault:                       newFault(db, opts...),
+		FrameworkConfig:             newFrameworkConfig(db, opts...),
+		FrameworkDetectionMetrics:   newFrameworkDetectionMetrics(db, opts...),
+		GenericCache:                newGenericCache(db, opts...),
+		GpuAllocationSnapshots:      newGpuAllocationSnapshots(db, opts...),
+		GpuDevice:                   newGpuDevice(db, opts...),
+		GpuPods:                     newGpuPods(db, opts...),
+		GpuPodsEvent:                newGpuPodsEvent(db, opts...),
+		GpuUsageWeeklyReports:       newGpuUsageWeeklyReports(db, opts...),
+		GpuWorkload:                 newGpuWorkload(db, opts...),
+		GpuWorkloadSnapshot:         newGpuWorkloadSnapshot(db, opts...),
+		JobExecutionHistory:         newJobExecutionHistory(db, opts...),
+		LabelGpuHourlyStats:         newLabelGpuHourlyStats(db, opts...),
+		LogAlertRuleStatistics:      newLogAlertRuleStatistics(db, opts...),
+		LogAlertRuleTemplates:       newLogAlertRuleTemplates(db, opts...),
+		LogAlertRuleVersions:        newLogAlertRuleVersions(db, opts...),
+		LogAlertRules:               newLogAlertRules(db, opts...),
+		MetricAlertRules:            newMetricAlertRules(db, opts...),
+		NamespaceGpuHourlyStats:     newNamespaceGpuHourlyStats(db, opts...),
+		NamespaceInfo:               newNamespaceInfo(db, opts...),
+		Node:                        newNode(db, opts...),
+		NodeContainer:               newNodeContainer(db, opts...),
+		NodeContainerDevices:        newNodeContainerDevices(db, opts...),
+		NodeContainerEvent:          newNodeContainerEvent(db, opts...),
+		NodeDeviceChangelog:         newNodeDeviceChangelog(db, opts...),
+		NodeNamespaceMapping:        newNodeNamespaceMapping(db, opts...),
+		NodeNamespaceMappingHistory: newNodeNamespaceMappingHistory(db, opts...),
+		PodResource:                 newPodResource(db, opts...),
+		PodSnapshot:                 newPodSnapshot(db, opts...),
+		ProfilerAnalysis:            newProfilerAnalysis(db, opts...),
+		ProfilerFileContent:         newProfilerFileContent(db, opts...),
+		ProfilerFiles:               newProfilerFiles(db, opts...),
+		RdmaDevice:                  newRdmaDevice(db, opts...),
+		ReuseEffectivenessLog:       newReuseEffectivenessLog(db, opts...),
+		SilencedAlerts:              newSilencedAlerts(db, opts...),
+		Storage:                     newStorage(db, opts...),
+		SystemConfig:                newSystemConfig(db, opts...),
+		SystemConfigHistory:         newSystemConfigHistory(db, opts...),
+		TracelensSessions:           newTracelensSessions(db, opts...),
+		TrainingPerformance:         newTrainingPerformance(db, opts...),
+		WorkloadEvent:               newWorkloadEvent(db, opts...),
+		WorkloadGpuHourlyStats:      newWorkloadGpuHourlyStats(db, opts...),
+		WorkloadPodReference:        newWorkloadPodReference(db, opts...),
+		WorkloadResource:            newWorkloadResource(db, opts...),
+		WorkloadSimilarityCache:     newWorkloadSimilarityCache(db, opts...),
+		WorkloadStatistic:           newWorkloadStatistic(db, opts...),
+		WorkloadTaskState:           newWorkloadTaskState(db, opts...),
 	}
 }
 
 type Query struct {
 	db *gorm.DB
 
-	AiWorkloadMetadata        aiWorkloadMetadata
-	AlertCorrelations         alertCorrelations
-	AlertEvents               alertEvents
-	AlertNotifications        alertNotifications
-	AlertRuleAdviceStatistics alertRuleAdviceStatistics
-	AlertRuleAdvices          alertRuleAdvices
-	AlertRules                alertRules
-	AlertSilences             alertSilences
-	AlertStatistics           alertStatistics
-	CheckpointEvent           checkpointEvent
-	ClusterGpuHourlyStats     clusterGpuHourlyStats
-	ClusterOverviewCache      clusterOverviewCache
-	DetectionConflictLog      detectionConflictLog
-	DetectionSourcePriority   detectionSourcePriority
-	Fault                     fault
-	FrameworkConfig           frameworkConfig
-	FrameworkDetectionMetrics frameworkDetectionMetrics
-	GenericCache              genericCache
-	GpuAllocationSnapshots    gpuAllocationSnapshots
-	GpuDevice                 gpuDevice
-	GpuPods                   gpuPods
-	GpuPodsEvent              gpuPodsEvent
-	GpuUsageWeeklyReports     gpuUsageWeeklyReports
-	GpuWorkload               gpuWorkload
-	GpuWorkloadSnapshot       gpuWorkloadSnapshot
-	JobExecutionHistory       jobExecutionHistory
-	LabelGpuHourlyStats       labelGpuHourlyStats
-	LogAlertRuleStatistics    logAlertRuleStatistics
-	LogAlertRuleTemplates     logAlertRuleTemplates
-	LogAlertRuleVersions      logAlertRuleVersions
-	LogAlertRules             logAlertRules
-	MetricAlertRules          metricAlertRules
-	NamespaceGpuHourlyStats   namespaceGpuHourlyStats
-	NamespaceInfo             namespaceInfo
-	Node                      node
-	NodeContainer             nodeContainer
-	NodeContainerDevices      nodeContainerDevices
-	NodeContainerEvent        nodeContainerEvent
-	NodeDeviceChangelog       nodeDeviceChangelog
-	PodResource               podResource
-	PodSnapshot               podSnapshot
-	RdmaDevice                rdmaDevice
-	ReuseEffectivenessLog     reuseEffectivenessLog
-	SilencedAlerts            silencedAlerts
-	Storage                   storage
-	SystemConfig              systemConfig
-	SystemConfigHistory       systemConfigHistory
-	TrainingPerformance       trainingPerformance
-	WorkloadEvent             workloadEvent
-	WorkloadGpuHourlyStats    workloadGpuHourlyStats
-	WorkloadPodReference      workloadPodReference
-	WorkloadResource          workloadResource
-	WorkloadSimilarityCache   workloadSimilarityCache
-	WorkloadStatistic         workloadStatistic
-	WorkloadTaskState         workloadTaskState
+	AiWorkloadMetadata          aiWorkloadMetadata
+	AlertCorrelations           alertCorrelations
+	AlertEvents                 alertEvents
+	AlertNotifications          alertNotifications
+	AlertRuleAdviceStatistics   alertRuleAdviceStatistics
+	AlertRuleAdvices            alertRuleAdvices
+	AlertRules                  alertRules
+	AlertSilences               alertSilences
+	AlertStatistics             alertStatistics
+	CheckpointEvent             checkpointEvent
+	ClusterGpuHourlyStats       clusterGpuHourlyStats
+	ClusterOverviewCache        clusterOverviewCache
+	DetectionConflictLog        detectionConflictLog
+	DetectionSourcePriority     detectionSourcePriority
+	Fault                       fault
+	FrameworkConfig             frameworkConfig
+	FrameworkDetectionMetrics   frameworkDetectionMetrics
+	GenericCache                genericCache
+	GpuAllocationSnapshots      gpuAllocationSnapshots
+	GpuDevice                   gpuDevice
+	GpuPods                     gpuPods
+	GpuPodsEvent                gpuPodsEvent
+	GpuUsageWeeklyReports       gpuUsageWeeklyReports
+	GpuWorkload                 gpuWorkload
+	GpuWorkloadSnapshot         gpuWorkloadSnapshot
+	JobExecutionHistory         jobExecutionHistory
+	LabelGpuHourlyStats         labelGpuHourlyStats
+	LogAlertRuleStatistics      logAlertRuleStatistics
+	LogAlertRuleTemplates       logAlertRuleTemplates
+	LogAlertRuleVersions        logAlertRuleVersions
+	LogAlertRules               logAlertRules
+	MetricAlertRules            metricAlertRules
+	NamespaceGpuHourlyStats     namespaceGpuHourlyStats
+	NamespaceInfo               namespaceInfo
+	Node                        node
+	NodeContainer               nodeContainer
+	NodeContainerDevices        nodeContainerDevices
+	NodeContainerEvent          nodeContainerEvent
+	NodeDeviceChangelog         nodeDeviceChangelog
+	NodeNamespaceMapping        nodeNamespaceMapping
+	NodeNamespaceMappingHistory nodeNamespaceMappingHistory
+	PodResource                 podResource
+	PodSnapshot                 podSnapshot
+	ProfilerAnalysis            profilerAnalysis
+	ProfilerFileContent         profilerFileContent
+	ProfilerFiles               profilerFiles
+	RdmaDevice                  rdmaDevice
+	ReuseEffectivenessLog       reuseEffectivenessLog
+	SilencedAlerts              silencedAlerts
+	Storage                     storage
+	SystemConfig                systemConfig
+	SystemConfigHistory         systemConfigHistory
+	TracelensSessions           tracelensSessions
+	TrainingPerformance         trainingPerformance
+	WorkloadEvent               workloadEvent
+	WorkloadGpuHourlyStats      workloadGpuHourlyStats
+	WorkloadPodReference        workloadPodReference
+	WorkloadResource            workloadResource
+	WorkloadSimilarityCache     workloadSimilarityCache
+	WorkloadStatistic           workloadStatistic
+	WorkloadTaskState           workloadTaskState
 }
 
 func (q *Query) Available() bool { return q.db != nil }
 
 func (q *Query) clone(db *gorm.DB) *Query {
 	return &Query{
-		db:                        db,
-		AiWorkloadMetadata:        q.AiWorkloadMetadata.clone(db),
-		AlertCorrelations:         q.AlertCorrelations.clone(db),
-		AlertEvents:               q.AlertEvents.clone(db),
-		AlertNotifications:        q.AlertNotifications.clone(db),
-		AlertRuleAdviceStatistics: q.AlertRuleAdviceStatistics.clone(db),
-		AlertRuleAdvices:          q.AlertRuleAdvices.clone(db),
-		AlertRules:                q.AlertRules.clone(db),
-		AlertSilences:             q.AlertSilences.clone(db),
-		AlertStatistics:           q.AlertStatistics.clone(db),
-		CheckpointEvent:           q.CheckpointEvent.clone(db),
-		ClusterGpuHourlyStats:     q.ClusterGpuHourlyStats.clone(db),
-		ClusterOverviewCache:      q.ClusterOverviewCache.clone(db),
-		DetectionConflictLog:      q.DetectionConflictLog.clone(db),
-		DetectionSourcePriority:   q.DetectionSourcePriority.clone(db),
-		Fault:                     q.Fault.clone(db),
-		FrameworkConfig:           q.FrameworkConfig.clone(db),
-		FrameworkDetectionMetrics: q.FrameworkDetectionMetrics.clone(db),
-		GenericCache:              q.GenericCache.clone(db),
-		GpuAllocationSnapshots:    q.GpuAllocationSnapshots.clone(db),
-		GpuDevice:                 q.GpuDevice.clone(db),
-		GpuPods:                   q.GpuPods.clone(db),
-		GpuPodsEvent:              q.GpuPodsEvent.clone(db),
-		GpuUsageWeeklyReports:     q.GpuUsageWeeklyReports.clone(db),
-		GpuWorkload:               q.GpuWorkload.clone(db),
-		GpuWorkloadSnapshot:       q.GpuWorkloadSnapshot.clone(db),
-		JobExecutionHistory:       q.JobExecutionHistory.clone(db),
-		LabelGpuHourlyStats:       q.LabelGpuHourlyStats.clone(db),
-		LogAlertRuleStatistics:    q.LogAlertRuleStatistics.clone(db),
-		LogAlertRuleTemplates:     q.LogAlertRuleTemplates.clone(db),
-		LogAlertRuleVersions:      q.LogAlertRuleVersions.clone(db),
-		LogAlertRules:             q.LogAlertRules.clone(db),
-		MetricAlertRules:          q.MetricAlertRules.clone(db),
-		NamespaceGpuHourlyStats:   q.NamespaceGpuHourlyStats.clone(db),
-		NamespaceInfo:             q.NamespaceInfo.clone(db),
-		Node:                      q.Node.clone(db),
-		NodeContainer:             q.NodeContainer.clone(db),
-		NodeContainerDevices:      q.NodeContainerDevices.clone(db),
-		NodeContainerEvent:        q.NodeContainerEvent.clone(db),
-		NodeDeviceChangelog:       q.NodeDeviceChangelog.clone(db),
-		PodResource:               q.PodResource.clone(db),
-		PodSnapshot:               q.PodSnapshot.clone(db),
-		RdmaDevice:                q.RdmaDevice.clone(db),
-		ReuseEffectivenessLog:     q.ReuseEffectivenessLog.clone(db),
-		SilencedAlerts:            q.SilencedAlerts.clone(db),
-		Storage:                   q.Storage.clone(db),
-		SystemConfig:              q.SystemConfig.clone(db),
-		SystemConfigHistory:       q.SystemConfigHistory.clone(db),
-		TrainingPerformance:       q.TrainingPerformance.clone(db),
-		WorkloadEvent:             q.WorkloadEvent.clone(db),
-		WorkloadGpuHourlyStats:    q.WorkloadGpuHourlyStats.clone(db),
-		WorkloadPodReference:      q.WorkloadPodReference.clone(db),
-		WorkloadResource:          q.WorkloadResource.clone(db),
-		WorkloadSimilarityCache:   q.WorkloadSimilarityCache.clone(db),
-		WorkloadStatistic:         q.WorkloadStatistic.clone(db),
-		WorkloadTaskState:         q.WorkloadTaskState.clone(db),
+		db:                          db,
+		AiWorkloadMetadata:          q.AiWorkloadMetadata.clone(db),
+		AlertCorrelations:           q.AlertCorrelations.clone(db),
+		AlertEvents:                 q.AlertEvents.clone(db),
+		AlertNotifications:          q.AlertNotifications.clone(db),
+		AlertRuleAdviceStatistics:   q.AlertRuleAdviceStatistics.clone(db),
+		AlertRuleAdvices:            q.AlertRuleAdvices.clone(db),
+		AlertRules:                  q.AlertRules.clone(db),
+		AlertSilences:               q.AlertSilences.clone(db),
+		AlertStatistics:             q.AlertStatistics.clone(db),
+		CheckpointEvent:             q.CheckpointEvent.clone(db),
+		ClusterGpuHourlyStats:       q.ClusterGpuHourlyStats.clone(db),
+		ClusterOverviewCache:        q.ClusterOverviewCache.clone(db),
+		DetectionConflictLog:        q.DetectionConflictLog.clone(db),
+		DetectionSourcePriority:     q.DetectionSourcePriority.clone(db),
+		Fault:                       q.Fault.clone(db),
+		FrameworkConfig:             q.FrameworkConfig.clone(db),
+		FrameworkDetectionMetrics:   q.FrameworkDetectionMetrics.clone(db),
+		GenericCache:                q.GenericCache.clone(db),
+		GpuAllocationSnapshots:      q.GpuAllocationSnapshots.clone(db),
+		GpuDevice:                   q.GpuDevice.clone(db),
+		GpuPods:                     q.GpuPods.clone(db),
+		GpuPodsEvent:                q.GpuPodsEvent.clone(db),
+		GpuUsageWeeklyReports:       q.GpuUsageWeeklyReports.clone(db),
+		GpuWorkload:                 q.GpuWorkload.clone(db),
+		GpuWorkloadSnapshot:         q.GpuWorkloadSnapshot.clone(db),
+		JobExecutionHistory:         q.JobExecutionHistory.clone(db),
+		LabelGpuHourlyStats:         q.LabelGpuHourlyStats.clone(db),
+		LogAlertRuleStatistics:      q.LogAlertRuleStatistics.clone(db),
+		LogAlertRuleTemplates:       q.LogAlertRuleTemplates.clone(db),
+		LogAlertRuleVersions:        q.LogAlertRuleVersions.clone(db),
+		LogAlertRules:               q.LogAlertRules.clone(db),
+		MetricAlertRules:            q.MetricAlertRules.clone(db),
+		NamespaceGpuHourlyStats:     q.NamespaceGpuHourlyStats.clone(db),
+		NamespaceInfo:               q.NamespaceInfo.clone(db),
+		Node:                        q.Node.clone(db),
+		NodeContainer:               q.NodeContainer.clone(db),
+		NodeContainerDevices:        q.NodeContainerDevices.clone(db),
+		NodeContainerEvent:          q.NodeContainerEvent.clone(db),
+		NodeDeviceChangelog:         q.NodeDeviceChangelog.clone(db),
+		NodeNamespaceMapping:        q.NodeNamespaceMapping.clone(db),
+		NodeNamespaceMappingHistory: q.NodeNamespaceMappingHistory.clone(db),
+		PodResource:                 q.PodResource.clone(db),
+		PodSnapshot:                 q.PodSnapshot.clone(db),
+		ProfilerAnalysis:            q.ProfilerAnalysis.clone(db),
+		ProfilerFileContent:         q.ProfilerFileContent.clone(db),
+		ProfilerFiles:               q.ProfilerFiles.clone(db),
+		RdmaDevice:                  q.RdmaDevice.clone(db),
+		ReuseEffectivenessLog:       q.ReuseEffectivenessLog.clone(db),
+		SilencedAlerts:              q.SilencedAlerts.clone(db),
+		Storage:                     q.Storage.clone(db),
+		SystemConfig:                q.SystemConfig.clone(db),
+		SystemConfigHistory:         q.SystemConfigHistory.clone(db),
+		TracelensSessions:           q.TracelensSessions.clone(db),
+		TrainingPerformance:         q.TrainingPerformance.clone(db),
+		WorkloadEvent:               q.WorkloadEvent.clone(db),
+		WorkloadGpuHourlyStats:      q.WorkloadGpuHourlyStats.clone(db),
+		WorkloadPodReference:        q.WorkloadPodReference.clone(db),
+		WorkloadResource:            q.WorkloadResource.clone(db),
+		WorkloadSimilarityCache:     q.WorkloadSimilarityCache.clone(db),
+		WorkloadStatistic:           q.WorkloadStatistic.clone(db),
+		WorkloadTaskState:           q.WorkloadTaskState.clone(db),
 	}
 }
 
@@ -209,180 +227,198 @@ func (q *Query) WriteDB() *Query {
 
 func (q *Query) ReplaceDB(db *gorm.DB) *Query {
 	return &Query{
-		db:                        db,
-		AiWorkloadMetadata:        q.AiWorkloadMetadata.replaceDB(db),
-		AlertCorrelations:         q.AlertCorrelations.replaceDB(db),
-		AlertEvents:               q.AlertEvents.replaceDB(db),
-		AlertNotifications:        q.AlertNotifications.replaceDB(db),
-		AlertRuleAdviceStatistics: q.AlertRuleAdviceStatistics.replaceDB(db),
-		AlertRuleAdvices:          q.AlertRuleAdvices.replaceDB(db),
-		AlertRules:                q.AlertRules.replaceDB(db),
-		AlertSilences:             q.AlertSilences.replaceDB(db),
-		AlertStatistics:           q.AlertStatistics.replaceDB(db),
-		CheckpointEvent:           q.CheckpointEvent.replaceDB(db),
-		ClusterGpuHourlyStats:     q.ClusterGpuHourlyStats.replaceDB(db),
-		ClusterOverviewCache:      q.ClusterOverviewCache.replaceDB(db),
-		DetectionConflictLog:      q.DetectionConflictLog.replaceDB(db),
-		DetectionSourcePriority:   q.DetectionSourcePriority.replaceDB(db),
-		Fault:                     q.Fault.replaceDB(db),
-		FrameworkConfig:           q.FrameworkConfig.replaceDB(db),
-		FrameworkDetectionMetrics: q.FrameworkDetectionMetrics.replaceDB(db),
-		GenericCache:              q.GenericCache.replaceDB(db),
-		GpuAllocationSnapshots:    q.GpuAllocationSnapshots.replaceDB(db),
-		GpuDevice:                 q.GpuDevice.replaceDB(db),
-		GpuPods:                   q.GpuPods.replaceDB(db),
-		GpuPodsEvent:              q.GpuPodsEvent.replaceDB(db),
-		GpuUsageWeeklyReports:     q.GpuUsageWeeklyReports.replaceDB(db),
-		GpuWorkload:               q.GpuWorkload.replaceDB(db),
-		GpuWorkloadSnapshot:       q.GpuWorkloadSnapshot.replaceDB(db),
-		JobExecutionHistory:       q.JobExecutionHistory.replaceDB(db),
-		LabelGpuHourlyStats:       q.LabelGpuHourlyStats.replaceDB(db),
-		LogAlertRuleStatistics:    q.LogAlertRuleStatistics.replaceDB(db),
-		LogAlertRuleTemplates:     q.LogAlertRuleTemplates.replaceDB(db),
-		LogAlertRuleVersions:      q.LogAlertRuleVersions.replaceDB(db),
-		LogAlertRules:             q.LogAlertRules.replaceDB(db),
-		MetricAlertRules:          q.MetricAlertRules.replaceDB(db),
-		NamespaceGpuHourlyStats:   q.NamespaceGpuHourlyStats.replaceDB(db),
-		NamespaceInfo:             q.NamespaceInfo.replaceDB(db),
-		Node:                      q.Node.replaceDB(db),
-		NodeContainer:             q.NodeContainer.replaceDB(db),
-		NodeContainerDevices:      q.NodeContainerDevices.replaceDB(db),
-		NodeContainerEvent:        q.NodeContainerEvent.replaceDB(db),
-		NodeDeviceChangelog:       q.NodeDeviceChangelog.replaceDB(db),
-		PodResource:               q.PodResource.replaceDB(db),
-		PodSnapshot:               q.PodSnapshot.replaceDB(db),
-		RdmaDevice:                q.RdmaDevice.replaceDB(db),
-		ReuseEffectivenessLog:     q.ReuseEffectivenessLog.replaceDB(db),
-		SilencedAlerts:            q.SilencedAlerts.replaceDB(db),
-		Storage:                   q.Storage.replaceDB(db),
-		SystemConfig:              q.SystemConfig.replaceDB(db),
-		SystemConfigHistory:       q.SystemConfigHistory.replaceDB(db),
-		TrainingPerformance:       q.TrainingPerformance.replaceDB(db),
-		WorkloadEvent:             q.WorkloadEvent.replaceDB(db),
-		WorkloadGpuHourlyStats:    q.WorkloadGpuHourlyStats.replaceDB(db),
-		WorkloadPodReference:      q.WorkloadPodReference.replaceDB(db),
-		WorkloadResource:          q.WorkloadResource.replaceDB(db),
-		WorkloadSimilarityCache:   q.WorkloadSimilarityCache.replaceDB(db),
-		WorkloadStatistic:         q.WorkloadStatistic.replaceDB(db),
-		WorkloadTaskState:         q.WorkloadTaskState.replaceDB(db),
+		db:                          db,
+		AiWorkloadMetadata:          q.AiWorkloadMetadata.replaceDB(db),
+		AlertCorrelations:           q.AlertCorrelations.replaceDB(db),
+		AlertEvents:                 q.AlertEvents.replaceDB(db),
+		AlertNotifications:          q.AlertNotifications.replaceDB(db),
+		AlertRuleAdviceStatistics:   q.AlertRuleAdviceStatistics.replaceDB(db),
+		AlertRuleAdvices:            q.AlertRuleAdvices.replaceDB(db),
+		AlertRules:                  q.AlertRules.replaceDB(db),
+		AlertSilences:               q.AlertSilences.replaceDB(db),
+		AlertStatistics:             q.AlertStatistics.replaceDB(db),
+		CheckpointEvent:             q.CheckpointEvent.replaceDB(db),
+		ClusterGpuHourlyStats:       q.ClusterGpuHourlyStats.replaceDB(db),
+		ClusterOverviewCache:        q.ClusterOverviewCache.replaceDB(db),
+		DetectionConflictLog:        q.DetectionConflictLog.replaceDB(db),
+		DetectionSourcePriority:     q.DetectionSourcePriority.replaceDB(db),
+		Fault:                       q.Fault.replaceDB(db),
+		FrameworkConfig:             q.FrameworkConfig.replaceDB(db),
+		FrameworkDetectionMetrics:   q.FrameworkDetectionMetrics.replaceDB(db),
+		GenericCache:                q.GenericCache.replaceDB(db),
+		GpuAllocationSnapshots:      q.GpuAllocationSnapshots.replaceDB(db),
+		GpuDevice:                   q.GpuDevice.replaceDB(db),
+		GpuPods:                     q.GpuPods.replaceDB(db),
+		GpuPodsEvent:                q.GpuPodsEvent.replaceDB(db),
+		GpuUsageWeeklyReports:       q.GpuUsageWeeklyReports.replaceDB(db),
+		GpuWorkload:                 q.GpuWorkload.replaceDB(db),
+		GpuWorkloadSnapshot:         q.GpuWorkloadSnapshot.replaceDB(db),
+		JobExecutionHistory:         q.JobExecutionHistory.replaceDB(db),
+		LabelGpuHourlyStats:         q.LabelGpuHourlyStats.replaceDB(db),
+		LogAlertRuleStatistics:      q.LogAlertRuleStatistics.replaceDB(db),
+		LogAlertRuleTemplates:       q.LogAlertRuleTemplates.replaceDB(db),
+		LogAlertRuleVersions:        q.LogAlertRuleVersions.replaceDB(db),
+		LogAlertRules:               q.LogAlertRules.replaceDB(db),
+		MetricAlertRules:            q.MetricAlertRules.replaceDB(db),
+		NamespaceGpuHourlyStats:     q.NamespaceGpuHourlyStats.replaceDB(db),
+		NamespaceInfo:               q.NamespaceInfo.replaceDB(db),
+		Node:                        q.Node.replaceDB(db),
+		NodeContainer:               q.NodeContainer.replaceDB(db),
+		NodeContainerDevices:        q.NodeContainerDevices.replaceDB(db),
+		NodeContainerEvent:          q.NodeContainerEvent.replaceDB(db),
+		NodeDeviceChangelog:         q.NodeDeviceChangelog.replaceDB(db),
+		NodeNamespaceMapping:        q.NodeNamespaceMapping.replaceDB(db),
+		NodeNamespaceMappingHistory: q.NodeNamespaceMappingHistory.replaceDB(db),
+		PodResource:                 q.PodResource.replaceDB(db),
+		PodSnapshot:                 q.PodSnapshot.replaceDB(db),
+		ProfilerAnalysis:            q.ProfilerAnalysis.replaceDB(db),
+		ProfilerFileContent:         q.ProfilerFileContent.replaceDB(db),
+		ProfilerFiles:               q.ProfilerFiles.replaceDB(db),
+		RdmaDevice:                  q.RdmaDevice.replaceDB(db),
+		ReuseEffectivenessLog:       q.ReuseEffectivenessLog.replaceDB(db),
+		SilencedAlerts:              q.SilencedAlerts.replaceDB(db),
+		Storage:                     q.Storage.replaceDB(db),
+		SystemConfig:                q.SystemConfig.replaceDB(db),
+		SystemConfigHistory:         q.SystemConfigHistory.replaceDB(db),
+		TracelensSessions:           q.TracelensSessions.replaceDB(db),
+		TrainingPerformance:         q.TrainingPerformance.replaceDB(db),
+		WorkloadEvent:               q.WorkloadEvent.replaceDB(db),
+		WorkloadGpuHourlyStats:      q.WorkloadGpuHourlyStats.replaceDB(db),
+		WorkloadPodReference:        q.WorkloadPodReference.replaceDB(db),
+		WorkloadResource:            q.WorkloadResource.replaceDB(db),
+		WorkloadSimilarityCache:     q.WorkloadSimilarityCache.replaceDB(db),
+		WorkloadStatistic:           q.WorkloadStatistic.replaceDB(db),
+		WorkloadTaskState:           q.WorkloadTaskState.replaceDB(db),
 	}
 }
 
 type queryCtx struct {
-	AiWorkloadMetadata        *aiWorkloadMetadataDo
-	AlertCorrelations         *alertCorrelationsDo
-	AlertEvents               *alertEventsDo
-	AlertNotifications        *alertNotificationsDo
-	AlertRuleAdviceStatistics *alertRuleAdviceStatisticsDo
-	AlertRuleAdvices          *alertRuleAdvicesDo
-	AlertRules                *alertRulesDo
-	AlertSilences             *alertSilencesDo
-	AlertStatistics           *alertStatisticsDo
-	CheckpointEvent           *checkpointEventDo
-	ClusterGpuHourlyStats     *clusterGpuHourlyStatsDo
-	ClusterOverviewCache      *clusterOverviewCacheDo
-	DetectionConflictLog      *detectionConflictLogDo
-	DetectionSourcePriority   *detectionSourcePriorityDo
-	Fault                     *faultDo
-	FrameworkConfig           *frameworkConfigDo
-	FrameworkDetectionMetrics *frameworkDetectionMetricsDo
-	GenericCache              *genericCacheDo
-	GpuAllocationSnapshots    *gpuAllocationSnapshotsDo
-	GpuDevice                 *gpuDeviceDo
-	GpuPods                   *gpuPodsDo
-	GpuPodsEvent              *gpuPodsEventDo
-	GpuUsageWeeklyReports     *gpuUsageWeeklyReportsDo
-	GpuWorkload               *gpuWorkloadDo
-	GpuWorkloadSnapshot       *gpuWorkloadSnapshotDo
-	JobExecutionHistory       *jobExecutionHistoryDo
-	LabelGpuHourlyStats       *labelGpuHourlyStatsDo
-	LogAlertRuleStatistics    *logAlertRuleStatisticsDo
-	LogAlertRuleTemplates     *logAlertRuleTemplatesDo
-	LogAlertRuleVersions      *logAlertRuleVersionsDo
-	LogAlertRules             *logAlertRulesDo
-	MetricAlertRules          *metricAlertRulesDo
-	NamespaceGpuHourlyStats   *namespaceGpuHourlyStatsDo
-	NamespaceInfo             *namespaceInfoDo
-	Node                      *nodeDo
-	NodeContainer             *nodeContainerDo
-	NodeContainerDevices      *nodeContainerDevicesDo
-	NodeContainerEvent        *nodeContainerEventDo
-	NodeDeviceChangelog       *nodeDeviceChangelogDo
-	PodResource               *podResourceDo
-	PodSnapshot               *podSnapshotDo
-	RdmaDevice                *rdmaDeviceDo
-	ReuseEffectivenessLog     *reuseEffectivenessLogDo
-	SilencedAlerts            *silencedAlertsDo
-	Storage                   *storageDo
-	SystemConfig              *systemConfigDo
-	SystemConfigHistory       *systemConfigHistoryDo
-	TrainingPerformance       *trainingPerformanceDo
-	WorkloadEvent             *workloadEventDo
-	WorkloadGpuHourlyStats    *workloadGpuHourlyStatsDo
-	WorkloadPodReference      *workloadPodReferenceDo
-	WorkloadResource          *workloadResourceDo
-	WorkloadSimilarityCache   *workloadSimilarityCacheDo
-	WorkloadStatistic         *workloadStatisticDo
-	WorkloadTaskState         *workloadTaskStateDo
+	AiWorkloadMetadata          *aiWorkloadMetadataDo
+	AlertCorrelations           *alertCorrelationsDo
+	AlertEvents                 *alertEventsDo
+	AlertNotifications          *alertNotificationsDo
+	AlertRuleAdviceStatistics   *alertRuleAdviceStatisticsDo
+	AlertRuleAdvices            *alertRuleAdvicesDo
+	AlertRules                  *alertRulesDo
+	AlertSilences               *alertSilencesDo
+	AlertStatistics             *alertStatisticsDo
+	CheckpointEvent             *checkpointEventDo
+	ClusterGpuHourlyStats       *clusterGpuHourlyStatsDo
+	ClusterOverviewCache        *clusterOverviewCacheDo
+	DetectionConflictLog        *detectionConflictLogDo
+	DetectionSourcePriority     *detectionSourcePriorityDo
+	Fault                       *faultDo
+	FrameworkConfig             *frameworkConfigDo
+	FrameworkDetectionMetrics   *frameworkDetectionMetricsDo
+	GenericCache                *genericCacheDo
+	GpuAllocationSnapshots      *gpuAllocationSnapshotsDo
+	GpuDevice                   *gpuDeviceDo
+	GpuPods                     *gpuPodsDo
+	GpuPodsEvent                *gpuPodsEventDo
+	GpuUsageWeeklyReports       *gpuUsageWeeklyReportsDo
+	GpuWorkload                 *gpuWorkloadDo
+	GpuWorkloadSnapshot         *gpuWorkloadSnapshotDo
+	JobExecutionHistory         *jobExecutionHistoryDo
+	LabelGpuHourlyStats         *labelGpuHourlyStatsDo
+	LogAlertRuleStatistics      *logAlertRuleStatisticsDo
+	LogAlertRuleTemplates       *logAlertRuleTemplatesDo
+	LogAlertRuleVersions        *logAlertRuleVersionsDo
+	LogAlertRules               *logAlertRulesDo
+	MetricAlertRules            *metricAlertRulesDo
+	NamespaceGpuHourlyStats     *namespaceGpuHourlyStatsDo
+	NamespaceInfo               *namespaceInfoDo
+	Node                        *nodeDo
+	NodeContainer               *nodeContainerDo
+	NodeContainerDevices        *nodeContainerDevicesDo
+	NodeContainerEvent          *nodeContainerEventDo
+	NodeDeviceChangelog         *nodeDeviceChangelogDo
+	NodeNamespaceMapping        *nodeNamespaceMappingDo
+	NodeNamespaceMappingHistory *nodeNamespaceMappingHistoryDo
+	PodResource                 *podResourceDo
+	PodSnapshot                 *podSnapshotDo
+	ProfilerAnalysis            *profilerAnalysisDo
+	ProfilerFileContent         *profilerFileContentDo
+	ProfilerFiles               *profilerFilesDo
+	RdmaDevice                  *rdmaDeviceDo
+	ReuseEffectivenessLog       *reuseEffectivenessLogDo
+	SilencedAlerts              *silencedAlertsDo
+	Storage                     *storageDo
+	SystemConfig                *systemConfigDo
+	SystemConfigHistory         *systemConfigHistoryDo
+	TracelensSessions           *tracelensSessionsDo
+	TrainingPerformance         *trainingPerformanceDo
+	WorkloadEvent               *workloadEventDo
+	WorkloadGpuHourlyStats      *workloadGpuHourlyStatsDo
+	WorkloadPodReference        *workloadPodReferenceDo
+	WorkloadResource            *workloadResourceDo
+	WorkloadSimilarityCache     *workloadSimilarityCacheDo
+	WorkloadStatistic           *workloadStatisticDo
+	WorkloadTaskState           *workloadTaskStateDo
 }
 
 func (q *Query) WithContext(ctx context.Context) *queryCtx {
 	return &queryCtx{
-		AiWorkloadMetadata:        q.AiWorkloadMetadata.WithContext(ctx),
-		AlertCorrelations:         q.AlertCorrelations.WithContext(ctx),
-		AlertEvents:               q.AlertEvents.WithContext(ctx),
-		AlertNotifications:        q.AlertNotifications.WithContext(ctx),
-		AlertRuleAdviceStatistics: q.AlertRuleAdviceStatistics.WithContext(ctx),
-		AlertRuleAdvices:          q.AlertRuleAdvices.WithContext(ctx),
-		AlertRules:                q.AlertRules.WithContext(ctx),
-		AlertSilences:             q.AlertSilences.WithContext(ctx),
-		AlertStatistics:           q.AlertStatistics.WithContext(ctx),
-		CheckpointEvent:           q.CheckpointEvent.WithContext(ctx),
-		ClusterGpuHourlyStats:     q.ClusterGpuHourlyStats.WithContext(ctx),
-		ClusterOverviewCache:      q.ClusterOverviewCache.WithContext(ctx),
-		DetectionConflictLog:      q.DetectionConflictLog.WithContext(ctx),
-		DetectionSourcePriority:   q.DetectionSourcePriority.WithContext(ctx),
-		Fault:                     q.Fault.WithContext(ctx),
-		FrameworkConfig:           q.FrameworkConfig.WithContext(ctx),
-		FrameworkDetectionMetrics: q.FrameworkDetectionMetrics.WithContext(ctx),
-		GenericCache:              q.GenericCache.WithContext(ctx),
-		GpuAllocationSnapshots:    q.GpuAllocationSnapshots.WithContext(ctx),
-		GpuDevice:                 q.GpuDevice.WithContext(ctx),
-		GpuPods:                   q.GpuPods.WithContext(ctx),
-		GpuPodsEvent:              q.GpuPodsEvent.WithContext(ctx),
-		GpuUsageWeeklyReports:     q.GpuUsageWeeklyReports.WithContext(ctx),
-		GpuWorkload:               q.GpuWorkload.WithContext(ctx),
-		GpuWorkloadSnapshot:       q.GpuWorkloadSnapshot.WithContext(ctx),
-		JobExecutionHistory:       q.JobExecutionHistory.WithContext(ctx),
-		LabelGpuHourlyStats:       q.LabelGpuHourlyStats.WithContext(ctx),
-		LogAlertRuleStatistics:    q.LogAlertRuleStatistics.WithContext(ctx),
-		LogAlertRuleTemplates:     q.LogAlertRuleTemplates.WithContext(ctx),
-		LogAlertRuleVersions:      q.LogAlertRuleVersions.WithContext(ctx),
-		LogAlertRules:             q.LogAlertRules.WithContext(ctx),
-		MetricAlertRules:          q.MetricAlertRules.WithContext(ctx),
-		NamespaceGpuHourlyStats:   q.NamespaceGpuHourlyStats.WithContext(ctx),
-		NamespaceInfo:             q.NamespaceInfo.WithContext(ctx),
-		Node:                      q.Node.WithContext(ctx),
-		NodeContainer:             q.NodeContainer.WithContext(ctx),
-		NodeContainerDevices:      q.NodeContainerDevices.WithContext(ctx),
-		NodeContainerEvent:        q.NodeContainerEvent.WithContext(ctx),
-		NodeDeviceChangelog:       q.NodeDeviceChangelog.WithContext(ctx),
-		PodResource:               q.PodResource.WithContext(ctx),
-		PodSnapshot:               q.PodSnapshot.WithContext(ctx),
-		RdmaDevice:                q.RdmaDevice.WithContext(ctx),
-		ReuseEffectivenessLog:     q.ReuseEffectivenessLog.WithContext(ctx),
-		SilencedAlerts:            q.SilencedAlerts.WithContext(ctx),
-		Storage:                   q.Storage.WithContext(ctx),
-		SystemConfig:              q.SystemConfig.WithContext(ctx),
-		SystemConfigHistory:       q.SystemConfigHistory.WithContext(ctx),
-		TrainingPerformance:       q.TrainingPerformance.WithContext(ctx),
-		WorkloadEvent:             q.WorkloadEvent.WithContext(ctx),
-		WorkloadGpuHourlyStats:    q.WorkloadGpuHourlyStats.WithContext(ctx),
-		WorkloadPodReference:      q.WorkloadPodReference.WithContext(ctx),
-		WorkloadResource:          q.WorkloadResource.WithContext(ctx),
-		WorkloadSimilarityCache:   q.WorkloadSimilarityCache.WithContext(ctx),
-		WorkloadStatistic:         q.WorkloadStatistic.WithContext(ctx),
-		WorkloadTaskState:         q.WorkloadTaskState.WithContext(ctx),
+		AiWorkloadMetadata:          q.AiWorkloadMetadata.WithContext(ctx),
+		AlertCorrelations:           q.AlertCorrelations.WithContext(ctx),
+		AlertEvents:                 q.AlertEvents.WithContext(ctx),
+		AlertNotifications:          q.AlertNotifications.WithContext(ctx),
+		AlertRuleAdviceStatistics:   q.AlertRuleAdviceStatistics.WithContext(ctx),
+		AlertRuleAdvices:            q.AlertRuleAdvices.WithContext(ctx),
+		AlertRules:                  q.AlertRules.WithContext(ctx),
+		AlertSilences:               q.AlertSilences.WithContext(ctx),
+		AlertStatistics:             q.AlertStatistics.WithContext(ctx),
+		CheckpointEvent:             q.CheckpointEvent.WithContext(ctx),
+		ClusterGpuHourlyStats:       q.ClusterGpuHourlyStats.WithContext(ctx),
+		ClusterOverviewCache:        q.ClusterOverviewCache.WithContext(ctx),
+		DetectionConflictLog:        q.DetectionConflictLog.WithContext(ctx),
+		DetectionSourcePriority:     q.DetectionSourcePriority.WithContext(ctx),
+		Fault:                       q.Fault.WithContext(ctx),
+		FrameworkConfig:             q.FrameworkConfig.WithContext(ctx),
+		FrameworkDetectionMetrics:   q.FrameworkDetectionMetrics.WithContext(ctx),
+		GenericCache:                q.GenericCache.WithContext(ctx),
+		GpuAllocationSnapshots:      q.GpuAllocationSnapshots.WithContext(ctx),
+		GpuDevice:                   q.GpuDevice.WithContext(ctx),
+		GpuPods:                     q.GpuPods.WithContext(ctx),
+		GpuPodsEvent:                q.GpuPodsEvent.WithContext(ctx),
+		GpuUsageWeeklyReports:       q.GpuUsageWeeklyReports.WithContext(ctx),
+		GpuWorkload:                 q.GpuWorkload.WithContext(ctx),
+		GpuWorkloadSnapshot:         q.GpuWorkloadSnapshot.WithContext(ctx),
+		JobExecutionHistory:         q.JobExecutionHistory.WithContext(ctx),
+		LabelGpuHourlyStats:         q.LabelGpuHourlyStats.WithContext(ctx),
+		LogAlertRuleStatistics:      q.LogAlertRuleStatistics.WithContext(ctx),
+		LogAlertRuleTemplates:       q.LogAlertRuleTemplates.WithContext(ctx),
+		LogAlertRuleVersions:        q.LogAlertRuleVersions.WithContext(ctx),
+		LogAlertRules:               q.LogAlertRules.WithContext(ctx),
+		MetricAlertRules:            q.MetricAlertRules.WithContext(ctx),
+		NamespaceGpuHourlyStats:     q.NamespaceGpuHourlyStats.WithContext(ctx),
+		NamespaceInfo:               q.NamespaceInfo.WithContext(ctx),
+		Node:                        q.Node.WithContext(ctx),
+		NodeContainer:               q.NodeContainer.WithContext(ctx),
+		NodeContainerDevices:        q.NodeContainerDevices.WithContext(ctx),
+		NodeContainerEvent:          q.NodeContainerEvent.WithContext(ctx),
+		NodeDeviceChangelog:         q.NodeDeviceChangelog.WithContext(ctx),
+		NodeNamespaceMapping:        q.NodeNamespaceMapping.WithContext(ctx),
+		NodeNamespaceMappingHistory: q.NodeNamespaceMappingHistory.WithContext(ctx),
+		PodResource:                 q.PodResource.WithContext(ctx),
+		PodSnapshot:                 q.PodSnapshot.WithContext(ctx),
+		ProfilerAnalysis:            q.ProfilerAnalysis.WithContext(ctx),
+		ProfilerFileContent:         q.ProfilerFileContent.WithContext(ctx),
+		ProfilerFiles:               q.ProfilerFiles.WithContext(ctx),
+		RdmaDevice:                  q.RdmaDevice.WithContext(ctx),
+		ReuseEffectivenessLog:       q.ReuseEffectivenessLog.WithContext(ctx),
+		SilencedAlerts:              q.SilencedAlerts.WithContext(ctx),
+		Storage:                     q.Storage.WithContext(ctx),
+		SystemConfig:                q.SystemConfig.WithContext(ctx),
+		SystemConfigHistory:         q.SystemConfigHistory.WithContext(ctx),
+		TracelensSessions:           q.TracelensSessions.WithContext(ctx),
+		TrainingPerformance:         q.TrainingPerformance.WithContext(ctx),
+		WorkloadEvent:               q.WorkloadEvent.WithContext(ctx),
+		WorkloadGpuHourlyStats:      q.WorkloadGpuHourlyStats.WithContext(ctx),
+		WorkloadPodReference:        q.WorkloadPodReference.WithContext(ctx),
+		WorkloadResource:            q.WorkloadResource.WithContext(ctx),
+		WorkloadSimilarityCache:     q.WorkloadSimilarityCache.WithContext(ctx),
+		WorkloadStatistic:           q.WorkloadStatistic.WithContext(ctx),
+		WorkloadTaskState:           q.WorkloadTaskState.WithContext(ctx),
 	}
 }
 

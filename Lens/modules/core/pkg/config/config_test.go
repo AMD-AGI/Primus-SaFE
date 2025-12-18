@@ -28,13 +28,13 @@ func TestControllerConfig_GetMetricsBindAddress(t *testing.T) {
 			},
 			want: ":19191",
 		},
-	{
-		name: "negative port uses default 19191",
-		config: ControllerConfig{
-			MetricsPort: -1,
+		{
+			name: "negative port uses default 19191",
+			config: ControllerConfig{
+				MetricsPort: -1,
+			},
+			want: ":-1",
 		},
-		want: ":-1",
-	},
 		{
 			name: "high port number",
 			config: ControllerConfig{
@@ -75,13 +75,13 @@ func TestControllerConfig_GetHealthzBindAddress(t *testing.T) {
 			},
 			want: ":19192",
 		},
-	{
-		name: "negative port uses default 19192",
-		config: ControllerConfig{
-			HealthzPort: -1,
+		{
+			name: "negative port uses default 19192",
+			config: ControllerConfig{
+				HealthzPort: -1,
+			},
+			want: ":-1",
 		},
-		want: ":-1",
-	},
 		{
 			name: "high port number",
 			config: ControllerConfig{
@@ -122,13 +122,13 @@ func TestControllerConfig_GetPprofBindAddress(t *testing.T) {
 			},
 			want: ":19193",
 		},
-	{
-		name: "negative port uses default 19193",
-		config: ControllerConfig{
-			PprofPort: -1,
+		{
+			name: "negative port uses default 19193",
+			config: ControllerConfig{
+				PprofPort: -1,
+			},
+			want: ":-1",
 		},
-		want: ":-1",
-	},
 		{
 			name: "high port number",
 			config: ControllerConfig{
@@ -363,15 +363,15 @@ loadK8SClient: true
 			configYAML: "",
 			wantErr:    true,
 		},
-	{
-		name: "empty config file",
-		setupEnv: func(t *testing.T) string {
-			tmpDir := t.TempDir()
-			return tmpDir
+		{
+			name: "empty config file",
+			setupEnv: func(t *testing.T) string {
+				tmpDir := t.TempDir()
+				return tmpDir
+			},
+			configYAML: "",
+			wantErr:    true,
 		},
-		configYAML: "",
-		wantErr:    true,
-	},
 	}
 
 	for _, tt := range tests {
@@ -607,3 +607,391 @@ controller:
 	}
 }
 
+// TestMiddlewareConfig_GetTraceMode tests the GetTraceMode method
+func TestMiddlewareConfig_GetTraceMode(t *testing.T) {
+	tests := []struct {
+		name   string
+		config MiddlewareConfig
+		want   string
+	}{
+		{
+			name:   "nil trace config returns error_only",
+			config: MiddlewareConfig{},
+			want:   "error_only",
+		},
+		{
+			name: "empty mode returns error_only",
+			config: MiddlewareConfig{
+				Trace: &TraceConfig{
+					Mode: "",
+				},
+			},
+			want: "error_only",
+		},
+		{
+			name: "error_only mode",
+			config: MiddlewareConfig{
+				Trace: &TraceConfig{
+					Mode: "error_only",
+				},
+			},
+			want: "error_only",
+		},
+		{
+			name: "always mode",
+			config: MiddlewareConfig{
+				Trace: &TraceConfig{
+					Mode: "always",
+				},
+			},
+			want: "always",
+		},
+		{
+			name: "custom mode",
+			config: MiddlewareConfig{
+				Trace: &TraceConfig{
+					Mode: "custom",
+				},
+			},
+			want: "custom",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.config.GetTraceMode()
+			if got != tt.want {
+				t.Errorf("GetTraceMode() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestMiddlewareConfig_GetSamplingRatio tests the GetSamplingRatio method
+func TestMiddlewareConfig_GetSamplingRatio(t *testing.T) {
+	ratio01 := 0.1
+	ratio05 := 0.5
+	ratio10 := 1.0
+	ratio00 := 0.0
+
+	tests := []struct {
+		name   string
+		config MiddlewareConfig
+		want   float64
+	}{
+		{
+			name:   "nil trace config returns 0.1",
+			config: MiddlewareConfig{},
+			want:   0.1,
+		},
+		{
+			name: "nil sampling ratio returns 0.1",
+			config: MiddlewareConfig{
+				Trace: &TraceConfig{},
+			},
+			want: 0.1,
+		},
+		{
+			name: "sampling ratio 0.1",
+			config: MiddlewareConfig{
+				Trace: &TraceConfig{
+					SamplingRatio: &ratio01,
+				},
+			},
+			want: 0.1,
+		},
+		{
+			name: "sampling ratio 0.5",
+			config: MiddlewareConfig{
+				Trace: &TraceConfig{
+					SamplingRatio: &ratio05,
+				},
+			},
+			want: 0.5,
+		},
+		{
+			name: "sampling ratio 1.0",
+			config: MiddlewareConfig{
+				Trace: &TraceConfig{
+					SamplingRatio: &ratio10,
+				},
+			},
+			want: 1.0,
+		},
+		{
+			name: "sampling ratio 0.0",
+			config: MiddlewareConfig{
+				Trace: &TraceConfig{
+					SamplingRatio: &ratio00,
+				},
+			},
+			want: 0.0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.config.GetSamplingRatio()
+			if got != tt.want {
+				t.Errorf("GetSamplingRatio() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestMiddlewareConfig_GetErrorSamplingRatio tests the GetErrorSamplingRatio method
+func TestMiddlewareConfig_GetErrorSamplingRatio(t *testing.T) {
+	ratio01 := 0.1
+	ratio05 := 0.5
+	ratio10 := 1.0
+	ratio00 := 0.0
+
+	tests := []struct {
+		name   string
+		config MiddlewareConfig
+		want   float64
+	}{
+		{
+			name:   "nil trace config returns 1.0",
+			config: MiddlewareConfig{},
+			want:   1.0,
+		},
+		{
+			name: "nil error sampling ratio returns 1.0",
+			config: MiddlewareConfig{
+				Trace: &TraceConfig{},
+			},
+			want: 1.0,
+		},
+		{
+			name: "error sampling ratio 0.1",
+			config: MiddlewareConfig{
+				Trace: &TraceConfig{
+					ErrorSamplingRatio: &ratio01,
+				},
+			},
+			want: 0.1,
+		},
+		{
+			name: "error sampling ratio 0.5",
+			config: MiddlewareConfig{
+				Trace: &TraceConfig{
+					ErrorSamplingRatio: &ratio05,
+				},
+			},
+			want: 0.5,
+		},
+		{
+			name: "error sampling ratio 1.0",
+			config: MiddlewareConfig{
+				Trace: &TraceConfig{
+					ErrorSamplingRatio: &ratio10,
+				},
+			},
+			want: 1.0,
+		},
+		{
+			name: "error sampling ratio 0.0",
+			config: MiddlewareConfig{
+				Trace: &TraceConfig{
+					ErrorSamplingRatio: &ratio00,
+				},
+			},
+			want: 0.0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.config.GetErrorSamplingRatio()
+			if got != tt.want {
+				t.Errorf("GetErrorSamplingRatio() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestTraceConfig_Struct tests TraceConfig struct fields
+func TestTraceConfig_Struct(t *testing.T) {
+	ratio := 0.5
+	errRatio := 0.8
+
+	cfg := TraceConfig{
+		Mode:               "always",
+		SamplingRatio:      &ratio,
+		ErrorSamplingRatio: &errRatio,
+	}
+
+	if cfg.Mode != "always" {
+		t.Errorf("Expected Mode to be 'always', got %s", cfg.Mode)
+	}
+	if *cfg.SamplingRatio != 0.5 {
+		t.Errorf("Expected SamplingRatio to be 0.5, got %f", *cfg.SamplingRatio)
+	}
+	if *cfg.ErrorSamplingRatio != 0.8 {
+		t.Errorf("Expected ErrorSamplingRatio to be 0.8, got %f", *cfg.ErrorSamplingRatio)
+	}
+}
+
+// TestMiddlewareConfig_WithTraceConfig tests MiddlewareConfig with full TraceConfig
+func TestMiddlewareConfig_WithTraceConfig(t *testing.T) {
+	enableLogging := true
+	enableTracing := true
+	samplingRatio := 0.3
+	errorSamplingRatio := 0.9
+
+	cfg := MiddlewareConfig{
+		EnableLogging: &enableLogging,
+		EnableTracing: &enableTracing,
+		Trace: &TraceConfig{
+			Mode:               "always",
+			SamplingRatio:      &samplingRatio,
+			ErrorSamplingRatio: &errorSamplingRatio,
+		},
+	}
+
+	if !cfg.IsLoggingEnabled() {
+		t.Error("Expected logging to be enabled")
+	}
+	if !cfg.IsTracingEnabled() {
+		t.Error("Expected tracing to be enabled")
+	}
+	if cfg.GetTraceMode() != "always" {
+		t.Errorf("Expected trace mode 'always', got %s", cfg.GetTraceMode())
+	}
+	if cfg.GetSamplingRatio() != 0.3 {
+		t.Errorf("Expected sampling ratio 0.3, got %f", cfg.GetSamplingRatio())
+	}
+	if cfg.GetErrorSamplingRatio() != 0.9 {
+		t.Errorf("Expected error sampling ratio 0.9, got %f", cfg.GetErrorSamplingRatio())
+	}
+}
+
+// TestLoadConfig_WithTraceConfig tests LoadConfig with trace configuration
+func TestLoadConfig_WithTraceConfig(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+	configContent := `
+multiCluster: false
+loadK8SClient: true
+loadStorageClient: true
+httpPort: 8080
+controller:
+  namespace: test
+middleware:
+  enableLogging: true
+  enableTracing: true
+  trace:
+    mode: always
+    samplingRatio: 0.25
+    errorSamplingRatio: 0.75
+`
+	err := os.WriteFile(configPath, []byte(configContent), 0644)
+	if err != nil {
+		t.Fatalf("Failed to create config file: %v", err)
+	}
+
+	oldConfigPath := os.Getenv("CONFIG_PATH")
+	os.Setenv("CONFIG_PATH", configPath)
+	defer os.Setenv("CONFIG_PATH", oldConfigPath)
+
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+
+	if cfg.Middleware.GetTraceMode() != "always" {
+		t.Errorf("Expected trace mode 'always', got %s", cfg.Middleware.GetTraceMode())
+	}
+	if cfg.Middleware.GetSamplingRatio() != 0.25 {
+		t.Errorf("Expected sampling ratio 0.25, got %f", cfg.Middleware.GetSamplingRatio())
+	}
+	if cfg.Middleware.GetErrorSamplingRatio() != 0.75 {
+		t.Errorf("Expected error sampling ratio 0.75, got %f", cfg.Middleware.GetErrorSamplingRatio())
+	}
+}
+
+// TestLoadConfig_WithErrorOnlyTraceConfig tests LoadConfig with error_only trace mode
+func TestLoadConfig_WithErrorOnlyTraceConfig(t *testing.T) {
+	// Reset global config to avoid test interference
+	config = nil
+
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+	configContent := `
+multiCluster: false
+loadK8SClient: true
+loadStorageClient: true
+httpPort: 8080
+controller:
+  namespace: test
+middleware:
+  enableTracing: true
+  trace:
+    mode: error_only
+    samplingRatio: 0.15
+    errorSamplingRatio: 0.5
+`
+	err := os.WriteFile(configPath, []byte(configContent), 0644)
+	if err != nil {
+		t.Fatalf("Failed to create config file: %v", err)
+	}
+
+	oldConfigPath := os.Getenv("CONFIG_PATH")
+	os.Setenv("CONFIG_PATH", configPath)
+	defer os.Setenv("CONFIG_PATH", oldConfigPath)
+
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+
+	if cfg.Middleware.GetTraceMode() != "error_only" {
+		t.Errorf("Expected trace mode 'error_only', got %s", cfg.Middleware.GetTraceMode())
+	}
+	if cfg.Middleware.GetSamplingRatio() != 0.15 {
+		t.Errorf("Expected sampling ratio 0.15, got %f", cfg.Middleware.GetSamplingRatio())
+	}
+	if cfg.Middleware.GetErrorSamplingRatio() != 0.5 {
+		t.Errorf("Expected error sampling ratio 0.5, got %f", cfg.Middleware.GetErrorSamplingRatio())
+	}
+}
+
+// Benchmark tests for TraceConfig methods
+func BenchmarkMiddlewareConfig_GetTraceMode(b *testing.B) {
+	cfg := MiddlewareConfig{
+		Trace: &TraceConfig{
+			Mode: "always",
+		},
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = cfg.GetTraceMode()
+	}
+}
+
+func BenchmarkMiddlewareConfig_GetSamplingRatio(b *testing.B) {
+	ratio := 0.5
+	cfg := MiddlewareConfig{
+		Trace: &TraceConfig{
+			SamplingRatio: &ratio,
+		},
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = cfg.GetSamplingRatio()
+	}
+}
+
+func BenchmarkMiddlewareConfig_GetErrorSamplingRatio(b *testing.B) {
+	ratio := 0.8
+	cfg := MiddlewareConfig{
+		Trace: &TraceConfig{
+			ErrorSamplingRatio: &ratio,
+		},
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = cfg.GetErrorSamplingRatio()
+	}
+}

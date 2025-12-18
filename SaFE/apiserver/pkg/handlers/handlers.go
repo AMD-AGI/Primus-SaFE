@@ -16,6 +16,7 @@ import (
 	customhandler "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/custom-handlers"
 	imagehandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/image-handlers"
 	model_handlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/model-handlers"
+	proxyhandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/proxy-handlers"
 	sshhandler "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/ssh-handlers"
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
@@ -63,6 +64,13 @@ func InitHttpHandlers(_ context.Context, mgr ctrlruntime.Manager) (*gin.Engine, 
 	sshhandler.InitWebShellRouters(engine, sshHandler)
 	modelHandler := InitModelHandlers(mgr)
 	model_handlers.InitInferenceRouters(engine, modelHandler)
+
+	// Initialize proxy handlers
+	proxyHandler, err := proxyhandlers.NewProxyHandler()
+	if err != nil {
+		return nil, err
+	}
+	proxyhandlers.InitProxyRoutes(engine, proxyHandler)
 
 	return engine, nil
 }

@@ -137,9 +137,12 @@ func (r *FSReader) ReadFile(ctx context.Context, req *ReadRequest) (*ReadRespons
 		return nil, fmt.Errorf("path is a directory, use list endpoint instead")
 	}
 
-	// Check file size
-	if fileInfo.Size > r.maxFileSize {
-		return nil, fmt.Errorf("file too large: %d bytes (max: %d bytes)", fileInfo.Size, r.maxFileSize)
+	// Check file size only when reading entire file (no offset/length specified)
+	// Chunked reading with Offset/Length bypasses this check to allow large file streaming
+	isChunkedRead := req.Offset > 0 || req.Length > 0
+	if !isChunkedRead && fileInfo.Size > r.maxFileSize {
+		return nil, fmt.Errorf("file too large: %d bytes (max: %d bytes), use chunked reading with Offset/Length",
+			fileInfo.Size, r.maxFileSize)
 	}
 
 	// Open file

@@ -10,6 +10,7 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/cluster_overview"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/device_info"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/gpu_aggregation"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/gpu_aggregation_backfill"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/gpu_allocation"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/gpu_consumers"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/gpu_history_cache_1h"
@@ -20,7 +21,9 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/gpu_usage_weekly_report"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/gpu_workload"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/storage_scan"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/tracelens_cleanup"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/workload_statistic"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/workload_stats_backfill"
 )
 
 // JobMode defines the running mode of jobs service
@@ -99,18 +102,29 @@ func initDataJobs() []Job {
 		&storage_scan.StorageScanJob{},
 		&cluster_overview.ClusterOverviewJob{},
 		// GPU cache jobs - split into separate jobs for better performance
-		&gpu_realtime_cache.GpuRealtimeCacheJob{},      // Every 30s - realtime metrics
-		&gpu_history_cache_1h.GpuHistoryCache1hJob{},   // Every 1m - 1 hour history
-		&gpu_history_cache_6h.GpuHistoryCache6hJob{},   // Every 5m - 6 hour history
-		&gpu_history_cache_24h.GpuHistoryCache24hJob{}, // Every 10m - 24 hour history
-		gpu_aggregation.NewGpuAggregationJob(),
-		workload_statistic.NewWorkloadStatisticJob(), // Every 30s - workload GPU utilization statistics
+		&gpu_realtime_cache.GpuRealtimeCacheJob{},                        // Every 30s - realtime metrics
+		&gpu_history_cache_1h.GpuHistoryCache1hJob{},                     // Every 1m - 1 hour history
+		&gpu_history_cache_6h.GpuHistoryCache6hJob{},                     // Every 5m - 6 hour history
+		&gpu_history_cache_24h.GpuHistoryCache24hJob{},                   // Every 10m - 24 hour history
+		gpu_aggregation.NewClusterGpuAggregationJob(),                    // Every 5m - cluster-level GPU aggregation
+		gpu_aggregation.NewNamespaceGpuAggregationJob(),                  // Every 5m - namespace-level GPU aggregation
+		gpu_aggregation.NewWorkloadGpuAggregationJob(),                   // Every 5m - workload-level GPU aggregation
+		gpu_aggregation.NewLabelGpuAggregationJob(),                      // Every 5m - label/annotation-level GPU aggregation
+		gpu_aggregation_backfill.NewClusterGpuAggregationBackfillJob(),   // Every 5m - backfill missing cluster aggregation data
+		gpu_aggregation_backfill.NewNamespaceGpuAggregationBackfillJob(), // Every 5m - backfill missing namespace aggregation data
+		gpu_aggregation_backfill.NewLabelGpuAggregationBackfillJob(),     // Every 5m - backfill missing label aggregation data
+		workload_statistic.NewWorkloadStatisticJob(),                     // Every 30s - workload GPU utilization statistics
+		workload_stats_backfill.NewWorkloadStatsBackfillJob(),            // Every 10m - backfill missing workload hourly stats
 	}
 }
 
 // initManagementJobs initializes all management jobs
 func initManagementJobs(cfg *config.JobsConfig) []Job {
 	var jobs []Job
+
+	// Add TraceLens cleanup job - runs every 5 minutes to clean up expired sessions
+	jobs = append(jobs, tracelens_cleanup.NewTraceLensCleanupJob())
+	log.Info("TraceLens cleanup job registered")
 
 	// Add weekly report job if configured
 	if cfg != nil && cfg.WeeklyReport != nil && cfg.WeeklyReport.Enabled {

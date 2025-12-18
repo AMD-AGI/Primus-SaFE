@@ -20,6 +20,7 @@ type Image struct {
 	Source         string         `gorm:"column:source" json:"source"`
 	Status         string         `gorm:"column:status" json:"status"`
 	RelationDigest ExtType        `gorm:"column:relation_digest" json:"relation_digest"`
+	SecretID       string         `gorm:"column:secret_id" json:"secret_id"` // Optional secret ID for private image authentication
 	CreatedAt      time.Time      `gorm:"column:created_at" json:"created_at"`
 	CreatedBy      string         `gorm:"column:created_by" json:"created_by"`
 	UpdatedAt      time.Time      `gorm:"column:updated_at" json:"updated_at"`

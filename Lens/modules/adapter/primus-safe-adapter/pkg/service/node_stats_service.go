@@ -58,7 +58,7 @@ func (s *NodeStatsService) Run(ctx context.Context) error {
 	clustersFailed := 0
 
 	for _, clusterName := range clusterNames {
-		if clusterName == "default"{
+		if clusterName == "default" {
 			continue
 		}
 		log.Infof("Processing cluster: %s", clusterName)
@@ -139,7 +139,6 @@ func (s *NodeStatsService) saveNodeStatistic(ctx context.Context, cluster, nodeN
 		if err != nil {
 			return err
 		}
-		log.Debugf("Updated node statistic for node %s: gpu_utilization=%.2f", nodeName, gpuUtilization)
 	} else {
 		// Create new record
 		statistic := &safemodel.NodeStatistic{
@@ -153,7 +152,6 @@ func (s *NodeStatsService) saveNodeStatistic(ctx context.Context, cluster, nodeN
 		if err != nil {
 			return err
 		}
-		log.Debugf("Created node statistic for node %s: gpu_utilization=%.2f", nodeName, gpuUtilization)
 	}
 
 	return nil

@@ -134,6 +134,13 @@ if [[ "$sso_enable" == "true" ]]; then
   sed -i '/^sso:/,/^[a-z]/ s#secret: ".*"#secret: "'"$SSO_SECRET"'"#' "$values_yaml"
 fi
 
+# Configure proxy services if defined in .env
+if [[ -n "${proxy_services:-}" ]]; then
+  sed -i "/^proxy:/,/^[a-z_]*:/ { /^proxy:/! { /^[a-z_]*:/!d } }" "$values_yaml"
+  sed -i "/^proxy:/a\\
+  services: $proxy_services" "$values_yaml"
+fi
+
 chart_name="primus-safe"
 if helm -n "$NAMESPACE" list | grep -q "^$chart_name "; then
   kubectl replace -f $chart_name/crds/ -n "$NAMESPACE" || kubectl create -f $chart_name/crds/ -n "$NAMESPACE"

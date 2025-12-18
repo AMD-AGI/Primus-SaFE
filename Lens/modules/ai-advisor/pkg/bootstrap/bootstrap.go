@@ -107,8 +107,9 @@ func Bootstrap(ctx context.Context) error {
 			log.Info("Metadata collector initialized successfully")
 		}
 
-		// Initialize task scheduler
-		taskScheduler := coreTask.NewTaskScheduler(instanceID, coreTask.DefaultSchedulerConfig())
+		// Initialize task scheduler with default config (MaxConcurrentTasks=20)
+		schedulerConfig := coreTask.DefaultSchedulerConfig()
+		taskScheduler := coreTask.NewTaskScheduler(instanceID, schedulerConfig)
 
 		// Register metadata collection executor
 		metadataExecutor := advisorTask.NewMetadataCollectionExecutor(metadata.GetCollector())
@@ -124,6 +125,15 @@ func Bootstrap(ctx context.Context) error {
 			log.Errorf("Failed to register tensorboard stream executor: %v", err)
 		} else {
 			log.Info("TensorBoard stream executor registered")
+		}
+
+		// Initialize profiler services (includes ProfilerCollectionExecutor registration)
+		// Pass metadata collector for node-exporter client access
+		if err := InitProfilerServices(ctx, taskScheduler, metadata.GetCollector()); err != nil {
+			log.Errorf("Failed to initialize profiler services: %v", err)
+			// Don't block startup, but warn
+		} else {
+			log.Info("Profiler services initialized successfully")
 		}
 
 		// Start task scheduler

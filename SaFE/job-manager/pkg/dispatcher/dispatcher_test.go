@@ -320,6 +320,20 @@ func TestIsPriorityClassChanged(t *testing.T) {
 	assert.Equal(t, ok, true)
 }
 
+func TestIsCICDSecretChanged(t *testing.T) {
+	runnerSetData, err := jsonutils.ParseYamlToJson(jobutils.TestAutoscalingRunnerSetData)
+	assert.NilError(t, err)
+	adminWorkload := jobutils.TestWorkloadData.DeepCopy()
+	adminWorkload.Spec.Kind = common.CICDScaleRunnerSetKind
+	v1.SetAnnotation(adminWorkload, v1.GithubSecretIdAnnotation, "primus-safe-cicd")
+	ok := isGithubSecretChanged(adminWorkload, runnerSetData, nil)
+	assert.Equal(t, ok, false)
+
+	v1.SetAnnotation(adminWorkload, v1.GithubSecretIdAnnotation, "test-cicd")
+	ok = isGithubSecretChanged(adminWorkload, runnerSetData, nil)
+	assert.Equal(t, ok, true)
+}
+
 func TestIsShareMemoryChanged(t *testing.T) {
 	workloadObj, err := jsonutils.ParseYamlToJson(jobutils.TestDeploymentData)
 	assert.NilError(t, err)
@@ -851,4 +865,66 @@ func TestUpdateContainerEnv(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Test_updateCICDScaleSet tests the updateCICDScaleSet function
+func Test_updateCICDScaleSet(t *testing.T) {
+	// Create a test workload with CICD configuration
+	workspace := jobutils.TestWorkspaceData.DeepCopy()
+	workload := jobutils.TestWorkloadData.DeepCopy()
+	workload.Spec.Env[common.GithubConfigUrl] = "https://github.com/test/repo"
+	v1.SetAnnotation(workload, v1.GithubSecretIdAnnotation, "test-github-secret")
+	v1.SetAnnotation(workload, v1.AdminControlPlaneAnnotation, "10.0.0.1")
+	v1.SetAnnotation(workload, v1.MainContainerAnnotation, "runner")
+	workload.Spec.Workspace = workspace.Name
+
+	// Create a test resource template
+	rt := jobutils.TestCICDScaleSetTemplate.DeepCopy()
+
+	// Create an unstructured object with spec
+	obj := &unstructured.Unstructured{}
+	obj.Object = map[string]interface{}{
+		"apiVersion": "actions.github.com/v1alpha1",
+		"kind":       "AutoscalingRunnerSet",
+		"metadata": map[string]interface{}{
+			"name":      "test-runner",
+			"namespace": workspace.Name,
+		},
+		"spec": map[string]interface{}{
+			"template": map[string]interface{}{
+				"spec": map[string]interface{}{
+					"containers": []interface{}{
+						map[string]interface{}{
+							"name":  "runner",
+							"image": "test-image",
+							"env":   []interface{}{},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	// Call updateCICDScaleSet
+	err := updateCICDScaleSet(obj, workload, workspace, rt)
+	assert.NilError(t, err, "updateCICDScaleSet should succeed")
+
+	// Verify GitHub configuration was updated
+	specObject, found, err := unstructured.NestedMap(obj.Object, "spec")
+	assert.NilError(t, err)
+	assert.Equal(t, found, true, "spec should exist")
+
+	githubSecret, found := specObject["githubConfigSecret"]
+	assert.Equal(t, found, true, "githubConfigSecret should be set")
+	assert.Equal(t, githubSecret.(string), "test-github-secret")
+
+	githubUrl, found := specObject["githubConfigUrl"]
+	assert.Equal(t, found, true, "githubConfigUrl should be set")
+	assert.Equal(t, githubUrl.(string), "https://github.com/test/repo")
+
+	// Verify container env was updated
+	containers, found, err := unstructured.NestedSlice(obj.Object, "spec", "template", "spec", "containers")
+	assert.NilError(t, err)
+	assert.Equal(t, found, true, "containers should exist")
+	assert.Assert(t, len(containers) > 0, "should have at least one container")
 }

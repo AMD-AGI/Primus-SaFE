@@ -23,6 +23,40 @@ func setupTestManager(t *testing.T) (*FrameworkDetectionManager, *MockAiWorkload
 	return manager, mockMetadataFacade, mockWorkloadFacade
 }
 
+// buildV2DetectionMetadata builds a V2 format framework_detection for testing
+func buildV2DetectionMetadata(workloadUID, framework, taskType, status string, confidence float64, sources []map[string]interface{}) map[string]interface{} {
+	// Build dimensions in V2 format
+	dimensions := map[string]interface{}{
+		"wrapper_framework": []interface{}{
+			map[string]interface{}{
+				"value":       framework,
+				"confidence":  confidence,
+				"source":      "test",
+				"detected_at": time.Now().Format(time.RFC3339),
+			},
+		},
+		"behavior": []interface{}{
+			map[string]interface{}{
+				"value":       taskType,
+				"confidence":  confidence,
+				"source":      "test",
+				"detected_at": time.Now().Format(time.RFC3339),
+			},
+		},
+	}
+
+	return map[string]interface{}{
+		"version":      "2.0",
+		"workload_uid": workloadUID,
+		"updated_at":   time.Now().Format(time.RFC3339),
+		"dimensions":   dimensions,
+		"confidence":   confidence,
+		"status":       status,
+		"sources":      sources,
+		"conflicts":    map[string]interface{}{},
+	}
+}
+
 // TestScenario1_LogFirst_ThenComponent tests the scenario where log detection arrives first
 func TestScenario1_LogFirst_ThenComponent(t *testing.T) {
 	manager, mockMetadataFacade, mockWorkloadFacade := setupTestManager(t)
@@ -57,25 +91,23 @@ func TestScenario1_LogFirst_ThenComponent(t *testing.T) {
 	mockMetadataFacade.AssertExpectations(t)
 	mockWorkloadFacade.AssertExpectations(t)
 
-	// Setup for second report: return existing metadata
+	// Setup for second report: return existing metadata with V2 format
+	sources := []map[string]interface{}{
+		{
+			"source":      "log",
+			"frameworks":  []interface{}{"primus"},
+			"type":        "training",
+			"confidence":  0.7,
+			"detected_at": time.Now().Format(time.RFC3339),
+		},
+	}
 	existingMetadata := &model.AiWorkloadMetadata{
+		ID:          1, // Non-zero ID to trigger Update instead of Create
 		WorkloadUID: workloadUID,
 		Framework:   "primus",
 		Type:        "training",
 		Metadata: model.ExtType{
-			"framework_detection": map[string]interface{}{
-				"framework":  "primus",
-				"type":       "training",
-				"confidence": 0.7,
-				"status":     "confirmed",
-				"sources": []interface{}{
-					map[string]interface{}{
-						"source":     "log",
-						"framework":  "primus",
-						"confidence": 0.7,
-					},
-				},
-			},
+			"framework_detection": buildV2DetectionMetadata(workloadUID, "primus", "training", "confirmed", 0.7, sources),
 		},
 	}
 
@@ -90,9 +122,6 @@ func TestScenario1_LogFirst_ThenComponent(t *testing.T) {
 	mockMetadataFacade.On("GetAiWorkloadMetadata", ctx, workloadUID).
 		Return(existingMetadata, nil).Once()
 	// Second call: saveDetection (UpsertDetection)
-	mockMetadataFacade.On("GetAiWorkloadMetadata", ctx, workloadUID).
-		Return(existingMetadata, nil).Once()
-	// Third call: UpdateDetection (inside UpsertDetection)
 	mockMetadataFacade.On("GetAiWorkloadMetadata", ctx, workloadUID).
 		Return(existingMetadata, nil).Once()
 	mockMetadataFacade.On("UpdateAiWorkloadMetadata", ctx, mock.Anything).
@@ -137,25 +166,23 @@ func TestScenario2_ConflictResolution(t *testing.T) {
 		"log", "primus", "training", 0.8, nil)
 	require.NoError(t, err)
 
-	// Setup existing metadata with log detection
+	// Setup existing metadata with V2 format
+	sources := []map[string]interface{}{
+		{
+			"source":      "log",
+			"frameworks":  []interface{}{"primus"},
+			"type":        "training",
+			"confidence":  0.8,
+			"detected_at": time.Now().Format(time.RFC3339),
+		},
+	}
 	existingMetadata := &model.AiWorkloadMetadata{
+		ID:          2, // Non-zero ID to trigger Update instead of Create
 		WorkloadUID: workloadUID,
 		Framework:   "primus",
 		Type:        "training",
 		Metadata: model.ExtType{
-			"framework_detection": map[string]interface{}{
-				"framework":  "primus",
-				"type":       "training",
-				"confidence": 0.8,
-				"status":     "confirmed",
-				"sources": []interface{}{
-					map[string]interface{}{
-						"source":     "log",
-						"framework":  "primus",
-						"confidence": 0.8,
-					},
-				},
-			},
+			"framework_detection": buildV2DetectionMetadata(workloadUID, "primus", "training", "confirmed", 0.8, sources),
 		},
 	}
 
@@ -170,9 +197,6 @@ func TestScenario2_ConflictResolution(t *testing.T) {
 	mockMetadataFacade.On("GetAiWorkloadMetadata", ctx, workloadUID).
 		Return(existingMetadata, nil).Once()
 	// Second call: saveDetection (UpsertDetection)
-	mockMetadataFacade.On("GetAiWorkloadMetadata", ctx, workloadUID).
-		Return(existingMetadata, nil).Once()
-	// Third call: UpdateDetection (inside UpsertDetection)
 	mockMetadataFacade.On("GetAiWorkloadMetadata", ctx, workloadUID).
 		Return(existingMetadata, nil).Once()
 	mockMetadataFacade.On("UpdateAiWorkloadMetadata", ctx, mock.Anything).
@@ -217,25 +241,23 @@ func TestScenario3_ReuseWithVerification(t *testing.T) {
 		})
 	require.NoError(t, err)
 
-	// Setup existing metadata with reuse
+	// Setup existing metadata with V2 format
+	sources := []map[string]interface{}{
+		{
+			"source":      "reuse",
+			"frameworks":  []interface{}{"primus"},
+			"type":        "training",
+			"confidence":  0.85,
+			"detected_at": time.Now().Format(time.RFC3339),
+		},
+	}
 	existingMetadata := &model.AiWorkloadMetadata{
+		ID:          3, // Non-zero ID to trigger Update instead of Create
 		WorkloadUID: workloadUID,
 		Framework:   "primus",
 		Type:        "training",
 		Metadata: model.ExtType{
-			"framework_detection": map[string]interface{}{
-				"framework":  "primus",
-				"type":       "training",
-				"confidence": 0.85,
-				"status":     "reused",
-				"sources": []interface{}{
-					map[string]interface{}{
-						"source":     "reuse",
-						"framework":  "primus",
-						"confidence": 0.85,
-					},
-				},
-			},
+			"framework_detection": buildV2DetectionMetadata(workloadUID, "primus", "training", "reused", 0.85, sources),
 		},
 	}
 
@@ -250,9 +272,6 @@ func TestScenario3_ReuseWithVerification(t *testing.T) {
 	mockMetadataFacade.On("GetAiWorkloadMetadata", ctx, workloadUID).
 		Return(existingMetadata, nil).Once()
 	// Second call: saveDetection (UpsertDetection)
-	mockMetadataFacade.On("GetAiWorkloadMetadata", ctx, workloadUID).
-		Return(existingMetadata, nil).Once()
-	// Third call: UpdateDetection (inside UpsertDetection)
 	mockMetadataFacade.On("GetAiWorkloadMetadata", ctx, workloadUID).
 		Return(existingMetadata, nil).Once()
 	mockMetadataFacade.On("UpdateAiWorkloadMetadata", ctx, mock.Anything).
@@ -295,25 +314,23 @@ func TestScenario4_UserOverride(t *testing.T) {
 		"log", "deepspeed", "training", 0.7, nil)
 	require.NoError(t, err)
 
-	// Setup existing metadata with wrong detection
+	// Setup existing metadata with V2 format
+	sources := []map[string]interface{}{
+		{
+			"source":      "log",
+			"frameworks":  []interface{}{"deepspeed"},
+			"type":        "training",
+			"confidence":  0.7,
+			"detected_at": time.Now().Format(time.RFC3339),
+		},
+	}
 	existingMetadata := &model.AiWorkloadMetadata{
+		ID:          4, // Non-zero ID to trigger Update instead of Create
 		WorkloadUID: workloadUID,
 		Framework:   "deepspeed",
 		Type:        "training",
 		Metadata: model.ExtType{
-			"framework_detection": map[string]interface{}{
-				"framework":  "deepspeed",
-				"type":       "training",
-				"confidence": 0.7,
-				"status":     "confirmed",
-				"sources": []interface{}{
-					map[string]interface{}{
-						"source":     "log",
-						"framework":  "deepspeed",
-						"confidence": 0.7,
-					},
-				},
-			},
+			"framework_detection": buildV2DetectionMetadata(workloadUID, "deepspeed", "training", "confirmed", 0.7, sources),
 		},
 	}
 
@@ -328,9 +345,6 @@ func TestScenario4_UserOverride(t *testing.T) {
 	mockMetadataFacade.On("GetAiWorkloadMetadata", ctx, workloadUID).
 		Return(existingMetadata, nil).Once()
 	// Second call: saveDetection (UpsertDetection)
-	mockMetadataFacade.On("GetAiWorkloadMetadata", ctx, workloadUID).
-		Return(existingMetadata, nil).Once()
-	// Third call: UpdateDetection (inside UpsertDetection)
 	mockMetadataFacade.On("GetAiWorkloadMetadata", ctx, workloadUID).
 		Return(existingMetadata, nil).Once()
 	mockMetadataFacade.On("UpdateAiWorkloadMetadata", ctx, mock.Anything).

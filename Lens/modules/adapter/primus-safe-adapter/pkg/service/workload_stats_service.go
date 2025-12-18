@@ -49,7 +49,6 @@ func (s *WorkloadStatsService) Name() string {
 
 // Run executes the workload statistics collection task
 func (s *WorkloadStatsService) Run(ctx context.Context) error {
-	startTime := time.Now()
 	log.Info("Starting workload stats collection")
 
 	// Get currently running workloads
@@ -64,8 +63,6 @@ func (s *WorkloadStatsService) Run(ctx context.Context) error {
 		return nil
 	}
 
-	log.Infof("Found %d running workloads", len(workloads))
-
 	// Process statistics data for each workload
 	successCount := 0
 	failCount := 0
@@ -78,10 +75,6 @@ func (s *WorkloadStatsService) Run(ctx context.Context) error {
 			successCount++
 		}
 	}
-
-	duration := time.Since(startTime)
-	log.Infof("Workload stats collection completed: success=%d, failed=%d, duration=%v",
-		successCount, failCount, duration)
 
 	return nil
 }
@@ -137,8 +130,6 @@ func (s *WorkloadStatsService) processWorkloadStats(ctx context.Context, workloa
 	endTime := time.Now()
 	startTime := endTime.Add(-ThreeHours)
 
-	log.Infof("Getting hourly stats from cluster %s for workload %s/%s from %s to %s",
-		clusterID, workload.Spec.Workspace, workload.Name, startTime, endTime)
 	// Get data from the last 3 hours from workload_gpu_hourly_stats table
 	hourlyStats, err := lensFacade.GetGpuAggregation().ListWorkloadHourlyStatsByNamespace(
 		ctx,
@@ -161,8 +152,6 @@ func (s *WorkloadStatsService) processWorkloadStats(ctx context.Context, workloa
 	}
 
 	if len(workloadStats) == 0 {
-		log.Infof("No hourly stats found for workload %s/%s in cluster %s in the last 3 hours",
-			workload.Spec.Workspace, workload.Name, clusterID)
 		return nil
 	}
 
@@ -223,7 +212,6 @@ func (s *WorkloadStatsService) upsertWorkloadStatistic(ctx context.Context, stat
 	}
 
 	if existing != nil {
-		log.Infof("Updating existing workload statistic record: %+v", existing)
 		// Update existing record
 		statistic.ID = existing.ID
 		statistic.CreatedAt = existing.CreatedAt
@@ -233,6 +221,5 @@ func (s *WorkloadStatsService) upsertWorkloadStatistic(ctx context.Context, stat
 	}
 
 	// Create new record
-	log.Infof("Creating new workload statistic record: %+v", statistic)
 	return ws.WithContext(ctx).Create(statistic)
 }

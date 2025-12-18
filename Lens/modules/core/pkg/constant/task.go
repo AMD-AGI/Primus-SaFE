@@ -18,4 +18,5 @@ const (
 	TaskTypeMetricCollection   = "metric_collection"
 	TaskTypeLogCollection      = "log_collection"
 	TaskTypeCheckpointMonitor  = "checkpoint_monitor"
+	TaskTypeProfilerCollection = "profiler_collection"
 )

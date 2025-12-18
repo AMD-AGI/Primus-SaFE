@@ -414,3 +414,61 @@ func TestCreateRegistryRequestValidate(t *testing.T) {
 		})
 	}
 }
+
+// TestBuildAuthVolumes tests building volumes and volume mounts for auth config
+func TestBuildAuthVolumes(t *testing.T) {
+	tests := []struct {
+		name              string
+		authConfigMapName string
+		wantVolumeType    string // "Secret" or "ConfigMap"
+		wantVolumeName    string
+		wantMountPath     string
+	}{
+		{
+			name:              "empty ConfigMap name - should use system Secret",
+			authConfigMapName: "",
+			wantVolumeType:    "Secret",
+			wantVolumeName:    "registry-auth",
+			wantMountPath:     "/root/.docker",
+		},
+		{
+			name:              "with ConfigMap name - should use ConfigMap",
+			authConfigMapName: "imptimg-123-abc-auth",
+			wantVolumeType:    "ConfigMap",
+			wantVolumeName:    "registry-auth",
+			wantMountPath:     "/root/.docker",
+		},
+		{
+			name:              "different ConfigMap name",
+			authConfigMapName: "custom-auth-config",
+			wantVolumeType:    "ConfigMap",
+			wantVolumeName:    "registry-auth",
+			wantMountPath:     "/root/.docker",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			volumes, volumeMounts := buildAuthVolumes(tt.authConfigMapName)
+
+			// Verify volumes
+			assert.Len(t, volumes, 1, "should have exactly one volume")
+			assert.Equal(t, tt.wantVolumeName, volumes[0].Name)
+
+			if tt.wantVolumeType == "Secret" {
+				assert.NotNil(t, volumes[0].VolumeSource.Secret, "volume should be Secret type")
+				assert.Nil(t, volumes[0].VolumeSource.ConfigMap, "volume should not be ConfigMap type")
+			} else {
+				assert.NotNil(t, volumes[0].VolumeSource.ConfigMap, "volume should be ConfigMap type")
+				assert.Nil(t, volumes[0].VolumeSource.Secret, "volume should not be Secret type")
+				assert.Equal(t, tt.authConfigMapName, volumes[0].VolumeSource.ConfigMap.Name)
+			}
+
+			// Verify volume mounts
+			assert.Len(t, volumeMounts, 1, "should have exactly one volume mount")
+			assert.Equal(t, tt.wantVolumeName, volumeMounts[0].Name)
+			assert.Equal(t, tt.wantMountPath, volumeMounts[0].MountPath)
+			assert.True(t, volumeMounts[0].ReadOnly, "volume mount should be read-only")
+		})
+	}
+}

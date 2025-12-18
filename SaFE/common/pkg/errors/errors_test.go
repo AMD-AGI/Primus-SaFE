@@ -220,4 +220,3 @@ func TestError_EmptyCodeAndMessage(t *testing.T) {
 	assert.Contains(t, result, "code .")
 	assert.Contains(t, result, "message ")
 }
-

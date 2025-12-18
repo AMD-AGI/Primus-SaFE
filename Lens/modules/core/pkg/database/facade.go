@@ -44,6 +44,10 @@ type FacadeInterface interface {
 	GetDetectionConflictLog() DetectionConflictLogFacadeInterface
 	// GetGpuUsageWeeklyReport returns the GpuUsageWeeklyReport Facade interface
 	GetGpuUsageWeeklyReport() GpuUsageWeeklyReportFacadeInterface
+	// GetNodeNamespaceMapping returns the NodeNamespaceMapping Facade interface
+	GetNodeNamespaceMapping() NodeNamespaceMappingFacadeInterface
+	// GetTraceLensSession returns the TraceLensSession Facade interface
+	GetTraceLensSession() TraceLensSessionFacadeInterface
 	// WithCluster returns a new Facade instance using the specified cluster
 	WithCluster(clusterName string) FacadeInterface
 }
@@ -71,6 +75,8 @@ type Facade struct {
 	DetectionConflictLog DetectionConflictLogFacadeInterface
 	WorkloadStatistic    WorkloadStatisticFacadeInterface
 	GpuUsageWeeklyReport GpuUsageWeeklyReportFacadeInterface
+	NodeNamespaceMapping NodeNamespaceMappingFacadeInterface
+	TraceLensSession     TraceLensSessionFacadeInterface
 }
 
 // NewFacade creates a new Facade instance
@@ -97,6 +103,8 @@ func NewFacade() *Facade {
 		DetectionConflictLog: NewDetectionConflictLogFacade(),
 		WorkloadStatistic:    NewWorkloadStatisticFacade(),
 		GpuUsageWeeklyReport: NewGpuUsageWeeklyReportFacade(),
+		NodeNamespaceMapping: NewNodeNamespaceMappingFacade(),
+		TraceLensSession:     NewTraceLensSessionFacade(),
 	}
 }
 
@@ -205,6 +213,16 @@ func (f *Facade) GetGpuUsageWeeklyReport() GpuUsageWeeklyReportFacadeInterface {
 	return f.GpuUsageWeeklyReport
 }
 
+// GetNodeNamespaceMapping returns the NodeNamespaceMapping Facade interface
+func (f *Facade) GetNodeNamespaceMapping() NodeNamespaceMappingFacadeInterface {
+	return f.NodeNamespaceMapping
+}
+
+// GetTraceLensSession returns the TraceLensSession Facade interface
+func (f *Facade) GetTraceLensSession() TraceLensSessionFacadeInterface {
+	return f.TraceLensSession
+}
+
 // WithCluster returns a new Facade instance, all sub-Facades use the specified cluster
 func (f *Facade) WithCluster(clusterName string) FacadeInterface {
 	return &Facade{
@@ -229,6 +247,8 @@ func (f *Facade) WithCluster(clusterName string) FacadeInterface {
 		DetectionConflictLog: f.DetectionConflictLog.WithCluster(clusterName),
 		WorkloadStatistic:    f.WorkloadStatistic.WithCluster(clusterName),
 		GpuUsageWeeklyReport: f.GpuUsageWeeklyReport.WithCluster(clusterName),
+		NodeNamespaceMapping: f.NodeNamespaceMapping.WithCluster(clusterName),
+		TraceLensSession:     f.TraceLensSession.WithCluster(clusterName),
 	}
 }
 

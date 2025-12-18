@@ -85,6 +85,12 @@ data:
       {{- range .Values.components }}
       - {{ . }}
       {{- end }}
+    {{- if .Values.proxy }}
+    proxy:
+      # Proxy services configuration for reverse proxying to backend services
+      services:
+        {{- toYaml .Values.proxy.services | nindent 8 }}
+    {{- end }}
 kind: ConfigMap
 metadata:
   name: {{ .Release.Name }}-apiserver
