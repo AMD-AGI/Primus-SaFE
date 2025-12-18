@@ -95,13 +95,39 @@ func TestDatabaseStorageBackend_Store_SmallFile(t *testing.T) {
 		FileType:    "chrome_trace",
 		Content:     testContent,
 		Compressed:  false,
+		Metadata: map[string]string{
+			"pod_uid":       "pod-123",
+			"pod_name":      "test-pod",
+			"pod_namespace": "default",
+			"file_path":     "/tmp/trace.json",
+			"confidence":    "0.9",
+		},
 	}
 
 	// Mock transaction
 	mock.ExpectBegin()
+
+	// Step 1: Mock INSERT INTO profiler_files with RETURNING
+	mock.ExpectQuery(`INSERT INTO profiler_files`).
+		WithArgs(
+			"workload-1",          // workload_uid
+			"pod-123",             // pod_uid
+			"test-pod",            // pod_name
+			"default",             // pod_namespace
+			"test.json",           // file_name
+			"/tmp/trace.json",     // file_path
+			"chrome_trace",        // file_type
+			int64(len(testContent)), // file_size
+			"0.9",                 // confidence (string)
+			"{}",                  // metadata
+		).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
+
+	// Step 2: Mock INSERT INTO profiler_file_content
 	mock.ExpectExec(`INSERT INTO profiler_file_content`).
-		WithArgs("test-file-1", testContent, "none", 0, 1, len(testContent), sqlmock.AnyArg()).
+		WithArgs(int64(1), testContent, "none", 0, 1, len(testContent), sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(1, 1))
+
 	mock.ExpectCommit()
 
 	resp, err := backend.Store(context.Background(), req)
@@ -126,7 +152,7 @@ func TestDatabaseStorageBackend_Store_WithCompression(t *testing.T) {
 
 	backend, _ := NewDatabaseStorageBackend(db, config)
 
-	testContent := []byte(string(make([]byte, 1000))) // Compressible content
+	testContent := []byte(strings.Repeat("a", 1000)) // Compressible content
 	req := &StoreRequest{
 		FileID:      "test-file-2",
 		WorkloadUID: "workload-1",
@@ -134,13 +160,39 @@ func TestDatabaseStorageBackend_Store_WithCompression(t *testing.T) {
 		FileType:    "chrome_trace",
 		Content:     testContent,
 		Compressed:  false,
+		Metadata: map[string]string{
+			"pod_uid":       "pod-123",
+			"pod_name":      "test-pod",
+			"pod_namespace": "default",
+			"file_path":     "/tmp/trace.json",
+			"confidence":    "0.9",
+		},
 	}
 
 	// Mock transaction
 	mock.ExpectBegin()
+
+	// Step 1: Mock INSERT INTO profiler_files
+	mock.ExpectQuery(`INSERT INTO profiler_files`).
+		WithArgs(
+			"workload-1",
+			"pod-123",
+			"test-pod",
+			"default",
+			"test.json",
+			"/tmp/trace.json",
+			"chrome_trace",
+			int64(len(testContent)),
+			"0.9",
+			"{}",
+		).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(2))
+
+	// Step 2: Mock INSERT INTO profiler_file_content (compressed)
 	mock.ExpectExec(`INSERT INTO profiler_file_content`).
-		WithArgs("test-file-2", sqlmock.AnyArg(), "gzip", 0, 1, sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WithArgs(int64(2), sqlmock.AnyArg(), "gzip", 0, 1, sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(1, 1))
+
 	mock.ExpectCommit()
 
 	resp, err := backend.Store(context.Background(), req)
@@ -190,17 +242,41 @@ func TestDatabaseStorageBackend_Store_ChunkedFile(t *testing.T) {
 
 	testContent := make([]byte, 250) // Will be split into 3 chunks (100, 100, 50)
 	req := &StoreRequest{
-		FileID:  "chunked-file",
-		Content: testContent,
+		FileID:      "chunked-file",
+		WorkloadUID: "workload-1",
+		Content:     testContent,
+		Metadata: map[string]string{
+			"pod_uid":       "pod-123",
+			"pod_name":      "test-pod",
+			"pod_namespace": "default",
+			"file_path":     "/tmp/trace.json",
+			"confidence":    "0.9",
+		},
 	}
 
 	// Mock transaction
 	mock.ExpectBegin()
 
-	// Expect 3 INSERT statements for 3 chunks
+	// Step 1: Mock INSERT INTO profiler_files
+	mock.ExpectQuery(`INSERT INTO profiler_files`).
+		WithArgs(
+			"workload-1",
+			"pod-123",
+			"test-pod",
+			"default",
+			sqlmock.AnyArg(), // file_name
+			"/tmp/trace.json",
+			sqlmock.AnyArg(), // file_type
+			int64(len(testContent)),
+			"0.9",
+			"{}",
+		).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(3))
+
+	// Step 2: Expect 3 INSERT statements for 3 chunks
 	for i := 0; i < 3; i++ {
 		mock.ExpectExec(`INSERT INTO profiler_file_content`).
-			WithArgs("chunked-file", sqlmock.AnyArg(), "none", i, 3, sqlmock.AnyArg(), sqlmock.AnyArg()).
+			WithArgs(int64(3), sqlmock.AnyArg(), "none", i, 3, sqlmock.AnyArg(), sqlmock.AnyArg()).
 			WillReturnResult(sqlmock.NewResult(int64(i+1), 1))
 	}
 
@@ -226,21 +302,21 @@ func TestDatabaseStorageBackend_Retrieve_SingleChunk(t *testing.T) {
 
 	testContent := []byte("test content")
 
-	// Mock count query
+	// Mock count query (use integer profiler_file_id)
 	mock.ExpectQuery(`SELECT COUNT\(\*\), content_encoding FROM profiler_file_content`).
-		WithArgs("test-file-1").
+		WithArgs(int64(123)).
 		WillReturnRows(sqlmock.NewRows([]string{"count", "content_encoding"}).
 			AddRow(1, "none"))
 
 	// Mock single chunk retrieval
 	mock.ExpectQuery(`SELECT content FROM profiler_file_content WHERE profiler_file_id`).
-		WithArgs("test-file-1").
+		WithArgs(int64(123)).
 		WillReturnRows(sqlmock.NewRows([]string{"content"}).
 			AddRow(testContent))
 
 	req := &RetrieveRequest{
-		FileID:      "test-file-1",
-		StoragePath: "test-file-1",
+		FileID:      "123",
+		StoragePath: "123", // Integer as string
 	}
 
 	resp, err := backend.Retrieve(context.Background(), req)
@@ -269,21 +345,21 @@ func TestDatabaseStorageBackend_Retrieve_MultipleChunks(t *testing.T) {
 
 	// Mock count query
 	mock.ExpectQuery(`SELECT COUNT\(\*\), content_encoding FROM profiler_file_content`).
-		WithArgs("chunked-file").
+		WithArgs(int64(456)).
 		WillReturnRows(sqlmock.NewRows([]string{"count", "content_encoding"}).
 			AddRow(3, "none"))
 
 	// Mock sequential chunk retrieval (3 chunks)
 	mock.ExpectQuery(`SELECT content, chunk_index FROM profiler_file_content`).
-		WithArgs("chunked-file").
+		WithArgs(int64(456)).
 		WillReturnRows(sqlmock.NewRows([]string{"content", "chunk_index"}).
 			AddRow(chunk1, 0).
 			AddRow(chunk2, 1).
 			AddRow(chunk3, 2))
 
 	req := &RetrieveRequest{
-		FileID:      "chunked-file",
-		StoragePath: "chunked-file",
+		FileID:      "456",
+		StoragePath: "456",
 	}
 
 	resp, err := backend.Retrieve(context.Background(), req)
@@ -318,19 +394,19 @@ func TestDatabaseStorageBackend_Retrieve_WithDecompression(t *testing.T) {
 
 	// Mock count query
 	mock.ExpectQuery(`SELECT COUNT\(\*\), content_encoding FROM profiler_file_content`).
-		WithArgs("compressed-file").
+		WithArgs(int64(789)).
 		WillReturnRows(sqlmock.NewRows([]string{"count", "content_encoding"}).
 			AddRow(1, "gzip"))
 
 	// Mock retrieval
 	mock.ExpectQuery(`SELECT content FROM profiler_file_content WHERE profiler_file_id`).
-		WithArgs("compressed-file").
+		WithArgs(int64(789)).
 		WillReturnRows(sqlmock.NewRows([]string{"content"}).
 			AddRow(compressedContent))
 
 	req := &RetrieveRequest{
-		FileID:      "compressed-file",
-		StoragePath: "compressed-file",
+		FileID:      "789",
+		StoragePath: "789",
 	}
 
 	resp, err := backend.Retrieve(context.Background(), req)
@@ -349,11 +425,17 @@ func TestDatabaseStorageBackend_Delete(t *testing.T) {
 	config := &DatabaseConfig{}
 	backend, _ := NewDatabaseStorageBackend(db, config)
 
+	// Delete chunks first
 	mock.ExpectExec(`DELETE FROM profiler_file_content WHERE profiler_file_id`).
-		WithArgs("test-file-1").
+		WithArgs(int64(100)).
 		WillReturnResult(sqlmock.NewResult(0, 3)) // 3 chunks deleted
 
-	err := backend.Delete(context.Background(), "test-file-1")
+	// Then delete file metadata
+	mock.ExpectExec(`DELETE FROM profiler_files WHERE id`).
+		WithArgs(int64(100)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	err := backend.Delete(context.Background(), "100")
 
 	require.NoError(t, err)
 	assert.NoError(t, mock.ExpectationsWereMet())
@@ -367,10 +449,10 @@ func TestDatabaseStorageBackend_Exists_True(t *testing.T) {
 	backend, _ := NewDatabaseStorageBackend(db, config)
 
 	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM profiler_file_content WHERE profiler_file_id`).
-		WithArgs("test-file-1").
+		WithArgs(int64(200)).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 
-	exists, err := backend.Exists(context.Background(), "test-file-1")
+	exists, err := backend.Exists(context.Background(), "200")
 
 	require.NoError(t, err)
 	assert.True(t, exists)
@@ -385,13 +467,31 @@ func TestDatabaseStorageBackend_Exists_False(t *testing.T) {
 	backend, _ := NewDatabaseStorageBackend(db, config)
 
 	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM profiler_file_content WHERE profiler_file_id`).
-		WithArgs("non-existent").
+		WithArgs(int64(999)).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 
-	exists, err := backend.Exists(context.Background(), "non-existent")
+	exists, err := backend.Exists(context.Background(), "999")
 
 	require.NoError(t, err)
 	assert.False(t, exists)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestDatabaseStorageBackend_ExistsByWorkloadAndFilename(t *testing.T) {
+	db, mock := setupMockDB(t)
+	defer db.Close()
+
+	config := &DatabaseConfig{}
+	backend, _ := NewDatabaseStorageBackend(db, config)
+
+	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM profiler_files WHERE workload_uid`).
+		WithArgs("workload-123", "trace.json").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	exists, err := backend.ExistsByWorkloadAndFilename(context.Background(), "workload-123", "trace.json")
+
+	require.NoError(t, err)
+	assert.True(t, exists)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
