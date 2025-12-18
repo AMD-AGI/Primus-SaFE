@@ -15,6 +15,10 @@ fi
 
 LOG_FILE="/tmp/all_reduce_perf.log"
 export LD_LIBRARY_PATH="/opt/rocm/lib:/opt/mpich/lib:/usr/local/lib:$LD_LIBRARY_PATH"
+
+# Use AMD ANP plugin for RCCL communication over AINIC devices
+export NCCL_NET_PLUGIN=anp
+export LD_LIBRARY_PATH="/opt/amd-anp:$LD_LIBRARY_PATH"
 $DIR_NAME/build/all_reduce_perf -b 8 -e 8G -f 2 -g 8 >$LOG_FILE
 EXIT_CODE=$?
 if [ $EXIT_CODE -ne 0 ]; then

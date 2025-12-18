@@ -5,18 +5,7 @@
 
 set -e
 
-echo "============== begin to install AMD AINIC Network Plugin (amd-anp) ${ANP_VERSION} =============="
-
-# Set ANP version based on ROCM_VERSION
-if [ "$ROCM_VERSION" = "7.0.3" ]; then
-  ANP_VERSION="v1.1.0-5"
-elif [ "$ROCM_VERSION" = "7.1" ]; then
-  ANP_VERSION="v1.3.0"
-else
-  echo "Error: Unsupported ROCM_VERSION '$ROCM_VERSION'. Only 7.0.3 and 7.1 are supported."
-  exit 1
-fi
-
+ANP_VERSION="v1.1.0-5"
 ANP_REPO="https://github.com/rocm/amd-anp.git"
 ANP_DIR="amd-anp"
 WORKDIR="/opt"
@@ -47,10 +36,6 @@ if [ $? -ne 0 ]; then
   echo "Error: Failed to modify Makefile"
   exit 1
 fi
-
-# Fix libibverbs compatibility: replace active_speed_ex with active_speed
-echo "Fixing libibverbs compatibility in net_ib.cc..."
-sed -i 's/active_speed_ex/active_speed/g' ./src/net_ib.cc
 
 # Build
 echo "Building AMD ANP driver..."
