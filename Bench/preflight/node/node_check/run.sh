@@ -1,10 +1,11 @@
 #
-# Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
+# Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
 # See LICENSE for license information.
 #
 
 set -o pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")" || exit 1
+export ENABLE_ANP=${ENABLE_ANP:-"false"}
 
 errors=""
 for script in *.sh; do

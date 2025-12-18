@@ -56,6 +56,7 @@ export NCCL_NET_GDR_LEVEL="${NCCL_NET_GDR_LEVEL:-2}"
 export NCCL_CHECKS_DISABLE="${NCCL_CHECKS_DISABLE:-1}"
 export NCCL_DEBUG="${NCCL_DEBUG:-VERSION}"
 export RCCL_MSCCL_ENABLE="${RCCL_MSCCL_ENABLE:-0}"
+export ENABLE_ANP="${ENABLE_ANP:-false}"
 
 # ==============================================================================
 # Torch/CUDA Configuration
