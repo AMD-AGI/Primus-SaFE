@@ -140,6 +140,11 @@ func (m *WorkloadMockPodFacade) GetPodResourceByUid(ctx context.Context, uid str
 func (m *WorkloadMockPodFacade) CreatePodResource(ctx context.Context, podResource *dbmodel.PodResource) error { return nil }
 func (m *WorkloadMockPodFacade) UpdatePodResource(ctx context.Context, podResource *dbmodel.PodResource) error { return nil }
 func (m *WorkloadMockPodFacade) ListPodResourcesByUids(ctx context.Context, uids []string) ([]*dbmodel.PodResource, error) { return nil, nil }
+func (m *WorkloadMockPodFacade) QueryPodsWithFilters(ctx context.Context, namespace, podName, startTime, endTime string, page, pageSize int) ([]*dbmodel.GpuPods, int64, error) { return nil, 0, nil }
+func (m *WorkloadMockPodFacade) GetAverageGPUUtilizationByNode(ctx context.Context, nodeName string) (float64, error) { return 0.0, nil }
+func (m *WorkloadMockPodFacade) GetLatestGPUMetricsByNode(ctx context.Context, nodeName string) (*dbmodel.GpuDevice, error) { return nil, nil }
+func (m *WorkloadMockPodFacade) QueryGPUHistoryByNode(ctx context.Context, nodeName string, startTime, endTime time.Time) ([]*dbmodel.GpuDevice, error) { return nil, nil }
+func (m *WorkloadMockPodFacade) ListPodEventsByUID(ctx context.Context, podUID string) ([]*dbmodel.GpuPodsEvent, error) { return nil, nil }
 
 // WorkloadMockGpuAggregationFacade implements database.GpuAggregationFacadeInterface for testing
 type WorkloadMockGpuAggregationFacade struct {

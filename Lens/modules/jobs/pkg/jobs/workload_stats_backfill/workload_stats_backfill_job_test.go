@@ -226,6 +226,21 @@ func (m *MockPodFacade) UpdatePodResource(ctx context.Context, podResource *dbmo
 func (m *MockPodFacade) ListPodResourcesByUids(ctx context.Context, uids []string) ([]*dbmodel.PodResource, error) {
 	return nil, nil
 }
+func (m *MockPodFacade) QueryPodsWithFilters(ctx context.Context, namespace, podName, startTime, endTime string, page, pageSize int) ([]*dbmodel.GpuPods, int64, error) {
+	return nil, 0, nil
+}
+func (m *MockPodFacade) GetAverageGPUUtilizationByNode(ctx context.Context, nodeName string) (float64, error) {
+	return 0.0, nil
+}
+func (m *MockPodFacade) GetLatestGPUMetricsByNode(ctx context.Context, nodeName string) (*dbmodel.GpuDevice, error) {
+	return nil, nil
+}
+func (m *MockPodFacade) QueryGPUHistoryByNode(ctx context.Context, nodeName string, startTime, endTime time.Time) ([]*dbmodel.GpuDevice, error) {
+	return nil, nil
+}
+func (m *MockPodFacade) ListPodEventsByUID(ctx context.Context, podUID string) ([]*dbmodel.GpuPodsEvent, error) {
+	return nil, nil
+}
 
 // MockGpuAggregationFacade implements database.GpuAggregationFacadeInterface for testing
 type MockGpuAggregationFacade struct {
