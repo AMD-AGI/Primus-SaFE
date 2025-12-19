@@ -2,6 +2,7 @@ package exporter
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"time"
 
@@ -237,12 +238,22 @@ func (e *Exporter) updatePrometheusMetrics(metrics []model.EnrichedTrafficMetric
 		labels := e.buildLabels(metric)
 
 		switch metric.Name {
+		// Istio format
 		case "istio_requests_total":
 			e.requestsTotal.WithLabelValues(labels...).Add(metric.Value)
 		case "istio_request_bytes_total":
 			e.requestBytes.WithLabelValues(labels...).Add(metric.Value)
 		case "istio_response_bytes_total":
 			e.responseBytes.WithLabelValues(labels...).Add(metric.Value)
+		// Envoy native format - count all envoy_cluster_upstream_rq variants as requests
+		case "envoy_cluster_upstream_rq":
+			e.requestsTotal.WithLabelValues(labels...).Add(metric.Value)
+		default:
+			// Handle envoy_cluster_upstream_rq_* patterns (e.g., envoy_cluster_upstream_rq_200)
+			if strings.HasPrefix(metric.Name, "envoy_cluster_upstream_rq_") ||
+				strings.HasPrefix(metric.Name, "envoy_http_downstream_rq_") {
+				e.requestsTotal.WithLabelValues(labels...).Add(metric.Value)
+			}
 		}
 	}
 }
