@@ -132,8 +132,8 @@ func getRealtimeStatus(c *gin.Context) {
 
 	var response RealtimeStatusResponse
 	err = cacheFacade.Get(c.Request.Context(), cacheKey, &response)
-	if err == nil {
-		// Cache hit - apply include filters
+	if err == nil && response.Cluster != "" && !response.Timestamp.IsZero() {
+		// Cache hit with valid data - apply include filters
 		response = filterRealtimeResponse(response, includeMap)
 		c.JSON(http.StatusOK, rest.SuccessResp(c, response))
 		return
@@ -365,8 +365,8 @@ func getRunningTasks(c *gin.Context) {
 
 	var response RunningTasksResponse
 	err = cacheFacade.Get(c.Request.Context(), cacheKey, &response)
-	if err == nil {
-		// Cache hit
+	if err == nil && response.Cluster != "" && !response.Timestamp.IsZero() {
+		// Cache hit with valid data
 		c.JSON(http.StatusOK, rest.SuccessResp(c, response))
 		return
 	}

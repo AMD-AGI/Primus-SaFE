@@ -350,9 +350,9 @@ func generateFragmentationRecommendations(nodeFrags []NodeFragmentation) []strin
 	return recommendations
 }
 
-// getNodeFragmentation - GET /api/v1/nodes/:node_name/fragmentation
+// getNodeFragmentation - GET /api/v1/nodes/:name/fragmentation
 func getNodeFragmentation(c *gin.Context) {
-	nodeName := c.Param("node_name")
+	nodeName := c.Param("name")
 	if nodeName == "" {
 		_ = c.Error(coreErrors.NewError().WithCode(coreErrors.RequestParameterInvalid).WithMessage("node_name is required"))
 		return

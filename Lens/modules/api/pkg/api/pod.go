@@ -85,8 +85,9 @@ type PodGPUMetrics struct {
 
 // PodGPUHistoryParams - Query parameters for /api/v1/pods/:pod_uid/gpu-history
 type PodGPUHistoryParams struct {
-	StartTime   string `form:"start_time" binding:"required"`
-	EndTime     string `form:"end_time" binding:"required"`
+	StartTime   string `form:"start_time"`
+	EndTime     string `form:"end_time"`
+	Hours       int    `form:"hours"` // Alternative: specify hours back from now
 	Granularity string `form:"granularity" binding:"omitempty,oneof=minute hourly daily"`
 }
 
@@ -373,15 +374,29 @@ func getPodGPUHistory(c *gin.Context) {
 	}
 
 	// Parse time range
-	startTime, err := time.Parse(time.RFC3339, params.StartTime)
-	if err != nil {
-		_ = c.Error(coreErrors.NewError().WithCode(coreErrors.RequestParameterInvalid).WithMessage("Invalid start_time format"))
-		return
-	}
+	var startTime, endTime time.Time
 
-	endTime, err := time.Parse(time.RFC3339, params.EndTime)
-	if err != nil {
-		_ = c.Error(coreErrors.NewError().WithCode(coreErrors.RequestParameterInvalid).WithMessage("Invalid end_time format"))
+	// Support two modes: hours or start_time/end_time
+	if params.Hours > 0 {
+		// Use hours parameter
+		endTime = time.Now()
+		startTime = endTime.Add(-time.Duration(params.Hours) * time.Hour)
+	} else if params.StartTime != "" && params.EndTime != "" {
+		// Use explicit start_time and end_time
+		var parseErr error
+		startTime, parseErr = time.Parse(time.RFC3339, params.StartTime)
+		if parseErr != nil {
+			_ = c.Error(coreErrors.NewError().WithCode(coreErrors.RequestParameterInvalid).WithMessage("Invalid start_time format. Use RFC3339 format"))
+			return
+		}
+
+		endTime, parseErr = time.Parse(time.RFC3339, params.EndTime)
+		if parseErr != nil {
+			_ = c.Error(coreErrors.NewError().WithCode(coreErrors.RequestParameterInvalid).WithMessage("Invalid end_time format. Use RFC3339 format"))
+			return
+		}
+	} else {
+		_ = c.Error(coreErrors.NewError().WithCode(coreErrors.RequestParameterInvalid).WithMessage("Either 'hours' or both 'start_time' and 'end_time' are required"))
 		return
 	}
 
