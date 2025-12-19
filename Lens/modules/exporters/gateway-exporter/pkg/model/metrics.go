@@ -66,6 +66,7 @@ type WorkloadInfo struct {
 	PodIP            string
 	NodeName         string
 	WorkloadID       string // primus-safe workload id
+	WorkloadUID      string // primus-safe workload uid (from workload_pod_reference)
 	WorkloadOwner    string // workload owner
 	WorkloadType     string // deployment, statefulset, etc.
 }

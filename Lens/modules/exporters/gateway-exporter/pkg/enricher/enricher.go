@@ -43,6 +43,7 @@ type CachedPodInfo struct {
 	Namespace     string
 	Labels        map[string]string
 	WorkloadID    string
+	WorkloadUID   string
 	WorkloadOwner string
 	WorkloadType  string
 }
@@ -64,6 +65,18 @@ func (e *Enricher) RefreshCache(ctx context.Context) error {
 	servicePodRefs, err := database.GetFacade().GetK8sService().GetAllServicePodReferences(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get service-pod references: %w", err)
+	}
+
+	// Build pod_uid -> workload_uid mapping from workload_pod_reference table
+	podUIDToWorkloadUID := make(map[string]string)
+	workloadPodRefs, err := database.GetFacade().GetWorkload().GetAllWorkloadPodReferences(ctx)
+	if err != nil {
+		log.Warnf("Failed to get workload-pod references for workload_uid mapping: %v", err)
+		// Continue without workload_uid mapping
+	} else {
+		for _, wpr := range workloadPodRefs {
+			podUIDToWorkloadUID[wpr.PodUID] = wpr.WorkloadUID
+		}
 	}
 
 	// Build new cache
@@ -100,6 +113,7 @@ func (e *Enricher) RefreshCache(ctx context.Context) error {
 			Namespace:    ref.ServiceNamespace,
 			Labels:       labels,
 			WorkloadID:   ref.WorkloadID,
+			WorkloadUID:  podUIDToWorkloadUID[ref.PodUID], // Get workload_uid from mapping
 			WorkloadType: ref.WorkloadType,
 		}
 
@@ -189,6 +203,7 @@ func (e *Enricher) resolveWorkloadFromCache(serviceName, namespace string) *mode
 		PodIP:            pod.PodIP,
 		NodeName:         pod.NodeName,
 		WorkloadID:       pod.WorkloadID,
+		WorkloadUID:      pod.WorkloadUID,
 		WorkloadOwner:    pod.WorkloadOwner,
 		WorkloadType:     pod.WorkloadType,
 	}

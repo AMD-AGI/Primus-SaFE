@@ -37,6 +37,7 @@ var MetricLabels = []string{
 	"pod_name",
 	"node_name",
 	"workload_id",
+	"workload_uid",
 	"workload_owner",
 
 	// Primus Lens standard labels
@@ -280,7 +281,8 @@ func (e *Exporter) buildLabels(metric model.EnrichedTrafficMetric) []string {
 		labels[8] = metric.WorkloadInfo.PodName
 		labels[9] = metric.WorkloadInfo.NodeName
 		labels[10] = metric.WorkloadInfo.WorkloadID
-		labels[11] = metric.WorkloadInfo.WorkloadOwner
+		labels[11] = metric.WorkloadInfo.WorkloadUID
+		labels[12] = metric.WorkloadInfo.WorkloadOwner
 	}
 
 	return labels
