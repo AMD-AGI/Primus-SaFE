@@ -97,10 +97,10 @@ func TestCalculatePartialAllocationPenalty(t *testing.T) {
 
 func TestBuildAllocationPattern(t *testing.T) {
 	tests := []struct {
-		name      string
-		pods      []*dbModel.GpuPods
-		totalGPUs int32
-		wantFully int
+		name        string
+		pods        []*dbModel.GpuPods
+		totalGPUs   int32
+		wantFully   int
 		wantPartial int
 	}{
 		{
@@ -198,4 +198,3 @@ func TestCalculateLoadBalanceScore(t *testing.T) {
 		})
 	}
 }
-

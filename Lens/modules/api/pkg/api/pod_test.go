@@ -63,4 +63,3 @@ func TestPodStatsQueryParamsDefaults(t *testing.T) {
 		t.Errorf("Expected cluster to be test-cluster, got %s", params.Cluster)
 	}
 }
-

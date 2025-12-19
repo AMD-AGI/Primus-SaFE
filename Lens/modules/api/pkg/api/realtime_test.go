@@ -146,4 +146,3 @@ func TestGPUUsageSummaryCalculation(t *testing.T) {
 		})
 	}
 }
-
