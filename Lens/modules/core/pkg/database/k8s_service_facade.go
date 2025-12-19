@@ -29,6 +29,7 @@ type K8sServiceFacadeInterface interface {
 	GetPodsByServiceUID(ctx context.Context, serviceUID string) ([]*model.ServicePodReference, error)
 	GetServicesByPodUID(ctx context.Context, podUID string) ([]*model.ServicePodReference, error)
 	GetServicePodRefsByWorkloadID(ctx context.Context, workloadID string) ([]*model.ServicePodReference, error)
+	GetAllServicePodReferences(ctx context.Context) ([]*model.ServicePodReference, error)
 
 	// WithCluster method
 	WithCluster(clusterName string) K8sServiceFacadeInterface
@@ -198,6 +199,13 @@ func (f *K8sServiceFacade) GetServicePodRefsByWorkloadID(ctx context.Context, wo
 	err := f.getDB().WithContext(ctx).
 		Where("workload_id = ?", workloadID).
 		Find(&refs).Error
+	return refs, err
+}
+
+// GetAllServicePodReferences retrieves all service-pod references for cache building
+func (f *K8sServiceFacade) GetAllServicePodReferences(ctx context.Context) ([]*model.ServicePodReference, error) {
+	var refs []*model.ServicePodReference
+	err := f.getDB().WithContext(ctx).Find(&refs).Error
 	return refs, err
 }
 

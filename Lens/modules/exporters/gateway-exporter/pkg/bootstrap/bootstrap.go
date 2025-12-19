@@ -9,6 +9,7 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/server"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/gateway-exporter/pkg/collector"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/gateway-exporter/pkg/collector/higress"
 	gwconfig "github.com/AMD-AGI/Primus-SaFE/Lens/gateway-exporter/pkg/config"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/gateway-exporter/pkg/enricher"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/gateway-exporter/pkg/exporter"
@@ -47,6 +48,9 @@ func Init(ctx context.Context, conf *config.Config) error {
 	// Initialize collector manager
 	manager = collector.NewManager(k8sClient)
 
+	// Register collector factories
+	manager.RegisterFactory(collector.GatewayTypeHigress, higress.NewHigressCollectorFactory())
+
 	// Add collectors based on configuration
 	for _, collectorConf := range gwConf.Gateway.Collectors {
 		if !collectorConf.Enabled {
@@ -57,12 +61,15 @@ func Init(ctx context.Context, conf *config.Config) error {
 		}
 	}
 
-	// Initialize enricher
+	// Initialize enricher (now database-based)
 	enr := enricher.NewEnricher(
-		k8sClient,
+		nil, // k8sClient not needed anymore, using database
 		gwConf.Gateway.GetCacheTTL(),
 		gwConf.Enrichment.WorkloadLabels,
 	)
+
+	// Start enricher cache refresh loop
+	go enr.StartCacheRefreshLoop(ctx)
 
 	// Initialize exporter
 	exp = exporter.NewExporter(manager, enr, gwConf)

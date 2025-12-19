@@ -6,52 +6,144 @@ import (
 	"sync"
 	"time"
 
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/gateway-exporter/pkg/model"
-	corev1 "k8s.io/api/core/v1"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// Enricher enriches raw traffic metrics with workload information
+// Enricher enriches raw traffic metrics with workload information from database
 type Enricher struct {
-	k8sClient client.Client
+	// In-memory cache for faster lookups
+	servicePodCache     map[string]*CachedServiceInfo
+	servicePodCacheLock sync.RWMutex
 
-	// Cache for service -> endpoints mapping
-	serviceCache     map[string]*ServiceInfo
-	serviceCacheLock sync.RWMutex
+	// Cache refresh interval
+	cacheRefreshInterval time.Duration
+	lastCacheRefresh     time.Time
 
-	// Configuration
-	cacheTTL       time.Duration
+	// Workload labels to extract
 	workloadLabels []string
 }
 
-// ServiceInfo contains cached service information
-type ServiceInfo struct {
-	Name      string
-	Namespace string
-	Endpoints []EndpointInfo
-	UpdatedAt time.Time
+// CachedServiceInfo stores service to pod mapping from database
+type CachedServiceInfo struct {
+	ServiceName      string
+	ServiceNamespace string
+	ServiceUID       string
+	Pods             []CachedPodInfo
+	UpdatedAt        time.Time
 }
 
-// EndpointInfo contains endpoint information
-type EndpointInfo struct {
-	PodName  string
-	PodIP    string
-	NodeName string
-	Port     int
-	Labels   map[string]string
+// CachedPodInfo stores pod information from database
+type CachedPodInfo struct {
+	PodName       string
+	PodUID        string
+	PodIP         string
+	NodeName      string
+	Namespace     string
+	Labels        map[string]string
+	WorkloadID    string
+	WorkloadOwner string
+	WorkloadType  string
 }
 
 // NewEnricher creates a new enricher
-func NewEnricher(k8sClient client.Client, cacheTTL time.Duration, workloadLabels []string) *Enricher {
+func NewEnricher(_ interface{}, cacheRefreshInterval time.Duration, workloadLabels []string) *Enricher {
 	return &Enricher{
-		k8sClient:      k8sClient,
-		serviceCache:   make(map[string]*ServiceInfo),
-		cacheTTL:       cacheTTL,
-		workloadLabels: workloadLabels,
+		servicePodCache:      make(map[string]*CachedServiceInfo),
+		cacheRefreshInterval: cacheRefreshInterval,
+		workloadLabels:       workloadLabels,
 	}
 }
 
-// Enrich adds workload information to raw traffic metrics
+// RefreshCache loads service-pod mappings from database into memory cache
+func (e *Enricher) RefreshCache(ctx context.Context) error {
+	log.Info("Refreshing enricher cache from database")
+
+	// Get all service-pod references from database
+	servicePodRefs, err := database.GetFacade().GetK8sService().GetAllServicePodReferences(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get service-pod references: %w", err)
+	}
+
+	// Build new cache
+	newCache := make(map[string]*CachedServiceInfo)
+
+	for _, ref := range servicePodRefs {
+		cacheKey := fmt.Sprintf("%s/%s", ref.ServiceNamespace, ref.ServiceName)
+
+		if _, ok := newCache[cacheKey]; !ok {
+			newCache[cacheKey] = &CachedServiceInfo{
+				ServiceName:      ref.ServiceName,
+				ServiceNamespace: ref.ServiceNamespace,
+				ServiceUID:       ref.ServiceUID,
+				Pods:             []CachedPodInfo{},
+				UpdatedAt:        time.Now(),
+			}
+		}
+
+		// Extract labels from ref.PodLabels
+		labels := make(map[string]string)
+		if ref.PodLabels != nil {
+			for k, v := range ref.PodLabels {
+				if str, ok := v.(string); ok {
+					labels[k] = str
+				}
+			}
+		}
+
+		cachedPod := CachedPodInfo{
+			PodName:      ref.PodName,
+			PodUID:       ref.PodUID,
+			PodIP:        ref.PodIP,
+			NodeName:     ref.NodeName,
+			Namespace:    ref.ServiceNamespace,
+			Labels:       labels,
+			WorkloadID:   ref.WorkloadID,
+			WorkloadType: ref.WorkloadType,
+		}
+
+		// Extract workload owner from labels
+		if owner, ok := labels["primus-safe.user.name"]; ok {
+			cachedPod.WorkloadOwner = owner
+		}
+
+		newCache[cacheKey].Pods = append(newCache[cacheKey].Pods, cachedPod)
+	}
+
+	// Swap cache atomically
+	e.servicePodCacheLock.Lock()
+	e.servicePodCache = newCache
+	e.lastCacheRefresh = time.Now()
+	e.servicePodCacheLock.Unlock()
+
+	log.Infof("Enricher cache refreshed, loaded %d services", len(newCache))
+	return nil
+}
+
+// StartCacheRefreshLoop starts the periodic cache refresh
+func (e *Enricher) StartCacheRefreshLoop(ctx context.Context) {
+	ticker := time.NewTicker(e.cacheRefreshInterval)
+	defer ticker.Stop()
+
+	// Initial refresh
+	if err := e.RefreshCache(ctx); err != nil {
+		log.Errorf("Initial cache refresh failed: %v", err)
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := e.RefreshCache(ctx); err != nil {
+				log.Errorf("Cache refresh failed: %v", err)
+			}
+		}
+	}
+}
+
+// Enrich adds workload information to raw traffic metrics using database cache
 func (e *Enricher) Enrich(ctx context.Context, metrics []model.RawTrafficMetric) ([]model.EnrichedTrafficMetric, error) {
 	result := make([]model.EnrichedTrafficMetric, 0, len(metrics))
 
@@ -61,10 +153,10 @@ func (e *Enricher) Enrich(ctx context.Context, metrics []model.RawTrafficMetric)
 		}
 
 		if metric.RoutingInfo != nil && metric.RoutingInfo.DestinationService != "" {
-			workloadInfo, err := e.resolveWorkload(ctx,
+			workloadInfo := e.resolveWorkloadFromCache(
 				metric.RoutingInfo.DestinationService,
 				metric.RoutingInfo.DestinationNamespace)
-			if err == nil {
+			if workloadInfo != nil {
 				enriched.WorkloadInfo = workloadInfo
 			}
 		}
@@ -75,134 +167,47 @@ func (e *Enricher) Enrich(ctx context.Context, metrics []model.RawTrafficMetric)
 	return result, nil
 }
 
-func (e *Enricher) resolveWorkload(ctx context.Context, serviceName, namespace string) (*model.WorkloadInfo, error) {
+// resolveWorkloadFromCache looks up service-pod mapping from in-memory cache
+func (e *Enricher) resolveWorkloadFromCache(serviceName, namespace string) *model.WorkloadInfo {
 	cacheKey := fmt.Sprintf("%s/%s", namespace, serviceName)
 
-	// Check cache first
-	e.serviceCacheLock.RLock()
-	cached, ok := e.serviceCache[cacheKey]
-	e.serviceCacheLock.RUnlock()
+	e.servicePodCacheLock.RLock()
+	cached, ok := e.servicePodCache[cacheKey]
+	e.servicePodCacheLock.RUnlock()
 
-	if ok && time.Since(cached.UpdatedAt) < e.cacheTTL {
-		return e.buildWorkloadInfo(cached), nil
-	}
-
-	// Fetch from API
-	serviceInfo, err := e.fetchServiceInfo(ctx, serviceName, namespace)
-	if err != nil {
-		return nil, err
-	}
-
-	// Update cache
-	e.serviceCacheLock.Lock()
-	e.serviceCache[cacheKey] = serviceInfo
-	e.serviceCacheLock.Unlock()
-
-	return e.buildWorkloadInfo(serviceInfo), nil
-}
-
-func (e *Enricher) fetchServiceInfo(ctx context.Context, serviceName, namespace string) (*ServiceInfo, error) {
-	// Get service
-	svc := &corev1.Service{}
-	if err := e.k8sClient.Get(ctx, client.ObjectKey{Name: serviceName, Namespace: namespace}, svc); err != nil {
-		return nil, fmt.Errorf("failed to get service: %w", err)
-	}
-
-	// Get endpoints
-	endpoints := &corev1.Endpoints{}
-	if err := e.k8sClient.Get(ctx, client.ObjectKey{Name: serviceName, Namespace: namespace}, endpoints); err != nil {
-		return nil, fmt.Errorf("failed to get endpoints: %w", err)
-	}
-
-	serviceInfo := &ServiceInfo{
-		Name:      serviceName,
-		Namespace: namespace,
-		UpdatedAt: time.Now(),
-	}
-
-	for _, subset := range endpoints.Subsets {
-		for _, addr := range subset.Addresses {
-			ep := EndpointInfo{
-				PodIP: addr.IP,
-			}
-
-			if addr.TargetRef != nil && addr.TargetRef.Kind == "Pod" {
-				ep.PodName = addr.TargetRef.Name
-			}
-
-			if addr.NodeName != nil {
-				ep.NodeName = *addr.NodeName
-			}
-
-			// Get pod labels if we have pod reference
-			if ep.PodName != "" {
-				pod := &corev1.Pod{}
-				if err := e.k8sClient.Get(ctx, client.ObjectKey{
-					Name:      ep.PodName,
-					Namespace: namespace,
-				}, pod); err == nil {
-					ep.Labels = pod.Labels
-				}
-			}
-
-			for _, port := range subset.Ports {
-				epWithPort := ep
-				epWithPort.Port = int(port.Port)
-				serviceInfo.Endpoints = append(serviceInfo.Endpoints, epWithPort)
-			}
-		}
-	}
-
-	return serviceInfo, nil
-}
-
-func (e *Enricher) buildWorkloadInfo(serviceInfo *ServiceInfo) *model.WorkloadInfo {
-	if serviceInfo == nil || len(serviceInfo.Endpoints) == 0 {
+	if !ok || len(cached.Pods) == 0 {
 		return nil
 	}
 
-	// Use the first endpoint
-	ep := serviceInfo.Endpoints[0]
+	// Use the first available pod
+	pod := cached.Pods[0]
 
-	workloadInfo := &model.WorkloadInfo{
-		ServiceName:      serviceInfo.Name,
-		ServiceNamespace: serviceInfo.Namespace,
-		PodName:          ep.PodName,
-		PodIP:            ep.PodIP,
-		NodeName:         ep.NodeName,
+	return &model.WorkloadInfo{
+		ServiceName:      cached.ServiceName,
+		ServiceNamespace: cached.ServiceNamespace,
+		PodName:          pod.PodName,
+		PodIP:            pod.PodIP,
+		NodeName:         pod.NodeName,
+		WorkloadID:       pod.WorkloadID,
+		WorkloadOwner:    pod.WorkloadOwner,
+		WorkloadType:     pod.WorkloadType,
 	}
-
-	// Extract workload labels
-	if ep.Labels != nil {
-		for _, labelKey := range e.workloadLabels {
-			if value, ok := ep.Labels[labelKey]; ok {
-				switch labelKey {
-				case "primus-safe.workload.id":
-					workloadInfo.WorkloadID = value
-				case "primus-safe.user.name":
-					workloadInfo.WorkloadOwner = value
-				}
-			}
-		}
-	}
-
-	return workloadInfo
 }
 
 // ClearCache clears the service cache
 func (e *Enricher) ClearCache() {
-	e.serviceCacheLock.Lock()
-	defer e.serviceCacheLock.Unlock()
-	e.serviceCache = make(map[string]*ServiceInfo)
+	e.servicePodCacheLock.Lock()
+	defer e.servicePodCacheLock.Unlock()
+	e.servicePodCache = make(map[string]*CachedServiceInfo)
 }
 
 // CacheStats returns cache statistics
 func (e *Enricher) CacheStats() (size int, oldestEntry time.Time) {
-	e.serviceCacheLock.RLock()
-	defer e.serviceCacheLock.RUnlock()
+	e.servicePodCacheLock.RLock()
+	defer e.servicePodCacheLock.RUnlock()
 
-	size = len(e.serviceCache)
-	for _, info := range e.serviceCache {
+	size = len(e.servicePodCache)
+	for _, info := range e.servicePodCache {
 		if oldestEntry.IsZero() || info.UpdatedAt.Before(oldestEntry) {
 			oldestEntry = info.UpdatedAt
 		}
@@ -210,4 +215,3 @@ func (e *Enricher) CacheStats() (size int, oldestEntry time.Time) {
 
 	return
 }
-

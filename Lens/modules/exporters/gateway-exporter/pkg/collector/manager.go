@@ -28,9 +28,6 @@ func NewManager(k8sClient client.Client) *Manager {
 		k8sClient:  k8sClient,
 	}
 
-	// Register default factories
-	m.RegisterFactory(GatewayTypeHigress, NewHigressCollectorFactory())
-
 	return m
 }
 
@@ -108,13 +105,5 @@ func (m *Manager) ListCollectors() []string {
 		names = append(names, name)
 	}
 	return names
-}
-
-// NewHigressCollectorFactory returns a factory for Higress collectors
-func NewHigressCollectorFactory() CollectorFactory {
-	return func(name string, config *CollectorConfig, k8sClient client.Client) (Collector, error) {
-		// This will be implemented in higress/collector.go
-		return nil, fmt.Errorf("higress collector not implemented yet")
-	}
 }
 

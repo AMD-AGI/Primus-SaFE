@@ -2,6 +2,7 @@
 
 httpPort: 8991
 loadK8SClient: true
+loadDatabase: true  # Required for database-based enrichment
 
 gateway:
   # Scrape interval for gateway metrics
