@@ -60,8 +60,9 @@ func (m *WorkloadMockFacade) GetCheckpointEvent() database.CheckpointEventFacade
 func (m *WorkloadMockFacade) GetDetectionConflictLog() database.DetectionConflictLogFacadeInterface { return nil }
 func (m *WorkloadMockFacade) GetGpuUsageWeeklyReport() database.GpuUsageWeeklyReportFacadeInterface { return nil }
 func (m *WorkloadMockFacade) GetNodeNamespaceMapping() database.NodeNamespaceMappingFacadeInterface { return nil }
-func (m *WorkloadMockFacade) GetTraceLensSession() database.TraceLensSessionFacadeInterface        { return nil }
-func (m *WorkloadMockFacade) WithCluster(clusterName string) database.FacadeInterface              { return m }
+func (m *WorkloadMockFacade) GetTraceLensSession() database.TraceLensSessionFacadeInterface { return nil }
+func (m *WorkloadMockFacade) GetK8sService() database.K8sServiceFacadeInterface             { return nil }
+func (m *WorkloadMockFacade) WithCluster(clusterName string) database.FacadeInterface       { return m }
 
 // WorkloadMockWorkloadFacade implements database.WorkloadFacadeInterface for testing
 type WorkloadMockWorkloadFacade struct {
@@ -109,6 +110,7 @@ func (m *WorkloadMockWorkloadFacade) CreateWorkloadEvent(ctx context.Context, wo
 func (m *WorkloadMockWorkloadFacade) UpdateWorkloadEvent(ctx context.Context, workloadEvent *dbmodel.WorkloadEvent) error { return nil }
 func (m *WorkloadMockWorkloadFacade) GetLatestEvent(ctx context.Context, workloadUid, nearestWorkloadId string) (*dbmodel.WorkloadEvent, error) { return nil, nil }
 func (m *WorkloadMockWorkloadFacade) GetLatestOtherWorkloadEvent(ctx context.Context, workloadUid, nearestWorkloadId string) (*dbmodel.WorkloadEvent, error) { return nil, nil }
+func (m *WorkloadMockWorkloadFacade) GetAllWorkloadPodReferences(ctx context.Context) ([]*dbmodel.WorkloadPodReference, error) { return nil, nil }
 
 // WorkloadMockPodFacade implements database.PodFacadeInterface for testing
 type WorkloadMockPodFacade struct {
