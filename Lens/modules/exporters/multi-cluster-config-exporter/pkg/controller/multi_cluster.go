@@ -47,9 +47,11 @@ func NewMultiClusterStorageConfigListener(ctx context.Context) *MultiClusterStor
 	// Get Grafana namespace from env or use default
 	grafanaNamespace := env.GetString("GRAFANA_NAMESPACE", clientsets.StorageConfigSecretNamespace)
 	
-	// Grafana instance selector labels
+	// Grafana instance selector labels - default to primus-lens for primus-lens namespace
+	grafanaInstanceLabelKey := env.GetString("GRAFANA_INSTANCE_LABEL_KEY", "system")
+	grafanaInstanceLabelValue := env.GetString("GRAFANA_INSTANCE_LABEL_VALUE", "primus-lens")
 	grafanaInstanceLabels := map[string]string{
-		"system": "primus-safe",
+		grafanaInstanceLabelKey: grafanaInstanceLabelValue,
 	}
 	
 	listener := &MultiClusterStorageConfigListener{
