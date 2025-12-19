@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
 	"gorm.io/gorm"
@@ -36,6 +37,18 @@ type PodFacadeInterface interface {
 	UpdatePodResource(ctx context.Context, podResource *model.PodResource) error
 	// ListPodResourcesByUids returns PodResource records for the given UIDs that have GPU allocation > 0
 	ListPodResourcesByUids(ctx context.Context, uids []string) ([]*model.PodResource, error)
+
+	// New methods for Pod REST API
+	// QueryPodsWithFilters queries Pods with filtering, pagination and returns total count
+	QueryPodsWithFilters(ctx context.Context, namespace, podName, startTime, endTime string, page, pageSize int) ([]*model.GpuPods, int64, error)
+	// GetAverageGPUUtilizationByNode gets average GPU utilization for a node
+	GetAverageGPUUtilizationByNode(ctx context.Context, nodeName string) (float64, error)
+	// GetLatestGPUMetricsByNode gets the latest GPU metrics for a node
+	GetLatestGPUMetricsByNode(ctx context.Context, nodeName string) (*model.GpuDevice, error)
+	// QueryGPUHistoryByNode queries GPU history for a node in a time range
+	QueryGPUHistoryByNode(ctx context.Context, nodeName string, startTime, endTime time.Time) ([]*model.GpuDevice, error)
+	// ListPodEventsByUID lists all events for a pod
+	ListPodEventsByUID(ctx context.Context, podUID string) ([]*model.GpuPodsEvent, error)
 
 	// WithCluster method
 	WithCluster(clusterName string) PodFacadeInterface
@@ -222,4 +235,160 @@ func (f *PodFacade) ListPodResourcesByUids(ctx context.Context, uids []string) (
 	}
 
 	return results, nil
+}
+
+// QueryPodsWithFilters queries Pods with filtering, pagination and returns total count
+func (f *PodFacade) QueryPodsWithFilters(ctx context.Context, namespace, podName, startTime, endTime string, page, pageSize int) ([]*model.GpuPods, int64, error) {
+	q := f.getDAL().GpuPods.WithContext(ctx)
+	
+	// Apply filters
+	if namespace != "" {
+		q = q.Where(f.getDAL().GpuPods.Namespace.Eq(namespace))
+	}
+	
+	if podName != "" {
+		q = q.Where(f.getDAL().GpuPods.Name.Like("%" + podName + "%"))
+	}
+	
+	// Time range filter
+	if startTime != "" {
+		parsedStartTime, err := time.Parse(time.RFC3339, startTime)
+		if err == nil {
+			q = q.Where(f.getDAL().GpuPods.CreatedAt.Gte(parsedStartTime))
+		}
+	}
+	
+	if endTime != "" {
+		parsedEndTime, err := time.Parse(time.RFC3339, endTime)
+		if err == nil {
+			q = q.Where(f.getDAL().GpuPods.CreatedAt.Lte(parsedEndTime))
+		}
+	}
+
+	// Get total count
+	total, err := q.Count()
+	if err != nil {
+		return nil, 0, err
+	}
+
+	// Get paginated results
+	offset := (page - 1) * pageSize
+	pods, err := q.Order(f.getDAL().GpuPods.CreatedAt.Desc()).
+		Offset(offset).
+		Limit(pageSize).
+		Find()
+	if err != nil {
+		return nil, 0, err
+	}
+
+	return pods, total, nil
+}
+
+// GetAverageGPUUtilizationByNode gets average GPU utilization for a node
+func (f *PodFacade) GetAverageGPUUtilizationByNode(ctx context.Context, nodeName string) (float64, error) {
+	// First get node ID
+	nodeQ := f.getDAL().Node
+	node, err := nodeQ.WithContext(ctx).Where(nodeQ.Name.Eq(nodeName)).First()
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return 0.0, nil
+		}
+		return 0.0, err
+	}
+
+	// Query average GPU utilization
+	type Result struct {
+		AvgUtilization float64
+	}
+	
+	var result Result
+	gpuDeviceQ := f.getDAL().GpuDevice
+	err = gpuDeviceQ.WithContext(ctx).
+		Select(gpuDeviceQ.Utilization.Avg().As("avg_utilization")).
+		Where(gpuDeviceQ.NodeID.Eq(node.ID)).
+		Scan(&result)
+	
+	if err != nil {
+		return 0.0, err
+	}
+	
+	return result.AvgUtilization, nil
+}
+
+// GetLatestGPUMetricsByNode gets the latest GPU metrics for a node
+func (f *PodFacade) GetLatestGPUMetricsByNode(ctx context.Context, nodeName string) (*model.GpuDevice, error) {
+	// First get node ID
+	nodeQ := f.getDAL().Node
+	node, err := nodeQ.WithContext(ctx).Where(nodeQ.Name.Eq(nodeName)).First()
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	// Query latest GPU device metrics
+	gpuDeviceQ := f.getDAL().GpuDevice
+	device, err := gpuDeviceQ.WithContext(ctx).
+		Where(gpuDeviceQ.NodeID.Eq(node.ID)).
+		Order(gpuDeviceQ.UpdatedAt.Desc()).
+		First()
+	
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	return device, nil
+}
+
+// QueryGPUHistoryByNode queries GPU history for a node in a time range
+func (f *PodFacade) QueryGPUHistoryByNode(ctx context.Context, nodeName string, startTime, endTime time.Time) ([]*model.GpuDevice, error) {
+	// First get node ID
+	nodeQ := f.getDAL().Node
+	node, err := nodeQ.WithContext(ctx).Where(nodeQ.Name.Eq(nodeName)).First()
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return []*model.GpuDevice{}, nil
+		}
+		return nil, err
+	}
+
+	// Query GPU device history
+	gpuDeviceQ := f.getDAL().GpuDevice
+	devices, err := gpuDeviceQ.WithContext(ctx).
+		Where(gpuDeviceQ.NodeID.Eq(node.ID)).
+		Where(gpuDeviceQ.UpdatedAt.Gte(startTime)).
+		Where(gpuDeviceQ.UpdatedAt.Lte(endTime)).
+		Order(gpuDeviceQ.UpdatedAt).
+		Find()
+	
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return []*model.GpuDevice{}, nil
+		}
+		return nil, err
+	}
+
+	return devices, nil
+}
+
+// ListPodEventsByUID lists all events for a pod
+func (f *PodFacade) ListPodEventsByUID(ctx context.Context, podUID string) ([]*model.GpuPodsEvent, error) {
+	q := f.getDAL().GpuPodsEvent
+	events, err := q.WithContext(ctx).
+		Where(q.PodUUID.Eq(podUID)).
+		Order(q.CreatedAt.Desc()).
+		Find()
+	
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return []*model.GpuPodsEvent{}, nil
+		}
+		return nil, err
+	}
+
+	return events, nil
 }
