@@ -93,7 +93,7 @@ func TestK8sService_Model(t *testing.T) {
 		ClusterIP:   "10.96.0.1",
 		ServiceType: "ClusterIP",
 		Selector:    model.ExtType{"app": "test"},
-		Ports:       model.ExtType{},
+		Ports:       model.ExtJSON("[]"),
 		Labels:      model.ExtType{"env": "test"},
 		Annotations: model.ExtType{"note": "test annotation"},
 		Deleted:     false,

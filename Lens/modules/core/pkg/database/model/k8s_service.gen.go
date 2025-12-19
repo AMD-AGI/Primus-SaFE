@@ -18,7 +18,7 @@ type K8sService struct {
 	ClusterIP   string  `gorm:"column:cluster_ip;type:varchar(45)" json:"cluster_ip"`
 	ServiceType string  `gorm:"column:service_type;type:varchar(32)" json:"service_type"`
 	Selector    ExtType `gorm:"column:selector;type:jsonb;default:'{}'" json:"selector"`
-	Ports       ExtType `gorm:"column:ports;type:jsonb;default:'[]'" json:"ports"`
+	Ports       ExtJSON `gorm:"column:ports;type:jsonb;default:'[]'" json:"ports"`
 	Labels      ExtType `gorm:"column:labels;type:jsonb;default:'{}'" json:"labels"`
 	Annotations ExtType `gorm:"column:annotations;type:jsonb;default:'{}'" json:"annotations"`
 	Deleted     bool    `gorm:"column:deleted;default:false" json:"deleted"`

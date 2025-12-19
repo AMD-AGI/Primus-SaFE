@@ -2,7 +2,6 @@ package reconciler
 
 import (
 	"context"
-	"encoding/json"
 	"time"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
@@ -75,7 +74,7 @@ func (s *ServiceReconciler) saveServiceInfo(ctx context.Context, svc *corev1.Ser
 		selector[k] = v
 	}
 
-	// Convert ports to ExtType (as JSON array)
+	// Convert ports to ExtJSON (as JSON array)
 	ports := make([]model.ServicePort, 0, len(svc.Spec.Ports))
 	for _, port := range svc.Spec.Ports {
 		ports = append(ports, model.ServicePort{
@@ -86,9 +85,8 @@ func (s *ServiceReconciler) saveServiceInfo(ctx context.Context, svc *corev1.Ser
 			NodePort:   int(port.NodePort),
 		})
 	}
-	portsJSON, _ := json.Marshal(ports)
-	var portsExtType model.ExtType
-	_ = json.Unmarshal(portsJSON, &portsExtType)
+	var portsExtJSON model.ExtJSON
+	_ = portsExtJSON.MarshalFrom(ports)
 
 	// Convert labels to ExtType
 	labels := make(model.ExtType)
@@ -109,7 +107,7 @@ func (s *ServiceReconciler) saveServiceInfo(ctx context.Context, svc *corev1.Ser
 		ClusterIP:   svc.Spec.ClusterIP,
 		ServiceType: string(svc.Spec.Type),
 		Selector:    selector,
-		Ports:       portsExtType,
+		Ports:       portsExtJSON,
 		Labels:      labels,
 		Annotations: annotations,
 		Deleted:     svc.DeletionTimestamp != nil,
