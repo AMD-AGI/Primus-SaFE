@@ -442,12 +442,15 @@ func buildRunningTasksResponse(ctx context.Context, clusterName, namespace strin
 }
 
 // parseOwnerReference - Parse owner reference to get workload type and name
+// TODO: Implement proper workload type detection by querying the workload table
+// Currently returns simplified/placeholder values
 func parseOwnerReference(ownerUID string) (string, string) {
 	// Simplified implementation - in real scenario, would query workload table
 	// For now, return placeholder values
 	if ownerUID == "" {
 		return "Unknown", "Unknown"
 	}
+	// TODO: Query actual workload type from database instead of hardcoding "Job"
 	return "Job", ownerUID[:8] // Simplified - just use first 8 chars of UID
 }
 

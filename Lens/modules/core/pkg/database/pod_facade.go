@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
@@ -253,16 +254,18 @@ func (f *PodFacade) QueryPodsWithFilters(ctx context.Context, namespace, podName
 	// Time range filter
 	if startTime != "" {
 		parsedStartTime, err := time.Parse(time.RFC3339, startTime)
-		if err == nil {
-			q = q.Where(f.getDAL().GpuPods.CreatedAt.Gte(parsedStartTime))
+		if err != nil {
+			return nil, 0, fmt.Errorf("invalid start_time format: %w (expected RFC3339)", err)
 		}
+		q = q.Where(f.getDAL().GpuPods.CreatedAt.Gte(parsedStartTime))
 	}
 	
 	if endTime != "" {
 		parsedEndTime, err := time.Parse(time.RFC3339, endTime)
-		if err == nil {
-			q = q.Where(f.getDAL().GpuPods.CreatedAt.Lte(parsedEndTime))
+		if err != nil {
+			return nil, 0, fmt.Errorf("invalid end_time format: %w (expected RFC3339)", err)
 		}
+		q = q.Where(f.getDAL().GpuPods.CreatedAt.Lte(parsedEndTime))
 	}
 
 	// Get total count

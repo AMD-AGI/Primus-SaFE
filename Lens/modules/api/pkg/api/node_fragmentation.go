@@ -450,7 +450,7 @@ func buildAllocationPattern(pods []*dbModel.GpuPods, totalGPUs int32) Allocation
 	return AllocationPattern{
 		FullyAllocatedPods:   fullyAlloc,
 		PartiallyAllocPods:   partialAlloc,
-		GPUSharing:           false, // Simplified - could detect from pod annotations
+		GPUSharing:           false, // TODO: Detect GPU sharing from pod annotations (currently simplified)
 		LargestContiguousGPU: largestContiguous,
 	}
 }
