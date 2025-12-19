@@ -17,7 +17,7 @@ import (
 	dto "github.com/prometheus/client_model/go"
 )
 
-// MetricLabels defines the standard labels for gateway metrics
+// MetricLabels defines the standard labels for gateway metrics (without GPU workload)
 var MetricLabels = []string{
 	// Gateway info
 	"gateway_type",
@@ -33,10 +33,36 @@ var MetricLabels = []string{
 	"service_name",
 	"service_namespace",
 
-	// Workload info
+	// Pod info
 	"pod_name",
 	"node_name",
-	"workload_id",
+
+	// Primus Lens standard labels
+	"primus_lens_cluster",
+}
+
+// WorkloadMetricLabels defines the labels for workload gateway metrics (with GPU workload)
+var WorkloadMetricLabels = []string{
+	// Gateway info
+	"gateway_type",
+	"gateway_instance",
+
+	// Routing info
+	"host",
+	"path",
+	"method",
+	"response_code",
+
+	// Service info
+	"service_name",
+	"service_namespace",
+
+	// Pod info
+	"pod_name",
+	"node_name",
+
+	// Workload info (only for GPU workloads)
+	"workload_name",
 	"workload_uid",
 	"workload_owner",
 
@@ -50,11 +76,17 @@ type Exporter struct {
 	enricher *enricher.Enricher
 	config   *gwconfig.GatewayExporterConfig
 
-	// Prometheus metrics
+	// Prometheus metrics for general gateway traffic (no GPU workload)
 	requestsTotal   *prometheus.CounterVec
 	requestDuration *prometheus.HistogramVec
 	requestBytes    *prometheus.CounterVec
 	responseBytes   *prometheus.CounterVec
+
+	// Prometheus metrics for GPU workload traffic
+	workloadRequestsTotal   *prometheus.CounterVec
+	workloadRequestDuration *prometheus.HistogramVec
+	workloadRequestBytes    *prometheus.CounterVec
+	workloadResponseBytes   *prometheus.CounterVec
 
 	// Collector metrics
 	scrapeTotal    prometheus.Counter
@@ -84,13 +116,13 @@ func NewExporter(manager *collector.Manager, enricher *enricher.Enricher, config
 		registry: prometheus.NewRegistry(),
 	}
 
-	// Initialize gateway traffic metrics
+	// Initialize general gateway traffic metrics (primus_lens_gateway_*)
 	e.requestsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Namespace: "primus_lens",
 			Subsystem: "gateway",
 			Name:      "requests_total",
-			Help:      "Total number of requests processed by gateway",
+			Help:      "Total number of requests processed by gateway (non-workload traffic)",
 			ConstLabels: prometheus.Labels{
 				"primus_lens_cluster": clusterName,
 			},
@@ -103,7 +135,7 @@ func NewExporter(manager *collector.Manager, enricher *enricher.Enricher, config
 			Namespace: "primus_lens",
 			Subsystem: "gateway",
 			Name:      "request_duration_milliseconds",
-			Help:      "Request duration in milliseconds",
+			Help:      "Request duration in milliseconds (non-workload traffic)",
 			Buckets:   []float64{1, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000},
 			ConstLabels: prometheus.Labels{
 				"primus_lens_cluster": clusterName,
@@ -117,7 +149,7 @@ func NewExporter(manager *collector.Manager, enricher *enricher.Enricher, config
 			Namespace: "primus_lens",
 			Subsystem: "gateway",
 			Name:      "request_bytes_total",
-			Help:      "Total bytes of requests",
+			Help:      "Total bytes of requests (non-workload traffic)",
 			ConstLabels: prometheus.Labels{
 				"primus_lens_cluster": clusterName,
 			},
@@ -130,12 +162,66 @@ func NewExporter(manager *collector.Manager, enricher *enricher.Enricher, config
 			Namespace: "primus_lens",
 			Subsystem: "gateway",
 			Name:      "response_bytes_total",
-			Help:      "Total bytes of responses",
+			Help:      "Total bytes of responses (non-workload traffic)",
 			ConstLabels: prometheus.Labels{
 				"primus_lens_cluster": clusterName,
 			},
 		},
 		MetricLabels[:len(MetricLabels)-1],
+	)
+
+	// Initialize GPU workload gateway traffic metrics (primus_lens_workload_gateway_*)
+	e.workloadRequestsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: "primus_lens",
+			Subsystem: "workload_gateway",
+			Name:      "requests_total",
+			Help:      "Total number of requests processed by gateway for GPU workloads",
+			ConstLabels: prometheus.Labels{
+				"primus_lens_cluster": clusterName,
+			},
+		},
+		WorkloadMetricLabels[:len(WorkloadMetricLabels)-1],
+	)
+
+	e.workloadRequestDuration = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Namespace: "primus_lens",
+			Subsystem: "workload_gateway",
+			Name:      "request_duration_milliseconds",
+			Help:      "Request duration in milliseconds for GPU workloads",
+			Buckets:   []float64{1, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000},
+			ConstLabels: prometheus.Labels{
+				"primus_lens_cluster": clusterName,
+			},
+		},
+		WorkloadMetricLabels[:len(WorkloadMetricLabels)-1],
+	)
+
+	e.workloadRequestBytes = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: "primus_lens",
+			Subsystem: "workload_gateway",
+			Name:      "request_bytes_total",
+			Help:      "Total bytes of requests for GPU workloads",
+			ConstLabels: prometheus.Labels{
+				"primus_lens_cluster": clusterName,
+			},
+		},
+		WorkloadMetricLabels[:len(WorkloadMetricLabels)-1],
+	)
+
+	e.workloadResponseBytes = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: "primus_lens",
+			Subsystem: "workload_gateway",
+			Name:      "response_bytes_total",
+			Help:      "Total bytes of responses for GPU workloads",
+			ConstLabels: prometheus.Labels{
+				"primus_lens_cluster": clusterName,
+			},
+		},
+		WorkloadMetricLabels[:len(WorkloadMetricLabels)-1],
 	)
 
 	// Initialize collector metrics
@@ -174,10 +260,17 @@ func NewExporter(manager *collector.Manager, enricher *enricher.Enricher, config
 func (e *Exporter) Register() {
 	// Register metrics with registry
 	e.registry.MustRegister(
+		// General gateway metrics
 		e.requestsTotal,
 		e.requestDuration,
 		e.requestBytes,
 		e.responseBytes,
+		// Workload gateway metrics
+		e.workloadRequestsTotal,
+		e.workloadRequestDuration,
+		e.workloadRequestBytes,
+		e.workloadResponseBytes,
+		// Collector metrics
 		e.scrapeTotal,
 		e.scrapeDuration,
 		e.scrapeErrors,
@@ -234,33 +327,92 @@ func (e *Exporter) updatePrometheusMetrics(metrics []model.EnrichedTrafficMetric
 	e.requestsTotal.Reset()
 	e.requestBytes.Reset()
 	e.responseBytes.Reset()
+	e.workloadRequestsTotal.Reset()
+	e.workloadRequestBytes.Reset()
+	e.workloadResponseBytes.Reset()
 
 	for _, metric := range metrics {
-		labels := e.buildLabels(metric)
+		// Check if this is a GPU workload
+		isGpuWorkload := metric.WorkloadInfo.HasGpuWorkload()
 
-		switch metric.Name {
-		// Istio format
-		case "istio_requests_total":
-			e.requestsTotal.WithLabelValues(labels...).Add(metric.Value)
-		case "istio_request_bytes_total":
-			e.requestBytes.WithLabelValues(labels...).Add(metric.Value)
-		case "istio_response_bytes_total":
-			e.responseBytes.WithLabelValues(labels...).Add(metric.Value)
-		// Envoy native format - count all envoy_cluster_upstream_rq variants as requests
-		case "envoy_cluster_upstream_rq":
-			e.requestsTotal.WithLabelValues(labels...).Add(metric.Value)
-		default:
-			// Handle envoy_cluster_upstream_rq_* patterns (e.g., envoy_cluster_upstream_rq_200)
-			if strings.HasPrefix(metric.Name, "envoy_cluster_upstream_rq_") ||
-				strings.HasPrefix(metric.Name, "envoy_http_downstream_rq_") {
-				e.requestsTotal.WithLabelValues(labels...).Add(metric.Value)
-			}
+		if isGpuWorkload {
+			// Use workload-specific metrics
+			labels := e.buildWorkloadLabels(metric)
+			e.updateWorkloadMetric(metric.Name, metric.Value, labels)
+		} else {
+			// Use general gateway metrics
+			labels := e.buildLabels(metric)
+			e.updateGeneralMetric(metric.Name, metric.Value, labels)
 		}
 	}
 }
 
+func (e *Exporter) updateGeneralMetric(metricName string, value float64, labels []string) {
+	switch metricName {
+	case "istio_requests_total":
+		e.requestsTotal.WithLabelValues(labels...).Add(value)
+	case "istio_request_bytes_total":
+		e.requestBytes.WithLabelValues(labels...).Add(value)
+	case "istio_response_bytes_total":
+		e.responseBytes.WithLabelValues(labels...).Add(value)
+	case "envoy_cluster_upstream_rq":
+		e.requestsTotal.WithLabelValues(labels...).Add(value)
+	default:
+		if strings.HasPrefix(metricName, "envoy_cluster_upstream_rq_") ||
+			strings.HasPrefix(metricName, "envoy_http_downstream_rq_") {
+			e.requestsTotal.WithLabelValues(labels...).Add(value)
+		}
+	}
+}
+
+func (e *Exporter) updateWorkloadMetric(metricName string, value float64, labels []string) {
+	switch metricName {
+	case "istio_requests_total":
+		e.workloadRequestsTotal.WithLabelValues(labels...).Add(value)
+	case "istio_request_bytes_total":
+		e.workloadRequestBytes.WithLabelValues(labels...).Add(value)
+	case "istio_response_bytes_total":
+		e.workloadResponseBytes.WithLabelValues(labels...).Add(value)
+	case "envoy_cluster_upstream_rq":
+		e.workloadRequestsTotal.WithLabelValues(labels...).Add(value)
+	default:
+		if strings.HasPrefix(metricName, "envoy_cluster_upstream_rq_") ||
+			strings.HasPrefix(metricName, "envoy_http_downstream_rq_") {
+			e.workloadRequestsTotal.WithLabelValues(labels...).Add(value)
+		}
+	}
+}
+
+// buildLabels builds labels for general gateway metrics (no GPU workload)
 func (e *Exporter) buildLabels(metric model.EnrichedTrafficMetric) []string {
 	labels := make([]string, len(MetricLabels)-1) // exclude primus_lens_cluster
+
+	// Gateway info
+	labels[0] = metric.GatewayType
+	labels[1] = metric.GatewayInstance
+
+	// Routing info
+	if metric.RoutingInfo != nil {
+		labels[2] = metric.RoutingInfo.Host
+		labels[3] = metric.RoutingInfo.Path
+		labels[4] = metric.RoutingInfo.Method
+		labels[5] = metric.RoutingInfo.ResponseCode
+	}
+
+	// Service and pod info
+	if metric.WorkloadInfo != nil {
+		labels[6] = metric.WorkloadInfo.ServiceName
+		labels[7] = metric.WorkloadInfo.ServiceNamespace
+		labels[8] = metric.WorkloadInfo.PodName
+		labels[9] = metric.WorkloadInfo.NodeName
+	}
+
+	return labels
+}
+
+// buildWorkloadLabels builds labels for GPU workload gateway metrics
+func (e *Exporter) buildWorkloadLabels(metric model.EnrichedTrafficMetric) []string {
+	labels := make([]string, len(WorkloadMetricLabels)-1) // exclude primus_lens_cluster
 
 	// Gateway info
 	labels[0] = metric.GatewayType
@@ -280,7 +432,7 @@ func (e *Exporter) buildLabels(metric model.EnrichedTrafficMetric) []string {
 		labels[7] = metric.WorkloadInfo.ServiceNamespace
 		labels[8] = metric.WorkloadInfo.PodName
 		labels[9] = metric.WorkloadInfo.NodeName
-		labels[10] = metric.WorkloadInfo.WorkloadID
+		labels[10] = metric.WorkloadInfo.WorkloadName
 		labels[11] = metric.WorkloadInfo.WorkloadUID
 		labels[12] = metric.WorkloadInfo.WorkloadOwner
 	}
@@ -332,4 +484,3 @@ func (e *Exporter) Gather() ([]*dto.MetricFamily, error) {
 
 	return result, nil
 }
-

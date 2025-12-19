@@ -12,7 +12,7 @@ import (
 )
 
 func TestMetricLabels(t *testing.T) {
-	// Verify all expected labels are present
+	// Verify general gateway labels (without workload info)
 	expectedLabels := []string{
 		"gateway_type",
 		"gateway_instance",
@@ -24,14 +24,34 @@ func TestMetricLabels(t *testing.T) {
 		"service_namespace",
 		"pod_name",
 		"node_name",
-		"workload_id",
+		"primus_lens_cluster",
+	}
+
+	assert.Equal(t, expectedLabels, MetricLabels)
+	assert.Len(t, MetricLabels, 11)
+}
+
+func TestWorkloadMetricLabels(t *testing.T) {
+	// Verify workload gateway labels (with workload info)
+	expectedLabels := []string{
+		"gateway_type",
+		"gateway_instance",
+		"host",
+		"path",
+		"method",
+		"response_code",
+		"service_name",
+		"service_namespace",
+		"pod_name",
+		"node_name",
+		"workload_name",
 		"workload_uid",
 		"workload_owner",
 		"primus_lens_cluster",
 	}
 
-	assert.Equal(t, expectedLabels, MetricLabels)
-	assert.Len(t, MetricLabels, 14)
+	assert.Equal(t, expectedLabels, WorkloadMetricLabels)
+	assert.Len(t, WorkloadMetricLabels, 14)
 }
 
 func TestNewExporter(t *testing.T) {
@@ -43,10 +63,17 @@ func TestNewExporter(t *testing.T) {
 		exp := NewExporter(manager, enr, config)
 
 		assert.NotNil(t, exp)
+		// General gateway metrics
 		assert.NotNil(t, exp.requestsTotal)
 		assert.NotNil(t, exp.requestDuration)
 		assert.NotNil(t, exp.requestBytes)
 		assert.NotNil(t, exp.responseBytes)
+		// Workload gateway metrics
+		assert.NotNil(t, exp.workloadRequestsTotal)
+		assert.NotNil(t, exp.workloadRequestDuration)
+		assert.NotNil(t, exp.workloadRequestBytes)
+		assert.NotNil(t, exp.workloadResponseBytes)
+		// Collector metrics
 		assert.NotNil(t, exp.scrapeTotal)
 		assert.NotNil(t, exp.scrapeDuration)
 		assert.NotNil(t, exp.scrapeErrors)
@@ -76,7 +103,7 @@ func TestExporter_BuildLabels(t *testing.T) {
 	enr := enricher.NewEnricher(nil, 60*time.Second, []string{"app"})
 	exp := NewExporter(manager, enr, config)
 
-	t.Run("builds labels with all fields", func(t *testing.T) {
+	t.Run("builds general labels without workload info", func(t *testing.T) {
 		metric := model.EnrichedTrafficMetric{
 			RawTrafficMetric: model.RawTrafficMetric{
 				GatewayType:     "higress",
@@ -93,15 +120,13 @@ func TestExporter_BuildLabels(t *testing.T) {
 				ServiceNamespace: "default",
 				PodName:          "user-service-abc123",
 				NodeName:         "node-1",
-				WorkloadID:       "workload-123",
-				WorkloadUID:      "uid-456",
-				WorkloadOwner:    "user@example.com",
+				// No WorkloadUID means this is not a GPU workload
 			},
 		}
 
 		labels := exp.buildLabels(metric)
 
-		assert.Len(t, labels, 13) // MetricLabels - 1 (primus_lens_cluster)
+		assert.Len(t, labels, 10) // MetricLabels - 1 (primus_lens_cluster)
 		assert.Equal(t, "higress", labels[0])
 		assert.Equal(t, "higress-gateway-0", labels[1])
 		assert.Equal(t, "api.example.com", labels[2])
@@ -112,9 +137,6 @@ func TestExporter_BuildLabels(t *testing.T) {
 		assert.Equal(t, "default", labels[7])
 		assert.Equal(t, "user-service-abc123", labels[8])
 		assert.Equal(t, "node-1", labels[9])
-		assert.Equal(t, "workload-123", labels[10])
-		assert.Equal(t, "uid-456", labels[11])
-		assert.Equal(t, "user@example.com", labels[12])
 	})
 
 	t.Run("builds labels with nil routing info", func(t *testing.T) {
@@ -129,12 +151,60 @@ func TestExporter_BuildLabels(t *testing.T) {
 
 		labels := exp.buildLabels(metric)
 
-		assert.Len(t, labels, 13)
+		assert.Len(t, labels, 10)
 		assert.Equal(t, "higress", labels[0])
 		assert.Equal(t, "higress-gateway-0", labels[1])
 		// Routing info should be empty
 		assert.Equal(t, "", labels[2])
 		assert.Equal(t, "", labels[3])
+	})
+}
+
+func TestExporter_BuildWorkloadLabels(t *testing.T) {
+	config := &gwconfig.GatewayExporterConfig{}
+	manager := collector.NewManager(nil)
+	enr := enricher.NewEnricher(nil, 60*time.Second, []string{"app"})
+	exp := NewExporter(manager, enr, config)
+
+	t.Run("builds workload labels with GPU workload info", func(t *testing.T) {
+		metric := model.EnrichedTrafficMetric{
+			RawTrafficMetric: model.RawTrafficMetric{
+				GatewayType:     "higress",
+				GatewayInstance: "higress-gateway-0",
+				RoutingInfo: &model.RoutingInfo{
+					Host:         "inference.example.com",
+					Path:         "/v1/predict",
+					Method:       "POST",
+					ResponseCode: "200",
+				},
+			},
+			WorkloadInfo: &model.WorkloadInfo{
+				ServiceName:      "inference-service",
+				ServiceNamespace: "ai-workloads",
+				PodName:          "inference-service-xyz789",
+				NodeName:         "gpu-node-01",
+				WorkloadName:     "llama-inference",
+				WorkloadUID:      "wl-uid-12345",
+				WorkloadOwner:    "ml-team@example.com",
+			},
+		}
+
+		labels := exp.buildWorkloadLabels(metric)
+
+		assert.Len(t, labels, 13) // WorkloadMetricLabels - 1 (primus_lens_cluster)
+		assert.Equal(t, "higress", labels[0])
+		assert.Equal(t, "higress-gateway-0", labels[1])
+		assert.Equal(t, "inference.example.com", labels[2])
+		assert.Equal(t, "/v1/predict", labels[3])
+		assert.Equal(t, "POST", labels[4])
+		assert.Equal(t, "200", labels[5])
+		assert.Equal(t, "inference-service", labels[6])
+		assert.Equal(t, "ai-workloads", labels[7])
+		assert.Equal(t, "inference-service-xyz789", labels[8])
+		assert.Equal(t, "gpu-node-01", labels[9])
+		assert.Equal(t, "llama-inference", labels[10])
+		assert.Equal(t, "wl-uid-12345", labels[11])
+		assert.Equal(t, "ml-team@example.com", labels[12])
 	})
 }
 
@@ -171,7 +241,7 @@ func TestExporter_UpdatePrometheusMetrics(t *testing.T) {
 	exp := NewExporter(manager, enr, config)
 	exp.Register()
 
-	t.Run("updates metrics for istio format", func(t *testing.T) {
+	t.Run("routes to general metrics when no GPU workload", func(t *testing.T) {
 		metrics := []model.EnrichedTrafficMetric{
 			{
 				RawTrafficMetric: model.RawTrafficMetric{
@@ -189,17 +259,47 @@ func TestExporter_UpdatePrometheusMetrics(t *testing.T) {
 				WorkloadInfo: &model.WorkloadInfo{
 					ServiceName:      "api-service",
 					ServiceNamespace: "default",
+					// No WorkloadUID - not a GPU workload
 				},
 			},
 		}
 
-		// Should not panic
 		assert.NotPanics(t, func() {
 			exp.updatePrometheusMetrics(metrics)
 		})
 	})
 
-	t.Run("updates metrics for envoy format", func(t *testing.T) {
+	t.Run("routes to workload metrics when GPU workload present", func(t *testing.T) {
+		metrics := []model.EnrichedTrafficMetric{
+			{
+				RawTrafficMetric: model.RawTrafficMetric{
+					Name:            "istio_requests_total",
+					Value:           50,
+					GatewayType:     "istio",
+					GatewayInstance: "istio-gateway-0",
+					RoutingInfo: &model.RoutingInfo{
+						Host:         "inference.example.com",
+						Path:         "/predict",
+						Method:       "POST",
+						ResponseCode: "200",
+					},
+				},
+				WorkloadInfo: &model.WorkloadInfo{
+					ServiceName:      "inference-service",
+					ServiceNamespace: "ai-workloads",
+					WorkloadName:     "llama-inference",
+					WorkloadUID:      "wl-uid-12345", // Has WorkloadUID - is a GPU workload
+					WorkloadOwner:    "ml-team",
+				},
+			},
+		}
+
+		assert.NotPanics(t, func() {
+			exp.updatePrometheusMetrics(metrics)
+		})
+	})
+
+	t.Run("handles envoy format metrics", func(t *testing.T) {
 		metrics := []model.EnrichedTrafficMetric{
 			{
 				RawTrafficMetric: model.RawTrafficMetric{
@@ -225,30 +325,30 @@ func TestExporter_UpdatePrometheusMetrics(t *testing.T) {
 	})
 }
 
-func TestModel_RawTrafficMetric(t *testing.T) {
-	t.Run("can create RawTrafficMetric with all fields", func(t *testing.T) {
-		metric := model.RawTrafficMetric{
-			Name:            "test_metric",
-			Value:           42.5,
-			Type:            model.MetricTypeCounter,
-			Timestamp:       time.Now(),
-			GatewayType:     "higress",
-			GatewayInstance: "higress-0",
-			OriginalLabels: map[string]string{
-				"label1": "value1",
-			},
-			RoutingInfo: &model.RoutingInfo{
-				Host:   "example.com",
-				Path:   "/api",
-				Method: "POST",
-			},
-		}
+func TestWorkloadInfo_HasGpuWorkload(t *testing.T) {
+	t.Run("returns false for nil", func(t *testing.T) {
+		var info *model.WorkloadInfo
+		assert.False(t, info.HasGpuWorkload())
+	})
 
-		assert.Equal(t, "test_metric", metric.Name)
-		assert.Equal(t, 42.5, metric.Value)
-		assert.Equal(t, model.MetricTypeCounter, metric.Type)
-		assert.Equal(t, "higress", metric.GatewayType)
-		assert.NotNil(t, metric.RoutingInfo)
+	t.Run("returns false when WorkloadUID is empty", func(t *testing.T) {
+		info := &model.WorkloadInfo{
+			ServiceName:      "test-service",
+			ServiceNamespace: "default",
+			WorkloadName:     "my-workload",
+			WorkloadUID:      "", // Empty
+		}
+		assert.False(t, info.HasGpuWorkload())
+	})
+
+	t.Run("returns true when WorkloadUID is set", func(t *testing.T) {
+		info := &model.WorkloadInfo{
+			ServiceName:      "test-service",
+			ServiceNamespace: "default",
+			WorkloadName:     "my-workload",
+			WorkloadUID:      "wl-uid-12345",
+		}
+		assert.True(t, info.HasGpuWorkload())
 	})
 }
 
@@ -260,7 +360,7 @@ func TestModel_WorkloadInfo(t *testing.T) {
 			PodName:          "my-service-pod-abc",
 			PodIP:            "10.0.0.1",
 			NodeName:         "node-1",
-			WorkloadID:       "wl-123",
+			WorkloadName:     "llama-inference",
 			WorkloadUID:      "uid-456",
 			WorkloadOwner:    "team-a",
 			WorkloadType:     "Deployment",
@@ -271,7 +371,7 @@ func TestModel_WorkloadInfo(t *testing.T) {
 		assert.Equal(t, "my-service-pod-abc", info.PodName)
 		assert.Equal(t, "10.0.0.1", info.PodIP)
 		assert.Equal(t, "node-1", info.NodeName)
-		assert.Equal(t, "wl-123", info.WorkloadID)
+		assert.Equal(t, "llama-inference", info.WorkloadName)
 		assert.Equal(t, "uid-456", info.WorkloadUID)
 		assert.Equal(t, "team-a", info.WorkloadOwner)
 		assert.Equal(t, "Deployment", info.WorkloadType)

@@ -174,7 +174,7 @@ func TestEnrichedTrafficMetricModel(t *testing.T) {
 			PodName:          "my-service-xxx",
 			PodIP:            "10.0.0.1",
 			NodeName:         "node-1",
-			WorkloadID:       "my-workload",
+			WorkloadName:     "my-workload",
 			WorkloadOwner:    "user@example.com",
 			WorkloadType:     "Deployment",
 		},
@@ -182,7 +182,7 @@ func TestEnrichedTrafficMetricModel(t *testing.T) {
 
 	assert.Equal(t, "istio_requests_total", enriched.Name)
 	assert.NotNil(t, enriched.WorkloadInfo)
-	assert.Equal(t, "my-workload", enriched.WorkloadInfo.WorkloadID)
+	assert.Equal(t, "my-workload", enriched.WorkloadInfo.WorkloadName)
 	assert.Equal(t, "user@example.com", enriched.WorkloadInfo.WorkloadOwner)
 }
 

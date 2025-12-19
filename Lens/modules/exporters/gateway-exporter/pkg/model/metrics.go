@@ -65,9 +65,14 @@ type WorkloadInfo struct {
 	PodName          string
 	PodIP            string
 	NodeName         string
-	WorkloadID       string // primus-safe workload id
+	WorkloadName     string // primus-safe workload name (from gpu_workload table)
 	WorkloadUID      string // primus-safe workload uid (from workload_pod_reference)
 	WorkloadOwner    string // workload owner
 	WorkloadType     string // deployment, statefulset, etc.
+}
+
+// HasGpuWorkload returns true if this metric is associated with a GPU workload in Primus
+func (w *WorkloadInfo) HasGpuWorkload() bool {
+	return w != nil && w.WorkloadUID != ""
 }
 

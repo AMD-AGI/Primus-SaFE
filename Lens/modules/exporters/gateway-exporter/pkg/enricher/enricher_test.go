@@ -48,7 +48,7 @@ func TestEnricher_ResolveWorkloadFromCache(t *testing.T) {
 	assert.Equal(t, "default", workloadInfo.ServiceNamespace)
 	assert.Equal(t, "my-service-abc123", workloadInfo.PodName)
 	assert.Equal(t, "10.0.0.1", workloadInfo.PodIP)
-	assert.Equal(t, "my-workload-id", workloadInfo.WorkloadID)
+	assert.Equal(t, "my-workload-id", workloadInfo.WorkloadName)
 	assert.Equal(t, "testuser", workloadInfo.WorkloadOwner)
 
 	// Test cache miss
@@ -103,7 +103,7 @@ func TestEnricher_Enrich(t *testing.T) {
 
 	// First metric should have workload info
 	assert.NotNil(t, enrichedMetrics[0].WorkloadInfo)
-	assert.Equal(t, "api-workload", enrichedMetrics[0].WorkloadInfo.WorkloadID)
+	assert.Equal(t, "api-workload", enrichedMetrics[0].WorkloadInfo.WorkloadName)
 
 	// Second metric should not have workload info (cache miss)
 	assert.Nil(t, enrichedMetrics[1].WorkloadInfo)

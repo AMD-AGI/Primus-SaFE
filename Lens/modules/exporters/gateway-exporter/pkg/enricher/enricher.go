@@ -202,7 +202,7 @@ func (e *Enricher) resolveWorkloadFromCache(serviceName, namespace string) *mode
 		PodName:          pod.PodName,
 		PodIP:            pod.PodIP,
 		NodeName:         pod.NodeName,
-		WorkloadID:       pod.WorkloadID,
+		WorkloadName:     pod.WorkloadID, // WorkloadID from service_pod_reference is the workload name
 		WorkloadUID:      pod.WorkloadUID,
 		WorkloadOwner:    pod.WorkloadOwner,
 		WorkloadType:     pod.WorkloadType,
