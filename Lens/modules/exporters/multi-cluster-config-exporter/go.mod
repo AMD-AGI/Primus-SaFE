@@ -6,6 +6,7 @@ replace github.com/AMD-AGI/Primus-SaFE/Lens/core => ../../core
 
 require (
 	github.com/AMD-AGI/Primus-SaFE/Lens/core v0.0.0-00010101000000-000000000000
+	github.com/stretchr/testify v1.10.0
 	k8s.io/api v0.34.1
 	k8s.io/apimachinery v0.34.1
 	k8s.io/client-go v0.34.1
