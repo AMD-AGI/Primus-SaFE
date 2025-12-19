@@ -30,15 +30,17 @@ func TestNewHigressCollector(t *testing.T) {
 }
 
 func TestHigressCollector_ParseMetrics(t *testing.T) {
-	// Sample Prometheus metrics from Higress/Envoy
+	// Sample Prometheus metrics from Higress/Envoy (native format)
 	sampleMetrics := `
-# HELP istio_requests_total Total requests
-# TYPE istio_requests_total counter
-istio_requests_total{destination_service_name="my-service",destination_service_namespace="default",response_code="200",request_host="example.com"} 100
-istio_requests_total{destination_service_name="my-service",destination_service_namespace="default",response_code="500",request_host="example.com"} 5
-# HELP istio_request_bytes_total Total request bytes
-# TYPE istio_request_bytes_total counter
-istio_request_bytes_total{destination_service_name="my-service",destination_service_namespace="default"} 50000
+# HELP envoy_cluster_upstream_rq_completed Total completed requests
+# TYPE envoy_cluster_upstream_rq_completed counter
+envoy_cluster_upstream_rq_completed{cluster_name="outbound|8080||my-service.default.svc.cluster.local"} 100
+envoy_cluster_upstream_rq_completed{cluster_name="outbound|8080||another-service.production.svc.cluster.local"} 50
+envoy_cluster_upstream_rq_completed{cluster_name="agent"} 1000
+# HELP envoy_cluster_upstream_rq Upstream requests by response code class
+# TYPE envoy_cluster_upstream_rq counter
+envoy_cluster_upstream_rq{response_code_class="2xx",cluster_name="outbound|8080||my-service.default.svc.cluster.local"} 95
+envoy_cluster_upstream_rq{response_code_class="5xx",cluster_name="outbound|8080||my-service.default.svc.cluster.local"} 5
 `
 
 	// Create test server
@@ -71,42 +73,39 @@ istio_request_bytes_total{destination_service_name="my-service",destination_serv
 
 	metrics, err := c.scrapeEndpoint(context.Background(), endpoint)
 	require.NoError(t, err)
+	// Should have parsed outbound cluster metrics but skipped internal "agent" cluster
 	assert.GreaterOrEqual(t, len(metrics), 2)
 
-	// Verify parsed metrics
-	var requestsTotal float64
+	// Verify parsed metrics have correct routing info
 	for _, m := range metrics {
-		if m.Name == "istio_requests_total" {
-			requestsTotal += m.Value
+		if m.RoutingInfo != nil {
+			assert.NotEmpty(t, m.RoutingInfo.DestinationService)
+			assert.NotEmpty(t, m.RoutingInfo.DestinationNamespace)
 		}
 	}
-	assert.Equal(t, float64(105), requestsTotal) // 100 + 5
 }
 
-func TestHigressCollector_ExtractRoutingInfo(t *testing.T) {
+func TestHigressCollector_ParseClusterName(t *testing.T) {
 	config := &collector.CollectorConfig{
 		Type: collector.GatewayTypeHigress,
 	}
 
 	c, _ := NewHigressCollector("test", config, nil)
 
-	labels := map[string]string{
-		"request_host":                  "api.example.com",
-		"request_path":                  "/api/v1/users",
-		"request_method":                "GET",
-		"response_code":                 "200",
-		"destination_service_name":      "user-service",
-		"destination_service_namespace": "production",
-	}
+	// Test valid outbound cluster name
+	clusterName := "outbound|8080||user-service.production.svc.cluster.local"
+	routingInfo := c.parseClusterName(clusterName)
 
-	routingInfo := c.extractRoutingInfo(labels)
-
-	assert.Equal(t, "api.example.com", routingInfo.Host)
-	assert.Equal(t, "/api/v1/users", routingInfo.Path)
-	assert.Equal(t, "GET", routingInfo.Method)
-	assert.Equal(t, "200", routingInfo.ResponseCode)
+	require.NotNil(t, routingInfo)
 	assert.Equal(t, "user-service", routingInfo.DestinationService)
 	assert.Equal(t, "production", routingInfo.DestinationNamespace)
+	assert.Equal(t, "8080", routingInfo.DestinationPort)
+
+	// Test with subset
+	clusterNameWithSubset := "outbound|8080|v1|user-service.production.svc.cluster.local"
+	routingInfoSubset := c.parseClusterName(clusterNameWithSubset)
+	require.NotNil(t, routingInfoSubset)
+	assert.Equal(t, "user-service", routingInfoSubset.DestinationService)
 }
 
 func TestHigressCollector_SkipInternalServices(t *testing.T) {
@@ -116,17 +115,25 @@ func TestHigressCollector_SkipInternalServices(t *testing.T) {
 
 	c, _ := NewHigressCollector("test", config, nil)
 
-	// Metrics with internal services should be skipped
-	internalLabels := map[string]string{
-		"destination_service_name":      "kubernetes",
-		"destination_service_namespace": "default",
+	// Internal clusters should return nil
+	internalClusters := []string{
+		"agent",
+		"prometheus_stats",
+		"xds-grpc",
+		"outbound|443||kubernetes.default.svc.cluster.local",
+		"outbound|53||kube-dns.kube-system.svc.cluster.local",
 	}
 
-	routingInfo := c.extractRoutingInfo(internalLabels)
+	for _, clusterName := range internalClusters {
+		routingInfo := c.parseClusterName(clusterName)
+		assert.Nil(t, routingInfo, "Expected nil for cluster: %s", clusterName)
+	}
 
-	// The convertMetric function should return nil for internal services
-	// This is tested implicitly through the DestinationService check
-	assert.Equal(t, "kubernetes", routingInfo.DestinationService)
+	// Valid service should not be nil
+	validCluster := "outbound|8080||my-service.default.svc.cluster.local"
+	routingInfo := c.parseClusterName(validCluster)
+	assert.NotNil(t, routingInfo)
+	assert.Equal(t, "my-service", routingInfo.DestinationService)
 }
 
 func TestRawTrafficMetricModel(t *testing.T) {

@@ -41,7 +41,7 @@ type RoutingInfo struct {
 	ResponseCode         string // HTTP response code
 	DestinationService   string // destination service name
 	DestinationNamespace string // destination namespace
-	DestinationPort      int    // destination port
+	DestinationPort      string // destination port (as string for flexibility)
 }
 
 // HistogramBucket represents a histogram bucket

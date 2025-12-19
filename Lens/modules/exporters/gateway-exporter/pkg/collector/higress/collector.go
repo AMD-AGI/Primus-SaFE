@@ -27,8 +27,11 @@ type HigressCollector struct {
 	// Label mappings for Higress/Envoy metrics
 	labelMappings map[string]string
 
-	// Relevant metrics to extract
+	// Relevant metrics to extract (Envoy format)
 	relevantMetrics []string
+
+	// Envoy metrics port (15090 for stats, 15020 for merged metrics)
+	useEnvoyStatsPort bool
 }
 
 // NewHigressCollector creates a new Higress collector
@@ -39,20 +42,21 @@ func NewHigressCollector(name string, config *collector.CollectorConfig, k8sClie
 		k8sClient:  k8sClient,
 		httpClient: &http.Client{Timeout: 10 * time.Second},
 		labelMappings: map[string]string{
-			// Envoy/Istio standard label mappings
-			"request_host":                  "host",
-			"destination_service_name":      "service",
-			"destination_service_namespace": "namespace",
-			"response_code":                 "code",
-			"request_path":                  "path",
-			"request_method":                "method",
+			// Envoy label mappings
+			"cluster_name":       "cluster",
+			"response_code":      "code",
+			"response_code_class": "code_class",
 		},
+		// Envoy native metrics - we'll parse cluster_name to extract service info
+		// Format: outbound|port||service.namespace.svc.cluster.local
 		relevantMetrics: []string{
-			"istio_requests_total",
-			"istio_request_duration_milliseconds",
-			"istio_request_bytes_total",
-			"istio_response_bytes_total",
+			"envoy_cluster_upstream_rq_completed",
+			"envoy_cluster_upstream_rq",
+			"envoy_cluster_upstream_rq_time",
+			"envoy_cluster_upstream_cx_total",
+			"envoy_cluster_upstream_cx_active",
 		},
+		useEnvoyStatsPort: true,
 	}
 
 	// Apply custom label mappings from config
@@ -111,7 +115,13 @@ func (c *HigressCollector) Discover(ctx context.Context) ([]collector.GatewayEnd
 
 		metricsPort := c.config.MetricsPort
 		if metricsPort == 0 {
-			metricsPort = 15020 // default Higress/Istio metrics port
+			// Use 15090 for Envoy native stats (has cluster-level metrics)
+			// Use 15020 for merged Istio telemetry metrics
+			if c.useEnvoyStatsPort {
+				metricsPort = 15090
+			} else {
+				metricsPort = 15020
+			}
 		}
 
 		metricsPath := c.config.MetricsPath
@@ -189,6 +199,7 @@ func (c *HigressCollector) parseMetrics(reader io.Reader, endpoint collector.Gat
 
 	var result []model.RawTrafficMetric
 
+	// Process Envoy cluster metrics
 	for _, metricName := range c.relevantMetrics {
 		family, ok := metricFamilies[metricName]
 		if !ok {
@@ -196,7 +207,17 @@ func (c *HigressCollector) parseMetrics(reader io.Reader, endpoint collector.Gat
 		}
 
 		for _, metric := range family.Metric {
-			rawMetric := c.convertMetric(family, metric, endpoint)
+			rawMetric := c.convertEnvoyMetric(family, metric, endpoint)
+			if rawMetric != nil {
+				result = append(result, *rawMetric)
+			}
+		}
+	}
+
+	// Also look for metrics with response_code_class label (aggregated by status class)
+	if family, ok := metricFamilies["envoy_cluster_upstream_rq"]; ok {
+		for _, metric := range family.Metric {
+			rawMetric := c.convertEnvoyMetric(family, metric, endpoint)
 			if rawMetric != nil {
 				result = append(result, *rawMetric)
 			}
@@ -206,24 +227,26 @@ func (c *HigressCollector) parseMetrics(reader io.Reader, endpoint collector.Gat
 	return result, nil
 }
 
-func (c *HigressCollector) convertMetric(family *dto.MetricFamily, metric *dto.Metric, endpoint collector.GatewayEndpoint) *model.RawTrafficMetric {
+// convertEnvoyMetric converts Envoy native metrics to our internal format
+func (c *HigressCollector) convertEnvoyMetric(family *dto.MetricFamily, metric *dto.Metric, endpoint collector.GatewayEndpoint) *model.RawTrafficMetric {
 	labels := make(map[string]string)
 	for _, label := range metric.Label {
 		labels[label.GetName()] = label.GetValue()
 	}
 
-	// Extract routing info from labels
-	routingInfo := c.extractRoutingInfo(labels)
+	// Parse cluster_name to extract service info
+	// Format: outbound|port||service.namespace.svc.cluster.local
+	clusterName := labels["cluster_name"]
+	routingInfo := c.parseClusterName(clusterName)
 
-	// Skip if no destination service (internal traffic)
-	if routingInfo.DestinationService == "" {
+	// Skip if no destination service (internal traffic or non-outbound clusters)
+	if routingInfo == nil || routingInfo.DestinationService == "" {
 		return nil
 	}
 
-	// Skip internal Kubernetes services
-	if strings.HasSuffix(routingInfo.DestinationService, "kubernetes") ||
-		strings.HasSuffix(routingInfo.DestinationService, "kube-dns") {
-		return nil
+	// Add response code class if present
+	if codeClass, ok := labels["response_code_class"]; ok {
+		routingInfo.ResponseCode = codeClass
 	}
 
 	var value float64
@@ -237,10 +260,14 @@ func (c *HigressCollector) convertMetric(family *dto.MetricFamily, metric *dto.M
 		value = metric.Gauge.GetValue()
 		metricType = model.MetricTypeGauge
 	case dto.MetricType_HISTOGRAM:
-		// For histogram sum
 		value = metric.Histogram.GetSampleSum()
 		metricType = model.MetricTypeHistogram
 	default:
+		return nil
+	}
+
+	// Skip zero-value counters
+	if value == 0 {
 		return nil
 	}
 
@@ -256,16 +283,57 @@ func (c *HigressCollector) convertMetric(family *dto.MetricFamily, metric *dto.M
 	}
 }
 
-func (c *HigressCollector) extractRoutingInfo(labels map[string]string) *model.RoutingInfo {
+// parseClusterName parses Envoy cluster_name to extract service info
+// Format: outbound|port||service.namespace.svc.cluster.local
+// Also handles: outbound|port|subset|service.namespace.svc.cluster.local
+func (c *HigressCollector) parseClusterName(clusterName string) *model.RoutingInfo {
+	// Skip non-outbound clusters
+	if !strings.HasPrefix(clusterName, "outbound|") {
+		return nil
+	}
+
+	// Split by |
+	parts := strings.Split(clusterName, "|")
+	if len(parts) < 4 {
+		return nil
+	}
+
+	port := parts[1]
+	fqdn := parts[3] // service.namespace.svc.cluster.local
+
+	// Skip internal clusters
+	internalClusters := []string{"agent", "prometheus_stats", "xds-grpc", "sds-grpc", "zipkin"}
+	for _, internal := range internalClusters {
+		if strings.Contains(clusterName, internal) {
+			return nil
+		}
+	}
+
+	// Parse FQDN
+	// Format: service.namespace.svc.cluster.local
+	fqdnParts := strings.Split(fqdn, ".")
+	if len(fqdnParts) < 2 {
+		return nil
+	}
+
+	serviceName := fqdnParts[0]
+	namespace := fqdnParts[1]
+
+	// Skip kubernetes internal services
+	internalServices := []string{"kubernetes", "kube-dns", "coredns"}
+	for _, internal := range internalServices {
+		if serviceName == internal {
+			return nil
+		}
+	}
+
 	return &model.RoutingInfo{
-		Host:                 labels["request_host"],
-		Path:                 labels["request_path"],
-		Method:               labels["request_method"],
-		ResponseCode:         labels["response_code"],
-		DestinationService:   labels["destination_service_name"],
-		DestinationNamespace: labels["destination_service_namespace"],
+		DestinationService:   serviceName,
+		DestinationNamespace: namespace,
+		DestinationPort:      port,
 	}
 }
+
 
 // HealthCheck checks if the collector is healthy
 func (c *HigressCollector) HealthCheck(ctx context.Context) error {
