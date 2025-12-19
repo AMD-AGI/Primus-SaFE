@@ -48,6 +48,8 @@ type FacadeInterface interface {
 	GetNodeNamespaceMapping() NodeNamespaceMappingFacadeInterface
 	// GetTraceLensSession returns the TraceLensSession Facade interface
 	GetTraceLensSession() TraceLensSessionFacadeInterface
+	// GetK8sService returns the K8sService Facade interface
+	GetK8sService() K8sServiceFacadeInterface
 	// WithCluster returns a new Facade instance using the specified cluster
 	WithCluster(clusterName string) FacadeInterface
 }
@@ -77,6 +79,7 @@ type Facade struct {
 	GpuUsageWeeklyReport  GpuUsageWeeklyReportFacadeInterface
 	NodeNamespaceMapping  NodeNamespaceMappingFacadeInterface
 	TraceLensSession      TraceLensSessionFacadeInterface
+	K8sService            K8sServiceFacadeInterface
 }
 
 // NewFacade creates a new Facade instance
@@ -105,6 +108,7 @@ func NewFacade() *Facade {
 		GpuUsageWeeklyReport:  NewGpuUsageWeeklyReportFacade(),
 		NodeNamespaceMapping:  NewNodeNamespaceMappingFacade(),
 		TraceLensSession:      NewTraceLensSessionFacade(),
+		K8sService:            NewK8sServiceFacade(),
 	}
 }
 
@@ -223,6 +227,11 @@ func (f *Facade) GetTraceLensSession() TraceLensSessionFacadeInterface {
 	return f.TraceLensSession
 }
 
+// GetK8sService returns the K8sService Facade interface
+func (f *Facade) GetK8sService() K8sServiceFacadeInterface {
+	return f.K8sService
+}
+
 // WithCluster returns a new Facade instance, all sub-Facades use the specified cluster
 func (f *Facade) WithCluster(clusterName string) FacadeInterface {
 	return &Facade{
@@ -249,6 +258,7 @@ func (f *Facade) WithCluster(clusterName string) FacadeInterface {
 		GpuUsageWeeklyReport:  f.GpuUsageWeeklyReport.WithCluster(clusterName),
 		NodeNamespaceMapping:  f.NodeNamespaceMapping.WithCluster(clusterName),
 		TraceLensSession:      f.TraceLensSession.WithCluster(clusterName),
+		K8sService:            f.K8sService.WithCluster(clusterName),
 	}
 }
 
