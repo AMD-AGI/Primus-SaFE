@@ -57,7 +57,8 @@ func (m *MockBackfillFacade) GetNodeNamespaceMapping() database.NodeNamespaceMap
 	return nil
 }
 func (m *MockBackfillFacade) GetTraceLensSession() database.TraceLensSessionFacadeInterface { return nil }
-func (m *MockBackfillFacade) WithCluster(clusterName string) database.FacadeInterface      { return m }
+func (m *MockBackfillFacade) GetK8sService() database.K8sServiceFacadeInterface             { return nil }
+func (m *MockBackfillFacade) WithCluster(clusterName string) database.FacadeInterface       { return m }
 
 type MockBackfillNodeFacade struct {
 	SearchNodeFunc func(ctx context.Context, f filter.NodeFilter) ([]*dbmodel.Node, int, error)

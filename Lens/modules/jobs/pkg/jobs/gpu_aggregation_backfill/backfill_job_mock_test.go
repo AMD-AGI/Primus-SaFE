@@ -47,8 +47,9 @@ func (m *BackfillMockFacade) GetCheckpointEvent() database.CheckpointEventFacade
 func (m *BackfillMockFacade) GetDetectionConflictLog() database.DetectionConflictLogFacadeInterface { return nil }
 func (m *BackfillMockFacade) GetGpuUsageWeeklyReport() database.GpuUsageWeeklyReportFacadeInterface { return nil }
 func (m *BackfillMockFacade) GetNodeNamespaceMapping() database.NodeNamespaceMappingFacadeInterface { return nil }
-func (m *BackfillMockFacade) GetTraceLensSession() database.TraceLensSessionFacadeInterface        { return nil }
-func (m *BackfillMockFacade) WithCluster(clusterName string) database.FacadeInterface              { return m }
+func (m *BackfillMockFacade) GetTraceLensSession() database.TraceLensSessionFacadeInterface { return nil }
+func (m *BackfillMockFacade) GetK8sService() database.K8sServiceFacadeInterface             { return nil }
+func (m *BackfillMockFacade) WithCluster(clusterName string) database.FacadeInterface       { return m }
 
 // BackfillMockNodeFacade implements database.NodeFacadeInterface
 type BackfillMockNodeFacade struct {

@@ -65,7 +65,8 @@ func (m *MockFacade) GetNodeNamespaceMapping() database.NodeNamespaceMappingFaca
 	return nil
 }
 func (m *MockFacade) GetTraceLensSession() database.TraceLensSessionFacadeInterface { return nil }
-func (m *MockFacade) WithCluster(clusterName string) database.FacadeInterface      { return m }
+func (m *MockFacade) GetK8sService() database.K8sServiceFacadeInterface             { return nil }
+func (m *MockFacade) WithCluster(clusterName string) database.FacadeInterface       { return m }
 
 // MockWorkloadFacade implements database.WorkloadFacadeInterface for testing
 type MockWorkloadFacade struct {
@@ -161,6 +162,9 @@ func (m *MockWorkloadFacade) GetLatestEvent(ctx context.Context, workloadUid, ne
 	return nil, nil
 }
 func (m *MockWorkloadFacade) GetLatestOtherWorkloadEvent(ctx context.Context, workloadUid, nearestWorkloadId string) (*dbmodel.WorkloadEvent, error) {
+	return nil, nil
+}
+func (m *MockWorkloadFacade) GetAllWorkloadPodReferences(ctx context.Context) ([]*dbmodel.WorkloadPodReference, error) {
 	return nil, nil
 }
 
