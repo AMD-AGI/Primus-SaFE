@@ -197,17 +197,16 @@ func (r *SchedulerReconciler) delete(ctx context.Context, adminWorkload *v1.Work
 			return ctrlruntime.Result{}, err
 		}
 	}
-	// generate the related resource reference
-	obj, err := jobutils.GenObjectReference(ctx, r.Client, adminWorkload)
+	workloadUnstructured, err := jobutils.BuildWorkloadUnstructured(ctx, r.Client, adminWorkload)
 	if err != nil {
 		return ctrlruntime.Result{}, err
 	}
 	// delete the related resource in data plane
-	if err = jobutils.DeleteObject(ctx, clusterInformer.ClientFactory(), obj); err != nil {
+	if err = jobutils.DeleteObject(ctx, clusterInformer.ClientFactory(), workloadUnstructured); err != nil {
 		klog.ErrorS(err, "failed to delete k8s object")
 		return ctrlruntime.Result{}, err
 	}
-	if result, err := r.waitObjectDeleted(ctx, obj, clusterInformer); err != nil || result.RequeueAfter > 0 {
+	if result, err := r.waitObjectDeleted(ctx, workloadUnstructured, clusterInformer); err != nil || result.RequeueAfter > 0 {
 		return result, err
 	}
 
@@ -224,26 +223,11 @@ func (r *SchedulerReconciler) delete(ctx context.Context, adminWorkload *v1.Work
 // If the object still exists after 1 minutes of deletion timestamp, it forcefully removes finalizers.
 func (r *SchedulerReconciler) waitObjectDeleted(ctx context.Context,
 	obj *unstructured.Unstructured, clusterInformer *syncer.ClusterInformer) (ctrlruntime.Result, error) {
-
 	k8sClientFactory := clusterInformer.ClientFactory()
 	gvk := obj.GroupVersionKind()
-	current, getErr := jobutils.GetObject(ctx, k8sClientFactory, obj.GetName(), obj.GetNamespace(), gvk)
+	_, getErr := jobutils.GetObject(ctx, k8sClientFactory, obj.GetName(), obj.GetNamespace(), gvk)
 	if getErr != nil {
 		return ctrlruntime.Result{}, client.IgnoreNotFound(getErr)
-	}
-
-	// object still exists
-	if ts := current.GetDeletionTimestamp(); ts != nil && !ts.IsZero() && time.Since(ts.Time) >= 1*time.Minute {
-		patchObj := map[string]any{
-			"metadata": map[string]any{
-				"finalizers": []string{},
-			},
-		}
-		p := jsonutils.MarshalSilently(patchObj)
-		if patchErr := jobutils.PatchObject(ctx,
-			k8sClientFactory, obj.GetName(), obj.GetNamespace(), gvk, p); patchErr != nil {
-			return ctrlruntime.Result{}, client.IgnoreNotFound(patchErr)
-		}
 	}
 	return ctrlruntime.Result{RequeueAfter: time.Second * 20}, nil
 }

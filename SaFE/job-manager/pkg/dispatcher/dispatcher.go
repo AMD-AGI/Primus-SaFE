@@ -937,7 +937,8 @@ func (r *DispatcherReconciler) createService(ctx context.Context, adminWorkload 
 	// Only set owner reference when the owner object has a valid UID.
 	owner := obj
 	if len(owner.GetUID()) == 0 {
-		if fetched, getErr := jobutils.GetObjectByClientFactory(ctx, clusterInformer.ClientFactory(), obj); getErr != nil {
+		if fetched, getErr := jobutils.GetObjectByClientFactory(ctx, clusterInformer.ClientFactory(),
+			obj.GetName(), obj.GetNamespace(), obj.GroupVersionKind()); getErr != nil {
 			return ctrlruntime.Result{}, getErr
 		} else {
 			if len(fetched.GetUID()) == 0 {
@@ -1086,7 +1087,8 @@ func (r *DispatcherReconciler) createIngress(ctx context.Context, adminWorkload 
 	// Only set owner reference when the owner object has a valid UID.
 	owner := obj
 	if len(owner.GetUID()) == 0 {
-		if fetched, getErr := jobutils.GetObjectByClientFactory(ctx, clusterInformer.ClientFactory(), obj); getErr != nil {
+		if fetched, getErr := jobutils.GetObjectByClientFactory(ctx, clusterInformer.ClientFactory(),
+			obj.GetName(), obj.GetNamespace(), obj.GroupVersionKind()); getErr != nil {
 			return ctrlruntime.Result{}, getErr
 		} else {
 			if len(fetched.GetUID()) == 0 {
