@@ -145,6 +145,13 @@ jobs:
           echo "gateway_exporter_changed=false" >> $GITHUB_OUTPUT
         fi
         
+        # inference_metrics_exporter: Lens/modules/exporters/inference-metrics-exporter/** or Lens/modules/core/**
+        if echo "$CHANGED_FILES" | grep -qE '^Lens/modules/exporters/inference-metrics-exporter/|^Lens/modules/core/'; then
+          echo "inference_metrics_exporter_changed=true" >> $GITHUB_OUTPUT
+        else
+          echo "inference_metrics_exporter_changed=false" >> $GITHUB_OUTPUT
+        fi
+        
         # installer: Lens/bootstrap/installer/** or Lens/charts/**
         if echo "$CHANGED_FILES" | grep -qE '^Lens/bootstrap/installer/|^Lens/charts/'; then
           echo "installer_changed=true" >> $GITHUB_OUTPUT
@@ -195,6 +202,9 @@ jobs:
           fi
           if [[ "${{ steps.detect-changes.outputs.gateway_exporter_changed }}" == "true" ]]; then
             MATRIX+='{"name":"gateway-exporter","buildpath":"cmd/gateway-exporter","basepath":"Lens/modules/exporters/gateway-exporter/"},'
+          fi
+          if [[ "${{ steps.detect-changes.outputs.inference_metrics_exporter_changed }}" == "true" ]]; then
+            MATRIX+='{"name":"inference-metrics-exporter","buildpath":"cmd/exporter","basepath":"Lens/modules/exporters/inference-metrics-exporter/"},'
           fi
           MATRIX=${MATRIX%,} # remove trailing comma
           MATRIX+=']}'
