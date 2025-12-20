@@ -211,7 +211,7 @@ for GPU_ID in $(seq 0 $((NUM_GPUS - 1))); do
             
             # Use HIP_VISIBLE_DEVICES for ROCm, CUDA_VISIBLE_DEVICES for NVIDIA
             # MI355X requires HSA_OVERRIDE_GFX_VERSION
-            HSA_OVERRIDE_GFX_VERSION=11.5.1 CUDA_VISIBLE_DEVICES=$GPU_ID HIP_VISIBLE_DEVICES=$GPU_ID GPU_RANK=$GPU_ID python3 pretrain_main.py "$@" | \
+            CUDA_VISIBLE_DEVICES=$GPU_ID HIP_VISIBLE_DEVICES=$GPU_ID python3 pretrain_main.py "$@" | \
             tee "$LOG_FILE" | while IFS= read -r line; do
                 # Clean line: remove GPU prefixes and replace | with space
                 clean_line=$(echo "$line" | sed -e 's/^GPU[0-9]*:\(INFO\|ERROR\)[: |]*//g' \
