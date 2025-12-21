@@ -164,7 +164,6 @@ func (f *DetectionCoverageFacade) ListPendingCoverageByWorkload(ctx context.Cont
 // UpdateCoverageStatus updates the status of a coverage record
 func (f *DetectionCoverageFacade) UpdateCoverageStatus(ctx context.Context, workloadUID, source, status string, lastError string) error {
 	q := f.getDAL().DetectionCoverage
-	now := time.Now()
 
 	if lastError != "" {
 		_, err := q.WithContext(ctx).
@@ -172,7 +171,6 @@ func (f *DetectionCoverageFacade) UpdateCoverageStatus(ctx context.Context, work
 			Where(q.Source.Eq(source)).
 			UpdateSimple(
 				q.Status.Value(status),
-				q.UpdatedAt.Value(now),
 				q.LastError.Value(lastError),
 			)
 		return err
@@ -183,7 +181,6 @@ func (f *DetectionCoverageFacade) UpdateCoverageStatus(ctx context.Context, work
 		Where(q.Source.Eq(source)).
 		UpdateSimple(
 			q.Status.Value(status),
-			q.UpdatedAt.Value(now),
 		)
 	return err
 }
@@ -200,7 +197,6 @@ func (f *DetectionCoverageFacade) MarkCollecting(ctx context.Context, workloadUI
 			q.Status.Value(constant.DetectionStatusCollecting),
 			q.AttemptCount.Add(1),
 			q.LastAttemptAt.Value(now),
-			q.UpdatedAt.Value(now),
 		)
 	return err
 }
@@ -210,6 +206,7 @@ func (f *DetectionCoverageFacade) MarkCollected(ctx context.Context, workloadUID
 	q := f.getDAL().DetectionCoverage
 	now := time.Now()
 
+	// Note: Don't set UpdatedAt explicitly as GORM handles it automatically
 	_, err := q.WithContext(ctx).
 		Where(q.WorkloadUID.Eq(workloadUID)).
 		Where(q.Source.Eq(source)).
@@ -217,7 +214,6 @@ func (f *DetectionCoverageFacade) MarkCollected(ctx context.Context, workloadUID
 			q.Status.Value(constant.DetectionStatusCollected),
 			q.LastSuccessAt.Value(now),
 			q.EvidenceCount.Value(evidenceCount),
-			q.UpdatedAt.Value(now),
 		)
 	return err
 }
@@ -225,7 +221,6 @@ func (f *DetectionCoverageFacade) MarkCollected(ctx context.Context, workloadUID
 // MarkFailed marks a coverage as failed with error message
 func (f *DetectionCoverageFacade) MarkFailed(ctx context.Context, workloadUID, source, errMsg string) error {
 	q := f.getDAL().DetectionCoverage
-	now := time.Now()
 
 	_, err := q.WithContext(ctx).
 		Where(q.WorkloadUID.Eq(workloadUID)).
@@ -233,7 +228,6 @@ func (f *DetectionCoverageFacade) MarkFailed(ctx context.Context, workloadUID, s
 		UpdateSimple(
 			q.Status.Value(constant.DetectionStatusFailed),
 			q.LastError.Value(errMsg),
-			q.UpdatedAt.Value(now),
 		)
 	return err
 }
@@ -241,7 +235,6 @@ func (f *DetectionCoverageFacade) MarkFailed(ctx context.Context, workloadUID, s
 // UpdateLogAvailableTime updates log available time range (called by telemetry-processor)
 func (f *DetectionCoverageFacade) UpdateLogAvailableTime(ctx context.Context, workloadUID string, logTimestamp time.Time) error {
 	q := f.getDAL().DetectionCoverage
-	now := time.Now()
 
 	// Get current coverage
 	coverage, err := f.GetCoverage(ctx, workloadUID, constant.DetectionSourceLog)
@@ -275,7 +268,6 @@ func (f *DetectionCoverageFacade) UpdateLogAvailableTime(ctx context.Context, wo
 			Where(q.WorkloadUID.Eq(workloadUID)).
 			Where(q.Source.Eq(constant.DetectionSourceLog)).
 			UpdateSimple(
-				q.UpdatedAt.Value(now),
 				q.LogAvailableFrom.Value(logTimestamp),
 				q.LogAvailableTo.Value(logTimestamp),
 			)
@@ -284,7 +276,6 @@ func (f *DetectionCoverageFacade) UpdateLogAvailableTime(ctx context.Context, wo
 			Where(q.WorkloadUID.Eq(workloadUID)).
 			Where(q.Source.Eq(constant.DetectionSourceLog)).
 			UpdateSimple(
-				q.UpdatedAt.Value(now),
 				q.LogAvailableFrom.Value(logTimestamp),
 			)
 	} else {
@@ -292,7 +283,6 @@ func (f *DetectionCoverageFacade) UpdateLogAvailableTime(ctx context.Context, wo
 			Where(q.WorkloadUID.Eq(workloadUID)).
 			Where(q.Source.Eq(constant.DetectionSourceLog)).
 			UpdateSimple(
-				q.UpdatedAt.Value(now),
 				q.LogAvailableTo.Value(logTimestamp),
 			)
 	}
@@ -302,7 +292,6 @@ func (f *DetectionCoverageFacade) UpdateLogAvailableTime(ctx context.Context, wo
 // UpdateCoveredTimeRange updates the covered time range for log source
 func (f *DetectionCoverageFacade) UpdateCoveredTimeRange(ctx context.Context, workloadUID string, from, to time.Time) error {
 	q := f.getDAL().DetectionCoverage
-	now := time.Now()
 
 	// Get current coverage
 	coverage, err := f.GetCoverage(ctx, workloadUID, constant.DetectionSourceLog)
@@ -319,12 +308,8 @@ func (f *DetectionCoverageFacade) UpdateCoveredTimeRange(ctx context.Context, wo
 	updateTo := coverage.CoveredTo.IsZero() || to.After(coverage.CoveredTo)
 
 	if !updateFrom && !updateTo {
-		// Just update timestamp
-		_, err = q.WithContext(ctx).
-			Where(q.WorkloadUID.Eq(workloadUID)).
-			Where(q.Source.Eq(constant.DetectionSourceLog)).
-			UpdateSimple(q.UpdatedAt.Value(now))
-		return err
+		// No update needed
+		return nil
 	}
 
 	if updateFrom && updateTo {
@@ -332,7 +317,6 @@ func (f *DetectionCoverageFacade) UpdateCoveredTimeRange(ctx context.Context, wo
 			Where(q.WorkloadUID.Eq(workloadUID)).
 			Where(q.Source.Eq(constant.DetectionSourceLog)).
 			UpdateSimple(
-				q.UpdatedAt.Value(now),
 				q.CoveredFrom.Value(from),
 				q.CoveredTo.Value(to),
 			)
@@ -341,7 +325,6 @@ func (f *DetectionCoverageFacade) UpdateCoveredTimeRange(ctx context.Context, wo
 			Where(q.WorkloadUID.Eq(workloadUID)).
 			Where(q.Source.Eq(constant.DetectionSourceLog)).
 			UpdateSimple(
-				q.UpdatedAt.Value(now),
 				q.CoveredFrom.Value(from),
 			)
 	} else {
@@ -349,7 +332,6 @@ func (f *DetectionCoverageFacade) UpdateCoveredTimeRange(ctx context.Context, wo
 			Where(q.WorkloadUID.Eq(workloadUID)).
 			Where(q.Source.Eq(constant.DetectionSourceLog)).
 			UpdateSimple(
-				q.UpdatedAt.Value(now),
 				q.CoveredTo.Value(to),
 			)
 	}
@@ -359,14 +341,12 @@ func (f *DetectionCoverageFacade) UpdateCoveredTimeRange(ctx context.Context, wo
 // IncrementEvidenceCount increments the evidence count for a coverage
 func (f *DetectionCoverageFacade) IncrementEvidenceCount(ctx context.Context, workloadUID, source string, count int32) error {
 	q := f.getDAL().DetectionCoverage
-	now := time.Now()
 
 	_, err := q.WithContext(ctx).
 		Where(q.WorkloadUID.Eq(workloadUID)).
 		Where(q.Source.Eq(source)).
 		UpdateSimple(
 			q.EvidenceCount.Add(count),
-			q.UpdatedAt.Value(now),
 		)
 	return err
 }
