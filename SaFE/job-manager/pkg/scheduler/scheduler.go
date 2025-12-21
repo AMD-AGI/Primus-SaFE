@@ -355,7 +355,7 @@ func (r *SchedulerReconciler) canScheduleWorkload(ctx context.Context, requestWo
 			}
 		}
 	}
-	hasEnoughQuota, key := quantity.IsSubResource(requestResources, leftResources)
+
 	isDependencyReady, err := r.checkWorkloadDependencies(ctx, requestWorkload)
 	if err != nil {
 		return false, "", err
@@ -367,6 +367,7 @@ func (r *SchedulerReconciler) canScheduleWorkload(ctx context.Context, requestWo
 		return false, reason, nil
 	}
 
+	hasEnoughQuota, key := quantity.IsSubResource(requestResources, leftResources)
 	isPreemptable := false
 	if !hasEnoughQuota {
 		reason = fmt.Sprintf("Insufficient total %s resources", formatResourceName(key))
@@ -528,27 +529,29 @@ func (r *SchedulerReconciler) getLeftTotalResources(ctx context.Context,
 		}
 		return !n.IsAvailable(false)
 	}
-	usedResource := make(corev1.ResourceList)
+	usedTotalResource := make(corev1.ResourceList)
+	usedAvailableResource := make(corev1.ResourceList)
 	for _, w := range workloads {
-		var resourceList corev1.ResourceList
+		var totalResource, availableResource corev1.ResourceList
 		var err error
 		if w.IsRunning() {
-			resourceList, _, err = commonworkload.GetActiveResources(w, filterFunc)
+			totalResource, availableResource, _, err = commonworkload.GetWorkloadResourceUsage(w, filterFunc)
 		} else {
-			resourceList, err = commonworkload.CvtToResourceList(w)
+			totalResource, err = commonworkload.CvtToResourceList(w)
+			availableResource = totalResource
 		}
 		if err != nil {
 			return nil, nil, err
 		}
-		usedResource = quantity.AddResource(usedResource, resourceList)
+		usedTotalResource = quantity.AddResource(usedTotalResource, totalResource)
+		usedAvailableResource = quantity.AddResource(usedAvailableResource, availableResource)
 	}
 
-	availResource := workspace.Status.AvailableResources
-	leftAvailResource := quantity.SubResource(availResource, usedResource)
+	leftAvailResource := quantity.SubResource(workspace.Status.AvailableResources, usedAvailableResource)
 	totalResource := quantity.GetAvailableResource(workspace.Status.TotalResources)
-	leftTotalResource := quantity.SubResource(totalResource, usedResource)
-	// klog.Infof("total resource: %v, total used: %v, left total: %v, left avail: %v",
-	// totalResource, usedResource, leftTotalResource, leftAvailResource)
+	leftTotalResource := quantity.SubResource(totalResource, usedTotalResource)
+	klog.Infof("total resource: %v, total used: %v, total avail: %v, left total: %v, left avail: %v",
+		totalResource, usedTotalResource, usedAvailableResource, leftTotalResource, leftAvailResource)
 	return leftAvailResource, leftTotalResource, nil
 }
 
