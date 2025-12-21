@@ -632,6 +632,8 @@ func (tc *TaskCreator) CreateDetectionCoordinatorTask(
 	ctx context.Context,
 	workloadUID string,
 ) error {
+	log.Debugf("CreateDetectionCoordinatorTask called for workload %s, autoCreateTask=%v", workloadUID, tc.autoCreateTask)
+	
 	if !tc.autoCreateTask {
 		log.Debugf("Auto task creation disabled, skipping detection coordinator task for workload %s", workloadUID)
 		return nil
@@ -639,6 +641,7 @@ func (tc *TaskCreator) CreateDetectionCoordinatorTask(
 
 	// Check if task already exists
 	existingTask, err := tc.taskFacade.GetTask(ctx, workloadUID, constant.TaskTypeDetectionCoordinator)
+	log.Debugf("GetTask result for workload %s: existingTask=%v, err=%v", workloadUID, existingTask != nil, err)
 	if err == nil && existingTask != nil {
 		// Task already exists
 		if existingTask.Status == constant.TaskStatusRunning ||
@@ -647,6 +650,7 @@ func (tc *TaskCreator) CreateDetectionCoordinatorTask(
 				workloadUID, existingTask.Status)
 			return nil
 		}
+		log.Debugf("Existing task for workload %s has status %s, will recreate", workloadUID, existingTask.Status)
 	}
 
 	task := &model.WorkloadTaskState{
@@ -723,23 +727,30 @@ func (tc *TaskCreator) ScanForUndetectedWorkloads(ctx context.Context) error {
 	log.Infof("Found %d workloads needing detection coordination", len(workloadUIDs))
 
 	var created int
+	var skippedDueToDetection int
+	var skippedDueToError int
 	for _, uid := range workloadUIDs {
 		// Double check detection status
-		det, _ := detectionFacade.GetDetection(ctx, uid)
+		det, err := detectionFacade.GetDetection(ctx, uid)
+		if err != nil {
+			log.Debugf("Error getting detection for workload %s: %v", uid, err)
+		}
 		if det != nil && det.Status != "unknown" {
+			skippedDueToDetection++
+			log.Debugf("Skipping workload %s: detection exists with status %s", uid, det.Status)
 			continue
 		}
 
 		if err := tc.CreateDetectionCoordinatorTask(ctx, uid); err != nil {
+			skippedDueToError++
 			log.Warnf("Failed to create detection coordinator task for workload %s: %v", uid, err)
 			continue
 		}
 		created++
 	}
 
-	if created > 0 {
-		log.Infof("Created %d detection coordinator tasks", created)
-	}
+	log.Infof("Detection coordinator scan result: created=%d, skipped_detection=%d, skipped_error=%d",
+		created, skippedDueToDetection, skippedDueToError)
 
 	return nil
 }
