@@ -54,6 +54,8 @@ type FacadeInterface interface {
 	GetWorkloadDetection() WorkloadDetectionFacadeInterface
 	// GetWorkloadDetectionEvidence returns the WorkloadDetectionEvidence Facade interface
 	GetWorkloadDetectionEvidence() WorkloadDetectionEvidenceFacadeInterface
+	// GetDetectionCoverage returns the DetectionCoverage Facade interface
+	GetDetectionCoverage() DetectionCoverageFacadeInterface
 	// WithCluster returns a new Facade instance using the specified cluster
 	WithCluster(clusterName string) FacadeInterface
 }
@@ -86,6 +88,7 @@ type Facade struct {
 	K8sService                    K8sServiceFacadeInterface
 	WorkloadDetection             WorkloadDetectionFacadeInterface
 	WorkloadDetectionEvidence     WorkloadDetectionEvidenceFacadeInterface
+	DetectionCoverage             DetectionCoverageFacadeInterface
 }
 
 // NewFacade creates a new Facade instance
@@ -117,6 +120,7 @@ func NewFacade() *Facade {
 		K8sService:                NewK8sServiceFacade(),
 		WorkloadDetection:         NewWorkloadDetectionFacade(),
 		WorkloadDetectionEvidence: NewWorkloadDetectionEvidenceFacade(),
+		DetectionCoverage:         NewDetectionCoverageFacade(),
 	}
 }
 
@@ -250,6 +254,11 @@ func (f *Facade) GetWorkloadDetectionEvidence() WorkloadDetectionEvidenceFacadeI
 	return f.WorkloadDetectionEvidence
 }
 
+// GetDetectionCoverage returns the DetectionCoverage Facade interface
+func (f *Facade) GetDetectionCoverage() DetectionCoverageFacadeInterface {
+	return f.DetectionCoverage
+}
+
 // WithCluster returns a new Facade instance, all sub-Facades use the specified cluster
 func (f *Facade) WithCluster(clusterName string) FacadeInterface {
 	return &Facade{
@@ -279,6 +288,7 @@ func (f *Facade) WithCluster(clusterName string) FacadeInterface {
 		K8sService:                f.K8sService.WithCluster(clusterName),
 		WorkloadDetection:         f.WorkloadDetection.WithCluster(clusterName),
 		WorkloadDetectionEvidence: f.WorkloadDetectionEvidence.WithCluster(clusterName),
+		DetectionCoverage:         f.DetectionCoverage.WithCluster(clusterName),
 	}
 }
 

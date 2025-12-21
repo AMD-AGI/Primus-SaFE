@@ -18,6 +18,12 @@ import (
 )
 
 // ActiveDetectionExecutor proactively detects framework for workloads
+//
+// Deprecated: This executor is being replaced by DetectionCoordinator which provides
+// a more modular architecture with separate sub-task executors (ProcessProbeExecutor,
+// ImageProbeExecutor, LabelProbeExecutor, LogDetectionExecutor) and a state machine
+// for coordinating evidence collection. Use DetectionCoordinator for new workloads.
+// This executor is kept for backward compatibility with existing active_detection tasks.
 type ActiveDetectionExecutor struct {
 	coreTask.BaseExecutor
 
@@ -31,6 +37,8 @@ type ActiveDetectionExecutor struct {
 }
 
 // NewActiveDetectionExecutor creates new executor
+//
+// Deprecated: Use NewDetectionCoordinator instead. See ActiveDetectionExecutor for details.
 func NewActiveDetectionExecutor(collector *metadata.Collector) *ActiveDetectionExecutor {
 	return &ActiveDetectionExecutor{
 		collector:         collector,

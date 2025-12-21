@@ -39,6 +39,7 @@ var (
 	diagnosticsHandler    *handlers.DiagnosticsHandler
 	insightsHandler       *handlers.InsightsHandler
 	wandbHandler          *handlers.WandBHandler
+	coordinatorHandler    *handlers.CoordinatorHandler
 )
 
 // generateInstanceID generates instance ID
@@ -127,12 +128,49 @@ func Bootstrap(ctx context.Context) error {
 			log.Info("TensorBoard stream executor registered")
 		}
 
-		// Register Active Detection executor
+		// Register Active Detection executor (legacy, to be replaced by coordinator)
 		activeDetectionExecutor := advisorTask.NewActiveDetectionExecutor(metadata.GetCollector())
 		if err := taskScheduler.RegisterExecutor(activeDetectionExecutor); err != nil {
 			log.Errorf("Failed to register active detection executor: %v", err)
 		} else {
 			log.Info("Active detection executor registered")
+		}
+
+		// Register Detection Coordinator executor
+		detectionCoordinator := advisorTask.NewDetectionCoordinator(metadata.GetCollector(), instanceID)
+		if err := taskScheduler.RegisterExecutor(detectionCoordinator); err != nil {
+			log.Errorf("Failed to register detection coordinator: %v", err)
+		} else {
+			log.Info("Detection coordinator registered")
+		}
+
+		// Register detection sub-task executors
+		processProbeExecutor := advisorTask.NewProcessProbeExecutor(metadata.GetCollector())
+		if err := taskScheduler.RegisterExecutor(processProbeExecutor); err != nil {
+			log.Errorf("Failed to register process probe executor: %v", err)
+		} else {
+			log.Info("Process probe executor registered")
+		}
+
+		imageProbeExecutor := advisorTask.NewImageProbeExecutor(metadata.GetCollector())
+		if err := taskScheduler.RegisterExecutor(imageProbeExecutor); err != nil {
+			log.Errorf("Failed to register image probe executor: %v", err)
+		} else {
+			log.Info("Image probe executor registered")
+		}
+
+		labelProbeExecutor := advisorTask.NewLabelProbeExecutor(metadata.GetCollector())
+		if err := taskScheduler.RegisterExecutor(labelProbeExecutor); err != nil {
+			log.Errorf("Failed to register label probe executor: %v", err)
+		} else {
+			log.Info("Label probe executor registered")
+		}
+
+		logDetectionExecutor := advisorTask.NewLogDetectionExecutor()
+		if err := taskScheduler.RegisterExecutor(logDetectionExecutor); err != nil {
+			log.Errorf("Failed to register log detection executor: %v", err)
+		} else {
+			log.Info("Log detection executor registered")
 		}
 
 		// Initialize profiler services (includes ProfilerCollectionExecutor registration)
@@ -168,6 +206,7 @@ func Bootstrap(ctx context.Context) error {
 		diagnosticsHandler = handlers.NewDiagnosticsHandler(metadataFacade)
 		insightsHandler = handlers.NewInsightsHandler(metadataFacade)
 		wandbHandler = handlers.NewWandBHandler(detection.GetWandBDetector())
+		coordinatorHandler = handlers.NewCoordinatorHandler()
 
 		// Register routes
 		router.RegisterGroup(initRouter)
@@ -193,6 +232,15 @@ func initRouter(group *gin.RouterGroup) error {
 
 		// Manual annotation
 		detectionGroup.PUT("/workloads/:uid", detectionHandler.UpdateDetection)
+
+		// Detection Coordinator APIs
+		// Log detection report from telemetry-processor
+		detectionGroup.POST("/log-report", coordinatorHandler.HandleLogReport)
+
+		// Detection coverage APIs
+		detectionGroup.GET("/coverage/:uid", coordinatorHandler.GetCoverageStatus)
+		detectionGroup.POST("/coverage/:uid/initialize", coordinatorHandler.InitializeCoverage)
+		detectionGroup.GET("/coverage/:uid/log-window", coordinatorHandler.GetUncoveredLogWindow)
 	}
 
 	// Performance Analysis APIs

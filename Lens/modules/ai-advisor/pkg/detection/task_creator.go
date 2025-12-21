@@ -617,22 +617,33 @@ func (a *detectionEventAdapter) OnDetectionEvent(
 
 // CreateActiveDetectionTask creates an active detection task for a new workload
 // This is triggered when a workload is first discovered (before any detection)
+// Deprecated: Use CreateDetectionCoordinatorTask instead
 func (tc *TaskCreator) CreateActiveDetectionTask(
 	ctx context.Context,
 	workloadUID string,
 ) error {
+	// Delegate to the new coordinator-based approach
+	return tc.CreateDetectionCoordinatorTask(ctx, workloadUID)
+}
+
+// CreateDetectionCoordinatorTask creates a detection coordinator task for a new workload
+// This is the new approach that uses a state machine to coordinate sub-tasks
+func (tc *TaskCreator) CreateDetectionCoordinatorTask(
+	ctx context.Context,
+	workloadUID string,
+) error {
 	if !tc.autoCreateTask {
-		log.Debugf("Auto task creation disabled, skipping active detection task for workload %s", workloadUID)
+		log.Debugf("Auto task creation disabled, skipping detection coordinator task for workload %s", workloadUID)
 		return nil
 	}
 
 	// Check if task already exists
-	existingTask, err := tc.taskFacade.GetTask(ctx, workloadUID, constant.TaskTypeActiveDetection)
+	existingTask, err := tc.taskFacade.GetTask(ctx, workloadUID, constant.TaskTypeDetectionCoordinator)
 	if err == nil && existingTask != nil {
 		// Task already exists
 		if existingTask.Status == constant.TaskStatusRunning ||
 			existingTask.Status == constant.TaskStatusPending {
-			log.Debugf("Active detection task already exists for workload %s (status: %s)",
+			log.Debugf("Detection coordinator task already exists for workload %s (status: %s)",
 				workloadUID, existingTask.Status)
 			return nil
 		}
@@ -640,37 +651,37 @@ func (tc *TaskCreator) CreateActiveDetectionTask(
 
 	task := &model.WorkloadTaskState{
 		WorkloadUID: workloadUID,
-		TaskType:    constant.TaskTypeActiveDetection,
+		TaskType:    constant.TaskTypeDetectionCoordinator,
 		Status:      constant.TaskStatusPending,
 		Ext: model.ExtType{
-			// Detection configuration
-			// Note: No max_attempts limit - task runs until detection confirmed or workload terminates
-			"attempt_count":  0,
-			"retry_interval": 10,   // Base interval in seconds (will exponentially back off to max 60s)
-			"timeout":        60,   // Per-attempt timeout
+			// Coordinator state machine
+			"coordinator_state": "init",
 
-			// Evidence sources to probe
-			"probe_process": true, // Probe process info
-			"probe_env":     true, // Probe environment variables
-			"probe_image":   true, // Check container image
-			"probe_labels":  true, // Check pod labels/annotations
+			// Configuration
+			"initial_delay":     30, // Initial delay before first probe (seconds)
+			"min_pod_age":       30, // Minimum pod age before probing (seconds)
+			"confirm_threshold": 0.85,
+			"sub_task_timeout":  60, // Sub-task timeout (seconds)
+
+			// Attempt tracking
+			"attempt_count": 0,
 
 			// Task metadata
 			"created_by":   "workload_discovery",
 			"created_at":   time.Now().Format(time.RFC3339),
-			"triggered_by": "active_detection",
+			"triggered_by": "detection_coordinator",
 		},
 	}
 
 	if err := tc.taskFacade.UpsertTask(ctx, task); err != nil {
-		return fmt.Errorf("failed to create active detection task: %w", err)
+		return fmt.Errorf("failed to create detection coordinator task: %w", err)
 	}
 
-	log.Infof("Active detection task created for workload %s", workloadUID)
+	log.Infof("Detection coordinator task created for workload %s", workloadUID)
 	return nil
 }
 
-// ScanForUndetectedWorkloads finds workloads that need active detection
+// ScanForUndetectedWorkloads finds workloads that need detection coordination
 // This can be called periodically to ensure no workloads are missed
 func (tc *TaskCreator) ScanForUndetectedWorkloads(ctx context.Context) error {
 	if !tc.autoCreateTask {
@@ -682,20 +693,20 @@ func (tc *TaskCreator) ScanForUndetectedWorkloads(ctx context.Context) error {
 	// Find workloads that don't have a detection record yet
 	// This requires querying the workload table and left joining with detection table
 	// For now, we'll use a simpler approach: get workloads from gpu_workloads
-	// and check if they have a pending/running active detection task
+	// and check if they have a pending/running detection coordinator task
 
 	db := database.GetFacade().GetSystemConfig().GetDB()
 
-	// Query recent workloads that don't have active detection tasks
+	// Query recent workloads that don't have detection coordinator tasks
 	var workloadUIDs []string
 	err := db.WithContext(ctx).
 		Table("gpu_workloads").
 		Select("DISTINCT gpu_workloads.uid").
-		Joins("LEFT JOIN workload_task_states ON gpu_workloads.uid = workload_task_states.workload_uid AND workload_task_states.task_type = ?", constant.TaskTypeActiveDetection).
+		Joins("LEFT JOIN workload_task_states ON gpu_workloads.uid = workload_task_states.workload_uid AND workload_task_states.task_type = ?", constant.TaskTypeDetectionCoordinator).
 		Joins("LEFT JOIN workload_detection ON gpu_workloads.uid = workload_detection.workload_uid").
 		Where("gpu_workloads.deleted = ?", false).
 		Where("gpu_workloads.status IN ?", []string{"running", "pending"}).
-		Where("workload_task_states.id IS NULL"). // No active detection task
+		Where("workload_task_states.id IS NULL"). // No detection coordinator task
 		Where("workload_detection.id IS NULL OR workload_detection.status = ?", "unknown"). // No detection record or unknown
 		Limit(100).
 		Pluck("uid", &workloadUIDs).Error
@@ -709,25 +720,25 @@ func (tc *TaskCreator) ScanForUndetectedWorkloads(ctx context.Context) error {
 		return nil
 	}
 
-	log.Infof("Found %d workloads needing active detection", len(workloadUIDs))
+	log.Infof("Found %d workloads needing detection coordination", len(workloadUIDs))
 
 	var created int
 	for _, uid := range workloadUIDs {
 		// Double check detection status
-		detection, _ := detectionFacade.GetDetection(ctx, uid)
-		if detection != nil && detection.Status != "unknown" {
+		det, _ := detectionFacade.GetDetection(ctx, uid)
+		if det != nil && det.Status != "unknown" {
 			continue
 		}
 
-		if err := tc.CreateActiveDetectionTask(ctx, uid); err != nil {
-			log.Warnf("Failed to create active detection task for workload %s: %v", uid, err)
+		if err := tc.CreateDetectionCoordinatorTask(ctx, uid); err != nil {
+			log.Warnf("Failed to create detection coordinator task for workload %s: %v", uid, err)
 			continue
 		}
 		created++
 	}
 
 	if created > 0 {
-		log.Infof("Created %d active detection tasks", created)
+		log.Infof("Created %d detection coordinator tasks", created)
 	}
 
 	return nil

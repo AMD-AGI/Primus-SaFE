@@ -32,6 +32,7 @@ func Use(db *gorm.DB, opts ...gen.DOOption) *Query {
 		ClusterOverviewCache:        newClusterOverviewCache(db, opts...),
 		Conversations:               newConversations(db, opts...),
 		DetectionConflictLog:        newDetectionConflictLog(db, opts...),
+		DetectionCoverage:           newDetectionCoverage(db, opts...),
 		DetectionSourcePriority:     newDetectionSourcePriority(db, opts...),
 		Fault:                       newFault(db, opts...),
 		FrameworkConfig:             newFrameworkConfig(db, opts...),
@@ -105,6 +106,7 @@ type Query struct {
 	ClusterOverviewCache        clusterOverviewCache
 	Conversations               conversations
 	DetectionConflictLog        detectionConflictLog
+	DetectionCoverage           detectionCoverage
 	DetectionSourcePriority     detectionSourcePriority
 	Fault                       fault
 	FrameworkConfig             frameworkConfig
@@ -179,6 +181,7 @@ func (q *Query) clone(db *gorm.DB) *Query {
 		ClusterOverviewCache:        q.ClusterOverviewCache.clone(db),
 		Conversations:               q.Conversations.clone(db),
 		DetectionConflictLog:        q.DetectionConflictLog.clone(db),
+		DetectionCoverage:           q.DetectionCoverage.clone(db),
 		DetectionSourcePriority:     q.DetectionSourcePriority.clone(db),
 		Fault:                       q.Fault.clone(db),
 		FrameworkConfig:             q.FrameworkConfig.clone(db),
@@ -260,6 +263,7 @@ func (q *Query) ReplaceDB(db *gorm.DB) *Query {
 		ClusterOverviewCache:        q.ClusterOverviewCache.replaceDB(db),
 		Conversations:               q.Conversations.replaceDB(db),
 		DetectionConflictLog:        q.DetectionConflictLog.replaceDB(db),
+		DetectionCoverage:           q.DetectionCoverage.replaceDB(db),
 		DetectionSourcePriority:     q.DetectionSourcePriority.replaceDB(db),
 		Fault:                       q.Fault.replaceDB(db),
 		FrameworkConfig:             q.FrameworkConfig.replaceDB(db),
@@ -331,6 +335,7 @@ type queryCtx struct {
 	ClusterOverviewCache        *clusterOverviewCacheDo
 	Conversations               *conversationsDo
 	DetectionConflictLog        *detectionConflictLogDo
+	DetectionCoverage           *detectionCoverageDo
 	DetectionSourcePriority     *detectionSourcePriorityDo
 	Fault                       *faultDo
 	FrameworkConfig             *frameworkConfigDo
@@ -402,6 +407,7 @@ func (q *Query) WithContext(ctx context.Context) *queryCtx {
 		ClusterOverviewCache:        q.ClusterOverviewCache.WithContext(ctx),
 		Conversations:               q.Conversations.WithContext(ctx),
 		DetectionConflictLog:        q.DetectionConflictLog.WithContext(ctx),
+		DetectionCoverage:           q.DetectionCoverage.WithContext(ctx),
 		DetectionSourcePriority:     q.DetectionSourcePriority.WithContext(ctx),
 		Fault:                       q.Fault.WithContext(ctx),
 		FrameworkConfig:             q.FrameworkConfig.WithContext(ctx),
