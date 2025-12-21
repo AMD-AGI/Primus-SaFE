@@ -127,6 +127,14 @@ func Bootstrap(ctx context.Context) error {
 			log.Info("TensorBoard stream executor registered")
 		}
 
+		// Register Active Detection executor
+		activeDetectionExecutor := advisorTask.NewActiveDetectionExecutor(metadata.GetCollector())
+		if err := taskScheduler.RegisterExecutor(activeDetectionExecutor); err != nil {
+			log.Errorf("Failed to register active detection executor: %v", err)
+		} else {
+			log.Info("Active detection executor registered")
+		}
+
 		// Initialize profiler services (includes ProfilerCollectionExecutor registration)
 		// Pass metadata collector for node-exporter client access
 		if err := InitProfilerServices(ctx, taskScheduler, metadata.GetCollector()); err != nil {

@@ -50,6 +50,10 @@ type FacadeInterface interface {
 	GetTraceLensSession() TraceLensSessionFacadeInterface
 	// GetK8sService returns the K8sService Facade interface
 	GetK8sService() K8sServiceFacadeInterface
+	// GetWorkloadDetection returns the WorkloadDetection Facade interface
+	GetWorkloadDetection() WorkloadDetectionFacadeInterface
+	// GetWorkloadDetectionEvidence returns the WorkloadDetectionEvidence Facade interface
+	GetWorkloadDetectionEvidence() WorkloadDetectionEvidenceFacadeInterface
 	// WithCluster returns a new Facade instance using the specified cluster
 	WithCluster(clusterName string) FacadeInterface
 }
@@ -78,8 +82,10 @@ type Facade struct {
 	WorkloadStatistic     WorkloadStatisticFacadeInterface
 	GpuUsageWeeklyReport  GpuUsageWeeklyReportFacadeInterface
 	NodeNamespaceMapping  NodeNamespaceMappingFacadeInterface
-	TraceLensSession      TraceLensSessionFacadeInterface
-	K8sService            K8sServiceFacadeInterface
+	TraceLensSession              TraceLensSessionFacadeInterface
+	K8sService                    K8sServiceFacadeInterface
+	WorkloadDetection             WorkloadDetectionFacadeInterface
+	WorkloadDetectionEvidence     WorkloadDetectionEvidenceFacadeInterface
 }
 
 // NewFacade creates a new Facade instance
@@ -107,8 +113,10 @@ func NewFacade() *Facade {
 		WorkloadStatistic:     NewWorkloadStatisticFacade(),
 		GpuUsageWeeklyReport:  NewGpuUsageWeeklyReportFacade(),
 		NodeNamespaceMapping:  NewNodeNamespaceMappingFacade(),
-		TraceLensSession:      NewTraceLensSessionFacade(),
-		K8sService:            NewK8sServiceFacade(),
+		TraceLensSession:          NewTraceLensSessionFacade(),
+		K8sService:                NewK8sServiceFacade(),
+		WorkloadDetection:         NewWorkloadDetectionFacade(),
+		WorkloadDetectionEvidence: NewWorkloadDetectionEvidenceFacade(),
 	}
 }
 
@@ -232,6 +240,16 @@ func (f *Facade) GetK8sService() K8sServiceFacadeInterface {
 	return f.K8sService
 }
 
+// GetWorkloadDetection returns the WorkloadDetection Facade interface
+func (f *Facade) GetWorkloadDetection() WorkloadDetectionFacadeInterface {
+	return f.WorkloadDetection
+}
+
+// GetWorkloadDetectionEvidence returns the WorkloadDetectionEvidence Facade interface
+func (f *Facade) GetWorkloadDetectionEvidence() WorkloadDetectionEvidenceFacadeInterface {
+	return f.WorkloadDetectionEvidence
+}
+
 // WithCluster returns a new Facade instance, all sub-Facades use the specified cluster
 func (f *Facade) WithCluster(clusterName string) FacadeInterface {
 	return &Facade{
@@ -257,8 +275,10 @@ func (f *Facade) WithCluster(clusterName string) FacadeInterface {
 		WorkloadStatistic:     f.WorkloadStatistic.WithCluster(clusterName),
 		GpuUsageWeeklyReport:  f.GpuUsageWeeklyReport.WithCluster(clusterName),
 		NodeNamespaceMapping:  f.NodeNamespaceMapping.WithCluster(clusterName),
-		TraceLensSession:      f.TraceLensSession.WithCluster(clusterName),
-		K8sService:            f.K8sService.WithCluster(clusterName),
+		TraceLensSession:          f.TraceLensSession.WithCluster(clusterName),
+		K8sService:                f.K8sService.WithCluster(clusterName),
+		WorkloadDetection:         f.WorkloadDetection.WithCluster(clusterName),
+		WorkloadDetectionEvidence: f.WorkloadDetectionEvidence.WithCluster(clusterName),
 	}
 }
 

@@ -615,3 +615,121 @@ func (a *detectionEventAdapter) OnDetectionEvent(
 	return a.taskCreator.OnDetectionCompleted(ctx, event.WorkloadUID, event.Detection)
 }
 
+// CreateActiveDetectionTask creates an active detection task for a new workload
+// This is triggered when a workload is first discovered (before any detection)
+func (tc *TaskCreator) CreateActiveDetectionTask(
+	ctx context.Context,
+	workloadUID string,
+) error {
+	if !tc.autoCreateTask {
+		log.Debugf("Auto task creation disabled, skipping active detection task for workload %s", workloadUID)
+		return nil
+	}
+
+	// Check if task already exists
+	existingTask, err := tc.taskFacade.GetTask(ctx, workloadUID, constant.TaskTypeActiveDetection)
+	if err == nil && existingTask != nil {
+		// Task already exists
+		if existingTask.Status == constant.TaskStatusRunning ||
+			existingTask.Status == constant.TaskStatusPending {
+			log.Debugf("Active detection task already exists for workload %s (status: %s)",
+				workloadUID, existingTask.Status)
+			return nil
+		}
+	}
+
+	task := &model.WorkloadTaskState{
+		WorkloadUID: workloadUID,
+		TaskType:    constant.TaskTypeActiveDetection,
+		Status:      constant.TaskStatusPending,
+		Ext: model.ExtType{
+			// Detection configuration
+			// Note: No max_attempts limit - task runs until detection confirmed or workload terminates
+			"attempt_count":  0,
+			"retry_interval": 10,   // Base interval in seconds (will exponentially back off to max 60s)
+			"timeout":        60,   // Per-attempt timeout
+
+			// Evidence sources to probe
+			"probe_process": true, // Probe process info
+			"probe_env":     true, // Probe environment variables
+			"probe_image":   true, // Check container image
+			"probe_labels":  true, // Check pod labels/annotations
+
+			// Task metadata
+			"created_by":   "workload_discovery",
+			"created_at":   time.Now().Format(time.RFC3339),
+			"triggered_by": "active_detection",
+		},
+	}
+
+	if err := tc.taskFacade.UpsertTask(ctx, task); err != nil {
+		return fmt.Errorf("failed to create active detection task: %w", err)
+	}
+
+	log.Infof("Active detection task created for workload %s", workloadUID)
+	return nil
+}
+
+// ScanForUndetectedWorkloads finds workloads that need active detection
+// This can be called periodically to ensure no workloads are missed
+func (tc *TaskCreator) ScanForUndetectedWorkloads(ctx context.Context) error {
+	if !tc.autoCreateTask {
+		return nil
+	}
+
+	detectionFacade := database.NewWorkloadDetectionFacade()
+
+	// Find workloads that don't have a detection record yet
+	// This requires querying the workload table and left joining with detection table
+	// For now, we'll use a simpler approach: get workloads from gpu_workloads
+	// and check if they have a pending/running active detection task
+
+	db := database.GetFacade().GetSystemConfig().GetDB()
+
+	// Query recent workloads that don't have active detection tasks
+	var workloadUIDs []string
+	err := db.WithContext(ctx).
+		Table("gpu_workloads").
+		Select("DISTINCT gpu_workloads.uid").
+		Joins("LEFT JOIN workload_task_states ON gpu_workloads.uid = workload_task_states.workload_uid AND workload_task_states.task_type = ?", constant.TaskTypeActiveDetection).
+		Joins("LEFT JOIN workload_detection ON gpu_workloads.uid = workload_detection.workload_uid").
+		Where("gpu_workloads.deleted = ?", false).
+		Where("gpu_workloads.status IN ?", []string{"running", "pending"}).
+		Where("workload_task_states.id IS NULL"). // No active detection task
+		Where("workload_detection.id IS NULL OR workload_detection.status = ?", "unknown"). // No detection record or unknown
+		Limit(100).
+		Pluck("uid", &workloadUIDs).Error
+
+	if err != nil {
+		return fmt.Errorf("failed to scan for undetected workloads: %w", err)
+	}
+
+	if len(workloadUIDs) == 0 {
+		log.Debug("No undetected workloads found")
+		return nil
+	}
+
+	log.Infof("Found %d workloads needing active detection", len(workloadUIDs))
+
+	var created int
+	for _, uid := range workloadUIDs {
+		// Double check detection status
+		detection, _ := detectionFacade.GetDetection(ctx, uid)
+		if detection != nil && detection.Status != "unknown" {
+			continue
+		}
+
+		if err := tc.CreateActiveDetectionTask(ctx, uid); err != nil {
+			log.Warnf("Failed to create active detection task for workload %s: %v", uid, err)
+			continue
+		}
+		created++
+	}
+
+	if created > 0 {
+		log.Infof("Created %d active detection tasks", created)
+	}
+
+	return nil
+}
+

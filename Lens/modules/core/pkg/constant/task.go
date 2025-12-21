@@ -13,6 +13,7 @@ const (
 // Task type constants
 const (
 	TaskTypeDetection          = "detection"
+	TaskTypeActiveDetection    = "active_detection"
 	TaskTypeMetadataCollection = "metadata_collection"
 	TaskTypeTensorBoardStream  = "tensorboard_stream"
 	TaskTypeMetricCollection   = "metric_collection"

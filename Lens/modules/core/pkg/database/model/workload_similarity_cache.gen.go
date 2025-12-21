@@ -13,13 +13,13 @@ const TableNameWorkloadSimilarityCache = "workload_similarity_cache"
 // WorkloadSimilarityCache mapped from table <workload_similarity_cache>
 type WorkloadSimilarityCache struct {
 	ID              int64     `gorm:"column:id;primaryKey;autoIncrement:true" json:"id"`
-	WorkloadUid1    string    `gorm:"column:workload_uid_1;not null" json:"workload_uid_1"`
-	WorkloadUid2    string    `gorm:"column:workload_uid_2;not null" json:"workload_uid_2"`
-	SimilarityScore float64   `gorm:"column:similarity_score;not null" json:"similarity_score"`
-	SignatureHash1  string    `gorm:"column:signature_hash_1;not null" json:"signature_hash_1"`
-	SignatureHash2  string    `gorm:"column:signature_hash_2;not null" json:"signature_hash_2"`
-	CalculatedAt    time.Time `gorm:"column:calculated_at;not null;default:CURRENT_TIMESTAMP" json:"calculated_at"`
-	ExpiresAt       time.Time `gorm:"column:expires_at;not null" json:"expires_at"`
+	WorkloadUid1    string    `gorm:"column:workload_uid_1;not null;comment:First workload UID in the comparison pair" json:"workload_uid_1"`                            // First workload UID in the comparison pair
+	WorkloadUid2    string    `gorm:"column:workload_uid_2;not null;comment:Second workload UID in the comparison pair" json:"workload_uid_2"`                           // Second workload UID in the comparison pair
+	SimilarityScore float64   `gorm:"column:similarity_score;not null;comment:Calculated similarity score (0.000-1.000)" json:"similarity_score"`                        // Calculated similarity score (0.000-1.000)
+	SignatureHash1  string    `gorm:"column:signature_hash_1;not null;comment:Hash of first workload signature for cache invalidation" json:"signature_hash_1"`          // Hash of first workload signature for cache invalidation
+	SignatureHash2  string    `gorm:"column:signature_hash_2;not null;comment:Hash of second workload signature for cache invalidation" json:"signature_hash_2"`         // Hash of second workload signature for cache invalidation
+	CalculatedAt    time.Time `gorm:"column:calculated_at;not null;default:CURRENT_TIMESTAMP;comment:Timestamp when the similarity was calculated" json:"calculated_at"` // Timestamp when the similarity was calculated
+	ExpiresAt       time.Time `gorm:"column:expires_at;not null;comment:Cache expiration time (managed by application cleanup task)" json:"expires_at"`                  // Cache expiration time (managed by application cleanup task)
 }
 
 // TableName WorkloadSimilarityCache's table name

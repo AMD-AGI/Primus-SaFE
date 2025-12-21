@@ -94,7 +94,7 @@ func (f *WorkloadStatisticFacade) GetOrCreate(ctx context.Context, clusterName s
 		P50GpuUtilization:     0,
 		P90GpuUtilization:     0,
 		P95GpuUtilization:     0,
-		Histogram:             model.ExtType{}, // Initialize empty histogram
+		Histogram:             model.ExtJSON(`{"buckets": []}`), // Initialize empty histogram
 	}
 
 	return newRecord, true, nil

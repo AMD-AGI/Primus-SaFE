@@ -57,24 +57,24 @@ type tracelensSessions struct {
 
 	ALL             field.Asterisk
 	ID              field.Int32
-	SessionID       field.String // Unique session identifier, format: tls-{workload_uid_prefix}-{file_id}-{timestamp}
-	WorkloadUID     field.String // Associated GPU workload UID
-	ProfilerFileID  field.Int32  // Associated profiler file ID (logical reference to profiler_files.id)
+	SessionID       field.String
+	WorkloadUID     field.String
+	ProfilerFileID  field.Int32
 	UserID          field.String
 	UserEmail       field.String
-	PodName         field.String // Kubernetes pod name, format: tracelens-session-{session_id}
+	PodName         field.String
 	PodNamespace    field.String
-	PodIP           field.String // Pod cluster IP for proxy routing
+	PodIP           field.String
 	PodPort         field.Int32
-	Status          field.String // Session lifecycle status: pending -> creating -> initializing -> ready -> expired -> deleted
+	Status          field.String
 	StatusMessage   field.String
 	CreatedAt       field.Time
 	ReadyAt         field.Time
-	ExpiresAt       field.Time // Automatic expiration time, default TTL is 1 hour
-	LastAccessedAt  field.Time // Last proxy request time, used for idle detection
+	ExpiresAt       field.Time
+	LastAccessedAt  field.Time
 	DeletedAt       field.Field
-	ResourceProfile field.String // Resource allocation profile: small (2GB), medium (4GB), large (8GB)
-	Config          field.Field  // Additional configuration as JSON (e.g., analysis options)
+	ResourceProfile field.String
+	Config          field.Field
 
 	fieldMap map[string]field.Expr
 }
