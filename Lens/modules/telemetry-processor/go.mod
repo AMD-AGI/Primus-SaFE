@@ -6,6 +6,8 @@ replace github.com/AMD-AGI/Primus-SaFE/Lens/core => ../core
 
 replace github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor => ../ai-advisor
 
+replace github.com/AMD-AGI/Primus-SaFE/Lens/node-exporter => ../exporters/node-exporter
+
 require (
 	github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor v0.0.0-00010101000000-000000000000
 	github.com/AMD-AGI/Primus-SaFE/Lens/core v0.0.0-00010101000000-000000000000
@@ -20,6 +22,7 @@ require (
 
 require (
 	filippo.io/edwards25519 v1.1.0 // indirect
+	github.com/AMD-AGI/Primus-SaFE/Lens/node-exporter v0.0.0-00010101000000-000000000000 // indirect
 	github.com/VictoriaMetrics/easyproto v0.1.4 // indirect
 	github.com/VictoriaMetrics/metrics v1.38.0 // indirect
 	github.com/VictoriaMetrics/metricsql v0.84.6 // indirect
