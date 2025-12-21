@@ -700,13 +700,13 @@ func (tc *TaskCreator) ScanForUndetectedWorkloads(ctx context.Context) error {
 	// Query recent workloads that don't have detection coordinator tasks
 	var workloadUIDs []string
 	err := db.WithContext(ctx).
-		Table("gpu_workloads").
-		Select("DISTINCT gpu_workloads.uid").
-		Joins("LEFT JOIN workload_task_states ON gpu_workloads.uid = workload_task_states.workload_uid AND workload_task_states.task_type = ?", constant.TaskTypeDetectionCoordinator).
-		Joins("LEFT JOIN workload_detection ON gpu_workloads.uid = workload_detection.workload_uid").
-		Where("gpu_workloads.deleted = ?", false).
-		Where("gpu_workloads.status IN ?", []string{"running", "pending"}).
-		Where("workload_task_states.id IS NULL"). // No detection coordinator task
+		Table("gpu_workload").
+		Select("DISTINCT gpu_workload.uid").
+		Joins("LEFT JOIN workload_task_state ON gpu_workload.uid = workload_task_state.workload_uid AND workload_task_state.task_type = ?", constant.TaskTypeDetectionCoordinator).
+		Joins("LEFT JOIN workload_detection ON gpu_workload.uid = workload_detection.workload_uid").
+		Where("gpu_workload.deleted_at IS NULL").
+		Where("gpu_workload.status IN ?", []string{"Running", "Pending"}).
+		Where("workload_task_state.id IS NULL"). // No detection coordinator task
 		Where("workload_detection.id IS NULL OR workload_detection.status = ?", "unknown"). // No detection record or unknown
 		Limit(100).
 		Pluck("uid", &workloadUIDs).Error
