@@ -14,6 +14,10 @@ type WorkloadDetectionEvidenceFacadeInterface interface {
 	// CreateEvidence creates a new detection evidence record
 	CreateEvidence(ctx context.Context, evidence *model.WorkloadDetectionEvidence) error
 
+	// UpsertEvidence creates or updates an evidence record
+	// Updates are matched by workload_uid + source + framework
+	UpsertEvidence(ctx context.Context, evidence *model.WorkloadDetectionEvidence) error
+
 	// BatchCreateEvidence creates multiple evidence records in a single transaction
 	BatchCreateEvidence(ctx context.Context, evidences []*model.WorkloadDetectionEvidence) error
 
@@ -82,6 +86,50 @@ func (f *WorkloadDetectionEvidenceFacade) CreateEvidence(ctx context.Context, ev
 		evidence.CreatedAt = time.Now()
 	}
 	return f.getDAL().WorkloadDetectionEvidence.WithContext(ctx).Create(evidence)
+}
+
+// UpsertEvidence creates or updates an evidence record
+// Updates are matched by workload_uid + source + framework
+func (f *WorkloadDetectionEvidenceFacade) UpsertEvidence(ctx context.Context, evidence *model.WorkloadDetectionEvidence) error {
+	if evidence.DetectedAt.IsZero() {
+		evidence.DetectedAt = time.Now()
+	}
+	if evidence.CreatedAt.IsZero() {
+		evidence.CreatedAt = time.Now()
+	}
+
+	q := f.getDAL().WorkloadDetectionEvidence
+
+	// Try to find existing evidence with same workload_uid + source + framework
+	existing, err := q.WithContext(ctx).
+		Where(q.WorkloadUID.Eq(evidence.WorkloadUID)).
+		Where(q.Source.Eq(evidence.Source)).
+		Where(q.Framework.Eq(evidence.Framework)).
+		First()
+
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return err
+	}
+
+	if existing != nil {
+		// Update existing record if new confidence is higher or same
+		if evidence.Confidence >= existing.Confidence {
+			_, err = q.WithContext(ctx).
+				Where(q.ID.Eq(existing.ID)).
+				UpdateSimple(
+					q.Confidence.Value(evidence.Confidence),
+					q.DetectedAt.Value(evidence.DetectedAt),
+					q.Evidence.Value(evidence.Evidence),
+					q.SourceType.Value(evidence.SourceType),
+				)
+			return err
+		}
+		// Skip update if existing has higher confidence
+		return nil
+	}
+
+	// Create new record
+	return q.WithContext(ctx).Create(evidence)
 }
 
 // BatchCreateEvidence creates multiple evidence records in a single transaction

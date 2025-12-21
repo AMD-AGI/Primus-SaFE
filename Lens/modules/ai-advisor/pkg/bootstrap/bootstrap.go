@@ -96,6 +96,9 @@ func Bootstrap(ctx context.Context) error {
 			// Don't block startup, but warn
 		} else {
 			log.Info("Detection manager initialized successfully")
+
+			// Register evidence bridge to store legacy detections as evidence
+			detection.RegisterEvidenceBridge(detectionMgr)
 		}
 
 		// Initialize metadata collector
@@ -189,6 +192,13 @@ func Bootstrap(ctx context.Context) error {
 			log.Infof("Task scheduler started (instance: %s)", instanceID)
 		}
 
+		// Start periodic scan for undetected workloads
+		taskCreator := detection.GetTaskCreator()
+		if taskCreator != nil {
+			go startPeriodicWorkloadScan(ctx, taskCreator)
+			log.Info("Periodic workload scan started (interval: 1 minute)")
+		}
+
 		// Register cleanup for task scheduler
 		go func() {
 			<-ctx.Done()
@@ -214,6 +224,35 @@ func Bootstrap(ctx context.Context) error {
 		log.Info("AI Advisor initialized successfully")
 		return nil
 	})
+}
+
+// startPeriodicWorkloadScan starts a goroutine that periodically scans for
+// undetected workloads and creates detection coordinator tasks for them
+func startPeriodicWorkloadScan(ctx context.Context, taskCreator *detection.TaskCreator) {
+	ticker := time.NewTicker(1 * time.Minute)
+	defer ticker.Stop()
+
+	// Run initial scan after a short delay to let the system stabilize
+	time.Sleep(10 * time.Second)
+	if err := taskCreator.ScanForUndetectedWorkloads(ctx); err != nil {
+		log.Errorf("Initial workload scan failed: %v", err)
+	} else {
+		log.Debug("Initial workload scan completed")
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			log.Info("Stopping periodic workload scan")
+			return
+		case <-ticker.C:
+			if err := taskCreator.ScanForUndetectedWorkloads(ctx); err != nil {
+				log.Errorf("Periodic workload scan failed: %v", err)
+			} else {
+				log.Debug("Periodic workload scan completed")
+			}
+		}
+	}
 }
 
 func initRouter(group *gin.RouterGroup) error {

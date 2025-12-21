@@ -886,14 +886,14 @@ const (
 | `ai-advisor/pkg/bootstrap/bootstrap.go` | 注册新 executors |
 | `ai-advisor/pkg/task/metadata_collection_executor.go` | 提取公共逻辑到 PodProber |
 | `core/pkg/database/facade.go` | 添加 DetectionCoverageFacade |
-| `ai-advisor/pkg/handlers/detection_handler.go` | 添加日志检测上报接口 |
+V | `ai-advisor/pkg/handlers/detection_handler.go` | 添加日志检测上报接口 |
 | `ai-advisor/pkg/router/router.go` | 注册 `/detection/log-report` 路由 |
 
 ### 10.3 telemetry-processor 需配合修改
 
 | 文件路径 | 修改内容 |
 |---------|---------|
-| `telemetry-processor/pkg/detector/log_detector.go` | 添加日志检测时间戳上报 |
+| `telemetry-processor/pkg/detector/log_detector.go` | 添加日志检测时间戳上报 |.
 | `telemetry-processor/pkg/client/ai_advisor_client.go` | 调用 ai-advisor 日志上报接口 |
 
 ### 10.3 废弃文件
