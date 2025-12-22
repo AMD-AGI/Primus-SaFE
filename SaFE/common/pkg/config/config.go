@@ -431,11 +431,6 @@ func GetModelCleanupImage() string {
 	return getString(modelCleanupImage, "docker.io/library/alpine:3.18")
 }
 
-<<<<<<< HEAD
-// GetComponents returns the list of deployable components.
-func GetComponents() []string {
-	return viper.GetStringSlice(components)
-=======
 // GetProxyServices returns the list of configured proxy services.
 func GetProxyServices() []ProxyService {
 	var services []ProxyService
@@ -443,5 +438,9 @@ func GetProxyServices() []ProxyService {
 		return []ProxyService{}
 	}
 	return services
->>>>>>> origin/main
+}
+
+// GetComponents returns the list of deployable components.
+func GetComponents() []string {
+	return viper.GetStringSlice(components)
 }
