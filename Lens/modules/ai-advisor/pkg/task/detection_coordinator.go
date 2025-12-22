@@ -161,8 +161,9 @@ func (c *DetectionCoordinator) Execute(
 		return coreTask.SuccessResult(updates), nil
 	}
 
-	// Continue running - return progress result
-	return coreTask.ProgressResult(updates), nil
+	// Continue running - return reschedule result so task will be re-picked by scheduler
+	// This allows the state machine to progress on the next execution cycle
+	return coreTask.RescheduleResult(updates), nil
 }
 
 // handleInitState handles the INIT state
