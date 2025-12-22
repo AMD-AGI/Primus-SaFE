@@ -523,8 +523,8 @@ func (c *DetectionCoordinator) hasAnyEvidenceCollected(ctx context.Context, work
 	}
 
 	// Also check if there's any evidence in the evidence table
-	count, err := c.evidenceFacade.CountEvidenceByWorkloadAndSource(ctx, workloadUID, "")
-	if err == nil && count > 0 {
+	evidences, err := c.evidenceFacade.ListEvidenceByWorkload(ctx, workloadUID)
+	if err == nil && len(evidences) > 0 {
 		return true
 	}
 
