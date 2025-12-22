@@ -111,8 +111,12 @@ func Bootstrap(ctx context.Context) error {
 			log.Info("Metadata collector initialized successfully")
 		}
 
-		// Initialize task scheduler with default config (MaxConcurrentTasks=20)
+		// Initialize task scheduler with increased concurrency
+		// Default is 20, but clusters with 100+ active workloads need more capacity
+		// Long-running tasks (profiler_collection, tensorboard_stream) can run for hours/days
+		// Quick tasks (detection_coordinator, *_probe) should not be blocked by long-running ones
 		schedulerConfig := coreTask.DefaultSchedulerConfig()
+		schedulerConfig.MaxConcurrentTasks = 100 // Increased from 20 to support parallel execution
 		taskScheduler := coreTask.NewTaskScheduler(instanceID, schedulerConfig)
 
 		// Register metadata collection executor

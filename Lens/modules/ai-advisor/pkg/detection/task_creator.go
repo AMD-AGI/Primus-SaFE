@@ -701,7 +701,9 @@ func (tc *TaskCreator) ScanForUndetectedWorkloads(ctx context.Context) error {
 
 	db := database.GetFacade().GetSystemConfig().GetDB()
 
-	// Query recent workloads that don't have detection coordinator tasks
+	// Query recent ROOT workloads that don't have detection coordinator tasks
+	// Only root workloads (parent_uid IS NULL or empty) need detection coordination
+	// Child workloads inherit detection from their root workload
 	var workloadUIDs []string
 	err := db.WithContext(ctx).
 		Table("gpu_workload").
@@ -710,6 +712,7 @@ func (tc *TaskCreator) ScanForUndetectedWorkloads(ctx context.Context) error {
 		Joins("LEFT JOIN workload_detection ON gpu_workload.uid = workload_detection.workload_uid").
 		Where("gpu_workload.deleted_at IS NULL").
 		Where("gpu_workload.status IN ?", []string{"Running", "Pending"}).
+		Where("(gpu_workload.parent_uid IS NULL OR gpu_workload.parent_uid = '')"). // Only root workloads
 		Where("workload_task_state.id IS NULL"). // No detection coordinator task
 		Where("workload_detection.id IS NULL OR workload_detection.status = ?", "unknown"). // No detection record or unknown
 		Limit(100).
