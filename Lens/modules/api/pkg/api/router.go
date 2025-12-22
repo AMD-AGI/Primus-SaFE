@@ -214,6 +214,8 @@ func RegisterRouter(group *gin.RouterGroup) error {
 	{
 		filesGroup := profilerGroup.Group("/files")
 		{
+			// List profiler files for a workload
+			filesGroup.GET("", tracelens.ListProfilerFiles)
 			// Get profiler file metadata
 			filesGroup.GET("/:id", tracelens.GetProfilerFileInfo)
 			// Download profiler file content
@@ -246,6 +248,31 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		}
 		// List sessions for a workload
 		tracelensGroup.GET("/workloads/:workload_uid/sessions", tracelens.ListWorkloadSessions)
+	}
+
+	// Detection Status routes - Framework detection status and task progress
+	detectionStatusGroup := group.Group("/detection-status")
+	{
+		// Summary - must be defined before :workload_uid
+		detectionStatusGroup.GET("/summary", GetDetectionSummary)
+		// Log report endpoint (for telemetry-processor)
+		detectionStatusGroup.POST("/log-report", ReportLogDetection)
+		// List all detection statuses
+		detectionStatusGroup.GET("", ListDetectionStatuses)
+		// Get detection status for a specific workload
+		detectionStatusGroup.GET("/:workload_uid", GetDetectionStatus)
+		// Get coverage for a workload
+		detectionStatusGroup.GET("/:workload_uid/coverage", GetDetectionCoverage)
+		// Initialize coverage for a workload
+		detectionStatusGroup.POST("/:workload_uid/coverage/initialize", InitializeDetectionCoverage)
+		// Get uncovered log window
+		detectionStatusGroup.GET("/:workload_uid/coverage/log-gap", GetUncoveredLogWindow)
+		// Get detection tasks for a workload
+		detectionStatusGroup.GET("/:workload_uid/tasks", GetDetectionTasks)
+		// Get evidence for a workload
+		detectionStatusGroup.GET("/:workload_uid/evidence", GetDetectionEvidence)
+		// Manually trigger detection
+		detectionStatusGroup.POST("/:workload_uid/trigger", TriggerDetection)
 	}
 
 	return nil

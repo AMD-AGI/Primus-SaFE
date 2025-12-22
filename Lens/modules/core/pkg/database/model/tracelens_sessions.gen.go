@@ -15,24 +15,24 @@ const TableNameTracelensSessions = "tracelens_sessions"
 // TracelensSessions mapped from table <tracelens_sessions>
 type TracelensSessions struct {
 	ID              int32          `gorm:"column:id;primaryKey;autoIncrement:true" json:"id"`
-	SessionID       string         `gorm:"column:session_id;not null;comment:Unique session identifier, format: tls-{workload_uid_prefix}-{file_id}-{timestamp}" json:"session_id"` // Unique session identifier, format: tls-{workload_uid_prefix}-{file_id}-{timestamp}
-	WorkloadUID     string         `gorm:"column:workload_uid;not null;comment:Associated GPU workload UID" json:"workload_uid"`                                                    // Associated GPU workload UID
-	ProfilerFileID  int32          `gorm:"column:profiler_file_id;comment:Associated profiler file ID (logical reference to profiler_files.id)" json:"profiler_file_id"`            // Associated profiler file ID (logical reference to profiler_files.id)
+	SessionID       string         `gorm:"column:session_id;not null" json:"session_id"`
+	WorkloadUID     string         `gorm:"column:workload_uid;not null" json:"workload_uid"`
+	ProfilerFileID  int32          `gorm:"column:profiler_file_id" json:"profiler_file_id"`
 	UserID          string         `gorm:"column:user_id" json:"user_id"`
 	UserEmail       string         `gorm:"column:user_email" json:"user_email"`
-	PodName         string         `gorm:"column:pod_name;comment:Kubernetes pod name, format: tracelens-session-{session_id}" json:"pod_name"` // Kubernetes pod name, format: tracelens-session-{session_id}
+	PodName         string         `gorm:"column:pod_name" json:"pod_name"`
 	PodNamespace    string         `gorm:"column:pod_namespace;default:primus-lens" json:"pod_namespace"`
-	PodIP           string         `gorm:"column:pod_ip;comment:Pod cluster IP for proxy routing" json:"pod_ip"` // Pod cluster IP for proxy routing
+	PodIP           string         `gorm:"column:pod_ip" json:"pod_ip"`
 	PodPort         int32          `gorm:"column:pod_port;default:8501" json:"pod_port"`
-	Status          string         `gorm:"column:status;not null;default:pending;comment:Session lifecycle status: pending -> creating -> initializing -> ready -> expired -> deleted" json:"status"` // Session lifecycle status: pending -> creating -> initializing -> ready -> expired -> deleted
+	Status          string         `gorm:"column:status;not null;default:pending" json:"status"`
 	StatusMessage   string         `gorm:"column:status_message" json:"status_message"`
 	CreatedAt       time.Time      `gorm:"column:created_at;default:now()" json:"created_at"`
 	ReadyAt         time.Time      `gorm:"column:ready_at" json:"ready_at"`
-	ExpiresAt       time.Time      `gorm:"column:expires_at;comment:Automatic expiration time, default TTL is 1 hour" json:"expires_at"`             // Automatic expiration time, default TTL is 1 hour
-	LastAccessedAt  time.Time      `gorm:"column:last_accessed_at;comment:Last proxy request time, used for idle detection" json:"last_accessed_at"` // Last proxy request time, used for idle detection
+	ExpiresAt       time.Time      `gorm:"column:expires_at" json:"expires_at"`
+	LastAccessedAt  time.Time      `gorm:"column:last_accessed_at" json:"last_accessed_at"`
 	DeletedAt       gorm.DeletedAt `gorm:"column:deleted_at" json:"deleted_at"`
-	ResourceProfile string         `gorm:"column:resource_profile;default:medium;comment:Resource allocation profile: small (2GB), medium (4GB), large (8GB)" json:"resource_profile"` // Resource allocation profile: small (2GB), medium (4GB), large (8GB)
-	Config          ExtType        `gorm:"column:config;default:{};comment:Additional configuration as JSON (e.g., analysis options)" json:"config"`                                   // Additional configuration as JSON (e.g., analysis options)
+	ResourceProfile string         `gorm:"column:resource_profile;default:medium" json:"resource_profile"`
+	Config          ExtType        `gorm:"column:config;default:{}" json:"config"`
 }
 
 // TableName TracelensSessions's table name

@@ -351,6 +351,7 @@ func (g *GpuPodsReconciler) saveGpuPodsStatus(ctx context.Context, pod *corev1.P
 		Name:         pod.Name,
 		NodeName:     pod.Spec.NodeName,
 		UID:          string(pod.UID),
+		IP:           pod.Status.PodIP, // Added: sync Pod IP to database
 		GpuAllocated: int32(k8sUtil.GetGpuAllocated(pod, metadata.GetResourceName(metadata.GpuVendorAMD))),
 		Phase:        string(pod.Status.Phase),
 		Deleted:      pod.DeletionTimestamp != nil,
