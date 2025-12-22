@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
-	log "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -91,22 +90,22 @@ func (f *WorkloadDetectionFacade) WithCluster(clusterName string) WorkloadDetect
 
 // GetDetection retrieves detection state by workload UID
 func (f *WorkloadDetectionFacade) GetDetection(ctx context.Context, workloadUID string) (*model.WorkloadDetection, error) {
-	q := f.getDAL().WorkloadDetection
-	result, err := q.WithContext(ctx).Where(q.WorkloadUID.Eq(workloadUID)).First()
+	// Use raw GORM query instead of DAL to avoid potential issues with generated code
+	var result model.WorkloadDetection
+	err := f.getDB().WithContext(ctx).
+		Where("workload_uid = ?", workloadUID).
+		First(&result).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
 		}
-		log.Debugf("GetDetection error for %s: %v", workloadUID, err)
 		return nil, err
 	}
-	// Check if result is actually a valid record (ID > 0)
-	// This handles edge cases where GORM returns a zero-initialized struct
-	if result == nil || result.ID == 0 {
-		log.Debugf("GetDetection returning nil for %s: result=%v, ID=%d", workloadUID, result != nil, func() int64 { if result != nil { return result.ID }; return 0 }())
+	// Double-check: if ID is 0, treat as not found
+	if result.ID == 0 {
 		return nil, nil
 	}
-	return result, nil
+	return &result, nil
 }
 
 // CreateDetection creates a new detection state record
