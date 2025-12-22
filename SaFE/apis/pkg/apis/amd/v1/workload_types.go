@@ -355,6 +355,12 @@ func IsPodRunning(p *WorkloadPod) bool {
 		p.K8sNodeName != ""
 }
 
+// IsPodTerminated returns true if the pod is in terminated phase.
+func IsPodTerminated(p *WorkloadPod) bool {
+	return corev1.PodSucceeded == p.Phase ||
+		corev1.PodFailed == p.Phase
+}
+
 // ToSchemaGVK converts the resource template GVK to schema.GroupVersionKind.
 func (w *Workload) ToSchemaGVK() schema.GroupVersionKind {
 	return w.Spec.GroupVersionKind.ToSchema()

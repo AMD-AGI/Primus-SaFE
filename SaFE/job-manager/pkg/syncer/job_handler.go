@@ -78,14 +78,16 @@ func (r *SyncerReconciler) handleJobImpl(ctx context.Context, message *resourceM
 		return ctrlruntime.Result{}, err
 	}
 
-	if message.action == ResourceDel && !adminWorkload.IsEnd() {
+	if message.action == ResourceDel {
 		// wait until the job is also deleted
 		if !r.waitJobDeleted(ctx, adminWorkload, informer) {
 			return ctrlruntime.Result{RequeueAfter: time.Second * 3}, nil
 		}
-		if err = r.reSchedule(ctx, adminWorkload, message.dispatchCount); err != nil {
-			klog.ErrorS(err, "failed to reSchedule", "workload", adminWorkload.Name)
-			return ctrlruntime.Result{}, err
+		if !adminWorkload.IsEnd() {
+			if err = r.reSchedule(ctx, adminWorkload, message.dispatchCount); err != nil {
+				klog.ErrorS(err, "failed to reSchedule", "workload", adminWorkload.Name)
+				return ctrlruntime.Result{}, err
+			}
 		}
 	}
 	return ctrlruntime.Result{}, nil
@@ -145,21 +147,30 @@ func (r *SyncerReconciler) waitAllPodsDeleted(ctx context.Context, message *reso
 	if len(podList.Items) == 0 {
 		return true
 	}
-	klog.Warningf("the pods of this workload %s still exists, this will retry again in 3 seconds.", message.workloadId)
 	return false
 }
 
 func (r *SyncerReconciler) waitJobDeleted(ctx context.Context, adminWorkload *v1.Workload, informer *ClusterInformer) bool {
-	obj, err := jobutils.GenObjectReference(ctx, r.Client, adminWorkload)
+	rt, err := commonworkload.GetResourceTemplate(ctx, r.Client, adminWorkload)
 	if err != nil {
 		return apierrors.IsNotFound(err)
 	}
-	if _, err = jobutils.GetObjectByClientFactory(ctx, informer.ClientFactory(), obj); err != nil {
-		if apierrors.IsNotFound(err) {
-			return true
+	obj, err := jobutils.GetObjectByClientFactory(ctx, informer.ClientFactory(),
+		adminWorkload.Name, adminWorkload.Spec.Workspace, rt.ToSchemaGVK())
+	if err != nil {
+		return apierrors.IsNotFound(err)
+	}
+	if ts := obj.GetDeletionTimestamp(); ts != nil && !ts.IsZero() && time.Since(ts.Time) >= 1*time.Minute {
+		patchObj := map[string]any{
+			"metadata": map[string]any{
+				"finalizers": []string{},
+			},
+		}
+		p := jsonutils.MarshalSilently(patchObj)
+		if patchErr := jobutils.PatchObject(ctx, informer.ClientFactory(), obj, p); patchErr != nil {
+			return apierrors.IsNotFound(patchErr)
 		}
 	}
-	klog.Warningf("the job of this workload %s still exists, this will retry again in 3 seconds.", adminWorkload.Name)
 	return false
 }
 
