@@ -40,9 +40,19 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 
-# Modify Makefile for gfx950 support
-echo "Modifying Makefile for gfx950 offload architecture..."
-sed -i '5a CFLAGS += --offload-arch=gfx950' ./Makefile
+# Modify Makefile for GPU architecture support
+if [ -z "${GPU_ARCHS}" ]; then
+  echo "Warning: GPU_ARCHS not set, defaulting to gfx950"
+  GPU_ARCHS="gfx950"
+fi
+
+echo "Modifying Makefile for GPU architectures: ${GPU_ARCHS}..."
+# Build CFLAGS line with all specified architectures
+ARCH_FLAGS=""
+for arch in ${GPU_ARCHS}; do
+  ARCH_FLAGS="${ARCH_FLAGS} --offload-arch=${arch}"
+done
+sed -i "5a CFLAGS +=${ARCH_FLAGS}" ./Makefile
 if [ $? -ne 0 ]; then
   echo "Error: Failed to modify Makefile"
   exit 1
@@ -50,13 +60,27 @@ fi
 
 # Build
 echo "Building AMD ANP driver..."
-make -j 16 RCCL_HOME=/opt/rccl \
-           MPI_INCLUDE=/opt/openmpi/include/ \
-           MPI_LIB_PATH=/opt/openmpi/lib/ \
-           ROCM_PATH=/opt/rocm
+export RCCL_HOME=/opt/rccl 
+# RCCL_BUILD points to where RCCL is installed (with lib/ and include/ subdirectories)
+make -j 16 MPI_INCLUDE=/opt/mpich/include/ \
+           MPI_LIB_PATH=/opt/mpich/lib/ \
+           ROCM_PATH=/opt/rocm 
 if [ $? -ne 0 ]; then
   echo "Error: Failed to build AMD ANP driver."
   exit 1
+fi
+
+# Create symlink librccl-net.so -> librccl-anp.so if needed (RCCL looks for librccl-net.so)
+ANP_BUILD_DIR="${WORKDIR}/${ANP_DIR}/build"
+if [ -f "${ANP_BUILD_DIR}/librccl-anp.so" ] && [ ! -e "${ANP_BUILD_DIR}/librccl-net.so" ]; then
+  echo "Creating symlink: librccl-net.so -> librccl-anp.so"
+  cd ${ANP_BUILD_DIR}
+  ln -sf librccl-anp.so librccl-net.so
+  if [ $? -eq 0 ]; then
+    echo "Symlink created successfully."
+  else
+    echo "Warning: Failed to create symlink."
+  fi
 fi
 
 echo "============== install  AMD AINIC Network Plugin (amd-anp) ${ANP_VERSION} successfully =============="

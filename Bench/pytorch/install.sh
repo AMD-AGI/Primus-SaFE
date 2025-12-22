@@ -10,7 +10,9 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 export ROCM_VERSION=$ROCM_VERSION
+export GPU_ARCHS=$GPU_ARCHS
 echo "Using ROCM_VERSION: $ROCM_VERSION"
+echo "Using GPU_ARCHS: $GPU_ARCHS"
 
 pip3 install torch torchvision --index-url https://download.pytorch.org/whl/rocm6.4
 if [ $? -ne 0 ]; then

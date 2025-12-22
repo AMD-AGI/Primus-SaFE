@@ -1,12 +1,15 @@
 ARG ROCM_VERSION=6.4.3
-FROM primussafe/pytorch:rocm${ROCM_VERSION}_ubuntu22.04_py3.10
+ARG GPU_ARCHS=gfx942
+FROM primussafe/pytorch:rocm${ROCM_VERSION}_${GPU_ARCHS}_ubuntu22.04_py3.10
 
 LABEL maintainer="PrimusBench"
 
 ARG ROCM_VERSION=6.4.3
+ARG GPU_ARCHS=gfx942
 ARG AINIC_BUNDLE_FILENAME=""
 ENV DEBIAN_FRONTEND=noninteractive
 ENV ROCM_VERSION=${ROCM_VERSION}
+ENV GPU_ARCHS=${GPU_ARCHS}
 
 RUN apt-get update && \
     apt-get -q install -y --no-install-recommends  \

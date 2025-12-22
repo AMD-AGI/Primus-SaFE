@@ -34,13 +34,13 @@ echo "Building ROCm Validation Suite ${RVS_TAG}..."
 cd ${RVS_DIR}
 mkdir -p build
 cd build
-cmake -DROCM_PATH=/opt/rocm -DCMAKE_PREFIX_PATH="/opt/rocm;/opt/rocBLAS" ..
+cmake -DROCM_PATH=/opt/rocm -DCMAKE_PREFIX_PATH="/opt/rocm;/opt/rocBLAS" .. > /dev/null
 if [ $? -ne 0 ]; then
   echo "Error: Failed to configure ROCm Validation Suite"
   exit 1
 fi
 
-make -j 16
+make -j 16 > /dev/null
 if [ $? -ne 0 ]; then
   echo "Error: Failed to build ROCm Validation Suite."
   exit 1
@@ -48,7 +48,7 @@ fi
 
 # Install
 echo "Installing ROCm Validation Suite..."
-make install
+make install > /dev/null
 if [ $? -ne 0 ]; then
   echo "Error: Failed to install ROCm Validation Suite"
   exit 1

@@ -35,10 +35,10 @@ COMMON_SCRIPTS=(
     "install_linux_tools.sh"
     "install_ucx.sh"
     "install_open_mpi.sh"
+    "install_mpich.sh"
     "install_roc_blas.sh"
     "install_rocm_validation.sh"
     "install_transfer_bench.sh"
-    "install_mpich.sh"
     "install_rccl_test.sh"
     "install_rdma_test.sh"
 )

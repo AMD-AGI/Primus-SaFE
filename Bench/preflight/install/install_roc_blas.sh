@@ -21,7 +21,7 @@ fi
 
 REPO_URL="https://github.com/ROCm/rocBLAS.git"
 cd /opt
-git clone --branch $ROC_TAG --depth 1 "$REPO_URL"
+git clone --branch $ROC_TAG --depth 1 "$REPO_URL" >/dev/null
 
 
 cd "./rocBLAS" || exit 1

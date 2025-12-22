@@ -5,4 +5,5 @@
 
 docker buildx build . -f pytorch/Dockerfile \
   --build-arg ROCM_VERSION=6.4.3 \
-  -t primussafe/pytorch:rocm6.4.3_ubuntu22.04_py3.10
+  --build-arg GPU_ARCHS="gfx942" \
+  -t primussafe/pytorch:rocm6.4.3_gfx942_ubuntu22.04_py3.10

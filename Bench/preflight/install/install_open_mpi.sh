@@ -16,7 +16,7 @@ cd ${WORKDIR}
 
 # Download Open MPI
 echo "Downloading Open MPI ${OPENMPI_VERSION}..."
-wget -q ${OPENMPI_URL}
+wget -q ${OPENMPI_URL} >/dev/null
 if [ $? -ne 0 ]; then
   echo "Error: Failed to download Open MPI from ${OPENMPI_URL}"
   exit 1
@@ -25,7 +25,7 @@ fi
 # Extract tarball
 echo "Extracting ${OPENMPI_TARBALL}..."
 mkdir -p ${OPENMPI_DIR}
-tar -zxf ${OPENMPI_TARBALL} -C ${OPENMPI_DIR} --strip-components=1
+tar -zxf ${OPENMPI_TARBALL} -C ${OPENMPI_DIR} --strip-components=1 >/dev/null
 if [ $? -ne 0 ]; then
   echo "Error: Failed to extract ${OPENMPI_TARBALL}"
   exit 1
@@ -37,7 +37,7 @@ cd ${OPENMPI_DIR}
 mkdir -p build
 cd build
 ../configure --with-ucx=/opt/ucx --prefix=/opt/openmpi \
-    --disable-oshmem --disable-mpi-fortran
+    --disable-oshmem --disable-mpi-fortran >/dev/null
 if [ $? -ne 0 ]; then
   echo "Error: Failed to configure Open MPI."
   exit 1
@@ -45,7 +45,7 @@ fi
 
 # Build
 echo "Building Open MPI (this may take a while)..."
-make -j 16
+make -j 16 >/dev/null
 if [ $? -ne 0 ]; then
   echo "Error: Failed to build Open MPI."
   exit 1
@@ -53,7 +53,7 @@ fi
 
 # Install
 echo "Installing Open MPI..."
-make install
+make install >/dev/null
 if [ $? -ne 0 ]; then
   echo "Error: Failed to install Open MPI"
   exit 1
