@@ -662,10 +662,10 @@ func (tc *TaskCreator) CreateDetectionCoordinatorTask(
 			"coordinator_state": "init",
 
 			// Configuration
-			"initial_delay":     30, // Initial delay before first probe (seconds)
-			"min_pod_age":       30, // Minimum pod age before probing (seconds)
-			"confirm_threshold": 0.85,
-			"sub_task_timeout":  60, // Sub-task timeout (seconds)
+			"initial_delay":     30,   // Initial delay before first probe (seconds)
+			"min_pod_age":       30,   // Minimum pod age before probing (seconds)
+			"confirm_threshold": 0.70, // Lowered from 0.85 to allow single-source confirmation
+			"sub_task_timeout":  60,   // Sub-task timeout (seconds)
 
 			// Attempt tracking
 			"attempt_count": 0,
