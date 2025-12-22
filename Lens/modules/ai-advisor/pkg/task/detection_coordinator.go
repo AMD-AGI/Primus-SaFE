@@ -45,6 +45,7 @@ type DetectionCoordinator struct {
 	coverageFacade     database.DetectionCoverageFacadeInterface
 	taskFacade         database.WorkloadTaskFacadeInterface
 	detectionFacade    database.WorkloadDetectionFacadeInterface
+	evidenceFacade     database.WorkloadDetectionEvidenceFacadeInterface
 	evidenceAggregator *detection.EvidenceAggregator
 	taskCreator        *detection.TaskCreator
 }
@@ -56,6 +57,7 @@ func NewDetectionCoordinator(collector *metadata.Collector, instanceID string) *
 		coverageFacade:     database.NewDetectionCoverageFacade(),
 		taskFacade:         database.NewWorkloadTaskFacade(),
 		detectionFacade:    database.NewWorkloadDetectionFacade(),
+		evidenceFacade:     database.NewWorkloadDetectionEvidenceFacade(),
 		evidenceAggregator: detection.NewEvidenceAggregator(),
 		taskCreator:        detection.NewTaskCreator(instanceID),
 	}
@@ -67,6 +69,7 @@ func NewDetectionCoordinatorWithDeps(
 	coverageFacade database.DetectionCoverageFacadeInterface,
 	taskFacade database.WorkloadTaskFacadeInterface,
 	detectionFacade database.WorkloadDetectionFacadeInterface,
+	evidenceFacade database.WorkloadDetectionEvidenceFacadeInterface,
 	evidenceAggregator *detection.EvidenceAggregator,
 	taskCreator *detection.TaskCreator,
 ) *DetectionCoordinator {
@@ -75,6 +78,7 @@ func NewDetectionCoordinatorWithDeps(
 		coverageFacade:     coverageFacade,
 		taskFacade:         taskFacade,
 		detectionFacade:    detectionFacade,
+		evidenceFacade:     evidenceFacade,
 		evidenceAggregator: evidenceAggregator,
 		taskCreator:        taskCreator,
 	}
