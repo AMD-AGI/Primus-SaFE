@@ -3,7 +3,7 @@
  * See LICENSE for license information.
  */
 
-package cd
+package cdhandlers
 
 import (
 	"bytes"

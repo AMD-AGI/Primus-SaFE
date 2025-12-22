@@ -3,7 +3,7 @@
  * See LICENSE for license information.
  */
 
-package cd
+package cdhandlers
 
 import (
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/middle"

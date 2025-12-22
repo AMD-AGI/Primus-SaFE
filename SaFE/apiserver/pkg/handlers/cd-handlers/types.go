@@ -3,7 +3,9 @@
  * See LICENSE for license information.
  */
 
-package cd
+package cdhandlers
+
+import "strings"
 
 // Status constants for DeploymentRequest
 const (
@@ -14,6 +16,38 @@ const (
 	StatusDeployed        = "deployed"
 	StatusFailed          = "failed"
 )
+
+// ComponentImageMap maps component names to their image names (without version tag)
+var ComponentImageMap = map[string]string{
+	"apiserver":        "apiserver",
+	"resource_manager": "resource-manager",
+	"job_manager":      "job-manager",
+	"webhooks":         "webhooks",
+	"web":              "primus-safe-web",
+	"preprocess":       "preprocess",
+	"node_agent":       "node-agent",
+	"cicd_runner":      "cicd-runner-proxy",
+	"cicd_unified_job": "cicd-unified-job-proxy",
+}
+
+// NormalizeImageVersion normalizes the image version input.
+// Returns the normalized image string.
+func NormalizeImageVersion(component, version string) string {
+	// If version already contains ":", it's considered a full image reference
+	if strings.Contains(version, ":") {
+		return version
+	}
+
+	// Look up the image name for this component
+	imageName, ok := ComponentImageMap[component]
+	if !ok {
+		// Unknown component, use component name as image name
+		imageName = component
+	}
+
+	// Combine image name with version tag
+	return imageName + ":" + version
+}
 
 // CreateDeploymentRequestReq defines the payload for creating a deployment request
 type CreateDeploymentRequestReq struct {

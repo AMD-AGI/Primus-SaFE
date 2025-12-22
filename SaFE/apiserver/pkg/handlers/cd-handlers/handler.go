@@ -3,7 +3,7 @@
  * See LICENSE for license information.
  */
 
-package cd
+package cdhandlers
 
 import (
 	"context"
@@ -181,9 +181,15 @@ func (h *Handler) createDeploymentRequest(c *gin.Context) (interface{}, error) {
 		return nil, commonerrors.NewBadRequest("at least one of image_versions or env_file_config must be provided")
 	}
 
+	// Normalize image versions: auto-complete image name if only version tag is provided
+	normalizedVersions := make(map[string]string, len(req.ImageVersions))
+	for component, version := range req.ImageVersions {
+		normalizedVersions[component] = NormalizeImageVersion(component, version)
+	}
+
 	// Wrap into DeploymentConfig
 	config := DeploymentConfig{
-		ImageVersions: req.ImageVersions,
+		ImageVersions: normalizedVersions,
 		EnvFileConfig: req.EnvFileConfig,
 	}
 
