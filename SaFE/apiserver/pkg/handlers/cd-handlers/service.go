@@ -314,6 +314,11 @@ cd "$REPO_DIR/SaFE/bootstrap/"
 				Spec: corev1.PodSpec{
 					ServiceAccountName: common.PrimusSafeNamespace,
 					RestartPolicy:      corev1.RestartPolicyOnFailure,
+					Tolerations: []corev1.Toleration{
+						{
+							Operator: corev1.TolerationOpExists,
+						},
+					},
 					Containers: []corev1.Container{
 						{
 							Name:    "upgrade-task",
@@ -369,6 +374,11 @@ func (s *Service) ExecuteRemoteClusterUpdates(ctx context.Context, reqId int64, 
 				Spec: corev1.PodSpec{
 					ServiceAccountName: common.PrimusSafeNamespace,
 					RestartPolicy:      corev1.RestartPolicyNever,
+					Tolerations: []corev1.Toleration{
+						{
+							Operator: corev1.TolerationOpExists,
+						},
+					},
 					Containers: []corev1.Container{
 						{
 							Name:    "remote-update",
