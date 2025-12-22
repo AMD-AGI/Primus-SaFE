@@ -17,8 +17,14 @@ import (
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/fake"
+	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
+	ctrlfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	mock_client "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/mock"
@@ -30,14 +36,43 @@ func init() {
 	gin.SetMode(gin.TestMode)
 }
 
+const testUserId = "test-user-id"
+const testUserName = "test-user"
+
+func createTestUser() *v1.User {
+	return &v1.User{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: testUserId,
+			Annotations: map[string]string{
+				v1.UserNameAnnotation: testUserName,
+			},
+		},
+		Spec: v1.UserSpec{
+			Type:  v1.DefaultUserType,
+			Roles: []v1.UserRole{v1.SystemAdminRole},
+		},
+	}
+}
+
+func createFakeCtrlClient(objs ...ctrlclient.Object) ctrlclient.Client {
+	scheme := runtime.NewScheme()
+	_ = v1.AddToScheme(scheme)
+	return ctrlfake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).Build()
+}
+
 func setupTestHandler(ctrl *gomock.Controller) (*Handler, *mock_client.MockInterface) {
 	mockDB := mock_client.NewMockInterface(ctrl)
 	fakeK8s := fake.NewSimpleClientset()
 
+	// Create fake controller-runtime client with test user
+	testUser := createTestUser()
+	fakeCtrlClient := createFakeCtrlClient(testUser)
+
 	h := &Handler{
-		clientSet: fakeK8s,
-		dbClient:  mockDB,
-		service:   NewService(mockDB, fakeK8s),
+		clientSet:        fakeK8s,
+		dbClient:         mockDB,
+		service:          NewService(mockDB, fakeK8s),
+		accessController: authority.NewAccessController(fakeCtrlClient),
 	}
 
 	return h, mockDB
@@ -60,7 +95,7 @@ func TestCreateDeploymentRequest(t *testing.T) {
 
 		mockDB.EXPECT().CreateDeploymentRequest(gomock.Any(), gomock.Any()).DoAndReturn(
 			func(ctx context.Context, req *dbclient.DeploymentRequest) (int64, error) {
-				assert.Equal(t, "test-user", req.DeployName)
+				assert.Equal(t, testUserName, req.DeployName)
 				assert.Equal(t, StatusPendingApproval, req.Status)
 				return 123, nil
 			})
@@ -69,7 +104,7 @@ func TestCreateDeploymentRequest(t *testing.T) {
 		c, _ := gin.CreateTestContext(rsp)
 		c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/cd/deployments", bytes.NewReader(bodyBytes))
 		c.Request.Header.Set("Content-Type", "application/json")
-		c.Set(common.UserName, "test-user")
+		c.Set(common.UserId, testUserId)
 
 		h.CreateDeploymentRequest(c)
 
@@ -94,7 +129,7 @@ func TestCreateDeploymentRequest(t *testing.T) {
 		c, _ := gin.CreateTestContext(rsp)
 		c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/cd/deployments", bytes.NewReader(bodyBytes))
 		c.Request.Header.Set("Content-Type", "application/json")
-		c.Set(common.UserName, "test-user")
+		c.Set(common.UserId, testUserId)
 
 		h.CreateDeploymentRequest(c)
 
@@ -109,7 +144,7 @@ func TestCreateDeploymentRequest(t *testing.T) {
 		c, _ := gin.CreateTestContext(rsp)
 		c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/cd/deployments", bytes.NewReader([]byte("invalid json")))
 		c.Request.Header.Set("Content-Type", "application/json")
-		c.Set(common.UserName, "test-user")
+		c.Set(common.UserId, testUserId)
 
 		h.CreateDeploymentRequest(c)
 
@@ -275,7 +310,7 @@ func TestApproveDeploymentRequest(t *testing.T) {
 		c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/cd/deployments/1/approve", bytes.NewReader(bodyBytes))
 		c.Request.Header.Set("Content-Type", "application/json")
 		c.Params = gin.Params{{Key: "id", Value: "1"}}
-		c.Set(common.UserName, "approver")
+		c.Set(common.UserId, testUserId)
 
 		h.ApproveDeploymentRequest(c)
 
@@ -292,7 +327,7 @@ func TestApproveDeploymentRequest(t *testing.T) {
 
 		req := &dbclient.DeploymentRequest{
 			Id:         1,
-			DeployName: "same-user",
+			DeployName: testUserName, // Same as test user's name
 			Status:     StatusPendingApproval,
 		}
 
@@ -306,7 +341,7 @@ func TestApproveDeploymentRequest(t *testing.T) {
 		c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/cd/deployments/1/approve", bytes.NewReader(bodyBytes))
 		c.Request.Header.Set("Content-Type", "application/json")
 		c.Params = gin.Params{{Key: "id", Value: "1"}}
-		c.Set(common.UserName, "same-user") // Same as DeployName
+		c.Set(common.UserId, testUserId) // Same user
 
 		h.ApproveDeploymentRequest(c)
 
@@ -333,7 +368,7 @@ func TestApproveDeploymentRequest(t *testing.T) {
 		c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/cd/deployments/1/approve", bytes.NewReader(bodyBytes))
 		c.Request.Header.Set("Content-Type", "application/json")
 		c.Params = gin.Params{{Key: "id", Value: "1"}}
-		c.Set(common.UserName, "approver")
+		c.Set(common.UserId, testUserId)
 
 		h.ApproveDeploymentRequest(c)
 
@@ -368,7 +403,7 @@ func TestRollbackDeployment(t *testing.T) {
 		c, _ := gin.CreateTestContext(rsp)
 		c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/cd/deployments/10/rollback", nil)
 		c.Params = gin.Params{{Key: "id", Value: "10"}}
-		c.Set(common.UserName, "admin")
+		c.Set(common.UserId, testUserId)
 
 		h.RollbackDeployment(c)
 
@@ -387,7 +422,7 @@ func TestRollbackDeployment(t *testing.T) {
 		c, _ := gin.CreateTestContext(rsp)
 		c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/cd/deployments/invalid/rollback", nil)
 		c.Params = gin.Params{{Key: "id", Value: "invalid"}}
-		c.Set(common.UserName, "admin")
+		c.Set(common.UserId, testUserId)
 
 		h.RollbackDeployment(c)
 
