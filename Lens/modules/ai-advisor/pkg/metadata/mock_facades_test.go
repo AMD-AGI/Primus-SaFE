@@ -85,6 +85,30 @@ func (m *MockPodFacade) AddGpuPod(podUID, nodeName string) {
 	}
 }
 
+// Implement all required methods from PodFacadeInterface
+func (m *MockPodFacade) WithCluster(clusterName string) database.PodFacadeInterface { return m }
+func (m *MockPodFacade) CreateGpuPods(ctx context.Context, gpuPods *model.GpuPods) error { return nil }
+func (m *MockPodFacade) UpdateGpuPods(ctx context.Context, gpuPods *model.GpuPods) error { return nil }
+func (m *MockPodFacade) GetActiveGpuPodByNodeName(ctx context.Context, nodeName string) ([]*model.GpuPods, error) { return nil, nil }
+func (m *MockPodFacade) GetHistoryGpuPodByNodeName(ctx context.Context, nodeName string, pageNum, pageSize int) ([]*model.GpuPods, int, error) { return nil, 0, nil }
+func (m *MockPodFacade) ListActivePodsByUids(ctx context.Context, uids []string) ([]*model.GpuPods, error) { return nil, nil }
+func (m *MockPodFacade) ListPodsByUids(ctx context.Context, uids []string) ([]*model.GpuPods, error) { return nil, nil }
+func (m *MockPodFacade) ListActiveGpuPods(ctx context.Context) ([]*model.GpuPods, error) { return nil, nil }
+func (m *MockPodFacade) CreateGpuPodsEvent(ctx context.Context, gpuPods *model.GpuPodsEvent) error { return nil }
+func (m *MockPodFacade) UpdateGpuPodsEvent(ctx context.Context, gpuPods *model.GpuPods) error { return nil }
+func (m *MockPodFacade) CreatePodSnapshot(ctx context.Context, podSnapshot *model.PodSnapshot) error { return nil }
+func (m *MockPodFacade) UpdatePodSnapshot(ctx context.Context, podSnapshot *model.PodSnapshot) error { return nil }
+func (m *MockPodFacade) GetLastPodSnapshot(ctx context.Context, podUid string, resourceVersion int) (*model.PodSnapshot, error) { return nil, nil }
+func (m *MockPodFacade) GetPodResourceByUid(ctx context.Context, uid string) (*model.PodResource, error) { return nil, nil }
+func (m *MockPodFacade) CreatePodResource(ctx context.Context, podResource *model.PodResource) error { return nil }
+func (m *MockPodFacade) UpdatePodResource(ctx context.Context, podResource *model.PodResource) error { return nil }
+func (m *MockPodFacade) ListPodResourcesByUids(ctx context.Context, uids []string) ([]*model.PodResource, error) { return nil, nil }
+func (m *MockPodFacade) QueryPodsWithFilters(ctx context.Context, namespace, podName, startTime, endTime string, page, pageSize int) ([]*model.GpuPods, int64, error) { return nil, 0, nil }
+func (m *MockPodFacade) GetAverageGPUUtilizationByNode(ctx context.Context, nodeName string) (float64, error) { return 0.0, nil }
+func (m *MockPodFacade) GetLatestGPUMetricsByNode(ctx context.Context, nodeName string) (*model.GpuDevice, error) { return nil, nil }
+func (m *MockPodFacade) QueryGPUHistoryByNode(ctx context.Context, nodeName string, startTime, endTime time.Time) ([]*model.GpuDevice, error) { return nil, nil }
+func (m *MockPodFacade) ListPodEventsByUID(ctx context.Context, podUID string) ([]*model.GpuPodsEvent, error) { return nil, nil }
+
 // MockAiWorkloadMetadataFacade is a mock implementation of AiWorkloadMetadataFacadeInterface
 type MockAiWorkloadMetadataFacade struct {
 	Metadata  map[string]*model.AiWorkloadMetadata
