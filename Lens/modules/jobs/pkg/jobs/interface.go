@@ -137,6 +137,14 @@ func initManagementJobs(cfg *config.JobsConfig) []Job {
 			MaxWeeksToBackfill: 0, // No limit
 			WeeklyReportConfig: cfg.WeeklyReport,
 		}
+		// Apply backfill-specific config if available
+		if cfg.WeeklyReportBackfill != nil {
+			backfillConfig.Enabled = cfg.WeeklyReportBackfill.Enabled
+			backfillConfig.Cron = cfg.WeeklyReportBackfill.Cron
+			if cfg.WeeklyReportBackfill.MaxWeeksToBackfill > 0 {
+				backfillConfig.MaxWeeksToBackfill = cfg.WeeklyReportBackfill.MaxWeeksToBackfill
+			}
+		}
 		jobs = append(jobs, gpu_usage_weekly_report.NewGpuUsageWeeklyReportBackfillJob(backfillConfig))
 		log.Info("Weekly report backfill job registered")
 	}

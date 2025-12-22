@@ -20,6 +20,9 @@ type GpuUsageWeeklyReportBackfillConfig struct {
 	// Enabled controls whether the job is enabled
 	Enabled bool `json:"enabled"`
 
+	// Cron is the cron schedule for the backfill job (default: "0 3 * * *" - daily at 3:00 AM)
+	Cron string `json:"cron"`
+
 	// MaxWeeksToBackfill limits how many weeks to backfill in one run (0 = no limit)
 	MaxWeeksToBackfill int `json:"max_weeks_to_backfill"`
 
@@ -411,7 +414,10 @@ func (j *GpuUsageWeeklyReportBackfillJob) shouldRenderPDF() bool {
 
 // Schedule returns the cron schedule for this job
 func (j *GpuUsageWeeklyReportBackfillJob) Schedule() string {
-	// Run once per day at 3:00 AM to backfill any missing reports
+	if j.config != nil && j.config.Cron != "" {
+		return j.config.Cron
+	}
+	// Default: run once per day at 3:00 AM to backfill any missing reports
 	return "0 3 * * *"
 }
 
