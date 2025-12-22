@@ -22,7 +22,7 @@ const (
 	DefaultInitialDelay      = 30 * time.Second
 	DefaultRetryInterval     = 30 * time.Second
 	DefaultMaxRetryInterval  = 60 * time.Second
-	DefaultConfirmThreshold  = 0.85
+	DefaultConfirmThreshold  = 0.70 // Lowered from 0.85 to allow single-source confirmation
 	DefaultMinPodAge         = 30 * time.Second
 	DefaultMaxAttemptCount   = 5
 	DefaultSubTaskTimeout    = 60 * time.Second
