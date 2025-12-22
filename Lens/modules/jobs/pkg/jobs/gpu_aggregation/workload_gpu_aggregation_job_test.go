@@ -62,6 +62,9 @@ func (m *WorkloadMockFacade) GetGpuUsageWeeklyReport() database.GpuUsageWeeklyRe
 func (m *WorkloadMockFacade) GetNodeNamespaceMapping() database.NodeNamespaceMappingFacadeInterface { return nil }
 func (m *WorkloadMockFacade) GetTraceLensSession() database.TraceLensSessionFacadeInterface { return nil }
 func (m *WorkloadMockFacade) GetK8sService() database.K8sServiceFacadeInterface             { return nil }
+func (m *WorkloadMockFacade) GetWorkloadDetection() database.WorkloadDetectionFacadeInterface { return nil }
+func (m *WorkloadMockFacade) GetWorkloadDetectionEvidence() database.WorkloadDetectionEvidenceFacadeInterface { return nil }
+func (m *WorkloadMockFacade) GetDetectionCoverage() database.DetectionCoverageFacadeInterface { return nil }
 func (m *WorkloadMockFacade) WithCluster(clusterName string) database.FacadeInterface       { return m }
 
 // WorkloadMockWorkloadFacade implements database.WorkloadFacadeInterface for testing
