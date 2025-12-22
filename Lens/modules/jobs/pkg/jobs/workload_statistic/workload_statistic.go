@@ -239,12 +239,7 @@ func (j *WorkloadStatisticJob) processWorkload(ctx context.Context, clusterName 
 	if isNew || record.Histogram == nil || len(record.Histogram) == 0 {
 		hist := NewHistogram()
 		histJSON, _ := hist.ToJSON()
-		var histMap map[string]interface{}
-		if err := json.Unmarshal(histJSON, &histMap); err != nil {
-			log.Errorf("Failed to unmarshal histogram: %v", err)
-			histMap = make(map[string]interface{})
-		}
-		record.Histogram = dbModel.ExtType(histMap)
+		record.Histogram = dbModel.ExtJSON(histJSON)
 	}
 
 	getRecordSpan.SetAttributes(attribute.Bool("is_new_record", isNew))
@@ -295,9 +290,9 @@ func (j *WorkloadStatisticJob) processWorkload(ctx context.Context, clusterName 
 		record.LastQueryTime = endTime
 		record.StatEndTime = endTime
 
-		// Ensure ExtType fields are not nil before update
-		if record.Histogram == nil {
-			record.Histogram = dbModel.ExtType{}
+		// Ensure ExtJSON/ExtType fields are not nil before update
+		if len(record.Histogram) == 0 {
+			record.Histogram = dbModel.ExtJSON(`{"buckets": []}`)
 		}
 		if record.Labels == nil {
 			record.Labels = dbModel.ExtType{}
@@ -345,9 +340,9 @@ func (j *WorkloadStatisticJob) processWorkload(ctx context.Context, clusterName 
 	record.WorkloadStatus = string(workload.Status)
 	record.AllocatedGpuCount = float64(workload.GpuRequest)
 
-	// Ensure ExtType fields are not nil before update
-	if record.Histogram == nil {
-		record.Histogram = dbModel.ExtType{}
+	// Ensure ExtJSON/ExtType fields are not nil before update
+	if len(record.Histogram) == 0 {
+		record.Histogram = dbModel.ExtJSON(`{"buckets": []}`)
 	}
 	if record.Labels == nil {
 		record.Labels = dbModel.ExtType{}
@@ -465,13 +460,7 @@ func (j *WorkloadStatisticJob) updateStatisticsIncremental(record *dbModel.Workl
 	if err != nil {
 		log.Errorf("Failed to marshal histogram: %v", err)
 	} else {
-		// Convert back to ExtType
-		var histMap map[string]interface{}
-		if err := json.Unmarshal(updatedHistJSON, &histMap); err != nil {
-			log.Errorf("Failed to unmarshal histogram to ExtType: %v", err)
-		} else {
-			record.Histogram = dbModel.ExtType(histMap)
-		}
+		record.Histogram = dbModel.ExtJSON(updatedHistJSON)
 	}
 
 	// 7. Update statistics time range

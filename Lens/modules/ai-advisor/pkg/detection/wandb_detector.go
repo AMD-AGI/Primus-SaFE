@@ -76,6 +76,7 @@ type DetectionResult struct {
 // WandBFrameworkDetector WandB framework detector
 type WandBFrameworkDetector struct {
 	detectionManager *framework.FrameworkDetectionManager
+	evidenceStore    *EvidenceStore
 }
 
 // NewWandBFrameworkDetector creates a detector
@@ -84,6 +85,18 @@ func NewWandBFrameworkDetector(
 ) *WandBFrameworkDetector {
 	return &WandBFrameworkDetector{
 		detectionManager: detectMgr,
+		evidenceStore:    NewEvidenceStore(),
+	}
+}
+
+// NewWandBFrameworkDetectorWithEvidenceStore creates a detector with custom evidence store
+func NewWandBFrameworkDetectorWithEvidenceStore(
+	detectMgr *framework.FrameworkDetectionManager,
+	evidenceStore *EvidenceStore,
+) *WandBFrameworkDetector {
+	return &WandBFrameworkDetector{
+		detectionManager: detectMgr,
+		evidenceStore:    evidenceStore,
 	}
 }
 
@@ -181,7 +194,15 @@ func (d *WandBFrameworkDetector) ProcessWandBDetection(
 		}
 	}
 
-	// 5. Report to FrameworkDetectionManager (using new method with dual-layer framework support)
+	// 5. Store evidence to the evidence table
+	if d.evidenceStore != nil {
+		if err := d.evidenceStore.StoreWandBEvidence(ctx, workloadUID, result, evidence); err != nil {
+			log.Warnf("Failed to store WandB evidence: %v", err)
+			// Continue even if evidence storage fails
+		}
+	}
+
+	// 6. Report to FrameworkDetectionManager (using new method with dual-layer framework support)
 	err = d.detectionManager.ReportDetectionWithLayers(
 		ctx,
 		workloadUID,

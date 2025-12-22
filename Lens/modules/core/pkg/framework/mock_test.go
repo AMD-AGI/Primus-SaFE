@@ -176,6 +176,10 @@ func (m *MockWorkloadFacade) ListActiveTopLevelWorkloads(ctx context.Context, st
 	return nil, nil
 }
 
+func (m *MockWorkloadFacade) GetAllWorkloadPodReferences(ctx context.Context) ([]*model.WorkloadPodReference, error) {
+	return nil, nil
+}
+
 func (m *MockWorkloadFacade) WithCluster(clusterName string) database.WorkloadFacadeInterface {
 	return m
 }

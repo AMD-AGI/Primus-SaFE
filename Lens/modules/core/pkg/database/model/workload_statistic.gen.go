@@ -36,7 +36,7 @@ type WorkloadStatistic struct {
 	UpdatedAt             time.Time `gorm:"column:updated_at;not null;default:CURRENT_TIMESTAMP" json:"updated_at"`
 	LastQueryTime         time.Time `gorm:"column:last_query_time;comment:Last time Prometheus was queried for this workload (used for incremental updates)" json:"last_query_time"`                                                           // Last time Prometheus was queried for this workload (used for incremental updates)
 	TotalSum              float64   `gorm:"column:total_sum;comment:Sum of all GPU utilization samples (used for incremental average calculation)" json:"total_sum"`                                                                           // Sum of all GPU utilization samples (used for incremental average calculation)
-	Histogram             ExtType   `gorm:"column:histogram;default:{"buckets": []};comment:Histogram data in JSONB format for percentile calculation, structure: {"buckets": [{"lower": 0, "upper": 10, "count": 5}, ...]}" json:"histogram"` // Histogram data in JSONB format for percentile calculation, structure: {"buckets": [{"lower": 0, "upper": 10, "count": 5}, ...]}
+	Histogram             ExtJSON   `gorm:"column:histogram;default:{"buckets": []};comment:Histogram data in JSONB format for percentile calculation, structure: {"buckets": [{"lower": 0, "upper": 10, "count": 5}, ...]}" json:"histogram"` // Histogram data in JSONB format for percentile calculation, structure: {"buckets": [{"lower": 0, "upper": 10, "count": 5}, ...]}
 }
 
 // TableName WorkloadStatistic's table name

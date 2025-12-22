@@ -44,6 +44,7 @@ type WorkloadFacadeInterface interface {
 	CreateWorkloadPodReference(ctx context.Context, workloadUid, podUid string) error
 	ListWorkloadPodReferencesByPodUids(ctx context.Context, podUids []string) ([]*model.WorkloadPodReference, error)
 	ListWorkloadPodReferenceByWorkloadUid(ctx context.Context, workloadUid string) ([]*model.WorkloadPodReference, error)
+	GetAllWorkloadPodReferences(ctx context.Context) ([]*model.WorkloadPodReference, error)
 
 	// WorkloadEvent operations
 	GetWorkloadEventByWorkloadUidAndNearestWorkloadIdAndType(ctx context.Context, workloadUid, nearestWorkloadId, typ string) (*model.WorkloadEvent, error)
@@ -354,6 +355,16 @@ func (f *WorkloadFacade) ListWorkloadPodReferencesByPodUids(ctx context.Context,
 func (f *WorkloadFacade) ListWorkloadPodReferenceByWorkloadUid(ctx context.Context, workloadUid string) ([]*model.WorkloadPodReference, error) {
 	q := f.getDAL().WorkloadPodReference
 	refs, err := q.WithContext(ctx).Where(q.WorkloadUID.Eq(workloadUid)).Find()
+	if err != nil {
+		return nil, err
+	}
+	return refs, nil
+}
+
+// GetAllWorkloadPodReferences retrieves all workload-pod references for cache building
+func (f *WorkloadFacade) GetAllWorkloadPodReferences(ctx context.Context) ([]*model.WorkloadPodReference, error) {
+	q := f.getDAL().WorkloadPodReference
+	refs, err := q.WithContext(ctx).Find()
 	if err != nil {
 		return nil, err
 	}

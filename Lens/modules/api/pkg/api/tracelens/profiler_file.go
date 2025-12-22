@@ -22,6 +22,58 @@ type ProfilerFileContentChunk struct {
 	TotalChunks     int    `gorm:"column:total_chunks"`
 }
 
+// ProfilerFileListItem represents a profiler file in the list response
+type ProfilerFileListItem struct {
+	ID          int32  `gorm:"column:id" json:"id"`
+	FileName    string `gorm:"column:file_name" json:"file_name"`
+	FileType    string `gorm:"column:file_type" json:"file_type"`
+	FileSize    int64  `gorm:"column:file_size" json:"file_size"`
+	WorkloadUID string `gorm:"column:workload_uid" json:"workload_uid"`
+	CreatedAt   string `gorm:"column:created_at" json:"created_at"`
+}
+
+// ListProfilerFiles returns a list of profiler files for a workload
+// GET /v1/profiler/files?workload_uid={workload_uid}&cluster={cluster}
+func ListProfilerFiles(c *gin.Context) {
+	workloadUID := c.Query("workload_uid")
+	if workloadUID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "workload_uid is required"})
+		return
+	}
+
+	// Get cluster
+	cm := clientsets.GetClusterManager()
+	clusterName := c.Query("cluster")
+	clients, err := cm.GetClusterClientsOrDefault(clusterName)
+	if err != nil {
+		_ = c.Error(err)
+		return
+	}
+
+	// Get profiler files from database
+	facade := database.GetFacadeForCluster(clients.ClusterName)
+	db := facade.GetTraceLensSession().GetDB()
+
+	var files []ProfilerFileListItem
+	err = db.WithContext(c).
+		Table("profiler_files").
+		Select("id, file_name, file_type, file_size, workload_uid, created_at").
+		Where("workload_uid = ?", workloadUID).
+		Order("created_at DESC").
+		Find(&files).Error
+
+	if err != nil {
+		log.Errorf("Failed to list profiler files for workload %s: %v", workloadUID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list profiler files"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"meta": gin.H{"code": 2000, "message": "OK"},
+		"data": files,
+	})
+}
+
 // GetProfilerFileContent downloads the content of a profiler file
 // GET /v1/profiler/files/:id/content
 func GetProfilerFileContent(c *gin.Context) {

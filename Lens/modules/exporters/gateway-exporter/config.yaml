@@ -1,0 +1,68 @@
+# Gateway Exporter Configuration
+
+httpPort: 8991
+loadK8SClient: true
+loadDatabase: true  # Required for database-based enrichment
+
+gateway:
+  # Scrape interval for gateway metrics
+  scrapeInterval: 30s
+  
+  # Cache TTL for service/pod resolution
+  cacheTTL: 60s
+  
+  # Collectors configuration
+  collectors:
+    # Higress Gateway collector
+    - type: higress
+      enabled: true
+      namespace: higress-system
+      labelSelector:
+        app: higress-gateway
+      metricsPort: 15020
+      metricsPath: /stats/prometheus
+      
+    # Nginx Ingress Controller collector (disabled by default)
+    - type: nginx-ingress
+      enabled: false
+      namespace: ingress-nginx
+      labelSelector:
+        app.kubernetes.io/name: ingress-nginx
+        app.kubernetes.io/component: controller
+      metricsPort: 10254
+      metricsPath: /metrics
+      
+    # Istio Ingress Gateway collector (disabled by default)
+    - type: istio
+      enabled: false
+      namespace: istio-system
+      labelSelector:
+        app: istio-ingressgateway
+      metricsPort: 15020
+      metricsPath: /stats/prometheus
+
+# Workload enrichment configuration
+enrichment:
+  # Namespaces to watch for workload resolution
+  # Leave empty to watch all namespaces
+  watchNamespaces:
+    - tw-project2-control-plane
+    - primus-safe
+    - default
+    
+  # Label selectors for identifying Primus-SaFE workloads
+  workloadLabels:
+    - primus-safe.workload.id
+    - primus-safe.user.name
+
+# Prometheus metrics configuration
+metrics:
+  # Additional static labels to add to all metrics
+  staticLabels:
+    primus_lens_cluster: tw-mi325
+
+# Middleware configuration
+middleware:
+  enableLogging: true
+  enableTracing: true
+

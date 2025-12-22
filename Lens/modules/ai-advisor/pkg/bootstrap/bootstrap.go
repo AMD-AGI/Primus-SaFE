@@ -39,6 +39,7 @@ var (
 	diagnosticsHandler    *handlers.DiagnosticsHandler
 	insightsHandler       *handlers.InsightsHandler
 	wandbHandler          *handlers.WandBHandler
+	coordinatorHandler    *handlers.CoordinatorHandler
 )
 
 // generateInstanceID generates instance ID
@@ -95,6 +96,9 @@ func Bootstrap(ctx context.Context) error {
 			// Don't block startup, but warn
 		} else {
 			log.Info("Detection manager initialized successfully")
+
+			// Register evidence bridge to store legacy detections as evidence
+			detection.RegisterEvidenceBridge(detectionMgr)
 		}
 
 		// Initialize metadata collector
@@ -107,8 +111,12 @@ func Bootstrap(ctx context.Context) error {
 			log.Info("Metadata collector initialized successfully")
 		}
 
-		// Initialize task scheduler with default config (MaxConcurrentTasks=20)
+		// Initialize task scheduler with increased concurrency
+		// Default is 20, but clusters with 100+ active workloads need more capacity
+		// Long-running tasks (profiler_collection, tensorboard_stream) can run for hours/days
+		// Quick tasks (detection_coordinator, *_probe) should not be blocked by long-running ones
 		schedulerConfig := coreTask.DefaultSchedulerConfig()
+		schedulerConfig.MaxConcurrentTasks = 100 // Increased from 20 to support parallel execution
 		taskScheduler := coreTask.NewTaskScheduler(instanceID, schedulerConfig)
 
 		// Register metadata collection executor
@@ -127,6 +135,51 @@ func Bootstrap(ctx context.Context) error {
 			log.Info("TensorBoard stream executor registered")
 		}
 
+		// Register Active Detection executor (legacy, to be replaced by coordinator)
+		activeDetectionExecutor := advisorTask.NewActiveDetectionExecutor(metadata.GetCollector())
+		if err := taskScheduler.RegisterExecutor(activeDetectionExecutor); err != nil {
+			log.Errorf("Failed to register active detection executor: %v", err)
+		} else {
+			log.Info("Active detection executor registered")
+		}
+
+		// Register Detection Coordinator executor
+		detectionCoordinator := advisorTask.NewDetectionCoordinator(metadata.GetCollector(), instanceID)
+		if err := taskScheduler.RegisterExecutor(detectionCoordinator); err != nil {
+			log.Errorf("Failed to register detection coordinator: %v", err)
+		} else {
+			log.Info("Detection coordinator registered")
+		}
+
+		// Register detection sub-task executors
+		processProbeExecutor := advisorTask.NewProcessProbeExecutor(metadata.GetCollector())
+		if err := taskScheduler.RegisterExecutor(processProbeExecutor); err != nil {
+			log.Errorf("Failed to register process probe executor: %v", err)
+		} else {
+			log.Info("Process probe executor registered")
+		}
+
+		imageProbeExecutor := advisorTask.NewImageProbeExecutor(metadata.GetCollector())
+		if err := taskScheduler.RegisterExecutor(imageProbeExecutor); err != nil {
+			log.Errorf("Failed to register image probe executor: %v", err)
+		} else {
+			log.Info("Image probe executor registered")
+		}
+
+		labelProbeExecutor := advisorTask.NewLabelProbeExecutor(metadata.GetCollector())
+		if err := taskScheduler.RegisterExecutor(labelProbeExecutor); err != nil {
+			log.Errorf("Failed to register label probe executor: %v", err)
+		} else {
+			log.Info("Label probe executor registered")
+		}
+
+		logDetectionExecutor := advisorTask.NewLogDetectionExecutor()
+		if err := taskScheduler.RegisterExecutor(logDetectionExecutor); err != nil {
+			log.Errorf("Failed to register log detection executor: %v", err)
+		} else {
+			log.Info("Log detection executor registered")
+		}
+
 		// Initialize profiler services (includes ProfilerCollectionExecutor registration)
 		// Pass metadata collector for node-exporter client access
 		if err := InitProfilerServices(ctx, taskScheduler, metadata.GetCollector()); err != nil {
@@ -141,6 +194,13 @@ func Bootstrap(ctx context.Context) error {
 			log.Errorf("Failed to start task scheduler: %v", err)
 		} else {
 			log.Infof("Task scheduler started (instance: %s)", instanceID)
+		}
+
+		// Start periodic scan for undetected workloads
+		taskCreator := detection.GetTaskCreator()
+		if taskCreator != nil {
+			go startPeriodicWorkloadScan(ctx, taskCreator)
+			log.Info("Periodic workload scan started (interval: 1 minute)")
 		}
 
 		// Register cleanup for task scheduler
@@ -160,6 +220,7 @@ func Bootstrap(ctx context.Context) error {
 		diagnosticsHandler = handlers.NewDiagnosticsHandler(metadataFacade)
 		insightsHandler = handlers.NewInsightsHandler(metadataFacade)
 		wandbHandler = handlers.NewWandBHandler(detection.GetWandBDetector())
+		coordinatorHandler = handlers.NewCoordinatorHandler()
 
 		// Register routes
 		router.RegisterGroup(initRouter)
@@ -167,6 +228,35 @@ func Bootstrap(ctx context.Context) error {
 		log.Info("AI Advisor initialized successfully")
 		return nil
 	})
+}
+
+// startPeriodicWorkloadScan starts a goroutine that periodically scans for
+// undetected workloads and creates detection coordinator tasks for them
+func startPeriodicWorkloadScan(ctx context.Context, taskCreator *detection.TaskCreator) {
+	ticker := time.NewTicker(1 * time.Minute)
+	defer ticker.Stop()
+
+	// Run initial scan after a short delay to let the system stabilize
+	time.Sleep(10 * time.Second)
+	if err := taskCreator.ScanForUndetectedWorkloads(ctx); err != nil {
+		log.Errorf("Initial workload scan failed: %v", err)
+	} else {
+		log.Debug("Initial workload scan completed")
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			log.Info("Stopping periodic workload scan")
+			return
+		case <-ticker.C:
+			if err := taskCreator.ScanForUndetectedWorkloads(ctx); err != nil {
+				log.Errorf("Periodic workload scan failed: %v", err)
+			} else {
+				log.Debug("Periodic workload scan completed")
+			}
+		}
+	}
 }
 
 func initRouter(group *gin.RouterGroup) error {
@@ -185,6 +275,15 @@ func initRouter(group *gin.RouterGroup) error {
 
 		// Manual annotation
 		detectionGroup.PUT("/workloads/:uid", detectionHandler.UpdateDetection)
+
+		// Detection Coordinator APIs
+		// Log detection report from telemetry-processor
+		detectionGroup.POST("/log-report", coordinatorHandler.HandleLogReport)
+
+		// Detection coverage APIs
+		detectionGroup.GET("/coverage/:uid", coordinatorHandler.GetCoverageStatus)
+		detectionGroup.POST("/coverage/:uid/initialize", coordinatorHandler.InitializeCoverage)
+		detectionGroup.GET("/coverage/:uid/log-window", coordinatorHandler.GetUncoveredLogWindow)
 	}
 
 	// Performance Analysis APIs
