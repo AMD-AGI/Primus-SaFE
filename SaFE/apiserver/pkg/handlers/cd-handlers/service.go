@@ -150,10 +150,13 @@ func (s *Service) ExecuteDeployment(ctx context.Context, req *dbclient.Deploymen
 					result.CICDUnifiedImage = tag
 				}
 			} else if comp == "node_agent" {
-				// node_agent format in values.yaml is "node_agent.image"
-				nodeAgentTags += fmt.Sprintf("%s=%s;", "image", tag)
-				result.HasNodeAgent = true
-				result.NodeAgentImage = tag
+				// This prevents accidental node_agent updates from snapshot merging
+				if _, userRequested := requestConfig.ImageVersions[comp]; userRequested {
+					// node_agent format in values.yaml is "node_agent.image"
+					nodeAgentTags += fmt.Sprintf("%s=%s;", "image", tag)
+					result.HasNodeAgent = true
+					result.NodeAgentImage = tag
+				}
 			} else {
 				// Standard format: "component.image"
 				componentTags += fmt.Sprintf("%s.image=%s;", comp, tag)
