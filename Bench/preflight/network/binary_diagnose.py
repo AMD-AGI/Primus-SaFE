@@ -1,20 +1,19 @@
 #!/usr/bin/env python3
 
-#  Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
+#  Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
 #  See LICENSE for license information.
 
+import argparse
+import datetime
+import hashlib
+import os
 import subprocess
 import sys
-import os
-import argparse
-import time
-from typing import List, Tuple
-from queue import Queue, Empty
 import threading
-import hashlib
-import ipaddress
+import time
 from concurrent.futures import ThreadPoolExecutor
-import datetime
+from queue import Queue, Empty
+from typing import List, Tuple
 
 # ================= configuration =================
 MPIEXEC = "/opt/mpich/bin/mpirun"
@@ -230,7 +229,7 @@ def run_rccl_test(nodes: List[str]) -> float:
         env_vars["UCX_NET_DEVICES"] = RCCL_SOCKET_IFNAME  # Use socket interface for UCX TCP
     else:
         env_vars["LD_LIBRARY_PATH"] = LD_LIBRARY_PATH
-        env_vars["NCCL_NET_GDR_LEVEL"] = "2" # enuse gdr is enabled
+        env_vars["NCCL_NET_GDR_LEVEL"] = "2" # ensure gdr is enabled
         env_vars["NCCL_NET_GDR_READ"] = "1"
         env_vars["UCX_NET_DEVICES"] = RCCL_IB_HCA.split(',')[0] + ":1"
   
