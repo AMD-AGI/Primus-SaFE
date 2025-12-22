@@ -13,6 +13,7 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/sql"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/common"
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
 // GpuUsageWeeklyReportBackfillConfig is the configuration for the backfill job
@@ -162,26 +163,29 @@ func (j *GpuUsageWeeklyReportBackfillJob) processCluster(ctx context.Context, cl
 	return created, skipped, failed
 }
 
-// getDistinctClusters gets all distinct cluster names from cluster_gpu_hourly_stats
+// getDistinctClusters gets all cluster names from ClusterManager
 func (j *GpuUsageWeeklyReportBackfillJob) getDistinctClusters(ctx context.Context) ([]string, error) {
-	db := sql.GetDefaultDB()
+	cm := clientsets.GetClusterManager()
 
-	var clusters []string
-	err := db.WithContext(ctx).
-		Table("cluster_gpu_hourly_stats").
-		Distinct("cluster_name").
-		Pluck("cluster_name", &clusters).Error
+	// Get all cluster names from ClusterManager
+	clusters := cm.GetClusterNames()
 
-	if err != nil {
-		return nil, fmt.Errorf("failed to query distinct clusters: %w", err)
+	if len(clusters) == 0 {
+		log.Warn("GpuUsageWeeklyReportBackfillJob: no clusters found in ClusterManager")
+		return nil, nil
 	}
 
+	log.Infof("GpuUsageWeeklyReportBackfillJob: found %d clusters from ClusterManager: %v", len(clusters), clusters)
 	return clusters, nil
 }
 
 // getClusterDataTimeRange gets the min and max time for a cluster's data
 func (j *GpuUsageWeeklyReportBackfillJob) getClusterDataTimeRange(ctx context.Context, clusterName string) (minTime, maxTime time.Time, err error) {
-	db := sql.GetDefaultDB()
+	// Get the database connection for this cluster
+	db, err := j.getDBForCluster(clusterName)
+	if err != nil {
+		return time.Time{}, time.Time{}, fmt.Errorf("failed to get DB for cluster %s: %w", clusterName, err)
+	}
 
 	type TimeRange struct {
 		MinTime time.Time
@@ -396,6 +400,26 @@ func (j *GpuUsageWeeklyReportBackfillJob) getAverageGpuCountFromDB(ctx context.C
 
 	avgGpuCount := int(totalGpuCapacity / int64(len(stats)))
 	return avgGpuCount, nil
+}
+
+// getDBForCluster gets the database connection for a specific cluster
+func (j *GpuUsageWeeklyReportBackfillJob) getDBForCluster(clusterName string) (*gorm.DB, error) {
+	cm := clientsets.GetClusterManager()
+
+	// Try to get cluster-specific client set
+	clientSet, err := cm.GetClientSetByClusterName(clusterName)
+	if err != nil {
+		// Fallback to default DB if cluster not found
+		log.Warnf("GpuUsageWeeklyReportBackfillJob: cluster %s not found, using default DB", clusterName)
+		return sql.GetDefaultDB(), nil
+	}
+
+	if clientSet.StorageClientSet == nil || clientSet.StorageClientSet.DB == nil {
+		log.Warnf("GpuUsageWeeklyReportBackfillJob: no storage client for cluster %s, using default DB", clusterName)
+		return sql.GetDefaultDB(), nil
+	}
+
+	return clientSet.StorageClientSet.DB, nil
 }
 
 // shouldRenderPDF checks if PDF rendering is enabled in output formats
