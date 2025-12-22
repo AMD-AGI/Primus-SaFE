@@ -206,12 +206,6 @@ func (c *DetectionCoordinator) handleWaitingState(
 ) (string, error) {
 	workloadUID := task.WorkloadUID
 
-	// Check if we should schedule now
-	if !c.shouldScheduleNow(task) {
-		log.Debugf("Not yet time to schedule for workload %s", workloadUID)
-		return constant.CoordinatorStateWaiting, nil
-	}
-
 	// Check workload status - if terminated, complete the task
 	if c.isWorkloadTerminated(ctx, workloadUID) {
 		log.Infof("Workload %s terminated, completing coordinator", workloadUID)
@@ -219,15 +213,23 @@ func (c *DetectionCoordinator) handleWaitingState(
 		return constant.CoordinatorStateCompleted, nil
 	}
 
+	// Check if we have any evidence collected - if so, move to ANALYZING immediately
+	// This bypasses the schedule check since we already have data to analyze
+	if c.hasAnyEvidenceCollected(ctx, workloadUID) {
+		log.Infof("Evidence exists for workload %s, moving to ANALYZING", workloadUID)
+		return constant.CoordinatorStateAnalyzing, nil
+	}
+
+	// Check if we should schedule now
+	if !c.shouldScheduleNow(task) {
+		log.Debugf("Not yet time to schedule for workload %s", workloadUID)
+		return constant.CoordinatorStateWaiting, nil
+	}
+
 	// Generate collection plans
 	plans := c.planCollectionTasks(ctx, workloadUID, task)
 
 	if len(plans) == 0 {
-		// Check if we have any evidence collected - if so, move to ANALYZING
-		if c.hasAnyEvidenceCollected(ctx, workloadUID) {
-			log.Infof("No more collection plans but evidence exists for workload %s, moving to ANALYZING", workloadUID)
-			return constant.CoordinatorStateAnalyzing, nil
-		}
 		log.Debugf("No collection plans for workload %s, staying in WAITING", workloadUID)
 		// Update next schedule time
 		c.updateNextSchedule(task, updates)
