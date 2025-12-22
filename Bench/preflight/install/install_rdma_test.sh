@@ -15,7 +15,7 @@ if [ $? -ne 0 ]; then
 fi
 
 cd "./rdma-perftest" || exit 1
-./autogen.sh && ./configure --prefix=/opt/rdma-perftest && make && make install
+./autogen.sh && ./configure --prefix=/opt/rdma-perftest && make && make install > /dev/null
 if [ $? -ne 0 ]; then
   exit 1
 fi

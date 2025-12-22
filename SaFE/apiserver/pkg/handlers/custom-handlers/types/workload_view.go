@@ -70,7 +70,7 @@ type ListWorkloadRequest struct {
 	WorkloadId string `form:"workloadId" binding:"omitempty,max=64"`
 	// Filter by scale runner set.
 	ScaleRunnerSet string `form:"scaleRunnerSet" binding:"omitempty,max=64"`
-	// Filter by github action runner id.
+	// Filter by GitHub action runner id.
 	ScaleRunnerId string `form:"scaleRunnerId" binding:"omitempty,max=64"`
 }
 

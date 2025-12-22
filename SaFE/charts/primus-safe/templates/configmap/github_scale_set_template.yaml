@@ -53,12 +53,12 @@ data:
           resources:
             limits:
               cpu: "2"
-              memory: 4Gi
-              ephemeral-storage: 10Gi
+              memory: 8Gi
+              ephemeral-storage: 20Gi
             requests:
               cpu: "2"
-              memory: 4Gi
-              ephemeral-storage: 10Gi
+              memory: 8Gi
+              ephemeral-storage: 20Gi
           securityContext:
             privileged: true
         - name: unified-job
@@ -73,10 +73,12 @@ data:
           resources:
             limits:
               cpu: "2"
-              memory: 4Gi
+              memory: 8Gi
+              ephemeral-storage: 20Gi
             requests:
               cpu: "2"
-              memory: 4Gi
+              memory: 8Gi
+              ephemeral-storage: 20Gi
           securityContext:
             privileged: true
         restartPolicy: Never

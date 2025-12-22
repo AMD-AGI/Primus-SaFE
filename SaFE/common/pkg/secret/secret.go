@@ -14,7 +14,7 @@ import (
 )
 
 // GetSecretWorkspaces extracts workspace IDs from a secret's annotations.
-// Returns nil if no workspace IDs are found or if unmarshaling fails.
+// Returns nil if no workspace IDs are found or if Unmarshal fails.
 func GetSecretWorkspaces(secret *corev1.Secret) []string {
 	workspaceIdsStr := v1.GetAnnotation(secret, v1.WorkspaceIdsAnnotation)
 	if workspaceIdsStr == "" {
