@@ -8,6 +8,7 @@ echo "==============  begin to install $package =============="
 
 full_package="$package.tar.gz"
 if [ ! -f "${full_package}" ]; then
+  echo "Error: ${full_package} not found in current directory"
   exit 1
 fi
 

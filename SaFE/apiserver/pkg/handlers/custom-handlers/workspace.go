@@ -28,7 +28,6 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/custom-handlers/types"
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
-	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonnodes "github.com/AMD-AIG-AIMA/SAFE/common/pkg/nodes"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
@@ -536,15 +535,9 @@ func (h *Handler) cvtToGetWorkspaceResponse(ctx context.Context, workspace *v1.W
 	result := &types.GetWorkspaceResponse{
 		WorkspaceResponseItem: h.cvtToWorkspaceResponseItem(ctx, workspace),
 	}
-	nf, err := h.getAdminNodeFlavor(ctx, workspace.Spec.NodeFlavor)
-	if err != nil {
-		return nil, err
-	}
-	nfResource := nf.ToResourceList(commonconfig.GetRdmaName())
 
-	abnormalQuota := quantity.MultiResource(nfResource, float64(result.AbnormalNodeCount))
 	result.TotalQuota = cvtToResourceList(workspace.Status.TotalResources)
-	result.AbnormalQuota = cvtToResourceList(abnormalQuota)
+	result.AbnormalQuota = cvtToResourceList(workspace.Status.AbnormalResources)
 
 	usedQuota, usedNodeCount, err := h.getWorkspaceUsedQuota(ctx, workspace)
 	if err != nil {
@@ -553,8 +546,8 @@ func (h *Handler) cvtToGetWorkspaceResponse(ctx context.Context, workspace *v1.W
 	result.UsedQuota = cvtToResourceList(usedQuota)
 	result.UsedNodeCount = usedNodeCount
 
-	availQuota := workspace.Status.AvailableResources
-	result.AvailQuota = cvtToResourceList(quantity.SubResource(availQuota, usedQuota))
+	result.AvailQuota = cvtToResourceList(quantity.SubResource(
+		workspace.Status.AvailableResources, usedQuota))
 	for _, s := range workspace.Spec.ImageSecrets {
 		result.ImageSecretIds = append(result.ImageSecretIds, s.Name)
 	}
@@ -569,10 +562,7 @@ func (h *Handler) getWorkspaceUsedQuota(ctx context.Context, workspace *v1.Works
 		if err != nil {
 			return true
 		}
-		if !n.IsAvailable(false) {
-			return true
-		}
-		return false
+		return !n.IsAvailable(false)
 	}
 
 	workspaceNames := []string{workspace.Name}
@@ -583,13 +573,13 @@ func (h *Handler) getWorkspaceUsedQuota(ctx context.Context, workspace *v1.Works
 	var usedQuota corev1.ResourceList
 	nodeSet := sets.NewSet()
 	for _, w := range workloads {
-		res, nodes, err := commonworkload.GetActiveResources(w, filterNode)
+		_, availableResource, availableNodes, err := commonworkload.GetWorkloadResourceUsage(w, filterNode)
 		if err != nil {
 			return nil, 0, err
 		}
-		if res != nil {
-			usedQuota = quantity.AddResource(usedQuota, res)
-			for _, n := range nodes {
+		if availableResource != nil {
+			usedQuota = quantity.AddResource(usedQuota, availableResource)
+			for _, n := range availableNodes {
 				nodeSet.Insert(n)
 			}
 		}

@@ -107,6 +107,8 @@ type WorkspaceStatus struct {
 	TotalResources corev1.ResourceList `json:"totalResources,omitempty"`
 	// The available resource of workspace
 	AvailableResources corev1.ResourceList `json:"availableResources,omitempty"`
+	// The abnormal resource of workspace
+	AbnormalResources corev1.ResourceList `json:"abnormalResources,omitempty"`
 	// The available node count of workspace
 	AvailableReplica int `json:"availableReplica,omitempty"`
 	// The abnormal node count of workspace

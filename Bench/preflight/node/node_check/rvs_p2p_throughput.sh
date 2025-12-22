@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #
-# Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
+# Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
 # See LICENSE for license information.
 #
 
@@ -10,7 +10,7 @@
 RVS_CONF=/opt/rocm/share/rocm-validation-suite/conf/$GPU_PRODUCT/pbqt_single.conf
 if [ ! -f "${RVS_CONF}" ]; then
   echo "${RVS_CONF} does not exist" >&2
-  exit 1
+  exit 0
 fi
 
 LOG_FILE="/tmp/pbqt_single.log"

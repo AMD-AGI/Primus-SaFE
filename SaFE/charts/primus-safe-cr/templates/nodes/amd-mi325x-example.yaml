@@ -25,7 +25,7 @@ spec:
     ephemeral-storage: 13496617142Ki
     rdma/hca: 1k
   gpu:
-    product: AMD_Instinct_MI325X
+    product: MI325X
     quantity: "8"
     resourceName: amd.com/gpu
   memory: 3169200176Ki

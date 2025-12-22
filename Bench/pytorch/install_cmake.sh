@@ -43,5 +43,9 @@ else
   echo "failed to find cmake"
   exit 1
 fi
+
+apt-get update
+apt-get install -y --no-install-recommends ninja-build 
+
 rm -rf /tmp/${CMAKE_SOURCE_DIR}
 rm -rf /tmp/${CMAKE_SOURCE_FILE}
