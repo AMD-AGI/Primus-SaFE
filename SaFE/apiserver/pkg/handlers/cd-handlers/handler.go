@@ -129,6 +129,24 @@ func NewHandler(mgr ctrlruntime.Manager) (*Handler, error) {
 	return h, nil
 }
 
+// getAndSetUsername retrieves the user information based on the user ID stored in the context
+// and sets the username in the context for further use.
+// Returns the username string and any error encountered during the process.
+func (h *Handler) getAndSetUsername(c *gin.Context) (string, error) {
+	userId := c.GetString(common.UserId)
+	if userId == "" {
+		return "", nil
+	}
+	user, err := h.accessController.GetRequestUser(c.Request.Context(), userId)
+	if err != nil {
+		return "", err
+	}
+
+	userName := v1.GetUserName(user)
+	c.Set(common.UserName, userName)
+	return userName, nil
+}
+
 // CreateDeploymentRequest handles creation of a new deployment request
 func (h *Handler) CreateDeploymentRequest(c *gin.Context) {
 	handle(c, h.createDeploymentRequest)
@@ -199,7 +217,10 @@ func (h *Handler) createDeploymentRequest(c *gin.Context) (interface{}, error) {
 		return nil, commonerrors.NewBadRequest("Failed to marshal config")
 	}
 
-	username := c.GetString(common.UserName)
+	username, err := h.getAndSetUsername(c)
+	if err != nil {
+		return nil, err
+	}
 
 	dbReq := &dbclient.DeploymentRequest{
 		DeployName:  username,
@@ -391,7 +412,10 @@ func (h *Handler) approveDeploymentRequest(c *gin.Context) (interface{}, error) 
 		return nil, err
 	}
 
-	username := c.GetString(common.UserName)
+	username, err := h.getAndSetUsername(c)
+	if err != nil {
+		return nil, err
+	}
 	// Check if user is the same as requester
 	if req.DeployName == username {
 		return nil, commonerrors.NewForbidden("Cannot approve your own request")
@@ -499,7 +523,10 @@ func (h *Handler) rollbackDeployment(c *gin.Context) (interface{}, error) {
 		return nil, commonerrors.NewBadRequest("Invalid ID")
 	}
 
-	username := c.GetString(common.UserName)
+	username, err := h.getAndSetUsername(c)
+	if err != nil {
+		return nil, err
+	}
 	newId, err := h.service.Rollback(c.Request.Context(), id, username)
 	if err != nil {
 		return nil, err
