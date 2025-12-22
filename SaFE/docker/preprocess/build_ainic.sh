@@ -6,16 +6,15 @@
 echo "============== begin to install AMD AINIC Driver =============="
 set -e
 
+# Check if source tarball exists
+if [ ! -f "${PATH_TO_AINIC_TAR_PACKAGE}" ]; then
+  exit 0
+fi
+
 . /shared-data/utils.sh
 install_if_not_exists libibverbs-dev ibverbs-utils infiniband-diags rdma-core librdmacm-dev libibverbs-dev libibumad-dev
 export AMD_ANP_VERSION=$AMD_ANP_VERSION
 bash /shared-data/build_anp.sh
-
-# Check if source tarball exists
-if [ ! -f "${PATH_TO_AINIC_TAR_PACKAGE}" ]; then
-   echo "Skip ainic rebuild. PATH_TO_AINIC_TAR_PACKAGE=$PATH_TO_AINIC_TAR_PACKAGE"
-  exit 0
-fi
 
 WORKDIR="/opt"
 cd ${WORKDIR}
