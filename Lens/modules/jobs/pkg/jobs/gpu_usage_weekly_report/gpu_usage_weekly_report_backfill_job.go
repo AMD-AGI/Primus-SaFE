@@ -80,8 +80,8 @@ func (j *GpuUsageWeeklyReportBackfillJob) Run(ctx context.Context, clientSets *c
 	}
 
 	stats.ItemsCreated = totalCreated
-	stats.ItemsSkipped = totalSkipped
-	stats.ErrorCount = int(totalFailed)
+	stats.AddCustomMetric("items_skipped", totalSkipped)
+	stats.ErrorCount = totalFailed
 
 	duration := time.Since(startTime)
 	log.Infof("GpuUsageWeeklyReportBackfillJob: completed in %v, created=%d, skipped=%d, failed=%d",
