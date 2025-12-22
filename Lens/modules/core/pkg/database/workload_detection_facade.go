@@ -98,6 +98,11 @@ func (f *WorkloadDetectionFacade) GetDetection(ctx context.Context, workloadUID 
 		}
 		return nil, err
 	}
+	// Check if result is actually a valid record (ID > 0)
+	// This handles edge cases where GORM returns a zero-initialized struct
+	if result == nil || result.ID == 0 {
+		return nil, nil
+	}
 	return result, nil
 }
 
