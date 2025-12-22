@@ -219,6 +219,11 @@ func (c *DetectionCoordinator) handleWaitingState(
 	plans := c.planCollectionTasks(ctx, workloadUID, task)
 
 	if len(plans) == 0 {
+		// Check if we have any evidence collected - if so, move to ANALYZING
+		if c.hasAnyEvidenceCollected(ctx, workloadUID) {
+			log.Infof("No more collection plans but evidence exists for workload %s, moving to ANALYZING", workloadUID)
+			return constant.CoordinatorStateAnalyzing, nil
+		}
 		log.Debugf("No collection plans for workload %s, staying in WAITING", workloadUID)
 		// Update next schedule time
 		c.updateNextSchedule(task, updates)
@@ -491,6 +496,35 @@ func (c *DetectionCoordinator) shouldCollectLabel(coverage *model.DetectionCover
 		return true
 	}
 	return coverage.Status == constant.DetectionStatusPending
+}
+
+// hasAnyEvidenceCollected checks if any source has collected evidence
+func (c *DetectionCoordinator) hasAnyEvidenceCollected(ctx context.Context, workloadUID string) bool {
+	sources := []string{
+		constant.DetectionSourceProcess,
+		constant.DetectionSourceImage,
+		constant.DetectionSourceLabel,
+		constant.DetectionSourceLog,
+	}
+
+	for _, source := range sources {
+		coverage, err := c.coverageFacade.GetCoverage(ctx, workloadUID, source)
+		if err != nil {
+			continue
+		}
+		if coverage != nil && coverage.Status == constant.DetectionStatusCollected {
+			// Found collected evidence
+			return true
+		}
+	}
+
+	// Also check if there's any evidence in the evidence table
+	count, err := c.evidenceFacade.CountEvidenceByWorkloadAndSource(ctx, workloadUID, "")
+	if err == nil && count > 0 {
+		return true
+	}
+
+	return false
 }
 
 // TimeWindow represents a time window for log scanning
