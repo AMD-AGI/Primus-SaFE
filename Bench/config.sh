@@ -1,14 +1,11 @@
 #!/bin/bash
-###############################################################################
-# Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
 #
+# Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
 # See LICENSE for license information.
-###############################################################################
 #
+
 # Unified environment configuration for PrimusBench
 # Source this file in all entry scripts: source config.sh
-#
-###############################################################################
 
 # ==============================================================================
 # Container Configuration
@@ -37,9 +34,11 @@ export CPUS_PER_TASK="${CPUS_PER_TASK:-128}"
 export IP_INTERFACE="${IP_INTERFACE:-enp193s0f0np0}"
 export NCCL_SOCKET_IFNAME="${NCCL_SOCKET_IFNAME:-${IP_INTERFACE}}"
 export GLOO_SOCKET_IFNAME="${GLOO_SOCKET_IFNAME:-${IP_INTERFACE}}"
+export NCCL_IB_HCA="ionic_0,ionic_1,ionic_2,ionic_3,ionic_4,ionic_5,ionic_6,ionic_7"
+export ENABLE_AINIC="${ENABLE_AINIC:-false}"
 
 # ==============================================================================
-# GPU Configuration (AMD MI300/MI325X)
+# GPU Configuration (MI300X/MI325X/MI355X)
 # ==============================================================================
 export GPU_PRODUCT="${GPU_PRODUCT:-MI325X}"
 export HSA_ENABLE_SDMA="${HSA_ENABLE_SDMA:-1}"
@@ -92,7 +91,7 @@ export HOSTS="${HOSTS:-/root/hosts}"
 # ==============================================================================
 # Docker/Container Options
 # ==============================================================================
-export CLEAN_DOCKER_CONTAINER="${CLEAN_DOCKER_CONTAINER:-0}"
+export CLEAN_DOCKER_CONTAINER="${CLEAN_DOCKER_CONTAINER:-1}"
 export ADD_LOG_HEADER="${ADD_LOG_HEADER:-true}"
 
 # ==============================================================================

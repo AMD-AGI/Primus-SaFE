@@ -325,11 +325,11 @@ func (r *FailoverReconciler) handle(ctx context.Context, workload *v1.Workload) 
 	if clusterInformer == nil {
 		return ctrlruntime.Result{RequeueAfter: time.Second}, nil
 	}
-	obj, err := jobutils.GenObjectReference(ctx, r.Client, workload)
+	workloadUnstructured, err := jobutils.BuildWorkloadUnstructured(ctx, r.Client, workload)
 	if err != nil {
 		return ctrlruntime.Result{}, err
 	}
-	if err = jobutils.DeleteObject(ctx, clusterInformer.ClientFactory(), obj); err != nil {
+	if err = jobutils.DeleteObject(ctx, clusterInformer.ClientFactory(), workloadUnstructured); err != nil {
 		klog.ErrorS(err, "failed to delete k8s object", "name", workload.GetName())
 		return ctrlruntime.Result{}, err
 	}

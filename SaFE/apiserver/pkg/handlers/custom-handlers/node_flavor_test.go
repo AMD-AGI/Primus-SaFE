@@ -244,7 +244,7 @@ func TestGetNodeFlavor(t *testing.T) {
 			Spec: v1.NodeFlavorSpec{
 				Cpu:    v1.CpuChip{Product: "AMD_EPYC", Quantity: resource.MustParse("128")},
 				Memory: resource.MustParse("256Gi"),
-				Gpu:    &v1.GpuChip{Product: "AMD_MI300X", ResourceName: "amd.com/gpu", Quantity: resource.MustParse("8")},
+				Gpu:    &v1.GpuChip{Product: "MI300X", ResourceName: "amd.com/gpu", Quantity: resource.MustParse("8")},
 			},
 		}
 		err := fakeClient.Create(context.Background(), nf)
@@ -689,7 +689,7 @@ func TestUpdateNodeFlavor(t *testing.T) {
 				Gpu:    nil,
 			},
 		}
-		newGpu := &v1.GpuChip{Product: "AMD_MI300X", ResourceName: "amd.com/gpu", Quantity: resource.MustParse("8")}
+		newGpu := &v1.GpuChip{Product: "MI300X", ResourceName: "amd.com/gpu", Quantity: resource.MustParse("8")}
 		req := &types.PatchNodeFlavorRequest{Gpu: newGpu}
 		shouldUpdate, err := h.updateNodeFlavor(nf, req)
 		assert.NoError(t, err)
@@ -893,7 +893,7 @@ func TestCvtToNodeFlavorResponseItem(t *testing.T) {
 			Spec: v1.NodeFlavorSpec{
 				Cpu:      v1.CpuChip{Product: "AMD_EPYC_9554", Quantity: resource.MustParse("128")},
 				Memory:   resource.MustParse("256Gi"),
-				Gpu:      &v1.GpuChip{Product: "AMD_MI300X", ResourceName: "amd.com/gpu", Quantity: resource.MustParse("8")},
+				Gpu:      &v1.GpuChip{Product: "MI300X", ResourceName: "amd.com/gpu", Quantity: resource.MustParse("8")},
 				RootDisk: &v1.DiskFlavor{Type: v1.SSD, Quantity: resource.MustParse("500Gi"), Count: 1},
 				DataDisk: &v1.DiskFlavor{Type: v1.NVME, Quantity: resource.MustParse("1Ti"), Count: 4},
 				ExtendResources: corev1.ResourceList{

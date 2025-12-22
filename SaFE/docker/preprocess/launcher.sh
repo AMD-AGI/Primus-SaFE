@@ -10,9 +10,12 @@ input="$1"
 export NODE_RANK="${PET_NODE_RANK:-${NODE_RANK}}"
 export NNODES="${PET_NNODES:-${NNODES}}"
 export PATH_TO_BNXT_TAR_PACKAGE=$PATH_TO_BNXT_TAR_PACKAGE
+export PATH_TO_AINIC_TAR_PACKAGE=$PATH_TO_AINIC_TAR_PACKAGE
+export AMD_ANP_VERSION=$AMD_ANP_VERSION
 export WORKLOAD_KIND=$WORKLOAD_KIND
 
 sh /shared-data/build_bnxt.sh
+sh /shared-data/build_ainic.sh
 sh /shared-data/build_ssh.sh
 
 echo "$input" |base64 -d > ".run.sh"

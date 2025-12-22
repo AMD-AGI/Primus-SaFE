@@ -18,6 +18,7 @@ type WorkspaceStatusApplyConfiguration struct {
 	Phase              *amdv1.WorkspacePhase `json:"phase,omitempty"`
 	TotalResources     *corev1.ResourceList  `json:"totalResources,omitempty"`
 	AvailableResources *corev1.ResourceList  `json:"availableResources,omitempty"`
+	AbnormalResources  *corev1.ResourceList  `json:"abnormalResources,omitempty"`
 	AvailableReplica   *int                  `json:"availableReplica,omitempty"`
 	AbnormalReplica    *int                  `json:"abnormalReplica,omitempty"`
 	UpdateTime         *metav1.Time          `json:"updateTime,omitempty"`
@@ -50,6 +51,14 @@ func (b *WorkspaceStatusApplyConfiguration) WithTotalResources(value corev1.Reso
 // If called multiple times, the AvailableResources field is set to the value of the last call.
 func (b *WorkspaceStatusApplyConfiguration) WithAvailableResources(value corev1.ResourceList) *WorkspaceStatusApplyConfiguration {
 	b.AvailableResources = &value
+	return b
+}
+
+// WithAbnormalResources sets the AbnormalResources field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the AbnormalResources field is set to the value of the last call.
+func (b *WorkspaceStatusApplyConfiguration) WithAbnormalResources(value corev1.ResourceList) *WorkspaceStatusApplyConfiguration {
+	b.AbnormalResources = &value
 	return b
 }
 

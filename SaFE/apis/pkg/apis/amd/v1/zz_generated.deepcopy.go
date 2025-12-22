@@ -2600,6 +2600,13 @@ func (in *WorkspaceStatus) DeepCopyInto(out *WorkspaceStatus) {
 			(*out)[key] = val.DeepCopy()
 		}
 	}
+	if in.AbnormalResources != nil {
+		in, out := &in.AbnormalResources, &out.AbnormalResources
+		*out = make(corev1.ResourceList, len(*in))
+		for key, val := range *in {
+			(*out)[key] = val.DeepCopy()
+		}
+	}
 	if in.UpdateTime != nil {
 		in, out := &in.UpdateTime, &out.UpdateTime
 		*out = (*in).DeepCopy()

@@ -32,6 +32,8 @@ const (
 	UnifiedJobEnable = "UNIFIED_JOB_ENABLE"
 	ScaleRunnerSetID = "SCALE_RUNNER_SET_ID"
 	ScaleRunnerID    = "SCALE_RUNNER_ID"
+	// for preflight job
+	GPU_PRODUCT = "GPU_PRODUCT"
 
 	HigressClassname = "higress"
 	HigressNamespace = "higress-system"

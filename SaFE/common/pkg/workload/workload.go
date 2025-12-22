@@ -119,57 +119,64 @@ func GetResourcesPerNode(workload *v1.Workload, adminNodeName string) (map[strin
 	return result, nil
 }
 
-// GetActiveResources retrieves active resources based on the input workload.
+// GetWorkloadResourceUsage retrieves active resources based on the input workload.
 // It filters out terminated pods and applies node filtering criteria.
-func GetActiveResources(workload *v1.Workload, filterNode func(nodeName string) bool) (corev1.ResourceList, []string, error) {
+func GetWorkloadResourceUsage(workload *v1.Workload, filterNode func(nodeName string) bool) (
+	corev1.ResourceList, corev1.ResourceList, []string, error) {
 	if workload.Spec.Resource.Replica == 0 || len(workload.Status.Pods) == 0 {
-		return nil, nil, nil
+		return nil, nil, nil, nil
 	}
 	podResources, err := GetPodResources(&workload.Spec.Resource)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
-	type podWrapper struct {
-		i   int
+	type input struct {
+		id  int
 		pod *v1.WorkloadPod
 	}
+	type output struct {
+		isFiltered   bool
+		isTerminated bool
+	}
+
 	count := len(workload.Status.Pods)
-	podUsedResources := make([]*corev1.ResourceList, count)
-	ch := make(chan *podWrapper, count)
+	outputs := make([]output, count)
+	ch := make(chan *input, count)
 	defer close(ch)
 	for i := range workload.Status.Pods {
-		ch <- &podWrapper{
-			i:   i,
+		ch <- &input{
+			id:  i,
 			pod: &workload.Status.Pods[i],
 		}
 	}
 
-	_, err = concurrent.Exec(count, func() error {
-		wrapper := <-ch
-		pod := wrapper.pod
-		if !v1.IsPodRunning(pod) {
+	concurrent.Exec(count, func() error {
+		in := <-ch
+		if v1.IsPodTerminated(in.pod) {
+			outputs[in.id].isTerminated = true
 			return nil
 		}
-		if filterNode != nil && filterNode(pod.AdminNodeName) {
+		if filterNode != nil && filterNode(in.pod.AdminNodeName) {
+			outputs[in.id].isFiltered = true
 			return nil
 		}
-		podUsedResources[wrapper.i] = &podResources
 		return nil
 	})
-	if err != nil {
-		return nil, nil, err
-	}
-	resources := make(corev1.ResourceList)
-	nodes := make([]string, 0, count)
-	for i := range podUsedResources {
-		if podUsedResources[i] == nil {
+	totalResource := make(corev1.ResourceList)
+	availableResource := make(corev1.ResourceList)
+	availableNodes := make([]string, 0, count)
+	for i := range outputs {
+		if outputs[i].isTerminated {
 			continue
 		}
-		resources = quantity.AddResource(resources, *podUsedResources[i])
-		nodes = append(nodes, workload.Status.Pods[i].AdminNodeName)
+		totalResource = quantity.AddResource(totalResource, podResources)
+		if !outputs[i].isFiltered {
+			availableResource = quantity.AddResource(availableResource, podResources)
+			availableNodes = append(availableNodes, workload.Status.Pods[i].AdminNodeName)
+		}
 	}
-	return resources, nodes, nil
+	return totalResource, availableResource, availableNodes, nil
 }
 
 // CvtToResourceList converts data to the target format.
@@ -312,14 +319,6 @@ func GeneratePriority(priority int) string {
 	return strPriority
 }
 
-// SetEnv sets or updates an environment variable in the workload's specification.
-func SetEnv(workload *v1.Workload, key, value string) {
-	if len(workload.Spec.Env) == 0 {
-		workload.Spec.Env = make(map[string]string)
-	}
-	workload.Spec.Env[key] = value
-}
-
 // GenerateMaxAvailResource generates maximum available resource for workload by NodeFlavor.
 func GenerateMaxAvailResource(nf *v1.NodeFlavor) *v1.WorkloadResource {
 	nodeResources := nf.ToResourceList(commonconfig.GetRdmaName())
@@ -368,5 +367,4 @@ func GetResourceTemplate(ctx context.Context, cli client.Client, workload *v1.Wo
 	}
 	return nil, commonerrors.NewInternalError(
 		fmt.Sprintf("the resource template is not found, kind: %s, version: %s", gvk.Kind, gvk.Version))
-
 }
