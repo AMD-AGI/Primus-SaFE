@@ -10,7 +10,7 @@ set -e
 if [ "$ROCM_VERSION" = "6.4.3" ]; then
   RCCL_TAG="rocm-6.4.3"
 elif [ "$ROCM_VERSION" = "7.0.3" ]; then
-  RCCL_TAG="rocm-7.0.2"
+  RCCL_TAG="drop/2025-08"
 else
   echo "Error: Unsupported ROCM_VERSION '$ROCM_VERSION'. Only 6.4.3 and 7.0.3 are supported."
   exit 1
@@ -23,11 +23,27 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 
-echo "Building and installing RCCL..."
+echo "Building and installing RCCL for GPU architectures: $GPU_ARCHS..."
 cd rccl
-bash ./install.sh -l --disable-mscclpp --disable-msccl-kernel > /dev/null
+
+# Check if GPU_ARCHS is set
+if [ -z "$GPU_ARCHS" ]; then
+  echo "Error: GPU_ARCHS environment variable is not set"
+  exit 1
+fi
+
+bash ./install.sh --disable-mscclpp --disable-msccl-kernel --prefix=/opt/rccl/build --amdgpu_targets="$GPU_ARCHS"
 if [ $? -ne 0 ]; then
   echo "Error: Failed to build and install RCCL"
   exit 1
 fi
+
+# Verify the build contains correct GPU architecture
+echo "Verifying RCCL build..."
+if strings /opt/rccl/build/release/librccl.so.1 2>/dev/null | grep -q "$GPU_ARCHS"; then
+  echo "RCCL successfully built for $GPU_ARCHS"
+else
+  echo "Warning: Could not verify $GPU_ARCHS in RCCL binary"
+fi
+
 echo "==============  install rccl $RCCL_TAG successfully =============="

@@ -50,10 +50,23 @@ fi
 # Run installation script
 echo "Running AINIC installation script..."
 cd host_sw_pkg
+
 ./install.sh --domain=user -y
 if [ $? -ne 0 ]; then
   echo "Error: Failed to install AINIC driver."
   exit 1
+fi
+
+# Verify ionic_rdma module is available (only on host, not in Docker)
+if [ ! -f /.dockerenv ] && ! grep -q docker /proc/1/cgroup 2>/dev/null; then
+  echo "Verifying ionic_rdma kernel module..."
+  if modinfo ionic_rdma &>/dev/null; then
+    echo "ionic_rdma module installed successfully"
+    # Load the module
+    modprobe ionic_rdma || true
+  else
+    echo "Warning: ionic_rdma module not found after installation"
+  fi
 fi
 
 # Cleanup

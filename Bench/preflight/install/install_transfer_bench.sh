@@ -20,8 +20,8 @@ fi
 
 REPO_URL="https://github.com/ROCm/TransferBench.git"
 cd /opt
-git clone --branch $TRANSFER_TAG --depth 1 "$REPO_URL"
+git clone --branch $TRANSFER_TAG --depth 1 "$REPO_URL" > /dev/null
 
 cd "./TransferBench"
 # current supports mi300x / mi325x / mi355x
-CC=hipcc make GPU_TARGETS=gfx950 > /dev/null
+CC=hipcc make GPU_TARGETS=$GPU_ARCHS > /dev/null

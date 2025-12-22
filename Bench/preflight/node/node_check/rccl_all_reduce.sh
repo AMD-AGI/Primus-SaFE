@@ -20,7 +20,8 @@ export LD_LIBRARY_PATH="/opt/rocm/lib:/opt/mpich/lib:/usr/local/lib:$LD_LIBRARY_
 if [ "$ENABLE_ANP" = "true" ]; then
   echo "ANP enabled, using NCCL_NET_PLUGIN=anp"
   export NCCL_NET_PLUGIN=anp
-  export LD_LIBRARY_PATH="/opt/amd-anp/lib:$LD_LIBRARY_PATH"
+  export UCX_TLS=tcp,self,sm
+  export LD_LIBRARY_PATH="/opt/amd-anp/build:$LD_LIBRARY_PATH"
 else
   echo "ANP disabled, using default network plugin"
 fi

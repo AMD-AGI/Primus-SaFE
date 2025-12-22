@@ -20,6 +20,7 @@ get_input_with_default() {
 DEFAULT_VERSION=$(date +%Y%m%d%H%M)
 IMAGE_VERSION=$(get_input_with_default "Enter image version (${DEFAULT_VERSION}): " "${DEFAULT_VERSION}")
 AINIC_BUNDLE_PATH=$(get_input_with_default "Enter ainic package path (empty to skip): " "")
+GPU_ARCHS=gfx950
 
 # Copy AINIC bundle to build context if provided
 AINIC_FILENAME=""
@@ -32,10 +33,10 @@ fi
 # Build docker image (--progress=plain shows full output for debugging)
 # Build log saved to build.log in current directory
 docker buildx build . -f ./Dockerfile \
-  --progress=plain \
   --build-arg ROCM_VERSION=7.0.3 \
+  --build-arg GPU_ARCHS="${GPU_ARCHS}" \
   --build-arg AINIC_BUNDLE_FILENAME="${AINIC_FILENAME}" \
-  -t primussafe/primusbench:rocm7.0.3_ainic_${IMAGE_VERSION} 2>&1 | tee build.log
+  -t primussafe/primusbench:rocm7.0.3_${GPU_ARCHS}_ainic_${IMAGE_VERSION} 2>&1 | tee build.log
 
 # Cleanup: remove copied AINIC file after build
 if [ -n "${AINIC_FILENAME}" ] && [ -f "./preflight/install/${AINIC_FILENAME}" ]; then

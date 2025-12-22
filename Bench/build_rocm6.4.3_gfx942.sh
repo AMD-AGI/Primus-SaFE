@@ -18,8 +18,9 @@ get_input_with_default() {
 
 DEFAULT_VERSION=$(date +%Y%m%d%H%M)
 IMAGE_VERSION=$(get_input_with_default "Enter image version(${DEFAULT_VERSION}): " "${DEFAULT_VERSION}")
+GPU_ARCHS=gfx942
 
 docker buildx build . -f ./Dockerfile \
-  --progress=plain \
   --build-arg ROCM_VERSION=6.4.3 \
-  -t primussafe/primusbench:rocm6.4.3_${IMAGE_VERSION} | tee build.log
+  --build-arg GPU_ARCHS="${GPU_ARCHS}" \
+  -t primussafe/primusbench:rocm6.4.3_${GPU_ARCHS}_${IMAGE_VERSION} | tee build.log
