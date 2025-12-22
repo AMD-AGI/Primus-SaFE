@@ -236,8 +236,13 @@ func (r *PreflightJobReconciler) generatePreflightWorkload(ctx context.Context, 
 			Hostpath:  job.Spec.Hostpath,
 		},
 	}
-	if _, ok := workload.Spec.Env[common.GPU_PRODUCT]; !ok && nodeFlavor.HasGpu() {
-		workload.Spec.Env[common.GPU_PRODUCT] = string(nodeFlavor.Spec.Gpu.Product)
+	if nodeFlavor.HasGpu() {
+		if workload.Spec.Env == nil {
+			workload.Spec.Env = make(map[string]string)
+			workload.Spec.Env[common.GPU_PRODUCT] = string(nodeFlavor.Spec.Gpu.Product)
+		} else if _, ok := workload.Spec.Env[common.GPU_PRODUCT]; !ok {
+			workload.Spec.Env[common.GPU_PRODUCT] = string(nodeFlavor.Spec.Gpu.Product)
+		}
 	}
 	if workload.Spec.Workspace == "" {
 		workload.Spec.Workspace = corev1.NamespaceDefault
