@@ -6,27 +6,25 @@
 echo "============== begin to install AMD AINIC Driver =============="
 set -e
 
-WORKDIR="/opt"
-
-cd ${WORKDIR}
-
-# Check if AINIC_BUNDLE_PATH is set
-if [ -z "${AINIC_BUNDLE_PATH}" ]; then
-  echo "Error: AINIC_BUNDLE_PATH environment variable is not set"
-  exit 1
-fi
+. /shared-data/utils.sh
+install_if_not_exists libibverbs-dev ibverbs-utils infiniband-diags rdma-core librdmacm-dev libibverbs-dev libibumad-dev
+export AMD_ANP_VERSION=$AMD_ANP_VERSION
+bash /shared-data/build_anp.sh
 
 # Check if source tarball exists
-if [ ! -f "${AINIC_BUNDLE_PATH}" ]; then
-  echo "Error: AINIC bundle not found at ${AINIC_BUNDLE_PATH}"
-  exit 1
+if [ ! -f "${PATH_TO_AINIC_TAR_PACKAGE}" ]; then
+   echo "Skip ainic rebuild. PATH_TO_AINIC_TAR_PACKAGE=$PATH_TO_AINIC_TAR_PACKAGE"
+  exit 0
 fi
 
+WORKDIR="/opt"
+cd ${WORKDIR}
+
 # Extract tarball name and directory name from full path
-AINIC_TARBALL=$(basename "${AINIC_BUNDLE_PATH}")
+AINIC_TARBALL=$(basename "${PATH_TO_AINIC_TAR_PACKAGE}")
 AINIC_DIR="${AINIC_TARBALL%.tar.gz}"
 
-cp ${AINIC_BUNDLE_PATH} ${WORKDIR}/
+cp ${PATH_TO_AINIC_TAR_PACKAGE} ${WORKDIR}/
 if [ $? -ne 0 ]; then
   echo "Error: Failed to copy AINIC bundle"
   exit 1
@@ -50,6 +48,7 @@ fi
 # Run installation script
 echo "Running AINIC installation script..."
 cd host_sw_pkg
+
 ./install.sh --domain=user -y
 if [ $? -ne 0 ]; then
   echo "Error: Failed to install AINIC driver."

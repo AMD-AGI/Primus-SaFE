@@ -5,10 +5,21 @@
 
 set -e
 
-ANP_VERSION="v1.1.0-5"
+# Check if AMD_ANP_VERSION is not set
+if [ -z "$AMD_ANP_VERSION" ]; then
+  echo "AMD_ANP_VERSION is not set. Skipping build."
+  exit 0
+fi
+
 ANP_REPO="https://github.com/rocm/amd-anp.git"
 ANP_DIR="amd-anp"
 WORKDIR="/opt"
+
+# Check if amd-anp directory already exists
+if [ -d "${WORKDIR}/${ANP_DIR}" ]; then
+  echo "AMD ANP directory already exists at ${WORKDIR}/${ANP_DIR}. Skipping build."
+  exit 0
+fi
 
 cd ${WORKDIR}
 
@@ -21,11 +32,11 @@ if [ $? -ne 0 ]; then
 fi
 
 # Checkout specific version or branch
-echo "Checking out version ${ANP_VERSION}..."
+echo "Checking out version ${AMD_ANP_VERSION}..."
 cd ${ANP_DIR}
-git checkout tags/${ANP_VERSION}
+git checkout tags/${AMD_ANP_VERSION}
 if [ $? -ne 0 ]; then
-  echo "Error: Failed to checkout version ${ANP_VERSION}"
+  echo "Error: Failed to checkout version ${AMD_ANP_VERSION}"
   exit 1
 fi
 
@@ -39,13 +50,20 @@ fi
 
 # Build
 echo "Building AMD ANP driver..."
-make -j 16 RCCL_HOME=/opt/rccl \
-           MPI_INCLUDE=/opt/openmpi/include/ \
-           MPI_LIB_PATH=/opt/openmpi/lib/ \
-           ROCM_PATH=/opt/rocm
-if [ $? -ne 0 ]; then
+ret=0
+if [ -d "/opt/openmpi" ]; then
+  make -j 16 RCCL_HOME=/opt/rccl \
+             MPI_INCLUDE=/opt/openmpi/include/ \
+             MPI_LIB_PATH=/opt/openmpi/lib/ \
+             ROCM_PATH=/opt/rocm
+  ret=$?
+else
+  make -j 16 RCCL_HOME=/opt/rccl ROCM_PATH=/opt/rocm
+   ret=$?
+fi
+if [ $ret -ne 0 ]; then
   echo "Error: Failed to build AMD ANP driver."
   exit 1
 fi
 
-echo "============== install  AMD AINIC Network Plugin (amd-anp) ${ANP_VERSION} successfully =============="
+echo "============== install  AMD AINIC Network Plugin (amd-anp) ${AMD_ANP_VERSION} successfully =============="
