@@ -126,10 +126,23 @@ func FailureResult(err string, updates map[string]interface{}) *ExecutionResult 
 }
 
 // ProgressResult creates in-progress result
+// Task stays in "running" status and won't be re-picked by scheduler
+// Use this for long-running tasks that loop internally (e.g., streaming)
 func ProgressResult(updates map[string]interface{}) *ExecutionResult {
 	return &ExecutionResult{
 		Success:   true,
 		UpdateExt: updates,
 		NewStatus: constant.TaskStatusRunning,
+	}
+}
+
+// RescheduleResult creates a result that returns task to pending status
+// Task will be re-picked by scheduler after the current execution ends
+// Use this for state-machine tasks that need periodic re-execution
+func RescheduleResult(updates map[string]interface{}) *ExecutionResult {
+	return &ExecutionResult{
+		Success:   true,
+		UpdateExt: updates,
+		NewStatus: constant.TaskStatusPending,
 	}
 }

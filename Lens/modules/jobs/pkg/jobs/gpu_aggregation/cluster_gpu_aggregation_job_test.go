@@ -70,7 +70,11 @@ func (m *ClusterMockFacade) GetNodeNamespaceMapping() database.NodeNamespaceMapp
 	return nil
 }
 func (m *ClusterMockFacade) GetTraceLensSession() database.TraceLensSessionFacadeInterface { return nil }
-func (m *ClusterMockFacade) WithCluster(clusterName string) database.FacadeInterface      { return m }
+func (m *ClusterMockFacade) GetK8sService() database.K8sServiceFacadeInterface             { return nil }
+func (m *ClusterMockFacade) GetWorkloadDetection() database.WorkloadDetectionFacadeInterface { return nil }
+func (m *ClusterMockFacade) GetWorkloadDetectionEvidence() database.WorkloadDetectionEvidenceFacadeInterface { return nil }
+func (m *ClusterMockFacade) GetDetectionCoverage() database.DetectionCoverageFacadeInterface { return nil }
+func (m *ClusterMockFacade) WithCluster(clusterName string) database.FacadeInterface       { return m }
 
 // ClusterMockNodeFacade implements database.NodeFacadeInterface for testing
 type ClusterMockNodeFacade struct {

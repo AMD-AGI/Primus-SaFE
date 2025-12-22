@@ -33,5 +33,8 @@ func RegisterController(ctx context.Context) error {
 	}
 	controller.RegisterReconciler(reconciler.NewGpuPodsReconciler())
 	controller.RegisterReconciler(reconciler.NewNodeReconciler())
+	// Register Service and Endpoints reconcilers for gateway-exporter support
+	controller.RegisterReconciler(reconciler.NewServiceReconciler())
+	controller.RegisterReconciler(reconciler.NewEndpointsReconciler())
 	return nil
 }

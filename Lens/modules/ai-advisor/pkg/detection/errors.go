@@ -5,6 +5,7 @@ import "errors"
 var (
 	// Configuration errors
 	ErrInvalidFrameworkName = errors.New("invalid framework name")
+	ErrInvalidFrameworkType = errors.New("invalid framework type: must be 'training' or 'inference'")
 	ErrInvalidPriority      = errors.New("invalid priority")
 	ErrInvalidPatternName   = errors.New("invalid pattern name")
 	ErrInvalidPattern       = errors.New("invalid pattern")

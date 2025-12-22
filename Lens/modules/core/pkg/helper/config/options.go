@@ -119,3 +119,13 @@ func WithLimit(limit int) ListFilter {
 		return db
 	}
 }
+
+// WithKeyPrefixFilter filters by key prefix using LIKE
+func WithKeyPrefixFilter(prefix string) ListFilter {
+	return func(db *gorm.DB) *gorm.DB {
+		if prefix != "" {
+			return db.Where("key LIKE ?", prefix+"%")
+		}
+		return db
+	}
+}
