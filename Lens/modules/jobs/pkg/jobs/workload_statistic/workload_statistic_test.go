@@ -1,7 +1,6 @@
 package workload_statistic
 
 import (
-	"encoding/json"
 	"testing"
 	"time"
 
@@ -9,14 +8,10 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// Helper function to convert histogram JSON to ExtType
-func histogramToExtType(hist *Histogram) dbModel.ExtType {
+// Helper function to convert histogram JSON to ExtJSON
+func histogramToExtJSON(hist *Histogram) dbModel.ExtJSON {
 	histJSON, _ := hist.ToJSON()
-	var histMap map[string]interface{}
-	if err := json.Unmarshal(histJSON, &histMap); err != nil {
-		return make(dbModel.ExtType)
-	}
-	return dbModel.ExtType(histMap)
+	return dbModel.ExtJSON(histJSON)
 }
 
 func TestSchedule(t *testing.T) {
@@ -86,7 +81,7 @@ func TestUpdateStatisticsIncremental(t *testing.T) {
 			SampleCount:       0,
 			TotalSum:          0,
 			AvgGpuUtilization: 0,
-			Histogram:         histogramToExtType(hist),
+			Histogram:         histogramToExtJSON(hist),
 		}
 
 		newValues := []float64{10, 20, 30, 40, 50}
@@ -114,7 +109,7 @@ func TestUpdateStatisticsIncremental(t *testing.T) {
 			AvgGpuUtilization: 30,
 			MinGpuUtilization: 10,
 			MaxGpuUtilization: 50,
-			Histogram:         histogramToExtType(hist),
+			Histogram:         histogramToExtJSON(hist),
 		}
 
 		// Add new data
@@ -138,7 +133,7 @@ func TestUpdateStatisticsIncremental(t *testing.T) {
 		record := &dbModel.WorkloadStatistic{
 			SampleCount: 5,
 			TotalSum:    150,
-			Histogram:   histogramToExtType(hist),
+			Histogram:   histogramToExtJSON(hist),
 		}
 
 		originalCount := record.SampleCount
@@ -157,7 +152,7 @@ func TestUpdateStatisticsIncremental(t *testing.T) {
 			TotalSum:          50,
 			MinGpuUtilization: 50,
 			MaxGpuUtilization: 50,
-			Histogram:         histogramToExtType(hist),
+			Histogram:         histogramToExtJSON(hist),
 		}
 
 		// Add smaller and larger values
