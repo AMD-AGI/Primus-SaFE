@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
+	log "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -96,11 +97,13 @@ func (f *WorkloadDetectionFacade) GetDetection(ctx context.Context, workloadUID 
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
 		}
+		log.Debugf("GetDetection error for %s: %v", workloadUID, err)
 		return nil, err
 	}
 	// Check if result is actually a valid record (ID > 0)
 	// This handles edge cases where GORM returns a zero-initialized struct
 	if result == nil || result.ID == 0 {
+		log.Debugf("GetDetection returning nil for %s: result=%v, ID=%d", workloadUID, result != nil, func() int64 { if result != nil { return result.ID }; return 0 }())
 		return nil, nil
 	}
 	return result, nil
