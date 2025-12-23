@@ -398,6 +398,62 @@ func (a *EvidenceAggregator) calculateMultiLayerVotes(evidences []*model.Workloa
 			vote.BaseFramework = ev.BaseFramework
 			vote.WorkloadType = ev.WorkloadType
 		}
+
+		// Also create votes for BaseFramework if present and different from main framework
+		// This ensures multi-layer framework stacks (e.g., primus + megatron) are properly detected
+		if ev.BaseFramework != "" && ev.BaseFramework != ev.Framework {
+			baseLayer := ""
+			if a.layerResolver != nil {
+				baseLayer = a.layerResolver.GetLayer(ev.BaseFramework)
+			}
+			if baseLayer == "" {
+				// Default: if main framework is wrapper, base is likely orchestration or runtime
+				if layer == FrameworkLayerWrapper {
+					baseLayer = FrameworkLayerOrchestration
+				} else {
+					baseLayer = FrameworkLayerRuntime
+				}
+			}
+
+			var baseVoteMap map[string]*FrameworkVote
+			switch baseLayer {
+			case FrameworkLayerWrapper:
+				baseVoteMap = result.WrapperVotes
+			case FrameworkLayerOrchestration:
+				baseVoteMap = result.OrchestrationVotes
+			case FrameworkLayerRuntime:
+				baseVoteMap = result.RuntimeVotes
+			case FrameworkLayerInference:
+				baseVoteMap = result.InferenceVotes
+			default:
+				baseVoteMap = result.OrchestrationVotes
+			}
+
+			// Use slightly lower confidence for derived base framework vote
+			baseScore := ev.Confidence * weight * 0.9
+
+			if _, exists := baseVoteMap[ev.BaseFramework]; !exists {
+				baseVoteMap[ev.BaseFramework] = &FrameworkVote{
+					Framework:         ev.BaseFramework,
+					TotalScore:        0,
+					VoteCount:         0,
+					HighestConfidence: 0,
+					Sources:           []string{},
+					FrameworkLayer:    baseLayer,
+				}
+			}
+
+			baseVote := baseVoteMap[ev.BaseFramework]
+			baseVote.TotalScore += baseScore
+			baseVote.VoteCount++
+			baseVote.Sources = append(baseVote.Sources, ev.Source+"_derived")
+
+			derivedConfidence := ev.Confidence * 0.9
+			if derivedConfidence > baseVote.HighestConfidence {
+				baseVote.HighestConfidence = derivedConfidence
+				baseVote.WorkloadType = ev.WorkloadType
+			}
+		}
 	}
 
 	return result
