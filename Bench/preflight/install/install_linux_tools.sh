@@ -1,19 +1,11 @@
 #!/bin/bash
 #
-# Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
+# Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
 # See LICENSE for license information.
 #
 
 echo "============== begin to install linux-tools =============="
 
-# Check if we're running in a container environment
-if [ -f /.dockerenv ] || [ -n "${DOCKER_CONTAINER:-}" ]; then
-  echo "Running in Docker container, skipping linux-tools installation"
-  echo "Note: Performance monitoring tools like perf may not work in containers"
-  exit 0
-fi
-
-# For non-container environments, try to install linux-tools
 KERNEL_VERSION=$(uname -r)
 linux_tools="linux-tools-${KERNEL_VERSION}"
 
