@@ -34,6 +34,13 @@ type GpuUsageWeeklyReportBackfillConfig struct {
 // GpuUsageWeeklyReportBackfillJob backfills missing weekly reports for all clusters
 type GpuUsageWeeklyReportBackfillJob struct {
 	config *GpuUsageWeeklyReportBackfillConfig
+
+	// Dependencies (injectable for testing)
+	clusterManager       ClusterManagerInterface
+	databaseFacade       database.FacadeInterface
+	dbConnectionProvider DBConnectionProvider
+	generatorFactory     ReportGeneratorFactory
+	rendererFactory      ReportRendererFactory
 }
 
 // NewGpuUsageWeeklyReportBackfillJob creates a new backfill job instance
@@ -41,6 +48,55 @@ func NewGpuUsageWeeklyReportBackfillJob(cfg *GpuUsageWeeklyReportBackfillConfig)
 	return &GpuUsageWeeklyReportBackfillJob{
 		config: cfg,
 	}
+}
+
+// NewGpuUsageWeeklyReportBackfillJobWithDeps creates a new backfill job instance with injected dependencies
+func NewGpuUsageWeeklyReportBackfillJobWithDeps(cfg *GpuUsageWeeklyReportBackfillConfig, deps *Dependencies) *GpuUsageWeeklyReportBackfillJob {
+	job := &GpuUsageWeeklyReportBackfillJob{
+		config: cfg,
+	}
+
+	if deps != nil {
+		job.clusterManager = deps.ClusterManager
+		job.databaseFacade = deps.DatabaseFacade
+		job.dbConnectionProvider = deps.DBConnectionProvider
+		job.generatorFactory = deps.GeneratorFactory
+		job.rendererFactory = deps.RendererFactory
+	}
+
+	return job
+}
+
+// getClusterManager returns the cluster manager (uses injected or default)
+func (j *GpuUsageWeeklyReportBackfillJob) getClusterManager() ClusterManagerInterface {
+	if j.clusterManager != nil {
+		return j.clusterManager
+	}
+	return clientsets.GetClusterManager()
+}
+
+// getDatabaseFacade returns the database facade (uses injected or default)
+func (j *GpuUsageWeeklyReportBackfillJob) getDatabaseFacade() database.FacadeInterface {
+	if j.databaseFacade != nil {
+		return j.databaseFacade
+	}
+	return database.GetFacade()
+}
+
+// getGenerator returns a new report generator instance
+func (j *GpuUsageWeeklyReportBackfillJob) getGenerator() ReportGeneratorInterface {
+	if j.generatorFactory != nil {
+		return j.generatorFactory()
+	}
+	return NewReportGenerator(j.config.WeeklyReportConfig)
+}
+
+// getRenderer returns a new report renderer instance
+func (j *GpuUsageWeeklyReportBackfillJob) getRenderer() ReportRendererInterface {
+	if j.rendererFactory != nil {
+		return j.rendererFactory()
+	}
+	return NewReportRenderer(j.config.WeeklyReportConfig)
 }
 
 // Run executes the GPU usage weekly report backfill job
@@ -56,7 +112,7 @@ func (j *GpuUsageWeeklyReportBackfillJob) Run(ctx context.Context, clientSets *c
 
 	log.Info("GpuUsageWeeklyReportBackfillJob: starting weekly report backfill")
 
-	// Step 1: Get all clusters with data from cluster_gpu_hourly_stats
+	// Step 1: Get all clusters with data from ClusterManager
 	clusters, err := j.getDistinctClusters(ctx)
 	if err != nil {
 		log.Errorf("GpuUsageWeeklyReportBackfillJob: failed to get clusters: %v", err)
@@ -165,7 +221,7 @@ func (j *GpuUsageWeeklyReportBackfillJob) processCluster(ctx context.Context, cl
 
 // getDistinctClusters gets all cluster names from ClusterManager
 func (j *GpuUsageWeeklyReportBackfillJob) getDistinctClusters(ctx context.Context) ([]string, error) {
-	cm := clientsets.GetClusterManager()
+	cm := j.getClusterManager()
 
 	// Get all cluster names from ClusterManager
 	clusters := cm.GetClusterNames()
@@ -187,12 +243,7 @@ func (j *GpuUsageWeeklyReportBackfillJob) getClusterDataTimeRange(ctx context.Co
 		return time.Time{}, time.Time{}, fmt.Errorf("failed to get DB for cluster %s: %w", clusterName, err)
 	}
 
-	type TimeRange struct {
-		MinTime time.Time
-		MaxTime time.Time
-	}
-
-	var result TimeRange
+	var result TimeRangeResult
 	err = db.WithContext(ctx).
 		Table("cluster_gpu_hourly_stats").
 		Select("MIN(stat_hour) as min_time, MAX(stat_hour) as max_time").
@@ -259,7 +310,7 @@ func (j *GpuUsageWeeklyReportBackfillJob) getNextMonday(t time.Time) time.Time {
 
 // getExistingReports gets all existing reports for a cluster
 func (j *GpuUsageWeeklyReportBackfillJob) getExistingReports(ctx context.Context, clusterName string) ([]*dbmodel.GpuUsageWeeklyReports, error) {
-	facade := database.GetFacade().GetGpuUsageWeeklyReport()
+	facade := j.getDatabaseFacade().GetGpuUsageWeeklyReport()
 
 	// Get all reports for this cluster (no pagination limit for backfill)
 	reports, _, err := facade.List(ctx, clusterName, "", 0, 10000)
@@ -316,14 +367,14 @@ func (j *GpuUsageWeeklyReportBackfillJob) generateReportForWeek(ctx context.Cont
 		Status:      "pending",
 	}
 
-	facade := database.GetFacade().GetGpuUsageWeeklyReport()
+	facade := j.getDatabaseFacade().GetGpuUsageWeeklyReport()
 	err := facade.Create(ctx, report)
 	if err != nil {
 		return fmt.Errorf("failed to create report record: %w", err)
 	}
 
 	// Call Conductor API to get report data
-	generator := NewReportGenerator(j.config.WeeklyReportConfig)
+	generator := j.getGenerator()
 	reportData, err := generator.Generate(ctx, clusterName, period)
 	if err != nil {
 		report.Status = "failed"
@@ -344,7 +395,7 @@ func (j *GpuUsageWeeklyReportBackfillJob) generateReportForWeek(ctx context.Cont
 	}
 
 	// Render HTML
-	renderer := NewReportRenderer(j.config.WeeklyReportConfig)
+	renderer := j.getRenderer()
 	htmlContent, err := renderer.RenderHTML(ctx, reportData)
 	if err != nil {
 		report.Status = "failed"
@@ -381,7 +432,7 @@ func (j *GpuUsageWeeklyReportBackfillJob) generateReportForWeek(ctx context.Cont
 
 // getAverageGpuCountFromDB calculates the average GPU count from cluster_gpu_hourly_stats table
 func (j *GpuUsageWeeklyReportBackfillJob) getAverageGpuCountFromDB(ctx context.Context, clusterName string, period ReportPeriod) (int, error) {
-	aggFacade := database.GetFacade().GetGpuAggregation().WithCluster(clusterName)
+	aggFacade := j.getDatabaseFacade().GetGpuAggregation().WithCluster(clusterName)
 
 	stats, err := aggFacade.GetClusterHourlyStats(ctx, period.StartTime, period.EndTime)
 	if err != nil {
@@ -403,7 +454,11 @@ func (j *GpuUsageWeeklyReportBackfillJob) getAverageGpuCountFromDB(ctx context.C
 
 // getDBForCluster gets the database connection for a specific cluster
 func (j *GpuUsageWeeklyReportBackfillJob) getDBForCluster(clusterName string) (*gorm.DB, error) {
-	cm := clientsets.GetClusterManager()
+	if j.dbConnectionProvider != nil {
+		return j.dbConnectionProvider.GetDBForCluster(clusterName)
+	}
+
+	cm := j.getClusterManager()
 
 	// Try to get cluster-specific client set
 	clientSet, err := cm.GetClientSetByClusterName(clusterName)
@@ -444,3 +499,13 @@ func (j *GpuUsageWeeklyReportBackfillJob) Schedule() string {
 	return "0 3 * * *"
 }
 
+// SetDependencies sets the dependencies for the job (for testing)
+func (j *GpuUsageWeeklyReportBackfillJob) SetDependencies(deps *Dependencies) {
+	if deps != nil {
+		j.clusterManager = deps.ClusterManager
+		j.databaseFacade = deps.DatabaseFacade
+		j.dbConnectionProvider = deps.DBConnectionProvider
+		j.generatorFactory = deps.GeneratorFactory
+		j.rendererFactory = deps.RendererFactory
+	}
+}
