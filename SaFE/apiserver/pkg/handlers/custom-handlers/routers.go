@@ -8,10 +8,11 @@ package custom_handlers
 import (
 	"fmt"
 
-	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/middle"
 	"github.com/gin-gonic/gin"
 
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/custom-handlers/types"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/middle"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 )
 
@@ -123,5 +124,8 @@ func InitCustomRouters(e *gin.Engine, h *Handler) {
 		noAuthGroup.POST("users", h.CreateUser)
 
 		noAuthGroup.GET(fmt.Sprintf("/envs"), h.GetEnvs)
+
+		// Token verification for internal services (requires X-Internal-Token header)
+		noAuthGroup.POST("auth/verify", authority.VerifyToken)
 	}
 }
