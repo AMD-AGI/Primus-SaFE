@@ -18,16 +18,18 @@ import (
 
 // DetectionStatusResponse represents the full detection status for a workload
 type DetectionStatusResponse struct {
-	WorkloadUID      string                    `json:"workload_uid"`
-	Status           string                    `json:"status"`                      // Detection status: unknown, suspected, confirmed, verified, conflict
-	DetectionState   string                    `json:"detection_state"`             // Active detection state: pending, in_progress, completed, failed
-	Framework        string                    `json:"framework,omitempty"`         // Primary detected framework
-	Frameworks       []string                  `json:"frameworks,omitempty"`        // All detected frameworks
-	WorkloadType     string                    `json:"workload_type,omitempty"`     // training or inference
-	Confidence       float64                   `json:"confidence"`                  // Aggregated confidence [0-1]
-	FrameworkLayer   string                    `json:"framework_layer,omitempty"`   // wrapper or base
-	WrapperFramework string                    `json:"wrapper_framework,omitempty"` // Wrapper framework name
-	BaseFramework    string                    `json:"base_framework,omitempty"`    // Base framework name
+	WorkloadUID              string                    `json:"workload_uid"`
+	Status                   string                    `json:"status"`                                // Detection status: unknown, suspected, confirmed, verified, conflict
+	DetectionState           string                    `json:"detection_state"`                       // Active detection state: pending, in_progress, completed, failed
+	Framework                string                    `json:"framework,omitempty"`                   // Primary detected framework
+	Frameworks               []string                  `json:"frameworks,omitempty"`                  // All detected frameworks (stack from top to bottom)
+	WorkloadType             string                    `json:"workload_type,omitempty"`               // training or inference
+	Confidence               float64                   `json:"confidence"`                            // Aggregated confidence [0-1]
+	FrameworkLayer           string                    `json:"framework_layer,omitempty"`             // wrapper, orchestration, runtime, or inference
+	WrapperFramework         string                    `json:"wrapper_framework,omitempty"`           // L1: Wrapper framework (primus, lightning)
+	OrchestrationFramework   string                    `json:"orchestration_framework,omitempty"`     // L2: Orchestration framework (megatron, deepspeed)
+	RuntimeFramework         string                    `json:"runtime_framework,omitempty"`           // L3: Runtime framework (pytorch, tensorflow)
+	BaseFramework            string                    `json:"base_framework,omitempty"`              // Deprecated: use orchestration_framework or runtime_framework
 	EvidenceCount    int32                     `json:"evidence_count"`              // Total evidence records
 	EvidenceSources  []string                  `json:"evidence_sources"`            // Sources that contributed evidence
 	AttemptCount     int32                     `json:"attempt_count"`               // Detection attempts made
@@ -406,6 +408,15 @@ func buildDetectionStatusResponse(detection *model.WorkloadDetection, coverages 
 		Tasks:            []DetectionTaskItem{},
 	}
 
+	// For backward compatibility: derive orchestration/runtime from base_framework
+	// In the new multi-layer model:
+	// - OrchestrationFramework = megatron, deepspeed, etc.
+	// - RuntimeFramework = pytorch, tensorflow, etc.
+	// Currently base_framework stores the orchestration framework (from the fix)
+	if detection.BaseFramework != "" {
+		response.OrchestrationFramework = detection.BaseFramework
+	}
+
 	// Parse frameworks from JSON
 	if len(detection.Frameworks) > 0 {
 		var frameworks []string
@@ -562,19 +573,21 @@ func filterDetectionTasks(tasks []*model.WorkloadTaskState) []*model.WorkloadTas
 
 // DetectionEvidenceItem represents a single evidence record
 type DetectionEvidenceItem struct {
-	ID               int64                  `json:"id"`
-	WorkloadUID      string                 `json:"workload_uid"`
-	Source           string                 `json:"source"`            // process, log, image, label, etc.
-	SourceType       string                 `json:"source_type"`       // passive or active
-	Framework        string                 `json:"framework"`         // Detected framework
-	WorkloadType     string                 `json:"workload_type"`     // training or inference
-	Confidence       float64                `json:"confidence"`        // Confidence [0-1]
-	FrameworkLayer   string                 `json:"framework_layer"`   // wrapper or base
-	WrapperFramework string                 `json:"wrapper_framework"` // Wrapper framework
-	BaseFramework    string                 `json:"base_framework"`    // Base framework
-	Evidence         map[string]interface{} `json:"evidence"`          // Evidence details
-	DetectedAt       time.Time              `json:"detected_at"`       // When evidence was collected
-	CreatedAt        time.Time              `json:"created_at"`        // Record creation time
+	ID                     int64                  `json:"id"`
+	WorkloadUID            string                 `json:"workload_uid"`
+	Source                 string                 `json:"source"`                              // process, log, image, label, etc.
+	SourceType             string                 `json:"source_type"`                         // passive or active
+	Framework              string                 `json:"framework"`                           // Detected framework
+	WorkloadType           string                 `json:"workload_type"`                       // training or inference
+	Confidence             float64                `json:"confidence"`                          // Confidence [0-1]
+	FrameworkLayer         string                 `json:"framework_layer"`                     // wrapper, orchestration, runtime, or inference
+	WrapperFramework       string                 `json:"wrapper_framework,omitempty"`         // L1: Wrapper framework
+	OrchestrationFramework string                 `json:"orchestration_framework,omitempty"`   // L2: Orchestration framework
+	RuntimeFramework       string                 `json:"runtime_framework,omitempty"`         // L3: Runtime framework
+	BaseFramework          string                 `json:"base_framework,omitempty"`            // Deprecated: use orchestration/runtime framework
+	Evidence               map[string]interface{} `json:"evidence"`                            // Evidence details
+	DetectedAt             time.Time              `json:"detected_at"`                         // When evidence was collected
+	CreatedAt              time.Time              `json:"created_at"`                          // Record creation time
 }
 
 // GetDetectionEvidence returns evidence records for a workload
@@ -618,7 +631,7 @@ func GetDetectionEvidence(ctx *gin.Context) {
 
 	items := make([]DetectionEvidenceItem, 0, len(evidenceRecords))
 	for _, e := range evidenceRecords {
-		items = append(items, DetectionEvidenceItem{
+		item := DetectionEvidenceItem{
 			ID:               e.ID,
 			WorkloadUID:      e.WorkloadUID,
 			Source:           e.Source,
@@ -632,7 +645,12 @@ func GetDetectionEvidence(ctx *gin.Context) {
 			Evidence:         e.Evidence,
 			DetectedAt:       e.DetectedAt,
 			CreatedAt:        e.CreatedAt,
-		})
+		}
+		// Derive orchestration framework from base_framework for backward compatibility
+		if e.BaseFramework != "" {
+			item.OrchestrationFramework = e.BaseFramework
+		}
+		items = append(items, item)
 	}
 
 	ctx.JSON(http.StatusOK, rest.SuccessResp(ctx.Request.Context(), gin.H{
