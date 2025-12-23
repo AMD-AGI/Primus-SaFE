@@ -177,7 +177,7 @@ func parseCookieString(cookieStr string) (token, userType string, err error) {
 		switch key {
 		case CookieToken:
 			token = value
-		case "UserType":
+		case CookieUserType:
 			userType = value
 		}
 	}

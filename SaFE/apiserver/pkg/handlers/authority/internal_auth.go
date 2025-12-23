@@ -116,8 +116,9 @@ func initializeInternalAuth(cli client.Client) (*InternalAuth, error) {
 
 	tokenBytes, ok := secret.Data[InternalAuthSecretKey]
 	if !ok || len(tokenBytes) == 0 {
-		klog.Error(nil, "internal auth secret does not contain token")
-		return nil, apierrors.NewBadRequest("internal auth secret does not contain token")
+		err := apierrors.NewBadRequest("internal auth secret does not contain token")
+		klog.ErrorS(err, "internal auth secret does not contain token")
+		return nil, err
 	}
 
 	auth.token = string(tokenBytes)
