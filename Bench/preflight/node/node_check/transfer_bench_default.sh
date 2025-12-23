@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #
-# Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
+# Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
 # See LICENSE for license information.
 #
 
@@ -19,12 +19,23 @@ success=0
 last_error=""
 
 for attempt in $(seq 1 $max_retries); do
-  "$DIR_NAME/TransferBench" "$DIR_NAME/examples/example.cfg" >"$LOG_FILE"
+   sleep 2
+  "$DIR_NAME/TransferBench" "$DIR_NAME/examples/example.cfg" >"$LOG_FILE" 2>&1
   EXIT_CODE=$?
   if [ $EXIT_CODE -ne 0 ]; then
-    last_error="TransferBench failed with exit code: $EXIT_CODE"
-    echo "[WARNING] Attempt $attempt failed: $last_error" >&2
+    error_lines=$(grep -i '\[ERROR\]\|error\|failed' "$LOG_FILE" 2>/dev/null | head -5)
+    last_error="TransferBench failed with exit code: $EXIT_CODE. Errors: $error_lines"
     rm -f "$LOG_FILE"
+    echo "[WARNING] Attempt $attempt failed: $last_error" >&2
+    continue
+  fi
+
+  # Check for HIP errors in log even if exit code is 0
+  if grep -q '\[ERROR\]' "$LOG_FILE"; then
+    error_lines=$(grep '\[ERROR\]' "$LOG_FILE" 2>/dev/null)
+    last_error="TransferBench encountered HIP error: $error_lines"
+    rm -f "$LOG_FILE"
+    echo "[WARNING] Attempt $attempt failed: $last_error" >&2
     continue
   fi
 

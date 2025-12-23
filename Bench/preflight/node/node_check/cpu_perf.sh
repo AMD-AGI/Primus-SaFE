@@ -7,12 +7,29 @@
 
 # Use the perf tool to test CPU performance
 
+# Install linux-tools for current kernel at runtime
+KERNEL_VERSION=$(uname -r)
+linux_tools="linux-tools-${KERNEL_VERSION}"
+
+if ! dpkg -l "$linux_tools" 2>/dev/null | grep -q "^ii"; then
+  echo "Installing $linux_tools for kernel $KERNEL_VERSION..."
+  apt-get update >/dev/null 2>&1
+  apt install -y "$linux_tools" linux-tools-common >/dev/null 2>&1
+fi
+
+if [ ! -x /usr/bin/perf ]; then
+  echo "Error: /usr/bin/perf not found. Please install linux-tools-$KERNEL_VERSION on the host." >&2
+  exit 1
+fi
+
 LOG_FILE="/tmp/perf_cpu.log"
 /usr/bin/perf stat -e cycles,instructions,cache-misses -a -r 10 -- sleep 3 >$LOG_FILE 2>&1
 EXIT_CODE=$?
+
 if [ $EXIT_CODE -ne 0 ]; then
-  cat $LOG_FILE && rm -f $LOG_FILE
-  echo "perf failed with exit code: $EXIT_CODE" >&2
+  log_content=$(cat "$LOG_FILE" 2>/dev/null)
+  rm -f "$LOG_FILE"
+  echo "perf failed with exit code: $EXIT_CODE, output: $log_content" >&2
   exit 1
 fi
 

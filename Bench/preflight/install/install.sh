@@ -16,7 +16,9 @@ if [ -z "${ROCM_VERSION}" ]; then
   exit 1
 fi
 export ROCM_VERSION=${ROCM_VERSION}
+export GPU_ARCHS=${GPU_ARCHS}
 echo "ROCM_VERSION: ${ROCM_VERSION}"
+echo "GPU_ARCHS: ${GPU_ARCHS}"
 
 # Function to run a script and check result
 run_script() {
@@ -32,7 +34,6 @@ run_script() {
 
 # Common scripts to run
 COMMON_SCRIPTS=(
-    "install_linux_tools.sh"
     "install_ucx.sh"
     "install_open_mpi.sh"
     "install_mpich.sh"
