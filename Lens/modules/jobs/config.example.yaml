@@ -38,7 +38,7 @@
 #     top_n: 20
 #     
 #     conductor:
-#       base_url: "http://primus-conductor-api:8000"
+#       base_url: "http://lens-agent-api-service:8000"
 #       timeout: 300s
 #       retry: 3
 #     
@@ -112,7 +112,7 @@ jobs:
     
     # Conductor API configuration
     conductor:
-      base_url: "http://primus-conductor-api:8000"
+      base_url: "http://lens-agent-api-service:8000"
       timeout: 300s
       retry: 3
     
