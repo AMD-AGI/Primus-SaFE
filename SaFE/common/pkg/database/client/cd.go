@@ -180,7 +180,9 @@ func (c *Client) CreateEnvironmentSnapshot(ctx context.Context, snapshot *Enviro
 
 	var id int64
 	if rows.Next() {
-		rows.Scan(&id)
+		if err := rows.Scan(&id); err != nil {
+			return 0, err
+		}
 	}
 	return id, nil
 }
