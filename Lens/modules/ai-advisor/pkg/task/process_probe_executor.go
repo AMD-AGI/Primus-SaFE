@@ -23,6 +23,7 @@ type ProcessProbeExecutor struct {
 
 	podProber       *common.PodProber
 	evidenceStore   *detection.EvidenceStore
+	layerResolver   *detection.FrameworkLayerResolver
 	coverageFacade  database.DetectionCoverageFacadeInterface
 }
 
@@ -31,6 +32,7 @@ func NewProcessProbeExecutor(collector *metadata.Collector) *ProcessProbeExecuto
 	return &ProcessProbeExecutor{
 		podProber:      common.NewPodProber(collector),
 		evidenceStore:  detection.NewEvidenceStore(),
+		layerResolver:  detection.GetLayerResolver(),
 		coverageFacade: database.NewDetectionCoverageFacade(),
 	}
 }
@@ -44,6 +46,7 @@ func NewProcessProbeExecutorWithDeps(
 	return &ProcessProbeExecutor{
 		podProber:      podProber,
 		evidenceStore:  evidenceStore,
+		layerResolver:  detection.GetLayerResolver(),
 		coverageFacade: coverageFacade,
 	}
 }
@@ -400,15 +403,13 @@ func (e *ProcessProbeExecutor) getMatchedEnvVars(envVars map[string]string) map[
 	return matched
 }
 
-// getFrameworkLayer returns the framework layer
+// getFrameworkLayer returns the framework layer using config-based resolution
 func (e *ProcessProbeExecutor) getFrameworkLayer(framework string) string {
-	wrapperFrameworks := map[string]bool{
-		"primus": true,
+	if e.layerResolver != nil {
+		return e.layerResolver.GetLayer(framework)
 	}
-	if wrapperFrameworks[framework] {
-		return "wrapper"
-	}
-	return "base"
+	// Fallback to runtime as default
+	return detection.FrameworkLayerRuntime
 }
 
 // Cancel cancels the task
