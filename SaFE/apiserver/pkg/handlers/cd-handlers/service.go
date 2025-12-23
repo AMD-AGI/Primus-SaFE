@@ -81,6 +81,7 @@ type JobParams struct {
 	ComponentTags string
 	NodeAgentTags string
 	EnvFileConfig string
+	Branch        string // Git branch for deployment
 }
 
 // RemoteClusterJobParams contains parameters for remote cluster update job
@@ -103,6 +104,23 @@ type DeploymentResult struct {
 	NodeAgentImage   string
 	CICDRunnerImage  string
 	CICDUnifiedImage string
+	Branch           string // Git branch for deployment
+}
+
+// extractBranchFromEnvFileConfig extracts DEPLOY_BRANCH from env file content string.
+// Returns "main" as default if not found or parsing fails.
+func extractBranchFromEnvFileConfig(envFileConfig string) string {
+	for _, line := range strings.Split(envFileConfig, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "DEPLOY_BRANCH=") {
+			branch := strings.TrimPrefix(line, "DEPLOY_BRANCH=")
+			branch = strings.Trim(branch, "\"'") // Remove quotes if any
+			if branch != "" {
+				return branch
+			}
+		}
+	}
+	return "main" // Default branch
 }
 
 // ExecuteDeployment executes the deployment process and returns deployment result
@@ -167,6 +185,7 @@ func (s *Service) ExecuteDeployment(ctx context.Context, req *dbclient.Deploymen
 	// 3. Prepare Job Params
 	jobName := commonutils.GenerateName(fmt.Sprintf("cd-upgrade-%d", req.Id))
 	result.LocalJobName = jobName
+	result.Branch = extractBranchFromEnvFileConfig(mergedConfig.EnvFileConfig)
 
 	params := JobParams{
 		Name:          jobName,
@@ -175,6 +194,7 @@ func (s *Service) ExecuteDeployment(ctx context.Context, req *dbclient.Deploymen
 		ComponentTags: componentTags,
 		NodeAgentTags: nodeAgentTags,
 		EnvFileConfig: mergedConfig.EnvFileConfig,
+		Branch:        result.Branch,
 	}
 
 	// 3. Create Job
@@ -234,8 +254,12 @@ if [ -d "$REPO_DIR" ]; then
     rm -rf "$REPO_DIR"
 fi
 
+# Git branch for deployment
+DEPLOY_BRANCH="%s"
+echo "Using branch: $DEPLOY_BRANCH"
+
 echo "Cloning repository from $REPO_URL..."
-git clone --depth 1 -b feature/chenyi/cicd_upgrad "$REPO_URL" "$REPO_DIR"
+git clone --depth 1 -b "$DEPLOY_BRANCH" "$REPO_URL" "$REPO_DIR"
 echo "✓ Repository cloned successfully"
 
 # Helper function to update yaml using sed (simple implementation)
@@ -303,7 +327,7 @@ echo "Step 3: Starting upgrade script..."
 echo "=========================================="
 cd "$REPO_DIR/SaFE/bootstrap/"
 /bin/bash ./upgrade.sh
-`, ContainerMountPath, PrimusSaFERepoURL, envFileBase64, params.ComponentTags, params.NodeAgentTags)
+`, ContainerMountPath, PrimusSaFERepoURL, params.Branch, envFileBase64, params.ComponentTags, params.NodeAgentTags)
 
 	job := &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
@@ -433,16 +457,17 @@ NODE_AGENT_IMAGE="%s"
 CICD_RUNNER_IMAGE="%s"
 CICD_UNIFIED_IMAGE="%s"
 ADMIN_CLUSTER_ID="%s"
+DEPLOY_BRANCH="%s"
 
 mkdir -p "$WORK_DIR"
 
 # Clone repo if node-agent update needed (for helm chart)
 if [ "$HAS_NODE_AGENT" = "true" ]; then
-    echo "Cloning repository for node-agent chart..."
+    echo "Cloning repository for node-agent chart (branch: $DEPLOY_BRANCH)..."
     if [ -d "$REPO_DIR" ]; then
         rm -rf "$REPO_DIR"
     fi
-    git clone --depth 1 -b feature/chenyi/cicd_upgrad "%s" "$REPO_DIR"
+    git clone --depth 1 -b "$DEPLOY_BRANCH" "%s" "$REPO_DIR"
     echo "✓ Repository cloned"
 fi
 
@@ -664,6 +689,7 @@ echo "=========================================="
 		result.CICDRunnerImage,
 		result.CICDUnifiedImage,
 		AdminClusterID,
+		result.Branch,
 		PrimusSaFERepoURL,
 	)
 

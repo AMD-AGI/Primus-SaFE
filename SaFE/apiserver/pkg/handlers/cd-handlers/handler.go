@@ -416,9 +416,22 @@ func (h *Handler) approveDeploymentRequest(c *gin.Context) (interface{}, error) 
 	if err != nil {
 		return nil, err
 	}
+
 	// Check if user is the same as requester
+	// Only allow self-approval for non-main branches
 	if req.DeployName == username {
-		return nil, commonerrors.NewForbidden("Cannot approve your own request")
+		// Parse config to get branch
+		var config DeploymentConfig
+		branch := "main" // Default to main (requires approval) if parsing fails
+		if err := json.Unmarshal([]byte(req.EnvConfig), &config); err == nil {
+			branch = extractBranchFromEnvFileConfig(config.EnvFileConfig)
+		}
+
+		// Only allow self-approval for non-main branches
+		if branch == "main" {
+			return nil, commonerrors.NewForbidden("Cannot approve your own request for main branch deployment")
+		}
+		klog.Infof("Self-approval allowed for non-main branch: %s (user: %s, request: %d)", branch, username, req.Id)
 	}
 
 	if req.Status != StatusPendingApproval {
