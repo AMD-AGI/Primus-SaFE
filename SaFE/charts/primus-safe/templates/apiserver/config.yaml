@@ -87,7 +87,7 @@ data:
       {{- end }}
     cd:
       # Whether deployment requests require approval from another user
-      require_approval: {{ default true .Values.cd.require_approval }}
+      require_approval: {{ if hasKey .Values.cd "require_approval" }}{{ .Values.cd.require_approval }}{{ else }}true{{ end }}
     {{- if .Values.proxy }}
     proxy:
       # Proxy services configuration for reverse proxying to backend services
