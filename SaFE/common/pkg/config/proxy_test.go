@@ -16,10 +16,10 @@ import (
 
 func TestGetProxyServices(t *testing.T) {
 	tests := []struct {
-		name          string
-		configContent string
-		expectedCount int
-		expectedFirst *ProxyService
+		name           string
+		configContent  string
+		expectedCount  int
+		expectedFirst  *ProxyService
 	}{
 		{
 			name: "empty proxy services",
@@ -173,9 +173,9 @@ func TestProxyServiceStruct(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			isValid := tt.service.Name != "" &&
-				tt.service.Prefix != "" &&
-				tt.service.Target != ""
+			isValid := tt.service.Name != "" && 
+			           tt.service.Prefix != "" && 
+			           tt.service.Target != ""
 			assert.Equal(t, tt.valid, isValid)
 		})
 	}
@@ -211,7 +211,7 @@ proxy:
 			if tt.shouldLoad {
 				assert.NoError(t, err)
 			}
-
+			
 			services := GetProxyServices()
 
 			// Should return empty array on error or invalid structure
@@ -263,8 +263,9 @@ proxy:
 func TestProxyServiceDefaults(t *testing.T) {
 	// Test that GetProxyServices returns empty array when no config is set
 	viper.Reset()
-
+	
 	services := GetProxyServices()
 	// GetProxyServices returns []ProxyService{} which is not nil
 	assert.Equal(t, 0, len(services))
 }
+
