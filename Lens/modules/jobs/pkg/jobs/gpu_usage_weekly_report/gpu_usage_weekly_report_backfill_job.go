@@ -196,7 +196,6 @@ func (j *GpuUsageWeeklyReportBackfillJob) getClusterDataTimeRange(ctx context.Co
 	err = db.WithContext(ctx).
 		Table("cluster_gpu_hourly_stats").
 		Select("MIN(stat_hour) as min_time, MAX(stat_hour) as max_time").
-		Where("cluster_name = ?", clusterName).
 		Scan(&result).Error
 
 	if err != nil {
