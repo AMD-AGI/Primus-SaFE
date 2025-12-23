@@ -101,6 +101,7 @@ type DeploymentResult struct {
 	LocalJobName     string
 	HasNodeAgent     bool
 	HasCICD          bool
+	InstallNodeAgent bool // Whether install_node_agent=y in .env config
 	NodeAgentImage   string
 	CICDRunnerImage  string
 	CICDUnifiedImage string
@@ -118,7 +119,21 @@ func extractBranchFromEnvFileConfig(envFileConfig string) string {
 			return branch
 		}
 	}
-	return "" // Empty means use default branch
+	return "" // Default: empty means use default branch
+}
+
+// extractInstallNodeAgentFromEnvFileConfig extracts install_node_agent from env file content string.
+// Returns false (don't install) if not found or value is not "y".
+func extractInstallNodeAgentFromEnvFileConfig(envFileConfig string) bool {
+	for _, line := range strings.Split(envFileConfig, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "install_node_agent=") {
+			value := strings.TrimPrefix(line, "install_node_agent=")
+			value = strings.Trim(value, "\"'") // Remove quotes if any
+			return value == "y"
+		}
+	}
+	return false // Default: don't install node-agent
 }
 
 // ExecuteDeployment executes the deployment process and returns deployment result
@@ -154,6 +169,10 @@ func (s *Service) ExecuteDeployment(ctx context.Context, req *dbclient.Deploymen
 	nodeAgentTags := ""
 	result := &DeploymentResult{}
 
+	// Check if node-agent installation is enabled in .env config
+	installNodeAgent := extractInstallNodeAgentFromEnvFileConfig(mergedConfig.EnvFileConfig)
+	result.InstallNodeAgent = installNodeAgent
+
 	for _, comp := range expectedComponents {
 		if tag, ok := mergedConfig.ImageVersions[comp]; ok {
 			// Check if it's a CICD component with special format
@@ -166,12 +185,16 @@ func (s *Service) ExecuteDeployment(ctx context.Context, req *dbclient.Deploymen
 					result.CICDUnifiedImage = tag
 				}
 			} else if comp == "node_agent" {
-				// This prevents accidental node_agent updates from snapshot merging
-				if _, userRequested := requestConfig.ImageVersions[comp]; userRequested {
-					// node_agent format in values.yaml is "node_agent.image"
-					nodeAgentTags += fmt.Sprintf("%s=%s;", "image", tag)
-					result.HasNodeAgent = true
-					result.NodeAgentImage = tag
+				// Only update node_agent if:
+				// 1. install_node_agent=y in .env config
+				// 2. User explicitly requested node_agent update (not just from snapshot merging)
+				if installNodeAgent {
+					if _, userRequested := requestConfig.ImageVersions[comp]; userRequested {
+						// node_agent format in values.yaml is "node_agent.image"
+						nodeAgentTags += fmt.Sprintf("%s=%s;", "image", tag)
+						result.HasNodeAgent = true
+						result.NodeAgentImage = tag
+					}
 				}
 			} else {
 				// Standard format: "component.image"
@@ -457,6 +480,7 @@ REPO_DIR="$WORK_DIR/Primus-SaFE"
 NODE_AGENT_CHART="$REPO_DIR/SaFE/node-agent/charts/node-agent"
 HAS_NODE_AGENT=%t
 HAS_CICD=%t
+INSTALL_NODE_AGENT=%t
 NODE_AGENT_IMAGE="%s"
 CICD_RUNNER_IMAGE="%s"
 CICD_UNIFIED_IMAGE="%s"
@@ -466,7 +490,8 @@ DEPLOY_BRANCH="%s"
 mkdir -p "$WORK_DIR"
 
 # Clone repo if node-agent update needed (for helm chart)
-if [ "$HAS_NODE_AGENT" = "true" ]; then
+# Only clone if both HAS_NODE_AGENT=true AND INSTALL_NODE_AGENT=true
+if [ "$HAS_NODE_AGENT" = "true" ] && [ "$INSTALL_NODE_AGENT" = "true" ]; then
     if [ -d "$REPO_DIR" ]; then
         rm -rf "$REPO_DIR"
     fi
@@ -581,7 +606,8 @@ EOF
     fi
     
     # Update node-agent if needed (skip admin cluster - handled by Job 1's upgrade.sh)
-    if [ "$HAS_NODE_AGENT" = "true" ] && [ "$CLUSTER_ID" != "$ADMIN_CLUSTER_ID" ]; then
+    # Only update if HAS_NODE_AGENT=true AND INSTALL_NODE_AGENT=true
+    if [ "$HAS_NODE_AGENT" = "true" ] && [ "$INSTALL_NODE_AGENT" = "true" ] && [ "$CLUSTER_ID" != "$ADMIN_CLUSTER_ID" ]; then
         echo "Updating node-agent on $CLUSTER_ID..."
         
         # Copy values.yaml to temporary file (like upgrade.sh does)
@@ -601,8 +627,10 @@ EOF
         rm -f "$NODE_AGENT_VALUES"
         
         echo "✓ node-agent updated on $CLUSTER_ID"
-    elif [ "$HAS_NODE_AGENT" = "true" ] && [ "$CLUSTER_ID" = "$ADMIN_CLUSTER_ID" ]; then
+    elif [ "$HAS_NODE_AGENT" = "true" ] && [ "$INSTALL_NODE_AGENT" = "true" ] && [ "$CLUSTER_ID" = "$ADMIN_CLUSTER_ID" ]; then
         echo "Skipping node-agent on admin cluster (already handled by upgrade.sh in Job 1)"
+    elif [ "$HAS_NODE_AGENT" = "true" ] && [ "$INSTALL_NODE_AGENT" = "false" ]; then
+        echo "Skipping node-agent update (install_node_agent=n in .env config)"
     fi
     
     # Update CICD if needed
@@ -695,6 +723,7 @@ echo "=========================================="
 		PrimusSaFERepoURL,
 		result.HasNodeAgent,
 		result.HasCICD,
+		result.InstallNodeAgent,
 		result.NodeAgentImage,
 		result.CICDRunnerImage,
 		result.CICDUnifiedImage,
@@ -792,7 +821,10 @@ func (s *Service) VerifyDeploymentRollout(ctx context.Context, envConfig string)
 	}
 
 	// Check if node_agent needs verification
-	_, hasNodeAgent := config.ImageVersions["node_agent"]
+	// Only verify if install_node_agent=y AND node_agent is in ImageVersions
+	installNodeAgent := extractInstallNodeAgentFromEnvFileConfig(config.EnvFileConfig)
+	_, hasNodeAgentVersion := config.ImageVersions["node_agent"]
+	hasNodeAgent := installNodeAgent && hasNodeAgentVersion
 
 	// 4. Poll for readiness
 	// We wait up to 5 minutes for the pods to be ready
@@ -1216,7 +1248,9 @@ func (s *Service) resumeDeploymentMonitoring(ctx context.Context, req *dbclient.
 	// Parse config to check if remote updates were needed
 	var config DeploymentConfig
 	if err := json.Unmarshal([]byte(req.EnvConfig), &config); err == nil {
-		hasNodeAgent := config.ImageVersions["node_agent"] != ""
+		// Check node_agent: only if install_node_agent=y AND node_agent version exists
+		installNodeAgent := extractInstallNodeAgentFromEnvFileConfig(config.EnvFileConfig)
+		hasNodeAgent := installNodeAgent && config.ImageVersions["node_agent"] != ""
 		hasCICD := config.ImageVersions["cicd_runner"] != "" || config.ImageVersions["cicd_unified_job"] != ""
 
 		if hasNodeAgent || hasCICD {
@@ -1277,7 +1311,9 @@ func (s *Service) finalizeRecoveredDeployment(ctx context.Context, req *dbclient
 	// Check if there's a remote cluster job (for node-agent or CICD updates)
 	var config DeploymentConfig
 	if err := json.Unmarshal([]byte(req.EnvConfig), &config); err == nil {
-		hasNodeAgent := config.ImageVersions["node_agent"] != ""
+		// Check node_agent: only if install_node_agent=y AND node_agent version exists
+		installNodeAgent := extractInstallNodeAgentFromEnvFileConfig(config.EnvFileConfig)
+		hasNodeAgent := installNodeAgent && config.ImageVersions["node_agent"] != ""
 		hasCICD := config.ImageVersions["cicd_runner"] != "" || config.ImageVersions["cicd_unified_job"] != ""
 
 		if hasNodeAgent || hasCICD {

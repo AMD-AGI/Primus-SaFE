@@ -55,21 +55,9 @@ if [[ "$ingress" == "higress" ]]; then
 fi
 echo "✅ Upgrade node-agent: \"$install_node_agent\""
 
-# Set proxy_image_registry, ssh_server_ip and cd_require_approval based on sub_domain (tas or tw)
-if [[ "$sub_domain" == "tas" ]]; then
-  proxy_image_registry="harbor.tas.primus-safe.amd.com/proxy"
-  ssh_server_ip="127.0.0.1"
-  cd_require_approval="false"  # TAS: development environment, self-approval allowed
-elif [[ "$sub_domain" == "tw325" ]]; then
-  proxy_image_registry="harbor.tw325.primus-safe.amd.com/proxy"
-  ssh_server_ip=""
-  cd_require_approval="true"   # TW: production environment, requires another user to approve
-else
-  echo "Error: Unknown sub_domain '$sub_domain'. Expected 'tas' or 'tw325'."
-  exit 1
-fi
+# Set proxy_image_registry based on sub_domain
+proxy_image_registry="harbor.${sub_domain}.primus-safe.amd.com/proxy"
 echo "✅ Image Registry: \"$proxy_image_registry\""
-echo "✅ SSH Server IP: \"$ssh_server_ip\""
 echo "✅ CD Require Approval: \"$cd_require_approval\""
 
 echo
@@ -106,10 +94,6 @@ cp "$src_values_yaml" "${values_yaml}"
 
 safe_image=$(printf '%s\n' "$proxy_image_registry" | sed 's/[&/\]/\\&/g')
 sed -i '/global:/,/^[a-z]/ s/image_registry: .*/image_registry: "'"$safe_image"'"/' "$values_yaml"
-
-if [[ -n "$ssh_server_ip" ]]; then
-  sed -i '/^ssh:/,/^[a-z]/ s#server_ip: ".*"#server_ip: "'"$ssh_server_ip"'"#' "$values_yaml"
-fi
 
 sed -i "s/nccl_socket_ifname: \".*\"/nccl_socket_ifname: \"$ethernet_nic\"/" "$values_yaml"
 sed -i "s/nccl_ib_hca: \".*\"/nccl_ib_hca: \"$rdma_nic\"/" "$values_yaml"
