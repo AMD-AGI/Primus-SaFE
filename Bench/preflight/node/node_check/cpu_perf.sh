@@ -11,14 +11,16 @@
 KERNEL_VERSION=$(uname -r)
 linux_tools="linux-tools-${KERNEL_VERSION}"
 
-if ! dpkg -l "$linux_tools" 2>/dev/null | grep -q "^ii"; then
-  echo "Installing $linux_tools for kernel $KERNEL_VERSION..."
-  apt-get update >/dev/null 2>&1
-  apt install -y "$linux_tools" linux-tools-common >/dev/null 2>&1
+echo "Installing $linux_tools for kernel $KERNEL_VERSION..."
+apt-get update >/dev/null 2>&1
+if ! apt install -y "$linux_tools" linux-tools-common >/dev/null 2>&1; then
+  echo "Warning: Failed to install $linux_tools (package may not exist for this kernel)" >&2
 fi
 
 if [ ! -x /usr/bin/perf ]; then
-  echo "Error: /usr/bin/perf not found. Please install linux-tools-$KERNEL_VERSION on the host." >&2
+  echo "Error: /usr/bin/perf not found." >&2
+  echo "The package $linux_tools is not available in apt repository." >&2
+  echo "Please install linux-tools-$KERNEL_VERSION on the host machine." >&2
   exit 1
 fi
 
