@@ -107,13 +107,13 @@ type DeploymentResult struct {
 	Branch           string // Git branch for deployment
 }
 
-// extractBranchFromEnvFileConfig extracts DEPLOY_BRANCH from env file content string.
+// extractBranchFromEnvFileConfig extracts deploy_branch from env file content string.
 // Returns "main" as default if not found or parsing fails.
 func extractBranchFromEnvFileConfig(envFileConfig string) string {
 	for _, line := range strings.Split(envFileConfig, "\n") {
 		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "DEPLOY_BRANCH=") {
-			branch := strings.TrimPrefix(line, "DEPLOY_BRANCH=")
+		if strings.HasPrefix(line, "deploy_branch=") {
+			branch := strings.TrimPrefix(line, "deploy_branch=")
 			branch = strings.Trim(branch, "\"'") // Remove quotes if any
 			if branch != "" {
 				return branch
