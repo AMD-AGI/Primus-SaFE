@@ -613,6 +613,12 @@ func (a *EvidenceAggregator) buildMultiLayerResult(
 		result.BaseFramework = winners.Runtime.Framework // Backward compatibility
 	}
 
+	// For backward compatibility: if base_framework is empty but orchestration exists,
+	// use orchestration as base_framework (since orchestration is the "base" for wrapper frameworks)
+	if result.BaseFramework == "" && winners.Orchestration != nil {
+		result.BaseFramework = winners.Orchestration.Framework
+	}
+
 	// Primary framework: highest layer takes precedence
 	primary := winners.GetPrimaryFramework()
 	if primary != nil {
