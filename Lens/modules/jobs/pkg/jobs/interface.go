@@ -127,9 +127,26 @@ func initManagementJobs(cfg *config.JobsConfig) []Job {
 	log.Info("TraceLens cleanup job registered")
 
 	// Add weekly report job if configured
-	if cfg != nil && cfg.WeeklyReport != nil && cfg.WeeklyReport.Enabled {
+	if cfg != nil {
 		jobs = append(jobs, gpu_usage_weekly_report.NewGpuUsageWeeklyReportJob(cfg.WeeklyReport))
 		log.Info("Weekly report job registered")
+
+		// Add weekly report backfill job
+		backfillConfig := &gpu_usage_weekly_report.GpuUsageWeeklyReportBackfillConfig{
+			Enabled:            cfg.WeeklyReport != nil && cfg.WeeklyReport.Enabled,
+			MaxWeeksToBackfill: 0, // No limit
+			WeeklyReportConfig: cfg.WeeklyReport,
+		}
+		// Apply backfill-specific config if available
+		if cfg.WeeklyReportBackfill != nil {
+			backfillConfig.Enabled = cfg.WeeklyReportBackfill.Enabled
+			backfillConfig.Cron = cfg.WeeklyReportBackfill.Cron
+			if cfg.WeeklyReportBackfill.MaxWeeksToBackfill > 0 {
+				backfillConfig.MaxWeeksToBackfill = cfg.WeeklyReportBackfill.MaxWeeksToBackfill
+			}
+		}
+		jobs = append(jobs, gpu_usage_weekly_report.NewGpuUsageWeeklyReportBackfillJob(backfillConfig))
+		log.Info("Weekly report backfill job registered")
 	}
 
 	// Add more management jobs here in the future

@@ -86,9 +86,17 @@ type NodeExporterConfig struct {
 }
 
 type JobsConfig struct {
-	GrpcPort     int                 `yaml:"grpc_port" json:"grpc_port"`
-	Mode         string              `yaml:"mode" json:"mode"` // data, management, or standalone
-	WeeklyReport *WeeklyReportConfig `yaml:"weekly_report" json:"weekly_report"`
+	GrpcPort             int                         `yaml:"grpc_port" json:"grpc_port"`
+	Mode                 string                      `yaml:"mode" json:"mode"` // data, management, or standalone
+	WeeklyReport         *WeeklyReportConfig         `yaml:"weekly_report" json:"weekly_report"`
+	WeeklyReportBackfill *WeeklyReportBackfillConfig `yaml:"weekly_report_backfill" json:"weekly_report_backfill"`
+}
+
+// WeeklyReportBackfillConfig contains configuration for GPU usage weekly report backfill job
+type WeeklyReportBackfillConfig struct {
+	Enabled            bool   `yaml:"enabled" json:"enabled"`
+	Cron               string `yaml:"cron" json:"cron"`                               // Default: "0 3 * * *" (daily at 3:00 AM)
+	MaxWeeksToBackfill int    `yaml:"max_weeks_to_backfill" json:"max_weeks_to_backfill"` // 0 = no limit
 }
 
 // WeeklyReportConfig contains configuration for GPU usage weekly reports
