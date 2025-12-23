@@ -70,6 +70,16 @@ func (m *BackfillMockFacade) GetNodeNamespaceMapping() database.NodeNamespaceMap
 func (m *BackfillMockFacade) GetTraceLensSession() database.TraceLensSessionFacadeInterface {
 	return nil
 }
+func (m *BackfillMockFacade) GetK8sService() database.K8sServiceFacadeInterface { return nil }
+func (m *BackfillMockFacade) GetWorkloadDetection() database.WorkloadDetectionFacadeInterface {
+	return nil
+}
+func (m *BackfillMockFacade) GetWorkloadDetectionEvidence() database.WorkloadDetectionEvidenceFacadeInterface {
+	return nil
+}
+func (m *BackfillMockFacade) GetDetectionCoverage() database.DetectionCoverageFacadeInterface {
+	return nil
+}
 func (m *BackfillMockFacade) WithCluster(clusterName string) database.FacadeInterface { return m }
 
 // BackfillMockNodeFacade implements database.NodeFacadeInterface

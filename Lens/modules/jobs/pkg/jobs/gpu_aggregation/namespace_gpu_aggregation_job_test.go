@@ -77,6 +77,16 @@ func (m *NamespaceMockFacade) GetNodeNamespaceMapping() database.NodeNamespaceMa
 func (m *NamespaceMockFacade) GetTraceLensSession() database.TraceLensSessionFacadeInterface {
 	return nil
 }
+func (m *NamespaceMockFacade) GetK8sService() database.K8sServiceFacadeInterface { return nil }
+func (m *NamespaceMockFacade) GetWorkloadDetection() database.WorkloadDetectionFacadeInterface {
+	return nil
+}
+func (m *NamespaceMockFacade) GetWorkloadDetectionEvidence() database.WorkloadDetectionEvidenceFacadeInterface {
+	return nil
+}
+func (m *NamespaceMockFacade) GetDetectionCoverage() database.DetectionCoverageFacadeInterface {
+	return nil
+}
 func (m *NamespaceMockFacade) WithCluster(clusterName string) database.FacadeInterface { return m }
 
 // NamespaceMockNamespaceInfoFacade implements database.NamespaceInfoFacadeInterface for testing

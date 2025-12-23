@@ -1,0 +1,69 @@
+#
+# Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+
+set -e
+
+# Check if AMD_ANP_VERSION is not set
+if [ -z "$AMD_ANP_VERSION" ]; then
+  echo "AMD_ANP_VERSION is not set. Skipping build."
+  exit 0
+fi
+
+ANP_REPO="https://github.com/rocm/amd-anp.git"
+ANP_DIR="amd-anp"
+WORKDIR="/opt"
+
+# Check if amd-anp directory already exists
+if [ -d "${WORKDIR}/${ANP_DIR}" ]; then
+  echo "AMD ANP directory already exists at ${WORKDIR}/${ANP_DIR}. Skipping build."
+  exit 0
+fi
+
+cd ${WORKDIR}
+
+# Clone AMD ANP repository
+echo "Cloning AMD ANP repository..."
+git clone ${ANP_REPO}
+if [ $? -ne 0 ]; then
+  echo "Error: Failed to clone AMD ANP repository from ${ANP_REPO}"
+  exit 1
+fi
+
+# Checkout specific version or branch
+echo "Checking out version ${AMD_ANP_VERSION}..."
+cd ${ANP_DIR}
+git checkout tags/${AMD_ANP_VERSION}
+if [ $? -ne 0 ]; then
+  echo "Error: Failed to checkout version ${AMD_ANP_VERSION}"
+  exit 1
+fi
+
+# Modify Makefile for gfx950 support
+echo "Modifying Makefile for gfx950 offload architecture..."
+sed -i '5a CFLAGS += --offload-arch=gfx950' ./Makefile
+if [ $? -ne 0 ]; then
+  echo "Error: Failed to modify Makefile"
+  exit 1
+fi
+
+# Build
+echo "Building AMD ANP driver..."
+ret=0
+if [ -d "/opt/openmpi" ]; then
+  make -j 16 RCCL_HOME=/opt/rccl \
+             MPI_INCLUDE=/opt/openmpi/include/ \
+             MPI_LIB_PATH=/opt/openmpi/lib/ \
+             ROCM_PATH=/opt/rocm
+  ret=$?
+else
+  make -j 16 RCCL_HOME=/opt/rccl ROCM_PATH=/opt/rocm
+   ret=$?
+fi
+if [ $ret -ne 0 ]; then
+  echo "Error: Failed to build AMD ANP driver."
+  exit 1
+fi
+
+echo "============== install  AMD AINIC Network Plugin (amd-anp) ${AMD_ANP_VERSION} successfully =============="

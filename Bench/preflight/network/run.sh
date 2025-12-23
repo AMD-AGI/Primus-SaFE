@@ -29,9 +29,17 @@ export SSH_PORT=${SSH_PORT:-22}
 export BNIC=${BNIC:-48}
 export BXGMI=${BXGMI:-315}
 export MAX_RETRY=${MAX_RETRY:-2}
-export NCCL_IB_GID_INDEX=${NCCL_IB_GID_INDEX:-3}
 export NCCL_PXN_DISABLE=${NCCL_PXN_DISABLE:-1}
 export NCCL_P2P_NET_CHUNKSIZE=${NCCL_P2P_NET_CHUNKSIZE:-524288}
+export ENABLE_AINIC=${ENABLE_AINIC:-"false"}
+
+# Set GID index based on device type:
+# - ionic: GID 0 or 1 (RoCEv2)
+# - bnxt_re: GID 3
+NCCL_IB_GID_INDEX=${NCCL_IB_GID_INDEX:-3}
+if [[ "$ENABLE_AINIC" == "true" ]]; then
+  NCCL_IB_GID_INDEX=1
+fi
 
 export NCCL_TIMEOUT=7200
 export TORCH_DISTRIBUTED_DEFAULT_TIMEOUT=$NCCL_TIMEOUT
@@ -129,6 +137,7 @@ if [[ "$RANK" == "0" ]]; then
         --ib_hca "$NCCL_IB_HCA" \
         --ib_gid_index "$NCCL_IB_GID_INDEX" \
         --ssh_port "$SSH_PORT" \
+        --enable_ainic "$ENABLE_AINIC" \
         --nodes_file "$NODES_FILE" \
         --rccl_test_type "$test_type" \
         --rccl_debug "$NCCL_DEBUG" > "$log_file" 2>&1

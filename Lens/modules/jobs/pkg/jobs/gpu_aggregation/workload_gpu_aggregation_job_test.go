@@ -77,6 +77,16 @@ func (m *WorkloadMockFacade) GetNodeNamespaceMapping() database.NodeNamespaceMap
 func (m *WorkloadMockFacade) GetTraceLensSession() database.TraceLensSessionFacadeInterface {
 	return nil
 }
+func (m *WorkloadMockFacade) GetK8sService() database.K8sServiceFacadeInterface { return nil }
+func (m *WorkloadMockFacade) GetWorkloadDetection() database.WorkloadDetectionFacadeInterface {
+	return nil
+}
+func (m *WorkloadMockFacade) GetWorkloadDetectionEvidence() database.WorkloadDetectionEvidenceFacadeInterface {
+	return nil
+}
+func (m *WorkloadMockFacade) GetDetectionCoverage() database.DetectionCoverageFacadeInterface {
+	return nil
+}
 func (m *WorkloadMockFacade) WithCluster(clusterName string) database.FacadeInterface { return m }
 
 // WorkloadMockWorkloadFacade implements database.WorkloadFacadeInterface for testing
@@ -175,6 +185,9 @@ func (m *WorkloadMockWorkloadFacade) GetLatestEvent(ctx context.Context, workloa
 func (m *WorkloadMockWorkloadFacade) GetLatestOtherWorkloadEvent(ctx context.Context, workloadUid, nearestWorkloadId string) (*dbmodel.WorkloadEvent, error) {
 	return nil, nil
 }
+func (m *WorkloadMockWorkloadFacade) GetAllWorkloadPodReferences(ctx context.Context) ([]*dbmodel.WorkloadPodReference, error) {
+	return nil, nil
+}
 
 // WorkloadMockPodFacade implements database.PodFacadeInterface for testing
 type WorkloadMockPodFacade struct {
@@ -236,6 +249,21 @@ func (m *WorkloadMockPodFacade) UpdatePodResource(ctx context.Context, podResour
 	return nil
 }
 func (m *WorkloadMockPodFacade) ListPodResourcesByUids(ctx context.Context, uids []string) ([]*dbmodel.PodResource, error) {
+	return nil, nil
+}
+func (m *WorkloadMockPodFacade) QueryPodsWithFilters(ctx context.Context, namespace, podName, startTime, endTime string, page, pageSize int) ([]*dbmodel.GpuPods, int64, error) {
+	return nil, 0, nil
+}
+func (m *WorkloadMockPodFacade) GetAverageGPUUtilizationByNode(ctx context.Context, nodeName string) (float64, error) {
+	return 0.0, nil
+}
+func (m *WorkloadMockPodFacade) GetLatestGPUMetricsByNode(ctx context.Context, nodeName string) (*dbmodel.GpuDevice, error) {
+	return nil, nil
+}
+func (m *WorkloadMockPodFacade) QueryGPUHistoryByNode(ctx context.Context, nodeName string, startTime, endTime time.Time) ([]*dbmodel.GpuDevice, error) {
+	return nil, nil
+}
+func (m *WorkloadMockPodFacade) ListPodEventsByUID(ctx context.Context, podUID string) ([]*dbmodel.GpuPodsEvent, error) {
 	return nil, nil
 }
 

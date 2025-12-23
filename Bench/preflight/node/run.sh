@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #
-# Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
+# Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
 # See LICENSE for license information.
 #
 
@@ -35,6 +35,7 @@ export RANK=$RANK
 export NCCL_SOCKET_IFNAME=${NCCL_SOCKET_IFNAME:-"eth0"}
 export NCCL_IB_HCA=${NCCL_IB_HCA:-""}
 export TEST_LEVEL=${TEST_LEVEL:-"BASIC"}
+export ENABLE_ANP=${ENABLE_ANP:-"false"}
 
 # ============================================================================
 # Helper function to run check scripts

@@ -65,6 +65,16 @@ func (m *MockBackfillFacade) GetNodeNamespaceMapping() database.NodeNamespaceMap
 func (m *MockBackfillFacade) GetTraceLensSession() database.TraceLensSessionFacadeInterface {
 	return nil
 }
+func (m *MockBackfillFacade) GetK8sService() database.K8sServiceFacadeInterface { return nil }
+func (m *MockBackfillFacade) GetWorkloadDetection() database.WorkloadDetectionFacadeInterface {
+	return nil
+}
+func (m *MockBackfillFacade) GetWorkloadDetectionEvidence() database.WorkloadDetectionEvidenceFacadeInterface {
+	return nil
+}
+func (m *MockBackfillFacade) GetDetectionCoverage() database.DetectionCoverageFacadeInterface {
+	return nil
+}
 func (m *MockBackfillFacade) WithCluster(clusterName string) database.FacadeInterface { return m }
 
 type MockBackfillNodeFacade struct {

@@ -108,7 +108,7 @@ func genMockNodeFlavor() *v1.NodeFlavor {
 			Memory: memQuantity,
 			Gpu: &v1.GpuChip{
 				ResourceName: common.AmdGpu,
-				Product:      "AMD MI300X",
+				Product:      "MI300X",
 				Quantity:     *resource.NewQuantity(8, resource.DecimalSI),
 			},
 		},

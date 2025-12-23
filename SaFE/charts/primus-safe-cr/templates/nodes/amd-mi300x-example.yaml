@@ -25,7 +25,7 @@ spec:
     ephemeral-storage: 6695573390Ki
     rdma/hca: 1k
   gpu:
-    product: AMD_Instinct_MI300X_OAM
+    product: MI300X
     quantity: "8"
     resourceName: amd.com/gpu
   memory: 1584032704Ki

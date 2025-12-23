@@ -12,13 +12,32 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		nodeGroup.GET("gpuUtilization", getClusterGPUUtilization)
 		nodeGroup.GET("gpuUtilizationHistory", getGpuUsageHistory)
 		nodeGroup.GET("", getGPUNodeList)
+		// Node Fragmentation Analysis API
+		nodeGroup.GET("fragmentation-analysis", getFragmentationAnalysis)
+		nodeGroup.GET("load-balance-analysis", getLoadBalanceAnalysis)
 		nodeGroup.GET(":name", getNodeInfoByName)
+		nodeGroup.GET(":name/fragmentation", getNodeFragmentation)
 		nodeGroup.GET(":name/gpuDevices", getGpuDevice)
 		nodeGroup.GET(":name/gpuMetrics", getNodeGpuMetrics)
 		nodeGroup.GET(":name/utilization", getNodeUtilization)
 		nodeGroup.GET(":name/utilizationHistory", getNodeUtilizationHistory)
 		nodeGroup.GET(":name/workloads", getNodeWorkload)
 		nodeGroup.GET(":name/workloadsHistory", getNodeWorkloadHistory)
+	}
+
+	// Pod routes - Pod REST API
+	podGroup := group.Group("/pods")
+	{
+		// Query pod statistics with filtering and pagination
+		podGroup.GET("/stats", getPodStats)
+		// Get detailed information for a single pod
+		podGroup.GET("/:pod_uid", getPodDetail)
+		// Get GPU usage history for a pod
+		podGroup.GET("/:pod_uid/gpu-history", getPodGPUHistory)
+		// Get events related to a pod
+		podGroup.GET("/:pod_uid/events", getPodEvents)
+		// Compare multiple pods side-by-side
+		podGroup.GET("/comparison", comparePods)
 	}
 	clusterGroup := group.Group("/clusters")
 	{
@@ -214,6 +233,8 @@ func RegisterRouter(group *gin.RouterGroup) error {
 	{
 		filesGroup := profilerGroup.Group("/files")
 		{
+			// List profiler files for a workload
+			filesGroup.GET("", tracelens.ListProfilerFiles)
 			// Get profiler file metadata
 			filesGroup.GET("/:id", tracelens.GetProfilerFileInfo)
 			// Download profiler file content
@@ -246,6 +267,40 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		}
 		// List sessions for a workload
 		tracelensGroup.GET("/workloads/:workload_uid/sessions", tracelens.ListWorkloadSessions)
+	}
+
+	// Real-time Status routes - Real-time cluster status monitoring
+	realtimeGroup := group.Group("/realtime")
+	{
+		// Get optimized real-time cluster status
+		realtimeGroup.GET("/status", getRealtimeStatus)
+		// Get currently running GPU tasks
+		realtimeGroup.GET("/running-tasks", getRunningTasks)
+	}
+
+	// Detection Status routes - Framework detection status and task progress
+	detectionStatusGroup := group.Group("/detection-status")
+	{
+		// Summary - must be defined before :workload_uid
+		detectionStatusGroup.GET("/summary", GetDetectionSummary)
+		// Log report endpoint (for telemetry-processor)
+		detectionStatusGroup.POST("/log-report", ReportLogDetection)
+		// List all detection statuses
+		detectionStatusGroup.GET("", ListDetectionStatuses)
+		// Get detection status for a specific workload
+		detectionStatusGroup.GET("/:workload_uid", GetDetectionStatus)
+		// Get coverage for a workload
+		detectionStatusGroup.GET("/:workload_uid/coverage", GetDetectionCoverage)
+		// Initialize coverage for a workload
+		detectionStatusGroup.POST("/:workload_uid/coverage/initialize", InitializeDetectionCoverage)
+		// Get uncovered log window
+		detectionStatusGroup.GET("/:workload_uid/coverage/log-gap", GetUncoveredLogWindow)
+		// Get detection tasks for a workload
+		detectionStatusGroup.GET("/:workload_uid/tasks", GetDetectionTasks)
+		// Get evidence for a workload
+		detectionStatusGroup.GET("/:workload_uid/evidence", GetDetectionEvidence)
+		// Manually trigger detection
+		detectionStatusGroup.POST("/:workload_uid/trigger", TriggerDetection)
 	}
 
 	return nil

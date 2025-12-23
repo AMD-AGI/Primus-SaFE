@@ -216,14 +216,13 @@ func (h *Handler) patchSecret(c *gin.Context) (interface{}, error) {
 		}
 		if innerError = h.Update(c.Request.Context(), secret); innerError == nil {
 			return nil
-		} else {
-			if apierrors.IsConflict(innerError) {
-				if secret, _ = h.getAdminSecret(c.Request.Context(), name); secret == nil {
-					return commonerrors.NewNotFoundWithMessage(fmt.Sprintf("secret %s not found", name))
-				}
-			}
-			return innerError
 		}
+		if apierrors.IsConflict(innerError) {
+			if secret, _ = h.getAdminSecret(c.Request.Context(), name); secret == nil {
+				return commonerrors.NewNotFoundWithMessage(fmt.Sprintf("secret %s not found", name))
+			}
+		}
+		return innerError
 	}, defaultRetryCount, defaultRetryDelay); err != nil {
 		klog.ErrorS(err, "failed to update secret", "name", secret.Name)
 		return nil, err

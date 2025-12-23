@@ -15,6 +15,16 @@ fi
 
 LOG_FILE="/tmp/all_reduce_perf.log"
 export LD_LIBRARY_PATH="/opt/rocm/lib:/opt/mpich/lib:/usr/local/lib:$LD_LIBRARY_PATH"
+
+# Use AMD ANP plugin for RCCL communication over AINIC devices if enabled
+if [ "$ENABLE_ANP" = "true" ]; then
+  echo "ANP enabled, using NCCL_NET_PLUGIN=anp"
+  export NCCL_NET_PLUGIN=anp
+  export UCX_TLS=tcp,self,sm
+  export LD_LIBRARY_PATH="/opt/amd-anp/build:$LD_LIBRARY_PATH"
+else
+  echo "ANP disabled, using default network plugin"
+fi
 $DIR_NAME/build/all_reduce_perf -b 8 -e 8G -f 2 -g 8 >$LOG_FILE
 EXIT_CODE=$?
 if [ $EXIT_CODE -ne 0 ]; then

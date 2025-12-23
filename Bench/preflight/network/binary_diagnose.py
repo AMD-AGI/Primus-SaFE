@@ -1,20 +1,19 @@
 #!/usr/bin/env python3
 
-#  Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
+#  Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
 #  See LICENSE for license information.
 
+import argparse
+import datetime
+import hashlib
+import os
 import subprocess
 import sys
-import os
-import argparse
-import time
-from typing import List, Tuple
-from queue import Queue, Empty
 import threading
-import hashlib
-import ipaddress
+import time
 from concurrent.futures import ThreadPoolExecutor
-import datetime
+from queue import Queue, Empty
+from typing import List, Tuple
 
 # ================= configuration =================
 MPIEXEC = "/opt/mpich/bin/mpirun"
@@ -31,6 +30,7 @@ NCCL_IB_GID_INDEX = 3
 RCCL_TEST_TYPE = 0
 RCCL_TEST_NAME = ""
 SSH_PORT = 22
+ENABLE_AINIC = False
 
 total_nodes = 0
 total_failed_nodes = 0
@@ -54,7 +54,10 @@ def get_log_filename(nodes: List[str]) -> str:
 def threshold(node_count: int) -> float:
     G_PER_NODE = 8
     if RCCL_TEST_TYPE == 0:
-        return 350.0*node_count*G_PER_NODE/(2*node_count*G_PER_NODE-1) *0.85
+        beff = 350.0*node_count*G_PER_NODE/(2*node_count*G_PER_NODE-1) *0.85
+        if ENABLE_AINIC:
+            beff *= 0.4
+        return beff
     try:
         bnic = float(os.environ['BNIC'])
         bxgmi = float(os.environ['BXGMI'])
@@ -67,6 +70,8 @@ def threshold(node_count: int) -> float:
     # Compute effective bandwidth
     beff = 1 / (remote_frac / bnic + local_frac / bxgmi)
     beff *= 0.7
+    if ENABLE_AINIC:
+        beff *= 0.4
     return beff
 
 def get_hosts(hosts_file) -> List[str]:
@@ -186,34 +191,7 @@ def run_rccl_test(nodes: List[str]) -> float:
         log(f"[FAIL] Connectivity check failed for nodes {nodes}")
         return 0.0
 
-    nodes_str = ",".join([f"{node}" for node in nodes])
-    np = len(nodes) * NUM_GPUS_PER_NODE
-    dev0 = RCCL_IB_HCA.split(',')[0]
-
-    cmd = [
-        MPIEXEC, "-n", str(np), "-ppn", str(NUM_GPUS_PER_NODE),
-        "-launcher", "ssh",
-        "-hosts", nodes_str,
-    ]
     env_vars = os.environ.copy()
-    env_vars["MPIEXEC_ALLOW_ROOT"] = "1"
-    env_vars["NCCL_IB_HCA"] = RCCL_IB_HCA
-    env_vars["NCCL_SOCKET_IFNAME"] = RCCL_SOCKET_IFNAME
-    env_vars["UCX_NET_DEVICES"] = dev0 + ":1"
-    env_vars["NCCL_IB_GID_INDEX"] = str(NCCL_IB_GID_INDEX)
-    env_vars["LD_LIBRARY_PATH"] = LD_LIBRARY_PATH
-    env_vars["MPIEXEC_RSH"] = f"ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -p {SSH_PORT}"
-    env_vars["NCCL_DEBUG"] = RCCL_DEBUG
-    env_vars["HSA_NO_SCRATCH_RECLAIM"] = "1"
-    env_vars["HSA_FORCE_FINE_GRAIN_PCIE"] = "1"
-    env_vars["NCCL_CHECKS_DISABLE"] = "1"
-    env_vars["NCCL_ALGO"] = "RING"
-    env_vars["RCCL_MSCCL_ENABLE"] = "0"
-    env_vars["NCCL_IB_PCI_RELAXED_ORDERING"] = "1"
-    env_vars["NCCL_SHM_DISABLE"] = "1"
-    env_vars["NCCL_CROSS_NIC"] = "0"
-    env_vars["NCCL_NET_GDR_LEVEL"] = "2"
-    env_vars["NCCL_NET_GDR_READ"] = "1"
     if RCCL_TEST_TYPE == 0:
         RCCL_TEST = RCCL_ALL_REDUCE_PERF
     elif RCCL_TEST_TYPE == 1:
@@ -223,6 +201,45 @@ def run_rccl_test(nodes: List[str]) -> float:
             env_vars["NCCL_P2P_NET_CHUNKSIZE"] = os.getenv('NCCL_P2P_NET_CHUNKSIZE', '524288')
     else:
         raise ValueError("Invalid RCCL_TEST_TYPE")
+
+    env_vars["MPIEXEC_ALLOW_ROOT"] = "1"
+    env_vars["NCCL_SOCKET_IFNAME"] = RCCL_SOCKET_IFNAME
+    env_vars["NCCL_IB_GID_INDEX"] = str(NCCL_IB_GID_INDEX)
+    env_vars["NCCL_IB_HCA"] = RCCL_IB_HCA
+    env_vars["NCCL_IB_DISABLE"] = "0"  # Ensure IB is not disabled
+    env_vars["NCCL_IB_PCI_RELAXED_ORDERING"] = "1"
+    env_vars["NCCL_SHM_DISABLE"] = "1"
+    env_vars["NCCL_CHECKS_DISABLE"] = "1"
+    env_vars["NCCL_CROSS_NIC"] = "0"
+    env_vars["RCCL_MSCCL_ENABLE"] = "0"
+    env_vars["NCCL_DEBUG"] = RCCL_DEBUG
+    env_vars["MPIEXEC_RSH"] = f"ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -p {SSH_PORT}"
+    if ENABLE_AINIC:
+        env_vars["LD_LIBRARY_PATH"] = (
+            f"/opt/amd-anp/build:"
+            f"/opt/rccl/build/lib:"
+            f"{LD_LIBRARY_PATH}"
+        )
+        env_vars["NCCL_NET_GDR_LEVEL"] = "0"
+        env_vars["NCCL_NET_GDR_READ"] = "0"
+        env_vars["NCCL_PXN_DISABLE"] = "0"
+        env_vars["NCCL_DMABUF_ENABLE"] = "0"
+        env_vars["NCCL_IGNORE_CPU_AFFINITY"] = "1"
+        env_vars["NCCL_IB_QPS_PER_CONNECTION"] = "1"
+        env_vars["UCX_NET_DEVICES"] = RCCL_SOCKET_IFNAME  # Use socket interface for UCX TCP
+    else:
+        env_vars["LD_LIBRARY_PATH"] = LD_LIBRARY_PATH
+        env_vars["NCCL_NET_GDR_LEVEL"] = "2" # ensure gdr is enabled
+        env_vars["NCCL_NET_GDR_READ"] = "1"
+        env_vars["UCX_NET_DEVICES"] = RCCL_IB_HCA.split(',')[0] + ":1"
+  
+    nodes_str = ",".join([f"{node}" for node in nodes])
+    np = len(nodes) * NUM_GPUS_PER_NODE
+    cmd = [
+        MPIEXEC, "-n", str(np), "-ppn", str(NUM_GPUS_PER_NODE),
+        "-launcher", "ssh",
+        "-hosts", nodes_str,
+    ]
     cmd.append(RCCL_TEST)
     cmd.extend(["-b", "16M", "-e", MAX_BYTES, "-f", "2", "-g", "1"])
 
@@ -230,7 +247,7 @@ def run_rccl_test(nodes: List[str]) -> float:
     log(f"# Log: {log_file}")
     env_str_parts = []
     for k, v in env_vars.items():
-        if k.startswith('MPI') or k.startswith('NCCL') or k.startswith('LD_') or k.startswith('UCX_') or  k.startswith('RCCL_'):
+        if k.startswith('MPI') or k.startswith('NCCL_') or k.startswith('LD_') or k.startswith('UCX_') or  k.startswith('RCCL_') or  k.startswith('ANP_') or  k.startswith('HSA_'):
             env_str_parts.append(f'{k}="{v}"')
     env_str_for_manual_exec = " ".join(env_str_parts)
     cmd_str_for_manual_exec = " ".join(cmd)
@@ -239,19 +256,43 @@ def run_rccl_test(nodes: List[str]) -> float:
 
     try:
         with open(log_file, "w") as f:
-            result = subprocess.run(
+            # Use Popen for real-time output
+            process = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
-                timeout=300,
                 env=env_vars
             )
-            print(result.stdout)
-            f.write(result.stdout)
+            output_lines = []
+            start_time = time.time()
+            timeout_seconds = 300
+            
+            while True:
+                # Check if process has finished
+                retcode = process.poll()
+                
+                # Read available output
+                if process.stdout:
+                    line = process.stdout.readline()
+                    if line:
+                        print(line, end='', flush=True)
+                        f.write(line)
+                        output_lines.append(line)
+                
+                # Check timeout
+                if time.time() - start_time > timeout_seconds:
+                    process.kill()
+                    raise subprocess.TimeoutExpired(cmd, timeout_seconds)
+                
+                # If process finished and no more output, break
+                if retcode is not None and not line:
+                    break
+            
+            result_stdout = ''.join(output_lines)
 
         target_size = parse_size(MAX_BYTES)
-        algbw = parse_algbw(result.stdout, target_size)
+        algbw = parse_algbw(result_stdout, target_size)
         if algbw == 0.0:
             log(f"[FAIL] Failed to parse algbw from output for {nodes}")
         else:
@@ -372,18 +413,23 @@ def parse_args() -> List[str]:
                         help="port for SSH to connect to (default: 22)")
     parser.add_argument("--nodes_file", type=str, default="/root/hosts",
                         help="node list file")
-    parser.add_argument("--ib_gid_index", type=int, default=3, help="NCCL_IB_GID_INDEX")
+    parser.add_argument("--ib_gid_index", type=int, default=None, help="NCCL_IB_GID_INDEX")
     parser.add_argument("--rccl_test_type", type=int, default=0, choices=[0, 1], help="0: all_reduce_perf, 1: alltoall_perf")
+    parser.add_argument("--enable_ainic", type=str, default="false",
+                        help="Enable ANP (AMD Network Plugin), disables UCX config (true/false)")
     args = parser.parse_args()
 
-    global MAX_CONCURRENT_TESTS, RCCL_DEBUG, RCCL_SOCKET_IFNAME, RCCL_IB_HCA, SSH_PORT, NCCL_IB_GID_INDEX, RCCL_TEST_TYPE, RCCL_TEST_NAME, MAX_BYTES
+    global MAX_CONCURRENT_TESTS, RCCL_DEBUG, RCCL_SOCKET_IFNAME, RCCL_IB_HCA, SSH_PORT, NCCL_IB_GID_INDEX, RCCL_TEST_TYPE, RCCL_TEST_NAME, MAX_BYTES, ENABLE_AINIC
     MAX_CONCURRENT_TESTS = args.max_concurrent
     RCCL_DEBUG = args.rccl_debug
     RCCL_SOCKET_IFNAME = args.socket_ifname
     RCCL_IB_HCA = args.ib_hca
     SSH_PORT = args.ssh_port
-    NCCL_IB_GID_INDEX = args.ib_gid_index
     RCCL_TEST_TYPE = args.rccl_test_type
+    ENABLE_AINIC = args.enable_ainic.lower() == 'true' or os.environ.get('ENABLE_AINIC', '').lower() == 'true'
+    # Use ib_gid_index from args if provided, otherwise keep default
+    if args.ib_gid_index is not None:
+        NCCL_IB_GID_INDEX = args.ib_gid_index
     if RCCL_TEST_TYPE == 0:
         RCCL_TEST_NAME = "all_reduce_perf"
     else:

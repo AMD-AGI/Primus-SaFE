@@ -1,0 +1,35 @@
+#
+# Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+
+# The parameters should be modified according to the actual cluster environment.
+apiVersion: amd.com/v1
+kind: NodeFlavor
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
+  name: amd-mi355x-example
+spec:
+  cpu:
+    product: AMD_EPYC_9575F
+    quantity: "128"
+  dataDisk:
+    count: 8
+    quantity: 6.99Ti
+    type: nvme
+  extendedResources:
+    ephemeral-storage: 13496617142Ki
+    rdma/hca: 1k
+  gpu:
+    product: MI355X
+    quantity: "8"
+    resourceName: amd.com/gpu
+  memory: 3030263404Ki
+  rootDisk:
+    count: 1
+    quantity: 838Gi
+    type: ssd

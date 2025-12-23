@@ -260,7 +260,7 @@ func (r *DispatcherReconciler) generateK8sObject(ctx context.Context,
 	result, err := r.getWorkloadTemplate(ctx, adminWorkload)
 	if err != nil {
 		klog.Error(err.Error())
-		return nil, err
+		return nil, commonerrors.NewInternalError(err.Error())
 	}
 	if err = applyWorkloadSpecToObject(ctx, clusterInformer, result, adminWorkload, workspace, rt); err != nil {
 		return nil, commonerrors.NewInternalError(err.Error())
@@ -309,13 +309,11 @@ func (r *DispatcherReconciler) getWorkloadTemplate(ctx context.Context, adminWor
 	}
 	templateStr, ok := templateConfig.Data["template"]
 	if !ok || templateStr == "" {
-		return nil, commonerrors.NewInternalError(
-			fmt.Sprintf("failed to find the template. name: %s", templateConfig.Name))
+		return nil, fmt.Errorf("failed to find the template. name: %s", templateConfig.Name)
 	}
 	template, err := jsonutils.ParseYamlToJson(templateStr)
 	if err != nil {
-		return nil, commonerrors.NewInternalError(
-			fmt.Sprintf("failed to parse template: %v", err.Error()))
+		return nil, fmt.Errorf("failed to parse template: %v", err.Error())
 	}
 	return template, nil
 }
@@ -609,7 +607,7 @@ func updateCICDEphemeralRunner(ctx context.Context, clusterInformer *syncer.Clus
 			ownerObj, err := jobutils.GetObject(ctx,
 				clusterInformer.ClientFactory(), scaleRunnerId, adminWorkload.Spec.Workspace, rt.ToSchemaGVK())
 			if err != nil {
-				return commonerrors.NewInternalError(fmt.Sprintf("failed to get owner scale runner: %v", err.Error()))
+				return fmt.Errorf("failed to get owner scale runner: %v", err.Error())
 			}
 			ownerRef := metav1.OwnerReference{
 				APIVersion:         ownerObj.GetAPIVersion(),
@@ -637,7 +635,7 @@ func updateCICDGithub(adminWorkload *v1.Workload, obj *unstructured.Unstructured
 		return fmt.Errorf("failed to find object with path: [spec]")
 	}
 	if v1.GetGithubSecretId(adminWorkload) == "" || adminWorkload.Spec.Env[common.GithubConfigUrl] == "" {
-		return commonerrors.NewInternalError("github config is not set")
+		return fmt.Errorf("github config is not set")
 	}
 
 	specObject["githubConfigSecret"] = v1.GetGithubSecretId(adminWorkload)
@@ -646,7 +644,7 @@ func updateCICDGithub(adminWorkload *v1.Workload, obj *unstructured.Unstructured
 		if runnerSetId := v1.GetCICDRunnerScaleSetId(adminWorkload); runnerSetId != "" {
 			specObject["runnerScaleSetId"], err = strconv.ParseInt(runnerSetId, 10, 0)
 			if err != nil {
-				return commonerrors.NewInternalError(fmt.Sprintf("invalid runner scale set id %s", runnerSetId))
+				return fmt.Errorf("invalid runner scale set id %s", runnerSetId)
 			}
 		}
 	}
@@ -677,7 +675,7 @@ func updateCICDScaleSetEnvs(obj *unstructured.Unstructured,
 	if ok && val == v1.TrueStr {
 		pfsPath := getNfsPathFromWorkspace(workspace)
 		if pfsPath == "" {
-			return commonerrors.NewInternalError("failed to get NFS path from workspace")
+			return fmt.Errorf("failed to get NFS path from workspace")
 		}
 		envs[jobutils.NfsPathEnv] = pfsPath + "/cicd"
 		envs[jobutils.NfsInputEnv] = UnifiedJobInput
@@ -738,7 +736,7 @@ func updateContainers(adminWorkload *v1.Workload,
 	resourceList, err := quantity.CvtToResourceList(res.CPU, res.Memory, res.GPU,
 		res.GPUName, res.EphemeralStorage, res.RdmaResource, 1.0/float64(len(containers)))
 	if err != nil {
-		return commonerrors.NewBadRequest(err.Error())
+		return err
 	}
 
 	resources := buildResources(resourceList)
@@ -939,7 +937,8 @@ func (r *DispatcherReconciler) createService(ctx context.Context, adminWorkload 
 	// Only set owner reference when the owner object has a valid UID.
 	owner := obj
 	if len(owner.GetUID()) == 0 {
-		if fetched, getErr := jobutils.GetObjectByClientFactory(ctx, clusterInformer.ClientFactory(), obj); getErr != nil {
+		if fetched, getErr := jobutils.GetObjectByClientFactory(ctx, clusterInformer.ClientFactory(),
+			obj.GetName(), obj.GetNamespace(), obj.GroupVersionKind()); getErr != nil {
 			return ctrlruntime.Result{}, getErr
 		} else {
 			if len(fetched.GetUID()) == 0 {
@@ -1088,7 +1087,8 @@ func (r *DispatcherReconciler) createIngress(ctx context.Context, adminWorkload 
 	// Only set owner reference when the owner object has a valid UID.
 	owner := obj
 	if len(owner.GetUID()) == 0 {
-		if fetched, getErr := jobutils.GetObjectByClientFactory(ctx, clusterInformer.ClientFactory(), obj); getErr != nil {
+		if fetched, getErr := jobutils.GetObjectByClientFactory(ctx, clusterInformer.ClientFactory(),
+			obj.GetName(), obj.GetNamespace(), obj.GroupVersionKind()); getErr != nil {
 			return ctrlruntime.Result{}, getErr
 		} else {
 			if len(fetched.GetUID()) == 0 {

@@ -198,13 +198,17 @@ func (r *PreflightJobReconciler) generatePreflightWorkload(ctx context.Context, 
 	if err := r.Get(ctx, client.ObjectKey{Name: nodeParams[0].Value}, node); err != nil {
 		return nil, err
 	}
+	nodeFlavor := &v1.NodeFlavor{}
+	if err := r.Get(ctx, client.ObjectKey{Name: v1.GetNodeFlavorId(node)}, nodeFlavor); err != nil {
+		return nil, err
+	}
 
 	workload := &v1.Workload{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: job.Name,
 			Labels: map[string]string{
 				v1.ClusterIdLabel:    v1.GetClusterId(job),
-				v1.NodeFlavorIdLabel: v1.GetNodeFlavorId(node),
+				v1.NodeFlavorIdLabel: nodeFlavor.Name,
 				v1.UserIdLabel:       v1.GetUserId(job),
 				v1.OpsJobIdLabel:     job.Name,
 				v1.OpsJobTypeLabel:   string(job.Spec.Type),
@@ -231,6 +235,9 @@ func (r *PreflightJobReconciler) generatePreflightWorkload(ctx context.Context, 
 			Env:       job.Spec.Env,
 			Hostpath:  job.Spec.Hostpath,
 		},
+	}
+	if _, ok := workload.Spec.Env[common.GPU_PRODUCT]; !ok && nodeFlavor.HasGpu() {
+		workload.Spec.Env[common.GPU_PRODUCT] = string(nodeFlavor.Spec.Gpu.Product)
 	}
 	if workload.Spec.Workspace == "" {
 		workload.Spec.Workspace = corev1.NamespaceDefault

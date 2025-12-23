@@ -9,6 +9,7 @@ import (
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/multi-cluster-config-exporter/pkg/grafana"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -20,11 +21,13 @@ import (
 // MultiClusterStorageConfigListener watches for changes in multi-cluster config secrets
 // When config changes are detected, it reinitializes K8S clientset and StorageClientSet
 type MultiClusterStorageConfigListener struct {
-	ctx            context.Context
-	cancel         context.CancelFunc
-	syncTaskCancel context.CancelFunc  // Used to cancel sync task
-	syncInterval   time.Duration       // Sync interval
-	excludeNodes   map[string][]string // Nodes to exclude per cluster: map[clusterName][]nodeName
+	ctx              context.Context
+	cancel           context.CancelFunc
+	syncTaskCancel   context.CancelFunc        // Used to cancel sync task
+	syncInterval     time.Duration             // Sync interval
+	excludeNodes     map[string][]string       // Nodes to exclude per cluster: map[clusterName][]nodeName
+	grafanaSyncer    *grafana.DatasourceSyncer // Grafana datasource syncer
+	grafanaNamespace string                    // Namespace for Grafana datasources
 }
 
 // Environment variable names for exclude nodes configuration
@@ -40,11 +43,24 @@ const (
 // NewMultiClusterStorageConfigListener creates a new multi-cluster storage config listener
 func NewMultiClusterStorageConfigListener(ctx context.Context) *MultiClusterStorageConfigListener {
 	childCtx, cancel := context.WithCancel(ctx)
+
+	// Get Grafana namespace from env or use default
+	grafanaNamespace := env.GetString("GRAFANA_NAMESPACE", clientsets.StorageConfigSecretNamespace)
+
+	// Grafana instance selector labels - default to primus-lens for primus-lens namespace
+	grafanaInstanceLabelKey := env.GetString("GRAFANA_INSTANCE_LABEL_KEY", "system")
+	grafanaInstanceLabelValue := env.GetString("GRAFANA_INSTANCE_LABEL_VALUE", "primus-lens")
+	grafanaInstanceLabels := map[string]string{
+		grafanaInstanceLabelKey: grafanaInstanceLabelValue,
+	}
+
 	listener := &MultiClusterStorageConfigListener{
-		ctx:          childCtx,
-		cancel:       cancel,
-		syncInterval: 30 * time.Second,          // Default sync every 30 seconds
-		excludeNodes: make(map[string][]string), // Initialize empty exclude nodes map
+		ctx:              childCtx,
+		cancel:           cancel,
+		syncInterval:     30 * time.Second,          // Default sync every 30 seconds
+		excludeNodes:     make(map[string][]string), // Initialize empty exclude nodes map
+		grafanaSyncer:    grafana.NewDatasourceSyncer(grafanaNamespace, grafanaInstanceLabels),
+		grafanaNamespace: grafanaNamespace,
 	}
 
 	// Load exclude nodes from environment variable
@@ -162,6 +178,11 @@ func (m *MultiClusterStorageConfigListener) isNodeExcluded(clusterName, nodeName
 // Start starts the listener and begins watching K8S secret changes
 func (m *MultiClusterStorageConfigListener) Start() error {
 	log.Info("Starting multi-cluster storage config listener")
+
+	// Initialize Grafana datasource syncer (non-blocking, errors are logged)
+	if err := m.grafanaSyncer.Initialize(m.ctx); err != nil {
+		log.Warnf("Failed to initialize Grafana datasource syncer (non-blocking): %v", err)
+	}
 
 	// Start watching multi-k8s-config secret
 	go m.watchK8SConfigSecret()
@@ -325,6 +346,7 @@ func (m *MultiClusterStorageConfigListener) syncStorageConfigsFromAllClusters() 
 
 	// 2. Collect storage configs from each cluster
 	allStorageConfigs := make(map[string][]byte)
+	clusterParsedConfigs := make(map[string]*clientsets.PrimusLensClientConfig) // For Grafana sync
 	log.Infof("All clusters: %v", allClusters)
 	for clusterName, cluster := range allClusters {
 		k8sClient := cluster.K8SClientSet
@@ -362,6 +384,9 @@ func (m *MultiClusterStorageConfigListener) syncStorageConfigsFromAllClusters() 
 			log.Errorf("Failed to create proxy services for cluster %s: %v", clusterName, err)
 			continue
 		}
+
+		// Store parsed config for Grafana sync
+		clusterParsedConfigs[clusterName] = storageConfig
 
 		// Marshal the updated config back to JSON
 		// Need to convert back to secret.Data format (map[string][]byte)
@@ -411,6 +436,13 @@ func (m *MultiClusterStorageConfigListener) syncStorageConfigsFromAllClusters() 
 		log.Infof("Successfully synced storage configs from %d clusters", len(allStorageConfigs))
 	} else {
 		log.Warn("No storage configs collected from any cluster")
+	}
+
+	// 4. Sync Grafana datasources (non-blocking, errors are logged but don't fail the main flow)
+	if len(clusterParsedConfigs) > 0 {
+		if err := m.grafanaSyncer.SyncDatasources(m.ctx, clusterParsedConfigs); err != nil {
+			log.Warnf("Failed to sync Grafana datasources (non-blocking): %v", err)
+		}
 	}
 
 	return nil
