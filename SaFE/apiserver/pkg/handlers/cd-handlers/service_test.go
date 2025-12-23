@@ -15,9 +15,6 @@ import (
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	batchv1 "k8s.io/api/batch/v1"
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
 
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
@@ -36,88 +33,80 @@ func TestNewService(t *testing.T) {
 
 	assert.NotNil(t, svc)
 	assert.NotNil(t, svc.clientSet)
-	assert.NotNil(t, svc.clientManager)
 }
 
-func TestSetDeploymentFailureCallback(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	mockDB := mock_client.NewMockInterface(ctrl)
-	fakeK8s := fake.NewSimpleClientset()
-
-	svc := NewService(mockDB, fakeK8s)
-
-	callbackCalled := false
-	callback := func(ctx context.Context, req *dbclient.DeploymentRequest, reason string) {
-		callbackCalled = true
-	}
-
-	svc.SetDeploymentFailureCallback(callback)
-	svc.notifyDeploymentFailure(context.Background(), &dbclient.DeploymentRequest{}, "test failure")
-
-	assert.True(t, callbackCalled)
-}
-
-func TestNotifyDeploymentFailureNoCallback(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	mockDB := mock_client.NewMockInterface(ctrl)
-	fakeK8s := fake.NewSimpleClientset()
-
-	svc := NewService(mockDB, fakeK8s)
-
-	// Should not panic when callback is nil
-	assert.NotPanics(t, func() {
-		svc.notifyDeploymentFailure(context.Background(), &dbclient.DeploymentRequest{}, "test")
-	})
-}
-
-func TestExtractJobNameFromDescription(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	mockDB := mock_client.NewMockInterface(ctrl)
-	fakeK8s := fake.NewSimpleClientset()
-
-	svc := NewService(mockDB, fakeK8s)
-
+func TestExtractBranchFromEnvFileConfig(t *testing.T) {
 	tests := []struct {
-		name        string
-		description string
-		expected    string
+		name     string
+		input    string
+		expected string
 	}{
 		{
-			name:        "standard format",
-			description: "Upgrade deployment | Job: cd-upgrade-123-abc123",
-			expected:    "cd-upgrade-123-abc123",
+			name:     "standard format",
+			input:    "deploy_branch=main",
+			expected: "main",
 		},
 		{
-			name:        "job name only",
-			description: "Job: cd-upgrade-456-xyz789",
-			expected:    "cd-upgrade-456-xyz789",
+			name:     "with quotes",
+			input:    "deploy_branch=\"feature/test\"",
+			expected: "feature/test",
 		},
 		{
-			name:        "empty description",
-			description: "",
-			expected:    "",
+			name:     "multiline config",
+			input:    "some_key=value\ndeploy_branch=develop\nother=x",
+			expected: "develop",
 		},
 		{
-			name:        "no job prefix",
-			description: "Some description without job name",
-			expected:    "",
+			name:     "not found",
+			input:    "other_key=value",
+			expected: "",
 		},
 		{
-			name:        "job with whitespace",
-			description: "Deploy | Job:   cd-remote-789-test  ",
-			expected:    "cd-remote-789-test",
+			name:     "empty",
+			input:    "",
+			expected: "",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := svc.extractJobNameFromDescription(tt.description)
+			result := extractBranchFromEnvFileConfig(tt.input)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestExtractInstallNodeAgentFromEnvFileConfig(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected bool
+	}{
+		{
+			name:     "install enabled",
+			input:    "install_node_agent=y",
+			expected: true,
+		},
+		{
+			name:     "install disabled",
+			input:    "install_node_agent=n",
+			expected: false,
+		},
+		{
+			name:     "not found",
+			input:    "other_key=value",
+			expected: false,
+		},
+		{
+			name:     "with quotes",
+			input:    "install_node_agent=\"y\"",
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := extractInstallNodeAgentFromEnvFileConfig(tt.input)
 			assert.Equal(t, tt.expected, result)
 		})
 	}
@@ -442,239 +431,8 @@ func TestRollback(t *testing.T) {
 	})
 }
 
-func TestDeleteJob(t *testing.T) {
-	ctx := context.Background()
-
-	t.Run("delete existing job", func(t *testing.T) {
-		fakeK8s := fake.NewSimpleClientset(&batchv1.Job{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test-job",
-				Namespace: "primus-safe",
-			},
-		})
-
-		svc := &Service{clientSet: fakeK8s}
-
-		err := svc.DeleteJob(ctx, "test-job", "primus-safe")
-		assert.NoError(t, err)
-
-		// Verify job is deleted
-		_, err = fakeK8s.BatchV1().Jobs("primus-safe").Get(ctx, "test-job", metav1.GetOptions{})
-		assert.Error(t, err) // Should not find the job
-	})
-
-	t.Run("delete non-existing job returns error", func(t *testing.T) {
-		fakeK8s := fake.NewSimpleClientset()
-		svc := &Service{clientSet: fakeK8s}
-
-		err := svc.DeleteJob(ctx, "non-existing-job", "primus-safe")
-		assert.Error(t, err)
-	})
-}
-
-func TestFindJobByPrefix(t *testing.T) {
-	ctx := context.Background()
-
-	t.Run("find existing job by prefix", func(t *testing.T) {
-		fakeK8s := fake.NewSimpleClientset(
-			&batchv1.Job{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "cd-upgrade-123-abc",
-					Namespace: "primus-safe",
-				},
-			},
-			&batchv1.Job{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "cd-remote-123-xyz",
-					Namespace: "primus-safe",
-				},
-			},
-			&batchv1.Job{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "other-job",
-					Namespace: "primus-safe",
-				},
-			},
-		)
-
-		svc := &Service{clientSet: fakeK8s}
-
-		result := svc.findJobByPrefix(ctx, "cd-remote-123-", "primus-safe")
-		assert.Equal(t, "cd-remote-123-xyz", result)
-	})
-
-	t.Run("no matching job", func(t *testing.T) {
-		fakeK8s := fake.NewSimpleClientset(
-			&batchv1.Job{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "other-job",
-					Namespace: "primus-safe",
-				},
-			},
-		)
-
-		svc := &Service{clientSet: fakeK8s}
-
-		result := svc.findJobByPrefix(ctx, "cd-remote-", "primus-safe")
-		assert.Empty(t, result)
-	})
-}
-
-func TestBuildRemoteClusterScript(t *testing.T) {
-	svc := &Service{}
-
-	t.Run("script with node-agent only", func(t *testing.T) {
-		result := &DeploymentResult{
-			HasNodeAgent:   true,
-			HasCICD:        false,
-			NodeAgentImage: "node-agent:v1.0.0",
-		}
-
-		script := svc.buildRemoteClusterScript(result)
-
-		assert.Contains(t, script, "HAS_NODE_AGENT=true")
-		assert.Contains(t, script, "HAS_CICD=false")
-		assert.Contains(t, script, "NODE_AGENT_IMAGE=\"node-agent:v1.0.0\"")
-		assert.Contains(t, script, "helm")
-	})
-
-	t.Run("script with cicd only", func(t *testing.T) {
-		result := &DeploymentResult{
-			HasNodeAgent:     false,
-			HasCICD:          true,
-			CICDRunnerImage:  "cicd-runner:v1.0.0",
-			CICDUnifiedImage: "cicd-unified:v1.0.0",
-		}
-
-		script := svc.buildRemoteClusterScript(result)
-
-		assert.Contains(t, script, "HAS_NODE_AGENT=false")
-		assert.Contains(t, script, "HAS_CICD=true")
-		assert.Contains(t, script, "CICD_RUNNER_IMAGE=\"cicd-runner:v1.0.0\"")
-		assert.Contains(t, script, "kubectl")
-		assert.Contains(t, script, "patch autoscalingrunnersets")
-	})
-
-	t.Run("script with both node-agent and cicd", func(t *testing.T) {
-		result := &DeploymentResult{
-			HasNodeAgent:     true,
-			HasCICD:          true,
-			NodeAgentImage:   "node-agent:v2.0.0",
-			CICDRunnerImage:  "cicd-runner:v2.0.0",
-			CICDUnifiedImage: "cicd-unified:v2.0.0",
-		}
-
-		script := svc.buildRemoteClusterScript(result)
-
-		assert.Contains(t, script, "HAS_NODE_AGENT=true")
-		assert.Contains(t, script, "HAS_CICD=true")
-		assert.Contains(t, script, "git clone")
-		assert.Contains(t, script, AdminClusterID)
-	})
-}
-
-func TestVerifyCICDConfigMapUpdate(t *testing.T) {
-	ctx := context.Background()
-
-	t.Run("verify runner image in ConfigMap", func(t *testing.T) {
-		cm := &corev1.ConfigMap{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "github-scale-set-template",
-				Namespace: "primus-safe",
-			},
-			Data: map[string]string{
-				"template": `image: harbor.example.com/primussafe/cicd-runner-proxy:v1.0.0`,
-			},
-		}
-
-		fakeK8s := fake.NewSimpleClientset(cm)
-		svc := &Service{clientSet: fakeK8s}
-
-		imageVersions := map[string]string{
-			"cicd_runner": "cicd-runner-proxy:v1.0.0",
-		}
-
-		err := svc.verifyCICDConfigMapUpdate(ctx, imageVersions)
-		assert.NoError(t, err)
-	})
-
-	t.Run("image not found in ConfigMap", func(t *testing.T) {
-		cm := &corev1.ConfigMap{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "github-scale-set-template",
-				Namespace: "primus-safe",
-			},
-			Data: map[string]string{
-				"template": `image: old-image:v0.0.1`,
-			},
-		}
-
-		fakeK8s := fake.NewSimpleClientset(cm)
-		svc := &Service{clientSet: fakeK8s}
-
-		imageVersions := map[string]string{
-			"cicd_runner": "cicd-runner-proxy:v2.0.0",
-		}
-
-		err := svc.verifyCICDConfigMapUpdate(ctx, imageVersions)
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "not found in ConfigMap")
-	})
-
-	t.Run("no cicd components to verify", func(t *testing.T) {
-		fakeK8s := fake.NewSimpleClientset()
-		svc := &Service{clientSet: fakeK8s}
-
-		imageVersions := map[string]string{
-			"apiserver": "apiserver:v1.0.0", // Not a CICD component
-		}
-
-		err := svc.verifyCICDConfigMapUpdate(ctx, imageVersions)
-		assert.NoError(t, err)
-	})
-}
-
 func TestConstants(t *testing.T) {
 	t.Run("verify service constants", func(t *testing.T) {
-		assert.Equal(t, "primus-safe", JobNamespace)
-		assert.Equal(t, "dtzar/helm-kubectl:latest", JobImage)
-		assert.Equal(t, "https://github.com/AMD-AGI/Primus-SaFE.git", PrimusSaFERepoURL)
-		assert.Equal(t, "/home/primus-safe-cd", ContainerMountPath)
 		assert.Equal(t, "/mnt/primus-safe-cd", HostMountPath)
-		assert.Equal(t, "tw-project2", AdminClusterID)
-	})
-}
-
-func TestDeploymentResult(t *testing.T) {
-	t.Run("deployment result initialization", func(t *testing.T) {
-		result := &DeploymentResult{
-			LocalJobName:     "cd-upgrade-1-abc",
-			HasNodeAgent:     true,
-			HasCICD:          true,
-			NodeAgentImage:   "node-agent:v1",
-			CICDRunnerImage:  "runner:v1",
-			CICDUnifiedImage: "unified:v1",
-		}
-
-		assert.Equal(t, "cd-upgrade-1-abc", result.LocalJobName)
-		assert.True(t, result.HasNodeAgent)
-		assert.True(t, result.HasCICD)
-	})
-}
-
-func TestJobParams(t *testing.T) {
-	t.Run("job params structure", func(t *testing.T) {
-		params := JobParams{
-			Name:          "test-job",
-			Namespace:     "primus-safe",
-			Image:         JobImage,
-			ComponentTags: "apiserver.image=v1;",
-			NodeAgentTags: "image=v1;",
-			EnvFileConfig: "key=value",
-		}
-
-		assert.Equal(t, "test-job", params.Name)
-		assert.Equal(t, "primus-safe", params.Namespace)
-		assert.Contains(t, params.ComponentTags, "apiserver")
 	})
 }

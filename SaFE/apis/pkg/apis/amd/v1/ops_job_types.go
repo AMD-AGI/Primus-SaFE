@@ -31,6 +31,7 @@ const (
 	OpsJobRebootType      OpsJobType = "reboot"
 	OpsJobExportImageType OpsJobType = "exportimage"
 	OpsJobPrewarmType     OpsJobType = "prewarm"
+	OpsJobCDType          OpsJobType = "cd" // CD deployment job
 
 	ParameterNode          = "node"
 	ParameterNodeTemplate  = "node.template"
@@ -40,6 +41,20 @@ const (
 	ParameterCluster       = "cluster"
 	ParameterEndpoint      = "endpoint"
 	ParameterImage         = "image"
+
+	// CD job specific parameters
+	ParameterDeploymentRequestId = "deployment.request.id" // Deployment request ID from database
+	ParameterDeployPhase         = "deploy.phase"          // Deployment phase: local/remote/verify
+	ParameterComponentTags       = "component.tags"        // Component image tags to deploy
+	ParameterNodeAgentTags       = "nodeagent.tags"        // Node agent image tags
+	ParameterEnvFileConfig       = "env.file.config"       // Base64 encoded .env file content
+	ParameterDeployBranch        = "deploy.branch"         // Git branch for deployment
+	ParameterHasNodeAgent        = "has.nodeagent"         // Whether node agent update is needed
+	ParameterHasCICD             = "has.cicd"              // Whether CICD update is needed
+	ParameterInstallNodeAgent    = "install.nodeagent"     // Whether to install node agent
+	ParameterNodeAgentImage      = "nodeagent.image"       // Node agent image
+	ParameterCICDRunnerImage     = "cicd.runner.image"     // CICD runner image
+	ParameterCICDUnifiedImage    = "cicd.unified.image"    // CICD unified job image
 )
 
 type Parameter struct {

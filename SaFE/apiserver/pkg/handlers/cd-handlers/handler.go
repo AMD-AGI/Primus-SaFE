@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -28,13 +29,9 @@ import (
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/notification/channel"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/notification/model"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/httpclient"
-	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 	sqrl "github.com/Masterminds/squirrel"
-	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/klog/v2"
 )
 
@@ -110,21 +107,6 @@ func NewHandler(mgr ctrlruntime.Manager) (*Handler, error) {
 			}
 		}
 	}
-
-	// Set deployment failure callback for email notification
-	h.service.SetDeploymentFailureCallback(func(ctx context.Context, req *dbclient.DeploymentRequest, reason string) {
-		h.sendDeploymentFailureEmail(ctx, req, reason)
-	})
-
-	// Recover any stuck deploying requests after apiserver restart
-	go func() {
-		// Wait a bit for all services to be ready
-		time.Sleep(5 * time.Second)
-		ctx := context.Background()
-		if err := h.service.RecoverDeployingRequests(ctx); err != nil {
-			klog.ErrorS(err, "Failed to recover deploying requests")
-		}
-	}()
 
 	return h, nil
 }
@@ -314,87 +296,6 @@ func (h *Handler) getDeploymentRequest(c *gin.Context) (interface{}, error) {
 	return resp, nil
 }
 
-// getUserEmail retrieves the email address for a given username.
-// Returns empty string if user not found or email not set.
-func (h *Handler) getUserEmail(ctx context.Context, username string) string {
-	// Build label selector to find user by username (MD5 hash)
-	req, err := labels.NewRequirement(v1.UserNameMd5Label, selection.Equals, []string{stringutil.MD5(username)})
-	if err != nil {
-		klog.ErrorS(err, "Failed to create label requirement", "username", username)
-		return ""
-	}
-	selector := labels.NewSelector().Add(*req)
-
-	userList := &v1.UserList{}
-	if err := h.List(ctx, userList, &client.ListOptions{LabelSelector: selector}); err != nil {
-		klog.ErrorS(err, "Failed to get user for email lookup", "username", username)
-		return ""
-	}
-
-	if len(userList.Items) == 0 {
-		klog.Warningf("User not found: %s", username)
-		return ""
-	}
-
-	return v1.GetUserEmail(&userList.Items[0])
-}
-
-// sendDeploymentFailureEmail sends an email notification when deployment fails.
-// It looks up the deployer's email and sends a failure notification.
-func (h *Handler) sendDeploymentFailureEmail(ctx context.Context, req *dbclient.DeploymentRequest, failReason string) {
-	if h.emailChannel == nil {
-		klog.Warning("Email channel not initialized, skipping failure notification")
-		return
-	}
-
-	// Get deployer's email
-	email := h.getUserEmail(ctx, req.DeployName)
-	if email == "" {
-		klog.Warningf("No email found for user %s, skipping failure notification", req.DeployName)
-		return
-	}
-
-	// Build email content
-	message := &model.Message{
-		Email: &model.EmailMessage{
-			To:    []string{email},
-			Title: fmt.Sprintf("[CD Deployment Failed] Request #%d Failed", req.Id),
-			Content: fmt.Sprintf(`
-				<h2>Deployment Failure Notification</h2>
-				<table style="border-collapse: collapse; width: 100%%;">
-					<tr>
-						<td style="padding: 8px; border: 1px solid #ddd;"><strong>Request ID</strong></td>
-						<td style="padding: 8px; border: 1px solid #ddd;">%d</td>
-					</tr>
-					<tr>
-						<td style="padding: 8px; border: 1px solid #ddd;"><strong>Deployer</strong></td>
-						<td style="padding: 8px; border: 1px solid #ddd;">%s</td>
-					</tr>
-					<tr>
-						<td style="padding: 8px; border: 1px solid #ddd;"><strong>Approver</strong></td>
-						<td style="padding: 8px; border: 1px solid #ddd;">%s</td>
-					</tr>
-					<tr>
-						<td style="padding: 8px; border: 1px solid #ddd;"><strong>Failure Reason</strong></td>
-						<td style="padding: 8px; border: 1px solid #ddd; color: #c53030;">%s</td>
-					</tr>
-					<tr>
-						<td style="padding: 8px; border: 1px solid #ddd;"><strong>Time</strong></td>
-						<td style="padding: 8px; border: 1px solid #ddd;">%s</td>
-					</tr>
-				</table>
-				<p style="margin-top: 16px; color: #666;">Please check the deployment logs for more details.</p>
-			`, req.Id, req.DeployName, req.ApproverName.String, failReason, time.Now().Format(time.DateTime)),
-		},
-	}
-
-	if err := h.emailChannel.Send(ctx, message); err != nil {
-		klog.ErrorS(err, "Failed to send deployment failure email", "id", req.Id, "email", email)
-	} else {
-		klog.Infof("Deployment failure email sent for request %d to %s", req.Id, email)
-	}
-}
-
 func (h *Handler) approveDeploymentRequest(c *gin.Context) (interface{}, error) {
 	idStr := c.Param("id")
 	id, err := strconv.ParseInt(idStr, 10, 64)
@@ -438,62 +339,35 @@ func (h *Handler) approveDeploymentRequest(c *gin.Context) (interface{}, error) 
 			return nil, err
 		}
 
-		// Execute Deployment (Async)
-		go func() {
-			ctx := context.Background()
-			result, err := h.service.ExecuteDeployment(ctx, req)
-			if err != nil {
-				klog.ErrorS(err, "Deployment failed", "id", req.Id)
-				h.service.UpdateRequestStatus(ctx, req.Id, StatusFailed, "Deployment execution failed")
-				h.sendDeploymentFailureEmail(ctx, req, fmt.Sprintf("Deployment execution failed: %v", err))
-				return
-			}
+		// Create OpsJob for CD deployment (managed by resource-manager)
+		ctx := c.Request.Context()
+		opsJob, err := h.generateCDOpsJob(ctx, req, username)
+		if err != nil {
+			klog.ErrorS(err, "Failed to generate CD OpsJob", "id", req.Id)
+			h.service.UpdateRequestStatus(ctx, req.Id, StatusFailed, fmt.Sprintf("Failed to generate OpsJob: %v", err))
+			return nil, err
+		}
 
-			// Wait for local job completion
-			if err := h.service.WaitForJobCompletion(ctx, result.LocalJobName, JobNamespace); err != nil {
-				klog.ErrorS(err, "Job execution failed", "job", result.LocalJobName)
-				h.service.UpdateRequestStatus(ctx, req.Id, StatusFailed, err.Error())
-				h.sendDeploymentFailureEmail(ctx, req, fmt.Sprintf("Job execution failed: %v", err))
-				return
-			}
+		if err := h.Create(ctx, opsJob); err != nil {
+			klog.ErrorS(err, "Failed to create CD OpsJob", "id", req.Id)
+			h.service.UpdateRequestStatus(ctx, req.Id, StatusFailed, fmt.Sprintf("Failed to create OpsJob: %v", err))
+			return nil, err
+		}
 
-			// If there are remote cluster updates (node_agent or cicd), execute them
-			if result.HasNodeAgent || result.HasCICD {
-				klog.Infof("Remote cluster updates needed: node_agent=%v, cicd=%v", result.HasNodeAgent, result.HasCICD)
-				remoteJobName, err := h.service.ExecuteRemoteClusterUpdates(ctx, req.Id, result)
-				if err != nil {
-					klog.ErrorS(err, "Remote cluster update failed", "id", req.Id)
-					h.service.UpdateRequestStatus(ctx, req.Id, StatusFailed, fmt.Sprintf("Remote cluster update failed: %v", err))
-					h.sendDeploymentFailureEmail(ctx, req, fmt.Sprintf("Remote cluster update failed: %v", err))
-					return
-				}
+		// Update status to deploying
+		req.Status = StatusDeploying
+		if err := h.dbClient.UpdateDeploymentRequest(ctx, req); err != nil {
+			klog.ErrorS(err, "Failed to update deployment request status", "id", req.Id)
+		}
 
-				// Wait for remote job completion
-				if err := h.service.WaitForJobCompletion(ctx, remoteJobName, JobNamespace); err != nil {
-					klog.ErrorS(err, "Remote cluster job failed", "job", remoteJobName)
-					h.service.UpdateRequestStatus(ctx, req.Id, StatusFailed, fmt.Sprintf("Remote cluster job failed: %v", err))
-					h.sendDeploymentFailureEmail(ctx, req, fmt.Sprintf("Remote cluster job failed: %v", err))
-					return
-				}
-			}
+		klog.Infof("CD OpsJob created for deployment request %d: %s", req.Id, opsJob.Name)
 
-			// Verify Deployment Rollout (Check if pods are actually running)
-			if err := h.service.VerifyDeploymentRollout(ctx, req.EnvConfig); err != nil {
-				klog.ErrorS(err, "Deployment verification failed", "id", req.Id)
-				h.service.UpdateRequestStatus(ctx, req.Id, StatusFailed, fmt.Sprintf("Job succeeded but rollout failed: %v", err))
-				h.sendDeploymentFailureEmail(ctx, req, fmt.Sprintf("Rollout verification failed: %v", err))
-				return
-			}
-
-			// Success: Update status and create snapshot
-			h.service.UpdateRequestStatus(ctx, req.Id, StatusDeployed, "")
-			if err := h.service.CreateSnapshot(ctx, req.Id, req.EnvConfig); err != nil {
-				klog.ErrorS(err, "Failed to create snapshot", "id", req.Id)
-				// Don't fail the deployment, snapshot is for historical record
-			} else {
-				klog.Infof("Snapshot created for request %d", req.Id)
-			}
-		}()
+		return ApprovalResp{
+			Id:      req.Id,
+			Status:  StatusApproved,
+			JobId:   opsJob.Name,
+			Message: "Deployment approved, OpsJob created and managed by resource-manager",
+		}, nil
 
 	} else {
 		req.Status = StatusRejected
@@ -510,12 +384,118 @@ func (h *Handler) approveDeploymentRequest(c *gin.Context) (interface{}, error) 
 			Message: "Deployment request rejected",
 		}, nil
 	}
+}
 
-	return ApprovalResp{
-		Id:      req.Id,
-		Status:  StatusApproved,
-		Message: "Deployment approved and started, running in background",
-	}, nil
+// generateCDOpsJob generates an OpsJob for CD deployment.
+func (h *Handler) generateCDOpsJob(ctx context.Context, req *dbclient.DeploymentRequest, username string) (*v1.OpsJob, error) {
+	// Use primus-safe namespace as workspace
+	cdWorkspace := common.PrimusSafeNamespace
+
+	// Get workspace to retrieve cluster ID
+	workspace := &v1.Workspace{}
+	if err := h.Get(ctx, client.ObjectKey{Name: cdWorkspace}, workspace); err != nil {
+		return nil, fmt.Errorf("failed to get workspace '%s': %v", cdWorkspace, err)
+	}
+
+	clusterId := workspace.Spec.Cluster
+	if clusterId == "" {
+		return nil, fmt.Errorf("workspace '%s' has no cluster assigned", cdWorkspace)
+	}
+
+	// Parse deployment config
+	var requestConfig DeploymentConfig
+	if err := json.Unmarshal([]byte(req.EnvConfig), &requestConfig); err != nil {
+		return nil, fmt.Errorf("failed to parse config: %v", err)
+	}
+
+	// Merge with latest snapshot for deployment
+	mergedConfig, err := h.service.mergeWithLatestSnapshot(ctx, requestConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to merge with latest snapshot: %v", err)
+	}
+
+	// Get deployable components
+	expectedComponents := commonconfig.GetComponents()
+
+	// Build deployment parameters
+	componentTags := ""
+	nodeAgentTags := ""
+	hasNodeAgent := false
+	hasCICD := false
+	nodeAgentImage := ""
+	cicdRunnerImage := ""
+	cicdUnifiedImage := ""
+
+	installNodeAgent := extractInstallNodeAgentFromEnvFileConfig(mergedConfig.EnvFileConfig)
+	deployBranch := extractBranchFromEnvFileConfig(mergedConfig.EnvFileConfig)
+
+	for _, comp := range expectedComponents {
+		if tag, ok := mergedConfig.ImageVersions[comp]; ok {
+			if yamlKey, isCICD := CICDComponentsMap[comp]; isCICD {
+				componentTags += fmt.Sprintf("%s=%s;", yamlKey, tag)
+				hasCICD = true
+				if comp == ComponentCICDRunner {
+					cicdRunnerImage = tag
+				} else if comp == ComponentCICDUnifiedJob {
+					cicdUnifiedImage = tag
+				}
+			} else if comp == ComponentNodeAgent {
+				if installNodeAgent {
+					if _, userRequested := requestConfig.ImageVersions[comp]; userRequested {
+						nodeAgentTags += fmt.Sprintf("%s=%s;", YAMLKeyNodeAgentImage, tag)
+						hasNodeAgent = true
+						nodeAgentImage = tag
+					}
+				}
+			} else {
+				componentTags += fmt.Sprintf("%s.image=%s;", comp, tag)
+			}
+		}
+	}
+
+	// Generate OpsJob name
+	jobName := commonutils.GenerateName(fmt.Sprintf("cd-%d", req.Id))
+
+	// Build OpsJob inputs
+	inputs := []v1.Parameter{
+		{Name: v1.ParameterDeploymentRequestId, Value: fmt.Sprintf("%d", req.Id)},
+		{Name: v1.ParameterDeployPhase, Value: "local"}, // Start with local deployment
+		{Name: v1.ParameterComponentTags, Value: componentTags},
+		{Name: v1.ParameterNodeAgentTags, Value: nodeAgentTags},
+		{Name: v1.ParameterEnvFileConfig, Value: mergedConfig.EnvFileConfig},
+		{Name: v1.ParameterDeployBranch, Value: deployBranch},
+		{Name: v1.ParameterHasNodeAgent, Value: fmt.Sprintf("%t", hasNodeAgent)},
+		{Name: v1.ParameterHasCICD, Value: fmt.Sprintf("%t", hasCICD)},
+		{Name: v1.ParameterInstallNodeAgent, Value: fmt.Sprintf("%t", installNodeAgent)},
+		{Name: v1.ParameterNodeAgentImage, Value: nodeAgentImage},
+		{Name: v1.ParameterCICDRunnerImage, Value: cicdRunnerImage},
+		{Name: v1.ParameterCICDUnifiedImage, Value: cicdUnifiedImage},
+	}
+
+	opsJob := &v1.OpsJob{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: jobName,
+			Labels: map[string]string{
+				v1.ClusterIdLabel:   clusterId,   // From workspace
+				v1.WorkspaceIdLabel: cdWorkspace, // CD workspace
+				v1.UserIdLabel:      username,
+				v1.OpsJobTypeLabel:  string(v1.OpsJobCDType),
+			},
+			Annotations: map[string]string{
+				v1.UserNameAnnotation: username,
+			},
+		},
+		Spec: v1.OpsJobSpec{
+			Type:                    v1.OpsJobCDType,
+			Inputs:                  inputs,
+			TimeoutSecond:           1800, // 30 minutes timeout
+			TTLSecondsAfterFinished: 3600, // 1 hour TTL after completion
+			IsTolerateAll:           true, // Can run on any node
+			Hostpath:                []string{HostMountPath},
+		},
+	}
+
+	return opsJob, nil
 }
 
 func (h *Handler) rollbackDeployment(c *gin.Context) (interface{}, error) {

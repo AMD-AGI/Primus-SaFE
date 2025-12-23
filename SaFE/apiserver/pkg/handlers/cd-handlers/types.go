@@ -17,17 +17,56 @@ const (
 	StatusFailed          = "failed"
 )
 
+// Component name constants
+const (
+	ComponentApiserver       = "apiserver"
+	ComponentResourceManager = "resource_manager"
+	ComponentJobManager      = "job_manager"
+	ComponentWebhooks        = "webhooks"
+	ComponentWeb             = "web"
+	ComponentPreprocess      = "preprocess"
+	ComponentNodeAgent       = "node_agent"
+	ComponentCICDRunner      = "cicd_runner"
+	ComponentCICDUnifiedJob  = "cicd_unified_job"
+)
+
+// Image name constants (used in container registry)
+const (
+	ImageApiserver       = "apiserver"
+	ImageResourceManager = "resource-manager"
+	ImageJobManager      = "job-manager"
+	ImageWebhooks        = "webhooks"
+	ImageWeb             = "primus-safe-web"
+	ImagePreprocess      = "preprocess"
+	ImageNodeAgent       = "node-agent"
+	ImageCICDRunner      = "cicd-runner-proxy"
+	ImageCICDUnifiedJob  = "cicd-unified-job-proxy"
+)
+
+// YAML key constants for values.yaml
+const (
+	YAMLKeyCICDRunner     = "cicd.runner"
+	YAMLKeyCICDUnifiedJob = "cicd.unified_job"
+	YAMLKeyNodeAgentImage = "image"
+)
+
 // ComponentImageMap maps component names to their image names (without version tag)
 var ComponentImageMap = map[string]string{
-	"apiserver":        "apiserver",
-	"resource_manager": "resource-manager",
-	"job_manager":      "job-manager",
-	"webhooks":         "webhooks",
-	"web":              "primus-safe-web",
-	"preprocess":       "preprocess",
-	"node_agent":       "node-agent",
-	"cicd_runner":      "cicd-runner-proxy",
-	"cicd_unified_job": "cicd-unified-job-proxy",
+	ComponentApiserver:       ImageApiserver,
+	ComponentResourceManager: ImageResourceManager,
+	ComponentJobManager:      ImageJobManager,
+	ComponentWebhooks:        ImageWebhooks,
+	ComponentWeb:             ImageWeb,
+	ComponentPreprocess:      ImagePreprocess,
+	ComponentNodeAgent:       ImageNodeAgent,
+	ComponentCICDRunner:      ImageCICDRunner,
+	ComponentCICDUnifiedJob:  ImageCICDUnifiedJob,
+}
+
+// CICDComponentsMap maps CICD component names to their YAML keys
+var CICDComponentsMap = map[string]string{
+	ComponentCICDRunner:     YAMLKeyCICDRunner,
+	ComponentCICDUnifiedJob: YAMLKeyCICDUnifiedJob,
 }
 
 // NormalizeImageVersion normalizes the image version input.
@@ -77,6 +116,7 @@ type ApprovalReq struct {
 type ApprovalResp struct {
 	Id      int64  `json:"id"`
 	Status  string `json:"status"`
+	JobId   string `json:"job_id,omitempty"` // OpsJob ID for tracking
 	Message string `json:"message"`
 }
 
