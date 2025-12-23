@@ -129,4 +129,8 @@ const (
 	// proxy
 	proxyPrefix = "proxy."
 	proxyList   = proxyPrefix + "services"
+
+	// cd
+	cdPrefix          = "cd."
+	cdRequireApproval = cdPrefix + "require_approval"
 )

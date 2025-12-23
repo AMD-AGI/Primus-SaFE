@@ -108,19 +108,17 @@ type DeploymentResult struct {
 }
 
 // extractBranchFromEnvFileConfig extracts deploy_branch from env file content string.
-// Returns "main" as default if not found or parsing fails.
+// Returns empty string if not found, which means use default branch.
 func extractBranchFromEnvFileConfig(envFileConfig string) string {
 	for _, line := range strings.Split(envFileConfig, "\n") {
 		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "deploy_branch=") {
 			branch := strings.TrimPrefix(line, "deploy_branch=")
 			branch = strings.Trim(branch, "\"'") // Remove quotes if any
-			if branch != "" {
-				return branch
-			}
+			return branch
 		}
 	}
-	return "main" // Default branch
+	return "" // Empty means use default branch
 }
 
 // ExecuteDeployment executes the deployment process and returns deployment result
@@ -254,12 +252,17 @@ if [ -d "$REPO_DIR" ]; then
     rm -rf "$REPO_DIR"
 fi
 
-# Git branch for deployment
+# Git branch for deployment (empty means use default branch)
 DEPLOY_BRANCH="%s"
-echo "Using branch: $DEPLOY_BRANCH"
 
 echo "Cloning repository from $REPO_URL..."
-git clone --depth 1 -b "$DEPLOY_BRANCH" "$REPO_URL" "$REPO_DIR"
+if [ -n "$DEPLOY_BRANCH" ]; then
+    echo "Using branch: $DEPLOY_BRANCH"
+    git clone --depth 1 -b "$DEPLOY_BRANCH" "$REPO_URL" "$REPO_DIR"
+else
+    echo "Using default branch"
+    git clone --depth 1 "$REPO_URL" "$REPO_DIR"
+fi
 echo "✓ Repository cloned successfully"
 
 # Helper function to update yaml using sed (simple implementation)
@@ -449,6 +452,7 @@ echo "=========================================="
 
 # Configuration
 WORK_DIR="%s"
+REPO_URL="%s"
 REPO_DIR="$WORK_DIR/Primus-SaFE"
 NODE_AGENT_CHART="$REPO_DIR/SaFE/node-agent/charts/node-agent"
 HAS_NODE_AGENT=%t
@@ -463,11 +467,16 @@ mkdir -p "$WORK_DIR"
 
 # Clone repo if node-agent update needed (for helm chart)
 if [ "$HAS_NODE_AGENT" = "true" ]; then
-    echo "Cloning repository for node-agent chart (branch: $DEPLOY_BRANCH)..."
     if [ -d "$REPO_DIR" ]; then
         rm -rf "$REPO_DIR"
     fi
-    git clone --depth 1 -b "$DEPLOY_BRANCH" "%s" "$REPO_DIR"
+    if [ -n "$DEPLOY_BRANCH" ]; then
+        echo "Cloning repository for node-agent chart (branch: $DEPLOY_BRANCH)..."
+        git clone --depth 1 -b "$DEPLOY_BRANCH" "$REPO_URL" "$REPO_DIR"
+    else
+        echo "Cloning repository for node-agent chart (default branch)..."
+        git clone --depth 1 "$REPO_URL" "$REPO_DIR"
+    fi
     echo "✓ Repository cloned"
 fi
 
@@ -683,6 +692,7 @@ echo "=========================================="
 		result.HasNodeAgent, result.NodeAgentImage,
 		result.HasCICD, result.CICDRunnerImage, result.CICDUnifiedImage,
 		ContainerMountPath,
+		PrimusSaFERepoURL,
 		result.HasNodeAgent,
 		result.HasCICD,
 		result.NodeAgentImage,
@@ -690,7 +700,6 @@ echo "=========================================="
 		result.CICDUnifiedImage,
 		AdminClusterID,
 		result.Branch,
-		PrimusSaFERepoURL,
 	)
 
 	return script

@@ -21,6 +21,12 @@ net:
   rdma_name: "rdma/hca"
   # Ingress component name selected during install.sh
   ingress: "higress"
+# CD (Continuous Deployment) configuration
+cd:
+  # Whether deployment requests require approval from another user
+  # true: users cannot approve their own requests (production environment)
+  # false: users can self-approve their own requests (development environment)
+  require_approval: true
 # This list is of deployable components
 components:
   - apiserver
