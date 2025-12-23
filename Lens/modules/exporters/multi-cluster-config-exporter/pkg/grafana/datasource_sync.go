@@ -16,11 +16,11 @@ import (
 
 // DatasourceSyncer syncs Grafana datasources based on cluster storage configs
 type DatasourceSyncer struct {
-	dynamicClient  dynamic.Interface
-	namespace      string
-	instanceLabels map[string]string // Labels to select Grafana instance
-	crdAvailable   bool              // Whether the CRD is available
-	crdChecked     bool              // Whether we've checked for CRD availability
+	dynamicClient   dynamic.Interface
+	namespace       string
+	instanceLabels  map[string]string // Labels to select Grafana instance
+	crdAvailable    bool              // Whether the CRD is available
+	crdChecked      bool              // Whether we've checked for CRD availability
 }
 
 var grafanaDatasourceGVR = schema.GroupVersionResource{
@@ -85,11 +85,11 @@ func (s *DatasourceSyncer) checkCRDAvailability(ctx context.Context) {
 // isNoKindMatchError checks if the error is due to missing CRD
 func isNoKindMatchError(err error) bool {
 	// Check if error message contains "no matches for kind"
-	return err != nil && (errors.IsNotFound(err) ||
+	return err != nil && (errors.IsNotFound(err) || 
 		// Handle "no matches for kind" error which is returned when CRD doesn't exist
-		(err.Error() != "" &&
+		(err.Error() != "" && 
 			(contains(err.Error(), "no matches for kind") ||
-				contains(err.Error(), "the server could not find the requested resource"))))
+			 contains(err.Error(), "the server could not find the requested resource"))))
 }
 
 func contains(s, substr string) bool {
@@ -163,7 +163,7 @@ func (s *DatasourceSyncer) syncClusterDatasources(ctx context.Context, clusterNa
 // syncPrometheusDatasource creates or updates a Prometheus datasource for a cluster
 func (s *DatasourceSyncer) syncPrometheusDatasource(ctx context.Context, clusterName string, config *clientsets.PrimusLensClientConfigPrometheus) error {
 	datasourceName := fmt.Sprintf("prometheus-%s", clusterName)
-
+	
 	// Build the datasource URL
 	url := fmt.Sprintf("http://%s.%s.svc.cluster.local:%d/select/0/prometheus",
 		config.ReadService,
@@ -177,8 +177,8 @@ func (s *DatasourceSyncer) syncPrometheusDatasource(ctx context.Context, cluster
 		url,
 		clusterName,
 		map[string]interface{}{
-			"timeInterval":  "5s",
-			"tlsSkipVerify": true,
+			"timeInterval":   "5s",
+			"tlsSkipVerify":  true,
 		},
 		nil,
 	)
@@ -189,7 +189,7 @@ func (s *DatasourceSyncer) syncPrometheusDatasource(ctx context.Context, cluster
 // syncPostgresDatasource creates or updates a Postgres datasource for a cluster
 func (s *DatasourceSyncer) syncPostgresDatasource(ctx context.Context, clusterName string, config *clientsets.PrimusLensClientConfigPostgres) error {
 	datasourceName := fmt.Sprintf("postgresql-%s", clusterName)
-
+	
 	// Build the datasource URL
 	url := fmt.Sprintf("%s.%s.svc.cluster.local:%d",
 		config.Service,
@@ -208,13 +208,13 @@ func (s *DatasourceSyncer) syncPostgresDatasource(ctx context.Context, clusterNa
 		url,
 		clusterName,
 		map[string]interface{}{
-			"database":        config.DBName,
-			"sslmode":         sslMode,
-			"maxOpenConns":    0,
-			"maxIdleConns":    2,
-			"connMaxLifetime": 14400,
-			"postgresVersion": 1400,
-			"timescaledb":     false,
+			"database":         config.DBName,
+			"sslmode":          sslMode,
+			"maxOpenConns":     0,
+			"maxIdleConns":     2,
+			"connMaxLifetime":  14400,
+			"postgresVersion":  1400,
+			"timescaledb":      false,
 		},
 		map[string]string{
 			"password": config.Password,
@@ -278,7 +278,7 @@ func (s *DatasourceSyncer) buildDatasourceObject(
 // createOrUpdateDatasource creates or updates a GrafanaDatasource
 func (s *DatasourceSyncer) createOrUpdateDatasource(ctx context.Context, datasource *unstructured.Unstructured) error {
 	name := datasource.GetName()
-
+	
 	// Try to get existing datasource
 	existing, err := s.dynamicClient.Resource(grafanaDatasourceGVR).Namespace(s.namespace).Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
@@ -375,3 +375,4 @@ func ClusterConfigFromStorageData(data []byte) (*clientsets.PrimusLensClientConf
 
 	return config, nil
 }
+

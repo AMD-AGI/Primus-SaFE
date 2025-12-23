@@ -247,3 +247,4 @@ func TestGpuVendorStringConversion(t *testing.T) {
 		})
 	}
 }
+

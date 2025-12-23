@@ -633,7 +633,7 @@ func (tc *TaskCreator) CreateDetectionCoordinatorTask(
 	workloadUID string,
 ) error {
 	log.Debugf("CreateDetectionCoordinatorTask called for workload %s, autoCreateTask=%v", workloadUID, tc.autoCreateTask)
-
+	
 	if !tc.autoCreateTask {
 		log.Debugf("Auto task creation disabled, skipping detection coordinator task for workload %s", workloadUID)
 		return nil
@@ -712,8 +712,8 @@ func (tc *TaskCreator) ScanForUndetectedWorkloads(ctx context.Context) error {
 		Joins("LEFT JOIN workload_detection ON gpu_workload.uid = workload_detection.workload_uid").
 		Where("gpu_workload.deleted_at IS NULL").
 		Where("gpu_workload.status IN ?", []string{"Running", "Pending"}).
-		Where("gpu_workload.parent_uid = ''").                                              // Only root workloads (parent_uid is empty string for roots)
-		Where("workload_task_state.id IS NULL").                                            // No detection coordinator task
+		Where("gpu_workload.parent_uid = ''"). // Only root workloads (parent_uid is empty string for roots)
+		Where("workload_task_state.id IS NULL"). // No detection coordinator task
 		Where("workload_detection.id IS NULL OR workload_detection.status = ?", "unknown"). // No detection record or unknown
 		Limit(100).
 		Pluck("uid", &workloadUIDs).Error
@@ -757,3 +757,4 @@ func (tc *TaskCreator) ScanForUndetectedWorkloads(ctx context.Context) error {
 
 	return nil
 }
+

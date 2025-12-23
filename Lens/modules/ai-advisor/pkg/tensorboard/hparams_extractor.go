@@ -24,13 +24,13 @@ func NewHyperparameterExtractor() *HyperparameterExtractor {
 // ExtractHyperparameters extracts hyperparameters from parsed events
 func (h *HyperparameterExtractor) ExtractHyperparameters(events []*ParsedEvent) map[string]interface{} {
 	hparams := make(map[string]interface{})
-
+	
 	// Look for hyperparameters in step 0 (initialization)
 	for _, event := range events {
 		if event.Step != 0 {
 			continue
 		}
-
+		
 		// Extract from text events (text_summary)
 		for tag, text := range event.Texts {
 			if strings.HasSuffix(tag, "/text_summary") {
@@ -41,7 +41,7 @@ func (h *HyperparameterExtractor) ExtractHyperparameters(events []*ParsedEvent) 
 				hparams[tag] = h.parseValue(text)
 			}
 		}
-
+		
 		// Some hyperparameters might be logged as scalars at step 0
 		for tag, value := range event.Scalars {
 			if h.isHyperparameterTag(tag) {
@@ -49,7 +49,7 @@ func (h *HyperparameterExtractor) ExtractHyperparameters(events []*ParsedEvent) 
 			}
 		}
 	}
-
+	
 	log.Infof("Extracted %d hyperparameters from TensorBoard events", len(hparams))
 	return hparams
 }
@@ -66,12 +66,12 @@ func (h *HyperparameterExtractor) CategorizeHyperparameters(hparams map[string]i
 		"checkpoint": make(map[string]interface{}),
 		"other":      make(map[string]interface{}),
 	}
-
+	
 	for key, value := range hparams {
 		category := h.categorizeParam(key)
 		categorized[category][key] = value
 	}
-
+	
 	return categorized
 }
 
@@ -91,26 +91,26 @@ func (h *HyperparameterExtractor) GetKeyHyperparameters(hparams map[string]inter
 		"train_iters",
 		"fp16", "bf16", "fp8",
 	}
-
+	
 	result := make(map[string]interface{})
 	for _, key := range keyParams {
 		if val, ok := hparams[key]; ok {
 			result[key] = val
 		}
 	}
-
+	
 	return result
 }
 
 // parseValue attempts to parse a string value into appropriate type
 func (h *HyperparameterExtractor) parseValue(text string) interface{} {
 	text = strings.TrimSpace(text)
-
+	
 	// Handle None/null
 	if text == "None" || text == "null" || text == "" {
 		return nil
 	}
-
+	
 	// Try boolean
 	if strings.EqualFold(text, "true") {
 		return true
@@ -118,23 +118,23 @@ func (h *HyperparameterExtractor) parseValue(text string) interface{} {
 	if strings.EqualFold(text, "false") {
 		return false
 	}
-
+	
 	// Try integer
 	if val, err := strconv.ParseInt(text, 10, 64); err == nil {
 		return val
 	}
-
+	
 	// Try float
 	if val, err := strconv.ParseFloat(text, 64); err == nil {
 		return val
 	}
-
+	
 	// Try JSON
 	var jsonData interface{}
 	if err := json.Unmarshal([]byte(text), &jsonData); err == nil {
 		return jsonData
 	}
-
+	
 	// Return as string
 	return text
 }
@@ -150,28 +150,28 @@ func (h *HyperparameterExtractor) isHyperparameterTag(tag string) bool {
 		"parallel",
 		"precision",
 	}
-
+	
 	lowerTag := strings.ToLower(tag)
 	for _, keyword := range hparamKeywords {
 		if strings.Contains(lowerTag, keyword) {
 			return true
 		}
 	}
-
+	
 	return false
 }
 
 // categorizeParam determines the category of a hyperparameter
 func (h *HyperparameterExtractor) categorizeParam(param string) string {
 	param = strings.ToLower(param)
-
+	
 	// Training related
 	if strings.Contains(param, "lr") || strings.Contains(param, "learning_rate") ||
 		strings.Contains(param, "train_iter") || strings.Contains(param, "epoch") ||
 		strings.Contains(param, "warmup") || strings.Contains(param, "decay") {
 		return "training"
 	}
-
+	
 	// Model architecture
 	if strings.Contains(param, "num_layers") || strings.Contains(param, "hidden_size") ||
 		strings.Contains(param, "num_attention_heads") || strings.Contains(param, "seq_length") ||
@@ -179,39 +179,39 @@ func (h *HyperparameterExtractor) categorizeParam(param string) string {
 		strings.Contains(param, "embedding") || strings.Contains(param, "kv_channels") {
 		return "model"
 	}
-
+	
 	// Parallel configuration
 	if strings.Contains(param, "parallel") || strings.Contains(param, "world_size") ||
 		strings.Contains(param, "rank") || strings.Contains(param, "distributed") {
 		return "parallel"
 	}
-
+	
 	// Optimizer
 	if strings.Contains(param, "optimizer") || strings.Contains(param, "adam") ||
 		strings.Contains(param, "sgd") || strings.Contains(param, "momentum") ||
 		strings.Contains(param, "weight_decay") || strings.Contains(param, "beta") {
 		return "optimizer"
 	}
-
+	
 	// Precision
 	if strings.Contains(param, "fp16") || strings.Contains(param, "fp32") ||
 		strings.Contains(param, "bf16") || strings.Contains(param, "fp8") ||
 		strings.Contains(param, "precision") || strings.Contains(param, "mixed") {
 		return "precision"
 	}
-
+	
 	// Data
 	if strings.Contains(param, "data") || strings.Contains(param, "batch") ||
 		strings.Contains(param, "dataset") || strings.Contains(param, "tokenizer") {
 		return "data"
 	}
-
+	
 	// Checkpoint
 	if strings.Contains(param, "ckpt") || strings.Contains(param, "checkpoint") ||
 		strings.Contains(param, "save") || strings.Contains(param, "load") {
 		return "checkpoint"
 	}
-
+	
 	return "other"
 }
 
@@ -234,3 +234,4 @@ func initKnownHparams() map[string]string {
 		"fp8":                          "precision",
 	}
 }
+

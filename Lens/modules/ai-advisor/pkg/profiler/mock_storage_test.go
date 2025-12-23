@@ -65,3 +65,4 @@ func (m *mockStorageBackend) ExistsByWorkloadAndFilename(ctx context.Context, wo
 	_, exists := m.files[key]
 	return exists, nil
 }
+

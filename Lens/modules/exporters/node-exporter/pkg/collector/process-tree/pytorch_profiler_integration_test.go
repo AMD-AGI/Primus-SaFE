@@ -1,4 +1,3 @@
-//go:build integration
 // +build integration
 
 package processtree
@@ -78,11 +77,11 @@ func TestProfilerFileDiscoveryWithMockProcess(t *testing.T) {
 		name string
 		size int
 	}{
-		{"profiler-trace-20241215.json.gz", 10 * 1024 * 1024}, // 10MB
-		{"torch_trace.pt.trace.json", 5 * 1024 * 1024},        // 5MB
-		{"stack-trace.stacks", 2 * 1024 * 1024},               // 2MB
-		{"memory_snapshot_001.pickle", 100 * 1024 * 1024},     // 100MB
-		{"kineto-trace-worker0.json", 15 * 1024 * 1024},       // 15MB
+		{"profiler-trace-20241215.json.gz", 10 * 1024 * 1024},      // 10MB
+		{"torch_trace.pt.trace.json", 5 * 1024 * 1024},             // 5MB
+		{"stack-trace.stacks", 2 * 1024 * 1024},                    // 2MB
+		{"memory_snapshot_001.pickle", 100 * 1024 * 1024},          // 100MB
+		{"kineto-trace-worker0.json", 15 * 1024 * 1024},            // 15MB
 	}
 
 	for _, f := range files {
@@ -206,3 +205,4 @@ func TestProfilerResponseStructure(t *testing.T) {
 	assert.Equal(t, "high", file.Confidence)
 	assert.Equal(t, int64(10485760), file.FileSize)
 }
+

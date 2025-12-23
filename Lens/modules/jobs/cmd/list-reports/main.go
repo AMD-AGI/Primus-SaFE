@@ -22,7 +22,7 @@ var (
 
 func main() {
 	flag.Parse()
-
+	
 	fmt.Println("📊 GPU Usage Weekly Reports - Query Database")
 	fmt.Println("==========================================")
 
@@ -31,10 +31,10 @@ func main() {
 	fmt.Printf("   - Host: %s:%s\n", *dbHost, *dbPort)
 	fmt.Printf("   - Database: %s\n", *dbName)
 	fmt.Printf("   - User: %s\n", *dbUser)
-
-	dsn := fmt.Sprintf("host=%s port=%s user=%s dbname=%s password=%s sslmode=%s",
+	
+	dsn := fmt.Sprintf("host=%s port=%s user=%s dbname=%s password=%s sslmode=%s", 
 		*dbHost, *dbPort, *dbUser, *dbName, *dbPass, *sslMode)
-
+	
 	db, err := gorm.Open(postgres.Dialector{
 		Config: &postgres.Config{
 			DSN: dsn,
@@ -44,7 +44,7 @@ func main() {
 			SingularTable: true,
 		},
 	})
-
+	
 	if err != nil {
 		fmt.Printf("❌ Database connection failed: %v\n", err)
 		fmt.Println("\n💡 Tip: Usage: go run main.go -dbHost=localhost -dbPort=5432 -dbUser=postgres -dbPass=yourpass -dbName=primus_lens")
@@ -82,7 +82,7 @@ func main() {
 		fmt.Printf("  Period end:       %s\n", report.PeriodEnd.Format("2006-01-02 15:04:05"))
 		fmt.Printf("  Generated at:     %s\n", report.GeneratedAt.Format("2006-01-02 15:04:05"))
 		fmt.Printf("  Status:           %s\n", report.Status)
-
+		
 		// Display statistics from metadata
 		if report.Metadata != nil {
 			if totalGPUs, ok := report.Metadata["total_gpus"].(float64); ok {
@@ -98,7 +98,7 @@ func main() {
 				fmt.Printf("  Low util users:   %.0f\n", lowUtilCount)
 			}
 		}
-
+		
 		if report.ErrorMessage != "" {
 			fmt.Printf("  Error message:    %s\n", report.ErrorMessage)
 		}
@@ -106,10 +106,11 @@ func main() {
 	}
 
 	fmt.Println("═══════════════════════════════════════════════════════════")
-
+	
 	// Provide export option
 	if len(reports) > 0 {
 		fmt.Println("💡 Tip: To export a report, run:")
 		fmt.Printf("   cd cmd/export-report && go run main.go %s\n", reports[0].ID)
 	}
 }
+

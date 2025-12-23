@@ -116,9 +116,9 @@ func TestProfilerCollectionExecutor_extractTaskConfig(t *testing.T) {
 	executor := NewProfilerCollectionExecutor(nil, nil, nil)
 
 	tests := []struct {
-		name         string
-		taskState    *model.WorkloadTaskState
-		expectedAuto bool
+		name            string
+		taskState       *model.WorkloadTaskState
+		expectedAuto    bool
 	}{
 		{
 			name: "with auto_collect true",
@@ -551,3 +551,4 @@ func BenchmarkProfilerCollectionExecutor_GetExtHelpers(b *testing.B) {
 		}
 	})
 }
+

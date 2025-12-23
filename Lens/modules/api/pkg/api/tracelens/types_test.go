@@ -261,3 +261,4 @@ func TestProfilerFileContentChunkStruct(t *testing.T) {
 	assert.Equal(t, 0, chunk.ChunkIndex)
 	assert.Equal(t, 3, chunk.TotalChunks)
 }
+

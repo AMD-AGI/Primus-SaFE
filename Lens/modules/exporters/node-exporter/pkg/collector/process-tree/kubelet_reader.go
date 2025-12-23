@@ -31,12 +31,12 @@ func (r *KubeletReader) GetPodInfo(ctx context.Context, namespace, name string) 
 	// For now, return basic info
 	// This can be extended to query kubelet stats API for additional metadata
 	log.Debugf("Kubelet reader: getting pod info for %s/%s", namespace, name)
-
+	
 	info := &KubeletPodInfo{
 		Name:      name,
 		Namespace: namespace,
 	}
-
+	
 	return info, nil
 }
 
@@ -45,10 +45,11 @@ func (r *KubeletReader) GetPodByUID(ctx context.Context, podUID string) (*Kubele
 	// For now, return basic info with UID
 	// This can be extended to query kubelet stats API
 	log.Debugf("Kubelet reader: getting pod info by UID %s", podUID)
-
+	
 	info := &KubeletPodInfo{
 		UID: podUID,
 	}
-
+	
 	return info, nil
 }
+

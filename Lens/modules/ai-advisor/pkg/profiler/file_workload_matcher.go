@@ -27,14 +27,14 @@ type FileWorkloadMatch struct {
 
 // FileMatchResult represents the result of matching a profiler file to workloads
 type FileMatchResult struct {
-	FilePath       string              `json:"file_path"`
-	FileName       string              `json:"file_name"`
-	FileTimestamp  int64               `json:"file_timestamp_ns"` // Nanoseconds from filename
-	FileTime       time.Time           `json:"file_time"`         // Converted timestamp
-	Matches        []FileWorkloadMatch `json:"matches"`           // All matching workloads
-	PrimaryMatch   *FileWorkloadMatch  `json:"primary_match"`     // Best match (if unique)
-	HasConflict    bool                `json:"has_conflict"`      // Multiple workloads matched
-	ConflictReason string              `json:"conflict_reason,omitempty"`
+	FilePath       string               `json:"file_path"`
+	FileName       string               `json:"file_name"`
+	FileTimestamp  int64                `json:"file_timestamp_ns"`  // Nanoseconds from filename
+	FileTime       time.Time            `json:"file_time"`          // Converted timestamp
+	Matches        []FileWorkloadMatch  `json:"matches"`            // All matching workloads
+	PrimaryMatch   *FileWorkloadMatch   `json:"primary_match"`      // Best match (if unique)
+	HasConflict    bool                 `json:"has_conflict"`       // Multiple workloads matched
+	ConflictReason string               `json:"conflict_reason,omitempty"`
 }
 
 // FileWorkloadMatcher matches profiler files to workloads based on timestamps
@@ -135,7 +135,7 @@ func (m *FileWorkloadMatcher) MatchFileToWorkloads(
 		// Allow some buffer for profiler delay (profiler typically dumps after training step)
 		if result.FileTime.After(workload.CreatedAt.Add(-time.Minute)) &&
 			result.FileTime.Before(workloadEnd.Add(5*time.Minute)) {
-
+			
 			match := FileWorkloadMatch{
 				WorkloadUID:  workload.UID,
 				WorkloadName: workload.Name,
@@ -287,7 +287,7 @@ func (m *FileWorkloadMatcher) MatchFilesToWorkload(
 		// Check if file was created during workload execution
 		if result.FileTime.After(workload.CreatedAt.Add(-time.Minute)) &&
 			result.FileTime.Before(workloadEnd.Add(5*time.Minute)) {
-
+			
 			match := FileWorkloadMatch{
 				WorkloadUID:  workload.UID,
 				WorkloadName: workload.Name,
@@ -296,7 +296,7 @@ func (m *FileWorkloadMatcher) MatchFilesToWorkload(
 				EndAt:        workload.EndAt,
 			}
 			match.Confidence, match.MatchReason = m.calculateConfidence(result.FileTime, workload)
-
+			
 			result.Matches = append(result.Matches, match)
 			result.PrimaryMatch = &result.Matches[0]
 		}
@@ -326,3 +326,4 @@ func (r *FileMatchResult) GetConfidence() string {
 	}
 	return "none"
 }
+

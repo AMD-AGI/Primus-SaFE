@@ -63,24 +63,24 @@ func TestPatternMatcher_MatchIdentify(t *testing.T) {
 	}
 
 	tests := []struct {
-		name             string
-		logLine          string
-		expectMatched    bool
-		expectPattern    string
+		name           string
+		logLine        string
+		expectMatched  bool
+		expectPattern  string
 		expectConfidence float64
 	}{
 		{
-			name:             "match primus lowercase",
-			logLine:          "Starting primus training",
-			expectMatched:    true,
-			expectPattern:    "primus-identifier",
+			name:           "match primus lowercase",
+			logLine:        "Starting primus training",
+			expectMatched:  true,
+			expectPattern:  "primus-identifier",
 			expectConfidence: 0.7,
 		},
 		{
-			name:             "match Primus capitalized",
-			logLine:          "Starting Primus training",
-			expectMatched:    true,
-			expectPattern:    "primus-identifier",
+			name:           "match Primus capitalized",
+			logLine:        "Starting Primus training",
+			expectMatched:  true,
+			expectPattern:  "primus-identifier",
 			expectConfidence: 0.7,
 		},
 		{
@@ -93,11 +93,11 @@ func TestPatternMatcher_MatchIdentify(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := matcher.MatchIdentify(tt.logLine)
-
+			
 			if result.Matched != tt.expectMatched {
 				t.Errorf("Matched = %v, want %v", result.Matched, tt.expectMatched)
 			}
-
+			
 			if result.Matched {
 				if result.Pattern != tt.expectPattern {
 					t.Errorf("Pattern = %v, want %v", result.Pattern, tt.expectPattern)
@@ -152,11 +152,11 @@ func TestPatternMatcher_MatchPerformance(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := matcher.MatchPerformance(tt.logLine)
-
+			
 			if result.Matched != tt.expectMatched {
 				t.Errorf("Matched = %v, want %v", result.Matched, tt.expectMatched)
 			}
-
+			
 			if result.Matched && tt.expectGroups != nil {
 				for key, expectedValue := range tt.expectGroups {
 					if result.Groups[key] != expectedValue {
@@ -217,7 +217,7 @@ func TestPatternMatcher_MatchTrainingEvent(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := matcher.MatchTrainingEvent(tt.logLine, tt.eventType)
-
+			
 			if result.Matched != tt.expectMatched {
 				t.Errorf("Matched = %v, want %v", result.Matched, tt.expectMatched)
 			}
@@ -273,11 +273,11 @@ func TestPatternMatcher_MatchCheckpointEvent(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := matcher.MatchCheckpointEvent(tt.logLine, tt.eventType)
-
+			
 			if result.Matched != tt.expectMatched {
 				t.Errorf("Matched = %v, want %v", result.Matched, tt.expectMatched)
 			}
-
+			
 			if result.Matched && tt.expectGroups != nil {
 				for key, expectedValue := range tt.expectGroups {
 					if result.Groups[key] != expectedValue {
@@ -461,3 +461,4 @@ func BenchmarkPatternMatcher_MatchPerformance(b *testing.B) {
 		_ = matcher.MatchPerformance(logLine)
 	}
 }
+

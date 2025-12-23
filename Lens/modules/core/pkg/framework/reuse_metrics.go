@@ -126,7 +126,7 @@ func (m *MetricsRecorder) RecordSuccess(framework, namespace string, similarityS
 	reuseSuccessTotal.WithLabelValues(framework, namespace).Inc()
 	reuseSimilarityScore.Observe(similarityScore)
 	reuseConfidenceDecay.Observe(confidence)
-
+	
 	// Estimate time saved (assuming normal detection takes ~360 seconds)
 	// Reuse takes ~0.3 seconds, so we save ~359.7 seconds
 	timeSavedSeconds.Add(360.0)
@@ -156,3 +156,4 @@ func (m *MetricsRecorder) RecordCacheMiss(cacheType string) {
 func (m *MetricsRecorder) RecordSimilarityScore(score float64) {
 	reuseSimilarityScore.Observe(score)
 }
+

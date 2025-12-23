@@ -106,3 +106,4 @@ func getStatusIcon(state workflow.State) string {
 		return "•"
 	}
 }
+

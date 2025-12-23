@@ -110,16 +110,16 @@ func TestDatabaseStorageBackend_Store_SmallFile(t *testing.T) {
 	// Step 1: Mock INSERT INTO profiler_files with RETURNING
 	mock.ExpectQuery(`INSERT INTO profiler_files`).
 		WithArgs(
-			"workload-1",            // workload_uid
-			"pod-123",               // pod_uid
-			"test-pod",              // pod_name
-			"default",               // pod_namespace
-			"test.json",             // file_name
-			"/tmp/trace.json",       // file_path
-			"chrome_trace",          // file_type
+			"workload-1",          // workload_uid
+			"pod-123",             // pod_uid
+			"test-pod",            // pod_name
+			"default",             // pod_namespace
+			"test.json",           // file_name
+			"/tmp/trace.json",     // file_path
+			"chrome_trace",        // file_type
 			int64(len(testContent)), // file_size
-			"0.9",                   // confidence (string)
-			"{}",                    // metadata
+			"0.9",                 // confidence (string)
+			"{}",                  // metadata
 		).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
 

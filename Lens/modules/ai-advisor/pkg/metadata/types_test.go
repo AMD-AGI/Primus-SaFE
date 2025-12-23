@@ -318,3 +318,4 @@ func TestWorkloadMetadataWithNestedStructs(t *testing.T) {
 		t.Errorf("MegatronInfo.TensorParallel = %v, want 4", unmarshaled.MegatronInfo.TensorParallel)
 	}
 }
+

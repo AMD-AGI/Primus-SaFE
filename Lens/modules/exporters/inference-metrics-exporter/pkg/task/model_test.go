@@ -171,3 +171,4 @@ func TestScrapeTaskString(t *testing.T) {
 	assert.Contains(t, str, "triton")
 	assert.Contains(t, str, "running")
 }
+

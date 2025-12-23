@@ -126,3 +126,4 @@ func TestMockStorage_GetStoredData(t *testing.T) {
 		t.Error("Modifying returned data should not affect original data")
 	}
 }
+

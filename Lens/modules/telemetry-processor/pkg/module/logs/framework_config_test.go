@@ -165,3 +165,4 @@ func TestFrameworkLogPatterns_JSONMarshaling(t *testing.T) {
 		t.Error("JSON structure validation failed")
 	}
 }
+

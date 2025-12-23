@@ -106,3 +106,4 @@ func (m *Manager) ListCollectors() []string {
 	}
 	return names
 }
+

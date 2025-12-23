@@ -14,11 +14,11 @@ func TestInitRouter_MiddlewareConfiguration(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	tests := []struct {
-		name          string
-		config        *config.Config
-		expectLogging bool
-		expectTracing bool
-		description   string
+		name               string
+		config             *config.Config
+		expectLogging      bool
+		expectTracing      bool
+		description        string
 	}{
 		{
 			name: "Default configuration (all enabled)",

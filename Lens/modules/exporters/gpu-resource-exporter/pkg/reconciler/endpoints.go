@@ -171,3 +171,4 @@ func (e *EndpointsReconciler) createServicePodRef(ctx context.Context, svc *core
 
 	return ref
 }
+

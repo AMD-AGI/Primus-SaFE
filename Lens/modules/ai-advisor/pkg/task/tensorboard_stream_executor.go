@@ -26,14 +26,14 @@ import (
 type TensorBoardStreamExecutor struct {
 	coreTask.BaseExecutor
 
-	reader         *tensorboard.Reader
-	metadataFacade database.AiWorkloadMetadataFacadeInterface
-	podFacade      database.PodFacadeInterface
-	taskFacade     database.WorkloadTaskFacadeInterface
-	trainingFacade database.TrainingFacadeInterface
-	nodeFacade     database.NodeFacadeInterface
-	workloadFacade database.WorkloadFacadeInterface
-	eventParser    *tensorboard.EventParser
+	reader          *tensorboard.Reader
+	metadataFacade  database.AiWorkloadMetadataFacadeInterface
+	podFacade       database.PodFacadeInterface
+	taskFacade      database.WorkloadTaskFacadeInterface
+	trainingFacade  database.TrainingFacadeInterface
+	nodeFacade      database.NodeFacadeInterface
+	workloadFacade  database.WorkloadFacadeInterface
+	eventParser     *tensorboard.EventParser
 
 	// Hyperparameters collection
 	hpCollector      *hyperparameters.Collector

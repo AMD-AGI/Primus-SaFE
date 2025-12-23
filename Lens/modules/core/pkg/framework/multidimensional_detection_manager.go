@@ -14,19 +14,19 @@ import (
 // MultiDimensionalDetectionManager manages detection across multiple dimensions
 type MultiDimensionalDetectionManager struct {
 	mu sync.RWMutex
-
+	
 	// Dimension-specific detectors
 	detectors map[model.DetectionDimension]model.DimensionDetector
-
+	
 	// Storage for multi-dimensional detection results
 	storage *MultiDimensionalDetectionStorage
-
+	
 	// Configuration
 	config *DetectionConfig
-
+	
 	// Event dispatcher
 	eventDispatcher *EventDispatcher
-
+	
 	// Compatibility validator
 	validator *DimensionCompatibilityValidator
 }
@@ -36,7 +36,7 @@ func NewMultiDimensionalDetectionManager(config *DetectionConfig) *MultiDimensio
 	if config == nil {
 		config = DefaultDetectionConfig()
 	}
-
+	
 	return &MultiDimensionalDetectionManager{
 		detectors:       make(map[model.DetectionDimension]model.DimensionDetector),
 		storage:         NewMultiDimensionalDetectionStorage(),
@@ -50,7 +50,7 @@ func NewMultiDimensionalDetectionManager(config *DetectionConfig) *MultiDimensio
 func (m *MultiDimensionalDetectionManager) RegisterDetector(detector model.DimensionDetector) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-
+	
 	dimension := detector.GetDimension()
 	m.detectors[dimension] = detector
 	log.Infof("Registered detector for dimension: %s", dimension)
@@ -68,7 +68,7 @@ func (m *MultiDimensionalDetectionManager) ReportDimensionDetection(
 ) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-
+	
 	// Get or create detection
 	detection := m.storage.Get(workloadUID)
 	if detection == nil {
@@ -80,7 +80,7 @@ func (m *MultiDimensionalDetectionManager) ReportDimensionDetection(
 			UpdatedAt:   time.Now(),
 		}
 	}
-
+	
 	// Create new dimension value
 	newValue := model.DimensionValue{
 		Value:      value,
@@ -89,10 +89,10 @@ func (m *MultiDimensionalDetectionManager) ReportDimensionDetection(
 		DetectedAt: time.Now(),
 		Evidence:   evidence,
 	}
-
+	
 	// Add or update dimension value
 	dimensionValues := detection.Dimensions[dimension]
-
+	
 	// Check if this source already reported for this dimension
 	sourceExists := false
 	for i, dv := range dimensionValues {
@@ -102,41 +102,41 @@ func (m *MultiDimensionalDetectionManager) ReportDimensionDetection(
 			break
 		}
 	}
-
+	
 	if !sourceExists {
 		dimensionValues = append(dimensionValues, newValue)
 	}
-
+	
 	detection.Dimensions[dimension] = dimensionValues
-
+	
 	// Detect conflicts within this dimension
 	conflicts := m.detectDimensionConflicts(dimension, dimensionValues)
 	if len(conflicts) > 0 {
 		detection.Conflicts[dimension] = conflicts
-		log.Warnf("Detected %d conflicts in dimension %s for workload %s",
+		log.Warnf("Detected %d conflicts in dimension %s for workload %s", 
 			len(conflicts), dimension, workloadUID)
 	}
-
+	
 	// Validate cross-dimension compatibility
 	if err := m.validator.Validate(detection); err != nil {
 		log.Warnf("Cross-dimension validation warning for workload %s: %v", workloadUID, err)
 		// Don't fail, just log warning
 	}
-
+	
 	// Update overall confidence and status
 	detection.Confidence = m.calculateOverallConfidence(detection)
 	detection.Status = m.determineStatus(detection)
 	detection.UpdatedAt = time.Now()
-
+	
 	// Save detection
 	m.storage.Save(workloadUID, detection)
-
+	
 	log.Infof("Dimension detection reported: workload=%s, dimension=%s, value=%s, confidence=%.2f",
 		workloadUID, dimension, value, confidence)
-
+	
 	// Dispatch event
 	m.dispatchDimensionEvent(ctx, workloadUID, dimension, detection)
-
+	
 	return nil
 }
 
@@ -144,7 +144,7 @@ func (m *MultiDimensionalDetectionManager) ReportDimensionDetection(
 func (m *MultiDimensionalDetectionManager) GetDetection(workloadUID string) *model.MultiDimensionalDetection {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-
+	
 	return m.storage.Get(workloadUID)
 }
 
@@ -158,17 +158,17 @@ func (m *MultiDimensionalDetectionManager) GetDimensionValue(
 	if detection == nil {
 		return "", 0, fmt.Errorf("no detection found for workload %s", workloadUID)
 	}
-
+	
 	values, exists := detection.Dimensions[dimension]
 	if !exists || len(values) == 0 {
 		return "", 0, fmt.Errorf("no value detected for dimension %s", dimension)
 	}
-
+	
 	// If no conflicts, return highest confidence value
 	if len(detection.Conflicts[dimension]) == 0 {
 		return m.getHighestConfidenceValue(values)
 	}
-
+	
 	// If conflicts exist, apply resolution logic
 	return m.resolveConflictedValue(dimension, values)
 }
@@ -183,18 +183,18 @@ func (m *MultiDimensionalDetectionManager) HasDimensionValue(
 	if detection == nil {
 		return false
 	}
-
+	
 	values, exists := detection.Dimensions[dimension]
 	if !exists {
 		return false
 	}
-
+	
 	for _, dv := range values {
 		if dv.Value == value {
 			return true
 		}
 	}
-
+	
 	return false
 }
 
@@ -206,15 +206,15 @@ func (m *MultiDimensionalDetectionManager) detectDimensionConflicts(
 	if len(values) <= 1 {
 		return nil
 	}
-
+	
 	var conflicts []model.DetectionConflict
-
+	
 	// Check for different values from different sources
 	valueMap := make(map[string][]string) // value -> sources
 	for _, dv := range values {
 		valueMap[dv.Value] = append(valueMap[dv.Value], dv.Source)
 	}
-
+	
 	// If more than one value detected, there's a conflict
 	if len(valueMap) > 1 {
 		// Create conflicts for each pair
@@ -222,12 +222,12 @@ func (m *MultiDimensionalDetectionManager) detectDimensionConflicts(
 		for val := range valueMap {
 			valueList = append(valueList, val)
 		}
-
+		
 		for i := 0; i < len(valueList); i++ {
 			for j := i + 1; j < len(valueList); j++ {
 				val1 := valueList[i]
 				val2 := valueList[j]
-
+				
 				conflict := model.DetectionConflict{
 					Source1:    valueMap[val1][0], // First source for this value
 					Source2:    valueMap[val2][0],
@@ -240,7 +240,7 @@ func (m *MultiDimensionalDetectionManager) detectDimensionConflicts(
 			}
 		}
 	}
-
+	
 	return conflicts
 }
 
@@ -251,14 +251,14 @@ func (m *MultiDimensionalDetectionManager) getHighestConfidenceValue(
 	if len(values) == 0 {
 		return "", 0, fmt.Errorf("no values provided")
 	}
-
+	
 	// Sort by confidence descending
 	sortedValues := make([]model.DimensionValue, len(values))
 	copy(sortedValues, values)
 	sort.Slice(sortedValues, func(i, j int) bool {
 		return sortedValues[i].Confidence > sortedValues[j].Confidence
 	})
-
+	
 	highest := sortedValues[0]
 	return highest.Value, highest.Confidence, nil
 }
@@ -280,22 +280,22 @@ func (m *MultiDimensionalDetectionManager) calculateOverallConfidence(
 	if len(detection.Dimensions) == 0 {
 		return 0.0
 	}
-
+	
 	totalConfidence := 0.0
 	totalWeight := 0.0
-
+	
 	// Weight dimensions by their priority
 	priorities := model.GetDimensionPriorities()
 	priorityMap := make(map[model.DetectionDimension]int)
 	for _, p := range priorities {
 		priorityMap[p.Dimension] = p.Priority
 	}
-
+	
 	for dimension, values := range detection.Dimensions {
 		if len(values) == 0 {
 			continue
 		}
-
+		
 		// Get highest confidence in this dimension
 		maxConf := 0.0
 		for _, v := range values {
@@ -303,22 +303,22 @@ func (m *MultiDimensionalDetectionManager) calculateOverallConfidence(
 				maxConf = v.Confidence
 			}
 		}
-
+		
 		// Weight by priority (lower priority number = higher weight)
 		priority := priorityMap[dimension]
 		if priority == 0 {
 			priority = 10 // Default low weight
 		}
 		weight := 1.0 / float64(priority)
-
+		
 		totalConfidence += maxConf * weight
 		totalWeight += weight
 	}
-
+	
 	if totalWeight == 0 {
 		return 0.0
 	}
-
+	
 	return totalConfidence / totalWeight
 }
 
@@ -332,7 +332,7 @@ func (m *MultiDimensionalDetectionManager) determineStatus(
 			return model.DetectionStatusConflict
 		}
 	}
-
+	
 	// Based on overall confidence
 	if detection.Confidence >= 0.8 {
 		return model.DetectionStatusVerified
@@ -341,7 +341,7 @@ func (m *MultiDimensionalDetectionManager) determineStatus(
 	} else if detection.Confidence >= 0.4 {
 		return model.DetectionStatusSuspected
 	}
-
+	
 	return model.DetectionStatusUnknown
 }
 
@@ -373,7 +373,7 @@ func NewMultiDimensionalDetectionStorage() *MultiDimensionalDetectionStorage {
 func (s *MultiDimensionalDetectionStorage) Get(workloadUID string) *model.MultiDimensionalDetection {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-
+	
 	return s.data[workloadUID]
 }
 
@@ -381,7 +381,7 @@ func (s *MultiDimensionalDetectionStorage) Get(workloadUID string) *model.MultiD
 func (s *MultiDimensionalDetectionStorage) Save(workloadUID string, detection *model.MultiDimensionalDetection) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-
+	
 	s.data[workloadUID] = detection
 }
 
@@ -399,3 +399,4 @@ func (v *DimensionCompatibilityValidator) Validate(detection *model.MultiDimensi
 	// For now, just return nil
 	return nil
 }
+

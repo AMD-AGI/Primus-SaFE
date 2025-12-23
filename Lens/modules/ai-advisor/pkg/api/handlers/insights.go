@@ -99,3 +99,4 @@ func (h *InsightsHandler) EstimateCompute(c *gin.Context) {
 		"estimated_tflops": 0,
 	})
 }
+

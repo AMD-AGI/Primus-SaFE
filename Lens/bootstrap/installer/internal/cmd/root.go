@@ -8,11 +8,12 @@ import (
 )
 
 var (
-	cfgFile    string
-	namespace  string
+	cfgFile   string
+	namespace string
 	kubeconfig string
-	verbose    bool
+	verbose   bool
 )
+
 
 // rootCmd represents the base command
 var rootCmd = &cobra.Command{
@@ -67,3 +68,4 @@ func getKubeconfig() string {
 	}
 	return ""
 }
+

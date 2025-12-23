@@ -138,7 +138,7 @@ func TestSimilarityCalculator_CalculateSimilarity(t *testing.T) {
 			assert.GreaterOrEqual(t, result.Score, tt.minScore, tt.description)
 			assert.LessOrEqual(t, result.Score, tt.maxScore, tt.description)
 			assert.NotNil(t, result.Details)
-
+			
 			// Verify all detail scores are between 0 and 1
 			assert.GreaterOrEqual(t, result.Details.ImageScore, 0.0)
 			assert.LessOrEqual(t, result.Details.ImageScore, 1.0)
@@ -376,3 +376,4 @@ func TestSimilarityCalculator_WeightedScore(t *testing.T) {
 	assert.Equal(t, 1.0, result.Details.ArgsScore)
 	assert.Equal(t, 1.0, result.Details.LabelScore)
 }
+

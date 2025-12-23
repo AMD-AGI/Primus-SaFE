@@ -59,7 +59,7 @@ type MetricsStorage interface {
 }
 
 // StoredMetric stored metric format
-type StoredMetric struct {
+type StoredMetric struct{
 	WorkloadUID string
 	PodUID      string
 	Source      string
@@ -73,8 +73,8 @@ type StoredMetric struct {
 
 // WandBLogProcessor WandB log and metrics processor
 type WandBLogProcessor struct {
-	metricsStorage MetricsStorage                   // Metrics storage interface
-	trainingFacade database.TrainingFacadeInterface // Training facade (optional, for testing)
+	metricsStorage  MetricsStorage                   // Metrics storage interface
+	trainingFacade  database.TrainingFacadeInterface // Training facade (optional, for testing)
 }
 
 // NewWandBLogProcessor creates processor
@@ -82,8 +82,8 @@ func NewWandBLogProcessor(
 	metricsStorage MetricsStorage,
 ) *WandBLogProcessor {
 	return &WandBLogProcessor{
-		metricsStorage: metricsStorage,
-		trainingFacade: nil, // Use default facade from database.GetFacade()
+		metricsStorage:  metricsStorage,
+		trainingFacade:  nil, // Use default facade from database.GetFacade()
 	}
 }
 
@@ -93,8 +93,8 @@ func NewWandBLogProcessorWithFacade(
 	trainingFacade database.TrainingFacadeInterface,
 ) *WandBLogProcessor {
 	return &WandBLogProcessor{
-		metricsStorage: metricsStorage,
-		trainingFacade: trainingFacade,
+		metricsStorage:  metricsStorage,
+		trainingFacade:  trainingFacade,
 	}
 }
 

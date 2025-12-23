@@ -477,7 +477,7 @@ func TestFactoryStorageConfig_Validation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Basic validation
 			assert.NotEmpty(t, tt.config.Strategy)
-
+			
 			switch tt.config.Strategy {
 			case "object_storage":
 				if !tt.wantErr {
@@ -543,3 +543,4 @@ func TestAutoSelectConfig_Fields(t *testing.T) {
 	assert.True(t, config.Enabled)
 	assert.Equal(t, int64(10*1024*1024), config.SizeThreshold)
 }
+

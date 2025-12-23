@@ -185,3 +185,4 @@ func parseIntQuery(c *gin.Context, key string, defaultVal int) int {
 func parseDuration(s string) (time.Duration, error) {
 	return time.ParseDuration(s)
 }
+

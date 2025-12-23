@@ -35,18 +35,18 @@ type PodStatsResponse struct {
 
 // PodStats - Pod statistics
 type PodStats struct {
-	PodUID         string    `json:"pod_uid"`
-	PodName        string    `json:"pod_name"`
-	Namespace      string    `json:"namespace"`
-	NodeName       string    `json:"node_name"`
-	Status         string    `json:"status"`
-	Phase          string    `json:"phase"`
-	CreatedAt      time.Time `json:"created_at"`
-	AllocatedGPUs  int32     `json:"allocated_gpus"`
-	AvgUtilization float64   `json:"avg_utilization"`
-	Running        bool      `json:"running"`
-	OwnerUID       string    `json:"owner_uid,omitempty"`
-	IP             string    `json:"ip,omitempty"`
+	PodUID          string            `json:"pod_uid"`
+	PodName         string            `json:"pod_name"`
+	Namespace       string            `json:"namespace"`
+	NodeName        string            `json:"node_name"`
+	Status          string            `json:"status"`
+	Phase           string            `json:"phase"`
+	CreatedAt       time.Time         `json:"created_at"`
+	AllocatedGPUs   int32             `json:"allocated_gpus"`
+	AvgUtilization  float64           `json:"avg_utilization"`
+	Running         bool              `json:"running"`
+	OwnerUID        string            `json:"owner_uid,omitempty"`
+	IP              string            `json:"ip,omitempty"`
 }
 
 // OwnerReference - Pod owner reference
@@ -58,29 +58,29 @@ type OwnerReference struct {
 
 // PodDetailResponse - Response for /api/v1/pods/:pod_uid
 type PodDetailResponse struct {
-	PodUID         string         `json:"pod_uid"`
-	PodName        string         `json:"pod_name"`
-	Namespace      string         `json:"namespace"`
-	NodeName       string         `json:"node_name"`
-	Status         string         `json:"status"`
-	Phase          string         `json:"phase"`
-	CreatedAt      time.Time      `json:"created_at"`
-	UpdatedAt      time.Time      `json:"updated_at"`
-	AllocatedGPUs  int32          `json:"allocated_gpus"`
-	Running        bool           `json:"running"`
-	Deleted        bool           `json:"deleted"`
-	IP             string         `json:"ip,omitempty"`
-	OwnerUID       string         `json:"owner_uid,omitempty"`
-	CurrentMetrics *PodGPUMetrics `json:"current_metrics,omitempty"`
+	PodUID          string              `json:"pod_uid"`
+	PodName         string              `json:"pod_name"`
+	Namespace       string              `json:"namespace"`
+	NodeName        string              `json:"node_name"`
+	Status          string              `json:"status"`
+	Phase           string              `json:"phase"`
+	CreatedAt       time.Time           `json:"created_at"`
+	UpdatedAt       time.Time           `json:"updated_at"`
+	AllocatedGPUs   int32               `json:"allocated_gpus"`
+	Running         bool                `json:"running"`
+	Deleted         bool                `json:"deleted"`
+	IP              string              `json:"ip,omitempty"`
+	OwnerUID        string              `json:"owner_uid,omitempty"`
+	CurrentMetrics  *PodGPUMetrics      `json:"current_metrics,omitempty"`
 }
 
 // PodGPUMetrics - GPU metrics for a Pod
 type PodGPUMetrics struct {
-	Timestamp      time.Time `json:"timestamp"`
-	GPUUtilization float64   `json:"gpu_utilization"`
-	MemoryUsed     int32     `json:"memory_used_mb"`
-	Power          float64   `json:"power_watts"`
-	Temperature    float64   `json:"temperature_celsius"`
+	Timestamp       time.Time `json:"timestamp"`
+	GPUUtilization  float64   `json:"gpu_utilization"`
+	MemoryUsed      int32     `json:"memory_used_mb"`
+	Power           float64   `json:"power_watts"`
+	Temperature     float64   `json:"temperature_celsius"`
 }
 
 // PodGPUHistoryParams - Query parameters for /api/v1/pods/:pod_uid/gpu-history
@@ -177,7 +177,7 @@ func getPodStats(c *gin.Context) {
 
 	// Get facade for the specified cluster
 	podFacade := database.GetFacadeForCluster(clients.ClusterName).GetPod()
-
+	
 	// Query pods with stats
 	pods, total, err := queryPodsWithStats(c.Request.Context(), podFacade, params)
 	if err != nil {
@@ -215,7 +215,7 @@ func queryPodsWithStats(ctx context.Context, podFacade database.PodFacadeInterfa
 	for _, pod := range gpuPods {
 		// Get average GPU utilization from gpu_device table
 		avgUtil, _ := podFacade.GetAverageGPUUtilizationByNode(ctx, pod.NodeName)
-
+		
 		podStats := PodStats{
 			PodUID:         pod.UID,
 			PodName:        pod.Name,
@@ -460,7 +460,7 @@ func getPodEvents(c *gin.Context) {
 
 	// Get facade for the specified cluster
 	podFacade := database.GetFacadeForCluster(clients.ClusterName).GetPod()
-
+	
 	// Get pod events from database
 	events := queryPodEvents(c.Request.Context(), podFacade, podUID)
 
@@ -549,7 +549,7 @@ func comparePods(c *gin.Context) {
 	for _, pod := range pods {
 		// Get metrics for each pod
 		avgUtil, _ := podFacade.GetAverageGPUUtilizationByNode(c.Request.Context(), pod.NodeName)
-
+		
 		metrics := map[string]float64{
 			"gpu_utilization": avgUtil,
 		}
@@ -586,3 +586,4 @@ func comparePods(c *gin.Context) {
 
 	c.JSON(http.StatusOK, rest.SuccessResp(c, response))
 }
+

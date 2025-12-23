@@ -28,7 +28,7 @@ func TestJSONEscaping(t *testing.T) {
 			desc:        "Double-quoted string requires escaping backslashes",
 		},
 		{
-			name: "Simulating JSON-parsed string",
+			name:        "Simulating JSON-parsed string",
 			// In raw string, we put what the result would be AFTER JSON parsing
 			// JSON "\\s" becomes single \s after parsing
 			jsonPattern: `.*iteration\s+(?P<CurrentIteration>\d+)\s*/\s*(?P<TargetIteration>\d+)`,
@@ -136,7 +136,7 @@ func TestJSONEscaping(t *testing.T) {
 		} else {
 			t.Logf("✓ CurrentIteration = 126")
 		}
-
+		
 		if groups["TargetIteration"] != "5000" {
 			t.Errorf("❌ TargetIteration: got %q, want \"5000\"", groups["TargetIteration"])
 		} else {

@@ -23,11 +23,11 @@ import (
 type MultiClusterStorageConfigListener struct {
 	ctx              context.Context
 	cancel           context.CancelFunc
-	syncTaskCancel   context.CancelFunc        // Used to cancel sync task
-	syncInterval     time.Duration             // Sync interval
-	excludeNodes     map[string][]string       // Nodes to exclude per cluster: map[clusterName][]nodeName
+	syncTaskCancel   context.CancelFunc  // Used to cancel sync task
+	syncInterval     time.Duration       // Sync interval
+	excludeNodes     map[string][]string // Nodes to exclude per cluster: map[clusterName][]nodeName
 	grafanaSyncer    *grafana.DatasourceSyncer // Grafana datasource syncer
-	grafanaNamespace string                    // Namespace for Grafana datasources
+	grafanaNamespace string              // Namespace for Grafana datasources
 }
 
 // Environment variable names for exclude nodes configuration
@@ -43,17 +43,17 @@ const (
 // NewMultiClusterStorageConfigListener creates a new multi-cluster storage config listener
 func NewMultiClusterStorageConfigListener(ctx context.Context) *MultiClusterStorageConfigListener {
 	childCtx, cancel := context.WithCancel(ctx)
-
+	
 	// Get Grafana namespace from env or use default
 	grafanaNamespace := env.GetString("GRAFANA_NAMESPACE", clientsets.StorageConfigSecretNamespace)
-
+	
 	// Grafana instance selector labels - default to primus-lens for primus-lens namespace
 	grafanaInstanceLabelKey := env.GetString("GRAFANA_INSTANCE_LABEL_KEY", "system")
 	grafanaInstanceLabelValue := env.GetString("GRAFANA_INSTANCE_LABEL_VALUE", "primus-lens")
 	grafanaInstanceLabels := map[string]string{
 		grafanaInstanceLabelKey: grafanaInstanceLabelValue,
 	}
-
+	
 	listener := &MultiClusterStorageConfigListener{
 		ctx:              childCtx,
 		cancel:           cancel,
@@ -138,6 +138,7 @@ func parseNodeNames(nodeNamesStr string) []string {
 	}
 	return nodeNames
 }
+
 
 // SetExcludeNodes sets the nodes to exclude for a specific cluster
 // clusterName: the name of the cluster

@@ -23,7 +23,7 @@ func TestIntegration_CompleteReuseFlow(t *testing.T) {
 	// Setup
 	mockDB := new(MockAiWorkloadMetadataFacade)
 	config := coreModel.DefaultReuseConfig()
-
+	
 	// Create reuse engine
 	engine := NewReuseEngine(mockDB, config)
 	ctx := context.Background()
@@ -68,27 +68,27 @@ func TestIntegration_CompleteReuseFlow(t *testing.T) {
 	// Step 4: Verify results
 	require.NoError(t, err)
 	require.NotNil(t, detection)
-
+	
 	// Verify framework detection
 	assert.Equal(t, []string{"pytorch"}, detection.Frameworks)
 	assert.Equal(t, "training", detection.Type)
 	assert.Equal(t, coreModel.DetectionStatusReused, detection.Status)
-
+	
 	// Verify confidence decay
 	expectedConfidence := 0.95 * config.ConfidenceDecayRate
 	assert.InDelta(t, expectedConfidence, detection.Confidence, 0.001)
-
+	
 	// Verify reuse info
 	require.NotNil(t, detection.ReuseInfo)
 	assert.Equal(t, "historical-uid-1", detection.ReuseInfo.ReusedFrom)
 	assert.Equal(t, 0.95, detection.ReuseInfo.OriginalConfidence)
 	assert.Greater(t, detection.ReuseInfo.SimilarityScore, config.MinSimilarityScore)
-
+	
 	// Verify sources
 	require.Len(t, detection.Sources, 1)
 	assert.Equal(t, "reuse", detection.Sources[0].Source)
 	assert.Equal(t, []string{"pytorch"}, detection.Sources[0].Frameworks)
-
+	
 	mockDB.AssertExpectations(t)
 }
 
@@ -153,11 +153,11 @@ func TestIntegration_MultipleCandidatesSelection(t *testing.T) {
 
 	require.NoError(t, err)
 	require.NotNil(t, detection)
-
+	
 	// Should reuse from candidate1 (highest similarity match)
 	assert.Equal(t, "uid-1", detection.ReuseInfo.ReusedFrom)
 	assert.Greater(t, detection.ReuseInfo.SimilarityScore, 0.95) // Very high similarity
-
+	
 	mockDB.AssertExpectations(t)
 }
 
@@ -168,10 +168,10 @@ func TestIntegration_SignatureAndSimilarityPipeline(t *testing.T) {
 
 	// Create two workloads
 	workload1 := &Workload{
-		UID:     "wl-1",
-		Image:   "registry.example.com/pytorch:v1.9.0",
-		Command: []string{"/usr/bin/python3", "train.py"},
-		Args:    []string{"--epochs", "100", "--lr", "0.001"},
+		UID:       "wl-1",
+		Image:     "registry.example.com/pytorch:v1.9.0",
+		Command:   []string{"/usr/bin/python3", "train.py"},
+		Args:      []string{"--epochs", "100", "--lr", "0.001"},
 		Env: map[string]string{
 			"FRAMEWORK":    "PyTorch",
 			"WORLD_SIZE":   "8",
@@ -185,10 +185,10 @@ func TestIntegration_SignatureAndSimilarityPipeline(t *testing.T) {
 	}
 
 	workload2 := &Workload{
-		UID:     "wl-2",
-		Image:   "registry.example.com/pytorch:v1.9.1", // Different tag
-		Command: []string{"/opt/python", "train.py"},   // Different path, same command
-		Args:    []string{"--epochs", "100", "--lr", "0.001"},
+		UID:       "wl-2",
+		Image:     "registry.example.com/pytorch:v1.9.1", // Different tag
+		Command:   []string{"/opt/python", "train.py"},   // Different path, same command
+		Args:      []string{"--epochs", "100", "--lr", "0.001"},
 		Env: map[string]string{
 			"FRAMEWORK":  "PyTorch",
 			"WORLD_SIZE": "8",
@@ -220,16 +220,16 @@ func TestIntegration_SignatureAndSimilarityPipeline(t *testing.T) {
 
 	// Should be highly similar despite minor differences
 	assert.Greater(t, result.Score, 0.85)
-
+	
 	// Image should be similar (same repo, different tag)
 	assert.InDelta(t, 0.9, result.Details.ImageScore, 0.1)
-
+	
 	// Env should match (after filtering sensitive vars)
 	assert.Equal(t, 1.0, result.Details.EnvScore)
-
+	
 	// Args should match exactly
 	assert.Equal(t, 1.0, result.Details.ArgsScore)
-
+	
 	// Labels should match (after filtering dynamic labels)
 	assert.Equal(t, 1.0, result.Details.LabelScore)
 }
@@ -344,3 +344,4 @@ func createHistoricalWorkload(
 		CreatedAt:   time.Now().Add(-2 * time.Hour),
 	}
 }
+

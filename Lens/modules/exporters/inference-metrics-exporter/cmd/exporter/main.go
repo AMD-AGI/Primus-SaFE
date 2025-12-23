@@ -27,3 +27,4 @@ func main() {
 		log.Fatalf("Failed to bootstrap inference metrics exporter: %v", err)
 	}
 }
+

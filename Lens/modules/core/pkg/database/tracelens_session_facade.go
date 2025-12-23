@@ -275,3 +275,4 @@ func (f *TraceLensSessionFacade) WithCluster(clusterName string) TraceLensSessio
 		BaseFacade: f.withCluster(clusterName),
 	}
 }
+

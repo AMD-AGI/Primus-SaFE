@@ -125,3 +125,4 @@ func (t *ScrapeTask) GetScrapeTimeout() time.Duration {
 	}
 	return time.Duration(t.Ext.ScrapeTimeout) * time.Second
 }
+

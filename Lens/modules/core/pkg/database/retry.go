@@ -31,7 +31,7 @@ func isRetriableError(err error) bool {
 		return false
 	}
 	errMsg := err.Error()
-
+	
 	// Read-only transaction errors
 	readOnlyErrors := []string{
 		"cannot execute INSERT in a read-only transaction",
@@ -39,13 +39,13 @@ func isRetriableError(err error) bool {
 		"cannot execute DELETE in a read-only transaction",
 		"SQLSTATE 25006",
 	}
-
+	
 	for _, pattern := range readOnlyErrors {
 		if strings.Contains(errMsg, pattern) {
 			return true
 		}
 	}
-
+	
 	// Connection errors
 	connectionErrors := []string{
 		"connection refused",
@@ -54,22 +54,21 @@ func isRetriableError(err error) bool {
 		"no such host",
 		"i/o timeout",
 	}
-
+	
 	for _, pattern := range connectionErrors {
 		if strings.Contains(errMsg, pattern) {
 			return true
 		}
 	}
-
+	
 	return false
 }
 
 // WithRetry adds automatic retry functionality to database operations
 // Example usage:
-//
-//	err := database.WithRetry(ctx, func() error {
-//	    return facade.GetNode().UpdateNode(ctx, node)
-//	})
+//   err := database.WithRetry(ctx, func() error {
+//       return facade.GetNode().UpdateNode(ctx, node)
+//   })
 func WithRetry(ctx context.Context, fn func() error) error {
 	return WithRetryConfig(ctx, DefaultRetryConfig, fn)
 }
@@ -128,10 +127,9 @@ func WithRetryConfig(ctx context.Context, config RetryConfig, fn func() error) e
 
 // RetryableOperation wraps a function to make it retryable
 // Example usage:
-//
-//	facade := database.GetFacade().GetNode()
-//	retryableUpdate := database.RetryableOperation(facade.UpdateNode)
-//	err := retryableUpdate(ctx, node)
+//   facade := database.GetFacade().GetNode()
+//   retryableUpdate := database.RetryableOperation(facade.UpdateNode)
+//   err := retryableUpdate(ctx, node)
 func RetryableOperation[T any](fn func(context.Context, T) error) func(context.Context, T) error {
 	return func(ctx context.Context, arg T) error {
 		return WithRetry(ctx, func() error {
@@ -142,11 +140,10 @@ func RetryableOperation[T any](fn func(context.Context, T) error) func(context.C
 
 // WithRetryAsync executes an operation with retry asynchronously, returns a result channel
 // Example usage:
-//
-//	resultCh := database.WithRetryAsync(ctx, func() error {
-//	    return facade.GetNode().UpdateNode(ctx, node)
-//	})
-//	err := <-resultCh
+//   resultCh := database.WithRetryAsync(ctx, func() error {
+//       return facade.GetNode().UpdateNode(ctx, node)
+//   })
+//   err := <-resultCh
 func WithRetryAsync(ctx context.Context, fn func() error) <-chan error {
 	resultCh := make(chan error, 1)
 	go func() {
@@ -155,3 +152,4 @@ func WithRetryAsync(ctx context.Context, fn func() error) <-chan error {
 	}()
 	return resultCh
 }
+

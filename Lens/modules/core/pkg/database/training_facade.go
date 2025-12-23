@@ -124,12 +124,12 @@ func (f *TrainingFacade) ListTrainingPerformanceByWorkloadUID(ctx context.Contex
 func (f *TrainingFacade) ListTrainingPerformanceByWorkloadUIDAndDataSource(ctx context.Context, workloadUid string, dataSource string) ([]*model.TrainingPerformance, error) {
 	q := f.getDAL().TrainingPerformance
 	query := q.WithContext(ctx).Where(q.WorkloadUID.Eq(workloadUid))
-
+	
 	// Only filter by data_source if it's not empty
 	if dataSource != "" {
 		query = query.Where(q.DataSource.Eq(dataSource))
 	}
-
+	
 	result, err := query.Order(q.CreatedAt.Asc()).Find()
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -147,12 +147,12 @@ func (f *TrainingFacade) ListTrainingPerformanceByWorkloadUIDDataSourceAndTimeRa
 		Where(q.WorkloadUID.Eq(workloadUid)).
 		Where(q.CreatedAt.Gte(start)).
 		Where(q.CreatedAt.Lte(end))
-
+	
 	// Only filter by data_source if it's not empty
 	if dataSource != "" {
 		query = query.Where(q.DataSource.Eq(dataSource))
 	}
-
+	
 	result, err := query.Order(q.CreatedAt.Asc()).Find()
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {

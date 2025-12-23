@@ -42,10 +42,10 @@ func DefaultLifecycleConfig() *LifecycleConfig {
 	return &LifecycleConfig{
 		DefaultRetentionDays: 30,
 		RetentionByType: map[string]int{
-			"chrome_trace": 30,
-			"stack_trace":  60, // stack trace kept longer
-			"memory_dump":  7,  // memory dump kept shorter (large files)
-			"kineto":       30,
+			"chrome_trace":  30,
+			"stack_trace":   60, // stack trace kept longer
+			"memory_dump":   7,  // memory dump kept shorter (large files)
+			"kineto":        30,
 		},
 		StorageThreshold:   0.9, // 90%
 		SafeDelete:         true,
@@ -285,3 +285,4 @@ func (m *LifecycleManager) getTotalStorageSize(files []*ProfilerFileMetadata) in
 	}
 	return total
 }
+

@@ -205,11 +205,11 @@ func TestProfilerHandler_RegisterRoutes(t *testing.T) {
 	// Test that routes are registered
 	routes := router.Routes()
 	expectedRoutes := map[string]string{
-		"/api/v1/profiler/cleanup":              "POST",
+		"/api/v1/profiler/cleanup":           "POST",
 		"/api/v1/profiler/workloads/:uid/files": "GET",
-		"/api/v1/profiler/stats":                "GET",
-		"/api/v1/profiler/files/:id":            "GET",
-		"/api/v1/profiler/files/:id/download":   "GET",
+		"/api/v1/profiler/stats":             "GET",
+		"/api/v1/profiler/files/:id":         "GET",
+		"/api/v1/profiler/files/:id/download": "GET",
 	}
 
 	routeMap := make(map[string]string)
@@ -468,3 +468,4 @@ func BenchmarkProfilerHandler_QueryFiles(b *testing.B) {
 		router.ServeHTTP(w, req)
 	}
 }
+

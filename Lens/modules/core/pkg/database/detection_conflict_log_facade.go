@@ -74,59 +74,59 @@ func (f *DetectionConflictLogFacade) GetDetectionConflictLogByID(ctx context.Con
 // ListDetectionConflictLogsByWorkloadUID lists all conflict logs for a workload with pagination
 func (f *DetectionConflictLogFacade) ListDetectionConflictLogsByWorkloadUID(ctx context.Context, workloadUID string, limit int, offset int) ([]*model.DetectionConflictLog, int64, error) {
 	q := f.getDAL().DetectionConflictLog
-
+	
 	query := q.WithContext(ctx).Where(q.WorkloadUID.Eq(workloadUID)).Order(q.CreatedAt.Desc())
-
+	
 	// Get total count
 	count, err := query.Count()
 	if err != nil {
 		return nil, 0, err
 	}
-
+	
 	// Get paginated results
 	results, err := query.Limit(limit).Offset(offset).Find()
 	if err != nil {
 		return nil, 0, err
 	}
-
+	
 	return results, count, nil
 }
 
 // ListRecentConflicts lists recent conflicts across all workloads with pagination
 func (f *DetectionConflictLogFacade) ListRecentConflicts(ctx context.Context, limit int, offset int) ([]*model.DetectionConflictLog, int64, error) {
 	q := f.getDAL().DetectionConflictLog
-
+	
 	query := q.WithContext(ctx).Order(q.CreatedAt.Desc())
-
+	
 	// Get total count
 	count, err := query.Count()
 	if err != nil {
 		return nil, 0, err
 	}
-
+	
 	// Get paginated results
 	results, err := query.Limit(limit).Offset(offset).Find()
 	if err != nil {
 		return nil, 0, err
 	}
-
+	
 	return results, count, nil
 }
 
 // GetUnresolvedConflictsByWorkloadUID gets unresolved conflicts (where resolution_strategy is empty or null)
 func (f *DetectionConflictLogFacade) GetUnresolvedConflictsByWorkloadUID(ctx context.Context, workloadUID string) ([]*model.DetectionConflictLog, error) {
 	q := f.getDAL().DetectionConflictLog
-
+	
 	results, err := q.WithContext(ctx).
 		Where(q.WorkloadUID.Eq(workloadUID)).
 		Where(q.ResolutionStrategy.Eq("")).
 		Order(q.CreatedAt.Desc()).
 		Find()
-
+		
 	if err != nil {
 		return nil, err
 	}
-
+	
 	return results, nil
 }
 
@@ -134,3 +134,4 @@ func (f *DetectionConflictLogFacade) GetUnresolvedConflictsByWorkloadUID(ctx con
 func (f *DetectionConflictLogFacade) UpdateDetectionConflictLog(ctx context.Context, log *model.DetectionConflictLog) error {
 	return f.getDAL().DetectionConflictLog.WithContext(ctx).Save(log)
 }
+

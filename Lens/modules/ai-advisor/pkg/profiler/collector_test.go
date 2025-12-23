@@ -30,9 +30,9 @@ func TestCollector_ShouldCollectFile(t *testing.T) {
 		AutoCollect: true,
 		Interval:    300,
 		Filter: &FilterConfig{
-			MinConfidence:    "medium",
-			MaxFileSize:      100 * 1024 * 1024, // 100MB
-			AllowedTypes:     []string{"chrome_trace", "pytorch_trace", "stack_trace"},
+			MinConfidence:  "medium",
+			MaxFileSize:    100 * 1024 * 1024, // 100MB
+			AllowedTypes:   []string{"chrome_trace", "pytorch_trace", "stack_trace"},
 			RequireFramework: true,
 		},
 	}
@@ -41,10 +41,10 @@ func TestCollector_ShouldCollectFile(t *testing.T) {
 	collector, _ := NewCollector(config, backend, "http://node-exporter:8080")
 
 	tests := []struct {
-		name      string
-		framework string
-		file      *ProfilerFileInfo
-		expected  bool
+		name       string
+		framework  string
+		file       *ProfilerFileInfo
+		expected   bool
 	}{
 		{
 			name:      "High confidence file - always collect",
@@ -183,9 +183,9 @@ func TestCollector_GetSkipReason(t *testing.T) {
 	config := &CollectorConfig{
 		AutoCollect: true,
 		Filter: &FilterConfig{
-			MinConfidence:    "medium",
-			MaxFileSize:      100 * 1024 * 1024,
-			AllowedTypes:     []string{"chrome_trace"},
+			MinConfidence:  "medium",
+			MaxFileSize:    100 * 1024 * 1024,
+			AllowedTypes:   []string{"chrome_trace"},
 			RequireFramework: true,
 		},
 	}
@@ -194,10 +194,10 @@ func TestCollector_GetSkipReason(t *testing.T) {
 	collector, _ := NewCollector(config, backend, "http://node-exporter:8080")
 
 	tests := []struct {
-		name      string
-		framework string
-		file      *ProfilerFileInfo
-		contains  string
+		name       string
+		framework  string
+		file       *ProfilerFileInfo
+		contains   string
 	}{
 		{
 			name:      "Low confidence",
@@ -360,9 +360,9 @@ func TestCollectorConfig_Validation(t *testing.T) {
 				AutoCollect: true,
 				Interval:    300,
 				Filter: &FilterConfig{
-					MinConfidence:    "medium",
-					MaxFileSize:      100 * 1024 * 1024,
-					AllowedTypes:     []string{"chrome_trace"},
+					MinConfidence:  "medium",
+					MaxFileSize:    100 * 1024 * 1024,
+					AllowedTypes:   []string{"chrome_trace"},
 					RequireFramework: true,
 				},
 			},
@@ -411,3 +411,4 @@ func (m *mockBackend) GenerateDownloadURL(ctx context.Context, fileID string, ex
 func (m *mockBackend) GetStorageType() string {
 	return "mock"
 }
+

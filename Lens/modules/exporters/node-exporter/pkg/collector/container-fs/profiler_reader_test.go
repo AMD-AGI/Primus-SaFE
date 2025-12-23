@@ -129,28 +129,28 @@ func TestProfilerReader_ChunkCalculation(t *testing.T) {
 	reader.SetChunkSize(chunkSize)
 
 	tests := []struct {
-		name           string
-		fileSize       int64
+		name          string
+		fileSize      int64
 		expectedChunks int
 	}{
 		{
-			name:           "Small file (1MB)",
-			fileSize:       1 * 1024 * 1024,
+			name:          "Small file (1MB)",
+			fileSize:      1 * 1024 * 1024,
 			expectedChunks: 1,
 		},
 		{
-			name:           "Exact chunk size (10MB)",
-			fileSize:       10 * 1024 * 1024,
+			name:          "Exact chunk size (10MB)",
+			fileSize:      10 * 1024 * 1024,
 			expectedChunks: 1,
 		},
 		{
-			name:           "Multiple chunks (25MB)",
-			fileSize:       25 * 1024 * 1024,
+			name:          "Multiple chunks (25MB)",
+			fileSize:      25 * 1024 * 1024,
 			expectedChunks: 3,
 		},
 		{
-			name:           "Large file (100MB)",
-			fileSize:       100 * 1024 * 1024,
+			name:          "Large file (100MB)",
+			fileSize:      100 * 1024 * 1024,
 			expectedChunks: 10,
 		},
 	}
@@ -289,7 +289,7 @@ func TestChunkInfo_Calculation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			offset := int64(tt.chunkIndex) * chunkSize
-			isLastChunk := (offset+chunkSize >= tt.fileSize)
+			isLastChunk := (offset + chunkSize >= tt.fileSize)
 
 			assert.Equal(t, tt.expectedOffset, offset)
 			assert.Equal(t, tt.expectedIsLast, isLastChunk)
@@ -366,9 +366,9 @@ func TestProfilerReader_SetMaxUncompressedSize(t *testing.T) {
 
 func TestProfilerReadRequest_AllScenarios(t *testing.T) {
 	tests := []struct {
-		name  string
-		req   *ProfilerReadRequest
-		valid bool
+		name    string
+		req     *ProfilerReadRequest
+		valid   bool
 	}{
 		{
 			name: "Valid with PID",
@@ -513,7 +513,7 @@ func TestChunkInfo_EdgeCases(t *testing.T) {
 			assert.Greater(t, tt.chunkInfo.TotalChunks, 0)
 			assert.LessOrEqual(t, tt.chunkInfo.ChunkIndex, tt.chunkInfo.TotalChunks-1)
 			assert.GreaterOrEqual(t, tt.chunkInfo.Offset, int64(0))
-
+			
 			if tt.chunkInfo.ChunkIndex == tt.chunkInfo.TotalChunks-1 {
 				assert.True(t, tt.chunkInfo.IsLastChunk, "Last chunk should be marked as last")
 			}
@@ -575,11 +575,11 @@ func TestProfilerReader_ChunkSizeBoundaries(t *testing.T) {
 		name      string
 		chunkSize int64
 	}{
-		{"Very small chunk", 1024},              // 1KB
-		{"Small chunk", 1 * 1024 * 1024},        // 1MB
-		{"Default chunk", 10 * 1024 * 1024},     // 10MB
-		{"Large chunk", 50 * 1024 * 1024},       // 50MB
-		{"Very large chunk", 100 * 1024 * 1024}, // 100MB
+		{"Very small chunk", 1024},                  // 1KB
+		{"Small chunk", 1 * 1024 * 1024},           // 1MB
+		{"Default chunk", 10 * 1024 * 1024},        // 10MB
+		{"Large chunk", 50 * 1024 * 1024},          // 50MB
+		{"Very large chunk", 100 * 1024 * 1024},    // 100MB
 	}
 
 	for _, tt := range tests {
@@ -597,10 +597,10 @@ func TestProfilerReader_MaxUncompressedSizeBoundaries(t *testing.T) {
 		name    string
 		maxSize int64
 	}{
-		{"Small limit", 10 * 1024 * 1024},            // 10MB
-		{"Medium limit", 100 * 1024 * 1024},          // 100MB
-		{"Default limit", 500 * 1024 * 1024},         // 500MB
-		{"Large limit", 1024 * 1024 * 1024},          // 1GB
+		{"Small limit", 10 * 1024 * 1024},          // 10MB
+		{"Medium limit", 100 * 1024 * 1024},        // 100MB
+		{"Default limit", 500 * 1024 * 1024},       // 500MB
+		{"Large limit", 1024 * 1024 * 1024},        // 1GB
 		{"Very large limit", 5 * 1024 * 1024 * 1024}, // 5GB
 	}
 
@@ -615,9 +615,9 @@ func TestProfilerReader_MaxUncompressedSizeBoundaries(t *testing.T) {
 func TestGzipCompressionRatio(t *testing.T) {
 	// Test compression ratio for different content types
 	tests := []struct {
-		name          string
-		content       []byte
-		expectedRatio float64 // Maximum ratio (compressed/original)
+		name               string
+		content            []byte
+		expectedRatio      float64 // Maximum ratio (compressed/original)
 	}{
 		{
 			name:          "Highly compressible (zeros)",
@@ -707,3 +707,4 @@ func BenchmarkProfilerReader_ChunkCalculation(b *testing.B) {
 		_ = int((fileSize + chunkSize - 1) / chunkSize)
 	}
 }
+

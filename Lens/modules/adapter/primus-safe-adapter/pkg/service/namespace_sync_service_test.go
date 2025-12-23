@@ -26,51 +26,39 @@ import (
 
 // MockFacade implements database.FacadeInterface for testing
 type MockFacade struct {
-	nodeFacade                 database.NodeFacadeInterface
-	namespaceInfoFacade        database.NamespaceInfoFacadeInterface
-	nodeNamespaceMappingFacade database.NodeNamespaceMappingFacadeInterface
+	nodeFacade                  database.NodeFacadeInterface
+	namespaceInfoFacade         database.NamespaceInfoFacadeInterface
+	nodeNamespaceMappingFacade  database.NodeNamespaceMappingFacadeInterface
 }
 
-func (m *MockFacade) GetNode() database.NodeFacadeInterface { return m.nodeFacade }
-func (m *MockFacade) GetNamespaceInfo() database.NamespaceInfoFacadeInterface {
-	return m.namespaceInfoFacade
-}
-func (m *MockFacade) GetNodeNamespaceMapping() database.NodeNamespaceMappingFacadeInterface {
-	return m.nodeNamespaceMappingFacade
-}
-func (m *MockFacade) GetWorkload() database.WorkloadFacadeInterface               { return nil }
-func (m *MockFacade) GetPod() database.PodFacadeInterface                         { return nil }
-func (m *MockFacade) GetContainer() database.ContainerFacadeInterface             { return nil }
-func (m *MockFacade) GetTraining() database.TrainingFacadeInterface               { return nil }
-func (m *MockFacade) GetStorage() database.StorageFacadeInterface                 { return nil }
-func (m *MockFacade) GetAlert() database.AlertFacadeInterface                     { return nil }
-func (m *MockFacade) GetMetricAlertRule() database.MetricAlertRuleFacadeInterface { return nil }
-func (m *MockFacade) GetLogAlertRule() database.LogAlertRuleFacadeInterface       { return nil }
-func (m *MockFacade) GetAlertRuleAdvice() database.AlertRuleAdviceFacadeInterface { return nil }
-func (m *MockFacade) GetClusterOverviewCache() database.ClusterOverviewCacheFacadeInterface {
-	return nil
-}
-func (m *MockFacade) GetGenericCache() database.GenericCacheFacadeInterface               { return nil }
-func (m *MockFacade) GetGpuAggregation() database.GpuAggregationFacadeInterface           { return nil }
-func (m *MockFacade) GetSystemConfig() database.SystemConfigFacadeInterface               { return nil }
+func (m *MockFacade) GetNode() database.NodeFacadeInterface                           { return m.nodeFacade }
+func (m *MockFacade) GetNamespaceInfo() database.NamespaceInfoFacadeInterface         { return m.namespaceInfoFacade }
+func (m *MockFacade) GetNodeNamespaceMapping() database.NodeNamespaceMappingFacadeInterface { return m.nodeNamespaceMappingFacade }
+func (m *MockFacade) GetWorkload() database.WorkloadFacadeInterface                   { return nil }
+func (m *MockFacade) GetPod() database.PodFacadeInterface                             { return nil }
+func (m *MockFacade) GetContainer() database.ContainerFacadeInterface                 { return nil }
+func (m *MockFacade) GetTraining() database.TrainingFacadeInterface                   { return nil }
+func (m *MockFacade) GetStorage() database.StorageFacadeInterface                     { return nil }
+func (m *MockFacade) GetAlert() database.AlertFacadeInterface                         { return nil }
+func (m *MockFacade) GetMetricAlertRule() database.MetricAlertRuleFacadeInterface     { return nil }
+func (m *MockFacade) GetLogAlertRule() database.LogAlertRuleFacadeInterface           { return nil }
+func (m *MockFacade) GetAlertRuleAdvice() database.AlertRuleAdviceFacadeInterface     { return nil }
+func (m *MockFacade) GetClusterOverviewCache() database.ClusterOverviewCacheFacadeInterface { return nil }
+func (m *MockFacade) GetGenericCache() database.GenericCacheFacadeInterface           { return nil }
+func (m *MockFacade) GetGpuAggregation() database.GpuAggregationFacadeInterface       { return nil }
+func (m *MockFacade) GetSystemConfig() database.SystemConfigFacadeInterface           { return nil }
 func (m *MockFacade) GetJobExecutionHistory() database.JobExecutionHistoryFacadeInterface { return nil }
-func (m *MockFacade) GetWorkloadStatistic() database.WorkloadStatisticFacadeInterface     { return nil }
-func (m *MockFacade) GetAiWorkloadMetadata() database.AiWorkloadMetadataFacadeInterface   { return nil }
-func (m *MockFacade) GetCheckpointEvent() database.CheckpointEventFacadeInterface         { return nil }
-func (m *MockFacade) GetDetectionConflictLog() database.DetectionConflictLogFacadeInterface {
-	return nil
-}
-func (m *MockFacade) GetGpuUsageWeeklyReport() database.GpuUsageWeeklyReportFacadeInterface {
-	return nil
-}
-func (m *MockFacade) GetTraceLensSession() database.TraceLensSessionFacadeInterface   { return nil }
-func (m *MockFacade) GetK8sService() database.K8sServiceFacadeInterface               { return nil }
-func (m *MockFacade) GetWorkloadDetection() database.WorkloadDetectionFacadeInterface { return nil }
-func (m *MockFacade) GetWorkloadDetectionEvidence() database.WorkloadDetectionEvidenceFacadeInterface {
-	return nil
-}
-func (m *MockFacade) GetDetectionCoverage() database.DetectionCoverageFacadeInterface { return nil }
-func (m *MockFacade) WithCluster(clusterName string) database.FacadeInterface         { return m }
+func (m *MockFacade) GetWorkloadStatistic() database.WorkloadStatisticFacadeInterface { return nil }
+func (m *MockFacade) GetAiWorkloadMetadata() database.AiWorkloadMetadataFacadeInterface { return nil }
+func (m *MockFacade) GetCheckpointEvent() database.CheckpointEventFacadeInterface     { return nil }
+func (m *MockFacade) GetDetectionConflictLog() database.DetectionConflictLogFacadeInterface { return nil }
+func (m *MockFacade) GetGpuUsageWeeklyReport() database.GpuUsageWeeklyReportFacadeInterface { return nil }
+func (m *MockFacade) GetTraceLensSession() database.TraceLensSessionFacadeInterface        { return nil }
+func (m *MockFacade) GetK8sService() database.K8sServiceFacadeInterface                    { return nil }
+func (m *MockFacade) GetWorkloadDetection() database.WorkloadDetectionFacadeInterface      { return nil }
+func (m *MockFacade) GetWorkloadDetectionEvidence() database.WorkloadDetectionEvidenceFacadeInterface { return nil }
+func (m *MockFacade) GetDetectionCoverage() database.DetectionCoverageFacadeInterface      { return nil }
+func (m *MockFacade) WithCluster(clusterName string) database.FacadeInterface              { return m }
 
 // MockNamespaceInfoFacade implements database.NamespaceInfoFacadeInterface
 type MockNamespaceInfoFacade struct {
@@ -118,15 +106,9 @@ func (m *MockNamespaceInfoFacade) GetByName(ctx context.Context, name string) (*
 	}
 	return nil, nil
 }
-func (m *MockNamespaceInfoFacade) WithCluster(clusterName string) database.NamespaceInfoFacadeInterface {
-	return m
-}
-func (m *MockNamespaceInfoFacade) GetByNameIncludingDeleted(ctx context.Context, name string) (*model.NamespaceInfo, error) {
-	return nil, nil
-}
-func (m *MockNamespaceInfoFacade) List(ctx context.Context) ([]*model.NamespaceInfo, error) {
-	return nil, nil
-}
+func (m *MockNamespaceInfoFacade) WithCluster(clusterName string) database.NamespaceInfoFacadeInterface { return m }
+func (m *MockNamespaceInfoFacade) GetByNameIncludingDeleted(ctx context.Context, name string) (*model.NamespaceInfo, error) { return nil, nil }
+func (m *MockNamespaceInfoFacade) List(ctx context.Context) ([]*model.NamespaceInfo, error) { return nil, nil }
 
 // MockNodeFacade implements database.NodeFacadeInterface
 type MockNodeFacade struct {
@@ -140,47 +122,29 @@ func (m *MockNodeFacade) SearchNode(ctx context.Context, f filter.NodeFilter) ([
 	return nil, 0, nil
 }
 func (m *MockNodeFacade) WithCluster(clusterName string) database.NodeFacadeInterface { return m }
-func (m *MockNodeFacade) GetNodeByName(ctx context.Context, name string) (*model.Node, error) {
-	return nil, nil
-}
-func (m *MockNodeFacade) CreateNode(ctx context.Context, node *model.Node) error  { return nil }
-func (m *MockNodeFacade) UpdateNode(ctx context.Context, node *model.Node) error  { return nil }
+func (m *MockNodeFacade) GetNodeByName(ctx context.Context, name string) (*model.Node, error) { return nil, nil }
+func (m *MockNodeFacade) CreateNode(ctx context.Context, node *model.Node) error { return nil }
+func (m *MockNodeFacade) UpdateNode(ctx context.Context, node *model.Node) error { return nil }
 func (m *MockNodeFacade) ListGpuNodes(ctx context.Context) ([]*model.Node, error) { return nil, nil }
-func (m *MockNodeFacade) GetGpuDeviceByNodeAndGpuId(ctx context.Context, nodeId int32, gpuId int) (*model.GpuDevice, error) {
-	return nil, nil
-}
-func (m *MockNodeFacade) CreateGpuDevice(ctx context.Context, device *model.GpuDevice) error {
-	return nil
-}
-func (m *MockNodeFacade) UpdateGpuDevice(ctx context.Context, device *model.GpuDevice) error {
-	return nil
-}
-func (m *MockNodeFacade) ListGpuDeviceByNodeId(ctx context.Context, nodeId int32) ([]*model.GpuDevice, error) {
-	return nil, nil
-}
+func (m *MockNodeFacade) GetGpuDeviceByNodeAndGpuId(ctx context.Context, nodeId int32, gpuId int) (*model.GpuDevice, error) { return nil, nil }
+func (m *MockNodeFacade) CreateGpuDevice(ctx context.Context, device *model.GpuDevice) error { return nil }
+func (m *MockNodeFacade) UpdateGpuDevice(ctx context.Context, device *model.GpuDevice) error { return nil }
+func (m *MockNodeFacade) ListGpuDeviceByNodeId(ctx context.Context, nodeId int32) ([]*model.GpuDevice, error) { return nil, nil }
 func (m *MockNodeFacade) DeleteGpuDeviceById(ctx context.Context, id int32) error { return nil }
-func (m *MockNodeFacade) GetRdmaDeviceByNodeIdAndPort(ctx context.Context, nodeGuid string, port int) (*model.RdmaDevice, error) {
-	return nil, nil
-}
-func (m *MockNodeFacade) CreateRdmaDevice(ctx context.Context, rdmaDevice *model.RdmaDevice) error {
-	return nil
-}
-func (m *MockNodeFacade) ListRdmaDeviceByNodeId(ctx context.Context, nodeId int32) ([]*model.RdmaDevice, error) {
-	return nil, nil
-}
+func (m *MockNodeFacade) GetRdmaDeviceByNodeIdAndPort(ctx context.Context, nodeGuid string, port int) (*model.RdmaDevice, error) { return nil, nil }
+func (m *MockNodeFacade) CreateRdmaDevice(ctx context.Context, rdmaDevice *model.RdmaDevice) error { return nil }
+func (m *MockNodeFacade) ListRdmaDeviceByNodeId(ctx context.Context, nodeId int32) ([]*model.RdmaDevice, error) { return nil, nil }
 func (m *MockNodeFacade) DeleteRdmaDeviceById(ctx context.Context, id int32) error { return nil }
-func (m *MockNodeFacade) CreateNodeDeviceChangelog(ctx context.Context, changelog *model.NodeDeviceChangelog) error {
-	return nil
-}
+func (m *MockNodeFacade) CreateNodeDeviceChangelog(ctx context.Context, changelog *model.NodeDeviceChangelog) error { return nil }
 
 // MockNodeNamespaceMappingFacade implements database.NodeNamespaceMappingFacadeInterface
 type MockNodeNamespaceMappingFacade struct {
-	ListActiveByNamespaceNameFunc          func(ctx context.Context, namespaceName string) ([]*model.NodeNamespaceMapping, error)
-	CreateFunc                             func(ctx context.Context, mapping *model.NodeNamespaceMapping) error
-	SoftDeleteFunc                         func(ctx context.Context, id int32) error
+	ListActiveByNamespaceNameFunc         func(ctx context.Context, namespaceName string) ([]*model.NodeNamespaceMapping, error)
+	CreateFunc                            func(ctx context.Context, mapping *model.NodeNamespaceMapping) error
+	SoftDeleteFunc                        func(ctx context.Context, id int32) error
 	GetLatestHistoryByNodeAndNamespaceFunc func(ctx context.Context, nodeID int32, namespaceID int64) (*model.NodeNamespaceMappingHistory, error)
-	UpdateHistoryRecordEndFunc             func(ctx context.Context, historyID int32, recordEnd time.Time) error
-	CreateHistoryFunc                      func(ctx context.Context, history *model.NodeNamespaceMappingHistory) error
+	UpdateHistoryRecordEndFunc            func(ctx context.Context, historyID int32, recordEnd time.Time) error
+	CreateHistoryFunc                     func(ctx context.Context, history *model.NodeNamespaceMappingHistory) error
 }
 
 func (m *MockNodeNamespaceMappingFacade) ListActiveByNamespaceName(ctx context.Context, namespaceName string) ([]*model.NodeNamespaceMapping, error) {
@@ -219,31 +183,15 @@ func (m *MockNodeNamespaceMappingFacade) CreateHistory(ctx context.Context, hist
 	}
 	return nil
 }
-func (m *MockNodeNamespaceMappingFacade) WithCluster(clusterName string) database.NodeNamespaceMappingFacadeInterface {
-	return m
-}
-func (m *MockNodeNamespaceMappingFacade) Update(ctx context.Context, mapping *model.NodeNamespaceMapping) error {
-	return nil
-}
+func (m *MockNodeNamespaceMappingFacade) WithCluster(clusterName string) database.NodeNamespaceMappingFacadeInterface { return m }
+func (m *MockNodeNamespaceMappingFacade) Update(ctx context.Context, mapping *model.NodeNamespaceMapping) error { return nil }
 func (m *MockNodeNamespaceMappingFacade) Delete(ctx context.Context, id int32) error { return nil }
-func (m *MockNodeNamespaceMappingFacade) GetByNodeAndNamespace(ctx context.Context, nodeID int32, namespaceID int64) (*model.NodeNamespaceMapping, error) {
-	return nil, nil
-}
-func (m *MockNodeNamespaceMappingFacade) GetByNodeName(ctx context.Context, nodeName string) ([]*model.NodeNamespaceMapping, error) {
-	return nil, nil
-}
-func (m *MockNodeNamespaceMappingFacade) GetByNamespaceName(ctx context.Context, namespaceName string) ([]*model.NodeNamespaceMapping, error) {
-	return nil, nil
-}
-func (m *MockNodeNamespaceMappingFacade) ListActiveByNamespaceID(ctx context.Context, namespaceID int64) ([]*model.NodeNamespaceMapping, error) {
-	return nil, nil
-}
-func (m *MockNodeNamespaceMappingFacade) ListHistoryByNamespaceAtTime(ctx context.Context, namespaceID int64, atTime time.Time) ([]*model.NodeNamespaceMappingHistory, error) {
-	return nil, nil
-}
-func (m *MockNodeNamespaceMappingFacade) ListHistoryByNamespaceNameAtTime(ctx context.Context, namespaceName string, atTime time.Time) ([]*model.NodeNamespaceMappingHistory, error) {
-	return nil, nil
-}
+func (m *MockNodeNamespaceMappingFacade) GetByNodeAndNamespace(ctx context.Context, nodeID int32, namespaceID int64) (*model.NodeNamespaceMapping, error) { return nil, nil }
+func (m *MockNodeNamespaceMappingFacade) GetByNodeName(ctx context.Context, nodeName string) ([]*model.NodeNamespaceMapping, error) { return nil, nil }
+func (m *MockNodeNamespaceMappingFacade) GetByNamespaceName(ctx context.Context, namespaceName string) ([]*model.NodeNamespaceMapping, error) { return nil, nil }
+func (m *MockNodeNamespaceMappingFacade) ListActiveByNamespaceID(ctx context.Context, namespaceID int64) ([]*model.NodeNamespaceMapping, error) { return nil, nil }
+func (m *MockNodeNamespaceMappingFacade) ListHistoryByNamespaceAtTime(ctx context.Context, namespaceID int64, atTime time.Time) ([]*model.NodeNamespaceMappingHistory, error) { return nil, nil }
+func (m *MockNodeNamespaceMappingFacade) ListHistoryByNamespaceNameAtTime(ctx context.Context, namespaceName string, atTime time.Time) ([]*model.NodeNamespaceMappingHistory, error) { return nil, nil }
 
 // MockWorkspaceLister implements WorkspaceLister
 type MockWorkspaceLister struct {
@@ -562,8 +510,8 @@ func TestNamespaceSyncService_Run_UpdateExistingNamespaceInfo(t *testing.T) {
 	}
 
 	mockFacade := &MockFacade{
-		namespaceInfoFacade:        mockNamespaceInfoFacade,
-		nodeFacade:                 mockNodeFacade,
+		namespaceInfoFacade: mockNamespaceInfoFacade,
+		nodeFacade:          mockNodeFacade,
 		nodeNamespaceMappingFacade: &MockNodeNamespaceMappingFacade{},
 	}
 
@@ -617,8 +565,8 @@ func TestNamespaceSyncService_Run_RecoverDeletedNamespaceInfo(t *testing.T) {
 	}
 
 	mockFacade := &MockFacade{
-		namespaceInfoFacade:        mockNamespaceInfoFacade,
-		nodeFacade:                 mockNodeFacade,
+		namespaceInfoFacade: mockNamespaceInfoFacade,
+		nodeFacade:          mockNodeFacade,
 		nodeNamespaceMappingFacade: &MockNodeNamespaceMappingFacade{},
 	}
 
@@ -669,8 +617,8 @@ func TestNamespaceSyncService_Run_SoftDeleteOrphanedNamespaceInfo(t *testing.T) 
 	}
 
 	mockFacade := &MockFacade{
-		namespaceInfoFacade:        mockNamespaceInfoFacade,
-		nodeFacade:                 mockNodeFacade,
+		namespaceInfoFacade: mockNamespaceInfoFacade,
+		nodeFacade:          mockNodeFacade,
 		nodeNamespaceMappingFacade: &MockNodeNamespaceMappingFacade{},
 	}
 
@@ -717,8 +665,8 @@ func TestNamespaceSyncService_Run_SkipWorkspaceWithNoGpu(t *testing.T) {
 	}
 
 	mockFacade := &MockFacade{
-		namespaceInfoFacade:        mockNamespaceInfoFacade,
-		nodeFacade:                 mockNodeFacade,
+		namespaceInfoFacade: mockNamespaceInfoFacade,
+		nodeFacade:          mockNodeFacade,
 		nodeNamespaceMappingFacade: &MockNodeNamespaceMappingFacade{},
 	}
 
@@ -970,3 +918,4 @@ func TestWithNamespaceSyncWorkspaceLister(t *testing.T) {
 
 	assert.Equal(t, mockLister, svc.workspaceLister)
 }
+

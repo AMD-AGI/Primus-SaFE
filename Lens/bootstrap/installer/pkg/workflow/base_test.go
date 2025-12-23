@@ -12,13 +12,13 @@ import (
 
 // mockStage is a mock implementation of Stage for testing
 type mockStage struct {
-	name           string
-	runErr         error
-	verifyState    State
-	verifyErr      error
-	rollbackErr    error
-	runCalled      bool
-	verifyCalled   bool
+	name         string
+	runErr       error
+	verifyState  State
+	verifyErr    error
+	rollbackErr  error
+	runCalled    bool
+	verifyCalled bool
 	rollbackCalled bool
 }
 
@@ -249,3 +249,4 @@ func TestBaseWorkflowStatusWithPending(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, StatePending, status.OverallState)
 }
+

@@ -18,66 +18,66 @@ import (
 
 // DetectionStatusResponse represents the full detection status for a workload
 type DetectionStatusResponse struct {
-	WorkloadUID      string                  `json:"workload_uid"`
-	Status           string                  `json:"status"`                      // Detection status: unknown, suspected, confirmed, verified, conflict
-	DetectionState   string                  `json:"detection_state"`             // Active detection state: pending, in_progress, completed, failed
-	Framework        string                  `json:"framework,omitempty"`         // Primary detected framework
-	Frameworks       []string                `json:"frameworks,omitempty"`        // All detected frameworks
-	WorkloadType     string                  `json:"workload_type,omitempty"`     // training or inference
-	Confidence       float64                 `json:"confidence"`                  // Aggregated confidence [0-1]
-	FrameworkLayer   string                  `json:"framework_layer,omitempty"`   // wrapper or base
-	WrapperFramework string                  `json:"wrapper_framework,omitempty"` // Wrapper framework name
-	BaseFramework    string                  `json:"base_framework,omitempty"`    // Base framework name
-	EvidenceCount    int32                   `json:"evidence_count"`              // Total evidence records
-	EvidenceSources  []string                `json:"evidence_sources"`            // Sources that contributed evidence
-	AttemptCount     int32                   `json:"attempt_count"`               // Detection attempts made
-	MaxAttempts      int32                   `json:"max_attempts"`                // Max detection attempts
-	LastAttemptAt    *time.Time              `json:"last_attempt_at,omitempty"`   // Last detection attempt time
-	NextAttemptAt    *time.Time              `json:"next_attempt_at,omitempty"`   // Next scheduled attempt time
-	ConfirmedAt      *time.Time              `json:"confirmed_at,omitempty"`      // When detection was confirmed
-	CreatedAt        time.Time               `json:"created_at"`                  // Detection record creation time
-	UpdatedAt        time.Time               `json:"updated_at"`                  // Last update time
-	Coverage         []DetectionCoverageItem `json:"coverage"`                    // Coverage status for each source
-	Tasks            []DetectionTaskItem     `json:"tasks"`                       // Related detection tasks
-	HasConflicts     bool                    `json:"has_conflicts"`               // Whether conflicts exist
-	Conflicts        []interface{}           `json:"conflicts,omitempty"`         // Conflict details if any
+	WorkloadUID      string                    `json:"workload_uid"`
+	Status           string                    `json:"status"`                      // Detection status: unknown, suspected, confirmed, verified, conflict
+	DetectionState   string                    `json:"detection_state"`             // Active detection state: pending, in_progress, completed, failed
+	Framework        string                    `json:"framework,omitempty"`         // Primary detected framework
+	Frameworks       []string                  `json:"frameworks,omitempty"`        // All detected frameworks
+	WorkloadType     string                    `json:"workload_type,omitempty"`     // training or inference
+	Confidence       float64                   `json:"confidence"`                  // Aggregated confidence [0-1]
+	FrameworkLayer   string                    `json:"framework_layer,omitempty"`   // wrapper or base
+	WrapperFramework string                    `json:"wrapper_framework,omitempty"` // Wrapper framework name
+	BaseFramework    string                    `json:"base_framework,omitempty"`    // Base framework name
+	EvidenceCount    int32                     `json:"evidence_count"`              // Total evidence records
+	EvidenceSources  []string                  `json:"evidence_sources"`            // Sources that contributed evidence
+	AttemptCount     int32                     `json:"attempt_count"`               // Detection attempts made
+	MaxAttempts      int32                     `json:"max_attempts"`                // Max detection attempts
+	LastAttemptAt    *time.Time                `json:"last_attempt_at,omitempty"`   // Last detection attempt time
+	NextAttemptAt    *time.Time                `json:"next_attempt_at,omitempty"`   // Next scheduled attempt time
+	ConfirmedAt      *time.Time                `json:"confirmed_at,omitempty"`      // When detection was confirmed
+	CreatedAt        time.Time                 `json:"created_at"`                  // Detection record creation time
+	UpdatedAt        time.Time                 `json:"updated_at"`                  // Last update time
+	Coverage         []DetectionCoverageItem   `json:"coverage"`                    // Coverage status for each source
+	Tasks            []DetectionTaskItem       `json:"tasks"`                       // Related detection tasks
+	HasConflicts     bool                      `json:"has_conflicts"`               // Whether conflicts exist
+	Conflicts        []interface{}             `json:"conflicts,omitempty"`         // Conflict details if any
 }
 
 // DetectionCoverageItem represents coverage status for a single source
 type DetectionCoverageItem struct {
-	Source           string     `json:"source"`                       // process, log, image, label, wandb, import
-	Status           string     `json:"status"`                       // pending, collecting, collected, failed, not_applicable
-	AttemptCount     int32      `json:"attempt_count"`                // Collection attempts
-	LastAttemptAt    *time.Time `json:"last_attempt_at,omitempty"`    // Last collection attempt
-	LastSuccessAt    *time.Time `json:"last_success_at,omitempty"`    // Last successful collection
-	LastError        string     `json:"last_error,omitempty"`         // Last error if any
-	EvidenceCount    int32      `json:"evidence_count"`               // Evidence records from this source
-	CoveredFrom      *time.Time `json:"covered_from,omitempty"`       // Log scan start time (log source only)
-	CoveredTo        *time.Time `json:"covered_to,omitempty"`         // Log scan end time (log source only)
-	LogAvailableFrom *time.Time `json:"log_available_from,omitempty"` // Earliest available log time
-	LogAvailableTo   *time.Time `json:"log_available_to,omitempty"`   // Latest available log time
-	HasGap           bool       `json:"has_gap,omitempty"`            // Whether there's uncovered log window
+	Source           string     `json:"source"`                        // process, log, image, label, wandb, import
+	Status           string     `json:"status"`                        // pending, collecting, collected, failed, not_applicable
+	AttemptCount     int32      `json:"attempt_count"`                 // Collection attempts
+	LastAttemptAt    *time.Time `json:"last_attempt_at,omitempty"`     // Last collection attempt
+	LastSuccessAt    *time.Time `json:"last_success_at,omitempty"`     // Last successful collection
+	LastError        string     `json:"last_error,omitempty"`          // Last error if any
+	EvidenceCount    int32      `json:"evidence_count"`                // Evidence records from this source
+	CoveredFrom      *time.Time `json:"covered_from,omitempty"`        // Log scan start time (log source only)
+	CoveredTo        *time.Time `json:"covered_to,omitempty"`          // Log scan end time (log source only)
+	LogAvailableFrom *time.Time `json:"log_available_from,omitempty"`  // Earliest available log time
+	LogAvailableTo   *time.Time `json:"log_available_to,omitempty"`    // Latest available log time
+	HasGap           bool       `json:"has_gap,omitempty"`             // Whether there's uncovered log window
 }
 
 // DetectionTaskItem represents a detection-related task
 type DetectionTaskItem struct {
-	TaskType         string                 `json:"task_type"`                   // Task type
-	Status           string                 `json:"status"`                      // Task status
-	LockOwner        string                 `json:"lock_owner,omitempty"`        // Current lock owner
-	CreatedAt        time.Time              `json:"created_at"`                  // Task creation time
-	UpdatedAt        time.Time              `json:"updated_at"`                  // Last update time
-	AttemptCount     int                    `json:"attempt_count,omitempty"`     // Attempt count from ext
-	NextAttemptAt    *time.Time             `json:"next_attempt_at,omitempty"`   // Next attempt time from ext
-	CoordinatorState string                 `json:"coordinator_state,omitempty"` // State for coordinator tasks
-	Ext              map[string]interface{} `json:"ext,omitempty"`               // Additional task data
+	TaskType       string                 `json:"task_type"`                  // Task type
+	Status         string                 `json:"status"`                     // Task status
+	LockOwner      string                 `json:"lock_owner,omitempty"`       // Current lock owner
+	CreatedAt      time.Time              `json:"created_at"`                 // Task creation time
+	UpdatedAt      time.Time              `json:"updated_at"`                 // Last update time
+	AttemptCount   int                    `json:"attempt_count,omitempty"`    // Attempt count from ext
+	NextAttemptAt  *time.Time             `json:"next_attempt_at,omitempty"`  // Next attempt time from ext
+	CoordinatorState string               `json:"coordinator_state,omitempty"` // State for coordinator tasks
+	Ext            map[string]interface{} `json:"ext,omitempty"`              // Additional task data
 }
 
 // DetectionSummaryResponse represents a summary of all detections
 type DetectionSummaryResponse struct {
-	TotalWorkloads       int64                     `json:"total_workloads"`
-	StatusCounts         map[string]int64          `json:"status_counts"`          // Count by detection status
-	DetectionStateCounts map[string]int64          `json:"detection_state_counts"` // Count by detection state
-	RecentDetections     []DetectionStatusResponse `json:"recent_detections"`      // Recently updated detections
+	TotalWorkloads      int64                     `json:"total_workloads"`
+	StatusCounts        map[string]int64          `json:"status_counts"`        // Count by detection status
+	DetectionStateCounts map[string]int64         `json:"detection_state_counts"` // Count by detection state
+	RecentDetections    []DetectionStatusResponse `json:"recent_detections"`    // Recently updated detections
 }
 
 // ======================== API Handlers ========================
@@ -152,8 +152,8 @@ func ListDetectionStatuses(ctx *gin.Context) {
 	}
 
 	// Parse query parameters
-	status := ctx.Query("status")        // Filter by detection status
-	detectionState := ctx.Query("state") // Filter by detection state
+	status := ctx.Query("status")         // Filter by detection status
+	detectionState := ctx.Query("state")  // Filter by detection state
 	page, _ := strconv.Atoi(ctx.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(ctx.DefaultQuery("page_size", "20"))
 
@@ -851,3 +851,4 @@ func TriggerDetection(ctx *gin.Context) {
 		"status":       "pending",
 	}))
 }
+

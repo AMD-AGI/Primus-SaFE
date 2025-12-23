@@ -20,10 +20,10 @@ import (
 type ImageProbeExecutor struct {
 	coreTask.BaseExecutor
 
-	podProber      *common.PodProber
-	evidenceStore  *detection.EvidenceStore
-	coverageFacade database.DetectionCoverageFacadeInterface
-	metadataFacade database.AiWorkloadMetadataFacadeInterface
+	podProber        *common.PodProber
+	evidenceStore    *detection.EvidenceStore
+	coverageFacade   database.DetectionCoverageFacadeInterface
+	metadataFacade   database.AiWorkloadMetadataFacadeInterface
 }
 
 // NewImageProbeExecutor creates a new ImageProbeExecutor
@@ -182,13 +182,13 @@ func (e *ImageProbeExecutor) detectFrameworkFromImage(imageName string) (string,
 
 	// Inference frameworks (higher specificity)
 	inferencePatterns := map[string][]string{
-		"vllm":     {"vllm", "/vllm-"},
-		"triton":   {"triton", "tritonserver"},
-		"tgi":      {"text-generation-inference", "tgi", "huggingface/text-generation"},
-		"sglang":   {"sglang"},
-		"trtllm":   {"tensorrt-llm", "trt-llm"},
-		"ollama":   {"ollama"},
-		"llamacpp": {"llama.cpp", "llama-cpp"},
+		"vllm":      {"vllm", "/vllm-"},
+		"triton":    {"triton", "tritonserver"},
+		"tgi":       {"text-generation-inference", "tgi", "huggingface/text-generation"},
+		"sglang":    {"sglang"},
+		"trtllm":    {"tensorrt-llm", "trt-llm"},
+		"ollama":    {"ollama"},
+		"llamacpp":  {"llama.cpp", "llama-cpp"},
 	}
 
 	for fw, keywords := range inferencePatterns {
@@ -284,3 +284,4 @@ func (e *ImageProbeExecutor) Cancel(ctx context.Context, task *model.WorkloadTas
 	log.Infof("Image probe task cancelled for workload %s", task.WorkloadUID)
 	return nil
 }
+

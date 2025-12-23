@@ -191,3 +191,4 @@ func TestGetSortedRules(t *testing.T) {
 		assert.GreaterOrEqual(t, rules[i].Priority, rules[i+1].Priority)
 	}
 }
+

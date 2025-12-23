@@ -96,3 +96,4 @@ func TestExtractFunctionsEmptyContainer(t *testing.T) {
 	assert.Equal(t, []string{}, extractCommand(workload))
 	assert.Equal(t, []string{}, extractArgs(workload))
 }
+

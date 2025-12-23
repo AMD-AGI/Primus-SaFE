@@ -47,7 +47,7 @@ func (s *InMemoryMetricsStorage) Store(ctx context.Context, metric *StoredMetric
 
 	s.metrics[metric.WorkloadUID] = metrics
 
-	logrus.Debugf("Stored metric %s for workload %s (total: %d)",
+	logrus.Debugf("Stored metric %s for workload %s (total: %d)", 
 		metric.Name, metric.WorkloadUID, len(metrics))
 
 	return nil
@@ -123,3 +123,4 @@ func (s *InMemoryMetricsStorage) CleanupOldMetrics(maxAge time.Duration) int {
 
 	return deletedCount
 }
+

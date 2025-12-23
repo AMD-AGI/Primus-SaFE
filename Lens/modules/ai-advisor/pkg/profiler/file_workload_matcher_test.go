@@ -14,10 +14,10 @@ import (
 
 func TestExtractTimestampFromFilename(t *testing.T) {
 	tests := []struct {
-		name     string
-		filename string
-		wantTs   int64
-		wantErr  bool
+		name      string
+		filename  string
+		wantTs    int64
+		wantErr   bool
 	}{
 		{
 			name:     "valid primus format",
@@ -448,8 +448,8 @@ func TestExtractTimestampFromFilename_EdgeCases(t *testing.T) {
 
 func TestTimestampRegex(t *testing.T) {
 	tests := []struct {
-		name        string
-		input       string
+		name      string
+		input     string
 		shouldMatch bool
 	}{
 		{
@@ -519,3 +519,4 @@ func BenchmarkTimestampToTime(b *testing.B) {
 		_ = TimestampToTime(ts)
 	}
 }
+

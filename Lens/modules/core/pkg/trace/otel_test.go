@@ -18,39 +18,39 @@ import (
 // TestStartSpan tests StartSpan function
 func TestStartSpan(t *testing.T) {
 	ctx := context.Background()
-
+	
 	newCtx, span := StartSpan(ctx, "test-operation")
 	require.NotNil(t, newCtx)
 	require.NotNil(t, span)
 	defer span.End()
-
+	
 	assert.NotEqual(t, ctx, newCtx, "Context should be different")
 }
 
 // TestStartSpanFromContext tests StartSpanFromContext function
 func TestStartSpanFromContext(t *testing.T) {
 	ctx := context.Background()
-
+	
 	span, newCtx := StartSpanFromContext(ctx, "test-operation")
 	require.NotNil(t, span)
 	require.NotNil(t, newCtx)
 	defer span.End()
-
+	
 	assert.NotEqual(t, ctx, newCtx, "Context should be different")
 }
 
 // TestGetSpan tests GetSpan function
 func TestGetSpan(t *testing.T) {
 	ctx := context.Background()
-
+	
 	// Without span
 	span := GetSpan(ctx)
 	assert.NotNil(t, span) // Returns non-recording span
-
+	
 	// With span
 	ctx, activeSpan := StartSpan(ctx, "test-operation")
 	defer activeSpan.End()
-
+	
 	retrievedSpan := GetSpan(ctx)
 	assert.NotNil(t, retrievedSpan)
 	assert.Equal(t, activeSpan, retrievedSpan)
@@ -61,10 +61,10 @@ func TestContextWithSpan(t *testing.T) {
 	ctx := context.Background()
 	_, span := StartSpan(ctx, "test-operation")
 	defer span.End()
-
+	
 	newCtx := ContextWithSpan(ctx, span)
 	require.NotNil(t, newCtx)
-
+	
 	retrievedSpan := trace.SpanFromContext(newCtx)
 	assert.Equal(t, span, retrievedSpan)
 }
@@ -87,7 +87,7 @@ func TestFinishSpan(t *testing.T) {
 			span: nil,
 		},
 	}
-
+	
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			assert.NotPanics(t, func() {
@@ -100,12 +100,12 @@ func TestFinishSpan(t *testing.T) {
 // TestFinishSpanFromContext tests FinishSpanFromContext function
 func TestFinishSpanFromContext(t *testing.T) {
 	ctx := context.Background()
-
+	
 	// Without span
 	assert.NotPanics(t, func() {
 		FinishSpanFromContext(ctx)
 	})
-
+	
 	// With span
 	ctx, _ = StartSpan(ctx, "test-operation")
 	assert.NotPanics(t, func() {
@@ -119,10 +119,10 @@ func TestAddEvent(t *testing.T) {
 	tp := sdktrace.NewTracerProvider()
 	otel.SetTracerProvider(tp)
 	defer tp.Shutdown(context.Background())
-
+	
 	ctx, span := StartSpan(context.Background(), "test-operation")
 	defer span.End()
-
+	
 	tests := []struct {
 		name  string
 		event string
@@ -151,7 +151,7 @@ func TestAddEvent(t *testing.T) {
 			},
 		},
 	}
-
+	
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			assert.NotPanics(t, func() {
@@ -166,10 +166,10 @@ func TestSetAttributes(t *testing.T) {
 	tp := sdktrace.NewTracerProvider()
 	otel.SetTracerProvider(tp)
 	defer tp.Shutdown(context.Background())
-
+	
 	ctx, span := StartSpan(context.Background(), "test-operation")
 	defer span.End()
-
+	
 	tests := []struct {
 		name  string
 		attrs []attribute.KeyValue
@@ -191,7 +191,7 @@ func TestSetAttributes(t *testing.T) {
 			attrs: []attribute.KeyValue{},
 		},
 	}
-
+	
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			assert.NotPanics(t, func() {
@@ -206,10 +206,10 @@ func TestSetAttribute(t *testing.T) {
 	tp := sdktrace.NewTracerProvider()
 	otel.SetTracerProvider(tp)
 	defer tp.Shutdown(context.Background())
-
+	
 	ctx, span := StartSpan(context.Background(), "test-operation")
 	defer span.End()
-
+	
 	tests := []struct {
 		name  string
 		key   string
@@ -222,7 +222,7 @@ func TestSetAttribute(t *testing.T) {
 		{"bool value", "enabled", true},
 		{"struct value", "data", struct{ Name string }{"test"}},
 	}
-
+	
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			assert.NotPanics(t, func() {
@@ -237,10 +237,10 @@ func TestRecordError(t *testing.T) {
 	tp := sdktrace.NewTracerProvider()
 	otel.SetTracerProvider(tp)
 	defer tp.Shutdown(context.Background())
-
+	
 	ctx, span := StartSpan(context.Background(), "test-operation")
 	defer span.End()
-
+	
 	tests := []struct {
 		name string
 		err  error
@@ -249,7 +249,7 @@ func TestRecordError(t *testing.T) {
 		{"simple error", errors.New("test error")},
 		{"wrapped error", errors.New("wrapped: test error")},
 	}
-
+	
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			assert.NotPanics(t, func() {
@@ -264,10 +264,10 @@ func TestSetStatus(t *testing.T) {
 	tp := sdktrace.NewTracerProvider()
 	otel.SetTracerProvider(tp)
 	defer tp.Shutdown(context.Background())
-
+	
 	ctx, span := StartSpan(context.Background(), "test-operation")
 	defer span.End()
-
+	
 	tests := []struct {
 		name        string
 		code        codes.Code
@@ -277,7 +277,7 @@ func TestSetStatus(t *testing.T) {
 		{"error status", codes.Error, "operation failed"},
 		{"unset status", codes.Unset, ""},
 	}
-
+	
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			assert.NotPanics(t, func() {
@@ -292,16 +292,16 @@ func TestGetTraceID(t *testing.T) {
 	tp := sdktrace.NewTracerProvider()
 	otel.SetTracerProvider(tp)
 	defer tp.Shutdown(context.Background())
-
+	
 	// Without span
 	ctx := context.Background()
 	traceID := GetTraceID(ctx)
 	assert.Empty(t, traceID)
-
+	
 	// With span
 	ctx, span := StartSpan(ctx, "test-operation")
 	defer span.End()
-
+	
 	traceID = GetTraceID(ctx)
 	// May be empty if sampler is NeverSample, or non-empty if sampled
 	if traceID != "" {
@@ -315,16 +315,16 @@ func TestGetSpanID(t *testing.T) {
 	tp := sdktrace.NewTracerProvider()
 	otel.SetTracerProvider(tp)
 	defer tp.Shutdown(context.Background())
-
+	
 	// Without span
 	ctx := context.Background()
 	spanID := GetSpanID(ctx)
 	assert.Empty(t, spanID)
-
+	
 	// With span
 	ctx, span := StartSpan(ctx, "test-operation")
 	defer span.End()
-
+	
 	spanID = GetSpanID(ctx)
 	// May be empty if sampler is NeverSample, or non-empty if sampled
 	if spanID != "" {
@@ -338,17 +338,17 @@ func TestSpanFromContext(t *testing.T) {
 	tp := sdktrace.NewTracerProvider()
 	otel.SetTracerProvider(tp)
 	defer tp.Shutdown(context.Background())
-
+	
 	// Without span
 	ctx := context.Background()
 	span, ok := SpanFromContext(ctx)
 	assert.NotNil(t, span)
 	assert.False(t, ok, "Should return false for invalid span")
-
+	
 	// With span
 	ctx, activeSpan := StartSpan(ctx, "test-operation")
 	defer activeSpan.End()
-
+	
 	span, ok = SpanFromContext(ctx)
 	assert.NotNil(t, span)
 	assert.True(t, ok, "Should return true for valid span")
@@ -360,11 +360,11 @@ func TestGetTraceIDAndSpanID(t *testing.T) {
 	tp := sdktrace.NewTracerProvider()
 	otel.SetTracerProvider(tp)
 	defer tp.Shutdown(context.Background())
-
+	
 	tests := []struct {
-		name        string
-		span        trace.Span
-		expectValid bool
+		name         string
+		span         trace.Span
+		expectValid  bool
 	}{
 		{
 			name:        "nil span",
@@ -380,11 +380,11 @@ func TestGetTraceIDAndSpanID(t *testing.T) {
 			expectValid: true,
 		},
 	}
-
+	
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			traceID, spanID, ok := GetTraceIDAndSpanID(tt.span)
-
+			
 			if tt.expectValid {
 				// May be valid or invalid depending on sampler
 				if ok {
@@ -398,7 +398,7 @@ func TestGetTraceIDAndSpanID(t *testing.T) {
 				assert.Empty(t, traceID)
 				assert.Empty(t, spanID)
 			}
-
+			
 			if tt.span != nil {
 				tt.span.End()
 			}
@@ -451,7 +451,7 @@ func TestConvertToAttribute(t *testing.T) {
 			expected: attribute.String("data", "{test}"),
 		},
 	}
-
+	
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := convertToAttribute(tt.key, tt.value)
@@ -485,14 +485,14 @@ func TestGetEnvOrDefault(t *testing.T) {
 			expected:     "default",
 		},
 	}
-
+	
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			if tt.envValue != "" {
 				os.Setenv(tt.key, tt.envValue)
 				defer os.Unsetenv(tt.key)
 			}
-
+			
 			result := getEnvOrDefault(tt.key, tt.defaultValue)
 			assert.Equal(t, tt.expected, result)
 		})
@@ -505,11 +505,11 @@ func TestCloseTracer(t *testing.T) {
 	tracerProvider = nil
 	err := CloseTracer()
 	assert.NoError(t, err)
-
+	
 	// Test with valid tracer provider
 	tp := sdktrace.NewTracerProvider()
 	tracerProvider = tp
-
+	
 	err = CloseTracer()
 	assert.NoError(t, err)
 }
@@ -519,9 +519,9 @@ func TestStartSpan_WithOptions(t *testing.T) {
 	tp := sdktrace.NewTracerProvider()
 	otel.SetTracerProvider(tp)
 	defer tp.Shutdown(context.Background())
-
+	
 	ctx := context.Background()
-
+	
 	tests := []struct {
 		name string
 		opts []trace.SpanStartOption
@@ -549,7 +549,7 @@ func TestStartSpan_WithOptions(t *testing.T) {
 			},
 		},
 	}
-
+	
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			newCtx, span := StartSpan(ctx, "test-operation", tt.opts...)
@@ -565,9 +565,9 @@ func BenchmarkStartSpan(b *testing.B) {
 	tp := sdktrace.NewTracerProvider()
 	otel.SetTracerProvider(tp)
 	defer tp.Shutdown(context.Background())
-
+	
 	ctx := context.Background()
-
+	
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_, span := StartSpan(ctx, "benchmark-operation")
@@ -580,10 +580,10 @@ func BenchmarkAddEvent(b *testing.B) {
 	tp := sdktrace.NewTracerProvider()
 	otel.SetTracerProvider(tp)
 	defer tp.Shutdown(context.Background())
-
+	
 	ctx, span := StartSpan(context.Background(), "benchmark-operation")
 	defer span.End()
-
+	
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		AddEvent(ctx, "test-event", attribute.String("key", "value"))
@@ -595,15 +595,15 @@ func BenchmarkSetAttributes(b *testing.B) {
 	tp := sdktrace.NewTracerProvider()
 	otel.SetTracerProvider(tp)
 	defer tp.Shutdown(context.Background())
-
+	
 	ctx, span := StartSpan(context.Background(), "benchmark-operation")
 	defer span.End()
-
+	
 	attrs := []attribute.KeyValue{
 		attribute.String("key1", "value1"),
 		attribute.Int("key2", 42),
 	}
-
+	
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		SetAttributes(ctx, attrs...)
@@ -613,7 +613,7 @@ func BenchmarkSetAttributes(b *testing.B) {
 // BenchmarkConvertToAttribute benchmarks convertToAttribute function
 func BenchmarkConvertToAttribute(b *testing.B) {
 	values := []interface{}{"string", 42, int64(123), 0.95, true}
-
+	
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = convertToAttribute("key", values[i%len(values)])
@@ -920,3 +920,4 @@ func BenchmarkTraceOptionsFromConfig(b *testing.B) {
 		_ = TraceOptionsFromConfig("always", 0.5, 0.8)
 	}
 }
+

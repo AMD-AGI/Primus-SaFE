@@ -12,9 +12,9 @@ import (
 
 func TestGetSource(t *testing.T) {
 	tests := []struct {
-		name        string
-		workload    *dbModel.GpuWorkload
-		expected    string
+		name       string
+		workload   *dbModel.GpuWorkload
+		expected   string
 		description string
 	}{
 		{
@@ -227,8 +227,8 @@ func TestGetSource_EdgeCases(t *testing.T) {
 			"custom/runtime",
 			"runtime@v1",
 			"runtime:latest",
-			"runtime-zh", // international characters
-			"🐳",          // emoji
+			"runtime-zh",     // international characters
+			"🐳",             // emoji
 			"source\nwith\nnewline",
 			"source\twith\ttab",
 		}
@@ -248,11 +248,11 @@ func TestGetSource_EdgeCases(t *testing.T) {
 func TestGetSource_BusinessScenarios(t *testing.T) {
 	t.Run("K8s Pod scenarios", func(t *testing.T) {
 		scenarios := []struct {
-			name      string
-			kind      string
-			namespace string
-			source    string
-			expected  string
+			name        string
+			kind        string
+			namespace   string
+			source      string
+			expected    string
 		}{
 			{"standard Pod", "Pod", "default", "", constant.ContainerSourceK8S},
 			{"training Pod", "Pod", "ml-training", "", constant.ContainerSourceK8S},
@@ -397,3 +397,4 @@ func BenchmarkGetSource_Parallel(b *testing.B) {
 		}
 	})
 }
+

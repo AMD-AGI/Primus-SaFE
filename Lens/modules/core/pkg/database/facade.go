@@ -62,60 +62,60 @@ type FacadeInterface interface {
 
 // Facade is the unified entry point for database operations, aggregating all sub-Facades
 type Facade struct {
-	Node                      NodeFacadeInterface
-	Pod                       PodFacadeInterface
-	Workload                  WorkloadFacadeInterface
-	Container                 ContainerFacadeInterface
-	Training                  TrainingFacadeInterface
-	Storage                   StorageFacadeInterface
-	Alert                     AlertFacadeInterface
-	MetricAlertRule           MetricAlertRuleFacadeInterface
-	LogAlertRule              LogAlertRuleFacadeInterface
-	AlertRuleAdvice           AlertRuleAdviceFacadeInterface
-	ClusterOverviewCache      ClusterOverviewCacheFacadeInterface
-	GenericCache              GenericCacheFacadeInterface
-	GpuAggregation            GpuAggregationFacadeInterface
-	SystemConfig              SystemConfigFacadeInterface
-	JobExecutionHistory       JobExecutionHistoryFacadeInterface
-	NamespaceInfo             NamespaceInfoFacadeInterface
-	AiWorkloadMetadata        AiWorkloadMetadataFacadeInterface
-	CheckpointEvent           CheckpointEventFacadeInterface
-	DetectionConflictLog      DetectionConflictLogFacadeInterface
-	WorkloadStatistic         WorkloadStatisticFacadeInterface
-	GpuUsageWeeklyReport      GpuUsageWeeklyReportFacadeInterface
-	NodeNamespaceMapping      NodeNamespaceMappingFacadeInterface
-	TraceLensSession          TraceLensSessionFacadeInterface
-	K8sService                K8sServiceFacadeInterface
-	WorkloadDetection         WorkloadDetectionFacadeInterface
-	WorkloadDetectionEvidence WorkloadDetectionEvidenceFacadeInterface
-	DetectionCoverage         DetectionCoverageFacadeInterface
+	Node                  NodeFacadeInterface
+	Pod                   PodFacadeInterface
+	Workload              WorkloadFacadeInterface
+	Container             ContainerFacadeInterface
+	Training              TrainingFacadeInterface
+	Storage               StorageFacadeInterface
+	Alert                 AlertFacadeInterface
+	MetricAlertRule       MetricAlertRuleFacadeInterface
+	LogAlertRule          LogAlertRuleFacadeInterface
+	AlertRuleAdvice       AlertRuleAdviceFacadeInterface
+	ClusterOverviewCache  ClusterOverviewCacheFacadeInterface
+	GenericCache          GenericCacheFacadeInterface
+	GpuAggregation        GpuAggregationFacadeInterface
+	SystemConfig          SystemConfigFacadeInterface
+	JobExecutionHistory   JobExecutionHistoryFacadeInterface
+	NamespaceInfo         NamespaceInfoFacadeInterface
+	AiWorkloadMetadata    AiWorkloadMetadataFacadeInterface
+	CheckpointEvent       CheckpointEventFacadeInterface
+	DetectionConflictLog  DetectionConflictLogFacadeInterface
+	WorkloadStatistic     WorkloadStatisticFacadeInterface
+	GpuUsageWeeklyReport  GpuUsageWeeklyReportFacadeInterface
+	NodeNamespaceMapping  NodeNamespaceMappingFacadeInterface
+	TraceLensSession              TraceLensSessionFacadeInterface
+	K8sService                    K8sServiceFacadeInterface
+	WorkloadDetection             WorkloadDetectionFacadeInterface
+	WorkloadDetectionEvidence     WorkloadDetectionEvidenceFacadeInterface
+	DetectionCoverage             DetectionCoverageFacadeInterface
 }
 
 // NewFacade creates a new Facade instance
 func NewFacade() *Facade {
 	return &Facade{
-		Node:                      NewNodeFacade(),
-		Pod:                       NewPodFacade(),
-		Workload:                  NewWorkloadFacade(),
-		Container:                 NewContainerFacade(),
-		Training:                  NewTrainingFacade(),
-		Storage:                   NewStorageFacade(),
-		Alert:                     NewAlertFacade(),
-		MetricAlertRule:           NewMetricAlertRuleFacade(),
-		LogAlertRule:              NewLogAlertRuleFacade(),
-		AlertRuleAdvice:           NewAlertRuleAdviceFacade(),
-		ClusterOverviewCache:      NewClusterOverviewCacheFacade(),
-		GenericCache:              NewGenericCacheFacade(),
-		GpuAggregation:            NewGpuAggregationFacade(),
-		SystemConfig:              NewSystemConfigFacade(),
-		JobExecutionHistory:       NewJobExecutionHistoryFacade(),
-		NamespaceInfo:             NewNamespaceInfoFacade(),
-		AiWorkloadMetadata:        NewAiWorkloadMetadataFacade(),
-		CheckpointEvent:           NewCheckpointEventFacade(),
-		DetectionConflictLog:      NewDetectionConflictLogFacade(),
-		WorkloadStatistic:         NewWorkloadStatisticFacade(),
-		GpuUsageWeeklyReport:      NewGpuUsageWeeklyReportFacade(),
-		NodeNamespaceMapping:      NewNodeNamespaceMappingFacade(),
+		Node:                  NewNodeFacade(),
+		Pod:                   NewPodFacade(),
+		Workload:              NewWorkloadFacade(),
+		Container:             NewContainerFacade(),
+		Training:              NewTrainingFacade(),
+		Storage:               NewStorageFacade(),
+		Alert:                 NewAlertFacade(),
+		MetricAlertRule:       NewMetricAlertRuleFacade(),
+		LogAlertRule:          NewLogAlertRuleFacade(),
+		AlertRuleAdvice:       NewAlertRuleAdviceFacade(),
+		ClusterOverviewCache:  NewClusterOverviewCacheFacade(),
+		GenericCache:          NewGenericCacheFacade(),
+		GpuAggregation:        NewGpuAggregationFacade(),
+		SystemConfig:          NewSystemConfigFacade(),
+		JobExecutionHistory:   NewJobExecutionHistoryFacade(),
+		NamespaceInfo:         NewNamespaceInfoFacade(),
+		AiWorkloadMetadata:    NewAiWorkloadMetadataFacade(),
+		CheckpointEvent:       NewCheckpointEventFacade(),
+		DetectionConflictLog:  NewDetectionConflictLogFacade(),
+		WorkloadStatistic:     NewWorkloadStatisticFacade(),
+		GpuUsageWeeklyReport:  NewGpuUsageWeeklyReportFacade(),
+		NodeNamespaceMapping:  NewNodeNamespaceMappingFacade(),
 		TraceLensSession:          NewTraceLensSessionFacade(),
 		K8sService:                NewK8sServiceFacade(),
 		WorkloadDetection:         NewWorkloadDetectionFacade(),
@@ -262,28 +262,28 @@ func (f *Facade) GetDetectionCoverage() DetectionCoverageFacadeInterface {
 // WithCluster returns a new Facade instance, all sub-Facades use the specified cluster
 func (f *Facade) WithCluster(clusterName string) FacadeInterface {
 	return &Facade{
-		Node:                      f.Node.WithCluster(clusterName),
-		Pod:                       f.Pod.WithCluster(clusterName),
-		Workload:                  f.Workload.WithCluster(clusterName),
-		Container:                 f.Container.WithCluster(clusterName),
-		Training:                  f.Training.WithCluster(clusterName),
-		Storage:                   f.Storage.WithCluster(clusterName),
-		Alert:                     f.Alert.WithCluster(clusterName),
-		MetricAlertRule:           f.MetricAlertRule.WithCluster(clusterName),
-		LogAlertRule:              f.LogAlertRule.WithCluster(clusterName),
-		AlertRuleAdvice:           f.AlertRuleAdvice.WithCluster(clusterName),
-		ClusterOverviewCache:      f.ClusterOverviewCache.WithCluster(clusterName),
-		GenericCache:              f.GenericCache.WithCluster(clusterName),
-		GpuAggregation:            f.GpuAggregation.WithCluster(clusterName),
-		SystemConfig:              f.SystemConfig.WithCluster(clusterName),
-		JobExecutionHistory:       f.JobExecutionHistory.WithCluster(clusterName),
-		NamespaceInfo:             f.NamespaceInfo.WithCluster(clusterName),
-		AiWorkloadMetadata:        f.AiWorkloadMetadata.WithCluster(clusterName),
-		CheckpointEvent:           f.CheckpointEvent.WithCluster(clusterName),
-		DetectionConflictLog:      f.DetectionConflictLog.WithCluster(clusterName),
-		WorkloadStatistic:         f.WorkloadStatistic.WithCluster(clusterName),
-		GpuUsageWeeklyReport:      f.GpuUsageWeeklyReport.WithCluster(clusterName),
-		NodeNamespaceMapping:      f.NodeNamespaceMapping.WithCluster(clusterName),
+		Node:                  f.Node.WithCluster(clusterName),
+		Pod:                   f.Pod.WithCluster(clusterName),
+		Workload:              f.Workload.WithCluster(clusterName),
+		Container:             f.Container.WithCluster(clusterName),
+		Training:              f.Training.WithCluster(clusterName),
+		Storage:               f.Storage.WithCluster(clusterName),
+		Alert:                 f.Alert.WithCluster(clusterName),
+		MetricAlertRule:       f.MetricAlertRule.WithCluster(clusterName),
+		LogAlertRule:          f.LogAlertRule.WithCluster(clusterName),
+		AlertRuleAdvice:       f.AlertRuleAdvice.WithCluster(clusterName),
+		ClusterOverviewCache:  f.ClusterOverviewCache.WithCluster(clusterName),
+		GenericCache:          f.GenericCache.WithCluster(clusterName),
+		GpuAggregation:        f.GpuAggregation.WithCluster(clusterName),
+		SystemConfig:          f.SystemConfig.WithCluster(clusterName),
+		JobExecutionHistory:   f.JobExecutionHistory.WithCluster(clusterName),
+		NamespaceInfo:         f.NamespaceInfo.WithCluster(clusterName),
+		AiWorkloadMetadata:    f.AiWorkloadMetadata.WithCluster(clusterName),
+		CheckpointEvent:       f.CheckpointEvent.WithCluster(clusterName),
+		DetectionConflictLog:  f.DetectionConflictLog.WithCluster(clusterName),
+		WorkloadStatistic:     f.WorkloadStatistic.WithCluster(clusterName),
+		GpuUsageWeeklyReport:  f.GpuUsageWeeklyReport.WithCluster(clusterName),
+		NodeNamespaceMapping:  f.NodeNamespaceMapping.WithCluster(clusterName),
 		TraceLensSession:          f.TraceLensSession.WithCluster(clusterName),
 		K8sService:                f.K8sService.WithCluster(clusterName),
 		WorkloadDetection:         f.WorkloadDetection.WithCluster(clusterName),

@@ -20,9 +20,9 @@ import (
 // - TraceLens pods run in the management cluster (where this job runs)
 // - Session metadata is stored in data cluster databases (queried via cluster parameter)
 // - This job runs in the management cluster and:
-//  1. Iterates over all known clusters to find expired sessions
-//  2. Deletes pods from the management cluster's primus-lens namespace
-//  3. Updates session status in the respective data cluster's database
+//   1. Iterates over all known clusters to find expired sessions
+//   2. Deletes pods from the management cluster's primus-lens namespace
+//   3. Updates session status in the respective data cluster's database
 type TraceLensCleanupJob struct{}
 
 // NewTraceLensCleanupJob creates a new TraceLensCleanupJob instance
@@ -119,3 +119,4 @@ func (j *TraceLensCleanupJob) Run(ctx context.Context, clientSets *clientsets.K8
 func (j *TraceLensCleanupJob) Schedule() string {
 	return "@every 5m"
 }
+

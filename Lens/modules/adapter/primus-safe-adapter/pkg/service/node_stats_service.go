@@ -58,7 +58,7 @@ func (s *NodeStatsService) Run(ctx context.Context) error {
 	clustersFailed := 0
 
 	for _, clusterName := range clusterNames {
-		if clusterName == "default" {
+		if clusterName == "default"{
 			continue
 		}
 		log.Infof("Processing cluster: %s", clusterName)

@@ -9,7 +9,7 @@ import (
 
 func TestNewContainerdReader(t *testing.T) {
 	reader, err := NewContainerdReader()
-
+	
 	// May fail if containerd is not available
 	if err != nil {
 		t.Logf("NewContainerdReader error (expected if containerd not available): %v", err)
@@ -45,7 +45,7 @@ func TestGetPodContainers_Integration(t *testing.T) {
 		}()
 
 		containers, err := reader.GetPodContainers(ctx, "nonexistent-pod-uid-12345")
-
+		
 		// Should return error because pod not found
 		assert.Error(t, err)
 		assert.Nil(t, containers)
@@ -62,7 +62,7 @@ func TestGetPodContainers_Integration(t *testing.T) {
 		cancel()
 
 		_, err := reader.GetPodContainers(ctx, "test-pod-uid")
-
+		
 		// May fail due to context cancellation or pod not found
 		assert.Error(t, err)
 	})
@@ -94,7 +94,7 @@ func TestGetContainerInfo_Integration(t *testing.T) {
 		}()
 
 		_, err := reader.GetContainerInfo(ctx, "nonexistent-container-id-12345")
-
+		
 		// Should return error because container not found
 		assert.Error(t, err)
 	})
@@ -107,7 +107,7 @@ func TestGetContainerInfo_Integration(t *testing.T) {
 		}()
 
 		_, err := reader.GetContainerInfo(ctx, "")
-
+		
 		// Should return error
 		assert.Error(t, err)
 	})
@@ -133,3 +133,4 @@ func BenchmarkNewContainerdReader(b *testing.B) {
 		NewContainerdReader()
 	}
 }
+

@@ -301,9 +301,9 @@ func TestProxyResponseModification(t *testing.T) {
 	// Test that X-Frame-Options header is removed
 	resp := &http.Response{
 		Header: http.Header{
-			"X-Frame-Options": []string{"DENY"},
-			"Content-Type":    []string{"text/html"},
-			"X-Custom-Header": []string{"value"},
+			"X-Frame-Options":   []string{"DENY"},
+			"Content-Type":      []string{"text/html"},
+			"X-Custom-Header":   []string{"value"},
 		},
 	}
 
@@ -314,3 +314,4 @@ func TestProxyResponseModification(t *testing.T) {
 	assert.Equal(t, "text/html", resp.Header.Get("Content-Type"))
 	assert.Equal(t, "value", resp.Header.Get("X-Custom-Header"))
 }
+

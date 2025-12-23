@@ -26,7 +26,7 @@ func (e *NsenterExecutor) GetContainerPID(hostPID int) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-
+	
 	lines := strings.Split(string(data), "\n")
 	for _, line := range lines {
 		// NSpid: <host_pid> <container_pid>
@@ -40,7 +40,7 @@ func (e *NsenterExecutor) GetContainerPID(hostPID int) (int, error) {
 			}
 		}
 	}
-
+	
 	return 0, fmt.Errorf("container PID not found for host PID %d", hostPID)
 }
 
@@ -54,12 +54,12 @@ func (e *NsenterExecutor) ExecuteInContainer(hostPID int, command string) (strin
 		"--",
 		"sh", "-c", command,
 	)
-
+	
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("nsenter failed: %w, output: %s", err, string(output))
 	}
-
+	
 	return string(output), nil
 }
 
@@ -71,7 +71,7 @@ func (e *NsenterExecutor) GetContainerProcessList(hostPID int) ([]string, error)
 		log.Debugf("Failed to execute ps in container: %v", err)
 		return nil, err
 	}
-
+	
 	lines := strings.Split(strings.TrimSpace(output), "\n")
 	return lines, nil
 }
@@ -88,7 +88,8 @@ func (e *NsenterExecutor) GetContainerEnvironment(hostPID int) ([]string, error)
 	if err != nil {
 		return nil, err
 	}
-
+	
 	lines := strings.Split(strings.TrimSpace(output), "\n")
 	return lines, nil
 }
+

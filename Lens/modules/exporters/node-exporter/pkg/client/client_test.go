@@ -89,8 +89,8 @@ func TestGetRestyClient(t *testing.T) {
 func TestGetPodProcessTree(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		expectedData := &types.PodProcessTree{
-			PodUID:       "test-pod-uid",
-			PodName:      "test-pod",
+			PodUID:      "test-pod-uid",
+			PodName:     "test-pod",
 			PodNamespace: "default",
 			Containers: []*types.ContainerProcessTree{
 				{
@@ -1018,3 +1018,4 @@ func TestErrorScenarios(t *testing.T) {
 		})
 	}
 }
+

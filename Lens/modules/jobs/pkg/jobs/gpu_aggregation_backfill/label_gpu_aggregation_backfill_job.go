@@ -81,12 +81,12 @@ type LabelGpuAggregationBackfillConfig struct {
 
 // LabelGpuAggregationBackfillJob is the job for backfilling missing label GPU aggregation data
 type LabelGpuAggregationBackfillJob struct {
-	config                       *LabelGpuAggregationBackfillConfig
-	clusterName                  string
-	facadeGetter                 LabelBackfillFacadeGetter
-	clusterNameGetter            LabelBackfillClusterNameGetter
-	aggregationCalculatorFactory LabelBackfillAggregationCalculatorFactory
-	utilizationCalcFunc          LabelBackfillUtilizationCalcFunc
+	config                         *LabelGpuAggregationBackfillConfig
+	clusterName                    string
+	facadeGetter                   LabelBackfillFacadeGetter
+	clusterNameGetter              LabelBackfillClusterNameGetter
+	aggregationCalculatorFactory   LabelBackfillAggregationCalculatorFactory
+	utilizationCalcFunc            LabelBackfillUtilizationCalcFunc
 }
 
 // LabelBackfillJobOption is a function that configures a LabelGpuAggregationBackfillJob
@@ -158,10 +158,10 @@ func NewLabelGpuAggregationBackfillJob(opts ...LabelBackfillJobOption) *LabelGpu
 			AnnotationKeys: []string{},
 			DefaultValue:   "unknown",
 		},
-		facadeGetter:                 defaultLabelBackfillFacadeGetter,
-		clusterNameGetter:            defaultLabelBackfillClusterNameGetter,
-		aggregationCalculatorFactory: defaultLabelBackfillAggregationCalculatorFactory,
-		utilizationCalcFunc:          defaultLabelBackfillUtilizationCalcFunc,
+		facadeGetter:                   defaultLabelBackfillFacadeGetter,
+		clusterNameGetter:              defaultLabelBackfillClusterNameGetter,
+		aggregationCalculatorFactory:   defaultLabelBackfillAggregationCalculatorFactory,
+		utilizationCalcFunc:            defaultLabelBackfillUtilizationCalcFunc,
 	}
 
 	for _, opt := range opts {
@@ -178,11 +178,11 @@ func NewLabelGpuAggregationBackfillJob(opts ...LabelBackfillJobOption) *LabelGpu
 // NewLabelGpuAggregationBackfillJobWithConfig creates a new label backfill job with custom config
 func NewLabelGpuAggregationBackfillJobWithConfig(cfg *LabelGpuAggregationBackfillConfig, opts ...LabelBackfillJobOption) *LabelGpuAggregationBackfillJob {
 	j := &LabelGpuAggregationBackfillJob{
-		config:                       cfg,
-		facadeGetter:                 defaultLabelBackfillFacadeGetter,
-		clusterNameGetter:            defaultLabelBackfillClusterNameGetter,
-		aggregationCalculatorFactory: defaultLabelBackfillAggregationCalculatorFactory,
-		utilizationCalcFunc:          defaultLabelBackfillUtilizationCalcFunc,
+		config:                         cfg,
+		facadeGetter:                   defaultLabelBackfillFacadeGetter,
+		clusterNameGetter:              defaultLabelBackfillClusterNameGetter,
+		aggregationCalculatorFactory:   defaultLabelBackfillAggregationCalculatorFactory,
+		utilizationCalcFunc:            defaultLabelBackfillUtilizationCalcFunc,
 	}
 
 	for _, opt := range opts {

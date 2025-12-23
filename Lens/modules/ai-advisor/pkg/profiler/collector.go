@@ -112,22 +112,22 @@ type CollectionResult struct {
 
 // ArchivedFileInfo represents an archived file
 type ArchivedFileInfo struct {
-	FileName    string    `json:"file_name"`
-	FilePath    string    `json:"file_path"`
-	FileType    string    `json:"file_type"`
-	FileSize    int64     `json:"file_size"`
-	StorageType string    `json:"storage_type"`
-	StoragePath string    `json:"storage_path"`
-	DownloadURL string    `json:"download_url"`
-	CollectedAt time.Time `json:"collected_at"`
-	Skipped     bool      `json:"skipped,omitempty"`
-	SkipReason  string    `json:"skip_reason,omitempty"`
+	FileName           string               `json:"file_name"`
+	FilePath           string               `json:"file_path"`
+	FileType           string               `json:"file_type"`
+	FileSize           int64                `json:"file_size"`
+	StorageType        string               `json:"storage_type"`
+	StoragePath        string               `json:"storage_path"`
+	DownloadURL        string               `json:"download_url"`
+	CollectedAt        time.Time            `json:"collected_at"`
+	Skipped            bool                 `json:"skipped,omitempty"`
+	SkipReason         string               `json:"skip_reason,omitempty"`
 	// Workload matching fields
-	MatchedWorkloads   []FileWorkloadMatch `json:"matched_workloads,omitempty"`
-	PrimaryWorkloadUID string              `json:"primary_workload_uid,omitempty"`
-	MatchConfidence    string              `json:"match_confidence,omitempty"`
-	HasConflict        bool                `json:"has_conflict,omitempty"`
-	ConflictReason     string              `json:"conflict_reason,omitempty"`
+	MatchedWorkloads   []FileWorkloadMatch  `json:"matched_workloads,omitempty"`
+	PrimaryWorkloadUID string               `json:"primary_workload_uid,omitempty"`
+	MatchConfidence    string               `json:"match_confidence,omitempty"`
+	HasConflict        bool                 `json:"has_conflict,omitempty"`
+	ConflictReason     string               `json:"conflict_reason,omitempty"`
 }
 
 // CollectFiles collects profiler files based on discovery results
@@ -422,16 +422,16 @@ func (c *Collector) GetNodeClient() *client.Client {
 
 // LocationCollectionRequest represents a request to collect profiler files from locations
 type LocationCollectionRequest struct {
-	WorkloadUID       string             `json:"workload_uid"`
-	PodUID            string             `json:"pod_uid"`
-	PodName           string             `json:"pod_name"`
-	PodNamespace      string             `json:"pod_namespace"`
-	ContainerName     string             `json:"container_name,omitempty"`
-	Framework         string             `json:"framework,omitempty"`
-	Locations         []ProfilerLocation `json:"locations"`
-	NodeClient        *client.Client     `json:"-"`                             // Node-exporter client (injected)
-	WorkingDir        string             `json:"working_dir,omitempty"`         // Pod's working directory for resolving relative paths
-	EnableFileMatcher bool               `json:"enable_file_matcher,omitempty"` // Enable file-workload timestamp matching
+	WorkloadUID        string              `json:"workload_uid"`
+	PodUID             string              `json:"pod_uid"`
+	PodName            string              `json:"pod_name"`
+	PodNamespace       string              `json:"pod_namespace"`
+	ContainerName      string              `json:"container_name,omitempty"`
+	Framework          string              `json:"framework,omitempty"`
+	Locations          []ProfilerLocation  `json:"locations"`
+	NodeClient         *client.Client      `json:"-"` // Node-exporter client (injected)
+	WorkingDir         string              `json:"working_dir,omitempty"` // Pod's working directory for resolving relative paths
+	EnableFileMatcher  bool                `json:"enable_file_matcher,omitempty"` // Enable file-workload timestamp matching
 }
 
 // CollectProfilerFilesFromLocations collects profiler files from specified locations
@@ -541,7 +541,7 @@ func (c *Collector) CollectProfilerFilesFromLocations(
 							break
 						}
 					}
-
+					
 					// If file doesn't match current workload based on timestamp, skip it
 					if !fileMatchesCurrentWorkload {
 						log.Debugf("Skipping file %s: timestamp doesn't match workload %s (file time: %s)",
@@ -609,10 +609,10 @@ func (c *Collector) CollectProfilerFilesFromLocations(
 				archived.MatchConfidence = matchResult.GetConfidence()
 				archived.HasConflict = matchResult.HasConflict
 				archived.ConflictReason = matchResult.ConflictReason
-
+				
 				if matchResult.PrimaryMatch != nil {
 					archived.PrimaryWorkloadUID = matchResult.PrimaryMatch.WorkloadUID
-
+					
 					// Log conflict warning
 					if matchResult.HasConflict {
 						workloadUIDs := matchResult.GetAllMatchedWorkloadUIDs()
@@ -636,7 +636,7 @@ func (c *Collector) CollectProfilerFilesFromLocations(
 // matchesAnyPattern checks if a file path matches any of the given patterns
 func (c *Collector) matchesAnyPattern(filePath string, patterns []string) bool {
 	fileName := filepath.Base(filePath)
-
+	
 	for _, pattern := range patterns {
 		// Try matching both full path and filename
 		if matched, _ := filepath.Match(pattern, fileName); matched {
@@ -674,7 +674,7 @@ func (c *Collector) matchesAnyPattern(filePath string, patterns []string) bool {
 // detectFileType detects the profiler file type based on filename
 func (c *Collector) detectFileType(filePath string) string {
 	fileName := strings.ToLower(filepath.Base(filePath))
-
+	
 	if strings.HasSuffix(fileName, ".pt.trace.json.gz") || strings.HasSuffix(fileName, ".pt.trace.json") {
 		return "pytorch_trace"
 	}

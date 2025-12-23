@@ -7,7 +7,7 @@ import (
 
 // MockFileSystem mock file system for testing
 type MockFileSystem struct {
-	files       map[string][]byte
+	files map[string][]byte
 	readErrors  map[string]error
 	writeErrors map[string]error
 }
@@ -88,7 +88,7 @@ func (mce *MockCommandExecutor) Execute(name string, args ...string) error {
 func (mce *MockCommandExecutor) ExecuteWithOutput(name string, args ...string) ([]byte, error) {
 	cmd := append([]string{name}, args...)
 	mce.executeCalls = append(mce.executeCalls, cmd)
-
+	
 	key := fmt.Sprintf("%s %v", name, args)
 	if output, ok := mce.outputMap[key]; ok {
 		return output, mce.outputError
@@ -111,3 +111,4 @@ func (mce *MockCommandExecutor) SetOutput(name string, args []string, output []b
 	key := fmt.Sprintf("%s %v", name, args)
 	mce.outputMap[key] = output
 }
+

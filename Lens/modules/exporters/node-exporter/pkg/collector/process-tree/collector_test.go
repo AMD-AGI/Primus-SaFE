@@ -11,10 +11,10 @@ import (
 func TestInitCollector(t *testing.T) {
 	ctx := context.Background()
 	err := InitCollector(ctx)
-
+	
 	// May fail if containerd/kubelet are not available, but should not panic
 	assert.NoError(t, err)
-
+	
 	collector := GetCollector()
 	assert.NotNil(t, collector)
 	assert.NotNil(t, collector.procReader)
@@ -25,10 +25,10 @@ func TestInitCollector(t *testing.T) {
 func TestGetCollector(t *testing.T) {
 	// Initialize collector first
 	InitCollector(context.Background())
-
+	
 	collector := GetCollector()
 	assert.NotNil(t, collector)
-
+	
 	// Should return the same instance
 	collector2 := GetCollector()
 	assert.Equal(t, collector, collector2)
@@ -58,7 +58,7 @@ func TestCacheKey(t *testing.T) {
 
 	// Same keys should be equal
 	assert.Equal(t, key1, key2)
-
+	
 	// Different keys should not be equal
 	assert.NotEqual(t, key1, key3)
 }
@@ -360,7 +360,7 @@ func TestGetPodProcessTree_NoContainers(t *testing.T) {
 	}
 
 	_, err := collector.GetPodProcessTree(context.Background(), req)
-
+	
 	// Should fail because no containers found
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "no containers found")
@@ -381,7 +381,7 @@ func TestFindPythonProcesses_NoProcesses(t *testing.T) {
 	collector := GetCollector()
 
 	_, err := collector.FindPythonProcesses(context.Background(), "nonexistent-pod-uid")
-
+	
 	// Should fail because pod not found
 	assert.Error(t, err)
 }
@@ -405,7 +405,7 @@ func TestGetProcessEnvironment_NoContainers(t *testing.T) {
 	}
 
 	_, err := collector.GetProcessEnvironment(context.Background(), req)
-
+	
 	// Should fail because no containers found
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "no containers found")
@@ -430,7 +430,7 @@ func TestGetProcessArguments_NoContainers(t *testing.T) {
 	}
 
 	_, err := collector.GetProcessArguments(context.Background(), req)
-
+	
 	// Should fail because no containers found
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "no containers found")
@@ -451,7 +451,7 @@ func TestFindTensorboardFiles_NoContainers(t *testing.T) {
 	collector := GetCollector()
 
 	_, err := collector.FindTensorboardFiles(context.Background(), "nonexistent-pod-uid", "test-pod", "default")
-
+	
 	// Should fail because no containers found
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "no containers found")
@@ -492,3 +492,4 @@ func BenchmarkInvalidateCache(b *testing.B) {
 		collector.InvalidateCache("pod-123")
 	}
 }
+

@@ -60,3 +60,4 @@ func (h *RecommendationHandler) GenerateRecommendations(c *gin.Context) {
 	// TODO: Generate recommendations based on workload data
 	c.JSON(http.StatusOK, []interface{}{})
 }
+

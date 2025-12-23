@@ -213,10 +213,10 @@ func getHelp(mf *dto.MetricFamily) string {
 
 // MetricsStats contains statistics about collected metrics
 type MetricsStats struct {
-	WorkloadCount  int            `json:"workload_count"`
-	MetricFamilies int            `json:"metric_families"`
-	TotalMetrics   int            `json:"total_metrics"`
-	ByWorkload     map[string]int `json:"by_workload"`
+	WorkloadCount   int            `json:"workload_count"`
+	MetricFamilies  int            `json:"metric_families"`
+	TotalMetrics    int            `json:"total_metrics"`
+	ByWorkload      map[string]int `json:"by_workload"`
 }
 
 // GetStats returns statistics about collected metrics
@@ -244,3 +244,4 @@ func (c *InferenceMetricsCollector) GetStats() MetricsStats {
 
 // Ensure interface compliance
 var _ prometheus.Collector = (*InferenceMetricsCollector)(nil)
+

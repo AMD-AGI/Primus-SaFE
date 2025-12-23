@@ -66,9 +66,9 @@ func TestSignatureExtractor_ExtractSignature(t *testing.T) {
 				UID:   "test-uid-3",
 				Image: "registry.example.com/primus:latest",
 				Labels: map[string]string{
-					"app":                      "training",
-					"pod-template-hash":        "abc123",
-					"controller-revision-hash": "def456",
+					"app":                       "training",
+					"pod-template-hash":         "abc123",
+					"controller-revision-hash":  "def456",
 				},
 				Namespace: "default",
 			},
@@ -246,35 +246,35 @@ func TestSignatureExtractor_CalculateEnvHash(t *testing.T) {
 		{
 			name: "same key env vars",
 			env1: map[string]string{
-				"FRAMEWORK":  "PyTorch",
-				"WORLD_SIZE": "8",
-				"OTHER_VAR":  "value1",
+				"FRAMEWORK":   "PyTorch",
+				"WORLD_SIZE":  "8",
+				"OTHER_VAR":   "value1",
 			},
 			env2: map[string]string{
-				"FRAMEWORK":  "PyTorch",
-				"WORLD_SIZE": "8",
-				"OTHER_VAR":  "value2",
+				"FRAMEWORK":   "PyTorch",
+				"WORLD_SIZE":  "8",
+				"OTHER_VAR":   "value2",
 			},
 			samehash: true, // Only key vars affect hash
 		},
 		{
 			name: "different key env vars",
 			env1: map[string]string{
-				"FRAMEWORK": "PyTorch",
+				"FRAMEWORK":   "PyTorch",
 			},
 			env2: map[string]string{
-				"FRAMEWORK": "TensorFlow",
+				"FRAMEWORK":   "TensorFlow",
 			},
 			samehash: false,
 		},
 		{
 			name: "missing key env var",
 			env1: map[string]string{
-				"FRAMEWORK":  "PyTorch",
-				"WORLD_SIZE": "8",
+				"FRAMEWORK":   "PyTorch",
+				"WORLD_SIZE":  "8",
 			},
 			env2: map[string]string{
-				"FRAMEWORK": "PyTorch",
+				"FRAMEWORK":   "PyTorch",
 			},
 			samehash: false,
 		},
@@ -335,3 +335,4 @@ func TestExtractImageRepo(t *testing.T) {
 		})
 	}
 }
+

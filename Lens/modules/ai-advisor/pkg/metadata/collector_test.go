@@ -544,3 +544,4 @@ func TestCollector_QueryMetadata(t *testing.T) {
 		t.Errorf("WorkloadUID = %v, want workload-1", results[0].WorkloadUID)
 	}
 }
+

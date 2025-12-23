@@ -46,3 +46,4 @@ func (c *ReuseConfig) Validate() error {
 	}
 	return nil
 }
+

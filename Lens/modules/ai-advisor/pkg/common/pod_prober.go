@@ -314,3 +314,4 @@ func (p *PodProber) ProbeProcessInfo(ctx context.Context, workloadUID string) (*
 
 	return pythonProc, pod, nil
 }
+

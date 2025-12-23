@@ -100,3 +100,4 @@ func RecordConfigReload(framework string, success bool) {
 	}
 	ConfigReloadsTotal.WithLabelValues(framework, status).Inc()
 }
+

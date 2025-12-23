@@ -83,3 +83,4 @@ func TestLoadExporterConfig(t *testing.T) {
 func TestTaskTypeConstant(t *testing.T) {
 	assert.Equal(t, "inference_metrics_scrape", TaskTypeInferenceMetricsScrape)
 }
+

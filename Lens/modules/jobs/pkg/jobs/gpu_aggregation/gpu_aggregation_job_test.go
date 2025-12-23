@@ -802,10 +802,10 @@ func TestWorkloadGpuAggregationJob_JobStructure(t *testing.T) {
 
 func TestLabelGpuAggregationConfig_Validation(t *testing.T) {
 	tests := []struct {
-		name          string
-		config        *LabelGpuAggregationConfig
-		expectEnabled bool
-		expectHasKeys bool
+		name           string
+		config         *LabelGpuAggregationConfig
+		expectEnabled  bool
+		expectHasKeys  bool
 	}{
 		{
 			name: "enabled with label keys",
@@ -913,9 +913,9 @@ func TestNamespaceGpuAggregationConfig_Validation(t *testing.T) {
 
 func TestWorkloadGpuAggregationConfig_Validation(t *testing.T) {
 	tests := []struct {
-		name         string
-		config       *WorkloadGpuAggregationConfig
-		expectedStep int
+		name          string
+		config        *WorkloadGpuAggregationConfig
+		expectedStep  int
 	}{
 		{
 			name: "default step",

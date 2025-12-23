@@ -142,3 +142,4 @@ func TestConstantValues(t *testing.T) {
 	assert.Equal(t, "tls", SessionIDPrefix)
 	assert.NotEmpty(t, DefaultTraceLensImage)
 }
+

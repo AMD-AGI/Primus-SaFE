@@ -253,3 +253,4 @@ func TestDecodeSecretData_RealWorldScenarios(t *testing.T) {
 		})
 	}
 }
+

@@ -232,3 +232,4 @@ func GetProfilerFileInfo(c *gin.Context) {
 		"data": fileInfo,
 	})
 }
+

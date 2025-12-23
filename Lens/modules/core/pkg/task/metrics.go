@@ -125,3 +125,4 @@ func updateQueueMetrics(running int, capacity int, pendingByType map[string]int,
 		TaskQueueRunningTotal.WithLabelValues(taskType).Set(float64(count))
 	}
 }
+

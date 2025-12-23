@@ -283,3 +283,4 @@ func BenchmarkNewProfilerCleanupJob(b *testing.B) {
 		_ = NewProfilerCleanupJob(lifecycleMgr, "0 2 * * *")
 	}
 }
+

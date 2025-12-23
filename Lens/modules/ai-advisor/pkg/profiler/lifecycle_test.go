@@ -271,8 +271,8 @@ func TestLifecycleManager_getTotalStorageSize(t *testing.T) {
 		{
 			name: "large files",
 			files: []*ProfilerFileMetadata{
-				{FileSize: 1073741824}, // 1 GB
-				{FileSize: 2147483648}, // 2 GB
+				{FileSize: 1073741824},     // 1 GB
+				{FileSize: 2147483648},     // 2 GB
 			},
 			expected: 3221225472, // 3 GB
 		},
@@ -301,7 +301,7 @@ func TestLifecycleManager_getTotalStorageSize(t *testing.T) {
 func TestCleanupResult_Fields(t *testing.T) {
 	start := time.Now()
 	end := start.Add(5 * time.Second)
-
+	
 	result := &CleanupResult{
 		StartTime:    start,
 		EndTime:      end,
@@ -607,3 +607,4 @@ func BenchmarkLifecycleManager_getTotalStorageSize(b *testing.B) {
 		_ = manager.getTotalStorageSize(files)
 	}
 }
+

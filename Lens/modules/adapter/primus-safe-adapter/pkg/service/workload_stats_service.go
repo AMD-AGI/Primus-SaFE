@@ -63,6 +63,7 @@ func (s *WorkloadStatsService) Run(ctx context.Context) error {
 		return nil
 	}
 
+
 	// Process statistics data for each workload
 	successCount := 0
 	failCount := 0
@@ -75,6 +76,7 @@ func (s *WorkloadStatsService) Run(ctx context.Context) error {
 			successCount++
 		}
 	}
+
 
 	return nil
 }

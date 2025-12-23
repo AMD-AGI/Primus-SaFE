@@ -152,3 +152,4 @@ type mockError struct {
 func (e *mockError) Error() string {
 	return e.msg
 }
+

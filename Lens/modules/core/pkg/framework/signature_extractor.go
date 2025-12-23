@@ -73,7 +73,7 @@ func (e *SignatureExtractor) normalizeCommand(cmd []string) []string {
 	// Remove path prefix, keep only command name
 	if len(normalized) > 0 {
 		normalized[0] = filepath.Base(normalized[0])
-
+		
 		// Normalize Python executables (python, python2, python3 -> python)
 		if strings.HasPrefix(normalized[0], "python") {
 			normalized[0] = "python"

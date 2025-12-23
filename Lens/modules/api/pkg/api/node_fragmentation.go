@@ -20,12 +20,12 @@ type FragmentationAnalysisParams struct {
 
 // FragmentationAnalysisResponse - Response for /api/v1/nodes/fragmentation-analysis
 type FragmentationAnalysisResponse struct {
-	Cluster                   string               `json:"cluster"`
-	ClusterFragmentationScore float64              `json:"cluster_fragmentation_score"` // 0-100
-	TotalNodes                int                  `json:"total_nodes"`
-	NodeFragmentations        []NodeFragmentation  `json:"node_fragmentations"`
-	Recommendations           []string             `json:"recommendations"`
-	Summary                   FragmentationSummary `json:"summary"`
+	Cluster                   string                  `json:"cluster"`
+	ClusterFragmentationScore float64                 `json:"cluster_fragmentation_score"` // 0-100
+	TotalNodes                int                     `json:"total_nodes"`
+	NodeFragmentations        []NodeFragmentation     `json:"node_fragmentations"`
+	Recommendations           []string                `json:"recommendations"`
+	Summary                   FragmentationSummary    `json:"summary"`
 }
 
 // NodeFragmentation - Node fragmentation information
@@ -78,13 +78,13 @@ type PodAllocation struct {
 
 // LoadBalanceAnalysisResponse - Response for /api/v1/nodes/load-balance-analysis
 type LoadBalanceAnalysisResponse struct {
-	Cluster              string           `json:"cluster"`
-	LoadBalanceScore     float64          `json:"load_balance_score"` // 0-100, higher is better
-	NodeLoadDistribution []NodeLoad       `json:"node_load_distribution"`
-	HotspotNodes         []string         `json:"hotspot_nodes"`
-	IdleNodes            []string         `json:"idle_nodes"`
-	Recommendations      []string         `json:"recommendations"`
-	Statistics           LoadBalanceStats `json:"statistics"`
+	Cluster              string            `json:"cluster"`
+	LoadBalanceScore     float64           `json:"load_balance_score"` // 0-100, higher is better
+	NodeLoadDistribution []NodeLoad        `json:"node_load_distribution"`
+	HotspotNodes         []string          `json:"hotspot_nodes"`
+	IdleNodes            []string          `json:"idle_nodes"`
+	Recommendations      []string          `json:"recommendations"`
+	Statistics           LoadBalanceStats  `json:"statistics"`
 }
 
 // NodeLoad - Node load information
@@ -176,7 +176,7 @@ func calculateNodeFragmentation(ctx context.Context, node *dbModel.Node, podFaca
 	// Calculate fragmentation score
 	// Factor 1: Basic allocation rate (inverted - high allocation = low fragmentation)
 	allocationRate := float64(allocatedGPUs) / float64(totalGPUs)
-
+	
 	// Factor 2: Underutilization penalty
 	// If allocated but not utilized, it's wasted resource
 	utilizationGap := 0.0
@@ -191,9 +191,9 @@ func calculateNodeFragmentation(ctx context.Context, node *dbModel.Node, podFaca
 
 	// Combined fragmentation score (0 = no fragmentation, 100 = severe fragmentation)
 	// Higher score = more fragmented = worse
-	baseFragmentation := (1 - allocationRate) * 40   // Up to 40 points for unused resources
-	utilizationFragmentation := utilizationGap * 40  // Up to 40 points for allocated but unused
-	partialFragmentation := partialAllocPenalty * 20 // Up to 20 points for suboptimal allocation
+	baseFragmentation := (1 - allocationRate) * 40        // Up to 40 points for unused resources
+	utilizationFragmentation := utilizationGap * 40       // Up to 40 points for allocated but unused
+	partialFragmentation := partialAllocPenalty * 20      // Up to 20 points for suboptimal allocation
 
 	score := baseFragmentation + utilizationFragmentation + partialFragmentation
 	score = math.Min(score, 100)
@@ -219,9 +219,9 @@ func calculatePartialAllocationPenalty(pods []*dbModel.GpuPods, totalGPUs int32)
 	}
 
 	// Count pods with different allocation sizes
-	var smallAllocations int  // 1 GPU
+	var smallAllocations int // 1 GPU
 	var mediumAllocations int // 2-3 GPUs
-	var largeAllocations int  // 4+ GPUs
+	var largeAllocations int // 4+ GPUs
 
 	for _, pod := range pods {
 		if pod.GpuAllocated == 1 {
@@ -236,12 +236,12 @@ func calculatePartialAllocationPenalty(pods []*dbModel.GpuPods, totalGPUs int32)
 	// More small allocations = higher fragmentation risk
 	// (harder to schedule large jobs)
 	penalty := 0.0
-
+	
 	if totalGPUs >= 8 && smallAllocations > 2 {
 		// On large nodes, too many small allocations is problematic
 		penalty += 0.3
 	}
-
+	
 	if smallAllocations > 4 {
 		penalty += 0.4
 	}
@@ -313,7 +313,7 @@ func generateFragmentationRecommendations(nodeFrags []NodeFragmentation) []strin
 	}
 
 	if criticalCount > 0 {
-		recommendations = append(recommendations,
+		recommendations = append(recommendations, 
 			"Critical fragmentation detected on some nodes. Consider pod consolidation or rebalancing.")
 	}
 
@@ -326,7 +326,7 @@ func generateFragmentationRecommendations(nodeFrags []NodeFragmentation) []strin
 	}
 
 	if len(lowUtilNodes) > 0 {
-		recommendations = append(recommendations,
+		recommendations = append(recommendations, 
 			"Some nodes have allocated GPUs with low utilization. Check if pods are idle.")
 	}
 
@@ -701,3 +701,4 @@ func generateLoadBalanceRecommendations(nodeLoads []NodeLoad, hotspotNodes, idle
 
 	return recommendations
 }
+

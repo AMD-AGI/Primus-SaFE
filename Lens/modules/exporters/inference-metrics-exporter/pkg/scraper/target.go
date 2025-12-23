@@ -263,17 +263,17 @@ func (t *ScrapeTarget) GetStats() TargetStats {
 	}
 
 	return TargetStats{
-		WorkloadUID:        t.WorkloadUID,
-		Framework:          t.Framework,
-		MetricsURL:         t.MetricsURL,
-		Status:             t.status,
-		LastScrapeTime:     t.lastScrapeTime,
+		WorkloadUID:       t.WorkloadUID,
+		Framework:         t.Framework,
+		MetricsURL:        t.MetricsURL,
+		Status:            t.status,
+		LastScrapeTime:    t.lastScrapeTime,
 		LastScrapeDuration: t.lastScrapeDur,
-		LastError:          lastErr,
-		ScrapeCount:        t.scrapeCount,
-		ErrorCount:         t.errorCount,
-		ConsecutiveErrors:  t.consecutiveErrs,
-		MetricFamilies:     len(t.lastMetrics),
+		LastError:         lastErr,
+		ScrapeCount:       t.scrapeCount,
+		ErrorCount:        t.errorCount,
+		ConsecutiveErrors: t.consecutiveErrs,
+		MetricFamilies:    len(t.lastMetrics),
 	}
 }
 
@@ -310,3 +310,4 @@ func (t *ScrapeTarget) GetRawMetrics() []*dto.MetricFamily {
 	defer t.mu.RUnlock()
 	return t.lastMetrics
 }
+

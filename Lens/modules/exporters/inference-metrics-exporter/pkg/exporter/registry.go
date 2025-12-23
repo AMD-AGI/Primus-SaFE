@@ -157,3 +157,4 @@ func (e *MetricsExporter) GetMetricsStats() MetricsStats {
 func (e *MetricsExporter) SerializeInferenceMetrics() ([]byte, error) {
 	return e.inferenceCollector.SerializeToText()
 }
+

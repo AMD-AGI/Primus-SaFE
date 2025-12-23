@@ -43,8 +43,8 @@ func NewHigressCollector(name string, config *collector.CollectorConfig, k8sClie
 		httpClient: &http.Client{Timeout: 10 * time.Second},
 		labelMappings: map[string]string{
 			// Envoy label mappings
-			"cluster_name":        "cluster",
-			"response_code":       "code",
+			"cluster_name":       "cluster",
+			"response_code":      "code",
 			"response_code_class": "code_class",
 		},
 		// Envoy native metrics - we'll parse cluster_name to extract service info
@@ -334,6 +334,7 @@ func (c *HigressCollector) parseClusterName(clusterName string) *model.RoutingIn
 	}
 }
 
+
 // HealthCheck checks if the collector is healthy
 func (c *HigressCollector) HealthCheck(ctx context.Context) error {
 	endpoints, err := c.Discover(ctx)
@@ -378,3 +379,4 @@ func NewHigressCollectorFactory() collector.CollectorFactory {
 func init() {
 	// This will be called when the package is imported
 }
+

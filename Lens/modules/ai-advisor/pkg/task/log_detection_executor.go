@@ -216,3 +216,4 @@ func (e *LogDetectionExecutor) Cancel(ctx context.Context, task *model.WorkloadT
 	log.Infof("Log detection task cancelled for workload %s", task.WorkloadUID)
 	return nil
 }
+

@@ -21,7 +21,7 @@ func TestCheckpointEventTracker(t *testing.T) {
 
 func TestCheckpointEventTracker_StorePendingEvent(t *testing.T) {
 	tracker := NewCheckpointEventTracker()
-
+	
 	event := &model.CheckpointEvent{
 		WorkloadUID: "test-workload",
 		Iteration:   100,
@@ -55,14 +55,14 @@ func TestCheckpointEventTracker_GetPendingEvent_NotFound(t *testing.T) {
 
 func TestCheckpointEventTracker_ClearPendingEvent(t *testing.T) {
 	tracker := NewCheckpointEventTracker()
-
+	
 	event := &model.CheckpointEvent{
 		WorkloadUID: "test-workload",
 		Iteration:   100,
 	}
 
 	tracker.storePendingEvent("test-workload", 100, event)
-
+	
 	// Verify it exists
 	if tracker.getPendingEvent("test-workload", 100) == nil {
 		t.Error("Event not stored")
@@ -174,3 +174,4 @@ func BenchmarkCheckpointEventTracker_GetPendingEvent(b *testing.B) {
 		_ = tracker.getPendingEvent("test-workload", 100)
 	}
 }
+

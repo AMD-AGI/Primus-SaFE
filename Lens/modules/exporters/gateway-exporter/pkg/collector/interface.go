@@ -51,3 +51,4 @@ type CollectorConfig struct {
 	ScrapeInterval string            `yaml:"scrapeInterval" json:"scrapeInterval"`
 	LabelMappings  map[string]string `yaml:"labelMappings" json:"labelMappings"`
 }
+

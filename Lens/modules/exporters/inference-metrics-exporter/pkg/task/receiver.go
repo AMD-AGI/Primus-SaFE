@@ -352,9 +352,9 @@ func (r *TaskReceiver) GetStats() ReceiverStats {
 	defer r.tasksMu.RUnlock()
 
 	stats := ReceiverStats{
-		InstanceID:       r.cfg.InstanceID,
-		ActiveTasks:      len(r.activeTasks),
-		MaxTasks:         r.cfg.MaxConcurrentScrapes,
+		InstanceID:   r.cfg.InstanceID,
+		ActiveTasks:  len(r.activeTasks),
+		MaxTasks:     r.cfg.MaxConcurrentScrapes,
 		TasksByFramework: make(map[string]int),
 	}
 
@@ -389,3 +389,4 @@ var _ fmt.Stringer = (*ScrapeTask)(nil)
 func (t *ScrapeTask) String() string {
 	return fmt.Sprintf("ScrapeTask{workloadUID=%s, framework=%s, status=%s}", t.WorkloadUID, t.Ext.Framework, t.Status)
 }
+

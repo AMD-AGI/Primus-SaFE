@@ -50,19 +50,19 @@ func TestPodStatsQueryParamsValidation(t *testing.T) {
 			if tt.params.Cluster == "" && tt.valid {
 				t.Error("Expected cluster to be required")
 			}
-
+			
 			// Verify page defaults
 			if tt.params.Page == 0 {
 				// Should default to 1 in handler
 				tt.params.Page = 1
 			}
-
+			
 			// Verify page size defaults
 			if tt.params.PageSize == 0 {
 				// Should default to 10 in handler
 				tt.params.PageSize = 10
 			}
-
+			
 			if tt.params.Page < 1 {
 				t.Error("Page should be at least 1")
 			}
@@ -128,20 +128,20 @@ func TestPodGPUHistoryParamsValidation(t *testing.T) {
 			if tt.params.Granularity == "" {
 				tt.params.Granularity = "hourly"
 			}
-
+			
 			// Validate granularity
 			validGranularities := map[string]bool{
 				"minute": true,
 				"hourly": true,
 				"daily":  true,
 			}
-
+			
 			if !validGranularities[tt.params.Granularity] {
 				if !tt.expectError {
 					t.Errorf("Invalid granularity: %s", tt.params.Granularity)
 				}
 			}
-
+			
 			// Validate time parameters
 			if tt.params.Hours == 0 {
 				if tt.params.StartTime == "" || tt.params.EndTime == "" {
@@ -345,7 +345,7 @@ func TestPodComparisonResponseStructure(t *testing.T) {
 	if len(response.Pods) != 2 {
 		t.Errorf("Expected 2 pods, got %d", len(response.Pods))
 	}
-
+	
 	// Verify pod details
 	pod1 := response.Pods[0]
 	if pod1.AllocatedGPUs != 4 {
@@ -354,7 +354,7 @@ func TestPodComparisonResponseStructure(t *testing.T) {
 	if pod1.PodName != "test-pod-1" {
 		t.Error("Pod1 name mismatch")
 	}
-
+	
 	pod2 := response.Pods[1]
 	if pod2.AllocatedGPUs != 8 {
 		t.Error("Pod2 GPU allocation mismatch")
@@ -362,7 +362,7 @@ func TestPodComparisonResponseStructure(t *testing.T) {
 	if pod2.PodName != "test-pod-2" {
 		t.Error("Pod2 name mismatch")
 	}
-
+	
 	// Verify comparison summary
 	if response.Comparison.AvgUtilization != 80.0 {
 		t.Error("Comparison AvgUtilization mismatch")
@@ -371,3 +371,4 @@ func TestPodComparisonResponseStructure(t *testing.T) {
 		t.Error("Comparison HighestUtilization mismatch")
 	}
 }
+

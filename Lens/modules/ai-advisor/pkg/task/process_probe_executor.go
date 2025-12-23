@@ -21,9 +21,9 @@ import (
 type ProcessProbeExecutor struct {
 	coreTask.BaseExecutor
 
-	podProber      *common.PodProber
-	evidenceStore  *detection.EvidenceStore
-	coverageFacade database.DetectionCoverageFacadeInterface
+	podProber       *common.PodProber
+	evidenceStore   *detection.EvidenceStore
+	coverageFacade  database.DetectionCoverageFacadeInterface
 }
 
 // NewProcessProbeExecutor creates a new ProcessProbeExecutor
@@ -254,14 +254,14 @@ func (e *ProcessProbeExecutor) storeEvidence(ctx context.Context, workloadUID st
 			detectedFrameworks[envResult.Framework] = true
 			requests = append(requests, &detection.StoreEvidenceRequest{
 				WorkloadUID:      workloadUID,
-				Source:           constant.DetectionSourceProcess,
-				SourceType:       "active",
-				Framework:        envResult.Framework,
-				WorkloadType:     "training",
-				Confidence:       envResult.Confidence,
-				FrameworkLayer:   envResult.Layer,
+				Source:          constant.DetectionSourceProcess,
+				SourceType:      "active",
+				Framework:       envResult.Framework,
+				WorkloadType:    "training",
+				Confidence:      envResult.Confidence,
+				FrameworkLayer:  envResult.Layer,
 				WrapperFramework: envResult.WrapperFramework,
-				BaseFramework:    envResult.BaseFramework,
+				BaseFramework:   envResult.BaseFramework,
 				Evidence: map[string]interface{}{
 					"matched_vars": e.getMatchedEnvVars(result.EnvVars),
 					"method":       "env_pattern",
@@ -416,3 +416,4 @@ func (e *ProcessProbeExecutor) Cancel(ctx context.Context, task *model.WorkloadT
 	log.Infof("Process probe task cancelled for workload %s", task.WorkloadUID)
 	return nil
 }
+

@@ -57,3 +57,4 @@ func (e *Exporter) handleCacheStats(c *gin.Context) {
 		"metrics_count":  metricsCount,
 	}))
 }
+

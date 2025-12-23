@@ -360,3 +360,4 @@ func TestExecutionResultStruct(t *testing.T) {
 	assert.Contains(t, result.UpdateExt, "key")
 	assert.Equal(t, constant.TaskStatusCompleted, result.NewStatus)
 }
+

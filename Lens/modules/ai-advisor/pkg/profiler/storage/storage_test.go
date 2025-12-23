@@ -181,14 +181,14 @@ func TestAutoSelectConfig_Threshold(t *testing.T) {
 	}{
 		{
 			name:      "Small file uses database",
-			fileSize:  5 * 1024 * 1024,  // 5MB
+			fileSize:  5 * 1024 * 1024, // 5MB
 			threshold: 10 * 1024 * 1024, // 10MB
 			useDB:     true,
 		},
 		{
 			name:      "Large file uses object storage",
 			fileSize:  50 * 1024 * 1024, // 50MB
-			threshold: 10 * 1024 * 1024, // 10MB
+			threshold: 10 * 1024 * 1024,  // 10MB
 			useDB:     false,
 		},
 		{
@@ -349,3 +349,4 @@ func TestMockStorageBackend(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, exists)
 }
+

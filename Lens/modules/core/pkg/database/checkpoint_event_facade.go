@@ -50,18 +50,18 @@ func (f *CheckpointEventFacade) CreateCheckpointEvent(ctx context.Context, event
 func (f *CheckpointEventFacade) GetCheckpointEventByWorkloadAndIteration(ctx context.Context, workloadUID string, iteration int) (*model.CheckpointEvent, error) {
 	db := f.getDB()
 	var event model.CheckpointEvent
-
+	
 	err := db.WithContext(ctx).
 		Where("workload_uid = ? AND iteration = ?", workloadUID, iteration).
 		First(&event).Error
-
+	
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
 		}
 		return nil, err
 	}
-
+	
 	return &event, nil
 }
 
@@ -69,19 +69,19 @@ func (f *CheckpointEventFacade) GetCheckpointEventByWorkloadAndIteration(ctx con
 func (f *CheckpointEventFacade) ListCheckpointEventsByWorkload(ctx context.Context, workloadUID string) ([]*model.CheckpointEvent, error) {
 	db := f.getDB()
 	var events []*model.CheckpointEvent
-
+	
 	err := db.WithContext(ctx).
 		Where("workload_uid = ?", workloadUID).
 		Order("created_at DESC").
 		Find(&events).Error
-
+	
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
 		}
 		return nil, err
 	}
-
+	
 	return events, nil
 }
 
@@ -89,19 +89,19 @@ func (f *CheckpointEventFacade) ListCheckpointEventsByWorkload(ctx context.Conte
 func (f *CheckpointEventFacade) ListCheckpointEventsByWorkloadAndTimeRange(ctx context.Context, workloadUID string, start, end time.Time) ([]*model.CheckpointEvent, error) {
 	db := f.getDB()
 	var events []*model.CheckpointEvent
-
+	
 	err := db.WithContext(ctx).
 		Where("workload_uid = ? AND created_at >= ? AND created_at <= ?", workloadUID, start, end).
 		Order("created_at ASC").
 		Find(&events).Error
-
+	
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
 		}
 		return nil, err
 	}
-
+	
 	return events, nil
 }
 
@@ -109,19 +109,19 @@ func (f *CheckpointEventFacade) ListCheckpointEventsByWorkloadAndTimeRange(ctx c
 func (f *CheckpointEventFacade) ListCheckpointEventsByType(ctx context.Context, workloadUID, eventType string) ([]*model.CheckpointEvent, error) {
 	db := f.getDB()
 	var events []*model.CheckpointEvent
-
+	
 	err := db.WithContext(ctx).
 		Where("workload_uid = ? AND event_type = ?", workloadUID, eventType).
 		Order("created_at DESC").
 		Find(&events).Error
-
+	
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
 		}
 		return nil, err
 	}
-
+	
 	return events, nil
 }
 
@@ -135,18 +135,19 @@ func (f *CheckpointEventFacade) UpdateCheckpointEvent(ctx context.Context, event
 func (f *CheckpointEventFacade) GetLatestCheckpointEvent(ctx context.Context, workloadUID string) (*model.CheckpointEvent, error) {
 	db := f.getDB()
 	var event model.CheckpointEvent
-
+	
 	err := db.WithContext(ctx).
 		Where("workload_uid = ?", workloadUID).
 		Order("created_at DESC").
 		First(&event).Error
-
+	
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
 		}
 		return nil, err
 	}
-
+	
 	return &event, nil
 }
+

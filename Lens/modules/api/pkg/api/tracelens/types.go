@@ -6,8 +6,8 @@ import "time"
 type CreateSessionRequest struct {
 	WorkloadUID     string `json:"workload_uid" binding:"required"`
 	ProfilerFileID  int32  `json:"profiler_file_id" binding:"required"`
-	TTLMinutes      int    `json:"ttl_minutes"`      // default: 60
-	ResourceProfile string `json:"resource_profile"` // default: medium
+	TTLMinutes      int    `json:"ttl_minutes"`       // default: 60
+	ResourceProfile string `json:"resource_profile"`  // default: medium
 }
 
 // SessionResponse is the response for session operations
@@ -45,3 +45,4 @@ type SessionStatusResponse struct {
 	Status    string `json:"status"`
 	Message   string `json:"message,omitempty"`
 }
+

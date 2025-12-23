@@ -199,3 +199,4 @@ func TestDimensionCompatibilityRuleStruct(t *testing.T) {
 	assert.Contains(t, rule.IncompatibleWith[DimensionRuntime], "pytorch")
 	assert.Contains(t, rule.IncompatibleWith[DimensionRuntime], "jax")
 }
+

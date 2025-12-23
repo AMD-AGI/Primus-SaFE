@@ -217,3 +217,4 @@ func (a *WorkloadAnalyzer) getSortedRules() []*FrameworkRule {
 
 	return rules
 }
+

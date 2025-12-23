@@ -783,7 +783,7 @@ func TestHandleTaskFailure(t *testing.T) {
 		task := createTestTask("workload-1", "test-task")
 		result := &ExecutionResult{
 			UpdateExt: map[string]interface{}{
-				"attempts":        3,
+				"attempts": 3,
 				"last_error_code": 500,
 			},
 		}
@@ -974,7 +974,7 @@ func TestStop(t *testing.T) {
 
 		assert.NoError(t, err)
 		assert.True(t, cancelCalled, "cancel function should have been called")
-
+		
 		// Verify the release lock was attempted
 		mockFacade.AssertExpectations(t)
 	})
@@ -1125,3 +1125,4 @@ func TestConcurrentTaskExecution(t *testing.T) {
 		executor.AssertCalled(t, "Execute", mock.Anything, mock.Anything)
 	})
 }
+

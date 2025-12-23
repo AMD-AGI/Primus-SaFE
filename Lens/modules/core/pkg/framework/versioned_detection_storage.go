@@ -50,28 +50,28 @@ func (s *VersionedDetectionStorage) LoadDetection(
 	workloadUID string,
 ) (*model.MultiDimensionalDetection, error) {
 	var record DetectionRecord
-
+	
 	err := s.db.WithContext(ctx).
 		Where("workload_uid = ?", workloadUID).
 		First(&record).Error
-
+	
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, nil // Not found
 		}
 		return nil, fmt.Errorf("failed to load detection record: %w", err)
 	}
-
+	
 	// Version-aware deserialization
 	switch record.Version {
 	case DetectionVersionV2, "": // Empty version treated as v2 if data structure matches
 		return s.loadV2Detection(&record)
-
+	
 	case DetectionVersionV1:
 		return s.loadAndConvertV1Detection(&record)
-
+	
 	default:
-		log.Warnf("Unknown detection version %s for workload %s, attempting v2 parse",
+		log.Warnf("Unknown detection version %s for workload %s, attempting v2 parse", 
 			record.Version, workloadUID)
 		return s.loadV2Detection(&record)
 	}
@@ -85,28 +85,28 @@ func (s *VersionedDetectionStorage) SaveDetection(
 	// Always save as v2
 	detection.Version = DetectionVersionV2
 	detection.UpdatedAt = time.Now()
-
+	
 	// Serialize to JSON
 	data, err := json.Marshal(detection)
 	if err != nil {
 		return fmt.Errorf("failed to marshal detection: %w", err)
 	}
-
+	
 	record := &DetectionRecord{
 		WorkloadUID: detection.WorkloadUID,
 		Version:     DetectionVersionV2,
 		Data:        data,
 		UpdatedAt:   time.Now(),
 	}
-
+	
 	// Upsert
 	err = s.db.WithContext(ctx).
 		Save(record).Error
-
+	
 	if err != nil {
 		return fmt.Errorf("failed to save detection: %w", err)
 	}
-
+	
 	log.Debugf("Saved detection as v2 for workload %s", detection.WorkloadUID)
 	return nil
 }
@@ -114,11 +114,11 @@ func (s *VersionedDetectionStorage) SaveDetection(
 // loadV2Detection loads v2 format directly
 func (s *VersionedDetectionStorage) loadV2Detection(record *DetectionRecord) (*model.MultiDimensionalDetection, error) {
 	var detection model.MultiDimensionalDetection
-
+	
 	if err := json.Unmarshal(record.Data, &detection); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal v2 detection: %w", err)
 	}
-
+	
 	log.Debugf("Loaded v2 detection for workload %s", detection.WorkloadUID)
 	return &detection, nil
 }
@@ -129,16 +129,16 @@ func (s *VersionedDetectionStorage) loadAndConvertV1Detection(
 ) (*model.MultiDimensionalDetection, error) {
 	// Parse v1 format
 	var v1Detection model.FrameworkDetection
-
+	
 	if err := json.Unmarshal(record.Data, &v1Detection); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal v1 detection: %w", err)
 	}
-
+	
 	log.Infof("Converting v1 detection to v2 for workload %s", record.WorkloadUID)
-
+	
 	// Convert v1 to v2
 	v2Detection := ConvertV1ToV2(&v1Detection)
-
+	
 	return v2Detection, nil
 }
 
@@ -154,7 +154,7 @@ func ConvertV1ToV2(v1 *model.FrameworkDetection) *model.MultiDimensionalDetectio
 		Conflicts:   make(map[model.DetectionDimension][]model.DetectionConflict),
 		UpdatedAt:   time.Now(),
 	}
-
+	
 	// Convert wrapper framework
 	if v1.WrapperFramework != "" {
 		v2.Dimensions[model.DimensionWrapperFramework] = []model.DimensionValue{
@@ -170,7 +170,7 @@ func ConvertV1ToV2(v1 *model.FrameworkDetection) *model.MultiDimensionalDetectio
 			},
 		}
 	}
-
+	
 	// Convert base framework
 	if v1.BaseFramework != "" {
 		v2.Dimensions[model.DimensionBaseFramework] = []model.DimensionValue{
@@ -185,7 +185,7 @@ func ConvertV1ToV2(v1 *model.FrameworkDetection) *model.MultiDimensionalDetectio
 				},
 			},
 		}
-
+		
 		// Infer runtime from base framework
 		runtime := inferRuntimeFromFramework(v1.BaseFramework)
 		if runtime != "" {
@@ -204,7 +204,7 @@ func ConvertV1ToV2(v1 *model.FrameworkDetection) *model.MultiDimensionalDetectio
 			}
 		}
 	}
-
+	
 	// Convert behavior/task type
 	if v1.Type != "" {
 		v2.Dimensions[model.DimensionBehavior] = []model.DimensionValue{
@@ -220,7 +220,7 @@ func ConvertV1ToV2(v1 *model.FrameworkDetection) *model.MultiDimensionalDetectio
 			},
 		}
 	}
-
+	
 	// Try to infer language from sources
 	language := inferLanguageFromSources(v1.Sources)
 	if language != "" {
@@ -238,17 +238,17 @@ func ConvertV1ToV2(v1 *model.FrameworkDetection) *model.MultiDimensionalDetectio
 			},
 		}
 	}
-
+	
 	// Convert conflicts (map to appropriate dimension)
 	if len(v1.Conflicts) > 0 {
 		// Try to determine which dimension the conflict belongs to
 		// For simplicity, put all v1 conflicts in base_framework dimension
 		v2.Conflicts[model.DimensionBaseFramework] = v1.Conflicts
 	}
-
+	
 	log.Infof("Converted v1 detection: frameworks=%v -> dimensions with %d entries",
 		v1.Frameworks, len(v2.Dimensions))
-
+	
 	return v2
 }
 
@@ -260,21 +260,21 @@ func inferRuntimeFromFramework(framework string) string {
 		"lightning": true, "pytorch_lightning": true,
 		"transformers": true, "horovod": true,
 	}
-
+	
 	if pytorchFrameworks[framework] {
 		return "pytorch"
 	}
-
+	
 	// TensorFlow-based
 	if framework == "keras" || framework == "tensorflow" {
 		return "tensorflow"
 	}
-
+	
 	// JAX-based
 	if framework == "jax" || framework == "flax" {
 		return "jax"
 	}
-
+	
 	return ""
 }
 
@@ -285,25 +285,25 @@ func inferLanguageFromSources(sources []model.DetectionSource) string {
 		if source.Evidence == nil {
 			continue
 		}
-
+		
 		// Check for python indicators
 		if system, ok := source.Evidence["system"].(map[string]interface{}); ok {
 			if pythonVersion, ok := system["python_version"].(string); ok && pythonVersion != "" {
 				return "python"
 			}
 		}
-
+		
 		// Check pytorch (implies python)
 		if pytorch, ok := source.Evidence["pytorch"]; ok && pytorch != nil {
 			return "python"
 		}
-
+		
 		// Check wandb (typically python)
 		if _, ok := source.Evidence["wandb"]; ok {
 			return "python"
 		}
 	}
-
+	
 	// Default assumption for ML workloads
 	return "python"
 }
@@ -314,7 +314,7 @@ func (s *VersionedDetectionStorage) BatchMigrate(
 	workloadUIDs []string,
 ) (int, error) {
 	successCount := 0
-
+	
 	for _, uid := range workloadUIDs {
 		// Load (will auto-convert if v1)
 		detection, err := s.LoadDetection(ctx, uid)
@@ -322,20 +322,20 @@ func (s *VersionedDetectionStorage) BatchMigrate(
 			log.Errorf("Failed to load detection for migration %s: %v", uid, err)
 			continue
 		}
-
+		
 		if detection == nil {
 			continue
 		}
-
+		
 		// Save (will write as v2)
 		if err := s.SaveDetection(ctx, detection); err != nil {
 			log.Errorf("Failed to save migrated detection %s: %v", uid, err)
 			continue
 		}
-
+		
 		successCount++
 	}
-
+	
 	log.Infof("Batch migration completed: %d/%d workloads migrated", successCount, len(workloadUIDs))
 	return successCount, nil
 }
@@ -346,24 +346,24 @@ func (s *VersionedDetectionStorage) GetVersionStats(ctx context.Context) (map[st
 		Version string
 		Count   int64
 	}
-
+	
 	var results []VersionCount
-
+	
 	err := s.db.WithContext(ctx).
 		Model(&DetectionRecord{}).
 		Select("COALESCE(version, '1.0') as version, COUNT(*) as count").
 		Group("version").
 		Scan(&results).Error
-
+	
 	if err != nil {
 		return nil, fmt.Errorf("failed to get version stats: %w", err)
 	}
-
+	
 	stats := make(map[string]int)
 	for _, r := range results {
 		stats[r.Version] = int(r.Count)
 	}
-
+	
 	return stats, nil
 }
 
@@ -371,18 +371,18 @@ func (s *VersionedDetectionStorage) GetVersionStats(ctx context.Context) (map[st
 func (s *VersionedDetectionStorage) MigrateAllV1ToV2(ctx context.Context) (int, error) {
 	// Find all v1 records
 	var records []DetectionRecord
-
+	
 	err := s.db.WithContext(ctx).
 		Model(&DetectionRecord{}).
 		Where("version = ? OR version IS NULL", DetectionVersionV1).
 		Find(&records).Error
-
+	
 	if err != nil {
 		return 0, fmt.Errorf("failed to query v1 records: %w", err)
 	}
-
+	
 	log.Infof("Found %d v1 records to migrate", len(records))
-
+	
 	successCount := 0
 	for _, record := range records {
 		// Load and convert
@@ -391,22 +391,23 @@ func (s *VersionedDetectionStorage) MigrateAllV1ToV2(ctx context.Context) (int, 
 			log.Errorf("Failed to convert v1 record %s: %v", record.WorkloadUID, err)
 			continue
 		}
-
+		
 		detection.WorkloadUID = record.WorkloadUID
-
+		
 		// Save as v2
 		if err := s.SaveDetection(ctx, detection); err != nil {
 			log.Errorf("Failed to save migrated record %s: %v", record.WorkloadUID, err)
 			continue
 		}
-
+		
 		successCount++
-
+		
 		if successCount%100 == 0 {
 			log.Infof("Migration progress: %d/%d records", successCount, len(records))
 		}
 	}
-
+	
 	log.Infof("Migration completed: %d/%d records successfully migrated", successCount, len(records))
 	return successCount, nil
 }
+

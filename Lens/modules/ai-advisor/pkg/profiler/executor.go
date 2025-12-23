@@ -20,12 +20,12 @@ import (
 type ProfilerCollectionExecutor struct {
 	coreTask.BaseExecutor
 
-	collector         *Collector
-	metadataMgr       *MetadataManager
-	metadataFacade    database.AiWorkloadMetadataFacadeInterface
-	workloadFacade    database.WorkloadFacadeInterface
-	configService     *FrameworkConfigService
-	metadataCollector *metadataCollector.Collector // For getting node-exporter client
+	collector           *Collector
+	metadataMgr         *MetadataManager
+	metadataFacade      database.AiWorkloadMetadataFacadeInterface
+	workloadFacade      database.WorkloadFacadeInterface
+	configService       *FrameworkConfigService
+	metadataCollector   *metadataCollector.Collector // For getting node-exporter client
 }
 
 // NewProfilerCollectionExecutor creates profiler collection executor

@@ -25,27 +25,27 @@ func NewMetadataManager(db *sql.DB) (*MetadataManager, error) {
 
 // ProfilerFileMetadata represents profiler file metadata in database
 type ProfilerFileMetadata struct {
-	ID            int64                  `json:"id"`
-	WorkloadUID   string                 `json:"workload_uid"`
-	PodUID        string                 `json:"pod_uid"`
-	PodName       string                 `json:"pod_name"`
-	PodNamespace  string                 `json:"pod_namespace"`
-	FileName      string                 `json:"file_name"`
-	FilePath      string                 `json:"file_path"`
-	FileType      string                 `json:"file_type"`
-	FileSize      int64                  `json:"file_size"`
-	StorageType   string                 `json:"storage_type"`
-	StoragePath   string                 `json:"storage_path"`
-	StorageBucket string                 `json:"storage_bucket,omitempty"`
-	DownloadURL   string                 `json:"download_url"`
-	Confidence    string                 `json:"confidence"`
-	SourcePID     int                    `json:"source_pid"`
-	DetectedAt    time.Time              `json:"detected_at"`
-	CollectedAt   time.Time              `json:"collected_at"`
-	ExpiresAt     *time.Time             `json:"expires_at,omitempty"`
-	CreatedAt     time.Time              `json:"created_at"`
-	UpdatedAt     time.Time              `json:"updated_at"`
-	Metadata      map[string]interface{} `json:"metadata,omitempty"`
+	ID             int64                  `json:"id"`
+	WorkloadUID    string                 `json:"workload_uid"`
+	PodUID         string                 `json:"pod_uid"`
+	PodName        string                 `json:"pod_name"`
+	PodNamespace   string                 `json:"pod_namespace"`
+	FileName       string                 `json:"file_name"`
+	FilePath       string                 `json:"file_path"`
+	FileType       string                 `json:"file_type"`
+	FileSize       int64                  `json:"file_size"`
+	StorageType    string                 `json:"storage_type"`
+	StoragePath    string                 `json:"storage_path"`
+	StorageBucket  string                 `json:"storage_bucket,omitempty"`
+	DownloadURL    string                 `json:"download_url"`
+	Confidence     string                 `json:"confidence"`
+	SourcePID      int                    `json:"source_pid"`
+	DetectedAt     time.Time              `json:"detected_at"`
+	CollectedAt    time.Time              `json:"collected_at"`
+	ExpiresAt      *time.Time             `json:"expires_at,omitempty"`
+	CreatedAt      time.Time              `json:"created_at"`
+	UpdatedAt      time.Time              `json:"updated_at"`
+	Metadata       map[string]interface{} `json:"metadata,omitempty"`
 }
 
 // SaveMetadata saves profiler file metadata to database
@@ -409,11 +409,11 @@ func (m *MetadataManager) GetStatistics(ctx context.Context, workloadUID string)
 
 // Statistics represents profiler file statistics
 type Statistics struct {
-	WorkloadUID   string                `json:"workload_uid"`
-	TotalFiles    int                   `json:"total_files"`
-	TotalSize     int64                 `json:"total_size"`
-	FileTypes     int                   `json:"file_types"`
-	StorageTypes  int                   `json:"storage_types"`
+	WorkloadUID   string               `json:"workload_uid"`
+	TotalFiles    int                  `json:"total_files"`
+	TotalSize     int64                `json:"total_size"`
+	FileTypes     int                  `json:"file_types"`
+	StorageTypes  int                  `json:"storage_types"`
 	TypeBreakdown map[string]*TypeStats `json:"type_breakdown"`
 }
 
@@ -422,3 +422,4 @@ type TypeStats struct {
 	Count int   `json:"count"`
 	Size  int64 `json:"size"`
 }
+

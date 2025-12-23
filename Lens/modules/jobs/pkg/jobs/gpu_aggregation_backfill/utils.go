@@ -19,3 +19,4 @@ func generateAllHours(startTime, endTime time.Time) []time.Time {
 
 	return hours
 }
+

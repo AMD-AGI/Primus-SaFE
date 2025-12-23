@@ -86,3 +86,4 @@ func Init(ctx context.Context, conf *config.Config) error {
 	log.Info("Gateway exporter initialized successfully")
 	return nil
 }
+

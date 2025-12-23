@@ -281,3 +281,4 @@ func proxyUIHealthCheckInternal(c *gin.Context, sessionID string) {
 		"ready":      session.Status == tlconst.StatusReady,
 	})
 }
+

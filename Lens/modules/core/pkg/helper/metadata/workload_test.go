@@ -125,3 +125,4 @@ func TestWorkloadStatusColorMapCount(t *testing.T) {
 		t.Errorf("workloadStatusColorMap has %d entries, expected %d", actualCount, expectedCount)
 	}
 }
+

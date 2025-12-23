@@ -200,3 +200,4 @@ func TestNewHigressCollectorFactory(t *testing.T) {
 	assert.Equal(t, collector.GatewayTypeHigress, c.Type())
 	assert.Equal(t, "test-collector", c.Name())
 }
+

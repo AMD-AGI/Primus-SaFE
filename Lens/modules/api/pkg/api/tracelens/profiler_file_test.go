@@ -168,9 +168,9 @@ func TestFileIDParsing(t *testing.T) {
 
 func TestStorageTypeValidation(t *testing.T) {
 	tests := []struct {
-		name        string
-		storageType string
-		isSupported bool
+		name         string
+		storageType  string
+		isSupported  bool
 	}{
 		{
 			name:        "database storage supported",
@@ -209,28 +209,28 @@ func TestStorageTypeValidation(t *testing.T) {
 
 func TestContentEncodingHandling(t *testing.T) {
 	tests := []struct {
-		name             string
-		encoding         string
+		name            string
+		encoding        string
 		shouldDecompress bool
 	}{
 		{
-			name:             "gzip encoding",
-			encoding:         "gzip",
+			name:            "gzip encoding",
+			encoding:        "gzip",
 			shouldDecompress: true,
 		},
 		{
-			name:             "none encoding",
-			encoding:         "none",
+			name:            "none encoding",
+			encoding:        "none",
 			shouldDecompress: false,
 		},
 		{
-			name:             "empty encoding",
-			encoding:         "",
+			name:            "empty encoding",
+			encoding:        "",
 			shouldDecompress: false,
 		},
 		{
-			name:             "unknown encoding treated as none",
-			encoding:         "unknown",
+			name:            "unknown encoding treated as none",
+			encoding:        "unknown",
 			shouldDecompress: false,
 		},
 	}
@@ -421,3 +421,4 @@ func TestLargeFileChunking(t *testing.T) {
 	}
 	assert.Equal(t, content, combined.Bytes())
 }
+

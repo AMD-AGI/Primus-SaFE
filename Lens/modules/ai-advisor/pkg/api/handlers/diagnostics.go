@@ -76,3 +76,4 @@ func (h *DiagnosticsHandler) GetRootCauses(c *gin.Context) {
 	// TODO: Retrieve root causes
 	c.JSON(http.StatusOK, []interface{}{})
 }
+

@@ -1531,11 +1531,11 @@ func TestBuildDetectionStatusResponse_WrapperFramework(t *testing.T) {
 	now := time.Now()
 
 	tests := []struct {
-		name            string
-		detection       *model.WorkloadDetection
-		expectedLayer   string
-		expectedWrapper string
-		expectedBase    string
+		name             string
+		detection        *model.WorkloadDetection
+		expectedLayer    string
+		expectedWrapper  string
+		expectedBase     string
 	}{
 		{
 			name: "wrapper_framework_detection",
@@ -1684,3 +1684,4 @@ func TestFilterDetectionTasks_AllTaskTypes(t *testing.T) {
 		})
 	}
 }
+

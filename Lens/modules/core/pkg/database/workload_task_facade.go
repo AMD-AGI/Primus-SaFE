@@ -21,22 +21,22 @@ type WorkloadTaskFacadeInterface interface {
 	UpsertTask(ctx context.Context, task *model.WorkloadTaskState) error
 	GetTask(ctx context.Context, workloadUID, taskType string) (*model.WorkloadTaskState, error)
 	DeleteTask(ctx context.Context, workloadUID, taskType string) error
-
+	
 	// Task queries
 	ListTasksByWorkload(ctx context.Context, workloadUID string) ([]*model.WorkloadTaskState, error)
 	ListTasksByStatus(ctx context.Context, status string) ([]*model.WorkloadTaskState, error)
 	ListRecoverableTasks(ctx context.Context) ([]*model.WorkloadTaskState, error)
-
+	
 	// Status updates
 	UpdateTaskStatus(ctx context.Context, workloadUID, taskType, status string) error
 	UpdateTaskExt(ctx context.Context, workloadUID, taskType string, extData model.ExtType) error
-
+	
 	// Distributed lock operations
 	TryAcquireLock(ctx context.Context, workloadUID, taskType, lockOwner string, lockDuration time.Duration) (bool, error)
 	ExtendLock(ctx context.Context, workloadUID, taskType, lockOwner string, lockDuration time.Duration) (bool, error)
 	ReleaseLock(ctx context.Context, workloadUID, taskType, lockOwner string) error
 	ReleaseStaleLocks(ctx context.Context) (int64, error)
-
+	
 	// Cleanup
 	CleanupOldTasks(ctx context.Context, retentionDays int) (int64, error)
 }
@@ -54,7 +54,7 @@ func (f *WorkloadTaskFacade) UpsertTask(ctx context.Context, task *model.Workloa
 		task.CreatedAt = time.Now()
 	}
 	task.UpdatedAt = time.Now()
-
+	
 	return f.db.WithContext(ctx).
 		Clauses(clause.OnConflict{
 			Columns: []clause.Column{{Name: "workload_uid"}, {Name: "task_type"}},
@@ -145,7 +145,7 @@ func (f *WorkloadTaskFacade) TryAcquireLock(
 	lockDuration time.Duration,
 ) (bool, error) {
 	expiresAt := time.Now().Add(lockDuration)
-
+	
 	result := f.db.WithContext(ctx).
 		Model(&model.WorkloadTaskState{}).
 		Where("workload_uid = ? AND task_type = ?", workloadUID, taskType).
@@ -157,11 +157,11 @@ func (f *WorkloadTaskFacade) TryAcquireLock(
 			"lock_version":     gorm.Expr("lock_version + 1"),
 			"status":           constant.TaskStatusRunning,
 		})
-
+	
 	if result.Error != nil {
 		return false, result.Error
 	}
-
+	
 	return result.RowsAffected > 0, nil
 }
 
@@ -173,7 +173,7 @@ func (f *WorkloadTaskFacade) ExtendLock(
 	lockDuration time.Duration,
 ) (bool, error) {
 	expiresAt := time.Now().Add(lockDuration)
-
+	
 	result := f.db.WithContext(ctx).
 		Model(&model.WorkloadTaskState{}).
 		Where("workload_uid = ? AND task_type = ? AND lock_owner = ?", workloadUID, taskType, lockOwner).
@@ -181,11 +181,11 @@ func (f *WorkloadTaskFacade) ExtendLock(
 			"lock_expires_at": expiresAt,
 			"lock_version":    gorm.Expr("lock_version + 1"),
 		})
-
+	
 	if result.Error != nil {
 		return false, result.Error
 	}
-
+	
 	return result.RowsAffected > 0, nil
 }
 
@@ -195,7 +195,7 @@ func (f *WorkloadTaskFacade) ReleaseLock(ctx context.Context, workloadUID, taskT
 		Model(&model.WorkloadTaskState{}).
 		Where("workload_uid = ? AND task_type = ? AND lock_owner = ?", workloadUID, taskType, lockOwner).
 		Updates(map[string]interface{}{
-			"lock_owner":       nil,
+			"lock_owner":      nil,
 			"lock_acquired_at": nil,
 			"lock_expires_at":  nil,
 		}).Error
@@ -212,19 +212,19 @@ func (f *WorkloadTaskFacade) ReleaseStaleLocks(ctx context.Context) (int64, erro
 			"lock_expires_at":  nil,
 			"status":           constant.TaskStatusPending,
 		})
-
+	
 	return result.RowsAffected, result.Error
 }
 
 // CleanupOldTasks removes old completed tasks
 func (f *WorkloadTaskFacade) CleanupOldTasks(ctx context.Context, retentionDays int) (int64, error) {
 	cutoff := time.Now().AddDate(0, 0, -retentionDays)
-
+	
 	result := f.db.WithContext(ctx).
 		Where("status IN (?) AND updated_at < ?",
 			[]string{constant.TaskStatusCompleted, constant.TaskStatusCancelled}, cutoff).
 		Delete(&model.WorkloadTaskState{})
-
+	
 	return result.RowsAffected, result.Error
 }
 

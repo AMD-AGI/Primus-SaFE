@@ -65,7 +65,7 @@ func TestMetadataManager_SaveMetadata_Success(t *testing.T) {
 	}
 
 	now := time.Now()
-
+	
 	// Mock INSERT
 	mock.ExpectQuery(`INSERT INTO profiler_files`).
 		WithArgs(
@@ -510,7 +510,7 @@ func TestStatistics_TypeBreakdown(t *testing.T) {
 
 	assert.Equal(t, 3, len(stats.TypeBreakdown))
 	assert.Equal(t, 5, stats.TypeBreakdown["chrome_trace"].Count)
-
+	
 	// Calculate percentage
 	chromeTracePercentage := float64(stats.TypeBreakdown["chrome_trace"].Size) / float64(stats.TotalSize) * 100
 	assert.InDelta(t, 60.0, chromeTracePercentage, 0.1)
@@ -525,3 +525,4 @@ func TestTypeStats_Fields(t *testing.T) {
 	assert.Equal(t, 5, stats.Count)
 	assert.Equal(t, int64(30000000), stats.Size)
 }
+

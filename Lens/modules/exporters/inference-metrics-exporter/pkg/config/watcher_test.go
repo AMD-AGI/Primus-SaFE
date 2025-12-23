@@ -121,3 +121,4 @@ func TestConfigWatcher_GetStats(t *testing.T) {
 func TestConfigKeyPrefix(t *testing.T) {
 	assert.Equal(t, "inference.metrics.config.", ConfigKeyPrefix)
 }
+

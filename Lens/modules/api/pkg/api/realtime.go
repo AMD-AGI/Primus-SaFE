@@ -453,3 +453,4 @@ func parseOwnerReference(ownerUID string) (string, string) {
 	// TODO: Query actual workload type from database instead of hardcoding "Job"
 	return "Job", ownerUID[:8] // Simplified - just use first 8 chars of UID
 }
+

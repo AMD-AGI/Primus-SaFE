@@ -7,13 +7,13 @@ import (
 
 // MockStorage is a mock implementation of Storage interface for testing
 type MockStorage struct {
-	mu        sync.RWMutex
-	data      map[string]*WorkloadMetadata
-	StoreErr  error
-	GetErr    error
-	QueryErr  error
+	mu       sync.RWMutex
+	data     map[string]*WorkloadMetadata
+	StoreErr error
+	GetErr   error
+	QueryErr error
 	DeleteErr error
-
+	
 	StoreCalls  int
 	GetCalls    int
 	QueryCalls  int
@@ -31,13 +31,13 @@ func NewMockStorage() *MockStorage {
 func (m *MockStorage) Store(ctx context.Context, metadata *WorkloadMetadata) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-
+	
 	m.StoreCalls++
-
+	
 	if m.StoreErr != nil {
 		return m.StoreErr
 	}
-
+	
 	m.data[metadata.WorkloadUID] = metadata
 	return nil
 }
@@ -46,13 +46,13 @@ func (m *MockStorage) Store(ctx context.Context, metadata *WorkloadMetadata) err
 func (m *MockStorage) Get(ctx context.Context, workloadUID string) (*WorkloadMetadata, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-
+	
 	m.GetCalls++
-
+	
 	if m.GetErr != nil {
 		return nil, m.GetErr
 	}
-
+	
 	return m.data[workloadUID], nil
 }
 
@@ -60,13 +60,13 @@ func (m *MockStorage) Get(ctx context.Context, workloadUID string) (*WorkloadMet
 func (m *MockStorage) Query(ctx context.Context, query *MetadataQuery) ([]*WorkloadMetadata, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-
+	
 	m.QueryCalls++
-
+	
 	if m.QueryErr != nil {
 		return nil, m.QueryErr
 	}
-
+	
 	var results []*WorkloadMetadata
 	for _, metadata := range m.data {
 		if query.WorkloadUID != "" && metadata.WorkloadUID != query.WorkloadUID {
@@ -77,11 +77,11 @@ func (m *MockStorage) Query(ctx context.Context, query *MetadataQuery) ([]*Workl
 		}
 		results = append(results, metadata)
 	}
-
+	
 	if query.Limit > 0 && len(results) > query.Limit {
 		results = results[:query.Limit]
 	}
-
+	
 	return results, nil
 }
 
@@ -89,13 +89,13 @@ func (m *MockStorage) Query(ctx context.Context, query *MetadataQuery) ([]*Workl
 func (m *MockStorage) Delete(ctx context.Context, workloadUID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-
+	
 	m.DeleteCalls++
-
+	
 	if m.DeleteErr != nil {
 		return m.DeleteErr
 	}
-
+	
 	delete(m.data, workloadUID)
 	return nil
 }
@@ -104,7 +104,7 @@ func (m *MockStorage) Delete(ctx context.Context, workloadUID string) error {
 func (m *MockStorage) Reset() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-
+	
 	m.data = make(map[string]*WorkloadMetadata)
 	m.StoreErr = nil
 	m.GetErr = nil
@@ -120,10 +120,11 @@ func (m *MockStorage) Reset() {
 func (m *MockStorage) GetStoredData() map[string]*WorkloadMetadata {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-
+	
 	dataCopy := make(map[string]*WorkloadMetadata)
 	for k, v := range m.data {
 		dataCopy[k] = v
 	}
 	return dataCopy
 }
+

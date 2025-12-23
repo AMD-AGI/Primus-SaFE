@@ -60,11 +60,11 @@ func NewPatternMatcher(framework *FrameworkLogPatterns) (*PatternMatcher, error)
 		trainingEventRegexps: make(map[string][]*CompiledPattern),
 		checkpointRegexps:    make(map[string][]*CompiledPattern),
 	}
-
+	
 	if err := matcher.compile(); err != nil {
 		return nil, err
 	}
-
+	
 	return matcher, nil
 }
 
@@ -215,13 +215,13 @@ func (m *PatternMatcher) compileEventPatterns(eventType string, patterns []Patte
 		if !pattern.Enabled {
 			continue
 		}
-
+		
 		regex, err := regexp.Compile(pattern.Pattern)
 		if err != nil {
 			log.Warnf("Failed to compile %s pattern %s: %v", eventType, pattern.Name, err)
 			continue
 		}
-
+		
 		m.trainingEventRegexps[eventType] = append(m.trainingEventRegexps[eventType], &CompiledPattern{
 			Name:       pattern.Name,
 			Pattern:    regex,
@@ -237,13 +237,13 @@ func (m *PatternMatcher) compileCheckpointPatterns(eventType string, patterns []
 		if !pattern.Enabled {
 			continue
 		}
-
+		
 		regex, err := regexp.Compile(pattern.Pattern)
 		if err != nil {
 			log.Warnf("Failed to compile checkpoint %s pattern %s: %v", eventType, pattern.Name, err)
 			continue
 		}
-
+		
 		m.checkpointRegexps[eventType] = append(m.checkpointRegexps[eventType], &CompiledPattern{
 			Name:       pattern.Name,
 			Pattern:    regex,
@@ -257,7 +257,7 @@ func (m *PatternMatcher) compileCheckpointPatterns(eventType string, patterns []
 func (m *PatternMatcher) MatchIdentify(logLine string) *MatchResult {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-
+	
 	for _, compiled := range m.identifyRegexps {
 		if compiled.Pattern.MatchString(logLine) {
 			return &MatchResult{
@@ -267,7 +267,7 @@ func (m *PatternMatcher) MatchIdentify(logLine string) *MatchResult {
 			}
 		}
 	}
-
+	
 	return &MatchResult{Matched: false}
 }
 
@@ -275,7 +275,7 @@ func (m *PatternMatcher) MatchIdentify(logLine string) *MatchResult {
 func (m *PatternMatcher) MatchPerformance(logLine string) *MatchResult {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-
+	
 	for _, compiled := range m.performanceRegexps {
 		if match := compiled.Pattern.FindStringSubmatch(logLine); match != nil {
 			groups := extractGroups(compiled.Pattern, match)
@@ -287,7 +287,7 @@ func (m *PatternMatcher) MatchPerformance(logLine string) *MatchResult {
 			}
 		}
 	}
-
+	
 	return &MatchResult{Matched: false}
 }
 
@@ -295,12 +295,12 @@ func (m *PatternMatcher) MatchPerformance(logLine string) *MatchResult {
 func (m *PatternMatcher) MatchTrainingEvent(logLine string, eventType string) *MatchResult {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-
+	
 	patterns, ok := m.trainingEventRegexps[eventType]
 	if !ok {
 		return &MatchResult{Matched: false}
 	}
-
+	
 	for _, compiled := range patterns {
 		if match := compiled.Pattern.FindStringSubmatch(logLine); match != nil {
 			groups := extractGroups(compiled.Pattern, match)
@@ -312,7 +312,7 @@ func (m *PatternMatcher) MatchTrainingEvent(logLine string, eventType string) *M
 			}
 		}
 	}
-
+	
 	return &MatchResult{Matched: false}
 }
 
@@ -320,12 +320,12 @@ func (m *PatternMatcher) MatchTrainingEvent(logLine string, eventType string) *M
 func (m *PatternMatcher) MatchCheckpointEvent(logLine string, eventType string) *MatchResult {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-
+	
 	patterns, ok := m.checkpointRegexps[eventType]
 	if !ok {
 		return &MatchResult{Matched: false}
 	}
-
+	
 	for _, compiled := range patterns {
 		if match := compiled.Pattern.FindStringSubmatch(logLine); match != nil {
 			groups := extractGroups(compiled.Pattern, match)
@@ -337,7 +337,7 @@ func (m *PatternMatcher) MatchCheckpointEvent(logLine string, eventType string) 
 			}
 		}
 	}
-
+	
 	return &MatchResult{Matched: false}
 }
 
@@ -346,14 +346,14 @@ func (m *PatternMatcher) CalculateMatchScore(logLines []string) float64 {
 	if len(logLines) == 0 {
 		return 0.0
 	}
-
+	
 	totalMatches := 0
 	for _, line := range logLines {
 		if result := m.MatchIdentify(line); result.Matched {
 			totalMatches++
 		}
 	}
-
+	
 	return float64(totalMatches) / float64(len(logLines))
 }
 
@@ -383,12 +383,12 @@ func extractGroups(pattern *regexp.Regexp, match []string) map[string]string {
 // InferenceMatchContext contains context for inference pattern matching
 type InferenceMatchContext struct {
 	// Process information
-	ProcessNames    []string // e.g., ["python", "vllm.entrypoints.openai.api_server"]
+	ProcessNames []string // e.g., ["python", "vllm.entrypoints.openai.api_server"]
 	ProcessCmdlines []string // Full command lines
 
 	// Container information
-	ImageName      string // e.g., "vllm/vllm-openai:latest"
-	ContainerPorts []int  // e.g., [8000, 8001]
+	ImageName      string   // e.g., "vllm/vllm-openai:latest"
+	ContainerPorts []int    // e.g., [8000, 8001]
 
 	// Environment variables
 	EnvVars map[string]string // e.g., {"VLLM_HOST": "0.0.0.0"}
@@ -400,8 +400,8 @@ type InferenceMatchResult struct {
 	FrameworkName  string
 	FrameworkType  string
 	Confidence     float64
-	MatchedSources []string // Which sources matched: "process", "image", "env", "port", "cmdline"
-	Evidence       []string // Human-readable evidence
+	MatchedSources []string  // Which sources matched: "process", "image", "env", "port", "cmdline"
+	Evidence       []string  // Human-readable evidence
 }
 
 // MatchInference performs inference framework detection
@@ -678,3 +678,4 @@ func (m *PatternMatcher) IsTrainingFramework() bool {
 func (m *PatternMatcher) GetFrameworkType() string {
 	return m.framework.GetType()
 }
+

@@ -27,13 +27,13 @@ import (
 type ActiveDetectionExecutor struct {
 	coreTask.BaseExecutor
 
-	collector       *metadata.Collector
-	aggregator      *detection.EvidenceAggregator
-	evidenceStore   *detection.EvidenceStore
-	podFacade       database.PodFacadeInterface
-	workloadFacade  database.WorkloadFacadeInterface
-	taskFacade      database.WorkloadTaskFacadeInterface
-	detectionFacade database.WorkloadDetectionFacadeInterface
+	collector         *metadata.Collector
+	aggregator        *detection.EvidenceAggregator
+	evidenceStore     *detection.EvidenceStore
+	podFacade         database.PodFacadeInterface
+	workloadFacade    database.WorkloadFacadeInterface
+	taskFacade        database.WorkloadTaskFacadeInterface
+	detectionFacade   database.WorkloadDetectionFacadeInterface
 }
 
 // NewActiveDetectionExecutor creates new executor
@@ -41,13 +41,13 @@ type ActiveDetectionExecutor struct {
 // Deprecated: Use NewDetectionCoordinator instead. See ActiveDetectionExecutor for details.
 func NewActiveDetectionExecutor(collector *metadata.Collector) *ActiveDetectionExecutor {
 	return &ActiveDetectionExecutor{
-		collector:       collector,
-		aggregator:      detection.NewEvidenceAggregator(),
-		evidenceStore:   detection.NewEvidenceStore(),
-		podFacade:       database.NewPodFacade(),
-		workloadFacade:  database.GetFacade().GetWorkload(),
-		taskFacade:      database.NewWorkloadTaskFacade(),
-		detectionFacade: database.NewWorkloadDetectionFacade(),
+		collector:         collector,
+		aggregator:        detection.NewEvidenceAggregator(),
+		evidenceStore:     detection.NewEvidenceStore(),
+		podFacade:         database.NewPodFacade(),
+		workloadFacade:    database.GetFacade().GetWorkload(),
+		taskFacade:        database.NewWorkloadTaskFacade(),
+		detectionFacade:   database.NewWorkloadDetectionFacade(),
 	}
 }
 
@@ -58,13 +58,13 @@ func NewActiveDetectionExecutorWithDeps(
 	evidenceStore *detection.EvidenceStore,
 ) *ActiveDetectionExecutor {
 	return &ActiveDetectionExecutor{
-		collector:       collector,
-		aggregator:      aggregator,
-		evidenceStore:   evidenceStore,
-		podFacade:       database.NewPodFacade(),
-		workloadFacade:  database.GetFacade().GetWorkload(),
-		taskFacade:      database.NewWorkloadTaskFacade(),
-		detectionFacade: database.NewWorkloadDetectionFacade(),
+		collector:         collector,
+		aggregator:        aggregator,
+		evidenceStore:     evidenceStore,
+		podFacade:         database.NewPodFacade(),
+		workloadFacade:    database.GetFacade().GetWorkload(),
+		taskFacade:        database.NewWorkloadTaskFacade(),
+		detectionFacade:   database.NewWorkloadDetectionFacade(),
 	}
 }
 
@@ -354,7 +354,7 @@ func (e *ActiveDetectionExecutor) probeImageInfo(pod *model.GpuPods) *ImageEvide
 
 	ctx := context.Background()
 	metadataFacade := database.NewAiWorkloadMetadataFacade()
-
+	
 	metadata, err := metadataFacade.GetAiWorkloadMetadata(ctx, pod.OwnerUID)
 	if err != nil || metadata == nil {
 		return nil
@@ -818,3 +818,4 @@ func (e *ActiveDetectionExecutor) Cancel(ctx context.Context, task *model.Worklo
 	log.Infof("Active detection task cancelled for workload %s", task.WorkloadUID)
 	return nil
 }
+

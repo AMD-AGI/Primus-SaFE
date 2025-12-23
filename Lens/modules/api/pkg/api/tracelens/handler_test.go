@@ -533,3 +533,4 @@ func TestResourceProfileDefaults(t *testing.T) {
 		})
 	}
 }
+

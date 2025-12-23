@@ -21,9 +21,9 @@ func GetPatternMatchers(c *gin.Context) {
 
 	if len(matchersInfo) == 0 {
 		c.JSON(http.StatusOK, gin.H{
-			"message":    "Pattern matchers not initialized yet",
+			"message":   "Pattern matchers not initialized yet",
 			"frameworks": []string{},
-			"total":      0,
+			"total":     0,
 		})
 		return
 	}
@@ -38,9 +38,9 @@ func GetPatternMatchers(c *gin.Context) {
 		len(matchersInfo), totalPatterns)
 
 	c.JSON(http.StatusOK, gin.H{
-		"frameworks":       matchersInfo,
+		"frameworks":      matchersInfo,
 		"total_frameworks": len(matchersInfo),
-		"total_patterns":   totalPatterns,
+		"total_patterns":  totalPatterns,
 	})
 }
 
@@ -86,7 +86,7 @@ func GetPatternMatcherByFramework(c *gin.Context) {
 		availableFrameworks := logs.GetFrameworkList()
 		c.JSON(http.StatusNotFound, gin.H{
 			"error":                "framework not found",
-			"framework":            framework,
+			"framework":           framework,
 			"available_frameworks": availableFrameworks,
 		})
 		return
@@ -100,3 +100,4 @@ func GetPatternMatcherByFramework(c *gin.Context) {
 		"info":      info,
 	})
 }
+

@@ -32,3 +32,4 @@ func (ce *OSCommandExecutor) ExecuteWithOutput(name string, args ...string) ([]b
 	cmd := exec.Command(name, args...)
 	return cmd.CombinedOutput()
 }
+

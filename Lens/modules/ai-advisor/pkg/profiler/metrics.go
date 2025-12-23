@@ -175,3 +175,4 @@ func RecordCacheMiss() {
 func RecordError(errorType, operation string) {
 	profilerErrors.WithLabelValues(errorType, operation).Inc()
 }
+

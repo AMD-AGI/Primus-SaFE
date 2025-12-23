@@ -3,7 +3,7 @@ package framework
 import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
-
+	
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/model"
 )
 
@@ -16,7 +16,7 @@ var (
 		},
 		[]string{"source", "framework", "status"},
 	)
-
+	
 	// detectionConfidence tracks distribution of detection confidence scores
 	detectionConfidence = promauto.NewHistogramVec(
 		prometheus.HistogramOpts{
@@ -26,7 +26,7 @@ var (
 		},
 		[]string{"framework"},
 	)
-
+	
 	// detectionConflicts counts conflicts between detection sources
 	detectionConflicts = promauto.NewCounterVec(
 		prometheus.CounterOpts{
@@ -35,7 +35,7 @@ var (
 		},
 		[]string{"source1", "source2"},
 	)
-
+	
 	// detectionLatency measures detection processing latency
 	detectionLatency = promauto.NewHistogramVec(
 		prometheus.HistogramOpts{
@@ -45,7 +45,7 @@ var (
 		},
 		[]string{"operation"},
 	)
-
+	
 	// sourceReportCount counts reports per source
 	sourceReportCount = promauto.NewCounterVec(
 		prometheus.CounterOpts{
@@ -54,7 +54,7 @@ var (
 		},
 		[]string{"source"},
 	)
-
+	
 	// detectionStatusChanges tracks status transitions
 	detectionStatusChanges = promauto.NewCounterVec(
 		prometheus.CounterOpts{
@@ -63,7 +63,7 @@ var (
 		},
 		[]string{"from_status", "to_status"},
 	)
-
+	
 	// cacheHits tracks cache hit/miss ratio
 	cacheHits = promauto.NewCounterVec(
 		prometheus.CounterOpts{
@@ -105,3 +105,4 @@ func RecordCacheHit() {
 func RecordCacheMiss() {
 	cacheHits.WithLabelValues("miss").Inc()
 }
+

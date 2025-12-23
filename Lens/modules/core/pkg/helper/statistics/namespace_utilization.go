@@ -236,3 +236,4 @@ func (c *NamespaceUtilizationCalculator) queryWorkloadUtilization(
 
 	return values
 }
+

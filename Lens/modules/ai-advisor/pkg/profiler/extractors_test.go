@@ -138,8 +138,8 @@ func TestPrimusExtractor_ExtractPaths(t *testing.T) {
 				"modules": map[string]interface{}{
 					"pre_trainer": map[string]interface{}{
 						"overrides": map[string]interface{}{
-							"profile":                 true,
-							"use_pytorch_profiler":    true,
+							"profile":              true,
+							"use_pytorch_profiler": true,
 							"torch_profiler_use_gzip": true,
 						},
 					},
@@ -732,11 +732,11 @@ func TestGenericPyTorchExtractor_ExtractPaths(t *testing.T) {
 	extractor := NewGenericPyTorchExtractor()
 
 	tests := []struct {
-		name       string
-		rawConfig  map[string]interface{}
-		env        map[string]string
-		checkPaths bool
-		expectedTB string
+		name         string
+		rawConfig    map[string]interface{}
+		env          map[string]string
+		checkPaths   bool
+		expectedTB   string
 	}{
 		{
 			name: "config with output_dir",
@@ -887,3 +887,4 @@ func TestExtractorIntegration_PrimusFullWorkflow(t *testing.T) {
 	locations := extractor.GetProfilerLocations(config)
 	assert.NotEmpty(t, locations)
 }
+

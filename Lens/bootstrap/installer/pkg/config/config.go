@@ -22,13 +22,13 @@ type Config struct {
 
 // GlobalConfig represents global settings
 type GlobalConfig struct {
-	ClusterName   string `json:"clusterName"`
-	Namespace     string `json:"namespace"`
-	StorageClass  string `json:"storageClass"`
-	AccessMode    string `json:"accessMode"`
-	ImageRegistry string `json:"imageRegistry"`
-	AccessType    string `json:"accessType"`
-	Domain        string `json:"domain"`
+	ClusterName      string `json:"clusterName"`
+	Namespace        string `json:"namespace"`
+	StorageClass     string `json:"storageClass"`
+	AccessMode       string `json:"accessMode"`
+	ImageRegistry    string `json:"imageRegistry"`
+	AccessType       string `json:"accessType"`
+	Domain           string `json:"domain"`
 }
 
 // DatabaseConfig represents PostgreSQL configuration
@@ -138,3 +138,4 @@ func (c *Config) Validate() error {
 	}
 	return nil
 }
+

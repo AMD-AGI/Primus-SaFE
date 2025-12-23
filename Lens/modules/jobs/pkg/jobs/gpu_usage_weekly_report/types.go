@@ -34,12 +34,12 @@ type ChartData struct {
 
 // EChartsData represents ECharts chart configuration data
 type EChartsData struct {
-	XAxis         []string        `json:"xAxis"`
-	Series        []EChartsSeries `json:"series"`
-	Title         string          `json:"title,omitempty"`
-	Cluster       string          `json:"cluster,omitempty"`
-	Metadata      interface{}     `json:"metadata,omitempty"`
-	TimeRangeDays int             `json:"time_range_days,omitempty"`
+	XAxis      []string        `json:"xAxis"`
+	Series     []EChartsSeries `json:"series"`
+	Title      string          `json:"title,omitempty"`
+	Cluster    string          `json:"cluster,omitempty"`
+	Metadata   interface{}     `json:"metadata,omitempty"`
+	TimeRangeDays int          `json:"time_range_days,omitempty"`
 }
 
 // EChartsSeries represents a series in ECharts
@@ -74,7 +74,7 @@ type UserData struct {
 
 // ReportSummary contains summary statistics for the report
 type ReportSummary struct {
-	TotalGPUs      int     `json:"total_gpus"` // Can be populated from total_gpu_count or total_gpus in API response
+	TotalGPUs      int     `json:"total_gpus"`       // Can be populated from total_gpu_count or total_gpus in API response
 	AvgUtilization float64 `json:"avg_utilization"`
 	AvgAllocation  float64 `json:"avg_allocation"`
 	TotalGpuHours  float64 `json:"total_gpu_hours"`

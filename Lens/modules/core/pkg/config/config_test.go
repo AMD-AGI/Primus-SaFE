@@ -28,13 +28,13 @@ func TestControllerConfig_GetMetricsBindAddress(t *testing.T) {
 			},
 			want: ":19191",
 		},
-		{
-			name: "negative port uses default 19191",
-			config: ControllerConfig{
-				MetricsPort: -1,
-			},
-			want: ":-1",
+	{
+		name: "negative port uses default 19191",
+		config: ControllerConfig{
+			MetricsPort: -1,
 		},
+		want: ":-1",
+	},
 		{
 			name: "high port number",
 			config: ControllerConfig{
@@ -75,13 +75,13 @@ func TestControllerConfig_GetHealthzBindAddress(t *testing.T) {
 			},
 			want: ":19192",
 		},
-		{
-			name: "negative port uses default 19192",
-			config: ControllerConfig{
-				HealthzPort: -1,
-			},
-			want: ":-1",
+	{
+		name: "negative port uses default 19192",
+		config: ControllerConfig{
+			HealthzPort: -1,
 		},
+		want: ":-1",
+	},
 		{
 			name: "high port number",
 			config: ControllerConfig{
@@ -122,13 +122,13 @@ func TestControllerConfig_GetPprofBindAddress(t *testing.T) {
 			},
 			want: ":19193",
 		},
-		{
-			name: "negative port uses default 19193",
-			config: ControllerConfig{
-				PprofPort: -1,
-			},
-			want: ":-1",
+	{
+		name: "negative port uses default 19193",
+		config: ControllerConfig{
+			PprofPort: -1,
 		},
+		want: ":-1",
+	},
 		{
 			name: "high port number",
 			config: ControllerConfig{
@@ -363,15 +363,15 @@ loadK8SClient: true
 			configYAML: "",
 			wantErr:    true,
 		},
-		{
-			name: "empty config file",
-			setupEnv: func(t *testing.T) string {
-				tmpDir := t.TempDir()
-				return tmpDir
-			},
-			configYAML: "",
-			wantErr:    true,
+	{
+		name: "empty config file",
+		setupEnv: func(t *testing.T) string {
+			tmpDir := t.TempDir()
+			return tmpDir
 		},
+		configYAML: "",
+		wantErr:    true,
+	},
 	}
 
 	for _, tt := range tests {
@@ -995,3 +995,4 @@ func BenchmarkMiddlewareConfig_GetErrorSamplingRatio(b *testing.B) {
 		_ = cfg.GetErrorSamplingRatio()
 	}
 }
+

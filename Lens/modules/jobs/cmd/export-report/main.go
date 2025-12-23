@@ -25,7 +25,7 @@ var (
 
 func main() {
 	flag.Parse()
-
+	
 	args := flag.Args()
 	if len(args) < 1 {
 		fmt.Println("📊 GPU Usage Weekly Report - Export from Database")
@@ -49,10 +49,10 @@ func main() {
 	fmt.Printf("   - Host: %s:%s\n", *dbHost, *dbPort)
 	fmt.Printf("   - Database: %s\n", *dbName)
 	fmt.Printf("   - User: %s\n", *dbUser)
-
-	dsn := fmt.Sprintf("host=%s port=%s user=%s dbname=%s password=%s sslmode=%s",
+	
+	dsn := fmt.Sprintf("host=%s port=%s user=%s dbname=%s password=%s sslmode=%s", 
 		*dbHost, *dbPort, *dbUser, *dbName, *dbPass, *sslMode)
-
+	
 	db, err := gorm.Open(postgres.Dialector{
 		Config: &postgres.Config{
 			DSN: dsn,
@@ -62,7 +62,7 @@ func main() {
 			SingularTable: true,
 		},
 	})
-
+	
 	if err != nil {
 		fmt.Printf("❌ Database connection failed: %v\n", err)
 		os.Exit(1)
@@ -84,7 +84,7 @@ func main() {
 	fmt.Println("\n📊 Report information:")
 	fmt.Printf("   - ID: %s\n", report.ID)
 	fmt.Printf("   - Cluster: %s\n", report.ClusterName)
-	fmt.Printf("   - Period: %s to %s\n",
+	fmt.Printf("   - Period: %s to %s\n", 
 		report.PeriodStart.Format("2006-01-02"),
 		report.PeriodEnd.Format("2006-01-02"))
 	fmt.Printf("   - Generated at: %s\n", report.GeneratedAt.Format("2006-01-02 15:04:05"))
@@ -180,7 +180,7 @@ Exported:        %s
 
 Files:
 ------
-`,
+`, 
 		report.ID,
 		report.ClusterName,
 		report.PeriodStart.Format("2006-01-02"),
@@ -215,3 +215,4 @@ Files:
 	fmt.Printf("   Exported %d files to: %s/\n", filesExported, outputDir)
 	fmt.Println("\n💡 Tip: Open report.html in a browser to view the report")
 }
+

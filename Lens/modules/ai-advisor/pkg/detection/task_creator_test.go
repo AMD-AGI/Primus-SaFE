@@ -467,3 +467,4 @@ func BenchmarkNewTaskCreator(b *testing.B) {
 		_ = NewTaskCreator("bench-instance")
 	}
 }
+

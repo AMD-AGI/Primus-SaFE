@@ -21,20 +21,20 @@ const (
 
 // FrameworkLogPatterns defines log parsing patterns for a framework (training or inference)
 type FrameworkLogPatterns struct {
-	Name                string                  `json:"name"`
-	DisplayName         string                  `json:"display_name"`
-	Version             string                  `json:"version"`
-	Priority            int                     `json:"priority"`
-	Enabled             bool                    `json:"enabled"`
-	Type                string                  `json:"type,omitempty"` // "training" or "inference", defaults to "training"
-	IdentifyPatterns    []PatternConfig         `json:"identify_patterns"`
-	PerformancePatterns []PatternConfig         `json:"performance_patterns"`
-	TrainingEvents      TrainingEventPatterns   `json:"training_events,omitempty"`
-	CheckpointEvents    CheckpointEventPatterns `json:"checkpoint_events,omitempty"`
-	InferencePatterns   *InferencePatternConfig `json:"inference_patterns,omitempty"`
-	Extensions          map[string]interface{}  `json:"extensions,omitempty"`
-	UpdatedAt           time.Time               `json:"updated_at"`
-	CreatedAt           time.Time               `json:"created_at"`
+	Name                string                      `json:"name"`
+	DisplayName         string                      `json:"display_name"`
+	Version             string                      `json:"version"`
+	Priority            int                         `json:"priority"`
+	Enabled             bool                        `json:"enabled"`
+	Type                string                      `json:"type,omitempty"` // "training" or "inference", defaults to "training"
+	IdentifyPatterns    []PatternConfig             `json:"identify_patterns"`
+	PerformancePatterns []PatternConfig             `json:"performance_patterns"`
+	TrainingEvents      TrainingEventPatterns       `json:"training_events,omitempty"`
+	CheckpointEvents    CheckpointEventPatterns     `json:"checkpoint_events,omitempty"`
+	InferencePatterns   *InferencePatternConfig     `json:"inference_patterns,omitempty"`
+	Extensions          map[string]interface{}      `json:"extensions,omitempty"`
+	UpdatedAt           time.Time                   `json:"updated_at"`
+	CreatedAt           time.Time                   `json:"created_at"`
 }
 
 // InferencePatternConfig defines patterns for inference framework detection
@@ -74,17 +74,17 @@ type CheckpointEventPatterns struct {
 
 // UpdateFrameworkConfigRequest request for updating framework config
 type UpdateFrameworkConfigRequest struct {
-	DisplayName         *string                  `json:"display_name,omitempty"`
-	Version             *string                  `json:"version,omitempty"`
-	Priority            *int                     `json:"priority,omitempty"`
-	Enabled             *bool                    `json:"enabled,omitempty"`
-	Type                *string                  `json:"type,omitempty"` // "training" or "inference"
-	IdentifyPatterns    *[]PatternConfig         `json:"identify_patterns,omitempty"`
-	PerformancePatterns *[]PatternConfig         `json:"performance_patterns,omitempty"`
-	TrainingEvents      *TrainingEventPatterns   `json:"training_events,omitempty"`
-	CheckpointEvents    *CheckpointEventPatterns `json:"checkpoint_events,omitempty"`
-	InferencePatterns   *InferencePatternConfig  `json:"inference_patterns,omitempty"`
-	Extensions          *map[string]interface{}  `json:"extensions,omitempty"`
+	DisplayName         *string                      `json:"display_name,omitempty"`
+	Version             *string                      `json:"version,omitempty"`
+	Priority            *int                         `json:"priority,omitempty"`
+	Enabled             *bool                        `json:"enabled,omitempty"`
+	Type                *string                      `json:"type,omitempty"` // "training" or "inference"
+	IdentifyPatterns    *[]PatternConfig             `json:"identify_patterns,omitempty"`
+	PerformancePatterns *[]PatternConfig             `json:"performance_patterns,omitempty"`
+	TrainingEvents      *TrainingEventPatterns       `json:"training_events,omitempty"`
+	CheckpointEvents    *CheckpointEventPatterns     `json:"checkpoint_events,omitempty"`
+	InferencePatterns   *InferencePatternConfig      `json:"inference_patterns,omitempty"`
+	Extensions          *map[string]interface{}      `json:"extensions,omitempty"`
 }
 
 // SetCacheTTLRequest request for setting cache TTL
@@ -94,7 +94,7 @@ type SetCacheTTLRequest struct {
 
 // CacheTTLResponse response for cache TTL
 type CacheTTLResponse struct {
-	TTLSeconds  int       `json:"ttl_seconds"`
+	TTLSeconds int       `json:"ttl_seconds"`
 	LastRefresh time.Time `json:"last_refresh"`
 	IsExpired   bool      `json:"is_expired"`
 }
@@ -162,17 +162,17 @@ func GetFrameworkConfig(c *gin.Context) {
 		_ = c.Error(fmt.Errorf("framework name is required"))
 		return
 	}
-
+	
 	configMgr := config.NewManager(database.GetFacade().GetSystemConfig().GetDB())
 	configKey := fmt.Sprintf("%s.%s", ConfigKeyPrefix, frameworkName)
-
+	
 	var patterns FrameworkLogPatterns
 	err := configMgr.Get(c.Request.Context(), configKey, &patterns)
 	if err != nil {
 		_ = c.Error(fmt.Errorf("failed to get framework config: %w", err))
 		return
 	}
-
+	
 	c.JSON(http.StatusOK, rest.SuccessResp(c, patterns))
 }
 
@@ -183,16 +183,16 @@ func UpdateFrameworkConfig(c *gin.Context) {
 		_ = c.Error(fmt.Errorf("framework name is required"))
 		return
 	}
-
+	
 	var req UpdateFrameworkConfigRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		_ = c.Error(fmt.Errorf("invalid request body: %w", err))
 		return
 	}
-
+	
 	configMgr := config.NewManager(database.GetFacade().GetSystemConfig().GetDB())
 	configKey := fmt.Sprintf("%s.%s", ConfigKeyPrefix, frameworkName)
-
+	
 	// Get existing config
 	var existing FrameworkLogPatterns
 	err := configMgr.Get(c.Request.Context(), configKey, &existing)
@@ -200,7 +200,7 @@ func UpdateFrameworkConfig(c *gin.Context) {
 		_ = c.Error(fmt.Errorf("failed to get existing config: %w", err))
 		return
 	}
-
+	
 	// Apply updates
 	if req.DisplayName != nil {
 		existing.DisplayName = *req.DisplayName
@@ -235,16 +235,16 @@ func UpdateFrameworkConfig(c *gin.Context) {
 	if req.Extensions != nil {
 		existing.Extensions = *req.Extensions
 	}
-
+	
 	// Update timestamp
 	existing.UpdatedAt = time.Now()
-
+	
 	// Validate
 	if err := validateFrameworkLogPatterns(&existing); err != nil {
 		_ = c.Error(fmt.Errorf("invalid configuration: %w", err))
 		return
 	}
-
+	
 	// Save to database
 	err = configMgr.Set(
 		c.Request.Context(),
@@ -258,7 +258,7 @@ func UpdateFrameworkConfig(c *gin.Context) {
 		_ = c.Error(fmt.Errorf("failed to save config: %w", err))
 		return
 	}
-
+	
 	log.Infof("Framework config updated: %s by %s", frameworkName, getUserFromContext(c))
 	c.JSON(http.StatusOK, rest.SuccessResp(c, existing))
 }
@@ -268,14 +268,14 @@ func RefreshDetectionConfigCache(c *gin.Context) {
 	// Note: This endpoint is a placeholder for cache refresh functionality
 	// The actual cache refresh would need to be implemented in the ai-advisor module
 	// For now, we just return success
-
+	
 	log.Info("Detection config cache refresh requested")
-
+	
 	response := map[string]interface{}{
-		"message":      "Cache refresh triggered successfully",
+		"message":     "Cache refresh triggered successfully",
 		"refreshed_at": time.Now(),
 	}
-
+	
 	c.JSON(http.StatusOK, rest.SuccessResp(c, response))
 }
 
@@ -284,15 +284,15 @@ func GetCacheTTL(c *gin.Context) {
 	// Note: This is a placeholder implementation
 	// In a real implementation, you would fetch this from the config manager
 	// or from the FrameworkConfigManager instance
-
+	
 	defaultTTL := 5 * time.Minute
-
+	
 	response := CacheTTLResponse{
 		TTLSeconds:  int(defaultTTL.Seconds()),
 		LastRefresh: time.Now(),
 		IsExpired:   false,
 	}
-
+	
 	c.JSON(http.StatusOK, rest.SuccessResp(c, response))
 }
 
@@ -303,19 +303,19 @@ func SetCacheTTL(c *gin.Context) {
 		_ = c.Error(fmt.Errorf("invalid request body: %w", err))
 		return
 	}
-
+	
 	// Note: This is a placeholder implementation
 	// In a real implementation, you would save this to the config manager
 	// or apply it to the FrameworkConfigManager instance
-
+	
 	log.Infof("Cache TTL updated to %d seconds by %s", req.TTLSeconds, getUserFromContext(c))
-
+	
 	response := CacheTTLResponse{
 		TTLSeconds:  req.TTLSeconds,
 		LastRefresh: time.Now(),
 		IsExpired:   false,
 	}
-
+	
 	c.JSON(http.StatusOK, rest.SuccessResp(c, response))
 }
 
@@ -667,3 +667,4 @@ func ListTrainingFrameworks(c *gin.Context) {
 
 	c.JSON(http.StatusOK, rest.SuccessResp(c, response))
 }
+

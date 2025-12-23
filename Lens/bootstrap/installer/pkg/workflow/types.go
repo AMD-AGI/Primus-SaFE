@@ -9,11 +9,11 @@ import (
 
 // Re-export types for convenience
 type (
-	State            = types.State
-	RunOptions       = types.RunOptions
+	State           = types.State
+	RunOptions      = types.RunOptions
 	UninstallOptions = types.UninstallOptions
-	StageStatus      = types.StageStatus
-	ResourceStatus   = types.ResourceStatus
+	StageStatus     = types.StageStatus
+	ResourceStatus  = types.ResourceStatus
 )
 
 // Re-export constants

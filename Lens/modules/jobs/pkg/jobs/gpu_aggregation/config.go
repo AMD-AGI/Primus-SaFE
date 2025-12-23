@@ -111,3 +111,4 @@ func UpdateConfig(ctx context.Context, clusterName string, cfg *model.GpuAggrega
 	log.Infof("GPU aggregation config updated successfully by %s", updatedBy)
 	return nil
 }
+

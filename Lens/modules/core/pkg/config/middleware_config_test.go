@@ -4,11 +4,11 @@ import "testing"
 
 func TestMiddlewareConfig_DefaultValues(t *testing.T) {
 	tests := []struct {
-		name            string
-		config          MiddlewareConfig
-		expectedLogging bool
-		expectedTracing bool
-		description     string
+		name                string
+		config              MiddlewareConfig
+		expectedLogging     bool
+		expectedTracing     bool
+		description         string
 	}{
 		{
 			name:            "No configuration set (default enabled)",
@@ -114,3 +114,4 @@ func TestMiddlewareConfig_DefaultValues(t *testing.T) {
 func boolPtr(b bool) *bool {
 	return &b
 }
+

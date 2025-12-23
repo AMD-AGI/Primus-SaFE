@@ -417,3 +417,4 @@ func BenchmarkObjectStorageBackend_extractRange(b *testing.B) {
 		_ = backend.extractRange(data, 1000, 5000)
 	}
 }
+

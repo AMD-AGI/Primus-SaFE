@@ -88,10 +88,10 @@ type ObjectStorageConfig struct {
 
 // DatabaseConfig represents database storage configuration
 type DatabaseConfig struct {
-	Compression         bool  `yaml:"compression"`           // Enable gzip compression
-	ChunkSize           int64 `yaml:"chunk_size"`            // Chunk size for large files (bytes)
-	MaxFileSize         int64 `yaml:"max_file_size"`         // Max file size (bytes)
-	MaxConcurrentChunks int   `yaml:"max_concurrent_chunks"` // Max concurrent chunk operations
+	Compression          bool  `yaml:"compression"`             // Enable gzip compression
+	ChunkSize            int64 `yaml:"chunk_size"`              // Chunk size for large files (bytes)
+	MaxFileSize          int64 `yaml:"max_file_size"`           // Max file size (bytes)
+	MaxConcurrentChunks  int   `yaml:"max_concurrent_chunks"`   // Max concurrent chunk operations
 }
 
 // AutoSelectConfig represents auto-selection configuration
@@ -99,3 +99,4 @@ type AutoSelectConfig struct {
 	Enabled       bool  `yaml:"enabled"`        // Enable auto selection
 	SizeThreshold int64 `yaml:"size_threshold"` // Size threshold for choosing storage
 }
+

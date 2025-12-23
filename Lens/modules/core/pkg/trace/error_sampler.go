@@ -187,3 +187,4 @@ func (p *SampledSpanProcessor) Shutdown(ctx context.Context) error {
 func (p *SampledSpanProcessor) ForceFlush(ctx context.Context) error {
 	return p.processor.ForceFlush(ctx)
 }
+

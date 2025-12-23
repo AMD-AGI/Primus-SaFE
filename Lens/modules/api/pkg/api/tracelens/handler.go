@@ -372,3 +372,4 @@ func toSessionResponse(session *model.TracelensSessions) *SessionResponse {
 
 	return resp
 }
+

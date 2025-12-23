@@ -19,21 +19,21 @@ import (
 
 const (
 	// Default configuration values
-	DefaultInitialDelay     = 30 * time.Second
-	DefaultRetryInterval    = 30 * time.Second
-	DefaultMaxRetryInterval = 60 * time.Second
-	DefaultConfirmThreshold = 0.70 // Lowered from 0.85 to allow single-source confirmation
-	DefaultMinPodAge        = 30 * time.Second
-	DefaultMaxAttemptCount  = 5
-	DefaultSubTaskTimeout   = 60 * time.Second
+	DefaultInitialDelay      = 30 * time.Second
+	DefaultRetryInterval     = 30 * time.Second
+	DefaultMaxRetryInterval  = 60 * time.Second
+	DefaultConfirmThreshold  = 0.70 // Lowered from 0.85 to allow single-source confirmation
+	DefaultMinPodAge         = 30 * time.Second
+	DefaultMaxAttemptCount   = 5
+	DefaultSubTaskTimeout    = 60 * time.Second
 )
 
 // CollectionPlan represents a plan to collect evidence from a specific source
 type CollectionPlan struct {
-	TaskType string                 // Task type to create
-	Source   string                 // Detection source (process, log, image, label)
-	Priority int                    // Higher priority = execute first
-	Params   map[string]interface{} // Task parameters
+	TaskType   string                 // Task type to create
+	Source     string                 // Detection source (process, log, image, label)
+	Priority   int                    // Higher priority = execute first
+	Params     map[string]interface{} // Task parameters
 }
 
 // DetectionCoordinator coordinates framework detection for a workload
@@ -784,3 +784,4 @@ func (c *DetectionCoordinator) Cancel(ctx context.Context, task *model.WorkloadT
 
 	return nil
 }
+

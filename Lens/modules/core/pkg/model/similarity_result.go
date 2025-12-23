@@ -15,3 +15,4 @@ type SimilarityDetails struct {
 	ArgsScore    float64 `json:"args_score"`    // Arguments similarity
 	LabelScore   float64 `json:"label_score"`   // Labels similarity
 }
+

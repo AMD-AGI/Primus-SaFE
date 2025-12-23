@@ -228,3 +228,4 @@ func (s *ServiceReconciler) handleServiceDelete(ctx context.Context, namespace, 
 	log.Infof("Marked service %s/%s as deleted", namespace, name)
 	return reconcile.Result{}, nil
 }
+

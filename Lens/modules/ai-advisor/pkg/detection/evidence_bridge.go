@@ -178,3 +178,4 @@ func RegisterEvidenceBridge(detectionMgr *framework.FrameworkDetectionManager) *
 	log.Info("EvidenceBridge registered with DetectionManager - legacy detections will be stored as evidence")
 	return bridge
 }
+

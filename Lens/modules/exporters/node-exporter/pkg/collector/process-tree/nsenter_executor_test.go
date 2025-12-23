@@ -15,10 +15,10 @@ func TestNewNsenterExecutor(t *testing.T) {
 
 func TestCheckNsenterAvailable(t *testing.T) {
 	executor := NewNsenterExecutor()
-
+	
 	// Just check that it doesn't panic
 	available := executor.CheckNsenterAvailable()
-
+	
 	// On Linux systems with nsenter, this should be true
 	// On other systems or in containers without nsenter, it may be false
 	t.Logf("nsenter available: %v", available)
@@ -166,3 +166,4 @@ func BenchmarkCheckNsenterAvailable(b *testing.B) {
 		executor.CheckNsenterAvailable()
 	}
 }
+

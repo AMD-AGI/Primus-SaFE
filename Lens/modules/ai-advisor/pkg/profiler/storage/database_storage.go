@@ -15,11 +15,11 @@ import (
 
 // DatabaseStorageBackend implements StorageBackend using PostgreSQL
 type DatabaseStorageBackend struct {
-	db                  *sql.DB
-	compression         bool
-	chunkSize           int64
-	maxFileSize         int64
-	maxConcurrentChunks int
+	db                   *sql.DB
+	compression          bool
+	chunkSize            int64
+	maxFileSize          int64
+	maxConcurrentChunks  int
 }
 
 // NewDatabaseStorageBackend creates a new database storage backend
@@ -631,3 +631,4 @@ func min(a, b int) int {
 	}
 	return b
 }
+

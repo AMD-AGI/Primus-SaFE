@@ -21,8 +21,8 @@ const (
 
 // ConfigWatcher watches for configuration changes and hot-reloads them
 type ConfigWatcher struct {
-	configMgr *configHelper.Manager
-	interval  time.Duration
+	configMgr    *configHelper.Manager
+	interval     time.Duration
 
 	// Track config hashes to detect changes
 	configHashes map[string]string
@@ -330,3 +330,4 @@ func (w *ConfigWatcher) GetStats() WatcherStats {
 
 	return stats
 }
+

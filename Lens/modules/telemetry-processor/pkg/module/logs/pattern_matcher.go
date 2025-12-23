@@ -3,7 +3,7 @@ package logs
 import (
 	"regexp"
 	"sync"
-
+	
 	"github.com/sirupsen/logrus"
 )
 
@@ -40,11 +40,11 @@ func NewPatternMatcher(framework *FrameworkLogPatterns) (*PatternMatcher, error)
 		trainingEventRegexps: make(map[string][]*CompiledPattern),
 		checkpointRegexps:    make(map[string][]*CompiledPattern),
 	}
-
+	
 	if err := matcher.compile(); err != nil {
 		return nil, err
 	}
-
+	
 	return matcher, nil
 }
 
@@ -55,13 +55,13 @@ func (m *PatternMatcher) compile() error {
 		if !pattern.Enabled {
 			continue
 		}
-
+		
 		regex, err := regexp.Compile(pattern.Pattern)
 		if err != nil {
 			logrus.Warnf("Failed to compile identify pattern %s: %v", pattern.Name, err)
 			continue
 		}
-
+		
 		m.identifyRegexps = append(m.identifyRegexps, &CompiledPattern{
 			Name:       pattern.Name,
 			Pattern:    regex,
@@ -69,19 +69,19 @@ func (m *PatternMatcher) compile() error {
 			Tags:       pattern.Tags,
 		})
 	}
-
+	
 	// Compile performance patterns
 	for _, pattern := range m.framework.PerformancePatterns {
 		if !pattern.Enabled {
 			continue
 		}
-
+		
 		regex, err := regexp.Compile(pattern.Pattern)
 		if err != nil {
 			logrus.Warnf("Failed to compile performance pattern %s: %v", pattern.Name, err)
 			continue
 		}
-
+		
 		m.performanceRegexps = append(m.performanceRegexps, &CompiledPattern{
 			Name:       pattern.Name,
 			Pattern:    regex,
@@ -89,18 +89,18 @@ func (m *PatternMatcher) compile() error {
 			Tags:       pattern.Tags,
 		})
 	}
-
+	
 	// Compile training event patterns
 	m.compileEventPatterns("start_training", m.framework.TrainingEvents.StartTraining)
 	m.compileEventPatterns("end_training", m.framework.TrainingEvents.EndTraining)
 	m.compileEventPatterns("pause_training", m.framework.TrainingEvents.PauseTraining)
 	m.compileEventPatterns("resume_training", m.framework.TrainingEvents.ResumeTraining)
-
+	
 	// Compile checkpoint patterns
 	m.compileCheckpointPatterns("start_saving", m.framework.CheckpointEvents.StartSaving)
 	m.compileCheckpointPatterns("end_saving", m.framework.CheckpointEvents.EndSaving)
 	m.compileCheckpointPatterns("loading", m.framework.CheckpointEvents.Loading)
-
+	
 	return nil
 }
 
@@ -110,13 +110,13 @@ func (m *PatternMatcher) compileEventPatterns(eventType string, patterns []Patte
 		if !pattern.Enabled {
 			continue
 		}
-
+		
 		regex, err := regexp.Compile(pattern.Pattern)
 		if err != nil {
 			logrus.Warnf("Failed to compile %s pattern %s: %v", eventType, pattern.Name, err)
 			continue
 		}
-
+		
 		m.trainingEventRegexps[eventType] = append(m.trainingEventRegexps[eventType], &CompiledPattern{
 			Name:       pattern.Name,
 			Pattern:    regex,
@@ -132,13 +132,13 @@ func (m *PatternMatcher) compileCheckpointPatterns(eventType string, patterns []
 		if !pattern.Enabled {
 			continue
 		}
-
+		
 		regex, err := regexp.Compile(pattern.Pattern)
 		if err != nil {
 			logrus.Warnf("Failed to compile checkpoint %s pattern %s: %v", eventType, pattern.Name, err)
 			continue
 		}
-
+		
 		m.checkpointRegexps[eventType] = append(m.checkpointRegexps[eventType], &CompiledPattern{
 			Name:       pattern.Name,
 			Pattern:    regex,
@@ -152,7 +152,7 @@ func (m *PatternMatcher) compileCheckpointPatterns(eventType string, patterns []
 func (m *PatternMatcher) MatchIdentify(logLine string) *MatchResult {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-
+	
 	for _, compiled := range m.identifyRegexps {
 		if compiled.Pattern.MatchString(logLine) {
 			return &MatchResult{
@@ -162,7 +162,7 @@ func (m *PatternMatcher) MatchIdentify(logLine string) *MatchResult {
 			}
 		}
 	}
-
+	
 	return &MatchResult{Matched: false}
 }
 
@@ -170,7 +170,7 @@ func (m *PatternMatcher) MatchIdentify(logLine string) *MatchResult {
 func (m *PatternMatcher) MatchPerformance(logLine string) *MatchResult {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-
+	
 	for _, compiled := range m.performanceRegexps {
 		if match := compiled.Pattern.FindStringSubmatch(logLine); match != nil {
 			groups := extractGroups(compiled.Pattern, match)
@@ -182,7 +182,7 @@ func (m *PatternMatcher) MatchPerformance(logLine string) *MatchResult {
 			}
 		}
 	}
-
+	
 	return &MatchResult{Matched: false}
 }
 
@@ -190,12 +190,12 @@ func (m *PatternMatcher) MatchPerformance(logLine string) *MatchResult {
 func (m *PatternMatcher) MatchTrainingEvent(logLine string, eventType string) *MatchResult {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-
+	
 	patterns, ok := m.trainingEventRegexps[eventType]
 	if !ok {
 		return &MatchResult{Matched: false}
 	}
-
+	
 	for _, compiled := range patterns {
 		if match := compiled.Pattern.FindStringSubmatch(logLine); match != nil {
 			groups := extractGroups(compiled.Pattern, match)
@@ -207,7 +207,7 @@ func (m *PatternMatcher) MatchTrainingEvent(logLine string, eventType string) *M
 			}
 		}
 	}
-
+	
 	return &MatchResult{Matched: false}
 }
 
@@ -215,12 +215,12 @@ func (m *PatternMatcher) MatchTrainingEvent(logLine string, eventType string) *M
 func (m *PatternMatcher) MatchCheckpointEvent(logLine string, eventType string) *MatchResult {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-
+	
 	patterns, ok := m.checkpointRegexps[eventType]
 	if !ok {
 		return &MatchResult{Matched: false}
 	}
-
+	
 	for _, compiled := range patterns {
 		if match := compiled.Pattern.FindStringSubmatch(logLine); match != nil {
 			groups := extractGroups(compiled.Pattern, match)
@@ -232,7 +232,7 @@ func (m *PatternMatcher) MatchCheckpointEvent(logLine string, eventType string) 
 			}
 		}
 	}
-
+	
 	return &MatchResult{Matched: false}
 }
 
@@ -241,14 +241,14 @@ func (m *PatternMatcher) CalculateMatchScore(logLines []string) float64 {
 	if len(logLines) == 0 {
 		return 0.0
 	}
-
+	
 	totalMatches := 0
 	for _, line := range logLines {
 		if result := m.MatchIdentify(line); result.Matched {
 			totalMatches++
 		}
 	}
-
+	
 	return float64(totalMatches) / float64(len(logLines))
 }
 
@@ -261,12 +261,13 @@ func (m *PatternMatcher) GetFrameworkName() string {
 func extractGroups(pattern *regexp.Regexp, match []string) map[string]string {
 	groups := make(map[string]string)
 	names := pattern.SubexpNames()
-
+	
 	for i, name := range names {
 		if i > 0 && i < len(match) && name != "" {
 			groups[name] = match[i]
 		}
 	}
-
+	
 	return groups
 }
+

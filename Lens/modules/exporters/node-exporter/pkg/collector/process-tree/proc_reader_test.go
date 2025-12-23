@@ -77,8 +77,8 @@ func TestExtractContainerIDFromCgroup(t *testing.T) {
 			expected: "container123",
 		},
 		{
-			name:     "direct container ID",
-			cgroup:   "11:freezer:/kubepods/burstable/pod123/abc123def456ghi789jkl012mno345pqr678stu901",
+			name: "direct container ID",
+			cgroup: "11:freezer:/kubepods/burstable/pod123/abc123def456ghi789jkl012mno345pqr678stu901",
 			expected: "abc123def456ghi789jkl012mno345pqr678stu901",
 		},
 		{
@@ -399,13 +399,14 @@ func BenchmarkExtractContainerIDFromCgroup(b *testing.B) {
 func createTestProcFile(t *testing.T, path, content string) string {
 	tmpDir := t.TempDir()
 	fullPath := filepath.Join(tmpDir, path)
-
+	
 	dir := filepath.Dir(fullPath)
 	err := os.MkdirAll(dir, 0755)
 	require.NoError(t, err)
-
+	
 	err = os.WriteFile(fullPath, []byte(content), 0644)
 	require.NoError(t, err)
-
+	
 	return tmpDir
 }
+

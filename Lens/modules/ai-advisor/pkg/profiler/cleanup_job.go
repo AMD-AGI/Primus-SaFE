@@ -92,3 +92,4 @@ func (j *ProfilerCleanupJob) runCleanup(ctx context.Context) {
 func (j *ProfilerCleanupJob) RunOnce(ctx context.Context) (*CleanupResult, error) {
 	return j.lifecycleMgr.CleanupExpiredFiles(ctx)
 }
+

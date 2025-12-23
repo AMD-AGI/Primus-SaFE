@@ -163,15 +163,15 @@ func (s *EvidenceStore) StoreEnvEvidence(ctx context.Context, workloadUID string
 	}
 
 	req := &StoreEvidenceRequest{
-		WorkloadUID:      workloadUID,
-		Source:           "env",
-		SourceType:       "active",
-		Framework:        framework,
-		WorkloadType:     "training",
-		Confidence:       confidence,
+		WorkloadUID:     workloadUID,
+		Source:          "env",
+		SourceType:      "active",
+		Framework:       framework,
+		WorkloadType:    "training",
+		Confidence:      confidence,
 		WrapperFramework: wrapperFramework,
-		BaseFramework:    baseFramework,
-		Evidence:         evidence,
+		BaseFramework:   baseFramework,
+		Evidence:        evidence,
 	}
 
 	if wrapperFramework != "" {
@@ -281,15 +281,15 @@ func (s *EvidenceStore) StoreInferenceEvidence(ctx context.Context, workloadUID 
 	}
 
 	req := &StoreEvidenceRequest{
-		WorkloadUID:    workloadUID,
-		Source:         "active_detection",
-		SourceType:     "active",
-		Framework:      framework,
-		WorkloadType:   "inference",
-		Confidence:     confidence,
+		WorkloadUID:   workloadUID,
+		Source:        "active_detection",
+		SourceType:    "active",
+		Framework:     framework,
+		WorkloadType:  "inference",
+		Confidence:    confidence,
 		FrameworkLayer: "base",
-		BaseFramework:  framework,
-		Evidence:       evidence,
+		BaseFramework: framework,
+		Evidence:      evidence,
 	}
 
 	return s.StoreEvidence(ctx, req)
@@ -355,12 +355,13 @@ func (s *EvidenceStore) BatchStoreEvidence(ctx context.Context, requests []*Stor
 // isInferenceFramework checks if a framework is an inference framework
 func isInferenceFramework(framework string) bool {
 	inferenceFrameworks := map[string]bool{
-		"vllm":                      true,
-		"triton":                    true,
-		"tgi":                       true,
-		"sglang":                    true,
-		"trtllm":                    true,
+		"vllm":      true,
+		"triton":    true,
+		"tgi":       true,
+		"sglang":    true,
+		"trtllm":    true,
 		"text-generation-inference": true,
 	}
 	return inferenceFrameworks[framework]
 }
+

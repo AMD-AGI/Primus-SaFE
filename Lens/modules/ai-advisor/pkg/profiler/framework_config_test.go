@@ -331,8 +331,8 @@ func TestExtractorRegistry_Register_PriorityOrder(t *testing.T) {
 
 	// Register in reverse priority order
 	registry.Register(NewGenericPyTorchExtractor()) // Priority 100
-	registry.Register(NewDeepSpeedExtractor())      // Priority 30
-	registry.Register(NewPrimusExtractor())         // Priority 10
+	registry.Register(NewDeepSpeedExtractor())       // Priority 30
+	registry.Register(NewPrimusExtractor())          // Priority 10
 
 	// Should be ordered by priority
 	assert.Equal(t, "primus", registry.ordered[0].FrameworkType())
@@ -405,10 +405,10 @@ func TestExtractorRegistry_FindExtractor(t *testing.T) {
 	registry.Register(NewGenericPyTorchExtractor())
 
 	tests := []struct {
-		name         string
-		rawConfig    map[string]interface{}
-		expectedType string
-		expectNil    bool
+		name          string
+		rawConfig     map[string]interface{}
+		expectedType  string
+		expectNil     bool
 	}{
 		{
 			name: "find primus extractor",
@@ -694,3 +694,4 @@ func BenchmarkExtractorRegistry_FindExtractor(b *testing.B) {
 		_ = registry.FindExtractor(config)
 	}
 }
+

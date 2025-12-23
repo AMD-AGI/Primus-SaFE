@@ -83,3 +83,4 @@ func (h *AnalysisHandler) GetTrends(c *gin.Context) {
 		"trends":       map[string]interface{}{},
 	})
 }
+

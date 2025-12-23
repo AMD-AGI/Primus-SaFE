@@ -4,15 +4,15 @@ import "time"
 
 // Detection represents framework detection result with dual-layer support
 type Detection struct {
-	WorkloadUID string              `json:"workload_uid"`
-	Frameworks  []string            `json:"frameworks"` // Detected frameworks: [wrapper, base] for dual-layer, [framework] for single-layer
-	Type        string              `json:"type"`
-	Confidence  float64             `json:"confidence"`
-	Status      string              `json:"status"`
-	Sources     []DetectionSource   `json:"sources"`
-	Conflicts   []DetectionConflict `json:"conflicts,omitempty"`
-	ReuseInfo   *ReuseInfo          `json:"reuse_info,omitempty"`
-	UpdatedAt   time.Time           `json:"updated_at"`
+	WorkloadUID string                 `json:"workload_uid"`
+	Frameworks  []string               `json:"frameworks"` // Detected frameworks: [wrapper, base] for dual-layer, [framework] for single-layer
+	Type        string                 `json:"type"`
+	Confidence  float64                `json:"confidence"`
+	Status      string                 `json:"status"`
+	Sources     []DetectionSource      `json:"sources"`
+	Conflicts   []DetectionConflict    `json:"conflicts,omitempty"`
+	ReuseInfo   *ReuseInfo             `json:"reuse_info,omitempty"`
+	UpdatedAt   time.Time              `json:"updated_at"`
 
 	// Dual-layer framework support
 	FrameworkLayer   string `json:"framework_layer,omitempty"`   // "wrapper" or "base"
@@ -87,18 +87,18 @@ type GPUMetrics struct {
 
 // TrainingMetrics represents training performance metrics
 type TrainingMetrics struct {
-	IterationsPerSecond float64    `json:"iterations_per_second"`
-	SamplesPerSecond    float64    `json:"samples_per_second"`
-	LossConvergence     string     `json:"loss_convergence"` // "good", "slow", "unstable"
+	IterationsPerSecond float64 `json:"iterations_per_second"`
+	SamplesPerSecond    float64 `json:"samples_per_second"`
+	LossConvergence     string  `json:"loss_convergence"` // "good", "slow", "unstable"
 	EstimatedCompletion *time.Time `json:"estimated_completion,omitempty"`
 }
 
 // Bottleneck represents a performance bottleneck
 type Bottleneck struct {
-	Type        string  `json:"type"`     // "gpu", "cpu", "memory", "io", "network"
-	Severity    string  `json:"severity"` // "low", "medium", "high", "critical"
+	Type        string  `json:"type"`        // "gpu", "cpu", "memory", "io", "network"
+	Severity    string  `json:"severity"`    // "low", "medium", "high", "critical"
 	Description string  `json:"description"`
-	Impact      float64 `json:"impact"` // 0-1 scale
+	Impact      float64 `json:"impact"`      // 0-1 scale
 }
 
 // Anomaly represents a detected anomaly
@@ -137,31 +137,31 @@ type Diagnostic struct {
 
 // RootCause represents a root cause analysis result
 type RootCause struct {
-	Issue       string   `json:"issue"`
-	Confidence  float64  `json:"confidence"`
-	Description string   `json:"description"`
+	Issue       string  `json:"issue"`
+	Confidence  float64 `json:"confidence"`
+	Description string  `json:"description"`
 	Evidence    []string `json:"evidence"`
 }
 
 // ModelInsight represents model architecture insights
 type ModelInsight struct {
-	WorkloadUID     string                 `json:"workload_uid"`
-	ModelName       string                 `json:"model_name,omitempty"`
-	Architecture    string                 `json:"architecture,omitempty"`
-	TotalParameters int64                  `json:"total_parameters,omitempty"`
-	TrainableParams int64                  `json:"trainable_params,omitempty"`
-	MemoryEstimate  *MemoryEstimate        `json:"memory_estimate,omitempty"`
-	ComputeEstimate *ComputeEstimate       `json:"compute_estimate,omitempty"`
-	AdditionalInfo  map[string]interface{} `json:"additional_info,omitempty"`
+	WorkloadUID      string                 `json:"workload_uid"`
+	ModelName        string                 `json:"model_name,omitempty"`
+	Architecture     string                 `json:"architecture,omitempty"`
+	TotalParameters  int64                  `json:"total_parameters,omitempty"`
+	TrainableParams  int64                  `json:"trainable_params,omitempty"`
+	MemoryEstimate   *MemoryEstimate        `json:"memory_estimate,omitempty"`
+	ComputeEstimate  *ComputeEstimate       `json:"compute_estimate,omitempty"`
+	AdditionalInfo   map[string]interface{} `json:"additional_info,omitempty"`
 }
 
 // MemoryEstimate represents memory usage estimation
 type MemoryEstimate struct {
-	ModelSize       int64 `json:"model_size_bytes"`
-	ActivationSize  int64 `json:"activation_size_bytes"`
-	OptimizerSize   int64 `json:"optimizer_size_bytes"`
-	TotalEstimate   int64 `json:"total_estimate_bytes"`
-	RecommendedGPUs int   `json:"recommended_gpus"`
+	ModelSize       int64   `json:"model_size_bytes"`
+	ActivationSize  int64   `json:"activation_size_bytes"`
+	OptimizerSize   int64   `json:"optimizer_size_bytes"`
+	TotalEstimate   int64   `json:"total_estimate_bytes"`
+	RecommendedGPUs int     `json:"recommended_gpus"`
 }
 
 // ComputeEstimate represents compute requirements
@@ -173,14 +173,14 @@ type ComputeEstimate struct {
 
 // Statistics represents aggregated statistics
 type Statistics struct {
-	TotalWorkloads    int                    `json:"total_workloads"`
-	ByFramework       map[string]int         `json:"by_framework,omitempty"`
-	ByStatus          map[string]int         `json:"by_status,omitempty"`
-	BySource          map[string]int         `json:"by_source,omitempty"`
-	AverageConfidence float64                `json:"average_confidence,omitempty"`
-	ConflictRate      float64                `json:"conflict_rate,omitempty"`
-	ReuseRate         float64                `json:"reuse_rate,omitempty"`
-	AdditionalMetrics map[string]interface{} `json:"additional_metrics,omitempty"`
+	TotalWorkloads      int                    `json:"total_workloads"`
+	ByFramework         map[string]int         `json:"by_framework,omitempty"`
+	ByStatus            map[string]int         `json:"by_status,omitempty"`
+	BySource            map[string]int         `json:"by_source,omitempty"`
+	AverageConfidence   float64                `json:"average_confidence,omitempty"`
+	ConflictRate        float64                `json:"conflict_rate,omitempty"`
+	ReuseRate           float64                `json:"reuse_rate,omitempty"`
+	AdditionalMetrics   map[string]interface{} `json:"additional_metrics,omitempty"`
 }
 
 // WandBDetectionRequest represents WandB detection data from wandb-exporter
@@ -199,10 +199,10 @@ type WandBDetectionRequest struct {
 
 // WandBEvidence contains evidence data from WandB
 type WandBEvidence struct {
-	Imports     []string    `json:"imports,omitempty"`
-	Environment []string    `json:"environment,omitempty"`
-	WandB       WandBInfo   `json:"wandb"`
-	PyTorch     PyTorchInfo `json:"pytorch"`
+	Imports     []string      `json:"imports,omitempty"`
+	Environment []string      `json:"environment,omitempty"`
+	WandB       WandBInfo     `json:"wandb"`
+	PyTorch     PyTorchInfo   `json:"pytorch"`
 }
 
 // WandBInfo contains WandB run information
@@ -248,3 +248,4 @@ type BatchDetectionResult struct {
 	Detection   *Detection `json:"detection,omitempty"`
 	Error       string     `json:"error,omitempty"`
 }
+
