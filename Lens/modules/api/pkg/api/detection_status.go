@@ -194,22 +194,18 @@ func ListDetectionStatuses(ctx *gin.Context) {
 			detections = allDetections[start:end]
 		}
 	} else {
-		// List all with pagination (by updated_at desc)
-		detections, total, err = detectionFacade.ListDetectionsByStatus(ctx.Request.Context(), "", pageSize, offset)
-		if err != nil {
-			// Fallback: query without status filter
-			db := facade.GetSystemConfig().GetDB()
+		// List all with pagination (by updated_at desc) - no status filter
+		db := facade.GetSystemConfig().GetDB()
+		err = db.WithContext(ctx.Request.Context()).
+			Table(model.TableNameWorkloadDetection).
+			Count(&total).Error
+		if err == nil {
 			err = db.WithContext(ctx.Request.Context()).
 				Table(model.TableNameWorkloadDetection).
-				Count(&total).Error
-			if err == nil {
-				err = db.WithContext(ctx.Request.Context()).
-					Table(model.TableNameWorkloadDetection).
-					Order("updated_at DESC").
-					Limit(pageSize).
-					Offset(offset).
-					Find(&detections).Error
-			}
+				Order("updated_at DESC").
+				Limit(pageSize).
+				Offset(offset).
+				Find(&detections).Error
 		}
 	}
 
