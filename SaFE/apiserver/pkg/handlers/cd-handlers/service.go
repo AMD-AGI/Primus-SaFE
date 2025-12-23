@@ -17,6 +17,7 @@ import (
 	sqrl "github.com/Masterminds/squirrel"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
@@ -765,6 +766,11 @@ func (s *Service) waitForJob(ctx context.Context, jobName, namespace string) err
 		case <-ticker.C:
 			job, err := s.clientSet.BatchV1().Jobs(namespace).Get(ctx, jobName, metav1.GetOptions{})
 			if err != nil {
+				// Check if the job was deleted (NotFound error)
+				if apierrors.IsNotFound(err) {
+					klog.Infof("Job %s not found (likely deleted by TTL after completion), assuming success", jobName)
+					return nil
+				}
 				klog.ErrorS(err, "Failed to get job status", "job", jobName)
 				continue
 			}
@@ -1195,7 +1201,8 @@ func (s *Service) RecoverDeployingRequests(ctx context.Context) error {
 			// Job succeeded - need to check if there's a remote job and then finalize
 			klog.Infof("Job %s succeeded, checking for remote job for request %d", jobName, req.Id)
 			// Start background monitoring to handle potential remote job and finalization
-			go s.finalizeRecoveredDeployment(ctx, req)
+			// Use context.Background() because the parent context may be cancelled after this function returns
+			go s.finalizeRecoveredDeployment(context.Background(), req)
 			// Delete the completed local job
 			s.DeleteJob(ctx, jobName, JobNamespace)
 		} else if job.Status.Failed > 0 && job.Status.Failed >= *job.Spec.BackoffLimit+1 {
@@ -1209,7 +1216,8 @@ func (s *Service) RecoverDeployingRequests(ctx context.Context) error {
 		} else {
 			// Job still running - start monitoring in background
 			klog.Infof("Job %s still running, resuming monitoring for request %d", jobName, req.Id)
-			go s.resumeDeploymentMonitoring(ctx, req, jobName)
+			// Use context.Background() because the parent context may be cancelled after this function returns
+			go s.resumeDeploymentMonitoring(context.Background(), req, jobName)
 		}
 	}
 
