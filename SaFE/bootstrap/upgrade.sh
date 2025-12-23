@@ -121,8 +121,6 @@ if [[ "$sso_enable" == "true" ]]; then
   sed -i '/^sso:/,/^[a-z]/ s#secret: ".*"#secret: "'"$SSO_SECRET"'"#' "$values_yaml"
 fi
 sed -i '/^cd:/,/^[a-z]/ s/require_approval: .*/require_approval: '"$cd_require_approval"'/' "$values_yaml"
-echo "✅ Verifying cd.require_approval in values.yaml:"
-grep -A 5 "^cd:" "$values_yaml"
 
 # Configure proxy services if defined in .env
 if [[ -n "${proxy_services:-}" ]]; then
