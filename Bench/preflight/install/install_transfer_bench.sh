@@ -4,10 +4,6 @@
 #
 set -e 
 
-if [ -d "/opt/TransferBench" ]; then
-  exit 0
-fi
-
 # Check required environment variables
 if [ -z "$ROCM_VERSION" ]; then
   echo "Error: ROCM_VERSION environment variable is not set" >&2
@@ -31,9 +27,25 @@ fi
 
 REPO_URL="https://github.com/ROCm/TransferBench.git"
 cd /opt
+rm -rf TransferBench
 git clone --branch "$TRANSFER_TAG" --depth 1 "$REPO_URL"
 
 cd "./TransferBench"
 # GPU_ARCHS: gfx942 (mi300x/mi325x), gfx950 (mi355x)
-echo "Building TransferBench with GPU_TARGETS=$GPU_ARCHS"
-CC=hipcc make GPU_TARGETS="$GPU_ARCHS"
+echo "Building TransferBench with GPU_TARGETS=$GPU_ARCHS and ROCM_VERSION=$ROCM_VERSION"
+
+# Build directly with hipcc since Makefile doesn't support GPU_TARGETS
+echo "Building TransferBench with --offload-arch=$GPU_ARCHS"
+/opt/rocm/bin/hipcc \
+    --offload-arch="$GPU_ARCHS" \
+    -I/opt/rocm/include \
+    -I./src/header -I./src/client -I./src/client/Presets \
+    -O3 \
+    -lnuma -L/opt/rocm/lib -lhsa-runtime64 \
+    src/client/Client.cpp \
+    -o TransferBench \
+    -lpthread -libverbs -DNIC_EXEC_ENABLED
+
+# Verify the build
+echo "Verifying TransferBench GPU architecture:"
+strings ./TransferBench | grep 'amdgcn.*gfx'
