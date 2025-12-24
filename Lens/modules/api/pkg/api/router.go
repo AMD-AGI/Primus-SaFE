@@ -1,8 +1,5 @@
 package api
 
-// Router registration for Primus Lens API endpoints
-// Build trigger: 2025-12-24T15:40
-
 import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/api/pkg/api/tracelens"
 	"github.com/gin-gonic/gin"
