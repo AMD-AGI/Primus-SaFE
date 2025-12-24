@@ -264,7 +264,7 @@ func (r *CDJobReconciler) generateCDWorkload(ctx context.Context, job *v1.OpsJob
 			EntryPoint: entryPoint,
 			GroupVersionKind: v1.GroupVersionKind{
 				Version: common.DefaultVersion,
-				Kind:    common.PytorchJobKind, // Uses Job template
+				Kind:    common.JobKind,
 			},
 			IsTolerateAll: true, // Can run on any node
 			Priority:      common.HighPriorityInt,
