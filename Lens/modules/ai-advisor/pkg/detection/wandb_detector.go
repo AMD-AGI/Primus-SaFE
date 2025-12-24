@@ -6,91 +6,22 @@ import (
 	"strings"
 	"time"
 
+	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/common"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/framework"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 )
 
-// WandBDetectionRequest request data reported by wandb-exporter
-type WandBDetectionRequest struct {
-	Source      string        `json:"source"`                 // "wandb"
-	Type        string        `json:"type"`                   // "framework_detection_raw"
-	Version     string        `json:"version"`                // "1.0"
-	WorkloadUID string        `json:"workload_uid,omitempty"` // Optional (for compatibility)
-	PodUID      string        `json:"pod_uid,omitempty"`
-	PodName     string        `json:"pod_name"` // Required: client gets from environment variable
-	Namespace   string        `json:"namespace"`
-	Evidence    WandBEvidence `json:"evidence"` // Raw evidence
-	Hints       WandBHints    `json:"hints"`    // Lightweight hints
-	Timestamp   float64       `json:"timestamp"`
-}
-
-// WandBEvidence raw evidence data
-type WandBEvidence struct {
-	WandB             WandBInfo                         `json:"wandb"`
-	Environment       map[string]string                 `json:"environment"`
-	PyTorch           *PyTorchInfo                      `json:"pytorch,omitempty"`
-	WrapperFrameworks map[string]map[string]interface{} `json:"wrapper_frameworks,omitempty"` // Wrapper framework detection results
-	BaseFrameworks    map[string]map[string]interface{} `json:"base_frameworks,omitempty"`    // Base framework detection results
-	System            map[string]interface{}            `json:"system"`
-	Hardware          *HardwareInfo                     `json:"hardware,omitempty"` // Hardware information (GPU, ROCm, etc.)
-	Software          *SoftwareInfo                     `json:"software,omitempty"` // Software package versions
-	Build             *BuildInfo                        `json:"build,omitempty"`    // CI/CD build information
-}
-
-// HardwareInfo hardware information
-type HardwareInfo struct {
-	GPUArch     string  `json:"gpu_arch,omitempty"`
-	GPUCount    int     `json:"gpu_count,omitempty"`
-	GPUMemoryGB float64 `json:"gpu_memory_gb,omitempty"`
-	GPUName     string  `json:"gpu_name,omitempty"`
-	ROCmVersion string  `json:"rocm_version,omitempty"`
-	CUDAVersion string  `json:"cuda_version,omitempty"`
-}
-
-// SoftwareInfo software package versions
-type SoftwareInfo struct {
-	ROCmVersion string            `json:"rocm_version,omitempty"`
-	Packages    map[string]string `json:"packages,omitempty"`
-}
-
-// BuildInfo CI/CD build information
-type BuildInfo struct {
-	BuildURL      string `json:"build_url,omitempty"`
-	DockerfileURL string `json:"dockerfile_url,omitempty"`
-	ImageTag      string `json:"image_tag,omitempty"`
-	BuildDate     string `json:"build_date,omitempty"`
-	GitCommit     string `json:"git_commit,omitempty"`
-	GitBranch     string `json:"git_branch,omitempty"`
-	GitRepo       string `json:"git_repo,omitempty"`
-	CIPipelineID  string `json:"ci_pipeline_id,omitempty"`
-}
-
-// WandBInfo WandB project information
-type WandBInfo struct {
-	Project string                 `json:"project"`
-	Name    string                 `json:"name"`
-	ID      string                 `json:"id"`
-	Config  map[string]interface{} `json:"config"`
-	Tags    []string               `json:"tags"`
-}
-
-// PyTorchInfo PyTorch environment information
-type PyTorchInfo struct {
-	Available       bool            `json:"available"`
-	Version         string          `json:"version"`
-	CudaAvailable   bool            `json:"cuda_available"`
-	DetectedModules map[string]bool `json:"detected_modules"`
-}
-
-// WandBHints pre-detection hints (supports dual-layer framework detection)
-type WandBHints struct {
-	WrapperFrameworks  []string                          `json:"wrapper_frameworks"`         // Wrapper frameworks (e.g. primus, lightning)
-	BaseFrameworks     []string                          `json:"base_frameworks"`            // Base frameworks (e.g. megatron, deepspeed, jax)
-	PossibleFrameworks []string                          `json:"possible_frameworks"`        // All frameworks (backward compatible)
-	Confidence         string                            `json:"confidence"`                 // low/medium/high
-	PrimaryIndicators  []string                          `json:"primary_indicators"`         // Detection indicator sources
-	FrameworkLayers    map[string]map[string]interface{} `json:"framework_layers,omitempty"` // Framework layer relationship mapping
-}
+// Type aliases for backward compatibility and cleaner code
+type (
+	WandBDetectionRequest = common.WandBDetectionRequest
+	WandBEvidence         = common.WandBEvidence
+	WandBInfo             = common.WandBInfo
+	WandBHints            = common.WandBHints
+	PyTorchInfo           = common.PyTorchInfo
+	HardwareInfo          = common.HardwareInfo
+	SoftwareInfo          = common.SoftwareInfo
+	BuildInfo             = common.BuildInfo
+)
 
 // DetectionResult detection result (supports dual-layer framework)
 type DetectionResult struct {

@@ -601,8 +601,64 @@ func convertToAdvisorWandBRequest(req *WandBDetectionRequest) *advisorCommon.Wan
 		return nil
 	}
 
-	// Simple field mapping (structures match from migration)
-	// ai-advisor's WandBDetectionRequest matches the original structure
+	// Build evidence with all fields
+	evidence := advisorCommon.WandBEvidence{
+		WandB: advisorCommon.WandBInfo{
+			ID:      req.Evidence.WandB.ID,
+			Name:    req.Evidence.WandB.Name,
+			Project: req.Evidence.WandB.Project,
+			Config:  req.Evidence.WandB.Config,
+		},
+		Environment:       req.Evidence.Environment,
+		System:            req.Evidence.System,
+		WrapperFrameworks: req.Evidence.WrapperFrameworks,
+		BaseFrameworks:    req.Evidence.BaseFrameworks,
+	}
+
+	// PyTorch info
+	if req.Evidence.PyTorch != nil {
+		evidence.PyTorch = advisorCommon.PyTorchInfo{
+			Available:       req.Evidence.PyTorch.Available,
+			Version:         req.Evidence.PyTorch.Version,
+			CudaAvailable:   req.Evidence.PyTorch.CudaAvailable,
+			DetectedModules: req.Evidence.PyTorch.DetectedModules,
+		}
+	}
+
+	// Hardware info
+	if req.Evidence.Hardware != nil {
+		evidence.Hardware = &advisorCommon.HardwareInfo{
+			GPUArch:     req.Evidence.Hardware.GPUArch,
+			GPUCount:    req.Evidence.Hardware.GPUCount,
+			GPUMemoryGB: req.Evidence.Hardware.GPUMemoryGB,
+			GPUName:     req.Evidence.Hardware.GPUName,
+			ROCmVersion: req.Evidence.Hardware.ROCmVersion,
+			CUDAVersion: req.Evidence.Hardware.CUDAVersion,
+		}
+	}
+
+	// Software info
+	if req.Evidence.Software != nil {
+		evidence.Software = &advisorCommon.SoftwareInfo{
+			ROCmVersion: req.Evidence.Software.ROCmVersion,
+			Packages:    req.Evidence.Software.Packages,
+		}
+	}
+
+	// Build info
+	if req.Evidence.Build != nil {
+		evidence.Build = &advisorCommon.BuildInfo{
+			BuildURL:      req.Evidence.Build.BuildURL,
+			DockerfileURL: req.Evidence.Build.DockerfileURL,
+			ImageTag:      req.Evidence.Build.ImageTag,
+			BuildDate:     req.Evidence.Build.BuildDate,
+			GitCommit:     req.Evidence.Build.GitCommit,
+			GitBranch:     req.Evidence.Build.GitBranch,
+			GitRepo:       req.Evidence.Build.GitRepo,
+			CIPipelineID:  req.Evidence.Build.CIPipelineID,
+		}
+	}
+
 	return &advisorCommon.WandBDetectionRequest{
 		Source:      req.Source,
 		Type:        req.Type,
@@ -612,18 +668,7 @@ func convertToAdvisorWandBRequest(req *WandBDetectionRequest) *advisorCommon.Wan
 		PodName:     req.PodName,
 		Namespace:   req.Namespace,
 		Timestamp:   req.Timestamp,
-		Evidence: advisorCommon.WandBEvidence{
-			WandB: advisorCommon.WandBInfo{
-				ID:      req.Evidence.WandB.ID,
-				Name:    req.Evidence.WandB.Name,
-				Project: req.Evidence.WandB.Project,
-				Config:  req.Evidence.WandB.Config,
-			},
-			PyTorch: advisorCommon.PyTorchInfo{
-				Version:       req.Evidence.PyTorch.Version,
-				CudaAvailable: req.Evidence.PyTorch.CudaAvailable,
-			},
-		},
+		Evidence:    evidence,
 		Hints: advisorCommon.WandBHints{
 			PossibleFrameworks: req.Hints.PossibleFrameworks,
 			WrapperFrameworks:  req.Hints.WrapperFrameworks,
