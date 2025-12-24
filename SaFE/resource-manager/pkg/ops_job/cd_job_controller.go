@@ -242,13 +242,13 @@ func (r *CDJobReconciler) generateCDWorkload(ctx context.Context, job *v1.OpsJob
 			Name: job.Name,
 			Labels: map[string]string{
 				v1.ClusterIdLabel:   clusterID,
-				v1.UserIdLabel:      v1.GetUserId(job),
+				v1.UserIdLabel:      common.UserSystem,
 				v1.OpsJobIdLabel:    job.Name,
 				v1.OpsJobTypeLabel:  string(job.Spec.Type),
 				v1.DisplayNameLabel: job.Name,
 			},
 			Annotations: map[string]string{
-				v1.UserNameAnnotation: v1.GetUserName(job),
+				v1.UserNameAnnotation: common.UserSystem,
 				// Dispatch the workload immediately, skipping the queue (same as preflight)
 				v1.WorkloadScheduledAnnotation: timeutil.FormatRFC3339(time.Now().UTC()),
 			},
@@ -467,7 +467,7 @@ echo "Step 4: Verifying local deployments..."
 echo "=========================================="
 
 # Function to wait for Deployment to be ready
-# Checks if readyReplicas == replicas
+# Checks readyReplicas, updatedReplicas, and Pod error states
 wait_deployment_ready() {
     local name=$1
     local ns=$2
@@ -477,18 +477,30 @@ wait_deployment_ready() {
     
     echo "Verifying deployment/$name..."
     for i in $(seq 1 $max_retries); do
+        # Get deployment status
         READY=$(kubectl $kubeconfig_opt get deployment/$name -n $ns -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
+        UPDATED=$(kubectl $kubeconfig_opt get deployment/$name -n $ns -o jsonpath='{.status.updatedReplicas}' 2>/dev/null || echo "0")
         DESIRED=$(kubectl $kubeconfig_opt get deployment/$name -n $ns -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "0")
         READY=${READY:-0}
+        UPDATED=${UPDATED:-0}
         
-        if [ "$READY" = "$DESIRED" ] && [ "$DESIRED" != "0" ]; then
-            echo "✓ deployment/$name ready: $READY/$DESIRED replicas"
+        # Check for Pods with image pull errors (filter by deployment name prefix)
+        POD_STATUS=$(kubectl $kubeconfig_opt get pods -n $ns --no-headers 2>/dev/null | grep "^$name-" || echo "")
+        if echo "$POD_STATUS" | grep -qE "ErrImagePull|ImagePullBackOff|CrashLoopBackOff"; then
+            echo "✗ deployment/$name has Pod errors!"
+            echo "$POD_STATUS" | grep -E "ErrImagePull|ImagePullBackOff|CrashLoopBackOff" | head -3
+            return 1
+        fi
+        
+        # Check if all replicas are updated AND ready
+        if [ "$READY" = "$DESIRED" ] && [ "$UPDATED" = "$DESIRED" ] && [ "$DESIRED" != "0" ]; then
+            echo "✓ deployment/$name ready: $READY/$DESIRED replicas (updated: $UPDATED)"
             return 0
         fi
-        echo "  Waiting for deployment/$name... ($READY/$DESIRED) [$i/$max_retries]"
+        echo "  Waiting for deployment/$name... (ready=$READY updated=$UPDATED desired=$DESIRED) [$i/$max_retries]"
         sleep $retry_interval
     done
-    echo "⚠ deployment/$name not ready after $((max_retries * retry_interval))s: $READY/$DESIRED"
+    echo "⚠ deployment/$name not ready after $((max_retries * retry_interval))s"
     return 1
 }
 
@@ -533,6 +545,7 @@ wait_deployment_ready "primus-safe-apiserver" "$NAMESPACE" ""
 wait_deployment_ready "primus-safe-resource-manager" "$NAMESPACE" ""
 wait_deployment_ready "primus-safe-job-manager" "$NAMESPACE" ""
 wait_deployment_ready "primus-safe-webhooks" "$NAMESPACE" ""
+wait_deployment_ready "primus-safe-web" "$NAMESPACE" ""
 
 echo ""
 echo "Checking DaemonSet status..."

@@ -7,6 +7,7 @@ package controllers
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"time"
@@ -26,6 +27,12 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/notification/channel"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/notification/model"
 )
+
+// deploymentConfig represents the deployment configuration for snapshots
+type deploymentConfig struct {
+	ImageVersions map[string]string `json:"image_versions"`
+	EnvFileConfig string            `json:"env_file_config"`
+}
 
 const (
 	// Status constants for DeploymentRequest
@@ -216,13 +223,63 @@ func getJobFailureReason(job *v1.OpsJob) string {
 	return "CD deployment failed"
 }
 
-// createSnapshot creates a deployment snapshot.
+// createSnapshot creates a deployment snapshot with merged configuration.
+// It merges the new request config with the previous snapshot to ensure complete state record.
 func (r *CDOpsJobReconciler) createSnapshot(ctx context.Context, requestId int64, envConfig string) error {
+	// 1. Parse new config (partial or full)
+	var newConfig deploymentConfig
+	if err := json.Unmarshal([]byte(envConfig), &newConfig); err != nil {
+		return fmt.Errorf("failed to parse new config: %v", err)
+	}
+
+	// 2. Get latest snapshot to find previous state
+	var finalConfig deploymentConfig
+
+	snapshots, err := r.dbClient.ListEnvironmentSnapshots(ctx, nil, []string{"created_at DESC"}, 1, 0)
+	if err == nil && len(snapshots) > 0 {
+		// Parse previous config
+		if err := json.Unmarshal([]byte(snapshots[0].EnvConfig), &finalConfig); err != nil {
+			klog.Warningf("Failed to parse previous snapshot config: %v", err)
+			// If failed to parse previous, we start fresh
+			finalConfig = deploymentConfig{
+				ImageVersions: make(map[string]string),
+			}
+		}
+	} else {
+		// No previous snapshot, initialize empty
+		finalConfig = deploymentConfig{
+			ImageVersions: make(map[string]string),
+		}
+	}
+
+	// 3. Merge Configs
+	// 3.1 Merge Image Versions
+	if finalConfig.ImageVersions == nil {
+		finalConfig.ImageVersions = make(map[string]string)
+	}
+	for component, version := range newConfig.ImageVersions {
+		finalConfig.ImageVersions[component] = version
+	}
+
+	// 3.2 Merge Env File Config
+	// Only update if new config provides a non-empty env file content
+	if newConfig.EnvFileConfig != "" {
+		finalConfig.EnvFileConfig = newConfig.EnvFileConfig
+	}
+	// If newConfig.EnvFileConfig is empty, we keep finalConfig.EnvFileConfig (from previous snapshot)
+
+	// 4. Marshal final merged config
+	finalConfigJSON, err := json.Marshal(finalConfig)
+	if err != nil {
+		return fmt.Errorf("failed to marshal final config: %v", err)
+	}
+
+	// 5. Save snapshot
 	snapshot := &dbclient.EnvironmentSnapshot{
 		DeploymentRequestId: requestId,
-		EnvConfig:           envConfig,
+		EnvConfig:           string(finalConfigJSON),
 	}
-	_, err := r.dbClient.CreateEnvironmentSnapshot(ctx, snapshot)
+	_, err = r.dbClient.CreateEnvironmentSnapshot(ctx, snapshot)
 	return err
 }
 
