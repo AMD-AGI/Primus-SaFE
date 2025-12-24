@@ -17,7 +17,8 @@ data:
       # Ingress component name selected during install.sh
       ingress: {{ .Values.net.ingress }}
     notification:
-      enable: false
+      enable: {{ and .Values.notification .Values.notification.email .Values.notification.email.smtp_host | default false }}
+      secret_path: /etc/secrets/notification
     health_check:
       # Whether to enable health check
       enable: {{ default true (default .Values.k8s).enable_health_check }}
