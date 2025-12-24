@@ -40,13 +40,6 @@ const (
 
 	// Container mount path for CD workspace
 	ContainerMountPath = "/home/primus-safe-cd"
-
-	// Host path on the node for persistent storage
-	HostMountPath = "/mnt/primus-safe-cd"
-
-	// CD deployment phases
-	CDPhaseLocal  = "local"  // Local cluster deployment
-	CDPhaseRemote = "remote" // Remote cluster updates
 )
 
 type CDJobReconciler struct {
@@ -233,8 +226,13 @@ func (r *CDJobReconciler) generateCDWorkload(ctx context.Context, job *v1.OpsJob
 		nodeAgentImage, cicdRunnerImage, cicdUnifiedImage,
 	)
 
-	// Base64 encode the script for entrypoint
-	entryPoint := base64.StdEncoding.EncodeToString([]byte(script))
+	// Base64 encode the script to pass via environment variable
+	scriptBase64 := base64.StdEncoding.EncodeToString([]byte(script))
+
+	// Simple entrypoint that decodes and runs the script from env var
+	entryPoint := base64.StdEncoding.EncodeToString([]byte(
+		`echo "$CD_SCRIPT" | base64 -d > /tmp/run.sh && bash /tmp/run.sh`,
+	))
 
 	// Create workload with minimal resource requirements (no GPU needed)
 	// Uses 'default' workspace with immediate scheduling (similar to preflight jobs)
@@ -271,11 +269,11 @@ func (r *CDJobReconciler) generateCDWorkload(ctx context.Context, job *v1.OpsJob
 			Workspace:     corev1.NamespaceDefault, // Use 'default' namespace (same as preflight)
 			Image:         CDJobImage,
 			Env: map[string]string{
+				"CD_SCRIPT":             scriptBase64, // Full deployment script (base64 encoded)
 				"DEPLOYMENT_REQUEST_ID": getParameterValue(job, v1.ParameterDeploymentRequestId, ""),
 				"HAS_NODE_AGENT":        fmt.Sprintf("%t", hasNodeAgent),
 				"HAS_CICD":              fmt.Sprintf("%t", hasCICD),
 			},
-			Hostpath: []string{HostMountPath},
 		},
 	}
 
