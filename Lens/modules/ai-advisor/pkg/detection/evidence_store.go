@@ -12,12 +12,14 @@ import (
 // EvidenceStore handles storage of detection evidence
 type EvidenceStore struct {
 	evidenceFacade database.WorkloadDetectionEvidenceFacadeInterface
+	layerResolver  *FrameworkLayerResolver
 }
 
 // NewEvidenceStore creates a new EvidenceStore
 func NewEvidenceStore() *EvidenceStore {
 	return &EvidenceStore{
 		evidenceFacade: database.NewWorkloadDetectionEvidenceFacade(),
+		layerResolver:  GetLayerResolver(),
 	}
 }
 
@@ -25,7 +27,31 @@ func NewEvidenceStore() *EvidenceStore {
 func NewEvidenceStoreWithFacade(facade database.WorkloadDetectionEvidenceFacadeInterface) *EvidenceStore {
 	return &EvidenceStore{
 		evidenceFacade: facade,
+		layerResolver:  GetLayerResolver(),
 	}
+}
+
+// NewEvidenceStoreWithLayerResolver creates a new EvidenceStore with custom layer resolver
+func NewEvidenceStoreWithLayerResolver(facade database.WorkloadDetectionEvidenceFacadeInterface, layerResolver *FrameworkLayerResolver) *EvidenceStore {
+	return &EvidenceStore{
+		evidenceFacade: facade,
+		layerResolver:  layerResolver,
+	}
+}
+
+// resolveFrameworkLayer resolves the layer for a framework using config
+func (s *EvidenceStore) resolveFrameworkLayer(framework string) string {
+	if s.layerResolver != nil {
+		return s.layerResolver.GetLayer(framework)
+	}
+	// Fallback to hardcoded logic
+	if isWrapperFramework(framework) {
+		return FrameworkLayerWrapper
+	}
+	if isInferenceFramework(framework) {
+		return FrameworkLayerInference
+	}
+	return FrameworkLayerRuntime
 }
 
 // StoreEvidenceRequest holds the parameters for storing evidence
@@ -133,22 +159,25 @@ func (s *EvidenceStore) StoreProcessEvidence(ctx context.Context, workloadUID st
 		"method":        "cmdline_pattern",
 	}
 
+	// Resolve framework layer from config
+	layer := s.resolveFrameworkLayer(framework)
+
 	req := &StoreEvidenceRequest{
-		WorkloadUID:  workloadUID,
-		Source:       "process",
-		SourceType:   "active",
-		Framework:    framework,
-		WorkloadType: "training", // Default to training, can be overridden
-		Confidence:   confidence,
-		Evidence:     evidence,
+		WorkloadUID:    workloadUID,
+		Source:         "process",
+		SourceType:     "active",
+		Framework:      framework,
+		WorkloadType:   "training", // Default to training, can be overridden
+		Confidence:     confidence,
+		FrameworkLayer: layer,
+		Evidence:       evidence,
 	}
 
-	// Determine framework layer
-	if isWrapperFramework(framework) {
-		req.FrameworkLayer = "wrapper"
+	// Set layer-specific fields
+	switch layer {
+	case FrameworkLayerWrapper:
 		req.WrapperFramework = framework
-	} else {
-		req.FrameworkLayer = "base"
+	default:
 		req.BaseFramework = framework
 	}
 
@@ -190,25 +219,25 @@ func (s *EvidenceStore) StoreImageEvidence(ctx context.Context, workloadUID stri
 		"method":     "image_pattern",
 	}
 
+	// Resolve framework layer from config
+	layer := s.resolveFrameworkLayer(framework)
+
 	req := &StoreEvidenceRequest{
-		WorkloadUID:  workloadUID,
-		Source:       "image",
-		SourceType:   "active",
-		Framework:    framework,
-		WorkloadType: workloadType,
-		Confidence:   confidence,
-		Evidence:     evidence,
+		WorkloadUID:    workloadUID,
+		Source:         "image",
+		SourceType:     "active",
+		Framework:      framework,
+		WorkloadType:   workloadType,
+		Confidence:     confidence,
+		FrameworkLayer: layer,
+		Evidence:       evidence,
 	}
 
-	// Image detection usually identifies inference frameworks
-	if isInferenceFramework(framework) {
-		req.FrameworkLayer = "base"
-		req.BaseFramework = framework
-	} else if isWrapperFramework(framework) {
-		req.FrameworkLayer = "wrapper"
+	// Set layer-specific fields
+	switch layer {
+	case FrameworkLayerWrapper:
 		req.WrapperFramework = framework
-	} else {
-		req.FrameworkLayer = "base"
+	default:
 		req.BaseFramework = framework
 	}
 
@@ -223,21 +252,25 @@ func (s *EvidenceStore) StoreLabelEvidence(ctx context.Context, workloadUID stri
 		"method":      "label_pattern",
 	}
 
+	// Resolve framework layer from config
+	layer := s.resolveFrameworkLayer(framework)
+
 	req := &StoreEvidenceRequest{
-		WorkloadUID:  workloadUID,
-		Source:       "label",
-		SourceType:   "passive",
-		Framework:    framework,
-		WorkloadType: "training",
-		Confidence:   confidence,
-		Evidence:     evidence,
+		WorkloadUID:    workloadUID,
+		Source:         "label",
+		SourceType:     "passive",
+		Framework:      framework,
+		WorkloadType:   "training",
+		Confidence:     confidence,
+		FrameworkLayer: layer,
+		Evidence:       evidence,
 	}
 
-	if isWrapperFramework(framework) {
-		req.FrameworkLayer = "wrapper"
+	// Set layer-specific fields
+	switch layer {
+	case FrameworkLayerWrapper:
 		req.WrapperFramework = framework
-	} else {
-		req.FrameworkLayer = "base"
+	default:
 		req.BaseFramework = framework
 	}
 
@@ -252,21 +285,25 @@ func (s *EvidenceStore) StoreLogEvidence(ctx context.Context, workloadUID string
 		"method":           "log_pattern",
 	}
 
+	// Resolve framework layer from config
+	layer := s.resolveFrameworkLayer(framework)
+
 	req := &StoreEvidenceRequest{
-		WorkloadUID:  workloadUID,
-		Source:       "log",
-		SourceType:   "passive",
-		Framework:    framework,
-		WorkloadType: "training",
-		Confidence:   confidence,
-		Evidence:     evidence,
+		WorkloadUID:    workloadUID,
+		Source:         "log",
+		SourceType:     "passive",
+		Framework:      framework,
+		WorkloadType:   "training",
+		Confidence:     confidence,
+		FrameworkLayer: layer,
+		Evidence:       evidence,
 	}
 
-	if isWrapperFramework(framework) {
-		req.FrameworkLayer = "wrapper"
+	// Set layer-specific fields
+	switch layer {
+	case FrameworkLayerWrapper:
 		req.WrapperFramework = framework
-	} else {
-		req.FrameworkLayer = "base"
+	default:
 		req.BaseFramework = framework
 	}
 
@@ -281,15 +318,15 @@ func (s *EvidenceStore) StoreInferenceEvidence(ctx context.Context, workloadUID 
 	}
 
 	req := &StoreEvidenceRequest{
-		WorkloadUID:   workloadUID,
-		Source:        "active_detection",
-		SourceType:    "active",
-		Framework:     framework,
-		WorkloadType:  "inference",
-		Confidence:    confidence,
-		FrameworkLayer: "base",
-		BaseFramework: framework,
-		Evidence:      evidence,
+		WorkloadUID:    workloadUID,
+		Source:         "active_detection",
+		SourceType:     "active",
+		Framework:      framework,
+		WorkloadType:   "inference",
+		Confidence:     confidence,
+		FrameworkLayer: FrameworkLayerInference,
+		BaseFramework:  framework,
+		Evidence:       evidence,
 	}
 
 	return s.StoreEvidence(ctx, req)

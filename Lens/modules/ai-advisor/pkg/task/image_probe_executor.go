@@ -22,6 +22,7 @@ type ImageProbeExecutor struct {
 
 	podProber        *common.PodProber
 	evidenceStore    *detection.EvidenceStore
+	layerResolver    *detection.FrameworkLayerResolver
 	coverageFacade   database.DetectionCoverageFacadeInterface
 	metadataFacade   database.AiWorkloadMetadataFacadeInterface
 }
@@ -31,6 +32,7 @@ func NewImageProbeExecutor(collector *metadata.Collector) *ImageProbeExecutor {
 	return &ImageProbeExecutor{
 		podProber:      common.NewPodProber(collector),
 		evidenceStore:  detection.NewEvidenceStore(),
+		layerResolver:  detection.GetLayerResolver(),
 		coverageFacade: database.NewDetectionCoverageFacade(),
 		metadataFacade: database.NewAiWorkloadMetadataFacade(),
 	}
@@ -46,6 +48,7 @@ func NewImageProbeExecutorWithDeps(
 	return &ImageProbeExecutor{
 		podProber:      podProber,
 		evidenceStore:  evidenceStore,
+		layerResolver:  detection.GetLayerResolver(),
 		coverageFacade: coverageFacade,
 		metadataFacade: metadataFacade,
 	}
@@ -228,13 +231,17 @@ func (e *ImageProbeExecutor) storeImageEvidence(
 	imageName string,
 	imageTag string,
 ) error {
+	// Resolve layer from config
+	layer := e.resolveFrameworkLayer(framework)
+
 	req := &detection.StoreEvidenceRequest{
-		WorkloadUID:  workloadUID,
-		Source:       constant.DetectionSourceImage,
-		SourceType:   "active",
-		Framework:    framework,
-		WorkloadType: workloadType,
-		Confidence:   0.6, // Image-based detection has lower confidence
+		WorkloadUID:    workloadUID,
+		Source:         constant.DetectionSourceImage,
+		SourceType:     "active",
+		Framework:      framework,
+		WorkloadType:   workloadType,
+		Confidence:     0.6, // Image-based detection has lower confidence
+		FrameworkLayer: layer,
 		Evidence: map[string]interface{}{
 			"image_name": imageName,
 			"image_tag":  imageTag,
@@ -242,16 +249,23 @@ func (e *ImageProbeExecutor) storeImageEvidence(
 		},
 	}
 
-	// Set framework layer
-	if e.isInferenceFramework(framework) || e.isBaseFramework(framework) {
-		req.FrameworkLayer = "base"
-		req.BaseFramework = framework
-	} else {
-		req.FrameworkLayer = "wrapper"
+	// Set layer-specific fields
+	if layer == detection.FrameworkLayerWrapper {
 		req.WrapperFramework = framework
+	} else {
+		req.BaseFramework = framework
 	}
 
 	return e.evidenceStore.StoreEvidence(ctx, req)
+}
+
+// resolveFrameworkLayer resolves the layer for a framework using config
+func (e *ImageProbeExecutor) resolveFrameworkLayer(framework string) string {
+	if e.layerResolver != nil {
+		return e.layerResolver.GetLayer(framework)
+	}
+	// Fallback to runtime as default
+	return detection.FrameworkLayerRuntime
 }
 
 // isInferenceFramework checks if framework is an inference framework

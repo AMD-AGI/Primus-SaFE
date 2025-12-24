@@ -30,6 +30,7 @@ type ActiveDetectionExecutor struct {
 	collector         *metadata.Collector
 	aggregator        *detection.EvidenceAggregator
 	evidenceStore     *detection.EvidenceStore
+	layerResolver     *detection.FrameworkLayerResolver
 	podFacade         database.PodFacadeInterface
 	workloadFacade    database.WorkloadFacadeInterface
 	taskFacade        database.WorkloadTaskFacadeInterface
@@ -44,6 +45,7 @@ func NewActiveDetectionExecutor(collector *metadata.Collector) *ActiveDetectionE
 		collector:         collector,
 		aggregator:        detection.NewEvidenceAggregator(),
 		evidenceStore:     detection.NewEvidenceStore(),
+		layerResolver:     detection.GetLayerResolver(),
 		podFacade:         database.NewPodFacade(),
 		workloadFacade:    database.GetFacade().GetWorkload(),
 		taskFacade:        database.NewWorkloadTaskFacade(),
@@ -61,6 +63,7 @@ func NewActiveDetectionExecutorWithDeps(
 		collector:         collector,
 		aggregator:        aggregator,
 		evidenceStore:     evidenceStore,
+		layerResolver:     detection.GetLayerResolver(),
 		podFacade:         database.NewPodFacade(),
 		workloadFacade:    database.GetFacade().GetWorkload(),
 		taskFacade:        database.NewWorkloadTaskFacade(),
@@ -473,18 +476,28 @@ func (e *ActiveDetectionExecutor) storeCollectedEvidence(
 	if evidence.ProcessInfo != nil {
 		for _, cmdline := range evidence.ProcessInfo.Cmdlines {
 			if fw := e.detectTrainingFrameworkFromCmdline(cmdline); fw != "" {
-				requests = append(requests, &detection.StoreEvidenceRequest{
-					WorkloadUID:  workloadUID,
-					Source:       "process",
-					SourceType:   "active",
-					Framework:    fw,
-					WorkloadType: "training",
-					Confidence:   0.7,
+				// Resolve layer from config
+				layer := e.resolveFrameworkLayer(fw)
+				req := &detection.StoreEvidenceRequest{
+					WorkloadUID:    workloadUID,
+					Source:         "process",
+					SourceType:     "active",
+					Framework:      fw,
+					WorkloadType:   "training",
+					Confidence:     0.7,
+					FrameworkLayer: layer,
 					Evidence: map[string]interface{}{
 						"cmdline": cmdline,
 						"method":  "cmdline_pattern",
 					},
-				})
+				}
+				// Set layer-specific fields
+				if layer == detection.FrameworkLayerWrapper {
+					req.WrapperFramework = fw
+				} else {
+					req.BaseFramework = fw
+				}
+				requests = append(requests, req)
 			}
 		}
 	}
@@ -492,10 +505,8 @@ func (e *ActiveDetectionExecutor) storeCollectedEvidence(
 	// Store env evidence
 	if evidence.EnvInfo != nil {
 		if fw := e.detectFrameworkFromEnv(evidence.EnvInfo.EnvVars); fw != nil {
-			fwLayer := "base"
-			if fw.WrapperFramework != "" {
-				fwLayer = "wrapper"
-			}
+			// Resolve layer from config
+			layer := e.resolveFrameworkLayer(fw.Framework)
 			requests = append(requests, &detection.StoreEvidenceRequest{
 				WorkloadUID:      workloadUID,
 				Source:           "env",
@@ -503,7 +514,7 @@ func (e *ActiveDetectionExecutor) storeCollectedEvidence(
 				Framework:        fw.Framework,
 				WorkloadType:     "training",
 				Confidence:       fw.Confidence,
-				FrameworkLayer:   fwLayer,
+				FrameworkLayer:   layer,
 				WrapperFramework: fw.WrapperFramework,
 				BaseFramework:    fw.BaseFramework,
 				Evidence: map[string]interface{}{
@@ -517,20 +528,28 @@ func (e *ActiveDetectionExecutor) storeCollectedEvidence(
 	// Store image evidence
 	if evidence.ImageInfo != nil {
 		if fw, wlType := e.detectFrameworkFromImage(evidence.ImageInfo.ImageName); fw != "" {
-			requests = append(requests, &detection.StoreEvidenceRequest{
+			// Resolve layer from config
+			layer := e.resolveFrameworkLayer(fw)
+			req := &detection.StoreEvidenceRequest{
 				WorkloadUID:    workloadUID,
 				Source:         "image",
 				SourceType:     "active",
 				Framework:      fw,
 				WorkloadType:   wlType,
 				Confidence:     0.6,
-				FrameworkLayer: "base",
-				BaseFramework:  fw,
+				FrameworkLayer: layer,
 				Evidence: map[string]interface{}{
 					"image_name": evidence.ImageInfo.ImageName,
 					"method":     "image_pattern",
 				},
-			})
+			}
+			// Set layer-specific fields
+			if layer == detection.FrameworkLayerWrapper {
+				req.WrapperFramework = fw
+			} else {
+				req.BaseFramework = fw
+			}
+			requests = append(requests, req)
 		}
 	}
 
@@ -540,6 +559,15 @@ func (e *ActiveDetectionExecutor) storeCollectedEvidence(
 	}
 
 	return nil
+}
+
+// resolveFrameworkLayer resolves the layer for a framework using config
+func (e *ActiveDetectionExecutor) resolveFrameworkLayer(framework string) string {
+	if e.layerResolver != nil {
+		return e.layerResolver.GetLayer(framework)
+	}
+	// Fallback to runtime as default
+	return detection.FrameworkLayerRuntime
 }
 
 // FrameworkFromEnv result from env detection
