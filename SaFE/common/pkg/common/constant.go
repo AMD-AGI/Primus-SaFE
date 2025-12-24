@@ -6,6 +6,7 @@
 package common
 
 const (
+	PrimusSafeName             = "primus-safe"
 	PrimusSafeNamespace        = "primus-safe"
 	PrimusFault                = "primus-safe-fault"
 	PrimusFailover             = "primus-safe-failover"

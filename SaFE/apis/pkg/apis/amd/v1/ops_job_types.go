@@ -31,6 +31,7 @@ const (
 	OpsJobRebootType      OpsJobType = "reboot"
 	OpsJobExportImageType OpsJobType = "exportimage"
 	OpsJobPrewarmType     OpsJobType = "prewarm"
+	OpsJobCDType          OpsJobType = "cd" // CD deployment job
 
 	ParameterNode          = "node"
 	ParameterNodeTemplate  = "node.template"
