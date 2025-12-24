@@ -40,6 +40,19 @@ func InitRouter(engine *gin.Engine, cfg *config.Config) error {
 	// CORS middleware is always enabled
 	g.Use(middleware.CorsMiddleware())
 
+	// Decide whether to enable auth middleware based on configuration
+	if cfg.Middleware.IsAuthEnabled() {
+		authConfig := cfg.Middleware.GetAuthConfig()
+		if authConfig != nil && authConfig.SafeAPIURL != "" {
+			log.Infof("Auth middleware enabled, SaFE API URL: %s", authConfig.SafeAPIURL)
+			g.Use(middleware.HandleAuth(authConfig))
+		} else {
+			log.Warn("Auth middleware enabled but SafeAPIURL not configured, skipping")
+		}
+	} else {
+		log.Info("Auth middleware disabled")
+	}
+
 	for _, group := range groupRegisters {
 		err := group(g)
 		if err != nil {
