@@ -88,6 +88,9 @@ data:
     cd:
       # Whether deployment requests require approval from another user
       require_approval: {{ if hasKey .Values.cd "require_approval" }}{{ .Values.cd.require_approval }}{{ else }}true{{ end }}
+    notification:
+      enable: {{ and .Values.notification .Values.notification.email .Values.notification.email.smtp_host | default false }}
+      secret_path: /etc/secrets/notification
     {{- if .Values.proxy }}
     proxy:
       # Proxy services configuration for reverse proxying to backend services

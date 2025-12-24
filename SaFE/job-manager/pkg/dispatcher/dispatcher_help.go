@@ -366,16 +366,22 @@ func modifyHostNetwork(obj *unstructured.Unstructured, workload *v1.Workload, pa
 
 // modifyByOpsJob configures host PID and IPC settings for OpsJob preflight operations.
 func modifyByOpsJob(obj *unstructured.Unstructured, workload *v1.Workload, templatePath []string) error {
-	if v1.GetOpsJobType(workload) != string(v1.OpsJobPreflightType) {
-		return nil
-	}
-	path := append(templatePath, "spec", "hostPID")
-	if err := unstructured.SetNestedField(obj.Object, true, path...); err != nil {
-		return err
-	}
-	path = append(templatePath, "spec", "hostIPC")
-	if err := unstructured.SetNestedField(obj.Object, true, path...); err != nil {
-		return err
+	opsJobType := v1.GetOpsJobType(workload)
+
+	if opsJobType == string(v1.OpsJobPreflightType) {
+		path := append(templatePath, "spec", "hostPID")
+		if err := unstructured.SetNestedField(obj.Object, true, path...); err != nil {
+			return err
+		}
+		path = append(templatePath, "spec", "hostIPC")
+		if err := unstructured.SetNestedField(obj.Object, true, path...); err != nil {
+			return err
+		}
+	} else if opsJobType == string(v1.OpsJobCDType) {
+		path := append(templatePath, "spec", "serviceAccountName")
+		if err := unstructured.SetNestedField(obj.Object, common.PrimusSafeNamespace, path...); err != nil {
+			return err
+		}
 	}
 	return nil
 }

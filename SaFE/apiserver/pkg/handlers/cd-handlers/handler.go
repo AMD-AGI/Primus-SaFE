@@ -422,12 +422,14 @@ func (h *Handler) generateCDOpsJob(ctx context.Context, req *dbclient.Deployment
 	for _, comp := range expectedComponents {
 		if tag, ok := mergedConfig.ImageVersions[comp]; ok {
 			if yamlKey, isCICD := CICDComponentsMap[comp]; isCICD {
-				componentTags += fmt.Sprintf("%s=%s;", yamlKey, tag)
-				hasCICD = true
-				if comp == ComponentCICDRunner {
-					cicdRunnerImage = tag
-				} else if comp == ComponentCICDUnifiedJob {
-					cicdUnifiedImage = tag
+				if _, userRequested := requestConfig.ImageVersions[comp]; userRequested {
+					componentTags += fmt.Sprintf("%s=%s;", yamlKey, tag)
+					hasCICD = true
+					if comp == ComponentCICDRunner {
+						cicdRunnerImage = tag
+					} else if comp == ComponentCICDUnifiedJob {
+						cicdUnifiedImage = tag
+					}
 				}
 			} else if comp == ComponentNodeAgent {
 				// Update node-agent if user explicitly requested it
