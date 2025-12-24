@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #
-# Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
+# Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
 # See LICENSE for license information.
 #
 
@@ -48,16 +48,10 @@ if [ $FOUND_PCI_REALLOC -ne 1 ]; then
   exit 1
 fi
 
-# Check required: iommu=pt
-if [ $FOUND_IOMMU_PT -ne 1 ]; then
-  echo "iommu=pt is not configured in kernel boot args" >&2
+# Check optional: amd_iommu=on OR intel_iommu=on OR iommu=pt (at least one)
+if [ $FOUND_AMD_IOMMU -ne 1 ] && [ $FOUND_INTEL_IOMMU -ne 1 ] && [ $FOUND_IOMMU_PT -ne 1 ]; then
+  echo "Neither amd_iommu=on nor intel_iommu=on nor iommu=pt is configured in kernel boot args" >&2
   exit 1
-fi
-
-# Check optional: amd_iommu=on OR intel_iommu=on (at least one)
-if [ $FOUND_AMD_IOMMU -ne 1 ] && [ $FOUND_INTEL_IOMMU -ne 1 ]; then
-  echo "Neither amd_iommu=on nor intel_iommu=on is configured in kernel boot args" >&2
-exit 1
 fi
 
 exit 0

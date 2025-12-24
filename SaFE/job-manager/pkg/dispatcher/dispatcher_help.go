@@ -494,10 +494,12 @@ func buildEnvironment(workload *v1.Workload) []interface{} {
 }
 
 func addEnvVar(result []interface{}, workload *v1.Workload, name, value string) []interface{} {
-	_, ok := workload.Spec.Env[name]
-	if ok {
-		return result
+	if len(workload.Spec.Env) > 0 {
+		if _, ok := workload.Spec.Env[name]; ok {
+			return result
+		}
 	}
+
 	return append(result, map[string]interface{}{
 		"name":  name,
 		"value": value,

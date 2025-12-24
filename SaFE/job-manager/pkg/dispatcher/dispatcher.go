@@ -634,7 +634,8 @@ func updateCICDGithub(adminWorkload *v1.Workload, obj *unstructured.Unstructured
 	if !ok {
 		return fmt.Errorf("failed to find object with path: [spec]")
 	}
-	if v1.GetGithubSecretId(adminWorkload) == "" || adminWorkload.Spec.Env[common.GithubConfigUrl] == "" {
+	if v1.GetGithubSecretId(adminWorkload) == "" || len(adminWorkload.Spec.Env) == 0 ||
+		adminWorkload.Spec.Env[common.GithubConfigUrl] == "" {
 		return fmt.Errorf("github config is not set")
 	}
 
@@ -671,8 +672,11 @@ func updateCICDScaleSetEnvs(obj *unstructured.Unstructured,
 	envs[jobutils.GithubSecretEnv] = v1.GetGithubSecretId(adminWorkload)
 	envs[common.ScaleRunnerSetID] = adminWorkload.Name
 
-	val, ok := adminWorkload.Spec.Env[common.UnifiedJobEnable]
-	if ok && val == v1.TrueStr {
+	val := ""
+	if len(adminWorkload.Spec.Env) > 0 {
+		val, _ = adminWorkload.Spec.Env[common.UnifiedJobEnable]
+	}
+	if val == v1.TrueStr {
 		pfsPath := getNfsPathFromWorkspace(workspace)
 		if pfsPath == "" {
 			return fmt.Errorf("failed to get NFS path from workspace")
