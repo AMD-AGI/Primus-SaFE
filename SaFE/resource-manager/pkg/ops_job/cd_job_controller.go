@@ -529,14 +529,14 @@ wait_daemonset_ready() {
 }
 
 echo "Checking Deployment status..."
-wait_deployment_ready "apiserver" "$NAMESPACE" ""
-wait_deployment_ready "resource-manager" "$NAMESPACE" ""
-wait_deployment_ready "job-manager" "$NAMESPACE" ""
-wait_deployment_ready "scheduler" "$NAMESPACE" ""
+wait_deployment_ready "primus-safe-apiserver" "$NAMESPACE" ""
+wait_deployment_ready "primus-safe-resource-manager" "$NAMESPACE" ""
+wait_deployment_ready "primus-safe-job-manager" "$NAMESPACE" ""
+wait_deployment_ready "primus-safe-webhooks" "$NAMESPACE" ""
 
 echo ""
 echo "Checking DaemonSet status..."
-wait_daemonset_ready "node-agent" "$NAMESPACE" ""
+wait_daemonset_ready "primus-safe-node-agent" "$NAMESPACE" ""
 
 echo ""
 echo "✓ Local deployment verification completed"
@@ -642,7 +642,7 @@ EOF
             rm -f "$NODE_AGENT_TMP_VALUES"
             
             # Verify node-agent DaemonSet using precise check
-            wait_daemonset_ready "node-agent" "$NAMESPACE" "$KUBECONFIG_OPT"
+            wait_daemonset_ready "primus-safe-node-agent" "$NAMESPACE" "$KUBECONFIG_OPT"
             
             echo "✓ node-agent updated on $CLUSTER_ID"
         fi
