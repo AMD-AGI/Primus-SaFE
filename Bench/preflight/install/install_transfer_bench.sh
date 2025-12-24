@@ -34,17 +34,23 @@ cd "./TransferBench"
 # GPU_ARCHS: gfx942 (mi300x/mi325x), gfx950 (mi355x)
 echo "Building TransferBench with GPU_TARGETS=$GPU_ARCHS and ROCM_VERSION=$ROCM_VERSION"
 
-# Build directly with hipcc since Makefile doesn't support GPU_TARGETS
-echo "Building TransferBench with --offload-arch=$GPU_ARCHS"
-/opt/rocm/bin/hipcc \
-    --offload-arch="$GPU_ARCHS" \
-    -I/opt/rocm/include \
-    -I./src/header -I./src/client -I./src/client/Presets \
-    -O3 \
-    -lnuma -L/opt/rocm/lib -lhsa-runtime64 \
-    src/client/Client.cpp \
-    -o TransferBench \
-    -lpthread -libverbs -DNIC_EXEC_ENABLED
+if [ "$ROCM_VERSION" = "6.4.3" ]; then
+  # ROCm 6.4.3: Build directly with hipcc since Makefile doesn't support GPU_TARGETS
+  echo "Building TransferBench with --offload-arch=$GPU_ARCHS (direct hipcc)"
+  /opt/rocm/bin/hipcc \
+      --offload-arch="$GPU_ARCHS" \
+      -I/opt/rocm/include \
+      -I./src/header -I./src/client -I./src/client/Presets \
+      -O3 \
+      -lnuma -L/opt/rocm/lib -lhsa-runtime64 \
+      src/client/Client.cpp \
+      -o TransferBench \
+      -lpthread -libverbs -DNIC_EXEC_ENABLED
+else
+  # ROCm 7.x: Use Makefile which supports GPU_TARGETS
+  echo "Building TransferBench with make GPU_TARGETS=$GPU_ARCHS"
+  CC=hipcc make GPU_TARGETS="$GPU_ARCHS"
+fi
 
 # Verify the build
 echo "Verifying TransferBench GPU architecture:"
