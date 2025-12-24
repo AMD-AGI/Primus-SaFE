@@ -49,11 +49,11 @@ WORKDIR ${WORKSPACE}
 #install ior
 RUN cd ${WORKSPACE} && git clone https://github.com/hpc/ior.git && cd ior \
     && git checkout remotes/origin/4.0 \
-    && ./bootstrap && ./configure --prefix="$HOME" && make && make install
+    && ./bootstrap && ./configure --prefix="/opt" && make && make install
 
 #install fio from source
 RUN cd ${WORKSPACE} && git clone --depth=1 https://github.com/axboe/fio.git && cd fio \
-    && ./configure --prefix="$HOME" && make && make install
+    && ./configure --prefix="/opt" && make && make install
 
 
 RUN python3 -m pip install --upgrade pip wheel setuptools==65.7 ansible
