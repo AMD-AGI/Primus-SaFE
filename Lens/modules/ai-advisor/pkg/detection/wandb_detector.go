@@ -32,6 +32,37 @@ type WandBEvidence struct {
 	WrapperFrameworks map[string]map[string]interface{} `json:"wrapper_frameworks,omitempty"` // Wrapper framework detection results
 	BaseFrameworks    map[string]map[string]interface{} `json:"base_frameworks,omitempty"`    // Base framework detection results
 	System            map[string]interface{}            `json:"system"`
+	Hardware          *HardwareInfo                     `json:"hardware,omitempty"` // Hardware information (GPU, ROCm, etc.)
+	Software          *SoftwareInfo                     `json:"software,omitempty"` // Software package versions
+	Build             *BuildInfo                        `json:"build,omitempty"`    // CI/CD build information
+}
+
+// HardwareInfo hardware information
+type HardwareInfo struct {
+	GPUArch     string  `json:"gpu_arch,omitempty"`
+	GPUCount    int     `json:"gpu_count,omitempty"`
+	GPUMemoryGB float64 `json:"gpu_memory_gb,omitempty"`
+	GPUName     string  `json:"gpu_name,omitempty"`
+	ROCmVersion string  `json:"rocm_version,omitempty"`
+	CUDAVersion string  `json:"cuda_version,omitempty"`
+}
+
+// SoftwareInfo software package versions
+type SoftwareInfo struct {
+	ROCmVersion string            `json:"rocm_version,omitempty"`
+	Packages    map[string]string `json:"packages,omitempty"`
+}
+
+// BuildInfo CI/CD build information
+type BuildInfo struct {
+	BuildURL      string `json:"build_url,omitempty"`
+	DockerfileURL string `json:"dockerfile_url,omitempty"`
+	ImageTag      string `json:"image_tag,omitempty"`
+	BuildDate     string `json:"build_date,omitempty"`
+	GitCommit     string `json:"git_commit,omitempty"`
+	GitBranch     string `json:"git_branch,omitempty"`
+	GitRepo       string `json:"git_repo,omitempty"`
+	CIPipelineID  string `json:"ci_pipeline_id,omitempty"`
 }
 
 // WandBInfo WandB project information
@@ -77,6 +108,7 @@ type DetectionResult struct {
 type WandBFrameworkDetector struct {
 	detectionManager *framework.FrameworkDetectionManager
 	evidenceStore    *EvidenceStore
+	configExtractor  *ConfigExtractor
 }
 
 // NewWandBFrameworkDetector creates a detector
@@ -86,6 +118,7 @@ func NewWandBFrameworkDetector(
 	return &WandBFrameworkDetector{
 		detectionManager: detectMgr,
 		evidenceStore:    NewEvidenceStore(),
+		configExtractor:  NewConfigExtractor(),
 	}
 }
 
@@ -97,6 +130,7 @@ func NewWandBFrameworkDetectorWithEvidenceStore(
 	return &WandBFrameworkDetector{
 		detectionManager: detectMgr,
 		evidenceStore:    evidenceStore,
+		configExtractor:  NewConfigExtractor(),
 	}
 }
 
@@ -154,7 +188,15 @@ func (d *WandBFrameworkDetector) ProcessWandBDetection(
 			result.Framework, result.Confidence, result.Method)
 	}
 
-	// 4. Construct evidence (includes dual-layer framework info and complete WandB basic info)
+	// 4. Extract training configuration (model_name, training_mode, precision, building_framework)
+	trainingConfig := d.configExtractor.ExtractTrainingConfig(req, result)
+	if trainingConfig != nil {
+		log.Infof("Extracted training config: model=%s, mode=%s, precision=%s, building_framework=%s",
+			trainingConfig.ModelName, trainingConfig.TrainingMode,
+			trainingConfig.Precision, trainingConfig.BuildingFramework)
+	}
+
+	// 5. Construct evidence (includes dual-layer framework info and complete WandB basic info)
 	evidence := map[string]interface{}{
 		"method":            result.Method,
 		"framework_layer":   result.FrameworkLayer,
@@ -182,6 +224,55 @@ func (d *WandBFrameworkDetector) ProcessWandBDetection(
 		"base_frameworks_detail":    req.Evidence.BaseFrameworks,
 		// Save system information
 		"system": req.Evidence.System,
+		// Save extracted training configuration
+		"training_config": map[string]interface{}{
+			"model_name":         trainingConfig.ModelName,
+			"training_mode":      trainingConfig.TrainingMode,
+			"precision":          trainingConfig.Precision,
+			"building_framework": trainingConfig.BuildingFramework,
+		},
+	}
+
+	// Add hardware information if available
+	if req.Evidence.Hardware != nil {
+		evidence["hardware"] = map[string]interface{}{
+			"gpu_arch":      req.Evidence.Hardware.GPUArch,
+			"gpu_count":     req.Evidence.Hardware.GPUCount,
+			"gpu_memory_gb": req.Evidence.Hardware.GPUMemoryGB,
+			"gpu_name":      req.Evidence.Hardware.GPUName,
+			"rocm_version":  req.Evidence.Hardware.ROCmVersion,
+			"cuda_version":  req.Evidence.Hardware.CUDAVersion,
+		}
+		log.Infof("Hardware info: gpu_arch=%s, rocm=%s, gpu_count=%d",
+			req.Evidence.Hardware.GPUArch,
+			req.Evidence.Hardware.ROCmVersion,
+			req.Evidence.Hardware.GPUCount)
+	}
+
+	// Add software information if available
+	if req.Evidence.Software != nil {
+		evidence["software"] = map[string]interface{}{
+			"rocm_version": req.Evidence.Software.ROCmVersion,
+			"packages":     req.Evidence.Software.Packages,
+		}
+		log.Debugf("Software info: %d packages tracked", len(req.Evidence.Software.Packages))
+	}
+
+	// Add build information if available
+	if req.Evidence.Build != nil {
+		evidence["build"] = map[string]interface{}{
+			"build_url":      req.Evidence.Build.BuildURL,
+			"dockerfile_url": req.Evidence.Build.DockerfileURL,
+			"image_tag":      req.Evidence.Build.ImageTag,
+			"build_date":     req.Evidence.Build.BuildDate,
+			"git_commit":     req.Evidence.Build.GitCommit,
+			"git_branch":     req.Evidence.Build.GitBranch,
+			"git_repo":       req.Evidence.Build.GitRepo,
+			"ci_pipeline_id": req.Evidence.Build.CIPipelineID,
+		}
+		log.Debugf("Build info: image_tag=%s, git_commit=%s",
+			req.Evidence.Build.ImageTag,
+			req.Evidence.Build.GitCommit)
 	}
 
 	// If PyTorch information exists, add to evidence
@@ -194,34 +285,20 @@ func (d *WandBFrameworkDetector) ProcessWandBDetection(
 		}
 	}
 
-	// 5. Store evidence to the evidence table
+	// 6. Store evidence to workload_detection_evidence table (detection v2 architecture)
+	// Note: In detection v2, evidence is stored in workload_detection_evidence table,
+	// then aggregated by EvidenceAggregator to workload_detection table.
+	// We no longer write to ai_workload_metadata via FrameworkDetectionManager.
 	if d.evidenceStore != nil {
 		if err := d.evidenceStore.StoreWandBEvidence(ctx, workloadUID, result, evidence); err != nil {
-			log.Warnf("Failed to store WandB evidence: %v", err)
-			// Continue even if evidence storage fails
+			log.Errorf("Failed to store WandB evidence: %v", err)
+			return err
 		}
+		log.Infof("✓ Stored WandB evidence for workload %s (framework=%s, confidence=%.2f)",
+			workloadUID, result.Framework, result.Confidence)
+	} else {
+		log.Warnf("Evidence store is nil, WandB evidence not stored for workload %s", workloadUID)
 	}
-
-	// 6. Report to FrameworkDetectionManager (using new method with dual-layer framework support)
-	err = d.detectionManager.ReportDetectionWithLayers(
-		ctx,
-		workloadUID,
-		"wandb",
-		result.Framework,
-		"training",
-		result.Confidence,
-		evidence,
-		result.FrameworkLayer,
-		result.WrapperFramework,
-		result.BaseFramework,
-	)
-
-	if err != nil {
-		log.Errorf("Failed to report WandB detection: %v", err)
-		return err
-	}
-
-	log.Infof("✓ Successfully reported WandB detection for workload %s", workloadUID)
 
 	return nil
 }

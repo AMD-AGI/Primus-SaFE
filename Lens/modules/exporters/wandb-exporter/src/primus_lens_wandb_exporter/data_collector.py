@@ -9,13 +9,30 @@ from typing import Dict, List, Any, Optional
 # Import logger module
 from .logger import debug_log, error_log, warning_log
 
+# Import hardware and software collectors
+try:
+    from .hardware_info import HardwareInfoCollector
+    from .software_info import SoftwareInfoCollector
+    COLLECTORS_AVAILABLE = True
+except ImportError as e:
+    warning_log(f"[Primus Lens Data Collector] Failed to import collectors: {e}")
+    COLLECTORS_AVAILABLE = False
+
 
 class DataCollector:
     """Data Collector - Collect raw evidence data"""
     
     def __init__(self):
-        self.collector_version = "1.0.0"
-        self.data_schema_version = "1.0"
+        self.collector_version = "2.0.0"
+        self.data_schema_version = "2.0"
+        
+        # Initialize hardware and software collectors
+        if COLLECTORS_AVAILABLE:
+            self.hardware_collector = HardwareInfoCollector()
+            self.software_collector = SoftwareInfoCollector()
+        else:
+            self.hardware_collector = None
+            self.software_collector = None
     
     def collect_detection_data(self, wandb_run) -> Dict[str, Any]:
         """
@@ -99,8 +116,8 @@ class DataCollector:
             "wandb": wandb_info,
             "environment": env_vars,
             "pytorch": pytorch_info,
-            "wrapper_frameworks": wrapper_frameworks,  # New: wrapper frameworks detected via import
-            "base_frameworks": base_frameworks,        # New: base frameworks detected via import
+            "wrapper_frameworks": wrapper_frameworks,  # Wrapper frameworks detected via import
+            "base_frameworks": base_frameworks,        # Base frameworks detected via import
             # 6. System information
             "system": {
                 "python_version": sys.version,
@@ -108,6 +125,27 @@ class DataCollector:
                 "platform": sys.platform,
             },
         }
+        
+        # 7. Hardware information (GPU arch, ROCm version, etc.)
+        debug_log(f"[Primus Lens Data Collector] Collecting hardware info...")
+        hardware_info = self._collect_hardware_info()
+        if hardware_info:
+            evidence["hardware"] = hardware_info
+            debug_log(f"[Primus Lens Data Collector] Hardware info: gpu_arch={hardware_info.get('gpu_arch')}, rocm={hardware_info.get('rocm_version')}")
+        
+        # 8. Software information (package versions)
+        debug_log(f"[Primus Lens Data Collector] Collecting software info...")
+        software_info = self._collect_software_info()
+        if software_info:
+            evidence["software"] = software_info
+            debug_log(f"[Primus Lens Data Collector] Software info: {len(software_info.get('packages', {}))} packages")
+        
+        # 9. Build information (CI/CD metadata)
+        debug_log(f"[Primus Lens Data Collector] Collecting build info...")
+        build_info = self._collect_build_info()
+        if build_info:
+            evidence["build"] = build_info
+            debug_log(f"[Primus Lens Data Collector] Build info: {list(build_info.keys())}")
         
         debug_log(f"[Primus Lens Data Collector] _collect_raw_evidence() completed")
         
@@ -761,4 +799,51 @@ class DataCollector:
             return "medium"
         else:
             return "low"
-
+    
+    def _collect_hardware_info(self) -> Optional[Dict[str, Any]]:
+        """
+        Collect hardware information (GPU architecture, ROCm version, etc.)
+        
+        Returns:
+            Dict containing hardware info, or None if collector not available
+        """
+        if self.hardware_collector is None:
+            return None
+        
+        try:
+            return self.hardware_collector.collect_hardware_info()
+        except Exception as e:
+            warning_log(f"[Primus Lens Data Collector] Failed to collect hardware info: {e}")
+            return None
+    
+    def _collect_software_info(self) -> Optional[Dict[str, Any]]:
+        """
+        Collect software information (package versions)
+        
+        Returns:
+            Dict containing software info, or None if collector not available
+        """
+        if self.software_collector is None:
+            return None
+        
+        try:
+            return self.software_collector.collect_software_info()
+        except Exception as e:
+            warning_log(f"[Primus Lens Data Collector] Failed to collect software info: {e}")
+            return None
+    
+    def _collect_build_info(self) -> Optional[Dict[str, Any]]:
+        """
+        Collect build information (CI/CD metadata)
+        
+        Returns:
+            Dict containing build info, or None if no info available
+        """
+        if self.software_collector is None:
+            return None
+        
+        try:
+            return self.software_collector.collect_build_info()
+        except Exception as e:
+            warning_log(f"[Primus Lens Data Collector] Failed to collect build info: {e}")
+            return None

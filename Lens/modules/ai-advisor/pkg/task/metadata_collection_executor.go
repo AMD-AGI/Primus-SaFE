@@ -21,24 +21,27 @@ import (
 )
 
 // MetadataCollectionExecutor metadata collection task executor
+// In v2 architecture, reads framework info from workload_detection table
 type MetadataCollectionExecutor struct {
 	coreTask.BaseExecutor
 
-	collector      *metadata.Collector
-	podProber      *common.PodProber
-	metadataFacade database.AiWorkloadMetadataFacadeInterface
-	podFacade      database.PodFacadeInterface
-	taskFacade     database.WorkloadTaskFacadeInterface
+	collector       *metadata.Collector
+	podProber       *common.PodProber
+	detectionFacade database.WorkloadDetectionFacadeInterface
+	metadataFacade  database.AiWorkloadMetadataFacadeInterface
+	podFacade       database.PodFacadeInterface
+	taskFacade      database.WorkloadTaskFacadeInterface
 }
 
 // NewMetadataCollectionExecutor creates metadata collection executor
 func NewMetadataCollectionExecutor(collector *metadata.Collector) *MetadataCollectionExecutor {
 	return &MetadataCollectionExecutor{
-		collector:      collector,
-		podProber:      common.NewPodProber(collector),
-		metadataFacade: database.NewAiWorkloadMetadataFacade(),
-		podFacade:      database.NewPodFacade(),
-		taskFacade:     database.NewWorkloadTaskFacade(),
+		collector:       collector,
+		podProber:       common.NewPodProber(collector),
+		detectionFacade: database.NewWorkloadDetectionFacade(),
+		metadataFacade:  database.NewAiWorkloadMetadataFacade(),
+		podFacade:       database.NewPodFacade(),
+		taskFacade:      database.NewWorkloadTaskFacade(),
 	}
 }
 
@@ -66,8 +69,8 @@ func (e *MetadataCollectionExecutor) Execute(
 
 	log.Infof("Starting metadata collection for workload %s", task.WorkloadUID)
 
-	// 1. Get detection info from ai_workload_metadata table
-	detectionInfo, err := e.metadataFacade.GetAiWorkloadMetadata(ctx, task.WorkloadUID)
+	// 1. Get detection info from workload_detection table (v2 architecture)
+	detection, err := e.detectionFacade.GetDetection(ctx, task.WorkloadUID)
 	if err != nil {
 		return coreTask.FailureResult(
 			fmt.Sprintf("failed to get detection info: %v", err),
@@ -77,13 +80,13 @@ func (e *MetadataCollectionExecutor) Execute(
 		), err
 	}
 
-	if detectionInfo == nil {
+	if detection == nil {
 		return coreTask.FailureResult(
 			"no detection info found for workload",
 			map[string]interface{}{
 				"error_at": time.Now().Format(time.RFC3339),
 			},
-		), fmt.Errorf("detection info not found")
+		), fmt.Errorf("detection info not found in workload_detection table")
 	}
 
 	// 2. Get pod info from gpu_pods table
@@ -182,7 +185,8 @@ func (e *MetadataCollectionExecutor) Execute(
 	updates["tensorboard_result"] = tensorboardResult
 
 	// 9. Collect and save framework config (for profiler collection and other downstream tasks)
-	framework := strings.ToLower(detectionInfo.Framework)
+	// In v2, framework info comes from workload_detection table
+	framework := strings.ToLower(detection.Framework)
 	var frameworkConfig *profiler.FrameworkConfig
 	// Use strings.Contains to check for framework in comma-separated list (e.g., "primus,megatron,pytorch")
 	if strings.Contains(framework, "primus") || strings.Contains(framework, "megatron") || strings.Contains(framework, "deepspeed") {
@@ -207,7 +211,8 @@ func (e *MetadataCollectionExecutor) Execute(
 	}
 
 	// 10. Check if framework config has TensorBoard enabled (even if files haven't appeared yet)
-	tensorboardConfigured, configLogDir := e.checkTensorBoardConfiguration(ctx, detectionInfo, pythonProcess, nodeExporterClient)
+	// In v2, we check TensorBoard configuration based on framework name from workload_detection
+	tensorboardConfigured, configLogDir := e.checkTensorBoardConfigurationV2(ctx, detection, pythonProcess, nodeExporterClient)
 	updates["tensorboard_configured"] = tensorboardConfigured
 
 	// Decide whether to enable TensorBoard stream
@@ -341,7 +346,122 @@ func (e *MetadataCollectionExecutor) createTensorBoardStreamTask(
 	return nil
 }
 
+// checkTensorBoardConfigurationV2 checks if framework config has TensorBoard enabled (v2 architecture)
+// Uses workload_detection table instead of ai_workload_metadata
+func (e *MetadataCollectionExecutor) checkTensorBoardConfigurationV2(
+	ctx context.Context,
+	detection *model.WorkloadDetection,
+	pythonProcess *types.ProcessInfo,
+	nodeExporterClient interface{},
+) (bool, string) {
+	if detection == nil {
+		return false, ""
+	}
+
+	framework := strings.ToLower(detection.Framework)
+	log.Infof("Checking TensorBoard configuration for framework: %s (v2)", framework)
+
+	// Check config based on different frameworks
+	// In v2, we rely on process-based detection rather than stored metadata
+	switch {
+	case strings.Contains(framework, "primus"):
+		return e.checkPrimusTensorBoard(ctx, pythonProcess, nodeExporterClient)
+	case strings.Contains(framework, "megatron"):
+		// For Megatron, check process environment for tensorboard-dir
+		return e.checkMegatronTensorBoardFromProcess(pythonProcess)
+	case strings.Contains(framework, "pytorch"):
+		// For PyTorch, check process for SummaryWriter usage
+		return e.checkPyTorchTensorBoardFromProcess(pythonProcess)
+	default:
+		// For unknown frameworks, try to detect from process
+		return e.checkGenericTensorBoardFromProcess(pythonProcess)
+	}
+}
+
+// checkMegatronTensorBoardFromProcess checks Megatron TensorBoard config from process environment
+func (e *MetadataCollectionExecutor) checkMegatronTensorBoardFromProcess(
+	pythonProcess *types.ProcessInfo,
+) (bool, string) {
+	if pythonProcess == nil {
+		return false, ""
+	}
+
+	// Check environment variables for tensorboard directory
+	for _, envVar := range pythonProcess.Env {
+		if strings.HasPrefix(envVar, "TENSORBOARD_DIR=") {
+			tbDir := strings.TrimPrefix(envVar, "TENSORBOARD_DIR=")
+			if tbDir != "" {
+				log.Infof("Megatron: TensorBoard enabled from env (TENSORBOARD_DIR=%s)", tbDir)
+				return true, tbDir
+			}
+		}
+	}
+
+	// Check command line arguments for --tensorboard-dir
+	if strings.Contains(pythonProcess.Cmdline, "--tensorboard-dir") {
+		// Extract the directory path
+		parts := strings.Split(pythonProcess.Cmdline, "--tensorboard-dir")
+		if len(parts) > 1 {
+			remaining := strings.TrimLeft(parts[1], " =")
+			dir := strings.Fields(remaining)
+			if len(dir) > 0 {
+				log.Infof("Megatron: TensorBoard enabled from cmdline (--tensorboard-dir=%s)", dir[0])
+				return true, dir[0]
+			}
+		}
+	}
+
+	return false, ""
+}
+
+// checkPyTorchTensorBoardFromProcess checks PyTorch TensorBoard config from process
+func (e *MetadataCollectionExecutor) checkPyTorchTensorBoardFromProcess(
+	pythonProcess *types.ProcessInfo,
+) (bool, string) {
+	if pythonProcess == nil {
+		return false, ""
+	}
+
+	// Check environment variables for log directory
+	for _, envVar := range pythonProcess.Env {
+		if strings.HasPrefix(envVar, "TENSORBOARD_LOGDIR=") {
+			tbDir := strings.TrimPrefix(envVar, "TENSORBOARD_LOGDIR=")
+			if tbDir != "" {
+				log.Infof("PyTorch: TensorBoard enabled from env (TENSORBOARD_LOGDIR=%s)", tbDir)
+				return true, tbDir
+			}
+		}
+	}
+
+	return false, ""
+}
+
+// checkGenericTensorBoardFromProcess checks generic TensorBoard config from process
+func (e *MetadataCollectionExecutor) checkGenericTensorBoardFromProcess(
+	pythonProcess *types.ProcessInfo,
+) (bool, string) {
+	if pythonProcess == nil {
+		return false, ""
+	}
+
+	// Check common tensorboard environment variables
+	for _, envVar := range pythonProcess.Env {
+		if strings.HasPrefix(envVar, "TB_LOGDIR=") ||
+			strings.HasPrefix(envVar, "TENSORBOARD_LOGDIR=") ||
+			strings.HasPrefix(envVar, "TENSORBOARD_DIR=") {
+			parts := strings.SplitN(envVar, "=", 2)
+			if len(parts) == 2 && parts[1] != "" {
+				log.Infof("Generic: TensorBoard enabled from env (%s)", envVar)
+				return true, parts[1]
+			}
+		}
+	}
+
+	return false, ""
+}
+
 // checkTensorBoardConfiguration checks if framework config has TensorBoard enabled
+// Deprecated: Use checkTensorBoardConfigurationV2 for v2 architecture
 func (e *MetadataCollectionExecutor) checkTensorBoardConfiguration(
 	ctx context.Context,
 	detectionInfo *model.AiWorkloadMetadata,
