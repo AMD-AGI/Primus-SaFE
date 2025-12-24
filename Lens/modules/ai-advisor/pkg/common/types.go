@@ -2,10 +2,10 @@ package common
 
 import "time"
 
-// Detection represents framework detection result with dual-layer support
+// Detection represents framework detection result with multi-layer support
 type Detection struct {
 	WorkloadUID string                 `json:"workload_uid"`
-	Frameworks  []string               `json:"frameworks"` // Detected frameworks: [wrapper, base] for dual-layer, [framework] for single-layer
+	Frameworks  []string               `json:"frameworks"` // Detected frameworks: [wrapper, orchestration, runtime] for multi-layer, [framework] for single-layer
 	Type        string                 `json:"type"`
 	Confidence  float64                `json:"confidence"`
 	Status      string                 `json:"status"`
@@ -14,24 +14,29 @@ type Detection struct {
 	ReuseInfo   *ReuseInfo             `json:"reuse_info,omitempty"`
 	UpdatedAt   time.Time              `json:"updated_at"`
 
-	// Dual-layer framework support
-	FrameworkLayer   string `json:"framework_layer,omitempty"`   // "wrapper" or "base"
-	WrapperFramework string `json:"wrapper_framework,omitempty"` // Wrapper framework
-	BaseFramework    string `json:"base_framework,omitempty"`    // Base framework
+	// Multi-layer framework support (Detection V2)
+	// Layer hierarchy: wrapper (L1) > orchestration (L2) > runtime (L3)
+	FrameworkLayer         string `json:"framework_layer,omitempty"`          // Primary framework layer: "wrapper", "orchestration", "runtime", "inference"
+	WrapperFramework       string `json:"wrapper_framework,omitempty"`        // L1: Wrapper framework (e.g., primus, lightning)
+	OrchestrationFramework string `json:"orchestration_framework,omitempty"` // L2: Orchestration framework (e.g., megatron, deepspeed)
+	RuntimeFramework       string `json:"runtime_framework,omitempty"`        // L3: Runtime framework (e.g., pytorch, tensorflow)
+	BaseFramework          string `json:"base_framework,omitempty"`           // Deprecated: use RuntimeFramework, kept for backward compatibility
 }
 
-// DetectionSource represents a detection data source with dual-layer support
+// DetectionSource represents a detection data source with multi-layer support
 type DetectionSource struct {
 	Source     string                 `json:"source"`
-	Frameworks []string               `json:"frameworks"` // Detected frameworks: [wrapper, base] or [framework]
+	Frameworks []string               `json:"frameworks"` // Detected frameworks: [wrapper, orchestration, runtime] or [framework]
 	Confidence float64                `json:"confidence"`
 	Evidence   map[string]interface{} `json:"evidence"`
 	Timestamp  time.Time              `json:"timestamp"`
 
-	// Dual-layer framework support
-	FrameworkLayer   string `json:"framework_layer,omitempty"`
-	WrapperFramework string `json:"wrapper_framework,omitempty"`
-	BaseFramework    string `json:"base_framework,omitempty"`
+	// Multi-layer framework support (Detection V2)
+	FrameworkLayer         string `json:"framework_layer,omitempty"`
+	WrapperFramework       string `json:"wrapper_framework,omitempty"`
+	OrchestrationFramework string `json:"orchestration_framework,omitempty"`
+	RuntimeFramework       string `json:"runtime_framework,omitempty"`
+	BaseFramework          string `json:"base_framework,omitempty"` // Deprecated: use RuntimeFramework
 }
 
 // DetectionConflict represents a conflict between two detection sources
@@ -51,19 +56,21 @@ type ReuseInfo struct {
 	ReusedAt        time.Time `json:"reused_at"`
 }
 
-// DetectionRequest represents a detection report request with dual-layer support
+// DetectionRequest represents a detection report request with multi-layer support
 type DetectionRequest struct {
 	WorkloadUID string                 `json:"workload_uid" binding:"required"`
 	Source      string                 `json:"source" binding:"required"`
-	Frameworks  []string               `json:"frameworks" binding:"required"` // Detected frameworks: [wrapper, base] or [framework]
+	Frameworks  []string               `json:"frameworks" binding:"required"` // Detected frameworks: [wrapper, orchestration, runtime] or [framework]
 	Type        string                 `json:"type"`
 	Confidence  float64                `json:"confidence" binding:"min=0,max=1"`
 	Evidence    map[string]interface{} `json:"evidence"`
 
-	// Dual-layer framework support (optional, for backward compatibility)
-	FrameworkLayer   string `json:"framework_layer,omitempty"`   // "wrapper" or "base"
-	WrapperFramework string `json:"wrapper_framework,omitempty"` // Wrapper framework
-	BaseFramework    string `json:"base_framework,omitempty"`    // Base framework
+	// Multi-layer framework support (optional, for backward compatibility)
+	FrameworkLayer         string `json:"framework_layer,omitempty"`          // "wrapper", "orchestration", "runtime", or "inference"
+	WrapperFramework       string `json:"wrapper_framework,omitempty"`        // L1: Wrapper framework
+	OrchestrationFramework string `json:"orchestration_framework,omitempty"` // L2: Orchestration framework
+	RuntimeFramework       string `json:"runtime_framework,omitempty"`        // L3: Runtime framework
+	BaseFramework          string `json:"base_framework,omitempty"`           // Deprecated: use RuntimeFramework
 }
 
 // PerformanceAnalysis represents performance analysis result
