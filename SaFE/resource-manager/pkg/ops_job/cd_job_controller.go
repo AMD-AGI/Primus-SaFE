@@ -265,7 +265,6 @@ func (r *CDJobReconciler) generateCDWorkload(ctx context.Context, job *v1.OpsJob
 				Version: common.DefaultVersion,
 				Kind:    common.JobKind,
 			},
-			// IsTolerateAll: false - respect node taints (e.g., DiskPressure)
 			Priority:  common.HighPriorityInt,
 			Workspace: corev1.NamespaceDefault, // Use 'default' namespace (same as preflight)
 			Image:     CDJobImage,
@@ -275,7 +274,6 @@ func (r *CDJobReconciler) generateCDWorkload(ctx context.Context, job *v1.OpsJob
 				"HAS_NODE_AGENT":        fmt.Sprintf("%t", hasNodeAgent),
 				"HAS_CICD":              fmt.Sprintf("%t", hasCICD),
 			},
-			// No Hostpath needed - script does fresh clone every time
 		},
 	}
 
