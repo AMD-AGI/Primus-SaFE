@@ -21,6 +21,9 @@ threshold=29.6
 last_error=""
 
 for attempt in $(seq 1 $max_retries); do
+  if [ $attempt -gt 1 ]; then
+    sleep 5
+  fi
   "$DIR_NAME/TransferBench" a2a >"$LOG_FILE"
   EXIT_CODE=$?
   if [ $EXIT_CODE -ne 0 ]; then

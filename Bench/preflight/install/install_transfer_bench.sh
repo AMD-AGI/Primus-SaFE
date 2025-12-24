@@ -31,8 +31,9 @@ fi
 
 REPO_URL="https://github.com/ROCm/TransferBench.git"
 cd /opt
-git clone --branch "$TRANSFER_TAG" --depth 1 "$REPO_URL" > /dev/null
+git clone --branch "$TRANSFER_TAG" --depth 1 "$REPO_URL"
 
 cd "./TransferBench"
 # GPU_ARCHS: gfx942 (mi300x/mi325x), gfx950 (mi355x)
-CC=hipcc make GPU_TARGETS="$GPU_ARCHS" > /dev/null
+echo "Building TransferBench with GPU_TARGETS=$GPU_ARCHS"
+CC=hipcc make GPU_TARGETS="$GPU_ARCHS"

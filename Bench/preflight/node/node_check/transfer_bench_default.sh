@@ -19,8 +19,10 @@ success=0
 last_error=""
 
 for attempt in $(seq 1 $max_retries); do
-   sleep 2
-  "$DIR_NAME/TransferBench" "$DIR_NAME/examples/example.cfg" >"$LOG_FILE" 2>&1
+  if [ $attempt -gt 1 ]; then
+    sleep 5
+  fi
+ "$DIR_NAME/TransferBench" "$DIR_NAME/examples/example.cfg" >"$LOG_FILE" 2>&1
   EXIT_CODE=$?
   if [ $EXIT_CODE -ne 0 ]; then
     error_lines=$(grep -i '\[ERROR\]\|error\|failed' "$LOG_FILE" 2>/dev/null | head -5)
