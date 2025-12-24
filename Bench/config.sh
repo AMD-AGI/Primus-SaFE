@@ -34,7 +34,7 @@ export CPUS_PER_TASK="${CPUS_PER_TASK:-128}"
 export IP_INTERFACE="${IP_INTERFACE:-enp193s0f0np0}"
 export NCCL_SOCKET_IFNAME="${NCCL_SOCKET_IFNAME:-${IP_INTERFACE}}"
 export GLOO_SOCKET_IFNAME="${GLOO_SOCKET_IFNAME:-${IP_INTERFACE}}"
-export NCCL_IB_HCA="ionic_0,ionic_1,ionic_2,ionic_3,ionic_4,ionic_5,ionic_6,ionic_7"
+export NCCL_IB_HCA="${NCCL_IB_HCA:-"ionic_0,ionic_1,ionic_2,ionic_3,ionic_4,ionic_5,ionic_6,ionic_7"}"
 export ENABLE_AINIC="${ENABLE_AINIC:-false}"
 
 # ==============================================================================

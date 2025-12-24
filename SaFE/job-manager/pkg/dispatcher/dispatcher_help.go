@@ -70,6 +70,10 @@ func initializeObject(obj *unstructured.Unstructured,
 	if err = modifyPriorityClass(obj, workload, path); err != nil {
 		return fmt.Errorf("failed to modify priority: %v", err.Error())
 	}
+	path = append(templatePath, "spec", "serviceAccountName")
+	if err = modifyServiceAccountName(obj, workload, path); err != nil {
+		return fmt.Errorf("failed to modify sa: %v", err.Error())
+	}
 	path = append(templatePath, "spec", "hostNetwork")
 	if err = modifyHostNetwork(obj, workload, path); err != nil {
 		return fmt.Errorf("failed to modify host network: %v", err.Error())
@@ -355,6 +359,16 @@ func modifyPriorityClass(obj *unstructured.Unstructured, workload *v1.Workload, 
 	return nil
 }
 
+// modifyServiceAccountName sets the service account name for the workload based on its specification.
+func modifyServiceAccountName(obj *unstructured.Unstructured, workload *v1.Workload, path []string) error {
+	if v1.GetOpsJobType(workload) == string(v1.OpsJobCDType) {
+		if err := unstructured.SetNestedField(obj.Object, common.PrimusSafeName, path...); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // modifyHostNetwork enables or disables host networking based on workload annotations.
 func modifyHostNetwork(obj *unstructured.Unstructured, workload *v1.Workload, path []string) error {
 	isEnableHostNetwork := v1.IsEnableHostNetwork(workload)
@@ -505,10 +519,12 @@ func buildEnvironment(workload *v1.Workload) []interface{} {
 }
 
 func addEnvVar(result []interface{}, workload *v1.Workload, name, value string) []interface{} {
-	_, ok := workload.Spec.Env[name]
-	if ok {
-		return result
+	if len(workload.Spec.Env) > 0 {
+		if _, ok := workload.Spec.Env[name]; ok {
+			return result
+		}
 	}
+
 	return append(result, map[string]interface{}{
 		"name":  name,
 		"value": value,
