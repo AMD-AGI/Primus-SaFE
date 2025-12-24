@@ -51,20 +51,6 @@ func extractBranchFromEnvFileConfig(envFileConfig string) string {
 	return "" // Default: empty means use default branch
 }
 
-// extractInstallNodeAgentFromEnvFileConfig extracts install_node_agent from env file content string.
-// Returns false (don't install) if not found or value is not "y".
-func extractInstallNodeAgentFromEnvFileConfig(envFileConfig string) bool {
-	for _, line := range strings.Split(envFileConfig, "\n") {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "install_node_agent=") {
-			value := strings.TrimPrefix(line, "install_node_agent=")
-			value = strings.Trim(value, "\"'") // Remove quotes if any
-			return value == "y"
-		}
-	}
-	return false // Default: don't install node-agent
-}
-
 // UpdateRequestStatus updates the status of a deployment request in the database
 func (s *Service) UpdateRequestStatus(ctx context.Context, reqId int64, status, failureReason string) error {
 	req, err := s.dbClient.GetDeploymentRequest(ctx, reqId)

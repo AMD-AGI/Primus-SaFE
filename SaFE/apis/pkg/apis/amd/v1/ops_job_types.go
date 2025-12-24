@@ -51,7 +51,6 @@ const (
 	ParameterDeployBranch        = "deploy.branch"         // Git branch for deployment
 	ParameterHasNodeAgent        = "has.nodeagent"         // Whether node agent update is needed
 	ParameterHasCICD             = "has.cicd"              // Whether CICD update is needed
-	ParameterInstallNodeAgent    = "install.nodeagent"     // Whether to install node agent
 	ParameterNodeAgentImage      = "nodeagent.image"       // Node agent image
 	ParameterCICDRunnerImage     = "cicd.runner.image"     // CICD runner image
 	ParameterCICDUnifiedImage    = "cicd.unified.image"    // CICD unified job image

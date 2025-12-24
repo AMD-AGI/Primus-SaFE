@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
@@ -214,15 +215,14 @@ func (r *CDJobReconciler) generateCDWorkload(ctx context.Context, job *v1.OpsJob
 	deployBranch := getParameterValue(job, v1.ParameterDeployBranch, "")
 	hasNodeAgent := getParameterValue(job, v1.ParameterHasNodeAgent, "false") == "true"
 	hasCICD := getParameterValue(job, v1.ParameterHasCICD, "false") == "true"
-	installNodeAgent := getParameterValue(job, v1.ParameterInstallNodeAgent, "false") == "true"
 	nodeAgentImage := getParameterValue(job, v1.ParameterNodeAgentImage, "")
 	cicdRunnerImage := getParameterValue(job, v1.ParameterCICDRunnerImage, "")
 	cicdUnifiedImage := getParameterValue(job, v1.ParameterCICDUnifiedImage, "")
 
-	// Build the complete deployment script (local + remote if needed)
-	script := r.buildCompleteDeployScript(
+	// Build the unified deployment script (local + verification + remote if needed)
+	script := r.buildDeployScript(
 		componentTags, nodeAgentTags, envFileConfig, deployBranch,
-		hasNodeAgent, hasCICD, installNodeAgent,
+		hasNodeAgent, hasCICD,
 		nodeAgentImage, cicdRunnerImage, cicdUnifiedImage,
 	)
 
@@ -230,12 +230,12 @@ func (r *CDJobReconciler) generateCDWorkload(ctx context.Context, job *v1.OpsJob
 	entryPoint := base64.StdEncoding.EncodeToString([]byte(script))
 
 	// Create workload with minimal resource requirements (no GPU needed)
+	// Uses 'default' workspace with immediate scheduling (similar to preflight jobs)
 	workload := &v1.Workload{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: job.Name,
 			Labels: map[string]string{
-				v1.ClusterIdLabel:   v1.GetClusterId(job),       // Get cluster ID from OpsJob
-				v1.WorkspaceIdLabel: common.PrimusSafeNamespace, // Use primus-safe workspace
+				// No ClusterIdLabel - CD jobs use 'default' workspace
 				v1.UserIdLabel:      v1.GetUserId(job),
 				v1.OpsJobIdLabel:    job.Name,
 				v1.OpsJobTypeLabel:  string(job.Spec.Type),
@@ -243,6 +243,8 @@ func (r *CDJobReconciler) generateCDWorkload(ctx context.Context, job *v1.OpsJob
 			},
 			Annotations: map[string]string{
 				v1.UserNameAnnotation: v1.GetUserName(job),
+				// Dispatch the workload immediately, skipping the queue (same as preflight)
+				v1.WorkloadScheduledAnnotation: timeutil.FormatRFC3339(time.Now().UTC()),
 			},
 		},
 		Spec: v1.WorkloadSpec{
@@ -259,7 +261,7 @@ func (r *CDJobReconciler) generateCDWorkload(ctx context.Context, job *v1.OpsJob
 			},
 			IsTolerateAll: true, // Can run on any node
 			Priority:      common.HighPriorityInt,
-			Workspace:     common.PrimusSafeNamespace, // Use primus-safe namespace
+			Workspace:     corev1.NamespaceDefault, // Use 'default' namespace (same as preflight)
 			Image:         CDJobImage,
 			Env: map[string]string{
 				"DEPLOYMENT_REQUEST_ID": getParameterValue(job, v1.ParameterDeploymentRequestId, ""),
@@ -269,9 +271,6 @@ func (r *CDJobReconciler) generateCDWorkload(ctx context.Context, job *v1.OpsJob
 			Hostpath: []string{HostMountPath},
 		},
 	}
-
-	// Dispatch the workload immediately, skipping the queue
-	v1.SetAnnotation(workload, v1.WorkloadScheduledAnnotation, timeutil.FormatRFC3339(time.Now().UTC()))
 
 	if job.Spec.TimeoutSecond > 0 {
 		workload.Spec.Timeout = pointer.Int(job.Spec.TimeoutSecond)
@@ -290,38 +289,6 @@ func (r *CDJobReconciler) generateCDWorkload(ctx context.Context, job *v1.OpsJob
 	return workload, nil
 }
 
-// buildCompleteDeployScript builds the complete deployment script including local and remote phases.
-func (r *CDJobReconciler) buildCompleteDeployScript(
-	componentTags, nodeAgentTags, envFileConfig, deployBranch string,
-	hasNodeAgent, hasCICD, installNodeAgent bool,
-	nodeAgentImage, cicdRunnerImage, cicdUnifiedImage string,
-) string {
-	// Build local deployment script
-	localScript := r.buildLocalDeployScript(componentTags, nodeAgentTags, envFileConfig, deployBranch)
-
-	// If no remote updates needed, return local script only
-	if !hasNodeAgent && !hasCICD {
-		return localScript
-	}
-
-	// Build remote deployment script
-	remoteScript := r.buildRemoteClusterScript(
-		hasNodeAgent, hasCICD, installNodeAgent,
-		nodeAgentImage, cicdRunnerImage, cicdUnifiedImage, deployBranch,
-	)
-
-	// Combine local and remote scripts
-	return fmt.Sprintf(`%s
-
-echo ""
-echo "=========================================="
-echo "Local deployment completed, starting remote cluster updates..."
-echo "=========================================="
-
-%s
-`, localScript, remoteScript)
-}
-
 // getParameterValue retrieves a parameter value from job inputs with a default fallback.
 func getParameterValue(job *v1.OpsJob, name, defaultValue string) string {
 	param := job.GetParameter(name)
@@ -331,8 +298,18 @@ func getParameterValue(job *v1.OpsJob, name, defaultValue string) string {
 	return defaultValue
 }
 
-// buildLocalDeployScript builds the shell script for local cluster deployment.
-func (r *CDJobReconciler) buildLocalDeployScript(componentTags, nodeAgentTags, envFileConfig, deployBranch string) string {
+// buildDeployScript builds a unified deployment script that includes:
+// 1. Clone repository
+// 2. Update configuration files
+// 3. Run local upgrade.sh
+// 4. Verify local deployments (Deployment/DaemonSet status)
+// 5. Remote cluster updates (if needed)
+// 6. Verify remote updates
+func (r *CDJobReconciler) buildDeployScript(
+	componentTags, nodeAgentTags, envFileConfig, deployBranch string,
+	hasNodeAgent, hasCICD bool,
+	nodeAgentImage, cicdRunnerImage, cicdUnifiedImage string,
+) string {
 	// Prepare .env file content (base64 encoded for safe passing)
 	envFileBase64 := ""
 	if envFileConfig != "" {
@@ -342,21 +319,46 @@ func (r *CDJobReconciler) buildLocalDeployScript(componentTags, nodeAgentTags, e
 	return fmt.Sprintf(`
 set -e
 
-# Configuration - paths are relative to the mount point
+# ==========================================
+# CD Job - Unified Deployment Script
+# ==========================================
+
+# Configuration
 MOUNT_DIR="%s"
 REPO_URL="%s"
 REPO_NAME="Primus-SaFE"
 REPO_DIR="$MOUNT_DIR/$REPO_NAME"
+NAMESPACE="primus-safe"
 
 PRIMUS_VALUES="$REPO_DIR/SaFE/charts/primus-safe/values.yaml"
 NODE_AGENT_VALUES="$REPO_DIR/SaFE/node-agent/charts/node-agent/values.yaml"
+NODE_AGENT_CHART="$REPO_DIR/SaFE/node-agent/charts/node-agent"
 ENV_FILE="$REPO_DIR/SaFE/bootstrap/.env"
 
+# Deployment parameters
+DEPLOY_BRANCH="%s"
+HAS_NODE_AGENT=%t
+HAS_CICD=%t
+NODE_AGENT_IMAGE="%s"
+CICD_RUNNER_IMAGE="%s"
+CICD_UNIFIED_IMAGE="%s"
+
 echo "=========================================="
-echo "CD Job - Local Cluster Deployment"
+echo "CD Job - Starting Deployment"
+echo "=========================================="
+echo "Branch: ${DEPLOY_BRANCH:-default}"
+echo "Node Agent Update: $HAS_NODE_AGENT (image: $NODE_AGENT_IMAGE)"
+echo "CICD Update: $HAS_CICD (runner: $CICD_RUNNER_IMAGE)"
 echo "=========================================="
 
+# ==========================================
+# Step 1: Prepare Repository
+# ==========================================
+echo ""
+echo "=========================================="
 echo "Step 1: Preparing repository..."
+echo "=========================================="
+
 mkdir -p "$MOUNT_DIR"
 
 # Always do a fresh clone to ensure we have the latest code
@@ -364,9 +366,6 @@ if [ -d "$REPO_DIR" ]; then
     echo "Removing existing repository at $REPO_DIR..."
     rm -rf "$REPO_DIR"
 fi
-
-# Git branch for deployment (empty means use default branch)
-DEPLOY_BRANCH="%s"
 
 echo "Cloning repository from $REPO_URL..."
 if [ -n "$DEPLOY_BRANCH" ]; then
@@ -392,6 +391,10 @@ update_yaml() {
     fi
 }
 
+# ==========================================
+# Step 2: Update Configuration Files
+# ==========================================
+echo ""
 echo "=========================================="
 echo "Step 2: Updating configuration files..."
 echo "=========================================="
@@ -415,7 +418,7 @@ for comp in "${COMPS[@]}"; do
     fi
 done
 
-# Update node-agent
+# Update node-agent values
 IFS=';' read -ra AGENTS <<< "%s"
 for agent in "${AGENTS[@]}"; do
     if [ -n "$agent" ]; then
@@ -426,110 +429,151 @@ for agent in "${AGENTS[@]}"; do
     fi
 done
 
+# ==========================================
+# Step 3: Run Local Upgrade Script
+# ==========================================
+echo ""
 echo "=========================================="
-echo "Step 3: Starting upgrade script..."
+echo "Step 3: Running local upgrade script..."
 echo "=========================================="
 cd "$REPO_DIR/SaFE/bootstrap/"
 /bin/bash ./upgrade.sh
 
+# ==========================================
+# Step 4: Verify Local Deployments
+# ==========================================
+echo ""
 echo "=========================================="
-echo "✓ Local deployment completed!"
+echo "Step 4: Verifying local deployments..."
 echo "=========================================="
-`, ContainerMountPath, PrimusSaFERepoURL, deployBranch, envFileBase64, componentTags, nodeAgentTags)
+
+# Function to wait for Deployment to be ready
+# Checks if readyReplicas == replicas
+wait_deployment_ready() {
+    local name=$1
+    local ns=$2
+    local kubeconfig_opt=$3
+    local max_retries=30
+    local retry_interval=10
+    
+    echo "Verifying deployment/$name..."
+    for i in $(seq 1 $max_retries); do
+        READY=$(kubectl $kubeconfig_opt get deployment/$name -n $ns -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
+        DESIRED=$(kubectl $kubeconfig_opt get deployment/$name -n $ns -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "0")
+        READY=${READY:-0}
+        
+        if [ "$READY" = "$DESIRED" ] && [ "$DESIRED" != "0" ]; then
+            echo "✓ deployment/$name ready: $READY/$DESIRED replicas"
+            return 0
+        fi
+        echo "  Waiting for deployment/$name... ($READY/$DESIRED) [$i/$max_retries]"
+        sleep $retry_interval
+    done
+    echo "⚠ deployment/$name not ready after $((max_retries * retry_interval))s: $READY/$DESIRED"
+    return 1
 }
 
-// buildRemoteClusterScript builds the shell script for remote cluster updates.
-// All clusters are updated without excluding any specific cluster.
-func (r *CDJobReconciler) buildRemoteClusterScript(hasNodeAgent, hasCICD, installNodeAgent bool,
-	nodeAgentImage, cicdRunnerImage, cicdUnifiedImage, deployBranch string) string {
-
-	return fmt.Sprintf(`
-set -e
-
-echo "=========================================="
-echo "CD Job - Remote Cluster Updates"
-echo "=========================================="
-echo "NodeAgent update: %t (image: %s)"
-echo "CICD update: %t (runner: %s, unified: %s)"
-echo "=========================================="
-
-# Configuration
-WORK_DIR="%s"
-REPO_URL="%s"
-REPO_DIR="$WORK_DIR/Primus-SaFE"
-NODE_AGENT_CHART="$REPO_DIR/SaFE/node-agent/charts/node-agent"
-HAS_NODE_AGENT=%t
-HAS_CICD=%t
-INSTALL_NODE_AGENT=%t
-NODE_AGENT_IMAGE="%s"
-CICD_RUNNER_IMAGE="%s"
-CICD_UNIFIED_IMAGE="%s"
-DEPLOY_BRANCH="%s"
-
-mkdir -p "$WORK_DIR"
-
-# Clone repo if node-agent update needed (for helm chart)
-if [ "$HAS_NODE_AGENT" = "true" ] && [ "$INSTALL_NODE_AGENT" = "true" ]; then
-    if [ -d "$REPO_DIR" ]; then
-        rm -rf "$REPO_DIR"
-    fi
-    if [ -n "$DEPLOY_BRANCH" ]; then
-        echo "Cloning repository for node-agent chart (branch: $DEPLOY_BRANCH)..."
-        git clone --depth 1 -b "$DEPLOY_BRANCH" "$REPO_URL" "$REPO_DIR"
-    else
-        echo "Cloning repository for node-agent chart (default branch)..."
-        git clone --depth 1 "$REPO_URL" "$REPO_DIR"
-    fi
-    echo "✓ Repository cloned"
-fi
-
-echo "=========================================="
-echo "Step 1: Discover clusters"
-echo "=========================================="
-
-# Get all unique cluster IDs from Cluster CRDs
-ALL_CLUSTER_IDS=$(kubectl get cluster -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || echo "")
-echo "Found clusters: $ALL_CLUSTER_IDS"
-
-ALL_CLUSTER_IDS=$(echo "$ALL_CLUSTER_IDS" | tr ' ' '\n' | sort -u | tr '\n' ' ')
-
-for CLUSTER_ID in $ALL_CLUSTER_IDS; do
-    [ -z "$CLUSTER_ID" ] && continue
+# Function to wait for DaemonSet to be ready
+# Checks if desiredNumberScheduled == currentNumberScheduled == numberReady
+wait_daemonset_ready() {
+    local name=$1
+    local ns=$2
+    local kubeconfig_opt=$3
+    local max_retries=30
+    local retry_interval=10
     
+    echo "Verifying daemonset/$name..."
+    
+    # First check if DaemonSet exists
+    if ! kubectl $kubeconfig_opt get daemonset/$name -n $ns > /dev/null 2>&1; then
+        echo "⚠ daemonset/$name not found, skipping..."
+        return 0
+    fi
+    
+    for i in $(seq 1 $max_retries); do
+        DESIRED=$(kubectl $kubeconfig_opt get daemonset/$name -n $ns -o jsonpath='{.status.desiredNumberScheduled}' 2>/dev/null || echo "0")
+        CURRENT=$(kubectl $kubeconfig_opt get daemonset/$name -n $ns -o jsonpath='{.status.currentNumberScheduled}' 2>/dev/null || echo "0")
+        READY=$(kubectl $kubeconfig_opt get daemonset/$name -n $ns -o jsonpath='{.status.numberReady}' 2>/dev/null || echo "0")
+        DESIRED=${DESIRED:-0}
+        CURRENT=${CURRENT:-0}
+        READY=${READY:-0}
+        
+        if [ "$DESIRED" = "$CURRENT" ] && [ "$DESIRED" = "$READY" ] && [ "$DESIRED" != "0" ]; then
+            echo "✓ daemonset/$name ready: desired=$DESIRED current=$CURRENT ready=$READY"
+            return 0
+        fi
+        echo "  Waiting for daemonset/$name... (desired=$DESIRED current=$CURRENT ready=$READY) [$i/$max_retries]"
+        sleep $retry_interval
+    done
+    echo "⚠ daemonset/$name not ready after $((max_retries * retry_interval))s: desired=$DESIRED current=$CURRENT ready=$READY"
+    return 1
+}
+
+echo "Checking Deployment status..."
+wait_deployment_ready "apiserver" "$NAMESPACE" ""
+wait_deployment_ready "resource-manager" "$NAMESPACE" ""
+wait_deployment_ready "job-manager" "$NAMESPACE" ""
+wait_deployment_ready "scheduler" "$NAMESPACE" ""
+
+echo ""
+echo "Checking DaemonSet status..."
+wait_daemonset_ready "node-agent" "$NAMESPACE" ""
+
+echo ""
+echo "✓ Local deployment verification completed"
+
+# ==========================================
+# Step 5: Remote Cluster Updates (if needed)
+# ==========================================
+if [ "$HAS_NODE_AGENT" = "true" ] || [ "$HAS_CICD" = "true" ]; then
     echo ""
     echo "=========================================="
-    echo "Processing cluster: $CLUSTER_ID"
+    echo "Step 5: Remote cluster updates..."
     echo "=========================================="
     
-    # Try to get kubeconfig data from Cluster CRD
-    CLUSTER_JSON=$(kubectl get cluster "$CLUSTER_ID" -o json 2>/dev/null || echo "")
+    # Get all unique cluster IDs from Cluster CRDs
+    ALL_CLUSTER_IDS=$(kubectl get cluster -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || echo "")
+    echo "Found clusters: $ALL_CLUSTER_IDS"
     
-    if [ -z "$CLUSTER_JSON" ]; then
-        echo "⚠ Cluster resource not found for $CLUSTER_ID, skipping..."
-        continue
-    fi
+    ALL_CLUSTER_IDS=$(echo "$ALL_CLUSTER_IDS" | tr ' ' '\n' | sort -u | tr '\n' ' ')
     
-    CA_DATA=$(echo "$CLUSTER_JSON" | jq -r '.status.controlPlaneStatus.CAData // empty')
-    CERT_DATA=$(echo "$CLUSTER_JSON" | jq -r '.status.controlPlaneStatus.certData // empty')
-    KEY_DATA=$(echo "$CLUSTER_JSON" | jq -r '.status.controlPlaneStatus.keyData // empty')
-    ENDPOINT_RAW=$(echo "$CLUSTER_JSON" | jq -r '.status.controlPlaneStatus.endpoints[0] // empty')
-    PHASE=$(echo "$CLUSTER_JSON" | jq -r '.status.controlPlaneStatus.phase // empty')
-    
-    # Check if kubeconfig data is available
-    if [ -z "$CA_DATA" ] || [ -z "$CERT_DATA" ] || [ -z "$KEY_DATA" ] || [ -z "$ENDPOINT_RAW" ]; then
-        echo "Kubeconfig data not available, trying in-cluster config..."
-        KUBECONFIG_OPT=""
-        KUBECONFIG_FILE=""
-    elif [ "$PHASE" != "Ready" ]; then
-        echo "⚠ Cluster $CLUSTER_ID not in Ready phase (phase: $PHASE), skipping..."
-        continue
-    else
-        # Generate kubeconfig for this cluster
-        ENDPOINT_HOST=$(echo "$ENDPOINT_RAW" | sed 's|^\(https\?://[^:/]*\).*|\1|')
-        ENDPOINTS="${ENDPOINT_HOST}:6443"
+    for CLUSTER_ID in $ALL_CLUSTER_IDS; do
+        [ -z "$CLUSTER_ID" ] && continue
         
-        KUBECONFIG_FILE="$WORK_DIR/kubeconfig-$CLUSTER_ID"
-        cat > "$KUBECONFIG_FILE" << EOF
+        echo ""
+        echo "----------------------------------------"
+        echo "Processing cluster: $CLUSTER_ID"
+        echo "----------------------------------------"
+        
+        # Try to get kubeconfig data from Cluster CRD
+        CLUSTER_JSON=$(kubectl get cluster "$CLUSTER_ID" -o json 2>/dev/null || echo "")
+        
+        if [ -z "$CLUSTER_JSON" ]; then
+            echo "⚠ Cluster resource not found for $CLUSTER_ID, skipping..."
+            continue
+        fi
+        
+        CA_DATA=$(echo "$CLUSTER_JSON" | jq -r '.status.controlPlaneStatus.CAData // empty')
+        CERT_DATA=$(echo "$CLUSTER_JSON" | jq -r '.status.controlPlaneStatus.certData // empty')
+        KEY_DATA=$(echo "$CLUSTER_JSON" | jq -r '.status.controlPlaneStatus.keyData // empty')
+        ENDPOINT_RAW=$(echo "$CLUSTER_JSON" | jq -r '.status.controlPlaneStatus.endpoints[0] // empty')
+        PHASE=$(echo "$CLUSTER_JSON" | jq -r '.status.controlPlaneStatus.phase // empty')
+        
+        # Check if kubeconfig data is available
+        if [ -z "$CA_DATA" ] || [ -z "$CERT_DATA" ] || [ -z "$KEY_DATA" ] || [ -z "$ENDPOINT_RAW" ]; then
+            echo "Kubeconfig data not available, using in-cluster config..."
+            KUBECONFIG_OPT=""
+            KUBECONFIG_FILE=""
+        elif [ "$PHASE" != "Ready" ]; then
+            echo "⚠ Cluster $CLUSTER_ID not in Ready phase (phase: $PHASE), skipping..."
+            continue
+        else
+            # Generate kubeconfig for this cluster
+            ENDPOINT_HOST=$(echo "$ENDPOINT_RAW" | sed 's|^\(https\?://[^:/]*\).*|\1|')
+            ENDPOINTS="${ENDPOINT_HOST}:6443"
+            
+            KUBECONFIG_FILE="$MOUNT_DIR/kubeconfig-$CLUSTER_ID"
+            cat > "$KUBECONFIG_FILE" << EOF
 apiVersion: v1
 kind: Config
 clusters:
@@ -549,110 +593,121 @@ users:
     client-certificate-data: $CERT_DATA
     client-key-data: $KEY_DATA
 EOF
-        
-        echo "✓ Generated kubeconfig for $CLUSTER_ID"
-        
-        if ! kubectl --kubeconfig="$KUBECONFIG_FILE" get nodes > /dev/null 2>&1; then
-            echo "⚠ Cannot connect using kubeconfig, trying in-cluster config..."
-            rm -f "$KUBECONFIG_FILE"
-            KUBECONFIG_OPT=""
-            KUBECONFIG_FILE=""
-        else
-            echo "✓ Connected to cluster $CLUSTER_ID"
-            KUBECONFIG_OPT="--kubeconfig=$KUBECONFIG_FILE"
+            
+            echo "✓ Generated kubeconfig for $CLUSTER_ID"
+            
+            if ! kubectl --kubeconfig="$KUBECONFIG_FILE" get nodes > /dev/null 2>&1; then
+                echo "⚠ Cannot connect using kubeconfig, using in-cluster config..."
+                rm -f "$KUBECONFIG_FILE"
+                KUBECONFIG_OPT=""
+                KUBECONFIG_FILE=""
+            else
+                echo "✓ Connected to cluster $CLUSTER_ID"
+                KUBECONFIG_OPT="--kubeconfig=$KUBECONFIG_FILE"
+            fi
         fi
-    fi
-    
-    # Update node-agent if needed (update ALL clusters including admin cluster)
-    if [ "$HAS_NODE_AGENT" = "true" ] && [ "$INSTALL_NODE_AGENT" = "true" ]; then
-        echo "Updating node-agent on $CLUSTER_ID..."
         
-        NODE_AGENT_VALUES="$NODE_AGENT_CHART/.values.yaml"
-        cp "$NODE_AGENT_CHART/values.yaml" "$NODE_AGENT_VALUES"
-        sed -i "s|image: \".*\"|image: \"$NODE_AGENT_IMAGE\"|" "$NODE_AGENT_VALUES"
+        # Update node-agent if needed
+        if [ "$HAS_NODE_AGENT" = "true" ]; then
+            echo "Updating node-agent on $CLUSTER_ID..."
+            
+            NODE_AGENT_TMP_VALUES="$NODE_AGENT_CHART/.values.yaml"
+            cp "$NODE_AGENT_CHART/values.yaml" "$NODE_AGENT_TMP_VALUES"
+            sed -i "s|image: \".*\"|image: \"$NODE_AGENT_IMAGE\"|" "$NODE_AGENT_TMP_VALUES"
+            
+            helm $KUBECONFIG_OPT upgrade -i node-agent "$NODE_AGENT_CHART" \
+                -n $NAMESPACE --create-namespace \
+                -f "$NODE_AGENT_TMP_VALUES" \
+                || echo "⚠ helm upgrade failed for $CLUSTER_ID, continuing..."
+            
+            rm -f "$NODE_AGENT_TMP_VALUES"
+            
+            # Verify node-agent DaemonSet using precise check
+            wait_daemonset_ready "node-agent" "$NAMESPACE" "$KUBECONFIG_OPT"
+            
+            echo "✓ node-agent updated on $CLUSTER_ID"
+        fi
         
-        helm $KUBECONFIG_OPT upgrade -i node-agent "$NODE_AGENT_CHART" \
-            -n primus-safe --create-namespace \
-            -f "$NODE_AGENT_VALUES" \
-            || echo "⚠ helm upgrade failed for $CLUSTER_ID, continuing..."
-        
-        rm -f "$NODE_AGENT_VALUES"
-        echo "✓ node-agent updated on $CLUSTER_ID"
-    fi
-    
-    # Update CICD if needed
-    if [ "$HAS_CICD" = "true" ]; then
-        echo "Updating CICD on $CLUSTER_ID..."
-        
-        WORKLOADS=$(kubectl get workload -l "primus-safe.workload.kind=AutoscalingRunnerSet,primus-safe.cluster.id=$CLUSTER_ID" -o json 2>/dev/null || echo '{"items":[]}')
-        WORKLOAD_COUNT=$(echo "$WORKLOADS" | jq '.items | length')
-        
-        echo "Found $WORKLOAD_COUNT AutoscalingRunnerSet workloads for cluster $CLUSTER_ID"
-        
-        for i in $(seq 0 $((WORKLOAD_COUNT - 1))); do
-            WORKLOAD_NAME=$(echo "$WORKLOADS" | jq -r ".items[$i].metadata.name")
-            WORKSPACE=$(echo "$WORKLOADS" | jq -r ".items[$i].spec.workspace")
-            UNIFIED_JOB_ENABLE=$(echo "$WORKLOADS" | jq -r ".items[$i].spec.env.UNIFIED_JOB_ENABLE // \"false\"")
+        # Update CICD if needed
+        if [ "$HAS_CICD" = "true" ]; then
+            echo "Updating CICD on $CLUSTER_ID..."
             
-            echo "  Processing workload: $WORKLOAD_NAME (namespace: $WORKSPACE)"
+            WORKLOADS=$(kubectl get workload -l "primus-safe.workload.kind=AutoscalingRunnerSet,primus-safe.cluster.id=$CLUSTER_ID" -o json 2>/dev/null || echo '{"items":[]}')
+            WORKLOAD_COUNT=$(echo "$WORKLOADS" | jq '.items | length')
             
-            CURRENT_ARS=$(kubectl $KUBECONFIG_OPT get autoscalingrunnersets "$WORKLOAD_NAME" -n "$WORKSPACE" -o json 2>/dev/null || echo "")
+            echo "Found $WORKLOAD_COUNT AutoscalingRunnerSet workloads for cluster $CLUSTER_ID"
             
-            if [ -z "$CURRENT_ARS" ]; then
-                echo "  ⚠ AutoscalingRunnerSet not found, skipping..."
-                continue
-            fi
-            
-            CURRENT_RUNNER_IMAGE=$(echo "$CURRENT_ARS" | jq -r '.spec.template.spec.containers[0].image')
-            REGISTRY_PREFIX=$(echo "$CURRENT_RUNNER_IMAGE" | sed 's|/[^/]*$|/|')
-            FULL_RUNNER_IMAGE="${REGISTRY_PREFIX}${CICD_RUNNER_IMAGE}"
-            
-            PATCH_RUNNER='[{"op": "replace", "path": "/spec/template/spec/containers/0/image", "value": "'"$FULL_RUNNER_IMAGE"'"}]'
-            
-            kubectl $KUBECONFIG_OPT patch autoscalingrunnersets "$WORKLOAD_NAME" \
-                -n "$WORKSPACE" --type='json' -p="$PATCH_RUNNER" \
-                || echo "  ⚠ Failed to patch runner for $WORKLOAD_NAME"
-            
-            echo "  ✓ Updated runner image"
-            
-            if [ "$UNIFIED_JOB_ENABLE" = "true" ] && [ -n "$CICD_UNIFIED_IMAGE" ]; then
-                FULL_UNIFIED_IMAGE="${REGISTRY_PREFIX}${CICD_UNIFIED_IMAGE}"
+            for i in $(seq 0 $((WORKLOAD_COUNT - 1))); do
+                WORKLOAD_NAME=$(echo "$WORKLOADS" | jq -r ".items[$i].metadata.name")
+                WORKSPACE=$(echo "$WORKLOADS" | jq -r ".items[$i].spec.workspace")
+                UNIFIED_JOB_ENABLE=$(echo "$WORKLOADS" | jq -r ".items[$i].spec.env.UNIFIED_JOB_ENABLE // \"false\"")
                 
-                PATCH_UNIFIED='[{"op": "replace", "path": "/spec/template/spec/containers/1/image", "value": "'"$FULL_UNIFIED_IMAGE"'"}]'
+                echo "  Processing workload: $WORKLOAD_NAME (namespace: $WORKSPACE)"
+                
+                CURRENT_ARS=$(kubectl $KUBECONFIG_OPT get autoscalingrunnersets "$WORKLOAD_NAME" -n "$WORKSPACE" -o json 2>/dev/null || echo "")
+                
+                if [ -z "$CURRENT_ARS" ]; then
+                    echo "  ⚠ AutoscalingRunnerSet not found, skipping..."
+                    continue
+                fi
+                
+                CURRENT_RUNNER_IMAGE=$(echo "$CURRENT_ARS" | jq -r '.spec.template.spec.containers[0].image')
+                REGISTRY_PREFIX=$(echo "$CURRENT_RUNNER_IMAGE" | sed 's|/[^/]*$|/|')
+                FULL_RUNNER_IMAGE="${REGISTRY_PREFIX}${CICD_RUNNER_IMAGE}"
+                
+                PATCH_RUNNER='[{"op": "replace", "path": "/spec/template/spec/containers/0/image", "value": "'"$FULL_RUNNER_IMAGE"'"}]'
+                
                 kubectl $KUBECONFIG_OPT patch autoscalingrunnersets "$WORKLOAD_NAME" \
-                    -n "$WORKSPACE" --type='json' -p="$PATCH_UNIFIED" \
-                    || echo "  ⚠ Failed to patch unified-job for $WORKLOAD_NAME"
+                    -n "$WORKSPACE" --type='json' -p="$PATCH_RUNNER" \
+                    || echo "  ⚠ Failed to patch runner for $WORKLOAD_NAME"
                 
-                echo "  ✓ Updated unified-job image"
-            fi
+                echo "  ✓ Updated runner image"
+                
+                if [ "$UNIFIED_JOB_ENABLE" = "true" ] && [ -n "$CICD_UNIFIED_IMAGE" ]; then
+                    FULL_UNIFIED_IMAGE="${REGISTRY_PREFIX}${CICD_UNIFIED_IMAGE}"
+                    
+                    PATCH_UNIFIED='[{"op": "replace", "path": "/spec/template/spec/containers/1/image", "value": "'"$FULL_UNIFIED_IMAGE"'"}]'
+                    kubectl $KUBECONFIG_OPT patch autoscalingrunnersets "$WORKLOAD_NAME" \
+                        -n "$WORKSPACE" --type='json' -p="$PATCH_UNIFIED" \
+                        || echo "  ⚠ Failed to patch unified-job for $WORKLOAD_NAME"
+                    
+                    echo "  ✓ Updated unified-job image"
+                fi
+                
+                echo "  ✓ Completed $WORKLOAD_NAME"
+            done
             
-            echo "  ✓ Completed $WORKLOAD_NAME"
-        done
+            echo "✓ CICD updated on $CLUSTER_ID"
+        fi
         
-        echo "✓ CICD updated on $CLUSTER_ID"
-    fi
+        # Cleanup kubeconfig file if generated
+        if [ -n "$KUBECONFIG_FILE" ]; then
+            rm -f "$KUBECONFIG_FILE"
+        fi
+    done
     
-    # Cleanup kubeconfig file if generated
-    if [ -n "$KUBECONFIG_FILE" ]; then
-        rm -f "$KUBECONFIG_FILE"
-    fi
-done
+    echo ""
+    echo "✓ Remote cluster updates completed"
+fi
 
+# ==========================================
+# Step 6: Final Summary
+# ==========================================
 echo ""
 echo "=========================================="
-echo "✓ All cluster updates completed!"
+echo "✓ CD Deployment Completed Successfully!"
 echo "=========================================="
 `,
-		hasNodeAgent, nodeAgentImage,
-		hasCICD, cicdRunnerImage, cicdUnifiedImage,
 		ContainerMountPath,
 		PrimusSaFERepoURL,
+		deployBranch,
 		hasNodeAgent,
 		hasCICD,
-		installNodeAgent,
 		nodeAgentImage,
 		cicdRunnerImage,
 		cicdUnifiedImage,
-		deployBranch,
+		envFileBase64,
+		componentTags,
+		nodeAgentTags,
 	)
 }

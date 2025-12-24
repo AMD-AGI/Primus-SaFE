@@ -387,21 +387,8 @@ func (h *Handler) approveDeploymentRequest(c *gin.Context) (interface{}, error) 
 }
 
 // generateCDOpsJob generates an OpsJob for CD deployment.
+// Uses 'default' workspace with immediate scheduling (similar to preflight jobs).
 func (h *Handler) generateCDOpsJob(ctx context.Context, req *dbclient.DeploymentRequest, username string) (*v1.OpsJob, error) {
-	// Use primus-safe namespace as workspace
-	cdWorkspace := common.PrimusSafeNamespace
-
-	// Get workspace to retrieve cluster ID
-	workspace := &v1.Workspace{}
-	if err := h.Get(ctx, client.ObjectKey{Name: cdWorkspace}, workspace); err != nil {
-		return nil, fmt.Errorf("failed to get workspace '%s': %v", cdWorkspace, err)
-	}
-
-	clusterId := workspace.Spec.Cluster
-	if clusterId == "" {
-		return nil, fmt.Errorf("workspace '%s' has no cluster assigned", cdWorkspace)
-	}
-
 	// Parse deployment config
 	var requestConfig DeploymentConfig
 	if err := json.Unmarshal([]byte(req.EnvConfig), &requestConfig); err != nil {
@@ -426,7 +413,6 @@ func (h *Handler) generateCDOpsJob(ctx context.Context, req *dbclient.Deployment
 	cicdRunnerImage := ""
 	cicdUnifiedImage := ""
 
-	installNodeAgent := extractInstallNodeAgentFromEnvFileConfig(mergedConfig.EnvFileConfig)
 	deployBranch := extractBranchFromEnvFileConfig(mergedConfig.EnvFileConfig)
 
 	for _, comp := range expectedComponents {
@@ -440,12 +426,11 @@ func (h *Handler) generateCDOpsJob(ctx context.Context, req *dbclient.Deployment
 					cicdUnifiedImage = tag
 				}
 			} else if comp == ComponentNodeAgent {
-				if installNodeAgent {
-					if _, userRequested := requestConfig.ImageVersions[comp]; userRequested {
-						nodeAgentTags += fmt.Sprintf("%s=%s;", YAMLKeyNodeAgentImage, tag)
-						hasNodeAgent = true
-						nodeAgentImage = tag
-					}
+				// Update node-agent if user explicitly requested it
+				if _, userRequested := requestConfig.ImageVersions[comp]; userRequested {
+					nodeAgentTags += fmt.Sprintf("%s=%s;", YAMLKeyNodeAgentImage, tag)
+					hasNodeAgent = true
+					nodeAgentImage = tag
 				}
 			} else {
 				componentTags += fmt.Sprintf("%s.image=%s;", comp, tag)
@@ -466,7 +451,6 @@ func (h *Handler) generateCDOpsJob(ctx context.Context, req *dbclient.Deployment
 		{Name: v1.ParameterDeployBranch, Value: deployBranch},
 		{Name: v1.ParameterHasNodeAgent, Value: fmt.Sprintf("%t", hasNodeAgent)},
 		{Name: v1.ParameterHasCICD, Value: fmt.Sprintf("%t", hasCICD)},
-		{Name: v1.ParameterInstallNodeAgent, Value: fmt.Sprintf("%t", installNodeAgent)},
 		{Name: v1.ParameterNodeAgentImage, Value: nodeAgentImage},
 		{Name: v1.ParameterCICDRunnerImage, Value: cicdRunnerImage},
 		{Name: v1.ParameterCICDUnifiedImage, Value: cicdUnifiedImage},
@@ -476,10 +460,9 @@ func (h *Handler) generateCDOpsJob(ctx context.Context, req *dbclient.Deployment
 		ObjectMeta: metav1.ObjectMeta{
 			Name: jobName,
 			Labels: map[string]string{
-				v1.ClusterIdLabel:   clusterId,   // From workspace
-				v1.WorkspaceIdLabel: cdWorkspace, // CD workspace
-				v1.UserIdLabel:      username,
-				v1.OpsJobTypeLabel:  string(v1.OpsJobCDType),
+				// No ClusterIdLabel - CD jobs use 'default' workspace with immediate scheduling
+				v1.UserIdLabel:     username,
+				v1.OpsJobTypeLabel: string(v1.OpsJobCDType),
 			},
 			Annotations: map[string]string{
 				v1.UserNameAnnotation: username,

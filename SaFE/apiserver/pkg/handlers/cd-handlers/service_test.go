@@ -76,42 +76,6 @@ func TestExtractBranchFromEnvFileConfig(t *testing.T) {
 	}
 }
 
-func TestExtractInstallNodeAgentFromEnvFileConfig(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    string
-		expected bool
-	}{
-		{
-			name:     "install enabled",
-			input:    "install_node_agent=y",
-			expected: true,
-		},
-		{
-			name:     "install disabled",
-			input:    "install_node_agent=n",
-			expected: false,
-		},
-		{
-			name:     "not found",
-			input:    "other_key=value",
-			expected: false,
-		},
-		{
-			name:     "with quotes",
-			input:    "install_node_agent=\"y\"",
-			expected: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := extractInstallNodeAgentFromEnvFileConfig(tt.input)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
-}
-
 func TestCvtDBRequestToItem(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
