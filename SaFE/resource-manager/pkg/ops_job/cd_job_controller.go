@@ -208,6 +208,13 @@ func (r *CDJobReconciler) handle(ctx context.Context, job *v1.OpsJob) (ctrlrunti
 
 // generateCDWorkload generates a CD workload based on the job specification.
 func (r *CDJobReconciler) generateCDWorkload(ctx context.Context, job *v1.OpsJob) (*v1.Workload, error) {
+	// Get a valid cluster ID for the workload
+	// CD jobs run on the admin cluster, so we get the first available cluster
+	clusterID, err := r.getDefaultClusterID(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get cluster ID: %v", err)
+	}
+
 	// Get deployment parameters from job inputs
 	componentTags := getParameterValue(job, v1.ParameterComponentTags, "")
 	nodeAgentTags := getParameterValue(job, v1.ParameterNodeAgentTags, "")
@@ -235,7 +242,7 @@ func (r *CDJobReconciler) generateCDWorkload(ctx context.Context, job *v1.OpsJob
 		ObjectMeta: metav1.ObjectMeta{
 			Name: job.Name,
 			Labels: map[string]string{
-				// No ClusterIdLabel - CD jobs use 'default' workspace
+				v1.ClusterIdLabel:   clusterID,
 				v1.UserIdLabel:      v1.GetUserId(job),
 				v1.OpsJobIdLabel:    job.Name,
 				v1.OpsJobTypeLabel:  string(job.Spec.Type),
@@ -296,6 +303,20 @@ func getParameterValue(job *v1.OpsJob, name, defaultValue string) string {
 		return param.Value
 	}
 	return defaultValue
+}
+
+// getDefaultClusterID retrieves a valid cluster ID for the CD workload.
+// CD jobs run on the admin cluster, so we get the first available cluster.
+func (r *CDJobReconciler) getDefaultClusterID(ctx context.Context) (string, error) {
+	clusterList := &v1.ClusterList{}
+	if err := r.List(ctx, clusterList); err != nil {
+		return "", fmt.Errorf("failed to list clusters: %v", err)
+	}
+	if len(clusterList.Items) == 0 {
+		return "", fmt.Errorf("no clusters found in the system")
+	}
+	// Return the first cluster's name as the default cluster ID
+	return clusterList.Items[0].Name, nil
 }
 
 // buildDeployScript builds a unified deployment script that includes:
