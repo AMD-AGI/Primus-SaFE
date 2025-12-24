@@ -617,7 +617,7 @@ func convertToAdvisorWandBRequest(req *WandBDetectionRequest) *advisorCommon.Wan
 
 	// PyTorch info
 	if req.Evidence.PyTorch != nil {
-		evidence.PyTorch = advisorCommon.PyTorchInfo{
+		evidence.PyTorch = &advisorCommon.PyTorchInfo{
 			Available:       req.Evidence.PyTorch.Available,
 			Version:         req.Evidence.PyTorch.Version,
 			CudaAvailable:   req.Evidence.PyTorch.CudaAvailable,
