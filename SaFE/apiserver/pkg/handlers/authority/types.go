@@ -7,7 +7,7 @@ package authority
 
 const (
 	CookieToken    = "Token"
-	CookieUserType = "UserType"
+	CookieUserType = "userType"
 
 	UserWorkspaceResource = "user/workspace"
 	UserIdentityResource  = "user/identity"
