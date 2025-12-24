@@ -461,7 +461,7 @@ func (h *Handler) generateCDOpsJob(ctx context.Context, req *dbclient.Deployment
 	}
 
 	// Generate display name for the OpsJob
-	displayName := fmt.Sprintf("CD Deployment #%d", req.Id)
+	displayNameLabel := fmt.Sprintf("cd-deployment-%d", req.Id)
 
 	opsJob := &v1.OpsJob{
 		ObjectMeta: metav1.ObjectMeta{
@@ -470,7 +470,7 @@ func (h *Handler) generateCDOpsJob(ctx context.Context, req *dbclient.Deployment
 				// No ClusterIdLabel - CD jobs use 'default' workspace with immediate scheduling
 				// userId is the User CRD name (safe for K8s labels, no @ character)
 				v1.UserIdLabel:      userId,
-				v1.DisplayNameLabel: displayName,
+				v1.DisplayNameLabel: displayNameLabel,
 				v1.OpsJobTypeLabel:  string(v1.OpsJobCDType),
 			},
 			Annotations: map[string]string{
