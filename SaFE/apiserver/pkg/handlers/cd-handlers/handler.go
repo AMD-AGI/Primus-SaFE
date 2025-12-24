@@ -318,6 +318,9 @@ func (h *Handler) approveDeploymentRequest(c *gin.Context) (interface{}, error) 
 		return nil, err
 	}
 
+	// Get userId from context (User CRD name, safe for K8s labels)
+	userId := c.GetString(common.UserId)
+
 	// Check if user is the same as requester
 	// Self-approval is controlled by cd.require_approval config
 	if req.DeployName == username && commonconfig.IsCDRequireApproval() {
@@ -341,7 +344,7 @@ func (h *Handler) approveDeploymentRequest(c *gin.Context) (interface{}, error) 
 
 		// Create OpsJob for CD deployment (managed by resource-manager)
 		ctx := c.Request.Context()
-		opsJob, err := h.generateCDOpsJob(ctx, req, username)
+		opsJob, err := h.generateCDOpsJob(ctx, req, userId, username)
 		if err != nil {
 			klog.ErrorS(err, "Failed to generate CD OpsJob", "id", req.Id)
 			h.service.UpdateRequestStatus(ctx, req.Id, StatusFailed, fmt.Sprintf("Failed to generate OpsJob: %v", err))
@@ -388,7 +391,8 @@ func (h *Handler) approveDeploymentRequest(c *gin.Context) (interface{}, error) 
 
 // generateCDOpsJob generates an OpsJob for CD deployment.
 // Uses 'default' workspace with immediate scheduling (similar to preflight jobs).
-func (h *Handler) generateCDOpsJob(ctx context.Context, req *dbclient.DeploymentRequest, username string) (*v1.OpsJob, error) {
+// userId is the User CRD name (safe for K8s labels), username is the display name (may contain @).
+func (h *Handler) generateCDOpsJob(ctx context.Context, req *dbclient.DeploymentRequest, userId, username string) (*v1.OpsJob, error) {
 	// Parse deployment config
 	var requestConfig DeploymentConfig
 	if err := json.Unmarshal([]byte(req.EnvConfig), &requestConfig); err != nil {
@@ -456,15 +460,21 @@ func (h *Handler) generateCDOpsJob(ctx context.Context, req *dbclient.Deployment
 		{Name: v1.ParameterCICDUnifiedImage, Value: cicdUnifiedImage},
 	}
 
+	// Generate display name for the OpsJob
+	displayName := fmt.Sprintf("CD Deployment #%d", req.Id)
+
 	opsJob := &v1.OpsJob{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: jobName,
 			Labels: map[string]string{
 				// No ClusterIdLabel - CD jobs use 'default' workspace with immediate scheduling
-				v1.UserIdLabel:     username,
-				v1.OpsJobTypeLabel: string(v1.OpsJobCDType),
+				// userId is the User CRD name (safe for K8s labels, no @ character)
+				v1.UserIdLabel:      userId,
+				v1.DisplayNameLabel: displayName,
+				v1.OpsJobTypeLabel:  string(v1.OpsJobCDType),
 			},
 			Annotations: map[string]string{
+				// username may contain @ (e.g., email), which is allowed in annotations
 				v1.UserNameAnnotation: username,
 			},
 		},
