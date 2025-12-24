@@ -38,7 +38,7 @@ const (
 	// Git repository URL for Primus-SaFE
 	PrimusSaFERepoURL = "https://github.com/AMD-AGI/Primus-SaFE.git"
 
-	// Container mount path for CD workspace
+	// Container mount path for CD workspace (uses emptyDir, not hostpath)
 	ContainerMountPath = "/home/primus-safe-cd"
 )
 
@@ -230,6 +230,7 @@ func (r *CDJobReconciler) generateCDWorkload(ctx context.Context, job *v1.OpsJob
 	scriptBase64 := base64.StdEncoding.EncodeToString([]byte(script))
 
 	// Simple entrypoint that decodes and runs the script from env var
+	// This keeps 'kubectl describe pod' output clean
 	entryPoint := base64.StdEncoding.EncodeToString([]byte(
 		`echo "$CD_SCRIPT" | base64 -d > /tmp/run.sh && bash /tmp/run.sh`,
 	))
@@ -264,16 +265,17 @@ func (r *CDJobReconciler) generateCDWorkload(ctx context.Context, job *v1.OpsJob
 				Version: common.DefaultVersion,
 				Kind:    common.JobKind,
 			},
-			IsTolerateAll: true, // Can run on any node
-			Priority:      common.HighPriorityInt,
-			Workspace:     corev1.NamespaceDefault, // Use 'default' namespace (same as preflight)
-			Image:         CDJobImage,
+			// IsTolerateAll: false - respect node taints (e.g., DiskPressure)
+			Priority:  common.HighPriorityInt,
+			Workspace: corev1.NamespaceDefault, // Use 'default' namespace (same as preflight)
+			Image:     CDJobImage,
 			Env: map[string]string{
 				"CD_SCRIPT":             scriptBase64, // Full deployment script (base64 encoded)
 				"DEPLOYMENT_REQUEST_ID": getParameterValue(job, v1.ParameterDeploymentRequestId, ""),
 				"HAS_NODE_AGENT":        fmt.Sprintf("%t", hasNodeAgent),
 				"HAS_CICD":              fmt.Sprintf("%t", hasCICD),
 			},
+			// No Hostpath needed - script does fresh clone every time
 		},
 	}
 
