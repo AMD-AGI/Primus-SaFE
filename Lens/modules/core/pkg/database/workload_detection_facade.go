@@ -156,9 +156,15 @@ func (f *WorkloadDetectionFacade) DeleteDetection(ctx context.Context, workloadU
 }
 
 // ListDetectionsByStatus lists detections by status with pagination
+// If status is empty string, returns all detections without status filtering
 func (f *WorkloadDetectionFacade) ListDetectionsByStatus(ctx context.Context, status string, limit int, offset int) ([]*model.WorkloadDetection, int64, error) {
 	q := f.getDAL().WorkloadDetection
-	query := q.WithContext(ctx).Where(q.Status.Eq(status)).Order(q.UpdatedAt.Desc())
+	query := q.WithContext(ctx).Order(q.UpdatedAt.Desc())
+
+	// Only add status filter if status is not empty
+	if status != "" {
+		query = query.Where(q.Status.Eq(status))
+	}
 
 	count, err := query.Count()
 	if err != nil {

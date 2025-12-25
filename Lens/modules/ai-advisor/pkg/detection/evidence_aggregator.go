@@ -84,17 +84,68 @@ type DetectionConflict struct {
 
 // AggregationResult holds the result of evidence aggregation
 type AggregationResult struct {
-	Framework        string
-	Frameworks       []string
-	WorkloadType     string
-	Confidence       float64
-	Status           DetectionStatus
-	FrameworkLayer   string
-	WrapperFramework string
-	BaseFramework    string
-	EvidenceCount    int
-	Sources          []string
-	Conflicts        []DetectionConflict
+	Framework              string
+	Frameworks             []string
+	WorkloadType           string
+	Confidence             float64
+	Status                 DetectionStatus
+	FrameworkLayer         string
+	WrapperFramework       string
+	OrchestrationFramework string // L2: Orchestration framework
+	RuntimeFramework       string // L3: Runtime framework (formerly BaseFramework)
+	BaseFramework          string // Deprecated: use RuntimeFramework, kept for backward compatibility
+	EvidenceCount          int
+	Sources                []string
+	Conflicts              []DetectionConflict
+}
+
+// MultiLayerFrameworkVotes holds votes separated by layer
+type MultiLayerFrameworkVotes struct {
+	WrapperVotes       map[string]*FrameworkVote // L1: primus, lightning
+	OrchestrationVotes map[string]*FrameworkVote // L2: megatron, deepspeed
+	RuntimeVotes       map[string]*FrameworkVote // L3: pytorch, tensorflow, jax
+	InferenceVotes     map[string]*FrameworkVote // Inference: vllm, triton
+}
+
+// MultiLayerWinners holds winners for each layer
+type MultiLayerWinners struct {
+	Wrapper       *FrameworkVote // L1 winner
+	Orchestration *FrameworkVote // L2 winner
+	Runtime       *FrameworkVote // L3 winner
+	Inference     *FrameworkVote // Inference winner
+}
+
+// GetPrimaryFramework returns the highest-layer detected framework
+func (w *MultiLayerWinners) GetPrimaryFramework() *FrameworkVote {
+	// Priority: Wrapper > Orchestration > Runtime > Inference
+	if w.Wrapper != nil {
+		return w.Wrapper
+	}
+	if w.Orchestration != nil {
+		return w.Orchestration
+	}
+	if w.Runtime != nil {
+		return w.Runtime
+	}
+	return w.Inference
+}
+
+// GetFrameworkStack returns all detected frameworks as a stack
+func (w *MultiLayerWinners) GetFrameworkStack() []string {
+	var stack []string
+	if w.Wrapper != nil {
+		stack = append(stack, w.Wrapper.Framework)
+	}
+	if w.Orchestration != nil {
+		stack = append(stack, w.Orchestration.Framework)
+	}
+	if w.Runtime != nil {
+		stack = append(stack, w.Runtime.Framework)
+	}
+	if w.Inference != nil {
+		stack = append(stack, w.Inference.Framework)
+	}
+	return stack
 }
 
 // EvidenceAggregator aggregates evidence from multiple sources
@@ -102,6 +153,7 @@ type EvidenceAggregator struct {
 	evidenceFacade  database.WorkloadDetectionEvidenceFacadeInterface
 	detectionFacade database.WorkloadDetectionFacadeInterface
 	sourceWeights   map[string]float64
+	layerResolver   *FrameworkLayerResolver
 }
 
 // NewEvidenceAggregator creates a new EvidenceAggregator
@@ -110,6 +162,7 @@ func NewEvidenceAggregator() *EvidenceAggregator {
 		evidenceFacade:  database.NewWorkloadDetectionEvidenceFacade(),
 		detectionFacade: database.NewWorkloadDetectionFacade(),
 		sourceWeights:   DefaultSourceWeights,
+		layerResolver:   GetLayerResolver(),
 	}
 }
 
@@ -122,6 +175,21 @@ func NewEvidenceAggregatorWithFacades(
 		evidenceFacade:  evidenceFacade,
 		detectionFacade: detectionFacade,
 		sourceWeights:   DefaultSourceWeights,
+		layerResolver:   GetLayerResolver(),
+	}
+}
+
+// NewEvidenceAggregatorWithLayerResolver creates a new EvidenceAggregator with custom layer resolver
+func NewEvidenceAggregatorWithLayerResolver(
+	evidenceFacade database.WorkloadDetectionEvidenceFacadeInterface,
+	detectionFacade database.WorkloadDetectionFacadeInterface,
+	layerResolver *FrameworkLayerResolver,
+) *EvidenceAggregator {
+	return &EvidenceAggregator{
+		evidenceFacade:  evidenceFacade,
+		detectionFacade: detectionFacade,
+		sourceWeights:   DefaultSourceWeights,
+		layerResolver:   layerResolver,
 	}
 }
 
@@ -139,6 +207,7 @@ func (a *EvidenceAggregator) GetSourceWeight(source string) float64 {
 }
 
 // AggregateEvidence aggregates all unprocessed evidence for a workload
+// Uses multi-layer voting to properly handle wrapper/orchestration/runtime framework stacks
 func (a *EvidenceAggregator) AggregateEvidence(ctx context.Context, workloadUID string) (*AggregationResult, error) {
 	// 1. Query all unprocessed evidence
 	evidences, err := a.evidenceFacade.ListUnprocessedEvidence(ctx, workloadUID)
@@ -153,19 +222,19 @@ func (a *EvidenceAggregator) AggregateEvidence(ctx context.Context, workloadUID 
 
 	log.Debugf("Aggregating %d unprocessed evidence records for workload %s", len(evidences), workloadUID)
 
-	// 2. Group evidence by framework and calculate votes
-	frameworkVotes := a.calculateVotes(evidences)
+	// 2. Calculate multi-layer votes
+	multiLayerVotes := a.calculateMultiLayerVotes(evidences)
 
 	// 3. Collect sources
 	sources := a.collectSources(evidences)
 
-	// 4. Detect conflicts
-	conflicts := a.detectConflicts(frameworkVotes)
+	// 4. Detect conflicts within each layer only
+	conflicts := a.detectMultiLayerConflicts(multiLayerVotes)
 
-	// 5. Select winning framework
-	winner := a.selectWinner(frameworkVotes)
+	// 5. Select winners from each layer
+	winners := a.selectMultiLayerWinners(multiLayerVotes)
 
-	if winner == nil {
+	if winners.GetPrimaryFramework() == nil {
 		return &AggregationResult{
 			EvidenceCount: len(evidences),
 			Sources:       sources,
@@ -174,28 +243,10 @@ func (a *EvidenceAggregator) AggregateEvidence(ctx context.Context, workloadUID 
 		}, nil
 	}
 
-	// 6. Calculate aggregated confidence
-	aggregatedConfidence := a.calculateConfidence(winner, len(sources))
+	// 6. Build result with multi-layer support
+	result := a.buildMultiLayerResult(winners, evidences, sources, conflicts)
 
-	// 7. Determine status based on confidence and conflicts
-	status := a.determineStatus(aggregatedConfidence, len(sources), conflicts)
-
-	// 8. Build result
-	result := &AggregationResult{
-		Framework:        winner.Framework,
-		Frameworks:       a.buildFrameworkList(frameworkVotes),
-		WorkloadType:     winner.WorkloadType,
-		Confidence:       aggregatedConfidence,
-		Status:           status,
-		FrameworkLayer:   winner.FrameworkLayer,
-		WrapperFramework: winner.WrapperFramework,
-		BaseFramework:    winner.BaseFramework,
-		EvidenceCount:    len(evidences),
-		Sources:          sources,
-		Conflicts:        conflicts,
-	}
-
-	// 9. Mark evidence as processed
+	// 7. Mark evidence as processed
 	evidenceIDs := make([]int64, len(evidences))
 	for i, ev := range evidences {
 		evidenceIDs[i] = ev.ID
@@ -204,7 +255,7 @@ func (a *EvidenceAggregator) AggregateEvidence(ctx context.Context, workloadUID 
 		log.Warnf("Failed to mark evidence as processed: %v", err)
 	}
 
-	// 10. Update detection state
+	// 8. Update detection state
 	if err := a.updateDetectionState(ctx, workloadUID, result); err != nil {
 		log.Warnf("Failed to update detection state: %v", err)
 	}
@@ -213,6 +264,7 @@ func (a *EvidenceAggregator) AggregateEvidence(ctx context.Context, workloadUID 
 }
 
 // AggregateAllEvidence aggregates ALL evidence for a workload (including processed)
+// Uses multi-layer voting to properly handle wrapper/orchestration/runtime framework stacks
 func (a *EvidenceAggregator) AggregateAllEvidence(ctx context.Context, workloadUID string) (*AggregationResult, error) {
 	// Query all evidence
 	evidences, err := a.evidenceFacade.ListEvidenceByWorkload(ctx, workloadUID)
@@ -226,13 +278,13 @@ func (a *EvidenceAggregator) AggregateAllEvidence(ctx context.Context, workloadU
 		}, nil
 	}
 
-	// Calculate votes
-	frameworkVotes := a.calculateVotes(evidences)
+	// Calculate multi-layer votes
+	multiLayerVotes := a.calculateMultiLayerVotes(evidences)
 	sources := a.collectSources(evidences)
-	conflicts := a.detectConflicts(frameworkVotes)
-	winner := a.selectWinner(frameworkVotes)
+	conflicts := a.detectMultiLayerConflicts(multiLayerVotes)
+	winners := a.selectMultiLayerWinners(multiLayerVotes)
 
-	if winner == nil {
+	if winners.GetPrimaryFramework() == nil {
 		return &AggregationResult{
 			EvidenceCount: len(evidences),
 			Sources:       sources,
@@ -241,25 +293,10 @@ func (a *EvidenceAggregator) AggregateAllEvidence(ctx context.Context, workloadU
 		}, nil
 	}
 
-	aggregatedConfidence := a.calculateConfidence(winner, len(sources))
-	status := a.determineStatus(aggregatedConfidence, len(sources), conflicts)
-
-	return &AggregationResult{
-		Framework:        winner.Framework,
-		Frameworks:       a.buildFrameworkList(frameworkVotes),
-		WorkloadType:     winner.WorkloadType,
-		Confidence:       aggregatedConfidence,
-		Status:           status,
-		FrameworkLayer:   winner.FrameworkLayer,
-		WrapperFramework: winner.WrapperFramework,
-		BaseFramework:    winner.BaseFramework,
-		EvidenceCount:    len(evidences),
-		Sources:          sources,
-		Conflicts:        conflicts,
-	}, nil
+	return a.buildMultiLayerResult(winners, evidences, sources, conflicts), nil
 }
 
-// calculateVotes calculates votes for each framework from evidence
+// calculateVotes calculates votes for each framework from evidence (legacy method)
 func (a *EvidenceAggregator) calculateVotes(evidences []*model.WorkloadDetectionEvidence) map[string]*FrameworkVote {
 	frameworkVotes := make(map[string]*FrameworkVote)
 
@@ -298,6 +335,130 @@ func (a *EvidenceAggregator) calculateVotes(evidences []*model.WorkloadDetection
 	return frameworkVotes
 }
 
+// calculateMultiLayerVotes calculates votes separated by framework layer
+func (a *EvidenceAggregator) calculateMultiLayerVotes(evidences []*model.WorkloadDetectionEvidence) *MultiLayerFrameworkVotes {
+	result := &MultiLayerFrameworkVotes{
+		WrapperVotes:       make(map[string]*FrameworkVote),
+		OrchestrationVotes: make(map[string]*FrameworkVote),
+		RuntimeVotes:       make(map[string]*FrameworkVote),
+		InferenceVotes:     make(map[string]*FrameworkVote),
+	}
+
+	for _, ev := range evidences {
+		if ev.Framework == "" {
+			continue
+		}
+
+		// Get layer from evidence first, fallback to config lookup
+		layer := ev.FrameworkLayer
+		if layer == "" && a.layerResolver != nil {
+			layer = a.layerResolver.GetLayer(ev.Framework)
+		}
+		if layer == "" {
+			layer = FrameworkLayerRuntime // Default to runtime
+		}
+
+		weight := a.GetSourceWeight(ev.Source)
+		score := ev.Confidence * weight
+
+		// Determine which vote map to use based on layer
+		var voteMap map[string]*FrameworkVote
+		switch layer {
+		case FrameworkLayerWrapper:
+			voteMap = result.WrapperVotes
+		case FrameworkLayerOrchestration:
+			voteMap = result.OrchestrationVotes
+		case FrameworkLayerRuntime:
+			voteMap = result.RuntimeVotes
+		case FrameworkLayerInference:
+			voteMap = result.InferenceVotes
+		default:
+			voteMap = result.RuntimeVotes // Default to runtime
+		}
+
+		if _, exists := voteMap[ev.Framework]; !exists {
+			voteMap[ev.Framework] = &FrameworkVote{
+				Framework:         ev.Framework,
+				TotalScore:        0,
+				VoteCount:         0,
+				HighestConfidence: 0,
+				Sources:           []string{},
+				FrameworkLayer:    layer,
+			}
+		}
+
+		vote := voteMap[ev.Framework]
+		vote.TotalScore += score
+		vote.VoteCount++
+		vote.Sources = append(vote.Sources, ev.Source)
+
+		if ev.Confidence > vote.HighestConfidence {
+			vote.HighestConfidence = ev.Confidence
+			vote.WrapperFramework = ev.WrapperFramework
+			vote.BaseFramework = ev.BaseFramework
+			vote.WorkloadType = ev.WorkloadType
+		}
+
+		// Also create votes for BaseFramework if present and different from main framework
+		// This ensures multi-layer framework stacks (e.g., primus + megatron) are properly detected
+		if ev.BaseFramework != "" && ev.BaseFramework != ev.Framework {
+			baseLayer := ""
+			if a.layerResolver != nil {
+				baseLayer = a.layerResolver.GetLayer(ev.BaseFramework)
+			}
+			if baseLayer == "" {
+				// Default: if main framework is wrapper, base is likely orchestration or runtime
+				if layer == FrameworkLayerWrapper {
+					baseLayer = FrameworkLayerOrchestration
+				} else {
+					baseLayer = FrameworkLayerRuntime
+				}
+			}
+
+			var baseVoteMap map[string]*FrameworkVote
+			switch baseLayer {
+			case FrameworkLayerWrapper:
+				baseVoteMap = result.WrapperVotes
+			case FrameworkLayerOrchestration:
+				baseVoteMap = result.OrchestrationVotes
+			case FrameworkLayerRuntime:
+				baseVoteMap = result.RuntimeVotes
+			case FrameworkLayerInference:
+				baseVoteMap = result.InferenceVotes
+			default:
+				baseVoteMap = result.OrchestrationVotes
+			}
+
+			// Use slightly lower confidence for derived base framework vote
+			baseScore := ev.Confidence * weight * 0.9
+
+			if _, exists := baseVoteMap[ev.BaseFramework]; !exists {
+				baseVoteMap[ev.BaseFramework] = &FrameworkVote{
+					Framework:         ev.BaseFramework,
+					TotalScore:        0,
+					VoteCount:         0,
+					HighestConfidence: 0,
+					Sources:           []string{},
+					FrameworkLayer:    baseLayer,
+				}
+			}
+
+			baseVote := baseVoteMap[ev.BaseFramework]
+			baseVote.TotalScore += baseScore
+			baseVote.VoteCount++
+			baseVote.Sources = append(baseVote.Sources, ev.Source+"_derived")
+
+			derivedConfidence := ev.Confidence * 0.9
+			if derivedConfidence > baseVote.HighestConfidence {
+				baseVote.HighestConfidence = derivedConfidence
+				baseVote.WorkloadType = ev.WorkloadType
+			}
+		}
+	}
+
+	return result
+}
+
 // collectSources collects unique sources from evidence
 func (a *EvidenceAggregator) collectSources(evidences []*model.WorkloadDetectionEvidence) []string {
 	sourceMap := make(map[string]bool)
@@ -313,7 +474,7 @@ func (a *EvidenceAggregator) collectSources(evidences []*model.WorkloadDetection
 	return sources
 }
 
-// detectConflicts detects conflicts between frameworks
+// detectConflicts detects conflicts between frameworks (legacy method)
 func (a *EvidenceAggregator) detectConflicts(frameworkVotes map[string]*FrameworkVote) []DetectionConflict {
 	var conflicts []DetectionConflict
 
@@ -349,6 +510,166 @@ func (a *EvidenceAggregator) detectConflicts(frameworkVotes map[string]*Framewor
 	}
 
 	return conflicts
+}
+
+// detectMultiLayerConflicts detects conflicts within each layer only
+// Cross-layer combinations (e.g., primus + megatron + pytorch) are NOT conflicts
+func (a *EvidenceAggregator) detectMultiLayerConflicts(votes *MultiLayerFrameworkVotes) []DetectionConflict {
+	var conflicts []DetectionConflict
+
+	// Check each layer for conflicts - conflicts only happen within the same layer
+	wrapperConflicts := a.detectSingleLayerConflicts(votes.WrapperVotes)
+	conflicts = append(conflicts, wrapperConflicts...)
+
+	orchConflicts := a.detectSingleLayerConflicts(votes.OrchestrationVotes)
+	conflicts = append(conflicts, orchConflicts...)
+
+	runtimeConflicts := a.detectSingleLayerConflicts(votes.RuntimeVotes)
+	conflicts = append(conflicts, runtimeConflicts...)
+
+	inferenceConflicts := a.detectSingleLayerConflicts(votes.InferenceVotes)
+	conflicts = append(conflicts, inferenceConflicts...)
+
+	return conflicts
+}
+
+// detectSingleLayerConflicts detects conflicts within a single layer
+func (a *EvidenceAggregator) detectSingleLayerConflicts(votes map[string]*FrameworkVote) []DetectionConflict {
+	var conflicts []DetectionConflict
+
+	var highConfidenceFrameworks []*FrameworkVote
+	for _, vote := range votes {
+		if vote.HighestConfidence >= ConflictConfidenceThreshold {
+			highConfidenceFrameworks = append(highConfidenceFrameworks, vote)
+		}
+	}
+
+	if len(highConfidenceFrameworks) > 1 {
+		sort.Slice(highConfidenceFrameworks, func(i, j int) bool {
+			return highConfidenceFrameworks[i].TotalScore > highConfidenceFrameworks[j].TotalScore
+		})
+
+		winner := highConfidenceFrameworks[0]
+		for i := 1; i < len(highConfidenceFrameworks); i++ {
+			other := highConfidenceFrameworks[i]
+			conflicts = append(conflicts, DetectionConflict{
+				Framework1:  winner.Framework,
+				Confidence1: winner.HighestConfidence,
+				Sources1:    winner.Sources,
+				Framework2:  other.Framework,
+				Confidence2: other.HighestConfidence,
+				Sources2:    other.Sources,
+				DetectedAt:  time.Now(),
+			})
+		}
+	}
+
+	return conflicts
+}
+
+// selectMultiLayerWinners selects winners for each layer
+func (a *EvidenceAggregator) selectMultiLayerWinners(votes *MultiLayerFrameworkVotes) *MultiLayerWinners {
+	return &MultiLayerWinners{
+		Wrapper:       selectVoteWinner(votes.WrapperVotes),
+		Orchestration: selectVoteWinner(votes.OrchestrationVotes),
+		Runtime:       selectVoteWinner(votes.RuntimeVotes),
+		Inference:     selectVoteWinner(votes.InferenceVotes),
+	}
+}
+
+// selectVoteWinner selects the winning vote from a vote map
+func selectVoteWinner(votes map[string]*FrameworkVote) *FrameworkVote {
+	var winner *FrameworkVote
+	for _, vote := range votes {
+		if winner == nil || vote.TotalScore > winner.TotalScore {
+			winner = vote
+		}
+	}
+	return winner
+}
+
+// buildMultiLayerResult builds aggregation result with multi-layer support
+func (a *EvidenceAggregator) buildMultiLayerResult(
+	winners *MultiLayerWinners,
+	evidences []*model.WorkloadDetectionEvidence,
+	sources []string,
+	conflicts []DetectionConflict,
+) *AggregationResult {
+	result := &AggregationResult{
+		EvidenceCount: len(evidences),
+		Sources:       sources,
+		Conflicts:     conflicts,
+	}
+
+	// Set each layer's framework
+	if winners.Wrapper != nil {
+		result.WrapperFramework = winners.Wrapper.Framework
+	}
+	if winners.Orchestration != nil {
+		result.OrchestrationFramework = winners.Orchestration.Framework
+	}
+	if winners.Runtime != nil {
+		result.RuntimeFramework = winners.Runtime.Framework
+		result.BaseFramework = winners.Runtime.Framework // Backward compatibility
+	}
+
+	// For backward compatibility: if base_framework is empty but orchestration exists,
+	// use orchestration as base_framework (since orchestration is the "base" for wrapper frameworks)
+	if result.BaseFramework == "" && winners.Orchestration != nil {
+		result.BaseFramework = winners.Orchestration.Framework
+	}
+
+	// Primary framework: highest layer takes precedence
+	primary := winners.GetPrimaryFramework()
+	if primary != nil {
+		result.Framework = primary.Framework
+		result.FrameworkLayer = primary.FrameworkLayer
+		result.WorkloadType = primary.WorkloadType
+	}
+
+	// Build frameworks list (stack from top to bottom)
+	result.Frameworks = winners.GetFrameworkStack()
+
+	// Calculate combined confidence
+	// More layers detected = higher confidence
+	layerCount := 0
+	totalConfidence := 0.0
+	if winners.Wrapper != nil {
+		layerCount++
+		totalConfidence += winners.Wrapper.HighestConfidence
+	}
+	if winners.Orchestration != nil {
+		layerCount++
+		totalConfidence += winners.Orchestration.HighestConfidence
+	}
+	if winners.Runtime != nil {
+		layerCount++
+		totalConfidence += winners.Runtime.HighestConfidence
+	}
+	if winners.Inference != nil {
+		layerCount++
+		totalConfidence += winners.Inference.HighestConfidence
+	}
+
+	if layerCount > 0 {
+		// Base confidence from primary framework
+		if primary != nil {
+			result.Confidence = primary.HighestConfidence
+		}
+		// Multi-layer detection bonus
+		if layerCount > 1 {
+			bonus := float64(layerCount-1) * MultiSourceBonusPerSource
+			result.Confidence = math.Min(1.0, result.Confidence+bonus)
+		}
+	}
+
+	// Round to 3 decimal places
+	result.Confidence = math.Round(result.Confidence*1000) / 1000
+
+	// Determine status
+	result.Status = a.determineStatus(result.Confidence, len(sources), conflicts)
+
+	return result
 }
 
 // selectWinner selects the winning framework

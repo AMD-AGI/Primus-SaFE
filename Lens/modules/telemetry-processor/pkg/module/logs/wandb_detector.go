@@ -32,6 +32,37 @@ type WandBEvidence struct {
 	WrapperFrameworks map[string]map[string]interface{} `json:"wrapper_frameworks,omitempty"` // Wrapper framework detection results
 	BaseFrameworks    map[string]map[string]interface{} `json:"base_frameworks,omitempty"`    // Base framework detection results
 	System            map[string]interface{}            `json:"system"`
+	Hardware          *HardwareInfo                     `json:"hardware,omitempty"` // Hardware information (GPU, ROCm, etc.)
+	Software          *SoftwareInfo                     `json:"software,omitempty"` // Software package versions
+	Build             *BuildInfo                        `json:"build,omitempty"`    // CI/CD build information
+}
+
+// HardwareInfo hardware information
+type HardwareInfo struct {
+	GPUArch     string  `json:"gpu_arch,omitempty"`
+	GPUCount    int     `json:"gpu_count,omitempty"`
+	GPUMemoryGB float64 `json:"gpu_memory_gb,omitempty"`
+	GPUName     string  `json:"gpu_name,omitempty"`
+	ROCmVersion string  `json:"rocm_version,omitempty"`
+	CUDAVersion string  `json:"cuda_version,omitempty"`
+}
+
+// SoftwareInfo software package versions
+type SoftwareInfo struct {
+	ROCmVersion string            `json:"rocm_version,omitempty"`
+	Packages    map[string]string `json:"packages,omitempty"`
+}
+
+// BuildInfo CI/CD build information
+type BuildInfo struct {
+	BuildURL      string `json:"build_url,omitempty"`
+	DockerfileURL string `json:"dockerfile_url,omitempty"`
+	ImageTag      string `json:"image_tag,omitempty"`
+	BuildDate     string `json:"build_date,omitempty"`
+	GitCommit     string `json:"git_commit,omitempty"`
+	GitBranch     string `json:"git_branch,omitempty"`
+	GitRepo       string `json:"git_repo,omitempty"`
+	CIPipelineID  string `json:"ci_pipeline_id,omitempty"`
 }
 
 // WandBInfo WandB project information

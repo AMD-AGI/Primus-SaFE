@@ -21,6 +21,23 @@ net:
   rdma_name: "rdma/hca"
   # Ingress component name selected during install.sh
   ingress: "higress"
+# CD (Continuous Deployment) configuration
+cd:
+  # Whether deployment requests require approval from another user
+  # true: users cannot approve their own requests (production environment)
+  # false: users can self-approve their own requests (development environment)
+  require_approval: true
+# This list is of deployable components
+components:
+  - apiserver
+  - resource_manager
+  - job_manager
+  - webhooks
+  - web
+  - preprocess
+  - node_agent
+  - cicd_runner
+  - cicd_unified_job
 apiserver:
   # Apiserver component image version
   image: "apiserver:latest"
@@ -120,6 +137,22 @@ s3:
   secret: "primus-safe-s3"
   # Path to mount S3 secret
   secret_path: "/etc/secrets/s3"
+notification:
+  # Email notification configuration (optional)
+  # If configured, notifications will be enabled automatically
+  email:
+    # SMTP server host
+    smtp_host: ""
+    # SMTP server port (587 for STARTTLS, 465 for SSL)
+    smtp_port: 587
+    # SMTP authentication username
+    username: ""
+    # SMTP authentication password
+    password: ""
+    # Email address used as sender
+    from: ""
+    # Use TLS/SSL (true for port 465, false for port 587 STARTTLS)
+    use_tls: false
 grafana:
   # Enable Grafana for monitoring metrics display (requires primus-lens)
   enable: false

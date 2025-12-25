@@ -16,6 +16,7 @@ var (
 	configManager        *FrameworkConfigManager
 	patternMatchers      map[string]*PatternMatcher
 	taskCreator          *TaskCreator
+	layerResolver        *FrameworkLayerResolver
 )
 
 // InitializeDetectionManager initializes framework detection manager and all components
@@ -60,14 +61,20 @@ func InitializeDetectionManager(
 		log.Infof("Initialized pattern matcher for framework: %s", frameworkName)
 	}
 
-	// 5. Initialize WandB detector
+	// 5. Initialize layer resolver
+	layerResolver = NewFrameworkLayerResolver(configManager)
+	log.Info("Framework layer resolver initialized")
+
+	// 6. Initialize WandB detector
 	wandbDetector = NewWandBFrameworkDetector(detectionManager)
 	log.Info("WandB framework detector initialized")
 
-	// 6. Initialize and register TaskCreator
-	// TaskCreator will automatically create metadata collection tasks after detection completes
+	// 7. Initialize and register TaskCreator
+	// Note: In v2 architecture, DetectionCoordinator directly creates follow-up tasks
+	// This registration is retained for backward compatibility with v1 event-driven approach
+	// New detections through DetectionCoordinator bypass this event mechanism
 	taskCreator = RegisterTaskCreatorWithDetectionManager(detectionManager, instanceID)
-	log.Info("TaskCreator registered - metadata collection tasks will be created automatically after detection")
+	log.Info("TaskCreator registered (v1 compatibility) - also provides ScanForUndetectedWorkloads")
 
 	log.Infof("Framework detection system initialized with %d frameworks", len(patternMatchers))
 	return detectionManager, nil
@@ -86,6 +93,11 @@ func GetWandBDetector() *WandBFrameworkDetector {
 // GetConfigManager returns the global config manager
 func GetConfigManager() *FrameworkConfigManager {
 	return configManager
+}
+
+// GetLayerResolver returns the global layer resolver
+func GetLayerResolver() *FrameworkLayerResolver {
+	return layerResolver
 }
 
 // GetPatternMatcher returns the pattern matcher for a framework

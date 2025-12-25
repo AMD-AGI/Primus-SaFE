@@ -86,9 +86,17 @@ type NodeExporterConfig struct {
 }
 
 type JobsConfig struct {
-	GrpcPort     int                 `yaml:"grpc_port" json:"grpc_port"`
-	Mode         string              `yaml:"mode" json:"mode"` // data, management, or standalone
-	WeeklyReport *WeeklyReportConfig `yaml:"weekly_report" json:"weekly_report"`
+	GrpcPort             int                         `yaml:"grpc_port" json:"grpc_port"`
+	Mode                 string                      `yaml:"mode" json:"mode"` // data, management, or standalone
+	WeeklyReport         *WeeklyReportConfig         `yaml:"weekly_report" json:"weekly_report"`
+	WeeklyReportBackfill *WeeklyReportBackfillConfig `yaml:"weekly_report_backfill" json:"weekly_report_backfill"`
+}
+
+// WeeklyReportBackfillConfig contains configuration for GPU usage weekly report backfill job
+type WeeklyReportBackfillConfig struct {
+	Enabled            bool   `yaml:"enabled" json:"enabled"`
+	Cron               string `yaml:"cron" json:"cron"`                               // Default: "0 3 * * *" (daily at 3:00 AM)
+	MaxWeeksToBackfill int    `yaml:"max_weeks_to_backfill" json:"max_weeks_to_backfill"` // 0 = no limit
 }
 
 // WeeklyReportConfig contains configuration for GPU usage weekly reports
@@ -166,6 +174,23 @@ type MiddlewareConfig struct {
 	EnableLogging *bool        `json:"enableLogging" yaml:"enableLogging"` // Whether to enable request logging middleware
 	EnableTracing *bool        `json:"enableTracing" yaml:"enableTracing"` // Whether to enable distributed tracing middleware
 	Trace         *TraceConfig `json:"trace" yaml:"trace"`                 // Trace configuration
+	Auth          *AuthConfig  `json:"auth" yaml:"auth"`                   // Auth configuration
+}
+
+// AuthConfig contains authentication configuration
+type AuthConfig struct {
+	// Enabled controls whether authentication middleware is enabled
+	Enabled bool `json:"enabled" yaml:"enabled"`
+	// SafeAPIURL is the SaFE API server URL (e.g., "http://primus-safe-apiserver:8080")
+	SafeAPIURL string `json:"safeApiUrl" yaml:"safeApiUrl"`
+	// InternalToken is the X-Internal-Token for calling SaFE verify endpoint
+	InternalToken string `json:"internalToken" yaml:"internalToken"`
+	// InternalTokenEnv is the environment variable name for internal token (alternative to InternalToken)
+	InternalTokenEnv string `json:"internalTokenEnv" yaml:"internalTokenEnv"`
+	// Timeout is the HTTP request timeout for auth verification (default: 5s)
+	Timeout int `json:"timeout" yaml:"timeout"`
+	// ExcludePaths are paths that skip authentication (e.g., health check endpoints)
+	ExcludePaths []string `json:"excludePaths" yaml:"excludePaths"`
 }
 
 // TraceConfig contains trace-specific configuration
@@ -224,4 +249,46 @@ func (m MiddlewareConfig) IsTracingEnabled() bool {
 		return true
 	}
 	return *m.EnableTracing
+}
+
+// IsAuthEnabled returns whether auth middleware is enabled, default disabled
+func (m MiddlewareConfig) IsAuthEnabled() bool {
+	if m.Auth == nil {
+		return false
+	}
+	return m.Auth.Enabled
+}
+
+// GetAuthConfig returns the auth configuration
+func (m MiddlewareConfig) GetAuthConfig() *AuthConfig {
+	return m.Auth
+}
+
+// GetInternalToken returns the internal token from config or environment variable
+func (a *AuthConfig) GetInternalToken() string {
+	if a.InternalToken != "" {
+		return a.InternalToken
+	}
+	if a.InternalTokenEnv != "" {
+		return os.Getenv(a.InternalTokenEnv)
+	}
+	return ""
+}
+
+// GetTimeout returns the timeout duration, default 5 seconds
+func (a *AuthConfig) GetTimeout() time.Duration {
+	if a.Timeout <= 0 {
+		return 5 * time.Second
+	}
+	return time.Duration(a.Timeout) * time.Second
+}
+
+// IsPathExcluded checks if the given path should skip authentication
+func (a *AuthConfig) IsPathExcluded(path string) bool {
+	for _, excludePath := range a.ExcludePaths {
+		if path == excludePath || (len(excludePath) > 0 && excludePath[len(excludePath)-1] == '*' && len(path) >= len(excludePath)-1 && path[:len(excludePath)-1] == excludePath[:len(excludePath)-1]) {
+			return true
+		}
+	}
+	return false
 }

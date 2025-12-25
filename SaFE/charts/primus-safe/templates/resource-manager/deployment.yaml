@@ -75,6 +75,11 @@ spec:
               mountPath: {{ .Values.opensearch.secret_path }}
               readOnly: true
             {{- end }}
+            {{- if and .Values.notification .Values.notification.email .Values.notification.email.smtp_host }}
+            - name: notification-secret
+              mountPath: /etc/secrets/notification
+              readOnly: true
+            {{- end }}
           {{- if default true (default .Values.k8s).enable_health_check }}
           ports:
             - containerPort: {{ default 8081 (default .Values.resource_manager).health_port }}
@@ -119,6 +124,11 @@ spec:
         - name: opensearch-secret
           secret:
             secretName: {{ .Values.opensearch.secret }}
+        {{- end }}
+        {{- if and .Values.notification .Values.notification.email .Values.notification.email.smtp_host }}
+        - name: notification-secret
+          secret:
+            secretName: {{ .Release.Name }}-notification
         {{- end }}
         - name: server-config
           configMap:
