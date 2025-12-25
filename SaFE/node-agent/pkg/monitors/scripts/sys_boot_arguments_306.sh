@@ -46,6 +46,3 @@ if [ $FOUND_AMD_IOMMU -ne 1 ] && [ $FOUND_INTEL_IOMMU -ne 1 ] && [ $FOUND_IOMMU_
   echo "Neither amd_iommu=on nor intel_iommu=on nor iommu=pt is configured in kernel boot args" >&2
   exit 1
 fi
-
-echo "unsuitable kernel boot arguments"
-exit 1
