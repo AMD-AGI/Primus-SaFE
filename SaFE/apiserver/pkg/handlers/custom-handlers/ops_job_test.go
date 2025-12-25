@@ -139,8 +139,6 @@ func TestBaseOpsJobRequestValidation(t *testing.T) {
 				},
 				TimeoutSecond:           600,
 				TTLSecondsAfterFinished: 3600,
-				ExcludedNodes:           []string{"node-2", "node-3"},
-				IsTolerateAll:           true,
 			},
 			validate: func(t *testing.T, req types.BaseOpsJobRequest) {
 				assert.Equal(t, "test-preflight", req.Name)
@@ -148,8 +146,6 @@ func TestBaseOpsJobRequestValidation(t *testing.T) {
 				assert.Len(t, req.Inputs, 2)
 				assert.Equal(t, 600, req.TimeoutSecond)
 				assert.Equal(t, 3600, req.TTLSecondsAfterFinished)
-				assert.Len(t, req.ExcludedNodes, 2)
-				assert.True(t, req.IsTolerateAll)
 			},
 		},
 		{
@@ -166,7 +162,6 @@ func TestBaseOpsJobRequestValidation(t *testing.T) {
 				assert.Equal(t, v1.OpsJobAddonType, req.Type)
 				assert.Len(t, req.Inputs, 1)
 				assert.Equal(t, 0, req.TimeoutSecond)
-				assert.False(t, req.IsTolerateAll)
 			},
 		},
 	}
