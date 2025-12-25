@@ -36,6 +36,7 @@ export NCCL_SOCKET_IFNAME=${NCCL_SOCKET_IFNAME:-"eth0"}
 export NCCL_IB_HCA=${NCCL_IB_HCA:-""}
 export TEST_LEVEL=${TEST_LEVEL:-"BASIC"}
 export ENABLE_ANP=${ENABLE_ANP:-"false"}
+export GPU_PRODUCT=${GPU_PRODUCT:-"MI300X"}
 
 # ============================================================================
 # Helper function to run check scripts

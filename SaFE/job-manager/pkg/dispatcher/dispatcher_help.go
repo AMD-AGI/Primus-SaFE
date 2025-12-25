@@ -112,11 +112,9 @@ func modifyNodeSelectorTerms(obj *unstructured.Unstructured, workload *v1.Worklo
 		return err
 	}
 	expression := buildMatchExpression(workload)
-
 	if len(expression) == 0 {
 		return nil
 	}
-
 	if len(nodeSelectorTerms) == 0 {
 		expressions := make(map[string]interface{})
 		expressions["matchExpressions"] = expression
@@ -270,7 +268,7 @@ func modifyVolumeMounts(container map[string]interface{}, workload *v1.Workload,
 		if secret.Type != v1.SecretGeneral {
 			continue
 		}
-		mountPath := fmt.Sprintf("/etc/secrets/%s", secret.Id)
+		mountPath := fmt.Sprintf("%s/%s", common.SecretPath, secret.Id)
 		volumeMount := buildVolumeMount(secret.Id, mountPath, "", true)
 		volumeMounts = append(volumeMounts, volumeMount)
 	}
@@ -328,6 +326,9 @@ func modifyImageSecrets(obj *unstructured.Unstructured, workload *v1.Workload, p
 	secrets, _, err := unstructured.NestedSlice(obj.Object, path...)
 	if err != nil {
 		return err
+	}
+	if len(workload.Spec.Secrets) == 0 {
+		return nil
 	}
 	for _, s := range workload.Spec.Secrets {
 		if s.Type == v1.SecretImage {
@@ -412,6 +413,9 @@ func modifyStrategy(obj *unstructured.Unstructured, workload *v1.Workload, path 
 // modifySelector sets the selector for service objects to match the workload.
 func modifySelector(obj *unstructured.Unstructured, workload *v1.Workload, path []string) error {
 	selector := buildSelector(workload)
+	if len(selector) == 0 {
+		return nil
+	}
 	if err := unstructured.SetNestedMap(obj.Object, selector, path...); err != nil {
 		return err
 	}
@@ -441,6 +445,9 @@ func buildCommands(workload *v1.Workload) []interface{} {
 
 // buildEntryPoint constructs the command entry point for a workload.
 func buildEntryPoint(workload *v1.Workload) string {
+	if workload.Spec.EntryPoint == "" {
+		return ""
+	}
 	result := ""
 	switch workload.SpecKind() {
 	case common.CICDScaleRunnerSetKind:

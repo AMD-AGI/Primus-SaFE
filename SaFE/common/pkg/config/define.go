@@ -80,6 +80,7 @@ const (
 	opsJobPrefix        = "ops_job."
 	opsJobTTLSecond     = opsJobPrefix + "ttl_second"
 	opsJobTimeoutSecond = opsJobPrefix + "timeout_second"
+	opsJobDownloadImage = opsJobPrefix + "download_image"
 
 	// prewarm
 	prewarmPrefix           = opsJobPrefix + "prewarm."
@@ -123,9 +124,6 @@ const (
 	modelDownloaderImage = modelPrefix + "downloader_image"
 	modelCleanupImage    = modelPrefix + "cleanup_image"
 
-	// Deployable components for CD
-	components = "components"
-
 	// proxy
 	proxyPrefix = "proxy."
 	proxyList   = proxyPrefix + "services"
@@ -133,4 +131,6 @@ const (
 	// cd
 	cdPrefix          = "cd."
 	cdRequireApproval = cdPrefix + "require_approval"
+	// Deployable components for CD
+	cdComponents = cdPrefix + "components"
 )

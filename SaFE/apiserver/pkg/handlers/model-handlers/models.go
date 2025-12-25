@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/constvar"
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
 	"github.com/lib/pq"
@@ -461,7 +460,7 @@ func (h *Handler) toggleModel(c *gin.Context) (interface{}, error) {
 					Description: k8sModel.Spec.Description,
 					UserID:      userId,
 					UserName:    userName,
-					ModelForm:   constvar.InferenceModelFormAPI,
+					ModelForm:   common.InferenceModelFormAPI,
 					ModelName:   modelId,
 					Instance: v1.InferenceInstance{
 						ApiKey:  &corev1.LocalObjectReference{Name: apiKeySecretName},
@@ -470,7 +469,7 @@ func (h *Handler) toggleModel(c *gin.Context) (interface{}, error) {
 					},
 				},
 				Status: v1.InferenceStatus{
-					Phase:      constvar.InferencePhaseRunning, // Remote API is immediately ready
+					Phase:      common.InferencePhaseRunning, // Remote API is immediately ready
 					UpdateTime: &metav1.Time{Time: time.Now().UTC()},
 				},
 			}
@@ -487,7 +486,7 @@ func (h *Handler) toggleModel(c *gin.Context) (interface{}, error) {
 			}
 
 			// Update Status separately (Status is a subresource, not saved by Create)
-			inference.Status.Phase = constvar.InferencePhaseRunning
+			inference.Status.Phase = common.InferencePhaseRunning
 			inference.Status.Message = "Inference service is running"
 			inference.Status.UpdateTime = &metav1.Time{Time: time.Now().UTC()}
 			if err := h.k8sClient.Status().Update(ctx, inference); err != nil {
@@ -580,13 +579,13 @@ func (h *Handler) toggleModel(c *gin.Context) (interface{}, error) {
 					Description: k8sModel.Spec.Description,
 					UserID:      userId,
 					UserName:    userName,
-					ModelForm:   constvar.InferenceModelFormModelSquare,
+					ModelForm:   common.InferenceModelFormModelSquare,
 					ModelName:   modelId,
 					Resource:    inferenceResource,
 					Config:      inferenceConfig,
 				},
 				Status: v1.InferenceStatus{
-					Phase:      constvar.InferencePhasePending,
+					Phase:      common.InferencePhasePending,
 					UpdateTime: &metav1.Time{Time: time.Now().UTC()},
 				},
 			}

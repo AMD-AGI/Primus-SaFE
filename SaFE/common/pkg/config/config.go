@@ -274,6 +274,11 @@ func GetOpsJobTimeoutSecond() int {
 	return getInt(opsJobTimeoutSecond, 0)
 }
 
+// GetDownloadJoImage returns the image name for downloading jobs.
+func GetDownloadJoImage() string {
+	return getString(opsJobDownloadImage, "")
+}
+
 // GetPrewarmTimeoutSecond returns the timeout in seconds for prewarm jobs.
 func GetPrewarmTimeoutSecond() int {
 	return getInt(prewarmTimeoutSecond, 900)
@@ -442,7 +447,8 @@ func GetProxyServices() []ProxyService {
 
 // GetComponents returns the list of deployable components.
 func GetComponents() []string {
-	return viper.GetStringSlice(components)
+	val := viper.GetString(cdComponents)
+	return removeBlank(strings.Split(val, ","))
 }
 
 // IsCDRequireApproval returns whether CD deployment requires approval from another user.

@@ -8,6 +8,8 @@ package s3
 import (
 	"context"
 	"fmt"
+	"net/url"
+	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -21,44 +23,68 @@ type Config struct {
 	Bucket *string
 }
 
-// GetConfig creates and returns a new S3 configuration object.
-// It validates that all required S3 configuration parameters are present in the system config,
-// including access key, secret key, endpoint, and bucket name.
-func GetConfig() (*Config, error) {
+type S3Location struct {
+	Bucket   string
+	Endpoint string
+	Key      string
+}
+
+// NewConfig creates and returns a new S3 configuration object using system-wide S3 settings.
+// This function retrieves S3 configuration parameters from the system config
+func NewConfig() (*Config, error) {
 	if !commonconfig.IsS3Enable() {
 		return nil, fmt.Errorf("s3 is disabled")
 	}
-	if commonconfig.GetS3AccessKey() == "" {
-		return nil, fmt.Errorf("failed to find AccessKey of s3")
-	}
-	if commonconfig.GetS3SecretKey() == "" {
-		return nil, fmt.Errorf("failed to find SecretKey of s3")
-	}
-	if commonconfig.GetS3Endpoint() == "" {
-		return nil, fmt.Errorf("failed to find endpoint of s3")
-	}
 	if commonconfig.GetS3Bucket() == "" {
-		return nil, fmt.Errorf("failed to find bucket of s3")
+		return nil, fmt.Errorf("the s3 bucket is empty")
+	}
+	return newConfigFromCredentials(commonconfig.GetS3AccessKey(), commonconfig.GetS3SecretKey(),
+		commonconfig.GetS3Endpoint(), commonconfig.GetS3Bucket())
+}
+
+// NewConfigFromCredentials creates and returns a new S3 configuration object using the provided credentials and url
+func NewConfigFromCredentials(ak, sk, s3Url string) (*Config, *S3Location, error) {
+	loc, err := parseS3PathStyleURL(s3Url)
+	if err != nil {
+		return nil, nil, err
+	}
+	conf, err := newConfigFromCredentials(ak, sk, loc.Endpoint, loc.Bucket)
+	if err != nil {
+		return nil, nil, err
+	}
+	return conf, loc, nil
+}
+
+// newConfigFromCredentials creates and returns a new S3 configuration object using the provided credentials
+func newConfigFromCredentials(ak, sk, endpoint, bucket string) (*Config, error) {
+	if ak == "" {
+		return nil, fmt.Errorf("the s3 AccessKey is empty")
+	}
+	if sk == "" {
+		return nil, fmt.Errorf("the s3 SecretKey is empty")
+	}
+	if endpoint == "" {
+		return nil, fmt.Errorf("the s3 endpoint is empty")
+	}
+	if bucket == "" {
+		return nil, fmt.Errorf("the s3 bucket is empty")
 	}
 
 	credProvider := aws.CredentialsProviderFunc(func(ctx context.Context) (aws.Credentials, error) {
 		return aws.Credentials{
-			AccessKeyID:     commonconfig.GetS3AccessKey(),
-			SecretAccessKey: commonconfig.GetS3SecretKey(),
-			SessionToken:    "",
+			AccessKeyID:     ak,
+			SecretAccessKey: sk,
 			Source:          "StaticCredentials",
 		}, nil
 	})
 
-	region := "us-east-1"
 	cfg, err := config.LoadDefaultConfig(context.TODO(),
-		config.WithRegion(region),
+		config.WithRegion(""),
 		config.WithCredentialsProvider(credProvider),
 		config.WithEndpointResolverWithOptions(
 			aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
 				return aws.Endpoint{
-					URL:           commonconfig.GetS3Endpoint(),
-					SigningRegion: region,
+					URL: endpoint,
 				}, nil
 			}),
 		),
@@ -68,11 +94,45 @@ func GetConfig() (*Config, error) {
 	}
 	return &Config{
 		Config: cfg,
-		Bucket: pointer.String(commonconfig.GetS3Bucket()),
+		Bucket: pointer.String(bucket),
 	}, nil
 }
 
-// GetS3Config returns the underlying AWS SDK configuration from the Config struct.
-func (c *Config) GetS3Config() aws.Config {
-	return c.Config
+// parseS3PathStyleURL parses a URL in the format https://<endpoint>/<bucket>/<key>.
+func parseS3PathStyleURL(s3url string) (*S3Location, error) {
+	if s3url == "" {
+		return nil, fmt.Errorf("URL is empty")
+	}
+	u, err := url.Parse(s3url)
+	if err != nil {
+		return nil, fmt.Errorf("invalid URL: %w", err)
+	}
+	if u.Scheme != "https" && u.Scheme != "http" {
+		return nil, fmt.Errorf("only http/https schemes are supported")
+	}
+
+	host := u.Host
+	path := u.Path
+	if host == "" {
+		return nil, fmt.Errorf("missing host in URL")
+	}
+	if path == "" || path == "/" {
+		return nil, fmt.Errorf("missing bucket and key in path")
+	}
+
+	cleanPath := strings.TrimPrefix(path, "/")
+	parts := strings.SplitN(cleanPath, "/", 2)
+	if len(parts) < 2 {
+		return nil, fmt.Errorf("invalid path: expected '/<bucket>/<key>', got '%s'", path)
+	}
+	bucket := parts[0]
+	key := parts[1]
+	if bucket == "" || key == "" {
+		return nil, fmt.Errorf("bucket or key is empty in path '%s'", path)
+	}
+	return &S3Location{
+		Bucket:   bucket,
+		Endpoint: u.Scheme + "://" + host,
+		Key:      key,
+	}, nil
 }
