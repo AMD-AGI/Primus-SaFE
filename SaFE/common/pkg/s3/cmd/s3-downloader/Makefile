@@ -1,3 +1,5 @@
+# Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+
 .PHONY: build clean docker-build docker-push docker-images docker-verify deps help
 
 BINARY_NAME=s3-downloader
