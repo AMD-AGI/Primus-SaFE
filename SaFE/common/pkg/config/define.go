@@ -123,7 +123,14 @@ const (
 	modelDownloaderImage = modelPrefix + "downloader_image"
 	modelCleanupImage    = modelPrefix + "cleanup_image"
 
+	// Deployable components for CD
+	components = "components"
+
 	// proxy
 	proxyPrefix = "proxy."
 	proxyList   = proxyPrefix + "services"
+
+	// cd
+	cdPrefix          = "cd."
+	cdRequireApproval = cdPrefix + "require_approval"
 )

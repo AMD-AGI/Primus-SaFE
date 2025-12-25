@@ -112,6 +112,11 @@ func modifyNodeSelectorTerms(obj *unstructured.Unstructured, workload *v1.Worklo
 		return err
 	}
 	expression := buildMatchExpression(workload)
+
+	if len(expression) == 0 {
+		return nil
+	}
+
 	if len(nodeSelectorTerms) == 0 {
 		expressions := make(map[string]interface{})
 		expressions["matchExpressions"] = expression
