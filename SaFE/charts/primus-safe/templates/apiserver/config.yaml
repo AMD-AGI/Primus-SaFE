@@ -81,6 +81,9 @@ data:
       enable: {{ .Values.sso.enable }}
     cicd:
       enable: {{ .Values.cicd.enable }}
+    ops_job:
+      # Opsjob download image version. used for download file
+      download_image: "s3-downloader:{{ .Values.ops_job.download_image }}"
     components:
       {{- range .Values.components }}
       - {{ . }}
