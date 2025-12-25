@@ -88,6 +88,11 @@ spec:
               mountPath: {{ .Values.sso.secret_path }}
               readOnly: true
             {{- end }}
+            {{- if and .Values.notification .Values.notification.email .Values.notification.email.smtp_host }}
+            - name: notification-secret
+              mountPath: /etc/secrets/notification
+              readOnly: true
+            {{- end }}
           ports:
             - containerPort: {{ default 8088 (default .Values.apiserver).port }}
               name: http-port
@@ -150,6 +155,11 @@ spec:
         - name: sso-secret
           secret:
             secretName: {{ .Values.sso.secret }}
+        {{- end }}
+        {{- if and .Values.notification .Values.notification.email .Values.notification.email.smtp_host }}
+        - name: notification-secret
+          secret:
+            secretName: {{ .Release.Name }}-notification
         {{- end }}
       {{- if .Values.global.image_pull_secret }}
       imagePullSecrets:

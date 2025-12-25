@@ -35,5 +35,8 @@ func SetupOpsJobs(ctx context.Context, mgr manager.Manager) error {
 	if err := SetupPrewarmJobController(ctx, mgr); err != nil {
 		return fmt.Errorf("prewarm-job controller: %v", err)
 	}
+	if err := SetupCDJobController(mgr); err != nil {
+		return fmt.Errorf("cd-job controller: %v", err)
+	}
 	return nil
 }

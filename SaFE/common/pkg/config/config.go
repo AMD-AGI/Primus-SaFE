@@ -439,3 +439,15 @@ func GetProxyServices() []ProxyService {
 	}
 	return services
 }
+
+// GetComponents returns the list of deployable components.
+func GetComponents() []string {
+	return viper.GetStringSlice(components)
+}
+
+// IsCDRequireApproval returns whether CD deployment requires approval from another user.
+// When true, users cannot approve their own deployment requests.
+// When false, users can approve their own requests (self-approval allowed).
+func IsCDRequireApproval() bool {
+	return getBool(cdRequireApproval, true)
+}

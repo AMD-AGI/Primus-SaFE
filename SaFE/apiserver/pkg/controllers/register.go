@@ -17,5 +17,8 @@ func SetupControllers(ctx context.Context, mgr manager.Manager) error {
 	if err := SetupClusterController(ctx, mgr); err != nil {
 		return fmt.Errorf("cluster controller: %v", err)
 	}
+	if err := SetupCDOpsJobController(ctx, mgr); err != nil {
+		return fmt.Errorf("cd opsjob controller: %v", err)
+	}
 	return nil
 }

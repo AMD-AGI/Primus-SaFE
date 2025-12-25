@@ -20,4 +20,6 @@ type GetEnvResponse struct {
 	SSOEnable bool `json:"ssoEnable"`
 	// The url for sso authorization
 	SSOAuthUrl string `json:"ssoAuthUrl"`
+	// Whether CD deployment requires approval from another user
+	CDRequireApproval bool `json:"cdRequireApproval"`
 }
