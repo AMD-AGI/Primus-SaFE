@@ -27,17 +27,8 @@ cd:
   # true: users cannot approve their own requests (production environment)
   # false: users can self-approve their own requests (development environment)
   require_approval: true
-# This list is of deployable components
-components:
-  - apiserver
-  - resource_manager
-  - job_manager
-  - webhooks
-  - web
-  - preprocess
-  - node_agent
-  - cicd_runner
-  - cicd_unified_job
+  # This list is of deployable components
+  components: "apiserver,resource_manager,job_manager,webhooks,web,preprocess,node_agent,cicd_runner,cicd_unified_job"
 apiserver:
   # Apiserver component image version
   image: "apiserver:latest"
@@ -88,6 +79,9 @@ web:
 preprocess:
   # Preprocessing component image version. used for pytorch-job etc.
   image: "preprocess:latest"
+ops_job:
+  # Opsjob download image version. used for download file
+  download_image: "s3-downloader:latest"
 cicd:
   enable: true
   role_name: "gha-rs-manager"

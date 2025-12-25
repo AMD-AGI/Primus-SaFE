@@ -81,13 +81,13 @@ data:
       enable: {{ .Values.sso.enable }}
     cicd:
       enable: {{ .Values.cicd.enable }}
-    components:
-      {{- range .Values.components }}
-      - {{ . }}
-      {{- end }}
+    ops_job:
+      # Opsjob download image version. used for download file
+      download_image: "{{ .Values.global.image_registry }}/primussafe/{{ .Values.ops_job.download_image }}"
     cd:
       # Whether deployment requests require approval from another user
-      require_approval: {{ if hasKey .Values.cd "require_approval" }}{{ .Values.cd.require_approval }}{{ else }}true{{ end }}
+      require_approval: {{ default false (default .Values.cd).require_approval }}
+      components: {{ .Values.cd.components }}
     notification:
       enable: {{ and .Values.notification .Values.notification.email .Values.notification.email.smtp_host | default false }}
       secret_path: /etc/secrets/notification
