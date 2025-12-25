@@ -83,7 +83,7 @@ data:
       enable: {{ .Values.cicd.enable }}
     ops_job:
       # Opsjob download image version. used for download file
-      download_image: "s3-downloader:{{ .Values.ops_job.download_image }}"
+      download_image: "{{ .Values.global.image_registry }}/primussafe/{{ .Values.ops_job.download_image }}"
     cd:
       # Whether deployment requests require approval from another user
       require_approval: {{ default false (default .Values.cd).require_approval }}
