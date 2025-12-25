@@ -447,7 +447,8 @@ func GetProxyServices() []ProxyService {
 
 // GetComponents returns the list of deployable components.
 func GetComponents() []string {
-	return viper.GetStringSlice(components)
+	val := viper.GetString(cdComponents)
+	return removeBlank(strings.Split(val, ","))
 }
 
 // IsCDRequireApproval returns whether CD deployment requires approval from another user.
