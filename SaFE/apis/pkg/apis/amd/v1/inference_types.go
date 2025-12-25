@@ -1,15 +1,14 @@
 /*
- * Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
 package v1
 
 import (
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/constvar"
 )
 
 const (
@@ -28,7 +27,7 @@ type (
 		// UserName is the name of the user
 		UserName string `json:"userName,omitempty"`
 		// ModelForm specifies the source of the model (API or ModelSquare)
-		ModelForm constvar.InferenceModelForm `json:"modelForm"`
+		ModelForm common.InferenceModelForm `json:"modelForm"`
 		// ModelName is the name of the model
 		ModelName string `json:"modelName"`
 		// Instance contains the inference instance information
@@ -79,7 +78,7 @@ type (
 	// InferenceStatus defines the observed state of Inference
 	InferenceStatus struct {
 		// Phase is the current phase of the inference service
-		Phase constvar.InferencePhaseType `json:"phase,omitempty"`
+		Phase common.InferencePhaseType `json:"phase,omitempty"`
 		// Events records events for each phase
 		Events []InferenceEvent `json:"events,omitempty"`
 		// Message contains additional status information
@@ -139,33 +138,33 @@ func init() {
 
 // IsPending returns true if the inference service is pending
 func (i *Inference) IsPending() bool {
-	return i.Status.Phase == "" || i.Status.Phase == constvar.InferencePhasePending
+	return i.Status.Phase == "" || i.Status.Phase == common.InferencePhasePending
 }
 
 // IsRunning returns true if the inference service is running
 func (i *Inference) IsRunning() bool {
-	return i.Status.Phase == constvar.InferencePhaseRunning
+	return i.Status.Phase == common.InferencePhaseRunning
 }
 
 // IsStopped returns true if the inference service is stopped
 func (i *Inference) IsStopped() bool {
-	return i.Status.Phase == constvar.InferencePhaseStopped
+	return i.Status.Phase == common.InferencePhaseStopped
 }
 
 // IsEnd returns true if the inference service has ended (stopped or failed)
 func (i *Inference) IsEnd() bool {
-	return i.Status.Phase == constvar.InferencePhaseStopped ||
-		i.Status.Phase == constvar.InferencePhaseFailure
+	return i.Status.Phase == common.InferencePhaseStopped ||
+		i.Status.Phase == common.InferencePhaseFailure
 }
 
 // IsFromAPI returns true if the model is from API import
 func (i *Inference) IsFromAPI() bool {
-	return i.Spec.ModelForm == constvar.InferenceModelFormAPI
+	return i.Spec.ModelForm == common.InferenceModelFormAPI
 }
 
 // IsFromModelSquare returns true if the model is from ModelSquare
 func (i *Inference) IsFromModelSquare() bool {
-	return i.Spec.ModelForm == constvar.InferenceModelFormModelSquare
+	return i.Spec.ModelForm == common.InferenceModelFormModelSquare
 }
 
 // AddEvent adds a new event to the inference status

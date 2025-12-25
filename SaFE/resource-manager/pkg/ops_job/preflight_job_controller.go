@@ -26,7 +26,6 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonjob "github.com/AMD-AIG-AIMA/SAFE/common/pkg/ops_job"
-	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/backoff"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
 
@@ -85,51 +84,6 @@ func isPreflightWorkload(workload *v1.Workload) bool {
 		return true
 	}
 	return false
-}
-
-// handleWorkloadEventImpl handles workload events by updating the corresponding OpsJob status.
-func (r *PreflightJobReconciler) handleWorkloadEventImpl(ctx context.Context, workload *v1.Workload) {
-	var phase v1.OpsJobPhase
-	completionMessage := ""
-	switch {
-	case workload.IsEnd():
-		if workload.Status.Phase == v1.WorkloadSucceeded {
-			phase = v1.OpsJobSucceeded
-		} else {
-			phase = v1.OpsJobFailed
-		}
-		completionMessage = getWorkloadCompletionMessage(workload)
-		if completionMessage == "" {
-			completionMessage = "unknown"
-		}
-	case workload.IsRunning():
-		phase = v1.OpsJobRunning
-	default:
-		phase = v1.OpsJobPending
-	}
-
-	jobId := v1.GetOpsJobId(workload)
-	err := backoff.Retry(func() error {
-		job := &v1.OpsJob{}
-		var err error
-		if err = r.Get(ctx, client.ObjectKey{Name: jobId}, job); err != nil {
-			return client.IgnoreNotFound(err)
-		}
-		switch phase {
-		case v1.OpsJobPending, v1.OpsJobRunning:
-			err = r.setJobPhase(ctx, job, phase)
-		default:
-			output := []v1.Parameter{{Name: "result", Value: completionMessage}}
-			err = r.setJobCompleted(ctx, job, phase, completionMessage, output)
-		}
-		if err != nil {
-			return err
-		}
-		return nil
-	}, 2*time.Second, 200*time.Millisecond)
-	if err != nil {
-		klog.ErrorS(err, "failed to update job status", "jobId", jobId)
-	}
 }
 
 // Reconcile is the main control loop for PreflightJob resources.

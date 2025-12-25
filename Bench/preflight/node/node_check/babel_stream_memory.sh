@@ -1,11 +1,15 @@
 #!/bin/bash
 
 #
-# Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
+# Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
 # See LICENSE for license information.
 #
 
 # BabelStream is a benchmarking program designed to evaluate memory bandwidth performance.
+
+# Validate GPU_PRODUCT
+SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"
+source "$SCRIPT_DIR/validate_gpu_product.sh"
 
 REPO_URL="https://github.com/UoB-HPC/BabelStream.git"
 cd /opt
@@ -36,13 +40,25 @@ if [ $EXIT_CODE -ne 0 ]; then
   exit 1
 fi
 
-declare -A thresholds=(
-  ["Copy"]=4177285
-  ["Mul"]=4067069
-  ["Add"]=3920853
-  ["Triad"]=3885301
-  ["Dot"]=3660781
-)
+# Set thresholds based on GPU product
+declare -A thresholds
+if [[ "$GPU_PRODUCT" == *"MI355X"* ]]; then
+  thresholds=(
+    ["Copy"]=5525433
+    ["Mul"]=5488344
+    ["Add"]=5404905
+    ["Triad"]=5447277
+    ["Dot"]=4264767
+  )
+else
+  thresholds=(
+    ["Copy"]=5525433
+    ["Mul"]=4067069
+    ["Add"]=3920853
+    ["Triad"]=3885301
+    ["Dot"]=3660781
+  )
+fi
 copy_sum=0 mul_sum=0 add_sum=0 triad_sum=0 dot_sum=0
 copy_count=0 mul_count=0 add_count=0 triad_count=0 dot_count=0
 grep -A5 '^Function' "$LOG_FILE" | awk '

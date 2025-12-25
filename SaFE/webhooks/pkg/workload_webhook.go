@@ -664,7 +664,7 @@ func (v *WorkloadValidator) validateRequiredParams(workload *v1.Workload) error 
 		if err := v.validateCICDScalingRunnerSet(workload); err != nil {
 			errs = append(errs, err)
 		}
-	} else {
+	} else if v1.GetOpsJobId(workload) == "" {
 		if workload.Spec.EntryPoint == "" {
 			errs = append(errs, fmt.Errorf("the entryPoint is empty"))
 		}

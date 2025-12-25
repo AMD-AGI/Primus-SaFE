@@ -31,4 +31,6 @@ type Interface interface {
 
 	GeneratePresignedURL(ctx context.Context, key string, expireHour int32) (string, error)
 	PresignModelFiles(ctx context.Context, prefix string, expireHour int32) (map[string]string, error)
+
+	DownloadFile(ctx context.Context, key, localPath string) error
 }

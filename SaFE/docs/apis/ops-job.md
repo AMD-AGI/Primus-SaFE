@@ -141,7 +141,7 @@ OpsJob(operations job) performs specific administrative tasks in the system. Com
 | Parameter               | Type     | Required | Description                                                                                               |
 |-------------------------|----------|----------|-----------------------------------------------------------------------------------------------------------|
 | name                    | string   | Yes | Used to generate ops job ID; normalized with random suffix                                                |
-| type                    | string   | Yes | Ops job type: addon/preflight/dumplog/reboot/exportimage/prewarm                                          |
+| type                    | string   | Yes | Ops job type: addon/preflight/dumplog/reboot/exportimage/prewarm/download                                 |
 | inputs[].name           | string   | Yes | Target selector; allowed: node, addon.template, workload, workspace, cluster, node.template, image        |
 | inputs[].value          | string   | Yes | Value for the selector (e.g. nodeId, workloadId, workspaceId, clusterId)                                  |
 | timeoutSecond           | int      | No | Timeout seconds; ≤0 means no timeout                                                                      |

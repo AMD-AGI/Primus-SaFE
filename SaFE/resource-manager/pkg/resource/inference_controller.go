@@ -30,7 +30,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/constvar"
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 )
@@ -207,14 +206,14 @@ func (r *InferenceReconciler) addFinalizerIfNeeded(ctx context.Context, inferenc
 // processModelSquareInference processes an inference from ModelSquare
 func (r *InferenceReconciler) processModelSquareInference(ctx context.Context, inference *v1.Inference) (ctrlruntime.Result, error) {
 	switch inference.Status.Phase {
-	case "", constvar.InferencePhasePending:
+	case "", common.InferencePhasePending:
 		return r.handlePending(ctx, inference)
-	case constvar.InferencePhaseRunning:
+	case common.InferencePhaseRunning:
 		return r.handleRunning(ctx, inference)
-	case constvar.InferencePhaseStopped:
+	case common.InferencePhaseStopped:
 		// Stopped: stop workload and delete inference
 		return r.handleStopped(ctx, inference)
-	case constvar.InferencePhaseFailure:
+	case common.InferencePhaseFailure:
 		// Failed: delete inference directly
 		return r.handleTerminalState(ctx, inference)
 	default:
@@ -239,7 +238,7 @@ func (r *InferenceReconciler) handlePending(ctx context.Context, inference *v1.I
 			}
 			// Workload still pending
 			if inference.Status.Message != "Workload created, waiting for running" {
-				if _, err := r.updatePhase(ctx, inference, constvar.InferencePhasePending, "Workload created, waiting for running"); err != nil {
+				if _, err := r.updatePhase(ctx, inference, common.InferencePhasePending, "Workload created, waiting for running"); err != nil {
 					return ctrlruntime.Result{}, err
 				}
 			}
@@ -259,7 +258,7 @@ func (r *InferenceReconciler) handlePending(ctx context.Context, inference *v1.I
 	workload, err := r.createWorkload(ctx, inference)
 	if err != nil {
 		klog.ErrorS(err, "failed to create workload for inference", "inference", inference.Name)
-		return r.updatePhase(ctx, inference, constvar.InferencePhaseFailure, fmt.Sprintf("Failed to create workload: %v", err))
+		return r.updatePhase(ctx, inference, common.InferencePhaseFailure, fmt.Sprintf("Failed to create workload: %v", err))
 	}
 
 	// Update inference instance with workload ID if not set
@@ -279,7 +278,7 @@ func (r *InferenceReconciler) handlePending(ctx context.Context, inference *v1.I
 
 	// Workload still pending, update phase and requeue
 	if inference.Status.Message != "Workload created, waiting for running" {
-		if _, err := r.updatePhase(ctx, inference, constvar.InferencePhasePending, "Workload created, waiting for running"); err != nil {
+		if _, err := r.updatePhase(ctx, inference, common.InferencePhasePending, "Workload created, waiting for running"); err != nil {
 			return ctrlruntime.Result{}, err
 		}
 	}
@@ -292,7 +291,7 @@ func (r *InferenceReconciler) handlePending(ctx context.Context, inference *v1.I
 func (r *InferenceReconciler) handleRunning(ctx context.Context, inference *v1.Inference) (ctrlruntime.Result, error) {
 	if inference.Spec.Instance.WorkloadID == "" {
 		klog.Errorf("Running inference %s has no workload ID", inference.Name)
-		return r.updatePhase(ctx, inference, constvar.InferencePhaseFailure, "No workload ID found")
+		return r.updatePhase(ctx, inference, common.InferencePhaseFailure, "No workload ID found")
 	}
 
 	// Get workload status
@@ -300,7 +299,7 @@ func (r *InferenceReconciler) handleRunning(ctx context.Context, inference *v1.I
 	err := r.Get(ctx, client.ObjectKey{Name: inference.Spec.Instance.WorkloadID}, workload)
 	if err != nil {
 		klog.ErrorS(err, "failed to get workload", "workload", inference.Spec.Instance.WorkloadID)
-		return r.updatePhase(ctx, inference, constvar.InferencePhaseFailure, fmt.Sprintf("Workload not found: %v", err))
+		return r.updatePhase(ctx, inference, common.InferencePhaseFailure, fmt.Sprintf("Workload not found: %v", err))
 	}
 
 	// Sync workload status
@@ -479,18 +478,18 @@ func (r *InferenceReconciler) createWorkload(ctx context.Context, inference *v1.
 
 // syncWorkloadStatus syncs the workload status to the inference
 func (r *InferenceReconciler) syncWorkloadStatus(ctx context.Context, inference *v1.Inference, workload *v1.Workload) (ctrlruntime.Result, error) {
-	var newPhase constvar.InferencePhaseType
+	var newPhase common.InferencePhaseType
 	var message string
 	var requeueAfter time.Duration
 
 	switch workload.Status.Phase {
 	case v1.WorkloadPending:
-		newPhase = constvar.InferencePhasePending
+		newPhase = common.InferencePhasePending
 		message = "Workload is pending"
 		requeueAfter = 10 * time.Second
 	case v1.WorkloadRunning:
 		// Running is the normal state for inference services
-		newPhase = constvar.InferencePhaseRunning
+		newPhase = common.InferencePhaseRunning
 		message = "Inference service is running"
 		requeueAfter = SyncInterval
 
@@ -500,11 +499,11 @@ func (r *InferenceReconciler) syncWorkloadStatus(ctx context.Context, inference 
 		}
 	case v1.WorkloadFailed:
 		// Failed is a terminal state for inference
-		newPhase = constvar.InferencePhaseFailure
+		newPhase = common.InferencePhaseFailure
 		message = fmt.Sprintf("Workload failed: %s", workload.Status.Message)
 	case v1.WorkloadStopped:
 		// Stopped is a terminal state for inference
-		newPhase = constvar.InferencePhaseStopped
+		newPhase = common.InferencePhaseStopped
 		message = "Workload stopped"
 	default:
 		klog.Warningf("Unknown workload phase: %s", workload.Status.Phase)
@@ -553,7 +552,7 @@ func (r *InferenceReconciler) updateInferenceInstance(ctx context.Context, infer
 }
 
 // updatePhase updates the phase of an Inference resource.
-func (r *InferenceReconciler) updatePhase(ctx context.Context, inference *v1.Inference, phase constvar.InferencePhaseType, message string) (ctrlruntime.Result, error) {
+func (r *InferenceReconciler) updatePhase(ctx context.Context, inference *v1.Inference, phase common.InferencePhaseType, message string) (ctrlruntime.Result, error) {
 	if inference.Status.Phase == phase && inference.Status.Message == message {
 		return ctrlruntime.Result{}, nil
 	}
