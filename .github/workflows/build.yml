@@ -215,6 +215,15 @@ jobs:
           echo "🔐 Logging in to Harbor..."
           echo "Harbor host: ${{ secrets.HARBOR_HOST }}"
           echo "Harbor username length: ${#HARBOR_USERNAME}"
+          
+          # Extract Harbor domain and test connectivity
+          HARBOR_DOMAIN=$(echo "${{ secrets.HARBOR_HOST }}" | sed 's|https://||;s|http://||;s|/.*||')
+          echo "🔍 Harbor domain: ${HARBOR_DOMAIN}"
+          echo "🔍 DNS resolution:"
+          nslookup ${HARBOR_DOMAIN} || echo "⚠️ DNS resolution failed"
+          echo "🔍 Curl test:"
+          curl -v -k "https://${HARBOR_DOMAIN}/api/v2.0/ping" || echo "⚠️ Curl test failed"
+          
           buildah login --tls-verify=false -u "${{ secrets.HARBOR_USERNAME }}" -p "${{ secrets.HARBOR_PASSWORD }}" "${{ secrets.HARBOR_HOST }}" && echo "✅ Harbor login successful" || echo "❌ Harbor login failed"
         env:
           DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
