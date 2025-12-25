@@ -207,8 +207,18 @@ jobs:
       - uses: actions/checkout@v4
       - name: Login registries
         run: |
-          buildah login -u "${{ secrets.DOCKER_USERNAME }}" -p "${{ secrets.DOCKER_PASSWORD }}" docker.io
-          buildah login --tls-verify=false -u "${{ secrets.HARBOR_USERNAME }}" -p "${{ secrets.HARBOR_PASSWORD }}" "${{ secrets.HARBOR_HOST }}"
+          set -x
+          echo "🔐 Logging in to Docker Hub..."
+          echo "Docker username length: ${#DOCKER_USERNAME}"
+          buildah login -u "${{ secrets.DOCKER_USERNAME }}" -p "${{ secrets.DOCKER_PASSWORD }}" docker.io && echo "✅ Docker Hub login successful" || echo "❌ Docker Hub login failed"
+          
+          echo "🔐 Logging in to Harbor..."
+          echo "Harbor host: ${{ secrets.HARBOR_HOST }}"
+          echo "Harbor username length: ${#HARBOR_USERNAME}"
+          buildah login --tls-verify=false -u "${{ secrets.HARBOR_USERNAME }}" -p "${{ secrets.HARBOR_PASSWORD }}" "${{ secrets.HARBOR_HOST }}" && echo "✅ Harbor login successful" || echo "❌ Harbor login failed"
+        env:
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+          HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
 
       - name: Build and push with Buildah
         env:
