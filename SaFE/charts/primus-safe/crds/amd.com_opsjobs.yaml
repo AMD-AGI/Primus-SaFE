@@ -52,7 +52,7 @@ spec:
                 description: Environment variables
                 type: object
               excludedNodes:
-                description: The nodes to be excluded
+                description: The nodes to be excluded, for preflight/addon
                 items:
                   type: string
                 type: array
@@ -80,7 +80,8 @@ spec:
                   type: object
                 type: array
               isTolerateAll:
-                description: Indicates whether the job tolerates node taints
+                description: Indicates whether the job tolerates node taints. for
+                  preflight, default false
                 type: boolean
               resource:
                 description: Opsjob resource requirements, only for preflight
