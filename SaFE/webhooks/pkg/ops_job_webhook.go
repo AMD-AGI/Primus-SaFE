@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"reflect"
 
+	commonjob "github.com/AMD-AIG-AIMA/SAFE/common/pkg/ops_job"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	admissionv1 "k8s.io/api/admission/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -259,10 +260,10 @@ func (v *OpsJobValidator) validateOnCreation(ctx context.Context, job *v1.OpsJob
 	case v1.OpsJobPreflightType:
 		err = v.validatePreflight(ctx, job)
 	case v1.OpsJobDumpLogType:
-		err = v.validateDumplog(ctx, job)
-	case v1.OpsJobRebootType:
-	case v1.OpsJobExportImageType:
-	case v1.OpsJobPrewarmType:
+		err = v.validateDumpling(ctx, job)
+	case v1.OpsJobDownloadType:
+		err = v.validateDownload(ctx, job)
+	default:
 	}
 	if err != nil {
 		return err
@@ -301,7 +302,7 @@ func (v *OpsJobValidator) validateRequiredParams(ctx context.Context, job *v1.Op
 	}
 	if job.Spec.Type == v1.OpsJobAddonType || job.Spec.Type == v1.OpsJobPreflightType || job.Spec.Type == v1.OpsJobRebootType {
 		if job.GetParameter(v1.ParameterNode) == nil {
-			errs = append(errs, fmt.Errorf("opsjob nodes are either empty or unhealthy"))
+			errs = append(errs, fmt.Errorf("opsJob nodes are either empty or unhealthy"))
 		}
 	}
 	if err := utilerrors.NewAggregate(errs); err != nil {
@@ -350,8 +351,8 @@ func (v *OpsJobValidator) validatePreflight(ctx context.Context, job *v1.OpsJob)
 	return validateResourceEnough(nf, job.Spec.Resource)
 }
 
-// validateDumplog checks if another dumplog job is already running on the same workload.
-func (v *OpsJobValidator) validateDumplog(ctx context.Context, job *v1.OpsJob) error {
+// validateDumpling checks if another dumpling job is already running on the same workload.
+func (v *OpsJobValidator) validateDumpling(ctx context.Context, job *v1.OpsJob) error {
 	currentJobs, err := v.listRelatedRunningJobs(ctx, v1.GetClusterId(job), []string{string(v1.OpsJobDumpLogType)})
 	if err != nil {
 		return err
@@ -394,6 +395,32 @@ func (v *OpsJobValidator) validateAddon(ctx context.Context, job *v1.OpsJob) err
 		return commonerrors.NewBadRequest(
 			fmt.Sprintf("either %s or %s must be specified in the job.",
 				v1.ParameterAddonTemplate, v1.ParameterNodeTemplate))
+	}
+	return nil
+}
+
+// validateDownload checks if another download job is already running on the same input.
+func (v *OpsJobValidator) validateDownload(ctx context.Context, job *v1.OpsJob) error {
+	if _, err := commonjob.GetRequiredParameter(job, v1.ParameterEndpoint); err != nil {
+		return err
+	}
+	if _, err := commonjob.GetRequiredParameter(job, v1.ParameterDestPath); err != nil {
+		return err
+	}
+	currentJobs, err := v.listRelatedRunningJobs(ctx, v1.GetClusterId(job), []string{string(v1.OpsJobDownloadType)})
+	if err != nil {
+		return err
+	}
+	for _, currentJob := range currentJobs {
+		if job.Name == currentJob.Name {
+			continue
+		}
+		if v.hasDuplicateInput(job.Spec.Inputs, currentJob.Spec.Inputs, v1.ParameterEndpoint) ||
+			v.hasDuplicateInput(job.Spec.Inputs, currentJob.Spec.Inputs, v1.ParameterDestPath) {
+			return commonerrors.NewResourceProcessing(
+				fmt.Sprintf("another ops job (%s) with type %s is processing,"+
+					" please wait for it to complete", currentJob.Name, currentJob.Spec.Type))
+		}
 	}
 	return nil
 }

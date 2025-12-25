@@ -16,7 +16,7 @@ import (
 type BaseOpsJobRequest struct {
 	// Used to generate the ops job ID, which will do normalization processing, e.g. lowercase and random suffix
 	Name string `json:"name"`
-	// Opsjob type, e.g. addon, dumplog, preflight
+	// Opsjob type, e.g. addon, dumplog, preflight, download, reboot and so on
 	Type v1.OpsJobType `json:"type"`
 	// The resource objects to be processed. e.g. {{"name": "node", "value": "tus1-p8-g6"}}
 	Inputs []v1.Parameter `json:"inputs"`
@@ -24,10 +24,6 @@ type BaseOpsJobRequest struct {
 	TimeoutSecond int `json:"timeoutSecond,omitempty"`
 	// The lifecycle of ops-job after it finishes
 	TTLSecondsAfterFinished int `json:"ttlSecondsAfterFinished,omitempty"`
-	// Nodes to be excluded, not participating in the ops job
-	ExcludedNodes []string `json:"excludedNodes,omitempty"`
-	// Indicates whether the job tolerates node taints. default false
-	IsTolerateAll bool `json:"isTolerateAll"`
 }
 
 type CreatePreflightRequest struct {
@@ -46,6 +42,10 @@ type CreatePreflightRequest struct {
 	// If specified, "cluster" cannot be selected as an input, and the nodes must belong to this workspace.
 	// Non-admin users must specify a workspace.
 	WorkspaceId string `json:"workspaceId"`
+	// Nodes to be excluded, not participating in the ops job
+	ExcludedNodes []string `json:"excludedNodes,omitempty"`
+	// Indicates whether the job tolerates node taints. default false
+	IsTolerateAll bool `json:"isTolerateAll"`
 }
 
 type CreateAddonRequest struct {
@@ -59,9 +59,15 @@ type CreateAddonRequest struct {
 	AvailableRatio *float64 `json:"availableRatio,omitempty"`
 	// When enabled, the operation will wait until the node is idle(no workloads), only to addon
 	SecurityUpgrade bool `json:"securityUpgrade,omitempty"`
+	// Nodes to be excluded, not participating in the ops job
+	ExcludedNodes []string `json:"excludedNodes,omitempty"`
 }
 
 type CreateDumplogRequest struct {
+	BaseOpsJobRequest
+}
+
+type CreateDownloadRequest struct {
 	BaseOpsJobRequest
 }
 

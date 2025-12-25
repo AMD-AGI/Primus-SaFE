@@ -36,6 +36,8 @@ type CreateSecretRequest struct {
 	// each server can have only one auth entry.
 	// Multiple auths may be created for image secret, so the params is a slice
 	Params []map[SecretParam]string `json:"params"`
+	// User-defined labels. Keys cannot start with "primus-safe."
+	Labels map[string]string `json:"labels,omitempty"`
 	// The secret owner, For internal use.
 	Owner string `json:"-"`
 }
@@ -51,6 +53,8 @@ type ListSecretRequest struct {
 	Type string `form:"type" binding:"omitempty"`
 	// the workspace which the secret belongs to
 	WorkspaceId *string `json:"workspaceId,omitempty"`
+	// User-defined labels. Keys cannot start with "primus-safe."
+	Labels *map[string]string `json:"labels,omitempty"`
 }
 
 type ListSecretResponse struct {

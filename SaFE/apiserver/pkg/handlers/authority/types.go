@@ -12,6 +12,7 @@ const (
 	UserIdentityResource  = "user/identity"
 	SecretResourceKind    = "secret"
 	PreflightKind         = "opsjob/preflight"
+	DownloadKind          = "opsjob/download"
 	PublicKeyKind         = "PublicKey"
 	ImageImportKind       = "ImageImport"
 	ImageRegisterKind     = "ImageRegister"

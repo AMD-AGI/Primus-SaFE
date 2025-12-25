@@ -389,6 +389,11 @@ func generateSecret(req *types.CreateSecretRequest, requestUser *v1.User) (*core
 	if len(req.WorkspaceIds) > 0 {
 		v1.SetAnnotation(secret, v1.WorkspaceIdsAnnotation, string(jsonutils.MarshalSilently(req.WorkspaceIds)))
 	}
+	for key, val := range req.Labels {
+		if !strings.HasPrefix(key, v1.PrimusSafePrefix) {
+			secret.Labels[key] = val
+		}
+	}
 	controllerutil.AddFinalizer(secret, v1.SecretFinalizer)
 	return secret, nil
 }
@@ -469,6 +474,14 @@ func buildSecretLabelSelector(query *types.ListSecretRequest) labels.Selector {
 		typeList := strings.Split(query.Type, ",")
 		req, _ := labels.NewRequirement(v1.SecretTypeLabel, selection.In, typeList)
 		labelSelector = labelSelector.Add(*req)
+	}
+	if query.Labels != nil {
+		for key, val := range *query.Labels {
+			if !strings.HasPrefix(key, v1.PrimusSafePrefix) {
+				req, _ := labels.NewRequirement(key, selection.Equals, []string{val})
+				labelSelector = labelSelector.Add(*req)
+			}
+		}
 	}
 	return labelSelector
 }

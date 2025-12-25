@@ -152,7 +152,6 @@ func (mgr *MonitorManager) watchConfig() error {
 	}()
 
 	timeout := time.After(10 * time.Minute)
-	klog.Infof("start to watch dir(%s) to update config", mgr.configPath)
 	for {
 		select {
 		case <-mgr.tomb.Stopping():

@@ -38,7 +38,7 @@ type Handler struct {
 
 // NewHandler creates a new Handler instance with the provided controller manager.
 // It initializes all required clients and components including:
-// - clientSet: Kubernetes clientset for direct API access
+// - clientSet: Kubernetes clientSet for direct API access
 // - dbClient: Database client (if database is enabled)
 // - searchClient: OpenSearch client used for log search
 // - httpClient: HTTP client for external requests

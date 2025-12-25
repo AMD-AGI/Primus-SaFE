@@ -7,7 +7,9 @@ package ops_job
 
 import (
 	"context"
+	"fmt"
 
+	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -40,4 +42,14 @@ func CleanupJobRelatedResource(ctx context.Context, cli client.Client, opsJobId 
 		}
 	}
 	return nil
+}
+
+// GetRequiredParameter retrieves the specified parameter from the job and returns an error if not found
+func GetRequiredParameter(job *v1.OpsJob, paramName string) (*v1.Parameter, error) {
+	param := job.GetParameter(paramName)
+	if param == nil {
+		return nil, commonerrors.NewBadRequest(
+			fmt.Sprintf("%s must be specified in the job.", paramName))
+	}
+	return param, nil
 }

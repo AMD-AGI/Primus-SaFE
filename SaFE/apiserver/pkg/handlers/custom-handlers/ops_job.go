@@ -96,6 +96,9 @@ func (h *Handler) createOpsJob(c *gin.Context) (interface{}, error) {
 		job, err = h.generateExportImageJob(c, body)
 	case v1.OpsJobPrewarmType:
 		job, err = h.generatePrewarmImageJob(c, body)
+	case v1.OpsJobDownloadType:
+		job, err = h.generateDownloadJob(c, body)
+
 	default:
 		err = fmt.Errorf("unsupported ops job type(%s)", req.Type)
 	}
@@ -294,6 +297,7 @@ func (h *Handler) generateAddonJob(c *gin.Context, body []byte) (*v1.OpsJob, err
 		req.AvailableRatio = pointer.Float64(1.0)
 	}
 	job := genDefaultOpsJob(&req.BaseOpsJobRequest, requestUser)
+	job.Spec.ExcludedNodes = req.ExcludedNodes
 	if req.SecurityUpgrade {
 		v1.SetAnnotation(job, v1.OpsJobSecurityUpgradeAnnotation, "")
 	}
@@ -301,7 +305,7 @@ func (h *Handler) generateAddonJob(c *gin.Context, body []byte) (*v1.OpsJob, err
 	v1.SetAnnotation(job, v1.OpsJobAvailRatioAnnotation,
 		strconv.FormatFloat(*req.AvailableRatio, 'f', -1, 64))
 
-	if err = h.generateOpsJobNodesInput(c.Request.Context(), job, &req.BaseOpsJobRequest); err != nil {
+	if err = h.generateOpsJobNodesInput(c.Request.Context(), job); err != nil {
 		return nil, err
 	}
 	return job, nil
@@ -326,11 +330,13 @@ func (h *Handler) generatePreflightJob(c *gin.Context, body []byte) (*v1.OpsJob,
 	job.Spec.Image = req.Image
 	job.Spec.EntryPoint = req.EntryPoint
 	job.Spec.Env = req.Env
+	job.Spec.IsTolerateAll = req.IsTolerateAll
+	job.Spec.ExcludedNodes = req.ExcludedNodes
 	job.Spec.Hostpath = req.Hostpath
 	if req.WorkspaceId != "" {
 		v1.SetLabel(job, v1.WorkspaceIdLabel, req.WorkspaceId)
 	}
-	if err = h.generateOpsJobNodesInput(c.Request.Context(), job, &req.BaseOpsJobRequest); err != nil {
+	if err = h.generateOpsJobNodesInput(c.Request.Context(), job); err != nil {
 		return nil, err
 	}
 	if err = h.accessController.Authorize(authority.AccessInput{
@@ -568,6 +574,49 @@ func (h *Handler) generatePrewarmImageJob(c *gin.Context, body []byte) (*v1.OpsJ
 	return job, nil
 }
 
+// generateDownloadJob creates a download file-type ops job.
+// it validates workspace access, and generates a job object with appropriate labels.
+func (h *Handler) generateDownloadJob(c *gin.Context, body []byte) (*v1.OpsJob, error) {
+	requestUser, err := h.getAndSetUsername(c)
+	if err != nil {
+		return nil, err
+	}
+
+	req := &types.CreateDownloadRequest{}
+	if err = jsonutils.Unmarshal(body, req); err != nil {
+		return nil, err
+	}
+	job := genDefaultOpsJob(&req.BaseOpsJobRequest, requestUser)
+
+	secretParam := job.GetParameter(v1.ParameterSecret)
+	if secretParam == nil {
+		return nil, commonerrors.NewBadRequest(
+			fmt.Sprintf("%s must be specified in the job.", v1.ParameterSecret))
+	}
+	workspaceParam := job.GetParameter(v1.ParameterWorkspace)
+	if workspaceParam == nil {
+		return nil, commonerrors.NewBadRequest(
+			fmt.Sprintf("%s must be specified in the job.", v1.ParameterWorkspace))
+	}
+
+	_, err = h.getAndAuthorizeSecret(c.Request.Context(), secretParam.Value, workspaceParam.Value, requestUser, v1.GetVerb)
+	if err != nil {
+		return nil, err
+	}
+	if err = h.accessController.Authorize(authority.AccessInput{
+		Context:      c.Request.Context(),
+		ResourceKind: authority.DownloadKind,
+		Verb:         v1.CreateVerb,
+		Workspaces:   []string{workspaceParam.Value},
+		User:         requestUser,
+	}); err != nil {
+		return nil, err
+	}
+
+	v1.SetLabel(job, v1.WorkspaceIdLabel, workspaceParam.Value)
+	return job, nil
+}
+
 // genDefaultOpsJob creates a default ops job object with common properties.
 // It sets up the job metadata including name, labels, annotations, and basic specifications.
 func genDefaultOpsJob(req *types.BaseOpsJobRequest, requestUser *v1.User) *v1.OpsJob {
@@ -587,8 +636,6 @@ func genDefaultOpsJob(req *types.BaseOpsJobRequest, requestUser *v1.User) *v1.Op
 			Inputs:                  req.Inputs,
 			TimeoutSecond:           req.TimeoutSecond,
 			TTLSecondsAfterFinished: req.TTLSecondsAfterFinished,
-			IsTolerateAll:           req.IsTolerateAll,
-			ExcludedNodes:           req.ExcludedNodes,
 		},
 	}
 	if v1.GetUserName(job) == "" {
@@ -601,8 +648,8 @@ func genDefaultOpsJob(req *types.BaseOpsJobRequest, requestUser *v1.User) *v1.Op
 // It determines the target nodes by resolving the job's scope parameter (workload, workspace, or cluster)
 // and populates the job inputs with the corresponding node names. Nodes in the excludedNodes(parameter of request) list
 // are filtered out. The function ensures that ops jobs are ultimately executed on a per-node basis.
-func (h *Handler) generateOpsJobNodesInput(ctx context.Context, job *v1.OpsJob, req *types.BaseOpsJobRequest) error {
-	excludedNodesSet := sets.NewSetByKeys(req.ExcludedNodes...)
+func (h *Handler) generateOpsJobNodesInput(ctx context.Context, job *v1.OpsJob) error {
+	excludedNodesSet := sets.NewSetByKeys(job.Spec.ExcludedNodes...)
 	if workloadParam := job.GetParameter(v1.ParameterNode); workloadParam != nil {
 		allNodes := job.GetParameters(v1.ParameterNode)
 		newInputs := make([]v1.Parameter, 0, len(allNodes))

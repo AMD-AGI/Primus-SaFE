@@ -75,6 +75,9 @@ Create new SSH key or image registry secret.
   "name": "github-secret",
   "type": "general",
   "workspaceIds": ["dev"],
+  "labels": {
+    "key": "value"
+  },
   "params": [{
         "github_token": "your github token"
   }]
@@ -89,6 +92,7 @@ Create new SSH key or image registry secret.
 | type | string | Yes | Secret type: ssh/image/general                            |
 | workspaceIds | []string | No | The workspace used by this Secret. If not specified, it can be cluster-wide(but it is typically configurable by administrators)                            |
 | params | []object | Yes | Authentication parameter list                     |
+| labels | object | No | User-defined labels. Keys cannot start with "primus-safe."                   |
 
 **SSH Key Parameters**:
 
@@ -143,10 +147,11 @@ Get secret list with type filtering support.
 
 **Query Parameters**:
 
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
+| Parameter | Type   | Required | Description |
+|-----------|--------|----------|-------------|
 | type | string | No | Filter by type: ssh/image/general (comma-separated) |
 | workspaceId | string | No | Filter by workspace ID, e.g. 'dev' |
+| labels | object   | No | User-defined labels. Keys cannot start with "primus-safe."                   |
 
 **Response Example**:
 

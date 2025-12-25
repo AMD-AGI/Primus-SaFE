@@ -44,6 +44,9 @@ func (h *Handler) createCICDSecret(ctx context.Context,
 				GitHubToken: stringutil.Base64Encode(token),
 			},
 		},
+		Labels: map[string]string{
+			"secret.usage": "cicd",
+		},
 	}
 	secret, err := h.createSecretImpl(ctx, createSecretReq, requestUser)
 	if err != nil {

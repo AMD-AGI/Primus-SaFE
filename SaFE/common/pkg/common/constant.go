@@ -12,6 +12,7 @@ const (
 	DefaultVersion             = "v1"
 	PrimusRouterCustomRootPath = "api/" + DefaultVersion
 	ImageImportSecretName      = "primus-safe-image-import-reg-cred"
+	SecretPath                 = "/etc/secrets"
 
 	AuthoringKind           = "Authoring"
 	PytorchJobKind          = "PyTorchJob"

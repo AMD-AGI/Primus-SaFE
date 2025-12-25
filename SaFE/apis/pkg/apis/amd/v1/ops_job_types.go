@@ -31,6 +31,7 @@ const (
 	OpsJobRebootType      OpsJobType = "reboot"
 	OpsJobExportImageType OpsJobType = "exportimage"
 	OpsJobPrewarmType     OpsJobType = "prewarm"
+	OpsJobDownloadType    OpsJobType = "download"
 
 	ParameterNode          = "node"
 	ParameterNodeTemplate  = "node.template"
@@ -40,6 +41,8 @@ const (
 	ParameterCluster       = "cluster"
 	ParameterEndpoint      = "endpoint"
 	ParameterImage         = "image"
+	ParameterSecret        = "secret"
+	ParameterDestPath      = "dest.path"
 )
 
 type Parameter struct {
@@ -65,11 +68,11 @@ type OpsJobSpec struct {
 	TimeoutSecond int `json:"timeoutSecond,omitempty"`
 	// Environment variables
 	Env map[string]string `json:"env,omitempty"`
-	// Indicates whether the job tolerates node taints
+	// Indicates whether the job tolerates node taints. for preflight, default false
 	IsTolerateAll bool `json:"isTolerateAll"`
 	// The hostpath for opsjob mounting.
 	Hostpath []string `json:"hostpath,omitempty"`
-	// The nodes to be excluded
+	// The nodes to be excluded, for preflight/addon
 	ExcludedNodes []string `json:"excludedNodes,omitempty"`
 }
 
