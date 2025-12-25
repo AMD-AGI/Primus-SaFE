@@ -577,6 +577,9 @@ func (h *Handler) generatePrewarmImageJob(c *gin.Context, body []byte) (*v1.OpsJ
 // generateDownloadJob creates a download file-type ops job.
 // it validates workspace access, and generates a job object with appropriate labels.
 func (h *Handler) generateDownloadJob(c *gin.Context, body []byte) (*v1.OpsJob, error) {
+	if commonconfig.GetDownloadJoImage() == "" {
+		return nil, commonerrors.NewNotImplemented("download job image is not configured")
+	}
 	requestUser, err := h.getAndSetUsername(c)
 	if err != nil {
 		return nil, err
@@ -613,6 +616,7 @@ func (h *Handler) generateDownloadJob(c *gin.Context, body []byte) (*v1.OpsJob, 
 		return nil, err
 	}
 
+	job.Spec.Image = pointer.String(commonconfig.GetDownloadJoImage())
 	v1.SetLabel(job, v1.WorkspaceIdLabel, workspaceParam.Value)
 	return job, nil
 }

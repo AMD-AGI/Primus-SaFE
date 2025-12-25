@@ -445,6 +445,9 @@ func buildCommands(workload *v1.Workload) []interface{} {
 
 // buildEntryPoint constructs the command entry point for a workload.
 func buildEntryPoint(workload *v1.Workload) string {
+	if workload.Spec.EntryPoint == "" {
+		return ""
+	}
 	result := ""
 	switch workload.SpecKind() {
 	case common.CICDScaleRunnerSetKind:

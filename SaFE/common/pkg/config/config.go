@@ -274,6 +274,11 @@ func GetOpsJobTimeoutSecond() int {
 	return getInt(opsJobTimeoutSecond, 0)
 }
 
+// GetDownloadJoImage returns the image name for downloading jobs.
+func GetDownloadJoImage() string {
+	return getString(opsJobDownloadImage, "")
+}
+
 // GetPrewarmTimeoutSecond returns the timeout in seconds for prewarm jobs.
 func GetPrewarmTimeoutSecond() int {
 	return getInt(prewarmTimeoutSecond, 900)
