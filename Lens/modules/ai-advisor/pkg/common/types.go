@@ -206,10 +206,44 @@ type WandBDetectionRequest struct {
 
 // WandBEvidence contains evidence data from WandB
 type WandBEvidence struct {
-	Imports     []string      `json:"imports,omitempty"`
-	Environment []string      `json:"environment,omitempty"`
-	WandB       WandBInfo     `json:"wandb"`
-	PyTorch     PyTorchInfo   `json:"pytorch"`
+	WandB             WandBInfo                         `json:"wandb"`
+	Imports           []string                          `json:"imports,omitempty"`
+	Environment       map[string]string                 `json:"environment,omitempty"`
+	PyTorch           *PyTorchInfo                      `json:"pytorch,omitempty"`
+	WrapperFrameworks map[string]map[string]interface{} `json:"wrapper_frameworks,omitempty"`
+	BaseFrameworks    map[string]map[string]interface{} `json:"base_frameworks,omitempty"`
+	System            map[string]interface{}            `json:"system,omitempty"`
+	Hardware          *HardwareInfo                     `json:"hardware,omitempty"`
+	Software          *SoftwareInfo                     `json:"software,omitempty"`
+	Build             *BuildInfo                        `json:"build,omitempty"`
+}
+
+// HardwareInfo contains hardware information
+type HardwareInfo struct {
+	GPUArch     string  `json:"gpu_arch,omitempty"`
+	GPUCount    int     `json:"gpu_count,omitempty"`
+	GPUMemoryGB float64 `json:"gpu_memory_gb,omitempty"`
+	GPUName     string  `json:"gpu_name,omitempty"`
+	ROCmVersion string  `json:"rocm_version,omitempty"`
+	CUDAVersion string  `json:"cuda_version,omitempty"`
+}
+
+// SoftwareInfo contains software package versions
+type SoftwareInfo struct {
+	ROCmVersion string            `json:"rocm_version,omitempty"`
+	Packages    map[string]string `json:"packages,omitempty"`
+}
+
+// BuildInfo contains CI/CD build information
+type BuildInfo struct {
+	BuildURL      string `json:"build_url,omitempty"`
+	DockerfileURL string `json:"dockerfile_url,omitempty"`
+	ImageTag      string `json:"image_tag,omitempty"`
+	BuildDate     string `json:"build_date,omitempty"`
+	GitCommit     string `json:"git_commit,omitempty"`
+	GitBranch     string `json:"git_branch,omitempty"`
+	GitRepo       string `json:"git_repo,omitempty"`
+	CIPipelineID  string `json:"ci_pipeline_id,omitempty"`
 }
 
 // WandBInfo contains WandB run information
@@ -217,25 +251,31 @@ type WandBInfo struct {
 	ID         string                 `json:"id"`
 	Name       string                 `json:"name"`
 	Project    string                 `json:"project"`
-	Entity     string                 `json:"entity"`
+	Entity     string                 `json:"entity,omitempty"`
 	ConfigKeys []string               `json:"config_keys,omitempty"`
 	Config     map[string]interface{} `json:"config,omitempty"`
+	Tags       []string               `json:"tags,omitempty"`
 }
 
 // PyTorchInfo contains PyTorch environment information
 type PyTorchInfo struct {
-	Version       string   `json:"version"`
-	CudaAvailable bool     `json:"cuda_available"`
-	CudaVersion   string   `json:"cuda_version,omitempty"`
-	ModulePaths   []string `json:"module_paths,omitempty"`
+	Available       bool            `json:"available"`
+	Version         string          `json:"version"`
+	CudaAvailable   bool            `json:"cuda_available"`
+	CudaVersion     string          `json:"cuda_version,omitempty"`
+	ModulePaths     []string        `json:"module_paths,omitempty"`
+	DetectedModules map[string]bool `json:"detected_modules,omitempty"`
 }
 
-// WandBHints contains detection hints
+// WandBHints contains detection hints (supports dual-layer framework detection)
 type WandBHints struct {
-	PossibleFrameworks []string `json:"possible_frameworks,omitempty"`
-	WrapperFrameworks  []string `json:"wrapper_frameworks,omitempty"`
-	BaseFrameworks     []string `json:"base_frameworks,omitempty"`
-	ConfidenceAdjust   float64  `json:"confidence_adjust,omitempty"`
+	WrapperFrameworks  []string                          `json:"wrapper_frameworks,omitempty"`
+	BaseFrameworks     []string                          `json:"base_frameworks,omitempty"`
+	PossibleFrameworks []string                          `json:"possible_frameworks,omitempty"`
+	Confidence         string                            `json:"confidence,omitempty"`
+	ConfidenceAdjust   float64                           `json:"confidence_adjust,omitempty"`
+	PrimaryIndicators  []string                          `json:"primary_indicators,omitempty"`
+	FrameworkLayers    map[string]map[string]interface{} `json:"framework_layers,omitempty"`
 }
 
 // BatchDetectionRequest represents a batch detection query request

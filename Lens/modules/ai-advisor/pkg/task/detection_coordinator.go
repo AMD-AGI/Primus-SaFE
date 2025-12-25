@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/common"
@@ -13,31 +14,31 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
-	coreModel "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/model"
 	coreTask "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/task"
 )
 
 const (
 	// Default configuration values
-	DefaultInitialDelay      = 30 * time.Second
-	DefaultRetryInterval     = 30 * time.Second
-	DefaultMaxRetryInterval  = 60 * time.Second
-	DefaultConfirmThreshold  = 0.70 // Lowered from 0.85 to allow single-source confirmation
-	DefaultMinPodAge         = 30 * time.Second
-	DefaultMaxAttemptCount   = 5
-	DefaultSubTaskTimeout    = 60 * time.Second
+	DefaultInitialDelay     = 30 * time.Second
+	DefaultRetryInterval    = 30 * time.Second
+	DefaultMaxRetryInterval = 60 * time.Second
+	DefaultConfirmThreshold = 0.70 // Lowered from 0.85 to allow single-source confirmation
+	DefaultMinPodAge        = 30 * time.Second
+	DefaultMaxAttemptCount  = 5
+	DefaultSubTaskTimeout   = 60 * time.Second
 )
 
 // CollectionPlan represents a plan to collect evidence from a specific source
 type CollectionPlan struct {
-	TaskType   string                 // Task type to create
-	Source     string                 // Detection source (process, log, image, label)
-	Priority   int                    // Higher priority = execute first
-	Params     map[string]interface{} // Task parameters
+	TaskType string                 // Task type to create
+	Source   string                 // Detection source (process, log, image, label)
+	Priority int                    // Higher priority = execute first
+	Params   map[string]interface{} // Task parameters
 }
 
 // DetectionCoordinator coordinates framework detection for a workload
 // It manages the state machine and orchestrates sub-tasks for evidence collection
+// In v2 architecture, it directly creates follow-up tasks without TaskCreator intermediary
 type DetectionCoordinator struct {
 	coreTask.BaseExecutor
 
@@ -47,7 +48,6 @@ type DetectionCoordinator struct {
 	detectionFacade    database.WorkloadDetectionFacadeInterface
 	evidenceFacade     database.WorkloadDetectionEvidenceFacadeInterface
 	evidenceAggregator *detection.EvidenceAggregator
-	taskCreator        *detection.TaskCreator
 }
 
 // NewDetectionCoordinator creates a new DetectionCoordinator
@@ -59,7 +59,6 @@ func NewDetectionCoordinator(collector *metadata.Collector, instanceID string) *
 		detectionFacade:    database.NewWorkloadDetectionFacade(),
 		evidenceFacade:     database.NewWorkloadDetectionEvidenceFacade(),
 		evidenceAggregator: detection.NewEvidenceAggregator(),
-		taskCreator:        detection.NewTaskCreator(instanceID),
 	}
 }
 
@@ -71,7 +70,6 @@ func NewDetectionCoordinatorWithDeps(
 	detectionFacade database.WorkloadDetectionFacadeInterface,
 	evidenceFacade database.WorkloadDetectionEvidenceFacadeInterface,
 	evidenceAggregator *detection.EvidenceAggregator,
-	taskCreator *detection.TaskCreator,
 ) *DetectionCoordinator {
 	return &DetectionCoordinator{
 		podProber:          podProber,
@@ -80,7 +78,6 @@ func NewDetectionCoordinatorWithDeps(
 		detectionFacade:    detectionFacade,
 		evidenceFacade:     evidenceFacade,
 		evidenceAggregator: evidenceAggregator,
-		taskCreator:        taskCreator,
 	}
 }
 
@@ -359,20 +356,41 @@ func (c *DetectionCoordinator) handleConfirmedState(
 ) (string, error) {
 	workloadUID := task.WorkloadUID
 
-	// Get detection result
+	// Get detection result from workload_detection table (v2 architecture)
 	detection, err := c.detectionFacade.GetDetection(ctx, workloadUID)
 	if err != nil {
 		log.Warnf("Failed to get detection for workload %s: %v", workloadUID, err)
 	}
 
-	// Create follow-up tasks if detection confirmed
-	if detection != nil && c.taskCreator != nil {
-		// Convert to FrameworkDetection for TaskCreator
-		fwDetection := c.convertToFrameworkDetection(detection)
-		if err := c.taskCreator.OnDetectionCompleted(ctx, workloadUID, fwDetection); err != nil {
-			log.Warnf("Failed to create follow-up tasks for workload %s: %v", workloadUID, err)
+	// Create follow-up tasks directly based on detection result
+	if detection != nil {
+		// Create metadata collection task for training workloads
+		if c.isTrainingWorkload(detection) {
+			if err := c.createMetadataCollectionTask(ctx, workloadUID, detection); err != nil {
+				log.Warnf("Failed to create metadata collection task for workload %s: %v", workloadUID, err)
+			} else {
+				updates["metadata_collection_task_created"] = true
+				log.Infof("Metadata collection task created for workload %s (framework=%s)",
+					workloadUID, detection.Framework)
+			}
+
+			// Create profiler collection task for PyTorch-based workloads
+			if c.isPyTorchWorkload(detection) {
+				if err := c.createProfilerCollectionTask(ctx, workloadUID, detection); err != nil {
+					log.Warnf("Failed to create profiler collection task for workload %s: %v", workloadUID, err)
+				} else {
+					updates["profiler_collection_task_created"] = true
+					log.Infof("Profiler collection task created for workload %s", workloadUID)
+				}
+			}
 		} else {
-			updates["followup_tasks_created"] = true
+			// Inference workload - create inference metrics scrape task
+			if err := c.createInferenceMetricsScrapeTask(ctx, workloadUID, detection); err != nil {
+				log.Warnf("Failed to create inference metrics scrape task for workload %s: %v", workloadUID, err)
+			} else {
+				updates["inference_metrics_task_created"] = true
+				log.Infof("Inference metrics scrape task created for workload %s", workloadUID)
+			}
 		}
 	}
 
@@ -726,39 +744,6 @@ func (c *DetectionCoordinator) getSubTaskTimeout(task *model.WorkloadTaskState) 
 	return DefaultSubTaskTimeout
 }
 
-// convertToFrameworkDetection converts DB model to TaskCreator's expected format
-func (c *DetectionCoordinator) convertToFrameworkDetection(
-	det *model.WorkloadDetection,
-) *coreModel.FrameworkDetection {
-	if det == nil {
-		return nil
-	}
-
-	fd := &coreModel.FrameworkDetection{
-		Frameworks:       []string{},
-		Type:             det.WorkloadType,
-		Confidence:       det.Confidence,
-		Status:           coreModel.DetectionStatus(det.Status),
-		FrameworkLayer:   det.FrameworkLayer,
-		WrapperFramework: det.WrapperFramework,
-		BaseFramework:    det.BaseFramework,
-	}
-
-	// Parse frameworks from ExtJSON
-	if len(det.Frameworks) > 0 {
-		var frameworks []string
-		if err := det.Frameworks.UnmarshalTo(&frameworks); err == nil {
-			fd.Frameworks = frameworks
-		}
-	}
-
-	if len(fd.Frameworks) == 0 && det.Framework != "" {
-		fd.Frameworks = []string{det.Framework}
-	}
-
-	return fd
-}
-
 // Cancel cancels the coordinator task
 func (c *DetectionCoordinator) Cancel(ctx context.Context, task *model.WorkloadTaskState) error {
 	log.Infof("DetectionCoordinator cancelled for workload %s", task.WorkloadUID)
@@ -785,3 +770,205 @@ func (c *DetectionCoordinator) Cancel(ctx context.Context, task *model.WorkloadT
 	return nil
 }
 
+// isTrainingWorkload determines if detection result indicates a training workload
+func (c *DetectionCoordinator) isTrainingWorkload(detection *model.WorkloadDetection) bool {
+	if detection == nil {
+		return true // Default to training for safety
+	}
+
+	// Check workload_type field directly from v2 detection table
+	if detection.WorkloadType == "inference" {
+		return false
+	}
+	if detection.WorkloadType == "training" {
+		return true
+	}
+
+	// Default to training for backward compatibility
+	return true
+}
+
+// isPyTorchWorkload checks if detection result indicates a PyTorch-based workload
+func (c *DetectionCoordinator) isPyTorchWorkload(detection *model.WorkloadDetection) bool {
+	if detection == nil {
+		return false
+	}
+
+	// Check primary framework
+	fw := strings.ToLower(detection.Framework)
+	if fw == "pytorch" || strings.Contains(fw, "torch") {
+		return true
+	}
+
+	// Check base framework (megatron, deepspeed, etc. are PyTorch-based)
+	baseFw := strings.ToLower(detection.BaseFramework)
+	if baseFw == "pytorch" || strings.Contains(baseFw, "torch") ||
+		baseFw == "megatron" || strings.Contains(baseFw, "megatron") {
+		return true
+	}
+
+	// Check frameworks array
+	if detection.Frameworks != nil {
+		var frameworks []string
+		if err := detection.Frameworks.UnmarshalTo(&frameworks); err == nil {
+			for _, f := range frameworks {
+				fLower := strings.ToLower(f)
+				if fLower == "pytorch" || strings.Contains(fLower, "torch") ||
+					fLower == "megatron" || strings.Contains(fLower, "megatron") {
+					return true
+				}
+			}
+		}
+	}
+
+	return false
+}
+
+// createMetadataCollectionTask creates a metadata collection task for training workloads
+func (c *DetectionCoordinator) createMetadataCollectionTask(
+	ctx context.Context,
+	workloadUID string,
+	detection *model.WorkloadDetection,
+) error {
+	// Check if task already exists
+	existingTask, err := c.taskFacade.GetTask(ctx, workloadUID, constant.TaskTypeMetadataCollection)
+	if err == nil && existingTask != nil {
+		if existingTask.Status == constant.TaskStatusRunning ||
+			existingTask.Status == constant.TaskStatusPending {
+			log.Debugf("Metadata collection task already exists for workload %s (status: %s)",
+				workloadUID, existingTask.Status)
+			return nil
+		}
+	}
+
+	task := &model.WorkloadTaskState{
+		WorkloadUID: workloadUID,
+		TaskType:    constant.TaskTypeMetadataCollection,
+		Status:      constant.TaskStatusPending,
+		Ext: model.ExtType{
+			// Task execution configuration
+			"auto_restart":        true,
+			"priority":            100,
+			"max_retries":         3,
+			"retry_count":         0,
+			"timeout":             30, // 30 second timeout
+			"include_tensorboard": true,
+			"include_metrics":     true,
+
+			// Task metadata
+			"created_by":   "detection_coordinator",
+			"created_at":   time.Now().Format(time.RFC3339),
+			"triggered_by": "framework_detection_v2",
+
+			// Detection info from v2 table
+			"detection_framework":  detection.Framework,
+			"detection_confidence": detection.Confidence,
+			"detection_status":     detection.Status,
+			"workload_type":        detection.WorkloadType,
+		},
+	}
+
+	if err := c.taskFacade.UpsertTask(ctx, task); err != nil {
+		return fmt.Errorf("failed to create metadata collection task: %w", err)
+	}
+
+	return nil
+}
+
+// createProfilerCollectionTask creates a profiler collection task for PyTorch workloads
+func (c *DetectionCoordinator) createProfilerCollectionTask(
+	ctx context.Context,
+	workloadUID string,
+	detection *model.WorkloadDetection,
+) error {
+	// Check if task already exists
+	existingTask, err := c.taskFacade.GetTask(ctx, workloadUID, constant.TaskTypeProfilerCollection)
+	if err == nil && existingTask != nil {
+		if existingTask.Status == constant.TaskStatusRunning ||
+			existingTask.Status == constant.TaskStatusPending {
+			log.Debugf("Profiler collection task already exists for workload %s (status: %s)",
+				workloadUID, existingTask.Status)
+			return nil
+		}
+	}
+
+	task := &model.WorkloadTaskState{
+		WorkloadUID: workloadUID,
+		TaskType:    constant.TaskTypeProfilerCollection,
+		Status:      constant.TaskStatusPending,
+		Ext: model.ExtType{
+			// Task execution configuration
+			"auto_restart":        true,
+			"priority":            50, // Lower than metadata collection
+			"max_retries":         3,
+			"retry_count":         0,
+			"timeout":             600, // 10 minutes
+			"collection_interval": 300, // 5 minutes
+			"max_executions":      0,   // Unlimited, until training stops
+			"execution_count":     0,
+
+			// Collection configuration
+			"auto_collect":   true,
+			"min_confidence": "medium",
+			"max_file_size":  1073741824, // 1GB
+
+			// Task metadata
+			"created_by":   "detection_coordinator",
+			"created_at":   time.Now().Format(time.RFC3339),
+			"triggered_by": "framework_detection_v2",
+
+			// Detection info
+			"detection_framework":  detection.Framework,
+			"detection_confidence": detection.Confidence,
+		},
+	}
+
+	if err := c.taskFacade.UpsertTask(ctx, task); err != nil {
+		return fmt.Errorf("failed to create profiler collection task: %w", err)
+	}
+
+	return nil
+}
+
+// createInferenceMetricsScrapeTask creates an inference metrics scrape task
+func (c *DetectionCoordinator) createInferenceMetricsScrapeTask(
+	ctx context.Context,
+	workloadUID string,
+	detection *model.WorkloadDetection,
+) error {
+	// Check if task already exists
+	existingTask, err := c.taskFacade.GetTask(ctx, workloadUID, "inference_metrics_scrape")
+	if err == nil && existingTask != nil {
+		if existingTask.Status == constant.TaskStatusRunning ||
+			existingTask.Status == constant.TaskStatusPending {
+			log.Debugf("Inference metrics scrape task already exists for workload %s (status: %s)",
+				workloadUID, existingTask.Status)
+			return nil
+		}
+	}
+
+	task := &model.WorkloadTaskState{
+		WorkloadUID: workloadUID,
+		TaskType:    "inference_metrics_scrape",
+		Status:      constant.TaskStatusPending,
+		Ext: model.ExtType{
+			// Task configuration
+			"framework":       detection.Framework,
+			"scrape_interval": 15, // default 15 seconds
+
+			// Task metadata
+			"created_by":   "detection_coordinator",
+			"created_at":   time.Now().Format(time.RFC3339),
+			"triggered_by": "framework_detection_v2",
+
+			// Detection info
+			"detection_confidence": detection.Confidence,
+		},
+	}
+
+	if err := c.taskFacade.UpsertTask(ctx, task); err != nil {
+		return fmt.Errorf("failed to create inference metrics scrape task: %w", err)
+	}
+
+	return nil
+}

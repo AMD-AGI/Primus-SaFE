@@ -47,6 +47,11 @@ func (tc *TaskCreator) SetAutoCreateTask(auto bool) {
 
 // OnDetectionCompleted called when detection completes
 // Creates metadata collection task and profiler collection task based on detection result
+//
+// Note: In v2 architecture, DetectionCoordinator directly creates follow-up tasks
+// after framework confirmation. This method is retained for backward compatibility
+// with the FrameworkDetectionManager event-driven approach.
+// New code should use DetectionCoordinator for the complete detection workflow.
 func (tc *TaskCreator) OnDetectionCompleted(
 	ctx context.Context,
 	workloadUID string,
