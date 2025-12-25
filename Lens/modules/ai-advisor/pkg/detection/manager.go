@@ -70,9 +70,11 @@ func InitializeDetectionManager(
 	log.Info("WandB framework detector initialized")
 
 	// 7. Initialize and register TaskCreator
-	// TaskCreator will automatically create metadata collection tasks after detection completes
+	// Note: In v2 architecture, DetectionCoordinator directly creates follow-up tasks
+	// This registration is retained for backward compatibility with v1 event-driven approach
+	// New detections through DetectionCoordinator bypass this event mechanism
 	taskCreator = RegisterTaskCreatorWithDetectionManager(detectionManager, instanceID)
-	log.Info("TaskCreator registered - metadata collection tasks will be created automatically after detection")
+	log.Info("TaskCreator registered (v1 compatibility) - also provides ScanForUndetectedWorkloads")
 
 	log.Infof("Framework detection system initialized with %d frameworks", len(patternMatchers))
 	return detectionManager, nil
