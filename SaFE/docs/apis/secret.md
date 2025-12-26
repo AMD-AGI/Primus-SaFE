@@ -18,6 +18,10 @@ Create new SSH key or image registry secret.
 {
   "name": "my-ssh-key",
   "type": "ssh",
+  "labels": {
+    "key1": "val1",
+    "key2": "val2"
+  },
   "params": [
     {
       "username": "root",
@@ -35,6 +39,10 @@ Create new SSH key or image registry secret.
 {
   "name": "my-ssh-keypair",
   "type": "ssh",
+  "labels": {
+    "key1": "val1",
+    "key2": "val2"
+  },
   "params": [
     {
       "username": "root",
@@ -53,6 +61,10 @@ Create new SSH key or image registry secret.
   "name": "harbor-secret",
   "type": "image",
   "workspaceIds": ["dev"],
+  "labels": {
+    "key1": "val1",
+    "key2": "val2"
+  },
   "params": [
     {
       "server": "harbor.example.com",
@@ -76,7 +88,8 @@ Create new SSH key or image registry secret.
   "type": "general",
   "workspaceIds": ["dev"],
   "labels": {
-    "key": "value"
+    "key1": "val1",
+    "key2": "val2"
   },
   "params": [{
         "github_token": "your github token"
@@ -151,7 +164,10 @@ Get secret list with type filtering support.
 |-----------|--------|----------|-------------|
 | type | string | No | Filter by type: ssh/image/general (comma-separated) |
 | workspaceId | string | No | Filter by workspace ID, e.g. 'dev' |
-| labels | object   | No | User-defined labels. Keys cannot start with "primus-safe."                   |
+| labels | object   | No | User-defined labels. Keys cannot start with "primus-safe."     |
+
+**Request Example**:
+ `GET /api/v1/secrets?type=general&labels[key1]=val1&labels[key2]=val2`
 
 **Response Example**:
 
@@ -215,6 +231,10 @@ Get detailed information about a specific secret.
   "workspaceIds": [
       "dev", "prod"
   ],
+  "labels": {
+    "key1": "val1",
+    "key2": "val2"
+  },
   "params": [
     {
       "server": "harbor.example.com",

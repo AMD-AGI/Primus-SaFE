@@ -149,7 +149,6 @@ func (h *Handler) listSecret(c *gin.Context) (interface{}, error) {
 	if len(labelsMap) > 0 {
 		query.Labels = &labelsMap
 	}
-	klog.Infof("query.labels: %v", query.Labels)
 
 	labelSelector := buildSecretLabelSelector(query)
 	secretList := &corev1.SecretList{}
