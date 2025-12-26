@@ -326,8 +326,8 @@ func getFromFile(configPath, item string) string {
 	if err != nil {
 		return ""
 	}
-	key := string(data)
-	return strings.TrimRight(key, "\r\n")
+	key := strings.TrimRight(string(data), "\r\n")
+	return strings.TrimSpace(key)
 }
 
 // GetRdmaName returns the RDMA resource name.
