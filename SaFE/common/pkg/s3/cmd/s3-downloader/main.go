@@ -31,13 +31,13 @@ func run() error {
 
 	// Validate required environment variables
 	if secretPath == "" {
-		return fmt.Errorf("SECRET_PATH environment variable is required")
+		return fmt.Errorf("[ERROR] SECRET_PATH environment variable is required")
 	}
 	if inputURL == "" {
-		return fmt.Errorf("INPUT_URL environment variable is required")
+		return fmt.Errorf("[ERROR] INPUT_URL environment variable is required")
 	}
 	if destPath == "" {
-		return fmt.Errorf("DEST_PATH environment variable is required")
+		return fmt.Errorf("[ERROR] DEST_PATH environment variable is required")
 	}
 
 	fmt.Printf("SECRET_PATH: %s\n", secretPath)
@@ -47,12 +47,12 @@ func run() error {
 	// Read access key and secret key from files
 	accessKey, err := readSecretFile(secretPath, "access_key")
 	if err != nil {
-		return fmt.Errorf("failed to read access_key: %w", err)
+		return fmt.Errorf("[ERROR] failed to read access_key: %w", err)
 	}
 
 	secretKey, err := readSecretFile(secretPath, "secret_key")
 	if err != nil {
-		return fmt.Errorf("failed to read secret_key: %w", err)
+		return fmt.Errorf("[ERROR] failed to read secret_key: %w", err)
 	}
 
 	fmt.Println("Credentials loaded successfully")
@@ -60,7 +60,7 @@ func run() error {
 	// Create S3 config
 	config, loc, err := s3.NewConfigFromCredentials(accessKey, secretKey, inputURL)
 	if err != nil {
-		return fmt.Errorf("failed to create S3 config: %w", err)
+		return fmt.Errorf("[ERROR] failed to create S3 config: %w", err)
 	}
 
 	fmt.Printf("S3 Config - Endpoint: %s, Bucket: %s, Key: %s\n", loc.Endpoint, loc.Bucket, loc.Key)
@@ -69,7 +69,7 @@ func run() error {
 	ctx := context.Background()
 	client, err := s3.NewClientFromConfig(ctx, config, s3.Option{})
 	if err != nil {
-		return fmt.Errorf("failed to create S3 client: %w", err)
+		return fmt.Errorf("[ERROR] failed to create S3 client: %w", err)
 	}
 
 	fmt.Println("S3 client created successfully")
@@ -79,7 +79,7 @@ func run() error {
 	startTime := time.Now()
 
 	if err := client.DownloadFile(ctx, loc.Key, destPath); err != nil {
-		return fmt.Errorf("failed to download file: %w", err)
+		return fmt.Errorf("[ERROR] failed to download file: %w", err)
 	}
 
 	duration := time.Since(startTime)
@@ -88,10 +88,10 @@ func run() error {
 	// Get file size
 	fileInfo, err := os.Stat(destPath)
 	if err != nil {
-		return fmt.Errorf("failed to stat downloaded file: %w", err)
+		return fmt.Errorf("[ERROR] failed to stat downloaded file: %w", err)
 	}
 
-	fmt.Printf("Downloaded file size: %d bytes (%.2f MB)\n", fileInfo.Size(), float64(fileInfo.Size())/(1024*1024))
+	fmt.Printf("[SUCCESS] Downloaded file to %s, size: %d bytes (%.2f GB)\n", destPath, fileInfo.Size(), float64(fileInfo.Size())/(1024*1024*1024))
 
 	return nil
 }
