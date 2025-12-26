@@ -314,6 +314,12 @@ func GetS3Endpoint() string {
 	return getFromFile(s3SecretPath, "endpoint")
 }
 
+// GetS3ExternalEndpoint returns the external S3 endpoint URL for presigned URLs.
+// This is used when the internal endpoint is not accessible from outside the cluster.
+func GetS3ExternalEndpoint() string {
+	return getFromFile(s3SecretPath, "external_endpoint")
+}
+
 // GetS3ExpireDay returns the number of days after which S3 objects expire.
 func GetS3ExpireDay() int32 {
 	resp := getInt(s3ExpireDay, 0)
