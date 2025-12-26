@@ -135,6 +135,20 @@ func (h *Handler) listSecret(c *gin.Context) (interface{}, error) {
 	if err = c.ShouldBindWith(&query, binding.Query); err != nil {
 		return nil, commonerrors.NewBadRequest("invalid query: " + err.Error())
 	}
+
+	// Parse labels from query parameters (format: labels[key]=value)
+	labelsMap := make(map[string]string)
+	for key, values := range c.Request.URL.Query() {
+		if strings.HasPrefix(key, "labels[") && strings.HasSuffix(key, "]") {
+			labelKey := key[7 : len(key)-1] // Extract key from "labels[key]"
+			if len(values) > 0 {
+				labelsMap[labelKey] = values[0]
+			}
+		}
+	}
+	if len(labelsMap) > 0 {
+		query.Labels = &labelsMap
+	}
 	klog.Infof("query.labels: %v", query.Labels)
 
 	labelSelector := buildSecretLabelSelector(query)
@@ -510,6 +524,9 @@ func cvtToGetSecretResponse(secret *corev1.Secret) view.GetSecretResponse {
 	}
 	for key, val := range secret.Labels {
 		if !strings.HasPrefix(key, v1.PrimusSafePrefix) {
+			if len(result.Labels) == 0 {
+				result.Labels = make(map[string]string)
+			}
 			result.Labels[key] = val
 		}
 	}
