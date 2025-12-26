@@ -52,9 +52,9 @@ type ListSecretRequest struct {
 	// if specifying multiple phase queries, separate them with commas
 	Type string `form:"type" binding:"omitempty"`
 	// the workspace which the secret belongs to
-	WorkspaceId *string `json:"workspaceId,omitempty"`
+	WorkspaceId *string `form:"workspaceId" binding:"omitempty"`
 	// User-defined labels. Keys cannot start with "primus-safe."
-	Labels *map[string]string `json:"labels,omitempty"`
+	Labels *map[string]string `form:"labels" binding:"omitempty"`
 }
 
 type ListSecretResponse struct {
@@ -84,6 +84,8 @@ type GetSecretResponse struct {
 	SecretResponseItem
 	// Parameters required for creating the secret, including username, password, privateKey, publicKey.
 	Params []map[SecretParam]string `json:"params"`
+	// User-defined labels
+	Labels map[string]string
 }
 
 type DockerConfigItem struct {
