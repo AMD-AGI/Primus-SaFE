@@ -78,21 +78,9 @@ func newConfigFromCredentials(ak, sk, endpoint, bucket string) (*Config, error) 
 		}, nil
 	})
 
-	// Create HTTP client that skips TLS verification
-	/**
-	httpClient := &http.Client{
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{
-				InsecureSkipVerify: true,
-			},
-		},
-	}
-	*/
-
 	cfg, err := config.LoadDefaultConfig(context.TODO(),
 		config.WithRegion(""),
 		config.WithCredentialsProvider(credProvider),
-		// config.WithHTTPClient(httpClient),
 		config.WithEndpointResolverWithOptions(
 			aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
 				return aws.Endpoint{

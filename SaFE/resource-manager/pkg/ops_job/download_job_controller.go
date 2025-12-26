@@ -8,7 +8,9 @@ package ops_job
 import (
 	"context"
 	"sync"
+	"time"
 
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
@@ -171,7 +173,8 @@ func (r *DownloadJobReconciler) generateDownloadWorkload(ctx context.Context, jo
 				v1.DisplayNameLabel: job.Name,
 			},
 			Annotations: map[string]string{
-				v1.UserNameAnnotation: v1.GetUserName(job),
+				v1.UserNameAnnotation:          v1.GetUserName(job),
+				v1.WorkloadScheduledAnnotation: timeutil.FormatRFC3339(time.Now().UTC()),
 			},
 		},
 		Spec: v1.WorkloadSpec{
