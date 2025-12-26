@@ -379,6 +379,7 @@ func (h *Handler) generateDumpLogJob(c *gin.Context, body []byte) (*v1.OpsJob, e
 			fmt.Sprintf("%s must be specified in the job.", v1.ParameterWorkload))
 	}
 	job.Name = workloadParam.Value
+	v1.SetLabel(job, v1.DisplayNameLabel, commonutils.GetBaseFromName(workloadParam.Value))
 
 	workload, err := h.getWorkloadForAuth(c.Request.Context(), workloadParam.Value)
 	if err != nil {
