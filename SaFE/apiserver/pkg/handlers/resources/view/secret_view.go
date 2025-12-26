@@ -84,6 +84,8 @@ type GetSecretResponse struct {
 	SecretResponseItem
 	// Parameters required for creating the secret, including username, password, privateKey, publicKey.
 	Params []map[SecretParam]string `json:"params"`
+	// User-defined labels
+	Labels map[string]string
 }
 
 type DockerConfigItem struct {

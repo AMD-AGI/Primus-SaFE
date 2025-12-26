@@ -219,6 +219,7 @@ harbor/harbor-ca.crt
 SaFE/charts/bin/*
 SaFE/charts/*.tgz
 SaFE/node-agent/charts/*.tgz
+SaFE/common/pkg/s3/cmd/s3-downloader
 
 # Lens CD directory - contains deployment specific configurations
 Lens/cd/

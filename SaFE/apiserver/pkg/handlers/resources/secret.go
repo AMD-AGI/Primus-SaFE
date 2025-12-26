@@ -135,6 +135,8 @@ func (h *Handler) listSecret(c *gin.Context) (interface{}, error) {
 	if err = c.ShouldBindWith(&query, binding.Query); err != nil {
 		return nil, commonerrors.NewBadRequest("invalid query: " + err.Error())
 	}
+	klog.Infof("query.labels: %v", query.Labels)
+
 	labelSelector := buildSecretLabelSelector(query)
 	secretList := &corev1.SecretList{}
 	if err = h.List(c.Request.Context(), secretList,
@@ -505,6 +507,11 @@ func cvtToSecretResponseItem(secret *corev1.Secret) view.SecretResponseItem {
 func cvtToGetSecretResponse(secret *corev1.Secret) view.GetSecretResponse {
 	result := view.GetSecretResponse{
 		SecretResponseItem: cvtToSecretResponseItem(secret),
+	}
+	for key, val := range secret.Labels {
+		if !strings.HasPrefix(key, v1.PrimusSafePrefix) {
+			result.Labels[key] = val
+		}
 	}
 	switch result.Type {
 	case string(v1.SecretImage):
