@@ -57,7 +57,6 @@ export NCCL_NET_GDR_LEVEL="${NCCL_NET_GDR_LEVEL:-2}"
 export NCCL_CHECKS_DISABLE="${NCCL_CHECKS_DISABLE:-1}"
 export NCCL_DEBUG="${NCCL_DEBUG:-VERSION}"
 export RCCL_MSCCL_ENABLE="${RCCL_MSCCL_ENABLE:-0}"
-export ENABLE_AINIC="${ENABLE_AINIC:-true}"
 
 # ==============================================================================
 # Torch/CUDA Configuration
@@ -87,14 +86,7 @@ export HOSTS="${HOSTS:-/root/hosts}"
 # Optional: HuggingFace Token (required for some benchmarks)
 # ==============================================================================
 
-export HF_TOKEN="${HF_TOKEN:-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}"
-
-# ==============================================================================
-# AINIC (AI Network Interface Card) Configuration
-# ==============================================================================
-export ENABLE_AINIC="${ENABLE_AINIC:-false}"
-export ANP_HOME_DIR="${ANP_HOME_DIR:-/opt/amd-anp}"
-export RCCL_HOME_DIR="${RCCL_HOME_DIR:-/opt/rccl}"
+export HF_TOKEN="${HF_TOKEN:-}"
 
 # ==============================================================================
 # Docker/Container Options
