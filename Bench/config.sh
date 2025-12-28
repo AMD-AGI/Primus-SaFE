@@ -10,12 +10,11 @@
 # ==============================================================================
 # Container Configuration
 # ==============================================================================
-export IMAGE="${IMAGE:-primussafe/primusbench:202512061410-355}"
-
+export IMAGE="${IMAGE:-docker.io/primussafe/primusbench:rocm7.0.3_gfx950_ainic_202512260857}"
 # ==============================================================================
 # Cluster Configuration
 # ==============================================================================
-export NNODES="${NNODES:-1}"
+export NNODES="${NNODES:-2}"
 export GPUS_PER_NODE="${GPUS_PER_NODE:-8}"
 export MASTER_ADDR="${MASTER_ADDR:-localhost}"
 export MASTER_PORT="${MASTER_PORT:-12345}"
@@ -24,7 +23,7 @@ export SSH_PORT="${SSH_PORT:-22366}"
 # ==============================================================================
 # SLURM Configuration
 # ==============================================================================
-export PARTITION="${PARTITION:-amd-tw}"
+export PARTITION="${PARTITION:-mi355x}"
 export TIME="${TIME:-4:30:00}"
 export CPUS_PER_TASK="${CPUS_PER_TASK:-128}"
 
@@ -40,7 +39,7 @@ export ENABLE_AINIC="${ENABLE_AINIC:-false}"
 # ==============================================================================
 # GPU Configuration (MI300X/MI325X/MI355X)
 # ==============================================================================
-export GPU_PRODUCT="${GPU_PRODUCT:-MI325X}"
+export GPU_PRODUCT="${GPU_PRODUCT:-MI355X}"
 export HSA_ENABLE_SDMA="${HSA_ENABLE_SDMA:-1}"
 export HSA_NO_SCRATCH_RECLAIM="${HSA_NO_SCRATCH_RECLAIM:-1}"
 
@@ -58,6 +57,7 @@ export NCCL_NET_GDR_LEVEL="${NCCL_NET_GDR_LEVEL:-2}"
 export NCCL_CHECKS_DISABLE="${NCCL_CHECKS_DISABLE:-1}"
 export NCCL_DEBUG="${NCCL_DEBUG:-VERSION}"
 export RCCL_MSCCL_ENABLE="${RCCL_MSCCL_ENABLE:-0}"
+export ENABLE_AINIC="${ENABLE_AINIC:-true}"
 
 # ==============================================================================
 # Torch/CUDA Configuration
@@ -86,7 +86,15 @@ export HOSTS="${HOSTS:-/root/hosts}"
 # ==============================================================================
 # Optional: HuggingFace Token (required for some benchmarks)
 # ==============================================================================
-# export HF_TOKEN="${HF_TOKEN:-}"
+
+export HF_TOKEN="${HF_TOKEN:-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}"
+
+# ==============================================================================
+# AINIC (AI Network Interface Card) Configuration
+# ==============================================================================
+export ENABLE_AINIC="${ENABLE_AINIC:-false}"
+export ANP_HOME_DIR="${ANP_HOME_DIR:-/opt/amd-anp}"
+export RCCL_HOME_DIR="${RCCL_HOME_DIR:-/opt/rccl}"
 
 # ==============================================================================
 # Docker/Container Options
