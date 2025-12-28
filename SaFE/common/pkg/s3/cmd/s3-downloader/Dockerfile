@@ -4,9 +4,9 @@ FROM golang:1.24-alpine AS builder
 WORKDIR /build
 
 # Copy all required modules (common, apis, utils) for replace directives
-COPY common/go.mod common/go.sum ./common/
-COPY apis/go.mod apis/go.sum ./apis/
-COPY utils/go.mod utils/go.sum ./utils/
+COPY SaFE/common/go.mod SaFE/common/go.sum ./common/
+COPY SaFE/apis/go.mod SaFE/apis/go.sum ./apis/
+COPY SaFE/utils/go.mod SaFE/utils/go.sum ./utils/
 
 # Download dependencies
 WORKDIR /build/common
@@ -14,9 +14,9 @@ RUN go mod download
 
 # Copy source code for all modules
 WORKDIR /build
-COPY common/pkg ./common/pkg
-COPY apis ./apis
-COPY utils ./utils
+COPY SaFE/common/pkg ./common/pkg
+COPY SaFE/apis ./apis
+COPY SaFE/utils ./utils
 
 # Build the application
 WORKDIR /build/common

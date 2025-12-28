@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -334,6 +335,11 @@ func (c *Client) downloadSmallFile(ctx context.Context, key, localPath string) e
 	}
 	defer resp.Body.Close()
 
+	// Ensure parent directory exists
+	if err := os.MkdirAll(filepath.Dir(localPath), 0755); err != nil {
+		return fmt.Errorf("failed to create directory: %w", err)
+	}
+
 	file, err := os.Create(localPath)
 	if err != nil {
 		return err
@@ -354,6 +360,11 @@ func (c *Client) downloadLargeFile(ctx context.Context, key, localPath string) e
 		d.PartSize = partSize
 		d.Concurrency = 5
 	})
+
+	// Ensure parent directory exists
+	if err := os.MkdirAll(filepath.Dir(localPath), 0755); err != nil {
+		return fmt.Errorf("failed to create directory: %w", err)
+	}
 
 	file, err := os.Create(localPath)
 	if err != nil {

@@ -8,13 +8,16 @@ package ops_job
 import (
 	"context"
 	"sync"
+	"time"
 
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -170,7 +173,8 @@ func (r *DownloadJobReconciler) generateDownloadWorkload(ctx context.Context, jo
 				v1.DisplayNameLabel: job.Name,
 			},
 			Annotations: map[string]string{
-				v1.UserNameAnnotation: v1.GetUserName(job),
+				v1.UserNameAnnotation:          v1.GetUserName(job),
+				v1.WorkloadScheduledAnnotation: timeutil.FormatRFC3339(time.Now().UTC()),
 			},
 		},
 		Spec: v1.WorkloadSpec{
@@ -188,6 +192,9 @@ func (r *DownloadJobReconciler) generateDownloadWorkload(ctx context.Context, jo
 			Image:     *job.Spec.Image,
 			Env:       job.Spec.Env,
 		},
+	}
+	if err = controllerutil.SetControllerReference(job, workload, r.Client.Scheme()); err != nil {
+		return nil, err
 	}
 	if job.Spec.TimeoutSecond > 0 {
 		workload.Spec.Timeout = pointer.Int(job.Spec.TimeoutSecond)
