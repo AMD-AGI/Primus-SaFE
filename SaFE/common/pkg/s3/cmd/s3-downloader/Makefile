@@ -20,12 +20,12 @@ clean:
 	rm -f $(BINARY_NAME)
 	go clean
 
-# Build Docker image (builds from SaFE/ root directory to include all modules)
+# Build Docker image (builds from repo root directory to include all modules)
 # Tags with timestamp (e.g., 202501241430) and latest
 docker-build:
 	@echo "Building Docker image: $(DOCKER_IMAGE):$(DOCKER_TAG)"
-	@echo "Build context: ../../../../.."
-	docker build -f ./Dockerfile -t $(DOCKER_IMAGE):$(DOCKER_TAG) -t $(DOCKER_IMAGE):latest ../../../../.. || (echo "Docker build failed!" && exit 1)
+	@echo "Build context: ../../../../../.. (repo root)"
+	docker build -f ./Dockerfile -t $(DOCKER_IMAGE):$(DOCKER_TAG) -t $(DOCKER_IMAGE):latest ../../../../../.. || (echo "Docker build failed!" && exit 1)
 	@echo ""
 	@echo "✓ Successfully built: $(DOCKER_IMAGE):$(DOCKER_TAG)"
 	@echo "✓                    $(DOCKER_IMAGE):latest"

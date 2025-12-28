@@ -19,6 +19,7 @@ import (
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -275,6 +276,9 @@ func (r *CDJobReconciler) generateCDWorkload(ctx context.Context, job *v1.OpsJob
 				"HAS_CICD":              fmt.Sprintf("%t", hasCICD),
 			},
 		},
+	}
+	if err = controllerutil.SetControllerReference(job, workload, r.Client.Scheme()); err != nil {
+		return nil, err
 	}
 
 	if job.Spec.TimeoutSecond > 0 {
