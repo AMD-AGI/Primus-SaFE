@@ -16,6 +16,7 @@ type ModelSpecApplyConfiguration struct {
 	Tags        []string                       `json:"tags,omitempty"`
 	MaxTokens   *int                           `json:"maxTokens,omitempty"`
 	Source      *ModelSourceApplyConfiguration `json:"source,omitempty"`
+	Workspace   *string                        `json:"workspace,omitempty"`
 }
 
 // ModelSpecApplyConfiguration constructs a declarative configuration of the ModelSpec type for use with
@@ -79,5 +80,13 @@ func (b *ModelSpecApplyConfiguration) WithMaxTokens(value int) *ModelSpecApplyCo
 // If called multiple times, the Source field is set to the value of the last call.
 func (b *ModelSpecApplyConfiguration) WithSource(value *ModelSourceApplyConfiguration) *ModelSpecApplyConfiguration {
 	b.Source = value
+	return b
+}
+
+// WithWorkspace sets the Workspace field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Workspace field is set to the value of the last call.
+func (b *ModelSpecApplyConfiguration) WithWorkspace(value string) *ModelSpecApplyConfiguration {
+	b.Workspace = &value
 	return b
 }

@@ -14,11 +14,11 @@ import (
 // ModelStatusApplyConfiguration represents a declarative configuration of the ModelStatus type for use
 // with apply.
 type ModelStatusApplyConfiguration struct {
-	Phase          *amdv1.ModelPhase `json:"phase,omitempty"`
-	Message        *string           `json:"message,omitempty"`
-	InferenceID    *string           `json:"inferenceID,omitempty"`
-	InferencePhase *string           `json:"inferencePhase,omitempty"`
-	UpdateTime     *metav1.Time      `json:"updateTime,omitempty"`
+	Phase      *amdv1.ModelPhase                  `json:"phase,omitempty"`
+	Message    *string                            `json:"message,omitempty"`
+	S3Path     *string                            `json:"s3Path,omitempty"`
+	LocalPaths []ModelLocalPathApplyConfiguration `json:"localPaths,omitempty"`
+	UpdateTime *metav1.Time                       `json:"updateTime,omitempty"`
 }
 
 // ModelStatusApplyConfiguration constructs a declarative configuration of the ModelStatus type for use with
@@ -43,19 +43,24 @@ func (b *ModelStatusApplyConfiguration) WithMessage(value string) *ModelStatusAp
 	return b
 }
 
-// WithInferenceID sets the InferenceID field in the declarative configuration to the given value
+// WithS3Path sets the S3Path field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the InferenceID field is set to the value of the last call.
-func (b *ModelStatusApplyConfiguration) WithInferenceID(value string) *ModelStatusApplyConfiguration {
-	b.InferenceID = &value
+// If called multiple times, the S3Path field is set to the value of the last call.
+func (b *ModelStatusApplyConfiguration) WithS3Path(value string) *ModelStatusApplyConfiguration {
+	b.S3Path = &value
 	return b
 }
 
-// WithInferencePhase sets the InferencePhase field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the InferencePhase field is set to the value of the last call.
-func (b *ModelStatusApplyConfiguration) WithInferencePhase(value string) *ModelStatusApplyConfiguration {
-	b.InferencePhase = &value
+// WithLocalPaths adds the given value to the LocalPaths field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the LocalPaths field.
+func (b *ModelStatusApplyConfiguration) WithLocalPaths(values ...*ModelLocalPathApplyConfiguration) *ModelStatusApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithLocalPaths")
+		}
+		b.LocalPaths = append(b.LocalPaths, *values[i])
+	}
 	return b
 }
 

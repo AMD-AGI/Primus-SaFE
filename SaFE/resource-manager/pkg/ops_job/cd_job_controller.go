@@ -19,7 +19,6 @@ import (
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -277,9 +276,6 @@ func (r *CDJobReconciler) generateCDWorkload(ctx context.Context, job *v1.OpsJob
 			},
 		},
 	}
-	if err = controllerutil.SetControllerReference(job, workload, r.Client.Scheme()); err != nil {
-		return nil, err
-	}
 
 	if job.Spec.TimeoutSecond > 0 {
 		workload.Spec.Timeout = pointer.Int(job.Spec.TimeoutSecond)
@@ -533,14 +529,14 @@ wait_daemonset_ready() {
         CURRENT=${CURRENT:-0}
         READY=${READY:-0}
         
-        if [ "$DESIRED" = "$CURRENT" ] && [ "$DESIRED" = "$READY" ] && [ "$DESIRED" != "0" ]; then
-            echo "✓ daemonset/$name ready: desired=$DESIRED current=$CURRENT ready=$READY"
+        if [ "$DESIRED" = "$CURRENT" ] && [ "$DESIRED" != "0" ]; then
+            echo "✓ daemonset/$name scheduled: desired=$DESIRED current=$CURRENT (ready=$READY)"
             return 0
         fi
-        echo "  Waiting for daemonset/$name... (desired=$DESIRED current=$CURRENT ready=$READY) [$i/$max_retries]"
+        echo "  Waiting for daemonset/$name... (desired=$DESIRED current=$CURRENT) [$i/$max_retries]"
         sleep $retry_interval
     done
-    echo "⚠ daemonset/$name not ready after $((max_retries * retry_interval))s: desired=$DESIRED current=$CURRENT ready=$READY"
+    echo "⚠ daemonset/$name not scheduled after $((max_retries * retry_interval))s: desired=$DESIRED current=$CURRENT"
     return 1
 }
 

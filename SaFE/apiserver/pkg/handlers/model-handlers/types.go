@@ -7,91 +7,34 @@ package model_handlers
 
 import (
 	"time"
-
-	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 )
-
-// CreateInferenceRequest represents the request to create an inference service.
-type CreateInferenceRequest struct {
-	DisplayName string               `json:"displayName" binding:"required"`
-	Description string               `json:"description"`
-	ModelForm   string               `json:"modelForm" binding:"required,oneof=API ModelSquare"`
-	ModelName   string               `json:"modelName" binding:"required"`
-	Instance    v1.InferenceInstance `json:"instance"`
-	Resource    v1.InferenceResource `json:"resource" binding:"required"`
-	Config      v1.InferenceConfig   `json:"config"`
-}
-
-// CreateInferenceResponse represents the response after creating an inference service.
-type CreateInferenceResponse struct {
-	InferenceId string `json:"inferenceId"`
-}
-
-// ListInferenceQuery represents query parameters for listing inferences.
-type ListInferenceQuery struct {
-	Limit     int    `form:"limit" binding:"omitempty,min=1"`
-	Offset    int    `form:"offset" binding:"omitempty,min=0"`
-	UserId    string `form:"userId" binding:"omitempty"` // Optional: filter by user ID
-	ModelForm string `form:"modelForm" binding:"omitempty"`
-	Phase     string `form:"phase" binding:"omitempty"`
-}
 
 // ListModelQuery represents query parameters for listing models.
 type ListModelQuery struct {
-	Limit           int    `form:"limit" binding:"omitempty,min=1"`
-	Offset          int    `form:"offset" binding:"omitempty,min=0"`
-	InferenceStatus string `form:"inferenceStatus" binding:"omitempty"`
-	AccessMode      string `form:"accessMode" binding:"omitempty"`
+	Limit      int    `form:"limit" binding:"omitempty,min=1"`
+	Offset     int    `form:"offset" binding:"omitempty,min=0"`
+	AccessMode string `form:"accessMode" binding:"omitempty"` // Filter by access mode: "local" or "remote_api"
+	Workspace  string `form:"workspace" binding:"omitempty"`  // Filter by workspace (for local models)
 }
 
-// ListInferenceResponse represents the response for listing inferences.
-type ListInferenceResponse struct {
-	Total int             `json:"total"`
-	Items []InferenceInfo `json:"items"`
-}
-
-// InferenceInfo represents basic inference information.
-type InferenceInfo struct {
-	InferenceId string    `json:"inferenceId"`
-	DisplayName string    `json:"displayName"`
-	ModelForm   string    `json:"modelForm"`
-	ModelName   string    `json:"modelName"`
-	Phase       string    `json:"phase"`
-	Message     string    `json:"message"`
-	CreatedAt   time.Time `json:"createdAt"`
-	UpdatedAt   time.Time `json:"updatedAt"`
-}
-
-// InferenceDetail represents detailed inference information.
-type InferenceDetail struct {
-	InferenceId string               `json:"inferenceId"`
-	DisplayName string               `json:"displayName"`
-	Description string               `json:"description"`
-	UserId      string               `json:"userId"`
-	UserName    string               `json:"userName"`
-	ModelForm   string               `json:"modelForm"`
-	ModelName   string               `json:"modelName"`
-	Instance    v1.InferenceInstance `json:"instance"`
-	Resource    v1.InferenceResource `json:"resource"`
-	Phase       string               `json:"phase"`
-	Message     string               `json:"message"`
-	Events      []v1.InferenceEvent  `json:"events"`
-	CreatedAt   time.Time            `json:"createdAt"`
-	UpdatedAt   time.Time            `json:"updatedAt"`
-}
-
-// PatchInferenceRequest represents the request to update an inference service.
-type PatchInferenceRequest struct {
-	DisplayName *string               `json:"displayName"`
-	Description *string               `json:"description"`
-	Instance    *v1.InferenceInstance `json:"instance"`
-}
-
-// ChatRequest represents the request to chat with an inference model (streaming, no session saved).
-// Frontend should prepare messages in OpenAI format before sending.
+// ChatRequest represents the request to chat with a model or workload.
+// Either ModelId (for remote_api) or WorkloadId (for local inference) must be provided.
 type ChatRequest struct {
-	InferenceId      string                   `json:"inferenceId" binding:"required"`
-	Messages         []map[string]interface{} `json:"messages" binding:"required"` // OpenAI format messages (prepared by frontend)
+	// Source identification - one of these must be provided
+	ModelId    string `json:"modelId"`    // Model ID for remote_api models
+	WorkloadId string `json:"workloadId"` // Workload ID for local inference services
+
+	// Required for workload chat - the model name used by the inference service
+	WorkloadModelName string `json:"workloadModelName"` // e.g., "/models/llama-2-7b"
+
+	// Required for workload chat - the base URL of the inference service
+	WorkloadBaseUrl string `json:"workloadBaseUrl"` // e.g., "http://workload-svc.ns.svc:8000"
+
+	// Optional API key for workload authentication
+	WorkloadApiKey string `json:"workloadApiKey"`
+
+	// Chat parameters
+	Messages         []map[string]interface{} `json:"messages" binding:"required"` // OpenAI format messages
 	Stream           bool                     `json:"stream"`                      // Enable streaming (SSE)
 	Temperature      float64                  `json:"temperature"`                 // Controls randomness (0.0-2.0)
 	TopP             float64                  `json:"topP"`                        // Nucleus sampling (0.0-1.0)
@@ -159,8 +102,9 @@ type MessageHistory struct {
 	Timestamp time.Time `json:"timestamp"`
 }
 
-// --- Model Management Types (CRD based) ---
+// --- Model Management Types ---
 
+// CreateModelRequest represents the request to create a new model.
 type CreateModelRequest struct {
 	// Metadata fields (required for remote_api mode, auto-filled for local mode)
 	DisplayName string   `json:"displayName"` // Model display name
@@ -170,46 +114,24 @@ type CreateModelRequest struct {
 	Tags        []string `json:"tags"`        // Model tags
 	MaxTokens   int      `json:"maxTokens"`   // Maximum context length (auto-filled from config.json for local mode)
 
+	// Model source configuration
 	Source ModelSourceReq `json:"source"`
 
-	DownloadTarget *DownloadTargetReq `json:"downloadTarget"`
-
-	Resources *ResourceReq `json:"resources"`
+	// Workspace for local models (empty = public, non-empty = specific workspace)
+	Workspace string `json:"workspace"`
 }
 
+// ModelSourceReq represents the model source configuration.
 type ModelSourceReq struct {
-	URL        string `json:"url"`
-	AccessMode string `json:"accessMode"` // "remote_api", "local"
-	Token      string `json:"token"`      // Plaintext token (for downloading models from HuggingFace)
+	URL        string `json:"url"`        // Model URL (HuggingFace repo ID or API endpoint)
+	AccessMode string `json:"accessMode"` // "remote_api" or "local"
+	ModelName  string `json:"modelName"`  // Model name for API calls (required for remote_api)
+	Token      string `json:"token"`      // Auth token (HuggingFace token or API key)
 }
 
-type ResourceReq struct {
-	CPU    string `json:"cpu"`
-	Memory string `json:"memory"`
-	GPU    string `json:"gpu"`
-}
-
-type DownloadTargetReq struct {
-	Type      string       `json:"type"`
-	LocalPath string       `json:"localPath"`
-	S3Config  *S3ConfigReq `json:"s3Config"`
-}
-
-type S3ConfigReq struct {
-	Endpoint        string `json:"endpoint"`
-	Bucket          string `json:"bucket"`
-	Region          string `json:"region"`
-	AccessKeyID     string `json:"accessKeyID"`
-	SecretAccessKey string `json:"secretAccessKey"`
-}
-
+// CreateResponse represents the response after creating a model.
 type CreateResponse struct {
 	ID string `json:"id"`
-}
-
-type PatchModelRequest struct {
-	DisplayName *string `json:"displayName"`
-	Description *string `json:"description"`
 }
 
 // ModelInfo represents the API response for a model.
@@ -219,21 +141,30 @@ type ModelInfo struct {
 	Description     string            `json:"description"`
 	Icon            string            `json:"icon"`
 	Label           string            `json:"label"`
-	Tags            string            `json:"tags"`                      // Plain tags string (backward compatible)
-	CategorizedTags []TagWithCategory `json:"categorizedTags,omitempty"` // Tags with category and color for frontend display
+	Tags            string            `json:"tags"`                      // Plain tags string
+	CategorizedTags []TagWithCategory `json:"categorizedTags,omitempty"` // Tags with category and color
 	MaxTokens       int               `json:"maxTokens"`
 	Version         string            `json:"version"`
 	SourceURL       string            `json:"sourceURL"`
 	AccessMode      string            `json:"accessMode"`
+	ModelName       string            `json:"modelName"` // Model name for API calls
 	Phase           string            `json:"phase"`
 	Message         string            `json:"message"`
-	InferenceID     string            `json:"inferenceID"`
-	InferencePhase  string            `json:"inferencePhase"`
-	WorkloadID      string            `json:"workloadID,omitempty"` // Associated workload ID from inference
+	Workspace       string            `json:"workspace"`            // Workspace ID (empty = public)
+	S3Path          string            `json:"s3Path,omitempty"`     // S3 storage path
+	LocalPaths      []LocalPathInfo   `json:"localPaths,omitempty"` // Local download status per workspace
 	CreatedAt       string            `json:"createdAt,omitempty"`
 	UpdatedAt       string            `json:"updatedAt,omitempty"`
 	DeletionTime    string            `json:"deletionTime,omitempty"`
 	IsDeleted       bool              `json:"isDeleted"`
+}
+
+// LocalPathInfo represents local path status for a workspace.
+type LocalPathInfo struct {
+	Workspace string `json:"workspace"`
+	Path      string `json:"path"`
+	Status    string `json:"status"`
+	Message   string `json:"message,omitempty"`
 }
 
 // ListModelResponse represents the response for listing models.
@@ -242,37 +173,93 @@ type ListModelResponse struct {
 	Items []ModelInfo `json:"items"`
 }
 
-type ToggleModelRequest struct {
-	Enabled bool `json:"enabled"`
-
-	// Instance configuration for remote_api mode (required when enabled=true for remote_api)
-	Instance *ToggleInstanceReq `json:"instance,omitempty"`
-
-	// Resource configuration for the inference service (required when enabled=true for local mode)
-	Resource *ToggleResourceReq `json:"resource,omitempty"`
-
-	// Config contains additional configuration for the inference service (required when enabled=true for local mode)
-	Config *ToggleConfigReq `json:"config,omitempty"`
+// DeleteModelRequest represents the request to delete a model.
+type DeleteModelRequest struct {
+	Force             bool `json:"force"`             // Force delete even if running workloads exist
+	DeleteAssociated  bool `json:"deleteAssociated"`  // Delete associated stopped/failed workloads
+	CleanupLocalPaths bool `json:"cleanupLocalPaths"` // Cleanup local PFS paths
+	CleanupS3         bool `json:"cleanupS3"`         // Cleanup S3 storage
 }
 
-// ToggleInstanceReq contains instance configuration for remote_api inference
-type ToggleInstanceReq struct {
-	ApiKey string `json:"apiKey"` // Required: API key for authentication
-	Model  string `json:"model"`  // Optional: model name (e.g., "gpt-4", "gpt-3.5-turbo")
+// --- Playground Services Types ---
+
+// PlaygroundServiceItem represents an item in the playground services list.
+// Can be either a remote_api model or a running inference workload.
+type PlaygroundServiceItem struct {
+	Type        string `json:"type"`        // "remote_api" or "workload"
+	ID          string `json:"id"`          // Model ID or Workload ID
+	DisplayName string `json:"displayName"` // Display name
+	ModelName   string `json:"modelName"`   // Model name for API calls
+	Phase       string `json:"phase"`       // Status/Phase
+	Workspace   string `json:"workspace"`   // Workspace (for workloads)
+
+	// For workloads only
+	SourceModelID   string `json:"sourceModelId,omitempty"`   // Source Model ID (from label)
+	SourceModelName string `json:"sourceModelName,omitempty"` // Source Model display name
+	IngressURL      string `json:"ingressUrl,omitempty"`      // Ingress URL for the workload
 }
 
-// ToggleResourceReq contains resource requirements for enabling inference
-type ToggleResourceReq struct {
-	Workspace string `json:"workspace"` // Required: workspace ID
-	Replica   int    `json:"replica"`   // Required: number of replicas
-	CPU       int    `json:"cpu"`       // CPU cores
-	Memory    int    `json:"memory"`    // Memory in GB
-	GPU       string `json:"gpu"`       // GPU specification (e.g., "1")
+// ListPlaygroundServicesResponse represents the response for listing playground services.
+type ListPlaygroundServicesResponse struct {
+	Total int                     `json:"total"`
+	Items []PlaygroundServiceItem `json:"items"`
 }
 
-// ToggleConfigReq contains configuration for enabling inference
-type ToggleConfigReq struct {
-	Image      string `json:"image"`      // Required: container image
-	EntryPoint string `json:"entryPoint"` // Required: entry point script
-	ModelPath  string `json:"modelPath"`  // Optional: model path
+// --- Workload Config Types ---
+
+// WorkloadConfigRequest represents the request to get workload config for a model.
+type WorkloadConfigRequest struct {
+	Workspace string `form:"workspace" binding:"required"` // Target workspace for deployment
+}
+
+// WorkloadConfigResponse represents the auto-generated workload configuration.
+// Frontend can use this to pre-fill the workload creation form.
+type WorkloadConfigResponse struct {
+	// Pre-filled fields
+	DisplayName string            `json:"displayName"` // Suggested workload name
+	Description string            `json:"description"` // Description
+	Labels      map[string]string `json:"labels"`      // Labels including source-model
+	Env         map[string]string `json:"env"`         // Environment variables including MODEL_PATH
+
+	// Model info for reference
+	ModelID    string `json:"modelId"`
+	ModelName  string `json:"modelName"`
+	ModelPath  string `json:"modelPath"` // Local path in the workspace
+	AccessMode string `json:"accessMode"`
+	MaxTokens  int    `json:"maxTokens"`
+
+	// Fields to be filled by user
+	Image      string `json:"image"`      // Container image (user must provide)
+	EntryPoint string `json:"entryPoint"` // Entry point command (user must provide)
+	Workspace  string `json:"workspace"`  // Target workspace
+	CPU        string `json:"cpu"`        // CPU request
+	Memory     string `json:"memory"`     // Memory request
+	GPU        string `json:"gpu"`        // GPU request
+}
+
+// --- Model Workloads Types ---
+
+// ModelWorkloadsResponse represents the response for listing workloads associated with a model.
+type ModelWorkloadsResponse struct {
+	Total int                  `json:"total"`
+	Items []AssociatedWorkload `json:"items"`
+}
+
+// AssociatedWorkload represents a workload associated with a model.
+type AssociatedWorkload struct {
+	WorkloadID  string `json:"workloadId"`
+	DisplayName string `json:"displayName"`
+	Workspace   string `json:"workspace"`
+	Phase       string `json:"phase"`
+	IngressURL  string `json:"ingressUrl,omitempty"`
+	CreatedAt   string `json:"createdAt"`
+}
+
+// --- Chat URL Types ---
+
+// ChatURLResponse represents the response for getting the chat URL.
+type ChatURLResponse struct {
+	URL       string `json:"url"`       // Base URL for chat API
+	ModelName string `json:"modelName"` // Model name to use
+	HasApiKey bool   `json:"hasApiKey"` // Whether an API key is configured
 }

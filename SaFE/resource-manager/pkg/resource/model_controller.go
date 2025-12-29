@@ -22,8 +22,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"sigs.k8s.io/controller-runtime/pkg/event"
-	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
@@ -34,6 +32,8 @@ const (
 	ModelFinalizer = "model.amd.com/finalizer"
 	// CleanupJobPrefix is the prefix for cleanup job names
 	CleanupJobPrefix = "cleanup-"
+	// DownloadJobPrefix is the prefix for download job names
+	DownloadJobPrefix = "download-"
 )
 
 // ModelReconciler reconciles a Model object
@@ -50,41 +50,13 @@ func SetupModelController(mgr manager.Manager) error {
 	}
 	err := ctrl.NewControllerManagedBy(mgr).
 		For(&v1.Model{}).
-		Owns(&batchv1.Job{}).                               // Watch Jobs created by this controller
-		Watches(&v1.Inference{}, r.handleInferenceEvent()). // Watch Inference status changes
+		Owns(&batchv1.Job{}). // Watch Jobs created by this controller
 		Complete(r)
 	if err != nil {
 		return err
 	}
 	klog.Infof("Setup Model Controller successfully")
 	return nil
-}
-
-// handleInferenceEvent creates an event handler that enqueues Model requests when related Inference resources change.
-func (r *ModelReconciler) handleInferenceEvent() handler.EventHandler {
-	return handler.Funcs{
-		UpdateFunc: func(ctx context.Context, e event.UpdateEvent, q v1.RequestWorkQueue) {
-			inference, ok := e.ObjectNew.(*v1.Inference)
-			if !ok {
-				return
-			}
-			// Find the Model that owns this Inference
-			r.enqueueModelForInference(ctx, inference, q)
-		},
-	}
-}
-
-// enqueueModelForInference finds and enqueues the Model that owns the inference
-func (r *ModelReconciler) enqueueModelForInference(ctx context.Context, inference *v1.Inference, q v1.RequestWorkQueue) {
-	// inference.Spec.ModelName contains the Model name
-	if inference.Spec.ModelName == "" {
-		return
-	}
-	q.Add(ctrl.Request{
-		NamespacedName: client.ObjectKey{
-			Name: inference.Spec.ModelName,
-		},
-	})
 }
 
 // Reconcile handles the reconciliation loop
@@ -100,7 +72,7 @@ func (r *ModelReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		return r.handleDelete(ctx, model)
 	}
 
-	// 3. Add finalizer if needed (only for Local download type)
+	// 3. Add finalizer if needed (only for Local models that need cleanup)
 	if r.needsCleanup(model) && !controllerutil.ContainsFinalizer(model, ModelFinalizer) {
 		controllerutil.AddFinalizer(model, ModelFinalizer)
 		if err := r.Update(ctx, model); err != nil {
@@ -109,29 +81,32 @@ func (r *ModelReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		return ctrl.Result{}, nil
 	}
 
-	// 4. Initialize Status
+	// 4. Initialize Status if needed
 	if model.Status.Phase == "" {
-		model.Status.Phase = v1.ModelPhasePending
-		model.Status.Message = "Waiting for processing"
+		if model.IsRemoteAPI() {
+			// Remote API models are immediately ready
+			model.Status.Phase = v1.ModelPhaseReady
+			model.Status.Message = "Remote API model is ready"
+		} else {
+			// Local models start in Pending phase
+			model.Status.Phase = v1.ModelPhasePending
+			model.Status.Message = "Waiting for processing"
+		}
+		model.Status.UpdateTime = &metav1.Time{Time: time.Now().UTC()}
 		if err := r.Status().Update(ctx, model); err != nil {
 			return ctrl.Result{}, err
 		}
 		return ctrl.Result{}, nil
 	}
 
-	// 5. Sync inference phase if model has an inference
-	if model.Status.InferenceID != "" {
-		if err := r.syncInferencePhase(ctx, model); err != nil {
-			klog.ErrorS(err, "failed to sync inference phase", "model", model.Name)
-		}
-	}
-
-	// 6. Processing logic based on Phase
+	// 5. Processing logic based on Phase
 	switch model.Status.Phase {
 	case v1.ModelPhasePending:
 		return r.handlePending(ctx, model)
-	case v1.ModelPhasePulling:
-		return r.handlePulling(ctx, model)
+	case v1.ModelPhaseUploading, v1.ModelPhasePulling:
+		return r.handleUploading(ctx, model)
+	case v1.ModelPhaseDownloading:
+		return r.handleDownloading(ctx, model)
 	case v1.ModelPhaseReady, v1.ModelPhaseFailed:
 		return ctrl.Result{}, nil
 	}
@@ -139,51 +114,20 @@ func (r *ModelReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	return ctrl.Result{}, nil
 }
 
-// syncInferencePhase syncs the inference phase to the model status
-func (r *ModelReconciler) syncInferencePhase(ctx context.Context, model *v1.Model) error {
-	inference := &v1.Inference{}
-	if err := r.Get(ctx, client.ObjectKey{Name: model.Status.InferenceID}, inference); err != nil {
-		if errors.IsNotFound(err) {
-			// Inference not found, clear the inference fields
-			if model.Status.InferencePhase != "" || model.Status.InferenceID != "" {
-				model.Status.InferenceID = ""
-				model.Status.InferencePhase = ""
-				return r.Status().Update(ctx, model)
-			}
-			return nil
-		}
-		return err
-	}
-
-	// Sync phase if changed
-	newPhase := string(inference.Status.Phase)
-	if model.Status.InferencePhase != newPhase {
-		model.Status.InferencePhase = newPhase
-		model.Status.UpdateTime = &metav1.Time{Time: time.Now().UTC()}
-		klog.Infof("Syncing inference phase for model %s: %s -> %s", model.Name, model.Status.InferencePhase, newPhase)
-		return r.Status().Update(ctx, model)
-	}
-
-	return nil
-}
-
 // needsCleanup checks if the model needs cleanup on deletion (only Local type needs cleanup)
 func (r *ModelReconciler) needsCleanup(model *v1.Model) bool {
-	// Remote API models don't need cleanup (no files downloaded to S3
-	return model.Spec.Source.AccessMode != v1.AccessModeRemoteAPI
+	return model.Spec.Source.AccessMode == v1.AccessModeLocal
 }
 
 // handleDelete handles the deletion of a Model resource
-// Note: Inference will be automatically deleted by Kubernetes garbage collection (OwnerReference)
 func (r *ModelReconciler) handleDelete(ctx context.Context, model *v1.Model) (ctrl.Result, error) {
 	// If no finalizer, nothing to do
 	if !controllerutil.ContainsFinalizer(model, ModelFinalizer) {
 		return ctrl.Result{}, nil
 	}
 
-	// Only cleanup for Local download type
+	// Only cleanup for Local models
 	if !r.needsCleanup(model) {
-		// No cleanup needed, just remove finalizer
 		controllerutil.RemoveFinalizer(model, ModelFinalizer)
 		if err := r.Update(ctx, model); err != nil {
 			return ctrl.Result{}, err
@@ -198,7 +142,7 @@ func (r *ModelReconciler) handleDelete(ctx context.Context, model *v1.Model) (ct
 	err := r.Get(ctx, client.ObjectKey{Name: cleanupJobName, Namespace: common.PrimusSafeNamespace}, cleanupJob)
 
 	if errors.IsNotFound(err) {
-		// Create cleanup job
+		// Create cleanup job for S3
 		job, err := r.constructCleanupJob(model)
 		if err != nil {
 			klog.ErrorS(err, "Failed to construct cleanup job", "model", model.Name)
@@ -228,7 +172,7 @@ func (r *ModelReconciler) handleDelete(ctx context.Context, model *v1.Model) (ct
 
 	// Check cleanup job status
 	if cleanupJob.Status.Succeeded > 0 {
-		// Cleanup completed, delete the job and pods with cascade
+		// Cleanup completed, delete the job
 		if err := r.Delete(ctx, cleanupJob, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil && !errors.IsNotFound(err) {
 			klog.ErrorS(err, "Failed to delete cleanup job", "job", cleanupJobName)
 		}
@@ -238,7 +182,7 @@ func (r *ModelReconciler) handleDelete(ctx context.Context, model *v1.Model) (ct
 			return ctrl.Result{}, err
 		}
 
-		klog.InfoS("Model S3 cleanup completed and deleted", "model", model.Name, "s3Path", model.GetS3Path())
+		klog.InfoS("Model S3 cleanup completed and deleted", "model", model.Name, "s3Path", model.Status.S3Path)
 		return ctrl.Result{}, nil
 	}
 
@@ -262,7 +206,7 @@ func (r *ModelReconciler) handleDelete(ctx context.Context, model *v1.Model) (ct
 	return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 }
 
-// constructCleanupJob creates a Job to delete the model files from S3
+// constructCleanupJob creates a Job to delete the model files from S3 and local paths
 func (r *ModelReconciler) constructCleanupJob(model *v1.Model) (*batchv1.Job, error) {
 	// Get system S3 configuration
 	if !commonconfig.IsS3Enable() {
@@ -276,13 +220,28 @@ func (r *ModelReconciler) constructCleanupJob(model *v1.Model) (*batchv1.Job, er
 		return nil, fmt.Errorf("S3 configuration is incomplete")
 	}
 
-	s3Path := fmt.Sprintf("s3://%s/%s", s3Bucket, model.GetS3Path())
+	s3Path := model.Status.S3Path
+	if s3Path == "" {
+		s3Path = model.GetS3Path()
+	}
+	fullS3Path := fmt.Sprintf("s3://%s/%s", s3Bucket, s3Path)
 
-	// Use the model downloader image from config (has awscli installed)
+	// Build cleanup commands for local paths
+	var localPathCleanup string
+	for _, lp := range model.Status.LocalPaths {
+		if lp.Path != "" {
+			localPathCleanup += fmt.Sprintf(`
+				echo "Cleaning up local path: %s"
+				rm -rf %s || echo "Warning: Failed to clean up %s"
+			`, lp.Path, lp.Path, lp.Path)
+		}
+	}
+
+	// Use the model downloader image from config
 	image := commonconfig.GetModelDownloaderImage()
 
 	backoffLimit := int32(1)
-	ttlSeconds := int32(60) // Auto-delete job and pod 60 seconds after completion
+	ttlSeconds := int32(60)
 
 	jobName := stringutil.NormalizeForDNS(CleanupJobPrefix + model.Name)
 	job := &batchv1.Job{
@@ -314,11 +273,12 @@ func (r *ModelReconciler) constructCleanupJob(model *v1.Model) (*batchv1.Job, er
 							Command: []string{
 								"/bin/sh", "-c",
 								fmt.Sprintf(`
-									echo "Starting S3 cleanup for model: %s"
-									echo "Target S3 path: %s"
-									aws s3 rm %s --recursive --endpoint-url %s || echo "Warning: S3 cleanup failed, but proceeding anyway"
-									echo "S3 cleanup completed"
-								`, model.Name, s3Path, s3Path, s3Endpoint),
+									echo "Starting cleanup for model: %s"
+									echo "Cleaning S3 path: %s"
+									aws s3 rm %s --recursive --endpoint-url %s || echo "Warning: S3 cleanup failed"
+									%s
+									echo "Cleanup completed"
+								`, model.Name, fullS3Path, fullS3Path, s3Endpoint, localPathCleanup),
 							},
 							Env: []corev1.EnvVar{
 								{Name: "AWS_ACCESS_KEY_ID", Value: s3AccessKey},
@@ -336,71 +296,63 @@ func (r *ModelReconciler) constructCleanupJob(model *v1.Model) (*batchv1.Job, er
 }
 
 func (r *ModelReconciler) handlePending(ctx context.Context, model *v1.Model) (ctrl.Result, error) {
-	accessMode := model.Spec.Source.AccessMode
-
-	// Case A: No download needed (Remote API)
-	if accessMode == v1.AccessModeRemoteAPI {
+	// Remote API models should already be Ready
+	if model.IsRemoteAPI() {
 		model.Status.Phase = v1.ModelPhaseReady
-		model.Status.Message = fmt.Sprintf("Model ready (AccessMode: %s)", accessMode)
-		klog.InfoS("Model marked as ready", "model", model.Name, "accessMode", accessMode)
+		model.Status.Message = "Remote API model is ready"
 		return ctrl.Result{}, r.Status().Update(ctx, model)
 	}
 
-	// Case B: Download needed (RemoteDownload or other modes requiring download)
-	jobName := model.Name
+	// For local models, start the upload job to S3
+	jobName := stringutil.NormalizeForDNS(model.Name)
 	job := &batchv1.Job{}
 	err := r.Get(ctx, client.ObjectKey{Name: jobName, Namespace: common.PrimusSafeNamespace}, job)
 
 	if errors.IsNotFound(err) {
-		// Construct download Job
+		// Construct download/upload job
 		job, err = r.constructDownloadJob(model)
 		if err != nil {
-			klog.ErrorS(err, "Failed to construct download job",
-				"model", model.Name,
-				"url", model.Spec.Source.URL)
-
+			klog.ErrorS(err, "Failed to construct download job", "model", model.Name, "url", model.Spec.Source.URL)
 			model.Status.Phase = v1.ModelPhaseFailed
 			model.Status.Message = fmt.Sprintf("Failed to construct download job: %v", err)
-
 			return ctrl.Result{}, r.Status().Update(ctx, model)
 		}
 
-		// Create Job in Kubernetes
 		if err := r.Create(ctx, job); err != nil {
 			klog.ErrorS(err, "Failed to create download job", "model", model.Name, "jobName", jobName)
-
-			// Check if it's a validation error or resource constraint
 			if errors.IsInvalid(err) || errors.IsForbidden(err) {
 				model.Status.Phase = v1.ModelPhaseFailed
 				model.Status.Message = fmt.Sprintf("Failed to create download job: %v", err)
 				return ctrl.Result{}, r.Status().Update(ctx, model)
 			}
-
-			// Transient error, retry
 			return ctrl.Result{}, err
 		}
 
-		model.Status.Phase = v1.ModelPhasePulling
+		// Update status to Uploading
+		model.Status.Phase = v1.ModelPhaseUploading
 		model.Status.Message = fmt.Sprintf("Download job created: %s", jobName)
+		model.Status.S3Path = model.GetS3Path()
+		model.Status.UpdateTime = &metav1.Time{Time: time.Now().UTC()}
 		klog.InfoS("Download job created", "model", model.Name, "jobName", jobName, "url", model.Spec.Source.URL)
 
 		return ctrl.Result{}, r.Status().Update(ctx, model)
 	} else if err != nil {
-		// Unexpected error fetching Job
 		klog.ErrorS(err, "Failed to get download job", "model", model.Name, "jobName", jobName)
 		return ctrl.Result{}, err
 	}
 
-	// Job already exists, transition to Pulling
-	model.Status.Phase = v1.ModelPhasePulling
+	// Job already exists, transition to Uploading
+	model.Status.Phase = v1.ModelPhaseUploading
 	model.Status.Message = fmt.Sprintf("Download in progress (Job: %s)", jobName)
+	model.Status.S3Path = model.GetS3Path()
 	klog.InfoS("Download job already exists", "model", model.Name, "jobName", jobName)
 
 	return ctrl.Result{}, r.Status().Update(ctx, model)
 }
 
-func (r *ModelReconciler) handlePulling(ctx context.Context, model *v1.Model) (ctrl.Result, error) {
-	jobName := model.Name
+// handleUploading handles the Uploading phase (downloading from HuggingFace to S3)
+func (r *ModelReconciler) handleUploading(ctx context.Context, model *v1.Model) (ctrl.Result, error) {
+	jobName := stringutil.NormalizeForDNS(model.Name)
 	job := &batchv1.Job{}
 	if err := r.Get(ctx, client.ObjectKey{Name: jobName, Namespace: common.PrimusSafeNamespace}, job); err != nil {
 		if errors.IsNotFound(err) {
@@ -414,59 +366,341 @@ func (r *ModelReconciler) handlePulling(ctx context.Context, model *v1.Model) (c
 
 	// Success case
 	if job.Status.Succeeded > 0 {
-		model.Status.Phase = v1.ModelPhaseReady
-		model.Status.Message = "Download completed successfully"
-		klog.InfoS("Model download completed", "model", model.Name, "url", model.Spec.Source.URL)
+		// S3 upload completed, now start downloading to local PFS
+		model.Status.Phase = v1.ModelPhaseDownloading
+		model.Status.Message = "S3 upload completed, starting local download"
+		model.Status.UpdateTime = &metav1.Time{Time: time.Now().UTC()}
 
-		// Delete the completed job and pods to clean up resources
+		// Initialize local paths based on workspace configuration
+		model.Status.LocalPaths = r.initializeLocalPaths(ctx, model)
+
+		klog.InfoS("Model S3 upload completed, starting local download", "model", model.Name, "s3Path", model.Status.S3Path)
+
+		// Delete the completed upload job
 		if err := r.Delete(ctx, job, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil && !errors.IsNotFound(err) {
 			klog.ErrorS(err, "Failed to delete completed job", "job", jobName)
-		} else {
-			klog.InfoS("Deleted completed download job", "job", jobName)
 		}
 
 		return ctrl.Result{}, r.Status().Update(ctx, model)
 	}
 
-	// Failure case - extract detailed error information
-	if job.Status.Failed > 0 {
-		// Check if all retries exhausted (no active pods)
-		if job.Status.Active == 0 {
-			// Extract failure reason from Job conditions
-			failureReason := r.extractJobFailureReason(job)
+	// Failure case
+	if job.Status.Failed > 0 && job.Status.Active == 0 {
+		failureReason := r.extractJobFailureReason(job)
+		model.Status.Phase = v1.ModelPhaseFailed
+		model.Status.Message = fmt.Sprintf("Download failed after %d attempts: %s", job.Status.Failed, failureReason)
+		klog.ErrorS(nil, "Model download failed", "model", model.Name, "url", model.Spec.Source.URL, "attempts", job.Status.Failed, "reason", failureReason)
 
-			model.Status.Phase = v1.ModelPhaseFailed
-			model.Status.Message = fmt.Sprintf("Download failed after %d attempts: %s", job.Status.Failed, failureReason)
-
-			klog.ErrorS(nil, "Model download failed",
-				"model", model.Name,
-				"url", model.Spec.Source.URL,
-				"attempts", job.Status.Failed,
-				"reason", failureReason)
-
-			// Delete the failed job and pods to allow retry
-			if err := r.Delete(ctx, job, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil && !errors.IsNotFound(err) {
-				klog.ErrorS(err, "Failed to delete failed job", "job", jobName)
-			} else {
-				klog.InfoS("Deleted failed download job", "job", jobName)
-			}
-
-			return ctrl.Result{}, r.Status().Update(ctx, model)
+		// Delete the failed job
+		if err := r.Delete(ctx, job, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil && !errors.IsNotFound(err) {
+			klog.ErrorS(err, "Failed to delete failed job", "job", jobName)
 		}
-		// Still retrying, continue waiting
-		klog.InfoS("Download job failed but retrying",
-			"model", model.Name,
-			"failedAttempts", job.Status.Failed,
-			"activeAttempts", job.Status.Active)
+
+		return ctrl.Result{}, r.Status().Update(ctx, model)
 	}
 
 	// Still in progress
 	return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 }
 
+// handleDownloading handles the Downloading phase (downloading from S3 to local PFS)
+func (r *ModelReconciler) handleDownloading(ctx context.Context, model *v1.Model) (ctrl.Result, error) {
+	// Check if all local paths are ready
+	allReady := true
+	anyFailed := false
+
+	for i := range model.Status.LocalPaths {
+		lp := &model.Status.LocalPaths[i]
+		if lp.Status == v1.LocalPathStatusReady {
+			continue
+		}
+		if lp.Status == v1.LocalPathStatusFailed {
+			anyFailed = true
+			continue
+		}
+
+		// Check/create download job for this workspace
+		allReady = false
+		jobName := stringutil.NormalizeForDNS(fmt.Sprintf("%s-%s-%s", DownloadJobPrefix, model.Name, lp.Workspace))
+		job := &batchv1.Job{}
+		err := r.Get(ctx, client.ObjectKey{Name: jobName, Namespace: common.PrimusSafeNamespace}, job)
+
+		if errors.IsNotFound(err) {
+			// Create local download job
+			job, err = r.constructLocalDownloadJob(model, lp)
+			if err != nil {
+				klog.ErrorS(err, "Failed to construct local download job", "model", model.Name, "workspace", lp.Workspace)
+				lp.Status = v1.LocalPathStatusFailed
+				lp.Message = fmt.Sprintf("Failed to construct job: %v", err)
+				continue
+			}
+
+			if err := r.Create(ctx, job); err != nil {
+				klog.ErrorS(err, "Failed to create local download job", "model", model.Name, "workspace", lp.Workspace)
+				continue
+			}
+
+			lp.Status = v1.LocalPathStatusDownloading
+			lp.Message = "Download job created"
+			klog.InfoS("Local download job created", "model", model.Name, "workspace", lp.Workspace, "path", lp.Path)
+		} else if err != nil {
+			klog.ErrorS(err, "Failed to get local download job", "model", model.Name, "workspace", lp.Workspace)
+			continue
+		} else {
+			// Check job status
+			if job.Status.Succeeded > 0 {
+				lp.Status = v1.LocalPathStatusReady
+				lp.Message = "Download completed"
+				klog.InfoS("Local download completed", "model", model.Name, "workspace", lp.Workspace, "path", lp.Path)
+
+				// Delete completed job
+				if err := r.Delete(ctx, job, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil && !errors.IsNotFound(err) {
+					klog.ErrorS(err, "Failed to delete completed job", "job", jobName)
+				}
+			} else if job.Status.Failed > 0 && job.Status.Active == 0 {
+				lp.Status = v1.LocalPathStatusFailed
+				lp.Message = r.extractJobFailureReason(job)
+				anyFailed = true
+				klog.ErrorS(nil, "Local download failed", "model", model.Name, "workspace", lp.Workspace)
+
+				// Delete failed job
+				if err := r.Delete(ctx, job, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil && !errors.IsNotFound(err) {
+					klog.ErrorS(err, "Failed to delete failed job", "job", jobName)
+				}
+			}
+		}
+	}
+
+	// Update status
+	model.Status.UpdateTime = &metav1.Time{Time: time.Now().UTC()}
+
+	if allReady {
+		model.Status.Phase = v1.ModelPhaseReady
+		model.Status.Message = "Model is ready in all workspaces"
+		klog.InfoS("Model is ready", "model", model.Name)
+	} else if anyFailed {
+		// Some downloads failed - check if any succeeded
+		hasReady := false
+		for _, lp := range model.Status.LocalPaths {
+			if lp.Status == v1.LocalPathStatusReady {
+				hasReady = true
+				break
+			}
+		}
+		if hasReady {
+			model.Status.Phase = v1.ModelPhaseReady
+			model.Status.Message = "Model is ready (some workspaces failed)"
+		} else {
+			model.Status.Phase = v1.ModelPhaseFailed
+			model.Status.Message = "All local downloads failed"
+		}
+	}
+
+	if err := r.Status().Update(ctx, model); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	if !allReady && !anyFailed {
+		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+	}
+
+	return ctrl.Result{}, nil
+}
+
+// initializeLocalPaths initializes the local paths based on workspace configuration
+func (r *ModelReconciler) initializeLocalPaths(ctx context.Context, model *v1.Model) []v1.ModelLocalPath {
+	var paths []v1.ModelLocalPath
+	modelDir := model.GetSafeDisplayName()
+
+	if model.IsPublic() {
+		// Public model: download to all workspaces
+		workspaces, err := r.listWorkspaces(ctx)
+		if err != nil {
+			klog.ErrorS(err, "Failed to list workspaces for public model", "model", model.Name)
+			return paths
+		}
+
+		for _, ws := range workspaces {
+			pfsPath := fmt.Sprintf("%s/models/%s", ws.PFSPath, modelDir)
+			paths = append(paths, v1.ModelLocalPath{
+				Workspace: ws.ID,
+				Path:      pfsPath,
+				Status:    v1.LocalPathStatusPending,
+			})
+		}
+	} else {
+		// Private model: download only to specified workspace
+		ws, err := r.getWorkspace(ctx, model.Spec.Workspace)
+		if err != nil {
+			klog.ErrorS(err, "Failed to get workspace for model", "model", model.Name, "workspace", model.Spec.Workspace)
+			return paths
+		}
+
+		pfsPath := fmt.Sprintf("%s/models/%s", ws.PFSPath, modelDir)
+		paths = append(paths, v1.ModelLocalPath{
+			Workspace: ws.ID,
+			Path:      pfsPath,
+			Status:    v1.LocalPathStatusPending,
+		})
+	}
+
+	return paths
+}
+
+// WorkspaceInfo represents basic workspace information
+type WorkspaceInfo struct {
+	ID      string
+	PFSPath string
+}
+
+// listWorkspaces returns all available workspaces
+func (r *ModelReconciler) listWorkspaces(ctx context.Context) ([]WorkspaceInfo, error) {
+	// List Workspace CRs
+	workspaceList := &v1.WorkspaceList{}
+	if err := r.List(ctx, workspaceList); err != nil {
+		return nil, err
+	}
+
+	var workspaces []WorkspaceInfo
+	for _, ws := range workspaceList.Items {
+		pfsPath := getPFSPathFromWorkspace(&ws)
+		workspaces = append(workspaces, WorkspaceInfo{
+			ID:      ws.Name,
+			PFSPath: pfsPath,
+		})
+	}
+
+	return workspaces, nil
+}
+
+// getPFSPathFromWorkspace extracts the PFS mount path from workspace volumes
+func getPFSPathFromWorkspace(ws *v1.Workspace) string {
+	for _, vol := range ws.Spec.Volumes {
+		if vol.Type == v1.PFS {
+			return vol.MountPath
+		}
+	}
+	// Default fallback
+	return fmt.Sprintf("/wekafs/%s", ws.Name)
+}
+
+// getWorkspace returns workspace info by ID
+func (r *ModelReconciler) getWorkspace(ctx context.Context, workspaceID string) (*WorkspaceInfo, error) {
+	ws := &v1.Workspace{}
+	if err := r.Get(ctx, client.ObjectKey{Name: workspaceID}, ws); err != nil {
+		return nil, err
+	}
+
+	pfsPath := getPFSPathFromWorkspace(ws)
+
+	return &WorkspaceInfo{
+		ID:      ws.Name,
+		PFSPath: pfsPath,
+	}, nil
+}
+
+// constructLocalDownloadJob creates a Job to download from S3 to local PFS
+func (r *ModelReconciler) constructLocalDownloadJob(model *v1.Model, lp *v1.ModelLocalPath) (*batchv1.Job, error) {
+	// Get S3 configuration
+	if !commonconfig.IsS3Enable() {
+		return nil, fmt.Errorf("S3 storage is not enabled")
+	}
+	s3Endpoint := commonconfig.GetS3Endpoint()
+	s3AccessKey := commonconfig.GetS3AccessKey()
+	s3SecretKey := commonconfig.GetS3SecretKey()
+	s3Bucket := commonconfig.GetS3Bucket()
+
+	s3Path := fmt.Sprintf("s3://%s/%s", s3Bucket, model.Status.S3Path)
+	image := commonconfig.GetModelDownloaderImage()
+
+	backoffLimit := int32(3)
+	ttlSeconds := int32(60)
+
+	jobName := stringutil.NormalizeForDNS(fmt.Sprintf("%s-%s-%s", DownloadJobPrefix, model.Name, lp.Workspace))
+	job := &batchv1.Job{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      jobName,
+			Namespace: common.PrimusSafeNamespace,
+			Labels: map[string]string{
+				"app":       "model-local-download",
+				"model":     model.Name,
+				"workspace": lp.Workspace,
+			},
+		},
+		Spec: batchv1.JobSpec{
+			BackoffLimit:            &backoffLimit,
+			TTLSecondsAfterFinished: &ttlSeconds,
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						"app":       "model-local-download",
+						"model":     model.Name,
+						"workspace": lp.Workspace,
+					},
+				},
+				Spec: corev1.PodSpec{
+					RestartPolicy: corev1.RestartPolicyOnFailure,
+					Containers: []corev1.Container{
+						{
+							Name:            "downloader",
+							Image:           image,
+							ImagePullPolicy: corev1.PullIfNotPresent,
+							Command: []string{
+								"/bin/sh", "-c",
+								fmt.Sprintf(`
+									set -e
+									echo "Downloading model from S3 to local PFS"
+									echo "Source: %s"
+									echo "Destination: %s"
+									
+									# Check if directory already exists
+									if [ -d "%s" ] && [ "$(ls -A %s 2>/dev/null)" ]; then
+										echo "Directory already exists and is not empty, skipping download"
+										exit 0
+									fi
+									
+									mkdir -p %s
+									aws s3 sync %s %s --endpoint-url %s
+									echo "Download completed successfully"
+								`, s3Path, lp.Path, lp.Path, lp.Path, lp.Path, s3Path, lp.Path, s3Endpoint),
+							},
+							Env: []corev1.EnvVar{
+								{Name: "AWS_ACCESS_KEY_ID", Value: s3AccessKey},
+								{Name: "AWS_SECRET_ACCESS_KEY", Value: s3SecretKey},
+								{Name: "AWS_DEFAULT_REGION", Value: "us-east-1"},
+							},
+							VolumeMounts: []corev1.VolumeMount{
+								{
+									Name:      "pfs-storage",
+									MountPath: lp.Path,
+								},
+							},
+						},
+					},
+					Volumes: []corev1.Volume{
+						{
+							Name: "pfs-storage",
+							VolumeSource: corev1.VolumeSource{
+								HostPath: &corev1.HostPathVolumeSource{
+									Path: lp.Path,
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	if err := controllerutil.SetControllerReference(model, job, r.Scheme()); err != nil {
+		return nil, err
+	}
+
+	return job, nil
+}
+
 // extractJobFailureReason extracts detailed failure information from Job
 func (r *ModelReconciler) extractJobFailureReason(job *batchv1.Job) string {
-	// Check Job conditions first
 	for _, condition := range job.Status.Conditions {
 		if condition.Type == batchv1.JobFailed && condition.Status == corev1.ConditionTrue {
 			if condition.Reason != "" {
@@ -475,23 +709,21 @@ func (r *ModelReconciler) extractJobFailureReason(job *batchv1.Job) string {
 		}
 	}
 
-	// Common failure reasons based on Job status
-	if job.Status.Failed >= *job.Spec.BackoffLimit {
-		return "Maximum retry attempts exceeded. Possible causes: network timeout, authentication failure, repository not found, or insufficient disk space"
+	if job.Spec.BackoffLimit != nil && job.Status.Failed >= *job.Spec.BackoffLimit {
+		return "Maximum retry attempts exceeded"
 	}
 
-	return "Unknown error during download. Check Job logs for details"
+	return "Unknown error during download"
 }
 
 func (r *ModelReconciler) constructDownloadJob(model *v1.Model) (*batchv1.Job, error) {
 	var envs []corev1.EnvVar
 
-	// Validate Source URL
 	if model.Spec.Source.URL == "" {
 		return nil, fmt.Errorf("model source URL is empty")
 	}
 
-	// Get system S3 configuration
+	// Get S3 configuration
 	if !commonconfig.IsS3Enable() {
 		return nil, fmt.Errorf("S3 storage is not enabled in system configuration")
 	}
@@ -503,7 +735,6 @@ func (r *ModelReconciler) constructDownloadJob(model *v1.Model) (*batchv1.Job, e
 		return nil, fmt.Errorf("S3 configuration is incomplete")
 	}
 
-	// Use model downloader image from config (has huggingface-cli and awscli installed)
 	image := commonconfig.GetModelDownloaderImage()
 
 	// Mount HF_TOKEN from Secret if provided
@@ -519,7 +750,7 @@ func (r *ModelReconciler) constructDownloadJob(model *v1.Model) (*batchv1.Job, e
 		})
 	}
 
-	// Add S3 credentials as environment variables
+	// Add S3 credentials
 	envs = append(envs,
 		corev1.EnvVar{Name: "AWS_ACCESS_KEY_ID", Value: s3AccessKey},
 		corev1.EnvVar{Name: "AWS_SECRET_ACCESS_KEY", Value: s3SecretKey},
@@ -528,8 +759,6 @@ func (r *ModelReconciler) constructDownloadJob(model *v1.Model) (*batchv1.Job, e
 		corev1.EnvVar{Name: "S3_BUCKET", Value: s3Bucket},
 	)
 
-	// Download from HuggingFace to S3
-	// Extract repo_id from URL (e.g., "https://huggingface.co/microsoft/phi-2" -> "microsoft/phi-2")
 	repoId := extractHFRepoId(model.Spec.Source.URL)
 	s3Path := fmt.Sprintf("s3://%s/%s", s3Bucket, model.GetS3Path())
 	cmd := []string{
@@ -546,10 +775,11 @@ func (r *ModelReconciler) constructDownloadJob(model *v1.Model) (*batchv1.Job, e
 	}
 
 	backoffLimit := int32(3)
-	ttlSeconds := int32(60) // Auto-delete job and pod 60 seconds after completion
+	ttlSeconds := int32(60)
+	jobName := stringutil.NormalizeForDNS(model.Name)
 	job := &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      model.Name,
+			Name:      jobName,
 			Namespace: common.PrimusSafeNamespace,
 			Labels: map[string]string{
 				"app":   "model-downloader",
@@ -590,22 +820,13 @@ func (r *ModelReconciler) constructDownloadJob(model *v1.Model) (*batchv1.Job, e
 }
 
 // extractHFRepoId extracts the repository ID from a HuggingFace URL.
-// Examples:
-//   - "https://huggingface.co/microsoft/phi-2" -> "microsoft/phi-2"
-//   - "https://huggingface.co/gpt2" -> "gpt2"
-//   - "microsoft/phi-2" -> "microsoft/phi-2" (already a repo_id)
 func extractHFRepoId(url string) string {
-	// Remove trailing slashes
 	url = strings.TrimSuffix(url, "/")
-
-	// Check if it's a full URL
 	if strings.Contains(url, "huggingface.co/") {
-		// Extract the part after "huggingface.co/"
 		parts := strings.Split(url, "huggingface.co/")
 		if len(parts) > 1 {
 			return parts[1]
 		}
 	}
-
 	return url
 }
