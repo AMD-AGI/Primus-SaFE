@@ -17,7 +17,13 @@ LOG_FILE="/tmp/roc_blas_fp16_bench.log"
 max_retries=7
 best_gflops=0
 success=0
-threshold=117540
+
+threshold=0
+if [[ "$GPU_PRODUCT" == *"MI355X"* ]]; then
+  threshold=318933
+else
+  threshold=117540
+fi
 
 for attempt in $(seq 1 $max_retries); do
   $DIR_NAME/build/release/clients/staging/rocblas-bench -f gemm_strided_batched_ex --transposeA N --transposeB T -m 1024 -n 2048 -k 512 --a_type h --lda 1024 --stride_a 4096 --b_type h --ldb 2048 --stride_b 4096 --c_type s --ldc 1024 --stride_c 2097152 --d_type s --ldd 1024 --stride_d 2097152 --compute_type s --alpha 1.1 --beta 1 --batch_count 5 >$LOG_FILE

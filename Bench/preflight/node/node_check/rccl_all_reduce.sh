@@ -41,7 +41,13 @@ if ! [[ "$algbw" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
   exit 1
 fi
 
-threshold=300
+threshold=0
+if [[ "$GPU_PRODUCT" == *"MI355X"* ]]; then
+  threshold=360
+else
+  threshold=300
+fi
+
 if (( $(echo "$algbw < $threshold" | bc -l) )); then
   echo "algbw($algbw GB/s) < threshold($threshold GB/s)" >&2
   exit 1
