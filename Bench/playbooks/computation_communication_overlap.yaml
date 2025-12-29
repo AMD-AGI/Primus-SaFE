@@ -5,6 +5,11 @@
     master_port: "{{ master_port | default('29500') }}"
     container_env: "{{ container_env | default({}) }}"
   tasks:
+    - name: Remove old overlap_results.json
+      file:
+        path: "{{ workspace }}/benchmarks/micro_benchmarks/overlap_results.json"
+        state: absent
+
     - name: Collect all node IPs from inventory
       set_fact:
         nodes: "{{ groups['all'] | list }}"
