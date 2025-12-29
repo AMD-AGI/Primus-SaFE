@@ -82,24 +82,12 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &amdv1.HelmStatusApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("HybridStorageSpec"):
 		return &amdv1.HybridStorageSpecApplyConfiguration{}
-	case v1.SchemeGroupVersion.WithKind("Inference"):
-		return &amdv1.InferenceApplyConfiguration{}
-	case v1.SchemeGroupVersion.WithKind("InferenceConfig"):
-		return &amdv1.InferenceConfigApplyConfiguration{}
-	case v1.SchemeGroupVersion.WithKind("InferenceEvent"):
-		return &amdv1.InferenceEventApplyConfiguration{}
-	case v1.SchemeGroupVersion.WithKind("InferenceInstance"):
-		return &amdv1.InferenceInstanceApplyConfiguration{}
-	case v1.SchemeGroupVersion.WithKind("InferenceResource"):
-		return &amdv1.InferenceResourceApplyConfiguration{}
-	case v1.SchemeGroupVersion.WithKind("InferenceSpec"):
-		return &amdv1.InferenceSpecApplyConfiguration{}
-	case v1.SchemeGroupVersion.WithKind("InferenceStatus"):
-		return &amdv1.InferenceStatusApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("MachineStatus"):
 		return &amdv1.MachineStatusApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("Model"):
 		return &amdv1.ModelApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("ModelLocalPath"):
+		return &amdv1.ModelLocalPathApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("ModelSource"):
 		return &amdv1.ModelSourceApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("ModelSpec"):

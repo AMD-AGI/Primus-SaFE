@@ -53,9 +53,6 @@ func SetupControllers(ctx context.Context, mgr manager.Manager) error {
 	if err := SetupSecretController(mgr); err != nil {
 		return fmt.Errorf("failed to set up secret controller: %v", err)
 	}
-	if err := SetupInferenceController(mgr); err != nil {
-		return fmt.Errorf("failed to set up inference controller: %v", err)
-	}
 	if err := SetupModelController(mgr); err != nil {
 		return fmt.Errorf("failed to set up model controller: %v", err)
 	}

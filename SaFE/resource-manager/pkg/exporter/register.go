@@ -26,7 +26,7 @@ const (
 )
 
 // SetupExporters initializes and registers all resource exporters with the controller manager
-// It sets up database clients and configures handlers for Workload, Fault, and OpsJob resources
+// It sets up database clients and configures handlers for Workload, Fault, OpsJob, and Model resources
 func SetupExporters(ctx context.Context, mgr manager.Manager) error {
 	if !commonconfig.IsDBEnable() {
 		return nil
@@ -83,25 +83,6 @@ func SetupExporters(ctx context.Context, mgr manager.Manager) error {
 				return nil
 			},
 			filter: nil,
-		},
-		{
-			gvk: v1.SchemeGroupVersion.WithKind(v1.InferenceKind),
-			handler: func(ctx context.Context, obj *unstructured.Unstructured) error {
-				dbInference := inferenceMapper(obj)
-				if dbInference == nil {
-					return nil
-				}
-				if err := dbClient.UpsertInference(ctx, dbInference); err != nil {
-					if !obj.GetDeletionTimestamp().IsZero() &&
-						time.Now().UTC().Sub(obj.GetDeletionTimestamp().Time).Hours() > MaxTTLHour {
-						klog.Errorf("failed to upsert inference(%d), ignore it: %v", dbInference.Id, err)
-						return nil
-					}
-					return err
-				}
-				return nil
-			},
-			filter: inferenceFilter,
 		},
 		{
 			gvk: v1.SchemeGroupVersion.WithKind(v1.ModelKind),
