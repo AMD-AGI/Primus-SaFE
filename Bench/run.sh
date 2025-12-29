@@ -73,15 +73,17 @@ if [[ "$RANK" == "0" ]]; then
         -e workspace="$PRIMUSBENCH_PATH" \
         -e hf_token="$HF_TOKEN" \
         -e master_port="$NODE_CHECK_MASTER_PORT" \
+        -e output_dir="$OUTPUT_PATH" \
         --extra-vars "$CONTAINER_ENV_JSON" \
         -vvv -f "$WORLD_SIZE" \
         > "$preflight_node_logname" 2>&1 &
     ansible_pid=$!
 
-    NODE_LOG="/tmp/node.log"
     TIMEOUT=60
     ELAPSED=0
-    while [ ! -f "$NODE_LOG" ]; do
+    NODE_LOG=""
+    # Wait for directory and node.log to be created
+    while [ -z "$NODE_LOG" ] || [ ! -f "$NODE_LOG" ]; do
         # Check if ansible process is still running
         if ! kill -0 $ansible_pid 2>/dev/null; then
             warn "Ansible process exited before creating log file"
@@ -91,6 +93,11 @@ if [[ "$RANK" == "0" ]]; then
         if [ $ELAPSED -ge $TIMEOUT ]; then
             warn "Timeout waiting for node log file"
             break
+        fi
+        # Try to find the first directory
+        FIRST_DIR=$(find "$OUTPUT_PATH" -maxdepth 1 -type d ! -path "$OUTPUT_PATH" 2>/dev/null | head -1)
+        if [ -n "$FIRST_DIR" ]; then
+            NODE_LOG="$FIRST_DIR/node.log"
         fi
         sleep 1
         ((ELAPSED++))
@@ -138,9 +145,37 @@ if [[ "$RANK" == "0" ]]; then
         fi
     done < "$preflight_node_logname"
 
+        # Initialize bench report file
+    BENCH_REPORT="${OUTPUT_PATH}/bench_report.txt"
+    echo "================================================================================" > "$BENCH_REPORT"
+    echo "                    PrimusBench Node Check Report" >> "$BENCH_REPORT"
+    echo "================================================================================" >> "$BENCH_REPORT"
+    echo "Generated at: $(date '+%Y-%m-%d %H:%M:%S')" >> "$BENCH_REPORT"
+    echo "" >> "$BENCH_REPORT"
+    echo "Summary: ${#healthy_nodes_ip[@]} healthy nodes out of ${#all_nodes[@]} total nodes checked" >> "$BENCH_REPORT"
+    echo "" >> "$BENCH_REPORT"
+    echo "================================================================================" >> "$BENCH_REPORT"
+    echo "" >> "$BENCH_REPORT"
+    # Write failed nodes to report
+    echo "Failed Nodes (Node Check) - ${#failed_nodes[@]} nodes" >> "$BENCH_REPORT"
+    echo "--------------------------------------------------------------------------------" >> "$BENCH_REPORT"
+    if [ ${#failed_nodes[@]} -gt 0 ]; then
+        for node in "${failed_nodes[@]}"; do
+            nodeIP="${node_ip_map[$node]:-unknown}"
+            node_log="$OUTPUT_PATH/$node/node.log"
+            if [ -f "$node_log" ]; then
+                error=$(grep '\[NODE\] \[ERROR\]:' "$node_log" | sed 's/^\[.*\] \[.*\] \[NODE\] \[ERROR\]: \[[0-9-]* [0-9:]*\] //' | tr '\n' ' | ' | sed 's/ | $//')
+            fi
+            echo "  $node ($nodeIP): $error" >> "$BENCH_REPORT"
+        done
+    else
+        echo "  -" >> "$BENCH_REPORT"
+    fi
+    echo "" >> "$BENCH_REPORT"
 
 
     if [ ${#successed_nodes[@]} -eq 0 ]; then
+        cat "$BENCH_REPORT"
         err "No healthy nodes found, aborting."
         CUDA_VISIBLE_DEVICES="" torchrun \
         --nproc_per_node=1 \
@@ -197,29 +232,7 @@ if [[ "$RANK" == "0" ]]; then
     ok "Network check complete. Healthy nodes (${#healthy_nodes_ip[@]}/${#all_nodes[@]}): ${healthy_nodes_ip[*]}"
     
 
-    # Initialize bench report file
-    BENCH_REPORT="${OUTPUT_PATH}/bench_report.txt"
-    echo "================================================================================" > "$BENCH_REPORT"
-    echo "                    PrimusBench Node Check Report" >> "$BENCH_REPORT"
-    echo "================================================================================" >> "$BENCH_REPORT"
-    echo "Generated at: $(date '+%Y-%m-%d %H:%M:%S')" >> "$BENCH_REPORT"
-    echo "" >> "$BENCH_REPORT"
-    echo "Summary: ${#healthy_nodes_ip[@]} healthy nodes out of ${#all_nodes[@]} total nodes checked" >> "$BENCH_REPORT"
-    echo "" >> "$BENCH_REPORT"
-    echo "================================================================================" >> "$BENCH_REPORT"
-    echo "" >> "$BENCH_REPORT"
-    # Write failed nodes to report
-    echo "Failed Nodes (Node Check) - ${#failed_nodes[@]} nodes" >> "$BENCH_REPORT"
-    echo "--------------------------------------------------------------------------------" >> "$BENCH_REPORT"
-    if [ ${#failed_nodes[@]} -gt 0 ]; then
-        for node in "${failed_nodes[@]}"; do
-            nodeIP="${node_ip_map[$node]:-unknown}"
-            echo "  $node ($nodeIP)" >> "$BENCH_REPORT"
-        done
-    else
-        echo "  -" >> "$BENCH_REPORT"
-    fi
-    echo "" >> "$BENCH_REPORT"
+
 
     # Write network check results to report
     echo "Failed Nodes (Network Check) - ${#unhealthy_nodes[@]} nodes" >> "$BENCH_REPORT"
