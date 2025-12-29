@@ -63,9 +63,16 @@ else
     export NCCL_NET_GDR_LEVEL=${NCCL_NET_GDR_LEVEL:-2}
     export NCCL_NET_GDR_READ=${NCCL_NET_GDR_READ:-1}
     # Use IB HCA for UCX when AINIC is disabled
-    # NCCL_IB_HCA already contains port suffix (e.g., rdma0:1), so use as-is
+    # Extract first device from NCCL_IB_HCA
     IB_HCA_FIRST=$(echo $NCCL_IB_HCA | cut -d',' -f1)
-    export UCX_NET_DEVICES=${UCX_NET_DEVICES:-"${IB_HCA_FIRST}"}
+    # Check if port suffix is already present (format: device:port)
+    if [[ "$IB_HCA_FIRST" == *":"* ]]; then
+        # Already has port suffix, use as-is
+        export UCX_NET_DEVICES=${UCX_NET_DEVICES:-"${IB_HCA_FIRST}"}
+    else
+        # No port suffix, add default port 1 for UCX
+        export UCX_NET_DEVICES=${UCX_NET_DEVICES:-"${IB_HCA_FIRST}:1"}
+    fi
     # Standard IB settings
     export NCCL_IB_DISABLE=${NCCL_IB_DISABLE:-0}
     export NCCL_IB_PCI_RELAXED_ORDERING=${NCCL_IB_PCI_RELAXED_ORDERING:-1}
