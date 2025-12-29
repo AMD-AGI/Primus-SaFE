@@ -10,12 +10,11 @@
 # ==============================================================================
 # Container Configuration
 # ==============================================================================
-export IMAGE="${IMAGE:-primussafe/primusbench:202512061410-355}"
-
+export IMAGE="${IMAGE:-docker.io/primussafe/primusbench:rocm7.0.3_gfx950_ainic_202512281440}"
 # ==============================================================================
 # Cluster Configuration
 # ==============================================================================
-export NNODES="${NNODES:-1}"
+export NNODES="${NNODES:-2}"
 export GPUS_PER_NODE="${GPUS_PER_NODE:-8}"
 export MASTER_ADDR="${MASTER_ADDR:-localhost}"
 export MASTER_PORT="${MASTER_PORT:-12345}"
@@ -24,7 +23,7 @@ export SSH_PORT="${SSH_PORT:-22366}"
 # ==============================================================================
 # SLURM Configuration
 # ==============================================================================
-export PARTITION="${PARTITION:-amd-tw}"
+export PARTITION="${PARTITION:-mi355x}"
 export TIME="${TIME:-4:30:00}"
 export CPUS_PER_TASK="${CPUS_PER_TASK:-128}"
 
@@ -40,7 +39,7 @@ export ENABLE_AINIC="${ENABLE_AINIC:-false}"
 # ==============================================================================
 # GPU Configuration (MI300X/MI325X/MI355X)
 # ==============================================================================
-export GPU_PRODUCT="${GPU_PRODUCT:-MI325X}"
+export GPU_PRODUCT="${GPU_PRODUCT:-MI355X}"
 export HSA_ENABLE_SDMA="${HSA_ENABLE_SDMA:-1}"
 export HSA_NO_SCRATCH_RECLAIM="${HSA_NO_SCRATCH_RECLAIM:-1}"
 
@@ -86,6 +85,7 @@ export HOSTS="${HOSTS:-/root/hosts}"
 # ==============================================================================
 # Optional: HuggingFace Token (required for some benchmarks)
 # ==============================================================================
+
 # export HF_TOKEN="${HF_TOKEN:-}"
 
 # ==============================================================================

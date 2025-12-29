@@ -55,8 +55,6 @@ def threshold(node_count: int) -> float:
     G_PER_NODE = 8
     if RCCL_TEST_TYPE == 0:
         beff = 350.0*node_count*G_PER_NODE/(2*node_count*G_PER_NODE-1) *0.85
-        if ENABLE_AINIC:
-            beff *= 0.4
         return beff
     try:
         bnic = float(os.environ['BNIC'])
@@ -70,8 +68,6 @@ def threshold(node_count: int) -> float:
     # Compute effective bandwidth
     beff = 1 / (remote_frac / bnic + local_frac / bxgmi)
     beff *= 0.7
-    if ENABLE_AINIC:
-        beff *= 0.4
     return beff
 
 def get_hosts(hosts_file) -> List[str]:
@@ -217,13 +213,14 @@ def run_rccl_test(nodes: List[str]) -> float:
     if ENABLE_AINIC:
         env_vars["LD_LIBRARY_PATH"] = (
             f"/opt/amd-anp/build:"
-            f"/opt/rccl/build/lib:"
+            f"/opt/rccl/build/release:"
             f"{LD_LIBRARY_PATH}"
         )
-        env_vars["NCCL_NET_GDR_LEVEL"] = "0"
-        env_vars["NCCL_NET_GDR_READ"] = "0"
+        env_vars["NCCL_NET_GDR_LEVEL"] = "2"
+        env_vars["NCCL_NET_GDR_READ"] = "1"
         env_vars["NCCL_PXN_DISABLE"] = "0"
         env_vars["NCCL_DMABUF_ENABLE"] = "0"
+        env_vars["NCCL_GDR_FLUSH_DISABLE"] = "1"
         env_vars["NCCL_IGNORE_CPU_AFFINITY"] = "1"
         env_vars["NCCL_IB_QPS_PER_CONNECTION"] = "1"
         env_vars["UCX_NET_DEVICES"] = RCCL_SOCKET_IFNAME  # Use socket interface for UCX TCP
