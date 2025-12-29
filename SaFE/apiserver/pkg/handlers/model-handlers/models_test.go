@@ -128,16 +128,16 @@ func TestCreateResponse(t *testing.T) {
 // TestListModelQuery tests the ListModelQuery struct
 func TestListModelQuery(t *testing.T) {
 	query := ListModelQuery{
-		Limit:           20,
-		Offset:          10,
-		InferenceStatus: "Running",
-		AccessMode:      string(v1.AccessModeLocal),
+		Limit:      20,
+		Offset:     10,
+		AccessMode: string(v1.AccessModeLocal),
+		Workspace:  "test-workspace",
 	}
 
 	assert.Equal(t, 20, query.Limit)
 	assert.Equal(t, 10, query.Offset)
-	assert.Equal(t, "Running", query.InferenceStatus)
 	assert.Equal(t, string(v1.AccessModeLocal), query.AccessMode)
+	assert.Equal(t, "test-workspace", query.Workspace)
 }
 
 // TestListModelQuery_DefaultValues tests default values
@@ -147,8 +147,8 @@ func TestListModelQuery_DefaultValues(t *testing.T) {
 	// Before applying defaults
 	assert.Equal(t, 0, query.Limit)
 	assert.Equal(t, 0, query.Offset)
-	assert.Equal(t, "", query.InferenceStatus)
 	assert.Equal(t, "", query.AccessMode)
+	assert.Equal(t, "", query.Workspace)
 }
 
 // TestListModelResponse tests the ListModelResponse struct

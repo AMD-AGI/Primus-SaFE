@@ -30,11 +30,12 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
-	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 )
 
-// Chat handles direct chat with an inference model without saving session.
+// Chat handles direct chat with a model or workload.
 // Supports streaming via SSE (Server-Sent Events).
+// For remote_api models, uses the model's configured API endpoint.
+// For workloads, uses the workload's ingress URL and requires modelName in request.
 func (h *Handler) Chat(c *gin.Context) {
 	req := &ChatRequest{}
 	if err := c.ShouldBindJSON(req); err != nil {
@@ -48,79 +49,97 @@ func (h *Handler) Chat(c *gin.Context) {
 		return
 	}
 
-	var baseUrl, modelName, apiKey string
-	var phase string
-
-	// Get inference - try database first, fallback to K8s
-	if h.dbClient != nil {
-		// Get inference from database
-		dbInference, err := h.dbClient.GetInference(c.Request.Context(), req.InferenceId)
-		if err != nil {
-			c.JSON(404, gin.H{"error": fmt.Sprintf("inference not found: %v", err)})
-			return
-		}
-
-		phase = getString(dbInference.Phase)
-		modelName = dbInference.ModelName
-
-		// Parse instance to get base URL
-		var instanceData map[string]interface{}
-		if dbInference.Instance.Valid {
-			if err := jsonutils.Unmarshal([]byte(dbInference.Instance.String), &instanceData); err != nil {
-				c.JSON(500, gin.H{"error": "failed to parse instance data"})
-				return
-			}
-		}
-
-		baseUrl, _ = instanceData["baseUrl"].(string)
-
-		// Get API key from Secret (if apiKey reference exists)
-		if apiKeyRef, ok := instanceData["apiKey"].(map[string]interface{}); ok {
-			if secretName, ok := apiKeyRef["name"].(string); ok && secretName != "" {
-				apiKey = h.getApiKeyFromSecret(c.Request.Context(), secretName)
-			}
-		}
-
-		// Get model name from instance if available
-		if instanceModel, ok := instanceData["model"].(string); ok && instanceModel != "" {
-			modelName = instanceModel
-		}
-	} else {
-		// Get inference from K8s directly
-		k8sInference := &v1.Inference{}
-		if err := h.k8sClient.Get(c.Request.Context(), ctrlclient.ObjectKey{Name: req.InferenceId}, k8sInference); err != nil {
-			c.JSON(404, gin.H{"error": fmt.Sprintf("inference not found: %v", err)})
-			return
-		}
-
-		phase = string(k8sInference.Status.Phase)
-		baseUrl = k8sInference.Spec.Instance.BaseUrl
-		modelName = k8sInference.Spec.ModelName
-
-		// Get model name from instance if available
-		if k8sInference.Spec.Instance.Model != "" {
-			modelName = k8sInference.Spec.Instance.Model
-		}
-
-		// Get API key from Secret (if apiKey reference exists)
-		if k8sInference.Spec.Instance.ApiKey != nil && k8sInference.Spec.Instance.ApiKey.Name != "" {
-			apiKey = h.getApiKeyFromSecret(c.Request.Context(), k8sInference.Spec.Instance.ApiKey.Name)
-		}
-	}
-
-	// Check inference is running
-	if phase != string(common.InferencePhaseRunning) {
-		c.JSON(400, gin.H{"error": fmt.Sprintf("inference is not running, current phase: %s", phase)})
+	// Validate that either modelId or workloadId is provided
+	if req.ModelId == "" && req.WorkloadId == "" {
+		c.JSON(400, gin.H{"error": "either modelId or workloadId must be provided"})
 		return
 	}
 
+	var baseUrl, modelName, apiKey string
+	ctx := c.Request.Context()
+
+	if req.ModelId != "" {
+		// Chat with remote_api model
+		k8sModel := &v1.Model{}
+		if err := h.k8sClient.Get(ctx, ctrlclient.ObjectKey{Name: req.ModelId}, k8sModel); err != nil {
+			c.JSON(404, gin.H{"error": fmt.Sprintf("model not found: %v", err)})
+			return
+		}
+
+		// Verify it's a remote_api model
+		if k8sModel.Spec.Source.AccessMode != v1.AccessModeRemoteAPI {
+			c.JSON(400, gin.H{"error": "model is not a remote_api type, use workloadId for local model inference"})
+			return
+		}
+
+		// Verify model is ready
+		if k8sModel.Status.Phase != v1.ModelPhaseReady {
+			c.JSON(400, gin.H{"error": fmt.Sprintf("model is not ready, current phase: %s", k8sModel.Status.Phase)})
+			return
+		}
+
+		baseUrl = k8sModel.Spec.Source.URL
+		modelName = k8sModel.GetModelName()
+
+		// Get API key from Secret (if token reference exists)
+		if k8sModel.Spec.Source.Token != nil && k8sModel.Spec.Source.Token.Name != "" {
+			apiKey = h.getTokenFromSecret(ctx, k8sModel.Spec.Source.Token.Name)
+		}
+	} else {
+		// Chat with workload (local inference service)
+		k8sWorkload := &v1.Workload{}
+		// Workloads are namespaced, we need to find it
+		workloadList := &v1.WorkloadList{}
+		if err := h.k8sClient.List(ctx, workloadList); err != nil {
+			c.JSON(500, gin.H{"error": fmt.Sprintf("failed to list workloads: %v", err)})
+			return
+		}
+
+		var found bool
+		for _, w := range workloadList.Items {
+			if w.Name == req.WorkloadId {
+				k8sWorkload = &w
+				found = true
+				break
+			}
+		}
+
+		if !found {
+			c.JSON(404, gin.H{"error": fmt.Sprintf("workload not found: %s", req.WorkloadId)})
+			return
+		}
+
+		// Verify workload is running
+		if k8sWorkload.Status.Phase != v1.WorkloadRunning {
+			c.JSON(400, gin.H{"error": fmt.Sprintf("workload is not running, current phase: %s", k8sWorkload.Status.Phase)})
+			return
+		}
+
+		// For workloads, baseUrl must be provided by user
+		if req.WorkloadBaseUrl == "" {
+			c.JSON(400, gin.H{"error": "workloadBaseUrl is required when chatting with a workload"})
+			return
+		}
+		baseUrl = req.WorkloadBaseUrl
+
+		// For workloads, modelName must be provided by user
+		if req.WorkloadModelName == "" {
+			c.JSON(400, gin.H{"error": "workloadModelName is required when chatting with a workload"})
+			return
+		}
+		modelName = req.WorkloadModelName
+
+		// Optional API key from request
+		apiKey = req.WorkloadApiKey
+	}
+
 	if baseUrl == "" {
-		c.JSON(400, gin.H{"error": "inference service base URL not available"})
+		c.JSON(400, gin.H{"error": "service base URL not available"})
 		return
 	}
 
 	if modelName == "" {
-		c.JSON(400, gin.H{"error": "model name not specified in instance or inference"})
+		c.JSON(400, gin.H{"error": "model name not specified"})
 		return
 	}
 
@@ -132,15 +151,124 @@ func (h *Handler) Chat(c *gin.Context) {
 	}
 }
 
-// getApiKeyFromSecret retrieves API key from a Kubernetes Secret
-func (h *Handler) getApiKeyFromSecret(ctx context.Context, secretName string) string {
+// ListPlaygroundServices lists all available services for playground chat.
+// This includes remote_api models and running inference workloads.
+func (h *Handler) ListPlaygroundServices(c *gin.Context) {
+	handle(c, h.listPlaygroundServices)
+}
+
+// listPlaygroundServices implements the playground services listing logic.
+func (h *Handler) listPlaygroundServices(c *gin.Context) (interface{}, error) {
+	ctx := c.Request.Context()
+	var items []PlaygroundServiceItem
+
+	// 1. List remote_api models that are ready
+	modelList := &v1.ModelList{}
+	if err := h.k8sClient.List(ctx, modelList); err != nil {
+		return nil, commonerrors.NewInternalError("failed to list models: " + err.Error())
+	}
+
+	for _, m := range modelList.Items {
+		if m.Spec.Source.AccessMode == v1.AccessModeRemoteAPI && m.Status.Phase == v1.ModelPhaseReady {
+			items = append(items, PlaygroundServiceItem{
+				Type:        "remote_api",
+				ID:          m.Name,
+				DisplayName: m.Spec.DisplayName,
+				ModelName:   m.GetModelName(),
+				Phase:       string(m.Status.Phase),
+			})
+		}
+	}
+
+	// 2. List running inference workloads (workloads with source-model label)
+	workloadList := &v1.WorkloadList{}
+	if err := h.k8sClient.List(ctx, workloadList); err != nil {
+		return nil, commonerrors.NewInternalError("failed to list workloads: " + err.Error())
+	}
+
+	for _, w := range workloadList.Items {
+		// Only include workloads that are running
+		if w.Status.Phase != v1.WorkloadRunning {
+			continue
+		}
+
+		// Get source model ID from label
+		sourceModelID := ""
+		sourceModelName := ""
+		if w.Labels != nil {
+			sourceModelID = w.Labels[v1.SourceModelLabel]
+			if sourceModelID != "" {
+				// Try to get the source model's display name
+				sourceModel := &v1.Model{}
+				if err := h.k8sClient.Get(ctx, ctrlclient.ObjectKey{Name: sourceModelID}, sourceModel); err == nil {
+					sourceModelName = sourceModel.Spec.DisplayName
+				}
+			}
+		}
+
+		items = append(items, PlaygroundServiceItem{
+			Type:            "workload",
+			ID:              w.Name,
+			DisplayName:     w.Name, // Workload doesn't have DisplayName, use Name
+			Phase:           string(w.Status.Phase),
+			Workspace:       w.Namespace,
+			SourceModelID:   sourceModelID,
+			SourceModelName: sourceModelName,
+		})
+	}
+
+	return &ListPlaygroundServicesResponse{
+		Total: len(items),
+		Items: items,
+	}, nil
+}
+
+// GetChatURL gets the chat URL and configuration for a model or workload.
+func (h *Handler) GetChatURL(c *gin.Context) {
+	handle(c, h.getChatURL)
+}
+
+// getChatURL implements the chat URL retrieval logic.
+func (h *Handler) getChatURL(c *gin.Context) (interface{}, error) {
+	modelId := c.Param("id")
+	if modelId == "" {
+		return nil, commonerrors.NewBadRequest("model id is required")
+	}
+
+	ctx := c.Request.Context()
+
+	// Get the model
+	k8sModel := &v1.Model{}
+	if err := h.k8sClient.Get(ctx, ctrlclient.ObjectKey{Name: modelId}, k8sModel); err != nil {
+		return nil, commonerrors.NewNotFound("model", modelId)
+	}
+
+	if k8sModel.Spec.Source.AccessMode != v1.AccessModeRemoteAPI {
+		return nil, commonerrors.NewBadRequest("getChatURL is only available for remote_api models")
+	}
+
+	hasApiKey := k8sModel.Spec.Source.Token != nil && k8sModel.Spec.Source.Token.Name != ""
+
+	return &ChatURLResponse{
+		URL:       k8sModel.Spec.Source.URL,
+		ModelName: k8sModel.GetModelName(),
+		HasApiKey: hasApiKey,
+	}, nil
+}
+
+// getTokenFromSecret retrieves token from a Kubernetes Secret
+func (h *Handler) getTokenFromSecret(ctx context.Context, secretName string) string {
 	secret := &corev1.Secret{}
 	if err := h.k8sClient.Get(ctx, ctrlclient.ObjectKey{
 		Name:      secretName,
 		Namespace: common.PrimusSafeNamespace,
 	}, secret); err != nil {
-		klog.ErrorS(err, "failed to get API key secret", "secret", secretName)
+		klog.ErrorS(err, "failed to get token secret", "secret", secretName)
 		return ""
+	}
+	// Try "token" key first (for model tokens), then "apiKey" (for inference API keys)
+	if key, exists := secret.Data["token"]; exists {
+		return string(key)
 	}
 	if key, exists := secret.Data["apiKey"]; exists {
 		return string(key)
@@ -281,6 +409,12 @@ func (h *Handler) streamChat(c *gin.Context, baseUrl string, apiKey string, mode
 	// Get flusher for SSE
 	flusher, _ := c.Writer.(interface{ Flush() })
 
+	// Determine source ID for logging
+	sourceID := req.ModelId
+	if sourceID == "" {
+		sourceID = req.WorkloadId
+	}
+
 	// Stream response
 	for {
 		response, err := stream.Recv()
@@ -307,7 +441,7 @@ func (h *Handler) streamChat(c *gin.Context, baseUrl string, apiKey string, mode
 		}
 	}
 
-	klog.Infof("streaming chat completed for inference: %s", req.InferenceId)
+	klog.Infof("streaming chat completed for: %s", sourceID)
 }
 
 // nonStreamChat handles non-streaming chat with OpenAI SDK.
@@ -372,9 +506,15 @@ func (h *Handler) nonStreamChat(c *gin.Context, baseUrl string, apiKey string, m
 		return
 	}
 
+	// Determine source ID for logging
+	sourceID := req.ModelId
+	if sourceID == "" {
+		sourceID = req.WorkloadId
+	}
+
 	// Return response in OpenAI format
 	c.JSON(200, resp)
-	klog.Infof("non-streaming chat completed for inference: %s", req.InferenceId)
+	klog.Infof("non-streaming chat completed for: %s", sourceID)
 }
 
 // saveSession implements the session save logic - saves or updates a session.
