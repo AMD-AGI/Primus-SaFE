@@ -17,8 +17,14 @@ LOG_FILE="/tmp/transfer_a2a.log"
 max_retries=5
 best_bandwidth=0
 success=0
-threshold=29.6
 last_error=""
+
+threshold=0.0
+if [[ "$GPU_PRODUCT" == *"MI355X"* ]]; then
+  threshold=48.9
+else
+  threshold=29.6
+fi
 
 for attempt in $(seq 1 $max_retries); do
   if [ $attempt -gt 1 ]; then
