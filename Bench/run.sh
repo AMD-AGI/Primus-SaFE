@@ -103,7 +103,7 @@ if [[ "$RANK" == "0" ]]; then
         ((ELAPSED++))
     done
     if [ -f "$NODE_LOG" ]; then
-        tail --pid=$ansible_pid -f "$NODE_LOG"
+        tail -n +1 --pid=$ansible_pid -f "$NODE_LOG"
     fi
     wait $ansible_pid || true
 
@@ -319,7 +319,7 @@ if [[ "$RANK" == "0" ]]; then
         ((ELAPSED++))
     done
     if [ -f "$LOG" ]; then
-        tail --pid=$ansible_pid -f "$LOG"
+        tail -n +1 --pid=$ansible_pid -f "$LOG"
     fi
     wait $ansible_pid || true
     ok "Computation-Communication benchmark completed."
@@ -348,7 +348,7 @@ if [[ "$RANK" == "0" ]]; then
         ((ELAPSED++))
     done
     if [ -f "$LOG" ]; then
-        tail --pid=$ansible_pid -f "$LOG"
+        tail -n +1 --pid=$ansible_pid -f "$LOG"
     fi
     wait $ansible_pid || true
     ok "Kernel Launch Overhead benchmark completed."
