@@ -4,25 +4,51 @@ import (
 	"context"
 	"time"
 
-	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-gateway/pkg/config"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/airegistry"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/aitaskqueue"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 )
 
+// BackgroundConfig contains background job configuration
+type BackgroundConfig struct {
+	HealthCheckEnabled  bool
+	HealthCheckInterval time.Duration
+	TimeoutEnabled      bool
+	TimeoutInterval     time.Duration
+	CleanupEnabled      bool
+	CleanupInterval     time.Duration
+	RetentionPeriod     time.Duration
+}
+
+// DefaultBackgroundConfig returns default background job configuration
+func DefaultBackgroundConfig() *BackgroundConfig {
+	return &BackgroundConfig{
+		HealthCheckEnabled:  true,
+		HealthCheckInterval: 30 * time.Second,
+		TimeoutEnabled:      true,
+		TimeoutInterval:     1 * time.Minute,
+		CleanupEnabled:      true,
+		CleanupInterval:     1 * time.Hour,
+		RetentionPeriod:     7 * 24 * time.Hour,
+	}
+}
+
 // Manager manages all background jobs
 type Manager struct {
-	config        *config.Config
-	registry      airegistry.Registry
-	taskQueue     *aitaskqueue.PGStore
-	healthChecker *HealthCheckJob
+	config         *BackgroundConfig
+	registry       airegistry.Registry
+	taskQueue      *aitaskqueue.PGStore
+	healthChecker  *HealthCheckJob
 	timeoutHandler *TimeoutJob
-	cleanupJob    *CleanupJob
-	stopCh        chan struct{}
+	cleanupJob     *CleanupJob
+	stopCh         chan struct{}
 }
 
 // NewManager creates a new background job manager
-func NewManager(registry airegistry.Registry, taskQueue *aitaskqueue.PGStore, cfg *config.Config) *Manager {
+func NewManager(registry airegistry.Registry, taskQueue *aitaskqueue.PGStore, cfg *BackgroundConfig) *Manager {
+	if cfg == nil {
+		cfg = DefaultBackgroundConfig()
+	}
 	return &Manager{
 		config:    cfg,
 		registry:  registry,
@@ -36,24 +62,24 @@ func (m *Manager) Start(ctx context.Context) {
 	log.Info("Starting background jobs...")
 
 	// Health check job
-	if m.config.Background.HealthCheck.Enabled {
-		m.healthChecker = NewHealthCheckJob(m.registry, m.config.Background.HealthCheck.Interval)
+	if m.config.HealthCheckEnabled {
+		m.healthChecker = NewHealthCheckJob(m.registry, m.config.HealthCheckInterval)
 		go m.healthChecker.Run(ctx)
-		log.Infof("Health check job started (interval: %v)", m.config.Background.HealthCheck.Interval)
+		log.Infof("Health check job started (interval: %v)", m.config.HealthCheckInterval)
 	}
 
 	// Timeout handler job
-	if m.config.Background.Timeout.Enabled {
-		m.timeoutHandler = NewTimeoutJob(m.taskQueue, m.config.Background.Timeout.Interval)
+	if m.config.TimeoutEnabled {
+		m.timeoutHandler = NewTimeoutJob(m.taskQueue, m.config.TimeoutInterval)
 		go m.timeoutHandler.Run(ctx)
-		log.Infof("Timeout handler job started (interval: %v)", m.config.Background.Timeout.Interval)
+		log.Infof("Timeout handler job started (interval: %v)", m.config.TimeoutInterval)
 	}
 
 	// Cleanup job
-	if m.config.Background.Cleanup.Enabled {
-		m.cleanupJob = NewCleanupJob(m.taskQueue, m.config.Background.Cleanup.Interval, m.config.Background.Cleanup.RetentionPeriod)
+	if m.config.CleanupEnabled {
+		m.cleanupJob = NewCleanupJob(m.taskQueue, m.config.CleanupInterval, m.config.RetentionPeriod)
 		go m.cleanupJob.Run(ctx)
-		log.Infof("Cleanup job started (interval: %v, retention: %v)", m.config.Background.Cleanup.Interval, m.config.Background.Cleanup.RetentionPeriod)
+		log.Infof("Cleanup job started (interval: %v, retention: %v)", m.config.CleanupInterval, m.config.RetentionPeriod)
 	}
 }
 
@@ -224,4 +250,3 @@ func (j *CleanupJob) Run(ctx context.Context) {
 func (j *CleanupJob) Stop() {
 	close(j.stopCh)
 }
-

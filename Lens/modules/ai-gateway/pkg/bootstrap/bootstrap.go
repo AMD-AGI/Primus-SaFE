@@ -2,101 +2,116 @@ package bootstrap
 
 import (
 	"context"
-	"fmt"
-	"os"
 
+	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-gateway/pkg/api"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-gateway/pkg/background"
-	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-gateway/pkg/config"
-	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-gateway/pkg/server"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/airegistry"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/aitaskqueue"
-	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/config"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/router"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/server"
+	"github.com/gin-gonic/gin"
 )
 
-// Run starts the AI Gateway service
-func Run(ctx context.Context) error {
-	// Load configuration
-	cfg := loadConfig()
+// Global components
+var (
+	registry  airegistry.Registry
+	taskQueue *aitaskqueue.PGStore
+	bgManager *background.Manager
+)
 
-	log.Info("Starting AI Gateway...")
-	log.Infof("Registry mode: %s", cfg.Registry.Mode)
+// Bootstrap starts the AI Gateway service using the core server framework
+func Bootstrap(ctx context.Context) error {
+	return server.InitServerWithPreInitFunc(ctx, func(ctx context.Context, cfg *config.Config) error {
+		log.Info("Initializing AI Gateway components...")
 
-	// Initialize registry
-	registry, err := initRegistry(cfg)
-	if err != nil {
-		return fmt.Errorf("failed to initialize registry: %w", err)
-	}
-
-	// Initialize task queue
-	taskQueue := initTaskQueue(cfg)
-
-	// Create and start background jobs
-	bgManager := background.NewManager(registry, taskQueue, cfg)
-	bgManager.Start(ctx)
-	defer bgManager.Stop()
-
-	// Create and start HTTP server
-	srv := server.New(cfg, registry, taskQueue)
-	return srv.Run(ctx)
-}
-
-// loadConfig loads configuration from file or environment
-func loadConfig() *config.Config {
-	configPath := os.Getenv("AI_GATEWAY_CONFIG")
-	if configPath != "" {
-		cfg, err := config.LoadFromFile(configPath)
-		if err != nil {
-			log.Warnf("Failed to load config from %s: %v, using defaults", configPath, err)
-			return config.LoadFromEnv()
+		// Get registry mode from config (default to db)
+		registryMode := "db"
+		if cfg.AIGateway != nil && cfg.AIGateway.RegistryMode != "" {
+			registryMode = cfg.AIGateway.RegistryMode
 		}
-		return cfg
-	}
-	return config.LoadFromEnv()
+
+		// Initialize registry based on mode
+		var err error
+		registry, err = initRegistry(registryMode)
+		if err != nil {
+			log.Errorf("Failed to initialize registry: %v", err)
+			return err
+		}
+
+		// Initialize task queue with default config
+		queueConfig := &aitaskqueue.QueueConfig{
+			DefaultTimeout:    5 * 60, // 5 minutes in seconds
+			DefaultMaxRetries: 3,
+			RetentionDays:     7,
+		}
+		taskQueue = aitaskqueue.NewPGStore("", queueConfig)
+
+		// Create and start background jobs
+		bgManager = background.NewManager(registry, taskQueue, nil)
+		bgManager.Start(ctx)
+
+		// Register cleanup for background manager
+		go func() {
+			<-ctx.Done()
+			log.Info("Shutting down AI Gateway background jobs...")
+			bgManager.Stop()
+		}()
+
+		// Register routes
+		router.RegisterGroup(initRouter)
+
+		log.Info("AI Gateway initialized successfully")
+		return nil
+	})
 }
 
-// initRegistry initializes the agent registry based on configuration
-func initRegistry(cfg *config.Config) (airegistry.Registry, error) {
-	switch cfg.Registry.Mode {
+// initRegistry initializes the agent registry based on mode
+func initRegistry(mode string) (airegistry.Registry, error) {
+	switch mode {
 	case "memory":
 		log.Info("Using in-memory registry")
 		return airegistry.NewMemoryStore(), nil
-	case "config":
-		log.Info("Using config-based registry")
-		agents := make([]airegistry.StaticAgentConfig, len(cfg.Registry.StaticAgents))
-		for i, a := range cfg.Registry.StaticAgents {
-			agents[i] = airegistry.StaticAgentConfig{
-				Name:            a.Name,
-				Endpoint:        a.Endpoint,
-				Topics:          a.Topics,
-				Timeout:         a.Timeout,
-				HealthCheckPath: a.HealthCheckPath,
-			}
-		}
-		return airegistry.NewConfigStore(agents), nil
 	case "db":
 		log.Info("Using database registry")
 		return airegistry.NewDBStore(""), nil
 	default:
-		log.Warnf("Unknown registry mode: %s, using memory", cfg.Registry.Mode)
+		log.Warnf("Unknown registry mode: %s, using memory", mode)
 		return airegistry.NewMemoryStore(), nil
 	}
 }
 
-// initTaskQueue initializes the task queue
-func initTaskQueue(cfg *config.Config) *aitaskqueue.PGStore {
-	queueConfig := &aitaskqueue.QueueConfig{
-		DefaultTimeout:       5 * 60, // 5 minutes in seconds
-		DefaultMaxRetries:    3,
-		RetentionDays:        7,
-		CleanupInterval:      cfg.Background.Cleanup.Interval,
-		TimeoutCheckInterval: cfg.Background.Timeout.Interval,
+// initRouter registers all AI Gateway routes
+func initRouter(group *gin.RouterGroup) error {
+	// Agent registration endpoints
+	agentsGroup := group.Group("/ai/agents")
+	{
+		agentHandler := api.NewAgentHandler(registry)
+		agentsGroup.POST("/register", agentHandler.Register)
+		agentsGroup.DELETE("/:name", agentHandler.Unregister)
+		agentsGroup.GET("", agentHandler.List)
+		agentsGroup.GET("/:name", agentHandler.Get)
+		agentsGroup.GET("/:name/health", agentHandler.GetHealth)
 	}
-	return aitaskqueue.NewPGStore("", queueConfig)
-}
 
-// GetFacade returns the database facade for the current cluster
-func GetFacade() database.FacadeInterface {
-	return database.GetFacade()
-}
+	// Task endpoints
+	tasksGroup := group.Group("/ai/tasks")
+	{
+		taskHandler := api.NewTaskHandler(taskQueue)
+		tasksGroup.GET("/:id", taskHandler.GetTask)
+		tasksGroup.GET("/:id/status", taskHandler.GetTaskStatus)
+		tasksGroup.POST("/:id/cancel", taskHandler.CancelTask)
+		tasksGroup.GET("", taskHandler.ListTasks)
+	}
 
+	// Stats endpoint
+	statsGroup := group.Group("/ai/stats")
+	{
+		statsHandler := api.NewStatsHandler(registry, taskQueue)
+		statsGroup.GET("", statsHandler.GetStats)
+	}
+
+	log.Info("AI Gateway routes registered successfully")
+	return nil
+}
