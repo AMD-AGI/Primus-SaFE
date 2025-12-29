@@ -169,20 +169,26 @@ This installs:
 ```bash
 cd ../../Bench
 
+# Configure benchmark settings
+vim config.sh
+
 # Edit hosts.ini to specify nodes to benchmark
 vim hosts.ini
 
-# Run preflight checks and benchmarks
+# Run comprehensive health checks and benchmarks
 bash run_bare_metal.sh
 ```
 
 This runs:
-- Node configuration and hardware checks
-- Network connectivity and bandwidth tests
-- I/O performance benchmarks
-- Computation-communication overlap tests
+- SSH connectivity and configuration validation
+- Node hardware and system health checks
+- Network performance and reliability tests (with automatic retry and unhealthy node filtering)
+- I/O performance benchmarks (optional)
+- Computation-communication overlap measurements
+- Kernel launch overhead analysis
+- Generates detailed health reports with pass/fail node inventory
 
-**See [Bench/README.md](Bench/README.md) for different execution modes (bare-metal, SLURM, Kubernetes).**
+**See [Bench/README.md](Bench/README.md) for different execution modes (bare-metal, SLURM, local, Kubernetes).**
 
 ---
 
@@ -289,51 +295,88 @@ bash install.sh
 
 **Location:** [`Bench/`](Bench/)
 
-Primus-Bench ensures every node in the cluster meets baseline performance standards before allowing it to run production training workloads.
+Primus-Bench provides comprehensive node validation and performance benchmarking to ensure every node in the cluster meets baseline standards before running production training workloads. It intelligently filters out unhealthy nodes and generates detailed health reports.
 
-**Test Categories:**
+**Test Workflow:**
 
-1. **Preflight Checks**:
-   - SSH reachability and configuration
-   - Environment variables and system settings
-   - ROCm driver and GPU detection
-   - Network connectivity and DNS resolution
+1. **SSH Preflight**:
+   - Establishes SSH connectivity across all nodes
+   - Synchronizes SSH keys and configurations
+   - Validates node accessibility
 
-2. **Hardware Diagnostics**:
-   - GPU functionality and memory tests
-   - RDMA device availability and configuration
+2. **Node Health Checks**:
+   - Hardware validation (GPUs, ROCm drivers, memory)
+   - System configuration verification
+   - Environment variable validation
    - Network interface verification
+   - RDMA device availability checks
 
-3. **Performance Benchmarks**:
-   - I/O benchmarks (fio, IOR)
-   - Computation-communication overlap tests
-   - Kernel launch overhead measurements
-   - RDMA bandwidth and latency tests
+3. **Network Diagnostics**:
+   - Multi-node all-reduce performance tests
+   - All-to-all communication tests
+   - InfiniBand bandwidth validation (ib_write_bw)
+   - Automatic retry with unhealthy node removal
+   - Network topology validation
 
-4. **Trial Training Runs**:
-   - Small-scale distributed training jobs
-   - Multi-node communication validation
-   - End-to-end training pipeline verification
+4. **Performance Benchmarks**:
+   - **I/O Benchmarks** (optional): FIO and IOR tests for storage performance
+   - **Computation-Communication Overlap**: Measures ability to overlap compute and communication
+   - **Kernel Launch Overhead**: Evaluates GPU kernel dispatch latency
+   - Results exported as JSON for analysis
+
+5. **Health Report Generation**:
+   - Comprehensive node status summary
+   - Failed nodes categorization (node check vs network check)
+   - Healthy nodes inventory for subsequent operations
+   - Detailed logs for troubleshooting
 
 **Execution Modes:**
-- **Bare Metal**: Ansible-driven execution across hosts
-- **SLURM**: Resource allocation and batch job execution
-- **Kubernetes**: PyTorchJob-based distributed testing
+
+- **Bare Metal Mode**: Direct execution on bare-metal servers with Docker installation
+- **Local Mode**: Container-based execution for single or multi-node setups
+- **SLURM Mode**: Integration with SLURM job scheduler for HPC environments
+- **Kubernetes Mode**: PyTorchJob-based execution in Kubernetes clusters
 
 **Usage:**
 ```bash
 cd Bench
 
-# Bare metal mode
-vim hosts.ini
+# Configure your environment (edit as needed)
+vim config.sh
+
+# Bare metal mode with automatic Docker installation
+vim hosts.ini  # Configure target nodes
 bash run_bare_metal.sh
 
-# SLURM mode
-NNODES=4 PARTITION=gpu bash salloc_slurm.sh
+# SLURM mode (with automatic resource allocation)
+NNODES=4 bash run_slurm.sh
+
+# SLURM mode (within existing allocation)
+bash run_slurm.sh --no-allocate
+
+# Local mode (for testing on current node)
+bash run_local.sh
 
 # Kubernetes mode
 kubectl apply -f kubernetes/pytorchjob.yaml
 ```
+
+**Output Structure:**
+```
+outputs/
+└── YYYY-MM-DD_HH-MM-SS/
+    ├── primusbench.log          # Main execution log
+    ├── preflight_node.log        # Node check details
+    ├── preflight_network.log     # Network check results
+    ├── bench_report.txt          # Summary health report
+    ├── overlap_results.json      # CCO benchmark results
+    ├── kernel_overhead_results.json  # Kernel launch metrics
+    └── <node_name>/              # Per-node logs and results
+        ├── cco.log
+        └── kernel_launch.log
+```
+
+**Configuration:** All settings are centralized in `config.sh`, including container images, network interfaces, GPU settings, and benchmark parameters.
 
 **Learn More:** [Bench/README.md](Bench/README.md)
 
