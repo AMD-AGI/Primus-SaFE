@@ -974,12 +974,6 @@ func cvtToListWorkloadSql(query *view.ListWorkloadRequest) (sqrl.Sqlizer, []stri
 	userNameField := dbclient.GetFieldTag(dbTags, "UserName")
 	if userName := strings.TrimSpace(query.UserName); userName != "" {
 		dbSql = append(dbSql, sqrl.Like{userNameField: fmt.Sprintf("%%%s%%", userName)})
-	} else {
-		userCondition := sqrl.Or{
-			sqrl.NotEq{userNameField: common.UserSystem},        // username != 'system'
-			sqrl.Expr(fmt.Sprintf("%s IS NULL", userNameField)), // username IS NULL
-		}
-		dbSql = append(dbSql, userCondition)
 	}
 	if userId := strings.TrimSpace(query.UserId); userId != "" {
 		dbSql = append(dbSql, sqrl.Eq{dbclient.GetFieldTag(dbTags, "UserId"): userId})
