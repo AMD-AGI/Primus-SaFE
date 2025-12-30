@@ -29,6 +29,21 @@ data:
         spec:
           restartPolicy: Never
           dnsPolicy: ClusterFirstWithHostNet
+          initContainers:
+            - name: preprocess
+              image: {{ .Values.global.image_registry }}/primussafe/{{ .Values.preprocess.image }}
+              imagePullPolicy: IfNotPresent
+              command: ["/bin/sh", "-c", "cp -r /preprocess/* /shared-data/"]
+              securityContext:
+                capabilities:
+                  add: [ "IPC_LOCK" ]
+              resources:
+                limits:
+                  cpu: 1000m
+                  memory: 128Mi
+              volumeMounts:
+                - name: shared-data
+                  mountPath: /shared-data
           containers:
             - name: job
               imagePullPolicy: IfNotPresent
@@ -36,6 +51,8 @@ data:
                 - name: podinfo
                   mountPath: /etc/podinfo
                   readOnly: true
+                - name: shared-data
+                  mountPath: /shared-data
               env:
                 - name: NCCL_SOCKET_IFNAME
                   value: "{{ .Values.net.nccl_socket_ifname }}"
@@ -46,6 +63,8 @@ data:
                   add: [ "IPC_LOCK", "SYS_PTRACE", "SYS_RESOURCE"]
           schedulerName: default-scheduler
           volumes:
+            - name: shared-data
+              emptyDir: {}
             - name: podinfo
               downwardAPI:
                 items:
