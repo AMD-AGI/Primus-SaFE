@@ -4,7 +4,7 @@ This document records the complete end-to-end testing process for the AI Agent W
 
 ## Test Environment
 
-- **Kubernetes Cluster**: x-flannel
+- **Kubernetes Cluster**: test-env
 - **Namespace**: primus-lens
 - **Test Date**: 2025-12-29
 
@@ -16,7 +16,7 @@ This document records the complete end-to-end testing process for the AI Agent W
 
 ```bash
 export KUBECONFIG=/wekafs/haiskong/.kube/config
-kubectl config use-context x-flannel
+kubectl config use-context test-env
 ```
 
 ## Step 1: Create Database Tables
