@@ -778,9 +778,7 @@ func (h *Handler) generatePreheatWorkload(ctx context.Context,
 	preheatWorkload := mainWorkload.DeepCopy()
 	preheatWorkload.Name = commonutils.GenerateName(v1.GetDisplayName(mainWorkload))
 	preheatWorkload.Spec.GroupVersionKind = v1.GroupVersionKind{Kind: common.JobKind, Version: common.DefaultVersion}
-	v1.SetLabel(preheatWorkload, v1.DisplayNameLabel, v1.GetDisplayName(mainWorkload)+"-preheat")
-	v1.SetLabel(preheatWorkload, v1.UserIdLabel, common.UserSystem)
-	v1.SetAnnotation(preheatWorkload, v1.UserNameAnnotation, common.UserSystem)
+	v1.SetAnnotation(preheatWorkload, v1.DescriptionAnnotation, "preheat")
 	v1.SetAnnotation(preheatWorkload, v1.RequireNodeSpreadAnnotation, v1.TrueStr)
 
 	preheatWorkload.Spec.EntryPoint = stringutil.Base64Encode("echo \"preheat finished\"")

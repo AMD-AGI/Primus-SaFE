@@ -406,8 +406,6 @@ func Test_generatePreheatWorkload(t *testing.T) {
 	assert.Assert(t, preheatWorkload.Name != mainWorkload.Name, "Preheat workload should have different name")
 	assert.Equal(t, v1.GetDisplayName(preheatWorkload), v1.GetDisplayName(mainWorkload)+"-preheat")
 	assert.Equal(t, preheatWorkload.Spec.GroupVersionKind.Kind, common.JobKind)
-	assert.Equal(t, v1.GetUserId(preheatWorkload), common.UserSystem)
-	assert.Equal(t, v1.GetUserName(preheatWorkload), common.UserSystem)
 	assert.Equal(t, preheatWorkload.Spec.IsSupervised, false)
 	assert.Equal(t, preheatWorkload.Spec.MaxRetry, 0)
 	assert.Equal(t, *preheatWorkload.Spec.TTLSecondsAfterFinished, 10)
