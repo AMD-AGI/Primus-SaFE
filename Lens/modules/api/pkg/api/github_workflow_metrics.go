@@ -267,7 +267,7 @@ func DeleteGithubWorkflowConfig(ctx *gin.Context) {
 
 // ListGithubWorkflowRuns handles GET /v1/github-workflow-metrics/configs/:config_id/runs
 func ListGithubWorkflowRuns(ctx *gin.Context) {
-	configIDStr := ctx.Param("config_id")
+	configIDStr := ctx.Param("id")
 	configID, err := strconv.ParseInt(configIDStr, 10, 64)
 	if err != nil {
 		ctx.JSON(http.StatusBadRequest, rest.ErrorResp(ctx.Request.Context(), http.StatusBadRequest, "invalid config_id", nil))
@@ -347,7 +347,7 @@ func GetGithubWorkflowRun(ctx *gin.Context) {
 
 // CreateGithubWorkflowSchema handles POST /v1/github-workflow-metrics/configs/:config_id/schemas
 func CreateGithubWorkflowSchema(ctx *gin.Context) {
-	configIDStr := ctx.Param("config_id")
+	configIDStr := ctx.Param("id")
 	configID, err := strconv.ParseInt(configIDStr, 10, 64)
 	if err != nil {
 		ctx.JSON(http.StatusBadRequest, rest.ErrorResp(ctx.Request.Context(), http.StatusBadRequest, "invalid config_id", nil))
@@ -407,7 +407,7 @@ func CreateGithubWorkflowSchema(ctx *gin.Context) {
 
 // ListGithubWorkflowSchemas handles GET /v1/github-workflow-metrics/configs/:config_id/schemas
 func ListGithubWorkflowSchemas(ctx *gin.Context) {
-	configIDStr := ctx.Param("config_id")
+	configIDStr := ctx.Param("id")
 	configID, err := strconv.ParseInt(configIDStr, 10, 64)
 	if err != nil {
 		ctx.JSON(http.StatusBadRequest, rest.ErrorResp(ctx.Request.Context(), http.StatusBadRequest, "invalid config_id", nil))
@@ -511,7 +511,7 @@ func SetGithubWorkflowSchemaActive(ctx *gin.Context) {
 
 // ListGithubWorkflowMetrics handles GET /v1/github-workflow-metrics/configs/:config_id/metrics
 func ListGithubWorkflowMetrics(ctx *gin.Context) {
-	configIDStr := ctx.Param("config_id")
+	configIDStr := ctx.Param("id")
 	configID, err := strconv.ParseInt(configIDStr, 10, 64)
 	if err != nil {
 		ctx.JSON(http.StatusBadRequest, rest.ErrorResp(ctx.Request.Context(), http.StatusBadRequest, "invalid config_id", nil))
@@ -602,7 +602,7 @@ func GetGithubWorkflowMetricsByRun(ctx *gin.Context) {
 
 // GetGithubWorkflowMetricsStats handles GET /v1/github-workflow-metrics/configs/:config_id/stats
 func GetGithubWorkflowMetricsStats(ctx *gin.Context) {
-	configIDStr := ctx.Param("config_id")
+	configIDStr := ctx.Param("id")
 	configID, err := strconv.ParseInt(configIDStr, 10, 64)
 	if err != nil {
 		ctx.JSON(http.StatusBadRequest, rest.ErrorResp(ctx.Request.Context(), http.StatusBadRequest, "invalid config_id", nil))
@@ -683,7 +683,7 @@ type BackfillRequest struct {
 
 // TriggerBackfill handles POST /v1/github-workflow-metrics/configs/:config_id/backfill
 func TriggerBackfill(ctx *gin.Context) {
-	configIDStr := ctx.Param("config_id")
+	configIDStr := ctx.Param("id")
 	configID, err := strconv.ParseInt(configIDStr, 10, 64)
 	if err != nil {
 		ctx.JSON(http.StatusBadRequest, rest.ErrorResp(ctx.Request.Context(), http.StatusBadRequest, "invalid config_id", nil))
@@ -747,7 +747,7 @@ func TriggerBackfill(ctx *gin.Context) {
 
 // GetBackfillStatus handles GET /v1/github-workflow-metrics/configs/:config_id/backfill/status
 func GetBackfillStatus(ctx *gin.Context) {
-	configIDStr := ctx.Param("config_id")
+	configIDStr := ctx.Param("id")
 	configID, err := strconv.ParseInt(configIDStr, 10, 64)
 	if err != nil {
 		ctx.JSON(http.StatusBadRequest, rest.ErrorResp(ctx.Request.Context(), http.StatusBadRequest, "invalid config_id", nil))
@@ -786,7 +786,7 @@ func GetBackfillStatus(ctx *gin.Context) {
 
 // CancelBackfill handles POST /v1/github-workflow-metrics/configs/:config_id/backfill/cancel
 func CancelBackfill(ctx *gin.Context) {
-	configIDStr := ctx.Param("config_id")
+	configIDStr := ctx.Param("id")
 	configID, err := strconv.ParseInt(configIDStr, 10, 64)
 	if err != nil {
 		ctx.JSON(http.StatusBadRequest, rest.ErrorResp(ctx.Request.Context(), http.StatusBadRequest, "invalid config_id", nil))
@@ -823,7 +823,7 @@ func CancelBackfill(ctx *gin.Context) {
 
 // ListBackfillTasks handles GET /v1/github-workflow-metrics/configs/:config_id/backfill/tasks
 func ListBackfillTasks(ctx *gin.Context) {
-	configIDStr := ctx.Param("config_id")
+	configIDStr := ctx.Param("id")
 	configID, err := strconv.ParseInt(configIDStr, 10, 64)
 	if err != nil {
 		ctx.JSON(http.StatusBadRequest, rest.ErrorResp(ctx.Request.Context(), http.StatusBadRequest, "invalid config_id", nil))
@@ -841,7 +841,7 @@ func ListBackfillTasks(ctx *gin.Context) {
 
 // RetryFailedRuns handles POST /v1/github-workflow-metrics/configs/:config_id/runs/batch-retry
 func RetryFailedRuns(ctx *gin.Context) {
-	configIDStr := ctx.Param("config_id")
+	configIDStr := ctx.Param("id")
 	configID, err := strconv.ParseInt(configIDStr, 10, 64)
 	if err != nil {
 		ctx.JSON(http.StatusBadRequest, rest.ErrorResp(ctx.Request.Context(), http.StatusBadRequest, "invalid config_id", nil))
@@ -913,7 +913,7 @@ type SampleFileContent struct {
 // RegenerateGithubWorkflowSchema handles POST /v1/github-workflow-metrics/configs/:config_id/schemas/regenerate
 // Uses AI to analyze sample files and generate a metric schema
 func RegenerateGithubWorkflowSchema(ctx *gin.Context) {
-	configIDStr := ctx.Param("config_id")
+	configIDStr := ctx.Param("id")
 	configID, err := strconv.ParseInt(configIDStr, 10, 64)
 	if err != nil {
 		ctx.JSON(http.StatusBadRequest, rest.ErrorResp(ctx.Request.Context(), http.StatusBadRequest, "invalid config_id", nil))
@@ -1037,7 +1037,7 @@ func RegenerateGithubWorkflowSchema(ctx *gin.Context) {
 // PreviewSchemaExtraction handles POST /v1/github-workflow-metrics/configs/:config_id/schemas/preview
 // Uses AI to preview metrics extraction with a given schema
 func PreviewSchemaExtraction(ctx *gin.Context) {
-	configIDStr := ctx.Param("config_id")
+	configIDStr := ctx.Param("id")
 	configID, err := strconv.ParseInt(configIDStr, 10, 64)
 	if err != nil {
 		ctx.JSON(http.StatusBadRequest, rest.ErrorResp(ctx.Request.Context(), http.StatusBadRequest, "invalid config_id", nil))
@@ -1216,7 +1216,7 @@ func ExtractMetricsWithAI(ctx context.Context, config *dbmodel.GithubWorkflowCon
 // ListEphemeralRunners handles GET /v1/github-workflow-metrics/configs/:config_id/runners
 // Lists completed EphemeralRunners for a config
 func ListEphemeralRunners(ctx *gin.Context) {
-	configIDStr := ctx.Param("config_id")
+	configIDStr := ctx.Param("id")
 	configID, err := strconv.ParseInt(configIDStr, 10, 64)
 	if err != nil {
 		ctx.JSON(http.StatusBadRequest, rest.ErrorResp(ctx.Request.Context(), http.StatusBadRequest, "invalid config_id", nil))
@@ -1359,7 +1359,7 @@ type MetricsAdvancedQueryRequest struct {
 // QueryGithubWorkflowMetricsAdvanced handles POST /v1/github-workflow-metrics/configs/:config_id/metrics/query
 // Advanced query with JSONB dimension filtering
 func QueryGithubWorkflowMetricsAdvanced(ctx *gin.Context) {
-	configIDStr := ctx.Param("config_id")
+	configIDStr := ctx.Param("id")
 	configID, err := strconv.ParseInt(configIDStr, 10, 64)
 	if err != nil {
 		ctx.JSON(http.StatusBadRequest, rest.ErrorResp(ctx.Request.Context(), http.StatusBadRequest, "invalid config_id", nil))
@@ -1433,7 +1433,7 @@ type MetricsAggregationRequest struct {
 // GetGithubWorkflowMetricsAggregation handles POST /v1/github-workflow-metrics/configs/:config_id/metrics/aggregate
 // Returns aggregated metrics by time interval
 func GetGithubWorkflowMetricsAggregation(ctx *gin.Context) {
-	configIDStr := ctx.Param("config_id")
+	configIDStr := ctx.Param("id")
 	configID, err := strconv.ParseInt(configIDStr, 10, 64)
 	if err != nil {
 		ctx.JSON(http.StatusBadRequest, rest.ErrorResp(ctx.Request.Context(), http.StatusBadRequest, "invalid config_id", nil))
@@ -1499,7 +1499,7 @@ func GetGithubWorkflowMetricsAggregation(ctx *gin.Context) {
 // GetGithubWorkflowMetricsSummary handles GET /v1/github-workflow-metrics/configs/:config_id/summary
 // Returns summary statistics for a config
 func GetGithubWorkflowMetricsSummary(ctx *gin.Context) {
-	configIDStr := ctx.Param("config_id")
+	configIDStr := ctx.Param("id")
 	configID, err := strconv.ParseInt(configIDStr, 10, 64)
 	if err != nil {
 		ctx.JSON(http.StatusBadRequest, rest.ErrorResp(ctx.Request.Context(), http.StatusBadRequest, "invalid config_id", nil))
@@ -1547,7 +1547,7 @@ type MetricsTrendsRequest struct {
 // GetGithubWorkflowMetricsTrends handles POST /v1/github-workflow-metrics/configs/:config_id/metrics/trends
 // Returns time-series trends for specified metrics
 func GetGithubWorkflowMetricsTrends(ctx *gin.Context) {
-	configIDStr := ctx.Param("config_id")
+	configIDStr := ctx.Param("id")
 	configID, err := strconv.ParseInt(configIDStr, 10, 64)
 	if err != nil {
 		ctx.JSON(http.StatusBadRequest, rest.ErrorResp(ctx.Request.Context(), http.StatusBadRequest, "invalid config_id", nil))
@@ -1603,7 +1603,7 @@ func GetGithubWorkflowMetricsTrends(ctx *gin.Context) {
 // GetGithubWorkflowMetricsDimensions handles GET /v1/github-workflow-metrics/configs/:config_id/dimensions
 // Returns available dimensions and their distinct values
 func GetGithubWorkflowMetricsDimensions(ctx *gin.Context) {
-	configIDStr := ctx.Param("config_id")
+	configIDStr := ctx.Param("id")
 	configID, err := strconv.ParseInt(configIDStr, 10, 64)
 	if err != nil {
 		ctx.JSON(http.StatusBadRequest, rest.ErrorResp(ctx.Request.Context(), http.StatusBadRequest, "invalid config_id", nil))
@@ -1657,7 +1657,7 @@ func GetGithubWorkflowMetricsDimensions(ctx *gin.Context) {
 // GetGithubWorkflowMetricsFields handles GET /v1/github-workflow-metrics/configs/:config_id/fields
 // Returns available metric fields
 func GetGithubWorkflowMetricsFields(ctx *gin.Context) {
-	configIDStr := ctx.Param("config_id")
+	configIDStr := ctx.Param("id")
 	configID, err := strconv.ParseInt(configIDStr, 10, 64)
 	if err != nil {
 		ctx.JSON(http.StatusBadRequest, rest.ErrorResp(ctx.Request.Context(), http.StatusBadRequest, "invalid config_id", nil))
