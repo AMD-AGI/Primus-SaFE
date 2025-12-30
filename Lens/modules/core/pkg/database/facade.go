@@ -60,68 +60,80 @@ type FacadeInterface interface {
 	GetAIAgentRegistration() AIAgentRegistrationFacadeInterface
 	// GetAITask returns the AITask Facade interface
 	GetAITask() AITaskFacadeInterface
+	// GetGithubWorkflowConfig returns the GithubWorkflowConfig Facade interface
+	GetGithubWorkflowConfig() GithubWorkflowConfigFacadeInterface
+	// GetGithubWorkflowRun returns the GithubWorkflowRun Facade interface
+	GetGithubWorkflowRun() GithubWorkflowRunFacadeInterface
+	// GetGithubWorkflowSchema returns the GithubWorkflowSchema Facade interface
+	GetGithubWorkflowSchema() GithubWorkflowSchemaFacadeInterface
+	// GetGithubWorkflowMetrics returns the GithubWorkflowMetrics Facade interface
+	GetGithubWorkflowMetrics() GithubWorkflowMetricsFacadeInterface
 	// WithCluster returns a new Facade instance using the specified cluster
 	WithCluster(clusterName string) FacadeInterface
 }
 
 // Facade is the unified entry point for database operations, aggregating all sub-Facades
 type Facade struct {
-	Node                  NodeFacadeInterface
-	Pod                   PodFacadeInterface
-	Workload              WorkloadFacadeInterface
-	Container             ContainerFacadeInterface
-	Training              TrainingFacadeInterface
-	Storage               StorageFacadeInterface
-	Alert                 AlertFacadeInterface
-	MetricAlertRule       MetricAlertRuleFacadeInterface
-	LogAlertRule          LogAlertRuleFacadeInterface
-	AlertRuleAdvice       AlertRuleAdviceFacadeInterface
-	ClusterOverviewCache  ClusterOverviewCacheFacadeInterface
-	GenericCache          GenericCacheFacadeInterface
-	GpuAggregation        GpuAggregationFacadeInterface
-	SystemConfig          SystemConfigFacadeInterface
-	JobExecutionHistory   JobExecutionHistoryFacadeInterface
-	NamespaceInfo         NamespaceInfoFacadeInterface
-	AiWorkloadMetadata    AiWorkloadMetadataFacadeInterface
-	CheckpointEvent       CheckpointEventFacadeInterface
-	DetectionConflictLog  DetectionConflictLogFacadeInterface
-	WorkloadStatistic     WorkloadStatisticFacadeInterface
-	GpuUsageWeeklyReport  GpuUsageWeeklyReportFacadeInterface
-	NodeNamespaceMapping  NodeNamespaceMappingFacadeInterface
-	TraceLensSession              TraceLensSessionFacadeInterface
-	K8sService                    K8sServiceFacadeInterface
-	WorkloadDetection             WorkloadDetectionFacadeInterface
-	WorkloadDetectionEvidence     WorkloadDetectionEvidenceFacadeInterface
-	DetectionCoverage             DetectionCoverageFacadeInterface
-	AIAgentRegistration           AIAgentRegistrationFacadeInterface
-	AITask                        AITaskFacadeInterface
+	Node                      NodeFacadeInterface
+	Pod                       PodFacadeInterface
+	Workload                  WorkloadFacadeInterface
+	Container                 ContainerFacadeInterface
+	Training                  TrainingFacadeInterface
+	Storage                   StorageFacadeInterface
+	Alert                     AlertFacadeInterface
+	MetricAlertRule           MetricAlertRuleFacadeInterface
+	LogAlertRule              LogAlertRuleFacadeInterface
+	AlertRuleAdvice           AlertRuleAdviceFacadeInterface
+	ClusterOverviewCache      ClusterOverviewCacheFacadeInterface
+	GenericCache              GenericCacheFacadeInterface
+	GpuAggregation            GpuAggregationFacadeInterface
+	SystemConfig              SystemConfigFacadeInterface
+	JobExecutionHistory       JobExecutionHistoryFacadeInterface
+	NamespaceInfo             NamespaceInfoFacadeInterface
+	AiWorkloadMetadata        AiWorkloadMetadataFacadeInterface
+	CheckpointEvent           CheckpointEventFacadeInterface
+	DetectionConflictLog      DetectionConflictLogFacadeInterface
+	WorkloadStatistic         WorkloadStatisticFacadeInterface
+	GpuUsageWeeklyReport      GpuUsageWeeklyReportFacadeInterface
+	NodeNamespaceMapping      NodeNamespaceMappingFacadeInterface
+	TraceLensSession          TraceLensSessionFacadeInterface
+	K8sService                K8sServiceFacadeInterface
+	WorkloadDetection         WorkloadDetectionFacadeInterface
+	WorkloadDetectionEvidence WorkloadDetectionEvidenceFacadeInterface
+	DetectionCoverage         DetectionCoverageFacadeInterface
+	AIAgentRegistration       AIAgentRegistrationFacadeInterface
+	AITask                    AITaskFacadeInterface
+	GithubWorkflowConfig      GithubWorkflowConfigFacadeInterface
+	GithubWorkflowRun         GithubWorkflowRunFacadeInterface
+	GithubWorkflowSchema      GithubWorkflowSchemaFacadeInterface
+	GithubWorkflowMetrics     GithubWorkflowMetricsFacadeInterface
 }
 
 // NewFacade creates a new Facade instance
 func NewFacade() *Facade {
 	return &Facade{
-		Node:                  NewNodeFacade(),
-		Pod:                   NewPodFacade(),
-		Workload:              NewWorkloadFacade(),
-		Container:             NewContainerFacade(),
-		Training:              NewTrainingFacade(),
-		Storage:               NewStorageFacade(),
-		Alert:                 NewAlertFacade(),
-		MetricAlertRule:       NewMetricAlertRuleFacade(),
-		LogAlertRule:          NewLogAlertRuleFacade(),
-		AlertRuleAdvice:       NewAlertRuleAdviceFacade(),
-		ClusterOverviewCache:  NewClusterOverviewCacheFacade(),
-		GenericCache:          NewGenericCacheFacade(),
-		GpuAggregation:        NewGpuAggregationFacade(),
-		SystemConfig:          NewSystemConfigFacade(),
-		JobExecutionHistory:   NewJobExecutionHistoryFacade(),
-		NamespaceInfo:         NewNamespaceInfoFacade(),
-		AiWorkloadMetadata:    NewAiWorkloadMetadataFacade(),
-		CheckpointEvent:       NewCheckpointEventFacade(),
-		DetectionConflictLog:  NewDetectionConflictLogFacade(),
-		WorkloadStatistic:     NewWorkloadStatisticFacade(),
-		GpuUsageWeeklyReport:  NewGpuUsageWeeklyReportFacade(),
-		NodeNamespaceMapping:  NewNodeNamespaceMappingFacade(),
+		Node:                      NewNodeFacade(),
+		Pod:                       NewPodFacade(),
+		Workload:                  NewWorkloadFacade(),
+		Container:                 NewContainerFacade(),
+		Training:                  NewTrainingFacade(),
+		Storage:                   NewStorageFacade(),
+		Alert:                     NewAlertFacade(),
+		MetricAlertRule:           NewMetricAlertRuleFacade(),
+		LogAlertRule:              NewLogAlertRuleFacade(),
+		AlertRuleAdvice:           NewAlertRuleAdviceFacade(),
+		ClusterOverviewCache:      NewClusterOverviewCacheFacade(),
+		GenericCache:              NewGenericCacheFacade(),
+		GpuAggregation:            NewGpuAggregationFacade(),
+		SystemConfig:              NewSystemConfigFacade(),
+		JobExecutionHistory:       NewJobExecutionHistoryFacade(),
+		NamespaceInfo:             NewNamespaceInfoFacade(),
+		AiWorkloadMetadata:        NewAiWorkloadMetadataFacade(),
+		CheckpointEvent:           NewCheckpointEventFacade(),
+		DetectionConflictLog:      NewDetectionConflictLogFacade(),
+		WorkloadStatistic:         NewWorkloadStatisticFacade(),
+		GpuUsageWeeklyReport:      NewGpuUsageWeeklyReportFacade(),
+		NodeNamespaceMapping:      NewNodeNamespaceMappingFacade(),
 		TraceLensSession:          NewTraceLensSessionFacade(),
 		K8sService:                NewK8sServiceFacade(),
 		WorkloadDetection:         NewWorkloadDetectionFacade(),
@@ -129,6 +141,10 @@ func NewFacade() *Facade {
 		DetectionCoverage:         NewDetectionCoverageFacade(),
 		AIAgentRegistration:       NewAIAgentRegistrationFacade(),
 		AITask:                    NewAITaskFacade(),
+		GithubWorkflowConfig:      NewGithubWorkflowConfigFacade(),
+		GithubWorkflowRun:         NewGithubWorkflowRunFacade(),
+		GithubWorkflowSchema:      NewGithubWorkflowSchemaFacade(),
+		GithubWorkflowMetrics:     NewGithubWorkflowMetricsFacade(),
 	}
 }
 
@@ -277,31 +293,51 @@ func (f *Facade) GetAITask() AITaskFacadeInterface {
 	return f.AITask
 }
 
+// GetGithubWorkflowConfig returns the GithubWorkflowConfig Facade interface
+func (f *Facade) GetGithubWorkflowConfig() GithubWorkflowConfigFacadeInterface {
+	return f.GithubWorkflowConfig
+}
+
+// GetGithubWorkflowRun returns the GithubWorkflowRun Facade interface
+func (f *Facade) GetGithubWorkflowRun() GithubWorkflowRunFacadeInterface {
+	return f.GithubWorkflowRun
+}
+
+// GetGithubWorkflowSchema returns the GithubWorkflowSchema Facade interface
+func (f *Facade) GetGithubWorkflowSchema() GithubWorkflowSchemaFacadeInterface {
+	return f.GithubWorkflowSchema
+}
+
+// GetGithubWorkflowMetrics returns the GithubWorkflowMetrics Facade interface
+func (f *Facade) GetGithubWorkflowMetrics() GithubWorkflowMetricsFacadeInterface {
+	return f.GithubWorkflowMetrics
+}
+
 // WithCluster returns a new Facade instance, all sub-Facades use the specified cluster
 func (f *Facade) WithCluster(clusterName string) FacadeInterface {
 	return &Facade{
-		Node:                  f.Node.WithCluster(clusterName),
-		Pod:                   f.Pod.WithCluster(clusterName),
-		Workload:              f.Workload.WithCluster(clusterName),
-		Container:             f.Container.WithCluster(clusterName),
-		Training:              f.Training.WithCluster(clusterName),
-		Storage:               f.Storage.WithCluster(clusterName),
-		Alert:                 f.Alert.WithCluster(clusterName),
-		MetricAlertRule:       f.MetricAlertRule.WithCluster(clusterName),
-		LogAlertRule:          f.LogAlertRule.WithCluster(clusterName),
-		AlertRuleAdvice:       f.AlertRuleAdvice.WithCluster(clusterName),
-		ClusterOverviewCache:  f.ClusterOverviewCache.WithCluster(clusterName),
-		GenericCache:          f.GenericCache.WithCluster(clusterName),
-		GpuAggregation:        f.GpuAggregation.WithCluster(clusterName),
-		SystemConfig:          f.SystemConfig.WithCluster(clusterName),
-		JobExecutionHistory:   f.JobExecutionHistory.WithCluster(clusterName),
-		NamespaceInfo:         f.NamespaceInfo.WithCluster(clusterName),
-		AiWorkloadMetadata:    f.AiWorkloadMetadata.WithCluster(clusterName),
-		CheckpointEvent:       f.CheckpointEvent.WithCluster(clusterName),
-		DetectionConflictLog:  f.DetectionConflictLog.WithCluster(clusterName),
-		WorkloadStatistic:     f.WorkloadStatistic.WithCluster(clusterName),
-		GpuUsageWeeklyReport:  f.GpuUsageWeeklyReport.WithCluster(clusterName),
-		NodeNamespaceMapping:  f.NodeNamespaceMapping.WithCluster(clusterName),
+		Node:                      f.Node.WithCluster(clusterName),
+		Pod:                       f.Pod.WithCluster(clusterName),
+		Workload:                  f.Workload.WithCluster(clusterName),
+		Container:                 f.Container.WithCluster(clusterName),
+		Training:                  f.Training.WithCluster(clusterName),
+		Storage:                   f.Storage.WithCluster(clusterName),
+		Alert:                     f.Alert.WithCluster(clusterName),
+		MetricAlertRule:           f.MetricAlertRule.WithCluster(clusterName),
+		LogAlertRule:              f.LogAlertRule.WithCluster(clusterName),
+		AlertRuleAdvice:           f.AlertRuleAdvice.WithCluster(clusterName),
+		ClusterOverviewCache:      f.ClusterOverviewCache.WithCluster(clusterName),
+		GenericCache:              f.GenericCache.WithCluster(clusterName),
+		GpuAggregation:            f.GpuAggregation.WithCluster(clusterName),
+		SystemConfig:              f.SystemConfig.WithCluster(clusterName),
+		JobExecutionHistory:       f.JobExecutionHistory.WithCluster(clusterName),
+		NamespaceInfo:             f.NamespaceInfo.WithCluster(clusterName),
+		AiWorkloadMetadata:        f.AiWorkloadMetadata.WithCluster(clusterName),
+		CheckpointEvent:           f.CheckpointEvent.WithCluster(clusterName),
+		DetectionConflictLog:      f.DetectionConflictLog.WithCluster(clusterName),
+		WorkloadStatistic:         f.WorkloadStatistic.WithCluster(clusterName),
+		GpuUsageWeeklyReport:      f.GpuUsageWeeklyReport.WithCluster(clusterName),
+		NodeNamespaceMapping:      f.NodeNamespaceMapping.WithCluster(clusterName),
 		TraceLensSession:          f.TraceLensSession.WithCluster(clusterName),
 		K8sService:                f.K8sService.WithCluster(clusterName),
 		WorkloadDetection:         f.WorkloadDetection.WithCluster(clusterName),
@@ -309,6 +345,10 @@ func (f *Facade) WithCluster(clusterName string) FacadeInterface {
 		DetectionCoverage:         f.DetectionCoverage.WithCluster(clusterName),
 		AIAgentRegistration:       f.AIAgentRegistration.WithCluster(clusterName),
 		AITask:                    f.AITask.WithCluster(clusterName),
+		GithubWorkflowConfig:      f.GithubWorkflowConfig.WithCluster(clusterName),
+		GithubWorkflowRun:         f.GithubWorkflowRun.WithCluster(clusterName),
+		GithubWorkflowSchema:      f.GithubWorkflowSchema.WithCluster(clusterName),
+		GithubWorkflowMetrics:     f.GithubWorkflowMetrics.WithCluster(clusterName),
 	}
 }
 
