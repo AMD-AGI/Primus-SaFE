@@ -51,19 +51,32 @@ fi
 # Build
 echo "Building AMD ANP driver..."
 ret=0
+export RCCL_HOME=/opt/rccl 
 if [ -d "/opt/openmpi" ]; then
-  make -j 16 RCCL_HOME=/opt/rccl \
-             MPI_INCLUDE=/opt/openmpi/include/ \
+  make -j 16 MPI_INCLUDE=/opt/openmpi/include/ \
              MPI_LIB_PATH=/opt/openmpi/lib/ \
-             ROCM_PATH=/opt/rocm
+             ROCM_PATH=/opt/rocm 
   ret=$?
 else
-  make -j 16 RCCL_HOME=/opt/rccl ROCM_PATH=/opt/rocm
-   ret=$?
+  make -j 16 ROCM_PATH=/opt/rocm
+  ret=$?
 fi
 if [ $ret -ne 0 ]; then
   echo "Error: Failed to build AMD ANP driver."
   exit 1
 fi
 
-echo "============== install  AMD AINIC Network Plugin (amd-anp) ${AMD_ANP_VERSION} successfully =============="
+# Create symlink librccl-net.so -> librccl-anp.so if needed (RCCL looks for librccl-net.so)
+ANP_BUILD_DIR="${WORKDIR}/${ANP_DIR}/build"
+if [ -f "${ANP_BUILD_DIR}/librccl-anp.so" ] && [ ! -e "${ANP_BUILD_DIR}/librccl-net.so" ]; then
+  echo "Creating symlink: librccl-net.so -> librccl-anp.so"
+  cd ${ANP_BUILD_DIR}
+  ln -sf librccl-anp.so librccl-net.so
+  if [ $? -eq 0 ]; then
+    echo "Symlink created successfully."
+  else
+    echo "Warning: Failed to create symlink."
+  fi
+fi
+
+echo "============== install AMD AINIC Network Plugin (amd-anp) ${AMD_ANP_VERSION} successfully =============="

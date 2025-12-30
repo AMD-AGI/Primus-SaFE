@@ -205,9 +205,10 @@ func TestGetDeploymentShareMemorySize(t *testing.T) {
 	assert.NilError(t, err)
 	rt := TestDeploymentTemplate.DeepCopy()
 
-	memoryStorageSize, err := GetMemoryStorageSize(deploy, rt)
+	memoryStorageSizes, err := GetMemoryStorageSize(deploy, rt)
 	assert.NilError(t, err)
-	assert.Equal(t, memoryStorageSize, "20Gi")
+	assert.Equal(t, len(memoryStorageSizes), 1)
+	assert.Equal(t, memoryStorageSizes[0], "20Gi")
 }
 
 func TestGetPytorchJobResources(t *testing.T) {

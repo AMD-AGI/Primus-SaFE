@@ -102,6 +102,7 @@ const (
 	CronJobTimestampAnnotation        = WorkloadPrefix + "cronjob"
 	EnvToBeRemovedAnnotation          = WorkloadPrefix + "env.to.remove"
 	AdminControlPlaneAnnotation       = WorkloadPrefix + "admin.control.plane"
+	ResourceIdAnnotation              = WorkloadPrefix + "resource.id"
 
 	// user
 	UserPrefix              = PrimusSafePrefix + "user."

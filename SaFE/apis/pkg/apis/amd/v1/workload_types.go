@@ -118,6 +118,8 @@ type SecretEntity struct {
 type WorkloadSpec struct {
 	// Workload resource requirements
 	Resource WorkloadResource `json:"resource"`
+	// Workload resource requirements
+	Resources []WorkloadResource `json:"resources"`
 	// Requested workspace id
 	Workspace string `json:"workspace"`
 	// The address of the image used by the workload
@@ -200,6 +202,8 @@ type WorkloadStatus struct {
 type WorkloadPod struct {
 	// The podId
 	PodId string `json:"podId"`
+	// The id of workload resources that the pod is bound to
+	ResourceId int `json:"resourceId"`
 	// The Kubernetes node that the Pod is scheduled on
 	K8sNodeName string `json:"k8sNodeName,omitempty"`
 	// The admin node that the Pod is scheduled on
@@ -393,14 +397,6 @@ func (w *Workload) GetDependenciesPhase(workloadId string) (WorkloadPhase, bool)
 	return phase, ok
 }
 
-// HasScheduled checks if the workload has been scheduled at least once.
-func (w *Workload) HasScheduled() bool {
-	if IsWorkloadScheduled(w) || GetWorkloadDispatchCnt(w) > 0 {
-		return true
-	}
-	return false
-}
-
 // IsDependenciesFinish checks if all dependencies are finished.
 func (w *Workload) IsDependenciesFinish() bool {
 	if w.IsEnd() {
@@ -417,6 +413,14 @@ func (w *Workload) IsDependenciesFinish() bool {
 	}
 
 	return true
+}
+
+// HasScheduled checks if the workload has been scheduled at least once.
+func (w *Workload) HasScheduled() bool {
+	if IsWorkloadScheduled(w) || GetWorkloadDispatchCnt(w) > 0 {
+		return true
+	}
+	return false
 }
 
 // HasSpecifiedNodes checks if the workload has specified node constraints.

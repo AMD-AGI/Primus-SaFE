@@ -657,7 +657,6 @@ var (
 				PrePaths:      []string{"spec", "pytorchReplicaSpecs", "Master"},
 				TemplatePaths: []string{"template"},
 				ReplicasPaths: []string{"replicas"},
-				Replica:       1,
 			}, {
 				PrePaths:      []string{"spec", "pytorchReplicaSpecs", "Worker"},
 				TemplatePaths: []string{"template"},
@@ -896,7 +895,6 @@ var (
 			ResourceSpecs: []v1.ResourceSpec{{
 				PrePaths:      []string{"spec"},
 				TemplatePaths: []string{"template"},
-				Replica:       1,
 			}},
 		},
 	}
@@ -973,7 +971,7 @@ var (
 				Version: "v1",
 				Kind:    "PyTorchJob",
 			},
-			Resource: v1.WorkloadResource{
+			Resources: []v1.WorkloadResource{{
 				Replica:          1,
 				CPU:              "32",
 				GPU:              "4",
@@ -982,7 +980,7 @@ var (
 				SharedMemory:     "32Gi",
 				EphemeralStorage: "20Gi",
 				RdmaResource:     "1k",
-			},
+			}},
 			Env: map[string]string{
 				"key": "value",
 			},

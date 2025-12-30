@@ -3,8 +3,6 @@
  * See LICENSE for license information.
  */
 
-//go:build integration
-
 package exporter
 
 import (
@@ -40,7 +38,7 @@ var (
 				Version: "v1",
 				Kind:    "PyTorchJob",
 			},
-			Resource: v1.WorkloadResource{
+			Resources: []v1.WorkloadResource{{
 				Replica:          1,
 				CPU:              "32",
 				GPU:              "4",
@@ -48,7 +46,7 @@ var (
 				Memory:           "256Gi",
 				SharedMemory:     "32Gi",
 				EphemeralStorage: "20Gi",
-			},
+			}},
 		},
 	}
 )
@@ -60,6 +58,6 @@ func TestWorkloadMapper(t *testing.T) {
 	dbWorkload := workloadMapper(unstructuredObj)
 	assert.Equal(t, dbWorkload.WorkloadId, w.Name)
 	assert.Equal(t, dbWorkload.DisplayName, v1.GetDisplayName(w))
-	assert.Equal(t, dbWorkload.Resource, string(jsonutils.MarshalSilently(w.Spec.Resource)))
+	assert.Equal(t, dbWorkload.Resources, string(jsonutils.MarshalSilently(w.Spec.Resources)))
 	assert.Equal(t, dbutils.ParseNullTime(dbWorkload.CreationTime).Unix(), w.CreationTimestamp.Time.Unix())
 }

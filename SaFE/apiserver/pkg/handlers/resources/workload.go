@@ -749,8 +749,18 @@ func (h *Handler) generateWorkload(ctx context.Context,
 	genCustomerLabelsByNodes(workload, req.SpecifiedNodes, v1.K8sHostName)
 	if len(req.SpecifiedNodes) == 0 {
 		genCustomerLabelsByNodes(workload, req.ExcludedNodes, common.ExcludedNodes)
-	} else {
-		workload.Spec.Resource.Replica = len(req.SpecifiedNodes)
+	} else if len(workload.Spec.Resources) > 0 {
+		if workload.SpecKind() == common.PytorchJobKind || workload.SpecKind() == common.UnifiedJobKind {
+			workload.Spec.Resources[0].Replica = 1
+			if len(workload.Spec.Resources) > 1 {
+				workload.Spec.Resources[1].Replica = len(req.SpecifiedNodes) - 1
+				if len(workload.Spec.Resources) > 2 {
+					workload.Spec.Resources = workload.Spec.Resources[:2]
+				}
+			}
+		} else {
+			workload.Spec.Resources[0].Replica = len(req.SpecifiedNodes)
+		}
 	}
 	if req.WorkspaceId != "" {
 		workload.Spec.Workspace = req.WorkspaceId
@@ -789,22 +799,22 @@ func (h *Handler) generatePreheatWorkload(ctx context.Context,
 	preheatWorkload.Spec.TTLSecondsAfterFinished = pointer.Int(10)
 	preheatWorkload.Spec.CronJobs = nil
 	preheatWorkload.Spec.Dependencies = nil
-	preheatWorkload.Spec.Resource = v1.WorkloadResource{
+	preheatWorkload.Spec.Resources = []v1.WorkloadResource{{
 		CPU:              "1",
 		Memory:           "8Gi",
 		EphemeralStorage: "50Gi",
-	}
+	}}
 	if len(mainQuery.SpecifiedNodes) > 0 {
-		preheatWorkload.Spec.Resource.Replica = len(mainQuery.SpecifiedNodes)
+		preheatWorkload.Spec.Resources[0].Replica = len(mainQuery.SpecifiedNodes)
 	} else {
 		workspace, err := h.getAdminWorkspace(ctx, preheatWorkload.Spec.Workspace)
 		if err != nil {
 			return nil, err
 		}
 		if mainWorkload.Spec.IsTolerateAll {
-			preheatWorkload.Spec.Resource.Replica = workspace.CurrentReplica()
+			preheatWorkload.Spec.Resources[0].Replica = workspace.CurrentReplica()
 		} else {
-			preheatWorkload.Spec.Resource.Replica = workspace.Status.AvailableReplica
+			preheatWorkload.Spec.Resources[0].Replica = workspace.Status.AvailableReplica
 		}
 	}
 	return preheatWorkload, nil
@@ -1047,27 +1057,18 @@ func applyWorkloadPatch(adminWorkload *v1.Workload, req *view.PatchWorkloadReque
 	if req.Priority != nil {
 		adminWorkload.Spec.Priority = *req.Priority
 	}
-	if req.Replica != nil && *req.Replica != adminWorkload.Spec.Resource.Replica {
-		_, ok := adminWorkload.Spec.CustomerLabels[v1.K8sHostName]
-		if ok {
-			return commonerrors.NewBadRequest("cannot update replica when specifying nodes")
+	if req.Resources != nil {
+		reqCount := 0
+		for _, res := range *req.Resources {
+			reqCount += res.Replica
 		}
-		adminWorkload.Spec.Resource.Replica = *req.Replica
-	}
-	if req.CPU != nil {
-		adminWorkload.Spec.Resource.CPU = *req.CPU
-	}
-	if req.GPU != nil {
-		adminWorkload.Spec.Resource.GPU = *req.GPU
-	}
-	if req.Memory != nil {
-		adminWorkload.Spec.Resource.Memory = *req.Memory
-	}
-	if req.EphemeralStorage != nil {
-		adminWorkload.Spec.Resource.EphemeralStorage = *req.EphemeralStorage
-	}
-	if req.SharedMemory != nil {
-		adminWorkload.Spec.Resource.SharedMemory = *req.SharedMemory
+		if reqCount != commonworkload.GetTotalCount(adminWorkload) {
+			_, ok := adminWorkload.Spec.CustomerLabels[v1.K8sHostName]
+			if ok {
+				return commonerrors.NewBadRequest("cannot update replica when specifying nodes")
+			}
+		}
+		adminWorkload.Spec.Resources = *req.Resources
 	}
 	if req.Image != nil && *req.Image != "" {
 		adminWorkload.Spec.Image = *req.Image
@@ -1138,7 +1139,13 @@ func (h *Handler) cvtDBWorkloadToResponseItem(ctx context.Context,
 		result.Duration = "0s"
 	}
 	json.Unmarshal([]byte(w.GVK), &result.GroupVersionKind)
-	json.Unmarshal([]byte(w.Resource), &result.Resource)
+	json.Unmarshal([]byte(w.Resources), &result.Resources)
+	if len(result.Resources) == 0 {
+		var resource v1.WorkloadResource
+		if json.Unmarshal([]byte(w.Resource), &resource) == nil {
+			result.Resources = []v1.WorkloadResource{resource}
+		}
+	}
 	if w.Timeout > 0 {
 		result.Timeout = pointer.Int(w.Timeout)
 		if t := dbutils.ParseNullTime(w.StartTime); !t.IsZero() {
@@ -1343,7 +1350,12 @@ func cvtDBWorkloadToAdminWorkload(dbItem *dbclient.Workload) *v1.Workload {
 			IsTolerateAll: dbItem.IsTolerateAll,
 		},
 	}
-	json.Unmarshal([]byte(dbItem.Resource), &result.Spec.Resource)
+	if json.Unmarshal([]byte(dbItem.Resources), &result.Spec.Resources) != nil {
+		var resource v1.WorkloadResource
+		if json.Unmarshal([]byte(dbItem.Resource), &resource) == nil {
+			result.Spec.Resources = []v1.WorkloadResource{resource}
+		}
+	}
 	if str := dbutils.ParseNullString(dbItem.Env); str != "" {
 		json.Unmarshal([]byte(str), &result.Spec.Env)
 	}

@@ -31,7 +31,7 @@ const (
 // It applies labels, node selectors, container configurations, volumes, and other settings.
 // based on the admin workload specification and workspace configuration.
 func initializeObject(obj *unstructured.Unstructured,
-	workload *v1.Workload, workspace *v1.Workspace, resourceSpec *v1.ResourceSpec) error {
+	workload *v1.Workload, workspace *v1.Workspace, resourceSpec *v1.ResourceSpec, resourceId int) error {
 	_, found, err := unstructured.NestedFieldNoCopy(obj.Object, resourceSpec.PrePaths...)
 	if err != nil || !found {
 		return nil
@@ -55,7 +55,7 @@ func initializeObject(obj *unstructured.Unstructured,
 		}
 	}
 	path = append(templatePath, "spec", "containers")
-	if err = modifyContainers(obj, workload, workspace, path); err != nil {
+	if err = modifyContainers(obj, workload, workspace, path, resourceId); err != nil {
 		return fmt.Errorf("failed to modify main container: %v", err.Error())
 	}
 	path = append(templatePath, "spec", "volumes")
@@ -161,7 +161,7 @@ func modifyPodAntiAffinity(obj *unstructured.Unstructured, workload *v1.Workload
 // modifyContainers configures the containers of a workload with environment variables,
 // volume mounts, security context, ports, and health checks based on the workload specification.
 func modifyContainers(obj *unstructured.Unstructured,
-	workload *v1.Workload, workspace *v1.Workspace, path []string) error {
+	workload *v1.Workload, workspace *v1.Workspace, path []string, resourceId int) error {
 	containers, found, err := unstructured.NestedSlice(obj.Object, path...)
 	if err != nil {
 		return err
@@ -169,7 +169,7 @@ func modifyContainers(obj *unstructured.Unstructured,
 	if !found || len(containers) == 0 {
 		return fmt.Errorf("failed to find container with path: %v", path)
 	}
-	env := buildEnvironment(workload)
+	env := buildEnvironment(workload, resourceId)
 	mainContainerName := v1.GetMainContainer(workload)
 	for i := range containers {
 		container := containers[i].(map[string]interface{})
@@ -464,8 +464,6 @@ func buildEntryPoint(workload *v1.Workload) string {
 	switch workload.SpecKind() {
 	case common.CICDScaleRunnerSetKind:
 		result = workload.Spec.EntryPoint
-	case common.CICDEphemeralRunnerKind, common.JobKind:
-		result = stringutil.Base64Decode(workload.Spec.EntryPoint)
 	default:
 		result = Launcher + " '" + workload.Spec.EntryPoint + "'"
 	}
@@ -510,7 +508,7 @@ func buildResources(resourceList corev1.ResourceList) map[string]interface{} {
 }
 
 // buildEnvironment creates environment variables for the workload container.
-func buildEnvironment(workload *v1.Workload) []interface{} {
+func buildEnvironment(workload *v1.Workload, resourceId int) []interface{} {
 	var result []interface{}
 	if workload.Spec.IsSupervised {
 		result = addEnvVar(result, workload, "ENABLE_SUPERVISE", v1.TrueStr)
@@ -519,11 +517,10 @@ func buildEnvironment(workload *v1.Workload) []interface{} {
 				strconv.Itoa(commonconfig.GetWorkloadHangCheckInterval()))
 		}
 	}
-	if workload.Spec.Resource.GPU != "" {
-		result = addEnvVar(result, workload, "GPUS_PER_NODE", workload.Spec.Resource.GPU)
+	if workload.Spec.Resources[resourceId].GPU != "" {
+		result = addEnvVar(result, workload, "GPUS_PER_NODE", workload.Spec.Resources[resourceId].GPU)
 	}
 	result = addEnvVar(result, workload, "WORKLOAD_ID", workload.Name)
-	result = addEnvVar(result, workload, "WORKLOAD_KIND", workload.SpecKind())
 	result = addEnvVar(result, workload, "DISPATCH_COUNT", strconv.Itoa(v1.GetWorkloadDispatchCnt(workload)+1))
 	if workload.Spec.SSHPort > 0 {
 		result = addEnvVar(result, workload, "SSH_PORT", strconv.Itoa(workload.Spec.SSHPort))

@@ -130,6 +130,8 @@ func (m *WorkloadMutator) mutateOnUpdate(ctx context.Context, oldWorkload, newWo
 
 // mutateCommon normalizes resources, hostpath, priority, image, entry point, host network and so on
 func (m *WorkloadMutator) mutateCommon(ctx context.Context, oldWorkload, newWorkload *v1.Workload, workspace *v1.Workspace) bool {
+	m.mutateResources(newWorkload, workspace)
+
 	switch newWorkload.SpecKind() {
 	case common.DeploymentKind, common.StatefulSetKind:
 		m.mutateDeployment(newWorkload)
@@ -138,7 +140,6 @@ func (m *WorkloadMutator) mutateCommon(ctx context.Context, oldWorkload, newWork
 	case common.CICDScaleRunnerSetKind:
 		m.mutateCICDScaleSet(newWorkload)
 	}
-	m.mutateResource(newWorkload, workspace)
 	m.mutateHostpath(newWorkload, workspace)
 	m.mutatePriority(newWorkload)
 	m.mutateImage(newWorkload)
@@ -251,31 +252,45 @@ func (m *WorkloadMutator) mutatePriority(workload *v1.Workload) bool {
 	return isChanged
 }
 
-// mutateResource sets GPU name, shared memory and default ephemeral storage.
-func (m *WorkloadMutator) mutateResource(workload *v1.Workload, workspace *v1.Workspace) bool {
+// mutateResources sets GPU name, shared memory and default ephemeral storage.
+func (m *WorkloadMutator) mutateResources(workload *v1.Workload, workspace *v1.Workspace) bool {
 	isChanged := false
-	if workload.Spec.Resource.GPU == "0" {
-		workload.Spec.Resource.GPU = ""
-		isChanged = true
-	} else if workload.Spec.Resource.GPU != "" && workspace != nil {
-		workload.Spec.Resource.GPUName = v1.GetGpuResourceName(workspace)
+	// Transition logic for backward compatibility.
+	if len(workload.Spec.Resources) == 0 {
+		workload.Spec.Resources = []v1.WorkloadResource{workload.Spec.Resource}
 		isChanged = true
 	}
 
-	if workload.Spec.Resource.SharedMemory == "" && workload.Spec.Resource.Memory != "" {
-		memQuantity, err := resource.ParseQuantity(workload.Spec.Resource.Memory)
-		if err == nil && memQuantity.Value() > 0 {
-			shareMemQuantity := resource.NewQuantity(memQuantity.Value()/2, memQuantity.Format)
-			if shareMemQuantity != nil {
-				workload.Spec.Resource.SharedMemory = shareMemQuantity.String()
-				isChanged = true
+	newResources := make([]v1.WorkloadResource, 0, len(workload.Spec.Resources))
+	for _, res := range workload.Spec.Resources {
+		if res.Replica <= 0 {
+			isChanged = true
+			continue
+		}
+		if res.GPU == "0" {
+			res.GPU = ""
+			isChanged = true
+		} else if res.GPU != "" && workspace != nil {
+			res.GPUName = v1.GetGpuResourceName(workspace)
+			isChanged = true
+		}
+		if res.SharedMemory == "" && res.Memory != "" {
+			memQuantity, err := resource.ParseQuantity(res.Memory)
+			if err == nil && memQuantity.Value() > 0 {
+				shareMemQuantity := resource.NewQuantity(memQuantity.Value()/2, memQuantity.Format)
+				if shareMemQuantity != nil {
+					res.SharedMemory = shareMemQuantity.String()
+					isChanged = true
+				}
 			}
 		}
+		if res.EphemeralStorage == "" {
+			res.EphemeralStorage = DefaultEphemeralStorage
+			isChanged = true
+		}
+		newResources = append(newResources, res)
 	}
-	if workload.Spec.Resource.EphemeralStorage == "" {
-		workload.Spec.Resource.EphemeralStorage = DefaultEphemeralStorage
-		isChanged = true
-	}
+	workload.Spec.Resources = newResources
 	return isChanged
 }
 
@@ -356,19 +371,24 @@ func (m *WorkloadMutator) mutateService(workload *v1.Workload) {
 
 // isHostNetworkEnabled Check whether to enable hostNetwork. It should only be set to true.
 func (m *WorkloadMutator) isHostNetworkEnabled(workload *v1.Workload, nf *v1.NodeFlavor) bool {
-	if workload.Spec.Resource.Replica <= 1 {
+	if commonworkload.IsAuthoring(workload) {
+		return false
+	}
+	if commonworkload.GetTotalCount(workload) == 1 {
 		return false
 	}
 	gpuCount := 0
 	if nf.HasGpu() {
 		gpuCount = int(nf.Spec.Gpu.Quantity.Value())
 	}
-	if workload.Spec.Resource.GPU == "" {
-		return false
-	}
-	n, err := strconv.Atoi(workload.Spec.Resource.GPU)
-	if err != nil || n != gpuCount {
-		return false
+	for _, res := range workload.Spec.Resources {
+		if res.GPU == "" {
+			return false
+		}
+		n, err := strconv.Atoi(res.GPU)
+		if err != nil || n != gpuCount {
+			return false
+		}
 	}
 	return true
 }
@@ -384,7 +404,11 @@ func (m *WorkloadMutator) mutateDeployment(workload *v1.Workload) {
 func (m *WorkloadMutator) mutateAuthoring(workload *v1.Workload) {
 	workload.Spec.IsSupervised = false
 	workload.Spec.MaxRetry = 0
-	workload.Spec.Resource.Replica = 1
+	if len(workload.Spec.Resources) > 0 {
+		workload.Spec.Resources = workload.Spec.Resources[0:1]
+		workload.Spec.Resources[0].Replica = 1
+	}
+
 	workload.Spec.Timeout = nil
 	workload.Spec.EntryPoint = stringutil.Base64Encode("sleep infinity")
 	workload.Spec.Dependencies = nil
@@ -394,7 +418,10 @@ func (m *WorkloadMutator) mutateAuthoring(workload *v1.Workload) {
 func (m *WorkloadMutator) mutateCICDScaleSet(workload *v1.Workload) {
 	workload.Spec.IsSupervised = false
 	workload.Spec.MaxRetry = 0
-	workload.Spec.Resource.Replica = 1
+	if len(workload.Spec.Resources) > 0 {
+		workload.Spec.Resources = workload.Spec.Resources[0:1]
+		workload.Spec.Resources[0].Replica = 1
+	}
 	workload.Spec.Timeout = nil
 	workload.Spec.Dependencies = nil
 }
@@ -475,13 +502,17 @@ func (m *WorkloadMutator) mutateHostNetwork(ctx context.Context, workload *v1.Wo
 	rdmaName := commonconfig.GetRdmaName()
 	if isEnableHostNetWork && rdmaName != "" {
 		rdmaQuantity, ok := nf.Spec.ExtendResources[corev1.ResourceName(rdmaName)]
-		if ok {
-			workload.Spec.Resource.RdmaResource = rdmaQuantity.String()
-		} else {
-			workload.Spec.Resource.RdmaResource = "1"
+		for i := range workload.Spec.Resources {
+			if ok {
+				workload.Spec.Resources[i].RdmaResource = rdmaQuantity.String()
+			} else {
+				workload.Spec.Resources[i].RdmaResource = "1"
+			}
 		}
 	} else {
-		workload.Spec.Resource.RdmaResource = ""
+		for i := range workload.Spec.Resources {
+			workload.Spec.Resources[i].RdmaResource = ""
+		}
 	}
 }
 
@@ -672,8 +703,13 @@ func (v *WorkloadValidator) validateRequiredParams(workload *v1.Workload) error 
 			errs = append(errs, fmt.Errorf("the image is empty"))
 		}
 	}
-	if err := v.validateResource(&workload.Spec.Resource); err != nil {
-		errs = append(errs, err)
+	if len(workload.Spec.Resources) == 0 {
+		errs = append(errs, fmt.Errorf("the resources are empty"))
+	}
+	for _, res := range workload.Spec.Resources {
+		if err := v.validateResource(&res); err != nil {
+			errs = append(errs, err)
+		}
 	}
 	if err := utilerrors.NewAggregate(errs); err != nil {
 		return err
@@ -788,24 +824,29 @@ func (v *WorkloadValidator) validateWorkspace(ctx context.Context, workload *v1.
 		}
 		return nil
 	}
-	if workload.Spec.Resource.Replica > workspace.Spec.Replica {
+	if commonworkload.GetTotalCount(workload) > workspace.Spec.Replica {
 		return commonerrors.NewQuotaInsufficient(
 			fmt.Sprintf("Insufficient resource: request.replica: %d, total.replica: %d",
-				workload.Spec.Resource.Replica, workspace.Spec.Replica))
+				commonworkload.GetTotalCount(workload), workspace.Spec.Replica))
 	}
 	return nil
 }
 
 // validateResourceEnough checks if the workload resources do not exceed node flavor limits.
 func (v *WorkloadValidator) validateResourceEnough(ctx context.Context, workload *v1.Workload) error {
-	if workload.Spec.Resource.Replica <= 0 {
+	if commonworkload.GetTotalCount(workload) <= 0 {
 		return nil
 	}
 	nf, err := getNodeFlavor(ctx, v.Client, v1.GetNodeFlavorId(workload))
 	if nf == nil {
 		return err
 	}
-	return validateResourceEnough(nf, &workload.Spec.Resource)
+	for _, res := range workload.Spec.Resources {
+		if err = validateResourceEnough(nf, &res); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // validateResourceEnough checks if requested resources exceed per-node limits and configured thresholds.
@@ -814,7 +855,7 @@ func validateResourceEnough(nf *v1.NodeFlavor, res *v1.WorkloadResource) error {
 	availNodeResources := quantity.GetAvailableResource(nodeResources)
 
 	// Validate if the request resource requests exceed the per-node resource limits
-	podResources, err := commonworkload.GetPodResources(res)
+	podResources, err := commonworkload.GetSinglePodResource(res)
 	if err != nil {
 		klog.ErrorS(err, "failed to get pod resource", "input", *res)
 		return err

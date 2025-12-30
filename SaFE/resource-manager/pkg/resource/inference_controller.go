@@ -438,12 +438,12 @@ func (r *InferenceReconciler) createWorkload(ctx context.Context, inference *v1.
 			},
 		},
 		Spec: v1.WorkloadSpec{
-			Resource: v1.WorkloadResource{
+			Resources: []v1.WorkloadResource{{
 				Replica: inference.Spec.Resource.Replica,
 				CPU:     fmt.Sprintf("%d", inference.Spec.Resource.Cpu),
 				Memory:  fmt.Sprintf("%dGi", inference.Spec.Resource.Memory),
 				GPU:     inference.Spec.Resource.Gpu,
-			},
+			}},
 			Workspace:  inference.Spec.Resource.Workspace,
 			Image:      inference.Spec.Config.Image,
 			EntryPoint: entryPoint,

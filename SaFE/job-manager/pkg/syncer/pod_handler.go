@@ -10,6 +10,7 @@ import (
 	"bytes"
 	"context"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -136,8 +137,10 @@ func (r *SyncerReconciler) updateWorkloadPod(ctx context.Context, obj *unstructu
 		}
 	}
 
+	resourceId, _ := strconv.Atoi(pod.Annotations[v1.ResourceIdAnnotation])
 	workloadPod := v1.WorkloadPod{
 		PodId:         pod.Name,
+		ResourceId:    resourceId,
 		K8sNodeName:   pod.Spec.NodeName,
 		AdminNodeName: v1.GetNodeId(k8sNode),
 		Phase:         pod.Status.Phase,

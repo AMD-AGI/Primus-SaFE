@@ -215,13 +215,10 @@ func GetResources(unstructuredObj *unstructured.Unstructured,
 		if len(t.ReplicasPaths) > 0 {
 			path := t.PrePaths
 			path = append(path, t.ReplicasPaths...)
-			replica, found, err := unstructured.NestedInt64(unstructuredObj.Object, path...)
+			replica, _, err := unstructured.NestedInt64(unstructuredObj.Object, path...)
 			if err != nil {
 				klog.ErrorS(err, "failed to find replica", "path", path)
 				return nil, nil, err
-			}
-			if !found {
-				continue
 			}
 			replicaList = append(replicaList, replica)
 		}
@@ -350,7 +347,8 @@ func GetImage(unstructuredObj *unstructured.Unstructured,
 }
 
 // GetMemoryStorageSize retrieves the memory storage size from volume specifications.
-func GetMemoryStorageSize(unstructuredObj *unstructured.Unstructured, rt *v1.ResourceTemplate) (string, error) {
+func GetMemoryStorageSize(unstructuredObj *unstructured.Unstructured, rt *v1.ResourceTemplate) ([]string, error) {
+	var result []string
 	for _, t := range rt.Spec.ResourceSpecs {
 		path := t.PrePaths
 		path = append(path, t.TemplatePaths...)
@@ -358,19 +356,19 @@ func GetMemoryStorageSize(unstructuredObj *unstructured.Unstructured, rt *v1.Res
 		volumes, found, err := unstructured.NestedSlice(unstructuredObj.Object, path...)
 		if err != nil {
 			klog.ErrorS(err, "failed to find volumes", "path", path)
-			return "", err
+			return nil, err
 		}
 		if !found {
-			return "", fmt.Errorf("failed to find volumes, path: %s", path)
+			return nil, fmt.Errorf("failed to find volumes, path: %s", path)
 		}
 
 		shareMemory := GetMemoryStorageVolume(volumes)
 		if shareMemory == nil {
 			break
 		}
-		return shareMemory["sizeLimit"].(string), nil
+		result = append(result, shareMemory["sizeLimit"].(string))
 	}
-	return "", fmt.Errorf("no share memory found")
+	return result, nil
 }
 
 // GetMemoryStorageVolume finds the memory storage volume from a list of volumes.
@@ -404,10 +402,6 @@ func GetSpecReplica(unstructuredObj *unstructured.Unstructured, rt *v1.ResourceT
 	}
 	replica := 0
 	for _, t := range rt.Spec.ResourceSpecs {
-		if t.Replica > 0 {
-			replica += int(t.Replica)
-			continue
-		}
 		l := len(t.ReplicasPaths)
 		if l == 0 {
 			continue

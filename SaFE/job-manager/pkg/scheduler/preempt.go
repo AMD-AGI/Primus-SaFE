@@ -80,7 +80,7 @@ func (r *SchedulerReconciler) preemptLowPriorityWorkloads(ctx context.Context, r
 	}
 
 	totalResources := quantity.Copy(leftResources)
-	requestResources, _ := commonworkload.CvtToResourceList(requestWorkload)
+	requestResources, _ := commonworkload.GetTotalResourceList(requestWorkload)
 	result := make([]*v1.Workload, 0, len(sortedWorkloads))
 	for i := range sortedWorkloads {
 		w := sortedWorkloads[i].workload
@@ -101,19 +101,6 @@ func (r *SchedulerReconciler) preemptLowPriorityWorkloads(ctx context.Context, r
 	return nil, nil
 }
 
-// isPreemptable checks if a workload can preempt other scheduled workloads based on priority.
-func (r *SchedulerReconciler) isPreemptable(requestWorkload *v1.Workload, scheduledWorkloads []*v1.Workload) bool {
-	if !v1.IsWorkloadEnablePreempt(requestWorkload) {
-		return false
-	}
-	for _, w := range scheduledWorkloads {
-		if requestWorkload.Spec.Priority > w.Spec.Priority {
-			return true
-		}
-	}
-	return false
-}
-
 // sortWorkloads sorts running workloads for preemption consideration.
 func (r *SchedulerReconciler) sortWorkloads(ctx context.Context,
 	requestWorkload *v1.Workload, targetWorkloads []*v1.Workload) (WorkloadWrapperSlice, error) {
@@ -127,7 +114,7 @@ func (r *SchedulerReconciler) sortWorkloads(ctx context.Context,
 	}
 	var result []*WorkloadWrapper
 	for i, w := range targetWorkloads {
-		resources, _ := commonworkload.CvtToResourceList(w)
+		resources, _ := commonworkload.GetTotalResourceList(w)
 		result = append(result, &WorkloadWrapper{
 			workload:      targetWorkloads[i],
 			resources:     resources,
@@ -136,6 +123,38 @@ func (r *SchedulerReconciler) sortWorkloads(ctx context.Context,
 	}
 	sort.Sort(WorkloadWrapperSlice(result))
 	return result, nil
+}
+
+// buildResourceWeight calculates resource weight score for node selection.
+func buildResourceWeight(workload *v1.Workload, resources corev1.ResourceList, nodeFlavor *v1.NodeFlavor) float64 {
+	if workload == nil || len(workload.Spec.Resources) == 0 {
+		return 0
+	}
+	var weight float64 = 0
+
+	gpuName := ""
+	for _, res := range workload.Spec.Resources {
+		if res.GPU != "" {
+			gpuName = res.GPUName
+			break
+		}
+	}
+	if gpuName != "" {
+		if gpuQuantity, ok := resources[corev1.ResourceName(gpuName)]; ok {
+			weight += float64(gpuQuantity.Value() * 10)
+		}
+	}
+	if nodeFlavor != nil && !nodeFlavor.Spec.Memory.IsZero() {
+		if memoryQuantity := resources.Memory(); memoryQuantity != nil {
+			weight += float64(memoryQuantity.Value()) / float64(nodeFlavor.Spec.Memory.Value())
+		}
+	}
+	if nodeFlavor != nil && !nodeFlavor.Spec.Cpu.Quantity.IsZero() {
+		if cpuQuantity := resources.Cpu(); cpuQuantity != nil {
+			weight += float64(cpuQuantity.Value()) / float64(nodeFlavor.Spec.Cpu.Quantity.Value())
+		}
+	}
+	return weight
 }
 
 type WorkloadWrapperSlice []*WorkloadWrapper

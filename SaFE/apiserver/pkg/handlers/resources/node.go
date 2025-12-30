@@ -161,9 +161,8 @@ func (h *Handler) listNode(c *gin.Context) (interface{}, error) {
 	}
 	if query.Brief {
 		return buildListNodeBriefResponse(totalCount, nodes)
-	} else {
-		return h.buildListNodeResponse(ctx, query, totalCount, nodes)
 	}
+	return h.buildListNodeResponse(ctx, query, totalCount, nodes)
 }
 
 // ExportNodeToCSV writes the node information to a CSV file using the provided writer (file or response stream).

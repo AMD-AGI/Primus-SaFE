@@ -138,6 +138,9 @@ func (r *PreflightJobReconciler) handle(ctx context.Context, job *v1.OpsJob) (ct
 
 // generatePreflightWorkload generates a preflight workload based on the job specification.
 func (r *PreflightJobReconciler) generatePreflightWorkload(ctx context.Context, job *v1.OpsJob) (*v1.Workload, error) {
+	if job.Spec.Resource == nil {
+		return nil, commonerrors.NewBadRequest("resource is empty")
+	}
 	nodeParams := job.GetParameters(v1.ParameterNode)
 	if len(nodeParams) == 0 {
 		return nil, commonerrors.NewBadRequest("node parameter is empty")
@@ -157,6 +160,13 @@ func (r *PreflightJobReconciler) generatePreflightWorkload(ctx context.Context, 
 	if err := r.Get(ctx, client.ObjectKey{Name: v1.GetNodeFlavorId(node)}, nodeFlavor); err != nil {
 		return nil, err
 	}
+	var resources []v1.WorkloadResource
+	resources = append(resources, *job.Spec.Resource)
+	resources[0].Replica = 1
+	if job.Spec.Resource.Replica > 1 {
+		resources = append(resources, *job.Spec.Resource)
+		resources[1].Replica = job.Spec.Resource.Replica - 1
+	}
 
 	workload := &v1.Workload{
 		ObjectMeta: metav1.ObjectMeta{
@@ -171,10 +181,12 @@ func (r *PreflightJobReconciler) generatePreflightWorkload(ctx context.Context, 
 			},
 			Annotations: map[string]string{
 				v1.UserNameAnnotation: v1.GetUserName(job),
+				// Dispatch the workload immediately, skipping the queue.
+				v1.WorkloadScheduledAnnotation: timeutil.FormatRFC3339(time.Now().UTC()),
 			},
 		},
 		Spec: v1.WorkloadSpec{
-			Resource:   *job.Spec.Resource,
+			Resources:  resources,
 			EntryPoint: *job.Spec.EntryPoint,
 			GroupVersionKind: v1.GroupVersionKind{
 				Version: common.DefaultVersion,
@@ -204,8 +216,6 @@ func (r *PreflightJobReconciler) generatePreflightWorkload(ctx context.Context, 
 	}
 	if workload.Spec.Workspace == "" {
 		workload.Spec.Workspace = corev1.NamespaceDefault
-		// Dispatch the workload immediately, skipping the queue.
-		v1.SetAnnotation(workload, v1.WorkloadScheduledAnnotation, timeutil.FormatRFC3339(time.Now().UTC()))
 	}
 	if job.Spec.TimeoutSecond > 0 {
 		workload.Spec.Timeout = pointer.Int(job.Spec.TimeoutSecond)

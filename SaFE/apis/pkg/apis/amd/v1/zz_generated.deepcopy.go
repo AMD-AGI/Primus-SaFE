@@ -2344,6 +2344,11 @@ func (in *WorkloadResource) DeepCopy() *WorkloadResource {
 func (in *WorkloadSpec) DeepCopyInto(out *WorkloadSpec) {
 	*out = *in
 	out.Resource = in.Resource
+	if in.Resources != nil {
+		in, out := &in.Resources, &out.Resources
+		*out = make([]WorkloadResource, len(*in))
+		copy(*out, *in)
+	}
 	if in.Env != nil {
 		in, out := &in.Env, &out.Env
 		*out = make(map[string]string, len(*in))

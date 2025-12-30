@@ -1,7 +1,11 @@
+/*
+ * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * See LICENSE for license information.
+ */
+
 package reconciler
 
 import (
-	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -12,8 +16,6 @@ import (
 
 func TestCalculateGpuRequest(t *testing.T) {
 	r := &WorkloadReconciler{}
-	ctx := context.Background()
-
 	tests := []struct {
 		name     string
 		workload *primusSafeV1.Workload
@@ -27,10 +29,10 @@ func TestCalculateGpuRequest(t *testing.T) {
 					Namespace: "default",
 				},
 				Spec: primusSafeV1.WorkloadSpec{
-					Resource: primusSafeV1.WorkloadResource{
+					Resources: []primusSafeV1.WorkloadResource{{
 						GPU:     "1",
 						Replica: 1,
-					},
+					}},
 				},
 			},
 			expected: 1,
@@ -43,10 +45,10 @@ func TestCalculateGpuRequest(t *testing.T) {
 					Namespace: "default",
 				},
 				Spec: primusSafeV1.WorkloadSpec{
-					Resource: primusSafeV1.WorkloadResource{
+					Resources: []primusSafeV1.WorkloadResource{{
 						GPU:     "4",
 						Replica: 8,
-					},
+					}},
 				},
 			},
 			expected: 32,
@@ -59,10 +61,10 @@ func TestCalculateGpuRequest(t *testing.T) {
 					Namespace: "default",
 				},
 				Spec: primusSafeV1.WorkloadSpec{
-					Resource: primusSafeV1.WorkloadResource{
+					Resources: []primusSafeV1.WorkloadResource{{
 						GPU:     "2",
 						Replica: 0,
-					},
+					}},
 				},
 			},
 			expected: 0,
@@ -75,10 +77,10 @@ func TestCalculateGpuRequest(t *testing.T) {
 					Namespace: "default",
 				},
 				Spec: primusSafeV1.WorkloadSpec{
-					Resource: primusSafeV1.WorkloadResource{
+					Resources: []primusSafeV1.WorkloadResource{{
 						GPU:     "0",
 						Replica: 5,
-					},
+					}},
 				},
 			},
 			expected: 0,
@@ -91,10 +93,10 @@ func TestCalculateGpuRequest(t *testing.T) {
 					Namespace: "default",
 				},
 				Spec: primusSafeV1.WorkloadSpec{
-					Resource: primusSafeV1.WorkloadResource{
+					Resources: []primusSafeV1.WorkloadResource{{
 						GPU:     "",
 						Replica: 3,
-					},
+					}},
 				},
 			},
 			expected: 0,
@@ -107,10 +109,10 @@ func TestCalculateGpuRequest(t *testing.T) {
 					Namespace: "default",
 				},
 				Spec: primusSafeV1.WorkloadSpec{
-					Resource: primusSafeV1.WorkloadResource{
+					Resources: []primusSafeV1.WorkloadResource{{
 						GPU:     "invalid",
 						Replica: 3,
-					},
+					}},
 				},
 			},
 			expected: 0,
@@ -123,10 +125,10 @@ func TestCalculateGpuRequest(t *testing.T) {
 					Namespace: "default",
 				},
 				Spec: primusSafeV1.WorkloadSpec{
-					Resource: primusSafeV1.WorkloadResource{
+					Resources: []primusSafeV1.WorkloadResource{{
 						GPU:     "8",
 						Replica: 100,
-					},
+					}},
 				},
 			},
 			expected: 800,
@@ -139,10 +141,10 @@ func TestCalculateGpuRequest(t *testing.T) {
 					Namespace: "default",
 				},
 				Spec: primusSafeV1.WorkloadSpec{
-					Resource: primusSafeV1.WorkloadResource{
+					Resources: []primusSafeV1.WorkloadResource{{
 						GPU:     "-2",
 						Replica: 4,
-					},
+					}},
 				},
 			},
 			expected: -8,
@@ -155,10 +157,10 @@ func TestCalculateGpuRequest(t *testing.T) {
 					Namespace: "default",
 				},
 				Spec: primusSafeV1.WorkloadSpec{
-					Resource: primusSafeV1.WorkloadResource{
+					Resources: []primusSafeV1.WorkloadResource{{
 						GPU:     "2.5",
 						Replica: 4,
-					},
+					}},
 				},
 			},
 			expected: 0,
@@ -167,9 +169,8 @@ func TestCalculateGpuRequest(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := r.calculateGpuRequest(ctx, tt.workload)
+			result := r.calculateGpuRequest(tt.workload)
 			assert.Equal(t, tt.expected, result, "GPU request calculation mismatch")
 		})
 	}
 }
-

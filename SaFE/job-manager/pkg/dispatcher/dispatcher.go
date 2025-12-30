@@ -102,9 +102,13 @@ func (relevantChangePredicate) Update(e event.UpdateEvent) bool {
 	if v1.GetGithubSecretId(oldWorkload) != v1.GetGithubSecretId(newWorkload) {
 		return true
 	}
-	if !commonworkload.IsResourceEqual(oldWorkload, newWorkload) ||
-		oldWorkload.Spec.Resource.SharedMemory != newWorkload.Spec.Resource.SharedMemory {
+	if !commonworkload.IsResourceEqual(oldWorkload, newWorkload) {
 		return true
+	}
+	for i := range len(oldWorkload.Spec.Resources) {
+		if oldWorkload.Spec.Resources[i].SharedMemory != newWorkload.Spec.Resources[i].SharedMemory {
+			return true
+		}
 	}
 	if oldWorkload.Spec.Image != newWorkload.Spec.Image {
 		return true
@@ -265,8 +269,11 @@ func (r *DispatcherReconciler) generateK8sObject(ctx context.Context,
 	if err = applyWorkloadSpecToObject(ctx, clusterInformer, result, adminWorkload, workspace, rt); err != nil {
 		return nil, commonerrors.NewInternalError(err.Error())
 	}
-	for _, t := range rt.Spec.ResourceSpecs {
-		if err = initializeObject(result, adminWorkload, workspace, &t); err != nil {
+	for i, t := range rt.Spec.ResourceSpecs {
+		if i >= len(adminWorkload.Spec.Resources) {
+			break
+		}
+		if err = initializeObject(result, adminWorkload, workspace, &t, i); err != nil {
 			return nil, commonerrors.NewInternalError(err.Error())
 		}
 	}
@@ -402,27 +409,40 @@ func (r *DispatcherReconciler) syncWorkloadToObject(ctx context.Context, adminWo
 
 // isResourceChanged checks if the resource requirements of the workload have changed.
 func isResourceChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructured, rt *v1.ResourceTemplate) bool {
+	gpuName := ""
+	for _, res := range adminWorkload.Spec.Resources {
+		if res.GPU != "" {
+			gpuName = res.GPUName
+			break
+		}
+	}
+
 	replicaList, resourceList, err := jobutils.GetResources(obj, rt,
-		v1.GetMainContainer(adminWorkload), adminWorkload.Spec.Resource.GPUName)
+		v1.GetMainContainer(adminWorkload), gpuName)
 	if err != nil || len(resourceList) == 0 {
 		klog.ErrorS(err, "failed to get resource", "rt", rt.Name, "obj", obj.GetName())
 		return false
 	}
-	if len(replicaList) > 0 {
-		var totalReplica int64 = 0
-		for _, n := range replicaList {
-			totalReplica += n
-		}
-		if int(totalReplica) != adminWorkload.Spec.Resource.Replica {
+	if len(replicaList) != len(adminWorkload.Spec.Resources) {
+		return true
+	}
+	for i := range replicaList {
+		if replicaList[i] != int64(adminWorkload.Spec.Resources[i].Replica) {
 			return true
 		}
 	}
-	podResource, err := commonworkload.GetPodResources(&adminWorkload.Spec.Resource)
+
+	podResources, err := commonworkload.GetPodResourceList(adminWorkload)
 	if err != nil {
 		return false
 	}
-	if !quantity.Equal(podResource, resourceList[0]) {
+	if len(podResources) != len(resourceList) {
 		return true
+	}
+	for i := range len(podResources) {
+		if !quantity.Equal(podResources[i], resourceList[i]) {
+			return true
+		}
 	}
 	return false
 }
@@ -468,14 +488,19 @@ func isEnvChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructured, rt
 
 // isSharedMemoryChanged checks if the shared memory configuration of the workload has changed.
 func isSharedMemoryChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructured, rt *v1.ResourceTemplate) bool {
-	memoryStorageSize, err := jobutils.GetMemoryStorageSize(obj, rt)
+	memoryStorageSizes, err := jobutils.GetMemoryStorageSize(obj, rt)
 	if err != nil {
-		if adminWorkload.Spec.Resource.SharedMemory == "" {
-			return false
-		}
 		return true
 	}
-	return memoryStorageSize != adminWorkload.Spec.Resource.SharedMemory
+	if len(memoryStorageSizes) != len(adminWorkload.Spec.Resources) {
+		return true
+	}
+	for i := range len(memoryStorageSizes) {
+		if memoryStorageSizes[i] != adminWorkload.Spec.Resources[i].SharedMemory {
+			return true
+		}
+	}
+	return false
 }
 
 // isPriorityClassChanged checks if the priority of the workload has changed.
@@ -502,7 +527,6 @@ func isGithubSecretChanged(adminWorkload *v1.Workload, obj *unstructured.Unstruc
 // applyWorkloadSpecToObject applies the workload specifications to the unstructured Kubernetes object.
 // It handles different workload types and updates various object properties including replicas,
 // network settings, containers, and volumes based on the workload specification.
-
 func applyWorkloadSpecToObject(ctx context.Context, clusterInformer *syncer.ClusterInformer,
 	obj *unstructured.Unstructured, adminWorkload *v1.Workload, workspace *v1.Workspace, rt *v1.ResourceTemplate) error {
 	if commonworkload.IsCICDScalingRunnerSet(adminWorkload) {
@@ -515,52 +539,46 @@ func applyWorkloadSpecToObject(ctx context.Context, clusterInformer *syncer.Clus
 		}
 	}
 
-	var preAllocatedReplica int64 = 0
-	for _, t := range rt.Spec.ResourceSpecs {
-		replica := t.Replica
-		// A webhook validation was previously to ensure that only one template could have replica=0
-		// TODO: remove this preAllocatedReplica
-		if replica == 0 {
-			replica = int64(adminWorkload.Spec.Resource.Replica) - preAllocatedReplica
-		}
-		if replica <= 0 {
+	for i, t := range rt.Spec.ResourceSpecs {
+		if i >= len(adminWorkload.Spec.Resources) {
 			unstructured.RemoveNestedField(obj.Object, t.PrePaths...)
 			continue
 		}
 		if err := updateHostNetwork(adminWorkload, obj, t); err != nil {
 			return fmt.Errorf("failed to update host network: %v", err.Error())
 		}
-		if err := updateReplica(obj, t, replica); err != nil {
+		if err := updateReplica(adminWorkload, obj, t, i); err != nil {
 			return fmt.Errorf("failed to update replica: %v", err.Error())
 		}
-		if err := updateCompletions(obj, t, replica); err != nil {
-			return fmt.Errorf("failed to update completions: %v", err.Error())
-		}
-		if err := updateMetadata(adminWorkload, obj, t); err != nil {
+		if err := updateMetadata(adminWorkload, obj, t, i); err != nil {
 			return fmt.Errorf("failed to update main container: %v", err.Error())
 		}
-		if err := updateContainers(adminWorkload, obj, t); err != nil {
+		if err := updateContainers(adminWorkload, obj, t, i); err != nil {
 			return fmt.Errorf("failed to update main container: %v", err.Error())
 		}
-		if err := updateSharedMemory(adminWorkload, obj, t); err != nil {
+		if err := updateSharedMemory(adminWorkload, obj, t, i); err != nil {
 			return fmt.Errorf("failed to update shared memory: %v", err.Error())
 		}
 		if err := updatePriorityClass(adminWorkload, obj, t); err != nil {
 			return fmt.Errorf("failed to update priority: %v", err.Error())
 		}
-		preAllocatedReplica += replica
 	}
 	return nil
 }
 
 // updateReplica updates the replica count in the unstructured object.
-func updateReplica(obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec, replica int64) error {
+func updateReplica(adminWorkload *v1.Workload,
+	obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec, id int) error {
 	if len(resourceSpec.ReplicasPaths) == 0 {
 		return nil
 	}
+	replica := int64(adminWorkload.Spec.Resources[id].Replica)
 	path := resourceSpec.PrePaths
 	path = append(path, resourceSpec.ReplicasPaths...)
-	return unstructured.SetNestedField(obj.Object, replica, path...)
+	if err := unstructured.SetNestedField(obj.Object, replica, path...); err != nil {
+		return err
+	}
+	return updateCompletions(obj, resourceSpec, replica)
 }
 
 // updateCompletions updates the completions count in the unstructured object. only for job
@@ -712,12 +730,13 @@ func updateCICDScaleSetEnvs(obj *unstructured.Unstructured,
 
 // updateMetadata updates the template metadata annotations in the unstructured object.
 func updateMetadata(adminWorkload *v1.Workload,
-	obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec) error {
+	obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec, id int) error {
 	_, found, err := unstructured.NestedMap(obj.Object, resourceSpec.GetTemplatePath()...)
 	if err != nil || !found {
 		return err
 	}
 	annotations := buildAnnotations(adminWorkload)
+	annotations[v1.ResourceIdAnnotation] = strconv.Itoa(id)
 	path := append(resourceSpec.GetTemplatePath(), "metadata", "annotations")
 	if err = unstructured.SetNestedMap(obj.Object, annotations, path...); err != nil {
 		return err
@@ -729,14 +748,14 @@ func updateMetadata(adminWorkload *v1.Workload,
 // For each container, it updates environment variables. For the main container,
 // it also updates resources, image, and command based on the workload spec.
 func updateContainers(adminWorkload *v1.Workload,
-	obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec) error {
+	obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec, id int) error {
 	containers, path, err := getContainers(obj, resourceSpec)
 	if err != nil {
 		return err
 	}
 
 	mainContainerName := v1.GetMainContainer(adminWorkload)
-	res := &adminWorkload.Spec.Resource
+	res := &adminWorkload.Spec.Resources[id]
 	resourceList, err := quantity.CvtToResourceList(res.CPU, res.Memory, res.GPU,
 		res.GPUName, res.EphemeralStorage, res.RdmaResource, 1.0/float64(len(containers)))
 	if err != nil {
@@ -843,7 +862,7 @@ func updateContainerEnv(envs map[string]string, container map[string]interface{}
 }
 
 // updateSharedMemory updates the shared memory volume configuration.
-func updateSharedMemory(adminWorkload *v1.Workload, obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec) error {
+func updateSharedMemory(adminWorkload *v1.Workload, obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec, id int) error {
 	path := resourceSpec.PrePaths
 	path = append(path, resourceSpec.TemplatePaths...)
 	path = append(path, "spec", "volumes")
@@ -852,7 +871,7 @@ func updateSharedMemory(adminWorkload *v1.Workload, obj *unstructured.Unstructur
 		return err
 	}
 	if !found {
-		sharedMemoryVolume := buildSharedMemoryVolume(adminWorkload.Spec.Resource.SharedMemory)
+		sharedMemoryVolume := buildSharedMemoryVolume(adminWorkload.Spec.Resources[id].SharedMemory)
 		volumes = []interface{}{sharedMemoryVolume}
 		if err = unstructured.SetNestedSlice(obj.Object, volumes, path...); err != nil {
 			return err
@@ -862,12 +881,12 @@ func updateSharedMemory(adminWorkload *v1.Workload, obj *unstructured.Unstructur
 
 	sharedMemory := jobutils.GetMemoryStorageVolume(volumes)
 	if sharedMemory != nil {
-		sharedMemory["sizeLimit"] = adminWorkload.Spec.Resource.SharedMemory
+		sharedMemory["sizeLimit"] = adminWorkload.Spec.Resources[id].SharedMemory
 		if err = unstructured.SetNestedField(obj.Object, volumes, path...); err != nil {
 			return err
 		}
 	} else {
-		volumes = append(volumes, buildSharedMemoryVolume(adminWorkload.Spec.Resource.SharedMemory))
+		volumes = append(volumes, buildSharedMemoryVolume(adminWorkload.Spec.Resources[id].SharedMemory))
 		if err = unstructured.SetNestedSlice(obj.Object, volumes, path...); err != nil {
 			return err
 		}

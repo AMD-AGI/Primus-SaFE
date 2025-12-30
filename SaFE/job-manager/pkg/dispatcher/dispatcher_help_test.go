@@ -20,7 +20,7 @@ import (
 	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
 )
 
-func checkResources(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, template *v1.ResourceSpec, replica int) {
+func checkResources(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, template *v1.ResourceSpec, replica, id int) {
 	path := append(template.PrePaths, template.ReplicasPaths...)
 	if !commonworkload.IsCICDScalingRunnerSet(workload) {
 		objReplica := jobutils.GetUnstructuredInt(obj.Object, path)
@@ -41,11 +41,11 @@ func checkResources(t *testing.T, obj *unstructured.Unstructured, workload *v1.W
 	resources := container["resources"].(map[string]interface{})
 	limits, ok := resources["limits"].(map[string]interface{})
 	assert.Equal(t, ok, true)
-	assert.Equal(t, limits["cpu"], workload.Spec.Resource.CPU)
-	assert.Equal(t, limits["memory"], workload.Spec.Resource.Memory)
-	assert.Equal(t, limits["ephemeral-storage"], workload.Spec.Resource.EphemeralStorage)
-	if workload.Spec.Resource.GPU != "" {
-		assert.Equal(t, limits[common.AmdGpu], workload.Spec.Resource.GPU)
+	assert.Equal(t, limits["cpu"], workload.Spec.Resources[id].CPU)
+	assert.Equal(t, limits["memory"], workload.Spec.Resources[id].Memory)
+	assert.Equal(t, limits["ephemeral-storage"], workload.Spec.Resources[id].EphemeralStorage)
+	if workload.Spec.Resources[id].GPU != "" {
+		assert.Equal(t, limits[common.AmdGpu], workload.Spec.Resources[id].GPU)
 		if replica > 1 {
 			assert.Equal(t, limits[commonconfig.GetRdmaName()], "1k")
 		}
@@ -85,13 +85,13 @@ func checkPorts(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workl
 	assert.Equal(t, val, int64(workload.Spec.SSHPort))
 }
 
-func checkEnvs(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec) {
+func checkEnvs(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec, id int) {
 	envs := getEnvs(t, obj, resourceSpec)
 	for key, val := range workload.Spec.Env {
 		ok := findEnv(envs, key, val)
 		assert.Equal(t, ok, true)
 	}
-	gpu := workload.Spec.Resource.GPU
+	gpu := workload.Spec.Resources[id].GPU
 	if gpu != "" {
 		ok := findEnv(envs, "GPUS_PER_NODE", gpu)
 		assert.Equal(t, ok, true)
@@ -182,7 +182,7 @@ func findVolumeMount(volumeMounts []interface{}, name string) map[string]interfa
 	return nil
 }
 
-func checkVolumes(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec) {
+func checkVolumes(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec, id int) {
 	volumesPath := append(resourceSpec.PrePaths, resourceSpec.TemplatePaths...)
 	volumesPath = append(volumesPath, "spec", "volumes")
 
@@ -197,7 +197,7 @@ func checkVolumes(t *testing.T, obj *unstructured.Unstructured, workload *v1.Wor
 		assert.Equal(t, ok, true)
 		sizeLimit, ok := emptyDir.(map[string]interface{})["sizeLimit"]
 		assert.Equal(t, ok, true)
-		assert.Equal(t, sizeLimit.(string), workload.Spec.Resource.SharedMemory)
+		assert.Equal(t, sizeLimit.(string), workload.Spec.Resources[id].SharedMemory)
 	}
 
 	volumeName := v1.GenFullVolumeId(v1.PFS, 1)

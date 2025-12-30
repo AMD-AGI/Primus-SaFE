@@ -29,6 +29,7 @@ type Workload struct {
 	Workspace      string         `db:"workspace"`
 	Cluster        string         `db:"cluster"`
 	Resource       string         `db:"resource"`
+	Resources      string         `db:"resources"`
 	Image          string         `db:"image"`
 	EntryPoint     string         `db:"entrypoint"`
 	GVK            string         `db:"gvk"`

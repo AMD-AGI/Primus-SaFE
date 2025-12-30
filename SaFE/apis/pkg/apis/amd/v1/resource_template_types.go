@@ -60,9 +60,6 @@ type ResourceSpec struct {
 	ReplicasPaths []string `json:"replicasPaths,omitempty"`
 	// The relative path of pod completions(only for job)
 	CompletionsPaths []string `json:"completionsPaths,omitempty"`
-	// If the replica count is set to a non-zero value, it will be used as a fixed allocation when the task is submitted
-	// This applies only to the master role of a PyTorchJob (or similar structures).
-	Replica int64 `json:"replica,omitempty"`
 }
 
 // GetTemplatePath returns the path components for locating the resource template.

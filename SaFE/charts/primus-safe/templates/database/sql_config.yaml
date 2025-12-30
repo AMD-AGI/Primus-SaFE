@@ -71,6 +71,7 @@ data:
     alter table workload add column if not exists secrets TEXT;
     alter table workload add column if not exists scale_runner_set VARCHAR(64);
     alter table workload add column if not exists scale_runner_id VARCHAR(128);
+    alter table workload add column if not exists resources TEXT;
 
     create table if not exists fault
     (

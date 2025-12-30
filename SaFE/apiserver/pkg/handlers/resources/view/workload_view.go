@@ -87,6 +87,8 @@ type WorkloadResponseItem struct {
 	WorkspaceId string `json:"workspaceId"`
 	// Workload resource requirements
 	Resource v1.WorkloadResource `json:"resource"`
+	// Workload resource requirements
+	Resources []v1.WorkloadResource `json:"resources"`
 	// Workload name (display only)
 	DisplayName string `json:"displayName"`
 	// Workload description
@@ -194,18 +196,8 @@ type WorkloadPodWrapper struct {
 type PatchWorkloadRequest struct {
 	// Workload scheduling Priority (0-2), default 0
 	Priority *int `json:"priority,omitempty"`
-	// Requested replica count for the workload
-	Replica *int `json:"replica,omitempty"`
-	// Cpu cores, e.g. 128
-	CPU *string `json:"cpu,omitempty"`
-	// Gpu card, e.g. 8
-	GPU *string `json:"gpu,omitempty"`
-	// Memory size, e.g. 128Gi
-	Memory *string `json:"memory,omitempty"`
-	// Pod storage size, e.g. 50Gi
-	EphemeralStorage *string `json:"ephemeralStorage,omitempty"`
-	// Shared memory, e.g. 20Gi
-	SharedMemory *string `json:"sharedMemory,omitempty"`
+	// Workload resource requirements
+	Resources *[]v1.WorkloadResource `json:"resources"`
 	// The image address used by workload
 	Image *string `json:"image,omitempty"`
 	// Workload startup command, required in base64 encoding
