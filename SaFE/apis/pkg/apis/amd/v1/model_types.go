@@ -108,8 +108,12 @@ type (
 		// Required for remote_api mode (e.g., "gpt-4", "deepseek-chat")
 		// For local mode, this is auto-extracted from URL or user-specified
 		ModelName string `json:"modelName,omitempty"`
-		// Token references a Secret containing the auth token for pulling the model or API access
+		// Token references a Secret containing the auth token for pulling the model (HuggingFace token)
+		// Used for local mode to access private models
 		Token *corev1.LocalObjectReference `json:"token,omitempty"`
+		// ApiKey references a Secret containing the API key for remote API access
+		// Used for remote_api mode to authenticate with external services (e.g., OpenAI, DeepSeek)
+		ApiKey *corev1.LocalObjectReference `json:"apiKey,omitempty"`
 	}
 
 	// ModelLocalPath represents the download status of a model in a specific workspace
