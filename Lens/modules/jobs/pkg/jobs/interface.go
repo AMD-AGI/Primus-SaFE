@@ -18,6 +18,9 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/gpu_history_cache_6h"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/gpu_pod"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/gpu_realtime_cache"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/github_workflow_backfill"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/github_workflow_collector"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/github_workflow_scanner"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/gpu_usage_weekly_report"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/gpu_workload"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/storage_scan"
@@ -125,6 +128,14 @@ func initManagementJobs(cfg *config.JobsConfig) []Job {
 	// Add TraceLens cleanup job - runs every 5 minutes to clean up expired sessions
 	jobs = append(jobs, tracelens_cleanup.NewTraceLensCleanupJob())
 	log.Info("TraceLens cleanup job registered")
+
+	// Add GitHub Workflow Metrics jobs
+	jobs = append(jobs, github_workflow_scanner.NewGithubWorkflowScannerJob())
+	log.Info("GitHub Workflow Scanner job registered")
+	jobs = append(jobs, github_workflow_collector.NewGithubWorkflowCollectorJob())
+	log.Info("GitHub Workflow Collector job registered")
+	jobs = append(jobs, github_workflow_backfill.NewGithubWorkflowBackfillJob())
+	log.Info("GitHub Workflow Backfill job registered")
 
 	// Add weekly report job if configured
 	if cfg != nil {

@@ -303,5 +303,64 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		detectionStatusGroup.POST("/:workload_uid/trigger", TriggerDetection)
 	}
 
+	// GitHub Workflow Metrics routes - GitHub workflow metrics collection
+	githubWorkflowMetricsGroup := group.Group("/github-workflow-metrics")
+	{
+		// Config management
+		configsGroup := githubWorkflowMetricsGroup.Group("/configs")
+		{
+			configsGroup.POST("", CreateGithubWorkflowConfig)
+			configsGroup.GET("", ListGithubWorkflowConfigs)
+			configsGroup.GET("/:id", GetGithubWorkflowConfig)
+			configsGroup.PUT("/:id", UpdateGithubWorkflowConfig)
+			configsGroup.DELETE("/:id", DeleteGithubWorkflowConfig)
+			// Runs for a config
+			configsGroup.GET("/:config_id/runs", ListGithubWorkflowRuns)
+			// Schemas for a config
+			configsGroup.POST("/:config_id/schemas", CreateGithubWorkflowSchema)
+			configsGroup.GET("/:config_id/schemas", ListGithubWorkflowSchemas)
+			// AI Schema generation
+			configsGroup.POST("/:config_id/schemas/regenerate", RegenerateGithubWorkflowSchema)
+			configsGroup.POST("/:config_id/schemas/preview", PreviewSchemaExtraction)
+			// Metrics for a config
+			configsGroup.GET("/:config_id/metrics", ListGithubWorkflowMetrics)
+			// Advanced metrics query with JSONB dimension filtering
+			configsGroup.POST("/:config_id/metrics/query", QueryGithubWorkflowMetricsAdvanced)
+			// Metrics aggregation by time interval
+			configsGroup.POST("/:config_id/metrics/aggregate", GetGithubWorkflowMetricsAggregation)
+			// Metrics time-series trends
+			configsGroup.POST("/:config_id/metrics/trends", GetGithubWorkflowMetricsTrends)
+			// Stats for a config
+			configsGroup.GET("/:config_id/stats", GetGithubWorkflowMetricsStats)
+			// Summary statistics for a config
+			configsGroup.GET("/:config_id/summary", GetGithubWorkflowMetricsSummary)
+			// Available dimensions with values
+			configsGroup.GET("/:config_id/dimensions", GetGithubWorkflowMetricsDimensions)
+			// Available fields (dimension fields and metric fields)
+			configsGroup.GET("/:config_id/fields", GetGithubWorkflowMetricsFields)
+			// Backfill APIs
+			configsGroup.POST("/:config_id/backfill", TriggerBackfill)
+			configsGroup.GET("/:config_id/backfill/status", GetBackfillStatus)
+			configsGroup.POST("/:config_id/backfill/cancel", CancelBackfill)
+			configsGroup.GET("/:config_id/backfill/tasks", ListBackfillTasks)
+			// Batch retry failed runs
+			configsGroup.POST("/:config_id/runs/batch-retry", RetryFailedRuns)
+			// List completed EphemeralRunners for a config
+			configsGroup.GET("/:config_id/runners", ListEphemeralRunners)
+		}
+		// Run details
+		runsGroup := githubWorkflowMetricsGroup.Group("/runs")
+		{
+			runsGroup.GET("/:id", GetGithubWorkflowRun)
+			runsGroup.GET("/:run_id/metrics", GetGithubWorkflowMetricsByRun)
+		}
+		// Schema details
+		schemasGroup := githubWorkflowMetricsGroup.Group("/schemas")
+		{
+			schemasGroup.GET("/:id", GetGithubWorkflowSchema)
+			schemasGroup.POST("/:id/activate", SetGithubWorkflowSchemaActive)
+		}
+	}
+
 	return nil
 }
