@@ -775,23 +775,44 @@ func (h *Handler) generateWorkload(ctx context.Context,
 
 func (h *Handler) generatePreheatWorkload(ctx context.Context,
 	mainWorkload *v1.Workload, mainQuery *view.CreateWorkloadRequest) (*v1.Workload, error) {
-	preheatWorkload := mainWorkload.DeepCopy()
-	preheatWorkload.Name = commonutils.GenerateName(v1.GetDisplayName(mainWorkload))
-	preheatWorkload.Spec.GroupVersionKind = v1.GroupVersionKind{Kind: common.JobKind, Version: common.DefaultVersion}
-	v1.SetAnnotation(preheatWorkload, v1.DescriptionAnnotation, "preheat")
-	v1.SetAnnotation(preheatWorkload, v1.RequireNodeSpreadAnnotation, v1.TrueStr)
-
-	preheatWorkload.Spec.EntryPoint = stringutil.Base64Encode("echo \"preheat finished\"")
-	preheatWorkload.Spec.IsSupervised = false
-	preheatWorkload.Spec.MaxRetry = 0
-	preheatWorkload.Spec.TTLSecondsAfterFinished = pointer.Int(10)
-	preheatWorkload.Spec.CronJobs = nil
-	preheatWorkload.Spec.Dependencies = nil
-	preheatWorkload.Spec.Resource = v1.WorkloadResource{
-		CPU:              "1",
-		Memory:           "8Gi",
-		EphemeralStorage: "50Gi",
+	displayName := v1.GetDisplayName(mainWorkload)
+	description := "preheat"
+	if len(displayName) > commonutils.MaxDisplayNameLen-len(description)-1 {
+		displayName = displayName[:commonutils.MaxDisplayNameLen-len(description)-1]
 	}
+	displayName = description + "-" + displayName
+
+	preheatWorkload := &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: commonutils.GenerateName(displayName),
+			Labels: map[string]string{
+				v1.DisplayNameLabel: displayName,
+			},
+			Annotations: map[string]string{
+				v1.DescriptionAnnotation:       description,
+				v1.RequireNodeSpreadAnnotation: v1.TrueStr,
+			},
+		},
+		Spec: v1.WorkloadSpec{
+			Workspace: mainWorkload.Spec.Workspace,
+			Resource: v1.WorkloadResource{
+				Replica:          1,
+				CPU:              "1",
+				Memory:           "8Gi",
+				EphemeralStorage: "50Gi",
+			},
+			Image:                   mainWorkload.Spec.Image,
+			EntryPoint:              stringutil.Base64Encode("echo \"preheat finished\""),
+			GroupVersionKind:        mainWorkload.Spec.GroupVersionKind,
+			Priority:                mainWorkload.Spec.Priority,
+			TTLSecondsAfterFinished: pointer.Int(10),
+			Timeout:                 pointer.Int(3600),
+			IsTolerateAll:           mainWorkload.Spec.IsTolerateAll,
+			CustomerLabels:          mainWorkload.Spec.CustomerLabels,
+			Secrets:                 mainWorkload.Spec.Secrets,
+		},
+	}
+
 	if len(mainQuery.SpecifiedNodes) > 0 {
 		preheatWorkload.Spec.Resource.Replica = len(mainQuery.SpecifiedNodes)
 	} else {
