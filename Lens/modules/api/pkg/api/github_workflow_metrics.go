@@ -574,7 +574,7 @@ func ListGithubWorkflowMetrics(ctx *gin.Context) {
 
 // GetGithubWorkflowMetricsByRun handles GET /v1/github-workflow-metrics/runs/:run_id/metrics
 func GetGithubWorkflowMetricsByRun(ctx *gin.Context) {
-	runIDStr := ctx.Param("run_id")
+	runIDStr := ctx.Param("id")
 	runID, err := strconv.ParseInt(runIDStr, 10, 64)
 	if err != nil {
 		ctx.JSON(http.StatusBadRequest, rest.ErrorResp(ctx.Request.Context(), http.StatusBadRequest, "invalid run_id", nil))

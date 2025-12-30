@@ -352,7 +352,7 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		runsGroup := githubWorkflowMetricsGroup.Group("/runs")
 		{
 			runsGroup.GET("/:id", GetGithubWorkflowRun)
-			runsGroup.GET("/:run_id/metrics", GetGithubWorkflowMetricsByRun)
+			runsGroup.GET("/:id/metrics", GetGithubWorkflowMetricsByRun)
 		}
 		// Schema details
 		schemasGroup := githubWorkflowMetricsGroup.Group("/schemas")
