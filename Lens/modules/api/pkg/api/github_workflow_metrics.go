@@ -9,12 +9,12 @@ import (
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/aiclient"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/aitopics"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/backfill"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
 	dbmodel "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/model/rest"
-	backfill "github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/github_workflow_backfill"
 	"github.com/gin-gonic/gin"
 )
 
@@ -733,9 +733,9 @@ func TriggerBackfill(ctx *gin.Context) {
 
 	// Create backfill task
 	taskManager := backfill.GetTaskManager()
-	task := taskManager.CreateTask(configID, startTime, endTime, req.WorkloadUIDs, clusterName)
+	task := taskManager.CreateTask(configID, startTime, endTime, req.WorkloadUIDs, clusterName, req.DryRun)
 
-	log.GlobalLogger().WithContext(ctx).Infof("Backfill task %s created for config %d", task.ID, configID)
+	log.GlobalLogger().WithContext(ctx).Infof("Backfill task %s created for config %d (dry_run=%v)", task.ID, configID, req.DryRun)
 
 	ctx.JSON(http.StatusAccepted, rest.SuccessResp(ctx.Request.Context(), gin.H{
 		"message":   "Backfill task created",
