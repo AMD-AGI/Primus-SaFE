@@ -1,36 +1,36 @@
-# AI Gateway Phase 1-5 端到端测试指南
+# AI Gateway Phase 1-5 End-to-End Testing Guide
 
-本文档记录了 AI Agent Webhook System (Phase 1-5) 的完整端到端测试流程，用于验证 AI Gateway、AI Registry、AI Client 等核心组件的功能。
+This document records the complete end-to-end testing process for the AI Agent Webhook System (Phase 1-5), used to verify the functionality of AI Gateway, AI Registry, AI Client, and other core components.
 
-## 测试环境
+## Test Environment
 
-- **Kubernetes 集群**: x-flannel
-- **命名空间**: primus-lens
-- **测试日期**: 2025-12-29
+- **Kubernetes Cluster**: x-flannel
+- **Namespace**: primus-lens
+- **Test Date**: 2025-12-29
 
-## 前置条件
+## Prerequisites
 
-1. 有 Kubernetes 集群访问权限
-2. 配置正确的 kubeconfig
-3. AI Gateway deployment 已部署
+1. Kubernetes cluster access
+2. Properly configured kubeconfig
+3. AI Gateway deployment already deployed
 
 ```bash
 export KUBECONFIG=/wekafs/haiskong/.kube/config
 kubectl config use-context x-flannel
 ```
 
-## 步骤 1: 创建数据库表
+## Step 1: Create Database Tables
 
-AI Gateway 需要两个数据库表：`ai_agent_registrations` 和 `ai_tasks`。
+AI Gateway requires two database tables: `ai_agent_registrations` and `ai_tasks`.
 
-### 1.1 检查表是否存在
+### 1.1 Check if Tables Exist
 
 ```bash
 kubectl exec -n primus-lens primus-lens-lens-v6jg-0 -- \
   psql -d primus-lens -c "SELECT table_name FROM information_schema.tables WHERE table_name LIKE 'ai_%';"
 ```
 
-### 1.2 创建 ai_agent_registrations 表
+### 1.2 Create ai_agent_registrations Table
 
 ```bash
 kubectl exec -n primus-lens primus-lens-lens-v6jg-0 -- psql -d primus-lens -c "
@@ -52,7 +52,7 @@ CREATE INDEX IF NOT EXISTS idx_ai_agent_reg_topics ON ai_agent_registrations USI
 "
 ```
 
-### 1.3 创建 ai_tasks 表
+### 1.3 Create ai_tasks Table
 
 ```bash
 kubectl exec -n primus-lens primus-lens-lens-v6jg-0 -- psql -d primus-lens -c "
@@ -81,7 +81,7 @@ CREATE INDEX IF NOT EXISTS idx_ai_tasks_created_at ON ai_tasks(created_at DESC);
 "
 ```
 
-### 1.4 授权表访问权限
+### 1.4 Grant Table Access Permissions
 
 ```bash
 kubectl exec -n primus-lens primus-lens-lens-v6jg-0 -- psql -d primus-lens -c '
@@ -90,17 +90,17 @@ GRANT ALL PRIVILEGES ON TABLE ai_tasks TO "primus-lens";
 '
 ```
 
-## 步骤 2: 修复 Deployment Probe 配置
+## Step 2: Fix Deployment Probe Configuration
 
-AI Gateway 默认使用 `/v1/health` 作为健康检查路径，但该端点未实现。需要修改为 `/metrics`。
+AI Gateway uses `/v1/health` as the health check path by default, but this endpoint is not implemented. It needs to be changed to `/metrics`.
 
-### 2.1 检查当前 probe 配置
+### 2.1 Check Current Probe Configuration
 
 ```bash
 kubectl get deployment ai-gateway -n primus-lens -o yaml | grep -A 10 "livenessProbe\|readinessProbe"
 ```
 
-### 2.2 修复 probe 配置
+### 2.2 Fix Probe Configuration
 
 ```bash
 kubectl patch deployment ai-gateway -n primus-lens --type='json' -p='[
@@ -111,40 +111,40 @@ kubectl patch deployment ai-gateway -n primus-lens --type='json' -p='[
 ]'
 ```
 
-### 2.3 等待 Pod 就绪
+### 2.3 Wait for Pod to be Ready
 
 ```bash
 kubectl rollout status deployment/ai-gateway -n primus-lens
 kubectl get pods -n primus-lens -l app=ai-gateway
 ```
 
-预期输出：
+Expected output:
 ```
 NAME                          READY   STATUS    RESTARTS   AGE
 ai-gateway-xxxxxxxxx-xxxxx    1/1     Running   0          xxs
 ```
 
-## 步骤 3: 验证 AI Gateway API
+## Step 3: Verify AI Gateway API
 
-### 3.1 启动端口转发
+### 3.1 Start Port Forwarding
 
 ```bash
 kubectl port-forward -n primus-lens svc/ai-gateway 58003:8003 &
 sleep 3
 ```
 
-### 3.2 测试 Agent 列表 API
+### 3.2 Test Agent List API
 
 ```bash
 curl -s http://localhost:58003/v1/ai/agents
 ```
 
-预期输出：
+Expected output:
 ```json
 {"agents":[],"total":0}
 ```
 
-### 3.3 测试注册 Agent
+### 3.3 Test Agent Registration
 
 ```bash
 curl -s -X POST http://localhost:58003/v1/ai/agents/register \
@@ -158,47 +158,47 @@ curl -s -X POST http://localhost:58003/v1/ai/agents/register \
   }'
 ```
 
-预期输出：
+Expected output:
 ```json
 {"message":"Agent registered successfully","name":"test-agent"}
 ```
 
-### 3.4 测试获取 Agent 详情
+### 3.4 Test Get Agent Details
 
 ```bash
 curl -s http://localhost:58003/v1/ai/agents/test-agent
 ```
 
-### 3.5 测试获取统计信息
+### 3.5 Test Get Statistics
 
 ```bash
 curl -s http://localhost:58003/v1/ai/stats
 ```
 
-预期输出：
+Expected output:
 ```json
 {"agents":{"total":1,"healthy":0,"unhealthy":0,"unknown":1},"tasks":{"pending":0,"processing":0,"completed":0,"failed":0,"cancelled":0,"total":0}}
 ```
 
-### 3.6 测试删除 Agent
+### 3.6 Test Delete Agent
 
 ```bash
 curl -s -X DELETE http://localhost:58003/v1/ai/agents/test-agent
 ```
 
-### 3.7 清理端口转发
+### 3.7 Clean Up Port Forwarding
 
 ```bash
 pkill -f "port-forward.*58003"
 ```
 
-## 步骤 4: 测试消息发送/接收
+## Step 4: Test Message Sending/Receiving
 
-这是最重要的测试，验证 Mock Agent 能否正常接收来自平台的调用。
+This is the most important test, verifying that the Mock Agent can properly receive calls from the platform.
 
-### 4.1 创建简单的 Mock Agent
+### 4.1 Create a Simple Mock Agent
 
-创建文件 `simple_mock_agent.py`：
+Create file `simple_mock_agent.py`:
 
 ```python
 #!/usr/bin/env python3
@@ -238,31 +238,31 @@ if __name__ == '__main__':
     server.serve_forever()
 ```
 
-### 4.2 启动 Mock Agent
+### 4.2 Start Mock Agent
 
 ```bash
 python3 simple_mock_agent.py &
 ```
 
-### 4.3 验证 Mock Agent 健康检查
+### 4.3 Verify Mock Agent Health Check
 
 ```bash
 curl -s http://localhost:8002/health
 ```
 
-预期输出：
+Expected output:
 ```json
 {"status":"healthy"}
 ```
 
-### 4.4 获取本机 IP
+### 4.4 Get Local IP Address
 
 ```bash
 MY_IP=$(hostname -I | awk '{print $1}')
 echo "My IP: $MY_IP"
 ```
 
-### 4.5 注册 Mock Agent 到 AI Gateway
+### 4.5 Register Mock Agent with AI Gateway
 
 ```bash
 kubectl port-forward -n primus-lens svc/ai-gateway 58003:8003 &
@@ -279,7 +279,7 @@ curl -s -X POST http://localhost:58003/v1/ai/agents/register \
   }"
 ```
 
-### 4.6 模拟平台调用 Agent (aiclient 行为)
+### 4.6 Simulate Platform Calling Agent (aiclient Behavior)
 
 ```bash
 curl -s -X POST http://${MY_IP}:8002/invoke \
@@ -294,14 +294,14 @@ curl -s -X POST http://${MY_IP}:8002/invoke \
   }'
 ```
 
-预期输出：
+Expected output:
 ```json
 {"status": "success", "code": 0, "message": "Mock response", "payload": {"received": true}}
 ```
 
-### 4.7 检查 Mock Agent 日志
+### 4.7 Check Mock Agent Logs
 
-在 Mock Agent 的终端中应该能看到类似输出：
+In the Mock Agent terminal, you should see output similar to:
 
 ```
 ============================================================
@@ -316,15 +316,15 @@ Body: {
 ============================================================
 ```
 
-### 4.8 验证 AI Gateway 健康检查
+### 4.8 Verify AI Gateway Health Check
 
-等待约 10 秒后，检查 Agent 状态是否变为 healthy：
+After waiting about 10 seconds, check if the Agent status changes to healthy:
 
 ```bash
 curl -s http://localhost:58003/v1/ai/agents/my-mock-agent
 ```
 
-预期输出（注意 status 应为 "healthy"）：
+Expected output (note that status should be "healthy"):
 ```json
 {
   "name": "my-mock-agent",
@@ -337,66 +337,66 @@ curl -s http://localhost:58003/v1/ai/agents/my-mock-agent
 }
 ```
 
-Mock Agent 日志应该显示来自 AI Gateway 的健康检查请求：
+Mock Agent logs should show health check requests from AI Gateway:
 ```
 [GET] /health
 172.16.20.48 - - [29/Dec/2025 16:50:25] "GET /health HTTP/1.1" 200 -
 ```
 
-### 4.9 清理测试环境
+### 4.9 Clean Up Test Environment
 
 ```bash
-# 删除测试 Agent
+# Delete test Agent
 curl -s -X DELETE http://localhost:58003/v1/ai/agents/my-mock-agent
 
-# 停止端口转发
+# Stop port forwarding
 pkill -f "port-forward.*58003"
 
-# 停止 Mock Agent
+# Stop Mock Agent
 pkill -f "simple_mock_agent.py"
 ```
 
-## 验证检查清单
+## Verification Checklist
 
-| 功能 | 验证方式 | 预期结果 |
-|------|---------|---------|
-| 数据库表创建 | `\dt ai_*` | 显示两个表 |
-| Agent 注册 | `POST /v1/ai/agents/register` | 返回成功消息 |
-| Agent 列表 | `GET /v1/ai/agents` | 返回 Agent 列表 |
-| Agent 详情 | `GET /v1/ai/agents/:name` | 返回 Agent 信息 |
-| Agent 删除 | `DELETE /v1/ai/agents/:name` | 返回成功消息 |
-| 任务列表 | `GET /v1/ai/tasks` | 返回任务列表 |
-| 统计信息 | `GET /v1/ai/stats` | 返回统计数据 |
-| Mock Agent 健康检查 | AI Gateway 后台 Job | Agent status 变为 healthy |
-| 消息发送/接收 | `POST /invoke` | Mock Agent 打印收到的请求 |
+| Feature | Verification Method | Expected Result |
+|---------|---------------------|-----------------|
+| Database table creation | `\dt ai_*` | Shows two tables |
+| Agent registration | `POST /v1/ai/agents/register` | Returns success message |
+| Agent list | `GET /v1/ai/agents` | Returns Agent list |
+| Agent details | `GET /v1/ai/agents/:name` | Returns Agent info |
+| Agent deletion | `DELETE /v1/ai/agents/:name` | Returns success message |
+| Task list | `GET /v1/ai/tasks` | Returns task list |
+| Statistics | `GET /v1/ai/stats` | Returns statistics data |
+| Mock Agent health check | AI Gateway background job | Agent status becomes healthy |
+| Message sending/receiving | `POST /invoke` | Mock Agent prints received request |
 
-## 故障排除
+## Troubleshooting
 
-### Pod 一直处于 CrashLoopBackOff
+### Pod Keeps Staying in CrashLoopBackOff
 
-1. 检查日志：
+1. Check logs:
    ```bash
    kubectl logs -n primus-lens -l app=ai-gateway --tail=50
    ```
 
-2. 常见原因：
-   - 数据库表不存在
-   - 表权限不足
-   - Probe 端点不存在
+2. Common causes:
+   - Database tables do not exist
+   - Insufficient table permissions
+   - Probe endpoint does not exist
 
-### Agent 状态一直是 unknown
+### Agent Status Stays as Unknown
 
-1. 检查 Mock Agent 是否在运行
-2. 检查网络连通性（AI Gateway Pod 能否访问 Mock Agent IP）
-3. 检查 AI Gateway 日志是否有健康检查错误
+1. Check if Mock Agent is running
+2. Check network connectivity (can AI Gateway Pod access Mock Agent IP)
+3. Check AI Gateway logs for health check errors
 
-### 数据库权限错误
+### Database Permission Error
 
 ```
 ERROR: permission denied for table ai_agent_registrations (SQLSTATE 42501)
 ```
 
-解决方案：
+Solution:
 ```bash
 kubectl exec -n primus-lens primus-lens-lens-v6jg-0 -- psql -d primus-lens -c '
 GRANT ALL PRIVILEGES ON TABLE ai_agent_registrations TO "primus-lens";
@@ -404,12 +404,10 @@ GRANT ALL PRIVILEGES ON TABLE ai_tasks TO "primus-lens";
 '
 ```
 
-## 相关文件
+## Related Files
 
-- 设计文档: `/wekafs/haiskong/code/docs/lens/ai-agents/ai-agent-webhook-design.md`
-- AI Gateway 代码: `/wekafs/haiskong/code/Primus-SaFE/Lens/modules/ai-gateway/`
+- Design document: `/wekafs/haiskong/code/docs/lens/ai-agents/ai-agent-webhook-design.md`
+- AI Gateway code: `/wekafs/haiskong/code/Primus-SaFE/Lens/modules/ai-gateway/`
 - AI Client SDK: `/wekafs/haiskong/code/Primus-SaFE/Lens/modules/core/pkg/aiclient/`
 - AI Registry SDK: `/wekafs/haiskong/code/Primus-SaFE/Lens/modules/core/pkg/airegistry/`
 - Task Queue SDK: `/wekafs/haiskong/code/Primus-SaFE/Lens/modules/core/pkg/aitaskqueue/`
-
-
