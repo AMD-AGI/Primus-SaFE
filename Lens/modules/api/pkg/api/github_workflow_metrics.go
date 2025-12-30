@@ -801,7 +801,7 @@ func CancelBackfill(ctx *gin.Context) {
 	for _, task := range tasks {
 		if task.Status == backfill.BackfillStatusPending || task.Status == backfill.BackfillStatusInProgress {
 			if err := taskManager.CancelTask(task.ID); err != nil {
-				log.GlobalLogger().WithContext(ctx).Warnf("Failed to cancel task %s: %v", task.ID, err)
+				log.Warnf("Failed to cancel task %s: %v", task.ID, err)
 			} else {
 				cancelled++
 			}
@@ -875,7 +875,7 @@ func RetryFailedRuns(ctx *gin.Context) {
 	retried := 0
 	for _, run := range failedRuns {
 		if err := runFacade.ResetToPending(ctx.Request.Context(), run.ID); err != nil {
-			log.GlobalLogger().WithContext(ctx).Warnf("Failed to reset run %d: %v", run.ID, err)
+			log.Warnf("Failed to reset run %d: %v", run.ID, err)
 			continue
 		}
 		retried++
@@ -968,7 +968,7 @@ func RegenerateGithubWorkflowSchema(ctx *gin.Context) {
 	// Check if AI is available
 	aiClient := aiclient.GetGlobalClient()
 	if aiClient == nil || !aiClient.IsAvailable(ctx.Request.Context(), aitopics.TopicGithubMetricsExtract) {
-		log.GlobalLogger().WithContext(ctx).Warnf("AI client not available for schema generation")
+		log.Warnf("AI client not available for schema generation")
 		ctx.JSON(http.StatusServiceUnavailable, rest.ErrorResp(ctx.Request.Context(), http.StatusServiceUnavailable, "AI service not available", nil))
 		return
 	}
@@ -1111,7 +1111,7 @@ func PreviewSchemaExtraction(ctx *gin.Context) {
 	// Check if AI is available
 	aiClient := aiclient.GetGlobalClient()
 	if aiClient == nil || !aiClient.IsAvailable(ctx.Request.Context(), aitopics.TopicGithubMetricsExtract) {
-		log.GlobalLogger().WithContext(ctx).Warnf("AI client not available for preview")
+		log.Warnf("AI client not available for preview")
 		ctx.JSON(http.StatusServiceUnavailable, rest.ErrorResp(ctx.Request.Context(), http.StatusServiceUnavailable, "AI service not available", nil))
 		return
 	}
@@ -1642,7 +1642,7 @@ func GetGithubWorkflowMetricsDimensions(ctx *gin.Context) {
 	for _, dim := range dimensions {
 		values, err := facade.GetDistinctDimensionValues(ctx.Request.Context(), configID, dim, start, end)
 		if err != nil {
-			log.GlobalLogger().WithContext(ctx).Warnf("Failed to get values for dimension %s: %v", dim, err)
+			log.Warnf("Failed to get values for dimension %s: %v", dim, err)
 			continue
 		}
 		dimensionValues[dim] = values

@@ -178,7 +178,7 @@ func (j *GithubWorkflowBackfillJob) processBackfillTask(ctx context.Context, tas
 	if len(task.WorkloadUIDs) > 0 {
 		// Process specific workloads
 		for _, uid := range task.WorkloadUIDs {
-			workload, err := workloadFacade.GetWorkloadByUID(ctx, uid)
+			workload, err := workloadFacade.GetGpuWorkloadByUid(ctx, uid)
 			if err != nil {
 				log.Warnf("GithubWorkflowBackfillJob: failed to get workload %s: %v", uid, err)
 				continue

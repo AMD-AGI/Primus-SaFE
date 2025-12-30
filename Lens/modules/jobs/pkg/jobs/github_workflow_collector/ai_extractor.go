@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/aiclient"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/aitopics"
@@ -206,7 +207,7 @@ func (e *AIExtractor) ConvertAIMetricsToDBMetrics(
 	configID int64,
 	runID int64,
 	schemaID int64,
-	timestamp *model.ExtTime,
+	timestamp time.Time,
 	aiMetrics []aitopics.ExtractedMetric,
 ) []*model.GithubWorkflowMetrics {
 	result := make([]*model.GithubWorkflowMetrics, 0, len(aiMetrics))

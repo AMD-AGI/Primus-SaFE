@@ -15,7 +15,7 @@ Retrieves a list of available log alert rule templates.
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `category` | string | No | - | Filter by template category |
-| `cluster_name` | string | No | current | Target cluster name |
+| `cluster` | string | No | current | Target cluster name |
 
 **Response:**
 
@@ -140,7 +140,7 @@ Retrieves detailed information for a specific template.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `cluster_name` | string | No | current | Target cluster name |
+| `cluster` | string | No | current | Target cluster name |
 
 **Response:**
 
@@ -208,7 +208,7 @@ Creates a new custom log alert rule template.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `cluster_name` | string | No | current | Target cluster name |
+| `cluster` | string | No | current | Target cluster name |
 
 **Request Body:**
 
@@ -312,7 +312,7 @@ Deletes a custom log alert rule template. Built-in templates cannot be deleted.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `cluster_name` | string | No | current | Target cluster name |
+| `cluster` | string | No | current | Target cluster name |
 
 **Response:**
 
@@ -357,7 +357,7 @@ Creates a new log alert rule based on a template.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `cluster_name` | string | No | current | Target cluster name |
+| `cluster` | string | No | current | Target cluster name |
 
 **Request Body:**
 
