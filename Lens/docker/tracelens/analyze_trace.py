@@ -49,13 +49,14 @@ def load_trace_from_file(file_path: str):
 
 
 def load_trace_from_api(file_id: str):
-    """Load trace data from the Lens API."""
+    """Load trace data from the Lens API using streaming."""
     import requests
     
     url = f"{API_BASE_URL}/v1/profiler/files/{file_id}/content"
-    response = requests.get(url, timeout=300)  # 5 minutes timeout for large files
+    # Use streaming to avoid loading entire response into memory at once
+    response = requests.get(url, timeout=300, stream=True)
     response.raise_for_status()
-    return BytesIO(response.content)
+    return response
 
 
 @dataclass
@@ -69,27 +70,65 @@ def is_gzip_content(data: bytes) -> bool:
     return len(data) >= 2 and data[0:2] == b'\x1f\x8b'
 
 
-def analyze_single_trace(trace_data: BytesIO, file_name: str):
+def parse_trace_events_streaming(file_obj):
+    """
+    Parse only traceEvents from JSON using ijson for memory efficiency.
+    Falls back to standard json if ijson is not available.
+    """
+    try:
+        import ijson
+        # Use ijson to stream parse only traceEvents array
+        trace_events = list(ijson.items(file_obj, 'traceEvents.item'))
+        return trace_events
+    except ImportError:
+        # Fallback to standard json
+        file_obj.seek(0)
+        data = json.load(file_obj)
+        return data.get("traceEvents", [])
+
+
+def analyze_single_trace(trace_data, file_name: str):
     """Analyze a single trace file and display results."""
     try:
         from TraceLens.Trace2Tree.trace_to_tree import TraceToTree
         from TraceLens.TreePerf.tree_perf import TreePerfAnalyzer
         
-        # Parse trace data - detect format by content, not file name
-        trace_data.seek(0)
-        raw_content = trace_data.read()
-        
-        if is_gzip_content(raw_content):
-            # Content is gzip compressed
-            with gzip.GzipFile(fileobj=BytesIO(raw_content)) as f:
-                data = json.load(f)
+        # Handle both BytesIO and requests.Response objects
+        if hasattr(trace_data, 'content'):
+            # It's a requests.Response - get raw content
+            raw_content = trace_data.content
+            trace_data = BytesIO(raw_content)
+        elif hasattr(trace_data, 'read'):
+            trace_data.seek(0)
+            raw_content = trace_data.read()
+            trace_data = BytesIO(raw_content)
         else:
-            # Content is plain JSON
-            data = json.loads(raw_content.decode('utf-8'))
+            raw_content = trace_data
+            trace_data = BytesIO(raw_content)
+        
+        # Check if gzip and decompress using streaming
+        if is_gzip_content(raw_content):
+            # Use streaming gzip decompression
+            file_obj = gzip.GzipFile(fileobj=BytesIO(raw_content))
+        else:
+            file_obj = BytesIO(raw_content)
+        
+        # Parse trace events - try streaming first for memory efficiency
+        st.info("Parsing trace file (this may take a moment for large files)...")
+        trace_events = parse_trace_events_streaming(file_obj)
+        
+        if not trace_events:
+            st.error("No trace events found in file")
+            return False
+        
+        st.success(f"Loaded {len(trace_events):,} trace events")
         
         # Create analyzer
-        tree = TraceToTree(data["traceEvents"])
+        tree = TraceToTree(trace_events)
         analyzer = TreePerfAnalyzer(tree)
+        
+        # Clear trace_events to free memory
+        del trace_events
         
         # Get kernel data
         kernels = analyzer.get_df_kernel_launchers()

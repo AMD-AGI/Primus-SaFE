@@ -151,32 +151,24 @@ func GetProfilerFileContent(c *gin.Context) {
 	}
 
 	content := combinedContent.Bytes()
-
-	// Decompress if gzip encoded
-	if len(chunks) > 0 && chunks[0].ContentEncoding == "gzip" {
-		reader, err := gzip.NewReader(bytes.NewReader(content))
-		if err != nil {
-			log.Errorf("Failed to create gzip reader: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to decompress content"})
-			return
-		}
-		defer reader.Close()
-
-		decompressed, err := io.ReadAll(reader)
-		if err != nil {
-			log.Errorf("Failed to decompress content: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to decompress content"})
-			return
-		}
-		content = decompressed
+	contentEncoding := ""
+	if len(chunks) > 0 {
+		contentEncoding = chunks[0].ContentEncoding
 	}
 
-	log.Infof("Serving profiler file %d (%s), size: %d bytes", fileID, fileInfo.FileName, len(content))
+	log.Infof("Serving profiler file %d (%s), size: %d bytes, encoding: %s", fileID, fileInfo.FileName, len(content), contentEncoding)
 
 	// Set response headers
 	c.Header("Content-Type", "application/octet-stream")
 	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", fileInfo.FileName))
 	c.Header("Content-Length", strconv.Itoa(len(content)))
+
+	// Pass through gzip encoding if present - let client handle decompression
+	// This saves bandwidth and allows streaming decompression on client side
+	if contentEncoding == "gzip" {
+		c.Header("Content-Encoding", "gzip")
+		c.Header("X-Original-Content-Encoding", "gzip")
+	}
 
 	c.Data(http.StatusOK, "application/octet-stream", content)
 }
