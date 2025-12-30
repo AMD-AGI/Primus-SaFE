@@ -381,3 +381,30 @@ data:
     ALTER TABLE model ADD COLUMN IF NOT EXISTS max_tokens INTEGER DEFAULT 0;
 
     alter table model owner to "primus-safe";
+
+    create table if not exists dataset
+    (
+        id BIGSERIAL PRIMARY KEY,
+        dataset_id VARCHAR(64) NOT NULL,
+        display_name VARCHAR(128) NOT NULL,
+        description TEXT,
+        dataset_type VARCHAR(32) NOT NULL,
+        status VARCHAR(32) NOT NULL DEFAULT 'Ready',
+        s3_path VARCHAR(512) NOT NULL,
+        total_size BIGINT DEFAULT 0,
+        file_count INT DEFAULT 0,
+        message TEXT,
+        user_id VARCHAR(64) NOT NULL,
+        user_name VARCHAR(128),
+        creation_time TIMESTAMPTZ DEFAULT NOW(),
+        update_time TIMESTAMPTZ,
+        deletion_time TIMESTAMPTZ,
+        is_deleted BOOLEAN DEFAULT FALSE
+    );
+
+    create unique index if not exists T_DATASET_ID_INDEX on dataset (dataset_id);
+    create index if not exists T_DATASET_USER_ID_INDEX on dataset (user_id);
+    create index if not exists T_DATASET_TYPE_INDEX on dataset (dataset_type);
+    create index if not exists T_DATASET_IS_DELETED_INDEX on dataset (is_deleted);
+
+    alter table dataset owner to "primus-safe";

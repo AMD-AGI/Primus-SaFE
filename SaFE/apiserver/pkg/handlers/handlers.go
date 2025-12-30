@@ -13,6 +13,7 @@ import (
 
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	customhandler "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/custom-handlers"
+	datasethandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/dataset-handlers"
 	imagehandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/image-handlers"
 	model_handlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/model-handlers"
 	proxyhandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/proxy-handlers"
@@ -65,6 +66,15 @@ func InitHttpHandlers(_ context.Context, mgr ctrlruntime.Manager) (*gin.Engine, 
 		return nil, err
 	}
 	proxyhandlers.InitProxyRoutes(engine, proxyHandler)
+
+	// Initialize dataset handlers
+	datasetHandler, err := datasethandlers.NewHandler(context.Background(), mgr)
+	if err != nil {
+		return nil, err
+	}
+	if datasetHandler != nil {
+		datasethandlers.InitDatasetRouters(engine, datasetHandler)
+	}
 
 	return engine, nil
 }

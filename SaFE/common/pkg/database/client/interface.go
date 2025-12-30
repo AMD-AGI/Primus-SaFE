@@ -29,6 +29,7 @@ type Interface interface {
 	UserTokenInterface
 	InferenceInterface
 	PlaygroundSessionInterface
+	DatasetInterface
 }
 
 type WorkloadInterface interface {
@@ -156,4 +157,14 @@ type PlaygroundSessionInterface interface {
 	GetPlaygroundSession(ctx context.Context, id int64) (*PlaygroundSession, error)
 	CountPlaygroundSessions(ctx context.Context, query sqrl.Sqlizer) (int, error)
 	SetPlaygroundSessionDeleted(ctx context.Context, id int64) error
+}
+
+type DatasetInterface interface {
+	UpsertDataset(ctx context.Context, dataset *Dataset) error
+	SelectDatasets(ctx context.Context, query sqrl.Sqlizer, orderBy []string, limit, offset int) ([]*Dataset, error)
+	GetDataset(ctx context.Context, datasetId string) (*Dataset, error)
+	CountDatasets(ctx context.Context, query sqrl.Sqlizer) (int, error)
+	SetDatasetDeleted(ctx context.Context, datasetId string) error
+	UpdateDatasetStatus(ctx context.Context, datasetId, status, message string) error
+	UpdateDatasetFileInfo(ctx context.Context, datasetId string, totalSize int64, fileCount int) error
 }
