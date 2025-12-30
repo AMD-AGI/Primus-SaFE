@@ -55,29 +55,53 @@ Key steps in `run_bare_metal.sh`:
 
 ### Running on SLURM
 
-Two phases: request nodes with `salloc`, then inside the allocation `run_slurm.sh` performs node and network preflight and prepares the benchmark.
+The SLURM mode automatically handles resource allocation and benchmark execution. By default, `run_slurm.sh` will use `salloc` to allocate resources before running the benchmarks.
 
-Submit:
+#### Default Usage (Automatic Allocation):
 ```bash
-# Request 2 nodes on partition amd-tw for 4.5 hours (adjust as needed)
-NNODES=2 PARTITION=amd-tw TIME=4:30:00 bash salloc_slurm.sh
+# Automatically allocate 2 nodes and run benchmarks (default behavior)
+bash run_slurm.sh
+
+# Allocate 4 nodes with custom settings
+NNODES=4 PARTITION=gpu TIME=2:00:00 bash run_slurm.sh
 ```
 
-`salloc_slurm.sh` will:
-- Acquire node list via `salloc`
-- Pass the node list to `run_slurm.sh`
+#### Within Existing SLURM Allocation:
+```bash
+# If already in a SLURM job, skip auto-allocation
+bash run_slurm.sh --no-allocate
+```
+
+#### Excluding Problem Nodes:
+```bash
+# Use default exclude list (configured in script)
+bash run_slurm.sh
+
+# Custom exclude list
+EXCLUDE_NODES="chi[2770-2772]" bash run_slurm.sh
+
+# Don't exclude any nodes
+EXCLUDE_NODES="" bash run_slurm.sh
+```
 
 `run_slurm.sh` will:
-- Use containers on each node to run node and network preflight
-- Filter out unhealthy nodes; keep healthy nodes for subsequent benchmarks
-- Write outputs to `output/<TIMESTAMP>`
+- Automatically allocate nodes via `salloc` (unless --no-allocate is used)
+- Display excluded nodes if configured
+- Use `srun` to execute containers on each node
+- Run node and network preflight checks
+- Filter out unhealthy nodes and keep healthy ones for benchmarks
+- Generate comprehensive health reports
+- Write outputs to `outputs/<TIMESTAMP>`
 
-Environment variables (subset):
-- `NNODES`: number of nodes (default 2)
-- `PARTITION`: SLURM partition (default `amd-tw`)
-- `TIME`: job time limit (default `4:30:00`)
-- `PREFLIGHT_NODE_IMAGE` / `PREFLIGHT_NETWORK_IMAGE`: preflight images (defaults provided)
-- `OUTPUT_PATH` / `SHARE_PATH`: specify or share output directory
+Environment variables (configured in `config.sh`, can be overridden):
+- `NNODES`: Number of nodes (default: 2)
+- `PARTITION`: SLURM partition (default: configured in config.sh)
+- `TIME`: Job time limit (default: 4:30:00)
+- `CPUS_PER_TASK`: CPUs per task (default: 128)
+- `EXCLUDE_NODES`: Nodes to exclude from allocation
+- `IMAGE`: Container image for benchmarks
+- `MASTER_PORT`: Master port for distributed operations
+- See `config.sh` for complete configuration options
 
 ### Running on Kubernetes with PyTorchJob
 
@@ -134,7 +158,7 @@ Important notes:
 
 ## Key scripts and directories
 - `run_bare_metal.sh`: bare-metal entrypoint; installs Docker, calls Ansible playbooks, streams logs
-- `salloc_slurm.sh`: SLURM resource allocation entrypoint
+- `run_slurm.sh`: SLURM execution with automatic resource allocation
 - `run_slurm.sh`: preflight and network checks inside the SLURM job
 - `run.sh`: container entrypoint; runs I/O benchmarks, node/network preflight, system benchmarks, and collects results
 - `playbooks/`: Ansible playbooks (bare-metal install and benchmarks)
