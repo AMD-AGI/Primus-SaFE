@@ -690,7 +690,7 @@ func (f *GithubWorkflowMetricsFacade) GetMetricsTrends(ctx context.Context, quer
 			}
 
 			if len(series.Values) > 0 {
-				result.Series = append(result.Series, series)
+				result.Series = append(result.Series, series.MetricSeriesData)
 				// Use first series timestamps as reference
 				if len(result.Timestamps) == 0 {
 					result.Timestamps = series.timestamps
@@ -711,7 +711,7 @@ func (f *GithubWorkflowMetricsFacade) GetMetricsTrends(ctx context.Context, quer
 
 				if len(series.Values) > 0 {
 					series.Dimensions = dims
-					result.Series = append(result.Series, series)
+					result.Series = append(result.Series, series.MetricSeriesData)
 					if len(result.Timestamps) == 0 {
 						result.Timestamps = series.timestamps
 					}
