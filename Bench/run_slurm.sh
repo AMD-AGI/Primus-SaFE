@@ -75,7 +75,7 @@ export NNODES=${NNODES:-2}
 export PRIMUSBENCH_PATH="${PRIMUSBENCH_PATH:-$(pwd)}"
 
 # Nodes to exclude from allocation (can be overridden by environment variable)
-export EXCLUDE_NODES="${EXCLUDE_NODES:-chi[2770-2772,2774,2798,2800,2802-2804,2810-2812,2814,2820-2822,2824,2832,2835-2837,2841,2843,2848-2849,2861,2863,2865,2867-2868,2870,2872,2874-2875,2877,2879-2885,2888,2894,2896,2898-2900]}"
+export EXCLUDE_NODES="${EXCLUDE_NODES:-}"
 
 # Create log directory
 LOG_FILE="${LOG_DIR}/log_slurm.txt"
