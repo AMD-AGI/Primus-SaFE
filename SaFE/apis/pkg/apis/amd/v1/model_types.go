@@ -35,7 +35,6 @@ const (
 	ModelPhasePending     ModelPhase = "Pending"
 	ModelPhaseUploading   ModelPhase = "Uploading"   // Uploading to S3
 	ModelPhaseDownloading ModelPhase = "Downloading" // Downloading to local PFS
-	ModelPhasePulling     ModelPhase = "Pulling"     // Legacy: kept for backward compatibility
 	ModelPhaseReady       ModelPhase = "Ready"
 	ModelPhaseFailed      ModelPhase = "Failed"
 
@@ -170,11 +169,6 @@ func (m *Model) IsUploading() bool {
 // IsDownloading returns true if the model is being downloaded to local PFS
 func (m *Model) IsDownloading() bool {
 	return m.Status.Phase == ModelPhaseDownloading
-}
-
-// IsPulling returns true if the model is being pulled (legacy)
-func (m *Model) IsPulling() bool {
-	return m.Status.Phase == ModelPhasePulling
 }
 
 // IsReady returns true if the model is ready
