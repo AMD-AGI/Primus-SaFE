@@ -796,7 +796,6 @@ func (h *Handler) generatePreheatWorkload(ctx context.Context,
 		Spec: v1.WorkloadSpec{
 			Workspace: mainWorkload.Spec.Workspace,
 			Resource: v1.WorkloadResource{
-				Replica:          1,
 				CPU:              "1",
 				Memory:           "8Gi",
 				EphemeralStorage: "50Gi",
