@@ -2,6 +2,7 @@ package aitaskqueue
 
 import (
 	"context"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -63,10 +64,10 @@ func TestCleanupJob_RunOnce(t *testing.T) {
 }
 
 func TestCleanupJob_StartStop(t *testing.T) {
-	cleanupCount := 0
+	var cleanupCount atomic.Int32
 	queue := &MockQueue{
 		cleanupFunc: func(ctx context.Context, olderThan time.Duration) (int, error) {
-			cleanupCount++
+			cleanupCount.Add(1)
 			return 1, nil
 		},
 	}
@@ -85,14 +86,15 @@ func TestCleanupJob_StartStop(t *testing.T) {
 	job.Stop()
 
 	// Should have run at least twice (once at start, once from ticker)
-	assert.True(t, cleanupCount >= 2, "Expected at least 2 runs, got %d", cleanupCount)
+	count := cleanupCount.Load()
+	assert.True(t, count >= 2, "Expected at least 2 runs, got %d", count)
 }
 
 func TestCleanupJob_ContextCancellation(t *testing.T) {
-	cleanupCount := 0
+	var cleanupCount atomic.Int32
 	queue := &MockQueue{
 		cleanupFunc: func(ctx context.Context, olderThan time.Duration) (int, error) {
-			cleanupCount++
+			cleanupCount.Add(1)
 			return 1, nil
 		},
 	}
@@ -115,7 +117,7 @@ func TestCleanupJob_ContextCancellation(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 
 	// Should have run
-	assert.True(t, cleanupCount >= 1)
+	assert.True(t, cleanupCount.Load() >= 1)
 }
 
 func TestCleanupJob_CleanupError(t *testing.T) {
@@ -177,10 +179,10 @@ func TestTimeoutHandler_RunOnce(t *testing.T) {
 }
 
 func TestTimeoutHandler_StartStop(t *testing.T) {
-	timeoutCount := 0
+	var timeoutCount atomic.Int32
 	queue := &MockQueue{
 		handleTimeoutsFunc: func(ctx context.Context) (int, error) {
-			timeoutCount++
+			timeoutCount.Add(1)
 			return 1, nil
 		},
 	}
@@ -198,7 +200,8 @@ func TestTimeoutHandler_StartStop(t *testing.T) {
 	handler.Stop()
 
 	// Should have run at least once from ticker
-	assert.True(t, timeoutCount >= 1, "Expected at least 1 run, got %d", timeoutCount)
+	count := timeoutCount.Load()
+	assert.True(t, count >= 1, "Expected at least 1 run, got %d", count)
 }
 
 func TestTimeoutHandler_HandleTimeoutsError(t *testing.T) {
