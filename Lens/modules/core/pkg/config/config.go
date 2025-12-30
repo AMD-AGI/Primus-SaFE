@@ -19,6 +19,7 @@ type Config struct {
 	Jobs              *JobsConfig         `json:"jobs" yaml:"jobs"`
 	Netflow           *NetFlow            `json:"netflow" yaml:"netflow"`
 	Middleware        MiddlewareConfig    `json:"middleware" yaml:"middleware"`
+	AIGateway         *AIGatewayConfig    `json:"aiGateway" yaml:"aiGateway"`
 }
 
 type ControllerConfig struct {
@@ -155,6 +156,16 @@ type RecipientsConfig struct {
 // ReportStorageConfig contains report storage configuration
 type ReportStorageConfig struct {
 	RetentionDays int `yaml:"retention_days" json:"retention_days"`
+}
+
+// AIGatewayConfig contains AI Gateway configuration
+type AIGatewayConfig struct {
+	// RegistryMode controls the agent registry backend: memory, db, or config
+	RegistryMode string `json:"registryMode" yaml:"registryMode"`
+	// HealthCheckInterval is the interval for agent health checks
+	HealthCheckInterval int `json:"healthCheckInterval" yaml:"healthCheckInterval"`
+	// UnhealthyThreshold is the number of failed health checks before marking agent unhealthy
+	UnhealthyThreshold int `json:"unhealthyThreshold" yaml:"unhealthyThreshold"`
 }
 
 type NetFlow struct {

@@ -68,8 +68,10 @@ func (m *MockFacade) GetTraceLensSession() database.TraceLensSessionFacadeInterf
 func (m *MockFacade) GetK8sService() database.K8sServiceFacadeInterface             { return nil }
 func (m *MockFacade) GetWorkloadDetection() database.WorkloadDetectionFacadeInterface { return nil }
 func (m *MockFacade) GetWorkloadDetectionEvidence() database.WorkloadDetectionEvidenceFacadeInterface { return nil }
-func (m *MockFacade) GetDetectionCoverage() database.DetectionCoverageFacadeInterface { return nil }
-func (m *MockFacade) WithCluster(clusterName string) database.FacadeInterface       { return m }
+func (m *MockFacade) GetDetectionCoverage() database.DetectionCoverageFacadeInterface     { return nil }
+func (m *MockFacade) GetAIAgentRegistration() database.AIAgentRegistrationFacadeInterface { return nil }
+func (m *MockFacade) GetAITask() database.AITaskFacadeInterface                           { return nil }
+func (m *MockFacade) WithCluster(clusterName string) database.FacadeInterface             { return m }
 
 // MockWorkloadFacade implements database.WorkloadFacadeInterface for testing
 type MockWorkloadFacade struct {

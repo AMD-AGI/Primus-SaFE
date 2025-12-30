@@ -56,6 +56,10 @@ type FacadeInterface interface {
 	GetWorkloadDetectionEvidence() WorkloadDetectionEvidenceFacadeInterface
 	// GetDetectionCoverage returns the DetectionCoverage Facade interface
 	GetDetectionCoverage() DetectionCoverageFacadeInterface
+	// GetAIAgentRegistration returns the AIAgentRegistration Facade interface
+	GetAIAgentRegistration() AIAgentRegistrationFacadeInterface
+	// GetAITask returns the AITask Facade interface
+	GetAITask() AITaskFacadeInterface
 	// WithCluster returns a new Facade instance using the specified cluster
 	WithCluster(clusterName string) FacadeInterface
 }
@@ -89,6 +93,8 @@ type Facade struct {
 	WorkloadDetection             WorkloadDetectionFacadeInterface
 	WorkloadDetectionEvidence     WorkloadDetectionEvidenceFacadeInterface
 	DetectionCoverage             DetectionCoverageFacadeInterface
+	AIAgentRegistration           AIAgentRegistrationFacadeInterface
+	AITask                        AITaskFacadeInterface
 }
 
 // NewFacade creates a new Facade instance
@@ -121,6 +127,8 @@ func NewFacade() *Facade {
 		WorkloadDetection:         NewWorkloadDetectionFacade(),
 		WorkloadDetectionEvidence: NewWorkloadDetectionEvidenceFacade(),
 		DetectionCoverage:         NewDetectionCoverageFacade(),
+		AIAgentRegistration:       NewAIAgentRegistrationFacade(),
+		AITask:                    NewAITaskFacade(),
 	}
 }
 
@@ -259,6 +267,16 @@ func (f *Facade) GetDetectionCoverage() DetectionCoverageFacadeInterface {
 	return f.DetectionCoverage
 }
 
+// GetAIAgentRegistration returns the AIAgentRegistration Facade interface
+func (f *Facade) GetAIAgentRegistration() AIAgentRegistrationFacadeInterface {
+	return f.AIAgentRegistration
+}
+
+// GetAITask returns the AITask Facade interface
+func (f *Facade) GetAITask() AITaskFacadeInterface {
+	return f.AITask
+}
+
 // WithCluster returns a new Facade instance, all sub-Facades use the specified cluster
 func (f *Facade) WithCluster(clusterName string) FacadeInterface {
 	return &Facade{
@@ -289,6 +307,8 @@ func (f *Facade) WithCluster(clusterName string) FacadeInterface {
 		WorkloadDetection:         f.WorkloadDetection.WithCluster(clusterName),
 		WorkloadDetectionEvidence: f.WorkloadDetectionEvidence.WithCluster(clusterName),
 		DetectionCoverage:         f.DetectionCoverage.WithCluster(clusterName),
+		AIAgentRegistration:       f.AIAgentRegistration.WithCluster(clusterName),
+		AITask:                    f.AITask.WithCluster(clusterName),
 	}
 }
 

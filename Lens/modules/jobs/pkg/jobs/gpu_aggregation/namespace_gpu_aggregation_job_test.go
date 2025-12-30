@@ -67,7 +67,11 @@ func (m *NamespaceMockFacade) GetK8sService() database.K8sServiceFacadeInterface
 func (m *NamespaceMockFacade) GetWorkloadDetection() database.WorkloadDetectionFacadeInterface { return nil }
 func (m *NamespaceMockFacade) GetWorkloadDetectionEvidence() database.WorkloadDetectionEvidenceFacadeInterface { return nil }
 func (m *NamespaceMockFacade) GetDetectionCoverage() database.DetectionCoverageFacadeInterface { return nil }
-func (m *NamespaceMockFacade) WithCluster(clusterName string) database.FacadeInterface       { return m }
+func (m *NamespaceMockFacade) GetAIAgentRegistration() database.AIAgentRegistrationFacadeInterface {
+	return nil
+}
+func (m *NamespaceMockFacade) GetAITask() database.AITaskFacadeInterface { return nil }
+func (m *NamespaceMockFacade) WithCluster(clusterName string) database.FacadeInterface { return m }
 
 // NamespaceMockNamespaceInfoFacade implements database.NamespaceInfoFacadeInterface for testing
 type NamespaceMockNamespaceInfoFacade struct {
