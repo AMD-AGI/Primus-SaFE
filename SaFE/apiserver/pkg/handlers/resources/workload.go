@@ -805,11 +805,11 @@ func (h *Handler) generatePreheatWorkload(ctx context.Context,
 		},
 		Spec: v1.WorkloadSpec{
 			Workspace: mainWorkload.Spec.Workspace,
-			Resource: v1.WorkloadResource{
+			Resources: []v1.WorkloadResource{{
 				CPU:              "1",
 				Memory:           "8Gi",
 				EphemeralStorage: "50Gi",
-			},
+			}},
 			Image:                   mainWorkload.Spec.Image,
 			EntryPoint:              stringutil.Base64Encode("echo \"preheat finished\""),
 			GroupVersionKind:        mainWorkload.Spec.GroupVersionKind,
