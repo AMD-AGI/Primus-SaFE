@@ -2,7 +2,14 @@ package aitopics
 
 import (
 	"encoding/json"
+	"math/rand"
+	"sync"
 	"time"
+)
+
+var (
+	randMu sync.Mutex
+	rng    = rand.New(rand.NewSource(time.Now().UnixNano()))
 )
 
 // Request represents the unified request envelope for AI invocation
@@ -129,10 +136,11 @@ func generateRequestID() string {
 func randomString(n int) string {
 	const letters = "abcdefghijklmnopqrstuvwxyz0123456789"
 	b := make([]byte, n)
+	randMu.Lock()
 	for i := range b {
-		b[i] = letters[time.Now().UnixNano()%int64(len(letters))]
-		time.Sleep(time.Nanosecond) // Ensure different values
+		b[i] = letters[rng.Intn(len(letters))]
 	}
+	randMu.Unlock()
 	return string(b)
 }
 
