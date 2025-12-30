@@ -81,9 +81,9 @@ func (h *Handler) Chat(c *gin.Context) {
 		baseUrl = k8sModel.Spec.Source.URL
 		modelName = k8sModel.GetModelName()
 
-		// Get API key from Secret (if token reference exists)
-		if k8sModel.Spec.Source.Token != nil && k8sModel.Spec.Source.Token.Name != "" {
-			apiKey = h.getTokenFromSecret(ctx, k8sModel.Spec.Source.Token.Name)
+		// Get API key from Secret (if apiKey reference exists for remote_api mode)
+		if k8sModel.Spec.Source.ApiKey != nil && k8sModel.Spec.Source.ApiKey.Name != "" {
+			apiKey = h.getApiKeyFromSecret(ctx, k8sModel.Spec.Source.ApiKey.Name)
 		}
 	} else {
 		// Chat with workload (local inference service)
@@ -180,7 +180,8 @@ func (h *Handler) listPlaygroundServices(c *gin.Context) (interface{}, error) {
 		}
 	}
 
-	// 2. List running inference workloads (workloads with source-model label)
+	// 2. List all running inference workloads (Deployment/StatefulSet types)
+	// Note: source-model label is optional - used for filtering on Model Square page
 	workloadList := &v1.WorkloadList{}
 	if err := h.k8sClient.List(ctx, workloadList); err != nil {
 		return nil, commonerrors.NewInternalError("failed to list workloads: " + err.Error())
@@ -192,7 +193,14 @@ func (h *Handler) listPlaygroundServices(c *gin.Context) (interface{}, error) {
 			continue
 		}
 
-		// Get source model ID from label
+		// Filter to only include inference-type workloads (Deployment/StatefulSet)
+		// Exclude training jobs (PyTorchJob), CI/CD jobs (AutoscalingRunnerSet), etc.
+		kind := w.Spec.Kind
+		if kind != "" && kind != common.DeploymentKind && kind != common.StatefulSetKind {
+			continue
+		}
+
+		// Get source model ID from label (optional)
 		sourceModelID := ""
 		sourceModelName := ""
 		if w.Labels != nil {
@@ -247,7 +255,7 @@ func (h *Handler) getChatURL(c *gin.Context) (interface{}, error) {
 		return nil, commonerrors.NewBadRequest("getChatURL is only available for remote_api models")
 	}
 
-	hasApiKey := k8sModel.Spec.Source.Token != nil && k8sModel.Spec.Source.Token.Name != ""
+	hasApiKey := k8sModel.Spec.Source.ApiKey != nil && k8sModel.Spec.Source.ApiKey.Name != ""
 
 	return &ChatURLResponse{
 		URL:       k8sModel.Spec.Source.URL,
@@ -256,7 +264,7 @@ func (h *Handler) getChatURL(c *gin.Context) (interface{}, error) {
 	}, nil
 }
 
-// getTokenFromSecret retrieves token from a Kubernetes Secret
+// getTokenFromSecret retrieves token from a Kubernetes Secret (for HuggingFace tokens)
 func (h *Handler) getTokenFromSecret(ctx context.Context, secretName string) string {
 	secret := &corev1.Secret{}
 	if err := h.k8sClient.Get(ctx, ctrlclient.ObjectKey{
@@ -266,9 +274,21 @@ func (h *Handler) getTokenFromSecret(ctx context.Context, secretName string) str
 		klog.ErrorS(err, "failed to get token secret", "secret", secretName)
 		return ""
 	}
-	// Try "token" key first (for model tokens), then "apiKey" (for inference API keys)
 	if key, exists := secret.Data["token"]; exists {
 		return string(key)
+	}
+	return ""
+}
+
+// getApiKeyFromSecret retrieves API key from a Kubernetes Secret (for remote API access)
+func (h *Handler) getApiKeyFromSecret(ctx context.Context, secretName string) string {
+	secret := &corev1.Secret{}
+	if err := h.k8sClient.Get(ctx, ctrlclient.ObjectKey{
+		Name:      secretName,
+		Namespace: common.PrimusSafeNamespace,
+	}, secret); err != nil {
+		klog.ErrorS(err, "failed to get apiKey secret", "secret", secretName)
+		return ""
 	}
 	if key, exists := secret.Data["apiKey"]; exists {
 		return string(key)

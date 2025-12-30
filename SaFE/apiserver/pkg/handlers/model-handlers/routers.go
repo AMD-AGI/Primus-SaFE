@@ -30,6 +30,7 @@ func InitInferenceRouters(e *gin.Engine, h *Handler) {
 		group.POST("playground/models", h.CreateModel)                          // Create a new model
 		group.GET("playground/models", h.ListModels)                            // List all models
 		group.GET("playground/models/:id", h.GetModel)                          // Get model by ID
+		group.PATCH("playground/models/:id", h.PatchModel)                      // Partial update model fields
 		group.DELETE("playground/models/:id", h.DeleteModel)                    // Delete a model
 		group.POST("playground/models/:id/retry", h.RetryModel)                 // Retry failed model download
 		group.GET("playground/models/:id/workloads", h.GetModelWorkloads)       // List workloads associated with model

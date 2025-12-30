@@ -965,6 +965,11 @@ func (in *ModelSource) DeepCopyInto(out *ModelSource) {
 		*out = new(corev1.LocalObjectReference)
 		**out = **in
 	}
+	if in.ApiKey != nil {
+		in, out := &in.ApiKey, &out.ApiKey
+		*out = new(corev1.LocalObjectReference)
+		**out = **in
+	}
 	return
 }
 

@@ -126,7 +126,8 @@ type ModelSourceReq struct {
 	URL        string `json:"url"`        // Model URL (HuggingFace repo ID or API endpoint)
 	AccessMode string `json:"accessMode"` // "remote_api" or "local"
 	ModelName  string `json:"modelName"`  // Model name for API calls (required for remote_api)
-	Token      string `json:"token"`      // Auth token (HuggingFace token or API key)
+	Token      string `json:"token"`      // HuggingFace token for pulling private models (local mode)
+	ApiKey     string `json:"apiKey"`     // API key for remote API access (remote_api mode)
 }
 
 // CreateResponse represents the response after creating a model.
@@ -179,6 +180,14 @@ type DeleteModelRequest struct {
 	DeleteAssociated  bool `json:"deleteAssociated"`  // Delete associated stopped/failed workloads
 	CleanupLocalPaths bool `json:"cleanupLocalPaths"` // Cleanup local PFS paths
 	CleanupS3         bool `json:"cleanupS3"`         // Cleanup S3 storage
+}
+
+// PatchModelRequest represents the request to update a model's mutable fields.
+// All fields are optional - only provided fields will be updated.
+type PatchModelRequest struct {
+	ModelName   *string `json:"modelName,omitempty"`   // Update model name for API calls
+	DisplayName *string `json:"displayName,omitempty"` // Update display name
+	Description *string `json:"description,omitempty"` // Update description
 }
 
 // --- Playground Services Types ---

@@ -53,6 +53,11 @@ func (h *Handler) RetryModel(c *gin.Context) {
 	handle(c, h.retryModel)
 }
 
+// PatchModel handles partial updates to a model's mutable fields.
+func (h *Handler) PatchModel(c *gin.Context) {
+	handle(c, h.patchModel)
+}
+
 // GetModelWorkloads handles listing workloads associated with a model.
 func (h *Handler) GetModelWorkloads(c *gin.Context) {
 	handle(c, h.getModelWorkloads)
@@ -201,9 +206,9 @@ func (h *Handler) createModel(c *gin.Context) (interface{}, error) {
 		return nil, commonerrors.NewInternalError("failed to create model resource: " + err.Error())
 	}
 
-	// If user provided a token, create a Secret
+	// If user provided a token (for local mode HuggingFace access), create a Secret
 	if req.Source.Token != "" {
-		tokenSecretName := name // Secret name: model-xxx
+		tokenSecretName := name + "-token" // Secret name: model-xxx-token
 		secret := &corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      tokenSecretName,
@@ -237,6 +242,42 @@ func (h *Handler) createModel(c *gin.Context) (interface{}, error) {
 		}
 	}
 
+	// If user provided an API key (for remote_api mode), create a Secret
+	if req.Source.ApiKey != "" {
+		apiKeySecretName := name + "-apikey" // Secret name: model-xxx-apikey
+		secret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      apiKeySecretName,
+				Namespace: common.PrimusSafeNamespace,
+				Labels: map[string]string{
+					v1.ModelIdLabel: name,
+				},
+			},
+			StringData: map[string]string{
+				"apiKey": req.Source.ApiKey,
+			},
+			Type: corev1.SecretTypeOpaque,
+		}
+
+		// Note: Cannot use OwnerReference here because Model is cluster-scoped
+		// and Secret is namespace-scoped. Will delete manually in deleteModel.
+		if err := h.k8sClient.Create(ctx, secret); err != nil {
+			klog.ErrorS(err, "Failed to create apiKey Secret")
+			_ = h.k8sClient.Delete(ctx, k8sModel)
+			return nil, commonerrors.NewInternalError("failed to create apiKey secret: " + err.Error())
+		}
+		klog.Infof("Created apiKey Secret: %s for Model %s", apiKeySecretName, name)
+
+		// Update Model to reference the Secret
+		k8sModel.Spec.Source.ApiKey = &corev1.LocalObjectReference{
+			Name: apiKeySecretName,
+		}
+		if err := h.k8sClient.Update(ctx, k8sModel); err != nil {
+			klog.ErrorS(err, "Failed to update Model with apiKey reference")
+			return nil, commonerrors.NewInternalError("failed to update model with apiKey: " + err.Error())
+		}
+	}
+
 	// For remote_api models, update status to Ready
 	if req.Source.AccessMode == string(v1.AccessModeRemoteAPI) {
 		k8sModel.Status.Phase = v1.ModelPhaseReady
@@ -258,7 +299,16 @@ func (h *Handler) getModel(c *gin.Context) (interface{}, error) {
 
 	ctx := c.Request.Context()
 
-	// Fetch from K8s
+	// 1. Try to fetch from database first (if available)
+	if h.dbClient != nil {
+		dbModel, err := h.dbClient.GetModelByID(ctx, modelId)
+		if err == nil && dbModel != nil && !dbModel.IsDeleted {
+			return cvtDBModelToInfo(dbModel), nil
+		}
+		// If not found in DB or error, fall through to K8s
+	}
+
+	// 2. Fallback to K8s
 	k8sModel := &v1.Model{}
 	if err := h.k8sClient.Get(ctx, ctrlclient.ObjectKey{Name: modelId}, k8sModel); err != nil {
 		if errors.IsNotFound(err) {
@@ -294,7 +344,35 @@ func (h *Handler) listModels(c *gin.Context) (interface{}, error) {
 
 	ctx := c.Request.Context()
 
-	// List from K8s
+	// 1. Try to list from database first (if available)
+	if h.dbClient != nil {
+		dbModels, err := h.dbClient.ListModels(ctx, queryArgs.AccessMode, queryArgs.Workspace, false)
+		if err == nil && len(dbModels) > 0 {
+			var items []ModelInfo
+			for _, dbModel := range dbModels {
+				items = append(items, cvtDBModelToInfo(dbModel))
+			}
+
+			// Apply pagination
+			total := int64(len(items))
+			start := queryArgs.Offset
+			end := queryArgs.Offset + queryArgs.Limit
+			if start > int(total) {
+				start = int(total)
+			}
+			if end > int(total) {
+				end = int(total)
+			}
+
+			return &ListModelResponse{
+				Total: total,
+				Items: items[start:end],
+			}, nil
+		}
+		// If error or empty, fall through to K8s
+	}
+
+	// 2. Fallback to K8s
 	k8sModelList := &v1.ModelList{}
 	if err := h.k8sClient.List(ctx, k8sModelList); err != nil {
 		return nil, commonerrors.NewInternalError("failed to list models from K8s: " + err.Error())
@@ -464,6 +542,22 @@ func (h *Handler) deleteModel(c *gin.Context) (interface{}, error) {
 		}
 	}
 
+	// 5.1 Delete ApiKey Secret manually (if exists)
+	if k8sModel.Spec.Source.ApiKey != nil && k8sModel.Spec.Source.ApiKey.Name != "" {
+		apiKeySecret := &corev1.Secret{}
+		apiKeySecretKey := ctrlclient.ObjectKey{
+			Name:      k8sModel.Spec.Source.ApiKey.Name,
+			Namespace: common.PrimusSafeNamespace,
+		}
+		if err := h.k8sClient.Get(ctx, apiKeySecretKey, apiKeySecret); err == nil {
+			if err := h.k8sClient.Delete(ctx, apiKeySecret); err != nil && !errors.IsNotFound(err) {
+				klog.ErrorS(err, "Failed to delete apiKey secret", "secret", apiKeySecretKey.Name)
+			} else {
+				klog.InfoS("ApiKey secret deleted", "secret", apiKeySecretKey.Name, "model", modelId)
+			}
+		}
+	}
+
 	// 6. Delete K8s Model CR
 	// The model controller will handle S3 and local path cleanup via finalizer
 	if err := h.k8sClient.Delete(ctx, k8sModel); err != nil {
@@ -528,6 +622,61 @@ func (h *Handler) retryModel(c *gin.Context) (interface{}, error) {
 		"previousPhase": string(originalPhase),
 		"currentPhase":  string(v1.ModelPhasePending),
 	}, nil
+}
+
+// patchModel implements partial update of a model's mutable fields.
+func (h *Handler) patchModel(c *gin.Context) (interface{}, error) {
+	modelId := c.Param("id")
+	if modelId == "" {
+		return nil, commonerrors.NewBadRequest("model id is required")
+	}
+
+	var req PatchModelRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		return nil, commonerrors.NewBadRequest(fmt.Sprintf("invalid request body: %v", err))
+	}
+
+	// Check if any field is provided
+	if req.ModelName == nil && req.DisplayName == nil && req.Description == nil {
+		return nil, commonerrors.NewBadRequest("at least one field must be provided for update")
+	}
+
+	ctx := c.Request.Context()
+
+	// Get the model from K8s
+	k8sModel := &v1.Model{}
+	if err := h.k8sClient.Get(ctx, ctrlclient.ObjectKey{Name: modelId}, k8sModel); err != nil {
+		if errors.IsNotFound(err) {
+			return nil, commonerrors.NewNotFound("model", modelId)
+		}
+		klog.ErrorS(err, "Failed to get model from K8s", "model", modelId)
+		return nil, commonerrors.NewInternalError("failed to fetch model: " + err.Error())
+	}
+
+	// Apply updates using patch
+	patch := ctrlclient.MergeFrom(k8sModel.DeepCopy())
+
+	if req.ModelName != nil {
+		k8sModel.Spec.Source.ModelName = *req.ModelName
+	}
+	if req.DisplayName != nil {
+		k8sModel.Spec.DisplayName = *req.DisplayName
+	}
+	if req.Description != nil {
+		k8sModel.Spec.Description = *req.Description
+	}
+
+	if err := h.k8sClient.Patch(ctx, k8sModel, patch); err != nil {
+		klog.ErrorS(err, "Failed to patch model", "model", modelId)
+		return nil, commonerrors.NewInternalError("failed to update model: " + err.Error())
+	}
+
+	klog.InfoS("Model patched successfully", "model", modelId,
+		"modelName", req.ModelName,
+		"displayName", req.DisplayName,
+		"description", req.Description)
+
+	return h.convertK8sModelToInfo(k8sModel), nil
 }
 
 // getModelWorkloads lists all workloads associated with a model via label selector.
@@ -629,6 +778,8 @@ func (h *Handler) getWorkloadConfig(c *gin.Context) (interface{}, error) {
 	}
 
 	// Generate workload configuration
+	// Pre-filled fields: DisplayName, Description, Labels, Env, ModelID, ModelName, ModelPath, AccessMode, MaxTokens, Workspace
+	// User-provided fields: Image, EntryPoint, CPU, Memory, GPU (must be filled by frontend)
 	config := WorkloadConfigResponse{
 		DisplayName: fmt.Sprintf("%s-infer", k8sModel.Spec.DisplayName),
 		Description: fmt.Sprintf("Inference service for %s", k8sModel.Spec.DisplayName),
@@ -644,12 +795,16 @@ func (h *Handler) getWorkloadConfig(c *gin.Context) (interface{}, error) {
 		AccessMode: string(k8sModel.Spec.Source.AccessMode),
 		MaxTokens:  k8sModel.Spec.MaxTokens,
 		Workspace:  workspace,
-		// These fields are left empty for user to fill
-		Image:      "",
-		EntryPoint: "",
-		CPU:        "",
-		Memory:     "",
-		GPU:        "",
+		// TODO: The following fields must be filled by the user in the frontend
+		// Consider providing recommended values based on model type/size:
+		// - Image: vllm/vllm-openai:latest, ghcr.io/huggingface/text-generation-inference:latest
+		// - EntryPoint: python -m vllm.entrypoints.openai.api_server --model ${MODEL_PATH}
+		// - CPU/Memory/GPU: based on model parameters (7B -> 8GPU, 70B -> 16GPU, etc.)
+		Image:      "", // Required: user must provide container image
+		EntryPoint: "", // Required: user must provide startup command
+		CPU:        "", // Required: user must specify CPU request
+		Memory:     "", // Required: user must specify memory request
+		GPU:        "", // Required: user must specify GPU request
 	}
 
 	return config, nil
