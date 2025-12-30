@@ -14,7 +14,14 @@ Environment Variables:
 
 import os
 import sys
+import gzip
+import json
+from io import BytesIO
+from dataclasses import dataclass
+from typing import Optional
+
 import streamlit as st
+import pandas as pd
 
 # Get configuration from environment variables
 SESSION_ID = os.getenv("SESSION_ID", "unknown")
@@ -44,12 +51,127 @@ def load_trace_from_file(file_path: str):
 def load_trace_from_api(file_id: str):
     """Load trace data from the Lens API."""
     import requests
-    from io import BytesIO
     
     url = f"{API_BASE_URL}/v1/profiler/files/{file_id}/content"
-    response = requests.get(url, timeout=60)
+    response = requests.get(url, timeout=300)  # 5 minutes timeout for large files
     response.raise_for_status()
     return BytesIO(response.content)
+
+
+@dataclass
+class ExperimentNames:
+    BASELINE = "Baseline"
+    EXPERIMENT = "Experiment"
+
+
+def analyze_single_trace(trace_data: BytesIO, file_name: str):
+    """Analyze a single trace file and display results."""
+    try:
+        from TraceLens.Trace2Tree.trace_to_tree import TraceToTree
+        from TraceLens.TreePerf.tree_perf import TreePerfAnalyzer
+        
+        # Parse trace data
+        trace_data.seek(0)
+        if file_name.endswith(".gz"):
+            with gzip.GzipFile(fileobj=trace_data) as f:
+                data = json.load(f)
+        else:
+            data = json.load(trace_data)
+        
+        # Create analyzer
+        tree = TraceToTree(data["traceEvents"])
+        analyzer = TreePerfAnalyzer(tree)
+        
+        # Get kernel data
+        kernels = analyzer.get_df_kernel_launchers()
+        kernels_summary = analyzer.get_df_kernel_launchers_summary(kernels)
+        gemms_summary = analyzer.get_df_kernel_launchers_summary_by_shape(kernels, "aten::mm")
+        
+        # Display tabs
+        summary_tab, gemms_tab, fa_tab, compare_tab = st.tabs([
+            "Kernel Summary",
+            "GEMMs Analysis", 
+            "Flash Attention",
+            "Compare with Another Trace"
+        ])
+        
+        with summary_tab:
+            st.subheader("Kernel Performance Summary")
+            if not kernels_summary.empty:
+                st.dataframe(
+                    kernels_summary.round().astype(int, errors="ignore"),
+                    use_container_width=True
+                )
+            else:
+                st.warning("No kernel data found in trace.")
+        
+        with gemms_tab:
+            st.subheader("GEMM Operations (aten::mm)")
+            if not gemms_summary.empty:
+                st.dataframe(
+                    gemms_summary.round().astype(int, errors="ignore"),
+                    use_container_width=True
+                )
+            else:
+                st.info("No GEMM operations found in trace.")
+        
+        with fa_tab:
+            st.subheader("Flash Attention Analysis")
+            # Find flash attention kernels
+            fa_kernels = kernels_summary[
+                kernels_summary.index.str.lower().str.contains("flash", na=False)
+            ]
+            if not fa_kernels.empty:
+                st.dataframe(
+                    fa_kernels.round().astype(int, errors="ignore"),
+                    use_container_width=True
+                )
+            else:
+                st.info("No Flash Attention kernels found in trace.")
+        
+        with compare_tab:
+            st.subheader("Compare with Another Trace")
+            st.info("Upload a second trace file to compare performance.")
+            
+            experiment_trace = st.file_uploader(
+                "Experiment Trace",
+                accept_multiple_files=False,
+                type=["json", "gz"],
+                key="experiment_upload"
+            )
+            
+            if experiment_trace:
+                try:
+                    from TraceLens.UI.trace_analyser import analyse_trace
+                    
+                    # Use uploaded file for comparison
+                    st.toast(f"Analyzing {experiment_trace.name}...")
+                    exp_analyzer, exp_kernels, exp_gemms = analyse_trace(experiment_trace)
+                    exp_summary = exp_analyzer.get_df_kernel_launchers_summary(exp_kernels)
+                    
+                    st.subheader("Comparison Results")
+                    
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.markdown("**Baseline (from API)**")
+                        st.dataframe(kernels_summary.round().astype(int, errors="ignore"))
+                    
+                    with col2:
+                        st.markdown(f"**Experiment ({experiment_trace.name})**")
+                        st.dataframe(exp_summary.round().astype(int, errors="ignore"))
+                        
+                except Exception as e:
+                    st.error(f"Failed to analyze experiment trace: {e}")
+        
+        return True
+        
+    except ImportError as e:
+        st.error(f"Failed to import TraceLens components: {e}")
+        return False
+    except Exception as e:
+        st.error(f"Error analyzing trace: {e}")
+        st.exception(e)
+        return False
 
 
 def display_session_info():
@@ -120,11 +242,14 @@ def main():
             trace_path = load_trace_from_file(TRACE_FILE_PATH)
             st.success(f"Loaded trace file: {os.path.basename(trace_path)}")
             
-            # Set environment for TraceLens
-            os.environ["TRACE_FILE_PATH"] = trace_path
+            # Read file and analyze
+            with open(trace_path, "rb") as f:
+                trace_data = BytesIO(f.read())
             
-            # Run TraceLens analyzer
-            run_tracelens_analyzer()
+            if not analyze_single_trace(trace_data, os.path.basename(trace_path)):
+                # Fallback to original TraceLens if single trace analysis fails
+                os.environ["TRACE_FILE_PATH"] = trace_path
+                run_tracelens_analyzer()
             
         except FileNotFoundError as e:
             st.error(str(e))
@@ -137,19 +262,24 @@ def main():
                 trace_data = load_trace_from_api(PROFILER_FILE_ID)
             st.success(f"Loaded trace file from API (ID: {PROFILER_FILE_ID})")
             
-            # Save to temp file for TraceLens
-            import tempfile
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".json") as f:
-                f.write(trace_data.read())
-                temp_path = f.name
+            # Get file info for display
+            file_name = f"profiler_file_{PROFILER_FILE_ID}.json.gz"
             
-            os.environ["TRACE_FILE_PATH"] = temp_path
-            
-            # Run TraceLens analyzer
-            run_tracelens_analyzer()
+            # Analyze the trace directly
+            if not analyze_single_trace(trace_data, file_name):
+                # Fallback: save to temp file and try original TraceLens
+                import tempfile
+                trace_data.seek(0)
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".json.gz") as f:
+                    f.write(trace_data.read())
+                    temp_path = f.name
+                
+                os.environ["TRACE_FILE_PATH"] = temp_path
+                run_tracelens_analyzer()
             
         except Exception as e:
             st.error(f"Failed to load trace from API: {e}")
+            st.exception(e)
             show_file_upload_fallback()
             
     else:
