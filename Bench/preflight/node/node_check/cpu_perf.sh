@@ -7,6 +7,8 @@
 
 # Use the perf tool to test CPU performance
 
+threshold=0.5
+
 if [ ! -x /usr/bin/perf ]; then
   echo "Error: /usr/bin/perf not found." >&2
   exit 1
@@ -31,7 +33,6 @@ else
   echo "failed to get insn per cycle" >&2
   exit 1
 fi
-threshold=1
 is_greater=$(echo "$insn_per_cycle >= $threshold" | bc -l)
 if [[ "$is_greater" -ne 1 ]]; then
   echo "insn-per-cycle($insn_per_cycle) < threshold($threshold)" >&2

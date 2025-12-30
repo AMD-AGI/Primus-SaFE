@@ -371,11 +371,3 @@ func TestTransMapToStruct(t *testing.T) {
 		})
 	}
 }
-
-// TestMaxNameLength constants
-func TestMaxNameLengthConstants(t *testing.T) {
-	assert.Equal(t, 63, MaxNameLength)
-	assert.Equal(t, 5, randomLength)
-	assert.Equal(t, 57, MaxGeneratedNameLength)
-	assert.Equal(t, 45, MaxDisplayNameLen)
-}

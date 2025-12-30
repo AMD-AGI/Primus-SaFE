@@ -61,7 +61,11 @@ func (m *MockBackfillFacade) GetK8sService() database.K8sServiceFacadeInterface 
 func (m *MockBackfillFacade) GetWorkloadDetection() database.WorkloadDetectionFacadeInterface { return nil }
 func (m *MockBackfillFacade) GetWorkloadDetectionEvidence() database.WorkloadDetectionEvidenceFacadeInterface { return nil }
 func (m *MockBackfillFacade) GetDetectionCoverage() database.DetectionCoverageFacadeInterface { return nil }
-func (m *MockBackfillFacade) WithCluster(clusterName string) database.FacadeInterface       { return m }
+func (m *MockBackfillFacade) GetAIAgentRegistration() database.AIAgentRegistrationFacadeInterface {
+	return nil
+}
+func (m *MockBackfillFacade) GetAITask() database.AITaskFacadeInterface { return nil }
+func (m *MockBackfillFacade) WithCluster(clusterName string) database.FacadeInterface { return m }
 
 type MockBackfillNodeFacade struct {
 	SearchNodeFunc func(ctx context.Context, f filter.NodeFilter) ([]*dbmodel.Node, int, error)

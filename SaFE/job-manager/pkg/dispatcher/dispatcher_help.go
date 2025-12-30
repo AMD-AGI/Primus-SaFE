@@ -521,6 +521,7 @@ func buildEnvironment(workload *v1.Workload, resourceId int) []interface{} {
 		result = addEnvVar(result, workload, "GPUS_PER_NODE", workload.Spec.Resources[resourceId].GPU)
 	}
 	result = addEnvVar(result, workload, "WORKLOAD_ID", workload.Name)
+	result = addEnvVar(result, workload, "WORKLOAD_KIND", workload.SpecKind())
 	result = addEnvVar(result, workload, "DISPATCH_COUNT", strconv.Itoa(v1.GetWorkloadDispatchCnt(workload)+1))
 	if workload.Spec.SSHPort > 0 {
 		result = addEnvVar(result, workload, "SSH_PORT", strconv.Itoa(workload.Spec.SSHPort))

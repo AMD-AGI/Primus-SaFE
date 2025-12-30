@@ -126,14 +126,14 @@ echo "${LOG_HEADER}[$(date +'%Y-%m-%d %H:%M:%S')] Phase 3: Running model checks.
 error_output=$(run_check_phase "model_check" "model check")
 ret=$?
 if [ $ret -ge 128 ]; then
-    exit $ret
+   exit $ret
 fi
 if [ $ret -ne 0 ]; then
-    if [ -n "$errors" ]; then
-        errors="${errors} | "
-    fi
-    errors="${errors}${error_output}"
-    has_error=1
+   if [ -n "$errors" ]; then
+       errors="${errors} | "
+   fi
+   errors="${errors}${error_output}"
+   has_error=1
 fi
 
 # ============================================================================

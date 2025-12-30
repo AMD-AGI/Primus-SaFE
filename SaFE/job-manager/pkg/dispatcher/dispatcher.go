@@ -99,31 +99,33 @@ func (relevantChangePredicate) Update(e event.UpdateEvent) bool {
 	if !shouldDispatch(oldWorkload) && shouldDispatch(newWorkload) {
 		return true
 	}
-	if v1.GetGithubSecretId(oldWorkload) != v1.GetGithubSecretId(newWorkload) {
-		return true
-	}
-	if !commonworkload.IsResourceEqual(oldWorkload, newWorkload) {
-		return true
-	}
-	for i := range len(oldWorkload.Spec.Resources) {
-		if oldWorkload.Spec.Resources[i].SharedMemory != newWorkload.Spec.Resources[i].SharedMemory {
+	if v1.IsWorkloadDispatched(newWorkload) {
+		if v1.GetGithubSecretId(oldWorkload) != v1.GetGithubSecretId(newWorkload) {
 			return true
 		}
-	}
-	if oldWorkload.Spec.Image != newWorkload.Spec.Image {
-		return true
-	}
-	if oldWorkload.Spec.EntryPoint != newWorkload.Spec.EntryPoint {
-		return true
-	}
-	if !maps.EqualIgnoreOrder(oldWorkload.Spec.Env, newWorkload.Spec.Env) || len(v1.GetEnvToBeRemoved(newWorkload)) > 0 {
-		return true
-	}
-	if oldWorkload.Spec.Priority != newWorkload.Spec.Priority {
-		return true
-	}
-	if !reflect.DeepEqual(oldWorkload.Spec.Service, newWorkload.Spec.Service) {
-		return true
+		if !commonworkload.IsResourceEqual(oldWorkload, newWorkload) {
+			return true
+		}
+		for i := range len(oldWorkload.Spec.Resources) {
+			if oldWorkload.Spec.Resources[i].SharedMemory != newWorkload.Spec.Resources[i].SharedMemory {
+				return true
+			}
+		}
+		if oldWorkload.Spec.Image != newWorkload.Spec.Image {
+			return true
+		}
+		if oldWorkload.Spec.EntryPoint != newWorkload.Spec.EntryPoint {
+			return true
+		}
+		if !maps.EqualIgnoreOrder(oldWorkload.Spec.Env, newWorkload.Spec.Env) || len(v1.GetEnvToBeRemoved(newWorkload)) > 0 {
+			return true
+		}
+		if oldWorkload.Spec.Priority != newWorkload.Spec.Priority {
+			return true
+		}
+		if !reflect.DeepEqual(oldWorkload.Spec.Service, newWorkload.Spec.Service) {
+			return true
+		}
 	}
 	return false
 }
