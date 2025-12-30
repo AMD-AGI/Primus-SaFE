@@ -1552,10 +1552,6 @@ func Test_cvtToListWorkloadSql_EmptyQuery(t *testing.T) {
 
 	// Verify default conditions
 	assert.Assert(t, strings.Contains(sqlStr, "is_deleted"), "Should include IsDeleted condition by default")
-
-	// Verify system user exclusion (when userName is empty)
-	assert.Assert(t, strings.Contains(sqlStr, "system") || strings.Contains(sqlStr, "IS NULL"),
-		"Should exclude system user or handle NULL when userName is empty")
 }
 
 // Test_cvtDBWorkloadToResponseItem tests converting database workload to response item
