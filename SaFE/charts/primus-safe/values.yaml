@@ -132,10 +132,8 @@ s3:
   # Path to mount S3 secret
   secret_path: "/etc/secrets/s3"
 notification:
-  # Enable email notification feature
-  # Set to true to enable, requires primus-safe-notification-config secret to exist
-  enable: true
-  # Email notification configuration (optional, used when Helm creates the secret)
+  # Email notification configuration (optional)
+  # If configured, notifications will be enabled automatically
   email:
     # SMTP server host
     smtp_host: ""
