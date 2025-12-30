@@ -95,6 +95,9 @@ func (h *Handler) createModel(c *gin.Context) (interface{}, error) {
 		if req.DisplayName == "" {
 			return nil, commonerrors.NewBadRequest("displayName is required for remote_api mode")
 		}
+		if req.Source.ApiKey == "" {
+			klog.Warningf("Creating remote_api model '%s' without apiKey, authentication may fail", req.DisplayName)
+		}
 	}
 
 	// Normalize URL for consistent matching (trim trailing slash and spaces)
@@ -114,7 +117,7 @@ func (h *Handler) createModel(c *gin.Context) (interface{}, error) {
 		if existingModel != nil {
 			if existingModel.Phase == string(v1.ModelPhaseReady) {
 				return nil, commonerrors.NewBadRequest(fmt.Sprintf("model with URL '%s' already exists and is ready (id: %s)", existingModel.SourceURL, existingModel.ID))
-			} else if existingModel.Phase == string(v1.ModelPhasePulling) || existingModel.Phase == string(v1.ModelPhaseUploading) || existingModel.Phase == string(v1.ModelPhaseDownloading) {
+			} else if existingModel.Phase == string(v1.ModelPhaseUploading) || existingModel.Phase == string(v1.ModelPhaseDownloading) {
 				return nil, commonerrors.NewBadRequest(fmt.Sprintf("model with URL '%s' is currently being processed (id: %s, phase: %s)", existingModel.SourceURL, existingModel.ID, existingModel.Phase))
 			} else if existingModel.Phase == string(v1.ModelPhasePending) {
 				return nil, commonerrors.NewBadRequest(fmt.Sprintf("model with URL '%s' already exists and is pending (id: %s)", existingModel.SourceURL, existingModel.ID))
