@@ -2,14 +2,9 @@ package aitopics
 
 import (
 	"encoding/json"
-	"math/rand"
-	"sync"
 	"time"
-)
 
-var (
-	randMu sync.Mutex
-	rng    = rand.New(rand.NewSource(time.Now().UnixNano()))
+	"github.com/google/uuid"
 )
 
 // Request represents the unified request envelope for AI invocation
@@ -125,22 +120,8 @@ func (r *Response) IsSuccess() bool {
 	return r.Status == StatusSuccess && r.Code == CodeSuccess
 }
 
-// generateRequestID generates a unique request ID
+// generateRequestID generates a unique request ID using UUID
 func generateRequestID() string {
-	// Use timestamp + random suffix for simplicity
-	// In production, use UUID
-	return time.Now().Format("20060102150405") + "-" + randomString(8)
-}
-
-// randomString generates a random alphanumeric string
-func randomString(n int) string {
-	const letters = "abcdefghijklmnopqrstuvwxyz0123456789"
-	b := make([]byte, n)
-	randMu.Lock()
-	for i := range b {
-		b[i] = letters[rng.Intn(len(letters))]
-	}
-	randMu.Unlock()
-	return string(b)
+	return uuid.New().String()
 }
 
