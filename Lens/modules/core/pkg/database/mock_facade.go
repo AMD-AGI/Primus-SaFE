@@ -50,6 +50,8 @@ func (m *MockFacade) GetWorkloadDetectionEvidence() WorkloadDetectionEvidenceFac
 	return nil
 }
 func (m *MockFacade) GetDetectionCoverage() DetectionCoverageFacadeInterface { return nil }
+func (m *MockFacade) GetAIAgentRegistration() AIAgentRegistrationFacadeInterface { return nil }
+func (m *MockFacade) GetAITask() AITaskFacadeInterface                           { return nil }
 
 func (m *MockFacade) GetGpuUsageWeeklyReport() GpuUsageWeeklyReportFacadeInterface {
 	return m.GpuUsageWeeklyReportMock

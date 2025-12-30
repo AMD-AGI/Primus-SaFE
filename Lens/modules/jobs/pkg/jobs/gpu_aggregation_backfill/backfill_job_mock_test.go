@@ -52,7 +52,9 @@ func (m *BackfillMockFacade) GetK8sService() database.K8sServiceFacadeInterface 
 func (m *BackfillMockFacade) GetWorkloadDetection() database.WorkloadDetectionFacadeInterface { return nil }
 func (m *BackfillMockFacade) GetWorkloadDetectionEvidence() database.WorkloadDetectionEvidenceFacadeInterface { return nil }
 func (m *BackfillMockFacade) GetDetectionCoverage() database.DetectionCoverageFacadeInterface { return nil }
-func (m *BackfillMockFacade) WithCluster(clusterName string) database.FacadeInterface       { return m }
+func (m *BackfillMockFacade) GetAIAgentRegistration() database.AIAgentRegistrationFacadeInterface { return nil }
+func (m *BackfillMockFacade) GetAITask() database.AITaskFacadeInterface                           { return nil }
+func (m *BackfillMockFacade) WithCluster(clusterName string) database.FacadeInterface             { return m }
 
 // BackfillMockNodeFacade implements database.NodeFacadeInterface
 type BackfillMockNodeFacade struct {
