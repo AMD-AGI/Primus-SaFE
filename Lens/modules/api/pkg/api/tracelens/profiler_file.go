@@ -2,9 +2,7 @@ package tracelens
 
 import (
 	"bytes"
-	"compress/gzip"
 	"fmt"
-	"io"
 	"net/http"
 	"strconv"
 
