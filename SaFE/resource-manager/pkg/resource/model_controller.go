@@ -50,7 +50,8 @@ func SetupModelController(mgr manager.Manager) error {
 	}
 	err := ctrl.NewControllerManagedBy(mgr).
 		For(&v1.Model{}).
-		Owns(&batchv1.Job{}). // Watch Jobs created by this controller
+		Owns(&batchv1.Job{}). // Watch Jobs created by this controller (cleanup, HF download)
+		Owns(&v1.OpsJob{}).   // Watch OpsJobs created by this controller (local download)
 		Complete(r)
 	if err != nil {
 		return err
@@ -419,53 +420,53 @@ func (r *ModelReconciler) handleDownloading(ctx context.Context, model *v1.Model
 			continue
 		}
 
-		// Check/create download job for this workspace
+		// Check/create download OpsJob for this workspace
 		allReady = false
 		jobName := stringutil.NormalizeForDNS(fmt.Sprintf("%s-%s-%s", DownloadJobPrefix, model.Name, lp.Workspace))
-		job := &batchv1.Job{}
-		err := r.Get(ctx, client.ObjectKey{Name: jobName, Namespace: common.PrimusSafeNamespace}, job)
+		opsJob := &v1.OpsJob{}
+		err := r.Get(ctx, client.ObjectKey{Name: jobName}, opsJob)
 
 		if errors.IsNotFound(err) {
-			// Create local download job
-			job, err = r.constructLocalDownloadJob(model, lp)
+			// Create local download OpsJob
+			opsJob, err = r.constructLocalDownloadOpsJob(model, lp)
 			if err != nil {
-				klog.ErrorS(err, "Failed to construct local download job", "model", model.Name, "workspace", lp.Workspace)
+				klog.ErrorS(err, "Failed to construct local download OpsJob", "model", model.Name, "workspace", lp.Workspace)
 				lp.Status = v1.LocalPathStatusFailed
-				lp.Message = fmt.Sprintf("Failed to construct job: %v", err)
+				lp.Message = fmt.Sprintf("Failed to construct OpsJob: %v", err)
 				continue
 			}
 
-			if err := r.Create(ctx, job); err != nil {
-				klog.ErrorS(err, "Failed to create local download job", "model", model.Name, "workspace", lp.Workspace)
+			if err := r.Create(ctx, opsJob); err != nil {
+				klog.ErrorS(err, "Failed to create local download OpsJob", "model", model.Name, "workspace", lp.Workspace)
 				continue
 			}
 
 			lp.Status = v1.LocalPathStatusDownloading
-			lp.Message = "Download job created"
-			klog.InfoS("Local download job created", "model", model.Name, "workspace", lp.Workspace, "path", lp.Path)
+			lp.Message = "Download OpsJob created"
+			klog.InfoS("Local download OpsJob created", "model", model.Name, "workspace", lp.Workspace, "path", lp.Path)
 		} else if err != nil {
-			klog.ErrorS(err, "Failed to get local download job", "model", model.Name, "workspace", lp.Workspace)
+			klog.ErrorS(err, "Failed to get local download OpsJob", "model", model.Name, "workspace", lp.Workspace)
 			continue
 		} else {
-			// Check job status
-			if job.Status.Succeeded > 0 {
+			// Check OpsJob status
+			if opsJob.Status.Phase == v1.OpsJobSucceeded {
 				lp.Status = v1.LocalPathStatusReady
 				lp.Message = "Download completed"
 				klog.InfoS("Local download completed", "model", model.Name, "workspace", lp.Workspace, "path", lp.Path)
 
-				// Delete completed job
-				if err := r.Delete(ctx, job, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil && !errors.IsNotFound(err) {
-					klog.ErrorS(err, "Failed to delete completed job", "job", jobName)
+				// Delete completed OpsJob
+				if err := r.Delete(ctx, opsJob); err != nil && !errors.IsNotFound(err) {
+					klog.ErrorS(err, "Failed to delete completed OpsJob", "job", jobName)
 				}
-			} else if job.Status.Failed > 0 && job.Status.Active == 0 {
+			} else if opsJob.Status.Phase == v1.OpsJobFailed {
 				lp.Status = v1.LocalPathStatusFailed
-				lp.Message = r.extractJobFailureReason(job)
+				lp.Message = r.extractOpsJobFailureReason(opsJob)
 				anyFailed = true
 				klog.ErrorS(nil, "Local download failed", "model", model.Name, "workspace", lp.Workspace)
 
-				// Delete failed job
-				if err := r.Delete(ctx, job, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil && !errors.IsNotFound(err) {
-					klog.ErrorS(err, "Failed to delete failed job", "job", jobName)
+				// Delete failed OpsJob
+				if err := r.Delete(ctx, opsJob); err != nil && !errors.IsNotFound(err) {
+					klog.ErrorS(err, "Failed to delete failed OpsJob", "job", jobName)
 				}
 			}
 		}
@@ -508,12 +509,17 @@ func (r *ModelReconciler) handleDownloading(ctx context.Context, model *v1.Model
 }
 
 // initializeLocalPaths initializes the local paths based on workspace configuration
+// It deduplicates paths - if multiple workspaces share the same PFS path, only one download is needed
 func (r *ModelReconciler) initializeLocalPaths(ctx context.Context, model *v1.Model) []v1.ModelLocalPath {
 	var paths []v1.ModelLocalPath
 	modelDir := model.GetSafeDisplayName()
 
+	// Track unique paths to avoid duplicate downloads
+	// Key: PFS path, Value: list of workspace IDs sharing this path
+	seenPaths := make(map[string][]string)
+
 	if model.IsPublic() {
-		// Public model: download to all workspaces
+		// Public model: download to all workspaces (but deduplicate same paths)
 		workspaces, err := r.listWorkspaces(ctx)
 		if err != nil {
 			klog.ErrorS(err, "Failed to list workspaces for public model", "model", model.Name)
@@ -522,11 +528,21 @@ func (r *ModelReconciler) initializeLocalPaths(ctx context.Context, model *v1.Mo
 
 		for _, ws := range workspaces {
 			pfsPath := fmt.Sprintf("%s/models/%s", ws.PFSPath, modelDir)
+			seenPaths[pfsPath] = append(seenPaths[pfsPath], ws.ID)
+		}
+
+		// Create one LocalPath entry per unique path
+		// Use the first workspace ID as the "primary" for this path
+		for pfsPath, wsIDs := range seenPaths {
 			paths = append(paths, v1.ModelLocalPath{
-				Workspace: ws.ID,
+				Workspace: wsIDs[0], // Use first workspace as primary
 				Path:      pfsPath,
 				Status:    v1.LocalPathStatusPending,
 			})
+			if len(wsIDs) > 1 {
+				klog.InfoS("Multiple workspaces share the same PFS path, will only download once",
+					"model", model.Name, "path", pfsPath, "workspaces", wsIDs)
+			}
 		}
 	} else {
 		// Private model: download only to specified workspace
@@ -599,8 +615,8 @@ func (r *ModelReconciler) getWorkspace(ctx context.Context, workspaceID string) 
 	}, nil
 }
 
-// constructLocalDownloadJob creates a Job to download from S3 to local PFS
-func (r *ModelReconciler) constructLocalDownloadJob(model *v1.Model, lp *v1.ModelLocalPath) (*batchv1.Job, error) {
+// constructLocalDownloadOpsJob creates an OpsJob to download from S3 to local PFS
+func (r *ModelReconciler) constructLocalDownloadOpsJob(model *v1.Model, lp *v1.ModelLocalPath) (*v1.OpsJob, error) {
 	// Get S3 configuration
 	if !commonconfig.IsS3Enable() {
 		return nil, fmt.Errorf("S3 storage is not enabled")
@@ -610,96 +626,75 @@ func (r *ModelReconciler) constructLocalDownloadJob(model *v1.Model, lp *v1.Mode
 	s3SecretKey := commonconfig.GetS3SecretKey()
 	s3Bucket := commonconfig.GetS3Bucket()
 
+	// INPUT_URL: S3 path for the model
 	s3Path := fmt.Sprintf("s3://%s/%s", s3Bucket, model.Status.S3Path)
-	image := commonconfig.GetModelDownloaderImage()
 
-	backoffLimit := int32(3)
-	ttlSeconds := int32(60)
+	// Use the OpsJob download image (configured in values.yaml)
+	image := commonconfig.GetDownloadJoImage()
+	if image == "" {
+		// Fallback to model downloader image if download image not configured
+		image = commonconfig.GetModelDownloaderImage()
+	}
+
+	// DEST_PATH: relative path (will be prefixed with workspace nfsPath by download_job_controller)
+	// e.g., "models/llama-2-7b" -> final path: "/wekafs/models/llama-2-7b"
+	destPath := fmt.Sprintf("models/%s", model.GetSafeDisplayName())
 
 	jobName := stringutil.NormalizeForDNS(fmt.Sprintf("%s-%s-%s", DownloadJobPrefix, model.Name, lp.Workspace))
-	job := &batchv1.Job{
+
+	opsJob := &v1.OpsJob{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      jobName,
-			Namespace: common.PrimusSafeNamespace,
+			Name: jobName,
 			Labels: map[string]string{
-				"app":       "model-local-download",
-				"model":     model.Name,
-				"workspace": lp.Workspace,
+				v1.WorkspaceIdLabel: lp.Workspace,
+				v1.ModelIdLabel:     model.Name,
 			},
 		},
-		Spec: batchv1.JobSpec{
-			BackoffLimit:            &backoffLimit,
-			TTLSecondsAfterFinished: &ttlSeconds,
-			Template: corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: map[string]string{
-						"app":       "model-local-download",
-						"model":     model.Name,
-						"workspace": lp.Workspace,
-					},
-				},
-				Spec: corev1.PodSpec{
-					RestartPolicy: corev1.RestartPolicyOnFailure,
-					Containers: []corev1.Container{
-						{
-							Name:            "downloader",
-							Image:           image,
-							ImagePullPolicy: corev1.PullIfNotPresent,
-							Command: []string{
-								"/bin/sh", "-c",
-								fmt.Sprintf(`
-									set -e
-									echo "Downloading model from S3 to local PFS"
-									echo "Source: %s"
-									echo "Destination: %s"
-									
-									# Check if directory already exists
-									if [ -d "%s" ] && [ "$(ls -A %s 2>/dev/null)" ]; then
-										echo "Directory already exists and is not empty, skipping download"
-										exit 0
-									fi
-									
-									mkdir -p %s
-									aws s3 sync %s %s --endpoint-url %s
-									echo "Download completed successfully"
-								`, s3Path, lp.Path, lp.Path, lp.Path, lp.Path, s3Path, lp.Path, s3Endpoint),
-							},
-							Env: []corev1.EnvVar{
-								{Name: "AWS_ACCESS_KEY_ID", Value: s3AccessKey},
-								{Name: "AWS_SECRET_ACCESS_KEY", Value: s3SecretKey},
-								{Name: "AWS_DEFAULT_REGION", Value: "us-east-1"},
-							},
-							VolumeMounts: []corev1.VolumeMount{
-								{
-									Name:      "pfs-storage",
-									MountPath: lp.Path,
-								},
-							},
-						},
-					},
-					Volumes: []corev1.Volume{
-						{
-							Name: "pfs-storage",
-							VolumeSource: corev1.VolumeSource{
-								HostPath: &corev1.HostPathVolumeSource{
-									Path: lp.Path,
-								},
-							},
-						},
-					},
-				},
+		Spec: v1.OpsJobSpec{
+			Type:                    v1.OpsJobDownloadType,
+			Image:                   &image,
+			TimeoutSecond:           3600, // 1 hour timeout for model download
+			TTLSecondsAfterFinished: 60,
+			Inputs: []v1.Parameter{
+				// INPUT_URL: S3 path as the source
+				{Name: v1.ParameterEndpoint, Value: s3Path},
+				// DEST_PATH: relative path (will be prefixed with nfsPath)
+				{Name: v1.ParameterDestPath, Value: destPath},
+				// SECRET_PATH: empty since we use env vars for S3 auth
+				{Name: v1.ParameterSecret, Value: ""},
+			},
+			// Custom env vars for S3 download (passed to Workload.Spec.Env)
+			// Note: The download image needs to support these env vars for S3 downloads
+			Env: map[string]string{
+				"AWS_ACCESS_KEY_ID":     s3AccessKey,
+				"AWS_SECRET_ACCESS_KEY": s3SecretKey,
+				"AWS_DEFAULT_REGION":    "us-east-1",
+				"S3_ENDPOINT":           s3Endpoint,
 			},
 		},
 	}
 
-	if err := controllerutil.SetControllerReference(model, job, r.Scheme()); err != nil {
+	if err := controllerutil.SetControllerReference(model, opsJob, r.Scheme()); err != nil {
 		return nil, err
 	}
 
-	return job, nil
+	return opsJob, nil
 }
 
-// extractJobFailureReason extracts detailed failure information from Job
+// extractOpsJobFailureReason extracts detailed failure information from OpsJob
+func (r *ModelReconciler) extractOpsJobFailureReason(opsJob *v1.OpsJob) string {
+	for _, condition := range opsJob.Status.Conditions {
+		if condition.Type == "Failed" && condition.Status == metav1.ConditionTrue {
+			if condition.Reason != "" {
+				return fmt.Sprintf("%s: %s", condition.Reason, condition.Message)
+			}
+		}
+	}
+	return "Unknown error during download"
+}
+
+// extractJobFailureReason extracts detailed failure information from batchv1.Job
+// Used for HuggingFace download jobs (uploading to S3)
 func (r *ModelReconciler) extractJobFailureReason(job *batchv1.Job) string {
 	for _, condition := range job.Status.Conditions {
 		if condition.Type == batchv1.JobFailed && condition.Status == corev1.ConditionTrue {
