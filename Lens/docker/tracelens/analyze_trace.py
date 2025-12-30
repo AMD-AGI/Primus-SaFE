@@ -64,19 +64,28 @@ class ExperimentNames:
     EXPERIMENT = "Experiment"
 
 
+def is_gzip_content(data: bytes) -> bool:
+    """Check if data is gzip compressed by checking magic bytes."""
+    return len(data) >= 2 and data[0:2] == b'\x1f\x8b'
+
+
 def analyze_single_trace(trace_data: BytesIO, file_name: str):
     """Analyze a single trace file and display results."""
     try:
         from TraceLens.Trace2Tree.trace_to_tree import TraceToTree
         from TraceLens.TreePerf.tree_perf import TreePerfAnalyzer
         
-        # Parse trace data
+        # Parse trace data - detect format by content, not file name
         trace_data.seek(0)
-        if file_name.endswith(".gz"):
-            with gzip.GzipFile(fileobj=trace_data) as f:
+        raw_content = trace_data.read()
+        
+        if is_gzip_content(raw_content):
+            # Content is gzip compressed
+            with gzip.GzipFile(fileobj=BytesIO(raw_content)) as f:
                 data = json.load(f)
         else:
-            data = json.load(trace_data)
+            # Content is plain JSON
+            data = json.loads(raw_content.decode('utf-8'))
         
         # Create analyzer
         tree = TraceToTree(data["traceEvents"])
