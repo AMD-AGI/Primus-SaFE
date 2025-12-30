@@ -229,12 +229,28 @@ func (r *CDJobReconciler) generateCDWorkload(ctx context.Context, job *v1.OpsJob
 		`echo "$CD_SCRIPT" | base64 -d > /tmp/run.sh && bash /tmp/run.sh`,
 	))
 
+	// Query clusters with ClusterControlPlaneLabel to get the control plane cluster ID
+	clusterList := &v1.ClusterList{}
+	if err := r.Client.List(ctx, clusterList, client.MatchingLabels{
+		v1.ClusterControlPlaneLabel: "",
+	}); err != nil {
+		return nil, fmt.Errorf("failed to list clusters with control-plane label: %w", err)
+	}
+	if len(clusterList.Items) == 0 {
+		return nil, fmt.Errorf("no cluster with control-plane label found")
+	}
+
+	// Use the first cluster with control-plane label
+	clusterID := clusterList.Items[0].Name
+	klog.Infof("Found control plane cluster: %s", clusterID)
+
 	// Create workload with minimal resource requirements (no GPU needed)
 	// Uses 'default' workspace with immediate scheduling (similar to preflight jobs)
 	workload := &v1.Workload{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: job.Name,
 			Labels: map[string]string{
+				v1.ClusterIdLabel:   clusterID,
 				v1.UserIdLabel:      common.UserSystem,
 				v1.OpsJobIdLabel:    job.Name,
 				v1.OpsJobTypeLabel:  string(job.Spec.Type),
@@ -269,6 +285,7 @@ func (r *CDJobReconciler) generateCDWorkload(ctx context.Context, job *v1.OpsJob
 			},
 		},
 	}
+
 	if err := controllerutil.SetControllerReference(job, workload, r.Client.Scheme()); err != nil {
 		return nil, err
 	}
