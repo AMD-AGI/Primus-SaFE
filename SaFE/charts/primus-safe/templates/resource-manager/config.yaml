@@ -82,6 +82,9 @@ data:
       # Image for downloading models from HuggingFace and uploading to S3
       # Uses global.image_registry to support different registry environments
       downloader_image: {{ default (printf "%s/primussafe/model-downloader:latest" .Values.global.image_registry) (default .Values.model).downloader_image }}
+    cd:
+      # CD Job image for deployment operations
+      job_image: {{ .Values.global.image_registry }}/proxy/primussafe/cd-job-runner:latest
       # Image for cleaning up local model files
       cleanup_image: {{ default "alpine:3.18" (default .Values.model).cleanup_image }}
 {{- if .Values.addon }}
