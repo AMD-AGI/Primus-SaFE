@@ -104,7 +104,7 @@ func (r *ModelReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	switch model.Status.Phase {
 	case v1.ModelPhasePending:
 		return r.handlePending(ctx, model)
-	case v1.ModelPhaseUploading, v1.ModelPhasePulling:
+	case v1.ModelPhaseUploading:
 		return r.handleUploading(ctx, model)
 	case v1.ModelPhaseDownloading:
 		return r.handleDownloading(ctx, model)
