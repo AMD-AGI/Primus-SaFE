@@ -673,10 +673,43 @@ func (r *ModelReconciler) constructLocalDownloadOpsJob(ctx context.Context, mode
 
 	displayName := strings.ToLower(model.GetSafeDisplayName())
 
+	// Create a temporary Secret containing S3 credentials for the download job
+	// The secret will be mounted to /etc/secrets/<secret-name>/ in the workload container
+	secretName := fmt.Sprintf("s3-creds-%s", jobName)
+	s3Secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      secretName,
+			Namespace: lp.Workspace, // Secret in workspace namespace for workload access
+			Labels: map[string]string{
+				v1.ModelIdLabel: model.Name,
+			},
+		},
+		Type: corev1.SecretTypeOpaque,
+		StringData: map[string]string{
+			"access_key": s3AccessKey,
+			"secret_key": s3SecretKey,
+			"endpoint":   s3Endpoint,
+			"bucket":     s3Bucket,
+		},
+	}
+
+	// Create or update the secret
+	existingSecret := &corev1.Secret{}
+	if err := r.Get(ctx, client.ObjectKey{Name: secretName, Namespace: lp.Workspace}, existingSecret); err != nil {
+		if errors.IsNotFound(err) {
+			if err := r.Create(ctx, s3Secret); err != nil {
+				return nil, fmt.Errorf("failed to create S3 credentials secret: %w", err)
+			}
+			klog.InfoS("Created S3 credentials secret for model download", "secret", secretName, "namespace", lp.Workspace)
+		} else {
+			return nil, fmt.Errorf("failed to check S3 credentials secret: %w", err)
+		}
+	}
+
 	// #region agent log - Hypothesis C/E: Check paths passed to OpsJob
 	klog.InfoS("[DEBUG] Constructing OpsJob", "model", model.Name, "workspace", lp.Workspace,
 		"s3Path", s3Path, "destPath", destPath, "displayName", displayName,
-		"lpPath", lp.Path, "image", image, "hypothesisId", "C/E")
+		"lpPath", lp.Path, "image", image, "secretName", secretName, "hypothesisId", "C/E")
 	// #endregion
 
 	opsJob := &v1.OpsJob{
@@ -703,16 +736,8 @@ func (r *ModelReconciler) constructLocalDownloadOpsJob(ctx context.Context, mode
 				{Name: v1.ParameterEndpoint, Value: s3Path},
 				// DEST_PATH: relative path (will be prefixed with nfsPath)
 				{Name: v1.ParameterDestPath, Value: destPath},
-				// SECRET_PATH: empty since we use env vars for S3 auth
-				{Name: v1.ParameterSecret, Value: ""},
-			},
-			// Custom env vars for S3 download (passed to Workload.Spec.Env)
-			// Note: The download image needs to support these env vars for S3 downloads
-			Env: map[string]string{
-				"AWS_ACCESS_KEY_ID":     s3AccessKey,
-				"AWS_SECRET_ACCESS_KEY": s3SecretKey,
-				"AWS_DEFAULT_REGION":    "us-east-1",
-				"S3_ENDPOINT":           s3Endpoint,
+				// SECRET: reference to the S3 credentials secret (mounted to /etc/secrets/<secret-name>/)
+				{Name: v1.ParameterSecret, Value: secretName},
 			},
 		},
 	}
