@@ -427,6 +427,9 @@ func (r *ModelReconciler) handleDownloading(ctx context.Context, model *v1.Model
 		err := r.Get(ctx, client.ObjectKey{Name: jobName}, opsJob)
 
 		if errors.IsNotFound(err) {
+			// #region agent log - Hypothesis A: OpsJob creation
+			klog.InfoS("[DEBUG] Creating OpsJob for download", "model", model.Name, "workspace", lp.Workspace, "path", lp.Path, "hypothesisId", "A")
+			// #endregion
 			// Create local download OpsJob
 			opsJob, err = r.constructLocalDownloadOpsJob(ctx, model, lp)
 			if err != nil {
@@ -452,9 +455,15 @@ func (r *ModelReconciler) handleDownloading(ctx context.Context, model *v1.Model
 			continue
 		} else {
 			// Check OpsJob status
+			// #region agent log - Hypothesis D: OpsJob status check
+			klog.InfoS("[DEBUG] OpsJob found, checking status", "model", model.Name, "opsJobName", opsJob.Name, "opsJobPhase", opsJob.Status.Phase, "conditions", opsJob.Status.Conditions, "hypothesisId", "D")
+			// #endregion
 			if opsJob.Status.Phase == v1.OpsJobSucceeded {
 				lp.Status = v1.LocalPathStatusReady
 				lp.Message = "Download completed"
+				// #region agent log - Hypothesis D: Marking as Ready
+				klog.InfoS("[DEBUG] Marking localPath as Ready based on OpsJob status", "model", model.Name, "workspace", lp.Workspace, "path", lp.Path, "hypothesisId", "D")
+				// #endregion
 				klog.InfoS("Local download completed", "model", model.Name, "workspace", lp.Workspace, "path", lp.Path)
 
 				// Delete completed OpsJob
@@ -667,6 +676,12 @@ func (r *ModelReconciler) constructLocalDownloadOpsJob(ctx context.Context, mode
 	jobName := stringutil.NormalizeForDNS(fmt.Sprintf("%s-%s-%s", DownloadJobPrefix, model.Name, lp.Workspace))
 
 	displayName := strings.ToLower(model.GetSafeDisplayName())
+
+	// #region agent log - Hypothesis C/E: Check paths passed to OpsJob
+	klog.InfoS("[DEBUG] Constructing OpsJob", "model", model.Name, "workspace", lp.Workspace,
+		"s3Path", s3Path, "destPath", destPath, "displayName", displayName,
+		"lpPath", lp.Path, "image", image, "hypothesisId", "C/E")
+	// #endregion
 
 	opsJob := &v1.OpsJob{
 		ObjectMeta: metav1.ObjectMeta{
