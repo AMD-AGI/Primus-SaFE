@@ -13,7 +13,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
 
@@ -66,152 +65,6 @@ func TestMutateResources(t *testing.T) {
 		expectedResources []v1.WorkloadResource
 	}{
 		{
-			name: "Empty Resources uses Resource field (non-PyTorchJob, backward compatibility)",
-			workload: &v1.Workload{
-				Spec: v1.WorkloadSpec{
-					GroupVersionKind: v1.GroupVersionKind{
-						Kind:    common.DeploymentKind,
-						Version: "v1",
-					},
-					Resource: v1.WorkloadResource{
-						Replica:          2,
-						CPU:              "8",
-						GPU:              "2",
-						Memory:           "64Gi",
-						EphemeralStorage: "100Gi",
-					},
-					Resources: []v1.WorkloadResource{},
-				},
-			},
-			workspace:       workspaceWithGpu,
-			expectedChanged: true,
-			expectedResources: []v1.WorkloadResource{
-				{
-					Replica:          2,
-					CPU:              "8",
-					GPU:              "2",
-					GPUName:          gpuResourceName,
-					Memory:           "64Gi",
-					SharedMemory:     "32Gi",
-					EphemeralStorage: "100Gi",
-				},
-			},
-		},
-		{
-			name: "PyTorchJob with empty Resources and Replica=1 creates single element array",
-			workload: &v1.Workload{
-				Spec: v1.WorkloadSpec{
-					GroupVersionKind: v1.GroupVersionKind{
-						Kind:    common.PytorchJobKind,
-						Version: "v1",
-					},
-					Resource: v1.WorkloadResource{
-						Replica:          1,
-						CPU:              "8",
-						GPU:              "2",
-						Memory:           "64Gi",
-						EphemeralStorage: "100Gi",
-					},
-					Resources: []v1.WorkloadResource{},
-				},
-			},
-			workspace:       workspaceWithGpu,
-			expectedChanged: true,
-			expectedResources: []v1.WorkloadResource{
-				{
-					Replica:          1,
-					CPU:              "8",
-					GPU:              "2",
-					GPUName:          gpuResourceName,
-					Memory:           "64Gi",
-					SharedMemory:     "32Gi",
-					EphemeralStorage: "100Gi",
-				},
-			},
-		},
-		{
-			name: "PyTorchJob with empty Resources and Replica=2 creates two element array",
-			workload: &v1.Workload{
-				Spec: v1.WorkloadSpec{
-					GroupVersionKind: v1.GroupVersionKind{
-						Kind:    common.PytorchJobKind,
-						Version: "v1",
-					},
-					Resource: v1.WorkloadResource{
-						Replica:          2,
-						CPU:              "8",
-						GPU:              "2",
-						Memory:           "64Gi",
-						EphemeralStorage: "100Gi",
-					},
-					Resources: []v1.WorkloadResource{},
-				},
-			},
-			workspace:       workspaceWithGpu,
-			expectedChanged: true,
-			expectedResources: []v1.WorkloadResource{
-				{
-					Replica:          1,
-					CPU:              "8",
-					GPU:              "2",
-					GPUName:          gpuResourceName,
-					Memory:           "64Gi",
-					SharedMemory:     "32Gi",
-					EphemeralStorage: "100Gi",
-				},
-				{
-					Replica:          1,
-					CPU:              "8",
-					GPU:              "2",
-					GPUName:          gpuResourceName,
-					Memory:           "64Gi",
-					SharedMemory:     "32Gi",
-					EphemeralStorage: "100Gi",
-				},
-			},
-		},
-		{
-			name: "PyTorchJob with empty Resources and Replica=3 creates two element array with correct replicas",
-			workload: &v1.Workload{
-				Spec: v1.WorkloadSpec{
-					GroupVersionKind: v1.GroupVersionKind{
-						Kind:    common.PytorchJobKind,
-						Version: "v1",
-					},
-					Resource: v1.WorkloadResource{
-						Replica:          3,
-						CPU:              "8",
-						GPU:              "2",
-						Memory:           "64Gi",
-						EphemeralStorage: "100Gi",
-					},
-					Resources: []v1.WorkloadResource{},
-				},
-			},
-			workspace:       workspaceWithGpu,
-			expectedChanged: true,
-			expectedResources: []v1.WorkloadResource{
-				{
-					Replica:          1,
-					CPU:              "8",
-					GPU:              "2",
-					GPUName:          gpuResourceName,
-					Memory:           "64Gi",
-					SharedMemory:     "32Gi",
-					EphemeralStorage: "100Gi",
-				},
-				{
-					Replica:          2,
-					CPU:              "8",
-					GPU:              "2",
-					GPUName:          gpuResourceName,
-					Memory:           "64Gi",
-					SharedMemory:     "32Gi",
-					EphemeralStorage: "100Gi",
-				},
-			},
-		},
-		{
 			name: "Replica 0 is filtered out",
 			workload: &v1.Workload{
 				Spec: v1.WorkloadSpec{
@@ -228,11 +81,12 @@ func TestMutateResources(t *testing.T) {
 			},
 		},
 		{
-			name: "GPU '0' is converted to empty string",
+			name: "GPU '0' cleared and GPUName set from workspace",
 			workload: &v1.Workload{
 				Spec: v1.WorkloadSpec{
 					Resources: []v1.WorkloadResource{
 						{Replica: 1, CPU: "8", GPU: "0", Memory: "64Gi"},
+						{Replica: 1, CPU: "8", GPU: "4", Memory: "64Gi"},
 					},
 				},
 			},
@@ -240,40 +94,11 @@ func TestMutateResources(t *testing.T) {
 			expectedChanged: true,
 			expectedResources: []v1.WorkloadResource{
 				{Replica: 1, CPU: "8", GPU: "", Memory: "64Gi", SharedMemory: "32Gi", EphemeralStorage: DefaultEphemeralStorage},
-			},
-		},
-		{
-			name: "GPU sets GPUName when workspace is provided",
-			workload: &v1.Workload{
-				Spec: v1.WorkloadSpec{
-					Resources: []v1.WorkloadResource{
-						{Replica: 1, CPU: "8", GPU: "4", Memory: "64Gi"},
-					},
-				},
-			},
-			workspace:       workspaceWithGpu,
-			expectedChanged: true,
-			expectedResources: []v1.WorkloadResource{
 				{Replica: 1, CPU: "8", GPU: "4", GPUName: gpuResourceName, Memory: "64Gi", SharedMemory: "32Gi", EphemeralStorage: DefaultEphemeralStorage},
 			},
 		},
 		{
-			name: "GPU does not set GPUName when workspace is nil",
-			workload: &v1.Workload{
-				Spec: v1.WorkloadSpec{
-					Resources: []v1.WorkloadResource{
-						{Replica: 1, CPU: "8", GPU: "4", Memory: "64Gi"},
-					},
-				},
-			},
-			workspace:       nil,
-			expectedChanged: true,
-			expectedResources: []v1.WorkloadResource{
-				{Replica: 1, CPU: "8", GPU: "4", Memory: "64Gi", SharedMemory: "32Gi", EphemeralStorage: DefaultEphemeralStorage},
-			},
-		},
-		{
-			name: "SharedMemory is set to half of Memory",
+			name: "SharedMemory and EphemeralStorage get defaults",
 			workload: &v1.Workload{
 				Spec: v1.WorkloadSpec{
 					Resources: []v1.WorkloadResource{
@@ -288,63 +113,18 @@ func TestMutateResources(t *testing.T) {
 			},
 		},
 		{
-			name: "SharedMemory is not overwritten if already set",
+			name: "SharedMemory and EphemeralStorage not overwritten if set",
 			workload: &v1.Workload{
 				Spec: v1.WorkloadSpec{
 					Resources: []v1.WorkloadResource{
-						{Replica: 1, CPU: "8", Memory: "64Gi", SharedMemory: "16Gi"},
-					},
-				},
-			},
-			workspace:       nil,
-			expectedChanged: true,
-			expectedResources: []v1.WorkloadResource{
-				{Replica: 1, CPU: "8", Memory: "64Gi", SharedMemory: "16Gi", EphemeralStorage: DefaultEphemeralStorage},
-			},
-		},
-		{
-			name: "EphemeralStorage gets default value",
-			workload: &v1.Workload{
-				Spec: v1.WorkloadSpec{
-					Resources: []v1.WorkloadResource{
-						{Replica: 1, CPU: "8", Memory: "64Gi"},
-					},
-				},
-			},
-			workspace:       nil,
-			expectedChanged: true,
-			expectedResources: []v1.WorkloadResource{
-				{Replica: 1, CPU: "8", Memory: "64Gi", SharedMemory: "32Gi", EphemeralStorage: DefaultEphemeralStorage},
-			},
-		},
-		{
-			name: "EphemeralStorage is not overwritten if already set",
-			workload: &v1.Workload{
-				Spec: v1.WorkloadSpec{
-					Resources: []v1.WorkloadResource{
-						{Replica: 1, CPU: "8", Memory: "64Gi", EphemeralStorage: "200Gi"},
-					},
-				},
-			},
-			workspace:       nil,
-			expectedChanged: true,
-			expectedResources: []v1.WorkloadResource{
-				{Replica: 1, CPU: "8", Memory: "64Gi", SharedMemory: "32Gi", EphemeralStorage: "200Gi"},
-			},
-		},
-		{
-			name: "No change when all fields are already set",
-			workload: &v1.Workload{
-				Spec: v1.WorkloadSpec{
-					Resources: []v1.WorkloadResource{
-						{Replica: 1, CPU: "8", Memory: "64Gi", SharedMemory: "32Gi", EphemeralStorage: "100Gi"},
+						{Replica: 1, CPU: "8", Memory: "64Gi", SharedMemory: "16Gi", EphemeralStorage: "200Gi"},
 					},
 				},
 			},
 			workspace:       nil,
 			expectedChanged: false,
 			expectedResources: []v1.WorkloadResource{
-				{Replica: 1, CPU: "8", Memory: "64Gi", SharedMemory: "32Gi", EphemeralStorage: "100Gi"},
+				{Replica: 1, CPU: "8", Memory: "64Gi", SharedMemory: "16Gi", EphemeralStorage: "200Gi"},
 			},
 		},
 		{
@@ -353,7 +133,7 @@ func TestMutateResources(t *testing.T) {
 				Spec: v1.WorkloadSpec{
 					Resources: []v1.WorkloadResource{
 						{Replica: 0, CPU: "4", Memory: "32Gi"},                                                            // filtered out
-						{Replica: 2, CPU: "8", GPU: "4", Memory: "64Gi"},                                                  // GPU + SharedMemory + EphemeralStorage
+						{Replica: 2, CPU: "8", GPU: "4", Memory: "64Gi"},                                                  // GPU + defaults
 						{Replica: 1, CPU: "16", GPU: "0", Memory: "128Gi", SharedMemory: "64Gi", EphemeralStorage: "1Ti"}, // GPU=0 cleared
 					},
 				},

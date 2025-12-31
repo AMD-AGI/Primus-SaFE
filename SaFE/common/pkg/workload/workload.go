@@ -302,8 +302,12 @@ func IsOpsJob(w *v1.Workload) bool {
 }
 
 // IsResourceEqual compares the resource specifications of two workloads.
-// Returns true if both workloads have the same resource including replica
+// Returns true if both workloads have the same resource including replica counts
 func IsResourceEqual(workload1, workload2 *v1.Workload) bool {
+	if GetTotalCount(workload1) != GetTotalCount(workload2) ||
+		len(workload1.Spec.Resources) != len(workload2.Spec.Resources) {
+		return false
+	}
 	resourceList1, err1 := GetTotalResourceList(workload1)
 	if err1 != nil {
 		return false
@@ -359,8 +363,11 @@ func GetResourceTemplate(ctx context.Context, cli client.Client, workload *v1.Wo
 		fmt.Sprintf("the resource template is not found, kind: %s, version: %s", gvk.Kind, gvk.Version))
 }
 
-// MigrateResourceToResources converts the deprecated Resource field to the Resources slice for backward compatibility.
-func MigrateResourceToResources(workloadResource v1.WorkloadResource, kind string) []v1.WorkloadResource {
+// ConvertResourceToList converts a single workload resource to a list of workload resources
+func ConvertResourceToList(workloadResource v1.WorkloadResource, kind string) []v1.WorkloadResource {
+	if workloadResource.Replica <= 0 {
+		return nil
+	}
 	result := make([]v1.WorkloadResource, 0, 2)
 	if kind == common.PytorchJobKind || kind == common.UnifiedJobKind {
 		result = append(result, workloadResource)

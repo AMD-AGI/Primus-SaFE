@@ -258,7 +258,7 @@ func (m *WorkloadMutator) mutateResources(workload *v1.Workload, workspace *v1.W
 
 	// Transition logic for backward compatibility.
 	if len(workload.Spec.Resources) == 0 {
-		workload.Spec.Resources = commonworkload.MigrateResourceToResources(workload.Spec.Resource, workload.SpecKind())
+		workload.Spec.Resources = commonworkload.ConvertResourceToList(workload.Spec.Resource, workload.SpecKind())
 		isChanged = true
 	}
 
@@ -375,7 +375,7 @@ func (m *WorkloadMutator) isHostNetworkEnabled(workload *v1.Workload, nf *v1.Nod
 	if commonworkload.IsAuthoring(workload) {
 		return false
 	}
-	if commonworkload.GetTotalCount(workload) == 1 {
+	if commonworkload.GetTotalCount(workload) <= 1 {
 		return false
 	}
 	gpuCount := 0

@@ -126,7 +126,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req reconcile.Reques
 	return reconcile.Result{}, nil
 }
 
-func (r *WorkloadReconciler) calculateGpuRequest(workload *primusSafeV1.Workload) int {
+func (r *WorkloadReconciler) calculateGpuRequest(workload *primusSafeV1.Workload) int32 {
 	totalGpu := 0
 	for _, res := range workload.Spec.Resources {
 		n, err := strconv.Atoi(res.GPU)
@@ -135,7 +135,7 @@ func (r *WorkloadReconciler) calculateGpuRequest(workload *primusSafeV1.Workload
 		}
 		totalGpu += n * res.Replica
 	}
-	return totalGpu
+	return int32(totalGpu)
 }
 
 func (r *WorkloadReconciler) saveWorkloadToDB(ctx context.Context, workload *primusSafeV1.Workload) error {
@@ -165,7 +165,7 @@ func (r *WorkloadReconciler) saveWorkloadToDB(ctx context.Context, workload *pri
 		Namespace:    workload.Spec.Workspace,
 		Name:         workload.Name,
 		UID:          string(workload.UID),
-		GpuRequest:   int32(r.calculateGpuRequest(workload)),
+		GpuRequest:   r.calculateGpuRequest(workload),
 		CreatedAt:    workload.CreationTimestamp.Time,
 		UpdatedAt:    time.Now(),
 		Labels:       map[string]interface{}{},

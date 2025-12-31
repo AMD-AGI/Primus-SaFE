@@ -6,6 +6,7 @@
 package dispatcher
 
 import (
+	"strconv"
 	"testing"
 
 	"gotest.tools/assert"
@@ -344,7 +345,7 @@ func checkHostPid(t *testing.T, obj *unstructured.Unstructured, workload *v1.Wor
 	}
 }
 
-func checkLabels(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec) {
+func checkLabels(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec, id int) {
 	rootPath := append(resourceSpec.PrePaths, resourceSpec.TemplatePaths...)
 	path := append(rootPath, "metadata", "labels")
 
@@ -360,6 +361,7 @@ func checkLabels(t *testing.T, obj *unstructured.Unstructured, workload *v1.Work
 	assert.Equal(t, found, true)
 	assert.Equal(t, annotations[v1.UserNameAnnotation].(string), v1.GetUserName(workload))
 	assert.Equal(t, annotations["key"].(string), "val")
+	assert.Equal(t, annotations[v1.ResourceIdAnnotation].(string), strconv.Itoa(id))
 }
 
 func checkSelector(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload) {

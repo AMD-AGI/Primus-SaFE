@@ -1455,7 +1455,7 @@ func (h *Handler) getWorkloadPodContainers(c *gin.Context) (interface{}, error) 
 func cvtToWorkloadResources(dbItem *dbclient.Workload, kind string) []v1.WorkloadResource {
 	var resource v1.WorkloadResource
 	if json.Unmarshal([]byte(dbItem.Resource), &resource) == nil {
-		return commonworkload.MigrateResourceToResources(resource, kind)
+		return commonworkload.ConvertResourceToList(resource, kind)
 	}
 	return nil
 }

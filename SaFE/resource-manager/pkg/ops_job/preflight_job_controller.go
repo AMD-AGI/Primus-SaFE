@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
@@ -160,13 +161,6 @@ func (r *PreflightJobReconciler) generatePreflightWorkload(ctx context.Context, 
 	if err := r.Get(ctx, client.ObjectKey{Name: v1.GetNodeFlavorId(node)}, nodeFlavor); err != nil {
 		return nil, err
 	}
-	var resources []v1.WorkloadResource
-	resources = append(resources, *job.Spec.Resource)
-	resources[0].Replica = 1
-	if job.Spec.Resource.Replica > 1 {
-		resources = append(resources, *job.Spec.Resource)
-		resources[1].Replica = job.Spec.Resource.Replica - 1
-	}
 
 	workload := &v1.Workload{
 		ObjectMeta: metav1.ObjectMeta{
@@ -186,7 +180,6 @@ func (r *PreflightJobReconciler) generatePreflightWorkload(ctx context.Context, 
 			},
 		},
 		Spec: v1.WorkloadSpec{
-			Resources:  resources,
 			EntryPoint: *job.Spec.EntryPoint,
 			GroupVersionKind: v1.GroupVersionKind{
 				Version: common.DefaultVersion,
@@ -203,6 +196,8 @@ func (r *PreflightJobReconciler) generatePreflightWorkload(ctx context.Context, 
 			Hostpath:  job.Spec.Hostpath,
 		},
 	}
+
+	workload.Spec.Resources = commonworkload.ConvertResourceToList(*job.Spec.Resource, workload.SpecKind())
 	if err := controllerutil.SetControllerReference(job, workload, r.Client.Scheme()); err != nil {
 		return nil, err
 	}

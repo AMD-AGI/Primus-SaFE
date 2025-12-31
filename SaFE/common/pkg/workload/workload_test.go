@@ -314,3 +314,93 @@ func TestGeneral(t *testing.T) {
 	assert.Equal(t, GetScope(workload), v1.TrainScope)
 	assert.Equal(t, IsApplication(workload), false)
 }
+
+func TestMigrateResourceToResources(t *testing.T) {
+	tests := []struct {
+		name             string
+		resource         v1.WorkloadResource
+		kind             string
+		expectedLen      int
+		expectedReplicas []int
+	}{
+		{
+			name: "PyTorchJob with Replica=1 creates single element array",
+			resource: v1.WorkloadResource{
+				Replica: 1,
+				CPU:     "8",
+				GPU:     "2",
+				Memory:  "64Gi",
+			},
+			kind:             common.PytorchJobKind,
+			expectedLen:      1,
+			expectedReplicas: []int{1},
+		},
+		{
+			name: "PyTorchJob with Replica=2 creates two element array",
+			resource: v1.WorkloadResource{
+				Replica: 2,
+				CPU:     "8",
+				GPU:     "2",
+				Memory:  "64Gi",
+			},
+			kind:             common.PytorchJobKind,
+			expectedLen:      2,
+			expectedReplicas: []int{1, 1},
+		},
+		{
+			name: "PyTorchJob with Replica=3 creates two element array with correct replicas",
+			resource: v1.WorkloadResource{
+				Replica: 3,
+				CPU:     "8",
+				GPU:     "2",
+				Memory:  "64Gi",
+			},
+			kind:             common.PytorchJobKind,
+			expectedLen:      2,
+			expectedReplicas: []int{1, 2},
+		},
+		{
+			name: "Deployment keeps original Replica (single element)",
+			resource: v1.WorkloadResource{
+				Replica: 3,
+				CPU:     "8",
+				GPU:     "2",
+				Memory:  "64Gi",
+			},
+			kind:             common.DeploymentKind,
+			expectedLen:      1,
+			expectedReplicas: []int{3},
+		},
+		{
+			name: "PyTorchJob with Replica=0 creates single element array",
+			resource: v1.WorkloadResource{
+				Replica: 0,
+				CPU:     "8",
+				Memory:  "64Gi",
+			},
+			kind:        common.PytorchJobKind,
+			expectedLen: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := ConvertResourceToList(tt.resource, tt.kind)
+
+			// Check length
+			assert.Equal(t, len(result), tt.expectedLen, "resources count mismatch")
+
+			// Check replicas
+			for i, expectedReplica := range tt.expectedReplicas {
+				assert.Equal(t, result[i].Replica, expectedReplica, "Replica mismatch at index %d", i)
+			}
+
+			// Check other fields are preserved
+			for i := range result {
+				assert.Equal(t, result[i].CPU, tt.resource.CPU, "CPU mismatch at index %d", i)
+				assert.Equal(t, result[i].GPU, tt.resource.GPU, "GPU mismatch at index %d", i)
+				assert.Equal(t, result[i].Memory, tt.resource.Memory, "Memory mismatch at index %d", i)
+			}
+		})
+	}
+}
