@@ -664,10 +664,6 @@ func (r *ModelReconciler) constructLocalDownloadOpsJob(ctx context.Context, mode
 
 	// Use the OpsJob download image (configured in values.yaml)
 	image := commonconfig.GetDownloadJoImage()
-	if image == "" {
-		// Fallback to model downloader image if download image not configured
-		image = commonconfig.GetModelDownloaderImage()
-	}
 
 	// DEST_PATH: relative path (will be prefixed with workspace nfsPath by download_job_controller)
 	// e.g., "models/llama-2-7b" -> final path: "/wekafs/models/llama-2-7b"
