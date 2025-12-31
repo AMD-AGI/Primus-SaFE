@@ -174,14 +174,6 @@ type ListModelResponse struct {
 	Items []ModelInfo `json:"items"`
 }
 
-// DeleteModelRequest represents the request to delete a model.
-type DeleteModelRequest struct {
-	Force             bool `json:"force"`             // Force delete even if running workloads exist
-	DeleteAssociated  bool `json:"deleteAssociated"`  // Delete associated stopped/failed workloads
-	CleanupLocalPaths bool `json:"cleanupLocalPaths"` // Cleanup local PFS paths
-	CleanupS3         bool `json:"cleanupS3"`         // Cleanup S3 storage
-}
-
 // PatchModelRequest represents the request to update a model's mutable fields.
 // All fields are optional - only provided fields will be updated.
 type PatchModelRequest struct {
