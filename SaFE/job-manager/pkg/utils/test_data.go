@@ -560,7 +560,7 @@ spec:
         - name: PRIORITY
           value: "1"
         - name: RESOURCES
-          value: '{"replica":1,"cpu":"4","memory":"16Gi","sharedMemory":"8Gi","ephemeralStorage":"50Gi"}'
+          value: '[{"replica":1,"cpu":"4","memory":"16Gi","sharedMemory":"8Gi","ephemeralStorage":"50Gi"}]'
         - name: IMAGE
           value: primussafe/buildah-runner:v2.329.0-3
         - name: GITHUB_CONFIG_URL

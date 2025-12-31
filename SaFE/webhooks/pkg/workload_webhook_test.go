@@ -13,6 +13,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
 
@@ -65,9 +66,45 @@ func TestMutateResources(t *testing.T) {
 		expectedResources []v1.WorkloadResource
 	}{
 		{
-			name: "Empty Resources uses Resource field (backward compatibility)",
+			name: "Empty Resources uses Resource field (non-PyTorchJob, backward compatibility)",
 			workload: &v1.Workload{
 				Spec: v1.WorkloadSpec{
+					GroupVersionKind: v1.GroupVersionKind{
+						Kind:    common.DeploymentKind,
+						Version: "v1",
+					},
+					Resource: v1.WorkloadResource{
+						Replica:          2,
+						CPU:              "8",
+						GPU:              "2",
+						Memory:           "64Gi",
+						EphemeralStorage: "100Gi",
+					},
+					Resources: []v1.WorkloadResource{},
+				},
+			},
+			workspace:       workspaceWithGpu,
+			expectedChanged: true,
+			expectedResources: []v1.WorkloadResource{
+				{
+					Replica:          2,
+					CPU:              "8",
+					GPU:              "2",
+					GPUName:          gpuResourceName,
+					Memory:           "64Gi",
+					SharedMemory:     "32Gi",
+					EphemeralStorage: "100Gi",
+				},
+			},
+		},
+		{
+			name: "PyTorchJob with empty Resources and Replica=1 creates single element array",
+			workload: &v1.Workload{
+				Spec: v1.WorkloadSpec{
+					GroupVersionKind: v1.GroupVersionKind{
+						Kind:    common.PytorchJobKind,
+						Version: "v1",
+					},
 					Resource: v1.WorkloadResource{
 						Replica:          1,
 						CPU:              "8",
@@ -83,6 +120,88 @@ func TestMutateResources(t *testing.T) {
 			expectedResources: []v1.WorkloadResource{
 				{
 					Replica:          1,
+					CPU:              "8",
+					GPU:              "2",
+					GPUName:          gpuResourceName,
+					Memory:           "64Gi",
+					SharedMemory:     "32Gi",
+					EphemeralStorage: "100Gi",
+				},
+			},
+		},
+		{
+			name: "PyTorchJob with empty Resources and Replica=2 creates two element array",
+			workload: &v1.Workload{
+				Spec: v1.WorkloadSpec{
+					GroupVersionKind: v1.GroupVersionKind{
+						Kind:    common.PytorchJobKind,
+						Version: "v1",
+					},
+					Resource: v1.WorkloadResource{
+						Replica:          2,
+						CPU:              "8",
+						GPU:              "2",
+						Memory:           "64Gi",
+						EphemeralStorage: "100Gi",
+					},
+					Resources: []v1.WorkloadResource{},
+				},
+			},
+			workspace:       workspaceWithGpu,
+			expectedChanged: true,
+			expectedResources: []v1.WorkloadResource{
+				{
+					Replica:          1,
+					CPU:              "8",
+					GPU:              "2",
+					GPUName:          gpuResourceName,
+					Memory:           "64Gi",
+					SharedMemory:     "32Gi",
+					EphemeralStorage: "100Gi",
+				},
+				{
+					Replica:          1,
+					CPU:              "8",
+					GPU:              "2",
+					GPUName:          gpuResourceName,
+					Memory:           "64Gi",
+					SharedMemory:     "32Gi",
+					EphemeralStorage: "100Gi",
+				},
+			},
+		},
+		{
+			name: "PyTorchJob with empty Resources and Replica=3 creates two element array with correct replicas",
+			workload: &v1.Workload{
+				Spec: v1.WorkloadSpec{
+					GroupVersionKind: v1.GroupVersionKind{
+						Kind:    common.PytorchJobKind,
+						Version: "v1",
+					},
+					Resource: v1.WorkloadResource{
+						Replica:          3,
+						CPU:              "8",
+						GPU:              "2",
+						Memory:           "64Gi",
+						EphemeralStorage: "100Gi",
+					},
+					Resources: []v1.WorkloadResource{},
+				},
+			},
+			workspace:       workspaceWithGpu,
+			expectedChanged: true,
+			expectedResources: []v1.WorkloadResource{
+				{
+					Replica:          1,
+					CPU:              "8",
+					GPU:              "2",
+					GPUName:          gpuResourceName,
+					Memory:           "64Gi",
+					SharedMemory:     "32Gi",
+					EphemeralStorage: "100Gi",
+				},
+				{
+					Replica:          2,
 					CPU:              "8",
 					GPU:              "2",
 					GPUName:          gpuResourceName,

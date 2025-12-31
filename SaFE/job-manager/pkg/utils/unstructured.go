@@ -215,12 +215,14 @@ func GetResources(unstructuredObj *unstructured.Unstructured,
 		if len(t.ReplicasPaths) > 0 {
 			path := t.PrePaths
 			path = append(path, t.ReplicasPaths...)
-			replica, _, err := unstructured.NestedInt64(unstructuredObj.Object, path...)
+			replica, found, err := unstructured.NestedInt64(unstructuredObj.Object, path...)
 			if err != nil {
 				klog.ErrorS(err, "failed to find replica", "path", path)
 				return nil, nil, err
 			}
-			replicaList = append(replicaList, replica)
+			if found {
+				replicaList = append(replicaList, replica)
+			}
 		}
 
 		path := t.PrePaths
@@ -363,10 +365,11 @@ func GetMemoryStorageSize(unstructuredObj *unstructured.Unstructured, rt *v1.Res
 		}
 
 		shareMemory := GetMemoryStorageVolume(volumes)
-		if shareMemory == nil {
-			break
+		if shareMemory != nil {
+			result = append(result, shareMemory["sizeLimit"].(string))
+		} else {
+			result = append(result, "0")
 		}
-		result = append(result, shareMemory["sizeLimit"].(string))
 	}
 	return result, nil
 }

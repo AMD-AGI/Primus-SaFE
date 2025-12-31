@@ -255,9 +255,10 @@ func (m *WorkloadMutator) mutatePriority(workload *v1.Workload) bool {
 // mutateResources sets GPU name, shared memory and default ephemeral storage.
 func (m *WorkloadMutator) mutateResources(workload *v1.Workload, workspace *v1.Workspace) bool {
 	isChanged := false
+
 	// Transition logic for backward compatibility.
 	if len(workload.Spec.Resources) == 0 {
-		workload.Spec.Resources = []v1.WorkloadResource{workload.Spec.Resource}
+		workload.Spec.Resources = commonworkload.MigrateResourceToResources(workload.Spec.Resource, workload.SpecKind())
 		isChanged = true
 	}
 
@@ -852,7 +853,7 @@ func validateResourceEnough(nf *v1.NodeFlavor, res *v1.WorkloadResource) error {
 	availNodeResources := quantity.GetAvailableResource(nodeResources)
 
 	// Validate if the request resource requests exceed the per-node resource limits
-	podResources, err := commonworkload.GetSinglePodResource(res)
+	podResources, err := commonworkload.ToResourceList(res)
 	if err != nil {
 		klog.ErrorS(err, "failed to get pod resource", "input", *res)
 		return err

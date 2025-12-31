@@ -62,7 +62,7 @@ Create a new Kubernetes cluster.
 | kubeNetworkPlugin | string | Yes | Network plugin, default flannel                                                                                     |
 | kubeVersion | string | Yes | Kubernetes version, e.g.  1.32.5                                                                                    |
 | kubeApiServerArgs | object | No | additional arguments for Kubernetes, e.g. {"max-mutating-requests-inflight":"5000","max-requests-inflight":"10000"} |
-| labels | object | No | Cluster labels, e.g. {"region":"us-west"}                                                                                               |
+| labels | object | No | User-defined labels (key-value pairs). Keys cannot start with "primus-safe"                                           |
 | isProtected | bool | No | Whether protected (protected clusters cannot be deleted directly)                                                   |
 
 **Response Example**:
@@ -206,7 +206,10 @@ Update cluster configuration.
 
 ```json
 {
-  "isProtected": false
+  "isProtected": false,
+  "labels": {
+    "region": "us-east"
+  }
 }
 ```
 
@@ -215,6 +218,7 @@ Update cluster configuration.
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | isProtected | bool | No | Whether to protect the cluster |
+| labels | object | No | User-defined labels (key-value pairs). Keys cannot start with "primus-safe"
 
 **Response**: 200 OK with no response body
 

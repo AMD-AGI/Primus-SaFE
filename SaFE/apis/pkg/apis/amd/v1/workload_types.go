@@ -116,9 +116,9 @@ type SecretEntity struct {
 }
 
 type WorkloadSpec struct {
-	// Workload resource requirements
+	// Deprecated: resource is old field, will be replaced by Resources
 	Resource WorkloadResource `json:"resource"`
-	// Workload resource requirements
+	// Resource requirements, It may involve multiple resources, e.g., a PyTorchJob with master and worker roles.
 	Resources []WorkloadResource `json:"resources"`
 	// Requested workspace id
 	Workspace string `json:"workspace"`

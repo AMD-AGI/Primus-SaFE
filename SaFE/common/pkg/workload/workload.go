@@ -104,7 +104,7 @@ func GetResourcesPerNode(workload *v1.Workload, adminNodeName string) (map[strin
 	if GetTotalCount(workload) == 0 {
 		return nil, nil
 	}
-	podResources, err := GetPodResourceList(workload)
+	allResources, err := toResourceLists(workload)
 	if err != nil {
 		return nil, err
 	}
@@ -119,9 +119,9 @@ func GetResourcesPerNode(workload *v1.Workload, adminNodeName string) (map[strin
 		}
 		resList, ok := result[pod.AdminNodeName]
 		if ok {
-			result[pod.AdminNodeName] = quantity.AddResource(resList, podResources[pod.ResourceId])
+			result[pod.AdminNodeName] = quantity.AddResource(resList, allResources[pod.ResourceId])
 		} else {
-			result[pod.AdminNodeName] = podResources[pod.ResourceId]
+			result[pod.AdminNodeName] = allResources[pod.ResourceId]
 		}
 	}
 	return result, nil
@@ -134,7 +134,7 @@ func GetWorkloadResourceUsage(workload *v1.Workload, filterNode func(nodeName st
 	if GetTotalCount(workload) == 0 || len(workload.Status.Pods) == 0 {
 		return nil, nil, nil, nil
 	}
-	podResources, err := GetPodResourceList(workload)
+	allResources, err := toResourceLists(workload)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -162,11 +162,11 @@ func GetWorkloadResourceUsage(workload *v1.Workload, filterNode func(nodeName st
 
 	concurrent.Exec(count, func() error {
 		in := <-ch
-		if v1.IsPodTerminated(in.pod) || in.pod.ResourceId >= len(podResources) {
+		if v1.IsPodTerminated(in.pod) || in.pod.ResourceId >= len(allResources) {
 			outputs[in.id].isTerminated = true
 			return nil
 		}
-		outputs[in.id].resourceList = &podResources[in.pod.ResourceId]
+		outputs[in.id].resourceList = &allResources[in.pod.ResourceId]
 		if filterNode != nil && filterNode(in.pod.AdminNodeName) {
 			outputs[in.id].isFiltered = true
 			return nil
@@ -189,33 +189,21 @@ func GetWorkloadResourceUsage(workload *v1.Workload, filterNode func(nodeName st
 	return totalResource, availableResource, availableNodes, nil
 }
 
-// GetTotalResourceList converts workload resources to total resource list by summing up all pod resources.
-func GetTotalResourceList(w *v1.Workload) (corev1.ResourceList, error) {
-	resources, err := GetPodResourceList(w)
-	if err != nil {
-		return nil, err
-	}
+// GetTotalResourceList converts workload resources to total resource list by summing up all workload resources.
+func GetTotalResourceList(workload *v1.Workload) (corev1.ResourceList, error) {
 	result := make(corev1.ResourceList)
-	for _, res := range resources {
-		result = quantity.AddResource(result, res)
-	}
-	return result, nil
-}
-
-// GetPodResourceList converts workload resources to a list of resource lists for each pod.
-func GetPodResourceList(workload *v1.Workload) ([]corev1.ResourceList, error) {
-	result := make([]corev1.ResourceList, len(workload.Spec.Resources))
-	for i, res := range workload.Spec.Resources {
-		var err error
-		if result[i], err = GetSinglePodResource(&res); err != nil {
+	for _, res := range workload.Spec.Resources {
+		resourceList, err := ToResourceList(&res)
+		if err != nil {
 			return nil, err
 		}
+		result = quantity.AddResource(result, resourceList)
 	}
 	return result, nil
 }
 
-// GetSinglePodResource converts a single workload resource specification to ResourceList format.
-func GetSinglePodResource(res *v1.WorkloadResource) (corev1.ResourceList, error) {
+// ToResourceList converts a workload resource specification to ResourceList format.
+func ToResourceList(res *v1.WorkloadResource) (corev1.ResourceList, error) {
 	if res == nil {
 		return nil, fmt.Errorf("the input resource is empty")
 	}
@@ -223,6 +211,18 @@ func GetSinglePodResource(res *v1.WorkloadResource) (corev1.ResourceList, error)
 		res.GPUName, res.EphemeralStorage, res.RdmaResource, 1)
 	if err != nil {
 		return nil, commonerrors.NewBadRequest(err.Error())
+	}
+	return result, nil
+}
+
+// toResourceLists converts workload resources to a list of resource lists
+func toResourceLists(workload *v1.Workload) ([]corev1.ResourceList, error) {
+	result := make([]corev1.ResourceList, len(workload.Spec.Resources))
+	for i, res := range workload.Spec.Resources {
+		var err error
+		if result[i], err = ToResourceList(&res); err != nil {
+			return nil, err
+		}
 	}
 	return result, nil
 }
@@ -303,20 +303,19 @@ func IsOpsJob(w *v1.Workload) bool {
 // Returns true if both workloads have the same replica count and identical resource requirements,
 // false otherwise or if there's an error during resource conversion.
 func IsResourceEqual(workload1, workload2 *v1.Workload) bool {
-	resources1, err1 := GetPodResourceList(workload1)
+	resourceList1, err1 := toResourceLists(workload1)
 	if err1 != nil {
 		return false
 	}
-	resources2, err2 := GetPodResourceList(workload2)
+	resourceList2, err2 := toResourceLists(workload2)
 	if err2 != nil {
 		return false
 	}
-	if len(resources1) != len(resources2) {
+	if len(resourceList1) != len(resourceList2) {
 		return false
 	}
-	for i := range len(resources1) {
-		rl1, rl2 := resources1[i], resources2[i]
-		if !quantity.Equal(rl1, rl2) {
+	for i := range resourceList1 {
+		if !quantity.Equal(resourceList1[i], resourceList2[i]) {
 			return false
 		}
 	}
@@ -365,4 +364,20 @@ func GetResourceTemplate(ctx context.Context, cli client.Client, workload *v1.Wo
 	}
 	return nil, commonerrors.NewInternalError(
 		fmt.Sprintf("the resource template is not found, kind: %s, version: %s", gvk.Kind, gvk.Version))
+}
+
+// MigrateResourceToResources converts the deprecated Resource field to the Resources slice for backward compatibility.
+func MigrateResourceToResources(workloadResource v1.WorkloadResource, kind string) []v1.WorkloadResource {
+	result := make([]v1.WorkloadResource, 0, 2)
+	if kind == common.PytorchJobKind {
+		result = append(result, workloadResource)
+		result[0].Replica = 1
+		if workloadResource.Replica > 1 {
+			result = append(result, workloadResource)
+			result[1].Replica = workloadResource.Replica - 1
+		}
+	} else {
+		result = append(result, workloadResource)
+	}
+	return result
 }

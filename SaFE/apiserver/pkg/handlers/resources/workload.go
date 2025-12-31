@@ -1111,9 +1111,7 @@ func applyWorkloadPatch(adminWorkload *v1.Workload, req *view.PatchWorkloadReque
 
 // cvtDBWorkloadToResponseItem converts a database workload record to a response item format.
 // Maps database fields to the appropriate response structure with proper null value handling.
-func (h *Handler) cvtDBWorkloadToResponseItem(ctx context.Context,
-	w *dbclient.Workload,
-) view.WorkloadResponseItem {
+func (h *Handler) cvtDBWorkloadToResponseItem(ctx context.Context, w *dbclient.Workload) view.WorkloadResponseItem {
 	result := view.WorkloadResponseItem{
 		WorkloadId:     w.WorkloadId,
 		WorkspaceId:    w.Workspace,
@@ -1155,7 +1153,7 @@ func (h *Handler) cvtDBWorkloadToResponseItem(ctx context.Context,
 	if len(result.Resources) == 0 {
 		var resource v1.WorkloadResource
 		if json.Unmarshal([]byte(w.Resource), &resource) == nil {
-			result.Resources = []v1.WorkloadResource{resource}
+			result.Resources = commonworkload.MigrateResourceToResources(resource, result.GroupVersionKind.Kind)
 		}
 	}
 	if w.Timeout > 0 {

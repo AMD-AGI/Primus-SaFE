@@ -86,8 +86,6 @@ type WorkloadResponseItem struct {
 	// The workspace which workload belongs to
 	WorkspaceId string `json:"workspaceId"`
 	// Workload resource requirements
-	Resource v1.WorkloadResource `json:"resource"`
-	// Workload resource requirements
 	Resources []v1.WorkloadResource `json:"resources"`
 	// Workload name (display only)
 	DisplayName string `json:"displayName"`

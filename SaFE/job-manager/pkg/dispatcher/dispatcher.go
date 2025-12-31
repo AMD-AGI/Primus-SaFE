@@ -106,7 +106,7 @@ func (relevantChangePredicate) Update(e event.UpdateEvent) bool {
 		if !commonworkload.IsResourceEqual(oldWorkload, newWorkload) {
 			return true
 		}
-		for i := range len(oldWorkload.Spec.Resources) {
+		for i := range oldWorkload.Spec.Resources {
 			if oldWorkload.Spec.Resources[i].SharedMemory != newWorkload.Spec.Resources[i].SharedMemory {
 				return true
 			}
@@ -419,31 +419,29 @@ func isResourceChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructure
 		}
 	}
 
-	replicaList, resourceList, err := jobutils.GetResources(obj, rt,
-		v1.GetMainContainer(adminWorkload), gpuName)
-	if err != nil || len(resourceList) == 0 {
+	replicaList, resourceList, err := jobutils.GetResources(obj, rt, v1.GetMainContainer(adminWorkload), gpuName)
+	if err != nil {
 		klog.ErrorS(err, "failed to get resource", "rt", rt.Name, "obj", obj.GetName())
 		return false
 	}
-	if len(replicaList) != len(adminWorkload.Spec.Resources) {
-		return true
-	}
-	for i := range replicaList {
-		if replicaList[i] != int64(adminWorkload.Spec.Resources[i].Replica) {
-			return true
+	if len(replicaList) == len(adminWorkload.Spec.Resources) {
+		for i := range replicaList {
+			if replicaList[i] != int64(adminWorkload.Spec.Resources[i].Replica) {
+				return true
+			}
 		}
 	}
 
-	podResources, err := commonworkload.GetPodResourceList(adminWorkload)
-	if err != nil {
-		return false
-	}
-	if len(podResources) != len(resourceList) {
-		return true
-	}
-	for i := range len(podResources) {
-		if !quantity.Equal(podResources[i], resourceList[i]) {
-			return true
+	if len(resourceList) == len(adminWorkload.Spec.Resources) {
+		for i := range resourceList {
+			podResource, err := commonworkload.ToResourceList(&adminWorkload.Spec.Resources[i])
+			if err != nil {
+				klog.ErrorS(err, "failed to get pod resource", "resource", adminWorkload.Spec.Resources[i])
+				return false
+			}
+			if !quantity.Equal(podResource, resourceList[i]) {
+				return true
+			}
 		}
 	}
 	return false
@@ -497,7 +495,7 @@ func isSharedMemoryChanged(adminWorkload *v1.Workload, obj *unstructured.Unstruc
 	if len(memoryStorageSizes) != len(adminWorkload.Spec.Resources) {
 		return true
 	}
-	for i := range len(memoryStorageSizes) {
+	for i := range memoryStorageSizes {
 		if memoryStorageSizes[i] != adminWorkload.Spec.Resources[i].SharedMemory {
 			return true
 		}

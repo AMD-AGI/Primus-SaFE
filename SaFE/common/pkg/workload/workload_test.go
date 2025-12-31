@@ -139,7 +139,7 @@ func TestConvertToPodResource(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			_, err := GetSinglePodResource(&test.workload.Spec.Resources[0])
+			_, err := ToResourceList(&test.workload.Spec.Resources[0])
 			assert.Equal(t, err != nil, test.gotError)
 		})
 	}

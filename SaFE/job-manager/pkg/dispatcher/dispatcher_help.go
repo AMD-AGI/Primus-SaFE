@@ -535,7 +535,6 @@ func addEnvVar(result []interface{}, workload *v1.Workload, name, value string) 
 			return result
 		}
 	}
-
 	return append(result, map[string]interface{}{
 		"name":  name,
 		"value": value,
