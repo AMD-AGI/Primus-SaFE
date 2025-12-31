@@ -133,4 +133,5 @@ const (
 	cdRequireApproval = cdPrefix + "require_approval"
 	// Deployable components for CD
 	cdComponents = cdPrefix + "components"
+	cdJobImage   = cdPrefix + "job_image"
 )
