@@ -23,33 +23,35 @@ func NewMockFacade() *MockFacade {
 }
 
 // Implement FacadeInterface methods
-func (m *MockFacade) GetNode() NodeFacadeInterface                                       { return nil }
-func (m *MockFacade) GetPod() PodFacadeInterface                                         { return nil }
-func (m *MockFacade) GetWorkload() WorkloadFacadeInterface                               { return nil }
-func (m *MockFacade) GetContainer() ContainerFacadeInterface                             { return nil }
-func (m *MockFacade) GetTraining() TrainingFacadeInterface                               { return nil }
-func (m *MockFacade) GetStorage() StorageFacadeInterface                                 { return nil }
-func (m *MockFacade) GetAlert() AlertFacadeInterface                                     { return nil }
-func (m *MockFacade) GetMetricAlertRule() MetricAlertRuleFacadeInterface                 { return nil }
-func (m *MockFacade) GetLogAlertRule() LogAlertRuleFacadeInterface                       { return nil }
-func (m *MockFacade) GetAlertRuleAdvice() AlertRuleAdviceFacadeInterface                 { return nil }
-func (m *MockFacade) GetClusterOverviewCache() ClusterOverviewCacheFacadeInterface       { return nil }
-func (m *MockFacade) GetGenericCache() GenericCacheFacadeInterface                       { return nil }
-func (m *MockFacade) GetSystemConfig() SystemConfigFacadeInterface                       { return nil }
-func (m *MockFacade) GetJobExecutionHistory() JobExecutionHistoryFacadeInterface         { return nil }
-func (m *MockFacade) GetNamespaceInfo() NamespaceInfoFacadeInterface                     { return nil }
-func (m *MockFacade) GetWorkloadStatistic() WorkloadStatisticFacadeInterface             { return nil }
-func (m *MockFacade) GetAiWorkloadMetadata() AiWorkloadMetadataFacadeInterface           { return nil }
-func (m *MockFacade) GetCheckpointEvent() CheckpointEventFacadeInterface                 { return nil }
-func (m *MockFacade) GetDetectionConflictLog() DetectionConflictLogFacadeInterface       { return nil }
-func (m *MockFacade) GetNodeNamespaceMapping() NodeNamespaceMappingFacadeInterface       { return nil }
-func (m *MockFacade) GetTraceLensSession() TraceLensSessionFacadeInterface               { return nil }
-func (m *MockFacade) GetK8sService() K8sServiceFacadeInterface                           { return nil }
-func (m *MockFacade) GetWorkloadDetection() WorkloadDetectionFacadeInterface             { return nil }
+func (m *MockFacade) GetNode() NodeFacadeInterface                                 { return nil }
+func (m *MockFacade) GetPod() PodFacadeInterface                                   { return nil }
+func (m *MockFacade) GetWorkload() WorkloadFacadeInterface                         { return nil }
+func (m *MockFacade) GetContainer() ContainerFacadeInterface                       { return nil }
+func (m *MockFacade) GetTraining() TrainingFacadeInterface                         { return nil }
+func (m *MockFacade) GetStorage() StorageFacadeInterface                           { return nil }
+func (m *MockFacade) GetAlert() AlertFacadeInterface                               { return nil }
+func (m *MockFacade) GetMetricAlertRule() MetricAlertRuleFacadeInterface           { return nil }
+func (m *MockFacade) GetLogAlertRule() LogAlertRuleFacadeInterface                 { return nil }
+func (m *MockFacade) GetAlertRuleAdvice() AlertRuleAdviceFacadeInterface           { return nil }
+func (m *MockFacade) GetClusterOverviewCache() ClusterOverviewCacheFacadeInterface { return nil }
+func (m *MockFacade) GetGenericCache() GenericCacheFacadeInterface                 { return nil }
+func (m *MockFacade) GetSystemConfig() SystemConfigFacadeInterface                 { return nil }
+func (m *MockFacade) GetJobExecutionHistory() JobExecutionHistoryFacadeInterface   { return nil }
+func (m *MockFacade) GetNamespaceInfo() NamespaceInfoFacadeInterface               { return nil }
+func (m *MockFacade) GetWorkloadStatistic() WorkloadStatisticFacadeInterface       { return nil }
+func (m *MockFacade) GetAiWorkloadMetadata() AiWorkloadMetadataFacadeInterface     { return nil }
+func (m *MockFacade) GetCheckpointEvent() CheckpointEventFacadeInterface           { return nil }
+func (m *MockFacade) GetDetectionConflictLog() DetectionConflictLogFacadeInterface { return nil }
+func (m *MockFacade) GetNodeNamespaceMapping() NodeNamespaceMappingFacadeInterface { return nil }
+func (m *MockFacade) GetTraceLensSession() TraceLensSessionFacadeInterface         { return nil }
+func (m *MockFacade) GetK8sService() K8sServiceFacadeInterface                     { return nil }
+func (m *MockFacade) GetWorkloadDetection() WorkloadDetectionFacadeInterface       { return nil }
 func (m *MockFacade) GetWorkloadDetectionEvidence() WorkloadDetectionEvidenceFacadeInterface {
 	return nil
 }
-func (m *MockFacade) GetDetectionCoverage() DetectionCoverageFacadeInterface { return nil }
+func (m *MockFacade) GetDetectionCoverage() DetectionCoverageFacadeInterface     { return nil }
+func (m *MockFacade) GetAIAgentRegistration() AIAgentRegistrationFacadeInterface { return nil }
+func (m *MockFacade) GetAITask() AITaskFacadeInterface                           { return nil }
 
 func (m *MockFacade) GetGpuUsageWeeklyReport() GpuUsageWeeklyReportFacadeInterface {
 	return m.GpuUsageWeeklyReportMock
@@ -69,13 +71,13 @@ type MockGpuUsageWeeklyReportFacade struct {
 	Reports map[string]*model.GpuUsageWeeklyReports
 
 	// Configurable callbacks for custom behavior
-	OnCreate            func(ctx context.Context, report *model.GpuUsageWeeklyReports) error
-	OnGetByID           func(ctx context.Context, id string) (*model.GpuUsageWeeklyReports, error)
-	OnUpdate            func(ctx context.Context, report *model.GpuUsageWeeklyReports) error
-	OnList              func(ctx context.Context, clusterName string, status string, pageNum, pageSize int) ([]*model.GpuUsageWeeklyReports, int64, error)
+	OnCreate             func(ctx context.Context, report *model.GpuUsageWeeklyReports) error
+	OnGetByID            func(ctx context.Context, id string) (*model.GpuUsageWeeklyReports, error)
+	OnUpdate             func(ctx context.Context, report *model.GpuUsageWeeklyReports) error
+	OnList               func(ctx context.Context, clusterName string, status string, pageNum, pageSize int) ([]*model.GpuUsageWeeklyReports, int64, error)
 	OnGetLatestByCluster func(ctx context.Context, clusterName string) (*model.GpuUsageWeeklyReports, error)
-	OnDeleteOlderThan   func(ctx context.Context, before time.Time) (int64, error)
-	OnUpdateStatus      func(ctx context.Context, id string, status string) error
+	OnDeleteOlderThan    func(ctx context.Context, before time.Time) (int64, error)
+	OnUpdateStatus       func(ctx context.Context, id string, status string) error
 }
 
 // NewMockGpuUsageWeeklyReportFacade creates a new mock facade
@@ -343,4 +345,3 @@ func (m *MockGpuAggregationFacade) GetDistinctDimensionValues(ctx context.Contex
 func (m *MockGpuAggregationFacade) WithCluster(clusterName string) GpuAggregationFacadeInterface {
 	return m
 }
-

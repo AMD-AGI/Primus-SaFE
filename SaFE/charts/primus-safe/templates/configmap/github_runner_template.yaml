@@ -61,6 +61,20 @@ data:
             name: dind-sock
           - mountPath: /home/runner/externals
             name: dind-externals
+        - name: preprocess
+          image: {{ .Values.global.image_registry }}/primussafe/{{ .Values.preprocess.image }}
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-c", "cp -r /preprocess/* /shared-data/"]
+          securityContext:
+            capabilities:
+              add: [ "IPC_LOCK" ]
+          resources:
+            limits:
+              cpu: 1000m
+              memory: 128Mi
+          volumeMounts:
+          - name: shared-data
+            mountPath: /shared-data
       containers:
       - name: runner
         imagePullPolicy: IfNotPresent
@@ -87,6 +101,8 @@ data:
             name: dind-sock
           - mountPath: /home/runner/externals
             name: dind-externals
+          - mountPath: /shared-data
+            name: shared-data
       restartPolicy: Never
       dnsPolicy: ClusterFirst
       enableServiceLinks: true
@@ -117,4 +133,6 @@ data:
       - name: dind-sock
         emptyDir: {}
       - name: dind-externals
+        emptyDir: {}
+      - name: shared-data
         emptyDir: {}

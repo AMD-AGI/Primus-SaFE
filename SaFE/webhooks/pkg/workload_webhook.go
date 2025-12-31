@@ -588,9 +588,6 @@ func (v *WorkloadValidator) validateOnCreation(ctx context.Context, workload *v1
 	if err := v.validateCommon(ctx, workload); err != nil {
 		return err
 	}
-	if err := validateDNSName(v1.GetDisplayName(workload)); err != nil {
-		return err
-	}
 	if err := v.validateScope(ctx, workload); err != nil {
 		return err
 	}
@@ -648,7 +645,7 @@ func (v *WorkloadValidator) validateRequiredParams(workload *v1.Workload) error 
 	if v1.GetDisplayName(workload) == "" {
 		errs = append(errs, fmt.Errorf("the displayName is empty"))
 	}
-	if err := validateDisplayName(v1.GetDisplayName(workload)); err != nil {
+	if err := validateDNSName(v1.GetDisplayName(workload)); err != nil {
 		errs = append(errs, err)
 	}
 	if v1.GetClusterId(workload) == "" {
