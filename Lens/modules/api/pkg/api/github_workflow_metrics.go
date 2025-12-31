@@ -20,6 +20,20 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// ========== Helper Functions ==========
+
+// getClusterNameForGithubWorkflow validates and returns the cluster name from query parameter
+// Returns error if the specified cluster does not exist
+func getClusterNameForGithubWorkflow(ctx *gin.Context) (string, error) {
+	cm := clientsets.GetClusterManager()
+	clusterName := ctx.Query("cluster")
+	clients, err := cm.GetClusterClientsOrDefault(clusterName)
+	if err != nil {
+		return "", err
+	}
+	return clients.ClusterName, nil
+}
+
 // ========== Request/Response Types ==========
 
 // GithubWorkflowConfigRequest represents the request body for creating/updating a config
@@ -73,9 +87,10 @@ func CreateGithubWorkflowConfig(ctx *gin.Context) {
 		return
 	}
 
-	clusterName := ctx.Query("cluster")
-	if clusterName == "" {
-		clusterName = clientsets.GetClusterManager().GetCurrentClusterName()
+	clusterName, err := getClusterNameForGithubWorkflow(ctx)
+	if err != nil {
+		_ = ctx.Error(err)
+		return
 	}
 
 	// Build config model
@@ -114,9 +129,10 @@ func CreateGithubWorkflowConfig(ctx *gin.Context) {
 
 // ListGithubWorkflowConfigs handles GET /v1/github-workflow-metrics/configs
 func ListGithubWorkflowConfigs(ctx *gin.Context) {
-	clusterName := ctx.Query("cluster")
-	if clusterName == "" {
-		clusterName = clientsets.GetClusterManager().GetCurrentClusterName()
+	clusterName, err := getClusterNameForGithubWorkflow(ctx)
+	if err != nil {
+		_ = ctx.Error(err)
+		return
 	}
 
 	filter := &database.GithubWorkflowConfigFilter{
@@ -168,9 +184,10 @@ func GetGithubWorkflowConfig(ctx *gin.Context) {
 		return
 	}
 
-	clusterName := ctx.Query("cluster")
-	if clusterName == "" {
-		clusterName = clientsets.GetClusterManager().GetCurrentClusterName()
+	clusterName, err := getClusterNameForGithubWorkflow(ctx)
+	if err != nil {
+		_ = ctx.Error(err)
+		return
 	}
 
 	facade := database.GetFacadeForCluster(clusterName).GetGithubWorkflowConfig()
@@ -203,9 +220,10 @@ func UpdateGithubWorkflowConfig(ctx *gin.Context) {
 		return
 	}
 
-	clusterName := ctx.Query("cluster")
-	if clusterName == "" {
-		clusterName = clientsets.GetClusterManager().GetCurrentClusterName()
+	clusterName, err := getClusterNameForGithubWorkflow(ctx)
+	if err != nil {
+		_ = ctx.Error(err)
+		return
 	}
 
 	facade := database.GetFacadeForCluster(clusterName).GetGithubWorkflowConfig()
@@ -257,9 +275,10 @@ func DeleteGithubWorkflowConfig(ctx *gin.Context) {
 		return
 	}
 
-	clusterName := ctx.Query("cluster")
-	if clusterName == "" {
-		clusterName = clientsets.GetClusterManager().GetCurrentClusterName()
+	clusterName, err := getClusterNameForGithubWorkflow(ctx)
+	if err != nil {
+		_ = ctx.Error(err)
+		return
 	}
 
 	facade := database.GetFacadeForCluster(clusterName).GetGithubWorkflowConfig()
@@ -289,9 +308,10 @@ func PatchGithubWorkflowConfig(ctx *gin.Context) {
 		return
 	}
 
-	clusterName := ctx.Query("cluster")
-	if clusterName == "" {
-		clusterName = clientsets.GetClusterManager().GetCurrentClusterName()
+	clusterName, err := getClusterNameForGithubWorkflow(ctx)
+	if err != nil {
+		_ = ctx.Error(err)
+		return
 	}
 
 	facade := database.GetFacadeForCluster(clusterName).GetGithubWorkflowConfig()
@@ -349,9 +369,10 @@ func ListGithubWorkflowRuns(ctx *gin.Context) {
 		return
 	}
 
-	clusterName := ctx.Query("cluster")
-	if clusterName == "" {
-		clusterName = clientsets.GetClusterManager().GetCurrentClusterName()
+	clusterName, err := getClusterNameForGithubWorkflow(ctx)
+	if err != nil {
+		_ = ctx.Error(err)
+		return
 	}
 
 	filter := &database.GithubWorkflowRunFilter{
@@ -398,9 +419,10 @@ func GetGithubWorkflowRun(ctx *gin.Context) {
 		return
 	}
 
-	clusterName := ctx.Query("cluster")
-	if clusterName == "" {
-		clusterName = clientsets.GetClusterManager().GetCurrentClusterName()
+	clusterName, err := getClusterNameForGithubWorkflow(ctx)
+	if err != nil {
+		_ = ctx.Error(err)
+		return
 	}
 
 	facade := database.GetFacadeForCluster(clusterName).GetGithubWorkflowRun()
@@ -421,9 +443,10 @@ func GetGithubWorkflowRun(ctx *gin.Context) {
 // ListAllGithubWorkflowRuns handles GET /v1/github-workflow-metrics/runs
 // Lists workflow runs across all configs with filtering options
 func ListAllGithubWorkflowRuns(ctx *gin.Context) {
-	clusterName := ctx.Query("cluster")
-	if clusterName == "" {
-		clusterName = clientsets.GetClusterManager().GetCurrentClusterName()
+	clusterName, err := getClusterNameForGithubWorkflow(ctx)
+	if err != nil {
+		_ = ctx.Error(err)
+		return
 	}
 
 	filter := &database.GithubWorkflowRunFilter{}
@@ -489,9 +512,10 @@ func RetryGithubWorkflowRun(ctx *gin.Context) {
 		return
 	}
 
-	clusterName := ctx.Query("cluster")
-	if clusterName == "" {
-		clusterName = clientsets.GetClusterManager().GetCurrentClusterName()
+	clusterName, err := getClusterNameForGithubWorkflow(ctx)
+	if err != nil {
+		_ = ctx.Error(err)
+		return
 	}
 
 	facade := database.GetFacadeForCluster(clusterName).GetGithubWorkflowRun()
@@ -544,9 +568,10 @@ func GetActiveGithubWorkflowSchema(ctx *gin.Context) {
 		return
 	}
 
-	clusterName := ctx.Query("cluster")
-	if clusterName == "" {
-		clusterName = clientsets.GetClusterManager().GetCurrentClusterName()
+	clusterName, err := getClusterNameForGithubWorkflow(ctx)
+	if err != nil {
+		_ = ctx.Error(err)
+		return
 	}
 
 	facade := database.GetFacadeForCluster(clusterName).GetGithubWorkflowSchema()
@@ -579,9 +604,10 @@ func CreateGithubWorkflowSchema(ctx *gin.Context) {
 		return
 	}
 
-	clusterName := ctx.Query("cluster")
-	if clusterName == "" {
-		clusterName = clientsets.GetClusterManager().GetCurrentClusterName()
+	clusterName, err := getClusterNameForGithubWorkflow(ctx)
+	if err != nil {
+		_ = ctx.Error(err)
+		return
 	}
 
 	// Build schema model
@@ -633,9 +659,10 @@ func ListGithubWorkflowSchemas(ctx *gin.Context) {
 		return
 	}
 
-	clusterName := ctx.Query("cluster")
-	if clusterName == "" {
-		clusterName = clientsets.GetClusterManager().GetCurrentClusterName()
+	clusterName, err := getClusterNameForGithubWorkflow(ctx)
+	if err != nil {
+		_ = ctx.Error(err)
+		return
 	}
 
 	facade := database.GetFacadeForCluster(clusterName).GetGithubWorkflowSchema()
@@ -661,9 +688,10 @@ func GetGithubWorkflowSchema(ctx *gin.Context) {
 		return
 	}
 
-	clusterName := ctx.Query("cluster")
-	if clusterName == "" {
-		clusterName = clientsets.GetClusterManager().GetCurrentClusterName()
+	clusterName, err := getClusterNameForGithubWorkflow(ctx)
+	if err != nil {
+		_ = ctx.Error(err)
+		return
 	}
 
 	facade := database.GetFacadeForCluster(clusterName).GetGithubWorkflowSchema()
@@ -690,9 +718,10 @@ func SetGithubWorkflowSchemaActive(ctx *gin.Context) {
 		return
 	}
 
-	clusterName := ctx.Query("cluster")
-	if clusterName == "" {
-		clusterName = clientsets.GetClusterManager().GetCurrentClusterName()
+	clusterName, err := getClusterNameForGithubWorkflow(ctx)
+	if err != nil {
+		_ = ctx.Error(err)
+		return
 	}
 
 	facade := database.GetFacadeForCluster(clusterName).GetGithubWorkflowSchema()
@@ -737,9 +766,10 @@ func ListGithubWorkflowMetrics(ctx *gin.Context) {
 		return
 	}
 
-	clusterName := ctx.Query("cluster")
-	if clusterName == "" {
-		clusterName = clientsets.GetClusterManager().GetCurrentClusterName()
+	clusterName, err := getClusterNameForGithubWorkflow(ctx)
+	if err != nil {
+		_ = ctx.Error(err)
+		return
 	}
 
 	filter := &database.GithubWorkflowMetricsFilter{
@@ -800,9 +830,10 @@ func GetGithubWorkflowMetricsByRun(ctx *gin.Context) {
 		return
 	}
 
-	clusterName := ctx.Query("cluster")
-	if clusterName == "" {
-		clusterName = clientsets.GetClusterManager().GetCurrentClusterName()
+	clusterName, err := getClusterNameForGithubWorkflow(ctx)
+	if err != nil {
+		_ = ctx.Error(err)
+		return
 	}
 
 	facade := database.GetFacadeForCluster(clusterName).GetGithubWorkflowMetrics()
@@ -828,9 +859,10 @@ func GetGithubWorkflowMetricsStats(ctx *gin.Context) {
 		return
 	}
 
-	clusterName := ctx.Query("cluster")
-	if clusterName == "" {
-		clusterName = clientsets.GetClusterManager().GetCurrentClusterName()
+	clusterName, err := getClusterNameForGithubWorkflow(ctx)
+	if err != nil {
+		_ = ctx.Error(err)
+		return
 	}
 
 	// Get config
@@ -932,9 +964,10 @@ func TriggerBackfill(ctx *gin.Context) {
 		return
 	}
 
-	clusterName := ctx.Query("cluster")
-	if clusterName == "" {
-		clusterName = clientsets.GetClusterManager().GetCurrentClusterName()
+	clusterName, err := getClusterNameForGithubWorkflow(ctx)
+	if err != nil {
+		_ = ctx.Error(err)
+		return
 	}
 
 	// Verify config exists
@@ -1067,9 +1100,10 @@ func RetryFailedRuns(ctx *gin.Context) {
 		return
 	}
 
-	clusterName := ctx.Query("cluster")
-	if clusterName == "" {
-		clusterName = clientsets.GetClusterManager().GetCurrentClusterName()
+	clusterName, err := getClusterNameForGithubWorkflow(ctx)
+	if err != nil {
+		_ = ctx.Error(err)
+		return
 	}
 
 	runFacade := database.GetFacadeForCluster(clusterName).GetGithubWorkflowRun()
@@ -1145,9 +1179,10 @@ func RegenerateGithubWorkflowSchema(ctx *gin.Context) {
 		req = RegenerateSchemaRequest{}
 	}
 
-	clusterName := ctx.Query("cluster")
-	if clusterName == "" {
-		clusterName = clientsets.GetClusterManager().GetCurrentClusterName()
+	clusterName, err := getClusterNameForGithubWorkflow(ctx)
+	if err != nil {
+		_ = ctx.Error(err)
+		return
 	}
 
 	// Get config
@@ -1274,9 +1309,10 @@ func PreviewSchemaExtraction(ctx *gin.Context) {
 		return
 	}
 
-	clusterName := ctx.Query("cluster")
-	if clusterName == "" {
-		clusterName = clientsets.GetClusterManager().GetCurrentClusterName()
+	clusterName, err := getClusterNameForGithubWorkflow(ctx)
+	if err != nil {
+		_ = ctx.Error(err)
+		return
 	}
 
 	// Get config
@@ -1442,9 +1478,10 @@ func ListEphemeralRunners(ctx *gin.Context) {
 		return
 	}
 
-	clusterName := ctx.Query("cluster")
-	if clusterName == "" {
-		clusterName = clientsets.GetClusterManager().GetCurrentClusterName()
+	clusterName, err := getClusterNameForGithubWorkflow(ctx)
+	if err != nil {
+		_ = ctx.Error(err)
+		return
 	}
 
 	// Get config
@@ -1591,9 +1628,10 @@ func QueryGithubWorkflowMetricsAdvanced(ctx *gin.Context) {
 		return
 	}
 
-	clusterName := ctx.Query("cluster")
-	if clusterName == "" {
-		clusterName = clientsets.GetClusterManager().GetCurrentClusterName()
+	clusterName, err := getClusterNameForGithubWorkflow(ctx)
+	if err != nil {
+		_ = ctx.Error(err)
+		return
 	}
 
 	// Build query
@@ -1665,9 +1703,10 @@ func GetGithubWorkflowMetricsAggregation(ctx *gin.Context) {
 		return
 	}
 
-	clusterName := ctx.Query("cluster")
-	if clusterName == "" {
-		clusterName = clientsets.GetClusterManager().GetCurrentClusterName()
+	clusterName, err := getClusterNameForGithubWorkflow(ctx)
+	if err != nil {
+		_ = ctx.Error(err)
+		return
 	}
 
 	// Build query
@@ -1725,9 +1764,10 @@ func GetGithubWorkflowMetricsSummary(ctx *gin.Context) {
 		return
 	}
 
-	clusterName := ctx.Query("cluster")
-	if clusterName == "" {
-		clusterName = clientsets.GetClusterManager().GetCurrentClusterName()
+	clusterName, err := getClusterNameForGithubWorkflow(ctx)
+	if err != nil {
+		_ = ctx.Error(err)
+		return
 	}
 
 	var start, end *time.Time
@@ -1779,9 +1819,10 @@ func GetGithubWorkflowMetricsTrends(ctx *gin.Context) {
 		return
 	}
 
-	clusterName := ctx.Query("cluster")
-	if clusterName == "" {
-		clusterName = clientsets.GetClusterManager().GetCurrentClusterName()
+	clusterName, err := getClusterNameForGithubWorkflow(ctx)
+	if err != nil {
+		_ = ctx.Error(err)
+		return
 	}
 
 	// Build query
@@ -1829,9 +1870,10 @@ func GetGithubWorkflowMetricsDimensions(ctx *gin.Context) {
 		return
 	}
 
-	clusterName := ctx.Query("cluster")
-	if clusterName == "" {
-		clusterName = clientsets.GetClusterManager().GetCurrentClusterName()
+	clusterName, err := getClusterNameForGithubWorkflow(ctx)
+	if err != nil {
+		_ = ctx.Error(err)
+		return
 	}
 
 	var start, end *time.Time
@@ -1883,9 +1925,10 @@ func GetGithubWorkflowMetricsFields(ctx *gin.Context) {
 		return
 	}
 
-	clusterName := ctx.Query("cluster")
-	if clusterName == "" {
-		clusterName = clientsets.GetClusterManager().GetCurrentClusterName()
+	clusterName, err := getClusterNameForGithubWorkflow(ctx)
+	if err != nil {
+		_ = ctx.Error(err)
+		return
 	}
 
 	facade := database.GetFacadeForCluster(clusterName).GetGithubWorkflowMetrics()
@@ -1928,9 +1971,10 @@ func GetSingleDimensionValues(ctx *gin.Context) {
 		return
 	}
 
-	clusterName := ctx.Query("cluster")
-	if clusterName == "" {
-		clusterName = clientsets.GetClusterManager().GetCurrentClusterName()
+	clusterName, err := getClusterNameForGithubWorkflow(ctx)
+	if err != nil {
+		_ = ctx.Error(err)
+		return
 	}
 
 	var start, end *time.Time
@@ -1982,9 +2026,10 @@ func ExportGithubWorkflowMetrics(ctx *gin.Context) {
 		return
 	}
 
-	clusterName := ctx.Query("cluster")
-	if clusterName == "" {
-		clusterName = clientsets.GetClusterManager().GetCurrentClusterName()
+	clusterName, err := getClusterNameForGithubWorkflow(ctx)
+	if err != nil {
+		_ = ctx.Error(err)
+		return
 	}
 
 	// Parse query parameters
