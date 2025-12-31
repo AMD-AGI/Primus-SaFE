@@ -244,7 +244,6 @@ func (f *GithubWorkflowRunFacade) Update(ctx context.Context, run *model.GithubW
 // UpdateStatus updates the status of a run
 func (f *GithubWorkflowRunFacade) UpdateStatus(ctx context.Context, id int64, status string, errMsg string) error {
 	q := f.getDAL().GithubWorkflowRuns
-	now := time.Now()
 
 	if errMsg != "" {
 		_, err := q.WithContext(ctx).
@@ -252,7 +251,6 @@ func (f *GithubWorkflowRunFacade) UpdateStatus(ctx context.Context, id int64, st
 			UpdateSimple(
 				q.Status.Value(status),
 				q.ErrorMessage.Value(errMsg),
-				q.UpdatedAt.Value(now),
 			)
 		return err
 	}
@@ -261,7 +259,6 @@ func (f *GithubWorkflowRunFacade) UpdateStatus(ctx context.Context, id int64, st
 		Where(q.ID.Eq(id)).
 		UpdateSimple(
 			q.Status.Value(status),
-			q.UpdatedAt.Value(now),
 		)
 	return err
 }
@@ -275,7 +272,6 @@ func (f *GithubWorkflowRunFacade) MarkCollecting(ctx context.Context, id int64) 
 		UpdateSimple(
 			q.Status.Value(WorkflowRunStatusCollecting),
 			q.CollectionStartedAt.Value(now),
-			q.UpdatedAt.Value(now),
 		)
 	return err
 }
@@ -283,12 +279,10 @@ func (f *GithubWorkflowRunFacade) MarkCollecting(ctx context.Context, id int64) 
 // MarkExtracting marks a run as extracting
 func (f *GithubWorkflowRunFacade) MarkExtracting(ctx context.Context, id int64) error {
 	q := f.getDAL().GithubWorkflowRuns
-	now := time.Now()
 	_, err := q.WithContext(ctx).
 		Where(q.ID.Eq(id)).
 		UpdateSimple(
 			q.Status.Value(WorkflowRunStatusExtracting),
-			q.UpdatedAt.Value(now),
 		)
 	return err
 }
@@ -305,7 +299,6 @@ func (f *GithubWorkflowRunFacade) MarkCompleted(ctx context.Context, id int64, f
 			q.FilesProcessed.Value(filesProcessed),
 			q.MetricsCount.Value(metricsCount),
 			q.CollectionCompletedAt.Value(now),
-			q.UpdatedAt.Value(now),
 		)
 	return err
 }
@@ -313,13 +306,11 @@ func (f *GithubWorkflowRunFacade) MarkCompleted(ctx context.Context, id int64, f
 // MarkFailed marks a run as failed with error message
 func (f *GithubWorkflowRunFacade) MarkFailed(ctx context.Context, id int64, errMsg string) error {
 	q := f.getDAL().GithubWorkflowRuns
-	now := time.Now()
 	_, err := q.WithContext(ctx).
 		Where(q.ID.Eq(id)).
 		UpdateSimple(
 			q.Status.Value(WorkflowRunStatusFailed),
 			q.ErrorMessage.Value(errMsg),
-			q.UpdatedAt.Value(now),
 		)
 	return err
 }
@@ -327,12 +318,10 @@ func (f *GithubWorkflowRunFacade) MarkFailed(ctx context.Context, id int64, errM
 // IncrementRetryCount increments the retry count
 func (f *GithubWorkflowRunFacade) IncrementRetryCount(ctx context.Context, id int64) error {
 	q := f.getDAL().GithubWorkflowRuns
-	now := time.Now()
 	_, err := q.WithContext(ctx).
 		Where(q.ID.Eq(id)).
 		UpdateSimple(
 			q.RetryCount.Add(1),
-			q.UpdatedAt.Value(now),
 		)
 	return err
 }
@@ -364,14 +353,12 @@ func (f *GithubWorkflowRunFacade) ListByConfigAndStatus(ctx context.Context, con
 // ResetToPending resets a run to pending status (for retry)
 func (f *GithubWorkflowRunFacade) ResetToPending(ctx context.Context, id int64) error {
 	q := f.getDAL().GithubWorkflowRuns
-	now := time.Now()
 	_, err := q.WithContext(ctx).
 		Where(q.ID.Eq(id)).
 		UpdateSimple(
 			q.Status.Value(WorkflowRunStatusPending),
 			q.ErrorMessage.Value(""),
 			q.RetryCount.Value(0),
-			q.UpdatedAt.Value(now),
 		)
 	return err
 }
