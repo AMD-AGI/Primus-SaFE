@@ -666,6 +666,8 @@ func (r *ModelReconciler) constructLocalDownloadOpsJob(ctx context.Context, mode
 
 	jobName := stringutil.NormalizeForDNS(fmt.Sprintf("%s-%s-%s", DownloadJobPrefix, model.Name, lp.Workspace))
 
+	displayName := strings.ToLower(model.GetSafeDisplayName())
+
 	opsJob := &v1.OpsJob{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: jobName,
@@ -673,7 +675,7 @@ func (r *ModelReconciler) constructLocalDownloadOpsJob(ctx context.Context, mode
 				v1.ClusterIdLabel:   workspace.Spec.Cluster,
 				v1.WorkspaceIdLabel: lp.Workspace,
 				v1.ModelIdLabel:     model.Name,
-				v1.DisplayNameLabel: model.GetSafeDisplayName(),
+				v1.DisplayNameLabel: displayName,
 				v1.UserIdLabel:      common.UserSystem,
 			},
 			Annotations: map[string]string{
