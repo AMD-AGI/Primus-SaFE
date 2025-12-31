@@ -1151,10 +1151,7 @@ func (h *Handler) cvtDBWorkloadToResponseItem(ctx context.Context, w *dbclient.W
 	json.Unmarshal([]byte(w.GVK), &result.GroupVersionKind)
 	json.Unmarshal([]byte(w.Resources), &result.Resources)
 	if len(result.Resources) == 0 {
-		var resource v1.WorkloadResource
-		if json.Unmarshal([]byte(w.Resource), &resource) == nil {
-			result.Resources = commonworkload.MigrateResourceToResources(resource, result.GroupVersionKind.Kind)
-		}
+		result.Resources = cvtToWorkloadResources(w, result.GroupVersionKind.Kind)
 	}
 	if w.Timeout > 0 {
 		result.Timeout = pointer.Int(w.Timeout)
@@ -1360,17 +1357,13 @@ func cvtDBWorkloadToAdminWorkload(dbItem *dbclient.Workload) *v1.Workload {
 			IsTolerateAll: dbItem.IsTolerateAll,
 		},
 	}
+	json.Unmarshal([]byte(dbItem.GVK), &result.Spec.GroupVersionKind)
 	if json.Unmarshal([]byte(dbItem.Resources), &result.Spec.Resources) != nil {
-		var resource v1.WorkloadResource
-		if json.Unmarshal([]byte(dbItem.Resource), &resource) == nil {
-			result.Spec.Resources = []v1.WorkloadResource{resource}
-		}
+		result.Spec.Resources = cvtToWorkloadResources(dbItem, result.Spec.GroupVersionKind.Kind)
 	}
 	if str := dbutils.ParseNullString(dbItem.Env); str != "" {
 		json.Unmarshal([]byte(str), &result.Spec.Env)
 	}
-	json.Unmarshal([]byte(dbItem.GVK), &result.Spec.GroupVersionKind)
-
 	if dbItem.TTLSecond > 0 {
 		result.Spec.TTLSecondsAfterFinished = pointer.Int(dbItem.TTLSecond)
 	}
@@ -1426,7 +1419,8 @@ func (h *Handler) getWorkloadPodContainers(c *gin.Context) (interface{}, error) 
 		if err != nil {
 			return nil, err
 		}
-		adminWorkload = generateWorkloadForAuth(name, dbutils.ParseNullString(dbWorkload.UserId), dbWorkload.Workspace, dbWorkload.Cluster)
+		adminWorkload = generateWorkloadForAuth(name,
+			dbutils.ParseNullString(dbWorkload.UserId), dbWorkload.Workspace, dbWorkload.Cluster)
 	} else {
 		adminWorkload, err = h.getAdminWorkload(ctx, name)
 		if err != nil {
@@ -1442,7 +1436,8 @@ func (h *Handler) getWorkloadPodContainers(c *gin.Context) (interface{}, error) 
 	if err != nil {
 		return nil, err
 	}
-	pod, err := k8sClients.ClientSet().CoreV1().Pods(v1.GetWorkspaceId(adminWorkload)).Get(c.Request.Context(), podName, metav1.GetOptions{})
+	pod, err := k8sClients.ClientSet().CoreV1().Pods(
+		v1.GetWorkspaceId(adminWorkload)).Get(c.Request.Context(), podName, metav1.GetOptions{})
 	if err != nil {
 		return nil, err
 	}
@@ -1455,4 +1450,12 @@ func (h *Handler) getWorkloadPodContainers(c *gin.Context) (interface{}, error) 
 		Containers: containers,
 		Shells:     []string{"bash", "sh", "zsh"},
 	}, nil
+}
+
+func cvtToWorkloadResources(dbItem *dbclient.Workload, kind string) []v1.WorkloadResource {
+	var resource v1.WorkloadResource
+	if json.Unmarshal([]byte(dbItem.Resource), &resource) == nil {
+		return commonworkload.MigrateResourceToResources(resource, kind)
+	}
+	return nil
 }

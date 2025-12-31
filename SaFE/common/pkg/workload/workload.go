@@ -104,7 +104,7 @@ func GetResourcesPerNode(workload *v1.Workload, adminNodeName string) (map[strin
 	if GetTotalCount(workload) == 0 {
 		return nil, nil
 	}
-	allResources, err := toResourceLists(workload)
+	allPodResources, err := toPodResourceLists(workload)
 	if err != nil {
 		return nil, err
 	}
@@ -119,9 +119,9 @@ func GetResourcesPerNode(workload *v1.Workload, adminNodeName string) (map[strin
 		}
 		resList, ok := result[pod.AdminNodeName]
 		if ok {
-			result[pod.AdminNodeName] = quantity.AddResource(resList, allResources[pod.ResourceId])
+			result[pod.AdminNodeName] = quantity.AddResource(resList, allPodResources[pod.ResourceId])
 		} else {
-			result[pod.AdminNodeName] = allResources[pod.ResourceId]
+			result[pod.AdminNodeName] = allPodResources[pod.ResourceId]
 		}
 	}
 	return result, nil
@@ -134,7 +134,7 @@ func GetWorkloadResourceUsage(workload *v1.Workload, filterNode func(nodeName st
 	if GetTotalCount(workload) == 0 || len(workload.Status.Pods) == 0 {
 		return nil, nil, nil, nil
 	}
-	allResources, err := toResourceLists(workload)
+	allPodResources, err := toPodResourceLists(workload)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -146,7 +146,7 @@ func GetWorkloadResourceUsage(workload *v1.Workload, filterNode func(nodeName st
 	type output struct {
 		isFiltered   bool
 		isTerminated bool
-		resourceList *corev1.ResourceList
+		resourceId   int
 	}
 
 	count := len(workload.Status.Pods)
@@ -162,11 +162,11 @@ func GetWorkloadResourceUsage(workload *v1.Workload, filterNode func(nodeName st
 
 	concurrent.Exec(count, func() error {
 		in := <-ch
-		if v1.IsPodTerminated(in.pod) || in.pod.ResourceId >= len(allResources) {
+		if v1.IsPodTerminated(in.pod) {
 			outputs[in.id].isTerminated = true
 			return nil
 		}
-		outputs[in.id].resourceList = &allResources[in.pod.ResourceId]
+		outputs[in.id].resourceId = in.pod.ResourceId
 		if filterNode != nil && filterNode(in.pod.AdminNodeName) {
 			outputs[in.id].isFiltered = true
 			return nil
@@ -177,12 +177,13 @@ func GetWorkloadResourceUsage(workload *v1.Workload, filterNode func(nodeName st
 	availableResource := make(corev1.ResourceList)
 	availableNodes := make([]string, 0, count)
 	for i := range outputs {
-		if outputs[i].isTerminated {
+		resourceId := outputs[i].resourceId
+		if outputs[i].isTerminated || resourceId >= len(allPodResources) {
 			continue
 		}
-		totalResource = quantity.AddResource(totalResource, *outputs[i].resourceList)
+		totalResource = quantity.AddResource(totalResource, allPodResources[resourceId])
 		if !outputs[i].isFiltered {
-			availableResource = quantity.AddResource(availableResource, *outputs[i].resourceList)
+			availableResource = quantity.AddResource(availableResource, allPodResources[resourceId])
 			availableNodes = append(availableNodes, workload.Status.Pods[i].AdminNodeName)
 		}
 	}
@@ -193,17 +194,18 @@ func GetWorkloadResourceUsage(workload *v1.Workload, filterNode func(nodeName st
 func GetTotalResourceList(workload *v1.Workload) (corev1.ResourceList, error) {
 	result := make(corev1.ResourceList)
 	for _, res := range workload.Spec.Resources {
-		resourceList, err := ToResourceList(&res)
+		resourceList, err := quantity.CvtToResourceList(res.CPU, res.Memory, res.GPU,
+			res.GPUName, res.EphemeralStorage, res.RdmaResource, float64(res.Replica))
 		if err != nil {
-			return nil, err
+			return nil, commonerrors.NewBadRequest(err.Error())
 		}
 		result = quantity.AddResource(result, resourceList)
 	}
 	return result, nil
 }
 
-// ToResourceList converts a workload resource specification to ResourceList format.
-func ToResourceList(res *v1.WorkloadResource) (corev1.ResourceList, error) {
+// GetPodResources converts workload resource specification to per-pod ResourceList
+func GetPodResourceList(res *v1.WorkloadResource) (corev1.ResourceList, error) {
 	if res == nil {
 		return nil, fmt.Errorf("the input resource is empty")
 	}
@@ -215,12 +217,12 @@ func ToResourceList(res *v1.WorkloadResource) (corev1.ResourceList, error) {
 	return result, nil
 }
 
-// toResourceLists converts workload resources to a list of resource lists
-func toResourceLists(workload *v1.Workload) ([]corev1.ResourceList, error) {
+// toPodResourceLists converts workload resources to a list of resource lists
+func toPodResourceLists(workload *v1.Workload) ([]corev1.ResourceList, error) {
 	result := make([]corev1.ResourceList, len(workload.Spec.Resources))
 	for i, res := range workload.Spec.Resources {
 		var err error
-		if result[i], err = ToResourceList(&res); err != nil {
+		if result[i], err = GetPodResourceList(&res); err != nil {
 			return nil, err
 		}
 	}
@@ -300,26 +302,17 @@ func IsOpsJob(w *v1.Workload) bool {
 }
 
 // IsResourceEqual compares the resource specifications of two workloads.
-// Returns true if both workloads have the same replica count and identical resource requirements,
-// false otherwise or if there's an error during resource conversion.
+// Returns true if both workloads have the same resource including replica
 func IsResourceEqual(workload1, workload2 *v1.Workload) bool {
-	resourceList1, err1 := toResourceLists(workload1)
+	resourceList1, err1 := GetTotalResourceList(workload1)
 	if err1 != nil {
 		return false
 	}
-	resourceList2, err2 := toResourceLists(workload2)
+	resourceList2, err2 := GetTotalResourceList(workload2)
 	if err2 != nil {
 		return false
 	}
-	if len(resourceList1) != len(resourceList2) {
-		return false
-	}
-	for i := range resourceList1 {
-		if !quantity.Equal(resourceList1[i], resourceList2[i]) {
-			return false
-		}
-	}
-	return true
+	return quantity.Equal(resourceList1, resourceList2)
 }
 
 // GenerateDispatchReason generates a dispatch reason string based on count.
@@ -369,7 +362,7 @@ func GetResourceTemplate(ctx context.Context, cli client.Client, workload *v1.Wo
 // MigrateResourceToResources converts the deprecated Resource field to the Resources slice for backward compatibility.
 func MigrateResourceToResources(workloadResource v1.WorkloadResource, kind string) []v1.WorkloadResource {
 	result := make([]v1.WorkloadResource, 0, 2)
-	if kind == common.PytorchJobKind {
+	if kind == common.PytorchJobKind || kind == common.UnifiedJobKind {
 		result = append(result, workloadResource)
 		result[0].Replica = 1
 		if workloadResource.Replica > 1 {

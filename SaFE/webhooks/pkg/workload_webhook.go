@@ -850,18 +850,18 @@ func (v *WorkloadValidator) validateResourceEnough(ctx context.Context, workload
 // validateResourceEnough checks if requested resources exceed per-node limits and configured thresholds.
 func validateResourceEnough(nf *v1.NodeFlavor, res *v1.WorkloadResource) error {
 	nodeResources := nf.ToResourceList(commonconfig.GetRdmaName())
-	availNodeResources := quantity.GetAvailableResource(nodeResources)
+	availNodeResourceList := quantity.GetAvailableResource(nodeResources)
 
 	// Validate if the request resource requests exceed the per-node resource limits
-	podResources, err := commonworkload.ToResourceList(res)
+	podResourceList, err := commonworkload.GetPodResourceList(res)
 	if err != nil {
 		klog.ErrorS(err, "failed to get pod resource", "input", *res)
 		return err
 	}
-	if ok, key := quantity.IsSubResource(podResources, availNodeResources); !ok {
+	if ok, key := quantity.IsSubResource(podResourceList, availNodeResourceList); !ok {
 		return commonerrors.NewQuotaInsufficient(
 			fmt.Sprintf("Insufficient resource: %s, request: %v, available: %v",
-				key, podResources, availNodeResources))
+				key, podResourceList, availNodeResourceList))
 	}
 
 	// Validate if the share memory requests exceed the memory
@@ -870,7 +870,7 @@ func validateResourceEnough(nf *v1.NodeFlavor, res *v1.WorkloadResource) error {
 		if err != nil {
 			return err
 		}
-		maxMemoryQuantity := availNodeResources[corev1.ResourceMemory]
+		maxMemoryQuantity := availNodeResourceList[corev1.ResourceMemory]
 		if shareMemQuantity.Value() <= 0 || shareMemQuantity.Value() > maxMemoryQuantity.Value() {
 			return fmt.Errorf("invalid share memory")
 		}
@@ -879,7 +879,7 @@ func validateResourceEnough(nf *v1.NodeFlavor, res *v1.WorkloadResource) error {
 	// Validate if ephemeral storage requests exceed the limit
 	if !floatutil.FloatEqual(commonconfig.GetMaxEphemeralStorePercent(), 0) {
 		maxEphemeralStoreQuantity, _ := quantity.GetMaxEphemeralStoreQuantity(nodeResources)
-		requestQuantity, ok := podResources[corev1.ResourceEphemeralStorage]
+		requestQuantity, ok := podResourceList[corev1.ResourceEphemeralStorage]
 		if ok && maxEphemeralStoreQuantity.Cmp(requestQuantity) < 0 {
 			return commonerrors.NewQuotaInsufficient(
 				fmt.Sprintf("Insufficient resource: %s, request: %v, max: %v",

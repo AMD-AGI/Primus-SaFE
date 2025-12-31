@@ -434,7 +434,7 @@ func isResourceChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructure
 
 	if len(resourceList) == len(adminWorkload.Spec.Resources) {
 		for i := range resourceList {
-			podResource, err := commonworkload.ToResourceList(&adminWorkload.Spec.Resources[i])
+			podResource, err := commonworkload.GetPodResourceList(&adminWorkload.Spec.Resources[i])
 			if err != nil {
 				klog.ErrorS(err, "failed to get pod resource", "resource", adminWorkload.Spec.Resources[i])
 				return false
