@@ -41,8 +41,133 @@ func (e *AIExtractor) IsAvailable(ctx context.Context) bool {
 }
 
 // ExtractWithAI uses AI to extract metrics from files
+// Processes each file individually to handle different schemas (e.g., different date columns)
 // Returns extracted metrics and optionally a new schema
 func (e *AIExtractor) ExtractWithAI(
+	ctx context.Context,
+	config *model.GithubWorkflowConfigs,
+	files []*PVCFile,
+	existingSchema *model.GithubWorkflowMetricSchemas,
+) (*aitopics.ExtractMetricsOutput, error) {
+	client := aiclient.GetGlobalClient()
+	if client == nil {
+		return nil, aiclient.ErrAgentUnavailable
+	}
+
+	// Process each file individually
+	// This allows each file to have its own date columns (e.g., 2025-12-30 vs 2025-12-31)
+	var allMetrics []aitopics.ExtractedMetric
+	var allErrors []aitopics.ExtractionError
+	var generatedSchema *aitopics.MetricSchema
+	filesProcessed := 0
+	schemaGenerated := false
+
+	aiCtx := aiclient.WithClusterID(ctx, config.ClusterName)
+
+	for i, f := range files {
+		// Convert single file to AI input format
+		aiFile := aitopics.FileContent{
+			Path:      f.Path,
+			Name:      f.Name,
+			FileType:  detectFileType(f.Name),
+			Content:   string(f.Content),
+			SizeBytes: int64(len(f.Content)),
+		}
+
+		// Build AI request for single file
+		aiInput := aitopics.ExtractMetricsInput{
+			ConfigID:   config.ID,
+			ConfigName: config.Name,
+			Files:      []aitopics.FileContent{aiFile},
+			Options: &aitopics.ExtractMetricsOptions{
+				IncludeRawData:     false,
+				IncludeExplanation: false,
+			},
+		}
+
+		// For first file, use existing schema if available
+		// For subsequent files, we don't pass schema - let each file auto-detect its structure
+		// This is important because each file may have different date columns
+		if i == 0 && existingSchema != nil {
+			aiInput.ExistingSchema = convertDBSchemaToAISchema(existingSchema)
+		}
+
+		// Invoke AI for this file
+		log.Infof("AIExtractor: invoking AI for file %d/%d: %s", i+1, len(files), f.Name)
+		resp, err := client.InvokeSync(aiCtx, aitopics.TopicGithubMetricsExtract, aiInput)
+		if err != nil {
+			log.Warnf("AIExtractor: failed to extract file %s: %v", f.Name, err)
+			allErrors = append(allErrors, aitopics.ExtractionError{
+				FilePath:    f.Path,
+				Error:       err.Error(),
+				Recoverable: true,
+			})
+			continue
+		}
+
+		if !resp.IsSuccess() {
+			log.Warnf("AIExtractor: AI returned error for file %s: %s", f.Name, resp.Message)
+			allErrors = append(allErrors, aitopics.ExtractionError{
+				FilePath:    f.Path,
+				Error:       resp.Message,
+				Recoverable: true,
+			})
+			continue
+		}
+
+		// Parse response
+		var fileOutput aitopics.ExtractMetricsOutput
+		if err := resp.UnmarshalPayload(&fileOutput); err != nil {
+			log.Warnf("AIExtractor: failed to parse response for file %s: %v", f.Name, err)
+			allErrors = append(allErrors, aitopics.ExtractionError{
+				FilePath:    f.Path,
+				Error:       fmt.Sprintf("failed to parse response: %v", err),
+				Recoverable: true,
+			})
+			continue
+		}
+
+		// Collect results
+		allMetrics = append(allMetrics, fileOutput.Metrics...)
+		filesProcessed++
+
+		// Keep the first generated schema
+		if fileOutput.Schema != nil && generatedSchema == nil {
+			generatedSchema = fileOutput.Schema
+			schemaGenerated = fileOutput.SchemaGenerated
+		}
+
+		// Collect errors from file processing
+		allErrors = append(allErrors, fileOutput.Errors...)
+	}
+
+	log.Infof("AIExtractor: extracted %d metrics from %d files", len(allMetrics), filesProcessed)
+
+	// Build combined output
+	output := &aitopics.ExtractMetricsOutput{
+		Schema:          generatedSchema,
+		SchemaGenerated: schemaGenerated,
+		Metrics:         allMetrics,
+		FilesProcessed:  filesProcessed,
+		TotalRecords:    len(allMetrics),
+		Errors:          allErrors,
+	}
+
+	return output, nil
+}
+
+// ExtractWithAISingleFile extracts metrics from a single file (legacy method)
+func (e *AIExtractor) ExtractWithAISingleFile(
+	ctx context.Context,
+	config *model.GithubWorkflowConfigs,
+	file *PVCFile,
+	existingSchema *model.GithubWorkflowMetricSchemas,
+) (*aitopics.ExtractMetricsOutput, error) {
+	return e.ExtractWithAI(ctx, config, []*PVCFile{file}, existingSchema)
+}
+
+// extractSingleFileWithAI is the original implementation for reference
+func (e *AIExtractor) extractSingleFileWithAI(
 	ctx context.Context,
 	config *model.GithubWorkflowConfigs,
 	files []*PVCFile,
