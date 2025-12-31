@@ -135,9 +135,10 @@ func ListGithubWorkflowConfigs(ctx *gin.Context) {
 		return
 	}
 
-	filter := &database.GithubWorkflowConfigFilter{
-		ClusterName: clusterName,
-	}
+	// Note: We don't filter by cluster name here because each data plane cluster
+	// knows its own configs. The cluster parameter is only used for routing to
+	// the correct database, not for filtering within the database.
+	filter := &database.GithubWorkflowConfigFilter{}
 
 	if enabledStr := ctx.Query("enabled"); enabledStr != "" {
 		enabled := enabledStr == "true"
