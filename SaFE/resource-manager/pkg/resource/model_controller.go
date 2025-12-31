@@ -428,7 +428,7 @@ func (r *ModelReconciler) handleDownloading(ctx context.Context, model *v1.Model
 
 		if errors.IsNotFound(err) {
 			// Create local download OpsJob
-			opsJob, err = r.constructLocalDownloadOpsJob(model, lp)
+			opsJob, err = r.constructLocalDownloadOpsJob(ctx, model, lp)
 			if err != nil {
 				klog.ErrorS(err, "Failed to construct local download OpsJob", "model", model.Name, "workspace", lp.Workspace)
 				lp.Status = v1.LocalPathStatusFailed
@@ -438,6 +438,9 @@ func (r *ModelReconciler) handleDownloading(ctx context.Context, model *v1.Model
 
 			if err := r.Create(ctx, opsJob); err != nil {
 				klog.ErrorS(err, "Failed to create local download OpsJob", "model", model.Name, "workspace", lp.Workspace)
+				lp.Status = v1.LocalPathStatusFailed
+				lp.Message = fmt.Sprintf("Failed to create OpsJob: %v", err)
+				anyFailed = true
 				continue
 			}
 
@@ -527,6 +530,11 @@ func (r *ModelReconciler) initializeLocalPaths(ctx context.Context, model *v1.Mo
 		}
 
 		for _, ws := range workspaces {
+			// Skip workspaces without storage volumes
+			if ws.PFSPath == "" {
+				klog.InfoS("Skipping workspace without storage volume", "model", model.Name, "workspace", ws.ID)
+				continue
+			}
 			pfsPath := fmt.Sprintf("%s/models/%s", ws.PFSPath, modelDir)
 			seenPaths[pfsPath] = append(seenPaths[pfsPath], ws.ID)
 		}
@@ -589,15 +597,21 @@ func (r *ModelReconciler) listWorkspaces(ctx context.Context) ([]WorkspaceInfo, 
 	return workspaces, nil
 }
 
-// getPFSPathFromWorkspace extracts the PFS mount path from workspace volumes
+// getPFSPathFromWorkspace extracts the storage mount path from workspace volumes.
+// It prioritizes PFS type volumes, otherwise falls back to the first available volume's mount path.
 func getPFSPathFromWorkspace(ws *v1.Workspace) string {
+	result := ""
 	for _, vol := range ws.Spec.Volumes {
 		if vol.Type == v1.PFS {
-			return vol.MountPath
+			result = vol.MountPath
+			break
 		}
 	}
-	// Default fallback
-	return fmt.Sprintf("/wekafs/%s", ws.Name)
+	// If no PFS volume, use the first available volume
+	if result == "" && len(ws.Spec.Volumes) > 0 {
+		result = ws.Spec.Volumes[0].MountPath
+	}
+	return result
 }
 
 // getWorkspace returns workspace info by ID
@@ -616,7 +630,17 @@ func (r *ModelReconciler) getWorkspace(ctx context.Context, workspaceID string) 
 }
 
 // constructLocalDownloadOpsJob creates an OpsJob to download from S3 to local PFS
-func (r *ModelReconciler) constructLocalDownloadOpsJob(model *v1.Model, lp *v1.ModelLocalPath) (*v1.OpsJob, error) {
+func (r *ModelReconciler) constructLocalDownloadOpsJob(ctx context.Context, model *v1.Model, lp *v1.ModelLocalPath) (*v1.OpsJob, error) {
+	// Get Workspace to retrieve Cluster ID
+	workspace := &v1.Workspace{}
+	if err := r.Get(ctx, client.ObjectKey{Name: lp.Workspace}, workspace); err != nil {
+		return nil, fmt.Errorf("failed to get workspace %s: %w", lp.Workspace, err)
+	}
+
+	if workspace.Spec.Cluster == "" {
+		return nil, fmt.Errorf("workspace %s has no cluster configured", lp.Workspace)
+	}
+
 	// Get S3 configuration
 	if !commonconfig.IsS3Enable() {
 		return nil, fmt.Errorf("S3 storage is not enabled")
@@ -646,8 +670,14 @@ func (r *ModelReconciler) constructLocalDownloadOpsJob(model *v1.Model, lp *v1.M
 		ObjectMeta: metav1.ObjectMeta{
 			Name: jobName,
 			Labels: map[string]string{
+				v1.ClusterIdLabel:   workspace.Spec.Cluster,
 				v1.WorkspaceIdLabel: lp.Workspace,
 				v1.ModelIdLabel:     model.Name,
+				v1.DisplayNameLabel: model.GetSafeDisplayName(),
+				v1.UserIdLabel:      common.UserSystem,
+			},
+			Annotations: map[string]string{
+				v1.UserNameAnnotation: common.UserSystem,
 			},
 		},
 		Spec: v1.OpsJobSpec{
