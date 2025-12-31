@@ -464,8 +464,6 @@ func buildEntryPoint(workload *v1.Workload) string {
 	switch workload.SpecKind() {
 	case common.CICDScaleRunnerSetKind:
 		result = workload.Spec.EntryPoint
-	case common.CICDEphemeralRunnerKind, common.JobKind:
-		result = stringutil.Base64Decode(workload.Spec.EntryPoint)
 	default:
 		result = Launcher + " '" + workload.Spec.EntryPoint + "'"
 	}

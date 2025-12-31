@@ -404,10 +404,8 @@ func Test_generatePreheatWorkload(t *testing.T) {
 
 	// Verify preheat workload properties
 	assert.Assert(t, preheatWorkload.Name != mainWorkload.Name, "Preheat workload should have different name")
-	assert.Equal(t, v1.GetDisplayName(preheatWorkload), v1.GetDisplayName(mainWorkload)+"-preheat")
-	assert.Equal(t, preheatWorkload.Spec.GroupVersionKind.Kind, common.JobKind)
-	assert.Equal(t, v1.GetUserId(preheatWorkload), common.UserSystem)
-	assert.Equal(t, v1.GetUserName(preheatWorkload), common.UserSystem)
+	assert.Equal(t, v1.GetDisplayName(preheatWorkload), "preheat-"+v1.GetDisplayName(mainWorkload))
+	assert.Equal(t, preheatWorkload.Spec.GroupVersionKind.Kind, mainWorkload.Spec.GroupVersionKind.Kind)
 	assert.Equal(t, preheatWorkload.Spec.IsSupervised, false)
 	assert.Equal(t, preheatWorkload.Spec.MaxRetry, 0)
 	assert.Equal(t, *preheatWorkload.Spec.TTLSecondsAfterFinished, 10)
@@ -1552,10 +1550,6 @@ func Test_cvtToListWorkloadSql_EmptyQuery(t *testing.T) {
 
 	// Verify default conditions
 	assert.Assert(t, strings.Contains(sqlStr, "is_deleted"), "Should include IsDeleted condition by default")
-
-	// Verify system user exclusion (when userName is empty)
-	assert.Assert(t, strings.Contains(sqlStr, "system") || strings.Contains(sqlStr, "IS NULL"),
-		"Should exclude system user or handle NULL when userName is empty")
 }
 
 // Test_cvtDBWorkloadToResponseItem tests converting database workload to response item

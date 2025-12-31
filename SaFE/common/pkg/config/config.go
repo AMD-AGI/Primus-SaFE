@@ -457,3 +457,8 @@ func GetComponents() []string {
 func IsCDRequireApproval() bool {
 	return getBool(cdRequireApproval, true)
 }
+
+// GetCDJobImage returns the image for CD deployment jobs.
+func GetCDJobImage() string {
+	return getString(cdJobImage, "docker.io/primussafe/cd-job-runner:latest")
+}

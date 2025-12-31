@@ -1,0 +1,4 @@
+# Python dependencies for mock agent
+psycopg2-binary>=2.9.0
+requests>=2.28.0
+
