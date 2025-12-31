@@ -158,6 +158,9 @@ func (r *DownloadJobReconciler) generateDownloadWorkload(ctx context.Context, jo
 		return nil, err
 	}
 	nfsPath := getNfsPathFromWorkspace(workspace)
+	// #region agent log - Hypothesis E: Check nfsPath from workspace
+	klog.InfoS("[DEBUG] download_job_controller: getNfsPathFromWorkspace result", "workspaceId", workspaceId, "nfsPath", nfsPath, "workspaceVolumes", workspace.Spec.Volumes, "hypothesisId", "E")
+	// #endregion
 	if nfsPath == "" {
 		return nil, commonerrors.NewInternalError("nfs path is empty")
 	}
@@ -208,6 +211,9 @@ func (r *DownloadJobReconciler) generateDownloadWorkload(ctx context.Context, jo
 	workload.Spec.Env["INPUT_URL"] = inputUrl.Value
 	workload.Spec.Env["DEST_PATH"] = nfsPath + "/" + destPath.Value
 	workload.Spec.Env["SECRET_PATH"] = common.SecretPath + "/" + secretParam.Value
+	// #region agent log - Hypothesis B/C: Check final env vars for download workload
+	klog.InfoS("[DEBUG] download_job_controller: Workload env vars set", "jobName", job.Name, "INPUT_URL", inputUrl.Value, "DEST_PATH", workload.Spec.Env["DEST_PATH"], "SECRET_PATH", workload.Spec.Env["SECRET_PATH"], "hypothesisId", "B/C")
+	// #endregion
 	workload.Spec.Secrets = []v1.SecretEntity{{
 		Id:   secretParam.Value,
 		Type: v1.SecretGeneral,
