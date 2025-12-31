@@ -167,7 +167,14 @@ func (m *TempPodManager) CreateTempPod(ctx context.Context, config *model.Github
 		return nil, fmt.Errorf("temp pod not ready: %w", err)
 	}
 
-	return m.buildPodInfoFromPod(createdPod)
+	// Re-fetch pod to get updated status (including NodeName after scheduling)
+	readyPod, err := m.k8sClient.CoreV1().Pods(namespace).Get(ctx, podName, metav1.GetOptions{})
+	if err != nil {
+		_ = m.DeleteTempPod(ctx, namespace, podName)
+		return nil, fmt.Errorf("failed to get ready pod: %w", err)
+	}
+
+	return m.buildPodInfoFromPod(readyPod)
 }
 
 // DeleteTempPod deletes a temporary pod
