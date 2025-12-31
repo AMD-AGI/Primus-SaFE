@@ -464,15 +464,13 @@ func (h *Handler) convertK8sModelToInfo(k8sModel *v1.Model) ModelInfo {
 }
 
 // deleteModel implements the model deletion logic with safety checks.
+// - Blocks deletion if any running/pending workloads exist
+// - Automatically cleans up S3 storage and local PFS paths via controller finalizer
 func (h *Handler) deleteModel(c *gin.Context) (interface{}, error) {
 	modelId := c.Param("id")
 	if modelId == "" {
 		return nil, commonerrors.NewBadRequest("model id is required")
 	}
-
-	// Parse delete options from request body (optional)
-	var req DeleteModelRequest
-	_ = c.ShouldBindJSON(&req) // Ignore binding errors for optional body
 
 	ctx := c.Request.Context()
 
@@ -496,40 +494,23 @@ func (h *Handler) deleteModel(c *gin.Context) (interface{}, error) {
 		return nil, commonerrors.NewInternalError("failed to check associated workloads: " + err.Error())
 	}
 
-	// 3. Safety check: Reject deletion if running/pending workloads exist (unless force=true)
+	// 3. Safety check: Reject deletion if any running/pending workloads exist
 	var runningWorkloads []string
-	var stoppedWorkloads []string
 	for _, w := range workloadList.Items {
 		phase := w.Status.Phase
 		if phase == v1.WorkloadRunning || phase == v1.WorkloadPending {
 			runningWorkloads = append(runningWorkloads, w.Name)
-		} else if phase == v1.WorkloadStopped || phase == v1.WorkloadFailed {
-			stoppedWorkloads = append(stoppedWorkloads, w.Name)
 		}
 	}
 
-	if len(runningWorkloads) > 0 && !req.Force {
+	if len(runningWorkloads) > 0 {
 		return nil, commonerrors.NewBadRequest(fmt.Sprintf(
-			"cannot delete model with running workloads: %v. Use force=true to override or stop the workloads first",
+			"cannot delete model: running/pending workloads exist: %v. Please stop or delete these workloads first",
 			runningWorkloads,
 		))
 	}
 
-	// 4. Delete associated stopped/failed workloads if requested
-	if req.DeleteAssociated && len(stoppedWorkloads) > 0 {
-		for _, wName := range stoppedWorkloads {
-			w := &v1.Workload{}
-			if err := h.k8sClient.Get(ctx, ctrlclient.ObjectKey{Name: wName, Namespace: k8sModel.Spec.Workspace}, w); err == nil {
-				if err := h.k8sClient.Delete(ctx, w); err != nil && !errors.IsNotFound(err) {
-					klog.ErrorS(err, "Failed to delete associated workload", "workload", wName)
-				} else {
-					klog.InfoS("Deleted associated workload", "workload", wName, "model", modelId)
-				}
-			}
-		}
-	}
-
-	// 5. Delete Token Secret manually (if exists)
+	// 4. Delete Token Secret manually (if exists)
 	if k8sModel.Spec.Source.Token != nil && k8sModel.Spec.Source.Token.Name != "" {
 		tokenSecret := &corev1.Secret{}
 		tokenSecretKey := ctrlclient.ObjectKey{
@@ -545,7 +526,7 @@ func (h *Handler) deleteModel(c *gin.Context) (interface{}, error) {
 		}
 	}
 
-	// 5.1 Delete ApiKey Secret manually (if exists)
+	// 5. Delete ApiKey Secret manually (if exists)
 	if k8sModel.Spec.Source.ApiKey != nil && k8sModel.Spec.Source.ApiKey.Name != "" {
 		apiKeySecret := &corev1.Secret{}
 		apiKeySecretKey := ctrlclient.ObjectKey{
@@ -562,7 +543,9 @@ func (h *Handler) deleteModel(c *gin.Context) (interface{}, error) {
 	}
 
 	// 6. Delete K8s Model CR
-	// The model controller will handle S3 and local path cleanup via finalizer
+	// The model controller finalizer will handle:
+	// - S3 storage cleanup
+	// - Local PFS path cleanup
 	if err := h.k8sClient.Delete(ctx, k8sModel); err != nil {
 		if !errors.IsNotFound(err) {
 			klog.ErrorS(err, "Failed to delete model from K8s", "model", modelId)
@@ -570,16 +553,11 @@ func (h *Handler) deleteModel(c *gin.Context) (interface{}, error) {
 		}
 	}
 
-	klog.InfoS("Model deletion initiated", "model", modelId,
-		"runningWorkloads", len(runningWorkloads),
-		"stoppedWorkloads", len(stoppedWorkloads),
-		"force", req.Force,
-		"deleteAssociated", req.DeleteAssociated)
+	klog.InfoS("Model deletion initiated", "model", modelId)
 
 	return gin.H{
-		"message":          "model deleted successfully",
-		"id":               modelId,
-		"deletedWorkloads": stoppedWorkloads,
+		"message": "model deleted successfully",
+		"id":      modelId,
 	}, nil
 }
 
