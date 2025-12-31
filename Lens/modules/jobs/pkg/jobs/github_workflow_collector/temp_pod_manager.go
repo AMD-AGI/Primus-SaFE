@@ -141,18 +141,11 @@ func (m *TempPodManager) CreateTempPod(ctx context.Context, config *model.Github
 	pod := m.buildTempPodSpec(podName, namespace, config.ID, runID, volumeInfo)
 
 	// Create the pod
-	createdPod, err := m.k8sClient.CoreV1().Pods(namespace).Create(ctx, pod, metav1.CreateOptions{})
+	_, err = m.k8sClient.CoreV1().Pods(namespace).Create(ctx, pod, metav1.CreateOptions{})
 	if err != nil {
 		if errors.IsAlreadyExists(err) {
 			// Race condition - another process created it
 			log.Infof("TempPodManager: temp pod %s/%s created by another process", namespace, podName)
-			if err := m.waitForPodReady(ctx, namespace, podName); err != nil {
-				return nil, fmt.Errorf("pod not ready: %w", err)
-			}
-			createdPod, err = m.k8sClient.CoreV1().Pods(namespace).Get(ctx, podName, metav1.GetOptions{})
-			if err != nil {
-				return nil, fmt.Errorf("failed to get created pod: %w", err)
-			}
 		} else {
 			return nil, fmt.Errorf("failed to create temp pod: %w", err)
 		}
