@@ -26,6 +26,12 @@ const (
 	WorkflowRunTriggerManual   = "manual"
 )
 
+// RunWithConfigName extends GithubWorkflowRuns with config name for cross-config queries
+type RunWithConfigName struct {
+	*model.GithubWorkflowRuns
+	ConfigName string `json:"config_name"`
+}
+
 // GithubWorkflowRunFacadeInterface defines the database operation interface for github workflow runs
 type GithubWorkflowRunFacadeInterface interface {
 	// Create creates a new run record
@@ -39,6 +45,9 @@ type GithubWorkflowRunFacadeInterface interface {
 
 	// List lists runs with optional filtering
 	List(ctx context.Context, filter *GithubWorkflowRunFilter) ([]*model.GithubWorkflowRuns, int64, error)
+
+	// ListAllWithConfigName lists runs across all configs with config name (for global runs view)
+	ListAllWithConfigName(ctx context.Context, filter *GithubWorkflowRunFilter) ([]*RunWithConfigName, int64, error)
 
 	// ListPendingByConfig lists pending runs for a config
 	ListPendingByConfig(ctx context.Context, configID int64, limit int) ([]*model.GithubWorkflowRuns, error)
@@ -361,5 +370,140 @@ func (f *GithubWorkflowRunFacade) ResetToPending(ctx context.Context, id int64) 
 			q.RetryCount.Value(0),
 		)
 	return err
+}
+
+// ListAllWithConfigName lists runs across all configs with config name (for global runs view)
+func (f *GithubWorkflowRunFacade) ListAllWithConfigName(ctx context.Context, filter *GithubWorkflowRunFilter) ([]*RunWithConfigName, int64, error) {
+	db := f.getDAL().GithubWorkflowRuns.WithContext(ctx).UnderlyingDB()
+
+	// Build base query with join
+	query := db.Table("github_workflow_runs r").
+		Select("r.*, c.name as config_name").
+		Joins("LEFT JOIN github_workflow_configs c ON r.config_id = c.id")
+
+	// Apply filters
+	if filter != nil {
+		if filter.ConfigID > 0 {
+			query = query.Where("r.config_id = ?", filter.ConfigID)
+		}
+		if filter.Status != "" {
+			query = query.Where("r.status = ?", filter.Status)
+		}
+		if filter.TriggerSource != "" {
+			query = query.Where("r.trigger_source = ?", filter.TriggerSource)
+		}
+		if filter.GithubRunID > 0 {
+			query = query.Where("r.github_run_id = ?", filter.GithubRunID)
+		}
+		if filter.WorkloadUID != "" {
+			query = query.Where("r.workload_uid = ?", filter.WorkloadUID)
+		}
+		if filter.Since != nil {
+			query = query.Where("r.created_at >= ?", *filter.Since)
+		}
+		if filter.Until != nil {
+			query = query.Where("r.created_at <= ?", *filter.Until)
+		}
+	}
+
+	// Count total
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	// Apply pagination
+	if filter != nil {
+		if filter.Offset > 0 {
+			query = query.Offset(filter.Offset)
+		}
+		if filter.Limit > 0 {
+			query = query.Limit(filter.Limit)
+		}
+	}
+
+	// Order by id descending
+	query = query.Order("r.id DESC")
+
+	// Execute query
+	rows, err := query.Rows()
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var results []*RunWithConfigName
+	for rows.Next() {
+		run := &model.GithubWorkflowRuns{}
+		var configName string
+
+		err := db.ScanRows(rows, run)
+		if err != nil {
+			return nil, 0, err
+		}
+
+		// Scan config_name separately (it's appended after run fields)
+		// Since ScanRows scans all columns into the struct, we need to re-scan with explicit columns
+		results = append(results, &RunWithConfigName{
+			GithubWorkflowRuns: run,
+			ConfigName:         configName,
+		})
+	}
+
+	// Re-query with explicit struct scanning
+	var rawResults []struct {
+		model.GithubWorkflowRuns
+		ConfigName string `gorm:"column:config_name"`
+	}
+
+	// Rebuild query for final scan
+	query2 := db.Table("github_workflow_runs r").
+		Select("r.*, c.name as config_name").
+		Joins("LEFT JOIN github_workflow_configs c ON r.config_id = c.id")
+
+	if filter != nil {
+		if filter.ConfigID > 0 {
+			query2 = query2.Where("r.config_id = ?", filter.ConfigID)
+		}
+		if filter.Status != "" {
+			query2 = query2.Where("r.status = ?", filter.Status)
+		}
+		if filter.TriggerSource != "" {
+			query2 = query2.Where("r.trigger_source = ?", filter.TriggerSource)
+		}
+		if filter.GithubRunID > 0 {
+			query2 = query2.Where("r.github_run_id = ?", filter.GithubRunID)
+		}
+		if filter.WorkloadUID != "" {
+			query2 = query2.Where("r.workload_uid = ?", filter.WorkloadUID)
+		}
+		if filter.Since != nil {
+			query2 = query2.Where("r.created_at >= ?", *filter.Since)
+		}
+		if filter.Until != nil {
+			query2 = query2.Where("r.created_at <= ?", *filter.Until)
+		}
+		if filter.Offset > 0 {
+			query2 = query2.Offset(filter.Offset)
+		}
+		if filter.Limit > 0 {
+			query2 = query2.Limit(filter.Limit)
+		}
+	}
+
+	if err := query2.Order("r.id DESC").Find(&rawResults).Error; err != nil {
+		return nil, 0, err
+	}
+
+	results = make([]*RunWithConfigName, 0, len(rawResults))
+	for i := range rawResults {
+		run := rawResults[i].GithubWorkflowRuns
+		results = append(results, &RunWithConfigName{
+			GithubWorkflowRuns: &run,
+			ConfigName:         rawResults[i].ConfigName,
+		})
+	}
+
+	return results, total, nil
 }
 

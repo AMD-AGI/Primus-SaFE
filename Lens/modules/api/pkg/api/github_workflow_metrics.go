@@ -2,7 +2,9 @@ package api
 
 import (
 	"context"
+	"encoding/csv"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"time"
@@ -33,6 +35,14 @@ type GithubWorkflowConfigRequest struct {
 	BranchFilter       string   `json:"branch_filter"`
 	FilePatterns       []string `json:"file_patterns" binding:"required"`
 	Enabled            *bool    `json:"enabled"`
+}
+
+// GithubWorkflowConfigPatchRequest represents the request body for partial config update
+type GithubWorkflowConfigPatchRequest struct {
+	Enabled      *bool    `json:"enabled,omitempty"`
+	Name         *string  `json:"name,omitempty"`
+	Description  *string  `json:"description,omitempty"`
+	FilePatterns []string `json:"file_patterns,omitempty"`
 }
 
 // GithubWorkflowSchemaRequest represents the request body for creating/updating a schema
@@ -263,6 +273,71 @@ func DeleteGithubWorkflowConfig(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, rest.SuccessResp(ctx.Request.Context(), gin.H{"deleted": true}))
 }
 
+// PatchGithubWorkflowConfig handles PATCH /v1/github-workflow-metrics/configs/:id
+// Partially updates a config (e.g., enable/disable without sending full object)
+func PatchGithubWorkflowConfig(ctx *gin.Context) {
+	idStr := ctx.Param("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, rest.ErrorResp(ctx.Request.Context(), http.StatusBadRequest, "invalid config id", nil))
+		return
+	}
+
+	var req GithubWorkflowConfigPatchRequest
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		ctx.JSON(http.StatusBadRequest, rest.ErrorResp(ctx.Request.Context(), http.StatusBadRequest, err.Error(), nil))
+		return
+	}
+
+	clusterName := ctx.Query("cluster")
+	if clusterName == "" {
+		clusterName = clientsets.GetClusterManager().GetCurrentClusterName()
+	}
+
+	facade := database.GetFacadeForCluster(clusterName).GetGithubWorkflowConfig()
+
+	// Get existing config
+	config, err := facade.GetByID(ctx.Request.Context(), id)
+	if err != nil {
+		log.GlobalLogger().WithContext(ctx).Errorf("Failed to get github workflow config: %v", err)
+		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, "failed to get config", err))
+		return
+	}
+	if config == nil {
+		ctx.JSON(http.StatusNotFound, rest.ErrorResp(ctx.Request.Context(), http.StatusNotFound, "config not found", nil))
+		return
+	}
+
+	// Apply only non-nil fields
+	if req.Enabled != nil {
+		config.Enabled = *req.Enabled
+	}
+	if req.Name != nil {
+		config.Name = *req.Name
+	}
+	if req.Description != nil {
+		config.Description = *req.Description
+	}
+	if req.FilePatterns != nil {
+		filePatterns, _ := json.Marshal(req.FilePatterns)
+		config.FilePatterns = dbmodel.ExtJSON(filePatterns)
+	}
+
+	if err := facade.Update(ctx.Request.Context(), config); err != nil {
+		log.GlobalLogger().WithContext(ctx).Errorf("Failed to update github workflow config: %v", err)
+		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, "failed to update config", err))
+		return
+	}
+
+	log.GlobalLogger().WithContext(ctx).Infof("Patched github workflow config: %s (ID: %d)", config.Name, config.ID)
+	ctx.JSON(http.StatusOK, rest.SuccessResp(ctx.Request.Context(), gin.H{
+		"id":         config.ID,
+		"name":       config.Name,
+		"enabled":    config.Enabled,
+		"updated_at": config.UpdatedAt,
+	}))
+}
+
 // ========== Run Handlers ==========
 
 // ListGithubWorkflowRuns handles GET /v1/github-workflow-metrics/configs/:config_id/runs
@@ -343,7 +418,151 @@ func GetGithubWorkflowRun(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, rest.SuccessResp(ctx.Request.Context(), run))
 }
 
+// ListAllGithubWorkflowRuns handles GET /v1/github-workflow-metrics/runs
+// Lists workflow runs across all configs with filtering options
+func ListAllGithubWorkflowRuns(ctx *gin.Context) {
+	clusterName := ctx.Query("cluster")
+	if clusterName == "" {
+		clusterName = clientsets.GetClusterManager().GetCurrentClusterName()
+	}
+
+	filter := &database.GithubWorkflowRunFilter{}
+
+	// Parse config_id filter (0 means all configs)
+	if configIDStr := ctx.Query("config_id"); configIDStr != "" {
+		if configID, err := strconv.ParseInt(configIDStr, 10, 64); err == nil {
+			filter.ConfigID = configID
+		}
+	}
+
+	if status := ctx.Query("status"); status != "" {
+		filter.Status = status
+	}
+	if triggerSource := ctx.Query("trigger_source"); triggerSource != "" {
+		filter.TriggerSource = triggerSource
+	}
+	if startDateStr := ctx.Query("start_date"); startDateStr != "" {
+		if t, err := time.Parse(time.RFC3339, startDateStr); err == nil {
+			filter.Since = &t
+		}
+	}
+	if endDateStr := ctx.Query("end_date"); endDateStr != "" {
+		if t, err := time.Parse(time.RFC3339, endDateStr); err == nil {
+			filter.Until = &t
+		}
+	}
+	if offset, err := strconv.Atoi(ctx.Query("offset")); err == nil {
+		filter.Offset = offset
+	}
+	if limit, err := strconv.Atoi(ctx.Query("limit")); err == nil {
+		filter.Limit = limit
+	} else {
+		filter.Limit = 20
+	}
+	if filter.Limit > 100 {
+		filter.Limit = 100
+	}
+
+	facade := database.GetFacadeForCluster(clusterName).GetGithubWorkflowRun()
+	runs, total, err := facade.ListAllWithConfigName(ctx.Request.Context(), filter)
+	if err != nil {
+		log.GlobalLogger().WithContext(ctx).Errorf("Failed to list github workflow runs: %v", err)
+		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, "failed to list runs", err))
+		return
+	}
+
+	ctx.JSON(http.StatusOK, rest.SuccessResp(ctx.Request.Context(), gin.H{
+		"runs":   runs,
+		"total":  total,
+		"offset": filter.Offset,
+		"limit":  filter.Limit,
+	}))
+}
+
+// RetryGithubWorkflowRun handles POST /v1/github-workflow-metrics/runs/:id/retry
+// Resets a single failed run to pending status for re-processing
+func RetryGithubWorkflowRun(ctx *gin.Context) {
+	idStr := ctx.Param("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, rest.ErrorResp(ctx.Request.Context(), http.StatusBadRequest, "invalid run id", nil))
+		return
+	}
+
+	clusterName := ctx.Query("cluster")
+	if clusterName == "" {
+		clusterName = clientsets.GetClusterManager().GetCurrentClusterName()
+	}
+
+	facade := database.GetFacadeForCluster(clusterName).GetGithubWorkflowRun()
+
+	// Get the run first
+	run, err := facade.GetByID(ctx.Request.Context(), id)
+	if err != nil {
+		log.GlobalLogger().WithContext(ctx).Errorf("Failed to get github workflow run: %v", err)
+		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, "failed to get run", err))
+		return
+	}
+	if run == nil {
+		ctx.JSON(http.StatusNotFound, rest.ErrorResp(ctx.Request.Context(), http.StatusNotFound, "run not found", nil))
+		return
+	}
+
+	// Only failed runs can be retried
+	if run.Status != database.WorkflowRunStatusFailed {
+		ctx.JSON(http.StatusBadRequest, rest.ErrorResp(ctx.Request.Context(), http.StatusBadRequest, "only failed runs can be retried", nil))
+		return
+	}
+
+	previousStatus := run.Status
+
+	// Reset to pending
+	if err := facade.ResetToPending(ctx.Request.Context(), id); err != nil {
+		log.GlobalLogger().WithContext(ctx).Errorf("Failed to reset run to pending: %v", err)
+		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, "failed to retry run", err))
+		return
+	}
+
+	log.GlobalLogger().WithContext(ctx).Infof("Retried github workflow run ID: %d", id)
+	ctx.JSON(http.StatusOK, rest.SuccessResp(ctx.Request.Context(), gin.H{
+		"message":         "Run reset to pending",
+		"run_id":          id,
+		"previous_status": previousStatus,
+		"new_status":      database.WorkflowRunStatusPending,
+	}))
+}
+
 // ========== Schema Handlers ==========
+
+// GetActiveGithubWorkflowSchema handles GET /v1/github-workflow-metrics/configs/:id/schemas/active
+// Returns the currently active schema for a config
+func GetActiveGithubWorkflowSchema(ctx *gin.Context) {
+	idStr := ctx.Param("id")
+	configID, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, rest.ErrorResp(ctx.Request.Context(), http.StatusBadRequest, "invalid config_id", nil))
+		return
+	}
+
+	clusterName := ctx.Query("cluster")
+	if clusterName == "" {
+		clusterName = clientsets.GetClusterManager().GetCurrentClusterName()
+	}
+
+	facade := database.GetFacadeForCluster(clusterName).GetGithubWorkflowSchema()
+	schema, err := facade.GetActiveByConfig(ctx.Request.Context(), configID)
+	if err != nil {
+		log.GlobalLogger().WithContext(ctx).Errorf("Failed to get active schema: %v", err)
+		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, "failed to get active schema", err))
+		return
+	}
+	if schema == nil {
+		ctx.JSON(http.StatusNotFound, rest.ErrorResp(ctx.Request.Context(), http.StatusNotFound, "no active schema found for this config", nil))
+		return
+	}
+
+	ctx.JSON(http.StatusOK, rest.SuccessResp(ctx.Request.Context(), schema))
+}
 
 // CreateGithubWorkflowSchema handles POST /v1/github-workflow-metrics/configs/:config_id/schemas
 func CreateGithubWorkflowSchema(ctx *gin.Context) {
@@ -1691,5 +1910,265 @@ func GetGithubWorkflowMetricsFields(ctx *gin.Context) {
 		"dimension_fields": dimensions,
 		"metric_fields":    metricFields,
 	}))
+}
+
+// GetSingleDimensionValues handles GET /v1/github-workflow-metrics/configs/:id/dimensions/:dimension/values
+// Returns available values for a specific dimension
+func GetSingleDimensionValues(ctx *gin.Context) {
+	configIDStr := ctx.Param("id")
+	configID, err := strconv.ParseInt(configIDStr, 10, 64)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, rest.ErrorResp(ctx.Request.Context(), http.StatusBadRequest, "invalid config_id", nil))
+		return
+	}
+
+	dimension := ctx.Param("dimension")
+	if dimension == "" {
+		ctx.JSON(http.StatusBadRequest, rest.ErrorResp(ctx.Request.Context(), http.StatusBadRequest, "dimension is required", nil))
+		return
+	}
+
+	clusterName := ctx.Query("cluster")
+	if clusterName == "" {
+		clusterName = clientsets.GetClusterManager().GetCurrentClusterName()
+	}
+
+	var start, end *time.Time
+	if startStr := ctx.Query("start"); startStr != "" {
+		if t, err := time.Parse(time.RFC3339, startStr); err == nil {
+			start = &t
+		}
+	}
+	if endStr := ctx.Query("end"); endStr != "" {
+		if t, err := time.Parse(time.RFC3339, endStr); err == nil {
+			end = &t
+		}
+	}
+
+	limit := 100
+	if limitStr := ctx.Query("limit"); limitStr != "" {
+		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
+			limit = l
+		}
+	}
+
+	facade := database.GetFacadeForCluster(clusterName).GetGithubWorkflowMetrics()
+	values, err := facade.GetDistinctDimensionValues(ctx.Request.Context(), configID, dimension, start, end)
+	if err != nil {
+		log.GlobalLogger().WithContext(ctx).Errorf("Failed to get dimension values: %v", err)
+		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, "failed to get dimension values", err))
+		return
+	}
+
+	// Apply limit
+	if len(values) > limit {
+		values = values[:limit]
+	}
+
+	ctx.JSON(http.StatusOK, rest.SuccessResp(ctx.Request.Context(), gin.H{
+		"dimension": dimension,
+		"values":    values,
+		"total":     len(values),
+	}))
+}
+
+// ExportGithubWorkflowMetrics handles GET /v1/github-workflow-metrics/configs/:id/export
+// Exports filtered metrics data as CSV file for download
+func ExportGithubWorkflowMetrics(ctx *gin.Context) {
+	configIDStr := ctx.Param("id")
+	configID, err := strconv.ParseInt(configIDStr, 10, 64)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, rest.ErrorResp(ctx.Request.Context(), http.StatusBadRequest, "invalid config_id", nil))
+		return
+	}
+
+	clusterName := ctx.Query("cluster")
+	if clusterName == "" {
+		clusterName = clientsets.GetClusterManager().GetCurrentClusterName()
+	}
+
+	// Parse query parameters
+	var start, end *time.Time
+	if startStr := ctx.Query("start"); startStr != "" {
+		if t, err := time.Parse(time.RFC3339, startStr); err == nil {
+			start = &t
+		}
+	}
+	if endStr := ctx.Query("end"); endStr != "" {
+		if t, err := time.Parse(time.RFC3339, endStr); err == nil {
+			end = &t
+		}
+	}
+
+	limit := 10000
+	if limitStr := ctx.Query("limit"); limitStr != "" {
+		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 100000 {
+			limit = l
+		}
+	}
+
+	// Parse dimension filters
+	var dimensions map[string]interface{}
+	if dimStr := ctx.Query("dimensions"); dimStr != "" {
+		if err := json.Unmarshal([]byte(dimStr), &dimensions); err != nil {
+			log.GlobalLogger().WithContext(ctx).Warningf("Failed to parse dimensions filter: %v", err)
+		}
+	}
+
+	// Parse metric fields filter
+	var metricFields []string
+	if fieldsStr := ctx.Query("metric_fields"); fieldsStr != "" {
+		metricFields = splitAndTrim(fieldsStr)
+	}
+
+	// Build query
+	query := &database.MetricsAdvancedQuery{
+		ConfigID:   configID,
+		Start:      start,
+		End:        end,
+		Dimensions: dimensions,
+		Limit:      limit,
+	}
+
+	metricsFacade := database.GetFacadeForCluster(clusterName).GetGithubWorkflowMetrics()
+	metrics, _, err := metricsFacade.QueryWithDimensions(ctx.Request.Context(), query)
+	if err != nil {
+		log.GlobalLogger().WithContext(ctx).Errorf("Failed to query metrics for export: %v", err)
+		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, "failed to export metrics", err))
+		return
+	}
+
+	// Get schema for field ordering
+	schemaFacade := database.GetFacadeForCluster(clusterName).GetGithubWorkflowSchema()
+	schema, _ := schemaFacade.GetActiveByConfig(ctx.Request.Context(), configID)
+
+	// Determine dimension and metric fields from schema or data
+	var dimensionFieldNames, metricFieldNames []string
+	if schema != nil {
+		_ = schema.DimensionFields.UnmarshalTo(&dimensionFieldNames)
+		_ = schema.MetricFields.UnmarshalTo(&metricFieldNames)
+	}
+
+	// If no schema, derive from first metric record
+	if len(dimensionFieldNames) == 0 && len(metrics) > 0 {
+		dimensionFieldNames, _ = metricsFacade.GetAvailableDimensions(ctx.Request.Context(), configID)
+	}
+	if len(metricFieldNames) == 0 && len(metrics) > 0 {
+		metricFieldNames, _ = metricsFacade.GetAvailableMetricFields(ctx.Request.Context(), configID)
+	}
+
+	// Apply metric_fields filter if specified
+	if len(metricFields) > 0 {
+		filtered := make([]string, 0)
+		fieldSet := make(map[string]bool)
+		for _, f := range metricFields {
+			fieldSet[f] = true
+		}
+		for _, f := range metricFieldNames {
+			if fieldSet[f] {
+				filtered = append(filtered, f)
+			}
+		}
+		metricFieldNames = filtered
+	}
+
+	// Set response headers for CSV download
+	filename := fmt.Sprintf("metrics-config-%d-%s.csv", configID, time.Now().Format("20060102"))
+	ctx.Header("Content-Type", "text/csv")
+	ctx.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
+
+	// Write CSV
+	writer := csv.NewWriter(ctx.Writer)
+	defer writer.Flush()
+
+	// Build header row
+	headers := make([]string, 0, len(dimensionFieldNames)+len(metricFieldNames)+2)
+	headers = append(headers, dimensionFieldNames...)
+	headers = append(headers, metricFieldNames...)
+	headers = append(headers, "collected_at", "source_file")
+	if err := writer.Write(headers); err != nil {
+		log.GlobalLogger().WithContext(ctx).Errorf("Failed to write CSV header: %v", err)
+		return
+	}
+
+	// Write data rows
+	for _, m := range metrics {
+		row := make([]string, 0, len(headers))
+
+		// Dimensions and Metrics are already map[string]interface{} (ExtType)
+		dims := m.Dimensions
+		mets := m.Metrics
+
+		// Add dimension values
+		for _, f := range dimensionFieldNames {
+			if v, ok := dims[f]; ok {
+				row = append(row, fmt.Sprintf("%v", v))
+			} else {
+				row = append(row, "")
+			}
+		}
+
+		// Add metric values
+		for _, f := range metricFieldNames {
+			if v, ok := mets[f]; ok {
+				row = append(row, fmt.Sprintf("%v", v))
+			} else {
+				row = append(row, "")
+			}
+		}
+
+		// Add timestamp and source file
+		row = append(row, m.Timestamp.Format(time.RFC3339))
+		row = append(row, m.SourceFile)
+
+		if err := writer.Write(row); err != nil {
+			log.GlobalLogger().WithContext(ctx).Errorf("Failed to write CSV row: %v", err)
+			return
+		}
+	}
+
+	log.GlobalLogger().WithContext(ctx).Infof("Exported %d metrics for config %d", len(metrics), configID)
+}
+
+// splitAndTrim splits a comma-separated string and trims each element
+func splitAndTrim(s string) []string {
+	if s == "" {
+		return nil
+	}
+	parts := make([]string, 0)
+	for _, p := range splitString(s, ',') {
+		trimmed := trimSpace(p)
+		if trimmed != "" {
+			parts = append(parts, trimmed)
+		}
+	}
+	return parts
+}
+
+// splitString splits a string by separator
+func splitString(s string, sep rune) []string {
+	var result []string
+	start := 0
+	for i, c := range s {
+		if c == sep {
+			result = append(result, s[start:i])
+			start = i + 1
+		}
+	}
+	result = append(result, s[start:])
+	return result
+}
+
+// trimSpace trims leading and trailing whitespace
+func trimSpace(s string) string {
+	start := 0
+	end := len(s)
+	for start < end && (s[start] == ' ' || s[start] == '\t') {
+		start++
+	}
+	for end > start && (s[end-1] == ' ' || s[end-1] == '\t') {
+		end--
+	}
+	return s[start:end]
 }
 

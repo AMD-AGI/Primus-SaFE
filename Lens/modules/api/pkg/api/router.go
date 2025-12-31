@@ -313,12 +313,15 @@ func RegisterRouter(group *gin.RouterGroup) error {
 			configsGroup.GET("", ListGithubWorkflowConfigs)
 			configsGroup.GET("/:id", GetGithubWorkflowConfig)
 			configsGroup.PUT("/:id", UpdateGithubWorkflowConfig)
+			configsGroup.PATCH("/:id", PatchGithubWorkflowConfig)
 			configsGroup.DELETE("/:id", DeleteGithubWorkflowConfig)
 			// Runs for a config
 			configsGroup.GET("/:id/runs", ListGithubWorkflowRuns)
 			// Schemas for a config
 			configsGroup.POST("/:id/schemas", CreateGithubWorkflowSchema)
 			configsGroup.GET("/:id/schemas", ListGithubWorkflowSchemas)
+			// Get active schema for a config
+			configsGroup.GET("/:id/schemas/active", GetActiveGithubWorkflowSchema)
 			// AI Schema generation
 			configsGroup.POST("/:id/schemas/regenerate", RegenerateGithubWorkflowSchema)
 			configsGroup.POST("/:id/schemas/preview", PreviewSchemaExtraction)
@@ -336,8 +339,12 @@ func RegisterRouter(group *gin.RouterGroup) error {
 			configsGroup.GET("/:id/summary", GetGithubWorkflowMetricsSummary)
 			// Available dimensions with values
 			configsGroup.GET("/:id/dimensions", GetGithubWorkflowMetricsDimensions)
+			// Single dimension values
+			configsGroup.GET("/:id/dimensions/:dimension/values", GetSingleDimensionValues)
 			// Available fields (dimension fields and metric fields)
 			configsGroup.GET("/:id/fields", GetGithubWorkflowMetricsFields)
+			// Export metrics as CSV
+			configsGroup.GET("/:id/export", ExportGithubWorkflowMetrics)
 			// Backfill APIs
 			configsGroup.POST("/:id/backfill", TriggerBackfill)
 			configsGroup.GET("/:id/backfill/status", GetBackfillStatus)
@@ -348,11 +355,15 @@ func RegisterRouter(group *gin.RouterGroup) error {
 			// List completed EphemeralRunners for a config
 			configsGroup.GET("/:id/runners", ListEphemeralRunners)
 		}
-		// Run details
+		// Run management (global)
 		runsGroup := githubWorkflowMetricsGroup.Group("/runs")
 		{
+			// List all runs globally (must be defined before /:id)
+			runsGroup.GET("", ListAllGithubWorkflowRuns)
 			runsGroup.GET("/:id", GetGithubWorkflowRun)
 			runsGroup.GET("/:id/metrics", GetGithubWorkflowMetricsByRun)
+			// Retry single run
+			runsGroup.POST("/:id/retry", RetryGithubWorkflowRun)
 		}
 		// Schema details
 		schemasGroup := githubWorkflowMetricsGroup.Group("/schemas")
