@@ -245,7 +245,7 @@ def build_env_vars() -> dict:
         "NCCL_SOCKET_IFNAME": RCCL_SOCKET_IFNAME,
         "NCCL_IB_GID_INDEX": str(NCCL_IB_GID_INDEX),
         "NCCL_IB_HCA": RCCL_IB_HCA,
-        "NCCL_IB_DISABLE": "0",  # Ensure IB is not disabled
+        "NCCL_IB_DISABLE": "0",
         "NCCL_IB_PCI_RELAXED_ORDERING": "1",
         "NCCL_SHM_DISABLE": "1",
         "NCCL_CHECKS_DISABLE": "1",
