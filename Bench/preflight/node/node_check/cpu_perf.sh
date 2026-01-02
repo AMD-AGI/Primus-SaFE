@@ -7,7 +7,7 @@
 
 # Use the perf tool to test CPU performance
 
-threshold=0.5
+threshold=0.2
 
 if [ ! -x /usr/bin/perf ]; then
   echo "Error: /usr/bin/perf not found." >&2

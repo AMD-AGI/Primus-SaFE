@@ -11,6 +11,122 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/config.sh"
 
+# ------------------ Helper Functions ------------------
+
+# Function to attempt normal container cleanup
+normal_clean_container() {
+    local container_id="$1"
+    
+    # Method 1: Direct force remove
+    if docker_podman_proxy rm -f "$container_id" 2>/dev/null; then
+        return 0
+    fi
+    
+    # Method 2: Stop then remove
+    docker_podman_proxy stop "$container_id" 2>/dev/null || true
+    sleep 2
+    if docker_podman_proxy rm -f "$container_id" 2>/dev/null; then
+        return 0
+    fi
+    
+    # Method 3: Kill the process directly
+    local pid=$(docker_podman_proxy inspect -f '{{.State.Pid}}' "$container_id" 2>/dev/null || echo "")
+    if [[ -n "$pid" ]] && [[ "$pid" != "0" ]] && [[ "$pid" != "null" ]]; then
+        sudo kill -9 "$pid" 2>/dev/null || true
+        sleep 2
+        if docker_podman_proxy rm -f "$container_id" 2>/dev/null; then
+            return 0
+        fi
+    fi
+    
+    return 1
+}
+
+# Function for aggressive cleanup when normal cleanup fails
+aggressive_clean_all() {
+    echo "Node-${NODE_RANK}: Normal cleanup failed, attempting AGGRESSIVE cleanup..."
+    
+    # Step 1: Stop all containers
+    echo "Node-${NODE_RANK}: Force stopping all containers..."
+    docker_podman_proxy stop $(docker_podman_proxy ps -aq) 2>/dev/null || true
+    sleep 2
+    
+    # Step 2: Kill all containers
+    echo "Node-${NODE_RANK}: Killing all container processes..."
+    docker_podman_proxy kill $(docker_podman_proxy ps -aq) 2>/dev/null || true
+    sleep 2
+    
+    # Step 3: Force remove each container with extreme measures
+    local containers=$(docker_podman_proxy ps -aq)
+    local all_removed=true
+    
+    for container in $containers; do
+        echo "Node-${NODE_RANK}: Force removing container $container..."
+        
+        # Try standard force remove
+        if docker_podman_proxy rm -f "$container" 2>/dev/null; then
+            echo "Node-${NODE_RANK}:   ✓ Removed $container"
+            continue
+        fi
+        
+        # Get PID and kill directly
+        local pid=$(docker_podman_proxy inspect -f '{{.State.Pid}}' "$container" 2>/dev/null || echo "")
+        if [[ -n "$pid" ]] && [[ "$pid" != "0" ]] && [[ "$pid" != "null" ]]; then
+            echo "Node-${NODE_RANK}:   Killing PID $pid..."
+            sudo kill -9 "$pid" 2>/dev/null || true
+            sleep 1
+        fi
+        
+        # Try remove again
+        if docker_podman_proxy rm -f "$container" 2>/dev/null; then
+            echo "Node-${NODE_RANK}:   ✓ Removed $container after killing process"
+            continue
+        fi
+        
+        # Last resort - manual filesystem removal
+        local container_dir=""
+        if command -v docker &> /dev/null && docker version &> /dev/null; then
+            container_dir="/var/lib/docker/containers/${container}"
+        elif command -v podman &> /dev/null; then
+            container_dir="/var/lib/containers/storage/overlay-containers/${container}"
+        fi
+        
+        if [[ -n "$container_dir" ]] && [[ -d "$container_dir" ]]; then
+            echo "Node-${NODE_RANK}:   WARNING: Manually removing container directory..."
+            sudo rm -rf "$container_dir" 2>/dev/null || true
+            
+            # Try remove from docker again
+            if docker_podman_proxy rm -f "$container" 2>/dev/null; then
+                echo "Node-${NODE_RANK}:   ✓ Removed $container after filesystem cleanup"
+                continue
+            fi
+        fi
+        
+        echo "Node-${NODE_RANK}:   ✗ Failed to remove $container (requires Docker restart)"
+        all_removed=false
+    done
+    
+    # Step 4: Clean up leftover mounts
+    echo "Node-${NODE_RANK}: Cleaning up leftover mounts..."
+    mount | grep -E "overlay|shm|docker|podman|containers" | awk '{print $3}' | while read mount_point; do
+        if [[ -n "$mount_point" ]] && [[ "$mount_point" != "/" ]]; then
+            sudo umount -f "$mount_point" 2>/dev/null || true
+        fi
+    done
+    
+    # Step 5: System prune
+    echo "Node-${NODE_RANK}: Running system prune..."
+    docker_podman_proxy system prune -a -f --volumes 2>/dev/null || true
+    
+    if [[ "$all_removed" == true ]]; then
+        echo "Node-${NODE_RANK}: ✓ Aggressive cleanup successful"
+        return 0
+    else
+        echo "Node-${NODE_RANK}: ⚠ Some containers still remain, Docker restart required"
+        return 1
+    fi
+}
+
 # ------------------ Usage Help ------------------
 
 print_usage() {
@@ -71,12 +187,47 @@ docker_podman_proxy() {
 
 if [[ "${CLEAN_DOCKER_CONTAINER}" == "1" ]]; then
     echo "Node-${NODE_RANK}: Cleaning up existing containers..."
+    
     CONTAINERS=$(docker_podman_proxy ps -aq)
     if [[ -n "$CONTAINERS" ]]; then
+        # First attempt: Normal cleanup for each container
+        failed_containers=""
+        removed_containers=""
+        
+        echo "Node-${NODE_RANK}: Attempting normal cleanup..."
         for cid in $CONTAINERS; do
-            docker_podman_proxy rm -f "$cid"
+            if normal_clean_container "$cid"; then
+                removed_containers="$removed_containers $cid"
+                echo "Node-${NODE_RANK}:   ✓ Removed container $cid"
+            else
+                failed_containers="$failed_containers $cid"
+                echo "Node-${NODE_RANK}:   ✗ Failed to remove container $cid"
+            fi
         done
-        echo "Node-${NODE_RANK}: Removed containers: $CONTAINERS"
+        
+        # Report normal cleanup results
+        if [[ -n "$removed_containers" ]]; then
+            echo "Node-${NODE_RANK}: Normal cleanup removed:$removed_containers"
+        fi
+        
+        # If any containers failed, automatically try aggressive cleanup
+        if [[ -n "$failed_containers" ]]; then
+            echo "Node-${NODE_RANK}: Failed containers detected:$failed_containers"
+            echo ""
+            
+            # Automatic aggressive cleanup
+            if aggressive_clean_all; then
+                echo "Node-${NODE_RANK}: ✓ All containers cleaned after aggressive cleanup"
+            else
+                echo "Node-${NODE_RANK}: ⚠ WARNING: Some containers may still exist"
+                echo "Node-${NODE_RANK}: Recommended actions:"
+                echo "Node-${NODE_RANK}:   1. Run: sudo systemctl restart docker"
+                echo "Node-${NODE_RANK}:   2. Or reboot the system"
+                # Don't exit - try to continue with benchmark
+            fi
+        else
+            echo "Node-${NODE_RANK}: ✓ All containers cleaned successfully with normal cleanup"
+        fi
     else
         echo "Node-${NODE_RANK}: No containers to remove."
     fi
