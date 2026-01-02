@@ -281,9 +281,16 @@ func (j *GithubWorkflowCollectorJob) processRun(
 				}
 			}
 
+			// Determine timestamp for metrics
+			// Use WorkloadCompletedAt if available, otherwise fall back to current time
+			metricsTimestamp := run.WorkloadCompletedAt
+			if metricsTimestamp.IsZero() {
+				metricsTimestamp = time.Now()
+			}
+
 			// Convert and store AI-extracted metrics
 			dbMetrics := j.aiExtractor.ConvertAIMetricsToDBMetrics(
-				config.ID, run.ID, schema.ID, run.WorkloadCompletedAt, aiOutput.Metrics,
+				config.ID, run.ID, schema.ID, metricsTimestamp, aiOutput.Metrics,
 			)
 
 			for _, metric := range dbMetrics {
