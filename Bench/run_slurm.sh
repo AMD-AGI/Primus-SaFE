@@ -163,21 +163,21 @@ warmup_image() {
         echo \"[\${hostname}] Starting image pull...\"
         start_time=\$(date +%s)
         
-        # Check if image already exists first
-        if ${container_cmd} images | grep -q \$(echo ${IMAGE} | cut -d: -f1); then
-            echo \"[\${hostname}] ✓ Image already exists locally\"
+        # Check if the exact image (including tag/digest) exists locally
+        if ${container_cmd} image inspect \"${IMAGE}\" >/dev/null 2>&1; then
+            echo \"[\${hostname}] ✓ Image already exists locally (exact tag)\"
+            exit 0
+        fi
+        
+        # Try to pull the image
+        if ${container_cmd} pull ${IMAGE} 2>&1; then
+            end_time=\$(date +%s)
+            duration=\$((end_time - start_time))
+            echo \"[\${hostname}] ✓ Successfully pulled image in \${duration} seconds\"
             exit 0
         else
-            # Try to pull the image
-            if ${container_cmd} pull ${IMAGE} 2>&1; then
-                end_time=\$(date +%s)
-                duration=\$((end_time - start_time))
-                echo \"[\${hostname}] ✓ Successfully pulled image in \${duration} seconds\"
-                exit 0
-            else
-                echo \"[\${hostname}] ✗ ERROR: Failed to pull image\"
-                exit 1
-            fi
+            echo \"[\${hostname}] ✗ ERROR: Failed to pull image\"
+            exit 1
         fi
     "
     

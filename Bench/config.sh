@@ -91,9 +91,10 @@ export HOSTS="${HOSTS:-/root/hosts}"
 
 # ==============================================================================
 # Optional: HuggingFace Token (required for some benchmarks)
+# Provide via environment or secrets manager; do not hardcode here.
 # ==============================================================================
 
-export HF_TOKEN="${HF_TOKEN:-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}"
+export HF_TOKEN="${HF_TOKEN:-}"
 
 # ==============================================================================
 # Docker/Container Options
