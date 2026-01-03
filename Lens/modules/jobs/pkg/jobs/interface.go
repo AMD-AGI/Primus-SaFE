@@ -18,9 +18,10 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/gpu_history_cache_6h"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/gpu_pod"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/gpu_realtime_cache"
+	// github_runner_scanner has been replaced by github-runners-exporter reconciler
 	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/github_workflow_backfill"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/github_workflow_collector"
-	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/github_workflow_scanner"
+	// github_workflow_scanner has been replaced by github-runners-exporter reconciler
 	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/gpu_usage_weekly_report"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/gpu_workload"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/storage_scan"
@@ -129,13 +130,15 @@ func initManagementJobs(cfg *config.JobsConfig) []Job {
 	jobs = append(jobs, tracelens_cleanup.NewTraceLensCleanupJob())
 	log.Info("TraceLens cleanup job registered")
 
-	// Add GitHub Workflow Metrics jobs
-	jobs = append(jobs, github_workflow_scanner.NewGithubWorkflowScannerJob())
-	log.Info("GitHub Workflow Scanner job registered")
+	// NOTE: GitHub Workflow Scanner job has been replaced by github-runners-exporter EphemeralRunnerReconciler
+	// The reconciler watches EphemeralRunner resources directly for real-time discovery
 	jobs = append(jobs, github_workflow_collector.NewGithubWorkflowCollectorJob())
 	log.Info("GitHub Workflow Collector job registered")
 	jobs = append(jobs, github_workflow_backfill.NewGithubWorkflowBackfillJob())
 	log.Info("GitHub Workflow Backfill job registered")
+
+	// NOTE: GitHub Runner Scanner job has been replaced by github-runners-exporter reconciler
+	// The reconciler provides real-time watch-based discovery instead of polling
 
 	// Add weekly report job if configured
 	if cfg != nil {

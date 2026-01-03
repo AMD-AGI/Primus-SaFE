@@ -68,6 +68,12 @@ type FacadeInterface interface {
 	GetGithubWorkflowSchema() GithubWorkflowSchemaFacadeInterface
 	// GetGithubWorkflowMetrics returns the GithubWorkflowMetrics Facade interface
 	GetGithubWorkflowMetrics() GithubWorkflowMetricsFacadeInterface
+	// GetGithubRunnerSet returns the GithubRunnerSet Facade interface
+	GetGithubRunnerSet() GithubRunnerSetFacadeInterface
+	// GetGithubWorkflowCommit returns the GithubWorkflowCommit Facade interface
+	GetGithubWorkflowCommit() GithubWorkflowCommitFacadeInterface
+	// GetGithubWorkflowRunDetails returns the GithubWorkflowRunDetails Facade interface
+	GetGithubWorkflowRunDetails() GithubWorkflowRunDetailsFacadeInterface
 	// WithCluster returns a new Facade instance using the specified cluster
 	WithCluster(clusterName string) FacadeInterface
 }
@@ -107,6 +113,9 @@ type Facade struct {
 	GithubWorkflowRun         GithubWorkflowRunFacadeInterface
 	GithubWorkflowSchema      GithubWorkflowSchemaFacadeInterface
 	GithubWorkflowMetrics     GithubWorkflowMetricsFacadeInterface
+	GithubRunnerSet           GithubRunnerSetFacadeInterface
+	GithubWorkflowCommit      GithubWorkflowCommitFacadeInterface
+	GithubWorkflowRunDetails  GithubWorkflowRunDetailsFacadeInterface
 }
 
 // NewFacade creates a new Facade instance
@@ -145,6 +154,9 @@ func NewFacade() *Facade {
 		GithubWorkflowRun:         NewGithubWorkflowRunFacade(),
 		GithubWorkflowSchema:      NewGithubWorkflowSchemaFacade(),
 		GithubWorkflowMetrics:     NewGithubWorkflowMetricsFacade(),
+		GithubRunnerSet:           NewGithubRunnerSetFacade(),
+		GithubWorkflowCommit:      NewGithubWorkflowCommitFacade(),
+		GithubWorkflowRunDetails:  NewGithubWorkflowRunDetailsFacade(),
 	}
 }
 
@@ -313,6 +325,21 @@ func (f *Facade) GetGithubWorkflowMetrics() GithubWorkflowMetricsFacadeInterface
 	return f.GithubWorkflowMetrics
 }
 
+// GetGithubRunnerSet returns the GithubRunnerSet Facade interface
+func (f *Facade) GetGithubRunnerSet() GithubRunnerSetFacadeInterface {
+	return f.GithubRunnerSet
+}
+
+// GetGithubWorkflowCommit returns the GithubWorkflowCommit Facade interface
+func (f *Facade) GetGithubWorkflowCommit() GithubWorkflowCommitFacadeInterface {
+	return f.GithubWorkflowCommit
+}
+
+// GetGithubWorkflowRunDetails returns the GithubWorkflowRunDetails Facade interface
+func (f *Facade) GetGithubWorkflowRunDetails() GithubWorkflowRunDetailsFacadeInterface {
+	return f.GithubWorkflowRunDetails
+}
+
 // WithCluster returns a new Facade instance, all sub-Facades use the specified cluster
 func (f *Facade) WithCluster(clusterName string) FacadeInterface {
 	return &Facade{
@@ -349,6 +376,9 @@ func (f *Facade) WithCluster(clusterName string) FacadeInterface {
 		GithubWorkflowRun:         f.GithubWorkflowRun.WithCluster(clusterName),
 		GithubWorkflowSchema:      f.GithubWorkflowSchema.WithCluster(clusterName),
 		GithubWorkflowMetrics:     f.GithubWorkflowMetrics.WithCluster(clusterName),
+		GithubRunnerSet:           f.GithubRunnerSet,
+		GithubWorkflowCommit:      f.GithubWorkflowCommit,
+		GithubWorkflowRunDetails:  f.GithubWorkflowRunDetails,
 	}
 }
 

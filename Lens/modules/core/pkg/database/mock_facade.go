@@ -60,6 +60,11 @@ func (m *MockFacade) GetGithubWorkflowSchema() GithubWorkflowSchemaFacadeInterfa
 	return nil
 }
 func (m *MockFacade) GetGithubWorkflowMetrics() GithubWorkflowMetricsFacadeInterface { return nil }
+func (m *MockFacade) GetGithubRunnerSet() GithubRunnerSetFacadeInterface             { return nil }
+func (m *MockFacade) GetGithubWorkflowCommit() GithubWorkflowCommitFacadeInterface   { return nil }
+func (m *MockFacade) GetGithubWorkflowRunDetails() GithubWorkflowRunDetailsFacadeInterface {
+	return nil
+}
 
 func (m *MockFacade) GetGpuUsageWeeklyReport() GpuUsageWeeklyReportFacadeInterface {
 	return m.GpuUsageWeeklyReportMock

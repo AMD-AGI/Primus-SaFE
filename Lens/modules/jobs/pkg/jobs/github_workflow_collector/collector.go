@@ -37,6 +37,10 @@ type GithubWorkflowCollectorJob struct {
 	tempPodManager *TempPodManager
 	// aiExtractor handles AI-based metrics extraction
 	aiExtractor *AIExtractor
+	// githubFetcher fetches GitHub data (commits, workflow runs)
+	githubFetcher *GithubFetcher
+	// clientSets is the k8s client set
+	clientSets *clientsets.K8SClientSet
 }
 
 // NewGithubWorkflowCollectorJob creates a new GithubWorkflowCollectorJob instance
@@ -45,6 +49,8 @@ func NewGithubWorkflowCollectorJob() *GithubWorkflowCollectorJob {
 		pvcReader:      NewPVCReader(),
 		tempPodManager: NewTempPodManager(),
 		aiExtractor:    NewAIExtractor(),
+		githubFetcher:  nil, // Will be initialized in Run()
+		clientSets:     nil,
 	}
 }
 
@@ -54,6 +60,13 @@ func (j *GithubWorkflowCollectorJob) Run(ctx context.Context, clientSets *client
 	stats := common.NewExecutionStats()
 
 	log.Info("GithubWorkflowCollectorJob: starting collection")
+
+	// Initialize GitHub fetcher if not already done
+	if j.githubFetcher == nil && clientSets != nil {
+		j.clientSets = clientSets
+		InitGithubClientManager(clientSets)
+		j.githubFetcher = NewGithubFetcher(clientSets)
+	}
 
 	// Get all enabled configs
 	configFacade := database.GetFacade().GetGithubWorkflowConfig()
@@ -114,6 +127,14 @@ func (j *GithubWorkflowCollectorJob) Run(ctx context.Context, clientSets *client
 				stats.ErrorCount++
 				totalFailed++
 				continue
+			}
+
+			// Fetch GitHub data (commits, workflow run details) after successful processing
+			if j.githubFetcher != nil {
+				if err := j.githubFetcher.FetchAndStoreGithubData(ctx, config, run); err != nil {
+					log.Warnf("GithubWorkflowCollectorJob: failed to fetch GitHub data for run %d: %v", run.ID, err)
+					// Don't fail the job, just log the warning
+				}
 			}
 
 			totalCompleted++

@@ -373,5 +373,38 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		}
 	}
 
+	// GitHub Runners management - AutoScalingRunnerSet discovery and analytics
+	githubRunnersGroup := group.Group("/github-runners")
+	{
+		// Runner Sets - discovered AutoScalingRunnerSets
+		runnerSetsGroup := githubRunnersGroup.Group("/runner-sets")
+		{
+			runnerSetsGroup.GET("", ListGithubRunnerSets)
+			runnerSetsGroup.GET("/:namespace/:name", GetGithubRunnerSet)
+		}
+	}
+
+	// Add commit and workflow run details endpoints to existing runs group
+	// These are added to the github-workflow-metrics group
+	githubWorkflowMetricsGroupV2 := group.Group("/github-workflow-metrics")
+	{
+		// Config-level analytics and history
+		configsGroupV2 := githubWorkflowMetricsGroupV2.Group("/configs")
+		{
+			// Workflow analytics (execution counts, average times, etc.)
+			configsGroupV2.GET("/:id/analytics", GetGithubWorkflowAnalytics)
+			// Detailed execution history with commit and run details
+			configsGroupV2.GET("/:id/history", GetGithubWorkflowRunHistory)
+		}
+		// Run-level commit and details
+		runsGroupV2 := githubWorkflowMetricsGroupV2.Group("/runs")
+		{
+			// Get commit details for a run
+			runsGroupV2.GET("/:id/commit", GetGithubWorkflowRunCommit)
+			// Get workflow run details from GitHub
+			runsGroupV2.GET("/:id/details", GetGithubWorkflowRunDetailsAPI)
+		}
+	}
+
 	return nil
 }
