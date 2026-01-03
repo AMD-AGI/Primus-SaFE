@@ -7,6 +7,7 @@ import argparse
 import datetime
 import hashlib
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -15,35 +16,42 @@ from concurrent.futures import ThreadPoolExecutor
 from queue import Queue, Empty
 from typing import List, Tuple
 
-# ================= configuration =================
+# ================= Configuration =================
+# System paths
 MPIEXEC = "/opt/mpich/bin/mpirun"
-RCCL_ALL_REDUCE_PERF = "/opt/rccl-tests/build/all_reduce_perf"
-RCCL_ALL_TO_ALL_PERF = "/opt/rccl-tests/build/alltoall_perf"
-RCCL_DEBUG="DEBUG"
-NUM_GPUS_PER_NODE = 8
-MAX_BYTES = "1G"
+RCCL_TESTS = {
+    0: "/opt/rccl-tests/build/all_reduce_perf",
+    1: "/opt/rccl-tests/build/alltoall_perf"
+}
 
+# Default settings
+NUM_GPUS_PER_NODE = 8
 LD_LIBRARY_PATH = "/opt/rocm/lib:/opt/mpich/lib:/usr/local/lib"
+
+# Runtime variables (will be updated by parse_args)
+RCCL_DEBUG = "DEBUG"
 RCCL_SOCKET_IFNAME = "ens51f0"
 RCCL_IB_HCA = "bnxt_re0,bnxt_re1,bnxt_re2,bnxt_re3,bnxt_re4,bnxt_re5,bnxt_re6,bnxt_re7"
 NCCL_IB_GID_INDEX = 3
 RCCL_TEST_TYPE = 0
-RCCL_TEST_NAME = ""
 SSH_PORT = 22
 ENABLE_AINIC = False
+MAX_BYTES = "1G"
+MAX_CONCURRENT_TESTS = 8
 
+# Global state
 total_nodes = 0
 total_failed_nodes = 0
 healthy_node_queue: Queue[str] = Queue()
-# for log output
 print_lock = threading.Lock()
 stat_lock = threading.Lock()
 # ===========================================
 
-def log(msg: str):
+def log(msg: str) -> None:
+    """Thread-safe logging with timestamp."""
     with print_lock:
-        current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        print(f"[{current_time}] {msg}", flush=True)
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        print(f"[{timestamp}] {msg}", flush=True)
 
 def get_log_filename(nodes: List[str]) -> str:
     node_str = ",".join(sorted(nodes))
@@ -52,75 +60,128 @@ def get_log_filename(nodes: List[str]) -> str:
     return f"/tmp/rccl_test_{hash_hex}.log"
 
 def threshold(node_count: int) -> float:
+    """Calculate bandwidth threshold for given node count."""
     G_PER_NODE = 8
-    if RCCL_TEST_TYPE == 0:
-        beff = 350.0*node_count*G_PER_NODE/(2*node_count*G_PER_NODE-1) *0.85
-        return beff
-    try:
-        bnic = float(os.environ['BNIC'])
-        bxgmi = float(os.environ['BXGMI'])
-    except (KeyError, ValueError):
-        bnic = 48.0
-        bxgmi = 315.0
-    # Calculate traffic fractions
+    
+    if RCCL_TEST_TYPE == 0:  # all_reduce
+        return 350.0 * node_count * G_PER_NODE / (2 * node_count * G_PER_NODE - 1) * 0.85
+    
+    # alltoall test
+    bnic = float(os.environ.get('BNIC', '48.0'))
+    bxgmi = float(os.environ.get('BXGMI', '315.0'))
+    
     remote_frac = (node_count - 1) / node_count
     local_frac = (G_PER_NODE - 1) / (G_PER_NODE * node_count)
-    # Compute effective bandwidth
-    beff = 1 / (remote_frac / bnic + local_frac / bxgmi)
-    beff *= 0.7
-    return beff
+    
+    return 0.7 / (remote_frac / bnic + local_frac / bxgmi)
 
-def get_hosts(hosts_file) -> List[str]:
-    entries = []
-    with open(hosts_file, "r") as file:
-        for line in file:
-            item = line.strip()
-            if not item or item.startswith('#'):
-                continue
-            entries.append(item)
-    return entries
+def get_hosts(hosts_file: str) -> List[str]:
+    """Read hosts from file, skipping comments and empty lines."""
+    with open(hosts_file, "r") as f:
+        return [line.strip() for line in f 
+                if line.strip() and not line.strip().startswith('#')]
 
 def parse_size(size_str: str) -> int:
+    """
+    Parse size string (e.g., '8G', '1024M', '512') to bytes.
+    Supports K/KB, M/MB, G/GB, T/TB units (case-insensitive).
+    """
+    if not size_str:
+        raise ValueError("Empty size string")
+    
     size_str = size_str.strip().upper()
-    units = {'K': 1024, 'M': 1024**2, 'G': 1024**3, 'T': 1024**4}
-
-    if size_str[-1] in units:
-        number_str = size_str[:-1]
-        unit = units[size_str[-1]]
-    else:
-        number_str = size_str
-        unit = 1
+    
+    # Define unit multipliers
+    units = {
+        'K': 1024, 'KB': 1024,
+        'M': 1024**2, 'MB': 1024**2,
+        'G': 1024**3, 'GB': 1024**3,
+        'T': 1024**4, 'TB': 1024**4,
+        'B': 1  # Support explicit byte suffix
+    }
+    
+    # Extract number and unit parts
+    match = re.match(r'^([\d.]+)\s*([KMGTB]{1,2})?$', size_str)
+    if not match:
+        raise ValueError(f"Invalid size format: '{size_str}'. Expected format: number[unit], e.g., '8G', '1024M'")
+    
+    number_str, unit_str = match.groups()
+    
     try:
         number = float(number_str)
-        return int(number * unit)
+        if number < 0:
+            raise ValueError(f"Size cannot be negative: {size_str}")
     except ValueError:
-        raise ValueError(f"Invalid size string: {size_str}")
+        raise ValueError(f"Invalid number in size string: '{number_str}'")
+    
+    # Get multiplier (default to 1 if no unit specified)
+    multiplier = units.get(unit_str, 1) if unit_str else 1
+    
+    return int(number * multiplier)
 
-def parse_algbw(text, target_size, tolerance=10000):
-    parsing_enabled = False
+def format_size(size_bytes: int, precision: int = 0) -> str:
+    """
+    Format byte size to human-readable string with appropriate unit.
+    Args:
+        size_bytes: Size in bytes
+        precision: Number of decimal places (default 0 for integer output)
+    Returns:
+        Formatted string like '8G', '1024M', etc.
+    """
+    if size_bytes < 0:
+        raise ValueError("Size cannot be negative")
+    
+    # Define thresholds for each unit (use 1024 as base)
+    units = [
+        (1024**4, 'T'),
+        (1024**3, 'G'),
+        (1024**2, 'M'),
+        (1024, 'K'),
+        (1, 'B')
+    ]
+    
+    for threshold, unit in units:
+        if size_bytes >= threshold:
+            value = size_bytes / threshold
+            if precision == 0:
+                # For integer output, only show decimal if needed
+                if value == int(value):
+                    return f"{int(value)}{unit}"
+                else:
+                    # Round to nearest integer
+                    return f"{int(round(value))}{unit}"
+            else:
+                return f"{value:.{precision}f}{unit}"
+    
+    return "0B"
 
-    for line_num, line in enumerate(text.strip().splitlines(), 1):
+def parse_algbw(text: str, target_size: int, tolerance: int = 10000) -> float:
+    """Parse algbw value from RCCL test output for a specific size."""
+    lines = text.strip().splitlines()
+    header_found = False
+    
+    for line in lines:
         line = line.strip()
-        if line.startswith('#') and 'algbw' in line.lower() and 'busbw' in line.lower():
-            if 'size' in line.lower() and 'count' in line.lower():
-                parsing_enabled = True
+        
+        # Find header to enable parsing
+        if not header_found:
+            if line.startswith('#') and all(k in line.lower() for k in ['algbw', 'busbw', 'size', 'count']):
+                header_found = True
             continue
-
-        if not parsing_enabled:
-            continue
+        
+        # Skip comments and empty lines
         if not line or line.startswith('#'):
             continue
-
+        
+        # Parse data line
         parts = line.split()
-        if len(parts) <= 11:
-            continue
-        try:
-            size = int(parts[0])
-            if abs(size - target_size) <= tolerance:
-                algbw = float(parts[10])
-                return algbw
-        except ValueError:
-            continue
+        if len(parts) > 11:
+            try:
+                size = int(parts[0])
+                if abs(size - target_size) <= tolerance:
+                    return float(parts[10])
+            except (ValueError, IndexError):
+                continue
     return 0.0
 
 def check_connectivity(nodes: List[str], timeout: int = 300) -> bool:
@@ -174,11 +235,49 @@ def check_connectivity(nodes: List[str], timeout: int = 300) -> bool:
     log(f"[CONNECTIVITY] Failed to establish connectivity within {timeout} seconds")
     return False
 
+def build_env_vars() -> dict:
+    """Build environment variables for RCCL test."""
+    env = os.environ.copy()
+    
+    # Common environment variables
+    env.update({
+        "MPIEXEC_ALLOW_ROOT": "1",
+        "NCCL_SOCKET_IFNAME": RCCL_SOCKET_IFNAME,
+        "NCCL_IB_GID_INDEX": str(NCCL_IB_GID_INDEX),
+        "NCCL_IB_HCA": RCCL_IB_HCA,
+        "NCCL_IB_DISABLE": "0",
+        "NCCL_IB_PCI_RELAXED_ORDERING": "1",
+        "NCCL_SHM_DISABLE": "1",
+        "NCCL_CHECKS_DISABLE": "1",
+        "NCCL_CROSS_NIC": "0",
+        "RCCL_MSCCL_ENABLE": "0",
+        "NCCL_DEBUG": RCCL_DEBUG,
+        "NCCL_NET_GDR_LEVEL": "2",
+        "NCCL_NET_GDR_READ": "1",
+        "MPIEXEC_RSH": f"ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -p {SSH_PORT}"
+    })
+    
+    # AINIC-specific settings
+    if ENABLE_AINIC:
+        env.update({
+            "LD_LIBRARY_PATH": f"/opt/amd-anp/build:/opt/rccl/build/release:{LD_LIBRARY_PATH}",
+            "NCCL_PXN_DISABLE": "0",
+            "NCCL_DMABUF_ENABLE": "0",
+            "NCCL_GDR_FLUSH_DISABLE": "1",
+            "NCCL_IGNORE_CPU_AFFINITY": "1",
+            "NCCL_IB_QPS_PER_CONNECTION": "1",
+            "UCX_NET_DEVICES": RCCL_SOCKET_IFNAME
+        })
+    else:
+        env.update({
+            "LD_LIBRARY_PATH": LD_LIBRARY_PATH,
+            "UCX_NET_DEVICES": RCCL_IB_HCA.split(',')[0] + ":1"
+        })
+    
+    return env
+
 def run_rccl_test(nodes: List[str]) -> float:
-    """
-    do rccl/all_reduce_perf or rccl/alltoall_perf test on specified nodes
-    return: algbw (GB/s)
-    """
+    """Run RCCL performance test on specified nodes."""
     if len(nodes) < 2:
         log(f"[WARN] Not enough nodes ({nodes}) for RCCL test.")
         return 0.0
@@ -187,69 +286,39 @@ def run_rccl_test(nodes: List[str]) -> float:
         log(f"[FAIL] Connectivity check failed for nodes {nodes}")
         return 0.0
 
-    env_vars = os.environ.copy()
-    if RCCL_TEST_TYPE == 0:
-        RCCL_TEST = RCCL_ALL_REDUCE_PERF
-    elif RCCL_TEST_TYPE == 1:
-        RCCL_TEST = RCCL_ALL_TO_ALL_PERF
-        if len(nodes) < 16:
-            env_vars["NCCL_PXN_DISABLE"] = os.getenv('NCCL_PXN_DISABLE', '1')
-            env_vars["NCCL_P2P_NET_CHUNKSIZE"] = os.getenv('NCCL_P2P_NET_CHUNKSIZE', '524288')
-    else:
-        raise ValueError("Invalid RCCL_TEST_TYPE")
-
-    env_vars["MPIEXEC_ALLOW_ROOT"] = "1"
-    env_vars["NCCL_SOCKET_IFNAME"] = RCCL_SOCKET_IFNAME
-    env_vars["NCCL_IB_GID_INDEX"] = str(NCCL_IB_GID_INDEX)
-    env_vars["NCCL_IB_HCA"] = RCCL_IB_HCA
-    env_vars["NCCL_IB_DISABLE"] = "0"  # Ensure IB is not disabled
-    env_vars["NCCL_IB_PCI_RELAXED_ORDERING"] = "1"
-    env_vars["NCCL_SHM_DISABLE"] = "1"
-    env_vars["NCCL_CHECKS_DISABLE"] = "1"
-    env_vars["NCCL_CROSS_NIC"] = "0"
-    env_vars["RCCL_MSCCL_ENABLE"] = "0"
-    env_vars["NCCL_DEBUG"] = RCCL_DEBUG
-    env_vars["MPIEXEC_RSH"] = f"ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -p {SSH_PORT}"
-    if ENABLE_AINIC:
-        env_vars["LD_LIBRARY_PATH"] = (
-            f"/opt/amd-anp/build:"
-            f"/opt/rccl/build/release:"
-            f"{LD_LIBRARY_PATH}"
-        )
-        env_vars["NCCL_NET_GDR_LEVEL"] = "2"
-        env_vars["NCCL_NET_GDR_READ"] = "1"
-        env_vars["NCCL_PXN_DISABLE"] = "0"
-        env_vars["NCCL_DMABUF_ENABLE"] = "0"
-        env_vars["NCCL_GDR_FLUSH_DISABLE"] = "1"
-        env_vars["NCCL_IGNORE_CPU_AFFINITY"] = "1"
-        env_vars["NCCL_IB_QPS_PER_CONNECTION"] = "1"
-        env_vars["UCX_NET_DEVICES"] = RCCL_SOCKET_IFNAME  # Use socket interface for UCX TCP
-    else:
-        env_vars["LD_LIBRARY_PATH"] = LD_LIBRARY_PATH
-        env_vars["NCCL_NET_GDR_LEVEL"] = "2" # ensure gdr is enabled
-        env_vars["NCCL_NET_GDR_READ"] = "1"
-        env_vars["UCX_NET_DEVICES"] = RCCL_IB_HCA.split(',')[0] + ":1"
+    # Get test binary
+    if RCCL_TEST_TYPE not in RCCL_TESTS:
+        raise ValueError(f"Invalid RCCL_TEST_TYPE: {RCCL_TEST_TYPE}")
+    rccl_test = RCCL_TESTS[RCCL_TEST_TYPE]
+    
+    # Build environment variables
+    env_vars = build_env_vars()
+    
+    # Add test-specific settings for alltoall
+    if RCCL_TEST_TYPE == 1 and len(nodes) < 16 and not ENABLE_AINIC:
+        env_vars.update({
+            "NCCL_PXN_DISABLE": os.getenv('NCCL_PXN_DISABLE', '1'),
+            "NCCL_P2P_NET_CHUNKSIZE": os.getenv('NCCL_P2P_NET_CHUNKSIZE', '524288')
+        })
   
-    nodes_str = ",".join([f"{node}" for node in nodes])
+    # Build command
+    nodes_str = ",".join(nodes)
     np = len(nodes) * NUM_GPUS_PER_NODE
     cmd = [
         MPIEXEC, "-n", str(np), "-ppn", str(NUM_GPUS_PER_NODE),
-        "-launcher", "ssh",
-        "-hosts", nodes_str,
+        "-launcher", "ssh", "-hosts", nodes_str,
+        rccl_test, "-b", "32M", "-e", MAX_BYTES, "-f", "2", "-g", "1"
     ]
-    cmd.append(RCCL_TEST)
-    cmd.extend(["-b", "16M", "-e", MAX_BYTES, "-f", "2", "-g", "1"])
 
     log_file = get_log_filename(nodes)
     log(f"# Log: {log_file}")
-    env_str_parts = []
-    for k, v in env_vars.items():
-        if k.startswith('MPI') or k.startswith('NCCL_') or k.startswith('LD_') or k.startswith('UCX_') or  k.startswith('RCCL_') or  k.startswith('ANP_') or  k.startswith('HSA_'):
-            env_str_parts.append(f'{k}="{v}"')
-    env_str_for_manual_exec = " ".join(env_str_parts)
-    cmd_str_for_manual_exec = " ".join(cmd)
-    full_manual_cmd = f"{env_str_for_manual_exec} {cmd_str_for_manual_exec}"
-    log(f"# Command (for manual execution): {full_manual_cmd}")
+    
+    # Build manual execution command for debugging
+    relevant_prefixes = ('MPI', 'NCCL_', 'LD_', 'UCX_', 'RCCL_', 'ANP_', 'HSA_')
+    env_str = " ".join(f'{k}="{v}"' for k, v in env_vars.items() 
+                       if any(k.startswith(p) for p in relevant_prefixes))
+    cmd_str = " ".join(cmd)
+    log(f"# Command (for manual execution): {env_str} {cmd_str}")
 
     try:
         with open(log_file, "w") as f:
@@ -293,7 +362,8 @@ def run_rccl_test(nodes: List[str]) -> float:
         if algbw == 0.0:
             log(f"[FAIL] Failed to parse algbw from output for {nodes}")
         else:
-            log(f"[INFO] After {RCCL_TEST_NAME} on {nodes}, count={len(nodes)}, algbw = {algbw:.2f} GB/s")
+            test_name = "all_reduce_perf" if RCCL_TEST_TYPE == 0 else "alltoall_perf"
+            log(f"[INFO] After {test_name} on {nodes}, count={len(nodes)}, algbw = {algbw:.2f} GB/s")
         return algbw
     except subprocess.TimeoutExpired:
         log(f"[Exception] RCCL test timed out for {nodes}")
@@ -302,10 +372,6 @@ def run_rccl_test(nodes: List[str]) -> float:
         log(f"[Exception] Test failed for {nodes}: {e}")
         return 0.0
 
-def split_list(lst: List[str]) -> Tuple[List[str], List[str]]:
-    lst = lst.copy()
-    mid = len(lst) // 2
-    return lst[:mid], lst[mid:]
 
 def diagnose_single_with_healthy(suspect_node: str, timeout: float = 600.0) -> Tuple[str, bool]:
     """
@@ -321,7 +387,8 @@ def diagnose_single_with_healthy(suspect_node: str, timeout: float = 600.0) -> T
             algbw = run_rccl_test(test_nodes)
             limit = threshold(len(test_nodes))
             is_faulty = algbw < limit
-            log(f"[INFO] {RCCL_TEST_NAME} {suspect_node}+{healthy_node} -> {algbw:.2f} GB/s, threshold:{limit:.2f} GB/s-> {'FAULTY' if is_faulty else 'OK'}")
+            test_name = "all_reduce_perf" if RCCL_TEST_TYPE == 0 else "alltoall_perf"
+            log(f"[INFO] {test_name} {suspect_node}+{healthy_node} -> {algbw:.2f} GB/s, threshold:{limit:.2f} GB/s-> {'FAULTY' if is_faulty else 'OK'}")
             healthy_node_queue.put(healthy_node)
             return suspect_node, is_faulty
         except Empty:
@@ -345,7 +412,8 @@ def recursive_diagnose(nodes: List[str]) -> List[str]:
     """
     algbw = run_rccl_test(nodes)
     limit = threshold(len(nodes))
-    log(f"[INFO] {RCCL_TEST_NAME} {nodes} -> {algbw:.2f} GB/s, threshold: {limit:.2f} GB/s")
+    test_name = "all_reduce_perf" if RCCL_TEST_TYPE == 0 else "alltoall_perf"
+    log(f"[INFO] {test_name} {nodes} -> {algbw:.2f} GB/s, threshold: {limit:.2f} GB/s")
 
     if algbw >= limit:
         log(f"[PASS] Group {nodes} is healthy. Adding to global healthy pool.")
@@ -381,42 +449,43 @@ def recursive_diagnose(nodes: List[str]) -> List[str]:
                     bad_nodes.append(node)
         return bad_nodes
 
-    group_a, group_b = split_list(nodes)
+    # Split nodes into two groups
+    mid = len(nodes) // 2
+    group_a, group_b = nodes[:mid], nodes[mid:]
     confirmed_bad = []
     log(f"[SPLIT] {nodes} -> A: {group_a}, B: {group_b}")
 
     with ThreadPoolExecutor(max_workers=2) as executor:
         future_a = executor.submit(recursive_diagnose, group_a)
         future_b = executor.submit(recursive_diagnose, group_b)
-        if future_a:
-            bad_a = future_a.result()
-            confirmed_bad.extend(bad_a)
-        if future_b:
-            bad_b = future_b.result()
-            confirmed_bad.extend(bad_b)
+        bad_a = future_a.result()
+        bad_b = future_b.result()
+        confirmed_bad.extend(bad_a)
+        confirmed_bad.extend(bad_b)
     return list(set(confirmed_bad))
 
 def parse_args() -> List[str]:
+    """Parse command line arguments and update global configuration."""
     parser = argparse.ArgumentParser(description="RCCL Fault Preflight")
-    # Maximum concurrent testing tasks (to avoid system overload)
-    parser.add_argument("--max_concurrent", type=int, default=8, help="Max concurrent")
-    # enable debug
-    parser.add_argument("--rccl_debug", type=str, default="DEBUG", help="NCCL_DEBUG")
-    parser.add_argument("--socket_ifname", type=str, default="ens51f0",
-                        help="Network interface for RCCL_SOCKET_IFNAME (default: ens51f0)")
-    parser.add_argument("--ib_hca", type=str, default="bnxt_re0,bnxt_re1,bnxt_re2,bnxt_re3,bnxt_re4,bnxt_re5,bnxt_re6,bnxt_re7",
-                        help="InfiniBand HCAs for RCCL_IB_HCA (default: bnxt_re[0-7])")
-    parser.add_argument("--ssh_port", type=int, default="22",
-                        help="port for SSH to connect to (default: 22)")
-    parser.add_argument("--nodes_file", type=str, default="/root/hosts",
-                        help="node list file")
+    parser.add_argument("--max_concurrent", type=int, default=8, help="Max concurrent tests")
+    parser.add_argument("--rccl_debug", type=str, default="DEBUG", help="NCCL_DEBUG level")
+    parser.add_argument("--socket_ifname", type=str, default="ens51f0", help="Network interface")
+    parser.add_argument("--ib_hca", type=str, 
+                       default="bnxt_re0,bnxt_re1,bnxt_re2,bnxt_re3,bnxt_re4,bnxt_re5,bnxt_re6,bnxt_re7",
+                       help="InfiniBand HCAs")
+    parser.add_argument("--ssh_port", type=int, default=22, help="SSH port")
+    parser.add_argument("--nodes_file", type=str, default="/root/hosts", help="Node list file")
     parser.add_argument("--ib_gid_index", type=int, default=None, help="NCCL_IB_GID_INDEX")
-    parser.add_argument("--rccl_test_type", type=int, default=0, choices=[0, 1], help="0: all_reduce_perf, 1: alltoall_perf")
-    parser.add_argument("--enable_ainic", type=str, default="false",
-                        help="Enable ANP (AMD Network Plugin), disables UCX config (true/false)")
+    parser.add_argument("--rccl_test_type", type=int, default=0, choices=[0, 1], 
+                       help="0: all_reduce_perf, 1: alltoall_perf")
+    parser.add_argument("--enable_ainic", type=str, default="false", help="Enable ANP")
+    
     args = parser.parse_args()
-
-    global MAX_CONCURRENT_TESTS, RCCL_DEBUG, RCCL_SOCKET_IFNAME, RCCL_IB_HCA, SSH_PORT, NCCL_IB_GID_INDEX, RCCL_TEST_TYPE, RCCL_TEST_NAME, MAX_BYTES, ENABLE_AINIC
+    
+    # Update global configuration
+    global MAX_CONCURRENT_TESTS, RCCL_DEBUG, RCCL_SOCKET_IFNAME, RCCL_IB_HCA
+    global SSH_PORT, NCCL_IB_GID_INDEX, RCCL_TEST_TYPE, MAX_BYTES, ENABLE_AINIC
+    
     MAX_CONCURRENT_TESTS = args.max_concurrent
     RCCL_DEBUG = args.rccl_debug
     RCCL_SOCKET_IFNAME = args.socket_ifname
@@ -424,39 +493,49 @@ def parse_args() -> List[str]:
     SSH_PORT = args.ssh_port
     RCCL_TEST_TYPE = args.rccl_test_type
     ENABLE_AINIC = args.enable_ainic.lower() == 'true' or os.environ.get('ENABLE_AINIC', '').lower() == 'true'
-    # Use ib_gid_index from args if provided, otherwise keep default
+    
     if args.ib_gid_index is not None:
         NCCL_IB_GID_INDEX = args.ib_gid_index
-    if RCCL_TEST_TYPE == 0:
-        RCCL_TEST_NAME = "all_reduce_perf"
-    else:
-        RCCL_TEST_NAME = "alltoall_perf"
-
+    
+    # Get nodes and set MAX_BYTES based on cluster size
     nodes = get_hosts(args.nodes_file)
-    if len(nodes) >= 64:
-        MAX_BYTES="16G"
-    else:
-        MAX_BYTES="8G"
+    MAX_BYTES = "16G" if len(nodes) >= 64 else "8G"
+    
+    # Reduce for AINIC mode
+    if ENABLE_AINIC:
+        size_bytes = parse_size(MAX_BYTES)
+        MAX_BYTES = format_size(int(size_bytes * 0.125))
+    
     return nodes
 
 def main():
+    """Main entry point for the diagnostic tool."""
     nodes = parse_args()
+    
     if len(nodes) < 2:
         print("Error: At least 2 nodes are required.")
-        sys.exit(0)
-
-    log(f"🔍 Starting diagnosis on {nodes}, test={RCCL_TEST_NAME}")
+        sys.exit(1)
+    
+    # Get test name for logging
+    test_name = "all_reduce_perf" if RCCL_TEST_TYPE == 0 else "alltoall_perf"
+    
+    log(f"🔍 Starting diagnosis on {nodes}, test={test_name}")
     log("⚙️ Starting recursive diagnosis...")
+    
+    # Initialize global state
     global healthy_node_queue, total_nodes
     total_nodes = len(nodes)
     healthy_node_queue = Queue()
-
+    
+    # Run diagnosis
     bad_nodes = recursive_diagnose(nodes)
+    
+    # Report results
     if bad_nodes:
-        log(f"[RESULT] unhealthy nodes: {bad_nodes}, obtained through {RCCL_TEST_NAME}")
+        log(f"[RESULT] unhealthy nodes: {bad_nodes}, obtained through {test_name}")
         sys.exit(1)
     else:
-        log(f"[RESULT] ✅ all passed, obtained through {RCCL_TEST_NAME}")
+        log(f"[RESULT] ✅ all passed, obtained through {test_name}")
         sys.exit(0)
 
 if __name__ == "__main__":
