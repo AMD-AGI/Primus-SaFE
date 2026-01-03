@@ -112,8 +112,8 @@ if __name__ == "__main__":
     matmul_stream = torch.cuda.Stream()
     comm_stream = torch.cuda.Stream()
 
-    matmul_sizes = [(2**i, 2**i) for i in range(10, 16)]
-    comm_sizes = [(2**i, 2**i) for i in range(10, 16)]
+    matmul_sizes = [(2**i, 2**i) for i in range(14, 16)]
+    comm_sizes = [(2**i, 2**i) for i in range(14, 16)]
     results = []
     # with torch.profiler.profile(
     #     activities=[torch.profiler.ProfilerActivity.CUDA, torch.profiler.ProfilerActivity.CPU],

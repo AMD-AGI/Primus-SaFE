@@ -63,7 +63,7 @@ if [[ "$RANK" == "0" ]]; then
 
     # ==== Step 5: Node checks ====
     PALYBOOKS="$PRIMUSBENCH_PATH/playbooks"
-    HOSTS_INI="primusbench_hosts.ini"
+    HOSTS_INI="$OUTPUT_PATH/primusbench_hosts.ini"
     (echo "[all]"; cat "$HOSTS") > "$HOSTS_INI"
 
     preflight_node_logname="${OUTPUT_PATH}/preflight_node.log"
@@ -151,9 +151,6 @@ if [[ "$RANK" == "0" ]]; then
     echo "                    PrimusBench Node Check Report" >> "$BENCH_REPORT"
     echo "================================================================================" >> "$BENCH_REPORT"
     echo "Generated at: $(date '+%Y-%m-%d %H:%M:%S')" >> "$BENCH_REPORT"
-    echo "" >> "$BENCH_REPORT"
-    echo "Summary: ${#healthy_nodes_ip[@]} healthy nodes out of ${#all_nodes[@]} total nodes checked" >> "$BENCH_REPORT"
-    echo "" >> "$BENCH_REPORT"
     echo "================================================================================" >> "$BENCH_REPORT"
     echo "" >> "$BENCH_REPORT"
     # Write failed nodes to report
@@ -189,7 +186,7 @@ if [[ "$RANK" == "0" ]]; then
     fi
     ok "Detected ${#successed_nodes[@]} healthy nodes."
 
-    NETWORK_HOSTS="$PRIMUSBENCH_PATH/network_hosts.ini"
+    NETWORK_HOSTS="$OUTPUT_PATH/network_hosts.ini"
     printf "%s\n" "${successed_nodes_ip[@]}" > "$NETWORK_HOSTS"
 
     preflight_network_logname="${OUTPUT_PATH}/preflight_network.log"
@@ -231,9 +228,6 @@ if [[ "$RANK" == "0" ]]; then
     fi
     ok "Network check complete. Healthy nodes (${#healthy_nodes_ip[@]}/${#all_nodes[@]}): ${healthy_nodes_ip[*]}"
     
-
-
-
     # Write network check results to report
     echo "Failed Nodes (Network Check) - ${#unhealthy_nodes[@]} nodes" >> "$BENCH_REPORT"
     echo "--------------------------------------------------------------------------------" >> "$BENCH_REPORT"
@@ -260,7 +254,11 @@ if [[ "$RANK" == "0" ]]; then
     fi
     echo "" >> "$BENCH_REPORT"
     echo "================================================================================" >> "$BENCH_REPORT"
-    
+    echo "" >> "$BENCH_REPORT"
+    echo "Summary: ${#healthy_nodes_ip[@]} healthy nodes out of ${#all_nodes[@]} total nodes checked" >> "$BENCH_REPORT"
+    echo "" >> "$BENCH_REPORT"
+    echo "================================================================================" >> "$BENCH_REPORT"
+    echo "" >> "$BENCH_REPORT"
     # Exit if no healthy nodes
     if [ ${#healthy_nodes_ip[@]} -eq 0 ]; then
         # Display bench report
@@ -281,7 +279,7 @@ if [[ "$RANK" == "0" ]]; then
         exit 1
     fi
     
-    INVENTORY_FILE="bench_inventory.ini"
+    INVENTORY_FILE="$OUTPUT_PATH/bench_inventory.ini"
     echo "[all]" > $INVENTORY_FILE
     for ip in "${healthy_nodes_ip[@]}"; do
         node=${ip_node_map[$ip]}
@@ -381,4 +379,5 @@ CUDA_VISIBLE_DEVICES="" torchrun \
     preflight/network/wait_ready.py
 
 ok "✅ PrimusBench completed!"
+
 
