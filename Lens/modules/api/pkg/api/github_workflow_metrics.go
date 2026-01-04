@@ -465,6 +465,9 @@ func ListAllGithubWorkflowRuns(ctx *gin.Context) {
 	if triggerSource := ctx.Query("trigger_source"); triggerSource != "" {
 		filter.TriggerSource = triggerSource
 	}
+	if runnerSet := ctx.Query("runner_set"); runnerSet != "" {
+		filter.RunnerSetName = runnerSet
+	}
 	if startDateStr := ctx.Query("start_date"); startDateStr != "" {
 		if t, err := time.Parse(time.RFC3339, startDateStr); err == nil {
 			filter.Since = &t

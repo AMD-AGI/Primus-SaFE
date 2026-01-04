@@ -99,6 +99,7 @@ type GithubWorkflowRunFilter struct {
 	TriggerSource string
 	GithubRunID   int64
 	WorkloadUID   string
+	RunnerSetName string // Filter by runner set name (via config)
 	Since         *time.Time
 	Until         *time.Time
 	Offset        int
@@ -397,6 +398,9 @@ func (f *GithubWorkflowRunFacade) ListAllWithConfigName(ctx context.Context, fil
 		}
 		if filter.WorkloadUID != "" {
 			query = query.Where("r.workload_uid = ?", filter.WorkloadUID)
+		}
+		if filter.RunnerSetName != "" {
+			query = query.Where("c.runner_set_name = ?", filter.RunnerSetName)
 		}
 		if filter.Since != nil {
 			query = query.Where("r.created_at >= ?", *filter.Since)
