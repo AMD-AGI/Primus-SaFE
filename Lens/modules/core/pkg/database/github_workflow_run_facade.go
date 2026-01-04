@@ -377,44 +377,47 @@ func (f *GithubWorkflowRunFacade) ResetToPending(ctx context.Context, id int64) 
 func (f *GithubWorkflowRunFacade) ListAllWithConfigName(ctx context.Context, filter *GithubWorkflowRunFilter) ([]*RunWithConfigName, int64, error) {
 	db := f.getDAL().GithubWorkflowRuns.WithContext(ctx).UnderlyingDB()
 
-	// Build base query with join
-	query := db.Table("github_workflow_runs r").
-		Select("r.*, c.name as config_name").
+	// Build base query with join - use Session to prevent query mutation
+	baseQuery := db.Table("github_workflow_runs r").
 		Joins("LEFT JOIN github_workflow_configs c ON r.config_id = c.id")
 
 	// Apply filters
 	if filter != nil {
 		if filter.ConfigID > 0 {
-			query = query.Where("r.config_id = ?", filter.ConfigID)
+			baseQuery = baseQuery.Where("r.config_id = ?", filter.ConfigID)
 		}
 		if filter.Status != "" {
-			query = query.Where("r.status = ?", filter.Status)
+			baseQuery = baseQuery.Where("r.status = ?", filter.Status)
 		}
 		if filter.TriggerSource != "" {
-			query = query.Where("r.trigger_source = ?", filter.TriggerSource)
+			baseQuery = baseQuery.Where("r.trigger_source = ?", filter.TriggerSource)
 		}
 		if filter.GithubRunID > 0 {
-			query = query.Where("r.github_run_id = ?", filter.GithubRunID)
+			baseQuery = baseQuery.Where("r.github_run_id = ?", filter.GithubRunID)
 		}
 		if filter.WorkloadUID != "" {
-			query = query.Where("r.workload_uid = ?", filter.WorkloadUID)
+			baseQuery = baseQuery.Where("r.workload_uid = ?", filter.WorkloadUID)
 		}
 		if filter.RunnerSetName != "" {
-			query = query.Where("c.runner_set_name = ?", filter.RunnerSetName)
+			baseQuery = baseQuery.Where("c.runner_set_name = ?", filter.RunnerSetName)
 		}
 		if filter.Since != nil {
-			query = query.Where("r.created_at >= ?", *filter.Since)
+			baseQuery = baseQuery.Where("r.created_at >= ?", *filter.Since)
 		}
 		if filter.Until != nil {
-			query = query.Where("r.created_at <= ?", *filter.Until)
+			baseQuery = baseQuery.Where("r.created_at <= ?", *filter.Until)
 		}
 	}
 
-	// Count total
+	// Count total using a separate query to avoid mutation
 	var total int64
-	if err := query.Count(&total).Error; err != nil {
+	countQuery := baseQuery.Session(&gorm.Session{})
+	if err := countQuery.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
+
+	// Build data query with select and pagination
+	query := baseQuery.Session(&gorm.Session{}).Select("r.*, c.name as config_name")
 
 	// Apply pagination
 	if filter != nil {
