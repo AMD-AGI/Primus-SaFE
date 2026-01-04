@@ -27,6 +27,9 @@ func InitImageRouter(e *gin.Engine, h *ImageHandler) {
 		imageGroup.GET("custom", func(c *gin.Context) {
 			handle(c, h.listExportedImage)
 		})
+		imageGroup.DELETE("custom/:jobId", func(c *gin.Context) {
+			handle(c, h.deleteExportedImage)
+		})
 		imageGroup.GET("prewarm", func(c *gin.Context) {
 			handle(c, h.listPrewarmImage)
 		})

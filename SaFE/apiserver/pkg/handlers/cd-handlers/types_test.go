@@ -241,3 +241,99 @@ func TestGetDeployableComponentsResp(t *testing.T) {
 		assert.Contains(t, parsed.Components, "node_agent")
 	})
 }
+
+func TestComponentConstants(t *testing.T) {
+	t.Run("component name constants have expected values", func(t *testing.T) {
+		assert.Equal(t, "apiserver", ComponentApiserver)
+		assert.Equal(t, "resource_manager", ComponentResourceManager)
+		assert.Equal(t, "job_manager", ComponentJobManager)
+		assert.Equal(t, "webhooks", ComponentWebhooks)
+		assert.Equal(t, "web", ComponentWeb)
+		assert.Equal(t, "preprocess", ComponentPreprocess)
+		assert.Equal(t, "node_agent", ComponentNodeAgent)
+		assert.Equal(t, "cicd_runner", ComponentCICDRunner)
+		assert.Equal(t, "cicd_unified_job", ComponentCICDUnifiedJob)
+		assert.Equal(t, "model_downloader", ComponentModelDownloader)
+		assert.Equal(t, "ops_download", ComponentOpsDownload)
+	})
+
+	t.Run("image name constants have expected values", func(t *testing.T) {
+		assert.Equal(t, "model-downloader", ImageModelDownloader)
+		assert.Equal(t, "s3-downloader", ImageOpsDownload)
+	})
+
+	t.Run("YAML key constants have expected values", func(t *testing.T) {
+		assert.Equal(t, "model.downloader_image", YAMLKeyModelDownloader)
+		assert.Equal(t, "ops_job.download_image", YAMLKeyOpsDownload)
+	})
+}
+
+func TestComponentImageMap(t *testing.T) {
+	t.Run("ComponentImageMap contains all expected mappings", func(t *testing.T) {
+		// Test existing components
+		assert.Equal(t, ImageApiserver, ComponentImageMap[ComponentApiserver])
+		assert.Equal(t, ImageResourceManager, ComponentImageMap[ComponentResourceManager])
+
+		// Test new components
+		assert.Equal(t, ImageModelDownloader, ComponentImageMap[ComponentModelDownloader])
+		assert.Equal(t, ImageOpsDownload, ComponentImageMap[ComponentOpsDownload])
+	})
+}
+
+func TestSpecialComponentsMap(t *testing.T) {
+	t.Run("SpecialComponentsMap contains expected mappings", func(t *testing.T) {
+		assert.Equal(t, YAMLKeyModelDownloader, SpecialComponentsMap[ComponentModelDownloader])
+		assert.Equal(t, YAMLKeyOpsDownload, SpecialComponentsMap[ComponentOpsDownload])
+	})
+
+	t.Run("SpecialComponentsMap has correct size", func(t *testing.T) {
+		assert.Equal(t, 2, len(SpecialComponentsMap))
+	})
+}
+
+func TestNormalizeImageVersion(t *testing.T) {
+	tests := []struct {
+		name      string
+		component string
+		version   string
+		expected  string
+	}{
+		{
+			name:      "full image reference unchanged",
+			component: "apiserver",
+			version:   "harbor.example.com/primus/apiserver:v1.0.0",
+			expected:  "harbor.example.com/primus/apiserver:v1.0.0",
+		},
+		{
+			name:      "version tag only - apiserver",
+			component: "apiserver",
+			version:   "v1.0.0",
+			expected:  "apiserver:v1.0.0",
+		},
+		{
+			name:      "version tag only - model_downloader",
+			component: "model_downloader",
+			version:   "v2.0.0",
+			expected:  "model-downloader:v2.0.0",
+		},
+		{
+			name:      "version tag only - ops_download",
+			component: "ops_download",
+			version:   "latest",
+			expected:  "s3-downloader:latest",
+		},
+		{
+			name:      "unknown component uses component name",
+			component: "unknown_component",
+			version:   "v1.0.0",
+			expected:  "unknown_component:v1.0.0",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := NormalizeImageVersion(tt.component, tt.version)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}

@@ -655,8 +655,6 @@ func (r *ModelReconciler) constructLocalDownloadOpsJob(ctx context.Context, mode
 		return nil, fmt.Errorf("S3 storage is not enabled")
 	}
 	s3Endpoint := commonconfig.GetS3Endpoint()
-	s3AccessKey := commonconfig.GetS3AccessKey()
-	s3SecretKey := commonconfig.GetS3SecretKey()
 	s3Bucket := commonconfig.GetS3Bucket()
 
 	// Validate and normalize S3 endpoint - must be HTTP/HTTPS URL
@@ -691,46 +689,14 @@ func (r *ModelReconciler) constructLocalDownloadOpsJob(ctx context.Context, mode
 
 	displayName := strings.ToLower(model.GetSafeDisplayName())
 
-	// Create a temporary Secret containing S3 credentials for the download job
-	// The secret will be mounted to /etc/secrets/<secret-name>/ in the workload container
-	// NOTE: Secret MUST be in primus-safe namespace because workload webhook only validates secrets in that namespace
-	secretName := fmt.Sprintf("s3-creds-%s", jobName)
-	s3Secret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      secretName,
-			Namespace: common.PrimusSafeNamespace, // Must be in primus-safe namespace for webhook validation
-			Labels: map[string]string{
-				v1.ModelIdLabel:     model.Name,
-				v1.WorkspaceIdLabel: lp.Workspace,
-			},
-		},
-		Type: corev1.SecretTypeOpaque,
-		StringData: map[string]string{
-			"access_key": s3AccessKey,
-			"secret_key": s3SecretKey,
-			"endpoint":   s3Endpoint,
-			"bucket":     s3Bucket,
-		},
-	}
+	// Use the global S3 secret (primus-safe-s3) which is already in primus-safe namespace
+	// This secret contains: access_key, secret_key, endpoint, bucket
+	// The secret name matches .Values.s3.secret in Helm values
+	secretName := "primus-safe-s3"
 
-	// Create or update the secret
-	existingSecret := &corev1.Secret{}
-	if err := r.Get(ctx, client.ObjectKey{Name: secretName, Namespace: common.PrimusSafeNamespace}, existingSecret); err != nil {
-		if errors.IsNotFound(err) {
-			if err := r.Create(ctx, s3Secret); err != nil {
-				return nil, fmt.Errorf("failed to create S3 credentials secret: %w", err)
-			}
-			klog.InfoS("Created S3 credentials secret for model download", "secret", secretName, "namespace", common.PrimusSafeNamespace)
-		} else {
-			return nil, fmt.Errorf("failed to check S3 credentials secret: %w", err)
-		}
-	}
-
-	// #region agent log - Hypothesis C/E: Check paths passed to OpsJob
-	klog.InfoS("[DEBUG] Constructing OpsJob", "model", model.Name, "workspace", lp.Workspace,
+	klog.InfoS("Constructing OpsJob for model download", "model", model.Name, "workspace", lp.Workspace,
 		"s3Path", s3Path, "destPath", destPath, "displayName", displayName,
-		"lpPath", lp.Path, "image", image, "secretName", secretName, "hypothesisId", "C/E")
-	// #endregion
+		"lpPath", lp.Path, "image", image, "secretName", secretName)
 
 	opsJob := &v1.OpsJob{
 		ObjectMeta: metav1.ObjectMeta{
