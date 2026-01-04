@@ -559,7 +559,7 @@ func (f *GithubWorkflowRunFacade) ListAllWithConfigName(ctx context.Context, fil
 			baseQuery = baseQuery.Where("r.workload_uid = ?", filter.WorkloadUID)
 		}
 		if filter.RunnerSetName != "" {
-			baseQuery = baseQuery.Where("c.runner_set_name = ?", filter.RunnerSetName)
+			baseQuery = baseQuery.Where("r.runner_set_name = ?", filter.RunnerSetName)
 		}
 		if filter.Since != nil {
 			baseQuery = baseQuery.Where("r.created_at >= ?", *filter.Since)
@@ -643,6 +643,9 @@ func (f *GithubWorkflowRunFacade) ListAllWithConfigName(ctx context.Context, fil
 		}
 		if filter.WorkloadUID != "" {
 			query2 = query2.Where("r.workload_uid = ?", filter.WorkloadUID)
+		}
+		if filter.RunnerSetName != "" {
+			query2 = query2.Where("r.runner_set_name = ?", filter.RunnerSetName)
 		}
 		if filter.Since != nil {
 			query2 = query2.Where("r.created_at >= ?", *filter.Since)
