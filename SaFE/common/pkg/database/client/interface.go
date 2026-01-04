@@ -54,6 +54,7 @@ type OpsJobInterface interface {
 	UpsertJob(ctx context.Context, job *OpsJob) error
 	SelectJobs(ctx context.Context, query sqrl.Sqlizer, orderBy []string, limit, offset int) ([]*OpsJob, error)
 	CountJobs(ctx context.Context, query sqrl.Sqlizer) (int, error)
+	GetOpsJob(ctx context.Context, jobId string) (*OpsJob, error)
 	SetOpsJobDeleted(ctx context.Context, opsJobId string) error
 }
 
