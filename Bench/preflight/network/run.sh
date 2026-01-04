@@ -29,9 +29,18 @@ export SSH_PORT=${SSH_PORT:-22}
 export BNIC=${BNIC:-48}
 export BXGMI=${BXGMI:-315}
 export MAX_RETRY=${MAX_RETRY:-2}
-export NCCL_PXN_DISABLE=${NCCL_PXN_DISABLE:-1}
-export NCCL_P2P_NET_CHUNKSIZE=${NCCL_P2P_NET_CHUNKSIZE:-524288}
 export ENABLE_AINIC=${ENABLE_AINIC:-"false"}
+
+# Only set PXN-related variables for non-AINIC mode
+# AINIC mode has its own optimized data path and these settings conflict
+if [[ "$ENABLE_AINIC" != "true" ]]; then
+  export NCCL_PXN_DISABLE=${NCCL_PXN_DISABLE:-1}
+  export NCCL_P2P_NET_CHUNKSIZE=${NCCL_P2P_NET_CHUNKSIZE:-524288}
+else
+  # Ensure these are unset in AINIC mode to avoid conflicts
+  unset NCCL_PXN_DISABLE
+  unset NCCL_P2P_NET_CHUNKSIZE
+fi
 
 # Set GID index based on device type:
 # - ionic: GID 0 or 1 (RoCEv2)
@@ -106,8 +115,8 @@ if [[ "$RANK" == "0" ]]; then
 
   declare -A unhealthy_nodes_intersection
   # Define test types and parameters (alltoall first, then all_reduce)
-  TEST_TYPES=(1 0)
-  TEST_NAMES=("alltoall_perf" "all_reduce_perf")
+  TEST_TYPES=(0 1)
+  TEST_NAMES=("all_reduce_perf" "alltoall_perf")
 
   # Run diagnosis tests
   for run in $(seq 1 $MAX_RETRY); do
