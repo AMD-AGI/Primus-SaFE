@@ -357,14 +357,8 @@ func (f *GithubWorkflowMetricsFacade) QueryWithDimensions(ctx context.Context, q
 	// Get underlying gorm.DB for raw JSONB queries
 	gormDB := db.UnderlyingDB()
 
-	// Dimension filtering using JSONB containment
-	if len(query.Dimensions) > 0 {
-		dimJSON, err := json.Marshal(query.Dimensions)
-		if err != nil {
-			return nil, 0, fmt.Errorf("failed to marshal dimensions: %w", err)
-		}
-		gormDB = gormDB.Where("dimensions @> ?", string(dimJSON))
-	}
+	// Dimension filtering - handles both single values and array values
+	gormDB = f.applyDimensionFilter(gormDB, query.Dimensions)
 
 	// Metric filtering using JSONB path queries
 	for key, value := range query.MetricFilters {
@@ -432,18 +426,12 @@ func (f *GithubWorkflowMetricsFacade) GetAggregatedMetrics(ctx context.Context, 
 	// Build time bucket expression based on interval
 	timeBucket := f.getTimeBucketSQL(query.Interval)
 
-	// Build dimension filter
-	if len(query.Dimensions) > 0 {
-		dimJSON, err := json.Marshal(query.Dimensions)
-		if err != nil {
-			return nil, fmt.Errorf("failed to marshal dimensions: %w", err)
-		}
-		db = db.Where("dimensions @> ?", string(dimJSON))
-	}
-
 	// Build base query
 	db = db.Table("github_workflow_metrics").
 		Where("config_id = ?", query.ConfigID)
+
+	// Dimension filter - handles both single values and array values
+	db = f.applyDimensionFilter(db, query.Dimensions)
 
 	if query.Start != nil {
 		db = db.Where("timestamp >= ?", *query.Start)
@@ -671,14 +659,8 @@ func (f *GithubWorkflowMetricsFacade) GetMetricsTrends(ctx context.Context, quer
 		baseQuery = baseQuery.Where("timestamp <= ?", *query.End)
 	}
 
-	// Dimension filter
-	if len(query.Dimensions) > 0 {
-		dimJSON, err := json.Marshal(query.Dimensions)
-		if err != nil {
-			return nil, fmt.Errorf("failed to marshal dimensions: %w", err)
-		}
-		baseQuery = baseQuery.Where("dimensions @> ?", string(dimJSON))
-	}
+	// Dimension filter - handles both single values and array values
+	baseQuery = f.applyDimensionFilter(baseQuery, query.Dimensions)
 
 	// For each metric field, get time series
 	for _, metricField := range query.MetricFields {
@@ -914,5 +896,39 @@ func (f *GithubWorkflowMetricsFacade) getTimeBucketSQL(interval string) string {
 	default:
 		return "date_trunc('day', timestamp)"
 	}
+}
+
+// applyDimensionFilter applies dimension filtering to a gorm.DB query
+// Handles both single values and array values:
+// - Single value: {"Op": "Attention"} -> dimensions @> '{"Op": "Attention"}'
+// - Array values: {"Op": ["Attention", "GEMM"]} -> dimensions->>'Op' IN ('Attention', 'GEMM')
+func (f *GithubWorkflowMetricsFacade) applyDimensionFilter(db *gorm.DB, dimensions map[string]interface{}) *gorm.DB {
+	if len(dimensions) == 0 {
+		return db
+	}
+
+	for key, value := range dimensions {
+		switch v := value.(type) {
+		case []interface{}:
+			// Array value: use IN query
+			if len(v) > 0 {
+				values := make([]string, 0, len(v))
+				for _, item := range v {
+					values = append(values, fmt.Sprintf("%v", item))
+				}
+				db = db.Where(fmt.Sprintf("dimensions->>'%s' IN ?", key), values)
+			}
+		case []string:
+			// String array: use IN query
+			if len(v) > 0 {
+				db = db.Where(fmt.Sprintf("dimensions->>'%s' IN ?", key), v)
+			}
+		default:
+			// Single value: use equality
+			db = db.Where(fmt.Sprintf("dimensions->>'%s' = ?", key), fmt.Sprintf("%v", value))
+		}
+	}
+
+	return db
 }
 
