@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/model/rest"
 	"github.com/gin-gonic/gin"
@@ -279,7 +280,7 @@ func GetGithubWorkflowRunHistory(ctx *gin.Context) {
 	detailsFacade := database.GetFacadeForCluster(clusterName).GetGithubWorkflowRunDetails()
 
 	type EnrichedRun struct {
-		*database.GithubWorkflowRunWithConfig
+		*model.GithubWorkflowRuns
 		Commit      interface{} `json:"commit,omitempty"`
 		RunDetails  interface{} `json:"run_details,omitempty"`
 		Duration    float64     `json:"duration_seconds,omitempty"`
@@ -288,7 +289,7 @@ func GetGithubWorkflowRunHistory(ctx *gin.Context) {
 	enrichedRuns := make([]EnrichedRun, 0, len(runs))
 	for _, run := range runs {
 		enriched := EnrichedRun{
-			GithubWorkflowRunWithConfig: run,
+			GithubWorkflowRuns: run,
 		}
 
 		// Calculate duration
