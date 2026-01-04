@@ -259,16 +259,23 @@ def build_env_vars() -> Dict[str, str]:
     })
     
     if ENABLE_AINIC:
-        # AINIC mode: PXN must be disabled, use special library paths
+        # AINIC mode: use special library paths and AINIC-specific settings
+        # NOTE: Do NOT set NCCL_PXN_DISABLE or NCCL_P2P_NET_CHUNKSIZE in AINIC mode
         env.update({
-            "LD_LIBRARY_PATH": f"/opt/amd-anp/build:/opt/rccl/build/release:{LD_LIBRARY_PATH}",
-            "NCCL_PXN_DISABLE": "1",  # AINIC requires PXN to be disabled
+            "LD_LIBRARY_PATH": f"/opt/amd-anp/build:/opt/amd-anp/build/lib:/opt/rccl/build/release:{LD_LIBRARY_PATH}",
             "NCCL_DMABUF_ENABLE": "0",
             "NCCL_GDR_FLUSH_DISABLE": "1",
-            "NCCL_IGNORE_CPU_AFFINITY": "1",
-            "NCCL_IB_QPS_PER_CONNECTION": "1",
+            "NCCL_MAX_P2P_CHANNELS": "56",
+            "NET_OPTIONAL_RECV_COMPLETION": "1",
+            "NCCL_IB_USE_INLINE": "1",
+            "RCCL_GDR_FLUSH_GPU_MEM_NO_RELAXED_ORDERING": "0",
+            "NCCL_IB_TC": "104",
+            "NCCL_IB_FIFO_TC": "192",
             "UCX_NET_DEVICES": RCCL_SOCKET_IFNAME
         })
+        # Remove conflicting PXN-related environment variables
+        env.pop('NCCL_PXN_DISABLE', None)
+        env.pop('NCCL_P2P_NET_CHUNKSIZE', None)
     else:
         # Standard mode: use default library paths
         env.update({
@@ -296,13 +303,19 @@ def run_rccl_test(nodes: List[str]) -> float:
     # Build environment variables
     env_vars = build_env_vars()
     
-    # Add test-specific optimizations for small-scale alltoall tests (non-AINIC only)
-    if RCCL_TEST_TYPE == 1 and len(nodes) < 16 and not ENABLE_AINIC:
-        # For small clusters, optimize P2P communication
-        env_vars.update({
-            "NCCL_PXN_DISABLE": os.getenv('NCCL_PXN_DISABLE', '1'),
-            "NCCL_P2P_NET_CHUNKSIZE": os.getenv('NCCL_P2P_NET_CHUNKSIZE', '524288')
-        })
+    # Add test-specific optimizations for alltoall tests
+    if RCCL_TEST_TYPE == 1:
+        if ENABLE_AINIC:
+            # AINIC mode uses its own optimized data path, skip PXN settings
+            pass
+        elif len(nodes) < 16:
+            # Non-AINIC mode for small clusters: check if PXN optimization is needed
+            pxn_disable = os.getenv('NCCL_PXN_DISABLE', '1')
+            env_vars["NCCL_PXN_DISABLE"] = pxn_disable
+            
+            # Only set P2P_NET_CHUNKSIZE when PXN is enabled
+            if pxn_disable != '1':
+                env_vars["NCCL_P2P_NET_CHUNKSIZE"] = os.getenv('NCCL_P2P_NET_CHUNKSIZE', '524288')
   
     # Build command
     nodes_str = ",".join(nodes)
@@ -521,12 +534,14 @@ def parse_args() -> List[str]:
     node_count = len(nodes)
     if node_count >= 64:
         MAX_BYTES = "16G"  # Large clusters (64+ nodes): 16G
+    elif node_count >= 8:
+        MAX_BYTES = "8G"   # Medium clusters (8-63 nodes): 8G
     elif node_count > 4:
-        MAX_BYTES = "8G"   # Medium clusters (5-63 nodes): 8G
+        MAX_BYTES = "4G"   # Small clusters (5-7 nodes): 4G
     elif node_count > 2:
-        MAX_BYTES = "4G"   # Small clusters (3-4 nodes): 4G
+        MAX_BYTES = "2G"   # Small clusters (3-4 nodes): 2G
     else:
-        MAX_BYTES = "2G"   # Tiny clusters (1-2 nodes): 2G
+        MAX_BYTES = "1G"   # Tiny clusters (1-2 nodes): 1G
 
     
     return nodes
