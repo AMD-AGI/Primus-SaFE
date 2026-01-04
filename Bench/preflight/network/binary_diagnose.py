@@ -298,11 +298,14 @@ def run_rccl_test(nodes: List[str]) -> float:
     
     # Add test-specific optimizations for small-scale alltoall tests (non-AINIC only)
     if RCCL_TEST_TYPE == 1 and len(nodes) < 16 and not ENABLE_AINIC:
-        # For small clusters, optimize P2P communication
-        env_vars.update({
-            "NCCL_PXN_DISABLE": os.getenv('NCCL_PXN_DISABLE', '1'),
-            "NCCL_P2P_NET_CHUNKSIZE": os.getenv('NCCL_P2P_NET_CHUNKSIZE', '524288')
-        })
+        # For small clusters, check if PXN optimization is needed
+        pxn_disable = os.getenv('NCCL_PXN_DISABLE', '1')
+        env_vars["NCCL_PXN_DISABLE"] = pxn_disable
+        
+        # Only set P2P_NET_CHUNKSIZE if PXN is enabled (NCCL_PXN_DISABLE != '1')
+        # When PXN is disabled, P2P_NET_CHUNKSIZE is not needed
+        if pxn_disable != '1':
+            env_vars["NCCL_P2P_NET_CHUNKSIZE"] = os.getenv('NCCL_P2P_NET_CHUNKSIZE', '524288')
   
     # Build command
     nodes_str = ",".join(nodes)
