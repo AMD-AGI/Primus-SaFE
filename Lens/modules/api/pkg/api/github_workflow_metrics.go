@@ -36,19 +36,27 @@ func getClusterNameForGithubWorkflow(ctx *gin.Context) (string, error) {
 
 // ========== Request/Response Types ==========
 
+// DisplaySettingsRequest represents display settings for a workflow config
+type DisplaySettingsRequest struct {
+	DefaultChartGroupBy   string `json:"default_chart_group_by,omitempty"`
+	DefaultChartType      string `json:"default_chart_type,omitempty"`
+	ShowRawDataByDefault  bool   `json:"show_raw_data_by_default,omitempty"`
+}
+
 // GithubWorkflowConfigRequest represents the request body for creating/updating a config
 type GithubWorkflowConfigRequest struct {
-	Name               string   `json:"name" binding:"required"`
-	Description        string   `json:"description"`
-	RunnerSetNamespace string   `json:"runner_set_namespace" binding:"required"`
-	RunnerSetName      string   `json:"runner_set_name" binding:"required"`
-	RunnerSetUID       string   `json:"runner_set_uid"`
-	GithubOwner        string   `json:"github_owner" binding:"required"`
-	GithubRepo         string   `json:"github_repo" binding:"required"`
-	WorkflowFilter     string   `json:"workflow_filter"`
-	BranchFilter       string   `json:"branch_filter"`
-	FilePatterns       []string `json:"file_patterns" binding:"required"`
-	Enabled            *bool    `json:"enabled"`
+	Name               string                  `json:"name" binding:"required"`
+	Description        string                  `json:"description"`
+	RunnerSetNamespace string                  `json:"runner_set_namespace" binding:"required"`
+	RunnerSetName      string                  `json:"runner_set_name" binding:"required"`
+	RunnerSetUID       string                  `json:"runner_set_uid"`
+	GithubOwner        string                  `json:"github_owner" binding:"required"`
+	GithubRepo         string                  `json:"github_repo" binding:"required"`
+	WorkflowFilter     string                  `json:"workflow_filter"`
+	BranchFilter       string                  `json:"branch_filter"`
+	FilePatterns       []string                `json:"file_patterns" binding:"required"`
+	Enabled            *bool                   `json:"enabled"`
+	DisplaySettings    *DisplaySettingsRequest `json:"display_settings,omitempty"`
 }
 
 // GithubWorkflowConfigPatchRequest represents the request body for partial config update
@@ -95,6 +103,10 @@ func CreateGithubWorkflowConfig(ctx *gin.Context) {
 
 	// Build config model
 	filePatterns, _ := json.Marshal(req.FilePatterns)
+	displaySettings := []byte("{}")
+	if req.DisplaySettings != nil {
+		displaySettings, _ = json.Marshal(req.DisplaySettings)
+	}
 	config := &dbmodel.GithubWorkflowConfigs{
 		Name:               req.Name,
 		Description:        req.Description,
@@ -106,6 +118,7 @@ func CreateGithubWorkflowConfig(ctx *gin.Context) {
 		WorkflowFilter:     req.WorkflowFilter,
 		BranchFilter:       req.BranchFilter,
 		FilePatterns:       dbmodel.ExtJSON(filePatterns),
+		DisplaySettings:    dbmodel.ExtJSON(displaySettings),
 		ClusterName:        clusterName,
 		Enabled:            true,
 	}
@@ -253,6 +266,10 @@ func UpdateGithubWorkflowConfig(ctx *gin.Context) {
 	config.BranchFilter = req.BranchFilter
 	filePatterns, _ := json.Marshal(req.FilePatterns)
 	config.FilePatterns = dbmodel.ExtJSON(filePatterns)
+	if req.DisplaySettings != nil {
+		displaySettings, _ := json.Marshal(req.DisplaySettings)
+		config.DisplaySettings = dbmodel.ExtJSON(displaySettings)
+	}
 	if req.Enabled != nil {
 		config.Enabled = *req.Enabled
 	}
