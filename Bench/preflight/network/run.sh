@@ -114,7 +114,7 @@ if [[ "$RANK" == "0" ]]; then
   }
 
   declare -A unhealthy_nodes_intersection
-  # Define test types and parameters (alltoall first, then all_reduce)
+  # Define test types and parameters (all_reduce first, then alltoall)
   TEST_TYPES=(0 1)
   TEST_NAMES=("all_reduce_perf" "alltoall_perf")
 
