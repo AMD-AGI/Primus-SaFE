@@ -27,6 +27,8 @@ type GithubRunnerSetFacadeInterface interface {
 	UpdateStatus(ctx context.Context, uid string, current, desired int) error
 	// CleanupStale removes runner sets not synced since the given time
 	CleanupStale(ctx context.Context, before time.Time) (int64, error)
+	// WithCluster returns a new facade instance using the specified cluster
+	WithCluster(clusterName string) GithubRunnerSetFacadeInterface
 }
 
 // GithubRunnerSetFacade implements GithubRunnerSetFacadeInterface
@@ -37,6 +39,13 @@ type GithubRunnerSetFacade struct {
 // NewGithubRunnerSetFacade creates a new GithubRunnerSetFacade
 func NewGithubRunnerSetFacade() *GithubRunnerSetFacade {
 	return &GithubRunnerSetFacade{}
+}
+
+// WithCluster returns a new facade instance using the specified cluster
+func (f *GithubRunnerSetFacade) WithCluster(clusterName string) GithubRunnerSetFacadeInterface {
+	return &GithubRunnerSetFacade{
+		BaseFacade: f.withCluster(clusterName),
+	}
 }
 
 // Upsert creates or updates a runner set

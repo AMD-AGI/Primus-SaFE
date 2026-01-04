@@ -21,6 +21,8 @@ type GithubWorkflowRunDetailsFacadeInterface interface {
 	ListByConclusion(ctx context.Context, conclusion string, since *time.Time, limit int) ([]*model.GithubWorkflowRunDetails, error)
 	// GetAnalytics gets workflow run analytics
 	GetAnalytics(ctx context.Context, filter *WorkflowAnalyticsFilter) (*WorkflowAnalytics, error)
+	// WithCluster returns a new facade instance using the specified cluster
+	WithCluster(clusterName string) GithubWorkflowRunDetailsFacadeInterface
 }
 
 // WorkflowAnalyticsFilter defines the filter for analytics query
@@ -64,6 +66,13 @@ type GithubWorkflowRunDetailsFacade struct {
 // NewGithubWorkflowRunDetailsFacade creates a new GithubWorkflowRunDetailsFacade
 func NewGithubWorkflowRunDetailsFacade() *GithubWorkflowRunDetailsFacade {
 	return &GithubWorkflowRunDetailsFacade{}
+}
+
+// WithCluster returns a new facade instance using the specified cluster
+func (f *GithubWorkflowRunDetailsFacade) WithCluster(clusterName string) GithubWorkflowRunDetailsFacadeInterface {
+	return &GithubWorkflowRunDetailsFacade{
+		BaseFacade: f.withCluster(clusterName),
+	}
 }
 
 // Upsert creates or updates a run details record

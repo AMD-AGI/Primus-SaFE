@@ -21,6 +21,8 @@ type GithubWorkflowCommitFacadeInterface interface {
 	ListByAuthor(ctx context.Context, email string, since *time.Time, limit int) ([]*model.GithubWorkflowCommits, error)
 	// GetStats gets commit statistics for a time range
 	GetStats(ctx context.Context, since, until *time.Time) (*CommitStats, error)
+	// WithCluster returns a new facade instance using the specified cluster
+	WithCluster(clusterName string) GithubWorkflowCommitFacadeInterface
 }
 
 // CommitStats represents commit statistics
@@ -42,6 +44,13 @@ type GithubWorkflowCommitFacade struct {
 // NewGithubWorkflowCommitFacade creates a new GithubWorkflowCommitFacade
 func NewGithubWorkflowCommitFacade() *GithubWorkflowCommitFacade {
 	return &GithubWorkflowCommitFacade{}
+}
+
+// WithCluster returns a new facade instance using the specified cluster
+func (f *GithubWorkflowCommitFacade) WithCluster(clusterName string) GithubWorkflowCommitFacadeInterface {
+	return &GithubWorkflowCommitFacade{
+		BaseFacade: f.withCluster(clusterName),
+	}
 }
 
 // Upsert creates or updates a commit record

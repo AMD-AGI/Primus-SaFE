@@ -376,9 +376,9 @@ func (f *Facade) WithCluster(clusterName string) FacadeInterface {
 		GithubWorkflowRun:         f.GithubWorkflowRun.WithCluster(clusterName),
 		GithubWorkflowSchema:      f.GithubWorkflowSchema.WithCluster(clusterName),
 		GithubWorkflowMetrics:     f.GithubWorkflowMetrics.WithCluster(clusterName),
-		GithubRunnerSet:           f.GithubRunnerSet,
-		GithubWorkflowCommit:      f.GithubWorkflowCommit,
-		GithubWorkflowRunDetails:  f.GithubWorkflowRunDetails,
+		GithubRunnerSet:           f.GithubRunnerSet.WithCluster(clusterName),
+		GithubWorkflowCommit:      f.GithubWorkflowCommit.WithCluster(clusterName),
+		GithubWorkflowRunDetails:  f.GithubWorkflowRunDetails.WithCluster(clusterName),
 	}
 }
 
