@@ -112,64 +112,79 @@ func (r *EphemeralRunnerReconciler) Reconcile(ctx context.Context, req reconcile
 
 // processCompletedRunner processes a completed EphemeralRunner
 func (r *EphemeralRunnerReconciler) processCompletedRunner(ctx context.Context, info *types.EphemeralRunnerInfo) error {
-	configFacade := database.GetFacade().GetGithubWorkflowConfig()
+	runnerSetFacade := database.GetFacade().GetGithubRunnerSet()
 	runFacade := database.GetFacade().GetGithubWorkflowRun()
 
-	// Find matching configs for this runner's namespace
-	configs, err := configFacade.ListEnabled(ctx)
+	// Find the runner set for this ephemeral runner
+	runnerSet, err := runnerSetFacade.GetByNamespaceName(ctx, info.Namespace, info.RunnerSetName)
 	if err != nil {
-		return fmt.Errorf("failed to list enabled configs: %w", err)
+		return fmt.Errorf("failed to get runner set %s/%s: %w", info.Namespace, info.RunnerSetName, err)
 	}
 
-	for _, config := range configs {
-		// Check if config matches this runner
-		if !r.matchesConfig(info, config) {
-			continue
-		}
-
-		// Check if we already have a run record for this workload
-		existingRun, err := runFacade.GetByConfigAndWorkload(ctx, config.ID, info.UID)
-		if err != nil {
-			log.Errorf("EphemeralRunnerReconciler: error checking existing run for %s: %v", info.UID, err)
-			continue
-		}
-
-		if existingRun != nil {
-			log.Debugf("EphemeralRunnerReconciler: run record already exists for %s/%s", info.Namespace, info.Name)
-			continue
-		}
-
-		// Create a new run record
-		run := &model.GithubWorkflowRuns{
-			ConfigID:            config.ID,
-			WorkloadUID:         info.UID,
-			WorkloadName:        info.Name,
-			WorkloadNamespace:   info.Namespace,
-			GithubRunID:         info.GithubRunID,
-			GithubRunNumber:     int32(info.GithubRunNumber),
-			GithubJobID:         info.GithubJobID,
-			HeadSha:             info.HeadSHA,
-			HeadBranch:          info.Branch,
-			WorkflowName:        info.WorkflowName,
-			Status:              database.WorkflowRunStatusPending,
-			TriggerSource:       database.WorkflowRunTriggerRealtime,
-			WorkloadStartedAt:   info.CreationTimestamp.Time,
-			WorkloadCompletedAt: info.CompletionTime.Time,
-		}
-
-		// If completion time is zero, use now
-		if run.WorkloadCompletedAt.IsZero() {
-			run.WorkloadCompletedAt = time.Now()
-		}
-
-		if err := runFacade.Create(ctx, run); err != nil {
-			log.Errorf("EphemeralRunnerReconciler: failed to create run record for %s: %v", info.Name, err)
-			continue
-		}
-
-		log.Infof("EphemeralRunnerReconciler: created run record for %s/%s (config: %s, run_id: %d)",
-			info.Namespace, info.Name, config.Name, run.ID)
+	if runnerSet == nil {
+		log.Warnf("EphemeralRunnerReconciler: runner set not found for %s/%s, skipping", info.Namespace, info.RunnerSetName)
+		return nil
 	}
+
+	// Check if we already have a run record for this workload
+	existingRun, err := runFacade.GetByRunnerSetAndWorkload(ctx, runnerSet.ID, info.UID)
+	if err != nil {
+		return fmt.Errorf("failed to check existing run for %s: %w", info.UID, err)
+	}
+
+	if existingRun != nil {
+		log.Debugf("EphemeralRunnerReconciler: run record already exists for %s/%s", info.Namespace, info.Name)
+		return nil
+	}
+
+	// Optionally find matching config for additional metadata
+	var configID int64
+	configFacade := database.GetFacade().GetGithubWorkflowConfig()
+	configs, err := configFacade.ListByRunnerSetID(ctx, runnerSet.ID)
+	if err != nil {
+		log.Warnf("EphemeralRunnerReconciler: failed to list configs for runner set %d: %v", runnerSet.ID, err)
+	} else if len(configs) > 0 {
+		// Use the first matching enabled config
+		for _, config := range configs {
+			if config.Enabled && r.matchesConfig(info, config) {
+				configID = config.ID
+				break
+			}
+		}
+	}
+
+	// Create a new run record - always create, regardless of config existence
+	run := &model.GithubWorkflowRuns{
+		RunnerSetID:         runnerSet.ID,
+		RunnerSetName:       runnerSet.Name,
+		RunnerSetNamespace:  runnerSet.Namespace,
+		ConfigID:            configID, // Optional, 0 if no matching config
+		WorkloadUID:         info.UID,
+		WorkloadName:        info.Name,
+		WorkloadNamespace:   info.Namespace,
+		GithubRunID:         info.GithubRunID,
+		GithubRunNumber:     int32(info.GithubRunNumber),
+		GithubJobID:         info.GithubJobID,
+		HeadSha:             info.HeadSHA,
+		HeadBranch:          info.Branch,
+		WorkflowName:        info.WorkflowName,
+		Status:              database.WorkflowRunStatusPending,
+		TriggerSource:       database.WorkflowRunTriggerRealtime,
+		WorkloadStartedAt:   info.CreationTimestamp.Time,
+		WorkloadCompletedAt: info.CompletionTime.Time,
+	}
+
+	// If completion time is zero, use now
+	if run.WorkloadCompletedAt.IsZero() {
+		run.WorkloadCompletedAt = time.Now()
+	}
+
+	if err := runFacade.Create(ctx, run); err != nil {
+		return fmt.Errorf("failed to create run record for %s: %w", info.Name, err)
+	}
+
+	log.Infof("EphemeralRunnerReconciler: created run record for %s/%s (runner_set: %s, config_id: %d, run_id: %d)",
+		info.Namespace, info.Name, runnerSet.Name, configID, run.ID)
 
 	return nil
 }

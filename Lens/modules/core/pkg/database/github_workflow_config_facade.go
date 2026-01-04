@@ -17,6 +17,12 @@ type GithubWorkflowConfigFacadeInterface interface {
 	// GetByID retrieves a config by ID
 	GetByID(ctx context.Context, id int64) (*model.GithubWorkflowConfigs, error)
 
+	// GetByRunnerSetID retrieves a config by runner_set_id
+	GetByRunnerSetID(ctx context.Context, runnerSetID int64) (*model.GithubWorkflowConfigs, error)
+
+	// ListByRunnerSetID lists all configs for a runner set
+	ListByRunnerSetID(ctx context.Context, runnerSetID int64) ([]*model.GithubWorkflowConfigs, error)
+
 	// GetByRunnerSet retrieves a config by runner set namespace, name, and cluster
 	GetByRunnerSet(ctx context.Context, namespace, name, clusterName string) (*model.GithubWorkflowConfigs, error)
 
@@ -47,6 +53,7 @@ type GithubWorkflowConfigFacadeInterface interface {
 
 // GithubWorkflowConfigFilter defines filter options for listing configs
 type GithubWorkflowConfigFilter struct {
+	RunnerSetID int64
 	Enabled     *bool
 	ClusterName string
 	GithubOwner string
@@ -96,6 +103,30 @@ func (f *GithubWorkflowConfigFacade) GetByID(ctx context.Context, id int64) (*mo
 	return result, nil
 }
 
+// GetByRunnerSetID retrieves a config by runner_set_id
+func (f *GithubWorkflowConfigFacade) GetByRunnerSetID(ctx context.Context, runnerSetID int64) (*model.GithubWorkflowConfigs, error) {
+	q := f.getDAL().GithubWorkflowConfigs
+	result, err := q.WithContext(ctx).
+		Where(q.RunnerSetID.Eq(runnerSetID)).
+		First()
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return result, nil
+}
+
+// ListByRunnerSetID lists all configs for a runner set
+func (f *GithubWorkflowConfigFacade) ListByRunnerSetID(ctx context.Context, runnerSetID int64) ([]*model.GithubWorkflowConfigs, error) {
+	q := f.getDAL().GithubWorkflowConfigs
+	return q.WithContext(ctx).
+		Where(q.RunnerSetID.Eq(runnerSetID)).
+		Order(q.ID.Desc()).
+		Find()
+}
+
 // GetByRunnerSet retrieves a config by runner set namespace, name, and cluster
 func (f *GithubWorkflowConfigFacade) GetByRunnerSet(ctx context.Context, namespace, name, clusterName string) (*model.GithubWorkflowConfigs, error) {
 	q := f.getDAL().GithubWorkflowConfigs
@@ -119,6 +150,9 @@ func (f *GithubWorkflowConfigFacade) List(ctx context.Context, filter *GithubWor
 	query := q.WithContext(ctx)
 
 	if filter != nil {
+		if filter.RunnerSetID > 0 {
+			query = query.Where(q.RunnerSetID.Eq(filter.RunnerSetID))
+		}
 		if filter.Enabled != nil {
 			query = query.Where(q.Enabled.Is(*filter.Enabled))
 		}

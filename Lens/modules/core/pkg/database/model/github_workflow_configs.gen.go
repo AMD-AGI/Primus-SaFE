@@ -15,6 +15,7 @@ type GithubWorkflowConfigs struct {
 	ID                       int64     `gorm:"column:id;primaryKey;autoIncrement:true" json:"id"`
 	Name                     string    `gorm:"column:name;not null" json:"name"`
 	Description              string    `gorm:"column:description" json:"description"`
+	RunnerSetID              int64     `gorm:"column:runner_set_id" json:"runner_set_id"`
 	RunnerSetNamespace       string    `gorm:"column:runner_set_namespace;not null" json:"runner_set_namespace"`
 	RunnerSetName            string    `gorm:"column:runner_set_name;not null" json:"runner_set_name"`
 	RunnerSetUID             string    `gorm:"column:runner_set_uid" json:"runner_set_uid"`

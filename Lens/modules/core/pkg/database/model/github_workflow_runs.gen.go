@@ -13,7 +13,10 @@ const TableNameGithubWorkflowRuns = "github_workflow_runs"
 // GithubWorkflowRuns mapped from table <github_workflow_runs>
 type GithubWorkflowRuns struct {
 	ID                    int64     `gorm:"column:id;primaryKey;autoIncrement:true" json:"id"`
-	ConfigID              int64     `gorm:"column:config_id;not null" json:"config_id"`
+	RunnerSetID           int64     `gorm:"column:runner_set_id" json:"runner_set_id"`
+	RunnerSetName         string    `gorm:"column:runner_set_name" json:"runner_set_name"`
+	RunnerSetNamespace    string    `gorm:"column:runner_set_namespace" json:"runner_set_namespace"`
+	ConfigID              int64     `gorm:"column:config_id" json:"config_id"`
 	WorkloadUID           string    `gorm:"column:workload_uid;not null" json:"workload_uid"`
 	WorkloadName          string    `gorm:"column:workload_name" json:"workload_name"`
 	WorkloadNamespace     string    `gorm:"column:workload_namespace" json:"workload_namespace"`
