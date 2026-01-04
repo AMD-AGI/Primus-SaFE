@@ -659,8 +659,26 @@ func (r *ModelReconciler) constructLocalDownloadOpsJob(ctx context.Context, mode
 	s3SecretKey := commonconfig.GetS3SecretKey()
 	s3Bucket := commonconfig.GetS3Bucket()
 
-	// INPUT_URL: S3 path for the model
-	s3Path := fmt.Sprintf("s3://%s/%s", s3Bucket, model.Status.S3Path)
+	// Validate and normalize S3 endpoint - must be HTTP/HTTPS URL
+	// s3-downloader only supports HTTP/HTTPS schemes, not s3:// protocol
+	if s3Endpoint == "" {
+		return nil, fmt.Errorf("S3 endpoint is not configured")
+	}
+	// Remove trailing slash from endpoint
+	s3Endpoint = strings.TrimSuffix(s3Endpoint, "/")
+	// Ensure endpoint has HTTP/HTTPS scheme
+	if !strings.HasPrefix(s3Endpoint, "http://") && !strings.HasPrefix(s3Endpoint, "https://") {
+		// If endpoint looks like a hostname without scheme, add https://
+		if strings.Contains(s3Endpoint, ".") || strings.Contains(s3Endpoint, ":") {
+			s3Endpoint = "https://" + s3Endpoint
+		} else {
+			return nil, fmt.Errorf("S3 endpoint must be a valid HTTP/HTTPS URL, got: %s", s3Endpoint)
+		}
+	}
+
+	// INPUT_URL: Full HTTP URL for the S3 object
+	// Format: {endpoint}/{bucket}/{path}
+	s3Path := fmt.Sprintf("%s/%s/%s", s3Endpoint, s3Bucket, model.Status.S3Path)
 
 	// Use the OpsJob download image (configured in values.yaml)
 	image := commonconfig.GetDownloadJoImage()
