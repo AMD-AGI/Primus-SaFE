@@ -507,12 +507,18 @@ def parse_args() -> List[str]:
     
     # Get nodes and set MAX_BYTES based on cluster size
     nodes = get_hosts(args.nodes_file)
-    MAX_BYTES = "16G" if len(nodes) >= 64 else "8G"
     
-    # # Reduce for AINIC mode
-    # if ENABLE_AINIC:
-    #     size_bytes = parse_size(MAX_BYTES)
-    #     MAX_BYTES = format_size(int(size_bytes * 0.125))
+    # Scale MAX_BYTES based on cluster size for more efficient testing
+    node_count = len(nodes)
+    if node_count >= 64:
+        MAX_BYTES = "16G"  # Large clusters: 16G
+    elif node_count > 8:
+        MAX_BYTES = "8G"   # Medium clusters (9-63 nodes): 8G
+    elif node_count >= 2:
+        MAX_BYTES = f"{node_count}G"  # Small clusters (2-8 nodes): node_count * 1G
+    else:
+        MAX_BYTES = "2G"  # Fallback for single node (shouldn't happen normally)
+
     
     return nodes
 
@@ -528,12 +534,12 @@ def main():
     test_name = "all_reduce_perf" if RCCL_TEST_TYPE == 0 else "alltoall_perf"
     
     # Log configuration details
-    log(f"🔍 Starting diagnosis on {nodes}, test={test_name}")
+    log(f"🔍 Starting diagnosis on {len(nodes)} nodes: {nodes}, test={test_name}")
     if ENABLE_AINIC:
         log("📌 AINIC mode enabled: PXN disabled, using ANP libraries")
     else:
         log("📌 Standard mode: using default RCCL configuration")
-    log(f"📊 Test parameters: MAX_BYTES={MAX_BYTES}, Interface={RCCL_SOCKET_IFNAME}")
+    log(f"📊 Test parameters: MAX_BYTES={MAX_BYTES} (adaptive for {len(nodes)} nodes), Interface={RCCL_SOCKET_IFNAME}")
     log("⚙️ Starting recursive diagnosis...")
     
     # Initialize global state
