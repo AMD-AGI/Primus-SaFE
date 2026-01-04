@@ -369,13 +369,12 @@ def run_rccl_test(nodes: List[str]) -> float:
                 # If process finished and no more output, break
                 if retcode is not None and not line:
                     # Read any remaining output after process ends
-                    if process.stdout:
-                        remaining = process.stdout.read()
-                        if remaining:
-                            print(remaining, end='', flush=True)
-                            f.write(remaining)
-                            f.flush()
-                            output_lines.append(remaining)
+                    remaining = process.stdout.read()
+                    if remaining:
+                        print(remaining, end='', flush=True)
+                        f.write(remaining)
+                        f.flush()
+                        output_lines.append(remaining)
                     break
             
             result_stdout = ''.join(output_lines)
@@ -531,13 +530,13 @@ def parse_args() -> List[str]:
     # Scale MAX_BYTES based on cluster size for more efficient testing
     node_count = len(nodes)
     if node_count >= 64:
-        MAX_BYTES = "16G"  # Large clusters: 16G
-    elif node_count > 8:
-        MAX_BYTES = "8G"   # Medium clusters (9-63 nodes): 8G
-    elif node_count >= 2:
-        MAX_BYTES = f"{node_count}G"  # Small clusters (2-8 nodes): node_count * 1G
+        MAX_BYTES = "16G"  # Large clusters (64+ nodes): 16G
+    elif node_count > 4:
+        MAX_BYTES = "8G"   # Medium clusters (5-63 nodes): 8G
+    elif node_count > 2:
+        MAX_BYTES = "4G"   # Small clusters (3-4 nodes): 4G
     else:
-        MAX_BYTES = "2G"  # Fallback for single node (shouldn't happen normally)
+        MAX_BYTES = "2G"   # Tiny clusters (1-2 nodes): 2G
 
     
     return nodes
