@@ -10,9 +10,13 @@ data:
   config.yaml: |
     httpPort: 8991
     loadK8SClient: true
+    loadStorageClient: true
     controller:
       namespace: primus-lens
       leaderElectionId: primus-lens-github-runners
+      metricsPort: 19891
+      healthzPort: 19892
+      pprofPort: 19893
 
 ---
 apiVersion: apps/v1
@@ -31,7 +35,7 @@ spec:
     metadata:
       annotations:
         prometheus.io/scrape: "true"
-        prometheus.io/port: "8992"
+        prometheus.io/port: "19891"
         prometheus.io/path: "/metrics"
       labels:
         app: primus-lens-github-runners-exporter
@@ -48,6 +52,12 @@ spec:
             - name: http
               containerPort: 8991
               protocol: TCP
+            - name: metrics
+              containerPort: 19891
+              protocol: TCP
+            - name: health
+              containerPort: 19892
+              protocol: TCP
           volumeMounts:
             - name: config-volume
               mountPath: /etc/primus-lens-github-runners-exporter/config.yaml
@@ -62,13 +72,13 @@ spec:
           livenessProbe:
             httpGet:
               path: /healthz
-              port: http
+              port: health
             initialDelaySeconds: 15
             periodSeconds: 20
           readinessProbe:
             httpGet:
               path: /readyz
-              port: http
+              port: health
             initialDelaySeconds: 5
             periodSeconds: 10
       volumes:
@@ -79,4 +89,3 @@ spec:
               - key: config.yaml
                 path: config.yaml
       restartPolicy: Always
-
