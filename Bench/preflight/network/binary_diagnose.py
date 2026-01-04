@@ -160,9 +160,6 @@ def parse_algbw(text: str, target_size: int, tolerance: int = 10000) -> float:
     lines = text.strip().splitlines()
     header_found = False
     
-    # Debug: Log if we're looking for a specific size
-    target_size_str = format_size(target_size) if target_size > 0 else str(target_size)
-    
     for line in lines:
         line = line.strip()
         
@@ -170,7 +167,6 @@ def parse_algbw(text: str, target_size: int, tolerance: int = 10000) -> float:
         if not header_found:
             if line.startswith('#') and all(k in line.lower() for k in ['algbw', 'busbw', 'size', 'count']):
                 header_found = True
-                log(f"[DEBUG] Found header line for algbw parsing")
             continue
         
         # Skip comments and empty lines
@@ -179,20 +175,14 @@ def parse_algbw(text: str, target_size: int, tolerance: int = 10000) -> float:
         
         # Parse data line
         parts = line.split()
-        if len(parts) >= 13:  # Changed from > 11 to >= 13 for better validation
+        if len(parts) > 10:  # Need at least 11 parts to access parts[10] (in-place algbw)
             try:
                 size = int(parts[0])
-                # Debug log for size matching
                 if abs(size - target_size) <= tolerance:
-                    algbw_value = float(parts[10])  # In-place algbw column
-                    log(f"[DEBUG] Found matching size {format_size(size)} (target: {target_size_str}), algbw = {algbw_value:.2f} GB/s")
-                    return algbw_value
-            except (ValueError, IndexError) as e:
-                log(f"[DEBUG] Failed to parse line: {line[:80]}... Error: {e}")
+                    return float(parts[10])  # In-place algbw column
+            except (ValueError, IndexError):
                 continue
     
-    # If we didn't find a match, log what we were looking for
-    log(f"[DEBUG] No matching size found for target {target_size_str} in output with {len(lines)} lines")
     return 0.0
 
 def check_connectivity(nodes: List[str], timeout: int = 300) -> bool:
