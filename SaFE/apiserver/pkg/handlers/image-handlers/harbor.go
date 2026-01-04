@@ -292,3 +292,61 @@ func newHTTPClientSkipTLS() *http.Client {
 		},
 	}
 }
+
+// harborDeleteArtifact deletes an artifact (image) from Harbor registry.
+// imageName format: harbor.example.com/project/repo/name:tag
+// The function parses the image name and calls Harbor DELETE API.
+func (h *ImageHandler) harborDeleteArtifact(ctx context.Context, imageName string) error {
+	// Get Harbor credentials
+	_, endpoint, password, err := h.GetHarborCredentials(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get harbor credentials: %w", err)
+	}
+	username := "admin"
+
+	// Parse image name to extract project, repository, and reference
+	// Format: harbor.example.com/Custom/rocm/7.0-preview:20250112
+	// -> project: Custom, repository: rocm/7.0-preview, reference: 20250112
+	project, repository, reference, err := parseHarborImageName(imageName)
+	if err != nil {
+		return fmt.Errorf("failed to parse image name: %w", err)
+	}
+
+	// URL encode the repository name (e.g., "rocm/7.0-preview" -> "rocm%2F7.0-preview")
+	encodedRepo := strings.ReplaceAll(repository, "/", "%2F")
+
+	// Build the delete path: /api/v2.0/projects/{project}/repositories/{repository}/artifacts/{reference}
+	deletePath := fmt.Sprintf("/api/v2.0/projects/%s/repositories/%s/artifacts/%s", project, encodedRepo, reference)
+
+	return h.harborDo(ctx, endpoint, deletePath, username, password, http.MethodDelete, nil, []int{http.StatusOK, http.StatusAccepted})
+}
+
+// parseHarborImageName parses an image name into project, repository, and reference.
+// Input format: harbor.example.com/project/repo/name:tag
+// Returns: project, repository (may contain '/'), tag/digest
+func parseHarborImageName(imageName string) (project, repository, reference string, err error) {
+	// Remove registry host: harbor.example.com/Custom/rocm/7.0-preview:20250112 -> Custom/rocm/7.0-preview:20250112
+	parts := strings.SplitN(imageName, "/", 2)
+	if len(parts) != 2 {
+		return "", "", "", fmt.Errorf("invalid image name format: missing registry host")
+	}
+	pathWithTag := parts[1] // Custom/rocm/7.0-preview:20250112
+
+	// Split by ':' to separate tag/digest
+	tagParts := strings.SplitN(pathWithTag, ":", 2)
+	if len(tagParts) != 2 {
+		return "", "", "", fmt.Errorf("invalid image name format: missing tag")
+	}
+	pathOnly := tagParts[0] // Custom/rocm/7.0-preview
+	reference = tagParts[1] // 20250112
+
+	// Split path to get project (first part) and repository (rest)
+	pathParts := strings.SplitN(pathOnly, "/", 2)
+	if len(pathParts) != 2 {
+		return "", "", "", fmt.Errorf("invalid image name format: missing project or repository")
+	}
+	project = pathParts[0]    // Custom
+	repository = pathParts[1] // rocm/7.0-preview
+
+	return project, repository, reference, nil
+}

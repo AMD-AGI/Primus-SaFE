@@ -158,6 +158,74 @@ func cvtImageToFlatResponse(images []*model.Image) []Image {
 	return res
 }
 
+// deleteExportedImage deletes an exported image record and optionally removes the image from Harbor.
+// It performs a soft delete of the ops_job record and attempts to delete the image from Harbor registry.
+func (h *ImageHandler) deleteExportedImage(c *gin.Context) (interface{}, error) {
+	jobId := c.Param("jobId")
+	if jobId == "" {
+		return nil, commonerrors.NewBadRequest("job id is required")
+	}
+
+	// Authorization check
+	if err := h.accessController.Authorize(authority.AccessInput{
+		Context:      c.Request.Context(),
+		ResourceKind: authority.ImageImportKind,
+		Verb:         v1.DeleteVerb,
+		UserId:       c.GetString(common.UserId),
+	}); err != nil {
+		return nil, err
+	}
+
+	// Get the ops_job record to find the image name
+	job, err := h.dbClient.GetOpsJob(c.Request.Context(), jobId)
+	if err != nil {
+		klog.ErrorS(err, "failed to get ops job", "jobId", jobId)
+		return nil, commonerrors.NewInternalError("Database Error")
+	}
+	if job == nil {
+		return nil, commonerrors.NewNotFound("exported image job", jobId)
+	}
+
+	// Check if already deleted
+	if job.IsDeleted {
+		return nil, commonerrors.NewBadRequest("exported image job already deleted")
+	}
+
+	// Extract image name from outputs field
+	var imageName string
+	if outputsStr := dbutils.ParseNullString(job.Outputs); outputsStr != "" {
+		var outputs []v1.Parameter
+		if err := json.Unmarshal([]byte(outputsStr), &outputs); err == nil {
+			for _, param := range outputs {
+				if param.Name == "target" {
+					imageName = param.Value
+					break
+				}
+			}
+		}
+	}
+
+	// Soft delete the database record first
+	if err := h.dbClient.SetOpsJobDeleted(c.Request.Context(), jobId); err != nil {
+		klog.ErrorS(err, "failed to soft delete ops job", "jobId", jobId)
+		return nil, commonerrors.NewInternalError("Database Error")
+	}
+
+	// Try to delete from Harbor if we have the image name
+	// This is best-effort - we don't fail the API if Harbor deletion fails
+	if imageName != "" {
+		if err := h.harborDeleteArtifact(c.Request.Context(), imageName); err != nil {
+			klog.Warningf("failed to delete image from harbor, image: %s, error: %v", imageName, err)
+			// Don't return error - the DB record is already deleted
+		} else {
+			klog.Infof("successfully deleted image from harbor: %s", imageName)
+		}
+	}
+
+	klog.Infof("deleted exported image job: %s, image: %s", jobId, imageName)
+	return nil, nil
+}
+
 // listExportedImage lists images that were exported from workloads by querying ops_job table.
 func (h *ImageHandler) listExportedImage(c *gin.Context) (interface{}, error) {
 	query, err := parseListImageQuery(c)
@@ -1396,6 +1464,7 @@ func convertOpsJobToExportedImageList(jobs []*dbClient.OpsJob) []ExportedImageLi
 
 	for _, job := range jobs {
 		item := ExportedImageListItem{
+			JobId:       job.JobId,
 			Status:      dbutils.ParseNullString(job.Phase),
 			CreatedTime: timeutil.FormatRFC3339(dbutils.ParseNullTime(job.CreationTime)),
 		}

@@ -28,6 +28,8 @@ const (
 	ComponentNodeAgent       = "node_agent"
 	ComponentCICDRunner      = "cicd_runner"
 	ComponentCICDUnifiedJob  = "cicd_unified_job"
+	ComponentModelDownloader = "model_downloader"
+	ComponentOpsDownload     = "ops_download"
 )
 
 // Image name constants (used in container registry)
@@ -41,13 +43,17 @@ const (
 	ImageNodeAgent       = "node-agent"
 	ImageCICDRunner      = "cicd-runner-proxy"
 	ImageCICDUnifiedJob  = "cicd-unified-job-proxy"
+	ImageModelDownloader = "model-downloader"
+	ImageOpsDownload     = "s3-downloader"
 )
 
 // YAML key constants for values.yaml
 const (
-	YAMLKeyCICDRunner     = "cicd.runner"
-	YAMLKeyCICDUnifiedJob = "cicd.unified_job"
-	YAMLKeyNodeAgentImage = "image"
+	YAMLKeyCICDRunner      = "cicd.runner"
+	YAMLKeyCICDUnifiedJob  = "cicd.unified_job"
+	YAMLKeyNodeAgentImage  = "image"
+	YAMLKeyModelDownloader = "model.downloader_image"
+	YAMLKeyOpsDownload     = "ops_job.download_image"
 )
 
 // ComponentImageMap maps component names to their image names (without version tag)
@@ -61,12 +67,21 @@ var ComponentImageMap = map[string]string{
 	ComponentNodeAgent:       ImageNodeAgent,
 	ComponentCICDRunner:      ImageCICDRunner,
 	ComponentCICDUnifiedJob:  ImageCICDUnifiedJob,
+	ComponentModelDownloader: ImageModelDownloader,
+	ComponentOpsDownload:     ImageOpsDownload,
 }
 
 // CICDComponentsMap maps CICD component names to their YAML keys
 var CICDComponentsMap = map[string]string{
 	ComponentCICDRunner:     YAMLKeyCICDRunner,
 	ComponentCICDUnifiedJob: YAMLKeyCICDUnifiedJob,
+}
+
+// SpecialComponentsMap maps special component names to their custom YAML keys
+// These components use non-standard YAML paths (not "component.image" format)
+var SpecialComponentsMap = map[string]string{
+	ComponentModelDownloader: YAMLKeyModelDownloader,
+	ComponentOpsDownload:     YAMLKeyOpsDownload,
 }
 
 // NormalizeImageVersion normalizes the image version input.

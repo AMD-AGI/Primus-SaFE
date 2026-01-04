@@ -74,7 +74,7 @@ func run() error {
 
 	fmt.Println("S3 client created successfully")
 
-	// Download file
+	// Download file or directory
 	fmt.Printf("Starting download: %s -> %s\n", loc.Key, destPath)
 	startTime := time.Now()
 
@@ -85,13 +85,25 @@ func run() error {
 	duration := time.Since(startTime)
 	fmt.Printf("Download completed successfully in %v\n", duration)
 
-	// Get file size
+	// Get file/directory size
 	fileInfo, err := os.Stat(destPath)
 	if err != nil {
-		return fmt.Errorf("[ERROR] failed to stat downloaded file: %w", err)
+		return fmt.Errorf("[ERROR] failed to stat downloaded path: %w", err)
 	}
 
-	fmt.Printf("[SUCCESS] Downloaded file to %s, size: %d bytes (%.2f GB)\n", destPath, fileInfo.Size(), float64(fileInfo.Size())/(1024*1024*1024))
+	if fileInfo.IsDir() {
+		// Calculate total directory size
+		var totalSize int64
+		filepath.Walk(destPath, func(_ string, info os.FileInfo, err error) error {
+			if err == nil && !info.IsDir() {
+				totalSize += info.Size()
+			}
+			return nil
+		})
+		fmt.Printf("[SUCCESS] Downloaded directory to %s, total size: %d bytes (%.2f GB)\n", destPath, totalSize, float64(totalSize)/(1024*1024*1024))
+	} else {
+		fmt.Printf("[SUCCESS] Downloaded file to %s, size: %d bytes (%.2f GB)\n", destPath, fileInfo.Size(), float64(fileInfo.Size())/(1024*1024*1024))
+	}
 
 	return nil
 }
