@@ -539,11 +539,11 @@ def parse_args() -> List[str]:
     elif node_count >= 8:
         MAX_BYTES = "8G"   # Medium clusters (8-63 nodes): 8G
     elif node_count > 4:
-        MAX_BYTES = "4G"   # Medium clusters (5-63 nodes): 8G
+        MAX_BYTES = "4G"   # Small clusters (5-7 nodes): 4G
     elif node_count > 2:
-        MAX_BYTES = "2G"   # Small clusters (3-4 nodes): 4G
+        MAX_BYTES = "2G"   # Small clusters (3-4 nodes): 2G
     else:
-        MAX_BYTES = "1G"   # Tiny clusters (1-2 nodes): 2G
+        MAX_BYTES = "1G"   # Tiny clusters (1-2 nodes): 1G
 
     
     return nodes
