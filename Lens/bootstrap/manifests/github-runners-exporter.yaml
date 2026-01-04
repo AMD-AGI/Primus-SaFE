@@ -43,7 +43,7 @@ spec:
       serviceAccountName: primus-lens-app
       containers:
         - name: app
-          image: docker.io/primussafe/github-runners-exporter:202601041206
+          image: docker.io/primussafe/github-runners-exporter:202601041727
           imagePullPolicy: IfNotPresent
           env:
             - name: CONFIG_PATH
@@ -71,13 +71,13 @@ spec:
               memory: "512Mi"
           livenessProbe:
             httpGet:
-              path: /healthz
+              path: /health
               port: health
             initialDelaySeconds: 15
             periodSeconds: 20
           readinessProbe:
             httpGet:
-              path: /readyz
+              path: /ready
               port: health
             initialDelaySeconds: 5
             periodSeconds: 10
