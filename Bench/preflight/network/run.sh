@@ -31,8 +31,7 @@ export BXGMI=${BXGMI:-315}
 export MAX_RETRY=${MAX_RETRY:-2}
 export ENABLE_AINIC=${ENABLE_AINIC:-"false"}
 
-# Only set PXN-related variables for non-AINIC mode
-# AINIC mode has its own optimized data path and these settings conflict
+# PXN settings only for non-AINIC mode (conflict with AINIC's optimized path)
 if [[ "$ENABLE_AINIC" != "true" ]]; then
   export NCCL_PXN_DISABLE=${NCCL_PXN_DISABLE:-1}
   export NCCL_P2P_NET_CHUNKSIZE=${NCCL_P2P_NET_CHUNKSIZE:-524288}

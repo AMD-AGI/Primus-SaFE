@@ -273,9 +273,9 @@ def build_env_vars() -> Dict[str, str]:
             "NCCL_IB_FIFO_TC": "192",
             "UCX_NET_DEVICES": RCCL_SOCKET_IFNAME
         })
-        # Remove any conflicting PXN-related environment variables
-        for key in ['NCCL_PXN_DISABLE', 'NCCL_P2P_NET_CHUNKSIZE']:
-            env.pop(key, None)
+        # Remove conflicting PXN-related environment variables
+        env.pop('NCCL_PXN_DISABLE', None)
+        env.pop('NCCL_P2P_NET_CHUNKSIZE', None)
     else:
         # Standard mode: use default library paths
         env.update({
@@ -306,16 +306,14 @@ def run_rccl_test(nodes: List[str]) -> float:
     # Add test-specific optimizations for alltoall tests
     if RCCL_TEST_TYPE == 1:
         if ENABLE_AINIC:
-            # AINIC mode: No PXN-related settings, they conflict with AINIC
-            # AINIC uses its own optimized data path
+            # AINIC mode uses its own optimized data path, skip PXN settings
             pass
         elif len(nodes) < 16:
             # Non-AINIC mode for small clusters: check if PXN optimization is needed
             pxn_disable = os.getenv('NCCL_PXN_DISABLE', '1')
             env_vars["NCCL_PXN_DISABLE"] = pxn_disable
             
-            # Only set P2P_NET_CHUNKSIZE if PXN is enabled (NCCL_PXN_DISABLE != '1')
-            # When PXN is disabled, P2P_NET_CHUNKSIZE is not needed
+            # Only set P2P_NET_CHUNKSIZE when PXN is enabled
             if pxn_disable != '1':
                 env_vars["NCCL_P2P_NET_CHUNKSIZE"] = os.getenv('NCCL_P2P_NET_CHUNKSIZE', '524288')
   
