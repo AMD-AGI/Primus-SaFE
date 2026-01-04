@@ -878,6 +878,21 @@ func (mr *MockInterfaceMockRecorder) SetInferenceDeleted(ctx, inferenceId interf
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetInferenceDeleted", reflect.TypeOf((*MockInterface)(nil).SetInferenceDeleted), ctx, inferenceId)
 }
 
+// GetOpsJob mocks base method.
+func (m *MockInterface) GetOpsJob(ctx context.Context, jobId string) (*client.OpsJob, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetOpsJob", ctx, jobId)
+	ret0, _ := ret[0].(*client.OpsJob)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetOpsJob indicates an expected call of GetOpsJob.
+func (mr *MockInterfaceMockRecorder) GetOpsJob(ctx, jobId interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOpsJob", reflect.TypeOf((*MockInterface)(nil).GetOpsJob), ctx, jobId)
+}
+
 // SetOpsJobDeleted mocks base method.
 func (m *MockInterface) SetOpsJobDeleted(ctx context.Context, opsJobId string) error {
 	m.ctrl.T.Helper()
@@ -1499,6 +1514,21 @@ func (m *MockOpsJobInterface) SelectJobs(ctx context.Context, query squirrel.Sql
 func (mr *MockOpsJobInterfaceMockRecorder) SelectJobs(ctx, query, orderBy, limit, offset interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SelectJobs", reflect.TypeOf((*MockOpsJobInterface)(nil).SelectJobs), ctx, query, orderBy, limit, offset)
+}
+
+// GetOpsJob mocks base method.
+func (m *MockOpsJobInterface) GetOpsJob(ctx context.Context, jobId string) (*client.OpsJob, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetOpsJob", ctx, jobId)
+	ret0, _ := ret[0].(*client.OpsJob)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetOpsJob indicates an expected call of GetOpsJob.
+func (mr *MockOpsJobInterfaceMockRecorder) GetOpsJob(ctx, jobId interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOpsJob", reflect.TypeOf((*MockOpsJobInterface)(nil).GetOpsJob), ctx, jobId)
 }
 
 // SetOpsJobDeleted mocks base method.
