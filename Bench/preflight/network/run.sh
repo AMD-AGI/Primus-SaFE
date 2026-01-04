@@ -153,12 +153,13 @@ if [[ "$RANK" == "0" ]]; then
       echo "${LOG_HEADER}[$(date +'%Y-%m-%d %H:%M:%S')] Running RCCL tests on nodes that passed IB test..."
       
       for i in "${!TEST_TYPES[@]}"; do
+        test_type=${TEST_TYPES[$i]}
+        test_name=${TEST_NAMES[$i]}
+        
         if [ ! -s "$NODES_FILE" ]; then
           echo "${LOG_HEADER}[$(date +'%Y-%m-%d %H:%M:%S')] No healthy nodes remaining, skipping $test_name"
           break
         fi
-        test_type=${TEST_TYPES[$i]}
-        test_name=${TEST_NAMES[$i]}
 
         echo "${LOG_HEADER}[$(date +'%Y-%m-%d %H:%M:%S')] Running $test_name (Run $run)..."
         log_file=$(mktemp) && touch "$log_file"
