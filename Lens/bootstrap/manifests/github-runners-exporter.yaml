@@ -1,0 +1,82 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: primus-lens-github-runners-exporter-config
+  namespace: primus-lens
+  labels:
+    app: primus-lens-github-runners-exporter
+data:
+  config.yaml: |
+    httpPort: 8991
+    loadK8SClient: true
+    controller:
+      namespace: primus-lens
+      leaderElectionId: primus-lens-github-runners
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: primus-lens-github-runners-exporter
+  namespace: primus-lens
+  labels:
+    app: primus-lens-github-runners-exporter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: primus-lens-github-runners-exporter
+  template:
+    metadata:
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8992"
+        prometheus.io/path: "/metrics"
+      labels:
+        app: primus-lens-github-runners-exporter
+    spec:
+      serviceAccountName: primus-lens-app
+      containers:
+        - name: app
+          image: docker.io/primussafe/github-runners-exporter:202601041206
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: CONFIG_PATH
+              value: /etc/primus-lens-github-runners-exporter/config.yaml
+          ports:
+            - name: http
+              containerPort: 8991
+              protocol: TCP
+          volumeMounts:
+            - name: config-volume
+              mountPath: /etc/primus-lens-github-runners-exporter/config.yaml
+              subPath: config.yaml
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      volumes:
+        - name: config-volume
+          configMap:
+            name: primus-lens-github-runners-exporter-config
+            items:
+              - key: config.yaml
+                path: config.yaml
+      restartPolicy: Always
+
