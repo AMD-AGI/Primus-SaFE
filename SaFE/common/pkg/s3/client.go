@@ -298,30 +298,123 @@ func (c *Client) PresignModelFiles(ctx context.Context, prefix string, expireHou
 	return urls, nil
 }
 
-// DownloadFile downloads a file from S3 to local path.
+// DownloadFile downloads a file or directory from S3 to local path.
+// If the key is a single file, it downloads directly.
+// If the key is a prefix (directory), it recursively downloads all files under that prefix.
 // Automatically chooses between simple download (for small files) and concurrent download (for large files).
 func (c *Client) DownloadFile(ctx context.Context, key, localPath string) error {
 	if c == nil {
 		return fmt.Errorf("please init client first")
 	}
 
-	// Get file size
+	// First, try to get the object as a single file
 	head, err := c.s3Client.HeadObject(ctx, &s3.HeadObjectInput{
 		Bucket: c.Bucket,
 		Key:    aws.String(key),
 	})
-	if err != nil {
-		return err
+	if err == nil {
+		// It's a single file, download it directly
+		fileSize := *head.ContentLength
+		if fileSize < largeFileThreshold {
+			return c.downloadSmallFile(ctx, key, localPath)
+		}
+		return c.downloadLargeFile(ctx, key, localPath)
 	}
-	fileSize := *head.ContentLength
 
-	// For small files, use simple download
-	if fileSize < largeFileThreshold {
-		return c.downloadSmallFile(ctx, key, localPath)
+	// HeadObject failed, check if it's a directory (prefix)
+	// Ensure key ends with "/" for proper prefix matching
+	prefix := key
+	if !strings.HasSuffix(prefix, "/") {
+		prefix = prefix + "/"
 	}
 
-	// For large files, use concurrent download
-	return c.downloadLargeFile(ctx, key, localPath)
+	// List objects with this prefix
+	listOutput, listErr := c.s3Client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
+		Bucket: c.Bucket,
+		Prefix: aws.String(prefix),
+	})
+	if listErr != nil {
+		// Return the original HeadObject error if ListObjects also fails
+		return fmt.Errorf("not a file and failed to list as directory: %w", err)
+	}
+
+	if len(listOutput.Contents) == 0 {
+		// No objects found with this prefix, return original error
+		return fmt.Errorf("no objects found with key or prefix: %s", key)
+	}
+
+	// It's a directory, download all files recursively
+	fmt.Printf("Detected directory with %d objects, downloading recursively...\n", len(listOutput.Contents))
+
+	// Ensure local directory exists
+	if err := os.MkdirAll(localPath, 0755); err != nil {
+		return fmt.Errorf("failed to create local directory: %w", err)
+	}
+
+	// Download each object
+	for _, obj := range listOutput.Contents {
+		objKey := *obj.Key
+		// Skip the directory marker itself (if any)
+		if strings.HasSuffix(objKey, "/") {
+			continue
+		}
+
+		// Calculate relative path and local file path
+		relativePath := strings.TrimPrefix(objKey, prefix)
+		localFilePath := filepath.Join(localPath, relativePath)
+
+		fmt.Printf("Downloading: %s -> %s\n", objKey, localFilePath)
+
+		// Download the file
+		fileSize := *obj.Size
+		if fileSize < largeFileThreshold {
+			if err := c.downloadSmallFile(ctx, objKey, localFilePath); err != nil {
+				return fmt.Errorf("failed to download %s: %w", objKey, err)
+			}
+		} else {
+			if err := c.downloadLargeFile(ctx, objKey, localFilePath); err != nil {
+				return fmt.Errorf("failed to download %s: %w", objKey, err)
+			}
+		}
+	}
+
+	// Handle pagination if there are more objects
+	for listOutput.IsTruncated != nil && *listOutput.IsTruncated {
+		listOutput, listErr = c.s3Client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
+			Bucket:            c.Bucket,
+			Prefix:            aws.String(prefix),
+			ContinuationToken: listOutput.NextContinuationToken,
+		})
+		if listErr != nil {
+			return fmt.Errorf("failed to list more objects: %w", listErr)
+		}
+
+		for _, obj := range listOutput.Contents {
+			objKey := *obj.Key
+			if strings.HasSuffix(objKey, "/") {
+				continue
+			}
+
+			relativePath := strings.TrimPrefix(objKey, prefix)
+			localFilePath := filepath.Join(localPath, relativePath)
+
+			fmt.Printf("Downloading: %s -> %s\n", objKey, localFilePath)
+
+			fileSize := *obj.Size
+			if fileSize < largeFileThreshold {
+				if err := c.downloadSmallFile(ctx, objKey, localFilePath); err != nil {
+					return fmt.Errorf("failed to download %s: %w", objKey, err)
+				}
+			} else {
+				if err := c.downloadLargeFile(ctx, objKey, localFilePath); err != nil {
+					return fmt.Errorf("failed to download %s: %w", objKey, err)
+				}
+			}
+		}
+	}
+
+	fmt.Printf("Directory download completed successfully\n")
+	return nil
 }
 
 // downloadSmallFile performs a simple single-request download for small files.
