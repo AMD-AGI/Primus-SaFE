@@ -369,12 +369,13 @@ def run_rccl_test(nodes: List[str]) -> float:
                 # If process finished and no more output, break
                 if retcode is not None and not line:
                     # Read any remaining output after process ends
-                    remaining = process.stdout.read()
-                    if remaining:
-                        print(remaining, end='', flush=True)
-                        f.write(remaining)
-                        f.flush()
-                        output_lines.append(remaining)
+                    if process.stdout:
+                        remaining = process.stdout.read()
+                        if remaining:
+                            print(remaining, end='', flush=True)
+                            f.write(remaining)
+                            f.flush()
+                            output_lines.append(remaining)
                     break
             
             result_stdout = ''.join(output_lines)
