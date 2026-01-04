@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-#  Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+#  Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
 #  See LICENSE for license information.
 
 import argparse
@@ -14,7 +14,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from queue import Queue, Empty
-from typing import List, Tuple
+from typing import List, Tuple, Dict
 
 # ================= Configuration =================
 # System paths
@@ -175,13 +175,14 @@ def parse_algbw(text: str, target_size: int, tolerance: int = 10000) -> float:
         
         # Parse data line
         parts = line.split()
-        if len(parts) > 11:
+        if len(parts) > 10:  # Need at least 11 parts to access parts[10] (in-place algbw)
             try:
                 size = int(parts[0])
                 if abs(size - target_size) <= tolerance:
-                    return float(parts[10])
+                    return float(parts[10])  # In-place algbw column
             except (ValueError, IndexError):
                 continue
+    
     return 0.0
 
 def check_connectivity(nodes: List[str], timeout: int = 300) -> bool:
@@ -235,11 +236,11 @@ def check_connectivity(nodes: List[str], timeout: int = 300) -> bool:
     log(f"[CONNECTIVITY] Failed to establish connectivity within {timeout} seconds")
     return False
 
-def build_env_vars() -> dict:
+def build_env_vars() -> Dict[str, str]:
     """Build environment variables for RCCL test."""
     env = os.environ.copy()
     
-    # Common environment variables
+    # Common environment variables for all modes
     env.update({
         "MPIEXEC_ALLOW_ROOT": "1",
         "NCCL_SOCKET_IFNAME": RCCL_SOCKET_IFNAME,
@@ -257,11 +258,11 @@ def build_env_vars() -> dict:
         "MPIEXEC_RSH": f"ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -p {SSH_PORT}"
     })
     
-    # AINIC-specific settings
     if ENABLE_AINIC:
+        # AINIC mode: PXN must be disabled, use special library paths
         env.update({
             "LD_LIBRARY_PATH": f"/opt/amd-anp/build:/opt/rccl/build/release:{LD_LIBRARY_PATH}",
-            "NCCL_PXN_DISABLE": "0",
+            "NCCL_PXN_DISABLE": "1",  # AINIC requires PXN to be disabled
             "NCCL_DMABUF_ENABLE": "0",
             "NCCL_GDR_FLUSH_DISABLE": "1",
             "NCCL_IGNORE_CPU_AFFINITY": "1",
@@ -269,6 +270,7 @@ def build_env_vars() -> dict:
             "UCX_NET_DEVICES": RCCL_SOCKET_IFNAME
         })
     else:
+        # Standard mode: use default library paths
         env.update({
             "LD_LIBRARY_PATH": LD_LIBRARY_PATH,
             "UCX_NET_DEVICES": RCCL_IB_HCA.split(',')[0] + ":1"
@@ -294,8 +296,9 @@ def run_rccl_test(nodes: List[str]) -> float:
     # Build environment variables
     env_vars = build_env_vars()
     
-    # Add test-specific settings for alltoall
+    # Add test-specific optimizations for small-scale alltoall tests (non-AINIC only)
     if RCCL_TEST_TYPE == 1 and len(nodes) < 16 and not ENABLE_AINIC:
+        # For small clusters, optimize P2P communication
         env_vars.update({
             "NCCL_PXN_DISABLE": os.getenv('NCCL_PXN_DISABLE', '1'),
             "NCCL_P2P_NET_CHUNKSIZE": os.getenv('NCCL_P2P_NET_CHUNKSIZE', '524288')
@@ -339,11 +342,13 @@ def run_rccl_test(nodes: List[str]) -> float:
                 retcode = process.poll()
                 
                 # Read available output
+                line = ""
                 if process.stdout:
                     line = process.stdout.readline()
                     if line:
                         print(line, end='', flush=True)
                         f.write(line)
+                        f.flush()  # Ensure data is written to file
                         output_lines.append(line)
                 
                 # Check timeout
@@ -353,6 +358,13 @@ def run_rccl_test(nodes: List[str]) -> float:
                 
                 # If process finished and no more output, break
                 if retcode is not None and not line:
+                    # Read any remaining output after process ends
+                    remaining = process.stdout.read()
+                    if remaining:
+                        print(remaining, end='', flush=True)
+                        f.write(remaining)
+                        f.flush()
+                        output_lines.append(remaining)
                     break
             
             result_stdout = ''.join(output_lines)
@@ -379,6 +391,8 @@ def diagnose_single_with_healthy(suspect_node: str, timeout: float = 600.0) -> T
     Retrieve a healthy node from the global health node pool and return it after testing is completed
     """
     start_time = time.time()
+    healthy_node = None
+    
     while time.time() - start_time < timeout:
         try:
             healthy_node = healthy_node_queue.get_nowait()
@@ -399,7 +413,7 @@ def diagnose_single_with_healthy(suspect_node: str, timeout: float = 600.0) -> T
             continue
         except Exception as e:
             log(f"[WARN] Exception during test for {suspect_node}: {e}")
-            if 'healthy_node' in locals():
+            if healthy_node is not None:
                 healthy_node_queue.put(healthy_node)
             return suspect_node, True
 
@@ -478,7 +492,8 @@ def parse_args() -> List[str]:
     parser.add_argument("--ib_gid_index", type=int, default=None, help="NCCL_IB_GID_INDEX")
     parser.add_argument("--rccl_test_type", type=int, default=0, choices=[0, 1], 
                        help="0: all_reduce_perf, 1: alltoall_perf")
-    parser.add_argument("--enable_ainic", type=str, default="false", help="Enable ANP")
+    parser.add_argument("--enable_ainic", type=str, default="false", 
+                       help="Enable AINIC mode (disables PXN, uses ANP libraries)")
     
     args = parser.parse_args()
     
@@ -492,19 +507,27 @@ def parse_args() -> List[str]:
     RCCL_IB_HCA = args.ib_hca
     SSH_PORT = args.ssh_port
     RCCL_TEST_TYPE = args.rccl_test_type
-    ENABLE_AINIC = args.enable_ainic.lower() == 'true' or os.environ.get('ENABLE_AINIC', '').lower() == 'true'
+    # Check both command line and environment for AINIC enablement
+    ENABLE_AINIC = (args.enable_ainic.lower() == 'true' or 
+                   os.environ.get('ENABLE_AINIC', '').lower() == 'true')
     
     if args.ib_gid_index is not None:
         NCCL_IB_GID_INDEX = args.ib_gid_index
     
     # Get nodes and set MAX_BYTES based on cluster size
     nodes = get_hosts(args.nodes_file)
-    MAX_BYTES = "16G" if len(nodes) >= 64 else "8G"
     
-    # Reduce for AINIC mode
-    if ENABLE_AINIC:
-        size_bytes = parse_size(MAX_BYTES)
-        MAX_BYTES = format_size(int(size_bytes * 0.125))
+    # Scale MAX_BYTES based on cluster size for more efficient testing
+    node_count = len(nodes)
+    if node_count >= 64:
+        MAX_BYTES = "16G"  # Large clusters (64+ nodes): 16G
+    elif node_count > 4:
+        MAX_BYTES = "8G"   # Medium clusters (5-63 nodes): 8G
+    elif node_count > 2:
+        MAX_BYTES = "4G"   # Small clusters (3-4 nodes): 4G
+    else:
+        MAX_BYTES = "2G"   # Tiny clusters (1-2 nodes): 2G
+
     
     return nodes
 
@@ -519,7 +542,13 @@ def main():
     # Get test name for logging
     test_name = "all_reduce_perf" if RCCL_TEST_TYPE == 0 else "alltoall_perf"
     
-    log(f"🔍 Starting diagnosis on {nodes}, test={test_name}")
+    # Log configuration details
+    log(f"🔍 Starting diagnosis on {len(nodes)} nodes: {nodes}, test={test_name}")
+    if ENABLE_AINIC:
+        log("📌 AINIC mode enabled: PXN disabled, using ANP libraries")
+    else:
+        log("📌 Standard mode: using default RCCL configuration")
+    log(f"📊 Test parameters: MAX_BYTES={MAX_BYTES} (adaptive for {len(nodes)} nodes), Interface={RCCL_SOCKET_IFNAME}")
     log("⚙️ Starting recursive diagnosis...")
     
     # Initialize global state
