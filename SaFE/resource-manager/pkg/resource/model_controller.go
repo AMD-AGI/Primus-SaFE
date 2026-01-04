@@ -675,13 +675,15 @@ func (r *ModelReconciler) constructLocalDownloadOpsJob(ctx context.Context, mode
 
 	// Create a temporary Secret containing S3 credentials for the download job
 	// The secret will be mounted to /etc/secrets/<secret-name>/ in the workload container
+	// NOTE: Secret MUST be in primus-safe namespace because workload webhook only validates secrets in that namespace
 	secretName := fmt.Sprintf("s3-creds-%s", jobName)
 	s3Secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      secretName,
-			Namespace: lp.Workspace, // Secret in workspace namespace for workload access
+			Namespace: common.PrimusSafeNamespace, // Must be in primus-safe namespace for webhook validation
 			Labels: map[string]string{
-				v1.ModelIdLabel: model.Name,
+				v1.ModelIdLabel:     model.Name,
+				v1.WorkspaceIdLabel: lp.Workspace,
 			},
 		},
 		Type: corev1.SecretTypeOpaque,
@@ -695,12 +697,12 @@ func (r *ModelReconciler) constructLocalDownloadOpsJob(ctx context.Context, mode
 
 	// Create or update the secret
 	existingSecret := &corev1.Secret{}
-	if err := r.Get(ctx, client.ObjectKey{Name: secretName, Namespace: lp.Workspace}, existingSecret); err != nil {
+	if err := r.Get(ctx, client.ObjectKey{Name: secretName, Namespace: common.PrimusSafeNamespace}, existingSecret); err != nil {
 		if errors.IsNotFound(err) {
 			if err := r.Create(ctx, s3Secret); err != nil {
 				return nil, fmt.Errorf("failed to create S3 credentials secret: %w", err)
 			}
-			klog.InfoS("Created S3 credentials secret for model download", "secret", secretName, "namespace", lp.Workspace)
+			klog.InfoS("Created S3 credentials secret for model download", "secret", secretName, "namespace", common.PrimusSafeNamespace)
 		} else {
 			return nil, fmt.Errorf("failed to check S3 credentials secret: %w", err)
 		}
