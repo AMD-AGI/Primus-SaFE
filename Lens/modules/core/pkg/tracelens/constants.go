@@ -15,10 +15,60 @@ const (
 
 // Resource Profile constants
 const (
-	ProfileSmall  = "small"  // 2GB RAM
-	ProfileMedium = "medium" // 4GB RAM
-	ProfileLarge  = "large"  // 8GB RAM
+	ProfileSmall  = "small"
+	ProfileMedium = "medium"
+	ProfileLarge  = "large"
 )
+
+// ResourceProfileConfig represents a resource profile configuration
+type ResourceProfileConfig struct {
+	Value       string `json:"value"`
+	Label       string `json:"label"`
+	Description string `json:"description"`
+	Memory      string `json:"memory"`
+	MemoryBytes int64  `json:"memory_bytes"`
+	CPU         int    `json:"cpu"`
+	IsDefault   bool   `json:"is_default,omitempty"`
+}
+
+// ResourceProfiles contains all available resource profile configurations
+var ResourceProfiles = []ResourceProfileConfig{
+	{
+		Value:       ProfileSmall,
+		Label:       "Small (8GB Memory, 1 CPU)",
+		Description: "Suitable for small trace files (< 5MB)",
+		Memory:      "8Gi",
+		MemoryBytes: 8 * 1024 * 1024 * 1024,
+		CPU:         1,
+	},
+	{
+		Value:       ProfileMedium,
+		Label:       "Medium (16GB Memory, 2 CPU)",
+		Description: "Recommended (5-20MB)",
+		Memory:      "16Gi",
+		MemoryBytes: 16 * 1024 * 1024 * 1024,
+		CPU:         2,
+		IsDefault:   true,
+	},
+	{
+		Value:       ProfileLarge,
+		Label:       "Large (32GB Memory, 4 CPU)",
+		Description: "Suitable for large trace files (> 20MB)",
+		Memory:      "32Gi",
+		MemoryBytes: 32 * 1024 * 1024 * 1024,
+		CPU:         4,
+	},
+}
+
+// GetResourceProfile returns the resource profile config by value
+func GetResourceProfile(value string) *ResourceProfileConfig {
+	for _, p := range ResourceProfiles {
+		if p.Value == value {
+			return &p
+		}
+	}
+	return nil
+}
 
 // Default values
 const (

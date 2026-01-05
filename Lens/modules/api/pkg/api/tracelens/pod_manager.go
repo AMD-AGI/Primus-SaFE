@@ -323,14 +323,12 @@ func waitForPodReady(ctx context.Context, client kubernetes.Interface, namespace
 }
 
 func getResourceLimits(profile string) (memory, cpu string) {
-	switch profile {
-	case tlconst.ProfileSmall:
-		return "2Gi", "1"
-	case tlconst.ProfileLarge:
-		return "16Gi", "4" // Increased from 8Gi for large trace files (1.5GB+ uncompressed)
-	default: // medium
-		return "8Gi", "2" // Increased from 4Gi
+	p := tlconst.GetResourceProfile(profile)
+	if p != nil {
+		return p.Memory, fmt.Sprintf("%d", p.CPU)
 	}
+	// fallback to medium if profile not found
+	return "16Gi", "2"
 }
 
 func getPodFailureReason(pod *corev1.Pod) string {

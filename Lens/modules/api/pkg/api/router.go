@@ -245,6 +245,9 @@ func RegisterRouter(group *gin.RouterGroup) error {
 	// TraceLens Session routes - On-demand trace analysis
 	tracelensGroup := group.Group("/tracelens")
 	{
+		// Get available resource profiles
+		tracelensGroup.GET("/resource-profiles", tracelens.GetResourceProfiles)
+
 		// Session management
 		sessionsGroup := tracelensGroup.Group("/sessions")
 		{
