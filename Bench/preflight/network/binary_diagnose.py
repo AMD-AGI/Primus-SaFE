@@ -260,7 +260,6 @@ def build_env_vars() -> Dict[str, str]:
     
     if ENABLE_AINIC:
         # AINIC mode: use special library paths and AINIC-specific settings
-        # NOTE: Do NOT set NCCL_PXN_DISABLE or NCCL_P2P_NET_CHUNKSIZE in AINIC mode
         env.update({
             "LD_LIBRARY_PATH": f"/opt/amd-anp/build:/opt/amd-anp/build/lib:/opt/rccl/build/release:{LD_LIBRARY_PATH}",
             "NCCL_DMABUF_ENABLE": "0",
@@ -271,11 +270,10 @@ def build_env_vars() -> Dict[str, str]:
             "RCCL_GDR_FLUSH_GPU_MEM_NO_RELAXED_ORDERING": "0",
             "NCCL_IB_TC": "104",
             "NCCL_IB_FIFO_TC": "192",
+            "NCCL_IB_QPS_PER_CONNECTION": "1",
             "UCX_NET_DEVICES": RCCL_SOCKET_IFNAME
         })
-        # Remove conflicting PXN-related environment variables
-        env.pop('NCCL_PXN_DISABLE', None)
-        env.pop('NCCL_P2P_NET_CHUNKSIZE', None)
+
     else:
         # Standard mode: use default library paths
         env.update({
@@ -305,18 +303,10 @@ def run_rccl_test(nodes: List[str]) -> float:
     
     # Add test-specific optimizations for alltoall tests
     if RCCL_TEST_TYPE == 1:
-        if ENABLE_AINIC:
-            # AINIC mode uses its own optimized data path, skip PXN settings
-            pass
-        elif len(nodes) < 16:
-            # Non-AINIC mode for small clusters: check if PXN optimization is needed
-            pxn_disable = os.getenv('NCCL_PXN_DISABLE', '1')
-            env_vars["NCCL_PXN_DISABLE"] = pxn_disable
+        if len(nodes) < 16:
+            env_vars["NCCL_PXN_DISABLE"] = "0"
+            env_vars["NCCL_P2P_NET_CHUNKSIZE"] = "524288"
             
-            # Only set P2P_NET_CHUNKSIZE when PXN is enabled
-            if pxn_disable != '1':
-                env_vars["NCCL_P2P_NET_CHUNKSIZE"] = os.getenv('NCCL_P2P_NET_CHUNKSIZE', '524288')
-  
     # Build command
     nodes_str = ",".join(nodes)
     np = len(nodes) * NUM_GPUS_PER_NODE
@@ -506,7 +496,7 @@ def parse_args() -> List[str]:
     parser.add_argument("--rccl_test_type", type=int, default=0, choices=[0, 1], 
                        help="0: all_reduce_perf, 1: alltoall_perf")
     parser.add_argument("--enable_ainic", type=str, default="false", 
-                       help="Enable AINIC mode (disables PXN, uses ANP libraries)")
+                       help="Enable AINIC mode (uses ANP libraries)")
     
     args = parser.parse_args()
     
@@ -560,7 +550,7 @@ def main():
     # Log configuration details
     log(f"🔍 Starting diagnosis on {len(nodes)} nodes: {nodes}, test={test_name}")
     if ENABLE_AINIC:
-        log("📌 AINIC mode enabled: PXN disabled, using ANP libraries")
+        log("📌 AINIC mode enabled: using ANP libraries")
     else:
         log("📌 Standard mode: using default RCCL configuration")
     log(f"📊 Test parameters: MAX_BYTES={MAX_BYTES} (adaptive for {len(nodes)} nodes), Interface={RCCL_SOCKET_IFNAME}")
