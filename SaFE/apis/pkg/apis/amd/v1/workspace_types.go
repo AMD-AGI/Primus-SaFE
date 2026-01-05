@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -107,6 +107,8 @@ type WorkspaceStatus struct {
 	TotalResources corev1.ResourceList `json:"totalResources,omitempty"`
 	// The available resource of workspace
 	AvailableResources corev1.ResourceList `json:"availableResources,omitempty"`
+	// The abnormal resource of workspace
+	AbnormalResources corev1.ResourceList `json:"abnormalResources,omitempty"`
 	// The available node count of workspace
 	AvailableReplica int `json:"availableReplica,omitempty"`
 	// The abnormal node count of workspace

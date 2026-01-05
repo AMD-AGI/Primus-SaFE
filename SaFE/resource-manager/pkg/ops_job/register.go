@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -34,6 +34,12 @@ func SetupOpsJobs(ctx context.Context, mgr manager.Manager) error {
 	}
 	if err := SetupPrewarmJobController(ctx, mgr); err != nil {
 		return fmt.Errorf("prewarm-job controller: %v", err)
+	}
+	if err := SetupDownloadJobController(mgr); err != nil {
+		return fmt.Errorf("download-job controller: %v", err)
+	}
+	if err := SetupCDJobController(mgr); err != nil {
+		return fmt.Errorf("cd-job controller: %v", err)
 	}
 	return nil
 }

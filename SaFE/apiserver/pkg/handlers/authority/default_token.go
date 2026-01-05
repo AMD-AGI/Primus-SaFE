@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -80,7 +80,7 @@ func (t *defaultToken) Login(ctx context.Context, input TokenInput) (*v1.User, *
 	}
 
 	// Generate and encode token
-	result.Token, err = generateDefaultToken(userId, result.Expire)
+	result.Token, err = generateDefaultToken(userId, result.Expire, input.Username)
 	if err != nil {
 		klog.ErrorS(err, "failed to generate user token")
 		return nil, nil, err
@@ -103,7 +103,7 @@ func (t *defaultToken) Validate(_ context.Context, rawToken string) (*UserInfo, 
 	}
 
 	parts := strings.Split(tokenPlain, TokenDelim)
-	if len(parts) != 3 {
+	if len(parts) != 4 {
 		klog.Errorf("invalid user token, tokenPlain: %s, current len: %d", tokenPlain, len(parts))
 		return nil, fmt.Errorf("invalid token")
 	}
@@ -120,20 +120,17 @@ func (t *defaultToken) Validate(_ context.Context, rawToken string) (*UserInfo, 
 	if commonconfig.GetUserTokenExpire() > 0 && time.Now().Unix() > expire {
 		return nil, fmt.Errorf("%s", ErrTokenExpire)
 	}
-	return &UserInfo{
-		Id:  parts[0],
-		Exp: expire,
-	}, nil
+	return &UserInfo{Id: parts[0], Exp: expire, Name: parts[3]}, nil
 }
 
 // generateDefaultToken generates an authentication token for a user with optional encryption.
 // The token contains user ID, expiration time, and user type.
 // Returns the token string or an error if generation fails.
-func generateDefaultToken(userId string, expire int64) (string, error) {
+func generateDefaultToken(userId string, expire int64, username string) (string, error) {
 	if userId == "" {
 		return "", fmt.Errorf("invalid token item parameters")
 	}
-	tokenStr := userId + TokenDelim + strconv.FormatInt(expire, 10) + TokenDelim + string(v1.DefaultUserType)
+	tokenStr := userId + TokenDelim + strconv.FormatInt(expire, 10) + TokenDelim + string(v1.DefaultUserType) + TokenDelim + username
 	if !commonconfig.IsCryptoEnable() {
 		return tokenStr, nil
 	}

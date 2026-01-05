@@ -29,7 +29,11 @@
           }}
 
     - name: Run script with full system ENV + overrides
-      shell: bash run.sh 2>&1 | tee /tmp/node.log
+      shell: |
+        LOG={{ output_dir }}/$(hostname)
+        mkdir -p $LOG
+        echo ${LOG}
+        bash run.sh 2>&1 | tee ${LOG}/node.log
       args:
         chdir: "{{ workspace }}/preflight/node"
         executable: /bin/bash

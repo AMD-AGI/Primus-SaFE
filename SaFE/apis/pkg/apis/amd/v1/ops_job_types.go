@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -31,6 +31,8 @@ const (
 	OpsJobRebootType      OpsJobType = "reboot"
 	OpsJobExportImageType OpsJobType = "exportimage"
 	OpsJobPrewarmType     OpsJobType = "prewarm"
+	OpsJobDownloadType    OpsJobType = "download"
+	OpsJobCDType          OpsJobType = "cd" // CD deployment job
 
 	ParameterNode          = "node"
 	ParameterNodeTemplate  = "node.template"
@@ -40,6 +42,21 @@ const (
 	ParameterCluster       = "cluster"
 	ParameterEndpoint      = "endpoint"
 	ParameterImage         = "image"
+	ParameterSecret        = "secret"
+	ParameterDestPath      = "dest.path"
+
+	// CD job specific parameters
+	ParameterDeploymentRequestId = "deployment.request.id" // Deployment request ID from database
+	ParameterDeployPhase         = "deploy.phase"          // Deployment phase: local/remote/verify
+	ParameterComponentTags       = "component.tags"        // Component image tags to deploy
+	ParameterNodeAgentTags       = "nodeagent.tags"        // Node agent image tags
+	ParameterEnvFileConfig       = "env.file.config"       // Base64 encoded .env file content
+	ParameterDeployBranch        = "deploy.branch"         // Git branch for deployment
+	ParameterHasNodeAgent        = "has.nodeagent"         // Whether node agent update is needed
+	ParameterHasCICD             = "has.cicd"              // Whether CICD update is needed
+	ParameterNodeAgentImage      = "nodeagent.image"       // Node agent image
+	ParameterCICDRunnerImage     = "cicd.runner.image"     // CICD runner image
+	ParameterCICDUnifiedImage    = "cicd.unified.image"    // CICD unified job image
 )
 
 type Parameter struct {
@@ -65,11 +82,11 @@ type OpsJobSpec struct {
 	TimeoutSecond int `json:"timeoutSecond,omitempty"`
 	// Environment variables
 	Env map[string]string `json:"env,omitempty"`
-	// Indicates whether the job tolerates node taints
+	// Indicates whether the job tolerates node taints. for preflight, default false
 	IsTolerateAll bool `json:"isTolerateAll"`
 	// The hostpath for opsjob mounting.
 	Hostpath []string `json:"hostpath,omitempty"`
-	// The nodes to be excluded
+	// The nodes to be excluded, for preflight/addon
 	ExcludedNodes []string `json:"excludedNodes,omitempty"`
 }
 
@@ -188,14 +205,22 @@ func CvtParamToString(p *Parameter) string {
 	return p.Name + ":" + p.Value
 }
 
-// CvtStringToParam converts data to the target format.
+// CvtStringToParam converts a string in format "name:value" to a Parameter struct.
+// If the string does not contain exactly one colon separator, returns nil.
 func CvtStringToParam(str string) *Parameter {
-	splitArray := strings.Split(str, ":")
-	if len(splitArray) != 2 {
+	// Find the index of the first colon
+	colonIndex := strings.Index(str, ":")
+	if colonIndex == -1 {
+		// No colon found
 		return nil
 	}
+
+	// Split at the first colon
+	name := str[:colonIndex]
+	value := str[colonIndex+1:]
+
 	return &Parameter{
-		Name:  splitArray[0],
-		Value: splitArray[1],
+		Name:  name,
+		Value: value,
 	}
 }

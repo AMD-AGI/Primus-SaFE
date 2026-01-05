@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #
-# Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+# Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
 # See LICENSE for license information.
 #
 
@@ -53,7 +53,8 @@ echo "✅ Ingress Name: \"$ingress\""
 if [[ "$ingress" == "higress" ]]; then
   echo "✅ Cluster Name: \"$sub_domain\""
 fi
-echo "✅ Upgrade node-agent: \"$install_node_agent\""
+echo "✅ Image Registry: \"$proxy_image_registry\""
+echo "✅ CD Require Approval: \"$cd_require_approval\""
 
 echo
 
@@ -87,6 +88,9 @@ fi
 values_yaml="primus-safe/.values.yaml"
 cp "$src_values_yaml" "${values_yaml}"
 
+safe_image=$(printf '%s\n' "$proxy_image_registry" | sed 's/[&/\]/\\&/g')
+sed -i '/global:/,/^[a-z]/ s/image_registry: .*/image_registry: "'"$safe_image"'"/' "$values_yaml"
+
 sed -i "s/nccl_socket_ifname: \".*\"/nccl_socket_ifname: \"$ethernet_nic\"/" "$values_yaml"
 sed -i "s/nccl_ib_hca: \".*\"/nccl_ib_hca: \"$rdma_nic\"/" "$values_yaml"
 if [[ "$ingress" == "higress" ]]; then
@@ -112,6 +116,7 @@ sed -i '/sso:/,/^[a-z]/ s/enable: .*/enable: '"$sso_enable"'/' "$values_yaml"
 if [[ "$sso_enable" == "true" ]]; then
   sed -i '/^sso:/,/^[a-z]/ s#secret: ".*"#secret: "'"$SSO_SECRET"'"#' "$values_yaml"
 fi
+sed -i '/^cd:/,/^[a-z]/ s/require_approval: .*/require_approval: '"$cd_require_approval"'/' "$values_yaml"
 
 # Configure proxy services if defined in .env
 if [[ -n "${proxy_services:-}" ]]; then
@@ -122,11 +127,11 @@ fi
 
 chart_name="primus-safe"
 if helm -n "$NAMESPACE" list | grep -q "^$chart_name "; then
-  kubectl replace -f $chart_name/crds/ -n "$NAMESPACE"
+  kubectl replace -f $chart_name/crds/ -n "$NAMESPACE" || kubectl create -f $chart_name/crds/ -n "$NAMESPACE"
   mkdir -p output
   helm template "$chart_name" -f "$values_yaml" -n "$NAMESPACE" "$chart_name" --output-dir ./output 1>/dev/null
-  kubectl replace -f output/$chart_name/templates/rbac/role.yaml
-  kubectl replace -f output/$chart_name/templates/webhooks/manifests.yaml
+  kubectl replace -f output/$chart_name/templates/rbac/role.yaml || kubectl create -f output/$chart_name/templates/rbac/role.yaml
+  kubectl replace -f output/$chart_name/templates/webhooks/manifests.yaml || kubectl create -f output/$chart_name/templates/webhooks/manifests.yaml
   echo
   rm -rf output
 fi
@@ -135,28 +140,28 @@ install_or_upgrade_helm_chart "$chart_name" "$values_yaml"
 install_or_upgrade_helm_chart "primus-safe-cr" "$values_yaml"
 rm -f "$values_yaml"
 
-if [[ "$install_node_agent" == "y" ]]; then
-  echo
-  echo "========================================="
-  echo "🔧 Step 3: upgrade primus-safe data plane"
-  echo "========================================="
+echo
+echo "========================================="
+echo "🔧 Step 3: upgrade primus-safe data plane"
+echo "========================================="
 
-  cd ../node-agent/charts/
-  src_values_yaml="node-agent/values.yaml"
-  if [ ! -f "$src_values_yaml" ]; then
-    echo "Error: $src_values_yaml does not exist"
-    exit 1
-  fi
-  values_yaml="node-agent/.values.yaml"
-  cp "$src_values_yaml" "${values_yaml}"
-
-  sed -i "s/nccl_socket_ifname: \".*\"/nccl_socket_ifname: \"$ethernet_nic\"/" "$values_yaml"
-  sed -i "s/nccl_ib_hca: \".*\"/nccl_ib_hca: \"$rdma_nic\"/" "$values_yaml"
-  sed -i "s/image_pull_secret: \".*\"/image_pull_secret: \"$IMAGE_PULL_SECRET\"/" "$values_yaml"
-
-  install_or_upgrade_helm_chart "node-agent" "$values_yaml"
-  rm -f "$values_yaml"
+cd ../node-agent/charts/
+src_values_yaml="node-agent/values.yaml"
+if [ ! -f "$src_values_yaml" ]; then
+  echo "Error: $src_values_yaml does not exist"
+  exit 1
 fi
+values_yaml="node-agent/.values.yaml"
+cp "$src_values_yaml" "${values_yaml}"
+
+sed -i '/node_agent:/,/^[a-z]/ s/image_registry: .*/image_registry: "'"$safe_image"'"/' "$values_yaml"
+
+sed -i "s/nccl_socket_ifname: \".*\"/nccl_socket_ifname: \"$ethernet_nic\"/" "$values_yaml"
+sed -i "s/nccl_ib_hca: \".*\"/nccl_ib_hca: \"$rdma_nic\"/" "$values_yaml"
+sed -i "s/image_pull_secret: \".*\"/image_pull_secret: \"$IMAGE_PULL_SECRET\"/" "$values_yaml"
+
+install_or_upgrade_helm_chart "node-agent" "$values_yaml"
+rm -f "$values_yaml"
 
 echo
 echo "==============================="

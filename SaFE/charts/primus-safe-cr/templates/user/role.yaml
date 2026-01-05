@@ -107,6 +107,7 @@ rules:
 - resources:
     - secret
     - opsjob/preflight
+    - opsjob/download
   grantedUsers:
     - workspace-user
   verbs:

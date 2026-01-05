@@ -6,60 +6,22 @@ import (
 	"strings"
 	"time"
 
+	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/common"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/framework"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 )
 
-// WandBDetectionRequest request data reported by wandb-exporter
-type WandBDetectionRequest struct {
-	Source      string        `json:"source"`                 // "wandb"
-	Type        string        `json:"type"`                   // "framework_detection_raw"
-	Version     string        `json:"version"`                // "1.0"
-	WorkloadUID string        `json:"workload_uid,omitempty"` // Optional (for compatibility)
-	PodUID      string        `json:"pod_uid,omitempty"`
-	PodName     string        `json:"pod_name"` // Required: client gets from environment variable
-	Namespace   string        `json:"namespace"`
-	Evidence    WandBEvidence `json:"evidence"` // Raw evidence
-	Hints       WandBHints    `json:"hints"`    // Lightweight hints
-	Timestamp   float64       `json:"timestamp"`
-}
-
-// WandBEvidence raw evidence data
-type WandBEvidence struct {
-	WandB             WandBInfo                         `json:"wandb"`
-	Environment       map[string]string                 `json:"environment"`
-	PyTorch           *PyTorchInfo                      `json:"pytorch,omitempty"`
-	WrapperFrameworks map[string]map[string]interface{} `json:"wrapper_frameworks,omitempty"` // Wrapper framework detection results
-	BaseFrameworks    map[string]map[string]interface{} `json:"base_frameworks,omitempty"`    // Base framework detection results
-	System            map[string]interface{}            `json:"system"`
-}
-
-// WandBInfo WandB project information
-type WandBInfo struct {
-	Project string                 `json:"project"`
-	Name    string                 `json:"name"`
-	ID      string                 `json:"id"`
-	Config  map[string]interface{} `json:"config"`
-	Tags    []string               `json:"tags"`
-}
-
-// PyTorchInfo PyTorch environment information
-type PyTorchInfo struct {
-	Available       bool            `json:"available"`
-	Version         string          `json:"version"`
-	CudaAvailable   bool            `json:"cuda_available"`
-	DetectedModules map[string]bool `json:"detected_modules"`
-}
-
-// WandBHints pre-detection hints (supports dual-layer framework detection)
-type WandBHints struct {
-	WrapperFrameworks  []string                          `json:"wrapper_frameworks"`         // Wrapper frameworks (e.g. primus, lightning)
-	BaseFrameworks     []string                          `json:"base_frameworks"`            // Base frameworks (e.g. megatron, deepspeed, jax)
-	PossibleFrameworks []string                          `json:"possible_frameworks"`        // All frameworks (backward compatible)
-	Confidence         string                            `json:"confidence"`                 // low/medium/high
-	PrimaryIndicators  []string                          `json:"primary_indicators"`         // Detection indicator sources
-	FrameworkLayers    map[string]map[string]interface{} `json:"framework_layers,omitempty"` // Framework layer relationship mapping
-}
+// Type aliases for backward compatibility and cleaner code
+type (
+	WandBDetectionRequest = common.WandBDetectionRequest
+	WandBEvidence         = common.WandBEvidence
+	WandBInfo             = common.WandBInfo
+	WandBHints            = common.WandBHints
+	PyTorchInfo           = common.PyTorchInfo
+	HardwareInfo          = common.HardwareInfo
+	SoftwareInfo          = common.SoftwareInfo
+	BuildInfo             = common.BuildInfo
+)
 
 // DetectionResult detection result (supports dual-layer framework)
 type DetectionResult struct {
@@ -76,6 +38,8 @@ type DetectionResult struct {
 // WandBFrameworkDetector WandB framework detector
 type WandBFrameworkDetector struct {
 	detectionManager *framework.FrameworkDetectionManager
+	evidenceStore    *EvidenceStore
+	configExtractor  *ConfigExtractor
 }
 
 // NewWandBFrameworkDetector creates a detector
@@ -84,6 +48,20 @@ func NewWandBFrameworkDetector(
 ) *WandBFrameworkDetector {
 	return &WandBFrameworkDetector{
 		detectionManager: detectMgr,
+		evidenceStore:    NewEvidenceStore(),
+		configExtractor:  NewConfigExtractor(),
+	}
+}
+
+// NewWandBFrameworkDetectorWithEvidenceStore creates a detector with custom evidence store
+func NewWandBFrameworkDetectorWithEvidenceStore(
+	detectMgr *framework.FrameworkDetectionManager,
+	evidenceStore *EvidenceStore,
+) *WandBFrameworkDetector {
+	return &WandBFrameworkDetector{
+		detectionManager: detectMgr,
+		evidenceStore:    evidenceStore,
+		configExtractor:  NewConfigExtractor(),
 	}
 }
 
@@ -141,7 +119,15 @@ func (d *WandBFrameworkDetector) ProcessWandBDetection(
 			result.Framework, result.Confidence, result.Method)
 	}
 
-	// 4. Construct evidence (includes dual-layer framework info and complete WandB basic info)
+	// 4. Extract training configuration (model_name, training_mode, precision, building_framework)
+	trainingConfig := d.configExtractor.ExtractTrainingConfig(req, result)
+	if trainingConfig != nil {
+		log.Infof("Extracted training config: model=%s, mode=%s, precision=%s, building_framework=%s",
+			trainingConfig.ModelName, trainingConfig.TrainingMode,
+			trainingConfig.Precision, trainingConfig.BuildingFramework)
+	}
+
+	// 5. Construct evidence (includes dual-layer framework info and complete WandB basic info)
 	evidence := map[string]interface{}{
 		"method":            result.Method,
 		"framework_layer":   result.FrameworkLayer,
@@ -169,6 +155,55 @@ func (d *WandBFrameworkDetector) ProcessWandBDetection(
 		"base_frameworks_detail":    req.Evidence.BaseFrameworks,
 		// Save system information
 		"system": req.Evidence.System,
+		// Save extracted training configuration
+		"training_config": map[string]interface{}{
+			"model_name":         trainingConfig.ModelName,
+			"training_mode":      trainingConfig.TrainingMode,
+			"precision":          trainingConfig.Precision,
+			"building_framework": trainingConfig.BuildingFramework,
+		},
+	}
+
+	// Add hardware information if available
+	if req.Evidence.Hardware != nil {
+		evidence["hardware"] = map[string]interface{}{
+			"gpu_arch":      req.Evidence.Hardware.GPUArch,
+			"gpu_count":     req.Evidence.Hardware.GPUCount,
+			"gpu_memory_gb": req.Evidence.Hardware.GPUMemoryGB,
+			"gpu_name":      req.Evidence.Hardware.GPUName,
+			"rocm_version":  req.Evidence.Hardware.ROCmVersion,
+			"cuda_version":  req.Evidence.Hardware.CUDAVersion,
+		}
+		log.Infof("Hardware info: gpu_arch=%s, rocm=%s, gpu_count=%d",
+			req.Evidence.Hardware.GPUArch,
+			req.Evidence.Hardware.ROCmVersion,
+			req.Evidence.Hardware.GPUCount)
+	}
+
+	// Add software information if available
+	if req.Evidence.Software != nil {
+		evidence["software"] = map[string]interface{}{
+			"rocm_version": req.Evidence.Software.ROCmVersion,
+			"packages":     req.Evidence.Software.Packages,
+		}
+		log.Debugf("Software info: %d packages tracked", len(req.Evidence.Software.Packages))
+	}
+
+	// Add build information if available
+	if req.Evidence.Build != nil {
+		evidence["build"] = map[string]interface{}{
+			"build_url":      req.Evidence.Build.BuildURL,
+			"dockerfile_url": req.Evidence.Build.DockerfileURL,
+			"image_tag":      req.Evidence.Build.ImageTag,
+			"build_date":     req.Evidence.Build.BuildDate,
+			"git_commit":     req.Evidence.Build.GitCommit,
+			"git_branch":     req.Evidence.Build.GitBranch,
+			"git_repo":       req.Evidence.Build.GitRepo,
+			"ci_pipeline_id": req.Evidence.Build.CIPipelineID,
+		}
+		log.Debugf("Build info: image_tag=%s, git_commit=%s",
+			req.Evidence.Build.ImageTag,
+			req.Evidence.Build.GitCommit)
 	}
 
 	// If PyTorch information exists, add to evidence
@@ -181,26 +216,20 @@ func (d *WandBFrameworkDetector) ProcessWandBDetection(
 		}
 	}
 
-	// 5. Report to FrameworkDetectionManager (using new method with dual-layer framework support)
-	err = d.detectionManager.ReportDetectionWithLayers(
-		ctx,
-		workloadUID,
-		"wandb",
-		result.Framework,
-		"training",
-		result.Confidence,
-		evidence,
-		result.FrameworkLayer,
-		result.WrapperFramework,
-		result.BaseFramework,
-	)
-
-	if err != nil {
-		log.Errorf("Failed to report WandB detection: %v", err)
-		return err
+	// 6. Store evidence to workload_detection_evidence table (detection v2 architecture)
+	// Note: In detection v2, evidence is stored in workload_detection_evidence table,
+	// then aggregated by EvidenceAggregator to workload_detection table.
+	// We no longer write to ai_workload_metadata via FrameworkDetectionManager.
+	if d.evidenceStore != nil {
+		if err := d.evidenceStore.StoreWandBEvidence(ctx, workloadUID, result, evidence); err != nil {
+			log.Errorf("Failed to store WandB evidence: %v", err)
+			return err
+		}
+		log.Infof("✓ Stored WandB evidence for workload %s (framework=%s, confidence=%.2f)",
+			workloadUID, result.Framework, result.Confidence)
+	} else {
+		log.Warnf("Evidence store is nil, WandB evidence not stored for workload %s", workloadUID)
 	}
-
-	log.Infof("✓ Successfully reported WandB detection for workload %s", workloadUID)
 
 	return nil
 }

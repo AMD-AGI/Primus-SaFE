@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -23,8 +23,8 @@ const (
 	MaxNameLength          = 63
 	randomLength           = 5
 	MaxGeneratedNameLength = MaxNameLength - randomLength - 1
-	// 12 is the fixed suffix length of pytorchjob.
-	MaxDisplayNameLen = MaxGeneratedNameLength - 12
+	// 13 is the fixed suffix length of pytorchjob.
+	MaxDisplayNameLen = MaxGeneratedNameLength - 13
 )
 
 // GenerateName generates a unique name by appending a random string to the base name.

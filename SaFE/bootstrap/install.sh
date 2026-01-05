@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #
-# Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+# Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
 # See LICENSE for license information.
 #
 
@@ -173,7 +173,7 @@ if [[ "$build_image_secret" == "y" ]] && [[ -n "$image_registry" ]] && [[ -n "$i
     --docker-password="$image_password" \
     --namespace="$NAMESPACE" \
     --dry-run=client -o yaml | kubectl apply -f - \
-    && kubectl label secret "$IMAGE_PULL_SECRET" -n "$NAMESPACE" primus-safe.secret.type=image primus-safe.display.name="$IMAGE_PULL_SECRET" primus-safe.secret.all.workspace="true" --overwrite
+    && kubectl label secret "$IMAGE_PULL_SECRET" -n "$NAMESPACE" primus-safe.secret.type=image primus-safe.display.name="$IMAGE_PULL_SECRET" --overwrite
   echo "✅ Image pull secret($IMAGE_PULL_SECRET) created in namespace \"$NAMESPACE\""
 else
   kubectl create secret generic "$IMAGE_PULL_SECRET" \
@@ -181,7 +181,7 @@ else
     --from-literal=.dockerconfigjson='{}' \
     --type=kubernetes.io/dockerconfigjson \
     --dry-run=client -o yaml | kubectl apply -f - \
-    && kubectl label secret "$IMAGE_PULL_SECRET" -n "$NAMESPACE" primus-safe.secret.type=image primus-safe.display.name="$IMAGE_PULL_SECRET" primus-safe.secret.all.workspace="true" --overwrite
+    && kubectl label secret "$IMAGE_PULL_SECRET" -n "$NAMESPACE" primus-safe.secret.type=image primus-safe.display.name="$IMAGE_PULL_SECRET" --overwrite
   echo "✅ Empty Image pull secret($IMAGE_PULL_SECRET) created in namespace \"$NAMESPACE\""
 fi
 

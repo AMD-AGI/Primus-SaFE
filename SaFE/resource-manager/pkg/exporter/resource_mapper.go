@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -48,6 +48,8 @@ func workloadMapper(obj *unstructured.Unstructured) *dbclient.Workload {
 			workload.Status.Phase = v1.WorkloadStopped
 			workload.Status.EndTime = workload.GetDeletionTimestamp()
 		}
+	} else if workload.Status.Phase == "" {
+		workload.Status.Phase = v1.WorkloadPending
 	}
 
 	result := &dbclient.Workload{

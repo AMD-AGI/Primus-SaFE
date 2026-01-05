@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -152,7 +152,6 @@ func (mgr *MonitorManager) watchConfig() error {
 	}()
 
 	timeout := time.After(10 * time.Minute)
-	klog.Infof("start to watch dir(%s) to update config", mgr.configPath)
 	for {
 		select {
 		case <-mgr.tomb.Stopping():

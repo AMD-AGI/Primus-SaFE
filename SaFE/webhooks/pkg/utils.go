@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -36,9 +36,9 @@ const (
 )
 
 var (
-	DisplayNameRegRule = fmt.Sprintf(DisplayNameRule, commonutils.MaxDisplayNameLen-2)
-	DNSNameRegRule     = fmt.Sprintf(DNSNameRule, commonutils.MaxDisplayNameLen-2)
-	LabelKeyRegRule    = fmt.Sprintf(LabelKeyRule, commonutils.MaxNameLength-2)
+	DisplayNameRegRule = fmt.Sprintf(DisplayNameRule, commonutils.MaxDisplayNameLen)
+	DNSNameRegRule     = fmt.Sprintf(DNSNameRule, commonutils.MaxDisplayNameLen)
+	LabelKeyRegRule    = fmt.Sprintf(LabelKeyRule, commonutils.MaxNameLength-1)
 
 	DisplayNameRegexp = regexp.MustCompile(DisplayNameRegRule)
 	DNSNameRegexp     = regexp.MustCompile(DNSNameRegRule)

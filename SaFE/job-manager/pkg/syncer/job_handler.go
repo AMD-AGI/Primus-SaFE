@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -33,7 +33,8 @@ const (
 
 // handleJob processes job resource events and synchronizes status between data plane and admin plane.
 // Manages the lifecycle of workload resources and handles failure scenarios.
-func (r *SyncerReconciler) handleJob(ctx context.Context, message *resourceMessage, informer *ClusterInformer) (ctrlruntime.Result, error) {
+func (r *SyncerReconciler) handleJob(ctx context.Context,
+	message *resourceMessage, informer *ClusterInformer) (ctrlruntime.Result, error) {
 	adminWorkload, err := r.getAdminWorkload(ctx, message.workloadId)
 	if err != nil || adminWorkload == nil {
 		return ctrlruntime.Result{}, err
@@ -77,14 +78,16 @@ func (r *SyncerReconciler) handleJobImpl(ctx context.Context, message *resourceM
 		return ctrlruntime.Result{}, err
 	}
 
-	if message.action == ResourceDel && !adminWorkload.IsEnd() {
+	if message.action == ResourceDel {
 		// wait until the job is also deleted
 		if !r.waitJobDeleted(ctx, adminWorkload, informer) {
 			return ctrlruntime.Result{RequeueAfter: time.Second * 3}, nil
 		}
-		if err = r.reSchedule(ctx, adminWorkload, message.dispatchCount); err != nil {
-			klog.ErrorS(err, "failed to reSchedule", "workload", adminWorkload.Name)
-			return ctrlruntime.Result{}, err
+		if !adminWorkload.IsEnd() {
+			if err = r.reSchedule(ctx, adminWorkload, message.dispatchCount); err != nil {
+				klog.ErrorS(err, "failed to reSchedule", "workload", adminWorkload.Name)
+				return ctrlruntime.Result{}, err
+			}
 		}
 	}
 	return ctrlruntime.Result{}, nil
@@ -144,21 +147,30 @@ func (r *SyncerReconciler) waitAllPodsDeleted(ctx context.Context, message *reso
 	if len(podList.Items) == 0 {
 		return true
 	}
-	klog.Warningf("the pods of this workload %s still exists, this will retry again in 3 seconds.", message.workloadId)
 	return false
 }
 
 func (r *SyncerReconciler) waitJobDeleted(ctx context.Context, adminWorkload *v1.Workload, informer *ClusterInformer) bool {
-	obj, err := jobutils.GenObjectReference(ctx, r.Client, adminWorkload)
+	rt, err := commonworkload.GetResourceTemplate(ctx, r.Client, adminWorkload)
 	if err != nil {
 		return apierrors.IsNotFound(err)
 	}
-	if _, err = jobutils.GetObjectByClientFactory(ctx, informer.ClientFactory(), obj); err != nil {
-		if apierrors.IsNotFound(err) {
-			return true
+	obj, err := jobutils.GetObjectByClientFactory(ctx, informer.ClientFactory(),
+		adminWorkload.Name, adminWorkload.Spec.Workspace, rt.ToSchemaGVK())
+	if err != nil {
+		return apierrors.IsNotFound(err)
+	}
+	if ts := obj.GetDeletionTimestamp(); ts != nil && !ts.IsZero() && time.Since(ts.Time) >= 1*time.Minute {
+		patchObj := map[string]any{
+			"metadata": map[string]any{
+				"finalizers": []string{},
+			},
+		}
+		p := jsonutils.MarshalSilently(patchObj)
+		if patchErr := jobutils.PatchObject(ctx, informer.ClientFactory(), obj, p); patchErr != nil {
+			return apierrors.IsNotFound(patchErr)
 		}
 	}
-	klog.Warningf("the job of this workload %s still exists, this will retry again in 3 seconds.", adminWorkload.Name)
 	return false
 }
 
@@ -210,6 +222,7 @@ func (r *SyncerReconciler) updateAdminWorkloadStatus(ctx context.Context, origin
 }
 
 // updateAdminWorkloadPhase updates the workload phase based on k8s resource status.
+// It was previously determined that the workload has not reached a terminal state.
 func (r *SyncerReconciler) updateAdminWorkloadPhase(adminWorkload *v1.Workload,
 	status *jobutils.K8sResourceStatus, message *resourceMessage) {
 	phase := v1.WorkloadConditionType(status.Phase)
@@ -217,17 +230,24 @@ func (r *SyncerReconciler) updateAdminWorkloadPhase(adminWorkload *v1.Workload,
 	case v1.K8sPending:
 		adminWorkload.Status.Phase = v1.WorkloadPending
 	case v1.K8sSucceeded:
+		adminWorkload.Status.Phase = v1.WorkloadSucceeded
+	case v1.K8sFailed:
 		if shouldTerminateWorkload(adminWorkload, status, message.dispatchCount) {
-			adminWorkload.Status.Phase = v1.WorkloadSucceeded
+			adminWorkload.Status.Phase = v1.WorkloadFailed
+		} else if commonworkload.IsApplication(adminWorkload) {
+			adminWorkload.Status.Phase = v1.WorkloadNotReady
 		}
-	case v1.K8sFailed, v1.K8sDeleted:
+	case v1.K8sDeleted:
 		if shouldTerminateWorkload(adminWorkload, status, message.dispatchCount) {
-			if phase == v1.K8sFailed {
-				adminWorkload.Status.Phase = v1.WorkloadFailed
+			if commonworkload.IsCICDEphemeralRunner(adminWorkload) {
+				// Currently, when an EphemeralRunner successfully completes,
+				// it does not set a success status but is instead deleted directly.
+				// refer: actions-runner-controller/ephemeralrunner_controller.go: 374-381
+				adminWorkload.Status.Phase = v1.WorkloadSucceeded
 			} else {
 				adminWorkload.Status.Phase = v1.WorkloadStopped
 			}
-		} else if adminWorkload.IsRunning() && commonworkload.IsApplication(adminWorkload) {
+		} else if commonworkload.IsApplication(adminWorkload) {
 			adminWorkload.Status.Phase = v1.WorkloadNotReady
 		}
 	case v1.K8sRunning:
@@ -316,10 +336,10 @@ func updateWorkloadCondition(adminWorkload *v1.Workload, newCondition *metav1.Co
 // shouldTerminateWorkload determines if a workload has reached its end state.
 // Considers retry limits and failover settings.
 func shouldTerminateWorkload(adminWorkload *v1.Workload, status *jobutils.K8sResourceStatus, count int) bool {
-	if commonworkload.IsApplication(adminWorkload) || v1.IsWorkloadPreempted(adminWorkload) ||
-		commonworkload.IsCICDScalingRunnerSet(adminWorkload) {
+	if commonworkload.IsApplication(adminWorkload) || v1.IsWorkloadPreempted(adminWorkload) {
 		return false
 	}
+
 	switch v1.WorkloadConditionType(status.Phase) {
 	case v1.K8sSucceeded:
 		return true

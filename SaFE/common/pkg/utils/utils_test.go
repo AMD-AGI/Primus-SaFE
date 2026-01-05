@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -377,5 +377,5 @@ func TestMaxNameLengthConstants(t *testing.T) {
 	assert.Equal(t, 63, MaxNameLength)
 	assert.Equal(t, 5, randomLength)
 	assert.Equal(t, 57, MaxGeneratedNameLength)
-	assert.Equal(t, 45, MaxDisplayNameLen)
+	assert.Equal(t, 44, MaxDisplayNameLen)
 }

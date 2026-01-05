@@ -20,6 +20,9 @@ success=0
 last_error=""
 
 for attempt in $(seq 1 $max_retries); do
+  if [ $attempt -gt 1 ]; then
+    sleep 5
+  fi
   "$DIR_NAME/TransferBench" p2p >"$LOG_FILE"
   EXIT_CODE=$?
   if [ $EXIT_CODE -ne 0 ]; then
@@ -39,9 +42,15 @@ for attempt in $(seq 1 $max_retries); do
 
   line1=${lines[0]}
   numbers1=($(echo "$line1" | awk '{for(i=4;i<=NF;i++) printf "%s ", $i}'))
-  threshold=30.5
+  threshold=0.0
+  if [[ "$GPU_PRODUCT" == *"MI355X"* ]]; then
+    threshold=40.2
+  else
+    threshold=30.5
+  fi
   all_above_threshold=true
   for num in "${numbers1[@]}"; do
+    echo "[INFO] num: $num, threshold: $threshold"
     if (( $(echo "$num < $threshold" | bc -l) )); then
       all_above_threshold=false
       break
@@ -59,9 +68,14 @@ for attempt in $(seq 1 $max_retries); do
   line2=${lines[1]}
   numbers2=($(echo "$line2" | awk '{for(i=4;i<=NF;i++) printf "%s ", $i}'))
   all_above_threshold=true
-  threshold=39.5
+  if [[ "$GPU_PRODUCT" == *"MI355X"* ]]; then
+    threshold=44.0
+  else
+    threshold=39.5
+  fi
   average=0
   for num in "${numbers2[@]}"; do
+    echo "[INFO] num: $num, threshold: $threshold"
     if (( $(echo "$num < $threshold" | bc -l) )); then
       all_above_threshold=false
       average=$num

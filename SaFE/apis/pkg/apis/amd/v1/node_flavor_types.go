@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -10,6 +10,8 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
+
+type GpuProduct string
 
 const (
 	NodeFlavorKind = "NodeFlavor"
@@ -23,8 +25,8 @@ type CpuChip struct {
 }
 
 type GpuChip struct {
-	// Gpu product name, e.g. AMD MI300X
-	Product string `json:"product,omitempty"`
+	// Gpu product name, e.g. MI300X/MI325X/MI355X
+	Product GpuProduct `json:"product,omitempty"`
 	// K8s resource name when gpu is set, e.g. "amd.com/gpu"
 	ResourceName string `json:"resourceName"`
 	// GPU count (resource.Quantity) when gpu is set, e.g. "8"

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/common"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/metadata"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/profiler"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/constant"
@@ -20,22 +21,27 @@ import (
 )
 
 // MetadataCollectionExecutor metadata collection task executor
+// In v2 architecture, reads framework info from workload_detection table
 type MetadataCollectionExecutor struct {
 	coreTask.BaseExecutor
 
-	collector      *metadata.Collector
-	metadataFacade database.AiWorkloadMetadataFacadeInterface
-	podFacade      database.PodFacadeInterface
-	taskFacade     database.WorkloadTaskFacadeInterface
+	collector       *metadata.Collector
+	podProber       *common.PodProber
+	detectionFacade database.WorkloadDetectionFacadeInterface
+	metadataFacade  database.AiWorkloadMetadataFacadeInterface
+	podFacade       database.PodFacadeInterface
+	taskFacade      database.WorkloadTaskFacadeInterface
 }
 
 // NewMetadataCollectionExecutor creates metadata collection executor
 func NewMetadataCollectionExecutor(collector *metadata.Collector) *MetadataCollectionExecutor {
 	return &MetadataCollectionExecutor{
-		collector:      collector,
-		metadataFacade: database.NewAiWorkloadMetadataFacade(),
-		podFacade:      database.NewPodFacade(),
-		taskFacade:     database.NewWorkloadTaskFacade(),
+		collector:       collector,
+		podProber:       common.NewPodProber(collector),
+		detectionFacade: database.NewWorkloadDetectionFacade(),
+		metadataFacade:  database.NewAiWorkloadMetadataFacade(),
+		podFacade:       database.NewPodFacade(),
+		taskFacade:      database.NewWorkloadTaskFacade(),
 	}
 }
 
@@ -63,8 +69,8 @@ func (e *MetadataCollectionExecutor) Execute(
 
 	log.Infof("Starting metadata collection for workload %s", task.WorkloadUID)
 
-	// 1. Get detection info from ai_workload_metadata table
-	detectionInfo, err := e.metadataFacade.GetAiWorkloadMetadata(ctx, task.WorkloadUID)
+	// 1. Get detection info from workload_detection table (v2 architecture)
+	detection, err := e.detectionFacade.GetDetection(ctx, task.WorkloadUID)
 	if err != nil {
 		return coreTask.FailureResult(
 			fmt.Sprintf("failed to get detection info: %v", err),
@@ -74,19 +80,20 @@ func (e *MetadataCollectionExecutor) Execute(
 		), err
 	}
 
-	if detectionInfo == nil {
+	if detection == nil {
 		return coreTask.FailureResult(
 			"no detection info found for workload",
 			map[string]interface{}{
 				"error_at": time.Now().Format(time.RFC3339),
 			},
-		), fmt.Errorf("detection info not found")
+		), fmt.Errorf("detection info not found in workload_detection table")
 	}
 
 	// 2. Get pod info from gpu_pods table
 	// workload_uid corresponds to owner_uid field in gpu_pods table
 	// Prioritize pods ending with master-0
-	gpuPod, err := e.selectTargetPod(ctx, task.WorkloadUID)
+	// Using shared PodProber for consistent pod selection logic
+	gpuPod, err := e.podProber.SelectTargetPod(ctx, task.WorkloadUID)
 	if err != nil {
 		return coreTask.FailureResult(
 			fmt.Sprintf("failed to get pod info: %v", err),
@@ -129,12 +136,13 @@ func (e *MetadataCollectionExecutor) Execute(
 	}
 
 	// 5. Get process tree, find first Python process
-	processTree, err := e.getProcessTree(ctx, gpuPod, nodeExporterClient)
+	// Using shared PodProber for consistent process tree handling
+	processTree, err := e.podProber.GetProcessTree(ctx, gpuPod, common.DefaultProcessTreeOptions())
 	var pythonProcess *types.ProcessInfo
 	if err != nil {
 		log.Warnf("Failed to get process tree for pod %s: %v", gpuPod.Name, err)
 	} else {
-		pythonProcess = e.findTopLevelPythonProcess(processTree)
+		pythonProcess = e.podProber.FindPythonProcess(processTree)
 		if pythonProcess != nil {
 			// Remove children to avoid storing unnecessary data
 			pythonProcess.Children = nil
@@ -177,7 +185,8 @@ func (e *MetadataCollectionExecutor) Execute(
 	updates["tensorboard_result"] = tensorboardResult
 
 	// 9. Collect and save framework config (for profiler collection and other downstream tasks)
-	framework := strings.ToLower(detectionInfo.Framework)
+	// In v2, framework info comes from workload_detection table
+	framework := strings.ToLower(detection.Framework)
 	var frameworkConfig *profiler.FrameworkConfig
 	// Use strings.Contains to check for framework in comma-separated list (e.g., "primus,megatron,pytorch")
 	if strings.Contains(framework, "primus") || strings.Contains(framework, "megatron") || strings.Contains(framework, "deepspeed") {
@@ -202,7 +211,8 @@ func (e *MetadataCollectionExecutor) Execute(
 	}
 
 	// 10. Check if framework config has TensorBoard enabled (even if files haven't appeared yet)
-	tensorboardConfigured, configLogDir := e.checkTensorBoardConfiguration(ctx, detectionInfo, pythonProcess, nodeExporterClient)
+	// In v2, we check TensorBoard configuration based on framework name from workload_detection
+	tensorboardConfigured, configLogDir := e.checkTensorBoardConfigurationV2(ctx, detection, pythonProcess, nodeExporterClient)
 	updates["tensorboard_configured"] = tensorboardConfigured
 
 	// Decide whether to enable TensorBoard stream
@@ -262,99 +272,7 @@ func (e *MetadataCollectionExecutor) Cancel(ctx context.Context, task *model.Wor
 	return nil
 }
 
-// extractScripts extracts scripts to run from detection info
-func (e *MetadataCollectionExecutor) extractScripts(detection *model.AiWorkloadMetadata) []string {
-	scripts := []string{}
-
-	// Select scripts based on detected framework
-	framework := detection.Framework
-	if framework != "" {
-		scripts = append(scripts, framework)
-	}
-
-	// Get additional framework info from metadata
-	if detection.Metadata != nil {
-		if wrapperFw, ok := detection.Metadata["wrapper_framework"].(string); ok && wrapperFw != "" {
-			scripts = append(scripts, wrapperFw)
-		}
-		if baseFw, ok := detection.Metadata["base_framework"].(string); ok && baseFw != "" {
-			if !contains(scripts, baseFw) {
-				scripts = append(scripts, baseFw)
-			}
-		}
-	}
-
-	// Always include tensorboard script (generic)
-	if !contains(scripts, "tensorboard") {
-		scripts = append(scripts, "tensorboard")
-	}
-
-	return scripts
-}
-
-// selectTargetPod selects target pod from all pods of a workload
-// Prioritizes pods with names ending in master-0, otherwise returns the first one
-func (e *MetadataCollectionExecutor) selectTargetPod(ctx context.Context, workloadUID string) (*model.GpuPods, error) {
-	// Method 1: Find pod through workload_pod_reference table (recommended, supports hierarchical relationship)
-	workloadFacade := database.GetFacade().GetWorkload()
-	podRefs, err := workloadFacade.ListWorkloadPodReferenceByWorkloadUid(ctx, workloadUID)
-	if err != nil {
-		log.Warnf("Failed to query workload_pod_reference for workload %s: %v", workloadUID, err)
-	}
-
-	var pods []*model.GpuPods
-	if len(podRefs) > 0 {
-		// Query pod details through pod UID list
-		podUIDs := make([]string, 0, len(podRefs))
-		for _, ref := range podRefs {
-			podUIDs = append(podUIDs, ref.PodUID)
-		}
-
-		// Get pod details
-		db := database.GetFacade().GetSystemConfig().GetDB()
-		err = db.WithContext(ctx).
-			Where("uid IN ? AND deleted = ?", podUIDs, false).
-			Find(&pods).Error
-		if err != nil {
-			return nil, fmt.Errorf("failed to query pods by references: %w", err)
-		}
-
-	}
-
-	// Method 2: Find pods of child workload (recursively search hierarchical structure)
-	if len(pods) == 0 {
-		childWorkloads, err := workloadFacade.ListChildrenWorkloadByParentUid(ctx, workloadUID)
-		if err != nil {
-			log.Warnf("Failed to query child workloads for %s: %v", workloadUID, err)
-		} else if len(childWorkloads) > 0 {
-			for _, child := range childWorkloads {
-				childPods, err := e.selectTargetPod(ctx, child.UID)
-				if err == nil && childPods != nil {
-					return childPods, nil
-				}
-			}
-		}
-	}
-
-	if len(pods) == 0 {
-		return nil, fmt.Errorf("no pods found for workload %s", workloadUID)
-	}
-
-	// Prioritize pods ending with master-0
-	for _, pod := range pods {
-		if strings.HasSuffix(pod.Name, "master-0") {
-			log.Infof("Selected master-0 pod: %s/%s for workload %s", pod.Namespace, pod.Name, workloadUID)
-			return pod, nil
-		}
-	}
-
-	// If no master-0, return first pod
-	selectedPod := pods[0]
-	log.Infof("No master-0 pod found, selected first pod: %s/%s for workload %s",
-		selectedPod.Namespace, selectedPod.Name, workloadUID)
-	return selectedPod, nil
-}
-
+// contains checks if a string slice contains a specific item
 func contains(slice []string, item string) bool {
 	for _, s := range slice {
 		if s == item {
@@ -428,7 +346,122 @@ func (e *MetadataCollectionExecutor) createTensorBoardStreamTask(
 	return nil
 }
 
+// checkTensorBoardConfigurationV2 checks if framework config has TensorBoard enabled (v2 architecture)
+// Uses workload_detection table instead of ai_workload_metadata
+func (e *MetadataCollectionExecutor) checkTensorBoardConfigurationV2(
+	ctx context.Context,
+	detection *model.WorkloadDetection,
+	pythonProcess *types.ProcessInfo,
+	nodeExporterClient interface{},
+) (bool, string) {
+	if detection == nil {
+		return false, ""
+	}
+
+	framework := strings.ToLower(detection.Framework)
+	log.Infof("Checking TensorBoard configuration for framework: %s (v2)", framework)
+
+	// Check config based on different frameworks
+	// In v2, we rely on process-based detection rather than stored metadata
+	switch {
+	case strings.Contains(framework, "primus"):
+		return e.checkPrimusTensorBoard(ctx, pythonProcess, nodeExporterClient)
+	case strings.Contains(framework, "megatron"):
+		// For Megatron, check process environment for tensorboard-dir
+		return e.checkMegatronTensorBoardFromProcess(pythonProcess)
+	case strings.Contains(framework, "pytorch"):
+		// For PyTorch, check process for SummaryWriter usage
+		return e.checkPyTorchTensorBoardFromProcess(pythonProcess)
+	default:
+		// For unknown frameworks, try to detect from process
+		return e.checkGenericTensorBoardFromProcess(pythonProcess)
+	}
+}
+
+// checkMegatronTensorBoardFromProcess checks Megatron TensorBoard config from process environment
+func (e *MetadataCollectionExecutor) checkMegatronTensorBoardFromProcess(
+	pythonProcess *types.ProcessInfo,
+) (bool, string) {
+	if pythonProcess == nil {
+		return false, ""
+	}
+
+	// Check environment variables for tensorboard directory
+	for _, envVar := range pythonProcess.Env {
+		if strings.HasPrefix(envVar, "TENSORBOARD_DIR=") {
+			tbDir := strings.TrimPrefix(envVar, "TENSORBOARD_DIR=")
+			if tbDir != "" {
+				log.Infof("Megatron: TensorBoard enabled from env (TENSORBOARD_DIR=%s)", tbDir)
+				return true, tbDir
+			}
+		}
+	}
+
+	// Check command line arguments for --tensorboard-dir
+	if strings.Contains(pythonProcess.Cmdline, "--tensorboard-dir") {
+		// Extract the directory path
+		parts := strings.Split(pythonProcess.Cmdline, "--tensorboard-dir")
+		if len(parts) > 1 {
+			remaining := strings.TrimLeft(parts[1], " =")
+			dir := strings.Fields(remaining)
+			if len(dir) > 0 {
+				log.Infof("Megatron: TensorBoard enabled from cmdline (--tensorboard-dir=%s)", dir[0])
+				return true, dir[0]
+			}
+		}
+	}
+
+	return false, ""
+}
+
+// checkPyTorchTensorBoardFromProcess checks PyTorch TensorBoard config from process
+func (e *MetadataCollectionExecutor) checkPyTorchTensorBoardFromProcess(
+	pythonProcess *types.ProcessInfo,
+) (bool, string) {
+	if pythonProcess == nil {
+		return false, ""
+	}
+
+	// Check environment variables for log directory
+	for _, envVar := range pythonProcess.Env {
+		if strings.HasPrefix(envVar, "TENSORBOARD_LOGDIR=") {
+			tbDir := strings.TrimPrefix(envVar, "TENSORBOARD_LOGDIR=")
+			if tbDir != "" {
+				log.Infof("PyTorch: TensorBoard enabled from env (TENSORBOARD_LOGDIR=%s)", tbDir)
+				return true, tbDir
+			}
+		}
+	}
+
+	return false, ""
+}
+
+// checkGenericTensorBoardFromProcess checks generic TensorBoard config from process
+func (e *MetadataCollectionExecutor) checkGenericTensorBoardFromProcess(
+	pythonProcess *types.ProcessInfo,
+) (bool, string) {
+	if pythonProcess == nil {
+		return false, ""
+	}
+
+	// Check common tensorboard environment variables
+	for _, envVar := range pythonProcess.Env {
+		if strings.HasPrefix(envVar, "TB_LOGDIR=") ||
+			strings.HasPrefix(envVar, "TENSORBOARD_LOGDIR=") ||
+			strings.HasPrefix(envVar, "TENSORBOARD_DIR=") {
+			parts := strings.SplitN(envVar, "=", 2)
+			if len(parts) == 2 && parts[1] != "" {
+				log.Infof("Generic: TensorBoard enabled from env (%s)", envVar)
+				return true, parts[1]
+			}
+		}
+	}
+
+	return false, ""
+}
+
 // checkTensorBoardConfiguration checks if framework config has TensorBoard enabled
+// Deprecated: Use checkTensorBoardConfigurationV2 for v2 architecture
 func (e *MetadataCollectionExecutor) checkTensorBoardConfiguration(
 	ctx context.Context,
 	detectionInfo *model.AiWorkloadMetadata,
@@ -536,8 +569,8 @@ func (e *MetadataCollectionExecutor) collectAndSaveFrameworkConfig(
 		return nil, fmt.Errorf("failed to parse config: %w", err)
 	}
 
-	// Extract environment variables from process
-	env := e.extractEnvMap(pythonProcess)
+	// Extract environment variables from process using shared PodProber
+	env := e.podProber.ExtractEnvMap(pythonProcess)
 
 	// Build framework config using the service
 	configService := profiler.NewFrameworkConfigService()
@@ -629,23 +662,6 @@ func (e *MetadataCollectionExecutor) saveFrameworkConfig(
 	return nil
 }
 
-// extractEnvMap extracts environment variables from process info to a map
-func (e *MetadataCollectionExecutor) extractEnvMap(proc *types.ProcessInfo) map[string]string {
-	env := make(map[string]string)
-	if proc == nil {
-		return env
-	}
-
-	for _, envVar := range proc.Env {
-		parts := strings.SplitN(envVar, "=", 2)
-		if len(parts) == 2 {
-			env[parts[0]] = parts[1]
-		}
-	}
-
-	return env
-}
-
 // serializeProcessInfo serializes process info without children
 func (e *MetadataCollectionExecutor) serializeProcessInfo(proc *types.ProcessInfo) map[string]interface{} {
 	if proc == nil {
@@ -677,67 +693,6 @@ func (e *MetadataCollectionExecutor) serializeProcessInfo(proc *types.ProcessInf
 		"is_java":        proc.IsJava,
 		"start_time":     proc.StartTime,
 	}
-}
-
-// getProcessTree retrieves process tree from node-exporter
-func (e *MetadataCollectionExecutor) getProcessTree(
-	ctx context.Context,
-	gpuPod *model.GpuPods,
-	nodeExporterClient interface{},
-) (*types.PodProcessTree, error) {
-	client, ok := nodeExporterClient.(interface {
-		GetPodProcessTree(ctx context.Context, req *types.ProcessTreeRequest) (*types.PodProcessTree, error)
-	})
-	if !ok {
-		return nil, fmt.Errorf("invalid node-exporter client type")
-	}
-
-	req := &types.ProcessTreeRequest{
-		PodName:        gpuPod.Name,
-		PodNamespace:   gpuPod.Namespace,
-		PodUID:         gpuPod.UID,
-		IncludeEnv:     true,
-		IncludeCmdline: true,
-	}
-
-	return client.GetPodProcessTree(ctx, req)
-}
-
-// findTopLevelPythonProcess finds the top-level Python process in the tree
-func (e *MetadataCollectionExecutor) findTopLevelPythonProcess(tree *types.PodProcessTree) *types.ProcessInfo {
-	if tree == nil {
-		return nil
-	}
-
-	for _, container := range tree.Containers {
-		if container.RootProcess != nil {
-			proc := e.findPythonProcessInTree(container.RootProcess)
-			if proc != nil {
-				return proc
-			}
-		}
-	}
-
-	return nil
-}
-
-// findPythonProcessInTree recursively searches for Python process
-func (e *MetadataCollectionExecutor) findPythonProcessInTree(proc *types.ProcessInfo) *types.ProcessInfo {
-	if proc == nil {
-		return nil
-	}
-
-	if proc.IsPython {
-		return proc
-	}
-
-	for _, child := range proc.Children {
-		if result := e.findPythonProcessInTree(child); result != nil {
-			return result
-		}
-	}
-
-	return nil
 }
 
 // extractConfigPath extracts config file path from env or cmdline

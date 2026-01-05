@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -14,7 +14,7 @@ import (
 )
 
 // GetSecretWorkspaces extracts workspace IDs from a secret's annotations.
-// Returns nil if no workspace IDs are found or if unmarshaling fails.
+// Returns nil if no workspace IDs are found or if Unmarshal fails.
 func GetSecretWorkspaces(secret *corev1.Secret) []string {
 	workspaceIdsStr := v1.GetAnnotation(secret, v1.WorkspaceIdsAnnotation)
 	if workspaceIdsStr == "" {

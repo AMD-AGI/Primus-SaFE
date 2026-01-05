@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -12,11 +12,13 @@ import (
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
+	cdhandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/cd-handlers"
 	customhandler "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/custom-handlers"
 	datasethandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/dataset-handlers"
 	imagehandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/image-handlers"
 	model_handlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/model-handlers"
 	proxyhandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/proxy-handlers"
+	reshandler "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/resources"
 	sshhandler "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/ssh-handlers"
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
@@ -42,11 +44,20 @@ func InitHttpHandlers(_ context.Context, mgr ctrlruntime.Manager) (*gin.Engine, 
 	if authority.NewDefaultToken(mgr.GetClient()) == nil {
 		return nil, commonerrors.NewInternalError("failed to new default token")
 	}
-	customHandler, err := customhandler.NewHandler(mgr)
+	// Initialize internal auth for service-to-service authentication
+	if _, err := authority.NewInternalAuth(mgr.GetClient()); err != nil {
+		return nil, commonerrors.NewInternalError("failed to initialize internal auth: " + err.Error())
+	}
+	customHandler, err := reshandler.NewHandler(mgr)
 	if err != nil {
 		return nil, err
 	}
-	customhandler.InitCustomRouters(engine, customHandler)
+	reshandler.InitCustomRouters(engine, customHandler)
+	cdHandler, err := cdhandlers.NewHandler(mgr)
+	if err != nil {
+		return nil, err
+	}
+	cdhandlers.InitCDRouters(engine, cdHandler)
 	imageHandler, err := imagehandlers.NewImageHandler(mgr)
 	if err != nil {
 		return nil, err

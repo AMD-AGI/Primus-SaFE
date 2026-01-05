@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #
-# Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
+# Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
 # See LICENSE for license information.
 #
 
@@ -19,12 +19,25 @@ success=0
 last_error=""
 
 for attempt in $(seq 1 $max_retries); do
-  "$DIR_NAME/TransferBench" "$DIR_NAME/examples/example.cfg" >"$LOG_FILE"
+  if [ $attempt -gt 1 ]; then
+    sleep 5
+  fi
+ "$DIR_NAME/TransferBench" "$DIR_NAME/examples/example.cfg" >"$LOG_FILE" 2>&1
   EXIT_CODE=$?
   if [ $EXIT_CODE -ne 0 ]; then
-    last_error="TransferBench failed with exit code: $EXIT_CODE"
-    echo "[WARNING] Attempt $attempt failed: $last_error" >&2
+    error_lines=$(grep -i '\[ERROR\]\|error\|failed' "$LOG_FILE" 2>/dev/null | head -5)
+    last_error="TransferBench failed with exit code: $EXIT_CODE. Errors: $error_lines"
     rm -f "$LOG_FILE"
+    echo "[WARNING] Attempt $attempt failed: $last_error" >&2
+    continue
+  fi
+
+  # Check for HIP errors in log even if exit code is 0
+  if grep -q '\[ERROR\]' "$LOG_FILE"; then
+    error_lines=$(grep '\[ERROR\]' "$LOG_FILE" 2>/dev/null)
+    last_error="TransferBench encountered HIP error: $error_lines"
+    rm -f "$LOG_FILE"
+    echo "[WARNING] Attempt $attempt failed: $last_error" >&2
     continue
   fi
 
@@ -77,6 +90,7 @@ for attempt in $(seq 1 $max_retries); do
       last_error="missing $test_name value"
       return 1
     fi
+    echo "[INFO] test: $test_name, value: $value, threshold: $threshold"
     local result=$(echo "$value >= $threshold" | bc -l)
     if [[ "$result" -ne 1 ]]; then
       last_error="$test_name: value($value) < threshold($threshold)"
@@ -85,13 +99,32 @@ for attempt in $(seq 1 $max_retries); do
     return 0
   }
 
-  if check_result_with_error "Test_1" 42.4 && \
-     check_result_with_error "Test_2" 43.5 && \
-     check_result_with_error "Test_3_GPU00" 28.7 && \
-     check_result_with_error "Test_3_GPU01" 35.0 && \
-     check_result_with_error "Test_4" 1137 && \
-     check_result_with_error "Test_5" 0 && \
-     check_result_with_error "Test_6" 43.7; then
+  # Set thresholds based on GPU type
+  if [[ "$GPU_PRODUCT" == *"MI355X"* ]]; then
+    THRESH_1=54.8
+    THRESH_2=54.9
+    THRESH_3_GPU00=36.9
+    THRESH_3_GPU01=44.8
+    THRESH_4=1459
+    THRESH_5=10
+    THRESH_6=55.8
+  else
+    THRESH_1=42.4
+    THRESH_2=43.5
+    THRESH_3_GPU00=28.7
+    THRESH_3_GPU01=35.0
+    THRESH_4=1137
+    THRESH_5=0
+    THRESH_6=43.7
+  fi
+
+  if check_result_with_error "Test_1" $THRESH_1 && \
+     check_result_with_error "Test_2" $THRESH_2 && \
+     check_result_with_error "Test_3_GPU00" $THRESH_3_GPU00 && \
+     check_result_with_error "Test_3_GPU01" $THRESH_3_GPU01 && \
+     check_result_with_error "Test_4" $THRESH_4 && \
+     check_result_with_error "Test_5" $THRESH_5 && \
+     check_result_with_error "Test_6" $THRESH_6; then
     success=1
     echo "[INFO] All tests passed on attempt $attempt"
     break

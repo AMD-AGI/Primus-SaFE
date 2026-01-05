@@ -138,6 +138,27 @@ jobs:
           echo "ai_advisor_changed=false" >> $GITHUB_OUTPUT
         fi
         
+        # gateway_exporter: Lens/modules/exporters/gateway-exporter/** or Lens/modules/core/**
+        if echo "$CHANGED_FILES" | grep -qE '^Lens/modules/exporters/gateway-exporter/|^Lens/modules/core/'; then
+          echo "gateway_exporter_changed=true" >> $GITHUB_OUTPUT
+        else
+          echo "gateway_exporter_changed=false" >> $GITHUB_OUTPUT
+        fi
+        
+        # inference_metrics_exporter: Lens/modules/exporters/inference-metrics-exporter/** or Lens/modules/core/**
+        if echo "$CHANGED_FILES" | grep -qE '^Lens/modules/exporters/inference-metrics-exporter/|^Lens/modules/core/'; then
+          echo "inference_metrics_exporter_changed=true" >> $GITHUB_OUTPUT
+        else
+          echo "inference_metrics_exporter_changed=false" >> $GITHUB_OUTPUT
+        fi
+        
+        # ai_gateway: Lens/modules/ai-gateway/** or Lens/modules/core/**
+        if echo "$CHANGED_FILES" | grep -qE '^Lens/modules/ai-gateway/|^Lens/modules/core/'; then
+          echo "ai_gateway_changed=true" >> $GITHUB_OUTPUT
+        else
+          echo "ai_gateway_changed=false" >> $GITHUB_OUTPUT
+        fi
+        
         # installer: Lens/bootstrap/installer/** or Lens/charts/**
         if echo "$CHANGED_FILES" | grep -qE '^Lens/bootstrap/installer/|^Lens/charts/'; then
           echo "installer_changed=true" >> $GITHUB_OUTPUT
@@ -185,6 +206,15 @@ jobs:
           fi
           if [[ "${{ steps.detect-changes.outputs.ai_advisor_changed }}" == "true" ]]; then
             MATRIX+='{"name":"ai-advisor","buildpath":"cmd/ai-advisor","basepath":"Lens/modules/ai-advisor/"},'
+          fi
+          if [[ "${{ steps.detect-changes.outputs.gateway_exporter_changed }}" == "true" ]]; then
+            MATRIX+='{"name":"gateway-exporter","buildpath":"cmd/gateway-exporter","basepath":"Lens/modules/exporters/gateway-exporter/"},'
+          fi
+          if [[ "${{ steps.detect-changes.outputs.inference_metrics_exporter_changed }}" == "true" ]]; then
+            MATRIX+='{"name":"inference-metrics-exporter","buildpath":"cmd/exporter","basepath":"Lens/modules/exporters/inference-metrics-exporter/"},'
+          fi
+          if [[ "${{ steps.detect-changes.outputs.ai_gateway_changed }}" == "true" ]]; then
+            MATRIX+='{"name":"ai-gateway","buildpath":"cmd/ai-gateway","basepath":"Lens/modules/ai-gateway/"},'
           fi
           MATRIX=${MATRIX%,} # remove trailing comma
           MATRIX+=']}'
@@ -265,6 +295,32 @@ jobs:
             buildah push --tls-verify=false ${repo}/${{ matrix.name }}:${DATE_TIME}
           done
 
+      - name: Save build info
+        env:
+          IMAGE_VERSION: ${{ needs.detect-changes.outputs.image_version }}
+          DATE_TIME: ${{ needs.detect-changes.outputs.date_time }}
+        run: |
+          mkdir -p build-info
+          cat > build-info/${{ matrix.name }}.json << EOF
+          {
+            "name": "${{ matrix.name }}",
+            "image_version": "${IMAGE_VERSION}",
+            "date_time": "${DATE_TIME}",
+            "docker_hub": "docker.io/primussafe/${{ matrix.name }}:${IMAGE_VERSION}",
+            "docker_hub_datetime": "docker.io/primussafe/${{ matrix.name }}:${DATE_TIME}",
+            "build_time": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
+            "commit_sha": "${{ github.sha }}",
+            "ref": "${{ github.ref }}"
+          }
+          EOF
+
+      - name: Upload build info artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-info-${{ matrix.name }}
+          path: build-info/${{ matrix.name }}.json
+          retention-days: 90
+
   # Special build job for primus-lens-installer
   # This requires bundling all Helm charts into the image
   build-installer:
@@ -335,6 +391,32 @@ jobs:
           
           echo "✅ primus-lens-installer build and push completed!"
 
+      - name: Save build info
+        env:
+          IMAGE_VERSION: ${{ needs.detect-changes.outputs.image_version }}
+          DATE_TIME: ${{ needs.detect-changes.outputs.date_time }}
+        run: |
+          mkdir -p build-info
+          cat > build-info/primus-lens-installer.json << EOF
+          {
+            "name": "primus-lens-installer",
+            "image_version": "${IMAGE_VERSION}",
+            "date_time": "${DATE_TIME}",
+            "docker_hub": "docker.io/primussafe/primus-lens-installer:${IMAGE_VERSION}",
+            "docker_hub_datetime": "docker.io/primussafe/primus-lens-installer:${DATE_TIME}",
+            "build_time": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
+            "commit_sha": "${{ github.sha }}",
+            "ref": "${{ github.ref }}"
+          }
+          EOF
+
+      - name: Upload build info artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-info-primus-lens-installer
+          path: build-info/primus-lens-installer.json
+          retention-days: 90
+
   # TraceLens image build job
   # Python-based Streamlit application for trace analysis
   build-tracelens:
@@ -380,4 +462,141 @@ jobs:
           done
           
           echo "✅ tracelens build and push completed!"
-  
+
+      - name: Save build info
+        env:
+          IMAGE_VERSION: ${{ needs.detect-changes.outputs.image_version }}
+          DATE_TIME: ${{ needs.detect-changes.outputs.date_time }}
+        run: |
+          mkdir -p build-info
+          cat > build-info/tracelens.json << EOF
+          {
+            "name": "tracelens",
+            "image_version": "${IMAGE_VERSION}",
+            "date_time": "${DATE_TIME}",
+            "docker_hub": "docker.io/primussafe/tracelens:${IMAGE_VERSION}",
+            "docker_hub_datetime": "docker.io/primussafe/tracelens:${DATE_TIME}",
+            "build_time": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
+            "commit_sha": "${{ github.sha }}",
+            "ref": "${{ github.ref }}"
+          }
+          EOF
+
+      - name: Upload build info artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-info-tracelens
+          path: build-info/tracelens.json
+          retention-days: 90
+
+  # Summarize all build results into a single manifest artifact
+  summarize-build:
+    needs: [detect-changes, build, build-installer, build-tracelens]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Download all build info artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: build-info-*
+          path: all-build-info
+          merge-multiple: false
+
+      - name: Generate build manifest
+        env:
+          IMAGE_VERSION: ${{ needs.detect-changes.outputs.image_version }}
+          DATE_TIME: ${{ needs.detect-changes.outputs.date_time }}
+        run: |
+          echo "📋 Generating build manifest..."
+          
+          # Create manifest header
+          cat > build-manifest.json << EOF
+          {
+            "workflow": "Lens-Build",
+            "run_id": "${{ github.run_id }}",
+            "run_number": "${{ github.run_number }}",
+            "image_version": "${IMAGE_VERSION}",
+            "date_time": "${DATE_TIME}",
+            "commit_sha": "${{ github.sha }}",
+            "ref": "${{ github.ref }}",
+            "build_time": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
+            "components": [
+          EOF
+          
+          # Merge all component build info
+          FIRST=true
+          if ls all-build-info/*/build-info/*.json 1> /dev/null 2>&1; then
+            for f in all-build-info/*/build-info/*.json; do
+              if [ "$FIRST" = true ]; then
+                FIRST=false
+              else
+                echo "," >> build-manifest.json
+              fi
+              cat "$f" >> build-manifest.json
+            done
+          elif ls all-build-info/*/*.json 1> /dev/null 2>&1; then
+            for f in all-build-info/*/*.json; do
+              if [ "$FIRST" = true ]; then
+                FIRST=false
+              else
+                echo "," >> build-manifest.json
+              fi
+              cat "$f" >> build-manifest.json
+            done
+          fi
+          
+          # Close the JSON
+          echo "" >> build-manifest.json
+          echo "  ]" >> build-manifest.json
+          echo "}" >> build-manifest.json
+          
+          echo "📄 Build manifest content:"
+          cat build-manifest.json
+          
+          # Also create a simple text version for quick reference
+          cat > build-versions.txt << EOF
+          ================================================
+          Lens Build Summary
+          ================================================
+          Workflow Run: ${{ github.run_id }}
+          Image Version: ${IMAGE_VERSION}
+          DateTime Tag: ${DATE_TIME}
+          Commit: ${{ github.sha }}
+          Ref: ${{ github.ref }}
+          Build Time: $(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          ================================================
+          
+          Built Components:
+          EOF
+          
+          if ls all-build-info/*/build-info/*.json 1> /dev/null 2>&1; then
+            for f in all-build-info/*/build-info/*.json; do
+              NAME=$(cat "$f" | grep -o '"name": "[^"]*"' | cut -d'"' -f4)
+              echo "  - $NAME:${IMAGE_VERSION}" >> build-versions.txt
+              echo "  - $NAME:${DATE_TIME}" >> build-versions.txt
+            done
+          elif ls all-build-info/*/*.json 1> /dev/null 2>&1; then
+            for f in all-build-info/*/*.json; do
+              NAME=$(cat "$f" | grep -o '"name": "[^"]*"' | cut -d'"' -f4)
+              echo "  - $NAME:${IMAGE_VERSION}" >> build-versions.txt
+              echo "  - $NAME:${DATE_TIME}" >> build-versions.txt
+            done
+          fi
+          
+          echo "" >> build-versions.txt
+          echo "Docker Hub Registry: docker.io/primussafe/" >> build-versions.txt
+          echo "================================================" >> build-versions.txt
+          
+          echo ""
+          echo "📄 Build versions summary:"
+          cat build-versions.txt
+
+      - name: Upload build manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: lens-build-manifest
+          path: |
+            build-manifest.json
+            build-versions.txt
+          retention-days: 90
+

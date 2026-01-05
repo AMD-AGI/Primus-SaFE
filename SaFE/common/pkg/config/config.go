@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -274,6 +274,11 @@ func GetOpsJobTimeoutSecond() int {
 	return getInt(opsJobTimeoutSecond, 0)
 }
 
+// GetDownloadJoImage returns the image name for downloading jobs.
+func GetDownloadJoImage() string {
+	return getString(opsJobDownloadImage, "")
+}
+
 // GetPrewarmTimeoutSecond returns the timeout in seconds for prewarm jobs.
 func GetPrewarmTimeoutSecond() int {
 	return getInt(prewarmTimeoutSecond, 900)
@@ -438,4 +443,22 @@ func GetProxyServices() []ProxyService {
 		return []ProxyService{}
 	}
 	return services
+}
+
+// GetComponents returns the list of deployable components.
+func GetComponents() []string {
+	val := viper.GetString(cdComponents)
+	return removeBlank(strings.Split(val, ","))
+}
+
+// IsCDRequireApproval returns whether CD deployment requires approval from another user.
+// When true, users cannot approve their own deployment requests.
+// When false, users can approve their own requests (self-approval allowed).
+func IsCDRequireApproval() bool {
+	return getBool(cdRequireApproval, true)
+}
+
+// GetCDJobImage returns the image for CD deployment jobs.
+func GetCDJobImage() string {
+	return getString(cdJobImage, "docker.io/primussafe/cd-job-runner:latest")
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -70,6 +70,10 @@ func initializeObject(obj *unstructured.Unstructured,
 	if err = modifyPriorityClass(obj, workload, path); err != nil {
 		return fmt.Errorf("failed to modify priority: %v", err.Error())
 	}
+	path = append(templatePath, "spec", "serviceAccountName")
+	if err = modifyServiceAccountName(obj, workload, path); err != nil {
+		return fmt.Errorf("failed to modify sa: %v", err.Error())
+	}
 	path = append(templatePath, "spec", "hostNetwork")
 	if err = modifyHostNetwork(obj, workload, path); err != nil {
 		return fmt.Errorf("failed to modify host network: %v", err.Error())
@@ -108,6 +112,9 @@ func modifyNodeSelectorTerms(obj *unstructured.Unstructured, workload *v1.Worklo
 		return err
 	}
 	expression := buildMatchExpression(workload)
+	if len(expression) == 0 {
+		return nil
+	}
 	if len(nodeSelectorTerms) == 0 {
 		expressions := make(map[string]interface{})
 		expressions["matchExpressions"] = expression
@@ -261,7 +268,7 @@ func modifyVolumeMounts(container map[string]interface{}, workload *v1.Workload,
 		if secret.Type != v1.SecretGeneral {
 			continue
 		}
-		mountPath := fmt.Sprintf("/etc/secrets/%s", secret.Id)
+		mountPath := fmt.Sprintf("%s/%s", common.SecretPath, secret.Id)
 		volumeMount := buildVolumeMount(secret.Id, mountPath, "", true)
 		volumeMounts = append(volumeMounts, volumeMount)
 	}
@@ -320,6 +327,9 @@ func modifyImageSecrets(obj *unstructured.Unstructured, workload *v1.Workload, p
 	if err != nil {
 		return err
 	}
+	if len(workload.Spec.Secrets) == 0 {
+		return nil
+	}
 	for _, s := range workload.Spec.Secrets {
 		if s.Type == v1.SecretImage {
 			secrets = append(secrets, buildImageSecret(s.Id))
@@ -331,14 +341,26 @@ func modifyImageSecrets(obj *unstructured.Unstructured, workload *v1.Workload, p
 	return nil
 }
 
-// modifyPrivilegedSecurity configures the security context for OpsJob preflight operations.
-// Sets privileged mode for preflight checks.
+// modifyPrivilegedSecurity configures the security context for OpsJob operations.
+// For all OpsJob types, runs as root user. For preflight checks, also sets privileged mode.
 func modifyPrivilegedSecurity(container map[string]interface{}, workload *v1.Workload) {
-	if v1.GetOpsJobType(workload) == string(v1.OpsJobPreflightType) {
-		container["securityContext"] = map[string]interface{}{
-			"privileged": true,
-		}
+	opsJobType := v1.GetOpsJobType(workload)
+	if opsJobType == "" {
+		return
 	}
+
+	// All OpsJob types run as root
+	securityContext := map[string]interface{}{
+		"runAsUser":  int64(0),
+		"runAsGroup": int64(0),
+	}
+
+	// Preflight type also needs privileged mode
+	if opsJobType == string(v1.OpsJobPreflightType) {
+		securityContext["privileged"] = true
+	}
+
+	container["securityContext"] = securityContext
 }
 
 // modifyPriorityClass sets the priority class for the workload based on its specification.
@@ -346,6 +368,16 @@ func modifyPriorityClass(obj *unstructured.Unstructured, workload *v1.Workload, 
 	priorityClass := commonworkload.GeneratePriorityClass(workload)
 	if err := unstructured.SetNestedField(obj.Object, priorityClass, path...); err != nil {
 		return err
+	}
+	return nil
+}
+
+// modifyServiceAccountName sets the service account name for the workload based on its specification.
+func modifyServiceAccountName(obj *unstructured.Unstructured, workload *v1.Workload, path []string) error {
+	if v1.GetOpsJobType(workload) == string(v1.OpsJobCDType) {
+		if err := unstructured.SetNestedField(obj.Object, common.PrimusSafeName, path...); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -393,6 +425,9 @@ func modifyStrategy(obj *unstructured.Unstructured, workload *v1.Workload, path 
 // modifySelector sets the selector for service objects to match the workload.
 func modifySelector(obj *unstructured.Unstructured, workload *v1.Workload, path []string) error {
 	selector := buildSelector(workload)
+	if len(selector) == 0 {
+		return nil
+	}
 	if err := unstructured.SetNestedMap(obj.Object, selector, path...); err != nil {
 		return err
 	}
@@ -422,12 +457,13 @@ func buildCommands(workload *v1.Workload) []interface{} {
 
 // buildEntryPoint constructs the command entry point for a workload.
 func buildEntryPoint(workload *v1.Workload) string {
+	if workload.Spec.EntryPoint == "" {
+		return ""
+	}
 	result := ""
 	switch workload.SpecKind() {
 	case common.CICDScaleRunnerSetKind:
 		result = workload.Spec.EntryPoint
-	case common.CICDEphemeralRunnerKind, common.JobKind:
-		result = stringutil.Base64Decode(workload.Spec.EntryPoint)
 	default:
 		result = Launcher + " '" + workload.Spec.EntryPoint + "'"
 	}
@@ -494,10 +530,12 @@ func buildEnvironment(workload *v1.Workload) []interface{} {
 }
 
 func addEnvVar(result []interface{}, workload *v1.Workload, name, value string) []interface{} {
-	_, ok := workload.Spec.Env[name]
-	if ok {
-		return result
+	if len(workload.Spec.Env) > 0 {
+		if _, ok := workload.Spec.Env[name]; ok {
+			return result
+		}
 	}
+
 	return append(result, map[string]interface{}{
 		"name":  name,
 		"value": value,

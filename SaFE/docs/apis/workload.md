@@ -500,7 +500,7 @@ Partially update workload configuration (only when running).
 
 **Request Parameters**:
 
-***General Workload Update Example***:
+***Example 1: General Workload Update***
 
 ```json
 {
@@ -517,7 +517,8 @@ Partially update workload configuration (only when running).
   "timeout": 7200,
   "maxRetry": 3,
   "env": {
-    "NEW_VAR": "value"
+    "NEW_VAR": "value",
+    "EXISTING_VAR": "keep_this_value"
   },
   "cronJobs": [
     {
@@ -536,20 +537,31 @@ Partially update workload configuration (only when running).
 }
 ```
 
-***CICD Workload Update Example (Updating GitHub PAT)***:
+***Example 2: CICD Workload - Update GitHub PAT***
 
 ```json
 {
   "env": {
-    "GITHUB_PAT": "your_new_github_token"
+    "ENTRYPOINT": "ZXhlYyAvaG9tZS9ydW5uZXIvYWN0aW9ucy1ydW5uZXIvcnVuLnNo",
+    "IMAGE": "primussafe/buildah-runner:v2.329.0-3",
+    "RESOURCES": "{\"replica\":1,\"cpu\":\"2\",\"gpu\":\"0\",\"memory\":\"8Gi\",\"sharedMemory\":\"4Gi\",\"ephemeralStorage\":\"100Gi\"}",
+    "UNIFIED_JOB_ENABLE": "false",
+    "GITHUB_CONFIG_URL": "https://github.com/AMD-AGI/Primus-SaFE",
+    "GITHUB_PAT": "your token"
   }
 }
 ```
 
-**Notes for CICD Workload Updates**:
-- When updating a CICD (AutoscalingRunnerSet) workload, you can update the GitHub Personal Access Token by specifying `GITHUB_PAT` in the `env` field.
-- The system will automatically create a new secret with the new token and update the workload annotation.
-- The old secret will be deleted automatically after the new secret is successfully created.
+**Important Notes**:
+
+1. **Full Field Update Required**: When updating object or array fields (such as `env`, `cronJobs`, `service`), you must provide the **complete** updated value for that field, not just the changed parts. The system will replace the entire field with your provided value.
+   - Example: If updating `env`, include all environment variables you want to keep, not just new/changed ones
+   - Example: If updating `cronJobs`, include all cron jobs you want, not just new ones
+
+2. **Updating CICD GitHub PAT**: For CICD (AutoscalingRunnerSet) workloads, to update the GitHub Personal Access Token:
+   - Include `GITHUB_PAT` with the new token value in the `env` field
+   - The system will automatically create a new Kubernetes secret and update the workload annotation
+   - The old secret will be deleted after successful update
 
 **Field Description**: All fields are optional; only provided fields will be updated
 

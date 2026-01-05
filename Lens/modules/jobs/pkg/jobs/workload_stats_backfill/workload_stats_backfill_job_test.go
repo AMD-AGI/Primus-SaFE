@@ -65,7 +65,13 @@ func (m *MockFacade) GetNodeNamespaceMapping() database.NodeNamespaceMappingFaca
 	return nil
 }
 func (m *MockFacade) GetTraceLensSession() database.TraceLensSessionFacadeInterface { return nil }
-func (m *MockFacade) WithCluster(clusterName string) database.FacadeInterface      { return m }
+func (m *MockFacade) GetK8sService() database.K8sServiceFacadeInterface             { return nil }
+func (m *MockFacade) GetWorkloadDetection() database.WorkloadDetectionFacadeInterface { return nil }
+func (m *MockFacade) GetWorkloadDetectionEvidence() database.WorkloadDetectionEvidenceFacadeInterface { return nil }
+func (m *MockFacade) GetDetectionCoverage() database.DetectionCoverageFacadeInterface     { return nil }
+func (m *MockFacade) GetAIAgentRegistration() database.AIAgentRegistrationFacadeInterface { return nil }
+func (m *MockFacade) GetAITask() database.AITaskFacadeInterface                           { return nil }
+func (m *MockFacade) WithCluster(clusterName string) database.FacadeInterface             { return m }
 
 // MockWorkloadFacade implements database.WorkloadFacadeInterface for testing
 type MockWorkloadFacade struct {
@@ -163,6 +169,9 @@ func (m *MockWorkloadFacade) GetLatestEvent(ctx context.Context, workloadUid, ne
 func (m *MockWorkloadFacade) GetLatestOtherWorkloadEvent(ctx context.Context, workloadUid, nearestWorkloadId string) (*dbmodel.WorkloadEvent, error) {
 	return nil, nil
 }
+func (m *MockWorkloadFacade) GetAllWorkloadPodReferences(ctx context.Context) ([]*dbmodel.WorkloadPodReference, error) {
+	return nil, nil
+}
 
 // MockPodFacade implements database.PodFacadeInterface for testing
 type MockPodFacade struct {
@@ -224,6 +233,21 @@ func (m *MockPodFacade) UpdatePodResource(ctx context.Context, podResource *dbmo
 	return nil
 }
 func (m *MockPodFacade) ListPodResourcesByUids(ctx context.Context, uids []string) ([]*dbmodel.PodResource, error) {
+	return nil, nil
+}
+func (m *MockPodFacade) QueryPodsWithFilters(ctx context.Context, namespace, podName, startTime, endTime string, page, pageSize int) ([]*dbmodel.GpuPods, int64, error) {
+	return nil, 0, nil
+}
+func (m *MockPodFacade) GetAverageGPUUtilizationByNode(ctx context.Context, nodeName string) (float64, error) {
+	return 0.0, nil
+}
+func (m *MockPodFacade) GetLatestGPUMetricsByNode(ctx context.Context, nodeName string) (*dbmodel.GpuDevice, error) {
+	return nil, nil
+}
+func (m *MockPodFacade) QueryGPUHistoryByNode(ctx context.Context, nodeName string, startTime, endTime time.Time) ([]*dbmodel.GpuDevice, error) {
+	return nil, nil
+}
+func (m *MockPodFacade) ListPodEventsByUID(ctx context.Context, podUID string) ([]*dbmodel.GpuPodsEvent, error) {
 	return nil, nil
 }
 

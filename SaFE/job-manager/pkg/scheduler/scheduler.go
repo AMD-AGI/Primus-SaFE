@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -197,17 +197,16 @@ func (r *SchedulerReconciler) delete(ctx context.Context, adminWorkload *v1.Work
 			return ctrlruntime.Result{}, err
 		}
 	}
-	// generate the related resource reference
-	obj, err := jobutils.GenObjectReference(ctx, r.Client, adminWorkload)
+	workloadUnstructured, err := jobutils.BuildWorkloadUnstructured(ctx, r.Client, adminWorkload)
 	if err != nil {
 		return ctrlruntime.Result{}, err
 	}
 	// delete the related resource in data plane
-	if err = jobutils.DeleteObject(ctx, clusterInformer.ClientFactory(), obj); err != nil {
+	if err = jobutils.DeleteObject(ctx, clusterInformer.ClientFactory(), workloadUnstructured); err != nil {
 		klog.ErrorS(err, "failed to delete k8s object")
 		return ctrlruntime.Result{}, err
 	}
-	if result, err := r.waitObjectDeleted(ctx, obj, clusterInformer); err != nil || result.RequeueAfter > 0 {
+	if result, err := r.waitObjectDeleted(ctx, workloadUnstructured, clusterInformer); err != nil || result.RequeueAfter > 0 {
 		return result, err
 	}
 
@@ -224,26 +223,11 @@ func (r *SchedulerReconciler) delete(ctx context.Context, adminWorkload *v1.Work
 // If the object still exists after 1 minutes of deletion timestamp, it forcefully removes finalizers.
 func (r *SchedulerReconciler) waitObjectDeleted(ctx context.Context,
 	obj *unstructured.Unstructured, clusterInformer *syncer.ClusterInformer) (ctrlruntime.Result, error) {
-
 	k8sClientFactory := clusterInformer.ClientFactory()
 	gvk := obj.GroupVersionKind()
-	current, getErr := jobutils.GetObject(ctx, k8sClientFactory, obj.GetName(), obj.GetNamespace(), gvk)
+	_, getErr := jobutils.GetObject(ctx, k8sClientFactory, obj.GetName(), obj.GetNamespace(), gvk)
 	if getErr != nil {
 		return ctrlruntime.Result{}, client.IgnoreNotFound(getErr)
-	}
-
-	// object still exists
-	if ts := current.GetDeletionTimestamp(); ts != nil && !ts.IsZero() && time.Since(ts.Time) >= 1*time.Minute {
-		patchObj := map[string]any{
-			"metadata": map[string]any{
-				"finalizers": []string{},
-			},
-		}
-		p := jsonutils.MarshalSilently(patchObj)
-		if patchErr := jobutils.PatchObject(ctx,
-			k8sClientFactory, obj.GetName(), obj.GetNamespace(), gvk, p); patchErr != nil {
-			return ctrlruntime.Result{}, client.IgnoreNotFound(patchErr)
-		}
 	}
 	return ctrlruntime.Result{RequeueAfter: time.Second * 20}, nil
 }
@@ -371,7 +355,7 @@ func (r *SchedulerReconciler) canScheduleWorkload(ctx context.Context, requestWo
 			}
 		}
 	}
-	hasEnoughQuota, key := quantity.IsSubResource(requestResources, leftResources)
+
 	isDependencyReady, err := r.checkWorkloadDependencies(ctx, requestWorkload)
 	if err != nil {
 		return false, "", err
@@ -383,6 +367,7 @@ func (r *SchedulerReconciler) canScheduleWorkload(ctx context.Context, requestWo
 		return false, reason, nil
 	}
 
+	hasEnoughQuota, key := quantity.IsSubResource(requestResources, leftResources)
 	isPreemptable := false
 	if !hasEnoughQuota {
 		reason = fmt.Sprintf("Insufficient total %s resources", formatResourceName(key))
@@ -544,27 +529,29 @@ func (r *SchedulerReconciler) getLeftTotalResources(ctx context.Context,
 		}
 		return !n.IsAvailable(false)
 	}
-	usedResource := make(corev1.ResourceList)
+	usedTotalResource := make(corev1.ResourceList)
+	usedAvailableResource := make(corev1.ResourceList)
 	for _, w := range workloads {
-		var resourceList corev1.ResourceList
+		var totalResource, availableResource corev1.ResourceList
 		var err error
 		if w.IsRunning() {
-			resourceList, _, err = commonworkload.GetActiveResources(w, filterFunc)
+			totalResource, availableResource, _, err = commonworkload.GetWorkloadResourceUsage(w, filterFunc)
 		} else {
-			resourceList, err = commonworkload.CvtToResourceList(w)
+			totalResource, err = commonworkload.CvtToResourceList(w)
+			availableResource = totalResource
 		}
 		if err != nil {
 			return nil, nil, err
 		}
-		usedResource = quantity.AddResource(usedResource, resourceList)
+		usedTotalResource = quantity.AddResource(usedTotalResource, totalResource)
+		usedAvailableResource = quantity.AddResource(usedAvailableResource, availableResource)
 	}
 
-	availResource := workspace.Status.AvailableResources
-	leftAvailResource := quantity.SubResource(availResource, usedResource)
+	leftAvailResource := quantity.SubResource(workspace.Status.AvailableResources, usedAvailableResource)
 	totalResource := quantity.GetAvailableResource(workspace.Status.TotalResources)
-	leftTotalResource := quantity.SubResource(totalResource, usedResource)
-	// klog.Infof("total resource: %v, total used: %v, left total: %v, left avail: %v",
-	// totalResource, usedResource, leftTotalResource, leftAvailResource)
+	leftTotalResource := quantity.SubResource(totalResource, usedTotalResource)
+	klog.Infof("total resource: %v, total used: %v, total avail: %v, left total: %v, left avail: %v",
+		totalResource, usedTotalResource, usedAvailableResource, leftTotalResource, leftAvailResource)
 	return leftAvailResource, leftTotalResource, nil
 }
 

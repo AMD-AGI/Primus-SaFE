@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -80,6 +80,7 @@ const (
 	opsJobPrefix        = "ops_job."
 	opsJobTTLSecond     = opsJobPrefix + "ttl_second"
 	opsJobTimeoutSecond = opsJobPrefix + "timeout_second"
+	opsJobDownloadImage = opsJobPrefix + "download_image"
 
 	// prewarm
 	prewarmPrefix           = opsJobPrefix + "prewarm."
@@ -126,4 +127,11 @@ const (
 	// proxy
 	proxyPrefix = "proxy."
 	proxyList   = proxyPrefix + "services"
+
+	// cd
+	cdPrefix          = "cd."
+	cdRequireApproval = cdPrefix + "require_approval"
+	// Deployable components for CD
+	cdComponents = cdPrefix + "components"
+	cdJobImage   = cdPrefix + "job_image"
 )

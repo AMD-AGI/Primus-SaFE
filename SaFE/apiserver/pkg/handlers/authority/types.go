@@ -1,17 +1,19 @@
 /*
- * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
 package authority
 
 const (
-	CookieToken = "Token"
+	CookieToken    = "Token"
+	CookieUserType = "userType"
 
 	UserWorkspaceResource = "user/workspace"
 	UserIdentityResource  = "user/identity"
 	SecretResourceKind    = "secret"
 	PreflightKind         = "opsjob/preflight"
+	DownloadKind          = "opsjob/download"
 	PublicKeyKind         = "PublicKey"
 	ImageImportKind       = "ImageImport"
 	ImageRegisterKind     = "ImageRegister"

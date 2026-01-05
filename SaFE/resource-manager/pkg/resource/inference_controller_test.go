@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	batchv1 "k8s.io/api/batch/v1"
@@ -21,7 +22,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/constvar"
 )
 
 // TestGetWorkspaceMountPath tests the getWorkspaceMountPath helper function
@@ -202,10 +202,10 @@ func TestInferenceReconciler_Reconcile_APIInference(t *testing.T) {
 			Name: "api-inference",
 		},
 		Spec: v1.InferenceSpec{
-			ModelForm: constvar.InferenceModelFormAPI,
+			ModelForm: common.InferenceModelFormAPI,
 		},
 		Status: v1.InferenceStatus{
-			Phase: constvar.InferencePhaseRunning,
+			Phase: common.InferencePhaseRunning,
 		},
 	}
 
@@ -237,7 +237,7 @@ func TestInferenceReconciler_HandleStopped(t *testing.T) {
 			Name: "stopped-inference",
 		},
 		Status: v1.InferenceStatus{
-			Phase: constvar.InferencePhaseStopped,
+			Phase: common.InferencePhaseStopped,
 		},
 	}
 
@@ -267,7 +267,7 @@ func TestInferenceReconciler_HandleTerminalState(t *testing.T) {
 			Name: "failed-inference",
 		},
 		Status: v1.InferenceStatus{
-			Phase: constvar.InferencePhaseFailure,
+			Phase: common.InferencePhaseFailure,
 		},
 	}
 
@@ -297,13 +297,13 @@ func TestInferenceReconciler_HandleRunning_NoWorkloadID(t *testing.T) {
 			Name: "running-inference",
 		},
 		Spec: v1.InferenceSpec{
-			ModelForm: constvar.InferenceModelFormModelSquare,
+			ModelForm: common.InferenceModelFormModelSquare,
 			Instance: v1.InferenceInstance{
 				WorkloadID: "", // No workload ID
 			},
 		},
 		Status: v1.InferenceStatus{
-			Phase: constvar.InferencePhaseRunning,
+			Phase: common.InferencePhaseRunning,
 		},
 	}
 
@@ -327,7 +327,7 @@ func TestInferenceReconciler_HandleRunning_NoWorkloadID(t *testing.T) {
 	updatedInference := &v1.Inference{}
 	err = k8sClient.Get(context.Background(), client.ObjectKey{Name: "running-inference"}, updatedInference)
 	require.NoError(t, err)
-	assert.Equal(t, constvar.InferencePhaseFailure, updatedInference.Status.Phase)
+	assert.Equal(t, common.InferencePhaseFailure, updatedInference.Status.Phase)
 }
 
 // TestInferenceReconciler_UpdatePhase tests updating inference phase
@@ -340,7 +340,7 @@ func TestInferenceReconciler_UpdatePhase(t *testing.T) {
 			Name: "test-inference",
 		},
 		Status: v1.InferenceStatus{
-			Phase:   constvar.InferencePhasePending,
+			Phase:   common.InferencePhasePending,
 			Message: "Initial",
 		},
 	}
@@ -357,7 +357,7 @@ func TestInferenceReconciler_UpdatePhase(t *testing.T) {
 		},
 	}
 
-	result, err := r.updatePhase(context.Background(), inference, constvar.InferencePhaseRunning, "Now running")
+	result, err := r.updatePhase(context.Background(), inference, common.InferencePhaseRunning, "Now running")
 	require.NoError(t, err)
 	assert.False(t, result.Requeue)
 
@@ -365,7 +365,7 @@ func TestInferenceReconciler_UpdatePhase(t *testing.T) {
 	updatedInference := &v1.Inference{}
 	err = k8sClient.Get(context.Background(), client.ObjectKey{Name: "test-inference"}, updatedInference)
 	require.NoError(t, err)
-	assert.Equal(t, constvar.InferencePhaseRunning, updatedInference.Status.Phase)
+	assert.Equal(t, common.InferencePhaseRunning, updatedInference.Status.Phase)
 	assert.Equal(t, "Now running", updatedInference.Status.Message)
 }
 
@@ -379,7 +379,7 @@ func TestInferenceReconciler_UpdatePhase_NoChange(t *testing.T) {
 			Name: "test-inference",
 		},
 		Status: v1.InferenceStatus{
-			Phase:   constvar.InferencePhaseRunning,
+			Phase:   common.InferencePhaseRunning,
 			Message: "Running",
 		},
 	}
@@ -397,7 +397,7 @@ func TestInferenceReconciler_UpdatePhase_NoChange(t *testing.T) {
 	}
 
 	// Call with same phase and message
-	result, err := r.updatePhase(context.Background(), inference, constvar.InferencePhaseRunning, "Running")
+	result, err := r.updatePhase(context.Background(), inference, common.InferencePhaseRunning, "Running")
 	require.NoError(t, err)
 	assert.False(t, result.Requeue)
 }
@@ -410,27 +410,27 @@ func TestInferenceReconciler_SyncWorkloadStatus(t *testing.T) {
 	tests := []struct {
 		name          string
 		workloadPhase v1.WorkloadPhase
-		expectedPhase constvar.InferencePhaseType
+		expectedPhase common.InferencePhaseType
 	}{
 		{
 			name:          "workload pending",
 			workloadPhase: v1.WorkloadPending,
-			expectedPhase: constvar.InferencePhasePending,
+			expectedPhase: common.InferencePhasePending,
 		},
 		{
 			name:          "workload running",
 			workloadPhase: v1.WorkloadRunning,
-			expectedPhase: constvar.InferencePhaseRunning,
+			expectedPhase: common.InferencePhaseRunning,
 		},
 		{
 			name:          "workload failed",
 			workloadPhase: v1.WorkloadFailed,
-			expectedPhase: constvar.InferencePhaseFailure,
+			expectedPhase: common.InferencePhaseFailure,
 		},
 		{
 			name:          "workload stopped",
 			workloadPhase: v1.WorkloadStopped,
-			expectedPhase: constvar.InferencePhaseStopped,
+			expectedPhase: common.InferencePhaseStopped,
 		},
 	}
 
@@ -446,7 +446,7 @@ func TestInferenceReconciler_SyncWorkloadStatus(t *testing.T) {
 					},
 				},
 				Status: v1.InferenceStatus{
-					Phase: constvar.InferencePhasePending,
+					Phase: common.InferencePhasePending,
 				},
 			}
 
@@ -495,7 +495,7 @@ func TestInferenceReconciler_Delete_WithApiKeySecret(t *testing.T) {
 			Finalizers: []string{v1.InferenceFinalizer},
 		},
 		Spec: v1.InferenceSpec{
-			ModelForm: constvar.InferenceModelFormAPI,
+			ModelForm: common.InferenceModelFormAPI,
 			Instance: v1.InferenceInstance{
 				ApiKey: &corev1.LocalObjectReference{Name: "api-key-secret"},
 			},
@@ -557,7 +557,7 @@ func TestInferenceReconciler_Delete_ModelSquare(t *testing.T) {
 			Finalizers: []string{v1.InferenceFinalizer},
 		},
 		Spec: v1.InferenceSpec{
-			ModelForm: constvar.InferenceModelFormModelSquare,
+			ModelForm: common.InferenceModelFormModelSquare,
 			ModelName: "test-model",
 			Resource: v1.InferenceResource{
 				Workspace: "test-workspace",
@@ -645,13 +645,13 @@ func TestInferenceReconciler_HandlePending_WithExistingWorkload(t *testing.T) {
 			Name: "test-inference",
 		},
 		Spec: v1.InferenceSpec{
-			ModelForm: constvar.InferenceModelFormModelSquare,
+			ModelForm: common.InferenceModelFormModelSquare,
 			Instance: v1.InferenceInstance{
 				WorkloadID: "existing-workload",
 			},
 		},
 		Status: v1.InferenceStatus{
-			Phase: constvar.InferencePhasePending,
+			Phase: common.InferencePhasePending,
 		},
 	}
 
@@ -674,7 +674,7 @@ func TestInferenceReconciler_HandlePending_WithExistingWorkload(t *testing.T) {
 	updatedInference := &v1.Inference{}
 	err = k8sClient.Get(context.Background(), client.ObjectKey{Name: "test-inference"}, updatedInference)
 	require.NoError(t, err)
-	assert.Equal(t, constvar.InferencePhaseRunning, updatedInference.Status.Phase)
+	assert.Equal(t, common.InferencePhaseRunning, updatedInference.Status.Phase)
 	assert.True(t, result.RequeueAfter > 0)
 }
 

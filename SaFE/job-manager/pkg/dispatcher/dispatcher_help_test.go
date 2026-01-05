@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -567,6 +567,137 @@ func TestModifyPodAntiAffinity(t *testing.T) {
 			matchLabels, ok := labelSelector["matchLabels"].(map[string]interface{})
 			assert.Equal(t, ok, true)
 			assert.Equal(t, matchLabels[v1.WorkloadIdLabel], tt.expectedLabels[v1.WorkloadIdLabel])
+		})
+	}
+}
+
+func TestModifyServiceAccountName(t *testing.T) {
+	tests := []struct {
+		name        string
+		opsJobType  string
+		expectedSA  string
+		shouldBeSet bool
+	}{
+		{
+			name:        "CD job should set primus-safe service account",
+			opsJobType:  string(v1.OpsJobCDType),
+			expectedSA:  common.PrimusSafeName,
+			shouldBeSet: true,
+		},
+		{
+			name:        "Preflight job should not set service account",
+			opsJobType:  string(v1.OpsJobPreflightType),
+			shouldBeSet: false,
+		},
+		{
+			name:        "Empty ops job type should not set service account",
+			opsJobType:  "",
+			shouldBeSet: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			obj := &unstructured.Unstructured{
+				Object: map[string]interface{}{
+					"spec": map[string]interface{}{
+						"template": map[string]interface{}{
+							"spec": map[string]interface{}{},
+						},
+					},
+				},
+			}
+
+			workload := &v1.Workload{}
+			if tt.opsJobType != "" {
+				workload.Labels = map[string]string{
+					v1.OpsJobTypeLabel: tt.opsJobType,
+				}
+			}
+
+			path := []string{"spec", "template", "spec", "serviceAccountName"}
+			err := modifyServiceAccountName(obj, workload, path)
+			assert.NilError(t, err)
+
+			sa, found, err := unstructured.NestedString(obj.Object, path...)
+			assert.NilError(t, err)
+
+			if tt.shouldBeSet {
+				assert.Equal(t, found, true)
+				assert.Equal(t, sa, tt.expectedSA)
+			} else {
+				assert.Equal(t, found, false)
+			}
+		})
+	}
+}
+
+func TestModifyByOpsJob(t *testing.T) {
+	tests := []struct {
+		name          string
+		opsJobType    string
+		expectHostPID bool
+		expectHostIPC bool
+	}{
+		{
+			name:          "Preflight job should set hostPID and hostIPC",
+			opsJobType:    string(v1.OpsJobPreflightType),
+			expectHostPID: true,
+			expectHostIPC: true,
+		},
+		{
+			name:          "CD job should not set hostPID and hostIPC",
+			opsJobType:    string(v1.OpsJobCDType),
+			expectHostPID: false,
+			expectHostIPC: false,
+		},
+		{
+			name:          "Empty ops job type should not set hostPID and hostIPC",
+			opsJobType:    "",
+			expectHostPID: false,
+			expectHostIPC: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			obj := &unstructured.Unstructured{
+				Object: map[string]interface{}{
+					"spec": map[string]interface{}{
+						"template": map[string]interface{}{
+							"spec": map[string]interface{}{},
+						},
+					},
+				},
+			}
+
+			workload := &v1.Workload{}
+			if tt.opsJobType != "" {
+				workload.Labels = map[string]string{
+					v1.OpsJobTypeLabel: tt.opsJobType,
+				}
+			}
+
+			templatePath := []string{"spec", "template"}
+			err := modifyByOpsJob(obj, workload, templatePath)
+			assert.NilError(t, err)
+
+			hostPID, foundPID, _ := unstructured.NestedBool(obj.Object, "spec", "template", "spec", "hostPID")
+			hostIPC, foundIPC, _ := unstructured.NestedBool(obj.Object, "spec", "template", "spec", "hostIPC")
+
+			if tt.expectHostPID {
+				assert.Equal(t, foundPID, true)
+				assert.Equal(t, hostPID, true)
+			} else {
+				assert.Equal(t, foundPID, false)
+			}
+
+			if tt.expectHostIPC {
+				assert.Equal(t, foundIPC, true)
+				assert.Equal(t, hostIPC, true)
+			} else {
+				assert.Equal(t, foundIPC, false)
+			}
 		})
 	}
 }

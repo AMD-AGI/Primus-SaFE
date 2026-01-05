@@ -17,7 +17,13 @@ LOG_FILE="/tmp/roc_blas_fp32_bench.log"
 max_retries=7
 best_gflops=0
 success=0
-threshold=84690
+
+threshold=0
+if [[ "$GPU_PRODUCT" == *"MI355X"* ]]; then
+  threshold=109787
+else
+  threshold=84690
+fi
 
 for attempt in $(seq 1 $max_retries); do
   $DIR_NAME/build/release/clients/staging/rocblas-bench -f gemm -r s -m 4000 -n 4000 -k 4000 --lda 4000 --ldb 4000 --ldc 4000 --transposeA N --transposeB T >$LOG_FILE

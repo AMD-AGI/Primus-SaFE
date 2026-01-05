@@ -11,6 +11,37 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/config.sh"
 
+# ------------------ Helper Functions ------------------
+
+# Function to attempt normal container cleanup
+normal_clean_container() {
+    local container_id="$1"
+    
+    # Method 1: Direct force remove
+    if docker_podman_proxy rm -f "$container_id" 2>/dev/null; then
+        return 0
+    fi
+    
+    # Method 2: Stop then remove
+    docker_podman_proxy stop "$container_id" 2>/dev/null || true
+    sleep 2
+    if docker_podman_proxy rm -f "$container_id" 2>/dev/null; then
+        return 0
+    fi
+    
+    # Method 3: Kill the process directly
+    local pid=$(docker_podman_proxy inspect -f '{{.State.Pid}}' "$container_id" 2>/dev/null || echo "")
+    if [[ -n "$pid" ]] && [[ "$pid" != "0" ]] && [[ "$pid" != "null" ]]; then
+        sudo kill -9 "$pid" 2>/dev/null || true
+        sleep 2
+        if docker_podman_proxy rm -f "$container_id" 2>/dev/null; then
+            return 0
+        fi
+    fi
+    
+    return 1
+}
+
 # ------------------ Usage Help ------------------
 
 print_usage() {
@@ -71,12 +102,36 @@ docker_podman_proxy() {
 
 if [[ "${CLEAN_DOCKER_CONTAINER}" == "1" ]]; then
     echo "Node-${NODE_RANK}: Cleaning up existing containers..."
+    
     CONTAINERS=$(docker_podman_proxy ps -aq)
     if [[ -n "$CONTAINERS" ]]; then
+        # First attempt: Normal cleanup for each container
+        failed_containers=""
+        removed_containers=""
+        
+        echo "Node-${NODE_RANK}: Attempting normal cleanup..."
         for cid in $CONTAINERS; do
-            docker_podman_proxy rm -f "$cid"
+            if normal_clean_container "$cid"; then
+                removed_containers="$removed_containers $cid"
+                echo "Node-${NODE_RANK}:   ✓ Removed container $cid"
+            else
+                failed_containers="$failed_containers $cid"
+                echo "Node-${NODE_RANK}:   ✗ Failed to remove container $cid"
+            fi
         done
-        echo "Node-${NODE_RANK}: Removed containers: $CONTAINERS"
+        
+        # Report normal cleanup results
+        if [[ -n "$removed_containers" ]]; then
+            echo "Node-${NODE_RANK}: Normal cleanup removed:$removed_containers"
+        fi
+        
+        # If any containers failed, report and continue (no aggressive cleanup)
+        if [[ -n "$failed_containers" ]]; then
+            echo "Node-${NODE_RANK}: ⚠ Failed to remove:$failed_containers"
+            echo "Node-${NODE_RANK}: Recommended actions:"
+            echo "Node-${NODE_RANK}:   1. Run: sudo systemctl restart docker"
+            echo "Node-${NODE_RANK}:   2. Or reboot the system"
+        fi
     else
         echo "Node-${NODE_RANK}: No containers to remove."
     fi

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -588,9 +588,6 @@ func (v *WorkloadValidator) validateOnCreation(ctx context.Context, workload *v1
 	if err := v.validateCommon(ctx, workload); err != nil {
 		return err
 	}
-	if err := validateDNSName(v1.GetDisplayName(workload)); err != nil {
-		return err
-	}
 	if err := v.validateScope(ctx, workload); err != nil {
 		return err
 	}
@@ -648,7 +645,7 @@ func (v *WorkloadValidator) validateRequiredParams(workload *v1.Workload) error 
 	if v1.GetDisplayName(workload) == "" {
 		errs = append(errs, fmt.Errorf("the displayName is empty"))
 	}
-	if err := validateDisplayName(v1.GetDisplayName(workload)); err != nil {
+	if err := validateDNSName(v1.GetDisplayName(workload)); err != nil {
 		errs = append(errs, err)
 	}
 	if v1.GetClusterId(workload) == "" {
@@ -664,7 +661,7 @@ func (v *WorkloadValidator) validateRequiredParams(workload *v1.Workload) error 
 		if err := v.validateCICDScalingRunnerSet(workload); err != nil {
 			errs = append(errs, err)
 		}
-	} else {
+	} else if v1.GetOpsJobId(workload) == "" {
 		if workload.Spec.EntryPoint == "" {
 			errs = append(errs, fmt.Errorf("the entryPoint is empty"))
 		}
@@ -684,6 +681,9 @@ func (v *WorkloadValidator) validateRequiredParams(workload *v1.Workload) error 
 func (v *WorkloadValidator) validateCICDScalingRunnerSet(workload *v1.Workload) error {
 	if len(v1.GetDisplayName(workload)) > MaxCICDScaleSetNameLen {
 		return fmt.Errorf("the displayName is too long, maximum length is %d characters", MaxCICDScaleSetNameLen)
+	}
+	if len(workload.Spec.Env) == 0 {
+		return fmt.Errorf("the environment variables of workload is empty")
 	}
 	keys := []string{ResourcesEnv, EntrypointEnv, ImageEnv, common.GithubConfigUrl}
 	for _, key := range keys {

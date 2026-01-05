@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -508,7 +508,7 @@ func (r *WorkspaceReconciler) syncWorkspace(ctx context.Context, workspace *v1.W
 		return err
 	}
 	var availReplica, abnormalReplica int
-	var totalResources, availResources corev1.ResourceList
+	var totalResources, availResources, abnormalResources corev1.ResourceList
 	for _, node := range nodes {
 		if v1.GetNodeFlavorId(&node) != workspace.Spec.NodeFlavor {
 			continue
@@ -517,6 +517,7 @@ func (r *WorkspaceReconciler) syncWorkspace(ctx context.Context, workspace *v1.W
 			availResources = quantity.AddResource(availResources, node.Status.Resources)
 			availReplica++
 		} else {
+			abnormalResources = quantity.AddResource(abnormalResources, node.Status.Resources)
 			abnormalReplica++
 		}
 		totalResources = quantity.AddResource(totalResources, node.Status.Resources)
@@ -529,6 +530,10 @@ func (r *WorkspaceReconciler) syncWorkspace(ctx context.Context, workspace *v1.W
 	}
 	if !quantity.Equal(availResources, workspace.Status.AvailableResources) {
 		workspace.Status.AvailableResources = availResources
+		isChanged = true
+	}
+	if !quantity.Equal(abnormalResources, workspace.Status.AbnormalResources) {
+		workspace.Status.AbnormalResources = abnormalResources
 		isChanged = true
 	}
 	if workspace.Status.AvailableReplica != availReplica {

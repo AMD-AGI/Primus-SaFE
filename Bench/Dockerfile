@@ -1,51 +1,44 @@
-ARG BASE_IMAGE=primussafe/pytorch:rocm6.4.3_ubuntu22.04_py3.10
-
-FROM ${BASE_IMAGE}
-
+ARG ROCM_VERSION=6.4.3
+ARG GPU_ARCHS=gfx942
+FROM primussafe/pytorch:rocm${ROCM_VERSION}_${GPU_ARCHS}_ubuntu22.04_py3.10
 
 LABEL maintainer="PrimusBench"
 
+ARG ROCM_VERSION=6.4.3
+ARG GPU_ARCHS=gfx942
+ARG AINIC_BUNDLE_FILENAME=""
 ENV DEBIAN_FRONTEND=noninteractive
+ENV ROCM_VERSION=${ROCM_VERSION}
+ENV GPU_ARCHS=${GPU_ARCHS}
+
 RUN apt-get update && \
     apt-get -q install -y --no-install-recommends  \
-    autoconf \
-    automake \
-    bc \
-    build-essential \
-    curl \
+    curl bc \
     dmidecode \
-    git \
     hipify-clang \
     iproute2 \
-    jq \
     libaio-dev \
-    libboost-program-options-dev \
+    libboost-all-dev \
     libcap2 \
     libcurl4-openssl-dev \
-    libnuma-dev \
-    libpci-dev \
-    libssl-dev \
     libtinfo5 \
-    libtool \
     lshw \
     net-tools \
-    numactl \
-    openssh-client \
-    openssh-server \
+    openssh-client openssh-server \
     pciutils \
     python3-mpi4py \
+    libnuma-dev libfmt-dev \
     rsync \
     sudo \
-    util-linux \
+    util-linux kmod xz-utils numactl \
     vim \
-    wget \
     dnsutils \
     rocm-cmake \
-    net-tools bc \
-    perftest libgtest-dev bc \
-    openssh-server \
-    openmpi-bin openmpi-common libopenmpi-dev \
-    rocm-validation-suite gfortran libgfortran-12-dev python3-yaml \
+    net-tools \
+    perftest libgtest-dev \
+    gfortran libgfortran-12-dev python3-yaml \
+    libyaml-cpp-dev \
+    initramfs-tools \
     && \
     rm -rf /tmp/*
 
@@ -56,11 +49,11 @@ WORKDIR ${WORKSPACE}
 #install ior
 RUN cd ${WORKSPACE} && git clone https://github.com/hpc/ior.git && cd ior \
     && git checkout remotes/origin/4.0 \
-    && ./bootstrap && ./configure --prefix="$HOME" && make && make install
+    && ./bootstrap && ./configure --prefix="/opt" && make && make install
 
 #install fio from source
 RUN cd ${WORKSPACE} && git clone --depth=1 https://github.com/axboe/fio.git && cd fio \
-    && ./configure --prefix="$HOME" && make && make install
+    && ./configure --prefix="/opt" && make && make install
 
 
 RUN python3 -m pip install --upgrade pip wheel setuptools==65.7 ansible
@@ -72,6 +65,7 @@ RUN mkdir -p ${PREFLIGHT_HOME}/network
 RUN mkdir -p ${PREFLIGHT_HOME}/node
 RUN mkdir -p ${PREFLIGHT_HOME}/node/config_check
 RUN mkdir -p ${PREFLIGHT_HOME}/node/node_check
+RUN mkdir -p ${PREFLIGHT_HOME}/node/model_check
 RUN mkdir -p ${PREFLIGHT_HOME}/install
 
 COPY ./preflight/ssh/* ${PREFLIGHT_HOME}/ssh/
@@ -80,10 +74,15 @@ COPY ./preflight/network/*.sh ${PREFLIGHT_HOME}/network/
 COPY ./preflight/node/*.sh ${PREFLIGHT_HOME}/node/
 COPY ./preflight/node/config_check/* ${PREFLIGHT_HOME}/node/config_check/
 COPY ./preflight/node/node_check/* ${PREFLIGHT_HOME}/node/node_check/
-COPY ./preflight/node/install/* ${PREFLIGHT_HOME}/install/
-COPY ./preflight/network/install/* ${PREFLIGHT_HOME}/install/
+COPY ./preflight/node/model_check/* ${PREFLIGHT_HOME}/node/model_check/
+COPY ./preflight/install/* ${PREFLIGHT_HOME}/install/
 
-RUN bash ${PREFLIGHT_HOME}/install/install_network.sh && bash ${PREFLIGHT_HOME}/install/install_node.sh && rm -rf ${PREFLIGHT_HOME}/install
+# Set AINIC_BUNDLE_PATH if filename was provided (file already copied via COPY above)
+RUN if [ -n "${AINIC_BUNDLE_FILENAME}" ]; then \
+      export AINIC_BUNDLE_PATH="${PREFLIGHT_HOME}/install/${AINIC_BUNDLE_FILENAME}"; \
+      echo "AINIC bundle path: ${AINIC_BUNDLE_PATH}"; \
+    fi && \
+    bash ${PREFLIGHT_HOME}/install/install.sh && rm -rf ${PREFLIGHT_HOME}/install
 
 ARG NUM_MAKE_JOBS=64
 

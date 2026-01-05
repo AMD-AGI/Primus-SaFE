@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -32,8 +32,8 @@ const (
 	WorkloadGracePeriod = 180
 )
 
-// GenObjectReference constructs a reference object pointing to a k8s object based on the workload.
-func GenObjectReference(ctx context.Context, adminClient client.Client, adminWorkload *v1.Workload) (*unstructured.Unstructured, error) {
+// BuildWorkloadUnstructured constructs a reference object pointing to a k8s object based on the workload.
+func BuildWorkloadUnstructured(ctx context.Context, adminClient client.Client, adminWorkload *v1.Workload) (*unstructured.Unstructured, error) {
 	rt, err := commonworkload.GetResourceTemplate(ctx, adminClient, adminWorkload)
 	if err != nil {
 		return nil, err
@@ -79,23 +79,23 @@ func UpdateObject(ctx context.Context, k8sClientFactory *commonclient.ClientFact
 
 // PatchObject patch a Kubernetes object using the dynamic client.
 func PatchObject(ctx context.Context, k8sClientFactory *commonclient.ClientFactory,
-	name, namespace string, gvk schema.GroupVersionKind, p []byte) error {
-	gvr, err := ConvertGVKToGVR(k8sClientFactory.Mapper(), gvk)
+	obj *unstructured.Unstructured, p []byte) error {
+	gvr, err := ConvertGVKToGVR(k8sClientFactory.Mapper(), obj.GroupVersionKind())
 	if err != nil {
 		return err
 	}
 	if _, patchErr := k8sClientFactory.DynamicClient().
 		Resource(gvr).
-		Namespace(namespace).
-		Patch(ctx, name, apitypes.MergePatchType, p, metav1.PatchOptions{}); patchErr != nil {
+		Namespace(obj.GetNamespace()).
+		Patch(ctx, obj.GetName(), apitypes.MergePatchType, p, metav1.PatchOptions{}); patchErr != nil {
 		return patchErr
 	}
 	return nil
 }
 
 // GetObject retrieves an object via the dynamic client.
-func GetObject(ctx context.Context, k8sClientFactory *commonclient.ClientFactory, name, namespace string,
-	gvk schema.GroupVersionKind) (*unstructured.Unstructured, error) {
+func GetObject(ctx context.Context, k8sClientFactory *commonclient.ClientFactory,
+	name, namespace string, gvk schema.GroupVersionKind) (*unstructured.Unstructured, error) {
 	gvr, err := ConvertGVKToGVR(k8sClientFactory.Mapper(), gvk)
 	if err != nil {
 		return nil, err
@@ -125,13 +125,14 @@ func GetObjectByInformer(informer informers.GenericInformer, name, namespace str
 
 // GetObjectByClientFactory retrieves an object from Kubernetes using the dynamic client factory.
 // It converts the GroupVersionKind to GroupVersionResource and fetches the object by name and namespace.
-func GetObjectByClientFactory(ctx context.Context, k8sClientFactory *commonclient.ClientFactory, obj *unstructured.Unstructured) (*unstructured.Unstructured, error) {
-	gvr, err := ConvertGVKToGVR(k8sClientFactory.Mapper(), obj.GroupVersionKind())
+func GetObjectByClientFactory(ctx context.Context, k8sClientFactory *commonclient.ClientFactory,
+	name, namespace string, gvk schema.GroupVersionKind) (*unstructured.Unstructured, error) {
+	gvr, err := ConvertGVKToGVR(k8sClientFactory.Mapper(), gvk)
 	if err != nil {
 		return nil, err
 	}
 	unstructuredObj, err := k8sClientFactory.DynamicClient().
-		Resource(gvr).Namespace(obj.GetNamespace()).Get(ctx, obj.GetName(), metav1.GetOptions{})
+		Resource(gvr).Namespace(namespace).Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
 		return nil, err
 	}

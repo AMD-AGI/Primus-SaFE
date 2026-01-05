@@ -216,5 +216,5 @@ func (g *ReportGenerator) getConductorURL() string {
 		return g.config.Conductor.BaseURL
 	}
 	// Default URL
-	return "http://primus-conductor-api:8000"
+	return "http://lens-agent-api-service:8000"
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -17,6 +17,7 @@ import (
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -26,7 +27,6 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonjob "github.com/AMD-AIG-AIMA/SAFE/common/pkg/ops_job"
-	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/backoff"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
 
@@ -85,51 +85,6 @@ func isPreflightWorkload(workload *v1.Workload) bool {
 		return true
 	}
 	return false
-}
-
-// handleWorkloadEventImpl handles workload events by updating the corresponding OpsJob status.
-func (r *PreflightJobReconciler) handleWorkloadEventImpl(ctx context.Context, workload *v1.Workload) {
-	var phase v1.OpsJobPhase
-	completionMessage := ""
-	switch {
-	case workload.IsEnd():
-		if workload.Status.Phase == v1.WorkloadSucceeded {
-			phase = v1.OpsJobSucceeded
-		} else {
-			phase = v1.OpsJobFailed
-		}
-		completionMessage = getWorkloadCompletionMessage(workload)
-		if completionMessage == "" {
-			completionMessage = "unknown"
-		}
-	case workload.IsRunning():
-		phase = v1.OpsJobRunning
-	default:
-		phase = v1.OpsJobPending
-	}
-
-	jobId := v1.GetOpsJobId(workload)
-	err := backoff.Retry(func() error {
-		job := &v1.OpsJob{}
-		var err error
-		if err = r.Get(ctx, client.ObjectKey{Name: jobId}, job); err != nil {
-			return client.IgnoreNotFound(err)
-		}
-		switch phase {
-		case v1.OpsJobPending, v1.OpsJobRunning:
-			err = r.setJobPhase(ctx, job, phase)
-		default:
-			output := []v1.Parameter{{Name: "result", Value: completionMessage}}
-			err = r.setJobCompleted(ctx, job, phase, completionMessage, output)
-		}
-		if err != nil {
-			return err
-		}
-		return nil
-	}, 2*time.Second, 200*time.Millisecond)
-	if err != nil {
-		klog.ErrorS(err, "failed to update job status", "jobId", jobId)
-	}
 }
 
 // Reconcile is the main control loop for PreflightJob resources.
@@ -198,13 +153,17 @@ func (r *PreflightJobReconciler) generatePreflightWorkload(ctx context.Context, 
 	if err := r.Get(ctx, client.ObjectKey{Name: nodeParams[0].Value}, node); err != nil {
 		return nil, err
 	}
+	nodeFlavor := &v1.NodeFlavor{}
+	if err := r.Get(ctx, client.ObjectKey{Name: v1.GetNodeFlavorId(node)}, nodeFlavor); err != nil {
+		return nil, err
+	}
 
 	workload := &v1.Workload{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: job.Name,
 			Labels: map[string]string{
 				v1.ClusterIdLabel:    v1.GetClusterId(job),
-				v1.NodeFlavorIdLabel: v1.GetNodeFlavorId(node),
+				v1.NodeFlavorIdLabel: nodeFlavor.Name,
 				v1.UserIdLabel:       v1.GetUserId(job),
 				v1.OpsJobIdLabel:     job.Name,
 				v1.OpsJobTypeLabel:   string(job.Spec.Type),
@@ -231,6 +190,17 @@ func (r *PreflightJobReconciler) generatePreflightWorkload(ctx context.Context, 
 			Env:       job.Spec.Env,
 			Hostpath:  job.Spec.Hostpath,
 		},
+	}
+	if err := controllerutil.SetControllerReference(job, workload, r.Client.Scheme()); err != nil {
+		return nil, err
+	}
+	if nodeFlavor.HasGpu() {
+		if workload.Spec.Env == nil {
+			workload.Spec.Env = make(map[string]string)
+			workload.Spec.Env[common.GPU_PRODUCT] = string(nodeFlavor.Spec.Gpu.Product)
+		} else if _, ok := workload.Spec.Env[common.GPU_PRODUCT]; !ok {
+			workload.Spec.Env[common.GPU_PRODUCT] = string(nodeFlavor.Spec.Gpu.Product)
+		}
 	}
 	if workload.Spec.Workspace == "" {
 		workload.Spec.Workspace = corev1.NamespaceDefault

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -11,6 +11,7 @@ import (
 	"time"
 
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/backoff"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -299,6 +300,50 @@ func (r *OpsJobBaseReconciler) listJobs(ctx context.Context, clusterId, opsjobTy
 		result = append(result, jobList.Items[i])
 	}
 	return result, nil
+}
+
+func (r *OpsJobBaseReconciler) handleWorkloadEventImpl(ctx context.Context, workload *v1.Workload) {
+	var phase v1.OpsJobPhase
+	completionMessage := ""
+	switch {
+	case workload.IsEnd():
+		if workload.Status.Phase == v1.WorkloadSucceeded {
+			phase = v1.OpsJobSucceeded
+		} else {
+			phase = v1.OpsJobFailed
+		}
+		completionMessage = getWorkloadCompletionMessage(workload)
+		if completionMessage == "" {
+			completionMessage = "unknown"
+		}
+	case workload.IsRunning():
+		phase = v1.OpsJobRunning
+	default:
+		phase = v1.OpsJobPending
+	}
+
+	jobId := v1.GetOpsJobId(workload)
+	err := backoff.Retry(func() error {
+		job := &v1.OpsJob{}
+		var err error
+		if err = r.Get(ctx, client.ObjectKey{Name: jobId}, job); err != nil {
+			return client.IgnoreNotFound(err)
+		}
+		switch phase {
+		case v1.OpsJobPending, v1.OpsJobRunning:
+			err = r.setJobPhase(ctx, job, phase)
+		default:
+			output := []v1.Parameter{{Name: "result", Value: completionMessage}}
+			err = r.setJobCompleted(ctx, job, phase, completionMessage, output)
+		}
+		if err != nil {
+			return err
+		}
+		return nil
+	}, 2*time.Second, 200*time.Millisecond)
+	if err != nil {
+		klog.ErrorS(err, "failed to update job status", "jobId", jobId)
+	}
 }
 
 // onFirstPhaseChangedPredicate creates a predicate that triggers when a job's phase changes from pending to running(or other phase).

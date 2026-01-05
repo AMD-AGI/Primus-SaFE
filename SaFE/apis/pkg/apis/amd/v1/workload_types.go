@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -353,6 +353,12 @@ func IsPodRunning(p *WorkloadPod) bool {
 	return corev1.PodSucceeded != p.Phase &&
 		corev1.PodFailed != p.Phase &&
 		p.K8sNodeName != ""
+}
+
+// IsPodTerminated returns true if the pod is in terminated phase.
+func IsPodTerminated(p *WorkloadPod) bool {
+	return corev1.PodSucceeded == p.Phase ||
+		corev1.PodFailed == p.Phase
 }
 
 // ToSchemaGVK converts the resource template GVK to schema.GroupVersionKind.

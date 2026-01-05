@@ -37,17 +37,53 @@ func (j *GpuUsageWeeklyReportJob) Run(ctx context.Context, clientSets *clientset
 		return stats, nil
 	}
 
-	clusterName := clientsets.GetClusterManager().GetCurrentClusterName()
-	log.Infof("GpuUsageWeeklyReportJob: starting weekly report generation for cluster: %s", clusterName)
+	// Get all clusters from ClusterManager
+	cm := clientsets.GetClusterManager()
+	clusters := cm.GetClusterNames()
 
-	// Generate report ID
-	reportID := fmt.Sprintf("rpt_%d_%s_%s", time.Now().Unix(), clusterName, uuid.New().String()[:8])
+	if len(clusters) == 0 {
+		log.Warn("GpuUsageWeeklyReportJob: no clusters found in ClusterManager")
+		stats.AddMessage("No clusters found")
+		return stats, nil
+	}
 
-	// Calculate report period
+	log.Infof("GpuUsageWeeklyReportJob: starting weekly report generation for %d clusters: %v", len(clusters), clusters)
+
+	// Calculate report period (same for all clusters)
 	period := j.calculatePeriod()
 	log.Infof("GpuUsageWeeklyReportJob: report period: %s to %s",
 		period.StartTime.Format(time.RFC3339),
 		period.EndTime.Format(time.RFC3339))
+
+	var totalCreated, totalFailed int64
+
+	// Generate report for each cluster
+	for _, clusterName := range clusters {
+		err := j.generateReportForCluster(ctx, clusterName, period)
+		if err != nil {
+			log.Errorf("GpuUsageWeeklyReportJob: failed to generate report for cluster %s: %v", clusterName, err)
+			totalFailed++
+		} else {
+			totalCreated++
+		}
+	}
+
+	stats.ItemsCreated = totalCreated
+	stats.ErrorCount = totalFailed
+
+	duration := time.Since(startTime)
+	log.Infof("GpuUsageWeeklyReportJob: completed in %v, created=%d, failed=%d", duration, totalCreated, totalFailed)
+	stats.AddMessage(fmt.Sprintf("Generated reports for %d clusters, failed=%d", totalCreated, totalFailed))
+
+	return stats, nil
+}
+
+// generateReportForCluster generates a weekly report for a single cluster
+func (j *GpuUsageWeeklyReportJob) generateReportForCluster(ctx context.Context, clusterName string, period ReportPeriod) error {
+	log.Infof("GpuUsageWeeklyReportJob: generating report for cluster: %s", clusterName)
+
+	// Generate report ID
+	reportID := fmt.Sprintf("rpt_%d_%s_%s", time.Now().Unix(), clusterName, uuid.New().String()[:8])
 
 	// Create initial report record
 	report := &dbmodel.GpuUsageWeeklyReports{
@@ -62,64 +98,55 @@ func (j *GpuUsageWeeklyReportJob) Run(ctx context.Context, clientSets *clientset
 	facade := database.GetFacade().GetGpuUsageWeeklyReport()
 	err := facade.Create(ctx, report)
 	if err != nil {
-		log.Errorf("GpuUsageWeeklyReportJob: failed to create report record: %v", err)
-		return stats, err
+		return fmt.Errorf("failed to create report record: %w", err)
 	}
-	stats.ItemsCreated = 1
 
 	// Step 1: Call Conductor API to get report data
-	log.Info("GpuUsageWeeklyReportJob: calling Conductor API to fetch report data")
+	log.Infof("GpuUsageWeeklyReportJob: calling Conductor API for cluster %s", clusterName)
 	generator := NewReportGenerator(j.config)
 	reportData, err := generator.Generate(ctx, clusterName, period)
 	if err != nil {
-		log.Errorf("GpuUsageWeeklyReportJob: failed to generate report data: %v", err)
+		log.Errorf("GpuUsageWeeklyReportJob: failed to generate report data for cluster %s: %v", clusterName, err)
 		report.Status = "failed"
 		report.ErrorMessage = fmt.Sprintf("Failed to generate report data: %v", err)
 		facade.Update(ctx, report)
-		return stats, err
+		return err
 	}
-	log.Infof("GpuUsageWeeklyReportJob: successfully fetched report data from Conductor API")
+	log.Infof("GpuUsageWeeklyReportJob: successfully fetched report data for cluster %s", clusterName)
 
 	// Step 1.5: Get average GPU count from cluster_gpu_hourly_stats table
 	avgGpuCount, err := j.getAverageGpuCountFromDB(ctx, clusterName, period)
 	if err != nil {
-		log.Warnf("GpuUsageWeeklyReportJob: failed to get average GPU count from DB: %v", err)
-		// Non-critical error, continue with existing data
+		log.Warnf("GpuUsageWeeklyReportJob: failed to get average GPU count from DB for cluster %s: %v", clusterName, err)
 	} else if avgGpuCount > 0 {
-		// Update TotalGPUs with database average if available
 		if reportData.Summary == nil {
 			reportData.Summary = &ReportSummary{}
 		}
-		// Use database value as the source of truth for total GPU count
 		reportData.Summary.TotalGPUs = avgGpuCount
-		log.Infof("GpuUsageWeeklyReportJob: updated total GPU count from database: %d", avgGpuCount)
+		log.Infof("GpuUsageWeeklyReportJob: updated total GPU count for cluster %s: %d", clusterName, avgGpuCount)
 	}
 
 	// Step 2: Render report in multiple formats
-	log.Info("GpuUsageWeeklyReportJob: rendering report in multiple formats")
 	renderer := NewReportRenderer(j.config)
 
 	// Render HTML
 	htmlContent, err := renderer.RenderHTML(ctx, reportData)
 	if err != nil {
-		log.Errorf("GpuUsageWeeklyReportJob: failed to render HTML: %v", err)
+		log.Errorf("GpuUsageWeeklyReportJob: failed to render HTML for cluster %s: %v", clusterName, err)
 		report.Status = "failed"
 		report.ErrorMessage = fmt.Sprintf("Failed to render HTML: %v", err)
 		facade.Update(ctx, report)
-		return stats, err
+		return err
 	}
 	report.HTMLContent = htmlContent
-	log.Info("GpuUsageWeeklyReportJob: HTML rendering completed")
 
 	// Render PDF if enabled
 	if j.shouldRenderPDF() {
 		pdfContent, err := renderer.RenderPDF(ctx, htmlContent)
 		if err != nil {
-			log.Errorf("GpuUsageWeeklyReportJob: failed to render PDF: %v", err)
-			// PDF rendering failure is not critical, continue
+			log.Warnf("GpuUsageWeeklyReportJob: failed to render PDF for cluster %s: %v", clusterName, err)
 		} else {
 			report.PdfContent = pdfContent
-			log.Info("GpuUsageWeeklyReportJob: PDF rendering completed")
 		}
 	}
 
@@ -131,17 +158,11 @@ func (j *GpuUsageWeeklyReportJob) Run(ctx context.Context, clientSets *clientset
 	// Step 4: Save report to database
 	err = facade.Update(ctx, report)
 	if err != nil {
-		log.Errorf("GpuUsageWeeklyReportJob: failed to save report: %v", err)
-		return stats, err
+		return fmt.Errorf("failed to save report: %w", err)
 	}
-	stats.ItemsUpdated = 1
 
-	duration := time.Since(startTime)
-	log.Infof("GpuUsageWeeklyReportJob: report generation completed in %v, report ID: %s", duration, reportID)
-	stats.RecordsProcessed = 1
-	stats.AddMessage(fmt.Sprintf("Successfully generated report: %s", reportID))
-
-	return stats, nil
+	log.Infof("GpuUsageWeeklyReportJob: successfully generated report %s for cluster %s", reportID, clusterName)
+	return nil
 }
 
 // Schedule returns the cron schedule for this job

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -216,7 +216,7 @@ func TestGetResourcePerNode(t *testing.T) {
 	assert.Equal(t, ok, false)
 }
 
-func TestGetActiveResource(t *testing.T) {
+func TestGetWorkloadResourceUsage(t *testing.T) {
 	n1 := &v1.Node{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "n1",
@@ -288,10 +288,14 @@ func TestGetActiveResource(t *testing.T) {
 		}
 		return false
 	}
-	res, _, err := GetActiveResources(workload1, filterFunc)
+	totalResource, availableResource, availableNodes, err := GetWorkloadResourceUsage(workload1, filterFunc)
 	assert.NilError(t, err)
-	assert.Equal(t, res.Cpu().Value(), int64(8))
-	assert.Equal(t, res.Memory().Value(), int64(10))
+	assert.Equal(t, totalResource.Cpu().Value(), int64(16))
+	assert.Equal(t, totalResource.Memory().Value(), int64(20))
+	assert.Equal(t, availableResource.Cpu().Value(), int64(8))
+	assert.Equal(t, availableResource.Memory().Value(), int64(10))
+	assert.Equal(t, len(availableNodes), 1)
+	assert.Equal(t, availableNodes[0], "n1")
 }
 
 func TestIsResourceEqual(t *testing.T) {

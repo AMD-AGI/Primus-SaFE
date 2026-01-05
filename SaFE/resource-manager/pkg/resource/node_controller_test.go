@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -108,7 +108,7 @@ func genMockNodeFlavor() *v1.NodeFlavor {
 			Memory: memQuantity,
 			Gpu: &v1.GpuChip{
 				ResourceName: common.AmdGpu,
-				Product:      "AMD MI300X",
+				Product:      "MI300X",
 				Quantity:     *resource.NewQuantity(8, resource.DecimalSI),
 			},
 		},

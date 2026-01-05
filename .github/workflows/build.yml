@@ -108,6 +108,13 @@ jobs:
         else
           echo "cicd_unified_job_proxy_changed=false" >> $GITHUB_OUTPUT
         fi
+
+        # s3-downloader: SaFE/common/pkg/s3/**
+        if echo "$CHANGED_FILES" | grep -qE '^SaFE/common/pkg/s3/'; then
+          echo "s3_downloader_changed=true" >> $GITHUB_OUTPUT
+        else
+          echo "s3_downloader_changed=false" >> $GITHUB_OUTPUT
+        fi
         
         # webhooks: SaFE/apis/**, SaFE/webhooks/**, SaFE/charts/primus-safe/templates/webhooks/**, SaFE/common/**, SaFE/utils/**
         if echo "$CHANGED_FILES" | grep -qE '^SaFE/(apis|webhooks|charts/primus-safe/templates/webhooks|common|utils)/'; then
@@ -177,14 +184,17 @@ jobs:
         if [[ "${{ steps.detect-changes.outputs.cicd_runner_proxy_changed }}" == "true" ]]; then
           MATRIX+='{"name":"cicd-runner-proxy","basepath":"SaFE/docker/cicd/runner-proxy","dockerfile_path":"SaFE/docker/cicd/runner-proxy/Dockerfile"},'
         fi
-        if [[ "${{ steps.detect-changes.outputs.cicd_unified_job_proxy_changed }}" == "true" ]]; then
-          MATRIX+='{"name":"cicd-unified-job-proxy","basepath":"SaFE/docker/cicd/unified-job-proxy","dockerfile_path":"SaFE/docker/cicd/unified-job-proxy/Dockerfile"},'
-        fi
+          if [[ "${{ steps.detect-changes.outputs.cicd_unified_job_proxy_changed }}" == "true" ]]; then
+            MATRIX+='{"name":"cicd-unified-job-proxy","basepath":"SaFE/docker/cicd/unified-job-proxy","dockerfile_path":"SaFE/docker/cicd/unified-job-proxy/Dockerfile"},'
+          fi
         if [[ "${{ steps.detect-changes.outputs.webhooks_changed }}" == "true" ]]; then
           MATRIX+='{"name":"webhooks","basepath":"SaFE/webhooks","dockerfile_path":"SaFE/webhooks/installer/Dockerfile"},'
         fi
         if [[ "${{ steps.detect-changes.outputs.node_agent_changed }}" == "true" ]]; then
           MATRIX+='{"name":"node-agent","basepath":"SaFE/node-agent","dockerfile_path":"SaFE/node-agent/installer/Dockerfile"},'
+        fi
+        if [[ "${{ steps.detect-changes.outputs.s3_downloader_changed }}" == "true" ]]; then
+          MATRIX+='{"name":"s3-downloader","basepath":"SaFE/common/pkg/s3/cmd/s3-downloader","dockerfile_path":"SaFE/common/pkg/s3/cmd/s3-downloader/Dockerfile"},'
         fi
         if [[ "${{ steps.detect-changes.outputs.sync_image_changed }}" == "true" ]]; then
           MATRIX+='{"name":"sync-image","basepath":"SaFE/tools/sync-image","dockerfile_path":"SaFE/tools/sync-image/Dockerfile"},'
@@ -207,8 +217,25 @@ jobs:
       - uses: actions/checkout@v4
       - name: Login registries
         run: |
-          buildah login -u "${{ secrets.DOCKER_USERNAME }}" -p "${{ secrets.DOCKER_PASSWORD }}" docker.io
-          buildah login --tls-verify=false -u "${{ secrets.HARBOR_USERNAME }}" -p "${{ secrets.HARBOR_PASSWORD }}" "${{ secrets.HARBOR_HOST }}"
+          set -x
+          echo "🔐 Logging in to Docker Hub..."
+          echo "Docker username length: ${#DOCKER_USERNAME}"
+          buildah login -u "${{ secrets.DOCKER_USERNAME }}" -p "${{ secrets.DOCKER_PASSWORD }}" docker.io && echo "✅ Docker Hub login successful" || echo "❌ Docker Hub login failed"
+          
+          echo "🔐 Logging in to Harbor..."
+          echo "Harbor host: ${{ secrets.HARBOR_HOST }}"
+          echo "Harbor username length: ${#HARBOR_USERNAME}"
+          
+          # Extract Harbor domain and test connectivity
+          HARBOR_DOMAIN=$(echo "${{ secrets.HARBOR_HOST }}" | sed 's|https://||;s|http://||;s|/.*||')
+          echo "🔍 Harbor domain: ${HARBOR_DOMAIN}"
+          echo "🔍 Curl test:"
+          curl -v -k "https://${HARBOR_DOMAIN}/api/v2.0/ping" || echo "⚠️ Curl test failed"
+          
+          buildah login --tls-verify=false -u "${{ secrets.HARBOR_USERNAME }}" -p "${{ secrets.HARBOR_PASSWORD }}" "${{ secrets.HARBOR_HOST }}" && echo "✅ Harbor login successful" || echo "❌ Harbor login failed"
+        env:
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+          HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
 
       - name: Build and push with Buildah
         env:

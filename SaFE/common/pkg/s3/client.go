@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -9,10 +9,14 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"k8s.io/utils/pointer"
@@ -20,6 +24,9 @@ import (
 
 const (
 	DefaultTimeout = 180
+
+	partSize           = 100 * 1024 * 1024  // 100MB per part
+	largeFileThreshold = 1024 * 1024 * 1024 // Files larger than 1GB use concurrent download
 )
 
 type Option struct {
@@ -34,34 +41,30 @@ type Client struct {
 	s3Client *s3.Client
 }
 
-// NewClient creates and returns a new Client instance.
+// NewClient creates and returns a new Client instance using system-wide S3 settings.
 func NewClient(ctx context.Context, opt Option) (Interface, error) {
-	config, err := GetConfig()
+	config, err := NewConfig()
 	if err != nil {
 		return nil, err
 	}
-	cli, err := newFromConfig(config, opt)
-	if err != nil {
-		return nil, err
-	}
-	if err = cli.checkBucketExisted(ctx); err != nil {
-		return nil, err
-	}
-	if err = cli.setLifecycleRule(ctx); err != nil {
-		return nil, err
-	}
-	return cli, nil
+	return NewClientFromConfig(ctx, config, opt)
 }
 
-// newFromConfig create S3 client based on configuration.
-func newFromConfig(config *Config, opt Option) (*Client, error) {
-	s3Client := s3.NewFromConfig(config.GetS3Config(), func(o *s3.Options) {
+// newClient creates and returns a new Client instance using config
+func NewClientFromConfig(ctx context.Context, config *Config, opt Option) (Interface, error) {
+	s3Client := s3.NewFromConfig(config.Config, func(o *s3.Options) {
 		o.UsePathStyle = true
 	})
 	cli := &Client{
 		Config:   config,
 		opt:      opt,
 		s3Client: s3Client,
+	}
+	if err := cli.checkBucketExisted(ctx); err != nil {
+		return nil, err
+	}
+	if err := cli.setLifecycleRule(ctx); err != nil {
+		return nil, err
 	}
 	return cli, nil
 }
@@ -293,6 +296,156 @@ func (c *Client) PresignModelFiles(ctx context.Context, prefix string, expireHou
 	}
 
 	return urls, nil
+}
+
+// DownloadFile downloads a file from S3 to a local directory.
+// The localDir is treated as a directory path, and the original filename from the S3 key is used.
+// For example: key="models/config.json", localDir="/tmp" -> "/tmp/config.json"
+// Automatically chooses between simple download (for small files) and concurrent download (for large files).
+func (c *Client) DownloadFile(ctx context.Context, key, localDir string) error {
+	if c == nil {
+		return fmt.Errorf("please init client first")
+	}
+
+	// Extract filename from key and build full local path
+	filename := filepath.Base(key)
+	localPath := filepath.Join(localDir, filename)
+
+	return c.downloadToPath(ctx, key, localPath)
+}
+
+// downloadToPath downloads a file from S3 to the exact local path specified.
+// This is an internal function used by both DownloadFile and DownloadDirectory.
+func (c *Client) downloadToPath(ctx context.Context, key, localPath string) error {
+	// Get file size
+	head, err := c.s3Client.HeadObject(ctx, &s3.HeadObjectInput{
+		Bucket: c.Bucket,
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		return err
+	}
+	fileSize := *head.ContentLength
+
+	// For small files, use simple download
+	if fileSize < largeFileThreshold {
+		return c.downloadSmallFile(ctx, key, localPath)
+	}
+
+	// For large files, use concurrent download
+	return c.downloadLargeFile(ctx, key, localPath)
+}
+
+// downloadSmallFile performs a simple single-request download for small files.
+func (c *Client) downloadSmallFile(ctx context.Context, key, localPath string) error {
+	resp, err := c.s3Client.GetObject(ctx, &s3.GetObjectInput{
+		Bucket: c.Bucket,
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	// Ensure parent directory exists
+	if err := os.MkdirAll(filepath.Dir(localPath), 0755); err != nil {
+		return fmt.Errorf("failed to create directory: %w", err)
+	}
+
+	file, err := os.Create(localPath)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	if _, err = io.Copy(file, resp.Body); err != nil {
+		os.Remove(localPath) // Clean up on error
+		return err
+	}
+
+	return nil
+}
+
+// downloadLargeFile performs concurrent multipart download for large files.
+func (c *Client) downloadLargeFile(ctx context.Context, key, localPath string) error {
+	downloader := manager.NewDownloader(c.s3Client, func(d *manager.Downloader) {
+		d.PartSize = partSize
+		d.Concurrency = 5
+	})
+
+	// Ensure parent directory exists
+	if err := os.MkdirAll(filepath.Dir(localPath), 0755); err != nil {
+		return fmt.Errorf("failed to create directory: %w", err)
+	}
+
+	file, err := os.Create(localPath)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	_, err = downloader.Download(ctx, file, &s3.GetObjectInput{
+		Bucket: c.Bucket,
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		os.Remove(localPath)
+		return err
+	}
+	return nil
+}
+
+// DownloadDirectory downloads all files matching the given prefix to a local directory.
+// The prefix is used to filter objects in S3, and the relative path structure is preserved.
+// For example, if prefix is "models/v1/" and localDir is "/tmp/models",
+// then "models/v1/config.json" will be downloaded to "/tmp/models/config.json".
+func (c *Client) DownloadDirectory(ctx context.Context, prefix, localDir string) error {
+	if c == nil {
+		return fmt.Errorf("please init client first")
+	}
+
+	// Ensure prefix ends with "/" for directory-like behavior
+	if prefix != "" && !strings.HasSuffix(prefix, "/") {
+		prefix = prefix + "/"
+	}
+
+	// List all objects with the given prefix
+	paginator := s3.NewListObjectsV2Paginator(c.s3Client, &s3.ListObjectsV2Input{
+		Bucket: c.Bucket,
+		Prefix: aws.String(prefix),
+	})
+
+	var downloadErrors []error
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to list objects with prefix %s: %w", prefix, err)
+		}
+
+		for _, obj := range page.Contents {
+			key := *obj.Key
+
+			// Skip directory markers (keys ending with "/")
+			if strings.HasSuffix(key, "/") {
+				continue
+			}
+
+			// Calculate relative path by removing the prefix
+			relativePath := strings.TrimPrefix(key, prefix)
+			localPath := filepath.Join(localDir, relativePath)
+
+			// Download the file to exact path (preserving directory structure)
+			if err := c.downloadToPath(ctx, key, localPath); err != nil {
+				downloadErrors = append(downloadErrors, fmt.Errorf("failed to download %s: %w", key, err))
+			}
+		}
+	}
+
+	if len(downloadErrors) > 0 {
+		return fmt.Errorf("encountered %d errors during download: %v", len(downloadErrors), downloadErrors[0])
+	}
+
+	return nil
 }
 
 // WithOptionalTimeout add optional timeout to context.

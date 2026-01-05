@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -102,6 +102,22 @@ func (c *Client) CountJobs(ctx context.Context, query sqrl.Sqlizer) (int, error)
 	var cnt int
 	err = db.GetContext(ctx, &cnt, sql, args...)
 	return cnt, err
+}
+
+// GetOpsJob returns the OpsJob by job_id.
+func (c *Client) GetOpsJob(ctx context.Context, jobId string) (*OpsJob, error) {
+	db, err := c.getDB()
+	if err != nil {
+		return nil, err
+	}
+	var jobs []*OpsJob
+	if err = db.SelectContext(ctx, &jobs, getJobCmd, jobId); err != nil {
+		return nil, err
+	}
+	if len(jobs) == 0 {
+		return nil, nil
+	}
+	return jobs[0], nil
 }
 
 // SetOpsJobDeleted set the opsjob to deleted status.

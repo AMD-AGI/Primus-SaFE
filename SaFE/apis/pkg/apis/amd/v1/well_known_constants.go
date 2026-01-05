@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -62,6 +62,7 @@ const (
 	ClusterManageNodeClusterLabel = ClusterManagePrefix + "node.cluster"
 	ClusterManageScaleDownLabel   = ClusterManagePrefix + "scale.down"
 	ClusterIdLabel                = ClusterPrefix + "id"
+	ClusterControlPlaneLabel      = ClusterPrefix + "control-plane"
 
 	// storage
 	StoragePrefix              = PrimusSafePrefix + "storage."
