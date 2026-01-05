@@ -13,7 +13,6 @@ import (
 
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	cdhandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/cd-handlers"
-	customhandler "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/custom-handlers"
 	datasethandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/dataset-handlers"
 	imagehandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/image-handlers"
 	model_handlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/model-handlers"
