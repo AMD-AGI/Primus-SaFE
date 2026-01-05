@@ -819,6 +819,21 @@ func (mr *MockInterfaceMockRecorder) SelectWorkloads(ctx, query, orderBy, limit,
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SelectWorkloads", reflect.TypeOf((*MockInterface)(nil).SelectWorkloads), ctx, query, orderBy, limit, offset)
 }
 
+// GetOpsJob mocks base method.
+func (m *MockInterface) GetOpsJob(ctx context.Context, jobId string) (*client.OpsJob, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetOpsJob", ctx, jobId)
+	ret0, _ := ret[0].(*client.OpsJob)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetOpsJob indicates an expected call of GetOpsJob.
+func (mr *MockInterfaceMockRecorder) GetOpsJob(ctx, jobId interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOpsJob", reflect.TypeOf((*MockInterface)(nil).GetOpsJob), ctx, jobId)
+}
+
 // SetOpsJobDeleted mocks base method.
 func (m *MockInterface) SetOpsJobDeleted(ctx context.Context, opsJobId string) error {
 	m.ctrl.T.Helper()
