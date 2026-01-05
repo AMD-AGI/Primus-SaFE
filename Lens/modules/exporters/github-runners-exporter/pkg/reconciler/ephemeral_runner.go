@@ -106,13 +106,13 @@ func (r *EphemeralRunnerReconciler) Reconcile(ctx context.Context, req reconcile
 			log.Infof("EphemeralRunnerReconciler: processing deletion for %s/%s (phase: %s)",
 				req.Namespace, req.Name, info.Phase)
 
-			// Mark as completed if not already
-			if info.Phase == types.EphemeralRunnerPhaseSucceeded || info.Phase == types.EphemeralRunnerPhaseFailed || info.IsCompleted {
-				if err := r.processRunner(ctx, info); err != nil {
-					log.Errorf("EphemeralRunnerReconciler: failed to process final state for %s/%s: %v",
-						req.Namespace, req.Name, err)
-					return ctrl.Result{RequeueAfter: 5 * time.Second}, err
-				}
+			// When being deleted, mark as completed regardless of phase
+			// The runner is being cleaned up, so it must have finished
+			info.IsCompleted = true
+			if err := r.processDeletion(ctx, info); err != nil {
+				log.Errorf("EphemeralRunnerReconciler: failed to process deletion for %s/%s: %v",
+					req.Namespace, req.Name, err)
+				return ctrl.Result{RequeueAfter: 5 * time.Second}, err
 			}
 
 			// Remove finalizer to allow deletion
@@ -454,5 +454,57 @@ func (r *EphemeralRunnerReconciler) enrichWithGitHubInfo(ctx context.Context, in
 
 	log.Debugf("EphemeralRunnerReconciler: enriched %s with GitHub info (sha: %s, run_number: %d)",
 		info.Name, info.HeadSHA, info.GithubRunNumber)
+}
+
+// processDeletion handles the deletion of an EphemeralRunner
+// When a runner is deleted, we mark it as completed and ready for collection
+func (r *EphemeralRunnerReconciler) processDeletion(ctx context.Context, info *types.EphemeralRunnerInfo) error {
+	runnerSetFacade := database.GetFacade().GetGithubRunnerSet()
+	runFacade := database.GetFacade().GetGithubWorkflowRun()
+
+	// Find the runner set for this ephemeral runner
+	runnerSet, err := runnerSetFacade.GetByNamespaceName(ctx, info.Namespace, info.RunnerSetName)
+	if err != nil {
+		return fmt.Errorf("failed to get runner set %s/%s: %w", info.Namespace, info.RunnerSetName, err)
+	}
+
+	if runnerSet == nil {
+		log.Debugf("EphemeralRunnerReconciler: runner set not found for %s/%s, skipping deletion processing",
+			info.Namespace, info.RunnerSetName)
+		return nil
+	}
+
+	// Check if we have a run record for this workload
+	existingRun, err := runFacade.GetByRunnerSetAndWorkload(ctx, runnerSet.ID, info.UID)
+	if err != nil {
+		return fmt.Errorf("failed to check existing run for %s: %w", info.UID, err)
+	}
+
+	if existingRun == nil {
+		log.Debugf("EphemeralRunnerReconciler: no run record found for %s, skipping deletion processing", info.Name)
+		return nil
+	}
+
+	// Only update if not already in a terminal state
+	if existingRun.Status == database.WorkflowRunStatusCompleted ||
+		existingRun.Status == database.WorkflowRunStatusFailed ||
+		existingRun.Status == database.WorkflowRunStatusSkipped {
+		log.Debugf("EphemeralRunnerReconciler: run %d already in terminal state %s", existingRun.ID, existingRun.Status)
+		return nil
+	}
+
+	// Mark as pending (ready for collection)
+	oldStatus := existingRun.Status
+	existingRun.Status = database.WorkflowRunStatusPending
+	existingRun.WorkloadCompletedAt = time.Now()
+
+	if err := runFacade.Update(ctx, existingRun); err != nil {
+		return fmt.Errorf("failed to update run record for deletion %s: %w", info.Name, err)
+	}
+
+	log.Infof("EphemeralRunnerReconciler: marked run %d as pending for collection on deletion (status: %s -> %s)",
+		existingRun.ID, oldStatus, existingRun.Status)
+
+	return nil
 }
 
