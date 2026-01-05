@@ -2,10 +2,16 @@
 # A lightweight container that serves Perfetto UI with a pre-loaded trace file
 
 # Stage 1: Build Perfetto UI from official Google source
-FROM node:20-bookworm AS builder
+FROM python:3.11-bookworm AS builder
 
 # Install build dependencies
-RUN apt-get update && apt-get install -y git python3 make g++ bash
+RUN apt-get update && apt-get install -y \
+    git \
+    curl \
+    nodejs \
+    npm \
+    ninja-build \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build
 
@@ -16,9 +22,11 @@ RUN git clone --depth 1 --branch ${PERFETTO_VERSION} https://github.com/google/p
 
 WORKDIR /build/perfetto
 
-# Build the UI
-# The UI is in the ui/ directory and uses npm
-RUN cd ui && npm ci && npm run build
+# Install build dependencies and build the UI
+# Perfetto uses its own build system
+RUN tools/install-build-deps --ui && \
+    tools/gn gen out/dist --args='is_debug=false' && \
+    tools/ninja -C out/dist ui
 
 # Stage 2: Runtime image
 FROM nginx:alpine
@@ -30,7 +38,7 @@ RUN apk add --no-cache curl
 RUN mkdir -p /data
 
 # Copy built Perfetto UI from builder stage
-COPY --from=builder /build/perfetto/ui/out/dist /usr/share/nginx/html/perfetto
+COPY --from=builder /build/perfetto/out/dist/ui /usr/share/nginx/html/perfetto
 
 # Copy nginx configuration
 COPY nginx.conf /etc/nginx/nginx.conf
