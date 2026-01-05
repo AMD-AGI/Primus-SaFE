@@ -104,50 +104,55 @@ def benchmark(
 
 if __name__ == "__main__":
     dist.init_process_group(backend="nccl")
-    local_rank = int(os.environ["LOCAL_RANK"])
-    torch.cuda.set_device(local_rank)
+    
+    try:
+        local_rank = int(os.environ["LOCAL_RANK"])
+        torch.cuda.set_device(local_rank)
 
-    rank = dist.get_rank()
+        rank = dist.get_rank()
 
-    matmul_stream = torch.cuda.Stream()
-    comm_stream = torch.cuda.Stream()
+        matmul_stream = torch.cuda.Stream()
+        comm_stream = torch.cuda.Stream()
 
-    matmul_sizes = [(2**i, 2**i) for i in range(14, 16)]
-    comm_sizes = [(2**i, 2**i) for i in range(14, 16)]
-    results = []
-    # with torch.profiler.profile(
-    #     activities=[torch.profiler.ProfilerActivity.CUDA, torch.profiler.ProfilerActivity.CPU],
-    #     record_shapes=True,
-    #     with_stack=True,
-    # ) as prof:
-    for matmul_size, comm_size in product(matmul_sizes, comm_sizes):
-        matmul_time, comm_time, matmul_comm_time, overlapped_matmul_time, overlapped_comm_time = benchmark(
-            matmul_size,
-            comm_size,
-            matmul_stream,
-            comm_stream,
-        )
-        results.append({
-            "matmul_size": matmul_size,
-            "comm_size": comm_size,
-            "matmul_time": matmul_time,
-            "comm_time": comm_time,
-            "matmul_comm_time": matmul_comm_time,
-        })
-        if rank == 0:
-            print(
-                f"matmul size: {matmul_size[0]}x{matmul_size[1]}, comm size: {comm_size[0]}x{comm_size[1]}",
+        matmul_sizes = [(2**i, 2**i) for i in range(14, 16)]
+        comm_sizes = [(2**i, 2**i) for i in range(14, 16)]
+        results = []
+        # with torch.profiler.profile(
+        #     activities=[torch.profiler.ProfilerActivity.CUDA, torch.profiler.ProfilerActivity.CPU],
+        #     record_shapes=True,
+        #     with_stack=True,
+        # ) as prof:
+        for matmul_size, comm_size in product(matmul_sizes, comm_sizes):
+            matmul_time, comm_time, matmul_comm_time, overlapped_matmul_time, overlapped_comm_time = benchmark(
+                matmul_size,
+                comm_size,
+                matmul_stream,
+                comm_stream,
             )
-            print(f"  matmul alone:         {matmul_time:.4f}ms")
-            print(f"  comm alone:           {comm_time:.4f}ms")
-            print(f"  matmul + comm:        {matmul_comm_time:.4f}ms")
-            print(f"  overlapped matmul:    {overlapped_matmul_time:.4f}ms")
-            print(f"  overlapped comm:      {overlapped_comm_time:.4f}ms")
-            print("-" * 60)
+            results.append({
+                "matmul_size": matmul_size,
+                "comm_size": comm_size,
+                "matmul_time": matmul_time,
+                "comm_time": comm_time,
+                "matmul_comm_time": matmul_comm_time,
+                "overlapped_matmul_time": overlapped_matmul_time,
+                "overlapped_comm_time": overlapped_comm_time,
+            })
+            if rank == 0:
+                print(
+                    f"matmul size: {matmul_size[0]}x{matmul_size[1]}, comm size: {comm_size[0]}x{comm_size[1]}",
+                )
+                print(f"  matmul alone:         {matmul_time:.4f}ms")
+                print(f"  comm alone:           {comm_time:.4f}ms")
+                print(f"  matmul + comm:        {matmul_comm_time:.4f}ms")
+                print(f"  overlapped matmul:    {overlapped_matmul_time:.4f}ms")
+                print(f"  overlapped comm:      {overlapped_comm_time:.4f}ms")
+                print("-" * 60)
 
-    if rank == 0:
-        # prof.export_chrome_trace("amd_trace.json")
-        with open("overlap_results.json", "w") as f:
-            json.dump(results, f)
-
-    dist.destroy_process_group()
+        if rank == 0:
+            # prof.export_chrome_trace("amd_trace.json")
+            with open("overlap_results.json", "w") as f:
+                json.dump(results, f)
+    
+    finally:
+        dist.destroy_process_group()
