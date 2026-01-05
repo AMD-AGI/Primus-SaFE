@@ -1,6 +1,7 @@
 package api
 
 import (
+	"github.com/AMD-AGI/Primus-SaFE/Lens/api/pkg/api/perfetto"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/api/pkg/api/tracelens"
 	"github.com/gin-gonic/gin"
 )
@@ -270,6 +271,26 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		}
 		// List sessions for a workload
 		tracelensGroup.GET("/workloads/:workload_uid/sessions", tracelens.ListWorkloadSessions)
+	}
+
+	// Perfetto Viewer routes - Lightweight trace visualization
+	perfettoGroup := group.Group("/perfetto")
+	{
+		// Session management
+		perfettoSessionsGroup := perfettoGroup.Group("/sessions")
+		{
+			// Create a new Perfetto viewer session
+			perfettoSessionsGroup.POST("", perfetto.CreateSession)
+			// Get a specific session
+			perfettoSessionsGroup.GET("/:session_id", perfetto.GetSession)
+			// Extend session TTL
+			perfettoSessionsGroup.PATCH("/:session_id", perfetto.ExtendSession)
+			// Delete a session
+			perfettoSessionsGroup.DELETE("/:session_id", perfetto.DeleteSession)
+
+			// UI Proxy - Proxy HTTP/WebSocket requests to Perfetto pod
+			perfettoSessionsGroup.Any("/:session_id/ui/*path", perfetto.ProxyUI)
+		}
 	}
 
 	// Real-time Status routes - Real-time cluster status monitoring
