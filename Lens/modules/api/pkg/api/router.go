@@ -3,6 +3,7 @@ package api
 import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/api/pkg/api/perfetto"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/api/pkg/api/registry"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/api/pkg/api/sysconfig"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/api/pkg/api/tracelens"
 	"github.com/gin-gonic/gin"
 )
@@ -305,6 +306,21 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		registryGroup.POST("/sync-from-harbor", registry.SyncFromHarbor)
 		// Get image URL for a specific image
 		registryGroup.GET("/image-url", registry.GetImageURL)
+	}
+
+	// System Configuration routes - General system configuration management
+	sysconfigGroup := group.Group("/system-config")
+	{
+		// List all configurations
+		sysconfigGroup.GET("", sysconfig.ListConfigs)
+		// Get a specific configuration
+		sysconfigGroup.GET("/:key", sysconfig.GetConfig)
+		// Set a configuration
+		sysconfigGroup.PUT("/:key", sysconfig.SetConfig)
+		// Delete a configuration
+		sysconfigGroup.DELETE("/:key", sysconfig.DeleteConfig)
+		// Get configuration history
+		sysconfigGroup.GET("/:key/history", sysconfig.GetConfigHistory)
 	}
 
 	// Real-time Status routes - Real-time cluster status monitoring
