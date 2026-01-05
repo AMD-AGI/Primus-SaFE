@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -74,38 +74,67 @@ func run() error {
 
 	fmt.Println("S3 client created successfully")
 
-	// Download file or directory
-	fmt.Printf("Starting download: %s -> %s\n", loc.Key, destPath)
 	startTime := time.Now()
 
-	if err := client.DownloadFile(ctx, loc.Key, destPath); err != nil {
-		return fmt.Errorf("[ERROR] failed to download file: %w", err)
-	}
+	// Check if input URL ends with "/" to determine download mode
+	if strings.HasSuffix(inputURL, "/") || loc.Key == "" {
+		// Directory download
+		fmt.Printf("Starting directory download: %s -> %s\n", loc.Key, destPath)
+		if err := client.DownloadDirectory(ctx, loc.Key, destPath); err != nil {
+			return fmt.Errorf("[ERROR] failed to download directory: %w", err)
+		}
 
-	duration := time.Since(startTime)
-	fmt.Printf("Download completed successfully in %v\n", duration)
+		duration := time.Since(startTime)
+		fmt.Printf("Directory download completed successfully in %v\n", duration)
 
-	// Get file/directory size
-	fileInfo, err := os.Stat(destPath)
-	if err != nil {
-		return fmt.Errorf("[ERROR] failed to stat downloaded path: %w", err)
-	}
-
-	if fileInfo.IsDir() {
-		// Calculate total directory size
-		var totalSize int64
-		filepath.Walk(destPath, func(_ string, info os.FileInfo, err error) error {
-			if err == nil && !info.IsDir() {
-				totalSize += info.Size()
-			}
-			return nil
-		})
-		fmt.Printf("[SUCCESS] Downloaded directory to %s, total size: %d bytes (%.2f GB)\n", destPath, totalSize, float64(totalSize)/(1024*1024*1024))
+		// Get directory size
+		totalSize, fileCount, err := getDirSize(destPath)
+		if err != nil {
+			return fmt.Errorf("[ERROR] failed to stat downloaded directory: %w", err)
+		}
+		fmt.Printf("[SUCCESS] Downloaded %d files to %s, total size: %d bytes (%.2f GB)\n",
+			fileCount, destPath, totalSize, float64(totalSize)/(1024*1024*1024))
 	} else {
-		fmt.Printf("[SUCCESS] Downloaded file to %s, size: %d bytes (%.2f GB)\n", destPath, fileInfo.Size(), float64(fileInfo.Size())/(1024*1024*1024))
+		// Single file download
+		fmt.Printf("Starting file download: %s -> %s\n", loc.Key, destPath)
+		if err := client.DownloadFile(ctx, loc.Key, destPath); err != nil {
+			return fmt.Errorf("[ERROR] failed to download file: %w", err)
+		}
+
+		duration := time.Since(startTime)
+		fmt.Printf("File download completed successfully in %v\n", duration)
+
+		// Get file size - need to find the actual downloaded file
+		filename := filepath.Base(loc.Key)
+		actualPath := filepath.Join(destPath, filename)
+		fileInfo, err := os.Stat(actualPath)
+		if err != nil {
+			return fmt.Errorf("[ERROR] failed to stat downloaded file: %w", err)
+		}
+		fmt.Printf("[SUCCESS] Downloaded file to %s, size: %d bytes (%.2f GB)\n",
+			actualPath, fileInfo.Size(), float64(fileInfo.Size())/(1024*1024*1024))
 	}
 
 	return nil
+}
+
+// getDirSize calculates the total size and file count of a directory
+func getDirSize(path string) (int64, int, error) {
+	var totalSize int64
+	var fileCount int
+
+	err := filepath.Walk(path, func(_ string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() {
+			totalSize += info.Size()
+			fileCount++
+		}
+		return nil
+	})
+
+	return totalSize, fileCount, err
 }
 
 // readSecretFile reads a secret file from the SECRET_PATH directory

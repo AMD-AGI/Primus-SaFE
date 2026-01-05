@@ -21,6 +21,9 @@ const (
 	// Scan Topics
 	TopicScanIdentifyComponent = "scan.identify-component"
 	TopicScanSuggestGrouping   = "scan.suggest-grouping"
+
+	// GitHub Metrics Topics
+	TopicGithubMetricsExtract = "github.metrics.extract"
 )
 
 // API Version
@@ -31,6 +34,7 @@ var TopicDomains = []string{
 	"alert",
 	"report",
 	"scan",
+	"github",
 }
 
 // IsValidTopic checks if a topic string is a known topic
@@ -45,7 +49,8 @@ func IsValidTopic(topic string) bool {
 		TopicReportGenerateSummary,
 		TopicReportGenerateInsights,
 		TopicScanIdentifyComponent,
-		TopicScanSuggestGrouping:
+		TopicScanSuggestGrouping,
+		TopicGithubMetricsExtract:
 		return true
 	default:
 		return false

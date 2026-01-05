@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -603,6 +603,10 @@ func (h *Handler) generateDownloadJob(c *gin.Context, body []byte) (*v1.OpsJob, 
 		return nil, commonerrors.NewBadRequest(
 			fmt.Sprintf("%s must be specified in the job.", v1.ParameterWorkspace))
 	}
+	workspace, err := h.getAdminWorkspace(c.Request.Context(), workspaceParam.Value)
+	if err != nil {
+		return nil, err
+	}
 
 	_, err = h.getAndAuthorizeSecret(c.Request.Context(), secretParam.Value, workspaceParam.Value, requestUser, v1.GetVerb)
 	if err != nil {
@@ -620,6 +624,7 @@ func (h *Handler) generateDownloadJob(c *gin.Context, body []byte) (*v1.OpsJob, 
 
 	job.Spec.Image = pointer.String(commonconfig.GetDownloadJoImage())
 	v1.SetLabel(job, v1.WorkspaceIdLabel, workspaceParam.Value)
+	v1.SetLabel(job, v1.ClusterIdLabel, workspace.Spec.Cluster)
 	return job, nil
 }
 

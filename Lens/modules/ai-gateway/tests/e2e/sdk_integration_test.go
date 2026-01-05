@@ -232,10 +232,14 @@ func TestMemoryRegistry(t *testing.T) {
 }
 
 // TestTaskQueueInterface tests the task queue interface (Phase 4)
-// Note: Requires PostgreSQL connection
+// Note: Requires PostgreSQL connection and initialized cluster manager
 func TestTaskQueueIntegration(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
+	}
+	// Skip if integration tests are not explicitly enabled
+	if os.Getenv("ENABLE_INTEGRATION_TESTS") != "true" {
+		t.Skip("Skipping integration test: set ENABLE_INTEGRATION_TESTS=true to run")
 	}
 
 	queue := aitaskqueue.NewPGStore(dbDSN, aitaskqueue.DefaultQueueConfig())

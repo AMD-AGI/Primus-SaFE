@@ -21,7 +21,7 @@ type NodeNamespaceMapping struct {
 	NamespaceName string         `gorm:"column:namespace_name;not null;comment:Namespace name for quick reference without join" json:"namespace_name"`               // Namespace name for quick reference without join
 	CreatedAt     time.Time      `gorm:"column:created_at;not null;default:CURRENT_TIMESTAMP;comment:Timestamp when the mapping was created" json:"created_at"`      // Timestamp when the mapping was created
 	UpdatedAt     time.Time      `gorm:"column:updated_at;not null;default:CURRENT_TIMESTAMP;comment:Timestamp when the mapping was last updated" json:"updated_at"` // Timestamp when the mapping was last updated
-	DeletedAt     gorm.DeletedAt `gorm:"column:deleted_at;comment:Timestamp when the mapping was soft deleted (NULL means active)" json:"deleted_at"`                // Timestamp when the mapping was soft deleted (NULL means active)
+	DeletedAt     gorm.DeletedAt `gorm:"column:deleted_at" json:"deleted_at"`
 }
 
 // TableName NodeNamespaceMapping's table name
