@@ -27,6 +27,9 @@ WORKDIR /build/perfetto
 # Install UI build dependencies (downloads Node.js, npm packages, etc.)
 RUN tools/install-build-deps --ui
 
+# Generate build configuration
+RUN tools/gn gen out/default --args='is_debug=false'
+
 # Build the UI
 RUN tools/ninja -C out/default ui
 
