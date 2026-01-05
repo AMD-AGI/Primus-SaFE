@@ -49,9 +49,22 @@ func (m *MockFacade) GetWorkloadDetection() WorkloadDetectionFacadeInterface    
 func (m *MockFacade) GetWorkloadDetectionEvidence() WorkloadDetectionEvidenceFacadeInterface {
 	return nil
 }
-func (m *MockFacade) GetDetectionCoverage() DetectionCoverageFacadeInterface { return nil }
+func (m *MockFacade) GetDetectionCoverage() DetectionCoverageFacadeInterface     { return nil }
 func (m *MockFacade) GetAIAgentRegistration() AIAgentRegistrationFacadeInterface { return nil }
 func (m *MockFacade) GetAITask() AITaskFacadeInterface                           { return nil }
+func (m *MockFacade) GetGithubWorkflowConfig() GithubWorkflowConfigFacadeInterface {
+	return nil
+}
+func (m *MockFacade) GetGithubWorkflowRun() GithubWorkflowRunFacadeInterface { return nil }
+func (m *MockFacade) GetGithubWorkflowSchema() GithubWorkflowSchemaFacadeInterface {
+	return nil
+}
+func (m *MockFacade) GetGithubWorkflowMetrics() GithubWorkflowMetricsFacadeInterface { return nil }
+func (m *MockFacade) GetGithubRunnerSet() GithubRunnerSetFacadeInterface             { return nil }
+func (m *MockFacade) GetGithubWorkflowCommit() GithubWorkflowCommitFacadeInterface   { return nil }
+func (m *MockFacade) GetGithubWorkflowRunDetails() GithubWorkflowRunDetailsFacadeInterface {
+	return nil
+}
 
 func (m *MockFacade) GetGpuUsageWeeklyReport() GpuUsageWeeklyReportFacadeInterface {
 	return m.GpuUsageWeeklyReportMock

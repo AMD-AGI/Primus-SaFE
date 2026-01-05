@@ -161,6 +161,9 @@ func proxyHTTP(c *gin.Context, targetHost, path, sessionID string) {
 
 // proxyWebSocket proxies WebSocket connections to the TraceLens pod
 func proxyWebSocket(c *gin.Context, targetHost, path, sessionID string) {
+	// Get requested subprotocols from client
+	requestedProtocols := websocket.Subprotocols(c.Request)
+
 	// WebSocket upgrader for client connection
 	upgrader := websocket.Upgrader{
 		CheckOrigin: func(r *http.Request) bool {
@@ -168,17 +171,10 @@ func proxyWebSocket(c *gin.Context, targetHost, path, sessionID string) {
 		},
 		ReadBufferSize:  1024,
 		WriteBufferSize: 1024,
+		Subprotocols:    requestedProtocols, // Pass through client's requested subprotocols
 	}
 
-	// Upgrade client connection
-	clientConn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
-	if err != nil {
-		log.Errorf("Failed to upgrade client WebSocket for session %s: %v", sessionID, err)
-		return
-	}
-	defer clientConn.Close()
-
-	// Build backend WebSocket URL
+	// Build backend WebSocket URL first, before upgrading client
 	// Note: This must match BASE_URL_PATH env var in pod (without /api prefix)
 	basePath := fmt.Sprintf("/v1/tracelens/sessions/%s/ui", sessionID)
 	backendURL := fmt.Sprintf("ws://%s%s%s", targetHost, basePath, path)
@@ -186,7 +182,7 @@ func proxyWebSocket(c *gin.Context, targetHost, path, sessionID string) {
 	// Copy headers for backend connection
 	requestHeader := http.Header{}
 	for key, values := range c.Request.Header {
-		// Skip hop-by-hop headers
+		// Skip hop-by-hop headers (these will be handled by the dialer)
 		if key == "Upgrade" || key == "Connection" || key == "Sec-Websocket-Key" ||
 			key == "Sec-Websocket-Version" || key == "Sec-Websocket-Extensions" ||
 			key == "Sec-Websocket-Protocol" {
@@ -197,18 +193,39 @@ func proxyWebSocket(c *gin.Context, targetHost, path, sessionID string) {
 		}
 	}
 
-	// Connect to backend
+	// Connect to backend first to get the negotiated subprotocol
 	dialer := websocket.Dialer{
 		HandshakeTimeout: 10 * time.Second,
+		Subprotocols:     requestedProtocols, // Request same subprotocols from backend
 	}
-	backendConn, _, err := dialer.Dial(backendURL, requestHeader)
+	backendConn, backendResp, err := dialer.Dial(backendURL, requestHeader)
 	if err != nil {
 		log.Errorf("Failed to connect to backend WebSocket for session %s: %v", sessionID, err)
+		c.JSON(http.StatusBadGateway, gin.H{"error": "failed to connect to backend"})
 		return
 	}
 	defer backendConn.Close()
 
-	log.Debugf("WebSocket proxy established for session %s: client <-> %s", sessionID, backendURL)
+	// Get the subprotocol negotiated with backend
+	negotiatedProtocol := ""
+	if backendResp != nil {
+		negotiatedProtocol = backendResp.Header.Get("Sec-Websocket-Protocol")
+	}
+
+	// Update upgrader with the negotiated subprotocol
+	if negotiatedProtocol != "" {
+		upgrader.Subprotocols = []string{negotiatedProtocol}
+	}
+
+	// Now upgrade client connection with the negotiated subprotocol
+	clientConn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
+	if err != nil {
+		log.Errorf("Failed to upgrade client WebSocket for session %s: %v", sessionID, err)
+		return
+	}
+	defer clientConn.Close()
+
+	log.Debugf("WebSocket proxy established for session %s: client <-> %s (subprotocol: %s)", sessionID, backendURL, negotiatedProtocol)
 
 	// Error channel to track both connections
 	errChan := make(chan error, 2)

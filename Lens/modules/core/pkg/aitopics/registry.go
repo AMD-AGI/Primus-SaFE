@@ -115,6 +115,17 @@ var TopicRegistry = map[string]TopicDefinition{
 		Timeout:     30 * time.Second,
 		Async:       false,
 	},
+
+	// GitHub Metrics topics
+	TopicGithubMetricsExtract: {
+		Name:        TopicGithubMetricsExtract,
+		Version:     CurrentVersion,
+		Description: "Extract metrics and schema from benchmark result files using AI",
+		InputType:   reflect.TypeOf(ExtractMetricsInput{}),
+		OutputType:  reflect.TypeOf(ExtractMetricsOutput{}),
+		Timeout:     120 * time.Second,
+		Async:       true,
+	},
 }
 
 // GetTopicDefinition returns the definition for a topic

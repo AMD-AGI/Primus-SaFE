@@ -84,6 +84,17 @@ apps:
       excludeControlPlaneNodes: ""
       controller:
         leaderElectionId: "primus-lens-multi-cluster-config"
+  
+  githubRunnersExporter:
+    enabled: true
+    image: "primussafe/github-runners-exporter:202601041206"
+    replicas: 1
+    httpPort: 8991
+    resources: {}
+    config:
+      prometheusPort: 8992
+      controller:
+        leaderElectionId: "primus-lens-github-runners"
 
 # ============================================================================
 # Service Account Configuration

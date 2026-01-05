@@ -43,7 +43,32 @@ Creates a new metric alert rule that will be synchronized to the cluster.
         }
       ]
     }
-  ]
+  ],
+  "resource_mapping": {
+    "pod_label": "pod",
+    "namespace_label": "namespace",
+    "node_label": "node",
+    "workload_label": "workload"
+  },
+  "alert_enrichment": {
+    "add_labels": {
+      "cluster": "production"
+    },
+    "add_annotations": {
+      "runbook_url": "https://runbooks.example.com/gpu-alerts"
+    }
+  },
+  "alert_grouping": {
+    "group_by": ["alertname", "namespace"],
+    "group_wait": "30s",
+    "group_interval": "5m"
+  },
+  "alert_routing": {
+    "receiver": "ops-team",
+    "matchers": {
+      "severity": "critical"
+    }
+  }
 }
 ```
 
@@ -59,6 +84,10 @@ Creates a new metric alert rule that will be synchronized to the cluster.
 | `namespace` | string | No | VMRule namespace (default: "primus-lens") |
 | `auto_sync` | boolean | No | Auto sync to cluster after creation (default: false) |
 | `groups` | array | Yes | Array of rule groups |
+| `resource_mapping` | object | No | Resource mapping configuration for enriching alerts with resource info |
+| `alert_enrichment` | object | No | Alert enrichment configuration for adding labels/annotations |
+| `alert_grouping` | object | No | Alert grouping configuration |
+| `alert_routing` | object | No | Alert routing configuration |
 
 **Rule Group Fields:**
 
@@ -77,6 +106,37 @@ Creates a new metric alert rule that will be synchronized to the cluster.
 | `for` | string | No | Duration before firing (e.g., "5m") |
 | `labels` | object | No | Labels to attach to alert |
 | `annotations` | object | No | Annotations (summary, description, etc.) |
+
+**Resource Mapping Configuration:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `pod_label` | string | Label name containing pod identifier |
+| `namespace_label` | string | Label name containing namespace |
+| `node_label` | string | Label name containing node identifier |
+| `workload_label` | string | Label name containing workload identifier |
+
+**Alert Enrichment Configuration:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `add_labels` | object | Additional labels to add to alerts |
+| `add_annotations` | object | Additional annotations to add to alerts |
+
+**Alert Grouping Configuration:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `group_by` | array | Fields to group alerts by |
+| `group_wait` | string | Wait time before sending grouped alerts (e.g., "30s") |
+| `group_interval` | string | Interval for grouped alerts (e.g., "5m") |
+
+**Alert Routing Configuration:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `receiver` | string | Target receiver for alerts |
+| `matchers` | object | Label matchers for routing |
 
 **Response:**
 
@@ -594,22 +654,65 @@ curl -X GET http://localhost:8080/api/metric-alert-rules/123/status
 
 ```go
 type MetricAlertRule struct {
-    ID           int64          // Rule ID
-    Name         string         // Rule name
-    ClusterName  string         // Target cluster name
-    Enabled      bool           // Enabled status
-    Groups       []VMRuleGroup  // Rule groups
-    Description  string         // Description
-    Labels       map[string]string // Labels
-    SyncStatus   string         // Sync status
-    SyncMessage  string         // Sync message
-    LastSyncAt   time.Time      // Last sync time
-    VMRuleUID    string         // VMRule UID in Kubernetes
-    VMRuleStatus VMRuleStatus   // VMRule status
-    CreatedAt    time.Time      // Creation time
-    UpdatedAt    time.Time      // Update time
-    CreatedBy    string         // Creator
-    UpdatedBy    string         // Last updater
+    ID              int64                   // Rule ID
+    Name            string                  // Rule name
+    ClusterName     string                  // Target cluster name
+    Enabled         bool                    // Enabled status
+    Groups          []VMRuleGroup           // Rule groups
+    Description     string                  // Description
+    Labels          map[string]string       // Labels
+    ResourceMapping ResourceMappingConfig   // Resource mapping configuration
+    AlertEnrichment AlertEnrichmentConfig   // Alert enrichment configuration
+    AlertGrouping   AlertGroupingConfig     // Alert grouping configuration
+    AlertRouting    AlertRoutingConfig      // Alert routing configuration
+    SyncStatus      string                  // Sync status (pending, synced, failed)
+    SyncMessage     string                  // Sync message
+    LastSyncAt      time.Time               // Last sync time
+    VMRuleUID       string                  // VMRule UID in Kubernetes
+    VMRuleStatus    VMRuleStatus            // VMRule status
+    CreatedAt       time.Time               // Creation time
+    UpdatedAt       time.Time               // Update time
+    CreatedBy       string                  // Creator
+    UpdatedBy       string                  // Last updater
+}
+```
+
+### ResourceMappingConfig
+
+```go
+type ResourceMappingConfig struct {
+    PodLabel      string // Label name for pod identifier
+    NamespaceLabel string // Label name for namespace
+    NodeLabel     string // Label name for node identifier
+    WorkloadLabel string // Label name for workload identifier
+}
+```
+
+### AlertEnrichmentConfig
+
+```go
+type AlertEnrichmentConfig struct {
+    AddLabels      map[string]string // Additional labels to add
+    AddAnnotations map[string]string // Additional annotations to add
+}
+```
+
+### AlertGroupingConfig
+
+```go
+type AlertGroupingConfig struct {
+    GroupBy       []string // Fields to group alerts by
+    GroupWait     string   // Wait time before sending (e.g., "30s")
+    GroupInterval string   // Interval for grouped alerts (e.g., "5m")
+}
+```
+
+### AlertRoutingConfig
+
+```go
+type AlertRoutingConfig struct {
+    Receiver string            // Target receiver
+    Matchers map[string]string // Label matchers for routing
 }
 ```
 

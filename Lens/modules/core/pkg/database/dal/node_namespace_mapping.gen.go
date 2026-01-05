@@ -52,7 +52,7 @@ type nodeNamespaceMapping struct {
 	NamespaceName field.String // Namespace name for quick reference without join
 	CreatedAt     field.Time   // Timestamp when the mapping was created
 	UpdatedAt     field.Time   // Timestamp when the mapping was last updated
-	DeletedAt     field.Field  // Timestamp when the mapping was soft deleted (NULL means active)
+	DeletedAt     field.Field
 
 	fieldMap map[string]field.Expr
 }

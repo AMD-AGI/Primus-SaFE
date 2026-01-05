@@ -78,6 +78,27 @@ func (m *ClusterMockFacade) GetAIAgentRegistration() database.AIAgentRegistratio
 	return nil
 }
 func (m *ClusterMockFacade) GetAITask() database.AITaskFacadeInterface { return nil }
+func (m *ClusterMockFacade) GetGithubWorkflowConfig() database.GithubWorkflowConfigFacadeInterface {
+	return nil
+}
+func (m *ClusterMockFacade) GetGithubWorkflowRun() database.GithubWorkflowRunFacadeInterface {
+	return nil
+}
+func (m *ClusterMockFacade) GetGithubWorkflowSchema() database.GithubWorkflowSchemaFacadeInterface {
+	return nil
+}
+func (m *ClusterMockFacade) GetGithubWorkflowMetrics() database.GithubWorkflowMetricsFacadeInterface {
+	return nil
+}
+func (m *ClusterMockFacade) GetGithubRunnerSet() database.GithubRunnerSetFacadeInterface {
+	return nil
+}
+func (m *ClusterMockFacade) GetGithubWorkflowCommit() database.GithubWorkflowCommitFacadeInterface {
+	return nil
+}
+func (m *ClusterMockFacade) GetGithubWorkflowRunDetails() database.GithubWorkflowRunDetailsFacadeInterface {
+	return nil
+}
 func (m *ClusterMockFacade) WithCluster(clusterName string) database.FacadeInterface { return m }
 
 // ClusterMockNodeFacade implements database.NodeFacadeInterface for testing
