@@ -1,6 +1,9 @@
 package aiclient
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+)
 
 // Common errors for AI client
 var (
@@ -30,6 +33,25 @@ var (
 	// Degradation errors
 	ErrDegradationApplied = errors.New("degradation applied, AI features unavailable")
 )
+
+// APIError represents an error returned from the AI API
+type APIError struct {
+	Code    int
+	Message string
+}
+
+// Error implements the error interface
+func (e *APIError) Error() string {
+	return fmt.Sprintf("AI API error (code=%d): %s", e.Code, e.Message)
+}
+
+// NewAPIError creates a new APIError
+func NewAPIError(code int, message string) *APIError {
+	return &APIError{
+		Code:    code,
+		Message: message,
+	}
+}
 
 // IsRetryableError returns true if the error is retryable
 func IsRetryableError(err error) bool {

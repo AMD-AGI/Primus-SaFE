@@ -14,7 +14,7 @@ Creates a new log alert rule for monitoring log streams.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `cluster_name` | string | No | current | Target cluster name |
+| `cluster` | string | No | current | Target cluster name |
 
 **Request Body:**
 
@@ -171,7 +171,7 @@ Creates a new log alert rule for monitoring log streams.
 **Example:**
 
 ```bash
-curl -X POST "http://localhost:8080/api/log-alert-rules?cluster_name=production" \
+curl -X POST "http://localhost:8080/api/log-alert-rules?cluster=production" \
   -H "Content-Type: application/json" \
   -d '{
     "name": "high-error-rate",
@@ -200,7 +200,7 @@ Retrieves a paginated list of log alert rules with filtering support.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `cluster_name` | string | No | current | Target cluster name |
+| `cluster` | string | No | current | Target cluster name |
 | `offset` | integer | No | 0 | Offset for pagination |
 | `limit` | integer | No | 50 | Number of items to return (max: 100) |
 | `enabled` | boolean | No | - | Filter by enabled status |
@@ -337,7 +337,7 @@ Retrieves detailed information for a specific log alert rule.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `cluster_name` | string | No | current | Target cluster name |
+| `cluster` | string | No | current | Target cluster name |
 
 **Response:**
 
@@ -391,7 +391,7 @@ Retrieves detailed information for a specific log alert rule.
 **Example:**
 
 ```bash
-curl -X GET "http://localhost:8080/api/log-alert-rules/123?cluster_name=production"
+curl -X GET "http://localhost:8080/api/log-alert-rules/123?cluster=production"
 ```
 
 ---
@@ -412,7 +412,7 @@ Updates an existing log alert rule.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `cluster_name` | string | No | current | Target cluster name |
+| `cluster` | string | No | current | Target cluster name |
 
 **Request Body:**
 
@@ -440,7 +440,7 @@ Same format as create request.
 **Example:**
 
 ```bash
-curl -X PUT "http://localhost:8080/api/log-alert-rules/123?cluster_name=production" \
+curl -X PUT "http://localhost:8080/api/log-alert-rules/123?cluster=production" \
   -H "Content-Type: application/json" \
   -d '{
     "name": "high-error-rate",
@@ -470,7 +470,7 @@ Deletes a log alert rule.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `cluster_name` | string | No | current | Target cluster name |
+| `cluster` | string | No | current | Target cluster name |
 
 **Response:**
 
@@ -493,7 +493,7 @@ Deletes a log alert rule.
 **Example:**
 
 ```bash
-curl -X DELETE "http://localhost:8080/api/log-alert-rules/123?cluster_name=production"
+curl -X DELETE "http://localhost:8080/api/log-alert-rules/123?cluster=production"
 ```
 
 ---
@@ -508,7 +508,7 @@ Updates multiple log alert rules at once (currently supports enabling/disabling)
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `cluster_name` | string | No | current | Target cluster name |
+| `cluster` | string | No | current | Target cluster name |
 
 **Request Body:**
 
@@ -619,7 +619,7 @@ Retrieves statistics for a specific log alert rule (alert counts, trends, etc.).
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `cluster_name` | string | No | current | Target cluster name |
+| `cluster` | string | No | current | Target cluster name |
 | `from` | string | No | 7 days ago | Start date (YYYY-MM-DD) |
 | `to` | string | No | today | End date (YYYY-MM-DD) |
 
@@ -682,7 +682,7 @@ Retrieves version history for a log alert rule.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `cluster_name` | string | No | current | Target cluster name |
+| `cluster` | string | No | current | Target cluster name |
 
 **Response:**
 
@@ -749,7 +749,7 @@ Rolls back a log alert rule to a previous version.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `cluster_name` | string | No | current | Target cluster name |
+| `cluster` | string | No | current | Target cluster name |
 
 **Response:**
 
@@ -772,7 +772,7 @@ Rolls back a log alert rule to a previous version.
 **Example:**
 
 ```bash
-curl -X POST "http://localhost:8080/api/log-alert-rules/123/rollback/2?cluster_name=production"
+curl -X POST "http://localhost:8080/api/log-alert-rules/123/rollback/2?cluster=production"
 ```
 
 ---
@@ -793,7 +793,7 @@ Clones a log alert rule to another cluster or creates a copy with a new name.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `cluster_name` | string | No | current | Source cluster name |
+| `cluster` | string | No | current | Source cluster name |
 
 **Request Body:**
 
@@ -1041,7 +1041,7 @@ def create_log_alert(name, match_type, config):
     }
     
     response = requests.post(
-        f"{API_BASE}/log-alert-rules?cluster_name=production",
+        f"{API_BASE}/log-alert-rules?cluster=production",
         json=rule
     )
     return response.json()
@@ -1079,7 +1079,7 @@ CLUSTER="production"
 
 # Create log alert rule
 create_log_alert() {
-  curl -X POST "$API_BASE/log-alert-rules?cluster_name=$CLUSTER" \
+  curl -X POST "$API_BASE/log-alert-rules?cluster=$CLUSTER" \
     -H "Content-Type: application/json" \
     -d "{
       \"name\": \"$1\",
@@ -1101,7 +1101,7 @@ create_log_alert() {
 
 # List all rules
 list_rules() {
-  curl -s "$API_BASE/log-alert-rules?cluster_name=$CLUSTER&limit=100" \
+  curl -s "$API_BASE/log-alert-rules?cluster=$CLUSTER&limit=100" \
     | jq '.data.rules[] | {id, name, enabled, severity}'
 }
 
