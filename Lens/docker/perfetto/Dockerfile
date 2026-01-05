@@ -1,39 +1,43 @@
 # Perfetto Viewer Container - Self-hosted Offline Version
-# Builds Perfetto UI from official source for complete offline/private deployment
+# Builds Perfetto UI with proper Emscripten environment
 #
-# Build time: ~10-15 minutes (depends on network and CPU)
+# Build time: ~15-20 minutes
 # Final image size: ~60MB
 
-# Stage 1: Build Perfetto UI from official source
-FROM debian:bookworm-slim AS builder
+# Stage 1: Build Perfetto UI
+FROM ubuntu:22.04 AS builder
 
-# Install build dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    git \
-    curl \
-    python3 \
-    python3-distutils \
-    ca-certificates \
-    lbzip2 \
+# Avoid interactive prompts
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install all required build dependencies
+RUN apt-get update && apt-get install -y \
     build-essential \
     pkg-config \
+    python3 \
+    python3-pip \
+    python3-distutils \
+    git \
+    curl \
+    lbzip2 \
+    xz-utils \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build
 
-# Clone Perfetto repository (shallow clone for faster build)
+# Clone Perfetto repository
 RUN git clone --depth 1 https://android.googlesource.com/platform/external/perfetto
 
 WORKDIR /build/perfetto
 
-# Install UI build dependencies (downloads Node.js, npm packages, etc.)
+# Install build dependencies (this downloads Node.js, emsdk, etc.)
 RUN tools/install-build-deps --ui
 
-# Generate build configuration
-RUN tools/gn gen out/default --args='is_debug=false'
+# Source emsdk environment and generate build config
+RUN bash -c "source buildtools/linux64/emsdk/emsdk_env.sh && tools/gn gen out/default --args='is_debug=false'"
 
-# Build the UI
-RUN tools/ninja -C out/default ui
+# Build the UI with emsdk environment
+RUN bash -c "source buildtools/linux64/emsdk/emsdk_env.sh && tools/ninja -C out/default ui"
 
 # Stage 2: Runtime image
 FROM nginx:alpine
