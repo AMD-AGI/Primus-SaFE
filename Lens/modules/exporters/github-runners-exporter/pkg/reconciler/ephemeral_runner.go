@@ -67,6 +67,8 @@ func (r *EphemeralRunnerReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
+const finalizerName = "primus-lens.amd.com/workflow-run-tracker"
+
 // Reconcile handles EphemeralRunner events
 func (r *EphemeralRunnerReconciler) Reconcile(ctx context.Context, req reconcile.Request) (result reconcile.Result, err error) {
 	defer func() {
@@ -96,6 +98,44 @@ func (r *EphemeralRunnerReconciler) Reconcile(ctx context.Context, req reconcile
 	// Parse the object
 	info := types.ParseEphemeralRunner(obj)
 
+	// Handle finalizer for tracking completion
+	if obj.GetDeletionTimestamp() != nil {
+		// Object is being deleted
+		if containsFinalizer(obj.GetFinalizers(), finalizerName) {
+			// Process final state before deletion
+			log.Infof("EphemeralRunnerReconciler: processing deletion for %s/%s (phase: %s)",
+				req.Namespace, req.Name, info.Phase)
+
+			// Mark as completed if not already
+			if info.Phase == types.EphemeralRunnerPhaseSucceeded || info.Phase == types.EphemeralRunnerPhaseFailed || info.IsCompleted {
+				if err := r.processRunner(ctx, info); err != nil {
+					log.Errorf("EphemeralRunnerReconciler: failed to process final state for %s/%s: %v",
+						req.Namespace, req.Name, err)
+					return ctrl.Result{RequeueAfter: 5 * time.Second}, err
+				}
+			}
+
+			// Remove finalizer to allow deletion
+			if err := r.removeFinalizer(ctx, obj); err != nil {
+				log.Errorf("EphemeralRunnerReconciler: failed to remove finalizer from %s/%s: %v",
+					req.Namespace, req.Name, err)
+				return ctrl.Result{RequeueAfter: 5 * time.Second}, err
+			}
+			log.Infof("EphemeralRunnerReconciler: removed finalizer from %s/%s", req.Namespace, req.Name)
+		}
+		return ctrl.Result{}, nil
+	}
+
+	// Add finalizer if not present
+	if !containsFinalizer(obj.GetFinalizers(), finalizerName) {
+		if err := r.addFinalizer(ctx, obj); err != nil {
+			log.Errorf("EphemeralRunnerReconciler: failed to add finalizer to %s/%s: %v",
+				req.Namespace, req.Name, err)
+			return ctrl.Result{RequeueAfter: 10 * time.Second}, err
+		}
+		log.Debugf("EphemeralRunnerReconciler: added finalizer to %s/%s", req.Namespace, req.Name)
+	}
+
 	// Process the runner - track all state changes
 	if err := r.processRunner(ctx, info); err != nil {
 		log.Errorf("EphemeralRunnerReconciler: failed to process %s/%s: %v",
@@ -107,6 +147,45 @@ func (r *EphemeralRunnerReconciler) Reconcile(ctx context.Context, req reconcile
 		req.Namespace, req.Name, info.Phase, info.WorkflowName)
 
 	return ctrl.Result{}, nil
+}
+
+// containsFinalizer checks if a finalizer is present
+func containsFinalizer(finalizers []string, finalizer string) bool {
+	for _, f := range finalizers {
+		if f == finalizer {
+			return true
+		}
+	}
+	return false
+}
+
+// addFinalizer adds the finalizer to the object
+func (r *EphemeralRunnerReconciler) addFinalizer(ctx context.Context, obj *unstructured.Unstructured) error {
+	finalizers := obj.GetFinalizers()
+	finalizers = append(finalizers, finalizerName)
+	obj.SetFinalizers(finalizers)
+
+	_, err := r.dynamicClient.Resource(types.EphemeralRunnerGVR).
+		Namespace(obj.GetNamespace()).
+		Update(ctx, obj, metav1.UpdateOptions{})
+	return err
+}
+
+// removeFinalizer removes the finalizer from the object
+func (r *EphemeralRunnerReconciler) removeFinalizer(ctx context.Context, obj *unstructured.Unstructured) error {
+	finalizers := obj.GetFinalizers()
+	newFinalizers := make([]string, 0, len(finalizers))
+	for _, f := range finalizers {
+		if f != finalizerName {
+			newFinalizers = append(newFinalizers, f)
+		}
+	}
+	obj.SetFinalizers(newFinalizers)
+
+	_, err := r.dynamicClient.Resource(types.EphemeralRunnerGVR).
+		Namespace(obj.GetNamespace()).
+		Update(ctx, obj, metav1.UpdateOptions{})
+	return err
 }
 
 // processRunner processes an EphemeralRunner at any state
