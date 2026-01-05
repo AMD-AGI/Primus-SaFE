@@ -33,11 +33,12 @@ WORKDIR /build/perfetto
 # Install build dependencies (this downloads Node.js, emsdk, etc.)
 RUN tools/install-build-deps --ui
 
-# Source emsdk environment and generate build config
-RUN bash -c "source buildtools/linux64/emsdk/emsdk_env.sh && tools/gn gen out/default --args='is_debug=false'"
-
-# Build the UI with emsdk environment
-RUN bash -c "source buildtools/linux64/emsdk/emsdk_env.sh && tools/ninja -C out/default ui"
+# Build UI using the build script which handles emsdk setup automatically
+# Output will be in out/ui or out/dist depending on version
+RUN ui/build && \
+    ls -la out/ && \
+    mkdir -p /perfetto-dist && \
+    (cp -r out/ui/* /perfetto-dist/ 2>/dev/null || cp -r out/dist/* /perfetto-dist/ 2>/dev/null || cp -r out/default/ui/* /perfetto-dist/ 2>/dev/null)
 
 # Stage 2: Runtime image
 FROM nginx:alpine
@@ -49,7 +50,7 @@ RUN apk add --no-cache curl
 RUN mkdir -p /data /usr/share/nginx/html/perfetto
 
 # Copy built Perfetto UI from builder stage
-COPY --from=builder /build/perfetto/out/default/ui /usr/share/nginx/html/perfetto
+COPY --from=builder /perfetto-dist /usr/share/nginx/html/perfetto
 
 # Copy custom auto-load script
 COPY auto-load.js /usr/share/nginx/html/perfetto/auto-load.js
