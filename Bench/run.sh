@@ -20,6 +20,13 @@ ok()     { echo "✔ $1"; }
 warn()   { echo "⚠ $1"; }
 err()    { echo "✘ $1"; }
 
+# Send SIGUSR1 signal and wait for background process
+send_ready_signal() {
+    log "🏁 Benchmarks completed. Synchronizing all nodes... $(date +'%Y-%m-%d %H:%M:%S')"
+    kill -USR1 $WAIT_READY_PID
+    wait $WAIT_READY_PID
+}
+
 # ==== Step 1: Start FIO server ====
 if [ -n "${IO_BENCHMARK_MOUNT:-}" ]; then
     log "Starting FIO server..."
@@ -35,6 +42,13 @@ log "${LOG_HEADER} [$(date +'%Y-%m-%d %H:%M:%S')] Starting Primus Bench..."
 cd "$PRIMUSBENCH_PATH"
 
 if [[ "$RANK" == "0" ]]; then
+    # Use SIGUSR1 signal for synchronization
+    # Use python3 directly (not torchrun) so signal goes to the Python process
+    export USE_SIGNAL=true
+    
+    CUDA_VISIBLE_DEVICES="" python3 preflight/network/wait_ready.py &
+    WAIT_READY_PID=$!
+    
     export TIMESTMAP=${TIMESTMAP:-$(date +'%Y-%m-%d_%H-%M-%S')}
 
     if [ -z "${OUTPUT_PATH:-}" ]; then
@@ -174,13 +188,7 @@ if [[ "$RANK" == "0" ]]; then
     if [ ${#successed_nodes[@]} -eq 0 ]; then
         cat "$BENCH_REPORT"
         err "No healthy nodes found, aborting."
-        CUDA_VISIBLE_DEVICES="" torchrun \
-        --nproc_per_node=1 \
-        --nnodes=$WORLD_SIZE \
-        --node_rank=$RANK \
-        --master_addr=$MASTER_ADDR \
-        --master_port=$MASTER_PORT \
-        preflight/network/wait_ready.py
+        send_ready_signal
         err "PrimusBench failed!"
         exit 1
     fi
@@ -268,13 +276,7 @@ if [[ "$RANK" == "0" ]]; then
         cat "$BENCH_REPORT"
         echo ""
         err "No healthy nodes available after network check, aborting."
-        CUDA_VISIBLE_DEVICES="" torchrun \
-        --nproc_per_node=1 \
-        --nnodes=$WORLD_SIZE \
-        --node_rank=$RANK \
-        --master_addr=$MASTER_ADDR \
-        --master_port=$MASTER_PORT \
-        preflight/network/wait_ready.py
+        send_ready_signal
         err "PrimusBench failed!"
         exit 1
     fi
@@ -366,18 +368,12 @@ if [[ "$RANK" == "0" ]]; then
     echo ""
     cat "$BENCH_REPORT"
     echo ""
+    send_ready_signal
 else
     log "${LOG_HEADER} [$(date +'%Y-%m-%d %H:%M:%S')] Waiting for rank 0 to complete bench..."
+    CUDA_VISIBLE_DEVICES="" python3 preflight/network/wait_ready.py
 fi
 
-CUDA_VISIBLE_DEVICES="" torchrun \
-    --nproc_per_node=1 \
-    --nnodes=$WORLD_SIZE \
-    --node_rank=$RANK \
-    --master_addr=$MASTER_ADDR \
-    --master_port=$MASTER_PORT \
-    preflight/network/wait_ready.py
-
-ok "✅ PrimusBench completed!"
+ok "✅ PrimusBench completed! $(date +'%Y-%m-%d %H:%M:%S')"
 
 
