@@ -31,10 +31,11 @@ func TestCurrentVersion(t *testing.T) {
 }
 
 func TestTopicDomains(t *testing.T) {
-	assert.Len(t, TopicDomains, 3)
+	assert.Len(t, TopicDomains, 4)
 	assert.Contains(t, TopicDomains, "alert")
 	assert.Contains(t, TopicDomains, "report")
 	assert.Contains(t, TopicDomains, "scan")
+	assert.Contains(t, TopicDomains, "github")
 }
 
 func TestIsValidTopic(t *testing.T) {
