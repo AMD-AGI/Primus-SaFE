@@ -29,6 +29,12 @@ type WorkloadFacadeInterface interface {
 	ListChildrenWorkloadByParentUid(ctx context.Context, parentUid string) ([]*model.GpuWorkload, error)
 	ListWorkloadByLabelValue(ctx context.Context, labelKey, labelValue string) ([]*model.GpuWorkload, error)
 	ListWorkloadNotEndByKind(ctx context.Context, kind string) ([]*model.GpuWorkload, error)
+	// ListCompletedWorkloadsByKindAndParent lists completed workloads of a specific kind under a parent
+	// Used for scanning completed EphemeralRunners under an AutoscalingRunnerSet
+	ListCompletedWorkloadsByKindAndParent(ctx context.Context, kind, parentUID string, since time.Time, limit int) ([]*model.GpuWorkload, error)
+	// ListCompletedWorkloadsByKindAndNamespace lists completed workloads of a specific kind in a namespace
+	// A workload is completed if EndAt is not null/zero
+	ListCompletedWorkloadsByKindAndNamespace(ctx context.Context, kind, namespace string, since time.Time, limit int) ([]*model.GpuWorkload, error)
 	// ListActiveTopLevelWorkloads queries top-level workloads active within a time range
 	// A workload is considered active if: CreatedAt <= endTime AND (EndAt is null/zero OR EndAt >= startTime)
 	// Only returns workloads where ParentUID == "" (top-level)
@@ -274,6 +280,72 @@ func (f *WorkloadFacade) ListWorkloadNotEndByKind(ctx context.Context, kind stri
 		return nil, err
 	}
 	return results, nil
+}
+
+// ListCompletedWorkloadsByKindAndParent lists completed workloads of a specific kind under a parent
+func (f *WorkloadFacade) ListCompletedWorkloadsByKindAndParent(ctx context.Context, kind, parentUID string, since time.Time, limit int) ([]*model.GpuWorkload, error) {
+	db := f.getDB()
+	if db == nil {
+		return nil, nil
+	}
+
+	query := db.WithContext(ctx).Model(&model.GpuWorkload{}).
+		Where("kind = ?", kind).
+		Where("parent_uid = ?", parentUID).
+		Where("end_at IS NOT NULL AND end_at != ?", time.Time{})
+
+	if !since.IsZero() {
+		query = query.Where("end_at >= ?", since)
+	}
+
+	query = query.Order("end_at DESC")
+
+	if limit > 0 {
+		query = query.Limit(limit)
+	}
+
+	var workloads []*model.GpuWorkload
+	if err := query.Find(&workloads).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return []*model.GpuWorkload{}, nil
+		}
+		return nil, err
+	}
+
+	return workloads, nil
+}
+
+// ListCompletedWorkloadsByKindAndNamespace lists completed workloads of a specific kind in a namespace
+func (f *WorkloadFacade) ListCompletedWorkloadsByKindAndNamespace(ctx context.Context, kind, namespace string, since time.Time, limit int) ([]*model.GpuWorkload, error) {
+	db := f.getDB()
+	if db == nil {
+		return nil, nil
+	}
+
+	query := db.WithContext(ctx).Model(&model.GpuWorkload{}).
+		Where("kind = ?", kind).
+		Where("namespace = ?", namespace).
+		Where("end_at IS NOT NULL AND end_at != ?", time.Time{})
+
+	if !since.IsZero() {
+		query = query.Where("end_at >= ?", since)
+	}
+
+	query = query.Order("end_at DESC")
+
+	if limit > 0 {
+		query = query.Limit(limit)
+	}
+
+	var workloads []*model.GpuWorkload
+	if err := query.Find(&workloads).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return []*model.GpuWorkload{}, nil
+		}
+		return nil, err
+	}
+
+	return workloads, nil
 }
 
 // ListActiveTopLevelWorkloads queries top-level workloads active within a time range

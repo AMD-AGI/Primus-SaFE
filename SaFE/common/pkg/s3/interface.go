@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -33,4 +33,5 @@ type Interface interface {
 	PresignModelFiles(ctx context.Context, prefix string, expireHour int32) (map[string]string, error)
 
 	DownloadFile(ctx context.Context, key, localPath string) error
+	DownloadDirectory(ctx context.Context, prefix, localDir string) error
 }

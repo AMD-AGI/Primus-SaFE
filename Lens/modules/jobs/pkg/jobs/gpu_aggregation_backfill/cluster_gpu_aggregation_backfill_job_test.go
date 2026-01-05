@@ -78,7 +78,28 @@ func (m *MockBackfillFacade) GetDetectionCoverage() database.DetectionCoverageFa
 func (m *MockBackfillFacade) GetAIAgentRegistration() database.AIAgentRegistrationFacadeInterface {
 	return nil
 }
-func (m *MockBackfillFacade) GetAITask() database.AITaskFacadeInterface               { return nil }
+func (m *MockBackfillFacade) GetAITask() database.AITaskFacadeInterface { return nil }
+func (m *MockBackfillFacade) GetGithubWorkflowConfig() database.GithubWorkflowConfigFacadeInterface {
+	return nil
+}
+func (m *MockBackfillFacade) GetGithubWorkflowRun() database.GithubWorkflowRunFacadeInterface {
+	return nil
+}
+func (m *MockBackfillFacade) GetGithubWorkflowSchema() database.GithubWorkflowSchemaFacadeInterface {
+	return nil
+}
+func (m *MockBackfillFacade) GetGithubWorkflowMetrics() database.GithubWorkflowMetricsFacadeInterface {
+	return nil
+}
+func (m *MockBackfillFacade) GetGithubRunnerSet() database.GithubRunnerSetFacadeInterface {
+	return nil
+}
+func (m *MockBackfillFacade) GetGithubWorkflowCommit() database.GithubWorkflowCommitFacadeInterface {
+	return nil
+}
+func (m *MockBackfillFacade) GetGithubWorkflowRunDetails() database.GithubWorkflowRunDetailsFacadeInterface {
+	return nil
+}
 func (m *MockBackfillFacade) WithCluster(clusterName string) database.FacadeInterface { return m }
 
 type MockBackfillNodeFacade struct {

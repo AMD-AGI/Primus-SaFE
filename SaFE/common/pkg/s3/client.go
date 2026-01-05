@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -298,123 +298,42 @@ func (c *Client) PresignModelFiles(ctx context.Context, prefix string, expireHou
 	return urls, nil
 }
 
-// DownloadFile downloads a file or directory from S3 to local path.
-// If the key is a single file, it downloads directly.
-// If the key is a prefix (directory), it recursively downloads all files under that prefix.
+// DownloadFile downloads a file from S3 to a local directory.
+// The localDir is treated as a directory path, and the original filename from the S3 key is used.
+// For example: key="models/config.json", localDir="/tmp" -> "/tmp/config.json"
 // Automatically chooses between simple download (for small files) and concurrent download (for large files).
-func (c *Client) DownloadFile(ctx context.Context, key, localPath string) error {
+func (c *Client) DownloadFile(ctx context.Context, key, localDir string) error {
 	if c == nil {
 		return fmt.Errorf("please init client first")
 	}
 
-	// First, try to get the object as a single file
+	// Extract filename from key and build full local path
+	filename := filepath.Base(key)
+	localPath := filepath.Join(localDir, filename)
+
+	return c.downloadToPath(ctx, key, localPath)
+}
+
+// downloadToPath downloads a file from S3 to the exact local path specified.
+// This is an internal function used by both DownloadFile and DownloadDirectory.
+func (c *Client) downloadToPath(ctx context.Context, key, localPath string) error {
+	// Get file size
 	head, err := c.s3Client.HeadObject(ctx, &s3.HeadObjectInput{
 		Bucket: c.Bucket,
 		Key:    aws.String(key),
 	})
-	if err == nil {
-		// It's a single file, download it directly
-		fileSize := *head.ContentLength
-		if fileSize < largeFileThreshold {
-			return c.downloadSmallFile(ctx, key, localPath)
-		}
-		return c.downloadLargeFile(ctx, key, localPath)
+	if err != nil {
+		return err
+	}
+	fileSize := *head.ContentLength
+
+	// For small files, use simple download
+	if fileSize < largeFileThreshold {
+		return c.downloadSmallFile(ctx, key, localPath)
 	}
 
-	// HeadObject failed, check if it's a directory (prefix)
-	// Ensure key ends with "/" for proper prefix matching
-	prefix := key
-	if !strings.HasSuffix(prefix, "/") {
-		prefix = prefix + "/"
-	}
-
-	// List objects with this prefix
-	listOutput, listErr := c.s3Client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
-		Bucket: c.Bucket,
-		Prefix: aws.String(prefix),
-	})
-	if listErr != nil {
-		// Return the original HeadObject error if ListObjects also fails
-		return fmt.Errorf("not a file and failed to list as directory: %w", err)
-	}
-
-	if len(listOutput.Contents) == 0 {
-		// No objects found with this prefix, return original error
-		return fmt.Errorf("no objects found with key or prefix: %s", key)
-	}
-
-	// It's a directory, download all files recursively
-	fmt.Printf("Detected directory with %d objects, downloading recursively...\n", len(listOutput.Contents))
-
-	// Ensure local directory exists
-	if err := os.MkdirAll(localPath, 0755); err != nil {
-		return fmt.Errorf("failed to create local directory: %w", err)
-	}
-
-	// Download each object
-	for _, obj := range listOutput.Contents {
-		objKey := *obj.Key
-		// Skip the directory marker itself (if any)
-		if strings.HasSuffix(objKey, "/") {
-			continue
-		}
-
-		// Calculate relative path and local file path
-		relativePath := strings.TrimPrefix(objKey, prefix)
-		localFilePath := filepath.Join(localPath, relativePath)
-
-		fmt.Printf("Downloading: %s -> %s\n", objKey, localFilePath)
-
-		// Download the file
-		fileSize := *obj.Size
-		if fileSize < largeFileThreshold {
-			if err := c.downloadSmallFile(ctx, objKey, localFilePath); err != nil {
-				return fmt.Errorf("failed to download %s: %w", objKey, err)
-			}
-		} else {
-			if err := c.downloadLargeFile(ctx, objKey, localFilePath); err != nil {
-				return fmt.Errorf("failed to download %s: %w", objKey, err)
-			}
-		}
-	}
-
-	// Handle pagination if there are more objects
-	for listOutput.IsTruncated != nil && *listOutput.IsTruncated {
-		listOutput, listErr = c.s3Client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
-			Bucket:            c.Bucket,
-			Prefix:            aws.String(prefix),
-			ContinuationToken: listOutput.NextContinuationToken,
-		})
-		if listErr != nil {
-			return fmt.Errorf("failed to list more objects: %w", listErr)
-		}
-
-		for _, obj := range listOutput.Contents {
-			objKey := *obj.Key
-			if strings.HasSuffix(objKey, "/") {
-				continue
-			}
-
-			relativePath := strings.TrimPrefix(objKey, prefix)
-			localFilePath := filepath.Join(localPath, relativePath)
-
-			fmt.Printf("Downloading: %s -> %s\n", objKey, localFilePath)
-
-			fileSize := *obj.Size
-			if fileSize < largeFileThreshold {
-				if err := c.downloadSmallFile(ctx, objKey, localFilePath); err != nil {
-					return fmt.Errorf("failed to download %s: %w", objKey, err)
-				}
-			} else {
-				if err := c.downloadLargeFile(ctx, objKey, localFilePath); err != nil {
-					return fmt.Errorf("failed to download %s: %w", objKey, err)
-				}
-			}
-		}
-	}
-
-	fmt.Printf("Directory download completed successfully\n")
-	return nil
+	// For large files, use concurrent download
+	return c.downloadLargeFile(ctx, key, localPath)
 }
 
 // downloadSmallFile performs a simple single-request download for small files.
@@ -473,6 +392,59 @@ func (c *Client) downloadLargeFile(ctx context.Context, key, localPath string) e
 		os.Remove(localPath)
 		return err
 	}
+	return nil
+}
+
+// DownloadDirectory downloads all files matching the given prefix to a local directory.
+// The prefix is used to filter objects in S3, and the relative path structure is preserved.
+// For example, if prefix is "models/v1/" and localDir is "/tmp/models",
+// then "models/v1/config.json" will be downloaded to "/tmp/models/config.json".
+func (c *Client) DownloadDirectory(ctx context.Context, prefix, localDir string) error {
+	if c == nil {
+		return fmt.Errorf("please init client first")
+	}
+
+	// Ensure prefix ends with "/" for directory-like behavior
+	if prefix != "" && !strings.HasSuffix(prefix, "/") {
+		prefix = prefix + "/"
+	}
+
+	// List all objects with the given prefix
+	paginator := s3.NewListObjectsV2Paginator(c.s3Client, &s3.ListObjectsV2Input{
+		Bucket: c.Bucket,
+		Prefix: aws.String(prefix),
+	})
+
+	var downloadErrors []error
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to list objects with prefix %s: %w", prefix, err)
+		}
+
+		for _, obj := range page.Contents {
+			key := *obj.Key
+
+			// Skip directory markers (keys ending with "/")
+			if strings.HasSuffix(key, "/") {
+				continue
+			}
+
+			// Calculate relative path by removing the prefix
+			relativePath := strings.TrimPrefix(key, prefix)
+			localPath := filepath.Join(localDir, relativePath)
+
+			// Download the file to exact path (preserving directory structure)
+			if err := c.downloadToPath(ctx, key, localPath); err != nil {
+				downloadErrors = append(downloadErrors, fmt.Errorf("failed to download %s: %w", key, err))
+			}
+		}
+	}
+
+	if len(downloadErrors) > 0 {
+		return fmt.Errorf("encountered %d errors during download: %v", len(downloadErrors), downloadErrors[0])
+	}
+
 	return nil
 }
 

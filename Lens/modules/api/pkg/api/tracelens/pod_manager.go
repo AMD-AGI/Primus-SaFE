@@ -327,9 +327,9 @@ func getResourceLimits(profile string) (memory, cpu string) {
 	case tlconst.ProfileSmall:
 		return "2Gi", "1"
 	case tlconst.ProfileLarge:
-		return "8Gi", "4"
+		return "16Gi", "4" // Increased from 8Gi for large trace files (1.5GB+ uncompressed)
 	default: // medium
-		return "4Gi", "2"
+		return "8Gi", "2" // Increased from 4Gi
 	}
 }
 

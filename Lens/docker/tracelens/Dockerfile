@@ -30,7 +30,8 @@ RUN pip install --no-cache-dir \
     plotly>=5.18.0 \
     requests>=2.31.0 \
     pandas>=2.0.0 \
-    numpy>=1.24.0
+    numpy>=1.24.0 \
+    ijson>=3.2.0
 
 # Install TraceLens from GitHub separately with verbose output
 ENV GIT_TRACE=1

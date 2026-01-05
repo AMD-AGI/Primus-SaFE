@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -91,6 +91,7 @@ type NodeFlavorValidator struct {
 	client.Client
 	decoder admission.Decoder
 }
+
 // Handle validates node flavor resources on create, update, and delete operations.
 func (v *NodeFlavorValidator) Handle(_ context.Context, req admission.Request) admission.Response {
 	newFlavor := &v1.NodeFlavor{}

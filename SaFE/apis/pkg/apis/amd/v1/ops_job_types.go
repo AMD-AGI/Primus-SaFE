@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -205,14 +205,22 @@ func CvtParamToString(p *Parameter) string {
 	return p.Name + ":" + p.Value
 }
 
-// CvtStringToParam converts data to the target format.
+// CvtStringToParam converts a string in format "name:value" to a Parameter struct.
+// If the string does not contain exactly one colon separator, returns nil.
 func CvtStringToParam(str string) *Parameter {
-	splitArray := strings.Split(str, ":")
-	if len(splitArray) != 2 {
+	// Find the index of the first colon
+	colonIndex := strings.Index(str, ":")
+	if colonIndex == -1 {
+		// No colon found
 		return nil
 	}
+
+	// Split at the first colon
+	name := str[:colonIndex]
+	value := str[colonIndex+1:]
+
 	return &Parameter{
-		Name:  splitArray[0],
-		Value: splitArray[1],
+		Name:  name,
+		Value: value,
 	}
 }
