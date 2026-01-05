@@ -34,11 +34,31 @@ WORKDIR /build/perfetto
 RUN tools/install-build-deps --ui
 
 # Build UI using the build script which handles emsdk setup automatically
-# Output will be in out/ui or out/dist depending on version
 RUN ui/build && \
+    echo "=== Build output structure ===" && \
+    find out -type f -name "index.html" 2>/dev/null && \
     ls -la out/ && \
     mkdir -p /perfetto-dist && \
-    (cp -r out/ui/* /perfetto-dist/ 2>/dev/null || cp -r out/dist/* /perfetto-dist/ 2>/dev/null || cp -r out/default/ui/* /perfetto-dist/ 2>/dev/null)
+    # Try different possible output locations
+    if [ -d "out/ui/dist" ]; then \
+        echo "Copying from out/ui/dist"; \
+        cp -r out/ui/dist/* /perfetto-dist/; \
+    elif [ -d "out/dist" ]; then \
+        echo "Copying from out/dist"; \
+        cp -r out/dist/* /perfetto-dist/; \
+    elif [ -d "out/ui" ] && [ -f "out/ui/index.html" ]; then \
+        echo "Copying from out/ui"; \
+        cp -r out/ui/* /perfetto-dist/; \
+    elif [ -d "out/default/ui" ]; then \
+        echo "Copying from out/default/ui"; \
+        cp -r out/default/ui/* /perfetto-dist/; \
+    else \
+        echo "ERROR: Could not find UI output directory"; \
+        find out -name "*.html" -o -name "*.js" | head -20; \
+        exit 1; \
+    fi && \
+    echo "=== Copied files ===" && \
+    ls -la /perfetto-dist/
 
 # Stage 2: Runtime image
 FROM nginx:alpine
