@@ -194,6 +194,10 @@ func (f *GithubWorkflowRunFacade) GetByRunnerSetAndWorkload(ctx context.Context,
 		}
 		return nil, err
 	}
+	// Handle edge case where GORM returns an empty struct instead of nil
+	if result == nil || result.ID == 0 {
+		return nil, nil
+	}
 	return result, nil
 }
 
