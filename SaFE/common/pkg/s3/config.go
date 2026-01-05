@@ -98,7 +98,7 @@ func newConfigFromCredentials(ak, sk, endpoint, bucket string) (*Config, error) 
 	}, nil
 }
 
-// parseS3PathStyleURL parses a URL in the format https://<endpoint>/<bucket>/<key>.
+// parseS3PathStyleURL parses a URL in the format https://<endpoint>/<bucket>/<key> or https://<endpoint>/<bucket>/
 func parseS3PathStyleURL(s3url string) (*S3Location, error) {
 	if s3url == "" {
 		return nil, fmt.Errorf("URL is empty")
@@ -112,7 +112,8 @@ func parseS3PathStyleURL(s3url string) (*S3Location, error) {
 	}
 
 	host := u.Host
-	path := u.Path
+	// Use EscapedPath to preserve URL encoding
+	path := u.EscapedPath()
 	if host == "" {
 		return nil, fmt.Errorf("missing host in URL")
 	}
@@ -122,13 +123,14 @@ func parseS3PathStyleURL(s3url string) (*S3Location, error) {
 
 	cleanPath := strings.TrimPrefix(path, "/")
 	parts := strings.SplitN(cleanPath, "/", 2)
-	if len(parts) < 2 {
-		return nil, fmt.Errorf("invalid path: expected '/<bucket>/<key>', got '%s'", path)
+	if len(parts) == 0 || parts[0] == "" {
+		return nil, fmt.Errorf("missing bucket in path '%s'", path)
 	}
 	bucket := parts[0]
-	key := parts[1]
-	if bucket == "" || key == "" {
-		return nil, fmt.Errorf("bucket or key is empty in path '%s'", path)
+	// Key can be empty for root bucket access or directory downloads
+	key := ""
+	if len(parts) > 1 {
+		key = parts[1]
 	}
 	return &S3Location{
 		Bucket:   bucket,

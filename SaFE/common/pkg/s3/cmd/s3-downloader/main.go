@@ -77,7 +77,7 @@ func run() error {
 	startTime := time.Now()
 
 	// Check if input URL ends with "/" to determine download mode
-	if strings.HasSuffix(inputURL, "/") {
+	if strings.HasSuffix(inputURL, "/") || loc.Key == "" {
 		// Directory download
 		fmt.Printf("Starting directory download: %s -> %s\n", loc.Key, destPath)
 		if err := client.DownloadDirectory(ctx, loc.Key, destPath); err != nil {
