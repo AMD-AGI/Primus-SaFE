@@ -35,7 +35,7 @@ fi
 
 # Download trace file from API
 TRACE_FILE="/data/trace.json"
-DOWNLOAD_URL="${API_BASE_URL}/v1/profiler-files/${PROFILER_FILE_ID}/content${CLUSTER_PARAM}"
+DOWNLOAD_URL="${API_BASE_URL}/v1/profiler/files/${PROFILER_FILE_ID}/content${CLUSTER_PARAM}"
 
 echo "Downloading trace file from: ${DOWNLOAD_URL}"
 
