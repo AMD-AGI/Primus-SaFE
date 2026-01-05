@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -50,7 +50,7 @@ func SetupModelController(mgr manager.Manager) error {
 	}
 	err := ctrl.NewControllerManagedBy(mgr).
 		For(&v1.Model{}).
-		Owns(&batchv1.Job{}).                               // Watch Jobs created by this controller
+		Owns(&batchv1.Job{}). // Watch Jobs created by this controller
 		Watches(&v1.Inference{}, r.handleInferenceEvent()). // Watch Inference status changes
 		Complete(r)
 	if err != nil {
