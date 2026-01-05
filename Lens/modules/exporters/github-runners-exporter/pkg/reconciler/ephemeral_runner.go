@@ -129,24 +129,45 @@ func (r *EphemeralRunnerReconciler) processRunner(ctx context.Context, info *typ
 	}
 
 	if existingRun != nil {
-		// Update existing record if status changed
-		if existingRun.Status != status {
-			oldStatus := existingRun.Status
-			// Only update if transitioning to a valid next state
-			if r.shouldUpdateStatus(oldStatus, status) {
-				existingRun.Status = status
-				if info.IsCompleted && existingRun.WorkloadCompletedAt.IsZero() {
-					if !info.CompletionTime.IsZero() {
-						existingRun.WorkloadCompletedAt = info.CompletionTime.Time
-					} else {
-						existingRun.WorkloadCompletedAt = time.Now()
-					}
+		needsUpdate := false
+		oldStatus := existingRun.Status
+
+		// Update status if changed
+		if existingRun.Status != status && r.shouldUpdateStatus(oldStatus, status) {
+			existingRun.Status = status
+			needsUpdate = true
+			if info.IsCompleted && existingRun.WorkloadCompletedAt.IsZero() {
+				if !info.CompletionTime.IsZero() {
+					existingRun.WorkloadCompletedAt = info.CompletionTime.Time
+				} else {
+					existingRun.WorkloadCompletedAt = time.Now()
 				}
-				if err := runFacade.Update(ctx, existingRun); err != nil {
-					return fmt.Errorf("failed to update run record for %s: %w", info.Name, err)
-				}
+			}
+		}
+
+		// Update GitHub info if it becomes available (might not be present initially)
+		if existingRun.GithubRunID == 0 && info.GithubRunID != 0 {
+			existingRun.GithubRunID = info.GithubRunID
+			needsUpdate = true
+		}
+		if existingRun.WorkflowName == "" && info.WorkflowName != "" {
+			existingRun.WorkflowName = info.WorkflowName
+			needsUpdate = true
+		}
+		if existingRun.HeadBranch == "" && info.Branch != "" {
+			existingRun.HeadBranch = info.Branch
+			needsUpdate = true
+		}
+
+		if needsUpdate {
+			if err := runFacade.Update(ctx, existingRun); err != nil {
+				return fmt.Errorf("failed to update run record for %s: %w", info.Name, err)
+			}
+			if existingRun.Status != oldStatus {
 				log.Infof("EphemeralRunnerReconciler: updated run record %d for %s/%s (status: %s -> %s)",
 					existingRun.ID, info.Namespace, info.Name, oldStatus, status)
+			} else {
+				log.Debugf("EphemeralRunnerReconciler: updated GitHub info for run record %d", existingRun.ID)
 			}
 		}
 		return nil

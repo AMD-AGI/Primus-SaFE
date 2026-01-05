@@ -89,9 +89,11 @@ type EphemeralRunnerInfo struct {
 	GithubRunNumber   int
 	GithubJobID       int64
 	WorkflowName      string
+	JobDisplayName    string
 	Repository        string
 	Branch            string
 	HeadSHA           string
+	WorkflowRef       string // Full workflow reference (e.g., owner/repo/.github/workflows/file.yaml@refs/heads/main)
 	CreationTimestamp metav1.Time
 	CompletionTime    metav1.Time
 	IsCompleted       bool
@@ -194,7 +196,7 @@ func ParseEphemeralRunner(obj *unstructured.Unstructured) *EphemeralRunnerInfo {
 		}
 	}
 
-	// Extract status fields
+	// Extract status fields - this is where GitHub workflow info is stored
 	status, found, _ := unstructured.NestedMap(obj.Object, "status")
 	if found {
 		if phase, ok, _ := unstructured.NestedString(status, "phase"); ok {
@@ -207,9 +209,52 @@ func ParseEphemeralRunner(obj *unstructured.Unstructured) *EphemeralRunnerInfo {
 				info.CompletionTime = metav1.Time{Time: t}
 			}
 		}
+
+		// Extract GitHub workflow info from status
+		if workflowRunID, ok, _ := unstructured.NestedInt64(status, "workflowRunId"); ok {
+			info.GithubRunID = workflowRunID
+		}
+		if jobDisplayName, ok, _ := unstructured.NestedString(status, "jobDisplayName"); ok {
+			info.JobDisplayName = jobDisplayName
+			// Use job display name as workflow name if not set from annotations
+			if info.WorkflowName == "" {
+				info.WorkflowName = jobDisplayName
+			}
+		}
+		if jobRepoName, ok, _ := unstructured.NestedString(status, "jobRepositoryName"); ok {
+			info.Repository = jobRepoName
+		}
+		if jobWorkflowRef, ok, _ := unstructured.NestedString(status, "jobWorkflowRef"); ok {
+			info.WorkflowRef = jobWorkflowRef
+			// Extract branch from workflow ref (e.g., "owner/repo/.github/workflows/file.yaml@refs/heads/main")
+			if info.Branch == "" {
+				info.Branch = extractBranchFromWorkflowRef(jobWorkflowRef)
+			}
+		}
 	}
 
 	return info
+}
+
+// extractBranchFromWorkflowRef extracts branch name from workflow ref
+// e.g., "AMD-AGI/Primus-Turbo/.github/workflows/benchmark.yaml@refs/heads/main" -> "main"
+func extractBranchFromWorkflowRef(ref string) string {
+	// Find the @ separator
+	atIdx := strings.LastIndex(ref, "@")
+	if atIdx < 0 {
+		return ""
+	}
+	refPart := ref[atIdx+1:]
+
+	// Handle refs/heads/branch or refs/pull/N/merge
+	if strings.HasPrefix(refPart, "refs/heads/") {
+		return strings.TrimPrefix(refPart, "refs/heads/")
+	}
+	if strings.HasPrefix(refPart, "refs/pull/") {
+		// For PRs, return the full ref like "pull/123/merge"
+		return strings.TrimPrefix(refPart, "refs/")
+	}
+	return refPart
 }
 
 // ParseGitHubURL parses a GitHub URL and extracts owner and repo
