@@ -1,6 +1,7 @@
 package tracelens
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -190,6 +191,7 @@ func TestGetPodFailureReason(t *testing.T) {
 }
 
 func TestBuildPodSpec(t *testing.T) {
+	ctx := context.Background()
 	now := time.Now()
 	session := &model.TracelensSessions{
 		SessionID:       "test-session-123",
@@ -200,7 +202,7 @@ func TestBuildPodSpec(t *testing.T) {
 		ExpiresAt:       now.Add(1 * time.Hour),
 	}
 
-	pod := buildPodSpec(session, "tracelens-test-session-123", "/path/to/profiler/file.json")
+	pod := buildPodSpec(ctx, "test-cluster", session, "tracelens-test-session-123", "/path/to/profiler/file.json")
 
 	// Verify pod metadata
 	assert.Equal(t, "tracelens-test-session-123", pod.Name)
@@ -219,7 +221,9 @@ func TestBuildPodSpec(t *testing.T) {
 
 	container := pod.Spec.Containers[0]
 	assert.Equal(t, "tracelens", container.Name)
-	assert.Equal(t, tlconst.DefaultTraceLensImage, container.Image)
+	// Image URL is dynamically generated from registry config
+	// Default: docker.io/primussafe/tracelens:latest
+	assert.Contains(t, container.Image, "tracelens")
 	assert.Len(t, container.Ports, 1)
 	assert.Equal(t, int32(tlconst.DefaultPodPort), container.Ports[0].ContainerPort)
 
@@ -258,6 +262,7 @@ func TestBuildPodSpecResourceProfiles(t *testing.T) {
 		{tlconst.ProfileLarge, "32Gi", "4"},
 	}
 
+	ctx := context.Background()
 	for _, p := range profiles {
 		t.Run(p.profile, func(t *testing.T) {
 			session := &model.TracelensSessions{
@@ -269,7 +274,7 @@ func TestBuildPodSpecResourceProfiles(t *testing.T) {
 				ExpiresAt:       time.Now().Add(1 * time.Hour),
 			}
 
-			pod := buildPodSpec(session, "test-pod", "/file.json")
+			pod := buildPodSpec(ctx, "test-cluster", session, "test-pod", "/file.json")
 
 			container := pod.Spec.Containers[0]
 			memLimit := container.Resources.Limits.Memory()

@@ -88,8 +88,11 @@ const (
 	// SessionIDPrefix is the prefix for session IDs
 	SessionIDPrefix = "tls"
 
-	// DefaultTraceLensImage is the default container image for TraceLens pods
-	DefaultTraceLensImage = "harbor.tw325.primus-safe.amd.com/primussafe/tracelens:latest"
+	// ImageName is the container image name for TraceLens pods
+	// The full image URL is constructed by registry.GetDefaultImageURLForCluster
+	// using: {registry}/{namespace}/tracelens:{version}
+	// All parts (registry, namespace, version) come from system_config
+	ImageName = "tracelens"
 )
 
 // ValidStatuses returns all valid session statuses

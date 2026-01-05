@@ -2,6 +2,7 @@ package api
 
 import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/api/pkg/api/perfetto"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/api/pkg/api/registry"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/api/pkg/api/tracelens"
 	"github.com/gin-gonic/gin"
 )
@@ -291,6 +292,19 @@ func RegisterRouter(group *gin.RouterGroup) error {
 			// UI Proxy - Proxy HTTP/WebSocket requests to Perfetto pod
 			perfettoSessionsGroup.Any("/:session_id/ui/*path", perfetto.ProxyUI)
 		}
+	}
+
+	// Container Registry Configuration routes - Per-cluster image registry settings
+	registryGroup := group.Group("/registry")
+	{
+		// Get current registry configuration
+		registryGroup.GET("/config", registry.GetRegistryConfig)
+		// Set registry configuration
+		registryGroup.PUT("/config", registry.SetRegistryConfig)
+		// Sync configuration from Harbor external URL
+		registryGroup.POST("/sync-from-harbor", registry.SyncFromHarbor)
+		// Get image URL for a specific image
+		registryGroup.GET("/image-url", registry.GetImageURL)
 	}
 
 	// Real-time Status routes - Real-time cluster status monitoring

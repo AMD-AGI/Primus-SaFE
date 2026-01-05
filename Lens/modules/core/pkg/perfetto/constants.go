@@ -30,8 +30,11 @@ const (
 	// SessionIDPrefix is the prefix for session IDs
 	SessionIDPrefix = "pft"
 
-	// DefaultPerfettoImage is the default container image for Perfetto pods
-	DefaultPerfettoImage = "harbor.tw325.primus-safe.amd.com/primussafe/perfetto-viewer"
+	// ImageName is the container image name for Perfetto Viewer pods
+	// The full image URL is constructed by registry.GetDefaultImageURLForCluster
+	// using: {registry}/{namespace}/perfetto-viewer:{version}
+	// All parts (registry, namespace, version) come from system_config
+	ImageName = "perfetto-viewer"
 
 	// PodMemoryLimit is the memory limit for Perfetto pods (lightweight)
 	PodMemoryLimit = "512Mi"

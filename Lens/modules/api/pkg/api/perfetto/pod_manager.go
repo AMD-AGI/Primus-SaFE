@@ -11,6 +11,7 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	pftconst "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/perfetto"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/registry"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -55,7 +56,7 @@ func CreatePod(ctx context.Context, dataClusterName string, session *model.Trace
 	podName := generatePodName(session.SessionID)
 
 	// Build pod spec
-	pod := buildPodSpec(session, podName, dataClusterName)
+	pod := buildPodSpec(ctx, session, podName, dataClusterName)
 
 	// Create pod
 	createdPod, err := k8sClient.CoreV1().Pods(session.PodNamespace).Create(ctx, pod, metav1.CreateOptions{})
@@ -135,18 +136,27 @@ func generatePodName(sessionID string) string {
 	return fmt.Sprintf("perfetto-%s", sessionID)
 }
 
-func buildPodSpec(session *model.TracelensSessions, podName, dataClusterName string) *corev1.Pod {
+func buildPodSpec(ctx context.Context, session *model.TracelensSessions, podName, dataClusterName string) *corev1.Pod {
 	// Get API base URL from environment or use default
 	apiBaseURL := os.Getenv("PERFETTO_API_BASE_URL")
 	if apiBaseURL == "" {
 		apiBaseURL = "http://primus-lens-api.primus-lens.svc.cluster.local:8989"
 	}
 
-	// Get image from environment or use default
-	image := os.Getenv("PERFETTO_IMAGE")
-	if image == "" {
-		image = pftconst.DefaultPerfettoImage
+	// Get image URL from registry config (supports per-cluster configuration)
+	// Image URL is constructed from system_config:
+	// - registry: from config or default "docker.io"
+	// - namespace: from config or default "primussafe"
+	// - version: from config.ImageVersions["perfetto-viewer"] or default "latest"
+	// Environment variable PERFETTO_IMAGE_TAG can override the version
+	imageTag := os.Getenv("PERFETTO_IMAGE_TAG")
+	var imageURL string
+	if imageTag != "" {
+		imageURL = registry.GetImageURLForCluster(ctx, dataClusterName, registry.ImagePerfettoViewer, imageTag)
+	} else {
+		imageURL = registry.GetDefaultImageURLForCluster(ctx, dataClusterName, registry.ImagePerfettoViewer)
 	}
+	log.Debugf("Using Perfetto image: %s for cluster: %s", imageURL, dataClusterName)
 
 	// Get internal token for API authentication
 	internalToken := os.Getenv("SAFE_INTERNAL_TOKEN")
@@ -168,7 +178,7 @@ func buildPodSpec(session *model.TracelensSessions, podName, dataClusterName str
 			Containers: []corev1.Container{
 				{
 					Name:            "perfetto",
-					Image:           image,
+					Image:           imageURL,
 					ImagePullPolicy: corev1.PullIfNotPresent,
 					Ports: []corev1.ContainerPort{
 						{

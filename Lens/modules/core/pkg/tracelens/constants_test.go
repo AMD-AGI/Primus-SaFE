@@ -140,7 +140,7 @@ func TestConstantValues(t *testing.T) {
 	assert.Equal(t, 8501, DefaultPodPort)
 	assert.Equal(t, 4*time.Hour, MaxSessionTTL)
 	assert.Equal(t, "tls", SessionIDPrefix)
-	assert.NotEmpty(t, DefaultTraceLensImage)
+	assert.Equal(t, "tracelens", ImageName)
 }
 
 func TestResourceProfiles(t *testing.T) {
