@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -102,6 +102,7 @@ func generatePVC(volume *v1.WorkspaceVolume,
 		pvc.Spec.Selector = &metav1.LabelSelector{
 			MatchLabels: volume.Selector,
 		}
+		pvc.Spec.StorageClassName = pointer.String("")
 	} else {
 		pvc.Spec.StorageClassName = pointer.String(volume.StorageClass)
 	}
