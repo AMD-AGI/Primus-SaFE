@@ -261,7 +261,7 @@ def build_env_vars() -> Dict[str, str]:
     if ENABLE_AINIC:
         # AINIC mode: use special library paths and AINIC-specific settings
         env.update({
-            "LD_LIBRARY_PATH": f"/opt/amd-anp/build:/opt/amd-anp/build/lib:/opt/rccl/build/release:{LD_LIBRARY_PATH}",
+            "LD_LIBRARY_PATH": f"/opt/amd-anp/build:/opt/rccl/build/release:{LD_LIBRARY_PATH}",
             "NCCL_DMABUF_ENABLE": "0",
             "NCCL_GDR_FLUSH_DISABLE": "1",
             "NCCL_MAX_P2P_CHANNELS": "56",
@@ -303,10 +303,11 @@ def run_rccl_test(nodes: List[str]) -> float:
     
     # Add test-specific optimizations for alltoall tests
     if RCCL_TEST_TYPE == 1:
-        if len(nodes) < 16:
+        if len(nodes) < 16 and not ENABLE_AINIC:
             env_vars["NCCL_PXN_DISABLE"] = "0"
             env_vars["NCCL_P2P_NET_CHUNKSIZE"] = "524288"
-            
+
+
     # Build command
     nodes_str = ",".join(nodes)
     np = len(nodes) * NUM_GPUS_PER_NODE
