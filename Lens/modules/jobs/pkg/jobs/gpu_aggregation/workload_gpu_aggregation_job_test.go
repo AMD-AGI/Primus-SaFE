@@ -90,7 +90,28 @@ func (m *WorkloadMockFacade) GetDetectionCoverage() database.DetectionCoverageFa
 func (m *WorkloadMockFacade) GetAIAgentRegistration() database.AIAgentRegistrationFacadeInterface {
 	return nil
 }
-func (m *WorkloadMockFacade) GetAITask() database.AITaskFacadeInterface               { return nil }
+func (m *WorkloadMockFacade) GetAITask() database.AITaskFacadeInterface { return nil }
+func (m *WorkloadMockFacade) GetGithubWorkflowConfig() database.GithubWorkflowConfigFacadeInterface {
+	return nil
+}
+func (m *WorkloadMockFacade) GetGithubWorkflowRun() database.GithubWorkflowRunFacadeInterface {
+	return nil
+}
+func (m *WorkloadMockFacade) GetGithubWorkflowSchema() database.GithubWorkflowSchemaFacadeInterface {
+	return nil
+}
+func (m *WorkloadMockFacade) GetGithubWorkflowMetrics() database.GithubWorkflowMetricsFacadeInterface {
+	return nil
+}
+func (m *WorkloadMockFacade) GetGithubRunnerSet() database.GithubRunnerSetFacadeInterface {
+	return nil
+}
+func (m *WorkloadMockFacade) GetGithubWorkflowCommit() database.GithubWorkflowCommitFacadeInterface {
+	return nil
+}
+func (m *WorkloadMockFacade) GetGithubWorkflowRunDetails() database.GithubWorkflowRunDetailsFacadeInterface {
+	return nil
+}
 func (m *WorkloadMockFacade) WithCluster(clusterName string) database.FacadeInterface { return m }
 
 // WorkloadMockWorkloadFacade implements database.WorkloadFacadeInterface for testing
@@ -190,6 +211,12 @@ func (m *WorkloadMockWorkloadFacade) GetLatestOtherWorkloadEvent(ctx context.Con
 	return nil, nil
 }
 func (m *WorkloadMockWorkloadFacade) GetAllWorkloadPodReferences(ctx context.Context) ([]*dbmodel.WorkloadPodReference, error) {
+	return nil, nil
+}
+func (m *WorkloadMockWorkloadFacade) ListCompletedWorkloadsByKindAndParent(ctx context.Context, kind, parentUID string, since time.Time, limit int) ([]*dbmodel.GpuWorkload, error) {
+	return nil, nil
+}
+func (m *WorkloadMockWorkloadFacade) ListCompletedWorkloadsByKindAndNamespace(ctx context.Context, kind, namespace string, since time.Time, limit int) ([]*dbmodel.GpuWorkload, error) {
 	return nil, nil
 }
 

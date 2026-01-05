@@ -73,7 +73,28 @@ func (m *MockFacade) GetWorkloadDetectionEvidence() database.WorkloadDetectionEv
 func (m *MockFacade) GetDetectionCoverage() database.DetectionCoverageFacadeInterface     { return nil }
 func (m *MockFacade) GetAIAgentRegistration() database.AIAgentRegistrationFacadeInterface { return nil }
 func (m *MockFacade) GetAITask() database.AITaskFacadeInterface                           { return nil }
-func (m *MockFacade) WithCluster(clusterName string) database.FacadeInterface             { return m }
+func (m *MockFacade) GetGithubWorkflowConfig() database.GithubWorkflowConfigFacadeInterface {
+	return nil
+}
+func (m *MockFacade) GetGithubWorkflowRun() database.GithubWorkflowRunFacadeInterface {
+	return nil
+}
+func (m *MockFacade) GetGithubWorkflowSchema() database.GithubWorkflowSchemaFacadeInterface {
+	return nil
+}
+func (m *MockFacade) GetGithubWorkflowMetrics() database.GithubWorkflowMetricsFacadeInterface {
+	return nil
+}
+func (m *MockFacade) GetGithubRunnerSet() database.GithubRunnerSetFacadeInterface {
+	return nil
+}
+func (m *MockFacade) GetGithubWorkflowCommit() database.GithubWorkflowCommitFacadeInterface {
+	return nil
+}
+func (m *MockFacade) GetGithubWorkflowRunDetails() database.GithubWorkflowRunDetailsFacadeInterface {
+	return nil
+}
+func (m *MockFacade) WithCluster(clusterName string) database.FacadeInterface { return m }
 
 // MockWorkloadFacade implements database.WorkloadFacadeInterface for testing
 type MockWorkloadFacade struct {
@@ -172,6 +193,12 @@ func (m *MockWorkloadFacade) GetLatestOtherWorkloadEvent(ctx context.Context, wo
 	return nil, nil
 }
 func (m *MockWorkloadFacade) GetAllWorkloadPodReferences(ctx context.Context) ([]*dbmodel.WorkloadPodReference, error) {
+	return nil, nil
+}
+func (m *MockWorkloadFacade) ListCompletedWorkloadsByKindAndParent(ctx context.Context, kind, parentUID string, since time.Time, limit int) ([]*dbmodel.GpuWorkload, error) {
+	return nil, nil
+}
+func (m *MockWorkloadFacade) ListCompletedWorkloadsByKindAndNamespace(ctx context.Context, kind, namespace string, since time.Time, limit int) ([]*dbmodel.GpuWorkload, error) {
 	return nil, nil
 }
 

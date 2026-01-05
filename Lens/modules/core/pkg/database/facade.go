@@ -60,6 +60,20 @@ type FacadeInterface interface {
 	GetAIAgentRegistration() AIAgentRegistrationFacadeInterface
 	// GetAITask returns the AITask Facade interface
 	GetAITask() AITaskFacadeInterface
+	// GetGithubWorkflowConfig returns the GithubWorkflowConfig Facade interface
+	GetGithubWorkflowConfig() GithubWorkflowConfigFacadeInterface
+	// GetGithubWorkflowRun returns the GithubWorkflowRun Facade interface
+	GetGithubWorkflowRun() GithubWorkflowRunFacadeInterface
+	// GetGithubWorkflowSchema returns the GithubWorkflowSchema Facade interface
+	GetGithubWorkflowSchema() GithubWorkflowSchemaFacadeInterface
+	// GetGithubWorkflowMetrics returns the GithubWorkflowMetrics Facade interface
+	GetGithubWorkflowMetrics() GithubWorkflowMetricsFacadeInterface
+	// GetGithubRunnerSet returns the GithubRunnerSet Facade interface
+	GetGithubRunnerSet() GithubRunnerSetFacadeInterface
+	// GetGithubWorkflowCommit returns the GithubWorkflowCommit Facade interface
+	GetGithubWorkflowCommit() GithubWorkflowCommitFacadeInterface
+	// GetGithubWorkflowRunDetails returns the GithubWorkflowRunDetails Facade interface
+	GetGithubWorkflowRunDetails() GithubWorkflowRunDetailsFacadeInterface
 	// WithCluster returns a new Facade instance using the specified cluster
 	WithCluster(clusterName string) FacadeInterface
 }
@@ -95,6 +109,13 @@ type Facade struct {
 	DetectionCoverage         DetectionCoverageFacadeInterface
 	AIAgentRegistration       AIAgentRegistrationFacadeInterface
 	AITask                    AITaskFacadeInterface
+	GithubWorkflowConfig      GithubWorkflowConfigFacadeInterface
+	GithubWorkflowRun         GithubWorkflowRunFacadeInterface
+	GithubWorkflowSchema      GithubWorkflowSchemaFacadeInterface
+	GithubWorkflowMetrics     GithubWorkflowMetricsFacadeInterface
+	GithubRunnerSet           GithubRunnerSetFacadeInterface
+	GithubWorkflowCommit      GithubWorkflowCommitFacadeInterface
+	GithubWorkflowRunDetails  GithubWorkflowRunDetailsFacadeInterface
 }
 
 // NewFacade creates a new Facade instance
@@ -129,6 +150,13 @@ func NewFacade() *Facade {
 		DetectionCoverage:         NewDetectionCoverageFacade(),
 		AIAgentRegistration:       NewAIAgentRegistrationFacade(),
 		AITask:                    NewAITaskFacade(),
+		GithubWorkflowConfig:      NewGithubWorkflowConfigFacade(),
+		GithubWorkflowRun:         NewGithubWorkflowRunFacade(),
+		GithubWorkflowSchema:      NewGithubWorkflowSchemaFacade(),
+		GithubWorkflowMetrics:     NewGithubWorkflowMetricsFacade(),
+		GithubRunnerSet:           NewGithubRunnerSetFacade(),
+		GithubWorkflowCommit:      NewGithubWorkflowCommitFacade(),
+		GithubWorkflowRunDetails:  NewGithubWorkflowRunDetailsFacade(),
 	}
 }
 
@@ -277,6 +305,41 @@ func (f *Facade) GetAITask() AITaskFacadeInterface {
 	return f.AITask
 }
 
+// GetGithubWorkflowConfig returns the GithubWorkflowConfig Facade interface
+func (f *Facade) GetGithubWorkflowConfig() GithubWorkflowConfigFacadeInterface {
+	return f.GithubWorkflowConfig
+}
+
+// GetGithubWorkflowRun returns the GithubWorkflowRun Facade interface
+func (f *Facade) GetGithubWorkflowRun() GithubWorkflowRunFacadeInterface {
+	return f.GithubWorkflowRun
+}
+
+// GetGithubWorkflowSchema returns the GithubWorkflowSchema Facade interface
+func (f *Facade) GetGithubWorkflowSchema() GithubWorkflowSchemaFacadeInterface {
+	return f.GithubWorkflowSchema
+}
+
+// GetGithubWorkflowMetrics returns the GithubWorkflowMetrics Facade interface
+func (f *Facade) GetGithubWorkflowMetrics() GithubWorkflowMetricsFacadeInterface {
+	return f.GithubWorkflowMetrics
+}
+
+// GetGithubRunnerSet returns the GithubRunnerSet Facade interface
+func (f *Facade) GetGithubRunnerSet() GithubRunnerSetFacadeInterface {
+	return f.GithubRunnerSet
+}
+
+// GetGithubWorkflowCommit returns the GithubWorkflowCommit Facade interface
+func (f *Facade) GetGithubWorkflowCommit() GithubWorkflowCommitFacadeInterface {
+	return f.GithubWorkflowCommit
+}
+
+// GetGithubWorkflowRunDetails returns the GithubWorkflowRunDetails Facade interface
+func (f *Facade) GetGithubWorkflowRunDetails() GithubWorkflowRunDetailsFacadeInterface {
+	return f.GithubWorkflowRunDetails
+}
+
 // WithCluster returns a new Facade instance, all sub-Facades use the specified cluster
 func (f *Facade) WithCluster(clusterName string) FacadeInterface {
 	return &Facade{
@@ -309,6 +372,13 @@ func (f *Facade) WithCluster(clusterName string) FacadeInterface {
 		DetectionCoverage:         f.DetectionCoverage.WithCluster(clusterName),
 		AIAgentRegistration:       f.AIAgentRegistration.WithCluster(clusterName),
 		AITask:                    f.AITask.WithCluster(clusterName),
+		GithubWorkflowConfig:      f.GithubWorkflowConfig.WithCluster(clusterName),
+		GithubWorkflowRun:         f.GithubWorkflowRun.WithCluster(clusterName),
+		GithubWorkflowSchema:      f.GithubWorkflowSchema.WithCluster(clusterName),
+		GithubWorkflowMetrics:     f.GithubWorkflowMetrics.WithCluster(clusterName),
+		GithubRunnerSet:           f.GithubRunnerSet.WithCluster(clusterName),
+		GithubWorkflowCommit:      f.GithubWorkflowCommit.WithCluster(clusterName),
+		GithubWorkflowRunDetails:  f.GithubWorkflowRunDetails.WithCluster(clusterName),
 	}
 }
 

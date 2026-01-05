@@ -91,6 +91,15 @@ type JobsConfig struct {
 	Mode                 string                      `yaml:"mode" json:"mode"` // data, management, or standalone
 	WeeklyReport         *WeeklyReportConfig         `yaml:"weekly_report" json:"weekly_report"`
 	WeeklyReportBackfill *WeeklyReportBackfillConfig `yaml:"weekly_report_backfill" json:"weekly_report_backfill"`
+	AIAgent              *AIAgentConfig              `yaml:"ai_agent" json:"ai_agent"`
+}
+
+// AIAgentConfig contains configuration for AI agent used by jobs
+type AIAgentConfig struct {
+	Name     string        `yaml:"name" json:"name"`         // Agent name, default: "lens-agent-api"
+	Endpoint string        `yaml:"endpoint" json:"endpoint"` // Agent endpoint URL, e.g., "http://lens-agent-api:8000"
+	Timeout  time.Duration `yaml:"timeout" json:"timeout"`   // Request timeout, default: 120s
+	Retry    int           `yaml:"retry" json:"retry"`       // Retry count, default: 2
 }
 
 // WeeklyReportBackfillConfig contains configuration for GPU usage weekly report backfill job

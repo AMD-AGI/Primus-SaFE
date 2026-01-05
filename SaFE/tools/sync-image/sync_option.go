@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -107,9 +107,9 @@ func (opts *DeprecatedTLSVerifyOption) warnIfUsed(alternatives []string) {
 // imageOptions collects CLI flags which are the same across subcommands, but may be different for each image
 // (e.g. may differ between the source and destination of a copy)
 type ImageOptions struct {
-	DockerImageOptions `yaml:"docker_image_options"`      // May be shared across several imageOptions instances.
-	SharedBlobDir      string `yaml:"shared_blob_dir"`    // A directory to use for OCI blobs, shared across repositories
-	DockerDaemonHost   string `yaml:"docker_daemon_host"` // docker-daemon: host to connect to
+	DockerImageOptions `yaml:"docker_image_options"` // May be shared across several imageOptions instances.
+	SharedBlobDir      string                        `yaml:"shared_blob_dir"`    // A directory to use for OCI blobs, shared across repositories
+	DockerDaemonHost   string                        `yaml:"docker_daemon_host"` // docker-daemon: host to connect to
 }
 
 // newSystemContext returns a *types.SystemContext corresponding to opts.
@@ -200,14 +200,14 @@ type SharedImageOptions struct {
 // imageDestOptions is a superset of imageOptions specialized for image destinations.
 // Every user should call imageDestOptions.warnAboutIneffectiveOptions() as part of handling the CLI
 type ImageDestOptions struct {
-	*ImageOptions               `yaml:"image_options"`                         // May be shared across several imageOptions instances.
-	DirForceCompression         bool   `yaml:"dir_force_compression"`          // Compress layers when saving to the dir: transport
-	DirForceDecompression       bool   `yaml:"dir_force_decompression"`        // Decompress layers when saving to the dir: transport
-	OciAcceptUncompressedLayers bool   `yaml:"oci_accept_uncompressed_layers"` // Whether to accept uncompressed layers in the oci: transport
-	CompressionFormat           string `yaml:"compression_format"`             // Format to use for the compression
-	CompressionLevel            int    `yaml:"compression_level"`              // Level to use for the compression
-	PrecomputeDigests           bool   `yaml:"precompute_digests"`             // Precompute digests to dedup layers when saving to the docker: transport
-	ImageDestFlagPrefix         string `yaml:"image_dest_flag_prefix"`
+	*ImageOptions               `yaml:"image_options"` // May be shared across several imageOptions instances.
+	DirForceCompression         bool                   `yaml:"dir_force_compression"`          // Compress layers when saving to the dir: transport
+	DirForceDecompression       bool                   `yaml:"dir_force_decompression"`        // Decompress layers when saving to the dir: transport
+	OciAcceptUncompressedLayers bool                   `yaml:"oci_accept_uncompressed_layers"` // Whether to accept uncompressed layers in the oci: transport
+	CompressionFormat           string                 `yaml:"compression_format"`             // Format to use for the compression
+	CompressionLevel            int                    `yaml:"compression_level"`              // Level to use for the compression
+	PrecomputeDigests           bool                   `yaml:"precompute_digests"`             // Precompute digests to dedup layers when saving to the docker: transport
+	ImageDestFlagPrefix         string                 `yaml:"image_dest_flag_prefix"`
 }
 
 // warnAboutIneffectiveOptions warns if any ineffective option was set by the user

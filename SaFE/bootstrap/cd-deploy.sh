@@ -1,11 +1,7 @@
 #!/bin/bash
 #
-# Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+# Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
 # See LICENSE for license information.
-#
-# CD Job - Unified Deployment Script
-# This script is executed by CD Job workloads to deploy Primus-SaFE components.
-# All configuration is passed via environment variables.
 #
 
 set -e

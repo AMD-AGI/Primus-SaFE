@@ -11,6 +11,7 @@ import (
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	controllerLogger "sigs.k8s.io/controller-runtime/pkg/log"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -72,6 +73,17 @@ func InitControllers(ctx context.Context, conf config.Config) error {
 	if err != nil {
 		return err
 	}
+
+	// Add health check endpoints
+	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
+		log.Errorf("Failed to add healthz check: %v", err)
+		return err
+	}
+	if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
+		log.Errorf("Failed to add readyz check: %v", err)
+		return err
+	}
+
 	for _, reconciler := range reconcilers {
 		err := reconciler.SetupWithManager(mgr)
 		if err != nil {
