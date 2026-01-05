@@ -257,7 +257,7 @@ func RegisterRouter(group *gin.RouterGroup) error {
 			// Get a specific session
 			sessionsGroup.GET("/:session_id", tracelens.GetSession)
 			// Extend session TTL
-			sessionsGroup.POST("/:session_id/extend", tracelens.ExtendSession)
+			sessionsGroup.PATCH("/:session_id", tracelens.ExtendSession)
 			// Delete a session
 			sessionsGroup.DELETE("/:session_id", tracelens.DeleteSession)
 
