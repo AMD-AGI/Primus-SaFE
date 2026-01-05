@@ -46,8 +46,8 @@ func (r *EphemeralRunnerReconciler) Init(ctx context.Context) error {
 	r.dynamicClient = r.client.Dynamic
 
 	// Initialize GitHub client manager
-	if r.client.Clientset != nil {
-		github.InitGlobalManager(r.client.Clientset)
+	if r.client.Clientsets != nil {
+		github.InitGlobalManager(r.client.Clientsets)
 	}
 
 	log.Info("EphemeralRunnerReconciler initialized")
