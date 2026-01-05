@@ -34,7 +34,7 @@ if [ -n "$CLUSTER" ]; then
 fi
 
 # Download trace file from API
-TRACE_FILE="/data/trace.json"
+TRACE_FILE="/data/trace.perfetto"
 DOWNLOAD_URL="${API_BASE_URL}/v1/profiler/files/${PROFILER_FILE_ID}/content${CLUSTER_PARAM}"
 
 echo "Downloading trace file from: ${DOWNLOAD_URL}"
@@ -82,9 +82,15 @@ fi
 FILE_SIZE=$(stat -c%s "$TRACE_FILE" 2>/dev/null || stat -f%z "$TRACE_FILE" 2>/dev/null || echo "unknown")
 echo "Trace file downloaded successfully. Size: ${FILE_SIZE} bytes"
 
-# Verify it's valid JSON (basic check)
-if ! head -c 100 "$TRACE_FILE" | grep -q '[{"\[]'; then
-    echo "WARNING: Downloaded file may not be valid JSON"
+# Check if it's valid trace file (JSON or protobuf)
+# Perfetto traces can be JSON (starts with { or [) or protobuf binary
+FIRST_BYTES=$(head -c 4 "$TRACE_FILE" | od -An -tx1 | tr -d ' ')
+if echo "$FIRST_BYTES" | grep -q "^0a"; then
+    echo "Detected protobuf format trace file"
+elif head -c 100 "$TRACE_FILE" | grep -q '[{"\[]'; then
+    echo "Detected JSON format trace file"
+else
+    echo "WARNING: Unknown trace file format"
 fi
 
 echo "=========================================="

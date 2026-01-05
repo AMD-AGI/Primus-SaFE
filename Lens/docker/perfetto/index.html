@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Perfetto Trace Viewer</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      background: #1a1a2e;
+    }
+    #perfetto-frame {
+      width: 100%;
+      height: 100%;
+      border: none;
+    }
+    .loading-container {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      color: #e0e0e0;
+      z-index: 1000;
+      transition: opacity 0.3s ease-out;
+    }
+    .loading-container.hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+    .spinner {
+      width: 50px;
+      height: 50px;
+      border: 3px solid rgba(255,255,255,0.1);
+      border-top-color: #4fc3f7;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin-bottom: 24px;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    .loading-title {
+      font-size: 24px;
+      font-weight: 600;
+      margin-bottom: 12px;
+      color: #fff;
+    }
+    .loading-message {
+      font-size: 14px;
+      color: #9e9e9e;
+      text-align: center;
+      max-width: 400px;
+    }
+    .loading-progress {
+      margin-top: 20px;
+      font-size: 13px;
+      color: #4fc3f7;
+    }
+    .error-container {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      display: none;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      color: #e0e0e0;
+      z-index: 1001;
+    }
+    .error-container.visible {
+      display: flex;
+    }
+    .error-icon {
+      font-size: 64px;
+      margin-bottom: 24px;
+    }
+    .error-title {
+      font-size: 24px;
+      font-weight: 600;
+      margin-bottom: 12px;
+      color: #ef5350;
+    }
+    .error-message {
+      font-size: 14px;
+      color: #9e9e9e;
+      text-align: center;
+      max-width: 500px;
+      line-height: 1.6;
+    }
+    .retry-button {
+      margin-top: 24px;
+      padding: 12px 32px;
+      background: #4fc3f7;
+      color: #1a1a2e;
+      border: none;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .retry-button:hover {
+      background: #29b6f6;
+    }
+  </style>
+</head>
+<body>
+  <div id="loading" class="loading-container">
+    <div class="spinner"></div>
+    <div class="loading-title">Perfetto Trace Viewer</div>
+    <div class="loading-message">Loading trace file and initializing viewer...</div>
+    <div id="progress" class="loading-progress">Connecting...</div>
+  </div>
+
+  <div id="error" class="error-container">
+    <div class="error-icon">&#9888;</div>
+    <div class="error-title">Failed to Load Trace</div>
+    <div id="error-message" class="error-message"></div>
+    <button class="retry-button" onclick="location.reload()">Retry</button>
+  </div>
+
+  <iframe id="perfetto-frame" allow="cross-origin-isolated"></iframe>
+
+  <script>
+    const PERFETTO_UI_URL = 'https://ui.perfetto.dev/';
+    const TRACE_ENDPOINT = '/trace.perfetto';
+    
+    let traceBuffer = null;
+    let perfettoReady = false;
+
+    function updateProgress(msg) {
+      const el = document.getElementById('progress');
+      if (el) el.textContent = msg;
+    }
+
+    function showError(msg) {
+      document.getElementById('loading').classList.add('hidden');
+      document.getElementById('error').classList.add('visible');
+      document.getElementById('error-message').textContent = msg;
+    }
+
+    function hideLoading() {
+      document.getElementById('loading').classList.add('hidden');
+    }
+
+    async function fetchTrace() {
+      updateProgress('Downloading trace file...');
+      
+      try {
+        const response = await fetch(TRACE_ENDPOINT);
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        const contentLength = response.headers.get('content-length');
+        const total = contentLength ? parseInt(contentLength, 10) : 0;
+        
+        const reader = response.body.getReader();
+        const chunks = [];
+        let received = 0;
+        
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          
+          chunks.push(value);
+          received += value.length;
+          
+          if (total > 0) {
+            const pct = Math.round((received / total) * 100);
+            updateProgress(`Downloading trace file... ${pct}% (${formatBytes(received)} / ${formatBytes(total)})`);
+          } else {
+            updateProgress(`Downloading trace file... ${formatBytes(received)}`);
+          }
+        }
+        
+        // Combine chunks into single ArrayBuffer
+        const blob = new Blob(chunks);
+        traceBuffer = await blob.arrayBuffer();
+        
+        updateProgress(`Trace loaded: ${formatBytes(traceBuffer.byteLength)}`);
+        return true;
+      } catch (err) {
+        showError(`Failed to download trace file: ${err.message}`);
+        return false;
+      }
+    }
+
+    function formatBytes(bytes) {
+      if (bytes === 0) return '0 B';
+      const k = 1024;
+      const sizes = ['B', 'KB', 'MB', 'GB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+    }
+
+    function sendTraceToPerfetto() {
+      if (!traceBuffer || !perfettoReady) return;
+      
+      updateProgress('Opening trace in Perfetto...');
+      
+      const frame = document.getElementById('perfetto-frame');
+      
+      // Use Perfetto's postMessage API
+      // See: https://perfetto.dev/docs/visualization/deep-linking
+      frame.contentWindow.postMessage({
+        perfetto: {
+          buffer: traceBuffer,
+          title: 'Trace',
+          fileName: 'trace.perfetto',
+          keepApiOpen: true
+        }
+      }, PERFETTO_UI_URL);
+    }
+
+    function initPerfetto() {
+      const frame = document.getElementById('perfetto-frame');
+      
+      // Listen for messages from Perfetto UI
+      window.addEventListener('message', (event) => {
+        if (event.origin !== new URL(PERFETTO_UI_URL).origin) return;
+        
+        // Handle Perfetto ready signal
+        if (event.data === 'pong') {
+          perfettoReady = true;
+          sendTraceToPerfetto();
+          return;
+        }
+        
+        // Handle trace loaded confirmation
+        if (event.data && event.data.perfetto) {
+          if (event.data.perfetto.ready) {
+            hideLoading();
+          }
+        }
+      });
+      
+      // Load Perfetto UI
+      updateProgress('Loading Perfetto UI...');
+      frame.src = PERFETTO_UI_URL;
+      
+      // When iframe loads, try to establish connection
+      frame.onload = () => {
+        updateProgress('Waiting for Perfetto UI to initialize...');
+        
+        // Ping Perfetto to check if it's ready
+        const pingInterval = setInterval(() => {
+          try {
+            frame.contentWindow.postMessage('ping', PERFETTO_UI_URL);
+          } catch (e) {
+            // Ignore cross-origin errors during init
+          }
+        }, 200);
+        
+        // Stop pinging after successful connection or timeout
+        setTimeout(() => {
+          clearInterval(pingInterval);
+          if (!perfettoReady) {
+            // Force send after timeout - UI might be ready but not responding to ping
+            perfettoReady = true;
+            sendTraceToPerfetto();
+            // Hide loading after a short delay to allow Perfetto to render
+            setTimeout(hideLoading, 2000);
+          }
+        }, 3000);
+      };
+      
+      // Handle iframe load error
+      frame.onerror = () => {
+        showError('Failed to load Perfetto UI. Please check your internet connection.');
+      };
+    }
+
+    // Start loading
+    async function main() {
+      // Fetch trace file first
+      const traceLoaded = await fetchTrace();
+      if (!traceLoaded) return;
+      
+      // Then initialize Perfetto
+      initPerfetto();
+    }
+
+    main();
+  </script>
+</body>
+</html>
+
