@@ -67,25 +67,25 @@ func TestGetResourceLimits(t *testing.T) {
 		{
 			name:           "medium profile",
 			profile:        tlconst.ProfileMedium,
-			expectedMemory: "4Gi",
+			expectedMemory: "8Gi",
 			expectedCPU:    "2",
 		},
 		{
 			name:           "large profile",
 			profile:        tlconst.ProfileLarge,
-			expectedMemory: "8Gi",
+			expectedMemory: "16Gi",
 			expectedCPU:    "4",
 		},
 		{
 			name:           "empty profile defaults to medium",
 			profile:        "",
-			expectedMemory: "4Gi",
+			expectedMemory: "8Gi",
 			expectedCPU:    "2",
 		},
 		{
 			name:           "unknown profile defaults to medium",
 			profile:        "unknown",
-			expectedMemory: "4Gi",
+			expectedMemory: "8Gi",
 			expectedCPU:    "2",
 		},
 	}
@@ -234,9 +234,9 @@ func TestBuildPodSpec(t *testing.T) {
 	assert.NotEmpty(t, envMap["BASE_URL_PATH"])
 	assert.Equal(t, "/path/to/profiler/file.json", envMap["TRACE_FILE_PATH"])
 
-	// Verify resource limits
+	// Verify resource limits (medium profile = 8Gi memory, 2 CPU)
 	memLimit := container.Resources.Limits.Memory()
-	assert.Equal(t, "4Gi", memLimit.String())
+	assert.Equal(t, "8Gi", memLimit.String())
 	cpuLimit := container.Resources.Limits.Cpu()
 	assert.Equal(t, "2", cpuLimit.String())
 
@@ -254,8 +254,8 @@ func TestBuildPodSpecResourceProfiles(t *testing.T) {
 		expectedCPU    string
 	}{
 		{tlconst.ProfileSmall, "2Gi", "1"},
-		{tlconst.ProfileMedium, "4Gi", "2"},
-		{tlconst.ProfileLarge, "8Gi", "4"},
+		{tlconst.ProfileMedium, "8Gi", "2"},
+		{tlconst.ProfileLarge, "16Gi", "4"},
 	}
 
 	for _, p := range profiles {

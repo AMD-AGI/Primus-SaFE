@@ -358,3 +358,17 @@ func isRetryable(err error) bool {
 	}
 }
 
+// Global client instance
+var globalClient *AIClient
+
+// SetGlobalClient sets the global AI client instance
+func SetGlobalClient(client *AIClient) {
+	globalClient = client
+}
+
+// GetGlobalClient returns the global AI client instance
+// Returns nil if not initialized
+func GetGlobalClient() *AIClient {
+	return globalClient
+}
+

@@ -180,6 +180,14 @@ func (m *MockWorkloadFacade) GetAllWorkloadPodReferences(ctx context.Context) ([
 	return nil, nil
 }
 
+func (m *MockWorkloadFacade) ListCompletedWorkloadsByKindAndParent(ctx context.Context, kind, parentUID string, since time.Time, limit int) ([]*model.GpuWorkload, error) {
+	return nil, nil
+}
+
+func (m *MockWorkloadFacade) ListCompletedWorkloadsByKindAndNamespace(ctx context.Context, kind, namespace string, since time.Time, limit int) ([]*model.GpuWorkload, error) {
+	return nil, nil
+}
+
 func (m *MockWorkloadFacade) WithCluster(clusterName string) database.WorkloadFacadeInterface {
 	return m
 }

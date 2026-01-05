@@ -159,6 +159,13 @@ jobs:
           echo "ai_gateway_changed=false" >> $GITHUB_OUTPUT
         fi
         
+        # github_runners_exporter: Lens/modules/exporters/github-runners-exporter/** or Lens/modules/core/**
+        if echo "$CHANGED_FILES" | grep -qE '^Lens/modules/exporters/github-runners-exporter/|^Lens/modules/core/'; then
+          echo "github_runners_exporter_changed=true" >> $GITHUB_OUTPUT
+        else
+          echo "github_runners_exporter_changed=false" >> $GITHUB_OUTPUT
+        fi
+        
         # installer: Lens/bootstrap/installer/** or Lens/charts/**
         if echo "$CHANGED_FILES" | grep -qE '^Lens/bootstrap/installer/|^Lens/charts/'; then
           echo "installer_changed=true" >> $GITHUB_OUTPUT
@@ -215,6 +222,9 @@ jobs:
           fi
           if [[ "${{ steps.detect-changes.outputs.ai_gateway_changed }}" == "true" ]]; then
             MATRIX+='{"name":"ai-gateway","buildpath":"cmd/ai-gateway","basepath":"Lens/modules/ai-gateway/"},'
+          fi
+          if [[ "${{ steps.detect-changes.outputs.github_runners_exporter_changed }}" == "true" ]]; then
+            MATRIX+='{"name":"github-runners-exporter","buildpath":"cmd/github-runners-exporter","basepath":"Lens/modules/exporters/github-runners-exporter/"},'
           fi
           MATRIX=${MATRIX%,} # remove trailing comma
           MATRIX+=']}'

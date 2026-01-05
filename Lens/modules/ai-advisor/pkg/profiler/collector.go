@@ -572,6 +572,28 @@ func (c *Collector) CollectProfilerFilesFromLocations(
 
 			log.Infof("Collecting profiler file: %s (%d bytes)", fileInfo.Path, fileInfo.Size)
 
+			// Check if file is stable (not being written to)
+			// Wait up to 5 seconds for file size to stabilize
+			stableSize, isStable := c.waitForFileStability(ctx, nodeClient, req.PodUID, req.PodName, req.PodNamespace, req.ContainerName, fileInfo.Path, fileInfo.Size)
+			if !isStable {
+				log.Warnf("Skipping file %s: file is still being written (size changed from %d to %d)",
+					fileInfo.Path, fileInfo.Size, stableSize)
+				result.SkippedFiles++
+				result.Files = append(result.Files, &ArchivedFileInfo{
+					FileName:   filepath.Base(fileInfo.Path),
+					FilePath:   fileInfo.Path,
+					FileSize:   fileInfo.Size,
+					Skipped:    true,
+					SkipReason: fmt.Sprintf("file still being written (size: %d -> %d)", fileInfo.Size, stableSize),
+				})
+				continue
+			}
+			// Update file size if it changed during stability check
+			if stableSize != fileInfo.Size {
+				log.Infof("File size stabilized: %s (%d -> %d bytes)", fileInfo.Path, fileInfo.Size, stableSize)
+				fileInfo.Size = stableSize
+			}
+
 			// Mark as collected to avoid duplicates
 			collectedFiles[fileInfo.Path] = true
 			result.TotalFiles++
@@ -669,6 +691,52 @@ func (c *Collector) matchesAnyPattern(filePath string, patterns []string) bool {
 		}
 	}
 	return false
+}
+
+// waitForFileStability checks if a file is stable (not being written to)
+// Returns the final stable size and whether the file is stable
+func (c *Collector) waitForFileStability(
+	ctx context.Context,
+	nodeClient *client.Client,
+	podUID, podName, podNamespace, containerName string,
+	filePath string,
+	initialSize int64,
+) (int64, bool) {
+	const maxRetries = 3
+	const retryInterval = 2 * time.Second
+
+	previousSize := initialSize
+
+	for i := 0; i < maxRetries; i++ {
+		// Wait before checking
+		select {
+		case <-ctx.Done():
+			return previousSize, false
+		case <-time.After(retryInterval):
+		}
+
+		// Get current file info
+		currentInfo, err := nodeClient.GetContainerFileInfo(ctx, podUID, podName, podNamespace, containerName, filePath)
+		if err != nil {
+			log.Warnf("Failed to get file info for stability check: %v", err)
+			// If we can't get file info, assume it's stable (best effort)
+			return previousSize, true
+		}
+
+		currentSize := currentInfo.Size
+
+		// Check if size is stable
+		if currentSize == previousSize {
+			log.Debugf("File %s is stable at %d bytes (checked %d times)", filePath, currentSize, i+1)
+			return currentSize, true
+		}
+
+		log.Debugf("File %s size changed: %d -> %d bytes, waiting...", filePath, previousSize, currentSize)
+		previousSize = currentSize
+	}
+
+	// Size still changing after all retries
+	return previousSize, false
 }
 
 // detectFileType detects the profiler file type based on filename
