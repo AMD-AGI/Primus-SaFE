@@ -1,21 +1,36 @@
 # Perfetto Viewer Container
 # A lightweight container that serves Perfetto UI with a pre-loaded trace file
 
+# Stage 1: Build Perfetto UI from official Google source
+FROM node:20-bookworm AS builder
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y git python3 make g++ bash
+
+WORKDIR /build
+
+# Clone official Google Perfetto repository
+# Using a specific version tag for reproducibility
+ARG PERFETTO_VERSION=v49.0
+RUN git clone --depth 1 --branch ${PERFETTO_VERSION} https://github.com/google/perfetto.git perfetto
+
+WORKDIR /build/perfetto
+
+# Build the UI
+# The UI is in the ui/ directory and uses npm
+RUN cd ui && npm ci && npm run build
+
+# Stage 2: Runtime image
 FROM nginx:alpine
 
 # Install required tools
-RUN apk add --no-cache curl jq unzip
-
-# Download and extract Perfetto UI
-# Using a standalone build from nicpottier/nicperfetto (simplified Perfetto build)
-RUN mkdir -p /usr/share/nginx/html/perfetto && \
-    cd /tmp && \
-    curl -L https://github.com/nicpottier/nicperfetto/releases/download/v32.0/nicperfetto-v32.0.zip -o perfetto.zip && \
-    unzip -o perfetto.zip -d /usr/share/nginx/html/perfetto && \
-    rm perfetto.zip
+RUN apk add --no-cache curl
 
 # Create data directory for trace files
 RUN mkdir -p /data
+
+# Copy built Perfetto UI from builder stage
+COPY --from=builder /build/perfetto/ui/out/dist /usr/share/nginx/html/perfetto
 
 # Copy nginx configuration
 COPY nginx.conf /etc/nginx/nginx.conf
@@ -32,4 +47,3 @@ HEALTHCHECK --interval=10s --timeout=3s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8080/health || exit 1
 
 ENTRYPOINT ["/entrypoint.sh"]
-
