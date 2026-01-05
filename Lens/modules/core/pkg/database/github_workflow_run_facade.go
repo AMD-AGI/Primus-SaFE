@@ -11,12 +11,17 @@ import (
 
 // WorkflowRunStatus constants
 const (
-	WorkflowRunStatusPending    = "pending"
-	WorkflowRunStatusCollecting = "collecting"
-	WorkflowRunStatusExtracting = "extracting"
-	WorkflowRunStatusCompleted  = "completed"
-	WorkflowRunStatusFailed     = "failed"
-	WorkflowRunStatusSkipped    = "skipped"
+	// Workload phases (before collection)
+	WorkflowRunStatusWorkloadPending = "workload_pending" // EphemeralRunner is pending
+	WorkflowRunStatusWorkloadRunning = "workload_running" // EphemeralRunner is running
+
+	// Collection phases (after workload completes)
+	WorkflowRunStatusPending    = "pending"    // Workload completed, waiting for collection
+	WorkflowRunStatusCollecting = "collecting" // Collecting metrics files
+	WorkflowRunStatusExtracting = "extracting" // Extracting metrics from files
+	WorkflowRunStatusCompleted  = "completed"  // Collection completed successfully
+	WorkflowRunStatusFailed     = "failed"     // Collection failed
+	WorkflowRunStatusSkipped    = "skipped"    // Skipped (no matching config or files)
 )
 
 // WorkflowRunTriggerSource constants

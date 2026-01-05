@@ -90,28 +90,21 @@ func (r *EphemeralRunnerReconciler) Reconcile(ctx context.Context, req reconcile
 	// Parse the object
 	info := types.ParseEphemeralRunner(obj)
 
-	// Only process completed runners
-	if !info.IsCompleted {
-		log.Debugf("EphemeralRunnerReconciler: %s/%s not completed yet (phase: %s), skipping",
-			req.Namespace, req.Name, info.Phase)
-		return ctrl.Result{}, nil
-	}
-
-	// Process the completed runner
-	if err := r.processCompletedRunner(ctx, info); err != nil {
+	// Process the runner - track all state changes
+	if err := r.processRunner(ctx, info); err != nil {
 		log.Errorf("EphemeralRunnerReconciler: failed to process %s/%s: %v",
 			req.Namespace, req.Name, err)
 		return ctrl.Result{RequeueAfter: 30 * time.Second}, err
 	}
 
-	log.Infof("EphemeralRunnerReconciler: successfully processed %s/%s (workflow: %s, run: %d)",
-		req.Namespace, req.Name, info.WorkflowName, info.GithubRunID)
+	log.Debugf("EphemeralRunnerReconciler: processed %s/%s (phase: %s, workflow: %s)",
+		req.Namespace, req.Name, info.Phase, info.WorkflowName)
 
 	return ctrl.Result{}, nil
 }
 
-// processCompletedRunner processes a completed EphemeralRunner
-func (r *EphemeralRunnerReconciler) processCompletedRunner(ctx context.Context, info *types.EphemeralRunnerInfo) error {
+// processRunner processes an EphemeralRunner at any state
+func (r *EphemeralRunnerReconciler) processRunner(ctx context.Context, info *types.EphemeralRunnerInfo) error {
 	runnerSetFacade := database.GetFacade().GetGithubRunnerSet()
 	runFacade := database.GetFacade().GetGithubWorkflowRun()
 
@@ -122,9 +115,12 @@ func (r *EphemeralRunnerReconciler) processCompletedRunner(ctx context.Context, 
 	}
 
 	if runnerSet == nil {
-		log.Warnf("EphemeralRunnerReconciler: runner set not found for %s/%s, skipping", info.Namespace, info.RunnerSetName)
+		log.Debugf("EphemeralRunnerReconciler: runner set not found for %s/%s, skipping", info.Namespace, info.RunnerSetName)
 		return nil
 	}
+
+	// Map EphemeralRunner phase to our status
+	status := r.mapPhaseToStatus(info.Phase, info.IsCompleted)
 
 	// Check if we already have a run record for this workload
 	existingRun, err := runFacade.GetByRunnerSetAndWorkload(ctx, runnerSet.ID, info.UID)
@@ -133,18 +129,35 @@ func (r *EphemeralRunnerReconciler) processCompletedRunner(ctx context.Context, 
 	}
 
 	if existingRun != nil {
-		log.Debugf("EphemeralRunnerReconciler: run record already exists for %s/%s", info.Namespace, info.Name)
+		// Update existing record if status changed
+		if existingRun.Status != status {
+			// Only update if transitioning to a valid next state
+			if r.shouldUpdateStatus(existingRun.Status, status) {
+				existingRun.Status = status
+				if info.IsCompleted && existingRun.WorkloadCompletedAt.IsZero() {
+					if !info.CompletionTime.IsZero() {
+						existingRun.WorkloadCompletedAt = info.CompletionTime.Time
+					} else {
+						existingRun.WorkloadCompletedAt = time.Now()
+					}
+				}
+				if err := runFacade.Update(ctx, existingRun); err != nil {
+					return fmt.Errorf("failed to update run record for %s: %w", info.Name, err)
+				}
+				log.Infof("EphemeralRunnerReconciler: updated run record %d for %s/%s (status: %s -> %s)",
+					existingRun.ID, info.Namespace, info.Name, existingRun.Status, status)
+			}
+		}
 		return nil
 	}
 
-	// Optionally find matching config for additional metadata
+	// Find matching config for additional metadata (optional)
 	var configID int64
 	configFacade := database.GetFacade().GetGithubWorkflowConfig()
 	configs, err := configFacade.ListByRunnerSetID(ctx, runnerSet.ID)
 	if err != nil {
 		log.Warnf("EphemeralRunnerReconciler: failed to list configs for runner set %d: %v", runnerSet.ID, err)
 	} else if len(configs) > 0 {
-		// Use the first matching enabled config
 		for _, config := range configs {
 			if config.Enabled && r.matchesConfig(info, config) {
 				configID = config.ID
@@ -153,40 +166,85 @@ func (r *EphemeralRunnerReconciler) processCompletedRunner(ctx context.Context, 
 		}
 	}
 
-	// Create a new run record - always create, regardless of config existence
+	// Create a new run record
 	run := &model.GithubWorkflowRuns{
-		RunnerSetID:         runnerSet.ID,
-		RunnerSetName:       runnerSet.Name,
-		RunnerSetNamespace:  runnerSet.Namespace,
-		ConfigID:            configID, // Optional, 0 if no matching config
-		WorkloadUID:         info.UID,
-		WorkloadName:        info.Name,
-		WorkloadNamespace:   info.Namespace,
-		GithubRunID:         info.GithubRunID,
-		GithubRunNumber:     int32(info.GithubRunNumber),
-		GithubJobID:         info.GithubJobID,
-		HeadSha:             info.HeadSHA,
-		HeadBranch:          info.Branch,
-		WorkflowName:        info.WorkflowName,
-		Status:              database.WorkflowRunStatusPending,
-		TriggerSource:       database.WorkflowRunTriggerRealtime,
-		WorkloadStartedAt:   info.CreationTimestamp.Time,
-		WorkloadCompletedAt: info.CompletionTime.Time,
+		RunnerSetID:        runnerSet.ID,
+		RunnerSetName:      runnerSet.Name,
+		RunnerSetNamespace: runnerSet.Namespace,
+		ConfigID:           configID,
+		WorkloadUID:        info.UID,
+		WorkloadName:       info.Name,
+		WorkloadNamespace:  info.Namespace,
+		GithubRunID:        info.GithubRunID,
+		GithubRunNumber:    int32(info.GithubRunNumber),
+		GithubJobID:        info.GithubJobID,
+		HeadSha:            info.HeadSHA,
+		HeadBranch:         info.Branch,
+		WorkflowName:       info.WorkflowName,
+		Status:             status,
+		TriggerSource:      database.WorkflowRunTriggerRealtime,
+		WorkloadStartedAt:  info.CreationTimestamp.Time,
 	}
 
-	// If completion time is zero, use now
-	if run.WorkloadCompletedAt.IsZero() {
-		run.WorkloadCompletedAt = time.Now()
+	// Set completion time if completed
+	if info.IsCompleted {
+		if !info.CompletionTime.IsZero() {
+			run.WorkloadCompletedAt = info.CompletionTime.Time
+		} else {
+			run.WorkloadCompletedAt = time.Now()
+		}
 	}
 
 	if err := runFacade.Create(ctx, run); err != nil {
 		return fmt.Errorf("failed to create run record for %s: %w", info.Name, err)
 	}
 
-	log.Infof("EphemeralRunnerReconciler: created run record for %s/%s (runner_set: %s, config_id: %d, run_id: %d)",
-		info.Namespace, info.Name, runnerSet.Name, configID, run.ID)
+	log.Infof("EphemeralRunnerReconciler: created run record %d for %s/%s (runner_set: %s, status: %s)",
+		run.ID, info.Namespace, info.Name, runnerSet.Name, status)
 
 	return nil
+}
+
+// mapPhaseToStatus maps EphemeralRunner phase to workflow run status
+func (r *EphemeralRunnerReconciler) mapPhaseToStatus(phase string, isCompleted bool) string {
+	switch phase {
+	case types.EphemeralRunnerPhasePending, "":
+		return database.WorkflowRunStatusWorkloadPending
+	case types.EphemeralRunnerPhaseRunning:
+		return database.WorkflowRunStatusWorkloadRunning
+	case types.EphemeralRunnerPhaseSucceeded, types.EphemeralRunnerPhaseFailed:
+		// Completed runners are ready for collection
+		return database.WorkflowRunStatusPending
+	default:
+		if isCompleted {
+			return database.WorkflowRunStatusPending
+		}
+		return database.WorkflowRunStatusWorkloadRunning
+	}
+}
+
+// shouldUpdateStatus checks if we should update from oldStatus to newStatus
+func (r *EphemeralRunnerReconciler) shouldUpdateStatus(oldStatus, newStatus string) bool {
+	// Define status priority (higher = later in lifecycle)
+	priority := map[string]int{
+		database.WorkflowRunStatusWorkloadPending: 1,
+		database.WorkflowRunStatusWorkloadRunning: 2,
+		database.WorkflowRunStatusPending:         3,
+		database.WorkflowRunStatusCollecting:      4,
+		database.WorkflowRunStatusExtracting:      5,
+		database.WorkflowRunStatusCompleted:       6,
+		database.WorkflowRunStatusFailed:          6,
+		database.WorkflowRunStatusSkipped:         6,
+	}
+
+	oldPriority, oldOK := priority[oldStatus]
+	newPriority, newOK := priority[newStatus]
+
+	// Only allow forward transitions
+	if !oldOK || !newOK {
+		return true // Allow if status is unknown
+	}
+	return newPriority > oldPriority
 }
 
 // matchesConfig checks if an EphemeralRunner matches a workflow config
