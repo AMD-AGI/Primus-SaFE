@@ -47,6 +47,12 @@ const (
 	AnnotationSHA        = "actions.github.com/sha"
 )
 
+// Labels on EphemeralRunner
+const (
+	LabelScaleSetName      = "actions.github.com/scale-set-name"
+	LabelScaleSetNamespace = "actions.github.com/scale-set-namespace"
+)
+
 // EphemeralRunner status phases
 const (
 	EphemeralRunnerPhasePending   = "Pending"
@@ -144,6 +150,14 @@ func ParseEphemeralRunner(obj *unstructured.Unstructured) *EphemeralRunnerInfo {
 		CreationTimestamp: obj.GetCreationTimestamp(),
 	}
 
+	// Extract labels - runner set name is in labels
+	labels := obj.GetLabels()
+	if labels != nil {
+		if scaleSetName, ok := labels[LabelScaleSetName]; ok {
+			info.RunnerSetName = scaleSetName
+		}
+	}
+
 	// Extract annotations
 	annotations := obj.GetAnnotations()
 	if annotations != nil {
@@ -170,12 +184,13 @@ func ParseEphemeralRunner(obj *unstructured.Unstructured) *EphemeralRunnerInfo {
 		}
 	}
 
-	// Extract spec fields
-	spec, found, _ := unstructured.NestedMap(obj.Object, "spec")
-	if found {
-		// Get parent runner set name
-		if runnerSetName, ok, _ := unstructured.NestedString(spec, "runnerSetName"); ok {
-			info.RunnerSetName = runnerSetName
+	// Fallback: try to get runner set name from spec (for older versions)
+	if info.RunnerSetName == "" {
+		spec, found, _ := unstructured.NestedMap(obj.Object, "spec")
+		if found {
+			if runnerSetName, ok, _ := unstructured.NestedString(spec, "runnerSetName"); ok {
+				info.RunnerSetName = runnerSetName
+			}
 		}
 	}
 
