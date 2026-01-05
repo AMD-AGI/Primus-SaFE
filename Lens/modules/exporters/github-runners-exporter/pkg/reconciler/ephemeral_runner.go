@@ -9,6 +9,7 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/github"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/github-runners-exporter/pkg/types"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -43,6 +44,11 @@ func (r *EphemeralRunnerReconciler) Init(ctx context.Context) error {
 		return fmt.Errorf("dynamic client not initialized in K8SClientSet")
 	}
 	r.dynamicClient = r.client.Dynamic
+
+	// Initialize GitHub client manager
+	if r.client.Clientset != nil {
+		github.InitGlobalManager(r.client.Clientset)
+	}
 
 	log.Info("EphemeralRunnerReconciler initialized")
 	return nil
@@ -119,6 +125,11 @@ func (r *EphemeralRunnerReconciler) processRunner(ctx context.Context, info *typ
 		return nil
 	}
 
+	// Enrich with GitHub API info if we have a run ID but missing details
+	if info.GithubRunID != 0 && info.HeadSHA == "" {
+		r.enrichWithGitHubInfo(ctx, info, runnerSet)
+	}
+
 	// Map EphemeralRunner phase to our status
 	status := r.mapPhaseToStatus(info.Phase, info.IsCompleted)
 
@@ -156,6 +167,14 @@ func (r *EphemeralRunnerReconciler) processRunner(ctx context.Context, info *typ
 		}
 		if existingRun.HeadBranch == "" && info.Branch != "" {
 			existingRun.HeadBranch = info.Branch
+			needsUpdate = true
+		}
+		if existingRun.HeadSha == "" && info.HeadSHA != "" {
+			existingRun.HeadSha = info.HeadSHA
+			needsUpdate = true
+		}
+		if existingRun.GithubRunNumber == 0 && info.GithubRunNumber != 0 {
+			existingRun.GithubRunNumber = int32(info.GithubRunNumber)
 			needsUpdate = true
 		}
 
@@ -292,5 +311,69 @@ func (r *EphemeralRunnerReconciler) matchesConfig(info *types.EphemeralRunnerInf
 	}
 
 	return true
+}
+
+// enrichWithGitHubInfo fetches additional info from GitHub API and enriches the EphemeralRunnerInfo
+func (r *EphemeralRunnerReconciler) enrichWithGitHubInfo(ctx context.Context, info *types.EphemeralRunnerInfo, runnerSet *model.GithubRunnerSets) {
+	// Skip if no GitHub run ID available
+	if info.GithubRunID == 0 {
+		return
+	}
+
+	// Skip if we already have head SHA (already enriched)
+	if info.HeadSHA != "" {
+		return
+	}
+
+	// Need GitHub owner and repo from runner set
+	if runnerSet.GithubOwner == "" || runnerSet.GithubRepo == "" {
+		log.Debugf("EphemeralRunnerReconciler: no GitHub owner/repo for runner set %s, skipping GitHub API call", runnerSet.Name)
+		return
+	}
+
+	// Get GitHub client
+	githubManager := github.GetGlobalManager()
+	if githubManager == nil {
+		log.Debugf("EphemeralRunnerReconciler: GitHub client manager not initialized")
+		return
+	}
+
+	// Get client using the runner set's config secret
+	if runnerSet.GithubConfigSecret == "" {
+		log.Debugf("EphemeralRunnerReconciler: no GitHub config secret for runner set %s", runnerSet.Name)
+		return
+	}
+
+	client, err := githubManager.GetClientForSecret(ctx, runnerSet.Namespace, runnerSet.GithubConfigSecret)
+	if err != nil {
+		log.Warnf("EphemeralRunnerReconciler: failed to get GitHub client for %s/%s: %v",
+			runnerSet.Namespace, runnerSet.GithubConfigSecret, err)
+		return
+	}
+
+	// Fetch workflow run info from GitHub
+	runInfo, err := client.GetWorkflowRun(ctx, runnerSet.GithubOwner, runnerSet.GithubRepo, info.GithubRunID)
+	if err != nil {
+		log.Warnf("EphemeralRunnerReconciler: failed to get workflow run %d from GitHub: %v",
+			info.GithubRunID, err)
+		return
+	}
+
+	// Enrich the info with data from GitHub API
+	if runInfo.HeadSHA != "" {
+		info.HeadSHA = runInfo.HeadSHA
+	}
+	if runInfo.RunNumber != 0 && info.GithubRunNumber == 0 {
+		info.GithubRunNumber = runInfo.RunNumber
+	}
+	if runInfo.HeadBranch != "" && info.Branch == "" {
+		info.Branch = runInfo.HeadBranch
+	}
+	if runInfo.WorkflowName != "" && info.WorkflowName == "" {
+		info.WorkflowName = runInfo.WorkflowName
+	}
+
+	log.Debugf("EphemeralRunnerReconciler: enriched %s with GitHub info (sha: %s, run_number: %d)",
+		info.Name, info.HeadSHA, info.GithubRunNumber)
 }
 
