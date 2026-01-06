@@ -159,10 +159,16 @@ func (h *Handler) ListPlaygroundServices(c *gin.Context) {
 
 // listPlaygroundServices implements the playground services listing logic.
 func (h *Handler) listPlaygroundServices(c *gin.Context) (interface{}, error) {
+	// Parse query parameters
+	query := &ListPlaygroundServicesQuery{}
+	if err := c.ShouldBindQuery(query); err != nil {
+		return nil, commonerrors.NewBadRequest("invalid query: " + err.Error())
+	}
+
 	ctx := c.Request.Context()
 	var items []PlaygroundServiceItem
 
-	// 1. List remote_api models that are ready
+	// 1. List remote_api models that are ready (not filtered by workspace)
 	modelList := &v1.ModelList{}
 	if err := h.k8sClient.List(ctx, modelList); err != nil {
 		return nil, commonerrors.NewInternalError("failed to list models: " + err.Error())
@@ -197,6 +203,11 @@ func (h *Handler) listPlaygroundServices(c *gin.Context) (interface{}, error) {
 		// Exclude training jobs (PyTorchJob), CI/CD jobs (AutoscalingRunnerSet), etc.
 		kind := w.Spec.Kind
 		if kind != "" && kind != common.DeploymentKind && kind != common.StatefulSetKind {
+			continue
+		}
+
+		// Filter by workspace if specified
+		if query.Workspace != "" && w.Namespace != query.Workspace {
 			continue
 		}
 
