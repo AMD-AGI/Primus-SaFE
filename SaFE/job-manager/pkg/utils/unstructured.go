@@ -515,6 +515,25 @@ func getIntValueByName(objects map[string]interface{}, name string) (int64, bool
 	return 0, true
 }
 
+// GetLabels retrieves the labels from Unstructured object.
+func GetLabels(unstructuredObj *unstructured.Unstructured, rt *v1.ResourceTemplate) (map[string]interface{}, error) {
+	for _, t := range rt.Spec.ResourceSpecs {
+		path := t.PrePaths
+		path = append(path, t.TemplatePaths...)
+		path = append(path, "metadata", "labels")
+		labels, found, err := unstructured.NestedMap(unstructuredObj.Object, path...)
+		if err != nil {
+			klog.ErrorS(err, "failed to find labels", "path", path)
+			return nil, err
+		}
+		if !found {
+			return nil, nil
+		}
+		return labels, nil
+	}
+	return nil, nil
+}
+
 // GetEnv Retrieve the environment value of the main container.
 func GetEnv(unstructuredObj *unstructured.Unstructured,
 	rt *v1.ResourceTemplate, mainContainer string) ([]interface{}, error) {

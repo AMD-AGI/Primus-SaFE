@@ -136,6 +136,9 @@ func (relevantChangePredicate) Update(e event.UpdateEvent) bool {
 		if !reflect.DeepEqual(oldWorkload.Spec.Service, newWorkload.Spec.Service) {
 			return true
 		}
+		if !maps.EqualIgnoreOrder(oldWorkload.Labels, newWorkload.Labels) {
+			return true
+		}
 	}
 	return false
 }
@@ -471,7 +474,7 @@ func (r *DispatcherReconciler) syncWorkloadToObject(ctx context.Context, adminWo
 
 	functions := []func(adminWorkload *v1.Workload, obj *unstructured.Unstructured, rt *v1.ResourceTemplate) bool{
 		isResourceChanged, isImageChanged, isEntryPointChanged, isSharedMemoryChanged,
-		isEnvChanged, isPriorityClassChanged, isGithubSecretChanged,
+		isEnvChanged, isPriorityClassChanged, isGithubSecretChanged, isLabelsChanged,
 	}
 	isChanged := false
 	for _, f := range functions {
@@ -618,6 +621,24 @@ func isGithubSecretChanged(adminWorkload *v1.Workload, obj *unstructured.Unstruc
 	return v1.GetGithubSecretId(adminWorkload) != secretId
 }
 
+// isGithubSecretChanged checks if the GitHub secret of the workload has changed.
+func isLabelsChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructured, rt *v1.ResourceTemplate) bool {
+	currentLabels, err := jobutils.GetLabels(obj, rt)
+	if err != nil {
+		return true
+	}
+	newLabels := buildLabels(adminWorkload)
+	if len(currentLabels) != len(newLabels) {
+		return true
+	}
+	for key, val := range currentLabels {
+		if val.(string) != newLabels[key].(string) {
+			return true
+		}
+	}
+	return false
+}
+
 // applyWorkloadSpecToObject applies the workload specifications to the unstructured Kubernetes object.
 // It handles different workload types and updates various object properties including replicas,
 // network settings, containers, and volumes based on the workload specification.
@@ -637,6 +658,9 @@ func applyWorkloadSpecToObject(ctx context.Context, clusterInformer *syncer.Clus
 		if i >= len(adminWorkload.Spec.Resources) {
 			unstructured.RemoveNestedField(obj.Object, t.PrePaths...)
 			continue
+		}
+		if err := updateLabels(adminWorkload, obj, t); err != nil {
+			return fmt.Errorf("failed to update labels: %v", err.Error())
 		}
 		if err := updateHostNetwork(adminWorkload, obj, t, i); err != nil {
 			return fmt.Errorf("failed to update host network: %v", err.Error())
