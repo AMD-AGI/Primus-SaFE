@@ -979,6 +979,8 @@ func cvtToListWorkloadSql(query *view.ListWorkloadRequest) (sqrl.Sqlizer, []stri
 		dbSql = append(dbSql,
 			sqrl.Like{dbclient.GetFieldTag(dbTags, "Description"): fmt.Sprintf("%%%s%%", description)})
 	}
+	dbSql = append(dbSql, sqrl.NotEq{dbclient.GetFieldTag(dbTags, "Description"): v1.OpsJobKind})
+
 	userNameField := dbclient.GetFieldTag(dbTags, "UserName")
 	if userName := strings.TrimSpace(query.UserName); userName != "" {
 		dbSql = append(dbSql, sqrl.Like{userNameField: fmt.Sprintf("%%%s%%", userName)})
