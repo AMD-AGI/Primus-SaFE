@@ -43,7 +43,7 @@ export ENABLE_AINIC=${ENABLE_AINIC:-false}
 if [[ "$ENABLE_AINIC" == "true" ]]; then
     echo "Configuring for AINIC (AMD Network Plugin)..."
     # Update LD_LIBRARY_PATH for ANP
-    export LD_LIBRARY_PATH="/opt/amd-anp/build:/opt/rccl/build/release:${LD_LIBRARY_PATH}"
+    export LD_LIBRARY_PATH="/opt/amd-anp/build:/opt/amd-anp/build/lib:/opt/rccl/build/release:${LD_LIBRARY_PATH}"
     # AINIC specific NCCL settings
     export NCCL_NET_GDR_LEVEL=2
     export NCCL_NET_GDR_READ=1
