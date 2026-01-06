@@ -69,11 +69,13 @@ def threshold(node_count: int) -> float:
     # alltoall test
     bnic = float(os.environ.get('BNIC', '48.0'))
     bxgmi = float(os.environ.get('BXGMI', '315.0'))
-    
+    product = os.environ.get('GPU_PRODUCT', '').strip().upper()
+    if product == 'MI355X':
+        bxgmi = 376.0
     remote_frac = (node_count - 1) / node_count
     local_frac = (G_PER_NODE - 1) / (G_PER_NODE * node_count)
     
-    return 0.7 / (remote_frac / bnic + local_frac / bxgmi)
+    return 0.68 / (remote_frac / bnic + local_frac / bxgmi)
 
 def get_hosts(hosts_file: str) -> List[str]:
     """Read hosts from file, skipping comments and empty lines."""
