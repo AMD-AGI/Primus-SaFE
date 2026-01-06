@@ -65,7 +65,7 @@ func workloadMapper(obj *unstructured.Unstructured) *dbclient.Workload {
 		DisplayName:   v1.GetDisplayName(workload),
 		Workspace:     workload.Spec.Workspace,
 		Cluster:       v1.GetClusterId(workload),
-		Resources:     string(jsonutils.MarshalSilently(workload.Spec.Resources)),
+		Resources:     dbutils.NullString(string(jsonutils.MarshalSilently(workload.Spec.Resources))),
 		Image:         workload.Spec.Image,
 		EntryPoint:    workload.Spec.EntryPoint,
 		GVK:           string(jsonutils.MarshalSilently(workload.Spec.GroupVersionKind)),

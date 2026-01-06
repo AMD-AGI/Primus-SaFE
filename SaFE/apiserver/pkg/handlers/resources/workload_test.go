@@ -691,7 +691,7 @@ func Test_getWorkload(t *testing.T) {
 		Image:        "test-image:v1",
 		EntryPoint:   "echo 'test'",
 		GVK:          gvkJSON,
-		Resources:    resourceJSON,
+		Resources:    sql.NullString{String: resourceJSON, Valid: true},
 		IsSupervised: true,
 		MaxRetry:     3,
 		CreationTime: pq.NullTime{Time: now, Valid: true},
@@ -1206,7 +1206,7 @@ func Test_cloneWorkloadImpl(t *testing.T) {
 		Image:        "test-image:v1",
 		EntryPoint:   "echo 'test'",
 		GVK:          gvkJSON,
-		Resources:    resourceJSON,
+		Resources:    sql.NullString{String: resourceJSON, Valid: true},
 		IsSupervised: true,
 		MaxRetry:     3,
 	}
@@ -1625,7 +1625,7 @@ func Test_cvtDBWorkloadToResponseItem(t *testing.T) {
 		EndTime:        pq.NullTime{Time: now, Valid: true},
 		Timeout:        3600, // 1 hour timeout
 		GVK:            gvkJSON,
-		Resources:      resourceJSON,
+		Resources:      sql.NullString{String: resourceJSON, Valid: true},
 	}
 
 	// Call cvtDBWorkloadToResponseItem
@@ -1735,7 +1735,7 @@ func Test_cvtDBWorkloadToGetResponse(t *testing.T) {
 		CreationTime:   pq.NullTime{Time: now.Add(-1 * time.Hour), Valid: true},
 		StartTime:      pq.NullTime{Time: now.Add(-30 * time.Minute), Valid: true},
 		GVK:            gvkJSON,
-		Resources:      resourceJSON,
+		Resources:      sql.NullString{String: resourceJSON, Valid: true},
 		Conditions:     sql.NullString{String: conditionsJSON, Valid: true},
 		Pods:           sql.NullString{String: podsJSON, Valid: true},
 		Nodes:          sql.NullString{String: nodesJSON, Valid: true},

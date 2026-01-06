@@ -1176,7 +1176,9 @@ func (h *Handler) cvtDBWorkloadToResponseItem(ctx context.Context, w *dbclient.W
 		result.Duration = "0s"
 	}
 	json.Unmarshal([]byte(w.GVK), &result.GroupVersionKind)
-	json.Unmarshal([]byte(w.Resources), &result.Resources)
+	if val := dbutils.ParseNullString(w.Resources); val != "" {
+		json.Unmarshal([]byte(val), &result.Resources)
+	}
 	if len(result.Resources) == 0 {
 		result.Resources = cvtToWorkloadResources(w, result.GroupVersionKind.Kind)
 	}
@@ -1385,9 +1387,13 @@ func cvtDBWorkloadToAdminWorkload(dbItem *dbclient.Workload) *v1.Workload {
 		},
 	}
 	json.Unmarshal([]byte(dbItem.GVK), &result.Spec.GroupVersionKind)
-	if json.Unmarshal([]byte(dbItem.Resources), &result.Spec.Resources) != nil {
+	if val := dbutils.ParseNullString(dbItem.Resources); val != "" {
+		json.Unmarshal([]byte(val), &result.Spec.Resources)
+	}
+	if len(result.Spec.Resources) == 0 {
 		result.Spec.Resources = cvtToWorkloadResources(dbItem, result.Spec.GroupVersionKind.Kind)
 	}
+
 	if str := dbutils.ParseNullString(dbItem.Env); str != "" {
 		json.Unmarshal([]byte(str), &result.Spec.Env)
 	}
