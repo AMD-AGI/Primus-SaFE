@@ -19,6 +19,7 @@ jobs:
       date_time: ${{ steps.get-current-time.outputs.date_time }}
       installer_changed: ${{ steps.detect-changes.outputs.installer_changed }}
       tracelens_changed: ${{ steps.detect-changes.outputs.tracelens_changed }}
+      perfetto_changed: ${{ steps.detect-changes.outputs.perfetto_changed }}
     steps:
     - name: Checkout Repository
       uses: actions/checkout@v4
@@ -178,6 +179,13 @@ jobs:
           echo "tracelens_changed=true" >> $GITHUB_OUTPUT
         else
           echo "tracelens_changed=false" >> $GITHUB_OUTPUT
+        fi
+        
+        # perfetto: Lens/docker/perfetto/**
+        if echo "$CHANGED_FILES" | grep -qE '^Lens/docker/perfetto/'; then
+          echo "perfetto_changed=true" >> $GITHUB_OUTPUT
+        else
+          echo "perfetto_changed=false" >> $GITHUB_OUTPUT
         fi
     
     - name: Generate matrix
@@ -499,9 +507,81 @@ jobs:
           path: build-info/tracelens.json
           retention-days: 90
 
+  # Perfetto Viewer image build job
+  # Nginx-based container for Perfetto trace visualization
+  build-perfetto:
+    needs: detect-changes
+    runs-on: primus-safe-builder
+    timeout-minutes: 30
+    if: ${{ needs.detect-changes.outputs.perfetto_changed == 'true' }}
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Login registries
+        run: |
+          buildah login -u "${{ secrets.DOCKER_USERNAME }}" -p "${{ secrets.DOCKER_PASSWORD }}" docker.io
+          buildah login --tls-verify=false -u "${{ secrets.HARBOR_USERNAME }}" -p "${{ secrets.HARBOR_PASSWORD }}" "${{ secrets.HARBOR_HOST }}"
+
+      - name: Build and push Perfetto Viewer
+        env:
+          DOCKERIO_REPOSITORY: docker.io/primussafe
+          HARBOR_REPOSITORY: ${{ secrets.HARBOR_HOST }}/primussafe
+          IMAGE_VERSION: ${{ needs.detect-changes.outputs.image_version }}
+          DATE_TIME: ${{ needs.detect-changes.outputs.date_time }}
+        run: |
+          set -e
+          echo "🚧 Building perfetto-viewer..."
+          
+          PERFETTO_DIR="Lens/docker/perfetto"
+          
+          # Build the image
+          buildah bud \
+            --layers \
+            -t perfetto-viewer:${IMAGE_VERSION} \
+            -t perfetto-viewer:${DATE_TIME} \
+            -f "${PERFETTO_DIR}/Dockerfile" \
+            "${PERFETTO_DIR}"
+          
+          # Push to registries
+          for repo in ${DOCKERIO_REPOSITORY} ${HARBOR_REPOSITORY}; do
+            echo "🚀 Pushing perfetto-viewer to $repo..."
+            buildah tag perfetto-viewer:${IMAGE_VERSION} ${repo}/perfetto-viewer:${IMAGE_VERSION}
+            buildah tag perfetto-viewer:${DATE_TIME} ${repo}/perfetto-viewer:${DATE_TIME}
+            buildah push --tls-verify=false ${repo}/perfetto-viewer:${IMAGE_VERSION}
+            buildah push --tls-verify=false ${repo}/perfetto-viewer:${DATE_TIME}
+          done
+          
+          echo "✅ perfetto-viewer build and push completed!"
+
+      - name: Save build info
+        env:
+          IMAGE_VERSION: ${{ needs.detect-changes.outputs.image_version }}
+          DATE_TIME: ${{ needs.detect-changes.outputs.date_time }}
+        run: |
+          mkdir -p build-info
+          cat > build-info/perfetto-viewer.json << EOF
+          {
+            "name": "perfetto-viewer",
+            "image_version": "${IMAGE_VERSION}",
+            "date_time": "${DATE_TIME}",
+            "docker_hub": "docker.io/primussafe/perfetto-viewer:${IMAGE_VERSION}",
+            "docker_hub_datetime": "docker.io/primussafe/perfetto-viewer:${DATE_TIME}",
+            "build_time": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
+            "commit_sha": "${{ github.sha }}",
+            "ref": "${{ github.ref }}"
+          }
+          EOF
+
+      - name: Upload build info artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-info-perfetto-viewer
+          path: build-info/perfetto-viewer.json
+          retention-days: 90
+
   # Summarize all build results into a single manifest artifact
   summarize-build:
-    needs: [detect-changes, build, build-installer, build-tracelens]
+    needs: [detect-changes, build, build-installer, build-tracelens, build-perfetto]
     runs-on: ubuntu-latest
     if: always()
     steps:
