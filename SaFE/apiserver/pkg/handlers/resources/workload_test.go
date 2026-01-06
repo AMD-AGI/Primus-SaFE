@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -371,9 +371,8 @@ func Test_modifyWorkload_EmptyValues(t *testing.T) {
 	assert.Equal(t, workload.Spec.EntryPoint, "original-script.sh")
 }
 
-// Test_generatePreheatWorkload tests generating preheat workload
-func Test_generatePreheatWorkload(t *testing.T) {
-	ctx := context.Background()
+// Test_createPreheatWorkload tests creating preheat workload
+func Test_createPreheatWorkload(t *testing.T) {
 	clusterId := "test-cluster"
 	workspaceId := "test-workspace"
 
@@ -392,6 +391,7 @@ func Test_generatePreheatWorkload(t *testing.T) {
 	fakeCtrlClient := ctrlruntimefake.NewClientBuilder().
 		WithObjects(mainWorkload, user, role, workspace).
 		WithScheme(scheme.Scheme).
+		WithStatusSubresource(&v1.Workload{}).
 		Build()
 
 	fakeClientSet := k8sfake.NewSimpleClientset()
@@ -402,11 +402,19 @@ func Test_generatePreheatWorkload(t *testing.T) {
 		accessController: authority.NewAccessController(fakeCtrlClient),
 	}
 
+	// Create gin context
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Set(common.UserId, user.Name)
+	c.Set(common.UserName, v1.GetUserName(user))
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/workloads", nil)
+
 	mainQuery := &view.CreateWorkloadRequest{
 		DisplayName: "test-workload",
 	}
+	roles := []*v1.Role{role}
 
-	preheatWorkload, err := h.generatePreheatWorkload(ctx, mainWorkload, mainQuery)
+	preheatWorkload, err := h.createPreheatWorkload(c, mainWorkload, mainQuery, user, roles)
 	assert.NilError(t, err)
 	assert.Assert(t, preheatWorkload != nil, "Preheat workload should be created")
 
@@ -1636,7 +1644,6 @@ func Test_cvtDBWorkloadToResponseItem(t *testing.T) {
 	assert.Equal(t, result.Priority, 5)
 	assert.Equal(t, result.IsTolerateAll, true)
 	assert.Equal(t, result.WorkloadUid, "uid-123")
-	assert.Equal(t, result.K8sObjectUid, "k8s-uid-456")
 	assert.Equal(t, result.ScaleRunnerSet, "runner-set-1")
 	assert.Equal(t, result.ScaleRunnerId, "runner-id-1")
 	assert.Equal(t, result.QueuePosition, 3)

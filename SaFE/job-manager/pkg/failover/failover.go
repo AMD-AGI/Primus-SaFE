@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -14,7 +14,6 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
@@ -106,11 +105,7 @@ func isFailoverNeeded(workload *v1.Workload) bool {
 	if v1.IsWorkloadPreempted(workload) {
 		return true
 	}
-	cond := &metav1.Condition{
-		Type:   string(v1.K8sFailed),
-		Reason: commonworkload.GenerateDispatchReason(v1.GetWorkloadDispatchCnt(workload)),
-	}
-	if jobutils.FindCondition(workload, cond) != nil {
+	if jobutils.FindFailedCondition(workload) {
 		return true
 	}
 	return false
@@ -183,7 +178,9 @@ func (r *FailoverReconciler) handleFaultEventImpl(ctx context.Context, fault *v1
 					return false
 				}
 			} else if isDisableFailover(workload) ||
-				workload.CreationTimestamp.After(fault.CreationTimestamp.Time) {
+				workload.CreationTimestamp.After(fault.CreationTimestamp.Time) ||
+				// The torchft workload do not support failover triggered by a fault.
+				commonworkload.IsTorchFT(workload) {
 				return false
 			} else if r.addFailoverCondition(ctx, workload, message) == nil {
 				break
@@ -316,6 +313,9 @@ func (r *FailoverReconciler) Reconcile(ctx context.Context, req ctrlruntime.Requ
 	if !workload.GetDeletionTimestamp().IsZero() || isDisableFailover(workload) {
 		return ctrlruntime.Result{}, nil
 	}
+	if commonworkload.IsTorchFT(workload) && !jobutils.FindFailedCondition(workload) {
+		return ctrlruntime.Result{}, nil
+	}
 	return r.handle(ctx, workload)
 }
 
@@ -325,21 +325,18 @@ func (r *FailoverReconciler) handle(ctx context.Context, workload *v1.Workload) 
 	if clusterInformer == nil {
 		return ctrlruntime.Result{RequeueAfter: time.Second}, nil
 	}
-	workloadUnstructured, err := jobutils.BuildWorkloadUnstructured(ctx, r.Client, workload)
-	if err != nil {
+
+	if _, err := jobutils.DeleteObjectsByWorkload(ctx, r.Client, clusterInformer.ClientFactory(), workload); err != nil {
 		return ctrlruntime.Result{}, err
 	}
-	if err = jobutils.DeleteObject(ctx, clusterInformer.ClientFactory(), workloadUnstructured); err != nil {
-		klog.ErrorS(err, "failed to delete k8s object", "name", workload.GetName())
-		return ctrlruntime.Result{}, err
-	}
+
 	message := ""
 	if v1.IsWorkloadPreempted(workload) {
 		message = "the workload is preempted"
 	} else {
 		message = "the workload is doing the failover"
 	}
-	if err = r.addFailoverCondition(ctx, workload, message); err != nil {
+	if err := r.addFailoverCondition(ctx, workload, message); err != nil {
 		return ctrlruntime.Result{}, err
 	}
 	klog.Infof("the workload %s is attempting to perform a failover", workload.Name)

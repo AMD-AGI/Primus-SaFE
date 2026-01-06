@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -538,7 +538,7 @@ func (r *NodeReconciler) cleanupNodeAfterUnmanage(ctx context.Context, adminNode
 		}
 		defer sshClient.Close()
 
-		checkAndResetCmd := "if systemctl is-active -q kubelet; then kubeadm reset -f; rm -rf /etc/cni/ /etc/kubernetes/; fi"
+		checkAndResetCmd := "kubeadm reset -f; rm -rf /etc/cni/ /etc/kubernetes/ ~/.kube"
 		if err = r.executeSSHCommand(sshClient, checkAndResetCmd); err != nil {
 			return err
 		}

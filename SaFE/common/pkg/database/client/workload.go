@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -47,7 +47,6 @@ var (
 		    is_supervised = :is_supervised,
 		    is_tolerate_all = :is_tolerate_all,
 		    timeout = :timeout,
-		    k8s_object_uid = :k8s_object_uid,
 		    cron_jobs = :cron_jobs 
 		WHERE workload_id = :workload_id`, TWorkload)
 )

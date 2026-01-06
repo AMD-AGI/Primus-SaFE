@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -13,6 +13,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -232,7 +233,7 @@ func toPodResourceLists(workload *v1.Workload) ([]corev1.ResourceList, error) {
 // GetScope determines the workspace scope based on workload kind.
 func GetScope(w *v1.Workload) v1.WorkspaceScope {
 	switch w.SpecKind() {
-	case common.PytorchJobKind, common.UnifiedJobKind, common.JobKind:
+	case common.PytorchJobKind, common.UnifiedJobKind, common.JobKind, common.TorchFTKind:
 		return v1.TrainScope
 	case common.DeploymentKind, common.StatefulSetKind:
 		return v1.InferScope
@@ -254,11 +255,11 @@ func IsApplication(w *v1.Workload) bool {
 	return false
 }
 
-// IsJob returns true if the workload is a job type (PyTorchJob, Authoring, or Job).
+// IsJob returns true if the workload is a job type (PyTorchJob, Authoring and so on).
 func IsJob(w *v1.Workload) bool {
 	kind := w.SpecKind()
 	if kind == common.PytorchJobKind || kind == common.AuthoringKind ||
-		kind == common.JobKind || kind == common.UnifiedJobKind {
+		kind == common.JobKind || kind == common.UnifiedJobKind || kind == common.TorchFTKind {
 		return true
 	}
 	return false
@@ -291,6 +292,14 @@ func IsCICDScalingRunnerSet(w *v1.Workload) bool {
 // IsCICDEphemeralRunner returns true if the workload is an EphemeralRunner type.
 func IsCICDEphemeralRunner(w *v1.Workload) bool {
 	if w.SpecKind() == common.CICDEphemeralRunnerKind {
+		return true
+	}
+	return false
+}
+
+// IsTorchFT returns true if the workload is an TorchFT type.
+func IsTorchFT(w *v1.Workload) bool {
+	if w.SpecKind() == common.TorchFTKind {
 		return true
 	}
 	return false
@@ -347,7 +356,12 @@ func GeneratePriority(priority int) string {
 
 // GetResourceTemplate Retrieve the corresponding resource_template based on the workload's GVK.
 func GetResourceTemplate(ctx context.Context, cli client.Client, workload *v1.Workload) (*v1.ResourceTemplate, error) {
-	gvk := workload.ToSchemaGVK()
+	return GetResourceTemplateByGVK(ctx, cli, workload.ToSchemaGVK())
+}
+
+// GetResourceTemplate Retrieve the corresponding resource_template based on the specified GVK.
+// Note that the GetResourceTemplate function mentioned above is primarily used and this is specific to TorchFT.
+func GetResourceTemplateByGVK(ctx context.Context, cli client.Client, gvk schema.GroupVersionKind) (*v1.ResourceTemplate, error) {
 	templateList := &v1.ResourceTemplateList{}
 	labelSelector := labels.SelectorFromSet(map[string]string{v1.WorkloadVersionLabel: gvk.Version})
 	if err := cli.List(ctx, templateList, &client.ListOptions{LabelSelector: labelSelector}); err != nil {
@@ -380,4 +394,19 @@ func ConvertResourceToList(workloadResource v1.WorkloadResource, kind string) []
 		result = append(result, workloadResource)
 	}
 	return result
+}
+
+// GetReplicaGroup retrieves the replica process group number from the workload's environment variables.
+// The replica process group is used for torchFT workload.
+// Returns an error if the environment variable is not set or cannot be converted to a valid integer.
+func GetReplicaGroup(workload *v1.Workload, key string) (int, error) {
+	val, ok := workload.Spec.Env[key]
+	if !ok || val == "" {
+		return 0, fmt.Errorf("the %s of workload environment variables is empty", key)
+	}
+	n, err := strconv.Atoi(val)
+	if err != nil {
+		return 0, err
+	}
+	return n, nil
 }

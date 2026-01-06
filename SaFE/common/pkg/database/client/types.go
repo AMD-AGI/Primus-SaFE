@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -58,7 +58,6 @@ type Workload struct {
 	Liveness       sql.NullString `db:"liveness"`
 	Readiness      sql.NullString `db:"readiness"`
 	UserId         sql.NullString `db:"user_id"`
-	K8sObjectUid   sql.NullString `db:"k8s_object_uid"`
 	WorkloadUId    sql.NullString `db:"workload_uid"`
 	Ranks          sql.NullString `db:"ranks"`
 	Dependencies   sql.NullString `db:"dependencies"`

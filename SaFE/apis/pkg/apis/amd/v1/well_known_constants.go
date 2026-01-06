@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -92,7 +92,6 @@ const (
 	WorkloadDispatchedAnnotation      = WorkloadPrefix + "dispatched"
 	WorkloadScheduledAnnotation       = WorkloadPrefix + "scheduled"
 	WorkloadPreemptedAnnotation       = WorkloadPrefix + "preempted"
-	EnableHostNetworkAnnotation       = WorkloadPrefix + "enable.host.network"
 	WorkloadKindLabel                 = WorkloadPrefix + "kind"
 	WorkloadVersionLabel              = WorkloadPrefix + "version"
 	WorkloadDispatchCntLabel          = WorkloadPrefix + "dispatch.count"
@@ -103,6 +102,8 @@ const (
 	EnvToBeRemovedAnnotation          = WorkloadPrefix + "env.to.remove"
 	AdminControlPlaneAnnotation       = WorkloadPrefix + "admin.control.plane"
 	ResourceIdAnnotation              = WorkloadPrefix + "resource.id"
+	RootWorkloadIdLabel               = WorkloadPrefix + "root.id"
+	K8sObjectIdLabel                  = PrimusSafePrefix + "k8s.object.id"
 
 	// user
 	UserPrefix              = PrimusSafePrefix + "user."

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -23,6 +23,7 @@ const (
 	CICDScaleRunnerSetKind  = "AutoscalingRunnerSet"
 	CICDEphemeralRunnerKind = "EphemeralRunner"
 	UnifiedJobKind          = "UnifiedJob"
+	TorchFTKind             = "TorchFT"
 
 	PodKind            = "Pod"
 	EventKind          = "Event"
@@ -30,10 +31,14 @@ const (
 	ClusterRoleKind    = "ClusterRole"
 	ServiceAccountKind = "ServiceAccount"
 
-	GithubConfigUrl  = "GITHUB_CONFIG_URL"
-	UnifiedJobEnable = "UNIFIED_JOB_ENABLE"
-	ScaleRunnerSetID = "SCALE_RUNNER_SET_ID"
-	ScaleRunnerID    = "SCALE_RUNNER_ID"
+	GithubConfigUrl   = "GITHUB_CONFIG_URL"
+	UnifiedJobEnable  = "UNIFIED_JOB_ENABLE"
+	ScaleRunnerSetID  = "SCALE_RUNNER_SET_ID"
+	ScaleRunnerID     = "SCALE_RUNNER_ID"
+	ReplicaGroup      = "REPLICA_GROUP"
+	MaxReplicaGroup   = "MAX_REPLICA_GROUP"
+	MinReplicaGroup   = "MIN_REPLICA_GROUP"
+	TorchFTLightHouse = "TORCHFT_LIGHTHOUSE"
 	// for preflight job
 	GPU_PRODUCT = "GPU_PRODUCT"
 

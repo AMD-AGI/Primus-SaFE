@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -151,7 +151,7 @@ func TestSortWorkloadPods(t *testing.T) {
 				{PodId: "pod-2", HostIp: "192.168.1.100"},
 				{PodId: "pod-3", HostIp: "192.168.1.50"},
 			},
-			expectedOrder: []string{"pod-2", "pod-3", "pod-1"}, // Sorted by IP descending
+			expectedOrder: []string{"pod-1", "pod-3", "pod-2"}, // Sorted by IP descending
 		},
 		{
 			name: "sort by pod ID when same IP",
@@ -170,7 +170,7 @@ func TestSortWorkloadPods(t *testing.T) {
 				{PodId: "pod-4", HostIp: "10.0.0.10"},
 				{PodId: "pod-3", HostIp: "10.0.0.10"},
 			},
-			expectedOrder: []string{"pod-3", "pod-4", "pod-1", "pod-2"},
+			expectedOrder: []string{"pod-1", "pod-2", "pod-3", "pod-4"},
 		},
 		{
 			name: "single pod",

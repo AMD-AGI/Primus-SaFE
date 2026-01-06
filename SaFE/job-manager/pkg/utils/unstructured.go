@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -33,16 +33,16 @@ const (
 	NfsOutputEnv         = "SAFE_NFS_OUTPUT"
 )
 
-type K8sResourceStatus struct {
-	Phase       string
-	Message     string
-	SpecReplica int
+type K8sObjectStatus struct {
+	Phase         string
+	Message       string
+	SpecReplica   int
+	ActiveReplica int
 	// only for cicd AutoscalingRunnerSet
 	RunnerScaleSetId string
-	ActiveReplica    int
 }
 
-func (s *K8sResourceStatus) IsPending() bool {
+func (s *K8sObjectStatus) IsPending() bool {
 	if s.Phase == string(v1.K8sPending) ||
 		s.Phase == "" {
 		return true
@@ -50,9 +50,9 @@ func (s *K8sResourceStatus) IsPending() bool {
 	return false
 }
 
-// GetK8sResourceStatus retrieves the status of a Kubernetes resource based on its unstructured object and resource template.
-func GetK8sResourceStatus(unstructuredObj *unstructured.Unstructured, rt *v1.ResourceTemplate) (*K8sResourceStatus, error) {
-	result := &K8sResourceStatus{}
+// GetK8sObjectStatus retrieves the status of a Kubernetes resource based on its unstructured object and resource template.
+func GetK8sObjectStatus(unstructuredObj *unstructured.Unstructured, rt *v1.ResourceTemplate) (*K8sObjectStatus, error) {
+	result := &K8sObjectStatus{}
 	var err error
 	if result.SpecReplica, err = GetSpecReplica(unstructuredObj, rt); err != nil {
 		return nil, err
@@ -65,7 +65,7 @@ func GetK8sResourceStatus(unstructuredObj *unstructured.Unstructured, rt *v1.Res
 	case common.StatefulSetKind:
 		getStatefulSetStatus(unstructuredObj.Object, result)
 	case common.JobKind:
-		if err = getResourceStatusImpl(unstructuredObj, rt, result); err != nil {
+		if err = getK8sObjectStatusImpl(unstructuredObj, rt, result); err != nil {
 			break
 		}
 		if result.Phase == "" && result.ActiveReplica > 0 {
@@ -75,13 +75,13 @@ func GetK8sResourceStatus(unstructuredObj *unstructured.Unstructured, rt *v1.Res
 	case common.CICDScaleRunnerSetKind:
 		result.RunnerScaleSetId = v1.GetAnnotation(unstructuredObj, v1.CICDScaleSetIdAnnotation)
 	default:
-		err = getResourceStatusImpl(unstructuredObj, rt, result)
+		err = getK8sObjectStatusImpl(unstructuredObj, rt, result)
 	}
 	return result, err
 }
 
-// getResourceStatusImpl implements resource status retrieval based on resource template configuration.
-func getResourceStatusImpl(unstructuredObj *unstructured.Unstructured, rt *v1.ResourceTemplate, result *K8sResourceStatus) error {
+// getK8sObjectStatusImpl implements object status retrieval based on resource template configuration.
+func getK8sObjectStatusImpl(unstructuredObj *unstructured.Unstructured, rt *v1.ResourceTemplate, result *K8sObjectStatus) error {
 	if len(rt.Spec.ResourceStatus.PrePaths) == 0 {
 		return nil
 	}
@@ -113,7 +113,7 @@ func getResourceStatusImpl(unstructuredObj *unstructured.Unstructured, rt *v1.Re
 }
 
 // getStatefulSetStatus determines the status of a StatefulSet based on its revision information.
-func getStatefulSetStatus(obj map[string]interface{}, result *K8sResourceStatus) {
+func getStatefulSetStatus(obj map[string]interface{}, result *K8sObjectStatus) {
 	currentRevision := GetUnstructuredString(obj, []string{"status", "currentRevision"})
 	updateRevision := GetUnstructuredString(obj, []string{"status", "updateRevision"})
 	switch {
@@ -129,9 +129,9 @@ func getStatefulSetStatus(obj map[string]interface{}, result *K8sResourceStatus)
 	}
 }
 
-// getStatusByExpression matches resource status based on phase expressions and message paths of resource-tempalte.
+// getStatusByExpression matches resource status based on phase expressions and message paths of resource-template.
 func getStatusByExpression(objects []map[string]interface{},
-	expression v1.PhaseExpression, messagePaths []string, result *K8sResourceStatus) bool {
+	expression v1.PhaseExpression, messagePaths []string, result *K8sObjectStatus) bool {
 	match := func(obj map[string]interface{}, phase v1.PhaseExpression) bool {
 		for key, val := range phase.MatchExpressions {
 			val2 := convertUnstructuredToString(obj, []string{key})
@@ -550,24 +550,4 @@ func GetEnv(unstructuredObj *unstructured.Unstructured,
 		}
 	}
 	return nil, fmt.Errorf("no env found")
-}
-
-// getEnvValue retrieves the value of a specific environment variable from the main container
-// Returns empty string if the environment variable is not found
-func getEnvValue(unstructuredObj *unstructured.Unstructured,
-	rt *v1.ResourceTemplate, mainContainer, name string) (string, error) {
-	envs, err := GetEnv(unstructuredObj, rt, mainContainer)
-	if err != nil {
-		return "", err
-	}
-	for _, env := range envs {
-		envObj, ok := env.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		if envObj["name"] == name {
-			return envObj["value"].(string), nil
-		}
-	}
-	return "", nil
 }

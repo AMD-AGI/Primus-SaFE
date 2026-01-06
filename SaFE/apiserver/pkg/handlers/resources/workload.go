@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -25,6 +25,7 @@ import (
 	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
@@ -132,6 +133,7 @@ func (h *Handler) GetWorkloadPodContainers(c *gin.Context) {
 // createWorkload implements the workload creation logic.
 // Parses the request, generates a workload object, and creates it in the system.
 func (h *Handler) createWorkload(c *gin.Context) (interface{}, error) {
+	ctx := c.Request.Context()
 	req := &view.CreateWorkloadRequest{}
 	body, err := apiutils.ParseRequestBody(c.Request, req)
 	if err != nil {
@@ -141,34 +143,41 @@ func (h *Handler) createWorkload(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	workload, err := h.generateWorkload(c.Request.Context(), req, body, requestUser)
+	roles := h.accessController.GetRoles(ctx, requestUser)
+
+	mainWorkload, err := h.generateWorkload(ctx, req, body, requestUser)
 	if err != nil {
 		return nil, commonerrors.NewBadRequest(err.Error())
 	}
-
+	var preheatWorkload *v1.Workload
 	isSucceed := false
 	defer func() {
 		if !isSucceed {
-			h.cleanupCICDSecrets(c.Request.Context(), workload)
+			h.cleanUpWorkloads(ctx, mainWorkload, preheatWorkload)
 		}
 	}()
 
-	roles := h.accessController.GetRoles(c.Request.Context(), requestUser)
 	if req.Preheat {
-		preheatWorkload, err := h.generatePreheatWorkload(c.Request.Context(), workload, req)
+		preheatWorkload, err = h.createPreheatWorkload(c, mainWorkload, req, requestUser, roles)
 		if err != nil {
 			return nil, err
 		}
-		resp, err := h.createWorkloadImpl(c, preheatWorkload, requestUser, roles)
-		if err != nil {
-			return nil, err
-		}
-		workload.Spec.Dependencies = []string{resp.WorkloadId}
+		mainWorkload.Spec.Dependencies = []string{preheatWorkload.Name}
 	}
 
-	resp, err := h.createWorkloadImpl(c, workload, requestUser, roles)
+	resp, err := h.createWorkloadImpl(c, mainWorkload, requestUser, roles)
 	if err != nil {
 		return nil, err
+	}
+	if preheatWorkload != nil {
+		if err = controllerutil.SetControllerReference(mainWorkload, preheatWorkload, h.Client.Scheme()); err != nil {
+			klog.ErrorS(err, "failed to set owner reference", "owner", mainWorkload.Name, "workload", preheatWorkload.Name)
+			return nil, err
+		}
+		if err = h.Update(ctx, preheatWorkload); err != nil {
+			klog.ErrorS(err, "failed to update workload", "workload", preheatWorkload.Name)
+			return nil, err
+		}
 	}
 	isSucceed = true
 	return resp, nil
@@ -213,6 +222,23 @@ func (h *Handler) createWorkloadImpl(c *gin.Context,
 	klog.Infof("create workload, name: %s, user: %s/%s, priority: %d, timeout: %d",
 		workload.Name, c.GetString(common.UserName), c.GetString(common.UserId), workload.Spec.Priority, workload.GetTimeout())
 	return &view.CreateWorkloadResponse{WorkloadId: workload.Name}, nil
+}
+
+// cleanUpWorkloads cleans up workloads when workload creation fails
+// It deletes the main workload and preheat workload if they exist,
+// and cleans up any CICD secrets associated with the main workload
+func (h *Handler) cleanUpWorkloads(ctx context.Context, mainWorkload, preheatWorkload *v1.Workload) {
+	h.cleanupCICDSecrets(ctx, mainWorkload)
+	if preheatWorkload != nil {
+		if err := h.Delete(ctx, preheatWorkload); err != nil {
+			klog.ErrorS(err, "failed to delete preheat workload", "workload", preheatWorkload.Name)
+		}
+	}
+	if mainWorkload != nil {
+		if err := h.Delete(ctx, mainWorkload); err != nil {
+			klog.ErrorS(err, "failed to delete main workload", "workload", mainWorkload.Name)
+		}
+	}
 }
 
 // listWorkload implements the workload listing logic.
@@ -783,8 +809,9 @@ func (h *Handler) generateWorkload(ctx context.Context,
 	return workload, nil
 }
 
-func (h *Handler) generatePreheatWorkload(ctx context.Context,
-	mainWorkload *v1.Workload, mainQuery *view.CreateWorkloadRequest) (*v1.Workload, error) {
+// createPreheatWorkload create a preheat workload based on the main workload configuration for resource warming up
+func (h *Handler) createPreheatWorkload(c *gin.Context, mainWorkload *v1.Workload,
+	mainQuery *view.CreateWorkloadRequest, requestUser *v1.User, roles []*v1.Role) (*v1.Workload, error) {
 	displayName := v1.GetDisplayName(mainWorkload)
 	description := "preheat"
 	if len(displayName) > commonutils.MaxDisplayNameLen-len(description)-1 {
@@ -825,7 +852,7 @@ func (h *Handler) generatePreheatWorkload(ctx context.Context,
 	if len(mainQuery.SpecifiedNodes) > 0 {
 		preheatWorkload.Spec.Resources[0].Replica = len(mainQuery.SpecifiedNodes)
 	} else {
-		workspace, err := h.getAdminWorkspace(ctx, preheatWorkload.Spec.Workspace)
+		workspace, err := h.getAdminWorkspace(c.Request.Context(), preheatWorkload.Spec.Workspace)
 		if err != nil {
 			return nil, err
 		}
@@ -835,6 +862,12 @@ func (h *Handler) generatePreheatWorkload(ctx context.Context,
 			preheatWorkload.Spec.Resources[0].Replica = workspace.Status.AvailableReplica
 		}
 	}
+	resp, err := h.createWorkloadImpl(c, preheatWorkload, requestUser, roles)
+	if err != nil {
+		return nil, err
+	}
+	preheatWorkload.Name = resp.WorkloadId
+
 	return preheatWorkload, nil
 }
 
@@ -1130,7 +1163,6 @@ func (h *Handler) cvtDBWorkloadToResponseItem(ctx context.Context, w *dbclient.W
 		Priority:       w.Priority,
 		IsTolerateAll:  w.IsTolerateAll,
 		WorkloadUid:    dbutils.ParseNullString(w.WorkloadUId),
-		K8sObjectUid:   dbutils.ParseNullString(w.K8sObjectUid),
 		AvgGpuUsage:    -1, // Default value when statistics are not available
 		ScaleRunnerSet: dbutils.ParseNullString(w.ScaleRunnerSet),
 		ScaleRunnerId:  dbutils.ParseNullString(w.ScaleRunnerId),

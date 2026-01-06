@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -101,7 +101,7 @@ func checkEnvs(t *testing.T, obj *unstructured.Unstructured, workload *v1.Worklo
 	assert.Equal(t, ok, false)
 
 	if workload.SpecKind() != common.JobKind && !commonworkload.IsCICDScalingRunnerSet(workload) {
-		if v1.IsEnableHostNetwork(workload) {
+		if workload.Spec.Resources[id].RdmaResource != "" {
 			ok = findEnv(envs, "NCCL_SOCKET_IFNAME", "ens51f0")
 			assert.Equal(t, ok, true)
 		} else {
@@ -321,14 +321,14 @@ func checkImage(t *testing.T, obj *unstructured.Unstructured, inputImage string,
 	assert.Equal(t, image, inputImage)
 }
 
-func checkHostNetwork(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec) {
+func checkHostNetwork(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec, id int) {
 	path := append(resourceSpec.PrePaths, resourceSpec.TemplatePaths...)
 	path = append(path, "spec", "hostNetwork")
 
 	isHostNetWork, found, err := unstructured.NestedBool(obj.Object, path...)
 	assert.NilError(t, err)
 	assert.Equal(t, found, true)
-	assert.Equal(t, isHostNetWork, v1.IsEnableHostNetwork(workload))
+	assert.Equal(t, isHostNetWork, workload.Spec.Resources[id].RdmaResource != "")
 }
 
 func checkHostPid(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec) {

@@ -2476,6 +2476,13 @@ func (in *WorkloadStatus) DeepCopyInto(out *WorkloadStatus) {
 			(*out)[key] = val
 		}
 	}
+	if in.TorchFTPhase != nil {
+		in, out := &in.TorchFTPhase, &out.TorchFTPhase
+		*out = make(map[string]WorkloadPhase, len(*in))
+		for key, val := range *in {
+			(*out)[key] = val
+		}
+	}
 	return
 }
 

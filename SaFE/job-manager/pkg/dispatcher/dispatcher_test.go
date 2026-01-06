@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -81,7 +81,6 @@ func TestCreatePytorchJob(t *testing.T) {
 		Id:   workspace.Spec.ImageSecrets[0].Name,
 		Type: v1.SecretImage,
 	}}
-	metav1.SetMetaDataAnnotation(&workload.ObjectMeta, v1.EnableHostNetworkAnnotation, "true")
 
 	configmap, err := parseConfigmap(TestPytorchJobTemplateConfig)
 	assert.NilError(t, err)
@@ -103,7 +102,7 @@ func TestCreatePytorchJob(t *testing.T) {
 	checkNodeSelectorTerms(t, obj, workload, &templates[0])
 	checkImage(t, obj, workload.Spec.Image, &templates[0])
 	checkLabels(t, obj, workload, &templates[0], 0)
-	checkHostNetwork(t, obj, workload, &templates[0])
+	checkHostNetwork(t, obj, workload, &templates[0], 0)
 	checkTolerations(t, obj, workload, &templates[0])
 	checkPriorityClass(t, obj, workload, &templates[0])
 	checkImageSecrets(t, obj, &templates[0])
@@ -115,7 +114,6 @@ func TestCreatePytorchJob(t *testing.T) {
 	workload.Spec.Resources = append(workload.Spec.Resources, *workload.Spec.Resources[0].DeepCopy())
 	workload.Spec.Resources[1].Replica = 2
 	workload.Spec.IsTolerateAll = true
-	metav1.SetMetaDataAnnotation(&workload.ObjectMeta, v1.EnableHostNetworkAnnotation, "true")
 	obj, err = r.generateK8sObject(context.Background(), workload, nil)
 	assert.NilError(t, err)
 	checkResources(t, obj, workload, &templates[1], 2, 1)
@@ -126,7 +124,7 @@ func TestCreatePytorchJob(t *testing.T) {
 	checkNodeSelectorTerms(t, obj, workload, &templates[1])
 	checkImage(t, obj, workload.Spec.Image, &templates[1])
 	checkLabels(t, obj, workload, &templates[1], 1)
-	checkHostNetwork(t, obj, workload, &templates[1])
+	checkHostNetwork(t, obj, workload, &templates[1], 1)
 	checkTolerations(t, obj, workload, &templates[1])
 	checkPriorityClass(t, obj, workload, &templates[1])
 	checkImageSecrets(t, obj, &templates[1])
@@ -173,7 +171,7 @@ func TestCreateDeployment(t *testing.T) {
 	checkNodeSelectorTerms(t, obj, workload, &templates[0])
 	checkImage(t, obj, workload.Spec.Image, &templates[0])
 	checkLabels(t, obj, workload, &templates[0], 0)
-	checkHostNetwork(t, obj, workload, &templates[0])
+	checkHostNetwork(t, obj, workload, &templates[0], 0)
 	checkSelector(t, obj, workload)
 	checkStrategy(t, obj, workload)
 	// fmt.Println(unstructuredutils.ToString(obj))
@@ -233,7 +231,6 @@ func TestUpdatePytorchJob(t *testing.T) {
 	adminWorkload.Spec.Resources = append(adminWorkload.Spec.Resources, *adminWorkload.Spec.Resources[0].DeepCopy())
 	adminWorkload.Spec.Resources[1].Replica = 2
 
-	metav1.SetMetaDataAnnotation(&adminWorkload.ObjectMeta, v1.EnableHostNetworkAnnotation, "true")
 	metav1.SetMetaDataAnnotation(&adminWorkload.ObjectMeta, v1.MainContainerAnnotation, "pytorch")
 	err = applyWorkloadSpecToObject(context.Background(), nil, workloadObj, adminWorkload, nil, jobutils.TestPytorchResourceTemplate)
 	assert.NilError(t, err)
@@ -496,7 +493,7 @@ func TestCreateK8sJob(t *testing.T) {
 	checkEnvs(t, obj, workload, &templates[0], 0)
 	checkImage(t, obj, workload.Spec.Image, &templates[0])
 	checkLabels(t, obj, workload, &templates[0], 0)
-	checkHostNetwork(t, obj, workload, &templates[0])
+	checkHostNetwork(t, obj, workload, &templates[0], 0)
 	checkHostPid(t, obj, workload, &templates[0])
 	checkPriorityClass(t, obj, workload, &templates[0])
 	checkSecurityContext(t, obj, workload, &templates[0])
@@ -535,7 +532,7 @@ func TestCreateCICDScaleSet(t *testing.T) {
 	checkSecurityContext(t, obj, workload, &templates[0])
 	checkEnvs(t, obj, workload, &templates[0], 0)
 	checkImage(t, obj, workload.Spec.Image, &templates[0])
-	checkHostNetwork(t, obj, workload, &templates[0])
+	checkHostNetwork(t, obj, workload, &templates[0], 0)
 	envs := getEnvs(t, obj, &templates[0])
 	checkCICDEnvs(t, envs, workload)
 
@@ -575,7 +572,7 @@ func TestCICDScaleSetWithUnifiedJob(t *testing.T) {
 	checkLabels(t, obj, workload, &templates[0], 0)
 	checkSecurityContext(t, obj, workload, &templates[0])
 	checkEnvs(t, obj, workload, &templates[0], 0)
-	checkHostNetwork(t, obj, workload, &templates[0])
+	checkHostNetwork(t, obj, workload, &templates[0], 0)
 
 	checkCICDContainer(t, obj, workload, &templates[0],
 		"runner", workload.Spec.Image)

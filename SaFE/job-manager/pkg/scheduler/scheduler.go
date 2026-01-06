@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -14,7 +14,6 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
 	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
@@ -183,31 +182,25 @@ func (r *SchedulerReconciler) Reconcile(ctx context.Context, req ctrlruntime.Req
 
 // delete handles the deletion of a workload and its associated resources.
 func (r *SchedulerReconciler) delete(ctx context.Context, adminWorkload *v1.Workload) (ctrlruntime.Result, error) {
-	if len(adminWorkload.Spec.CronJobs) > 0 {
-		r.cronManager.remove(adminWorkload.Name)
-	}
 	clusterInformer, err := syncer.GetClusterInformer(r.clusterInformers, v1.GetClusterId(adminWorkload))
 	if err != nil {
 		klog.Errorf("failed to get cluster informer, clusterId: %s, workspaceId: %s, workloadId: %s",
 			v1.GetClusterId(adminWorkload), adminWorkload.Spec.Workspace, adminWorkload.Name)
 		return ctrlruntime.Result{}, err
 	}
+	if hasFound, err := jobutils.DeleteObjectsByWorkload(ctx, r.Client, clusterInformer.ClientFactory(), adminWorkload); err != nil {
+		return ctrlruntime.Result{}, err
+	} else if hasFound {
+		return ctrlruntime.Result{RequeueAfter: time.Second * 20}, nil
+	}
+
+	if len(adminWorkload.Spec.CronJobs) > 0 {
+		r.cronManager.remove(adminWorkload.Name)
+	}
 	if commonworkload.IsCICDScalingRunnerSet(adminWorkload) {
 		if err = r.deleteRelatedSecrets(ctx, adminWorkload); err != nil {
 			return ctrlruntime.Result{}, err
 		}
-	}
-	workloadUnstructured, err := jobutils.BuildWorkloadUnstructured(ctx, r.Client, adminWorkload)
-	if err != nil {
-		return ctrlruntime.Result{}, err
-	}
-	// delete the related resource in data plane
-	if err = jobutils.DeleteObject(ctx, clusterInformer.ClientFactory(), workloadUnstructured); err != nil {
-		klog.ErrorS(err, "failed to delete k8s object")
-		return ctrlruntime.Result{}, err
-	}
-	if result, err := r.waitObjectDeleted(ctx, workloadUnstructured, clusterInformer); err != nil || result.RequeueAfter > 0 {
-		return result, err
 	}
 
 	if controllerutil.RemoveFinalizer(adminWorkload, v1.WorkloadFinalizer) {
@@ -217,19 +210,6 @@ func (r *SchedulerReconciler) delete(ctx context.Context, adminWorkload *v1.Work
 	}
 	klog.Infof("delete workload, name: %s", adminWorkload.Name)
 	return ctrlruntime.Result{}, nil
-}
-
-// waitObjectDeleted waits for an object to be fully deleted from the cluster.
-// If the object still exists after 1 minutes of deletion timestamp, it forcefully removes finalizers.
-func (r *SchedulerReconciler) waitObjectDeleted(ctx context.Context,
-	obj *unstructured.Unstructured, clusterInformer *syncer.ClusterInformer) (ctrlruntime.Result, error) {
-	k8sClientFactory := clusterInformer.ClientFactory()
-	gvk := obj.GroupVersionKind()
-	_, getErr := jobutils.GetObject(ctx, k8sClientFactory, obj.GetName(), obj.GetNamespace(), gvk)
-	if getErr != nil {
-		return ctrlruntime.Result{}, client.IgnoreNotFound(getErr)
-	}
-	return ctrlruntime.Result{RequeueAfter: time.Second * 20}, nil
 }
 
 // deleteRelatedSecrets removes all secrets associated with a CICD scaling runner set workload.

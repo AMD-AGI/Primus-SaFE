@@ -169,7 +169,8 @@ spec:
                 - port
                 type: object
               resource:
-                description: Workload resource requirements
+                description: 'Deprecated: resource is old field, will be replaced
+                  by Resources'
                 properties:
                   cpu:
                     description: Requested CPU core count (e.g., 128)
@@ -204,7 +205,8 @@ spec:
                 - replica
                 type: object
               resources:
-                description: Workload resource requirements
+                description: Resource requirements, It may involve multiple resources,
+                  e.g., a PyTorchJob with master and worker roles.
                 items:
                   properties:
                     cpu:
@@ -372,9 +374,6 @@ spec:
                 description: Workload end time
                 format: date-time
                 type: string
-              k8sObjectUid:
-                description: The corresponding UID applied to the Kubernetes object.
-                type: string
               message:
                 description: Some status descriptions of the workload. only for pending
                 type: string
@@ -479,6 +478,11 @@ spec:
                 description: Workload start time
                 format: date-time
                 type: string
+              torchFTPhase:
+                additionalProperties:
+                  type: string
+                description: The phase of each torchFT object.
+                type: object
             type: object
         type: object
     served: true

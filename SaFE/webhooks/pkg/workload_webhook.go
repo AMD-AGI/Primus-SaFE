@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -53,6 +53,7 @@ const (
 	DefaultMaxFailover         = 50
 
 	MaxCICDScaleSetNameLen = 39
+	MaxTorchFTNameLen      = commonutils.MaxDisplayNameLen - 4
 
 	ResourcesEnv  = "RESOURCES"
 	ImageEnv      = "IMAGE"
@@ -370,30 +371,6 @@ func (m *WorkloadMutator) mutateService(workload *v1.Workload) {
 	}
 }
 
-// isHostNetworkEnabled Check whether to enable hostNetwork. It should only be set to true.
-func (m *WorkloadMutator) isHostNetworkEnabled(workload *v1.Workload, nf *v1.NodeFlavor) bool {
-	if commonworkload.IsAuthoring(workload) {
-		return false
-	}
-	if commonworkload.GetTotalCount(workload) <= 1 {
-		return false
-	}
-	gpuCount := 0
-	if nf.HasGpu() {
-		gpuCount = int(nf.Spec.Gpu.Quantity.Value())
-	}
-	for _, res := range workload.Spec.Resources {
-		if res.GPU == "" {
-			return false
-		}
-		n, err := strconv.Atoi(res.GPU)
-		if err != nil || n != gpuCount {
-			return false
-		}
-	}
-	return true
-}
-
 // mutateDeployment resets supervision and rollout defaults for Deployments.
 func (m *WorkloadMutator) mutateDeployment(workload *v1.Workload) {
 	workload.Spec.IsSupervised = false
@@ -497,21 +474,18 @@ func (m *WorkloadMutator) mutateHostNetwork(ctx context.Context, workload *v1.Wo
 	if nf == nil {
 		return
 	}
-	isEnableHostNetWork := m.isHostNetworkEnabled(workload, nf)
-	v1.SetAnnotation(workload, v1.EnableHostNetworkAnnotation, strconv.FormatBool(isEnableHostNetWork))
 
 	rdmaName := commonconfig.GetRdmaName()
-	if isEnableHostNetWork && rdmaName != "" {
-		rdmaQuantity, ok := nf.Spec.ExtendResources[corev1.ResourceName(rdmaName)]
-		for i := range workload.Spec.Resources {
+	for i := range workload.Spec.Resources {
+		isEnableHostNetWork := isHostNetworkEnabled(workload, i, nf)
+		if isEnableHostNetWork && rdmaName != "" {
+			rdmaQuantity, ok := nf.Spec.ExtendResources[corev1.ResourceName(rdmaName)]
 			if ok {
 				workload.Spec.Resources[i].RdmaResource = rdmaQuantity.String()
 			} else {
 				workload.Spec.Resources[i].RdmaResource = "1"
 			}
-		}
-	} else {
-		for i := range workload.Spec.Resources {
+		} else {
 			workload.Spec.Resources[i].RdmaResource = ""
 		}
 	}
@@ -647,25 +621,36 @@ func (v *WorkloadValidator) validateOnUpdate(ctx context.Context, newWorkload, o
 
 // validateCommon validates required params, workspace, service, health check, resources, template and display name.
 func (v *WorkloadValidator) validateCommon(ctx context.Context, workload *v1.Workload) error {
-	if err := v.validateRequiredParams(workload); err != nil {
+	var err error
+	switch workload.SpecKind() {
+	case common.CICDScaleRunnerSetKind:
+		err = v.validateCICDScalingRunnerSet(workload)
+	case common.TorchFTKind:
+		err = v.validateTorchFT(workload)
+	}
+	if err != nil {
 		return err
 	}
-	if err := v.validateWorkspace(ctx, workload); err != nil {
+
+	if err = v.validateRequiredParams(workload); err != nil {
 		return err
 	}
-	if err := v.validateService(workload); err != nil {
+	if err = v.validateWorkspace(ctx, workload); err != nil {
 		return err
 	}
-	if err := v.validateHealthCheck(workload); err != nil {
+	if err = v.validateService(workload); err != nil {
 		return err
 	}
-	if err := v.validateResourceEnough(ctx, workload); err != nil {
+	if err = v.validateHealthCheck(workload); err != nil {
 		return err
 	}
-	if err := v.validateTemplate(ctx, workload); err != nil {
+	if err = v.validateResourceEnough(ctx, workload); err != nil {
 		return err
 	}
-	if err := validateLabels(workload.Spec.CustomerLabels); err != nil {
+	if err = v.validateTemplate(ctx, workload); err != nil {
+		return err
+	}
+	if err = validateLabels(workload.Spec.CustomerLabels); err != nil {
 		return err
 	}
 	return nil
@@ -689,11 +674,7 @@ func (v *WorkloadValidator) validateRequiredParams(workload *v1.Workload) error 
 	if workload.Spec.GroupVersionKind.Kind == "" || workload.Spec.GroupVersionKind.Version == "" {
 		errs = append(errs, fmt.Errorf("the gvk is empty"))
 	}
-	if commonworkload.IsCICDScalingRunnerSet(workload) {
-		if err := v.validateCICDScalingRunnerSet(workload); err != nil {
-			errs = append(errs, err)
-		}
-	} else if v1.GetOpsJobId(workload) == "" {
+	if v1.GetOpsJobId(workload) == "" {
 		if workload.Spec.EntryPoint == "" {
 			errs = append(errs, fmt.Errorf("the entryPoint is empty"))
 		}
@@ -715,6 +696,7 @@ func (v *WorkloadValidator) validateRequiredParams(workload *v1.Workload) error 
 	return nil
 }
 
+// validateCICDScalingRunnerSet validates cicd runnerSet workload configuration including environment variables and resource requirements.
 func (v *WorkloadValidator) validateCICDScalingRunnerSet(workload *v1.Workload) error {
 	if len(v1.GetDisplayName(workload)) > MaxCICDScaleSetNameLen {
 		return fmt.Errorf("the displayName is too long, maximum length is %d characters", MaxCICDScaleSetNameLen)
@@ -739,6 +721,41 @@ func (v *WorkloadValidator) validateCICDScalingRunnerSet(workload *v1.Workload) 
 	return nil
 }
 
+// validateTorchFT validates TorchFT workload configuration including environment variables and resource requirements.
+func (v *WorkloadValidator) validateTorchFT(workload *v1.Workload) error {
+	if len(workload.Spec.Resources) < 2 {
+		return fmt.Errorf("the resources of torchFT are invalid")
+	}
+	if len(v1.GetDisplayName(workload)) > MaxTorchFTNameLen {
+		return fmt.Errorf("the displayName is too long, maximum length is %d", MaxTorchFTNameLen)
+	}
+
+	group, err := commonworkload.GetReplicaGroup(workload, common.ReplicaGroup)
+	if err != nil {
+		return err
+	}
+	if group <= 0 || group > workload.Spec.Resources[1].Replica ||
+		(workload.Spec.Resources[1].Replica%group) != 0 {
+		return fmt.Errorf("the %s of workload environment is invalid", common.ReplicaGroup)
+	}
+
+	maxGroup, err := commonworkload.GetReplicaGroup(workload, common.MaxReplicaGroup)
+	if err != nil {
+		return err
+	}
+	minGroup, err := commonworkload.GetReplicaGroup(workload, common.MinReplicaGroup)
+	if err != nil {
+		return err
+	}
+	if group < minGroup || group > maxGroup {
+		return fmt.Errorf("the %s of workload environment is invalid", common.ReplicaGroup)
+	}
+	return nil
+}
+
+// validateResource validates the basic fields of a WorkloadResource to ensure they are properly set
+// Checks that replica count, CPU, memory, and ephemeral storage are all specified and valid
+// Returns an error if any required field is missing or invalid
 func (v *WorkloadValidator) validateResource(resource *v1.WorkloadResource) error {
 	var errs []error
 	if resource.Replica <= 0 {
@@ -970,4 +987,35 @@ func (v *WorkloadValidator) validateCronJobs(workload *v1.Workload) error {
 		}
 	}
 	return nil
+}
+
+// isHostNetworkEnabled checks if host network should be enabled for a specific resource in the workload
+// Returns true when the resource has GPU requirements that match the node flavor's GPU count
+// and the workload has more than one replica and is not an authoring workload
+func isHostNetworkEnabled(workload *v1.Workload, id int, nf *v1.NodeFlavor) bool {
+	if workload == nil || nf == nil {
+		return false
+	}
+	if commonworkload.IsAuthoring(workload) {
+		return false
+	}
+	if commonworkload.GetTotalCount(workload) <= 1 {
+		return false
+	}
+
+	if id >= len(workload.Spec.Resources) {
+		return false
+	}
+	res := workload.Spec.Resources[id]
+	if res.GPU == "" {
+		return false
+	}
+	n, err := strconv.Atoi(res.GPU)
+	if err != nil {
+		return false
+	}
+	if n != nf.GetGpuCount() {
+		return false
+	}
+	return true
 }

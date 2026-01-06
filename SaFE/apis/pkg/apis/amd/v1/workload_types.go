@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -191,12 +191,12 @@ type WorkloadStatus struct {
 	Nodes [][]string `json:"nodes,omitempty"`
 	// The node's rank is only valid for the PyTorch job and corresponds one-to-one with the nodes listed above.
 	Ranks [][]string `json:"ranks,omitempty"`
-	// The corresponding UID applied to the Kubernetes object.
-	K8sObjectUid string `json:"k8sObjectUid,omitempty"`
 	// The corresponding ID applied to the cicd AutoscalingRunnerSet object.
 	RunnerScaleSetId string `json:"runnerScaleSetId,omitempty"`
 	// The phase of each dependency workload.
 	DependenciesPhase map[string]WorkloadPhase `json:"dependenciesPhase,omitempty"`
+	// The phase of each torchFT object.
+	TorchFTPhase map[string]WorkloadPhase `json:"torchFTPhase,omitempty"`
 }
 
 type WorkloadPod struct {

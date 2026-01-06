@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -30,7 +30,7 @@ func TestGetPytorchJobPhase(t *testing.T) {
 	assert.NilError(t, err)
 	rt := TestPytorchResourceTemplate.DeepCopy()
 
-	status, err := GetK8sResourceStatus(pytorchJob, rt)
+	status, err := GetK8sObjectStatus(pytorchJob, rt)
 	assert.NilError(t, err)
 	assert.Equal(t, status.Phase, "")
 
@@ -41,13 +41,13 @@ func TestGetPytorchJobPhase(t *testing.T) {
 		"message": "job is running",
 	}
 	addK8sJobCond(t, pytorchJob, newCondition)
-	status, err = GetK8sResourceStatus(pytorchJob, rt)
+	status, err = GetK8sObjectStatus(pytorchJob, rt)
 	assert.NilError(t, err)
 	assert.Equal(t, status.Phase, "")
 
 	newCondition["status"] = "True"
 	addK8sJobCond(t, pytorchJob, newCondition)
-	status, err = GetK8sResourceStatus(pytorchJob, rt)
+	status, err = GetK8sObjectStatus(pytorchJob, rt)
 	assert.NilError(t, err)
 	assert.Equal(t, status.Phase, "K8sRunning")
 	assert.Equal(t, status.Message, "job is running")
@@ -59,7 +59,7 @@ func TestGetPytorchJobPhase(t *testing.T) {
 		"message": "job is succeed",
 	}
 	addK8sJobCond(t, pytorchJob, newCondition)
-	status, err = GetK8sResourceStatus(pytorchJob, rt)
+	status, err = GetK8sObjectStatus(pytorchJob, rt)
 	assert.NilError(t, err)
 	assert.Equal(t, status.Phase, "K8sSucceeded")
 	assert.Equal(t, status.Message, "job is succeed")
@@ -90,7 +90,7 @@ func TestGetJobPhase(t *testing.T) {
 	assert.NilError(t, err)
 	rt := TestJobTemplate.DeepCopy()
 
-	status, err := GetK8sResourceStatus(job, rt)
+	status, err := GetK8sObjectStatus(job, rt)
 	assert.NilError(t, err)
 	assert.Equal(t, status.Phase, string(v1.K8sRunning))
 
@@ -101,7 +101,7 @@ func TestGetJobPhase(t *testing.T) {
 		"message": "Job has reached the specified backoff limit",
 	}
 	addK8sJobCond(t, job, newCondition)
-	status, err = GetK8sResourceStatus(job, rt)
+	status, err = GetK8sObjectStatus(job, rt)
 	assert.NilError(t, err)
 	assert.Equal(t, status.Phase, "K8sFailed")
 }
@@ -121,7 +121,7 @@ func TestGetDeploymentPhase(t *testing.T) {
 	assert.NilError(t, err)
 	rt := TestDeploymentTemplate.DeepCopy()
 
-	status, err := GetK8sResourceStatus(deploy, rt)
+	status, err := GetK8sObjectStatus(deploy, rt)
 	assert.NilError(t, err)
 	assert.Equal(t, status != nil, true)
 	assert.Equal(t, status.SpecReplica, 2)
@@ -139,7 +139,7 @@ func TestGetDeploymentPhase(t *testing.T) {
 	conditions = append(conditions, cond)
 	err = unstructured.SetNestedSlice(deploy.Object, conditions, "status", "conditions")
 	assert.NilError(t, err)
-	status, err = GetK8sResourceStatus(deploy, rt)
+	status, err = GetK8sObjectStatus(deploy, rt)
 	assert.NilError(t, err)
 	assert.Equal(t, status != nil, true)
 	assert.Equal(t, status.Phase, string(v1.K8sUpdating))
@@ -152,7 +152,7 @@ func TestGetDeploymentPhase(t *testing.T) {
 	conditions2 = append(conditions2, cond)
 	err = unstructured.SetNestedSlice(deploy.Object, conditions2, "status", "conditions")
 	assert.NilError(t, err)
-	status, err = GetK8sResourceStatus(deploy, rt)
+	status, err = GetK8sObjectStatus(deploy, rt)
 	assert.NilError(t, err)
 	assert.Equal(t, status != nil, true)
 	assert.Equal(t, status.Phase, string(v1.K8sRunning))
@@ -265,7 +265,7 @@ func TestGetStatefulSetPhase(t *testing.T) {
 	assert.NilError(t, err)
 	rt := TestStatefulSetTemplate.DeepCopy()
 
-	status, err := GetK8sResourceStatus(statefulSet, rt)
+	status, err := GetK8sObjectStatus(statefulSet, rt)
 	assert.NilError(t, err)
 	assert.Equal(t, status != nil, true)
 	assert.Equal(t, status.SpecReplica, 2)
@@ -274,7 +274,7 @@ func TestGetStatefulSetPhase(t *testing.T) {
 
 	err = unstructured.SetNestedField(statefulSet.Object, "123", []string{"status", "currentRevision"}...)
 	assert.NilError(t, err)
-	status, err = GetK8sResourceStatus(statefulSet, rt)
+	status, err = GetK8sObjectStatus(statefulSet, rt)
 	assert.NilError(t, err)
 	assert.Equal(t, status != nil, true)
 	assert.Equal(t, status.SpecReplica, 2)
@@ -316,7 +316,7 @@ func TestGetCICDEphemeralRunnerPhase(t *testing.T) {
 	assert.NilError(t, err)
 	rt := TestCICDEphemeralRunnerTemplate.DeepCopy()
 
-	status, err := GetK8sResourceStatus(data, rt)
+	status, err := GetK8sObjectStatus(data, rt)
 	assert.NilError(t, err)
 	assert.Equal(t, status.Phase, string(v1.K8sRunning))
 
@@ -328,7 +328,7 @@ func TestGetCICDEphemeralRunnerPhase(t *testing.T) {
 	err = unstructured.SetNestedMap(data.Object, newStatus, "status")
 	assert.NilError(t, err)
 
-	status, err = GetK8sResourceStatus(data, rt)
+	status, err = GetK8sObjectStatus(data, rt)
 	assert.NilError(t, err)
 	assert.Equal(t, status.Phase, "K8sFailed")
 	assert.Equal(t, status.Message, "Job has reached the specified backoff limit")

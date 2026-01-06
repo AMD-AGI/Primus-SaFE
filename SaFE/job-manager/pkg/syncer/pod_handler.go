@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -355,7 +355,7 @@ func sortWorkloadPods(adminWorkload *v1.Workload) {
 		if adminWorkload.Status.Pods[i].HostIp == adminWorkload.Status.Pods[j].HostIp {
 			return adminWorkload.Status.Pods[i].PodId < adminWorkload.Status.Pods[j].PodId
 		}
-		return netutil.ConvertIpToInt(adminWorkload.Status.Pods[i].HostIp) >
+		return netutil.ConvertIpToInt(adminWorkload.Status.Pods[i].HostIp) <
 			netutil.ConvertIpToInt(adminWorkload.Status.Pods[j].HostIp)
 	})
 }

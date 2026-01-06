@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -130,8 +130,6 @@ type WorkloadResponseItem struct {
 	Timeout *int `json:"timeout"`
 	// Workload UID
 	WorkloadUid string `json:"workloadUid"`
-	// K8s object UID corresponding to the workload. e.g. Associated PyTorchJob UID
-	K8sObjectUid string `json:"k8sObjectUid"`
 	// Average GPU usage in the last 3 hours. Returns -1 if no statistics available
 	AvgGpuUsage float64 `json:"avgGpuUsage"`
 	// If it is a CI/CD workload, it would be associated with a scale runner set.

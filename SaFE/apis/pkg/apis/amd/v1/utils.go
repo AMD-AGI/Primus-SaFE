@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -263,11 +263,6 @@ func IsWorkloadReScheduled(obj metav1.Object) bool {
 	return HasAnnotation(obj, WorkloadReScheduledAnnotation)
 }
 
-// IsEnableHostNetwork checks if host network mode is enabled.
-func IsEnableHostNetwork(obj metav1.Object) bool {
-	return GetAnnotation(obj, EnableHostNetworkAnnotation) == TrueStr
-}
-
 // IsWorkloadEnablePreempt checks if preemption is enabled for a workload.
 func IsWorkloadEnablePreempt(obj metav1.Object) bool {
 	return GetAnnotation(obj, WorkloadEnablePreemptAnnotation) == TrueStr
@@ -340,6 +335,10 @@ func GetAdminControlPlane(obj metav1.Object) string {
 
 func IsRequireNodeSpread(obj metav1.Object) bool {
 	return GetAnnotation(obj, RequireNodeSpreadAnnotation) == TrueStr
+}
+
+func GetRootWorkloadId(obj metav1.Object) string {
+	return GetLabel(obj, RootWorkloadIdLabel)
 }
 
 // atoi converts a string to an integer, returning 0 if conversion fails.

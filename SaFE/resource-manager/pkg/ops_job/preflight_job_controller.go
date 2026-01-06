@@ -201,6 +201,7 @@ func (r *PreflightJobReconciler) generatePreflightWorkload(ctx context.Context, 
 	if err := controllerutil.SetControllerReference(job, workload, r.Client.Scheme()); err != nil {
 		return nil, err
 	}
+
 	if nodeFlavor.HasGpu() {
 		if workload.Spec.Env == nil {
 			workload.Spec.Env = make(map[string]string)

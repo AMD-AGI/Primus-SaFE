@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -12,12 +12,14 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/rand"
@@ -42,13 +44,15 @@ import (
 	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/maps"
-	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
 
 const (
 	UnifiedJobInput  = "unified-job-input"
 	UnifiedJobOutput = "unified-job-output"
+	appName          = "app.kubernetes.io/name"
+
+	LightHousePort = 29510
 )
 
 // DispatcherReconciler reconciles Workload objects and handles their dispatching to target clusters.
@@ -100,6 +104,12 @@ func (relevantChangePredicate) Update(e event.UpdateEvent) bool {
 		return true
 	}
 	if v1.IsWorkloadDispatched(newWorkload) {
+		oldGroup, _ := commonworkload.GetReplicaGroup(oldWorkload, common.ReplicaGroup)
+		newGroup, _ := commonworkload.GetReplicaGroup(newWorkload, common.ReplicaGroup)
+		if oldGroup != newGroup {
+			return true
+		}
+
 		if v1.GetGithubSecretId(oldWorkload) != v1.GetGithubSecretId(newWorkload) {
 			return true
 		}
@@ -133,13 +143,25 @@ func (relevantChangePredicate) Update(e event.UpdateEvent) bool {
 // Reconcile is the main control loop for Workload resources that triggers dispatching.
 func (r *DispatcherReconciler) Reconcile(ctx context.Context, req ctrlruntime.Request) (ctrlruntime.Result, error) {
 	workload := new(v1.Workload)
-	if err := r.Get(ctx, req.NamespacedName, workload); err != nil {
+	var err error
+	if err = r.Get(ctx, req.NamespacedName, workload); err != nil {
 		return ctrlruntime.Result{}, client.IgnoreNotFound(err)
 	}
 	if !workload.GetDeletionTimestamp().IsZero() {
 		return ctrlruntime.Result{}, nil
 	}
-	result, err := r.processWorkload(ctx, workload)
+	// To prevent port conflicts when retrying, the port must be regenerated each time
+	if err = r.generateUniquePorts(ctx, workload); err != nil {
+		return ctrlruntime.Result{}, err
+	}
+
+	var result ctrlruntime.Result
+	if commonworkload.IsTorchFT(workload) {
+		result, err = r.processTorchFTWorkload(ctx, workload)
+	} else {
+		result, err = r.processWorkload(ctx, workload)
+	}
+
 	if err != nil {
 		klog.ErrorS(err, "failed to dispatch workload", "name", workload.Name)
 		if jobutils.IsUnrecoverableError(err) {
@@ -147,6 +169,79 @@ func (r *DispatcherReconciler) Reconcile(ctx context.Context, req ctrlruntime.Re
 		}
 	}
 	return result, err
+}
+
+// processTorchFTWorkload processes a TorchFT workload resource, handling both scale-up and scale-down.
+func (r *DispatcherReconciler) processTorchFTWorkload(ctx context.Context, rootWorkload *v1.Workload) (ctrlruntime.Result, error) {
+	if commonconfig.GetTorchFTLightHouse() == "" {
+		return ctrlruntime.Result{}, commonerrors.NewInternalError("TorchFT LightHouse is not configured")
+	}
+	group, err := commonworkload.GetReplicaGroup(rootWorkload, common.ReplicaGroup)
+	if err != nil {
+		return ctrlruntime.Result{}, commonerrors.NewBadRequest("invalid replica process group")
+	}
+
+	// Handle scale-down: delete jobs that exceed the current group count
+	if err = r.scaleDownTorchFTJobs(ctx, rootWorkload, group); err != nil {
+		return ctrlruntime.Result{}, err
+	}
+
+	lightHouseWorkload := generateLighthouse(rootWorkload)
+	if result, err := r.processWorkload(ctx, lightHouseWorkload); err != nil || result.RequeueAfter > 0 {
+		return result, err
+	}
+	lightHouseAddr := lightHouseWorkload.Name + "." + rootWorkload.Spec.Workspace + ".svc.cluster.local"
+
+	for i := 0; i < group; i++ {
+		torchFTWorkload := generateTorchFTJob(rootWorkload, i, group, lightHouseAddr)
+		if result, err := r.processWorkload(ctx, torchFTWorkload); err != nil || result.RequeueAfter > 0 {
+			return result, err
+		}
+	}
+	if err = r.markAsDispatched(ctx, rootWorkload); err != nil {
+		return ctrlruntime.Result{}, err
+	}
+	return ctrlruntime.Result{}, nil
+}
+
+// scaleDownTorchFTJobs handles scale-down by deleting TorchFT jobs that exceed the target group count.
+// It parses the index from each object's name and deletes those with index > targetGroup.
+func (r *DispatcherReconciler) scaleDownTorchFTJobs(ctx context.Context, rootWorkload *v1.Workload, targetGroup int) error {
+	clusterInformer, err := syncer.GetClusterInformer(r.clusterInformers, v1.GetClusterId(rootWorkload))
+	if err != nil {
+		return err
+	}
+
+	// List all TorchFT jobs owned by this root workload
+	gvk := schema.GroupVersionKind{
+		Group: "kubeflow.org", Version: common.DefaultVersion, Kind: common.PytorchJobKind,
+	}
+	labelSelector := v1.WorkloadIdLabel + "=" + rootWorkload.Name
+	unstructuredObjs, err := jobutils.ListObject(ctx,
+		clusterInformer.ClientFactory(), labelSelector, rootWorkload.Spec.Workspace, gvk)
+	if err != nil {
+		return err
+	}
+	if len(unstructuredObjs) <= targetGroup {
+		return nil
+	}
+
+	// Name format: {displayName}-{index}-{suffix}
+	// Index 0 = lighthouse (ignore), Index 1 to totalGroups = TorchFT jobs
+	for _, obj := range unstructuredObjs {
+		index, ok := jobutils.ParseTorchFTGroupIndex(obj.GetName())
+		if !ok {
+			continue
+		}
+		if index > targetGroup {
+			klog.Infof("scaling down TorchFT: deleting sub-workload %s (index %d)", obj.GetName(), index)
+			if err = jobutils.DeleteObject(ctx, clusterInformer.ClientFactory(), &obj); err != nil {
+				klog.ErrorS(err, "failed to delete object", "name", obj.GetName())
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // processWorkload processes a workload resource and updates its state.
@@ -161,48 +256,41 @@ func (r *DispatcherReconciler) processWorkload(ctx context.Context, adminWorkloa
 	}
 	obj, err := jobutils.GetObject(ctx,
 		clusterInformer.ClientFactory(), adminWorkload.Name, adminWorkload.Spec.Workspace, rt.ToSchemaGVK())
-	result := ctrlruntime.Result{}
 
-	switch {
-	case !v1.IsWorkloadDispatched(adminWorkload):
-		if apierrors.IsNotFound(err) {
-			if result, err = r.dispatch(ctx, adminWorkload, clusterInformer); err != nil || result.RequeueAfter > 0 {
-				break
-			}
-		} else if err != nil {
-			break
+	if err != nil {
+		if !apierrors.IsNotFound(err) {
+			return ctrlruntime.Result{}, err
+		}
+		if result, err := r.dispatch(ctx, adminWorkload, clusterInformer); err != nil || result.RequeueAfter > 0 {
+			return result, err
 		}
 		if err = r.markAsDispatched(ctx, adminWorkload); err != nil {
-			break
+			return ctrlruntime.Result{}, err
 		}
 		klog.Infof("the workload is dispatched, name: %s, dispatch count: %d, max retry: %d",
 			adminWorkload.Name, v1.GetWorkloadDispatchCnt(adminWorkload), adminWorkload.Spec.MaxRetry)
-	case err == nil:
+	} else {
 		// update the workload which is already dispatched
 		if err = r.syncWorkloadToObject(ctx, adminWorkload, clusterInformer, obj); err != nil {
-			break
+			return ctrlruntime.Result{}, err
 		}
 		// sync service according to latest spec
-		if result, err = r.updateService(ctx, adminWorkload, clusterInformer, obj); err != nil || result.RequeueAfter > 0 {
-			break
+		if result, err := r.updateService(ctx, adminWorkload, clusterInformer, obj); err != nil || result.RequeueAfter > 0 {
+			return result, err
 		}
 		// Sync corresponding ingress
-		if result, err = r.updateIngress(ctx, adminWorkload, clusterInformer, obj); err != nil || result.RequeueAfter > 0 {
-			break
+		if result, err := r.updateIngress(ctx, adminWorkload, clusterInformer, obj); err != nil || result.RequeueAfter > 0 {
+			return result, err
 		}
 		klog.Infof("the workload is updated, name: %s, dispatch count: %d, max retry: %d",
 			adminWorkload.Name, v1.GetWorkloadDispatchCnt(adminWorkload), adminWorkload.Spec.MaxRetry)
 	}
-	return result, err
+	return ctrlruntime.Result{}, nil
 }
 
 // dispatch creates and deploys the Kubernetes object in the data plane for the workload.
 func (r *DispatcherReconciler) dispatch(ctx context.Context,
 	adminWorkload *v1.Workload, clusterInformer *syncer.ClusterInformer) (ctrlruntime.Result, error) {
-	// To prevent port conflicts when retrying, the port must be regenerated each time
-	if err := r.generateUniquePorts(ctx, adminWorkload); err != nil {
-		return ctrlruntime.Result{}, err
-	}
 	k8sObject, err := r.generateK8sObject(ctx, adminWorkload, clusterInformer)
 	if err != nil {
 		klog.ErrorS(err, "failed to create k8s unstructured object. ",
@@ -221,6 +309,9 @@ func (r *DispatcherReconciler) dispatch(ctx context.Context,
 
 // generateUniquePorts generates unique job and SSH ports for the workload to avoid conflicts.
 func (r *DispatcherReconciler) generateUniquePorts(ctx context.Context, workload *v1.Workload) error {
+	if v1.IsWorkloadDispatched(workload) {
+		return nil
+	}
 	rand.Seed(time.Now().UnixNano())
 	ports := make(map[int]bool)
 
@@ -329,6 +420,9 @@ func (r *DispatcherReconciler) getWorkloadTemplate(ctx context.Context, adminWor
 
 // markAsDispatched updates a workload's status to indicate it has been dispatched.
 func (r *DispatcherReconciler) markAsDispatched(ctx context.Context, workload *v1.Workload) error {
+	if v1.GetRootWorkloadId(workload) != "" {
+		return nil
+	}
 	reason := commonworkload.GenerateDispatchReason(v1.GetWorkloadDispatchCnt(workload) + 1)
 	cond := jobutils.NewCondition(string(v1.AdminDispatched), "the workload is dispatched", reason)
 	if jobutils.FindCondition(workload, cond) == nil {
@@ -544,7 +638,7 @@ func applyWorkloadSpecToObject(ctx context.Context, clusterInformer *syncer.Clus
 			unstructured.RemoveNestedField(obj.Object, t.PrePaths...)
 			continue
 		}
-		if err := updateHostNetwork(adminWorkload, obj, t); err != nil {
+		if err := updateHostNetwork(adminWorkload, obj, t, i); err != nil {
 			return fmt.Errorf("failed to update host network: %v", err.Error())
 		}
 		if err := updateReplica(adminWorkload, obj, t, i); err != nil {
@@ -564,366 +658,6 @@ func applyWorkloadSpecToObject(ctx context.Context, clusterInformer *syncer.Clus
 		}
 	}
 	return nil
-}
-
-// updateReplica updates the replica count in the unstructured object.
-func updateReplica(adminWorkload *v1.Workload,
-	obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec, id int) error {
-	if len(resourceSpec.ReplicasPaths) == 0 {
-		return nil
-	}
-	replica := int64(adminWorkload.Spec.Resources[id].Replica)
-	path := resourceSpec.PrePaths
-	path = append(path, resourceSpec.ReplicasPaths...)
-	if err := unstructured.SetNestedField(obj.Object, replica, path...); err != nil {
-		return err
-	}
-	return updateCompletions(obj, resourceSpec, replica)
-}
-
-// updateCompletions updates the completions count in the unstructured object. only for job
-// The current job's completions is equal to its parallelism, meaning all tasks run concurrently and all must succeed.
-func updateCompletions(obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec, replica int64) error {
-	if len(resourceSpec.CompletionsPaths) == 0 {
-		return nil
-	}
-	path := resourceSpec.PrePaths
-	path = append(path, resourceSpec.CompletionsPaths...)
-	return unstructured.SetNestedField(obj.Object, replica, path...)
-}
-
-// updateCICDScaleSet updates the CICD scale set configuration in the unstructured object.
-// It first updates the GitHub configuration, then conditionally updates the environments for build
-// or removes unnecessary containers based on whether CICD unified build is enabled.
-// Returns an error if no resource templates are found or if any update operation fails.
-func updateCICDScaleSet(obj *unstructured.Unstructured,
-	adminWorkload *v1.Workload, workspace *v1.Workspace, rt *v1.ResourceTemplate) error {
-	if len(rt.Spec.ResourceSpecs) == 0 {
-		return fmt.Errorf("no resource template found")
-	}
-	if err := updateCICDGithub(adminWorkload, obj); err != nil {
-		return err
-	}
-	if err := updateCICDScaleSetEnvs(obj, adminWorkload, workspace, rt.Spec.ResourceSpecs[0]); err != nil {
-		return err
-	}
-	return nil
-}
-
-// updateCICDEphemeralRunner updates the CICD ephemeral runner configuration
-func updateCICDEphemeralRunner(ctx context.Context, clusterInformer *syncer.ClusterInformer,
-	obj *unstructured.Unstructured, adminWorkload *v1.Workload, rt *v1.ResourceTemplate) error {
-	if len(rt.Spec.ResourceSpecs) == 0 {
-		return fmt.Errorf("no resource template found")
-	}
-	if err := updateCICDGithub(adminWorkload, obj); err != nil {
-		return err
-	}
-	// Set owner reference to the parent scale runner if CICDScaleRunnerIdLabel is present
-	if scaleRunnerId := v1.GetLabel(adminWorkload, v1.CICDScaleRunnerIdLabel); scaleRunnerId != "" {
-		if clusterInformer != nil && !commonutils.HasOwnerReferences(obj, scaleRunnerId) {
-			ownerObj, err := jobutils.GetObject(ctx,
-				clusterInformer.ClientFactory(), scaleRunnerId, adminWorkload.Spec.Workspace, rt.ToSchemaGVK())
-			if err != nil {
-				return fmt.Errorf("failed to get owner scale runner: %v", err.Error())
-			}
-			ownerRef := metav1.OwnerReference{
-				APIVersion:         ownerObj.GetAPIVersion(),
-				Kind:               ownerObj.GetKind(),
-				Name:               ownerObj.GetName(),
-				UID:                ownerObj.GetUID(),
-				BlockOwnerDeletion: pointer.Bool(true),
-				Controller:         pointer.Bool(true),
-			}
-			obj.SetOwnerReferences([]metav1.OwnerReference{ownerRef})
-		}
-	}
-	return nil
-}
-
-// updateCICDGithub updates the CICD scale set configuration in the unstructured object.
-// It updates the GitHub configuration and then configures environment variables based on unified build settings.
-// Returns an error if no resource templates are found or if any update operation fails.
-func updateCICDGithub(adminWorkload *v1.Workload, obj *unstructured.Unstructured) error {
-	specObject, ok, err := unstructured.NestedMap(obj.Object, "spec")
-	if err != nil {
-		return err
-	}
-	if !ok {
-		return fmt.Errorf("failed to find object with path: [spec]")
-	}
-	if v1.GetGithubSecretId(adminWorkload) == "" || len(adminWorkload.Spec.Env) == 0 ||
-		adminWorkload.Spec.Env[common.GithubConfigUrl] == "" {
-		return fmt.Errorf("github config is not set")
-	}
-
-	specObject["githubConfigSecret"] = v1.GetGithubSecretId(adminWorkload)
-	specObject["githubConfigUrl"] = adminWorkload.Spec.Env[common.GithubConfigUrl]
-	if commonworkload.IsCICDEphemeralRunner(adminWorkload) {
-		if runnerSetId := v1.GetCICDRunnerScaleSetId(adminWorkload); runnerSetId != "" {
-			specObject["runnerScaleSetId"], err = strconv.ParseInt(runnerSetId, 10, 0)
-			if err != nil {
-				return fmt.Errorf("invalid runner scale set id %s", runnerSetId)
-			}
-		}
-	}
-	if err = unstructured.SetNestedMap(obj.Object, specObject, "spec"); err != nil {
-		return err
-	}
-	return nil
-}
-
-// updateCICDScaleSetEnvs configures environment variables for CICD workloads based on unified build settings.
-// When unified build is enabled, it updates all containers with NFS paths and environment variables,
-// When unified build is disabled, it keeps only the main container with environment variables.
-func updateCICDScaleSetEnvs(obj *unstructured.Unstructured,
-	adminWorkload *v1.Workload, workspace *v1.Workspace, resourceSpec v1.ResourceSpec) error {
-	containers, path, err := getContainers(obj, resourceSpec)
-	if err != nil {
-		return err
-	}
-	envs := maps.Copy(adminWorkload.Spec.Env)
-	envs[jobutils.UserIdEnv] = v1.GetUserId(adminWorkload)
-	envs[jobutils.PriorityEnv] = strconv.Itoa(adminWorkload.Spec.Priority)
-	envs[jobutils.WorkspaceIdEnv] = adminWorkload.Spec.Workspace
-	envs[jobutils.AdminControlPlaneEnv] = v1.GetAdminControlPlane(adminWorkload)
-	envs[jobutils.GithubSecretEnv] = v1.GetGithubSecretId(adminWorkload)
-	envs[common.ScaleRunnerSetID] = adminWorkload.Name
-
-	val := ""
-	if len(adminWorkload.Spec.Env) > 0 {
-		val, _ = adminWorkload.Spec.Env[common.UnifiedJobEnable]
-	}
-	if val == v1.TrueStr {
-		pfsPath := getNfsPathFromWorkspace(workspace)
-		if pfsPath == "" {
-			return fmt.Errorf("failed to get NFS path from workspace")
-		}
-		envs[jobutils.NfsPathEnv] = pfsPath + "/cicd"
-		envs[jobutils.NfsInputEnv] = UnifiedJobInput
-		envs[jobutils.NfsOutputEnv] = UnifiedJobOutput
-		// When unified build is enabled, update all containers with envs
-		for i := range containers {
-			container := containers[i].(map[string]interface{})
-			updateContainerEnv(envs, container, nil)
-		}
-		if err = unstructured.SetNestedField(obj.Object, containers, path...); err != nil {
-			return err
-		}
-	} else {
-		mainContainerName := v1.GetMainContainer(adminWorkload)
-		// When unified build is disabled, keep only main container with resource variables
-		for i := range containers {
-			container := containers[i].(map[string]interface{})
-			name := jobutils.GetUnstructuredString(container, []string{"name"})
-			if name == mainContainerName {
-				updateContainerEnv(envs, container, nil)
-				// Keep only the main container and remove other container
-				newContainers := []interface{}{container}
-				return unstructured.SetNestedField(obj.Object, newContainers, path...)
-			}
-		}
-		return fmt.Errorf("no main container found")
-	}
-	return nil
-}
-
-// updateMetadata updates the template metadata annotations in the unstructured object.
-func updateMetadata(adminWorkload *v1.Workload,
-	obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec, id int) error {
-	_, found, err := unstructured.NestedMap(obj.Object, resourceSpec.GetTemplatePath()...)
-	if err != nil || !found {
-		return err
-	}
-	annotations := buildAnnotations(adminWorkload)
-	annotations[v1.ResourceIdAnnotation] = strconv.Itoa(id)
-	path := append(resourceSpec.GetTemplatePath(), "metadata", "annotations")
-	if err = unstructured.SetNestedMap(obj.Object, annotations, path...); err != nil {
-		return err
-	}
-	return nil
-}
-
-// updateContainers updates all container configurations in the unstructured object.
-// For each container, it updates environment variables. For the main container,
-// it also updates resources, image, and command based on the workload spec.
-func updateContainers(adminWorkload *v1.Workload,
-	obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec, id int) error {
-	containers, path, err := getContainers(obj, resourceSpec)
-	if err != nil {
-		return err
-	}
-
-	mainContainerName := v1.GetMainContainer(adminWorkload)
-	res := &adminWorkload.Spec.Resources[id]
-	resourceList, err := quantity.CvtToResourceList(res.CPU, res.Memory, res.GPU,
-		res.GPUName, res.EphemeralStorage, res.RdmaResource, 1.0/float64(len(containers)))
-	if err != nil {
-		return err
-	}
-
-	resources := buildResources(resourceList)
-	for i := range containers {
-		container := containers[i].(map[string]interface{})
-		updateContainerEnv(adminWorkload.Spec.Env, container, v1.GetEnvToBeRemoved(adminWorkload))
-		container["resources"] = map[string]interface{}{
-			"limits":   resources,
-			"requests": resources,
-		}
-		name := jobutils.GetUnstructuredString(container, []string{"name"})
-		if name == mainContainerName {
-			if adminWorkload.Spec.Image != "" {
-				container["image"] = adminWorkload.Spec.Image
-			}
-			if adminWorkload.Spec.EntryPoint != "" {
-				container["command"] = buildCommands(adminWorkload)
-			}
-		}
-	}
-	if err = unstructured.SetNestedField(obj.Object, containers, path...); err != nil {
-		return err
-	}
-	return nil
-}
-
-// getContainers retrieves the containers slice and its path from the unstructured object based on the resource specification.
-// Returns the containers slice, the path to the containers field, and an error if the operation fails or no containers are found.
-func getContainers(obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec) ([]interface{}, []string, error) {
-	templatePath := resourceSpec.GetTemplatePath()
-	path := append(templatePath, "spec", "containers")
-	containers, found, err := unstructured.NestedSlice(obj.Object, path...)
-	if err != nil {
-		return nil, nil, err
-	}
-	if !found || len(containers) == 0 {
-		return nil, nil, fmt.Errorf("failed to find container with path: %v", path)
-	}
-	return containers, path, nil
-}
-
-// updateContainerEnv updates environment variables in the container.
-func updateContainerEnv(envs map[string]string, container map[string]interface{}, toBeRemovedKeys []string) {
-	if len(envs) == 0 && len(toBeRemovedKeys) == 0 {
-		return
-	}
-	var existingEnvs []interface{}
-	if obj, ok := container["env"]; ok {
-		existingEnvs = obj.([]interface{})
-	}
-
-	toBeRemovedKeySet := sets.NewSetByKeys(toBeRemovedKeys...)
-	isChanged := false
-	updatedEnvs := make([]interface{}, 0, len(existingEnvs))
-	existingEnvNames := sets.NewSet()
-	for _, envItem := range existingEnvs {
-		env, ok := envItem.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		name, ok := env["name"]
-		if !ok {
-			continue
-		}
-		nameStr := name.(string)
-		if toBeRemovedKeySet.Has(nameStr) {
-			isChanged = true
-			continue
-		}
-		existingEnvNames.Insert(nameStr)
-
-		if newValue, exists := envs[nameStr]; exists {
-			currentValue, valueOk := env["value"]
-			if valueOk && newValue != currentValue.(string) {
-				isChanged = true
-				updatedEnvs = append(updatedEnvs, map[string]interface{}{
-					"name":  nameStr,
-					"value": newValue,
-				})
-			} else {
-				updatedEnvs = append(updatedEnvs, envItem)
-			}
-		} else {
-			updatedEnvs = append(updatedEnvs, envItem)
-		}
-	}
-
-	for key, val := range envs {
-		if !existingEnvNames.Has(key) {
-			isChanged = true
-			updatedEnvs = append(updatedEnvs, map[string]interface{}{
-				"name":  key,
-				"value": val,
-			})
-		}
-	}
-	if isChanged {
-		container["env"] = updatedEnvs
-	}
-}
-
-// updateSharedMemory updates the shared memory volume configuration.
-func updateSharedMemory(adminWorkload *v1.Workload, obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec, id int) error {
-	path := resourceSpec.PrePaths
-	path = append(path, resourceSpec.TemplatePaths...)
-	path = append(path, "spec", "volumes")
-	volumes, found, err := unstructured.NestedSlice(obj.Object, path...)
-	if err != nil {
-		return err
-	}
-	if !found {
-		sharedMemoryVolume := buildSharedMemoryVolume(adminWorkload.Spec.Resources[id].SharedMemory)
-		volumes = []interface{}{sharedMemoryVolume}
-		if err = unstructured.SetNestedSlice(obj.Object, volumes, path...); err != nil {
-			return err
-		}
-		return nil
-	}
-
-	sharedMemory := jobutils.GetMemoryStorageVolume(volumes)
-	if sharedMemory != nil {
-		sharedMemory["sizeLimit"] = adminWorkload.Spec.Resources[id].SharedMemory
-		if err = unstructured.SetNestedField(obj.Object, volumes, path...); err != nil {
-			return err
-		}
-	} else {
-		volumes = append(volumes, buildSharedMemoryVolume(adminWorkload.Spec.Resources[id].SharedMemory))
-		if err = unstructured.SetNestedSlice(obj.Object, volumes, path...); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// updateHostNetwork updates the host network configuration.
-func updateHostNetwork(adminWorkload *v1.Workload,
-	obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec) error {
-	templatePath := resourceSpec.GetTemplatePath()
-	path := append(templatePath, "spec", "hostNetwork")
-	return modifyHostNetwork(obj, adminWorkload, path)
-}
-
-// updatePriorityClass updates the priority class configuration.
-func updatePriorityClass(adminWorkload *v1.Workload,
-	obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec) error {
-	templatePath := resourceSpec.GetTemplatePath()
-	path := append(templatePath, "spec", "priorityClassName")
-	return modifyPriorityClass(obj, adminWorkload, path)
-}
-
-// getNfsPathFromWorkspace retrieves the NFS path from the workspace's volumes.
-// It prioritizes PFS type volumes, otherwise falls back to the first available volume's mount path.
-func getNfsPathFromWorkspace(workspace *v1.Workspace) string {
-	result := ""
-	for _, vol := range workspace.Spec.Volumes {
-		if vol.Type == v1.PFS {
-			result = vol.MountPath
-			break
-		}
-	}
-	if result == "" && len(workspace.Spec.Volumes) > 0 {
-		result = workspace.Spec.Volumes[0].MountPath
-	}
-	return result
 }
 
 // createService creates a Kubernetes Service for the workload if specified.
@@ -960,7 +694,7 @@ func (r *DispatcherReconciler) createService(ctx context.Context, adminWorkload 
 	// Only set owner reference when the owner object has a valid UID.
 	owner := obj
 	if len(owner.GetUID()) == 0 {
-		if fetched, getErr := jobutils.GetObjectByClientFactory(ctx, clusterInformer.ClientFactory(),
+		if fetched, getErr := jobutils.GetObject(ctx, clusterInformer.ClientFactory(),
 			obj.GetName(), obj.GetNamespace(), obj.GroupVersionKind()); getErr != nil {
 			return ctrlruntime.Result{}, getErr
 		} else {
@@ -1053,14 +787,6 @@ func (r *DispatcherReconciler) updateService(ctx context.Context, adminWorkload 
 	return ctrlruntime.Result{}, nil
 }
 
-func generateServicePorts(specService *v1.Service) []corev1.ServicePort {
-	return []corev1.ServicePort{{
-		Protocol:   specService.Protocol,
-		Port:       int32(specService.Port),
-		TargetPort: intstr.IntOrString{IntVal: int32(specService.TargetPort)},
-	}}
-}
-
 // createIngress creates an Ingress in the same namespace that points to the same-named Service.
 func (r *DispatcherReconciler) createIngress(ctx context.Context, adminWorkload *v1.Workload,
 	clusterInformer *syncer.ClusterInformer, obj *unstructured.Unstructured) (ctrlruntime.Result, error) {
@@ -1110,7 +836,7 @@ func (r *DispatcherReconciler) createIngress(ctx context.Context, adminWorkload 
 	// Only set owner reference when the owner object has a valid UID.
 	owner := obj
 	if len(owner.GetUID()) == 0 {
-		if fetched, getErr := jobutils.GetObjectByClientFactory(ctx, clusterInformer.ClientFactory(),
+		if fetched, getErr := jobutils.GetObject(ctx, clusterInformer.ClientFactory(),
 			obj.GetName(), obj.GetNamespace(), obj.GroupVersionKind()); getErr != nil {
 			return ctrlruntime.Result{}, getErr
 		} else {
@@ -1196,10 +922,58 @@ func generateRandomPort(ports map[int]bool) int {
 	return 0
 }
 
-// buildDispatchCount generates the dispatch count as a string.
-func buildDispatchCount(w *v1.Workload) string {
-	// The count for the first dispatch is 1, so it needs to be incremented by 1 here.
-	return strconv.Itoa(v1.GetWorkloadDispatchCnt(w) + 1)
+// generateLighthouse generates a lighthouse workload for TorchFT jobs, which is used for coordination and management of the training process
+func generateLighthouse(rootWorkload *v1.Workload) *v1.Workload {
+	workload := rootWorkload.DeepCopy()
+	displayName := v1.GetDisplayName(rootWorkload) + "-0"
+	workload.Name = commonutils.GenerateName(displayName)
+	v1.SetLabel(workload, v1.DisplayNameLabel, displayName)
+	v1.SetLabel(workload, v1.RootWorkloadIdLabel, rootWorkload.Name)
+	v1.SetLabel(workload, appName, workload.Name)
+
+	minGroup, _ := commonworkload.GetReplicaGroup(workload, common.MinReplicaGroup)
+	entryPoint := stringutil.Base64Decode(commonconfig.GetTorchFTLightHouse()) + fmt.Sprintf(" --min_replicas %d", minGroup)
+	workload.Spec.EntryPoint = stringutil.Base64Encode(entryPoint)
+	workload.Spec.Kind = common.DeploymentKind
+	workload.Spec.Resources = []v1.WorkloadResource{rootWorkload.Spec.Resources[0]}
+	workload.Spec.Service = &v1.Service{
+		Protocol:    corev1.ProtocolTCP,
+		Port:        LightHousePort,
+		TargetPort:  LightHousePort,
+		ServiceType: corev1.ServiceTypeClusterIP,
+	}
+	return workload
+}
+
+// generateTorchFTJob generates a TorchFT job. It uses PyTorchJob as the main entity and integrates with Lighthouse via environment variables.
+func generateTorchFTJob(rootWorkload *v1.Workload, id, group int, lightHouseAddr string) *v1.Workload {
+	workload := rootWorkload.DeepCopy()
+	// The webhook has already validated the resources.
+	nodePerGroup := rootWorkload.Spec.Resources[1].Replica / group
+	displayName := v1.GetDisplayName(rootWorkload) + "-" + strconv.Itoa(id+1)
+	workload.Name = commonutils.GenerateName(displayName)
+	workload.Spec.Resources = []v1.WorkloadResource{rootWorkload.Spec.Resources[1]}
+	workload.Spec.Resources[0].Replica = nodePerGroup
+	if workload.Spec.Env == nil {
+		workload.Spec.Env = make(map[string]string)
+	}
+	workload.Spec.Env[common.TorchFTLightHouse] = lightHouseAddr
+
+	entryPoint := stringutil.Base64Decode(workload.Spec.EntryPoint)
+	workload.Spec.EntryPoint = stringutil.Base64Encode(entryPoint + " --fault_tolerance.enable --fault_tolerance.replica_id=" +
+		strconv.Itoa(id) + " --fault_tolerance.group_size=" + strconv.Itoa(group))
+	workload.Spec.GroupVersionKind.Kind = common.PytorchJobKind
+	v1.SetLabel(workload, v1.DisplayNameLabel, displayName)
+	v1.SetLabel(workload, v1.RootWorkloadIdLabel, rootWorkload.Name)
+	return workload
+}
+
+func generateServicePorts(specService *v1.Service) []corev1.ServicePort {
+	return []corev1.ServicePort{{
+		Protocol:   specService.Protocol,
+		Port:       int32(specService.Port),
+		TargetPort: intstr.IntOrString{IntVal: int32(specService.TargetPort)},
+	}}
 }
 
 // shouldDispatch checks if a workload is ready to be dispatched.
