@@ -112,11 +112,11 @@ func ListObject(ctx context.Context, k8sClientFactory *commonclient.ClientFactor
 	return list.Items, nil
 }
 
-// DeleteObjectsByWorkload deletes all Kubernetes objects associated with a specific workload
-// It retrieves all related objects in the data plane, and deletes each object one by one
-// Returns true if objects were found and deleted, false if no objects were found.
-func DeleteObjectsByWorkload(ctx context.Context, adminClient client.Client,
-	k8sClientFactory *commonclient.ClientFactory, adminWorkload *v1.Workload) (bool, error) {
+// ListObjectsByWorkload list all Kubernetes objects associated with a specific workload
+// It retrieves all related objects in the data plane
+// Returns the found objects, otherwise returns an error
+func ListObjectsByWorkload(ctx context.Context, adminClient client.Client,
+	k8sClientFactory *commonclient.ClientFactory, adminWorkload *v1.Workload) ([]unstructured.Unstructured, error) {
 
 	var gvks []schema.GroupVersionKind
 	if commonworkload.IsTorchFT(adminWorkload) {
@@ -129,31 +129,40 @@ func DeleteObjectsByWorkload(ctx context.Context, adminClient client.Client,
 	} else {
 		rt, err := commonworkload.GetResourceTemplate(ctx, adminClient, adminWorkload)
 		if err != nil {
-			return false, err
+			return nil, err
 		}
 		gvks = append(gvks, rt.ToSchemaGVK())
 	}
 
 	labelSelector := v1.WorkloadIdLabel + "=" + adminWorkload.Name
-	hasFound := false
+	var result []unstructured.Unstructured
 	for _, gvk := range gvks {
 		unstructuredObjs, err := ListObject(ctx, k8sClientFactory, labelSelector, adminWorkload.Spec.Workspace, gvk)
 		if err != nil {
-			return false, err
+			return nil, err
 		}
-		if len(unstructuredObjs) == 0 {
-			continue
-		}
-		hasFound = true
-		for _, obj := range unstructuredObjs {
-			// delete the related resource in data plane
-			if err = DeleteObject(ctx, k8sClientFactory, &obj); err != nil && !apierrors.IsNotFound(err) {
-				klog.ErrorS(err, "failed to delete k8s object")
-				return false, err
-			}
+		result = append(result, unstructuredObjs...)
+	}
+	return result, nil
+}
+
+// DeleteObjectsByWorkload deletes all Kubernetes objects associated with a specific workload
+// It retrieves all related objects in the data plane, and deletes each object one by one
+// Returns true if objects were found and deleted, false if no objects were found.
+func DeleteObjectsByWorkload(ctx context.Context, adminClient client.Client,
+	k8sClientFactory *commonclient.ClientFactory, adminWorkload *v1.Workload) (bool, error) {
+	unstructuredObjs, err := ListObjectsByWorkload(ctx, adminClient, k8sClientFactory, adminWorkload)
+	if err != nil || len(unstructuredObjs) == 0 {
+		return false, err
+	}
+	for _, obj := range unstructuredObjs {
+		// delete the related resource in data plane
+		if err = DeleteObject(ctx, k8sClientFactory, &obj); err != nil && !apierrors.IsNotFound(err) {
+			klog.ErrorS(err, "failed to delete k8s object")
+			return true, err
 		}
 	}
-	return hasFound, nil
+	return true, nil
 }
 
 // GetObjectByInformer retrieves an object from the informer cache.

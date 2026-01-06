@@ -84,10 +84,20 @@ func (r *SyncerReconciler) handleJobImpl(ctx context.Context, message *resourceM
 		if !r.waitJobDeleted(ctx, message, informer) {
 			return ctrlruntime.Result{RequeueAfter: time.Second * 3}, nil
 		}
-	}
-
-	if true {
 		if !adminWorkload.IsEnd() {
+			// TorchFT workloads consist of multiple objects (groups), while other workloads have a single object.
+			// For TorchFT: wait until ALL objects in the group are deleted before triggering reSchedule
+			// For other workloads: single job deletion is sufficient to trigger reSchedule
+			if commonworkload.IsTorchFT(adminWorkload) {
+				unstructuredObjs, err := jobutils.ListObjectsByWorkload(ctx, r.Client, informer.ClientFactory(), adminWorkload)
+				if err != nil {
+					klog.ErrorS(err, "failed to list objects by workload", "workload", adminWorkload.Name)
+					return ctrlruntime.Result{}, err
+				}
+				if len(unstructuredObjs) != 0 {
+					return ctrlruntime.Result{}, nil
+				}
+			}
 			if err = r.reSchedule(ctx, adminWorkload, message.dispatchCount); err != nil {
 				klog.ErrorS(err, "failed to reSchedule", "workload", adminWorkload.Name)
 				return ctrlruntime.Result{}, err
