@@ -1616,7 +1616,6 @@ func Test_cvtDBWorkloadToResponseItem(t *testing.T) {
 		Priority:       5,
 		IsTolerateAll:  true,
 		WorkloadUId:    sql.NullString{String: "uid-123", Valid: true},
-		K8sObjectUid:   sql.NullString{String: "k8s-uid-456", Valid: true},
 		ScaleRunnerSet: sql.NullString{String: "runner-set-1", Valid: true},
 		ScaleRunnerId:  sql.NullString{String: "runner-id-1", Valid: true},
 		QueuePosition:  3,
