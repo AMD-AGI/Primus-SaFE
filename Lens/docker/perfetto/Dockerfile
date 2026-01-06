@@ -50,8 +50,10 @@ RUN apk add --no-cache curl sed
 # Create directories
 RUN mkdir -p /data /usr/share/nginx/html/perfetto
 
-# Copy built Perfetto UI from builder stage
+# Copy built Perfetto UI from builder stage and fix permissions
 COPY --from=builder /perfetto-dist /usr/share/nginx/html/perfetto
+RUN chmod -R 755 /usr/share/nginx/html/perfetto && \
+    find /usr/share/nginx/html/perfetto -type f -exec chmod 644 {} \;
 
 # Copy custom scripts
 COPY url-fix.js /usr/share/nginx/html/perfetto/url-fix.js
