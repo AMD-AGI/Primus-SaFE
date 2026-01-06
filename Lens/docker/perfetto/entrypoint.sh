@@ -97,14 +97,29 @@ echo "=========================================="
 echo "Configuring Perfetto UI..."
 echo "=========================================="
 
-# Set base path for Perfetto UI if UI_BASE_PATH is provided
-# This is needed when Perfetto is served behind a reverse proxy
+# Configure Perfetto UI for proxy access
 INDEX_FILE="/usr/share/nginx/html/perfetto/index.html"
-if [ -n "$UI_BASE_PATH" ] && [ -f "$INDEX_FILE" ]; then
-    echo "Setting UI base path to: ${UI_BASE_PATH}"
-    # Insert <base> tag after <head> to set the base URL
-    sed -i "s|<head>|<head><base href=\"${UI_BASE_PATH}\">|" "$INDEX_FILE"
-    echo "Base path configured successfully"
+if [ -f "$INDEX_FILE" ]; then
+    echo "Configuring Perfetto UI..."
+    
+    # Set base path for Perfetto UI if UI_BASE_PATH is provided
+    if [ -n "$UI_BASE_PATH" ]; then
+        echo "Setting UI base path to: ${UI_BASE_PATH}"
+        sed -i "s|<head>|<head><base href=\"${UI_BASE_PATH}\">|" "$INDEX_FILE"
+    fi
+    
+    # Inject url-fix.js script to run BEFORE Perfetto loads
+    # This removes the url parameter from hash to prevent "Invalid URL" error
+    # Must be first script in <head> to run before any other scripts
+    if [ -n "$UI_BASE_PATH" ]; then
+        # Insert after <base> tag
+        sed -i "s|<base href=\"${UI_BASE_PATH}\">|<base href=\"${UI_BASE_PATH}\"><script src=\"/url-fix.js\"></script>|" "$INDEX_FILE"
+    else
+        # Insert right after <head>
+        sed -i 's|<head>|<head><script src="/url-fix.js"></script>|' "$INDEX_FILE"
+    fi
+    
+    echo "Perfetto UI configured successfully"
 fi
 
 echo "=========================================="

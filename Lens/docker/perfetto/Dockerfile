@@ -53,7 +53,8 @@ RUN mkdir -p /data /usr/share/nginx/html/perfetto
 # Copy built Perfetto UI from builder stage
 COPY --from=builder /perfetto-dist /usr/share/nginx/html/perfetto
 
-# Copy custom auto-load script
+# Copy custom scripts
+COPY url-fix.js /usr/share/nginx/html/perfetto/url-fix.js
 COPY auto-load.js /usr/share/nginx/html/perfetto/auto-load.js
 
 # Copy nginx configuration
