@@ -207,7 +207,7 @@ func (h *Handler) listPlaygroundServices(c *gin.Context) (interface{}, error) {
 		}
 
 		// Filter by workspace if specified
-		if query.Workspace != "" && w.Namespace != query.Workspace {
+		if query.Workspace != "" && w.Spec.Workspace != query.Workspace {
 			continue
 		}
 

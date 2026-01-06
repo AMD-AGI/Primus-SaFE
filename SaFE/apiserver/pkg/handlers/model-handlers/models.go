@@ -763,7 +763,7 @@ func (h *Handler) getWorkloadConfig(c *gin.Context) (interface{}, error) {
 	// Pre-filled fields: DisplayName, Description, Labels, Env, ModelID, ModelName, ModelPath, AccessMode, MaxTokens, Workspace
 	// User-provided fields: Image, EntryPoint, CPU, Memory, GPU (must be filled by frontend)
 	config := WorkloadConfigResponse{
-		DisplayName: fmt.Sprintf("%s-infer", k8sModel.Spec.DisplayName),
+		DisplayName: stringutil.NormalizeForDNS(fmt.Sprintf("%s-infer", k8sModel.Spec.DisplayName)),
 		Description: fmt.Sprintf("Inference service for %s", k8sModel.Spec.DisplayName),
 		Labels: map[string]string{
 			v1.SourceModelLabel: modelId,
@@ -772,7 +772,7 @@ func (h *Handler) getWorkloadConfig(c *gin.Context) (interface{}, error) {
 			"MODEL_PATH": modelPath,
 		},
 		ModelID:          modelId,
-		ModelName:        stringutil.NormalizeForDNS(k8sModel.GetModelName()),
+		ModelName:        k8sModel.GetModelName(),
 		ModelPath:        modelPath,
 		AccessMode:       string(k8sModel.Spec.Source.AccessMode),
 		MaxTokens:        k8sModel.Spec.MaxTokens,
