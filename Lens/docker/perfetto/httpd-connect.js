@@ -1,30 +1,34 @@
-// httpd-connect.js - Intercept HTTP RPC requests to 127.0.0.1:9001 and redirect to nginx proxy
-// This allows Perfetto UI to use server-side trace_processor via our proxy
+// httpd-connect.js - Intercept HTTP RPC and WebSocket requests to 127.0.0.1:9001
+// Redirects to nginx proxy for server-side trace_processor
 (function() {
   'use strict';
   
-  // Build proxy URL based on current location
-  const basePath = window.location.pathname.replace(/\/$/, '');
-  const RPC_PROXY_BASE = window.location.origin + basePath + '/rpc';
+  // Build proxy URLs based on current location
+  var basePath = window.location.pathname.replace(/\/$/, '');
+  var RPC_PROXY_BASE = window.location.origin + basePath + '/rpc';
   
-  console.log('[HTTPD] Installing RPC interceptor, proxy base:', RPC_PROXY_BASE);
+  // WebSocket URL: wss:// for https://, ws:// for http://
+  var wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  var WS_PROXY_BASE = wsProtocol + '//' + window.location.host + basePath + '/rpc';
+  
+  console.log('[HTTPD] RPC proxy base:', RPC_PROXY_BASE);
+  console.log('[HTTPD] WebSocket proxy base:', WS_PROXY_BASE);
   
   // Pattern to match trace_processor HTTP server
-  const TP_PATTERN = /^https?:\/\/(127\.0\.0\.1|localhost):9001/;
+  var TP_PATTERN = /^https?:\/\/(127\.0\.0\.1|localhost):9001/;
+  var TP_WS_PATTERN = /^wss?:\/\/(127\.0\.0\.1|localhost):9001/;
   
   // Intercept fetch requests
-  const originalFetch = window.fetch;
+  var originalFetch = window.fetch;
   window.fetch = function(input, init) {
-    let url = typeof input === 'string' ? input : (input instanceof Request ? input.url : String(input));
+    var url = typeof input === 'string' ? input : (input instanceof Request ? input.url : String(input));
     
     if (TP_PATTERN.test(url)) {
-      // Redirect to our proxy
-      const urlObj = new URL(url);
-      const newUrl = RPC_PROXY_BASE + urlObj.pathname + urlObj.search;
+      var urlObj = new URL(url);
+      var newUrl = RPC_PROXY_BASE + urlObj.pathname + urlObj.search;
       console.log('[HTTPD] Redirecting fetch:', url, '->', newUrl);
       
-      // Clone init and ensure CORS mode
-      const newInit = init ? { ...init } : {};
+      var newInit = init ? Object.assign({}, init) : {};
       newInit.mode = 'cors';
       
       if (typeof input === 'string') {
@@ -38,66 +42,64 @@
   };
   
   // Intercept XMLHttpRequest
-  const originalXHROpen = XMLHttpRequest.prototype.open;
+  var originalXHROpen = XMLHttpRequest.prototype.open;
   XMLHttpRequest.prototype.open = function(method, url, async, user, password) {
     if (typeof url === 'string' && TP_PATTERN.test(url)) {
-      const urlObj = new URL(url);
-      const newUrl = RPC_PROXY_BASE + urlObj.pathname + urlObj.search;
+      var urlObj = new URL(url);
+      var newUrl = RPC_PROXY_BASE + urlObj.pathname + urlObj.search;
       console.log('[HTTPD] Redirecting XHR:', url, '->', newUrl);
       return originalXHROpen.call(this, method, newUrl, async !== false, user, password);
     }
     return originalXHROpen.apply(this, arguments);
   };
   
-  // Intercept WebSocket connections (Perfetto might use WebSocket for RPC)
-  const originalWebSocket = window.WebSocket;
+  // Intercept WebSocket connections
+  var OriginalWebSocket = window.WebSocket;
   window.WebSocket = function(url, protocols) {
-    if (typeof url === 'string' && TP_PATTERN.test(url)) {
-      // WebSocket proxy requires different handling
-      // For now, just log - we'd need wss proxy setup for this
-      console.log('[HTTPD] WebSocket to trace_processor detected:', url);
+    var newUrl = url;
+    
+    if (typeof url === 'string' && TP_WS_PATTERN.test(url)) {
+      // Parse the original URL and redirect to our proxy
+      var urlObj = new URL(url);
+      newUrl = WS_PROXY_BASE + urlObj.pathname + urlObj.search;
+      console.log('[HTTPD] Redirecting WebSocket:', url, '->', newUrl);
     }
-    return new originalWebSocket(url, protocols);
+    
+    if (protocols !== undefined) {
+      return new OriginalWebSocket(newUrl, protocols);
+    } else {
+      return new OriginalWebSocket(newUrl);
+    }
   };
-  window.WebSocket.prototype = originalWebSocket.prototype;
-  window.WebSocket.CONNECTING = originalWebSocket.CONNECTING;
-  window.WebSocket.OPEN = originalWebSocket.OPEN;
-  window.WebSocket.CLOSING = originalWebSocket.CLOSING;
-  window.WebSocket.CLOSED = originalWebSocket.CLOSED;
   
-  // Check if RPC proxy is available and log status
-  async function checkRpcStatus() {
-    try {
-      const response = await originalFetch.call(window, RPC_PROXY_BASE + '/status', {
-        method: 'GET',
-        mode: 'cors'
-      });
+  // Copy static properties and prototype
+  window.WebSocket.prototype = OriginalWebSocket.prototype;
+  window.WebSocket.CONNECTING = OriginalWebSocket.CONNECTING;
+  window.WebSocket.OPEN = OriginalWebSocket.OPEN;
+  window.WebSocket.CLOSING = OriginalWebSocket.CLOSING;
+  window.WebSocket.CLOSED = OriginalWebSocket.CLOSED;
+  
+  // Check if RPC proxy is available
+  function checkRpcStatus() {
+    originalFetch.call(window, RPC_PROXY_BASE + '/status', {
+      method: 'GET',
+      mode: 'cors'
+    }).then(function(response) {
       if (response.ok) {
-        const text = await response.text();
-        console.log('[HTTPD] RPC proxy status:', text);
-        return true;
+        return response.text();
       }
-    } catch (e) {
+      throw new Error('Status check failed');
+    }).then(function(text) {
+      console.log('[HTTPD] RPC proxy status:', text);
+    }).catch(function(e) {
       console.warn('[HTTPD] RPC proxy not available:', e.message);
-    }
-    return false;
+    });
   }
   
-  // Trigger Perfetto to check for HTTP RPC by simulating availability
-  // Perfetto calls fetch('http://127.0.0.1:9001/status') to check
-  // Our interceptor will redirect this to /rpc/status
-  
-  // Wait for page load and check RPC status
+  // Check status after page load
   window.addEventListener('load', function() {
-    setTimeout(function() {
-      checkRpcStatus().then(available => {
-        if (available) {
-          console.log('[HTTPD] trace_processor HTTP RPC is available via proxy');
-          console.log('[HTTPD] Perfetto should auto-detect and offer "Use loaded trace" option');
-        }
-      });
-    }, 1000);
+    setTimeout(checkRpcStatus, 1000);
   });
   
-  console.log('[HTTPD] RPC interceptor installed successfully');
+  console.log('[HTTPD] HTTP/WebSocket RPC interceptor installed');
 })();
