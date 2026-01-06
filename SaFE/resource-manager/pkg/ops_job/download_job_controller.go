@@ -175,6 +175,7 @@ func (r *DownloadJobReconciler) generateDownloadWorkload(ctx context.Context, jo
 			Annotations: map[string]string{
 				v1.UserNameAnnotation:          v1.GetUserName(job),
 				v1.WorkloadScheduledAnnotation: timeutil.FormatRFC3339(time.Now().UTC()),
+				v1.DescriptionAnnotation:       v1.OpsJobKind,
 			},
 		},
 		Spec: v1.WorkloadSpec{
