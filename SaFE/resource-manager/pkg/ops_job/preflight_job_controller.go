@@ -170,7 +170,8 @@ func (r *PreflightJobReconciler) generatePreflightWorkload(ctx context.Context, 
 				v1.DisplayNameLabel:  job.Name,
 			},
 			Annotations: map[string]string{
-				v1.UserNameAnnotation: v1.GetUserName(job),
+				v1.UserNameAnnotation:    v1.GetUserName(job),
+				v1.DescriptionAnnotation: v1.OpsJobKind,
 			},
 		},
 		Spec: v1.WorkloadSpec{
