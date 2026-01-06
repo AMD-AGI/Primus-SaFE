@@ -230,7 +230,7 @@ func (h *Handler) listPlaygroundServices(c *gin.Context) (interface{}, error) {
 			ID:              w.Name,
 			DisplayName:     w.Name, // Workload doesn't have DisplayName, use Name
 			Phase:           string(w.Status.Phase),
-			Workspace:       w.Namespace,
+			Workspace:       w.Spec.Workspace,
 			SourceModelID:   sourceModelID,
 			SourceModelName: sourceModelName,
 		})
