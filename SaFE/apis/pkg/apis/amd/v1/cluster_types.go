@@ -188,6 +188,18 @@ func (cluster *Cluster) IsReady() bool {
 	return false
 }
 
+// IsInDeletion returns true if the cluster is already in the deletion process
+func (cluster *Cluster) IsInDeletion() bool {
+	if cluster == nil {
+		return false
+	}
+	if cluster.Status.ControlPlaneStatus.Phase == DeletingPhase ||
+		cluster.Status.ControlPlaneStatus.Phase == DeletedPhase {
+		return true
+	}
+	return false
+}
+
 // DeleteStorageStatus removes storage status for the specified storage name.
 func (cluster *Cluster) DeleteStorageStatus(name string) {
 	newStatus := make([]StorageStatus, 0, len(cluster.Spec.Storages))
