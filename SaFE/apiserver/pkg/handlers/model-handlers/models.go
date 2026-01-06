@@ -485,19 +485,22 @@ func (h *Handler) deleteModel(c *gin.Context) (interface{}, error) {
 		return nil, commonerrors.NewInternalError("failed to fetch model: " + err.Error())
 	}
 
-	// 2. Check for associated workloads using label selector
+	// 2. Check for associated workloads by annotation (source-model is stored in annotations to avoid affecting scheduling)
+	// Note: K8s doesn't support annotation-based selectors, so we list all and filter in memory
 	workloadList := &v1.WorkloadList{}
-	labelSelector := ctrlclient.MatchingLabels{
-		v1.SourceModelLabel: modelId,
-	}
-	if err := h.k8sClient.List(ctx, workloadList, labelSelector); err != nil {
-		klog.ErrorS(err, "Failed to list workloads by label", "model", modelId)
+	if err := h.k8sClient.List(ctx, workloadList); err != nil {
+		klog.ErrorS(err, "Failed to list workloads", "model", modelId)
 		return nil, commonerrors.NewInternalError("failed to check associated workloads: " + err.Error())
 	}
 
 	// 3. Safety check: Reject deletion if any running/pending workloads exist
 	var runningWorkloads []string
 	for _, w := range workloadList.Items {
+		// Check if workload is associated with this model via annotation
+		sourceModel := w.Annotations[v1.SourceModelLabel]
+		if sourceModel != modelId {
+			continue
+		}
 		phase := w.Status.Phase
 		if phase == v1.WorkloadRunning || phase == v1.WorkloadPending {
 			runningWorkloads = append(runningWorkloads, w.Name)
@@ -763,8 +766,11 @@ func (h *Handler) getWorkloadConfig(c *gin.Context) (interface{}, error) {
 	// Pre-filled fields: DisplayName, Description, Labels, Env, ModelID, ModelName, ModelPath, AccessMode, MaxTokens, Workspace
 	// User-provided fields: Image, EntryPoint, CPU, Memory, GPU (must be filled by frontend)
 	config := WorkloadConfigResponse{
-		DisplayName:      stringutil.NormalizeForDNS(fmt.Sprintf("%s-infer", k8sModel.Spec.DisplayName)),
-		Description:      fmt.Sprintf("Inference service for %s", k8sModel.Spec.DisplayName),
+		DisplayName: stringutil.NormalizeForDNS(fmt.Sprintf("%s-infer", k8sModel.Spec.DisplayName)),
+		Description: fmt.Sprintf("Inference service for %s", k8sModel.Spec.DisplayName),
+		Annotations: map[string]string{
+			v1.SourceModelLabel: modelId,
+		},
 		ModelID:          modelId,
 		ModelName:        k8sModel.GetModelName(),
 		ModelPath:        modelPath,

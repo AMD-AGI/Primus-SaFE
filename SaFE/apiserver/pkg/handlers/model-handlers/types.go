@@ -232,7 +232,7 @@ type WorkloadConfigResponse struct {
 	// Pre-filled fields
 	DisplayName string            `json:"displayName"` // Suggested workload name
 	Description string            `json:"description"` // Description
-	Labels      map[string]string `json:"labels"`      // Labels including source-model
+	Annotations map[string]string `json:"annotations"` // Annotations including source-model (NOT labels to avoid affecting scheduling)
 	Env         map[string]string `json:"env"`         // Environment variables including MODEL_PATH
 
 	// Model info for reference
