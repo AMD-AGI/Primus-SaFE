@@ -26,6 +26,7 @@ import (
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 )
 
 // CreateModel handles the creation of a new playground model.
@@ -770,18 +771,19 @@ func (h *Handler) getWorkloadConfig(c *gin.Context) (interface{}, error) {
 		Env: map[string]string{
 			"MODEL_PATH": modelPath,
 		},
-		ModelID:    modelId,
-		ModelName:  k8sModel.GetModelName(),
-		ModelPath:  modelPath,
-		AccessMode: string(k8sModel.Spec.Source.AccessMode),
-		MaxTokens:  k8sModel.Spec.MaxTokens,
-		Workspace:  workspace,
-		Image:      "rocm/vllm:latest",
-		EntryPoint: fmt.Sprintf("vllm serve %s --served-model-name %s", modelPath, k8sModel.GetModelName()),
-		CPU:        "16",
-		Memory:     "64",
-		GPU:        "1",
-		Replica:    "1",
+		ModelID:          modelId,
+		ModelName:        stringutil.NormalizeForDNS(k8sModel.GetModelName()),
+		ModelPath:        modelPath,
+		AccessMode:       string(k8sModel.Spec.Source.AccessMode),
+		MaxTokens:        k8sModel.Spec.MaxTokens,
+		Workspace:        workspace,
+		Image:            "rocm/vllm:latest",
+		EntryPoint:       fmt.Sprintf("vllm serve %s --served-model-name %s", modelPath, k8sModel.GetModelName()),
+		CPU:              "16",
+		Memory:           "64",
+		GPU:              "1",
+		Replica:          "1",
+		EphemeralStorage: "50Gi",
 	}
 
 	return config, nil

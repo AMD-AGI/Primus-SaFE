@@ -200,6 +200,11 @@ type PlaygroundServiceItem struct {
 	IngressURL      string `json:"ingressUrl,omitempty"`      // Ingress URL for the workload
 }
 
+// ListPlaygroundServicesQuery represents query parameters for listing playground services.
+type ListPlaygroundServicesQuery struct {
+	Workspace string `form:"workspace" binding:"omitempty"` // Filter workloads by workspace
+}
+
 // ListPlaygroundServicesResponse represents the response for listing playground services.
 type ListPlaygroundServicesResponse struct {
 	Total int                     `json:"total"`
@@ -230,13 +235,14 @@ type WorkloadConfigResponse struct {
 	MaxTokens  int    `json:"maxTokens"`
 
 	// Fields to be filled by user
-	Image      string `json:"image"`      // Container image (user must provide)
-	EntryPoint string `json:"entryPoint"` // Entry point command (user must provide)
-	Workspace  string `json:"workspace"`  // Target workspace
-	CPU        string `json:"cpu"`        // CPU request
-	Memory     string `json:"memory"`     // Memory request
-	GPU        string `json:"gpu"`        // GPU request
-	Replica    string `json:"replica"`
+	Image            string `json:"image"`      // Container image (user must provide)
+	EntryPoint       string `json:"entryPoint"` // Entry point command (user must provide)
+	Workspace        string `json:"workspace"`  // Target workspace
+	CPU              string `json:"cpu"`        // CPU request
+	Memory           string `json:"memory"`     // Memory request
+	GPU              string `json:"gpu"`        // GPU request
+	Replica          string `json:"replica"`
+	EphemeralStorage string `json:"ephemeralStorage"`
 }
 
 // --- Model Workloads Types ---
