@@ -218,6 +218,14 @@ type WorkloadConfigRequest struct {
 	Workspace string `form:"workspace" binding:"required"` // Target workspace for deployment
 }
 
+// WorkloadServiceConfig represents the service configuration for a workload.
+type WorkloadServiceConfig struct {
+	Protocol    string `json:"protocol"`    // TCP or UDP
+	Port        int    `json:"port"`        // Service port
+	TargetPort  int    `json:"targetPort"`  // Container port
+	ServiceType string `json:"serviceType"` // ClusterIP, NodePort, etc.
+}
+
 // WorkloadConfigResponse represents the auto-generated workload configuration.
 // Frontend can use this to pre-fill the workload creation form.
 type WorkloadConfigResponse struct {
@@ -234,15 +242,16 @@ type WorkloadConfigResponse struct {
 	AccessMode string `json:"accessMode"`
 	MaxTokens  int    `json:"maxTokens"`
 
-	// Fields to be filled by user
-	Image            string `json:"image"`      // Container image (user must provide)
-	EntryPoint       string `json:"entryPoint"` // Entry point command (user must provide)
-	Workspace        string `json:"workspace"`  // Target workspace
-	CPU              string `json:"cpu"`        // CPU request
-	Memory           string `json:"memory"`     // Memory request
-	GPU              string `json:"gpu"`        // GPU request
-	Replica          string `json:"replica"`
-	EphemeralStorage string `json:"ephemeralStorage"`
+	// Fields to be filled by user (with defaults for inference workloads)
+	Image            string                `json:"image"`            // Container image (user must provide)
+	EntryPoint       string                `json:"entryPoint"`       // Entry point command (user must provide)
+	Workspace        string                `json:"workspace"`        // Target workspace
+	CPU              string                `json:"cpu"`              // CPU request
+	Memory           string                `json:"memory"`           // Memory request
+	GPU              string                `json:"gpu"`              // GPU request
+	Replica          string                `json:"replica"`          // Number of replicas
+	EphemeralStorage string                `json:"ephemeralStorage"` // Ephemeral storage
+	Service          WorkloadServiceConfig `json:"service"`          // Service configuration
 }
 
 // --- Model Workloads Types ---
