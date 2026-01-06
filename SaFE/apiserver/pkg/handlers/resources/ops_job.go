@@ -127,6 +127,9 @@ func (h *Handler) listOpsJob(c *gin.Context) (interface{}, error) {
 		klog.ErrorS(err, "failed to parse query")
 		return nil, err
 	}
+	if err = h.authGetOpsJob(c, query.WorkspaceId); err != nil {
+		return nil, err
+	}
 
 	dbSql, orderBy := cvtToListOpsJobSql(query)
 	jobs, err := h.dbClient.SelectJobs(c.Request.Context(), dbSql, orderBy, query.Limit, query.Offset)
@@ -151,6 +154,10 @@ func (h *Handler) listOpsJob(c *gin.Context) (interface{}, error) {
 func (h *Handler) getOpsJob(c *gin.Context) (interface{}, error) {
 	opsJob, err := h.getOpsJobFromDB(c)
 	if err != nil {
+		return nil, err
+	}
+	workspaceId := dbutils.ParseNullString(opsJob.Workspace)
+	if err = h.authGetOpsJob(c, workspaceId); err != nil {
 		return nil, err
 	}
 	return cvtToGetOpsJobResponse(opsJob), nil
@@ -784,12 +791,6 @@ func (h *Handler) parseListOpsJobQuery(c *gin.Context) (*view.ListOpsJobRequest,
 	if query.SinceTime.After(query.UntilTime) {
 		return nil, commonerrors.NewBadRequest("the since time is greater than until time")
 	}
-	if err = h.accessController.AuthorizeSystemAdmin(authority.AccessInput{
-		Context: c.Request.Context(),
-		UserId:  c.GetString(common.UserId),
-	}, true); err != nil {
-		query.UserId = c.GetString(common.UserId)
-	}
 	return query, nil
 }
 
@@ -837,13 +838,24 @@ func (h *Handler) cvtToGetOpsJobSql(c *gin.Context) (sqrl.Sqlizer, error) {
 	dbSql := sqrl.And{
 		sqrl.Eq{dbclient.GetFieldTag(dbTags, "JobId"): jobId},
 	}
-	if err := h.accessController.AuthorizeSystemAdmin(authority.AccessInput{
-		Context: c.Request.Context(),
-		UserId:  c.GetString(common.UserId),
-	}, true); err != nil {
-		dbSql = append(dbSql, sqrl.Eq{dbclient.GetFieldTag(dbTags, "UserId"): c.GetString(common.UserId)})
-	}
 	return dbSql, nil
+}
+
+func (h *Handler) authGetOpsJob(c *gin.Context, workspaceId string) error {
+	var workspaces []string
+	if workspaceId != "" {
+		workspaces = []string{workspaceId}
+	}
+	if err := h.accessController.Authorize(authority.AccessInput{
+		Context:      c.Request.Context(),
+		ResourceKind: v1.OpsJobKind,
+		Verb:         v1.GetVerb,
+		Workspaces:   workspaces,
+		UserId:       c.GetString(common.UserId),
+	}); err != nil {
+		return err
+	}
+	return nil
 }
 
 // parseCreateOpsJobRequest parses and validates the request for creating an ops job.

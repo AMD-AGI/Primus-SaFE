@@ -82,6 +82,7 @@ rules:
     - node
     - workspace
     - user
+    - opsjob
   grantedUsers:
     - workspace-user
   verbs:

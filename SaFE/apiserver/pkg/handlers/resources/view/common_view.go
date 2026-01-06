@@ -8,6 +8,8 @@ package view
 const (
 	DefaultQueryLimit = 100
 	MaxRetry          = 3
+
+	WorkspaceId = "workspaceId"
 )
 
 type ResourceList map[string]int64
