@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"time"
 
+	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
@@ -181,7 +182,7 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrlruntime.Reque
 	if err != nil {
 		return ctrlruntime.Result{}, client.IgnoreNotFound(err)
 	}
-	if !cluster.GetDeletionTimestamp().IsZero() {
+	if !cluster.GetDeletionTimestamp().IsZero() && !cluster.IsInDeletion() {
 		if err = r.cleanupClusterResources(ctx, cluster); err != nil {
 			return ctrlruntime.Result{}, err
 		}
@@ -280,7 +281,7 @@ func (r *ClusterReconciler) resetNodesOfCluster(ctx context.Context, cluster *v1
 		deleteConcernedMeta(&n)
 		n.Spec.Cluster = nil
 		n.Spec.Workspace = nil
-		n.Spec.Taints = nil
+		n.Spec.Taints = commonfaults.GetCustomerTaints(n.Spec.Taints)
 		if err := r.Update(ctx, &n); err != nil {
 			klog.ErrorS(err, "failed to update node")
 			return err
@@ -362,10 +363,9 @@ func (r *ClusterReconciler) deletePriorityClass(ctx context.Context, cluster *v1
 	allPriorityClass := genAllPriorityClass(cluster.Name)
 	for _, pc := range allPriorityClass {
 		if err = clientSet.SchedulingV1().PriorityClasses().Delete(ctx, pc.name, metav1.DeleteOptions{}); err != nil {
-			if apierrors.IsNotFound(err) {
-				continue
+			if !apierrors.IsNotFound(err) {
+				return err
 			}
-			return err
 		}
 		klog.Infof("delete PriorityClass, name: %s", pc.name)
 	}
@@ -470,7 +470,7 @@ func (r *ClusterReconciler) deleteAllImageSecrets(ctx context.Context, cluster *
 		common.PrimusSafeNamespace).Get(ctx, targetName, metav1.GetOptions{})
 	if err == nil && (adminPlaneSecret == nil || adminPlaneSecret.UID != dataPlaneSecret.UID) {
 		err = k8sClients.ClientSet().CoreV1().Secrets(common.PrimusSafeNamespace).Delete(ctx, targetName, metav1.DeleteOptions{})
-		if err != nil {
+		if err != nil && !apierrors.IsNotFound(err) {
 			return err
 		}
 	}
