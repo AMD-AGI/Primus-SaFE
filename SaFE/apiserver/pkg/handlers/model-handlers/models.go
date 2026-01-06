@@ -784,6 +784,12 @@ func (h *Handler) getWorkloadConfig(c *gin.Context) (interface{}, error) {
 		GPU:              "1",
 		Replica:          "1",
 		EphemeralStorage: "50Gi",
+		Service: WorkloadServiceConfig{
+			Protocol:    "TCP",
+			Port:        8000,
+			TargetPort:  8000,
+			ServiceType: "ClusterIP",
+		},
 	}
 
 	return config, nil
