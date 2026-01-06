@@ -75,7 +75,7 @@ func (r *ClusterReconciler) handleControlPlaneCreation(ctx context.Context, clus
 	if err != nil {
 		klog.ErrorS(err, "failed to generate hosts content", "cluster", cluster.Name)
 		if !cluster.DeletionTimestamp.IsZero() {
-			return r.removeFinalizer(ctx, cluster)
+			return r.reset(ctx, cluster, hostsContent)
 		}
 		return err
 	}
@@ -89,15 +89,6 @@ func (r *ClusterReconciler) handleControlPlaneCreation(ctx context.Context, clus
 		return r.reset(ctx, cluster, hostsContent)
 	}
 	return r.createControlPlanePod(ctx, cluster, hostsContent)
-}
-
-// removeFinalizer removes the cluster finalizer during deletion.
-func (r *ClusterReconciler) removeFinalizer(ctx context.Context, cluster *v1.Cluster) error {
-	err := utils.RemoveFinalizer(ctx, r.Client, cluster, v1.ClusterFinalizer)
-	if err == nil {
-		klog.Infof("delete %s finalizer", v1.ClusterFinalizer)
-	}
-	return err
 }
 
 // createControlPlanePod creates and manages the worker pod for cluster creation.
