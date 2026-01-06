@@ -4,7 +4,8 @@
 (function() {
   'use strict';
 
-  const TRACE_URL = '/trace.perfetto';
+  // Use relative path (no leading /) so it works with proxy base path
+  const TRACE_URL = 'trace.perfetto';
 
   async function loadTrace() {
     console.log('[AutoLoad] Starting trace load...');
