@@ -32,41 +32,35 @@
   var originalFetch = window.fetch;
   window.fetch = function(url, options) {
     if (typeof url === 'string' && url.includes('storage.cloud.google.com')) {
-      console.log('[URLFix] Blocking request to Google storage:', url);
+      console.log('[URLFix] Blocking fetch to Google storage:', url);
       return Promise.resolve(new Response('', { status: 200 }));
     }
     return originalFetch.apply(this, arguments);
   };
   
-  // Intercept dynamic script loading to Google storage
-  var originalCreateElement = document.createElement.bind(document);
-  document.createElement = function(tagName) {
-    var element = originalCreateElement(tagName);
-    if (tagName.toLowerCase() === 'script') {
-      var originalSetAttribute = element.setAttribute.bind(element);
-      element.setAttribute = function(name, value) {
-        if (name === 'src' && typeof value === 'string' && value.includes('storage.cloud.google.com')) {
-          console.log('[URLFix] Blocking script load from Google storage:', value);
-          return;
-        }
-        return originalSetAttribute(name, value);
-      };
-      
-      Object.defineProperty(element, 'src', {
-        set: function(value) {
-          if (typeof value === 'string' && value.includes('storage.cloud.google.com')) {
-            console.log('[URLFix] Blocking script src from Google storage:', value);
-            return;
-          }
-          originalSetAttribute('src', value);
-        },
-        get: function() {
-          return element.getAttribute('src');
+  // Use MutationObserver to block Google scripts instead of redefining properties
+  // This is safer and doesn't cause "Cannot redefine property" errors
+  var observer = new MutationObserver(function(mutations) {
+    mutations.forEach(function(mutation) {
+      mutation.addedNodes.forEach(function(node) {
+        if (node.tagName === 'SCRIPT' && node.src && node.src.includes('storage.cloud.google.com')) {
+          console.log('[URLFix] Removing Google script:', node.src);
+          node.remove();
         }
       });
-    }
-    return element;
-  };
+    });
+  });
+  
+  // Start observing when DOM is ready
+  if (document.head) {
+    observer.observe(document.head, { childList: true });
+  }
+  if (document.body) {
+    observer.observe(document.body, { childList: true });
+  }
+  
+  // Also observe document element for early script additions
+  observer.observe(document.documentElement, { childList: true, subtree: true });
   
   console.log('[URLFix] Initialized - URL hash fixed, Google requests blocked');
 })();
