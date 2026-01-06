@@ -212,11 +212,11 @@ func buildPodSpec(ctx context.Context, session *model.TracelensSessions, podName
 								Port: intstr.FromInt(pftconst.DefaultPodPort),
 							},
 						},
-						InitialDelaySeconds: 5,
-						PeriodSeconds:       3,
-						TimeoutSeconds:      2,
+						InitialDelaySeconds: 30,
+						PeriodSeconds:       5,
+						TimeoutSeconds:      5,
 						SuccessThreshold:    1,
-						FailureThreshold:    10,
+						FailureThreshold:    60, // Allow up to 5 minutes for trace loading
 					},
 					LivenessProbe: &corev1.Probe{
 						ProbeHandler: corev1.ProbeHandler{
@@ -225,7 +225,7 @@ func buildPodSpec(ctx context.Context, session *model.TracelensSessions, podName
 								Port: intstr.FromInt(pftconst.DefaultPodPort),
 							},
 						},
-						InitialDelaySeconds: 30,
+						InitialDelaySeconds: 120, // Wait for trace loading
 						PeriodSeconds:       30,
 						TimeoutSeconds:      5,
 						FailureThreshold:    3,

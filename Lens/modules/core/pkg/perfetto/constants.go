@@ -36,11 +36,12 @@ const (
 	// All parts (registry, namespace, version) come from system_config
 	ImageName = "perfetto-viewer"
 
-	// PodMemoryLimit is the memory limit for Perfetto pods (lightweight)
-	PodMemoryLimit = "512Mi"
+	// PodMemoryLimit is the memory limit for Perfetto pods
+	// trace_processor_shell loads entire trace into memory, so needs more RAM
+	PodMemoryLimit = "32Gi"
 
 	// PodCPULimit is the CPU limit for Perfetto pods
-	PodCPULimit = "500m"
+	PodCPULimit = "4"
 )
 
 // ValidStatuses returns all valid session statuses
