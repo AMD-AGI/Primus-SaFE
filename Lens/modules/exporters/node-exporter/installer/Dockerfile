@@ -46,9 +46,28 @@ ARG BASEPATH
 ENV BASEPATH=${BASEPATH}
 ENV APPNAME=${APPNAME}
 
+# py-spy version to install
+ARG PYSPY_VERSION=0.4.0
+
 WORKDIR /root/
 
 RUN echo "APPNAME: $APPNAME"
+
+# Install py-spy for Python profiling support
+# py-spy is a sampling profiler for Python programs
+RUN set -eux; \
+    apt-get update && apt-get install -y --no-install-recommends \
+        curl \
+        ca-certificates \
+    && curl -sSfL "https://github.com/benfred/py-spy/releases/download/v${PYSPY_VERSION}/py-spy-v${PYSPY_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
+        | tar xzf - -C /usr/local/bin \
+    && chmod +x /usr/local/bin/py-spy \
+    && py-spy --version \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create storage directory for py-spy profiling files
+RUN mkdir -p /var/lib/lens/pyspy/profiles && chmod 755 /var/lib/lens/pyspy
 
 # Copy application binary
 COPY --from=builder /app/$BASEPATH/$APPNAME .

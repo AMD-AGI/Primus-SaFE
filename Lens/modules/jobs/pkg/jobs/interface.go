@@ -24,6 +24,7 @@ import (
 	// github_workflow_scanner has been replaced by github-runners-exporter reconciler
 	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/gpu_usage_weekly_report"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/gpu_workload"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/pyspy_task_dispatcher"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/storage_scan"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/tracelens_cleanup"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/workload_statistic"
@@ -162,6 +163,10 @@ func initManagementJobs(cfg *config.JobsConfig) []Job {
 		jobs = append(jobs, gpu_usage_weekly_report.NewGpuUsageWeeklyReportBackfillJob(backfillConfig))
 		log.Info("Weekly report backfill job registered")
 	}
+
+	// Add Py-Spy task dispatcher job
+	jobs = append(jobs, pyspy_task_dispatcher.NewPySpyTaskDispatcherJob())
+	log.Info("Py-Spy task dispatcher job registered")
 
 	// Add more management jobs here in the future
 	// e.g., report distributor, cleanup jobs, etc.

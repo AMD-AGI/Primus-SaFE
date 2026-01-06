@@ -106,6 +106,26 @@ func (f *WorkloadTaskFacade) ListTasksByStatus(ctx context.Context, status strin
 	return tasks, err
 }
 
+// ListPendingTasksByType lists pending tasks by task type
+func (f *WorkloadTaskFacade) ListPendingTasksByType(ctx context.Context, taskType string) ([]*model.WorkloadTaskState, error) {
+	var tasks []*model.WorkloadTaskState
+	err := f.db.WithContext(ctx).
+		Where("task_type = ? AND status = ?", taskType, constant.TaskStatusPending).
+		Order("created_at ASC").
+		Find(&tasks).Error
+	return tasks, err
+}
+
+// ListTasksByTypeAndStatus lists tasks by type and status
+func (f *WorkloadTaskFacade) ListTasksByTypeAndStatus(ctx context.Context, taskType, status string) ([]*model.WorkloadTaskState, error) {
+	var tasks []*model.WorkloadTaskState
+	err := f.db.WithContext(ctx).
+		Where("task_type = ? AND status = ?", taskType, status).
+		Order("created_at ASC").
+		Find(&tasks).Error
+	return tasks, err
+}
+
 // ListRecoverableTasks lists tasks that should be recovered on restart
 func (f *WorkloadTaskFacade) ListRecoverableTasks(ctx context.Context) ([]*model.WorkloadTaskState, error) {
 	var tasks []*model.WorkloadTaskState
