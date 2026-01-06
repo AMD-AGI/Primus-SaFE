@@ -47,11 +47,14 @@ RUN tools/gn gen out/default --args='is_debug=false' && \
     tools/ninja -C out/default trace_processor_shell && \
     cp out/default/trace_processor_shell /trace_processor_shell
 
-# Stage 2: Runtime image
-FROM nginx:alpine
+# Stage 2: Runtime image (use debian-based nginx for glibc compatibility)
+FROM nginx:latest
 
 # Install required tools
-RUN apk add --no-cache curl sed libstdc++ libc6-compat
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    sed \
+    && rm -rf /var/lib/apt/lists/*
 
 # Create directories
 RUN mkdir -p /data /usr/share/nginx/html/perfetto
