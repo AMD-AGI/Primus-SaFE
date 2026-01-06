@@ -103,7 +103,7 @@ func (e *ProcessProbeExecutor) Execute(
 		log.Warnf("Process probe failed for workload %s: %s", workloadUID, errMsg)
 		e.coverageFacade.MarkFailed(ctx, workloadUID, constant.DetectionSourceProcess, errMsg)
 		updates["error"] = errMsg
-		return coreTask.FailureResult(errMsg, updates), fmt.Errorf(errMsg)
+		return coreTask.FailureResult(errMsg, updates), fmt.Errorf("%s", errMsg)
 	}
 
 	// Check pod age (at least 10 seconds)
@@ -113,7 +113,7 @@ func (e *ProcessProbeExecutor) Execute(
 		log.Infof("Process probe deferred for workload %s: %s", workloadUID, errMsg)
 		updates["deferred"] = true
 		updates["pod_age"] = podAge.String()
-		return coreTask.FailureResult(errMsg, updates), fmt.Errorf(errMsg)
+		return coreTask.FailureResult(errMsg, updates), fmt.Errorf("%s", errMsg)
 	}
 
 	// Get process tree

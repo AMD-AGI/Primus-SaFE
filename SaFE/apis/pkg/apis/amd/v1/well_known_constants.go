@@ -62,6 +62,7 @@ const (
 	ClusterManageNodeClusterLabel = ClusterManagePrefix + "node.cluster"
 	ClusterManageScaleDownLabel   = ClusterManagePrefix + "scale.down"
 	ClusterIdLabel                = ClusterPrefix + "id"
+	ClusterControlPlaneLabel      = ClusterPrefix + "control-plane"
 
 	// storage
 	StoragePrefix              = PrimusSafePrefix + "storage."

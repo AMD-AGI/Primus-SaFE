@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -127,6 +127,9 @@ func (h *Handler) listOpsJob(c *gin.Context) (interface{}, error) {
 		klog.ErrorS(err, "failed to parse query")
 		return nil, err
 	}
+	if err = h.authGetOpsJob(c, query.WorkspaceId, string(query.Type)); err != nil {
+		return nil, err
+	}
 
 	dbSql, orderBy := cvtToListOpsJobSql(query)
 	jobs, err := h.dbClient.SelectJobs(c.Request.Context(), dbSql, orderBy, query.Limit, query.Offset)
@@ -151,6 +154,10 @@ func (h *Handler) listOpsJob(c *gin.Context) (interface{}, error) {
 func (h *Handler) getOpsJob(c *gin.Context) (interface{}, error) {
 	opsJob, err := h.getOpsJobFromDB(c)
 	if err != nil {
+		return nil, err
+	}
+	workspaceId := dbutils.ParseNullString(opsJob.Workspace)
+	if err = h.authGetOpsJob(c, workspaceId, opsJob.Type); err != nil {
 		return nil, err
 	}
 	return cvtToGetOpsJobResponse(opsJob), nil
@@ -603,6 +610,10 @@ func (h *Handler) generateDownloadJob(c *gin.Context, body []byte) (*v1.OpsJob, 
 		return nil, commonerrors.NewBadRequest(
 			fmt.Sprintf("%s must be specified in the job.", v1.ParameterWorkspace))
 	}
+	workspace, err := h.getAdminWorkspace(c.Request.Context(), workspaceParam.Value)
+	if err != nil {
+		return nil, err
+	}
 
 	_, err = h.getAndAuthorizeSecret(c.Request.Context(), secretParam.Value, workspaceParam.Value, requestUser, v1.GetVerb)
 	if err != nil {
@@ -620,6 +631,7 @@ func (h *Handler) generateDownloadJob(c *gin.Context, body []byte) (*v1.OpsJob, 
 
 	job.Spec.Image = pointer.String(commonconfig.GetDownloadJoImage())
 	v1.SetLabel(job, v1.WorkspaceIdLabel, workspaceParam.Value)
+	v1.SetLabel(job, v1.ClusterIdLabel, workspace.Spec.Cluster)
 	return job, nil
 }
 
@@ -779,12 +791,6 @@ func (h *Handler) parseListOpsJobQuery(c *gin.Context) (*view.ListOpsJobRequest,
 	if query.SinceTime.After(query.UntilTime) {
 		return nil, commonerrors.NewBadRequest("the since time is greater than until time")
 	}
-	if err = h.accessController.AuthorizeSystemAdmin(authority.AccessInput{
-		Context: c.Request.Context(),
-		UserId:  c.GetString(common.UserId),
-	}, true); err != nil {
-		query.UserId = c.GetString(common.UserId)
-	}
 	return query, nil
 }
 
@@ -832,13 +838,35 @@ func (h *Handler) cvtToGetOpsJobSql(c *gin.Context) (sqrl.Sqlizer, error) {
 	dbSql := sqrl.And{
 		sqrl.Eq{dbclient.GetFieldTag(dbTags, "JobId"): jobId},
 	}
-	if err := h.accessController.AuthorizeSystemAdmin(authority.AccessInput{
-		Context: c.Request.Context(),
-		UserId:  c.GetString(common.UserId),
-	}, true); err != nil {
-		dbSql = append(dbSql, sqrl.Eq{dbclient.GetFieldTag(dbTags, "UserId"): c.GetString(common.UserId)})
-	}
 	return dbSql, nil
+}
+
+func (h *Handler) authGetOpsJob(c *gin.Context, workspaceId, opsType string) error {
+	var workspaces []string
+	if workspaceId != "" {
+		workspaces = []string{workspaceId}
+	}
+	var resourceKind string
+	switch opsType {
+	case string(v1.OpsJobPreflightType):
+		resourceKind = authority.PreflightKind
+	case string(v1.OpsJobDownloadType):
+		resourceKind = authority.DownloadKind
+	case string(v1.OpsJobDumpLogType):
+		resourceKind = authority.DumpLogKind
+	default:
+		resourceKind = v1.OpsJobKind
+	}
+	if err := h.accessController.Authorize(authority.AccessInput{
+		Context:      c.Request.Context(),
+		ResourceKind: resourceKind,
+		Verb:         v1.GetVerb,
+		Workspaces:   workspaces,
+		UserId:       c.GetString(common.UserId),
+	}); err != nil {
+		return err
+	}
+	return nil
 }
 
 // parseCreateOpsJobRequest parses and validates the request for creating an ops job.

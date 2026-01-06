@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -215,6 +215,7 @@ type ExportedImageListResponse struct {
 
 // ExportedImageListItem represents a single exported image record in the list.
 type ExportedImageListItem struct {
+	JobId       string `json:"jobId"`       // OpsJob ID for deletion and other operations
 	ImageName   string `json:"imageName"`   // Target image name, e.g. custom/library/busybox:20251113
 	Workload    string `json:"workload"`    // Source workload ID from inputs
 	Status      string `json:"status"`      // Export status: Pending/Failed/Succeeded/Running

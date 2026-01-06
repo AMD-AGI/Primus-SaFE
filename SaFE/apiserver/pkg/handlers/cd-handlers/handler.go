@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -422,8 +422,10 @@ func (h *Handler) generateCDOpsJob(ctx context.Context, req *dbclient.Deployment
 	for _, comp := range expectedComponents {
 		if tag, ok := mergedConfig.ImageVersions[comp]; ok {
 			if yamlKey, isCICD := CICDComponentsMap[comp]; isCICD {
+				// Always write CICD version to componentTags (for values.yaml update)
+				componentTags += fmt.Sprintf("%s=%s;", yamlKey, tag)
+				// Only set hasCICD and image vars when user explicitly requested (for workload update)
 				if _, userRequested := requestConfig.ImageVersions[comp]; userRequested {
-					componentTags += fmt.Sprintf("%s=%s;", yamlKey, tag)
 					hasCICD = true
 					if comp == ComponentCICDRunner {
 						cicdRunnerImage = tag
@@ -431,6 +433,9 @@ func (h *Handler) generateCDOpsJob(ctx context.Context, req *dbclient.Deployment
 						cicdUnifiedImage = tag
 					}
 				}
+			} else if yamlKey, isSpecial := SpecialComponentsMap[comp]; isSpecial {
+				// Special components: use custom YAML key (e.g., model.downloader_image)
+				componentTags += fmt.Sprintf("%s=%s;", yamlKey, tag)
 			} else if comp == ComponentNodeAgent {
 				// Update node-agent if user explicitly requested it
 				if _, userRequested := requestConfig.ImageVersions[comp]; userRequested {
@@ -439,6 +444,7 @@ func (h *Handler) generateCDOpsJob(ctx context.Context, req *dbclient.Deployment
 					nodeAgentImage = tag
 				}
 			} else {
+				// Standard components: use comp.image format
 				componentTags += fmt.Sprintf("%s.image=%s;", comp, tag)
 			}
 		}

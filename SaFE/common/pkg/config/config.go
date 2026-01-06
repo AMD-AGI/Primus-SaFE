@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -461,4 +461,9 @@ func IsCDRequireApproval() bool {
 // GetTorchFTLightHouse returns the entorypoint of torchft lighthouse.
 func GetTorchFTLightHouse() string {
 	return getString(torchFTLightHouse, "")
+}
+
+// GetCDJobImage returns the image for CD deployment jobs.
+func GetCDJobImage() string {
+	return getString(cdJobImage, "docker.io/primussafe/cd-job-runner:latest")
 }

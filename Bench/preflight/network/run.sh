@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #
-# Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
+# Copyright (c) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
 # See LICENSE for license information.
 #
 
@@ -29,9 +29,17 @@ export SSH_PORT=${SSH_PORT:-22}
 export BNIC=${BNIC:-48}
 export BXGMI=${BXGMI:-315}
 export MAX_RETRY=${MAX_RETRY:-2}
-export NCCL_PXN_DISABLE=${NCCL_PXN_DISABLE:-1}
-export NCCL_P2P_NET_CHUNKSIZE=${NCCL_P2P_NET_CHUNKSIZE:-524288}
 export ENABLE_AINIC=${ENABLE_AINIC:-"false"}
+
+# PXN settings only for non-AINIC mode (conflict with AINIC's optimized path)
+if [[ "$ENABLE_AINIC" != "true" ]]; then
+  export NCCL_PXN_DISABLE=${NCCL_PXN_DISABLE:-1}
+  export NCCL_P2P_NET_CHUNKSIZE=${NCCL_P2P_NET_CHUNKSIZE:-524288}
+else
+  # Ensure these are unset in AINIC mode to avoid conflicts
+  unset NCCL_PXN_DISABLE
+  unset NCCL_P2P_NET_CHUNKSIZE
+fi
 
 # Set GID index based on device type:
 # - ionic: GID 0 or 1 (RoCEv2)
@@ -105,7 +113,7 @@ if [[ "$RANK" == "0" ]]; then
   }
 
   declare -A unhealthy_nodes_intersection
-  # Define test types and parameters
+  # Define test types and parameters (all_reduce first, then alltoall)
   TEST_TYPES=(0 1)
   TEST_NAMES=("all_reduce_perf" "alltoall_perf")
 
@@ -120,45 +128,8 @@ if [[ "$RANK" == "0" ]]; then
     unset current_run_unhealthy
     declare -A current_run_unhealthy
 
-    # Run all_reduce_perf test and alltoall_perf test
-    for i in "${!TEST_TYPES[@]}"; do
-      if [ ! -s "$NODES_FILE" ]; then
-        break
-      fi
-      test_type=${TEST_TYPES[$i]}
-      test_name=${TEST_NAMES[$i]}
-
-      echo "${LOG_HEADER}[$(date +'%Y-%m-%d %H:%M:%S')] Running $test_name (Run $run)..."
-      log_file=$(mktemp) && touch "$log_file"
-      tail -f "$log_file" &
-      tail_pid=$! && sleep 0.5
-      BNIC="$BNIC" BXGMI="$BXGMI" python3 -u binary_diagnose.py \
-        --socket_ifname "$NCCL_SOCKET_IFNAME" \
-        --ib_hca "$NCCL_IB_HCA" \
-        --ib_gid_index "$NCCL_IB_GID_INDEX" \
-        --ssh_port "$SSH_PORT" \
-        --enable_ainic "$ENABLE_AINIC" \
-        --nodes_file "$NODES_FILE" \
-        --rccl_test_type "$test_type" \
-        --rccl_debug "$NCCL_DEBUG" > "$log_file" 2>&1
-      test_ret=$?
-      sync && sleep 2 && test_output=$(cat "$log_file") && kill $tail_pid 2>/dev/null && rm -f "$log_file"
-
-      if [[ $test_ret -ne 0 ]]; then
-        echo "${LOG_HEADER}[$(date +'%Y-%m-%d %H:%M:%S')] Diagnosis failed for $test_name in run $run"
-        unhealthy_list=$(echo "$test_output" | python3 extract_nodes.py)
-        if [ -n "$unhealthy_list" ]; then
-          IFS=',' read -ra nodes <<< "$unhealthy_list"
-          for node in "${nodes[@]}"; do
-            current_run_unhealthy["$node"]=1
-          done
-          remove_unhealthy_nodes "$unhealthy_list"
-        fi
-      fi
-    done
-
-    # Run IB bandwidth test
-    echo "${LOG_HEADER}[$(date +'%Y-%m-%d %H:%M:%S')] Running ib_write_bw.sh (Run $run)..."
+    # Step 1: Run IB bandwidth test first to filter out nodes with basic connectivity issues
+    echo "${LOG_HEADER}[$(date +'%Y-%m-%d %H:%M:%S')] Running ib_write_bw test first (Run $run)..."
     log_file=$(mktemp) && touch "$log_file"
     tail -f "$log_file" &
     tail_pid=$! && sleep 0.5
@@ -173,14 +144,62 @@ if [[ "$RANK" == "0" ]]; then
 
     if [[ $test_ret -ne 0 ]]; then
       echo "${LOG_HEADER}[$(date +'%Y-%m-%d %H:%M:%S')] Diagnosis failed for ib_write_bw in run $run"
-      # Debug output removed to avoid "Argument list too long" error when echoing large variables
       unhealthy_list=$(echo "$test_output" | python3 extract_nodes.py)
       if [ -n "$unhealthy_list" ]; then
         IFS=',' read -ra nodes <<< "$unhealthy_list"
         for node in "${nodes[@]}"; do
           current_run_unhealthy["$node"]=1
         done
+        # Remove unhealthy nodes before RCCL tests
+        remove_unhealthy_nodes "$unhealthy_list"
+        echo "${LOG_HEADER}[$(date +'%Y-%m-%d %H:%M:%S')] Removed unhealthy nodes from IB test: $unhealthy_list"
       fi
+    fi
+
+    # Step 2: Run RCCL tests only on healthy nodes that passed IB test
+    if [ -s "$NODES_FILE" ]; then
+      echo "${LOG_HEADER}[$(date +'%Y-%m-%d %H:%M:%S')] Running RCCL tests on nodes that passed IB test..."
+      
+      for i in "${!TEST_TYPES[@]}"; do
+        test_type=${TEST_TYPES[$i]}
+        test_name=${TEST_NAMES[$i]}
+        
+        if [ ! -s "$NODES_FILE" ]; then
+          echo "${LOG_HEADER}[$(date +'%Y-%m-%d %H:%M:%S')] No healthy nodes remaining, skipping $test_name"
+          break
+        fi
+
+        echo "${LOG_HEADER}[$(date +'%Y-%m-%d %H:%M:%S')] Running $test_name (Run $run)..."
+        log_file=$(mktemp) && touch "$log_file"
+        tail -f "$log_file" &
+        tail_pid=$! && sleep 0.5
+        BNIC="$BNIC" BXGMI="$BXGMI" python3 -u binary_diagnose.py \
+          --socket_ifname "$NCCL_SOCKET_IFNAME" \
+          --ib_hca "$NCCL_IB_HCA" \
+          --ib_gid_index "$NCCL_IB_GID_INDEX" \
+          --ssh_port "$SSH_PORT" \
+          --enable_ainic "$ENABLE_AINIC" \
+          --nodes_file "$NODES_FILE" \
+          --rccl_test_type "$test_type" \
+          --rccl_debug "$NCCL_DEBUG" > "$log_file" 2>&1
+        test_ret=$?
+        sync && sleep 2 && test_output=$(cat "$log_file") && kill $tail_pid 2>/dev/null && rm -f "$log_file"
+
+        if [[ $test_ret -ne 0 ]]; then
+          echo "${LOG_HEADER}[$(date +'%Y-%m-%d %H:%M:%S')] Diagnosis failed for $test_name in run $run"
+          unhealthy_list=$(echo "$test_output" | python3 extract_nodes.py)
+          if [ -n "$unhealthy_list" ]; then
+            IFS=',' read -ra nodes <<< "$unhealthy_list"
+            for node in "${nodes[@]}"; do
+              current_run_unhealthy["$node"]=1
+            done
+            remove_unhealthy_nodes "$unhealthy_list"
+            echo "${LOG_HEADER}[$(date +'%Y-%m-%d %H:%M:%S')] Removed unhealthy nodes from $test_name: $unhealthy_list"
+          fi
+        fi
+      done
+    else
+      echo "${LOG_HEADER}[$(date +'%Y-%m-%d %H:%M:%S')] All nodes failed IB test, skipping RCCL tests"
     fi
 
     # Find the intersection of multiple tests to identify the common unhealthy nodes.

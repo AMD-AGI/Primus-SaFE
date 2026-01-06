@@ -1,6 +1,9 @@
 package tracelens
 
 import (
+	"bytes"
+	"compress/gzip"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -152,6 +155,13 @@ func proxyHTTP(c *gin.Context, targetHost, path, sessionID string) {
 	proxy.ModifyResponse = func(resp *http.Response) error {
 		// Remove security headers that might conflict
 		resp.Header.Del("X-Frame-Options")
+
+		// Modify host-config response to add custom allowed origins
+		if strings.HasSuffix(path, "/_stcore/host-config") {
+			if err := modifyHostConfig(resp, c.Request); err != nil {
+				log.Warnf("Failed to modify host-config response: %v", err)
+			}
+		}
 		return nil
 	}
 
@@ -161,6 +171,9 @@ func proxyHTTP(c *gin.Context, targetHost, path, sessionID string) {
 
 // proxyWebSocket proxies WebSocket connections to the TraceLens pod
 func proxyWebSocket(c *gin.Context, targetHost, path, sessionID string) {
+	// Get requested subprotocols from client
+	requestedProtocols := websocket.Subprotocols(c.Request)
+
 	// WebSocket upgrader for client connection
 	upgrader := websocket.Upgrader{
 		CheckOrigin: func(r *http.Request) bool {
@@ -168,17 +181,10 @@ func proxyWebSocket(c *gin.Context, targetHost, path, sessionID string) {
 		},
 		ReadBufferSize:  1024,
 		WriteBufferSize: 1024,
+		Subprotocols:    requestedProtocols, // Pass through client's requested subprotocols
 	}
 
-	// Upgrade client connection
-	clientConn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
-	if err != nil {
-		log.Errorf("Failed to upgrade client WebSocket for session %s: %v", sessionID, err)
-		return
-	}
-	defer clientConn.Close()
-
-	// Build backend WebSocket URL
+	// Build backend WebSocket URL first, before upgrading client
 	// Note: This must match BASE_URL_PATH env var in pod (without /api prefix)
 	basePath := fmt.Sprintf("/v1/tracelens/sessions/%s/ui", sessionID)
 	backendURL := fmt.Sprintf("ws://%s%s%s", targetHost, basePath, path)
@@ -186,7 +192,7 @@ func proxyWebSocket(c *gin.Context, targetHost, path, sessionID string) {
 	// Copy headers for backend connection
 	requestHeader := http.Header{}
 	for key, values := range c.Request.Header {
-		// Skip hop-by-hop headers
+		// Skip hop-by-hop headers (these will be handled by the dialer)
 		if key == "Upgrade" || key == "Connection" || key == "Sec-Websocket-Key" ||
 			key == "Sec-Websocket-Version" || key == "Sec-Websocket-Extensions" ||
 			key == "Sec-Websocket-Protocol" {
@@ -197,18 +203,39 @@ func proxyWebSocket(c *gin.Context, targetHost, path, sessionID string) {
 		}
 	}
 
-	// Connect to backend
+	// Connect to backend first to get the negotiated subprotocol
 	dialer := websocket.Dialer{
 		HandshakeTimeout: 10 * time.Second,
+		Subprotocols:     requestedProtocols, // Request same subprotocols from backend
 	}
-	backendConn, _, err := dialer.Dial(backendURL, requestHeader)
+	backendConn, backendResp, err := dialer.Dial(backendURL, requestHeader)
 	if err != nil {
 		log.Errorf("Failed to connect to backend WebSocket for session %s: %v", sessionID, err)
+		c.JSON(http.StatusBadGateway, gin.H{"error": "failed to connect to backend"})
 		return
 	}
 	defer backendConn.Close()
 
-	log.Debugf("WebSocket proxy established for session %s: client <-> %s", sessionID, backendURL)
+	// Get the subprotocol negotiated with backend
+	negotiatedProtocol := ""
+	if backendResp != nil {
+		negotiatedProtocol = backendResp.Header.Get("Sec-Websocket-Protocol")
+	}
+
+	// Update upgrader with the negotiated subprotocol
+	if negotiatedProtocol != "" {
+		upgrader.Subprotocols = []string{negotiatedProtocol}
+	}
+
+	// Now upgrade client connection with the negotiated subprotocol
+	clientConn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
+	if err != nil {
+		log.Errorf("Failed to upgrade client WebSocket for session %s: %v", sessionID, err)
+		return
+	}
+	defer clientConn.Close()
+
+	log.Debugf("WebSocket proxy established for session %s: client <-> %s (subprotocol: %s)", sessionID, backendURL, negotiatedProtocol)
 
 	// Error channel to track both connections
 	errChan := make(chan error, 2)
@@ -280,5 +307,90 @@ func proxyUIHealthCheckInternal(c *gin.Context, sessionID string) {
 		"pod_port":   session.PodPort,
 		"ready":      session.Status == tlconst.StatusReady,
 	})
+}
+
+// modifyHostConfig modifies the Streamlit host-config response to add custom allowed origins
+// This is necessary because Streamlit's default allowedOrigins doesn't include custom domains
+func modifyHostConfig(resp *http.Response, req *http.Request) error {
+	// Read the response body
+	var bodyReader io.Reader = resp.Body
+	var isGzipped bool
+
+	// Check if response is gzipped
+	if resp.Header.Get("Content-Encoding") == "gzip" {
+		isGzipped = true
+		gzReader, err := gzip.NewReader(resp.Body)
+		if err != nil {
+			return fmt.Errorf("failed to create gzip reader: %w", err)
+		}
+		defer gzReader.Close()
+		bodyReader = gzReader
+	}
+
+	body, err := io.ReadAll(bodyReader)
+	if err != nil {
+		return fmt.Errorf("failed to read response body: %w", err)
+	}
+	resp.Body.Close()
+
+	// Parse the JSON response
+	var hostConfig map[string]interface{}
+	if err := json.Unmarshal(body, &hostConfig); err != nil {
+		// Not JSON, return original body
+		resp.Body = io.NopCloser(bytes.NewReader(body))
+		return nil
+	}
+
+	// Get the request origin to add to allowed origins
+	origin := req.Header.Get("Origin")
+	if origin == "" {
+		// Try to construct from Host header
+		scheme := "https"
+		if req.TLS == nil {
+			scheme = "http"
+		}
+		host := req.Host
+		if host != "" {
+			origin = fmt.Sprintf("%s://%s", scheme, host)
+		}
+	}
+
+	// Get existing allowed origins
+	allowedOrigins, ok := hostConfig["allowedOrigins"].([]interface{})
+	if !ok {
+		allowedOrigins = []interface{}{}
+	}
+
+	// Allow all origins since the outer layer has authentication
+	// This prevents CORS issues when accessing from any domain
+	allowedOrigins = append(allowedOrigins, "*")
+	if origin != "" {
+		allowedOrigins = append(allowedOrigins, origin)
+	}
+	hostConfig["allowedOrigins"] = allowedOrigins
+
+	// Marshal back to JSON
+	modifiedBody, err := json.Marshal(hostConfig)
+	if err != nil {
+		return fmt.Errorf("failed to marshal modified host config: %w", err)
+	}
+
+	// Update response
+	if isGzipped {
+		// Re-compress the response
+		var buf bytes.Buffer
+		gzWriter := gzip.NewWriter(&buf)
+		if _, err := gzWriter.Write(modifiedBody); err != nil {
+			return fmt.Errorf("failed to gzip response: %w", err)
+		}
+		gzWriter.Close()
+		modifiedBody = buf.Bytes()
+	}
+
+	resp.Body = io.NopCloser(bytes.NewReader(modifiedBody))
+	resp.ContentLength = int64(len(modifiedBody))
+	resp.Header.Set("Content-Length", fmt.Sprintf("%d", len(modifiedBody)))
+
+	return nil
 }
 

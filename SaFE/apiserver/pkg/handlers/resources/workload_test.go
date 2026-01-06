@@ -421,7 +421,7 @@ func Test_createPreheatWorkload(t *testing.T) {
 	// Verify preheat workload properties
 	assert.Assert(t, preheatWorkload.Name != mainWorkload.Name, "Preheat workload should have different name")
 	assert.Equal(t, v1.GetDisplayName(preheatWorkload), "preheat-"+v1.GetDisplayName(mainWorkload))
-	assert.Equal(t, preheatWorkload.Spec.GroupVersionKind.Kind, common.PytorchJobKind)
+	assert.Equal(t, preheatWorkload.Spec.GroupVersionKind.Kind, mainWorkload.Spec.GroupVersionKind.Kind)
 	assert.Equal(t, preheatWorkload.Spec.IsSupervised, false)
 	assert.Equal(t, preheatWorkload.Spec.MaxRetry, 0)
 	assert.Equal(t, *preheatWorkload.Spec.TTLSecondsAfterFinished, 10)

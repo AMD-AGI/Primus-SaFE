@@ -71,6 +71,27 @@ func (m *NamespaceMockFacade) GetAIAgentRegistration() database.AIAgentRegistrat
 	return nil
 }
 func (m *NamespaceMockFacade) GetAITask() database.AITaskFacadeInterface { return nil }
+func (m *NamespaceMockFacade) GetGithubWorkflowConfig() database.GithubWorkflowConfigFacadeInterface {
+	return nil
+}
+func (m *NamespaceMockFacade) GetGithubWorkflowRun() database.GithubWorkflowRunFacadeInterface {
+	return nil
+}
+func (m *NamespaceMockFacade) GetGithubWorkflowSchema() database.GithubWorkflowSchemaFacadeInterface {
+	return nil
+}
+func (m *NamespaceMockFacade) GetGithubWorkflowMetrics() database.GithubWorkflowMetricsFacadeInterface {
+	return nil
+}
+func (m *NamespaceMockFacade) GetGithubRunnerSet() database.GithubRunnerSetFacadeInterface {
+	return nil
+}
+func (m *NamespaceMockFacade) GetGithubWorkflowCommit() database.GithubWorkflowCommitFacadeInterface {
+	return nil
+}
+func (m *NamespaceMockFacade) GetGithubWorkflowRunDetails() database.GithubWorkflowRunDetailsFacadeInterface {
+	return nil
+}
 func (m *NamespaceMockFacade) WithCluster(clusterName string) database.FacadeInterface { return m }
 
 // NamespaceMockNamespaceInfoFacade implements database.NamespaceInfoFacadeInterface for testing

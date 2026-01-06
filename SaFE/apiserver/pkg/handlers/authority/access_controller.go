@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -206,7 +206,7 @@ func (a *AccessController) determineOwnership(in *AccessInput) (isOwner bool, is
 		in.ResourceOwner = v1.GetUserId(in.Resource)
 	}
 
-	if in.User.Name == in.ResourceOwner {
+	if in.User.Name == in.ResourceOwner && in.ResourceOwner != "" {
 		isOwner = true
 	}
 

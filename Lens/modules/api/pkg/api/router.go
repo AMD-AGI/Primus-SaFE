@@ -257,7 +257,7 @@ func RegisterRouter(group *gin.RouterGroup) error {
 			// Get a specific session
 			sessionsGroup.GET("/:session_id", tracelens.GetSession)
 			// Extend session TTL
-			sessionsGroup.POST("/:session_id/extend", tracelens.ExtendSession)
+			sessionsGroup.PATCH("/:session_id", tracelens.ExtendSession)
 			// Delete a session
 			sessionsGroup.DELETE("/:session_id", tracelens.DeleteSession)
 
@@ -301,6 +301,109 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		detectionStatusGroup.GET("/:workload_uid/evidence", GetDetectionEvidence)
 		// Manually trigger detection
 		detectionStatusGroup.POST("/:workload_uid/trigger", TriggerDetection)
+	}
+
+	// GitHub Workflow Metrics routes - GitHub workflow metrics collection
+	githubWorkflowMetricsGroup := group.Group("/github-workflow-metrics")
+	{
+		// Config management
+		configsGroup := githubWorkflowMetricsGroup.Group("/configs")
+		{
+			configsGroup.POST("", CreateGithubWorkflowConfig)
+			configsGroup.GET("", ListGithubWorkflowConfigs)
+			configsGroup.GET("/:id", GetGithubWorkflowConfig)
+			configsGroup.PUT("/:id", UpdateGithubWorkflowConfig)
+			configsGroup.PATCH("/:id", PatchGithubWorkflowConfig)
+			configsGroup.DELETE("/:id", DeleteGithubWorkflowConfig)
+			// Runs for a config
+			configsGroup.GET("/:id/runs", ListGithubWorkflowRuns)
+			// Schemas for a config
+			configsGroup.POST("/:id/schemas", CreateGithubWorkflowSchema)
+			configsGroup.GET("/:id/schemas", ListGithubWorkflowSchemas)
+			// Get active schema for a config
+			configsGroup.GET("/:id/schemas/active", GetActiveGithubWorkflowSchema)
+			// AI Schema generation
+			configsGroup.POST("/:id/schemas/regenerate", RegenerateGithubWorkflowSchema)
+			configsGroup.POST("/:id/schemas/preview", PreviewSchemaExtraction)
+			// Metrics for a config
+			configsGroup.GET("/:id/metrics", ListGithubWorkflowMetrics)
+			// Advanced metrics query with JSONB dimension filtering
+			configsGroup.POST("/:id/metrics/query", QueryGithubWorkflowMetricsAdvanced)
+			// Metrics aggregation by time interval
+			configsGroup.POST("/:id/metrics/aggregate", GetGithubWorkflowMetricsAggregation)
+			// Metrics time-series trends
+			configsGroup.POST("/:id/metrics/trends", GetGithubWorkflowMetricsTrends)
+			// Stats for a config
+			configsGroup.GET("/:id/stats", GetGithubWorkflowMetricsStats)
+			// Summary statistics for a config
+			configsGroup.GET("/:id/summary", GetGithubWorkflowMetricsSummary)
+			// Available dimensions with values
+			configsGroup.GET("/:id/dimensions", GetGithubWorkflowMetricsDimensions)
+			// Single dimension values
+			configsGroup.GET("/:id/dimensions/:dimension/values", GetSingleDimensionValues)
+			// Available fields (dimension fields and metric fields)
+			configsGroup.GET("/:id/fields", GetGithubWorkflowMetricsFields)
+			// Export metrics as CSV
+			configsGroup.GET("/:id/export", ExportGithubWorkflowMetrics)
+			// Backfill APIs
+			configsGroup.POST("/:id/backfill", TriggerBackfill)
+			configsGroup.GET("/:id/backfill/status", GetBackfillStatus)
+			configsGroup.POST("/:id/backfill/cancel", CancelBackfill)
+			configsGroup.GET("/:id/backfill/tasks", ListBackfillTasks)
+			// Batch retry failed runs
+			configsGroup.POST("/:id/runs/batch-retry", RetryFailedRuns)
+			// List completed EphemeralRunners for a config
+			configsGroup.GET("/:id/runners", ListEphemeralRunners)
+		}
+		// Run management (global)
+		runsGroup := githubWorkflowMetricsGroup.Group("/runs")
+		{
+			// List all runs globally (must be defined before /:id)
+			runsGroup.GET("", ListAllGithubWorkflowRuns)
+			runsGroup.GET("/:id", GetGithubWorkflowRun)
+			runsGroup.GET("/:id/metrics", GetGithubWorkflowMetricsByRun)
+			// Retry single run
+			runsGroup.POST("/:id/retry", RetryGithubWorkflowRun)
+		}
+		// Schema details
+		schemasGroup := githubWorkflowMetricsGroup.Group("/schemas")
+		{
+			schemasGroup.GET("/:id", GetGithubWorkflowSchema)
+			schemasGroup.POST("/:id/activate", SetGithubWorkflowSchemaActive)
+		}
+	}
+
+	// GitHub Runners management - AutoScalingRunnerSet discovery and analytics
+	githubRunnersGroup := group.Group("/github-runners")
+	{
+		// Runner Sets - discovered AutoScalingRunnerSets
+		runnerSetsGroup := githubRunnersGroup.Group("/runner-sets")
+		{
+			runnerSetsGroup.GET("", ListGithubRunnerSets)
+			runnerSetsGroup.GET("/:namespace/:name", GetGithubRunnerSet)
+		}
+	}
+
+	// Add commit and workflow run details endpoints to existing runs group
+	// These are added to the github-workflow-metrics group
+	githubWorkflowMetricsGroupV2 := group.Group("/github-workflow-metrics")
+	{
+		// Config-level analytics and history
+		configsGroupV2 := githubWorkflowMetricsGroupV2.Group("/configs")
+		{
+			// Workflow analytics (execution counts, average times, etc.)
+			configsGroupV2.GET("/:id/analytics", GetGithubWorkflowAnalytics)
+			// Detailed execution history with commit and run details
+			configsGroupV2.GET("/:id/history", GetGithubWorkflowRunHistory)
+		}
+		// Run-level commit and details
+		runsGroupV2 := githubWorkflowMetricsGroupV2.Group("/runs")
+		{
+			// Get commit details for a run
+			runsGroupV2.GET("/:id/commit", GetGithubWorkflowRunCommit)
+			// Get workflow run details from GitHub
+			runsGroupV2.GET("/:id/details", GetGithubWorkflowRunDetailsAPI)
+		}
 	}
 
 	return nil

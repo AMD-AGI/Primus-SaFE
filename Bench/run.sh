@@ -20,6 +20,13 @@ ok()     { echo "✔ $1"; }
 warn()   { echo "⚠ $1"; }
 err()    { echo "✘ $1"; }
 
+# Send SIGUSR1 signal and wait for background process
+send_ready_signal() {
+    log "🏁 Benchmarks completed. Synchronizing all nodes... $(date +'%Y-%m-%d %H:%M:%S')"
+    kill -USR1 $WAIT_READY_PID
+    wait $WAIT_READY_PID
+}
+
 # ==== Step 1: Start FIO server ====
 if [ -n "${IO_BENCHMARK_MOUNT:-}" ]; then
     log "Starting FIO server..."
@@ -35,6 +42,13 @@ log "${LOG_HEADER} [$(date +'%Y-%m-%d %H:%M:%S')] Starting Primus Bench..."
 cd "$PRIMUSBENCH_PATH"
 
 if [[ "$RANK" == "0" ]]; then
+    # Use SIGUSR1 signal for synchronization
+    # Use python3 directly (not torchrun) so signal goes to the Python process
+    export USE_SIGNAL=true
+    
+    CUDA_VISIBLE_DEVICES="" python3 preflight/network/wait_ready.py &
+    WAIT_READY_PID=$!
+    
     export TIMESTMAP=${TIMESTMAP:-$(date +'%Y-%m-%d_%H-%M-%S')}
 
     if [ -z "${OUTPUT_PATH:-}" ]; then
@@ -63,7 +77,7 @@ if [[ "$RANK" == "0" ]]; then
 
     # ==== Step 5: Node checks ====
     PALYBOOKS="$PRIMUSBENCH_PATH/playbooks"
-    HOSTS_INI="primusbench_hosts.ini"
+    HOSTS_INI="$OUTPUT_PATH/primusbench_hosts.ini"
     (echo "[all]"; cat "$HOSTS") > "$HOSTS_INI"
 
     preflight_node_logname="${OUTPUT_PATH}/preflight_node.log"
@@ -151,9 +165,6 @@ if [[ "$RANK" == "0" ]]; then
     echo "                    PrimusBench Node Check Report" >> "$BENCH_REPORT"
     echo "================================================================================" >> "$BENCH_REPORT"
     echo "Generated at: $(date '+%Y-%m-%d %H:%M:%S')" >> "$BENCH_REPORT"
-    echo "" >> "$BENCH_REPORT"
-    echo "Summary: ${#healthy_nodes_ip[@]} healthy nodes out of ${#all_nodes[@]} total nodes checked" >> "$BENCH_REPORT"
-    echo "" >> "$BENCH_REPORT"
     echo "================================================================================" >> "$BENCH_REPORT"
     echo "" >> "$BENCH_REPORT"
     # Write failed nodes to report
@@ -177,19 +188,13 @@ if [[ "$RANK" == "0" ]]; then
     if [ ${#successed_nodes[@]} -eq 0 ]; then
         cat "$BENCH_REPORT"
         err "No healthy nodes found, aborting."
-        CUDA_VISIBLE_DEVICES="" torchrun \
-        --nproc_per_node=1 \
-        --nnodes=$WORLD_SIZE \
-        --node_rank=$RANK \
-        --master_addr=$MASTER_ADDR \
-        --master_port=$MASTER_PORT \
-        preflight/network/wait_ready.py
+        send_ready_signal
         err "PrimusBench failed!"
         exit 1
     fi
     ok "Detected ${#successed_nodes[@]} healthy nodes."
 
-    NETWORK_HOSTS="$PRIMUSBENCH_PATH/network_hosts.ini"
+    NETWORK_HOSTS="$OUTPUT_PATH/network_hosts.ini"
     printf "%s\n" "${successed_nodes_ip[@]}" > "$NETWORK_HOSTS"
 
     preflight_network_logname="${OUTPUT_PATH}/preflight_network.log"
@@ -231,9 +236,6 @@ if [[ "$RANK" == "0" ]]; then
     fi
     ok "Network check complete. Healthy nodes (${#healthy_nodes_ip[@]}/${#all_nodes[@]}): ${healthy_nodes_ip[*]}"
     
-
-
-
     # Write network check results to report
     echo "Failed Nodes (Network Check) - ${#unhealthy_nodes[@]} nodes" >> "$BENCH_REPORT"
     echo "--------------------------------------------------------------------------------" >> "$BENCH_REPORT"
@@ -260,7 +262,11 @@ if [[ "$RANK" == "0" ]]; then
     fi
     echo "" >> "$BENCH_REPORT"
     echo "================================================================================" >> "$BENCH_REPORT"
-    
+    echo "" >> "$BENCH_REPORT"
+    echo "Summary: ${#healthy_nodes_ip[@]} healthy nodes out of ${#all_nodes[@]} total nodes checked" >> "$BENCH_REPORT"
+    echo "" >> "$BENCH_REPORT"
+    echo "================================================================================" >> "$BENCH_REPORT"
+    echo "" >> "$BENCH_REPORT"
     # Exit if no healthy nodes
     if [ ${#healthy_nodes_ip[@]} -eq 0 ]; then
         # Display bench report
@@ -270,18 +276,12 @@ if [[ "$RANK" == "0" ]]; then
         cat "$BENCH_REPORT"
         echo ""
         err "No healthy nodes available after network check, aborting."
-        CUDA_VISIBLE_DEVICES="" torchrun \
-        --nproc_per_node=1 \
-        --nnodes=$WORLD_SIZE \
-        --node_rank=$RANK \
-        --master_addr=$MASTER_ADDR \
-        --master_port=$MASTER_PORT \
-        preflight/network/wait_ready.py
+        send_ready_signal
         err "PrimusBench failed!"
         exit 1
     fi
     
-    INVENTORY_FILE="bench_inventory.ini"
+    INVENTORY_FILE="$OUTPUT_PATH/bench_inventory.ini"
     echo "[all]" > $INVENTORY_FILE
     for ip in "${healthy_nodes_ip[@]}"; do
         node=${ip_node_map[$ip]}
@@ -368,17 +368,12 @@ if [[ "$RANK" == "0" ]]; then
     echo ""
     cat "$BENCH_REPORT"
     echo ""
+    send_ready_signal
 else
     log "${LOG_HEADER} [$(date +'%Y-%m-%d %H:%M:%S')] Waiting for rank 0 to complete bench..."
+    CUDA_VISIBLE_DEVICES="" python3 preflight/network/wait_ready.py
 fi
 
-CUDA_VISIBLE_DEVICES="" torchrun \
-    --nproc_per_node=1 \
-    --nnodes=$WORLD_SIZE \
-    --node_rank=$RANK \
-    --master_addr=$MASTER_ADDR \
-    --master_port=$MASTER_PORT \
-    preflight/network/wait_ready.py
+ok "✅ PrimusBench completed! $(date +'%Y-%m-%d %H:%M:%S')"
 
-ok "✅ PrimusBench completed!"
 

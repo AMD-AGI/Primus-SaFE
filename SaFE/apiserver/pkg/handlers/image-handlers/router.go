@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -26,6 +26,9 @@ func InitImageRouter(e *gin.Engine, h *ImageHandler) {
 		})
 		imageGroup.GET("custom", func(c *gin.Context) {
 			handle(c, h.listExportedImage)
+		})
+		imageGroup.DELETE("custom/:jobId", func(c *gin.Context) {
+			handle(c, h.deleteExportedImage)
 		})
 		imageGroup.GET("prewarm", func(c *gin.Context) {
 			handle(c, h.listPrewarmImage)
