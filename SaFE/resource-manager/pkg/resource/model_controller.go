@@ -676,7 +676,7 @@ func (r *ModelReconciler) constructLocalDownloadOpsJob(ctx context.Context, mode
 
 	// INPUT_URL: Full HTTP URL for the S3 object
 	// Format: {endpoint}/{bucket}/{path}
-	s3Path := fmt.Sprintf("%s/%s/%s", s3Endpoint, s3Bucket, model.Status.S3Path)
+	s3Path := fmt.Sprintf("%s/%s/%s/", s3Endpoint, s3Bucket, model.Status.S3Path)
 
 	// Use the OpsJob download image (configured in values.yaml)
 	image := commonconfig.GetDownloadJoImage()
