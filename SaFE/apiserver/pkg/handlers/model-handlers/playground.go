@@ -187,7 +187,7 @@ func (h *Handler) listPlaygroundServices(c *gin.Context) (interface{}, error) {
 	}
 
 	// 2. List all running inference workloads (Deployment/StatefulSet types)
-	// Note: source-model label is optional - used for filtering on Model Square page
+	// Note: source-model annotation is optional - used for filtering on Model Square page
 	workloadList := &v1.WorkloadList{}
 	if err := h.k8sClient.List(ctx, workloadList); err != nil {
 		return nil, commonerrors.NewInternalError("failed to list workloads: " + err.Error())
@@ -214,8 +214,9 @@ func (h *Handler) listPlaygroundServices(c *gin.Context) (interface{}, error) {
 		// Get source model ID from label (optional)
 		sourceModelID := ""
 		sourceModelName := ""
-		if w.Labels != nil {
-			sourceModelID = w.Labels[v1.SourceModelLabel]
+		// Check annotations for source-model (not labels, to avoid affecting scheduling)
+		if w.Annotations != nil {
+			sourceModelID = w.Annotations[v1.SourceModelLabel]
 			if sourceModelID != "" {
 				// Try to get the source model's display name
 				sourceModel := &v1.Model{}
