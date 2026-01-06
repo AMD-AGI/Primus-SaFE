@@ -161,14 +161,18 @@ Get detailed information about a specific cluster.
   "kubernetesVersion": "1.32.5",
   "kubeApiServerArgs": {
     "max-requests-inflight": "400"
-  }
+  },
+  "labels": {
+    "env": "production",
+    "region": "us-west"
+  },
 }
 ```
 
 **Field Description**:
 
 | Field | Type | Description |
-|-------|------|-------------|
+|-------|------|------------|
 | clusterId | string | Cluster ID |
 | userId | string | User ID who created the cluster |
 | phase | string | Cluster status, such as Ready,Creating,Failed,Deleting |
@@ -185,6 +189,7 @@ Get detailed information about a specific cluster.
 | kubeNetworkPlugin | string | Network plugin, default flannel |
 | kubernetesVersion | string | Kubernetes version, e.g. 1.32.5 |
 | kubeApiServerArgs | object | Additional Kubernetes API server arguments |
+| labels | object  | User-defined labels (key-value pairs)                |
 
 ---
 

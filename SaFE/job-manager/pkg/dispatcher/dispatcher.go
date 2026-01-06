@@ -182,7 +182,7 @@ func (r *DispatcherReconciler) processTorchFTWorkload(ctx context.Context, rootW
 	}
 
 	// Handle scale-down: delete jobs that exceed the current group count
-	if err = r.scaleDownTorchFTJobs(ctx, rootWorkload, group); err != nil {
+	if err = r.scaleDownTorchFTWorkers(ctx, rootWorkload, group); err != nil {
 		return ctrlruntime.Result{}, err
 	}
 
@@ -193,7 +193,7 @@ func (r *DispatcherReconciler) processTorchFTWorkload(ctx context.Context, rootW
 	lightHouseAddr := lightHouseWorkload.Name + "." + rootWorkload.Spec.Workspace + ".svc.cluster.local"
 
 	for i := 0; i < group; i++ {
-		torchFTWorkload := generateTorchFTJob(rootWorkload, i, group, lightHouseAddr)
+		torchFTWorkload := generateTorchFTWorker(rootWorkload, i, group, lightHouseAddr)
 		if result, err := r.processWorkload(ctx, torchFTWorkload); err != nil || result.RequeueAfter > 0 {
 			return result, err
 		}
@@ -204,9 +204,9 @@ func (r *DispatcherReconciler) processTorchFTWorkload(ctx context.Context, rootW
 	return ctrlruntime.Result{}, nil
 }
 
-// scaleDownTorchFTJobs handles scale-down by deleting TorchFT jobs that exceed the target group count.
+// scaleDownTorchFTWorkers handles scale-down by deleting TorchFT jobs that exceed the target group count.
 // It parses the index from each object's name and deletes those with index > targetGroup.
-func (r *DispatcherReconciler) scaleDownTorchFTJobs(ctx context.Context, rootWorkload *v1.Workload, targetGroup int) error {
+func (r *DispatcherReconciler) scaleDownTorchFTWorkers(ctx context.Context, rootWorkload *v1.Workload, targetGroup int) error {
 	clusterInformer, err := syncer.GetClusterInformer(r.clusterInformers, v1.GetClusterId(rootWorkload))
 	if err != nil {
 		return err
@@ -227,7 +227,7 @@ func (r *DispatcherReconciler) scaleDownTorchFTJobs(ctx context.Context, rootWor
 	}
 
 	// Name format: {displayName}-{index}-{suffix}
-	// Index 0 = lighthouse (ignore), Index 1 to totalGroups = TorchFT jobs
+	// Index 0 = lighthouse (ignore), Index 1 to totalGroups = TorchFT workers
 	for _, obj := range unstructuredObjs {
 		index, ok := jobutils.ParseTorchFTGroupIndex(obj.GetName())
 		if !ok {
@@ -922,7 +922,7 @@ func generateRandomPort(ports map[int]bool) int {
 	return 0
 }
 
-// generateLighthouse generates a lighthouse workload for TorchFT jobs, which is used for coordination and management of the training process
+// generateLighthouse generates a lighthouse workload for TorchFT, which is used for coordination and management of the worker process group
 func generateLighthouse(rootWorkload *v1.Workload) *v1.Workload {
 	workload := rootWorkload.DeepCopy()
 	displayName := v1.GetDisplayName(rootWorkload) + "-0"
@@ -945,8 +945,8 @@ func generateLighthouse(rootWorkload *v1.Workload) *v1.Workload {
 	return workload
 }
 
-// generateTorchFTJob generates a TorchFT job. It uses PyTorchJob as the main entity and integrates with Lighthouse via environment variables.
-func generateTorchFTJob(rootWorkload *v1.Workload, id, group int, lightHouseAddr string) *v1.Workload {
+// generateTorchFTWorker generates a TorchFT worker. It uses PyTorchJob as the main entity and integrates with Lighthouse via environment variables.
+func generateTorchFTWorker(rootWorkload *v1.Workload, id, group int, lightHouseAddr string) *v1.Workload {
 	workload := rootWorkload.DeepCopy()
 	// The webhook has already validated the resources.
 	nodePerGroup := rootWorkload.Spec.Resources[1].Replica / group

@@ -775,18 +775,6 @@ func (h *Handler) generateWorkload(ctx context.Context,
 	genCustomerLabelsByNodes(workload, req.SpecifiedNodes, v1.K8sHostName)
 	if len(req.SpecifiedNodes) == 0 {
 		genCustomerLabelsByNodes(workload, req.ExcludedNodes, common.ExcludedNodes)
-	} else if len(workload.Spec.Resources) > 0 {
-		if workload.SpecKind() == common.PytorchJobKind || workload.SpecKind() == common.UnifiedJobKind {
-			workload.Spec.Resources[0].Replica = 1
-			if len(workload.Spec.Resources) > 1 {
-				workload.Spec.Resources[1].Replica = len(req.SpecifiedNodes) - 1
-				if len(workload.Spec.Resources) > 2 {
-					workload.Spec.Resources = workload.Spec.Resources[:2]
-				}
-			}
-		} else {
-			workload.Spec.Resources[0].Replica = len(req.SpecifiedNodes)
-		}
 	}
 	if req.WorkspaceId != "" {
 		workload.Spec.Workspace = req.WorkspaceId

@@ -393,8 +393,8 @@ func shouldTerminateWorkload(adminWorkload *v1.Workload, status *jobutils.K8sObj
 
 // handleTorchFTGroupStatus handles status updates for TorchFT workload groups.
 // The name parameter corresponds to the data plane object name (a TorchFT workload
-// corresponds to multiple objects: index=0 lighthouse and index=[1,totalGroups] jobs).
-// For failure status: fails if index=0 fails OR available jobs < minGroup.
+// corresponds to multiple objects: index=0 lighthouse and index=[1,totalGroups] workers).
+// For failure status: fails if index=0 fails OR available workers < minGroup.
 // For other statuses: returns status only when ALL groups have the same status.
 // Otherwise returns empty string.
 func handleTorchFTGroupStatus(adminWorkload *v1.Workload, name string, phase v1.WorkloadPhase) v1.WorkloadPhase {

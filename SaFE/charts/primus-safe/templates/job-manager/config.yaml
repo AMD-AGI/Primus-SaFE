@@ -44,7 +44,7 @@ data:
       enable: {{ .Values.cicd.enable }}
       role_name: {{ .Values.cicd.role_name }}
     torchft:
-      lighthouse: cGlwIGluc3RhbGwgInRvcmNoZnQtbmlnaHRseSIgIm9wZW50ZWxlbWV0cnktc2RrPT0xLjM3LjAiICJvcGVudGVsZW1ldHJ5LWV4cG9ydGVyLW90bHAtcHJvdG8tY29tbW9uPT0xLjM3LjAiICJvcGVudGVsZW1ldHJ5LWV4cG9ydGVyLW90bHAtcHJvdG8taHR0cD09MS4zNy4wIiAmJiBSVVNUX0JBQ0tUUkFDRT0xIHRvcmNoZnRfbGlnaHRob3VzZSAtLXF1b3J1bV90aWNrX21zIDEwMCAtLWpvaW5fdGltZW91dF9tcyAxMDAwMDAK
+      lighthouse: cGlwIGluc3RhbGwgInRvcmNoZnQtbmlnaHRseT09MjAyNS4xMi4xNiIgIm9wZW50ZWxlbWV0cnktc2RrPT0xLjM3LjAiICJvcGVudGVsZW1ldHJ5LWV4cG9ydGVyLW90bHAtcHJvdG8tY29tbW9uPT0xLjM3LjAiICJvcGVudGVsZW1ldHJ5LWV4cG9ydGVyLW90bHAtcHJvdG8taHR0cD09MS4zNy4wIiAmJiBSVVNUX0JBQ0tUUkFDRT0xIHRvcmNoZnRfbGlnaHRob3VzZSAtLXF1b3J1bV90aWNrX21zIDEwMCAtLWpvaW5fdGltZW91dF9tcyAxMDAwMDAK
 kind: ConfigMap
 metadata:
   name: {{ .Release.Name }}-job-manager

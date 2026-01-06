@@ -29,7 +29,7 @@ var (
 	updateWorkloadCmd    = fmt.Sprintf(`UPDATE %s 
 		SET priority = :priority,
 		    max_retry = :max_retry,
-		    resource = :resource,
+		    resources = :resources,
 		    image = :image,
 		    entrypoint = :entrypoint,
 		    phase = :phase,
