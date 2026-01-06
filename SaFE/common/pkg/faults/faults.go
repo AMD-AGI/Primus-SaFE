@@ -6,6 +6,8 @@
 package faults
 
 import (
+	"strings"
+
 	corev1 "k8s.io/api/core/v1"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
@@ -59,4 +61,15 @@ func HasTaintKey(taints []corev1.Taint, key string) bool {
 		}
 	}
 	return false
+}
+
+// GetCustomerTaints get all user-generated taints in the taints slice
+func GetCustomerTaints(taints []corev1.Taint) []corev1.Taint {
+	result := make([]corev1.Taint, 0, len(taints))
+	for i, t := range taints {
+		if !strings.HasPrefix(t.Key, v1.PrimusSafePrefix) {
+			result = append(result, taints[i])
+		}
+	}
+	return result
 }
