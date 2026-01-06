@@ -55,6 +55,9 @@ rules:
     - user
     - secret
     - opsjob
+    - opsjob/preflight
+    - opsjob/download
+    - opsjob/dumplog
   grantedUsers:
     - owner
   verbs:
@@ -82,7 +85,9 @@ rules:
     - node
     - workspace
     - user
-    - opsjob
+    - opsjob/preflight
+    - opsjob/download
+    - opsjob/dumplog
   grantedUsers:
     - workspace-user
   verbs:
@@ -109,6 +114,7 @@ rules:
     - secret
     - opsjob/preflight
     - opsjob/download
+    - opsjob/dumplog
   grantedUsers:
     - workspace-user
   verbs:

@@ -127,7 +127,7 @@ func (h *Handler) listOpsJob(c *gin.Context) (interface{}, error) {
 		klog.ErrorS(err, "failed to parse query")
 		return nil, err
 	}
-	if err = h.authGetOpsJob(c, query.WorkspaceId); err != nil {
+	if err = h.authGetOpsJob(c, query.WorkspaceId, string(query.Type)); err != nil {
 		return nil, err
 	}
 
@@ -157,7 +157,7 @@ func (h *Handler) getOpsJob(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 	workspaceId := dbutils.ParseNullString(opsJob.Workspace)
-	if err = h.authGetOpsJob(c, workspaceId); err != nil {
+	if err = h.authGetOpsJob(c, workspaceId, opsJob.Type); err != nil {
 		return nil, err
 	}
 	return cvtToGetOpsJobResponse(opsJob), nil
@@ -841,14 +841,25 @@ func (h *Handler) cvtToGetOpsJobSql(c *gin.Context) (sqrl.Sqlizer, error) {
 	return dbSql, nil
 }
 
-func (h *Handler) authGetOpsJob(c *gin.Context, workspaceId string) error {
+func (h *Handler) authGetOpsJob(c *gin.Context, workspaceId, opsType string) error {
 	var workspaces []string
 	if workspaceId != "" {
 		workspaces = []string{workspaceId}
 	}
+	var resourceKind string
+	switch opsType {
+	case string(v1.OpsJobPreflightType):
+		resourceKind = authority.PreflightKind
+	case string(v1.OpsJobDownloadType):
+		resourceKind = authority.DownloadKind
+	case string(v1.OpsJobDumpLogType):
+		resourceKind = authority.DumpLogKind
+	default:
+		resourceKind = v1.OpsJobKind
+	}
 	if err := h.accessController.Authorize(authority.AccessInput{
 		Context:      c.Request.Context(),
-		ResourceKind: v1.OpsJobKind,
+		ResourceKind: resourceKind,
 		Verb:         v1.GetVerb,
 		Workspaces:   workspaces,
 		UserId:       c.GetString(common.UserId),
