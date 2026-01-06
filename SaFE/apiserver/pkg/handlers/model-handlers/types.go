@@ -236,6 +236,7 @@ type WorkloadConfigResponse struct {
 	CPU        string `json:"cpu"`        // CPU request
 	Memory     string `json:"memory"`     // Memory request
 	GPU        string `json:"gpu"`        // GPU request
+	Replica    string `json:"replica"`
 }
 
 // --- Model Workloads Types ---

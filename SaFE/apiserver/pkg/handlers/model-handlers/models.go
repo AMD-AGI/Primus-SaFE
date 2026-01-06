@@ -776,16 +776,12 @@ func (h *Handler) getWorkloadConfig(c *gin.Context) (interface{}, error) {
 		AccessMode: string(k8sModel.Spec.Source.AccessMode),
 		MaxTokens:  k8sModel.Spec.MaxTokens,
 		Workspace:  workspace,
-		// TODO: The following fields must be filled by the user in the frontend
-		// Consider providing recommended values based on model type/size:
-		// - Image: vllm/vllm-openai:latest, ghcr.io/huggingface/text-generation-inference:latest
-		// - EntryPoint: python -m vllm.entrypoints.openai.api_server --model ${MODEL_PATH}
-		// - CPU/Memory/GPU: based on model parameters (7B -> 8GPU, 70B -> 16GPU, etc.)
-		Image:      "", // Required: user must provide container image
-		EntryPoint: "", // Required: user must provide startup command
-		CPU:        "", // Required: user must specify CPU request
-		Memory:     "", // Required: user must specify memory request
-		GPU:        "", // Required: user must specify GPU request
+		Image:      "rocm/vllm:latest",
+		EntryPoint: fmt.Sprintf("vllm serve %s --served-model-name %s", modelPath, k8sModel.GetModelName()),
+		CPU:        "16",
+		Memory:     "64",
+		GPU:        "1",
+		Replica:    "1",
 	}
 
 	return config, nil
