@@ -192,6 +192,8 @@ func buildPodSpec(ctx context.Context, session *model.TracelensSessions, podName
 						{Name: "API_BASE_URL", Value: apiBaseURL},
 						{Name: "CLUSTER", Value: dataClusterName},
 						{Name: "INTERNAL_TOKEN", Value: internalToken},
+						// Base path for Perfetto UI when accessed through proxy
+						{Name: "UI_BASE_PATH", Value: fmt.Sprintf("/lens/v1/perfetto/sessions/%s/ui/", session.SessionID)},
 					},
 					Resources: corev1.ResourceRequirements{
 						Limits: corev1.ResourceList{

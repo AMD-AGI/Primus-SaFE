@@ -94,6 +94,20 @@ else
 fi
 
 echo "=========================================="
+echo "Configuring Perfetto UI..."
+echo "=========================================="
+
+# Set base path for Perfetto UI if UI_BASE_PATH is provided
+# This is needed when Perfetto is served behind a reverse proxy
+INDEX_FILE="/usr/share/nginx/html/perfetto/index.html"
+if [ -n "$UI_BASE_PATH" ] && [ -f "$INDEX_FILE" ]; then
+    echo "Setting UI base path to: ${UI_BASE_PATH}"
+    # Insert <base> tag after <head> to set the base URL
+    sed -i "s|<head>|<head><base href=\"${UI_BASE_PATH}\">|" "$INDEX_FILE"
+    echo "Base path configured successfully"
+fi
+
+echo "=========================================="
 echo "Starting nginx server..."
 echo "=========================================="
 

@@ -44,8 +44,8 @@ RUN ui/build && \
 # Stage 2: Runtime image
 FROM nginx:alpine
 
-# Install required tools
-RUN apk add --no-cache curl
+# Install required tools (sed for dynamic index.html modification)
+RUN apk add --no-cache curl sed
 
 # Create directories
 RUN mkdir -p /data /usr/share/nginx/html/perfetto
