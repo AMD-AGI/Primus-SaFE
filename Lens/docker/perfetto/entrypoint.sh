@@ -3,6 +3,7 @@ set -e
 
 echo "=========================================="
 echo "Perfetto Viewer Container Starting..."
+echo "Mode: trace_processor HTTP Server"
 echo "=========================================="
 echo "SESSION_ID: ${SESSION_ID}"
 echo "PROFILER_FILE_ID: ${PROFILER_FILE_ID}"
@@ -19,12 +20,6 @@ fi
 if [ -z "$API_BASE_URL" ]; then
     echo "ERROR: API_BASE_URL is required"
     exit 1
-fi
-
-# Build authentication header if token is provided
-AUTH_HEADER=""
-if [ -n "$INTERNAL_TOKEN" ]; then
-    AUTH_HEADER="-H 'X-Internal-Token: ${INTERNAL_TOKEN}'"
 fi
 
 # Build cluster query parameter
@@ -52,12 +47,12 @@ while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
         HTTP_CODE=$(curl -s -w "%{http_code}" -o "$TRACE_FILE" \
             -H "X-Internal-Token: ${INTERNAL_TOKEN}" \
             --connect-timeout 30 \
-            --max-time 300 \
+            --max-time 600 \
             "${DOWNLOAD_URL}")
     else
         HTTP_CODE=$(curl -s -w "%{http_code}" -o "$TRACE_FILE" \
             --connect-timeout 30 \
-            --max-time 300 \
+            --max-time 600 \
             "${DOWNLOAD_URL}")
     fi
     
@@ -82,15 +77,39 @@ fi
 FILE_SIZE=$(stat -c%s "$TRACE_FILE" 2>/dev/null || stat -f%z "$TRACE_FILE" 2>/dev/null || echo "unknown")
 echo "Trace file downloaded successfully. Size: ${FILE_SIZE} bytes"
 
-# Check if it's valid trace file (JSON or protobuf)
-# Perfetto traces can be JSON (starts with { or [) or protobuf binary
-FIRST_BYTES=$(head -c 4 "$TRACE_FILE" | od -An -tx1 | tr -d ' ')
-if echo "$FIRST_BYTES" | grep -q "^0a"; then
-    echo "Detected protobuf format trace file"
-elif head -c 100 "$TRACE_FILE" | grep -q '[{"\[]'; then
-    echo "Detected JSON format trace file"
-else
-    echo "WARNING: Unknown trace file format"
+echo "=========================================="
+echo "Starting trace_processor HTTP server..."
+echo "=========================================="
+
+# Start trace_processor_shell in HTTP mode
+# Port 9001 is the default Perfetto RPC port
+# The server will load the trace file and serve queries via HTTP
+trace_processor_shell \
+    --httpd \
+    --http-port=9001 \
+    "$TRACE_FILE" &
+
+TRACE_PROCESSOR_PID=$!
+echo "trace_processor_shell started with PID: ${TRACE_PROCESSOR_PID}"
+
+# Wait for trace_processor to be ready
+echo "Waiting for trace_processor to load trace file..."
+MAX_WAIT=120  # Maximum wait time in seconds (trace loading can take a while)
+WAIT_COUNT=0
+while [ $WAIT_COUNT -lt $MAX_WAIT ]; do
+    if curl -s http://127.0.0.1:9001/status > /dev/null 2>&1; then
+        echo "trace_processor HTTP server is ready!"
+        break
+    fi
+    sleep 1
+    WAIT_COUNT=$((WAIT_COUNT + 1))
+    if [ $((WAIT_COUNT % 10)) -eq 0 ]; then
+        echo "Still waiting... (${WAIT_COUNT}s)"
+    fi
+done
+
+if [ $WAIT_COUNT -ge $MAX_WAIT ]; then
+    echo "WARNING: trace_processor may not be fully ready, but continuing..."
 fi
 
 echo "=========================================="
@@ -108,16 +127,12 @@ if [ -f "$INDEX_FILE" ]; then
         sed -i "s|<head>|<head><base href=\"${UI_BASE_PATH}\">|" "$INDEX_FILE"
     fi
     
-    # Inject url-fix.js script to run BEFORE Perfetto loads
-    # This removes the url parameter from hash to prevent "Invalid URL" error
-    # Must be first script in <head> to run before any other scripts
-    # Use relative path (no leading /) so it works with <base> tag
+    # Inject scripts: url-fix.js and httpd-connect.js
+    # httpd-connect.js tells Perfetto to use the local HTTP server
     if [ -n "$UI_BASE_PATH" ]; then
-        # Insert after <base> tag - use relative path
-        sed -i "s|<base href=\"${UI_BASE_PATH}\">|<base href=\"${UI_BASE_PATH}\"><script src=\"url-fix.js\"></script>|" "$INDEX_FILE"
+        sed -i "s|<base href=\"${UI_BASE_PATH}\">|<base href=\"${UI_BASE_PATH}\"><script src=\"url-fix.js\"></script><script src=\"httpd-connect.js\"></script>|" "$INDEX_FILE"
     else
-        # Insert right after <head> - use absolute path since no base tag
-        sed -i 's|<head>|<head><script src="/url-fix.js"></script>|' "$INDEX_FILE"
+        sed -i 's|<head>|<head><script src="/url-fix.js"></script><script src="/httpd-connect.js"></script>|' "$INDEX_FILE"
     fi
     
     echo "Perfetto UI configured successfully"
@@ -129,4 +144,3 @@ echo "=========================================="
 
 # Start nginx in foreground
 exec nginx -g 'daemon off;'
-
