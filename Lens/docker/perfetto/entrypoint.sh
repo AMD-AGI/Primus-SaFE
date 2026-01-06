@@ -111,11 +111,12 @@ if [ -f "$INDEX_FILE" ]; then
     # Inject url-fix.js script to run BEFORE Perfetto loads
     # This removes the url parameter from hash to prevent "Invalid URL" error
     # Must be first script in <head> to run before any other scripts
+    # Use relative path (no leading /) so it works with <base> tag
     if [ -n "$UI_BASE_PATH" ]; then
-        # Insert after <base> tag
-        sed -i "s|<base href=\"${UI_BASE_PATH}\">|<base href=\"${UI_BASE_PATH}\"><script src=\"/url-fix.js\"></script>|" "$INDEX_FILE"
+        # Insert after <base> tag - use relative path
+        sed -i "s|<base href=\"${UI_BASE_PATH}\">|<base href=\"${UI_BASE_PATH}\"><script src=\"url-fix.js\"></script>|" "$INDEX_FILE"
     else
-        # Insert right after <head>
+        # Insert right after <head> - use absolute path since no base tag
         sed -i 's|<head>|<head><script src="/url-fix.js"></script>|' "$INDEX_FILE"
     fi
     
