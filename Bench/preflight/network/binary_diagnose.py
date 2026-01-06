@@ -254,6 +254,7 @@ def build_env_vars() -> Dict[str, str]:
         "RCCL_MSCCL_ENABLE": "0",
         "NCCL_DEBUG": RCCL_DEBUG,
         "NCCL_NET_GDR_LEVEL": "2",
+        "HSA_NO_SCRATCH_RECLAIM": "0",
         "NCCL_NET_GDR_READ": "1",
         "MPIEXEC_RSH": f"ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -p {SSH_PORT}"
     })
@@ -304,7 +305,10 @@ def run_rccl_test(nodes: List[str]) -> float:
     
     # Add test-specific optimizations for alltoall tests
     if RCCL_TEST_TYPE == 1:
-        if len(nodes) < 16 or ENABLE_AINIC:
+        if ENABLE_AINIC:
+            env_vars["NCCL_PXN_DISABLE"] = "1"
+            env_vars["NCCL_P2P_NET_CHUNKSIZE"] = "524288"
+        elif len(nodes) < 16 :
             env_vars["NCCL_PXN_DISABLE"] = "0"
             env_vars["NCCL_P2P_NET_CHUNKSIZE"] = "524288"
 
