@@ -14,6 +14,7 @@ const (
 	SecretResourceKind    = "secret"
 	PreflightKind         = "opsjob/preflight"
 	DownloadKind          = "opsjob/download"
+	DumpLogKind           = "opsjob/dumplog"
 	PublicKeyKind         = "PublicKey"
 	ImageImportKind       = "ImageImport"
 	ImageRegisterKind     = "ImageRegister"
