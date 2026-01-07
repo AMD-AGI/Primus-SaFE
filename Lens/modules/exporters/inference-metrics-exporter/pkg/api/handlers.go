@@ -53,18 +53,18 @@ func RegisterRoutes(group *gin.RouterGroup, receiver *task.TaskReceiver, exp *ex
 
 // TargetResponse represents a scrape target in API responses
 type TargetResponse struct {
-	WorkloadUID       string            `json:"workload_uid"`
-	Framework         string            `json:"framework"`
-	Namespace         string            `json:"namespace"`
-	PodName           string            `json:"pod_name"`
-	PodIP             string            `json:"pod_ip"`
-	MetricsURL        string            `json:"metrics_url"`
-	Status            string            `json:"status"`
-	Labels            map[string]string `json:"labels,omitempty"`
-	LastScrape        *time.Time        `json:"last_scrape,omitempty"`
-	ScrapeCount       int64             `json:"scrape_count"`
-	ErrorCount        int64             `json:"error_count"`
-	ConsecutiveErrors int               `json:"consecutive_errors"`
+	WorkloadUID         string            `json:"workload_uid"`
+	Framework           string            `json:"framework"`
+	Namespace           string            `json:"namespace"`
+	PodName             string            `json:"pod_name"`
+	PodIP               string            `json:"pod_ip"`
+	MetricsURL          string            `json:"metrics_url"`
+	Status              string            `json:"status"`
+	Labels              map[string]string `json:"labels,omitempty"`
+	LastScrape          *time.Time        `json:"last_scrape,omitempty"`
+	ScrapeCount         int64             `json:"scrape_count"`
+	ErrorCount          int64             `json:"error_count"`
+	ConsecutiveErrors   int               `json:"consecutive_errors"`
 }
 
 // ListTargetsResponse is the response for listing targets
@@ -75,9 +75,9 @@ type ListTargetsResponse struct {
 
 // TargetsSummary contains summary statistics
 type TargetsSummary struct {
-	Total       int            `json:"total"`
-	Healthy     int            `json:"healthy"`
-	Unhealthy   int            `json:"unhealthy"`
+	Total      int            `json:"total"`
+	Healthy    int            `json:"healthy"`
+	Unhealthy  int            `json:"unhealthy"`
 	ByFramework map[string]int `json:"by_framework"`
 }
 
@@ -237,10 +237,10 @@ func (a *API) ReloadConfig(c *gin.Context) {
 
 // FrameworkConfigResponse represents a framework config in API response
 type FrameworkConfigResponse struct {
-	Framework   string                      `json:"framework"`
-	ConfigHash  string                      `json:"config_hash,omitempty"`
-	Mappings    int                         `json:"mappings_count"`
-	MappingList []transformer.MetricMapping `json:"mappings,omitempty"`
+	Framework   string                       `json:"framework"`
+	ConfigHash  string                       `json:"config_hash,omitempty"`
+	Mappings    int                          `json:"mappings_count"`
+	MappingList []transformer.MetricMapping  `json:"mappings,omitempty"`
 }
 
 // ListFrameworkConfigs lists all loaded framework configurations
@@ -384,3 +384,4 @@ func (a *API) GetMetricsDebug(c *gin.Context) {
 
 	c.Data(http.StatusOK, "text/plain; charset=utf-8", text)
 }
+

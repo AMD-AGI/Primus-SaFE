@@ -37,10 +37,10 @@ func TestNew(t *testing.T) {
 	t.Run("with custom config", func(t *testing.T) {
 		registry := airegistry.NewMemoryStore()
 		cfg := &ClientConfig{
-			DefaultTimeout:        10 * time.Second,
-			RetryCount:            5,
-			CircuitBreakerEnabled: false,
-			DegradationEnabled:    false,
+			DefaultTimeout:          10 * time.Second,
+			RetryCount:              5,
+			CircuitBreakerEnabled:   false,
+			DegradationEnabled:      false,
 		}
 		client := New(cfg, registry, nil)
 		assert.NotNil(t, client)
@@ -343,3 +343,4 @@ func TestTask_Fields(t *testing.T) {
 	assert.Equal(t, TaskStatusPending, task.Status)
 	assert.Equal(t, "cluster-1", task.Context.ClusterID)
 }
+

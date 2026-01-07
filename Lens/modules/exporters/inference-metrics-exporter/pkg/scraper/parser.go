@@ -132,3 +132,4 @@ func Summarize(families []*dto.MetricFamily) MetricsSummary {
 
 	return summary
 }
+

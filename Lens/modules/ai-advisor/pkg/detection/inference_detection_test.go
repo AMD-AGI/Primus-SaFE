@@ -377,3 +377,4 @@ func TestDetectInferenceFramework_EmptyMatchers(t *testing.T) {
 	assert.NoError(t, err)
 	assert.False(t, resp.Detected)
 }
+

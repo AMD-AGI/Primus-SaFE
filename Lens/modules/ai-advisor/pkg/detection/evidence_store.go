@@ -192,15 +192,15 @@ func (s *EvidenceStore) StoreEnvEvidence(ctx context.Context, workloadUID string
 	}
 
 	req := &StoreEvidenceRequest{
-		WorkloadUID:      workloadUID,
-		Source:           "env",
-		SourceType:       "active",
-		Framework:        framework,
-		WorkloadType:     "training",
-		Confidence:       confidence,
+		WorkloadUID:     workloadUID,
+		Source:          "env",
+		SourceType:      "active",
+		Framework:       framework,
+		WorkloadType:    "training",
+		Confidence:      confidence,
 		WrapperFramework: wrapperFramework,
-		BaseFramework:    baseFramework,
-		Evidence:         evidence,
+		BaseFramework:   baseFramework,
+		Evidence:        evidence,
 	}
 
 	if wrapperFramework != "" {
@@ -392,12 +392,13 @@ func (s *EvidenceStore) BatchStoreEvidence(ctx context.Context, requests []*Stor
 // isInferenceFramework checks if a framework is an inference framework
 func isInferenceFramework(framework string) bool {
 	inferenceFrameworks := map[string]bool{
-		"vllm":                      true,
-		"triton":                    true,
-		"tgi":                       true,
-		"sglang":                    true,
-		"trtllm":                    true,
+		"vllm":      true,
+		"triton":    true,
+		"tgi":       true,
+		"sglang":    true,
+		"trtllm":    true,
 		"text-generation-inference": true,
 	}
 	return inferenceFrameworks[framework]
 }
+

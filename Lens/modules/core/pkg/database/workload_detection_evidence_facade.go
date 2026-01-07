@@ -297,3 +297,4 @@ func (f *WorkloadDetectionEvidenceFacade) DeleteExpiredEvidence(ctx context.Cont
 	}
 	return result.RowsAffected, nil
 }
+

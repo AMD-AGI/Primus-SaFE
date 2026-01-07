@@ -159,3 +159,4 @@ func (in *GrafanaDatasourceList) DeepCopyList() *GrafanaDatasourceList {
 	}
 	return out
 }
+

@@ -263,3 +263,4 @@ func TestGrafanaDatasourceList_DeepCopyObject(t *testing.T) {
 	assert.True(t, ok)
 	assert.Len(t, copied.Items, 1)
 }
+

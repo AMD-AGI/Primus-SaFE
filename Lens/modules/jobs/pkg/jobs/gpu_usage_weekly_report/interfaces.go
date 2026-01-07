@@ -128,7 +128,7 @@ func (m *MockReportRenderer) RenderPDF(ctx context.Context, htmlContent []byte) 
 
 // MockClusterManager is a mock implementation of ClusterManagerInterface for testing
 type MockClusterManager struct {
-	Clusters            map[string]*clientsets.ClusterClientSet
+	Clusters         map[string]*clientsets.ClusterClientSet
 	GetClusterNamesFunc func() []string
 }
 
@@ -184,3 +184,4 @@ type TimeRangeResult struct {
 	MinTime time.Time
 	MaxTime time.Time
 }
+

@@ -129,11 +129,11 @@ type AnalyzeCoverageInput struct {
 
 // AnalyzeCoverageOutput is the output payload for analyze-coverage topic
 type AnalyzeCoverageOutput struct {
-	TotalComponents   int                         `json:"total_components"`
-	CoveredComponents int                         `json:"covered_components"`
-	OverallScore      float64                     `json:"overall_score"`
+	TotalComponents   int                     `json:"total_components"`
+	CoveredComponents int                     `json:"covered_components"`
+	OverallScore      float64                 `json:"overall_score"`
 	ByCategory        map[string]CategoryCoverage `json:"by_category"`
-	Gaps              []CoverageGap               `json:"gaps"`
+	Gaps              []CoverageGap           `json:"gaps"`
 }
 
 // CategoryCoverage represents coverage for a category
@@ -150,3 +150,4 @@ type CoverageGap struct {
 	MissingAreas  []string `json:"missing_areas"`
 	Priority      int      `json:"priority"`
 }
+

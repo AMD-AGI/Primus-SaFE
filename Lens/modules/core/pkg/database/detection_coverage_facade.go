@@ -417,3 +417,4 @@ func (f *DetectionCoverageFacade) GetUncoveredLogWindow(ctx context.Context, wor
 
 	return nil, nil, nil
 }
+

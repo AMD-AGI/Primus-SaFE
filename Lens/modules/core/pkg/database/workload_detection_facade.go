@@ -374,3 +374,4 @@ func (f *WorkloadDetectionFacade) MarkAsConfirmed(ctx context.Context, workloadU
 			"updated_at":      now,
 		}).Error
 }
+

@@ -20,10 +20,10 @@ import (
 type LabelProbeExecutor struct {
 	coreTask.BaseExecutor
 
-	podProber      *common.PodProber
-	evidenceStore  *detection.EvidenceStore
-	coverageFacade database.DetectionCoverageFacadeInterface
-	workloadFacade database.WorkloadFacadeInterface
+	podProber       *common.PodProber
+	evidenceStore   *detection.EvidenceStore
+	coverageFacade  database.DetectionCoverageFacadeInterface
+	workloadFacade  database.WorkloadFacadeInterface
 }
 
 // NewLabelProbeExecutor creates a new LabelProbeExecutor
@@ -342,3 +342,4 @@ func (e *LabelProbeExecutor) Cancel(ctx context.Context, task *model.WorkloadTas
 	log.Infof("Label probe task cancelled for workload %s", task.WorkloadUID)
 	return nil
 }
+

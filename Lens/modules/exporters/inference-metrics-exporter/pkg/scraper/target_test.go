@@ -173,3 +173,4 @@ func TestScrapeTarget_StatusTransitions(t *testing.T) {
 	assert.Equal(t, TargetStatusHealthy, target.GetStatus())
 	assert.True(t, target.IsHealthy())
 }
+

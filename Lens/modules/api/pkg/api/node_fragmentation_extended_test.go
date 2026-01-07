@@ -74,12 +74,12 @@ func TestGenerateFragmentationRecommendations(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			recommendations := generateFragmentationRecommendations(tt.nodeFrags)
-
+			
 			if len(recommendations) < tt.wantMinRecommendations {
-				t.Errorf("Expected at least %d recommendations, got %d",
+				t.Errorf("Expected at least %d recommendations, got %d", 
 					tt.wantMinRecommendations, len(recommendations))
 			}
-
+			
 			// Check for specific recommendation types
 			hasContent := false
 			for _, rec := range recommendations {
@@ -88,7 +88,7 @@ func TestGenerateFragmentationRecommendations(t *testing.T) {
 					break
 				}
 			}
-
+			
 			if !hasContent {
 				t.Error("Recommendations should not be empty")
 			}
@@ -98,11 +98,11 @@ func TestGenerateFragmentationRecommendations(t *testing.T) {
 
 func TestBuildFragmentationSummary(t *testing.T) {
 	tests := []struct {
-		name              string
-		nodeFrags         []NodeFragmentation
-		wantHealthy       int
-		wantFragmented    int
-		wantCritical      int
+		name            string
+		nodeFrags       []NodeFragmentation
+		wantHealthy     int
+		wantFragmented  int
+		wantCritical    int
 		wantMinWastedGPUs int
 	}{
 		{
@@ -111,9 +111,9 @@ func TestBuildFragmentationSummary(t *testing.T) {
 				{Status: "healthy", TotalGPUs: 8, AvailableGPUs: 2},
 				{Status: "healthy", TotalGPUs: 8, AvailableGPUs: 1},
 			},
-			wantHealthy:       2,
-			wantFragmented:    0,
-			wantCritical:      0,
+			wantHealthy:    2,
+			wantFragmented: 0,
+			wantCritical:   0,
 			wantMinWastedGPUs: 0,
 		},
 		{
@@ -123,9 +123,9 @@ func TestBuildFragmentationSummary(t *testing.T) {
 				{Status: "fragmented", TotalGPUs: 8, AvailableGPUs: 3},
 				{Status: "critical", TotalGPUs: 8, AvailableGPUs: 4},
 			},
-			wantHealthy:       1,
-			wantFragmented:    1,
-			wantCritical:      1,
+			wantHealthy:    1,
+			wantFragmented: 1,
+			wantCritical:   1,
 			wantMinWastedGPUs: 7, // fragmented (3) + critical (4)
 		},
 		{
@@ -134,9 +134,9 @@ func TestBuildFragmentationSummary(t *testing.T) {
 				{Status: "fragmented", TotalGPUs: 8, AvailableGPUs: 2},
 				{Status: "fragmented", TotalGPUs: 8, AvailableGPUs: 3},
 			},
-			wantHealthy:       0,
-			wantFragmented:    2,
-			wantCritical:      0,
+			wantHealthy:    0,
+			wantFragmented: 2,
+			wantCritical:   0,
 			wantMinWastedGPUs: 5,
 		},
 		{
@@ -145,9 +145,9 @@ func TestBuildFragmentationSummary(t *testing.T) {
 				{Status: "critical", TotalGPUs: 8, AvailableGPUs: 5},
 				{Status: "critical", TotalGPUs: 8, AvailableGPUs: 6},
 			},
-			wantHealthy:       0,
-			wantFragmented:    0,
-			wantCritical:      2,
+			wantHealthy:    0,
+			wantFragmented: 0,
+			wantCritical:   2,
 			wantMinWastedGPUs: 11,
 		},
 	}
@@ -155,7 +155,7 @@ func TestBuildFragmentationSummary(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			summary := buildFragmentationSummary(tt.nodeFrags)
-
+			
 			if summary.HealthyNodes != tt.wantHealthy {
 				t.Errorf("HealthyNodes = %d, want %d", summary.HealthyNodes, tt.wantHealthy)
 			}
@@ -166,10 +166,10 @@ func TestBuildFragmentationSummary(t *testing.T) {
 				t.Errorf("CriticalNodes = %d, want %d", summary.CriticalNodes, tt.wantCritical)
 			}
 			if summary.TotalWastedGPUs < tt.wantMinWastedGPUs {
-				t.Errorf("TotalWastedGPUs = %d, want at least %d",
+				t.Errorf("TotalWastedGPUs = %d, want at least %d", 
 					summary.TotalWastedGPUs, tt.wantMinWastedGPUs)
 			}
-
+			
 			// Verify waste percentage calculation
 			if summary.TotalWastedGPUs > 0 && summary.WastePercentage == 0 {
 				t.Error("WastePercentage should be > 0 when TotalWastedGPUs > 0")
@@ -180,9 +180,9 @@ func TestBuildFragmentationSummary(t *testing.T) {
 
 func TestNodeFragmentationLogic(t *testing.T) {
 	tests := []struct {
-		name                     string
-		frag                     NodeFragmentation
-		pattern                  AllocationPattern
+		name                   string
+		frag                   NodeFragmentation
+		pattern                AllocationPattern
 		shouldHaveRecommendation bool
 	}{
 		{
@@ -227,9 +227,9 @@ func TestNodeFragmentationLogic(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Test logic: validate that critical/fragmented nodes need recommendations
 			needsAction := tt.frag.Status == "critical" || tt.frag.Status == "fragmented"
-
+			
 			if needsAction != tt.shouldHaveRecommendation {
-				t.Errorf("Expected recommendation needed: %v, got: %v",
+				t.Errorf("Expected recommendation needed: %v, got: %v", 
 					tt.shouldHaveRecommendation, needsAction)
 			}
 		})
@@ -285,7 +285,7 @@ func TestIdentifyHotspotNodesLogic(t *testing.T) {
 					hotspots = append(hotspots, node.NodeName)
 				}
 			}
-
+			
 			if len(hotspots) != tt.wantHotspots {
 				t.Errorf("Expected %d hotspots, got %d", tt.wantHotspots, len(hotspots))
 			}
@@ -342,7 +342,7 @@ func TestIdentifyIdleNodesLogic(t *testing.T) {
 					idleNodes = append(idleNodes, node.NodeName)
 				}
 			}
-
+			
 			if len(idleNodes) != tt.wantIdle {
 				t.Errorf("Expected %d idle nodes, got %d", tt.wantIdle, len(idleNodes))
 			}
@@ -399,7 +399,7 @@ func TestGenerateLoadBalanceRecommendationsLogic(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Test logic: generate recommendations based on cluster state
 			recommendations := []string{}
-
+			
 			if len(tt.hotspots) > 0 {
 				recommendations = append(recommendations, "Hotspot nodes detected")
 			}
@@ -412,9 +412,9 @@ func TestGenerateLoadBalanceRecommendationsLogic(t *testing.T) {
 			if len(recommendations) == 0 {
 				recommendations = append(recommendations, "Cluster is well balanced")
 			}
-
+			
 			if len(recommendations) < tt.wantMinRecommendations {
-				t.Errorf("Expected at least %d recommendations, got %d",
+				t.Errorf("Expected at least %d recommendations, got %d", 
 					tt.wantMinRecommendations, len(recommendations))
 			}
 		})
@@ -460,17 +460,17 @@ func TestCalculateLoadBalanceStats(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			stats := calculateLoadBalanceStats(tt.nodeLoads)
-
+			
 			if stats.AvgAllocationRate != tt.wantStats.AvgAllocationRate {
-				t.Errorf("AvgAllocationRate = %f, want %f",
+				t.Errorf("AvgAllocationRate = %f, want %f", 
 					stats.AvgAllocationRate, tt.wantStats.AvgAllocationRate)
 			}
 			if stats.MaxAllocation != tt.wantStats.MaxAllocation {
-				t.Errorf("MaxAllocation = %f, want %f",
+				t.Errorf("MaxAllocation = %f, want %f", 
 					stats.MaxAllocation, tt.wantStats.MaxAllocation)
 			}
 			if stats.MinAllocation != tt.wantStats.MinAllocation {
-				t.Errorf("MinAllocation = %f, want %f",
+				t.Errorf("MinAllocation = %f, want %f", 
 					stats.MinAllocation, tt.wantStats.MinAllocation)
 			}
 		})
@@ -485,8 +485,8 @@ func TestLoadBalanceResponseStructure(t *testing.T) {
 			{NodeName: "node-1", AllocationRate: 80.0, UtilizationRate: 75.0, LoadScore: 77.5},
 			{NodeName: "node-2", AllocationRate: 60.0, UtilizationRate: 55.0, LoadScore: 57.5},
 		},
-		HotspotNodes:    []string{"node-1"},
-		IdleNodes:       []string{},
+		HotspotNodes: []string{"node-1"},
+		IdleNodes:    []string{},
 		Recommendations: []string{"Consider rebalancing workloads"},
 		Statistics: LoadBalanceStats{
 			AvgAllocationRate: 70.0,
@@ -510,3 +510,4 @@ func TestLoadBalanceResponseStructure(t *testing.T) {
 		t.Error("Statistics AvgAllocationRate mismatch")
 	}
 }
+

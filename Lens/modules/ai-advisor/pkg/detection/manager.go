@@ -11,12 +11,12 @@ import (
 
 var (
 	// Global instances
-	detectionManager *framework.FrameworkDetectionManager
-	wandbDetector    *WandBFrameworkDetector
-	configManager    *FrameworkConfigManager
-	patternMatchers  map[string]*PatternMatcher
-	taskCreator      *TaskCreator
-	layerResolver    *FrameworkLayerResolver
+	detectionManager     *framework.FrameworkDetectionManager
+	wandbDetector        *WandBFrameworkDetector
+	configManager        *FrameworkConfigManager
+	patternMatchers      map[string]*PatternMatcher
+	taskCreator          *TaskCreator
+	layerResolver        *FrameworkLayerResolver
 )
 
 // InitializeDetectionManager initializes framework detection manager and all components
@@ -25,7 +25,7 @@ func InitializeDetectionManager(
 	systemConfigMgr *configHelper.Manager,
 	instanceID string,
 ) (*framework.FrameworkDetectionManager, error) {
-
+	
 	// 1. Create detection manager with default config
 	detectionConfig := framework.DefaultDetectionConfig()
 	detectionManager = framework.NewFrameworkDetectionManager(
@@ -36,7 +36,7 @@ func InitializeDetectionManager(
 
 	// 2. Initialize config manager
 	configManager = NewFrameworkConfigManager(systemConfigMgr)
-
+	
 	// 3. Load all framework configurations
 	ctx := context.Background()
 	if err := configManager.LoadAllFrameworks(ctx); err != nil {
@@ -215,11 +215,11 @@ func reportInferenceDetection(ctx context.Context, workloadUID string, match *In
 	err := detectionManager.ReportDetection(
 		ctx,
 		workloadUID,
-		"inference_detector",   // source
-		match.FrameworkName,    // framework
-		FrameworkTypeInference, // taskType
-		match.Confidence,       // confidence
-		evidence,               // evidence
+		"inference_detector",        // source
+		match.FrameworkName,         // framework
+		FrameworkTypeInference,      // taskType
+		match.Confidence,            // confidence
+		evidence,                    // evidence
 	)
 
 	if err != nil {
@@ -260,3 +260,4 @@ func GetInferencePatternMatchers() map[string]*PatternMatcher {
 	}
 	return inferenceMatchers
 }
+

@@ -211,3 +211,4 @@ func (b *BatchInvoker) InvokeBatch(ctx context.Context, requests []*BatchRequest
 
 	return results
 }
+

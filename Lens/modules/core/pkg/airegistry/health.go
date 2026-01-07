@@ -123,3 +123,4 @@ func IsHealthy(status AgentStatus) bool {
 func ShouldRetry(status AgentStatus) bool {
 	return status != AgentStatusUnhealthy
 }
+

@@ -331,7 +331,7 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		// Get currently running GPU tasks
 		realtimeGroup.GET("/running-tasks", getRunningTasks)
 	}
-
+  
 	// Detection Status routes - Framework detection status and task progress
 	detectionStatusGroup := group.Group("/detection-status")
 	{

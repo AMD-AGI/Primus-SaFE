@@ -85,11 +85,11 @@ func (NewWorkloadDetectionEvidence) TableName() string {
 
 // MigrationStats tracks migration progress
 type MigrationStats struct {
-	TotalRecords       int
+	TotalRecords     int
 	DetectionsMigrated int
 	EvidencesMigrated  int
-	Skipped            int
-	Errors             int
+	Skipped          int
+	Errors           int
 }
 
 func main() {
@@ -402,3 +402,4 @@ func contains(slice []string, item string) bool {
 	}
 	return false
 }
+

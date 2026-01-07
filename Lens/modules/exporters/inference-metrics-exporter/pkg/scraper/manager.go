@@ -145,9 +145,9 @@ func (m *ScrapeManager) GetStats() ManagerStats {
 
 // ManagerStats contains statistics for the scrape manager
 type ManagerStats struct {
-	TotalTargets int                  `json:"total_targets"`
-	ByStatus     map[TargetStatus]int `json:"by_status"`
-	ByFramework  map[string]int       `json:"by_framework"`
+	TotalTargets int                   `json:"total_targets"`
+	ByStatus     map[TargetStatus]int  `json:"by_status"`
+	ByFramework  map[string]int        `json:"by_framework"`
 }
 
 // GetHealthyCount returns the number of healthy targets
@@ -177,3 +177,4 @@ func (m *ScrapeManager) GetUnhealthyTargets() []*ScrapeTarget {
 	}
 	return targets
 }
+

@@ -241,16 +241,16 @@ func (f *PodFacade) ListPodResourcesByUids(ctx context.Context, uids []string) (
 // QueryPodsWithFilters queries Pods with filtering, pagination and returns total count
 func (f *PodFacade) QueryPodsWithFilters(ctx context.Context, namespace, podName, startTime, endTime string, page, pageSize int) ([]*model.GpuPods, int64, error) {
 	q := f.getDAL().GpuPods.WithContext(ctx)
-
+	
 	// Apply filters
 	if namespace != "" {
 		q = q.Where(f.getDAL().GpuPods.Namespace.Eq(namespace))
 	}
-
+	
 	if podName != "" {
 		q = q.Where(f.getDAL().GpuPods.Name.Like("%" + podName + "%"))
 	}
-
+	
 	// Time range filter
 	if startTime != "" {
 		parsedStartTime, err := time.Parse(time.RFC3339, startTime)
@@ -259,7 +259,7 @@ func (f *PodFacade) QueryPodsWithFilters(ctx context.Context, namespace, podName
 		}
 		q = q.Where(f.getDAL().GpuPods.CreatedAt.Gte(parsedStartTime))
 	}
-
+	
 	if endTime != "" {
 		parsedEndTime, err := time.Parse(time.RFC3339, endTime)
 		if err != nil {
@@ -303,18 +303,18 @@ func (f *PodFacade) GetAverageGPUUtilizationByNode(ctx context.Context, nodeName
 	type Result struct {
 		AvgUtilization float64
 	}
-
+	
 	var result Result
 	gpuDeviceQ := f.getDAL().GpuDevice
 	err = gpuDeviceQ.WithContext(ctx).
 		Select(gpuDeviceQ.Utilization.Avg().As("avg_utilization")).
 		Where(gpuDeviceQ.NodeID.Eq(node.ID)).
 		Scan(&result)
-
+	
 	if err != nil {
 		return 0.0, err
 	}
-
+	
 	return result.AvgUtilization, nil
 }
 
@@ -336,7 +336,7 @@ func (f *PodFacade) GetLatestGPUMetricsByNode(ctx context.Context, nodeName stri
 		Where(gpuDeviceQ.NodeID.Eq(node.ID)).
 		Order(gpuDeviceQ.UpdatedAt.Desc()).
 		First()
-
+	
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
@@ -367,7 +367,7 @@ func (f *PodFacade) QueryGPUHistoryByNode(ctx context.Context, nodeName string, 
 		Where(gpuDeviceQ.UpdatedAt.Lte(endTime)).
 		Order(gpuDeviceQ.UpdatedAt).
 		Find()
-
+	
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return []*model.GpuDevice{}, nil
@@ -385,7 +385,7 @@ func (f *PodFacade) ListPodEventsByUID(ctx context.Context, podUID string) ([]*m
 		Where(q.PodUUID.Eq(podUID)).
 		Order(q.CreatedAt.Desc()).
 		Find()
-
+	
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return []*model.GpuPodsEvent{}, nil

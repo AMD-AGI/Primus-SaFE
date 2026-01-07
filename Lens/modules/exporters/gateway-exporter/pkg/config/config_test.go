@@ -214,3 +214,4 @@ func TestMetricsConfig(t *testing.T) {
 		assert.Equal(t, "production", config.StaticLabels["env"])
 	})
 }
+

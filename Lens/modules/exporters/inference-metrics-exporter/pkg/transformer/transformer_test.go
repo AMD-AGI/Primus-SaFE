@@ -181,9 +181,9 @@ func TestBaseTransformer_TransformHistogram(t *testing.T) {
 	assert.InDelta(t, 5.0, *hist.SampleSum, 0.0001)
 
 	// Check buckets were transformed
-	assert.InDelta(t, 0.001, *hist.Bucket[0].UpperBound, 0.0001) // 1ms -> 0.001s
-	assert.InDelta(t, 0.01, *hist.Bucket[1].UpperBound, 0.0001)  // 10ms -> 0.01s
-	assert.InDelta(t, 0.1, *hist.Bucket[2].UpperBound, 0.0001)   // 100ms -> 0.1s
+	assert.InDelta(t, 0.001, *hist.Bucket[0].UpperBound, 0.0001)  // 1ms -> 0.001s
+	assert.InDelta(t, 0.01, *hist.Bucket[1].UpperBound, 0.0001)   // 10ms -> 0.01s
+	assert.InDelta(t, 0.1, *hist.Bucket[2].UpperBound, 0.0001)    // 100ms -> 0.1s
 }
 
 func TestTransformerRegistry(t *testing.T) {
@@ -347,3 +347,4 @@ func labelsToMap(labels []*dto.LabelPair) map[string]string {
 func uint64Ptr(v uint64) *uint64 {
 	return &v
 }
+

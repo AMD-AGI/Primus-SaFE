@@ -166,3 +166,4 @@ vllm_generation_tokens_total 50000
 	assert.Contains(t, names, "vllm_time_to_first_token_seconds")
 	assert.Contains(t, names, "vllm_generation_tokens_total")
 }
+

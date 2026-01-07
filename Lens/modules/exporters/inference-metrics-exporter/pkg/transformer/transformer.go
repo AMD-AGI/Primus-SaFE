@@ -436,12 +436,12 @@ func (t *BaseTransformer) GetMappingInfo(sourceName string) (*MetricMapping, boo
 
 // TransformResult contains the result of a transformation
 type TransformResult struct {
-	Framework          string   `json:"framework"`
-	SourceMetrics      int      `json:"source_metrics"`
-	TransformedMetrics int      `json:"transformed_metrics"`
-	MappedMetrics      int      `json:"mapped_metrics"`
-	PassthroughMetrics int      `json:"passthrough_metrics"`
-	Errors             []string `json:"errors,omitempty"`
+	Framework         string `json:"framework"`
+	SourceMetrics     int    `json:"source_metrics"`
+	TransformedMetrics int    `json:"transformed_metrics"`
+	MappedMetrics     int    `json:"mapped_metrics"`
+	PassthroughMetrics int   `json:"passthrough_metrics"`
+	Errors            []string `json:"errors,omitempty"`
 }
 
 // TransformWithStats transforms metrics and returns statistics
@@ -575,3 +575,4 @@ func ValidateMapping(m *MetricMapping) error {
 	}
 	return nil
 }
+

@@ -148,3 +148,4 @@ func CreateTestEventFile(dir string) (string, error) {
 
 	return filePath, nil
 }
+

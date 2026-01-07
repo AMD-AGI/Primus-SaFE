@@ -59,7 +59,7 @@ func (f *K8sServiceFacade) UpsertService(ctx context.Context, svc *model.K8sServ
 	}
 
 	return f.getDB().WithContext(ctx).Clauses(clause.OnConflict{
-		Columns: []clause.Column{{Name: "uid"}},
+		Columns:   []clause.Column{{Name: "uid"}},
 		DoUpdates: clause.AssignmentColumns([]string{
 			"name", "namespace", "cluster_ip", "service_type",
 			"selector", "ports", "labels", "annotations", "deleted", "updated_at",
@@ -150,7 +150,7 @@ func (f *K8sServiceFacade) UpsertServicePodRef(ctx context.Context, ref *model.S
 	}
 
 	return f.getDB().WithContext(ctx).Clauses(clause.OnConflict{
-		Columns: []clause.Column{{Name: "service_uid"}, {Name: "pod_uid"}},
+		Columns:   []clause.Column{{Name: "service_uid"}, {Name: "pod_uid"}},
 		DoUpdates: clause.AssignmentColumns([]string{
 			"service_name", "service_namespace", "pod_name", "pod_ip",
 			"pod_labels", "workload_id", "workload_owner", "workload_type",
@@ -208,3 +208,4 @@ func (f *K8sServiceFacade) GetAllServicePodReferences(ctx context.Context) ([]*m
 	err := f.getDB().WithContext(ctx).Find(&refs).Error
 	return refs, err
 }
+

@@ -301,3 +301,4 @@ func TestAlertHandler_JSON_Serialization(t *testing.T) {
 	assert.Equal(t, input.Alert.AlertID, decoded.Alert.AlertID)
 	assert.Equal(t, input.Alert.Name, decoded.Alert.Name)
 }
+

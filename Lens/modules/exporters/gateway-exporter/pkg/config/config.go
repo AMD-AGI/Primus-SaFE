@@ -10,18 +10,18 @@ import (
 
 // GatewayExporterConfig is the main configuration for gateway-exporter
 type GatewayExporterConfig struct {
-	HttpPort      int              `yaml:"httpPort" json:"httpPort"`
-	LoadK8SClient bool             `yaml:"loadK8SClient" json:"loadK8SClient"`
-	Gateway       GatewayConfig    `yaml:"gateway" json:"gateway"`
-	Enrichment    EnrichmentConfig `yaml:"enrichment" json:"enrichment"`
-	Metrics       MetricsConfig    `yaml:"metrics" json:"metrics"`
+	HttpPort          int               `yaml:"httpPort" json:"httpPort"`
+	LoadK8SClient     bool              `yaml:"loadK8SClient" json:"loadK8SClient"`
+	Gateway           GatewayConfig     `yaml:"gateway" json:"gateway"`
+	Enrichment        EnrichmentConfig  `yaml:"enrichment" json:"enrichment"`
+	Metrics           MetricsConfig     `yaml:"metrics" json:"metrics"`
 }
 
 // GatewayConfig contains gateway scraping configuration
 type GatewayConfig struct {
-	ScrapeInterval string                      `yaml:"scrapeInterval" json:"scrapeInterval"`
-	CacheTTL       string                      `yaml:"cacheTTL" json:"cacheTTL"`
-	Collectors     []collector.CollectorConfig `yaml:"collectors" json:"collectors"`
+	ScrapeInterval string                       `yaml:"scrapeInterval" json:"scrapeInterval"`
+	CacheTTL       string                       `yaml:"cacheTTL" json:"cacheTTL"`
+	Collectors     []collector.CollectorConfig  `yaml:"collectors" json:"collectors"`
 }
 
 // GetScrapeInterval returns the scrape interval as duration
@@ -79,3 +79,4 @@ func LoadGatewayExporterConfig() (*GatewayExporterConfig, error) {
 
 	return &config, nil
 }
+

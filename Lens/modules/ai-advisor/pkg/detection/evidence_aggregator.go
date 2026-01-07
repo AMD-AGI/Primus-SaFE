@@ -73,13 +73,13 @@ type FrameworkVote struct {
 
 // DetectionConflict represents a conflict between detection sources
 type DetectionConflict struct {
-	Framework1  string    `json:"framework1"`
-	Confidence1 float64   `json:"confidence1"`
-	Sources1    []string  `json:"sources1"`
-	Framework2  string    `json:"framework2"`
-	Confidence2 float64   `json:"confidence2"`
-	Sources2    []string  `json:"sources2"`
-	DetectedAt  time.Time `json:"detected_at"`
+	Framework1   string  `json:"framework1"`
+	Confidence1  float64 `json:"confidence1"`
+	Sources1     []string `json:"sources1"`
+	Framework2   string  `json:"framework2"`
+	Confidence2  float64 `json:"confidence2"`
+	Sources2     []string `json:"sources2"`
+	DetectedAt   time.Time `json:"detected_at"`
 }
 
 // AggregationResult holds the result of evidence aggregation
@@ -897,3 +897,4 @@ func (r *AggregationResult) IsConfirmed() bool {
 func (r *AggregationResult) HasConflicts() bool {
 	return len(r.Conflicts) > 0
 }
+

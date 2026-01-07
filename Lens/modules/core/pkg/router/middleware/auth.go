@@ -30,8 +30,8 @@ type VerifyTokenRequest struct {
 
 // VerifyTokenResponse represents the response from SaFE verify endpoint
 type VerifyTokenResponse struct {
-	Code    int             `json:"code"`
-	Message string          `json:"message,omitempty"`
+	Code    int            `json:"code"`
+	Message string         `json:"message,omitempty"`
 	Data    *VerifyUserInfo `json:"data,omitempty"`
 }
 
@@ -198,3 +198,4 @@ type AuthMiddlewareConfig struct {
 	Timeout       time.Duration
 	ExcludePaths  []string
 }
+

@@ -329,8 +329,8 @@ func TestMatchProcessPatterns(t *testing.T) {
 			wantMatch:    true,
 		},
 		{
-			name:      "match cmdline",
-			cmdlines:  []string{"python -m vllm.entrypoints.openai.api_server"},
+			name:     "match cmdline",
+			cmdlines: []string{"python -m vllm.entrypoints.openai.api_server"},
 			wantMatch: true,
 		},
 		{
@@ -438,17 +438,17 @@ func TestMatchEnvPatterns(t *testing.T) {
 		{
 			name: "match vllm env",
 			envVars: map[string]string{
-				"VLLM_HOST": "0.0.0.0",
-				"VLLM_PORT": "8000",
-				"OTHER_VAR": "value",
+				"VLLM_HOST":  "0.0.0.0",
+				"VLLM_PORT":  "8000",
+				"OTHER_VAR":  "value",
 			},
 			wantMatch: true,
 		},
 		{
 			name: "no vllm env",
 			envVars: map[string]string{
-				"HOME": "/root",
-				"PATH": "/usr/bin",
+				"HOME":       "/root",
+				"PATH":       "/usr/bin",
 			},
 			wantMatch: false,
 		},
@@ -639,10 +639,10 @@ func TestConfidenceCalculation(t *testing.T) {
 
 	// All sources match with max confidence
 	ctx := &InferenceMatchContext{
-		ProcessNames:    []string{"vllm.server"},
-		ImageName:       "vllm/vllm:latest",
-		EnvVars:         map[string]string{"VLLM_HOST": "0.0.0.0"},
-		ContainerPorts:  []int{8000},
+		ProcessNames:   []string{"vllm.server"},
+		ImageName:      "vllm/vllm:latest",
+		EnvVars:        map[string]string{"VLLM_HOST": "0.0.0.0"},
+		ContainerPorts: []int{8000},
 		ProcessCmdlines: []string{"python -m vllm.serve"},
 	}
 
@@ -696,3 +696,4 @@ func TestDisabledPatterns(t *testing.T) {
 	assert.Contains(t, result.MatchedSources, "image")
 	assert.Contains(t, result.MatchedSources, "port")
 }
+

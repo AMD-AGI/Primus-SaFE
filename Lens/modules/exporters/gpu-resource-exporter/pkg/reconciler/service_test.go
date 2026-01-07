@@ -278,3 +278,4 @@ func TestEndpointsWithMultipleSubsets(t *testing.T) {
 	assert.Equal(t, 1, totalNotReady)
 	assert.Len(t, endpoints.Subsets, 2)
 }
+

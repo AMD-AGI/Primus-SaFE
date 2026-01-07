@@ -75,3 +75,4 @@ type WorkloadInfo struct {
 func (w *WorkloadInfo) HasGpuWorkload() bool {
 	return w != nil && w.WorkloadUID != ""
 }
+

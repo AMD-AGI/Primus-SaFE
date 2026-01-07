@@ -173,12 +173,12 @@ func TestQueryPodEventsLogic(t *testing.T) {
 // Test identifyHotspotAndIdleNodes function
 func TestIdentifyHotspotAndIdleNodes(t *testing.T) {
 	tests := []struct {
-		name             string
-		nodeLoads        []NodeLoad
-		expectedHotspots int
-		expectedIdle     int
-		checkMean        bool
-		expectedMean     float64
+		name              string
+		nodeLoads         []NodeLoad
+		expectedHotspots  int
+		expectedIdle      int
+		checkMean         bool
+		expectedMean      float64
 	}{
 		{
 			name: "Balanced cluster - no hotspots or idle",
@@ -262,7 +262,7 @@ func TestIdentifyHotspotAndIdleNodes(t *testing.T) {
 					sum += load.LoadScore
 				}
 				mean := sum / float64(len(tt.nodeLoads))
-
+				
 				if mean != tt.expectedMean {
 					t.Errorf("Expected mean %f, got %f", tt.expectedMean, mean)
 				}
@@ -274,22 +274,22 @@ func TestIdentifyHotspotAndIdleNodes(t *testing.T) {
 // Test Pod comparison summary calculation logic
 func TestPodComparisonSummaryCalculation(t *testing.T) {
 	tests := []struct {
-		name            string
-		pods            []PodComparisonItem
-		expectedHighest string
-		expectedLowest  string
-		expectedAvgUtil float64
+		name                 string
+		pods                 []PodComparisonItem
+		expectedHighest      string
+		expectedLowest       string
+		expectedAvgUtil      float64
 	}{
 		{
 			name: "Two pods comparison",
 			pods: []PodComparisonItem{
 				{
-					PodName: "pod-1",
-					Metrics: map[string]float64{"gpu_utilization": 50.0},
+					PodName:  "pod-1",
+					Metrics:  map[string]float64{"gpu_utilization": 50.0},
 				},
 				{
-					PodName: "pod-2",
-					Metrics: map[string]float64{"gpu_utilization": 80.0},
+					PodName:  "pod-2",
+					Metrics:  map[string]float64{"gpu_utilization": 80.0},
 				},
 			},
 			expectedHighest: "pod-2",
@@ -300,16 +300,16 @@ func TestPodComparisonSummaryCalculation(t *testing.T) {
 			name: "Three pods with same utilization",
 			pods: []PodComparisonItem{
 				{
-					PodName: "pod-1",
-					Metrics: map[string]float64{"gpu_utilization": 60.0},
+					PodName:  "pod-1",
+					Metrics:  map[string]float64{"gpu_utilization": 60.0},
 				},
 				{
-					PodName: "pod-2",
-					Metrics: map[string]float64{"gpu_utilization": 60.0},
+					PodName:  "pod-2",
+					Metrics:  map[string]float64{"gpu_utilization": 60.0},
 				},
 				{
-					PodName: "pod-3",
-					Metrics: map[string]float64{"gpu_utilization": 60.0},
+					PodName:  "pod-3",
+					Metrics:  map[string]float64{"gpu_utilization": 60.0},
 				},
 			},
 			expectedHighest: "pod-1", // First one will be highest
@@ -320,16 +320,16 @@ func TestPodComparisonSummaryCalculation(t *testing.T) {
 			name: "Multiple pods with varied utilization",
 			pods: []PodComparisonItem{
 				{
-					PodName: "pod-1",
-					Metrics: map[string]float64{"gpu_utilization": 30.0},
+					PodName:  "pod-1",
+					Metrics:  map[string]float64{"gpu_utilization": 30.0},
 				},
 				{
-					PodName: "pod-2",
-					Metrics: map[string]float64{"gpu_utilization": 90.0},
+					PodName:  "pod-2",
+					Metrics:  map[string]float64{"gpu_utilization": 90.0},
 				},
 				{
-					PodName: "pod-3",
-					Metrics: map[string]float64{"gpu_utilization": 60.0},
+					PodName:  "pod-3",
+					Metrics:  map[string]float64{"gpu_utilization": 60.0},
 				},
 			},
 			expectedHighest: "pod-2",
@@ -462,10 +462,10 @@ func TestCalculateNodeLoadLogic(t *testing.T) {
 // Test fragmentation summary calculation edge cases
 func TestFragmentationSummaryEdgeCases(t *testing.T) {
 	tests := []struct {
-		name        string
-		nodeFrags   []NodeFragmentation
-		expectValid bool
-		expectWaste bool
+		name         string
+		nodeFrags    []NodeFragmentation
+		expectValid  bool
+		expectWaste  bool
 	}{
 		{
 			name:        "Empty node list",
@@ -541,3 +541,4 @@ func TestFragmentationSummaryEdgeCases(t *testing.T) {
 		})
 	}
 }
+

@@ -207,3 +207,4 @@ func TestEndpointSubsetProcessing(t *testing.T) {
 		assert.Empty(t, subset.NotReadyAddresses)
 	})
 }
+

@@ -25,20 +25,20 @@ const (
 
 // AgentRegistration represents a registered AI agent
 type AgentRegistration struct {
-	Name            string            `json:"name" gorm:"primaryKey"`
-	Endpoint        string            `json:"endpoint"`
-	Topics          []string          `json:"topics" gorm:"-"`        // Stored separately or as JSON
-	TopicsJSON      string            `json:"-" gorm:"column:topics"` // JSON serialized topics
-	HealthCheckPath string            `json:"health_check_path"`
-	Timeout         time.Duration     `json:"timeout" gorm:"-"`
-	TimeoutSeconds  int               `json:"-" gorm:"column:timeout_secs"` // For DB storage
-	Status          AgentStatus       `json:"status"`
-	LastHealthCheck time.Time         `json:"last_health_check"`
-	FailureCount    int               `json:"failure_count"`
-	Metadata        map[string]string `json:"metadata" gorm:"-"`
-	MetadataJSON    string            `json:"-" gorm:"column:metadata"`
-	RegisteredAt    time.Time         `json:"registered_at"`
-	UpdatedAt       time.Time         `json:"updated_at"`
+	Name              string            `json:"name" gorm:"primaryKey"`
+	Endpoint          string            `json:"endpoint"`
+	Topics            []string          `json:"topics" gorm:"-"`              // Stored separately or as JSON
+	TopicsJSON        string            `json:"-" gorm:"column:topics"`       // JSON serialized topics
+	HealthCheckPath   string            `json:"health_check_path"`
+	Timeout           time.Duration     `json:"timeout" gorm:"-"`
+	TimeoutSeconds    int               `json:"-" gorm:"column:timeout_secs"` // For DB storage
+	Status            AgentStatus       `json:"status"`
+	LastHealthCheck   time.Time         `json:"last_health_check"`
+	FailureCount      int               `json:"failure_count"`
+	Metadata          map[string]string `json:"metadata" gorm:"-"`
+	MetadataJSON      string            `json:"-" gorm:"column:metadata"`
+	RegisteredAt      time.Time         `json:"registered_at"`
+	UpdatedAt         time.Time         `json:"updated_at"`
 }
 
 // TableName returns the table name for GORM
@@ -85,8 +85,8 @@ type RegistryConfig struct {
 	StaticAgents []StaticAgentConfig `json:"agents" yaml:"agents"`
 
 	// Health check settings
-	HealthCheckInterval time.Duration `json:"health_check_interval" yaml:"health_check_interval"`
-	UnhealthyThreshold  int           `json:"unhealthy_threshold" yaml:"unhealthy_threshold"`
+	HealthCheckInterval  time.Duration `json:"health_check_interval" yaml:"health_check_interval"`
+	UnhealthyThreshold   int           `json:"unhealthy_threshold" yaml:"unhealthy_threshold"`
 }
 
 // StaticAgentConfig represents agent configuration from config file
@@ -101,9 +101,9 @@ type StaticAgentConfig struct {
 // DefaultConfig returns default registry configuration
 func DefaultConfig() *RegistryConfig {
 	return &RegistryConfig{
-		Mode:                "memory",
-		HealthCheckInterval: 30 * time.Second,
-		UnhealthyThreshold:  3,
+		Mode:                 "memory",
+		HealthCheckInterval:  30 * time.Second,
+		UnhealthyThreshold:   3,
 	}
 }
 
@@ -128,3 +128,4 @@ func NewRegistry(cfg *RegistryConfig) (Registry, error) {
 		return NewMemoryStore(), nil
 	}
 }
+

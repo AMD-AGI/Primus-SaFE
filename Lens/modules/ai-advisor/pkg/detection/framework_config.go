@@ -294,3 +294,4 @@ func (p *PatternConfig) Validate() error {
 	}
 	return nil
 }
+

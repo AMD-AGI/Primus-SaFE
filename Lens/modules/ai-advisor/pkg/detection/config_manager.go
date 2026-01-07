@@ -45,14 +45,14 @@ func (m *FrameworkConfigManager) LoadFrameworkConfig(
 ) (*FrameworkLogPatterns, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-
+	
 	// Check cache first
 	if cached, ok := m.frameworkCache[frameworkName]; ok {
 		if time.Since(m.lastRefresh) < m.cacheTTL {
 			return cached, nil
 		}
 	}
-
+	
 	// Load from system_config
 	configKey := fmt.Sprintf("%s.%s", ConfigKeyPrefix, frameworkName)
 	var patterns FrameworkLogPatterns
@@ -60,16 +60,16 @@ func (m *FrameworkConfigManager) LoadFrameworkConfig(
 	if err != nil {
 		return nil, fmt.Errorf("failed to load config for %s: %w", frameworkName, err)
 	}
-
+	
 	// Validate
 	if err := patterns.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid config for %s: %w", frameworkName, err)
 	}
-
+	
 	// Cache it
 	m.frameworkCache[frameworkName] = &patterns
 	m.lastRefresh = time.Now()
-
+	
 	log.Infof("Loaded framework config: %s (version: %s)", frameworkName, patterns.Version)
 	return &patterns, nil
 }
@@ -144,7 +144,7 @@ func (m *FrameworkConfigManager) LoadInferenceFrameworks(ctx context.Context) er
 func (m *FrameworkConfigManager) GetFramework(frameworkName string) *FrameworkLogPatterns {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-
+	
 	return m.frameworkCache[frameworkName]
 }
 
@@ -258,7 +258,7 @@ func (m *FrameworkConfigManager) RefreshCache(ctx context.Context) error {
 	m.mu.Lock()
 	m.frameworkCache = make(map[string]*FrameworkLogPatterns)
 	m.mu.Unlock()
-
+	
 	return m.LoadAllFrameworks(ctx)
 }
 
@@ -275,3 +275,4 @@ func (m *FrameworkConfigManager) IsExpired() bool {
 	defer m.mu.RUnlock()
 	return time.Since(m.lastRefresh) >= m.cacheTTL
 }
+

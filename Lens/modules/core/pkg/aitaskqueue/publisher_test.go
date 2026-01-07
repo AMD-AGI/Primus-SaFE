@@ -13,18 +13,18 @@ import (
 
 // MockQueue implements Queue interface for testing
 type MockQueue struct {
-	publishFunc            func(ctx context.Context, topic string, payload json.RawMessage, reqCtx aitopics.RequestContext) (string, error)
-	publishWithOptionsFunc func(ctx context.Context, opts *PublishOptions) (string, error)
-	getTaskFunc            func(ctx context.Context, taskID string) (*Task, error)
-	getResultFunc          func(ctx context.Context, taskID string) (*aitopics.Response, error)
-	claimTaskFunc          func(ctx context.Context, topics []string, agentID string) (*Task, error)
-	completeTaskFunc       func(ctx context.Context, taskID string, result *aitopics.Response) error
-	failTaskFunc           func(ctx context.Context, taskID string, errorCode int, errorMsg string) error
-	cancelTaskFunc         func(ctx context.Context, taskID string) error
-	listTasksFunc          func(ctx context.Context, filter *TaskFilter) ([]*Task, error)
-	countTasksFunc         func(ctx context.Context, filter *TaskFilter) (int64, error)
-	handleTimeoutsFunc     func(ctx context.Context) (int, error)
-	cleanupFunc            func(ctx context.Context, olderThan time.Duration) (int, error)
+	publishFunc             func(ctx context.Context, topic string, payload json.RawMessage, reqCtx aitopics.RequestContext) (string, error)
+	publishWithOptionsFunc  func(ctx context.Context, opts *PublishOptions) (string, error)
+	getTaskFunc             func(ctx context.Context, taskID string) (*Task, error)
+	getResultFunc           func(ctx context.Context, taskID string) (*aitopics.Response, error)
+	claimTaskFunc           func(ctx context.Context, topics []string, agentID string) (*Task, error)
+	completeTaskFunc        func(ctx context.Context, taskID string, result *aitopics.Response) error
+	failTaskFunc            func(ctx context.Context, taskID string, errorCode int, errorMsg string) error
+	cancelTaskFunc          func(ctx context.Context, taskID string) error
+	listTasksFunc           func(ctx context.Context, filter *TaskFilter) ([]*Task, error)
+	countTasksFunc          func(ctx context.Context, filter *TaskFilter) (int64, error)
+	handleTimeoutsFunc      func(ctx context.Context) (int, error)
+	cleanupFunc             func(ctx context.Context, olderThan time.Duration) (int, error)
 }
 
 func (m *MockQueue) Publish(ctx context.Context, topic string, payload json.RawMessage, reqCtx aitopics.RequestContext) (string, error) {
@@ -315,3 +315,4 @@ func TestBatchPublishItem(t *testing.T) {
 	assert.Equal(t, "test.topic", item.Topic)
 	assert.NotNil(t, item.Payload)
 }
+

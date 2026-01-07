@@ -193,3 +193,4 @@ func TestCachedPodInfo(t *testing.T) {
 	assert.Equal(t, "workload-123", pod.WorkloadID)
 	assert.Equal(t, "Deployment", pod.WorkloadType)
 }
+

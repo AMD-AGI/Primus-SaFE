@@ -209,7 +209,7 @@ func TestCalculateNaturalWeeks(t *testing.T) {
 
 	t.Run("returns empty when no complete week", func(t *testing.T) {
 		// Only 3 days of data
-		minTime := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)    // Monday
+		minTime := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)  // Monday
 		maxTime := time.Date(2024, 1, 3, 23, 59, 59, 0, time.UTC) // Wednesday
 
 		weeks := job.calculateNaturalWeeks(minTime, maxTime)
@@ -217,7 +217,7 @@ func TestCalculateNaturalWeeks(t *testing.T) {
 	})
 
 	t.Run("returns one week when exactly one complete week", func(t *testing.T) {
-		minTime := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)            // Monday
+		minTime := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)  // Monday
 		maxTime := time.Date(2024, 1, 7, 23, 59, 59, 999999999, time.UTC) // Sunday
 
 		weeks := job.calculateNaturalWeeks(minTime, maxTime)
@@ -226,7 +226,7 @@ func TestCalculateNaturalWeeks(t *testing.T) {
 	})
 
 	t.Run("returns multiple weeks", func(t *testing.T) {
-		minTime := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)             // Monday
+		minTime := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)   // Monday
 		maxTime := time.Date(2024, 1, 21, 23, 59, 59, 999999999, time.UTC) // 3rd Sunday
 
 		weeks := job.calculateNaturalWeeks(minTime, maxTime)
@@ -234,7 +234,7 @@ func TestCalculateNaturalWeeks(t *testing.T) {
 	})
 
 	t.Run("starts from first Monday after minTime", func(t *testing.T) {
-		minTime := time.Date(2024, 1, 3, 0, 0, 0, 0, time.UTC)             // Wednesday
+		minTime := time.Date(2024, 1, 3, 0, 0, 0, 0, time.UTC)  // Wednesday
 		maxTime := time.Date(2024, 1, 21, 23, 59, 59, 999999999, time.UTC) // 3rd Sunday
 
 		weeks := job.calculateNaturalWeeks(minTime, maxTime)

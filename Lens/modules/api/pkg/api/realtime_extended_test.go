@@ -87,9 +87,9 @@ func TestRunningTasksParamsValidation(t *testing.T) {
 
 func TestGPUUsageSummaryCalculations(t *testing.T) {
 	tests := []struct {
-		name             string
-		summary          GPUUsageSummary
-		expectValid      bool
+		name            string
+		summary         GPUUsageSummary
+		expectValid     bool
 		expectRatesValid bool
 	}{
 		{
@@ -155,7 +155,7 @@ func TestGPUUsageSummaryCalculations(t *testing.T) {
 					t.Error("UtilizedGPUs should not exceed AllocatedGPUs")
 				}
 			}
-
+			
 			// Validate rates
 			if tt.expectRatesValid {
 				if tt.summary.AllocationRate < 0 || tt.summary.AllocationRate > 100 {
@@ -225,8 +225,8 @@ func TestResourceAvailabilityStructure(t *testing.T) {
 func TestAlertStructure(t *testing.T) {
 	now := time.Now()
 	tests := []struct {
-		name    string
-		alert   Alert
+		name   string
+		alert  Alert
 		isValid bool
 	}{
 		{
@@ -281,7 +281,7 @@ func TestAlertStructure(t *testing.T) {
 			if tt.alert.Timestamp.IsZero() {
 				t.Error("Alert Timestamp should not be zero")
 			}
-
+			
 			// Validate severity
 			validSeverities := map[string]bool{
 				"critical": true,
@@ -586,3 +586,4 @@ func TestRunningTasksResponseStructure(t *testing.T) {
 		t.Error("Second task GPU allocation mismatch")
 	}
 }
+

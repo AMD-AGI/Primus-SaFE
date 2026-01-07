@@ -192,3 +192,4 @@ func matchTopicPattern(pattern, topic string) bool {
 
 	return false
 }
+

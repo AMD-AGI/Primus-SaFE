@@ -446,3 +446,4 @@ func TestExtJSON_IsObject(t *testing.T) {
 		})
 	}
 }
+

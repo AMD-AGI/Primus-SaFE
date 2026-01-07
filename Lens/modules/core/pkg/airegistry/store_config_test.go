@@ -360,3 +360,4 @@ func TestConfigStore_Concurrency(t *testing.T) {
 func TestConfigStore_ImplementsRegistry(t *testing.T) {
 	var _ Registry = (*ConfigStore)(nil)
 }
+

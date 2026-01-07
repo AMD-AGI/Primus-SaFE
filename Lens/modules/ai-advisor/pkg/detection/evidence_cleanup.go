@@ -160,3 +160,4 @@ func (j *EvidenceCleanupJob) RunOnce(ctx context.Context) (int64, error) {
 
 	return expiredCount, nil
 }
+

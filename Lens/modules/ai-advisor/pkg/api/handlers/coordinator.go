@@ -225,3 +225,4 @@ func (h *CoordinatorHandler) GetUncoveredLogWindow(c *gin.Context) {
 		"to":           to.Format(time.RFC3339),
 	})
 }
+

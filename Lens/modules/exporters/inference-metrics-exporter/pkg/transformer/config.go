@@ -22,42 +22,42 @@ type FrameworkMetricsConfig struct {
 // UnifiedMetricNames defines the standard metric names used across all frameworks
 var UnifiedMetricNames = struct {
 	// Request metrics
-	RequestsTotal  string
-	RequestLatency string
-	RequestErrors  string
-	QueueDepth     string
-	BatchSize      string
+	RequestsTotal       string
+	RequestLatency      string
+	RequestErrors       string
+	QueueDepth          string
+	BatchSize           string
 
 	// Token metrics (LLM specific)
-	TimeToFirstToken     string
-	TimePerOutputToken   string
+	TimeToFirstToken    string
+	TimePerOutputToken  string
 	TokensGeneratedTotal string
-	PromptTokensTotal    string
-	TokenThroughput      string
+	PromptTokensTotal   string
+	TokenThroughput     string
 
 	// Resource metrics
-	KVCacheUtilization string
-	GPUMemoryUsed      string
-	ModelLoadTime      string
+	KVCacheUtilization  string
+	GPUMemoryUsed       string
+	ModelLoadTime       string
 }{
 	// Request metrics
-	RequestsTotal:  "inference_requests_total",
-	RequestLatency: "inference_request_latency_seconds",
-	RequestErrors:  "inference_request_errors_total",
-	QueueDepth:     "inference_queue_depth",
-	BatchSize:      "inference_batch_size",
+	RequestsTotal:       "inference_requests_total",
+	RequestLatency:      "inference_request_latency_seconds",
+	RequestErrors:       "inference_request_errors_total",
+	QueueDepth:          "inference_queue_depth",
+	BatchSize:           "inference_batch_size",
 
 	// Token metrics (LLM specific)
-	TimeToFirstToken:     "inference_time_to_first_token_seconds",
-	TimePerOutputToken:   "inference_time_per_output_token_seconds",
+	TimeToFirstToken:    "inference_time_to_first_token_seconds",
+	TimePerOutputToken:  "inference_time_per_output_token_seconds",
 	TokensGeneratedTotal: "inference_tokens_generated_total",
-	PromptTokensTotal:    "inference_prompt_tokens_total",
-	TokenThroughput:      "inference_token_throughput",
+	PromptTokensTotal:   "inference_prompt_tokens_total",
+	TokenThroughput:     "inference_token_throughput",
 
 	// Resource metrics
-	KVCacheUtilization: "inference_kv_cache_utilization",
-	GPUMemoryUsed:      "inference_gpu_memory_used_bytes",
-	ModelLoadTime:      "inference_model_load_time_seconds",
+	KVCacheUtilization:  "inference_kv_cache_utilization",
+	GPUMemoryUsed:       "inference_gpu_memory_used_bytes",
+	ModelLoadTime:       "inference_model_load_time_seconds",
 }
 
 // DefaultVLLMConfig returns the default metrics configuration for vLLM
@@ -141,3 +141,4 @@ func GetDefaultConfig(framework string) *FrameworkMetricsConfig {
 		return nil
 	}
 }
+

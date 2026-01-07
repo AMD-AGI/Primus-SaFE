@@ -7,10 +7,10 @@ import (
 
 // CleanupJob handles periodic cleanup of old tasks
 type CleanupJob struct {
-	queue  Queue
-	config *CleanupConfig
-	stopCh chan struct{}
-	doneCh chan struct{}
+	queue    Queue
+	config   *CleanupConfig
+	stopCh   chan struct{}
+	doneCh   chan struct{}
 }
 
 // CleanupConfig contains configuration for the cleanup job
@@ -97,10 +97,10 @@ func (j *CleanupJob) RunOnce(ctx context.Context) (int, error) {
 
 // TimeoutHandler handles task timeout processing
 type TimeoutHandler struct {
-	queue  Queue
-	config *TimeoutConfig
-	stopCh chan struct{}
-	doneCh chan struct{}
+	queue    Queue
+	config   *TimeoutConfig
+	stopCh   chan struct{}
+	doneCh   chan struct{}
 }
 
 // TimeoutConfig contains configuration for the timeout handler
@@ -227,3 +227,4 @@ func GetStats(ctx context.Context, queue Queue) (*QueueStats, error) {
 
 	return stats, nil
 }
+

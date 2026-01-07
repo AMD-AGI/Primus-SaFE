@@ -129,11 +129,11 @@ func TestStaticAgentConfig(t *testing.T) {
 
 func TestRegistryConfig(t *testing.T) {
 	cfg := &RegistryConfig{
-		Mode:                "config",
-		DatabaseDSN:         "postgres://localhost/test",
-		ConfigFile:          "/etc/agents.yaml",
-		HealthCheckInterval: 60 * time.Second,
-		UnhealthyThreshold:  5,
+		Mode:                 "config",
+		DatabaseDSN:          "postgres://localhost/test",
+		ConfigFile:           "/etc/agents.yaml",
+		HealthCheckInterval:  60 * time.Second,
+		UnhealthyThreshold:   5,
 		StaticAgents: []StaticAgentConfig{
 			{Name: "agent1"},
 			{Name: "agent2"},
@@ -176,3 +176,4 @@ func TestAgentRegistration_Fields(t *testing.T) {
 	assert.Equal(t, 0, agent.FailureCount)
 	assert.Equal(t, "1.0", agent.Metadata["version"])
 }
+

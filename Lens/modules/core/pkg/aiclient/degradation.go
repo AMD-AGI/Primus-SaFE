@@ -168,3 +168,4 @@ func GetDegradationMode(topic string) DegradationMode {
 		return DegradationModeError
 	}
 }
+

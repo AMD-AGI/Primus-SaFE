@@ -215,3 +215,4 @@ func (s CircuitState) String() string {
 		return "unknown"
 	}
 }
+
