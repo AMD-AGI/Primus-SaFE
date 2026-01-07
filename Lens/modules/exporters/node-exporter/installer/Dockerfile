@@ -47,7 +47,7 @@ ENV BASEPATH=${BASEPATH}
 ENV APPNAME=${APPNAME}
 
 # py-spy version to install
-ARG PYSPY_VERSION=0.4.0
+ARG PYSPY_VERSION=0.4.1
 
 WORKDIR /root/
 
@@ -55,14 +55,20 @@ RUN echo "APPNAME: $APPNAME"
 
 # Install py-spy for Python profiling support
 # py-spy is a sampling profiler for Python programs
+# Download the wheel file and extract the binary directly
 RUN set -eux; \
     apt-get update && apt-get install -y --no-install-recommends \
         curl \
         ca-certificates \
-    && curl -sSfL "https://github.com/benfred/py-spy/releases/download/v${PYSPY_VERSION}/py-spy-v${PYSPY_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
-        | tar xzf - -C /usr/local/bin \
+        unzip \
+    && curl -sSfL -o /tmp/py_spy.whl \
+        "https://github.com/benfred/py-spy/releases/download/v${PYSPY_VERSION}/py_spy-${PYSPY_VERSION}-py2.py3-none-manylinux_2_5_x86_64.manylinux1_x86_64.whl" \
+    && unzip -j /tmp/py_spy.whl "py_spy-${PYSPY_VERSION}.data/scripts/py-spy" -d /usr/local/bin/ \
     && chmod +x /usr/local/bin/py-spy \
     && py-spy --version \
+    && rm -f /tmp/py_spy.whl \
+    && apt-get purge -y unzip \
+    && apt-get autoremove -y \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
