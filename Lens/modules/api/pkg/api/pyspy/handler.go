@@ -22,9 +22,20 @@ var (
 	nodeExporterClient  *NodeExporterClient
 )
 
-func init() {
-	taskFacade = database.NewWorkloadTaskFacade()
-	nodeExporterClient = NewNodeExporterClient()
+// getTaskFacade returns the task facade, initializing it lazily if needed
+func getTaskFacade() *database.WorkloadTaskFacade {
+	if taskFacade == nil {
+		taskFacade = database.NewWorkloadTaskFacade()
+	}
+	return taskFacade
+}
+
+// getNodeExporterClient returns the node exporter client, initializing it lazily if needed
+func getNodeExporterClient() *NodeExporterClient {
+	if nodeExporterClient == nil {
+		nodeExporterClient = NewNodeExporterClient()
+	}
+	return nodeExporterClient
 }
 
 // CreateTask creates a new py-spy sampling task
@@ -80,7 +91,7 @@ func CreateTask(c *gin.Context) {
 		UpdatedAt:   time.Now(),
 	}
 
-	if err := taskFacade.UpsertTask(c.Request.Context(), task); err != nil {
+	if err := getTaskFacade().UpsertTask(c.Request.Context(), task); err != nil {
 		log.Errorf("Failed to create task: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create task"})
 		return
@@ -114,7 +125,7 @@ func GetTask(c *gin.Context) {
 		return
 	}
 
-	task, err := taskFacade.GetTask(c.Request.Context(), taskID, constant.TaskTypePySpySample)
+	task, err := getTaskFacade().GetTask(c.Request.Context(), taskID, constant.TaskTypePySpySample)
 	if err != nil {
 		log.Errorf("Failed to get task %s: %v", taskID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get task"})
@@ -142,7 +153,7 @@ func CancelTask(c *gin.Context) {
 	var req CancelTaskRequest
 	_ = c.ShouldBindJSON(&req) // Optional body
 
-	task, err := taskFacade.GetTask(c.Request.Context(), taskID, constant.TaskTypePySpySample)
+	task, err := getTaskFacade().GetTask(c.Request.Context(), taskID, constant.TaskTypePySpySample)
 	if err != nil {
 		log.Errorf("Failed to get task %s: %v", taskID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get task"})
@@ -161,7 +172,7 @@ func CancelTask(c *gin.Context) {
 	}
 
 	// Update task status to cancelled
-	if err := taskFacade.UpdateTaskStatus(c.Request.Context(), taskID, constant.TaskTypePySpySample, constant.TaskStatusCancelled); err != nil {
+	if err := getTaskFacade().UpdateTaskStatus(c.Request.Context(), taskID, constant.TaskTypePySpySample, constant.TaskStatusCancelled); err != nil {
 		log.Errorf("Failed to cancel task %s: %v", taskID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to cancel task"})
 		return
@@ -173,7 +184,7 @@ func CancelTask(c *gin.Context) {
 		"cancelled_at": cancelledAt,
 		"cancel_reason": req.Reason,
 	}
-	if err := taskFacade.UpdateTaskExt(c.Request.Context(), taskID, constant.TaskTypePySpySample, extUpdate); err != nil {
+	if err := getTaskFacade().UpdateTaskExt(c.Request.Context(), taskID, constant.TaskTypePySpySample, extUpdate); err != nil {
 		log.Warnf("Failed to update task ext for cancellation: %v", err)
 	}
 
@@ -233,7 +244,7 @@ func DownloadFile(c *gin.Context) {
 	}
 
 	// Get task to find target node
-	task, err := taskFacade.GetTask(c.Request.Context(), taskID, constant.TaskTypePySpySample)
+	task, err := getTaskFacade().GetTask(c.Request.Context(), taskID, constant.TaskTypePySpySample)
 	if err != nil {
 		log.Errorf("Failed to get task %s: %v", taskID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get task"})
@@ -253,7 +264,7 @@ func DownloadFile(c *gin.Context) {
 	}
 
 	// Get node-exporter address
-	nodeExporterAddr, err := nodeExporterClient.GetNodeExporterAddress(c.Request.Context(), nodeName)
+	nodeExporterAddr, err := getNodeExporterClient().GetNodeExporterAddress(c.Request.Context(), nodeName)
 	if err != nil {
 		log.Errorf("Failed to get node-exporter address for node %s: %v", nodeName, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to resolve node-exporter address"})
@@ -261,7 +272,7 @@ func DownloadFile(c *gin.Context) {
 	}
 
 	// Proxy the file download
-	resp, err := nodeExporterClient.ProxyFileDownload(c.Request.Context(), nodeExporterAddr, taskID, filename)
+	resp, err := getNodeExporterClient().ProxyFileDownload(c.Request.Context(), nodeExporterAddr, taskID, filename)
 	if err != nil {
 		log.Errorf("Failed to proxy file download: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to download file"})
@@ -301,7 +312,7 @@ func GetTaskFiles(c *gin.Context) {
 	}
 
 	// Get task to find target node
-	task, err := taskFacade.GetTask(c.Request.Context(), taskID, constant.TaskTypePySpySample)
+	task, err := getTaskFacade().GetTask(c.Request.Context(), taskID, constant.TaskTypePySpySample)
 	if err != nil {
 		log.Errorf("Failed to get task %s: %v", taskID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get task"})
@@ -321,7 +332,7 @@ func GetTaskFiles(c *gin.Context) {
 	}
 
 	// Get node-exporter address
-	nodeExporterAddr, err := nodeExporterClient.GetNodeExporterAddress(c.Request.Context(), nodeName)
+	nodeExporterAddr, err := getNodeExporterClient().GetNodeExporterAddress(c.Request.Context(), nodeName)
 	if err != nil {
 		log.Errorf("Failed to get node-exporter address for node %s: %v", nodeName, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to resolve node-exporter address"})
@@ -329,7 +340,7 @@ func GetTaskFiles(c *gin.Context) {
 	}
 
 	// Proxy the file list request
-	body, err := nodeExporterClient.ProxyFileList(c.Request.Context(), nodeExporterAddr, taskID)
+	body, err := getNodeExporterClient().ProxyFileList(c.Request.Context(), nodeExporterAddr, taskID)
 	if err != nil {
 		log.Errorf("Failed to proxy file list: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list files"})
