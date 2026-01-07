@@ -230,12 +230,12 @@ func (h *Handler) createWorkloadImpl(c *gin.Context,
 func (h *Handler) cleanUpWorkloads(ctx context.Context, mainWorkload, preheatWorkload *v1.Workload) {
 	h.cleanupCICDSecrets(ctx, mainWorkload)
 	if preheatWorkload != nil {
-		if err := h.Delete(ctx, preheatWorkload); err != nil {
+		if err := h.Delete(ctx, preheatWorkload); err != nil && !apierrors.IsNotFound(err) {
 			klog.ErrorS(err, "failed to delete preheat workload", "workload", preheatWorkload.Name)
 		}
 	}
 	if mainWorkload != nil {
-		if err := h.Delete(ctx, mainWorkload); err != nil {
+		if err := h.Delete(ctx, mainWorkload); err != nil && !apierrors.IsNotFound(err) {
 			klog.ErrorS(err, "failed to delete main workload", "workload", mainWorkload.Name)
 		}
 	}
@@ -794,7 +794,6 @@ func (h *Handler) generateWorkload(ctx context.Context,
 			return nil, err
 		}
 	}
-	klog.Infof("create workload %s", string(jsonutils.MarshalSilently(workload)))
 	return workload, nil
 }
 

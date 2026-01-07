@@ -259,12 +259,13 @@ func (m *WorkloadMutator) mutateResources(workload *v1.Workload, workspace *v1.W
 
 	// Transition logic for backward compatibility.
 	if len(workload.Spec.Resources) == 0 {
+		klog.Infof("Transitioning workload %s to new resource format", workload.Name)
 		workload.Spec.Resources = commonworkload.ConvertResourceToList(workload.Spec.Resource, workload.SpecKind())
 		isChanged = true
 	}
 
 	newResources := make([]v1.WorkloadResource, 0, len(workload.Spec.Resources))
-	for _, res := range workload.Spec.Resources {
+	for i, res := range workload.Spec.Resources {
 		if res.Replica <= 0 {
 			isChanged = true
 			continue
@@ -290,7 +291,7 @@ func (m *WorkloadMutator) mutateResources(workload *v1.Workload, workspace *v1.W
 			res.EphemeralStorage = DefaultEphemeralStorage
 			isChanged = true
 		}
-		newResources = append(newResources, res)
+		newResources = append(newResources, workload.Spec.Resources[i])
 	}
 	workload.Spec.Resources = newResources
 	return isChanged
@@ -591,7 +592,7 @@ func (v *WorkloadValidator) Handle(ctx context.Context, req admission.Request) a
 
 // validateOnCreation validates workload spec, resources, scope and cron jobs on creation.
 func (v *WorkloadValidator) validateOnCreation(ctx context.Context, workload *v1.Workload) error {
-	if err := v.validateCommon(ctx, workload); err != nil {
+	if err := v.validateCommon(ctx, workload, nil); err != nil {
 		return err
 	}
 	if err := v.validateScope(ctx, workload); err != nil {
@@ -608,7 +609,7 @@ func (v *WorkloadValidator) validateOnUpdate(ctx context.Context, newWorkload, o
 	if err := v.validateImmutableFields(newWorkload, oldWorkload); err != nil {
 		return err
 	}
-	if err := v.validateCommon(ctx, newWorkload); err != nil {
+	if err := v.validateCommon(ctx, newWorkload, oldWorkload); err != nil {
 		return err
 	}
 	if !reflect.DeepEqual(oldWorkload.Spec.CronJobs, newWorkload.Spec.CronJobs) {
@@ -620,37 +621,37 @@ func (v *WorkloadValidator) validateOnUpdate(ctx context.Context, newWorkload, o
 }
 
 // validateCommon validates required params, workspace, service, health check, resources, template and display name.
-func (v *WorkloadValidator) validateCommon(ctx context.Context, workload *v1.Workload) error {
+func (v *WorkloadValidator) validateCommon(ctx context.Context, newWorkload, oldWorkload *v1.Workload) error {
 	var err error
-	switch workload.SpecKind() {
+	switch newWorkload.SpecKind() {
 	case common.CICDScaleRunnerSetKind:
-		err = v.validateCICDScalingRunnerSet(workload)
+		err = v.validateCICDScalingRunnerSet(newWorkload)
 	case common.TorchFTKind:
-		err = v.validateTorchFT(workload)
+		err = v.validateTorchFT(newWorkload, oldWorkload)
 	}
 	if err != nil {
 		return err
 	}
 
-	if err = v.validateRequiredParams(workload); err != nil {
+	if err = v.validateRequiredParams(newWorkload); err != nil {
 		return err
 	}
-	if err = v.validateWorkspace(ctx, workload); err != nil {
+	if err = v.validateWorkspace(ctx, newWorkload); err != nil {
 		return err
 	}
-	if err = v.validateService(workload); err != nil {
+	if err = v.validateService(newWorkload); err != nil {
 		return err
 	}
-	if err = v.validateHealthCheck(workload); err != nil {
+	if err = v.validateHealthCheck(newWorkload); err != nil {
 		return err
 	}
-	if err = v.validateResourceEnough(ctx, workload); err != nil {
+	if err = v.validateResourceEnough(ctx, newWorkload); err != nil {
 		return err
 	}
-	if err = v.validateTemplate(ctx, workload); err != nil {
+	if err = v.validateTemplate(ctx, newWorkload); err != nil {
 		return err
 	}
-	if err = validateLabels(workload.Spec.CustomerLabels); err != nil {
+	if err = validateLabels(newWorkload.Spec.CustomerLabels); err != nil {
 		return err
 	}
 	return nil
@@ -722,35 +723,45 @@ func (v *WorkloadValidator) validateCICDScalingRunnerSet(workload *v1.Workload) 
 }
 
 // validateTorchFT validates TorchFT workload configuration including environment variables and resource requirements.
-func (v *WorkloadValidator) validateTorchFT(workload *v1.Workload) error {
+func (v *WorkloadValidator) validateTorchFT(newWorkload, oldWorkload *v1.Workload) error {
 	// TorchFT workloads require at least 2 resource configurations - one for lighthouse (index=0) and one for the worker groups
-	if len(workload.Spec.Resources) < 2 {
+	if len(newWorkload.Spec.Resources) < 2 {
 		return fmt.Errorf("insufficient resources for TorchFT: expected at least 2 resource configurations (lighthouse and worker groups), "+
-			"got %d, resources: %v", len(workload.Spec.Resources), workload.Spec.Resources)
+			"got %d, resources: %v", len(newWorkload.Spec.Resources), newWorkload.Spec.Resources)
 	}
-	if len(v1.GetDisplayName(workload)) > MaxTorchFTNameLen {
+	if len(v1.GetDisplayName(newWorkload)) > MaxTorchFTNameLen {
 		return fmt.Errorf("the displayName is too long, maximum length is %d", MaxTorchFTNameLen)
 	}
 
-	group, err := commonworkload.GetReplicaGroup(workload, common.ReplicaGroup)
+	group, err := commonworkload.GetReplicaGroup(newWorkload, common.ReplicaGroup)
 	if err != nil {
 		return err
 	}
-	if group <= 0 || group > workload.Spec.Resources[1].Replica ||
-		(workload.Spec.Resources[1].Replica%group) != 0 {
+	if group <= 0 || group > newWorkload.Spec.Resources[1].Replica ||
+		(newWorkload.Spec.Resources[1].Replica%group) != 0 {
 		return fmt.Errorf("the %s of workload environment is invalid", common.ReplicaGroup)
 	}
 
-	maxGroup, err := commonworkload.GetReplicaGroup(workload, common.MaxReplicaGroup)
+	maxGroup, err := commonworkload.GetReplicaGroup(newWorkload, common.MaxReplicaGroup)
 	if err != nil {
 		return err
 	}
-	minGroup, err := commonworkload.GetReplicaGroup(workload, common.MinReplicaGroup)
+	minGroup, err := commonworkload.GetReplicaGroup(newWorkload, common.MinReplicaGroup)
 	if err != nil {
 		return err
 	}
 	if group < minGroup || group > maxGroup {
 		return fmt.Errorf("the %s of workload environment is invalid", common.ReplicaGroup)
+	}
+	if oldWorkload != nil {
+		oldMaxGroup, _ := commonworkload.GetReplicaGroup(oldWorkload, common.MaxReplicaGroup)
+		oldMinGroup, _ := commonworkload.GetReplicaGroup(oldWorkload, common.MinReplicaGroup)
+		if maxGroup != oldMaxGroup {
+			return fmt.Errorf("the %s of workload environment can not be changed", common.MaxReplicaGroup)
+		}
+		if minGroup != oldMinGroup {
+			return fmt.Errorf("the %s of workload environment can not be changed", common.MinReplicaGroup)
+		}
 	}
 	return nil
 }
