@@ -31,8 +31,6 @@ const (
 type PySpyTaskDispatcherJob struct {
 	facade         *database.WorkloadTaskFacade
 	instanceID     string
-	client         *NodeExporterClient
-	resolver       *NodeExporterResolver
 	storageBackend storage.StorageBackend
 }
 
@@ -41,7 +39,6 @@ func NewPySpyTaskDispatcherJob() *PySpyTaskDispatcherJob {
 	job := &PySpyTaskDispatcherJob{
 		facade:     database.NewWorkloadTaskFacade(),
 		instanceID: generateInstanceID(),
-		client:     NewNodeExporterClient(),
 	}
 
 	// Initialize storage backend (database storage by default)
@@ -76,7 +73,6 @@ func NewPySpyTaskDispatcherJobWithStorage(sqlDB *sql.DB, storageConfig *storage.
 	job := &PySpyTaskDispatcherJob{
 		facade:     database.NewWorkloadTaskFacade(),
 		instanceID: generateInstanceID(),
-		client:     NewNodeExporterClient(),
 	}
 
 	if sqlDB != nil && storageConfig != nil {
@@ -109,11 +105,6 @@ func (j *PySpyTaskDispatcherJob) Run(
 ) (*common.ExecutionStats, error) {
 	stats := &common.ExecutionStats{}
 
-	// Initialize resolver with k8s client
-	if j.resolver == nil {
-		j.resolver = NewNodeExporterResolver(k8sClient)
-	}
-
 	// Query pending pyspy_sample tasks
 	tasks, err := j.facade.ListPendingTasksByType(ctx, constant.TaskTypePySpySample)
 	if err != nil {
@@ -131,7 +122,7 @@ func (j *PySpyTaskDispatcherJob) Run(
 
 	// Process each task
 	for _, task := range tasks {
-		if err := j.processTask(ctx, task); err != nil {
+		if err := j.processTask(ctx, task, k8sClient); err != nil {
 			log.Errorf("Failed to process task %s: %v", task.WorkloadUID, err)
 			failedCount++
 		} else {
@@ -150,7 +141,7 @@ func (j *PySpyTaskDispatcherJob) Run(
 }
 
 // processTask processes a single py-spy task
-func (j *PySpyTaskDispatcherJob) processTask(ctx context.Context, task *model.WorkloadTaskState) error {
+func (j *PySpyTaskDispatcherJob) processTask(ctx context.Context, task *model.WorkloadTaskState, k8sClient *clientsets.K8SClientSet) error {
 	// Try to acquire distributed lock
 	acquired, err := j.facade.TryAcquireLock(ctx, task.WorkloadUID, task.TaskType, j.instanceID, LockDuration)
 	if err != nil {
@@ -193,10 +184,10 @@ func (j *PySpyTaskDispatcherJob) processTask(ctx context.Context, task *model.Wo
 		ext.TaskID = task.WorkloadUID
 	}
 
-	// Get node-exporter address
-	nodeExporterAddr, err := j.resolver.GetNodeExporterAddress(ctx, ext.TargetNodeName)
+	// Get py-spy client for the target node using unified node-exporter discovery
+	pyspyClient, err := NewPySpyClientForNode(ctx, ext.TargetNodeName, k8sClient.ControllerRuntimeClient)
 	if err != nil {
-		return j.failTask(ctx, task, fmt.Sprintf("failed to get node-exporter address: %v", err))
+		return j.failTask(ctx, task, fmt.Sprintf("failed to get node-exporter client: %v", err))
 	}
 
 	// Update task status to running and record start time
@@ -206,11 +197,11 @@ func (j *PySpyTaskDispatcherJob) processTask(ctx context.Context, task *model.Wo
 		log.Warnf("Failed to update task ext: %v", err)
 	}
 
-	log.Infof("Dispatching task %s to node-exporter at %s (PID: %d, Duration: %d)",
-		task.WorkloadUID, nodeExporterAddr, ext.HostPID, ext.Duration)
+	log.Infof("Dispatching task %s to node %s (PID: %d, Duration: %d)",
+		task.WorkloadUID, ext.TargetNodeName, ext.HostPID, ext.Duration)
 
 	// Call node-exporter to execute py-spy
-	result, err := j.client.ExecutePySpy(ctx, nodeExporterAddr, &ext)
+	result, err := pyspyClient.ExecutePySpy(ctx, &ext)
 	if err != nil {
 		return j.failTask(ctx, task, fmt.Sprintf("node-exporter call failed: %v", err))
 	}
@@ -225,7 +216,7 @@ func (j *PySpyTaskDispatcherJob) processTask(ctx context.Context, task *model.Wo
 		fileName := filepath.Base(result.OutputFile)
 		
 		// Download file content from node-exporter
-		fileContent, err := j.client.DownloadFile(ctx, nodeExporterAddr, ext.TaskID, fileName)
+		fileContent, err := pyspyClient.DownloadFile(ctx, ext.TaskID, fileName)
 		if err != nil {
 			log.Errorf("Failed to download file from node-exporter: %v", err)
 			// Continue without file storage, task still considered successful
@@ -260,7 +251,7 @@ func (j *PySpyTaskDispatcherJob) processTask(ctx context.Context, task *model.Wo
 				log.Infof("Stored file to %s: path=%s, size=%d", storageType, storagePath, storeResp.Size)
 				
 				// Delete file from node-exporter after successful storage
-				if err := j.client.DeleteFile(ctx, nodeExporterAddr, ext.TaskID); err != nil {
+				if err := pyspyClient.DeleteFile(ctx, ext.TaskID); err != nil {
 					log.Warnf("Failed to delete file from node-exporter: %v", err)
 				}
 			}
@@ -308,4 +299,3 @@ func (j *PySpyTaskDispatcherJob) failTask(ctx context.Context, task *model.Workl
 
 	return fmt.Errorf("%s", errorMsg)
 }
-
