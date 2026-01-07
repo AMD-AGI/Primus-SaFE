@@ -109,6 +109,7 @@ List all API Keys for the authenticated user with pagination support.
       "id": 123,
       "name": "ci-cd-pipeline",
       "userId": "user-zhangsan-abc123",
+      "keyHint": "ak-dG****g5MA",
       "expirationTime": "2026-04-07T08:00:00Z",
       "creationTime": "2026-01-07T08:00:00Z",
       "whitelist": ["192.168.1.0/24"],
@@ -119,6 +120,7 @@ List all API Keys for the authenticated user with pagination support.
       "id": 124,
       "name": "monitoring-script",
       "userId": "user-zhangsan-abc123",
+      "keyHint": "ak-xY****1234",
       "expirationTime": "2026-02-07T08:00:00Z",
       "creationTime": "2026-01-07T10:00:00Z",
       "whitelist": [],
@@ -143,13 +145,14 @@ Each item contains:
 | id | int64 | Unique identifier |
 | name | string | Display name |
 | userId | string | Owner user ID |
+| keyHint | string | Partial key for identification (e.g., "ak-dG****g5MA") |
 | expirationTime | string | Expiration time (RFC3339 format) |
 | creationTime | string | Creation time (RFC3339 format) |
 | whitelist | []string | Allowed IP addresses/CIDRs |
 | deleted | bool | Deletion status |
 | deletionTime | string/null | Deletion time (RFC3339 format, null if not deleted) |
 
-> 🔒 **Security Note**: The list API does **not** return the actual API Key values for security reasons.
+> 🔒 **Security Note**: The list API does **not** return the actual API Key values for security reasons. Only `keyHint` (first 2 + last 4 characters) is displayed to help identify keys.
 
 ---
 

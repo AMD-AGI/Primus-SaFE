@@ -67,6 +67,8 @@ type ApiKeyResponseItem struct {
 	Name string `json:"name"`
 	// UserId is the ID of the user who owns this key
 	UserId string `json:"userId"`
+	// KeyHint is the partial key for display (e.g., "ak-XX****YYYY")
+	KeyHint string `json:"keyHint"`
 	// ExpirationTime is when the key expires (RFC3339 format)
 	ExpirationTime string `json:"expirationTime"`
 	// CreationTime is when the key was created (RFC3339 format)

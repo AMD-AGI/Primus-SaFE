@@ -39,6 +39,7 @@ func TestGetApiKeyFieldTags(t *testing.T) {
 	assert.Equal(t, GetFieldTag(tags, "UserId"), "user_id")
 	assert.Equal(t, GetFieldTag(tags, "UserName"), "user_name")
 	assert.Equal(t, GetFieldTag(tags, "ApiKey"), "api_key")
+	assert.Equal(t, GetFieldTag(tags, "KeyHint"), "key_hint")
 	assert.Equal(t, GetFieldTag(tags, "ExpirationTime"), "expiration_time")
 	assert.Equal(t, GetFieldTag(tags, "CreationTime"), "creation_time")
 	assert.Equal(t, GetFieldTag(tags, "Whitelist"), "whitelist")
@@ -46,7 +47,7 @@ func TestGetApiKeyFieldTags(t *testing.T) {
 	assert.Equal(t, GetFieldTag(tags, "DeletionTime"), "deletion_time")
 
 	// Test that all expected fields exist
-	expectedFields := []string{"Id", "Name", "UserId", "UserName", "ApiKey", "ExpirationTime", "CreationTime", "Whitelist", "Deleted", "DeletionTime"}
+	expectedFields := []string{"Id", "Name", "UserId", "UserName", "ApiKey", "KeyHint", "ExpirationTime", "CreationTime", "Whitelist", "Deleted", "DeletionTime"}
 	for _, field := range expectedFields {
 		tag := GetFieldTag(tags, field)
 		assert.Assert(t, tag != "", "Field %s should have a db tag", field)

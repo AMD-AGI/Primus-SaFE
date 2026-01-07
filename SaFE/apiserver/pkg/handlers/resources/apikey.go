@@ -100,6 +100,8 @@ func (h *Handler) createApiKey(c *gin.Context) (interface{}, error) {
 
 	// Hash the API key for secure storage (only store hash, not plaintext)
 	hashedApiKey := authority.HashApiKey(apiKey, authority.GetApiKeySecret())
+	// Generate key hint for display (e.g., "XX-YYYY")
+	keyHint := authority.GenerateKeyHint(apiKey)
 
 	// Create database record with hashed API key
 	record := &dbclient.ApiKey{
@@ -107,6 +109,7 @@ func (h *Handler) createApiKey(c *gin.Context) (interface{}, error) {
 		UserId:         userId,
 		UserName:       userName,
 		ApiKey:         hashedApiKey, // Store hash, not plaintext
+		KeyHint:        keyHint,      // Store hint for display
 		ExpirationTime: pq.NullTime{Time: expirationTime, Valid: true},
 		CreationTime:   pq.NullTime{Time: now, Valid: true},
 		Whitelist:      whitelistJSON,
@@ -280,6 +283,7 @@ func convertToApiKeyResponseItem(record *dbclient.ApiKey) view.ApiKeyResponseIte
 		Id:      record.Id,
 		Name:    record.Name,
 		UserId:  record.UserId,
+		KeyHint: authority.FormatKeyHint(record.KeyHint), // Format: "ak-XX****YYYY"
 		Deleted: record.Deleted,
 	}
 

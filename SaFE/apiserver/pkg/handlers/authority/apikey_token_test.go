@@ -121,6 +121,75 @@ func TestHashApiKey(t *testing.T) {
 	})
 }
 
+// TestGenerateKeyHint tests the key hint generation
+func TestGenerateKeyHint(t *testing.T) {
+	tests := []struct {
+		name     string
+		apiKey   string
+		expected string
+	}{
+		{
+			name:     "standard api key",
+			apiKey:   "ak-dGVzdC1rZXktMTIzNDU2Nzg5MA",
+			expected: "dG-g5MA", // first 2 + last 4 of body
+		},
+		{
+			name:     "short key body",
+			apiKey:   "ak-abc",
+			expected: "abc", // too short, return as-is
+		},
+		{
+			name:     "minimum length key",
+			apiKey:   "ak-123456",
+			expected: "12-3456",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			hint := GenerateKeyHint(tt.apiKey)
+			assert.Equal(t, tt.expected, hint)
+		})
+	}
+}
+
+// TestFormatKeyHint tests the key hint formatting for display
+func TestFormatKeyHint(t *testing.T) {
+	tests := []struct {
+		name     string
+		hint     string
+		expected string
+	}{
+		{
+			name:     "standard hint",
+			hint:     "dG-890A",
+			expected: "ak-dG****890A",
+		},
+		{
+			name:     "empty hint",
+			hint:     "",
+			expected: "",
+		},
+		{
+			name:     "hint without separator",
+			hint:     "abc",
+			expected: "ak-abc",
+		},
+		{
+			name:     "minimum hint",
+			hint:     "12-3456",
+			expected: "ak-12****3456",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			formatted := FormatKeyHint(tt.hint)
+			assert.Equal(t, tt.expected, formatted)
+		})
+	}
+}
+
 // TestIsApiKey tests the API key format validation
 func TestIsApiKey(t *testing.T) {
 	tests := []struct {
