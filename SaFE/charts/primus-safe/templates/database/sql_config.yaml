@@ -417,7 +417,7 @@ data:
         user_id VARCHAR(64) NOT NULL,
         user_name VARCHAR(256) NULL,
         api_key VARCHAR(128) UNIQUE NOT NULL,
-        key_hint VARCHAR(16) NULL,
+        key_hint VARCHAR(16) NOT NULL,
         expiration_time TIMESTAMPTZ NOT NULL,
         creation_time TIMESTAMPTZ NOT NULL DEFAULT now(),
         whitelist JSONB NULL,
