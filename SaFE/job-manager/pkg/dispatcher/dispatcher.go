@@ -261,8 +261,8 @@ func (r *DispatcherReconciler) processWorkload(ctx context.Context, adminWorkloa
 	obj, err := jobutils.GetObject(ctx,
 		clusterInformer.ClientFactory(), adminWorkload.Name, adminWorkload.Spec.Workspace, rt.ToSchemaGVK())
 
-	if err != nil || !v1.IsWorkloadDispatched(adminWorkload) {
-		if err != nil && !apierrors.IsNotFound(err) {
+	if err != nil {
+		if !apierrors.IsNotFound(err) {
 			return ctrlruntime.Result{}, err
 		}
 		if result, err := r.dispatch(ctx, adminWorkload, clusterInformer); err != nil || result.RequeueAfter > 0 {
@@ -273,21 +273,26 @@ func (r *DispatcherReconciler) processWorkload(ctx context.Context, adminWorkloa
 		}
 		klog.Infof("the workload is dispatched, name: %s, dispatch count: %d, max retry: %d",
 			adminWorkload.Name, v1.GetWorkloadDispatchCnt(adminWorkload), adminWorkload.Spec.MaxRetry)
-	} else if commonworkload.IsApplication(adminWorkload) || commonworkload.IsCICDScalingRunnerSet(adminWorkload) {
-		// update the workload which is already dispatched
-		if err = r.syncWorkloadToObject(ctx, adminWorkload, clusterInformer, obj); err != nil {
+	} else {
+		if err = r.markAsDispatched(ctx, adminWorkload); err != nil {
 			return ctrlruntime.Result{}, err
 		}
-		// sync service according to latest spec
-		if result, err := r.updateService(ctx, adminWorkload, clusterInformer, obj); err != nil || result.RequeueAfter > 0 {
-			return result, err
+		if commonworkload.IsApplication(adminWorkload) || commonworkload.IsCICDScalingRunnerSet(adminWorkload) {
+			// update the workload which is already dispatched
+			if err = r.syncWorkloadToObject(ctx, adminWorkload, clusterInformer, obj); err != nil {
+				return ctrlruntime.Result{}, err
+			}
+			// sync service according to latest spec
+			if result, err := r.updateService(ctx, adminWorkload, clusterInformer, obj); err != nil || result.RequeueAfter > 0 {
+				return result, err
+			}
+			// Sync corresponding ingress
+			if result, err := r.updateIngress(ctx, adminWorkload, clusterInformer, obj); err != nil || result.RequeueAfter > 0 {
+				return result, err
+			}
+			klog.Infof("the workload is updated, name: %s, dispatch count: %d, max retry: %d",
+				adminWorkload.Name, v1.GetWorkloadDispatchCnt(adminWorkload), adminWorkload.Spec.MaxRetry)
 		}
-		// Sync corresponding ingress
-		if result, err := r.updateIngress(ctx, adminWorkload, clusterInformer, obj); err != nil || result.RequeueAfter > 0 {
-			return result, err
-		}
-		klog.Infof("the workload is updated, name: %s, dispatch count: %d, max retry: %d",
-			adminWorkload.Name, v1.GetWorkloadDispatchCnt(adminWorkload), adminWorkload.Spec.MaxRetry)
 	}
 	return ctrlruntime.Result{}, nil
 }
