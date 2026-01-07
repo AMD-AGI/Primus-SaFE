@@ -305,8 +305,6 @@ spec:
             required:
             - groupVersionKind
             - priority
-            - resource
-            - resources
             - workspace
             type: object
           status:

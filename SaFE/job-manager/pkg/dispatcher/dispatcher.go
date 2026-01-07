@@ -264,8 +264,8 @@ func (r *DispatcherReconciler) processWorkload(ctx context.Context, adminWorkloa
 	obj, err := jobutils.GetObject(ctx,
 		clusterInformer.ClientFactory(), adminWorkload.Name, adminWorkload.Spec.Workspace, rt.ToSchemaGVK())
 
-	if err != nil {
-		if !apierrors.IsNotFound(err) {
+	if err != nil || !v1.IsWorkloadDispatched(adminWorkload) {
+		if err != nil && !apierrors.IsNotFound(err) {
 			return ctrlruntime.Result{}, err
 		}
 		if result, err := r.dispatch(ctx, adminWorkload, clusterInformer); err != nil || result.RequeueAfter > 0 {
@@ -276,7 +276,7 @@ func (r *DispatcherReconciler) processWorkload(ctx context.Context, adminWorkloa
 		}
 		klog.Infof("the workload is dispatched, name: %s, dispatch count: %d, max retry: %d",
 			adminWorkload.Name, v1.GetWorkloadDispatchCnt(adminWorkload), adminWorkload.Spec.MaxRetry)
-	} else {
+	} else if commonworkload.IsApplication(adminWorkload) || commonworkload.IsCICDScalingRunnerSet(adminWorkload) {
 		// update the workload which is already dispatched
 		if err = r.syncWorkloadToObject(ctx, adminWorkload, clusterInformer, obj); err != nil {
 			return ctrlruntime.Result{}, err
@@ -629,14 +629,13 @@ func isGithubSecretChanged(adminWorkload *v1.Workload, obj *unstructured.Unstruc
 func isLabelsChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructured, rt *v1.ResourceTemplate) bool {
 	currentLabels, err := jobutils.GetLabels(obj, rt)
 	if err != nil {
-		return true
+		return false
 	}
 	newLabels := buildLabels(adminWorkload)
-	if len(currentLabels) != len(newLabels) {
-		return true
-	}
-	for key, val := range currentLabels {
-		if val.(string) != newLabels[key].(string) {
+	for key, val := range newLabels {
+		if val2, ok := currentLabels[key]; !ok {
+			return true
+		} else if val.(string) != val2.(string) {
 			return true
 		}
 	}
