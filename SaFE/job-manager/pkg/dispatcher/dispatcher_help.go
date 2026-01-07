@@ -1041,14 +1041,6 @@ func updateSharedMemory(adminWorkload *v1.Workload, obj *unstructured.Unstructur
 	return nil
 }
 
-// updateLabels updates the object labels
-func updateLabels(adminWorkload *v1.Workload,
-	obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec) error {
-	templatePath := resourceSpec.GetTemplatePath()
-	path := append(templatePath, "metadata", "labels")
-	return modifyLabels(obj, adminWorkload, path)
-}
-
 // updateHostNetwork updates the host network configuration.
 func updateHostNetwork(adminWorkload *v1.Workload,
 	obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec, resourceId int) error {
