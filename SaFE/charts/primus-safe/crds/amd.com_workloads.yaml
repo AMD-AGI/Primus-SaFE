@@ -290,7 +290,10 @@ spec:
                 description: The port for ssh, This field is set internally
                 type: integer
               timeout:
-                description: Workload timeout in seconds. default 0 (no timeout).
+                description: |-
+                  Workload timeout in seconds. default 0 (no timeout).
+                  The timeout is calculated from the moment the workload is dispatched.
+                  If the workload remains in the queue (not yet dispatched), the timeout is not considered.
                 type: integer
               ttlSecondsAfterFinished:
                 description: The lifecycle of the workload after completion, in seconds.
@@ -455,7 +458,6 @@ spec:
                       type: string
                   required:
                   - podId
-                  - resourceId
                   type: object
                 type: array
               queuePosition:

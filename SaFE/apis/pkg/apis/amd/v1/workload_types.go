@@ -205,7 +205,7 @@ type WorkloadPod struct {
 	// The podId
 	PodId string `json:"podId"`
 	// The id of workload resources that the pod is bound to
-	ResourceId int `json:"resourceId"`
+	ResourceId int `json:"resourceId,omitempty"`
 	// The Kubernetes node that the Pod is scheduled on
 	K8sNodeName string `json:"k8sNodeName,omitempty"`
 	// The admin node that the Pod is scheduled on
