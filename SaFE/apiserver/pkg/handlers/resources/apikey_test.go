@@ -364,7 +364,7 @@ func TestCreateApiKeyHandler(t *testing.T) {
 		}
 
 		reqBody := view.CreateApiKeyRequest{
-			Name:    "test-key",
+			Name:    "test-key1",
 			TTLDays: 30,
 		}
 		body, _ := json.Marshal(reqBody)
