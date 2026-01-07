@@ -265,7 +265,7 @@ func (m *WorkloadMutator) mutateResources(workload *v1.Workload, workspace *v1.W
 	}
 
 	newResources := make([]v1.WorkloadResource, 0, len(workload.Spec.Resources))
-	for i, res := range workload.Spec.Resources {
+	for _, res := range workload.Spec.Resources {
 		if res.Replica <= 0 {
 			isChanged = true
 			continue
@@ -291,7 +291,7 @@ func (m *WorkloadMutator) mutateResources(workload *v1.Workload, workspace *v1.W
 			res.EphemeralStorage = DefaultEphemeralStorage
 			isChanged = true
 		}
-		newResources = append(newResources, workload.Spec.Resources[i])
+		newResources = append(newResources, res)
 	}
 	workload.Spec.Resources = newResources
 	return isChanged
