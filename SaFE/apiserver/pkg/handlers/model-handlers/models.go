@@ -664,7 +664,8 @@ func (h *Handler) patchModel(c *gin.Context) (interface{}, error) {
 	return h.convertK8sModelToInfo(k8sModel), nil
 }
 
-// getModelWorkloads lists all workloads associated with a model via label selector.
+// getModelWorkloads lists all workloads associated with a model via annotation.
+// For backward compatibility, also checks labels and customerLabels.
 func (h *Handler) getModelWorkloads(c *gin.Context) (interface{}, error) {
 	modelId := c.Param("id")
 	if modelId == "" {
@@ -682,23 +683,37 @@ func (h *Handler) getModelWorkloads(c *gin.Context) (interface{}, error) {
 		return nil, commonerrors.NewInternalError("failed to fetch model: " + err.Error())
 	}
 
-	// List workloads by label selector
+	// List all workloads and filter by annotation in memory
+	// Note: K8s doesn't support annotation-based selectors, so we list all and filter
 	workloadList := &v1.WorkloadList{}
-	labelSelector := ctrlclient.MatchingLabels{
-		v1.SourceModelLabel: modelId,
-	}
-	if err := h.k8sClient.List(ctx, workloadList, labelSelector); err != nil {
-		klog.ErrorS(err, "Failed to list workloads by label", "model", modelId)
+	if err := h.k8sClient.List(ctx, workloadList); err != nil {
+		klog.ErrorS(err, "Failed to list workloads", "model", modelId)
 		return nil, commonerrors.NewInternalError("failed to list workloads: " + err.Error())
 	}
 
-	// Convert to response format
+	// Convert to response format (filter by source-model annotation/label)
 	var items []AssociatedWorkload
 	for _, w := range workloadList.Items {
+		// Check if workload is associated with this model
+		// For backward compatibility, check annotations, labels, and customerLabels
+		sourceModel := ""
+		if w.Annotations != nil {
+			sourceModel = w.Annotations[v1.SourceModelLabel]
+		}
+		if sourceModel == "" && w.Labels != nil {
+			sourceModel = w.Labels[v1.SourceModelLabel]
+		}
+		if sourceModel == "" && w.Spec.CustomerLabels != nil {
+			sourceModel = w.Spec.CustomerLabels[v1.SourceModelLabel]
+		}
+		if sourceModel != modelId {
+			continue
+		}
+
 		items = append(items, AssociatedWorkload{
 			WorkloadID:  w.Name,
 			DisplayName: w.Name, // Workload doesn't have DisplayName, use Name
-			Workspace:   w.Namespace,
+			Workspace:   w.Spec.Workspace,
 			Phase:       string(w.Status.Phase),
 			CreatedAt:   w.CreationTimestamp.Format(time.RFC3339),
 		})
