@@ -17,11 +17,17 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/lib/pq"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/pointer"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
+	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 )
 
 // CreateDataset handles the creation of a new dataset with file upload.
@@ -54,8 +60,22 @@ func (h *Handler) ListDatasetFiles(c *gin.Context) {
 	handle(c, h.listDatasetFiles)
 }
 
+// ListDatasetTypes handles listing all available dataset types.
+// GET /api/v1/datasets/types
+func (h *Handler) ListDatasetTypes(c *gin.Context) {
+	handle(c, h.listDatasetTypes)
+}
+
+// GetDatasetTemplate handles getting a template for a specific dataset type.
+// GET /api/v1/datasets/templates/:type
+func (h *Handler) GetDatasetTemplate(c *gin.Context) {
+	handle(c, h.getDatasetTemplate)
+}
+
 // createDataset creates a new dataset with file upload.
 func (h *Handler) createDataset(c *gin.Context) (interface{}, error) {
+	ctx := c.Request.Context()
+
 	// Parse form data
 	var req CreateDatasetRequest
 	if err := c.ShouldBind(&req); err != nil {
@@ -137,7 +157,25 @@ func (h *Handler) createDataset(c *gin.Context) (interface{}, error) {
 		return nil, commonerrors.NewInternalError(fmt.Sprintf("failed to create dataset: %v", err))
 	}
 
-	return convertToDatasetResponse(dataset), nil
+	// Create download jobs if download image is configured
+	var downloadJobs []DownloadJobInfo
+	if commonconfig.GetDownloadJoImage() != "" && commonconfig.IsS3Enable() {
+		downloadTargets, err := h.getDownloadTargets(ctx, req.Workspace)
+		if err != nil {
+			klog.ErrorS(err, "failed to get download targets", "datasetId", datasetId)
+			// Don't fail the request, just log the error
+		} else if len(downloadTargets) > 0 {
+			downloadJobs, err = h.createDownloadOpsJobs(ctx, dataset, downloadTargets, userId, userName)
+			if err != nil {
+				klog.ErrorS(err, "failed to create download jobs", "datasetId", datasetId)
+				// Don't fail the request, just log the error
+			}
+		}
+	}
+
+	resp := convertToDatasetResponse(dataset)
+	resp.DownloadJobs = downloadJobs
+	return resp, nil
 }
 
 // listDatasets lists datasets with filtering and pagination.
@@ -335,4 +373,174 @@ func formatFileSize(size int64) string {
 	default:
 		return fmt.Sprintf("%d B", size)
 	}
+}
+
+// listDatasetTypes lists all available dataset types.
+func (h *Handler) listDatasetTypes(c *gin.Context) (interface{}, error) {
+	return &ListDatasetTypesResponse{
+		Types: DatasetTypeDescriptions,
+	}, nil
+}
+
+// getDatasetTemplate gets a template for a specific dataset type.
+func (h *Handler) getDatasetTemplate(c *gin.Context) (interface{}, error) {
+	datasetType := c.Param("type")
+	if datasetType == "" {
+		return nil, commonerrors.NewBadRequest("dataset type is required")
+	}
+
+	template, exists := DatasetTemplates[datasetType]
+	if !exists {
+		return nil, commonerrors.NewNotFoundWithMessage(fmt.Sprintf("template for dataset type '%s' not found", datasetType))
+	}
+
+	return template, nil
+}
+
+// getDownloadTargets gets the download targets based on workspace parameter.
+// If workspace is specified, only that workspace's path is returned.
+// If workspace is empty, all workspaces' paths are returned (deduplicated).
+func (h *Handler) getDownloadTargets(ctx context.Context, workspace string) ([]DownloadTarget, error) {
+	if workspace != "" {
+		// Get specific workspace
+		ws := &v1.Workspace{}
+		if err := h.Get(ctx, client.ObjectKey{Name: workspace}, ws); err != nil {
+			return nil, fmt.Errorf("failed to get workspace %s: %w", workspace, err)
+		}
+		path := getNfsPathFromWorkspace(ws)
+		if path == "" {
+			return nil, fmt.Errorf("workspace %s has no volume configured", workspace)
+		}
+		return []DownloadTarget{{
+			Workspace: ws.Name,
+			Path:      path,
+		}}, nil
+	}
+
+	// Get all workspaces and deduplicate by path
+	workspaceList := &v1.WorkspaceList{}
+	if err := h.List(ctx, workspaceList); err != nil {
+		return nil, fmt.Errorf("failed to list workspaces: %w", err)
+	}
+
+	return getUniqueDownloadPaths(workspaceList.Items), nil
+}
+
+// getUniqueDownloadPaths extracts unique download paths from workspaces.
+// It prioritizes PFS type volumes, otherwise falls back to the first available volume.
+func getUniqueDownloadPaths(workspaces []v1.Workspace) []DownloadTarget {
+	pathMap := make(map[string]DownloadTarget) // key: actual storage path
+
+	for _, ws := range workspaces {
+		path := getNfsPathFromWorkspace(&ws)
+		if path == "" {
+			continue
+		}
+
+		// Deduplicate: same path only creates one OpsJob
+		if _, exists := pathMap[path]; !exists {
+			pathMap[path] = DownloadTarget{
+				Workspace: ws.Name,
+				Path:      path,
+			}
+		}
+	}
+
+	targets := make([]DownloadTarget, 0, len(pathMap))
+	for _, target := range pathMap {
+		targets = append(targets, target)
+	}
+	return targets
+}
+
+// getNfsPathFromWorkspace retrieves the NFS path from the workspace's volumes.
+// It prioritizes PFS type volumes, otherwise falls back to the first available volume's mount path.
+func getNfsPathFromWorkspace(workspace *v1.Workspace) string {
+	result := ""
+	for _, vol := range workspace.Spec.Volumes {
+		if vol.Type == v1.PFS {
+			result = vol.MountPath
+			break
+		}
+	}
+	if result == "" && len(workspace.Spec.Volumes) > 0 {
+		result = workspace.Spec.Volumes[0].MountPath
+	}
+	return result
+}
+
+// createDownloadOpsJobs creates OpsJobs to download the dataset to the specified targets.
+func (h *Handler) createDownloadOpsJobs(ctx context.Context, dataset *dbclient.Dataset, targets []DownloadTarget, userId, userName string) ([]DownloadJobInfo, error) {
+	if !commonconfig.IsS3Enable() {
+		return nil, fmt.Errorf("S3 storage is not enabled")
+	}
+
+	s3Endpoint := commonconfig.GetS3Endpoint()
+	s3Bucket := commonconfig.GetS3Bucket()
+	if s3Endpoint == "" || s3Bucket == "" {
+		return nil, fmt.Errorf("S3 configuration is incomplete")
+	}
+
+	// Construct S3 URL: {endpoint}/{bucket}/{s3Path}
+	s3URL := fmt.Sprintf("%s/%s/%s", s3Endpoint, s3Bucket, dataset.S3Path)
+
+	downloadJobs := make([]DownloadJobInfo, 0, len(targets))
+
+	for _, target := range targets {
+		// Get workspace to get cluster ID
+		ws := &v1.Workspace{}
+		if err := h.Get(ctx, client.ObjectKey{Name: target.Workspace}, ws); err != nil {
+			klog.ErrorS(err, "failed to get workspace for download job", "workspace", target.Workspace)
+			continue
+		}
+
+		// Generate unique job name
+		jobName := commonutils.GenerateName(fmt.Sprintf("dataset-dl-%s", dataset.DatasetId))
+
+		// Destination path: datasets/{displayName}
+		destPath := fmt.Sprintf("datasets/%s", dataset.DisplayName)
+
+		// Create OpsJob
+		job := &v1.OpsJob{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: jobName,
+				Labels: map[string]string{
+					v1.UserIdLabel:      userId,
+					v1.DisplayNameLabel: jobName,
+					v1.WorkspaceIdLabel: target.Workspace,
+					v1.ClusterIdLabel:   ws.Spec.Cluster,
+				},
+				Annotations: map[string]string{
+					v1.UserNameAnnotation: userName,
+				},
+			},
+			Spec: v1.OpsJobSpec{
+				Type:  v1.OpsJobDownloadType,
+				Image: pointer.String(commonconfig.GetDownloadJoImage()),
+				Inputs: []v1.Parameter{
+					{Name: v1.ParameterEndpoint, Value: s3URL},
+					{Name: v1.ParameterDestPath, Value: destPath},
+					{Name: v1.ParameterSecret, Value: DatasetS3Secret},
+					{Name: v1.ParameterWorkspace, Value: target.Workspace},
+				},
+				TTLSecondsAfterFinished: 300, // Auto cleanup after 5 minutes
+				TimeoutSecond:           3600, // 1 hour timeout
+			},
+		}
+
+		if err := h.Create(ctx, job); err != nil {
+			klog.ErrorS(err, "failed to create download OpsJob", "jobName", jobName, "workspace", target.Workspace)
+			continue
+		}
+
+		klog.InfoS("created download OpsJob for dataset", "jobName", jobName, "datasetId", dataset.DatasetId, "workspace", target.Workspace)
+
+		downloadJobs = append(downloadJobs, DownloadJobInfo{
+			JobId:     jobName,
+			Workspace: target.Workspace,
+			DestPath:  target.Path + "/" + destPath,
+		})
+	}
+
+	return downloadJobs, nil
 }

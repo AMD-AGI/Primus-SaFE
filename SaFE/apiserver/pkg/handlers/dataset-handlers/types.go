@@ -12,24 +12,33 @@ type CreateDatasetRequest struct {
 	DisplayName string `json:"displayName" form:"displayName" binding:"required"`
 	Description string `json:"description" form:"description"`
 	DatasetType string `json:"datasetType" form:"datasetType" binding:"required"`
+	Workspace   string `json:"workspace" form:"workspace"` // Optional, if empty downloads to all workspaces
+}
+
+// DownloadJobInfo represents information about a download job
+type DownloadJobInfo struct {
+	JobId     string `json:"jobId"`
+	Workspace string `json:"workspace"`
+	DestPath  string `json:"destPath"`
 }
 
 // DatasetResponse represents the response body for a dataset
 type DatasetResponse struct {
-	DatasetId    string     `json:"datasetId"`
-	DisplayName  string     `json:"displayName"`
-	Description  string     `json:"description"`
-	DatasetType  string     `json:"datasetType"`
-	Status       string     `json:"status"`
-	S3Path       string     `json:"s3Path"`
-	TotalSize    int64      `json:"totalSize"`
-	TotalSizeStr string     `json:"totalSizeStr"`
-	FileCount    int        `json:"fileCount"`
-	Message      string     `json:"message,omitempty"`
-	UserId       string     `json:"userId"`
-	UserName     string     `json:"userName"`
-	CreationTime *time.Time `json:"creationTime,omitempty"`
-	UpdateTime   *time.Time `json:"updateTime,omitempty"`
+	DatasetId    string            `json:"datasetId"`
+	DisplayName  string            `json:"displayName"`
+	Description  string            `json:"description"`
+	DatasetType  string            `json:"datasetType"`
+	Status       string            `json:"status"`
+	S3Path       string            `json:"s3Path"`
+	TotalSize    int64             `json:"totalSize"`
+	TotalSizeStr string            `json:"totalSizeStr"`
+	FileCount    int               `json:"fileCount"`
+	Message      string            `json:"message,omitempty"`
+	UserId       string            `json:"userId"`
+	UserName     string            `json:"userName"`
+	CreationTime *time.Time        `json:"creationTime,omitempty"`
+	UpdateTime   *time.Time        `json:"updateTime,omitempty"`
+	DownloadJobs []DownloadJobInfo `json:"downloadJobs,omitempty"`
 }
 
 // ListDatasetsRequest represents the request parameters for listing datasets
@@ -63,4 +72,31 @@ type ListFilesResponse struct {
 	DatasetId string            `json:"datasetId"`
 	Files     []DatasetFileInfo `json:"files"`
 	Total     int               `json:"total"`
+}
+
+// DatasetTypeInfo represents information about a dataset type
+type DatasetTypeInfo struct {
+	Value       string `json:"value"`
+	Label       string `json:"label"`
+	Description string `json:"description"`
+}
+
+// ListDatasetTypesResponse represents the response body for listing dataset types
+type ListDatasetTypesResponse struct {
+	Types []DatasetTypeInfo `json:"types"`
+}
+
+// DatasetTemplateResponse represents the response body for a dataset template
+type DatasetTemplateResponse struct {
+	Type        string            `json:"type"`
+	Description string            `json:"description"`
+	Format      string            `json:"format"`
+	Schema      map[string]string `json:"schema"`
+	Example     string            `json:"example"`
+}
+
+// DownloadTarget represents a target for downloading dataset
+type DownloadTarget struct {
+	Workspace string
+	Path      string
 }

@@ -11,6 +11,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
@@ -23,6 +24,7 @@ import (
 
 // Handler handles HTTP requests for dataset resources.
 type Handler struct {
+	client.Client
 	dbClient         dbclient.Interface
 	s3Client         commons3.Interface
 	accessController *authority.AccessController
@@ -30,6 +32,7 @@ type Handler struct {
 
 // NewHandler creates a new dataset handler instance.
 // It initializes all required clients including:
+// - k8sClient: Kubernetes client for workspace and OpsJob operations
 // - dbClient: Database client for dataset metadata storage
 // - s3Client: S3 client for dataset file storage
 // - accessController: AccessController for access control
@@ -52,6 +55,7 @@ func NewHandler(ctx context.Context, mgr ctrlruntime.Manager) (*Handler, error) 
 	accessController := authority.NewAccessController(mgr.GetClient())
 
 	return &Handler{
+		Client:           mgr.GetClient(),
 		dbClient:         dbClient,
 		s3Client:         s3Client,
 		accessController: accessController,

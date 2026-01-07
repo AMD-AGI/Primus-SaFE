@@ -18,8 +18,12 @@ func InitDatasetRouters(e *gin.Engine, h *Handler) {
 	// Dataset API requires authentication and preprocessing
 	group := e.Group(common.PrimusRouterCustomRootPath, middle.Authorize(), middle.Preprocess())
 	{
+		// Dataset type and template endpoints (must be before :id routes)
+		group.GET("datasets/types", h.ListDatasetTypes)            // List all dataset types
+		group.GET("datasets/templates/:type", h.GetDatasetTemplate) // Get template for a dataset type
+
 		// Dataset CRUD operations
-		group.POST("datasets", h.CreateDataset)             // Create dataset with file upload
+		group.POST("datasets", h.CreateDataset)             // Create dataset with file upload and download to workspace
 		group.GET("datasets", h.ListDatasets)               // List datasets with filtering
 		group.GET("datasets/:id", h.GetDataset)             // Get dataset details
 		group.DELETE("datasets/:id", h.DeleteDataset)       // Delete dataset
