@@ -214,7 +214,7 @@ func (m *WorkloadMutator) mutateOwnerReference(ctx context.Context, workload *v1
 			}
 		}
 	default:
-		if workspace != nil && !commonutils.HasOwnerReferences(workload, workspace.Name) {
+		if len(workload.GetFinalizers()) == 0 && workspace != nil {
 			err = controllerutil.SetControllerReference(workspace, workload, m.Client.Scheme())
 		}
 	}

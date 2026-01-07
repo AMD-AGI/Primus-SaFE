@@ -13,20 +13,6 @@ import (
 	"strings"
 	"time"
 
-	sqrl "github.com/Masterminds/squirrel"
-	"github.com/gin-gonic/gin"
-	"github.com/gin-gonic/gin/binding"
-	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/meta"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
-	apitypes "k8s.io/apimachinery/pkg/types"
-	"k8s.io/klog/v2"
-	"k8s.io/utils/pointer"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/resources/view"
@@ -46,6 +32,18 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/netutil"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
+	sqrl "github.com/Masterminds/squirrel"
+	"github.com/gin-gonic/gin"
+	"github.com/gin-gonic/gin/binding"
+	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
+	apitypes "k8s.io/apimachinery/pkg/types"
+	"k8s.io/klog/v2"
+	"k8s.io/utils/pointer"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 type WorkloadBatchAction string
@@ -168,16 +166,6 @@ func (h *Handler) createWorkload(c *gin.Context) (interface{}, error) {
 	resp, err := h.createWorkloadImpl(c, mainWorkload, requestUser, roles)
 	if err != nil {
 		return nil, err
-	}
-	if preheatWorkload != nil {
-		if err = controllerutil.SetControllerReference(mainWorkload, preheatWorkload, h.Client.Scheme()); err != nil {
-			klog.ErrorS(err, "failed to set owner reference", "owner", mainWorkload.Name, "workload", preheatWorkload.Name)
-			return nil, err
-		}
-		if err = h.Update(ctx, preheatWorkload); err != nil {
-			klog.ErrorS(err, "failed to update workload", "workload", preheatWorkload.Name)
-			return nil, err
-		}
 	}
 	isSucceed = true
 	return resp, nil
