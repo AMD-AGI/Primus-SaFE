@@ -794,6 +794,7 @@ func (h *Handler) generateWorkload(ctx context.Context,
 			return nil, err
 		}
 	}
+	klog.Infof("create workload %s", string(jsonutils.MarshalSilently(workload)))
 	return workload, nil
 }
 
