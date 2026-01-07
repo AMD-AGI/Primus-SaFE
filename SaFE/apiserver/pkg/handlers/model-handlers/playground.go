@@ -28,14 +28,14 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 )
 
 // Chat handles direct chat with a model or workload.
 // Supports streaming via SSE (Server-Sent Events).
-// For remote_api models, uses the model's configured API endpoint.
-// For workloads, uses the workload's ingress URL and requires modelName in request.
+// Uses unified serviceId - backend auto-detects whether it's a Model or Workload.
 func (h *Handler) Chat(c *gin.Context) {
 	req := &ChatRequest{}
 	if err := c.ShouldBindJSON(req); err != nil {
@@ -49,46 +49,37 @@ func (h *Handler) Chat(c *gin.Context) {
 		return
 	}
 
-	// Validate that either modelId or workloadId is provided
-	if req.ModelId == "" && req.WorkloadId == "" {
-		c.JSON(400, gin.H{"error": "either modelId or workloadId must be provided"})
-		return
-	}
-
 	var baseUrl, modelName, apiKey string
 	ctx := c.Request.Context()
 
-	if req.ModelId != "" {
-		// Chat with remote_api model
-		k8sModel := &v1.Model{}
-		if err := h.k8sClient.Get(ctx, ctrlclient.ObjectKey{Name: req.ModelId}, k8sModel); err != nil {
-			c.JSON(404, gin.H{"error": fmt.Sprintf("model not found: %v", err)})
+	// Try to find as Model first
+	k8sModel := &v1.Model{}
+	modelErr := h.k8sClient.Get(ctx, ctrlclient.ObjectKey{Name: req.ServiceId}, k8sModel)
+
+	if modelErr == nil {
+		// Found as Model
+		if k8sModel.Spec.Source.AccessMode == v1.AccessModeRemoteAPI {
+			// Remote API Model
+			if k8sModel.Status.Phase != v1.ModelPhaseReady {
+				c.JSON(400, gin.H{"error": fmt.Sprintf("model is not ready, current phase: %s", k8sModel.Status.Phase)})
+				return
+			}
+
+			baseUrl = k8sModel.Spec.Source.URL
+			modelName = k8sModel.GetModelName()
+
+			// Get API key from Secret
+			if k8sModel.Spec.Source.ApiKey != nil && k8sModel.Spec.Source.ApiKey.Name != "" {
+				apiKey = h.getApiKeyFromSecret(ctx, k8sModel.Spec.Source.ApiKey.Name)
+			}
+		} else {
+			// Local Model - user should use the associated workload
+			c.JSON(400, gin.H{"error": "this is a local model, please use the deployed workload's serviceId instead"})
 			return
-		}
-
-		// Verify it's a remote_api model
-		if k8sModel.Spec.Source.AccessMode != v1.AccessModeRemoteAPI {
-			c.JSON(400, gin.H{"error": "model is not a remote_api type, use workloadId for local model inference"})
-			return
-		}
-
-		// Verify model is ready
-		if k8sModel.Status.Phase != v1.ModelPhaseReady {
-			c.JSON(400, gin.H{"error": fmt.Sprintf("model is not ready, current phase: %s", k8sModel.Status.Phase)})
-			return
-		}
-
-		baseUrl = k8sModel.Spec.Source.URL
-		modelName = k8sModel.GetModelName()
-
-		// Get API key from Secret (if apiKey reference exists for remote_api mode)
-		if k8sModel.Spec.Source.ApiKey != nil && k8sModel.Spec.Source.ApiKey.Name != "" {
-			apiKey = h.getApiKeyFromSecret(ctx, k8sModel.Spec.Source.ApiKey.Name)
 		}
 	} else {
-		// Chat with workload (local inference service)
+		// Not a Model, try to find as Workload
 		k8sWorkload := &v1.Workload{}
-		// Workloads are namespaced, we need to find it
 		workloadList := &v1.WorkloadList{}
 		if err := h.k8sClient.List(ctx, workloadList); err != nil {
 			c.JSON(500, gin.H{"error": fmt.Sprintf("failed to list workloads: %v", err)})
@@ -97,7 +88,7 @@ func (h *Handler) Chat(c *gin.Context) {
 
 		var found bool
 		for _, w := range workloadList.Items {
-			if w.Name == req.WorkloadId {
+			if w.Name == req.ServiceId {
 				k8sWorkload = &w
 				found = true
 				break
@@ -105,7 +96,7 @@ func (h *Handler) Chat(c *gin.Context) {
 		}
 
 		if !found {
-			c.JSON(404, gin.H{"error": fmt.Sprintf("workload not found: %s", req.WorkloadId)})
+			c.JSON(404, gin.H{"error": fmt.Sprintf("service not found (neither model nor workload): %s", req.ServiceId)})
 			return
 		}
 
@@ -115,22 +106,51 @@ func (h *Handler) Chat(c *gin.Context) {
 			return
 		}
 
-		// For workloads, baseUrl must be provided by user
-		if req.WorkloadBaseUrl == "" {
-			c.JSON(400, gin.H{"error": "workloadBaseUrl is required when chatting with a workload"})
+		// Get baseUrl: from request override or construct from workload service
+		if req.BaseUrl != "" {
+			baseUrl = req.BaseUrl
+		} else {
+			// Construct service URL from workload
+			// Priority: ExternalDomain (via Higress) > InternalDomain
+			port := 8000 // default port
+			if k8sWorkload.Spec.Service != nil && k8sWorkload.Spec.Service.Port > 0 {
+				port = k8sWorkload.Spec.Service.Port
+			} else if k8sWorkload.Spec.Service != nil && k8sWorkload.Spec.Service.TargetPort > 0 {
+				port = k8sWorkload.Spec.Service.TargetPort
+			}
+
+			// Check if Higress is configured for external access
+			if commonconfig.GetIngress() == common.HigressClassname && commonconfig.GetSystemHost() != "" {
+				// External domain via Higress: https://{systemHost}/{clusterId}/{workspace}/{name}/
+				clusterId := v1.GetClusterId(k8sWorkload)
+				baseUrl = "https://" + commonconfig.GetSystemHost() + "/" + clusterId + "/" + k8sWorkload.Spec.Workspace + "/" + k8sWorkload.Name + "/"
+			} else {
+				// Fallback to internal domain
+				baseUrl = fmt.Sprintf("http://%s.%s.svc.cluster.local:%d", k8sWorkload.Name, k8sWorkload.Spec.Workspace, port)
+			}
+		}
+
+		// Get modelName: from request (required for workloads)
+		if req.ModelName != "" {
+			modelName = req.ModelName
+		} else {
+			c.JSON(400, gin.H{"error": "modelName is required when chatting with a workload"})
 			return
 		}
-		baseUrl = req.WorkloadBaseUrl
 
-		// For workloads, modelName must be provided by user
-		if req.WorkloadModelName == "" {
-			c.JSON(400, gin.H{"error": "workloadModelName is required when chatting with a workload"})
-			return
-		}
-		modelName = req.WorkloadModelName
+		// API key from request
+		apiKey = req.ApiKey
+	}
 
-		// Optional API key from request
-		apiKey = req.WorkloadApiKey
+	// Allow request overrides
+	if req.BaseUrl != "" {
+		baseUrl = req.BaseUrl
+	}
+	if req.ModelName != "" {
+		modelName = req.ModelName
+	}
+	if req.ApiKey != "" {
+		apiKey = req.ApiKey
 	}
 
 	if baseUrl == "" {
@@ -142,6 +162,8 @@ func (h *Handler) Chat(c *gin.Context) {
 		c.JSON(400, gin.H{"error": "model name not specified"})
 		return
 	}
+
+	klog.InfoS("Chat request", "serviceId", req.ServiceId, "baseUrl", baseUrl, "modelName", modelName, "stream", req.Stream)
 
 	// Call inference service with streaming support
 	if req.Stream {
@@ -180,8 +202,9 @@ func (h *Handler) listPlaygroundServices(c *gin.Context) (interface{}, error) {
 				Type:        "remote_api",
 				ID:          m.Name,
 				DisplayName: m.Spec.DisplayName,
-				ModelName:   m.GetModelName(),
+				ModelName:   m.Spec.Source.ModelName,
 				Phase:       string(m.Status.Phase),
+				BaseUrl:     m.Spec.Source.URL, // API endpoint URL
 			})
 		}
 	}
@@ -211,19 +234,35 @@ func (h *Handler) listPlaygroundServices(c *gin.Context) (interface{}, error) {
 			continue
 		}
 
-		// Get source model ID from label (optional)
-		sourceModelID := ""
+		// Get source model ID from env variable PRIMUS_SOURCE_MODEL (optional)
+		sourceModelID := w.GetEnv("PRIMUS_SOURCE_MODEL")
 		sourceModelName := ""
-		// Check annotations for source-model (not labels, to avoid affecting scheduling)
-		if w.Annotations != nil {
-			sourceModelID = w.Annotations[v1.SourceModelLabel]
-			if sourceModelID != "" {
-				// Try to get the source model's display name
-				sourceModel := &v1.Model{}
-				if err := h.k8sClient.Get(ctx, ctrlclient.ObjectKey{Name: sourceModelID}, sourceModel); err == nil {
-					sourceModelName = sourceModel.Spec.DisplayName
-				}
+		if sourceModelID != "" {
+			// Try to get the source model's display name
+			sourceModel := &v1.Model{}
+			if err := h.k8sClient.Get(ctx, ctrlclient.ObjectKey{Name: sourceModelID}, sourceModel); err == nil {
+				sourceModelName = sourceModel.Spec.DisplayName
 			}
+		}
+
+		// Construct service URL for the workload
+		// Priority: ExternalDomain (via Higress) > InternalDomain
+		var baseUrl string
+		port := 8000 // default port
+		if w.Spec.Service != nil && w.Spec.Service.Port > 0 {
+			port = w.Spec.Service.Port
+		} else if w.Spec.Service != nil && w.Spec.Service.TargetPort > 0 {
+			port = w.Spec.Service.TargetPort
+		}
+
+		// Check if Higress is configured for external access
+		if commonconfig.GetIngress() == common.HigressClassname && commonconfig.GetSystemHost() != "" {
+			// External domain via Higress: https://{systemHost}/{clusterId}/{workspace}/{name}/
+			clusterId := v1.GetClusterId(&w)
+			baseUrl = "https://" + commonconfig.GetSystemHost() + "/" + clusterId + "/" + w.Spec.Workspace + "/" + w.Name + "/"
+		} else {
+			// Fallback to internal domain: http://{name}.{workspace}.svc.cluster.local:{port}
+			baseUrl = fmt.Sprintf("http://%s.%s.svc.cluster.local:%d", w.Name, w.Spec.Workspace, port)
 		}
 
 		items = append(items, PlaygroundServiceItem{
@@ -234,6 +273,7 @@ func (h *Handler) listPlaygroundServices(c *gin.Context) (interface{}, error) {
 			Workspace:       w.Spec.Workspace,
 			SourceModelID:   sourceModelID,
 			SourceModelName: sourceModelName,
+			BaseUrl:         baseUrl,
 		})
 	}
 
@@ -441,12 +481,6 @@ func (h *Handler) streamChat(c *gin.Context, baseUrl string, apiKey string, mode
 	// Get flusher for SSE
 	flusher, _ := c.Writer.(interface{ Flush() })
 
-	// Determine source ID for logging
-	sourceID := req.ModelId
-	if sourceID == "" {
-		sourceID = req.WorkloadId
-	}
-
 	// Stream response
 	for {
 		response, err := stream.Recv()
@@ -473,7 +507,7 @@ func (h *Handler) streamChat(c *gin.Context, baseUrl string, apiKey string, mode
 		}
 	}
 
-	klog.Infof("streaming chat completed for: %s", sourceID)
+	klog.Infof("streaming chat completed for: %s", req.ServiceId)
 }
 
 // nonStreamChat handles non-streaming chat with OpenAI SDK.
@@ -538,15 +572,9 @@ func (h *Handler) nonStreamChat(c *gin.Context, baseUrl string, apiKey string, m
 		return
 	}
 
-	// Determine source ID for logging
-	sourceID := req.ModelId
-	if sourceID == "" {
-		sourceID = req.WorkloadId
-	}
-
 	// Return response in OpenAI format
 	c.JSON(200, resp)
-	klog.Infof("non-streaming chat completed for: %s", sourceID)
+	klog.Infof("non-streaming chat completed for: %s", req.ServiceId)
 }
 
 // saveSession implements the session save logic - saves or updates a session.

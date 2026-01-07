@@ -17,21 +17,20 @@ type ListModelQuery struct {
 	Workspace  string `form:"workspace" binding:"omitempty"`  // Filter by workspace (for local models)
 }
 
-// ChatRequest represents the request to chat with a model or workload.
-// Either ModelId (for remote_api) or WorkloadId (for local inference) must be provided.
+// ChatRequest represents the unified request to chat with a model or workload.
+// Backend auto-detects whether serviceId refers to a Model or Workload.
 type ChatRequest struct {
-	// Source identification - one of these must be provided
-	ModelId    string `json:"modelId"`    // Model ID for remote_api models
-	WorkloadId string `json:"workloadId"` // Workload ID for local inference services
+	// Unified service identification (Model ID or Workload ID)
+	ServiceId string `json:"serviceId" binding:"required"` // Model ID or Workload ID
 
-	// Required for workload chat - the model name used by the inference service
-	WorkloadModelName string `json:"workloadModelName"` // e.g., "/models/llama-2-7b"
+	// Model name for the inference service
+	// - For remote_api models: auto-detected from model.spec.source.modelName (can be overridden)
+	// - For workloads: required, specifies the model path (e.g., "/models/llama-2-7b")
+	ModelName string `json:"modelName,omitempty"`
 
-	// Required for workload chat - the base URL of the inference service
-	WorkloadBaseUrl string `json:"workloadBaseUrl"` // e.g., "http://workload-svc.ns.svc:8000"
-
-	// Optional API key for workload authentication
-	WorkloadApiKey string `json:"workloadApiKey"`
+	// Optional overrides
+	BaseUrl string `json:"baseUrl,omitempty"` // Override service URL (useful for workloads with custom endpoints)
+	ApiKey  string `json:"apiKey,omitempty"`  // Override API key
 
 	// Chat parameters
 	Messages         []map[string]interface{} `json:"messages" binding:"required"` // OpenAI format messages
@@ -188,16 +187,20 @@ type PatchModelRequest struct {
 // Can be either a remote_api model or a running inference workload.
 type PlaygroundServiceItem struct {
 	Type        string `json:"type"`        // "remote_api" or "workload"
-	ID          string `json:"id"`          // Model ID or Workload ID
+	ID          string `json:"id"`          // Model ID or Workload ID (use as serviceId for chat)
 	DisplayName string `json:"displayName"` // Display name
 	ModelName   string `json:"modelName"`   // Model name for API calls
 	Phase       string `json:"phase"`       // Status/Phase
 	Workspace   string `json:"workspace"`   // Workspace (for workloads)
 
+	// URL for accessing the service (can be used as baseUrl override in chat)
+	// - For remote_api: the API endpoint URL
+	// - For workload: external domain via Higress (if configured) or internal domain
+	BaseUrl string `json:"baseUrl,omitempty"`
+
 	// For workloads only
-	SourceModelID   string `json:"sourceModelId,omitempty"`   // Source Model ID (from label)
+	SourceModelID   string `json:"sourceModelId,omitempty"`   // Source Model ID (from annotation)
 	SourceModelName string `json:"sourceModelName,omitempty"` // Source Model display name
-	IngressURL      string `json:"ingressUrl,omitempty"`      // Ingress URL for the workload
 }
 
 // ListPlaygroundServicesQuery represents query parameters for listing playground services.
@@ -232,8 +235,7 @@ type WorkloadConfigResponse struct {
 	// Pre-filled fields
 	DisplayName string            `json:"displayName"` // Suggested workload name
 	Description string            `json:"description"` // Description
-	Annotations map[string]string `json:"annotations"` // Annotations including source-model (NOT labels to avoid affecting scheduling)
-	Env         map[string]string `json:"env"`         // Environment variables including MODEL_PATH
+	Env         map[string]string `json:"env"`         // Environment variables including MODEL_PATH and PRIMUS_SOURCE_MODEL
 
 	// Model info for reference
 	ModelID    string `json:"modelId"`
