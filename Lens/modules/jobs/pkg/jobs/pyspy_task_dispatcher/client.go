@@ -58,7 +58,7 @@ func (c *NodeExporterClient) ExecutePySpy(ctx context.Context, nodeExporterAddr 
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	url := fmt.Sprintf("http://%s/api/v1/pyspy/execute", nodeExporterAddr)
+	url := fmt.Sprintf("http://%s/v1/pyspy/execute", nodeExporterAddr)
 	log.Infof("Calling node-exporter: %s for task %s", url, ext.TaskID)
 
 	body, err := json.Marshal(req)
@@ -100,9 +100,64 @@ func (c *NodeExporterClient) ExecutePySpy(ctx context.Context, nodeExporterAddr 
 	}, nil
 }
 
+// DownloadFile downloads the profiling file from node-exporter
+func (c *NodeExporterClient) DownloadFile(ctx context.Context, nodeExporterAddr, taskID, filename string) ([]byte, error) {
+	url := fmt.Sprintf("http://%s/v1/pyspy/file/%s/%s", nodeExporterAddr, taskID, filename)
+	log.Infof("Downloading file from node-exporter: %s", url)
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to download file: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("node-exporter returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	content, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read file content: %w", err)
+	}
+
+	log.Infof("Downloaded file %s/%s: %d bytes", taskID, filename, len(content))
+	return content, nil
+}
+
+// DeleteFile deletes the profiling file from node-exporter (cleanup after storage)
+func (c *NodeExporterClient) DeleteFile(ctx context.Context, nodeExporterAddr, taskID string) error {
+	url := fmt.Sprintf("http://%s/v1/pyspy/file/%s", nodeExporterAddr, taskID)
+	log.Infof("Deleting file from node-exporter: %s", url)
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodDelete, url, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("failed to delete file: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("node-exporter returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	log.Infof("Deleted file for task %s from node-exporter", taskID)
+	return nil
+}
+
 // CheckCompatibility calls node-exporter to check py-spy compatibility
 func (c *NodeExporterClient) CheckCompatibility(ctx context.Context, nodeExporterAddr, podUID string) (*model.PySpyCompatibility, error) {
-	url := fmt.Sprintf("http://%s/api/v1/pyspy/check", nodeExporterAddr)
+	url := fmt.Sprintf("http://%s/v1/pyspy/check", nodeExporterAddr)
 
 	req := map[string]string{
 		"pod_uid": podUID,

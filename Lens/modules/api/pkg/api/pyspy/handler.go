@@ -3,10 +3,12 @@ package pyspy
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
+	"path/filepath"
 	"time"
 
+	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/profiler/storage"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/constant"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
@@ -18,24 +20,56 @@ import (
 )
 
 var (
-	taskFacade          *database.WorkloadTaskFacade
-	nodeExporterClient  *NodeExporterClient
+	storageBackend storage.StorageBackend
 )
 
-// getTaskFacade returns the task facade, initializing it lazily if needed
-func getTaskFacade() *database.WorkloadTaskFacade {
-	if taskFacade == nil {
-		taskFacade = database.NewWorkloadTaskFacade()
+// getTaskFacadeForCluster returns the task facade for a specific cluster
+// If clusterName is empty, it uses the default cluster
+func getTaskFacadeForCluster(clusterName string) *database.WorkloadTaskFacade {
+	if clusterName == "" {
+		return database.NewWorkloadTaskFacade()
 	}
-	return taskFacade
+	return database.NewWorkloadTaskFacadeForCluster(clusterName)
 }
 
-// getNodeExporterClient returns the node exporter client, initializing it lazily if needed
-func getNodeExporterClient() *NodeExporterClient {
-	if nodeExporterClient == nil {
-		nodeExporterClient = NewNodeExporterClient()
+// getStorageBackend returns the storage backend, initializing it lazily if needed
+func getStorageBackend(clusterName string) storage.StorageBackend {
+	// For now, use the same database storage backend
+	// In the future, could support per-cluster storage configuration
+	if storageBackend == nil {
+		db := database.GetFacadeForCluster(clusterName).GetSystemConfig().GetDB()
+		if db != nil {
+			sqlDB, err := db.DB()
+			if err == nil {
+				storageConfig := &storage.StorageConfig{
+					Strategy: "database",
+					Database: &storage.DatabaseConfig{
+						Compression:         true,
+						ChunkSize:           1024 * 1024, // 1MB chunks
+						MaxFileSize:         50 * 1024 * 1024, // 50MB max
+						MaxConcurrentChunks: 4,
+					},
+				}
+				backend, err := storage.NewStorageBackend(sqlDB, storageConfig)
+				if err != nil {
+					log.Warnf("Failed to initialize storage backend: %v", err)
+				} else {
+					storageBackend = backend
+				}
+			}
+		}
 	}
-	return nodeExporterClient
+	return storageBackend
+}
+
+// getClusterName resolves the cluster name from request, using ClusterManager
+func getClusterName(c *gin.Context, requestedCluster string) (string, error) {
+	cm := clientsets.GetClusterManager()
+	clients, err := cm.GetClusterClientsOrDefault(requestedCluster)
+	if err != nil {
+		return "", err
+	}
+	return clients.ClusterName, nil
 }
 
 // CreateTask creates a new py-spy sampling task
@@ -48,6 +82,14 @@ func CreateTask(c *gin.Context) {
 	}
 
 	req.SetDefaults()
+
+	// Resolve cluster name - task will be created in the target cluster's database
+	clusterName, err := getClusterName(c, req.Cluster)
+	if err != nil {
+		log.Errorf("Failed to resolve cluster: %v", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("invalid cluster: %v", err)})
+		return
+	}
 
 	// Generate task ID
 	taskID := fmt.Sprintf("pyspy-%s", uuid.New().String()[:8])
@@ -81,7 +123,7 @@ func CreateTask(c *gin.Context) {
 		return
 	}
 
-	// Create task in database
+	// Create task in target cluster's database
 	task := &model.WorkloadTaskState{
 		WorkloadUID: taskID,
 		TaskType:    constant.TaskTypePySpySample,
@@ -91,13 +133,14 @@ func CreateTask(c *gin.Context) {
 		UpdatedAt:   time.Now(),
 	}
 
-	if err := getTaskFacade().UpsertTask(c.Request.Context(), task); err != nil {
-		log.Errorf("Failed to create task: %v", err)
+	taskFacade := getTaskFacadeForCluster(clusterName)
+	if err := taskFacade.UpsertTask(c.Request.Context(), task); err != nil {
+		log.Errorf("Failed to create task in cluster %s: %v", clusterName, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create task"})
 		return
 	}
 
-	log.Infof("Created py-spy task %s for pod %s on node %s", taskID, req.PodUID, req.NodeName)
+	log.Infof("Created py-spy task %s for pod %s on node %s in cluster %s", taskID, req.PodUID, req.NodeName, clusterName)
 
 	// Build response
 	resp := TaskResponse{
@@ -125,7 +168,16 @@ func GetTask(c *gin.Context) {
 		return
 	}
 
-	task, err := getTaskFacade().GetTask(c.Request.Context(), taskID, constant.TaskTypePySpySample)
+	// Get cluster from query parameter
+	clusterName, err := getClusterName(c, c.Query("cluster"))
+	if err != nil {
+		log.Errorf("Failed to resolve cluster: %v", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("invalid cluster: %v", err)})
+		return
+	}
+
+	taskFacade := getTaskFacadeForCluster(clusterName)
+	task, err := taskFacade.GetTask(c.Request.Context(), taskID, constant.TaskTypePySpySample)
 	if err != nil {
 		log.Errorf("Failed to get task %s: %v", taskID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get task"})
@@ -153,7 +205,16 @@ func CancelTask(c *gin.Context) {
 	var req CancelTaskRequest
 	_ = c.ShouldBindJSON(&req) // Optional body
 
-	task, err := getTaskFacade().GetTask(c.Request.Context(), taskID, constant.TaskTypePySpySample)
+	// Get cluster from query parameter
+	clusterName, err := getClusterName(c, c.Query("cluster"))
+	if err != nil {
+		log.Errorf("Failed to resolve cluster: %v", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("invalid cluster: %v", err)})
+		return
+	}
+
+	taskFacade := getTaskFacadeForCluster(clusterName)
+	task, err := taskFacade.GetTask(c.Request.Context(), taskID, constant.TaskTypePySpySample)
 	if err != nil {
 		log.Errorf("Failed to get task %s: %v", taskID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get task"})
@@ -172,7 +233,7 @@ func CancelTask(c *gin.Context) {
 	}
 
 	// Update task status to cancelled
-	if err := getTaskFacade().UpdateTaskStatus(c.Request.Context(), taskID, constant.TaskTypePySpySample, constant.TaskStatusCancelled); err != nil {
+	if err := taskFacade.UpdateTaskStatus(c.Request.Context(), taskID, constant.TaskTypePySpySample, constant.TaskStatusCancelled); err != nil {
 		log.Errorf("Failed to cancel task %s: %v", taskID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to cancel task"})
 		return
@@ -184,11 +245,11 @@ func CancelTask(c *gin.Context) {
 		"cancelled_at": cancelledAt,
 		"cancel_reason": req.Reason,
 	}
-	if err := getTaskFacade().UpdateTaskExt(c.Request.Context(), taskID, constant.TaskTypePySpySample, extUpdate); err != nil {
+	if err := taskFacade.UpdateTaskExt(c.Request.Context(), taskID, constant.TaskTypePySpySample, extUpdate); err != nil {
 		log.Warnf("Failed to update task ext for cancellation: %v", err)
 	}
 
-	log.Infof("Cancelled py-spy task %s", taskID)
+	log.Infof("Cancelled py-spy task %s in cluster %s", taskID, clusterName)
 
 	c.JSON(http.StatusOK, rest.SuccessResp(c, TaskStatusResponse{
 		TaskID:  taskID,
@@ -208,8 +269,16 @@ func ListTasks(c *gin.Context) {
 
 	req.SetDefaults()
 
+	// Resolve cluster name
+	clusterName, err := getClusterName(c, req.Cluster)
+	if err != nil {
+		log.Errorf("Failed to resolve cluster: %v", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("invalid cluster: %v", err)})
+		return
+	}
+
 	// Query tasks from database
-	tasks, total, err := listTasksWithFilters(c.Request.Context(), &req)
+	tasks, total, err := listTasksWithFilters(c.Request.Context(), &req, clusterName)
 	if err != nil {
 		log.Errorf("Failed to list tasks: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list tasks"})
@@ -238,13 +307,22 @@ func DownloadFile(c *gin.Context) {
 	taskID := c.Param("task_id")
 	filename := c.Param("filename")
 
-	if taskID == "" || filename == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "task_id and filename are required"})
+	if taskID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "task_id is required"})
 		return
 	}
 
-	// Get task to find target node
-	task, err := getTaskFacade().GetTask(c.Request.Context(), taskID, constant.TaskTypePySpySample)
+	// Get cluster from query parameter
+	clusterName, err := getClusterName(c, c.Query("cluster"))
+	if err != nil {
+		log.Errorf("Failed to resolve cluster: %v", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("invalid cluster: %v", err)})
+		return
+	}
+
+	// Get task to verify it exists and get storage info
+	taskFacade := getTaskFacadeForCluster(clusterName)
+	task, err := taskFacade.GetTask(c.Request.Context(), taskID, constant.TaskTypePySpySample)
 	if err != nil {
 		log.Errorf("Failed to get task %s: %v", taskID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get task"})
@@ -256,48 +334,65 @@ func DownloadFile(c *gin.Context) {
 		return
 	}
 
-	// Get target node from ext
-	nodeName := database.GetExtString(task, "target_node_name")
-	if nodeName == "" {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "target node not found in task"})
+	// Check if file is stored in storage backend
+	storagePath := database.GetExtString(task, "storage_path")
+	if storagePath == "" {
+		c.JSON(http.StatusNotFound, gin.H{"error": "file not found in storage"})
 		return
 	}
 
-	// Get node-exporter address
-	nodeExporterAddr, err := getNodeExporterClient().GetNodeExporterAddress(c.Request.Context(), nodeName)
+	// Get storage backend
+	backend := getStorageBackend(clusterName)
+	if backend == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "storage backend not available"})
+		return
+	}
+
+	// Retrieve file from storage
+	retrieveReq := &storage.RetrieveRequest{
+		FileID:      taskID,
+		StoragePath: storagePath,
+	}
+	
+	retrieveResp, err := backend.Retrieve(c.Request.Context(), retrieveReq)
 	if err != nil {
-		log.Errorf("Failed to get node-exporter address for node %s: %v", nodeName, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to resolve node-exporter address"})
+		log.Errorf("Failed to retrieve file from storage: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to retrieve file"})
 		return
 	}
 
-	// Proxy the file download
-	resp, err := getNodeExporterClient().ProxyFileDownload(c.Request.Context(), nodeExporterAddr, taskID, filename)
-	if err != nil {
-		log.Errorf("Failed to proxy file download: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to download file"})
-		return
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		log.Errorf("Node-exporter returned status %d: %s", resp.StatusCode, string(bodyBytes))
-		c.JSON(resp.StatusCode, gin.H{"error": "failed to download file from node-exporter"})
-		return
-	}
-
-	// Copy response headers
-	for key, values := range resp.Header {
-		for _, value := range values {
-			c.Header(key, value)
+	// Determine filename if not provided
+	if filename == "" {
+		outputFile := database.GetExtString(task, "output_file")
+		if outputFile != "" {
+			filename = filepath.Base(outputFile)
+		} else {
+			filename = fmt.Sprintf("%s.svg", taskID)
 		}
 	}
 
-	// Stream the file content
-	c.Status(http.StatusOK)
-	if _, err := io.Copy(c.Writer, resp.Body); err != nil {
-		log.Errorf("Failed to stream file: %v", err)
+	// Set response headers
+	format := database.GetExtString(task, "format")
+	contentType := getContentTypeForFormat(format)
+	c.Header("Content-Type", contentType)
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%s", filename))
+	c.Header("Content-Length", fmt.Sprintf("%d", retrieveResp.Size))
+
+	// Write content
+	c.Data(http.StatusOK, contentType, retrieveResp.Content)
+}
+
+// getContentTypeForFormat returns content type based on format
+func getContentTypeForFormat(format string) string {
+	switch format {
+	case "flamegraph":
+		return "image/svg+xml"
+	case "speedscope":
+		return "application/json"
+	case "raw":
+		return "text/plain"
+	default:
+		return "application/octet-stream"
 	}
 }
 
@@ -311,8 +406,17 @@ func GetTaskFiles(c *gin.Context) {
 		return
 	}
 
-	// Get task to find target node
-	task, err := getTaskFacade().GetTask(c.Request.Context(), taskID, constant.TaskTypePySpySample)
+	// Get cluster from query parameter
+	clusterName, err := getClusterName(c, c.Query("cluster"))
+	if err != nil {
+		log.Errorf("Failed to resolve cluster: %v", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("invalid cluster: %v", err)})
+		return
+	}
+
+	// Get task to get file info from ext
+	taskFacade := getTaskFacadeForCluster(clusterName)
+	task, err := taskFacade.GetTask(c.Request.Context(), taskID, constant.TaskTypePySpySample)
 	if err != nil {
 		log.Errorf("Failed to get task %s: %v", taskID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get task"})
@@ -324,39 +428,34 @@ func GetTaskFiles(c *gin.Context) {
 		return
 	}
 
-	// Get target node from ext
-	nodeName := database.GetExtString(task, "target_node_name")
-	if nodeName == "" {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "target node not found in task"})
-		return
+	// Build file info from task ext
+	storagePath := database.GetExtString(task, "storage_path")
+	storageType := database.GetExtString(task, "storage_type")
+	outputFile := database.GetExtString(task, "output_file")
+	format := database.GetExtString(task, "format")
+
+	var files []map[string]interface{}
+	if storagePath != "" {
+		filename := filepath.Base(outputFile)
+		if filename == "" || filename == "." {
+			filename = fmt.Sprintf("%s.svg", taskID)
+		}
+
+		files = append(files, map[string]interface{}{
+			"task_id":      taskID,
+			"file_name":    filename,
+			"format":       format,
+			"file_size":    database.GetExtInt(task, "file_size"),
+			"storage_type": storageType,
+			"storage_path": storagePath,
+			"download_url": fmt.Sprintf("/v1/pyspy/file/%s/%s?cluster=%s", taskID, filename, clusterName),
+		})
 	}
 
-	// Get node-exporter address
-	nodeExporterAddr, err := getNodeExporterClient().GetNodeExporterAddress(c.Request.Context(), nodeName)
-	if err != nil {
-		log.Errorf("Failed to get node-exporter address for node %s: %v", nodeName, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to resolve node-exporter address"})
-		return
-	}
-
-	// Proxy the file list request
-	body, err := getNodeExporterClient().ProxyFileList(c.Request.Context(), nodeExporterAddr, taskID)
-	if err != nil {
-		log.Errorf("Failed to proxy file list: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list files"})
-		return
-	}
-	defer body.Close()
-
-	// Read and forward the response
-	respBytes, err := io.ReadAll(body)
-	if err != nil {
-		log.Errorf("Failed to read file list response: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read file list"})
-		return
-	}
-
-	c.Data(http.StatusOK, "application/json", respBytes)
+	c.JSON(http.StatusOK, rest.SuccessResp(c, gin.H{
+		"task_id": taskID,
+		"files":   files,
+	}))
 }
 
 // Helper function to convert task to response
@@ -419,8 +518,8 @@ func getFilename(path string) string {
 }
 
 // listTasksWithFilters queries tasks with filters
-func listTasksWithFilters(ctx interface{ Done() <-chan struct{} }, req *ListTasksRequest) ([]*model.WorkloadTaskState, int64, error) {
-	db := database.GetFacade().GetSystemConfig().GetDB()
+func listTasksWithFilters(ctx interface{ Done() <-chan struct{} }, req *ListTasksRequest, clusterName string) ([]*model.WorkloadTaskState, int64, error) {
+	db := database.GetFacadeForCluster(clusterName).GetSystemConfig().GetDB()
 
 	query := db.Model(&model.WorkloadTaskState{}).
 		Where("task_type = ?", constant.TaskTypePySpySample)

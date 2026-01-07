@@ -2,10 +2,13 @@ package pyspy_task_dispatcher
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"time"
 
+	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/profiler/storage"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/constant"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
@@ -26,19 +29,66 @@ const (
 
 // PySpyTaskDispatcherJob dispatches py-spy tasks to node-exporters
 type PySpyTaskDispatcherJob struct {
-	facade     *database.WorkloadTaskFacade
-	instanceID string
-	client     *NodeExporterClient
-	resolver   *NodeExporterResolver
+	facade         *database.WorkloadTaskFacade
+	instanceID     string
+	client         *NodeExporterClient
+	resolver       *NodeExporterResolver
+	storageBackend storage.StorageBackend
 }
 
 // NewPySpyTaskDispatcherJob creates a new dispatcher job
 func NewPySpyTaskDispatcherJob() *PySpyTaskDispatcherJob {
-	return &PySpyTaskDispatcherJob{
+	job := &PySpyTaskDispatcherJob{
 		facade:     database.NewWorkloadTaskFacade(),
 		instanceID: generateInstanceID(),
 		client:     NewNodeExporterClient(),
 	}
+
+	// Initialize storage backend (database storage by default)
+	db := database.GetFacade().GetSystemConfig().GetDB()
+	if db != nil {
+		sqlDB, err := db.DB()
+		if err == nil {
+			storageConfig := &storage.StorageConfig{
+				Strategy: "database",
+				Database: &storage.DatabaseConfig{
+					Compression:         true,
+					ChunkSize:           1024 * 1024, // 1MB chunks
+					MaxFileSize:         50 * 1024 * 1024, // 50MB max
+					MaxConcurrentChunks: 4,
+				},
+			}
+			backend, err := storage.NewStorageBackend(sqlDB, storageConfig)
+			if err != nil {
+				log.Warnf("Failed to initialize storage backend: %v, file storage will be skipped", err)
+			} else {
+				job.storageBackend = backend
+				log.Info("Initialized database storage backend for py-spy files")
+			}
+		}
+	}
+
+	return job
+}
+
+// NewPySpyTaskDispatcherJobWithStorage creates a dispatcher job with custom storage
+func NewPySpyTaskDispatcherJobWithStorage(sqlDB *sql.DB, storageConfig *storage.StorageConfig) *PySpyTaskDispatcherJob {
+	job := &PySpyTaskDispatcherJob{
+		facade:     database.NewWorkloadTaskFacade(),
+		instanceID: generateInstanceID(),
+		client:     NewNodeExporterClient(),
+	}
+
+	if sqlDB != nil && storageConfig != nil {
+		backend, err := storage.NewStorageBackend(sqlDB, storageConfig)
+		if err != nil {
+			log.Warnf("Failed to initialize storage backend: %v", err)
+		} else {
+			job.storageBackend = backend
+		}
+	}
+
+	return job
 }
 
 // generateInstanceID generates a unique instance ID for lock ownership
@@ -169,20 +219,75 @@ func (j *PySpyTaskDispatcherJob) processTask(ctx context.Context, task *model.Wo
 		return j.failTask(ctx, task, result.Error)
 	}
 
+	// Download and store the profiling file
+	var storagePath, storageType string
+	if j.storageBackend != nil && result.OutputFile != "" {
+		fileName := filepath.Base(result.OutputFile)
+		
+		// Download file content from node-exporter
+		fileContent, err := j.client.DownloadFile(ctx, nodeExporterAddr, ext.TaskID, fileName)
+		if err != nil {
+			log.Errorf("Failed to download file from node-exporter: %v", err)
+			// Continue without file storage, task still considered successful
+		} else {
+			// Determine file type based on format
+			fileType := "pyspy_" + ext.Format
+			
+			// Store to database/S3
+			storeReq := &storage.StoreRequest{
+				FileID:      ext.TaskID,
+				WorkloadUID: ext.TaskID,
+				FileName:    fileName,
+				FileType:    fileType,
+				Content:     fileContent,
+				Metadata: map[string]string{
+					"pod_uid":       ext.PodUID,
+					"pod_name":      ext.PodName,
+					"pod_namespace": ext.PodNamespace,
+					"node_name":     ext.TargetNodeName,
+					"format":        ext.Format,
+					"duration":      fmt.Sprintf("%d", ext.Duration),
+					"confidence":    "high",
+				},
+			}
+			
+			storeResp, err := j.storageBackend.Store(ctx, storeReq)
+			if err != nil {
+				log.Errorf("Failed to store file to storage backend: %v", err)
+			} else {
+				storagePath = storeResp.StoragePath
+				storageType = storeResp.StorageType
+				log.Infof("Stored file to %s: path=%s, size=%d", storageType, storagePath, storeResp.Size)
+				
+				// Delete file from node-exporter after successful storage
+				if err := j.client.DeleteFile(ctx, nodeExporterAddr, ext.TaskID); err != nil {
+					log.Warnf("Failed to delete file from node-exporter: %v", err)
+				}
+			}
+		}
+	}
+
 	// Update task as completed
 	if err := j.facade.UpdateTaskStatus(ctx, task.WorkloadUID, task.TaskType, constant.TaskStatusCompleted); err != nil {
 		return fmt.Errorf("failed to update task status: %w", err)
 	}
 
-	if err := j.facade.UpdateTaskExt(ctx, task.WorkloadUID, task.TaskType, model.ExtType{
+	extUpdate := model.ExtType{
 		"output_file":  result.OutputFile,
 		"file_size":    result.FileSize,
 		"completed_at": time.Now().Format(time.RFC3339),
-	}); err != nil {
+	}
+	if storagePath != "" {
+		extUpdate["storage_path"] = storagePath
+		extUpdate["storage_type"] = storageType
+	}
+
+	if err := j.facade.UpdateTaskExt(ctx, task.WorkloadUID, task.TaskType, extUpdate); err != nil {
 		log.Warnf("Failed to update task ext: %v", err)
 	}
 
-	log.Infof("Task %s completed successfully: file=%s, size=%d", task.WorkloadUID, result.OutputFile, result.FileSize)
+	log.Infof("Task %s completed successfully: file=%s, size=%d, storage=%s", 
+		task.WorkloadUID, result.OutputFile, result.FileSize, storageType)
 	return nil
 }
 

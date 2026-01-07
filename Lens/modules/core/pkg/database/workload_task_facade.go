@@ -48,6 +48,13 @@ func NewWorkloadTaskFacade() *WorkloadTaskFacade {
 	}
 }
 
+// NewWorkloadTaskFacadeForCluster creates a new task facade for a specific cluster
+func NewWorkloadTaskFacadeForCluster(clusterName string) *WorkloadTaskFacade {
+	return &WorkloadTaskFacade{
+		db: GetFacadeForCluster(clusterName).GetSystemConfig().GetDB(),
+	}
+}
+
 // UpsertTask creates or updates a task
 func (f *WorkloadTaskFacade) UpsertTask(ctx context.Context, task *model.WorkloadTaskState) error {
 	if task.CreatedAt.IsZero() {

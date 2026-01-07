@@ -4,6 +4,7 @@ import "time"
 
 // CreateTaskRequest represents a request to create a py-spy sampling task
 type CreateTaskRequest struct {
+	Cluster      string `json:"cluster"`                      // Target cluster (required for multi-cluster)
 	PodUID       string `json:"pod_uid" binding:"required"`
 	PodName      string `json:"pod_name"`
 	PodNamespace string `json:"pod_namespace"`
@@ -51,12 +52,13 @@ type TaskResponse struct {
 
 // ListTasksRequest represents a request to list py-spy tasks
 type ListTasksRequest struct {
-	PodUID       string `form:"pod_uid"`
-	PodNamespace string `form:"pod_namespace"`
-	NodeName     string `form:"node_name"`
-	Status       string `form:"status"`
-	Limit        int    `form:"limit"`
-	Offset       int    `form:"offset"`
+	Cluster      string `form:"cluster" json:"cluster"`
+	PodUID       string `form:"pod_uid" json:"pod_uid"`
+	PodNamespace string `form:"pod_namespace" json:"pod_namespace"`
+	NodeName     string `form:"node_name" json:"node_name"`
+	Status       string `form:"status" json:"status"`
+	Limit        int    `form:"limit" json:"limit"`
+	Offset       int    `form:"offset" json:"offset"`
 }
 
 // SetDefaults sets default values for ListTasksRequest
