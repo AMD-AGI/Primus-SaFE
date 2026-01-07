@@ -69,9 +69,12 @@ func (h *Handler) createApiKey(c *gin.Context) (interface{}, error) {
 		return nil, commonerrors.NewBadRequest("ttlDays must be between 1 and 366")
 	}
 
-	// Validate whitelist
+	// Validate and deduplicate whitelist
+	var whitelist []string
 	if len(req.Whitelist) > 0 {
-		if err := authority.ValidateWhitelist(req.Whitelist); err != nil {
+		var err error
+		whitelist, err = authority.ValidateAndDeduplicateWhitelist(req.Whitelist)
+		if err != nil {
 			return nil, commonerrors.NewBadRequest("invalid whitelist: " + err.Error())
 		}
 	}
@@ -89,8 +92,8 @@ func (h *Handler) createApiKey(c *gin.Context) (interface{}, error) {
 
 	// Serialize whitelist to JSON
 	whitelistJSON := "[]"
-	if len(req.Whitelist) > 0 {
-		whitelistBytes, err := json.Marshal(req.Whitelist)
+	if len(whitelist) > 0 {
+		whitelistBytes, err := json.Marshal(whitelist)
 		if err != nil {
 			klog.ErrorS(err, "failed to marshal whitelist")
 			return nil, commonerrors.NewInternalError("failed to process whitelist")
@@ -131,7 +134,7 @@ func (h *Handler) createApiKey(c *gin.Context) (interface{}, error) {
 		ApiKey:         apiKey, // Only returned during creation
 		ExpirationTime: timeutil.FormatRFC3339(expirationTime),
 		CreationTime:   timeutil.FormatRFC3339(now),
-		Whitelist:      req.Whitelist,
+		Whitelist:      whitelist, // Use deduplicated whitelist
 		Deleted:        false,
 	}, nil
 }

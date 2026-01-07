@@ -227,11 +227,20 @@ func (a *ApiKeyToken) checkIPWhitelist(whitelistJSON string, clientIP string) er
 	return commonerrors.NewForbidden("IP not allowed")
 }
 
-// ValidateWhitelist validates the whitelist entries are valid IPs or CIDRs
-func ValidateWhitelist(whitelist []string) error {
+// ValidateAndDeduplicateWhitelist validates the whitelist entries are valid IPs or CIDRs
+// and removes duplicates, returning the deduplicated list
+func ValidateAndDeduplicateWhitelist(whitelist []string) ([]string, error) {
+	seen := make(map[string]bool)
+	result := make([]string, 0, len(whitelist))
+
 	for _, entry := range whitelist {
 		entry = strings.TrimSpace(entry)
 		if entry == "" {
+			continue
+		}
+
+		// Check for duplicates
+		if seen[entry] {
 			continue
 		}
 
@@ -239,16 +248,19 @@ func ValidateWhitelist(whitelist []string) error {
 			// CIDR format
 			_, _, err := net.ParseCIDR(entry)
 			if err != nil {
-				return fmt.Errorf("invalid CIDR format: %s", entry)
+				return nil, fmt.Errorf("invalid CIDR format: %s", entry)
 			}
 		} else {
 			// Plain IP address
 			if net.ParseIP(entry) == nil {
-				return fmt.Errorf("invalid IP address: %s", entry)
+				return nil, fmt.Errorf("invalid IP address: %s", entry)
 			}
 		}
+
+		seen[entry] = true
+		result = append(result, entry)
 	}
-	return nil
+	return result, nil
 }
 
 // maskApiKey masks an API key for logging purposes

@@ -299,47 +299,55 @@ func TestExtractApiKeyFromRequest(t *testing.T) {
 	}
 }
 
-// TestValidateWhitelist tests the whitelist validation function
-func TestValidateWhitelist(t *testing.T) {
+// TestValidateAndDeduplicateWhitelist tests the whitelist validation and deduplication function
+func TestValidateAndDeduplicateWhitelist(t *testing.T) {
 	tests := []struct {
-		name      string
-		whitelist []string
-		expectErr bool
+		name           string
+		whitelist      []string
+		expectErr      bool
+		expectedResult []string
 	}{
 		{
-			name:      "empty whitelist",
-			whitelist: []string{},
-			expectErr: false,
+			name:           "empty whitelist",
+			whitelist:      []string{},
+			expectErr:      false,
+			expectedResult: []string{},
 		},
 		{
-			name:      "valid single IP",
-			whitelist: []string{"192.168.1.1"},
-			expectErr: false,
+			name:           "valid single IP",
+			whitelist:      []string{"192.168.1.1"},
+			expectErr:      false,
+			expectedResult: []string{"192.168.1.1"},
 		},
 		{
-			name:      "valid multiple IPs",
-			whitelist: []string{"192.168.1.1", "10.0.0.1", "172.16.0.1"},
-			expectErr: false,
+			name:           "valid multiple IPs",
+			whitelist:      []string{"192.168.1.1", "10.0.0.1", "172.16.0.1"},
+			expectErr:      false,
+			expectedResult: []string{"192.168.1.1", "10.0.0.1", "172.16.0.1"},
 		},
 		{
-			name:      "valid CIDR",
-			whitelist: []string{"192.168.1.0/24"},
-			expectErr: false,
+			name:           "valid CIDR",
+			whitelist:      []string{"192.168.1.0/24"},
+			expectErr:      false,
+			expectedResult: []string{"192.168.1.0/24"},
 		},
 		{
-			name:      "valid mixed IPs and CIDRs",
-			whitelist: []string{"192.168.1.1", "10.0.0.0/8", "172.16.0.1"},
-			expectErr: false,
+			name:           "valid mixed IPs and CIDRs",
+			whitelist:      []string{"192.168.1.1", "10.0.0.0/8", "172.16.0.1"},
+			expectErr:      false,
+			expectedResult: []string{"192.168.1.1", "10.0.0.0/8", "172.16.0.1"},
 		},
 		{
-			name:      "valid IPv6",
-			whitelist: []string{"::1", "2001:db8::1"},
-			expectErr: false,
+			name:           "valid IPv6",
+			whitelist:      []string{"::1", "2001:db8::1"},
+			expectErr:      false,
+			expectedResult: []string{"::1", "2001:db8::1"},
 		},
 		{
-			name:      "valid IPv6 CIDR",
-			whitelist: []string{"2001:db8::/32"},
-			expectErr: false,
+			name:           "valid IPv6 CIDR",
+			whitelist:      []string{"2001:db8::/32"},
+			expectErr:      false,
+			expectedResult: []string{"2001:db8::/32"},
 		},
 		{
 			name:      "invalid IP format",
@@ -357,24 +365,46 @@ func TestValidateWhitelist(t *testing.T) {
 			expectErr: true,
 		},
 		{
-			name:      "empty entry ignored",
-			whitelist: []string{"192.168.1.1", "", "10.0.0.1"},
-			expectErr: false,
+			name:           "empty entry ignored",
+			whitelist:      []string{"192.168.1.1", "", "10.0.0.1"},
+			expectErr:      false,
+			expectedResult: []string{"192.168.1.1", "10.0.0.1"},
 		},
 		{
-			name:      "whitespace entry ignored",
-			whitelist: []string{"192.168.1.1", "   ", "10.0.0.1"},
-			expectErr: false,
+			name:           "whitespace entry ignored",
+			whitelist:      []string{"192.168.1.1", "   ", "10.0.0.1"},
+			expectErr:      false,
+			expectedResult: []string{"192.168.1.1", "10.0.0.1"},
+		},
+		{
+			name:           "duplicate IPs removed",
+			whitelist:      []string{"192.168.1.1", "10.0.0.1", "192.168.1.1", "10.0.0.1"},
+			expectErr:      false,
+			expectedResult: []string{"192.168.1.1", "10.0.0.1"},
+		},
+		{
+			name:           "duplicate CIDRs removed",
+			whitelist:      []string{"192.168.1.0/24", "10.0.0.0/8", "192.168.1.0/24"},
+			expectErr:      false,
+			expectedResult: []string{"192.168.1.0/24", "10.0.0.0/8"},
+		},
+		{
+			name:           "duplicate mixed removed",
+			whitelist:      []string{"192.168.1.1", "192.168.1.0/24", "192.168.1.1", "192.168.1.0/24"},
+			expectErr:      false,
+			expectedResult: []string{"192.168.1.1", "192.168.1.0/24"},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := ValidateWhitelist(tt.whitelist)
+			result, err := ValidateAndDeduplicateWhitelist(tt.whitelist)
 			if tt.expectErr {
 				assert.Error(t, err)
+				assert.Nil(t, result)
 			} else {
 				assert.NoError(t, err)
+				assert.Equal(t, tt.expectedResult, result)
 			}
 		})
 	}
