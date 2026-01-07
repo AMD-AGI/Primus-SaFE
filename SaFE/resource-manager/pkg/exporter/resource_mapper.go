@@ -316,6 +316,8 @@ func modelMapper(obj *unstructured.Unstructured) *dbclient.Model {
 	// Serialize local paths to JSON
 	if len(cr.Status.LocalPaths) > 0 {
 		dbModel.LocalPaths = string(jsonutils.MarshalSilently(cr.Status.LocalPaths))
+	} else {
+		dbModel.LocalPaths = "[]"
 	}
 
 	// Store Secret name (not the actual token)
