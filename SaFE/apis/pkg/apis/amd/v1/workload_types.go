@@ -146,6 +146,8 @@ type WorkloadSpec struct {
 	// The lifecycle of the workload after completion, in seconds. default 60.
 	TTLSecondsAfterFinished *int `json:"ttlSecondsAfterFinished,omitempty"`
 	// Workload timeout in seconds. default 0 (no timeout).
+	// The timeout is calculated from the moment the workload is dispatched.
+	// If the workload remains in the queue (not yet dispatched), the timeout is not considered.
 	Timeout *int `json:"timeout,omitempty"`
 	// The workload will run on nodes with the user-specified labels.
 	// If multiple labels are specified, all of them must be satisfied.
@@ -367,7 +369,7 @@ func IsPodTerminated(p *WorkloadPod) bool {
 
 // ToSchemaGVK converts the resource template GVK to schema.GroupVersionKind.
 func (w *Workload) ToSchemaGVK() schema.GroupVersionKind {
-	return w.Spec.GroupVersionKind.ToSchema()
+	return w.Spec.GroupVersionKind.ToSchemaGVK()
 }
 
 // SpecKind returns the kind string from the resource spec.

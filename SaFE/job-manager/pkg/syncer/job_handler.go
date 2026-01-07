@@ -125,8 +125,11 @@ func (r *SyncerReconciler) getK8sObjectStatus(ctx context.Context, message *reso
 
 	var rt *v1.ResourceTemplate
 	if commonworkload.IsTorchFT(adminWorkload) {
+		// For TorchFT workloads, the Kubernetes object GVK matches the workload GVK directly
+		// So we can retrieve the resource template using the message GVK (which is the actual object GVK)
 		rt, err = commonworkload.GetResourceTemplateByGVK(ctx, r.Client, message.gvk)
 	} else {
+		// For other workloads, the resource template is associated with the workload GVK
 		rt, err = commonworkload.GetResourceTemplate(ctx, r.Client, adminWorkload)
 	}
 

@@ -189,14 +189,14 @@ func (r *DispatcherReconciler) processTorchFTWorkload(ctx context.Context, rootW
 		return ctrlruntime.Result{}, err
 	}
 
-	lightHouseWorkload := generateLighthouse(rootWorkload)
+	lightHouseWorkload := r.generateLighthouse(ctx, rootWorkload)
 	if result, err := r.processWorkload(ctx, lightHouseWorkload); err != nil || result.RequeueAfter > 0 {
 		return result, err
 	}
 	lightHouseAddr := lightHouseWorkload.Name + "." + rootWorkload.Spec.Workspace + ".svc.cluster.local"
 
 	for i := 0; i < group; i++ {
-		torchFTWorkload := generateTorchFTWorker(rootWorkload, i, group, lightHouseAddr)
+		torchFTWorkload := r.generateTorchFTWorker(ctx, rootWorkload, i, group, lightHouseAddr)
 		if result, err := r.processWorkload(ctx, torchFTWorkload); err != nil || result.RequeueAfter > 0 {
 			return result, err
 		}
@@ -216,8 +216,12 @@ func (r *DispatcherReconciler) scaleDownTorchFTWorkers(ctx context.Context, root
 	}
 
 	// List all TorchFT jobs owned by this root workload
-	gvk := schema.GroupVersionKind{
-		Group: "kubeflow.org", Version: common.DefaultVersion, Kind: common.PytorchJobKind,
+	workloadGVKs := commonworkload.GetWorkloadGVK(rootWorkload)
+	var gvk schema.GroupVersionKind
+	for _, gvk = range workloadGVKs {
+		if gvk.Kind == common.PytorchJobKind {
+			break
+		}
 	}
 	labelSelector := v1.WorkloadIdLabel + "=" + rootWorkload.Name
 	unstructuredObjs, err := jobutils.ListObject(ctx,
@@ -406,7 +410,7 @@ func setK8sObjectMeta(result *unstructured.Unstructured, adminWorkload *v1.Workl
 
 // getWorkloadTemplate retrieves the workload template configuration based on its version and kind.
 func (r *DispatcherReconciler) getWorkloadTemplate(ctx context.Context, adminWorkload *v1.Workload) (*unstructured.Unstructured, error) {
-	templateConfig, err := commonworkload.GetWorkloadTemplate(ctx, r.Client, adminWorkload)
+	templateConfig, err := commonworkload.GetWorkloadTemplate(ctx, r.Client, adminWorkload.ToSchemaGVK())
 	if err != nil {
 		return nil, err
 	}
@@ -947,7 +951,7 @@ func generateRandomPort(ports map[int]bool) int {
 }
 
 // generateLighthouse generates a lighthouse workload for TorchFT, which is used for coordination and management of the worker process group
-func generateLighthouse(rootWorkload *v1.Workload) *v1.Workload {
+func (r *DispatcherReconciler) generateLighthouse(ctx context.Context, rootWorkload *v1.Workload) *v1.Workload {
 	workload := rootWorkload.DeepCopy()
 	displayName := v1.GetDisplayName(rootWorkload) + "-0"
 	workload.Name = commonutils.GenerateName(displayName)
@@ -966,11 +970,13 @@ func generateLighthouse(rootWorkload *v1.Workload) *v1.Workload {
 		TargetPort:  LightHousePort,
 		ServiceType: corev1.ServiceTypeClusterIP,
 	}
+	commonworkload.GetWorkloadMainContainer(ctx, r.Client, workload)
 	return workload
 }
 
 // generateTorchFTWorker generates a TorchFT worker. It uses PyTorchJob as the main entity and integrates with Lighthouse via environment variables.
-func generateTorchFTWorker(rootWorkload *v1.Workload, id, group int, lightHouseAddr string) *v1.Workload {
+func (r *DispatcherReconciler) generateTorchFTWorker(ctx context.Context,
+	rootWorkload *v1.Workload, id, group int, lightHouseAddr string) *v1.Workload {
 	workload := rootWorkload.DeepCopy()
 	// The webhook has already validated the resources.
 	nodePerGroup := rootWorkload.Spec.Resources[1].Replica / group
@@ -989,6 +995,7 @@ func generateTorchFTWorker(rootWorkload *v1.Workload, id, group int, lightHouseA
 	workload.Spec.GroupVersionKind.Kind = common.PytorchJobKind
 	v1.SetLabel(workload, v1.DisplayNameLabel, displayName)
 	v1.SetLabel(workload, v1.RootWorkloadIdLabel, rootWorkload.Name)
+	commonworkload.GetWorkloadMainContainer(ctx, r.Client, workload)
 	return workload
 }
 

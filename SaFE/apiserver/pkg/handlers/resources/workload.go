@@ -219,8 +219,9 @@ func (h *Handler) createWorkloadImpl(c *gin.Context,
 	if err = h.updateWorkloadPhase(c.Request.Context(), workload, v1.WorkloadPending, nil); err != nil {
 		return nil, err
 	}
-	klog.Infof("create workload, name: %s, user: %s/%s, priority: %d, timeout: %d",
-		workload.Name, c.GetString(common.UserName), c.GetString(common.UserId), workload.Spec.Priority, workload.GetTimeout())
+	klog.Infof("create workload, name: %s, user: %s/%s, priority: %d, timeout: %d, resources: %s",
+		workload.Name, c.GetString(common.UserName), c.GetString(common.UserId),
+		workload.Spec.Priority, workload.GetTimeout(), string(jsonutils.MarshalSilently(workload.Spec.Resources)))
 	return &view.CreateWorkloadResponse{WorkloadId: workload.Name}, nil
 }
 
@@ -825,9 +826,12 @@ func (h *Handler) createPreheatWorkload(c *gin.Context, mainWorkload *v1.Workloa
 				Memory:           "8Gi",
 				EphemeralStorage: "50Gi",
 			}},
-			Image:                   mainWorkload.Spec.Image,
-			EntryPoint:              stringutil.Base64Encode("echo \"preheat finished\""),
-			GroupVersionKind:        mainWorkload.Spec.GroupVersionKind,
+			Image:      mainWorkload.Spec.Image,
+			EntryPoint: stringutil.Base64Encode("echo \"preheat finished\""),
+			GroupVersionKind: v1.GroupVersionKind{
+				Kind:    common.JobKind,
+				Version: common.DefaultVersion,
+			},
 			Priority:                mainWorkload.Spec.Priority,
 			TTLSecondsAfterFinished: pointer.Int(10),
 			Timeout:                 pointer.Int(3600),
@@ -1184,13 +1188,15 @@ func (h *Handler) cvtDBWorkloadToResponseItem(ctx context.Context, w *dbclient.W
 	}
 	if w.Timeout > 0 {
 		result.Timeout = pointer.Int(w.Timeout)
-		if t := dbutils.ParseNullTime(w.StartTime); !t.IsZero() {
-			result.SecondsUntilTimeout = t.Unix() + int64(w.Timeout) - time.Now().Unix()
-			if result.SecondsUntilTimeout < 0 {
-				result.SecondsUntilTimeout = 0
+		if result.EndTime == "" {
+			if t := dbutils.ParseNullTime(w.StartTime); !t.IsZero() {
+				result.SecondsUntilTimeout = t.Unix() + int64(w.Timeout) - time.Now().Unix()
+				if result.SecondsUntilTimeout < 0 {
+					result.SecondsUntilTimeout = 0
+				}
+			} else {
+				result.SecondsUntilTimeout = -1
 			}
-		} else {
-			result.SecondsUntilTimeout = -1
 		}
 	}
 	if result.Phase == string(v1.WorkloadPending) {

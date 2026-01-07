@@ -503,6 +503,9 @@ func buildAnnotations(workload *v1.Workload) map[string]interface{} {
 	if v1.GetUserName(workload) != "" {
 		result[v1.UserNameAnnotation] = v1.GetUserName(workload)
 	}
+	if v1.GetMainContainer(workload) != "" {
+		result[v1.MainContainerAnnotation] = v1.GetMainContainer(workload)
+	}
 	return result
 }
 

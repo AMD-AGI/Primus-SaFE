@@ -20,8 +20,8 @@ type GroupVersionKind struct {
 	Kind    string `json:"kind,omitempty"`
 }
 
-// ToSchema converts GroupVersionKind to schema.GroupVersionKind.
-func (gvk GroupVersionKind) ToSchema() schema.GroupVersionKind {
+// ToSchemaGVK converts GroupVersionKind to schema.GroupVersionKind.
+func (gvk GroupVersionKind) ToSchemaGVK() schema.GroupVersionKind {
 	return schema.GroupVersionKind{
 		Group:   gvk.Group,
 		Version: gvk.Version,
@@ -31,7 +31,7 @@ func (gvk GroupVersionKind) ToSchema() schema.GroupVersionKind {
 
 // String returns a string representation of the HTTP response.
 func (gvk GroupVersionKind) String() string {
-	return gvk.ToSchema().String()
+	return gvk.ToSchemaGVK().String()
 }
 
 // VersionKind returns a string representation of version and kind.
@@ -127,7 +127,7 @@ func init() {
 
 // ToSchemaGVK converts the resource template GVK to schema.GroupVersionKind.
 func (rt *ResourceTemplate) ToSchemaGVK() schema.GroupVersionKind {
-	return rt.Spec.GroupVersionKind.ToSchema()
+	return rt.Spec.GroupVersionKind.ToSchemaGVK()
 }
 
 // SpecKind returns the kind string from the resource spec.

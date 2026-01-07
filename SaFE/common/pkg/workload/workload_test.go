@@ -175,7 +175,7 @@ func TestGetWorkloadTemplate(t *testing.T) {
 			},
 		},
 	}
-	resp, err := GetWorkloadTemplate(context.Background(), cli, workload)
+	resp, err := GetWorkloadTemplate(context.Background(), cli, workload.ToSchemaGVK())
 	assert.NilError(t, err)
 	assert.Equal(t, resp.Name, configmap2.Name)
 }

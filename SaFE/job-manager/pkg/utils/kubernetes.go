@@ -9,7 +9,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -118,25 +117,25 @@ func ListObject(ctx context.Context, k8sClientFactory *commonclient.ClientFactor
 func ListObjectsByWorkload(ctx context.Context, adminClient client.Client,
 	k8sClientFactory *commonclient.ClientFactory, adminWorkload *v1.Workload) ([]unstructured.Unstructured, error) {
 
-	var gvks []schema.GroupVersionKind
+	workloadGVKs := commonworkload.GetWorkloadGVK(adminWorkload)
+	var objectGVKs []schema.GroupVersionKind
 	if commonworkload.IsTorchFT(adminWorkload) {
-		gvks = append(gvks, schema.GroupVersionKind{
-			Group: "kubeflow.org", Version: common.DefaultVersion, Kind: common.PytorchJobKind,
-		})
-		gvks = append(gvks, schema.GroupVersionKind{
-			Group: "apps", Version: common.DefaultVersion, Kind: common.DeploymentKind,
-		})
+		// For TorchFT workloads, the Kubernetes object GVKs match the workload GVKs directly
+		// TorchFT consists of multiple resource types (PyTorchJob and Deployment)
+		objectGVKs = workloadGVKs
 	} else {
-		rt, err := commonworkload.GetResourceTemplate(ctx, adminClient, adminWorkload)
+		// For other workloads, retrieve the actual Kubernetes object GVK from the resource template
+		// The resource template defines the underlying Kubernetes resources that the workload creates
+		rt, err := commonworkload.GetResourceTemplateByGVK(ctx, adminClient, workloadGVKs[0])
 		if err != nil {
 			return nil, err
 		}
-		gvks = append(gvks, rt.ToSchemaGVK())
+		objectGVKs = append(objectGVKs, rt.ToSchemaGVK())
 	}
 
 	labelSelector := v1.WorkloadIdLabel + "=" + adminWorkload.Name
 	var result []unstructured.Unstructured
-	for _, gvk := range gvks {
+	for _, gvk := range objectGVKs {
 		unstructuredObjs, err := ListObject(ctx, k8sClientFactory, labelSelector, adminWorkload.Spec.Workspace, gvk)
 		if err != nil {
 			return nil, err

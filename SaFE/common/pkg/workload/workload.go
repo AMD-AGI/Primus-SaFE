@@ -83,23 +83,6 @@ func GetWorkloadsOfK8sNode(ctx context.Context, k8sClient kubernetes.Interface, 
 	return results, nil
 }
 
-// GetWorkloadTemplate retrieves the ConfigMap template for a workload based on its version and kind.
-func GetWorkloadTemplate(ctx context.Context, cli client.Client, workload *v1.Workload) (*corev1.ConfigMap, error) {
-	selector := labels.SelectorFromSet(map[string]string{
-		v1.WorkloadVersionLabel: workload.SpecVersion(), v1.WorkloadKindLabel: workload.SpecKind()})
-	listOptions := &client.ListOptions{LabelSelector: selector, Namespace: common.PrimusSafeNamespace}
-	configmapList := &corev1.ConfigMapList{}
-	if err := cli.List(ctx, configmapList, listOptions); err != nil {
-		return nil, err
-	}
-	if len(configmapList.Items) > 0 {
-		return &configmapList.Items[0], nil
-	}
-	return nil, commonerrors.NewInternalError(
-		fmt.Sprintf("failed to find configmap. gvk: %s, resourceName: %s",
-			workload.Spec.GroupVersionKind.VersionKind(), workload.Spec.Resources[0].GPUName))
-}
-
 // GetResourcesPerNode calculates resource usage per node for a workload.
 func GetResourcesPerNode(workload *v1.Workload, adminNodeName string) (map[string]corev1.ResourceList, error) {
 	if GetTotalCount(workload) == 0 {
@@ -354,12 +337,32 @@ func GeneratePriority(priority int) string {
 	return strPriority
 }
 
+// GetWorkloadTemplate retrieves the ConfigMap template for a workload based on its version and kind.
+// Note that this GVK must be a workload GVK.
+func GetWorkloadTemplate(ctx context.Context, cli client.Client, gvk schema.GroupVersionKind) (*corev1.ConfigMap, error) {
+	selector := labels.SelectorFromSet(map[string]string{
+		v1.WorkloadVersionLabel: gvk.Version, v1.WorkloadKindLabel: gvk.Kind})
+	listOptions := &client.ListOptions{LabelSelector: selector, Namespace: common.PrimusSafeNamespace}
+	configmapList := &corev1.ConfigMapList{}
+	if err := cli.List(ctx, configmapList, listOptions); err != nil {
+		return nil, err
+	}
+	if len(configmapList.Items) > 0 {
+		return &configmapList.Items[0], nil
+	}
+	return nil, commonerrors.NewInternalError(
+		fmt.Sprintf("failed to find configMap. gvk: %s", gvk.String()))
+}
+
 // GetResourceTemplate Retrieve the corresponding resource_template based on the workload's GVK.
+// For non-TorchFT workloads: the workload GVK can be used directly to find the resource template
+// For TorchFT workloads: cannot be looked up directly because TorchFT corresponds to multiple objects
+// (PyTorchJob and Deployment), so the template lookup needs to be handled differently
 func GetResourceTemplate(ctx context.Context, cli client.Client, workload *v1.Workload) (*v1.ResourceTemplate, error) {
 	return GetResourceTemplateByGVK(ctx, cli, workload.ToSchemaGVK())
 }
 
-// GetResourceTemplate Retrieve the corresponding resource_template based on the specified GVK.
+// GetResourceTemplateByGVK Retrieve the corresponding resource_template based on the specified GVK.
 // Note that the GetResourceTemplate function mentioned above is primarily used and this is specific to TorchFT.
 func GetResourceTemplateByGVK(ctx context.Context, cli client.Client, gvk schema.GroupVersionKind) (*v1.ResourceTemplate, error) {
 	templateList := &v1.ResourceTemplateList{}
@@ -409,4 +412,39 @@ func GetReplicaGroup(workload *v1.Workload, key string) (int, error) {
 		return 0, err
 	}
 	return n, nil
+}
+
+// GetWorkloadGVK returns the GroupVersionKind(s) for a workload
+// For TorchFT workloads: returns multiple GVKs since TorchFT consists of multiple resource types
+//   - PyTorchJob GVK for the training job components
+//   - Deployment GVK for the lighthouse deployment component
+//
+// For other workloads: returns the single GVK specified in the workload spec
+func GetWorkloadGVK(workload *v1.Workload) []schema.GroupVersionKind {
+	result := make([]schema.GroupVersionKind, 0, 2)
+	if IsTorchFT(workload) {
+		result = append(result, schema.GroupVersionKind{
+			Group: "kubeflow.org", Version: common.DefaultVersion, Kind: common.PytorchJobKind,
+		})
+		result = append(result, schema.GroupVersionKind{
+			Group: "apps", Version: common.DefaultVersion, Kind: common.DeploymentKind,
+		})
+	} else {
+		result = append(result, workload.ToSchemaGVK())
+	}
+	return result
+}
+
+// GetWorkloadMainContainer retrieves and sets the main container name for a workload
+// Returns false if the workload is TorchFT or already has a main container annotation
+// Otherwise, fetches the workload template and sets the main container annotation
+func GetWorkloadMainContainer(ctx context.Context, cli client.Client, workload *v1.Workload) bool {
+	if IsTorchFT(workload) || v1.GetMainContainer(workload) != "" {
+		return false
+	}
+	cm, err := GetWorkloadTemplate(ctx, cli, workload.ToSchemaGVK())
+	if err == nil {
+		v1.SetAnnotation(workload, v1.MainContainerAnnotation, v1.GetMainContainer(cm))
+	}
+	return true
 }

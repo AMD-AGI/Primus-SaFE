@@ -181,12 +181,7 @@ func (m *WorkloadMutator) mutateMeta(ctx context.Context, workload *v1.Workload,
 		v1.SetAnnotation(workload, v1.UserNameAnnotation, v1.GetUserId(workload))
 	}
 	v1.SetLabel(workload, v1.UserNameMd5Label, stringutil.MD5(v1.GetUserName(workload)))
-	if v1.GetMainContainer(workload) == "" {
-		cm, err := commonworkload.GetWorkloadTemplate(ctx, m.Client, workload)
-		if err == nil {
-			v1.SetAnnotation(workload, v1.MainContainerAnnotation, v1.GetMainContainer(cm))
-		}
-	}
+	commonworkload.GetWorkloadMainContainer(ctx, m.Client, workload)
 	controllerutil.AddFinalizer(workload, v1.WorkloadFinalizer)
 }
 
@@ -259,11 +254,9 @@ func (m *WorkloadMutator) mutateResources(workload *v1.Workload, workspace *v1.W
 
 	// Transition logic for backward compatibility.
 	if len(workload.Spec.Resources) == 0 {
-		klog.Infof("Transitioning workload %s to new resource format", workload.Name)
 		workload.Spec.Resources = commonworkload.ConvertResourceToList(workload.Spec.Resource, workload.SpecKind())
 		isChanged = true
 	}
-	klog.Infof("workload %s, resources: %d", workload.Name, len(workload.Spec.Resources))
 
 	newResources := make([]v1.WorkloadResource, 0, len(workload.Spec.Resources))
 	for _, res := range workload.Spec.Resources {
@@ -295,7 +288,6 @@ func (m *WorkloadMutator) mutateResources(workload *v1.Workload, workspace *v1.W
 		newResources = append(newResources, res)
 	}
 	workload.Spec.Resources = newResources
-	klog.Infof("workload %s, resources: %d", workload.Name, len(workload.Spec.Resources))
 	return isChanged
 }
 
@@ -923,12 +915,14 @@ func validateResourceEnough(nf *v1.NodeFlavor, res *v1.WorkloadResource) error {
 
 // validateTemplate ensures the resource template and task template for the workload kind exist.
 func (v *WorkloadValidator) validateTemplate(ctx context.Context, workload *v1.Workload) error {
-	if _, err := commonworkload.GetResourceTemplate(ctx, v.Client, workload); err != nil {
-		return err
-	}
-	_, err := commonworkload.GetWorkloadTemplate(ctx, v.Client, workload)
-	if err != nil {
-		return err
+	workloadGVKs := commonworkload.GetWorkloadGVK(workload)
+	for _, gvk := range workloadGVKs {
+		if _, err := commonworkload.GetResourceTemplateByGVK(ctx, v.Client, gvk); err != nil {
+			return err
+		}
+		if _, err := commonworkload.GetWorkloadTemplate(ctx, v.Client, gvk); err != nil {
+			return err
+		}
 	}
 	return nil
 }

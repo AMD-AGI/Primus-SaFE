@@ -222,8 +222,9 @@ func (r *SyncerReconciler) updateWorkloadNodes(adminWorkload *v1.Workload, messa
 // getMainContainerRank retrieves the rank value from the main container's environment variables.
 // Used for distributed training workloads to identify process rank.
 func getMainContainerRank(adminWorkload *v1.Workload, pod *corev1.Pod) string {
+	mainContainerName := getMainContainerName(adminWorkload, pod)
 	for _, container := range pod.Spec.Containers {
-		if container.Name != v1.GetMainContainer(adminWorkload) {
+		if mainContainerName != "" && container.Name != mainContainerName {
 			continue
 		}
 		for _, env := range container.Env {
@@ -287,6 +288,7 @@ func buildPodTerminatedInfo(ctx context.Context,
 	}
 
 	var finishedTime *metav1.Time
+	mainContainerName := getMainContainerName(adminWorkload, pod)
 	for i, container := range pod.Status.ContainerStatuses {
 		terminated := container.State.Terminated
 		if terminated == nil {
@@ -301,12 +303,16 @@ func buildPodTerminatedInfo(ctx context.Context,
 			ExitCode: terminated.ExitCode,
 			Message:  terminated.Message,
 		}
-		if commonworkload.IsOpsJob(adminWorkload) {
-			message := getPodLog(ctx, clientSet, pod, v1.GetMainContainer(adminWorkload))
+		if mainContainerName == "" {
+			mainContainerName = c.Name
+		}
+		if commonworkload.IsOpsJob(adminWorkload) && c.Name == mainContainerName {
+			message := getPodLog(ctx, clientSet, pod, mainContainerName)
 			c.Message = message
 		}
 		workloadPod.Containers = append(workloadPod.Containers, c)
 	}
+
 	if finishedTime != nil && !finishedTime.IsZero() {
 		workloadPod.EndTime = timeutil.FormatRFC3339(finishedTime.Time)
 	}
@@ -315,10 +321,6 @@ func buildPodTerminatedInfo(ctx context.Context,
 // getPodLog retrieves and filters logs from a pod's main container.
 // Extracts lines containing ERROR or SUCCESS markers for OpsJob workloads.
 func getPodLog(ctx context.Context, clientSet kubernetes.Interface, pod *corev1.Pod, mainContainerName string) string {
-	if mainContainerName == "" {
-		klog.Error("the main container is empty")
-		return ""
-	}
 	var tailLine int64 = LogTailLines
 	opt := &corev1.PodLogOptions{
 		Container: mainContainerName,
@@ -358,4 +360,14 @@ func sortWorkloadPods(adminWorkload *v1.Workload) {
 		return netutil.ConvertIpToInt(adminWorkload.Status.Pods[i].HostIp) <
 			netutil.ConvertIpToInt(adminWorkload.Status.Pods[j].HostIp)
 	})
+}
+
+// getMainContainerName get main container name of pod
+func getMainContainerName(adminWorkload *v1.Workload, pod *corev1.Pod) string {
+	mainContainerName := v1.GetMainContainer(pod)
+	if mainContainerName == "" {
+		// Make compatibility adaptations for legacy code
+		mainContainerName = v1.GetMainContainer(adminWorkload)
+	}
+	return mainContainerName
 }
