@@ -50,7 +50,7 @@ func SetupModelController(mgr manager.Manager) error {
 	}
 	err := ctrl.NewControllerManagedBy(mgr).
 		For(&v1.Model{}).
-		Owns(&batchv1.Job{}).                               // Watch Jobs created by this controller
+		Owns(&batchv1.Job{}). // Watch Jobs created by this controller
 		Watches(&v1.Inference{}, r.handleInferenceEvent()). // Watch Inference status changes
 		Complete(r)
 	if err != nil {
