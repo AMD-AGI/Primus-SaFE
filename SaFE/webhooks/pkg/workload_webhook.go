@@ -263,6 +263,7 @@ func (m *WorkloadMutator) mutateResources(workload *v1.Workload, workspace *v1.W
 		workload.Spec.Resources = commonworkload.ConvertResourceToList(workload.Spec.Resource, workload.SpecKind())
 		isChanged = true
 	}
+	klog.Infof("workload %s, resources: %d", workload.Name, len(workload.Spec.Resources))
 
 	newResources := make([]v1.WorkloadResource, 0, len(workload.Spec.Resources))
 	for _, res := range workload.Spec.Resources {
@@ -294,6 +295,7 @@ func (m *WorkloadMutator) mutateResources(workload *v1.Workload, workspace *v1.W
 		newResources = append(newResources, res)
 	}
 	workload.Spec.Resources = newResources
+	klog.Infof("workload %s, resources: %d", workload.Name, len(workload.Spec.Resources))
 	return isChanged
 }
 
