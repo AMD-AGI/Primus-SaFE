@@ -485,8 +485,8 @@ func (h *Handler) deleteModel(c *gin.Context) (interface{}, error) {
 		return nil, commonerrors.NewInternalError("failed to fetch model: " + err.Error())
 	}
 
-	// 2. Check for associated workloads by annotation (source-model is stored in annotations to avoid affecting scheduling)
-	// Note: K8s doesn't support annotation-based selectors, so we list all and filter in memory
+	// 2. Check for associated workloads by env variable PRIMUS_SOURCE_MODEL
+	// Note: source-model is stored in env to avoid affecting scheduling (labels/customerLabels affect node selection)
 	workloadList := &v1.WorkloadList{}
 	if err := h.k8sClient.List(ctx, workloadList); err != nil {
 		klog.ErrorS(err, "Failed to list workloads", "model", modelId)
@@ -496,8 +496,8 @@ func (h *Handler) deleteModel(c *gin.Context) (interface{}, error) {
 	// 3. Safety check: Reject deletion if any running/pending workloads exist
 	var runningWorkloads []string
 	for _, w := range workloadList.Items {
-		// Check if workload is associated with this model via annotation
-		sourceModel := w.Annotations[v1.SourceModelLabel]
+		// Check if workload is associated with this model via env variable
+		sourceModel := w.GetEnv("PRIMUS_SOURCE_MODEL")
 		if sourceModel != modelId {
 			continue
 		}
@@ -664,8 +664,7 @@ func (h *Handler) patchModel(c *gin.Context) (interface{}, error) {
 	return h.convertK8sModelToInfo(k8sModel), nil
 }
 
-// getModelWorkloads lists all workloads associated with a model via annotation.
-// For backward compatibility, also checks labels and customerLabels.
+// getModelWorkloads lists all workloads associated with a model via env variable PRIMUS_SOURCE_MODEL.
 func (h *Handler) getModelWorkloads(c *gin.Context) (interface{}, error) {
 	modelId := c.Param("id")
 	if modelId == "" {
@@ -683,29 +682,18 @@ func (h *Handler) getModelWorkloads(c *gin.Context) (interface{}, error) {
 		return nil, commonerrors.NewInternalError("failed to fetch model: " + err.Error())
 	}
 
-	// List all workloads and filter by annotation in memory
-	// Note: K8s doesn't support annotation-based selectors, so we list all and filter
+	// List all workloads and filter by env variable in memory
 	workloadList := &v1.WorkloadList{}
 	if err := h.k8sClient.List(ctx, workloadList); err != nil {
 		klog.ErrorS(err, "Failed to list workloads", "model", modelId)
 		return nil, commonerrors.NewInternalError("failed to list workloads: " + err.Error())
 	}
 
-	// Convert to response format (filter by source-model annotation/label)
+	// Convert to response format (filter by PRIMUS_SOURCE_MODEL env)
 	var items []AssociatedWorkload
 	for _, w := range workloadList.Items {
-		// Check if workload is associated with this model
-		// For backward compatibility, check annotations, labels, and customerLabels
-		sourceModel := ""
-		if w.Annotations != nil {
-			sourceModel = w.Annotations[v1.SourceModelLabel]
-		}
-		if sourceModel == "" && w.Labels != nil {
-			sourceModel = w.Labels[v1.SourceModelLabel]
-		}
-		if sourceModel == "" && w.Spec.CustomerLabels != nil {
-			sourceModel = w.Spec.CustomerLabels[v1.SourceModelLabel]
-		}
+		// Check if workload is associated with this model via env variable
+		sourceModel := w.GetEnv("PRIMUS_SOURCE_MODEL")
 		if sourceModel != modelId {
 			continue
 		}
@@ -778,13 +766,15 @@ func (h *Handler) getWorkloadConfig(c *gin.Context) (interface{}, error) {
 	}
 
 	// Generate workload configuration
-	// Pre-filled fields: DisplayName, Description, Labels, Env, ModelID, ModelName, ModelPath, AccessMode, MaxTokens, Workspace
+	// Pre-filled fields: DisplayName, Description, Env, ModelID, ModelName, ModelPath, AccessMode, MaxTokens, Workspace
 	// User-provided fields: Image, EntryPoint, CPU, Memory, GPU (must be filled by frontend)
+	// Note: PRIMUS_SOURCE_MODEL is stored in env to associate workload with model (not labels/annotations to avoid affecting scheduling)
 	config := WorkloadConfigResponse{
 		DisplayName: stringutil.NormalizeForDNS(fmt.Sprintf("%s-infer", k8sModel.Spec.DisplayName)),
 		Description: fmt.Sprintf("Inference service for %s", k8sModel.Spec.DisplayName),
-		Annotations: map[string]string{
-			v1.SourceModelLabel: modelId,
+		Env: map[string]string{
+			"PRIMUS_SOURCE_MODEL": modelId,
+			"MODEL_PATH":          modelPath,
 		},
 		ModelID:          modelId,
 		ModelName:        k8sModel.GetModelName(),
