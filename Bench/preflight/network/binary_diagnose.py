@@ -57,7 +57,8 @@ def get_log_filename(nodes: List[str]) -> str:
     node_str = ",".join(sorted(nodes))
     hash_obj = hashlib.sha256(node_str.encode('utf-8'))
     hash_hex = hash_obj.hexdigest()[:16]
-    return f"/tmp/rccl_test_{hash_hex}.log"
+    timestamp = int(time.time())
+    return f"/tmp/rccl_test_{hash_hex}_{timestamp}.log"
 
 def threshold(node_count: int) -> float:
     """Calculate bandwidth threshold for given node count."""
