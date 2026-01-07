@@ -1,0 +1,20 @@
+#
+# Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+
+apiVersion: amd.com/v1
+kind: AddonTemplate
+metadata:
+  name: disable-huge-pages
+  labels:
+    primus-safe.display.name: "disable-huge-pages"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
+spec:
+  category: System
+  required: true
+  description: Disable Transparent Huge Pages (THP). It ensures low latency but reduces throughput.
+  action: c3lzdGVtZF9wYXRoPSIvZXRjL3N5c3RlbWQvc3lzdGVtIgpzeXN0ZW1kX3NjcmlwdD0iJHN5c3RlbWRfcGF0aC9kaXNhYmxlLWh1Z2UtcGFnZXMuc2giCnN5c3RlbWRfc2VydmljZV9uYW1lPSJkaXNhYmxlLWh1Z2UtcGFnZXMuc2VydmljZSIKc3lzdGVtZF9zZXJ2aWNlX3BhdGg9IiRzeXN0ZW1kX3BhdGgvJHN5c3RlbWRfc2VydmljZV9uYW1lIgoKZWNobyAiIyEvYmluL3NoCmVjaG8gbmV2ZXIgPiAvc3lzL2tlcm5lbC9tbS90cmFuc3BhcmVudF9odWdlcGFnZS9lbmFibGVkCmVjaG8gbmV2ZXIgPiAvc3lzL2tlcm5lbC9tbS90cmFuc3BhcmVudF9odWdlcGFnZS9kZWZyYWciID4gJHN5c3RlbWRfc2NyaXB0CmNobW9kICt4ICIkc3lzdGVtZF9zY3JpcHQiCgpjYXQgPiAiJHN5c3RlbWRfc2VydmljZV9wYXRoIiA8PCAnRU9GJwpbVW5pdF0KRGVzY3JpcHRpb249RGlzYWJsZSBUSFAKQWZ0ZXI9bmV0d29yay50YXJnZXQKCltTZXJ2aWNlXQpUeXBlPW9uZXNob3QKRXhlY1N0YXJ0PS9iaW4vc2ggL2V0Yy9zeXN0ZW1kL3N5c3RlbS9kaXNhYmxlLWh1Z2UtcGFnZXMuc2gKUmVtYWluQWZ0ZXJFeGl0PXllcwoKW0luc3RhbGxdCldhbnRlZEJ5PW11bHRpLXVzZXIudGFyZ2V0CkVPRgoKc3lzdGVtY3RsIGRhZW1vbi1yZWxvYWQgJiYgc3lzdGVtY3RsIGVuYWJsZSAiJHN5c3RlbWRfc2VydmljZV9uYW1lIiAmJiBzeXN0ZW1jdGwgc3RhcnQgIiRzeXN0ZW1kX3NlcnZpY2VfbmFtZSIKZXhpdCAkPwo=
