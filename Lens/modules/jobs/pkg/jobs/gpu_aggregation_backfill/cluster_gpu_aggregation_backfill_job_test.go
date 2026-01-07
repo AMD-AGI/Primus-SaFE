@@ -28,31 +28,25 @@ func (m *MockBackfillFacade) GetGpuAggregation() database.GpuAggregationFacadeIn
 	return m.gpuAggregationFacade
 }
 
-func (m *MockBackfillFacade) GetGenericCache() database.GenericCacheFacadeInterface       { return nil }
-func (m *MockBackfillFacade) GetWorkload() database.WorkloadFacadeInterface               { return nil }
-func (m *MockBackfillFacade) GetPod() database.PodFacadeInterface                         { return nil }
-func (m *MockBackfillFacade) GetContainer() database.ContainerFacadeInterface             { return nil }
-func (m *MockBackfillFacade) GetTraining() database.TrainingFacadeInterface               { return nil }
-func (m *MockBackfillFacade) GetStorage() database.StorageFacadeInterface                 { return nil }
-func (m *MockBackfillFacade) GetAlert() database.AlertFacadeInterface                     { return nil }
-func (m *MockBackfillFacade) GetMetricAlertRule() database.MetricAlertRuleFacadeInterface { return nil }
-func (m *MockBackfillFacade) GetLogAlertRule() database.LogAlertRuleFacadeInterface       { return nil }
-func (m *MockBackfillFacade) GetAlertRuleAdvice() database.AlertRuleAdviceFacadeInterface { return nil }
+func (m *MockBackfillFacade) GetGenericCache() database.GenericCacheFacadeInterface           { return nil }
+func (m *MockBackfillFacade) GetWorkload() database.WorkloadFacadeInterface                   { return nil }
+func (m *MockBackfillFacade) GetPod() database.PodFacadeInterface                             { return nil }
+func (m *MockBackfillFacade) GetContainer() database.ContainerFacadeInterface                 { return nil }
+func (m *MockBackfillFacade) GetTraining() database.TrainingFacadeInterface                   { return nil }
+func (m *MockBackfillFacade) GetStorage() database.StorageFacadeInterface                     { return nil }
+func (m *MockBackfillFacade) GetAlert() database.AlertFacadeInterface                         { return nil }
+func (m *MockBackfillFacade) GetMetricAlertRule() database.MetricAlertRuleFacadeInterface     { return nil }
+func (m *MockBackfillFacade) GetLogAlertRule() database.LogAlertRuleFacadeInterface           { return nil }
+func (m *MockBackfillFacade) GetAlertRuleAdvice() database.AlertRuleAdviceFacadeInterface     { return nil }
 func (m *MockBackfillFacade) GetClusterOverviewCache() database.ClusterOverviewCacheFacadeInterface {
 	return nil
 }
-func (m *MockBackfillFacade) GetSystemConfig() database.SystemConfigFacadeInterface { return nil }
-func (m *MockBackfillFacade) GetJobExecutionHistory() database.JobExecutionHistoryFacadeInterface {
-	return nil
-}
-func (m *MockBackfillFacade) GetNamespaceInfo() database.NamespaceInfoFacadeInterface { return nil }
-func (m *MockBackfillFacade) GetWorkloadStatistic() database.WorkloadStatisticFacadeInterface {
-	return nil
-}
-func (m *MockBackfillFacade) GetAiWorkloadMetadata() database.AiWorkloadMetadataFacadeInterface {
-	return nil
-}
-func (m *MockBackfillFacade) GetCheckpointEvent() database.CheckpointEventFacadeInterface { return nil }
+func (m *MockBackfillFacade) GetSystemConfig() database.SystemConfigFacadeInterface               { return nil }
+func (m *MockBackfillFacade) GetJobExecutionHistory() database.JobExecutionHistoryFacadeInterface { return nil }
+func (m *MockBackfillFacade) GetNamespaceInfo() database.NamespaceInfoFacadeInterface             { return nil }
+func (m *MockBackfillFacade) GetWorkloadStatistic() database.WorkloadStatisticFacadeInterface     { return nil }
+func (m *MockBackfillFacade) GetAiWorkloadMetadata() database.AiWorkloadMetadataFacadeInterface   { return nil }
+func (m *MockBackfillFacade) GetCheckpointEvent() database.CheckpointEventFacadeInterface         { return nil }
 func (m *MockBackfillFacade) GetDetectionConflictLog() database.DetectionConflictLogFacadeInterface {
 	return nil
 }
@@ -62,23 +56,36 @@ func (m *MockBackfillFacade) GetGpuUsageWeeklyReport() database.GpuUsageWeeklyRe
 func (m *MockBackfillFacade) GetNodeNamespaceMapping() database.NodeNamespaceMappingFacadeInterface {
 	return nil
 }
-func (m *MockBackfillFacade) GetTraceLensSession() database.TraceLensSessionFacadeInterface {
-	return nil
-}
-func (m *MockBackfillFacade) GetK8sService() database.K8sServiceFacadeInterface { return nil }
-func (m *MockBackfillFacade) GetWorkloadDetection() database.WorkloadDetectionFacadeInterface {
-	return nil
-}
-func (m *MockBackfillFacade) GetWorkloadDetectionEvidence() database.WorkloadDetectionEvidenceFacadeInterface {
-	return nil
-}
-func (m *MockBackfillFacade) GetDetectionCoverage() database.DetectionCoverageFacadeInterface {
-	return nil
-}
+func (m *MockBackfillFacade) GetTraceLensSession() database.TraceLensSessionFacadeInterface { return nil }
+func (m *MockBackfillFacade) GetK8sService() database.K8sServiceFacadeInterface             { return nil }
+func (m *MockBackfillFacade) GetWorkloadDetection() database.WorkloadDetectionFacadeInterface { return nil }
+func (m *MockBackfillFacade) GetWorkloadDetectionEvidence() database.WorkloadDetectionEvidenceFacadeInterface { return nil }
+func (m *MockBackfillFacade) GetDetectionCoverage() database.DetectionCoverageFacadeInterface { return nil }
 func (m *MockBackfillFacade) GetAIAgentRegistration() database.AIAgentRegistrationFacadeInterface {
 	return nil
 }
-func (m *MockBackfillFacade) GetAITask() database.AITaskFacadeInterface               { return nil }
+func (m *MockBackfillFacade) GetAITask() database.AITaskFacadeInterface { return nil }
+func (m *MockBackfillFacade) GetGithubWorkflowConfig() database.GithubWorkflowConfigFacadeInterface {
+	return nil
+}
+func (m *MockBackfillFacade) GetGithubWorkflowRun() database.GithubWorkflowRunFacadeInterface {
+	return nil
+}
+func (m *MockBackfillFacade) GetGithubWorkflowSchema() database.GithubWorkflowSchemaFacadeInterface {
+	return nil
+}
+func (m *MockBackfillFacade) GetGithubWorkflowMetrics() database.GithubWorkflowMetricsFacadeInterface {
+	return nil
+}
+func (m *MockBackfillFacade) GetGithubRunnerSet() database.GithubRunnerSetFacadeInterface {
+	return nil
+}
+func (m *MockBackfillFacade) GetGithubWorkflowCommit() database.GithubWorkflowCommitFacadeInterface {
+	return nil
+}
+func (m *MockBackfillFacade) GetGithubWorkflowRunDetails() database.GithubWorkflowRunDetailsFacadeInterface {
+	return nil
+}
 func (m *MockBackfillFacade) WithCluster(clusterName string) database.FacadeInterface { return m }
 
 type MockBackfillNodeFacade struct {
@@ -98,12 +105,8 @@ func (m *MockBackfillNodeFacade) WithCluster(clusterName string) database.NodeFa
 func (m *MockBackfillNodeFacade) GetNodeByName(ctx context.Context, name string) (*dbmodel.Node, error) {
 	return nil, nil
 }
-func (m *MockBackfillNodeFacade) CreateNode(ctx context.Context, node *dbmodel.Node) error {
-	return nil
-}
-func (m *MockBackfillNodeFacade) UpdateNode(ctx context.Context, node *dbmodel.Node) error {
-	return nil
-}
+func (m *MockBackfillNodeFacade) CreateNode(ctx context.Context, node *dbmodel.Node) error { return nil }
+func (m *MockBackfillNodeFacade) UpdateNode(ctx context.Context, node *dbmodel.Node) error { return nil }
 func (m *MockBackfillNodeFacade) ListGpuNodes(ctx context.Context) ([]*dbmodel.Node, error) {
 	return nil, nil
 }
@@ -129,9 +132,7 @@ func (m *MockBackfillNodeFacade) CreateRdmaDevice(ctx context.Context, rdmaDevic
 func (m *MockBackfillNodeFacade) ListRdmaDeviceByNodeId(ctx context.Context, nodeId int32) ([]*dbmodel.RdmaDevice, error) {
 	return nil, nil
 }
-func (m *MockBackfillNodeFacade) DeleteRdmaDeviceById(ctx context.Context, id int32) error {
-	return nil
-}
+func (m *MockBackfillNodeFacade) DeleteRdmaDeviceById(ctx context.Context, id int32) error { return nil }
 func (m *MockBackfillNodeFacade) CreateNodeDeviceChangelog(ctx context.Context, changelog *dbmodel.NodeDeviceChangelog) error {
 	return nil
 }
@@ -424,3 +425,4 @@ func TestWithClusterBackfillUtilizationQueryFunc(t *testing.T) {
 	assert.Equal(t, 78.0, result.P50Utilization)
 	assert.Equal(t, 92.0, result.P95Utilization)
 }
+

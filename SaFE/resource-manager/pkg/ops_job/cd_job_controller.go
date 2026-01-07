@@ -252,7 +252,8 @@ func (r *CDJobReconciler) generateCDWorkload(ctx context.Context, job *v1.OpsJob
 				v1.DisplayNameLabel: job.Name,
 			},
 			Annotations: map[string]string{
-				v1.UserNameAnnotation: common.UserSystem,
+				v1.UserNameAnnotation:    common.UserSystem,
+				v1.DescriptionAnnotation: v1.OpsJobKind,
 				// Dispatch the workload immediately, skipping the queue (same as preflight)
 				v1.WorkloadScheduledAnnotation: timeutil.FormatRFC3339(time.Now().UTC()),
 			},

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"time"
 
+	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
@@ -181,6 +182,11 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrlruntime.Reque
 	if err != nil {
 		return ctrlruntime.Result{}, client.IgnoreNotFound(err)
 	}
+	if !cluster.GetDeletionTimestamp().IsZero() && !cluster.IsInDeletion() {
+		if err = r.cleanupClusterResources(ctx, cluster); err != nil {
+			return ctrlruntime.Result{}, err
+		}
+	}
 	if cluster.Status.ControlPlaneStatus.Phase == v1.DeletedPhase {
 		return ctrlruntime.Result{}, r.delete(ctx, cluster)
 	}
@@ -192,9 +198,6 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrlruntime.Reque
 		klog.ErrorS(err, "failed to guarantee client factory", "cluster", cluster.Name)
 		return ctrlruntime.Result{}, err
 	}
-	// if result, err := r.guaranteeStorage(ctx, cluster); err != nil || result.RequeueAfter > 0 {
-	// 	return result, err
-	// }
 	if result, err := r.guaranteeDefaultAddon(ctx, cluster); err != nil || result.RequeueAfter > 0 {
 		klog.ErrorS(err, "failed to guarantee default addon", "cluster", cluster.Name)
 		return result, err
@@ -224,12 +227,10 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrlruntime.Reque
 	return ctrlruntime.Result{}, nil
 }
 
-// delete handles cluster deletion by cleaning up associated resources.
-func (r *ClusterReconciler) delete(ctx context.Context, cluster *v1.Cluster) error {
-	if err := r.resetNodesOfCluster(ctx, cluster); err != nil {
-		klog.ErrorS(err, "failed to reset nodes of cluster")
-		return err
-	}
+// cleanupClusterResources removes all associated resources for a cluster including priority classes,
+// image secrets, and CICD cluster roles. This function is used during cluster deletion to ensure
+// all related resources are properly cleaned up before the cluster is removed.
+func (r *ClusterReconciler) cleanupClusterResources(ctx context.Context, cluster *v1.Cluster) error {
 	if err := r.deletePriorityClass(ctx, cluster); err != nil {
 		klog.ErrorS(err, "failed to delete priority class")
 		return err
@@ -240,6 +241,20 @@ func (r *ClusterReconciler) delete(ctx context.Context, cluster *v1.Cluster) err
 	}
 	if err := r.deleteCICDClusterRole(ctx, cluster); err != nil {
 		klog.ErrorS(err, "failed to delete CICD ClusterRole")
+		return err
+	}
+	return nil
+}
+
+// delete handles cluster deletion by cleaning up associated resources.
+// This function:
+// 1. Resets all nodes associated with the cluster
+// 2. Removes the cluster's client factory
+// 3. Removes the cluster finalizer
+// Returns an error if any operation fails.
+func (r *ClusterReconciler) delete(ctx context.Context, cluster *v1.Cluster) error {
+	if err := r.resetNodesOfCluster(ctx, cluster); err != nil {
+		klog.ErrorS(err, "failed to reset nodes of cluster")
 		return err
 	}
 	if err := r.clientManager.Delete(cluster.Name); err != nil {
@@ -266,6 +281,7 @@ func (r *ClusterReconciler) resetNodesOfCluster(ctx context.Context, cluster *v1
 		deleteConcernedMeta(&n)
 		n.Spec.Cluster = nil
 		n.Spec.Workspace = nil
+		n.Spec.Taints = commonfaults.GetCustomerTaints(n.Spec.Taints)
 		if err := r.Update(ctx, &n); err != nil {
 			klog.ErrorS(err, "failed to update node")
 			return err
@@ -338,7 +354,6 @@ func (r *ClusterReconciler) guaranteePriorityClass(ctx context.Context, cluster 
 
 // deletePriorityClass deletes priority classes from the cluster.
 func (r *ClusterReconciler) deletePriorityClass(ctx context.Context, cluster *v1.Cluster) error {
-	//
 	k8sClients, err := utils.GetK8sClientFactory(r.clientManager, cluster.Name)
 	if err != nil {
 		// During deletion, if the client is not found, the error will be ignored.
@@ -348,10 +363,9 @@ func (r *ClusterReconciler) deletePriorityClass(ctx context.Context, cluster *v1
 	allPriorityClass := genAllPriorityClass(cluster.Name)
 	for _, pc := range allPriorityClass {
 		if err = clientSet.SchedulingV1().PriorityClasses().Delete(ctx, pc.name, metav1.DeleteOptions{}); err != nil {
-			if apierrors.IsNotFound(err) {
-				continue
+			if !apierrors.IsNotFound(err) {
+				return err
 			}
-			return err
 		}
 		klog.Infof("delete PriorityClass, name: %s", pc.name)
 	}
@@ -456,7 +470,7 @@ func (r *ClusterReconciler) deleteAllImageSecrets(ctx context.Context, cluster *
 		common.PrimusSafeNamespace).Get(ctx, targetName, metav1.GetOptions{})
 	if err == nil && (adminPlaneSecret == nil || adminPlaneSecret.UID != dataPlaneSecret.UID) {
 		err = k8sClients.ClientSet().CoreV1().Secrets(common.PrimusSafeNamespace).Delete(ctx, targetName, metav1.DeleteOptions{})
-		if err != nil {
+		if err != nil && !apierrors.IsNotFound(err) {
 			return err
 		}
 	}

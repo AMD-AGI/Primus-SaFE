@@ -35,36 +35,24 @@ func (m *NamespaceMockFacade) GetGenericCache() database.GenericCacheFacadeInter
 }
 
 // Implement other methods with nil returns (not used in tests)
-func (m *NamespaceMockFacade) GetWorkload() database.WorkloadFacadeInterface   { return nil }
-func (m *NamespaceMockFacade) GetPod() database.PodFacadeInterface             { return nil }
-func (m *NamespaceMockFacade) GetNode() database.NodeFacadeInterface           { return nil }
-func (m *NamespaceMockFacade) GetContainer() database.ContainerFacadeInterface { return nil }
-func (m *NamespaceMockFacade) GetTraining() database.TrainingFacadeInterface   { return nil }
-func (m *NamespaceMockFacade) GetStorage() database.StorageFacadeInterface     { return nil }
-func (m *NamespaceMockFacade) GetAlert() database.AlertFacadeInterface         { return nil }
-func (m *NamespaceMockFacade) GetMetricAlertRule() database.MetricAlertRuleFacadeInterface {
-	return nil
-}
-func (m *NamespaceMockFacade) GetLogAlertRule() database.LogAlertRuleFacadeInterface { return nil }
-func (m *NamespaceMockFacade) GetAlertRuleAdvice() database.AlertRuleAdviceFacadeInterface {
-	return nil
-}
+func (m *NamespaceMockFacade) GetWorkload() database.WorkloadFacadeInterface               { return nil }
+func (m *NamespaceMockFacade) GetPod() database.PodFacadeInterface                         { return nil }
+func (m *NamespaceMockFacade) GetNode() database.NodeFacadeInterface                       { return nil }
+func (m *NamespaceMockFacade) GetContainer() database.ContainerFacadeInterface             { return nil }
+func (m *NamespaceMockFacade) GetTraining() database.TrainingFacadeInterface               { return nil }
+func (m *NamespaceMockFacade) GetStorage() database.StorageFacadeInterface                 { return nil }
+func (m *NamespaceMockFacade) GetAlert() database.AlertFacadeInterface                     { return nil }
+func (m *NamespaceMockFacade) GetMetricAlertRule() database.MetricAlertRuleFacadeInterface { return nil }
+func (m *NamespaceMockFacade) GetLogAlertRule() database.LogAlertRuleFacadeInterface       { return nil }
+func (m *NamespaceMockFacade) GetAlertRuleAdvice() database.AlertRuleAdviceFacadeInterface { return nil }
 func (m *NamespaceMockFacade) GetClusterOverviewCache() database.ClusterOverviewCacheFacadeInterface {
 	return nil
 }
-func (m *NamespaceMockFacade) GetSystemConfig() database.SystemConfigFacadeInterface { return nil }
-func (m *NamespaceMockFacade) GetJobExecutionHistory() database.JobExecutionHistoryFacadeInterface {
-	return nil
-}
-func (m *NamespaceMockFacade) GetWorkloadStatistic() database.WorkloadStatisticFacadeInterface {
-	return nil
-}
-func (m *NamespaceMockFacade) GetAiWorkloadMetadata() database.AiWorkloadMetadataFacadeInterface {
-	return nil
-}
-func (m *NamespaceMockFacade) GetCheckpointEvent() database.CheckpointEventFacadeInterface {
-	return nil
-}
+func (m *NamespaceMockFacade) GetSystemConfig() database.SystemConfigFacadeInterface               { return nil }
+func (m *NamespaceMockFacade) GetJobExecutionHistory() database.JobExecutionHistoryFacadeInterface { return nil }
+func (m *NamespaceMockFacade) GetWorkloadStatistic() database.WorkloadStatisticFacadeInterface     { return nil }
+func (m *NamespaceMockFacade) GetAiWorkloadMetadata() database.AiWorkloadMetadataFacadeInterface   { return nil }
+func (m *NamespaceMockFacade) GetCheckpointEvent() database.CheckpointEventFacadeInterface         { return nil }
 func (m *NamespaceMockFacade) GetDetectionConflictLog() database.DetectionConflictLogFacadeInterface {
 	return nil
 }
@@ -74,23 +62,36 @@ func (m *NamespaceMockFacade) GetGpuUsageWeeklyReport() database.GpuUsageWeeklyR
 func (m *NamespaceMockFacade) GetNodeNamespaceMapping() database.NodeNamespaceMappingFacadeInterface {
 	return nil
 }
-func (m *NamespaceMockFacade) GetTraceLensSession() database.TraceLensSessionFacadeInterface {
-	return nil
-}
-func (m *NamespaceMockFacade) GetK8sService() database.K8sServiceFacadeInterface { return nil }
-func (m *NamespaceMockFacade) GetWorkloadDetection() database.WorkloadDetectionFacadeInterface {
-	return nil
-}
-func (m *NamespaceMockFacade) GetWorkloadDetectionEvidence() database.WorkloadDetectionEvidenceFacadeInterface {
-	return nil
-}
-func (m *NamespaceMockFacade) GetDetectionCoverage() database.DetectionCoverageFacadeInterface {
-	return nil
-}
+func (m *NamespaceMockFacade) GetTraceLensSession() database.TraceLensSessionFacadeInterface { return nil }
+func (m *NamespaceMockFacade) GetK8sService() database.K8sServiceFacadeInterface             { return nil }
+func (m *NamespaceMockFacade) GetWorkloadDetection() database.WorkloadDetectionFacadeInterface { return nil }
+func (m *NamespaceMockFacade) GetWorkloadDetectionEvidence() database.WorkloadDetectionEvidenceFacadeInterface { return nil }
+func (m *NamespaceMockFacade) GetDetectionCoverage() database.DetectionCoverageFacadeInterface { return nil }
 func (m *NamespaceMockFacade) GetAIAgentRegistration() database.AIAgentRegistrationFacadeInterface {
 	return nil
 }
-func (m *NamespaceMockFacade) GetAITask() database.AITaskFacadeInterface               { return nil }
+func (m *NamespaceMockFacade) GetAITask() database.AITaskFacadeInterface { return nil }
+func (m *NamespaceMockFacade) GetGithubWorkflowConfig() database.GithubWorkflowConfigFacadeInterface {
+	return nil
+}
+func (m *NamespaceMockFacade) GetGithubWorkflowRun() database.GithubWorkflowRunFacadeInterface {
+	return nil
+}
+func (m *NamespaceMockFacade) GetGithubWorkflowSchema() database.GithubWorkflowSchemaFacadeInterface {
+	return nil
+}
+func (m *NamespaceMockFacade) GetGithubWorkflowMetrics() database.GithubWorkflowMetricsFacadeInterface {
+	return nil
+}
+func (m *NamespaceMockFacade) GetGithubRunnerSet() database.GithubRunnerSetFacadeInterface {
+	return nil
+}
+func (m *NamespaceMockFacade) GetGithubWorkflowCommit() database.GithubWorkflowCommitFacadeInterface {
+	return nil
+}
+func (m *NamespaceMockFacade) GetGithubWorkflowRunDetails() database.GithubWorkflowRunDetailsFacadeInterface {
+	return nil
+}
 func (m *NamespaceMockFacade) WithCluster(clusterName string) database.FacadeInterface { return m }
 
 // NamespaceMockNamespaceInfoFacade implements database.NamespaceInfoFacadeInterface for testing
@@ -277,11 +278,9 @@ func (m *NamespaceMockGenericCacheFacade) Set(ctx context.Context, key string, v
 func (m *NamespaceMockGenericCacheFacade) WithCluster(clusterName string) database.GenericCacheFacadeInterface {
 	return m
 }
-func (m *NamespaceMockGenericCacheFacade) Delete(ctx context.Context, key string) error { return nil }
-func (m *NamespaceMockGenericCacheFacade) Exists(ctx context.Context, key string) (bool, error) {
-	return false, nil
-}
-func (m *NamespaceMockGenericCacheFacade) DeleteExpired(ctx context.Context) error { return nil }
+func (m *NamespaceMockGenericCacheFacade) Delete(ctx context.Context, key string) error       { return nil }
+func (m *NamespaceMockGenericCacheFacade) Exists(ctx context.Context, key string) (bool, error) { return false, nil }
+func (m *NamespaceMockGenericCacheFacade) DeleteExpired(ctx context.Context) error            { return nil }
 
 // MockAllocationCalculator implements AllocationCalculatorInterface for testing
 type MockAllocationCalculator struct {
@@ -888,10 +887,10 @@ func TestNamespaceHourTruncation(t *testing.T) {
 
 func TestAllocationRateCalculation(t *testing.T) {
 	tests := []struct {
-		name         string
-		allocated    float64
-		quota        int32
-		expectedRate float64
+		name          string
+		allocated     float64
+		quota         int32
+		expectedRate  float64
 	}{
 		{
 			name:         "full allocation",
@@ -932,3 +931,4 @@ func TestAllocationRateCalculation(t *testing.T) {
 		})
 	}
 }
+

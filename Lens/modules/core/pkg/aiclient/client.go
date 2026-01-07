@@ -37,8 +37,8 @@ type ClientConfig struct {
 	RetryDelay time.Duration `json:"retry_delay" yaml:"retry_delay"`
 
 	// Circuit breaker configuration
-	CircuitBreakerEnabled   bool          `json:"circuit_breaker_enabled" yaml:"circuit_breaker_enabled"`
-	CircuitBreakerThreshold int           `json:"circuit_breaker_threshold" yaml:"circuit_breaker_threshold"`
+	CircuitBreakerEnabled   bool `json:"circuit_breaker_enabled" yaml:"circuit_breaker_enabled"`
+	CircuitBreakerThreshold int  `json:"circuit_breaker_threshold" yaml:"circuit_breaker_threshold"`
 	CircuitBreakerTimeout   time.Duration `json:"circuit_breaker_timeout" yaml:"circuit_breaker_timeout"`
 
 	// Graceful degradation
@@ -87,17 +87,17 @@ type TaskQueue interface {
 
 // Task represents an async task
 type Task struct {
-	ID            string                  `json:"id"`
-	Topic         string                  `json:"topic"`
-	Status        TaskStatus              `json:"status"`
-	InputPayload  json.RawMessage         `json:"input_payload"`
-	OutputPayload json.RawMessage         `json:"output_payload,omitempty"`
-	ErrorMessage  string                  `json:"error_message,omitempty"`
-	ErrorCode     int                     `json:"error_code,omitempty"`
+	ID            string              `json:"id"`
+	Topic         string              `json:"topic"`
+	Status        TaskStatus          `json:"status"`
+	InputPayload  json.RawMessage     `json:"input_payload"`
+	OutputPayload json.RawMessage     `json:"output_payload,omitempty"`
+	ErrorMessage  string              `json:"error_message,omitempty"`
+	ErrorCode     int                 `json:"error_code,omitempty"`
 	Context       aitopics.RequestContext `json:"context"`
-	CreatedAt     time.Time               `json:"created_at"`
-	StartedAt     *time.Time              `json:"started_at,omitempty"`
-	CompletedAt   *time.Time              `json:"completed_at,omitempty"`
+	CreatedAt     time.Time           `json:"created_at"`
+	StartedAt     *time.Time          `json:"started_at,omitempty"`
+	CompletedAt   *time.Time          `json:"completed_at,omitempty"`
 }
 
 // TaskStatus represents the status of a task
@@ -357,3 +357,18 @@ func isRetryable(err error) bool {
 		return false
 	}
 }
+
+// Global client instance
+var globalClient *AIClient
+
+// SetGlobalClient sets the global AI client instance
+func SetGlobalClient(client *AIClient) {
+	globalClient = client
+}
+
+// GetGlobalClient returns the global AI client instance
+// Returns nil if not initialized
+func GetGlobalClient() *AIClient {
+	return globalClient
+}
+

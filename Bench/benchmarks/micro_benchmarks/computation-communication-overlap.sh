@@ -43,11 +43,12 @@ export ENABLE_AINIC=${ENABLE_AINIC:-false}
 if [[ "$ENABLE_AINIC" == "true" ]]; then
     echo "Configuring for AINIC (AMD Network Plugin)..."
     # Update LD_LIBRARY_PATH for ANP
-    export LD_LIBRARY_PATH="/opt/amd-anp/build:/opt/rccl/build/release:${LD_LIBRARY_PATH}"
+    export LD_LIBRARY_PATH="/opt/amd-anp/build:/opt/amd-anp/build/lib:/opt/rccl/build/release:${LD_LIBRARY_PATH}"
     # AINIC specific NCCL settings
     export NCCL_NET_GDR_LEVEL=2
     export NCCL_NET_GDR_READ=1
-    export NCCL_PXN_DISABLE=0
+    export NCCL_PXN_DISABLE=1
+    export NCCL_P2P_NET_CHUNKSIZE=524288
     export NCCL_IB_GID_INDEX=1
     export NCCL_DMABUF_ENABLE=0
     export NCCL_GDR_FLUSH_DISABLE=1

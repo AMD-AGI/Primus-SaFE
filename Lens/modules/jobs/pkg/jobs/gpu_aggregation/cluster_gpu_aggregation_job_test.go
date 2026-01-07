@@ -69,23 +69,36 @@ func (m *ClusterMockFacade) GetGpuUsageWeeklyReport() database.GpuUsageWeeklyRep
 func (m *ClusterMockFacade) GetNodeNamespaceMapping() database.NodeNamespaceMappingFacadeInterface {
 	return nil
 }
-func (m *ClusterMockFacade) GetTraceLensSession() database.TraceLensSessionFacadeInterface {
-	return nil
-}
-func (m *ClusterMockFacade) GetK8sService() database.K8sServiceFacadeInterface { return nil }
-func (m *ClusterMockFacade) GetWorkloadDetection() database.WorkloadDetectionFacadeInterface {
-	return nil
-}
-func (m *ClusterMockFacade) GetWorkloadDetectionEvidence() database.WorkloadDetectionEvidenceFacadeInterface {
-	return nil
-}
-func (m *ClusterMockFacade) GetDetectionCoverage() database.DetectionCoverageFacadeInterface {
-	return nil
-}
+func (m *ClusterMockFacade) GetTraceLensSession() database.TraceLensSessionFacadeInterface { return nil }
+func (m *ClusterMockFacade) GetK8sService() database.K8sServiceFacadeInterface             { return nil }
+func (m *ClusterMockFacade) GetWorkloadDetection() database.WorkloadDetectionFacadeInterface { return nil }
+func (m *ClusterMockFacade) GetWorkloadDetectionEvidence() database.WorkloadDetectionEvidenceFacadeInterface { return nil }
+func (m *ClusterMockFacade) GetDetectionCoverage() database.DetectionCoverageFacadeInterface { return nil }
 func (m *ClusterMockFacade) GetAIAgentRegistration() database.AIAgentRegistrationFacadeInterface {
 	return nil
 }
-func (m *ClusterMockFacade) GetAITask() database.AITaskFacadeInterface               { return nil }
+func (m *ClusterMockFacade) GetAITask() database.AITaskFacadeInterface { return nil }
+func (m *ClusterMockFacade) GetGithubWorkflowConfig() database.GithubWorkflowConfigFacadeInterface {
+	return nil
+}
+func (m *ClusterMockFacade) GetGithubWorkflowRun() database.GithubWorkflowRunFacadeInterface {
+	return nil
+}
+func (m *ClusterMockFacade) GetGithubWorkflowSchema() database.GithubWorkflowSchemaFacadeInterface {
+	return nil
+}
+func (m *ClusterMockFacade) GetGithubWorkflowMetrics() database.GithubWorkflowMetricsFacadeInterface {
+	return nil
+}
+func (m *ClusterMockFacade) GetGithubRunnerSet() database.GithubRunnerSetFacadeInterface {
+	return nil
+}
+func (m *ClusterMockFacade) GetGithubWorkflowCommit() database.GithubWorkflowCommitFacadeInterface {
+	return nil
+}
+func (m *ClusterMockFacade) GetGithubWorkflowRunDetails() database.GithubWorkflowRunDetailsFacadeInterface {
+	return nil
+}
 func (m *ClusterMockFacade) WithCluster(clusterName string) database.FacadeInterface { return m }
 
 // ClusterMockNodeFacade implements database.NodeFacadeInterface for testing

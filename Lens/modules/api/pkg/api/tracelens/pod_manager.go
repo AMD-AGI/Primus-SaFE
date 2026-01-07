@@ -3,12 +3,14 @@ package tracelens
 import (
 	"context"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/registry"
 	tlconst "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/tracelens"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -63,7 +65,7 @@ func CreatePod(ctx context.Context, dataClusterName string, session *model.Trace
 	podName := generatePodName(session.SessionID)
 
 	// Build pod spec
-	pod := buildPodSpec(session, podName, profilerFilePath)
+	pod := buildPodSpec(ctx, dataClusterName, session, podName, profilerFilePath)
 
 	// Create pod (K8s handles duplicate via AlreadyExists error)
 	createdPod, err := k8sClient.CoreV1().Pods(session.PodNamespace).Create(ctx, pod, metav1.CreateOptions{})
@@ -185,7 +187,7 @@ func generatePodName(sessionID string) string {
 	return podName
 }
 
-func buildPodSpec(session *model.TracelensSessions, podName, profilerFilePath string) *corev1.Pod {
+func buildPodSpec(ctx context.Context, dataClusterName string, session *model.TracelensSessions, podName, profilerFilePath string) *corev1.Pod {
 	// Get resource limits based on profile
 	memoryLimit, cpuLimit := getResourceLimits(session.ResourceProfile)
 
@@ -202,6 +204,21 @@ func buildPodSpec(session *model.TracelensSessions, podName, profilerFilePath st
 	// Since pod runs in management cluster, it can access API via cluster service
 	apiBaseURL := "http://primus-lens-api.primus-lens.svc.cluster.local:8989"
 
+	// Get image URL from registry config (supports per-cluster configuration)
+	// Image URL is constructed from system_config:
+	// - registry: from config or default "docker.io"
+	// - namespace: from config or default "primussafe"
+	// - version: from config.ImageVersions["tracelens"] or default "latest"
+	// Environment variable TRACELENS_IMAGE_TAG can override the version
+	imageTag := os.Getenv("TRACELENS_IMAGE_TAG")
+	var imageURL string
+	if imageTag != "" {
+		imageURL = registry.GetImageURLForCluster(ctx, dataClusterName, registry.ImageTraceLens, imageTag)
+	} else {
+		imageURL = registry.GetDefaultImageURLForCluster(ctx, dataClusterName, registry.ImageTraceLens)
+	}
+	log.Debugf("Using TraceLens image: %s for cluster: %s", imageURL, dataClusterName)
+
 	return &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      podName,
@@ -217,7 +234,7 @@ func buildPodSpec(session *model.TracelensSessions, podName, profilerFilePath st
 			Containers: []corev1.Container{
 				{
 					Name:  "tracelens",
-					Image: tlconst.DefaultTraceLensImage,
+					Image: imageURL,
 					Ports: []corev1.ContainerPort{
 						{
 							Name:          "http",
@@ -323,14 +340,12 @@ func waitForPodReady(ctx context.Context, client kubernetes.Interface, namespace
 }
 
 func getResourceLimits(profile string) (memory, cpu string) {
-	switch profile {
-	case tlconst.ProfileSmall:
-		return "2Gi", "1"
-	case tlconst.ProfileLarge:
-		return "8Gi", "4"
-	default: // medium
-		return "4Gi", "2"
+	p := tlconst.GetResourceProfile(profile)
+	if p != nil {
+		return p.Memory, fmt.Sprintf("%d", p.CPU)
 	}
+	// fallback to medium if profile not found
+	return "16Gi", "2"
 }
 
 func getPodFailureReason(pod *corev1.Pod) string {
