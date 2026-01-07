@@ -723,8 +723,10 @@ func (v *WorkloadValidator) validateCICDScalingRunnerSet(workload *v1.Workload) 
 
 // validateTorchFT validates TorchFT workload configuration including environment variables and resource requirements.
 func (v *WorkloadValidator) validateTorchFT(workload *v1.Workload) error {
+	// TorchFT workloads require at least 2 resource configurations - one for lighthouse (index=0) and one for the worker groups
 	if len(workload.Spec.Resources) < 2 {
-		return fmt.Errorf("the resources of torchFT are invalid")
+		return fmt.Errorf("insufficient resources for TorchFT: expected at least 2 resource configurations (lighthouse and worker groups), "+
+			"got %d, resources: %v", len(workload.Spec.Resources), workload.Spec.Resources)
 	}
 	if len(v1.GetDisplayName(workload)) > MaxTorchFTNameLen {
 		return fmt.Errorf("the displayName is too long, maximum length is %d", MaxTorchFTNameLen)
