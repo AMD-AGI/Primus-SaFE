@@ -84,3 +84,4 @@ func (h *StatsHandler) GetStats(c *gin.Context) {
 		Tasks:  taskStats,
 	})
 }
+

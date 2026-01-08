@@ -417,17 +417,17 @@ func TestTopicRouting(t *testing.T) {
 
 	t.Run("ExtractParts", func(t *testing.T) {
 		topic := "alert.advisor.aggregate-workloads"
-
+		
 		domain := airegistry.ExtractDomain(topic)
 		if domain != "alert" {
 			t.Errorf("Domain mismatch: got %s, want alert", domain)
 		}
-
+		
 		agent := airegistry.ExtractAgent(topic)
 		if agent != "advisor" {
 			t.Errorf("Agent mismatch: got %s, want advisor", agent)
 		}
-
+		
 		action := airegistry.ExtractAction(topic)
 		if action != "aggregate-workloads" {
 			t.Errorf("Action mismatch: got %s, want aggregate-workloads", action)
@@ -511,3 +511,4 @@ func BenchmarkRegistryLookup(b *testing.B) {
 		_, _ = registry.GetHealthyAgentForTopic(ctx, "topic.50.something")
 	}
 }
+

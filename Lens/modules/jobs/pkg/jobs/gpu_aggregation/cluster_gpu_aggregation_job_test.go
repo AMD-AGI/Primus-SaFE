@@ -69,19 +69,11 @@ func (m *ClusterMockFacade) GetGpuUsageWeeklyReport() database.GpuUsageWeeklyRep
 func (m *ClusterMockFacade) GetNodeNamespaceMapping() database.NodeNamespaceMappingFacadeInterface {
 	return nil
 }
-func (m *ClusterMockFacade) GetTraceLensSession() database.TraceLensSessionFacadeInterface {
-	return nil
-}
-func (m *ClusterMockFacade) GetK8sService() database.K8sServiceFacadeInterface { return nil }
-func (m *ClusterMockFacade) GetWorkloadDetection() database.WorkloadDetectionFacadeInterface {
-	return nil
-}
-func (m *ClusterMockFacade) GetWorkloadDetectionEvidence() database.WorkloadDetectionEvidenceFacadeInterface {
-	return nil
-}
-func (m *ClusterMockFacade) GetDetectionCoverage() database.DetectionCoverageFacadeInterface {
-	return nil
-}
+func (m *ClusterMockFacade) GetTraceLensSession() database.TraceLensSessionFacadeInterface { return nil }
+func (m *ClusterMockFacade) GetK8sService() database.K8sServiceFacadeInterface             { return nil }
+func (m *ClusterMockFacade) GetWorkloadDetection() database.WorkloadDetectionFacadeInterface { return nil }
+func (m *ClusterMockFacade) GetWorkloadDetectionEvidence() database.WorkloadDetectionEvidenceFacadeInterface { return nil }
+func (m *ClusterMockFacade) GetDetectionCoverage() database.DetectionCoverageFacadeInterface { return nil }
 func (m *ClusterMockFacade) GetAIAgentRegistration() database.AIAgentRegistrationFacadeInterface {
 	return nil
 }

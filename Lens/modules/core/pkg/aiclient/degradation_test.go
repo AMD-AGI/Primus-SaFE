@@ -220,3 +220,4 @@ func TestDegradationHandler_Concurrency(t *testing.T) {
 		<-done
 	}
 }
+

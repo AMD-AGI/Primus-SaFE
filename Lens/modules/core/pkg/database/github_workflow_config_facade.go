@@ -248,3 +248,4 @@ func (f *GithubWorkflowConfigFacade) Delete(ctx context.Context, id int64) error
 	_, err := q.WithContext(ctx).Where(q.ID.Eq(id)).Delete()
 	return err
 }
+

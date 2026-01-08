@@ -124,11 +124,12 @@ func TestErrorMessages(t *testing.T) {
 func TestWrappedErrors(t *testing.T) {
 	// Test that errors.Is works correctly
 	wrappedErr := errors.New("wrapped: " + ErrTimeout.Error())
-
+	
 	// Direct comparison should not work for wrapped errors
 	assert.False(t, errors.Is(wrappedErr, ErrTimeout))
-
+	
 	// Direct errors.Is should work
 	assert.True(t, errors.Is(ErrTimeout, ErrTimeout))
 	assert.True(t, errors.Is(ErrAgentUnavailable, ErrAgentUnavailable))
 }
+

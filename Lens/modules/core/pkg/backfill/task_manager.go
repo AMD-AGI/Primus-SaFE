@@ -46,9 +46,9 @@ type TaskManagerMetricsCallback struct {
 
 // BackfillTaskManager manages backfill tasks
 type BackfillTaskManager struct {
-	mu      sync.RWMutex
-	tasks   map[string]*BackfillTask
-	metrics *TaskManagerMetricsCallback
+	mu       sync.RWMutex
+	tasks    map[string]*BackfillTask
+	metrics  *TaskManagerMetricsCallback
 }
 
 var (
@@ -257,3 +257,4 @@ func (m *BackfillTaskManager) HasActiveTaskForConfig(configID int64) bool {
 	}
 	return false
 }
+

@@ -148,3 +148,4 @@ type ExtractionError struct {
 	// Recoverable indicates if the extraction can continue
 	Recoverable bool `json:"recoverable"`
 }
+

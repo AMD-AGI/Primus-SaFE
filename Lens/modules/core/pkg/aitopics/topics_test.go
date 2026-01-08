@@ -75,3 +75,4 @@ func TestIsValidTopic_Invalid(t *testing.T) {
 		})
 	}
 }
+

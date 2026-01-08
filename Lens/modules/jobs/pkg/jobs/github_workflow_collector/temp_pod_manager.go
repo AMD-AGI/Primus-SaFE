@@ -211,9 +211,9 @@ func (m *TempPodManager) buildTempPodSpec(name, namespace string, configID, runI
 			RestartPolicy: corev1.RestartPolicyNever,
 			Containers: []corev1.Container{
 				{
-					Name:         "reader",
-					Image:        TempPodImage,
-					Command:      []string{"sleep", "3600"}, // Sleep for 1 hour (will be deleted earlier)
+					Name:    "reader",
+					Image:   TempPodImage,
+					Command: []string{"sleep", "3600"}, // Sleep for 1 hour (will be deleted earlier)
 					VolumeMounts: volumeInfo.VolumeMounts,
 				},
 			},
@@ -388,3 +388,4 @@ func (m *TempPodManager) CleanupExpiredTempPods(ctx context.Context) error {
 
 	return nil
 }
+

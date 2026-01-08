@@ -243,3 +243,4 @@ func TestGroupingSuggestion_SingleMember(t *testing.T) {
 	assert.Len(t, suggestion.Members, 1)
 	assert.Equal(t, "single-workload", suggestion.Members[0])
 }
+

@@ -221,11 +221,11 @@ func GetGithubWorkflowAnalytics(ctx *gin.Context) {
 	}
 
 	ctx.JSON(http.StatusOK, rest.SuccessResp(ctx.Request.Context(), gin.H{
-		"config_id":             configID,
-		"total_runs":            total,
-		"workflow_analytics":    analytics,
-		"commit_stats":          commitStats,
-		"avg_execution_seconds": avgExecutionTime,
+		"config_id":              configID,
+		"total_runs":             total,
+		"workflow_analytics":     analytics,
+		"commit_stats":           commitStats,
+		"avg_execution_seconds":  avgExecutionTime,
 	}))
 }
 
@@ -281,9 +281,9 @@ func GetGithubWorkflowRunHistory(ctx *gin.Context) {
 
 	type EnrichedRun struct {
 		*model.GithubWorkflowRuns
-		Commit     interface{} `json:"commit,omitempty"`
-		RunDetails interface{} `json:"run_details,omitempty"`
-		Duration   float64     `json:"duration_seconds,omitempty"`
+		Commit      interface{} `json:"commit,omitempty"`
+		RunDetails  interface{} `json:"run_details,omitempty"`
+		Duration    float64     `json:"duration_seconds,omitempty"`
 	}
 
 	enrichedRuns := make([]EnrichedRun, 0, len(runs))
@@ -317,3 +317,4 @@ func GetGithubWorkflowRunHistory(ctx *gin.Context) {
 		"limit":  limit,
 	}))
 }
+

@@ -276,3 +276,4 @@ func TestCoverageGap(t *testing.T) {
 	assert.Len(t, gap.MissingAreas, 3)
 	assert.Equal(t, 1, gap.Priority)
 }
+

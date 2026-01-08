@@ -56,3 +56,4 @@ func IsValidTopic(topic string) bool {
 		return false
 	}
 }
+

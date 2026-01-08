@@ -161,24 +161,24 @@ func (c *Client) GetWorkflowRun(ctx context.Context, owner, repo string, runID i
 	}
 
 	var ghRun struct {
-		ID             int64      `json:"id"`
-		RunNumber      int        `json:"run_number"`
-		RunAttempt     int        `json:"run_attempt"`
-		WorkflowID     int64      `json:"workflow_id"`
-		Name           string     `json:"name"`
-		Path           string     `json:"path"`
-		Status         string     `json:"status"`
-		Conclusion     string     `json:"conclusion"`
-		HTMLURL        string     `json:"html_url"`
-		JobsURL        string     `json:"jobs_url"`
-		LogsURL        string     `json:"logs_url"`
-		ArtifactsURL   string     `json:"artifacts_url"`
-		CreatedAt      time.Time  `json:"created_at"`
-		UpdatedAt      time.Time  `json:"updated_at"`
+		ID             int64  `json:"id"`
+		RunNumber      int    `json:"run_number"`
+		RunAttempt     int    `json:"run_attempt"`
+		WorkflowID     int64  `json:"workflow_id"`
+		Name           string `json:"name"`
+		Path           string `json:"path"`
+		Status         string `json:"status"`
+		Conclusion     string `json:"conclusion"`
+		HTMLURL        string `json:"html_url"`
+		JobsURL        string `json:"jobs_url"`
+		LogsURL        string `json:"logs_url"`
+		ArtifactsURL   string `json:"artifacts_url"`
+		CreatedAt      time.Time `json:"created_at"`
+		UpdatedAt      time.Time `json:"updated_at"`
 		RunStartedAt   *time.Time `json:"run_started_at"`
-		Event          string     `json:"event"`
-		HeadSHA        string     `json:"head_sha"`
-		HeadBranch     string     `json:"head_branch"`
+		Event          string `json:"event"`
+		HeadSHA        string `json:"head_sha"`
+		HeadBranch     string `json:"head_branch"`
 		HeadRepository struct {
 			FullName string `json:"full_name"`
 		} `json:"head_repository"`
@@ -436,3 +436,4 @@ func (c *Client) ValidateToken(ctx context.Context) (bool, error) {
 
 	return resp.StatusCode() == http.StatusOK, nil
 }
+

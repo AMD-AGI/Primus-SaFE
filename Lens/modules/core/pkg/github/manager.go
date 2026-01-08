@@ -12,10 +12,10 @@ import (
 
 // ClientManager manages GitHub clients with different tokens
 type ClientManager struct {
-	mu         sync.RWMutex
-	clients    map[string]*Client // key: secretNamespace/secretName
-	k8sClient  kubernetes.Interface
-	tokenCache map[string]*tokenCacheEntry
+	mu          sync.RWMutex
+	clients     map[string]*Client // key: secretNamespace/secretName
+	k8sClient   kubernetes.Interface
+	tokenCache  map[string]*tokenCacheEntry
 }
 
 type tokenCacheEntry struct {
@@ -129,3 +129,4 @@ func (m *ClientManager) ClearCache() {
 	m.clients = make(map[string]*Client)
 	m.tokenCache = make(map[string]*tokenCacheEntry)
 }
+

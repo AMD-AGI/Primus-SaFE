@@ -6,9 +6,9 @@ import "time"
 
 // AnalyzeAlertInput is the input payload for alert analysis
 type AnalyzeAlertInput struct {
-	Alert         AlertInfo       `json:"alert"`
-	RelatedAlerts []AlertInfo     `json:"related_alerts,omitempty"`
-	Options       *AnalyzeOptions `json:"options,omitempty"`
+	Alert         AlertInfo        `json:"alert"`
+	RelatedAlerts []AlertInfo      `json:"related_alerts,omitempty"`
+	Options       *AnalyzeOptions  `json:"options,omitempty"`
 }
 
 // AlertInfo represents an alert to analyze
@@ -32,15 +32,15 @@ type AnalyzeOptions struct {
 
 // AnalyzeAlertOutput is the output payload for alert analysis
 type AnalyzeAlertOutput struct {
-	Analysis         AlertAnalysis   `json:"analysis"`
-	RelatedKnowledge []KnowledgeItem `json:"related_knowledge,omitempty"`
+	Analysis         AlertAnalysis    `json:"analysis"`
+	RelatedKnowledge []KnowledgeItem  `json:"related_knowledge,omitempty"`
 }
 
 // AlertAnalysis contains the analysis results
 type AlertAnalysis struct {
-	RootCause       *RootCauseAnalysis `json:"root_cause,omitempty"`
-	Impact          *ImpactAssessment  `json:"impact,omitempty"`
-	Recommendations []Recommendation   `json:"recommendations,omitempty"`
+	RootCause       *RootCauseAnalysis   `json:"root_cause,omitempty"`
+	Impact          *ImpactAssessment    `json:"impact,omitempty"`
+	Recommendations []Recommendation     `json:"recommendations,omitempty"`
 }
 
 // RootCauseAnalysis contains root cause information
@@ -74,8 +74,8 @@ type KnowledgeItem struct {
 
 // CorrelateAlertsInput is the input payload for alert correlation
 type CorrelateAlertsInput struct {
-	Alerts  []AlertInfo       `json:"alerts"`
-	Options *CorrelateOptions `json:"options,omitempty"`
+	Alerts  []AlertInfo         `json:"alerts"`
+	Options *CorrelateOptions   `json:"options,omitempty"`
 }
 
 // CorrelateOptions contains optional settings for correlation
@@ -123,3 +123,4 @@ type ExecuteActionOutput struct {
 	ActionID   string `json:"action_id,omitempty"`
 	ExecutedAt string `json:"executed_at,omitempty"`
 }
+

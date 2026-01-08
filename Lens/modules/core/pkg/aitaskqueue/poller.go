@@ -228,3 +228,4 @@ func (p *ResultPoller) GetProgress(ctx context.Context, taskID string) (*TaskPro
 
 	return progress, nil
 }
+

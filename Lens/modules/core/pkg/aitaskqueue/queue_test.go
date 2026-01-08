@@ -244,3 +244,4 @@ func TestQueueConfig_Fields(t *testing.T) {
 	assert.Equal(t, 2*time.Hour, cfg.CleanupInterval)
 	assert.Equal(t, 2*time.Minute, cfg.TimeoutCheckInterval)
 }
+

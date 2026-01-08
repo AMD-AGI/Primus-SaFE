@@ -206,3 +206,4 @@ func ExtractAction(topic string) string {
 	}
 	return ""
 }
+

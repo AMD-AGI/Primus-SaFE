@@ -205,3 +205,4 @@ func (f *GithubWorkflowSchemaFacade) DeleteByConfig(ctx context.Context, configI
 	_, err := q.WithContext(ctx).Where(q.ConfigID.Eq(configID)).Delete()
 	return err
 }
+

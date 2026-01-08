@@ -38,9 +38,9 @@ func getClusterNameForGithubWorkflow(ctx *gin.Context) (string, error) {
 
 // DisplaySettingsRequest represents display settings for a workflow config
 type DisplaySettingsRequest struct {
-	DefaultChartGroupBy  string `json:"default_chart_group_by,omitempty"`
-	DefaultChartType     string `json:"default_chart_type,omitempty"`
-	ShowRawDataByDefault bool   `json:"show_raw_data_by_default,omitempty"`
+	DefaultChartGroupBy   string `json:"default_chart_group_by,omitempty"`
+	DefaultChartType      string `json:"default_chart_type,omitempty"`
+	ShowRawDataByDefault  bool   `json:"show_raw_data_by_default,omitempty"`
 }
 
 // GithubWorkflowConfigRequest represents the request body for creating/updating a config
@@ -1044,16 +1044,16 @@ func GetBackfillStatus(ctx *gin.Context) {
 	}
 
 	ctx.JSON(http.StatusOK, rest.SuccessResp(ctx.Request.Context(), gin.H{
-		"task_id":       latestTask.ID,
-		"config_id":     latestTask.ConfigID,
-		"status":        latestTask.Status,
-		"total":         latestTask.TotalRuns,
-		"processed":     latestTask.ProcessedRuns,
-		"failed":        latestTask.FailedRuns,
-		"created_at":    latestTask.CreatedAt,
-		"started_at":    latestTask.StartedAt,
-		"completed_at":  latestTask.CompletedAt,
-		"error_message": latestTask.ErrorMessage,
+		"task_id":        latestTask.ID,
+		"config_id":      latestTask.ConfigID,
+		"status":         latestTask.Status,
+		"total":          latestTask.TotalRuns,
+		"processed":      latestTask.ProcessedRuns,
+		"failed":         latestTask.FailedRuns,
+		"created_at":     latestTask.CreatedAt,
+		"started_at":     latestTask.StartedAt,
+		"completed_at":   latestTask.CompletedAt,
+		"error_message":  latestTask.ErrorMessage,
 	}))
 }
 
@@ -1561,25 +1561,25 @@ func ListEphemeralRunners(ctx *gin.Context) {
 
 	// Build response
 	type RunnerInfo struct {
-		UID          string     `json:"uid"`
-		Name         string     `json:"name"`
-		Namespace    string     `json:"namespace"`
-		StartedAt    *time.Time `json:"started_at,omitempty"`
-		CompletedAt  *time.Time `json:"completed_at,omitempty"`
-		GithubRunID  string     `json:"github_run_id,omitempty"`
-		GithubJobID  string     `json:"github_job_id,omitempty"`
-		WorkflowName string     `json:"workflow_name,omitempty"`
-		Branch       string     `json:"branch,omitempty"`
-		Processed    bool       `json:"processed"`
+		UID           string     `json:"uid"`
+		Name          string     `json:"name"`
+		Namespace     string     `json:"namespace"`
+		StartedAt     *time.Time `json:"started_at,omitempty"`
+		CompletedAt   *time.Time `json:"completed_at,omitempty"`
+		GithubRunID   string     `json:"github_run_id,omitempty"`
+		GithubJobID   string     `json:"github_job_id,omitempty"`
+		WorkflowName  string     `json:"workflow_name,omitempty"`
+		Branch        string     `json:"branch,omitempty"`
+		Processed     bool       `json:"processed"`
 	}
 
 	runnerInfos := make([]RunnerInfo, 0, len(runners))
 	for _, runner := range runners {
 		info := RunnerInfo{
-			UID:       runner.UID,
-			Name:      runner.Name,
-			Namespace: runner.Namespace,
-			Processed: processedUIDs[runner.UID],
+			UID:         runner.UID,
+			Name:        runner.Name,
+			Namespace:   runner.Namespace,
+			Processed:   processedUIDs[runner.UID],
 		}
 
 		if !runner.CreatedAt.IsZero() {
@@ -2237,3 +2237,4 @@ func trimSpace(s string) string {
 	}
 	return s[start:end]
 }
+

@@ -685,3 +685,4 @@ func (f *GithubWorkflowRunFacade) ListAllWithConfigName(ctx context.Context, fil
 
 	return results, total, nil
 }
+

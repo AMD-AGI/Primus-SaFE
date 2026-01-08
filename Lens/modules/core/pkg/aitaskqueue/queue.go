@@ -126,24 +126,24 @@ type Queue interface {
 
 // PublishOptions contains options for publishing a task
 type PublishOptions struct {
-	Topic      string
-	Payload    json.RawMessage
-	Context    aitopics.RequestContext
-	Priority   int
-	MaxRetries int
-	Timeout    time.Duration
+	Topic       string
+	Payload     json.RawMessage
+	Context     aitopics.RequestContext
+	Priority    int
+	MaxRetries  int
+	Timeout     time.Duration
 }
 
 // TaskFilter contains filters for listing tasks
 type TaskFilter struct {
-	Status        *TaskStatus
-	Topic         string
-	Topics        []string
-	AgentID       string
+	Status    *TaskStatus
+	Topic     string
+	Topics    []string
+	AgentID   string
 	CreatedAfter  *time.Time
 	CreatedBefore *time.Time
-	Limit         int
-	Offset        int
+	Limit     int
+	Offset    int
 }
 
 // QueueConfig contains configuration for the task queue
@@ -155,8 +155,8 @@ type QueueConfig struct {
 	DefaultMaxRetries int `json:"default_max_retries" yaml:"default_max_retries"`
 
 	// Cleanup settings
-	RetentionDays   int           `json:"retention_days" yaml:"retention_days"`
-	CleanupInterval time.Duration `json:"cleanup_interval" yaml:"cleanup_interval"`
+	RetentionDays     int           `json:"retention_days" yaml:"retention_days"`
+	CleanupInterval   time.Duration `json:"cleanup_interval" yaml:"cleanup_interval"`
 
 	// Timeout check interval
 	TimeoutCheckInterval time.Duration `json:"timeout_check_interval" yaml:"timeout_check_interval"`
@@ -172,3 +172,4 @@ func DefaultQueueConfig() *QueueConfig {
 		TimeoutCheckInterval: 1 * time.Minute,
 	}
 }
+

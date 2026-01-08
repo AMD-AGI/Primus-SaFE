@@ -42,51 +42,29 @@ func (m *WorkloadMockFacade) GetGenericCache() database.GenericCacheFacadeInterf
 }
 
 // Implement other methods with nil returns (not used in tests)
-func (m *WorkloadMockFacade) GetNode() database.NodeFacadeInterface                       { return nil }
-func (m *WorkloadMockFacade) GetContainer() database.ContainerFacadeInterface             { return nil }
-func (m *WorkloadMockFacade) GetTraining() database.TrainingFacadeInterface               { return nil }
-func (m *WorkloadMockFacade) GetStorage() database.StorageFacadeInterface                 { return nil }
-func (m *WorkloadMockFacade) GetAlert() database.AlertFacadeInterface                     { return nil }
-func (m *WorkloadMockFacade) GetMetricAlertRule() database.MetricAlertRuleFacadeInterface { return nil }
-func (m *WorkloadMockFacade) GetLogAlertRule() database.LogAlertRuleFacadeInterface       { return nil }
-func (m *WorkloadMockFacade) GetAlertRuleAdvice() database.AlertRuleAdviceFacadeInterface { return nil }
-func (m *WorkloadMockFacade) GetClusterOverviewCache() database.ClusterOverviewCacheFacadeInterface {
-	return nil
-}
-func (m *WorkloadMockFacade) GetSystemConfig() database.SystemConfigFacadeInterface { return nil }
-func (m *WorkloadMockFacade) GetJobExecutionHistory() database.JobExecutionHistoryFacadeInterface {
-	return nil
-}
-func (m *WorkloadMockFacade) GetNamespaceInfo() database.NamespaceInfoFacadeInterface { return nil }
-func (m *WorkloadMockFacade) GetWorkloadStatistic() database.WorkloadStatisticFacadeInterface {
-	return nil
-}
-func (m *WorkloadMockFacade) GetAiWorkloadMetadata() database.AiWorkloadMetadataFacadeInterface {
-	return nil
-}
-func (m *WorkloadMockFacade) GetCheckpointEvent() database.CheckpointEventFacadeInterface { return nil }
-func (m *WorkloadMockFacade) GetDetectionConflictLog() database.DetectionConflictLogFacadeInterface {
-	return nil
-}
-func (m *WorkloadMockFacade) GetGpuUsageWeeklyReport() database.GpuUsageWeeklyReportFacadeInterface {
-	return nil
-}
-func (m *WorkloadMockFacade) GetNodeNamespaceMapping() database.NodeNamespaceMappingFacadeInterface {
-	return nil
-}
-func (m *WorkloadMockFacade) GetTraceLensSession() database.TraceLensSessionFacadeInterface {
-	return nil
-}
-func (m *WorkloadMockFacade) GetK8sService() database.K8sServiceFacadeInterface { return nil }
-func (m *WorkloadMockFacade) GetWorkloadDetection() database.WorkloadDetectionFacadeInterface {
-	return nil
-}
-func (m *WorkloadMockFacade) GetWorkloadDetectionEvidence() database.WorkloadDetectionEvidenceFacadeInterface {
-	return nil
-}
-func (m *WorkloadMockFacade) GetDetectionCoverage() database.DetectionCoverageFacadeInterface {
-	return nil
-}
+func (m *WorkloadMockFacade) GetNode() database.NodeFacadeInterface                               { return nil }
+func (m *WorkloadMockFacade) GetContainer() database.ContainerFacadeInterface                     { return nil }
+func (m *WorkloadMockFacade) GetTraining() database.TrainingFacadeInterface                       { return nil }
+func (m *WorkloadMockFacade) GetStorage() database.StorageFacadeInterface                         { return nil }
+func (m *WorkloadMockFacade) GetAlert() database.AlertFacadeInterface                             { return nil }
+func (m *WorkloadMockFacade) GetMetricAlertRule() database.MetricAlertRuleFacadeInterface         { return nil }
+func (m *WorkloadMockFacade) GetLogAlertRule() database.LogAlertRuleFacadeInterface               { return nil }
+func (m *WorkloadMockFacade) GetAlertRuleAdvice() database.AlertRuleAdviceFacadeInterface         { return nil }
+func (m *WorkloadMockFacade) GetClusterOverviewCache() database.ClusterOverviewCacheFacadeInterface { return nil }
+func (m *WorkloadMockFacade) GetSystemConfig() database.SystemConfigFacadeInterface               { return nil }
+func (m *WorkloadMockFacade) GetJobExecutionHistory() database.JobExecutionHistoryFacadeInterface { return nil }
+func (m *WorkloadMockFacade) GetNamespaceInfo() database.NamespaceInfoFacadeInterface             { return nil }
+func (m *WorkloadMockFacade) GetWorkloadStatistic() database.WorkloadStatisticFacadeInterface     { return nil }
+func (m *WorkloadMockFacade) GetAiWorkloadMetadata() database.AiWorkloadMetadataFacadeInterface   { return nil }
+func (m *WorkloadMockFacade) GetCheckpointEvent() database.CheckpointEventFacadeInterface         { return nil }
+func (m *WorkloadMockFacade) GetDetectionConflictLog() database.DetectionConflictLogFacadeInterface { return nil }
+func (m *WorkloadMockFacade) GetGpuUsageWeeklyReport() database.GpuUsageWeeklyReportFacadeInterface { return nil }
+func (m *WorkloadMockFacade) GetNodeNamespaceMapping() database.NodeNamespaceMappingFacadeInterface { return nil }
+func (m *WorkloadMockFacade) GetTraceLensSession() database.TraceLensSessionFacadeInterface { return nil }
+func (m *WorkloadMockFacade) GetK8sService() database.K8sServiceFacadeInterface             { return nil }
+func (m *WorkloadMockFacade) GetWorkloadDetection() database.WorkloadDetectionFacadeInterface { return nil }
+func (m *WorkloadMockFacade) GetWorkloadDetectionEvidence() database.WorkloadDetectionEvidenceFacadeInterface { return nil }
+func (m *WorkloadMockFacade) GetDetectionCoverage() database.DetectionCoverageFacadeInterface { return nil }
 func (m *WorkloadMockFacade) GetAIAgentRegistration() database.AIAgentRegistrationFacadeInterface {
 	return nil
 }
@@ -135,90 +113,34 @@ func (m *WorkloadMockWorkloadFacade) ListWorkloadPodReferenceByWorkloadUid(ctx c
 }
 
 // Implement other required methods
-func (m *WorkloadMockWorkloadFacade) WithCluster(clusterName string) database.WorkloadFacadeInterface {
-	return m
-}
-func (m *WorkloadMockWorkloadFacade) GetGpuWorkloadByUid(ctx context.Context, uid string) (*dbmodel.GpuWorkload, error) {
-	return nil, nil
-}
-func (m *WorkloadMockWorkloadFacade) CreateGpuWorkload(ctx context.Context, gpuWorkload *dbmodel.GpuWorkload) error {
-	return nil
-}
-func (m *WorkloadMockWorkloadFacade) UpdateGpuWorkload(ctx context.Context, gpuWorkload *dbmodel.GpuWorkload) error {
-	return nil
-}
-func (m *WorkloadMockWorkloadFacade) QueryWorkload(ctx context.Context, f *filter.WorkloadFilter) ([]*dbmodel.GpuWorkload, int, error) {
-	return nil, 0, nil
-}
-func (m *WorkloadMockWorkloadFacade) GetWorkloadsNamespaceList(ctx context.Context) ([]string, error) {
-	return nil, nil
-}
-func (m *WorkloadMockWorkloadFacade) GetWorkloadKindList(ctx context.Context) ([]string, error) {
-	return nil, nil
-}
-func (m *WorkloadMockWorkloadFacade) ListRunningWorkload(ctx context.Context) ([]*dbmodel.GpuWorkload, error) {
-	return nil, nil
-}
-func (m *WorkloadMockWorkloadFacade) ListWorkloadsByUids(ctx context.Context, uids []string) ([]*dbmodel.GpuWorkload, error) {
-	return nil, nil
-}
-func (m *WorkloadMockWorkloadFacade) GetNearestWorkloadByPodUid(ctx context.Context, podUid string) (*dbmodel.GpuWorkload, error) {
-	return nil, nil
-}
-func (m *WorkloadMockWorkloadFacade) ListTopLevelWorkloadByUids(ctx context.Context, uids []string) ([]*dbmodel.GpuWorkload, error) {
-	return nil, nil
-}
-func (m *WorkloadMockWorkloadFacade) ListChildrenWorkloadByParentUid(ctx context.Context, parentUid string) ([]*dbmodel.GpuWorkload, error) {
-	return nil, nil
-}
-func (m *WorkloadMockWorkloadFacade) ListWorkloadByLabelValue(ctx context.Context, labelKey, labelValue string) ([]*dbmodel.GpuWorkload, error) {
-	return nil, nil
-}
-func (m *WorkloadMockWorkloadFacade) ListWorkloadNotEndByKind(ctx context.Context, kind string) ([]*dbmodel.GpuWorkload, error) {
-	return nil, nil
-}
-func (m *WorkloadMockWorkloadFacade) ListActiveTopLevelWorkloads(ctx context.Context, startTime, endTime time.Time, namespace string) ([]*dbmodel.GpuWorkload, error) {
-	return nil, nil
-}
-func (m *WorkloadMockWorkloadFacade) CreateGpuWorkloadSnapshot(ctx context.Context, gpuWorkloadSnapshot *dbmodel.GpuWorkloadSnapshot) error {
-	return nil
-}
-func (m *WorkloadMockWorkloadFacade) UpdateGpuWorkloadSnapshot(ctx context.Context, gpuWorkloadSnapshot *dbmodel.GpuWorkloadSnapshot) error {
-	return nil
-}
-func (m *WorkloadMockWorkloadFacade) GetLatestGpuWorkloadSnapshotByUid(ctx context.Context, uid string, resourceVersion int) (*dbmodel.GpuWorkloadSnapshot, error) {
-	return nil, nil
-}
-func (m *WorkloadMockWorkloadFacade) CreateWorkloadPodReference(ctx context.Context, workloadUid, podUid string) error {
-	return nil
-}
-func (m *WorkloadMockWorkloadFacade) ListWorkloadPodReferencesByPodUids(ctx context.Context, podUids []string) ([]*dbmodel.WorkloadPodReference, error) {
-	return nil, nil
-}
-func (m *WorkloadMockWorkloadFacade) GetWorkloadEventByWorkloadUidAndNearestWorkloadIdAndType(ctx context.Context, workloadUid, nearestWorkloadId, typ string) (*dbmodel.WorkloadEvent, error) {
-	return nil, nil
-}
-func (m *WorkloadMockWorkloadFacade) CreateWorkloadEvent(ctx context.Context, workloadEvent *dbmodel.WorkloadEvent) error {
-	return nil
-}
-func (m *WorkloadMockWorkloadFacade) UpdateWorkloadEvent(ctx context.Context, workloadEvent *dbmodel.WorkloadEvent) error {
-	return nil
-}
-func (m *WorkloadMockWorkloadFacade) GetLatestEvent(ctx context.Context, workloadUid, nearestWorkloadId string) (*dbmodel.WorkloadEvent, error) {
-	return nil, nil
-}
-func (m *WorkloadMockWorkloadFacade) GetLatestOtherWorkloadEvent(ctx context.Context, workloadUid, nearestWorkloadId string) (*dbmodel.WorkloadEvent, error) {
-	return nil, nil
-}
-func (m *WorkloadMockWorkloadFacade) GetAllWorkloadPodReferences(ctx context.Context) ([]*dbmodel.WorkloadPodReference, error) {
-	return nil, nil
-}
-func (m *WorkloadMockWorkloadFacade) ListCompletedWorkloadsByKindAndParent(ctx context.Context, kind, parentUID string, since time.Time, limit int) ([]*dbmodel.GpuWorkload, error) {
-	return nil, nil
-}
-func (m *WorkloadMockWorkloadFacade) ListCompletedWorkloadsByKindAndNamespace(ctx context.Context, kind, namespace string, since time.Time, limit int) ([]*dbmodel.GpuWorkload, error) {
-	return nil, nil
-}
+func (m *WorkloadMockWorkloadFacade) WithCluster(clusterName string) database.WorkloadFacadeInterface { return m }
+func (m *WorkloadMockWorkloadFacade) GetGpuWorkloadByUid(ctx context.Context, uid string) (*dbmodel.GpuWorkload, error) { return nil, nil }
+func (m *WorkloadMockWorkloadFacade) CreateGpuWorkload(ctx context.Context, gpuWorkload *dbmodel.GpuWorkload) error { return nil }
+func (m *WorkloadMockWorkloadFacade) UpdateGpuWorkload(ctx context.Context, gpuWorkload *dbmodel.GpuWorkload) error { return nil }
+func (m *WorkloadMockWorkloadFacade) QueryWorkload(ctx context.Context, f *filter.WorkloadFilter) ([]*dbmodel.GpuWorkload, int, error) { return nil, 0, nil }
+func (m *WorkloadMockWorkloadFacade) GetWorkloadsNamespaceList(ctx context.Context) ([]string, error) { return nil, nil }
+func (m *WorkloadMockWorkloadFacade) GetWorkloadKindList(ctx context.Context) ([]string, error) { return nil, nil }
+func (m *WorkloadMockWorkloadFacade) ListRunningWorkload(ctx context.Context) ([]*dbmodel.GpuWorkload, error) { return nil, nil }
+func (m *WorkloadMockWorkloadFacade) ListWorkloadsByUids(ctx context.Context, uids []string) ([]*dbmodel.GpuWorkload, error) { return nil, nil }
+func (m *WorkloadMockWorkloadFacade) GetNearestWorkloadByPodUid(ctx context.Context, podUid string) (*dbmodel.GpuWorkload, error) { return nil, nil }
+func (m *WorkloadMockWorkloadFacade) ListTopLevelWorkloadByUids(ctx context.Context, uids []string) ([]*dbmodel.GpuWorkload, error) { return nil, nil }
+func (m *WorkloadMockWorkloadFacade) ListChildrenWorkloadByParentUid(ctx context.Context, parentUid string) ([]*dbmodel.GpuWorkload, error) { return nil, nil }
+func (m *WorkloadMockWorkloadFacade) ListWorkloadByLabelValue(ctx context.Context, labelKey, labelValue string) ([]*dbmodel.GpuWorkload, error) { return nil, nil }
+func (m *WorkloadMockWorkloadFacade) ListWorkloadNotEndByKind(ctx context.Context, kind string) ([]*dbmodel.GpuWorkload, error) { return nil, nil }
+func (m *WorkloadMockWorkloadFacade) ListActiveTopLevelWorkloads(ctx context.Context, startTime, endTime time.Time, namespace string) ([]*dbmodel.GpuWorkload, error) { return nil, nil }
+func (m *WorkloadMockWorkloadFacade) CreateGpuWorkloadSnapshot(ctx context.Context, gpuWorkloadSnapshot *dbmodel.GpuWorkloadSnapshot) error { return nil }
+func (m *WorkloadMockWorkloadFacade) UpdateGpuWorkloadSnapshot(ctx context.Context, gpuWorkloadSnapshot *dbmodel.GpuWorkloadSnapshot) error { return nil }
+func (m *WorkloadMockWorkloadFacade) GetLatestGpuWorkloadSnapshotByUid(ctx context.Context, uid string, resourceVersion int) (*dbmodel.GpuWorkloadSnapshot, error) { return nil, nil }
+func (m *WorkloadMockWorkloadFacade) CreateWorkloadPodReference(ctx context.Context, workloadUid, podUid string) error { return nil }
+func (m *WorkloadMockWorkloadFacade) ListWorkloadPodReferencesByPodUids(ctx context.Context, podUids []string) ([]*dbmodel.WorkloadPodReference, error) { return nil, nil }
+func (m *WorkloadMockWorkloadFacade) GetWorkloadEventByWorkloadUidAndNearestWorkloadIdAndType(ctx context.Context, workloadUid, nearestWorkloadId, typ string) (*dbmodel.WorkloadEvent, error) { return nil, nil }
+func (m *WorkloadMockWorkloadFacade) CreateWorkloadEvent(ctx context.Context, workloadEvent *dbmodel.WorkloadEvent) error { return nil }
+func (m *WorkloadMockWorkloadFacade) UpdateWorkloadEvent(ctx context.Context, workloadEvent *dbmodel.WorkloadEvent) error { return nil }
+func (m *WorkloadMockWorkloadFacade) GetLatestEvent(ctx context.Context, workloadUid, nearestWorkloadId string) (*dbmodel.WorkloadEvent, error) { return nil, nil }
+func (m *WorkloadMockWorkloadFacade) GetLatestOtherWorkloadEvent(ctx context.Context, workloadUid, nearestWorkloadId string) (*dbmodel.WorkloadEvent, error) { return nil, nil }
+func (m *WorkloadMockWorkloadFacade) GetAllWorkloadPodReferences(ctx context.Context) ([]*dbmodel.WorkloadPodReference, error) { return nil, nil }
+func (m *WorkloadMockWorkloadFacade) ListCompletedWorkloadsByKindAndParent(ctx context.Context, kind, parentUID string, since time.Time, limit int) ([]*dbmodel.GpuWorkload, error) { return nil, nil }
+func (m *WorkloadMockWorkloadFacade) ListCompletedWorkloadsByKindAndNamespace(ctx context.Context, kind, namespace string, since time.Time, limit int) ([]*dbmodel.GpuWorkload, error) { return nil, nil }
 
 // WorkloadMockPodFacade implements database.PodFacadeInterface for testing
 type WorkloadMockPodFacade struct {
@@ -234,69 +156,27 @@ func (m *WorkloadMockPodFacade) ListPodsByUids(ctx context.Context, uids []strin
 
 // Implement other required methods
 func (m *WorkloadMockPodFacade) WithCluster(clusterName string) database.PodFacadeInterface { return m }
-func (m *WorkloadMockPodFacade) CreateGpuPods(ctx context.Context, gpuPods *dbmodel.GpuPods) error {
-	return nil
-}
-func (m *WorkloadMockPodFacade) UpdateGpuPods(ctx context.Context, gpuPods *dbmodel.GpuPods) error {
-	return nil
-}
-func (m *WorkloadMockPodFacade) GetGpuPodsByPodUid(ctx context.Context, podUid string) (*dbmodel.GpuPods, error) {
-	return nil, nil
-}
-func (m *WorkloadMockPodFacade) GetActiveGpuPodByNodeName(ctx context.Context, nodeName string) ([]*dbmodel.GpuPods, error) {
-	return nil, nil
-}
-func (m *WorkloadMockPodFacade) GetHistoryGpuPodByNodeName(ctx context.Context, nodeName string, pageNum, pageSize int) ([]*dbmodel.GpuPods, int, error) {
-	return nil, 0, nil
-}
-func (m *WorkloadMockPodFacade) ListActivePodsByUids(ctx context.Context, uids []string) ([]*dbmodel.GpuPods, error) {
-	return nil, nil
-}
-func (m *WorkloadMockPodFacade) ListActiveGpuPods(ctx context.Context) ([]*dbmodel.GpuPods, error) {
-	return nil, nil
-}
-func (m *WorkloadMockPodFacade) CreateGpuPodsEvent(ctx context.Context, gpuPods *dbmodel.GpuPodsEvent) error {
-	return nil
-}
-func (m *WorkloadMockPodFacade) UpdateGpuPodsEvent(ctx context.Context, gpuPods *dbmodel.GpuPods) error {
-	return nil
-}
-func (m *WorkloadMockPodFacade) CreatePodSnapshot(ctx context.Context, podSnapshot *dbmodel.PodSnapshot) error {
-	return nil
-}
-func (m *WorkloadMockPodFacade) UpdatePodSnapshot(ctx context.Context, podSnapshot *dbmodel.PodSnapshot) error {
-	return nil
-}
-func (m *WorkloadMockPodFacade) GetLastPodSnapshot(ctx context.Context, podUid string, resourceVersion int) (*dbmodel.PodSnapshot, error) {
-	return nil, nil
-}
-func (m *WorkloadMockPodFacade) GetPodResourceByUid(ctx context.Context, uid string) (*dbmodel.PodResource, error) {
-	return nil, nil
-}
-func (m *WorkloadMockPodFacade) CreatePodResource(ctx context.Context, podResource *dbmodel.PodResource) error {
-	return nil
-}
-func (m *WorkloadMockPodFacade) UpdatePodResource(ctx context.Context, podResource *dbmodel.PodResource) error {
-	return nil
-}
-func (m *WorkloadMockPodFacade) ListPodResourcesByUids(ctx context.Context, uids []string) ([]*dbmodel.PodResource, error) {
-	return nil, nil
-}
-func (m *WorkloadMockPodFacade) QueryPodsWithFilters(ctx context.Context, namespace, podName, startTime, endTime string, page, pageSize int) ([]*dbmodel.GpuPods, int64, error) {
-	return nil, 0, nil
-}
-func (m *WorkloadMockPodFacade) GetAverageGPUUtilizationByNode(ctx context.Context, nodeName string) (float64, error) {
-	return 0.0, nil
-}
-func (m *WorkloadMockPodFacade) GetLatestGPUMetricsByNode(ctx context.Context, nodeName string) (*dbmodel.GpuDevice, error) {
-	return nil, nil
-}
-func (m *WorkloadMockPodFacade) QueryGPUHistoryByNode(ctx context.Context, nodeName string, startTime, endTime time.Time) ([]*dbmodel.GpuDevice, error) {
-	return nil, nil
-}
-func (m *WorkloadMockPodFacade) ListPodEventsByUID(ctx context.Context, podUID string) ([]*dbmodel.GpuPodsEvent, error) {
-	return nil, nil
-}
+func (m *WorkloadMockPodFacade) CreateGpuPods(ctx context.Context, gpuPods *dbmodel.GpuPods) error { return nil }
+func (m *WorkloadMockPodFacade) UpdateGpuPods(ctx context.Context, gpuPods *dbmodel.GpuPods) error { return nil }
+func (m *WorkloadMockPodFacade) GetGpuPodsByPodUid(ctx context.Context, podUid string) (*dbmodel.GpuPods, error) { return nil, nil }
+func (m *WorkloadMockPodFacade) GetActiveGpuPodByNodeName(ctx context.Context, nodeName string) ([]*dbmodel.GpuPods, error) { return nil, nil }
+func (m *WorkloadMockPodFacade) GetHistoryGpuPodByNodeName(ctx context.Context, nodeName string, pageNum, pageSize int) ([]*dbmodel.GpuPods, int, error) { return nil, 0, nil }
+func (m *WorkloadMockPodFacade) ListActivePodsByUids(ctx context.Context, uids []string) ([]*dbmodel.GpuPods, error) { return nil, nil }
+func (m *WorkloadMockPodFacade) ListActiveGpuPods(ctx context.Context) ([]*dbmodel.GpuPods, error) { return nil, nil }
+func (m *WorkloadMockPodFacade) CreateGpuPodsEvent(ctx context.Context, gpuPods *dbmodel.GpuPodsEvent) error { return nil }
+func (m *WorkloadMockPodFacade) UpdateGpuPodsEvent(ctx context.Context, gpuPods *dbmodel.GpuPods) error { return nil }
+func (m *WorkloadMockPodFacade) CreatePodSnapshot(ctx context.Context, podSnapshot *dbmodel.PodSnapshot) error { return nil }
+func (m *WorkloadMockPodFacade) UpdatePodSnapshot(ctx context.Context, podSnapshot *dbmodel.PodSnapshot) error { return nil }
+func (m *WorkloadMockPodFacade) GetLastPodSnapshot(ctx context.Context, podUid string, resourceVersion int) (*dbmodel.PodSnapshot, error) { return nil, nil }
+func (m *WorkloadMockPodFacade) GetPodResourceByUid(ctx context.Context, uid string) (*dbmodel.PodResource, error) { return nil, nil }
+func (m *WorkloadMockPodFacade) CreatePodResource(ctx context.Context, podResource *dbmodel.PodResource) error { return nil }
+func (m *WorkloadMockPodFacade) UpdatePodResource(ctx context.Context, podResource *dbmodel.PodResource) error { return nil }
+func (m *WorkloadMockPodFacade) ListPodResourcesByUids(ctx context.Context, uids []string) ([]*dbmodel.PodResource, error) { return nil, nil }
+func (m *WorkloadMockPodFacade) QueryPodsWithFilters(ctx context.Context, namespace, podName, startTime, endTime string, page, pageSize int) ([]*dbmodel.GpuPods, int64, error) { return nil, 0, nil }
+func (m *WorkloadMockPodFacade) GetAverageGPUUtilizationByNode(ctx context.Context, nodeName string) (float64, error) { return 0.0, nil }
+func (m *WorkloadMockPodFacade) GetLatestGPUMetricsByNode(ctx context.Context, nodeName string) (*dbmodel.GpuDevice, error) { return nil, nil }
+func (m *WorkloadMockPodFacade) QueryGPUHistoryByNode(ctx context.Context, nodeName string, startTime, endTime time.Time) ([]*dbmodel.GpuDevice, error) { return nil, nil }
+func (m *WorkloadMockPodFacade) ListPodEventsByUID(ctx context.Context, podUID string) ([]*dbmodel.GpuPodsEvent, error) { return nil, nil }
 
 // WorkloadMockGpuAggregationFacade implements database.GpuAggregationFacadeInterface for testing
 type WorkloadMockGpuAggregationFacade struct {
@@ -313,114 +193,42 @@ func (m *WorkloadMockGpuAggregationFacade) SaveWorkloadHourlyStats(ctx context.C
 }
 
 // Implement other required methods
-func (m *WorkloadMockGpuAggregationFacade) WithCluster(clusterName string) database.GpuAggregationFacadeInterface {
-	return m
-}
-func (m *WorkloadMockGpuAggregationFacade) SaveClusterHourlyStats(ctx context.Context, stats *dbmodel.ClusterGpuHourlyStats) error {
-	return nil
-}
-func (m *WorkloadMockGpuAggregationFacade) BatchSaveClusterHourlyStats(ctx context.Context, stats []*dbmodel.ClusterGpuHourlyStats) error {
-	return nil
-}
-func (m *WorkloadMockGpuAggregationFacade) GetClusterHourlyStats(ctx context.Context, startTime, endTime time.Time) ([]*dbmodel.ClusterGpuHourlyStats, error) {
-	return nil, nil
-}
-func (m *WorkloadMockGpuAggregationFacade) GetClusterHourlyStatsPaginated(ctx context.Context, startTime, endTime time.Time, opts database.PaginationOptions) (*database.PaginatedResult, error) {
-	return nil, nil
-}
-func (m *WorkloadMockGpuAggregationFacade) SaveNamespaceHourlyStats(ctx context.Context, stats *dbmodel.NamespaceGpuHourlyStats) error {
-	return nil
-}
-func (m *WorkloadMockGpuAggregationFacade) BatchSaveNamespaceHourlyStats(ctx context.Context, stats []*dbmodel.NamespaceGpuHourlyStats) error {
-	return nil
-}
-func (m *WorkloadMockGpuAggregationFacade) GetNamespaceHourlyStats(ctx context.Context, namespace string, startTime, endTime time.Time) ([]*dbmodel.NamespaceGpuHourlyStats, error) {
-	return nil, nil
-}
-func (m *WorkloadMockGpuAggregationFacade) ListNamespaceHourlyStats(ctx context.Context, startTime, endTime time.Time) ([]*dbmodel.NamespaceGpuHourlyStats, error) {
-	return nil, nil
-}
-func (m *WorkloadMockGpuAggregationFacade) GetNamespaceHourlyStatsPaginated(ctx context.Context, namespace string, startTime, endTime time.Time, opts database.PaginationOptions) (*database.PaginatedResult, error) {
-	return nil, nil
-}
-func (m *WorkloadMockGpuAggregationFacade) ListNamespaceHourlyStatsPaginated(ctx context.Context, startTime, endTime time.Time, opts database.PaginationOptions) (*database.PaginatedResult, error) {
-	return nil, nil
-}
-func (m *WorkloadMockGpuAggregationFacade) ListNamespaceHourlyStatsPaginatedWithExclusion(ctx context.Context, startTime, endTime time.Time, excludeNamespaces []string, opts database.PaginationOptions) (*database.PaginatedResult, error) {
-	return nil, nil
-}
-func (m *WorkloadMockGpuAggregationFacade) SaveLabelHourlyStats(ctx context.Context, stats *dbmodel.LabelGpuHourlyStats) error {
-	return nil
-}
-func (m *WorkloadMockGpuAggregationFacade) BatchSaveLabelHourlyStats(ctx context.Context, stats []*dbmodel.LabelGpuHourlyStats) error {
-	return nil
-}
-func (m *WorkloadMockGpuAggregationFacade) GetLabelHourlyStats(ctx context.Context, dimensionType, dimensionKey, dimensionValue string, startTime, endTime time.Time) ([]*dbmodel.LabelGpuHourlyStats, error) {
-	return nil, nil
-}
-func (m *WorkloadMockGpuAggregationFacade) ListLabelHourlyStatsByKey(ctx context.Context, dimensionType, dimensionKey string, startTime, endTime time.Time) ([]*dbmodel.LabelGpuHourlyStats, error) {
-	return nil, nil
-}
-func (m *WorkloadMockGpuAggregationFacade) GetLabelHourlyStatsPaginated(ctx context.Context, dimensionType, dimensionKey, dimensionValue string, startTime, endTime time.Time, opts database.PaginationOptions) (*database.PaginatedResult, error) {
-	return nil, nil
-}
-func (m *WorkloadMockGpuAggregationFacade) ListLabelHourlyStatsByKeyPaginated(ctx context.Context, dimensionType, dimensionKey string, startTime, endTime time.Time, opts database.PaginationOptions) (*database.PaginatedResult, error) {
-	return nil, nil
-}
-func (m *WorkloadMockGpuAggregationFacade) LabelHourlyStatsExists(ctx context.Context, clusterName, dimensionType, dimensionKey, dimensionValue string, hour time.Time) (bool, error) {
-	return false, nil
-}
-func (m *WorkloadMockGpuAggregationFacade) BatchSaveWorkloadHourlyStats(ctx context.Context, stats []*dbmodel.WorkloadGpuHourlyStats) error {
-	return nil
-}
-func (m *WorkloadMockGpuAggregationFacade) GetWorkloadHourlyStats(ctx context.Context, namespace, workloadName string, startTime, endTime time.Time) ([]*dbmodel.WorkloadGpuHourlyStats, error) {
-	return nil, nil
-}
-func (m *WorkloadMockGpuAggregationFacade) ListWorkloadHourlyStats(ctx context.Context, startTime, endTime time.Time) ([]*dbmodel.WorkloadGpuHourlyStats, error) {
-	return nil, nil
-}
-func (m *WorkloadMockGpuAggregationFacade) ListWorkloadHourlyStatsByNamespace(ctx context.Context, namespace string, startTime, endTime time.Time) ([]*dbmodel.WorkloadGpuHourlyStats, error) {
-	return nil, nil
-}
-func (m *WorkloadMockGpuAggregationFacade) GetWorkloadHourlyStatsPaginated(ctx context.Context, namespace, workloadName, workloadType string, startTime, endTime time.Time, opts database.PaginationOptions) (*database.PaginatedResult, error) {
-	return nil, nil
-}
-func (m *WorkloadMockGpuAggregationFacade) GetWorkloadHourlyStatsPaginatedWithExclusion(ctx context.Context, namespace, workloadName, workloadType string, startTime, endTime time.Time, excludeNamespaces []string, opts database.PaginationOptions) (*database.PaginatedResult, error) {
-	return nil, nil
-}
-func (m *WorkloadMockGpuAggregationFacade) ListWorkloadHourlyStatsPaginated(ctx context.Context, startTime, endTime time.Time, opts database.PaginationOptions) (*database.PaginatedResult, error) {
-	return nil, nil
-}
-func (m *WorkloadMockGpuAggregationFacade) ListWorkloadHourlyStatsByNamespacePaginated(ctx context.Context, namespace string, startTime, endTime time.Time, opts database.PaginationOptions) (*database.PaginatedResult, error) {
-	return nil, nil
-}
-func (m *WorkloadMockGpuAggregationFacade) SaveSnapshot(ctx context.Context, snapshot *dbmodel.GpuAllocationSnapshots) error {
-	return nil
-}
-func (m *WorkloadMockGpuAggregationFacade) GetLatestSnapshot(ctx context.Context) (*dbmodel.GpuAllocationSnapshots, error) {
-	return nil, nil
-}
-func (m *WorkloadMockGpuAggregationFacade) ListSnapshots(ctx context.Context, startTime, endTime time.Time) ([]*dbmodel.GpuAllocationSnapshots, error) {
-	return nil, nil
-}
-func (m *WorkloadMockGpuAggregationFacade) CleanupOldSnapshots(ctx context.Context, beforeTime time.Time) (int64, error) {
-	return 0, nil
-}
-func (m *WorkloadMockGpuAggregationFacade) CleanupOldHourlyStats(ctx context.Context, beforeTime time.Time) (int64, error) {
-	return 0, nil
-}
-func (m *WorkloadMockGpuAggregationFacade) GetDistinctNamespaces(ctx context.Context, startTime, endTime time.Time) ([]string, error) {
-	return nil, nil
-}
-func (m *WorkloadMockGpuAggregationFacade) GetDistinctNamespacesWithExclusion(ctx context.Context, startTime, endTime time.Time, excludeNamespaces []string) ([]string, error) {
-	return nil, nil
-}
-func (m *WorkloadMockGpuAggregationFacade) GetDistinctDimensionKeys(ctx context.Context, dimensionType string, startTime, endTime time.Time) ([]string, error) {
-	return nil, nil
-}
-func (m *WorkloadMockGpuAggregationFacade) GetDistinctDimensionValues(ctx context.Context, dimensionType, dimensionKey string, startTime, endTime time.Time) ([]string, error) {
-	return nil, nil
-}
+func (m *WorkloadMockGpuAggregationFacade) WithCluster(clusterName string) database.GpuAggregationFacadeInterface { return m }
+func (m *WorkloadMockGpuAggregationFacade) SaveClusterHourlyStats(ctx context.Context, stats *dbmodel.ClusterGpuHourlyStats) error { return nil }
+func (m *WorkloadMockGpuAggregationFacade) BatchSaveClusterHourlyStats(ctx context.Context, stats []*dbmodel.ClusterGpuHourlyStats) error { return nil }
+func (m *WorkloadMockGpuAggregationFacade) GetClusterHourlyStats(ctx context.Context, startTime, endTime time.Time) ([]*dbmodel.ClusterGpuHourlyStats, error) { return nil, nil }
+func (m *WorkloadMockGpuAggregationFacade) GetClusterHourlyStatsPaginated(ctx context.Context, startTime, endTime time.Time, opts database.PaginationOptions) (*database.PaginatedResult, error) { return nil, nil }
+func (m *WorkloadMockGpuAggregationFacade) SaveNamespaceHourlyStats(ctx context.Context, stats *dbmodel.NamespaceGpuHourlyStats) error { return nil }
+func (m *WorkloadMockGpuAggregationFacade) BatchSaveNamespaceHourlyStats(ctx context.Context, stats []*dbmodel.NamespaceGpuHourlyStats) error { return nil }
+func (m *WorkloadMockGpuAggregationFacade) GetNamespaceHourlyStats(ctx context.Context, namespace string, startTime, endTime time.Time) ([]*dbmodel.NamespaceGpuHourlyStats, error) { return nil, nil }
+func (m *WorkloadMockGpuAggregationFacade) ListNamespaceHourlyStats(ctx context.Context, startTime, endTime time.Time) ([]*dbmodel.NamespaceGpuHourlyStats, error) { return nil, nil }
+func (m *WorkloadMockGpuAggregationFacade) GetNamespaceHourlyStatsPaginated(ctx context.Context, namespace string, startTime, endTime time.Time, opts database.PaginationOptions) (*database.PaginatedResult, error) { return nil, nil }
+func (m *WorkloadMockGpuAggregationFacade) ListNamespaceHourlyStatsPaginated(ctx context.Context, startTime, endTime time.Time, opts database.PaginationOptions) (*database.PaginatedResult, error) { return nil, nil }
+func (m *WorkloadMockGpuAggregationFacade) ListNamespaceHourlyStatsPaginatedWithExclusion(ctx context.Context, startTime, endTime time.Time, excludeNamespaces []string, opts database.PaginationOptions) (*database.PaginatedResult, error) { return nil, nil }
+func (m *WorkloadMockGpuAggregationFacade) SaveLabelHourlyStats(ctx context.Context, stats *dbmodel.LabelGpuHourlyStats) error { return nil }
+func (m *WorkloadMockGpuAggregationFacade) BatchSaveLabelHourlyStats(ctx context.Context, stats []*dbmodel.LabelGpuHourlyStats) error { return nil }
+func (m *WorkloadMockGpuAggregationFacade) GetLabelHourlyStats(ctx context.Context, dimensionType, dimensionKey, dimensionValue string, startTime, endTime time.Time) ([]*dbmodel.LabelGpuHourlyStats, error) { return nil, nil }
+func (m *WorkloadMockGpuAggregationFacade) ListLabelHourlyStatsByKey(ctx context.Context, dimensionType, dimensionKey string, startTime, endTime time.Time) ([]*dbmodel.LabelGpuHourlyStats, error) { return nil, nil }
+func (m *WorkloadMockGpuAggregationFacade) GetLabelHourlyStatsPaginated(ctx context.Context, dimensionType, dimensionKey, dimensionValue string, startTime, endTime time.Time, opts database.PaginationOptions) (*database.PaginatedResult, error) { return nil, nil }
+func (m *WorkloadMockGpuAggregationFacade) ListLabelHourlyStatsByKeyPaginated(ctx context.Context, dimensionType, dimensionKey string, startTime, endTime time.Time, opts database.PaginationOptions) (*database.PaginatedResult, error) { return nil, nil }
+func (m *WorkloadMockGpuAggregationFacade) LabelHourlyStatsExists(ctx context.Context, clusterName, dimensionType, dimensionKey, dimensionValue string, hour time.Time) (bool, error) { return false, nil }
+func (m *WorkloadMockGpuAggregationFacade) BatchSaveWorkloadHourlyStats(ctx context.Context, stats []*dbmodel.WorkloadGpuHourlyStats) error { return nil }
+func (m *WorkloadMockGpuAggregationFacade) GetWorkloadHourlyStats(ctx context.Context, namespace, workloadName string, startTime, endTime time.Time) ([]*dbmodel.WorkloadGpuHourlyStats, error) { return nil, nil }
+func (m *WorkloadMockGpuAggregationFacade) ListWorkloadHourlyStats(ctx context.Context, startTime, endTime time.Time) ([]*dbmodel.WorkloadGpuHourlyStats, error) { return nil, nil }
+func (m *WorkloadMockGpuAggregationFacade) ListWorkloadHourlyStatsByNamespace(ctx context.Context, namespace string, startTime, endTime time.Time) ([]*dbmodel.WorkloadGpuHourlyStats, error) { return nil, nil }
+func (m *WorkloadMockGpuAggregationFacade) GetWorkloadHourlyStatsPaginated(ctx context.Context, namespace, workloadName, workloadType string, startTime, endTime time.Time, opts database.PaginationOptions) (*database.PaginatedResult, error) { return nil, nil }
+func (m *WorkloadMockGpuAggregationFacade) GetWorkloadHourlyStatsPaginatedWithExclusion(ctx context.Context, namespace, workloadName, workloadType string, startTime, endTime time.Time, excludeNamespaces []string, opts database.PaginationOptions) (*database.PaginatedResult, error) { return nil, nil }
+func (m *WorkloadMockGpuAggregationFacade) ListWorkloadHourlyStatsPaginated(ctx context.Context, startTime, endTime time.Time, opts database.PaginationOptions) (*database.PaginatedResult, error) { return nil, nil }
+func (m *WorkloadMockGpuAggregationFacade) ListWorkloadHourlyStatsByNamespacePaginated(ctx context.Context, namespace string, startTime, endTime time.Time, opts database.PaginationOptions) (*database.PaginatedResult, error) { return nil, nil }
+func (m *WorkloadMockGpuAggregationFacade) SaveSnapshot(ctx context.Context, snapshot *dbmodel.GpuAllocationSnapshots) error { return nil }
+func (m *WorkloadMockGpuAggregationFacade) GetLatestSnapshot(ctx context.Context) (*dbmodel.GpuAllocationSnapshots, error) { return nil, nil }
+func (m *WorkloadMockGpuAggregationFacade) ListSnapshots(ctx context.Context, startTime, endTime time.Time) ([]*dbmodel.GpuAllocationSnapshots, error) { return nil, nil }
+func (m *WorkloadMockGpuAggregationFacade) CleanupOldSnapshots(ctx context.Context, beforeTime time.Time) (int64, error) { return 0, nil }
+func (m *WorkloadMockGpuAggregationFacade) CleanupOldHourlyStats(ctx context.Context, beforeTime time.Time) (int64, error) { return 0, nil }
+func (m *WorkloadMockGpuAggregationFacade) GetDistinctNamespaces(ctx context.Context, startTime, endTime time.Time) ([]string, error) { return nil, nil }
+func (m *WorkloadMockGpuAggregationFacade) GetDistinctNamespacesWithExclusion(ctx context.Context, startTime, endTime time.Time, excludeNamespaces []string) ([]string, error) { return nil, nil }
+func (m *WorkloadMockGpuAggregationFacade) GetDistinctDimensionKeys(ctx context.Context, dimensionType string, startTime, endTime time.Time) ([]string, error) { return nil, nil }
+func (m *WorkloadMockGpuAggregationFacade) GetDistinctDimensionValues(ctx context.Context, dimensionType, dimensionKey string, startTime, endTime time.Time) ([]string, error) { return nil, nil }
 
 // WorkloadMockGenericCacheFacade implements database.GenericCacheFacadeInterface for testing
 type WorkloadMockGenericCacheFacade struct {
@@ -442,13 +250,9 @@ func (m *WorkloadMockGenericCacheFacade) Set(ctx context.Context, key string, va
 	return nil
 }
 
-func (m *WorkloadMockGenericCacheFacade) WithCluster(clusterName string) database.GenericCacheFacadeInterface {
-	return m
-}
+func (m *WorkloadMockGenericCacheFacade) WithCluster(clusterName string) database.GenericCacheFacadeInterface { return m }
 func (m *WorkloadMockGenericCacheFacade) Delete(ctx context.Context, key string) error { return nil }
-func (m *WorkloadMockGenericCacheFacade) Exists(ctx context.Context, key string) (bool, error) {
-	return false, nil
-}
+func (m *WorkloadMockGenericCacheFacade) Exists(ctx context.Context, key string) (bool, error) { return false, nil }
 func (m *WorkloadMockGenericCacheFacade) DeleteExpired(ctx context.Context) error { return nil }
 
 // ==================== Test Cases ====================
@@ -1100,7 +904,7 @@ func TestCountWorkloadActivePodsInHour_NilPods(t *testing.T) {
 
 func TestCalculatePercentile_SingleValueCase(t *testing.T) {
 	values := []float64{42.0}
-
+	
 	assert.Equal(t, 42.0, CalculatePercentile(values, 0))
 	assert.Equal(t, 42.0, CalculatePercentile(values, 0.5))
 	assert.Equal(t, 42.0, CalculatePercentile(values, 1))
@@ -1108,7 +912,7 @@ func TestCalculatePercentile_SingleValueCase(t *testing.T) {
 
 func TestCalculatePercentile_TwoValuesCase(t *testing.T) {
 	values := []float64{10.0, 20.0}
-
+	
 	assert.Equal(t, 10.0, CalculatePercentile(values, 0))
 	assert.Equal(t, 10.0, CalculatePercentile(values, 0.5))
 	assert.Equal(t, 20.0, CalculatePercentile(values, 1))
@@ -1212,3 +1016,4 @@ func TestFilterWorkloadActiveTopLevel_WorkloadCreatedExactlyAtEndTime(t *testing
 	result := FilterWorkloadActiveTopLevel(workloads, startTime, endTime)
 	assert.Equal(t, 1, len(result)) // Should be included since CreatedAt is not after endTime
 }
+
