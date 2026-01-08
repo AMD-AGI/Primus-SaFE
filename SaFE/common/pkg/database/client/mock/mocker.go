@@ -2927,3 +2927,91 @@ func (mr *MockInterfaceMockRecorder) ListEnvironmentSnapshots(ctx, query, orderB
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEnvironmentSnapshots", reflect.TypeOf((*MockInterface)(nil).ListEnvironmentSnapshots), ctx, query, orderBy, limit, offset)
 }
+
+// InsertApiKey mocks base method.
+func (m *MockInterface) InsertApiKey(ctx context.Context, apiKey *client.ApiKey) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "InsertApiKey", ctx, apiKey)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// InsertApiKey indicates an expected call of InsertApiKey.
+func (mr *MockInterfaceMockRecorder) InsertApiKey(ctx, apiKey interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertApiKey", reflect.TypeOf((*MockInterface)(nil).InsertApiKey), ctx, apiKey)
+}
+
+// SelectApiKeys mocks base method.
+func (m *MockInterface) SelectApiKeys(ctx context.Context, query squirrel.Sqlizer, orderBy []string, limit, offset int) ([]*client.ApiKey, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SelectApiKeys", ctx, query, orderBy, limit, offset)
+	ret0, _ := ret[0].([]*client.ApiKey)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SelectApiKeys indicates an expected call of SelectApiKeys.
+func (mr *MockInterfaceMockRecorder) SelectApiKeys(ctx, query, orderBy, limit, offset interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SelectApiKeys", reflect.TypeOf((*MockInterface)(nil).SelectApiKeys), ctx, query, orderBy, limit, offset)
+}
+
+// CountApiKeys mocks base method.
+func (m *MockInterface) CountApiKeys(ctx context.Context, query squirrel.Sqlizer) (int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountApiKeys", ctx, query)
+	ret0, _ := ret[0].(int)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountApiKeys indicates an expected call of CountApiKeys.
+func (mr *MockInterfaceMockRecorder) CountApiKeys(ctx, query interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountApiKeys", reflect.TypeOf((*MockInterface)(nil).CountApiKeys), ctx, query)
+}
+
+// GetApiKeyById mocks base method.
+func (m *MockInterface) GetApiKeyById(ctx context.Context, id int64) (*client.ApiKey, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetApiKeyById", ctx, id)
+	ret0, _ := ret[0].(*client.ApiKey)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetApiKeyById indicates an expected call of GetApiKeyById.
+func (mr *MockInterfaceMockRecorder) GetApiKeyById(ctx, id interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetApiKeyById", reflect.TypeOf((*MockInterface)(nil).GetApiKeyById), ctx, id)
+}
+
+// GetApiKeyByKey mocks base method.
+func (m *MockInterface) GetApiKeyByKey(ctx context.Context, apiKey string) (*client.ApiKey, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetApiKeyByKey", ctx, apiKey)
+	ret0, _ := ret[0].(*client.ApiKey)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetApiKeyByKey indicates an expected call of GetApiKeyByKey.
+func (mr *MockInterfaceMockRecorder) GetApiKeyByKey(ctx, apiKey interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetApiKeyByKey", reflect.TypeOf((*MockInterface)(nil).GetApiKeyByKey), ctx, apiKey)
+}
+
+// SetApiKeyDeleted mocks base method.
+func (m *MockInterface) SetApiKeyDeleted(ctx context.Context, userId string, id int64) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetApiKeyDeleted", ctx, userId, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetApiKeyDeleted indicates an expected call of SetApiKeyDeleted.
+func (mr *MockInterfaceMockRecorder) SetApiKeyDeleted(ctx, userId, id interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetApiKeyDeleted", reflect.TypeOf((*MockInterface)(nil).SetApiKeyDeleted), ctx, userId, id)
+}
