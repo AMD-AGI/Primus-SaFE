@@ -131,17 +131,57 @@ func TestGenerateKeyHint(t *testing.T) {
 		{
 			name:     "standard api key",
 			apiKey:   "ak-dGVzdC1rZXktMTIzNDU2Nzg5MA",
-			expected: "dG-g5MA", // first 2 + last 4 of body
+			expected: "ak-dG****g5MA", // ak- + first 2 + **** + last 4
 		},
 		{
 			name:     "short key body",
 			apiKey:   "ak-abc",
-			expected: "abc", // too short, return as-is
+			expected: "ak-abc", // too short, just add prefix
 		},
 		{
-			name:     "minimum length key",
+			name:     "minimum length key exactly 6 chars",
 			apiKey:   "ak-123456",
-			expected: "12-3456",
+			expected: "ak-12****3456",
+		},
+		{
+			name:     "key with dash in last 4 chars",
+			apiKey:   "ak-gMG4VKwN-o8hlGgFjcjJj_a67HJbr8ZhjLSdCAXX-gY",
+			expected: "ak-gM****X-gY", // correctly handles dash in last 4
+		},
+		{
+			name:     "key with underscore in body",
+			apiKey:   "ak-abc_def_ghi_jkl",
+			expected: "ak-ab****_jkl", // correctly handles underscore
+		},
+		{
+			name:     "key with multiple dashes",
+			apiKey:   "ak-a-b-c-d-e-f-g",
+			expected: "ak-a-****-f-g", // multiple dashes
+		},
+		{
+			name:     "key ending with dash",
+			apiKey:   "ak-abcdefghij-",
+			expected: "ak-ab****hij-", // dash at end (last 4: h,i,j,-)
+		},
+		{
+			name:     "empty key body",
+			apiKey:   "ak-",
+			expected: "ak-", // empty body
+		},
+		{
+			name:     "empty string",
+			apiKey:   "",
+			expected: "ak-", // empty input
+		},
+		{
+			name:     "5 char body (boundary)",
+			apiKey:   "ak-12345",
+			expected: "ak-12345", // less than 6, return as-is with prefix
+		},
+		{
+			name:     "7 char body",
+			apiKey:   "ak-1234567",
+			expected: "ak-12****4567",
 		},
 	}
 
@@ -149,43 +189,6 @@ func TestGenerateKeyHint(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			hint := GenerateKeyHint(tt.apiKey)
 			assert.Equal(t, tt.expected, hint)
-		})
-	}
-}
-
-// TestFormatKeyHint tests the key hint formatting for display
-func TestFormatKeyHint(t *testing.T) {
-	tests := []struct {
-		name     string
-		hint     string
-		expected string
-	}{
-		{
-			name:     "standard hint",
-			hint:     "dG-890A",
-			expected: "ak-dG****890A",
-		},
-		{
-			name:     "empty hint",
-			hint:     "",
-			expected: "",
-		},
-		{
-			name:     "hint without separator",
-			hint:     "abc",
-			expected: "ak-abc",
-		},
-		{
-			name:     "minimum hint",
-			hint:     "12-3456",
-			expected: "ak-12****3456",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			formatted := FormatKeyHint(tt.hint)
-			assert.Equal(t, tt.expected, formatted)
 		})
 	}
 }

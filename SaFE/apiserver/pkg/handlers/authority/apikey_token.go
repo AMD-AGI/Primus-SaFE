@@ -102,29 +102,15 @@ func HashApiKey(apiKey string, secret []byte) string {
 }
 
 // GenerateKeyHint creates a partial key hint for user display
-// Format: "XX-YYYY" where XX is first 2 chars and YYYY is last 4 chars after prefix
-// Display format will be: "ak-XX****YYYY"
+// Returns the final display format: "ak-XX****YYYY"
 func GenerateKeyHint(apiKey string) string {
 	// Remove prefix to get the key body
 	keyBody := strings.TrimPrefix(apiKey, ApiKeyPrefix)
 	if len(keyBody) < 6 {
-		return keyBody // Too short, return as-is
+		return ApiKeyPrefix + keyBody // Too short, just mask with prefix
 	}
-	// Format: first 2 chars + "-" + last 4 chars
-	return keyBody[:2] + "-" + keyBody[len(keyBody)-4:]
-}
-
-// FormatKeyHint formats the stored hint for display
-// Input: "XX-YYYY", Output: "ak-XX****YYYY"
-func FormatKeyHint(hint string) string {
-	if hint == "" {
-		return ""
-	}
-	parts := strings.Split(hint, "-")
-	if len(parts) != 2 {
-		return ApiKeyPrefix + hint
-	}
-	return ApiKeyPrefix + parts[0] + "****" + parts[1]
+	// Format: ak- + first 2 chars + **** + last 4 chars
+	return ApiKeyPrefix + keyBody[:2] + "****" + keyBody[len(keyBody)-4:]
 }
 
 // ValidateApiKey validates an API key and returns user information
