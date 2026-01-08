@@ -975,7 +975,12 @@ func (r *DispatcherReconciler) generateTorchFTWorker(ctx context.Context,
 	displayName := v1.GetDisplayName(rootWorkload) + "-" + strconv.Itoa(id+1)
 	workload.Name = commonutils.GenerateName(displayName)
 	workload.Spec.Resources = []v1.WorkloadResource{rootWorkload.Spec.Resources[1]}
-	workload.Spec.Resources[0].Replica = nodePerGroup
+	workload.Spec.Resources[0].Replica = 1
+	if nodePerGroup > 1 {
+		workload.Spec.Resources = append(workload.Spec.Resources, rootWorkload.Spec.Resources[1])
+		workload.Spec.Resources[1].Replica = nodePerGroup - 1
+	}
+	
 	if workload.Spec.Env == nil {
 		workload.Spec.Env = make(map[string]string)
 	}
