@@ -982,6 +982,7 @@ func (r *DispatcherReconciler) generateTorchFTWorker(ctx context.Context,
 	workload.Spec.Env[common.TorchFTLightHouse] = lightHouseAddr
 
 	entryPoint := stringutil.Base64Decode(workload.Spec.EntryPoint)
+	entryPoint = strings.TrimRight(entryPoint, "\n")
 	workload.Spec.EntryPoint = stringutil.Base64Encode(entryPoint + " --fault_tolerance.enable --fault_tolerance.replica_id=" +
 		strconv.Itoa(id) + " --fault_tolerance.group_size=" + strconv.Itoa(group))
 	workload.Spec.GroupVersionKind.Kind = common.PytorchJobKind
