@@ -462,21 +462,15 @@ func handleTorchFTGroupStatus(adminWorkload *v1.Workload, name string, phase v1.
 }
 
 // isTorchFTGroupFailed checks if the TorchFT workload should be considered as failed
-// based on the failure status of its groups. A TorchFT workload is considered failed if:
-// 1. The lighthouse (index 0) has failed, OR
-// 2. The number of remaining available groups falls below the minimum required groups
-// This function evaluates the TorchFTPhase map to determine the overall failure status
+// if the number of remaining available worker groups falls below the minimum required groups
 func isTorchFTGroupFailed(adminWorkload *v1.Workload) bool {
 	totalGroups, _ := commonworkload.GetReplicaGroup(adminWorkload, common.ReplicaGroup)
 	minGroups, _ := commonworkload.GetReplicaGroup(adminWorkload, common.MinReplicaGroup)
 
 	failedCount := 0
-	for i := 0; i <= totalGroups; i++ {
+	for i := 1; i <= totalGroups; i++ {
 		p := adminWorkload.Status.TorchFTPhase[strconv.Itoa(i)]
 		if p == v1.WorkloadFailed || p == v1.WorkloadStopped {
-			if i == 0 {
-				return true
-			}
 			failedCount++
 		}
 	}
