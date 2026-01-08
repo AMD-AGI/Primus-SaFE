@@ -218,7 +218,7 @@ func (a *ApiKeyToken) checkIPWhitelist(whitelistJSON string, clientIP string) er
 			}
 		} else {
 			// Plain IP address
-			if net.ParseIP(entry) != nil && net.ParseIP(entry).Equal(clientIPAddr) {
+			if parsedIP := net.ParseIP(entry); parsedIP != nil && parsedIP.Equal(clientIPAddr) {
 				return nil
 			}
 		}
