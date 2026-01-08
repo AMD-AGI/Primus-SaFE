@@ -55,8 +55,8 @@ func TestGetTopicDefinition(t *testing.T) {
 
 func TestGetTopicTimeout(t *testing.T) {
 	tests := []struct {
-		topic string
-		want  time.Duration
+		topic   string
+		want    time.Duration
 	}{
 		{TopicAlertAdvisorAggregateWorkloads, 30 * time.Second},
 		{TopicAlertAdvisorGenerateSuggestions, 60 * time.Second},
@@ -169,3 +169,4 @@ func TestTopicDefinition_Fields(t *testing.T) {
 		})
 	}
 }
+

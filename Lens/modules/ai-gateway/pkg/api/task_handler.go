@@ -78,10 +78,10 @@ func (h *TaskHandler) GetTaskStatus(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"id":            task.ID,
-		"status":        task.Status,
-		"retry_count":   task.RetryCount,
-		"max_retries":   task.MaxRetries,
+		"id":           task.ID,
+		"status":       task.Status,
+		"retry_count":  task.RetryCount,
+		"max_retries":  task.MaxRetries,
 		"error_message": task.ErrorMessage,
 	})
 }
@@ -176,3 +176,4 @@ func toTaskResponse(task *aitaskqueue.Task) TaskResponse {
 		TimeoutAt:    task.TimeoutAt,
 	}
 }
+

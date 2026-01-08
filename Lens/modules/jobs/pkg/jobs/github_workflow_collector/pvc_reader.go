@@ -18,8 +18,8 @@ import (
 // PVCReader reads files from Pod PVC via node-exporter
 type PVCReader struct {
 	// Database facades
-	nodeFacade     database.NodeFacadeInterface
-	podFacade      database.PodFacadeInterface
+	nodeFacade    database.NodeFacadeInterface
+	podFacade     database.PodFacadeInterface
 	workloadFacade database.WorkloadFacadeInterface
 
 	// Client cache for node-specific clients (thread-safe)
@@ -270,3 +270,4 @@ func matchesAnyPattern(path string, patterns []string) bool {
 
 	return false
 }
+

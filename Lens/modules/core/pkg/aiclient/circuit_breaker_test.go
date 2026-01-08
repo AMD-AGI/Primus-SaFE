@@ -9,9 +9,9 @@ import (
 
 func TestNewCircuitBreaker(t *testing.T) {
 	tests := []struct {
-		name          string
-		threshold     int
-		timeout       time.Duration
+		name      string
+		threshold int
+		timeout   time.Duration
 		wantThreshold int
 		wantTimeout   time.Duration
 	}{
@@ -297,3 +297,4 @@ func TestCircuitBreaker_Concurrency(t *testing.T) {
 	// Should not panic
 	assert.NotNil(t, cb.circuits[topic])
 }
+

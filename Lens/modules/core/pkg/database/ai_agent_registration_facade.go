@@ -212,3 +212,4 @@ func deserializeAgent(agent *model.AIAgentRegistration) {
 
 // ErrAgentNotFound is returned when an agent is not found
 var ErrAgentNotFound = errors.New("agent not found")
+

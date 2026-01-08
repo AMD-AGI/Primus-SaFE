@@ -169,3 +169,4 @@ func (e *ExponentialBackoff) GetDelay(attempt int) time.Duration {
 	}
 	return time.Duration(delay)
 }
+

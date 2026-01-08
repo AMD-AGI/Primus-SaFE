@@ -294,3 +294,4 @@ func TestTimeoutConfig(t *testing.T) {
 
 	assert.Equal(t, 5*time.Minute, cfg.CheckInterval)
 }
+

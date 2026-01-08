@@ -162,3 +162,4 @@ func (r *AutoScalingRunnerSetReconciler) syncToDatabase(ctx context.Context, inf
 
 	return facade.Upsert(ctx, runnerSet)
 }
+

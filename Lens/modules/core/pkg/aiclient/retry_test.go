@@ -304,7 +304,7 @@ func TestExponentialBackoff_GetDelay(t *testing.T) {
 	assert.Equal(t, 100*time.Millisecond, eb.GetDelay(0))
 	assert.Equal(t, 200*time.Millisecond, eb.GetDelay(1))
 	assert.Equal(t, 400*time.Millisecond, eb.GetDelay(2))
-	assert.Equal(t, 500*time.Millisecond, eb.GetDelay(3))  // Capped at MaxDelay
+	assert.Equal(t, 500*time.Millisecond, eb.GetDelay(3)) // Capped at MaxDelay
 	assert.Equal(t, 500*time.Millisecond, eb.GetDelay(10)) // Still capped
 }
 
@@ -333,3 +333,4 @@ func TestRetrier_AttemptParameter(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []int{0, 1, 2}, observedAttempts)
 }
+

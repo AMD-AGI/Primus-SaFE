@@ -321,12 +321,13 @@ func TestHealthChecker_recordResult_UnknownStatus(t *testing.T) {
 	_ = registry.Register(ctx, agent)
 
 	hc := NewHealthChecker(registry, 5*time.Second, 3)
-
+	
 	// Simulate a failure with empty status
 	result := hc.recordResult(ctx, agent, false, nil, 100*time.Millisecond)
 
 	assert.False(t, result.Healthy)
-
+	
 	updatedAgent, _ := registry.Get(ctx, "test-agent")
 	assert.Equal(t, AgentStatusUnknown, updatedAgent.Status)
 }
+

@@ -54,7 +54,7 @@ func (f *GithubRunnerSetFacade) Upsert(ctx context.Context, runnerSet *model.Git
 	runnerSet.UpdatedAt = time.Now()
 
 	return f.getDB().WithContext(ctx).Clauses(clause.OnConflict{
-		Columns: []clause.Column{{Name: "uid"}},
+		Columns:   []clause.Column{{Name: "uid"}},
 		DoUpdates: clause.AssignmentColumns([]string{
 			"name", "namespace", "github_config_url", "github_config_secret",
 			"runner_group", "github_owner", "github_repo", "min_runners", "max_runners",
@@ -145,3 +145,4 @@ func (f *GithubRunnerSetFacade) CleanupStale(ctx context.Context, before time.Ti
 		})
 	return result.RowsAffected, result.Error
 }
+

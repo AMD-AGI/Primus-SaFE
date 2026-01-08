@@ -56,7 +56,7 @@ func (f *GithubWorkflowCommitFacade) WithCluster(clusterName string) GithubWorkf
 // Upsert creates or updates a commit record
 func (f *GithubWorkflowCommitFacade) Upsert(ctx context.Context, commit *model.GithubWorkflowCommits) error {
 	return f.getDB().WithContext(ctx).Clauses(clause.OnConflict{
-		Columns: []clause.Column{{Name: "run_id"}},
+		Columns:   []clause.Column{{Name: "run_id"}},
 		DoUpdates: clause.AssignmentColumns([]string{
 			"sha", "message", "author_name", "author_email", "author_date",
 			"committer_name", "committer_email", "committer_date",
@@ -94,15 +94,15 @@ func (f *GithubWorkflowCommitFacade) GetBySHA(ctx context.Context, sha string) (
 // ListByAuthor lists commits by author email
 func (f *GithubWorkflowCommitFacade) ListByAuthor(ctx context.Context, email string, since *time.Time, limit int) ([]*model.GithubWorkflowCommits, error) {
 	query := f.getDB().WithContext(ctx).Where("author_email = ?", email)
-
+	
 	if since != nil {
 		query = query.Where("author_date >= ?", since)
 	}
-
+	
 	if limit > 0 {
 		query = query.Limit(limit)
 	}
-
+	
 	var commits []*model.GithubWorkflowCommits
 	err := query.Order("author_date DESC").Find(&commits).Error
 	return commits, err
@@ -111,16 +111,16 @@ func (f *GithubWorkflowCommitFacade) ListByAuthor(ctx context.Context, email str
 // GetStats gets commit statistics for a time range
 func (f *GithubWorkflowCommitFacade) GetStats(ctx context.Context, since, until *time.Time) (*CommitStats, error) {
 	query := f.getDB().WithContext(ctx).Model(&model.GithubWorkflowCommits{})
-
+	
 	if since != nil {
 		query = query.Where("author_date >= ?", since)
 	}
 	if until != nil {
 		query = query.Where("author_date <= ?", until)
 	}
-
+	
 	var stats CommitStats
-
+	
 	// Get aggregate stats
 	err := query.Select(`
 		COUNT(*) as total_commits,
@@ -131,6 +131,7 @@ func (f *GithubWorkflowCommitFacade) GetStats(ctx context.Context, since, until 
 		COALESCE(AVG(deletions), 0) as avg_deletions,
 		COUNT(DISTINCT author_email) as unique_authors
 	`).Scan(&stats).Error
-
+	
 	return &stats, err
 }
+

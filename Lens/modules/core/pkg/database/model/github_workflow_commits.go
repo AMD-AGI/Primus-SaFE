@@ -30,3 +30,4 @@ type GithubWorkflowCommits struct {
 func (*GithubWorkflowCommits) TableName() string {
 	return TableNameGithubWorkflowCommits
 }
+

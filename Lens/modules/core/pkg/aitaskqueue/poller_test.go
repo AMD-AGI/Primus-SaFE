@@ -359,3 +359,4 @@ func TestTaskProgress(t *testing.T) {
 	assert.Equal(t, 1*time.Minute, progress.ElapsedTime)
 	assert.Equal(t, 2, progress.RetryCount)
 }
+

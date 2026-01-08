@@ -176,15 +176,15 @@ func (s *ConfigStore) Reload(configs []StaticAgentConfig) {
 
 	// Preserve status for existing agents
 	statusMap := make(map[string]struct {
-		status       AgentStatus
+		status      AgentStatus
 		failureCount int
-		lastCheck    time.Time
+		lastCheck   time.Time
 	})
 	for name, agent := range s.agents {
 		statusMap[name] = struct {
-			status       AgentStatus
+			status      AgentStatus
 			failureCount int
-			lastCheck    time.Time
+			lastCheck   time.Time
 		}{
 			status:       agent.Status,
 			failureCount: agent.FailureCount,
@@ -228,3 +228,4 @@ func (s *ConfigStore) Reload(configs []StaticAgentConfig) {
 		s.agents[cfg.Name] = agent
 	}
 }
+

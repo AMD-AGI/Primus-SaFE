@@ -283,3 +283,4 @@ func TestResponse_JSON_Serialization(t *testing.T) {
 	assert.Equal(t, resp.Code, decoded.Code)
 	assert.Equal(t, resp.Message, decoded.Message)
 }
+

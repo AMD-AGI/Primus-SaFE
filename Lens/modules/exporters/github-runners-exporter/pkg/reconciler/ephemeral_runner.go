@@ -507,3 +507,4 @@ func (r *EphemeralRunnerReconciler) processDeletion(ctx context.Context, info *t
 
 	return nil
 }
+

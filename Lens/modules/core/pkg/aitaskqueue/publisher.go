@@ -158,3 +158,4 @@ func WithTenantID(ctx context.Context, tenantID string) context.Context {
 func WithTraceID(ctx context.Context, traceID string) context.Context {
 	return context.WithValue(ctx, contextKeyTraceID, traceID)
 }
+

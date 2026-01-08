@@ -239,3 +239,4 @@ func extractGitHubInfo(workload *model.GpuWorkload) (runID int64, runNumber int3
 func (j *GithubWorkflowScannerJob) Schedule() string {
 	return "@every 2m"
 }
+
