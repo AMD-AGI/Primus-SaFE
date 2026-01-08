@@ -1,3 +1,6 @@
+// Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
+// See LICENSE for license information.
+
 package main
 
 import (
@@ -54,12 +57,12 @@ func main() {
 	// Extract summary data from markdown report
 	// Note: In production, summary data (including total_gpu_count) comes from API response
 	summary := &gpu_usage_weekly_report.ReportSummary{
-		TotalGPUs:      1004, // Should be populated from API response's summary.total_gpu_count
-		AvgUtilization: 52.42,
-		AvgAllocation:  44.54,
+		TotalGPUs:      1456, // Should be populated from API response's summary.total_gpu_count
+		AvgUtilization: 40.06,
+		AvgAllocation:  40.39,
 		TotalGpuHours:  0,
-		LowUtilCount:   12,
-		WastedGpuDays:  252,
+		LowUtilCount:   20,
+		WastedGpuDays:  275,
 	}
 
 	// Parse chart data

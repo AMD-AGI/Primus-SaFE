@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+
 """Simple Mock Agent - just prints received requests"""
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import json
