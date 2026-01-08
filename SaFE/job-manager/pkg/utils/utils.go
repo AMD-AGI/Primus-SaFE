@@ -29,7 +29,8 @@ func IsUnrecoverableError(err error) bool {
 	if commonerrors.IsBadRequest(err) || commonerrors.IsInternal(err) || commonerrors.IsNotFound(err) {
 		return true
 	}
-	if apierrors.IsNotFound(err) {
+	// K8s API errors that are unrecoverable
+	if apierrors.IsNotFound(err) || apierrors.IsInvalid(err) || apierrors.IsForbidden(err) {
 		return true
 	}
 	return false
