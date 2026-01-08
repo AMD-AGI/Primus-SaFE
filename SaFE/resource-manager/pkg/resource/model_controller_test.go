@@ -352,6 +352,8 @@ func TestModelDelete_RemoteAPIModel(t *testing.T) {
 // TestModelDelete_NoFinalizer tests deletion when no finalizer is present
 func TestModelDelete_NoFinalizer(t *testing.T) {
 	model := genMockLocalModel("test-local-model", "")
+	// Add a dummy finalizer first (required by fake client when DeletionTimestamp is set)
+	controllerutil.AddFinalizer(model, "test-finalizer")
 	now := metav1.Now()
 	model.DeletionTimestamp = &now
 
@@ -362,6 +364,9 @@ func TestModelDelete_NoFinalizer(t *testing.T) {
 		Build()
 
 	r := newMockModelReconciler(adminClient)
+
+	// Remove the finalizer to simulate no finalizer scenario
+	controllerutil.RemoveFinalizer(model, "test-finalizer")
 
 	result, err := r.handleDelete(context.Background(), model)
 	assert.NilError(t, err)
