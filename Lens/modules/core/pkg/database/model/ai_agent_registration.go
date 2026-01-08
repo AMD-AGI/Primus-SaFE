@@ -31,3 +31,4 @@ type AIAgentRegistration struct {
 func (*AIAgentRegistration) TableName() string {
 	return TableNameAIAgentRegistration
 }
+

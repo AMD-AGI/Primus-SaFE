@@ -405,7 +405,8 @@ func TestRouteCache_Disabled(t *testing.T) {
 
 	agent := &AgentRegistration{Name: "agent-1"}
 	cache.set("topic1", agent)
-
+	
 	// Should not store when disabled
 	assert.Nil(t, cache.get("topic1"))
 }
+

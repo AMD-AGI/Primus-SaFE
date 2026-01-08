@@ -4,8 +4,8 @@ package aitopics
 
 // IdentifyComponentInput is the input payload for component identification
 type IdentifyComponentInput struct {
-	Workload WorkloadInfo     `json:"workload"`
-	Options  *IdentifyOptions `json:"options,omitempty"`
+	Workload WorkloadInfo        `json:"workload"`
+	Options  *IdentifyOptions    `json:"options,omitempty"`
 }
 
 // IdentifyOptions contains optional settings for identification
@@ -27,9 +27,9 @@ type IdentifyComponentOutput struct {
 
 // SuggestGroupingInput is the input payload for grouping suggestions
 type SuggestGroupingInput struct {
-	Workloads      []WorkloadInfo   `json:"workloads"`
-	ExistingGroups []ComponentGroup `json:"existing_groups,omitempty"`
-	Options        *GroupingOptions `json:"options,omitempty"`
+	Workloads       []WorkloadInfo   `json:"workloads"`
+	ExistingGroups  []ComponentGroup `json:"existing_groups,omitempty"`
+	Options         *GroupingOptions `json:"options,omitempty"`
 }
 
 // GroupingOptions contains optional settings for grouping suggestions
@@ -45,11 +45,12 @@ type SuggestGroupingOutput struct {
 
 // GroupingSuggestion represents a suggested grouping
 type GroupingSuggestion struct {
-	SuggestionID  string   `json:"suggestion_id"`
-	GroupName     string   `json:"group_name"`
-	ComponentType string   `json:"component_type"`
-	Category      string   `json:"category"`
-	Members       []string `json:"members"` // Workload UIDs
-	Rationale     string   `json:"rationale,omitempty"`
-	Confidence    float64  `json:"confidence"`
+	SuggestionID string   `json:"suggestion_id"`
+	GroupName    string   `json:"group_name"`
+	ComponentType string  `json:"component_type"`
+	Category     string   `json:"category"`
+	Members      []string `json:"members"` // Workload UIDs
+	Rationale    string   `json:"rationale,omitempty"`
+	Confidence   float64  `json:"confidence"`
 }
+

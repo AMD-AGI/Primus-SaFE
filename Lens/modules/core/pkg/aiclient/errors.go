@@ -94,3 +94,4 @@ func IsCircuitBreakerError(err error) bool {
 func IsDegradationError(err error) bool {
 	return errors.Is(err, ErrDegradationApplied)
 }
+

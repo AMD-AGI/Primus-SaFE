@@ -201,3 +201,4 @@ func toAgentResponse(agent *airegistry.AgentRegistration) AgentResponse {
 		UpdatedAt:       agent.UpdatedAt,
 	}
 }
+

@@ -35,3 +35,4 @@ type AITask struct {
 func (*AITask) TableName() string {
 	return TableNameAITask
 }
+

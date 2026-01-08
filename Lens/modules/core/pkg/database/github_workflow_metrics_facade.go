@@ -126,26 +126,26 @@ type AggregatedMetricResult struct {
 
 // MetricsSummary provides summary statistics for metrics
 type MetricsSummary struct {
-	ConfigID          int64                 `json:"config_id"`
-	TotalRecords      int64                 `json:"total_records"`
-	TotalRuns         int64                 `json:"total_runs"`
-	FirstTimestamp    *time.Time            `json:"first_timestamp,omitempty"`
-	LastTimestamp     *time.Time            `json:"last_timestamp,omitempty"`
-	TimeRangeDays     float64               `json:"time_range_days"`
-	UniqueSourceFiles int64                 `json:"unique_source_files"`
-	MetricStats       map[string]MetricStat `json:"metric_stats"`
-	DimensionCounts   map[string]int64      `json:"dimension_counts"`
+	ConfigID          int64                  `json:"config_id"`
+	TotalRecords      int64                  `json:"total_records"`
+	TotalRuns         int64                  `json:"total_runs"`
+	FirstTimestamp    *time.Time             `json:"first_timestamp,omitempty"`
+	LastTimestamp     *time.Time             `json:"last_timestamp,omitempty"`
+	TimeRangeDays     float64                `json:"time_range_days"`
+	UniqueSourceFiles int64                  `json:"unique_source_files"`
+	MetricStats       map[string]MetricStat  `json:"metric_stats"`
+	DimensionCounts   map[string]int64       `json:"dimension_counts"`
 }
 
 // MetricStat provides statistics for a single metric field
 type MetricStat struct {
-	Field  string   `json:"field"`
-	Count  int64    `json:"count"`
-	Min    *float64 `json:"min,omitempty"`
-	Max    *float64 `json:"max,omitempty"`
-	Avg    *float64 `json:"avg,omitempty"`
-	Sum    *float64 `json:"sum,omitempty"`
-	StdDev *float64 `json:"std_dev,omitempty"`
+	Field   string   `json:"field"`
+	Count   int64    `json:"count"`
+	Min     *float64 `json:"min,omitempty"`
+	Max     *float64 `json:"max,omitempty"`
+	Avg     *float64 `json:"avg,omitempty"`
+	Sum     *float64 `json:"sum,omitempty"`
+	StdDev  *float64 `json:"std_dev,omitempty"`
 }
 
 // MetricsTrendsQuery defines query for trends data
@@ -161,9 +161,9 @@ type MetricsTrendsQuery struct {
 
 // MetricsTrendsResult contains trends data
 type MetricsTrendsResult struct {
-	Timestamps []time.Time        `json:"timestamps"`
-	Series     []MetricSeriesData `json:"series"`
-	Interval   string             `json:"interval"`
+	Timestamps []time.Time              `json:"timestamps"`
+	Series     []MetricSeriesData       `json:"series"`
+	Interval   string                   `json:"interval"`
 }
 
 // MetricSeriesData represents a single time-series
@@ -931,3 +931,4 @@ func (f *GithubWorkflowMetricsFacade) applyDimensionFilter(db *gorm.DB, dimensio
 
 	return db
 }
+

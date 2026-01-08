@@ -407,3 +407,4 @@ func TestMemoryStore_Concurrency(t *testing.T) {
 func TestMemoryStore_ImplementsRegistry(t *testing.T) {
 	var _ Registry = (*MemoryStore)(nil)
 }
+

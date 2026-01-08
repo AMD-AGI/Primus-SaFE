@@ -124,3 +124,4 @@ func (r *Response) IsSuccess() bool {
 func generateRequestID() string {
 	return uuid.New().String()
 }
+

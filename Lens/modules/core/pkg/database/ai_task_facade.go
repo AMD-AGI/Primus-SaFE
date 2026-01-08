@@ -360,3 +360,4 @@ func deserializeTask(task *model.AITask) {
 
 // ErrTaskNotFound is returned when a task is not found
 var ErrTaskNotFound = errors.New("task not found")
+
