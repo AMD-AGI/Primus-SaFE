@@ -52,21 +52,6 @@ func (mr *MockInterfaceMockRecorder) CountFaults(ctx, query interface{}) *gomock
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountFaults", reflect.TypeOf((*MockInterface)(nil).CountFaults), ctx, query)
 }
 
-// CountInferences mocks base method.
-func (m *MockInterface) CountInferences(ctx context.Context, query squirrel.Sqlizer) (int, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CountInferences", ctx, query)
-	ret0, _ := ret[0].(int)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// CountInferences indicates an expected call of CountInferences.
-func (mr *MockInterfaceMockRecorder) CountInferences(ctx, query interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountInferences", reflect.TypeOf((*MockInterface)(nil).CountInferences), ctx, query)
-}
-
 // CountJobs mocks base method.
 func (m *MockInterface) CountJobs(ctx context.Context, query squirrel.Sqlizer) (int, error) {
 	m.ctrl.T.Helper()
@@ -398,21 +383,6 @@ func (m *MockInterface) GetImportImageByImageID(ctx context.Context, imageID int
 func (mr *MockInterfaceMockRecorder) GetImportImageByImageID(ctx, imageID interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetImportImageByImageID", reflect.TypeOf((*MockInterface)(nil).GetImportImageByImageID), ctx, imageID)
-}
-
-// GetInference mocks base method.
-func (m *MockInterface) GetInference(ctx context.Context, inferenceId string) (*client.Inference, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetInference", ctx, inferenceId)
-	ret0, _ := ret[0].(*client.Inference)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetInference indicates an expected call of GetInference.
-func (mr *MockInterfaceMockRecorder) GetInference(ctx, inferenceId interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetInference", reflect.TypeOf((*MockInterface)(nil).GetInference), ctx, inferenceId)
 }
 
 // GetNodeGpuUtilizationMap mocks base method.
@@ -774,21 +744,6 @@ func (mr *MockInterfaceMockRecorder) SelectImages(ctx, filter interface{}) *gomo
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SelectImages", reflect.TypeOf((*MockInterface)(nil).SelectImages), ctx, filter)
 }
 
-// SelectInferences mocks base method.
-func (m *MockInterface) SelectInferences(ctx context.Context, query squirrel.Sqlizer, orderBy []string, limit, offset int) ([]*client.Inference, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SelectInferences", ctx, query, orderBy, limit, offset)
-	ret0, _ := ret[0].([]*client.Inference)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// SelectInferences indicates an expected call of SelectInferences.
-func (mr *MockInterfaceMockRecorder) SelectInferences(ctx, query, orderBy, limit, offset interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SelectInferences", reflect.TypeOf((*MockInterface)(nil).SelectInferences), ctx, query, orderBy, limit, offset)
-}
-
 // SelectJobs mocks base method.
 func (m *MockInterface) SelectJobs(ctx context.Context, query squirrel.Sqlizer, orderBy []string, limit, offset int) ([]*client.OpsJob, error) {
 	m.ctrl.T.Helper()
@@ -862,20 +817,6 @@ func (m *MockInterface) SelectWorkloads(ctx context.Context, query squirrel.Sqli
 func (mr *MockInterfaceMockRecorder) SelectWorkloads(ctx, query, orderBy, limit, offset interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SelectWorkloads", reflect.TypeOf((*MockInterface)(nil).SelectWorkloads), ctx, query, orderBy, limit, offset)
-}
-
-// SetInferenceDeleted mocks base method.
-func (m *MockInterface) SetInferenceDeleted(ctx context.Context, inferenceId string) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SetInferenceDeleted", ctx, inferenceId)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// SetInferenceDeleted indicates an expected call of SetInferenceDeleted.
-func (mr *MockInterfaceMockRecorder) SetInferenceDeleted(ctx, inferenceId interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetInferenceDeleted", reflect.TypeOf((*MockInterface)(nil).SetInferenceDeleted), ctx, inferenceId)
 }
 
 // GetOpsJob mocks base method.
@@ -1143,20 +1084,6 @@ func (m *MockInterface) UpsertImageImportJob(ctx context.Context, job *model.Ima
 func (mr *MockInterfaceMockRecorder) UpsertImageImportJob(ctx, job interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertImageImportJob", reflect.TypeOf((*MockInterface)(nil).UpsertImageImportJob), ctx, job)
-}
-
-// UpsertInference mocks base method.
-func (m *MockInterface) UpsertInference(ctx context.Context, inference *client.Inference) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UpsertInference", ctx, inference)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// UpsertInference indicates an expected call of UpsertInference.
-func (mr *MockInterfaceMockRecorder) UpsertInference(ctx, inference interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertInference", reflect.TypeOf((*MockInterface)(nil).UpsertInference), ctx, inference)
 }
 
 // UpsertJob mocks base method.
@@ -2588,102 +2515,6 @@ func (mr *MockUserTokenInterfaceMockRecorder) UpsertUserToken(ctx, userToken int
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertUserToken", reflect.TypeOf((*MockUserTokenInterface)(nil).UpsertUserToken), ctx, userToken)
 }
 
-// MockInferenceInterface is a mock of InferenceInterface interface.
-type MockInferenceInterface struct {
-	ctrl     *gomock.Controller
-	recorder *MockInferenceInterfaceMockRecorder
-}
-
-// MockInferenceInterfaceMockRecorder is the mock recorder for MockInferenceInterface.
-type MockInferenceInterfaceMockRecorder struct {
-	mock *MockInferenceInterface
-}
-
-// NewMockInferenceInterface creates a new mock instance.
-func NewMockInferenceInterface(ctrl *gomock.Controller) *MockInferenceInterface {
-	mock := &MockInferenceInterface{ctrl: ctrl}
-	mock.recorder = &MockInferenceInterfaceMockRecorder{mock}
-	return mock
-}
-
-// EXPECT returns an object that allows the caller to indicate expected use.
-func (m *MockInferenceInterface) EXPECT() *MockInferenceInterfaceMockRecorder {
-	return m.recorder
-}
-
-// CountInferences mocks base method.
-func (m *MockInferenceInterface) CountInferences(ctx context.Context, query squirrel.Sqlizer) (int, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CountInferences", ctx, query)
-	ret0, _ := ret[0].(int)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// CountInferences indicates an expected call of CountInferences.
-func (mr *MockInferenceInterfaceMockRecorder) CountInferences(ctx, query interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountInferences", reflect.TypeOf((*MockInferenceInterface)(nil).CountInferences), ctx, query)
-}
-
-// GetInference mocks base method.
-func (m *MockInferenceInterface) GetInference(ctx context.Context, inferenceId string) (*client.Inference, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetInference", ctx, inferenceId)
-	ret0, _ := ret[0].(*client.Inference)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetInference indicates an expected call of GetInference.
-func (mr *MockInferenceInterfaceMockRecorder) GetInference(ctx, inferenceId interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetInference", reflect.TypeOf((*MockInferenceInterface)(nil).GetInference), ctx, inferenceId)
-}
-
-// SelectInferences mocks base method.
-func (m *MockInferenceInterface) SelectInferences(ctx context.Context, query squirrel.Sqlizer, orderBy []string, limit, offset int) ([]*client.Inference, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SelectInferences", ctx, query, orderBy, limit, offset)
-	ret0, _ := ret[0].([]*client.Inference)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// SelectInferences indicates an expected call of SelectInferences.
-func (mr *MockInferenceInterfaceMockRecorder) SelectInferences(ctx, query, orderBy, limit, offset interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SelectInferences", reflect.TypeOf((*MockInferenceInterface)(nil).SelectInferences), ctx, query, orderBy, limit, offset)
-}
-
-// SetInferenceDeleted mocks base method.
-func (m *MockInferenceInterface) SetInferenceDeleted(ctx context.Context, inferenceId string) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SetInferenceDeleted", ctx, inferenceId)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// SetInferenceDeleted indicates an expected call of SetInferenceDeleted.
-func (mr *MockInferenceInterfaceMockRecorder) SetInferenceDeleted(ctx, inferenceId interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetInferenceDeleted", reflect.TypeOf((*MockInferenceInterface)(nil).SetInferenceDeleted), ctx, inferenceId)
-}
-
-// UpsertInference mocks base method.
-func (m *MockInferenceInterface) UpsertInference(ctx context.Context, inference *client.Inference) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UpsertInference", ctx, inference)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// UpsertInference indicates an expected call of UpsertInference.
-func (mr *MockInferenceInterfaceMockRecorder) UpsertInference(ctx, inference interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertInference", reflect.TypeOf((*MockInferenceInterface)(nil).UpsertInference), ctx, inference)
-}
-
 // MockPlaygroundSessionInterface is a mock of PlaygroundSessionInterface interface.
 type MockPlaygroundSessionInterface struct {
 	ctrl     *gomock.Controller
@@ -3014,4 +2845,143 @@ func (m *MockInterface) SetApiKeyDeleted(ctx context.Context, userId string, id 
 func (mr *MockInterfaceMockRecorder) SetApiKeyDeleted(ctx, userId, id interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetApiKeyDeleted", reflect.TypeOf((*MockInterface)(nil).SetApiKeyDeleted), ctx, userId, id)
+}
+
+// UpsertModel mocks base method.
+func (m *MockInterface) UpsertModel(ctx context.Context, model *client.Model) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpsertModel", ctx, model)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpsertModel indicates an expected call of UpsertModel.
+func (mr *MockInterfaceMockRecorder) UpsertModel(ctx, model interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertModel", reflect.TypeOf((*MockInterface)(nil).UpsertModel), ctx, model)
+}
+
+// GetModelByID mocks base method.
+func (m *MockInterface) GetModelByID(ctx context.Context, id string) (*client.Model, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetModelByID", ctx, id)
+	ret0, _ := ret[0].(*client.Model)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetModelByID indicates an expected call of GetModelByID.
+func (mr *MockInterfaceMockRecorder) GetModelByID(ctx, id interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetModelByID", reflect.TypeOf((*MockInterface)(nil).GetModelByID), ctx, id)
+}
+
+// ListModels mocks base method.
+func (m *MockInterface) ListModels(ctx context.Context, accessMode string, workspace string, isDeleted bool) ([]*client.Model, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListModels", ctx, accessMode, workspace, isDeleted)
+	ret0, _ := ret[0].([]*client.Model)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListModels indicates an expected call of ListModels.
+func (mr *MockInterfaceMockRecorder) ListModels(ctx, accessMode, workspace, isDeleted interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListModels", reflect.TypeOf((*MockInterface)(nil).ListModels), ctx, accessMode, workspace, isDeleted)
+}
+
+// DeleteModel mocks base method.
+func (m *MockInterface) DeleteModel(ctx context.Context, id string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteModel", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteModel indicates an expected call of DeleteModel.
+func (mr *MockInterfaceMockRecorder) DeleteModel(ctx, id interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteModel", reflect.TypeOf((*MockInterface)(nil).DeleteModel), ctx, id)
+}
+
+// MockModelInterface is a mock of ModelInterface interface.
+type MockModelInterface struct {
+	ctrl     *gomock.Controller
+	recorder *MockModelInterfaceMockRecorder
+}
+
+// MockModelInterfaceMockRecorder is the mock recorder for MockModelInterface.
+type MockModelInterfaceMockRecorder struct {
+	mock *MockModelInterface
+}
+
+// NewMockModelInterface creates a new mock instance.
+func NewMockModelInterface(ctrl *gomock.Controller) *MockModelInterface {
+	mock := &MockModelInterface{ctrl: ctrl}
+	mock.recorder = &MockModelInterfaceMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockModelInterface) EXPECT() *MockModelInterfaceMockRecorder {
+	return m.recorder
+}
+
+// UpsertModel mocks base method.
+func (m *MockModelInterface) UpsertModel(ctx context.Context, model *client.Model) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpsertModel", ctx, model)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpsertModel indicates an expected call of UpsertModel.
+func (mr *MockModelInterfaceMockRecorder) UpsertModel(ctx, model interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertModel", reflect.TypeOf((*MockModelInterface)(nil).UpsertModel), ctx, model)
+}
+
+// GetModelByID mocks base method.
+func (m *MockModelInterface) GetModelByID(ctx context.Context, id string) (*client.Model, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetModelByID", ctx, id)
+	ret0, _ := ret[0].(*client.Model)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetModelByID indicates an expected call of GetModelByID.
+func (mr *MockModelInterfaceMockRecorder) GetModelByID(ctx, id interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetModelByID", reflect.TypeOf((*MockModelInterface)(nil).GetModelByID), ctx, id)
+}
+
+// ListModels mocks base method.
+func (m *MockModelInterface) ListModels(ctx context.Context, accessMode string, workspace string, isDeleted bool) ([]*client.Model, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListModels", ctx, accessMode, workspace, isDeleted)
+	ret0, _ := ret[0].([]*client.Model)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListModels indicates an expected call of ListModels.
+func (mr *MockModelInterfaceMockRecorder) ListModels(ctx, accessMode, workspace, isDeleted interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListModels", reflect.TypeOf((*MockModelInterface)(nil).ListModels), ctx, accessMode, workspace, isDeleted)
+}
+
+// DeleteModel mocks base method.
+func (m *MockModelInterface) DeleteModel(ctx context.Context, id string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteModel", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteModel indicates an expected call of DeleteModel.
+func (mr *MockModelInterfaceMockRecorder) DeleteModel(ctx, id interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteModel", reflect.TypeOf((*MockModelInterface)(nil).DeleteModel), ctx, id)
 }

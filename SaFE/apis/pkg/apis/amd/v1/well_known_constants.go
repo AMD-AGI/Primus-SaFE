@@ -137,13 +137,9 @@ const (
 	AddonDefaultLabel = AddonPrefix + "default"
 
 	// model
-	ModelPrefix  = PrimusSafePrefix + "model."
-	ModelIdLabel = ModelPrefix + "id"
-
-	// inference
-	InferencePrefix    = PrimusSafePrefix + "inference."
-	InferenceFinalizer = PrimusSafeDomain + "inference.finalizer"
-	InferenceIdLabel   = InferencePrefix + "id"
+	ModelPrefix        = PrimusSafePrefix + "model."
+	ModelIdLabel       = ModelPrefix + "id"
+	SourceModelIdLabel = PrimusSafePrefix + "source-model"
 )
 
 type SecretType string
