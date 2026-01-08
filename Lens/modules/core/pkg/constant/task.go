@@ -27,6 +27,9 @@ const (
 	TaskTypeLogDetection         = "detection_log_scan"
 	TaskTypeImageProbe           = "detection_image_probe"
 	TaskTypeLabelProbe           = "detection_label_probe"
+
+	// Py-spy profiling task (executed by node-exporter on target node, dispatched by jobs module)
+	TaskTypePySpySample = "pyspy_sample"
 )
 
 // Detection coverage source constants

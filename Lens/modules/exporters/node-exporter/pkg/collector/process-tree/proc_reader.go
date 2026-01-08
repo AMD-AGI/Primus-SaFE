@@ -9,11 +9,15 @@ import (
 )
 
 // ProcReader reads process information from /proc filesystem
-type ProcReader struct{}
+type ProcReader struct {
+	gpuMapper *GPUMapper
+}
 
 // NewProcReader creates a new proc reader
 func NewProcReader() *ProcReader {
-	return &ProcReader{}
+	return &ProcReader{
+		gpuMapper: NewGPUMapper(),
+	}
 }
 
 // ContainerInfo represents container information
@@ -67,6 +71,14 @@ func (r *ProcReader) GetProcessInfo(pid int, req *ProcessTreeRequest) (*ProcessI
 	// Read resource usage
 	if req.IncludeResources {
 		r.readStatus(pid, info)
+	}
+
+	// Detect GPU devices
+	if req.IncludeGPU {
+		if gpuDevices, hasGPU := r.gpuMapper.GetProcessGPUDevices(pid); hasGPU {
+			info.GPUDevices = gpuDevices
+			info.HasGPU = true
+		}
 	}
 
 	return info, nil
