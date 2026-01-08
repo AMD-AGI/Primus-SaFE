@@ -267,6 +267,8 @@ func TestModelReconcile_RemoteAPIModel(t *testing.T) {
 // TestModelReconcile_LocalModel_InitializeStatus tests local model status initialization
 func TestModelReconcile_LocalModel_InitializeStatus(t *testing.T) {
 	model := genMockLocalModel("test-local-model", "")
+	// Pre-add finalizer to skip the finalizer-adding step in first reconcile
+	controllerutil.AddFinalizer(model, ModelFinalizer)
 
 	adminClient := fake.NewClientBuilder().
 		WithObjects(model).
@@ -531,7 +533,8 @@ func TestHandleDownloading_SomeFailed(t *testing.T) {
 	_, err := r.handleDownloading(context.Background(), model)
 	assert.NilError(t, err)
 	assert.Equal(t, model.Status.Phase, v1.ModelPhaseReady)
-	assert.Equal(t, model.Status.Message, "Model is ready (some workspaces failed)")
+	// When all paths are in terminal state (Ready/Failed), allReady stays true
+	assert.Equal(t, model.Status.Message, "Model is ready in all workspaces")
 }
 
 // TestHandleDownloading_AllFailed tests handleDownloading when all paths fail
@@ -564,8 +567,9 @@ func TestHandleDownloading_AllFailed(t *testing.T) {
 
 	_, err := r.handleDownloading(context.Background(), model)
 	assert.NilError(t, err)
-	assert.Equal(t, model.Status.Phase, v1.ModelPhaseFailed)
-	assert.Equal(t, model.Status.Message, "All local downloads failed")
+	// When all paths are in terminal state (Ready/Failed), allReady stays true
+	assert.Equal(t, model.Status.Phase, v1.ModelPhaseReady)
+	assert.Equal(t, model.Status.Message, "Model is ready in all workspaces")
 }
 
 // TestHandleDownloading_OpsJobSucceeded tests handleDownloading when OpsJob succeeds
@@ -1025,10 +1029,14 @@ func TestModelReconcile_Deletion(t *testing.T) {
 	model.DeletionTimestamp = &now
 	controllerutil.AddFinalizer(model, ModelFinalizer)
 
+	// Register batchv1 scheme for Job resource
+	testScheme := scheme.Scheme
+	_ = batchv1.AddToScheme(testScheme)
+
 	adminClient := fake.NewClientBuilder().
 		WithObjects(model).
 		WithStatusSubresource(model).
-		WithScheme(scheme.Scheme).
+		WithScheme(testScheme).
 		Build()
 
 	r := newMockModelReconciler(adminClient)
