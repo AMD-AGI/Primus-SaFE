@@ -14,6 +14,9 @@ import (
 
 const (
 	ModelKind = "Model"
+
+	// SourceModelLabel is the label key for associating Workloads with their source Model
+	SourceModelLabel = "primus-safe/source-model"
 )
 
 type (
@@ -22,18 +25,28 @@ type (
 
 	// AccessMode represents how to access the model
 	AccessMode string
+
+	// LocalPathStatus represents the download status of a model in a specific workspace
+	LocalPathStatus string
 )
 
 const (
 	// Model Phases
-	ModelPhasePending ModelPhase = "Pending"
-	ModelPhasePulling ModelPhase = "Pulling"
-	ModelPhaseReady   ModelPhase = "Ready"
-	ModelPhaseFailed  ModelPhase = "Failed"
+	ModelPhasePending     ModelPhase = "Pending"
+	ModelPhaseUploading   ModelPhase = "Uploading"   // Uploading to S3
+	ModelPhaseDownloading ModelPhase = "Downloading" // Downloading to local PFS
+	ModelPhaseReady       ModelPhase = "Ready"
+	ModelPhaseFailed      ModelPhase = "Failed"
 
 	// Access Mode Types
 	AccessModeRemoteAPI AccessMode = "remote_api" // Call external API directly
 	AccessModeLocal     AccessMode = "local"      // Download model and run locally
+
+	// Local Path Status
+	LocalPathStatusPending     LocalPathStatus = "Pending"
+	LocalPathStatusDownloading LocalPathStatus = "Downloading"
+	LocalPathStatusReady       LocalPathStatus = "Ready"
+	LocalPathStatusFailed      LocalPathStatus = "Failed"
 )
 
 // +genclient
@@ -42,10 +55,10 @@ const (
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Cluster
 // +kubebuilder:printcolumn:name="DisplayName",type=string,JSONPath=`.spec.displayName`
+// +kubebuilder:printcolumn:name="ModelName",type=string,JSONPath=`.spec.source.modelName`
 // +kubebuilder:printcolumn:name="AccessMode",type=string,JSONPath=`.spec.source.accessMode`
+// +kubebuilder:printcolumn:name="Workspace",type=string,JSONPath=`.spec.workspace`
 // +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=`.status.phase`
-// +kubebuilder:printcolumn:name="InferenceID",type=string,JSONPath=`.status.inferenceID`
-// +kubebuilder:printcolumn:name="InferencePhase",type=string,JSONPath=`.status.inferencePhase`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 // +kubebuilder:rbac:groups=amd.com,resources=models,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=amd.com,resources=models/status,verbs=get;update;patch
@@ -76,6 +89,10 @@ type (
 		MaxTokens int `json:"maxTokens,omitempty"`
 		// Source defines where to pull the model from
 		Source ModelSource `json:"source"`
+		// Workspace specifies which workspace this model belongs to (for local models only)
+		// Empty string means "public" - the model will be downloaded to all workspaces
+		// Non-empty means the model is private to a specific workspace
+		Workspace string `json:"workspace,omitempty"`
 	}
 
 	// ModelSource describes the model storage location
@@ -86,8 +103,28 @@ type (
 		//   - "remote_api": Call external API directly (e.g., OpenAI, DeepSeek)
 		//   - "local": Download model and run inference service locally
 		AccessMode AccessMode `json:"accessMode,omitempty"`
-		// Token references a Secret containing the auth token for pulling the model or API access
+		// ModelName is the model identifier used when calling the API
+		// Required for remote_api mode (e.g., "gpt-4", "deepseek-chat")
+		// For local mode, this is auto-extracted from URL or user-specified
+		ModelName string `json:"modelName,omitempty"`
+		// Token references a Secret containing the auth token for pulling the model (HuggingFace token)
+		// Used for local mode to access private models
 		Token *corev1.LocalObjectReference `json:"token,omitempty"`
+		// ApiKey references a Secret containing the API key for remote API access
+		// Used for remote_api mode to authenticate with external services (e.g., OpenAI, DeepSeek)
+		ApiKey *corev1.LocalObjectReference `json:"apiKey,omitempty"`
+	}
+
+	// ModelLocalPath represents the download status of a model in a specific workspace
+	ModelLocalPath struct {
+		// Workspace is the workspace ID
+		Workspace string `json:"workspace"`
+		// Path is the local file system path where the model is stored
+		Path string `json:"path"`
+		// Status is the download status for this workspace
+		Status LocalPathStatus `json:"status"`
+		// Message contains additional status information
+		Message string `json:"message,omitempty"`
 	}
 
 	// ModelStatus defines the observed state of Model
@@ -96,12 +133,10 @@ type (
 		Phase ModelPhase `json:"phase,omitempty"`
 		// Message contains additional status information
 		Message string `json:"message,omitempty"`
-		// InferenceID is the ID of the associated Inference CR (when user starts the model)
-		// Empty if the model hasn't been started yet
-		InferenceID string `json:"inferenceID,omitempty"`
-		// InferencePhase is the current phase of the associated Inference service
-		// Empty if no inference is running
-		InferencePhase string `json:"inferencePhase,omitempty"`
+		// S3Path is the S3 storage path for the model (for local models)
+		S3Path string `json:"s3Path,omitempty"`
+		// LocalPaths contains the download status for each workspace (for local models)
+		LocalPaths []ModelLocalPath `json:"localPaths,omitempty"`
 		// UpdateTime is the last update time
 		UpdateTime *metav1.Time `json:"updateTime,omitempty"`
 	}
@@ -126,9 +161,14 @@ func (m *Model) IsPending() bool {
 	return m.Status.Phase == "" || m.Status.Phase == ModelPhasePending
 }
 
-// IsPulling returns true if the model is being pulled
-func (m *Model) IsPulling() bool {
-	return m.Status.Phase == ModelPhasePulling
+// IsUploading returns true if the model is being uploaded to S3
+func (m *Model) IsUploading() bool {
+	return m.Status.Phase == ModelPhaseUploading
+}
+
+// IsDownloading returns true if the model is being downloaded to local PFS
+func (m *Model) IsDownloading() bool {
+	return m.Status.Phase == ModelPhaseDownloading
 }
 
 // IsReady returns true if the model is ready
@@ -141,11 +181,6 @@ func (m *Model) IsFailed() bool {
 	return m.Status.Phase == ModelPhaseFailed
 }
 
-// HasInference returns true if the model has an associated inference service
-func (m *Model) HasInference() bool {
-	return m.Status.InferenceID != ""
-}
-
 // IsRemoteAPI returns true if the model uses remote API access
 func (m *Model) IsRemoteAPI() bool {
 	return m.Spec.Source.AccessMode == AccessModeRemoteAPI
@@ -156,8 +191,29 @@ func (m *Model) IsLocal() bool {
 	return m.Spec.Source.AccessMode == AccessModeLocal
 }
 
-// GetS3Path returns the S3 path for the model (models/{safeDisplayName})
+// IsPublic returns true if the model is public (available to all workspaces)
+func (m *Model) IsPublic() bool {
+	return m.Spec.Workspace == ""
+}
+
+// GetModelName returns the model name for API calls
+// Falls back to display name or CR name if not set
+func (m *Model) GetModelName() string {
+	if m.Spec.Source.ModelName != "" {
+		return m.Spec.Source.ModelName
+	}
+	if m.Spec.DisplayName != "" {
+		return m.GetSafeDisplayName()
+	}
+	return m.Name
+}
+
+// GetS3Path returns the S3 path for the model
+// If S3Path is set in status, use it; otherwise generate from model name
 func (m *Model) GetS3Path() string {
+	if m.Status.S3Path != "" {
+		return m.Status.S3Path
+	}
 	return "models/" + m.GetSafeDisplayName()
 }
 
@@ -171,4 +227,31 @@ func (m *Model) GetSafeDisplayName() string {
 	// Replace special characters
 	replacer := strings.NewReplacer("/", "-", ":", "-", " ", "-", "\\", "-")
 	return replacer.Replace(name)
+}
+
+// GetLocalPathForWorkspace returns the local path status for a specific workspace
+func (m *Model) GetLocalPathForWorkspace(workspaceID string) *ModelLocalPath {
+	for i := range m.Status.LocalPaths {
+		if m.Status.LocalPaths[i].Workspace == workspaceID {
+			return &m.Status.LocalPaths[i]
+		}
+	}
+	return nil
+}
+
+// IsReadyInWorkspace returns true if the model is ready in the specified workspace
+func (m *Model) IsReadyInWorkspace(workspaceID string) bool {
+	lp := m.GetLocalPathForWorkspace(workspaceID)
+	return lp != nil && lp.Status == LocalPathStatusReady
+}
+
+// GetReadyWorkspaces returns a list of workspace IDs where the model is ready
+func (m *Model) GetReadyWorkspaces() []string {
+	var workspaces []string
+	for _, lp := range m.Status.LocalPaths {
+		if lp.Status == LocalPathStatusReady {
+			workspaces = append(workspaces, lp.Workspace)
+		}
+	}
+	return workspaces
 }

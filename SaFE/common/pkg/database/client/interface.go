@@ -28,8 +28,8 @@ type Interface interface {
 	NodeStatisticInterface
 	UserTokenInterface
 	CDInterface
-	InferenceInterface
 	PlaygroundSessionInterface
+	ModelInterface
 	ApiKeyInterface
 }
 
@@ -144,14 +144,6 @@ type UserTokenInterface interface {
 	SelectUserTokens(ctx context.Context, query sqrl.Sqlizer, orderBy []string, limit, offset int) ([]*UserToken, error)
 }
 
-type InferenceInterface interface {
-	UpsertInference(ctx context.Context, inference *Inference) error
-	SelectInferences(ctx context.Context, query sqrl.Sqlizer, orderBy []string, limit, offset int) ([]*Inference, error)
-	GetInference(ctx context.Context, inferenceId string) (*Inference, error)
-	CountInferences(ctx context.Context, query sqrl.Sqlizer) (int, error)
-	SetInferenceDeleted(ctx context.Context, inferenceId string) error
-}
-
 type PlaygroundSessionInterface interface {
 	InsertPlaygroundSession(ctx context.Context, session *PlaygroundSession) error
 	UpdatePlaygroundSession(ctx context.Context, session *PlaygroundSession) error
@@ -175,4 +167,12 @@ type ApiKeyInterface interface {
 	GetApiKeyByKey(ctx context.Context, apiKey string) (*ApiKey, error)
 	// SetApiKeyDeleted performs soft delete on an API key
 	SetApiKeyDeleted(ctx context.Context, userId string, id int64) error
+}
+
+// ModelInterface defines database operations for Model entities
+type ModelInterface interface {
+	UpsertModel(ctx context.Context, m *Model) error
+	GetModelByID(ctx context.Context, id string) (*Model, error)
+	ListModels(ctx context.Context, accessMode string, workspace string, isDeleted bool) ([]*Model, error)
+	DeleteModel(ctx context.Context, id string) error
 }
