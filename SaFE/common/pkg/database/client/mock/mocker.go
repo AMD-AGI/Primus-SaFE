@@ -37,6 +37,21 @@ func (m *MockInterface) EXPECT() *MockInterfaceMockRecorder {
 	return m.recorder
 }
 
+// CountDeploymentRequests mocks base method.
+func (m *MockInterface) CountDeploymentRequests(ctx context.Context, query squirrel.Sqlizer) (int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountDeploymentRequests", ctx, query)
+	ret0, _ := ret[0].(int)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountDeploymentRequests indicates an expected call of CountDeploymentRequests.
+func (mr *MockInterfaceMockRecorder) CountDeploymentRequests(ctx, query interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountDeploymentRequests", reflect.TypeOf((*MockInterface)(nil).CountDeploymentRequests), ctx, query)
+}
+
 // CountFaults mocks base method.
 func (m *MockInterface) CountFaults(ctx context.Context, query squirrel.Sqlizer) (int, error) {
 	m.ctrl.T.Helper()
@@ -125,6 +140,36 @@ func (m *MockInterface) CountWorkloads(ctx context.Context, query squirrel.Sqliz
 func (mr *MockInterfaceMockRecorder) CountWorkloads(ctx, query interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountWorkloads", reflect.TypeOf((*MockInterface)(nil).CountWorkloads), ctx, query)
+}
+
+// CreateDeploymentRequest mocks base method.
+func (m *MockInterface) CreateDeploymentRequest(ctx context.Context, req *client.DeploymentRequest) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateDeploymentRequest", ctx, req)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CreateDeploymentRequest indicates an expected call of CreateDeploymentRequest.
+func (mr *MockInterfaceMockRecorder) CreateDeploymentRequest(ctx, req interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateDeploymentRequest", reflect.TypeOf((*MockInterface)(nil).CreateDeploymentRequest), ctx, req)
+}
+
+// CreateEnvironmentSnapshot mocks base method.
+func (m *MockInterface) CreateEnvironmentSnapshot(ctx context.Context, snapshot *client.EnvironmentSnapshot) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateEnvironmentSnapshot", ctx, snapshot)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CreateEnvironmentSnapshot indicates an expected call of CreateEnvironmentSnapshot.
+func (mr *MockInterfaceMockRecorder) CreateEnvironmentSnapshot(ctx, snapshot interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateEnvironmentSnapshot", reflect.TypeOf((*MockInterface)(nil).CreateEnvironmentSnapshot), ctx, snapshot)
 }
 
 // CreateNodeStatistic mocks base method.
@@ -310,6 +355,51 @@ func (mr *MockInterfaceMockRecorder) GetDefaultRegistryInfo(ctx interface{}) *go
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDefaultRegistryInfo", reflect.TypeOf((*MockInterface)(nil).GetDefaultRegistryInfo), ctx)
 }
 
+// GetDeploymentRequest mocks base method.
+func (m *MockInterface) GetDeploymentRequest(ctx context.Context, id int64) (*client.DeploymentRequest, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetDeploymentRequest", ctx, id)
+	ret0, _ := ret[0].(*client.DeploymentRequest)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetDeploymentRequest indicates an expected call of GetDeploymentRequest.
+func (mr *MockInterfaceMockRecorder) GetDeploymentRequest(ctx, id interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDeploymentRequest", reflect.TypeOf((*MockInterface)(nil).GetDeploymentRequest), ctx, id)
+}
+
+// GetEnvironmentSnapshot mocks base method.
+func (m *MockInterface) GetEnvironmentSnapshot(ctx context.Context, id int64) (*client.EnvironmentSnapshot, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetEnvironmentSnapshot", ctx, id)
+	ret0, _ := ret[0].(*client.EnvironmentSnapshot)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetEnvironmentSnapshot indicates an expected call of GetEnvironmentSnapshot.
+func (mr *MockInterfaceMockRecorder) GetEnvironmentSnapshot(ctx, id interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetEnvironmentSnapshot", reflect.TypeOf((*MockInterface)(nil).GetEnvironmentSnapshot), ctx, id)
+}
+
+// GetEnvironmentSnapshotByRequestId mocks base method.
+func (m *MockInterface) GetEnvironmentSnapshotByRequestId(ctx context.Context, reqId int64) (*client.EnvironmentSnapshot, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetEnvironmentSnapshotByRequestId", ctx, reqId)
+	ret0, _ := ret[0].(*client.EnvironmentSnapshot)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetEnvironmentSnapshotByRequestId indicates an expected call of GetEnvironmentSnapshotByRequestId.
+func (mr *MockInterfaceMockRecorder) GetEnvironmentSnapshotByRequestId(ctx, reqId interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetEnvironmentSnapshotByRequestId", reflect.TypeOf((*MockInterface)(nil).GetEnvironmentSnapshotByRequestId), ctx, reqId)
+}
+
 // GetFault mocks base method.
 func (m *MockInterface) GetFault(ctx context.Context, uid string) (*client.Fault, error) {
 	m.ctrl.T.Helper()
@@ -488,6 +578,21 @@ func (m *MockInterface) GetNodeStatisticsByNodeNames(ctx context.Context, cluste
 func (mr *MockInterfaceMockRecorder) GetNodeStatisticsByNodeNames(ctx, cluster, nodeNames interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetNodeStatisticsByNodeNames", reflect.TypeOf((*MockInterface)(nil).GetNodeStatisticsByNodeNames), ctx, cluster, nodeNames)
+}
+
+// GetOpsJob mocks base method.
+func (m *MockInterface) GetOpsJob(ctx context.Context, jobId string) (*client.OpsJob, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetOpsJob", ctx, jobId)
+	ret0, _ := ret[0].(*client.OpsJob)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetOpsJob indicates an expected call of GetOpsJob.
+func (mr *MockInterfaceMockRecorder) GetOpsJob(ctx, jobId interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOpsJob", reflect.TypeOf((*MockInterface)(nil).GetOpsJob), ctx, jobId)
 }
 
 // GetPlaygroundSession mocks base method.
@@ -713,6 +818,36 @@ func (mr *MockInterfaceMockRecorder) InsertSshSessionRecord(ctx, record interfac
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertSshSessionRecord", reflect.TypeOf((*MockInterface)(nil).InsertSshSessionRecord), ctx, record)
 }
 
+// ListDeploymentRequests mocks base method.
+func (m *MockInterface) ListDeploymentRequests(ctx context.Context, query squirrel.Sqlizer, orderBy []string, limit, offset int) ([]*client.DeploymentRequest, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListDeploymentRequests", ctx, query, orderBy, limit, offset)
+	ret0, _ := ret[0].([]*client.DeploymentRequest)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListDeploymentRequests indicates an expected call of ListDeploymentRequests.
+func (mr *MockInterfaceMockRecorder) ListDeploymentRequests(ctx, query, orderBy, limit, offset interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListDeploymentRequests", reflect.TypeOf((*MockInterface)(nil).ListDeploymentRequests), ctx, query, orderBy, limit, offset)
+}
+
+// ListEnvironmentSnapshots mocks base method.
+func (m *MockInterface) ListEnvironmentSnapshots(ctx context.Context, query squirrel.Sqlizer, orderBy []string, limit, offset int) ([]*client.EnvironmentSnapshot, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListEnvironmentSnapshots", ctx, query, orderBy, limit, offset)
+	ret0, _ := ret[0].([]*client.EnvironmentSnapshot)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListEnvironmentSnapshots indicates an expected call of ListEnvironmentSnapshots.
+func (mr *MockInterfaceMockRecorder) ListEnvironmentSnapshots(ctx, query, orderBy, limit, offset interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEnvironmentSnapshots", reflect.TypeOf((*MockInterface)(nil).ListEnvironmentSnapshots), ctx, query, orderBy, limit, offset)
+}
+
 // ListRegistryInfos mocks base method.
 func (m *MockInterface) ListRegistryInfos(ctx context.Context, pageNum, pageSize int) ([]*model.RegistryInfo, error) {
 	m.ctrl.T.Helper()
@@ -878,21 +1013,6 @@ func (mr *MockInterfaceMockRecorder) SetInferenceDeleted(ctx, inferenceId interf
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetInferenceDeleted", reflect.TypeOf((*MockInterface)(nil).SetInferenceDeleted), ctx, inferenceId)
 }
 
-// GetOpsJob mocks base method.
-func (m *MockInterface) GetOpsJob(ctx context.Context, jobId string) (*client.OpsJob, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetOpsJob", ctx, jobId)
-	ret0, _ := ret[0].(*client.OpsJob)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetOpsJob indicates an expected call of GetOpsJob.
-func (mr *MockInterfaceMockRecorder) GetOpsJob(ctx, jobId interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOpsJob", reflect.TypeOf((*MockInterface)(nil).GetOpsJob), ctx, jobId)
-}
-
 // SetOpsJobDeleted mocks base method.
 func (m *MockInterface) SetOpsJobDeleted(ctx context.Context, opsJobId string) error {
 	m.ctrl.T.Helper()
@@ -1017,6 +1137,20 @@ func (m *MockInterface) SubmitNotification(ctx context.Context, data *model.Noti
 func (mr *MockInterfaceMockRecorder) SubmitNotification(ctx, data interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SubmitNotification", reflect.TypeOf((*MockInterface)(nil).SubmitNotification), ctx, data)
+}
+
+// UpdateDeploymentRequest mocks base method.
+func (m *MockInterface) UpdateDeploymentRequest(ctx context.Context, req *client.DeploymentRequest) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateDeploymentRequest", ctx, req)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateDeploymentRequest indicates an expected call of UpdateDeploymentRequest.
+func (mr *MockInterfaceMockRecorder) UpdateDeploymentRequest(ctx, req interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateDeploymentRequest", reflect.TypeOf((*MockInterface)(nil).UpdateDeploymentRequest), ctx, req)
 }
 
 // UpdateImageImportJob mocks base method.
@@ -1501,21 +1635,6 @@ func (mr *MockOpsJobInterfaceMockRecorder) CountJobs(ctx, query interface{}) *go
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountJobs", reflect.TypeOf((*MockOpsJobInterface)(nil).CountJobs), ctx, query)
 }
 
-// SelectJobs mocks base method.
-func (m *MockOpsJobInterface) SelectJobs(ctx context.Context, query squirrel.Sqlizer, orderBy []string, limit, offset int) ([]*client.OpsJob, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SelectJobs", ctx, query, orderBy, limit, offset)
-	ret0, _ := ret[0].([]*client.OpsJob)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// SelectJobs indicates an expected call of SelectJobs.
-func (mr *MockOpsJobInterfaceMockRecorder) SelectJobs(ctx, query, orderBy, limit, offset interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SelectJobs", reflect.TypeOf((*MockOpsJobInterface)(nil).SelectJobs), ctx, query, orderBy, limit, offset)
-}
-
 // GetOpsJob mocks base method.
 func (m *MockOpsJobInterface) GetOpsJob(ctx context.Context, jobId string) (*client.OpsJob, error) {
 	m.ctrl.T.Helper()
@@ -1529,6 +1648,21 @@ func (m *MockOpsJobInterface) GetOpsJob(ctx context.Context, jobId string) (*cli
 func (mr *MockOpsJobInterfaceMockRecorder) GetOpsJob(ctx, jobId interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOpsJob", reflect.TypeOf((*MockOpsJobInterface)(nil).GetOpsJob), ctx, jobId)
+}
+
+// SelectJobs mocks base method.
+func (m *MockOpsJobInterface) SelectJobs(ctx context.Context, query squirrel.Sqlizer, orderBy []string, limit, offset int) ([]*client.OpsJob, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SelectJobs", ctx, query, orderBy, limit, offset)
+	ret0, _ := ret[0].([]*client.OpsJob)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SelectJobs indicates an expected call of SelectJobs.
+func (mr *MockOpsJobInterfaceMockRecorder) SelectJobs(ctx, query, orderBy, limit, offset interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SelectJobs", reflect.TypeOf((*MockOpsJobInterface)(nil).SelectJobs), ctx, query, orderBy, limit, offset)
 }
 
 // SetOpsJobDeleted mocks base method.
@@ -2794,53 +2928,31 @@ func (mr *MockPlaygroundSessionInterfaceMockRecorder) UpdatePlaygroundSession(ct
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdatePlaygroundSession", reflect.TypeOf((*MockPlaygroundSessionInterface)(nil).UpdatePlaygroundSession), ctx, session)
 }
 
-// CreateDeploymentRequest mocks base method.
-func (m *MockInterface) CreateDeploymentRequest(ctx context.Context, req *client.DeploymentRequest) (int64, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CreateDeploymentRequest", ctx, req)
-	ret0, _ := ret[0].(int64)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
+// MockCDInterface is a mock of CDInterface interface.
+type MockCDInterface struct {
+	ctrl     *gomock.Controller
+	recorder *MockCDInterfaceMockRecorder
 }
 
-// CreateDeploymentRequest indicates an expected call of CreateDeploymentRequest.
-func (mr *MockInterfaceMockRecorder) CreateDeploymentRequest(ctx, req interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateDeploymentRequest", reflect.TypeOf((*MockInterface)(nil).CreateDeploymentRequest), ctx, req)
+// MockCDInterfaceMockRecorder is the mock recorder for MockCDInterface.
+type MockCDInterfaceMockRecorder struct {
+	mock *MockCDInterface
 }
 
-// GetDeploymentRequest mocks base method.
-func (m *MockInterface) GetDeploymentRequest(ctx context.Context, id int64) (*client.DeploymentRequest, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetDeploymentRequest", ctx, id)
-	ret0, _ := ret[0].(*client.DeploymentRequest)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
+// NewMockCDInterface creates a new mock instance.
+func NewMockCDInterface(ctrl *gomock.Controller) *MockCDInterface {
+	mock := &MockCDInterface{ctrl: ctrl}
+	mock.recorder = &MockCDInterfaceMockRecorder{mock}
+	return mock
 }
 
-// GetDeploymentRequest indicates an expected call of GetDeploymentRequest.
-func (mr *MockInterfaceMockRecorder) GetDeploymentRequest(ctx, id interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDeploymentRequest", reflect.TypeOf((*MockInterface)(nil).GetDeploymentRequest), ctx, id)
-}
-
-// ListDeploymentRequests mocks base method.
-func (m *MockInterface) ListDeploymentRequests(ctx context.Context, query squirrel.Sqlizer, orderBy []string, limit, offset int) ([]*client.DeploymentRequest, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListDeploymentRequests", ctx, query, orderBy, limit, offset)
-	ret0, _ := ret[0].([]*client.DeploymentRequest)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// ListDeploymentRequests indicates an expected call of ListDeploymentRequests.
-func (mr *MockInterfaceMockRecorder) ListDeploymentRequests(ctx, query, orderBy, limit, offset interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListDeploymentRequests", reflect.TypeOf((*MockInterface)(nil).ListDeploymentRequests), ctx, query, orderBy, limit, offset)
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockCDInterface) EXPECT() *MockCDInterfaceMockRecorder {
+	return m.recorder
 }
 
 // CountDeploymentRequests mocks base method.
-func (m *MockInterface) CountDeploymentRequests(ctx context.Context, query squirrel.Sqlizer) (int, error) {
+func (m *MockCDInterface) CountDeploymentRequests(ctx context.Context, query squirrel.Sqlizer) (int, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CountDeploymentRequests", ctx, query)
 	ret0, _ := ret[0].(int)
@@ -2849,27 +2961,28 @@ func (m *MockInterface) CountDeploymentRequests(ctx context.Context, query squir
 }
 
 // CountDeploymentRequests indicates an expected call of CountDeploymentRequests.
-func (mr *MockInterfaceMockRecorder) CountDeploymentRequests(ctx, query interface{}) *gomock.Call {
+func (mr *MockCDInterfaceMockRecorder) CountDeploymentRequests(ctx, query interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountDeploymentRequests", reflect.TypeOf((*MockInterface)(nil).CountDeploymentRequests), ctx, query)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountDeploymentRequests", reflect.TypeOf((*MockCDInterface)(nil).CountDeploymentRequests), ctx, query)
 }
 
-// UpdateDeploymentRequest mocks base method.
-func (m *MockInterface) UpdateDeploymentRequest(ctx context.Context, req *client.DeploymentRequest) error {
+// CreateDeploymentRequest mocks base method.
+func (m *MockCDInterface) CreateDeploymentRequest(ctx context.Context, req *client.DeploymentRequest) (int64, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UpdateDeploymentRequest", ctx, req)
-	ret0, _ := ret[0].(error)
-	return ret0
+	ret := m.ctrl.Call(m, "CreateDeploymentRequest", ctx, req)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
 }
 
-// UpdateDeploymentRequest indicates an expected call of UpdateDeploymentRequest.
-func (mr *MockInterfaceMockRecorder) UpdateDeploymentRequest(ctx, req interface{}) *gomock.Call {
+// CreateDeploymentRequest indicates an expected call of CreateDeploymentRequest.
+func (mr *MockCDInterfaceMockRecorder) CreateDeploymentRequest(ctx, req interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateDeploymentRequest", reflect.TypeOf((*MockInterface)(nil).UpdateDeploymentRequest), ctx, req)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateDeploymentRequest", reflect.TypeOf((*MockCDInterface)(nil).CreateDeploymentRequest), ctx, req)
 }
 
 // CreateEnvironmentSnapshot mocks base method.
-func (m *MockInterface) CreateEnvironmentSnapshot(ctx context.Context, snapshot *client.EnvironmentSnapshot) (int64, error) {
+func (m *MockCDInterface) CreateEnvironmentSnapshot(ctx context.Context, snapshot *client.EnvironmentSnapshot) (int64, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CreateEnvironmentSnapshot", ctx, snapshot)
 	ret0, _ := ret[0].(int64)
@@ -2878,13 +2991,28 @@ func (m *MockInterface) CreateEnvironmentSnapshot(ctx context.Context, snapshot 
 }
 
 // CreateEnvironmentSnapshot indicates an expected call of CreateEnvironmentSnapshot.
-func (mr *MockInterfaceMockRecorder) CreateEnvironmentSnapshot(ctx, snapshot interface{}) *gomock.Call {
+func (mr *MockCDInterfaceMockRecorder) CreateEnvironmentSnapshot(ctx, snapshot interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateEnvironmentSnapshot", reflect.TypeOf((*MockInterface)(nil).CreateEnvironmentSnapshot), ctx, snapshot)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateEnvironmentSnapshot", reflect.TypeOf((*MockCDInterface)(nil).CreateEnvironmentSnapshot), ctx, snapshot)
+}
+
+// GetDeploymentRequest mocks base method.
+func (m *MockCDInterface) GetDeploymentRequest(ctx context.Context, id int64) (*client.DeploymentRequest, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetDeploymentRequest", ctx, id)
+	ret0, _ := ret[0].(*client.DeploymentRequest)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetDeploymentRequest indicates an expected call of GetDeploymentRequest.
+func (mr *MockCDInterfaceMockRecorder) GetDeploymentRequest(ctx, id interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDeploymentRequest", reflect.TypeOf((*MockCDInterface)(nil).GetDeploymentRequest), ctx, id)
 }
 
 // GetEnvironmentSnapshot mocks base method.
-func (m *MockInterface) GetEnvironmentSnapshot(ctx context.Context, id int64) (*client.EnvironmentSnapshot, error) {
+func (m *MockCDInterface) GetEnvironmentSnapshot(ctx context.Context, id int64) (*client.EnvironmentSnapshot, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetEnvironmentSnapshot", ctx, id)
 	ret0, _ := ret[0].(*client.EnvironmentSnapshot)
@@ -2893,13 +3021,13 @@ func (m *MockInterface) GetEnvironmentSnapshot(ctx context.Context, id int64) (*
 }
 
 // GetEnvironmentSnapshot indicates an expected call of GetEnvironmentSnapshot.
-func (mr *MockInterfaceMockRecorder) GetEnvironmentSnapshot(ctx, id interface{}) *gomock.Call {
+func (mr *MockCDInterfaceMockRecorder) GetEnvironmentSnapshot(ctx, id interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetEnvironmentSnapshot", reflect.TypeOf((*MockInterface)(nil).GetEnvironmentSnapshot), ctx, id)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetEnvironmentSnapshot", reflect.TypeOf((*MockCDInterface)(nil).GetEnvironmentSnapshot), ctx, id)
 }
 
 // GetEnvironmentSnapshotByRequestId mocks base method.
-func (m *MockInterface) GetEnvironmentSnapshotByRequestId(ctx context.Context, reqId int64) (*client.EnvironmentSnapshot, error) {
+func (m *MockCDInterface) GetEnvironmentSnapshotByRequestId(ctx context.Context, reqId int64) (*client.EnvironmentSnapshot, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetEnvironmentSnapshotByRequestId", ctx, reqId)
 	ret0, _ := ret[0].(*client.EnvironmentSnapshot)
@@ -2908,13 +3036,28 @@ func (m *MockInterface) GetEnvironmentSnapshotByRequestId(ctx context.Context, r
 }
 
 // GetEnvironmentSnapshotByRequestId indicates an expected call of GetEnvironmentSnapshotByRequestId.
-func (mr *MockInterfaceMockRecorder) GetEnvironmentSnapshotByRequestId(ctx, reqId interface{}) *gomock.Call {
+func (mr *MockCDInterfaceMockRecorder) GetEnvironmentSnapshotByRequestId(ctx, reqId interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetEnvironmentSnapshotByRequestId", reflect.TypeOf((*MockInterface)(nil).GetEnvironmentSnapshotByRequestId), ctx, reqId)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetEnvironmentSnapshotByRequestId", reflect.TypeOf((*MockCDInterface)(nil).GetEnvironmentSnapshotByRequestId), ctx, reqId)
+}
+
+// ListDeploymentRequests mocks base method.
+func (m *MockCDInterface) ListDeploymentRequests(ctx context.Context, query squirrel.Sqlizer, orderBy []string, limit, offset int) ([]*client.DeploymentRequest, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListDeploymentRequests", ctx, query, orderBy, limit, offset)
+	ret0, _ := ret[0].([]*client.DeploymentRequest)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListDeploymentRequests indicates an expected call of ListDeploymentRequests.
+func (mr *MockCDInterfaceMockRecorder) ListDeploymentRequests(ctx, query, orderBy, limit, offset interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListDeploymentRequests", reflect.TypeOf((*MockCDInterface)(nil).ListDeploymentRequests), ctx, query, orderBy, limit, offset)
 }
 
 // ListEnvironmentSnapshots mocks base method.
-func (m *MockInterface) ListEnvironmentSnapshots(ctx context.Context, query squirrel.Sqlizer, orderBy []string, limit, offset int) ([]*client.EnvironmentSnapshot, error) {
+func (m *MockCDInterface) ListEnvironmentSnapshots(ctx context.Context, query squirrel.Sqlizer, orderBy []string, limit, offset int) ([]*client.EnvironmentSnapshot, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ListEnvironmentSnapshots", ctx, query, orderBy, limit, offset)
 	ret0, _ := ret[0].([]*client.EnvironmentSnapshot)
@@ -2923,7 +3066,21 @@ func (m *MockInterface) ListEnvironmentSnapshots(ctx context.Context, query squi
 }
 
 // ListEnvironmentSnapshots indicates an expected call of ListEnvironmentSnapshots.
-func (mr *MockInterfaceMockRecorder) ListEnvironmentSnapshots(ctx, query, orderBy, limit, offset interface{}) *gomock.Call {
+func (mr *MockCDInterfaceMockRecorder) ListEnvironmentSnapshots(ctx, query, orderBy, limit, offset interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEnvironmentSnapshots", reflect.TypeOf((*MockInterface)(nil).ListEnvironmentSnapshots), ctx, query, orderBy, limit, offset)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEnvironmentSnapshots", reflect.TypeOf((*MockCDInterface)(nil).ListEnvironmentSnapshots), ctx, query, orderBy, limit, offset)
+}
+
+// UpdateDeploymentRequest mocks base method.
+func (m *MockCDInterface) UpdateDeploymentRequest(ctx context.Context, req *client.DeploymentRequest) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateDeploymentRequest", ctx, req)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateDeploymentRequest indicates an expected call of UpdateDeploymentRequest.
+func (mr *MockCDInterfaceMockRecorder) UpdateDeploymentRequest(ctx, req interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateDeploymentRequest", reflect.TypeOf((*MockCDInterface)(nil).UpdateDeploymentRequest), ctx, req)
 }

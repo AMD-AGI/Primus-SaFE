@@ -159,3 +159,16 @@ type PlaygroundSessionInterface interface {
 	CountPlaygroundSessions(ctx context.Context, query sqrl.Sqlizer) (int, error)
 	SetPlaygroundSessionDeleted(ctx context.Context, id int64) error
 }
+
+type CDInterface interface {
+	CreateDeploymentRequest(ctx context.Context, req *DeploymentRequest) (int64, error)
+	GetDeploymentRequest(ctx context.Context, id int64) (*DeploymentRequest, error)
+	ListDeploymentRequests(ctx context.Context, query sqrl.Sqlizer, orderBy []string, limit, offset int) ([]*DeploymentRequest, error)
+	CountDeploymentRequests(ctx context.Context, query sqrl.Sqlizer) (int, error)
+	UpdateDeploymentRequest(ctx context.Context, req *DeploymentRequest) error
+
+	CreateEnvironmentSnapshot(ctx context.Context, snapshot *EnvironmentSnapshot) (int64, error)
+	GetEnvironmentSnapshot(ctx context.Context, id int64) (*EnvironmentSnapshot, error)
+	GetEnvironmentSnapshotByRequestId(ctx context.Context, reqId int64) (*EnvironmentSnapshot, error)
+	ListEnvironmentSnapshots(ctx context.Context, query sqrl.Sqlizer, orderBy []string, limit, offset int) ([]*EnvironmentSnapshot, error)
+}

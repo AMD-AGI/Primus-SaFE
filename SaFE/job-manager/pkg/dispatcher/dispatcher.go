@@ -735,7 +735,7 @@ func (r *DispatcherReconciler) createService(ctx context.Context, adminWorkload 
 	return ctrlruntime.Result{}, nil
 }
 
-// updateService ensures the Service matches the latest workload spec.
+// updateService ensures the Service matches the latest workload spec.f
 // - If workload.Spec.Service == nil, the Service will be deleted if it exists.
 // - If Service does not exist and spec is set, it will be created.
 // - Otherwise, it will be updated in-place to match protocol/ports/type/selector.
@@ -951,6 +951,10 @@ func (r *DispatcherReconciler) generateLighthouse(ctx context.Context, rootWorkl
 		TargetPort:  LightHousePort,
 		ServiceType: corev1.ServiceTypeClusterIP,
 	}
+	workload.Spec.Service.Extends = make(map[string]string)
+	workload.Spec.Service.Extends["maxUnavailable"] = common.DefaultMaxUnavailable
+	workload.Spec.Service.Extends["maxSurge"] = common.DefaultMaxMaxSurge
+
 	commonworkload.GetWorkloadMainContainer(ctx, r.Client, workload)
 	return workload
 }

@@ -56,8 +56,10 @@ const (
 	KubernetesControlPlane = "node-role.kubernetes.io/control-plane"
 	ExcludedNodes          = "excluded-nodes"
 
-	DefaultBurst = 1000
-	DefaultQPS   = 1000
+	DefaultBurst          = 1000
+	DefaultQPS            = 1000
+	DefaultMaxUnavailable = "25%"
+	DefaultMaxMaxSurge    = "25%"
 
 	AddonMonitorId     = "501"
 	PreflightMonitorId = "502"

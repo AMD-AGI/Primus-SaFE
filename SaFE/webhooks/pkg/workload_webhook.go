@@ -48,8 +48,6 @@ const (
 	DefaultInitialDelaySeconds = 600
 	DefaultPeriodSeconds       = 3
 	DefaultFailureThreshold    = 3
-	DefaultMaxUnavailable      = "25%"
-	DefaultMaxMaxSurge         = "25%"
 	DefaultMaxFailover         = 50
 
 	MaxCICDScaleSetNameLen = 39
@@ -359,10 +357,10 @@ func (m *WorkloadMutator) mutateService(workload *v1.Workload) {
 		workload.Spec.Service.Extends = make(map[string]string)
 	}
 	if _, ok := workload.Spec.Service.Extends["maxUnavailable"]; !ok {
-		workload.Spec.Service.Extends["maxUnavailable"] = DefaultMaxUnavailable
+		workload.Spec.Service.Extends["maxUnavailable"] = common.DefaultMaxUnavailable
 	}
 	if _, ok := workload.Spec.Service.Extends["maxSurge"]; !ok {
-		workload.Spec.Service.Extends["maxSurge"] = DefaultMaxMaxSurge
+		workload.Spec.Service.Extends["maxSurge"] = common.DefaultMaxMaxSurge
 	}
 }
 
