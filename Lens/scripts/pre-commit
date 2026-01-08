@@ -1,0 +1,68 @@
+#!/bin/bash
+# Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+
+# Pre-commit hook to check and add license headers
+
+LENS_DIR="$(git rev-parse --show-toplevel)/Lens"
+
+cd "$LENS_DIR" || exit 1
+
+# Get staged Go and Python files (excluding .venv, vendor, site-packages)
+STAGED_GO_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.go$' | grep '^Lens/' | grep -v '/vendor/' || true)
+STAGED_PY_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.py$' | grep '^Lens/' | grep -v '/.venv/' | grep -v '/site-packages/' || true)
+
+if [ -z "$STAGED_GO_FILES" ] && [ -z "$STAGED_PY_FILES" ]; then
+    exit 0
+fi
+
+# Check if addlicense is installed
+if ! command -v addlicense &> /dev/null; then
+    echo "Error: addlicense is not installed."
+    echo "Run 'cd Lens && make license-install' to install it."
+    exit 1
+fi
+
+LICENSE_YEAR="2025-2026"
+LICENSE_HOLDER="Advanced Micro Devices, Inc. All rights reserved."
+NEEDS_RESTAGE=0
+
+# Check and fix Go files
+if [ -n "$STAGED_GO_FILES" ]; then
+    cd "$(git rev-parse --show-toplevel)" || exit 1
+    
+    # Check if any Go files are missing license
+    MISSING_GO=$(echo "$STAGED_GO_FILES" | xargs -I {} sh -c \
+        "addlicense -check -f Lens/license-go.tpl -y '$LICENSE_YEAR' -c '$LICENSE_HOLDER' {} 2>&1" | grep -v "^$" || true)
+    
+    if [ -n "$MISSING_GO" ]; then
+        echo "Adding license headers to Go files..."
+        echo "$STAGED_GO_FILES" | xargs -I {} addlicense -f Lens/license-go.tpl -y "$LICENSE_YEAR" -c "$LICENSE_HOLDER" {}
+        NEEDS_RESTAGE=1
+    fi
+fi
+
+# Check and fix Python files
+if [ -n "$STAGED_PY_FILES" ]; then
+    cd "$(git rev-parse --show-toplevel)" || exit 1
+    
+    # Check if any Python files are missing license
+    MISSING_PY=$(echo "$STAGED_PY_FILES" | xargs -I {} sh -c \
+        "addlicense -check -f Lens/license-py.tpl -y '$LICENSE_YEAR' -c '$LICENSE_HOLDER' {} 2>&1" | grep -v "^$" || true)
+    
+    if [ -n "$MISSING_PY" ]; then
+        echo "Adding license headers to Python files..."
+        echo "$STAGED_PY_FILES" | xargs -I {} addlicense -f Lens/license-py.tpl -y "$LICENSE_YEAR" -c "$LICENSE_HOLDER" {}
+        NEEDS_RESTAGE=1
+    fi
+fi
+
+# Re-stage files if we added license headers
+if [ "$NEEDS_RESTAGE" -eq 1 ]; then
+    echo "License headers added. Re-staging modified files..."
+    [ -n "$STAGED_GO_FILES" ] && echo "$STAGED_GO_FILES" | xargs git add
+    [ -n "$STAGED_PY_FILES" ] && echo "$STAGED_PY_FILES" | xargs git add
+    echo "Done! Files have been updated and re-staged."
+fi
+
+exit 0

@@ -1,3 +1,6 @@
+// Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
+// See LICENSE for license information.
+
 // Note: This file is manually created as a placeholder.
 // After running `go run gen/main.go`, this should be replaced by ai_tasks.gen.go
 
