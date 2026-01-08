@@ -57,7 +57,8 @@ def get_log_filename(nodes: List[str]) -> str:
     node_str = ",".join(sorted(nodes))
     hash_obj = hashlib.sha256(node_str.encode('utf-8'))
     hash_hex = hash_obj.hexdigest()[:16]
-    return f"/tmp/rccl_test_{hash_hex}.log"
+    timestamp = int(time.time())
+    return f"/tmp/rccl_test_{hash_hex}_{timestamp}.log"
 
 def threshold(node_count: int) -> float:
     """Calculate bandwidth threshold for given node count."""
@@ -69,11 +70,13 @@ def threshold(node_count: int) -> float:
     # alltoall test
     bnic = float(os.environ.get('BNIC', '48.0'))
     bxgmi = float(os.environ.get('BXGMI', '315.0'))
-    
+    product = os.environ.get('GPU_PRODUCT', '').strip().upper()
+    if product == 'MI355X':
+        bxgmi = 376.0
     remote_frac = (node_count - 1) / node_count
     local_frac = (G_PER_NODE - 1) / (G_PER_NODE * node_count)
     
-    return 0.7 / (remote_frac / bnic + local_frac / bxgmi)
+    return 0.68 / (remote_frac / bnic + local_frac / bxgmi)
 
 def get_hosts(hosts_file: str) -> List[str]:
     """Read hosts from file, skipping comments and empty lines."""
@@ -254,6 +257,7 @@ def build_env_vars() -> Dict[str, str]:
         "RCCL_MSCCL_ENABLE": "0",
         "NCCL_DEBUG": RCCL_DEBUG,
         "NCCL_NET_GDR_LEVEL": "2",
+        "HSA_NO_SCRATCH_RECLAIM": "0",
         "NCCL_NET_GDR_READ": "1",
         "MPIEXEC_RSH": f"ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -p {SSH_PORT}"
     })
@@ -304,7 +308,10 @@ def run_rccl_test(nodes: List[str]) -> float:
     
     # Add test-specific optimizations for alltoall tests
     if RCCL_TEST_TYPE == 1:
-        if len(nodes) < 16 or ENABLE_AINIC:
+        if ENABLE_AINIC:
+            env_vars["NCCL_PXN_DISABLE"] = "1"
+            env_vars["NCCL_P2P_NET_CHUNKSIZE"] = "524288"
+        elif len(nodes) < 16 :
             env_vars["NCCL_PXN_DISABLE"] = "0"
             env_vars["NCCL_P2P_NET_CHUNKSIZE"] = "524288"
 

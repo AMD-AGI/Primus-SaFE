@@ -202,7 +202,7 @@ func (h *Handler) listPlaygroundServices(c *gin.Context) (interface{}, error) {
 				Type:        "remote_api",
 				ID:          m.Name,
 				DisplayName: m.Spec.DisplayName,
-				ModelName:   m.Spec.Source.ModelName,
+				ModelName:   m.GetModelName(),
 				Phase:       string(m.Status.Phase),
 				BaseUrl:     m.Spec.Source.URL, // API endpoint URL
 			})
