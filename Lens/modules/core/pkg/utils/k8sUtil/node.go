@@ -1,3 +1,6 @@
+// Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
+// See LICENSE for license information.
+
 package k8sUtil
 
 import corev1 "k8s.io/api/core/v1"
