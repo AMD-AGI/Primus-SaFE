@@ -15,6 +15,7 @@ http://<server-address>
 Most APIs require authentication. The following authentication methods are supported:
 
 - **Token Authentication**: Add `Authorization: Bearer <token>` in request header
+- **API Key Authentication**: Add `Authorization: Bearer <api-key>` in request header (API Keys start with `ak-` prefix, see [API Key API](./api-key.md))
 - **Cookie Authentication**: Used by Web Console, cookies are managed automatically
 
 ## API Modules
@@ -34,6 +35,7 @@ Base Path: `/api/v1`
 - [Fault API](./fault.md) - Fault injection and management
 - [OpsJob API](./ops-job.md) - Operational job management
 - [PublicKey API](./public-key.md) - SSH public key management
+- [API Key API](./api-key.md) - API Key management for programmatic access
 - [Log API](./log.md) - Log query interfaces
 - [Envs API](./envs.md) - Environment settings and feature flags
 
