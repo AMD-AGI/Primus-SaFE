@@ -35,6 +35,7 @@ import (
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
+	commonquantity "github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/floatutil"
@@ -845,9 +846,16 @@ func (v *WorkloadValidator) validateWorkspace(ctx context.Context, workload *v1.
 		return nil
 	}
 	if commonworkload.GetTotalCount(workload) > workspace.Spec.Replica {
-		return commonerrors.NewQuotaInsufficient(
-			fmt.Sprintf("Insufficient resource: request.replica: %d, total.replica: %d",
-				commonworkload.GetTotalCount(workload), workspace.Spec.Replica))
+		requestResources, err := commonworkload.GetTotalResourceList(workload)
+		if err != nil {
+			return err
+		}
+		ok, _ := commonquantity.IsSubResource(requestResources, workspace.Status.TotalResources)
+		if !ok {
+			return commonerrors.NewQuotaInsufficient(
+				fmt.Sprintf("Insufficient resource: request: %v, total: %v",
+					requestResources, workspace.Status.TotalResources))
+		}
 	}
 	return nil
 }
