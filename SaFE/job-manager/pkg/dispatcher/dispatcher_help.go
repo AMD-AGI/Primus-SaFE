@@ -897,9 +897,16 @@ func updateMetadata(adminWorkload *v1.Workload,
 	if err != nil || !found {
 		return err
 	}
+
+	labels := buildLabels(adminWorkload)
+	path := append(resourceSpec.GetTemplatePath(), "metadata", "labels")
+	if err = unstructured.SetNestedMap(obj.Object, labels, path...); err != nil {
+		return err
+	}
+
 	annotations := buildAnnotations(adminWorkload)
 	annotations[v1.ResourceIdAnnotation] = strconv.Itoa(id)
-	path := append(resourceSpec.GetTemplatePath(), "metadata", "annotations")
+	path = append(resourceSpec.GetTemplatePath(), "metadata", "annotations")
 	if err = unstructured.SetNestedMap(obj.Object, annotations, path...); err != nil {
 		return err
 	}

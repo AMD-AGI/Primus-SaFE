@@ -50,9 +50,7 @@ import (
 const (
 	UnifiedJobInput  = "unified-job-input"
 	UnifiedJobOutput = "unified-job-output"
-	appName          = "app.kubernetes.io/name"
-
-	LightHousePort = 29510
+	LightHousePort   = 29510
 )
 
 // DispatcherReconciler reconciles Workload objects and handles their dispatching to target clusters.
@@ -938,7 +936,6 @@ func (r *DispatcherReconciler) generateLighthouse(ctx context.Context, rootWorkl
 	workload.Name = commonutils.GenerateName(displayName)
 	v1.SetLabel(workload, v1.DisplayNameLabel, displayName)
 	v1.SetLabel(workload, v1.RootWorkloadIdLabel, rootWorkload.Name)
-	v1.SetLabel(workload, appName, workload.Name)
 
 	minGroup, _ := commonworkload.GetReplicaGroup(workload, common.MinReplicaGroup)
 	entryPoint := stringutil.Base64Decode(commonconfig.GetTorchFTLightHouse()) + fmt.Sprintf(" --min_replicas %d", minGroup)
