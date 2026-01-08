@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
-	unstructuredutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/unstructured"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -305,7 +304,6 @@ func (r *DispatcherReconciler) dispatch(ctx context.Context,
 			"name", adminWorkload.Name, "gvk", adminWorkload.Spec.GroupVersionKind)
 		return ctrlruntime.Result{}, err
 	}
-	klog.Infof("k8sobject: %s", unstructuredutils.ToString(k8sObject))
 	if err = jobutils.CreateObject(ctx, clientSets.ClientFactory(), k8sObject); err != nil {
 		return ctrlruntime.Result{}, err
 	}
@@ -391,7 +389,7 @@ func setK8sObjectMeta(result *unstructured.Unstructured, adminWorkload *v1.Workl
 	if len(targetLabels) == 0 {
 		targetLabels = make(map[string]string)
 	}
-	for key, val := range buildLabels(adminWorkload) {
+	for key, val := range buildObjectLabels(adminWorkload) {
 		if strValue, ok := val.(string); ok {
 			targetLabels[key] = strValue
 		}
@@ -402,7 +400,7 @@ func setK8sObjectMeta(result *unstructured.Unstructured, adminWorkload *v1.Workl
 	if len(targetAnnotations) == 0 {
 		targetAnnotations = make(map[string]string)
 	}
-	for key, val := range buildAnnotations(adminWorkload) {
+	for key, val := range buildObjectAnnotations(adminWorkload) {
 		if strValue, ok := val.(string); ok {
 			targetAnnotations[key] = strValue
 		}
@@ -639,6 +637,13 @@ func applyWorkloadSpecToObject(ctx context.Context, clientSets *syncer.ClusterCl
 	} else if commonworkload.IsCICDEphemeralRunner(adminWorkload) {
 		if err := updateCICDEphemeralRunner(ctx, clientSets, obj, adminWorkload, rt); err != nil {
 			return err
+		}
+	}
+
+	if commonworkload.IsApplication(adminWorkload) {
+		path := []string{"spec", "selector"}
+		if err := updateSelector(obj, adminWorkload, path); err != nil {
+			return fmt.Errorf("failed to update selector: %v", err.Error())
 		}
 	}
 

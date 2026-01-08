@@ -526,7 +526,7 @@ func (r *SchedulerReconciler) updateStatus(ctx context.Context, workload *v1.Wor
 		statusPatch["queuePosition"] = 0
 	}
 	if workload.Status.Message == DependencyReason {
-		workload.Status.Message = ""
+		statusPatch["message"] = ""
 	}
 	statusPatch["conditions"] = append(workload.Status.Conditions, *cond)
 	patchObj := map[string]any{

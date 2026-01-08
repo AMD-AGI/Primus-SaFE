@@ -352,8 +352,7 @@ func checkLabels(t *testing.T, obj *unstructured.Unstructured, workload *v1.Work
 	labels, found, err := unstructured.NestedMap(obj.Object, path...)
 	assert.NilError(t, err)
 	assert.Equal(t, found, true)
-	assert.Equal(t, labels[v1.WorkloadDispatchCntLabel].(string), "1")
-	assert.Equal(t, labels[v1.WorkloadIdLabel].(string), workload.Name)
+	assert.Equal(t, labels[v1.K8sObjectIdLabel].(string), workload.Name)
 
 	path = append(rootPath, "metadata", "annotations")
 	annotations, found, err := unstructured.NestedMap(obj.Object, path...)
@@ -369,7 +368,7 @@ func checkSelector(t *testing.T, obj *unstructured.Unstructured, workload *v1.Wo
 	labels, found, err := unstructured.NestedMap(obj.Object, path...)
 	assert.NilError(t, err)
 	assert.Equal(t, found, true)
-	assert.Equal(t, labels[v1.WorkloadIdLabel].(string), workload.Name)
+	assert.Equal(t, labels[v1.K8sObjectIdLabel].(string), workload.Name)
 }
 
 func checkStrategy(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload) {

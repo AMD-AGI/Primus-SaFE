@@ -45,11 +45,7 @@ func initializeObject(obj *unstructured.Unstructured,
 	}
 	templatePath := resourceSpec.GetTemplatePath()
 
-	path := append(templatePath, "metadata", "labels")
-	if err = modifyLabels(obj, workload, path); err != nil {
-		return fmt.Errorf("failed to modify labels: %v", err.Error())
-	}
-	path = append(templatePath, "spec",
+	path := append(templatePath, "spec",
 		"affinity", "nodeAffinity", "requiredDuringSchedulingIgnoredDuringExecution", "nodeSelectorTerms")
 	if err = modifyNodeSelectorTerms(obj, workload, path); err != nil {
 		return fmt.Errorf("failed to modify nodeSelectorTerms: %v", err.Error())
@@ -94,21 +90,11 @@ func initializeObject(obj *unstructured.Unstructured,
 		if err = modifyStrategy(obj, workload, path); err != nil {
 			return fmt.Errorf("failed to modify strategy: %v", err.Error())
 		}
-		path = []string{"spec", "selector"}
-		if err = modifySelector(obj, workload, path); err != nil {
-			return fmt.Errorf("failed to modify selector: %v", err.Error())
-		}
 	}
 	if err = modifyByOpsJob(obj, workload, templatePath); err != nil {
 		return fmt.Errorf("failed to modify by opsjob: %v", err.Error())
 	}
 	return nil
-}
-
-// modifyLabels updates the metadata labels of a Kubernetes object based on the workload specification.
-func modifyLabels(obj *unstructured.Unstructured, workload *v1.Workload, path []string) error {
-	labels := buildLabels(workload)
-	return unstructured.SetNestedMap(obj.Object, labels, path...)
 }
 
 // modifyNodeSelectorTerms updates node selector terms in the object's node affinity configuration.
@@ -429,18 +415,6 @@ func modifyStrategy(obj *unstructured.Unstructured, workload *v1.Workload, path 
 	return nil
 }
 
-// modifySelector sets the selector for service objects to match the workload.
-func modifySelector(obj *unstructured.Unstructured, workload *v1.Workload, path []string) error {
-	selector := buildSelector(workload)
-	if len(selector) == 0 {
-		return nil
-	}
-	if err := unstructured.SetNestedMap(obj.Object, selector, path...); err != nil {
-		return err
-	}
-	return nil
-}
-
 // modifyTolerations adds tolerations to tolerate all taints when IsTolerateAll is enabled.
 func modifyTolerations(obj *unstructured.Unstructured, workload *v1.Workload, path []string) error {
 	if !workload.Spec.IsTolerateAll {
@@ -477,11 +451,10 @@ func buildEntryPoint(workload *v1.Workload) string {
 	return result
 }
 
-// buildLabels creates a map of labels for object tracking.
-func buildLabels(workload *v1.Workload) map[string]interface{} {
+// buildObjectLabels creates a map of labels for object tracking.
+func buildObjectLabels(workload *v1.Workload) map[string]interface{} {
 	result := map[string]interface{}{
 		v1.WorkloadIdLabel:          getRootWorkloadId(workload),
-		v1.K8sObjectIdLabel:         workload.Name,
 		v1.WorkloadDispatchCntLabel: buildDispatchCount(workload),
 	}
 	for key, value := range workload.Labels {
@@ -492,14 +465,42 @@ func buildLabels(workload *v1.Workload) map[string]interface{} {
 	return result
 }
 
-// buildAnnotations creates a map of annotations for object tracking.
-func buildAnnotations(workload *v1.Workload) map[string]interface{} {
+// buildObjectAnnotations creates a map of annotations for object tracking.
+func buildObjectAnnotations(workload *v1.Workload) map[string]interface{} {
 	result := make(map[string]interface{})
 	for key, value := range workload.Annotations {
 		if !strings.HasPrefix(key, v1.PrimusSafePrefix) {
 			result[key] = value
 		}
 	}
+	if v1.GetUserName(workload) != "" {
+		result[v1.UserNameAnnotation] = v1.GetUserName(workload)
+	}
+	return result
+}
+
+// buildPodLabels creates a map of labels for pod of k8s object.
+func buildPodLabels(workload *v1.Workload) map[string]interface{} {
+	result := map[string]interface{}{
+		v1.K8sObjectIdLabel: workload.Name,
+	}
+	for key, value := range workload.Labels {
+		if !strings.HasPrefix(key, v1.PrimusSafePrefix) {
+			result[key] = value
+		}
+	}
+	return result
+}
+
+// buildPodAnnotations creates a map of annotations for pod of k8s object.
+func buildPodAnnotations(workload *v1.Workload, resourceId int) map[string]interface{} {
+	result := make(map[string]interface{})
+	for key, value := range workload.Annotations {
+		if !strings.HasPrefix(key, v1.PrimusSafePrefix) {
+			result[key] = value
+		}
+	}
+	result[v1.ResourceIdAnnotation] = strconv.Itoa(resourceId)
 	if v1.GetUserName(workload) != "" {
 		result[v1.UserNameAnnotation] = v1.GetUserName(workload)
 	}
@@ -695,7 +696,7 @@ func buildStrategy(workload *v1.Workload) map[string]interface{} {
 func buildSelector(workload *v1.Workload) map[string]interface{} {
 	return map[string]interface{}{
 		"matchLabels": map[string]interface{}{
-			v1.WorkloadIdLabel: workload.Name,
+			v1.K8sObjectIdLabel: workload.Name,
 		},
 	}
 }
@@ -726,6 +727,18 @@ func convertEnvsToStringMap(envs []interface{}) map[string]string {
 		result[name.(string)] = value.(string)
 	}
 	return result
+}
+
+// updateSelector sets the selector for service objects to match the workload.
+func updateSelector(obj *unstructured.Unstructured, workload *v1.Workload, path []string) error {
+	selector := buildSelector(workload)
+	if len(selector) == 0 {
+		return nil
+	}
+	if err := unstructured.SetNestedMap(obj.Object, selector, path...); err != nil {
+		return err
+	}
+	return nil
 }
 
 // updateReplica updates the replica count in the unstructured object.
@@ -898,14 +911,13 @@ func updateMetadata(adminWorkload *v1.Workload,
 		return err
 	}
 
-	labels := buildLabels(adminWorkload)
+	labels := buildPodLabels(adminWorkload)
 	path := append(resourceSpec.GetTemplatePath(), "metadata", "labels")
 	if err = unstructured.SetNestedMap(obj.Object, labels, path...); err != nil {
 		return err
 	}
 
-	annotations := buildAnnotations(adminWorkload)
-	annotations[v1.ResourceIdAnnotation] = strconv.Itoa(id)
+	annotations := buildPodAnnotations(adminWorkload, id)
 	path = append(resourceSpec.GetTemplatePath(), "metadata", "annotations")
 	if err = unstructured.SetNestedMap(obj.Object, annotations, path...); err != nil {
 		return err
