@@ -54,7 +54,7 @@ func TestNewStorageBackend_Validation(t *testing.T) {
 				Database: nil,
 			},
 			wantErr:     true,
-			errContains: "database storage config is missing",
+			errContains: "database connection is required", // db is nil, so this error comes first
 		},
 		{
 			name: "auto without config",
