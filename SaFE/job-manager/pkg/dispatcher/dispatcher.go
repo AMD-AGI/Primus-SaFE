@@ -305,7 +305,7 @@ func (r *DispatcherReconciler) dispatch(ctx context.Context,
 			"name", adminWorkload.Name, "gvk", adminWorkload.Spec.GroupVersionKind)
 		return ctrlruntime.Result{}, err
 	}
-	klog.Infof(unstructuredutils.ToString(k8sObject))
+	klog.Infof("k8sobject: %s", unstructuredutils.ToString(k8sObject))
 	if err = jobutils.CreateObject(ctx, clientSets.ClientFactory(), k8sObject); err != nil {
 		return ctrlruntime.Result{}, err
 	}
