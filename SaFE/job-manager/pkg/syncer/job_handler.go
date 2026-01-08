@@ -35,7 +35,7 @@ const (
 // handleJob processes job resource events and synchronizes status between data plane and admin plane.
 // Manages the lifecycle of workload resources and handles failure scenarios.
 func (r *SyncerReconciler) handleJob(ctx context.Context,
-	message *resourceMessage, informer *ClusterInformer) (ctrlruntime.Result, error) {
+	message *resourceMessage, clientSets *ClusterClientSets) (ctrlruntime.Result, error) {
 	adminWorkload, err := r.getAdminWorkload(ctx, message.workloadId)
 	if err != nil || adminWorkload == nil {
 		return ctrlruntime.Result{}, err
@@ -50,7 +50,7 @@ func (r *SyncerReconciler) handleJob(ctx context.Context,
 		return ctrlruntime.Result{RequeueAfter: time.Second}, nil
 	}
 
-	result, err := r.handleJobImpl(ctx, message, adminWorkload, informer)
+	result, err := r.handleJobImpl(ctx, message, adminWorkload, clientSets)
 	if jobutils.IsUnrecoverableError(err) {
 		// Errors defined internally are fatal and lead to a terminal state without retry
 		err = jobutils.SetWorkloadFailed(ctx, r.Client, adminWorkload, err.Error())
@@ -61,15 +61,15 @@ func (r *SyncerReconciler) handleJob(ctx context.Context,
 // handleJobImpl implements the core logic for handling job resource events.
 // Processes resource creation, update, and deletion events.
 func (r *SyncerReconciler) handleJobImpl(ctx context.Context, message *resourceMessage,
-	adminWorkload *v1.Workload, informer *ClusterInformer) (ctrlruntime.Result, error) {
+	adminWorkload *v1.Workload, clientSets *ClusterClientSets) (ctrlruntime.Result, error) {
 	if message.action == ResourceDel {
 		// wait until all pods are deleted
-		if !r.waitAllPodsDeleted(ctx, message, informer) {
+		if !r.waitAllPodsDeleted(ctx, message, clientSets) {
 			return ctrlruntime.Result{RequeueAfter: time.Second * 3}, nil
 		}
 	}
 
-	status, err := r.getK8sObjectStatus(ctx, message, informer, adminWorkload)
+	status, err := r.getK8sObjectStatus(ctx, message, clientSets, adminWorkload)
 	if err != nil {
 		return ctrlruntime.Result{}, err
 	}
@@ -81,7 +81,7 @@ func (r *SyncerReconciler) handleJobImpl(ctx context.Context, message *resourceM
 
 	if message.action == ResourceDel {
 		// wait until the job is also deleted
-		if !r.waitJobDeleted(ctx, message, informer) {
+		if !r.waitJobDeleted(ctx, message, clientSets) {
 			return ctrlruntime.Result{RequeueAfter: time.Second * 3}, nil
 		}
 		if !adminWorkload.IsEnd() {
@@ -89,7 +89,7 @@ func (r *SyncerReconciler) handleJobImpl(ctx context.Context, message *resourceM
 			// For TorchFT: wait until ALL objects in the group are deleted before triggering reSchedule
 			// For other workloads: single job deletion is sufficient to trigger reSchedule
 			if commonworkload.IsTorchFT(adminWorkload) {
-				unstructuredObjs, err := jobutils.ListObjectsByWorkload(ctx, r.Client, informer.ClientFactory(), adminWorkload)
+				unstructuredObjs, err := jobutils.ListObjectsByWorkload(ctx, r.Client, clientSets.ClientFactory(), adminWorkload)
 				if err != nil {
 					klog.ErrorS(err, "failed to list objects by workload", "workload", adminWorkload.Name)
 					return ctrlruntime.Result{}, err
@@ -110,14 +110,14 @@ func (r *SyncerReconciler) handleJobImpl(ctx context.Context, message *resourceM
 // getK8sObjectStatus retrieves the status of a Kubernetes object in data plane.
 // Extracts phase and message information from the object.
 func (r *SyncerReconciler) getK8sObjectStatus(ctx context.Context, message *resourceMessage,
-	clusterInformer *ClusterInformer, adminWorkload *v1.Workload) (*jobutils.K8sObjectStatus, error) {
+	clientSets *ClusterClientSets, adminWorkload *v1.Workload) (*jobutils.K8sObjectStatus, error) {
 	if message.action == ResourceDel {
 		return &jobutils.K8sObjectStatus{
 			Phase:   string(v1.K8sDeleted),
 			Message: fmt.Sprintf("%s %s is deleted", message.gvk.Kind, message.name),
 		}, nil
 	}
-	k8sObject, err := jobutils.GetObject(ctx, clusterInformer.ClientFactory(), message.name, message.namespace, message.gvk)
+	k8sObject, err := jobutils.GetObject(ctx, clientSets.ClientFactory(), message.name, message.namespace, message.gvk)
 	if err != nil {
 		klog.ErrorS(err, "failed to get k8s object", "name", message.name, "namespace", message.namespace)
 		return nil, err
@@ -156,14 +156,14 @@ func (r *SyncerReconciler) getK8sObjectStatus(ctx context.Context, message *reso
 }
 
 // waitAllPodsDeleted checks if all pods associated with a workload have been deleted.
-func (r *SyncerReconciler) waitAllPodsDeleted(ctx context.Context, message *resourceMessage, informer *ClusterInformer) bool {
+func (r *SyncerReconciler) waitAllPodsDeleted(ctx context.Context, message *resourceMessage, clientSets *ClusterClientSets) bool {
 	labelSelector := metav1.LabelSelector{
 		MatchLabels: map[string]string{v1.K8sObjectIdLabel: message.name},
 	}
 	listOptions := metav1.ListOptions{
 		LabelSelector: metav1.FormatLabelSelector(&labelSelector),
 	}
-	podList, err := informer.dataClientFactory.ClientSet().CoreV1().Pods(message.namespace).List(ctx, listOptions)
+	podList, err := clientSets.dataClientFactory.ClientSet().CoreV1().Pods(message.namespace).List(ctx, listOptions)
 	if err != nil {
 		klog.ErrorS(err, "failed to list pods", "workload", message.workloadId, "namespace", message.namespace)
 		return false
@@ -174,8 +174,8 @@ func (r *SyncerReconciler) waitAllPodsDeleted(ctx context.Context, message *reso
 	return false
 }
 
-func (r *SyncerReconciler) waitJobDeleted(ctx context.Context, message *resourceMessage, informer *ClusterInformer) bool {
-	obj, err := jobutils.GetObject(ctx, informer.ClientFactory(), message.name, message.namespace, message.gvk)
+func (r *SyncerReconciler) waitJobDeleted(ctx context.Context, message *resourceMessage, clientSets *ClusterClientSets) bool {
+	obj, err := jobutils.GetObject(ctx, clientSets.ClientFactory(), message.name, message.namespace, message.gvk)
 	if err != nil {
 		return apierrors.IsNotFound(err)
 	}
@@ -186,7 +186,7 @@ func (r *SyncerReconciler) waitJobDeleted(ctx context.Context, message *resource
 			},
 		}
 		p := jsonutils.MarshalSilently(patchObj)
-		if patchErr := jobutils.PatchObject(ctx, informer.ClientFactory(), obj, p); patchErr != nil {
+		if patchErr := jobutils.PatchObject(ctx, clientSets.ClientFactory(), obj, p); patchErr != nil {
 			return apierrors.IsNotFound(patchErr)
 		}
 	}

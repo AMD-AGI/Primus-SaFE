@@ -45,16 +45,16 @@ const (
 // FailoverReconciler reconciles Workload objects for failover handling
 type FailoverReconciler struct {
 	client.Client
-	failoverConfigs  *commonutils.ObjectManager
-	clusterInformers *commonutils.ObjectManager
+	failoverConfigs   *commonutils.ObjectManager
+	clusterClientSets *commonutils.ObjectManager
 }
 
 // SetupFailoverController initializes and registers the failover controller with the manager.
 func SetupFailoverController(mgr manager.Manager) error {
 	r := &FailoverReconciler{
-		Client:           mgr.GetClient(),
-		failoverConfigs:  commonutils.NewObjectManager(),
-		clusterInformers: commonutils.NewObjectManagerSingleton(),
+		Client:            mgr.GetClient(),
+		failoverConfigs:   commonutils.NewObjectManager(),
+		clusterClientSets: commonutils.NewObjectManagerSingleton(),
 	}
 	err := ctrlruntime.NewControllerManagedBy(mgr).
 		For(&v1.Workload{}, builder.WithPredicates(relevantChangePredicate{})).
@@ -161,11 +161,11 @@ func (r *FailoverReconciler) handleFaultEventImpl(ctx context.Context, fault *v1
 		commonfaults.GenerateTaintKey(fault.Spec.MonitorId), fault.Spec.Message)
 	klog.Infof("%s, try to do failover", message)
 
-	clusterInformer := r.getClusterInformer(fault.Spec.Node.ClusterName)
-	if clusterInformer == nil {
+	clientSets := r.getClusterClientSets(fault.Spec.Node.ClusterName)
+	if clientSets == nil {
 		return
 	}
-	workloadNames, err := r.getWorkloadsOnFaultNode(ctx, clusterInformer, fault)
+	workloadNames, err := r.getWorkloadsOnFaultNode(ctx, clientSets, fault)
 	if err != nil {
 		return
 	}
@@ -196,21 +196,21 @@ func (r *FailoverReconciler) handleFaultEventImpl(ctx context.Context, fault *v1
 	}
 }
 
-// getClusterInformer retrieves the cluster informer for a given fault's cluster with retry logic.
-func (r *FailoverReconciler) getClusterInformer(clusterId string) *syncer.ClusterInformer {
+// getClusterClientSets retrieves the cluster client sets for a given fault's cluster with retry logic.
+func (r *FailoverReconciler) getClusterClientSets(clusterId string) *syncer.ClusterClientSets {
 	maxWaitTime := RetryWaitTime * MaxRetryAttempts
-	var clusterInformer *syncer.ClusterInformer
+	var clusterClientSets *syncer.ClusterClientSets
 	err := backoff.Retry(func() error {
-		clusterInformer, _ = syncer.GetClusterInformer(r.clusterInformers, clusterId)
-		if clusterInformer != nil {
+		clusterClientSets, _ = syncer.GetClusterClientSets(r.clusterClientSets, clusterId)
+		if clusterClientSets != nil {
 			return nil
 		}
-		return fmt.Errorf("failed to get cluster's informer")
+		return fmt.Errorf("failed to get %s client sets", clusterId)
 	}, maxWaitTime, RetryWaitTime)
-	if err != nil || clusterInformer == nil {
+	if err != nil || clusterClientSets == nil {
 		return nil
 	}
-	return clusterInformer
+	return clusterClientSets
 }
 
 // addFailoverCondition adds a failover condition to a workload's status.
@@ -240,7 +240,7 @@ func (r *FailoverReconciler) addFailoverCondition(ctx context.Context, workload 
 
 // getWorkloadsOnFaultNode retrieves workloads running on a faulty node.
 func (r *FailoverReconciler) getWorkloadsOnFaultNode(ctx context.Context,
-	clusterInformer *syncer.ClusterInformer, fault *v1.Fault) ([]string, error) {
+	clientSets *syncer.ClusterClientSets, fault *v1.Fault) ([]string, error) {
 	adminNode := &v1.Node{}
 	if err := r.Get(ctx, client.ObjectKey{Name: fault.Spec.Node.AdminName}, adminNode); err != nil {
 		klog.ErrorS(err, "failed to get node", "name", fault.Spec.Node.AdminName)
@@ -248,7 +248,7 @@ func (r *FailoverReconciler) getWorkloadsOnFaultNode(ctx context.Context,
 	}
 
 	workloadNames, err := commonworkload.GetWorkloadsOfK8sNode(ctx,
-		clusterInformer.ClientFactory().ClientSet(), fault.Spec.Node.K8sName, v1.GetWorkspaceId(adminNode))
+		clientSets.ClientFactory().ClientSet(), fault.Spec.Node.K8sName, v1.GetWorkspaceId(adminNode))
 	if err != nil {
 		klog.ErrorS(err, "failed to get workload of node",
 			"name", fault.Spec.Node.K8sName, "workspace", v1.GetWorkspaceId(adminNode))
@@ -321,12 +321,12 @@ func (r *FailoverReconciler) Reconcile(ctx context.Context, req ctrlruntime.Requ
 
 // handle processes the failover logic for a workload.
 func (r *FailoverReconciler) handle(ctx context.Context, workload *v1.Workload) (ctrlruntime.Result, error) {
-	clusterInformer, _ := syncer.GetClusterInformer(r.clusterInformers, v1.GetClusterId(workload))
-	if clusterInformer == nil {
+	clusterClientSets, _ := syncer.GetClusterClientSets(r.clusterClientSets, v1.GetClusterId(workload))
+	if clusterClientSets == nil {
 		return ctrlruntime.Result{RequeueAfter: time.Second}, nil
 	}
 
-	if _, err := jobutils.DeleteObjectsByWorkload(ctx, r.Client, clusterInformer.ClientFactory(), workload); err != nil {
+	if _, err := jobutils.DeleteObjectsByWorkload(ctx, r.Client, clusterClientSets.ClientFactory(), workload); err != nil {
 		return ctrlruntime.Result{}, err
 	}
 

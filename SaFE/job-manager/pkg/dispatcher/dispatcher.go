@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
+	unstructuredutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/unstructured"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -56,14 +57,14 @@ const (
 // DispatcherReconciler reconciles Workload objects and handles their dispatching to target clusters.
 type DispatcherReconciler struct {
 	client.Client
-	clusterInformers *commonutils.ObjectManager
+	clusterClientSets *commonutils.ObjectManager
 }
 
 // SetupDispatcherController initializes and registers the dispatcher controller with the manager.
 func SetupDispatcherController(mgr manager.Manager) error {
 	r := &DispatcherReconciler{
-		Client:           mgr.GetClient(),
-		clusterInformers: commonutils.NewObjectManagerSingleton(),
+		Client:            mgr.GetClient(),
+		clusterClientSets: commonutils.NewObjectManagerSingleton(),
 	}
 	err := ctrlruntime.NewControllerManagedBy(mgr).
 		For(&v1.Workload{}, builder.WithPredicates(relevantChangePredicate{})).
@@ -205,7 +206,7 @@ func (r *DispatcherReconciler) processTorchFTWorkload(ctx context.Context, rootW
 // scaleDownTorchFTWorkers handles scale-down by deleting TorchFT jobs that exceed the target group count.
 // It parses the index from each object's name and deletes those with index > targetGroup.
 func (r *DispatcherReconciler) scaleDownTorchFTWorkers(ctx context.Context, rootWorkload *v1.Workload, targetGroup int) error {
-	clusterInformer, err := syncer.GetClusterInformer(r.clusterInformers, v1.GetClusterId(rootWorkload))
+	clientSets, err := syncer.GetClusterClientSets(r.clusterClientSets, v1.GetClusterId(rootWorkload))
 	if err != nil {
 		return err
 	}
@@ -220,7 +221,7 @@ func (r *DispatcherReconciler) scaleDownTorchFTWorkers(ctx context.Context, root
 	}
 	labelSelector := v1.WorkloadIdLabel + "=" + rootWorkload.Name
 	unstructuredObjs, err := jobutils.ListObject(ctx,
-		clusterInformer.ClientFactory(), labelSelector, rootWorkload.Spec.Workspace, gvk)
+		clientSets.ClientFactory(), labelSelector, rootWorkload.Spec.Workspace, gvk)
 	if err != nil {
 		return err
 	}
@@ -237,7 +238,7 @@ func (r *DispatcherReconciler) scaleDownTorchFTWorkers(ctx context.Context, root
 		}
 		if index > targetGroup {
 			klog.Infof("scaling down TorchFT: deleting sub-workload %s (index %d)", obj.GetName(), index)
-			if err = jobutils.DeleteObject(ctx, clusterInformer.ClientFactory(), &obj); err != nil {
+			if err = jobutils.DeleteObject(ctx, clientSets.ClientFactory(), &obj); err != nil {
 				klog.ErrorS(err, "failed to delete object", "name", obj.GetName())
 				return err
 			}
@@ -248,7 +249,7 @@ func (r *DispatcherReconciler) scaleDownTorchFTWorkers(ctx context.Context, root
 
 // processWorkload processes a workload resource and updates its state.
 func (r *DispatcherReconciler) processWorkload(ctx context.Context, adminWorkload *v1.Workload) (ctrlruntime.Result, error) {
-	clusterInformer, err := syncer.GetClusterInformer(r.clusterInformers, v1.GetClusterId(adminWorkload))
+	clientSets, err := syncer.GetClusterClientSets(r.clusterClientSets, v1.GetClusterId(adminWorkload))
 	if err != nil {
 		return ctrlruntime.Result{RequeueAfter: time.Second}, nil
 	}
@@ -257,13 +258,13 @@ func (r *DispatcherReconciler) processWorkload(ctx context.Context, adminWorkloa
 		return ctrlruntime.Result{}, err
 	}
 	obj, err := jobutils.GetObject(ctx,
-		clusterInformer.ClientFactory(), adminWorkload.Name, adminWorkload.Spec.Workspace, rt.ToSchemaGVK())
+		clientSets.ClientFactory(), adminWorkload.Name, adminWorkload.Spec.Workspace, rt.ToSchemaGVK())
 
 	if err != nil {
 		if !apierrors.IsNotFound(err) {
 			return ctrlruntime.Result{}, err
 		}
-		if result, err := r.dispatch(ctx, adminWorkload, clusterInformer); err != nil || result.RequeueAfter > 0 {
+		if result, err := r.dispatch(ctx, adminWorkload, clientSets); err != nil || result.RequeueAfter > 0 {
 			return result, err
 		}
 		if err = r.markAsDispatched(ctx, adminWorkload); err != nil {
@@ -277,15 +278,15 @@ func (r *DispatcherReconciler) processWorkload(ctx context.Context, adminWorkloa
 		}
 		if commonworkload.IsApplication(adminWorkload) || commonworkload.IsCICDScalingRunnerSet(adminWorkload) {
 			// update the workload which is already dispatched
-			if err = r.syncWorkloadToObject(ctx, adminWorkload, clusterInformer, obj); err != nil {
+			if err = r.syncWorkloadToObject(ctx, adminWorkload, clientSets, obj); err != nil {
 				return ctrlruntime.Result{}, err
 			}
 			// sync service according to latest spec
-			if result, err := r.updateService(ctx, adminWorkload, clusterInformer, obj); err != nil || result.RequeueAfter > 0 {
+			if result, err := r.updateService(ctx, adminWorkload, clientSets, obj); err != nil || result.RequeueAfter > 0 {
 				return result, err
 			}
 			// Sync corresponding ingress
-			if result, err := r.updateIngress(ctx, adminWorkload, clusterInformer, obj); err != nil || result.RequeueAfter > 0 {
+			if result, err := r.updateIngress(ctx, adminWorkload, clientSets, obj); err != nil || result.RequeueAfter > 0 {
 				return result, err
 			}
 			klog.Infof("the workload is updated, name: %s, dispatch count: %d, max retry: %d",
@@ -297,21 +298,22 @@ func (r *DispatcherReconciler) processWorkload(ctx context.Context, adminWorkloa
 
 // dispatch creates and deploys the Kubernetes object in the data plane for the workload.
 func (r *DispatcherReconciler) dispatch(ctx context.Context,
-	adminWorkload *v1.Workload, clusterInformer *syncer.ClusterInformer) (ctrlruntime.Result, error) {
-	k8sObject, err := r.generateK8sObject(ctx, adminWorkload, clusterInformer)
+	adminWorkload *v1.Workload, clientSets *syncer.ClusterClientSets) (ctrlruntime.Result, error) {
+	k8sObject, err := r.generateK8sObject(ctx, adminWorkload, clientSets)
 	if err != nil {
 		klog.ErrorS(err, "failed to create k8s unstructured object. ",
 			"name", adminWorkload.Name, "gvk", adminWorkload.Spec.GroupVersionKind)
 		return ctrlruntime.Result{}, err
 	}
-	if err = jobutils.CreateObject(ctx, clusterInformer.ClientFactory(), k8sObject); err != nil {
+	klog.Infof(unstructuredutils.ToString(k8sObject))
+	if err = jobutils.CreateObject(ctx, clientSets.ClientFactory(), k8sObject); err != nil {
 		return ctrlruntime.Result{}, err
 	}
-	if result, err := r.createService(ctx, adminWorkload, clusterInformer, k8sObject); err != nil || result.RequeueAfter > 0 {
+	if result, err := r.createService(ctx, adminWorkload, clientSets, k8sObject); err != nil || result.RequeueAfter > 0 {
 		return result, err
 	}
 	// Ensure an ingress that points to the same-named Service
-	return r.createIngress(ctx, adminWorkload, clusterInformer, k8sObject)
+	return r.createIngress(ctx, adminWorkload, clientSets, k8sObject)
 }
 
 // generateUniquePorts generates unique job and SSH ports for the workload to avoid conflicts.
@@ -349,7 +351,7 @@ func (r *DispatcherReconciler) generateUniquePorts(ctx context.Context, workload
 
 // generateK8sObject creates the unstructured Kubernetes object from the workload specification.
 func (r *DispatcherReconciler) generateK8sObject(ctx context.Context,
-	adminWorkload *v1.Workload, clusterInformer *syncer.ClusterInformer) (*unstructured.Unstructured, error) {
+	adminWorkload *v1.Workload, clientSets *syncer.ClusterClientSets) (*unstructured.Unstructured, error) {
 	workspace, err := r.getWorkspace(ctx, adminWorkload)
 	if err != nil {
 		return nil, err
@@ -366,7 +368,7 @@ func (r *DispatcherReconciler) generateK8sObject(ctx context.Context,
 		klog.Error(err.Error())
 		return nil, commonerrors.NewInternalError(err.Error())
 	}
-	if err = applyWorkloadSpecToObject(ctx, clusterInformer, result, adminWorkload, workspace, rt); err != nil {
+	if err = applyWorkloadSpecToObject(ctx, clientSets, result, adminWorkload, workspace, rt); err != nil {
 		return nil, commonerrors.NewInternalError(err.Error())
 	}
 	for i, t := range rt.Spec.ResourceSpecs {
@@ -466,7 +468,7 @@ func (r *DispatcherReconciler) markAsDispatched(ctx context.Context, workload *v
 // syncWorkloadToObject synchronizes workload spec changes to the corresponding Kubernetes object.
 // It checks for significant changes and updates the object in the data plane cluster if needed.
 func (r *DispatcherReconciler) syncWorkloadToObject(ctx context.Context, adminWorkload *v1.Workload,
-	clusterInformer *syncer.ClusterInformer, obj *unstructured.Unstructured) error {
+	clientSets *syncer.ClusterClientSets, obj *unstructured.Unstructured) error {
 	rt, err := commonworkload.GetResourceTemplate(ctx, r.Client, adminWorkload)
 	if err != nil {
 		klog.ErrorS(err, "", "gvk", adminWorkload.Spec.GroupVersionKind)
@@ -494,11 +496,11 @@ func (r *DispatcherReconciler) syncWorkloadToObject(ctx context.Context, adminWo
 	if err != nil {
 		return err
 	}
-	if err = applyWorkloadSpecToObject(ctx, clusterInformer, obj, adminWorkload, workspace, rt); err != nil {
+	if err = applyWorkloadSpecToObject(ctx, clientSets, obj, adminWorkload, workspace, rt); err != nil {
 		return commonerrors.NewBadRequest(err.Error())
 	}
 
-	if err = jobutils.UpdateObject(ctx, clusterInformer.ClientFactory(), obj); err != nil {
+	if err = jobutils.UpdateObject(ctx, clientSets.ClientFactory(), obj); err != nil {
 		klog.ErrorS(err, "failed to update k8s unstructured object")
 		return err
 	}
@@ -628,14 +630,14 @@ func isGithubSecretChanged(adminWorkload *v1.Workload, obj *unstructured.Unstruc
 // applyWorkloadSpecToObject applies the workload specifications to the unstructured Kubernetes object.
 // It handles different workload types and updates various object properties including replicas,
 // network settings, containers, and volumes based on the workload specification.
-func applyWorkloadSpecToObject(ctx context.Context, clusterInformer *syncer.ClusterInformer,
+func applyWorkloadSpecToObject(ctx context.Context, clientSets *syncer.ClusterClientSets,
 	obj *unstructured.Unstructured, adminWorkload *v1.Workload, workspace *v1.Workspace, rt *v1.ResourceTemplate) error {
 	if commonworkload.IsCICDScalingRunnerSet(adminWorkload) {
 		if err := updateCICDScaleSet(obj, adminWorkload, workspace, rt); err != nil {
 			return err
 		}
 	} else if commonworkload.IsCICDEphemeralRunner(adminWorkload) {
-		if err := updateCICDEphemeralRunner(ctx, clusterInformer, obj, adminWorkload, rt); err != nil {
+		if err := updateCICDEphemeralRunner(ctx, clientSets, obj, adminWorkload, rt); err != nil {
 			return err
 		}
 	}
@@ -669,11 +671,11 @@ func applyWorkloadSpecToObject(ctx context.Context, clusterInformer *syncer.Clus
 
 // createService creates a Kubernetes Service for the workload if specified.
 func (r *DispatcherReconciler) createService(ctx context.Context, adminWorkload *v1.Workload,
-	clusterInformer *syncer.ClusterInformer, obj *unstructured.Unstructured) (ctrlruntime.Result, error) {
+	clientSets *syncer.ClusterClientSets, obj *unstructured.Unstructured) (ctrlruntime.Result, error) {
 	if adminWorkload.Spec.Service == nil {
 		return ctrlruntime.Result{}, nil
 	}
-	k8sClientSet := clusterInformer.ClientFactory().ClientSet()
+	k8sClientSet := clientSets.ClientFactory().ClientSet()
 	namespace := adminWorkload.Spec.Workspace
 	var err error
 	if _, err = k8sClientSet.CoreV1().Services(namespace).Get(ctx, adminWorkload.Name, metav1.GetOptions{}); err == nil {
@@ -701,7 +703,7 @@ func (r *DispatcherReconciler) createService(ctx context.Context, adminWorkload 
 	// Only set owner reference when the owner object has a valid UID.
 	owner := obj
 	if len(owner.GetUID()) == 0 {
-		if fetched, getErr := jobutils.GetObject(ctx, clusterInformer.ClientFactory(),
+		if fetched, getErr := jobutils.GetObject(ctx, clientSets.ClientFactory(),
 			obj.GetName(), obj.GetNamespace(), obj.GroupVersionKind()); getErr != nil {
 			return ctrlruntime.Result{}, getErr
 		} else {
@@ -738,8 +740,8 @@ func (r *DispatcherReconciler) createService(ctx context.Context, adminWorkload 
 // - If Service does not exist and spec is set, it will be created.
 // - Otherwise, it will be updated in-place to match protocol/ports/type/selector.
 func (r *DispatcherReconciler) updateService(ctx context.Context, adminWorkload *v1.Workload,
-	clusterInformer *syncer.ClusterInformer, obj *unstructured.Unstructured) (ctrlruntime.Result, error) {
-	k8sClientSet := clusterInformer.ClientFactory().ClientSet()
+	clientSets *syncer.ClusterClientSets, obj *unstructured.Unstructured) (ctrlruntime.Result, error) {
+	k8sClientSet := clientSets.ClientFactory().ClientSet()
 	namespace := adminWorkload.Spec.Workspace
 
 	// Delete when no service desired
@@ -751,7 +753,7 @@ func (r *DispatcherReconciler) updateService(ctx context.Context, adminWorkload 
 	// Get or create
 	existing, err := k8sClientSet.CoreV1().Services(namespace).Get(ctx, adminWorkload.Name, metav1.GetOptions{})
 	if apierrors.IsNotFound(err) {
-		return r.createService(ctx, adminWorkload, clusterInformer, obj)
+		return r.createService(ctx, adminWorkload, clientSets, obj)
 	}
 	if err != nil {
 		return ctrlruntime.Result{}, err
@@ -796,11 +798,11 @@ func (r *DispatcherReconciler) updateService(ctx context.Context, adminWorkload 
 
 // createIngress creates an Ingress in the same namespace that points to the same-named Service.
 func (r *DispatcherReconciler) createIngress(ctx context.Context, adminWorkload *v1.Workload,
-	clusterInformer *syncer.ClusterInformer, obj *unstructured.Unstructured) (ctrlruntime.Result, error) {
+	clientSets *syncer.ClusterClientSets, obj *unstructured.Unstructured) (ctrlruntime.Result, error) {
 	if adminWorkload.Spec.Service == nil || commonconfig.GetIngress() != common.HigressClassname {
 		return ctrlruntime.Result{}, nil
 	}
-	k8sClientSet := clusterInformer.ClientFactory().ClientSet()
+	k8sClientSet := clientSets.ClientFactory().ClientSet()
 	namespace := adminWorkload.Spec.Workspace
 	name := adminWorkload.Name
 	if _, err := k8sClientSet.NetworkingV1().Ingresses(namespace).Get(ctx, name, metav1.GetOptions{}); err == nil {
@@ -843,7 +845,7 @@ func (r *DispatcherReconciler) createIngress(ctx context.Context, adminWorkload 
 	// Only set owner reference when the owner object has a valid UID.
 	owner := obj
 	if len(owner.GetUID()) == 0 {
-		if fetched, getErr := jobutils.GetObject(ctx, clusterInformer.ClientFactory(),
+		if fetched, getErr := jobutils.GetObject(ctx, clientSets.ClientFactory(),
 			obj.GetName(), obj.GetNamespace(), obj.GroupVersionKind()); getErr != nil {
 			return ctrlruntime.Result{}, getErr
 		} else {
@@ -866,12 +868,12 @@ func (r *DispatcherReconciler) createIngress(ctx context.Context, adminWorkload 
 
 // updateIngress makes sure the Ingress exists (or is removed) and points to the same-named Service and port.
 func (r *DispatcherReconciler) updateIngress(ctx context.Context, adminWorkload *v1.Workload,
-	clusterInformer *syncer.ClusterInformer, obj *unstructured.Unstructured) (ctrlruntime.Result, error) {
+	clientSets *syncer.ClusterClientSets, obj *unstructured.Unstructured) (ctrlruntime.Result, error) {
 	if commonconfig.GetIngress() != common.HigressClassname {
 		return ctrlruntime.Result{}, nil
 	}
 
-	k8sClientSet := clusterInformer.ClientFactory().ClientSet()
+	k8sClientSet := clientSets.ClientFactory().ClientSet()
 	namespace := adminWorkload.Spec.Workspace
 	name := adminWorkload.Name
 	// Delete when service is not desired
@@ -882,7 +884,7 @@ func (r *DispatcherReconciler) updateIngress(ctx context.Context, adminWorkload 
 
 	existing, err := k8sClientSet.NetworkingV1().Ingresses(namespace).Get(ctx, name, metav1.GetOptions{})
 	if apierrors.IsNotFound(err) {
-		return r.createIngress(ctx, adminWorkload, clusterInformer, obj)
+		return r.createIngress(ctx, adminWorkload, clientSets, obj)
 	}
 	if err != nil {
 		return ctrlruntime.Result{}, err

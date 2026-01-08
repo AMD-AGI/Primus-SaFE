@@ -773,7 +773,7 @@ func updateCICDScaleSet(obj *unstructured.Unstructured,
 }
 
 // updateCICDEphemeralRunner updates the CICD ephemeral runner configuration
-func updateCICDEphemeralRunner(ctx context.Context, clusterInformer *syncer.ClusterInformer,
+func updateCICDEphemeralRunner(ctx context.Context, clientSets *syncer.ClusterClientSets,
 	obj *unstructured.Unstructured, adminWorkload *v1.Workload, rt *v1.ResourceTemplate) error {
 	if len(rt.Spec.ResourceSpecs) == 0 {
 		return fmt.Errorf("no resource template found")
@@ -783,9 +783,9 @@ func updateCICDEphemeralRunner(ctx context.Context, clusterInformer *syncer.Clus
 	}
 	// Set owner reference to the parent scale runner if CICDScaleRunnerIdLabel is present
 	if scaleRunnerId := v1.GetLabel(adminWorkload, v1.CICDScaleRunnerIdLabel); scaleRunnerId != "" {
-		if clusterInformer != nil && !commonutils.HasOwnerReferences(obj, scaleRunnerId) {
+		if clientSets != nil && !commonutils.HasOwnerReferences(obj, scaleRunnerId) {
 			ownerObj, err := jobutils.GetObject(ctx,
-				clusterInformer.ClientFactory(), scaleRunnerId, adminWorkload.Spec.Workspace, rt.ToSchemaGVK())
+				clientSets.ClientFactory(), scaleRunnerId, adminWorkload.Spec.Workspace, rt.ToSchemaGVK())
 			if err != nil {
 				return fmt.Errorf("failed to get owner scale runner: %v", err.Error())
 			}

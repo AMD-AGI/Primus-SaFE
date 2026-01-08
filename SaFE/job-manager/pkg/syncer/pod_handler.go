@@ -42,11 +42,12 @@ const (
 
 // handlePod processes Pod resource events (add, update, delete).
 // Manages the synchronization of pod status between data plane and admin plane.
-func (r *SyncerReconciler) handlePod(ctx context.Context, message *resourceMessage, clusterInformer *ClusterInformer) (ctrlruntime.Result, error) {
+func (r *SyncerReconciler) handlePod(ctx context.Context,
+	message *resourceMessage, clusterClientSets *ClusterClientSets) (ctrlruntime.Result, error) {
 	if message.action == ResourceDel {
 		return ctrlruntime.Result{}, r.removeWorkloadPod(ctx, message)
 	}
-	informer, err := clusterInformer.GetResourceInformer(ctx, message.gvk)
+	informer, err := clusterClientSets.GetResourceInformer(ctx, message.gvk)
 	if err != nil {
 		return ctrlruntime.Result{}, err
 	}
@@ -58,15 +59,15 @@ func (r *SyncerReconciler) handlePod(ctx context.Context, message *resourceMessa
 		if err = r.removeWorkloadPod(ctx, message); err != nil {
 			return ctrlruntime.Result{}, err
 		}
-		return r.deletePod(ctx, obj, clusterInformer)
+		return r.deletePod(ctx, obj, clusterClientSets)
 	}
-	return r.updateWorkloadPod(ctx, obj, clusterInformer, message)
+	return r.updateWorkloadPod(ctx, obj, clusterClientSets, message)
 }
 
 // deletePod forcefully deletes a pod from the data plane.
 // Implements a delayed force deletion strategy to avoid premature deletion.
 func (r *SyncerReconciler) deletePod(ctx context.Context,
-	obj *unstructured.Unstructured, clusterInformer *ClusterInformer) (ctrlruntime.Result, error) {
+	obj *unstructured.Unstructured, clusterClientSets *ClusterClientSets) (ctrlruntime.Result, error) {
 	nowTime := time.Now().Unix()
 	if nowTime-obj.GetDeletionTimestamp().Unix() < ForceDeleteDelaySeconds {
 		return ctrlruntime.Result{RequeueAfter: time.Second * 3}, nil
@@ -77,7 +78,7 @@ func (r *SyncerReconciler) deletePod(ctx context.Context,
 	deleteOptions := metav1.DeleteOptions{
 		GracePeriodSeconds: &gracePeriodSeconds,
 	}
-	err := clusterInformer.dataClientFactory.ClientSet().CoreV1().
+	err := clusterClientSets.dataClientFactory.ClientSet().CoreV1().
 		Pods(obj.GetNamespace()).Delete(ctx, obj.GetName(), deleteOptions)
 	if err != nil {
 		if !apierrors.IsNotFound(err) {
@@ -95,7 +96,7 @@ func (r *SyncerReconciler) deletePod(ctx context.Context,
 // updateWorkloadPod updates the workload status based on pod information.
 // Synchronizes pod details like phase, node assignment, and container status.
 func (r *SyncerReconciler) updateWorkloadPod(ctx context.Context, obj *unstructured.Unstructured,
-	clusterInformer *ClusterInformer, message *resourceMessage) (ctrlruntime.Result, error) {
+	clientSets *ClusterClientSets, message *resourceMessage) (ctrlruntime.Result, error) {
 	pod := &corev1.Pod{}
 	err := unstructuredutils.ConvertUnstructuredToObject(obj, pod)
 	if err != nil {
@@ -130,7 +131,7 @@ func (r *SyncerReconciler) updateWorkloadPod(ctx context.Context, obj *unstructu
 
 	k8sNode := &corev1.Node{}
 	if pod.Spec.NodeName != "" {
-		if k8sNode, err = clusterInformer.dataClientFactory.ClientSet().
+		if k8sNode, err = clientSets.dataClientFactory.ClientSet().
 			CoreV1().Nodes().Get(ctx, pod.Spec.NodeName, metav1.GetOptions{}); err != nil {
 			klog.ErrorS(err, "failed to get k8s node")
 			return ctrlruntime.Result{}, err
@@ -152,7 +153,7 @@ func (r *SyncerReconciler) updateWorkloadPod(ctx context.Context, obj *unstructu
 		workloadPod.StartTime = timeutil.FormatRFC3339(pod.Status.StartTime.Time)
 	}
 	buildPodTerminatedInfo(ctx,
-		clusterInformer.dataClientFactory.ClientSet(), adminWorkload, pod, &workloadPod)
+		clientSets.dataClientFactory.ClientSet(), adminWorkload, pod, &workloadPod)
 	shouldUpdateNodes := false
 	if id >= 0 {
 		if adminWorkload.Status.Pods[id].K8sNodeName != workloadPod.K8sNodeName ||

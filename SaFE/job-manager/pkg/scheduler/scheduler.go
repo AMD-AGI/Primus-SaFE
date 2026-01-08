@@ -48,7 +48,7 @@ const (
 
 type SchedulerReconciler struct {
 	client.Client
-	clusterInformers *commonutils.ObjectManager
+	clusterClientSets *commonutils.ObjectManager
 	// cronManager manages all cron jobs for workload scheduling
 	cronManager *CronJobManager
 	*controller.Controller[*SchedulerMessage]
@@ -73,9 +73,9 @@ func SetupSchedulerController(ctx context.Context, mgr manager.Manager) error {
 	}
 
 	r := &SchedulerReconciler{
-		Client:           mgr.GetClient(),
-		clusterInformers: commonutils.NewObjectManagerSingleton(),
-		cronManager:      newCronJobManager(mgr),
+		Client:            mgr.GetClient(),
+		clusterClientSets: commonutils.NewObjectManagerSingleton(),
+		cronManager:       newCronJobManager(mgr),
 	}
 	r.Controller = controller.NewController[*SchedulerMessage](r, 1)
 	r.start(ctx)
@@ -183,13 +183,13 @@ func (r *SchedulerReconciler) Reconcile(ctx context.Context, req ctrlruntime.Req
 
 // delete handles the deletion of a workload and its associated resources.
 func (r *SchedulerReconciler) delete(ctx context.Context, adminWorkload *v1.Workload) (ctrlruntime.Result, error) {
-	clusterInformer, err := syncer.GetClusterInformer(r.clusterInformers, v1.GetClusterId(adminWorkload))
+	clientSets, err := syncer.GetClusterClientSets(r.clusterClientSets, v1.GetClusterId(adminWorkload))
 	if err != nil {
-		klog.Errorf("failed to get cluster informer, clusterId: %s, workspaceId: %s, workloadId: %s",
+		klog.Errorf("failed to get cluster clientSets, clusterId: %s, workspaceId: %s, workloadId: %s",
 			v1.GetClusterId(adminWorkload), adminWorkload.Spec.Workspace, adminWorkload.Name)
 		return ctrlruntime.Result{}, err
 	}
-	if hasFound, err := jobutils.DeleteObjectsByWorkload(ctx, r.Client, clusterInformer.ClientFactory(), adminWorkload); err != nil {
+	if hasFound, err := jobutils.DeleteObjectsByWorkload(ctx, r.Client, clientSets.ClientFactory(), adminWorkload); err != nil {
 		return ctrlruntime.Result{}, err
 	} else if hasFound {
 		return ctrlruntime.Result{RequeueAfter: time.Second * 20}, nil

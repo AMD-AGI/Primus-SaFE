@@ -34,9 +34,9 @@ const (
 
 type ResourceHandler controller.QueueHandler[*resourceMessage]
 
-// ClusterInformer manages informers for Kubernetes resources in a specific cluster
+// ClusterClientSets manages informers and clients for Kubernetes resources in a specific cluster
 // It handles resource events and synchronizes them between admin plane and data plane
-type ClusterInformer struct {
+type ClusterClientSets struct {
 	ctx context.Context
 	// cluster name
 	name string
@@ -73,9 +73,9 @@ type resourceMessage struct {
 	dispatchCount int
 }
 
-// newClusterInformer creates and initializes a new ClusterInformer instance.
-func newClusterInformer(ctx context.Context, cluster *v1.Cluster,
-	adminClient client.Client, handler ResourceHandler) (*ClusterInformer, error) {
+// newClusterClientSets creates and initializes a new ClusterClientSets instance.
+func newClusterClientSets(ctx context.Context, cluster *v1.Cluster,
+	adminClient client.Client, handler ResourceHandler) (*ClusterClientSets, error) {
 	controlPlane := &cluster.Status.ControlPlaneStatus
 	if controlPlane == nil {
 		return nil, fmt.Errorf("controlPlane is empty")
@@ -89,8 +89,8 @@ func newClusterInformer(ctx context.Context, cluster *v1.Cluster,
 	if err != nil {
 		return nil, err
 	}
-	klog.Infof("create cluster informer, cluster: %s, endpoint: %s", cluster.Name, endpoint)
-	return &ClusterInformer{
+	klog.Infof("create cluster client sets, cluster: %s, endpoint: %s", cluster.Name, endpoint)
+	return &ClusterClientSets{
 		ctx:               ctx,
 		name:              cluster.Name,
 		adminClient:       adminClient,
@@ -100,13 +100,21 @@ func newClusterInformer(ctx context.Context, cluster *v1.Cluster,
 	}, nil
 }
 
+func (r *ClusterClientSets) SetName(name string) {
+	r.name = name
+}
+
+func (r *ClusterClientSets) SetClientFactory(factory *commonclient.ClientFactory) {
+	r.dataClientFactory = factory
+}
+
 // ClientFactory returns the data plane client factory.
-func (r *ClusterInformer) ClientFactory() *commonclient.ClientFactory {
+func (r *ClusterClientSets) ClientFactory() *commonclient.ClientFactory {
 	return r.dataClientFactory
 }
 
 // GetResourceInformer retrieves the resource informer for a given GVK.
-func (r *ClusterInformer) GetResourceInformer(_ context.Context, gvk schema.GroupVersionKind) (informers.GenericInformer, error) {
+func (r *ClusterClientSets) GetResourceInformer(_ context.Context, gvk schema.GroupVersionKind) (informers.GenericInformer, error) {
 	informer := r.getResourceInformer(gvk)
 	if informer != nil {
 		return informer.GenericInformer, nil
@@ -115,7 +123,7 @@ func (r *ClusterInformer) GetResourceInformer(_ context.Context, gvk schema.Grou
 }
 
 // getResourceInformer retrieves the internal resource informer for a given GVK.
-func (r *ClusterInformer) getResourceInformer(gvk schema.GroupVersionKind) *resourceInformer {
+func (r *ClusterClientSets) getResourceInformer(gvk schema.GroupVersionKind) *resourceInformer {
 	obj, ok := r.resourceInformers.Get(gvk.String())
 	if !ok {
 		return nil
@@ -128,7 +136,7 @@ func (r *ClusterInformer) getResourceInformer(gvk schema.GroupVersionKind) *reso
 }
 
 // addResourceTemplate adds a resource template and creates corresponding informer.
-func (r *ClusterInformer) addResourceTemplate(gvk schema.GroupVersionKind) error {
+func (r *ClusterClientSets) addResourceTemplate(gvk schema.GroupVersionKind) error {
 	if r.resourceInformers.Has(gvk.String()) {
 		return nil
 	}
@@ -170,7 +178,7 @@ func (r *ClusterInformer) addResourceTemplate(gvk schema.GroupVersionKind) error
 }
 
 // handleResource processes resource events (add, update, delete).
-func (r *ClusterInformer) handleResource(_ context.Context, oldObj, newObj interface{}, action string) {
+func (r *ClusterClientSets) handleResource(_ context.Context, oldObj, newObj interface{}, action string) {
 	newUnstructured, ok := newObj.(*unstructured.Unstructured)
 	if !ok {
 		return
@@ -216,16 +224,16 @@ func (r *ClusterInformer) handleResource(_ context.Context, oldObj, newObj inter
 }
 
 // delResourceTemplate removes a resource template and its corresponding informer.
-func (r *ClusterInformer) delResourceTemplate(gvk schema.GroupVersionKind) {
+func (r *ClusterClientSets) delResourceTemplate(gvk schema.GroupVersionKind) {
 	if err := r.resourceInformers.Delete(gvk.String()); err != nil {
 		klog.ErrorS(err, "failed to delete resource informer", "gvk", gvk)
 	}
 	klog.Infof("delete resource informer, cluster: %s, gvk: %s", r.name, gvk.String())
 }
 
-// Release cleans up all resources associated with the ClusterInformer.
+// Release cleans up all resources associated with the ClusterClientSets.
 // it implements the interface of commonutils.Object.
-func (r *ClusterInformer) Release() error {
+func (r *ClusterClientSets) Release() error {
 	r.resourceInformers.Clear()
 	return nil
 }
@@ -245,15 +253,15 @@ func (r *resourceInformer) Release() error {
 	return nil
 }
 
-// GetClusterInformer retrieves a ClusterInformer by name from the ObjectManager.
-func GetClusterInformer(clusterInformers *commonutils.ObjectManager, name string) (*ClusterInformer, error) {
-	obj, ok := clusterInformers.Get(name)
+// GetClusterClientSets retrieves a ClusterClientSets by name from the ObjectManager.
+func GetClusterClientSets(managers *commonutils.ObjectManager, name string) (*ClusterClientSets, error) {
+	obj, ok := managers.Get(name)
 	if !ok {
-		return nil, fmt.Errorf("failed to get cluster informer, name: %s", name)
+		return nil, fmt.Errorf("failed to get cluster clientSet, name: %s", name)
 	}
-	informer, ok := obj.(*ClusterInformer)
+	clientSets, ok := obj.(*ClusterClientSets)
 	if !ok {
-		return nil, fmt.Errorf("failed to get cluster informer, name: %s", name)
+		return nil, fmt.Errorf("failed to get cluster clientSet, name: %s", name)
 	}
-	return informer, nil
+	return clientSets, nil
 }

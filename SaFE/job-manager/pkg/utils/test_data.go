@@ -949,9 +949,10 @@ var (
 
 	TestWorkloadData = &v1.Workload{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: "test-workload",
+			Name: "test-workload-abcde",
 			Labels: map[string]string{
-				v1.ClusterIdLabel: "test-cluster",
+				v1.ClusterIdLabel:   "test-cluster",
+				v1.DisplayNameLabel: "test-workload",
 			},
 			Annotations: map[string]string{
 				v1.UserNameAnnotation: "test-user",
