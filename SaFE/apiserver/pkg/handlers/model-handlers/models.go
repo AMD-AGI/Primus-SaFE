@@ -180,37 +180,11 @@ func (h *Handler) createModel(c *gin.Context) (interface{}, error) {
 		initialPhase = v1.ModelPhasePending
 	}
 
-	// Create K8s Model CR
-	k8sModel := &v1.Model{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: name,
-		},
-		Spec: v1.ModelSpec{
-			DisplayName: displayName,
-			Description: description,
-			Icon:        icon,
-			Label:       label,
-			Tags:        tags,
-			MaxTokens:   maxTokens,
-			Workspace:   req.Workspace, // Empty means public (available to all workspaces)
-			Source: v1.ModelSource{
-				URL:        normalizedURL,
-				AccessMode: v1.AccessMode(req.Source.AccessMode),
-				ModelName:  modelName,
-			},
-		},
-		Status: v1.ModelStatus{
-			Phase:      initialPhase,
-			UpdateTime: &metav1.Time{Time: time.Now().UTC()},
-		},
-	}
+	// Pre-create Secrets BEFORE creating Model to avoid concurrent update conflicts
+	// This way we can reference them directly in the Model spec during creation
+	var tokenSecretRef, apiKeySecretRef *corev1.LocalObjectReference
 
-	if err := h.k8sClient.Create(ctx, k8sModel); err != nil {
-		klog.ErrorS(err, "Failed to create Model CR")
-		return nil, commonerrors.NewInternalError("failed to create model resource: " + err.Error())
-	}
-
-	// If user provided a token (for local mode HuggingFace access), create a Secret
+	// If user provided a token (for local mode HuggingFace access), create a Secret first
 	if req.Source.Token != "" {
 		tokenSecretName := name + "-token" // Secret name: model-xxx-token
 		secret := &corev1.Secret{
@@ -227,26 +201,15 @@ func (h *Handler) createModel(c *gin.Context) (interface{}, error) {
 			Type: corev1.SecretTypeOpaque,
 		}
 
-		// Note: Cannot use OwnerReference here because Model is cluster-scoped
-		// and Secret is namespace-scoped. Will delete manually in deleteModel.
 		if err := h.k8sClient.Create(ctx, secret); err != nil {
 			klog.ErrorS(err, "Failed to create token Secret")
-			_ = h.k8sClient.Delete(ctx, k8sModel)
 			return nil, commonerrors.NewInternalError("failed to create token secret: " + err.Error())
 		}
 		klog.Infof("Created token Secret: %s for Model %s", tokenSecretName, name)
-
-		// Update Model to reference the Secret
-		k8sModel.Spec.Source.Token = &corev1.LocalObjectReference{
-			Name: tokenSecretName,
-		}
-		if err := h.k8sClient.Update(ctx, k8sModel); err != nil {
-			klog.ErrorS(err, "Failed to update Model with token reference")
-			return nil, commonerrors.NewInternalError("failed to update model with token: " + err.Error())
-		}
+		tokenSecretRef = &corev1.LocalObjectReference{Name: tokenSecretName}
 	}
 
-	// If user provided an API key (for remote_api mode), create a Secret
+	// If user provided an API key (for remote_api mode), create a Secret first
 	if req.Source.ApiKey != "" {
 		apiKeySecretName := name + "-apikey" // Secret name: model-xxx-apikey
 		secret := &corev1.Secret{
@@ -263,32 +226,61 @@ func (h *Handler) createModel(c *gin.Context) (interface{}, error) {
 			Type: corev1.SecretTypeOpaque,
 		}
 
-		// Note: Cannot use OwnerReference here because Model is cluster-scoped
-		// and Secret is namespace-scoped. Will delete manually in deleteModel.
 		if err := h.k8sClient.Create(ctx, secret); err != nil {
 			klog.ErrorS(err, "Failed to create apiKey Secret")
-			_ = h.k8sClient.Delete(ctx, k8sModel)
+			// Cleanup token secret if it was created
+			if tokenSecretRef != nil {
+				_ = h.k8sClient.Delete(ctx, &corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{Name: tokenSecretRef.Name, Namespace: common.PrimusSafeNamespace},
+				})
+			}
 			return nil, commonerrors.NewInternalError("failed to create apiKey secret: " + err.Error())
 		}
 		klog.Infof("Created apiKey Secret: %s for Model %s", apiKeySecretName, name)
-
-		// Update Model to reference the Secret
-		k8sModel.Spec.Source.ApiKey = &corev1.LocalObjectReference{
-			Name: apiKeySecretName,
-		}
-		if err := h.k8sClient.Update(ctx, k8sModel); err != nil {
-			klog.ErrorS(err, "Failed to update Model with apiKey reference")
-			return nil, commonerrors.NewInternalError("failed to update model with apiKey: " + err.Error())
-		}
+		apiKeySecretRef = &corev1.LocalObjectReference{Name: apiKeySecretName}
 	}
 
-	// For remote_api models, update status to Ready
-	if req.Source.AccessMode == string(v1.AccessModeRemoteAPI) {
-		k8sModel.Status.Phase = v1.ModelPhaseReady
-		k8sModel.Status.Message = "Remote API model is ready"
-		if err := h.k8sClient.Status().Update(ctx, k8sModel); err != nil {
-			klog.ErrorS(err, "Failed to update model status to Ready", "model", name)
+	// Create K8s Model CR with Secret references already set
+	k8sModel := &v1.Model{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: name,
+		},
+		Spec: v1.ModelSpec{
+			DisplayName: displayName,
+			Description: description,
+			Icon:        icon,
+			Label:       label,
+			Tags:        tags,
+			MaxTokens:   maxTokens,
+			Workspace:   req.Workspace, // Empty means public (available to all workspaces)
+			Source: v1.ModelSource{
+				URL:        normalizedURL,
+				AccessMode: v1.AccessMode(req.Source.AccessMode),
+				ModelName:  modelName,
+				Token:      tokenSecretRef,  // Already set, no need for subsequent update
+				ApiKey:     apiKeySecretRef, // Already set, no need for subsequent update
+			},
+		},
+		Status: v1.ModelStatus{
+			Phase:      initialPhase,
+			UpdateTime: &metav1.Time{Time: time.Now().UTC()},
+		},
+	}
+
+	if err := h.k8sClient.Create(ctx, k8sModel); err != nil {
+		klog.ErrorS(err, "Failed to create Model CR")
+		// Cleanup secrets if model creation failed
+		if tokenSecretRef != nil {
+			_ = h.k8sClient.Delete(ctx, &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{Name: tokenSecretRef.Name, Namespace: common.PrimusSafeNamespace},
+			})
 		}
+		if apiKeySecretRef != nil {
+			_ = h.k8sClient.Delete(ctx, &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{Name: apiKeySecretRef.Name, Namespace: common.PrimusSafeNamespace},
+			})
+		}
+		return nil, commonerrors.NewInternalError("failed to create model resource: " + err.Error())
 	}
 
 	return &CreateResponse{ID: name}, nil
