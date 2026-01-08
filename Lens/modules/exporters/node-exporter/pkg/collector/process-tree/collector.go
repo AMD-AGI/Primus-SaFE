@@ -31,6 +31,7 @@ type cacheKey struct {
 	IncludeEnv       bool
 	IncludeCmdline   bool
 	IncludeResources bool
+	IncludeGPU       bool
 }
 
 // InitCollector initializes the process tree collector
@@ -76,14 +77,15 @@ func (c *Collector) GetPodProcessTree(ctx context.Context, req *ProcessTreeReque
 		IncludeEnv:       req.IncludeEnv,
 		IncludeCmdline:   req.IncludeCmdline,
 		IncludeResources: req.IncludeResources,
+		IncludeGPU:       req.IncludeGPU,
 	}
 
 	// Check cache
 	if cached, ok := c.cache.Load(key); ok {
 		tree := cached.(*PodProcessTree)
 		if time.Since(tree.CollectedAt) < c.cacheTTL {
-			log.Debugf("Using cached process tree for pod %s (env:%v, cmdline:%v, resources:%v)",
-				req.PodUID, req.IncludeEnv, req.IncludeCmdline, req.IncludeResources)
+			log.Debugf("Using cached process tree for pod %s (env:%v, cmdline:%v, resources:%v, gpu:%v)",
+				req.PodUID, req.IncludeEnv, req.IncludeCmdline, req.IncludeResources, req.IncludeGPU)
 			return tree, nil
 		}
 	}

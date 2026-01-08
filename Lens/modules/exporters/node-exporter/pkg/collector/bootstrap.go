@@ -5,9 +5,11 @@ import (
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/config"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/model"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/node-exporter/pkg/collector/containerd"
 	k8s_ephemeral_storage "github.com/AMD-AGI/Primus-SaFE/Lens/node-exporter/pkg/collector/k8s-ephemeral-storage"
 	processtree "github.com/AMD-AGI/Primus-SaFE/Lens/node-exporter/pkg/collector/process-tree"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/node-exporter/pkg/collector/pyspy"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/node-exporter/pkg/collector/report"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/node-exporter/pkg/kubelet"
 	"k8s.io/utils/env"
@@ -68,11 +70,26 @@ func Init(ctx context.Context, cfg config.Config) error {
 		// Don't block startup, collector is an optional feature
 	}
 
+	// Initialize Py-Spy Collector
+	pyspyConfig := cfg.NodeExporter.GetPySpyConfig()
+	if pyspyConfig.Enabled {
+		if err := pyspy.InitCollector(ctx, pyspyConfig); err != nil {
+			log.Warnf("Failed to initialize Py-Spy Collector: %v", err)
+			// Don't block startup, collector is an optional feature
+		}
+	} else {
+		log.Info("Py-Spy Collector is disabled")
+	}
+
 	return nil
 }
 
 func Start(ctx context.Context) {
 	startRefreshGPUInfo(ctx)
+
+	// Set GPU info provider for process-tree module
+	processtree.SetGPUInfoProvider(&gpuInfoProviderImpl{})
+
 	go func() {
 		runLoadGpuMetrics(ctx)
 	}()
@@ -83,4 +100,15 @@ func Start(ctx context.Context) {
 	go func() {
 		doLoadRdmaDevices(ctx)
 	}()
+}
+
+// gpuInfoProviderImpl implements processtree.GPUInfoProvider
+type gpuInfoProviderImpl struct{}
+
+func (g *gpuInfoProviderImpl) GetDriCardInfoMapping() map[string]model.DriDevice {
+	return cardDriDeviceMapping
+}
+
+func (g *gpuInfoProviderImpl) GetGpuDeviceInfo() []model.GPUInfo {
+	return gpuDeviceInfo
 }

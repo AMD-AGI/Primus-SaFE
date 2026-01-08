@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/profiler/storage"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/storage"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/node-exporter/pkg/client"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/node-exporter/pkg/types"
