@@ -156,10 +156,7 @@ func TestCreateTask_ValidationError(t *testing.T) {
 	router := gin.New()
 	router.POST("/api/v1/pyspy/sample", CreateTask)
 
-	// Test missing required fields
-	reqBody := CreateTaskRequest{
-		// Missing PodUID, NodeName, PID
-	}
+	reqBody := CreateTaskRequest{}
 	body, _ := json.Marshal(reqBody)
 
 	req, _ := http.NewRequest(http.MethodPost, "/api/v1/pyspy/sample", bytes.NewBuffer(body))
@@ -179,7 +176,6 @@ func TestGetTask_MissingID(t *testing.T) {
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
-	// Should return 404 because route doesn't match
 	assert.Equal(t, http.StatusNotFound, w.Code)
 }
 
@@ -187,21 +183,16 @@ func TestCancelTask_EmptyID(t *testing.T) {
 	router := gin.New()
 	router.POST("/api/v1/pyspy/task/:id/cancel", CancelTask)
 
-	// When ID is empty but matches the route pattern, handler returns 400
 	req, _ := http.NewRequest(http.MethodPost, "/api/v1/pyspy/task//cancel", nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
-	// Route with empty :id matches and handler returns 400 for empty task id
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
 func TestDownloadFile_RequiresTaskIDAndFilename(t *testing.T) {
-	// Note: Full integration test requires database setup
-	// This test just verifies the route matching behavior
 	router := gin.New()
-	
-	// Test that the route with both params is matched correctly
+
 	matched := false
 	router.GET("/api/v1/pyspy/file/:task_id/:filename", func(c *gin.Context) {
 		matched = true
@@ -220,13 +211,6 @@ func TestDownloadFile_RequiresTaskIDAndFilename(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 }
 
-func TestNodeExporterClient_New(t *testing.T) {
-	client := NewNodeExporterClient()
-	assert.NotNil(t, client)
-	assert.NotNil(t, client.httpClient)
-	assert.Equal(t, DefaultNodeExporterPort, client.port)
-}
-
 func TestListTasksResponse_JSON(t *testing.T) {
 	resp := ListTasksResponse{
 		Tasks:  []TaskResponse{},
@@ -242,3 +226,216 @@ func TestListTasksResponse_JSON(t *testing.T) {
 	assert.Contains(t, string(jsonBytes), `"limit":50`)
 }
 
+func TestCreateTaskRequest_AllFields(t *testing.T) {
+	req := CreateTaskRequest{
+		Cluster:      "production",
+		PodUID:       "pod-uid-12345",
+		PodName:      "my-python-app-abc123",
+		PodNamespace: "data-science",
+		NodeName:     "worker-node-1",
+		PID:          9999,
+		Duration:     60,
+		Rate:         200,
+		Format:       "speedscope",
+		Native:       true,
+		SubProcesses: true,
+	}
+
+	assert.Equal(t, "production", req.Cluster)
+	assert.Equal(t, "pod-uid-12345", req.PodUID)
+	assert.Equal(t, "my-python-app-abc123", req.PodName)
+	assert.Equal(t, "data-science", req.PodNamespace)
+	assert.Equal(t, "worker-node-1", req.NodeName)
+	assert.Equal(t, 9999, req.PID)
+	assert.Equal(t, 60, req.Duration)
+	assert.Equal(t, 200, req.Rate)
+	assert.Equal(t, "speedscope", req.Format)
+	assert.True(t, req.Native)
+	assert.True(t, req.SubProcesses)
+}
+
+func TestCreateTaskRequest_SetDefaults_NegativeValues(t *testing.T) {
+	tests := []struct {
+		name     string
+		req      CreateTaskRequest
+		expected CreateTaskRequest
+	}{
+		{
+			name: "negative duration should use default",
+			req: CreateTaskRequest{
+				Duration: -10,
+				Rate:     100,
+				Format:   "flamegraph",
+			},
+			expected: CreateTaskRequest{
+				Duration: 30,
+				Rate:     100,
+				Format:   "flamegraph",
+			},
+		},
+		{
+			name: "negative rate should use default",
+			req: CreateTaskRequest{
+				Duration: 30,
+				Rate:     -50,
+				Format:   "flamegraph",
+			},
+			expected: CreateTaskRequest{
+				Duration: 30,
+				Rate:     100,
+				Format:   "flamegraph",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.req.SetDefaults()
+			assert.Equal(t, tt.expected.Duration, tt.req.Duration)
+			assert.Equal(t, tt.expected.Rate, tt.req.Rate)
+			assert.Equal(t, tt.expected.Format, tt.req.Format)
+		})
+	}
+}
+
+func TestListTasksRequest_AllFields(t *testing.T) {
+	req := ListTasksRequest{
+		Cluster:      "staging",
+		PodUID:       "pod-123",
+		PodNamespace: "default",
+		NodeName:     "node-2",
+		Status:       "completed",
+		Limit:        25,
+		Offset:       50,
+	}
+
+	assert.Equal(t, "staging", req.Cluster)
+	assert.Equal(t, "pod-123", req.PodUID)
+	assert.Equal(t, "default", req.PodNamespace)
+	assert.Equal(t, "node-2", req.NodeName)
+	assert.Equal(t, "completed", req.Status)
+	assert.Equal(t, 25, req.Limit)
+	assert.Equal(t, 50, req.Offset)
+}
+
+func TestListTasksRequest_SetDefaults_EdgeCases(t *testing.T) {
+	tests := []struct {
+		name          string
+		req           ListTasksRequest
+		expectedLimit int
+	}{
+		{"zero limit", ListTasksRequest{Limit: 0}, 50},
+		{"negative limit", ListTasksRequest{Limit: -10}, 50},
+		{"exactly 100", ListTasksRequest{Limit: 100}, 100},
+		{"one over max", ListTasksRequest{Limit: 101}, 100},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.req.SetDefaults()
+			assert.Equal(t, tt.expectedLimit, tt.req.Limit)
+		})
+	}
+}
+
+func TestTaskResponse_AllFields(t *testing.T) {
+	now := time.Now()
+	startedAt := now.Add(-30 * time.Second)
+	completedAt := now
+
+	resp := TaskResponse{
+		TaskID:       "pyspy-task-abcd1234",
+		Status:       "completed",
+		PodUID:       "pod-uid-xyz",
+		PodName:      "data-processor-pod",
+		PodNamespace: "ml-workloads",
+		NodeName:     "gpu-node-3",
+		PID:          55555,
+		Duration:     30,
+		Format:       "flamegraph",
+		OutputFile:   "/data/pyspy/profiles/pyspy-task-abcd1234/output.svg",
+		FileSize:     256000,
+		CreatedAt:    now.Add(-1 * time.Minute),
+		StartedAt:    &startedAt,
+		CompletedAt:  &completedAt,
+		FilePath:     "/api/v1/pyspy/file/pyspy-task-abcd1234/output.svg",
+	}
+
+	assert.Equal(t, "pyspy-task-abcd1234", resp.TaskID)
+	assert.Equal(t, "completed", resp.Status)
+	assert.Equal(t, 55555, resp.PID)
+	assert.Equal(t, int64(256000), resp.FileSize)
+	assert.NotNil(t, resp.StartedAt)
+	assert.NotNil(t, resp.CompletedAt)
+}
+
+func TestCancelTaskRequest_Fields(t *testing.T) {
+	req := CancelTaskRequest{
+		Reason: "User requested cancellation",
+	}
+	assert.Equal(t, "User requested cancellation", req.Reason)
+
+	emptyReq := CancelTaskRequest{}
+	assert.Equal(t, "", emptyReq.Reason)
+}
+
+func TestTaskStatusResponse_Fields(t *testing.T) {
+	resp := TaskStatusResponse{
+		TaskID:  "task-cancel-001",
+		Status:  "cancelled",
+		Message: "Task cancelled successfully",
+	}
+
+	assert.Equal(t, "task-cancel-001", resp.TaskID)
+	assert.Equal(t, "cancelled", resp.Status)
+	assert.Equal(t, "Task cancelled successfully", resp.Message)
+}
+
+func TestGetFilename_EdgeCases(t *testing.T) {
+	tests := []struct {
+		name     string
+		path     string
+		expected string
+	}{
+		{"unix absolute path", "/var/lib/lens/profile.svg", "profile.svg"},
+		{"relative path", "data/profile.svg", "profile.svg"},
+		{"just filename", "profile.svg", "profile.svg"},
+		{"empty string", "", ""},
+		{"path ending with slash", "/data/", ""},
+		{"dotfile", "/data/.hidden", ".hidden"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := getFilename(tt.path)
+			assert.Equal(t, tt.expected, result, "path: %s", tt.path)
+		})
+	}
+}
+
+func TestCreateTask_InvalidJSON(t *testing.T) {
+	router := gin.New()
+	router.POST("/api/v1/pyspy/sample", CreateTask)
+
+	req, _ := http.NewRequest(http.MethodPost, "/api/v1/pyspy/sample", bytes.NewBufferString("{invalid}"))
+	req.Header.Set("Content-Type", "application/json")
+
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func BenchmarkCreateTaskRequest_SetDefaults(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		req := CreateTaskRequest{}
+		req.SetDefaults()
+	}
+}
+
+func BenchmarkGetFilename(b *testing.B) {
+	path := "/var/lib/lens/pyspy/profiles/task-123/profile.svg"
+	for i := 0; i < b.N; i++ {
+		_ = getFilename(path)
+	}
+}

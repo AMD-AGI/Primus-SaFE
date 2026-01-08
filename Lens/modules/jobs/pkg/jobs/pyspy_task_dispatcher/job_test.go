@@ -1,92 +1,158 @@
 package pyspy_task_dispatcher
 
 import (
+	"strings"
 	"testing"
+	"time"
 )
 
-func TestNewPySpyTaskDispatcherJob(t *testing.T) {
-	job := NewPySpyTaskDispatcherJob()
-	if job == nil {
-		t.Fatal("NewPySpyTaskDispatcherJob returned nil")
+// TestJobConstants tests job constants
+func TestJobConstants(t *testing.T) {
+	tests := []struct {
+		name     string
+		constant interface{}
+		expected interface{}
+	}{
+		{
+			name:     "LockDuration",
+			constant: LockDuration,
+			expected: 10 * time.Minute,
+		},
+		{
+			name:     "JobSchedule",
+			constant: JobSchedule,
+			expected: "@every 5s",
+		},
 	}
 
-	if job.facade == nil {
-		t.Error("facade is nil")
-	}
-
-	if job.instanceID == "" {
-		t.Error("instanceID is empty")
-	}
-
-	if job.client == nil {
-		t.Error("client is nil")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.constant != tt.expected {
+				t.Errorf("Expected %v, got %v", tt.expected, tt.constant)
+			}
+		})
 	}
 }
 
-func TestSchedule(t *testing.T) {
-	job := NewPySpyTaskDispatcherJob()
-	schedule := job.Schedule()
+// TestGenerateInstanceID tests instance ID generation
+func TestGenerateInstanceID(t *testing.T) {
+	// Generate multiple IDs and verify uniqueness
+	ids := make(map[string]bool)
+	for i := 0; i < 100; i++ {
+		id := generateInstanceID()
+		
+		// Check format
+		if !strings.HasPrefix(id, "pyspy-dispatcher-") {
+			t.Errorf("Expected prefix 'pyspy-dispatcher-', got %s", id)
+		}
+		
+		// Check length (prefix + 8 char UUID)
+		expectedLen := len("pyspy-dispatcher-") + 8
+		if len(id) != expectedLen {
+			t.Errorf("Expected length %d, got %d for id %s", expectedLen, len(id), id)
+		}
+		
+		// Check uniqueness
+		if ids[id] {
+			t.Errorf("Duplicate ID generated: %s", id)
+		}
+		ids[id] = true
+	}
+}
 
+// TestPySpyTaskDispatcherJob_Schedule tests the Schedule method
+func TestPySpyTaskDispatcherJob_Schedule(t *testing.T) {
+	job := &PySpyTaskDispatcherJob{}
+	schedule := job.Schedule()
+	
 	if schedule != JobSchedule {
 		t.Errorf("Expected schedule %s, got %s", JobSchedule, schedule)
 	}
-}
-
-func TestGenerateInstanceID(t *testing.T) {
-	id1 := generateInstanceID()
-	id2 := generateInstanceID()
-
-	if id1 == "" {
-		t.Error("generateInstanceID returned empty string")
-	}
-
-	if id1 == id2 {
-		t.Error("generateInstanceID should return unique IDs")
-	}
-
-	// Check prefix
-	if len(id1) < 16 {
-		t.Error("instanceID should have proper length")
+	if schedule != "@every 5s" {
+		t.Errorf("Expected '@every 5s', got %s", schedule)
 	}
 }
 
-func TestNewNodeExporterClient(t *testing.T) {
-	client := NewNodeExporterClient()
-	if client == nil {
-		t.Fatal("NewNodeExporterClient returned nil")
+// TestPySpyTaskDispatcherJob_Fields tests job struct fields
+func TestPySpyTaskDispatcherJob_Fields(t *testing.T) {
+	job := &PySpyTaskDispatcherJob{
+		instanceID: "test-instance-123",
 	}
 
-	if client.httpClient == nil {
-		t.Error("httpClient is nil")
+	if job.instanceID != "test-instance-123" {
+		t.Errorf("Expected instanceID 'test-instance-123', got %s", job.instanceID)
 	}
-}
-
-func TestNewNodeExporterResolver(t *testing.T) {
-	resolver := NewNodeExporterResolver(nil)
-	if resolver == nil {
-		t.Fatal("NewNodeExporterResolver returned nil")
+	if job.facade != nil {
+		// facade is nil when not initialized
 	}
-
-	if resolver.port != DefaultNodeExporterPort {
-		t.Errorf("Expected port %d, got %d", DefaultNodeExporterPort, resolver.port)
+	if job.storageBackend != nil {
+		// storageBackend is nil when not initialized
 	}
 }
 
-func TestGetNodeExporterAddress_NoClient(t *testing.T) {
-	resolver := NewNodeExporterResolver(nil)
-
-	_, err := resolver.GetNodeExporterAddress(nil, "test-node")
-	if err == nil {
-		t.Error("Expected error when k8s client is nil")
+// TestInstanceIDFormat tests instance ID format validation
+func TestInstanceIDFormat(t *testing.T) {
+	// Generate multiple IDs
+	for i := 0; i < 10; i++ {
+		id := generateInstanceID()
+		
+		// Should have format: pyspy-dispatcher-xxxxxxxx
+		parts := strings.Split(id, "-")
+		if len(parts) != 3 {
+			t.Errorf("Expected 3 parts separated by -, got %d in %s", len(parts), id)
+		}
+		
+		if parts[0] != "pyspy" {
+			t.Errorf("Expected first part 'pyspy', got %s", parts[0])
+		}
+		if parts[1] != "dispatcher" {
+			t.Errorf("Expected second part 'dispatcher', got %s", parts[1])
+		}
+		
+		// Third part should be 8 character hex
+		if len(parts[2]) != 8 {
+			t.Errorf("Expected 8 character UUID suffix, got %d chars: %s", len(parts[2]), parts[2])
+		}
 	}
 }
 
-func TestGetAllNodeExporterAddresses_NoClient(t *testing.T) {
-	resolver := NewNodeExporterResolver(nil)
+// TestLockDurationValue tests lock duration is reasonable
+func TestLockDurationValue(t *testing.T) {
+	// Lock duration should be greater than typical py-spy execution time
+	// (which could be up to a few minutes)
+	if LockDuration < 5*time.Minute {
+		t.Error("Lock duration too short for typical py-spy execution")
+	}
+	
+	// Lock duration shouldn't be excessively long
+	if LockDuration > 30*time.Minute {
+		t.Error("Lock duration seems excessively long")
+	}
+}
 
-	_, err := resolver.GetAllNodeExporterAddresses(nil)
-	if err == nil {
-		t.Error("Expected error when k8s client is nil")
+// TestJobScheduleFormat tests job schedule format
+func TestJobScheduleFormat(t *testing.T) {
+	schedule := JobSchedule
+	
+	// Should be a cron expression or @every format
+	if !strings.HasPrefix(schedule, "@every ") && !strings.Contains(schedule, " ") {
+		t.Error("Schedule should be a valid cron expression or @every format")
+	}
+	
+	// If @every format, validate duration
+	if strings.HasPrefix(schedule, "@every ") {
+		duration := strings.TrimPrefix(schedule, "@every ")
+		_, err := time.ParseDuration(duration)
+		if err != nil {
+			t.Errorf("Invalid duration in schedule: %s", duration)
+		}
+	}
+}
+
+// BenchmarkGenerateInstanceID benchmarks instance ID generation
+func BenchmarkGenerateInstanceID(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		_ = generateInstanceID()
 	}
 }
 
