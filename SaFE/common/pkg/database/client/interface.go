@@ -30,6 +30,7 @@ type Interface interface {
 	CDInterface
 	PlaygroundSessionInterface
 	ModelInterface
+	ApiKeyInterface
 }
 
 type WorkloadInterface interface {
