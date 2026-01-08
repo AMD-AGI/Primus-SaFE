@@ -23,6 +23,7 @@ Welcome to the Primus-SaFE API documentation. This documentation provides comple
 - [user.md](./user.md) - User Management API
 - [secret.md](./secret.md) - Secret Management API
 - [public-key.md](./public-key.md) - Public Key Management API
+- [api-key.md](./api-key.md) - API Key Management API
 
 #### Operations
 - [fault.md](./fault.md) - Fault Injection API

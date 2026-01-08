@@ -318,3 +318,24 @@ func GetEnvironmentSnapshotFieldTags() map[string]string {
 	e := EnvironmentSnapshot{}
 	return getFieldTags(e)
 }
+
+// ApiKey represents an API key record in the database
+type ApiKey struct {
+	Id             int64       `db:"id"`
+	Name           string      `db:"name"`
+	UserId         string      `db:"user_id"`
+	UserName       string      `db:"user_name"`
+	ApiKey         string      `db:"api_key"`
+	KeyHint        string      `db:"key_hint"` // Partial key for display: "XX-YYYY" (first 2 + last 4 chars after prefix)
+	ExpirationTime pq.NullTime `db:"expiration_time"`
+	CreationTime   pq.NullTime `db:"creation_time"`
+	Whitelist      string      `db:"whitelist"` // JSON string of IP/CIDR list
+	Deleted        bool        `db:"deleted"`
+	DeletionTime   pq.NullTime `db:"deletion_time"`
+}
+
+// GetApiKeyFieldTags returns the ApiKeyFieldTags value.
+func GetApiKeyFieldTags() map[string]string {
+	k := ApiKey{}
+	return getFieldTags(k)
+}
