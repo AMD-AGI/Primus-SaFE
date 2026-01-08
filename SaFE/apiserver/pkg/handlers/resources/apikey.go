@@ -286,7 +286,7 @@ func convertToApiKeyResponseItem(record *dbclient.ApiKey) view.ApiKeyResponseIte
 		Id:      record.Id,
 		Name:    record.Name,
 		UserId:  record.UserId,
-		KeyHint: authority.FormatKeyHint(record.KeyHint), // Format: "ak-XX****YYYY"
+		KeyHint: record.KeyHint, // Already in display format: "ak-XX****YYYY"
 		Deleted: record.Deleted,
 	}
 
