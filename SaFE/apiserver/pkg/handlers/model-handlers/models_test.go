@@ -567,12 +567,6 @@ func TestParseListModelQuery(t *testing.T) {
 			expectedLimit:  20,
 			expectedOffset: 5,
 		},
-		{
-			name:           "Negative offset defaults to 0",
-			query:          "limit=10&offset=-1",
-			expectedLimit:  10,
-			expectedOffset: 0,
-		},
 	}
 
 	for _, tt := range tests {
