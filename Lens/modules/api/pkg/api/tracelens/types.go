@@ -46,3 +46,19 @@ type SessionStatusResponse struct {
 	Message   string `json:"message,omitempty"`
 }
 
+// ResourceProfileResponse is the response for resource profiles
+type ResourceProfileResponse struct {
+	Value       string `json:"value"`
+	Label       string `json:"label"`
+	Description string `json:"description"`
+	Memory      string `json:"memory"`
+	MemoryBytes int64  `json:"memory_bytes"`
+	CPU         int    `json:"cpu"`
+	IsDefault   bool   `json:"is_default,omitempty"`
+}
+
+// ResourceProfilesResponse is the response for listing resource profiles
+type ResourceProfilesResponse struct {
+	Profiles []ResourceProfileResponse `json:"profiles"`
+}
+
