@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"reflect"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
@@ -945,7 +946,9 @@ func (r *DispatcherReconciler) generateLighthouse(ctx context.Context, rootWorkl
 	v1.SetLabel(workload, v1.RootWorkloadIdLabel, rootWorkload.Name)
 
 	minGroup, _ := commonworkload.GetReplicaGroup(workload, common.MinReplicaGroup)
-	entryPoint := stringutil.Base64Decode(commonconfig.GetTorchFTLightHouse()) + fmt.Sprintf(" --min_replicas %d", minGroup)
+	entryPoint := stringutil.Base64Decode(commonconfig.GetTorchFTLightHouse())
+	entryPoint = strings.TrimRight(entryPoint, "\n")
+	entryPoint += fmt.Sprintf(" --min_replicas %d", minGroup)
 	workload.Spec.EntryPoint = stringutil.Base64Encode(entryPoint)
 	workload.Spec.Kind = common.DeploymentKind
 	workload.Spec.Resources = []v1.WorkloadResource{rootWorkload.Spec.Resources[0]}
