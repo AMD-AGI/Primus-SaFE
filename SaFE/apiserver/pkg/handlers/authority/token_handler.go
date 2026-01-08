@@ -30,7 +30,22 @@ type TokenItem struct {
 }
 
 // ParseToken parses the token from request (cookie or header)
+// It first tries API Key authentication, then falls back to regular token authentication
 func ParseToken(c *gin.Context) error {
+	// First, try to authenticate with API key from Authorization: Bearer header
+	authHeader := c.GetHeader("Authorization")
+	apiKey := ExtractApiKeyFromRequest(authHeader)
+
+	if apiKey != "" {
+		// Authenticate using API key
+		err := parseApiKeyFromRequest(c, apiKey)
+		if err != nil {
+			return commonerrors.NewUnauthorized(err.Error())
+		}
+		return nil
+	}
+
+	// Fall back to regular token authentication
 	err := parseTokenFromRequest(c)
 	if err != nil {
 		userId := c.GetHeader(common.UserId)
@@ -41,6 +56,29 @@ func ParseToken(c *gin.Context) error {
 		}
 		return commonerrors.NewUnauthorized(err.Error())
 	}
+	return nil
+}
+
+// parseApiKeyFromRequest validates the API key and sets user info in context
+func parseApiKeyFromRequest(c *gin.Context, apiKey string) error {
+	apiKeyToken := ApiKeyTokenInstance()
+	if apiKeyToken == nil {
+		return commonerrors.NewInternalError("API key authentication not initialized")
+	}
+
+	// Get client IP for whitelist check
+	clientIP := c.ClientIP()
+
+	userInfo, err := apiKeyToken.ValidateApiKey(c.Request.Context(), apiKey, clientIP)
+	if err != nil {
+		klog.ErrorS(err, "failed to validate API key")
+		return err
+	}
+
+	c.Set(common.UserId, userInfo.Id)
+	c.Set(common.UserName, userInfo.Name)
+	c.Set(common.UserType, UserTypeApiKey)
+	klog.Infof("API key authentication successful for user: %s (name: %s)", userInfo.Id, userInfo.Name)
 	return nil
 }
 
