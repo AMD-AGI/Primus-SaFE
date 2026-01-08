@@ -395,3 +395,24 @@ data:
         updated_at TIMESTAMPTZ
     );
     alter table environment_snapshots owner to "primus-safe";
+
+    -- API Keys table for API key authentication
+    CREATE TABLE IF NOT EXISTS api_keys (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(100) NOT NULL,
+        user_id VARCHAR(64) NOT NULL,
+        user_name VARCHAR(256) NULL,
+        api_key VARCHAR(128) UNIQUE NOT NULL,
+        key_hint VARCHAR(16) NOT NULL,
+        expiration_time TIMESTAMPTZ NOT NULL,
+        creation_time TIMESTAMPTZ NOT NULL DEFAULT now(),
+        whitelist JSONB NULL,
+        deleted BOOLEAN NOT NULL DEFAULT false,
+        deletion_time TIMESTAMPTZ NULL
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_api_key ON api_keys(api_key);
+    CREATE INDEX IF NOT EXISTS idx_api_key_user_id ON api_keys(user_id);
+    CREATE INDEX IF NOT EXISTS idx_api_key_deleted ON api_keys(deleted, expiration_time);
+
+    alter table api_keys owner to "primus-safe";

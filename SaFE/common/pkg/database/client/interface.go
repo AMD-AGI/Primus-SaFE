@@ -152,6 +152,22 @@ type PlaygroundSessionInterface interface {
 	SetPlaygroundSessionDeleted(ctx context.Context, id int64) error
 }
 
+// ApiKeyInterface defines the interface for API key database operations
+type ApiKeyInterface interface {
+	// InsertApiKey inserts a new API key record
+	InsertApiKey(ctx context.Context, apiKey *ApiKey) error
+	// SelectApiKeys retrieves API keys based on query conditions
+	SelectApiKeys(ctx context.Context, query sqrl.Sqlizer, orderBy []string, limit, offset int) ([]*ApiKey, error)
+	// CountApiKeys counts API keys based on query conditions
+	CountApiKeys(ctx context.Context, query sqrl.Sqlizer) (int, error)
+	// GetApiKeyById retrieves an API key by its ID
+	GetApiKeyById(ctx context.Context, id int64) (*ApiKey, error)
+	// GetApiKeyByKey retrieves an API key by the key value
+	GetApiKeyByKey(ctx context.Context, apiKey string) (*ApiKey, error)
+	// SetApiKeyDeleted performs soft delete on an API key
+	SetApiKeyDeleted(ctx context.Context, userId string, id int64) error
+}
+
 // ModelInterface defines database operations for Model entities
 type ModelInterface interface {
 	UpsertModel(ctx context.Context, m *Model) error
