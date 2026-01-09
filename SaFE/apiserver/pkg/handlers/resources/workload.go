@@ -56,6 +56,8 @@ const (
 	BatchDelete WorkloadBatchAction = "delete"
 	BatchStop   WorkloadBatchAction = "stop"
 	BatchClone  WorkloadBatchAction = "clone"
+
+	PreheatDescription = "preheat"
 )
 
 // CreateWorkload handles the creation of a new workload resource.
@@ -792,11 +794,10 @@ func (h *Handler) generateWorkload(ctx context.Context,
 func (h *Handler) createPreheatWorkload(c *gin.Context, mainWorkload *v1.Workload,
 	mainQuery *view.CreateWorkloadRequest, requestUser *v1.User, roles []*v1.Role) (*v1.Workload, error) {
 	displayName := v1.GetDisplayName(mainWorkload)
-	description := "preheat"
-	if len(displayName) > commonutils.MaxDisplayNameLen-len(description)-1 {
-		displayName = displayName[:commonutils.MaxDisplayNameLen-len(description)-1]
+	if len(displayName) > commonutils.MaxDisplayNameLen-len(PreheatDescription)-1 {
+		displayName = displayName[:commonutils.MaxDisplayNameLen-len(PreheatDescription)-1]
 	}
-	displayName = description + "-" + displayName
+	displayName = PreheatDescription + "-" + displayName
 
 	preheatWorkload := &v1.Workload{
 		ObjectMeta: metav1.ObjectMeta{
@@ -805,7 +806,7 @@ func (h *Handler) createPreheatWorkload(c *gin.Context, mainWorkload *v1.Workloa
 				v1.DisplayNameLabel: displayName,
 			},
 			Annotations: map[string]string{
-				v1.DescriptionAnnotation:       description,
+				v1.DescriptionAnnotation:       PreheatDescription,
 				v1.RequireNodeSpreadAnnotation: v1.TrueStr,
 			},
 		},
@@ -1251,7 +1252,14 @@ func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context,
 		json.Unmarshal([]byte(str), &result.Env)
 	}
 	if str := dbutils.ParseNullString(dbWorkload.Dependencies); str != "" {
-		json.Unmarshal([]byte(str), &result.Dependencies)
+		var dependencies []string
+		json.Unmarshal([]byte(str), &dependencies)
+		for _, id := range dependencies {
+			item, err := h.dbClient.GetWorkload(ctx, id)
+			if err == nil && dbutils.ParseNullString(item.Description) != PreheatDescription {
+				result.Dependencies = append(result.Dependencies, id)
+			}
+		}
 	}
 	if str := dbutils.ParseNullString(dbWorkload.CronJobs); str != "" {
 		json.Unmarshal([]byte(str), &result.CronJobs)
