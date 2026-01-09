@@ -1,3 +1,6 @@
+# Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+
 """
 Primus Lens WandB Exporter
 Automatically intercepts wandb reporting without requiring user code changes

@@ -1,3 +1,6 @@
+// Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
+// See LICENSE for license information.
+
 // Package e2e provides end-to-end tests for AI Gateway Phase 1-5
 package e2e
 
