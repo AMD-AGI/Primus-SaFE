@@ -137,6 +137,7 @@ if helm -n "$NAMESPACE" list | grep -q "^$chart_name "; then
 fi
 install_or_upgrade_helm_chart "$chart_name" "$values_yaml"
 
+sleep 10
 install_or_upgrade_helm_chart "primus-safe-cr" "$values_yaml"
 rm -f "$values_yaml"
 

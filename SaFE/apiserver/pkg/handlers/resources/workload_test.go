@@ -1712,7 +1712,6 @@ func Test_cvtDBWorkloadToGetResponse(t *testing.T) {
 	readinessJSON := `{"httpGet":{"path":"/ready","port":8080}}`
 	serviceJSON := `{"type":"ClusterIP","port":8080}`
 	envJSON := `{"ENV_VAR":"value","ANOTHER_VAR":"another_value"}`
-	dependenciesJSON := `["dep-1","dep-2"]`
 	cronJobsJSON := `[{"schedule":"0 0 * * *","command":"backup"}]`
 	secretsJSON := `[{"id":"secret-1","type":"general"}]`
 
@@ -1744,7 +1743,6 @@ func Test_cvtDBWorkloadToGetResponse(t *testing.T) {
 		Readiness:      sql.NullString{String: readinessJSON, Valid: true},
 		Service:        sql.NullString{String: serviceJSON, Valid: true},
 		Env:            sql.NullString{String: envJSON, Valid: true},
-		Dependencies:   sql.NullString{String: dependenciesJSON, Valid: true},
 		CronJobs:       sql.NullString{String: cronJobsJSON, Valid: true},
 		Secrets:        sql.NullString{String: secretsJSON, Valid: true},
 	}
@@ -1809,11 +1807,6 @@ func Test_cvtDBWorkloadToGetResponse(t *testing.T) {
 	assert.Equal(t, len(result.Env), 2)
 	assert.Equal(t, result.Env["ENV_VAR"], "value")
 	assert.Equal(t, result.Env["ANOTHER_VAR"], "another_value")
-
-	// Verify Dependencies are parsed
-	assert.Equal(t, len(result.Dependencies), 2)
-	assert.Equal(t, result.Dependencies[0], "dep-1")
-	assert.Equal(t, result.Dependencies[1], "dep-2")
 
 	// Verify CronJobs are parsed
 	assert.Equal(t, len(result.CronJobs), 1)
