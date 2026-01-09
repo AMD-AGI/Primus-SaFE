@@ -170,9 +170,9 @@ func initScheduledTasks(ctx context.Context, cfg *config.Config) error {
 	// Add namespace sync task (runs every 60 seconds)
 	globalScheduler.AddTask(namespaceSyncService, 60*time.Second)
 
-	// Initialize Token sync tasks if Control Plane DB is available
-	if err := initTokenSyncTasks(clusterManager, safeDB); err != nil {
-		log.Warnf("Token sync tasks not initialized: %v", err)
+	// Initialize Token and User sync tasks if Control Plane DB is available
+	if err := initTokenSyncTasks(clusterManager, safeDB, k8sClient); err != nil {
+		log.Warnf("Token/User sync tasks not initialized: %v", err)
 		// Don't fail startup, token sync is optional
 	}
 
@@ -184,7 +184,7 @@ func initScheduledTasks(ctx context.Context, cfg *config.Config) error {
 }
 
 // initTokenSyncTasks initializes token sync tasks if Control Plane DB is available
-func initTokenSyncTasks(clusterManager *clientsets.ClusterManager, safeDB *gorm.DB) error {
+func initTokenSyncTasks(clusterManager *clientsets.ClusterManager, safeDB *gorm.DB, k8sClient client.Client) error {
 	// Check if Control Plane is enabled
 	if !clusterManager.IsControlPlaneEnabled() {
 		log.Info("Control Plane not enabled, token sync disabled")
@@ -197,11 +197,17 @@ func initTokenSyncTasks(clusterManager *clientsets.ClusterManager, safeDB *gorm.
 		return fmt.Errorf("control Plane DB not available")
 	}
 
+	// Create user sync service (sync users from SaFE CRD to Lens)
+	userSyncService := service.NewUserSyncService(k8sClient, lensDB)
+
 	// Create token sync service
 	tokenSyncService := service.NewTokenSyncService(safeDB, lensDB)
 
 	// Create token cleanup service
 	tokenCleanupService := service.NewTokenCleanupService(lensDB)
+
+	// Add user sync task (runs every 60 seconds)
+	globalScheduler.AddTask(userSyncService, 60*time.Second)
 
 	// Add token sync task (runs every 30 seconds)
 	globalScheduler.AddTask(tokenSyncService, 30*time.Second)
@@ -209,7 +215,7 @@ func initTokenSyncTasks(clusterManager *clientsets.ClusterManager, safeDB *gorm.
 	// Add token cleanup task (runs every 60 minutes)
 	globalScheduler.AddTask(tokenCleanupService, 60*time.Minute)
 
-	log.Info("Token sync tasks added to scheduler: token-sync (30s), token-cleanup (60m)")
+	log.Info("Token sync tasks added to scheduler: user-sync (60s), token-sync (30s), token-cleanup (60m)")
 	return nil
 }
 

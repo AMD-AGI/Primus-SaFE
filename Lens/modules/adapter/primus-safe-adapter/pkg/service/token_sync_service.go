@@ -106,7 +106,9 @@ func (s *TokenSyncService) syncToken(ctx context.Context, safeToken *safemodel.U
 	lensSessionFacade := cpdb.GetFacade().GetSession()
 
 	existing, err := lensSessionFacade.GetBySafeSessionID(ctx, safeToken.SessionID)
-	if err != nil && err != gorm.ErrRecordNotFound {
+	if err != nil {
+		// Only return error if it's not a "not found" situation
+		// Note: GORM callback may convert ErrRecordNotFound to nil
 		return err
 	}
 
@@ -115,7 +117,8 @@ func (s *TokenSyncService) syncToken(ctx context.Context, safeToken *safemodel.U
 		expiresAt = time.Now().Add(365 * 24 * time.Hour) // 1 year for never-expire
 	}
 
-	if existing != nil {
+	// Check if session was actually found (handle GORM callback issue)
+	if existing != nil && existing.ID != "" {
 		// Update expiration if changed
 		if !existing.ExpiresAt.Equal(expiresAt) {
 			return lensSessionFacade.UpdateExpiresAt(ctx, existing.ID, expiresAt)
