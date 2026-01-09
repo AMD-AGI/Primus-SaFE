@@ -1,3 +1,6 @@
+// Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
+// See LICENSE for license information.
+
 // Package statistics provides statistical calculation utilities for GPU resource analysis.
 // It includes time-weighted GPU allocation calculations based on workload and pod activity.
 package statistics

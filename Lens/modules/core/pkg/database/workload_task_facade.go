@@ -1,3 +1,6 @@
+// Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
+// See LICENSE for license information.
+
 package database
 
 import (
@@ -45,6 +48,13 @@ type WorkloadTaskFacadeInterface interface {
 func NewWorkloadTaskFacade() *WorkloadTaskFacade {
 	return &WorkloadTaskFacade{
 		db: GetFacade().GetSystemConfig().GetDB(),
+	}
+}
+
+// NewWorkloadTaskFacadeForCluster creates a new task facade for a specific cluster
+func NewWorkloadTaskFacadeForCluster(clusterName string) *WorkloadTaskFacade {
+	return &WorkloadTaskFacade{
+		db: GetFacadeForCluster(clusterName).GetSystemConfig().GetDB(),
 	}
 }
 
@@ -101,6 +111,26 @@ func (f *WorkloadTaskFacade) ListTasksByStatus(ctx context.Context, status strin
 	var tasks []*model.WorkloadTaskState
 	err := f.db.WithContext(ctx).
 		Where("status = ?", status).
+		Order("created_at ASC").
+		Find(&tasks).Error
+	return tasks, err
+}
+
+// ListPendingTasksByType lists pending tasks by task type
+func (f *WorkloadTaskFacade) ListPendingTasksByType(ctx context.Context, taskType string) ([]*model.WorkloadTaskState, error) {
+	var tasks []*model.WorkloadTaskState
+	err := f.db.WithContext(ctx).
+		Where("task_type = ? AND status = ?", taskType, constant.TaskStatusPending).
+		Order("created_at ASC").
+		Find(&tasks).Error
+	return tasks, err
+}
+
+// ListTasksByTypeAndStatus lists tasks by type and status
+func (f *WorkloadTaskFacade) ListTasksByTypeAndStatus(ctx context.Context, taskType, status string) ([]*model.WorkloadTaskState, error) {
+	var tasks []*model.WorkloadTaskState
+	err := f.db.WithContext(ctx).
+		Where("task_type = ? AND status = ?", taskType, status).
 		Order("created_at ASC").
 		Find(&tasks).Error
 	return tasks, err

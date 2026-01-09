@@ -1,3 +1,6 @@
+// Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
+// See LICENSE for license information.
+
 package profiler
 
 import (
@@ -5,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AMD-AGI/Primus-SaFE/Lens/ai-advisor/pkg/profiler/storage"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/storage"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

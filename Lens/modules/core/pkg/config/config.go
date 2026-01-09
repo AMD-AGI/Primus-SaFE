@@ -1,3 +1,6 @@
+// Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
+// See LICENSE for license information.
+
 package config
 
 import (
@@ -81,9 +84,61 @@ func LoadConfig() (*Config, error) {
 }
 
 type NodeExporterConfig struct {
-	ContainerdSocketPath  string `yaml:"containerd_socket_path" json:"containerd_socket_path"`
-	GrpcServer            string `yaml:"grpc_server" json:"grpc_server"` // Deprecated: use TelemetryProcessorURL
-	TelemetryProcessorURL string `yaml:"telemetry_processor_url" json:"telemetry_processor_url"`
+	ContainerdSocketPath  string        `yaml:"containerd_socket_path" json:"containerd_socket_path"`
+	GrpcServer            string        `yaml:"grpc_server" json:"grpc_server"` // Deprecated: use TelemetryProcessorURL
+	TelemetryProcessorURL string        `yaml:"telemetry_processor_url" json:"telemetry_processor_url"`
+	PySpy                 *PySpyConfig  `yaml:"pyspy" json:"pyspy"`
+}
+
+// PySpyConfig contains py-spy profiler configuration
+type PySpyConfig struct {
+	Enabled           bool   `yaml:"enabled" json:"enabled"`
+	StoragePath       string `yaml:"storage_path" json:"storage_path"`
+	BinaryPath        string `yaml:"binary_path" json:"binary_path"`
+	MaxStorageSizeMB  int64  `yaml:"max_storage_size_mb" json:"max_storage_size_mb"`
+	FileRetentionDays int    `yaml:"file_retention_days" json:"file_retention_days"`
+	MaxConcurrentJobs int    `yaml:"max_concurrent_jobs" json:"max_concurrent_jobs"`
+	DefaultDuration   int    `yaml:"default_duration" json:"default_duration"`
+	DefaultRate       int    `yaml:"default_rate" json:"default_rate"`
+}
+
+// GetPySpyConfig returns PySpyConfig with defaults
+func (c *NodeExporterConfig) GetPySpyConfig() *PySpyConfig {
+	if c == nil || c.PySpy == nil {
+		return &PySpyConfig{
+			Enabled:           true,
+			StoragePath:       "/var/lib/lens/pyspy",
+			BinaryPath:        "/usr/local/bin/py-spy",
+			MaxStorageSizeMB:  10240,
+			FileRetentionDays: 7,
+			MaxConcurrentJobs: 5,
+			DefaultDuration:   30,
+			DefaultRate:       100,
+		}
+	}
+	cfg := c.PySpy
+	if cfg.StoragePath == "" {
+		cfg.StoragePath = "/var/lib/lens/pyspy"
+	}
+	if cfg.BinaryPath == "" {
+		cfg.BinaryPath = "/usr/local/bin/py-spy"
+	}
+	if cfg.MaxStorageSizeMB == 0 {
+		cfg.MaxStorageSizeMB = 10240
+	}
+	if cfg.FileRetentionDays == 0 {
+		cfg.FileRetentionDays = 7
+	}
+	if cfg.MaxConcurrentJobs == 0 {
+		cfg.MaxConcurrentJobs = 5
+	}
+	if cfg.DefaultDuration == 0 {
+		cfg.DefaultDuration = 30
+	}
+	if cfg.DefaultRate == 0 {
+		cfg.DefaultRate = 100
+	}
+	return cfg
 }
 
 type JobsConfig struct {

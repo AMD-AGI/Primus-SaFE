@@ -1,3 +1,6 @@
+// Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
+// See LICENSE for license information.
+
 package api
 
 import (
@@ -62,6 +65,19 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		// TensorBoard-specific operations
 		containerFSGroup.POST("/tensorboard/logs", GetTensorBoardLogs)
 		containerFSGroup.POST("/tensorboard/event", ReadTensorBoardEvent)
+	}
+
+	// Py-Spy profiling routes
+	pyspyGroup := group.Group("/pyspy")
+	{
+		pyspyGroup.POST("/execute", PySpyExecute)     // Execute py-spy (called by Jobs module)
+		pyspyGroup.POST("/check", PySpyCheck)         // Check compatibility
+		pyspyGroup.GET("/files", PySpyListFiles)      // List files
+		pyspyGroup.GET("/file/:task_id", PySpyGetFile)                   // Get file info
+		pyspyGroup.GET("/file/:task_id/:filename", PySpyDownloadFile)    // Download file
+		pyspyGroup.DELETE("/file/:task_id", PySpyDeleteFile)             // Delete file
+		pyspyGroup.POST("/cancel/:task_id", PySpyCancelTask)             // Cancel running task
+		pyspyGroup.GET("/status", PySpyStatus)        // Get collector status
 	}
 
 	return nil

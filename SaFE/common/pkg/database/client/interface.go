@@ -28,8 +28,9 @@ type Interface interface {
 	NodeStatisticInterface
 	UserTokenInterface
 	CDInterface
-	InferenceInterface
 	PlaygroundSessionInterface
+	ModelInterface
+	ApiKeyInterface
 }
 
 type WorkloadInterface interface {
@@ -143,14 +144,6 @@ type UserTokenInterface interface {
 	SelectUserTokens(ctx context.Context, query sqrl.Sqlizer, orderBy []string, limit, offset int) ([]*UserToken, error)
 }
 
-type InferenceInterface interface {
-	UpsertInference(ctx context.Context, inference *Inference) error
-	SelectInferences(ctx context.Context, query sqrl.Sqlizer, orderBy []string, limit, offset int) ([]*Inference, error)
-	GetInference(ctx context.Context, inferenceId string) (*Inference, error)
-	CountInferences(ctx context.Context, query sqrl.Sqlizer) (int, error)
-	SetInferenceDeleted(ctx context.Context, inferenceId string) error
-}
-
 type PlaygroundSessionInterface interface {
 	InsertPlaygroundSession(ctx context.Context, session *PlaygroundSession) error
 	UpdatePlaygroundSession(ctx context.Context, session *PlaygroundSession) error
@@ -158,4 +151,28 @@ type PlaygroundSessionInterface interface {
 	GetPlaygroundSession(ctx context.Context, id int64) (*PlaygroundSession, error)
 	CountPlaygroundSessions(ctx context.Context, query sqrl.Sqlizer) (int, error)
 	SetPlaygroundSessionDeleted(ctx context.Context, id int64) error
+}
+
+// ApiKeyInterface defines the interface for API key database operations
+type ApiKeyInterface interface {
+	// InsertApiKey inserts a new API key record
+	InsertApiKey(ctx context.Context, apiKey *ApiKey) error
+	// SelectApiKeys retrieves API keys based on query conditions
+	SelectApiKeys(ctx context.Context, query sqrl.Sqlizer, orderBy []string, limit, offset int) ([]*ApiKey, error)
+	// CountApiKeys counts API keys based on query conditions
+	CountApiKeys(ctx context.Context, query sqrl.Sqlizer) (int, error)
+	// GetApiKeyById retrieves an API key by its ID
+	GetApiKeyById(ctx context.Context, id int64) (*ApiKey, error)
+	// GetApiKeyByKey retrieves an API key by the key value
+	GetApiKeyByKey(ctx context.Context, apiKey string) (*ApiKey, error)
+	// SetApiKeyDeleted performs soft delete on an API key
+	SetApiKeyDeleted(ctx context.Context, userId string, id int64) error
+}
+
+// ModelInterface defines database operations for Model entities
+type ModelInterface interface {
+	UpsertModel(ctx context.Context, m *Model) error
+	GetModelByID(ctx context.Context, id string) (*Model, error)
+	ListModels(ctx context.Context, accessMode string, workspace string, isDeleted bool) ([]*Model, error)
+	DeleteModel(ctx context.Context, id string) error
 }

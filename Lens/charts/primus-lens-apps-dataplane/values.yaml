@@ -72,6 +72,14 @@ apps:
     httpPort: 8989
     maxUnavailable: 10
     resources: {}
+    # Py-Spy Python profiling configuration
+    pyspy:
+      enabled: true
+      maxStorageSize: "10GB"
+      fileRetentionDays: 7
+      maxConcurrentJobs: 5
+      defaultDuration: 30
+      defaultRate: 100
   
   gpuResourceExporter:
     enabled: true

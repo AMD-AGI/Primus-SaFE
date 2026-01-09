@@ -1,3 +1,6 @@
+# Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+
 """
 WandB Hook Module - Automatically intercept and enhance wandb functionality
 No user code changes required, automatically activated after pip install

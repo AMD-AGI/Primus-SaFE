@@ -1,3 +1,6 @@
+# Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+
 from primus_lens_workload_exporter.gpu.gpu_metrics import get_rocm_smi_info
 from primus_lens_workload_exporter.rdma.rdma import get_rdma_statistics
 from primus_lens_workload_exporter.metric.collector import OTelMetric

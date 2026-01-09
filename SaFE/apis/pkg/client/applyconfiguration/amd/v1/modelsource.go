@@ -16,7 +16,9 @@ import (
 type ModelSourceApplyConfiguration struct {
 	URL        *string                      `json:"url,omitempty"`
 	AccessMode *amdv1.AccessMode            `json:"accessMode,omitempty"`
+	ModelName  *string                      `json:"modelName,omitempty"`
 	Token      *corev1.LocalObjectReference `json:"token,omitempty"`
+	ApiKey     *corev1.LocalObjectReference `json:"apiKey,omitempty"`
 }
 
 // ModelSourceApplyConfiguration constructs a declarative configuration of the ModelSource type for use with
@@ -41,10 +43,26 @@ func (b *ModelSourceApplyConfiguration) WithAccessMode(value amdv1.AccessMode) *
 	return b
 }
 
+// WithModelName sets the ModelName field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the ModelName field is set to the value of the last call.
+func (b *ModelSourceApplyConfiguration) WithModelName(value string) *ModelSourceApplyConfiguration {
+	b.ModelName = &value
+	return b
+}
+
 // WithToken sets the Token field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Token field is set to the value of the last call.
 func (b *ModelSourceApplyConfiguration) WithToken(value corev1.LocalObjectReference) *ModelSourceApplyConfiguration {
 	b.Token = &value
+	return b
+}
+
+// WithApiKey sets the ApiKey field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the ApiKey field is set to the value of the last call.
+func (b *ModelSourceApplyConfiguration) WithApiKey(value corev1.LocalObjectReference) *ModelSourceApplyConfiguration {
+	b.ApiKey = &value
 	return b
 }
