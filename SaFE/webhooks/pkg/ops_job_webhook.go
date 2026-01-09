@@ -415,8 +415,7 @@ func (v *OpsJobValidator) validateDownload(ctx context.Context, job *v1.OpsJob) 
 		if job.Name == currentJob.Name {
 			continue
 		}
-		if v.hasDuplicateInput(job.Spec.Inputs, currentJob.Spec.Inputs, v1.ParameterEndpoint) ||
-			v.hasDuplicateInput(job.Spec.Inputs, currentJob.Spec.Inputs, v1.ParameterDestPath) {
+		if v.hasDuplicateInput(job.Spec.Inputs, currentJob.Spec.Inputs, v1.ParameterDestPath) {
 			return commonerrors.NewResourceProcessing(
 				fmt.Sprintf("another ops job (%s) with type %s is processing,"+
 					" please wait for it to complete", currentJob.Name, currentJob.Spec.Type))

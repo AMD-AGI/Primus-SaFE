@@ -558,6 +558,7 @@ func TestListPlaygroundServices_WithSourceModel(t *testing.T) {
 	// Create source model
 	sourceModel := genMockLocalK8sModel("source-model-id", "")
 	sourceModel.Spec.DisplayName = "Source Model Display Name"
+	sourceModel.Spec.Source.ModelName = "org/source-model" // For API calls
 
 	// Create workload with source model
 	workload := genMockRunningWorkload("workload-1", "ws1")
@@ -591,6 +592,7 @@ func TestListPlaygroundServices_WithSourceModel(t *testing.T) {
 	assert.Assert(t, workloadItem != nil)
 	assert.Equal(t, workloadItem.SourceModelID, "source-model-id")
 	assert.Equal(t, workloadItem.SourceModelName, "Source Model Display Name")
+	assert.Equal(t, workloadItem.ModelName, "org/source-model") // For API calls (matches vLLM --served-model-name)
 }
 
 // TestListPlaygroundServices_BaseUrlConstruction tests baseUrl is constructed correctly
