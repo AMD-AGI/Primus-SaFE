@@ -106,6 +106,124 @@ func (h *Handler) DeleteNodes(c *gin.Context) {
 	handle(c, h.deleteNodes)
 }
 
+// RetryNode handles retrying a failed node management operation (manage or unmanage).
+// It deletes the failed pod and resets the node status to trigger a new attempt.
+func (h *Handler) RetryNode(c *gin.Context) {
+	handle(c, h.retryNode)
+}
+
+// retryNode implements the retry logic for failed node operations.
+// It checks if the node is in a failed state, deletes the associated pod,
+// and resets the status to trigger the controller to retry.
+func (h *Handler) retryNode(c *gin.Context) (interface{}, error) {
+	ctx := c.Request.Context()
+	nodeName := c.GetString(common.Name)
+
+	node, err := h.getAdminNode(ctx, nodeName)
+	if err != nil {
+		return nil, err
+	}
+
+	// Authorization check - same as manage operation
+	if err = h.accessController.Authorize(authority.AccessInput{
+		Context:  ctx,
+		Resource: node,
+		Verb:     v1.UpdateVerb,
+		UserId:   c.GetString(common.UserId),
+	}); err != nil {
+		return nil, err
+	}
+
+	// Check if node is in a failed state
+	phase := node.Status.ClusterStatus.Phase
+	if phase != v1.NodeManagedFailed && phase != v1.NodeUnmanagedFailed {
+		return nil, commonerrors.NewBadRequest(fmt.Sprintf(
+			"node is not in a failed state, current phase: %s. Only ManagedFailed or UnmanagedFailed nodes can be retried", phase))
+	}
+
+	// Pre-condition checks based on the failed phase
+	if phase == v1.NodeManagedFailed {
+		// For manage retry: machine must be ready
+		if !node.IsMachineReady() {
+			return nil, commonerrors.NewBadRequest("machine is not ready, please wait and try again")
+		}
+	} else {
+		// For unmanage retry: check control plane and workspace binding
+		if v1.IsControlPlane(node) {
+			return nil, commonerrors.NewBadRequest("control plane node cannot be unmanaged")
+		}
+		if v1.GetWorkspaceId(node) != "" {
+			return nil, commonerrors.NewBadRequest("node is still bound to a workspace, please unbind first")
+		}
+	}
+
+	// Determine the cluster ID and action based on current phase
+	clusterId := node.GetSpecCluster()
+	if clusterId == "" {
+		clusterId = v1.GetClusterId(node)
+	}
+	if clusterId == "" {
+		return nil, commonerrors.NewBadRequest("cannot determine cluster ID for retry operation")
+	}
+
+	// Determine action type based on failed phase
+	var action string
+	var newPhase v1.NodePhase
+	if phase == v1.NodeManagedFailed {
+		action = string(v1.ClusterScaleUpAction)
+		newPhase = v1.NodeManaging
+	} else {
+		action = string(v1.ClusterScaleDownAction)
+		newPhase = v1.NodeUnmanaging
+	}
+
+	// Delete the failed pod(s)
+	if err = h.deleteNodeManagementPods(ctx, clusterId, node.Name, action); err != nil {
+		klog.ErrorS(err, "failed to delete pods for retry", "node", nodeName, "action", action)
+		return nil, commonerrors.NewInternalError("failed to delete failed pods: " + err.Error())
+	}
+
+	// Reset node status to trigger controller retry
+	previousPhase := string(phase)
+	node.Status.ClusterStatus.Phase = newPhase
+	if err = h.Status().Update(ctx, node); err != nil {
+		klog.ErrorS(err, "failed to update node status for retry", "node", nodeName)
+		return nil, commonerrors.NewInternalError("failed to reset node status: " + err.Error())
+	}
+
+	klog.Infof("retry initiated for node %s, previous phase: %s, new phase: %s", nodeName, previousPhase, newPhase)
+
+	return &view.RetryNodeResponse{
+		Message:       "retry initiated successfully",
+		NodeId:        nodeName,
+		PreviousPhase: previousPhase,
+		CurrentPhase:  string(newPhase),
+	}, nil
+}
+
+// deleteNodeManagementPods deletes all pods associated with a node's management operation.
+func (h *Handler) deleteNodeManagementPods(ctx context.Context, clusterId, nodeName, action string) error {
+	labelSelector := client.MatchingLabels{
+		v1.ClusterManageClusterLabel: clusterId,
+		v1.ClusterManageNodeLabel:    nodeName,
+		v1.ClusterManageActionLabel:  action,
+	}
+
+	podList := &corev1.PodList{}
+	if err := h.List(ctx, podList, client.InNamespace(common.PrimusSafeNamespace), labelSelector); err != nil {
+		return err
+	}
+
+	for _, pod := range podList.Items {
+		if err := h.Delete(ctx, &pod); client.IgnoreNotFound(err) != nil {
+			return err
+		}
+		klog.Infof("deleted pod %s for node retry", pod.Name)
+	}
+
+	return nil
+}
+
 // createNode implements the node creation logic.
 // Validates the request, generates a node object with specified parameters,
 // and persists it in the system.
