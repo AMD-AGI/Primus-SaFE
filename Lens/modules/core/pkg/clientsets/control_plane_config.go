@@ -6,6 +6,7 @@ package clientsets
 import (
 	"fmt"
 	"os"
+	"strconv"
 )
 
 // ControlPlaneConfig contains Control Plane configuration
@@ -101,4 +102,64 @@ func (c *ControlPlaneConfig) Validate() error {
 		return fmt.Errorf("control plane postgres username is required")
 	}
 	return nil
+}
+
+// Environment variable names for Control Plane database configuration
+const (
+	EnvControlPlaneDBHost     = "CONTROL_PLANE_DB_HOST"
+	EnvControlPlaneDBPort     = "CONTROL_PLANE_DB_PORT"
+	EnvControlPlaneDBName     = "CONTROL_PLANE_DB_NAME"
+	EnvControlPlaneDBUser     = "CONTROL_PLANE_DB_USER"
+	EnvControlPlaneDBPassword = "CONTROL_PLANE_DB_PASSWORD"
+	EnvControlPlaneDBSSLMode  = "CONTROL_PLANE_DB_SSL_MODE"
+)
+
+// NewControlPlaneConfigFromEnv creates a ControlPlaneConfig from environment variables
+// This is the preferred method for Kubernetes deployments where secrets are mounted as env vars
+func NewControlPlaneConfigFromEnv() (*ControlPlaneConfig, error) {
+	host := os.Getenv(EnvControlPlaneDBHost)
+	if host == "" {
+		return nil, fmt.Errorf("environment variable %s is required", EnvControlPlaneDBHost)
+	}
+
+	dbName := os.Getenv(EnvControlPlaneDBName)
+	if dbName == "" {
+		return nil, fmt.Errorf("environment variable %s is required", EnvControlPlaneDBName)
+	}
+
+	user := os.Getenv(EnvControlPlaneDBUser)
+	if user == "" {
+		return nil, fmt.Errorf("environment variable %s is required", EnvControlPlaneDBUser)
+	}
+
+	password := os.Getenv(EnvControlPlaneDBPassword)
+	if password == "" {
+		return nil, fmt.Errorf("environment variable %s is required", EnvControlPlaneDBPassword)
+	}
+
+	portStr := os.Getenv(EnvControlPlaneDBPort)
+	var port int32 = 5432
+	if portStr != "" {
+		p, err := strconv.ParseInt(portStr, 10, 32)
+		if err != nil {
+			return nil, fmt.Errorf("invalid port value: %s", portStr)
+		}
+		port = int32(p)
+	}
+
+	sslMode := os.Getenv(EnvControlPlaneDBSSLMode)
+	if sslMode == "" {
+		sslMode = "require"
+	}
+
+	return &ControlPlaneConfig{
+		Postgres: &ControlPlanePostgresConfig{
+			Host:     host,
+			Port:     port,
+			Username: user,
+			Password: password,
+			DBName:   dbName,
+			SSLMode:  sslMode,
+		},
+	}, nil
 }

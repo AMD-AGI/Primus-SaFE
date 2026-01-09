@@ -16,6 +16,7 @@ type Config struct {
 	MultiCluster      bool                `json:"multiCluster" yaml:"multiCluster"`
 	LoadK8SClient     bool                `json:"loadK8SClient" yaml:"loadK8SClient"`
 	LoadStorageClient bool                `json:"loadStorageClient" yaml:"loadStorageClient"`
+	ControlPlane      *ControlPlaneConfig `json:"controlPlane" yaml:"controlPlane"`
 	Controller        ControllerConfig    `yaml:"controller"`
 	HttpPort          int                 `json:"httpPort" yaml:"httpPort"`
 	NodeExporter      *NodeExporterConfig `json:"nodeExporter" yaml:"nodeExporter"`
@@ -23,6 +24,17 @@ type Config struct {
 	Netflow           *NetFlow            `json:"netflow" yaml:"netflow"`
 	Middleware        MiddlewareConfig    `json:"middleware" yaml:"middleware"`
 	AIGateway         *AIGatewayConfig    `json:"aiGateway" yaml:"aiGateway"`
+}
+
+// ControlPlaneConfig contains Control Plane configuration
+type ControlPlaneConfig struct {
+	// Enabled controls whether Control Plane is enabled
+	Enabled bool `json:"enabled" yaml:"enabled"`
+}
+
+// IsControlPlaneEnabled returns whether Control Plane is enabled
+func (c *Config) IsControlPlaneEnabled() bool {
+	return c.ControlPlane != nil && c.ControlPlane.Enabled
 }
 
 type ControllerConfig struct {

@@ -83,15 +83,26 @@ func RegisterApi(ctx context.Context) error {
 func preInitAuthSystem(ctx context.Context, cfg *config.Config) error {
 	log.Info("Initializing authentication system...")
 
-	// Try to get K8s client from cluster manager (now it should be initialized)
-	var k8sClient client.Client
+	// Check if Control Plane is enabled
 	cm := clientsets.GetClusterManager()
-	if cm != nil {
-		if cc := cm.GetCurrentClusterClients(); cc != nil && cc.K8SClientSet != nil {
-			k8sClient = cc.K8SClientSet.ControllerRuntimeClient
-			if k8sClient != nil {
-				log.Info("K8s client available, will store root password in Secret")
-			}
+	if cm == nil {
+		log.Warn("ClusterManager not available, skipping auth system initialization")
+		return nil
+	}
+
+	// Check if Control Plane is enabled
+	if !cm.IsControlPlaneEnabled() {
+		log.Info("Control Plane not enabled, skipping auth system initialization")
+		log.Info("To enable authentication features, set controlPlane.enabled=true in config")
+		return nil
+	}
+
+	// Try to get K8s client from cluster manager
+	var k8sClient client.Client
+	if cc := cm.GetCurrentClusterClients(); cc != nil && cc.K8SClientSet != nil {
+		k8sClient = cc.K8SClientSet.ControllerRuntimeClient
+		if k8sClient != nil {
+			log.Info("K8s client available, will store root password in Secret")
 		}
 	}
 
