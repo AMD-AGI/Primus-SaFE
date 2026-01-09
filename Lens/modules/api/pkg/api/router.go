@@ -1,7 +1,11 @@
+// Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
+// See LICENSE for license information.
+
 package api
 
 import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/api/pkg/api/perfetto"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/api/pkg/api/pyspy"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/api/pkg/api/registry"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/api/pkg/api/sysconfig"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/api/pkg/api/tracelens"
@@ -355,6 +359,23 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		detectionStatusGroup.GET("/:workload_uid/evidence", GetDetectionEvidence)
 		// Manually trigger detection
 		detectionStatusGroup.POST("/:workload_uid/trigger", TriggerDetection)
+	}
+
+	// Py-Spy Profiling routes - Python profiling via py-spy
+	pyspyGroup := group.Group("/pyspy")
+	{
+		// Create a new py-spy sampling task
+		pyspyGroup.POST("/sample", pyspy.CreateTask)
+		// List py-spy tasks with filters
+		pyspyGroup.POST("/tasks", pyspy.ListTasks)
+		// Get a specific task by ID
+		pyspyGroup.GET("/task/:id", pyspy.GetTask)
+		// Cancel a task
+		pyspyGroup.POST("/task/:id/cancel", pyspy.CancelTask)
+		// List files for a task
+		pyspyGroup.GET("/file/:task_id", pyspy.GetTaskFiles)
+		// Download a specific file (proxy to node-exporter)
+		pyspyGroup.GET("/file/:task_id/:filename", pyspy.DownloadFile)
 	}
 
 	// GitHub Workflow Metrics routes - GitHub workflow metrics collection

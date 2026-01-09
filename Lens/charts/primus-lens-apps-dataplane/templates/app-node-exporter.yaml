@@ -20,6 +20,15 @@ data:
       containerd_socket_path: /hostrun/containerd/containerd.sock
       grpc_server: {{ include "lens.fullname" . }}-jobs.{{ .Values.global.namespace }}.svc.cluster.local:8991
       telemetry_processor_url: http://{{ include "lens.fullname" . }}-telemetry-processor.{{ .Values.global.namespace }}.svc.cluster.local:8989
+      pyspy:
+        enabled: {{ .Values.apps.nodeExporter.pyspy.enabled | default true }}
+        storage_path: /var/lib/lens/pyspy
+        max_storage_size: {{ .Values.apps.nodeExporter.pyspy.maxStorageSize | default "10GB" }}
+        file_retention_days: {{ .Values.apps.nodeExporter.pyspy.fileRetentionDays | default 7 }}
+        max_concurrent_jobs: {{ .Values.apps.nodeExporter.pyspy.maxConcurrentJobs | default 5 }}
+        default_duration: {{ .Values.apps.nodeExporter.pyspy.defaultDuration | default 30 }}
+        default_rate: {{ .Values.apps.nodeExporter.pyspy.defaultRate | default 100 }}
+        binary_path: /usr/local/bin/py-spy
 
 ---
 apiVersion: apps/v1
@@ -93,6 +102,8 @@ spec:
               mountPath: /hostrun
             - name: proc
               mountPath: /proc
+            - name: pyspy-storage
+              mountPath: /var/lib/lens/pyspy
           {{- if .Values.apps.nodeExporter.resources }}
           resources:
             {{- toYaml .Values.apps.nodeExporter.resources | nindent 12 }}
@@ -116,5 +127,9 @@ spec:
           hostPath:
             path: /run
             type: Directory
+        - name: pyspy-storage
+          hostPath:
+            path: /var/lib/lens/pyspy
+            type: DirectoryOrCreate
       restartPolicy: Always
 {{- end }}

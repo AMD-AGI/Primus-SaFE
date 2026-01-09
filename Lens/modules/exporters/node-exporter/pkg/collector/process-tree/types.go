@@ -1,3 +1,6 @@
+// Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
+// See LICENSE for license information.
+
 package processtree
 
 import "time"
@@ -39,6 +42,10 @@ type ProcessInfo struct {
 	// Process classification
 	IsPython bool `json:"is_python"`
 	IsJava   bool `json:"is_java"`
+
+	// GPU binding information
+	GPUDevices []GPUDeviceBinding `json:"gpu_devices,omitempty"`
+	HasGPU     bool               `json:"has_gpu"`
 
 	// Timestamps
 	StartTime int64 `json:"start_time,omitempty"`
@@ -87,6 +94,7 @@ type ProcessTreeRequest struct {
 	IncludeEnv       bool `json:"include_env"`
 	IncludeCmdline   bool `json:"include_cmdline"`
 	IncludeResources bool `json:"include_resources"`
+	IncludeGPU       bool `json:"include_gpu"`
 }
 
 // ProcessState represents process states

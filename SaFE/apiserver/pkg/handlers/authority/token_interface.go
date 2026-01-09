@@ -51,3 +51,10 @@ type TokenInterface interface {
 	// Returns UserInfo if token is valid, error otherwise
 	Validate(ctx context.Context, rawToken string) (*UserInfo, error)
 }
+
+// ApiKeyInterface defines the contract for API key authentication operations
+type ApiKeyInterface interface {
+	// ValidateApiKey validates an API key and returns user information
+	// It checks if the key exists, is not deleted, not expired, and the IP is in whitelist
+	ValidateApiKey(ctx context.Context, apiKey string, clientIP string) (*UserInfo, error)
+}

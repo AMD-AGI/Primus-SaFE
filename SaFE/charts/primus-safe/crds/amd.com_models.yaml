@@ -23,17 +23,17 @@ spec:
     - jsonPath: .spec.displayName
       name: DisplayName
       type: string
+    - jsonPath: .spec.source.modelName
+      name: ModelName
+      type: string
     - jsonPath: .spec.source.accessMode
       name: AccessMode
       type: string
+    - jsonPath: .spec.workspace
+      name: Workspace
+      type: string
     - jsonPath: .status.phase
       name: Phase
-      type: string
-    - jsonPath: .status.inferenceID
-      name: InferenceID
-      type: string
-    - jsonPath: .status.inferencePhase
-      name: InferencePhase
       type: string
     - jsonPath: .metadata.creationTimestamp
       name: Age
@@ -88,9 +88,32 @@ spec:
                         - "remote_api": Call external API directly (e.g., OpenAI, DeepSeek)
                         - "local": Download model and run inference service locally
                     type: string
+                  apiKey:
+                    description: |-
+                      ApiKey references a Secret containing the API key for remote API access
+                      Used for remote_api mode to authenticate with external services (e.g., OpenAI, DeepSeek)
+                    properties:
+                      name:
+                        default: ""
+                        description: |-
+                          Name of the referent.
+                          This field is effectively required, but due to backwards compatibility is
+                          allowed to be empty. Instances of this type with an empty value here are
+                          almost certainly wrong.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                        type: string
+                    type: object
+                    x-kubernetes-map-type: atomic
+                  modelName:
+                    description: |-
+                      ModelName is the model identifier used when calling the API
+                      Required for remote_api mode (e.g., "gpt-4", "deepseek-chat")
+                      For local mode, this is auto-extracted from URL or user-specified
+                    type: string
                   token:
-                    description: Token references a Secret containing the auth token
-                      for pulling the model or API access
+                    description: |-
+                      Token references a Secret containing the auth token for pulling the model (HuggingFace token)
+                      Used for local mode to access private models
                     properties:
                       name:
                         default: ""
@@ -116,27 +139,53 @@ spec:
                 items:
                   type: string
                 type: array
+              workspace:
+                description: |-
+                  Workspace specifies which workspace this model belongs to (for local models only)
+                  Empty string means "public" - the model will be downloaded to all workspaces
+                  Non-empty means the model is private to a specific workspace
+                type: string
             required:
             - source
             type: object
           status:
             description: ModelStatus defines the observed state of Model
             properties:
-              inferenceID:
-                description: |-
-                  InferenceID is the ID of the associated Inference CR (when user starts the model)
-                  Empty if the model hasn't been started yet
-                type: string
-              inferencePhase:
-                description: |-
-                  InferencePhase is the current phase of the associated Inference service
-                  Empty if no inference is running
-                type: string
+              localPaths:
+                description: LocalPaths contains the download status for each workspace
+                  (for local models)
+                items:
+                  description: ModelLocalPath represents the download status of a
+                    model in a specific workspace
+                  properties:
+                    message:
+                      description: Message contains additional status information
+                      type: string
+                    path:
+                      description: Path is the local file system path where the model
+                        is stored
+                      type: string
+                    status:
+                      description: Status is the download status for this workspace
+                      type: string
+                    workspace:
+                      description: Workspace is the workspace ID
+                      type: string
+                  required:
+                  - path
+                  - status
+                  - workspace
+                  type: object
+                type: array
               message:
                 description: Message contains additional status information
                 type: string
               phase:
                 description: Phase is the current phase of the model
+                type: string
+              s3Path:
+                description: S3Path is the S3 storage path for the model (for local
+                  models)
                 type: string
               updateTime:
                 description: UpdateTime is the last update time
