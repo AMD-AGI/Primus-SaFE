@@ -13,19 +13,38 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 )
 
+const (
+	// SafeTokenCookieName is the cookie name used by SaFE for session token
+	SafeTokenCookieName = "token"
+)
+
+// getTokenFromRequest extracts session token from request
+// Priority: lens_session cookie -> SaFE token cookie -> Authorization header
+func getTokenFromRequest(c *gin.Context) string {
+	// 1. Try Lens session cookie first
+	if token, err := c.Cookie(SessionCookieName); err == nil && token != "" {
+		return token
+	}
+
+	// 2. Try SaFE token cookie (for SSO users authenticated via SaFE)
+	if token, err := c.Cookie(SafeTokenCookieName); err == nil && token != "" {
+		return token
+	}
+
+	// 3. Try Authorization header as fallback
+	if authHeader := c.GetHeader("Authorization"); authHeader != "" && strings.HasPrefix(authHeader, "Bearer ") {
+		return strings.TrimPrefix(authHeader, "Bearer ")
+	}
+
+	return ""
+}
+
 // SessionAuthMiddleware creates a middleware that validates session tokens
 // This middleware is specifically for the new auth system and does NOT affect existing APIs
+// Supports both Lens native sessions and SaFE synced sessions (via primus-safe-adapter)
 func SessionAuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Try to get token from cookie first
-		token, err := c.Cookie(SessionCookieName)
-		if err != nil || token == "" {
-			// Try Authorization header as fallback
-			authHeader := c.GetHeader("Authorization")
-			if authHeader != "" && strings.HasPrefix(authHeader, "Bearer ") {
-				token = strings.TrimPrefix(authHeader, "Bearer ")
-			}
-		}
+		token := getTokenFromRequest(c)
 
 		if token == "" {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
@@ -90,17 +109,10 @@ func AdminAuthMiddleware() gin.HandlerFunc {
 
 // OptionalAuthMiddleware creates a middleware that validates session if present
 // Does not reject requests without session - useful for public endpoints that can show more info to authenticated users
+// Supports both Lens native sessions and SaFE synced sessions (via primus-safe-adapter)
 func OptionalAuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Try to get token from cookie first
-		token, err := c.Cookie(SessionCookieName)
-		if err != nil || token == "" {
-			// Try Authorization header as fallback
-			authHeader := c.GetHeader("Authorization")
-			if authHeader != "" && strings.HasPrefix(authHeader, "Bearer ") {
-				token = strings.TrimPrefix(authHeader, "Bearer ")
-			}
-		}
+		token := getTokenFromRequest(c)
 
 		if token == "" {
 			// No token, continue without session
