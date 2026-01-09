@@ -215,8 +215,10 @@ type InitializeOptions struct {
 // createRootUser creates the root user if it doesn't exist
 func (i *Initializer) createRootUser(ctx context.Context, password string) (string, bool, error) {
 	// Check if root user already exists in database
+	// Note: Due to GORM error callback that converts ErrRecordNotFound to nil,
+	// we need to check if the user object has valid data (non-empty ID)
 	existingUser, err := i.facade.GetUser().GetByUsername(ctx, RootUsername)
-	if err == nil && existingUser != nil {
+	if err == nil && existingUser != nil && existingUser.ID != "" {
 		log.Info("Root user already exists in database, skipping creation")
 		return "", false, nil // Root user already exists
 	}
