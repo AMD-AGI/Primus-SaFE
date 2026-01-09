@@ -19,6 +19,10 @@ import (
 const (
 	// AuthTypeSafe is the auth type for users synced from SaFE
 	AuthTypeSafe = "safe"
+
+	// SaFE User CRD annotation keys
+	annotationUserEmail = "primus-safe.user.email"
+	annotationUserName  = "primus-safe.user.name"
 )
 
 // UserSyncService syncs users from SaFE User CRD to Lens Control Plane
@@ -113,6 +117,18 @@ func (s *UserSyncService) syncUser(ctx context.Context, safeUser *primusSafeV1.U
 		status = "disabled"
 	}
 
+	// Extract email and display name from annotations
+	email := ""
+	displayName := ""
+	if safeUser.Annotations != nil {
+		if e, ok := safeUser.Annotations[annotationUserEmail]; ok {
+			email = e
+		}
+		if n, ok := safeUser.Annotations[annotationUserName]; ok {
+			displayName = n
+		}
+	}
+
 	now := time.Now()
 
 	// Check if existing user was found (handle GORM callback issue)
@@ -127,6 +143,14 @@ func (s *UserSyncService) syncUser(ctx context.Context, safeUser *primusSafeV1.U
 			existing.Status = status
 			needsUpdate = true
 		}
+		if existing.Email != email {
+			existing.Email = email
+			needsUpdate = true
+		}
+		if existing.DisplayName != displayName {
+			existing.DisplayName = displayName
+			needsUpdate = true
+		}
 
 		if needsUpdate {
 			existing.UpdatedAt = now
@@ -137,14 +161,16 @@ func (s *UserSyncService) syncUser(ctx context.Context, safeUser *primusSafeV1.U
 
 	// Create new user in Lens Control Plane
 	user := &cpmodel.LensUsers{
-		ID:        safeUser.Name, // Use SaFE username as ID
-		Username:  safeUser.Name,
-		AuthType:  AuthTypeSafe,
-		Status:    status,
-		IsAdmin:   isAdmin,
-		IsRoot:    false, // SaFE users are never root
-		CreatedAt: now,
-		UpdatedAt: now,
+		ID:          safeUser.Name, // Use SaFE username as ID
+		Username:    safeUser.Name,
+		Email:       email,
+		DisplayName: displayName,
+		AuthType:    AuthTypeSafe,
+		Status:      status,
+		IsAdmin:     isAdmin,
+		IsRoot:      false, // SaFE users are never root
+		CreatedAt:   now,
+		UpdatedAt:   now,
 	}
 
 	return true, userFacade.Create(ctx, user)
