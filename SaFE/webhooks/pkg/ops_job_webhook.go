@@ -485,7 +485,7 @@ func (v *OpsJobValidator) listRelatedRunningJobs(ctx context.Context, cluster st
 // If a job specifies a workspace, it will also check whether the node belongs to that workspace.
 // Additionally, both cluster and node flavor must not be empty.
 func (v *OpsJobValidator) validateNodes(ctx context.Context, job *v1.OpsJob) error {
-	if job.Spec.Type == v1.OpsJobRebootType || job.Spec.Type == v1.OpsJobExportImageType || job.Spec.Type == v1.OpsJobPrewarmType {
+	if job.Spec.Type != v1.OpsJobPreflightType {
 		return nil
 	}
 	nodeParams := job.GetParameters(v1.ParameterNode)
