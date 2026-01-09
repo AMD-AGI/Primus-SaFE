@@ -29,7 +29,7 @@ var (
 	updateWorkloadCmd    = fmt.Sprintf(`UPDATE %s 
 		SET priority = :priority,
 		    max_retry = :max_retry,
-		    resource = :resource,
+		    resources = :resources,
 		    image = :image,
 		    entrypoint = :entrypoint,
 		    phase = :phase,
@@ -47,7 +47,6 @@ var (
 		    is_supervised = :is_supervised,
 		    is_tolerate_all = :is_tolerate_all,
 		    timeout = :timeout,
-		    k8s_object_uid = :k8s_object_uid,
 		    cron_jobs = :cron_jobs 
 		WHERE workload_id = :workload_id`, TWorkload)
 )

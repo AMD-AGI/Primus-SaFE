@@ -6,6 +6,7 @@
 package dispatcher
 
 import (
+	"strconv"
 	"testing"
 
 	"gotest.tools/assert"
@@ -20,7 +21,7 @@ import (
 	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
 )
 
-func checkResources(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, template *v1.ResourceSpec, replica int) {
+func checkResources(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, template *v1.ResourceSpec, replica, id int) {
 	path := append(template.PrePaths, template.ReplicasPaths...)
 	if !commonworkload.IsCICDScalingRunnerSet(workload) {
 		objReplica := jobutils.GetUnstructuredInt(obj.Object, path)
@@ -41,11 +42,11 @@ func checkResources(t *testing.T, obj *unstructured.Unstructured, workload *v1.W
 	resources := container["resources"].(map[string]interface{})
 	limits, ok := resources["limits"].(map[string]interface{})
 	assert.Equal(t, ok, true)
-	assert.Equal(t, limits["cpu"], workload.Spec.Resource.CPU)
-	assert.Equal(t, limits["memory"], workload.Spec.Resource.Memory)
-	assert.Equal(t, limits["ephemeral-storage"], workload.Spec.Resource.EphemeralStorage)
-	if workload.Spec.Resource.GPU != "" {
-		assert.Equal(t, limits[common.AmdGpu], workload.Spec.Resource.GPU)
+	assert.Equal(t, limits["cpu"], workload.Spec.Resources[id].CPU)
+	assert.Equal(t, limits["memory"], workload.Spec.Resources[id].Memory)
+	assert.Equal(t, limits["ephemeral-storage"], workload.Spec.Resources[id].EphemeralStorage)
+	if workload.Spec.Resources[id].GPU != "" {
+		assert.Equal(t, limits[common.AmdGpu], workload.Spec.Resources[id].GPU)
 		if replica > 1 {
 			assert.Equal(t, limits[commonconfig.GetRdmaName()], "1k")
 		}
@@ -85,13 +86,13 @@ func checkPorts(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workl
 	assert.Equal(t, val, int64(workload.Spec.SSHPort))
 }
 
-func checkEnvs(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec) {
+func checkEnvs(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec, id int) {
 	envs := getEnvs(t, obj, resourceSpec)
 	for key, val := range workload.Spec.Env {
 		ok := findEnv(envs, key, val)
 		assert.Equal(t, ok, true)
 	}
-	gpu := workload.Spec.Resource.GPU
+	gpu := workload.Spec.Resources[id].GPU
 	if gpu != "" {
 		ok := findEnv(envs, "GPUS_PER_NODE", gpu)
 		assert.Equal(t, ok, true)
@@ -100,7 +101,7 @@ func checkEnvs(t *testing.T, obj *unstructured.Unstructured, workload *v1.Worklo
 	assert.Equal(t, ok, false)
 
 	if workload.SpecKind() != common.JobKind && !commonworkload.IsCICDScalingRunnerSet(workload) {
-		if v1.IsEnableHostNetwork(workload) {
+		if workload.Spec.Resources[id].RdmaResource != "" {
 			ok = findEnv(envs, "NCCL_SOCKET_IFNAME", "ens51f0")
 			assert.Equal(t, ok, true)
 		} else {
@@ -182,7 +183,7 @@ func findVolumeMount(volumeMounts []interface{}, name string) map[string]interfa
 	return nil
 }
 
-func checkVolumes(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec) {
+func checkVolumes(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec, id int) {
 	volumesPath := append(resourceSpec.PrePaths, resourceSpec.TemplatePaths...)
 	volumesPath = append(volumesPath, "spec", "volumes")
 
@@ -197,7 +198,7 @@ func checkVolumes(t *testing.T, obj *unstructured.Unstructured, workload *v1.Wor
 		assert.Equal(t, ok, true)
 		sizeLimit, ok := emptyDir.(map[string]interface{})["sizeLimit"]
 		assert.Equal(t, ok, true)
-		assert.Equal(t, sizeLimit.(string), workload.Spec.Resource.SharedMemory)
+		assert.Equal(t, sizeLimit.(string), workload.Spec.Resources[id].SharedMemory)
 	}
 
 	volumeName := v1.GenFullVolumeId(v1.PFS, 1)
@@ -320,14 +321,14 @@ func checkImage(t *testing.T, obj *unstructured.Unstructured, inputImage string,
 	assert.Equal(t, image, inputImage)
 }
 
-func checkHostNetwork(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec) {
+func checkHostNetwork(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec, id int) {
 	path := append(resourceSpec.PrePaths, resourceSpec.TemplatePaths...)
 	path = append(path, "spec", "hostNetwork")
 
 	isHostNetWork, found, err := unstructured.NestedBool(obj.Object, path...)
 	assert.NilError(t, err)
 	assert.Equal(t, found, true)
-	assert.Equal(t, isHostNetWork, v1.IsEnableHostNetwork(workload))
+	assert.Equal(t, isHostNetWork, workload.Spec.Resources[id].RdmaResource != "")
 }
 
 func checkHostPid(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec) {
@@ -344,15 +345,14 @@ func checkHostPid(t *testing.T, obj *unstructured.Unstructured, workload *v1.Wor
 	}
 }
 
-func checkLabels(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec) {
+func checkLabels(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec, id int) {
 	rootPath := append(resourceSpec.PrePaths, resourceSpec.TemplatePaths...)
 	path := append(rootPath, "metadata", "labels")
 
 	labels, found, err := unstructured.NestedMap(obj.Object, path...)
 	assert.NilError(t, err)
 	assert.Equal(t, found, true)
-	assert.Equal(t, labels[v1.WorkloadDispatchCntLabel].(string), "1")
-	assert.Equal(t, labels[v1.WorkloadIdLabel].(string), workload.Name)
+	assert.Equal(t, labels[v1.K8sObjectIdLabel].(string), workload.Name)
 
 	path = append(rootPath, "metadata", "annotations")
 	annotations, found, err := unstructured.NestedMap(obj.Object, path...)
@@ -360,6 +360,7 @@ func checkLabels(t *testing.T, obj *unstructured.Unstructured, workload *v1.Work
 	assert.Equal(t, found, true)
 	assert.Equal(t, annotations[v1.UserNameAnnotation].(string), v1.GetUserName(workload))
 	assert.Equal(t, annotations["key"].(string), "val")
+	assert.Equal(t, annotations[v1.ResourceIdAnnotation].(string), strconv.Itoa(id))
 }
 
 func checkSelector(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload) {
@@ -367,7 +368,7 @@ func checkSelector(t *testing.T, obj *unstructured.Unstructured, workload *v1.Wo
 	labels, found, err := unstructured.NestedMap(obj.Object, path...)
 	assert.NilError(t, err)
 	assert.Equal(t, found, true)
-	assert.Equal(t, labels[v1.WorkloadIdLabel].(string), workload.Name)
+	assert.Equal(t, labels[v1.K8sObjectIdLabel].(string), workload.Name)
 }
 
 func checkStrategy(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload) {

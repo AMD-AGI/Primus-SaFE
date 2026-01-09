@@ -116,8 +116,10 @@ type SecretEntity struct {
 }
 
 type WorkloadSpec struct {
-	// Workload resource requirements
-	Resource WorkloadResource `json:"resource"`
+	// Deprecated: resource is old field, will be replaced by Resources
+	Resource WorkloadResource `json:"resource,omitempty"`
+	// Resource requirements, It may involve multiple resources, e.g., a PyTorchJob with master and worker roles.
+	Resources []WorkloadResource `json:"resources,omitempty"`
 	// Requested workspace id
 	Workspace string `json:"workspace"`
 	// The address of the image used by the workload
@@ -144,6 +146,8 @@ type WorkloadSpec struct {
 	// The lifecycle of the workload after completion, in seconds. default 60.
 	TTLSecondsAfterFinished *int `json:"ttlSecondsAfterFinished,omitempty"`
 	// Workload timeout in seconds. default 0 (no timeout).
+	// The timeout is calculated from the moment the workload is dispatched.
+	// If the workload remains in the queue (not yet dispatched), the timeout is not considered.
 	Timeout *int `json:"timeout,omitempty"`
 	// The workload will run on nodes with the user-specified labels.
 	// If multiple labels are specified, all of them must be satisfied.
@@ -189,17 +193,19 @@ type WorkloadStatus struct {
 	Nodes [][]string `json:"nodes,omitempty"`
 	// The node's rank is only valid for the PyTorch job and corresponds one-to-one with the nodes listed above.
 	Ranks [][]string `json:"ranks,omitempty"`
-	// The corresponding UID applied to the Kubernetes object.
-	K8sObjectUid string `json:"k8sObjectUid,omitempty"`
 	// The corresponding ID applied to the cicd AutoscalingRunnerSet object.
 	RunnerScaleSetId string `json:"runnerScaleSetId,omitempty"`
 	// The phase of each dependency workload.
 	DependenciesPhase map[string]WorkloadPhase `json:"dependenciesPhase,omitempty"`
+	// The phase of each torchFT object.
+	TorchFTPhase map[string]WorkloadPhase `json:"torchFTPhase,omitempty"`
 }
 
 type WorkloadPod struct {
 	// The podId
 	PodId string `json:"podId"`
+	// The id of workload resources that the pod is bound to
+	ResourceId int `json:"resourceId,omitempty"`
 	// The Kubernetes node that the Pod is scheduled on
 	K8sNodeName string `json:"k8sNodeName,omitempty"`
 	// The admin node that the Pod is scheduled on
@@ -220,6 +226,8 @@ type WorkloadPod struct {
 	FailedMessage string `json:"failedMessage,omitempty"`
 	// The Container info of pod
 	Containers []Container `json:"containers,omitempty"`
+	// The group id of pod, only for torchft. 0 lighthouse, > 0 worker
+	GroupId int `json:"groupId,omitempty"`
 }
 
 type Container struct {
@@ -363,7 +371,7 @@ func IsPodTerminated(p *WorkloadPod) bool {
 
 // ToSchemaGVK converts the resource template GVK to schema.GroupVersionKind.
 func (w *Workload) ToSchemaGVK() schema.GroupVersionKind {
-	return w.Spec.GroupVersionKind.ToSchema()
+	return w.Spec.GroupVersionKind.ToSchemaGVK()
 }
 
 // SpecKind returns the kind string from the resource spec.
@@ -393,14 +401,6 @@ func (w *Workload) GetDependenciesPhase(workloadId string) (WorkloadPhase, bool)
 	return phase, ok
 }
 
-// HasScheduled checks if the workload has been scheduled at least once.
-func (w *Workload) HasScheduled() bool {
-	if IsWorkloadScheduled(w) || GetWorkloadDispatchCnt(w) > 0 {
-		return true
-	}
-	return false
-}
-
 // IsDependenciesFinish checks if all dependencies are finished.
 func (w *Workload) IsDependenciesFinish() bool {
 	if w.IsEnd() {
@@ -417,6 +417,14 @@ func (w *Workload) IsDependenciesFinish() bool {
 	}
 
 	return true
+}
+
+// HasScheduled checks if the workload has been scheduled at least once.
+func (w *Workload) HasScheduled() bool {
+	if IsWorkloadScheduled(w) || GetWorkloadDispatchCnt(w) > 0 {
+		return true
+	}
+	return false
 }
 
 // HasSpecifiedNodes checks if the workload has specified node constraints.

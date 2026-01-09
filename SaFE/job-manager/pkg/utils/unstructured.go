@@ -33,16 +33,16 @@ const (
 	NfsOutputEnv         = "SAFE_NFS_OUTPUT"
 )
 
-type K8sResourceStatus struct {
-	Phase       string
-	Message     string
-	SpecReplica int
+type K8sObjectStatus struct {
+	Phase         string
+	Message       string
+	SpecReplica   int
+	ActiveReplica int
 	// only for cicd AutoscalingRunnerSet
 	RunnerScaleSetId string
-	ActiveReplica    int
 }
 
-func (s *K8sResourceStatus) IsPending() bool {
+func (s *K8sObjectStatus) IsPending() bool {
 	if s.Phase == string(v1.K8sPending) ||
 		s.Phase == "" {
 		return true
@@ -50,9 +50,9 @@ func (s *K8sResourceStatus) IsPending() bool {
 	return false
 }
 
-// GetK8sResourceStatus retrieves the status of a Kubernetes resource based on its unstructured object and resource template.
-func GetK8sResourceStatus(unstructuredObj *unstructured.Unstructured, rt *v1.ResourceTemplate) (*K8sResourceStatus, error) {
-	result := &K8sResourceStatus{}
+// GetK8sObjectStatus retrieves the status of a Kubernetes resource based on its unstructured object and resource template.
+func GetK8sObjectStatus(unstructuredObj *unstructured.Unstructured, rt *v1.ResourceTemplate) (*K8sObjectStatus, error) {
+	result := &K8sObjectStatus{}
 	var err error
 	if result.SpecReplica, err = GetSpecReplica(unstructuredObj, rt); err != nil {
 		return nil, err
@@ -65,7 +65,7 @@ func GetK8sResourceStatus(unstructuredObj *unstructured.Unstructured, rt *v1.Res
 	case common.StatefulSetKind:
 		getStatefulSetStatus(unstructuredObj.Object, result)
 	case common.JobKind:
-		if err = getResourceStatusImpl(unstructuredObj, rt, result); err != nil {
+		if err = getK8sObjectStatusImpl(unstructuredObj, rt, result); err != nil {
 			break
 		}
 		if result.Phase == "" && result.ActiveReplica > 0 {
@@ -75,13 +75,13 @@ func GetK8sResourceStatus(unstructuredObj *unstructured.Unstructured, rt *v1.Res
 	case common.CICDScaleRunnerSetKind:
 		result.RunnerScaleSetId = v1.GetAnnotation(unstructuredObj, v1.CICDScaleSetIdAnnotation)
 	default:
-		err = getResourceStatusImpl(unstructuredObj, rt, result)
+		err = getK8sObjectStatusImpl(unstructuredObj, rt, result)
 	}
 	return result, err
 }
 
-// getResourceStatusImpl implements resource status retrieval based on resource template configuration.
-func getResourceStatusImpl(unstructuredObj *unstructured.Unstructured, rt *v1.ResourceTemplate, result *K8sResourceStatus) error {
+// getK8sObjectStatusImpl implements object status retrieval based on resource template configuration.
+func getK8sObjectStatusImpl(unstructuredObj *unstructured.Unstructured, rt *v1.ResourceTemplate, result *K8sObjectStatus) error {
 	if len(rt.Spec.ResourceStatus.PrePaths) == 0 {
 		return nil
 	}
@@ -113,7 +113,7 @@ func getResourceStatusImpl(unstructuredObj *unstructured.Unstructured, rt *v1.Re
 }
 
 // getStatefulSetStatus determines the status of a StatefulSet based on its revision information.
-func getStatefulSetStatus(obj map[string]interface{}, result *K8sResourceStatus) {
+func getStatefulSetStatus(obj map[string]interface{}, result *K8sObjectStatus) {
 	currentRevision := GetUnstructuredString(obj, []string{"status", "currentRevision"})
 	updateRevision := GetUnstructuredString(obj, []string{"status", "updateRevision"})
 	switch {
@@ -129,9 +129,9 @@ func getStatefulSetStatus(obj map[string]interface{}, result *K8sResourceStatus)
 	}
 }
 
-// getStatusByExpression matches resource status based on phase expressions and message paths of resource-tempalte.
+// getStatusByExpression matches resource status based on phase expressions and message paths of resource-template.
 func getStatusByExpression(objects []map[string]interface{},
-	expression v1.PhaseExpression, messagePaths []string, result *K8sResourceStatus) bool {
+	expression v1.PhaseExpression, messagePaths []string, result *K8sObjectStatus) bool {
 	match := func(obj map[string]interface{}, phase v1.PhaseExpression) bool {
 		for key, val := range phase.MatchExpressions {
 			val2 := convertUnstructuredToString(obj, []string{key})
@@ -220,10 +220,9 @@ func GetResources(unstructuredObj *unstructured.Unstructured,
 				klog.ErrorS(err, "failed to find replica", "path", path)
 				return nil, nil, err
 			}
-			if !found {
-				continue
+			if found {
+				replicaList = append(replicaList, replica)
 			}
-			replicaList = append(replicaList, replica)
 		}
 
 		path := t.PrePaths
@@ -350,7 +349,8 @@ func GetImage(unstructuredObj *unstructured.Unstructured,
 }
 
 // GetMemoryStorageSize retrieves the memory storage size from volume specifications.
-func GetMemoryStorageSize(unstructuredObj *unstructured.Unstructured, rt *v1.ResourceTemplate) (string, error) {
+func GetMemoryStorageSize(unstructuredObj *unstructured.Unstructured, rt *v1.ResourceTemplate) ([]string, error) {
+	var result []string
 	for _, t := range rt.Spec.ResourceSpecs {
 		path := t.PrePaths
 		path = append(path, t.TemplatePaths...)
@@ -358,19 +358,20 @@ func GetMemoryStorageSize(unstructuredObj *unstructured.Unstructured, rt *v1.Res
 		volumes, found, err := unstructured.NestedSlice(unstructuredObj.Object, path...)
 		if err != nil {
 			klog.ErrorS(err, "failed to find volumes", "path", path)
-			return "", err
+			return nil, err
 		}
 		if !found {
-			return "", fmt.Errorf("failed to find volumes, path: %s", path)
+			return nil, fmt.Errorf("failed to find volumes, path: %s", path)
 		}
 
 		shareMemory := GetMemoryStorageVolume(volumes)
-		if shareMemory == nil {
-			break
+		if shareMemory != nil {
+			result = append(result, shareMemory["sizeLimit"].(string))
+		} else {
+			result = append(result, "0")
 		}
-		return shareMemory["sizeLimit"].(string), nil
 	}
-	return "", fmt.Errorf("no share memory found")
+	return result, nil
 }
 
 // GetMemoryStorageVolume finds the memory storage volume from a list of volumes.
@@ -404,10 +405,6 @@ func GetSpecReplica(unstructuredObj *unstructured.Unstructured, rt *v1.ResourceT
 	}
 	replica := 0
 	for _, t := range rt.Spec.ResourceSpecs {
-		if t.Replica > 0 {
-			replica += int(t.Replica)
-			continue
-		}
 		l := len(t.ReplicasPaths)
 		if l == 0 {
 			continue
@@ -518,6 +515,36 @@ func getIntValueByName(objects map[string]interface{}, name string) (int64, bool
 	return 0, true
 }
 
+// GetLabels retrieves the labels from Unstructured object.
+func GetLabels(unstructuredObj *unstructured.Unstructured, resourceSpec v1.ResourceSpec) (map[string]interface{}, error) {
+	path := resourceSpec.PrePaths
+	path = append(path, resourceSpec.TemplatePaths...)
+	path = append(path, "metadata", "labels")
+	labels, found, err := unstructured.NestedMap(unstructuredObj.Object, path...)
+	if err != nil {
+		klog.ErrorS(err, "failed to find labels", "path", path)
+		return nil, err
+	}
+	if !found {
+		return nil, nil
+	}
+	return labels, nil
+}
+
+// GetSelectorLabels retrieves the labels of selector from Unstructured object.
+func GetSelectorLabels(unstructuredObj *unstructured.Unstructured) (map[string]interface{}, error) {
+	path := []string{"spec", "selector", "matchLabels"}
+	labels, found, err := unstructured.NestedMap(unstructuredObj.Object, path...)
+	if err != nil {
+		klog.ErrorS(err, "failed to find labels", "path", path)
+		return nil, err
+	}
+	if !found {
+		return nil, nil
+	}
+	return labels, nil
+}
+
 // GetEnv Retrieve the environment value of the main container.
 func GetEnv(unstructuredObj *unstructured.Unstructured,
 	rt *v1.ResourceTemplate, mainContainer string) ([]interface{}, error) {
@@ -553,24 +580,4 @@ func GetEnv(unstructuredObj *unstructured.Unstructured,
 		}
 	}
 	return nil, fmt.Errorf("no env found")
-}
-
-// getEnvValue retrieves the value of a specific environment variable from the main container
-// Returns empty string if the environment variable is not found
-func getEnvValue(unstructuredObj *unstructured.Unstructured,
-	rt *v1.ResourceTemplate, mainContainer, name string) (string, error) {
-	envs, err := GetEnv(unstructuredObj, rt, mainContainer)
-	if err != nil {
-		return "", err
-	}
-	for _, env := range envs {
-		envObj, ok := env.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		if envObj["name"] == name {
-			return envObj["value"].(string), nil
-		}
-	}
-	return "", nil
 }

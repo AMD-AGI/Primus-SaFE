@@ -263,11 +263,6 @@ func IsWorkloadReScheduled(obj metav1.Object) bool {
 	return HasAnnotation(obj, WorkloadReScheduledAnnotation)
 }
 
-// IsEnableHostNetwork checks if host network mode is enabled.
-func IsEnableHostNetwork(obj metav1.Object) bool {
-	return GetAnnotation(obj, EnableHostNetworkAnnotation) == TrueStr
-}
-
 // IsWorkloadEnablePreempt checks if preemption is enabled for a workload.
 func IsWorkloadEnablePreempt(obj metav1.Object) bool {
 	return GetAnnotation(obj, WorkloadEnablePreemptAnnotation) == TrueStr
@@ -340,6 +335,26 @@ func GetAdminControlPlane(obj metav1.Object) string {
 
 func IsRequireNodeSpread(obj metav1.Object) bool {
 	return GetAnnotation(obj, RequireNodeSpreadAnnotation) == TrueStr
+}
+
+func GetRootWorkloadId(obj metav1.Object) string {
+	return GetLabel(obj, RootWorkloadIdLabel)
+}
+
+func GetResourceId(obj metav1.Object) (int, bool) {
+	str := GetAnnotation(obj, ResourceIdAnnotation)
+	if str == "" {
+		return 0, false
+	}
+	n, err := strconv.Atoi(str)
+	if err != nil {
+		return 0, false
+	}
+	return n, true
+}
+
+func GetGroupId(obj metav1.Object) string {
+	return GetAnnotation(obj, GroupIdAnnotation)
 }
 
 // atoi converts a string to an integer, returning 0 if conversion fails.

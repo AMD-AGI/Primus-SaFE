@@ -10,6 +10,7 @@ import (
 	"bytes"
 	"context"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -41,11 +42,12 @@ const (
 
 // handlePod processes Pod resource events (add, update, delete).
 // Manages the synchronization of pod status between data plane and admin plane.
-func (r *SyncerReconciler) handlePod(ctx context.Context, message *resourceMessage, clusterInformer *ClusterInformer) (ctrlruntime.Result, error) {
+func (r *SyncerReconciler) handlePod(ctx context.Context,
+	message *resourceMessage, clusterClientSets *ClusterClientSets) (ctrlruntime.Result, error) {
 	if message.action == ResourceDel {
 		return ctrlruntime.Result{}, r.removeWorkloadPod(ctx, message)
 	}
-	informer, err := clusterInformer.GetResourceInformer(ctx, message.gvk)
+	informer, err := clusterClientSets.GetResourceInformer(ctx, message.gvk)
 	if err != nil {
 		return ctrlruntime.Result{}, err
 	}
@@ -57,15 +59,15 @@ func (r *SyncerReconciler) handlePod(ctx context.Context, message *resourceMessa
 		if err = r.removeWorkloadPod(ctx, message); err != nil {
 			return ctrlruntime.Result{}, err
 		}
-		return r.deletePod(ctx, obj, clusterInformer)
+		return r.deletePod(ctx, obj, clusterClientSets)
 	}
-	return r.updateWorkloadPod(ctx, obj, clusterInformer, message)
+	return r.updateWorkloadPod(ctx, obj, clusterClientSets, message)
 }
 
 // deletePod forcefully deletes a pod from the data plane.
 // Implements a delayed force deletion strategy to avoid premature deletion.
 func (r *SyncerReconciler) deletePod(ctx context.Context,
-	obj *unstructured.Unstructured, clusterInformer *ClusterInformer) (ctrlruntime.Result, error) {
+	obj *unstructured.Unstructured, clusterClientSets *ClusterClientSets) (ctrlruntime.Result, error) {
 	nowTime := time.Now().Unix()
 	if nowTime-obj.GetDeletionTimestamp().Unix() < ForceDeleteDelaySeconds {
 		return ctrlruntime.Result{RequeueAfter: time.Second * 3}, nil
@@ -76,7 +78,7 @@ func (r *SyncerReconciler) deletePod(ctx context.Context,
 	deleteOptions := metav1.DeleteOptions{
 		GracePeriodSeconds: &gracePeriodSeconds,
 	}
-	err := clusterInformer.dataClientFactory.ClientSet().CoreV1().
+	err := clusterClientSets.dataClientFactory.ClientSet().CoreV1().
 		Pods(obj.GetNamespace()).Delete(ctx, obj.GetName(), deleteOptions)
 	if err != nil {
 		if !apierrors.IsNotFound(err) {
@@ -94,7 +96,7 @@ func (r *SyncerReconciler) deletePod(ctx context.Context,
 // updateWorkloadPod updates the workload status based on pod information.
 // Synchronizes pod details like phase, node assignment, and container status.
 func (r *SyncerReconciler) updateWorkloadPod(ctx context.Context, obj *unstructured.Unstructured,
-	clusterInformer *ClusterInformer, message *resourceMessage) (ctrlruntime.Result, error) {
+	clientSets *ClusterClientSets, message *resourceMessage) (ctrlruntime.Result, error) {
 	pod := &corev1.Pod{}
 	err := unstructuredutils.ConvertUnstructuredToObject(obj, pod)
 	if err != nil {
@@ -129,27 +131,36 @@ func (r *SyncerReconciler) updateWorkloadPod(ctx context.Context, obj *unstructu
 
 	k8sNode := &corev1.Node{}
 	if pod.Spec.NodeName != "" {
-		if k8sNode, err = clusterInformer.dataClientFactory.ClientSet().
+		if k8sNode, err = clientSets.dataClientFactory.ClientSet().
 			CoreV1().Nodes().Get(ctx, pod.Spec.NodeName, metav1.GetOptions{}); err != nil {
 			klog.ErrorS(err, "failed to get k8s node")
 			return ctrlruntime.Result{}, err
 		}
 	}
 
+	resourceId, _ := v1.GetResourceId(pod)
+	groupId := -1
+	if groupIdStr := v1.GetGroupId(pod); groupIdStr != "" {
+		if groupId, err = strconv.Atoi(groupIdStr); err != nil {
+			groupId = -1
+		}
+	}
 	workloadPod := v1.WorkloadPod{
 		PodId:         pod.Name,
+		ResourceId:    resourceId,
 		K8sNodeName:   pod.Spec.NodeName,
 		AdminNodeName: v1.GetNodeId(k8sNode),
 		Phase:         pod.Status.Phase,
 		HostIp:        pod.Status.HostIP,
 		PodIp:         pod.Status.PodIP,
 		Rank:          getMainContainerRank(adminWorkload, pod),
+		GroupId:       groupId,
 	}
 	if pod.Status.StartTime != nil && !pod.Status.StartTime.IsZero() {
 		workloadPod.StartTime = timeutil.FormatRFC3339(pod.Status.StartTime.Time)
 	}
 	buildPodTerminatedInfo(ctx,
-		clusterInformer.dataClientFactory.ClientSet(), adminWorkload, pod, &workloadPod)
+		clientSets.dataClientFactory.ClientSet(), adminWorkload, pod, &workloadPod)
 	shouldUpdateNodes := false
 	if id >= 0 {
 		if adminWorkload.Status.Pods[id].K8sNodeName != workloadPod.K8sNodeName ||
@@ -203,7 +214,9 @@ func (r *SyncerReconciler) updateWorkloadNodes(adminWorkload *v1.Workload, messa
 	for _, p := range adminWorkload.Status.Pods {
 		if !nodeNameSet.Has(p.K8sNodeName) {
 			nodeNames = append(nodeNames, p.K8sNodeName)
-			ranks = append(ranks, p.Rank)
+			if !commonworkload.IsTorchFT(adminWorkload) {
+				ranks = append(ranks, p.Rank)
+			}
 			nodeNameSet.Insert(p.K8sNodeName)
 		}
 	}
@@ -219,8 +232,9 @@ func (r *SyncerReconciler) updateWorkloadNodes(adminWorkload *v1.Workload, messa
 // getMainContainerRank retrieves the rank value from the main container's environment variables.
 // Used for distributed training workloads to identify process rank.
 func getMainContainerRank(adminWorkload *v1.Workload, pod *corev1.Pod) string {
+	mainContainerName := getMainContainerName(adminWorkload, pod)
 	for _, container := range pod.Spec.Containers {
-		if container.Name != v1.GetMainContainer(adminWorkload) {
+		if mainContainerName != "" && container.Name != mainContainerName {
 			continue
 		}
 		for _, env := range container.Env {
@@ -284,6 +298,7 @@ func buildPodTerminatedInfo(ctx context.Context,
 	}
 
 	var finishedTime *metav1.Time
+	mainContainerName := getMainContainerName(adminWorkload, pod)
 	for i, container := range pod.Status.ContainerStatuses {
 		terminated := container.State.Terminated
 		if terminated == nil {
@@ -298,12 +313,16 @@ func buildPodTerminatedInfo(ctx context.Context,
 			ExitCode: terminated.ExitCode,
 			Message:  terminated.Message,
 		}
-		if commonworkload.IsOpsJob(adminWorkload) {
-			message := getPodLog(ctx, clientSet, pod, v1.GetMainContainer(adminWorkload))
+		if mainContainerName == "" {
+			mainContainerName = c.Name
+		}
+		if commonworkload.IsOpsJob(adminWorkload) && c.Name == mainContainerName {
+			message := getPodLog(ctx, clientSet, pod, mainContainerName)
 			c.Message = message
 		}
 		workloadPod.Containers = append(workloadPod.Containers, c)
 	}
+
 	if finishedTime != nil && !finishedTime.IsZero() {
 		workloadPod.EndTime = timeutil.FormatRFC3339(finishedTime.Time)
 	}
@@ -312,10 +331,6 @@ func buildPodTerminatedInfo(ctx context.Context,
 // getPodLog retrieves and filters logs from a pod's main container.
 // Extracts lines containing ERROR or SUCCESS markers for OpsJob workloads.
 func getPodLog(ctx context.Context, clientSet kubernetes.Interface, pod *corev1.Pod, mainContainerName string) string {
-	if mainContainerName == "" {
-		klog.Error("the main container is empty")
-		return ""
-	}
 	var tailLine int64 = LogTailLines
 	opt := &corev1.PodLogOptions{
 		Container: mainContainerName,
@@ -345,14 +360,46 @@ func getPodLog(ctx context.Context, clientSet kubernetes.Interface, pod *corev1.
 	return string(jsonutils.MarshalSilently(lines))
 }
 
-// sortWorkloadPods sorts workload pods by host IP and pod ID.
-// Ensures consistent ordering of pods for node assignment tracking.
+// sortWorkloadPods sorts workload pods by host IP and pod ID to maintain consistent ordering.
+// For TorchFT workloads, pods are first sorted by GroupId, then by host IP and pod ID within the same group.
+// For regular workloads, pods are sorted directly by host IP and pod ID.
+// This ensures consistent ordering of pods for node assignment tracking.
 func sortWorkloadPods(adminWorkload *v1.Workload) {
-	sort.Slice(adminWorkload.Status.Pods, func(i, j int) bool {
-		if adminWorkload.Status.Pods[i].HostIp == adminWorkload.Status.Pods[j].HostIp {
-			return adminWorkload.Status.Pods[i].PodId < adminWorkload.Status.Pods[j].PodId
-		}
-		return netutil.ConvertIpToInt(adminWorkload.Status.Pods[i].HostIp) >
-			netutil.ConvertIpToInt(adminWorkload.Status.Pods[j].HostIp)
-	})
+	pods := adminWorkload.Status.Pods
+
+	if commonworkload.IsTorchFT(adminWorkload) {
+		// For TorchFT workloads, sort by GroupId first, then by host IP and pod ID within the same group
+		sort.Slice(pods, func(i, j int) bool {
+			if pods[i].GroupId == pods[j].GroupId {
+				return comparePodsByIPAndID(pods[i], pods[j])
+			}
+			return pods[i].GroupId < pods[j].GroupId
+		})
+	} else {
+		// For regular workloads, sort directly by host IP and pod ID
+		sort.Slice(pods, func(i, j int) bool {
+			return comparePodsByIPAndID(pods[i], pods[j])
+		})
+	}
+}
+
+// comparePodsByIPAndID sort by hostIp and podId
+func comparePodsByIPAndID(podI, podJ v1.WorkloadPod) bool {
+	if podI.HostIp == podJ.HostIp {
+		return podI.PodId < podJ.PodId
+	}
+
+	ipI := netutil.ConvertIpToInt(podI.HostIp)
+	ipJ := netutil.ConvertIpToInt(podJ.HostIp)
+	return ipI < ipJ
+}
+
+// getMainContainerName get main container name of pod
+func getMainContainerName(adminWorkload *v1.Workload, pod *corev1.Pod) string {
+	mainContainerName := v1.GetMainContainer(pod)
+	if mainContainerName == "" {
+		// TODO: Keep old logic for compatibility; remove it later.
+		mainContainerName = v1.GetMainContainer(adminWorkload)
+	}
+	return mainContainerName
 }
