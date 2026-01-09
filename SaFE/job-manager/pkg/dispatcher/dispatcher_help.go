@@ -497,14 +497,8 @@ func buildObjectAnnotations(workload *v1.Workload) map[string]interface{} {
 
 // buildPodLabels creates a map of labels for pod of k8s object.
 func buildPodLabels(workload *v1.Workload) map[string]interface{} {
-	result := make(map[string]interface{})
-	result[v1.WorkloadIdLabel] = v1.GetRootWorkloadId(workload)
+	result := buildObjectLabels(workload)
 	result[v1.K8sObjectIdLabel] = workload.Name
-	for key, value := range workload.Labels {
-		if !strings.HasPrefix(key, v1.PrimusSafePrefix) {
-			result[key] = value
-		}
-	}
 	return result
 }
 
