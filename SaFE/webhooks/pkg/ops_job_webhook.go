@@ -415,7 +415,6 @@ func (v *OpsJobValidator) validateDownload(ctx context.Context, job *v1.OpsJob) 
 		if job.Name == currentJob.Name {
 			continue
 		}
-		// Only check destPath to allow parallel downloads from the same source to different destinations
 		if v.hasDuplicateInput(job.Spec.Inputs, currentJob.Spec.Inputs, v1.ParameterDestPath) {
 			return commonerrors.NewResourceProcessing(
 				fmt.Sprintf("another ops job (%s) with type %s is processing,"+

@@ -827,7 +827,6 @@ func (h *Handler) findModelBySourceURL(ctx context.Context, sourceURL string, wo
 	if repoId != sourceURL {
 		fullURL := fmt.Sprintf("https://huggingface.co/%s", repoId)
 		if fullURL != sourceURL {
-			// Recursively check with full URL
 			return h.findModelBySourceURL(ctx, fullURL, workspace)
 		}
 	}
