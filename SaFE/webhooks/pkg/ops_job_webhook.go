@@ -512,7 +512,7 @@ func (v *OpsJobValidator) validateNodes(ctx context.Context, job *v1.OpsJob) err
 				return fmt.Errorf("The node(%s) does not have node flavor.", param.Value)
 			}
 		} else if nodeFlavor != adminNode.GetSpecNodeFlavor() {
-			return fmt.Errorf("The nodes to be operated must have the same node flavor.")
+			return fmt.Errorf("The nodes(%s) to be operated must have the same node flavor(%s).", adminNode.Name, nodeFlavor)
 		}
 	}
 	return nil
