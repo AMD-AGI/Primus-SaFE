@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"time"
 
+	"gorm.io/gorm"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -169,10 +170,46 @@ func initScheduledTasks(ctx context.Context, cfg *config.Config) error {
 	// Add namespace sync task (runs every 60 seconds)
 	globalScheduler.AddTask(namespaceSyncService, 60*time.Second)
 
+	// Initialize Token sync tasks if Control Plane DB is available
+	if err := initTokenSyncTasks(clusterManager, safeDB); err != nil {
+		log.Warnf("Token sync tasks not initialized: %v", err)
+		// Don't fail startup, token sync is optional
+	}
+
 	// Start scheduler in background
 	go globalScheduler.Start(ctx)
 
 	log.Info("Scheduler started with workload stats (30s), node stats (60s), and namespace sync (60s) tasks")
+	return nil
+}
+
+// initTokenSyncTasks initializes token sync tasks if Control Plane DB is available
+func initTokenSyncTasks(clusterManager *clientsets.ClusterManager, safeDB *gorm.DB) error {
+	// Check if Control Plane is enabled
+	if !clusterManager.IsControlPlaneEnabled() {
+		log.Info("Control Plane not enabled, token sync disabled")
+		return nil
+	}
+
+	// Get Lens Control Plane DB
+	lensDB := clusterManager.GetControlPlaneDB()
+	if lensDB == nil {
+		return fmt.Errorf("control Plane DB not available")
+	}
+
+	// Create token sync service
+	tokenSyncService := service.NewTokenSyncService(safeDB, lensDB)
+
+	// Create token cleanup service
+	tokenCleanupService := service.NewTokenCleanupService(lensDB)
+
+	// Add token sync task (runs every 30 seconds)
+	globalScheduler.AddTask(tokenSyncService, 30*time.Second)
+
+	// Add token cleanup task (runs every 60 minutes)
+	globalScheduler.AddTask(tokenCleanupService, 60*time.Minute)
+
+	log.Info("Token sync tasks added to scheduler: token-sync (30s), token-cleanup (60m)")
 	return nil
 }
 

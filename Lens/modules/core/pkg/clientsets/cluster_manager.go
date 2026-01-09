@@ -24,6 +24,14 @@ type ClusterClientSet struct {
 type ClusterManager struct {
 	mu sync.RWMutex
 
+	// ============ Control Plane ============
+	// Single instance, manages Lens's own metadata (users, sessions, configs)
+	controlPlane *ControlPlaneClientSet
+
+	// Whether to load Control Plane database
+	loadControlPlane bool
+
+	// ============ Data Plane ============
 	// Client for the current (local) cluster
 	currentCluster *ClusterClientSet
 
@@ -63,6 +71,37 @@ func InitClusterManager(ctx context.Context, multiCluster bool, loadK8SClient bo
 		initErr = globalClusterManager.initialize(ctx)
 	})
 	return initErr
+}
+
+// InitClusterManagerWithOptions initializes the cluster manager with options
+// This supports both Control Plane and Data Plane initialization
+func InitClusterManagerWithOptions(ctx context.Context, opts *InitOptions) error {
+	var initErr error
+	clusterManagerOnce.Do(func() {
+		globalClusterManager = &ClusterManager{
+			clusters:          make(map[string]*ClusterClientSet),
+			multiCluster:      opts.MultiCluster,
+			loadK8SClient:     opts.LoadK8SClient,
+			loadStorageClient: opts.LoadStorageClient,
+			loadControlPlane:  opts.LoadControlPlane,
+		}
+		initErr = globalClusterManager.initializeWithOptions(ctx, opts)
+	})
+	return initErr
+}
+
+// initializeWithOptions initializes the cluster manager with options
+func (cm *ClusterManager) initializeWithOptions(ctx context.Context, opts *InitOptions) error {
+	// 1. Initialize Control Plane first (if enabled)
+	if cm.loadControlPlane && opts.ControlPlaneConfig != nil {
+		if err := cm.initializeControlPlane(ctx, opts.ControlPlaneConfig); err != nil {
+			return err
+		}
+		log.Info("Control Plane initialized successfully")
+	}
+
+	// 2. Initialize Data Plane (existing logic)
+	return cm.initialize(ctx)
 }
 
 // GetClusterManager returns the global cluster manager instance
