@@ -51,11 +51,12 @@ func GetAuthProvider(c *gin.Context) {
 
 	provider, err := facade.GetAuthProvider().GetByID(ctx, id)
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
-			c.JSON(http.StatusNotFound, gin.H{"error": "provider not found"})
-			return
-		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	// Check if provider was actually found (GORM callback may return nil error with empty struct)
+	if provider == nil || provider.ID == "" {
+		c.JSON(http.StatusNotFound, gin.H{"error": "provider not found"})
 		return
 	}
 
@@ -82,8 +83,10 @@ func CreateAuthProvider(c *gin.Context) {
 	facade := cpdb.GetFacade()
 
 	// Check if provider with same name exists
+	// Note: Due to GORM callback converting ErrRecordNotFound to nil,
+	// we must also check if the returned struct has a valid ID
 	existing, err := facade.GetAuthProvider().GetByName(ctx, req.Name)
-	if err == nil && existing != nil {
+	if err == nil && existing != nil && existing.ID != "" {
 		c.JSON(http.StatusConflict, gin.H{"error": "provider with this name already exists"})
 		return
 	}
@@ -136,19 +139,21 @@ func UpdateAuthProvider(c *gin.Context) {
 
 	provider, err := facade.GetAuthProvider().GetByID(ctx, id)
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
-			c.JSON(http.StatusNotFound, gin.H{"error": "provider not found"})
-			return
-		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	// Check if provider was actually found (GORM callback may return nil error with empty struct)
+	if provider == nil || provider.ID == "" {
+		c.JSON(http.StatusNotFound, gin.H{"error": "provider not found"})
 		return
 	}
 
 	// Update fields if provided
 	if req.Name != nil {
 		// Check if another provider with this name exists
+		// Note: Must check existing.ID != "" due to GORM callback issue
 		existing, err := facade.GetAuthProvider().GetByName(ctx, *req.Name)
-		if err == nil && existing != nil && existing.ID != id {
+		if err == nil && existing != nil && existing.ID != "" && existing.ID != id {
 			c.JSON(http.StatusConflict, gin.H{"error": "provider with this name already exists"})
 			return
 		}
@@ -188,13 +193,14 @@ func DeleteAuthProvider(c *gin.Context) {
 	facade := cpdb.GetFacade()
 
 	// Check if provider exists
-	_, err := facade.GetAuthProvider().GetByID(ctx, id)
+	provider, err := facade.GetAuthProvider().GetByID(ctx, id)
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
-			c.JSON(http.StatusNotFound, gin.H{"error": "provider not found"})
-			return
-		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	// Check if provider was actually found (GORM callback may return nil error with empty struct)
+	if provider == nil || provider.ID == "" {
+		c.JSON(http.StatusNotFound, gin.H{"error": "provider not found"})
 		return
 	}
 
@@ -215,11 +221,12 @@ func TestAuthProvider(c *gin.Context) {
 
 	provider, err := facade.GetAuthProvider().GetByID(ctx, id)
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
-			c.JSON(http.StatusNotFound, gin.H{"error": "provider not found"})
-			return
-		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	// Check if provider was actually found (GORM callback may return nil error with empty struct)
+	if provider == nil || provider.ID == "" {
+		c.JSON(http.StatusNotFound, gin.H{"error": "provider not found"})
 		return
 	}
 

@@ -270,6 +270,10 @@ func authenticateLocal(ctx context.Context, username, password string) (string, 
 	if err != nil {
 		return "", false, auth.ErrUserNotFound
 	}
+	// Check if user was actually found (GORM callback may return nil error with empty struct)
+	if user == nil || user.ID == "" {
+		return "", false, auth.ErrUserNotFound
+	}
 
 	// Verify password
 	if !auth.VerifyPassword(password, user.PasswordHash) {
@@ -321,7 +325,8 @@ func authenticateLDAP(ctx context.Context, username, password string) (string, s
 	// Ensure user exists in local database
 	userFacade := cpdb.GetFacade().GetUser()
 	user, err := userFacade.GetByUsername(ctx, username)
-	if err != nil {
+	// Check if user was actually found (GORM callback may return nil error with empty struct)
+	if err != nil || user == nil || user.ID == "" {
 		// Create user if not exists
 		user, err = userFacade.CreateFromLDAP(ctx, username, email, displayName, isAdmin)
 		if err != nil {
