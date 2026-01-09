@@ -10,6 +10,7 @@ import (
 	"bytes"
 	"context"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -138,6 +139,12 @@ func (r *SyncerReconciler) updateWorkloadPod(ctx context.Context, obj *unstructu
 	}
 
 	resourceId, _ := v1.GetResourceId(pod)
+	groupId := -1
+	if groupIdStr := v1.GetGroupId(pod); groupIdStr != "" {
+		if groupId, err = strconv.Atoi(groupIdStr); err != nil {
+			groupId = -1
+		}
+	}
 	workloadPod := v1.WorkloadPod{
 		PodId:         pod.Name,
 		ResourceId:    resourceId,
@@ -147,6 +154,7 @@ func (r *SyncerReconciler) updateWorkloadPod(ctx context.Context, obj *unstructu
 		HostIp:        pod.Status.HostIP,
 		PodIp:         pod.Status.PodIP,
 		Rank:          getMainContainerRank(adminWorkload, pod),
+		GroupId:       groupId,
 	}
 	if pod.Status.StartTime != nil && !pod.Status.StartTime.IsZero() {
 		workloadPod.StartTime = timeutil.FormatRFC3339(pod.Status.StartTime.Time)
@@ -206,7 +214,9 @@ func (r *SyncerReconciler) updateWorkloadNodes(adminWorkload *v1.Workload, messa
 	for _, p := range adminWorkload.Status.Pods {
 		if !nodeNameSet.Has(p.K8sNodeName) {
 			nodeNames = append(nodeNames, p.K8sNodeName)
-			ranks = append(ranks, p.Rank)
+			if !commonworkload.IsTorchFT(adminWorkload) {
+				ranks = append(ranks, p.Rank)
+			}
 			nodeNameSet.Insert(p.K8sNodeName)
 		}
 	}
@@ -350,16 +360,38 @@ func getPodLog(ctx context.Context, clientSet kubernetes.Interface, pod *corev1.
 	return string(jsonutils.MarshalSilently(lines))
 }
 
-// sortWorkloadPods sorts workload pods by host IP and pod ID.
-// Ensures consistent ordering of pods for node assignment tracking.
+// sortWorkloadPods sorts workload pods by host IP and pod ID to maintain consistent ordering.
+// For TorchFT workloads, pods are first sorted by GroupId, then by host IP and pod ID within the same group.
+// For regular workloads, pods are sorted directly by host IP and pod ID.
+// This ensures consistent ordering of pods for node assignment tracking.
 func sortWorkloadPods(adminWorkload *v1.Workload) {
-	sort.Slice(adminWorkload.Status.Pods, func(i, j int) bool {
-		if adminWorkload.Status.Pods[i].HostIp == adminWorkload.Status.Pods[j].HostIp {
-			return adminWorkload.Status.Pods[i].PodId < adminWorkload.Status.Pods[j].PodId
-		}
-		return netutil.ConvertIpToInt(adminWorkload.Status.Pods[i].HostIp) <
-			netutil.ConvertIpToInt(adminWorkload.Status.Pods[j].HostIp)
-	})
+	pods := adminWorkload.Status.Pods
+
+	if commonworkload.IsTorchFT(adminWorkload) {
+		// For TorchFT workloads, sort by GroupId first, then by host IP and pod ID within the same group
+		sort.Slice(pods, func(i, j int) bool {
+			if pods[i].GroupId == pods[j].GroupId {
+				return comparePodsByIPAndID(pods[i], pods[j])
+			}
+			return pods[i].GroupId < pods[j].GroupId
+		})
+	} else {
+		// For regular workloads, sort directly by host IP and pod ID
+		sort.Slice(pods, func(i, j int) bool {
+			return comparePodsByIPAndID(pods[i], pods[j])
+		})
+	}
+}
+
+// comparePodsByIPAndID sort by hostIp and podId
+func comparePodsByIPAndID(podI, podJ v1.WorkloadPod) bool {
+	if podI.HostIp == podJ.HostIp {
+		return podI.PodId < podJ.PodId
+	}
+
+	ipI := netutil.ConvertIpToInt(podI.HostIp)
+	ipJ := netutil.ConvertIpToInt(podJ.HostIp)
+	return ipI < ipJ
 }
 
 // getMainContainerName get main container name of pod

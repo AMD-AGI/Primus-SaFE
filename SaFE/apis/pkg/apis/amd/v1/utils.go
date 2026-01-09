@@ -353,6 +353,10 @@ func GetResourceId(obj metav1.Object) (int, bool) {
 	return n, true
 }
 
+func GetGroupId(obj metav1.Object) string {
+	return GetAnnotation(obj, GroupIdAnnotation)
+}
+
 // atoi converts a string to an integer, returning 0 if conversion fails.
 func atoi(str string) int {
 	if str == "" {

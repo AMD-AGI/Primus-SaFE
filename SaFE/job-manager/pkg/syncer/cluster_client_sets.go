@@ -70,6 +70,7 @@ type resourceMessage struct {
 	gvk        schema.GroupVersionKind
 	action     string
 	workloadId string
+	groupId    string
 	// TODO: Keep old logic for compatibility; remove it later.
 	selectorLabels map[string]interface{}
 	// dispatch count for this message — note that messages can be redelivered due to failover
@@ -213,6 +214,7 @@ func (r *ClusterClientSets) handleResource(_ context.Context, oldObj, newObj int
 	if labels, _ := jobutils.GetSelectorLabels(newUnstructured); len(labels) > 0 {
 		msg.selectorLabels = labels
 	}
+	msg.groupId = v1.GetGroupId(newUnstructured)
 
 	switch action {
 	case ResourceAdd:

@@ -428,6 +428,10 @@ spec:
                     failedMessage:
                       description: Pod failed reason. may be empty
                       type: string
+                    groupId:
+                      description: The group id of pod, only for torchft. 0 lighthouse,
+                        > 0 worker
+                      type: integer
                     hostIP:
                       description: The node's IP address where the Pod is running
                       type: string

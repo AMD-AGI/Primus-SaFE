@@ -226,6 +226,8 @@ type WorkloadPod struct {
 	FailedMessage string `json:"failedMessage,omitempty"`
 	// The Container info of pod
 	Containers []Container `json:"containers,omitempty"`
+	// The group id of pod, only for torchft. 0 lighthouse, > 0 worker
+	GroupId int `json:"groupId,omitempty"`
 }
 
 type Container struct {

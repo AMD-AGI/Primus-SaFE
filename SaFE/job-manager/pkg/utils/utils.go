@@ -7,8 +7,6 @@ package utils
 
 import (
 	"context"
-	"strconv"
-	"strings"
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -77,27 +75,4 @@ func SetWorkloadFailed(ctx context.Context, cli client.Client, workload *v1.Work
 		return err
 	}
 	return nil
-}
-
-// ParseTorchFTGroupIndex extracts the index from a TorchFT object's name.
-// Name format: {displayName}-{index}-{suffix}, e.g., "my-job-2-abcde"(index=2).
-// Returns the index and true if parsing succeeds, otherwise 0 and false.
-func ParseTorchFTGroupIndex(name string) (int, bool) {
-	// Find the last dash (separates suffix)
-	lastDash := strings.LastIndex(name, "-")
-	if lastDash == -1 {
-		return 0, false
-	}
-	// Find the second-to-last dash (separates index)
-	secondLastDash := strings.LastIndex(name[:lastDash], "-")
-	if secondLastDash == -1 {
-		return 0, false
-	}
-	// Extract the index between the two dashes
-	indexStr := name[secondLastDash+1 : lastDash]
-	index, err := strconv.Atoi(indexStr)
-	if err != nil {
-		return 0, false
-	}
-	return index, true
 }

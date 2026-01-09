@@ -229,15 +229,18 @@ func (r *DispatcherReconciler) scaleDownTorchFTWorkers(ctx context.Context, root
 		return nil
 	}
 
-	// Name format: {displayName}-{index}-{suffix}
-	// Index 0 = lighthouse (ignore), Index 1 to totalGroups = TorchFT workers
+	// GroupId 0 = lighthouse (ignore), Index 1 to totalGroups = TorchFT workers
 	for _, obj := range unstructuredObjs {
-		index, ok := jobutils.ParseTorchFTGroupIndex(obj.GetName())
+		groupIdStr, ok := obj.GetAnnotations()[v1.GroupIdAnnotation]
 		if !ok {
 			continue
 		}
-		if index > targetGroup {
-			klog.Infof("scaling down TorchFT: deleting sub-workload %s (index %d)", obj.GetName(), index)
+		groupId, err := strconv.Atoi(groupIdStr)
+		if err != nil {
+			continue
+		}
+		if groupId > targetGroup {
+			klog.Infof("scaling down TorchFT worker: deleting worker %s (group-id %d)", obj.GetName(), groupId-1)
 			if err = jobutils.DeleteObject(ctx, clientSets.ClientFactory(), &obj); err != nil {
 				klog.ErrorS(err, "failed to delete object", "name", obj.GetName())
 				return err
@@ -933,11 +936,13 @@ func generateRandomPort(ports map[int]bool) int {
 // generateLighthouse generates a lighthouse workload for TorchFT, which is used for coordination and management of the worker process group
 func (r *DispatcherReconciler) generateLighthouse(ctx context.Context, rootWorkload *v1.Workload) *v1.Workload {
 	workload := rootWorkload.DeepCopy()
-	displayName := v1.GetDisplayName(rootWorkload) + "-0"
+	groupId := "0"
+	displayName := v1.GetDisplayName(rootWorkload) + "-" + groupId
 	workload.Name = commonutils.GenerateName(displayName)
 	v1.SetLabel(workload, v1.DisplayNameLabel, displayName)
 	v1.SetLabel(workload, v1.RootWorkloadIdLabel, rootWorkload.Name)
 	v1.SetAnnotation(workload, v1.ResourceIdAnnotation, "0")
+	v1.SetAnnotation(workload, v1.GroupIdAnnotation, groupId)
 
 	minGroup, _ := commonworkload.GetReplicaGroup(workload, common.MinReplicaGroup)
 	entryPoint := stringutil.Base64Decode(commonconfig.GetTorchFTLightHouse())
@@ -962,11 +967,11 @@ func (r *DispatcherReconciler) generateLighthouse(ctx context.Context, rootWorkl
 
 // generateTorchFTWorker generates a TorchFT worker. It uses PyTorchJob as the main entity and integrates with Lighthouse via environment variables.
 func (r *DispatcherReconciler) generateTorchFTWorker(ctx context.Context,
-	rootWorkload *v1.Workload, id, group int, lightHouseAddr string) *v1.Workload {
+	rootWorkload *v1.Workload, groupId, totalGroup int, lightHouseAddr string) *v1.Workload {
 	workload := rootWorkload.DeepCopy()
 	// The webhook has already validated the resources.
-	nodePerGroup := rootWorkload.Spec.Resources[1].Replica / group
-	displayName := v1.GetDisplayName(rootWorkload) + "-" + strconv.Itoa(id+1)
+	nodePerGroup := rootWorkload.Spec.Resources[1].Replica / totalGroup
+	displayName := v1.GetDisplayName(rootWorkload) + "-" + strconv.Itoa(groupId+1)
 	workload.Name = commonutils.GenerateName(displayName)
 	workload.Spec.Resources = []v1.WorkloadResource{rootWorkload.Spec.Resources[1]}
 	workload.Spec.Resources[0].Replica = 1
@@ -983,11 +988,12 @@ func (r *DispatcherReconciler) generateTorchFTWorker(ctx context.Context,
 	entryPoint := stringutil.Base64Decode(workload.Spec.EntryPoint)
 	entryPoint = strings.TrimRight(entryPoint, "\n")
 	workload.Spec.EntryPoint = stringutil.Base64Encode(entryPoint + " --fault_tolerance.enable --fault_tolerance.replica_id=" +
-		strconv.Itoa(id) + " --fault_tolerance.group_size=" + strconv.Itoa(group))
+		strconv.Itoa(groupId) + " --fault_tolerance.group_size=" + strconv.Itoa(totalGroup))
 	workload.Spec.GroupVersionKind.Kind = common.PytorchJobKind
 	v1.SetLabel(workload, v1.DisplayNameLabel, displayName)
 	v1.SetLabel(workload, v1.RootWorkloadIdLabel, rootWorkload.Name)
 	v1.SetAnnotation(workload, v1.ResourceIdAnnotation, "1")
+	v1.SetAnnotation(workload, v1.GroupIdAnnotation, strconv.Itoa(groupId+1))
 	commonworkload.GetWorkloadMainContainer(ctx, r.Client, workload)
 	return workload
 }

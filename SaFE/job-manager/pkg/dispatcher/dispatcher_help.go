@@ -492,6 +492,9 @@ func buildObjectAnnotations(workload *v1.Workload) map[string]interface{} {
 	if v1.GetUserName(workload) != "" {
 		result[v1.UserNameAnnotation] = v1.GetUserName(workload)
 	}
+	if v1.GetGroupId(workload) != "" {
+		result[v1.GroupIdAnnotation] = v1.GetGroupId(workload)
+	}
 	return result
 }
 
@@ -504,16 +507,8 @@ func buildPodLabels(workload *v1.Workload) map[string]interface{} {
 
 // buildPodAnnotations creates a map of annotations for pod of k8s object.
 func buildPodAnnotations(workload *v1.Workload, resourceId int) map[string]interface{} {
-	result := make(map[string]interface{})
-	for key, value := range workload.Annotations {
-		if !strings.HasPrefix(key, v1.PrimusSafePrefix) {
-			result[key] = value
-		}
-	}
+	result := buildObjectAnnotations(workload)
 	result[v1.ResourceIdAnnotation] = strconv.Itoa(resourceId)
-	if v1.GetUserName(workload) != "" {
-		result[v1.UserNameAnnotation] = v1.GetUserName(workload)
-	}
 	if v1.GetMainContainer(workload) != "" {
 		result[v1.MainContainerAnnotation] = v1.GetMainContainer(workload)
 	}

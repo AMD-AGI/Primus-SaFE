@@ -402,27 +402,24 @@ func shouldTerminateWorkload(adminWorkload *v1.Workload, status *jobutils.K8sObj
 }
 
 // handleTorchFTGroupStatus handles status updates for TorchFT workload groups.
-// The name parameter corresponds to the data plane object name (a TorchFT workload
-// corresponds to multiple objects: index=0 lighthouse and index=[1,totalGroups] workers).
+// groupId: 0 lighthouse and [1,totalGroups] workers.
 // For failure status: fails if index=0 fails OR available workers < minGroup.
 // For other statuses: returns status only when ALL groups have the same status.
 // Otherwise returns empty string.
-func handleTorchFTGroupStatus(adminWorkload *v1.Workload, name string, phase v1.WorkloadPhase) v1.WorkloadPhase {
-	// Parse the group index from the object name
-	index, ok := jobutils.ParseTorchFTGroupIndex(name)
-	if !ok {
-		// If parsing fails, treat as non-TorchFT workload and return the phase directly
-		return phase
-	}
-
+func handleTorchFTGroupStatus(adminWorkload *v1.Workload, groupIdStr string, phase v1.WorkloadPhase) v1.WorkloadPhase {
 	// Get total group count
 	totalGroups, err := commonworkload.GetReplicaGroup(adminWorkload, common.ReplicaGroup)
 	if err != nil || totalGroups <= 0 {
 		// If we can't get total groups, treat as single group
 		return phase
 	}
+	groupId, err := strconv.Atoi(groupIdStr)
+	if err != nil {
+		// If we can't get group id, treat as single group
+		return phase
+	}
 	// TorchFT job indices are 1 to totalGroups, index > totalGroups is invalid
-	if index > totalGroups {
+	if groupId > totalGroups {
 		return ""
 	}
 
@@ -438,8 +435,7 @@ func handleTorchFTGroupStatus(adminWorkload *v1.Workload, name string, phase v1.
 	}
 
 	// Update current group phase
-	indexStr := strconv.Itoa(index)
-	adminWorkload.Status.TorchFTPhase[indexStr] = phase
+	adminWorkload.Status.TorchFTPhase[groupIdStr] = phase
 
 	// Special handling for WorkloadFailed: only fail if remaining groups < minGroups
 	if phase == v1.WorkloadFailed {

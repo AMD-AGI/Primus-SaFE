@@ -25,6 +25,7 @@ type WorkloadPodApplyConfiguration struct {
 	EndTime       *string                       `json:"endTime,omitempty"`
 	FailedMessage *string                       `json:"failedMessage,omitempty"`
 	Containers    []ContainerApplyConfiguration `json:"containers,omitempty"`
+	GroupId       *int                          `json:"groupId,omitempty"`
 }
 
 // WorkloadPodApplyConfiguration constructs a declarative configuration of the WorkloadPod type for use with
@@ -131,5 +132,13 @@ func (b *WorkloadPodApplyConfiguration) WithContainers(values ...*ContainerApply
 		}
 		b.Containers = append(b.Containers, *values[i])
 	}
+	return b
+}
+
+// WithGroupId sets the GroupId field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the GroupId field is set to the value of the last call.
+func (b *WorkloadPodApplyConfiguration) WithGroupId(value int) *WorkloadPodApplyConfiguration {
+	b.GroupId = &value
 	return b
 }
