@@ -24,9 +24,9 @@ type WorkloadStatusApplyConfiguration struct {
 	Pods              []WorkloadPodApplyConfiguration                         `json:"pods,omitempty"`
 	Nodes             [][]string                                              `json:"nodes,omitempty"`
 	Ranks             [][]string                                              `json:"ranks,omitempty"`
-	K8sObjectUid      *string                                                 `json:"k8sObjectUid,omitempty"`
 	RunnerScaleSetId  *string                                                 `json:"runnerScaleSetId,omitempty"`
 	DependenciesPhase map[string]amdv1.WorkloadPhase                          `json:"dependenciesPhase,omitempty"`
+	TorchFTPhase      map[string]amdv1.WorkloadPhase                          `json:"torchFTPhase,omitempty"`
 }
 
 // WorkloadStatusApplyConfiguration constructs a declarative configuration of the WorkloadStatus type for use with
@@ -121,14 +121,6 @@ func (b *WorkloadStatusApplyConfiguration) WithRanks(values ...[]string) *Worklo
 	return b
 }
 
-// WithK8sObjectUid sets the K8sObjectUid field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the K8sObjectUid field is set to the value of the last call.
-func (b *WorkloadStatusApplyConfiguration) WithK8sObjectUid(value string) *WorkloadStatusApplyConfiguration {
-	b.K8sObjectUid = &value
-	return b
-}
-
 // WithRunnerScaleSetId sets the RunnerScaleSetId field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the RunnerScaleSetId field is set to the value of the last call.
@@ -147,6 +139,20 @@ func (b *WorkloadStatusApplyConfiguration) WithDependenciesPhase(entries map[str
 	}
 	for k, v := range entries {
 		b.DependenciesPhase[k] = v
+	}
+	return b
+}
+
+// WithTorchFTPhase puts the entries into the TorchFTPhase field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, the entries provided by each call will be put on the TorchFTPhase field,
+// overwriting an existing map entries in TorchFTPhase field with the same key.
+func (b *WorkloadStatusApplyConfiguration) WithTorchFTPhase(entries map[string]amdv1.WorkloadPhase) *WorkloadStatusApplyConfiguration {
+	if b.TorchFTPhase == nil && len(entries) > 0 {
+		b.TorchFTPhase = make(map[string]amdv1.WorkloadPhase, len(entries))
+	}
+	for k, v := range entries {
+		b.TorchFTPhase[k] = v
 	}
 	return b
 }

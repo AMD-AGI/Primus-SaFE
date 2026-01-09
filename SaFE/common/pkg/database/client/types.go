@@ -29,6 +29,7 @@ type Workload struct {
 	Workspace      string         `db:"workspace"`
 	Cluster        string         `db:"cluster"`
 	Resource       string         `db:"resource"`
+	Resources      sql.NullString `db:"resources"`
 	Image          string         `db:"image"`
 	EntryPoint     string         `db:"entrypoint"`
 	GVK            string         `db:"gvk"`
@@ -57,7 +58,6 @@ type Workload struct {
 	Liveness       sql.NullString `db:"liveness"`
 	Readiness      sql.NullString `db:"readiness"`
 	UserId         sql.NullString `db:"user_id"`
-	K8sObjectUid   sql.NullString `db:"k8s_object_uid"`
 	WorkloadUId    sql.NullString `db:"workload_uid"`
 	Ranks          sql.NullString `db:"ranks"`
 	Dependencies   sql.NullString `db:"dependencies"`

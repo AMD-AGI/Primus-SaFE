@@ -23,6 +23,7 @@ const (
 	CICDScaleRunnerSetKind  = "AutoscalingRunnerSet"
 	CICDEphemeralRunnerKind = "EphemeralRunner"
 	UnifiedJobKind          = "UnifiedJob"
+	TorchFTKind             = "TorchFT"
 
 	PodKind            = "Pod"
 	EventKind          = "Event"
@@ -30,10 +31,14 @@ const (
 	ClusterRoleKind    = "ClusterRole"
 	ServiceAccountKind = "ServiceAccount"
 
-	GithubConfigUrl  = "GITHUB_CONFIG_URL"
-	UnifiedJobEnable = "UNIFIED_JOB_ENABLE"
-	ScaleRunnerSetID = "SCALE_RUNNER_SET_ID"
-	ScaleRunnerID    = "SCALE_RUNNER_ID"
+	GithubConfigUrl   = "GITHUB_CONFIG_URL"
+	UnifiedJobEnable  = "UNIFIED_JOB_ENABLE"
+	ScaleRunnerSetID  = "SCALE_RUNNER_SET_ID"
+	ScaleRunnerID     = "SCALE_RUNNER_ID"
+	ReplicaGroup      = "REPLICA_GROUP"
+	MaxReplicaGroup   = "MAX_REPLICA_GROUP"
+	MinReplicaGroup   = "MIN_REPLICA_GROUP"
+	TorchFTLightHouse = "TORCHFT_LIGHTHOUSE"
 	// for preflight job
 	GPU_PRODUCT = "GPU_PRODUCT"
 
@@ -51,8 +56,10 @@ const (
 	KubernetesControlPlane = "node-role.kubernetes.io/control-plane"
 	ExcludedNodes          = "excluded-nodes"
 
-	DefaultBurst = 1000
-	DefaultQPS   = 1000
+	DefaultBurst          = 1000
+	DefaultQPS            = 1000
+	DefaultMaxUnavailable = "25%"
+	DefaultMaxMaxSurge    = "25%"
 
 	AddonMonitorId     = "501"
 	PreflightMonitorId = "502"

@@ -25,6 +25,8 @@ type CreateWorkloadRequest struct {
 	Description string `json:"description,omitempty"`
 	// Workspace ID to which the workload is delivered
 	WorkspaceId string `json:"workspaceId,omitempty"`
+	// If a workload ID is specified, use that ID directly instead of generating one from the display name.
+	WorkloadId string `json:"workloadId,omitempty"`
 	// User-defined labels. Keys cannot start with "primus-safe."
 	Labels map[string]string `json:"labels,omitempty"`
 	// User-defined annotations. Keys cannot start with "primus-safe."
@@ -86,7 +88,7 @@ type WorkloadResponseItem struct {
 	// The workspace which workload belongs to
 	WorkspaceId string `json:"workspaceId"`
 	// Workload resource requirements
-	Resource v1.WorkloadResource `json:"resource"`
+	Resources []v1.WorkloadResource `json:"resources"`
 	// Workload name (display only)
 	DisplayName string `json:"displayName"`
 	// Workload description
@@ -130,14 +132,14 @@ type WorkloadResponseItem struct {
 	Timeout *int `json:"timeout"`
 	// Workload UID
 	WorkloadUid string `json:"workloadUid"`
-	// K8s object UID corresponding to the workload. e.g. Associated PyTorchJob UID
-	K8sObjectUid string `json:"k8sObjectUid"`
 	// Average GPU usage in the last 3 hours. Returns -1 if no statistics available
 	AvgGpuUsage float64 `json:"avgGpuUsage"`
 	// If it is a CI/CD workload, it would be associated with a scale runner set.
 	ScaleRunnerSet string `json:"scaleRunnerSet,omitempty"`
 	// If it is a CI/CD workload, it would be associated with a github runner action id.
 	ScaleRunnerId string `json:"scaleRunnerId,omitempty"`
+	// Failure retry limit. default 0
+	MaxRetry int `json:"maxRetry"`
 }
 
 type GetWorkloadResponse struct {
@@ -152,8 +154,6 @@ type GetWorkloadResponse struct {
 	EntryPoint string `json:"entryPoint"`
 	// Supervision flag for the workload. When enabled, it performs operations like hang detection
 	IsSupervised bool `json:"isSupervised"`
-	// Failure retry limit. default 0
-	MaxRetry int `json:"maxRetry"`
 	// The lifecycle after completion, in seconds, default 60.
 	TTLSecondsAfterFinished *int `json:"ttlSecondsAfterFinished"`
 	// Detailed processing workflow of the workload
@@ -194,18 +194,8 @@ type WorkloadPodWrapper struct {
 type PatchWorkloadRequest struct {
 	// Workload scheduling Priority (0-2), default 0
 	Priority *int `json:"priority,omitempty"`
-	// Requested replica count for the workload
-	Replica *int `json:"replica,omitempty"`
-	// Cpu cores, e.g. 128
-	CPU *string `json:"cpu,omitempty"`
-	// Gpu card, e.g. 8
-	GPU *string `json:"gpu,omitempty"`
-	// Memory size, e.g. 128Gi
-	Memory *string `json:"memory,omitempty"`
-	// Pod storage size, e.g. 50Gi
-	EphemeralStorage *string `json:"ephemeralStorage,omitempty"`
-	// Shared memory, e.g. 20Gi
-	SharedMemory *string `json:"sharedMemory,omitempty"`
+	// Workload resource requirements
+	Resources *[]v1.WorkloadResource `json:"resources"`
 	// The image address used by workload
 	Image *string `json:"image,omitempty"`
 	// Workload startup command, required in base64 encoding

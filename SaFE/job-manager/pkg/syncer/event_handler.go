@@ -42,8 +42,8 @@ var (
 
 // handleEvent processes Kubernetes Event resources and updates corresponding workload status.
 // It retrieves the event object, finds the associated workload, and updates pending messages.
-func (r *SyncerReconciler) handleEvent(ctx context.Context, message *resourceMessage, informer *ClusterInformer) (ctrlruntime.Result, error) {
-	eventInformer, err := informer.GetResourceInformer(ctx, message.gvk)
+func (r *SyncerReconciler) handleEvent(ctx context.Context, message *resourceMessage, clientSets *ClusterClientSets) (ctrlruntime.Result, error) {
+	eventInformer, err := clientSets.GetResourceInformer(ctx, message.gvk)
 	if err != nil {
 		return ctrlruntime.Result{}, err
 	}
@@ -51,7 +51,7 @@ func (r *SyncerReconciler) handleEvent(ctx context.Context, message *resourceMes
 	if err != nil {
 		return ctrlruntime.Result{}, err
 	}
-	adminWorkload, err := r.getAdminWorkloadByEvent(ctx, informer, eventObj)
+	adminWorkload, err := r.getAdminWorkloadByEvent(ctx, clientSets, eventObj)
 	if adminWorkload == nil {
 		return ctrlruntime.Result{}, err
 	}
@@ -64,7 +64,7 @@ func (r *SyncerReconciler) handleEvent(ctx context.Context, message *resourceMes
 // getAdminWorkloadByEvent retrieves the admin workload associated with an event.
 // It traverses from event -> pod -> workload to find the corresponding workload.
 func (r *SyncerReconciler) getAdminWorkloadByEvent(ctx context.Context,
-	informer *ClusterInformer, eventObj *unstructured.Unstructured) (*v1.Workload, error) {
+	clientSets *ClusterClientSets, eventObj *unstructured.Unstructured) (*v1.Workload, error) {
 	podName := jobutils.GetUnstructuredString(eventObj.Object, eventInvolvedNamePath)
 	if podName == "" {
 		return nil, nil
@@ -73,7 +73,7 @@ func (r *SyncerReconciler) getAdminWorkloadByEvent(ctx context.Context,
 	if podNamespace == "" {
 		return nil, nil
 	}
-	podInformer, err := informer.GetResourceInformer(ctx, corev1.SchemeGroupVersion.WithKind(common.PodKind))
+	podInformer, err := clientSets.GetResourceInformer(ctx, corev1.SchemeGroupVersion.WithKind(common.PodKind))
 	if err != nil {
 		return nil, nil
 	}

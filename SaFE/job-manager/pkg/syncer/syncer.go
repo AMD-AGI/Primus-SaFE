@@ -31,9 +31,9 @@ import (
 type SyncerReconciler struct {
 	ctx context.Context
 	client.Client
-	// clusterInformers manages informers for different clusters
-	// Key: cluster name, Value: *ClusterInformer instance
-	clusterInformers *commonutils.ObjectManager
+	// clusterClientSets manages client sets for different clusters
+	// Key: cluster name, Value: *ClusterClientSets instance
+	clusterClientSets *commonutils.ObjectManager
 	*controller.Controller[*resourceMessage]
 }
 
@@ -41,9 +41,9 @@ type SyncerReconciler struct {
 // Sets up watches for Cluster and ResourceTemplate resources.
 func SetupSyncerController(ctx context.Context, mgr manager.Manager) error {
 	r := &SyncerReconciler{
-		ctx:              ctx,
-		Client:           mgr.GetClient(),
-		clusterInformers: commonutils.NewObjectManagerSingleton(),
+		ctx:               ctx,
+		Client:            mgr.GetClient(),
+		clusterClientSets: commonutils.NewObjectManagerSingleton(),
 	}
 	r.Controller = controller.NewController[*resourceMessage](r, 1)
 	if err := r.start(ctx); err != nil {
@@ -64,18 +64,18 @@ func SetupSyncerController(ctx context.Context, mgr manager.Manager) error {
 // resourceTemplateHandler handles the processing logic for the request.
 func (r *SyncerReconciler) resourceTemplateHandler() handler.EventHandler {
 	handle := func(rt *v1.ResourceTemplate, doAdd bool) {
-		keys, objs := r.clusterInformers.GetAll()
+		keys, objs := r.clusterClientSets.GetAll()
 		for i, key := range keys {
-			informer, ok := objs[i].(*ClusterInformer)
+			clientSets, ok := objs[i].(*ClusterClientSets)
 			if !ok {
 				continue
 			}
 			if doAdd {
-				if err := informer.addResourceTemplate(rt.ToSchemaGVK()); err != nil {
+				if err := clientSets.addResourceTemplate(rt.ToSchemaGVK()); err != nil {
 					klog.ErrorS(err, "failed to add resource template", "cluster", key, "rt", rt)
 				}
 			} else {
-				informer.delResourceTemplate(rt.ToSchemaGVK())
+				clientSets.delResourceTemplate(rt.ToSchemaGVK())
 			}
 		}
 	}
@@ -98,12 +98,12 @@ func (r *SyncerReconciler) resourceTemplateHandler() handler.EventHandler {
 }
 
 // Reconcile is the main control loop for Cluster resources.
-// Manages cluster informers based on cluster lifecycle events.
+// Manages cluster client sets based on cluster lifecycle events.
 func (r *SyncerReconciler) Reconcile(ctx context.Context, request ctrlruntime.Request) (ctrlruntime.Result, error) {
 	c := new(v1.Cluster)
 	if err := r.Get(ctx, request.NamespacedName, c); err != nil {
 		if apierrors.IsNotFound(err) {
-			r.deleteClusterInformer(request.Name)
+			r.deleteClusterClientSet(request.Name)
 			err = nil
 		}
 		return ctrlruntime.Result{}, err
@@ -117,17 +117,17 @@ func (r *SyncerReconciler) Reconcile(ctx context.Context, request ctrlruntime.Re
 	return ctrlruntime.Result{}, nil
 }
 
-// observe checks if a cluster informer already exists for the given cluster.
+// observe checks if a cluster client sets already exists for the given cluster.
 func (r *SyncerReconciler) observe(c *v1.Cluster) bool {
-	_, ok := r.clusterInformers.Get(c.Name)
+	_, ok := r.clusterClientSets.Get(c.Name)
 	return ok
 }
 
-// handle processes a cluster by creating a new cluster informer and initializing resource templates.
+// handle processes a cluster by creating a new cluster client sets and initializing resource templates.
 func (r *SyncerReconciler) handle(ctx context.Context, cluster *v1.Cluster) error {
-	informer, err := newClusterInformer(r.ctx, cluster, r.Client, r.Add)
+	clientSets, err := newClusterClientSets(r.ctx, cluster, r.Client, r.Add)
 	if err != nil {
-		klog.ErrorS(err, "failed to new cluster informer", "cluster.name", cluster.Name)
+		klog.ErrorS(err, "failed to new cluster clientSets", "cluster.name", cluster.Name)
 		return err
 	}
 	rtList := &v1.ResourceTemplateList{}
@@ -136,20 +136,20 @@ func (r *SyncerReconciler) handle(ctx context.Context, cluster *v1.Cluster) erro
 		return err
 	}
 	for _, rt := range rtList.Items {
-		if err = informer.addResourceTemplate(rt.ToSchemaGVK()); err != nil {
+		if err = clientSets.addResourceTemplate(rt.ToSchemaGVK()); err != nil {
 			klog.ErrorS(err, "failed to add resource template", "cluster", cluster.Name, "rt", rt)
 			return err
 		}
 	}
-	r.clusterInformers.AddOrReplace(cluster.Name, informer)
-	klog.Infof("create cluster informer, name: %s", cluster.Name)
+	r.clusterClientSets.AddOrReplace(cluster.Name, clientSets)
+	klog.Infof("create cluster clientSets, name: %s", cluster.Name)
 	return nil
 }
 
-// deleteClusterInformer removes and cleans up a cluster informer.
-func (r *SyncerReconciler) deleteClusterInformer(clusterId string) {
-	if r.clusterInformers.Delete(clusterId) == nil {
-		klog.Infof("delete cluster informer, name: %s", clusterId)
+// deleteClusterClientSet removes and cleans up a cluster clientSets.
+func (r *SyncerReconciler) deleteClusterClientSet(clusterId string) {
+	if r.clusterClientSets.Delete(clusterId) == nil {
+		klog.Infof("delete cluster client set, name: %s", clusterId)
 	}
 }
 
@@ -162,11 +162,11 @@ func (r *SyncerReconciler) start(ctx context.Context) error {
 	return nil
 }
 
-// Do process resource messages from cluster informers.
+// Do process resource messages from cluster clientSets.
 // Routes messages to appropriate handlers based on resource type.
 // it implements the interface of common.controller.
 func (r *SyncerReconciler) Do(ctx context.Context, message *resourceMessage) (ctrlruntime.Result, error) {
-	informer, err := GetClusterInformer(r.clusterInformers, message.cluster)
+	clientSets, err := GetClusterClientSets(r.clusterClientSets, message.cluster)
 	if err != nil {
 		return ctrlruntime.Result{RequeueAfter: time.Second}, nil
 	}
@@ -175,11 +175,11 @@ func (r *SyncerReconciler) Do(ctx context.Context, message *resourceMessage) (ct
 	switch message.gvk.Kind {
 	case common.PytorchJobKind, common.DeploymentKind, common.StatefulSetKind, common.JobKind,
 		common.CICDScaleRunnerSetKind, common.CICDEphemeralRunnerKind:
-		result, err = r.handleJob(ctx, message, informer)
+		result, err = r.handleJob(ctx, message, clientSets)
 	case common.PodKind:
-		result, err = r.handlePod(ctx, message, informer)
+		result, err = r.handlePod(ctx, message, clientSets)
 	case common.EventKind:
-		result, err = r.handleEvent(ctx, message, informer)
+		result, err = r.handleEvent(ctx, message, clientSets)
 	}
 	if jobutils.IsUnrecoverableError(err) {
 		err = nil
