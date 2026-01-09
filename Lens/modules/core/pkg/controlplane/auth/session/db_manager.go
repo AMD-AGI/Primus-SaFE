@@ -130,10 +130,11 @@ func (m *DBManager) Validate(ctx context.Context, token string) (*SessionInfo, e
 	// Get user info for additional details
 	userFacade := cpdb.GetFacade().GetUser()
 	user, err := userFacade.GetByID(ctx, session.UserID)
-	var username, email string
+	var username, displayName, email string
 	var isAdmin bool
 	if err == nil && user != nil {
 		username = user.Username
+		displayName = user.DisplayName
 		email = user.Email
 		isAdmin = user.IsAdmin
 	}
@@ -142,6 +143,7 @@ func (m *DBManager) Validate(ctx context.Context, token string) (*SessionInfo, e
 		SessionID:    session.ID,
 		UserID:       session.UserID,
 		Username:     username,
+		DisplayName:  displayName,
 		Email:        email,
 		IsAdmin:      isAdmin,
 		SyncSource:   session.SyncSource,

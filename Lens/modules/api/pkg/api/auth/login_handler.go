@@ -16,6 +16,7 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/controlplane/auth/session"
 	cpdb "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/controlplane/database"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/model/rest"
 )
 
 // LoginRequest represents the login request body
@@ -204,6 +205,15 @@ func Logout(c *gin.Context) {
 	})
 }
 
+// CurrentUserResponse represents the response for current user info
+type CurrentUserResponse struct {
+	UserID      string `json:"user_id"`
+	Username    string `json:"username"`
+	DisplayName string `json:"display_name"`
+	Email       string `json:"email"`
+	IsAdmin     bool   `json:"is_admin"`
+}
+
 // GetCurrentUser returns the current logged-in user info
 // GET /api/auth/me
 func GetCurrentUser(c *gin.Context) {
@@ -218,13 +228,14 @@ func GetCurrentUser(c *gin.Context) {
 	}
 
 	info := sessionInfo.(*session.SessionInfo)
-	c.JSON(http.StatusOK, gin.H{
-		"success":  true,
-		"user_id":  info.UserID,
-		"username": info.Username,
-		"email":    info.Email,
-		"is_admin": info.IsAdmin,
-	})
+	response := CurrentUserResponse{
+		UserID:      info.UserID,
+		Username:    info.Username,
+		DisplayName: info.DisplayName,
+		Email:       info.Email,
+		IsAdmin:     info.IsAdmin,
+	}
+	c.JSON(http.StatusOK, rest.SuccessResp(c, response))
 }
 
 // RefreshSession refreshes the current session

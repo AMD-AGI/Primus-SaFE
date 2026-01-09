@@ -36,6 +36,7 @@ type SessionInfo struct {
 	Token        string // Only populated on creation
 	UserID       string
 	Username     string
+	DisplayName  string
 	Email        string
 	IsAdmin      bool
 	SyncSource   string
