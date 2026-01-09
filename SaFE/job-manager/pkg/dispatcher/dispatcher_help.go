@@ -917,6 +917,9 @@ func updateMetadata(adminWorkload *v1.Workload,
 		return err
 	}
 
+	if id2, ok := v1.GetResourceId(adminWorkload); ok {
+		id = id2
+	}
 	annotations := buildPodAnnotations(adminWorkload, id)
 	path = append(resourceSpec.GetTemplatePath(), "metadata", "annotations")
 	if err = unstructured.SetNestedMap(obj.Object, annotations, path...); err != nil {

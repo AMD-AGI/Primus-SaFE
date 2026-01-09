@@ -341,6 +341,18 @@ func GetRootWorkloadId(obj metav1.Object) string {
 	return GetLabel(obj, RootWorkloadIdLabel)
 }
 
+func GetResourceId(obj metav1.Object) (int, bool) {
+	str := GetAnnotation(obj, ResourceIdAnnotation)
+	if str == "" {
+		return 0, false
+	}
+	n, err := strconv.Atoi(str)
+	if err != nil {
+		return 0, false
+	}
+	return n, true
+}
+
 // atoi converts a string to an integer, returning 0 if conversion fails.
 func atoi(str string) int {
 	if str == "" {

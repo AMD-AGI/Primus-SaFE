@@ -944,6 +944,7 @@ func (r *DispatcherReconciler) generateLighthouse(ctx context.Context, rootWorkl
 	workload.Name = commonutils.GenerateName(displayName)
 	v1.SetLabel(workload, v1.DisplayNameLabel, displayName)
 	v1.SetLabel(workload, v1.RootWorkloadIdLabel, rootWorkload.Name)
+	v1.SetAnnotation(workload, v1.ResourceIdAnnotation, "0")
 
 	minGroup, _ := commonworkload.GetReplicaGroup(workload, common.MinReplicaGroup)
 	entryPoint := stringutil.Base64Decode(commonconfig.GetTorchFTLightHouse())
@@ -980,7 +981,7 @@ func (r *DispatcherReconciler) generateTorchFTWorker(ctx context.Context,
 		workload.Spec.Resources = append(workload.Spec.Resources, rootWorkload.Spec.Resources[1])
 		workload.Spec.Resources[1].Replica = nodePerGroup - 1
 	}
-	
+
 	if workload.Spec.Env == nil {
 		workload.Spec.Env = make(map[string]string)
 	}
@@ -993,6 +994,7 @@ func (r *DispatcherReconciler) generateTorchFTWorker(ctx context.Context,
 	workload.Spec.GroupVersionKind.Kind = common.PytorchJobKind
 	v1.SetLabel(workload, v1.DisplayNameLabel, displayName)
 	v1.SetLabel(workload, v1.RootWorkloadIdLabel, rootWorkload.Name)
+	v1.SetAnnotation(workload, v1.ResourceIdAnnotation, "1")
 	commonworkload.GetWorkloadMainContainer(ctx, r.Client, workload)
 	return workload
 }

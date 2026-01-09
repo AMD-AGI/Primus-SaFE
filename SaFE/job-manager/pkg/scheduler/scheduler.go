@@ -192,7 +192,7 @@ func (r *SchedulerReconciler) delete(ctx context.Context, adminWorkload *v1.Work
 	if hasFound, err := jobutils.DeleteObjectsByWorkload(ctx, r.Client, clientSets.ClientFactory(), adminWorkload); err != nil {
 		return ctrlruntime.Result{}, err
 	} else if hasFound {
-		return ctrlruntime.Result{RequeueAfter: time.Second * 20}, nil
+		return ctrlruntime.Result{RequeueAfter: time.Second * 10}, nil
 	}
 
 	if len(adminWorkload.Spec.CronJobs) > 0 {
