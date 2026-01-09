@@ -14,7 +14,6 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
@@ -46,16 +45,16 @@ const (
 // FailoverReconciler reconciles Workload objects for failover handling
 type FailoverReconciler struct {
 	client.Client
-	failoverConfigs  *commonutils.ObjectManager
-	clusterInformers *commonutils.ObjectManager
+	failoverConfigs   *commonutils.ObjectManager
+	clusterClientSets *commonutils.ObjectManager
 }
 
 // SetupFailoverController initializes and registers the failover controller with the manager.
 func SetupFailoverController(mgr manager.Manager) error {
 	r := &FailoverReconciler{
-		Client:           mgr.GetClient(),
-		failoverConfigs:  commonutils.NewObjectManager(),
-		clusterInformers: commonutils.NewObjectManagerSingleton(),
+		Client:            mgr.GetClient(),
+		failoverConfigs:   commonutils.NewObjectManager(),
+		clusterClientSets: commonutils.NewObjectManagerSingleton(),
 	}
 	err := ctrlruntime.NewControllerManagedBy(mgr).
 		For(&v1.Workload{}, builder.WithPredicates(relevantChangePredicate{})).
@@ -106,11 +105,7 @@ func isFailoverNeeded(workload *v1.Workload) bool {
 	if v1.IsWorkloadPreempted(workload) {
 		return true
 	}
-	cond := &metav1.Condition{
-		Type:   string(v1.K8sFailed),
-		Reason: commonworkload.GenerateDispatchReason(v1.GetWorkloadDispatchCnt(workload)),
-	}
-	if jobutils.FindCondition(workload, cond) != nil {
+	if jobutils.FindFailedCondition(workload) {
 		return true
 	}
 	return false
@@ -166,11 +161,11 @@ func (r *FailoverReconciler) handleFaultEventImpl(ctx context.Context, fault *v1
 		commonfaults.GenerateTaintKey(fault.Spec.MonitorId), fault.Spec.Message)
 	klog.Infof("%s, try to do failover", message)
 
-	clusterInformer := r.getClusterInformer(fault.Spec.Node.ClusterName)
-	if clusterInformer == nil {
+	clientSets := r.getClusterClientSets(fault.Spec.Node.ClusterName)
+	if clientSets == nil {
 		return
 	}
-	workloadNames, err := r.getWorkloadsOnFaultNode(ctx, clusterInformer, fault)
+	workloadNames, err := r.getWorkloadsOnFaultNode(ctx, clientSets, fault)
 	if err != nil {
 		return
 	}
@@ -183,7 +178,9 @@ func (r *FailoverReconciler) handleFaultEventImpl(ctx context.Context, fault *v1
 					return false
 				}
 			} else if isDisableFailover(workload) ||
-				workload.CreationTimestamp.After(fault.CreationTimestamp.Time) {
+				workload.CreationTimestamp.After(fault.CreationTimestamp.Time) ||
+				// The torchft workload do not support failover triggered by a fault.
+				commonworkload.IsTorchFT(workload) {
 				return false
 			} else if r.addFailoverCondition(ctx, workload, message) == nil {
 				break
@@ -199,21 +196,21 @@ func (r *FailoverReconciler) handleFaultEventImpl(ctx context.Context, fault *v1
 	}
 }
 
-// getClusterInformer retrieves the cluster informer for a given fault's cluster with retry logic.
-func (r *FailoverReconciler) getClusterInformer(clusterId string) *syncer.ClusterInformer {
+// getClusterClientSets retrieves the cluster client sets for a given fault's cluster with retry logic.
+func (r *FailoverReconciler) getClusterClientSets(clusterId string) *syncer.ClusterClientSets {
 	maxWaitTime := RetryWaitTime * MaxRetryAttempts
-	var clusterInformer *syncer.ClusterInformer
+	var clusterClientSets *syncer.ClusterClientSets
 	err := backoff.Retry(func() error {
-		clusterInformer, _ = syncer.GetClusterInformer(r.clusterInformers, clusterId)
-		if clusterInformer != nil {
+		clusterClientSets, _ = syncer.GetClusterClientSets(r.clusterClientSets, clusterId)
+		if clusterClientSets != nil {
 			return nil
 		}
-		return fmt.Errorf("failed to get cluster's informer")
+		return fmt.Errorf("failed to get %s client sets", clusterId)
 	}, maxWaitTime, RetryWaitTime)
-	if err != nil || clusterInformer == nil {
+	if err != nil || clusterClientSets == nil {
 		return nil
 	}
-	return clusterInformer
+	return clusterClientSets
 }
 
 // addFailoverCondition adds a failover condition to a workload's status.
@@ -243,7 +240,7 @@ func (r *FailoverReconciler) addFailoverCondition(ctx context.Context, workload 
 
 // getWorkloadsOnFaultNode retrieves workloads running on a faulty node.
 func (r *FailoverReconciler) getWorkloadsOnFaultNode(ctx context.Context,
-	clusterInformer *syncer.ClusterInformer, fault *v1.Fault) ([]string, error) {
+	clientSets *syncer.ClusterClientSets, fault *v1.Fault) ([]string, error) {
 	adminNode := &v1.Node{}
 	if err := r.Get(ctx, client.ObjectKey{Name: fault.Spec.Node.AdminName}, adminNode); err != nil {
 		klog.ErrorS(err, "failed to get node", "name", fault.Spec.Node.AdminName)
@@ -251,7 +248,7 @@ func (r *FailoverReconciler) getWorkloadsOnFaultNode(ctx context.Context,
 	}
 
 	workloadNames, err := commonworkload.GetWorkloadsOfK8sNode(ctx,
-		clusterInformer.ClientFactory().ClientSet(), fault.Spec.Node.K8sName, v1.GetWorkspaceId(adminNode))
+		clientSets.ClientFactory().ClientSet(), fault.Spec.Node.K8sName, v1.GetWorkspaceId(adminNode))
 	if err != nil {
 		klog.ErrorS(err, "failed to get workload of node",
 			"name", fault.Spec.Node.K8sName, "workspace", v1.GetWorkspaceId(adminNode))
@@ -316,30 +313,30 @@ func (r *FailoverReconciler) Reconcile(ctx context.Context, req ctrlruntime.Requ
 	if !workload.GetDeletionTimestamp().IsZero() || isDisableFailover(workload) {
 		return ctrlruntime.Result{}, nil
 	}
+	if commonworkload.IsTorchFT(workload) && !jobutils.FindFailedCondition(workload) {
+		return ctrlruntime.Result{}, nil
+	}
 	return r.handle(ctx, workload)
 }
 
 // handle processes the failover logic for a workload.
 func (r *FailoverReconciler) handle(ctx context.Context, workload *v1.Workload) (ctrlruntime.Result, error) {
-	clusterInformer, _ := syncer.GetClusterInformer(r.clusterInformers, v1.GetClusterId(workload))
-	if clusterInformer == nil {
+	clusterClientSets, _ := syncer.GetClusterClientSets(r.clusterClientSets, v1.GetClusterId(workload))
+	if clusterClientSets == nil {
 		return ctrlruntime.Result{RequeueAfter: time.Second}, nil
 	}
-	workloadUnstructured, err := jobutils.BuildWorkloadUnstructured(ctx, r.Client, workload)
-	if err != nil {
+
+	if _, err := jobutils.DeleteObjectsByWorkload(ctx, r.Client, clusterClientSets.ClientFactory(), workload); err != nil {
 		return ctrlruntime.Result{}, err
 	}
-	if err = jobutils.DeleteObject(ctx, clusterInformer.ClientFactory(), workloadUnstructured); err != nil {
-		klog.ErrorS(err, "failed to delete k8s object", "name", workload.GetName())
-		return ctrlruntime.Result{}, err
-	}
+
 	message := ""
 	if v1.IsWorkloadPreempted(workload) {
 		message = "the workload is preempted"
 	} else {
 		message = "the workload is doing the failover"
 	}
-	if err = r.addFailoverCondition(ctx, workload, message); err != nil {
+	if err := r.addFailoverCondition(ctx, workload, message); err != nil {
 		return ctrlruntime.Result{}, err
 	}
 	klog.Infof("the workload %s is attempting to perform a failover", workload.Name)

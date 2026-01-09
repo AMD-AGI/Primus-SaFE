@@ -182,12 +182,12 @@ func (r *DownloadJobReconciler) generateDownloadWorkload(ctx context.Context, jo
 			},
 		},
 		Spec: v1.WorkloadSpec{
-			Resource: v1.WorkloadResource{
+			Resources: []v1.WorkloadResource{{
 				Replica:          1,
 				CPU:              "6",
 				Memory:           "8Gi",
 				EphemeralStorage: "50Gi",
-			},
+			}},
 			GroupVersionKind: v1.GroupVersionKind{
 				Version: common.DefaultVersion,
 				Kind:    common.JobKind,

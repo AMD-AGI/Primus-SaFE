@@ -8,6 +8,7 @@ package webhooks
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	admissionv1 "k8s.io/api/admission/v1"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
@@ -16,7 +17,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
-	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 )
 
@@ -89,25 +89,11 @@ func (v *ResourceTemplateValidator) Handle(_ context.Context, req admission.Requ
 
 // validate ensures the resource template has valid spec configuration.
 func (v *ResourceTemplateValidator) validate(rt *v1.ResourceTemplate) error {
-	if err := v.validateTemplate(rt); err != nil {
-		return err
+	if rt.Spec.GroupVersionKind.Kind == "" {
+		return fmt.Errorf("invalid kind")
 	}
-	return nil
-}
-
-// validateTemplate ensures only one resource spec can have an empty replica field.
-func (v *ResourceTemplateValidator) validateTemplate(rt *v1.ResourceTemplate) error {
-	if len(rt.Spec.ResourceSpecs) <= 1 {
-		return nil
-	}
-	count := 0
-	for _, template := range rt.Spec.ResourceSpecs {
-		if template.Replica == 0 {
-			count++
-		}
-	}
-	if count > 1 {
-		return commonerrors.NewInternalError("If more than one template is defined, only one can have an empty replica field")
+	if rt.Spec.GroupVersionKind.Version == "" {
+		return fmt.Errorf("invalid version")
 	}
 	return nil
 }

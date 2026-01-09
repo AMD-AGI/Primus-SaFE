@@ -12,7 +12,7 @@ import signal
 import sys
 import threading
 import time
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import requests
 
@@ -187,12 +187,12 @@ def get_pod_annotations() -> Dict[str, str]:
     return parse_podinfo_file(PODINFO_ANNOTATIONS_FILE)
 
 
-def parse_resources(env_value: str) -> Dict[str, Any]:
+def parse_resources(env_value: str) -> List[Dict[str, Any]]:
     try:
         obj = json.loads(env_value)
         if not isinstance(obj, dict):
             raise ValueError("RESOURCES is not a JSON object")
-        return obj
+        return [obj]
     except json.JSONDecodeError as e:
         raise ValueError(f"Invalid RESOURCES JSON: {e}") from e
 
@@ -244,8 +244,7 @@ def build_payload() -> Dict[str, Any]:
     payload: Dict[str, Any] = {
         "displayName": display_name,
         "workspaceId": workspace_id,
-        # WorkloadSpec fields (top-level is fine; server will unmarshal into Spec)
-        "resource": resources,
+        "resources": resources,
         "workspace": workspace_id,
         "image": image_env,
         "entryPoint": entrypoint_b64,

@@ -17,7 +17,7 @@ type CreateClusterRequest struct {
 	Description string `json:"description,omitempty"`
 	// The SSH secret ID specified by the user, which must exist, used for node SSH login.
 	SSHSecretId string `json:"sshSecretId,omitempty"`
-	// The labels for cluster
+	// User-defined labels. Keys cannot start with "primus-safe."
 	Labels map[string]string `json:"labels,omitempty"`
 	// Whether the cluster is under protection. When set to true, direct deletion is not allowed unless the label is removed
 	IsProtected bool `json:"isProtected,omitempty"`
@@ -71,6 +71,8 @@ type GetClusterResponse struct {
 	KubeVersion *string `json:"kubernetesVersion,omitempty"`
 	// Some settings for Kubernetes
 	KubeApiServerArgs map[string]string `json:"kubeApiServerArgs,omitempty"`
+	// User-defined labels
+	Labels map[string]string `json:"labels,omitempty"`
 }
 
 type ProcessNodesRequest struct {
@@ -99,4 +101,6 @@ type GetClusterPodLogResponse struct {
 type PatchClusterRequest struct {
 	// Whether Cluster is under protection, empty means do nothing
 	IsProtected *bool `json:"isProtected,omitempty"`
+	// User-defined labels. Keys cannot start with "primus-safe."
+	Labels *map[string]string `json:"labels,omitempty"`
 }

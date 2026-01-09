@@ -37,9 +37,9 @@ func TestPreemptLowPriority(t *testing.T) {
 			Annotations: map[string]string{v1.WorkloadEnablePreemptAnnotation: "true"},
 		},
 		Spec: v1.WorkloadSpec{
-			Resource: v1.WorkloadResource{
+			Resources: []v1.WorkloadResource{{
 				CPU: "10", Memory: "1", Replica: 1,
-			},
+			}},
 			Priority:  2,
 			Workspace: workspace.Name,
 		},
@@ -58,15 +58,15 @@ func TestPreemptLowPriority(t *testing.T) {
 			currentWorkloads: []*v1.Workload{
 				{
 					ObjectMeta: metav1.ObjectMeta{Name: "w1", CreationTimestamp: metav1.NewTime(nowTime)},
-					Spec:       v1.WorkloadSpec{Resource: v1.WorkloadResource{CPU: "7", Memory: "1", Replica: 1}, Priority: 1, Workspace: workspace.Name},
+					Spec:       v1.WorkloadSpec{Resources: []v1.WorkloadResource{{CPU: "7", Memory: "1", Replica: 1}}, Priority: 1, Workspace: workspace.Name},
 				},
 				{
 					ObjectMeta: metav1.ObjectMeta{Name: "w2", CreationTimestamp: metav1.NewTime(nowTime)},
-					Spec:       v1.WorkloadSpec{Resource: v1.WorkloadResource{CPU: "4", Memory: "1", Replica: 1}, Priority: 1, Workspace: workspace.Name},
+					Spec:       v1.WorkloadSpec{Resources: []v1.WorkloadResource{{CPU: "4", Memory: "1", Replica: 1}}, Priority: 1, Workspace: workspace.Name},
 				},
 				{
 					ObjectMeta: metav1.ObjectMeta{Name: "w3", CreationTimestamp: metav1.NewTime(nowTime)},
-					Spec:       v1.WorkloadSpec{Resource: v1.WorkloadResource{CPU: "6", Memory: "1", Replica: 1}, Priority: 1, Workspace: workspace.Name},
+					Spec:       v1.WorkloadSpec{Resources: []v1.WorkloadResource{{CPU: "6", Memory: "1", Replica: 1}}, Priority: 1, Workspace: workspace.Name},
 				},
 			},
 			result: true,
@@ -77,15 +77,15 @@ func TestPreemptLowPriority(t *testing.T) {
 			currentWorkloads: []*v1.Workload{
 				{
 					ObjectMeta: metav1.ObjectMeta{Name: "w1", CreationTimestamp: metav1.NewTime(nowTime)},
-					Spec:       v1.WorkloadSpec{Resource: v1.WorkloadResource{CPU: "1", Memory: "1", Replica: 1}, Priority: 1, Workspace: workspace.Name},
+					Spec:       v1.WorkloadSpec{Resources: []v1.WorkloadResource{{CPU: "1", Memory: "1", Replica: 1}}, Priority: 1, Workspace: workspace.Name},
 				},
 				{
 					ObjectMeta: metav1.ObjectMeta{Name: "w2", CreationTimestamp: metav1.NewTime(nowTime)},
-					Spec:       v1.WorkloadSpec{Resource: v1.WorkloadResource{CPU: "4", Memory: "1", Replica: 1}, Priority: 1, Workspace: workspace.Name},
+					Spec:       v1.WorkloadSpec{Resources: []v1.WorkloadResource{{CPU: "4", Memory: "1", Replica: 1}}, Priority: 1, Workspace: workspace.Name},
 				},
 				{
 					ObjectMeta: metav1.ObjectMeta{Name: "w3", CreationTimestamp: metav1.NewTime(nowTime)},
-					Spec:       v1.WorkloadSpec{Resource: v1.WorkloadResource{CPU: "5", Memory: "1", Replica: 1}, Priority: 1, Workspace: workspace.Name},
+					Spec:       v1.WorkloadSpec{Resources: []v1.WorkloadResource{{CPU: "5", Memory: "1", Replica: 1}}, Priority: 1, Workspace: workspace.Name},
 				},
 			},
 			result: true,
@@ -96,15 +96,15 @@ func TestPreemptLowPriority(t *testing.T) {
 			currentWorkloads: []*v1.Workload{
 				{
 					ObjectMeta: metav1.ObjectMeta{Name: "w1", CreationTimestamp: metav1.NewTime(nowTime)},
-					Spec:       v1.WorkloadSpec{Resource: v1.WorkloadResource{CPU: "1", Memory: "1", Replica: 1}, Priority: 1, Workspace: workspace.Name},
+					Spec:       v1.WorkloadSpec{Resources: []v1.WorkloadResource{{CPU: "1", Memory: "1", Replica: 1}}, Priority: 1, Workspace: workspace.Name},
 				},
 				{
 					ObjectMeta: metav1.ObjectMeta{Name: "w2", CreationTimestamp: metav1.NewTime(nowTime)},
-					Spec:       v1.WorkloadSpec{Resource: v1.WorkloadResource{CPU: "4", Memory: "1", Replica: 1}, Priority: 1, Workspace: workspace.Name},
+					Spec:       v1.WorkloadSpec{Resources: []v1.WorkloadResource{{CPU: "4", Memory: "1", Replica: 1}}, Priority: 1, Workspace: workspace.Name},
 				},
 				{
 					ObjectMeta: metav1.ObjectMeta{Name: "w3", CreationTimestamp: metav1.NewTime(nowTime)},
-					Spec:       v1.WorkloadSpec{Resource: v1.WorkloadResource{CPU: "5", Memory: "1", Replica: 1}, Priority: 1, Workspace: workspace.Name},
+					Spec:       v1.WorkloadSpec{Resources: []v1.WorkloadResource{{CPU: "5", Memory: "1", Replica: 1}}, Priority: 1, Workspace: workspace.Name},
 				},
 			},
 			leftResource: map[corev1.ResourceName]resource.Quantity{
@@ -118,15 +118,15 @@ func TestPreemptLowPriority(t *testing.T) {
 			currentWorkloads: []*v1.Workload{
 				{
 					ObjectMeta: metav1.ObjectMeta{Name: "w1", CreationTimestamp: metav1.NewTime(nowTime)},
-					Spec:       v1.WorkloadSpec{Resource: v1.WorkloadResource{CPU: "7", Memory: "1", Replica: 1}, Priority: 1, Workspace: workspace.Name},
+					Spec:       v1.WorkloadSpec{Resources: []v1.WorkloadResource{{CPU: "7", Memory: "1", Replica: 1}}, Priority: 1, Workspace: workspace.Name},
 				},
 				{
 					ObjectMeta: metav1.ObjectMeta{Name: "w2", CreationTimestamp: metav1.NewTime(nowTime)},
-					Spec:       v1.WorkloadSpec{Resource: v1.WorkloadResource{CPU: "4", Memory: "1", Replica: 1}, Priority: 3, Workspace: workspace.Name},
+					Spec:       v1.WorkloadSpec{Resources: []v1.WorkloadResource{{CPU: "4", Memory: "1", Replica: 1}}, Priority: 3, Workspace: workspace.Name},
 				},
 				{
 					ObjectMeta: metav1.ObjectMeta{Name: "w3", CreationTimestamp: metav1.NewTime(nowTime)},
-					Spec:       v1.WorkloadSpec{Resource: v1.WorkloadResource{CPU: "6", Memory: "1", Replica: 1}, Priority: 3, Workspace: workspace.Name},
+					Spec:       v1.WorkloadSpec{Resources: []v1.WorkloadResource{{CPU: "6", Memory: "1", Replica: 1}}, Priority: 3, Workspace: workspace.Name},
 				},
 			},
 			result: false,
@@ -136,15 +136,15 @@ func TestPreemptLowPriority(t *testing.T) {
 			currentWorkloads: []*v1.Workload{
 				{
 					ObjectMeta: metav1.ObjectMeta{Name: "w1", CreationTimestamp: metav1.NewTime(nowTime)},
-					Spec:       v1.WorkloadSpec{Resource: v1.WorkloadResource{CPU: "1", Memory: "1", Replica: 1}, Priority: 1, Workspace: workspace.Name},
+					Spec:       v1.WorkloadSpec{Resources: []v1.WorkloadResource{{CPU: "1", Memory: "1", Replica: 1}}, Priority: 1, Workspace: workspace.Name},
 				},
 				{
 					ObjectMeta: metav1.ObjectMeta{Name: "w2", CreationTimestamp: metav1.NewTime(nowTime)},
-					Spec:       v1.WorkloadSpec{Resource: v1.WorkloadResource{CPU: "1", Memory: "1", Replica: 1}, Priority: 1, Workspace: workspace.Name},
+					Spec:       v1.WorkloadSpec{Resources: []v1.WorkloadResource{{CPU: "1", Memory: "1", Replica: 1}}, Priority: 1, Workspace: workspace.Name},
 				},
 				{
 					ObjectMeta: metav1.ObjectMeta{Name: "w3", CreationTimestamp: metav1.NewTime(nowTime)},
-					Spec:       v1.WorkloadSpec{Resource: v1.WorkloadResource{CPU: "1", Memory: "1", Replica: 1}, Priority: 1, Workspace: workspace.Name},
+					Spec:       v1.WorkloadSpec{Resources: []v1.WorkloadResource{{CPU: "1", Memory: "1", Replica: 1}}, Priority: 1, Workspace: workspace.Name},
 				},
 			},
 			result: false,
