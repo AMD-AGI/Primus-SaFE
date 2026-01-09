@@ -19,11 +19,13 @@ type NodeNamespaceMappingFacadeInterface interface {
 	Update(ctx context.Context, mapping *model.NodeNamespaceMapping) error
 	Delete(ctx context.Context, id int32) error
 	GetByNodeAndNamespace(ctx context.Context, nodeID int32, namespaceID int64) (*model.NodeNamespaceMapping, error)
+	GetByNodeNameAndNamespaceNameIncludingDeleted(ctx context.Context, nodeName string, namespaceName string) (*model.NodeNamespaceMapping, error)
 	GetByNodeName(ctx context.Context, nodeName string) ([]*model.NodeNamespaceMapping, error)
 	GetByNamespaceName(ctx context.Context, namespaceName string) ([]*model.NodeNamespaceMapping, error)
 	ListActiveByNamespaceID(ctx context.Context, namespaceID int64) ([]*model.NodeNamespaceMapping, error)
 	ListActiveByNamespaceName(ctx context.Context, namespaceName string) ([]*model.NodeNamespaceMapping, error)
 	SoftDelete(ctx context.Context, id int32) error
+	Recover(ctx context.Context, id int32) error
 
 	// NodeNamespaceMappingHistory operations
 	CreateHistory(ctx context.Context, history *model.NodeNamespaceMappingHistory) error
@@ -75,6 +77,22 @@ func (f *NodeNamespaceMappingFacade) GetByNodeAndNamespace(ctx context.Context, 
 	result, err := q.WithContext(ctx).
 		Where(q.NodeID.Eq(nodeID)).
 		Where(q.NamespaceID.Eq(namespaceID)).
+		First()
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return result, nil
+}
+
+// GetByNodeNameAndNamespaceNameIncludingDeleted gets a mapping by node name and namespace name, including soft-deleted records
+func (f *NodeNamespaceMappingFacade) GetByNodeNameAndNamespaceNameIncludingDeleted(ctx context.Context, nodeName string, namespaceName string) (*model.NodeNamespaceMapping, error) {
+	q := f.getDAL().NodeNamespaceMapping
+	result, err := q.WithContext(ctx).Unscoped().
+		Where(q.NodeName.Eq(nodeName)).
+		Where(q.NamespaceName.Eq(namespaceName)).
 		First()
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -149,6 +167,15 @@ func (f *NodeNamespaceMappingFacade) ListActiveByNamespaceName(ctx context.Conte
 func (f *NodeNamespaceMappingFacade) SoftDelete(ctx context.Context, id int32) error {
 	q := f.getDAL().NodeNamespaceMapping
 	_, err := q.WithContext(ctx).Where(q.ID.Eq(id)).Delete()
+	return err
+}
+
+// Recover recovers a soft-deleted node-namespace mapping by clearing the deleted_at field
+func (f *NodeNamespaceMappingFacade) Recover(ctx context.Context, id int32) error {
+	q := f.getDAL().NodeNamespaceMapping
+	_, err := q.WithContext(ctx).Unscoped().
+		Where(q.ID.Eq(id)).
+		Update(q.DeletedAt, nil)
 	return err
 }
 

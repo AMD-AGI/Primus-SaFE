@@ -444,28 +444,53 @@ func (s *NamespaceSyncService) syncNodeNamespaceMappings(ctx context.Context, wo
 			// Find nodes to add (in current workspace but not in mapping)
 			for nodeName, dbNode := range currentNodeMap {
 				if _, exists := existingNodeNames[nodeName]; !exists {
-					// Create new mapping
-					newMapping := &model.NodeNamespaceMapping{
-						NodeID:        dbNode.ID,
-						NodeName:      nodeName,
-						NamespaceID:   nsInfo.ID,
-						NamespaceName: workspaceName,
-						CreatedAt:     now,
-						UpdatedAt:     now,
-					}
-
-					if err := facade.GetNodeNamespaceMapping().Create(ctx, newMapping); err != nil {
-						log.Errorf("Failed to create mapping for node %s -> namespace %s: %v", nodeName, workspaceName, err)
+					// Check if there's a soft-deleted mapping that can be recovered
+					existingMapping, err := facade.GetNodeNamespaceMapping().GetByNodeNameAndNamespaceNameIncludingDeleted(ctx, nodeName, workspaceName)
+					if err != nil {
+						log.Errorf("Failed to check existing mapping for node %s -> namespace %s: %v", nodeName, workspaceName, err)
 						continue
 					}
 
-					// Create history record
-					if err := s.createOrUpdateHistory(ctx, facade, dbNode.ID, nodeName, nsInfo.ID, workspaceName, newMapping.ID, "added", now); err != nil {
-						log.Errorf("Failed to create history for node %s -> namespace %s: %v", nodeName, workspaceName, err)
-					}
+					if existingMapping != nil && existingMapping.DeletedAt.Valid {
+						// Recover soft-deleted mapping
+						if err := facade.GetNodeNamespaceMapping().Recover(ctx, existingMapping.ID); err != nil {
+							log.Errorf("Failed to recover mapping for node %s -> namespace %s: %v", nodeName, workspaceName, err)
+							continue
+						}
 
-					stats.Added++
-					log.Infof("Added node-namespace mapping: node=%s, namespace=%s", nodeName, workspaceName)
+						// Create history record for recovery
+						if err := s.createOrUpdateHistory(ctx, facade, dbNode.ID, nodeName, nsInfo.ID, workspaceName, existingMapping.ID, "recovered", now); err != nil {
+							log.Errorf("Failed to create history for node %s -> namespace %s: %v", nodeName, workspaceName, err)
+						}
+
+						stats.Added++
+						log.Infof("Recovered node-namespace mapping: node=%s, namespace=%s", nodeName, workspaceName)
+					} else if existingMapping == nil {
+						// Create new mapping
+						newMapping := &model.NodeNamespaceMapping{
+							NodeID:        dbNode.ID,
+							NodeName:      nodeName,
+							NamespaceID:   nsInfo.ID,
+							NamespaceName: workspaceName,
+							CreatedAt:     now,
+							UpdatedAt:     now,
+						}
+
+						if err := facade.GetNodeNamespaceMapping().Create(ctx, newMapping); err != nil {
+							log.Errorf("Failed to create mapping for node %s -> namespace %s: %v", nodeName, workspaceName, err)
+							continue
+						}
+
+						// Create history record
+						if err := s.createOrUpdateHistory(ctx, facade, dbNode.ID, nodeName, nsInfo.ID, workspaceName, newMapping.ID, "added", now); err != nil {
+							log.Errorf("Failed to create history for node %s -> namespace %s: %v", nodeName, workspaceName, err)
+						}
+
+						stats.Added++
+						log.Infof("Added node-namespace mapping: node=%s, namespace=%s", nodeName, workspaceName)
+					}
+					// If existingMapping != nil && !existingMapping.DeletedAt.Valid, the mapping is active but not in our existingNodeNames
+					// This shouldn't happen, but if it does, we skip it
 				}
 			}
 
