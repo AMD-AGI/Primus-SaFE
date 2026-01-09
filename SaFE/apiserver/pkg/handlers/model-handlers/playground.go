@@ -15,6 +15,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	sqrl "github.com/Masterminds/squirrel"
@@ -237,11 +238,13 @@ func (h *Handler) listPlaygroundServices(c *gin.Context) (interface{}, error) {
 		// Get source model ID from env variable PRIMUS_SOURCE_MODEL (optional)
 		sourceModelID := w.GetEnv("PRIMUS_SOURCE_MODEL")
 		sourceModelName := ""
+		modelName := ""
 		if sourceModelID != "" {
-			// Try to get the source model's display name
+			// Try to get the source model's info
 			sourceModel := &v1.Model{}
 			if err := h.k8sClient.Get(ctx, ctrlclient.ObjectKey{Name: sourceModelID}, sourceModel); err == nil {
-				sourceModelName = sourceModel.Spec.DisplayName
+				sourceModelName = sourceModel.Spec.DisplayName // For display
+				modelName = sourceModel.GetModelName()         // For API calls (matches vLLM --served-model-name)
 			}
 		}
 
@@ -268,7 +271,8 @@ func (h *Handler) listPlaygroundServices(c *gin.Context) (interface{}, error) {
 		items = append(items, PlaygroundServiceItem{
 			Type:            "workload",
 			ID:              w.Name,
-			DisplayName:     w.Name, // Workload doesn't have DisplayName, use Name
+			DisplayName:     w.Name,    // Workload doesn't have DisplayName, use Name
+			ModelName:       modelName, // For API calls (matches vLLM --served-model-name)
 			Phase:           string(w.Status.Phase),
 			Workspace:       w.Spec.Workspace,
 			SourceModelID:   sourceModelID,
@@ -420,7 +424,8 @@ func (h *Handler) streamChat(c *gin.Context, baseUrl string, apiKey string, mode
 	// Create OpenAI client config with custom HTTP client that skips TLS verification
 	config := openai.DefaultConfig(apiKey)
 	if baseUrl != "" {
-		config.BaseURL = baseUrl + "/v1"
+		// Remove trailing slash to avoid double slash (e.g., baseUrl/ + /v1 = baseUrl//v1)
+		config.BaseURL = strings.TrimSuffix(baseUrl, "/") + "/v1"
 	}
 	// Configure HTTP client to skip TLS certificate verification
 	config.HTTPClient = &http.Client{
@@ -515,7 +520,8 @@ func (h *Handler) nonStreamChat(c *gin.Context, baseUrl string, apiKey string, m
 	// Create OpenAI client config with custom HTTP client that skips TLS verification
 	config := openai.DefaultConfig(apiKey)
 	if baseUrl != "" {
-		config.BaseURL = baseUrl + "/v1"
+		// Remove trailing slash to avoid double slash (e.g., baseUrl/ + /v1 = baseUrl//v1)
+		config.BaseURL = strings.TrimSuffix(baseUrl, "/") + "/v1"
 	}
 	// Configure HTTP client to skip TLS certificate verification
 	config.HTTPClient = &http.Client{
