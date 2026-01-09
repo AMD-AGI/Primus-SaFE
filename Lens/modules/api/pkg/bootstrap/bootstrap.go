@@ -7,7 +7,10 @@ import (
 	"context"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/api/pkg/api"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/api/pkg/api/auth"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/controller"
+	cpauth "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/controlplane/auth"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/conf"
 	log "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/router"
@@ -15,6 +18,7 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/trace"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 var schemes = &runtime.SchemeBuilder{
@@ -67,6 +71,59 @@ func RegisterApi(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+
+	// Initialize auth system
+	if err := initializeAuthSystem(ctx); err != nil {
+		log.Errorf("Failed to initialize auth system: %v", err)
+		// Don't block startup, auth features will be disabled
+	}
+
 	router.RegisterGroup(api.RegisterRouter)
+	return nil
+}
+
+// initializeAuthSystem initializes the authentication system and ensures root user exists
+func initializeAuthSystem(ctx context.Context) error {
+	log.Info("Initializing authentication system...")
+
+	// Try to get K8s client from cluster manager
+	var k8sClient client.Client
+	cm := clientsets.GetClusterManager()
+	if cm != nil {
+		if cc := cm.GetCurrentClusterClients(); cc != nil && cc.K8SClientSet != nil {
+			k8sClient = cc.K8SClientSet.ControllerRuntimeClient
+			if k8sClient != nil {
+				log.Info("K8s client available, will store root password in Secret")
+			}
+		}
+	}
+
+	// Create SafeDetector
+	var safeDetector *cpauth.SafeDetector
+	if k8sClient != nil {
+		safeDetector = cpauth.NewSafeDetector(k8sClient)
+	} else {
+		safeDetector = cpauth.NewSafeDetectorWithoutK8s()
+		log.Warn("K8s client not available, SafeDetector will have limited functionality")
+	}
+
+	// Create Initializer with K8s client
+	var initializer *cpauth.Initializer
+	if k8sClient != nil {
+		initializer = cpauth.NewInitializerWithK8s(safeDetector, k8sClient)
+	} else {
+		initializer = cpauth.NewInitializer(safeDetector)
+	}
+
+	// Initialize auth handlers with dependencies
+	auth.InitializeAuthHandlers(initializer, safeDetector)
+	log.Info("Auth handlers initialized")
+
+	// Ensure system is initialized (creates root user if not exists)
+	if err := initializer.EnsureInitialized(ctx); err != nil {
+		return err
+	}
+
+	log.Info("Authentication system initialized successfully")
 	return nil
 }
