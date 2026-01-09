@@ -70,27 +70,50 @@ func Login(c *gin.Context) {
 	var authType string
 
 	switch authMode {
-	case auth.AuthModeLocal:
+	case auth.AuthModeNone, auth.AuthModeLocal:
+		// None mode also supports local authentication (for root user at minimum)
 		// Local authentication
 		userID, isAdmin, err = authenticateLocal(ctx, req.Username, req.Password)
 		authType = audit.AuthTypeLocal
 	case auth.AuthModeLDAP:
-		// LDAP authentication
-		userID, email, isAdmin, err = authenticateLDAP(ctx, req.Username, req.Password)
-		authType = audit.AuthTypeLDAP
+		// LDAP authentication - also try local auth for root user fallback
+		if req.Username == auth.RootUsername {
+			// Root user always uses local authentication
+			userID, isAdmin, err = authenticateLocal(ctx, req.Username, req.Password)
+			authType = audit.AuthTypeLocal
+		} else {
+			userID, email, isAdmin, err = authenticateLDAP(ctx, req.Username, req.Password)
+			authType = audit.AuthTypeLDAP
+		}
 	case auth.AuthModeSaFE:
-		// SaFE mode - should redirect to SaFE login
-		c.JSON(http.StatusBadRequest, LoginResponse{
-			Success: false,
-			Message: "SaFE authentication mode is enabled. Please login through SaFE.",
-		})
-		return
+		// SaFE mode - root user can still login locally
+		if req.Username == auth.RootUsername {
+			userID, isAdmin, err = authenticateLocal(ctx, req.Username, req.Password)
+			authType = audit.AuthTypeLocal
+		} else {
+			c.JSON(http.StatusBadRequest, LoginResponse{
+				Success: false,
+				Message: "SaFE authentication mode is enabled. Please login through SaFE.",
+			})
+			return
+		}
+	case auth.AuthModeSSO:
+		// SSO mode - root user can still login locally
+		if req.Username == auth.RootUsername {
+			userID, isAdmin, err = authenticateLocal(ctx, req.Username, req.Password)
+			authType = audit.AuthTypeLocal
+		} else {
+			c.JSON(http.StatusBadRequest, LoginResponse{
+				Success: false,
+				Message: "SSO authentication mode is enabled. Please login through SSO.",
+			})
+			return
+		}
 	default:
-		c.JSON(http.StatusInternalServerError, LoginResponse{
-			Success: false,
-			Message: "Unknown authentication mode",
-		})
-		return
+		// Unknown mode - fall back to local authentication
+		log.Warnf("Unknown auth mode '%s', falling back to local authentication", authMode)
+		userID, isAdmin, err = authenticateLocal(ctx, req.Username, req.Password)
+		authType = audit.AuthTypeLocal
 	}
 
 	if err != nil {
