@@ -30,8 +30,9 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/utils"
 )
 
+// schemes contains app-specific types to register
+// Note: corev1 types are already registered by default in controller.GetScheme()
 var schemes = &runtime.SchemeBuilder{
-	corev1.AddToScheme,
 	primusSafeV1.AddToScheme,
 }
 
