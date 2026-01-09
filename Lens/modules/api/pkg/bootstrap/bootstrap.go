@@ -9,6 +9,7 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/api/pkg/api"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/api/pkg/api/auth"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/config"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/controller"
 	cpauth "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/controlplane/auth"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/conf"
@@ -63,7 +64,8 @@ func StartServer(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return server.InitServer(ctx)
+	// Use preInit callback to initialize auth system after ClusterManager is ready
+	return server.InitServerWithPreInitFunc(ctx, preInitAuthSystem)
 }
 
 func RegisterApi(ctx context.Context) error {
@@ -72,21 +74,16 @@ func RegisterApi(ctx context.Context) error {
 		return err
 	}
 
-	// Initialize auth system
-	if err := initializeAuthSystem(ctx); err != nil {
-		log.Errorf("Failed to initialize auth system: %v", err)
-		// Don't block startup, auth features will be disabled
-	}
-
 	router.RegisterGroup(api.RegisterRouter)
 	return nil
 }
 
-// initializeAuthSystem initializes the authentication system and ensures root user exists
-func initializeAuthSystem(ctx context.Context) error {
+// preInitAuthSystem is called after ClusterManager is initialized
+// This is the preInit callback for InitServerWithPreInitFunc
+func preInitAuthSystem(ctx context.Context, cfg *config.Config) error {
 	log.Info("Initializing authentication system...")
 
-	// Try to get K8s client from cluster manager
+	// Try to get K8s client from cluster manager (now it should be initialized)
 	var k8sClient client.Client
 	cm := clientsets.GetClusterManager()
 	if cm != nil {
@@ -121,7 +118,9 @@ func initializeAuthSystem(ctx context.Context) error {
 
 	// Ensure system is initialized (creates root user if not exists)
 	if err := initializer.EnsureInitialized(ctx); err != nil {
-		return err
+		log.Errorf("Failed to ensure system initialized: %v", err)
+		// Don't block startup, auth features may be limited
+		return nil
 	}
 
 	log.Info("Authentication system initialized successfully")
