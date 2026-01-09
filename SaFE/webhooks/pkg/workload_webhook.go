@@ -751,11 +751,16 @@ func (v *WorkloadValidator) validateTorchFT(newWorkload, oldWorkload *v1.Workloa
 	if oldWorkload != nil {
 		oldMaxGroup, _ := commonworkload.GetReplicaGroup(oldWorkload, common.MaxReplicaGroup)
 		oldMinGroup, _ := commonworkload.GetReplicaGroup(oldWorkload, common.MinReplicaGroup)
+		oldGroup, _ := commonworkload.GetReplicaGroup(oldWorkload, common.ReplicaGroup)
 		if maxGroup != oldMaxGroup {
 			return fmt.Errorf("the %s of workload environment can not be changed", common.MaxReplicaGroup)
 		}
 		if minGroup != oldMinGroup {
 			return fmt.Errorf("the %s of workload environment can not be changed", common.MinReplicaGroup)
+		}
+
+		if (oldWorkload.Spec.Resources[1].Replica / oldGroup) != (newWorkload.Spec.Resources[1].Replica / group) {
+			return fmt.Errorf("the count of group nodes can not be changed")
 		}
 	}
 	return nil
