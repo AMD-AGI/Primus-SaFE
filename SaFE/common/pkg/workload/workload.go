@@ -13,21 +13,29 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
-	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonnodes "github.com/AMD-AIG-AIMA/SAFE/common/pkg/nodes"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/concurrent"
-	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/floatutil"
 	sliceutil "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/slice"
 )
+
+// GetTotalCount returns the total replica count across all resources in the workload
+func GetTotalCount(w *v1.Workload) int {
+	n := 0
+	for _, res := range w.Spec.Resources {
+		n += res.Replica
+	}
+	return n
+}
 
 // GetWorkloadsOfWorkspace retrieves workloads belonging to specified workspace(s) and cluster.
 func GetWorkloadsOfWorkspace(ctx context.Context, cli client.Client, clusterName string, workspaceNames []string,
@@ -75,32 +83,16 @@ func GetWorkloadsOfK8sNode(ctx context.Context, k8sClient kubernetes.Interface, 
 	return results, nil
 }
 
-// GetWorkloadTemplate retrieves the ConfigMap template for a workload based on its version and kind.
-func GetWorkloadTemplate(ctx context.Context, cli client.Client, workload *v1.Workload) (*corev1.ConfigMap, error) {
-	selector := labels.SelectorFromSet(map[string]string{
-		v1.WorkloadVersionLabel: workload.SpecVersion(), v1.WorkloadKindLabel: workload.SpecKind()})
-	listOptions := &client.ListOptions{LabelSelector: selector, Namespace: common.PrimusSafeNamespace}
-	configmapList := &corev1.ConfigMapList{}
-	if err := cli.List(ctx, configmapList, listOptions); err != nil {
-		return nil, err
-	}
-	if len(configmapList.Items) > 0 {
-		return &configmapList.Items[0], nil
-	}
-	return nil, commonerrors.NewInternalError(
-		fmt.Sprintf("failed to find configmap. gvk: %s, resourceName: %s",
-			workload.Spec.GroupVersionKind.VersionKind(), workload.Spec.Resource.GPUName))
-}
-
 // GetResourcesPerNode calculates resource usage per node for a workload.
 func GetResourcesPerNode(workload *v1.Workload, adminNodeName string) (map[string]corev1.ResourceList, error) {
-	if workload.Spec.Resource.Replica == 0 {
+	if GetTotalCount(workload) == 0 {
 		return nil, nil
 	}
-	podResources, err := GetPodResources(&workload.Spec.Resource)
+	allPodResources, err := toPodResourceLists(workload)
 	if err != nil {
 		return nil, err
 	}
+
 	result := map[string]corev1.ResourceList{}
 	for _, pod := range workload.Status.Pods {
 		if !v1.IsPodRunning(&pod) {
@@ -111,9 +103,9 @@ func GetResourcesPerNode(workload *v1.Workload, adminNodeName string) (map[strin
 		}
 		resList, ok := result[pod.AdminNodeName]
 		if ok {
-			result[pod.AdminNodeName] = quantity.AddResource(resList, podResources)
+			result[pod.AdminNodeName] = quantity.AddResource(resList, allPodResources[pod.ResourceId])
 		} else {
-			result[pod.AdminNodeName] = podResources
+			result[pod.AdminNodeName] = allPodResources[pod.ResourceId]
 		}
 	}
 	return result, nil
@@ -123,10 +115,10 @@ func GetResourcesPerNode(workload *v1.Workload, adminNodeName string) (map[strin
 // It filters out terminated pods and applies node filtering criteria.
 func GetWorkloadResourceUsage(workload *v1.Workload, filterNode func(nodeName string) bool) (
 	corev1.ResourceList, corev1.ResourceList, []string, error) {
-	if workload.Spec.Resource.Replica == 0 || len(workload.Status.Pods) == 0 {
+	if GetTotalCount(workload) == 0 || len(workload.Status.Pods) == 0 {
 		return nil, nil, nil, nil
 	}
-	podResources, err := GetPodResources(&workload.Spec.Resource)
+	allPodResources, err := toPodResourceLists(workload)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -138,6 +130,7 @@ func GetWorkloadResourceUsage(workload *v1.Workload, filterNode func(nodeName st
 	type output struct {
 		isFiltered   bool
 		isTerminated bool
+		resourceId   int
 	}
 
 	count := len(workload.Status.Pods)
@@ -157,6 +150,7 @@ func GetWorkloadResourceUsage(workload *v1.Workload, filterNode func(nodeName st
 			outputs[in.id].isTerminated = true
 			return nil
 		}
+		outputs[in.id].resourceId = in.pod.ResourceId
 		if filterNode != nil && filterNode(in.pod.AdminNodeName) {
 			outputs[in.id].isFiltered = true
 			return nil
@@ -167,31 +161,35 @@ func GetWorkloadResourceUsage(workload *v1.Workload, filterNode func(nodeName st
 	availableResource := make(corev1.ResourceList)
 	availableNodes := make([]string, 0, count)
 	for i := range outputs {
-		if outputs[i].isTerminated {
+		resourceId := outputs[i].resourceId
+		if outputs[i].isTerminated || resourceId >= len(allPodResources) {
 			continue
 		}
-		totalResource = quantity.AddResource(totalResource, podResources)
+		totalResource = quantity.AddResource(totalResource, allPodResources[resourceId])
 		if !outputs[i].isFiltered {
-			availableResource = quantity.AddResource(availableResource, podResources)
+			availableResource = quantity.AddResource(availableResource, allPodResources[resourceId])
 			availableNodes = append(availableNodes, workload.Status.Pods[i].AdminNodeName)
 		}
 	}
 	return totalResource, availableResource, availableNodes, nil
 }
 
-// CvtToResourceList converts data to the target format.
-func CvtToResourceList(w *v1.Workload) (corev1.ResourceList, error) {
-	res := &w.Spec.Resource
-	result, err := quantity.CvtToResourceList(res.CPU, res.Memory, res.GPU,
-		res.GPUName, res.EphemeralStorage, res.RdmaResource, float64(res.Replica))
-	if err != nil {
-		return nil, commonerrors.NewBadRequest(err.Error())
+// GetTotalResourceList converts workload resources to total resource list by summing up all workload resources.
+func GetTotalResourceList(workload *v1.Workload) (corev1.ResourceList, error) {
+	result := make(corev1.ResourceList)
+	for _, res := range workload.Spec.Resources {
+		resourceList, err := quantity.CvtToResourceList(res.CPU, res.Memory, res.GPU,
+			res.GPUName, res.EphemeralStorage, res.RdmaResource, float64(res.Replica))
+		if err != nil {
+			return nil, commonerrors.NewBadRequest(err.Error())
+		}
+		result = quantity.AddResource(result, resourceList)
 	}
 	return result, nil
 }
 
-// GetPodResources converts workload resource specification to per-pod ResourceList.
-func GetPodResources(res *v1.WorkloadResource) (corev1.ResourceList, error) {
+// GetPodResources converts workload resource specification to per-pod ResourceList
+func GetPodResourceList(res *v1.WorkloadResource) (corev1.ResourceList, error) {
 	if res == nil {
 		return nil, fmt.Errorf("the input resource is empty")
 	}
@@ -203,10 +201,22 @@ func GetPodResources(res *v1.WorkloadResource) (corev1.ResourceList, error) {
 	return result, nil
 }
 
+// toPodResourceLists converts workload resources to a list of resource lists
+func toPodResourceLists(workload *v1.Workload) ([]corev1.ResourceList, error) {
+	result := make([]corev1.ResourceList, len(workload.Spec.Resources))
+	for i, res := range workload.Spec.Resources {
+		var err error
+		if result[i], err = GetPodResourceList(&res); err != nil {
+			return nil, err
+		}
+	}
+	return result, nil
+}
+
 // GetScope determines the workspace scope based on workload kind.
 func GetScope(w *v1.Workload) v1.WorkspaceScope {
 	switch w.SpecKind() {
-	case common.PytorchJobKind, common.UnifiedJobKind, common.JobKind:
+	case common.PytorchJobKind, common.UnifiedJobKind, common.JobKind, common.TorchFTKind:
 		return v1.TrainScope
 	case common.DeploymentKind, common.StatefulSetKind:
 		return v1.InferScope
@@ -228,11 +238,11 @@ func IsApplication(w *v1.Workload) bool {
 	return false
 }
 
-// IsJob returns true if the workload is a job type (PyTorchJob, Authoring, or Job).
+// IsJob returns true if the workload is a job type (PyTorchJob, Authoring and so on).
 func IsJob(w *v1.Workload) bool {
 	kind := w.SpecKind()
 	if kind == common.PytorchJobKind || kind == common.AuthoringKind ||
-		kind == common.JobKind || kind == common.UnifiedJobKind {
+		kind == common.JobKind || kind == common.UnifiedJobKind || kind == common.TorchFTKind {
 		return true
 	}
 	return false
@@ -270,27 +280,35 @@ func IsCICDEphemeralRunner(w *v1.Workload) bool {
 	return false
 }
 
+// IsTorchFT returns true if the workload is an TorchFT type.
+func IsTorchFT(w *v1.Workload) bool {
+	if w.SpecKind() == common.TorchFTKind {
+		return true
+	}
+	return false
+}
+
 // IsOpsJob returns true if the workload is about ops job
 func IsOpsJob(w *v1.Workload) bool {
 	return v1.GetOpsJobId(w) != ""
 }
 
 // IsResourceEqual compares the resource specifications of two workloads.
-// Returns true if both workloads have the same replica count and identical resource requirements,
-// false otherwise or if there's an error during resource conversion.
+// Returns true if both workloads have the same resource including replica counts
 func IsResourceEqual(workload1, workload2 *v1.Workload) bool {
-	if workload1.Spec.Resource.Replica != workload2.Spec.Resource.Replica {
+	if GetTotalCount(workload1) != GetTotalCount(workload2) ||
+		len(workload1.Spec.Resources) != len(workload2.Spec.Resources) {
 		return false
 	}
-	rl1, err1 := CvtToResourceList(workload1)
+	resourceList1, err1 := GetTotalResourceList(workload1)
 	if err1 != nil {
 		return false
 	}
-	rl2, err2 := CvtToResourceList(workload2)
+	resourceList2, err2 := GetTotalResourceList(workload2)
 	if err2 != nil {
 		return false
 	}
-	return quantity.Equal(rl1, rl2)
+	return quantity.Equal(resourceList1, resourceList2)
 }
 
 // GenerateDispatchReason generates a dispatch reason string based on count.
@@ -319,41 +337,34 @@ func GeneratePriority(priority int) string {
 	return strPriority
 }
 
-// GenerateMaxAvailResource generates maximum available resource for workload by NodeFlavor.
-func GenerateMaxAvailResource(nf *v1.NodeFlavor) *v1.WorkloadResource {
-	nodeResources := nf.ToResourceList(commonconfig.GetRdmaName())
-	availResource := quantity.GetAvailableResource(nodeResources)
-	if !floatutil.FloatEqual(commonconfig.GetMaxEphemeralStorePercent(), 0) {
-		maxEphemeralStoreQuantity, _ := quantity.GetMaxEphemeralStoreQuantity(nodeResources)
-		if maxEphemeralStoreQuantity != nil {
-			availResource[corev1.ResourceEphemeralStorage] = *maxEphemeralStoreQuantity
-		}
+// GetWorkloadTemplate retrieves the ConfigMap template for a workload based on its version and kind.
+// Note that this GVK must be a workload GVK.
+func GetWorkloadTemplate(ctx context.Context, cli client.Client, gvk schema.GroupVersionKind) (*corev1.ConfigMap, error) {
+	selector := labels.SelectorFromSet(map[string]string{
+		v1.WorkloadVersionLabel: gvk.Version, v1.WorkloadKindLabel: gvk.Kind})
+	listOptions := &client.ListOptions{LabelSelector: selector, Namespace: common.PrimusSafeNamespace}
+	configmapList := &corev1.ConfigMapList{}
+	if err := cli.List(ctx, configmapList, listOptions); err != nil {
+		return nil, err
 	}
-
-	maxAvailCpu, _ := availResource[corev1.ResourceCPU]
-	maxAvailMem, _ := availResource[corev1.ResourceMemory]
-	maxAvailStorage, _ := quantity.GetMaxEphemeralStoreQuantity(nodeResources)
-	result := &v1.WorkloadResource{
-		CPU:              maxAvailCpu.String(),
-		Memory:           quantity.ToString(maxAvailMem),
-		EphemeralStorage: quantity.ToString(*maxAvailStorage),
+	if len(configmapList.Items) > 0 {
+		return &configmapList.Items[0], nil
 	}
-	if result.Memory == "" {
-		result.Memory = "1Mi"
-	}
-	if result.EphemeralStorage == "" {
-		result.EphemeralStorage = "1Mi"
-	}
-	if nf.HasGpu() {
-		result.GPUName = nf.Spec.Gpu.ResourceName
-		result.GPU = nf.Spec.Gpu.Quantity.String()
-	}
-	return result
+	return nil, commonerrors.NewInternalError(
+		fmt.Sprintf("failed to find configMap. gvk: %s", gvk.String()))
 }
 
 // GetResourceTemplate Retrieve the corresponding resource_template based on the workload's GVK.
+// For non-TorchFT workloads: the workload GVK can be used directly to find the resource template
+// For TorchFT workloads: cannot be looked up directly because TorchFT corresponds to multiple objects
+// (PyTorchJob and Deployment), so the template lookup needs to be handled differently
 func GetResourceTemplate(ctx context.Context, cli client.Client, workload *v1.Workload) (*v1.ResourceTemplate, error) {
-	gvk := workload.ToSchemaGVK()
+	return GetResourceTemplateByGVK(ctx, cli, workload.ToSchemaGVK())
+}
+
+// GetResourceTemplateByGVK Retrieve the corresponding resource_template based on the specified GVK.
+// Note that the GetResourceTemplate function mentioned above is primarily used and this is specific to TorchFT.
+func GetResourceTemplateByGVK(ctx context.Context, cli client.Client, gvk schema.GroupVersionKind) (*v1.ResourceTemplate, error) {
 	templateList := &v1.ResourceTemplateList{}
 	labelSelector := labels.SelectorFromSet(map[string]string{v1.WorkloadVersionLabel: gvk.Version})
 	if err := cli.List(ctx, templateList, &client.ListOptions{LabelSelector: labelSelector}); err != nil {
@@ -367,4 +378,73 @@ func GetResourceTemplate(ctx context.Context, cli client.Client, workload *v1.Wo
 	}
 	return nil, commonerrors.NewInternalError(
 		fmt.Sprintf("the resource template is not found, kind: %s, version: %s", gvk.Kind, gvk.Version))
+}
+
+// ConvertResourceToList converts a single workload resource to a list of workload resources
+func ConvertResourceToList(workloadResource v1.WorkloadResource, kind string) []v1.WorkloadResource {
+	if workloadResource.Replica <= 0 {
+		return nil
+	}
+	result := make([]v1.WorkloadResource, 0, 2)
+	if kind == common.PytorchJobKind || kind == common.UnifiedJobKind {
+		result = append(result, workloadResource)
+		result[0].Replica = 1
+		if workloadResource.Replica > 1 {
+			result = append(result, workloadResource)
+			result[1].Replica = workloadResource.Replica - 1
+		}
+	} else {
+		result = append(result, workloadResource)
+	}
+	return result
+}
+
+// GetReplicaGroup retrieves the replica process group number from the workload's environment variables.
+// The replica process group is used for torchFT workload.
+// Returns an error if the environment variable is not set or cannot be converted to a valid integer.
+func GetReplicaGroup(workload *v1.Workload, key string) (int, error) {
+	val, ok := workload.Spec.Env[key]
+	if !ok || val == "" {
+		return 0, fmt.Errorf("the %s of workload environment variables is empty", key)
+	}
+	n, err := strconv.Atoi(val)
+	if err != nil {
+		return 0, err
+	}
+	return n, nil
+}
+
+// GetWorkloadGVK returns the GroupVersionKind(s) for a workload
+// For TorchFT workloads: returns multiple GVKs since TorchFT consists of multiple resource types
+//   - PyTorchJob GVK for the training job components
+//   - Deployment GVK for the lighthouse deployment component
+//
+// For other workloads: returns the single GVK specified in the workload spec
+func GetWorkloadGVK(workload *v1.Workload) []schema.GroupVersionKind {
+	result := make([]schema.GroupVersionKind, 0, 2)
+	if IsTorchFT(workload) {
+		result = append(result, schema.GroupVersionKind{
+			Group: "kubeflow.org", Version: common.DefaultVersion, Kind: common.PytorchJobKind,
+		})
+		result = append(result, schema.GroupVersionKind{
+			Group: "apps", Version: common.DefaultVersion, Kind: common.DeploymentKind,
+		})
+	} else {
+		result = append(result, workload.ToSchemaGVK())
+	}
+	return result
+}
+
+// GetWorkloadMainContainer retrieves and sets the main container name for a workload
+// Returns false if the workload is TorchFT or already has a main container annotation
+// Otherwise, fetches the workload template and sets the main container annotation
+func GetWorkloadMainContainer(ctx context.Context, cli client.Client, workload *v1.Workload) bool {
+	if IsTorchFT(workload) || v1.GetMainContainer(workload) != "" {
+		return false
+	}
+	cm, err := GetWorkloadTemplate(ctx, cli, workload.ToSchemaGVK())
+	if err == nil {
+		v1.SetAnnotation(workload, v1.MainContainerAnnotation, v1.GetMainContainer(cm))
+	}
+	return true
 }

@@ -10,7 +10,7 @@ import os
 import signal
 import sys
 import time
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import requests
 
@@ -78,11 +78,39 @@ def load_input_json(path: str) -> Dict[str, Any]:
         return json.load(f)
 
 
+def convert_resources_to_array(resources: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """
+    Convert a resources dict to an array.
+    - First element: replica = 1
+    - Second element (if original replica > 1): replica = original_replica - 1
+    """
+    result: List[Dict[str, Any]] = []
+
+    # Get original replica value, default to 1 if not present
+    original_replica = resources.get("replica", 1)
+    if isinstance(original_replica, str):
+        original_replica = int(original_replica)
+
+    # First element: always replica = 1
+    first = resources.copy()
+    first["replica"] = 1
+    result.append(first)
+
+    # Second element: only if original replica > 1
+    remaining_replica = original_replica - 1
+    if remaining_replica > 0:
+        second = resources.copy()
+        second["replica"] = remaining_replica
+        result.append(second)
+
+    return result
+
+
 def build_payload_from_input(inp: Dict[str, Any]) -> Dict[str, Any]:
     model = inp.get("model")
     command = inp.get("command")
     image = inp.get("image")
-    resources = inp.get("resources", {})
+    resources = convert_resources_to_array(inp.get("resources", {}))
     env_map = inp.get("env", {}) or {}
     timeout = inp.get("timeout")  # seconds
 
@@ -116,7 +144,7 @@ def build_payload_from_input(inp: Dict[str, Any]) -> Dict[str, Any]:
     payload: Dict[str, Any] = {
         "displayName": display_name,
         "workspaceId": workspace_id,
-        "resource": resources,
+        "resources": resources,
         "image": image,
         "entryPoint": ensure_base64(command),
         "env": env_map,

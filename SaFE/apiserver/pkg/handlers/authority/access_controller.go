@@ -206,7 +206,7 @@ func (a *AccessController) determineOwnership(in *AccessInput) (isOwner bool, is
 		in.ResourceOwner = v1.GetUserId(in.Resource)
 	}
 
-	if in.User.Name == in.ResourceOwner && in.ResourceOwner != "" {
+	if in.ResourceOwner != "" && in.User.Name == in.ResourceOwner {
 		isOwner = true
 	}
 

@@ -100,6 +100,14 @@ func (nf *NodeFlavor) HasGpu() bool {
 	return false
 }
 
+func (nf *NodeFlavor) GetGpuCount() int {
+	gpuCount := 0
+	if nf.HasGpu() {
+		gpuCount = int(nf.Spec.Gpu.Quantity.Value())
+	}
+	return gpuCount
+}
+
 // ToResourceList converts node flavor resources to a Kubernetes ResourceList.
 func (nf *NodeFlavor) ToResourceList(rdmaName string) corev1.ResourceList {
 	if nf == nil {

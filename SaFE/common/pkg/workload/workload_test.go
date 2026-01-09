@@ -40,13 +40,13 @@ func genMockWorkload(clusterName, workspace string) *v1.Workload {
 				Kind:    common.PytorchJobKind,
 				Version: "v1",
 			},
-			Resource: v1.WorkloadResource{
+			Resources: []v1.WorkloadResource{{
 				Replica: 2,
 				CPU:     "64",
 				Memory:  "1024Gi",
 				GPU:     "8",
 				GPUName: common.AmdGpu,
-			},
+			}},
 		},
 	}
 	return workload
@@ -75,7 +75,7 @@ func TestGetWorkloadsOfWorkspace(t *testing.T) {
 	assert.Assert(t, len(result) == 0)
 }
 
-func TestCvtToResourceList(t *testing.T) {
+func TestConvertToPodResource(t *testing.T) {
 	tests := []struct {
 		name     string
 		workload *v1.Workload
@@ -85,12 +85,12 @@ func TestCvtToResourceList(t *testing.T) {
 			"success",
 			&v1.Workload{
 				Spec: v1.WorkloadSpec{
-					Resource: v1.WorkloadResource{
+					Resources: []v1.WorkloadResource{{
 						CPU:     "64",
 						Memory:  "100Mi",
 						GPU:     "1",
 						GPUName: common.AmdGpu,
-					},
+					}},
 				},
 			},
 			false,
@@ -99,11 +99,11 @@ func TestCvtToResourceList(t *testing.T) {
 			"Invalid cpu",
 			&v1.Workload{
 				Spec: v1.WorkloadSpec{
-					Resource: v1.WorkloadResource{
+					Resources: []v1.WorkloadResource{{
 						Replica: 1,
 						CPU:     "-64",
 						Memory:  "100Ki",
-					},
+					}},
 				},
 			},
 			true,
@@ -112,11 +112,11 @@ func TestCvtToResourceList(t *testing.T) {
 			"Invalid memory",
 			&v1.Workload{
 				Spec: v1.WorkloadSpec{
-					Resource: v1.WorkloadResource{
+					Resources: []v1.WorkloadResource{{
 						Replica: 1,
 						CPU:     "64",
 						Memory:  "1000abc",
-					},
+					}},
 				},
 			},
 			true,
@@ -125,13 +125,13 @@ func TestCvtToResourceList(t *testing.T) {
 			"Invalid gpu",
 			&v1.Workload{
 				Spec: v1.WorkloadSpec{
-					Resource: v1.WorkloadResource{
+					Resources: []v1.WorkloadResource{{
 						Replica: 2,
 						CPU:     "10",
 						Memory:  "10Mi",
 						GPU:     "-1",
 						GPUName: common.AmdGpu,
-					},
+					}},
 				},
 			},
 			true,
@@ -139,7 +139,7 @@ func TestCvtToResourceList(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			_, err := CvtToResourceList(test.workload)
+			_, err := GetPodResourceList(&test.workload.Spec.Resources[0])
 			assert.Equal(t, err != nil, test.gotError)
 		})
 	}
@@ -175,7 +175,7 @@ func TestGetWorkloadTemplate(t *testing.T) {
 			},
 		},
 	}
-	resp, err := GetWorkloadTemplate(context.Background(), cli, workload)
+	resp, err := GetWorkloadTemplate(context.Background(), cli, workload.ToSchemaGVK())
 	assert.NilError(t, err)
 	assert.Equal(t, resp.Name, configmap2.Name)
 }
@@ -183,11 +183,11 @@ func TestGetWorkloadTemplate(t *testing.T) {
 func TestGetResourcePerNode(t *testing.T) {
 	workload := &v1.Workload{
 		Spec: v1.WorkloadSpec{
-			Resource: v1.WorkloadResource{
+			Resources: []v1.WorkloadResource{{
 				CPU:     "8",
 				Memory:  "128",
 				Replica: 3,
-			},
+			}},
 		},
 		Status: v1.WorkloadStatus{
 			Pods: []v1.WorkloadPod{
@@ -262,17 +262,17 @@ func TestGetWorkloadResourceUsage(t *testing.T) {
 			},
 		},
 		Spec: v1.WorkloadSpec{
-			Resource: v1.WorkloadResource{
+			Resources: []v1.WorkloadResource{{
 				CPU:     "8",
 				Memory:  "10",
 				Replica: 3,
-			},
+			}},
 		},
 		Status: v1.WorkloadStatus{
 			Pods: []v1.WorkloadPod{
-				{AdminNodeName: "n1", K8sNodeName: "n1"},
-				{AdminNodeName: "n2", K8sNodeName: "n2", Phase: corev1.PodSucceeded},
-				{AdminNodeName: "n3", K8sNodeName: "n3"}},
+				{AdminNodeName: "n1", K8sNodeName: "n1", ResourceId: 0},
+				{AdminNodeName: "n2", K8sNodeName: "n2", Phase: corev1.PodSucceeded, ResourceId: 0},
+				{AdminNodeName: "n3", K8sNodeName: "n3", ResourceId: 0}},
 		},
 	}
 
@@ -304,7 +304,7 @@ func TestIsResourceEqual(t *testing.T) {
 	resp := IsResourceEqual(workload1, workload2)
 	assert.Equal(t, resp, true)
 
-	workload2.Spec.Resource.CPU = "256"
+	workload2.Spec.Resources[0].CPU = "256"
 	resp = IsResourceEqual(workload1, workload2)
 	assert.Equal(t, resp, false)
 }
@@ -313,4 +313,94 @@ func TestGeneral(t *testing.T) {
 	workload := genMockWorkload("cluster1", "workspace1")
 	assert.Equal(t, GetScope(workload), v1.TrainScope)
 	assert.Equal(t, IsApplication(workload), false)
+}
+
+func TestMigrateResourceToResources(t *testing.T) {
+	tests := []struct {
+		name             string
+		resource         v1.WorkloadResource
+		kind             string
+		expectedLen      int
+		expectedReplicas []int
+	}{
+		{
+			name: "PyTorchJob with Replica=1 creates single element array",
+			resource: v1.WorkloadResource{
+				Replica: 1,
+				CPU:     "8",
+				GPU:     "2",
+				Memory:  "64Gi",
+			},
+			kind:             common.PytorchJobKind,
+			expectedLen:      1,
+			expectedReplicas: []int{1},
+		},
+		{
+			name: "PyTorchJob with Replica=2 creates two element array",
+			resource: v1.WorkloadResource{
+				Replica: 2,
+				CPU:     "8",
+				GPU:     "2",
+				Memory:  "64Gi",
+			},
+			kind:             common.PytorchJobKind,
+			expectedLen:      2,
+			expectedReplicas: []int{1, 1},
+		},
+		{
+			name: "PyTorchJob with Replica=3 creates two element array with correct replicas",
+			resource: v1.WorkloadResource{
+				Replica: 3,
+				CPU:     "8",
+				GPU:     "2",
+				Memory:  "64Gi",
+			},
+			kind:             common.PytorchJobKind,
+			expectedLen:      2,
+			expectedReplicas: []int{1, 2},
+		},
+		{
+			name: "Deployment keeps original Replica (single element)",
+			resource: v1.WorkloadResource{
+				Replica: 3,
+				CPU:     "8",
+				GPU:     "2",
+				Memory:  "64Gi",
+			},
+			kind:             common.DeploymentKind,
+			expectedLen:      1,
+			expectedReplicas: []int{3},
+		},
+		{
+			name: "PyTorchJob with Replica=0 creates single element array",
+			resource: v1.WorkloadResource{
+				Replica: 0,
+				CPU:     "8",
+				Memory:  "64Gi",
+			},
+			kind:        common.PytorchJobKind,
+			expectedLen: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := ConvertResourceToList(tt.resource, tt.kind)
+
+			// Check length
+			assert.Equal(t, len(result), tt.expectedLen, "resources count mismatch")
+
+			// Check replicas
+			for i, expectedReplica := range tt.expectedReplicas {
+				assert.Equal(t, result[i].Replica, expectedReplica, "Replica mismatch at index %d", i)
+			}
+
+			// Check other fields are preserved
+			for i := range result {
+				assert.Equal(t, result[i].CPU, tt.resource.CPU, "CPU mismatch at index %d", i)
+				assert.Equal(t, result[i].GPU, tt.resource.GPU, "GPU mismatch at index %d", i)
+				assert.Equal(t, result[i].Memory, tt.resource.Memory, "Memory mismatch at index %d", i)
+			}
+		})
+	}
 }

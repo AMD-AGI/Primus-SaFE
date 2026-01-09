@@ -64,13 +64,14 @@ data:
     create index if not exists T_WORKLOAD_DESCRIPTION_INDEX on workload (description);
 
     alter table workload add column if not exists user_id VARCHAR(64);
-    alter table workload add column if not exists k8s_object_uid VARCHAR(36);
     alter table workload add column if not exists workload_uid VARCHAR(36);
     alter table workload add column if not exists ranks TEXT;
     alter table workload add column if not exists cron_jobs TEXT;
     alter table workload add column if not exists secrets TEXT;
     alter table workload add column if not exists scale_runner_set VARCHAR(64);
     alter table workload add column if not exists scale_runner_id VARCHAR(128);
+    alter table workload add column if not exists resources TEXT;
+    alter table workload drop column if exists k8s_object_uid;
 
     create table if not exists fault
     (
