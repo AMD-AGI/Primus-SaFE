@@ -540,44 +540,45 @@ Get detailed information about a specific workload.
 
 Only fields not already covered by "List Workloads" are listed below. Other fields share the same meaning as in the list response.
 
-| Field | Type      | Description                                                                                                                             |
-|-------|-----------|-----------------------------------------------------------------------------------------------------------------------------------------|
-| image | string    | Image address used by the workload                                                                                                      |
-| entryPoint | string    | Startup command/script (in base64 encoding)                                                                                             |
-| isSupervised | bool      | When enabled, it performs operations like hang detection                                                                                |
-| ttlSecondsAfterFinished | int       | The lifecycle after completion, in seconds, default 60.                                                                                 |
-| env | object    | Environment variables key-value pairs                                                                                                   |
-| conditions[].type | string    | Condition type, e.g. AdminScheduled/AdminDispatched/K8sPending/K8sSucceeded/K8sFailed/K8sRunning/AdminFailover/AdminFailed/AdminStopped |
-| conditions[].status | string    | Condition status: True/False/Unknown                                                                                                    |
-| conditions[].lastTransitionTime | string    | Last transition time of the condition                                                                                                   |
-| conditions[].reason | string    | Dispatch count                                                                                                                          |
-| conditions[].message | string    | Human-readable message for the condition                                                                                                |
-| pods[].podId | string    | Pod ID of a workload pod                                                                                                                |
-| pods[].phase | string    | Pod phase, e.g. Pending/Running/Succeeded/Failed                                                                                        |
-| pods[].k8sNodeName | string    | The Kubernetes node that the Pod is scheduled on                                                                                        |
-| pods[].adminNodeName | string    | The Admin Node name where the pod is scheduled on                                                                                       |
-| pods[].sshAddr | string    | SSH address for direct login into the container                                                                                         |
-| pods[].startTime | string    | Pod start time                                                                                                                          |
-| pods[].endTime | string    | Pod end time                                                                                                                            |
-| pods[].hostIP | string    | The node IP address where the Pod is running                                                                                            |
-| pods[].podIP | string    | The pod IP address where the Pod is running                                                                                             |
-| pods[].rank | string    | The rank of pod, only for pytorch-job                                                                                                   |
-| pods[].containers[].name | string    | Container name                                                                                                                          |
-| pods[].containers[].reason | string    | (brief) reason from the last termination of the container                                                                               |
-| pods[].containers[].message | string    | Message regarding the last termination of the container                                                                                 |
-| pods[].containers[].exitCode | int32     | Exit status from the last termination of the container                                                                                  |
-| nodes | [][]string | The node used for each workload execution, e.g. [["node-001"]]                                                                          |
-| ranks | [][]string | The rank is only valid for the PyTorch job and corresponds one-to-one with the nodes listed above, e.g. [["0"]]                         |
-| customerLabels | object    | Custom labels associated with the workload                                                                                              |
-| specifiedNodes | []string  | The nodes explicitly specified to run on                                                                                                |
-| liveness | object    | Refer to the CreateWorkload parameter                                                                                                   |
-| readiness | object    | Refer to the CreateWorkload parameter                                                                                                   |
-| service | object    | Refer to the CreateWorkload parameter                                                                                                   |
-| dependencies | object    | Refer to the CreateWorkload parameter                                                                                                   |
-| cronJobs | object    | Refer to the CreateWorkload parameter                                                                                                   |
-| secrets  | object  | Refer to the CreateWorkload parameter                                                                                                   |
-| workloadUid | string    | UID of the workload                                                                                                                     |
-| k8sObjectUid | string    | K8s object UID corresponding to the workload. e.g. Associated PyTorchJob UID                                                            |
+| Field                           | Type       | Description                                                                                                                             |
+|---------------------------------|------------|-----------------------------------------------------------------------------------------------------------------------------------------|
+| image                           | string     | Image address used by the workload                                                                                                      |
+| entryPoint                      | string     | Startup command/script (in base64 encoding)                                                                                             |
+| isSupervised                    | bool       | When enabled, it performs operations like hang detection                                                                                |
+| ttlSecondsAfterFinished         | int        | The lifecycle after completion, in seconds, default 60.                                                                                 |
+| env                             | object     | Environment variables key-value pairs                                                                                                   |
+| conditions[].type               | string     | Condition type, e.g. AdminScheduled/AdminDispatched/K8sPending/K8sSucceeded/K8sFailed/K8sRunning/AdminFailover/AdminFailed/AdminStopped |
+| conditions[].status             | string     | Condition status: True/False/Unknown                                                                                                    |
+| conditions[].lastTransitionTime | string     | Last transition time of the condition                                                                                                   |
+| conditions[].reason             | string     | Dispatch count                                                                                                                          |
+| conditions[].message            | string     | Human-readable message for the condition                                                                                                |
+| pods[].podId                    | string     | Pod ID of a workload pod                                                                                                                |
+| pods[].phase                    | string     | Pod phase, e.g. Pending/Running/Succeeded/Failed                                                                                        |
+| pods[].k8sNodeName              | string     | The Kubernetes node that the Pod is scheduled on                                                                                        |
+| pods[].adminNodeName            | string     | The Admin Node name where the pod is scheduled on                                                                                       |
+| pods[].sshAddr                  | string     | SSH address for direct login into the container                                                                                         |
+| pods[].startTime                | string     | Pod start time                                                                                                                          |
+| pods[].endTime                  | string     | Pod end time                                                                                                                            |
+| pods[].hostIP                   | string     | The node IP address where the Pod is running                                                                                            |
+| pods[].podIP                    | string     | The pod IP address where the Pod is running                                                                                             |
+| pods[].rank                     | string     | The rank of pod, only for pytorch-job                                                                                                   |
+| pods[].groupId                  | int        | The group id of pod, only for TorchFT job         
+| pods[].containers[].name        | string     | Container name                                                                                                                          |
+| pods[].containers[].reason      | string     | (brief) reason from the last termination of the container                                                                               |
+| pods[].containers[].message     | string     | Message regarding the last termination of the container                                                                                 |
+| pods[].containers[].exitCode    | int32      | Exit status from the last termination of the container                                                                                  |
+| nodes                           | [][]string | The node used for each workload execution, e.g. [["node-001"]]                                                                          |
+| ranks                           | [][]string | The rank is only valid for the PyTorch job and corresponds one-to-one with the nodes listed above, e.g. [["0"]]                         |
+| customerLabels                  | object     | Custom labels associated with the workload                                                                                              |
+| specifiedNodes                  | []string   | The nodes explicitly specified to run on                                                                                                |
+| liveness                        | object     | Refer to the CreateWorkload parameter                                                                                                   |
+| readiness                       | object     | Refer to the CreateWorkload parameter                                                                                                   |
+| service                         | object     | Refer to the CreateWorkload parameter                                                                                                   |
+| dependencies                    | object     | Refer to the CreateWorkload parameter                                                                                                   |
+| cronJobs                        | object     | Refer to the CreateWorkload parameter                                                                                                   |
+| secrets                         | object     | Refer to the CreateWorkload parameter                                                                                                   |
+| workloadUid                     | string     | UID of the workload                                                                                                                     |
+| k8sObjectUid                    | string     | K8s object UID corresponding to the workload. e.g. Associated PyTorchJob UID                                                            |
 
 > Other fields not listed here are identical to those in the "List Workloads" Field Description.
 

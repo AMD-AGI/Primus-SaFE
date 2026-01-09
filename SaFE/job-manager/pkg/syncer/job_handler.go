@@ -448,7 +448,11 @@ func handleTorchFTGroupStatus(adminWorkload *v1.Workload, groupIdStr string, pha
 	// Check if all groups have the same phase
 	if len(adminWorkload.Status.TorchFTPhase) > totalGroups {
 		allSamePhase := true
-		for i := 0; i <= totalGroups; i++ {
+		beginId := 0
+		if phase == v1.WorkloadSucceeded {
+			beginId = 1
+		}
+		for i := beginId; i <= totalGroups; i++ {
 			p := adminWorkload.Status.TorchFTPhase[strconv.Itoa(i)]
 			if p != phase {
 				allSamePhase = false
