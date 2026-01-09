@@ -4,9 +4,14 @@
 package clientsets
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strconv"
+
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // ControlPlaneConfig contains Control Plane configuration
@@ -104,50 +109,80 @@ func (c *ControlPlaneConfig) Validate() error {
 	return nil
 }
 
-// Environment variable names for Control Plane database configuration
+// Default secret name for Control Plane database credentials
 const (
-	EnvControlPlaneDBHost     = "CONTROL_PLANE_DB_HOST"
-	EnvControlPlaneDBPort     = "CONTROL_PLANE_DB_PORT"
-	EnvControlPlaneDBName     = "CONTROL_PLANE_DB_NAME"
-	EnvControlPlaneDBUser     = "CONTROL_PLANE_DB_USER"
-	EnvControlPlaneDBPassword = "CONTROL_PLANE_DB_PASSWORD"
-	EnvControlPlaneDBSSLMode  = "CONTROL_PLANE_DB_SSL_MODE"
+	DefaultControlPlaneSecretName = "primus-lens-control-plane-pguser-primus-lens-control-plane"
+	DefaultControlPlaneNamespace  = "primus-lens"
+	EnvPodNamespace               = "POD_NAMESPACE"
 )
 
-// NewControlPlaneConfigFromEnv creates a ControlPlaneConfig from environment variables
-// This is the preferred method for Kubernetes deployments where secrets are mounted as env vars
-func NewControlPlaneConfigFromEnv() (*ControlPlaneConfig, error) {
-	host := os.Getenv(EnvControlPlaneDBHost)
+// Secret key names (following PostgreSQL operator conventions)
+const (
+	SecretKeyHost     = "host"
+	SecretKeyPort     = "port"
+	SecretKeyDBName   = "dbname"
+	SecretKeyUser     = "user"
+	SecretKeyPassword = "password"
+	SecretKeySSLMode  = "sslmode"
+)
+
+// NewControlPlaneConfigFromSecret creates a ControlPlaneConfig by reading from K8s Secret
+// secretName: name of the secret, defaults to DefaultControlPlaneSecretName
+// namespace: namespace of the secret, defaults to POD_NAMESPACE env or DefaultControlPlaneNamespace
+func NewControlPlaneConfigFromSecret(ctx context.Context, k8sClient client.Client, secretName, namespace string) (*ControlPlaneConfig, error) {
+	if secretName == "" {
+		secretName = DefaultControlPlaneSecretName
+	}
+	if namespace == "" {
+		namespace = os.Getenv(EnvPodNamespace)
+		if namespace == "" {
+			namespace = DefaultControlPlaneNamespace
+		}
+	}
+
+	// Read secret from K8s
+	secret := &corev1.Secret{}
+	err := k8sClient.Get(ctx, types.NamespacedName{
+		Name:      secretName,
+		Namespace: namespace,
+	}, secret)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get secret %s/%s: %w", namespace, secretName, err)
+	}
+
+	// Extract values from secret
+	host := string(secret.Data[SecretKeyHost])
 	if host == "" {
-		return nil, fmt.Errorf("environment variable %s is required", EnvControlPlaneDBHost)
+		return nil, fmt.Errorf("secret %s/%s missing required key: %s", namespace, secretName, SecretKeyHost)
 	}
 
-	dbName := os.Getenv(EnvControlPlaneDBName)
+	dbName := string(secret.Data[SecretKeyDBName])
 	if dbName == "" {
-		return nil, fmt.Errorf("environment variable %s is required", EnvControlPlaneDBName)
+		return nil, fmt.Errorf("secret %s/%s missing required key: %s", namespace, secretName, SecretKeyDBName)
 	}
 
-	user := os.Getenv(EnvControlPlaneDBUser)
+	user := string(secret.Data[SecretKeyUser])
 	if user == "" {
-		return nil, fmt.Errorf("environment variable %s is required", EnvControlPlaneDBUser)
+		return nil, fmt.Errorf("secret %s/%s missing required key: %s", namespace, secretName, SecretKeyUser)
 	}
 
-	password := os.Getenv(EnvControlPlaneDBPassword)
+	password := string(secret.Data[SecretKeyPassword])
 	if password == "" {
-		return nil, fmt.Errorf("environment variable %s is required", EnvControlPlaneDBPassword)
+		return nil, fmt.Errorf("secret %s/%s missing required key: %s", namespace, secretName, SecretKeyPassword)
 	}
 
-	portStr := os.Getenv(EnvControlPlaneDBPort)
+	// Port is optional, default to 5432
 	var port int32 = 5432
-	if portStr != "" {
+	if portStr := string(secret.Data[SecretKeyPort]); portStr != "" {
 		p, err := strconv.ParseInt(portStr, 10, 32)
 		if err != nil {
-			return nil, fmt.Errorf("invalid port value: %s", portStr)
+			return nil, fmt.Errorf("invalid port value in secret: %s", portStr)
 		}
 		port = int32(p)
 	}
 
-	sslMode := os.Getenv(EnvControlPlaneDBSSLMode)
+	// SSL mode is optional, default to "require"
+	sslMode := string(secret.Data[SecretKeySSLMode])
 	if sslMode == "" {
 		sslMode = "require"
 	}

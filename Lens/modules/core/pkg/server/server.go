@@ -26,34 +26,49 @@ func InitServerWithPreInitFunc(ctx context.Context, preInit func(ctx context.Con
 		return err
 	}
 
-	// Initialize ClusterManager with appropriate options
+	// Step 1: Initialize K8s client first (needed for reading secrets)
+	err = clientsets.InitClientSets(ctx, cfg.MultiCluster, cfg.LoadK8SClient, cfg.LoadStorageClient)
+	if err != nil {
+		return err
+	}
+
+	// Step 2: If Control Plane is enabled, read DB config from Secret and initialize
 	if cfg.IsControlPlaneEnabled() {
-		// Control Plane enabled - initialize with Control Plane support
-		log.Info("Control Plane enabled, initializing with database support...")
-		cpConfig, err := clientsets.NewControlPlaneConfigFromEnv()
+		log.Info("Control Plane enabled, reading database config from Secret...")
+
+		cm := clientsets.GetClusterManager()
+		cc := cm.GetCurrentClusterClients()
+		if cc == nil || cc.K8SClientSet == nil || cc.K8SClientSet.ControllerRuntimeClient == nil {
+			return errors.NewError().WithCode(errors.CodeInitializeError).
+				WithMessage("K8s client not available, cannot read Control Plane secret")
+		}
+
+		// Get secret name and namespace from config (with defaults)
+		secretName := ""
+		secretNamespace := ""
+		if cfg.ControlPlane != nil {
+			secretName = cfg.ControlPlane.SecretName
+			secretNamespace = cfg.ControlPlane.SecretNamespace
+		}
+
+		// Read DB config from K8s Secret
+		cpConfig, err := clientsets.NewControlPlaneConfigFromSecret(
+			ctx,
+			cc.K8SClientSet.ControllerRuntimeClient,
+			secretName,
+			secretNamespace,
+		)
 		if err != nil {
 			return errors.NewError().WithCode(errors.CodeInitializeError).
-				WithMessage("Failed to load Control Plane config from environment").WithError(err)
+				WithMessage("Failed to read Control Plane config from Secret").WithError(err)
 		}
-		opts := &clientsets.InitOptions{
-			LoadControlPlane:   true,
-			ControlPlaneConfig: cpConfig,
-			MultiCluster:       cfg.MultiCluster,
-			LoadK8SClient:      cfg.LoadK8SClient,
-			LoadStorageClient:  cfg.LoadStorageClient,
-		}
-		err = clientsets.InitClusterManagerWithOptions(ctx, opts)
-		if err != nil {
+
+		// Initialize Control Plane with the config from Secret
+		if err := cm.InitControlPlane(ctx, cpConfig); err != nil {
 			return errors.NewError().WithCode(errors.CodeInitializeError).
-				WithMessage("Failed to initialize ClusterManager with Control Plane").WithError(err)
+				WithMessage("Failed to initialize Control Plane").WithError(err)
 		}
-		log.Info("ClusterManager initialized with Control Plane support")
-	} else {
-		// Control Plane disabled - use legacy initialization
-		err = clientsets.InitClientSets(ctx, cfg.MultiCluster, cfg.LoadK8SClient, cfg.LoadStorageClient)
-		if err != nil {
-			return err
-		}
+		log.Info("Control Plane initialized successfully from Secret")
 	}
 
 	if preInit != nil {

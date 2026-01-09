@@ -99,3 +99,22 @@ func (cm *ClusterManager) GetControlPlaneClientSet() *ControlPlaneClientSet {
 func (cm *ClusterManager) IsControlPlaneEnabled() bool {
 	return cm.loadControlPlane && cm.controlPlane != nil
 }
+
+// InitControlPlane initializes Control Plane after ClusterManager has been initialized
+// This allows reading DB config from K8s Secret using the already-initialized K8s client
+func (cm *ClusterManager) InitControlPlane(ctx context.Context, cfg *ControlPlaneConfig) error {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	if cm.controlPlane != nil {
+		log.Info("Control Plane already initialized, skipping")
+		return nil
+	}
+
+	if err := cm.initializeControlPlane(ctx, cfg); err != nil {
+		return err
+	}
+
+	cm.loadControlPlane = true
+	return nil
+}

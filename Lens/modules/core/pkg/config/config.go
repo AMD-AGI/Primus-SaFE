@@ -30,6 +30,12 @@ type Config struct {
 type ControlPlaneConfig struct {
 	// Enabled controls whether Control Plane is enabled
 	Enabled bool `json:"enabled" yaml:"enabled"`
+	// SecretName is the name of the K8s secret containing DB credentials
+	// Default: "primus-lens-control-plane-pguser-primus-lens-control-plane"
+	SecretName string `json:"secretName" yaml:"secretName"`
+	// SecretNamespace is the namespace of the secret
+	// Default: current namespace from POD_NAMESPACE env or "primus-lens"
+	SecretNamespace string `json:"secretNamespace" yaml:"secretNamespace"`
 }
 
 // IsControlPlaneEnabled returns whether Control Plane is enabled
