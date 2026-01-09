@@ -306,33 +306,8 @@ data:
     alter table node_statistic owner to "primus-safe";
 
 
-    create table if not exists inference
-    (
-        id BIGSERIAL PRIMARY KEY,
-        inference_id VARCHAR(64) NOT NULL,
-        display_name VARCHAR(128) NOT NULL,
-        description TEXT,
-        user_id VARCHAR(64) NOT NULL,
-        user_name VARCHAR(128),
-        model_form VARCHAR(64) NOT NULL,
-        model_name VARCHAR(128) NOT NULL,
-        instance JSONB,
-        resource JSONB,
-        config JSONB,
-        phase VARCHAR(32),
-        events JSONB,
-        message TEXT,
-        creation_time TIMESTAMPTZ,
-        update_time TIMESTAMPTZ,
-        deletion_time TIMESTAMPTZ,
-        is_deleted BOOLEAN DEFAULT FALSE
-    );
-
-    create unique index if not exists T_INFERENCE_ID_INDEX on inference (inference_id);
-    create index if not exists T_INFERENCE_USER_QUERY_INDEX on inference (user_id, is_deleted);
-    create index if not exists T_INFERENCE_MODEL_QUERY_INDEX on inference (model_name, phase, is_deleted);
-
-    alter table inference owner to "primus-safe";
+    -- Drop inference table (no longer used after unified workload architecture)
+    DROP TABLE IF EXISTS inference;
 
 
     create table if not exists playground_session
@@ -367,17 +342,28 @@ data:
         source_token VARCHAR(128),
         phase VARCHAR(32),
         message TEXT,
-        inference_id VARCHAR(64),
-        inference_phase VARCHAR(32),
         created_at TIMESTAMPTZ DEFAULT NOW(),
         updated_at TIMESTAMPTZ,
         deletion_time TIMESTAMPTZ,
         is_deleted BOOLEAN DEFAULT FALSE
     );
 
-    create index if not exists T_MODEL_INFERENCE_PHASE_INDEX on model (inference_phase, is_deleted);
+    -- Add new columns for unified workload architecture
+    ALTER TABLE model ADD COLUMN IF NOT EXISTS model_name VARCHAR(128);
+    ALTER TABLE model ADD COLUMN IF NOT EXISTS workspace VARCHAR(64);
+    ALTER TABLE model ADD COLUMN IF NOT EXISTS s3_path TEXT;
+    ALTER TABLE model ADD COLUMN IF NOT EXISTS local_paths JSONB;
+
+    -- Drop deprecated inference columns (safe to run even if columns don't exist)
+    ALTER TABLE model DROP COLUMN IF EXISTS inference_id;
+    ALTER TABLE model DROP COLUMN IF EXISTS inference_phase;
+
+    -- Drop deprecated indexes
+    DROP INDEX IF EXISTS T_MODEL_INFERENCE_PHASE_INDEX;
+
     create index if not exists T_MODEL_ACCESS_MODE_INDEX on model (access_mode, is_deleted);
     create index if not exists T_MODEL_CREATED_AT_INDEX on model (created_at, is_deleted);
+    create index if not exists T_MODEL_WORKSPACE_INDEX on model (workspace, is_deleted);
 
     ALTER TABLE model ADD COLUMN IF NOT EXISTS max_tokens INTEGER DEFAULT 0;
 
@@ -410,3 +396,24 @@ data:
         updated_at TIMESTAMPTZ
     );
     alter table environment_snapshots owner to "primus-safe";
+
+    -- API Keys table for API key authentication
+    CREATE TABLE IF NOT EXISTS api_keys (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(100) NOT NULL,
+        user_id VARCHAR(64) NOT NULL,
+        user_name VARCHAR(256) NULL,
+        api_key VARCHAR(128) UNIQUE NOT NULL,
+        key_hint VARCHAR(16) NOT NULL,
+        expiration_time TIMESTAMPTZ NOT NULL,
+        creation_time TIMESTAMPTZ NOT NULL DEFAULT now(),
+        whitelist JSONB NULL,
+        deleted BOOLEAN NOT NULL DEFAULT false,
+        deletion_time TIMESTAMPTZ NULL
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_api_key ON api_keys(api_key);
+    CREATE INDEX IF NOT EXISTS idx_api_key_user_id ON api_keys(user_id);
+    CREATE INDEX IF NOT EXISTS idx_api_key_deleted ON api_keys(deleted, expiration_time);
+
+    alter table api_keys owner to "primus-safe";

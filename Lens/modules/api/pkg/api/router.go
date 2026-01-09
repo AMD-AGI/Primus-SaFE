@@ -1,6 +1,13 @@
+// Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
+// See LICENSE for license information.
+
 package api
 
 import (
+	"github.com/AMD-AGI/Primus-SaFE/Lens/api/pkg/api/perfetto"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/api/pkg/api/pyspy"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/api/pkg/api/registry"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/api/pkg/api/sysconfig"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/api/pkg/api/tracelens"
 	"github.com/gin-gonic/gin"
 )
@@ -245,6 +252,9 @@ func RegisterRouter(group *gin.RouterGroup) error {
 	// TraceLens Session routes - On-demand trace analysis
 	tracelensGroup := group.Group("/tracelens")
 	{
+		// Get available resource profiles
+		tracelensGroup.GET("/resource-profiles", tracelens.GetResourceProfiles)
+
 		// Session management
 		sessionsGroup := tracelensGroup.Group("/sessions")
 		{
@@ -267,6 +277,54 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		}
 		// List sessions for a workload
 		tracelensGroup.GET("/workloads/:workload_uid/sessions", tracelens.ListWorkloadSessions)
+	}
+
+	// Perfetto Viewer routes - Lightweight trace visualization
+	perfettoGroup := group.Group("/perfetto")
+	{
+		// Session management
+		perfettoSessionsGroup := perfettoGroup.Group("/sessions")
+		{
+			// Create a new Perfetto viewer session
+			perfettoSessionsGroup.POST("", perfetto.CreateSession)
+			// Get a specific session
+			perfettoSessionsGroup.GET("/:session_id", perfetto.GetSession)
+			// Extend session TTL
+			perfettoSessionsGroup.PATCH("/:session_id", perfetto.ExtendSession)
+			// Delete a session
+			perfettoSessionsGroup.DELETE("/:session_id", perfetto.DeleteSession)
+
+			// UI Proxy - Proxy HTTP/WebSocket requests to Perfetto pod
+			perfettoSessionsGroup.Any("/:session_id/ui/*path", perfetto.ProxyUI)
+		}
+	}
+
+	// Container Registry Configuration routes - Per-cluster image registry settings
+	registryGroup := group.Group("/registry")
+	{
+		// Get current registry configuration
+		registryGroup.GET("/config", registry.GetRegistryConfig)
+		// Set registry configuration
+		registryGroup.PUT("/config", registry.SetRegistryConfig)
+		// Sync configuration from Harbor external URL
+		registryGroup.POST("/sync-from-harbor", registry.SyncFromHarbor)
+		// Get image URL for a specific image
+		registryGroup.GET("/image-url", registry.GetImageURL)
+	}
+
+	// System Configuration routes - General system configuration management
+	sysconfigGroup := group.Group("/system-config")
+	{
+		// List all configurations
+		sysconfigGroup.GET("", sysconfig.ListConfigs)
+		// Get a specific configuration
+		sysconfigGroup.GET("/:key", sysconfig.GetConfig)
+		// Set a configuration
+		sysconfigGroup.PUT("/:key", sysconfig.SetConfig)
+		// Delete a configuration
+		sysconfigGroup.DELETE("/:key", sysconfig.DeleteConfig)
+		// Get configuration history
+		sysconfigGroup.GET("/:key/history", sysconfig.GetConfigHistory)
 	}
 
 	// Real-time Status routes - Real-time cluster status monitoring
@@ -301,6 +359,23 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		detectionStatusGroup.GET("/:workload_uid/evidence", GetDetectionEvidence)
 		// Manually trigger detection
 		detectionStatusGroup.POST("/:workload_uid/trigger", TriggerDetection)
+	}
+
+	// Py-Spy Profiling routes - Python profiling via py-spy
+	pyspyGroup := group.Group("/pyspy")
+	{
+		// Create a new py-spy sampling task
+		pyspyGroup.POST("/sample", pyspy.CreateTask)
+		// List py-spy tasks with filters
+		pyspyGroup.POST("/tasks", pyspy.ListTasks)
+		// Get a specific task by ID
+		pyspyGroup.GET("/task/:id", pyspy.GetTask)
+		// Cancel a task
+		pyspyGroup.POST("/task/:id/cancel", pyspy.CancelTask)
+		// List files for a task
+		pyspyGroup.GET("/file/:task_id", pyspy.GetTaskFiles)
+		// Download a specific file (proxy to node-exporter)
+		pyspyGroup.GET("/file/:task_id/:filename", pyspy.DownloadFile)
 	}
 
 	// GitHub Workflow Metrics routes - GitHub workflow metrics collection

@@ -1,3 +1,6 @@
+// Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
+// See LICENSE for license information.
+
 package tracelens
 
 import (
@@ -371,5 +374,25 @@ func toSessionResponse(session *model.TracelensSessions) *SessionResponse {
 	}
 
 	return resp
+}
+
+// GetResourceProfiles returns the available resource profiles
+func GetResourceProfiles(c *gin.Context) {
+	profiles := make([]ResourceProfileResponse, 0, len(tlconst.ResourceProfiles))
+	for _, p := range tlconst.ResourceProfiles {
+		profiles = append(profiles, ResourceProfileResponse{
+			Value:       p.Value,
+			Label:       p.Label,
+			Description: p.Description,
+			Memory:      p.Memory,
+			MemoryBytes: p.MemoryBytes,
+			CPU:         p.CPU,
+			IsDefault:   p.IsDefault,
+		})
+	}
+
+	c.JSON(http.StatusOK, rest.SuccessResp(c, ResourceProfilesResponse{
+		Profiles: profiles,
+	}))
 }
 

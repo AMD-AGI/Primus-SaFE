@@ -1,3 +1,6 @@
+// Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
+// See LICENSE for license information.
+
 package tracelens
 
 import (
@@ -140,6 +143,37 @@ func TestConstantValues(t *testing.T) {
 	assert.Equal(t, 8501, DefaultPodPort)
 	assert.Equal(t, 4*time.Hour, MaxSessionTTL)
 	assert.Equal(t, "tls", SessionIDPrefix)
-	assert.NotEmpty(t, DefaultTraceLensImage)
+	assert.Equal(t, "tracelens", ImageName)
+}
+
+func TestResourceProfiles(t *testing.T) {
+	// Verify we have 3 profiles
+	assert.Len(t, ResourceProfiles, 3)
+
+	// Verify small profile
+	small := GetResourceProfile(ProfileSmall)
+	assert.NotNil(t, small)
+	assert.Equal(t, "small", small.Value)
+	assert.Equal(t, "8Gi", small.Memory)
+	assert.Equal(t, 1, small.CPU)
+
+	// Verify medium profile
+	medium := GetResourceProfile(ProfileMedium)
+	assert.NotNil(t, medium)
+	assert.Equal(t, "medium", medium.Value)
+	assert.Equal(t, "16Gi", medium.Memory)
+	assert.Equal(t, 2, medium.CPU)
+	assert.True(t, medium.IsDefault)
+
+	// Verify large profile
+	large := GetResourceProfile(ProfileLarge)
+	assert.NotNil(t, large)
+	assert.Equal(t, "large", large.Value)
+	assert.Equal(t, "32Gi", large.Memory)
+	assert.Equal(t, 4, large.CPU)
+
+	// Verify unknown profile returns nil
+	unknown := GetResourceProfile("unknown")
+	assert.Nil(t, unknown)
 }
 

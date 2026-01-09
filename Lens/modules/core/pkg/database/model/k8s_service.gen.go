@@ -1,3 +1,6 @@
+// Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
+// See LICENSE for license information.
+
 // K8s Service model for gateway-exporter
 // This file stores Kubernetes Service information for gateway traffic metrics enrichment
 

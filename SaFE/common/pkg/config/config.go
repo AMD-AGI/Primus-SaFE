@@ -276,7 +276,7 @@ func GetOpsJobTimeoutSecond() int {
 
 // GetDownloadJoImage returns the image name for downloading jobs.
 func GetDownloadJoImage() string {
-	return getString(opsJobDownloadImage, "")
+	return getString(opsJobDownloadImage, "docker.io/primussafe/s3-downloader:latest")
 }
 
 // GetPrewarmTimeoutSecond returns the timeout in seconds for prewarm jobs.

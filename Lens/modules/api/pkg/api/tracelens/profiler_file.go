@@ -1,3 +1,6 @@
+// Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
+// See LICENSE for license information.
+
 package tracelens
 
 import (
@@ -156,16 +159,22 @@ func GetProfilerFileContent(c *gin.Context) {
 
 	log.Infof("Serving profiler file %d (%s), size: %d bytes, encoding: %s", fileID, fileInfo.FileName, len(content), contentEncoding)
 
+	// Check if raw download is requested (preserves original file as-is without browser decompression)
+	rawDownload := c.Query("raw") == "true"
+
 	// Set response headers
 	c.Header("Content-Type", "application/octet-stream")
 	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", fileInfo.FileName))
 	c.Header("Content-Length", strconv.Itoa(len(content)))
 
-	// Pass through gzip encoding if present - let client handle decompression
-	// This saves bandwidth and allows streaming decompression on client side
-	if contentEncoding == "gzip" {
+	// For raw download, don't set Content-Encoding so browser saves the file as-is
+	// For non-raw download, set Content-Encoding: gzip so browser auto-decompresses
+	if contentEncoding == "gzip" && !rawDownload {
 		c.Header("Content-Encoding", "gzip")
-		c.Header("X-Original-Content-Encoding", "gzip")
+	}
+	// Always include original encoding info for reference
+	if contentEncoding != "" {
+		c.Header("X-Original-Content-Encoding", contentEncoding)
 	}
 
 	c.Data(http.StatusOK, "application/octet-stream", content)

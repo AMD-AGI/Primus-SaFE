@@ -1,3 +1,6 @@
+// Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
+// See LICENSE for license information.
+
 package config
 
 import (
@@ -93,7 +96,10 @@ func (m *Manager) Set(ctx context.Context, key string, value interface{}, opts .
 
 	now := time.Now()
 
-	if err == gorm.ErrRecordNotFound {
+	// Check if record not found: either by error or by empty ID
+	// Note: Due to gorm callback behavior, ErrRecordNotFound may be converted to nil
+	// while returning an empty struct with ID=0, so we need to check both conditions
+	if err == gorm.ErrRecordNotFound || (err == nil && existing.ID == 0) {
 		// Create new configuration
 		config := model.SystemConfig{
 			Key:         key,
