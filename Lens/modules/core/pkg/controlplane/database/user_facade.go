@@ -5,6 +5,8 @@ package database
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"time"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/controlplane/database/model"
@@ -23,6 +25,7 @@ type UserFacadeInterface interface {
 	ListByAuthType(ctx context.Context, authType string, offset, limit int) ([]*model.LensUsers, int64, error)
 	Delete(ctx context.Context, id string) error
 	ExistsByUsername(ctx context.Context, username string) (bool, error)
+	CreateFromLDAP(ctx context.Context, username, email, displayName string, isAdmin bool) (*model.LensUsers, error)
 }
 
 // UserFacade implements UserFacadeInterface
@@ -147,6 +150,42 @@ func (f *UserFacade) ExistsByUsername(ctx context.Context, username string) (boo
 		return false, err
 	}
 	return count > 0, nil
+}
+
+// CreateFromLDAP creates a new user from LDAP authentication
+func (f *UserFacade) CreateFromLDAP(ctx context.Context, username, email, displayName string, isAdmin bool) (*model.LensUsers, error) {
+	now := time.Now()
+	user := &model.LensUsers{
+		ID:          generateUserID(),
+		Username:    username,
+		Email:       email,
+		DisplayName: displayName,
+		AuthType:    "ldap",
+		Status:      "active",
+		IsAdmin:     isAdmin,
+		IsRoot:      false,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+		LastLoginAt: now,
+	}
+
+	if err := f.getDB().WithContext(ctx).Create(user).Error; err != nil {
+		return nil, err
+	}
+
+	return user, nil
+}
+
+// generateUserID generates a unique user ID
+func generateUserID() string {
+	return "user-" + time.Now().Format("20060102150405") + "-" + randomHex(8)
+}
+
+// randomHex generates a random hex string of the given length
+func randomHex(n int) string {
+	bytes := make([]byte, n/2)
+	rand.Read(bytes)
+	return hex.EncodeToString(bytes)
 }
 
 // Ensure UserFacade implements UserFacadeInterface

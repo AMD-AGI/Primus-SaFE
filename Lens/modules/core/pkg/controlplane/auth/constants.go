@@ -9,12 +9,14 @@ type AuthMode string
 const (
 	// AuthModeNone means no authentication required (dev/test mode)
 	AuthModeNone AuthMode = "none"
+	// AuthModeLocal means local database authentication
+	AuthModeLocal AuthMode = "local"
 	// AuthModeLDAP means LDAP/AD authentication
 	AuthModeLDAP AuthMode = "ldap"
 	// AuthModeSSO means OIDC SSO authentication
 	AuthModeSSO AuthMode = "sso"
-	// AuthModeSafe means Primus-SaFE integration mode
-	AuthModeSafe AuthMode = "safe"
+	// AuthModeSaFE means Primus-SaFE integration mode
+	AuthModeSaFE AuthMode = "safe"
 )
 
 // AuthType represents the authentication source type

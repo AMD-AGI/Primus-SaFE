@@ -7,9 +7,20 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// RegisterInitRouter registers initialization routes
-// These routes do not require authentication
-func RegisterInitRouter(group *gin.RouterGroup) {
+// RegisterPublicAuthRouter registers public authentication routes
+// These routes do not require authentication (login, init status)
+func RegisterPublicAuthRouter(group *gin.RouterGroup) {
+	authGroup := group.Group("/auth")
+	{
+		// Login/Logout - no auth required
+		authGroup.POST("/login", Login)
+		authGroup.POST("/logout", Logout)
+
+		// Session refresh - validates existing session
+		authGroup.POST("/refresh", RefreshSession)
+	}
+
+	// System initialization routes - no auth required for first-time setup
 	initGroup := group.Group("/init")
 	{
 		initGroup.GET("/status", GetInitStatus)
@@ -17,39 +28,66 @@ func RegisterInitRouter(group *gin.RouterGroup) {
 	}
 }
 
+// RegisterProtectedAuthRouter registers protected authentication routes
+// These routes require valid session authentication
+func RegisterProtectedAuthRouter(group *gin.RouterGroup) {
+	// Apply session auth middleware to this group
+	authGroup := group.Group("/auth")
+	authGroup.Use(SessionAuthMiddleware())
+	{
+		// Get current user info
+		authGroup.GET("/me", GetCurrentUser)
+	}
+}
+
 // RegisterAdminAuthRouter registers admin authentication management routes
 // These routes require admin/root authentication
 func RegisterAdminAuthRouter(group *gin.RouterGroup) {
-	// Auth mode management
-	authGroup := group.Group("/auth")
+	// Apply both session auth and admin check middleware
+	adminGroup := group.Group("")
+	adminGroup.Use(SessionAuthMiddleware(), AdminAuthMiddleware())
 	{
-		authGroup.GET("/mode", GetAuthMode)
-		authGroup.PUT("/mode", SetAuthMode)
-
-		// Auth provider management
-		providerGroup := authGroup.Group("/providers")
+		// Auth mode management
+		authGroup := adminGroup.Group("/auth")
 		{
-			providerGroup.GET("", ListAuthProviders)
-			providerGroup.POST("", CreateAuthProvider)
-			providerGroup.GET("/:id", GetAuthProvider)
-			providerGroup.PUT("/:id", UpdateAuthProvider)
-			providerGroup.DELETE("/:id", DeleteAuthProvider)
-			providerGroup.POST("/:id/test", TestAuthProvider)
+			authGroup.GET("/mode", GetAuthMode)
+			authGroup.PUT("/mode", SetAuthMode)
+
+			// Auth provider management
+			providerGroup := authGroup.Group("/providers")
+			{
+				providerGroup.GET("", ListAuthProviders)
+				providerGroup.POST("", CreateAuthProvider)
+				providerGroup.GET("/:id", GetAuthProvider)
+				providerGroup.PUT("/:id", UpdateAuthProvider)
+				providerGroup.DELETE("/:id", DeleteAuthProvider)
+				providerGroup.POST("/:id/test", TestAuthProvider)
+			}
+		}
+
+		// Root user management
+		rootGroup := adminGroup.Group("/root")
+		{
+			rootGroup.POST("/change-password", ChangeRootPassword)
+		}
+
+		// System config management
+		configGroup := adminGroup.Group("/configs")
+		{
+			configGroup.GET("", ListSystemConfigs)
+			configGroup.GET("/:key", GetSystemConfig)
+			configGroup.PUT("/:key", UpdateSystemConfig)
+			configGroup.DELETE("/:key", DeleteSystemConfig)
 		}
 	}
+}
 
-	// Root user management
-	rootGroup := group.Group("/root")
+// RegisterInitRouter registers initialization routes (legacy, for backward compatibility)
+// Deprecated: Use RegisterPublicAuthRouter instead
+func RegisterInitRouter(group *gin.RouterGroup) {
+	initGroup := group.Group("/init")
 	{
-		rootGroup.POST("/change-password", ChangeRootPassword)
-	}
-
-	// System config management
-	configGroup := group.Group("/configs")
-	{
-		configGroup.GET("", ListSystemConfigs)
-		configGroup.GET("/:key", GetSystemConfig)
-		configGroup.PUT("/:key", UpdateSystemConfig)
-		configGroup.DELETE("/:key", DeleteSystemConfig)
+		initGroup.GET("/status", GetInitStatus)
+		initGroup.POST("/setup", SetupInit)
 	}
 }

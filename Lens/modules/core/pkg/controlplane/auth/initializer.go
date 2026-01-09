@@ -91,7 +91,7 @@ func (i *Initializer) GetStatus(ctx context.Context) (*InitializationStatus, err
 
 	// Suggest mode based on detection
 	if status.SafeDetected {
-		status.SuggestedMode = AuthModeSafe
+		status.SuggestedMode = AuthModeSaFE
 	} else {
 		status.SuggestedMode = AuthModeNone
 	}
@@ -132,7 +132,7 @@ func (i *Initializer) Initialize(ctx context.Context, opts *InitializeOptions) (
 	authMode := opts.AuthMode
 	if authMode == "" {
 		if status.SafeDetected {
-			authMode = AuthModeSafe
+			authMode = AuthModeSaFE
 		} else {
 			authMode = AuthModeNone
 		}
@@ -154,7 +154,7 @@ func (i *Initializer) Initialize(ctx context.Context, opts *InitializeOptions) (
 	}
 
 	// If SaFE detected and mode is safe, enable integration
-	if authMode == AuthModeSafe && status.SafeDetected {
+	if authMode == AuthModeSaFE && status.SafeDetected {
 		if err := i.setConfigBool(ctx, ConfigKeySafeIntegrationEnabled, true, "auth"); err != nil {
 			return nil, err
 		}

@@ -50,7 +50,7 @@ func GetAuthMode(c *gin.Context) {
 			cpauth.AuthModeNone,
 			cpauth.AuthModeLDAP,
 			cpauth.AuthModeSSO,
-			cpauth.AuthModeSafe,
+			cpauth.AuthModeSaFE,
 		},
 	}
 
@@ -96,7 +96,7 @@ func SetAuthMode(c *gin.Context) {
 		cpauth.AuthModeNone: true,
 		cpauth.AuthModeLDAP: true,
 		cpauth.AuthModeSSO:  true,
-		cpauth.AuthModeSafe: true,
+		cpauth.AuthModeSaFE: true,
 	}
 	if !validModes[req.Mode] {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid auth mode"})
@@ -123,7 +123,7 @@ func SetAuthMode(c *gin.Context) {
 		message = "Authentication mode changed to LDAP. Please configure LDAP provider."
 	case cpauth.AuthModeSSO:
 		message = "Authentication mode changed to SSO. Please configure SSO provider."
-	case cpauth.AuthModeSafe:
+	case cpauth.AuthModeSaFE:
 		message = "Authentication mode changed to SaFE integration."
 	case cpauth.AuthModeNone:
 		message = "Authentication disabled. All requests will be allowed."

@@ -4,6 +4,7 @@
 package api
 
 import (
+	"github.com/AMD-AGI/Primus-SaFE/Lens/api/pkg/api/auth"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/api/pkg/api/perfetto"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/api/pkg/api/pyspy"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/api/pkg/api/registry"
@@ -480,6 +481,26 @@ func RegisterRouter(group *gin.RouterGroup) error {
 			runsGroupV2.GET("/:id/details", GetGithubWorkflowRunDetailsAPI)
 		}
 	}
+
+	// ============================================================
+	// Auth routes - New authentication system (independent from existing APIs)
+	// These routes are under /auth, /init, /configs, /root paths
+	// They do NOT affect existing API routes above
+	// ============================================================
+
+	// Public auth routes - no authentication required
+	// Includes: POST /auth/login, POST /auth/logout, POST /auth/refresh
+	//           GET /init/status, POST /init/setup
+	auth.RegisterPublicAuthRouter(group)
+
+	// Protected auth routes - requires valid session
+	// Includes: GET /auth/me
+	auth.RegisterProtectedAuthRouter(group)
+
+	// Admin auth routes - requires admin privileges
+	// Includes: GET/PUT /auth/mode, CRUD /auth/providers/*
+	//           POST /root/change-password, CRUD /configs/*
+	auth.RegisterAdminAuthRouter(group)
 
 	return nil
 }
