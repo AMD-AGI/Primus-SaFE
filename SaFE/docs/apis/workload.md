@@ -372,7 +372,8 @@ Get workload list with filtering and pagination support.
       "userId": "user-001",
       "userName": "zhangsan",
       "phase": "Running",
-      "priority": 0,
+      "priority": 0, 
+      "maxRetry": 0,
       "resources": [{
         "cpu": "128",
         "gpu": "8",
@@ -404,7 +405,7 @@ Get workload list with filtering and pagination support.
 **Field Description**:
 
 | Field                        | Type | Description                                                                             |
-|------------------------------|------|-----------------------------------------------------------------------------------------|
+|------------------------------|-----|-----------------------------------------------------------------------------------------|
 | totalCount                   | int | Total number of workloads matching the query (not limited by pagination)                |
 | workloadId                   | string | Workload ID                                                                             |
 | displayName                  | string | Workload display name                                                                   |
@@ -416,6 +417,7 @@ Get workload list with filtering and pagination support.
 | phase                        | string | Status: Pending/Running/Succeeded/Failed/Stopped/Updating/NotReady                      |
 | message                      | string | Pending reason (shown when applicable)                                                  |
 | priority                     | int | Scheduling priority (0-2), default 0                                                    |
+| maxRetry                     | int | Failure retry limit. default 0                                                                           |
 | creationTime                 | string | Creation time (RFC3339), e.g. "2025-01-15T10:30:00"                                     |
 | startTime                    | string | Start time (RFC3339)                                                                    |
 | endTime                      | string | End time (RFC3339), empty if not finished                                               |
@@ -543,7 +545,6 @@ Only fields not already covered by "List Workloads" are listed below. Other fiel
 | image | string    | Image address used by the workload                                                                                                      |
 | entryPoint | string    | Startup command/script (in base64 encoding)                                                                                             |
 | isSupervised | bool      | When enabled, it performs operations like hang detection                                                                                |
-| maxRetry | int       | Failure retry limit. default 0                                                                                                          |
 | ttlSecondsAfterFinished | int       | The lifecycle after completion, in seconds, default 60.                                                                                 |
 | env | object    | Environment variables key-value pairs                                                                                                   |
 | conditions[].type | string    | Condition type, e.g. AdminScheduled/AdminDispatched/K8sPending/K8sSucceeded/K8sFailed/K8sRunning/AdminFailover/AdminFailed/AdminStopped |

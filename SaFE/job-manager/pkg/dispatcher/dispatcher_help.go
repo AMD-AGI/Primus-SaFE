@@ -496,14 +496,10 @@ func buildObjectAnnotations(workload *v1.Workload) map[string]interface{} {
 }
 
 // buildPodLabels creates a map of labels for pod of k8s object.
-func buildPodLabels(workload *v1.Workload, currentLabels map[string]interface{}) map[string]interface{} {
+func buildPodLabels(workload *v1.Workload) map[string]interface{} {
 	result := make(map[string]interface{})
-	// TODO: Keep old logic for compatibility; remove it later.
-	if len(currentLabels) > 0 && currentLabels[v1.WorkloadIdLabel] != "" {
-		result[v1.WorkloadIdLabel] = workload.Name
-	} else {
-		result[v1.K8sObjectIdLabel] = workload.Name
-	}
+	result[v1.WorkloadIdLabel] = v1.GetRootWorkloadId(workload)
+	result[v1.K8sObjectIdLabel] = workload.Name
 	for key, value := range workload.Labels {
 		if !strings.HasPrefix(key, v1.PrimusSafePrefix) {
 			result[key] = value
@@ -918,9 +914,7 @@ func updateMetadata(adminWorkload *v1.Workload,
 	if err != nil || !found {
 		return err
 	}
-
-	currentLabels, _ := jobutils.GetLabels(obj, resourceSpec)
-	labels := buildPodLabels(adminWorkload, currentLabels)
+	labels := buildPodLabels(adminWorkload)
 	path := append(resourceSpec.GetTemplatePath(), "metadata", "labels")
 	if err = unstructured.SetNestedMap(obj.Object, labels, path...); err != nil {
 		return err

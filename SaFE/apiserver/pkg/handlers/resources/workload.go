@@ -1155,6 +1155,7 @@ func (h *Handler) cvtDBWorkloadToResponseItem(ctx context.Context, w *dbclient.W
 		AvgGpuUsage:    -1, // Default value when statistics are not available
 		ScaleRunnerSet: dbutils.ParseNullString(w.ScaleRunnerSet),
 		ScaleRunnerId:  dbutils.ParseNullString(w.ScaleRunnerId),
+		MaxRetry:       w.MaxRetry,
 	}
 	if result.EndTime == "" && result.DeletionTime != "" {
 		result.EndTime = result.DeletionTime
@@ -1206,7 +1207,6 @@ func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context,
 		WorkloadResponseItem: h.cvtDBWorkloadToResponseItem(ctx, dbWorkload),
 		Image:                dbWorkload.Image,
 		IsSupervised:         dbWorkload.IsSupervised,
-		MaxRetry:             dbWorkload.MaxRetry,
 	}
 	if result.GroupVersionKind.Kind != common.AuthoringKind && dbWorkload.EntryPoint != "" {
 		if stringutil.IsBase64(dbWorkload.EntryPoint) {

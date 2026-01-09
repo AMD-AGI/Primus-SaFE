@@ -138,6 +138,8 @@ type WorkloadResponseItem struct {
 	ScaleRunnerSet string `json:"scaleRunnerSet,omitempty"`
 	// If it is a CI/CD workload, it would be associated with a github runner action id.
 	ScaleRunnerId string `json:"scaleRunnerId,omitempty"`
+	// Failure retry limit. default 0
+	MaxRetry int `json:"maxRetry"`
 }
 
 type GetWorkloadResponse struct {
@@ -152,8 +154,6 @@ type GetWorkloadResponse struct {
 	EntryPoint string `json:"entryPoint"`
 	// Supervision flag for the workload. When enabled, it performs operations like hang detection
 	IsSupervised bool `json:"isSupervised"`
-	// Failure retry limit. default 0
-	MaxRetry int `json:"maxRetry"`
 	// The lifecycle after completion, in seconds, default 60.
 	TTLSecondsAfterFinished *int `json:"ttlSecondsAfterFinished"`
 	// Detailed processing workflow of the workload

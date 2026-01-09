@@ -732,7 +732,8 @@ func (v *WorkloadValidator) validateTorchFT(newWorkload, oldWorkload *v1.Workloa
 	}
 	if group <= 0 || group > newWorkload.Spec.Resources[1].Replica ||
 		(newWorkload.Spec.Resources[1].Replica%group) != 0 {
-		return fmt.Errorf("the %s of workload environment is invalid", common.ReplicaGroup)
+		return fmt.Errorf("the %s of workload environment is invalid: worker node count (%d) must be divisible by group count (%d)",
+			common.ReplicaGroup, newWorkload.Spec.Resources[1].Replica, group)
 	}
 
 	maxGroup, err := commonworkload.GetReplicaGroup(newWorkload, common.MaxReplicaGroup)
@@ -744,7 +745,8 @@ func (v *WorkloadValidator) validateTorchFT(newWorkload, oldWorkload *v1.Workloa
 		return err
 	}
 	if group < minGroup || group > maxGroup {
-		return fmt.Errorf("the %s of workload environment is invalid", common.ReplicaGroup)
+		return fmt.Errorf("the %s of workload environment is invalid: group count (%d) must be between min group (%d) and max group (%d)",
+			common.ReplicaGroup, group, minGroup, maxGroup)
 	}
 	if oldWorkload != nil {
 		oldMaxGroup, _ := commonworkload.GetReplicaGroup(oldWorkload, common.MaxReplicaGroup)
