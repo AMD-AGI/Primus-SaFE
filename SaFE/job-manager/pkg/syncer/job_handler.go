@@ -160,9 +160,16 @@ func (r *SyncerReconciler) waitAllPodsDeleted(ctx context.Context, message *reso
 	labelSelector := metav1.LabelSelector{
 		MatchLabels: map[string]string{v1.K8sObjectIdLabel: message.name},
 	}
+	// TODO: Keep old logic for compatibility; remove it later.
+	if len(message.selectorLabels) > 0 {
+		if _, ok := message.selectorLabels[v1.WorkloadIdLabel]; ok {
+			labelSelector.MatchLabels = map[string]string{v1.WorkloadIdLabel: message.workloadId}
+		}
+	}
 	listOptions := metav1.ListOptions{
 		LabelSelector: metav1.FormatLabelSelector(&labelSelector),
 	}
+	klog.Infof("wait all pods are deleted, workload: %s, match labels: %v", message.workloadId, labelSelector.MatchLabels)
 	podList, err := clientSets.dataClientFactory.ClientSet().CoreV1().Pods(message.namespace).List(ctx, listOptions)
 	if err != nil {
 		klog.ErrorS(err, "failed to list pods", "workload", message.workloadId, "namespace", message.namespace)

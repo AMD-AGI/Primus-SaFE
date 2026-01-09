@@ -302,6 +302,7 @@ TorchFT is a fault-tolerant distributed training framework that supports elastic
 | labels                       | object   | No       | User-defined labels (key-value pairs). Keys cannot start with "primus-safe"                                                           |
 | annotations                  | object   | No       | User-defined annotations (key-value pairs). Keys cannot start with "primus-safe"                                                      |
 | preheat                      | bool     | No       | indicates whether to preheat the workload to prepare image in advance                                                                 |
+| workloadId | string | NO | 	If a workload ID is specified, use that ID directly instead of generating one from the display name. |
 
 **Replica Rules when `specifiedNodes` is provided**:
 

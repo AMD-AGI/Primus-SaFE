@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"strconv"
 
+	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	apitypes "k8s.io/apimachinery/pkg/types"
@@ -69,6 +70,8 @@ type resourceMessage struct {
 	gvk        schema.GroupVersionKind
 	action     string
 	workloadId string
+	// TODO: Keep old logic for compatibility; remove it later.
+	selectorLabels map[string]interface{}
 	// dispatch count for this message — note that messages can be redelivered due to failover
 	dispatchCount int
 }
@@ -206,6 +209,9 @@ func (r *ClusterClientSets) handleResource(_ context.Context, oldObj, newObj int
 	strCount := newUnstructured.GetLabels()[v1.WorkloadDispatchCntLabel]
 	if n, err := strconv.Atoi(strCount); err == nil {
 		msg.dispatchCount = n
+	}
+	if labels, _ := jobutils.GetSelectorLabels(newUnstructured); len(labels) > 0 {
+		msg.selectorLabels = labels
 	}
 
 	switch action {

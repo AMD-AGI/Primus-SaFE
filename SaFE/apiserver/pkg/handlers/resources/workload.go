@@ -751,7 +751,9 @@ func (h *Handler) generateWorkload(ctx context.Context,
 			},
 		},
 	}
-
+	if req.WorkloadId != "" {
+		workload.Name = req.WorkloadId
+	}
 	var err error
 	if err = json.Unmarshal(body, &workload.Spec); err != nil {
 		return nil, err

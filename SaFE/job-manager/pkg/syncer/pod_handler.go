@@ -366,7 +366,7 @@ func sortWorkloadPods(adminWorkload *v1.Workload) {
 func getMainContainerName(adminWorkload *v1.Workload, pod *corev1.Pod) string {
 	mainContainerName := v1.GetMainContainer(pod)
 	if mainContainerName == "" {
-		// Make compatibility adaptations for legacy code
+		// TODO: Keep old logic for compatibility; remove it later.
 		mainContainerName = v1.GetMainContainer(adminWorkload)
 	}
 	return mainContainerName

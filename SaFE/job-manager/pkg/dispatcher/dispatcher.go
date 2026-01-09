@@ -641,13 +641,6 @@ func applyWorkloadSpecToObject(ctx context.Context, clientSets *syncer.ClusterCl
 		}
 	}
 
-	if commonworkload.IsApplication(adminWorkload) {
-		path := []string{"spec", "selector"}
-		if err := updateSelector(obj, adminWorkload, path); err != nil {
-			return fmt.Errorf("failed to update selector: %v", err.Error())
-		}
-	}
-
 	for i, t := range rt.Spec.ResourceSpecs {
 		if i >= len(adminWorkload.Spec.Resources) {
 			unstructured.RemoveNestedField(obj.Object, t.PrePaths...)

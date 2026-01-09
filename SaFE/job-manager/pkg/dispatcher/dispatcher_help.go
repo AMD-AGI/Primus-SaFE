@@ -85,10 +85,14 @@ func initializeObject(obj *unstructured.Unstructured,
 	if err = modifyTolerations(obj, workload, path); err != nil {
 		return fmt.Errorf("failed to modify tolerations: %v", err.Error())
 	}
-	if workload.Spec.Service != nil {
+	if commonworkload.IsApplication(workload) {
 		path = []string{"spec", "strategy"}
 		if err = modifyStrategy(obj, workload, path); err != nil {
 			return fmt.Errorf("failed to modify strategy: %v", err.Error())
+		}
+		path = []string{"spec", "selector"}
+		if err = modifySelector(obj, workload, path); err != nil {
+			return fmt.Errorf("failed to modify selector: %v", err.Error())
 		}
 	}
 	if err = modifyByOpsJob(obj, workload, templatePath); err != nil {
@@ -415,6 +419,18 @@ func modifyStrategy(obj *unstructured.Unstructured, workload *v1.Workload, path 
 	return nil
 }
 
+// modifySelector sets the selector for service objects to match the workload.
+func modifySelector(obj *unstructured.Unstructured, workload *v1.Workload, path []string) error {
+	selector := buildSelector(workload)
+	if len(selector) == 0 {
+		return nil
+	}
+	if err := unstructured.SetNestedMap(obj.Object, selector, path...); err != nil {
+		return err
+	}
+	return nil
+}
+
 // modifyTolerations adds tolerations to tolerate all taints when IsTolerateAll is enabled.
 func modifyTolerations(obj *unstructured.Unstructured, workload *v1.Workload, path []string) error {
 	if !workload.Spec.IsTolerateAll {
@@ -480,9 +496,13 @@ func buildObjectAnnotations(workload *v1.Workload) map[string]interface{} {
 }
 
 // buildPodLabels creates a map of labels for pod of k8s object.
-func buildPodLabels(workload *v1.Workload) map[string]interface{} {
-	result := map[string]interface{}{
-		v1.K8sObjectIdLabel: workload.Name,
+func buildPodLabels(workload *v1.Workload, currentLabels map[string]interface{}) map[string]interface{} {
+	result := make(map[string]interface{})
+	// TODO: Keep old logic for compatibility; remove it later.
+	if len(currentLabels) > 0 && currentLabels[v1.WorkloadIdLabel] != "" {
+		result[v1.WorkloadIdLabel] = workload.Name
+	} else {
+		result[v1.K8sObjectIdLabel] = workload.Name
 	}
 	for key, value := range workload.Labels {
 		if !strings.HasPrefix(key, v1.PrimusSafePrefix) {
@@ -729,18 +749,6 @@ func convertEnvsToStringMap(envs []interface{}) map[string]string {
 	return result
 }
 
-// updateSelector sets the selector for service objects to match the workload.
-func updateSelector(obj *unstructured.Unstructured, workload *v1.Workload, path []string) error {
-	selector := buildSelector(workload)
-	if len(selector) == 0 {
-		return nil
-	}
-	if err := unstructured.SetNestedMap(obj.Object, selector, path...); err != nil {
-		return err
-	}
-	return nil
-}
-
 // updateReplica updates the replica count in the unstructured object.
 func updateReplica(adminWorkload *v1.Workload,
 	obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec, id int) error {
@@ -911,7 +919,8 @@ func updateMetadata(adminWorkload *v1.Workload,
 		return err
 	}
 
-	labels := buildPodLabels(adminWorkload)
+	currentLabels, _ := jobutils.GetLabels(obj, resourceSpec)
+	labels := buildPodLabels(adminWorkload, currentLabels)
 	path := append(resourceSpec.GetTemplatePath(), "metadata", "labels")
 	if err = unstructured.SetNestedMap(obj.Object, labels, path...); err != nil {
 		return err

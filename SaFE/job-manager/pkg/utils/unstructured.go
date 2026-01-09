@@ -516,22 +516,33 @@ func getIntValueByName(objects map[string]interface{}, name string) (int64, bool
 }
 
 // GetLabels retrieves the labels from Unstructured object.
-func GetLabels(unstructuredObj *unstructured.Unstructured, rt *v1.ResourceTemplate) (map[string]interface{}, error) {
-	for _, t := range rt.Spec.ResourceSpecs {
-		path := t.PrePaths
-		path = append(path, t.TemplatePaths...)
-		path = append(path, "metadata", "labels")
-		labels, found, err := unstructured.NestedMap(unstructuredObj.Object, path...)
-		if err != nil {
-			klog.ErrorS(err, "failed to find labels", "path", path)
-			return nil, err
-		}
-		if !found {
-			return nil, nil
-		}
-		return labels, nil
+func GetLabels(unstructuredObj *unstructured.Unstructured, resourceSpec v1.ResourceSpec) (map[string]interface{}, error) {
+	path := resourceSpec.PrePaths
+	path = append(path, resourceSpec.TemplatePaths...)
+	path = append(path, "metadata", "labels")
+	labels, found, err := unstructured.NestedMap(unstructuredObj.Object, path...)
+	if err != nil {
+		klog.ErrorS(err, "failed to find labels", "path", path)
+		return nil, err
 	}
-	return nil, nil
+	if !found {
+		return nil, nil
+	}
+	return labels, nil
+}
+
+// GetSelectorLabels retrieves the labels of selector from Unstructured object.
+func GetSelectorLabels(unstructuredObj *unstructured.Unstructured) (map[string]interface{}, error) {
+	path := []string{"spec", "selector", "matchLabels"}
+	labels, found, err := unstructured.NestedMap(unstructuredObj.Object, path...)
+	if err != nil {
+		klog.ErrorS(err, "failed to find labels", "path", path)
+		return nil, err
+	}
+	if !found {
+		return nil, nil
+	}
+	return labels, nil
 }
 
 // GetEnv Retrieve the environment value of the main container.
