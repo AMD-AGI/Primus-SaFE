@@ -1,3 +1,6 @@
+// Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
+// See LICENSE for license information.
+
 package constant
 
 // Task status constants
@@ -27,6 +30,9 @@ const (
 	TaskTypeLogDetection         = "detection_log_scan"
 	TaskTypeImageProbe           = "detection_image_probe"
 	TaskTypeLabelProbe           = "detection_label_probe"
+
+	// Py-spy profiling task (executed by node-exporter on target node, dispatched by jobs module)
+	TaskTypePySpySample = "pyspy_sample"
 )
 
 // Detection coverage source constants

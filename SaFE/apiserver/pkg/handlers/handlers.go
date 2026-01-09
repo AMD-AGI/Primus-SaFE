@@ -46,6 +46,13 @@ func InitHttpHandlers(_ context.Context, mgr ctrlruntime.Manager) (*gin.Engine, 
 	if _, err := authority.NewInternalAuth(mgr.GetClient()); err != nil {
 		return nil, commonerrors.NewInternalError("failed to initialize internal auth: " + err.Error())
 	}
+	// Initialize API key authentication if database is enabled
+	if commonconfig.IsDBEnable() {
+		dbClient := dbclient.NewClient()
+		if dbClient != nil {
+			authority.NewApiKeyToken(dbClient)
+		}
+	}
 	customHandler, err := reshandler.NewHandler(mgr)
 	if err != nil {
 		return nil, err
