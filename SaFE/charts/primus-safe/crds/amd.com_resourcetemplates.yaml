@@ -80,12 +80,6 @@ spec:
                       items:
                         type: string
                       type: array
-                    replica:
-                      description: |-
-                        If the replica count is set to a non-zero value, it will be used as a fixed allocation when the task is submitted
-                        This applies only to the master role of a PyTorchJob (or similar structures).
-                      format: int64
-                      type: integer
                     replicasPaths:
                       description: The relative path of pod replica
                       items:

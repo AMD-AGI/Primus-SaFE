@@ -33,6 +33,14 @@ func truncateString(s string, maxLength int) string {
 	return string(runes[:maxLength])
 }
 
+// escapePostgresArrayElement escapes special characters for PostgreSQL array literal syntax.
+// In PostgreSQL array literals, backslashes and double quotes need to be escaped.
+func escapePostgresArrayElement(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `"`, `\"`)
+	return s
+}
+
 // workloadMapper converts an unstructured workload object to a database workload model.
 func workloadMapper(obj *unstructured.Unstructured) *dbclient.Workload {
 	workload := &v1.Workload{}
@@ -57,7 +65,7 @@ func workloadMapper(obj *unstructured.Unstructured) *dbclient.Workload {
 		DisplayName:   v1.GetDisplayName(workload),
 		Workspace:     workload.Spec.Workspace,
 		Cluster:       v1.GetClusterId(workload),
-		Resource:      string(jsonutils.MarshalSilently(workload.Spec.Resource)),
+		Resources:     dbutils.NullString(string(jsonutils.MarshalSilently(workload.Spec.Resources))),
 		Image:         workload.Spec.Image,
 		EntryPoint:    workload.Spec.EntryPoint,
 		GVK:           string(jsonutils.MarshalSilently(workload.Spec.GroupVersionKind)),
@@ -76,7 +84,6 @@ func workloadMapper(obj *unstructured.Unstructured) *dbclient.Workload {
 		Timeout:       workload.GetTimeout(),
 		Description:   dbutils.NullString(v1.GetDescription(workload)),
 		UserId:        dbutils.NullString(v1.GetUserId(workload)),
-		K8sObjectUid:  dbutils.NullString(workload.Status.K8sObjectUid),
 		WorkloadUId:   dbutils.NullString(string(workload.UID)),
 	}
 	if workload.Spec.TTLSecondsAfterFinished != nil {
@@ -229,7 +236,7 @@ func opsJobMapper(obj *unstructured.Unstructured) *dbclient.OpsJob {
 
 	inputs := make([]string, 0, len(job.Spec.Inputs))
 	for _, p := range job.Spec.Inputs {
-		inputs = append(inputs, v1.CvtParamToString(&p))
+		inputs = append(inputs, escapePostgresArrayElement(v1.CvtParamToString(&p)))
 	}
 	strInputs := fmt.Sprintf("{\"%s\"}", strings.Join(inputs, "\",\""))
 	result := &dbclient.OpsJob{

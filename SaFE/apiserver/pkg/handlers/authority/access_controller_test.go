@@ -355,3 +355,65 @@ func TestIsMatchVerbEmptyRules(t *testing.T) {
 	result := isMatchVerb(emptyRules, v1.GetVerb)
 	assert.False(t, result)
 }
+
+func TestGetRoles(t *testing.T) {
+	// Setup test scheme
+	scheme := runtime.NewScheme()
+	_ = v1.AddToScheme(scheme)
+
+	// Create test role
+	testRole := &v1.Role{
+		ObjectMeta: metav1.ObjectMeta{Name: string(v1.DefaultRole)},
+		Rules: []v1.PolicyRule{
+			{
+				Resources:    []string{"workload"},
+				GrantedUsers: []string{"owner"},
+				Verbs:        []v1.RoleVerb{v1.GetVerb, v1.ListVerb},
+			},
+		},
+	}
+
+	// Create test user with one role
+	testUser := &v1.User{
+		ObjectMeta: metav1.ObjectMeta{Name: "testuser"},
+		Spec: v1.UserSpec{
+			Type:  v1.DefaultUserType,
+			Roles: []v1.UserRole{v1.DefaultRole},
+		},
+	}
+
+	// Create fake client
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(testRole).
+		Build()
+
+	controller := NewAccessController(fakeClient)
+	roles := controller.GetRoles(context.Background(), testUser)
+
+	assert.Len(t, roles, 1)
+	assert.Equal(t, string(v1.DefaultRole), roles[0].Name)
+}
+
+func TestAuthorizeSystemAdmin(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = v1.AddToScheme(scheme)
+
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+	controller := NewAccessController(fakeClient)
+
+	// Test: system admin should be authorized
+	systemAdminUser := &v1.User{
+		ObjectMeta: metav1.ObjectMeta{Name: "admin"},
+		Spec: v1.UserSpec{
+			Roles: []v1.UserRole{v1.SystemAdminRole},
+		},
+	}
+
+	err := controller.AuthorizeSystemAdmin(AccessInput{
+		Context: context.Background(),
+		User:    systemAdminUser,
+	}, false)
+
+	assert.NoError(t, err)
+}

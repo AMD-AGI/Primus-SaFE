@@ -81,7 +81,6 @@ func TestCreatePytorchJob(t *testing.T) {
 		Id:   workspace.Spec.ImageSecrets[0].Name,
 		Type: v1.SecretImage,
 	}}
-	metav1.SetMetaDataAnnotation(&workload.ObjectMeta, v1.EnableHostNetworkAnnotation, "true")
 
 	configmap, err := parseConfigmap(TestPytorchJobTemplateConfig)
 	assert.NilError(t, err)
@@ -95,15 +94,15 @@ func TestCreatePytorchJob(t *testing.T) {
 	assert.NilError(t, err)
 	templates := jobutils.TestPytorchResourceTemplate.Spec.ResourceSpecs
 
-	checkResources(t, obj, workload, &templates[0], 1)
+	checkResources(t, obj, workload, &templates[0], 1, 0)
 	checkPorts(t, obj, workload, &templates[0])
-	checkEnvs(t, obj, workload, &templates[0])
+	checkEnvs(t, obj, workload, &templates[0], 0)
 	checkVolumeMounts(t, obj, &templates[0])
-	checkVolumes(t, obj, workload, &templates[0])
+	checkVolumes(t, obj, workload, &templates[0], 0)
 	checkNodeSelectorTerms(t, obj, workload, &templates[0])
 	checkImage(t, obj, workload.Spec.Image, &templates[0])
-	checkLabels(t, obj, workload, &templates[0])
-	checkHostNetwork(t, obj, workload, &templates[0])
+	checkLabels(t, obj, workload, &templates[0], 0)
+	checkHostNetwork(t, obj, workload, &templates[0], 0)
 	checkTolerations(t, obj, workload, &templates[0])
 	checkPriorityClass(t, obj, workload, &templates[0])
 	checkImageSecrets(t, obj, &templates[0])
@@ -112,20 +111,20 @@ func TestCreatePytorchJob(t *testing.T) {
 	assert.Equal(t, found, false)
 
 	// enable worker
-	workload.Spec.Resource.Replica = 3
+	workload.Spec.Resources = append(workload.Spec.Resources, *workload.Spec.Resources[0].DeepCopy())
+	workload.Spec.Resources[1].Replica = 2
 	workload.Spec.IsTolerateAll = true
-	metav1.SetMetaDataAnnotation(&workload.ObjectMeta, v1.EnableHostNetworkAnnotation, "true")
 	obj, err = r.generateK8sObject(context.Background(), workload, nil)
 	assert.NilError(t, err)
-	checkResources(t, obj, workload, &templates[1], 2)
-	checkEnvs(t, obj, workload, &templates[1])
+	checkResources(t, obj, workload, &templates[1], 2, 1)
+	checkEnvs(t, obj, workload, &templates[1], 1)
 	checkPorts(t, obj, workload, &templates[1])
 	checkVolumeMounts(t, obj, &templates[1])
-	checkVolumes(t, obj, workload, &templates[1])
+	checkVolumes(t, obj, workload, &templates[1], 1)
 	checkNodeSelectorTerms(t, obj, workload, &templates[1])
 	checkImage(t, obj, workload.Spec.Image, &templates[1])
-	checkLabels(t, obj, workload, &templates[1])
-	checkHostNetwork(t, obj, workload, &templates[1])
+	checkLabels(t, obj, workload, &templates[1], 1)
+	checkHostNetwork(t, obj, workload, &templates[1], 1)
 	checkTolerations(t, obj, workload, &templates[1])
 	checkPriorityClass(t, obj, workload, &templates[1])
 	checkImageSecrets(t, obj, &templates[1])
@@ -164,15 +163,15 @@ func TestCreateDeployment(t *testing.T) {
 	assert.NilError(t, err)
 	templates := jobutils.TestDeploymentTemplate.Spec.ResourceSpecs
 
-	checkResources(t, obj, workload, &templates[0], 1)
+	checkResources(t, obj, workload, &templates[0], 1, 0)
 	checkPorts(t, obj, workload, &templates[0])
-	checkEnvs(t, obj, workload, &templates[0])
+	checkEnvs(t, obj, workload, &templates[0], 0)
 	checkVolumeMounts(t, obj, &templates[0])
-	checkVolumes(t, obj, workload, &templates[0])
+	checkVolumes(t, obj, workload, &templates[0], 0)
 	checkNodeSelectorTerms(t, obj, workload, &templates[0])
 	checkImage(t, obj, workload.Spec.Image, &templates[0])
-	checkLabels(t, obj, workload, &templates[0])
-	checkHostNetwork(t, obj, workload, &templates[0])
+	checkLabels(t, obj, workload, &templates[0], 0)
+	checkHostNetwork(t, obj, workload, &templates[0], 0)
 	checkSelector(t, obj, workload)
 	checkStrategy(t, obj, workload)
 	// fmt.Println(unstructuredutils.ToString(obj))
@@ -205,9 +204,10 @@ func TestUpdateDeployment(t *testing.T) {
 	cmd := buildEntryPoint(adminWorkload)
 	assert.Equal(t, deployment.Spec.Template.Spec.Containers[0].Command[2], cmd)
 
-	shareMemorySize, err := jobutils.GetMemoryStorageSize(workloadObj, jobutils.TestDeploymentTemplate)
+	shareMemorySizes, err := jobutils.GetMemoryStorageSize(workloadObj, jobutils.TestDeploymentTemplate)
 	assert.NilError(t, err)
-	assert.Equal(t, shareMemorySize, "32Gi")
+	assert.Equal(t, len(shareMemorySizes), 1)
+	assert.Equal(t, shareMemorySizes[0], "32Gi")
 }
 
 func TestUpdatePytorchJob(t *testing.T) {
@@ -217,8 +217,9 @@ func TestUpdatePytorchJob(t *testing.T) {
 	workloadObj, err := jsonutils.ParseYamlToJson(jobutils.TestPytorchData)
 	assert.NilError(t, err)
 	adminWorkload := jobutils.TestWorkloadData.DeepCopy()
-	adminWorkload.Spec.Resource = v1.WorkloadResource{
-		Replica:          3,
+
+	adminWorkload.Spec.Resources[0] = v1.WorkloadResource{
+		Replica:          1,
 		CPU:              "64",
 		GPU:              "8",
 		GPUName:          "amd.com/gpu",
@@ -227,7 +228,9 @@ func TestUpdatePytorchJob(t *testing.T) {
 		EphemeralStorage: "100Gi",
 		RdmaResource:     "1k",
 	}
-	metav1.SetMetaDataAnnotation(&adminWorkload.ObjectMeta, v1.EnableHostNetworkAnnotation, "true")
+	adminWorkload.Spec.Resources = append(adminWorkload.Spec.Resources, *adminWorkload.Spec.Resources[0].DeepCopy())
+	adminWorkload.Spec.Resources[1].Replica = 2
+
 	metav1.SetMetaDataAnnotation(&adminWorkload.ObjectMeta, v1.MainContainerAnnotation, "pytorch")
 	err = applyWorkloadSpecToObject(context.Background(), nil, workloadObj, adminWorkload, nil, jobutils.TestPytorchResourceTemplate)
 	assert.NilError(t, err)
@@ -269,7 +272,7 @@ func TestUpdatePytorchJobMaster(t *testing.T) {
 	workloadObj, err := jsonutils.ParseYamlToJson(jobutils.TestPytorchData)
 	assert.NilError(t, err)
 	adminWorkload := jobutils.TestWorkloadData.DeepCopy()
-	adminWorkload.Spec.Resource.RdmaResource = ""
+	adminWorkload.Spec.Resources[0].RdmaResource = ""
 	metav1.SetMetaDataAnnotation(&adminWorkload.ObjectMeta, v1.MainContainerAnnotation, "pytorch")
 	err = applyWorkloadSpecToObject(context.Background(), nil, workloadObj, adminWorkload, nil, jobutils.TestPytorchResourceTemplate)
 	assert.NilError(t, err)
@@ -339,11 +342,11 @@ func TestIsShareMemoryChanged(t *testing.T) {
 	assert.NilError(t, err)
 	adminWorkload := jobutils.TestWorkloadData.DeepCopy()
 
-	adminWorkload.Spec.Resource.SharedMemory = "20Gi"
+	adminWorkload.Spec.Resources[0].SharedMemory = "20Gi"
 	ok := isSharedMemoryChanged(adminWorkload, workloadObj, jobutils.TestDeploymentTemplate)
 	assert.Equal(t, ok, false)
 
-	adminWorkload.Spec.Resource.SharedMemory = "30Gi"
+	adminWorkload.Spec.Resources[0].SharedMemory = "30Gi"
 	ok = isSharedMemoryChanged(adminWorkload, workloadObj, jobutils.TestDeploymentTemplate)
 	assert.Equal(t, ok, true)
 }
@@ -465,7 +468,7 @@ func TestCreateK8sJob(t *testing.T) {
 	workload.Spec.CustomerLabels = map[string]string{
 		v1.K8sHostName: "node1",
 	}
-	workload.Spec.Resource.Replica = 2
+	workload.Spec.Resources[0].Replica = 2
 	v1.SetAnnotation(workload, v1.UserNameAnnotation, common.UserSystem)
 	v1.SetAnnotation(workload, v1.RequireNodeSpreadAnnotation, v1.TrueStr)
 	v1.SetLabel(workload, v1.OpsJobTypeLabel, string(v1.OpsJobPreflightType))
@@ -483,14 +486,14 @@ func TestCreateK8sJob(t *testing.T) {
 	// fmt.Println(unstructuredutils.ToString(obj))
 
 	templates := jobutils.TestJobTemplate.Spec.ResourceSpecs
-	checkResources(t, obj, workload, &templates[0], workload.Spec.Resource.Replica)
+	checkResources(t, obj, workload, &templates[0], workload.Spec.Resources[0].Replica, 0)
 	checkPorts(t, obj, workload, &templates[0])
 	checkNodeSelectorTerms(t, obj, workload, &templates[0])
 	checkPodAntiAffinity(t, obj, workload, &templates[0])
-	checkEnvs(t, obj, workload, &templates[0])
+	checkEnvs(t, obj, workload, &templates[0], 0)
 	checkImage(t, obj, workload.Spec.Image, &templates[0])
-	checkLabels(t, obj, workload, &templates[0])
-	checkHostNetwork(t, obj, workload, &templates[0])
+	checkLabels(t, obj, workload, &templates[0], 0)
+	checkHostNetwork(t, obj, workload, &templates[0], 0)
 	checkHostPid(t, obj, workload, &templates[0])
 	checkPriorityClass(t, obj, workload, &templates[0])
 	checkSecurityContext(t, obj, workload, &templates[0])
@@ -525,11 +528,11 @@ func TestCreateCICDScaleSet(t *testing.T) {
 	templates := jobutils.TestJobTemplate.Spec.ResourceSpecs
 	checkGithubConfig(t, obj)
 	checkNodeSelectorTerms(t, obj, workload, &templates[0])
-	checkLabels(t, obj, workload, &templates[0])
+	checkLabels(t, obj, workload, &templates[0], 0)
 	checkSecurityContext(t, obj, workload, &templates[0])
-	checkEnvs(t, obj, workload, &templates[0])
+	checkEnvs(t, obj, workload, &templates[0], 0)
 	checkImage(t, obj, workload.Spec.Image, &templates[0])
-	checkHostNetwork(t, obj, workload, &templates[0])
+	checkHostNetwork(t, obj, workload, &templates[0], 0)
 	envs := getEnvs(t, obj, &templates[0])
 	checkCICDEnvs(t, envs, workload)
 
@@ -544,7 +547,7 @@ func TestCICDScaleSetWithUnifiedJob(t *testing.T) {
 		Version: "v1",
 		Kind:    common.CICDScaleRunnerSetKind,
 	}
-	workload.Spec.Resource.Replica = 2
+	workload.Spec.Resources[0].Replica = 2
 	workload.Spec.Env[common.GithubConfigUrl] = "test-url"
 	v1.SetAnnotation(workload, v1.GithubSecretIdAnnotation, "test-secret")
 	v1.SetAnnotation(workload, v1.AdminControlPlaneAnnotation, "10.0.0.1")
@@ -566,10 +569,10 @@ func TestCICDScaleSetWithUnifiedJob(t *testing.T) {
 
 	templates := jobutils.TestJobTemplate.Spec.ResourceSpecs
 	checkNodeSelectorTerms(t, obj, workload, &templates[0])
-	checkLabels(t, obj, workload, &templates[0])
+	checkLabels(t, obj, workload, &templates[0], 0)
 	checkSecurityContext(t, obj, workload, &templates[0])
-	checkEnvs(t, obj, workload, &templates[0])
-	checkHostNetwork(t, obj, workload, &templates[0])
+	checkEnvs(t, obj, workload, &templates[0], 0)
+	checkHostNetwork(t, obj, workload, &templates[0], 0)
 
 	checkCICDContainer(t, obj, workload, &templates[0],
 		"runner", workload.Spec.Image)

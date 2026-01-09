@@ -134,4 +134,8 @@ const (
 	// Deployable components for CD
 	cdComponents = cdPrefix + "components"
 	cdJobImage   = cdPrefix + "job_image"
+
+	// torchft
+	torchftPrefix     = "torchft."
+	torchFTLightHouse = torchftPrefix + "lighthouse"
 )
