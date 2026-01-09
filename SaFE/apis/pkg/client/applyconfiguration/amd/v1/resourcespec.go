@@ -13,7 +13,6 @@ type ResourceSpecApplyConfiguration struct {
 	TemplatePaths    []string `json:"templatePaths,omitempty"`
 	ReplicasPaths    []string `json:"replicasPaths,omitempty"`
 	CompletionsPaths []string `json:"completionsPaths,omitempty"`
-	Replica          *int64   `json:"replica,omitempty"`
 }
 
 // ResourceSpecApplyConfiguration constructs a declarative configuration of the ResourceSpec type for use with
@@ -59,13 +58,5 @@ func (b *ResourceSpecApplyConfiguration) WithCompletionsPaths(values ...string) 
 	for i := range values {
 		b.CompletionsPaths = append(b.CompletionsPaths, values[i])
 	}
-	return b
-}
-
-// WithReplica sets the Replica field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the Replica field is set to the value of the last call.
-func (b *ResourceSpecApplyConfiguration) WithReplica(value int64) *ResourceSpecApplyConfiguration {
-	b.Replica = &value
 	return b
 }

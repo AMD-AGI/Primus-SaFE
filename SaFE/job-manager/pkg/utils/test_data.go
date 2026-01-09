@@ -560,7 +560,7 @@ spec:
         - name: PRIORITY
           value: "1"
         - name: RESOURCES
-          value: '{"replica":1,"cpu":"4","memory":"16Gi","sharedMemory":"8Gi","ephemeralStorage":"50Gi"}'
+          value: '[{"replica":1,"cpu":"4","memory":"16Gi","sharedMemory":"8Gi","ephemeralStorage":"50Gi"}]'
         - name: IMAGE
           value: primussafe/buildah-runner:v2.329.0-3
         - name: GITHUB_CONFIG_URL
@@ -657,7 +657,6 @@ var (
 				PrePaths:      []string{"spec", "pytorchReplicaSpecs", "Master"},
 				TemplatePaths: []string{"template"},
 				ReplicasPaths: []string{"replicas"},
-				Replica:       1,
 			}, {
 				PrePaths:      []string{"spec", "pytorchReplicaSpecs", "Worker"},
 				TemplatePaths: []string{"template"},
@@ -896,7 +895,6 @@ var (
 			ResourceSpecs: []v1.ResourceSpec{{
 				PrePaths:      []string{"spec"},
 				TemplatePaths: []string{"template"},
-				Replica:       1,
 			}},
 		},
 	}
@@ -951,9 +949,10 @@ var (
 
 	TestWorkloadData = &v1.Workload{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: "test-workload",
+			Name: "test-workload-abcde",
 			Labels: map[string]string{
-				v1.ClusterIdLabel: "test-cluster",
+				v1.ClusterIdLabel:   "test-cluster",
+				v1.DisplayNameLabel: "test-workload",
 			},
 			Annotations: map[string]string{
 				v1.UserNameAnnotation: "test-user",
@@ -973,7 +972,7 @@ var (
 				Version: "v1",
 				Kind:    "PyTorchJob",
 			},
-			Resource: v1.WorkloadResource{
+			Resources: []v1.WorkloadResource{{
 				Replica:          1,
 				CPU:              "32",
 				GPU:              "4",
@@ -982,7 +981,7 @@ var (
 				SharedMemory:     "32Gi",
 				EphemeralStorage: "20Gi",
 				RdmaResource:     "1k",
-			},
+			}},
 			Env: map[string]string{
 				"key": "value",
 			},

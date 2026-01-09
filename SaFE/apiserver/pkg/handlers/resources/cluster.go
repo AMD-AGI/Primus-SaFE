@@ -92,7 +92,7 @@ func (h *Handler) createCluster(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := h.accessController.Authorize(authority.AccessInput{
+	if err = h.accessController.Authorize(authority.AccessInput{
 		Context:      c.Request.Context(),
 		ResourceKind: v1.ClusterKind,
 		Verb:         v1.CreateVerb,
@@ -140,7 +140,7 @@ func (h *Handler) generateCluster(ctx context.Context,
 		return nil, err
 	}
 	for key, val := range req.Labels {
-		if key == "" {
+		if key == "" || strings.HasPrefix(key, v1.PrimusSafePrefix) {
 			continue
 		}
 		v1.SetLabel(cluster, key, val)
@@ -288,6 +288,27 @@ func applyClusterPatch(cluster *v1.Cluster, req *view.PatchClusterRequest) (bool
 			v1.RemoveLabel(cluster, v1.ProtectLabel)
 		}
 		isChanged = true
+	}
+	if req.Labels != nil {
+		for key, _ := range cluster.Labels {
+			if strings.HasPrefix(key, v1.PrimusSafePrefix) {
+				continue
+			}
+			_, ok := (*req.Labels)[key]
+			if !ok {
+				if v1.RemoveLabel(cluster, key) {
+					isChanged = true
+				}
+			}
+		}
+		for key, val := range *req.Labels {
+			if key == "" || strings.HasPrefix(key, v1.PrimusSafePrefix) {
+				continue
+			}
+			if v1.SetLabel(cluster, key, val) {
+				isChanged = true
+			}
+		}
 	}
 	return isChanged, nil
 }
@@ -567,6 +588,15 @@ func cvtToGetClusterResponse(ctx context.Context, client client.Client, cluster 
 	}
 	if cluster.Spec.ControlPlane.SSHSecret != nil {
 		result.SSHSecretId = cluster.Spec.ControlPlane.SSHSecret.Name
+	}
+	for key, val := range cluster.Labels {
+		if strings.HasPrefix(key, v1.PrimusSafePrefix) {
+			continue
+		}
+		if len(result.Labels) == 0 {
+			result.Labels = make(map[string]string)
+		}
+		result.Labels[key] = val
 	}
 	result.Endpoint, _ = commoncluster.GetEndpoint(ctx, client, cluster)
 	return result

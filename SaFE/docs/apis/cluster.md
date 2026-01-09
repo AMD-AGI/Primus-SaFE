@@ -62,7 +62,7 @@ Create a new Kubernetes cluster.
 | kubeNetworkPlugin | string | Yes | Network plugin, default flannel                                                                                     |
 | kubeVersion | string | Yes | Kubernetes version, e.g.  1.32.5                                                                                    |
 | kubeApiServerArgs | object | No | additional arguments for Kubernetes, e.g. {"max-mutating-requests-inflight":"5000","max-requests-inflight":"10000"} |
-| labels | object | No | Cluster labels, e.g. {"region":"us-west"}                                                                                               |
+| labels | object | No | User-defined labels (key-value pairs). Keys cannot start with "primus-safe"                                           |
 | isProtected | bool | No | Whether protected (protected clusters cannot be deleted directly)                                                   |
 
 **Response Example**:
@@ -161,14 +161,18 @@ Get detailed information about a specific cluster.
   "kubernetesVersion": "1.32.5",
   "kubeApiServerArgs": {
     "max-requests-inflight": "400"
-  }
+  },
+  "labels": {
+    "env": "production",
+    "region": "us-west"
+  },
 }
 ```
 
 **Field Description**:
 
 | Field | Type | Description |
-|-------|------|-------------|
+|-------|------|------------|
 | clusterId | string | Cluster ID |
 | userId | string | User ID who created the cluster |
 | phase | string | Cluster status, such as Ready,Creating,Failed,Deleting |
@@ -185,6 +189,7 @@ Get detailed information about a specific cluster.
 | kubeNetworkPlugin | string | Network plugin, default flannel |
 | kubernetesVersion | string | Kubernetes version, e.g. 1.32.5 |
 | kubeApiServerArgs | object | Additional Kubernetes API server arguments |
+| labels | object  | User-defined labels (key-value pairs)                |
 
 ---
 
@@ -206,7 +211,10 @@ Update cluster configuration.
 
 ```json
 {
-  "isProtected": false
+  "isProtected": false,
+  "labels": {
+    "region": "us-east"
+  }
 }
 ```
 
@@ -215,6 +223,7 @@ Update cluster configuration.
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | isProtected | bool | No | Whether to protect the cluster |
+| labels | object | No | User-defined labels (key-value pairs). Keys cannot start with "primus-safe"
 
 **Response**: 200 OK with no response body
 

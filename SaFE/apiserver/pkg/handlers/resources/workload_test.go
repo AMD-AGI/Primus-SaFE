@@ -73,13 +73,13 @@ func genMockWorkload(clusterId, workspaceId string) *v1.Workload {
 				Version: "v1",
 				Kind:    "PyTorchJob",
 			},
-			Resource: v1.WorkloadResource{
+			Resources: []v1.WorkloadResource{{
 				Replica: 2,
 				CPU:     "16",
 				GPU:     "4",
 				GPUName: common.AmdGpu,
 				Memory:  "1Gi",
-			},
+			}},
 		},
 		Status: v1.WorkloadStatus{
 			Phase: v1.WorkloadRunning,
@@ -100,18 +100,21 @@ func Test_modifyWorkload_UpdateResources(t *testing.T) {
 	newReplica := 4
 
 	req := &view.PatchWorkloadRequest{
-		CPU:     &newCPU,
-		Memory:  &newMemory,
-		GPU:     &newGPU,
-		Replica: &newReplica,
+		Resources: &[]v1.WorkloadResource{{
+			CPU:     newCPU,
+			Memory:  newMemory,
+			GPU:     newGPU,
+			Replica: newReplica,
+		}},
 	}
 
 	err := applyWorkloadPatch(workload, req)
 	assert.NilError(t, err)
-	assert.Equal(t, workload.Spec.Resource.CPU, "32")
-	assert.Equal(t, workload.Spec.Resource.Memory, "64Gi")
-	assert.Equal(t, workload.Spec.Resource.GPU, "8")
-	assert.Equal(t, workload.Spec.Resource.Replica, 4)
+	assert.Equal(t, len(workload.Spec.Resources), 1)
+	assert.Equal(t, workload.Spec.Resources[0].CPU, "32")
+	assert.Equal(t, workload.Spec.Resources[0].Memory, "64Gi")
+	assert.Equal(t, workload.Spec.Resources[0].GPU, "8")
+	assert.Equal(t, workload.Spec.Resources[0].Replica, 4)
 }
 
 // Test_modifyWorkload_UpdateImage tests updating workload image
@@ -146,8 +149,10 @@ func Test_modifyWorkload_UpdateMultipleFields(t *testing.T) {
 	newTimeout := 7200
 
 	req := &view.PatchWorkloadRequest{
-		Priority:    &newPriority,
-		CPU:         &newCPU,
+		Priority: &newPriority,
+		Resources: &[]v1.WorkloadResource{{
+			CPU: newCPU,
+		}},
 		Image:       &newImage,
 		Description: &newDesc,
 		Timeout:     &newTimeout,
@@ -156,7 +161,8 @@ func Test_modifyWorkload_UpdateMultipleFields(t *testing.T) {
 	err := applyWorkloadPatch(workload, req)
 	assert.NilError(t, err)
 	assert.Equal(t, workload.Spec.Priority, 10)
-	assert.Equal(t, workload.Spec.Resource.CPU, "64")
+	assert.Equal(t, len(workload.Spec.Resources), 1)
+	assert.Equal(t, workload.Spec.Resources[0].CPU, "64")
 	assert.Equal(t, workload.Spec.Image, "updated-image:latest")
 	assert.Equal(t, v1.GetDescription(workload), "updated description")
 	assert.Equal(t, *workload.Spec.Timeout, 7200)
@@ -174,7 +180,9 @@ func Test_modifyWorkload_ReplicaWithSpecifiedNodes(t *testing.T) {
 
 	newReplica := 5
 	req := &view.PatchWorkloadRequest{
-		Replica: &newReplica,
+		Resources: &[]v1.WorkloadResource{{
+			Replica: newReplica,
+		}},
 	}
 
 	err := applyWorkloadPatch(workload, req)
@@ -363,9 +371,8 @@ func Test_modifyWorkload_EmptyValues(t *testing.T) {
 	assert.Equal(t, workload.Spec.EntryPoint, "original-script.sh")
 }
 
-// Test_generatePreheatWorkload tests generating preheat workload
-func Test_generatePreheatWorkload(t *testing.T) {
-	ctx := context.Background()
+// Test_createPreheatWorkload tests creating preheat workload
+func Test_createPreheatWorkload(t *testing.T) {
 	clusterId := "test-cluster"
 	workspaceId := "test-workspace"
 
@@ -384,6 +391,7 @@ func Test_generatePreheatWorkload(t *testing.T) {
 	fakeCtrlClient := ctrlruntimefake.NewClientBuilder().
 		WithObjects(mainWorkload, user, role, workspace).
 		WithScheme(scheme.Scheme).
+		WithStatusSubresource(&v1.Workload{}).
 		Build()
 
 	fakeClientSet := k8sfake.NewSimpleClientset()
@@ -394,18 +402,25 @@ func Test_generatePreheatWorkload(t *testing.T) {
 		accessController: authority.NewAccessController(fakeCtrlClient),
 	}
 
+	// Create gin context
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Set(common.UserId, user.Name)
+	c.Set(common.UserName, v1.GetUserName(user))
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/workloads", nil)
+
 	mainQuery := &view.CreateWorkloadRequest{
 		DisplayName: "test-workload",
 	}
+	roles := []*v1.Role{role}
 
-	preheatWorkload, err := h.generatePreheatWorkload(ctx, mainWorkload, mainQuery)
+	preheatWorkload, err := h.createPreheatWorkload(c, mainWorkload, mainQuery, user, roles)
 	assert.NilError(t, err)
 	assert.Assert(t, preheatWorkload != nil, "Preheat workload should be created")
 
 	// Verify preheat workload properties
 	assert.Assert(t, preheatWorkload.Name != mainWorkload.Name, "Preheat workload should have different name")
 	assert.Equal(t, v1.GetDisplayName(preheatWorkload), "preheat-"+v1.GetDisplayName(mainWorkload))
-	assert.Equal(t, preheatWorkload.Spec.GroupVersionKind.Kind, mainWorkload.Spec.GroupVersionKind.Kind)
 	assert.Equal(t, preheatWorkload.Spec.IsSupervised, false)
 	assert.Equal(t, preheatWorkload.Spec.MaxRetry, 0)
 	assert.Equal(t, *preheatWorkload.Spec.TTLSecondsAfterFinished, 10)
@@ -413,10 +428,11 @@ func Test_generatePreheatWorkload(t *testing.T) {
 	assert.Assert(t, preheatWorkload.Spec.Dependencies == nil, "Dependencies should be nil")
 
 	// Verify resource requirements are minimal
-	assert.Equal(t, preheatWorkload.Spec.Resource.CPU, "1")
-	assert.Equal(t, preheatWorkload.Spec.Resource.Memory, "8Gi")
-	assert.Equal(t, preheatWorkload.Spec.Resource.EphemeralStorage, "50Gi")
-	assert.Equal(t, preheatWorkload.Spec.Resource.Replica, 3) // From workspace.Status.AvailableReplica
+	assert.Equal(t, len(preheatWorkload.Spec.Resources), 1)
+	assert.Equal(t, preheatWorkload.Spec.Resources[0].CPU, "1")
+	assert.Equal(t, preheatWorkload.Spec.Resources[0].Memory, "8Gi")
+	assert.Equal(t, preheatWorkload.Spec.Resources[0].EphemeralStorage, "50Gi")
+	assert.Equal(t, preheatWorkload.Spec.Resources[0].Replica, 3) // From workspace.Status.AvailableReplica
 }
 
 // Test_createWorkloadImpl tests creating workload implementation
@@ -660,7 +676,7 @@ func Test_getWorkload(t *testing.T) {
 	// Mock database workload response
 	now := time.Now()
 	gvkJSON := `{"group":"kubeflow.org","version":"v1","kind":"PyTorchJob"}`
-	resourceJSON := `{"replica":2,"cpu":"16","gpu":"4","memory":"64Gi"}`
+	resourceJSON := `[{"replica":2,"cpu":"16","gpu":"4","memory":"64Gi"}]`
 	mockDBWorkload := &dbclient.Workload{
 		WorkloadId:   workloadId,
 		Workspace:    workspaceId,
@@ -674,7 +690,7 @@ func Test_getWorkload(t *testing.T) {
 		Image:        "test-image:v1",
 		EntryPoint:   "echo 'test'",
 		GVK:          gvkJSON,
-		Resource:     resourceJSON,
+		Resources:    sql.NullString{String: resourceJSON, Valid: true},
 		IsSupervised: true,
 		MaxRetry:     3,
 		CreationTime: pq.NullTime{Time: now, Valid: true},
@@ -711,10 +727,11 @@ func Test_getWorkload(t *testing.T) {
 	assert.Equal(t, getResp.IsSupervised, true)
 	assert.Equal(t, getResp.MaxRetry, 3)
 	assert.Equal(t, getResp.GroupVersionKind.Kind, "PyTorchJob")
-	assert.Equal(t, getResp.Resource.Replica, 2)
-	assert.Equal(t, getResp.Resource.CPU, "16")
-	assert.Equal(t, getResp.Resource.GPU, "4")
-	assert.Equal(t, getResp.Resource.Memory, "64Gi")
+	assert.Equal(t, len(getResp.Resources), 1)
+	assert.Equal(t, getResp.Resources[0].Replica, 2)
+	assert.Equal(t, getResp.Resources[0].CPU, "16")
+	assert.Equal(t, getResp.Resources[0].GPU, "4")
+	assert.Equal(t, getResp.Resources[0].Memory, "64Gi")
 }
 
 // Test_deleteWorkloadImpl tests deleting a workload
@@ -1174,7 +1191,7 @@ func Test_cloneWorkloadImpl(t *testing.T) {
 
 	// Mock source workload in database
 	gvkJSON := `{"group":"kubeflow.org","version":"v1","kind":"PyTorchJob"}`
-	resourceJSON := `{"replica":2,"cpu":"16","gpu":"4","memory":"64Gi"}`
+	resourceJSON := `[{"replica":2,"cpu":"16","gpu":"4","memory":"64Gi"}]`
 	mockDBWorkload := &dbclient.Workload{
 		WorkloadId:   sourceWorkloadId,
 		Workspace:    workspaceId,
@@ -1188,7 +1205,7 @@ func Test_cloneWorkloadImpl(t *testing.T) {
 		Image:        "test-image:v1",
 		EntryPoint:   "echo 'test'",
 		GVK:          gvkJSON,
-		Resource:     resourceJSON,
+		Resources:    sql.NullString{String: resourceJSON, Valid: true},
 		IsSupervised: true,
 		MaxRetry:     3,
 	}
@@ -1266,12 +1283,12 @@ func Test_createWorkload_NormalWorkload(t *testing.T) {
 			"version": "v1",
 			"kind": "PyTorchJob"
 		},
-		"resource": {
+		"resources": [{
 			"replica": 2,
 			"cpu": "16",
 			"gpu": "4",
 			"memory": "64Gi"
-		},
+		}],
 		"priority": 5,
 		"isSupervised": true,
 		"maxRetry": 3,
@@ -1314,10 +1331,11 @@ func Test_createWorkload_NormalWorkload(t *testing.T) {
 	assert.Equal(t, createdWorkload.Spec.IsSupervised, true)
 	assert.Equal(t, createdWorkload.Spec.MaxRetry, 3)
 	assert.Equal(t, createdWorkload.Spec.GroupVersionKind.Kind, "PyTorchJob")
-	assert.Equal(t, createdWorkload.Spec.Resource.Replica, 2)
-	assert.Equal(t, createdWorkload.Spec.Resource.CPU, "16")
-	assert.Equal(t, createdWorkload.Spec.Resource.GPU, "4")
-	assert.Equal(t, createdWorkload.Spec.Resource.Memory, "64Gi")
+	assert.Equal(t, len(createdWorkload.Spec.Resources), 1)
+	assert.Equal(t, createdWorkload.Spec.Resources[0].Replica, 2)
+	assert.Equal(t, createdWorkload.Spec.Resources[0].CPU, "16")
+	assert.Equal(t, createdWorkload.Spec.Resources[0].GPU, "4")
+	assert.Equal(t, createdWorkload.Spec.Resources[0].Memory, "64Gi")
 
 	// Verify user labels are set
 	assert.Equal(t, v1.GetUserId(createdWorkload), user.Name)
@@ -1583,7 +1601,7 @@ func Test_cvtDBWorkloadToResponseItem(t *testing.T) {
 	now := time.Now()
 	startTime := now.Add(-1 * time.Hour)
 	gvkJSON := `{"group":"kubeflow.org","version":"v1","kind":"PyTorchJob"}`
-	resourceJSON := `{"replica":2,"cpu":"16","gpu":"4","memory":"64Gi"}`
+	resourceJSON := `[{"replica":2,"cpu":"16","gpu":"4","memory":"64Gi"}]`
 
 	dbWorkload := &dbclient.Workload{
 		WorkloadId:     workloadId,
@@ -1597,7 +1615,6 @@ func Test_cvtDBWorkloadToResponseItem(t *testing.T) {
 		Priority:       5,
 		IsTolerateAll:  true,
 		WorkloadUId:    sql.NullString{String: "uid-123", Valid: true},
-		K8sObjectUid:   sql.NullString{String: "k8s-uid-456", Valid: true},
 		ScaleRunnerSet: sql.NullString{String: "runner-set-1", Valid: true},
 		ScaleRunnerId:  sql.NullString{String: "runner-id-1", Valid: true},
 		QueuePosition:  3,
@@ -1607,7 +1624,7 @@ func Test_cvtDBWorkloadToResponseItem(t *testing.T) {
 		EndTime:        pq.NullTime{Time: now, Valid: true},
 		Timeout:        3600, // 1 hour timeout
 		GVK:            gvkJSON,
-		Resource:       resourceJSON,
+		Resources:      sql.NullString{String: resourceJSON, Valid: true},
 	}
 
 	// Call cvtDBWorkloadToResponseItem
@@ -1625,7 +1642,6 @@ func Test_cvtDBWorkloadToResponseItem(t *testing.T) {
 	assert.Equal(t, result.Priority, 5)
 	assert.Equal(t, result.IsTolerateAll, true)
 	assert.Equal(t, result.WorkloadUid, "uid-123")
-	assert.Equal(t, result.K8sObjectUid, "k8s-uid-456")
 	assert.Equal(t, result.ScaleRunnerSet, "runner-set-1")
 	assert.Equal(t, result.ScaleRunnerId, "runner-id-1")
 	assert.Equal(t, result.QueuePosition, 3)
@@ -1650,10 +1666,11 @@ func Test_cvtDBWorkloadToResponseItem(t *testing.T) {
 	assert.Equal(t, result.GroupVersionKind.Version, "v1")
 
 	// Verify resource is parsed
-	assert.Equal(t, result.Resource.Replica, 2)
-	assert.Equal(t, result.Resource.CPU, "16")
-	assert.Equal(t, result.Resource.GPU, "4")
-	assert.Equal(t, result.Resource.Memory, "64Gi")
+	assert.Equal(t, len(result.Resources), 1)
+	assert.Equal(t, result.Resources[0].Replica, 2)
+	assert.Equal(t, result.Resources[0].CPU, "16")
+	assert.Equal(t, result.Resources[0].GPU, "4")
+	assert.Equal(t, result.Resources[0].Memory, "64Gi")
 
 	// Verify timeout fields
 	assert.Assert(t, result.Timeout != nil, "Timeout should be set")
@@ -1685,7 +1702,7 @@ func Test_cvtDBWorkloadToGetResponse(t *testing.T) {
 	// Create comprehensive database workload
 	now := time.Now()
 	gvkJSON := `{"group":"kubeflow.org","version":"v1","kind":"PyTorchJob"}`
-	resourceJSON := `{"replica":2,"cpu":"16","gpu":"4","memory":"64Gi"}`
+	resourceJSON := `[{"replica":2,"cpu":"16","gpu":"4","memory":"64Gi"}]`
 	conditionsJSON := `[{"type":"Ready","status":"True","message":"Workload is ready"}]`
 	podsJSON := `[{"podId":"pod-1","phase":"Running"}]`
 	nodesJSON := `[["node-1","node-2"]]`
@@ -1717,7 +1734,7 @@ func Test_cvtDBWorkloadToGetResponse(t *testing.T) {
 		CreationTime:   pq.NullTime{Time: now.Add(-1 * time.Hour), Valid: true},
 		StartTime:      pq.NullTime{Time: now.Add(-30 * time.Minute), Valid: true},
 		GVK:            gvkJSON,
-		Resource:       resourceJSON,
+		Resources:      sql.NullString{String: resourceJSON, Valid: true},
 		Conditions:     sql.NullString{String: conditionsJSON, Valid: true},
 		Pods:           sql.NullString{String: podsJSON, Valid: true},
 		Nodes:          sql.NullString{String: nodesJSON, Valid: true},

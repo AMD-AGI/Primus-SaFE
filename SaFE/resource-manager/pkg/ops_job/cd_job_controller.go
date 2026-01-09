@@ -259,12 +259,11 @@ func (r *CDJobReconciler) generateCDWorkload(ctx context.Context, job *v1.OpsJob
 			},
 		},
 		Spec: v1.WorkloadSpec{
-			Resource: v1.WorkloadResource{
+			Resources: []v1.WorkloadResource{{
 				Replica: 1,
 				CPU:     "2",
 				Memory:  "4Gi",
-				// No GPU required for CD jobs
-			},
+			}},
 			EntryPoint: entryPoint,
 			GroupVersionKind: v1.GroupVersionKind{
 				Version: common.DefaultVersion,

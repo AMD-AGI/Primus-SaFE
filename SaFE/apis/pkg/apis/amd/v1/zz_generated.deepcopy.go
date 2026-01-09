@@ -2193,6 +2193,11 @@ func (in *WorkloadResource) DeepCopy() *WorkloadResource {
 func (in *WorkloadSpec) DeepCopyInto(out *WorkloadSpec) {
 	*out = *in
 	out.Resource = in.Resource
+	if in.Resources != nil {
+		in, out := &in.Resources, &out.Resources
+		*out = make([]WorkloadResource, len(*in))
+		copy(*out, *in)
+	}
 	if in.Env != nil {
 		in, out := &in.Env, &out.Env
 		*out = make(map[string]string, len(*in))
@@ -2315,6 +2320,13 @@ func (in *WorkloadStatus) DeepCopyInto(out *WorkloadStatus) {
 	}
 	if in.DependenciesPhase != nil {
 		in, out := &in.DependenciesPhase, &out.DependenciesPhase
+		*out = make(map[string]WorkloadPhase, len(*in))
+		for key, val := range *in {
+			(*out)[key] = val
+		}
+	}
+	if in.TorchFTPhase != nil {
+		in, out := &in.TorchFTPhase, &out.TorchFTPhase
 		*out = make(map[string]WorkloadPhase, len(*in))
 		for key, val := range *in {
 			(*out)[key] = val

@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
@@ -138,6 +139,9 @@ func (r *PreflightJobReconciler) handle(ctx context.Context, job *v1.OpsJob) (ct
 
 // generatePreflightWorkload generates a preflight workload based on the job specification.
 func (r *PreflightJobReconciler) generatePreflightWorkload(ctx context.Context, job *v1.OpsJob) (*v1.Workload, error) {
+	if job.Spec.Resource == nil {
+		return nil, commonerrors.NewBadRequest("resource is empty")
+	}
 	nodeParams := job.GetParameters(v1.ParameterNode)
 	if len(nodeParams) == 0 {
 		return nil, commonerrors.NewBadRequest("node parameter is empty")
@@ -170,12 +174,13 @@ func (r *PreflightJobReconciler) generatePreflightWorkload(ctx context.Context, 
 				v1.DisplayNameLabel:  job.Name,
 			},
 			Annotations: map[string]string{
-				v1.UserNameAnnotation:    v1.GetUserName(job),
+				v1.UserNameAnnotation: v1.GetUserName(job),
+				// Dispatch the workload immediately, skipping the queue.
+				v1.WorkloadScheduledAnnotation: timeutil.FormatRFC3339(time.Now().UTC()),
 				v1.DescriptionAnnotation: v1.OpsJobKind,
 			},
 		},
 		Spec: v1.WorkloadSpec{
-			Resource:   *job.Spec.Resource,
 			EntryPoint: *job.Spec.EntryPoint,
 			GroupVersionKind: v1.GroupVersionKind{
 				Version: common.DefaultVersion,
@@ -192,9 +197,12 @@ func (r *PreflightJobReconciler) generatePreflightWorkload(ctx context.Context, 
 			Hostpath:  job.Spec.Hostpath,
 		},
 	}
+
+	workload.Spec.Resources = commonworkload.ConvertResourceToList(*job.Spec.Resource, workload.SpecKind())
 	if err := controllerutil.SetControllerReference(job, workload, r.Client.Scheme()); err != nil {
 		return nil, err
 	}
+
 	if nodeFlavor.HasGpu() {
 		if workload.Spec.Env == nil {
 			workload.Spec.Env = make(map[string]string)
@@ -205,8 +213,6 @@ func (r *PreflightJobReconciler) generatePreflightWorkload(ctx context.Context, 
 	}
 	if workload.Spec.Workspace == "" {
 		workload.Spec.Workspace = corev1.NamespaceDefault
-		// Dispatch the workload immediately, skipping the queue.
-		v1.SetAnnotation(workload, v1.WorkloadScheduledAnnotation, timeutil.FormatRFC3339(time.Now().UTC()))
 	}
 	if job.Spec.TimeoutSecond > 0 {
 		workload.Spec.Timeout = pointer.Int(job.Spec.TimeoutSecond)

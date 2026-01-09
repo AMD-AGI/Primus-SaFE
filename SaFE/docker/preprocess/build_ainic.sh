@@ -3,13 +3,13 @@
 # See LICENSE for license information.
 #
 
-echo "============== begin to install AMD AINIC Driver =============="
-set -e
-
 # Check if source tarball exists
 if [ ! -f "${PATH_TO_AINIC_TAR_PACKAGE}" ]; then
   exit 0
 fi
+
+echo "============== begin to install AMD AINIC Driver =============="
+set -e
 
 . /shared-data/utils.sh
 install_if_not_exists libibverbs-dev ibverbs-utils infiniband-diags rdma-core librdmacm-dev libibverbs-dev libibumad-dev
