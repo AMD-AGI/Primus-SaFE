@@ -6,6 +6,7 @@ package auth
 import (
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -16,6 +17,10 @@ import (
 const (
 	// SafeTokenCookieName is the cookie name used by SaFE for session token
 	SafeTokenCookieName = "token"
+
+	// sessionValidationRetryDelay is the delay before retrying session validation
+	// This handles the case where user just logged in via SaFE but token hasn't synced yet
+	sessionValidationRetryDelay = 2 * time.Second
 )
 
 // getTokenFromRequest extracts session token from request
@@ -42,6 +47,7 @@ func getTokenFromRequest(c *gin.Context) string {
 // SessionAuthMiddleware creates a middleware that validates session tokens
 // This middleware is specifically for the new auth system and does NOT affect existing APIs
 // Supports both Lens native sessions and SaFE synced sessions (via primus-safe-adapter)
+// Includes retry logic to handle race condition when token hasn't synced yet
 func SessionAuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		token := getTokenFromRequest(c)
@@ -55,17 +61,38 @@ func SessionAuthMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		// Validate session
+		// Validate session with retry logic
 		sessionMgr := session.GetManager()
 		sessionInfo, err := sessionMgr.Validate(c.Request.Context(), token)
 		if err != nil {
-			log.Debugf("Session validation failed: %v", err)
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
-				"success": false,
-				"message": "Invalid or expired session",
-				"code":    "SESSION_INVALID",
-			})
-			return
+			// First attempt failed, wait and retry once
+			// This handles the case where user just logged in via SaFE
+			// but the token hasn't been synced to Lens yet
+			log.Debugf("Session validation failed (attempt 1): %v, retrying in %v", err, sessionValidationRetryDelay)
+
+			select {
+			case <-time.After(sessionValidationRetryDelay):
+				// Retry validation after delay
+				sessionInfo, err = sessionMgr.Validate(c.Request.Context(), token)
+				if err != nil {
+					log.Debugf("Session validation failed (attempt 2): %v", err)
+					c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+						"success": false,
+						"message": "Invalid or expired session",
+						"code":    "SESSION_INVALID",
+					})
+					return
+				}
+				log.Debugf("Session validation succeeded on retry for user: %s", sessionInfo.UserID)
+			case <-c.Request.Context().Done():
+				// Request context cancelled
+				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+					"success": false,
+					"message": "Request cancelled",
+					"code":    "REQUEST_CANCELLED",
+				})
+				return
+			}
 		}
 
 		// Store session info in context for handlers
