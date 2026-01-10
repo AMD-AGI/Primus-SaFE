@@ -237,7 +237,7 @@ func (m *OpsJobMutator) generateDestPath(ctx context.Context, job *v1.OpsJob) er
 	}
 	nfsPath := getNfsPathFromWorkspace(workspace)
 	if nfsPath == "" {
-		return fmt.Errorf("workspace %s has no nfs path", workspace.Name)
+		return fmt.Errorf("workspace %s has no volume mount path", workspace.Name)
 	}
 	destParam.Value = path.Join(nfsPath, destParam.Value)
 	return nil
