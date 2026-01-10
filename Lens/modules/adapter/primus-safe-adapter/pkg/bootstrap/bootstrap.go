@@ -207,16 +207,16 @@ func initTokenSyncTasks(clusterManager *clientsets.ClusterManager, safeDB *gorm.
 	// Create token cleanup service
 	tokenCleanupService := service.NewTokenCleanupService(lensDB)
 
-	// Add user sync task (runs every 60 seconds)
-	globalScheduler.AddTask(userSyncService, 60*time.Second)
+	// Add user sync task (runs every 5 seconds for fast user info sync)
+	globalScheduler.AddTask(userSyncService, 5*time.Second)
 
-	// Add token sync task (runs every 30 seconds)
-	globalScheduler.AddTask(tokenSyncService, 30*time.Second)
+	// Add token sync task (runs every 1 second for fast login experience)
+	globalScheduler.AddTask(tokenSyncService, 1*time.Second)
 
 	// Add token cleanup task (runs every 60 minutes)
 	globalScheduler.AddTask(tokenCleanupService, 60*time.Minute)
 
-	log.Info("Token sync tasks added to scheduler: user-sync (60s), token-sync (30s), token-cleanup (60m)")
+	log.Info("Token sync tasks added to scheduler: user-sync (5s), token-sync (1s), token-cleanup (60m)")
 	return nil
 }
 
