@@ -40,7 +40,7 @@ func (r *SyncerReconciler) handleJob(ctx context.Context,
 	if err != nil || adminWorkload == nil {
 		return ctrlruntime.Result{}, err
 	}
-	if adminWorkload.IsEnd() || message.namespace != adminWorkload.Spec.Workspace {
+	if message.namespace != adminWorkload.Spec.Workspace {
 		return ctrlruntime.Result{}, nil
 	}
 	if commonworkload.IsCICDScalingRunnerSet(adminWorkload) && message.gvk.Kind != common.CICDScaleRunnerSetKind {
@@ -69,14 +69,16 @@ func (r *SyncerReconciler) handleJobImpl(ctx context.Context, message *resourceM
 		}
 	}
 
-	status, err := r.getK8sObjectStatus(ctx, message, clientSets, adminWorkload)
-	if err != nil {
-		return ctrlruntime.Result{}, err
-	}
-	adminWorkload, err = r.updateAdminWorkloadStatus(ctx, adminWorkload, status, message)
-	if err != nil {
-		klog.ErrorS(err, "failed to update admin workload status")
-		return ctrlruntime.Result{}, err
+	if !adminWorkload.IsEnd() {
+		status, err := r.getK8sObjectStatus(ctx, message, clientSets, adminWorkload)
+		if err != nil {
+			return ctrlruntime.Result{}, err
+		}
+		adminWorkload, err = r.updateAdminWorkloadStatus(ctx, adminWorkload, status, message)
+		if err != nil {
+			klog.ErrorS(err, "failed to update admin workload status")
+			return ctrlruntime.Result{}, err
+		}
 	}
 
 	if message.action == ResourceDel {
@@ -98,7 +100,7 @@ func (r *SyncerReconciler) handleJobImpl(ctx context.Context, message *resourceM
 					return ctrlruntime.Result{}, nil
 				}
 			}
-			if err = r.reSchedule(ctx, adminWorkload, message.dispatchCount); err != nil {
+			if err := r.reSchedule(ctx, adminWorkload, message.dispatchCount); err != nil {
 				klog.ErrorS(err, "failed to reSchedule", "workload", adminWorkload.Name)
 				return ctrlruntime.Result{}, err
 			}
@@ -204,7 +206,7 @@ func (r *SyncerReconciler) waitJobDeleted(ctx context.Context, message *resource
 // Manages workload phase transitions and condition updates.
 func (r *SyncerReconciler) updateAdminWorkloadStatus(ctx context.Context, originalWorkload *v1.Workload,
 	status *jobutils.K8sObjectStatus, message *resourceMessage) (*v1.Workload, error) {
-	if originalWorkload.IsEnd() || status == nil {
+	if status == nil {
 		return originalWorkload, nil
 	}
 	adminWorkload := originalWorkload.DeepCopy()
