@@ -187,9 +187,6 @@ func (r *ClusterClientSets) handleResource(_ context.Context, oldObj, newObj int
 	if !ok {
 		return
 	}
-	if !newUnstructured.GetDeletionTimestamp().IsZero() {
-		action = ResourceDel
-	}
 	msg := &resourceMessage{
 		cluster:       r.name,
 		name:          newUnstructured.GetName(),
