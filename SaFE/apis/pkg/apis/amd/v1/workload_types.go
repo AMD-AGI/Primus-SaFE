@@ -287,7 +287,7 @@ func (w *Workload) IsRunning() bool {
 	return false
 }
 
-// IsEnd returns true if the fault has ended (completed or failed).
+// IsEnd returns true if the workload is terminated
 func (w *Workload) IsEnd() bool {
 	if w.Status.Phase == WorkloadSucceeded ||
 		w.Status.Phase == WorkloadFailed ||

@@ -19,6 +19,9 @@ fi
 # Do not modify the value of namespace
 NAMESPACE="primus-safe"
 
+# Create namespace if it doesn't exist (ignore error if already exists)
+kubectl create namespace "$NAMESPACE" 2>/dev/null || true
+
 get_input_with_default() {
   local prompt="$1"
   local default_value="$2"

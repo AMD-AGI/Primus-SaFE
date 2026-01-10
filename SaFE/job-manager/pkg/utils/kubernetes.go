@@ -168,7 +168,7 @@ func DeleteObjectsByWorkload(ctx context.Context, adminClient client.Client,
 func GetObjectByInformer(informer informers.GenericInformer, name, namespace string) (*unstructured.Unstructured, error) {
 	obj, err := informer.Lister().ByNamespace(namespace).Get(name)
 	if err != nil {
-		return nil, err
+		return nil, client.IgnoreNotFound(err)
 	}
 	unstructuredObj, ok := obj.(*unstructured.Unstructured)
 	if !ok {
