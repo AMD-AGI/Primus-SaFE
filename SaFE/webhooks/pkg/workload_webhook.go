@@ -668,7 +668,7 @@ func (v *WorkloadValidator) validateRequiredParams(workload *v1.Workload) error 
 	if workload.Spec.GroupVersionKind.Kind == "" || workload.Spec.GroupVersionKind.Version == "" {
 		errs = append(errs, fmt.Errorf("the gvk is empty"))
 	}
-	if v1.GetOpsJobId(workload) == "" {
+	if v1.GetOpsJobId(workload) == "" && !commonworkload.IsCICDScalingRunnerSet(workload) {
 		if workload.Spec.EntryPoint == "" {
 			errs = append(errs, fmt.Errorf("the entryPoint is empty"))
 		}
