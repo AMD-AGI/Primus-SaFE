@@ -16,7 +16,8 @@ import (
 
 const (
 	// SafeTokenCookieName is the cookie name used by SaFE for session token
-	SafeTokenCookieName = "token"
+	// Note: SaFE uses "Token" (capital T), not "token"
+	SafeTokenCookieName = "Token"
 
 	// sessionValidationRetryDelay is the delay before retrying session validation
 	// This handles the case where user just logged in via SaFE but token hasn't synced yet
