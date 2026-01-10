@@ -48,7 +48,7 @@ func (r *SyncerReconciler) handleEvent(ctx context.Context, message *resourceMes
 		return ctrlruntime.Result{}, err
 	}
 	eventObj, err := jobutils.GetObjectByInformer(eventInformer, message.name, message.namespace)
-	if err != nil {
+	if err != nil || eventObj == nil {
 		return ctrlruntime.Result{}, err
 	}
 	adminWorkload, err := r.getAdminWorkloadByEvent(ctx, clientSets, eventObj)
@@ -78,7 +78,7 @@ func (r *SyncerReconciler) getAdminWorkloadByEvent(ctx context.Context,
 		return nil, nil
 	}
 	podObj, err := jobutils.GetObjectByInformer(podInformer, podName, podNamespace)
-	if err != nil {
+	if err != nil || podObj == nil {
 		return nil, err
 	}
 	workloadId := jobutils.GetUnstructuredString(podObj.Object, workloadIdPath)
