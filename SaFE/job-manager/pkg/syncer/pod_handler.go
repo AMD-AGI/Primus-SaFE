@@ -44,9 +44,6 @@ const (
 // Manages the synchronization of pod status between data plane and admin plane.
 func (r *SyncerReconciler) handlePod(ctx context.Context,
 	message *resourceMessage, clusterClientSets *ClusterClientSets) (ctrlruntime.Result, error) {
-	if message.action == ResourceDel {
-		return ctrlruntime.Result{}, r.removeWorkloadPod(ctx, message)
-	}
 	informer, err := clusterClientSets.GetResourceInformer(ctx, message.gvk)
 	if err != nil {
 		return ctrlruntime.Result{}, err
@@ -55,7 +52,7 @@ func (r *SyncerReconciler) handlePod(ctx context.Context,
 	if err != nil {
 		return ctrlruntime.Result{}, err
 	}
-	if !obj.GetDeletionTimestamp().IsZero() {
+	if obj == nil || !obj.GetDeletionTimestamp().IsZero() {
 		if err = r.removeWorkloadPod(ctx, message); err != nil {
 			return ctrlruntime.Result{}, err
 		}
@@ -68,6 +65,9 @@ func (r *SyncerReconciler) handlePod(ctx context.Context,
 // Implements a delayed force deletion strategy to avoid premature deletion.
 func (r *SyncerReconciler) deletePod(ctx context.Context,
 	obj *unstructured.Unstructured, clusterClientSets *ClusterClientSets) (ctrlruntime.Result, error) {
+	if obj == nil {
+		return ctrlruntime.Result{}, nil
+	}
 	nowTime := time.Now().Unix()
 	if nowTime-obj.GetDeletionTimestamp().Unix() < ForceDeleteDelaySeconds {
 		return ctrlruntime.Result{RequeueAfter: time.Second * 3}, nil
