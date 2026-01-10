@@ -787,6 +787,11 @@ func (h *Handler) generateWorkload(ctx context.Context,
 			return nil, err
 		}
 	}
+	if req.UserEntity != nil && h.accessController.AuthorizeSystemAdmin(
+		authority.AccessInput{Context: ctx, User: requestUser}, false) == nil {
+		v1.SetLabel(workload, v1.UserIdLabel, req.UserEntity.Id)
+		v1.SetAnnotation(workload, v1.UserNameAnnotation, req.UserEntity.Name)
+	}
 	return workload, nil
 }
 
