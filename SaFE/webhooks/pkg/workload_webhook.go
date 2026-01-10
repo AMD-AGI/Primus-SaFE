@@ -389,7 +389,6 @@ func (m *WorkloadMutator) mutateAuthoring(workload *v1.Workload) {
 // mutateCICDScaleSet sets one-replica, disable Supervised for cicd.
 func (m *WorkloadMutator) mutateCICDScaleSet(workload *v1.Workload) {
 	workload.Spec.IsSupervised = false
-	workload.Spec.MaxRetry = 0
 	if len(workload.Spec.Resources) > 0 {
 		workload.Spec.Resources = workload.Spec.Resources[0:1]
 		workload.Spec.Resources[0].Replica = 1
