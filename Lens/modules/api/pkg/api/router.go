@@ -14,7 +14,9 @@ import (
 )
 
 func RegisterRouter(group *gin.RouterGroup) error {
+	// Node routes - requires session authentication
 	nodeGroup := group.Group("/nodes")
+	nodeGroup.Use(auth.OptionalAuthMiddleware()) // Use optional auth for gradual rollout
 	{
 		nodeGroup.GET("gpuAllocation", getClusterGpuAllocationInfo)
 		nodeGroup.GET("gpuUtilization", getClusterGPUUtilization)
