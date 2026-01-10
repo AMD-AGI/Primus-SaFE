@@ -198,6 +198,7 @@ func (m *MockNodeNamespaceMappingFacade) Delete(ctx context.Context, id int32) e
 func (m *MockNodeNamespaceMappingFacade) GetByNodeAndNamespace(ctx context.Context, nodeID int32, namespaceID int64) (*model.NodeNamespaceMapping, error) { return nil, nil }
 func (m *MockNodeNamespaceMappingFacade) GetByNodeName(ctx context.Context, nodeName string) ([]*model.NodeNamespaceMapping, error) { return nil, nil }
 func (m *MockNodeNamespaceMappingFacade) GetByNamespaceName(ctx context.Context, namespaceName string) ([]*model.NodeNamespaceMapping, error) { return nil, nil }
+func (m *MockNodeNamespaceMappingFacade) GetByNodeNameAndNamespaceNameIncludingDeleted(ctx context.Context, nodeName string, namespaceName string) (*model.NodeNamespaceMapping, error) { return nil, nil }
 func (m *MockNodeNamespaceMappingFacade) ListActiveByNamespaceID(ctx context.Context, namespaceID int64) ([]*model.NodeNamespaceMapping, error) { return nil, nil }
 func (m *MockNodeNamespaceMappingFacade) ListHistoryByNamespaceAtTime(ctx context.Context, namespaceID int64, atTime time.Time) ([]*model.NodeNamespaceMappingHistory, error) { return nil, nil }
 func (m *MockNodeNamespaceMappingFacade) ListHistoryByNamespaceNameAtTime(ctx context.Context, namespaceName string, atTime time.Time) ([]*model.NodeNamespaceMappingHistory, error) { return nil, nil }
