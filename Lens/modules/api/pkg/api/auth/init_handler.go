@@ -17,6 +17,18 @@ import (
 	"gorm.io/gorm"
 )
 
+// Global instances for auth handlers
+var (
+	globalInitializer  *cpauth.Initializer
+	globalSafeDetector *cpauth.SafeDetector
+)
+
+// InitializeAuthHandlers initializes auth handlers with dependencies
+func InitializeAuthHandlers(initializer *cpauth.Initializer, safeDetector *cpauth.SafeDetector) {
+	globalInitializer = initializer
+	globalSafeDetector = safeDetector
+}
+
 // GetInitStatus returns the current initialization status
 // GET /api/v1/init/status
 // This endpoint does not require authentication
