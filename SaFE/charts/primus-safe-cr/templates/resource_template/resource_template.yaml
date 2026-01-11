@@ -28,7 +28,6 @@ spec:
         - template
       replicasPaths:
         - replicas
-      replica: 1
     - prePaths:
         - spec
         - pytorchReplicaSpecs
@@ -109,7 +108,6 @@ spec:
         - template
       replicasPaths:
         - replicas
-      replica: 1
   resourceStatus:
     prePaths:
       - status
@@ -310,7 +308,6 @@ spec:
         - spec
       templatePaths:
         - template
-      replica: 1
 ---
 apiVersion: amd.com/v1
 kind: ResourceTemplate

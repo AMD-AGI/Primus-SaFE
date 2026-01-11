@@ -523,7 +523,7 @@ func (h *Handler) createDownloadOpsJobs(ctx context.Context, dataset *dbclient.D
 					{Name: v1.ParameterSecret, Value: DatasetS3Secret},
 					{Name: v1.ParameterWorkspace, Value: target.Workspace},
 				},
-				TTLSecondsAfterFinished: 300, // Auto cleanup after 5 minutes
+				TTLSecondsAfterFinished: 300,  // Auto cleanup after 5 minutes
 				TimeoutSecond:           3600, // 1 hour timeout
 			},
 		}

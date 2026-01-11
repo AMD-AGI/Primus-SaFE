@@ -10,15 +10,15 @@ The dataset table is automatically created by the Helm chart. See `charts/primus
 
 ## Dataset Types
 
-| Type | Description |
-|------|-------------|
-| `sft` | SFT (Supervised Fine-Tuning) dataset |
-| `dpo` | DPO (Direct Preference Optimization) dataset |
-| `pretrain` | Pretrain dataset for large-scale pretraining |
-| `rlhf` | RLHF (Reinforcement Learning from Human Feedback) dataset |
-| `inference` | Inference dataset for batch inference |
-| `evaluation` | Evaluation dataset for model benchmarking |
-| `other` | Other types of datasets |
+| Type | Label | Description |
+|------|-------|-------------|
+| `sft` | SFT (Supervised Fine-Tuning) | Dataset for supervised fine-tuning |
+| `dpo` | DPO (Direct Preference Optimization) | Dataset for preference optimization |
+| `pretrain` | Pretrain | Dataset for large-scale pretraining |
+| `rlhf` | RLHF | Dataset for reinforcement learning from human feedback |
+| `inference` | Inference | Dataset for batch inference |
+| `evaluation` | Evaluation | Dataset for model evaluation and benchmarking |
+| `other` | Other | Other types of datasets |
 
 ## Dataset Status
 
@@ -70,7 +70,9 @@ GET /api/v1/datasets/templates/{type}
 |-----------|------|-------------|
 | type | string | Dataset type (sft/dpo/pretrain/rlhf/inference/evaluation/other) |
 
-**Response** (example for `sft` type)
+**Response Examples**
+
+#### SFT Template
 
 ```json
 {
@@ -86,6 +88,101 @@ GET /api/v1/datasets/templates/{type}
 }
 ```
 
+#### DPO Template
+
+```json
+{
+  "type": "dpo",
+  "description": "DPO dataset for direct preference optimization with chosen and rejected responses",
+  "format": "jsonl",
+  "schema": {
+    "prompt": "string (required) - The input prompt",
+    "chosen": "string (required) - The preferred response",
+    "rejected": "string (required) - The less preferred response"
+  },
+  "example": "{\"prompt\": \"Explain quantum computing\", \"chosen\": \"Quantum computing uses quantum bits...\", \"rejected\": \"It's just faster computers...\"}"
+}
+```
+
+#### Pretrain Template
+
+```json
+{
+  "type": "pretrain",
+  "description": "Pretrain dataset for large-scale language model pretraining",
+  "format": "jsonl or txt",
+  "schema": {
+    "text": "string (required) - Raw text content for pretraining"
+  },
+  "example": "{\"text\": \"The quick brown fox jumps over the lazy dog. This is a sample document for pretraining.\"}"
+}
+```
+
+#### RLHF Template
+
+```json
+{
+  "type": "rlhf",
+  "description": "RLHF dataset for reinforcement learning from human feedback",
+  "format": "jsonl",
+  "schema": {
+    "prompt": "string (required) - The input prompt",
+    "response": "string (required) - Model response",
+    "reward": "float (required) - Human feedback score",
+    "preference": "string (optional) - Preference ranking"
+  },
+  "example": "{\"prompt\": \"Write a helpful response\", \"response\": \"Here's how I can help...\", \"reward\": 0.85}"
+}
+```
+
+#### Inference Template
+
+```json
+{
+  "type": "inference",
+  "description": "Inference dataset for batch inference tasks",
+  "format": "jsonl",
+  "schema": {
+    "id": "string (optional) - Unique identifier for the request",
+    "prompt": "string (required) - Input prompt for inference"
+  },
+  "example": "{\"id\": \"req_001\", \"prompt\": \"Summarize this article: ...\"}\n{\"id\": \"req_002\", \"prompt\": \"Translate: Hello world\"}"
+}
+```
+
+#### Evaluation Template
+
+```json
+{
+  "type": "evaluation",
+  "description": "Evaluation dataset for model benchmarking and testing",
+  "format": "jsonl",
+  "schema": {
+    "question": "string (required) - Test question or prompt",
+    "answer": "string (required) - Expected answer",
+    "category": "string (optional) - Category or topic",
+    "difficulty": "string (optional) - Difficulty level",
+    "reference": "string (optional) - Reference or source",
+    "answer_choices": "array (optional) - Multiple choice options"
+  },
+  "example": "{\"question\": \"What is 2+2?\", \"answer\": \"4\", \"category\": \"math\", \"difficulty\": \"easy\"}"
+}
+```
+
+#### Other Template
+
+```json
+{
+  "type": "other",
+  "description": "Custom dataset format for other use cases",
+  "format": "jsonl, csv, or txt",
+  "schema": {
+    "data": "any - Custom data structure based on your needs"
+  },
+  "example": "{\"data\": \"Your custom data format here\"}"
+}
+```
+
 ### Create Dataset
 
 Create a new dataset with file upload. Files are uploaded to S3 and automatically downloaded to workspace PFS.
@@ -95,14 +192,17 @@ Create a new dataset with file upload. Files are uploaded to S3 and automaticall
 ```
 POST /api/v1/datasets
 Content-Type: multipart/form-data
-
-Fields:
-  displayName  string   Required. Display name of the dataset
-  description  string   Optional. Description of the dataset
-  datasetType  string   Required. Type of the dataset (sft/dpo/pretrain/rlhf/inference/evaluation/other)
-  workspace    string   Optional. Target workspace ID. If empty, downloads to all workspaces (deduplicated by path)
-  files        file[]   Required. Files to upload
 ```
+
+**Form Fields**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| displayName | string | Yes | Display name of the dataset |
+| description | string | No | Description of the dataset |
+| datasetType | string | Yes | Type of the dataset (sft/dpo/pretrain/rlhf/inference/evaluation/other) |
+| workspace | string | No | Target workspace ID. If empty, downloads to all workspaces (deduplicated by path) |
+| files | file[] | Yes | Files to upload |
 
 **Response**
 
@@ -123,12 +223,12 @@ Fields:
   "updateTime": "2025-01-15T10:30:00Z",
   "downloadJobs": [
     {
-      "jobId": "dataset-dl-a1b2c3d4-xyz",
+      "jobId": "dataset-dl-dataset-a1b2c3d4-xyz123",
       "workspace": "workspace-1",
       "destPath": "/apps/datasets/My Training Data"
     },
     {
-      "jobId": "dataset-dl-a1b2c3d4-abc",
+      "jobId": "dataset-dl-dataset-a1b2c3d4-abc456",
       "workspace": "workspace-2",
       "destPath": "/data/datasets/My Training Data"
     }
@@ -143,7 +243,16 @@ Fields:
 | Specified | Downloads only to the specified workspace's PFS |
 | Empty/Not provided | Downloads to all workspaces (paths deduplicated, PFS prioritized) |
 
-The download jobs are created as OpsJobs that run asynchronously. You can check job status via the OpsJob API.
+The download jobs are created as OpsJobs (type: `download`) that run asynchronously. You can check job status via the OpsJob API.
+
+**OpsJob Parameters**
+
+| Parameter | Value | Description |
+|-----------|-------|-------------|
+| endpoint | `{s3Endpoint}/{s3Bucket}/datasets/{datasetId}/` | S3 full HTTP URL |
+| dest.path | `datasets/{displayName}` | Relative path, controller appends workspace nfsPath |
+| secret | `primus-safe-s3` | S3 access credentials |
+| workspace | workspace ID | Target workspace |
 
 ### List Datasets
 
@@ -152,7 +261,7 @@ List datasets with filtering and pagination.
 **Request**
 
 ```
-GET /api/v1/datasets?datasetType=sft&search=training&pageNum=1&pageSize=20&orderBy=creation_time&order=desc
+GET /api/v1/datasets
 ```
 
 **Query Parameters**
@@ -160,7 +269,7 @@ GET /api/v1/datasets?datasetType=sft&search=training&pageNum=1&pageSize=20&order
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | datasetType | string | - | Filter by dataset type |
-| search | string | - | Search by display name |
+| search | string | - | Search by display name (fuzzy match) |
 | pageNum | int | 1 | Page number |
 | pageSize | int | 20 | Page size |
 | orderBy | string | creation_time | Order by field |
@@ -203,6 +312,12 @@ Get dataset details by ID.
 GET /api/v1/datasets/{id}
 ```
 
+**Path Parameters**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| id | string | Dataset ID |
+
 **Response**
 
 ```json
@@ -225,13 +340,19 @@ GET /api/v1/datasets/{id}
 
 ### Delete Dataset
 
-Delete a dataset by ID. This will also attempt to delete files from S3.
+Delete a dataset by ID. This will also attempt to delete files from S3 (soft delete in database).
 
 **Request**
 
 ```
 DELETE /api/v1/datasets/{id}
 ```
+
+**Path Parameters**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| id | string | Dataset ID |
 
 **Response**
 
@@ -251,6 +372,12 @@ List files in a dataset from S3.
 ```
 GET /api/v1/datasets/{id}/files
 ```
+
+**Path Parameters**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| id | string | Dataset ID |
 
 **Response**
 
@@ -282,3 +409,44 @@ After a dataset is downloaded to workspace PFS, you can access the files:
 1. **In Workloads**: Mount the workspace volume and access files at `{mount_path}/datasets/{dataset_displayName}/`
 2. **Via SSH**: Connect to workspace nodes and navigate to the PFS directory
 3. **Example path**: `/apps/datasets/My Training Data/train.jsonl`
+
+## Architecture
+
+### Download Flow
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         Dataset Creation Flow                                │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  1. POST /api/v1/datasets                                                   │
+│       │                                                                     │
+│       ▼                                                                     │
+│  2. Upload files to S3                                                      │
+│       │  - Store at: s3://{bucket}/datasets/{dataset-id}/                   │
+│       ▼                                                                     │
+│  3. Save metadata to PostgreSQL                                             │
+│       │                                                                     │
+│       ▼                                                                     │
+│  4. Create OpsJob(s) for download                                           │
+│       │  - Type: download                                                   │
+│       │  - One job per unique workspace path                                │
+│       ▼                                                                     │
+│  5. OpsJob Controller creates Workload                                      │
+│       │  - Image: s3-downloader                                             │
+│       │  - Env: INPUT_URL, DEST_PATH, SECRET_PATH                           │
+│       ▼                                                                     │
+│  6. Download to workspace PFS                                               │
+│       │  - Final path: {workspace-pfs}/datasets/{displayName}/              │
+│       ▼                                                                     │
+│  7. Dataset Ready for use                                                   │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Storage Paths
+
+| Storage | Path Pattern | Example |
+|---------|--------------|---------|
+| S3 | `datasets/{datasetId}/` | `datasets/dataset-a1b2c3d4/` |
+| Local PFS | `{workspace_mount}/datasets/{displayName}/` | `/apps/datasets/My Training Data/` |

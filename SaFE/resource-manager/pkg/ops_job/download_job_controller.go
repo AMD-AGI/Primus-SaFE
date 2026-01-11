@@ -157,10 +157,6 @@ func (r *DownloadJobReconciler) generateDownloadWorkload(ctx context.Context, jo
 	if err != nil {
 		return nil, err
 	}
-	nfsPath := getNfsPathFromWorkspace(workspace)
-	if nfsPath == "" {
-		return nil, commonerrors.NewInternalError("nfs path is empty")
-	}
 
 	workload := &v1.Workload{
 		ObjectMeta: metav1.ObjectMeta{
@@ -179,12 +175,12 @@ func (r *DownloadJobReconciler) generateDownloadWorkload(ctx context.Context, jo
 			},
 		},
 		Spec: v1.WorkloadSpec{
-			Resource: v1.WorkloadResource{
+			Resources: []v1.WorkloadResource{{
 				Replica:          1,
 				CPU:              "6",
 				Memory:           "8Gi",
 				EphemeralStorage: "50Gi",
-			},
+			}},
 			GroupVersionKind: v1.GroupVersionKind{
 				Version: common.DefaultVersion,
 				Kind:    common.JobKind,
@@ -207,27 +203,14 @@ func (r *DownloadJobReconciler) generateDownloadWorkload(ctx context.Context, jo
 		workload.Spec.Env = make(map[string]string)
 	}
 	workload.Spec.Env["INPUT_URL"] = inputUrl.Value
-	workload.Spec.Env["DEST_PATH"] = nfsPath + "/" + destPath.Value
+	workload.Spec.Env["DEST_PATH"] = destPath.Value
 	workload.Spec.Env["SECRET_PATH"] = common.SecretPath + "/" + secretParam.Value
+	// #region agent log - Hypothesis B/C: Check final env vars for download workload
+	klog.InfoS("[DEBUG] download_job_controller: Workload env vars set", "jobName", job.Name, "INPUT_URL", inputUrl.Value, "DEST_PATH", workload.Spec.Env["DEST_PATH"], "SECRET_PATH", workload.Spec.Env["SECRET_PATH"], "hypothesisId", "B/C")
+	// #endregion
 	workload.Spec.Secrets = []v1.SecretEntity{{
 		Id:   secretParam.Value,
 		Type: v1.SecretGeneral,
 	}}
 	return workload, nil
-}
-
-// getNfsPathFromWorkspace retrieves the NFS path from the workspace's volumes.
-// It prioritizes PFS type volumes, otherwise falls back to the first available volume's mount path.
-func getNfsPathFromWorkspace(workspace *v1.Workspace) string {
-	result := ""
-	for _, vol := range workspace.Spec.Volumes {
-		if vol.Type == v1.PFS {
-			result = vol.MountPath
-			break
-		}
-	}
-	if result == "" && len(workspace.Spec.Volumes) > 0 {
-		result = workspace.Spec.Volumes[0].MountPath
-	}
-	return result
 }

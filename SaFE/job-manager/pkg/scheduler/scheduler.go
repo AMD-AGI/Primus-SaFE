@@ -14,7 +14,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/labels"
 	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
@@ -48,7 +48,7 @@ const (
 
 type SchedulerReconciler struct {
 	client.Client
-	clusterInformers *commonutils.ObjectManager
+	clusterClientSets *commonutils.ObjectManager
 	// cronManager manages all cron jobs for workload scheduling
 	cronManager *CronJobManager
 	*controller.Controller[*SchedulerMessage]
@@ -73,9 +73,9 @@ func SetupSchedulerController(ctx context.Context, mgr manager.Manager) error {
 	}
 
 	r := &SchedulerReconciler{
-		Client:           mgr.GetClient(),
-		clusterInformers: commonutils.NewObjectManagerSingleton(),
-		cronManager:      newCronJobManager(mgr),
+		Client:            mgr.GetClient(),
+		clusterClientSets: commonutils.NewObjectManagerSingleton(),
+		cronManager:       newCronJobManager(mgr),
 	}
 	r.Controller = controller.NewController[*SchedulerMessage](r, 1)
 	r.start(ctx)
@@ -183,31 +183,25 @@ func (r *SchedulerReconciler) Reconcile(ctx context.Context, req ctrlruntime.Req
 
 // delete handles the deletion of a workload and its associated resources.
 func (r *SchedulerReconciler) delete(ctx context.Context, adminWorkload *v1.Workload) (ctrlruntime.Result, error) {
-	if len(adminWorkload.Spec.CronJobs) > 0 {
-		r.cronManager.remove(adminWorkload.Name)
-	}
-	clusterInformer, err := syncer.GetClusterInformer(r.clusterInformers, v1.GetClusterId(adminWorkload))
+	clientSets, err := syncer.GetClusterClientSets(r.clusterClientSets, v1.GetClusterId(adminWorkload))
 	if err != nil {
-		klog.Errorf("failed to get cluster informer, clusterId: %s, workspaceId: %s, workloadId: %s",
+		klog.Errorf("failed to get cluster clientSets, clusterId: %s, workspaceId: %s, workloadId: %s",
 			v1.GetClusterId(adminWorkload), adminWorkload.Spec.Workspace, adminWorkload.Name)
 		return ctrlruntime.Result{}, err
+	}
+	if hasFound, err := jobutils.DeleteObjectsByWorkload(ctx, r.Client, clientSets.ClientFactory(), adminWorkload); err != nil {
+		return ctrlruntime.Result{}, err
+	} else if hasFound {
+		return ctrlruntime.Result{RequeueAfter: time.Second * 10}, nil
+	}
+
+	if len(adminWorkload.Spec.CronJobs) > 0 {
+		r.cronManager.remove(adminWorkload.Name)
 	}
 	if commonworkload.IsCICDScalingRunnerSet(adminWorkload) {
 		if err = r.deleteRelatedSecrets(ctx, adminWorkload); err != nil {
 			return ctrlruntime.Result{}, err
 		}
-	}
-	workloadUnstructured, err := jobutils.BuildWorkloadUnstructured(ctx, r.Client, adminWorkload)
-	if err != nil {
-		return ctrlruntime.Result{}, err
-	}
-	// delete the related resource in data plane
-	if err = jobutils.DeleteObject(ctx, clusterInformer.ClientFactory(), workloadUnstructured); err != nil {
-		klog.ErrorS(err, "failed to delete k8s object")
-		return ctrlruntime.Result{}, err
-	}
-	if result, err := r.waitObjectDeleted(ctx, workloadUnstructured, clusterInformer); err != nil || result.RequeueAfter > 0 {
-		return result, err
 	}
 
 	if controllerutil.RemoveFinalizer(adminWorkload, v1.WorkloadFinalizer) {
@@ -217,19 +211,6 @@ func (r *SchedulerReconciler) delete(ctx context.Context, adminWorkload *v1.Work
 	}
 	klog.Infof("delete workload, name: %s", adminWorkload.Name)
 	return ctrlruntime.Result{}, nil
-}
-
-// waitObjectDeleted waits for an object to be fully deleted from the cluster.
-// If the object still exists after 1 minutes of deletion timestamp, it forcefully removes finalizers.
-func (r *SchedulerReconciler) waitObjectDeleted(ctx context.Context,
-	obj *unstructured.Unstructured, clusterInformer *syncer.ClusterInformer) (ctrlruntime.Result, error) {
-	k8sClientFactory := clusterInformer.ClientFactory()
-	gvk := obj.GroupVersionKind()
-	_, getErr := jobutils.GetObject(ctx, k8sClientFactory, obj.GetName(), obj.GetNamespace(), gvk)
-	if getErr != nil {
-		return ctrlruntime.Result{}, client.IgnoreNotFound(getErr)
-	}
-	return ctrlruntime.Result{RequeueAfter: time.Second * 20}, nil
 }
 
 // deleteRelatedSecrets removes all secrets associated with a CICD scaling runner set workload.
@@ -296,7 +277,7 @@ func (r *SchedulerReconciler) scheduleWorkloads(ctx context.Context, message *Sc
 	scheduledCount := 0
 	unScheduledReasons := make(map[string]string)
 	for i, w := range schedulingWorkloads {
-		requestResources, _ := commonworkload.CvtToResourceList(w)
+		requestResources, _ := commonworkload.GetTotalResourceList(w)
 		var leftResources *corev1.ResourceList
 		if w.Spec.IsTolerateAll {
 			leftResources = &leftTotalResources
@@ -372,14 +353,6 @@ func (r *SchedulerReconciler) canScheduleWorkload(ctx context.Context, requestWo
 	if !hasEnoughQuota {
 		reason = fmt.Sprintf("Insufficient total %s resources", formatResourceName(key))
 		isPreemptable, err = r.preempt(ctx, requestWorkload, scheduledWorkloads, leftResources)
-	} else {
-		hasEnoughQuota, reason, err = r.checkNodeResources(ctx, requestWorkload, scheduledWorkloads)
-		if !hasEnoughQuota {
-			isPreemptable = r.isPreemptable(requestWorkload, scheduledWorkloads)
-		}
-	}
-	if err != nil {
-		return false, "", err
 	}
 	if !hasEnoughQuota && !isPreemptable {
 		klog.Infof("the workload(%s) is not scheduled, reason: %s, request.resource: %s, left.resource: %s",
@@ -428,48 +401,6 @@ func (r *SchedulerReconciler) checkWorkloadDependencies(ctx context.Context, wor
 	return isReady, nil
 }
 
-// checkNodeResources check if each node's available resources satisfy the workload's resource requests.
-// Return true if satisfied, false otherwise, along with the reason.
-func (r *SchedulerReconciler) checkNodeResources(ctx context.Context,
-	requestWorkload *v1.Workload, runningWorkloads []*v1.Workload) (bool, string, error) {
-	nodes, err := getAvailableResourcesPerNode(ctx, r.Client, requestWorkload, runningWorkloads)
-	if err != nil {
-		return false, "", err
-	}
-	podResources, err := commonworkload.GetPodResources(&requestWorkload.Spec.Resource)
-	if err != nil {
-		return false, "", err
-	}
-	if len(nodes) == 0 {
-		return false, buildReason(requestWorkload, podResources, nil), nil
-	}
-	// All nodes within the same workspace are of the same flavor
-	nf := &v1.NodeFlavor{}
-	if err = r.Get(ctx, client.ObjectKey{Name: v1.GetNodeFlavorId(nodes[0].node)}, nf); err != nil {
-		return false, "", err
-	}
-
-	matchCount := 0
-	totalCount := requestWorkload.Spec.Resource.Replica
-	var unmatchedNodes []*NodeWrapper
-	for i, n := range nodes {
-		ok, _ := quantity.IsSubResource(podResources, n.resource)
-		if ok {
-			matchCount++
-			if matchCount >= totalCount {
-				break
-			}
-		} else {
-			nodes[i].resourceScore = buildResourceWeight(requestWorkload, n.resource, nf)
-			unmatchedNodes = append(unmatchedNodes, &nodes[i])
-		}
-	}
-	if matchCount >= totalCount {
-		return true, "", nil
-	}
-	return false, buildReason(requestWorkload, podResources, unmatchedNodes), nil
-}
-
 // getWorkspace retrieves a workspace by cluster ID and workspace ID.
 func (r *SchedulerReconciler) getWorkspace(ctx context.Context, workspaceId string) (*v1.Workspace, error) {
 	workspace := &v1.Workspace{}
@@ -477,16 +408,6 @@ func (r *SchedulerReconciler) getWorkspace(ctx context.Context, workspaceId stri
 		return nil, client.IgnoreNotFound(err)
 	}
 	return workspace, nil
-}
-
-// getAdminSecret retrieves a secret from the admin plane.
-func (r *SchedulerReconciler) getAdminSecret(ctx context.Context, secretId string) (*corev1.Secret, error) {
-	secret := &corev1.Secret{}
-	err := r.Get(ctx, client.ObjectKey{Name: secretId, Namespace: common.PrimusSafeNamespace}, secret)
-	if err != nil {
-		return nil, err
-	}
-	return secret, nil
 }
 
 // getUnfinishedWorkloads Retrieve the list of unfinished workloads,
@@ -537,7 +458,7 @@ func (r *SchedulerReconciler) getLeftTotalResources(ctx context.Context,
 		if w.IsRunning() {
 			totalResource, availableResource, _, err = commonworkload.GetWorkloadResourceUsage(w, filterFunc)
 		} else {
-			totalResource, err = commonworkload.CvtToResourceList(w)
+			totalResource, err = commonworkload.GetTotalResourceList(w)
 			availableResource = totalResource
 		}
 		if err != nil {
@@ -548,6 +469,11 @@ func (r *SchedulerReconciler) getLeftTotalResources(ctx context.Context,
 	}
 
 	leftAvailResource := quantity.SubResource(workspace.Status.AvailableResources, usedAvailableResource)
+	for key, val := range leftAvailResource {
+		if val.Value() < 0 {
+			leftAvailResource[key] = resource.Quantity{}
+		}
+	}
 	totalResource := quantity.GetAvailableResource(workspace.Status.TotalResources)
 	leftTotalResource := quantity.SubResource(totalResource, usedTotalResource)
 	klog.Infof("total resource: %v, total used: %v, total avail: %v, left total: %v, left avail: %v",
@@ -598,6 +524,9 @@ func (r *SchedulerReconciler) updateStatus(ctx context.Context, workload *v1.Wor
 	}
 	if workload.Status.QueuePosition > 0 {
 		statusPatch["queuePosition"] = 0
+	}
+	if workload.Status.Message == DependencyReason {
+		statusPatch["message"] = ""
 	}
 	statusPatch["conditions"] = append(workload.Status.Conditions, *cond)
 	patchObj := map[string]any{

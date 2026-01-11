@@ -1,0 +1,20 @@
+#
+# Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+
+apiVersion: amd.com/v1
+kind: AddonTemplate
+metadata:
+  name: disable-apt-auto-upgrade
+  labels:
+    primus-safe.display.name: "disable-apt-auto-upgrade"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
+spec:
+  category: System
+  required: true
+  description: Disable the apt automatic update feature. only for Ubuntu
+  action: c3lzdGVtY3RsIHN0b3AgYXB0LWRhaWx5LnNlcnZpY2UgYXB0LWRhaWx5LXVwZ3JhZGUuc2VydmljZSB8fCB0cnVlCnN5c3RlbWN0bCBkaXNhYmxlIGFwdC1kYWlseS5zZXJ2aWNlIGFwdC1kYWlseS11cGdyYWRlLnNlcnZpY2UgfHwgdHJ1ZQpzeXN0ZW1jdGwgbWFzayBhcHQtZGFpbHkuc2VydmljZSBhcHQtZGFpbHktdXBncmFkZS5zZXJ2aWNlIHx8IHRydWUKc3lzdGVtY3RsIHN0b3AgYXB0LWRhaWx5LnRpbWVyIGFwdC1kYWlseS11cGdyYWRlLnRpbWVyIHx8IHRydWUKc3lzdGVtY3RsIGRpc2FibGUgYXB0LWRhaWx5LnRpbWVyIGFwdC1kYWlseS11cGdyYWRlLnRpbWVyIHx8IHRydWUKc3lzdGVtY3RsIG1hc2sgYXB0LWRhaWx5LnRpbWVyIGFwdC1kYWlseS11cGdyYWRlLnRpbWVyIHx8IHRydWUK

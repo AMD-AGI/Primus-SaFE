@@ -15,11 +15,13 @@ metadata:
 spec:
   addOnTemplates:
     - disable-os-upgrade
+    - disable-apt-auto-upgrade
     - disable-numa-balancing
     - enable-cpu-performance
     - enable-huge-pages
     - load-amdgpu-module
     - load-rdma-module
     - set-max-sclk
+    - sysctl-max-map-count
     - sysctl-ulimit
     - sysctl-inotify

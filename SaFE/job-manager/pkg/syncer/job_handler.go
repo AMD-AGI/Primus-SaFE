@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"strconv"
 	"time"
 
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
@@ -34,12 +35,12 @@ const (
 // handleJob processes job resource events and synchronizes status between data plane and admin plane.
 // Manages the lifecycle of workload resources and handles failure scenarios.
 func (r *SyncerReconciler) handleJob(ctx context.Context,
-	message *resourceMessage, informer *ClusterInformer) (ctrlruntime.Result, error) {
+	message *resourceMessage, clientSets *ClusterClientSets) (ctrlruntime.Result, error) {
 	adminWorkload, err := r.getAdminWorkload(ctx, message.workloadId)
 	if err != nil || adminWorkload == nil {
 		return ctrlruntime.Result{}, err
 	}
-	if adminWorkload.IsEnd() || message.namespace != adminWorkload.Spec.Workspace {
+	if message.namespace != adminWorkload.Spec.Workspace {
 		return ctrlruntime.Result{}, nil
 	}
 	if commonworkload.IsCICDScalingRunnerSet(adminWorkload) && message.gvk.Kind != common.CICDScaleRunnerSetKind {
@@ -49,7 +50,7 @@ func (r *SyncerReconciler) handleJob(ctx context.Context,
 		return ctrlruntime.Result{RequeueAfter: time.Second}, nil
 	}
 
-	result, err := r.handleJobImpl(ctx, message, adminWorkload, informer)
+	result, err := r.handleJobImpl(ctx, message, adminWorkload, clientSets)
 	if jobutils.IsUnrecoverableError(err) {
 		// Errors defined internally are fatal and lead to a terminal state without retry
 		err = jobutils.SetWorkloadFailed(ctx, r.Client, adminWorkload, err.Error())
@@ -60,31 +61,46 @@ func (r *SyncerReconciler) handleJob(ctx context.Context,
 // handleJobImpl implements the core logic for handling job resource events.
 // Processes resource creation, update, and deletion events.
 func (r *SyncerReconciler) handleJobImpl(ctx context.Context, message *resourceMessage,
-	adminWorkload *v1.Workload, informer *ClusterInformer) (ctrlruntime.Result, error) {
+	adminWorkload *v1.Workload, clientSets *ClusterClientSets) (ctrlruntime.Result, error) {
 	if message.action == ResourceDel {
 		// wait until all pods are deleted
-		if !r.waitAllPodsDeleted(ctx, message, informer) {
+		if !r.waitAllPodsDeleted(ctx, message, clientSets) {
 			return ctrlruntime.Result{RequeueAfter: time.Second * 3}, nil
 		}
 	}
 
-	status, err := r.getK8sResourceStatus(ctx, message, informer, adminWorkload)
-	if err != nil {
-		return ctrlruntime.Result{}, err
-	}
-	adminWorkload, err = r.updateAdminWorkloadStatus(ctx, adminWorkload, status, message)
-	if err != nil {
-		klog.ErrorS(err, "failed to update admin workload status")
-		return ctrlruntime.Result{}, err
+	if !adminWorkload.IsEnd() {
+		status, err := r.getK8sObjectStatus(ctx, message, clientSets, adminWorkload)
+		if err != nil {
+			return ctrlruntime.Result{}, err
+		}
+		adminWorkload, err = r.updateAdminWorkloadStatus(ctx, adminWorkload, status, message)
+		if err != nil {
+			klog.ErrorS(err, "failed to update admin workload status")
+			return ctrlruntime.Result{}, err
+		}
 	}
 
 	if message.action == ResourceDel {
 		// wait until the job is also deleted
-		if !r.waitJobDeleted(ctx, adminWorkload, informer) {
+		if !r.waitJobDeleted(ctx, message, clientSets) {
 			return ctrlruntime.Result{RequeueAfter: time.Second * 3}, nil
 		}
 		if !adminWorkload.IsEnd() {
-			if err = r.reSchedule(ctx, adminWorkload, message.dispatchCount); err != nil {
+			// TorchFT workloads consist of multiple objects (groups), while other workloads have a single object.
+			// For TorchFT: wait until ALL objects in the group are deleted before triggering reSchedule
+			// For other workloads: single job deletion is sufficient to trigger reSchedule
+			if commonworkload.IsTorchFT(adminWorkload) {
+				unstructuredObjs, err := jobutils.ListObjectsByWorkload(ctx, r.Client, clientSets.ClientFactory(), adminWorkload)
+				if err != nil {
+					klog.ErrorS(err, "failed to list objects by workload", "workload", adminWorkload.Name)
+					return ctrlruntime.Result{}, err
+				}
+				if len(unstructuredObjs) != 0 {
+					return ctrlruntime.Result{}, nil
+				}
+			}
+			if err := r.reSchedule(ctx, adminWorkload, message.dispatchCount); err != nil {
 				klog.ErrorS(err, "failed to reSchedule", "workload", adminWorkload.Name)
 				return ctrlruntime.Result{}, err
 			}
@@ -93,27 +109,37 @@ func (r *SyncerReconciler) handleJobImpl(ctx context.Context, message *resourceM
 	return ctrlruntime.Result{}, nil
 }
 
-// getK8sResourceStatus retrieves the status of a Kubernetes resource.
-// Extracts phase and message information from the resource.
-func (r *SyncerReconciler) getK8sResourceStatus(ctx context.Context, message *resourceMessage,
-	clusterInformer *ClusterInformer, adminWorkload *v1.Workload) (*jobutils.K8sResourceStatus, error) {
+// getK8sObjectStatus retrieves the status of a Kubernetes object in data plane.
+// Extracts phase and message information from the object.
+func (r *SyncerReconciler) getK8sObjectStatus(ctx context.Context, message *resourceMessage,
+	clientSets *ClusterClientSets, adminWorkload *v1.Workload) (*jobutils.K8sObjectStatus, error) {
 	if message.action == ResourceDel {
-		return &jobutils.K8sResourceStatus{
+		return &jobutils.K8sObjectStatus{
 			Phase:   string(v1.K8sDeleted),
 			Message: fmt.Sprintf("%s %s is deleted", message.gvk.Kind, message.name),
 		}, nil
 	}
-	k8sObject, err := jobutils.GetObject(ctx, clusterInformer.ClientFactory(), message.name, message.namespace, message.gvk)
+	k8sObject, err := jobutils.GetObject(ctx, clientSets.ClientFactory(), message.name, message.namespace, message.gvk)
 	if err != nil {
 		klog.ErrorS(err, "failed to get k8s object", "name", message.name, "namespace", message.namespace)
 		return nil, err
 	}
-	rt, err := commonworkload.GetResourceTemplate(ctx, r.Client, adminWorkload)
+
+	var rt *v1.ResourceTemplate
+	if commonworkload.IsTorchFT(adminWorkload) {
+		// For TorchFT workloads, the Kubernetes object GVK matches the workload GVK directly
+		// So we can retrieve the resource template using the message GVK (which is the actual object GVK)
+		rt, err = commonworkload.GetResourceTemplateByGVK(ctx, r.Client, message.gvk)
+	} else {
+		// For other workloads, the resource template is associated with the workload GVK
+		rt, err = commonworkload.GetResourceTemplate(ctx, r.Client, adminWorkload)
+	}
+
 	if err != nil {
-		klog.ErrorS(err, "failed to get resource template", "name", message.name, "kind", message.gvk.Kind)
+		klog.ErrorS(err, "failed to get resource template", "workload", adminWorkload.Name, "kind", message.gvk.Kind)
 		return nil, err
 	}
-	status, err := jobutils.GetK8sResourceStatus(k8sObject, rt)
+	status, err := jobutils.GetK8sObjectStatus(k8sObject, rt)
 	if err != nil {
 		klog.ErrorS(err, "failed to get phase", "name", message.name, "namespace", message.namespace)
 		return nil, commonerrors.NewInternalError(err.Error())
@@ -132,14 +158,21 @@ func (r *SyncerReconciler) getK8sResourceStatus(ctx context.Context, message *re
 }
 
 // waitAllPodsDeleted checks if all pods associated with a workload have been deleted.
-func (r *SyncerReconciler) waitAllPodsDeleted(ctx context.Context, message *resourceMessage, informer *ClusterInformer) bool {
+func (r *SyncerReconciler) waitAllPodsDeleted(ctx context.Context, message *resourceMessage, clientSets *ClusterClientSets) bool {
 	labelSelector := metav1.LabelSelector{
-		MatchLabels: map[string]string{v1.WorkloadIdLabel: message.workloadId},
+		MatchLabels: map[string]string{v1.K8sObjectIdLabel: message.name},
+	}
+	// TODO: Keep old logic for compatibility; remove it later.
+	if len(message.selectorLabels) > 0 {
+		if _, ok := message.selectorLabels[v1.WorkloadIdLabel]; ok {
+			labelSelector.MatchLabels = map[string]string{v1.WorkloadIdLabel: message.workloadId}
+		}
 	}
 	listOptions := metav1.ListOptions{
 		LabelSelector: metav1.FormatLabelSelector(&labelSelector),
 	}
-	podList, err := informer.dataClientFactory.ClientSet().CoreV1().Pods(message.namespace).List(ctx, listOptions)
+	klog.Infof("wait all pods are deleted, workload: %s, match labels: %v", message.workloadId, labelSelector.MatchLabels)
+	podList, err := clientSets.dataClientFactory.ClientSet().CoreV1().Pods(message.namespace).List(ctx, listOptions)
 	if err != nil {
 		klog.ErrorS(err, "failed to list pods", "workload", message.workloadId, "namespace", message.namespace)
 		return false
@@ -150,13 +183,8 @@ func (r *SyncerReconciler) waitAllPodsDeleted(ctx context.Context, message *reso
 	return false
 }
 
-func (r *SyncerReconciler) waitJobDeleted(ctx context.Context, adminWorkload *v1.Workload, informer *ClusterInformer) bool {
-	rt, err := commonworkload.GetResourceTemplate(ctx, r.Client, adminWorkload)
-	if err != nil {
-		return apierrors.IsNotFound(err)
-	}
-	obj, err := jobutils.GetObjectByClientFactory(ctx, informer.ClientFactory(),
-		adminWorkload.Name, adminWorkload.Spec.Workspace, rt.ToSchemaGVK())
+func (r *SyncerReconciler) waitJobDeleted(ctx context.Context, message *resourceMessage, clientSets *ClusterClientSets) bool {
+	obj, err := jobutils.GetObject(ctx, clientSets.ClientFactory(), message.name, message.namespace, message.gvk)
 	if err != nil {
 		return apierrors.IsNotFound(err)
 	}
@@ -167,7 +195,7 @@ func (r *SyncerReconciler) waitJobDeleted(ctx context.Context, adminWorkload *v1
 			},
 		}
 		p := jsonutils.MarshalSilently(patchObj)
-		if patchErr := jobutils.PatchObject(ctx, informer.ClientFactory(), obj, p); patchErr != nil {
+		if patchErr := jobutils.PatchObject(ctx, clientSets.ClientFactory(), obj, p); patchErr != nil {
 			return apierrors.IsNotFound(patchErr)
 		}
 	}
@@ -177,8 +205,8 @@ func (r *SyncerReconciler) waitJobDeleted(ctx context.Context, adminWorkload *v1
 // updateAdminWorkloadStatus updates the admin workload status based on resource status.
 // Manages workload phase transitions and condition updates.
 func (r *SyncerReconciler) updateAdminWorkloadStatus(ctx context.Context, originalWorkload *v1.Workload,
-	status *jobutils.K8sResourceStatus, message *resourceMessage) (*v1.Workload, error) {
-	if originalWorkload.IsEnd() || status == nil {
+	status *jobutils.K8sObjectStatus, message *resourceMessage) (*v1.Workload, error) {
+	if status == nil {
 		return originalWorkload, nil
 	}
 	adminWorkload := originalWorkload.DeepCopy()
@@ -206,10 +234,12 @@ func (r *SyncerReconciler) updateAdminWorkloadStatus(ctx context.Context, origin
 	if !status.IsPending() {
 		adminWorkload.Status.Message = ""
 	}
-	adminWorkload.Status.K8sObjectUid = string(message.uid)
-	cond := jobutils.NewCondition(status.Phase, status.Message,
-		commonworkload.GenerateDispatchReason(message.dispatchCount))
-	updateWorkloadCondition(adminWorkload, cond)
+	if !commonworkload.IsTorchFT(adminWorkload) ||
+		adminWorkload.Status.Phase != originalWorkload.Status.Phase || isTorchFTGroupFailed(adminWorkload) {
+		cond := jobutils.NewCondition(status.Phase, status.Message,
+			commonworkload.GenerateDispatchReason(message.dispatchCount))
+		updateWorkloadCondition(adminWorkload, cond)
+	}
 	if reflect.DeepEqual(adminWorkload.Status, originalWorkload.Status) {
 		return originalWorkload, nil
 	}
@@ -221,23 +251,36 @@ func (r *SyncerReconciler) updateAdminWorkloadStatus(ctx context.Context, origin
 	return adminWorkload, nil
 }
 
-// updateAdminWorkloadPhase updates the workload phase based on k8s resource status.
+// updateAdminWorkloadPhase updates the workload phase based on k8s object status.
 // It was previously determined that the workload has not reached a terminal state.
 func (r *SyncerReconciler) updateAdminWorkloadPhase(adminWorkload *v1.Workload,
-	status *jobutils.K8sResourceStatus, message *resourceMessage) {
+	status *jobutils.K8sObjectStatus, message *resourceMessage) {
 	phase := v1.WorkloadConditionType(status.Phase)
 	switch phase {
 	case v1.K8sPending:
 		adminWorkload.Status.Phase = v1.WorkloadPending
 	case v1.K8sSucceeded:
-		adminWorkload.Status.Phase = v1.WorkloadSucceeded
+		if !commonworkload.IsTorchFT(adminWorkload) ||
+			handleTorchFTGroupStatus(adminWorkload, message.name, v1.WorkloadSucceeded) == v1.WorkloadSucceeded {
+			adminWorkload.Status.Phase = v1.WorkloadSucceeded
+		}
 	case v1.K8sFailed:
+		if commonworkload.IsTorchFT(adminWorkload) {
+			if handleTorchFTGroupStatus(adminWorkload, message.name, v1.WorkloadFailed) != v1.WorkloadFailed {
+				break
+			}
+		}
 		if shouldTerminateWorkload(adminWorkload, status, message.dispatchCount) {
 			adminWorkload.Status.Phase = v1.WorkloadFailed
 		} else if commonworkload.IsApplication(adminWorkload) {
 			adminWorkload.Status.Phase = v1.WorkloadNotReady
 		}
 	case v1.K8sDeleted:
+		if commonworkload.IsTorchFT(adminWorkload) {
+			if handleTorchFTGroupStatus(adminWorkload, message.name, v1.WorkloadStopped) != v1.WorkloadStopped {
+				break
+			}
+		}
 		if shouldTerminateWorkload(adminWorkload, status, message.dispatchCount) {
 			if commonworkload.IsCICDEphemeralRunner(adminWorkload) {
 				// Currently, when an EphemeralRunner successfully completes,
@@ -251,7 +294,10 @@ func (r *SyncerReconciler) updateAdminWorkloadPhase(adminWorkload *v1.Workload,
 			adminWorkload.Status.Phase = v1.WorkloadNotReady
 		}
 	case v1.K8sRunning:
-		adminWorkload.Status.Phase = v1.WorkloadRunning
+		if !commonworkload.IsTorchFT(adminWorkload) ||
+			handleTorchFTGroupStatus(adminWorkload, message.name, v1.WorkloadRunning) == v1.WorkloadRunning {
+			adminWorkload.Status.Phase = v1.WorkloadRunning
+		}
 	case v1.K8sUpdating:
 		// only for deployment/statefulSet
 		adminWorkload.Status.Phase = v1.WorkloadUpdating
@@ -264,6 +310,10 @@ func (r *SyncerReconciler) reSchedule(ctx context.Context, workload *v1.Workload
 	isStatusChanged := false
 	if len(workload.Status.Pods) > 0 {
 		workload.Status.Pods = nil
+		isStatusChanged = true
+	}
+	if len(workload.Status.TorchFTPhase) > 0 {
+		workload.Status.TorchFTPhase = nil
 		isStatusChanged = true
 	}
 	if workload.Status.Phase != v1.WorkloadPending {
@@ -335,7 +385,7 @@ func updateWorkloadCondition(adminWorkload *v1.Workload, newCondition *metav1.Co
 
 // shouldTerminateWorkload determines if a workload has reached its end state.
 // Considers retry limits and failover settings.
-func shouldTerminateWorkload(adminWorkload *v1.Workload, status *jobutils.K8sResourceStatus, count int) bool {
+func shouldTerminateWorkload(adminWorkload *v1.Workload, status *jobutils.K8sObjectStatus, count int) bool {
 	if commonworkload.IsApplication(adminWorkload) || v1.IsWorkloadPreempted(adminWorkload) {
 		return false
 	}
@@ -349,6 +399,95 @@ func shouldTerminateWorkload(adminWorkload *v1.Workload, status *jobutils.K8sRes
 			count > adminWorkload.Spec.MaxRetry || v1.IsWorkloadDisableFailover(adminWorkload) {
 			return true
 		}
+	}
+	return false
+}
+
+// handleTorchFTGroupStatus handles status updates for TorchFT workload groups.
+// groupId: 0 lighthouse and [1,totalGroups] workers.
+// For failure status: fails if index=0 fails OR available workers < minGroup.
+// For succeed status: all workers are succeed.
+// For other statuses: returns status only when ALL groups have the same status.
+// Otherwise returns empty string.
+func handleTorchFTGroupStatus(adminWorkload *v1.Workload, groupIdStr string, phase v1.WorkloadPhase) v1.WorkloadPhase {
+	// Get total group count
+	totalGroups, err := commonworkload.GetReplicaGroup(adminWorkload, common.ReplicaGroup)
+	if err != nil || totalGroups <= 0 {
+		// If we can't get total groups, treat as single group
+		return phase
+	}
+	groupId, err := strconv.Atoi(groupIdStr)
+	if err != nil {
+		// If we can't get group id, treat as single group
+		return phase
+	}
+	// TorchFT job indices are 1 to totalGroups, index > totalGroups is invalid
+	if groupId > totalGroups {
+		return ""
+	}
+
+	minGroups, err := commonworkload.GetReplicaGroup(adminWorkload, common.MinReplicaGroup)
+	if err != nil || minGroups <= 0 {
+		// If we can't get total groups, treat as single group
+		return phase
+	}
+
+	// Initialize TorchFTPhase map if nil
+	if adminWorkload.Status.TorchFTPhase == nil {
+		adminWorkload.Status.TorchFTPhase = make(map[string]v1.WorkloadPhase)
+	}
+
+	// Update current group phase
+	adminWorkload.Status.TorchFTPhase[groupIdStr] = phase
+
+	// Special handling for WorkloadFailed: only fail if remaining groups < minGroups
+	if phase == v1.WorkloadFailed {
+		if isTorchFTGroupFailed(adminWorkload) {
+			return v1.WorkloadFailed
+		}
+		return ""
+	}
+
+	// Check if all groups have the same phase
+	if len(adminWorkload.Status.TorchFTPhase) > totalGroups {
+		allSamePhase := true
+		beginId := 0
+		if phase == v1.WorkloadSucceeded {
+			beginId = 1
+		}
+		for i := beginId; i <= totalGroups; i++ {
+			p := adminWorkload.Status.TorchFTPhase[strconv.Itoa(i)]
+			if p != phase {
+				allSamePhase = false
+				break
+			}
+		}
+		if allSamePhase {
+			return phase
+		}
+	}
+
+	// Not all groups have the same phase yet
+	return ""
+}
+
+// isTorchFTGroupFailed checks if the TorchFT workload should be considered as failed
+// if the number of remaining available worker groups falls below the minimum required groups
+func isTorchFTGroupFailed(adminWorkload *v1.Workload) bool {
+	totalGroups, _ := commonworkload.GetReplicaGroup(adminWorkload, common.ReplicaGroup)
+	minGroups, _ := commonworkload.GetReplicaGroup(adminWorkload, common.MinReplicaGroup)
+
+	failedCount := 0
+	for i := 1; i <= totalGroups; i++ {
+		p := adminWorkload.Status.TorchFTPhase[strconv.Itoa(i)]
+		if p == v1.WorkloadFailed || p == v1.WorkloadStopped {
+			failedCount++
+		}
+	}
+	// Remaining groups = totalGroups - failedCount
+	// If remaining < minGroups, the workload should fail
+	if totalGroups-failedCount < minGroups {
+		return true
 	}
 	return false
 }

@@ -1,3 +1,6 @@
+// Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
+// See LICENSE for license information.
+
 package reconciler
 
 import (
@@ -121,13 +124,16 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req reconcile.Reques
 	return reconcile.Result{}, nil
 }
 
-func (r *WorkloadReconciler) calculateGpuRequest(ctx context.Context, workload *primusSafeV1.Workload) int32 {
-	gpuPerReplica := 0
-	gpuPerReplica, err := strconv.Atoi(workload.Spec.Resource.GPU)
-	if err != nil {
-		return 0
+func (r *WorkloadReconciler) calculateGpuRequest(workload *primusSafeV1.Workload) int32 {
+	totalGpu := 0
+	for _, res := range workload.Spec.Resources {
+		n, err := strconv.Atoi(res.GPU)
+		if err != nil {
+			return 0
+		}
+		totalGpu += n * res.Replica
 	}
-	return int32(gpuPerReplica * workload.Spec.Resource.Replica)
+	return int32(totalGpu)
 }
 
 func (r *WorkloadReconciler) saveWorkloadToDB(ctx context.Context, workload *primusSafeV1.Workload) error {
@@ -157,7 +163,7 @@ func (r *WorkloadReconciler) saveWorkloadToDB(ctx context.Context, workload *pri
 		Namespace:    workload.Spec.Workspace,
 		Name:         workload.Name,
 		UID:          string(workload.UID),
-		GpuRequest:   r.calculateGpuRequest(ctx, workload),
+		GpuRequest:   r.calculateGpuRequest(workload),
 		CreatedAt:    workload.CreationTimestamp.Time,
 		UpdatedAt:    time.Now(),
 		Labels:       map[string]interface{}{},

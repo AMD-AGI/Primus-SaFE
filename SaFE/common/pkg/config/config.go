@@ -276,7 +276,7 @@ func GetOpsJobTimeoutSecond() int {
 
 // GetDownloadJoImage returns the image name for downloading jobs.
 func GetDownloadJoImage() string {
-	return getString(opsJobDownloadImage, "")
+	return getString(opsJobDownloadImage, "docker.io/primussafe/s3-downloader:latest")
 }
 
 // GetPrewarmTimeoutSecond returns the timeout in seconds for prewarm jobs.
@@ -447,7 +447,7 @@ func GetProxyServices() []ProxyService {
 
 // GetComponents returns the list of deployable components.
 func GetComponents() []string {
-	val := viper.GetString(cdComponents)
+	val := getString(cdComponents, "")
 	return removeBlank(strings.Split(val, ","))
 }
 
@@ -456,6 +456,11 @@ func GetComponents() []string {
 // When false, users can approve their own requests (self-approval allowed).
 func IsCDRequireApproval() bool {
 	return getBool(cdRequireApproval, true)
+}
+
+// GetTorchFTLightHouse returns the entorypoint of torchft lighthouse.
+func GetTorchFTLightHouse() string {
+	return getString(torchFTLightHouse, "")
 }
 
 // GetCDJobImage returns the image for CD deployment jobs.

@@ -93,7 +93,6 @@ const (
 	WorkloadDispatchedAnnotation      = WorkloadPrefix + "dispatched"
 	WorkloadScheduledAnnotation       = WorkloadPrefix + "scheduled"
 	WorkloadPreemptedAnnotation       = WorkloadPrefix + "preempted"
-	EnableHostNetworkAnnotation       = WorkloadPrefix + "enable.host.network"
 	WorkloadKindLabel                 = WorkloadPrefix + "kind"
 	WorkloadVersionLabel              = WorkloadPrefix + "version"
 	WorkloadDispatchCntLabel          = WorkloadPrefix + "dispatch.count"
@@ -103,6 +102,10 @@ const (
 	CronJobTimestampAnnotation        = WorkloadPrefix + "cronjob"
 	EnvToBeRemovedAnnotation          = WorkloadPrefix + "env.to.remove"
 	AdminControlPlaneAnnotation       = WorkloadPrefix + "admin.control.plane"
+	ResourceIdAnnotation              = WorkloadPrefix + "resource.id"
+	GroupIdAnnotation                 = WorkloadPrefix + "group.id"
+	RootWorkloadIdLabel               = WorkloadPrefix + "root.id"
+	K8sObjectIdLabel                  = PrimusSafePrefix + "k8s.object.id"
 
 	// user
 	UserPrefix              = PrimusSafePrefix + "user."
@@ -137,13 +140,9 @@ const (
 	AddonDefaultLabel = AddonPrefix + "default"
 
 	// model
-	ModelPrefix  = PrimusSafePrefix + "model."
-	ModelIdLabel = ModelPrefix + "id"
-
-	// inference
-	InferencePrefix    = PrimusSafePrefix + "inference."
-	InferenceFinalizer = PrimusSafeDomain + "inference.finalizer"
-	InferenceIdLabel   = InferencePrefix + "id"
+	ModelPrefix        = PrimusSafePrefix + "model."
+	ModelIdLabel       = ModelPrefix + "id"
+	SourceModelIdLabel = PrimusSafePrefix + "source-model"
 )
 
 type SecretType string

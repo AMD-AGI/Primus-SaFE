@@ -1,3 +1,6 @@
+// Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
+// See LICENSE for license information.
+
 package config
 
 import (
@@ -996,3 +999,318 @@ func BenchmarkMiddlewareConfig_GetErrorSamplingRatio(b *testing.B) {
 	}
 }
 
+// TestNodeExporterConfig_GetPySpyConfig tests the GetPySpyConfig method
+func TestNodeExporterConfig_GetPySpyConfig(t *testing.T) {
+	tests := []struct {
+		name     string
+		config   *NodeExporterConfig
+		wantFunc func(t *testing.T, cfg *PySpyConfig)
+	}{
+		{
+			name:   "nil NodeExporterConfig returns defaults",
+			config: nil,
+			wantFunc: func(t *testing.T, cfg *PySpyConfig) {
+				if cfg == nil {
+					t.Fatal("Expected non-nil PySpyConfig")
+				}
+				if !cfg.Enabled {
+					t.Error("Expected Enabled to be true by default")
+				}
+				if cfg.StoragePath != "/var/lib/lens/pyspy" {
+					t.Errorf("Expected StoragePath '/var/lib/lens/pyspy', got %s", cfg.StoragePath)
+				}
+				if cfg.BinaryPath != "/usr/local/bin/py-spy" {
+					t.Errorf("Expected BinaryPath '/usr/local/bin/py-spy', got %s", cfg.BinaryPath)
+				}
+				if cfg.MaxStorageSizeMB != 10240 {
+					t.Errorf("Expected MaxStorageSizeMB 10240, got %d", cfg.MaxStorageSizeMB)
+				}
+				if cfg.FileRetentionDays != 7 {
+					t.Errorf("Expected FileRetentionDays 7, got %d", cfg.FileRetentionDays)
+				}
+				if cfg.MaxConcurrentJobs != 5 {
+					t.Errorf("Expected MaxConcurrentJobs 5, got %d", cfg.MaxConcurrentJobs)
+				}
+				if cfg.DefaultDuration != 30 {
+					t.Errorf("Expected DefaultDuration 30, got %d", cfg.DefaultDuration)
+				}
+				if cfg.DefaultRate != 100 {
+					t.Errorf("Expected DefaultRate 100, got %d", cfg.DefaultRate)
+				}
+			},
+		},
+		{
+			name: "nil PySpy config returns defaults",
+			config: &NodeExporterConfig{
+				ContainerdSocketPath: "/run/containerd/containerd.sock",
+				PySpy:                nil,
+			},
+			wantFunc: func(t *testing.T, cfg *PySpyConfig) {
+				if cfg == nil {
+					t.Fatal("Expected non-nil PySpyConfig")
+				}
+				if cfg.StoragePath != "/var/lib/lens/pyspy" {
+					t.Errorf("Expected default StoragePath, got %s", cfg.StoragePath)
+				}
+				if cfg.MaxStorageSizeMB != 10240 {
+					t.Errorf("Expected default MaxStorageSizeMB, got %d", cfg.MaxStorageSizeMB)
+				}
+			},
+		},
+		{
+			name: "custom values are preserved",
+			config: &NodeExporterConfig{
+				PySpy: &PySpyConfig{
+					Enabled:           false,
+					StoragePath:       "/custom/path",
+					BinaryPath:        "/custom/bin/py-spy",
+					MaxStorageSizeMB:  20480,
+					FileRetentionDays: 14,
+					MaxConcurrentJobs: 10,
+					DefaultDuration:   60,
+					DefaultRate:       200,
+				},
+			},
+			wantFunc: func(t *testing.T, cfg *PySpyConfig) {
+				if cfg.Enabled {
+					t.Error("Expected Enabled to be false")
+				}
+				if cfg.StoragePath != "/custom/path" {
+					t.Errorf("Expected custom StoragePath, got %s", cfg.StoragePath)
+				}
+				if cfg.BinaryPath != "/custom/bin/py-spy" {
+					t.Errorf("Expected custom BinaryPath, got %s", cfg.BinaryPath)
+				}
+				if cfg.MaxStorageSizeMB != 20480 {
+					t.Errorf("Expected custom MaxStorageSizeMB, got %d", cfg.MaxStorageSizeMB)
+				}
+				if cfg.FileRetentionDays != 14 {
+					t.Errorf("Expected custom FileRetentionDays, got %d", cfg.FileRetentionDays)
+				}
+				if cfg.MaxConcurrentJobs != 10 {
+					t.Errorf("Expected custom MaxConcurrentJobs, got %d", cfg.MaxConcurrentJobs)
+				}
+				if cfg.DefaultDuration != 60 {
+					t.Errorf("Expected custom DefaultDuration, got %d", cfg.DefaultDuration)
+				}
+				if cfg.DefaultRate != 200 {
+					t.Errorf("Expected custom DefaultRate, got %d", cfg.DefaultRate)
+				}
+			},
+		},
+		{
+			name: "empty strings get defaults",
+			config: &NodeExporterConfig{
+				PySpy: &PySpyConfig{
+					Enabled:           true,
+					StoragePath:       "",
+					BinaryPath:        "",
+					MaxStorageSizeMB:  5000,
+					FileRetentionDays: 3,
+					MaxConcurrentJobs: 2,
+					DefaultDuration:   15,
+					DefaultRate:       50,
+				},
+			},
+			wantFunc: func(t *testing.T, cfg *PySpyConfig) {
+				if cfg.StoragePath != "/var/lib/lens/pyspy" {
+					t.Errorf("Expected default StoragePath for empty string, got %s", cfg.StoragePath)
+				}
+				if cfg.BinaryPath != "/usr/local/bin/py-spy" {
+					t.Errorf("Expected default BinaryPath for empty string, got %s", cfg.BinaryPath)
+				}
+				// These should keep their custom non-zero values
+				if cfg.MaxStorageSizeMB != 5000 {
+					t.Errorf("Expected custom MaxStorageSizeMB, got %d", cfg.MaxStorageSizeMB)
+				}
+				if cfg.FileRetentionDays != 3 {
+					t.Errorf("Expected custom FileRetentionDays, got %d", cfg.FileRetentionDays)
+				}
+			},
+		},
+		{
+			name: "zero values get defaults",
+			config: &NodeExporterConfig{
+				PySpy: &PySpyConfig{
+					Enabled:           true,
+					StoragePath:       "/my/path",
+					BinaryPath:        "/my/bin",
+					MaxStorageSizeMB:  0,
+					FileRetentionDays: 0,
+					MaxConcurrentJobs: 0,
+					DefaultDuration:   0,
+					DefaultRate:       0,
+				},
+			},
+			wantFunc: func(t *testing.T, cfg *PySpyConfig) {
+				if cfg.StoragePath != "/my/path" {
+					t.Errorf("Expected custom StoragePath, got %s", cfg.StoragePath)
+				}
+				if cfg.BinaryPath != "/my/bin" {
+					t.Errorf("Expected custom BinaryPath, got %s", cfg.BinaryPath)
+				}
+				if cfg.MaxStorageSizeMB != 10240 {
+					t.Errorf("Expected default MaxStorageSizeMB for zero, got %d", cfg.MaxStorageSizeMB)
+				}
+				if cfg.FileRetentionDays != 7 {
+					t.Errorf("Expected default FileRetentionDays for zero, got %d", cfg.FileRetentionDays)
+				}
+				if cfg.MaxConcurrentJobs != 5 {
+					t.Errorf("Expected default MaxConcurrentJobs for zero, got %d", cfg.MaxConcurrentJobs)
+				}
+				if cfg.DefaultDuration != 30 {
+					t.Errorf("Expected default DefaultDuration for zero, got %d", cfg.DefaultDuration)
+				}
+				if cfg.DefaultRate != 100 {
+					t.Errorf("Expected default DefaultRate for zero, got %d", cfg.DefaultRate)
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.config.GetPySpyConfig()
+			tt.wantFunc(t, got)
+		})
+	}
+}
+
+// TestPySpyConfig_Struct tests PySpyConfig struct initialization
+func TestPySpyConfig_Struct(t *testing.T) {
+	cfg := PySpyConfig{
+		Enabled:           true,
+		StoragePath:       "/test/storage",
+		BinaryPath:        "/test/bin/py-spy",
+		MaxStorageSizeMB:  8192,
+		FileRetentionDays: 5,
+		MaxConcurrentJobs: 3,
+		DefaultDuration:   45,
+		DefaultRate:       150,
+	}
+
+	if !cfg.Enabled {
+		t.Error("Expected Enabled to be true")
+	}
+	if cfg.StoragePath != "/test/storage" {
+		t.Errorf("StoragePath mismatch: got %s", cfg.StoragePath)
+	}
+	if cfg.BinaryPath != "/test/bin/py-spy" {
+		t.Errorf("BinaryPath mismatch: got %s", cfg.BinaryPath)
+	}
+	if cfg.MaxStorageSizeMB != 8192 {
+		t.Errorf("MaxStorageSizeMB mismatch: got %d", cfg.MaxStorageSizeMB)
+	}
+	if cfg.FileRetentionDays != 5 {
+		t.Errorf("FileRetentionDays mismatch: got %d", cfg.FileRetentionDays)
+	}
+	if cfg.MaxConcurrentJobs != 3 {
+		t.Errorf("MaxConcurrentJobs mismatch: got %d", cfg.MaxConcurrentJobs)
+	}
+	if cfg.DefaultDuration != 45 {
+		t.Errorf("DefaultDuration mismatch: got %d", cfg.DefaultDuration)
+	}
+	if cfg.DefaultRate != 150 {
+		t.Errorf("DefaultRate mismatch: got %d", cfg.DefaultRate)
+	}
+}
+
+// TestLoadConfig_WithPySpyConfig tests LoadConfig with pyspy configuration
+func TestLoadConfig_WithPySpyConfig(t *testing.T) {
+	// Reset global config to avoid test interference
+	config = nil
+
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+	configContent := `
+multiCluster: false
+loadK8SClient: true
+loadStorageClient: true
+httpPort: 8080
+controller:
+  namespace: test
+nodeExporter:
+  containerd_socket_path: /run/containerd/containerd.sock
+  pyspy:
+    enabled: true
+    storage_path: /data/pyspy
+    binary_path: /opt/py-spy
+    max_storage_size_mb: 5120
+    file_retention_days: 3
+    max_concurrent_jobs: 8
+    default_duration: 20
+    default_rate: 75
+`
+	err := os.WriteFile(configPath, []byte(configContent), 0644)
+	if err != nil {
+		t.Fatalf("Failed to create config file: %v", err)
+	}
+
+	oldConfigPath := os.Getenv("CONFIG_PATH")
+	os.Setenv("CONFIG_PATH", configPath)
+	defer os.Setenv("CONFIG_PATH", oldConfigPath)
+
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+
+	if cfg.NodeExporter == nil {
+		t.Fatal("Expected NodeExporter to be set")
+	}
+
+	pyspyCfg := cfg.NodeExporter.GetPySpyConfig()
+	if !pyspyCfg.Enabled {
+		t.Error("Expected pyspy to be enabled")
+	}
+	if pyspyCfg.StoragePath != "/data/pyspy" {
+		t.Errorf("Expected StoragePath '/data/pyspy', got %s", pyspyCfg.StoragePath)
+	}
+	if pyspyCfg.BinaryPath != "/opt/py-spy" {
+		t.Errorf("Expected BinaryPath '/opt/py-spy', got %s", pyspyCfg.BinaryPath)
+	}
+	if pyspyCfg.MaxStorageSizeMB != 5120 {
+		t.Errorf("Expected MaxStorageSizeMB 5120, got %d", pyspyCfg.MaxStorageSizeMB)
+	}
+	if pyspyCfg.FileRetentionDays != 3 {
+		t.Errorf("Expected FileRetentionDays 3, got %d", pyspyCfg.FileRetentionDays)
+	}
+	if pyspyCfg.MaxConcurrentJobs != 8 {
+		t.Errorf("Expected MaxConcurrentJobs 8, got %d", pyspyCfg.MaxConcurrentJobs)
+	}
+	if pyspyCfg.DefaultDuration != 20 {
+		t.Errorf("Expected DefaultDuration 20, got %d", pyspyCfg.DefaultDuration)
+	}
+	if pyspyCfg.DefaultRate != 75 {
+		t.Errorf("Expected DefaultRate 75, got %d", pyspyCfg.DefaultRate)
+	}
+}
+
+// BenchmarkNodeExporterConfig_GetPySpyConfig benchmarks GetPySpyConfig
+func BenchmarkNodeExporterConfig_GetPySpyConfig(b *testing.B) {
+	cfg := &NodeExporterConfig{
+		PySpy: &PySpyConfig{
+			Enabled:           true,
+			StoragePath:       "/var/lib/lens/pyspy",
+			BinaryPath:        "/usr/local/bin/py-spy",
+			MaxStorageSizeMB:  10240,
+			FileRetentionDays: 7,
+			MaxConcurrentJobs: 5,
+			DefaultDuration:   30,
+			DefaultRate:       100,
+		},
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = cfg.GetPySpyConfig()
+	}
+}
+
+// BenchmarkNodeExporterConfig_GetPySpyConfig_Nil benchmarks GetPySpyConfig with nil
+func BenchmarkNodeExporterConfig_GetPySpyConfig_Nil(b *testing.B) {
+	var cfg *NodeExporterConfig
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = cfg.GetPySpyConfig()
+	}
+}

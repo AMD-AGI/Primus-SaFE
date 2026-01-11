@@ -13,19 +13,6 @@ import (
 	"strings"
 	"time"
 
-	sqrl "github.com/Masterminds/squirrel"
-	"github.com/gin-gonic/gin"
-	"github.com/gin-gonic/gin/binding"
-	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/meta"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
-	apitypes "k8s.io/apimachinery/pkg/types"
-	"k8s.io/klog/v2"
-	"k8s.io/utils/pointer"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/resources/view"
@@ -45,6 +32,18 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/netutil"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
+	sqrl "github.com/Masterminds/squirrel"
+	"github.com/gin-gonic/gin"
+	"github.com/gin-gonic/gin/binding"
+	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
+	apitypes "k8s.io/apimachinery/pkg/types"
+	"k8s.io/klog/v2"
+	"k8s.io/utils/pointer"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 type WorkloadBatchAction string
@@ -57,6 +56,8 @@ const (
 	BatchDelete WorkloadBatchAction = "delete"
 	BatchStop   WorkloadBatchAction = "stop"
 	BatchClone  WorkloadBatchAction = "clone"
+
+	PreheatDescription = "preheat"
 )
 
 // CreateWorkload handles the creation of a new workload resource.
@@ -132,6 +133,7 @@ func (h *Handler) GetWorkloadPodContainers(c *gin.Context) {
 // createWorkload implements the workload creation logic.
 // Parses the request, generates a workload object, and creates it in the system.
 func (h *Handler) createWorkload(c *gin.Context) (interface{}, error) {
+	ctx := c.Request.Context()
 	req := &view.CreateWorkloadRequest{}
 	body, err := apiutils.ParseRequestBody(c.Request, req)
 	if err != nil {
@@ -141,32 +143,29 @@ func (h *Handler) createWorkload(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	workload, err := h.generateWorkload(c.Request.Context(), req, body, requestUser)
+	roles := h.accessController.GetRoles(ctx, requestUser)
+
+	mainWorkload, err := h.generateWorkload(ctx, req, body, requestUser)
 	if err != nil {
 		return nil, commonerrors.NewBadRequest(err.Error())
 	}
-
+	var preheatWorkload *v1.Workload
 	isSucceed := false
 	defer func() {
 		if !isSucceed {
-			h.cleanupCICDSecrets(c.Request.Context(), workload)
+			h.cleanUpWorkloads(ctx, mainWorkload, preheatWorkload)
 		}
 	}()
 
-	roles := h.accessController.GetRoles(c.Request.Context(), requestUser)
 	if req.Preheat {
-		preheatWorkload, err := h.generatePreheatWorkload(c.Request.Context(), workload, req)
+		preheatWorkload, err = h.createPreheatWorkload(c, mainWorkload, req, requestUser, roles)
 		if err != nil {
 			return nil, err
 		}
-		resp, err := h.createWorkloadImpl(c, preheatWorkload, requestUser, roles)
-		if err != nil {
-			return nil, err
-		}
-		workload.Spec.Dependencies = []string{resp.WorkloadId}
+		mainWorkload.Spec.Dependencies = []string{preheatWorkload.Name}
 	}
 
-	resp, err := h.createWorkloadImpl(c, workload, requestUser, roles)
+	resp, err := h.createWorkloadImpl(c, mainWorkload, requestUser, roles)
 	if err != nil {
 		return nil, err
 	}
@@ -210,9 +209,27 @@ func (h *Handler) createWorkloadImpl(c *gin.Context,
 	if err = h.updateWorkloadPhase(c.Request.Context(), workload, v1.WorkloadPending, nil); err != nil {
 		return nil, err
 	}
-	klog.Infof("create workload, name: %s, user: %s/%s, priority: %d, timeout: %d",
-		workload.Name, c.GetString(common.UserName), c.GetString(common.UserId), workload.Spec.Priority, workload.GetTimeout())
+	klog.Infof("create workload, name: %s, user: %s/%s, priority: %d, timeout: %d, resources: %s",
+		workload.Name, c.GetString(common.UserName), c.GetString(common.UserId),
+		workload.Spec.Priority, workload.GetTimeout(), string(jsonutils.MarshalSilently(workload.Spec.Resources)))
 	return &view.CreateWorkloadResponse{WorkloadId: workload.Name}, nil
+}
+
+// cleanUpWorkloads cleans up workloads when workload creation fails
+// It deletes the main workload and preheat workload if they exist,
+// and cleans up any CICD secrets associated with the main workload
+func (h *Handler) cleanUpWorkloads(ctx context.Context, mainWorkload, preheatWorkload *v1.Workload) {
+	h.cleanupCICDSecrets(ctx, mainWorkload)
+	if preheatWorkload != nil {
+		if err := h.Delete(ctx, preheatWorkload); err != nil && !apierrors.IsNotFound(err) {
+			klog.ErrorS(err, "failed to delete preheat workload", "workload", preheatWorkload.Name)
+		}
+	}
+	if mainWorkload != nil {
+		if err := h.Delete(ctx, mainWorkload); err != nil && !apierrors.IsNotFound(err) {
+			klog.ErrorS(err, "failed to delete main workload", "workload", mainWorkload.Name)
+		}
+	}
 }
 
 // listWorkload implements the workload listing logic.
@@ -736,7 +753,9 @@ func (h *Handler) generateWorkload(ctx context.Context,
 			},
 		},
 	}
-
+	if req.WorkloadId != "" {
+		workload.Name = req.WorkloadId
+	}
 	var err error
 	if err = json.Unmarshal(body, &workload.Spec); err != nil {
 		return nil, err
@@ -749,8 +768,6 @@ func (h *Handler) generateWorkload(ctx context.Context,
 	genCustomerLabelsByNodes(workload, req.SpecifiedNodes, v1.K8sHostName)
 	if len(req.SpecifiedNodes) == 0 {
 		genCustomerLabelsByNodes(workload, req.ExcludedNodes, common.ExcludedNodes)
-	} else {
-		workload.Spec.Resource.Replica = len(req.SpecifiedNodes)
 	}
 	if req.WorkspaceId != "" {
 		workload.Spec.Workspace = req.WorkspaceId
@@ -770,17 +787,22 @@ func (h *Handler) generateWorkload(ctx context.Context,
 			return nil, err
 		}
 	}
+	if req.UserEntity != nil && h.accessController.AuthorizeSystemAdmin(
+		authority.AccessInput{Context: ctx, User: requestUser}, false) == nil {
+		v1.SetLabel(workload, v1.UserIdLabel, req.UserEntity.Id)
+		v1.SetAnnotation(workload, v1.UserNameAnnotation, req.UserEntity.Name)
+	}
 	return workload, nil
 }
 
-func (h *Handler) generatePreheatWorkload(ctx context.Context,
-	mainWorkload *v1.Workload, mainQuery *view.CreateWorkloadRequest) (*v1.Workload, error) {
+// createPreheatWorkload create a preheat workload based on the main workload configuration for resource warming up
+func (h *Handler) createPreheatWorkload(c *gin.Context, mainWorkload *v1.Workload,
+	mainQuery *view.CreateWorkloadRequest, requestUser *v1.User, roles []*v1.Role) (*v1.Workload, error) {
 	displayName := v1.GetDisplayName(mainWorkload)
-	description := "preheat"
-	if len(displayName) > commonutils.MaxDisplayNameLen-len(description)-1 {
-		displayName = displayName[:commonutils.MaxDisplayNameLen-len(description)-1]
+	if len(displayName) > commonutils.MaxDisplayNameLen-len(PreheatDescription)-1 {
+		displayName = displayName[:commonutils.MaxDisplayNameLen-len(PreheatDescription)-1]
 	}
-	displayName = description + "-" + displayName
+	displayName = PreheatDescription + "-" + displayName
 
 	preheatWorkload := &v1.Workload{
 		ObjectMeta: metav1.ObjectMeta{
@@ -789,20 +811,23 @@ func (h *Handler) generatePreheatWorkload(ctx context.Context,
 				v1.DisplayNameLabel: displayName,
 			},
 			Annotations: map[string]string{
-				v1.DescriptionAnnotation:       description,
+				v1.DescriptionAnnotation:       PreheatDescription,
 				v1.RequireNodeSpreadAnnotation: v1.TrueStr,
 			},
 		},
 		Spec: v1.WorkloadSpec{
 			Workspace: mainWorkload.Spec.Workspace,
-			Resource: v1.WorkloadResource{
+			Resources: []v1.WorkloadResource{{
 				CPU:              "1",
 				Memory:           "8Gi",
 				EphemeralStorage: "50Gi",
+			}},
+			Image:      mainWorkload.Spec.Image,
+			EntryPoint: stringutil.Base64Encode("echo \"preheat finished\""),
+			GroupVersionKind: v1.GroupVersionKind{
+				Kind:    common.JobKind,
+				Version: common.DefaultVersion,
 			},
-			Image:                   mainWorkload.Spec.Image,
-			EntryPoint:              stringutil.Base64Encode("echo \"preheat finished\""),
-			GroupVersionKind:        mainWorkload.Spec.GroupVersionKind,
 			Priority:                mainWorkload.Spec.Priority,
 			TTLSecondsAfterFinished: pointer.Int(10),
 			Timeout:                 pointer.Int(3600),
@@ -813,18 +838,24 @@ func (h *Handler) generatePreheatWorkload(ctx context.Context,
 	}
 
 	if len(mainQuery.SpecifiedNodes) > 0 {
-		preheatWorkload.Spec.Resource.Replica = len(mainQuery.SpecifiedNodes)
+		preheatWorkload.Spec.Resources[0].Replica = len(mainQuery.SpecifiedNodes)
 	} else {
-		workspace, err := h.getAdminWorkspace(ctx, preheatWorkload.Spec.Workspace)
+		workspace, err := h.getAdminWorkspace(c.Request.Context(), preheatWorkload.Spec.Workspace)
 		if err != nil {
 			return nil, err
 		}
 		if mainWorkload.Spec.IsTolerateAll {
-			preheatWorkload.Spec.Resource.Replica = workspace.CurrentReplica()
+			preheatWorkload.Spec.Resources[0].Replica = workspace.CurrentReplica()
 		} else {
-			preheatWorkload.Spec.Resource.Replica = workspace.Status.AvailableReplica
+			preheatWorkload.Spec.Resources[0].Replica = workspace.Status.AvailableReplica
 		}
 	}
+	resp, err := h.createWorkloadImpl(c, preheatWorkload, requestUser, roles)
+	if err != nil {
+		return nil, err
+	}
+	preheatWorkload.Name = resp.WorkloadId
+
 	return preheatWorkload, nil
 }
 
@@ -1066,27 +1097,18 @@ func applyWorkloadPatch(adminWorkload *v1.Workload, req *view.PatchWorkloadReque
 	if req.Priority != nil {
 		adminWorkload.Spec.Priority = *req.Priority
 	}
-	if req.Replica != nil && *req.Replica != adminWorkload.Spec.Resource.Replica {
-		_, ok := adminWorkload.Spec.CustomerLabels[v1.K8sHostName]
-		if ok {
-			return commonerrors.NewBadRequest("cannot update replica when specifying nodes")
+	if req.Resources != nil {
+		reqCount := 0
+		for _, res := range *req.Resources {
+			reqCount += res.Replica
 		}
-		adminWorkload.Spec.Resource.Replica = *req.Replica
-	}
-	if req.CPU != nil {
-		adminWorkload.Spec.Resource.CPU = *req.CPU
-	}
-	if req.GPU != nil {
-		adminWorkload.Spec.Resource.GPU = *req.GPU
-	}
-	if req.Memory != nil {
-		adminWorkload.Spec.Resource.Memory = *req.Memory
-	}
-	if req.EphemeralStorage != nil {
-		adminWorkload.Spec.Resource.EphemeralStorage = *req.EphemeralStorage
-	}
-	if req.SharedMemory != nil {
-		adminWorkload.Spec.Resource.SharedMemory = *req.SharedMemory
+		if reqCount != commonworkload.GetTotalCount(adminWorkload) {
+			_, ok := adminWorkload.Spec.CustomerLabels[v1.K8sHostName]
+			if ok {
+				return commonerrors.NewBadRequest("cannot update replica when specifying nodes")
+			}
+		}
+		adminWorkload.Spec.Resources = *req.Resources
 	}
 	if req.Image != nil && *req.Image != "" {
 		adminWorkload.Spec.Image = *req.Image
@@ -1117,9 +1139,7 @@ func applyWorkloadPatch(adminWorkload *v1.Workload, req *view.PatchWorkloadReque
 
 // cvtDBWorkloadToResponseItem converts a database workload record to a response item format.
 // Maps database fields to the appropriate response structure with proper null value handling.
-func (h *Handler) cvtDBWorkloadToResponseItem(ctx context.Context,
-	w *dbclient.Workload,
-) view.WorkloadResponseItem {
+func (h *Handler) cvtDBWorkloadToResponseItem(ctx context.Context, w *dbclient.Workload) view.WorkloadResponseItem {
 	result := view.WorkloadResponseItem{
 		WorkloadId:     w.WorkloadId,
 		WorkspaceId:    w.Workspace,
@@ -1138,10 +1158,10 @@ func (h *Handler) cvtDBWorkloadToResponseItem(ctx context.Context,
 		Priority:       w.Priority,
 		IsTolerateAll:  w.IsTolerateAll,
 		WorkloadUid:    dbutils.ParseNullString(w.WorkloadUId),
-		K8sObjectUid:   dbutils.ParseNullString(w.K8sObjectUid),
 		AvgGpuUsage:    -1, // Default value when statistics are not available
 		ScaleRunnerSet: dbutils.ParseNullString(w.ScaleRunnerSet),
 		ScaleRunnerId:  dbutils.ParseNullString(w.ScaleRunnerId),
+		MaxRetry:       w.MaxRetry,
 	}
 	if result.EndTime == "" && result.DeletionTime != "" {
 		result.EndTime = result.DeletionTime
@@ -1157,16 +1177,23 @@ func (h *Handler) cvtDBWorkloadToResponseItem(ctx context.Context,
 		result.Duration = "0s"
 	}
 	json.Unmarshal([]byte(w.GVK), &result.GroupVersionKind)
-	json.Unmarshal([]byte(w.Resource), &result.Resource)
+	if val := dbutils.ParseNullString(w.Resources); val != "" {
+		json.Unmarshal([]byte(val), &result.Resources)
+	}
+	if len(result.Resources) == 0 {
+		result.Resources = cvtToWorkloadResources(w, result.GroupVersionKind.Kind)
+	}
 	if w.Timeout > 0 {
 		result.Timeout = pointer.Int(w.Timeout)
-		if t := dbutils.ParseNullTime(w.StartTime); !t.IsZero() {
-			result.SecondsUntilTimeout = t.Unix() + int64(w.Timeout) - time.Now().Unix()
-			if result.SecondsUntilTimeout < 0 {
-				result.SecondsUntilTimeout = 0
+		if result.EndTime == "" {
+			if t := dbutils.ParseNullTime(w.StartTime); !t.IsZero() {
+				result.SecondsUntilTimeout = t.Unix() + int64(w.Timeout) - time.Now().Unix()
+				if result.SecondsUntilTimeout < 0 {
+					result.SecondsUntilTimeout = 0
+				}
+			} else {
+				result.SecondsUntilTimeout = -1
 			}
-		} else {
-			result.SecondsUntilTimeout = -1
 		}
 	}
 	if result.Phase == string(v1.WorkloadPending) {
@@ -1186,7 +1213,6 @@ func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context,
 		WorkloadResponseItem: h.cvtDBWorkloadToResponseItem(ctx, dbWorkload),
 		Image:                dbWorkload.Image,
 		IsSupervised:         dbWorkload.IsSupervised,
-		MaxRetry:             dbWorkload.MaxRetry,
 	}
 	if result.GroupVersionKind.Kind != common.AuthoringKind && dbWorkload.EntryPoint != "" {
 		if stringutil.IsBase64(dbWorkload.EntryPoint) {
@@ -1231,7 +1257,14 @@ func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context,
 		json.Unmarshal([]byte(str), &result.Env)
 	}
 	if str := dbutils.ParseNullString(dbWorkload.Dependencies); str != "" {
-		json.Unmarshal([]byte(str), &result.Dependencies)
+		var dependencies []string
+		json.Unmarshal([]byte(str), &dependencies)
+		for _, id := range dependencies {
+			item, err := h.dbClient.GetWorkload(ctx, id)
+			if err == nil && dbutils.ParseNullString(item.Description) != PreheatDescription {
+				result.Dependencies = append(result.Dependencies, id)
+			}
+		}
 	}
 	if str := dbutils.ParseNullString(dbWorkload.CronJobs); str != "" {
 		json.Unmarshal([]byte(str), &result.CronJobs)
@@ -1362,12 +1395,17 @@ func cvtDBWorkloadToAdminWorkload(dbItem *dbclient.Workload) *v1.Workload {
 			IsTolerateAll: dbItem.IsTolerateAll,
 		},
 	}
-	json.Unmarshal([]byte(dbItem.Resource), &result.Spec.Resource)
+	json.Unmarshal([]byte(dbItem.GVK), &result.Spec.GroupVersionKind)
+	if val := dbutils.ParseNullString(dbItem.Resources); val != "" {
+		json.Unmarshal([]byte(val), &result.Spec.Resources)
+	}
+	if len(result.Spec.Resources) == 0 {
+		result.Spec.Resources = cvtToWorkloadResources(dbItem, result.Spec.GroupVersionKind.Kind)
+	}
+
 	if str := dbutils.ParseNullString(dbItem.Env); str != "" {
 		json.Unmarshal([]byte(str), &result.Spec.Env)
 	}
-	json.Unmarshal([]byte(dbItem.GVK), &result.Spec.GroupVersionKind)
-
 	if dbItem.TTLSecond > 0 {
 		result.Spec.TTLSecondsAfterFinished = pointer.Int(dbItem.TTLSecond)
 	}
@@ -1423,7 +1461,8 @@ func (h *Handler) getWorkloadPodContainers(c *gin.Context) (interface{}, error) 
 		if err != nil {
 			return nil, err
 		}
-		adminWorkload = generateWorkloadForAuth(name, dbutils.ParseNullString(dbWorkload.UserId), dbWorkload.Workspace, dbWorkload.Cluster)
+		adminWorkload = generateWorkloadForAuth(name,
+			dbutils.ParseNullString(dbWorkload.UserId), dbWorkload.Workspace, dbWorkload.Cluster)
 	} else {
 		adminWorkload, err = h.getAdminWorkload(ctx, name)
 		if err != nil {
@@ -1439,7 +1478,8 @@ func (h *Handler) getWorkloadPodContainers(c *gin.Context) (interface{}, error) 
 	if err != nil {
 		return nil, err
 	}
-	pod, err := k8sClients.ClientSet().CoreV1().Pods(v1.GetWorkspaceId(adminWorkload)).Get(c.Request.Context(), podName, metav1.GetOptions{})
+	pod, err := k8sClients.ClientSet().CoreV1().Pods(
+		v1.GetWorkspaceId(adminWorkload)).Get(c.Request.Context(), podName, metav1.GetOptions{})
 	if err != nil {
 		return nil, err
 	}
@@ -1452,4 +1492,12 @@ func (h *Handler) getWorkloadPodContainers(c *gin.Context) (interface{}, error) 
 		Containers: containers,
 		Shells:     []string{"bash", "sh", "zsh"},
 	}, nil
+}
+
+func cvtToWorkloadResources(dbItem *dbclient.Workload, kind string) []v1.WorkloadResource {
+	var resource v1.WorkloadResource
+	if json.Unmarshal([]byte(dbItem.Resource), &resource) == nil {
+		return commonworkload.ConvertResourceToList(resource, kind)
+	}
+	return nil
 }

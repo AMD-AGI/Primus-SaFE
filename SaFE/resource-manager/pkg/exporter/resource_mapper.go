@@ -33,6 +33,14 @@ func truncateString(s string, maxLength int) string {
 	return string(runes[:maxLength])
 }
 
+// escapePostgresArrayElement escapes special characters for PostgreSQL array literal syntax.
+// In PostgreSQL array literals, backslashes and double quotes need to be escaped.
+func escapePostgresArrayElement(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `"`, `\"`)
+	return s
+}
+
 // workloadMapper converts an unstructured workload object to a database workload model.
 func workloadMapper(obj *unstructured.Unstructured) *dbclient.Workload {
 	workload := &v1.Workload{}
@@ -57,7 +65,7 @@ func workloadMapper(obj *unstructured.Unstructured) *dbclient.Workload {
 		DisplayName:   v1.GetDisplayName(workload),
 		Workspace:     workload.Spec.Workspace,
 		Cluster:       v1.GetClusterId(workload),
-		Resource:      string(jsonutils.MarshalSilently(workload.Spec.Resource)),
+		Resources:     dbutils.NullString(string(jsonutils.MarshalSilently(workload.Spec.Resources))),
 		Image:         workload.Spec.Image,
 		EntryPoint:    workload.Spec.EntryPoint,
 		GVK:           string(jsonutils.MarshalSilently(workload.Spec.GroupVersionKind)),
@@ -76,7 +84,6 @@ func workloadMapper(obj *unstructured.Unstructured) *dbclient.Workload {
 		Timeout:       workload.GetTimeout(),
 		Description:   dbutils.NullString(v1.GetDescription(workload)),
 		UserId:        dbutils.NullString(v1.GetUserId(workload)),
-		K8sObjectUid:  dbutils.NullString(workload.Status.K8sObjectUid),
 		WorkloadUId:   dbutils.NullString(string(workload.UID)),
 	}
 	if workload.Spec.TTLSecondsAfterFinished != nil {
@@ -218,76 +225,6 @@ func faultFilter(oldObj, newObj *unstructured.Unstructured) bool {
 	return false
 }
 
-// inferenceMapper converts an unstructured inference object to a database inference model.
-func inferenceMapper(obj *unstructured.Unstructured) *dbclient.Inference {
-	inference := &v1.Inference{}
-	err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.Object, inference)
-	if err != nil {
-		klog.ErrorS(err, "failed to convert object to inference", "data", obj)
-		return nil
-	}
-
-	result := &dbclient.Inference{
-		InferenceId:  inference.Name,
-		DisplayName:  inference.Spec.DisplayName,
-		UserId:       inference.Spec.UserID,
-		ModelForm:    string(inference.Spec.ModelForm),
-		ModelName:    inference.Spec.ModelName,
-		CreationTime: dbutils.NullMetaV1Time(&inference.CreationTimestamp),
-		UpdateTime:   dbutils.NullMetaV1Time(inference.Status.UpdateTime),
-		DeletionTime: dbutils.NullMetaV1Time(inference.GetDeletionTimestamp()),
-	}
-	if inference.Spec.Description != "" {
-		result.Description = dbutils.NullString(inference.Spec.Description)
-	}
-	if inference.Spec.UserName != "" {
-		result.UserName = dbutils.NullString(inference.Spec.UserName)
-	}
-	if inference.Status.Phase != "" {
-		result.Phase = dbutils.NullString(string(inference.Status.Phase))
-	}
-	if inference.Status.Message != "" {
-		result.Message = dbutils.NullString(inference.Status.Message)
-	}
-	// Serialize complex fields to JSON
-	result.Instance = dbutils.NullString(string(jsonutils.MarshalSilently(inference.Spec.Instance)))
-	result.Resource = dbutils.NullString(string(jsonutils.MarshalSilently(inference.Spec.Resource)))
-	if len(inference.Status.Events) > 0 {
-		result.Events = dbutils.NullString(string(jsonutils.MarshalSilently(inference.Status.Events)))
-	}
-	// Config is optional
-	if inference.Spec.Config.Image != "" || inference.Spec.Config.EntryPoint != "" || inference.Spec.Config.ModelPath != "" {
-		result.Config = dbutils.NullString(string(jsonutils.MarshalSilently(inference.Spec.Config)))
-	}
-	return result
-}
-
-// inferenceFilter determines whether an inference update should be processed.
-// Returns true if the update should be filtered out (ignored), false otherwise.
-func inferenceFilter(oldObj, newObj *unstructured.Unstructured) bool {
-	if oldObj == nil || newObj == nil {
-		return false
-	}
-	oldInference := &v1.Inference{}
-	err := runtime.DefaultUnstructuredConverter.FromUnstructured(oldObj.Object, oldInference)
-	if err != nil {
-		return true
-	}
-	newInference := &v1.Inference{}
-	err = runtime.DefaultUnstructuredConverter.FromUnstructured(newObj.Object, newInference)
-	if err != nil {
-		return true
-	}
-	if oldInference.GetDeletionTimestamp().IsZero() && !newInference.GetDeletionTimestamp().IsZero() {
-		return false
-	}
-	if reflect.DeepEqual(oldInference.Spec, newInference.Spec) &&
-		reflect.DeepEqual(oldInference.Status, newInference.Status) {
-		return true
-	}
-	return false
-}
-
 // opsJobMapper converts an unstructured ops job object to a database ops job model.
 func opsJobMapper(obj *unstructured.Unstructured) *dbclient.OpsJob {
 	job := &v1.OpsJob{}
@@ -299,7 +236,7 @@ func opsJobMapper(obj *unstructured.Unstructured) *dbclient.OpsJob {
 
 	inputs := make([]string, 0, len(job.Spec.Inputs))
 	for _, p := range job.Spec.Inputs {
-		inputs = append(inputs, v1.CvtParamToString(&p))
+		inputs = append(inputs, escapePostgresArrayElement(v1.CvtParamToString(&p)))
 	}
 	strInputs := fmt.Sprintf("{\"%s\"}", strings.Join(inputs, "\",\""))
 	result := &dbclient.OpsJob{
@@ -363,23 +300,31 @@ func modelMapper(obj *unstructured.Unstructured) *dbclient.Model {
 	}
 
 	dbModel := &dbclient.Model{
-		ID:             cr.Name,
-		DisplayName:    cr.Spec.DisplayName,
-		Description:    cr.Spec.Description,
-		Icon:           cr.Spec.Icon,
-		Label:          cr.Spec.Label,
-		Tags:           strings.Join(cr.Spec.Tags, ","),
-		MaxTokens:      cr.Spec.MaxTokens,
-		SourceURL:      cr.Spec.Source.URL,
-		AccessMode:     string(cr.Spec.Source.AccessMode),
-		Phase:          string(cr.Status.Phase),
-		Message:        cr.Status.Message,
-		InferenceID:    cr.Status.InferenceID,
-		InferencePhase: cr.Status.InferencePhase,
-		CreatedAt:      dbutils.NullTime(cr.CreationTimestamp.Time),
-		UpdatedAt:      dbutils.NullMetaV1Time(cr.Status.UpdateTime),
-		DeletionTime:   dbutils.NullMetaV1Time(cr.GetDeletionTimestamp()),
-		IsDeleted:      !cr.GetDeletionTimestamp().IsZero(),
+		ID:           cr.Name,
+		DisplayName:  cr.Spec.DisplayName,
+		Description:  cr.Spec.Description,
+		Icon:         cr.Spec.Icon,
+		Label:        cr.Spec.Label,
+		Tags:         strings.Join(cr.Spec.Tags, ","),
+		MaxTokens:    cr.Spec.MaxTokens,
+		SourceURL:    cr.Spec.Source.URL,
+		AccessMode:   string(cr.Spec.Source.AccessMode),
+		ModelName:    cr.Spec.Source.ModelName,
+		Workspace:    cr.Spec.Workspace,
+		Phase:        string(cr.Status.Phase),
+		Message:      cr.Status.Message,
+		S3Path:       cr.Status.S3Path,
+		CreatedAt:    dbutils.NullTime(cr.CreationTimestamp.Time),
+		UpdatedAt:    dbutils.NullMetaV1Time(cr.Status.UpdateTime),
+		DeletionTime: dbutils.NullMetaV1Time(cr.GetDeletionTimestamp()),
+		IsDeleted:    !cr.GetDeletionTimestamp().IsZero(),
+	}
+
+	// Serialize local paths to JSON
+	if len(cr.Status.LocalPaths) > 0 {
+		dbModel.LocalPaths = string(jsonutils.MarshalSilently(cr.Status.LocalPaths))
+	} else {
+		dbModel.LocalPaths = "[]"
 	}
 
 	// Store Secret name (not the actual token)

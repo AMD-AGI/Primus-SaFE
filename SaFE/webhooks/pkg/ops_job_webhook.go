@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path"
 	"reflect"
 
 	commonjob "github.com/AMD-AIG-AIMA/SAFE/common/pkg/ops_job"
@@ -61,7 +62,9 @@ func (m *OpsJobMutator) Handle(ctx context.Context, req admission.Request) admis
 	if err := m.decoder.Decode(req, job); err != nil {
 		return handleError(v1.OpsJobKind, err)
 	}
-	m.mutateOnCreation(ctx, job)
+	if err := m.mutateOnCreation(ctx, job); err != nil {
+		return handleError(v1.OpsJobKind, err)
+	}
 	data, err := json.Marshal(job)
 	if err != nil {
 		return handleError(v1.OpsJobKind, err)
@@ -70,11 +73,13 @@ func (m *OpsJobMutator) Handle(ctx context.Context, req admission.Request) admis
 }
 
 // mutateOnCreation applies default values and normalizations during creation.
-func (m *OpsJobMutator) mutateOnCreation(ctx context.Context, job *v1.OpsJob) bool {
-	m.mutateJobInputs(ctx, job)
+func (m *OpsJobMutator) mutateOnCreation(ctx context.Context, job *v1.OpsJob) error {
+	if err := m.mutateJobInputs(ctx, job); err != nil {
+		return err
+	}
 	m.mutateMeta(ctx, job)
 	m.mutateJobSpec(ctx, job)
-	return true
+	return nil
 }
 
 // mutateMeta applies mutations to the resource.
@@ -131,10 +136,14 @@ func (m *OpsJobMutator) mutateJobSpec(ctx context.Context, job *v1.OpsJob) {
 }
 
 // mutateJobInputs applies mutations to the resource.
-func (m *OpsJobMutator) mutateJobInputs(ctx context.Context, job *v1.OpsJob) {
+func (m *OpsJobMutator) mutateJobInputs(ctx context.Context, job *v1.OpsJob) error {
 	m.generateAddonTemplates(ctx, job)
 	m.removeDuplicates(job)
 	m.filterUnhealthyNodes(ctx, job)
+	if err := m.generateDestPath(ctx, job); err != nil {
+		return err
+	}
+	return nil
 }
 
 // generateAddonTemplates retrieves the NodeTemplate specified in the job's parameters and
@@ -208,6 +217,30 @@ func (m *OpsJobMutator) filterUnhealthyNodes(ctx context.Context, job *v1.OpsJob
 		return
 	}
 	job.Spec.Inputs = newInputs
+}
+
+func (m *OpsJobMutator) generateDestPath(ctx context.Context, job *v1.OpsJob) error {
+	if job.Spec.Type != v1.OpsJobDownloadType {
+		return nil
+	}
+	destParam := job.GetParameter(v1.ParameterDestPath)
+	if destParam == nil {
+		return nil
+	}
+	workspaceParam := job.GetParameter(v1.ParameterWorkspace)
+	if workspaceParam == nil {
+		return nil
+	}
+	workspace, err := getWorkspace(ctx, m.Client, workspaceParam.Value)
+	if err != nil {
+		return err
+	}
+	nfsPath := getNfsPathFromWorkspace(workspace)
+	if nfsPath == "" {
+		return fmt.Errorf("workspace %s has no volume mount path", workspace.Name)
+	}
+	destParam.Value = path.Join(nfsPath, destParam.Value)
+	return nil
 }
 
 // OpsJobValidator validates OpsJob resources on create and update operations.
@@ -407,6 +440,12 @@ func (v *OpsJobValidator) validateDownload(ctx context.Context, job *v1.OpsJob) 
 	if _, err := commonjob.GetRequiredParameter(job, v1.ParameterDestPath); err != nil {
 		return err
 	}
+	if _, err := commonjob.GetRequiredParameter(job, v1.ParameterSecret); err != nil {
+		return err
+	}
+	if _, err := commonjob.GetRequiredParameter(job, v1.ParameterWorkspace); err != nil {
+		return err
+	}
 	currentJobs, err := v.listRelatedRunningJobs(ctx, v1.GetClusterId(job), []string{string(v1.OpsJobDownloadType)})
 	if err != nil {
 		return err
@@ -415,11 +454,10 @@ func (v *OpsJobValidator) validateDownload(ctx context.Context, job *v1.OpsJob) 
 		if job.Name == currentJob.Name {
 			continue
 		}
-		if v.hasDuplicateInput(job.Spec.Inputs, currentJob.Spec.Inputs, v1.ParameterEndpoint) ||
-			v.hasDuplicateInput(job.Spec.Inputs, currentJob.Spec.Inputs, v1.ParameterDestPath) {
+		if v.hasDuplicateInput(job.Spec.Inputs, currentJob.Spec.Inputs, v1.ParameterDestPath) {
 			return commonerrors.NewResourceProcessing(
-				fmt.Sprintf("another ops job (%s) with type %s is processing,"+
-					" please wait for it to complete", currentJob.Name, currentJob.Spec.Type))
+				fmt.Sprintf("another ops job (%s) with the same input is processing,"+
+					" please wait for it to complete", currentJob.Name))
 		}
 	}
 	return nil
@@ -486,7 +524,7 @@ func (v *OpsJobValidator) listRelatedRunningJobs(ctx context.Context, cluster st
 // If a job specifies a workspace, it will also check whether the node belongs to that workspace.
 // Additionally, both cluster and node flavor must not be empty.
 func (v *OpsJobValidator) validateNodes(ctx context.Context, job *v1.OpsJob) error {
-	if job.Spec.Type == v1.OpsJobRebootType || job.Spec.Type == v1.OpsJobExportImageType || job.Spec.Type == v1.OpsJobPrewarmType {
+	if job.Spec.Type != v1.OpsJobPreflightType {
 		return nil
 	}
 	nodeParams := job.GetParameters(v1.ParameterNode)
@@ -513,8 +551,24 @@ func (v *OpsJobValidator) validateNodes(ctx context.Context, job *v1.OpsJob) err
 				return fmt.Errorf("The node(%s) does not have node flavor.", param.Value)
 			}
 		} else if nodeFlavor != adminNode.GetSpecNodeFlavor() {
-			return fmt.Errorf("The nodes to be operated must have the same node flavor.")
+			return fmt.Errorf("The nodes(%s) to be operated must have the same node flavor(%s).", adminNode.Name, nodeFlavor)
 		}
 	}
 	return nil
+}
+
+// getNfsPathFromWorkspace retrieves the NFS path from the workspace's volumes.
+// It prioritizes PFS type volumes, otherwise falls back to the first available volume's mount path.
+func getNfsPathFromWorkspace(workspace *v1.Workspace) string {
+	result := ""
+	for _, vol := range workspace.Spec.Volumes {
+		if vol.Type == v1.PFS {
+			result = vol.MountPath
+			break
+		}
+	}
+	if result == "" && len(workspace.Spec.Volumes) > 0 {
+		result = workspace.Spec.Volumes[0].MountPath
+	}
+	return result
 }

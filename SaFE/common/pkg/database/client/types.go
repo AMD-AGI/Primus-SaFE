@@ -29,6 +29,7 @@ type Workload struct {
 	Workspace      string         `db:"workspace"`
 	Cluster        string         `db:"cluster"`
 	Resource       string         `db:"resource"`
+	Resources      sql.NullString `db:"resources"`
 	Image          string         `db:"image"`
 	EntryPoint     string         `db:"entrypoint"`
 	GVK            string         `db:"gvk"`
@@ -57,7 +58,6 @@ type Workload struct {
 	Liveness       sql.NullString `db:"liveness"`
 	Readiness      sql.NullString `db:"readiness"`
 	UserId         sql.NullString `db:"user_id"`
-	K8sObjectUid   sql.NullString `db:"k8s_object_uid"`
 	WorkloadUId    sql.NullString `db:"workload_uid"`
 	Ranks          sql.NullString `db:"ranks"`
 	Dependencies   sql.NullString `db:"dependencies"`
@@ -214,33 +214,6 @@ func GetUserTokenFieldTags() map[string]string {
 	return getFieldTags(token)
 }
 
-type Inference struct {
-	Id           int64          `db:"id"`
-	InferenceId  string         `db:"inference_id"`
-	DisplayName  string         `db:"display_name"`
-	Description  sql.NullString `db:"description"`
-	UserId       string         `db:"user_id"`
-	UserName     sql.NullString `db:"user_name"`
-	ModelForm    string         `db:"model_form"`
-	ModelName    string         `db:"model_name"`
-	Instance     sql.NullString `db:"instance"`
-	Resource     sql.NullString `db:"resource"`
-	Config       sql.NullString `db:"config"`
-	Phase        sql.NullString `db:"phase"`
-	Events       sql.NullString `db:"events"`
-	Message      sql.NullString `db:"message"`
-	CreationTime pq.NullTime    `db:"creation_time"`
-	UpdateTime   pq.NullTime    `db:"update_time"`
-	DeletionTime pq.NullTime    `db:"deletion_time"`
-	IsDeleted    bool           `db:"is_deleted"`
-}
-
-// GetInferenceFieldTags returns the InferenceFieldTags value.
-func GetInferenceFieldTags() map[string]string {
-	inf := Inference{}
-	return getFieldTags(inf)
-}
-
 type PlaygroundSession struct {
 	Id           int64       `db:"id"`
 	UserId       string      `db:"user_id"`
@@ -259,26 +232,37 @@ func GetPlaygroundSessionFieldTags() map[string]string {
 	return getFieldTags(session)
 }
 
+// ModelLocalPathDB represents the local path status stored in database as JSON
+type ModelLocalPathDB struct {
+	Workspace string `json:"workspace"`
+	Path      string `json:"path"`
+	Status    string `json:"status"`
+	Message   string `json:"message,omitempty"`
+}
+
+// Model represents the model entity in database
 type Model struct {
-	ID             string      `gorm:"column:id;primaryKey" json:"id" db:"id"`
-	DisplayName    string      `gorm:"column:display_name" json:"displayName" db:"display_name"`
-	Description    string      `gorm:"column:description" json:"description" db:"description"`
-	Icon           string      `gorm:"column:icon" json:"icon" db:"icon"`
-	Label          string      `gorm:"column:label" json:"label" db:"label"`
-	Tags           string      `gorm:"column:tags" json:"tags" db:"tags"`
-	MaxTokens      int         `gorm:"column:max_tokens" json:"maxTokens" db:"max_tokens"`
-	Version        string      `gorm:"column:version" json:"version" db:"version"`
-	SourceURL      string      `gorm:"column:source_url" json:"sourceURL" db:"source_url"`
-	AccessMode     string      `gorm:"column:access_mode" json:"accessMode" db:"access_mode"`
-	SourceToken    string      `gorm:"column:source_token" json:"sourceToken" db:"source_token"`
-	Phase          string      `gorm:"column:phase" json:"phase" db:"phase"`
-	Message        string      `gorm:"column:message" json:"message" db:"message"`
-	InferenceID    string      `gorm:"column:inference_id" json:"inferenceID" db:"inference_id"`
-	InferencePhase string      `gorm:"column:inference_phase" json:"inferencePhase" db:"inference_phase"`
-	CreatedAt      pq.NullTime `gorm:"column:created_at;autoCreateTime" json:"createdAt" db:"created_at"`
-	UpdatedAt      pq.NullTime `gorm:"column:updated_at;autoUpdateTime" json:"updatedAt" db:"updated_at"`
-	DeletionTime   pq.NullTime `gorm:"column:deletion_time" json:"deletionTime" db:"deletion_time"`
-	IsDeleted      bool        `gorm:"column:is_deleted" json:"isDeleted" db:"is_deleted"`
+	ID           string      `gorm:"column:id;primaryKey" json:"id" db:"id"`
+	DisplayName  string      `gorm:"column:display_name" json:"displayName" db:"display_name"`
+	Description  string      `gorm:"column:description" json:"description" db:"description"`
+	Icon         string      `gorm:"column:icon" json:"icon" db:"icon"`
+	Label        string      `gorm:"column:label" json:"label" db:"label"`
+	Tags         string      `gorm:"column:tags" json:"tags" db:"tags"`
+	MaxTokens    int         `gorm:"column:max_tokens" json:"maxTokens" db:"max_tokens"`
+	Version      string      `gorm:"column:version" json:"version" db:"version"`
+	SourceURL    string      `gorm:"column:source_url" json:"sourceURL" db:"source_url"`
+	AccessMode   string      `gorm:"column:access_mode" json:"accessMode" db:"access_mode"`
+	SourceToken  string      `gorm:"column:source_token" json:"sourceToken" db:"source_token"`
+	Phase        string      `gorm:"column:phase" json:"phase" db:"phase"`
+	Message      string      `gorm:"column:message" json:"message" db:"message"`
+	ModelName    string      `gorm:"column:model_name" json:"modelName" db:"model_name"`    // Model identifier for API calls
+	Workspace    string      `gorm:"column:workspace" json:"workspace" db:"workspace"`      // Empty means public (all workspaces)
+	S3Path       string      `gorm:"column:s3_path" json:"s3Path" db:"s3_path"`             // S3 storage path
+	LocalPaths   string      `gorm:"column:local_paths" json:"localPaths" db:"local_paths"` // JSON array of ModelLocalPathDB
+	CreatedAt    pq.NullTime `gorm:"column:created_at;autoCreateTime" json:"createdAt" db:"created_at"`
+	UpdatedAt    pq.NullTime `gorm:"column:updated_at;autoUpdateTime" json:"updatedAt" db:"updated_at"`
+	DeletionTime pq.NullTime `gorm:"column:deletion_time" json:"deletionTime" db:"deletion_time"`
+	IsDeleted    bool        `gorm:"column:is_deleted" json:"isDeleted" db:"is_deleted"`
 }
 
 func (Model) TableName() string {
@@ -317,6 +301,27 @@ type EnvironmentSnapshot struct {
 func GetEnvironmentSnapshotFieldTags() map[string]string {
 	e := EnvironmentSnapshot{}
 	return getFieldTags(e)
+}
+
+// ApiKey represents an API key record in the database
+type ApiKey struct {
+	Id             int64       `db:"id"`
+	Name           string      `db:"name"`
+	UserId         string      `db:"user_id"`
+	UserName       string      `db:"user_name"`
+	ApiKey         string      `db:"api_key"`
+	KeyHint        string      `db:"key_hint"` // Partial key for display: "XX-YYYY" (first 2 + last 4 chars after prefix)
+	ExpirationTime pq.NullTime `db:"expiration_time"`
+	CreationTime   pq.NullTime `db:"creation_time"`
+	Whitelist      string      `db:"whitelist"` // JSON string of IP/CIDR list
+	Deleted        bool        `db:"deleted"`
+	DeletionTime   pq.NullTime `db:"deletion_time"`
+}
+
+// GetApiKeyFieldTags returns the ApiKeyFieldTags value.
+func GetApiKeyFieldTags() map[string]string {
+	k := ApiKey{}
+	return getFieldTags(k)
 }
 
 // Dataset represents a dataset record in the database.
