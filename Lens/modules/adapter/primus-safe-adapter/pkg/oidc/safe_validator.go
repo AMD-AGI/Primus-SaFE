@@ -69,43 +69,16 @@ func (v *SafeValidator) ValidateSafeSession(ctx context.Context, sessionID strin
 		return nil, fmt.Errorf("database query failed: %w", err)
 	}
 
-	// Get user info from SaFE users table
-	u := dal.User
-	user, err := u.WithContext(ctx).
-		Where(u.Name.Eq(token.UserID)).
-		First()
-
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			// User not in DB, return basic info from token
-			log.Debugf("User not found in SaFE users table, using token info: %s", token.UserID)
-			return &UserInfo{
-				ID:          token.UserID,
-				Username:    token.UserID,
-				Email:       "",
-				DisplayName: token.UserID,
-			}, nil
-		}
-		return nil, fmt.Errorf("failed to query user: %w", err)
-	}
-
-	// Check if user has admin role
-	isAdmin := false
-	for _, role := range user.Roles {
-		if role == "system-admin" || role == "admin" {
-			isAdmin = true
-			break
-		}
-	}
-
-	log.Debugf("Session validated for user: %s (admin=%v)", user.Name, isAdmin)
+	// SaFE doesn't have a separate users table - user info comes from SSO/LDAP
+	// UserID in user_tokens is the username from authentication
+	log.Debugf("Session validated for user: %s", token.UserID)
 
 	return &UserInfo{
-		ID:          user.Name,
-		Username:    user.Name,
-		Email:       user.Email,
-		DisplayName: user.DisplayName,
-		IsAdmin:     isAdmin,
+		ID:          token.UserID,
+		Username:    token.UserID,
+		Email:       "", // Not stored in SaFE DB
+		DisplayName: token.UserID,
+		IsAdmin:     false, // Will be determined by Lens based on user mapping
 	}, nil
 }
 
