@@ -54,6 +54,8 @@ const (
 	ConfigKeySafeIntegrationAutoDetected = "safe.integration.auto_detected"
 	ConfigKeySafeAdapterURL              = "safe.adapter_url"
 	ConfigKeySafeSSOURL                  = "safe.sso_url"
+	ConfigKeySafeLoginURL                = "safe.login_url"
+	ConfigKeySafeCallbackPath            = "safe.callback_path"
 )
 
 // Root user constants

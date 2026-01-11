@@ -46,11 +46,25 @@ func InitRouter(engine *gin.Engine, cfg *config.Config) error {
 	// Decide whether to enable auth middleware based on configuration
 	if cfg.Middleware.IsAuthEnabled() {
 		authConfig := cfg.Middleware.GetAuthConfig()
-		if authConfig != nil && authConfig.SafeAPIURL != "" {
-			log.Infof("Auth middleware enabled, SaFE API URL: %s", authConfig.SafeAPIURL)
-			g.Use(middleware.HandleAuth(authConfig))
-		} else {
-			log.Warn("Auth middleware enabled but SafeAPIURL not configured, skipping")
+		excludePaths := []string{
+			"/health",
+			"/ready",
+			"/metrics",
+			"/api/v1/auth/*",
+			"/api/v1/init/*",
+		}
+		if authConfig != nil {
+			excludePaths = append(excludePaths, authConfig.ExcludePaths...)
+		}
+
+		// Use dynamic auth middleware (reads config from database)
+		// This supports Safe/LDAP/Local modes dynamically
+		log.Info("Auth middleware enabled with dynamic configuration (reads from database)")
+		g.Use(middleware.HandleDynamicAuth(excludePaths))
+
+		// Also keep legacy static config as fallback for specific cases
+		if authConfig != nil && authConfig.GetSafeAdapterURL() != "" {
+			log.Debugf("Static auth config available as fallback: %s", authConfig.GetSafeAdapterURL())
 		}
 	} else {
 		log.Info("Auth middleware disabled")

@@ -12,12 +12,23 @@ import (
 func RegisterPublicAuthRouter(group *gin.RouterGroup) {
 	authGroup := group.Group("/auth")
 	{
-		// Login/Logout - no auth required
+		// Login redirect - for Safe/SSO mode, returns 302 redirect
+		// GET /api/v1/auth/login?redirect=/lens/dashboard
+		authGroup.GET("/login", LoginRedirect)
+
+		// Form login - for username/password authentication
+		// POST /api/v1/auth/login
 		authGroup.POST("/login", Login)
+
+		// Logout
 		authGroup.POST("/logout", Logout)
 
 		// Session refresh - validates existing session
 		authGroup.POST("/refresh", RefreshSession)
+
+		// Auth config - returns current auth mode and config
+		// GET /api/v1/auth/config
+		authGroup.GET("/config", GetAuthConfig)
 	}
 
 	// System initialization routes - no auth required for first-time setup
