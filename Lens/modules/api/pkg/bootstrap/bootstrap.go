@@ -97,31 +97,19 @@ func preInitAuthSystem(ctx context.Context, cfg *config.Config) error {
 		return nil
 	}
 
-	// Try to get K8s client from cluster manager
+	// Get K8s client from cluster manager
 	var k8sClient client.Client
 	if cc := cm.GetCurrentClusterClients(); cc != nil && cc.K8SClientSet != nil {
 		k8sClient = cc.K8SClientSet.ControllerRuntimeClient
-		if k8sClient != nil {
-			log.Info("K8s client available, will store root password in Secret")
-		}
+	}
+	if k8sClient == nil {
+		log.Error("K8s client not available, cannot initialize auth system")
+		return nil
 	}
 
-	// Create SafeDetector
-	var safeDetector *cpauth.SafeDetector
-	if k8sClient != nil {
-		safeDetector = cpauth.NewSafeDetector(k8sClient)
-	} else {
-		safeDetector = cpauth.NewSafeDetectorWithoutK8s()
-		log.Warn("K8s client not available, SafeDetector will have limited functionality")
-	}
-
-	// Create Initializer with K8s client
-	var initializer *cpauth.Initializer
-	if k8sClient != nil {
-		initializer = cpauth.NewInitializerWithK8s(safeDetector, k8sClient)
-	} else {
-		initializer = cpauth.NewInitializer(safeDetector)
-	}
+	// Create SafeDetector and Initializer
+	safeDetector := cpauth.NewSafeDetector(k8sClient)
+	initializer := cpauth.NewInitializer(safeDetector, k8sClient)
 
 	// Initialize auth handlers with dependencies
 	auth.InitializeAuthHandlers(initializer, safeDetector)

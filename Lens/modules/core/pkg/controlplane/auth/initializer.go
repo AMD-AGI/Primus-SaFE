@@ -20,16 +20,8 @@ type Initializer struct {
 	facade       cpdb.FacadeInterface
 }
 
-// NewInitializer creates a new Initializer without K8s client
-func NewInitializer(safeDetector *SafeDetector) *Initializer {
-	return &Initializer{
-		safeDetector: safeDetector,
-		facade:       cpdb.GetFacade(),
-	}
-}
-
-// NewInitializerWithK8s creates a new Initializer with K8s client
-func NewInitializerWithK8s(safeDetector *SafeDetector, k8sClient client.Client) *Initializer {
+// NewInitializer creates a new Initializer
+func NewInitializer(safeDetector *SafeDetector, k8sClient client.Client) *Initializer {
 	return &Initializer{
 		safeDetector: safeDetector,
 		k8sClient:    k8sClient,

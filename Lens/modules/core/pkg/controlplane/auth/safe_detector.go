@@ -42,26 +42,13 @@ func NewSafeDetector(k8sClient client.Client) *SafeDetector {
 	}
 }
 
-// NewSafeDetectorWithoutK8s creates a SafeDetector without K8s client
-// This is useful when running outside of a Kubernetes cluster
-func NewSafeDetectorWithoutK8s() *SafeDetector {
-	return &SafeDetector{
-		k8sClient: nil,
-		httpClient: &http.Client{
-			Timeout: 5 * time.Second,
-		},
-	}
-}
-
 // DetectSaFE checks if SaFE integration should be enabled
 func (d *SafeDetector) DetectSaFE(ctx context.Context) (*SafeDetectionResult, error) {
 	result := &SafeDetectionResult{}
 
-	// 1. Check if safe-adapter is deployed (if K8s client is available)
-	if d.k8sClient != nil {
-		result.AdapterDeployed = d.checkAdapterDeployment(ctx)
-		result.SafeNamespaceExists = d.checkSafeNamespace(ctx)
-	}
+	// 1. Check if safe-adapter is deployed
+	result.AdapterDeployed = d.checkAdapterDeployment(ctx)
+	result.SafeNamespaceExists = d.checkSafeNamespace(ctx)
 
 	// 2. Check if primus-safe-apiserver is reachable
 	result.SafeAPIReachable = d.checkSafeAPIServer(ctx)
@@ -70,17 +57,10 @@ func (d *SafeDetector) DetectSaFE(ctx context.Context) (*SafeDetectionResult, er
 	result.TokensAvailable = d.checkTokensInLensDB(ctx)
 
 	// Determine if SaFE mode should be enabled
-	// Enable if:
-	// - Adapter is deployed AND Safe namespace exists AND (API reachable OR tokens available)
-	// - OR tokens are already available (adapter might have synced before)
-	if d.k8sClient != nil {
-		result.ShouldEnableSafeMode = result.AdapterDeployed &&
-			result.SafeNamespaceExists &&
-			(result.SafeAPIReachable || result.TokensAvailable)
-	} else {
-		// Without K8s client, just check if tokens are available
-		result.ShouldEnableSafeMode = result.TokensAvailable || result.SafeAPIReachable
-	}
+	// Enable if: Adapter is deployed AND Safe namespace exists AND (API reachable OR tokens available)
+	result.ShouldEnableSafeMode = result.AdapterDeployed &&
+		result.SafeNamespaceExists &&
+		(result.SafeAPIReachable || result.TokensAvailable)
 
 	log.Debugf("SaFE detection result: adapter=%v, namespace=%v, api=%v, tokens=%v, enable=%v",
 		result.AdapterDeployed,
