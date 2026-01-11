@@ -406,22 +406,16 @@ func (r *ModelReconciler) handleUploading(ctx context.Context, model *v1.Model) 
 
 // handleDownloading handles the Downloading phase (downloading from S3 to local PFS)
 func (r *ModelReconciler) handleDownloading(ctx context.Context, model *v1.Model) (ctrl.Result, error) {
-	// Check if all local paths are ready
-	allReady := true
-	anyFailed := false
-
 	for i := range model.Status.LocalPaths {
 		lp := &model.Status.LocalPaths[i]
 		if lp.Status == v1.LocalPathStatusReady {
 			continue
 		}
 		if lp.Status == v1.LocalPathStatusFailed {
-			anyFailed = true
 			continue
 		}
 
 		// Check/create download OpsJob for this workspace
-		allReady = false
 		jobName := stringutil.NormalizeForDNS(fmt.Sprintf("%s-%s-%s", DownloadJobPrefix, model.Name, lp.Workspace))
 		opsJob := &v1.OpsJob{}
 		err := r.Get(ctx, client.ObjectKey{Name: jobName}, opsJob)
@@ -443,7 +437,6 @@ func (r *ModelReconciler) handleDownloading(ctx context.Context, model *v1.Model
 				klog.ErrorS(err, "Failed to create local download OpsJob", "model", model.Name, "workspace", lp.Workspace)
 				lp.Status = v1.LocalPathStatusFailed
 				lp.Message = fmt.Sprintf("Failed to create OpsJob: %v", err)
-				anyFailed = true
 				continue
 			}
 
@@ -473,7 +466,6 @@ func (r *ModelReconciler) handleDownloading(ctx context.Context, model *v1.Model
 			} else if opsJob.Status.Phase == v1.OpsJobFailed {
 				lp.Status = v1.LocalPathStatusFailed
 				lp.Message = r.extractOpsJobFailureReason(opsJob)
-				anyFailed = true
 				klog.ErrorS(nil, "Local download failed", "model", model.Name, "workspace", lp.Workspace)
 
 				// Delete failed OpsJob
@@ -487,33 +479,60 @@ func (r *ModelReconciler) handleDownloading(ctx context.Context, model *v1.Model
 	// Update status
 	model.Status.UpdateTime = &metav1.Time{Time: time.Now().UTC()}
 
-	if allReady {
-		model.Status.Phase = v1.ModelPhaseReady
-		model.Status.Message = "Model is ready in all workspaces"
-		klog.InfoS("Model is ready", "model", model.Name)
-	} else if anyFailed {
-		// Some downloads failed - check if any succeeded
-		hasReady := false
-		for _, lp := range model.Status.LocalPaths {
-			if lp.Status == v1.LocalPathStatusReady {
-				hasReady = true
-				break
-			}
-		}
-		if hasReady {
-			model.Status.Phase = v1.ModelPhaseReady
-			model.Status.Message = "Model is ready (some workspaces failed)"
-		} else {
-			model.Status.Phase = v1.ModelPhaseFailed
-			model.Status.Message = "All local downloads failed"
+	// Count status of all local paths
+	readyCount := 0
+	failedCount := 0
+	downloadingCount := 0
+	readyWorkspaces := []string{}
+
+	for _, lp := range model.Status.LocalPaths {
+		switch lp.Status {
+		case v1.LocalPathStatusReady:
+			readyCount++
+			readyWorkspaces = append(readyWorkspaces, lp.Workspace)
+		case v1.LocalPathStatusFailed:
+			failedCount++
+		case v1.LocalPathStatusDownloading, v1.LocalPathStatusPending:
+			downloadingCount++
 		}
 	}
+
+	totalCount := len(model.Status.LocalPaths)
+
+	// As long as any workspace is ready, model is ready
+	if readyCount > 0 {
+		model.Status.Phase = v1.ModelPhaseReady
+		if readyCount == totalCount {
+			// All workspaces ready
+			if totalCount == 1 {
+				model.Status.Message = fmt.Sprintf("Model is ready in %s workspace", readyWorkspaces[0])
+			} else {
+				model.Status.Message = fmt.Sprintf("Model is ready in %d workspaces", readyCount)
+			}
+		} else {
+			// Partial ready - show progress
+			if downloadingCount > 0 {
+				model.Status.Message = fmt.Sprintf("Model is ready in %d/%d workspaces (%d downloading)",
+					readyCount, totalCount, downloadingCount)
+			} else {
+				model.Status.Message = fmt.Sprintf("Model is ready in %d/%d workspaces (%d failed)",
+					readyCount, totalCount, failedCount)
+			}
+		}
+		klog.InfoS("Model is ready", "model", model.Name, "readyWorkspaces", readyCount, "total", totalCount)
+	} else if failedCount == totalCount {
+		// All failed
+		model.Status.Phase = v1.ModelPhaseFailed
+		model.Status.Message = "All local downloads failed"
+	}
+	// else: still downloading, keep phase as Downloading
 
 	if err := r.Status().Update(ctx, model); err != nil {
 		return ctrl.Result{}, err
 	}
 
-	if !allReady && !anyFailed {
+	// Continue monitoring if there are still downloads in progress
+	if downloadingCount > 0 {
 		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 	}
 
