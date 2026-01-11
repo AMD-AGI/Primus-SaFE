@@ -31,6 +31,7 @@ type Interface interface {
 	PlaygroundSessionInterface
 	ModelInterface
 	ApiKeyInterface
+	DatasetInterface
 }
 
 type WorkloadInterface interface {
