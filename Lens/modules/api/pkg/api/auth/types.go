@@ -18,8 +18,16 @@ type InitStatusResponse struct {
 
 // InitSetupRequest is the request for POST /init/setup
 type InitSetupRequest struct {
-	AuthMode     cpauth.AuthMode `json:"authMode"`
-	RootPassword string          `json:"rootPassword,omitempty"`
+	AuthMode     cpauth.AuthMode  `json:"authMode"`
+	RootPassword string           `json:"rootPassword,omitempty"`
+	SafeConfig   *SafeSetupConfig `json:"safeConfig,omitempty"`
+}
+
+// SafeSetupConfig contains SaFE-specific setup configuration
+type SafeSetupConfig struct {
+	Enabled    bool   `json:"enabled"`
+	AdapterURL string `json:"adapterUrl,omitempty"` // Adapter URL (e.g., http://primus-safe-adapter.primus-lens.svc:8080)
+	SSOURL     string `json:"ssoUrl,omitempty"`     // SaFE SSO URL (e.g., https://tw325.primus-safe.amd.com)
 }
 
 // InitSetupResponse is the response for POST /init/setup
@@ -31,23 +39,23 @@ type InitSetupResponse struct {
 
 // RootUserInfo contains root user information
 type RootUserInfo struct {
-	Username           string `json:"username"`
+	Username          string `json:"username"`
 	MustChangePassword bool   `json:"mustChangePassword"`
-	GeneratedPassword  string `json:"generatedPassword,omitempty"`
+	GeneratedPassword string `json:"generatedPassword,omitempty"`
 }
 
 // AuthModeResponse is the response for GET /admin/auth/mode
 type AuthModeResponse struct {
-	Mode             cpauth.AuthMode     `json:"mode"`
-	Initialized      bool                `json:"initialized"`
-	SafeIntegration  *SafeIntegrationInfo `json:"safeIntegration,omitempty"`
-	AvailableModes   []cpauth.AuthMode   `json:"availableModes"`
+	Mode            cpauth.AuthMode      `json:"mode"`
+	Initialized     bool                 `json:"initialized"`
+	SafeIntegration *SafeIntegrationInfo `json:"safeIntegration,omitempty"`
+	AvailableModes  []cpauth.AuthMode    `json:"availableModes"`
 }
 
 // SafeIntegrationInfo contains SaFE integration information
 type SafeIntegrationInfo struct {
-	Enabled      bool   `json:"enabled"`
-	AutoDetected bool   `json:"autoDetected"`
+	Enabled       bool   `json:"enabled"`
+	AutoDetected  bool   `json:"autoDetected"`
 	AdapterStatus string `json:"adapterStatus,omitempty"`
 }
 

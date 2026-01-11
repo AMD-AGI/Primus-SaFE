@@ -47,19 +47,21 @@ const (
 
 // System config keys
 const (
-	ConfigKeyAuthMode              = "auth.mode"
-	ConfigKeyAuthInitialized       = "auth.initialized"
-	ConfigKeySystemInitialized     = "system.initialized"
-	ConfigKeySafeIntegrationEnabled = "safe.integration.enabled"
+	ConfigKeyAuthMode                    = "auth.mode"
+	ConfigKeyAuthInitialized             = "auth.initialized"
+	ConfigKeySystemInitialized           = "system.initialized"
+	ConfigKeySafeIntegrationEnabled      = "safe.integration.enabled"
 	ConfigKeySafeIntegrationAutoDetected = "safe.integration.auto_detected"
+	ConfigKeySafeAdapterURL              = "safe.adapter_url"
+	ConfigKeySafeSSOURL                  = "safe.sso_url"
 )
 
 // Root user constants
 const (
-	RootUserID       = "root"
-	RootUsername     = "root"
-	RootEmail        = "root@localhost"
-	RootDisplayName  = "Root Administrator"
+	RootUserID      = "root"
+	RootUsername    = "root"
+	RootEmail       = "root@localhost"
+	RootDisplayName = "Root Administrator"
 )
 
 // Environment variable keys
