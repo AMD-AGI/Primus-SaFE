@@ -715,7 +715,7 @@ func (r *ModelReconciler) constructLocalDownloadOpsJob(ctx context.Context, mode
 		Spec: v1.OpsJobSpec{
 			Type:                    v1.OpsJobDownloadType,
 			Image:                   &image,
-			TimeoutSecond:           3600, // 1 hour timeout for model download
+			TimeoutSecond:           10800, // 3 hours timeout for model download
 			TTLSecondsAfterFinished: 60,
 			Inputs: []v1.Parameter{
 				// INPUT_URL: S3 path as the source
@@ -724,6 +724,8 @@ func (r *ModelReconciler) constructLocalDownloadOpsJob(ctx context.Context, mode
 				{Name: v1.ParameterDestPath, Value: destPath},
 				// SECRET: reference to the S3 credentials secret (mounted to /etc/secrets/<secret-name>/)
 				{Name: v1.ParameterSecret, Value: secretName},
+				// WORKSPACE: workspace ID for validation and path resolution
+				{Name: v1.ParameterWorkspace, Value: lp.Workspace},
 			},
 		},
 	}
