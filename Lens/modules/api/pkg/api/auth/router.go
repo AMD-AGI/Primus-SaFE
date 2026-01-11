@@ -4,7 +4,6 @@
 package auth
 
 import (
-	"github.com/AMD-AGI/Primus-SaFE/Lens/api/pkg/api/auth/oidc"
 	"github.com/gin-gonic/gin"
 )
 
@@ -27,9 +26,6 @@ func RegisterPublicAuthRouter(group *gin.RouterGroup) {
 		initGroup.GET("/status", GetInitStatus)
 		initGroup.POST("/setup", SetupInit)
 	}
-
-	// Register OIDC routes (pluggable authentication)
-	oidc.RegisterRouter(group)
 }
 
 // RegisterProtectedAuthRouter registers protected authentication routes
