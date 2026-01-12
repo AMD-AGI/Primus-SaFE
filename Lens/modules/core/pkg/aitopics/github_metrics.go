@@ -152,3 +152,58 @@ type ExtractionError struct {
 	Recoverable bool `json:"recoverable"`
 }
 
+// ========== github.schema.analyze ==========
+
+// SchemaAnalyzeInput is the input payload for schema analysis (without metrics extraction)
+type SchemaAnalyzeInput struct {
+	// ConfigID is the configuration ID for context
+	ConfigID int64 `json:"config_id"`
+
+	// ConfigName is the configuration name for context
+	ConfigName string `json:"config_name,omitempty"`
+
+	// Files contains the file samples to analyze (headers + few rows)
+	Files []FileContent `json:"files"`
+
+	// ExistingSchemas contains existing schema hashes for matching
+	ExistingSchemas []map[string]interface{} `json:"existing_schemas,omitempty"`
+}
+
+// SchemaAnalyzeOutput is the output payload from schema analysis
+type SchemaAnalyzeOutput struct {
+	// Success indicates if the analysis was successful
+	Success bool `json:"success"`
+
+	// Error contains the error message if Success is false
+	Error string `json:"error,omitempty"`
+
+	// Schema is the analyzed schema definition
+	Schema *AnalyzedSchema `json:"schema,omitempty"`
+
+	// SchemaHash is the computed hash of the schema (for matching)
+	SchemaHash string `json:"schema_hash"`
+
+	// SchemaMatched indicates if the schema matched an existing one
+	SchemaMatched bool `json:"schema_matched"`
+
+	// MatchedSchemaID is the ID of the matched schema (if SchemaMatched is true)
+	MatchedSchemaID *int64 `json:"matched_schema_id,omitempty"`
+}
+
+// AnalyzedSchema represents a schema definition from schema analysis
+type AnalyzedSchema struct {
+	// Name is the schema name
+	Name string `json:"name"`
+
+	// DimensionFields are field names used as dimensions (for grouping)
+	DimensionFields []string `json:"dimension_fields"`
+
+	// MetricFields are field names containing numeric metrics
+	MetricFields []string `json:"metric_fields"`
+
+	// IsWideTable indicates if the file is a wide table (date columns as headers)
+	IsWideTable bool `json:"is_wide_table"`
+
+	// DateColumns contains the date column headers (for wide tables)
+	DateColumns []string `json:"date_columns,omitempty"`
+}

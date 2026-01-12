@@ -19,6 +19,12 @@ const (
 	SchemaGeneratedBySystem = "system"
 )
 
+// SchemaHashInfo contains schema ID and hash for matching
+type SchemaHashInfo struct {
+	SchemaID   int64  `json:"schema_id"`
+	SchemaHash string `json:"schema_hash"`
+}
+
 // GithubWorkflowSchemaFacadeInterface defines the database operation interface for github workflow metric schemas
 type GithubWorkflowSchemaFacadeInterface interface {
 	// Create creates a new schema record
@@ -33,14 +39,26 @@ type GithubWorkflowSchemaFacadeInterface interface {
 	// GetByConfigAndVersion retrieves a schema by config_id and version
 	GetByConfigAndVersion(ctx context.Context, configID int64, version int32) (*model.GithubWorkflowMetricSchemas, error)
 
+	// GetByConfigAndHash retrieves a schema by config_id and schema_hash
+	GetByConfigAndHash(ctx context.Context, configID int64, schemaHash string) (*model.GithubWorkflowMetricSchemas, error)
+
 	// ListByConfig lists all schemas for a config
 	ListByConfig(ctx context.Context, configID int64) ([]*model.GithubWorkflowMetricSchemas, error)
+
+	// ListByConfigWithHash lists all schemas with their hash info for a config (for schema matching)
+	ListByConfigWithHash(ctx context.Context, configID int64) ([]*SchemaHashInfo, error)
 
 	// GetLatestVersion gets the latest version number for a config
 	GetLatestVersion(ctx context.Context, configID int64) (int32, error)
 
 	// Update updates a schema record
 	Update(ctx context.Context, schema *model.GithubWorkflowMetricSchemas) error
+
+	// UpdateLastSeen updates the last_seen_at timestamp for a schema
+	UpdateLastSeen(ctx context.Context, schemaID int64) error
+
+	// IncrementRecordCount increments the record_count for a schema
+	IncrementRecordCount(ctx context.Context, schemaID int64, count int64) error
 
 	// SetActive sets a schema as active (and deactivates others for the same config)
 	SetActive(ctx context.Context, configID int64, schemaID int64) error
@@ -136,6 +154,25 @@ func (f *GithubWorkflowSchemaFacade) GetByConfigAndVersion(ctx context.Context, 
 	return result, nil
 }
 
+// GetByConfigAndHash retrieves a schema by config_id and schema_hash
+func (f *GithubWorkflowSchemaFacade) GetByConfigAndHash(ctx context.Context, configID int64, schemaHash string) (*model.GithubWorkflowMetricSchemas, error) {
+	if schemaHash == "" {
+		return nil, nil
+	}
+	q := f.getDAL().GithubWorkflowMetricSchemas
+	result, err := q.WithContext(ctx).
+		Where(q.ConfigID.Eq(configID)).
+		Where(q.SchemaHash.Eq(schemaHash)).
+		First()
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return result, nil
+}
+
 // ListByConfig lists all schemas for a config
 func (f *GithubWorkflowSchemaFacade) ListByConfig(ctx context.Context, configID int64) ([]*model.GithubWorkflowMetricSchemas, error) {
 	q := f.getDAL().GithubWorkflowMetricSchemas
@@ -143,6 +180,28 @@ func (f *GithubWorkflowSchemaFacade) ListByConfig(ctx context.Context, configID 
 		Where(q.ConfigID.Eq(configID)).
 		Order(q.Version.Desc()).
 		Find()
+}
+
+// ListByConfigWithHash lists all schemas with their hash info for a config (for schema matching)
+func (f *GithubWorkflowSchemaFacade) ListByConfigWithHash(ctx context.Context, configID int64) ([]*SchemaHashInfo, error) {
+	q := f.getDAL().GithubWorkflowMetricSchemas
+	schemas, err := q.WithContext(ctx).
+		Select(q.ID, q.SchemaHash).
+		Where(q.ConfigID.Eq(configID)).
+		Where(q.SchemaHash.Neq("")).
+		Find()
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]*SchemaHashInfo, 0, len(schemas))
+	for _, s := range schemas {
+		result = append(result, &SchemaHashInfo{
+			SchemaID:   s.ID,
+			SchemaHash: s.SchemaHash,
+		})
+	}
+	return result, nil
 }
 
 // GetLatestVersion gets the latest version number for a config
@@ -166,6 +225,32 @@ func (f *GithubWorkflowSchemaFacade) Update(ctx context.Context, schema *model.G
 	schema.UpdatedAt = time.Now()
 	q := f.getDAL().GithubWorkflowMetricSchemas
 	_, err := q.WithContext(ctx).Where(q.ID.Eq(schema.ID)).Updates(schema)
+	return err
+}
+
+// UpdateLastSeen updates the last_seen_at timestamp for a schema
+func (f *GithubWorkflowSchemaFacade) UpdateLastSeen(ctx context.Context, schemaID int64) error {
+	q := f.getDAL().GithubWorkflowMetricSchemas
+	now := time.Now()
+	_, err := q.WithContext(ctx).
+		Where(q.ID.Eq(schemaID)).
+		UpdateSimple(
+			q.LastSeenAt.Value(now),
+			q.UpdatedAt.Value(now),
+		)
+	return err
+}
+
+// IncrementRecordCount increments the record_count for a schema
+func (f *GithubWorkflowSchemaFacade) IncrementRecordCount(ctx context.Context, schemaID int64, count int64) error {
+	q := f.getDAL().GithubWorkflowMetricSchemas
+	now := time.Now()
+	_, err := q.WithContext(ctx).
+		Where(q.ID.Eq(schemaID)).
+		UpdateSimple(
+			q.RecordCount.Add(count),
+			q.UpdatedAt.Value(now),
+		)
 	return err
 }
 

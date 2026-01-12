@@ -38,8 +38,12 @@ type GithubWorkflowCollectorJob struct {
 	pvcReader *PVCReader
 	// tempPodManager manages temporary pods for reading PVC (EphemeralRunner pods are deleted after completion)
 	tempPodManager *TempPodManager
-	// aiExtractor handles AI-based metrics extraction
+	// aiExtractor handles AI-based metrics extraction (legacy, kept for backward compatibility)
 	aiExtractor *AIExtractor
+	// schemaAnalyzer handles AI-based schema analysis (new simplified approach)
+	schemaAnalyzer *SchemaAnalyzer
+	// metricsExtractor extracts metrics based on schema (Go-based, no LLM)
+	metricsExtractor *MetricsExtractor
 	// githubFetcher fetches GitHub data (commits, workflow runs)
 	githubFetcher *GithubFetcher
 	// clientSets is the k8s client set
@@ -49,11 +53,13 @@ type GithubWorkflowCollectorJob struct {
 // NewGithubWorkflowCollectorJob creates a new GithubWorkflowCollectorJob instance
 func NewGithubWorkflowCollectorJob() *GithubWorkflowCollectorJob {
 	return &GithubWorkflowCollectorJob{
-		pvcReader:      NewPVCReader(),
-		tempPodManager: NewTempPodManager(),
-		aiExtractor:    NewAIExtractor(),
-		githubFetcher:  nil, // Will be initialized in Run()
-		clientSets:     nil,
+		pvcReader:        NewPVCReader(),
+		tempPodManager:   NewTempPodManager(),
+		aiExtractor:      NewAIExtractor(),
+		schemaAnalyzer:   NewSchemaAnalyzer(),
+		metricsExtractor: NewMetricsExtractor(),
+		githubFetcher:    nil, // Will be initialized in Run()
+		clientSets:       nil,
 	}
 }
 
@@ -270,9 +276,22 @@ func (j *GithubWorkflowCollectorJob) processRun(
 	metricsCreated := 0
 	filesProcessed := 0
 
-	// Try AI extraction first (if available)
+	// Try new schema-versioning approach first (if available)
+	if j.schemaAnalyzer != nil && j.schemaAnalyzer.IsAvailable(ctx) {
+		log.Infof("GithubWorkflowCollectorJob: using schema-versioning extraction for run %d", run.ID)
+
+		metricsCreated, err = j.processRunWithSchemaVersioning(
+			ctx, config, run, files, matchingFiles, schemaFacade, metricsFacade, runFacade,
+		)
+		if err == nil {
+			return metricsCreated, nil
+		}
+		log.Warnf("GithubWorkflowCollectorJob: schema-versioning extraction failed for run %d: %v, falling back", run.ID, err)
+	}
+
+	// Fallback to legacy AI extraction (if available)
 	if j.aiExtractor != nil && j.aiExtractor.IsAvailable(ctx) {
-		log.Infof("GithubWorkflowCollectorJob: using AI extraction for run %d", run.ID)
+		log.Infof("GithubWorkflowCollectorJob: using legacy AI extraction for run %d", run.ID)
 
 		// Mark as extracting
 		if err := runFacade.UpdateStatus(ctx, run.ID, database.WorkflowRunStatusExtracting, ""); err != nil {
@@ -392,6 +411,139 @@ func (j *GithubWorkflowCollectorJob) processRun(
 
 	log.Infof("GithubWorkflowCollectorJob: completed run %d with basic extraction (files: %d/%d, metrics: %d)",
 		run.ID, filesProcessed, len(matchingFiles), metricsCreated)
+
+	return metricsCreated, nil
+}
+
+// processRunWithSchemaVersioning processes a run using the new schema-versioning approach
+// This uses AI only for schema analysis, then Go for metrics extraction (saves LLM tokens)
+func (j *GithubWorkflowCollectorJob) processRunWithSchemaVersioning(
+	ctx context.Context,
+	config *model.GithubWorkflowConfigs,
+	run *model.GithubWorkflowRuns,
+	files []*PVCFile,
+	matchingFiles []string,
+	schemaFacade database.GithubWorkflowSchemaFacadeInterface,
+	metricsFacade database.GithubWorkflowMetricsFacadeInterface,
+	runFacade database.GithubWorkflowRunFacadeInterface,
+) (int, error) {
+	// Mark as extracting
+	if err := runFacade.UpdateStatus(ctx, run.ID, database.WorkflowRunStatusExtracting, ""); err != nil {
+		log.Warnf("GithubWorkflowCollectorJob: failed to update status to extracting: %v", err)
+	}
+
+	// Step 1: Prepare file samples for schema analysis (only headers + few rows)
+	var fileSamples []*FileSample
+	for _, file := range files {
+		sample, err := j.schemaAnalyzer.PrepareFileSample(file)
+		if err != nil {
+			log.Warnf("GithubWorkflowCollectorJob: failed to prepare sample for %s: %v", file.Path, err)
+			continue
+		}
+		fileSamples = append(fileSamples, sample)
+	}
+
+	if len(fileSamples) == 0 {
+		return 0, fmt.Errorf("no valid file samples for schema analysis")
+	}
+
+	// Step 2: Get existing schemas for matching
+	existingSchemas, err := schemaFacade.ListByConfigWithHash(ctx, config.ID)
+	if err != nil {
+		log.Warnf("GithubWorkflowCollectorJob: failed to list existing schemas: %v", err)
+		existingSchemas = []*database.SchemaHashInfo{}
+	}
+
+	// Step 3: Call AI Crew for schema analysis ONLY (no metrics extraction)
+	schemaResult, err := j.schemaAnalyzer.AnalyzeSchema(ctx, &SchemaAnalysisInput{
+		ConfigID:        config.ID,
+		ConfigName:      config.Name,
+		FileSamples:     fileSamples,
+		ExistingSchemas: existingSchemas,
+	})
+	if err != nil {
+		return 0, fmt.Errorf("schema analysis failed: %w", err)
+	}
+
+	if !schemaResult.Success {
+		return 0, fmt.Errorf("schema analysis failed: %s", schemaResult.Error)
+	}
+
+	// Step 4: Get or create schema version
+	var schemaID int64
+	var currentSchema *model.GithubWorkflowMetricSchemas
+
+	if schemaResult.SchemaMatched && schemaResult.MatchedSchemaID != nil {
+		// Use existing schema
+		schemaID = *schemaResult.MatchedSchemaID
+		currentSchema, err = schemaFacade.GetByID(ctx, schemaID)
+		if err != nil {
+			return 0, fmt.Errorf("failed to get matched schema: %w", err)
+		}
+		// Update last_seen_at
+		if err := schemaFacade.UpdateLastSeen(ctx, schemaID); err != nil {
+			log.Warnf("GithubWorkflowCollectorJob: failed to update last_seen: %v", err)
+		}
+		log.Infof("GithubWorkflowCollectorJob: matched existing schema (id=%d, hash=%s)",
+			schemaID, schemaResult.SchemaHash[:8])
+	} else {
+		// Create new schema version
+		currentSchema = ConvertSchemaToDBModel(schemaResult.Schema, config.ID)
+		currentSchema.SchemaHash = schemaResult.SchemaHash
+		currentSchema.FirstSeenAt = time.Now()
+		currentSchema.LastSeenAt = time.Now()
+
+		if err := schemaFacade.Create(ctx, currentSchema); err != nil {
+			return 0, fmt.Errorf("failed to create new schema: %w", err)
+		}
+		schemaID = currentSchema.ID
+
+		// Set this schema as active
+		if err := schemaFacade.SetActive(ctx, config.ID, schemaID); err != nil {
+			log.Warnf("GithubWorkflowCollectorJob: failed to set schema active: %v", err)
+		}
+
+		log.Infof("GithubWorkflowCollectorJob: created new schema version (id=%d, hash=%s)",
+			schemaID, schemaResult.SchemaHash[:8])
+	}
+
+	// Step 5: Extract metrics using Go (NO AI, NO LLM tokens)
+	metrics, err := j.metricsExtractor.ExtractMetrics(files, schemaResult.Schema)
+	if err != nil {
+		return 0, fmt.Errorf("metrics extraction failed: %w", err)
+	}
+
+	// Step 6: Determine timestamp for metrics
+	metricsTimestamp := run.WorkloadCompletedAt
+	if metricsTimestamp.IsZero() {
+		metricsTimestamp = time.Now()
+	}
+
+	// Step 7: Store metrics with schema_id
+	metricsCreated := 0
+	dbMetrics := j.metricsExtractor.ConvertToDBMetrics(config.ID, run.ID, schemaID, metricsTimestamp, metrics)
+
+	for _, metric := range dbMetrics {
+		if err := metricsFacade.Create(ctx, metric); err != nil {
+			log.Warnf("GithubWorkflowCollectorJob: failed to create metric: %v", err)
+			continue
+		}
+		metricsCreated++
+	}
+
+	// Step 8: Update schema record count
+	if err := schemaFacade.IncrementRecordCount(ctx, schemaID, int64(metricsCreated)); err != nil {
+		log.Warnf("GithubWorkflowCollectorJob: failed to increment record count: %v", err)
+	}
+
+	// Mark as completed
+	filesProcessed := len(fileSamples)
+	if err := runFacade.MarkCompleted(ctx, run.ID, int32(len(matchingFiles)), int32(filesProcessed), int32(metricsCreated)); err != nil {
+		return metricsCreated, fmt.Errorf("failed to mark as completed: %w", err)
+	}
+
+	log.Infof("GithubWorkflowCollectorJob: completed run %d with schema-versioning (files: %d/%d, metrics: %d, schema: %d)",
+		run.ID, filesProcessed, len(matchingFiles), metricsCreated, schemaID)
 
 	return metricsCreated, nil
 }
