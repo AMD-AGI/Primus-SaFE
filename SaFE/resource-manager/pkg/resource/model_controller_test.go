@@ -500,7 +500,7 @@ func TestHandleDownloading_AllReady(t *testing.T) {
 	_, err := r.handleDownloading(context.Background(), model)
 	assert.NilError(t, err)
 	assert.Equal(t, model.Status.Phase, v1.ModelPhaseReady)
-	assert.Equal(t, model.Status.Message, "Model is ready in all workspaces")
+	assert.Equal(t, model.Status.Message, "Model is ready in 2 workspaces")
 }
 
 // TestHandleDownloading_SomeFailed tests handleDownloading when some paths fail
@@ -533,8 +533,8 @@ func TestHandleDownloading_SomeFailed(t *testing.T) {
 	_, err := r.handleDownloading(context.Background(), model)
 	assert.NilError(t, err)
 	assert.Equal(t, model.Status.Phase, v1.ModelPhaseReady)
-	// When all paths are in terminal state (Ready/Failed), allReady stays true
-	assert.Equal(t, model.Status.Message, "Model is ready in all workspaces")
+	// When some paths succeed and some fail, model is still ready
+	assert.Equal(t, model.Status.Message, "Model is ready in 1/2 workspaces (1 failed)")
 }
 
 // TestHandleDownloading_AllFailed tests handleDownloading when all paths fail
@@ -567,9 +567,9 @@ func TestHandleDownloading_AllFailed(t *testing.T) {
 
 	_, err := r.handleDownloading(context.Background(), model)
 	assert.NilError(t, err)
-	// When all paths are in terminal state (Ready/Failed), allReady stays true
-	assert.Equal(t, model.Status.Phase, v1.ModelPhaseReady)
-	assert.Equal(t, model.Status.Message, "Model is ready in all workspaces")
+	// When all paths fail, model status is Failed
+	assert.Equal(t, model.Status.Phase, v1.ModelPhaseFailed)
+	assert.Equal(t, model.Status.Message, "All local downloads failed")
 }
 
 // TestHandleDownloading_OpsJobSucceeded tests handleDownloading when OpsJob succeeds
