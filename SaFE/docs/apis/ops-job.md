@@ -178,19 +178,21 @@ Notes:
 
 **Query Parameters**:
 
-| Parameter   | Type | Required | Description                                                            |
-|-------------|------|----------|------------------------------------------------------------------------|
-| offset      | int | No | Pagination offset, default 0                                           |
-| limit       | int | No | Records per page, default 100                                          |
-| sortBy      | string | No | Sort field, default creationTime                                       |
-| order       | string | No | Sort order: desc/asc, default desc                                     |
-| since       | string | No | Start time (RFC3339 with milliseconds); default until-720h             |
-| until       | string | No | End time (RFC3339 with milliseconds); default now                      |
-| clusterId   | string | No | Filter by cluster ID                                                   |
-| workspaceId | string | No | Filter by workspace ID, This parameter only works if a workspace was set when creating.                                              |
-| userName    | string | No | Filter by submitter username (fuzzy match)                             |
-| phase       | string | No | Filter by job status: Succeeded/Failed/Running/Pending                 |
-| type        | string | No | Filter by job type: addon/dumplog/preflight/reboot/exportimage/prewarm |
+| Parameter   | Type | Required | Description                                                                             |
+|-------------|------|----------|-----------------------------------------------------------------------------------------|
+| offset      | int | No | Pagination offset, default 0                                                            |
+| limit       | int | No | Records per page, default 100                                                           |
+| sortBy      | string | No | Sort field, default creationTime                                                        |
+| order       | string | No | Sort order: desc/asc, default desc                                                      |
+| since       | string | No | Start time (RFC3339 with milliseconds); default until-720h                              |
+| until       | string | No | End time (RFC3339 with milliseconds); default now                                       |
+| clusterId   | string | No | Filter by cluster ID                                                                    |
+| workspaceId | string | No | Filter by workspace ID, This parameter only works if a workspace was set when creating. |
+| userName    | string | No | Filter by submitter username (fuzzy match)                                              |
+| phase       | string | No | Filter by job status: Succeeded/Failed/Running/Pending                                  |
+| type        | string | No | Filter by job type: addon/dumplog/preflight/reboot/exportimage/prewarm                  |
+| jobName     | string | No | Filter by job name (fuzzy match)                       |
+
 
 **Response Example**:
 ```json
