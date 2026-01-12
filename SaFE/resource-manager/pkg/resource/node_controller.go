@@ -516,7 +516,7 @@ func (r *NodeReconciler) cleanupTimeoutPods(ctx context.Context, node *v1.Node) 
 		if nowTime-pod.CreationTimestamp.Unix() >= podManagementTimeout {
 			err = r.Delete(ctx, &pod)
 			if err == nil {
-				klog.Infof("delete timeout pod(%s)", pod.Name)
+				klog.Infof("delete timeout pod(%s) on node(%s)", pod.Name, node.Name)
 			} else if client.IgnoreNotFound(err) != nil {
 				return err
 			}
