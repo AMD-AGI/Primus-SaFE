@@ -796,6 +796,377 @@ func TestListApiKeyHandler(t *testing.T) {
 	})
 }
 
+// TestGetCurrentApiKeyHandler tests the GetCurrentApiKey HTTP handler
+func TestGetCurrentApiKeyHandler(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	now := time.Now().UTC()
+
+	t.Run("missing apiKeyId in context returns bad request", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		_, fakeClient := createMockUser()
+		mockDB := mock_client.NewMockInterface(ctrl)
+
+		h := Handler{
+			Client:           fakeClient,
+			accessController: authority.NewAccessController(fakeClient),
+			dbClient:         mockDB,
+		}
+
+		rsp := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rsp)
+		c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/apikeys/current", nil)
+		// Intentionally not setting common.ApiKeyId
+
+		h.GetCurrentApiKey(c)
+		assert.NotEqual(t, http.StatusOK, rsp.Code)
+	})
+
+	t.Run("invalid apiKeyId type returns bad request", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		_, fakeClient := createMockUser()
+		mockDB := mock_client.NewMockInterface(ctrl)
+
+		h := Handler{
+			Client:           fakeClient,
+			accessController: authority.NewAccessController(fakeClient),
+			dbClient:         mockDB,
+		}
+
+		rsp := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rsp)
+		c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/apikeys/current", nil)
+		c.Set(common.ApiKeyId, "invalid-type") // Wrong type, should be int64
+
+		h.GetCurrentApiKey(c)
+		assert.NotEqual(t, http.StatusOK, rsp.Code)
+	})
+
+	t.Run("zero apiKeyId returns bad request", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		_, fakeClient := createMockUser()
+		mockDB := mock_client.NewMockInterface(ctrl)
+
+		h := Handler{
+			Client:           fakeClient,
+			accessController: authority.NewAccessController(fakeClient),
+			dbClient:         mockDB,
+		}
+
+		rsp := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rsp)
+		c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/apikeys/current", nil)
+		c.Set(common.ApiKeyId, int64(0))
+
+		h.GetCurrentApiKey(c)
+		assert.NotEqual(t, http.StatusOK, rsp.Code)
+	})
+
+	t.Run("api key not found returns not found", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		_, fakeClient := createMockUser()
+		mockDB := mock_client.NewMockInterface(ctrl)
+
+		h := Handler{
+			Client:           fakeClient,
+			accessController: authority.NewAccessController(fakeClient),
+			dbClient:         mockDB,
+		}
+
+		mockDB.EXPECT().GetApiKeyById(gomock.Any(), int64(999)).Return(nil, assert.AnError)
+
+		rsp := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rsp)
+		c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/apikeys/current", nil)
+		c.Set(common.ApiKeyId, int64(999))
+
+		h.GetCurrentApiKey(c)
+		assert.NotEqual(t, http.StatusOK, rsp.Code)
+	})
+
+	t.Run("successful get current api key", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		_, fakeClient := createMockUser()
+		mockDB := mock_client.NewMockInterface(ctrl)
+
+		h := Handler{
+			Client:           fakeClient,
+			accessController: authority.NewAccessController(fakeClient),
+			dbClient:         mockDB,
+		}
+
+		mockDB.EXPECT().GetApiKeyById(gomock.Any(), int64(123)).Return(&dbclient.ApiKey{
+			Id:             123,
+			Name:           "my-current-key",
+			UserId:         "test-user",
+			KeyHint:        "ak-dG****g5MA",
+			ExpirationTime: pq.NullTime{Time: now.Add(24 * time.Hour), Valid: true},
+			CreationTime:   pq.NullTime{Time: now, Valid: true},
+			Whitelist:      `["192.168.1.0/24"]`,
+			Deleted:        false,
+		}, nil)
+
+		rsp := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rsp)
+		c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/apikeys/current", nil)
+		c.Set(common.ApiKeyId, int64(123))
+
+		h.GetCurrentApiKey(c)
+		assert.Equal(t, http.StatusOK, rsp.Code)
+
+		var response view.GetCurrentApiKeyResponse
+		err := json.Unmarshal(rsp.Body.Bytes(), &response)
+		assert.NoError(t, err)
+
+		assert.Equal(t, int64(123), response.Id)
+		assert.Equal(t, "my-current-key", response.Name)
+		assert.Equal(t, "ak-dG****g5MA", response.KeyHint)
+		assert.NotEmpty(t, response.ExpirationTime)
+		assert.NotEmpty(t, response.CreationTime)
+		assert.Equal(t, []string{"192.168.1.0/24"}, response.Whitelist)
+	})
+
+	t.Run("successful get current api key with empty whitelist", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		_, fakeClient := createMockUser()
+		mockDB := mock_client.NewMockInterface(ctrl)
+
+		h := Handler{
+			Client:           fakeClient,
+			accessController: authority.NewAccessController(fakeClient),
+			dbClient:         mockDB,
+		}
+
+		mockDB.EXPECT().GetApiKeyById(gomock.Any(), int64(456)).Return(&dbclient.ApiKey{
+			Id:             456,
+			Name:           "key-no-whitelist",
+			UserId:         "test-user",
+			KeyHint:        "ak-xY****1234",
+			ExpirationTime: pq.NullTime{Time: now.Add(48 * time.Hour), Valid: true},
+			CreationTime:   pq.NullTime{Time: now, Valid: true},
+			Whitelist:      "[]",
+			Deleted:        false,
+		}, nil)
+
+		rsp := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rsp)
+		c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/apikeys/current", nil)
+		c.Set(common.ApiKeyId, int64(456))
+
+		h.GetCurrentApiKey(c)
+		assert.Equal(t, http.StatusOK, rsp.Code)
+
+		var response view.GetCurrentApiKeyResponse
+		err := json.Unmarshal(rsp.Body.Bytes(), &response)
+		assert.NoError(t, err)
+
+		assert.Equal(t, []string{}, response.Whitelist)
+	})
+
+	t.Run("nil db client returns error", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		_, fakeClient := createMockUser()
+
+		h := Handler{
+			Client:           fakeClient,
+			accessController: authority.NewAccessController(fakeClient),
+			dbClient:         nil,
+		}
+
+		rsp := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rsp)
+		c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/apikeys/current", nil)
+		c.Set(common.ApiKeyId, int64(123))
+
+		h.GetCurrentApiKey(c)
+		assert.NotEqual(t, http.StatusOK, rsp.Code)
+	})
+}
+
+// TestListApiKeyWithNameFilter tests the ListApiKey handler with name filter
+func TestListApiKeyWithNameFilter(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	now := time.Now().UTC()
+
+	t.Run("list with name filter returns matching keys", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockUser, fakeClient := createMockUser()
+		mockDB := mock_client.NewMockInterface(ctrl)
+
+		h := Handler{
+			Client:           fakeClient,
+			accessController: authority.NewAccessController(fakeClient),
+			dbClient:         mockDB,
+		}
+
+		mockDB.EXPECT().CountApiKeys(gomock.Any(), gomock.Any()).Return(1, nil)
+		mockDB.EXPECT().SelectApiKeys(gomock.Any(), gomock.Any(), gomock.Any(), view.DefaultQueryLimit, 0).Return([]*dbclient.ApiKey{
+			{
+				Id:             1,
+				Name:           "ci-cd-pipeline",
+				UserId:         mockUser.Name,
+				ApiKey:         "ak-secret-1",
+				KeyHint:        "ak-dG****g5MA",
+				ExpirationTime: pq.NullTime{Time: now.Add(24 * time.Hour), Valid: true},
+				CreationTime:   pq.NullTime{Time: now, Valid: true},
+				Whitelist:      "[]",
+				Deleted:        false,
+			},
+		}, nil)
+
+		rsp := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rsp)
+		c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/apikeys?name=ci-cd", nil)
+		c.Set(common.UserId, mockUser.Name)
+
+		h.ListApiKey(c)
+		assert.Equal(t, http.StatusOK, rsp.Code)
+
+		var response view.ListApiKeyResponse
+		err := json.Unmarshal(rsp.Body.Bytes(), &response)
+		assert.NoError(t, err)
+
+		assert.Equal(t, 1, response.TotalCount)
+		assert.Equal(t, 1, len(response.Items))
+		assert.Equal(t, "ci-cd-pipeline", response.Items[0].Name)
+	})
+
+	t.Run("list with name filter returns empty when no match", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockUser, fakeClient := createMockUser()
+		mockDB := mock_client.NewMockInterface(ctrl)
+
+		h := Handler{
+			Client:           fakeClient,
+			accessController: authority.NewAccessController(fakeClient),
+			dbClient:         mockDB,
+		}
+
+		mockDB.EXPECT().CountApiKeys(gomock.Any(), gomock.Any()).Return(0, nil)
+		mockDB.EXPECT().SelectApiKeys(gomock.Any(), gomock.Any(), gomock.Any(), view.DefaultQueryLimit, 0).Return([]*dbclient.ApiKey{}, nil)
+
+		rsp := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rsp)
+		c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/apikeys?name=nonexistent", nil)
+		c.Set(common.UserId, mockUser.Name)
+
+		h.ListApiKey(c)
+		assert.Equal(t, http.StatusOK, rsp.Code)
+
+		var response view.ListApiKeyResponse
+		err := json.Unmarshal(rsp.Body.Bytes(), &response)
+		assert.NoError(t, err)
+
+		assert.Equal(t, 0, response.TotalCount)
+		assert.Equal(t, 0, len(response.Items))
+	})
+
+	t.Run("list with name filter and pagination", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockUser, fakeClient := createMockUser()
+		mockDB := mock_client.NewMockInterface(ctrl)
+
+		h := Handler{
+			Client:           fakeClient,
+			accessController: authority.NewAccessController(fakeClient),
+			dbClient:         mockDB,
+		}
+
+		mockDB.EXPECT().CountApiKeys(gomock.Any(), gomock.Any()).Return(5, nil)
+		mockDB.EXPECT().SelectApiKeys(gomock.Any(), gomock.Any(), gomock.Any(), 2, 0).Return([]*dbclient.ApiKey{
+			{
+				Id:             1,
+				Name:           "production-key-1",
+				UserId:         mockUser.Name,
+				ExpirationTime: pq.NullTime{Time: now.Add(24 * time.Hour), Valid: true},
+				CreationTime:   pq.NullTime{Time: now, Valid: true},
+				Whitelist:      "[]",
+				Deleted:        false,
+			},
+			{
+				Id:             2,
+				Name:           "production-key-2",
+				UserId:         mockUser.Name,
+				ExpirationTime: pq.NullTime{Time: now.Add(24 * time.Hour), Valid: true},
+				CreationTime:   pq.NullTime{Time: now, Valid: true},
+				Whitelist:      "[]",
+				Deleted:        false,
+			},
+		}, nil)
+
+		rsp := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rsp)
+		c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/apikeys?name=production&limit=2&offset=0", nil)
+		c.Set(common.UserId, mockUser.Name)
+
+		h.ListApiKey(c)
+		assert.Equal(t, http.StatusOK, rsp.Code)
+
+		var response view.ListApiKeyResponse
+		err := json.Unmarshal(rsp.Body.Bytes(), &response)
+		assert.NoError(t, err)
+
+		assert.Equal(t, 5, response.TotalCount)
+		assert.Equal(t, 2, len(response.Items))
+	})
+}
+
+// TestParseListApiKeyQueryWithName tests parsing name filter in query
+func TestParseListApiKeyQueryWithName(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	t.Run("parse name filter", func(t *testing.T) {
+		rsp := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rsp)
+		c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/apikeys?name=test-key", nil)
+
+		query, err := parseListApiKeyQuery(c)
+		assert.NoError(t, err)
+		assert.Equal(t, "test-key", query.Name)
+	})
+
+	t.Run("parse empty name filter", func(t *testing.T) {
+		rsp := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rsp)
+		c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/apikeys", nil)
+
+		query, err := parseListApiKeyQuery(c)
+		assert.NoError(t, err)
+		assert.Empty(t, query.Name)
+	})
+
+	t.Run("parse name filter with special characters", func(t *testing.T) {
+		rsp := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rsp)
+		c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/apikeys?name=ci-cd_pipeline", nil)
+
+		query, err := parseListApiKeyQuery(c)
+		assert.NoError(t, err)
+		assert.Equal(t, "ci-cd_pipeline", query.Name)
+	})
+}
+
 // TestDeleteApiKeyHandler tests the DeleteApiKey HTTP handler
 func TestDeleteApiKeyHandler(t *testing.T) {
 	gin.SetMode(gin.TestMode)
