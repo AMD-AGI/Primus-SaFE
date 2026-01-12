@@ -141,23 +141,7 @@ func (h *Handler) retryNode(c *gin.Context) (interface{}, error) {
 			"node is not in a failed state, current phase: %s. Only ManagedFailed or UnmanagedFailed nodes can be retried", phase))
 	}
 
-	// Pre-condition checks based on the failed phase
-	if phase == v1.NodeManagedFailed {
-		// For manage retry: machine must be ready
-		if !node.IsMachineReady() {
-			return nil, commonerrors.NewBadRequest("machine is not ready, please wait and try again")
-		}
-	} else {
-		// For unmanage retry: check control plane and workspace binding
-		if v1.IsControlPlane(node) {
-			return nil, commonerrors.NewBadRequest("control plane node cannot be unmanaged")
-		}
-		if v1.GetWorkspaceId(node) != "" {
-			return nil, commonerrors.NewBadRequest("node is still bound to a workspace, please unbind first")
-		}
-	}
-
-	// Determine the cluster ID and action based on current phase
+	// Determine the cluster ID
 	clusterId := node.GetSpecCluster()
 	if clusterId == "" {
 		clusterId = v1.GetClusterId(node)
@@ -166,13 +150,25 @@ func (h *Handler) retryNode(c *gin.Context) (interface{}, error) {
 		return nil, commonerrors.NewBadRequest("cannot determine cluster ID for retry operation")
 	}
 
-	// Determine action type based on failed phase
+	// Pre-condition checks and action determination based on the failed phase
 	var action string
 	var newPhase v1.NodePhase
-	if phase == v1.NodeManagedFailed {
+	switch phase {
+	case v1.NodeManagedFailed:
+		// For manage retry: machine must be ready (only represents the physical machine status)
+		if !node.IsMachineReady() {
+			return nil, commonerrors.NewBadRequest("machine is not ready, please wait and try again")
+		}
 		action = string(v1.ClusterScaleUpAction)
 		newPhase = v1.NodeManaging
-	} else {
+	case v1.NodeUnmanagedFailed:
+		// For unmanage retry: check control plane and workspace binding
+		if v1.IsControlPlane(node) {
+			return nil, commonerrors.NewBadRequest("control plane node cannot be unmanaged")
+		}
+		if v1.GetWorkspaceId(node) != "" {
+			return nil, commonerrors.NewBadRequest("node is still bound to a workspace, please unbind first")
+		}
 		action = string(v1.ClusterScaleDownAction)
 		newPhase = v1.NodeUnmanaging
 	}
