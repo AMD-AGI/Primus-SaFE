@@ -153,7 +153,7 @@ func (h *Handler) retryNode(c *gin.Context) (interface{}, error) {
 			return nil, commonerrors.NewBadRequest("control plane node cannot be unmanaged")
 		}
 		if v1.GetWorkspaceId(node) != "" {
-			return nil, commonerrors.NewBadRequest("node is still bound to a workspace, please unbind it first")
+			return nil, commonerrors.NewBadRequest("node is still bound to a workspace, please unbind first")
 		}
 	}
 

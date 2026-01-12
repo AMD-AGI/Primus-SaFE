@@ -1,54 +1,54 @@
-# Node Retry API 设计文档
+# Node Retry API Design Document
 
-## 1. 功能概述
+## 1. Overview
 
-提供节点纳管/解纳管失败后的重试功能，允许用户在操作失败时点击重试，而无需重新发起整个流程。
+Provides retry functionality for failed node manage/unmanage operations, allowing users to retry when an operation fails without restarting the entire process.
 
-### 1.1 适用场景
+### 1.1 Applicable Scenarios
 
-| 失败状态 | 描述 | 重试后状态 |
-|---------|------|-----------|
-| `ManagedFailed` | 纳管失败 | `Managing` |
-| `UnmanagedFailed` | 解纳管失败 | `Unmanaging` |
+| Failed State | Description | State After Retry |
+|--------------|-------------|-------------------|
+| `ManagedFailed` | Manage operation failed | `Managing` |
+| `UnmanagedFailed` | Unmanage operation failed | `Unmanaging` |
 
-### 1.2 核心能力
+### 1.2 Core Capabilities
 
-- ✅ 支持纳管失败重试
-- ✅ 支持解纳管失败重试
-- ✅ 自动清理失败的 Pod
-- ✅ 前置条件检查（机器就绪、工作空间解绑等）
-- ✅ 权限控制（与纳管操作相同）
+- ✅ Support retry for failed manage operations
+- ✅ Support retry for failed unmanage operations
+- ✅ Automatic cleanup of failed Pods
+- ✅ Pre-condition checks (machine ready, workspace unbound, etc.)
+- ✅ Access control (same as manage operation)
 
 ---
 
-## 2. API 接口
+## 2. API Interface
 
-### 2.1 重试节点操作
+### 2.1 Retry Node Operation
 
-**请求**
+**Request**
 
 ```
 POST /api/v1/nodes/{nodeName}/retry
 ```
 
-**请求头**
+**Request Headers**
 
 ```
 Authorization: Bearer <token>
 Content-Type: application/json
 ```
 
-**路径参数**
+**Path Parameters**
 
-| 参数 | 类型 | 必填 | 描述 |
-|------|------|------|------|
-| nodeName | string | 是 | 节点名称 |
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| nodeName | string | Yes | Node name |
 
-**请求体**
+**Request Body**
 
-无需请求体。
+No request body required.
 
-**成功响应 (200 OK)**
+**Success Response (200 OK)**
 
 ```json
 {
@@ -59,34 +59,34 @@ Content-Type: application/json
 }
 ```
 
-**响应字段说明**
+**Response Fields**
 
-| 字段 | 类型 | 描述 |
-|------|------|------|
-| message | string | 操作结果消息 |
-| nodeId | string | 节点 ID |
-| previousPhase | string | 重试前的状态 |
-| currentPhase | string | 重试后的状态 |
+| Field | Type | Description |
+|-------|------|-------------|
+| message | string | Operation result message |
+| nodeId | string | Node ID |
+| previousPhase | string | State before retry |
+| currentPhase | string | State after retry |
 
 ---
 
-## 3. 错误响应
+## 3. Error Responses
 
-### 3.1 错误码列表
+### 3.1 Error Code List
 
-| HTTP 状态码 | 错误码 | 错误消息 | 描述 |
-|------------|--------|---------|------|
-| 400 | Primus.00002 | node is not in a failed state | 节点不在失败状态 |
-| 400 | Primus.00002 | machine is not ready, please wait and try again | 机器未就绪（纳管重试） |
-| 400 | Primus.00002 | control plane node cannot be unmanaged | 控制平面节点不能解纳管 |
-| 400 | Primus.00002 | node is still bound to a workspace, please unbind first | 工作空间未解绑（解纳管重试） |
-| 400 | Primus.00002 | cannot determine cluster ID for retry operation | 无法确定集群 ID |
-| 403 | Primus.00004 | Forbidden | 用户无权限执行此操作 |
-| 404 | Primus.00005 | node not found | 节点不存在 |
-| 500 | Primus.00001 | failed to delete failed pods | 删除失败 Pod 出错 |
-| 500 | Primus.00001 | failed to reset node status | 更新节点状态出错 |
+| HTTP Status | Error Code | Error Message | Description |
+|-------------|------------|---------------|-------------|
+| 400 | Primus.00002 | node is not in a failed state | Node is not in failed state |
+| 400 | Primus.00002 | machine is not ready, please wait and try again | Machine not ready (manage retry) |
+| 400 | Primus.00002 | control plane node cannot be unmanaged | Control plane node cannot be unmanaged |
+| 400 | Primus.00002 | node is still bound to a workspace, please unbind first | Workspace not unbound (unmanage retry) |
+| 400 | Primus.00002 | cannot determine cluster ID for retry operation | Cannot determine cluster ID |
+| 403 | Primus.00004 | Forbidden | User has no permission for this operation |
+| 404 | Primus.00005 | node not found | Node does not exist |
+| 500 | Primus.00001 | failed to delete failed pods | Error deleting failed pods |
+| 500 | Primus.00001 | failed to reset node status | Error updating node status |
 
-### 3.2 错误响应格式
+### 3.2 Error Response Format
 
 ```json
 {
@@ -97,97 +97,97 @@ Content-Type: application/json
 
 ---
 
-## 4. 前置条件检查
+## 4. Pre-condition Checks
 
-### 4.1 纳管重试 (ManagedFailed → Managing)
+### 4.1 Manage Retry (ManagedFailed → Managing)
 
-| 检查项 | 条件 | 错误消息 |
-|--------|------|---------|
-| 机器就绪 | `node.IsMachineReady() == true` | machine is not ready, please wait and try again |
+| Check Item | Condition | Error Message |
+|------------|-----------|---------------|
+| Machine ready | `node.IsMachineReady() == true` | machine is not ready, please wait and try again |
 
-### 4.2 解纳管重试 (UnmanagedFailed → Unmanaging)
+### 4.2 Unmanage Retry (UnmanagedFailed → Unmanaging)
 
-| 检查项 | 条件 | 错误消息 |
-|--------|------|---------|
-| 非控制平面节点 | `IsControlPlane(node) == false` | control plane node cannot be unmanaged |
-| 工作空间已解绑 | `GetWorkspaceId(node) == ""` | node is still bound to a workspace, please unbind first |
+| Check Item | Condition | Error Message |
+|------------|-----------|---------------|
+| Not control plane | `IsControlPlane(node) == false` | control plane node cannot be unmanaged |
+| Workspace unbound | `GetWorkspaceId(node) == ""` | node is still bound to a workspace, please unbind first |
 
 ---
 
-## 5. 状态流转图
+## 5. State Transition Diagrams
 
-### 5.1 纳管流程
+### 5.1 Manage Flow
 
 ```
                     ┌─────────────────┐
                     │    Unmanaged    │
                     └────────┬────────┘
-                             │ 用户发起纳管
+                             │ User initiates manage
                              ↓
                     ┌─────────────────┐
               ┌────▶│    Managing     │◀────┐
               │     └────────┬────────┘     │
               │              │              │
-              │         成功 │ 失败         │
+              │       Success│ Failure      │
               │              ↓              │
               │     ┌─────────────────┐     │
               │     │    Managed      │     │
               │     └─────────────────┘     │
               │                             │
-              │              ↓ 失败         │
+              │           Failure ↓         │
               │     ┌─────────────────┐     │
               │     │  ManagedFailed  │     │
               │     └────────┬────────┘     │
               │              │              │
-              │              │ 用户点击 Retry
+              │              │ User clicks Retry
               └──────────────┴──────────────┘
 ```
 
-### 5.2 解纳管流程
+### 5.2 Unmanage Flow
 
 ```
                     ┌─────────────────┐
                     │     Managed     │
                     └────────┬────────┘
-                             │ 用户发起解纳管
+                             │ User initiates unmanage
                              ↓
                     ┌─────────────────┐
               ┌────▶│   Unmanaging    │◀────┐
               │     └────────┬────────┘     │
               │              │              │
-              │         成功 │ 失败         │
+              │       Success│ Failure      │
               │              ↓              │
               │     ┌─────────────────┐     │
               │     │   Unmanaged     │     │
               │     └─────────────────┘     │
               │                             │
-              │              ↓ 失败         │
+              │           Failure ↓         │
               │     ┌─────────────────┐     │
               │     │ UnmanagedFailed │     │
               │     └────────┬────────┘     │
               │              │              │
-              │              │ 用户点击 Retry
+              │              │ User clicks Retry
               └──────────────┴──────────────┘
 ```
 
 ---
 
-## 6. 前端对接注意事项
+## 6. Frontend Integration Notes
 
-### 6.1 Retry 按钮显示逻辑
+### 6.1 Retry Button Display Logic
 
 ```javascript
-// 只有在失败状态时显示 Retry 按钮
+// Only show Retry button when in failed state
 const showRetryButton = (node) => {
   return node.status.clusterStatus.phase === 'ManagedFailed' ||
          node.status.clusterStatus.phase === 'UnmanagedFailed';
 };
 ```
 
-### 6.2 状态轮询
+### 6.2 Status Polling
 
 ```javascript
-// 用户点击 Retry 后，前端需要轮询节点状态
+// After user clicks Retry, frontend needs to poll node status
 const pollNodeStatus = async (nodeName) => {
   const response = await fetch(`/api/v1/nodes/${nodeName}`);
   const node = await response.json();
@@ -195,30 +195,30 @@ const pollNodeStatus = async (nodeName) => {
   const phase = node.status.clusterStatus.phase;
   
   if (phase === 'Managing' || phase === 'Unmanaging') {
-    // 显示 "操作中..." 状态，继续轮询
+    // Show "In Progress..." status, continue polling
     setTimeout(() => pollNodeStatus(nodeName), 3000);
   } else if (phase === 'Managed' || phase === 'Unmanaged') {
-    // 操作成功
-    showSuccess('操作成功');
+    // Operation successful
+    showSuccess('Operation successful');
   } else if (phase === 'ManagedFailed' || phase === 'UnmanagedFailed') {
-    // 操作失败，显示 Retry 按钮
-    showError('操作失败，请重试');
+    // Operation failed, show Retry button
+    showError('Operation failed, please retry');
   }
 };
 ```
 
-### 6.3 按钮状态管理
+### 6.3 Button State Management
 
-| 节点状态 | Retry 按钮 | 其他操作按钮 |
-|---------|-----------|-------------|
-| `Unmanaged` | 隐藏 | 显示"纳管" |
-| `Managing` | 隐藏 | 全部禁用 |
-| `Managed` | 隐藏 | 显示"解纳管" |
-| `ManagedFailed` | **显示** | 显示"纳管"（或禁用） |
-| `Unmanaging` | 隐藏 | 全部禁用 |
-| `UnmanagedFailed` | **显示** | 显示"解纳管"（或禁用） |
+| Node State | Retry Button | Other Action Buttons |
+|------------|--------------|---------------------|
+| `Unmanaged` | Hidden | Show "Manage" |
+| `Managing` | Hidden | All disabled |
+| `Managed` | Hidden | Show "Unmanage" |
+| `ManagedFailed` | **Visible** | Show "Manage" (or disabled) |
+| `Unmanaging` | Hidden | All disabled |
+| `UnmanagedFailed` | **Visible** | Show "Unmanage" (or disabled) |
 
-### 6.4 错误处理
+### 6.4 Error Handling
 
 ```javascript
 const handleRetry = async (nodeName) => {
@@ -234,16 +234,16 @@ const handleRetry = async (nodeName) => {
     if (!response.ok) {
       const error = await response.json();
       
-      // 根据错误消息给用户友好提示
+      // Provide user-friendly messages based on error
       switch (error.errorMessage) {
         case 'machine is not ready, please wait and try again':
-          showWarning('机器未就绪，请稍后再试');
+          showWarning('Machine is not ready, please try again later');
           break;
         case 'node is still bound to a workspace, please unbind first':
-          showWarning('请先解绑工作空间');
+          showWarning('Please unbind the workspace first');
           break;
         case 'control plane node cannot be unmanaged':
-          showError('控制平面节点不能解纳管');
+          showError('Control plane node cannot be unmanaged');
           break;
         default:
           showError(error.errorMessage);
@@ -252,59 +252,59 @@ const handleRetry = async (nodeName) => {
     }
     
     const result = await response.json();
-    showInfo(`重试已发起，状态: ${result.previousPhase} → ${result.currentPhase}`);
+    showInfo(`Retry initiated, status: ${result.previousPhase} → ${result.currentPhase}`);
     
-    // 开始轮询状态
+    // Start polling status
     pollNodeStatus(nodeName);
     
   } catch (error) {
-    showError('网络错误，请重试');
+    showError('Network error, please retry');
   }
 };
 ```
 
-### 6.5 UI 交互建议
+### 6.5 UI Interaction Recommendations
 
-1. **确认对话框**：点击 Retry 前显示确认对话框
+1. **Confirmation Dialog**: Show confirmation dialog before clicking Retry
    ```
-   确定要重试纳管/解纳管操作吗？
-   [取消] [确定]
+   Are you sure you want to retry the manage/unmanage operation?
+   [Cancel] [Confirm]
    ```
 
-2. **Loading 状态**：点击后按钮显示 loading 状态，防止重复点击
+2. **Loading State**: Button shows loading state after click to prevent duplicate clicks
 
-3. **Toast 提示**：
-   - 成功：`重试已发起`
-   - 失败：显示具体错误原因
+3. **Toast Notifications**:
+   - Success: `Retry initiated`
+   - Failure: Show specific error reason
 
-4. **状态图标**：
-   - `Managing` / `Unmanaging`：显示 loading spinner
-   - `ManagedFailed` / `UnmanagedFailed`：显示红色错误图标 + Retry 按钮
+4. **Status Icons**:
+   - `Managing` / `Unmanaging`: Show loading spinner
+   - `ManagedFailed` / `UnmanagedFailed`: Show red error icon + Retry button
 
 ---
 
-## 7. 权限控制
+## 7. Access Control
 
-Retry 操作使用与纳管/解纳管相同的权限：
+Retry operation uses the same permissions as manage/unmanage:
 
-| 操作 | 所需权限 | 资源类型 |
-|------|---------|---------|
+| Operation | Required Permission | Resource Type |
+|-----------|---------------------|---------------|
 | Retry | `update` | `nodes` |
 
 ---
 
-## 8. 示例
+## 8. Examples
 
-### 8.1 cURL 示例
+### 8.1 cURL Example
 
 ```bash
-# 重试纳管失败的节点
+# Retry a node that failed to manage
 curl -X POST "http://localhost:8088/api/v1/nodes/node-1/retry" \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json"
 ```
 
-### 8.2 成功响应示例
+### 8.2 Success Response Example
 
 ```json
 {
@@ -315,7 +315,7 @@ curl -X POST "http://localhost:8088/api/v1/nodes/node-1/retry" \
 }
 ```
 
-### 8.3 失败响应示例
+### 8.3 Failure Response Example
 
 ```json
 {
@@ -326,32 +326,31 @@ curl -X POST "http://localhost:8088/api/v1/nodes/node-1/retry" \
 
 ---
 
-## 9. 后端实现要点
+## 9. Backend Implementation Notes
 
-### 9.1 核心逻辑
+### 9.1 Core Logic
 
-1. **权限检查**：验证用户有 `update` 权限
-2. **状态检查**：确认节点处于 `ManagedFailed` 或 `UnmanagedFailed`
-3. **前置条件检查**：
-   - 纳管重试：`IsMachineReady()`
-   - 解纳管重试：`!IsControlPlane()` && `GetWorkspaceId() == ""`
-4. **清理 Pod**：删除之前失败的 KubeSpray Pod
-5. **状态重置**：将状态改为 `Managing` 或 `Unmanaging`
-6. **Controller 接管**：状态变化触发 Controller 重新执行纳管/解纳管
+1. **Permission Check**: Verify user has `update` permission
+2. **State Check**: Confirm node is in `ManagedFailed` or `UnmanagedFailed` state
+3. **Pre-condition Checks**:
+   - Manage retry: `IsMachineReady()`
+   - Unmanage retry: `!IsControlPlane()` && `GetWorkspaceId() == ""`
+4. **Cleanup Pods**: Delete previously failed KubeSpray Pods
+5. **Reset Status**: Change state to `Managing` or `Unmanaging`
+6. **Controller Takes Over**: State change triggers Controller to re-execute manage/unmanage
 
-### 9.2 代码位置
+### 9.2 Code Locations
 
-| 文件 | 功能 |
-|------|------|
-| `apiserver/pkg/handlers/resources/node.go` | Retry API 处理 |
-| `apiserver/pkg/handlers/resources/routers.go` | 路由注册 |
-| `resource-manager/pkg/resource/node_controller.go` | Controller 执行逻辑 |
+| File | Functionality |
+|------|---------------|
+| `apiserver/pkg/handlers/resources/node.go` | Retry API handler |
+| `apiserver/pkg/handlers/resources/routers.go` | Route registration |
+| `resource-manager/pkg/resource/node_controller.go` | Controller execution logic |
 
 ---
 
-## 10. 变更记录
+## 10. Change Log
 
-| 日期 | 版本 | 描述 | 作者 |
-|------|------|------|------|
-| 2026-01-09 | v1.0 | 初始设计 | - |
-
+| Date | Version | Description | Author |
+|------|---------|-------------|--------|
+| 2026-01-09 | v1.0 | Initial design | - |
