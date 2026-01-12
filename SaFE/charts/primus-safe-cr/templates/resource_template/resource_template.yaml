@@ -348,3 +348,62 @@ spec:
       - matchExpressions:
           phase: 'Running'
         phase: K8sRunning
+---
+apiVersion: amd.com/v1
+kind: ResourceTemplate
+metadata:
+  name: ray-job
+  labels:
+    app.kubernetes.io/managed-by: Helm
+    primus-safe.workload.version: v1
+  annotations:
+    primus-safe.workload.kind: "RayJob"
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
+spec:
+  groupVersionKind:
+    group: ray.io
+    version: v1
+    kind: RayJob
+  resourceSpecs:
+    - prePaths:
+        - spec
+        - rayClusterSpec
+        - headGroupSpec
+      templatePaths:
+        - template
+    - prePaths:
+        - spec
+        - rayClusterSpec
+        - workerGroupSpecs
+      templatePaths:
+        - template
+      replicasPaths:
+        - replicas
+  resourceStatus:
+    prePaths:
+      - status
+    messagePaths:
+      - message
+    reasonPaths:
+      - reason
+    phases:
+      - matchExpressions:
+          jobStatus: 'Succeeded'
+        phase: K8sSucceeded
+      - matchExpressions:
+          jobStatus: 'Complete'
+        phase: K8sSucceeded
+      - matchExpressions:
+          jobStatus: 'Failed'
+        phase: K8sFailed
+      - matchExpressions:
+          jobStatus: 'ValidationFailed'
+        phase: K8sFailed
+      - matchExpressions:
+          jobStatus: 'Running'
+        phase: K8sRunning
+  activeReplica:
+    prePaths:
+      - status
+    replicaPath: succeeded
