@@ -149,9 +149,10 @@ func (a *ApiKeyToken) ValidateApiKey(ctx context.Context, apiKey string, clientI
 	}
 
 	return &UserInfo{
-		Id:   record.UserId,
-		Name: record.UserName,
-		Exp:  record.ExpirationTime.Time.Unix(),
+		Id:       record.UserId,
+		Name:     record.UserName,
+		Exp:      record.ExpirationTime.Time.Unix(),
+		ApiKeyId: record.Id,
 	}, nil
 }
 

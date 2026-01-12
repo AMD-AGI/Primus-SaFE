@@ -79,6 +79,7 @@ const (
 	UserName              = "userName"
 	UserId                = "userId"
 	UserType              = "userType"
+	ApiKeyId              = "apiKeyId"
 	UserSelf              = "self"
 	UserSystem            = "primus-safe-system"
 	UserWorkspaces        = "workspaces"
