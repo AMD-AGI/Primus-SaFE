@@ -43,6 +43,7 @@ const (
 	harborCACertPathCentOS = "/etc/pki/ca-trust/source/anchors/harbor-ca.crt"
 
 	machineCheckInterval = time.Minute * 30
+	podManagementTimeout = 3600 * 2
 )
 
 type NodeReconciler struct {
@@ -186,6 +187,9 @@ func (r *NodeReconciler) observe(ctx context.Context, adminNode *v1.Node, k8sNod
 	if shouldSyncMachineStatus(adminNode) {
 		return false, nil
 	}
+	if adminNode.Spec.NodeTemplate != nil && !v1.IsNodeTemplateInstalled(adminNode) {
+		return false, nil
+	}
 	// Observe whether the node has changed. If no changes are detected (ultimately returning true), exit NodeReconciler directly.
 	functions := []func(context.Context, *v1.Node, *corev1.Node) (bool, error){
 		r.observeTaints, r.observeLabelAction, r.observeAnnotationAction, r.observeWorkspace, r.observeCluster,
@@ -263,6 +267,12 @@ func (r *NodeReconciler) processNode(ctx context.Context, adminNode *v1.Node, k8
 		if err := r.syncMachineStatus(ctx, adminNode); err != nil {
 			return ctrlruntime.Result{}, err
 		}
+	}
+	if err := r.installAddons(ctx, adminNode); err != nil {
+		return ctrlruntime.Result{}, err
+	}
+	if err := r.cleanupTimeoutPods(ctx, adminNode); err != nil {
+		return ctrlruntime.Result{}, err
 	}
 	return r.processNodeManagement(ctx, adminNode, k8sNode)
 }
@@ -490,6 +500,29 @@ func (r *NodeReconciler) updateK8sNodeWorkspace(adminNode *v1.Node, k8sNode *cor
 	}
 	klog.Infof("update node workspace, node-name: %s, workspace-name: %s", k8sNode.Name, workspace)
 	return true
+}
+
+// cleanupTimeoutPods cleans up pods that have exceeded the specified timeout period for node management operations.
+func (r *NodeReconciler) cleanupTimeoutPods(ctx context.Context, node *v1.Node) error {
+	if node.Status.ClusterStatus.Phase != v1.NodeUnmanaging && node.Status.ClusterStatus.Phase != v1.NodeManaging {
+		return nil
+	}
+	allPods, err := r.listPod(ctx, getClusterId(node), node.Name, "")
+	if err != nil {
+		return err
+	}
+	nowTime := time.Now().Unix()
+	for _, pod := range allPods {
+		if nowTime-pod.CreationTimestamp.Unix() >= podManagementTimeout {
+			err = r.Delete(ctx, &pod)
+			if err == nil {
+				klog.Infof("delete timeout pod(%s) on node(%s)", pod.Name, node.Name)
+			} else if client.IgnoreNotFound(err) != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // processNodeManagement handles the management or unmanagement of a Node resource.
@@ -943,9 +976,8 @@ func (r *NodeReconciler) syncOrCreateScaleDownPod(ctx context.Context,
 					return ctrlruntime.Result{}, err
 				}
 				return ctrlruntime.Result{RequeueAfter: time.Second * 3}, nil
-			} else {
-				adminNode.Status.ClusterStatus.Phase = v1.NodeUnmanagedFailed
 			}
+			adminNode.Status.ClusterStatus.Phase = v1.NodeUnmanagedFailed
 		default:
 		}
 	}
@@ -1044,9 +1076,12 @@ func (r *NodeReconciler) installAddons(ctx context.Context, adminNode *v1.Node) 
 
 // listPod lists Pods matching the specified criteria.
 func (r *NodeReconciler) listPod(ctx context.Context, clusterName, nodeName, action string) ([]corev1.Pod, error) {
-	labelSelector := client.MatchingLabels{
-		v1.ClusterManageClusterLabel: clusterName,
-		v1.ClusterManageActionLabel:  action,
+	labelSelector := client.MatchingLabels{}
+	if clusterName != "" {
+		labelSelector[v1.ClusterManageClusterLabel] = clusterName
+	}
+	if action != "" {
+		labelSelector[v1.ClusterManageActionLabel] = action
 	}
 	if nodeName != "" {
 		labelSelector[v1.ClusterManageNodeLabel] = nodeName
