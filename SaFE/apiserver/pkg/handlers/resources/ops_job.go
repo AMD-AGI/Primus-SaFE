@@ -823,6 +823,10 @@ func cvtToListOpsJobSql(query *view.ListOpsJobRequest) (sqrl.Sqlizer, []string) 
 		dbSql = append(dbSql, sqrl.Like{
 			dbclient.GetFieldTag(dbTags, "UserName"): fmt.Sprintf("%%%s%%", userName)})
 	}
+	if jobName := strings.TrimSpace(query.JobName); jobName != "" {
+		dbSql = append(dbSql, sqrl.Like{
+			dbclient.GetFieldTag(dbTags, "JobId"): fmt.Sprintf("%%%s%%", jobName)})
+	}
 	orderBy := buildOrderBy(query.SortBy, query.Order, dbTags)
 	return dbSql, orderBy
 }
