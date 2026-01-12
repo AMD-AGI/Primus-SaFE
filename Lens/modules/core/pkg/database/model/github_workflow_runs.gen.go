@@ -13,9 +13,6 @@ const TableNameGithubWorkflowRuns = "github_workflow_runs"
 // GithubWorkflowRuns mapped from table <github_workflow_runs>
 type GithubWorkflowRuns struct {
 	ID                    int64     `gorm:"column:id;primaryKey;autoIncrement:true" json:"id"`
-	RunnerSetID           int64     `gorm:"column:runner_set_id" json:"runner_set_id"`
-	RunnerSetName         string    `gorm:"column:runner_set_name" json:"runner_set_name"`
-	RunnerSetNamespace    string    `gorm:"column:runner_set_namespace" json:"runner_set_namespace"`
 	ConfigID              int64     `gorm:"column:config_id" json:"config_id"`
 	WorkloadUID           string    `gorm:"column:workload_uid;not null" json:"workload_uid"`
 	WorkloadName          string    `gorm:"column:workload_name" json:"workload_name"`
@@ -39,6 +36,9 @@ type GithubWorkflowRuns struct {
 	RetryCount            int32     `gorm:"column:retry_count;not null" json:"retry_count"`
 	CreatedAt             time.Time `gorm:"column:created_at;not null;default:now()" json:"created_at"`
 	UpdatedAt             time.Time `gorm:"column:updated_at;not null;default:now()" json:"updated_at"`
+	RunnerSetID           int64     `gorm:"column:runner_set_id" json:"runner_set_id"`
+	RunnerSetName         string    `gorm:"column:runner_set_name" json:"runner_set_name"`
+	RunnerSetNamespace    string    `gorm:"column:runner_set_namespace" json:"runner_set_namespace"`
 }
 
 // TableName GithubWorkflowRuns's table name

@@ -18,6 +18,7 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/types"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/common"
 )
 
@@ -422,7 +423,7 @@ func (j *GithubWorkflowCollectorJob) processRunWithSchemaVersioning(
 	config *model.GithubWorkflowConfigs,
 	run *model.GithubWorkflowRuns,
 	files []*PVCFile,
-	matchingFiles []string,
+	matchingFiles []*types.ContainerFileInfo,
 	schemaFacade database.GithubWorkflowSchemaFacadeInterface,
 	metricsFacade database.GithubWorkflowMetricsFacadeInterface,
 	runFacade database.GithubWorkflowRunFacadeInterface,
