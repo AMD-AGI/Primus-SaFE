@@ -101,6 +101,8 @@ type ListOpsJobInput struct {
 	Phase v1.OpsJobPhase `form:"phase" binding:"omitempty"`
 	// Filter by job type, e.g. addon, dumplog, preflight, reboot
 	Type v1.OpsJobType `form:"type" binding:"omitempty,max=64"`
+	// Filter results by jobname (fuzzy match)
+	JobName string `form:"jobName" binding:"omitempty,max=64"`
 }
 
 // ListOpsJobRequest internal use
