@@ -78,7 +78,8 @@ func parseApiKeyFromRequest(c *gin.Context, apiKey string) error {
 	c.Set(common.UserId, userInfo.Id)
 	c.Set(common.UserName, userInfo.Name)
 	c.Set(common.UserType, UserTypeApiKey)
-	klog.Infof("API key authentication successful for user: %s (name: %s)", userInfo.Id, userInfo.Name)
+	c.Set(common.ApiKeyId, userInfo.ApiKeyId)
+	klog.Infof("API key authentication successful for user: %s (name: %s), apiKeyId: %d", userInfo.Id, userInfo.Name, userInfo.ApiKeyId)
 	return nil
 }
 
