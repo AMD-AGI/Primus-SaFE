@@ -84,7 +84,7 @@ Create a new API Key for programmatic access.
 
 ### 2. List API Keys
 
-List all API Keys for the authenticated user with pagination support.
+List all API Keys for the authenticated user with pagination and filtering support.
 
 **Endpoint**: `GET /api/v1/apikeys`
 
@@ -98,6 +98,23 @@ List all API Keys for the authenticated user with pagination support.
 | limit | int | No | 100 | Records per page |
 | sortBy | string | No | creationTime | Sort field (creationTime, expirationTime) |
 | order | string | No | desc | Sort order (desc, asc) |
+| name | string | No | - | Filter by name (partial match, case-insensitive) |
+
+**Request Example**:
+
+```bash
+# List all API Keys
+curl -H "Authorization: Bearer your-token" \
+  "https://api.example.com/api/v1/apikeys"
+
+# Filter by name (partial match)
+curl -H "Authorization: Bearer your-token" \
+  "https://api.example.com/api/v1/apikeys?name=ci-cd"
+
+# With pagination
+curl -H "Authorization: Bearer your-token" \
+  "https://api.example.com/api/v1/apikeys?name=production&limit=10&offset=0"
+```
 
 **Response Example**:
 
@@ -156,7 +173,57 @@ Each item contains:
 
 ---
 
-### 3. Delete API Key
+### 3. Get Current API Key
+
+Get detailed information about the API Key currently being used for authentication. This endpoint is useful for checking the expiration time and other details of the key you're using.
+
+**Endpoint**: `GET /api/v1/apikeys/current`
+
+**Authentication Required**: Yes (API Key only)
+
+> ⚠️ **Note**: This endpoint **only works when authenticated via API Key**. It will return an error if authenticated via user token or cookie.
+
+**Request Example**:
+
+```bash
+curl -H "Authorization: Bearer ak-your-api-key-here" \
+  "https://api.example.com/api/v1/apikeys/current"
+```
+
+**Response Example**:
+
+```json
+{
+  "id": 123,
+  "name": "ci-cd-pipeline",
+  "keyHint": "ak-dG****g5MA",
+  "expirationTime": "2026-04-07T08:00:00Z",
+  "creationTime": "2026-01-07T08:00:00Z",
+  "whitelist": ["192.168.1.0/24"]
+}
+```
+
+**Response Field Description**:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| id | int64 | Unique identifier for the API Key |
+| name | string | Display name |
+| keyHint | string | Partial key for identification (e.g., "ak-dG****g5MA") |
+| expirationTime | string | Expiration time (RFC3339 format) |
+| creationTime | string | Creation time (RFC3339 format) |
+| whitelist | []string | Allowed IP addresses/CIDRs |
+
+**Error Responses**:
+
+| Status | Error Code | Description |
+|--------|------------|-------------|
+| 400 | Primus.00002 | Not authenticated via API Key |
+| 404 | Primus.00005 | API Key not found |
+
+---
+
+### 4. Delete API Key
 
 Perform soft deletion on an API Key.
 
@@ -260,7 +327,7 @@ If the whitelist is empty or not specified, the API Key can be used from any IP 
 | Error Message | Description |
 |---------------|-------------|
 | `invalid API key` | The provided API Key does not exist |
-| `API key deleted` | The API Key has been deleted |
+| `Unavailable` | The API Key has been deleted |
 | `API key expired` | The API Key has expired |
 | `IP not allowed` | Client IP is not in the whitelist |
 
