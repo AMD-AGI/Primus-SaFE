@@ -190,20 +190,36 @@ type SchemaAnalyzeOutput struct {
 	MatchedSchemaID *int64 `json:"matched_schema_id,omitempty"`
 }
 
+// AnalyzedSchemaColumnConfig defines the configuration for a single column
+type AnalyzedSchemaColumnConfig struct {
+	Skip        bool   `json:"skip,omitempty"`
+	Type        string `json:"type,omitempty"`        // "dimension" or "metric"
+	DataType    string `json:"data_type,omitempty"`   // "string", "int", "float", "bool"
+	MetricKey   string `json:"metric_key,omitempty"`  // For metric columns, the key name in output
+	Description string `json:"description,omitempty"`
+}
+
+// AnalyzedSchemaDateColumnConfig defines the configuration for date columns in wide tables
+type AnalyzedSchemaDateColumnConfig struct {
+	Type       string `json:"type"`        // Usually "metric"
+	MetricKey  string `json:"metric_key"`  // e.g., "value"
+	TimeSource string `json:"time_source"` // "column_name" or "column_value"
+	DataType   string `json:"data_type"`
+}
+
 // AnalyzedSchema represents a schema definition from schema analysis
 type AnalyzedSchema struct {
 	// Name is the schema name
 	Name string `json:"name"`
 
-	// DimensionFields are field names used as dimensions (for grouping)
-	DimensionFields []string `json:"dimension_fields"`
+	// New column-based format
+	Columns           map[string]AnalyzedSchemaColumnConfig `json:"columns,omitempty"`
+	DateColumnPattern string                                `json:"date_column_pattern,omitempty"`
+	DateColumnConfig  *AnalyzedSchemaDateColumnConfig       `json:"date_column_config,omitempty"`
 
-	// MetricFields are field names containing numeric metrics
-	MetricFields []string `json:"metric_fields"`
-
-	// IsWideTable indicates if the file is a wide table (date columns as headers)
-	IsWideTable bool `json:"is_wide_table"`
-
-	// DateColumns contains the date column headers (for wide tables)
-	DateColumns []string `json:"date_columns,omitempty"`
+	// Legacy format (kept for backward compatibility)
+	DimensionFields []string `json:"dimension_fields,omitempty"`
+	MetricFields    []string `json:"metric_fields,omitempty"`
+	IsWideTable     bool     `json:"is_wide_table"`
+	DateColumns     []string `json:"date_columns,omitempty"`
 }

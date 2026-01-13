@@ -119,6 +119,10 @@ func (f *GithubWorkflowSchemaFacade) GetByID(ctx context.Context, id int64) (*mo
 		}
 		return nil, err
 	}
+	// Handle case where gen/gorm returns empty object instead of error
+	if result == nil || result.ID == 0 {
+		return nil, nil
+	}
 	return result, nil
 }
 
@@ -135,6 +139,10 @@ func (f *GithubWorkflowSchemaFacade) GetActiveByConfig(ctx context.Context, conf
 		}
 		return nil, err
 	}
+	// Handle case where gen/gorm returns empty object instead of error
+	if result == nil || result.ID == 0 {
+		return nil, nil
+	}
 	return result, nil
 }
 
@@ -150,6 +158,10 @@ func (f *GithubWorkflowSchemaFacade) GetByConfigAndVersion(ctx context.Context, 
 			return nil, nil
 		}
 		return nil, err
+	}
+	// Handle case where gen/gorm returns empty object instead of error
+	if result == nil || result.ID == 0 {
+		return nil, nil
 	}
 	return result, nil
 }
@@ -169,6 +181,10 @@ func (f *GithubWorkflowSchemaFacade) GetByConfigAndHash(ctx context.Context, con
 			return nil, nil
 		}
 		return nil, err
+	}
+	// Handle case where gen/gorm returns empty object instead of error
+	if result == nil || result.ID == 0 {
+		return nil, nil
 	}
 	return result, nil
 }
