@@ -33,6 +33,37 @@ const (
 	DefaultBasePath = "/workspace"
 )
 
+// renderFilePatterns replaces date placeholders in file patterns with actual values
+// Supported placeholders:
+//   - {date}     -> 2025-12-30
+//   - {year}     -> 2025
+//   - {month}    -> 12
+//   - {day}      -> 30
+//   - {yyyymmdd} -> 20251230
+func renderFilePatterns(patterns []string, referenceTime time.Time) []string {
+	if referenceTime.IsZero() {
+		referenceTime = time.Now()
+	}
+
+	replacements := map[string]string{
+		"{date}":     referenceTime.Format("2006-01-02"),
+		"{year}":     referenceTime.Format("2006"),
+		"{month}":    referenceTime.Format("01"),
+		"{day}":      referenceTime.Format("02"),
+		"{yyyymmdd}": referenceTime.Format("20060102"),
+	}
+
+	rendered := make([]string, len(patterns))
+	for i, pattern := range patterns {
+		rendered[i] = pattern
+		for placeholder, value := range replacements {
+			rendered[i] = strings.ReplaceAll(rendered[i], placeholder, value)
+		}
+	}
+
+	return rendered
+}
+
 // GithubWorkflowCollectorJob processes pending runs and collects metrics from Pod PVC
 type GithubWorkflowCollectorJob struct {
 	// pvcReader reads files from temporary Pod via node-exporter
@@ -267,6 +298,19 @@ func (j *GithubWorkflowCollectorJob) processRun(
 	if err := config.FilePatterns.UnmarshalTo(&filePatterns); err != nil {
 		return 0, fmt.Errorf("failed to parse file patterns: %w", err)
 	}
+
+	// Render date placeholders in file patterns using workload completion time
+	// This allows patterns like /path/{date}/**/summary.csv to only match current day's data
+	referenceTime := run.WorkloadCompletedAt
+	if referenceTime.IsZero() {
+		referenceTime = run.WorkloadStartedAt
+	}
+	renderedPatterns := renderFilePatterns(filePatterns, referenceTime)
+	if len(renderedPatterns) > 0 && renderedPatterns[0] != filePatterns[0] {
+		log.Infof("GithubWorkflowCollectorJob: rendered file patterns for run %d: %v -> %v",
+			run.ID, filePatterns, renderedPatterns)
+	}
+	filePatterns = renderedPatterns
 
 	if len(filePatterns) == 0 {
 		log.Warnf("GithubWorkflowCollectorJob: no file patterns configured for config %d", config.ID)
