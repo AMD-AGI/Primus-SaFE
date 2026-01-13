@@ -57,6 +57,10 @@ type GithubWorkflowRunFacadeInterface interface {
 	// GetByRunnerSetAndWorkload retrieves a run by runner_set_id and workload_uid
 	GetByRunnerSetAndWorkload(ctx context.Context, runnerSetID int64, workloadUID string) (*model.GithubWorkflowRuns, error)
 
+	// GetByRunnerSetAndWorkloadName retrieves a run by runner_set_id and workload_name
+	// This is preferred over GetByRunnerSetAndWorkload as workload_name is more stable than UID
+	GetByRunnerSetAndWorkloadName(ctx context.Context, runnerSetID int64, workloadName string) (*model.GithubWorkflowRuns, error)
+
 	// GetByConfigAndWorkload retrieves a run by config_id and workload_uid (deprecated, use GetByRunnerSetAndWorkload)
 	GetByConfigAndWorkload(ctx context.Context, configID int64, workloadUID string) (*model.GithubWorkflowRuns, error)
 
@@ -190,6 +194,27 @@ func (f *GithubWorkflowRunFacade) GetByRunnerSetAndWorkload(ctx context.Context,
 	result, err := q.WithContext(ctx).
 		Where(q.RunnerSetID.Eq(runnerSetID)).
 		Where(q.WorkloadUID.Eq(workloadUID)).
+		First()
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	// Handle edge case where GORM returns an empty struct instead of nil
+	if result == nil || result.ID == 0 {
+		return nil, nil
+	}
+	return result, nil
+}
+
+// GetByRunnerSetAndWorkloadName retrieves a run by runner_set_id and workload_name
+// This is preferred over GetByRunnerSetAndWorkload as workload_name is more stable than UID
+func (f *GithubWorkflowRunFacade) GetByRunnerSetAndWorkloadName(ctx context.Context, runnerSetID int64, workloadName string) (*model.GithubWorkflowRuns, error) {
+	q := f.getDAL().GithubWorkflowRuns
+	result, err := q.WithContext(ctx).
+		Where(q.RunnerSetID.Eq(runnerSetID)).
+		Where(q.WorkloadName.Eq(workloadName)).
 		First()
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
