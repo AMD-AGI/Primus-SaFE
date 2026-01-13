@@ -95,7 +95,7 @@ func initializeObject(obj *unstructured.Unstructured,
 			return fmt.Errorf("failed to modify selector: %v", err.Error())
 		}
 	}
-	if err = modifyByOpsJob(obj, workload, templatePath); err != nil {
+	if err = modifyHostPid(obj, workload, templatePath); err != nil {
 		return fmt.Errorf("failed to modify by opsjob: %v", err.Error())
 	}
 	return nil
@@ -391,9 +391,9 @@ func modifyHostNetwork(obj *unstructured.Unstructured, workload *v1.Workload, pa
 	return nil
 }
 
-// modifyByOpsJob configures host PID and IPC settings for OpsJob preflight operations.
-func modifyByOpsJob(obj *unstructured.Unstructured, workload *v1.Workload, templatePath []string) error {
-	if v1.GetOpsJobType(workload) != string(v1.OpsJobPreflightType) {
+// modifyHostPid configures host PID and IPC settings for OpsJob preflight operations.
+func modifyHostPid(obj *unstructured.Unstructured, workload *v1.Workload, templatePath []string) error {
+	if !v1.IsPrivileged(workload) {
 		return nil
 	}
 	path := append(templatePath, "spec", "hostPID")

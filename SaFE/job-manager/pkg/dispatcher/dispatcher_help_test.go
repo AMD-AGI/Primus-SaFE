@@ -680,7 +680,7 @@ func TestModifyByOpsJob(t *testing.T) {
 			}
 
 			templatePath := []string{"spec", "template"}
-			err := modifyByOpsJob(obj, workload, templatePath)
+			err := modifyHostPid(obj, workload, templatePath)
 			assert.NilError(t, err)
 
 			hostPID, foundPID, _ := unstructured.NestedBool(obj.Object, "spec", "template", "spec", "hostPID")
