@@ -79,8 +79,19 @@ func (e *MetricsExtractor) extractFromFile(
 			Metrics:    make(map[string]float64),
 		}
 
-		// Extract dimensions
+		// Extract timestamp if present (from wide table conversion)
+		if ts, ok := row["__timestamp__"]; ok {
+			if timestamp, isTime := ts.(time.Time); isTime {
+				record.Timestamp = timestamp
+			}
+		}
+
+		// Extract dimensions (skip internal markers and "date" for wide tables)
 		for _, dim := range schema.DimensionFields {
+			// Skip "date" dimension for wide tables - it's now in timestamp
+			if schema.IsWideTable && dim == "date" {
+				continue
+			}
 			if val, ok := row[dim]; ok {
 				record.Dimensions[dim] = fmt.Sprintf("%v", val)
 			}
@@ -106,7 +117,7 @@ func (e *MetricsExtractor) extractFromFile(
 
 // convertWideToLong converts wide table format to long format
 // Wide: Op, Backend, 2025-12-28, 2025-12-29, 2025-12-30
-// Long: Op, Backend, date, value
+// Long: Op, Backend, value (with timestamp set from date column name)
 func (e *MetricsExtractor) convertWideToLong(
 	rows []map[string]interface{},
 	schema *SchemaDefinition,
@@ -139,15 +150,20 @@ func (e *MetricsExtractor) convertWideToLong(
 
 				newRow := make(map[string]interface{})
 
-				// Copy dimensions
+				// Copy dimensions (excluding "date" which is now a time field)
 				for _, dim := range schema.DimensionFields {
+					// Skip "date" dimension - it's now handled as timestamp
+					if dim == "date" {
+						continue
+					}
 					if v, exists := row[dim]; exists {
 						newRow[dim] = v
 					}
 				}
 
-				// Add date dimension and value metric
-				newRow["date"] = dateCol
+				// Parse date column name to timestamp
+				timestamp := parseDateColumn(dateCol)
+				newRow["__timestamp__"] = timestamp // Internal marker for timestamp
 				newRow["value"] = val
 
 				longRows = append(longRows, newRow)
@@ -156,6 +172,26 @@ func (e *MetricsExtractor) convertWideToLong(
 	}
 
 	return longRows
+}
+
+// parseDateColumn parses a date column name into a time.Time
+func parseDateColumn(dateCol string) time.Time {
+	dateFormats := []string{
+		"2006-01-02",  // 2025-12-30
+		"01/02/2006",  // 12/30/2025
+		"02-01-2006",  // 30-12-2025
+		"2006/01/02",  // 2025/12/30
+		"20060102",    // 20251230
+	}
+
+	for _, format := range dateFormats {
+		if t, err := time.Parse(format, dateCol); err == nil {
+			return t
+		}
+	}
+
+	// Fallback to current time if parsing fails
+	return time.Now()
 }
 
 // toFloat64 converts an interface value to float64
@@ -279,5 +315,6 @@ func ConvertDBSchemaToDefinition(dbSchema *model.GithubWorkflowMetricSchemas) (*
 		MetricFields:    metricFields,
 		IsWideTable:     dbSchema.IsWideTable,
 		DateColumns:     dateColumns,
+		TimeField:       dbSchema.TimeField,
 	}, nil
 }

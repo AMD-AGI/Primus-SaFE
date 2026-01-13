@@ -27,6 +27,7 @@ type GithubWorkflowMetricSchemas struct {
 	SchemaHash           string    `gorm:"column:schema_hash;not null" json:"schema_hash"`
 	IsWideTable          bool      `gorm:"column:is_wide_table;not null" json:"is_wide_table"`
 	DateColumns          ExtJSON   `gorm:"column:date_columns;not null;default:[]" json:"date_columns"`
+	TimeField            string    `gorm:"column:time_field" json:"time_field"` // Field name that represents time (for wide tables, auto-set to date column)
 	RecordCount          int64     `gorm:"column:record_count;not null" json:"record_count"`
 	FirstSeenAt          time.Time `gorm:"column:first_seen_at" json:"first_seen_at"`
 	LastSeenAt           time.Time `gorm:"column:last_seen_at" json:"last_seen_at"`

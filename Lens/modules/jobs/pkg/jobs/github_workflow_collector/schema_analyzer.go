@@ -65,6 +65,7 @@ type SchemaDefinition struct {
 	MetricFields    []string `json:"metric_fields"`
 	IsWideTable     bool     `json:"is_wide_table"`
 	DateColumns     []string `json:"date_columns"`
+	TimeField       string   `json:"time_field,omitempty"` // Field name that represents time (auto-set for wide tables)
 }
 
 // IsAvailable checks if schema analysis is available
@@ -339,13 +340,24 @@ func ComputeSchemaHash(schema *SchemaDefinition) string {
 
 // ConvertSchemaToDBModel converts a SchemaDefinition to database model
 func ConvertSchemaToDBModel(schema *SchemaDefinition, configID int64) *model.GithubWorkflowMetricSchemas {
-	dimensionFields, _ := json.Marshal(schema.DimensionFields)
+	// For wide tables, remove "date" from dimension_fields since it's now a time field
+	filteredDimensions := schema.DimensionFields
+	if schema.IsWideTable {
+		filteredDimensions = make([]string, 0, len(schema.DimensionFields))
+		for _, dim := range schema.DimensionFields {
+			if dim != "date" {
+				filteredDimensions = append(filteredDimensions, dim)
+			}
+		}
+	}
+
+	dimensionFields, _ := json.Marshal(filteredDimensions)
 	metricFields, _ := json.Marshal(schema.MetricFields)
 	dateColumns, _ := json.Marshal(schema.DateColumns)
 
 	// Build fields array for backward compatibility
 	fields := make([]map[string]interface{}, 0)
-	for _, dim := range schema.DimensionFields {
+	for _, dim := range filteredDimensions {
 		fields = append(fields, map[string]interface{}{
 			"name":         dim,
 			"type":         "string",
@@ -361,6 +373,12 @@ func ConvertSchemaToDBModel(schema *SchemaDefinition, configID int64) *model.Git
 	}
 	fieldsJSON, _ := json.Marshal(fields)
 
+	// Set TimeField for wide tables
+	timeField := schema.TimeField
+	if schema.IsWideTable && timeField == "" {
+		timeField = "date" // Wide tables use date columns as time field
+	}
+
 	return &model.GithubWorkflowMetricSchemas{
 		ConfigID:        configID,
 		Name:            schema.Name,
@@ -369,6 +387,7 @@ func ConvertSchemaToDBModel(schema *SchemaDefinition, configID int64) *model.Git
 		MetricFields:    model.ExtJSON(metricFields),
 		IsWideTable:     schema.IsWideTable,
 		DateColumns:     model.ExtJSON(dateColumns),
+		TimeField:       timeField,
 		SchemaHash:      ComputeSchemaHash(schema),
 		IsActive:        true,
 		GeneratedBy:     database.SchemaGeneratedByAI,
