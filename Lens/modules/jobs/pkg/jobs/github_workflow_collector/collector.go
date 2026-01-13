@@ -442,24 +442,49 @@ func (j *GithubWorkflowCollectorJob) processRunWithSchemaVersioning(
 		log.Infof("GithubWorkflowCollectorJob: matched existing schema (id=%d, hash=%s)",
 			schemaID, schemaResult.SchemaHash[:8])
 	} else {
-		// Create new schema version
-		currentSchema = ConvertSchemaToDBModel(schemaResult.Schema, config.ID)
-		currentSchema.SchemaHash = schemaResult.SchemaHash
-		currentSchema.FirstSeenAt = time.Now()
-		currentSchema.LastSeenAt = time.Now()
-
-		if err := schemaFacade.Create(ctx, currentSchema); err != nil {
-			return 0, fmt.Errorf("failed to create new schema: %w", err)
-		}
-		schemaID = currentSchema.ID
-
-		// Set this schema as active
-		if err := schemaFacade.SetActive(ctx, config.ID, schemaID); err != nil {
-			log.Warnf("GithubWorkflowCollectorJob: failed to set schema active: %v", err)
+		// First check if schema with this hash already exists (handle concurrent creation)
+		existingSchema, err := schemaFacade.GetByConfigAndHash(ctx, config.ID, schemaResult.SchemaHash)
+		if err != nil {
+			return 0, fmt.Errorf("failed to check existing schema: %w", err)
 		}
 
-		log.Infof("GithubWorkflowCollectorJob: created new schema version (id=%d, hash=%s)",
-			schemaID, schemaResult.SchemaHash[:8])
+		if existingSchema != nil {
+			// Schema already exists (created by concurrent process), use it
+			currentSchema = existingSchema
+			schemaID = existingSchema.ID
+			// Update last_seen_at
+			if err := schemaFacade.UpdateLastSeen(ctx, schemaID); err != nil {
+				log.Warnf("GithubWorkflowCollectorJob: failed to update last_seen: %v", err)
+			}
+			log.Infof("GithubWorkflowCollectorJob: found existing schema with same hash (id=%d, hash=%s)",
+				schemaID, schemaResult.SchemaHash[:8])
+		} else {
+			// Create new schema version
+			currentSchema = ConvertSchemaToDBModel(schemaResult.Schema, config.ID)
+			currentSchema.SchemaHash = schemaResult.SchemaHash
+			currentSchema.FirstSeenAt = time.Now()
+			currentSchema.LastSeenAt = time.Now()
+
+			if err := schemaFacade.Create(ctx, currentSchema); err != nil {
+				// Handle race condition: another process may have created the schema
+				if existingSchema, lookupErr := schemaFacade.GetByConfigAndHash(ctx, config.ID, schemaResult.SchemaHash); lookupErr == nil && existingSchema != nil {
+					currentSchema = existingSchema
+					schemaID = existingSchema.ID
+					log.Infof("GithubWorkflowCollectorJob: schema created by concurrent process (id=%d, hash=%s)",
+						schemaID, schemaResult.SchemaHash[:8])
+				} else {
+					return 0, fmt.Errorf("failed to create new schema: %w", err)
+				}
+			} else {
+				schemaID = currentSchema.ID
+				// Set this schema as active
+				if err := schemaFacade.SetActive(ctx, config.ID, schemaID); err != nil {
+					log.Warnf("GithubWorkflowCollectorJob: failed to set schema active: %v", err)
+				}
+				log.Infof("GithubWorkflowCollectorJob: created new schema version (id=%d, hash=%s)",
+					schemaID, schemaResult.SchemaHash[:8])
+			}
+		}
 	}
 
 	// Step 5: Extract metrics using Go (NO AI, NO LLM tokens)

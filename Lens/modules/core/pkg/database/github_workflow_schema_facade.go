@@ -236,7 +236,6 @@ func (f *GithubWorkflowSchemaFacade) UpdateLastSeen(ctx context.Context, schemaI
 		Where(q.ID.Eq(schemaID)).
 		UpdateSimple(
 			q.LastSeenAt.Value(now),
-			q.UpdatedAt.Value(now),
 		)
 	return err
 }
@@ -244,12 +243,10 @@ func (f *GithubWorkflowSchemaFacade) UpdateLastSeen(ctx context.Context, schemaI
 // IncrementRecordCount increments the record_count for a schema
 func (f *GithubWorkflowSchemaFacade) IncrementRecordCount(ctx context.Context, schemaID int64, count int64) error {
 	q := f.getDAL().GithubWorkflowMetricSchemas
-	now := time.Now()
 	_, err := q.WithContext(ctx).
 		Where(q.ID.Eq(schemaID)).
 		UpdateSimple(
 			q.RecordCount.Add(count),
-			q.UpdatedAt.Value(now),
 		)
 	return err
 }
@@ -257,14 +254,12 @@ func (f *GithubWorkflowSchemaFacade) IncrementRecordCount(ctx context.Context, s
 // SetActive sets a schema as active (and deactivates others for the same config)
 func (f *GithubWorkflowSchemaFacade) SetActive(ctx context.Context, configID int64, schemaID int64) error {
 	q := f.getDAL().GithubWorkflowMetricSchemas
-	now := time.Now()
 
 	// Deactivate all schemas for this config
 	_, err := q.WithContext(ctx).
 		Where(q.ConfigID.Eq(configID)).
 		UpdateSimple(
 			q.IsActive.Value(false),
-			q.UpdatedAt.Value(now),
 		)
 	if err != nil {
 		return err
@@ -275,7 +270,6 @@ func (f *GithubWorkflowSchemaFacade) SetActive(ctx context.Context, configID int
 		Where(q.ID.Eq(schemaID)).
 		UpdateSimple(
 			q.IsActive.Value(true),
-			q.UpdatedAt.Value(now),
 		)
 	return err
 }
