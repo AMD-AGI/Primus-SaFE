@@ -24,9 +24,9 @@ fi
 /bin/sh /shared-data/build_ssh.sh
 echo "$input" |base64 -d > ".run.sh"
 chmod +x ".run.sh"
-if [ -f /usr/bin/bash ]; then
+if [ -x /usr/bin/bash ]; then
     /usr/bin/bash -o pipefail ".run.sh" &
-elif [ -f /bin/bash ]; then
+elif [ -x /bin/bash ]; then
     /bin/bash -o pipefail ".run.sh" &
 else
     /bin/sh ".run.sh" &
