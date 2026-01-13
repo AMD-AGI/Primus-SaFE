@@ -4,6 +4,7 @@
 package api
 
 import (
+	"encoding/json"
 	"net/http"
 	"strconv"
 	"time"
@@ -336,6 +337,14 @@ func CreateConfigForRunnerSet(ctx *gin.Context) {
 		enabled = *req.Enabled
 	}
 
+	// Convert FilePatterns to ExtJSON
+	filePatternsJSON, err := json.Marshal(req.FilePatterns)
+	if err != nil {
+		log.GlobalLogger().WithContext(ctx).Errorf("Failed to marshal file patterns: %v", err)
+		ctx.JSON(http.StatusBadRequest, rest.ErrorResp(ctx.Request.Context(), http.StatusBadRequest, "invalid file patterns", err))
+		return
+	}
+
 	// Create config
 	config := &model.GithubWorkflowConfigs{
 		Name:               req.Name,
@@ -345,7 +354,7 @@ func CreateConfigForRunnerSet(ctx *gin.Context) {
 		RunnerSetUID:       runnerSet.UID,
 		GithubOwner:        runnerSet.GithubOwner,
 		GithubRepo:         runnerSet.GithubRepo,
-		FilePatterns:       req.FilePatterns,
+		FilePatterns:       model.ExtJSON(filePatternsJSON),
 		WorkflowFilter:     req.WorkflowFilter,
 		BranchFilter:       req.BranchFilter,
 		Enabled:            enabled,
