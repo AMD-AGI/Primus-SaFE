@@ -39,6 +39,8 @@ type UserInfo struct {
 	Exp int64 `json:"exp,omitempty"`
 	// User time
 	Email string `json:"email,omitempty"`
+	// API Key ID (only set when authenticated via API key)
+	ApiKeyId int64 `json:"apiKeyId,omitempty"`
 }
 
 // TokenInterface defines the contract for token management operations

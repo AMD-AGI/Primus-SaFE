@@ -46,6 +46,8 @@ type ListApiKeyRequest struct {
 	SortBy string `form:"sortBy" binding:"omitempty"`
 	// Order is the sort order (desc or asc)
 	Order string `form:"order" binding:"omitempty,oneof=desc asc"`
+	// Name is the optional filter by API key name (supports partial match)
+	Name string `form:"name" binding:"omitempty"`
 	// UserId is set internally (not from query params)
 	UserId string `form:"-"`
 }
@@ -79,4 +81,21 @@ type ApiKeyResponseItem struct {
 	Deleted bool `json:"deleted"`
 	// DeletionTime is when the key was deleted (RFC3339 format, null if not deleted)
 	DeletionTime *string `json:"deletionTime"`
+}
+
+// GetCurrentApiKeyResponse represents the response for getting current API key info
+// This is returned when a user queries their currently used API key
+type GetCurrentApiKeyResponse struct {
+	// Id is the unique identifier
+	Id int64 `json:"id"`
+	// Name is the display name
+	Name string `json:"name"`
+	// KeyHint is the partial key for display (e.g., "ak-XX****YYYY")
+	KeyHint string `json:"keyHint"`
+	// ExpirationTime is when the key expires (RFC3339 format)
+	ExpirationTime string `json:"expirationTime"`
+	// CreationTime is when the key was created (RFC3339 format)
+	CreationTime string `json:"creationTime"`
+	// Whitelist is the list of allowed IPs/CIDRs
+	Whitelist []string `json:"whitelist"`
 }

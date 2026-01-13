@@ -43,6 +43,7 @@ const (
 	harborCACertPathCentOS = "/etc/pki/ca-trust/source/anchors/harbor-ca.crt"
 
 	machineCheckInterval = time.Minute * 30
+	podManagementTimeout = 3600 * 2
 )
 
 type NodeReconciler struct {
@@ -186,6 +187,9 @@ func (r *NodeReconciler) observe(ctx context.Context, adminNode *v1.Node, k8sNod
 	if shouldSyncMachineStatus(adminNode) {
 		return false, nil
 	}
+	if adminNode.Spec.NodeTemplate != nil && !v1.IsNodeTemplateInstalled(adminNode) {
+		return false, nil
+	}
 	// Observe whether the node has changed. If no changes are detected (ultimately returning true), exit NodeReconciler directly.
 	functions := []func(context.Context, *v1.Node, *corev1.Node) (bool, error){
 		r.observeTaints, r.observeLabelAction, r.observeAnnotationAction, r.observeWorkspace, r.observeCluster,
@@ -263,6 +267,12 @@ func (r *NodeReconciler) processNode(ctx context.Context, adminNode *v1.Node, k8
 		if err := r.syncMachineStatus(ctx, adminNode); err != nil {
 			return ctrlruntime.Result{}, err
 		}
+	}
+	if err := r.installAddons(ctx, adminNode); err != nil {
+		return ctrlruntime.Result{}, err
+	}
+	if err := r.cleanupTimeoutPods(ctx, adminNode); err != nil {
+		return ctrlruntime.Result{}, err
 	}
 	return r.processNodeManagement(ctx, adminNode, k8sNode)
 }
@@ -492,6 +502,29 @@ func (r *NodeReconciler) updateK8sNodeWorkspace(adminNode *v1.Node, k8sNode *cor
 	return true
 }
 
+// cleanupTimeoutPods cleans up pods that have exceeded the specified timeout period for node management operations.
+func (r *NodeReconciler) cleanupTimeoutPods(ctx context.Context, node *v1.Node) error {
+	if node.Status.ClusterStatus.Phase != v1.NodeUnmanaging && node.Status.ClusterStatus.Phase != v1.NodeManaging {
+		return nil
+	}
+	allPods, err := r.listPod(ctx, getClusterId(node), node.Name, "")
+	if err != nil {
+		return err
+	}
+	nowTime := time.Now().Unix()
+	for _, pod := range allPods {
+		if nowTime-pod.CreationTimestamp.Unix() >= podManagementTimeout {
+			err = r.Delete(ctx, &pod)
+			if err == nil {
+				klog.Infof("delete timeout pod(%s) on node(%s)", pod.Name, node.Name)
+			} else if client.IgnoreNotFound(err) != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 // processNodeManagement handles the management or unmanagement of a Node resource.
 // It determines whether a node should be managed (added to a cluster) or unmanaged (removed from a cluster)
 // based on the node's cluster specification and current status. The function orchestrates the appropriate
@@ -526,26 +559,10 @@ func (r *NodeReconciler) processNodeManagement(ctx context.Context, adminNode *v
 	return result, nil
 }
 
-// cleanupNodeAfterUnmanage performs post-unmanagement cleanup operations on a node.
-// This includes resetting the node via SSH if not already done, removing cluster and workspace labels,
-// and updating the node resource when changes are made.
+// cleanupNodeAfterUnmanage performs cleanup operations on a node.
+// This includes removing cluster, workspace and addon labels
 func (r *NodeReconciler) cleanupNodeAfterUnmanage(ctx context.Context, adminNode *v1.Node) error {
 	isChanged := false
-	if !v1.HasAnnotation(adminNode, v1.NodeResetAnnotation) {
-		sshClient, err := utils.GetSSHClient(ctx, r.Client, adminNode)
-		if err != nil {
-			return err
-		}
-		defer sshClient.Close()
-
-		checkAndResetCmd := "kubeadm reset -f; rm -rf /etc/cni/ /etc/kubernetes/ ~/.kube"
-		if err = r.executeSSHCommand(sshClient, checkAndResetCmd); err != nil {
-			return err
-		}
-		v1.SetAnnotation(adminNode, v1.NodeResetAnnotation, v1.TrueStr)
-		isChanged = true
-	}
-
 	if v1.GetClusterId(adminNode) != "" {
 		v1.RemoveLabel(adminNode, v1.ClusterIdLabel)
 		isChanged = true
@@ -784,6 +801,10 @@ func (r *NodeReconciler) syncOrCreateScaleUpPod(ctx context.Context, adminNode *
 		return ctrlruntime.Result{}, err
 	}
 	if len(pods) == 0 {
+		if err = r.resetNode(ctx, adminNode); err != nil {
+			return ctrlruntime.Result{}, err
+		}
+
 		cluster, err := r.getCluster(ctx, adminNode.GetSpecCluster())
 		if err != nil || cluster == nil {
 			return ctrlruntime.Result{RequeueAfter: time.Second}, err
@@ -852,6 +873,8 @@ func (r *NodeReconciler) unmanage(ctx context.Context, adminNode *v1.Node, k8sNo
 			},
 		}
 		klog.Infof("node %s is unmanaged", adminNode.Name)
+		r.resetNode(ctx, adminNode)
+
 		if stringutil.StrCaseEqual(v1.GetLabel(adminNode, v1.NodeUnmanageNoRebootLabel), v1.TrueStr) {
 			return ctrlruntime.Result{}, nil
 		}
@@ -894,6 +917,21 @@ func (r *NodeReconciler) rebootNode(ctx context.Context, node *v1.Node) {
 		return
 	}
 	klog.Infof("machine node %s rebooted", node.Name)
+}
+
+// resetNode reset the Node via SSH.
+func (r *NodeReconciler) resetNode(ctx context.Context, node *v1.Node) error {
+	sshClient, err := utils.GetSSHClient(ctx, r.Client, node)
+	if err != nil {
+		return err
+	}
+	defer sshClient.Close()
+
+	resetNodeCmd := "kubeadm reset -f; rm -rf /etc/cni/ /etc/kubernetes/ ~/.kube"
+	if err = r.executeSSHCommand(sshClient, resetNodeCmd); err != nil {
+		return err
+	}
+	return nil
 }
 
 // syncOrCreateScaleDownPod synchronizes or creates a scale-down Pod for the Node when unmanaging.
@@ -943,9 +981,8 @@ func (r *NodeReconciler) syncOrCreateScaleDownPod(ctx context.Context,
 					return ctrlruntime.Result{}, err
 				}
 				return ctrlruntime.Result{RequeueAfter: time.Second * 3}, nil
-			} else {
-				adminNode.Status.ClusterStatus.Phase = v1.NodeUnmanagedFailed
 			}
+			adminNode.Status.ClusterStatus.Phase = v1.NodeUnmanagedFailed
 		default:
 		}
 	}
@@ -1044,9 +1081,12 @@ func (r *NodeReconciler) installAddons(ctx context.Context, adminNode *v1.Node) 
 
 // listPod lists Pods matching the specified criteria.
 func (r *NodeReconciler) listPod(ctx context.Context, clusterName, nodeName, action string) ([]corev1.Pod, error) {
-	labelSelector := client.MatchingLabels{
-		v1.ClusterManageClusterLabel: clusterName,
-		v1.ClusterManageActionLabel:  action,
+	labelSelector := client.MatchingLabels{}
+	if clusterName != "" {
+		labelSelector[v1.ClusterManageClusterLabel] = clusterName
+	}
+	if action != "" {
+		labelSelector[v1.ClusterManageActionLabel] = action
 	}
 	if nodeName != "" {
 		labelSelector[v1.ClusterManageNodeLabel] = nodeName

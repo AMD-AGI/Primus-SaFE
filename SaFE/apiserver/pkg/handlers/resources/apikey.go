@@ -37,6 +37,12 @@ func (h *Handler) ListApiKey(c *gin.Context) {
 	handle(c, h.listApiKey)
 }
 
+// GetCurrentApiKey handles getting the current API key's information.
+// This endpoint only works when authenticated via API key.
+func (h *Handler) GetCurrentApiKey(c *gin.Context) {
+	handle(c, h.getCurrentApiKey)
+}
+
 // DeleteApiKey handles the soft deletion of an API key.
 func (h *Handler) DeleteApiKey(c *gin.Context) {
 	handle(c, h.deleteApiKey)
@@ -139,6 +145,59 @@ func (h *Handler) createApiKey(c *gin.Context) (interface{}, error) {
 	}, nil
 }
 
+// getCurrentApiKey implements the get current API key logic.
+// This only works when the user is authenticated via API key.
+func (h *Handler) getCurrentApiKey(c *gin.Context) (interface{}, error) {
+	if h.dbClient == nil {
+		return nil, commonerrors.NewInternalError("database is not enabled")
+	}
+
+	// Check if authenticated via API key
+	apiKeyIdValue, exists := c.Get(common.ApiKeyId)
+	if !exists {
+		return nil, commonerrors.NewBadRequest("this endpoint only works with API key authentication")
+	}
+
+	apiKeyId, ok := apiKeyIdValue.(int64)
+	if !ok || apiKeyId == 0 {
+		return nil, commonerrors.NewBadRequest("invalid API key context")
+	}
+
+	// Get the API key record
+	record, err := h.dbClient.GetApiKeyById(c.Request.Context(), apiKeyId)
+	if err != nil {
+		klog.ErrorS(err, "failed to get api key", "apiKeyId", apiKeyId)
+		return nil, commonerrors.NewNotFoundWithMessage("API key not found")
+	}
+
+	// Parse whitelist from JSON
+	var whitelist []string
+	if record.Whitelist != "" && record.Whitelist != "[]" && record.Whitelist != "null" {
+		if err := json.Unmarshal([]byte(record.Whitelist), &whitelist); err != nil {
+			whitelist = []string{}
+		}
+	}
+	if whitelist == nil {
+		whitelist = []string{}
+	}
+
+	response := &view.GetCurrentApiKeyResponse{
+		Id:        record.Id,
+		Name:      record.Name,
+		KeyHint:   record.KeyHint,
+		Whitelist: whitelist,
+	}
+
+	if record.ExpirationTime.Valid {
+		response.ExpirationTime = timeutil.FormatRFC3339(record.ExpirationTime.Time)
+	}
+	if record.CreationTime.Valid {
+		response.CreationTime = timeutil.FormatRFC3339(record.CreationTime.Time)
+	}
+
+	return response, nil
+}
+
 // listApiKey implements the API key listing logic.
 func (h *Handler) listApiKey(c *gin.Context) (interface{}, error) {
 	if h.dbClient == nil {
@@ -162,6 +221,12 @@ func (h *Handler) listApiKey(c *gin.Context) (interface{}, error) {
 	query := sqrl.And{
 		sqrl.Eq{dbclient.GetFieldTag(tags, "UserId"): req.UserId},
 		sqrl.Eq{dbclient.GetFieldTag(tags, "Deleted"): false},
+	}
+
+	// Add name filter if specified (partial match using ILIKE)
+	if req.Name != "" {
+		nameField := dbclient.GetFieldTag(tags, "Name")
+		query = append(query, sqrl.ILike{nameField: "%" + req.Name + "%"})
 	}
 
 	// Build order by: expired keys at the end

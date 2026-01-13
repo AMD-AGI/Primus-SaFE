@@ -46,7 +46,6 @@ const (
 	NodeAnnotationAction            = NodePrefix + "annotation.action"
 	NodeTemplateInstalledAnnotation = NodePrefix + "template.installed"
 	NodeIdLabel                     = NodePrefix + "id"
-	NodeResetAnnotation             = NodePrefix + "reset"
 	NodeManageRebootLabel           = "manage.reboot"
 	NodeUnmanageNoRebootLabel       = "unmanage.noreboot"
 	NodeActionAdd                   = "add"
