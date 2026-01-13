@@ -129,10 +129,10 @@ type ApprovalReq struct {
 
 // ApprovalResp is the response for approval action
 type ApprovalResp struct {
-	Id      int64  `json:"id"`
-	Status  string `json:"status"`
-	JobId   string `json:"job_id,omitempty"` // OpsJob ID for tracking
-	Message string `json:"message"`
+	Id         int64  `json:"id"`
+	Status     string `json:"status"`
+	WorkloadId string `json:"workload_id,omitempty"` // Associated workload/opsjob ID for tracking
+	Message    string `json:"message"`
 }
 
 // DeploymentRequestItem is the view model for the list
@@ -146,6 +146,7 @@ type DeploymentRequestItem struct {
 	RejectionReason string `json:"rejection_reason,omitempty"`
 	FailureReason   string `json:"failure_reason,omitempty"`
 	RollbackFromId  int64  `json:"rollback_from_id,omitempty"`
+	WorkloadId      string `json:"workload_id,omitempty"` // Associated workload/opsjob ID (they are the same)
 	CreatedAt       string `json:"created_at"`
 	UpdatedAt       string `json:"updated_at"`
 	ApprovedAt      string `json:"approved_at"`
