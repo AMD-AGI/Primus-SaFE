@@ -49,6 +49,7 @@ echo "✅ Storage Class: \"$storage_class\""
 echo "✅ Support Primus-lens: \"$lens_enable\""
 echo "✅ Support S3: \"$s3_enable\""
 echo "✅ Support SSO: \"$sso_enable\""
+echo "✅ Support Tracing: \"${tracing_enable:-false}\""
 echo "✅ Ingress Name: \"$ingress\""
 if [[ "$ingress" == "higress" ]]; then
   echo "✅ Cluster Name: \"$sub_domain\""
@@ -117,6 +118,19 @@ if [[ "$sso_enable" == "true" ]]; then
   sed -i '/^sso:/,/^[a-z]/ s#secret: ".*"#secret: "'"$SSO_SECRET"'"#' "$values_yaml"
 fi
 sed -i '/^cd:/,/^[a-z]/ s/require_approval: .*/require_approval: '"$cd_require_approval"'/' "$values_yaml"
+
+# Configure tracing if defined in .env
+if [[ "${tracing_enable:-false}" == "true" ]]; then
+  sed -i '/^tracing:/,/^[a-z]/ s/enable: .*/enable: true/' "$values_yaml"
+  if [[ -n "${tracing_otlp_endpoint:-}" ]]; then
+    sed -i '/^tracing:/,/^[a-z]/ s#otlp_endpoint: .*#otlp_endpoint: "'"$tracing_otlp_endpoint"'"#' "$values_yaml"
+  else
+    # Default to Lens's OTLP collector if lens is enabled
+    if [[ "$lens_enable" == "true" ]]; then
+      sed -i '/^tracing:/,/^[a-z]/ s#otlp_endpoint: .*#otlp_endpoint: "otel-collector-collector.primus-lens.svc.cluster.local:4317"#' "$values_yaml"
+    fi
+  fi
+fi
 
 # Configure proxy services if defined in .env
 if [[ -n "${proxy_services:-}" ]]; then

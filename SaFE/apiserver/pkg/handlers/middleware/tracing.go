@@ -110,6 +110,7 @@ func HandleTracingErrorOnly() gin.HandlerFunc {
 			oteltrace.WithSpanKind(oteltrace.SpanKindServer),
 			oteltrace.WithTimestamp(startTime),
 		)
+		defer span.End()
 
 		// Get traceId for potential header injection
 		traceId := span.SpanContext().TraceID().String()
@@ -133,8 +134,7 @@ func HandleTracingErrorOnly() gin.HandlerFunc {
 
 		// Only record span details if request failed (status >= 400)
 		if statusCode < 400 {
-			// For successful requests, end span without recording
-			span.End()
+			// For successful requests, just return (span.End() called by defer)
 			return
 		}
 
@@ -175,82 +175,6 @@ func HandleTracingErrorOnly() gin.HandlerFunc {
 			}
 			span.RecordError(c.Errors.Last())
 		}
-
-		span.End()
-	}
-}
-
-// HandleTracingAll creates a tracing middleware that records all requests.
-// Use this if you need full tracing, not just error-only mode.
-func HandleTracingAll() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		// Check if custom sample rate is set
-		var shouldTrace bool = true
-		if rateValue, exists := c.Get(tracingSampleRateKey); exists {
-			if rate, ok := rateValue.(float64); ok {
-				shouldTrace = shouldSample(rate)
-				// Add sample rate info to response headers (optional, for debugging)
-				c.Header("X-Trace-Sample-Rate", strconv.FormatFloat(rate, 'f', 2, 64))
-				c.Header("X-Trace-Sampled", strconv.FormatBool(shouldTrace))
-			}
-		}
-
-		// If sampling decision is to skip, just continue without tracing
-		if !shouldTrace {
-			c.Next()
-			return
-		}
-
-		// Record start time for duration calculation
-		startTime := time.Now()
-
-		ctx := c.Request.Context()
-
-		// Extract trace context from HTTP headers
-		propagator := otel.GetTextMapPropagator()
-		ctx = propagator.Extract(ctx, &httpHeaderCarrier{header: c.Request.Header})
-
-		// Create span
-		operationName := c.Request.Method + " " + c.Request.URL.Path
-		tracer := otel.Tracer("primus-safe-apiserver")
-		ctx, span := tracer.Start(ctx, operationName,
-			oteltrace.WithSpanKind(oteltrace.SpanKindServer),
-		)
-
-		// Set HTTP-related attributes
-		span.SetAttributes(
-			semconv.HTTPMethod(c.Request.Method),
-			semconv.HTTPURL(c.Request.URL.String()),
-			semconv.HTTPRoute(c.Request.URL.Path),
-			semconv.HTTPTarget(c.Request.URL.Path),
-			attribute.String("component", "gin-http"),
-			attribute.String("http.path", c.Request.URL.Path),
-		)
-
-		// Set status code and finish span when request completes
-		defer func() {
-			// Calculate request duration
-			duration := time.Since(startTime)
-
-			statusCode := c.Writer.Status()
-			span.SetAttributes(
-				semconv.HTTPStatusCode(statusCode),
-				attribute.Float64("http.duration_ms", float64(duration.Milliseconds())),
-				attribute.Int64("http.duration_ns", duration.Nanoseconds()),
-			)
-
-			if statusCode >= 400 {
-				span.SetStatus(codes.Error, "HTTP error")
-			} else {
-				span.SetStatus(codes.Ok, "")
-			}
-			span.End()
-		}()
-
-		// Update context in request
-		c.Request = c.Request.WithContext(ctx)
-
-		c.Next()
 	}
 }
 
