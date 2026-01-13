@@ -33,6 +33,8 @@ var (
 		    image = :image,
 		    entrypoint = :entrypoint,
 		    phase = :phase,
+		    username = :username,
+		    user_id = :user_id,
 		    conditions = :conditions,
 		    start_time = :start_time,
 		    end_time = :end_time,
@@ -47,7 +49,9 @@ var (
 		    is_supervised = :is_supervised,
 		    is_tolerate_all = :is_tolerate_all,
 		    timeout = :timeout,
-		    cron_jobs = :cron_jobs 
+		    cron_jobs = :cron_jobs,
+		    service = :service,
+		    workload_uid = :workload_uid 
 		WHERE workload_id = :workload_id`, TWorkload)
 )
 

@@ -338,25 +338,20 @@ func modifyImageSecrets(obj *unstructured.Unstructured, workload *v1.Workload, p
 	return nil
 }
 
-// modifyPrivilegedSecurity configures the security context for OpsJob operations.
-// For all OpsJob types, runs as root user. For preflight checks, also sets privileged mode.
+// modifyPrivilegedSecurity configures the security context for OpsJob operations and privileged workloads.
+// For OpsJob types, runs as root user. For privileged workloads, also sets privileged mode.
 func modifyPrivilegedSecurity(container map[string]interface{}, workload *v1.Workload) {
-	opsJobType := v1.GetOpsJobType(workload)
-	if opsJobType == "" {
+	if v1.GetOpsJobType(workload) == "" && !v1.IsPrivileged(workload) {
 		return
 	}
-
-	// All OpsJob types run as root
+	// All OpsJob run as root
 	securityContext := map[string]interface{}{
 		"runAsUser":  int64(0),
 		"runAsGroup": int64(0),
 	}
-
-	// Preflight type also needs privileged mode
-	if opsJobType == string(v1.OpsJobPreflightType) {
+	if v1.IsPrivileged(workload) {
 		securityContext["privileged"] = true
 	}
-
 	container["securityContext"] = securityContext
 }
 
