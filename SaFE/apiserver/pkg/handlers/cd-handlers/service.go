@@ -248,6 +248,7 @@ func (s *Service) cvtDBRequestToItem(req *dbclient.DeploymentRequest) *Deploymen
 		RejectionReason: dbutils.ParseNullString(req.RejectionReason),
 		FailureReason:   dbutils.ParseNullString(req.FailureReason),
 		RollbackFromId:  req.RollbackFromId.Int64,
+		WorkloadId:      dbutils.ParseNullString(req.WorkloadId),
 		CreatedAt:       dbutils.ParseNullTimeToString(req.CreatedAt),
 		UpdatedAt:       dbutils.ParseNullTimeToString(req.UpdatedAt),
 		ApprovedAt:      dbutils.ParseNullTimeToString(req.ApprovedAt),

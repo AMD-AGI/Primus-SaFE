@@ -280,6 +280,7 @@ type DeploymentRequest struct {
 	RejectionReason sql.NullString `db:"rejection_reason"`
 	FailureReason   sql.NullString `db:"failure_reason"`
 	RollbackFromId  sql.NullInt64  `db:"rollback_from_id"`
+	WorkloadId      sql.NullString `db:"workload_id"` // Associated workload/opsjob ID
 	CreatedAt       pq.NullTime    `db:"created_at"`
 	UpdatedAt       pq.NullTime    `db:"updated_at"`
 	ApprovedAt      pq.NullTime    `db:"approved_at"`

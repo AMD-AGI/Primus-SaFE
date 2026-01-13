@@ -137,6 +137,7 @@ func (c *Client) UpdateDeploymentRequest(ctx context.Context, req *DeploymentReq
 		rejection_reason=:rejection_reason,
 		failure_reason=:failure_reason,
 		rollback_from_id=:rollback_from_id,
+		workload_id=:workload_id,
 		updated_at=:updated_at,
 		approved_at=:approved_at
 		WHERE id=:id`, TDeploymentRequest)
