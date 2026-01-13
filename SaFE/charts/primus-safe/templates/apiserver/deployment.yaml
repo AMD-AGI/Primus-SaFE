@@ -93,6 +93,13 @@ spec:
               mountPath: /etc/secrets/notification
               readOnly: true
             {{- end }}
+          env:
+            {{- if .Values.tracing }}
+            {{- if .Values.tracing.enable }}
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: {{ .Values.tracing.otlp_endpoint | default "otel-collector.primus-lens:4317" | quote }}
+            {{- end }}
+            {{- end }}
           ports:
             - containerPort: {{ default 8088 (default .Values.apiserver).port }}
               name: http-port

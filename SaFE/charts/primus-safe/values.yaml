@@ -40,6 +40,12 @@ apiserver:
   memory: 4Gi
   # The nodeport for apiserver service
   node_port: 32495
+# OpenTelemetry tracing configuration
+tracing:
+  # Enable distributed tracing
+  enable: true
+  # OTLP Collector endpoint (gRPC)
+  otlp_endpoint: "otel-collector-collector.primus-lens.svc.cluster.local:4317"
 resource_manager:
   # Resource manager component image version
   image: "resource-manager:latest"
