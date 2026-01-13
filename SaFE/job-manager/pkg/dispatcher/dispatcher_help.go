@@ -244,6 +244,7 @@ func modifyVolumeMounts(container map[string]interface{}, workload *v1.Workload,
 	}
 	if v1.IsPrivileged(workload) {
 		volumeMounts = append(volumeMounts, buildVolumeMount("dev", "/dev", "", false))
+		volumeMounts = append(volumeMounts, buildVolumeMount("sys", "/sys", "", false))
 	} else {
 		volumeMounts = append(volumeMounts, buildVolumeMount(SharedMemoryVolume, "/dev/shm", "", false))
 	}
@@ -315,6 +316,7 @@ func modifyVolumes(obj *unstructured.Unstructured, workload *v1.Workload, worksp
 	}
 	if v1.IsPrivileged(workload) {
 		volumes = append(volumes, buildHostPathVolume("dev", "/dev"))
+		volumes = append(volumes, buildHostPathVolume("sys", "/sys"))
 		hasNewVolume = true
 	}
 	if !hasNewVolume {
@@ -614,6 +616,7 @@ func buildHostPathVolume(volumeName, hostPath string) interface{} {
 	return map[string]interface{}{
 		"hostPath": map[string]interface{}{
 			"path": hostPath,
+			"type": "Directory",
 		},
 		"name": volumeName,
 	}
