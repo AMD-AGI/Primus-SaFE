@@ -75,92 +75,169 @@ func (j *GithubWorkflowCollectorJob) Run(ctx context.Context, clientSets *client
 		j.githubFetcher = NewGithubFetcher(clientSets)
 	}
 
-	// Get all enabled configs
-	configFacade := database.GetFacade().GetGithubWorkflowConfig()
-	configs, err := configFacade.ListEnabled(ctx)
+	// Get ALL pending runs (not per-config)
+	runFacade := database.GetFacade().GetGithubWorkflowRun()
+	pendingRuns, err := runFacade.ListPending(ctx, &database.GithubWorkflowRunFilter{
+		Status: database.WorkflowRunStatusPending,
+		Limit:  MaxRunsPerBatch,
+	})
 	if err != nil {
-		log.Errorf("GithubWorkflowCollectorJob: failed to list enabled configs: %v", err)
+		log.Errorf("GithubWorkflowCollectorJob: failed to list pending runs: %v", err)
 		stats.ErrorCount++
 		return stats, err
 	}
 
-	if len(configs) == 0 {
-		log.Debug("GithubWorkflowCollectorJob: no enabled configs found")
+	if len(pendingRuns) == 0 {
+		log.Debug("GithubWorkflowCollectorJob: no pending runs found")
 		return stats, nil
 	}
 
-	runFacade := database.GetFacade().GetGithubWorkflowRun()
+	log.Infof("GithubWorkflowCollectorJob: processing %d pending runs", len(pendingRuns))
+
 	schemaFacade := database.GetFacade().GetGithubWorkflowSchema()
 	metricsFacade := database.GetFacade().GetGithubWorkflowMetrics()
 
 	totalProcessed := 0
 	totalCompleted := 0
 	totalFailed := 0
+	totalSkipped := 0
 	totalMetrics := 0
 
-	for _, config := range configs {
-		// Get pending runs for this config
-		pendingRuns, err := runFacade.ListPendingByConfig(ctx, config.ID, MaxRunsPerBatch)
-		if err != nil {
-			log.Errorf("GithubWorkflowCollectorJob: failed to list pending runs for config %d: %v", config.ID, err)
-			stats.ErrorCount++
-			continue
-		}
-
-		if len(pendingRuns) == 0 {
-			continue
-		}
-
-		log.Infof("GithubWorkflowCollectorJob: processing %d pending runs for config %s", len(pendingRuns), config.Name)
-
-		for _, run := range pendingRuns {
-			// Check retry count
-			if run.RetryCount >= MaxRetries {
-				log.Warnf("GithubWorkflowCollectorJob: run %d exceeded max retries, marking as failed", run.ID)
-				if err := runFacade.MarkFailed(ctx, run.ID, "exceeded max retry count"); err != nil {
-					log.Errorf("GithubWorkflowCollectorJob: failed to mark run %d as failed: %v", run.ID, err)
-				}
-				totalFailed++
-				continue
+	for _, run := range pendingRuns {
+		// Check retry count
+		if run.RetryCount >= MaxRetries {
+			log.Warnf("GithubWorkflowCollectorJob: run %d exceeded max retries, marking as failed", run.ID)
+			if err := runFacade.MarkFailed(ctx, run.ID, "exceeded max retry count"); err != nil {
+				log.Errorf("GithubWorkflowCollectorJob: failed to mark run %d as failed: %v", run.ID, err)
 			}
+			totalFailed++
+			continue
+		}
 
-			// Process this run
-			metricsCreated, err := j.processRun(ctx, config, run, schemaFacade, metricsFacade, runFacade)
-			if err != nil {
-				log.Errorf("GithubWorkflowCollectorJob: failed to process run %d: %v", run.ID, err)
-				if err := runFacade.IncrementRetryCount(ctx, run.ID); err != nil {
-					log.Errorf("GithubWorkflowCollectorJob: failed to increment retry count for run %d: %v", run.ID, err)
-				}
+		// Dynamically find config for this run
+		config := j.findConfigForRun(ctx, run)
+
+		if config == nil {
+			// No config = no metrics collection, mark as completed without metrics
+			log.Infof("GithubWorkflowCollectorJob: run %d (runner_set_id=%d) has no config, marking as completed without metrics",
+				run.ID, run.RunnerSetID)
+			if err := runFacade.MarkCompleted(ctx, run.ID, 0, 0, 0); err != nil {
+				log.Errorf("GithubWorkflowCollectorJob: failed to mark run %d as completed: %v", run.ID, err)
 				stats.ErrorCount++
-				totalFailed++
-				continue
 			}
-
-			// Fetch GitHub data (commits, workflow run details) after successful processing
-			if j.githubFetcher != nil {
-				if err := j.githubFetcher.FetchAndStoreGithubData(ctx, config, run); err != nil {
-					log.Warnf("GithubWorkflowCollectorJob: failed to fetch GitHub data for run %d: %v", run.ID, err)
-					// Don't fail the job, just log the warning
-				}
-			}
-
-			totalCompleted++
+			totalSkipped++
 			totalProcessed++
-			totalMetrics += metricsCreated
+			continue
 		}
+
+		log.Infof("GithubWorkflowCollectorJob: processing run %d with config %s (id=%d)",
+			run.ID, config.Name, config.ID)
+
+		// Process this run with config
+		metricsCreated, err := j.processRun(ctx, config, run, schemaFacade, metricsFacade, runFacade)
+		if err != nil {
+			log.Errorf("GithubWorkflowCollectorJob: failed to process run %d: %v", run.ID, err)
+			if err := runFacade.IncrementRetryCount(ctx, run.ID); err != nil {
+				log.Errorf("GithubWorkflowCollectorJob: failed to increment retry count for run %d: %v", run.ID, err)
+			}
+			stats.ErrorCount++
+			totalFailed++
+			continue
+		}
+
+		// Fetch GitHub data (commits, workflow run details) after successful processing
+		if j.githubFetcher != nil {
+			if err := j.githubFetcher.FetchAndStoreGithubData(ctx, config, run); err != nil {
+				log.Warnf("GithubWorkflowCollectorJob: failed to fetch GitHub data for run %d: %v", run.ID, err)
+				// Don't fail the job, just log the warning
+			}
+		}
+
+		totalCompleted++
+		totalProcessed++
+		totalMetrics += metricsCreated
 	}
 
 	stats.RecordsProcessed = int64(totalProcessed)
 	stats.ItemsUpdated = int64(totalCompleted)
 	stats.ItemsCreated = int64(totalMetrics)
 	stats.ProcessDuration = time.Since(startTime).Seconds()
-	stats.AddMessage(fmt.Sprintf("Processed %d runs, completed %d, failed %d, metrics created: %d",
-		totalProcessed, totalCompleted, totalFailed, totalMetrics))
+	stats.AddMessage(fmt.Sprintf("Processed %d runs, completed %d, skipped %d (no config), failed %d, metrics created: %d",
+		totalProcessed, totalCompleted, totalSkipped, totalFailed, totalMetrics))
 
-	log.Infof("GithubWorkflowCollectorJob: completed - processed: %d, completed: %d, failed: %d, metrics: %d",
-		totalProcessed, totalCompleted, totalFailed, totalMetrics)
+	log.Infof("GithubWorkflowCollectorJob: completed - processed: %d, completed: %d, skipped: %d, failed: %d, metrics: %d",
+		totalProcessed, totalCompleted, totalSkipped, totalFailed, totalMetrics)
 
 	return stats, nil
+}
+
+// findConfigForRun dynamically finds a config for the given run
+// Returns nil if no matching config is found
+func (j *GithubWorkflowCollectorJob) findConfigForRun(ctx context.Context, run *model.GithubWorkflowRuns) *model.GithubWorkflowConfigs {
+	configFacade := database.GetFacade().GetGithubWorkflowConfig()
+
+	// Option 1: Use run.ConfigID if set (from exporter matching)
+	if run.ConfigID != 0 {
+		config, err := configFacade.GetByID(ctx, run.ConfigID)
+		if err == nil && config != nil && config.Enabled {
+			return config
+		}
+		// If config_id is set but config not found or disabled, fall through to dynamic lookup
+		log.Debugf("GithubWorkflowCollectorJob: run %d has config_id=%d but config not found or disabled, trying dynamic lookup",
+			run.ID, run.ConfigID)
+	}
+
+	// Option 2: Find by runner_set (namespace + name)
+	if run.RunnerSetNamespace == "" || run.RunnerSetName == "" {
+		log.Warnf("GithubWorkflowCollectorJob: run %d missing runner_set_namespace or runner_set_name", run.ID)
+		return nil
+	}
+
+	configs, err := configFacade.ListByRunnerSet(ctx, run.RunnerSetNamespace, run.RunnerSetName)
+	if err != nil {
+		log.Errorf("GithubWorkflowCollectorJob: failed to list configs for runner set %s/%s: %v",
+			run.RunnerSetNamespace, run.RunnerSetName, err)
+		return nil
+	}
+
+	if len(configs) == 0 {
+		return nil
+	}
+
+	// Option 3: Match by workflow/branch filters
+	for _, cfg := range configs {
+		if !cfg.Enabled {
+			continue
+		}
+		if j.matchesFilters(run, cfg) {
+			log.Debugf("GithubWorkflowCollectorJob: run %d matched config %s (id=%d) via filters",
+				run.ID, cfg.Name, cfg.ID)
+			return cfg
+		}
+	}
+
+	// No matching config found
+	return nil
+}
+
+// matchesFilters checks if a run matches the workflow and branch filters of a config
+func (j *GithubWorkflowCollectorJob) matchesFilters(run *model.GithubWorkflowRuns, cfg *model.GithubWorkflowConfigs) bool {
+	// Check workflow_filter
+	if cfg.WorkflowFilter != "" && run.WorkflowName != "" {
+		if run.WorkflowName != cfg.WorkflowFilter {
+			return false
+		}
+	}
+
+	// Check branch_filter
+	if cfg.BranchFilter != "" && run.HeadBranch != "" {
+		if run.HeadBranch != cfg.BranchFilter {
+			return false
+		}
+	}
+
+	// If no filters are set, or all filters match, return true
+	return true
 }
 
 // processRun processes a single pending run

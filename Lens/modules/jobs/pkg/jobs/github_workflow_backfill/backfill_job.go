@@ -153,8 +153,6 @@ func (j *GithubWorkflowBackfillJob) processBackfillTask(ctx context.Context, tas
 	// Mark as in progress
 	j.taskManager.UpdateTaskStatus(task.ID, backfill.BackfillStatusInProgress, "")
 
-	log.Infof("GithubWorkflowBackfillJob: processing task %s for config %d", task.ID, task.ConfigID)
-
 	clusterName := task.ClusterName
 	if clusterName == "" {
 		clusterName = clientsets.GetClusterManager().GetCurrentClusterName()
@@ -163,16 +161,65 @@ func (j *GithubWorkflowBackfillJob) processBackfillTask(ctx context.Context, tas
 	// Get facades
 	facade := database.GetFacadeForCluster(clusterName)
 	configFacade := facade.GetGithubWorkflowConfig()
+	runnerSetFacade := facade.GetGithubRunnerSet()
 	runFacade := facade.GetGithubWorkflowRun()
 	workloadFacade := facade.GetWorkload()
 
-	// Get config
-	config, err := configFacade.GetByID(ctx, task.ConfigID)
-	if err != nil {
-		return fmt.Errorf("failed to get config: %w", err)
-	}
-	if config == nil {
-		return fmt.Errorf("config not found: %d", task.ConfigID)
+	// Determine namespace, runner set info, and config based on task type
+	var namespace, runnerSetName string
+	var runnerSetID, configID int64
+	var config *model.GithubWorkflowConfigs
+
+	if task.ConfigID != 0 {
+		// Config-based backfill (existing logic)
+		log.Infof("GithubWorkflowBackfillJob: processing config-based task %s for config %d", task.ID, task.ConfigID)
+		
+		var err error
+		config, err = configFacade.GetByID(ctx, task.ConfigID)
+		if err != nil {
+			return fmt.Errorf("failed to get config: %w", err)
+		}
+		if config == nil {
+			return fmt.Errorf("config not found: %d", task.ConfigID)
+		}
+
+		namespace = config.RunnerSetNamespace
+		runnerSetName = config.RunnerSetName
+		configID = task.ConfigID
+
+		// Find runner set
+		runnerSet, _ := runnerSetFacade.GetByNamespaceName(ctx, namespace, runnerSetName)
+		if runnerSet != nil {
+			runnerSetID = runnerSet.ID
+		}
+	} else if task.RunnerSetID != 0 {
+		// Runner-set-based backfill (new logic)
+		log.Infof("GithubWorkflowBackfillJob: processing runner-set-based task %s for runner_set %d", task.ID, task.RunnerSetID)
+		
+		runnerSet, err := runnerSetFacade.GetByID(ctx, task.RunnerSetID)
+		if err != nil {
+			return fmt.Errorf("failed to get runner set: %w", err)
+		}
+		if runnerSet == nil {
+			return fmt.Errorf("runner set not found: %d", task.RunnerSetID)
+		}
+
+		namespace = runnerSet.Namespace
+		runnerSetName = runnerSet.Name
+		runnerSetID = task.RunnerSetID
+		configID = 0 // No specific config
+
+		// Try to find an enabled config for this runner set (optional)
+		configs, _ := configFacade.ListByRunnerSet(ctx, namespace, runnerSetName)
+		for _, cfg := range configs {
+			if cfg.Enabled {
+				config = cfg
+				configID = cfg.ID
+				break
+			}
+		}
+	} else {
+		return fmt.Errorf("task must have either ConfigID or RunnerSetID set")
 	}
 
 	// Find EphemeralRunners to process
@@ -192,10 +239,11 @@ func (j *GithubWorkflowBackfillJob) processBackfillTask(ctx context.Context, tas
 		}
 	} else {
 		// Find completed EphemeralRunners in the time range
+		var err error
 		workloads, err = workloadFacade.ListCompletedWorkloadsByKindAndNamespace(
 			ctx,
 			"EphemeralRunner",
-			config.RunnerSetNamespace,
+			namespace,
 			task.StartTime,
 			0, // No limit for backfill
 		)
@@ -215,7 +263,7 @@ func (j *GithubWorkflowBackfillJob) processBackfillTask(ctx context.Context, tas
 			}
 
 			// Check parent matches the AutoscalingRunnerSet
-			if !j.matchesRunnerSet(w, config) {
+			if !j.matchesRunnerSetByName(w, runnerSetName) {
 				continue
 			}
 
@@ -247,8 +295,15 @@ func (j *GithubWorkflowBackfillJob) processBackfillTask(ctx context.Context, tas
 			return nil
 		}
 
-		// Check if already processed
-		existingRun, err := runFacade.GetByConfigAndWorkload(ctx, task.ConfigID, workload.UID)
+		// Check if already processed (use runner_set_id for lookup)
+		var existingRun *model.GithubWorkflowRuns
+		var err error
+		if runnerSetID != 0 {
+			existingRun, err = runFacade.GetByRunnerSetAndWorkload(ctx, runnerSetID, workload.UID)
+		} else {
+			// Fallback to config-based lookup for backward compatibility
+			existingRun, err = runFacade.GetByConfigAndWorkload(ctx, task.ConfigID, workload.UID)
+		}
 		if err != nil {
 			log.Warnf("GithubWorkflowBackfillJob: failed to check existing run for workload %s: %v", workload.UID, err)
 			failed++
@@ -264,7 +319,10 @@ func (j *GithubWorkflowBackfillJob) processBackfillTask(ctx context.Context, tas
 
 		// Create new run record with pending status and backfill trigger
 		run := &model.GithubWorkflowRuns{
-			ConfigID:            task.ConfigID,
+			RunnerSetID:         runnerSetID,      // Required
+			RunnerSetName:       runnerSetName,    // Required
+			RunnerSetNamespace:  namespace,        // Required
+			ConfigID:            configID,         // Optional (0 if runner-set-based)
 			WorkloadUID:         workload.UID,
 			WorkloadName:        workload.Name,
 			WorkloadNamespace:   workload.Namespace,
@@ -299,20 +357,20 @@ func (j *GithubWorkflowBackfillJob) processBackfillTask(ctx context.Context, tas
 	return nil
 }
 
-// matchesRunnerSet checks if a workload belongs to the configured AutoscalingRunnerSet
+// matchesRunnerSet checks if a workload belongs to the configured AutoscalingRunnerSet (deprecated)
 func (j *GithubWorkflowBackfillJob) matchesRunnerSet(workload *model.GpuWorkload, config *model.GithubWorkflowConfigs) bool {
+	return j.matchesRunnerSetByName(workload, config.RunnerSetName)
+}
+
+// matchesRunnerSetByName checks if a workload belongs to the specified runner set by name
+func (j *GithubWorkflowBackfillJob) matchesRunnerSetByName(workload *model.GpuWorkload, runnerSetName string) bool {
 	// Check labels for scale-set-name
 	if workload.Labels != nil {
 		if scaleSetName, ok := workload.Labels["actions.github.com/scale-set-name"].(string); ok {
-			if scaleSetName == config.RunnerSetName {
+			if scaleSetName == runnerSetName {
 				return true
 			}
 		}
-	}
-
-	// Check if parent UID matches (if we have it)
-	if config.RunnerSetUID != "" && workload.ParentUID == config.RunnerSetUID {
-		return true
 	}
 
 	return false

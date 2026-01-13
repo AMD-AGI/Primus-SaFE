@@ -27,13 +27,17 @@ func ListGithubRunnerSets(ctx *gin.Context) {
 	}
 
 	namespace := ctx.Query("namespace")
+	withStats := ctx.Query("with_stats") == "true"
 
 	facade := database.GetFacadeForCluster(clusterName).GetGithubRunnerSet()
 
 	var runnerSets interface{}
 	var listErr error
 
-	if namespace != "" {
+	if withStats {
+		// Return runner sets with run statistics and config info
+		runnerSets, listErr = facade.ListWithRunStats(ctx.Request.Context())
+	} else if namespace != "" {
 		runnerSets, listErr = facade.ListByNamespace(ctx.Request.Context(), namespace)
 	} else {
 		runnerSets, listErr = facade.List(ctx.Request.Context())
@@ -80,6 +84,283 @@ func GetGithubRunnerSet(ctx *gin.Context) {
 	}
 
 	ctx.JSON(http.StatusOK, rest.SuccessResp(ctx.Request.Context(), runnerSet))
+}
+
+// GetGithubRunnerSetByID handles GET /v1/github-runners/runner-sets/:id
+// Gets a runner set by ID
+func GetGithubRunnerSetByID(ctx *gin.Context) {
+	idStr := ctx.Param("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, rest.ErrorResp(ctx.Request.Context(), http.StatusBadRequest, "invalid runner set id", nil))
+		return
+	}
+
+	clusterName, err := getClusterNameForGithubWorkflow(ctx)
+	if err != nil {
+		_ = ctx.Error(err)
+		return
+	}
+
+	facade := database.GetFacadeForCluster(clusterName).GetGithubRunnerSet()
+	runnerSet, err := facade.GetByID(ctx.Request.Context(), id)
+	if err != nil {
+		log.GlobalLogger().WithContext(ctx).Errorf("Failed to get runner set: %v", err)
+		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, "failed to get runner set", err))
+		return
+	}
+	if runnerSet == nil {
+		ctx.JSON(http.StatusNotFound, rest.ErrorResp(ctx.Request.Context(), http.StatusNotFound, "runner set not found", nil))
+		return
+	}
+
+	ctx.JSON(http.StatusOK, rest.SuccessResp(ctx.Request.Context(), runnerSet))
+}
+
+// ListRunsByRunnerSet handles GET /v1/github-runners/runner-sets/:id/runs
+// Lists workflow runs for a runner set
+func ListRunsByRunnerSet(ctx *gin.Context) {
+	idStr := ctx.Param("id")
+	runnerSetID, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, rest.ErrorResp(ctx.Request.Context(), http.StatusBadRequest, "invalid runner set id", nil))
+		return
+	}
+
+	clusterName, err := getClusterNameForGithubWorkflow(ctx)
+	if err != nil {
+		_ = ctx.Error(err)
+		return
+	}
+
+	// Parse pagination
+	offset := 0
+	limit := 20
+	if offsetStr := ctx.Query("offset"); offsetStr != "" {
+		if o, err := strconv.Atoi(offsetStr); err == nil {
+			offset = o
+		}
+	}
+	if limitStr := ctx.Query("limit"); limitStr != "" {
+		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
+			limit = l
+		}
+	}
+	if limit > 100 {
+		limit = 100
+	}
+
+	status := ctx.Query("status")
+
+	// Get runs
+	runFacade := database.GetFacadeForCluster(clusterName).GetGithubWorkflowRun()
+	runs, total, err := runFacade.List(ctx.Request.Context(), &database.GithubWorkflowRunFilter{
+		RunnerSetID: runnerSetID,
+		Status:      status,
+		Offset:      offset,
+		Limit:       limit,
+	})
+	if err != nil {
+		log.GlobalLogger().WithContext(ctx).Errorf("Failed to list runs: %v", err)
+		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, "failed to list runs", err))
+		return
+	}
+
+	ctx.JSON(http.StatusOK, rest.SuccessResp(ctx.Request.Context(), gin.H{
+		"runs":   runs,
+		"total":  total,
+		"offset": offset,
+		"limit":  limit,
+	}))
+}
+
+// GetConfigByRunnerSet handles GET /v1/github-runners/runner-sets/:id/config
+// Gets the config associated with a runner set (may return null)
+func GetConfigByRunnerSet(ctx *gin.Context) {
+	idStr := ctx.Param("id")
+	runnerSetID, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, rest.ErrorResp(ctx.Request.Context(), http.StatusBadRequest, "invalid runner set id", nil))
+		return
+	}
+
+	clusterName, err := getClusterNameForGithubWorkflow(ctx)
+	if err != nil {
+		_ = ctx.Error(err)
+		return
+	}
+
+	// Get runner set first
+	runnerSetFacade := database.GetFacadeForCluster(clusterName).GetGithubRunnerSet()
+	runnerSet, err := runnerSetFacade.GetByID(ctx.Request.Context(), runnerSetID)
+	if err != nil {
+		log.GlobalLogger().WithContext(ctx).Errorf("Failed to get runner set: %v", err)
+		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, "failed to get runner set", err))
+		return
+	}
+	if runnerSet == nil {
+		ctx.JSON(http.StatusNotFound, rest.ErrorResp(ctx.Request.Context(), http.StatusNotFound, "runner set not found", nil))
+		return
+	}
+
+	// Find config by runner set namespace/name
+	configFacade := database.GetFacadeForCluster(clusterName).GetGithubWorkflowConfig()
+	configs, err := configFacade.ListByRunnerSet(ctx.Request.Context(), runnerSet.Namespace, runnerSet.Name)
+	if err != nil {
+		log.GlobalLogger().WithContext(ctx).Errorf("Failed to list configs: %v", err)
+		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, "failed to list configs", err))
+		return
+	}
+
+	// Return first enabled config, or null if none
+	for _, config := range configs {
+		if config.Enabled {
+			ctx.JSON(http.StatusOK, rest.SuccessResp(ctx.Request.Context(), config))
+			return
+		}
+	}
+
+	// No enabled config found
+	ctx.JSON(http.StatusOK, rest.SuccessResp(ctx.Request.Context(), nil))
+}
+
+// GetStatsByRunnerSet handles GET /v1/github-runners/runner-sets/:id/stats
+// Gets statistics for a runner set
+func GetStatsByRunnerSet(ctx *gin.Context) {
+	idStr := ctx.Param("id")
+	runnerSetID, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, rest.ErrorResp(ctx.Request.Context(), http.StatusBadRequest, "invalid runner set id", nil))
+		return
+	}
+
+	clusterName, err := getClusterNameForGithubWorkflow(ctx)
+	if err != nil {
+		_ = ctx.Error(err)
+		return
+	}
+
+	runFacade := database.GetFacadeForCluster(clusterName).GetGithubWorkflowRun()
+
+	// Count runs by status
+	allRuns, _, _ := runFacade.List(ctx.Request.Context(), &database.GithubWorkflowRunFilter{
+		RunnerSetID: runnerSetID,
+	})
+
+	stats := map[string]interface{}{
+		"total":     len(allRuns),
+		"pending":   0,
+		"completed": 0,
+		"failed":    0,
+		"skipped":   0,
+	}
+
+	for _, run := range allRuns {
+		switch run.Status {
+		case database.WorkflowRunStatusPending:
+			stats["pending"] = stats["pending"].(int) + 1
+		case database.WorkflowRunStatusCompleted:
+			stats["completed"] = stats["completed"].(int) + 1
+		case database.WorkflowRunStatusFailed:
+			stats["failed"] = stats["failed"].(int) + 1
+		case database.WorkflowRunStatusSkipped:
+			stats["skipped"] = stats["skipped"].(int) + 1
+		}
+	}
+
+	// Get config info
+	runnerSetFacade := database.GetFacadeForCluster(clusterName).GetGithubRunnerSet()
+	runnerSet, _ := runnerSetFacade.GetByID(ctx.Request.Context(), runnerSetID)
+	if runnerSet != nil {
+		configFacade := database.GetFacadeForCluster(clusterName).GetGithubWorkflowConfig()
+		configs, _ := configFacade.ListByRunnerSet(ctx.Request.Context(), runnerSet.Namespace, runnerSet.Name)
+		for _, config := range configs {
+			if config.Enabled {
+				stats["has_config"] = true
+				stats["config_id"] = config.ID
+				stats["config_name"] = config.Name
+				break
+			}
+		}
+	}
+
+	ctx.JSON(http.StatusOK, rest.SuccessResp(ctx.Request.Context(), stats))
+}
+
+// CreateConfigForRunnerSet handles POST /v1/github-runners/runner-sets/:id/config
+// Creates a config for a runner set
+func CreateConfigForRunnerSet(ctx *gin.Context) {
+	idStr := ctx.Param("id")
+	runnerSetID, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, rest.ErrorResp(ctx.Request.Context(), http.StatusBadRequest, "invalid runner set id", nil))
+		return
+	}
+
+	clusterName, err := getClusterNameForGithubWorkflow(ctx)
+	if err != nil {
+		_ = ctx.Error(err)
+		return
+	}
+
+	// Get runner set
+	runnerSetFacade := database.GetFacadeForCluster(clusterName).GetGithubRunnerSet()
+	runnerSet, err := runnerSetFacade.GetByID(ctx.Request.Context(), runnerSetID)
+	if err != nil {
+		log.GlobalLogger().WithContext(ctx).Errorf("Failed to get runner set: %v", err)
+		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, "failed to get runner set", err))
+		return
+	}
+	if runnerSet == nil {
+		ctx.JSON(http.StatusNotFound, rest.ErrorResp(ctx.Request.Context(), http.StatusNotFound, "runner set not found", nil))
+		return
+	}
+
+	// Parse request body
+	var req struct {
+		Name          string   `json:"name" binding:"required"`
+		Description   string   `json:"description"`
+		FilePatterns  []string `json:"file_patterns" binding:"required"`
+		WorkflowFilter string  `json:"workflow_filter"`
+		BranchFilter   string  `json:"branch_filter"`
+		Enabled       *bool    `json:"enabled"`
+	}
+
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		ctx.JSON(http.StatusBadRequest, rest.ErrorResp(ctx.Request.Context(), http.StatusBadRequest, "invalid request body", err))
+		return
+	}
+
+	enabled := true
+	if req.Enabled != nil {
+		enabled = *req.Enabled
+	}
+
+	// Create config
+	config := &model.GithubWorkflowConfigs{
+		Name:               req.Name,
+		Description:        req.Description,
+		RunnerSetNamespace: runnerSet.Namespace,
+		RunnerSetName:      runnerSet.Name,
+		RunnerSetUID:       runnerSet.UID,
+		GithubOwner:        runnerSet.GithubOwner,
+		GithubRepo:         runnerSet.GithubRepo,
+		FilePatterns:       req.FilePatterns,
+		WorkflowFilter:     req.WorkflowFilter,
+		BranchFilter:       req.BranchFilter,
+		Enabled:            enabled,
+		CreatedAt:          time.Now(),
+		UpdatedAt:          time.Now(),
+	}
+
+	configFacade := database.GetFacadeForCluster(clusterName).GetGithubWorkflowConfig()
+	if err := configFacade.Create(ctx.Request.Context(), config); err != nil {
+		log.GlobalLogger().WithContext(ctx).Errorf("Failed to create config: %v", err)
+		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, "failed to create config", err))
+		return
+	}
+
+	ctx.JSON(http.StatusCreated, rest.SuccessResp(ctx.Request.Context(), config))
 }
 
 // ========== Workflow Run Details API ==========

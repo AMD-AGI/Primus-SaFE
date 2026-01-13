@@ -454,8 +454,20 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		// Runner Sets - discovered AutoScalingRunnerSets
 		runnerSetsGroup := githubRunnersGroup.Group("/runner-sets")
 		{
+			// List all runner sets (with optional stats)
 			runnerSetsGroup.GET("", ListGithubRunnerSets)
+			// Get runner set by namespace/name
 			runnerSetsGroup.GET("/:namespace/:name", GetGithubRunnerSet)
+			// Get runner set by ID
+			runnerSetsGroup.GET("/:id", GetGithubRunnerSetByID)
+			// Get runs for a runner set
+			runnerSetsGroup.GET("/:id/runs", ListRunsByRunnerSet)
+			// Get config for a runner set (may return null)
+			runnerSetsGroup.GET("/:id/config", GetConfigByRunnerSet)
+			// Get statistics for a runner set
+			runnerSetsGroup.GET("/:id/stats", GetStatsByRunnerSet)
+			// Create config for a runner set
+			runnerSetsGroup.POST("/:id/config", CreateConfigForRunnerSet)
 		}
 	}
 

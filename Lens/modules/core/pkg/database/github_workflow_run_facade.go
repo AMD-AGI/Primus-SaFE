@@ -73,6 +73,9 @@ type GithubWorkflowRunFacadeInterface interface {
 	// ListAllWithConfigName lists runs across all configs with config name (for global runs view)
 	ListAllWithConfigName(ctx context.Context, filter *GithubWorkflowRunFilter) ([]*RunWithConfigName, int64, error)
 
+	// ListPending lists all pending runs with optional filtering
+	ListPending(ctx context.Context, filter *GithubWorkflowRunFilter) ([]*model.GithubWorkflowRuns, error)
+
 	// ListPendingByRunnerSet lists pending runs for a runner set
 	ListPendingByRunnerSet(ctx context.Context, runnerSetID int64, limit int) ([]*model.GithubWorkflowRuns, error)
 
@@ -303,6 +306,51 @@ func (f *GithubWorkflowRunFacade) List(ctx context.Context, filter *GithubWorkfl
 	}
 
 	return results, total, nil
+}
+
+// ListPending lists all pending runs with optional filtering
+func (f *GithubWorkflowRunFacade) ListPending(ctx context.Context, filter *GithubWorkflowRunFilter) ([]*model.GithubWorkflowRuns, error) {
+	q := f.getDAL().GithubWorkflowRuns
+	query := q.WithContext(ctx).Where(q.Status.Eq(WorkflowRunStatusPending))
+
+	if filter != nil {
+		if filter.RunnerSetID > 0 {
+			query = query.Where(q.RunnerSetID.Eq(filter.RunnerSetID))
+		}
+		if filter.RunnerSetName != "" {
+			query = query.Where(q.RunnerSetName.Eq(filter.RunnerSetName))
+		}
+		if filter.ConfigID > 0 {
+			query = query.Where(q.ConfigID.Eq(filter.ConfigID))
+		}
+		if filter.ConfigID == -1 {
+			// Special value to indicate "no config" (config_id IS NULL or 0)
+			query = query.Where(q.ConfigID.IsNull().Or(q.ConfigID.Eq(0)))
+		}
+		if filter.TriggerSource != "" {
+			query = query.Where(q.TriggerSource.Eq(filter.TriggerSource))
+		}
+		if filter.Since != nil {
+			query = query.Where(q.CreatedAt.Gte(*filter.Since))
+		}
+		if filter.Until != nil {
+			query = query.Where(q.CreatedAt.Lte(*filter.Until))
+		}
+
+		if filter.Limit > 0 {
+			query = query.Limit(filter.Limit)
+		}
+		if filter.Offset > 0 {
+			query = query.Offset(filter.Offset)
+		}
+	}
+
+	results, err := query.Order(q.CreatedAt.Asc()).Find()
+	if err != nil {
+		return nil, err
+	}
+
+	return results, nil
 }
 
 // ListPendingByRunnerSet lists pending runs for a runner set
