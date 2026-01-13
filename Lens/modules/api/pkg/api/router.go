@@ -459,15 +459,15 @@ func RegisterRouter(group *gin.RouterGroup) error {
 			// Get runner set by namespace/name
 			runnerSetsGroup.GET("/:namespace/:name", GetGithubRunnerSet)
 			// Get runner set by ID
-			runnerSetsGroup.GET("/:id", GetGithubRunnerSetByID)
+			runnerSetsGroup.GET("/by-id/:id", GetGithubRunnerSetByID)
 			// Get runs for a runner set
-			runnerSetsGroup.GET("/:id/runs", ListRunsByRunnerSet)
+			runnerSetsGroup.GET("/by-id/:id/runs", ListRunsByRunnerSet)
 			// Get config for a runner set (may return null)
-			runnerSetsGroup.GET("/:id/config", GetConfigByRunnerSet)
+			runnerSetsGroup.GET("/by-id/:id/config", GetConfigByRunnerSet)
 			// Get statistics for a runner set
-			runnerSetsGroup.GET("/:id/stats", GetStatsByRunnerSet)
+			runnerSetsGroup.GET("/by-id/:id/stats", GetStatsByRunnerSet)
 			// Create config for a runner set
-			runnerSetsGroup.POST("/:id/config", CreateConfigForRunnerSet)
+			runnerSetsGroup.POST("/by-id/:id/config", CreateConfigForRunnerSet)
 		}
 	}
 
