@@ -371,6 +371,7 @@ func getWorkloadInfo(ctx *gin.Context) {
 		Uid:           dbWorkload.UID,
 		GpuAllocation: nil,
 		Pods:          []model.WorkloadInfoPod{},
+		ActivePods:    []model.WorkloadInfoPod{},
 		StartTime:     dbWorkload.CreatedAt.Unix(),
 		EndTime:       dbWorkload.EndAt.Unix(),
 		Source:        getSource(dbWorkload),
@@ -384,11 +385,23 @@ func getWorkloadInfo(ctx *gin.Context) {
 		return
 	}
 	for _, pod := range pods {
-		workloadInfo.Pods = append(workloadInfo.Pods, model.WorkloadInfoPod{
-			NodeName:     pod.NodeName,
+		podInfo := model.WorkloadInfoPod{
+			PodUID:       pod.UID,
 			PodNamespace: pod.Namespace,
 			PodName:      pod.Name,
-		})
+			NodeName:     pod.NodeName,
+			Phase:        pod.Phase,
+			Running:      pod.Running,
+			IP:           pod.IP,
+			GpuAllocated: int(pod.GpuAllocated),
+			CreatedAt:    pod.CreatedAt.Unix(),
+			UpdatedAt:    pod.UpdatedAt.Unix(),
+		}
+		workloadInfo.Pods = append(workloadInfo.Pods, podInfo)
+		// Add to active pods if currently running
+		if pod.Running && !pod.Deleted {
+			workloadInfo.ActivePods = append(workloadInfo.ActivePods, podInfo)
+		}
 	}
 	gpuAllocation, err := workload.GetWorkloadResource(ctx, clients.ClusterName, dbWorkload.UID)
 	if err != nil {

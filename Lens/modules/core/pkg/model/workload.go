@@ -52,15 +52,23 @@ type WorkloadInfo struct {
 	Uid           string            `json:"uid"`
 	GpuAllocation GpuAllocationInfo `json:"gpu_allocation"`
 	Pods          []WorkloadInfoPod `json:"pods"`
+	ActivePods    []WorkloadInfoPod `json:"activePods"`
 	StartTime     int64             `json:"startTime"`
 	EndTime       int64             `json:"endTime"`
 	Source        string            `json:"source"`
 }
 
 type WorkloadInfoPod struct {
-	NodeName     string `json:"nodeName"`
+	PodUID       string `json:"podUid"`
 	PodNamespace string `json:"podNamespace"`
 	PodName      string `json:"podName"`
+	NodeName     string `json:"nodeName"`
+	Phase        string `json:"phase"`
+	Running      bool   `json:"running"`
+	IP           string `json:"ip,omitempty"`
+	GpuAllocated int    `json:"gpuAllocated"`
+	CreatedAt    int64  `json:"createdAt"`
+	UpdatedAt    int64  `json:"updatedAt"`
 }
 
 type WorkloadStatisticResp struct {
