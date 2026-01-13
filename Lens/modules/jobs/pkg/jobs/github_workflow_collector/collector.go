@@ -77,6 +77,14 @@ func (j *GithubWorkflowCollectorJob) Run(ctx context.Context, clientSets *client
 
 	// Get ALL pending runs (not per-config)
 	runFacade := database.GetFacade().GetGithubWorkflowRun()
+
+	// Step 0: Batch mark pending runs without config as completed (optimization)
+	// This prevents runs without matching configs from blocking the queue
+	if affected, err := runFacade.MarkPendingWithoutConfigAsCompleted(ctx); err != nil {
+		log.Warnf("GithubWorkflowCollectorJob: failed to batch mark pending without config: %v", err)
+	} else if affected > 0 {
+		log.Infof("GithubWorkflowCollectorJob: batch marked %d pending runs without config as completed", affected)
+	}
 	pendingRuns, err := runFacade.ListPending(ctx, &database.GithubWorkflowRunFilter{
 		Status: database.WorkflowRunStatusPending,
 		Limit:  MaxRunsPerBatch,
