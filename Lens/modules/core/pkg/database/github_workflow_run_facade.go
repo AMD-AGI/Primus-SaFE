@@ -324,8 +324,9 @@ func (f *GithubWorkflowRunFacade) ListPending(ctx context.Context, filter *Githu
 			query = query.Where(q.ConfigID.Eq(filter.ConfigID))
 		}
 		if filter.ConfigID == -1 {
-			// Special value to indicate "no config" (config_id IS NULL or 0)
-			query = query.Where(q.Or(q.ConfigID.IsNull(), q.ConfigID.Eq(0)))
+			// Special value to indicate "no config"
+			// In our implementation, config_id is always set to 0 (not NULL) when no config exists
+			query = query.Where(q.ConfigID.Eq(0))
 		}
 		if filter.TriggerSource != "" {
 			query = query.Where(q.TriggerSource.Eq(filter.TriggerSource))
