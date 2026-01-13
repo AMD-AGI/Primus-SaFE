@@ -114,6 +114,7 @@ func InitCustomRouters(e *gin.Engine, h *Handler) {
 		// API Key management routes
 		group.POST("apikeys", h.CreateApiKey)
 		group.GET("apikeys", h.ListApiKey)
+		group.GET("apikeys/current", h.GetCurrentApiKey)
 		group.DELETE("apikeys/:id", h.DeleteApiKey)
 	}
 

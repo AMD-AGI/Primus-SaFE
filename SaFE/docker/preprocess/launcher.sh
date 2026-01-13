@@ -13,6 +13,7 @@ export PATH_TO_BNXT_TAR_PACKAGE=$PATH_TO_BNXT_TAR_PACKAGE
 export PATH_TO_AINIC_TAR_PACKAGE=$PATH_TO_AINIC_TAR_PACKAGE
 export AMD_ANP_VERSION=$AMD_ANP_VERSION
 export WORKLOAD_KIND=$WORKLOAD_KIND
+export PATH=/bin:/usr/bin/:$PATH
 
 if [ -f "${PATH_TO_AINIC_TAR_PACKAGE}" ]; then
   export ENABLE_AINIC=true
@@ -25,15 +26,15 @@ sh /shared-data/build_ssh.sh
 echo "$input" |base64 -d > ".run.sh"
 chmod +x ".run.sh"
 if command -v bash >/dev/null 2>&1; then
-    /usr/bin/bash -o pipefail ".run.sh" &
+    bash -o pipefail ".run.sh" &
 else
-    /bin/sh ".run.sh" &
+    sh ".run.sh" &
 fi
 pid1=$!
 
 if [ "${ENABLE_SUPERVISE}" = "true" ]; then
     chmod +x "/shared-data/run_check.sh"
-    /bin/sh /shared-data/run_check.sh &
+    sh /shared-data/run_check.sh &
     pid2=$!
     
     while true; do

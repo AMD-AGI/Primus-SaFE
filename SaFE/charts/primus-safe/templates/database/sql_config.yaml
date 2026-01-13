@@ -398,6 +398,9 @@ data:
     );
     alter table environment_snapshots owner to "primus-safe";
 
+    -- Add workload_id column to deployment_requests for tracking associated workload
+    ALTER TABLE deployment_requests ADD COLUMN IF NOT EXISTS workload_id VARCHAR(64);
+
     -- API Keys table for API key authentication
     CREATE TABLE IF NOT EXISTS api_keys (
         id SERIAL PRIMARY KEY,
