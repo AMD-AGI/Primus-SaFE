@@ -7,7 +7,11 @@ import (
 	"context"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/api/pkg/api"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/api/pkg/api/auth"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/config"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/controller"
+	cpauth "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/controlplane/auth"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/conf"
 	log "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/router"
@@ -15,6 +19,7 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/trace"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 var schemes = &runtime.SchemeBuilder{
@@ -59,7 +64,8 @@ func StartServer(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return server.InitServer(ctx)
+	// Use preInit callback to initialize auth system after ClusterManager is ready
+	return server.InitServerWithPreInitFunc(ctx, preInitAuthSystem)
 }
 
 func RegisterApi(ctx context.Context) error {
@@ -67,6 +73,55 @@ func RegisterApi(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+
 	router.RegisterGroup(api.RegisterRouter)
+	return nil
+}
+
+// preInitAuthSystem is called after ClusterManager is initialized
+// This is the preInit callback for InitServerWithPreInitFunc
+func preInitAuthSystem(ctx context.Context, cfg *config.Config) error {
+	log.Info("Initializing authentication system...")
+
+	// Check if Control Plane is enabled
+	cm := clientsets.GetClusterManager()
+	if cm == nil {
+		log.Warn("ClusterManager not available, skipping auth system initialization")
+		return nil
+	}
+
+	// Check if Control Plane is enabled
+	if !cm.IsControlPlaneEnabled() {
+		log.Info("Control Plane not enabled, skipping auth system initialization")
+		log.Info("To enable authentication features, set controlPlane.enabled=true in config")
+		return nil
+	}
+
+	// Get K8s client from cluster manager
+	var k8sClient client.Client
+	if cc := cm.GetCurrentClusterClients(); cc != nil && cc.K8SClientSet != nil {
+		k8sClient = cc.K8SClientSet.ControllerRuntimeClient
+	}
+	if k8sClient == nil {
+		log.Error("K8s client not available, cannot initialize auth system")
+		return nil
+	}
+
+	// Create SafeDetector and Initializer
+	safeDetector := cpauth.NewSafeDetector(k8sClient)
+	initializer := cpauth.NewInitializer(safeDetector, k8sClient)
+
+	// Initialize auth handlers with dependencies
+	auth.InitializeAuthHandlers(initializer, safeDetector)
+	log.Info("Auth handlers initialized")
+
+	// Ensure system is initialized (creates root user if not exists)
+	if err := initializer.EnsureInitialized(ctx); err != nil {
+		log.Errorf("Failed to ensure system initialized: %v", err)
+		// Don't block startup, auth features may be limited
+		return nil
+	}
+
+	log.Info("Authentication system initialized successfully")
 	return nil
 }

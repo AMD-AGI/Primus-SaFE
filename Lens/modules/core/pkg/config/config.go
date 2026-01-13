@@ -16,6 +16,7 @@ type Config struct {
 	MultiCluster      bool                `json:"multiCluster" yaml:"multiCluster"`
 	LoadK8SClient     bool                `json:"loadK8SClient" yaml:"loadK8SClient"`
 	LoadStorageClient bool                `json:"loadStorageClient" yaml:"loadStorageClient"`
+	ControlPlane      *ControlPlaneConfig `json:"controlPlane" yaml:"controlPlane"`
 	Controller        ControllerConfig    `yaml:"controller"`
 	HttpPort          int                 `json:"httpPort" yaml:"httpPort"`
 	NodeExporter      *NodeExporterConfig `json:"nodeExporter" yaml:"nodeExporter"`
@@ -23,6 +24,23 @@ type Config struct {
 	Netflow           *NetFlow            `json:"netflow" yaml:"netflow"`
 	Middleware        MiddlewareConfig    `json:"middleware" yaml:"middleware"`
 	AIGateway         *AIGatewayConfig    `json:"aiGateway" yaml:"aiGateway"`
+}
+
+// ControlPlaneConfig contains Control Plane configuration
+type ControlPlaneConfig struct {
+	// Enabled controls whether Control Plane is enabled
+	Enabled bool `json:"enabled" yaml:"enabled"`
+	// SecretName is the name of the K8s secret containing DB credentials
+	// Default: "primus-lens-control-plane-pguser-primus-lens-control-plane"
+	SecretName string `json:"secretName" yaml:"secretName"`
+	// SecretNamespace is the namespace of the secret
+	// Default: current namespace from POD_NAMESPACE env or "primus-lens"
+	SecretNamespace string `json:"secretNamespace" yaml:"secretNamespace"`
+}
+
+// IsControlPlaneEnabled returns whether Control Plane is enabled
+func (c *Config) IsControlPlaneEnabled() bool {
+	return c.ControlPlane != nil && c.ControlPlane.Enabled
 }
 
 type ControllerConfig struct {
@@ -256,9 +274,13 @@ type MiddlewareConfig struct {
 type AuthConfig struct {
 	// Enabled controls whether authentication middleware is enabled
 	Enabled bool `json:"enabled" yaml:"enabled"`
-	// SafeAPIURL is the SaFE API server URL (e.g., "http://primus-safe-apiserver:8080")
+	// SafeAdapterURL is the primus-safe-adapter URL for session validation (e.g., "http://primus-safe-adapter:8080")
+	// New architecture: Lens API -> primus-safe-adapter -> SaFE DB
+	SafeAdapterURL string `json:"safeAdapterUrl" yaml:"safeAdapterUrl"`
+	// SafeAPIURL is the SaFE API server URL (deprecated, use SafeAdapterURL instead)
+	// Kept for backward compatibility
 	SafeAPIURL string `json:"safeApiUrl" yaml:"safeApiUrl"`
-	// InternalToken is the X-Internal-Token for calling SaFE verify endpoint
+	// InternalToken is the X-Internal-Token for calling SaFE verify endpoint (deprecated with adapter)
 	InternalToken string `json:"internalToken" yaml:"internalToken"`
 	// InternalTokenEnv is the environment variable name for internal token (alternative to InternalToken)
 	InternalTokenEnv string `json:"internalTokenEnv" yaml:"internalTokenEnv"`
@@ -266,6 +288,15 @@ type AuthConfig struct {
 	Timeout int `json:"timeout" yaml:"timeout"`
 	// ExcludePaths are paths that skip authentication (e.g., health check endpoints)
 	ExcludePaths []string `json:"excludePaths" yaml:"excludePaths"`
+}
+
+// GetSafeAdapterURL returns the adapter URL, falling back to SafeAPIURL for backward compatibility
+func (a *AuthConfig) GetSafeAdapterURL() string {
+	if a.SafeAdapterURL != "" {
+		return a.SafeAdapterURL
+	}
+	// Fallback to old SafeAPIURL for backward compatibility
+	return a.SafeAPIURL
 }
 
 // TraceConfig contains trace-specific configuration

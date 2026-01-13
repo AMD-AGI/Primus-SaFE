@@ -12,6 +12,7 @@ import (
 	logConf "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/conf"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"github.com/go-logr/logr"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
@@ -21,6 +22,11 @@ import (
 )
 
 var scheme = runtime.NewScheme()
+
+func init() {
+	// Register core v1 types by default (needed for reading Secrets, ConfigMaps, etc.)
+	_ = corev1.AddToScheme(scheme)
+}
 
 type Reconciler interface {
 	SetupWithManager(mgr ctrl.Manager) error

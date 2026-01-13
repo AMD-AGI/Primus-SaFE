@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -19,8 +21,10 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/config"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/controller"
 	log "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/router"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/trace"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/primus-safe-adapter/pkg/matcher"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/primus-safe-adapter/pkg/oidc"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/primus-safe-adapter/pkg/reconciler"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/primus-safe-adapter/pkg/scheduler"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/primus-safe-adapter/pkg/service"
@@ -29,8 +33,9 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/utils"
 )
 
+// schemes contains app-specific types to register
+// Note: corev1 types are already registered by default in controller.GetScheme()
 var schemes = &runtime.SchemeBuilder{
-	corev1.AddToScheme,
 	primusSafeV1.AddToScheme,
 }
 
@@ -169,10 +174,105 @@ func initScheduledTasks(ctx context.Context, cfg *config.Config) error {
 	// Add namespace sync task (runs every 60 seconds)
 	globalScheduler.AddTask(namespaceSyncService, 60*time.Second)
 
+	// Initialize Token and User sync tasks if Control Plane DB is available
+	if err := initSyncTasks(clusterManager, safeDB, k8sClient); err != nil {
+		log.Warnf("Token/User sync tasks not initialized: %v", err)
+		// Don't fail startup, token sync is optional
+	}
+
 	// Start scheduler in background
 	go globalScheduler.Start(ctx)
 
 	log.Info("Scheduler started with workload stats (30s), node stats (60s), and namespace sync (60s) tasks")
+	return nil
+}
+
+// initSyncTasks initializes sync tasks (user sync only, token sync removed)
+func initSyncTasks(clusterManager *clientsets.ClusterManager, safeDB *gorm.DB, k8sClient client.Client) error {
+	// Initialize session validator with SaFE DB for direct validation
+	// This validates sessions directly against SaFE DB - no token sync needed
+	if err := initSessionValidator(safeDB); err != nil {
+		log.Warnf("Session validator not initialized: %v", err)
+		// Don't fail, continue with other tasks
+	}
+
+	// User sync and auto-registration require Control Plane DB
+	if clusterManager.IsControlPlaneEnabled() {
+		lensDB := clusterManager.GetControlPlaneDB()
+		if lensDB != nil {
+			// Auto-register adapter with Lens (read config from DB and enable safe mode)
+			autoRegister := service.NewAutoRegisterService(lensDB)
+			if err := autoRegister.Register(context.Background()); err != nil {
+				log.Warnf("Auto-registration failed: %v", err)
+				// Don't fail startup, registration is optional
+			}
+
+			// Create user sync service (sync users from SaFE CRD to Lens)
+			userSyncService := service.NewUserSyncService(k8sClient, lensDB)
+
+			// Add user sync task (runs every 5 seconds for fast user info sync)
+			globalScheduler.AddTask(userSyncService, 5*time.Second)
+
+			log.Info("User sync task added to scheduler (5s interval)")
+		} else {
+			log.Info("Control Plane DB not available, user sync and auto-registration disabled")
+		}
+	} else {
+		log.Info("Control Plane not enabled, user sync and auto-registration disabled")
+	}
+
+	return nil
+}
+
+// initSessionValidator initializes the SaFE session validator and registers routes
+// This is a simplified service that only provides session validation
+// No full OIDC provider functionality - just /validate endpoint for Lens API
+func initSessionValidator(safeDB *gorm.DB) error {
+	// Create session validator with SaFE DB
+	validator := oidc.NewSafeValidator(safeDB, nil)
+
+	// Register session validation routes
+	router.RegisterGroup(func(group *gin.RouterGroup) error {
+		// POST /validate - validate SaFE session
+		group.POST("/validate", func(c *gin.Context) {
+			var req oidc.ValidateRequest
+			if err := c.ShouldBindJSON(&req); err != nil {
+				c.JSON(400, oidc.ValidateResponse{
+					Valid: false,
+					Error: "invalid request: session_id is required",
+				})
+				return
+			}
+
+			userInfo, err := validator.ValidateSafeSession(c.Request.Context(), req.SessionID)
+			if err != nil {
+				log.Debugf("Session validation failed: %v", err)
+				c.JSON(401, oidc.ValidateResponse{
+					Valid: false,
+					Error: err.Error(),
+				})
+				return
+			}
+
+			c.JSON(200, oidc.ValidateResponse{
+				Valid:   true,
+				UserID:  userInfo.ID,
+				Name:    userInfo.Username,
+				Email:   userInfo.Email,
+				IsAdmin: userInfo.IsAdmin,
+			})
+		})
+
+		// GET /health - health check
+		group.GET("/health", func(c *gin.Context) {
+			c.JSON(200, gin.H{"status": "healthy"})
+		})
+
+		log.Info("Session validator routes registered: /validate, /health")
+		return nil
+	})
+
+	log.Info("SaFE session validator initialized (direct SaFE DB validation)")
 	return nil
 }
 

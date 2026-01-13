@@ -4,6 +4,7 @@
 package api
 
 import (
+	"github.com/AMD-AGI/Primus-SaFE/Lens/api/pkg/api/auth"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/api/pkg/api/perfetto"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/api/pkg/api/pyspy"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/api/pkg/api/registry"
@@ -13,7 +14,14 @@ import (
 )
 
 func RegisterRouter(group *gin.RouterGroup) error {
+	// ============================================================
+	// Protected API routes - require session authentication
+	// All business APIs below require valid SaFE SSO session
+	// ============================================================
+
+	// Node routes - requires session authentication
 	nodeGroup := group.Group("/nodes")
+	nodeGroup.Use(auth.SessionAuthMiddleware())
 	{
 		nodeGroup.GET("gpuAllocation", getClusterGpuAllocationInfo)
 		nodeGroup.GET("gpuUtilization", getClusterGPUUtilization)
@@ -34,6 +42,7 @@ func RegisterRouter(group *gin.RouterGroup) error {
 
 	// Pod routes - Pod REST API
 	podGroup := group.Group("/pods")
+	podGroup.Use(auth.SessionAuthMiddleware())
 	{
 		// Query pod statistics with filtering and pagination
 		podGroup.GET("/stats", getPodStats)
@@ -46,13 +55,19 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		// Compare multiple pods side-by-side
 		podGroup.GET("/comparison", comparePods)
 	}
+
+	// Cluster routes
 	clusterGroup := group.Group("/clusters")
+	clusterGroup.Use(auth.SessionAuthMiddleware())
 	{
 		clusterGroup.GET("overview", getClusterOverview)
 		clusterGroup.GET("consumers", getConsumerInfo)
 		clusterGroup.GET("gpuHeatmap", getClusterGpuHeatmap)
 	}
+
+	// Workload routes
 	workloadGroup := group.Group("/workloads")
+	workloadGroup.Use(auth.SessionAuthMiddleware())
 	{
 		workloadGroup.GET("", listWorkloads)
 		workloadGroup.GET("statistic", getWorkloadsStatistic)
@@ -70,14 +85,24 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		// Process tree API - proxies to node-exporter for py-spy profiling
 		workloadGroup.POST(":uid/process-tree", pyspy.GetProcessTree)
 	}
-	group.GET("workloadMetadata", getWorkloadsMetadata)
+
+	// Workload metadata (standalone route with auth)
+	protectedGroup := group.Group("")
+	protectedGroup.Use(auth.SessionAuthMiddleware())
+	{
+		protectedGroup.GET("workloadMetadata", getWorkloadsMetadata)
+	}
+
+	// Storage routes
 	storageGroup := group.Group("/storage")
+	storageGroup.Use(auth.SessionAuthMiddleware())
 	{
 		storageGroup.GET("stat", getStorageStat)
 	}
 
 	// Metric Alert Rule management routes
 	metricAlertRuleGroup := group.Group("/metric-alert-rules")
+	metricAlertRuleGroup.Use(auth.SessionAuthMiddleware())
 	{
 		metricAlertRuleGroup.POST("", CreateMetricAlertRule)
 		metricAlertRuleGroup.GET("", ListMetricAlertRules)
@@ -91,6 +116,7 @@ func RegisterRouter(group *gin.RouterGroup) error {
 
 	// Log Alert Rule management routes
 	logAlertRuleGroup := group.Group("/log-alert-rules")
+	logAlertRuleGroup.Use(auth.SessionAuthMiddleware())
 	{
 		logAlertRuleGroup.POST("", CreateLogAlertRule)
 		logAlertRuleGroup.GET("", ListLogAlertRules)
@@ -108,6 +134,7 @@ func RegisterRouter(group *gin.RouterGroup) error {
 
 	// Log Alert Rule Template routes
 	logAlertRuleTemplateGroup := group.Group("/log-alert-rule-templates")
+	logAlertRuleTemplateGroup.Use(auth.SessionAuthMiddleware())
 	{
 		logAlertRuleTemplateGroup.POST("", CreateLogAlertRuleTemplate)
 		logAlertRuleTemplateGroup.GET("", ListLogAlertRuleTemplates)
@@ -118,6 +145,7 @@ func RegisterRouter(group *gin.RouterGroup) error {
 
 	// Alert Rule Advice routes
 	alertRuleAdviceGroup := group.Group("/alert-rule-advices")
+	alertRuleAdviceGroup.Use(auth.SessionAuthMiddleware())
 	{
 		alertRuleAdviceGroup.POST("", CreateAlertRuleAdvice)
 		alertRuleAdviceGroup.POST("/batch", BatchCreateAlertRuleAdvices)
@@ -135,6 +163,7 @@ func RegisterRouter(group *gin.RouterGroup) error {
 
 	// GPU Aggregation routes - GPU aggregation data query
 	gpuAggregationGroup := group.Group("/gpu-aggregation")
+	gpuAggregationGroup.Use(auth.SessionAuthMiddleware())
 	{
 		// Metadata queries
 		gpuAggregationGroup.GET("/clusters", getClusters)
@@ -161,6 +190,7 @@ func RegisterRouter(group *gin.RouterGroup) error {
 
 	// Job Execution History routes - Job execution history query
 	jobHistoryGroup := group.Group("/job-execution-histories")
+	jobHistoryGroup.Use(auth.SessionAuthMiddleware())
 	{
 		// Get recent failure records - must be defined before :id
 		jobHistoryGroup.GET("/recent-failures", GetRecentFailures)
@@ -174,6 +204,7 @@ func RegisterRouter(group *gin.RouterGroup) error {
 
 	// AI Workload Metadata routes - AI workload metadata management with conflict detection
 	aiMetadataGroup := group.Group("/ai-workload-metadata")
+	aiMetadataGroup.Use(auth.SessionAuthMiddleware())
 	{
 		// List all AI workload metadata
 		aiMetadataGroup.GET("", ListAiWorkloadMetadata)
@@ -191,6 +222,7 @@ func RegisterRouter(group *gin.RouterGroup) error {
 
 	// Detection Conflict routes - Detection conflict logs query
 	conflictGroup := group.Group("/detection-conflicts")
+	conflictGroup.Use(auth.SessionAuthMiddleware())
 	{
 		// List all recent detection conflicts across workloads
 		conflictGroup.GET("", ListAllDetectionConflicts)
@@ -198,6 +230,7 @@ func RegisterRouter(group *gin.RouterGroup) error {
 
 	// Weekly Report routes - GPU usage weekly reports
 	weeklyReportGroup := group.Group("/weekly-reports/gpu_utilization")
+	weeklyReportGroup.Use(auth.SessionAuthMiddleware())
 	{
 		// Get latest report - must be defined before :id
 		weeklyReportGroup.GET("/latest", GetLatestWeeklyReport)
@@ -213,6 +246,7 @@ func RegisterRouter(group *gin.RouterGroup) error {
 
 	// Detection Config routes - Framework log parsing configuration management
 	detectionConfigGroup := group.Group("/detection-configs")
+	detectionConfigGroup.Use(auth.SessionAuthMiddleware())
 	{
 		// Framework configuration management
 		frameworkGroup := detectionConfigGroup.Group("/frameworks")
@@ -239,6 +273,7 @@ func RegisterRouter(group *gin.RouterGroup) error {
 
 	// Profiler file routes - Download profiler file content
 	profilerGroup := group.Group("/profiler")
+	profilerGroup.Use(auth.SessionAuthMiddleware())
 	{
 		filesGroup := profilerGroup.Group("/files")
 		{
@@ -253,6 +288,7 @@ func RegisterRouter(group *gin.RouterGroup) error {
 
 	// TraceLens Session routes - On-demand trace analysis
 	tracelensGroup := group.Group("/tracelens")
+	tracelensGroup.Use(auth.SessionAuthMiddleware())
 	{
 		// Get available resource profiles
 		tracelensGroup.GET("/resource-profiles", tracelens.GetResourceProfiles)
@@ -283,6 +319,7 @@ func RegisterRouter(group *gin.RouterGroup) error {
 
 	// Perfetto Viewer routes - Lightweight trace visualization
 	perfettoGroup := group.Group("/perfetto")
+	perfettoGroup.Use(auth.SessionAuthMiddleware())
 	{
 		// Session management
 		perfettoSessionsGroup := perfettoGroup.Group("/sessions")
@@ -303,6 +340,7 @@ func RegisterRouter(group *gin.RouterGroup) error {
 
 	// Container Registry Configuration routes - Per-cluster image registry settings
 	registryGroup := group.Group("/registry")
+	registryGroup.Use(auth.SessionAuthMiddleware())
 	{
 		// Get current registry configuration
 		registryGroup.GET("/config", registry.GetRegistryConfig)
@@ -316,6 +354,7 @@ func RegisterRouter(group *gin.RouterGroup) error {
 
 	// System Configuration routes - General system configuration management
 	sysconfigGroup := group.Group("/system-config")
+	sysconfigGroup.Use(auth.SessionAuthMiddleware())
 	{
 		// List all configurations
 		sysconfigGroup.GET("", sysconfig.ListConfigs)
@@ -331,40 +370,48 @@ func RegisterRouter(group *gin.RouterGroup) error {
 
 	// Real-time Status routes - Real-time cluster status monitoring
 	realtimeGroup := group.Group("/realtime")
+	realtimeGroup.Use(auth.SessionAuthMiddleware())
 	{
 		// Get optimized real-time cluster status
 		realtimeGroup.GET("/status", getRealtimeStatus)
 		// Get currently running GPU tasks
 		realtimeGroup.GET("/running-tasks", getRunningTasks)
 	}
-  
+
 	// Detection Status routes - Framework detection status and task progress
+	// Note: /log-report endpoint is public (for telemetry-processor internal use)
 	detectionStatusGroup := group.Group("/detection-status")
 	{
-		// Summary - must be defined before :workload_uid
-		detectionStatusGroup.GET("/summary", GetDetectionSummary)
-		// Log report endpoint (for telemetry-processor)
+		// Public endpoint for telemetry-processor (no auth required)
 		detectionStatusGroup.POST("/log-report", ReportLogDetection)
+	}
+	// Protected detection status routes
+	detectionStatusProtectedGroup := group.Group("/detection-status")
+	detectionStatusProtectedGroup.Use(auth.SessionAuthMiddleware())
+	{
+		// Summary - must be defined before :workload_uid
+		detectionStatusProtectedGroup.GET("/summary", GetDetectionSummary)
 		// List all detection statuses
-		detectionStatusGroup.GET("", ListDetectionStatuses)
+		detectionStatusProtectedGroup.GET("", ListDetectionStatuses)
 		// Get detection status for a specific workload
-		detectionStatusGroup.GET("/:workload_uid", GetDetectionStatus)
+		detectionStatusProtectedGroup.GET("/:workload_uid", GetDetectionStatus)
 		// Get coverage for a workload
-		detectionStatusGroup.GET("/:workload_uid/coverage", GetDetectionCoverage)
+		detectionStatusProtectedGroup.GET("/:workload_uid/coverage", GetDetectionCoverage)
 		// Initialize coverage for a workload
-		detectionStatusGroup.POST("/:workload_uid/coverage/initialize", InitializeDetectionCoverage)
+		detectionStatusProtectedGroup.POST("/:workload_uid/coverage/initialize", InitializeDetectionCoverage)
 		// Get uncovered log window
-		detectionStatusGroup.GET("/:workload_uid/coverage/log-gap", GetUncoveredLogWindow)
+		detectionStatusProtectedGroup.GET("/:workload_uid/coverage/log-gap", GetUncoveredLogWindow)
 		// Get detection tasks for a workload
-		detectionStatusGroup.GET("/:workload_uid/tasks", GetDetectionTasks)
+		detectionStatusProtectedGroup.GET("/:workload_uid/tasks", GetDetectionTasks)
 		// Get evidence for a workload
-		detectionStatusGroup.GET("/:workload_uid/evidence", GetDetectionEvidence)
+		detectionStatusProtectedGroup.GET("/:workload_uid/evidence", GetDetectionEvidence)
 		// Manually trigger detection
-		detectionStatusGroup.POST("/:workload_uid/trigger", TriggerDetection)
+		detectionStatusProtectedGroup.POST("/:workload_uid/trigger", TriggerDetection)
 	}
 
 	// Py-Spy Profiling routes - Python profiling via py-spy
 	pyspyGroup := group.Group("/pyspy")
+	pyspyGroup.Use(auth.SessionAuthMiddleware())
 	{
 		// Create a new py-spy sampling task
 		pyspyGroup.POST("/sample", pyspy.CreateTask)
@@ -382,6 +429,7 @@ func RegisterRouter(group *gin.RouterGroup) error {
 
 	// GitHub Workflow Metrics routes - GitHub workflow metrics collection
 	githubWorkflowMetricsGroup := group.Group("/github-workflow-metrics")
+	githubWorkflowMetricsGroup.Use(auth.SessionAuthMiddleware())
 	{
 		// Config management
 		configsGroup := githubWorkflowMetricsGroup.Group("/configs")
@@ -452,6 +500,7 @@ func RegisterRouter(group *gin.RouterGroup) error {
 
 	// GitHub Runners management - AutoScalingRunnerSet discovery and analytics
 	githubRunnersGroup := group.Group("/github-runners")
+	githubRunnersGroup.Use(auth.SessionAuthMiddleware())
 	{
 		// Runner Sets - discovered AutoScalingRunnerSets
 		runnerSetsGroup := githubRunnersGroup.Group("/runner-sets")
@@ -464,6 +513,7 @@ func RegisterRouter(group *gin.RouterGroup) error {
 	// Add commit and workflow run details endpoints to existing runs group
 	// These are added to the github-workflow-metrics group
 	githubWorkflowMetricsGroupV2 := group.Group("/github-workflow-metrics")
+	githubWorkflowMetricsGroupV2.Use(auth.SessionAuthMiddleware())
 	{
 		// Config-level analytics and history
 		configsGroupV2 := githubWorkflowMetricsGroupV2.Group("/configs")
@@ -482,6 +532,26 @@ func RegisterRouter(group *gin.RouterGroup) error {
 			runsGroupV2.GET("/:id/details", GetGithubWorkflowRunDetailsAPI)
 		}
 	}
+
+	// ============================================================
+	// Auth routes - New authentication system (independent from existing APIs)
+	// These routes are under /auth, /init, /configs, /root paths
+	// They do NOT affect existing API routes above
+	// ============================================================
+
+	// Public auth routes - no authentication required
+	// Includes: POST /auth/login, POST /auth/logout, POST /auth/refresh
+	//           GET /init/status, POST /init/setup
+	auth.RegisterPublicAuthRouter(group)
+
+	// Protected auth routes - requires valid session
+	// Includes: GET /auth/me
+	auth.RegisterProtectedAuthRouter(group)
+
+	// Admin auth routes - requires admin privileges
+	// Includes: GET/PUT /auth/mode, CRUD /auth/providers/*
+	//           POST /root/change-password, CRUD /configs/*
+	auth.RegisterAdminAuthRouter(group)
 
 	return nil
 }
