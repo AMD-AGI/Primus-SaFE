@@ -210,7 +210,11 @@ func (a *SchemaAnalyzer) AnalyzeSchema(
 		}
 	}
 
-	log.Infof("SchemaAnalyzer: analysis complete - matched=%v, hash=%s", result.SchemaMatched, result.SchemaHash[:8])
+	hashPreview := result.SchemaHash
+	if len(hashPreview) > 8 {
+		hashPreview = hashPreview[:8]
+	}
+	log.Infof("SchemaAnalyzer: analysis complete - matched=%v, hash=%s", result.SchemaMatched, hashPreview)
 	return result, nil
 }
 
