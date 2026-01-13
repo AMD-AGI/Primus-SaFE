@@ -242,7 +242,11 @@ func modifyVolumeMounts(container map[string]interface{}, workload *v1.Workload,
 	if ok {
 		volumeMounts = volumeMountObjs.([]interface{})
 	}
-	volumeMounts = append(volumeMounts, buildVolumeMount(SharedMemoryVolume, "/dev/shm", "", false))
+	if v1.IsPrivileged(workload) {
+		volumeMounts = append(volumeMounts, buildVolumeMount("dev", "/dev", "", false))
+	} else {
+		volumeMounts = append(volumeMounts, buildVolumeMount(SharedMemoryVolume, "/dev/shm", "", false))
+	}
 	maxId := 0
 	if workspace != nil {
 		for _, vol := range workspace.Spec.Volumes {
@@ -308,6 +312,10 @@ func modifyVolumes(obj *unstructured.Unstructured, workload *v1.Workload, worksp
 			volumes = append(volumes, buildSecretVolume(secret.Id))
 			hasNewVolume = true
 		}
+	}
+	if v1.IsPrivileged(workload) {
+		volumes = append(volumes, buildHostPathVolume("dev", "/dev"))
+		hasNewVolume = true
 	}
 	if !hasNewVolume {
 		return nil
@@ -1019,6 +1027,9 @@ func updateContainerEnv(envs map[string]string, container map[string]interface{}
 
 // updateSharedMemory updates the shared memory volume configuration.
 func updateSharedMemory(adminWorkload *v1.Workload, obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec, id int) error {
+	if v1.IsPrivileged(adminWorkload) {
+		return nil
+	}
 	path := resourceSpec.PrePaths
 	path = append(path, resourceSpec.TemplatePaths...)
 	path = append(path, "spec", "volumes")
