@@ -58,14 +58,40 @@ type SchemaAnalysisOutput struct {
 	MatchedSchemaID *int64
 }
 
-// SchemaDefinition defines the schema structure
+// ColumnConfig defines the configuration for a single column
+type ColumnConfig struct {
+	Skip        bool   `json:"skip,omitempty"`
+	Type        string `json:"type,omitempty"`        // "dimension" or "metric"
+	DataType    string `json:"data_type,omitempty"`   // "string", "int", "float", "bool"
+	MetricKey   string `json:"metric_key,omitempty"`  // For metric columns, the key name in output
+	Description string `json:"description,omitempty"`
+}
+
+// DateColumnConfig defines the configuration for date columns in wide tables
+type DateColumnConfig struct {
+	Type       string `json:"type"`        // Usually "metric"
+	MetricKey  string `json:"metric_key"`  // e.g., "value"
+	TimeSource string `json:"time_source"` // "column_name" or "column_value"
+	DataType   string `json:"data_type"`
+}
+
+// SchemaDefinition defines the schema structure (supports both new and legacy formats)
 type SchemaDefinition struct {
-	Name            string   `json:"name"`
-	DimensionFields []string `json:"dimension_fields"`
-	MetricFields    []string `json:"metric_fields"`
-	IsWideTable     bool     `json:"is_wide_table"`
-	DateColumns     []string `json:"date_columns"`
-	TimeField       string   `json:"time_field,omitempty"` // Field name that represents time (auto-set for wide tables)
+	Name    string `json:"name"`
+	Version int    `json:"version,omitempty"`
+
+	// New column-based format
+	Columns           map[string]ColumnConfig `json:"columns,omitempty"`
+	DateColumnPattern string                  `json:"date_column_pattern,omitempty"`
+	DateColumnConfig  *DateColumnConfig       `json:"date_column_config,omitempty"`
+
+	// Legacy format (kept for backward compatibility)
+	DimensionFields []string `json:"dimension_fields,omitempty"`
+	MetricFields    []string `json:"metric_fields,omitempty"`
+	DateColumns     []string `json:"date_columns,omitempty"`
+	TimeField       string   `json:"time_field,omitempty"`
+
+	IsWideTable bool `json:"is_wide_table"`
 }
 
 // IsAvailable checks if schema analysis is available
@@ -340,6 +366,12 @@ func ComputeSchemaHash(schema *SchemaDefinition) string {
 
 // ConvertSchemaToDBModel converts a SchemaDefinition to database model
 func ConvertSchemaToDBModel(schema *SchemaDefinition, configID int64) *model.GithubWorkflowMetricSchemas {
+	// Check if using new column-based format
+	if len(schema.Columns) > 0 {
+		return convertNewSchemaToDBModel(schema, configID)
+	}
+
+	// Legacy format handling
 	// For wide tables, remove "date" from dimension_fields since it's now a time field
 	filteredDimensions := schema.DimensionFields
 	if schema.IsWideTable {
@@ -391,5 +423,89 @@ func ConvertSchemaToDBModel(schema *SchemaDefinition, configID int64) *model.Git
 		SchemaHash:      ComputeSchemaHash(schema),
 		IsActive:        true,
 		GeneratedBy:     database.SchemaGeneratedByAI,
+	}
+}
+
+// convertNewSchemaToDBModel converts a new column-based SchemaDefinition to database model
+func convertNewSchemaToDBModel(schema *SchemaDefinition, configID int64) *model.GithubWorkflowMetricSchemas {
+	// Serialize columns
+	columnsJSON, _ := json.Marshal(schema.Columns)
+
+	// Serialize date column config
+	var dateColumnConfigJSON []byte
+	if schema.DateColumnConfig != nil {
+		dateColumnConfigJSON, _ = json.Marshal(schema.DateColumnConfig)
+	} else {
+		dateColumnConfigJSON = []byte("null")
+	}
+
+	// Build legacy fields from columns for backward compatibility
+	dimensionFields := make([]string, 0)
+	metricFields := make([]string, 0)
+	fields := make([]map[string]interface{}, 0)
+
+	for colName, colConfig := range schema.Columns {
+		if colConfig.Skip {
+			continue
+		}
+		if colConfig.Type == "dimension" {
+			dimensionFields = append(dimensionFields, colName)
+			fields = append(fields, map[string]interface{}{
+				"name":         colName,
+				"type":         colConfig.DataType,
+				"is_dimension": true,
+			})
+		} else if colConfig.Type == "metric" {
+			metricKey := colConfig.MetricKey
+			if metricKey == "" {
+				metricKey = colName
+			}
+			metricFields = append(metricFields, metricKey)
+			fields = append(fields, map[string]interface{}{
+				"name":      metricKey,
+				"type":      colConfig.DataType,
+				"is_metric": true,
+			})
+		}
+	}
+
+	// For wide tables, add "value" as metric if using date columns
+	if schema.IsWideTable && schema.DateColumnConfig != nil {
+		metricKey := schema.DateColumnConfig.MetricKey
+		if metricKey == "" {
+			metricKey = "value"
+		}
+		metricFields = []string{metricKey}
+		fields = append(fields, map[string]interface{}{
+			"name":      metricKey,
+			"type":      "float",
+			"is_metric": true,
+		})
+	}
+
+	// Sort for stable output
+	sort.Strings(dimensionFields)
+	sort.Strings(metricFields)
+
+	dimensionFieldsJSON, _ := json.Marshal(dimensionFields)
+	metricFieldsJSON, _ := json.Marshal(metricFields)
+	fieldsJSON, _ := json.Marshal(fields)
+
+	return &model.GithubWorkflowMetricSchemas{
+		ConfigID:          configID,
+		Name:              schema.Name,
+		Version:           int32(schema.Version),
+		Fields:            model.ExtJSON(fieldsJSON),
+		DimensionFields:   model.ExtJSON(dimensionFieldsJSON),
+		MetricFields:      model.ExtJSON(metricFieldsJSON),
+		IsWideTable:       schema.IsWideTable,
+		DateColumns:       model.ExtJSON("[]"), // Not used in new format
+		TimeField:         "",                  // Not used in new format
+		Columns:           model.ExtJSON(columnsJSON),
+		DateColumnPattern: schema.DateColumnPattern,
+		DateColumnConfig:  model.ExtJSON(dateColumnConfigJSON),
+		SchemaHash:        ComputeSchemaHash(schema),
+		IsActive:          true,
+		GeneratedBy:       database.SchemaGeneratedByAI,
 	}
 }

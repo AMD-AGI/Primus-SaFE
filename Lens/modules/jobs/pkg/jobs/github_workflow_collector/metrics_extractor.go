@@ -65,6 +65,12 @@ func (e *MetricsExtractor) extractFromFile(
 		return nil, nil
 	}
 
+	// Check if using new column-based format
+	if len(schema.Columns) > 0 {
+		return e.extractWithColumnSchema(file, rows, schema)
+	}
+
+	// Legacy format handling
 	// Handle wide table conversion
 	if schema.IsWideTable {
 		rows = e.convertWideToLong(rows, schema)
@@ -109,6 +115,125 @@ func (e *MetricsExtractor) extractFromFile(
 		// Only add if we have at least one metric
 		if len(record.Metrics) > 0 {
 			metrics = append(metrics, record)
+		}
+	}
+
+	return metrics, nil
+}
+
+// extractWithColumnSchema extracts metrics using new column-based schema format
+func (e *MetricsExtractor) extractWithColumnSchema(
+	file *PVCFile,
+	rows []map[string]interface{},
+	schema *SchemaDefinition,
+) ([]*MetricRecord, error) {
+	var metrics []*MetricRecord
+
+	// Compile date column pattern if present
+	var dateColumnRegex *regexp.Regexp
+	if schema.DateColumnPattern != "" {
+		var err error
+		dateColumnRegex, err = regexp.Compile(schema.DateColumnPattern)
+		if err != nil {
+			log.Warnf("Invalid date_column_pattern: %v", err)
+		}
+	}
+
+	// Get all keys from first row to identify date columns
+	var dateColumns []string
+	if schema.IsWideTable && dateColumnRegex != nil && len(rows) > 0 {
+		for key := range rows[0] {
+			if dateColumnRegex.MatchString(key) {
+				dateColumns = append(dateColumns, key)
+			}
+		}
+	}
+
+	for _, row := range rows {
+		if schema.IsWideTable && len(dateColumns) > 0 {
+			// Wide table: create a record for each date column
+			baseDimensions := make(map[string]string)
+
+			// Extract dimensions from configured columns
+			for colName, colConfig := range schema.Columns {
+				if colConfig.Skip {
+					continue
+				}
+				if colConfig.Type == "dimension" {
+					if val, ok := row[colName]; ok {
+						baseDimensions[colName] = fmt.Sprintf("%v", val)
+					}
+				}
+			}
+
+			// Create a record for each date column
+			for _, dateCol := range dateColumns {
+				if val, ok := row[dateCol]; ok {
+					floatVal, err := toFloat64(val)
+					if err != nil || floatVal == 0 {
+						continue
+					}
+
+					record := &MetricRecord{
+						SourceFile: file.Path,
+						Dimensions: make(map[string]string),
+						Metrics:    make(map[string]float64),
+					}
+
+					// Copy base dimensions
+					for k, v := range baseDimensions {
+						record.Dimensions[k] = v
+					}
+
+					// Set timestamp from column name
+					if schema.DateColumnConfig != nil && schema.DateColumnConfig.TimeSource == "column_name" {
+						record.Timestamp = parseDateColumn(dateCol)
+					}
+
+					// Set metric value
+					metricKey := "value"
+					if schema.DateColumnConfig != nil && schema.DateColumnConfig.MetricKey != "" {
+						metricKey = schema.DateColumnConfig.MetricKey
+					}
+					record.Metrics[metricKey] = floatVal
+
+					metrics = append(metrics, record)
+				}
+			}
+		} else {
+			// Long table: each row is a single metric record
+			record := &MetricRecord{
+				SourceFile: file.Path,
+				Dimensions: make(map[string]string),
+				Metrics:    make(map[string]float64),
+			}
+
+			for colName, colConfig := range schema.Columns {
+				if colConfig.Skip {
+					continue
+				}
+
+				val, ok := row[colName]
+				if !ok {
+					continue
+				}
+
+				if colConfig.Type == "dimension" {
+					record.Dimensions[colName] = fmt.Sprintf("%v", val)
+				} else if colConfig.Type == "metric" {
+					metricKey := colConfig.MetricKey
+					if metricKey == "" {
+						metricKey = colName
+					}
+					if floatVal, err := toFloat64(val); err == nil {
+						record.Metrics[metricKey] = floatVal
+					}
+				}
+			}
+
+			if len(record.Metrics) > 0 {
+				metrics = append(metrics, record)
+			}
 		}
 	}
 
@@ -293,28 +418,57 @@ func (e *MetricsExtractor) ExtractMetricsFromDBSchema(
 
 // ConvertDBSchemaToDefinition converts a database schema model to SchemaDefinition
 func ConvertDBSchemaToDefinition(dbSchema *model.GithubWorkflowMetricSchemas) (*SchemaDefinition, error) {
+	schema := &SchemaDefinition{
+		Name:              dbSchema.Name,
+		Version:           int(dbSchema.Version),
+		IsWideTable:       dbSchema.IsWideTable,
+		DateColumnPattern: dbSchema.DateColumnPattern,
+	}
+
+	// Check if using new column-based format
+	if len(dbSchema.Columns) > 0 {
+		var columns map[string]ColumnConfig
+		if err := dbSchema.Columns.UnmarshalTo(&columns); err != nil {
+			log.Warnf("Failed to parse columns, falling back to legacy format: %v", err)
+		} else {
+			schema.Columns = columns
+		}
+
+		if len(dbSchema.DateColumnConfig) > 0 {
+			var dateColumnConfig DateColumnConfig
+			if err := dbSchema.DateColumnConfig.UnmarshalTo(&dateColumnConfig); err != nil {
+				log.Warnf("Failed to parse date_column_config: %v", err)
+			} else {
+				schema.DateColumnConfig = &dateColumnConfig
+			}
+		}
+
+		// If we have columns, return early (new format)
+		if schema.Columns != nil {
+			return schema, nil
+		}
+	}
+
+	// Legacy format
 	var dimensionFields []string
 	if err := dbSchema.DimensionFields.UnmarshalTo(&dimensionFields); err != nil {
 		return nil, fmt.Errorf("failed to parse dimension_fields: %w", err)
 	}
+	schema.DimensionFields = dimensionFields
 
 	var metricFields []string
 	if err := dbSchema.MetricFields.UnmarshalTo(&metricFields); err != nil {
 		return nil, fmt.Errorf("failed to parse metric_fields: %w", err)
 	}
+	schema.MetricFields = metricFields
 
 	var dateColumns []string
 	if err := dbSchema.DateColumns.UnmarshalTo(&dateColumns); err != nil {
 		// DateColumns might not exist in old schemas, ignore error
 		dateColumns = []string{}
 	}
+	schema.DateColumns = dateColumns
+	schema.TimeField = dbSchema.TimeField
 
-	return &SchemaDefinition{
-		Name:            dbSchema.Name,
-		DimensionFields: dimensionFields,
-		MetricFields:    metricFields,
-		IsWideTable:     dbSchema.IsWideTable,
-		DateColumns:     dateColumns,
-		TimeField:       dbSchema.TimeField,
-	}, nil
+	return schema, nil
 }
