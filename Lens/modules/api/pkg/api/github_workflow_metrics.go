@@ -1633,6 +1633,7 @@ func ListEphemeralRunners(ctx *gin.Context) {
 type MetricsAdvancedQueryRequest struct {
 	Start         string                 `json:"start,omitempty"`
 	End           string                 `json:"end,omitempty"`
+	SchemaID      int64                  `json:"schema_id,omitempty"` // Filter by schema ID
 	Dimensions    map[string]interface{} `json:"dimensions,omitempty"`
 	MetricFilters map[string]interface{} `json:"metric_filters,omitempty"`
 	SortBy        string                 `json:"sort_by,omitempty"`
@@ -1666,6 +1667,7 @@ func QueryGithubWorkflowMetricsAdvanced(ctx *gin.Context) {
 	// Build query
 	query := &database.MetricsAdvancedQuery{
 		ConfigID:      configID,
+		SchemaID:      req.SchemaID,
 		Dimensions:    req.Dimensions,
 		MetricFilters: req.MetricFilters,
 		SortBy:        req.SortBy,
@@ -1826,6 +1828,7 @@ func GetGithubWorkflowMetricsSummary(ctx *gin.Context) {
 type MetricsTrendsRequest struct {
 	Start        string                 `json:"start,omitempty"`
 	End          string                 `json:"end,omitempty"`
+	SchemaID     int64                  `json:"schema_id,omitempty"` // Filter by schema ID
 	Dimensions   map[string]interface{} `json:"dimensions,omitempty"`
 	MetricFields []string               `json:"metric_fields" binding:"required"`
 	Interval     string                 `json:"interval,omitempty"` // 1h, 6h, 1d
@@ -1857,6 +1860,7 @@ func GetGithubWorkflowMetricsTrends(ctx *gin.Context) {
 	// Build query
 	query := &database.MetricsTrendsQuery{
 		ConfigID:     configID,
+		SchemaID:     req.SchemaID,
 		Dimensions:   req.Dimensions,
 		MetricFields: req.MetricFields,
 		Interval:     req.Interval,
