@@ -186,6 +186,28 @@ func (a *SchemaAnalyzer) AnalyzeSchema(
 			IsWideTable:     output.Schema.IsWideTable,
 			DateColumns:     output.Schema.DateColumns,
 		}
+		// Copy new column-based format fields
+		if output.Schema.Columns != nil {
+			result.Schema.Columns = make(map[string]ColumnConfig)
+			for k, v := range output.Schema.Columns {
+				result.Schema.Columns[k] = ColumnConfig{
+					Skip:        v.Skip,
+					Type:        v.Type,
+					DataType:    v.DataType,
+					MetricKey:   v.MetricKey,
+					Description: v.Description,
+				}
+			}
+		}
+		result.Schema.DateColumnPattern = output.Schema.DateColumnPattern
+		if output.Schema.DateColumnConfig != nil {
+			result.Schema.DateColumnConfig = &DateColumnConfig{
+				Type:       output.Schema.DateColumnConfig.Type,
+				MetricKey:  output.Schema.DateColumnConfig.MetricKey,
+				TimeSource: output.Schema.DateColumnConfig.TimeSource,
+				DataType:   output.Schema.DateColumnConfig.DataType,
+			}
+		}
 	}
 
 	log.Infof("SchemaAnalyzer: analysis complete - matched=%v, hash=%s", result.SchemaMatched, result.SchemaHash[:8])
