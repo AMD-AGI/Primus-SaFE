@@ -11,15 +11,16 @@ import (
 )
 
 const (
-	callerKeyword = "primus-lens"
+	callerKeyword = "primus-safe"
 )
 
 var (
 	callerIgnoresRegex = []*regexp.Regexp{
-		regexp.MustCompile(`^primus-lens/[^*]+/database/[^*]+/dal[^*]+$`),
+		// Ignore DAL layer calls in primus-safe
+		regexp.MustCompile(`^primus-safe/[^*]+/database/[^*]+/dal[^*]+$`),
 	}
 	packagePrefixList = []string{
-		"github.com/AMD-AGI/Primus-SaFE/Lens",
+		"github.com/AMD-AGI/Primus-SaFE/SaFE",
 	}
 )
 

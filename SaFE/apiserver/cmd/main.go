@@ -14,10 +14,10 @@ import (
 )
 
 func main() {
-	// 初始化 tracer
+	// Initialize tracer
 	if err := trace.InitTracer("primus-safe-apiserver"); err != nil {
 		klog.Warningf("Failed to init tracer: %v", err)
-		// 不阻塞启动，降级为无 tracing
+		// Don't block startup, gracefully degrade to no tracing
 	}
 	defer trace.CloseTracer()
 
