@@ -242,12 +242,7 @@ func modifyVolumeMounts(container map[string]interface{}, workload *v1.Workload,
 	if ok {
 		volumeMounts = volumeMountObjs.([]interface{})
 	}
-	if v1.IsPrivileged(workload) {
-		volumeMounts = append(volumeMounts, buildVolumeMount("host-dev", "/host-dev", "", false))
-		volumeMounts = append(volumeMounts, buildVolumeMount("host-sys", "/host-sys", "", false))
-	} else {
-		volumeMounts = append(volumeMounts, buildVolumeMount(SharedMemoryVolume, "/dev/shm", "", false))
-	}
+	volumeMounts = append(volumeMounts, buildVolumeMount(SharedMemoryVolume, "/dev/shm", "", false))
 	maxId := 0
 	if workspace != nil {
 		for _, vol := range workspace.Spec.Volumes {
@@ -313,11 +308,6 @@ func modifyVolumes(obj *unstructured.Unstructured, workload *v1.Workload, worksp
 			volumes = append(volumes, buildSecretVolume(secret.Id))
 			hasNewVolume = true
 		}
-	}
-	if v1.IsPrivileged(workload) {
-		volumes = append(volumes, buildHostPathVolume("host-dev", "/dev"))
-		volumes = append(volumes, buildHostPathVolume("host-sys", "/sys"))
-		hasNewVolume = true
 	}
 	if !hasNewVolume {
 		return nil

@@ -793,9 +793,6 @@ func (h *Handler) generateWorkload(ctx context.Context,
 			v1.SetLabel(workload, v1.UserIdLabel, req.UserEntity.Id)
 			v1.SetAnnotation(workload, v1.UserNameAnnotation, req.UserEntity.Name)
 		}
-		if req.Privileged {
-			v1.SetAnnotation(workload, v1.WorkloadPrivilegedAnnotation, v1.TrueStr)
-		}
 	}
 	return workload, nil
 }
