@@ -149,9 +149,28 @@ func (p *ErrorOnlySpanProcessor) Shutdown(ctx context.Context) error {
 	return p.exporter.Shutdown(ctx)
 }
 
-// ForceFlush forces flush of pending spans
+// ForceFlush forces flush of pending error spans without shutting down the exporter
 func (p *ErrorOnlySpanProcessor) ForceFlush(ctx context.Context) error {
-	return p.exporter.Shutdown(ctx)
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	// Export any traces that contain errors
+	for traceID, spans := range p.traces {
+		hasError := false
+		for _, span := range spans {
+			if span.Status().Code == codes.Error {
+				hasError = true
+				break
+			}
+		}
+		if hasError && p.shouldSample() {
+			if err := p.exporter.ExportSpans(ctx, spans); err != nil {
+				return err
+			}
+		}
+		delete(p.traces, traceID)
+	}
+	return nil
 }
 
 // SampledSpanProcessor wraps a SpanProcessor with sampling ratio
