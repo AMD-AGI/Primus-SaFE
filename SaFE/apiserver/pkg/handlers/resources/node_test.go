@@ -22,6 +22,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/utils/pointer"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -256,4 +257,179 @@ func TestBuildNodeLabelSelector(t *testing.T) {
 	query.WorkspaceId = pointer.String("")
 	selector, _ = buildNodeLabelSelector(&query)
 	assert.Equal(t, selector.String(), fmt.Sprintf("%s=%s,!%s", v1.ClusterIdLabel, "cl", v1.WorkspaceIdLabel))
+}
+
+func genMockNodeWithPhase(clusterID string, phase v1.NodePhase, isMachineReady bool) *v1.Node {
+	node := &v1.Node{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       v1.NodeKind,
+			APIVersion: v1.SchemeGroupVersion.String(),
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name: commonutils.GenerateName("node"),
+			Labels: map[string]string{
+				v1.ClusterIdLabel: clusterID,
+			},
+		},
+		Spec: v1.NodeSpec{
+			Cluster: pointer.String(clusterID),
+		},
+		Status: v1.NodeStatus{
+			ClusterStatus: v1.NodeClusterStatus{
+				Phase: phase,
+			},
+		},
+	}
+	if isMachineReady {
+		node.Status.MachineStatus.Phase = v1.NodeReady
+	}
+	return node
+}
+
+func getTestScheme() *runtime.Scheme {
+	s := runtime.NewScheme()
+	_ = scheme.AddToScheme(s)
+	_ = corev1.AddToScheme(s)
+	return s
+}
+
+func TestRetryNode_ManagedFailed_Success(t *testing.T) {
+	clusterID := "test-cluster"
+	user := genMockUser()
+	role := genMockRole()
+	node := genMockNodeWithPhase(clusterID, v1.NodeManagedFailed, true)
+
+	fakeClient := fake.NewClientBuilder().
+		WithObjects(node, user, role).
+		WithStatusSubresource(node).
+		WithScheme(getTestScheme()).Build()
+
+	h := Handler{Client: fakeClient, accessController: authority.NewAccessController(fakeClient)}
+	rsp := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rsp)
+	c.Set(common.UserId, user.Name)
+	c.Set(common.Name, node.Name)
+	c.Request = httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/nodes/%s/retry", node.Name), nil)
+
+	h.RetryNode(c)
+
+	assert.Equal(t, rsp.Code, http.StatusOK)
+
+	result := &view.RetryNodeResponse{}
+	err := json.Unmarshal(rsp.Body.Bytes(), &result)
+	assert.NilError(t, err)
+	assert.Equal(t, result.NodeId, node.Name)
+	assert.Equal(t, result.PreviousPhase, string(v1.NodeManagedFailed))
+	assert.Equal(t, result.CurrentPhase, string(v1.NodeManaging))
+
+	// Verify node status was updated
+	updatedNode, err := h.getAdminNode(context.Background(), node.Name)
+	assert.NilError(t, err)
+	assert.Equal(t, updatedNode.Status.ClusterStatus.Phase, v1.NodeManaging)
+}
+
+func TestRetryNode_UnmanagedFailed_Success(t *testing.T) {
+	clusterID := "test-cluster"
+	user := genMockUser()
+	role := genMockRole()
+	node := genMockNodeWithPhase(clusterID, v1.NodeUnmanagedFailed, true)
+
+	fakeClient := fake.NewClientBuilder().
+		WithObjects(node, user, role).
+		WithStatusSubresource(node).
+		WithScheme(getTestScheme()).Build()
+
+	h := Handler{Client: fakeClient, accessController: authority.NewAccessController(fakeClient)}
+	rsp := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rsp)
+	c.Set(common.UserId, user.Name)
+	c.Set(common.Name, node.Name)
+	c.Request = httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/nodes/%s/retry", node.Name), nil)
+
+	h.RetryNode(c)
+
+	assert.Equal(t, rsp.Code, http.StatusOK)
+
+	result := &view.RetryNodeResponse{}
+	err := json.Unmarshal(rsp.Body.Bytes(), &result)
+	assert.NilError(t, err)
+	assert.Equal(t, result.NodeId, node.Name)
+	assert.Equal(t, result.PreviousPhase, string(v1.NodeUnmanagedFailed))
+	assert.Equal(t, result.CurrentPhase, string(v1.NodeUnmanaging))
+
+	// Verify node status was updated
+	updatedNode, err := h.getAdminNode(context.Background(), node.Name)
+	assert.NilError(t, err)
+	assert.Equal(t, updatedNode.Status.ClusterStatus.Phase, v1.NodeUnmanaging)
+}
+
+func TestRetryNode_NotInFailedState(t *testing.T) {
+	clusterID := "test-cluster"
+	user := genMockUser()
+	role := genMockRole()
+	node := genMockNodeWithPhase(clusterID, v1.NodeManaged, true)
+
+	fakeClient := fake.NewClientBuilder().
+		WithObjects(node, user, role).
+		WithScheme(scheme.Scheme).Build()
+
+	h := Handler{Client: fakeClient, accessController: authority.NewAccessController(fakeClient)}
+	rsp := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rsp)
+	c.Set(common.UserId, user.Name)
+	c.Set(common.Name, node.Name)
+	c.Request = httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/nodes/%s/retry", node.Name), nil)
+
+	h.RetryNode(c)
+
+	assert.Equal(t, rsp.Code, http.StatusBadRequest)
+	assert.Assert(t, strings.Contains(rsp.Body.String(), "not in a failed state"))
+}
+
+func TestRetryNode_MachineNotReady(t *testing.T) {
+	clusterID := "test-cluster"
+	user := genMockUser()
+	role := genMockRole()
+	node := genMockNodeWithPhase(clusterID, v1.NodeManagedFailed, false) // machine not ready
+
+	fakeClient := fake.NewClientBuilder().
+		WithObjects(node, user, role).
+		WithScheme(scheme.Scheme).Build()
+
+	h := Handler{Client: fakeClient, accessController: authority.NewAccessController(fakeClient)}
+	rsp := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rsp)
+	c.Set(common.UserId, user.Name)
+	c.Set(common.Name, node.Name)
+	c.Request = httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/nodes/%s/retry", node.Name), nil)
+
+	h.RetryNode(c)
+
+	assert.Equal(t, rsp.Code, http.StatusBadRequest)
+	assert.Assert(t, strings.Contains(rsp.Body.String(), "machine is not ready"))
+}
+
+func TestRetryNode_ControlPlaneCannotUnmanage(t *testing.T) {
+	clusterID := "test-cluster"
+	user := genMockUser()
+	role := genMockRole()
+	node := genMockNodeWithPhase(clusterID, v1.NodeUnmanagedFailed, true)
+	// Mark node as control plane
+	metav1.SetMetaDataLabel(&node.ObjectMeta, v1.KubernetesControlPlane, "")
+
+	fakeClient := fake.NewClientBuilder().
+		WithObjects(node, user, role).
+		WithScheme(scheme.Scheme).Build()
+
+	h := Handler{Client: fakeClient, accessController: authority.NewAccessController(fakeClient)}
+	rsp := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rsp)
+	c.Set(common.UserId, user.Name)
+	c.Set(common.Name, node.Name)
+	c.Request = httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/nodes/%s/retry", node.Name), nil)
+
+	h.RetryNode(c)
+
+	assert.Equal(t, rsp.Code, http.StatusBadRequest)
+	assert.Assert(t, strings.Contains(rsp.Body.String(), "control plane node cannot be unmanaged"))
 }
