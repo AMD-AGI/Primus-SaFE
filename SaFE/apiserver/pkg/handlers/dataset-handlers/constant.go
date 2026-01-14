@@ -16,11 +16,6 @@ const (
 	DatasetTypeOther      = "other"      // Other dataset
 )
 
-// Dataset status constants
-const (
-	DatasetStatusReady = "Ready" // Dataset is ready for use
-)
-
 // S3 path prefix for datasets
 const (
 	DatasetS3Prefix = "datasets"

@@ -160,7 +160,7 @@ func (h *Handler) createDataset(c *gin.Context) (interface{}, error) {
 			localPaths = append(localPaths, dbclient.DatasetLocalPathDB{
 				Workspace: target.Workspace,
 				Path:      target.Path + "/datasets/" + req.DisplayName,
-				Status:    dbclient.DatasetDownloadStatusPending,
+				Status:    dbclient.DatasetStatusPending,
 			})
 		}
 		if jsonBytes, err := json.Marshal(localPaths); err == nil {
@@ -171,22 +171,21 @@ func (h *Handler) createDataset(c *gin.Context) (interface{}, error) {
 	// Create dataset record in database
 	now := pq.NullTime{Time: time.Now().UTC(), Valid: true}
 	dataset := &dbclient.Dataset{
-		DatasetId:      datasetId,
-		DisplayName:    req.DisplayName,
-		Description:    req.Description,
-		DatasetType:    req.DatasetType,
-		Status:         DatasetStatusReady,
-		DownloadStatus: dbclient.DatasetDownloadStatusPending,
-		S3Path:         s3Path,
-		TotalSize:      totalSize,
-		FileCount:      fileCount,
-		LocalPaths:     localPathsJSON,
-		Workspace:      req.Workspace, // Workspace ID for access control, empty means public
-		UserId:         userId,
-		UserName:       userName,
-		CreationTime:   now,
-		UpdateTime:     now,
-		IsDeleted:      false,
+		DatasetId:   datasetId,
+		DisplayName: req.DisplayName,
+		Description: req.Description,
+		DatasetType: req.DatasetType,
+		Status:      dbclient.DatasetStatusPending, // Initial status is Pending, will be updated by Controller
+		S3Path:      s3Path,
+		TotalSize:   totalSize,
+		FileCount:   fileCount,
+		LocalPaths:  localPathsJSON,
+		Workspace:   req.Workspace, // Workspace ID for access control, empty means public
+		UserId:      userId,
+		UserName:    userName,
+		CreationTime: now,
+		UpdateTime:   now,
+		IsDeleted:   false,
 	}
 
 	if err := h.dbClient.UpsertDataset(context.Background(), dataset); err != nil {
@@ -488,20 +487,19 @@ func getContentType(filePath string) string {
 // convertToDatasetResponse converts a database dataset to response format.
 func convertToDatasetResponse(ds *dbclient.Dataset) DatasetResponse {
 	resp := DatasetResponse{
-		DatasetId:      ds.DatasetId,
-		DisplayName:    ds.DisplayName,
-		Description:    ds.Description,
-		DatasetType:    ds.DatasetType,
-		Status:         ds.Status,
-		DownloadStatus: ds.DownloadStatus,
-		S3Path:         ds.S3Path,
-		TotalSize:      ds.TotalSize,
-		TotalSizeStr:   formatFileSize(ds.TotalSize),
-		FileCount:      ds.FileCount,
-		Message:        ds.Message,
-		Workspace:      ds.Workspace,
-		UserId:         ds.UserId,
-		UserName:       ds.UserName,
+		DatasetId:    ds.DatasetId,
+		DisplayName:  ds.DisplayName,
+		Description:  ds.Description,
+		DatasetType:  ds.DatasetType,
+		Status:       ds.Status,
+		S3Path:       ds.S3Path,
+		TotalSize:    ds.TotalSize,
+		TotalSizeStr: formatFileSize(ds.TotalSize),
+		FileCount:    ds.FileCount,
+		Message:      ds.Message,
+		Workspace:    ds.Workspace,
+		UserId:       ds.UserId,
+		UserName:     ds.UserName,
 	}
 
 	if ds.CreationTime.Valid {
@@ -511,7 +509,7 @@ func convertToDatasetResponse(ds *dbclient.Dataset) DatasetResponse {
 		resp.UpdateTime = &ds.UpdateTime.Time
 	}
 
-	// Parse LocalPaths and generate DownloadMessage
+	// Parse LocalPaths and generate StatusMessage
 	if ds.LocalPaths != "" {
 		var dbLocalPaths []dbclient.DatasetLocalPathDB
 		if err := json.Unmarshal([]byte(ds.LocalPaths), &dbLocalPaths); err == nil {
@@ -524,13 +522,13 @@ func convertToDatasetResponse(ds *dbclient.Dataset) DatasetResponse {
 					Status:    lp.Status,
 					Message:   lp.Message,
 				})
-				if lp.Status == dbclient.DatasetDownloadStatusReady {
+				if lp.Status == dbclient.DatasetStatusReady {
 					readyCount++
 				}
 			}
 			resp.LocalPaths = localPaths
 			if len(localPaths) > 0 {
-				resp.DownloadMessage = fmt.Sprintf("%d/%d workspaces completed", readyCount, len(localPaths))
+				resp.StatusMessage = fmt.Sprintf("%d/%d workspaces completed", readyCount, len(localPaths))
 			}
 		}
 	}

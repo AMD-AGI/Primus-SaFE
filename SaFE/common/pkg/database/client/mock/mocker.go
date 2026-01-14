@@ -3341,20 +3341,6 @@ func (mr *MockInterfaceMockRecorder) UpdateDatasetStatus(ctx, datasetId, status,
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateDatasetStatus", reflect.TypeOf((*MockInterface)(nil).UpdateDatasetStatus), ctx, datasetId, status, message)
 }
 
-// UpdateDatasetDownloadStatus mocks base method.
-func (m *MockInterface) UpdateDatasetDownloadStatus(ctx context.Context, datasetId, downloadStatus string) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UpdateDatasetDownloadStatus", ctx, datasetId, downloadStatus)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// UpdateDatasetDownloadStatus indicates an expected call of UpdateDatasetDownloadStatus.
-func (mr *MockInterfaceMockRecorder) UpdateDatasetDownloadStatus(ctx, datasetId, downloadStatus interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateDatasetDownloadStatus", reflect.TypeOf((*MockInterface)(nil).UpdateDatasetDownloadStatus), ctx, datasetId, downloadStatus)
-}
-
 // UpdateDatasetLocalPath mocks base method.
 func (m *MockInterface) UpdateDatasetLocalPath(ctx context.Context, datasetId, workspace, status, message string) error {
 	m.ctrl.T.Helper()

@@ -30,7 +30,6 @@ var (
 		    description = :description,
 		    dataset_type = :dataset_type,
 		    status = :status,
-		    download_status = :download_status,
 		    s3_path = :s3_path,
 		    total_size = :total_size,
 		    file_count = :file_count,
@@ -40,12 +39,12 @@ var (
 		WHERE dataset_id = :dataset_id`, TDataset)
 )
 
-// Dataset download status constants
+// Dataset status constants
 const (
-	DatasetDownloadStatusPending     = "Pending"     // Download not started
-	DatasetDownloadStatusDownloading = "Downloading" // Download in progress
-	DatasetDownloadStatusReady       = "Ready"       // Download completed successfully
-	DatasetDownloadStatusFailed      = "Failed"      // Download failed
+	DatasetStatusPending     = "Pending"     // Upload completed, waiting for download to workspace
+	DatasetStatusDownloading = "Downloading" // Download in progress
+	DatasetStatusReady       = "Ready"       // Download completed successfully
+	DatasetStatusFailed      = "Failed"      // Download failed
 )
 
 // Dataset label for OpsJob
@@ -199,23 +198,8 @@ func (c *Client) UpdateDatasetFileInfo(ctx context.Context, datasetId string, to
 	return nil
 }
 
-// UpdateDatasetDownloadStatus updates the download status of a dataset.
-func (c *Client) UpdateDatasetDownloadStatus(ctx context.Context, datasetId, downloadStatus string) error {
-	db, err := c.getDB()
-	if err != nil {
-		return err
-	}
-	cmd := fmt.Sprintf(`UPDATE %s SET download_status=$1, update_time=$2 WHERE dataset_id=$3`, TDataset)
-	_, err = db.ExecContext(ctx, cmd, downloadStatus, time.Now().UTC(), datasetId)
-	if err != nil {
-		klog.ErrorS(err, "failed to update dataset download status", "DatasetId", datasetId, "DownloadStatus", downloadStatus)
-		return err
-	}
-	return nil
-}
-
 // UpdateDatasetLocalPath updates a specific workspace's download status in local_paths.
-// It also recalculates the overall download_status based on all workspaces.
+// It also recalculates the overall status based on all workspaces.
 // Logic: Any Ready -> Ready, Any Downloading -> Downloading, All Failed -> Failed
 func (c *Client) UpdateDatasetLocalPath(ctx context.Context, datasetId, workspace, status, message string) error {
 	db, err := c.getDB()
@@ -262,8 +246,8 @@ func (c *Client) UpdateDatasetLocalPath(ctx context.Context, datasetId, workspac
 		})
 	}
 
-	// Calculate overall download_status
-	overallStatus := calculateOverallDownloadStatus(localPaths)
+	// Calculate overall status
+	overallStatus := calculateOverallStatus(localPaths)
 
 	// Marshal local_paths back to JSON
 	localPathsJSON, err := json.Marshal(localPaths)
@@ -272,8 +256,8 @@ func (c *Client) UpdateDatasetLocalPath(ctx context.Context, datasetId, workspac
 		return err
 	}
 
-	// Update database
-	cmd := fmt.Sprintf(`UPDATE %s SET local_paths=$1, download_status=$2, update_time=$3 WHERE dataset_id=$4`, TDataset)
+	// Update database - update both local_paths and status
+	cmd := fmt.Sprintf(`UPDATE %s SET local_paths=$1, status=$2, update_time=$3 WHERE dataset_id=$4`, TDataset)
 	_, err = db.ExecContext(ctx, cmd, string(localPathsJSON), overallStatus, time.Now().UTC(), datasetId)
 	if err != nil {
 		klog.ErrorS(err, "failed to update dataset local path", "DatasetId", datasetId, "Workspace", workspace)
@@ -284,11 +268,11 @@ func (c *Client) UpdateDatasetLocalPath(ctx context.Context, datasetId, workspac
 	return nil
 }
 
-// calculateOverallDownloadStatus calculates the overall download status from all workspace statuses.
+// calculateOverallStatus calculates the overall status from all workspace statuses.
 // Logic: Any Ready -> Ready, Any Downloading -> Downloading, All Failed -> Failed
-func calculateOverallDownloadStatus(localPaths []DatasetLocalPathDB) string {
+func calculateOverallStatus(localPaths []DatasetLocalPathDB) string {
 	if len(localPaths) == 0 {
-		return DatasetDownloadStatusPending
+		return DatasetStatusPending
 	}
 
 	hasReady := false
@@ -297,26 +281,26 @@ func calculateOverallDownloadStatus(localPaths []DatasetLocalPathDB) string {
 
 	for _, lp := range localPaths {
 		switch lp.Status {
-		case DatasetDownloadStatusReady:
+		case DatasetStatusReady:
 			hasReady = true
 			allFailed = false
-		case DatasetDownloadStatusDownloading:
+		case DatasetStatusDownloading:
 			hasDownloading = true
 			allFailed = false
-		case DatasetDownloadStatusPending:
+		case DatasetStatusPending:
 			allFailed = false
 		}
 	}
 
 	// Priority: Ready > Downloading > Failed > Pending
 	if hasReady {
-		return DatasetDownloadStatusReady
+		return DatasetStatusReady
 	}
 	if hasDownloading {
-		return DatasetDownloadStatusDownloading
+		return DatasetStatusDownloading
 	}
 	if allFailed {
-		return DatasetDownloadStatusFailed
+		return DatasetStatusFailed
 	}
-	return DatasetDownloadStatusPending
+	return DatasetStatusPending
 }

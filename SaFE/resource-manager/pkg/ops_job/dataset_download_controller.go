@@ -99,7 +99,7 @@ func opsJobPhaseChangedPredicate() predicate.Predicate {
 	}
 }
 
-// Reconcile handles OpsJob status changes and updates dataset download status per workspace.
+// Reconcile handles OpsJob status changes and updates dataset status per workspace.
 func (r *DatasetDownloadController) Reconcile(ctx context.Context, req ctrlruntime.Request) (ctrlruntime.Result, error) {
 	// Get the OpsJob
 	job := &v1.OpsJob{}
@@ -121,27 +121,27 @@ func (r *DatasetDownloadController) Reconcile(ctx context.Context, req ctrlrunti
 		return ctrlruntime.Result{}, nil
 	}
 
-	// Map OpsJob phase to download status
-	downloadStatus := mapOpsJobPhaseToDownloadStatus(job.Status.Phase)
-	if downloadStatus == "" {
+	// Map OpsJob phase to dataset status
+	status := mapOpsJobPhaseToDatasetStatus(job.Status.Phase)
+	if status == "" {
 		// Unknown phase, skip
 		return ctrlruntime.Result{}, nil
 	}
 
 	// Get failure message if failed
 	var message string
-	if downloadStatus == dbclient.DatasetDownloadStatusFailed {
+	if status == dbclient.DatasetStatusFailed {
 		message = extractOpsJobFailureMessage(job)
 	}
 
 	// Update per-workspace status in database (this also recalculates overall status)
-	if err := r.dbClient.UpdateDatasetLocalPath(ctx, datasetId, workspace, downloadStatus, message); err != nil {
+	if err := r.dbClient.UpdateDatasetLocalPath(ctx, datasetId, workspace, status, message); err != nil {
 		klog.ErrorS(err, "failed to update dataset local path status",
 			"datasetId", datasetId,
 			"workspace", workspace,
 			"opsJobName", job.Name,
 			"opsJobPhase", job.Status.Phase,
-			"downloadStatus", downloadStatus)
+			"status", status)
 		// Requeue to retry
 		return ctrlruntime.Result{Requeue: true}, nil
 	}
@@ -151,24 +151,24 @@ func (r *DatasetDownloadController) Reconcile(ctx context.Context, req ctrlrunti
 		"workspace", workspace,
 		"opsJobName", job.Name,
 		"opsJobPhase", job.Status.Phase,
-		"downloadStatus", downloadStatus)
+		"status", status)
 
 	return ctrlruntime.Result{}, nil
 }
 
-// mapOpsJobPhaseToDownloadStatus converts OpsJob phase to dataset download status.
-func mapOpsJobPhaseToDownloadStatus(phase v1.OpsJobPhase) string {
+// mapOpsJobPhaseToDatasetStatus converts OpsJob phase to dataset status.
+func mapOpsJobPhaseToDatasetStatus(phase v1.OpsJobPhase) string {
 	switch phase {
 	case v1.OpsJobPending:
-		return dbclient.DatasetDownloadStatusPending
+		return dbclient.DatasetStatusPending
 	case v1.OpsJobRunning:
-		return dbclient.DatasetDownloadStatusDownloading
+		return dbclient.DatasetStatusDownloading
 	case v1.OpsJobSucceeded:
-		return dbclient.DatasetDownloadStatusReady
+		return dbclient.DatasetStatusReady
 	case v1.OpsJobFailed:
-		return dbclient.DatasetDownloadStatusFailed
+		return dbclient.DatasetStatusFailed
 	default:
-		return dbclient.DatasetDownloadStatusPending
+		return dbclient.DatasetStatusPending
 	}
 }
 

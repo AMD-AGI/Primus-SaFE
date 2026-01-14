@@ -428,7 +428,7 @@ data:
         display_name VARCHAR(128) NOT NULL,
         description TEXT,
         dataset_type VARCHAR(32) NOT NULL,
-        status VARCHAR(32) NOT NULL DEFAULT 'Ready',
+        status VARCHAR(32) NOT NULL DEFAULT 'Pending',
         s3_path VARCHAR(512) NOT NULL,
         total_size BIGINT DEFAULT 0,
         file_count INT DEFAULT 0,
@@ -445,9 +445,6 @@ data:
     create index if not exists T_DATASET_USER_ID_INDEX on dataset (user_id);
     create index if not exists T_DATASET_TYPE_INDEX on dataset (dataset_type);
     create index if not exists T_DATASET_IS_DELETED_INDEX on dataset (is_deleted);
-
-    -- Add download_status column for tracking download to workspace PFS
-    ALTER TABLE dataset ADD COLUMN IF NOT EXISTS download_status VARCHAR(32) DEFAULT 'Pending';
 
     -- Add local_paths column for tracking per-workspace download status
     ALTER TABLE dataset ADD COLUMN IF NOT EXISTS local_paths JSONB DEFAULT '[]';
