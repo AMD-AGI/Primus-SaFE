@@ -16,7 +16,7 @@ Provides retry functionality for failed node manage/unmanage operations, allowin
 - ✅ Support retry for failed manage operations
 - ✅ Support retry for failed unmanage operations
 - ✅ Automatic cleanup of failed Pods
-- ✅ Pre-condition checks (machine ready, workspace unbound, etc.)
+- ✅ Pre-condition checks (machine ready, control plane check, etc.)
 - ✅ Access control (same as manage operation)
 
 ---
@@ -79,7 +79,6 @@ No request body required.
 | 400 | Primus.00002 | node is not in a failed state | Node is not in failed state |
 | 400 | Primus.00002 | machine is not ready, please wait and try again | Machine not ready (manage retry) |
 | 400 | Primus.00002 | control plane node cannot be unmanaged | Control plane node cannot be unmanaged |
-| 400 | Primus.00002 | node is still bound to a workspace, please unbind first | Workspace not unbound (unmanage retry) |
 | 400 | Primus.00002 | cannot determine cluster ID for retry operation | Cannot determine cluster ID |
 | 403 | Primus.00004 | Forbidden | User has no permission for this operation |
 | 404 | Primus.00005 | node not found | Node does not exist |
@@ -110,7 +109,6 @@ No request body required.
 | Check Item | Condition | Error Message |
 |------------|-----------|---------------|
 | Not control plane | `IsControlPlane(node) == false` | control plane node cannot be unmanaged |
-| Workspace unbound | `GetWorkspaceId(node) == ""` | node is still bound to a workspace, please unbind first |
 
 ---
 
@@ -239,9 +237,6 @@ const handleRetry = async (nodeName) => {
         case 'machine is not ready, please wait and try again':
           showWarning('Machine is not ready, please try again later');
           break;
-        case 'node is still bound to a workspace, please unbind first':
-          showWarning('Please unbind the workspace first');
-          break;
         case 'control plane node cannot be unmanaged':
           showError('Control plane node cannot be unmanaged');
           break;
@@ -334,7 +329,7 @@ curl -X POST "http://localhost:8088/api/v1/nodes/node-1/retry" \
 2. **State Check**: Confirm node is in `ManagedFailed` or `UnmanagedFailed` state
 3. **Pre-condition Checks**:
    - Manage retry: `IsMachineReady()`
-   - Unmanage retry: `!IsControlPlane()` && `GetWorkspaceId() == ""`
+   - Unmanage retry: `!IsControlPlane()`
 4. **Cleanup Pods**: Delete previously failed KubeSpray Pods
 5. **Reset Status**: Change state to `Managing` or `Unmanaging`
 6. **Controller Takes Over**: State change triggers Controller to re-execute manage/unmanage

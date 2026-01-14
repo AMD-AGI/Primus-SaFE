@@ -142,11 +142,11 @@ func (h *Handler) retryNode(c *gin.Context) (interface{}, error) {
 	}
 
 	// Determine the cluster ID
-	clusterId := node.GetSpecCluster()
-	if clusterId == "" {
-		clusterId = v1.GetClusterId(node)
+	clusterID := node.GetSpecCluster()
+	if clusterID == "" {
+		clusterID = v1.GetClusterId(node)
 	}
-	if clusterId == "" {
+	if clusterID == "" {
 		return nil, commonerrors.NewBadRequest("cannot determine cluster ID for retry operation")
 	}
 
@@ -162,9 +162,6 @@ func (h *Handler) retryNode(c *gin.Context) (interface{}, error) {
 		action = string(v1.ClusterScaleUpAction)
 		newPhase = v1.NodeManaging
 	case v1.NodeUnmanagedFailed:
-		// For unmanage retry: check control plane
-		// Note: workspace binding is not checked here because the initial unmanage request
-		// already handles workspace cleanup via removeNodesFromWorkspace()
 		if v1.IsControlPlane(node) {
 			return nil, commonerrors.NewBadRequest("control plane node cannot be unmanaged")
 		}
@@ -173,7 +170,7 @@ func (h *Handler) retryNode(c *gin.Context) (interface{}, error) {
 	}
 
 	// Delete the failed pod(s)
-	if err = h.deleteNodeManagementPods(ctx, clusterId, node.Name, action); err != nil {
+	if err = h.deleteNodeManagementPods(ctx, clusterID, node.Name, action); err != nil {
 		klog.ErrorS(err, "failed to delete pods for retry", "node", nodeName, "action", action)
 		return nil, commonerrors.NewInternalError("failed to delete failed pods: " + err.Error())
 	}
@@ -197,9 +194,9 @@ func (h *Handler) retryNode(c *gin.Context) (interface{}, error) {
 }
 
 // deleteNodeManagementPods deletes all pods associated with a node's management operation.
-func (h *Handler) deleteNodeManagementPods(ctx context.Context, clusterId, nodeName, action string) error {
+func (h *Handler) deleteNodeManagementPods(ctx context.Context, clusterID, nodeName, action string) error {
 	labelSelector := client.MatchingLabels{
-		v1.ClusterManageClusterLabel: clusterId,
+		v1.ClusterManageClusterLabel: clusterID,
 		v1.ClusterManageNodeLabel:    nodeName,
 		v1.ClusterManageActionLabel:  action,
 	}
