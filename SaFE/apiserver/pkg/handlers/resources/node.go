@@ -162,12 +162,11 @@ func (h *Handler) retryNode(c *gin.Context) (interface{}, error) {
 		action = string(v1.ClusterScaleUpAction)
 		newPhase = v1.NodeManaging
 	case v1.NodeUnmanagedFailed:
-		// For unmanage retry: check control plane and workspace binding
+		// For unmanage retry: check control plane
+		// Note: workspace binding is not checked here because the initial unmanage request
+		// already handles workspace cleanup via removeNodesFromWorkspace()
 		if v1.IsControlPlane(node) {
 			return nil, commonerrors.NewBadRequest("control plane node cannot be unmanaged")
-		}
-		if v1.GetWorkspaceId(node) != "" {
-			return nil, commonerrors.NewBadRequest("node is still bound to a workspace, please unbind first")
 		}
 		action = string(v1.ClusterScaleDownAction)
 		newPhase = v1.NodeUnmanaging
