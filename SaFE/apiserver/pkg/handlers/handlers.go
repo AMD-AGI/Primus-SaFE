@@ -31,6 +31,7 @@ import (
 // Returns the configured Gin engine or an error if initialization fails.
 func InitHttpHandlers(_ context.Context, mgr ctrlruntime.Manager) (*gin.Engine, error) {
 	engine := gin.New()
+	engine.MaxMultipartMemory = 500 << 20 // 500 MB max upload size
 	engine.Use(apiutils.Logger(), gin.Recovery())
 	engine.NoRoute(func(c *gin.Context) {
 		apiutils.AbortWithApiError(c, commonerrors.NewNotFoundWithMessage(c.Request.RequestURI+" not found"))

@@ -36,8 +36,8 @@ type DatasetResponse struct {
 	DisplayName   string            `json:"displayName"`
 	Description   string            `json:"description"`
 	DatasetType   string            `json:"datasetType"`
-	Status        string            `json:"status"`                     // Pending/Downloading/Ready/Failed
-	StatusMessage string            `json:"statusMessage,omitempty"`    // e.g., "2/3 workspaces completed"
+	Status        string            `json:"status"`                  // Pending/Downloading/Ready/Failed
+	StatusMessage string            `json:"statusMessage,omitempty"` // e.g., "2/3 workspaces completed"
 	S3Path        string            `json:"s3Path"`
 	TotalSize     int64             `json:"totalSize"`
 	TotalSizeStr  string            `json:"totalSizeStr"`
@@ -86,25 +86,16 @@ type ListFilesResponse struct {
 	Total     int               `json:"total"`
 }
 
-// DatasetTypeInfo represents information about a dataset type
+// DatasetTypeInfo represents information about a dataset type with schema
 type DatasetTypeInfo struct {
-	Value       string `json:"value"`
-	Label       string `json:"label"`
-	Description string `json:"description"`
+	Name        string            `json:"name"`        // Type identifier (e.g., "sft", "dpo")
+	Description string            `json:"description"` // Human readable description
+	Schema      map[string]string `json:"schema"`      // Field schema for this type
 }
 
 // ListDatasetTypesResponse represents the response body for listing dataset types
 type ListDatasetTypesResponse struct {
 	Types []DatasetTypeInfo `json:"types"`
-}
-
-// DatasetTemplateResponse represents the response body for a dataset template
-type DatasetTemplateResponse struct {
-	Type        string            `json:"type"`
-	Description string            `json:"description"`
-	Format      string            `json:"format"`
-	Schema      map[string]string `json:"schema"`
-	Example     string            `json:"example"`
 }
 
 // DownloadTarget represents a target for downloading dataset

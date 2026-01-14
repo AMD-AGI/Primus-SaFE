@@ -14,6 +14,8 @@ metadata:
     higress.io/domain_apiserver.{{ .Values.global.sub_domain }}.{{ .Values.global.domain }}: "true"
   annotations:
     higress.io/ignore-path-case: "false"
+    higress.io/proxy-body-size: "500m"
+    nginx.ingress.kubernetes.io/proxy-body-size: "500m"
     meta.helm.sh/release-name: {{ .Release.Name }}
     meta.helm.sh/release-namespace: {{ .Release.Namespace }}
 spec:

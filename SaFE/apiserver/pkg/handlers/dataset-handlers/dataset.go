@@ -67,12 +67,6 @@ func (h *Handler) ListDatasetTypes(c *gin.Context) {
 	handle(c, h.listDatasetTypes)
 }
 
-// GetDatasetTemplate handles getting a template for a specific dataset type.
-// GET /api/v1/datasets/templates/:type
-func (h *Handler) GetDatasetTemplate(c *gin.Context) {
-	handle(c, h.getDatasetTemplate)
-}
-
 // GetDatasetFile handles getting or previewing a specific file from a dataset.
 // GET /api/v1/datasets/:id/files/*path
 func (h *Handler) GetDatasetFile(c *gin.Context) {
@@ -171,21 +165,21 @@ func (h *Handler) createDataset(c *gin.Context) (interface{}, error) {
 	// Create dataset record in database
 	now := pq.NullTime{Time: time.Now().UTC(), Valid: true}
 	dataset := &dbclient.Dataset{
-		DatasetId:   datasetId,
-		DisplayName: req.DisplayName,
-		Description: req.Description,
-		DatasetType: req.DatasetType,
-		Status:      dbclient.DatasetStatusPending, // Initial status is Pending, will be updated by Controller
-		S3Path:      s3Path,
-		TotalSize:   totalSize,
-		FileCount:   fileCount,
-		LocalPaths:  localPathsJSON,
-		Workspace:   req.Workspace, // Workspace ID for access control, empty means public
-		UserId:      userId,
-		UserName:    userName,
+		DatasetId:    datasetId,
+		DisplayName:  req.DisplayName,
+		Description:  req.Description,
+		DatasetType:  req.DatasetType,
+		Status:       dbclient.DatasetStatusPending, // Initial status is Pending, will be updated by Controller
+		S3Path:       s3Path,
+		TotalSize:    totalSize,
+		FileCount:    fileCount,
+		LocalPaths:   localPathsJSON,
+		Workspace:    req.Workspace, // Workspace ID for access control, empty means public
+		UserId:       userId,
+		UserName:     userName,
 		CreationTime: now,
 		UpdateTime:   now,
-		IsDeleted:   false,
+		IsDeleted:    false,
 	}
 
 	if err := h.dbClient.UpsertDataset(context.Background(), dataset); err != nil {
@@ -564,21 +558,6 @@ func (h *Handler) listDatasetTypes(c *gin.Context) (interface{}, error) {
 	return &ListDatasetTypesResponse{
 		Types: DatasetTypeDescriptions,
 	}, nil
-}
-
-// getDatasetTemplate gets a template for a specific dataset type.
-func (h *Handler) getDatasetTemplate(c *gin.Context) (interface{}, error) {
-	datasetType := c.Param("type")
-	if datasetType == "" {
-		return nil, commonerrors.NewBadRequest("dataset type is required")
-	}
-
-	template, exists := DatasetTemplates[datasetType]
-	if !exists {
-		return nil, commonerrors.NewNotFoundWithMessage(fmt.Sprintf("template for dataset type '%s' not found", datasetType))
-	}
-
-	return template, nil
 }
 
 // getDownloadTargets gets the download targets based on workspace parameter.
