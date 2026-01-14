@@ -455,7 +455,7 @@ func TestUpdateDeploymentEnv(t *testing.T) {
 	assert.Equal(t, env["value"].(string), "eth0")
 }
 
-func TestCreateK8sJob(t *testing.T) {
+func TestCreatePreflightJob(t *testing.T) {
 	commonconfig.SetValue("net.rdma_name", "rdma/hca")
 	defer commonconfig.SetValue("net.rdma_name", "")
 
@@ -472,6 +472,7 @@ func TestCreateK8sJob(t *testing.T) {
 	v1.SetAnnotation(workload, v1.UserNameAnnotation, common.UserSystem)
 	v1.SetAnnotation(workload, v1.RequireNodeSpreadAnnotation, v1.TrueStr)
 	v1.SetLabel(workload, v1.OpsJobTypeLabel, string(v1.OpsJobPreflightType))
+	v1.SetAnnotation(workload, v1.WorkloadPrivilegedAnnotation, v1.TrueStr)
 
 	configmap, err := parseConfigmap(TestJobTemplateConfig)
 	assert.NilError(t, err)
