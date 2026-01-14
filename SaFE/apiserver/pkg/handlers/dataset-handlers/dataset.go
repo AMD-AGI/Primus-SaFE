@@ -137,19 +137,20 @@ func (h *Handler) createDataset(c *gin.Context) (interface{}, error) {
 	// Create dataset record in database
 	now := pq.NullTime{Time: time.Now().UTC(), Valid: true}
 	dataset := &dbclient.Dataset{
-		DatasetId:    datasetId,
-		DisplayName:  req.DisplayName,
-		Description:  req.Description,
-		DatasetType:  req.DatasetType,
-		Status:       DatasetStatusReady,
-		S3Path:       s3Path,
-		TotalSize:    totalSize,
-		FileCount:    fileCount,
-		UserId:       userId,
-		UserName:     userName,
-		CreationTime: now,
-		UpdateTime:   now,
-		IsDeleted:    false,
+		DatasetId:      datasetId,
+		DisplayName:    req.DisplayName,
+		Description:    req.Description,
+		DatasetType:    req.DatasetType,
+		Status:         DatasetStatusReady,
+		DownloadStatus: dbclient.DatasetDownloadStatusPending,
+		S3Path:         s3Path,
+		TotalSize:      totalSize,
+		FileCount:      fileCount,
+		UserId:         userId,
+		UserName:       userName,
+		CreationTime:   now,
+		UpdateTime:     now,
+		IsDeleted:      false,
 	}
 
 	if err := h.dbClient.UpsertDataset(context.Background(), dataset); err != nil {
@@ -328,18 +329,19 @@ func (h *Handler) listDatasetFiles(c *gin.Context) (interface{}, error) {
 // convertToDatasetResponse converts a database dataset to response format.
 func convertToDatasetResponse(ds *dbclient.Dataset) DatasetResponse {
 	resp := DatasetResponse{
-		DatasetId:    ds.DatasetId,
-		DisplayName:  ds.DisplayName,
-		Description:  ds.Description,
-		DatasetType:  ds.DatasetType,
-		Status:       ds.Status,
-		S3Path:       ds.S3Path,
-		TotalSize:    ds.TotalSize,
-		TotalSizeStr: formatFileSize(ds.TotalSize),
-		FileCount:    ds.FileCount,
-		Message:      ds.Message,
-		UserId:       ds.UserId,
-		UserName:     ds.UserName,
+		DatasetId:      ds.DatasetId,
+		DisplayName:    ds.DisplayName,
+		Description:    ds.Description,
+		DatasetType:    ds.DatasetType,
+		Status:         ds.Status,
+		DownloadStatus: ds.DownloadStatus,
+		S3Path:         ds.S3Path,
+		TotalSize:      ds.TotalSize,
+		TotalSizeStr:   formatFileSize(ds.TotalSize),
+		FileCount:      ds.FileCount,
+		Message:        ds.Message,
+		UserId:         ds.UserId,
+		UserName:       ds.UserName,
 	}
 
 	if ds.CreationTime.Valid {
@@ -505,10 +507,11 @@ func (h *Handler) createDownloadOpsJobs(ctx context.Context, dataset *dbclient.D
 			ObjectMeta: metav1.ObjectMeta{
 				Name: jobName,
 				Labels: map[string]string{
-					v1.UserIdLabel:      userId,
-					v1.DisplayNameLabel: jobName,
-					v1.WorkspaceIdLabel: target.Workspace,
-					v1.ClusterIdLabel:   ws.Spec.Cluster,
+					v1.UserIdLabel:          userId,
+					v1.DisplayNameLabel:     jobName,
+					v1.WorkspaceIdLabel:     target.Workspace,
+					v1.ClusterIdLabel:       ws.Spec.Cluster,
+					dbclient.DatasetIdLabel: dataset.DatasetId,
 				},
 				Annotations: map[string]string{
 					v1.UserNameAnnotation: userName,

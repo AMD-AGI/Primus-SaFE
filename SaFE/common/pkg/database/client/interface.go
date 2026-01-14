@@ -199,4 +199,5 @@ type DatasetInterface interface {
 	SetDatasetDeleted(ctx context.Context, datasetId string) error
 	UpdateDatasetStatus(ctx context.Context, datasetId, status, message string) error
 	UpdateDatasetFileInfo(ctx context.Context, datasetId string, totalSize int64, fileCount int) error
+	UpdateDatasetDownloadStatus(ctx context.Context, datasetId, downloadStatus string) error
 }

@@ -29,6 +29,7 @@ var (
 		    description = :description,
 		    dataset_type = :dataset_type,
 		    status = :status,
+		    download_status = :download_status,
 		    s3_path = :s3_path,
 		    total_size = :total_size,
 		    file_count = :file_count,
@@ -36,6 +37,19 @@ var (
 		    update_time = :update_time,
 		    deletion_time = :deletion_time
 		WHERE dataset_id = :dataset_id`, TDataset)
+)
+
+// Dataset download status constants
+const (
+	DatasetDownloadStatusPending     = "Pending"     // Download not started
+	DatasetDownloadStatusDownloading = "Downloading" // Download in progress
+	DatasetDownloadStatusReady       = "Ready"       // Download completed successfully
+	DatasetDownloadStatusFailed      = "Failed"      // Download failed
+)
+
+// Dataset label for OpsJob
+const (
+	DatasetIdLabel = "dataset-id"
 )
 
 // UpsertDataset performs the UpsertDataset operation.
@@ -179,6 +193,21 @@ func (c *Client) UpdateDatasetFileInfo(ctx context.Context, datasetId string, to
 	_, err = db.ExecContext(ctx, cmd, totalSize, fileCount, time.Now().UTC(), datasetId)
 	if err != nil {
 		klog.ErrorS(err, "failed to update dataset file info", "DatasetId", datasetId)
+		return err
+	}
+	return nil
+}
+
+// UpdateDatasetDownloadStatus updates the download status of a dataset.
+func (c *Client) UpdateDatasetDownloadStatus(ctx context.Context, datasetId, downloadStatus string) error {
+	db, err := c.getDB()
+	if err != nil {
+		return err
+	}
+	cmd := fmt.Sprintf(`UPDATE %s SET download_status=$1, update_time=$2 WHERE dataset_id=$3`, TDataset)
+	_, err = db.ExecContext(ctx, cmd, downloadStatus, time.Now().UTC(), datasetId)
+	if err != nil {
+		klog.ErrorS(err, "failed to update dataset download status", "DatasetId", datasetId, "DownloadStatus", downloadStatus)
 		return err
 	}
 	return nil

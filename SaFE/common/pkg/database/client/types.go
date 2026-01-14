@@ -327,22 +327,23 @@ func GetApiKeyFieldTags() map[string]string {
 
 // Dataset represents a dataset record in the database.
 type Dataset struct {
-	Id           int64       `db:"id"`
-	DatasetId    string      `db:"dataset_id"`
-	DisplayName  string      `db:"display_name"`
-	Description  string      `db:"description"`
-	DatasetType  string      `db:"dataset_type"`
-	Status       string      `db:"status"`
-	S3Path       string      `db:"s3_path"`
-	TotalSize    int64       `db:"total_size"`
-	FileCount    int         `db:"file_count"`
-	Message      string      `db:"message"`
-	UserId       string      `db:"user_id"`
-	UserName     string      `db:"user_name"`
-	CreationTime pq.NullTime `db:"creation_time"`
-	UpdateTime   pq.NullTime `db:"update_time"`
-	DeletionTime pq.NullTime `db:"deletion_time"`
-	IsDeleted    bool        `db:"is_deleted"`
+	Id             int64       `db:"id"`
+	DatasetId      string      `db:"dataset_id"`
+	DisplayName    string      `db:"display_name"`
+	Description    string      `db:"description"`
+	DatasetType    string      `db:"dataset_type"`
+	Status         string      `db:"status"`
+	DownloadStatus string      `db:"download_status"`
+	S3Path         string      `db:"s3_path"`
+	TotalSize      int64       `db:"total_size"`
+	FileCount      int         `db:"file_count"`
+	Message        string      `db:"message"`
+	UserId         string      `db:"user_id"`
+	UserName       string      `db:"user_name"`
+	CreationTime   pq.NullTime `db:"creation_time"`
+	UpdateTime     pq.NullTime `db:"update_time"`
+	DeletionTime   pq.NullTime `db:"deletion_time"`
+	IsDeleted      bool        `db:"is_deleted"`
 }
 
 // GetDatasetFieldTags returns the DatasetFieldTags value.

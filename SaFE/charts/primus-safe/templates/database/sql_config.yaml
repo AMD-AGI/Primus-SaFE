@@ -446,4 +446,7 @@ data:
     create index if not exists T_DATASET_TYPE_INDEX on dataset (dataset_type);
     create index if not exists T_DATASET_IS_DELETED_INDEX on dataset (is_deleted);
 
+    -- Add download_status column for tracking download to workspace PFS
+    ALTER TABLE dataset ADD COLUMN IF NOT EXISTS download_status VARCHAR(32) DEFAULT 'Pending';
+
     alter table dataset owner to "primus-safe";
