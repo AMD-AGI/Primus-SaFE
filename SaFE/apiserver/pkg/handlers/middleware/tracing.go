@@ -6,10 +6,10 @@ package middleware
 import (
 	"bytes"
 	"net/http"
-	"os"
 	"strconv"
 	"time"
 
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	"github.com/gin-gonic/gin"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -53,11 +53,11 @@ func (w *responseBodyWriter) Write(b []byte) (int, error) {
 	return w.ResponseWriter.Write(b)
 }
 
-// HandleTracing creates a tracing middleware based on the OTEL_TRACING_MODE environment variable.
+// HandleTracing creates a tracing middleware based on the tracing.mode configuration.
 // - "all": records all requests
 // - "error_only" (default): only records failed requests (status >= 400)
 func HandleTracing() gin.HandlerFunc {
-	mode := os.Getenv("OTEL_TRACING_MODE")
+	mode := config.GetTracingMode()
 	if mode == "all" {
 		return HandleTracingAll()
 	}
@@ -69,7 +69,7 @@ func HandleTracing() gin.HandlerFunc {
 func HandleTracingAll() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Skip tracing if not enabled
-		if os.Getenv("OTEL_TRACING_ENABLE") != "true" {
+		if !config.IsTracingEnable() {
 			c.Next()
 			return
 		}
@@ -156,7 +156,7 @@ func HandleTracingAll() gin.HandlerFunc {
 func HandleTracingErrorOnly() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Skip tracing if not enabled
-		if os.Getenv("OTEL_TRACING_ENABLE") != "true" {
+		if !config.IsTracingEnable() {
 			c.Next()
 			return
 		}

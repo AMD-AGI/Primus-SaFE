@@ -7,9 +7,9 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"strconv"
 	"time"
 
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -47,7 +47,7 @@ func InitTracerWithOptions(serviceName string, opts TraceOptions) error {
 	ctx := context.Background()
 
 	// Read OTLP endpoint
-	endpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+	endpoint := config.GetTracingOtlpEndpoint()
 	if endpoint == "" {
 		// Fallback to legacy Jaeger environment variable (for compatibility)
 		jaegerHost := os.Getenv("JAEGER_AGENT_HOST")
@@ -56,23 +56,22 @@ func InitTracerWithOptions(serviceName string, opts TraceOptions) error {
 		}
 		// OTLP uses gRPC port 4317, not Jaeger Agent's 6831
 		endpoint = fmt.Sprintf("%s:4317", jaegerHost)
-		klog.Infof("OTEL_EXPORTER_OTLP_ENDPOINT not set, using fallback endpoint: %s", endpoint)
+		klog.Infof("tracing.otlp_endpoint not configured, using fallback endpoint: %s", endpoint)
 	} else {
-		klog.Infof("Using OTEL_EXPORTER_OTLP_ENDPOINT: %s", endpoint)
+		klog.Infof("Using tracing.otlp_endpoint: %s", endpoint)
 	}
 
-	// Determine tracing mode from environment variable
-	mode := os.Getenv("OTEL_TRACING_MODE")
+	// Determine tracing mode from config
+	mode := config.GetTracingMode()
 	if mode == "" {
 		mode = "error_only"
 	}
 
-	// Determine sampling ratio for "all" mode (default 1.0 = 100%)
-	samplingRatio := 1.0
-	if ratioStr := os.Getenv("OTEL_SAMPLING_RATIO"); ratioStr != "" {
-		if ratio, err := strconv.ParseFloat(ratioStr, 64); err == nil && ratio >= 0 && ratio <= 1 {
-			samplingRatio = ratio
-		}
+	// Get sampling ratio from config (default 1.0 = 100%)
+	samplingRatio := config.GetTracingSamplingRatio()
+	if samplingRatio < 0 || samplingRatio > 1 {
+		samplingRatio = 1.0
+		klog.Warningf("Invalid sampling_ratio, using default: 1.0")
 	}
 	klog.Infof("Trace mode: %s, sampling ratio: %.2f", mode, samplingRatio)
 

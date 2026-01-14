@@ -93,21 +93,6 @@ spec:
               mountPath: /etc/secrets/notification
               readOnly: true
             {{- end }}
-          env:
-            {{- if .Values.tracing }}
-            - name: OTEL_TRACING_ENABLE
-              value: {{ .Values.tracing.enable | default false | quote }}
-            - name: OTEL_TRACING_MODE
-              value: {{ .Values.tracing.mode | default "error_only" | quote }}
-            {{- if .Values.tracing.sampling_ratio }}
-            - name: OTEL_SAMPLING_RATIO
-              value: {{ .Values.tracing.sampling_ratio | quote }}
-            {{- end }}
-            {{- if .Values.tracing.otlp_endpoint }}
-            - name: OTEL_EXPORTER_OTLP_ENDPOINT
-              value: {{ .Values.tracing.otlp_endpoint | quote }}
-            {{- end }}
-            {{- end }}
           ports:
             - containerPort: {{ default 8088 (default .Values.apiserver).port }}
               name: http-port

@@ -23,6 +23,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/config"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+
+	safeconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
@@ -98,12 +100,12 @@ func (s *Server) init() error {
 		klog.ErrorS(err, "failed to start opensearch discovery")
 		return err
 	}
-	if os.Getenv("OTEL_TRACING_ENABLE") == "true" {
+	if safeconfig.IsTracingEnable() {
 		if err = trace.InitTracer("primus-safe-apiserver"); err != nil {
 			klog.Warningf("Failed to init tracer: %v", err)
 		}
 	} else {
-		klog.Info("Tracing is disabled (OTEL_TRACING_ENABLE != true)")
+		klog.Info("Tracing is disabled (tracing.enable: false)")
 	}
 	s.isInited = true
 	return nil
