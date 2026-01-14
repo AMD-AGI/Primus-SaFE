@@ -5,7 +5,6 @@ package middleware
 
 import (
 	"bytes"
-	"math/rand"
 	"net/http"
 	"os"
 	"strconv"
@@ -20,8 +19,6 @@ import (
 )
 
 const (
-	// tracingSampleRateKey is used to store the sample rate in gin.Context
-	tracingSampleRateKey = "tracing_sample_rate"
 	// maxResponseBodySize is the maximum response body size to capture (4KB)
 	maxResponseBodySize = 4096
 )
@@ -35,8 +32,8 @@ type responseBodyWriter struct {
 }
 
 func (w *responseBodyWriter) WriteHeader(code int) {
-	// Inject X-Trace-Id header before writing headers if status >= 400
-	if !w.headerInjected && code >= 400 && w.traceId != "" {
+	// Inject X-Trace-Id header for all responses (industry best practice)
+	if !w.headerInjected && w.traceId != "" {
 		w.Header().Set("X-Trace-Id", w.traceId)
 		w.headerInjected = true
 	}
@@ -56,38 +53,101 @@ func (w *responseBodyWriter) Write(b []byte) (int, error) {
 	return w.ResponseWriter.Write(b)
 }
 
-// WithTracingRate sets a custom tracing sample rate for specific endpoints
-// Sample rate range: 0.0 - 1.0, where 1.0 means 100% sampling, 0.1 means 10% sampling
-// Usage example: group.POST("wandb/batch", middleware.WithTracingRate(0.1), logs.ReceiveWandBBatch)
-func WithTracingRate(rate float64) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		// Ensure sample rate is within valid range [0.0, 1.0]
-		if rate < 0.0 {
-			rate = 0.0
-		}
-		if rate > 1.0 {
-			rate = 1.0
-		}
-		c.Set(tracingSampleRateKey, rate)
-		c.Next()
-	}
-}
-
-// shouldSample determines whether to sample based on the sample rate
-func shouldSample(sampleRate float64) bool {
-	if sampleRate >= 1.0 {
-		return true
-	}
-	if sampleRate <= 0.0 {
-		return false
-	}
-	return rand.Float64() < sampleRate
-}
-
-// HandleTracing creates a tracing middleware that only records failed requests (status >= 400).
-// This is an error-only tracing mode to reduce overhead and focus on problematic requests.
+// HandleTracing creates a tracing middleware based on the OTEL_TRACING_MODE environment variable.
+// - "all": records all requests
+// - "error_only" (default): only records failed requests (status >= 400)
 func HandleTracing() gin.HandlerFunc {
+	mode := os.Getenv("OTEL_TRACING_MODE")
+	if mode == "all" {
+		return HandleTracingAll()
+	}
 	return HandleTracingErrorOnly()
+}
+
+// HandleTracingAll creates a tracing middleware that records all requests.
+// Every request will have a span created with full details.
+func HandleTracingAll() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// Skip tracing if not enabled
+		if os.Getenv("OTEL_TRACING_ENABLE") != "true" {
+			c.Next()
+			return
+		}
+
+		// Record start time for duration calculation
+		startTime := time.Now()
+
+		ctx := c.Request.Context()
+
+		// Extract trace context from HTTP headers
+		propagator := otel.GetTextMapPropagator()
+		ctx = propagator.Extract(ctx, &httpHeaderCarrier{header: c.Request.Header})
+
+		// Create span for this request
+		operationName := c.Request.Method + " " + c.Request.URL.Path
+		tracer := otel.Tracer("primus-safe-apiserver")
+		ctx, span := tracer.Start(ctx, operationName,
+			oteltrace.WithSpanKind(oteltrace.SpanKindServer),
+			oteltrace.WithTimestamp(startTime),
+		)
+		defer span.End()
+
+		// Get traceId for header injection
+		traceId := span.SpanContext().TraceID().String()
+
+		// Wrap response writer to capture response body
+		bodyWriter := &responseBodyWriter{
+			ResponseWriter: c.Writer,
+			body:           bytes.NewBufferString(""),
+			traceId:        traceId,
+		}
+		c.Writer = bodyWriter
+
+		// Update context in request
+		c.Request = c.Request.WithContext(ctx)
+
+		// Execute the request
+		c.Next()
+
+		// Calculate request duration
+		duration := time.Since(startTime)
+		statusCode := c.Writer.Status()
+
+		// Set HTTP-related attributes for all requests
+		span.SetAttributes(
+			semconv.HTTPMethod(c.Request.Method),
+			semconv.HTTPURL(c.Request.URL.String()),
+			semconv.HTTPRoute(c.Request.URL.Path),
+			semconv.HTTPTarget(c.Request.URL.Path),
+			semconv.HTTPStatusCode(statusCode),
+			attribute.String("component", "gin-http"),
+			attribute.String("http.path", c.Request.URL.Path),
+			attribute.Float64("http.duration_ms", float64(duration.Milliseconds())),
+			attribute.Int64("http.duration_ns", duration.Nanoseconds()),
+			attribute.String("trace.id", traceId),
+		)
+
+		// For error responses, capture additional details
+		if statusCode >= 400 {
+			responseBody := bodyWriter.body.String()
+			if responseBody != "" {
+				if len(responseBody) > maxResponseBodySize {
+					responseBody = responseBody[:maxResponseBodySize] + "...(truncated)"
+				}
+				span.SetAttributes(attribute.String("http.response.body", responseBody))
+			}
+			span.SetStatus(codes.Error, "HTTP error: "+responseBody)
+
+			if len(c.Errors) > 0 {
+				for i, err := range c.Errors {
+					span.SetAttributes(attribute.String("gin.error."+strconv.Itoa(i), err.Error()))
+				}
+				span.RecordError(c.Errors.Last())
+			}
+		} else {
+			span.SetStatus(codes.Ok, "")
+		}
+	}
 }
 
 // HandleTracingErrorOnly creates a tracing middleware that only records failed requests.
@@ -157,8 +217,8 @@ func HandleTracingErrorOnly() gin.HandlerFunc {
 			semconv.HTTPStatusCode(statusCode),
 			attribute.String("component", "gin-http"),
 			attribute.String("http.path", c.Request.URL.Path),
-				attribute.Float64("http.duration_ms", float64(duration.Milliseconds())),
-				attribute.Int64("http.duration_ns", duration.Nanoseconds()),
+			attribute.Float64("http.duration_ms", float64(duration.Milliseconds())),
+			attribute.Int64("http.duration_ns", duration.Nanoseconds()),
 			attribute.String("trace.id", traceId),
 		)
 

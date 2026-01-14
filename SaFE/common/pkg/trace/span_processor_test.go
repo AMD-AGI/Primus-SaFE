@@ -71,7 +71,7 @@ func (m *mockSpanExporter) Reset() {
 // TestTraceMode tests TraceMode constants
 func TestTraceMode(t *testing.T) {
 	assert.Equal(t, TraceMode("error_only"), TraceModeErrorOnly)
-	assert.Equal(t, TraceMode("always"), TraceModeAlways)
+	assert.Equal(t, TraceMode("all"), TraceModeAlways)
 }
 
 // TestDefaultTraceOptions_ErrorSampler tests DefaultTraceOptions function
@@ -79,7 +79,7 @@ func TestDefaultTraceOptions_ErrorSampler(t *testing.T) {
 	opts := DefaultTraceOptions()
 
 	assert.Equal(t, TraceModeErrorOnly, opts.Mode)
-	assert.Equal(t, 0.1, opts.SamplingRatio)
+	assert.Equal(t, 1.0, opts.SamplingRatio)
 	assert.Equal(t, 1.0, opts.ErrorSamplingRatio)
 }
 
@@ -349,49 +349,6 @@ func TestErrorOnlySpanProcessor_Concurrent(t *testing.T) {
 	assert.NotPanics(t, func() {
 		tp.ForceFlush(context.Background())
 	})
-}
-
-// TestNewSampledSpanProcessor tests NewSampledSpanProcessor function
-func TestNewSampledSpanProcessor(t *testing.T) {
-	exporter := newMockSpanExporter()
-	baseProcessor := NewErrorOnlySpanProcessor(exporter, 1.0)
-	processor := NewSampledSpanProcessor(baseProcessor, 0.5)
-
-	require.NotNil(t, processor)
-	assert.NotNil(t, processor.processor)
-	assert.Equal(t, 0.5, processor.samplingRatio)
-	assert.NotNil(t, processor.rand)
-}
-
-// TestSampledSpanProcessor_OnStart tests OnStart method
-func TestSampledSpanProcessor_OnStart(t *testing.T) {
-	exporter := newMockSpanExporter()
-	baseProcessor := NewErrorOnlySpanProcessor(exporter, 1.0)
-	processor := NewSampledSpanProcessor(baseProcessor, 0.5)
-
-	assert.NotPanics(t, func() {
-		processor.OnStart(context.Background(), nil)
-	})
-}
-
-// TestSampledSpanProcessor_Shutdown tests Shutdown method
-func TestSampledSpanProcessor_Shutdown(t *testing.T) {
-	exporter := newMockSpanExporter()
-	baseProcessor := NewErrorOnlySpanProcessor(exporter, 1.0)
-	processor := NewSampledSpanProcessor(baseProcessor, 0.5)
-
-	err := processor.Shutdown(context.Background())
-	assert.NoError(t, err)
-}
-
-// TestSampledSpanProcessor_ForceFlush tests ForceFlush method
-func TestSampledSpanProcessor_ForceFlush(t *testing.T) {
-	exporter := newMockSpanExporter()
-	baseProcessor := NewErrorOnlySpanProcessor(exporter, 1.0)
-	processor := NewSampledSpanProcessor(baseProcessor, 0.5)
-
-	err := processor.ForceFlush(context.Background())
-	assert.NoError(t, err)
 }
 
 // TestErrorOnlySpanProcessor_Integration_MultipleTraces tests handling multiple traces

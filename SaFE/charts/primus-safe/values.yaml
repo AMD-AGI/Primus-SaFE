@@ -46,6 +46,8 @@ tracing:
   enable: false
   # Tracing mode: "error_only" (only failed requests) or "all" (all requests)
   mode: "error_only"
+  # Sampling ratio for "all" mode (0.0-1.0, default 1.0 = 100%)
+  sampling_ratio: "1.0"
   # OTLP Collector endpoint (gRPC, configured via .env)
   otlp_endpoint: ""
 resource_manager:

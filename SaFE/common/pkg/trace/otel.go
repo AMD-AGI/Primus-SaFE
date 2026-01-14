@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strconv"
 	"time"
 
 	"go.opentelemetry.io/otel"
@@ -65,7 +66,15 @@ func InitTracerWithOptions(serviceName string, opts TraceOptions) error {
 	if mode == "" {
 		mode = "error_only"
 	}
-	klog.Infof("Trace mode: %s", mode)
+
+	// Determine sampling ratio for "all" mode (default 1.0 = 100%)
+	samplingRatio := 1.0
+	if ratioStr := os.Getenv("OTEL_SAMPLING_RATIO"); ratioStr != "" {
+		if ratio, err := strconv.ParseFloat(ratioStr, 64); err == nil && ratio >= 0 && ratio <= 1 {
+			samplingRatio = ratio
+		}
+	}
+	klog.Infof("Trace mode: %s, sampling ratio: %.2f", mode, samplingRatio)
 
 	// Create OTLP gRPC exporter
 	klog.Infof("Creating OTLP gRPC exporter, connecting to endpoint: %s", endpoint)
@@ -120,19 +129,27 @@ func InitTracerWithOptions(serviceName string, opts TraceOptions) error {
 	providerOpts = append(providerOpts, sdktrace.WithResource(res))
 
 	if mode == "all" {
-		// all mode: use BatchSpanProcessor to export all traces
+		// all mode: use BatchSpanProcessor to export traces with configurable sampling ratio
+		var sampler sdktrace.Sampler
+		if samplingRatio >= 1.0 {
+			sampler = sdktrace.AlwaysSample()
+		} else if samplingRatio <= 0 {
+			sampler = sdktrace.NeverSample()
+		} else {
+			sampler = sdktrace.TraceIDRatioBased(samplingRatio)
+		}
 		providerOpts = append(providerOpts,
-			sdktrace.WithSampler(sdktrace.AlwaysSample()),
+			sdktrace.WithSampler(sampler),
 			sdktrace.WithBatcher(exporter),
 		)
-		klog.Infof("Using BatchSpanProcessor (all mode)")
+		klog.Infof("Using BatchSpanProcessor (all mode, sampling ratio: %.2f)", samplingRatio)
 	} else {
-		// error_only mode (default): use ErrorOnlySpanProcessor
+		// error_only mode (default): use ErrorOnlySpanProcessor with configurable sampling ratio
 		providerOpts = append(providerOpts,
 			sdktrace.WithSampler(sdktrace.AlwaysSample()),
-			sdktrace.WithSpanProcessor(NewErrorOnlySpanProcessor(exporter, 1.0)),
+			sdktrace.WithSpanProcessor(NewErrorOnlySpanProcessor(exporter, samplingRatio)),
 		)
-		klog.Infof("Using ErrorOnlySpanProcessor (error_only mode)")
+		klog.Infof("Using ErrorOnlySpanProcessor (error_only mode, sampling ratio: %.2f)", samplingRatio)
 	}
 
 	klog.Infof("Creating tracer provider")
@@ -163,11 +180,23 @@ func GetTraceOptions() TraceOptions {
 }
 
 // TraceOptionsFromConfig creates TraceOptions from configuration values
-func TraceOptionsFromConfig(mode string) TraceOptions {
+func TraceOptionsFromConfig(mode string, samplingRatio, errorSamplingRatio float64) TraceOptions {
 	opts := DefaultTraceOptions()
-	if mode == "all" || mode == "error_only" {
-		opts.Mode = mode
+
+	if mode == "all" {
+		opts.Mode = TraceModeAlways
+	} else if mode == "error_only" {
+		opts.Mode = TraceModeErrorOnly
 	}
+
+	if samplingRatio >= 0 && samplingRatio <= 1 {
+		opts.SamplingRatio = samplingRatio
+	}
+
+	if errorSamplingRatio >= 0 && errorSamplingRatio <= 1 {
+		opts.ErrorSamplingRatio = errorSamplingRatio
+	}
+
 	return opts
 }
 

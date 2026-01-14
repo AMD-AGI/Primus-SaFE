@@ -125,6 +125,9 @@ if [[ "${tracing_enable:-false}" == "true" ]]; then
   if [[ -n "${tracing_mode:-}" ]]; then
     sed -i '/^tracing:/,/^[a-z]/ s/mode: .*/mode: "'"$tracing_mode"'"/' "$values_yaml"
   fi
+  if [[ -n "${tracing_sampling_ratio:-}" ]]; then
+    sed -i '/^tracing:/,/^[a-z]/ s/sampling_ratio: .*/sampling_ratio: "'"$tracing_sampling_ratio"'"/' "$values_yaml"
+  fi
   if [[ -n "${tracing_otlp_endpoint:-}" ]]; then
     sed -i '/^tracing:/,/^[a-z]/ s#otlp_endpoint: .*#otlp_endpoint: "'"$tracing_otlp_endpoint"'"#' "$values_yaml"
   fi

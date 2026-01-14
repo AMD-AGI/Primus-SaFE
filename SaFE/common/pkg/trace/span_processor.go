@@ -13,17 +13,39 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
 
+// TraceMode represents the tracing mode
+type TraceMode string
+
+const (
+	// TraceModeErrorOnly only exports traces when an error occurs
+	TraceModeErrorOnly TraceMode = "error_only"
+	// TraceModeAlways exports all traces (subject to sampling ratio)
+	TraceModeAlways TraceMode = "all"
+)
+
 // TraceOptions contains configuration options for tracing
 type TraceOptions struct {
 	// Mode specifies the tracing mode: "error_only" or "all"
-	Mode string
+	Mode TraceMode
+	// SamplingRatio controls the sampling ratio (0.0 to 1.0)
+	SamplingRatio float64
+	// ErrorSamplingRatio controls the sampling ratio for error traces (0.0 to 1.0)
+	// Deprecated: use SamplingRatio instead, kept for backward compatibility
+	ErrorSamplingRatio float64
 }
 
 // DefaultTraceOptions returns the default trace options
 func DefaultTraceOptions() TraceOptions {
 	return TraceOptions{
-		Mode: "error_only",
+		Mode:               TraceModeErrorOnly,
+		SamplingRatio:      1.0,
+		ErrorSamplingRatio: 1.0,
 	}
+}
+
+// IsErrorOnlyMode returns true if the current mode is error_only
+func IsErrorOnlyMode() bool {
+	return traceOptions.Mode == TraceModeErrorOnly || traceOptions.Mode == ""
 }
 
 // ErrorOnlySpanProcessor is a SpanProcessor that only exports spans with errors

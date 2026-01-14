@@ -98,11 +98,9 @@ func (s *Server) init() error {
 		klog.ErrorS(err, "failed to start opensearch discovery")
 		return err
 	}
-	// Initialize tracer if enabled
 	if os.Getenv("OTEL_TRACING_ENABLE") == "true" {
 		if err = trace.InitTracer("primus-safe-apiserver"); err != nil {
 			klog.Warningf("Failed to init tracer: %v", err)
-			// Don't block startup, gracefully degrade to no tracing
 		}
 	} else {
 		klog.Info("Tracing is disabled (OTEL_TRACING_ENABLE != true)")
