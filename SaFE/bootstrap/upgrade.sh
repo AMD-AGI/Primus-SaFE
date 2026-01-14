@@ -124,11 +124,6 @@ if [[ "${tracing_enable:-false}" == "true" ]]; then
   sed -i '/^tracing:/,/^[a-z]/ s/enable: .*/enable: true/' "$values_yaml"
   if [[ -n "${tracing_otlp_endpoint:-}" ]]; then
     sed -i '/^tracing:/,/^[a-z]/ s#otlp_endpoint: .*#otlp_endpoint: "'"$tracing_otlp_endpoint"'"#' "$values_yaml"
-  else
-    # Default to Lens's OTLP collector if lens is enabled
-    if [[ "$lens_enable" == "true" ]]; then
-      sed -i '/^tracing:/,/^[a-z]/ s#otlp_endpoint: .*#otlp_endpoint: "otel-collector-collector.primus-lens.svc.cluster.local:4317"#' "$values_yaml"
-    fi
   fi
 fi
 
