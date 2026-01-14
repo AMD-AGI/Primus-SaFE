@@ -450,11 +450,15 @@ data:
     ALTER TABLE dataset ADD COLUMN IF NOT EXISTS download_status VARCHAR(32) DEFAULT 'Pending';
 
     -- Add local_paths column for tracking per-workspace download status
-    ALTER TABLE dataset ADD COLUMN IF NOT EXISTS local_paths JSONB;
+    ALTER TABLE dataset ADD COLUMN IF NOT EXISTS local_paths JSONB DEFAULT '[]';
 
     -- Add workspace column for workspace-level access control
-    -- NULL or empty string means public dataset (available in all workspaces)
-    ALTER TABLE dataset ADD COLUMN IF NOT EXISTS workspace VARCHAR(64);
+    -- Empty string means public dataset (available in all workspaces)
+    ALTER TABLE dataset ADD COLUMN IF NOT EXISTS workspace VARCHAR(64) DEFAULT '';
     CREATE INDEX IF NOT EXISTS T_DATASET_WORKSPACE_INDEX ON dataset (workspace);
+
+    -- Update existing NULL values to defaults (for data created before these columns were added)
+    UPDATE dataset SET local_paths = '[]' WHERE local_paths IS NULL;
+    UPDATE dataset SET workspace = '' WHERE workspace IS NULL;
 
     alter table dataset owner to "primus-safe";
