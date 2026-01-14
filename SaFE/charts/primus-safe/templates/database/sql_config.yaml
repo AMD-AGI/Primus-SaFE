@@ -64,13 +64,13 @@ data:
     create index if not exists T_WORKLOAD_DESCRIPTION_INDEX on workload (description);
 
     alter table workload add column if not exists user_id VARCHAR(64);
-    alter table workload add column if not exists k8s_object_uid VARCHAR(36);
     alter table workload add column if not exists workload_uid VARCHAR(36);
     alter table workload add column if not exists ranks TEXT;
     alter table workload add column if not exists cron_jobs TEXT;
     alter table workload add column if not exists secrets TEXT;
     alter table workload add column if not exists scale_runner_set VARCHAR(64);
     alter table workload add column if not exists scale_runner_id VARCHAR(128);
+    alter table workload add column if not exists resources TEXT;
 
     create table if not exists fault
     (
@@ -341,8 +341,6 @@ data:
         source_token VARCHAR(128),
         phase VARCHAR(32),
         message TEXT,
-        inference_id VARCHAR(64),
-        inference_phase VARCHAR(32),
         created_at TIMESTAMPTZ DEFAULT NOW(),
         updated_at TIMESTAMPTZ,
         deletion_time TIMESTAMPTZ,
