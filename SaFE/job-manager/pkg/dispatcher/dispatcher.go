@@ -695,7 +695,7 @@ func (r *DispatcherReconciler) createService(ctx context.Context, adminWorkload 
 		},
 		Spec: corev1.ServiceSpec{
 			Selector: map[string]string{
-				v1.WorkloadIdLabel: adminWorkload.Name,
+				v1.WorkloadIdLabel: getRootWorkloadId(adminWorkload),
 			},
 			Ports: generateServicePorts(specService),
 			Type:  specService.ServiceType,
