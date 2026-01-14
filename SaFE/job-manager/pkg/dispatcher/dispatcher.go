@@ -189,7 +189,8 @@ func (r *DispatcherReconciler) processTorchFTWorkload(ctx context.Context, rootW
 	if result, err := r.processWorkload(ctx, lightHouseWorkload); err != nil || result.RequeueAfter > 0 {
 		return result, err
 	}
-	lightHouseAddr := lightHouseWorkload.Name + "." + rootWorkload.Spec.Workspace + ".svc.cluster.local"
+	lightHouseAddr := lightHouseWorkload.Name + "." + rootWorkload.Spec.Workspace +
+		".svc.cluster.local:" + strconv.Itoa(LightHousePort)
 
 	for i := 0; i < group; i++ {
 		torchFTWorkload := r.generateTorchFTWorker(ctx, rootWorkload, i, group, lightHouseAddr)
