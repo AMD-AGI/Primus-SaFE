@@ -28,7 +28,8 @@ const (
 	// 17 is the fixed suffix length of deployment pod.
 	MaxDeploymentNameLen   = MaxGeneratedNameLength - 17
 	MaxCICDScaleSetNameLen = 39
-	MaxTorchFTNameLen      = MaxDeploymentNameLen - 4
+	// 4 is the fixed suffix length of internal torchft worker name.
+	MaxTorchFTNameLen = MaxDeploymentNameLen - 4
 )
 
 // GenerateName generates a unique name by appending a random string to the base name.
