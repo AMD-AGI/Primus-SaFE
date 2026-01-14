@@ -15,7 +15,7 @@ func TestGetNearestCaller(t *testing.T) {
 	// This test depends on being called from the primus-safe codebase
 	// We can only verify it returns a string format, not the exact value
 	caller := GetNearestCaller(0)
-
+	
 	// The result may be empty if not called from primus-safe path
 	// or should be in format "package:line"
 	if caller != "" {
@@ -227,7 +227,7 @@ func TestPackagePrefixList(t *testing.T) {
 // TestGetNearestCaller_NestedCalls tests GetNearestCaller with nested function calls
 func TestGetNearestCaller_NestedCalls(t *testing.T) {
 	var level1, level2, level3 func() string
-
+	
 	level1 = func() string {
 		return level2()
 	}

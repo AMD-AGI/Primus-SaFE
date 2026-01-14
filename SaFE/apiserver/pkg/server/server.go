@@ -33,6 +33,7 @@ import (
 	commonklog "github.com/AMD-AIG-AIMA/SAFE/common/pkg/klog"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/opensearch"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/options"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/trace"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/netutil"
 )
 
@@ -97,6 +98,15 @@ func (s *Server) init() error {
 		klog.ErrorS(err, "failed to start opensearch discovery")
 		return err
 	}
+	// Initialize tracer if enabled
+	if os.Getenv("OTEL_TRACING_ENABLE") == "true" {
+		if err = trace.InitTracer("primus-safe-apiserver"); err != nil {
+			klog.Warningf("Failed to init tracer: %v", err)
+			// Don't block startup, gracefully degrade to no tracing
+		}
+	} else {
+		klog.Info("Tracing is disabled (OTEL_TRACING_ENABLE != true)")
+	}
 	s.isInited = true
 	return nil
 }
@@ -154,6 +164,10 @@ func (s *Server) Stop() {
 		if err := s.sshServer.Shutdown(); err != nil {
 			klog.ErrorS(err, "failed to shutdown ssh-server")
 		}
+	}
+	// Close tracer
+	if err := trace.CloseTracer(); err != nil {
+		klog.ErrorS(err, "failed to close tracer")
 	}
 	klog.Info("apiserver is stopped")
 	klog.Flush()

@@ -49,7 +49,7 @@ echo "✅ Storage Class: \"$storage_class\""
 echo "✅ Support Primus-lens: \"$lens_enable\""
 echo "✅ Support S3: \"$s3_enable\""
 echo "✅ Support SSO: \"$sso_enable\""
-echo "✅ Support Tracing: \"${tracing_enable:-false}\""
+echo "✅ Support Tracing: \"${tracing_enable:-false}\" (mode: ${tracing_mode:-error_only})"
 echo "✅ Ingress Name: \"$ingress\""
 if [[ "$ingress" == "higress" ]]; then
   echo "✅ Cluster Name: \"$sub_domain\""
@@ -122,6 +122,9 @@ sed -i '/^cd:/,/^[a-z]/ s/require_approval: .*/require_approval: '"$cd_require_a
 # Configure tracing if defined in .env
 if [[ "${tracing_enable:-false}" == "true" ]]; then
   sed -i '/^tracing:/,/^[a-z]/ s/enable: .*/enable: true/' "$values_yaml"
+  if [[ -n "${tracing_mode:-}" ]]; then
+    sed -i '/^tracing:/,/^[a-z]/ s/mode: .*/mode: "'"$tracing_mode"'"/' "$values_yaml"
+  fi
   if [[ -n "${tracing_otlp_endpoint:-}" ]]; then
     sed -i '/^tracing:/,/^[a-z]/ s#otlp_endpoint: .*#otlp_endpoint: "'"$tracing_otlp_endpoint"'"#' "$values_yaml"
   fi

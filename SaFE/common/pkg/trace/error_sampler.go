@@ -13,32 +13,16 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
 
-// TraceMode defines the trace export mode
-type TraceMode string
-
-const (
-	// TraceModeErrorOnly only exports traces when an error occurs (default)
-	TraceModeErrorOnly TraceMode = "error_only"
-	// TraceModeAlways always exports traces (subject to sampling ratio)
-	TraceModeAlways TraceMode = "always"
-)
-
 // TraceOptions contains configuration options for tracing
 type TraceOptions struct {
-	// Mode controls when traces are exported
-	Mode TraceMode
-	// SamplingRatio for "always" mode (0.0 to 1.0)
-	SamplingRatio float64
-	// ErrorSamplingRatio for "error_only" mode (0.0 to 1.0)
-	ErrorSamplingRatio float64
+	// Mode specifies the tracing mode: "error_only" or "all"
+	Mode string
 }
 
 // DefaultTraceOptions returns the default trace options
 func DefaultTraceOptions() TraceOptions {
 	return TraceOptions{
-		Mode:               TraceModeErrorOnly,
-		SamplingRatio:      0.1,
-		ErrorSamplingRatio: 1.0,
+		Mode: "error_only",
 	}
 }
 
@@ -171,41 +155,4 @@ func (p *ErrorOnlySpanProcessor) ForceFlush(ctx context.Context) error {
 		delete(p.traces, traceID)
 	}
 	return nil
-}
-
-// SampledSpanProcessor wraps a SpanProcessor with sampling ratio
-type SampledSpanProcessor struct {
-	processor     sdktrace.SpanProcessor
-	samplingRatio float64
-	rand          *rand.Rand
-	mu            sync.Mutex
-}
-
-// NewSampledSpanProcessor creates a new SampledSpanProcessor
-func NewSampledSpanProcessor(processor sdktrace.SpanProcessor, samplingRatio float64) *SampledSpanProcessor {
-	return &SampledSpanProcessor{
-		processor:     processor,
-		samplingRatio: samplingRatio,
-		rand:          rand.New(rand.NewSource(time.Now().UnixNano())),
-	}
-}
-
-// OnStart is called when a span is started
-func (p *SampledSpanProcessor) OnStart(parent context.Context, s sdktrace.ReadWriteSpan) {
-	p.processor.OnStart(parent, s)
-}
-
-// OnEnd is called when a span is ended
-func (p *SampledSpanProcessor) OnEnd(s sdktrace.ReadOnlySpan) {
-	p.processor.OnEnd(s)
-}
-
-// Shutdown shuts down the processor
-func (p *SampledSpanProcessor) Shutdown(ctx context.Context) error {
-	return p.processor.Shutdown(ctx)
-}
-
-// ForceFlush forces flush of pending spans
-func (p *SampledSpanProcessor) ForceFlush(ctx context.Context) error {
-	return p.processor.ForceFlush(ctx)
 }

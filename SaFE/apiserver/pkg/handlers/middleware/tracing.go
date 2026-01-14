@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"math/rand"
 	"net/http"
+	"os"
 	"strconv"
 	"time"
 
@@ -94,6 +95,12 @@ func HandleTracing() gin.HandlerFunc {
 // The response body and traceId are captured for debugging purposes.
 func HandleTracingErrorOnly() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// Skip tracing if not enabled
+		if os.Getenv("OTEL_TRACING_ENABLE") != "true" {
+			c.Next()
+			return
+		}
+
 		// Record start time for duration calculation
 		startTime := time.Now()
 
@@ -150,8 +157,8 @@ func HandleTracingErrorOnly() gin.HandlerFunc {
 			semconv.HTTPStatusCode(statusCode),
 			attribute.String("component", "gin-http"),
 			attribute.String("http.path", c.Request.URL.Path),
-			attribute.Float64("http.duration_ms", float64(duration.Milliseconds())),
-			attribute.Int64("http.duration_ns", duration.Nanoseconds()),
+				attribute.Float64("http.duration_ms", float64(duration.Milliseconds())),
+				attribute.Int64("http.duration_ns", duration.Nanoseconds()),
 			attribute.String("trace.id", traceId),
 		)
 

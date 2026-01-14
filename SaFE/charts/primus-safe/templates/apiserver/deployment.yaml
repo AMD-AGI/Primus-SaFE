@@ -95,9 +95,13 @@ spec:
             {{- end }}
           env:
             {{- if .Values.tracing }}
-            {{- if .Values.tracing.enable }}
+            - name: OTEL_TRACING_ENABLE
+              value: {{ .Values.tracing.enable | default false | quote }}
+            - name: OTEL_TRACING_MODE
+              value: {{ .Values.tracing.mode | default "error_only" | quote }}
+            {{- if .Values.tracing.otlp_endpoint }}
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
-              value: {{ .Values.tracing.otlp_endpoint | default "otel-collector.primus-lens:4317" | quote }}
+              value: {{ .Values.tracing.otlp_endpoint | quote }}
             {{- end }}
             {{- end }}
           ports:
