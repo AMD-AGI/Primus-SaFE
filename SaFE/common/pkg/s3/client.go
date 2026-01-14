@@ -234,6 +234,33 @@ func (c *Client) DeleteObject(ctx context.Context, key string, timeout int64) er
 	return nil
 }
 
+// GetObject retrieves an object from S3 bucket and returns its content as a string.
+func (c *Client) GetObject(ctx context.Context, key string, timeout int64) (string, error) {
+	if c == nil {
+		return "", fmt.Errorf("please init client first")
+	}
+	if key == "" {
+		return "", fmt.Errorf("the object key is empty")
+	}
+	timeoutCtx, cancel := WithOptionalTimeout(ctx, timeout)
+	defer cancel()
+
+	resp, err := c.s3Client.GetObject(timeoutCtx, &s3.GetObjectInput{
+		Bucket: c.Bucket,
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	content, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+	return string(content), nil
+}
+
 // GeneratePresignedURL generate presigned URL for temporary object access.
 func (c *Client) GeneratePresignedURL(ctx context.Context, key string, expireHour int32) (string, error) {
 	presigner := s3.NewPresignClient(c.s3Client)

@@ -7,6 +7,7 @@ package client
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -211,4 +212,111 @@ func (c *Client) UpdateDatasetDownloadStatus(ctx context.Context, datasetId, dow
 		return err
 	}
 	return nil
+}
+
+// UpdateDatasetLocalPath updates a specific workspace's download status in local_paths.
+// It also recalculates the overall download_status based on all workspaces.
+// Logic: Any Ready -> Ready, Any Downloading -> Downloading, All Failed -> Failed
+func (c *Client) UpdateDatasetLocalPath(ctx context.Context, datasetId, workspace, status, message string) error {
+	db, err := c.getDB()
+	if err != nil {
+		return err
+	}
+
+	// Get current dataset to read existing local_paths
+	var datasets []*Dataset
+	if err = db.SelectContext(ctx, &datasets, getDatasetCmd, datasetId); err != nil {
+		klog.ErrorS(err, "failed to get dataset for local path update", "datasetId", datasetId)
+		return err
+	}
+	if len(datasets) == 0 {
+		return commonerrors.NewNotFoundWithMessage(fmt.Sprintf("dataset %s not found", datasetId))
+	}
+	dataset := datasets[0]
+
+	// Parse existing local_paths
+	var localPaths []DatasetLocalPathDB
+	if dataset.LocalPaths != "" {
+		if err = json.Unmarshal([]byte(dataset.LocalPaths), &localPaths); err != nil {
+			klog.ErrorS(err, "failed to parse local_paths JSON", "datasetId", datasetId)
+			// Continue with empty slice if parsing fails
+			localPaths = []DatasetLocalPathDB{}
+		}
+	}
+
+	// Update or add the workspace entry
+	found := false
+	for i := range localPaths {
+		if localPaths[i].Workspace == workspace {
+			localPaths[i].Status = status
+			localPaths[i].Message = message
+			found = true
+			break
+		}
+	}
+	if !found {
+		localPaths = append(localPaths, DatasetLocalPathDB{
+			Workspace: workspace,
+			Status:    status,
+			Message:   message,
+		})
+	}
+
+	// Calculate overall download_status
+	overallStatus := calculateOverallDownloadStatus(localPaths)
+
+	// Marshal local_paths back to JSON
+	localPathsJSON, err := json.Marshal(localPaths)
+	if err != nil {
+		klog.ErrorS(err, "failed to marshal local_paths", "datasetId", datasetId)
+		return err
+	}
+
+	// Update database
+	cmd := fmt.Sprintf(`UPDATE %s SET local_paths=$1, download_status=$2, update_time=$3 WHERE dataset_id=$4`, TDataset)
+	_, err = db.ExecContext(ctx, cmd, string(localPathsJSON), overallStatus, time.Now().UTC(), datasetId)
+	if err != nil {
+		klog.ErrorS(err, "failed to update dataset local path", "DatasetId", datasetId, "Workspace", workspace)
+		return err
+	}
+
+	klog.InfoS("updated dataset local path", "datasetId", datasetId, "workspace", workspace, "status", status, "overallStatus", overallStatus)
+	return nil
+}
+
+// calculateOverallDownloadStatus calculates the overall download status from all workspace statuses.
+// Logic: Any Ready -> Ready, Any Downloading -> Downloading, All Failed -> Failed
+func calculateOverallDownloadStatus(localPaths []DatasetLocalPathDB) string {
+	if len(localPaths) == 0 {
+		return DatasetDownloadStatusPending
+	}
+
+	hasReady := false
+	hasDownloading := false
+	allFailed := true
+
+	for _, lp := range localPaths {
+		switch lp.Status {
+		case DatasetDownloadStatusReady:
+			hasReady = true
+			allFailed = false
+		case DatasetDownloadStatusDownloading:
+			hasDownloading = true
+			allFailed = false
+		case DatasetDownloadStatusPending:
+			allFailed = false
+		}
+	}
+
+	// Priority: Ready > Downloading > Failed > Pending
+	if hasReady {
+		return DatasetDownloadStatusReady
+	}
+	if hasDownloading {
+		return DatasetDownloadStatusDownloading
+	}
+	if allFailed {
+		return DatasetDownloadStatusFailed
+	}
+	return DatasetDownloadStatusPending
 }

@@ -23,10 +23,11 @@ func InitDatasetRouters(e *gin.Engine, h *Handler) {
 		group.GET("datasets/templates/:type", h.GetDatasetTemplate) // Get template for a dataset type
 
 		// Dataset CRUD operations
-		group.POST("datasets", h.CreateDataset)             // Create dataset with file upload and download to workspace
-		group.GET("datasets", h.ListDatasets)               // List datasets with filtering
-		group.GET("datasets/:id", h.GetDataset)             // Get dataset details
-		group.DELETE("datasets/:id", h.DeleteDataset)       // Delete dataset
-		group.GET("datasets/:id/files", h.ListDatasetFiles) // List files in dataset
+		group.POST("datasets", h.CreateDataset)              // Create dataset with file upload and download to workspace
+		group.GET("datasets", h.ListDatasets)                // List datasets with filtering
+		group.GET("datasets/:id", h.GetDataset)              // Get dataset details
+		group.DELETE("datasets/:id", h.DeleteDataset)        // Delete dataset
+		group.GET("datasets/:id/files", h.ListDatasetFiles)  // List files in dataset
+		group.GET("datasets/:id/files/*path", h.GetDatasetFile) // Get or preview a specific file (use ?preview=true for content)
 	}
 }

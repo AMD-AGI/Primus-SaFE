@@ -325,6 +325,14 @@ func GetApiKeyFieldTags() map[string]string {
 	return getFieldTags(k)
 }
 
+// DatasetLocalPathDB represents the local path status stored in database as JSON
+type DatasetLocalPathDB struct {
+	Workspace string `json:"workspace"`
+	Path      string `json:"path"`
+	Status    string `json:"status"`
+	Message   string `json:"message,omitempty"`
+}
+
 // Dataset represents a dataset record in the database.
 type Dataset struct {
 	Id             int64       `db:"id"`
@@ -338,6 +346,8 @@ type Dataset struct {
 	TotalSize      int64       `db:"total_size"`
 	FileCount      int         `db:"file_count"`
 	Message        string      `db:"message"`
+	LocalPaths     string      `db:"local_paths"` // JSON array of DatasetLocalPathDB
+	Workspace      string      `db:"workspace"`   // Workspace ID for access control, empty means public
 	UserId         string      `db:"user_id"`
 	UserName       string      `db:"user_name"`
 	CreationTime   pq.NullTime `db:"creation_time"`

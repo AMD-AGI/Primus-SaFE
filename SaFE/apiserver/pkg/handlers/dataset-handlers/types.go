@@ -12,7 +12,7 @@ type CreateDatasetRequest struct {
 	DisplayName string `json:"displayName" form:"displayName" binding:"required"`
 	Description string `json:"description" form:"description"`
 	DatasetType string `json:"datasetType" form:"datasetType" binding:"required"`
-	Workspace   string `json:"workspace" form:"workspace"` // Optional, if empty downloads to all workspaces
+	Workspace   string `json:"workspace" form:"workspace"` // Workspace ID for access control, empty means public (downloads to all workspaces)
 }
 
 // DownloadJobInfo represents information about a download job
@@ -22,29 +22,41 @@ type DownloadJobInfo struct {
 	DestPath  string `json:"destPath"`
 }
 
+// LocalPathInfo represents the download status of a dataset in a specific workspace
+type LocalPathInfo struct {
+	Workspace string `json:"workspace"`
+	Path      string `json:"path,omitempty"`
+	Status    string `json:"status"`
+	Message   string `json:"message,omitempty"`
+}
+
 // DatasetResponse represents the response body for a dataset
 type DatasetResponse struct {
-	DatasetId      string            `json:"datasetId"`
-	DisplayName    string            `json:"displayName"`
-	Description    string            `json:"description"`
-	DatasetType    string            `json:"datasetType"`
-	Status         string            `json:"status"`
-	DownloadStatus string            `json:"downloadStatus"`
-	S3Path         string            `json:"s3Path"`
-	TotalSize      int64             `json:"totalSize"`
-	TotalSizeStr   string            `json:"totalSizeStr"`
-	FileCount      int               `json:"fileCount"`
-	Message        string            `json:"message,omitempty"`
-	UserId         string            `json:"userId"`
-	UserName       string            `json:"userName"`
-	CreationTime   *time.Time        `json:"creationTime,omitempty"`
-	UpdateTime     *time.Time        `json:"updateTime,omitempty"`
-	DownloadJobs   []DownloadJobInfo `json:"downloadJobs,omitempty"`
+	DatasetId       string            `json:"datasetId"`
+	DisplayName     string            `json:"displayName"`
+	Description     string            `json:"description"`
+	DatasetType     string            `json:"datasetType"`
+	Status          string            `json:"status"`
+	DownloadStatus  string            `json:"downloadStatus"`
+	DownloadMessage string            `json:"downloadMessage,omitempty"` // e.g., "2/3 workspaces completed"
+	S3Path          string            `json:"s3Path"`
+	TotalSize       int64             `json:"totalSize"`
+	TotalSizeStr    string            `json:"totalSizeStr"`
+	FileCount       int               `json:"fileCount"`
+	Message         string            `json:"message,omitempty"`
+	LocalPaths      []LocalPathInfo   `json:"localPaths,omitempty"` // Per-workspace download status
+	Workspace       string            `json:"workspace,omitempty"`  // Workspace ID, empty means public
+	UserId          string            `json:"userId"`
+	UserName        string            `json:"userName"`
+	CreationTime    *time.Time        `json:"creationTime,omitempty"`
+	UpdateTime      *time.Time        `json:"updateTime,omitempty"`
+	DownloadJobs    []DownloadJobInfo `json:"downloadJobs,omitempty"`
 }
 
 // ListDatasetsRequest represents the request parameters for listing datasets
 type ListDatasetsRequest struct {
 	DatasetType string `form:"datasetType"`
+	Workspace   string `form:"workspace"` // Filter by workspace ID, empty returns all accessible datasets
 	Search      string `form:"search"`
 	PageNum     int    `form:"pageNum,default=1"`
 	PageSize    int    `form:"pageSize,default=20"`
@@ -100,4 +112,25 @@ type DatasetTemplateResponse struct {
 type DownloadTarget struct {
 	Workspace string
 	Path      string
+}
+
+// GetDatasetFileRequest represents the request for getting a file from dataset
+type GetDatasetFileRequest struct {
+	Preview bool `form:"preview"` // If true, return file content; if false, return download URL
+}
+
+// GetDatasetFileResponse represents the response for downloading a file
+type GetDatasetFileResponse struct {
+	FileName    string `json:"fileName"`
+	DownloadURL string `json:"downloadUrl"`
+}
+
+// PreviewFileResponse represents the response for previewing file content
+type PreviewFileResponse struct {
+	FileName       string `json:"fileName"`
+	Content        string `json:"content"`
+	ContentType    string `json:"contentType"`
+	Size           int64  `json:"size"`
+	Truncated      bool   `json:"truncated"`
+	MaxPreviewSize int64  `json:"maxPreviewSize,omitempty"`
 }

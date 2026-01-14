@@ -449,4 +449,12 @@ data:
     -- Add download_status column for tracking download to workspace PFS
     ALTER TABLE dataset ADD COLUMN IF NOT EXISTS download_status VARCHAR(32) DEFAULT 'Pending';
 
+    -- Add local_paths column for tracking per-workspace download status
+    ALTER TABLE dataset ADD COLUMN IF NOT EXISTS local_paths JSONB;
+
+    -- Add workspace column for workspace-level access control
+    -- NULL or empty string means public dataset (available in all workspaces)
+    ALTER TABLE dataset ADD COLUMN IF NOT EXISTS workspace VARCHAR(64);
+    CREATE INDEX IF NOT EXISTS T_DATASET_WORKSPACE_INDEX ON dataset (workspace);
+
     alter table dataset owner to "primus-safe";

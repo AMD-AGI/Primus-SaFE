@@ -94,6 +94,21 @@ func (mr *MockInterfaceMockRecorder) DeleteObject(ctx, key, timeout interface{})
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteObject", reflect.TypeOf((*MockInterface)(nil).DeleteObject), ctx, key, timeout)
 }
 
+// GetObject mocks base method.
+func (m *MockInterface) GetObject(ctx context.Context, key string, timeout int64) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetObject", ctx, key, timeout)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetObject indicates an expected call of GetObject.
+func (mr *MockInterfaceMockRecorder) GetObject(ctx, key, timeout interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetObject", reflect.TypeOf((*MockInterface)(nil).GetObject), ctx, key, timeout)
+}
+
 // GeneratePresignedURL mocks base method.
 func (m *MockInterface) GeneratePresignedURL(ctx context.Context, key string, expireDay int32) (string, error) {
 	m.ctrl.T.Helper()

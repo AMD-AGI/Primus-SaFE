@@ -7,6 +7,7 @@ package dataset_handlers
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"path/filepath"
@@ -72,6 +73,12 @@ func (h *Handler) GetDatasetTemplate(c *gin.Context) {
 	handle(c, h.getDatasetTemplate)
 }
 
+// GetDatasetFile handles getting or previewing a specific file from a dataset.
+// GET /api/v1/datasets/:id/files/*path
+func (h *Handler) GetDatasetFile(c *gin.Context) {
+	handle(c, h.getDatasetFile)
+}
+
 // createDataset creates a new dataset with file upload.
 func (h *Handler) createDataset(c *gin.Context) (interface{}, error) {
 	ctx := c.Request.Context()
@@ -134,6 +141,33 @@ func (h *Handler) createDataset(c *gin.Context) (interface{}, error) {
 		totalSize += fileHeader.Size
 	}
 
+	// Get download targets first to initialize LocalPaths
+	var downloadTargets []DownloadTarget
+	if commonconfig.GetDownloadJoImage() != "" && commonconfig.IsS3Enable() {
+		var err error
+		downloadTargets, err = h.getDownloadTargets(ctx, req.Workspace)
+		if err != nil {
+			klog.ErrorS(err, "failed to get download targets", "datasetId", datasetId)
+			// Continue without download targets
+		}
+	}
+
+	// Initialize LocalPaths with Pending status for each target
+	var localPathsJSON string
+	if len(downloadTargets) > 0 {
+		localPaths := make([]dbclient.DatasetLocalPathDB, 0, len(downloadTargets))
+		for _, target := range downloadTargets {
+			localPaths = append(localPaths, dbclient.DatasetLocalPathDB{
+				Workspace: target.Workspace,
+				Path:      target.Path + "/datasets/" + req.DisplayName,
+				Status:    dbclient.DatasetDownloadStatusPending,
+			})
+		}
+		if jsonBytes, err := json.Marshal(localPaths); err == nil {
+			localPathsJSON = string(jsonBytes)
+		}
+	}
+
 	// Create dataset record in database
 	now := pq.NullTime{Time: time.Now().UTC(), Valid: true}
 	dataset := &dbclient.Dataset{
@@ -146,6 +180,8 @@ func (h *Handler) createDataset(c *gin.Context) (interface{}, error) {
 		S3Path:         s3Path,
 		TotalSize:      totalSize,
 		FileCount:      fileCount,
+		LocalPaths:     localPathsJSON,
+		Workspace:      req.Workspace, // Workspace ID for access control, empty means public
 		UserId:         userId,
 		UserName:       userName,
 		CreationTime:   now,
@@ -160,17 +196,12 @@ func (h *Handler) createDataset(c *gin.Context) (interface{}, error) {
 
 	// Create download jobs if download image is configured
 	var downloadJobs []DownloadJobInfo
-	if commonconfig.GetDownloadJoImage() != "" && commonconfig.IsS3Enable() {
-		downloadTargets, err := h.getDownloadTargets(ctx, req.Workspace)
+	if len(downloadTargets) > 0 {
+		var err error
+		downloadJobs, err = h.createDownloadOpsJobs(ctx, dataset, downloadTargets, userId, userName)
 		if err != nil {
-			klog.ErrorS(err, "failed to get download targets", "datasetId", datasetId)
+			klog.ErrorS(err, "failed to create download jobs", "datasetId", datasetId)
 			// Don't fail the request, just log the error
-		} else if len(downloadTargets) > 0 {
-			downloadJobs, err = h.createDownloadOpsJobs(ctx, dataset, downloadTargets, userId, userName)
-			if err != nil {
-				klog.ErrorS(err, "failed to create download jobs", "datasetId", datasetId)
-				// Don't fail the request, just log the error
-			}
 		}
 	}
 
@@ -195,6 +226,15 @@ func (h *Handler) listDatasets(c *gin.Context) (interface{}, error) {
 	// Filter by dataset type
 	if req.DatasetType != "" {
 		conditions = append(conditions, sqrl.Eq{dbclient.GetFieldTag(dbTags, "DatasetType"): req.DatasetType})
+	}
+
+	// Filter by workspace
+	// If workspace is specified, return datasets belonging to that workspace OR public datasets (empty workspace)
+	if req.Workspace != "" {
+		conditions = append(conditions, sqrl.Or{
+			sqrl.Eq{dbclient.GetFieldTag(dbTags, "Workspace"): req.Workspace},
+			sqrl.Eq{dbclient.GetFieldTag(dbTags, "Workspace"): ""},
+		})
 	}
 
 	// Filter by search keyword (display name)
@@ -326,6 +366,125 @@ func (h *Handler) listDatasetFiles(c *gin.Context) (interface{}, error) {
 	}, nil
 }
 
+// MaxPreviewSize is the maximum file size for preview (100KB)
+const MaxPreviewSize = 100 * 1024
+
+// getDatasetFile gets or previews a specific file from a dataset.
+func (h *Handler) getDatasetFile(c *gin.Context) (interface{}, error) {
+	datasetId := c.Param("id")
+	if datasetId == "" {
+		return nil, commonerrors.NewBadRequest("dataset id is required")
+	}
+
+	// Get file path from URL - the *path wildcard captures everything after /files/
+	filePath := c.Param("path")
+	if filePath == "" {
+		return nil, commonerrors.NewBadRequest("file path is required")
+	}
+	// Remove leading slash if present
+	filePath = strings.TrimPrefix(filePath, "/")
+
+	// Parse query parameters
+	var req GetDatasetFileRequest
+	if err := c.ShouldBindQuery(&req); err != nil {
+		return nil, commonerrors.NewBadRequest(fmt.Sprintf("invalid request: %v", err))
+	}
+
+	// Get dataset to get S3 path
+	dataset, err := h.dbClient.GetDataset(context.Background(), datasetId)
+	if err != nil {
+		klog.ErrorS(err, "failed to get dataset", "datasetId", datasetId)
+		return nil, err
+	}
+
+	// Construct full S3 key
+	s3Key := dataset.S3Path + filePath
+
+	if req.Preview {
+		// Preview mode: read file content and return
+		return h.previewFile(c.Request.Context(), s3Key, filePath)
+	}
+
+	// Download mode: return presigned URL
+	return h.getFileDownloadURL(c.Request.Context(), s3Key, filePath)
+}
+
+// getFileDownloadURL returns a presigned URL for downloading a file
+func (h *Handler) getFileDownloadURL(ctx context.Context, s3Key, filePath string) (*GetDatasetFileResponse, error) {
+	// Get presigned URL for the file
+	filesMap, err := h.s3Client.PresignModelFiles(ctx, s3Key, 1) // 1 hour expiry
+	if err != nil {
+		klog.ErrorS(err, "failed to get presigned URL", "s3Key", s3Key)
+		return nil, commonerrors.NewInternalError(fmt.Sprintf("failed to get download URL: %v", err))
+	}
+
+	// Find the URL for our file
+	var downloadURL string
+	for _, url := range filesMap {
+		downloadURL = url
+		break
+	}
+
+	if downloadURL == "" {
+		return nil, commonerrors.NewNotFoundWithMessage(fmt.Sprintf("file not found: %s", filePath))
+	}
+
+	return &GetDatasetFileResponse{
+		FileName:    filepath.Base(filePath),
+		DownloadURL: downloadURL,
+	}, nil
+}
+
+// previewFile reads file content from S3 and returns it
+func (h *Handler) previewFile(ctx context.Context, s3Key, filePath string) (*PreviewFileResponse, error) {
+	// Read file content from S3
+	content, err := h.s3Client.GetObject(ctx, s3Key, 60) // 60 second timeout
+	if err != nil {
+		klog.ErrorS(err, "failed to read file from S3", "s3Key", s3Key)
+		return nil, commonerrors.NewInternalError(fmt.Sprintf("failed to read file: %v", err))
+	}
+
+	// Determine content type based on file extension
+	contentType := getContentType(filePath)
+
+	// Check if we need to truncate
+	truncated := false
+	if int64(len(content)) > MaxPreviewSize {
+		content = content[:MaxPreviewSize]
+		truncated = true
+	}
+
+	return &PreviewFileResponse{
+		FileName:       filepath.Base(filePath),
+		Content:        content,
+		ContentType:    contentType,
+		Size:           int64(len(content)),
+		Truncated:      truncated,
+		MaxPreviewSize: MaxPreviewSize,
+	}, nil
+}
+
+// getContentType returns the content type based on file extension
+func getContentType(filePath string) string {
+	ext := strings.ToLower(filepath.Ext(filePath))
+	switch ext {
+	case ".json":
+		return "application/json"
+	case ".jsonl":
+		return "application/jsonl"
+	case ".txt":
+		return "text/plain"
+	case ".csv":
+		return "text/csv"
+	case ".md":
+		return "text/markdown"
+	case ".yaml", ".yml":
+		return "application/yaml"
+	default:
+		return "text/plain"
+	}
+}
+
 // convertToDatasetResponse converts a database dataset to response format.
 func convertToDatasetResponse(ds *dbclient.Dataset) DatasetResponse {
 	resp := DatasetResponse{
@@ -340,6 +499,7 @@ func convertToDatasetResponse(ds *dbclient.Dataset) DatasetResponse {
 		TotalSizeStr:   formatFileSize(ds.TotalSize),
 		FileCount:      ds.FileCount,
 		Message:        ds.Message,
+		Workspace:      ds.Workspace,
 		UserId:         ds.UserId,
 		UserName:       ds.UserName,
 	}
@@ -349,6 +509,30 @@ func convertToDatasetResponse(ds *dbclient.Dataset) DatasetResponse {
 	}
 	if ds.UpdateTime.Valid {
 		resp.UpdateTime = &ds.UpdateTime.Time
+	}
+
+	// Parse LocalPaths and generate DownloadMessage
+	if ds.LocalPaths != "" {
+		var dbLocalPaths []dbclient.DatasetLocalPathDB
+		if err := json.Unmarshal([]byte(ds.LocalPaths), &dbLocalPaths); err == nil {
+			localPaths := make([]LocalPathInfo, 0, len(dbLocalPaths))
+			readyCount := 0
+			for _, lp := range dbLocalPaths {
+				localPaths = append(localPaths, LocalPathInfo{
+					Workspace: lp.Workspace,
+					Path:      lp.Path,
+					Status:    lp.Status,
+					Message:   lp.Message,
+				})
+				if lp.Status == dbclient.DatasetDownloadStatusReady {
+					readyCount++
+				}
+			}
+			resp.LocalPaths = localPaths
+			if len(localPaths) > 0 {
+				resp.DownloadMessage = fmt.Sprintf("%d/%d workspaces completed", readyCount, len(localPaths))
+			}
+		}
 	}
 
 	return resp

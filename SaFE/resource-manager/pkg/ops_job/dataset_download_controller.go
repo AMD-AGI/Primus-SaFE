@@ -28,7 +28,7 @@ type DatasetDownloadController struct {
 }
 
 // SetupDatasetDownloadController initializes and registers the DatasetDownloadController with the controller manager.
-func SetupDatasetDownloadController(mgr manager.Manager) error {
+func SetupDatasetDownloadController(ctx context.Context, mgr manager.Manager) error {
 	// Only setup if database is enabled
 	if !commonconfig.IsDBEnable() {
 		klog.Info("Database is not enabled, skipping DatasetDownloadController setup")
@@ -99,7 +99,7 @@ func opsJobPhaseChangedPredicate() predicate.Predicate {
 	}
 }
 
-// Reconcile handles OpsJob status changes and updates dataset download status.
+// Reconcile handles OpsJob status changes and updates dataset download status per workspace.
 func (r *DatasetDownloadController) Reconcile(ctx context.Context, req ctrlruntime.Request) (ctrlruntime.Result, error) {
 	// Get the OpsJob
 	job := &v1.OpsJob{}
@@ -108,10 +108,16 @@ func (r *DatasetDownloadController) Reconcile(ctx context.Context, req ctrlrunti
 		return ctrlruntime.Result{}, client.IgnoreNotFound(err)
 	}
 
-	// Get dataset ID from label
+	// Get dataset ID and workspace from labels
 	datasetId := job.Labels[dbclient.DatasetIdLabel]
 	if datasetId == "" {
 		// No dataset ID, skip
+		return ctrlruntime.Result{}, nil
+	}
+
+	workspace := job.Labels[v1.WorkspaceIdLabel]
+	if workspace == "" {
+		// No workspace, skip
 		return ctrlruntime.Result{}, nil
 	}
 
@@ -122,10 +128,17 @@ func (r *DatasetDownloadController) Reconcile(ctx context.Context, req ctrlrunti
 		return ctrlruntime.Result{}, nil
 	}
 
-	// Update database
-	if err := r.dbClient.UpdateDatasetDownloadStatus(ctx, datasetId, downloadStatus); err != nil {
-		klog.ErrorS(err, "failed to update dataset download status",
+	// Get failure message if failed
+	var message string
+	if downloadStatus == dbclient.DatasetDownloadStatusFailed {
+		message = extractOpsJobFailureMessage(job)
+	}
+
+	// Update per-workspace status in database (this also recalculates overall status)
+	if err := r.dbClient.UpdateDatasetLocalPath(ctx, datasetId, workspace, downloadStatus, message); err != nil {
+		klog.ErrorS(err, "failed to update dataset local path status",
 			"datasetId", datasetId,
+			"workspace", workspace,
 			"opsJobName", job.Name,
 			"opsJobPhase", job.Status.Phase,
 			"downloadStatus", downloadStatus)
@@ -133,8 +146,9 @@ func (r *DatasetDownloadController) Reconcile(ctx context.Context, req ctrlrunti
 		return ctrlruntime.Result{Requeue: true}, nil
 	}
 
-	klog.InfoS("updated dataset download status",
+	klog.InfoS("updated dataset local path status",
 		"datasetId", datasetId,
+		"workspace", workspace,
 		"opsJobName", job.Name,
 		"opsJobPhase", job.Status.Phase,
 		"downloadStatus", downloadStatus)
@@ -156,4 +170,14 @@ func mapOpsJobPhaseToDownloadStatus(phase v1.OpsJobPhase) string {
 	default:
 		return dbclient.DatasetDownloadStatusPending
 	}
+}
+
+// extractOpsJobFailureMessage extracts failure message from OpsJob conditions
+func extractOpsJobFailureMessage(job *v1.OpsJob) string {
+	for _, cond := range job.Status.Conditions {
+		if cond.Type == "Failed" && cond.Message != "" {
+			return cond.Message
+		}
+	}
+	return "Download failed"
 }
