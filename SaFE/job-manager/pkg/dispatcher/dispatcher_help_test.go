@@ -633,7 +633,7 @@ func TestModifyServiceAccountName(t *testing.T) {
 	}
 }
 
-func TestModifyByOpsJob(t *testing.T) {
+func TestModifyHostPid(t *testing.T) {
 	tests := []struct {
 		name          string
 		opsJobType    string
@@ -641,19 +641,13 @@ func TestModifyByOpsJob(t *testing.T) {
 		expectHostIPC bool
 	}{
 		{
-			name:          "Preflight job should set hostPID and hostIPC",
+			name:          "Privileged job should set hostPID and hostIPC",
 			opsJobType:    string(v1.OpsJobPreflightType),
 			expectHostPID: true,
 			expectHostIPC: true,
 		},
 		{
-			name:          "CD job should not set hostPID and hostIPC",
-			opsJobType:    string(v1.OpsJobCDType),
-			expectHostPID: false,
-			expectHostIPC: false,
-		},
-		{
-			name:          "Empty ops job type should not set hostPID and hostIPC",
+			name:          "None-Privileged job type should not set hostPID and hostIPC",
 			opsJobType:    "",
 			expectHostPID: false,
 			expectHostIPC: false,
@@ -677,10 +671,13 @@ func TestModifyByOpsJob(t *testing.T) {
 				workload.Labels = map[string]string{
 					v1.OpsJobTypeLabel: tt.opsJobType,
 				}
+				if tt.opsJobType == string(v1.OpsJobPreflightType) {
+					v1.SetAnnotation(workload, v1.WorkloadPrivilegedAnnotation, v1.TrueStr)
+				}
 			}
 
 			templatePath := []string{"spec", "template"}
-			err := modifyByOpsJob(obj, workload, templatePath)
+			err := modifyHostPid(obj, workload, templatePath)
 			assert.NilError(t, err)
 
 			hostPID, foundPID, _ := unstructured.NestedBool(obj.Object, "spec", "template", "spec", "hostPID")
