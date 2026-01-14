@@ -695,7 +695,7 @@ func (r *DispatcherReconciler) createService(ctx context.Context, adminWorkload 
 		},
 		Spec: corev1.ServiceSpec{
 			Selector: map[string]string{
-				v1.WorkloadIdLabel: getRootWorkloadId(adminWorkload),
+				v1.K8sObjectIdLabel: adminWorkload.Name,
 			},
 			Ports: generateServicePorts(specService),
 			Type:  specService.ServiceType,
@@ -938,7 +938,7 @@ func (r *DispatcherReconciler) generateLighthouse(ctx context.Context, rootWorkl
 	workload := rootWorkload.DeepCopy()
 	groupId := "0"
 	displayName := v1.GetDisplayName(rootWorkload) + "-" + groupId
-	workload.Name = commonutils.GenerateName(displayName)
+	workload.Name = rootWorkload.Name + "-" + groupId
 	v1.SetLabel(workload, v1.DisplayNameLabel, displayName)
 	v1.SetLabel(workload, v1.RootWorkloadIdLabel, rootWorkload.Name)
 	v1.SetAnnotation(workload, v1.ResourceIdAnnotation, "0")
@@ -970,9 +970,10 @@ func (r *DispatcherReconciler) generateTorchFTWorker(ctx context.Context,
 	rootWorkload *v1.Workload, groupId, totalGroup int, lightHouseAddr string) *v1.Workload {
 	workload := rootWorkload.DeepCopy()
 	// The webhook has already validated the resources.
+	groupIdAnnotation := strconv.Itoa(groupId + 1)
 	nodePerGroup := rootWorkload.Spec.Resources[1].Replica / totalGroup
-	displayName := v1.GetDisplayName(rootWorkload) + "-" + strconv.Itoa(groupId+1)
-	workload.Name = commonutils.GenerateName(displayName)
+	displayName := v1.GetDisplayName(rootWorkload) + "-" + groupIdAnnotation
+	workload.Name = rootWorkload.Name + "-" + groupIdAnnotation
 	workload.Spec.Resources = []v1.WorkloadResource{rootWorkload.Spec.Resources[1]}
 	workload.Spec.Resources[0].Replica = 1
 	if nodePerGroup > 1 {
@@ -993,7 +994,7 @@ func (r *DispatcherReconciler) generateTorchFTWorker(ctx context.Context,
 	v1.SetLabel(workload, v1.DisplayNameLabel, displayName)
 	v1.SetLabel(workload, v1.RootWorkloadIdLabel, rootWorkload.Name)
 	v1.SetAnnotation(workload, v1.ResourceIdAnnotation, "1")
-	v1.SetAnnotation(workload, v1.GroupIdAnnotation, strconv.Itoa(groupId+1))
+	v1.SetAnnotation(workload, v1.GroupIdAnnotation, groupIdAnnotation)
 	commonworkload.GetWorkloadMainContainer(ctx, r.Client, workload)
 	return workload
 }
