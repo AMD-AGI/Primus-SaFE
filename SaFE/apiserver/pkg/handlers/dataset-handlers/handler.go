@@ -34,11 +34,17 @@ type Handler struct {
 // It initializes all required clients including:
 // - k8sClient: Kubernetes client for workspace and OpsJob operations
 // - dbClient: Database client for dataset metadata storage
-// - s3Client: S3 client for dataset file storage
+// - s3Client: S3 client for dataset file storage (optional, nil if S3 is disabled)
 // - accessController: AccessController for access control
-// Returns nil if database is not enabled.
+// Returns nil if database or S3 is not enabled.
 func NewHandler(ctx context.Context, mgr ctrlruntime.Manager) (*Handler, error) {
+	// Dataset feature requires both DB and S3
 	if !commonconfig.IsDBEnable() {
+		return nil, nil
+	}
+
+	if !commonconfig.IsS3Enable() {
+		// S3 is required for dataset storage, skip initialization if not enabled
 		return nil, nil
 	}
 
