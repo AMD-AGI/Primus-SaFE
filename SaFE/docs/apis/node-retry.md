@@ -170,115 +170,7 @@ No request body required.
 
 ---
 
-## 6. Frontend Integration Notes
-
-### 6.1 Retry Button Display Logic
-
-```javascript
-// Only show Retry button when in failed state
-const showRetryButton = (node) => {
-  return node.status.clusterStatus.phase === 'ManagedFailed' ||
-         node.status.clusterStatus.phase === 'UnmanagedFailed';
-};
-```
-
-### 6.2 Status Polling
-
-```javascript
-// After user clicks Retry, frontend needs to poll node status
-const pollNodeStatus = async (nodeName) => {
-  const response = await fetch(`/api/v1/nodes/${nodeName}`);
-  const node = await response.json();
-  
-  const phase = node.status.clusterStatus.phase;
-  
-  if (phase === 'Managing' || phase === 'Unmanaging') {
-    // Show "In Progress..." status, continue polling
-    setTimeout(() => pollNodeStatus(nodeName), 3000);
-  } else if (phase === 'Managed' || phase === 'Unmanaged') {
-    // Operation successful
-    showSuccess('Operation successful');
-  } else if (phase === 'ManagedFailed' || phase === 'UnmanagedFailed') {
-    // Operation failed, show Retry button
-    showError('Operation failed, please retry');
-  }
-};
-```
-
-### 6.3 Button State Management
-
-| Node State | Retry Button | Other Action Buttons |
-|------------|--------------|---------------------|
-| `Unmanaged` | Hidden | Show "Manage" |
-| `Managing` | Hidden | All disabled |
-| `Managed` | Hidden | Show "Unmanage" |
-| `ManagedFailed` | **Visible** | Show "Manage" (or disabled) |
-| `Unmanaging` | Hidden | All disabled |
-| `UnmanagedFailed` | **Visible** | Show "Unmanage" (or disabled) |
-
-### 6.4 Error Handling
-
-```javascript
-const handleRetry = async (nodeName) => {
-  try {
-    const response = await fetch(`/api/v1/nodes/${nodeName}/retry`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      }
-    });
-    
-    if (!response.ok) {
-      const error = await response.json();
-      
-      // Provide user-friendly messages based on error
-      switch (error.errorMessage) {
-        case 'machine is not ready, please wait and try again':
-          showWarning('Machine is not ready, please try again later');
-          break;
-        case 'control plane node cannot be unmanaged':
-          showError('Control plane node cannot be unmanaged');
-          break;
-        default:
-          showError(error.errorMessage);
-      }
-      return;
-    }
-    
-    const result = await response.json();
-    showInfo(`Retry initiated, status: ${result.previousPhase} → ${result.currentPhase}`);
-    
-    // Start polling status
-    pollNodeStatus(nodeName);
-    
-  } catch (error) {
-    showError('Network error, please retry');
-  }
-};
-```
-
-### 6.5 UI Interaction Recommendations
-
-1. **Confirmation Dialog**: Show confirmation dialog before clicking Retry
-   ```
-   Are you sure you want to retry the manage/unmanage operation?
-   [Cancel] [Confirm]
-   ```
-
-2. **Loading State**: Button shows loading state after click to prevent duplicate clicks
-
-3. **Toast Notifications**:
-   - Success: `Retry initiated`
-   - Failure: Show specific error reason
-
-4. **Status Icons**:
-   - `Managing` / `Unmanaging`: Show loading spinner
-   - `ManagedFailed` / `UnmanagedFailed`: Show red error icon + Retry button
-
----
-
-## 7. Access Control
+## 6. Access Control
 
 Retry operation uses the same permissions as manage/unmanage:
 
@@ -288,9 +180,9 @@ Retry operation uses the same permissions as manage/unmanage:
 
 ---
 
-## 8. Examples
+## 7. Examples
 
-### 8.1 cURL Example
+### 7.1 cURL Example
 
 ```bash
 # Retry a node that failed to manage
@@ -299,7 +191,7 @@ curl -X POST "http://localhost:8088/api/v1/nodes/node-1/retry" \
   -H "Content-Type: application/json"
 ```
 
-### 8.2 Success Response Example
+### 7.2 Success Response Example
 
 ```json
 {
@@ -310,7 +202,7 @@ curl -X POST "http://localhost:8088/api/v1/nodes/node-1/retry" \
 }
 ```
 
-### 8.3 Failure Response Example
+### 7.3 Failure Response Example
 
 ```json
 {
@@ -321,9 +213,9 @@ curl -X POST "http://localhost:8088/api/v1/nodes/node-1/retry" \
 
 ---
 
-## 9. Backend Implementation Notes
+## 8. Backend Implementation Notes
 
-### 9.1 Core Logic
+### 8.1 Core Logic
 
 1. **Permission Check**: Verify user has `update` permission
 2. **State Check**: Confirm node is in `ManagedFailed` or `UnmanagedFailed` state
@@ -334,7 +226,7 @@ curl -X POST "http://localhost:8088/api/v1/nodes/node-1/retry" \
 5. **Reset Status**: Change state to `Managing` or `Unmanaging`
 6. **Controller Takes Over**: State change triggers Controller to re-execute manage/unmanage
 
-### 9.2 Code Locations
+### 8.2 Code Locations
 
 | File | Functionality |
 |------|---------------|
@@ -344,7 +236,7 @@ curl -X POST "http://localhost:8088/api/v1/nodes/node-1/retry" \
 
 ---
 
-## 10. Change Log
+## 9. Change Log
 
 | Date | Version | Description | Author |
 |------|---------|-------------|--------|
