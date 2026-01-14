@@ -344,7 +344,7 @@ func modifyPrivilegedSecurity(container map[string]interface{}, workload *v1.Wor
 	if v1.GetOpsJobType(workload) == "" && !v1.IsPrivileged(workload) {
 		return
 	}
-	// All OpsJob run as root
+	// All OpsJobs run as root
 	securityContext := map[string]interface{}{
 		"runAsUser":  int64(0),
 		"runAsGroup": int64(0),
@@ -1020,9 +1020,6 @@ func updateContainerEnv(envs map[string]string, container map[string]interface{}
 
 // updateSharedMemory updates the shared memory volume configuration.
 func updateSharedMemory(adminWorkload *v1.Workload, obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec, id int) error {
-	if v1.IsPrivileged(adminWorkload) {
-		return nil
-	}
 	path := resourceSpec.PrePaths
 	path = append(path, resourceSpec.TemplatePaths...)
 	path = append(path, "spec", "volumes")
