@@ -176,8 +176,9 @@ func (r *PreflightJobReconciler) generatePreflightWorkload(ctx context.Context, 
 			Annotations: map[string]string{
 				v1.UserNameAnnotation: v1.GetUserName(job),
 				// Dispatch the workload immediately, skipping the queue.
-				v1.WorkloadScheduledAnnotation: timeutil.FormatRFC3339(time.Now().UTC()),
-				v1.DescriptionAnnotation: v1.OpsJobKind,
+				v1.WorkloadScheduledAnnotation:  timeutil.FormatRFC3339(time.Now().UTC()),
+				v1.DescriptionAnnotation:        v1.OpsJobKind,
+				v1.WorkloadPrivilegedAnnotation: v1.TrueStr,
 			},
 		},
 		Spec: v1.WorkloadSpec{
