@@ -7,3 +7,4 @@ RUN mkdir -p ${APP_HOME} && mkdir -p ${APP_HOME}/scripts && chmod -R  750 ${APP_
 
 COPY ./SaFE/docker/preprocess/*.sh ${APP_HOME}/
 COPY ./SaFE/docker/preprocess/scripts/*.sh ${APP_HOME}/scripts/
+COPY ./SaFE/docker/preprocess/scripts/*.py ${APP_HOME}/scripts/

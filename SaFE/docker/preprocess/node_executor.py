@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-# Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
-# See LICENSE for license information.
+#  Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
+#  See LICENSE for license information.
 
 """
 Node Command Executor Script
@@ -25,20 +25,24 @@ import json
 import os
 import sys
 import time
-import urllib.request
 import urllib.error
+import urllib.request
 
 
 def get_env_or_exit(name: str) -> str:
-    """Get environment variable or exit with error."""
+    """Get environment variable or exit with error if not set or empty."""
     value = os.environ.get(name)
-    if not value:
+    if value is None:
         print(f"Error: Environment variable {name} is not set", file=sys.stderr)
+        sys.exit(1)
+    value = value.strip()
+    if not value:
+        print(f"Error: Environment variable {name} is empty", file=sys.stderr)
         sys.exit(1)
     return value
 
 
-def create_ops_job(endpoint: str, apikey: str, node_name: str, script_base64: str, timeout: int = 1800) -> str:
+def create_ops_job(endpoint: str, apikey: str, node_name: str, script_base64: str, timeout: int = 300) -> str:
     """
     Create an OpsJob and return the job ID.
     
@@ -59,7 +63,7 @@ def create_ops_job(endpoint: str, apikey: str, node_name: str, script_base64: st
             {"name": "node", "value": node_name},
             {"name": "script", "value": script_base64}
         ],
-        "name": node_name,
+        "name": node_name + "-addon-script",
         "type": "addon",
         "securityUpgrade": False,
         "timeoutSecond": timeout
@@ -80,7 +84,6 @@ def create_ops_job(endpoint: str, apikey: str, node_name: str, script_base64: st
             if not job_id:
                 print(f"Error: No jobId in response: {result}", file=sys.stderr)
                 sys.exit(1)
-            print(f"OpsJob created successfully, jobId: {job_id}")
             return job_id
     except urllib.error.HTTPError as e:
         error_body = e.read().decode("utf-8") if e.fp else ""
@@ -123,7 +126,7 @@ def get_ops_job(endpoint: str, apikey: str, job_id: str) -> dict:
         return {}
 
 
-def wait_for_completion(endpoint: str, apikey: str, job_id: str, timeout: int = 1800, poll_interval: int = 5) -> bool:
+def wait_for_completion(endpoint: str, apikey: str, job_id: str, timeout: int = 300, poll_interval: int = 1) -> bool:
     """
     Wait for OpsJob to complete.
     
@@ -142,27 +145,20 @@ def wait_for_completion(endpoint: str, apikey: str, job_id: str, timeout: int = 
     while True:
         elapsed = time.time() - start_time
         if elapsed > timeout:
-            print(f"Error: Timeout waiting for OpsJob {job_id} after {timeout} seconds", file=sys.stderr)
+            print(f"Error: Timeout waiting for execution after {timeout} seconds", file=sys.stderr)
             return False
         
         result = get_ops_job(endpoint, apikey, job_id)
         if not result:
-            print(f"Warning: Failed to get job status, retrying in {poll_interval}s...")
             time.sleep(poll_interval)
             continue
         
         phase = result.get("phase", "")
-        print(f"Job {job_id} phase: {phase} (elapsed: {int(elapsed)}s)")
-        
         if phase == "Succeeded":
-            print(f"\n✓ OpsJob {job_id} completed successfully!")
+            print(f"\n✓ The script executed successfully!")
             return True
         elif phase == "Failed":
-            print(f"\n✗ OpsJob {job_id} failed!", file=sys.stderr)
-            # Print conditions for debugging
-            conditions = result.get("conditions", [])
-            for cond in conditions:
-                print(f"  - {cond.get('type')}: {cond.get('message')}", file=sys.stderr)
+            print(f"\n✗ The script execution failed!", file=sys.stderr)
             return False
         
         # Still running (Pending, Running, etc.), continue polling
@@ -181,6 +177,8 @@ def main():
     node_name = get_env_or_exit("NODE_NAME")
     apikey = get_env_or_exit("APIKEY")
     endpoint = get_env_or_exit("ADMIN_CONTROL_PLANE")
+    port = get_env_or_exit("APISERVER_NODE_PORT")
+    endpoint = f"{endpoint}:{port}"
     
     # Base64 encode the script
     script_base64 = base64.b64encode(script_content.encode("utf-8")).decode("utf-8")
