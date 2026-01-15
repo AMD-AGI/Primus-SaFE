@@ -268,8 +268,8 @@ func (r *NodeReconciler) processNode(ctx context.Context, adminNode *v1.Node, k8
 			return ctrlruntime.Result{}, err
 		}
 	}
-	// Only managed nodes will have the addon installed.
-	if adminNode.IsManaged() {
+	// Only managed nodes will have the addons installed.
+	if adminNode.IsManaged() && adminNode.GetSpecCluster() != "" {
 		if err := r.installAddons(ctx, adminNode); err != nil {
 			klog.ErrorS(err, "failed to install addons", "node", adminNode.Name)
 			if !utils.IsNonRetryableError(err) {
