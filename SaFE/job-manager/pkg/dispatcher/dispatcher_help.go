@@ -538,6 +538,9 @@ func buildEnvironment(workload *v1.Workload, resourceId int) []interface{} {
 	if workload.Spec.SSHPort > 0 {
 		result = addEnvVar(result, workload, "SSH_PORT", strconv.Itoa(workload.Spec.SSHPort))
 	}
+	if commonworkload.IsAuthoring(workload) {
+		result = addEnvVar(result, workload, jobutils.AdminControlPlaneEnv, v1.GetAdminControlPlane(workload))
+	}
 	return result
 }
 

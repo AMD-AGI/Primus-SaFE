@@ -760,6 +760,12 @@ func (h *Handler) generateWorkload(ctx context.Context,
 	if err = json.Unmarshal(body, &workload.Spec); err != nil {
 		return nil, err
 	}
+	controlPlaneIp, err := h.getAdminControlPlaneIp(ctx)
+	if err != nil {
+		return nil, err
+	}
+	v1.SetAnnotation(workload, v1.AdminControlPlaneAnnotation, controlPlaneIp)
+
 	if commonworkload.IsAuthoring(workload) {
 		if len(req.SpecifiedNodes) > 1 {
 			return nil, fmt.Errorf("the authoring can only be created with one node")
