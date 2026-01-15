@@ -421,6 +421,9 @@ data:
     alter table api_keys owner to "primus-safe";
 
 
+    -- Dataset table for managing datasets
+    -- All columns are defined in CREATE TABLE for new installations
+    -- ALTER TABLE statements are kept for backward compatibility with existing installations
     create table if not exists dataset
     (
         id BIGSERIAL PRIMARY KEY,
@@ -433,6 +436,8 @@ data:
         total_size BIGINT DEFAULT 0,
         file_count INT DEFAULT 0,
         message TEXT,
+        local_paths JSONB DEFAULT '[]',                 -- Per-workspace download status
+        workspace VARCHAR(64) DEFAULT '',               -- Workspace ID for access control, empty means public
         user_id VARCHAR(64) NOT NULL,
         user_name VARCHAR(128),
         creation_time TIMESTAMPTZ DEFAULT NOW(),
@@ -445,14 +450,11 @@ data:
     create index if not exists T_DATASET_USER_ID_INDEX on dataset (user_id);
     create index if not exists T_DATASET_TYPE_INDEX on dataset (dataset_type);
     create index if not exists T_DATASET_IS_DELETED_INDEX on dataset (is_deleted);
+    create index if not exists T_DATASET_WORKSPACE_INDEX on dataset (workspace);
 
-    -- Add local_paths column for tracking per-workspace download status
+    -- Backward compatibility: Add columns for existing installations
     ALTER TABLE dataset ADD COLUMN IF NOT EXISTS local_paths JSONB DEFAULT '[]';
-
-    -- Add workspace column for workspace-level access control
-    -- Empty string means public dataset (available in all workspaces)
     ALTER TABLE dataset ADD COLUMN IF NOT EXISTS workspace VARCHAR(64) DEFAULT '';
-    CREATE INDEX IF NOT EXISTS T_DATASET_WORKSPACE_INDEX ON dataset (workspace);
 
     -- Update existing NULL values to defaults (for data created before these columns were added)
     UPDATE dataset SET local_paths = '[]' WHERE local_paths IS NULL;

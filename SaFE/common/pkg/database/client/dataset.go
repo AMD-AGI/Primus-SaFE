@@ -39,12 +39,43 @@ var (
 		WHERE dataset_id = :dataset_id`, TDataset)
 )
 
-// Dataset status constants
+// DatasetStatus represents a dataset status with its metadata
+type DatasetStatus struct {
+	Name        string // Status identifier
+	Description string // Human readable description
+}
+
+// Dataset statuses registry
+var DatasetStatuses = map[string]DatasetStatus{
+	"Pending": {
+		Name:        "Pending",
+		Description: "Upload completed, waiting for download to workspace",
+	},
+	"Uploading": {
+		Name:        "Uploading",
+		Description: "File upload in progress to S3",
+	},
+	"Downloading": {
+		Name:        "Downloading",
+		Description: "Download in progress to workspace PFS",
+	},
+	"Ready": {
+		Name:        "Ready",
+		Description: "Download completed successfully",
+	},
+	"Failed": {
+		Name:        "Failed",
+		Description: "Upload or download failed",
+	},
+}
+
+// Dataset status constants for backward compatibility
 const (
+	DatasetStatusUploading   = "Uploading"   // File upload in progress to S3
 	DatasetStatusPending     = "Pending"     // Upload completed, waiting for download to workspace
 	DatasetStatusDownloading = "Downloading" // Download in progress
 	DatasetStatusReady       = "Ready"       // Download completed successfully
-	DatasetStatusFailed      = "Failed"      // Download failed
+	DatasetStatusFailed      = "Failed"      // Upload or download failed
 )
 
 // Dataset label for OpsJob

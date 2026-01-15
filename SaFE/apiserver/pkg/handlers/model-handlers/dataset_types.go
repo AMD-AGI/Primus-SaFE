@@ -3,9 +3,11 @@
  * See LICENSE for license information.
  */
 
-package dataset_handlers
+package model_handlers
 
 import "time"
+
+// --- Dataset Request/Response Types ---
 
 // CreateDatasetRequest represents the request body for creating a dataset
 type CreateDatasetRequest struct {
@@ -15,15 +17,15 @@ type CreateDatasetRequest struct {
 	Workspace   string `json:"workspace" form:"workspace"` // Workspace ID for access control, empty means public (downloads to all workspaces)
 }
 
-// DownloadJobInfo represents information about a download job
-type DownloadJobInfo struct {
+// DatasetDownloadJobInfo represents information about a download job
+type DatasetDownloadJobInfo struct {
 	JobId     string `json:"jobId"`
 	Workspace string `json:"workspace"`
 	DestPath  string `json:"destPath"`
 }
 
-// LocalPathInfo represents the download status of a dataset in a specific workspace
-type LocalPathInfo struct {
+// DatasetLocalPathInfo represents the download status of a dataset in a specific workspace
+type DatasetLocalPathInfo struct {
 	Workspace string `json:"workspace"`
 	Path      string `json:"path,omitempty"`
 	Status    string `json:"status"`
@@ -32,25 +34,25 @@ type LocalPathInfo struct {
 
 // DatasetResponse represents the response body for a dataset
 type DatasetResponse struct {
-	DatasetId     string            `json:"datasetId"`
-	DisplayName   string            `json:"displayName"`
-	Description   string            `json:"description"`
-	DatasetType   string            `json:"datasetType"`
-	Status        string            `json:"status"`                  // Pending/Downloading/Ready/Failed
-	StatusMessage string            `json:"statusMessage,omitempty"` // e.g., "2/3 workspaces completed"
-	S3Path        string            `json:"s3Path"`
-	TotalSize     int64             `json:"totalSize"`
-	TotalSizeStr  string            `json:"totalSizeStr"`
-	FileCount     int               `json:"fileCount"`
-	Files         []DatasetFileInfo `json:"files,omitempty"` // List of files in dataset
-	Message       string            `json:"message,omitempty"`
-	LocalPaths    []LocalPathInfo   `json:"localPaths,omitempty"` // Per-workspace download status
-	Workspace     string            `json:"workspace,omitempty"`  // Workspace ID, empty means public
-	UserId        string            `json:"userId"`
-	UserName      string            `json:"userName"`
-	CreationTime  *time.Time        `json:"creationTime,omitempty"`
-	UpdateTime    *time.Time        `json:"updateTime,omitempty"`
-	DownloadJobs  []DownloadJobInfo `json:"downloadJobs,omitempty"`
+	DatasetId     string                   `json:"datasetId"`
+	DisplayName   string                   `json:"displayName"`
+	Description   string                   `json:"description"`
+	DatasetType   string                   `json:"datasetType"`
+	Status        string                   `json:"status"`                  // Pending/Downloading/Ready/Failed
+	StatusMessage string                   `json:"statusMessage,omitempty"` // e.g., "2/3 workspaces completed"
+	S3Path        string                   `json:"s3Path"`
+	TotalSize     int64                    `json:"totalSize"`
+	TotalSizeStr  string                   `json:"totalSizeStr"`
+	FileCount     int                      `json:"fileCount"`
+	Files         []DatasetFileInfo        `json:"files,omitempty"` // List of files in dataset
+	Message       string                   `json:"message,omitempty"`
+	LocalPaths    []DatasetLocalPathInfo   `json:"localPaths,omitempty"` // Per-workspace download status
+	Workspace     string                   `json:"workspace,omitempty"`  // Workspace ID, empty means public
+	UserId        string                   `json:"userId"`
+	UserName      string                   `json:"userName"`
+	CreationTime  *time.Time               `json:"creationTime,omitempty"`
+	UpdateTime    *time.Time               `json:"updateTime,omitempty"`
+	DownloadJobs  []DatasetDownloadJobInfo `json:"downloadJobs,omitempty"`
 }
 
 // ListDatasetsRequest represents the request parameters for listing datasets
@@ -92,12 +94,6 @@ type ListDatasetTypesResponse struct {
 	Types []DatasetTypeInfo `json:"types"`
 }
 
-// DownloadTarget represents a target for downloading dataset
-type DownloadTarget struct {
-	Workspace string
-	Path      string
-}
-
 // GetDatasetFileRequest represents the request for getting a file from dataset
 type GetDatasetFileRequest struct {
 	Preview bool `form:"preview"` // If true, return file content; if false, return download URL
@@ -109,8 +105,8 @@ type GetDatasetFileResponse struct {
 	DownloadURL string `json:"downloadUrl"`
 }
 
-// PreviewFileResponse represents the response for previewing file content
-type PreviewFileResponse struct {
+// PreviewDatasetFileResponse represents the response for previewing file content
+type PreviewDatasetFileResponse struct {
 	FileName       string `json:"fileName"`
 	Content        string `json:"content"`
 	ContentType    string `json:"contentType"`
@@ -118,3 +114,4 @@ type PreviewFileResponse struct {
 	Truncated      bool   `json:"truncated"`
 	MaxPreviewSize int64  `json:"maxPreviewSize,omitempty"`
 }
+
