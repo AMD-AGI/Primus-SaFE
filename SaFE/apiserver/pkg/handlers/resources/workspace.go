@@ -324,7 +324,7 @@ func (h *Handler) updateWorkspaceImageSecrets(ctx context.Context,
 	uniqueSecretIds := sets.NewSet()
 	targetSecrets := make([]*corev1.Secret, 0, len(secretIds))
 	for _, id := range secretIds {
-		secret, err := h.getAndAuthorizeSecret(ctx, id, workspace.Name, requestUser, v1.ListVerb)
+		secret, err := h.getAdminSecret(ctx, id)
 		if err != nil {
 			return err
 		}
