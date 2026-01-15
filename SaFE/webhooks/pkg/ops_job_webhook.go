@@ -339,7 +339,7 @@ func (v *OpsJobValidator) validateRequiredParams(ctx context.Context, job *v1.Op
 		}
 	}
 	if err := utilerrors.NewAggregate(errs); err != nil {
-		return err
+		return commonerrors.NewBadRequest(err.Error())
 	}
 	return nil
 }
