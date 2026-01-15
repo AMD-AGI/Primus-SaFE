@@ -111,7 +111,7 @@ func (v *ClusterValidator) Handle(ctx context.Context, req admission.Request) ad
 
 // validateOnCreation validates cluster display name and control plane configuration on creation.
 func (v *ClusterValidator) validateOnCreation(ctx context.Context, cluster *v1.Cluster) error {
-	if err := validateDisplayName(v1.GetDisplayName(cluster)); err != nil {
+	if err := validateDisplayName(v1.GetDisplayName(cluster), ""); err != nil {
 		return err
 	}
 	if err := v.validateControlPlane(ctx, cluster); err != nil {

@@ -97,7 +97,7 @@ func (v *AddOnTemplateValidator) validate(addon *v1.AddonTemplate) error {
 	if err := v.validateRequiredParams(addon); err != nil {
 		return err
 	}
-	if err := validateDisplayName(v1.GetDisplayName(addon)); err != nil {
+	if err := validateDisplayName(v1.GetDisplayName(addon), ""); err != nil {
 		return err
 	}
 	return nil

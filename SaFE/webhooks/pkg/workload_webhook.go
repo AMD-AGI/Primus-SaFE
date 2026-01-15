@@ -51,9 +51,6 @@ const (
 	DefaultFailureThreshold    = 3
 	DefaultMaxFailover         = 50
 
-	MaxCICDScaleSetNameLen = 39
-	MaxTorchFTNameLen      = commonutils.MaxDisplayNameLen - 4
-
 	ResourcesEnv  = "RESOURCES"
 	ImageEnv      = "IMAGE"
 	EntrypointEnv = "ENTRYPOINT"
@@ -655,7 +652,7 @@ func (v *WorkloadValidator) validateRequiredParams(workload *v1.Workload) error 
 	if v1.GetDisplayName(workload) == "" {
 		errs = append(errs, fmt.Errorf("the displayName is empty"))
 	}
-	if err := validateDNSName(v1.GetDisplayName(workload)); err != nil {
+	if err := validateDNSName(v1.GetDisplayName(workload), workload.SpecKind()); err != nil {
 		errs = append(errs, err)
 	}
 	if v1.GetClusterId(workload) == "" {
@@ -691,8 +688,8 @@ func (v *WorkloadValidator) validateRequiredParams(workload *v1.Workload) error 
 
 // validateCICDScalingRunnerSet validates cicd runnerSet workload configuration including environment variables and resource requirements.
 func (v *WorkloadValidator) validateCICDScalingRunnerSet(workload *v1.Workload) error {
-	if len(v1.GetDisplayName(workload)) > MaxCICDScaleSetNameLen {
-		return fmt.Errorf("the displayName is too long, maximum length is %d characters", MaxCICDScaleSetNameLen)
+	if len(v1.GetDisplayName(workload)) > commonutils.MaxCICDScaleSetNameLen {
+		return fmt.Errorf("the displayName is too long, maximum length is %d characters", commonutils.MaxCICDScaleSetNameLen)
 	}
 	if len(workload.Spec.Env) == 0 {
 		return fmt.Errorf("the environment variables of workload is empty")
@@ -721,8 +718,8 @@ func (v *WorkloadValidator) validateTorchFT(newWorkload, oldWorkload *v1.Workloa
 		return fmt.Errorf("insufficient resources for TorchFT: expected at least 2 resource configurations (lighthouse and worker groups), "+
 			"got %d, resources: %v", len(newWorkload.Spec.Resources), newWorkload.Spec.Resources)
 	}
-	if len(v1.GetDisplayName(newWorkload)) > MaxTorchFTNameLen {
-		return fmt.Errorf("the displayName is too long, maximum length is %d", MaxTorchFTNameLen)
+	if len(v1.GetDisplayName(newWorkload)) > commonutils.MaxTorchFTNameLen {
+		return fmt.Errorf("the displayName is too long, maximum length is %d", commonutils.MaxTorchFTNameLen)
 	}
 
 	group, err := commonworkload.GetReplicaGroup(newWorkload, common.ReplicaGroup)
