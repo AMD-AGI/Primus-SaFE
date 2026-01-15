@@ -342,30 +342,91 @@ func toFloat64(val interface{}) (float64, error) {
 // formatDimensionValue formats a value for dimension storage
 // This handles the case where JSON unmarshals numbers as float64,
 // which would result in scientific notation for large integers like dates (20260115)
+// It also converts YYYYMMDD format integers to YYYY-MM-DD standard date format
 func formatDimensionValue(val interface{}) string {
 	switch v := val.(type) {
 	case float64:
 		// Check if the float is actually an integer
 		if v == float64(int64(v)) {
-			return strconv.FormatInt(int64(v), 10)
+			intVal := int64(v)
+			// Check if it looks like a YYYYMMDD date (8 digits, valid range)
+			if formatted := tryFormatAsDate(intVal); formatted != "" {
+				return formatted
+			}
+			return strconv.FormatInt(intVal, 10)
 		}
 		return strconv.FormatFloat(v, 'f', -1, 64)
 	case float32:
 		if v == float32(int32(v)) {
-			return strconv.FormatInt(int64(v), 10)
+			intVal := int64(v)
+			if formatted := tryFormatAsDate(intVal); formatted != "" {
+				return formatted
+			}
+			return strconv.FormatInt(intVal, 10)
 		}
 		return strconv.FormatFloat(float64(v), 'f', -1, 32)
-	case int, int8, int16, int32, int64:
+	case int:
+		if formatted := tryFormatAsDate(int64(v)); formatted != "" {
+			return formatted
+		}
+		return fmt.Sprintf("%d", v)
+	case int64:
+		if formatted := tryFormatAsDate(v); formatted != "" {
+			return formatted
+		}
+		return fmt.Sprintf("%d", v)
+	case int32:
+		if formatted := tryFormatAsDate(int64(v)); formatted != "" {
+			return formatted
+		}
+		return fmt.Sprintf("%d", v)
+	case int8, int16:
 		return fmt.Sprintf("%d", v)
 	case uint, uint8, uint16, uint32, uint64:
 		return fmt.Sprintf("%d", v)
 	case string:
+		// Also try to convert string like "20260115" to date format
+		if len(v) == 8 {
+			if intVal, err := strconv.ParseInt(v, 10, 64); err == nil {
+				if formatted := tryFormatAsDate(intVal); formatted != "" {
+					return formatted
+				}
+			}
+		}
 		return v
 	case bool:
 		return strconv.FormatBool(v)
 	default:
 		return fmt.Sprintf("%v", v)
 	}
+}
+
+// tryFormatAsDate attempts to format an integer as YYYY-MM-DD date
+// Returns empty string if the value doesn't look like a valid YYYYMMDD date
+func tryFormatAsDate(val int64) string {
+	// Check if it's in YYYYMMDD range (19000101 to 21001231)
+	if val < 19000101 || val > 21001231 {
+		return ""
+	}
+
+	// Extract year, month, day
+	year := val / 10000
+	month := (val % 10000) / 100
+	day := val % 100
+
+	// Validate ranges
+	if year < 1900 || year > 2100 {
+		return ""
+	}
+	if month < 1 || month > 12 {
+		return ""
+	}
+	if day < 1 || day > 31 {
+		return ""
+	}
+
+	// Format as YYYY-MM-DD
+	return fmt.Sprintf("%04d-%02d-%02d", year, month, day)
 }
 
 // isDateColumn checks if a column name looks like a date
