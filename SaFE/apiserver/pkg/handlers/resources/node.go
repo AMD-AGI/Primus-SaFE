@@ -156,6 +156,7 @@ func (h *Handler) retryNodes(c *gin.Context) (interface{}, error) {
 		response.SuccessCount++
 		response.SuccessNodes = append(response.SuccessNodes, view.RetrySuccessNode{
 			NodeId:      nodeName,
+			HasPods:     len(podInfo.deleted) > 0,
 			PodsDeleted: podInfo.deleted,
 		})
 		klog.Infof("retry initiated for node %s (deleted %d pods)", nodeName, len(podInfo.deleted))

@@ -230,6 +230,7 @@ type RetryNodesResponse struct {
 // RetrySuccessNode represents a node that was successfully processed
 type RetrySuccessNode struct {
 	NodeId      string   `json:"nodeId"`
+	HasPods     bool     `json:"hasPods"`
 	PodsDeleted []string `json:"podsDeleted,omitempty"`
 }
 
