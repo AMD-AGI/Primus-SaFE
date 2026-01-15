@@ -467,3 +467,23 @@ func GetTorchFTLightHouse() string {
 func GetCDJobImage() string {
 	return getString(cdJobImage, "docker.io/primussafe/cd-job-runner:latest")
 }
+
+// IsTracingEnable returns whether OpenTelemetry tracing is enabled.
+func IsTracingEnable() bool {
+	return getBool(tracingEnable, false)
+}
+
+// GetTracingMode returns the tracing mode: "all" or "error_only".
+func GetTracingMode() string {
+	return getString(tracingMode, "error_only")
+}
+
+// GetTracingSamplingRatio returns the sampling ratio for trace export (0.0 to 1.0).
+func GetTracingSamplingRatio() float64 {
+	return getFloat(tracingSamplingRatio, 1.0)
+}
+
+// GetTracingOtlpEndpoint returns the OTLP exporter endpoint URL.
+func GetTracingOtlpEndpoint() string {
+	return getString(tracingOtlpEndpoint, "")
+}

@@ -40,6 +40,16 @@ apiserver:
   memory: 4Gi
   # The nodeport for apiserver service
   node_port: 32495
+# OpenTelemetry tracing configuration
+tracing:
+  # Enable distributed tracing (configured via .env)
+  enable: false
+  # Tracing mode: "error_only" (only failed requests) or "all" (all requests)
+  mode: "error_only"
+  # Sampling ratio for "all" mode (0.0-1.0, default 1.0 = 100%)
+  sampling_ratio: "1.0"
+  # OTLP Collector endpoint (gRPC, configured via .env)
+  otlp_endpoint: ""
 resource_manager:
   # Resource manager component image version
   image: "resource-manager:latest"
