@@ -475,7 +475,7 @@ Get operation logs for node joining/leaving cluster.
 }
 ```
 
-### 7. Batch Delete nodes
+### 9. Batch Delete Nodes
 
 Delete multiple nodes in batch.
 
@@ -498,7 +498,7 @@ Delete multiple nodes in batch.
 
 ---
 
-### 9. Export Node
+### 10. Export Node
 
 Export node list with multiple filtering options.
 
@@ -525,6 +525,50 @@ Export node list with multiple filtering options.
 | isAddonsInstalled | bool | No | Filter by addon installation status                                                      |
 
 **Response**: 200 OK with no response body
+
+---
+
+### 11. Retry Node Operations
+
+Retry failed node manage/unmanage operations. When a node is in `ManagedFailed` or `UnmanagedFailed` state, this API can be used to retry the operation.
+
+**Endpoint**: `POST /api/v1/nodes/retry`
+
+**Authentication Required**: Yes
+
+**Request Parameters**:
+
+```json
+{
+  "nodeIds": ["node-001", "node-002"]
+}
+```
+
+**Field Description**:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| nodeIds | string[] | Yes | List of node IDs to retry (supports single or multiple nodes) |
+
+**Response Example**:
+
+```json
+{
+  "totalCount": 2,
+  "successCount": 2,
+  "failedNodes": null
+}
+```
+
+**Response Fields**:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| totalCount | int | Total number of nodes requested |
+| successCount | int | Number of nodes successfully processed |
+| failedNodes | array | Details of failed nodes (null if all succeeded) |
+
+**Note**: This API deletes the failed management pods and lets the controller automatically re-initiate the operation.
 
 ---
 ## Node Status

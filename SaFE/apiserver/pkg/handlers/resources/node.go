@@ -106,109 +106,95 @@ func (h *Handler) DeleteNodes(c *gin.Context) {
 	handle(c, h.deleteNodes)
 }
 
-// RetryNode handles retrying a failed node management operation (manage or unmanage).
-// It deletes the failed pod and resets the node status to trigger a new attempt.
-func (h *Handler) RetryNode(c *gin.Context) {
-	handle(c, h.retryNode)
+// RetryNodes handles batch retrying node management operations (single or multiple nodes).
+// It deletes up/down pods for specified nodes and lets the controller handle the retry.
+// @Summary Batch retry node management operations
+// @Description Delete management pods for multiple nodes to trigger controller retry
+// @Tags nodes
+// @Accept json
+// @Produce json
+// @Param request body view.RetryNodesRequest true "List of node IDs to retry"
+// @Success 200 {object} view.RetryNodesResponse
+// @Router /api/v1/nodes/retry [post]
+func (h *Handler) RetryNodes(c *gin.Context) {
+	handle(c, h.retryNodes)
 }
 
-// retryNode implements the retry logic for failed node operations.
-// It checks if the node is in a failed state, deletes the associated pod,
-// and resets the status to trigger the controller to retry.
-func (h *Handler) retryNode(c *gin.Context) (interface{}, error) {
+// retryNodes implements the batch retry logic for node operations.
+// It deletes all up/down pods associated with each node and lets the controller
+// automatically recreate them based on the node's Spec.Cluster value.
+func (h *Handler) retryNodes(c *gin.Context) (interface{}, error) {
 	ctx := c.Request.Context()
-	nodeName := c.GetString(common.Name)
 
-	node, err := h.getAdminNode(ctx, nodeName)
-	if err != nil {
-		return nil, err
+	req := &view.RetryNodesRequest{}
+	if _, err := apiutils.ParseRequestBody(c.Request, req); err != nil {
+		return nil, commonerrors.NewBadRequest("failed to parse request: " + err.Error())
 	}
 
-	// Authorization check - same as manage operation
-	if err = h.accessController.Authorize(authority.AccessInput{
-		Context:  ctx,
-		Resource: node,
-		Verb:     v1.UpdateVerb,
-		UserId:   c.GetString(common.UserId),
-	}); err != nil {
-		return nil, err
+	if len(req.NodeIds) == 0 {
+		return nil, commonerrors.NewBadRequest("nodeIds cannot be empty")
 	}
 
-	// Check if node is in a failed state
-	phase := node.Status.ClusterStatus.Phase
-	if phase != v1.NodeManagedFailed && phase != v1.NodeUnmanagedFailed {
-		return nil, commonerrors.NewBadRequest(fmt.Sprintf(
-			"node is not in a failed state, current phase: %s. Only ManagedFailed or UnmanagedFailed nodes can be retried", phase))
+	response := &view.RetryNodesResponse{
+		TotalCount:   len(req.NodeIds),
+		SuccessCount: 0,
+		FailedNodes:  make([]view.RetryFailedNode, 0),
 	}
 
-	// Determine the cluster ID
-	clusterID := node.GetSpecCluster()
-	if clusterID == "" {
-		clusterID = v1.GetClusterId(node)
-	}
-	if clusterID == "" {
-		return nil, commonerrors.NewBadRequest("cannot determine cluster ID for retry operation")
-	}
-
-	// Pre-condition checks and action determination based on the failed phase
-	var action string
-	var newPhase v1.NodePhase
-	switch phase {
-	case v1.NodeManagedFailed:
-		// For manage retry: machine must be ready (only represents the physical machine status)
-		if !node.IsMachineReady() {
-			return nil, commonerrors.NewBadRequest("machine is not ready, please wait and try again")
+	for _, nodeName := range req.NodeIds {
+		// Delete all up/down pods for this node
+		if err := h.deleteNodeManagementPods(ctx, nodeName); err != nil {
+			klog.ErrorS(err, "failed to delete pods for node retry", "node", nodeName)
+			response.FailedNodes = append(response.FailedNodes, view.RetryFailedNode{
+				NodeId: nodeName,
+				Error:  err.Error(),
+			})
+			continue
 		}
-		action = string(v1.ClusterScaleUpAction)
-		newPhase = v1.NodeManaging
-	case v1.NodeUnmanagedFailed:
-		if v1.IsControlPlane(node) {
-			return nil, commonerrors.NewBadRequest("control plane node cannot be unmanaged")
-		}
-		action = string(v1.ClusterScaleDownAction)
-		newPhase = v1.NodeUnmanaging
+		response.SuccessCount++
+		klog.Infof("retry initiated for node %s (pods deleted)", nodeName)
 	}
 
-	// Delete the failed pod(s)
-	if err = h.deleteNodeManagementPods(ctx, clusterID, node.Name, action); err != nil {
-		klog.ErrorS(err, "failed to delete pods for retry", "node", nodeName, "action", action)
-		return nil, commonerrors.NewInternalError("failed to delete failed pods: " + err.Error())
+	// Clear FailedNodes if empty to avoid returning empty array in JSON
+	if len(response.FailedNodes) == 0 {
+		response.FailedNodes = nil
 	}
 
-	// Reset node status to trigger controller retry
-	previousPhase := string(phase)
-	node.Status.ClusterStatus.Phase = newPhase
-	if err = h.Status().Update(ctx, node); err != nil {
-		klog.ErrorS(err, "failed to update node status for retry", "node", nodeName)
-		return nil, commonerrors.NewInternalError("failed to reset node status: " + err.Error())
-	}
-
-	klog.Infof("retry initiated for node %s, previous phase: %s, new phase: %s", nodeName, previousPhase, newPhase)
-
-	return &view.RetryNodeResponse{
-		Message:       "retry initiated successfully",
-		NodeId:        nodeName,
-		PreviousPhase: previousPhase,
-		CurrentPhase:  string(newPhase),
-	}, nil
+	return response, nil
 }
 
-// deleteNodeManagementPods deletes all pods associated with a node's management operation.
-func (h *Handler) deleteNodeManagementPods(ctx context.Context, clusterID, nodeName, action string) error {
-	labelSelector := client.MatchingLabels{
-		v1.ClusterManageClusterLabel: clusterID,
-		v1.ClusterManageNodeLabel:    nodeName,
-		v1.ClusterManageActionLabel:  action,
+// deleteNodeManagementPods deletes all up/down pods associated with a node.
+// It uses label selector: primus-safe.cluster.manage.node=<nodeName> AND action in (up, down)
+func (h *Handler) deleteNodeManagementPods(ctx context.Context, nodeName string) error {
+	// Build label selector:
+	// primus-safe.cluster.manage.node=<nodeName> AND primus-safe.cluster.manage.action in (up, down)
+	selector := labels.NewSelector()
+
+	// Node name exact match
+	nodeReq, err := labels.NewRequirement(v1.ClusterManageNodeLabel, selection.Equals, []string{nodeName})
+	if err != nil {
+		return fmt.Errorf("failed to create node label requirement: %w", err)
 	}
+	selector = selector.Add(*nodeReq)
+
+	// Action in (up, down)
+	actionReq, err := labels.NewRequirement(v1.ClusterManageActionLabel, selection.In,
+		[]string{string(v1.ClusterScaleUpAction), string(v1.ClusterScaleDownAction)})
+	if err != nil {
+		return fmt.Errorf("failed to create action label requirement: %w", err)
+	}
+	selector = selector.Add(*actionReq)
 
 	podList := &corev1.PodList{}
-	if err := h.List(ctx, podList, client.InNamespace(common.PrimusSafeNamespace), labelSelector); err != nil {
-		return err
+	if err := h.List(ctx, podList,
+		client.InNamespace(common.PrimusSafeNamespace),
+		client.MatchingLabelsSelector{Selector: selector}); err != nil {
+		return fmt.Errorf("failed to list pods: %w", err)
 	}
 
 	for _, pod := range podList.Items {
 		if err := h.Delete(ctx, &pod); client.IgnoreNotFound(err) != nil {
-			return err
+			return fmt.Errorf("failed to delete pod %s: %w", pod.Name, err)
 		}
 		klog.Infof("deleted pod %s for node retry", pod.Name)
 	}

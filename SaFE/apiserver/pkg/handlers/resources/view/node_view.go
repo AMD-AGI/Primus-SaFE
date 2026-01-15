@@ -208,14 +208,25 @@ type BatchNodesRequest struct {
 	NodeIds []string `json:"nodeIds"`
 }
 
-// RetryNodeResponse represents the response for retrying a failed node operation
-type RetryNodeResponse struct {
-	// Success message
-	Message string `json:"message"`
-	// Node ID
+// RetryNodesRequest represents the request for retrying node operations (single or batch)
+// For a single node, pass an array with one element
+type RetryNodesRequest struct {
+	// List of node IDs to retry
+	NodeIds []string `json:"nodeIds" binding:"required,min=1"`
+}
+
+// RetryNodesResponse represents the response for batch retrying node operations
+type RetryNodesResponse struct {
+	// Total number of nodes requested
+	TotalCount int `json:"totalCount"`
+	// Number of nodes successfully processed
+	SuccessCount int `json:"successCount"`
+	// Details of failed nodes (optional)
+	FailedNodes []RetryFailedNode `json:"failedNodes,omitempty"`
+}
+
+// RetryFailedNode represents a node that failed to retry
+type RetryFailedNode struct {
 	NodeId string `json:"nodeId"`
-	// Previous phase before retry
-	PreviousPhase string `json:"previousPhase"`
-	// Current phase after retry initiated
-	CurrentPhase string `json:"currentPhase"`
+	Error  string `json:"error"`
 }
