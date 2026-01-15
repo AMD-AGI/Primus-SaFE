@@ -23,20 +23,22 @@ Create a new workload.
     "kind": "PyTorchJob",
     "version": "v1"
   },
-  "image": "harbor.example.com/ai/pytorch:2.0",
-  "entryPoint": "cHl0aG9uIHRyYWluLnB5",
   "resources": [{
     "cpu": "128",
     "gpu": "8",
     "memory": "1024Gi",
     "ephemeralStorage": "300Gi",
-    "replica": 1
+    "replica": 1,
+    "image": "harbor.example.com/ai/pytorch:2.0", 
+    "entryPoint": "cHl0aG9uIHRyYWluLnB5"
   },{
      "cpu": "128",
      "gpu": "8",
      "memory": "1024Gi",
      "ephemeralStorage": "300Gi",
-     "replica": 31
+     "replica": 31,
+     "image": "harbor.example.com/ai/pytorch:2.0",
+     "entryPoint": "cHl0aG9uIHRyYWluLnB5"
   }],
   "priority": 0,
   "timeout": 3600,
@@ -265,14 +267,16 @@ TorchFT is a fault-tolerant distributed training framework that supports elastic
 | workspaceId                  | string   | Yes      | Workspace ID                                                                                                                             |
 | groupVersionKind.kind        | string   | Yes      | Workload type: PyTorchJob/Deployment/StatefulSet/Authoring/AutoscalingRunnerSet/TorchFT                                                  |
 | groupVersionKind.version     | string   | Yes      | Version, usually v1                                                                                                                      |
-| image                        | string   | Yes      | Image address                                                                                                                            |
-| entryPoint                   | string   | Yes      | Startup command/script (Base64 encoded)                                                                                                  |
+| image                        | string   | Yes      | Image address. If an image is specified in resources, use it; otherwise, use this one.                                                   |
+| entryPoint                   | string   | Yes      | Startup command/script (Base64 encoded). If an entryPoint is specified in resources, use it; otherwise, use this one.       |
 | resources                    | []object | Yes      | Resource requirements, It may involve multiple resources, e.g., a PyTorchJob with master and worker roles.                               |
 | resources[].cpu              | string   | Yes      | Number of CPU cores                                                                                                                      |
 | resources[].gpu              | string   | No       | Number of GPU cards                                                                                                                      |
 | resources[].memory           | string   | Yes      | Memory size, e.g. "256Gi"                                                                                                                |
 | resources[].ephemeralStorage | string   | No       | Ephemeral-storage for pod. default 50Gi                                                                                                  |
 | resources[].replica          | int      | Yes      | Number of replicas. See below for special rules when `specifiedNodes` is provided.                                                       |
+| resources[].image            | string   | No       | Image address                                                                                                                            |
+| resources[].entryPoint       | string   | No       | Startup command/script (Base64 encoded)                                                                                                  |
 | priority                     | int      | No       | Priority (0-2), default 0                                                                                                                |
 | timeout                      | int      | No       | Timeout in seconds, 0 means no timeout, 	The timeout is calculated from the moment the workload is dispatched.                           |
 | maxRetry                     | int      | No       | Maximum retry count, default 0                                                                                                           |
@@ -382,7 +386,9 @@ Get workload list with filtering and pagination support.
         "memory": "256Gi",
         "ephemeralStorage": "256Gi",
         "sharedMemory": "64Gi",
-        "replica": 1
+        "replica": 1,
+        "image": "harbor.example.com/ai/pytorch:2.0",
+        "entryPoint": "python train.py"
       }],
       "groupVersionKind": {
         "kind": "PyTorchJob",
@@ -443,6 +449,9 @@ Get workload list with filtering and pagination support.
 | resources[].ephemeralStorage | string | Ephemeral storage size, e.g. "256Gi"                                                    |
 | resources[].sharedMemory     | string | Shared memory size, e.g. "64Gi"                                                         |
 | resources[].replica          | int | Replica count                                                                           |
+| resources[].image            | string   |  Image address                                                                    |
+| resources[].entryPoint       | string   | Startup command/script (Base64 encoded)                                          |
+
 ---
 
 ### 3. Get Workload Details
@@ -472,13 +481,13 @@ Get detailed information about a specific workload.
   "userName": "zhangsan",
   "phase": "Running",
   "priority": 0,
-  "image": "harbor.example.com/ai/pytorch:2.0",
-  "entryPoint": "python train.py",
   "resources": [{
     "cpu": "128",
     "gpu": "8",
     "memory": "256Gi",
-    "replica": 1
+    "replica": 1,
+    "image": "harbor.example.com/ai/pytorch:2.0",
+    "entryPoint": "python train.py"
   }],
   "isSupervised": false,
   "maxRetry": 0,
@@ -612,18 +621,20 @@ Partially update workload configuration (only when running).
       "memory": "1024Gi",
       "ephemeralStorage": "300Gi",
       "sharedMemory": "64Gi",
-      "replica": 1
+      "replica": 1,
+      "image": "harbor.example.com/ai/pytorch:2.1",
+      "entryPoint": "YmFzaCBydW4uc2gK"
    },{
       "cpu": "128",
       "gpu": "8",
       "memory": "1024Gi",
       "ephemeralStorage": "300Gi",
       "sharedMemory": "64Gi",
-      "replica": 31
+      "replica": 31,
+      "image": "harbor.example.com/ai/pytorch:2.1",
+      "entryPoint": "YmFzaCBydW4uc2gK"
    }],
   "priority": 1,
-  "image": "harbor.example.com/ai/pytorch:2.1",
-  "entryPoint": "YmFzaCBydW4uc2gK",
   "description": "New description",
   "timeout": 7200,
   "maxRetry": 3,

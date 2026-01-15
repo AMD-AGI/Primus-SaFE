@@ -70,7 +70,7 @@ spec:
             - command:
                 - sh
                 - -c
-                - ./test.sh
+                - test.sh
               env:
                 - name: NCCL_SOCKET_IFNAME
                   value: eth0
@@ -232,7 +232,7 @@ spec:
       containers:
         - command:
             - sh
-            - c
+            - -c
             - /bin/sh run.sh 'abcd'
           env:
             - name: NCCL_SOCKET_IFNAME
@@ -961,13 +961,11 @@ var (
 			CreationTimestamp: metav1.NewTime(time.Now()),
 		},
 		Spec: v1.WorkloadSpec{
-			Workspace:  "test-workspace",
-			MaxRetry:   2,
-			Priority:   2,
-			Image:      "test-image",
-			EntryPoint: "sh -c test.sh",
-			JobPort:    12345,
-			SSHPort:    23456,
+			Workspace: "test-workspace",
+			MaxRetry:  2,
+			Priority:  2,
+			JobPort:   12345,
+			SSHPort:   23456,
 			GroupVersionKind: v1.GroupVersionKind{
 				Version: "v1",
 				Kind:    "PyTorchJob",
@@ -981,6 +979,8 @@ var (
 				SharedMemory:     "32Gi",
 				EphemeralStorage: "20Gi",
 				RdmaResource:     "1k",
+				Image:            "test-image",
+				EntryPoint:       "sh -c test.sh",
 			}},
 			Env: map[string]string{
 				"key": "value",

@@ -284,6 +284,14 @@ func (m *WorkloadMutator) mutateResources(workload *v1.Workload, workspace *v1.W
 			res.EphemeralStorage = DefaultEphemeralStorage
 			isChanged = true
 		}
+		if res.Image == "" && workload.Spec.Image != "" {
+			res.Image = workload.Spec.Image
+			isChanged = true
+		}
+		if res.EntryPoint == "" && workload.Spec.EntryPoint != "" {
+			res.EntryPoint = workload.Spec.EntryPoint
+			isChanged = true
+		}
 		newResources = append(newResources, res)
 	}
 	workload.Spec.Resources = newResources

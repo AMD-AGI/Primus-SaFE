@@ -70,6 +70,10 @@ type WorkloadResource struct {
 	// RDMA resource is effective only with hostNetwork enabled (default: 1).
 	// This field is set internally
 	RdmaResource string `json:"rdmaResource,omitempty"`
+	// The address of the image used by the workload
+	Image string `json:"image,omitempty"`
+	// Startup command, required in base64 encoding
+	EntryPoint string `json:"entryPoint,omitempty"`
 }
 
 type HealthCheck struct {
@@ -122,10 +126,16 @@ type WorkloadSpec struct {
 	Resources []WorkloadResource `json:"resources,omitempty"`
 	// Requested workspace id
 	Workspace string `json:"workspace"`
-	// The address of the image used by the workload
+	// Deprecated: resource is old field, will be replaced by Images
 	Image string `json:"image,omitempty"`
-	// Workload startup command, required in base64 encoding
+	// The address of the image used by the workload
+	// It must match the length of resources.
+	Images []string `json:"images,omitempty"`
+	// Deprecated: resource is old field, will be replaced by Images
 	EntryPoint string `json:"entryPoint,omitempty"`
+	// Workload startup command, required in base64 encoding
+	// It must match the length of resources.
+	EntryPoints []string `json:"entryPoints,omitempty"`
 	// The port for pytorch-job, This field is set internally
 	JobPort int `json:"jobPort,omitempty"`
 	// The port for ssh, This field is set internally

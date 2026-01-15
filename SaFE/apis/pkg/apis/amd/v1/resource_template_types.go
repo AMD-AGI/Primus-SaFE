@@ -58,7 +58,7 @@ type ResourceSpec struct {
 	TemplatePaths []string `json:"templatePaths,omitempty"`
 	// The relative path of pod replica
 	ReplicasPaths []string `json:"replicasPaths,omitempty"`
-	// The relative path of pod completions(only for job)
+	// The relative path of pod completions(only for job and ray-job)
 	CompletionsPaths []string `json:"completionsPaths,omitempty"`
 }
 

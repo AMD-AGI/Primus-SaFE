@@ -267,9 +267,10 @@ func GetResources(unstructuredObj *unstructured.Unstructured,
 	return replicaList, resourceList, nil
 }
 
-// GetCommand Retrieve the command of the main container.
-func GetCommand(unstructuredObj *unstructured.Unstructured,
-	rt *v1.ResourceTemplate, mainContainer string) ([]string, error) {
+// GetCommands Retrieve the command of the main container.
+func GetCommands(unstructuredObj *unstructured.Unstructured,
+	rt *v1.ResourceTemplate, mainContainer string) ([][]string, error) {
+	result := make([][]string, 0, len(rt.Spec.ResourceSpecs))
 	for _, t := range rt.Spec.ResourceSpecs {
 		path := t.PrePaths
 		path = append(path, t.TemplatePaths...)
@@ -291,29 +292,31 @@ func GetCommand(unstructuredObj *unstructured.Unstructured,
 			if mainContainer != "" && name != mainContainer {
 				continue
 			}
-			commands, ok := obj["command"]
+			commandObj, ok := obj["command"]
 			if !ok {
 				return nil, fmt.Errorf("failed to find container command, path: %s", path)
 			}
-			commandList, ok := commands.([]interface{})
+			commandObjList, ok := commandObj.([]interface{})
 			if !ok {
 				return nil, fmt.Errorf("failed to find container command, path: %s", path)
 			}
-			result := make([]string, 0, len(commandList))
-			for i := range commandList {
-				if str, ok := commandList[i].(string); ok {
-					result = append(result, str)
+			commandStrList := make([]string, 0, len(commandObjList))
+			for i := range commandObjList {
+				if str, ok := commandObjList[i].(string); ok {
+					commandStrList = append(commandStrList, str)
 				}
 			}
-			return result, nil
+			result = append(result, commandStrList)
+			break
 		}
 	}
-	return nil, fmt.Errorf("no command found")
+	return result, nil
 }
 
-// GetImage Retrieve the image address of the main container.
-func GetImage(unstructuredObj *unstructured.Unstructured,
-	rt *v1.ResourceTemplate, mainContainer string) (string, error) {
+// GetImages Retrieve the image address of the main container.
+func GetImages(unstructuredObj *unstructured.Unstructured,
+	rt *v1.ResourceTemplate, mainContainer string) ([]string, error) {
+	result := make([]string, 0, len(rt.Spec.ResourceSpecs))
 	for _, t := range rt.Spec.ResourceSpecs {
 		path := t.PrePaths
 		path = append(path, t.TemplatePaths...)
@@ -321,15 +324,15 @@ func GetImage(unstructuredObj *unstructured.Unstructured,
 		containers, found, err := unstructured.NestedSlice(unstructuredObj.Object, path...)
 		if err != nil {
 			klog.ErrorS(err, "failed to find containers", "path", path)
-			return "", err
+			return nil, err
 		}
 		if !found {
-			return "", fmt.Errorf("failed to find containers, path: %s", path)
+			return nil, fmt.Errorf("failed to find containers, path: %s", path)
 		}
 		for _, c := range containers {
 			obj, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&c)
 			if err != nil {
-				return "", err
+				return nil, err
 			}
 			name, _ := obj["name"]
 			if mainContainer != "" && name != mainContainer {
@@ -337,15 +340,18 @@ func GetImage(unstructuredObj *unstructured.Unstructured,
 			}
 			image, ok := obj["image"]
 			if !ok {
-				return "", fmt.Errorf("failed to find container image, path: %s", path)
+				return nil, fmt.Errorf("failed to find container image, path: %s", path)
 			}
 			if imageStr, ok := image.(string); ok {
-				return imageStr, nil
+				result = append(result, imageStr)
 			}
-			return "", fmt.Errorf("image is not a string")
+			break
 		}
 	}
-	return "", fmt.Errorf("no image found")
+	if len(result) == 0 {
+		return nil, fmt.Errorf("failed to find container image")
+	}
+	return result, nil
 }
 
 // GetMemoryStorageSize retrieves the memory storage size from volume specifications.

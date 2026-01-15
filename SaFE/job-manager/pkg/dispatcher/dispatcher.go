@@ -116,15 +116,15 @@ func (relevantChangePredicate) Update(e event.UpdateEvent) bool {
 			return true
 		}
 		for i := range oldWorkload.Spec.Resources {
+			if oldWorkload.Spec.Resources[i].Image != newWorkload.Spec.Resources[i].Image {
+				return true
+			}
+			if oldWorkload.Spec.Resources[i].EntryPoint != newWorkload.Spec.Resources[i].EntryPoint {
+				return true
+			}
 			if oldWorkload.Spec.Resources[i].SharedMemory != newWorkload.Spec.Resources[i].SharedMemory {
 				return true
 			}
-		}
-		if oldWorkload.Spec.Image != newWorkload.Spec.Image {
-			return true
-		}
-		if oldWorkload.Spec.EntryPoint != newWorkload.Spec.EntryPoint {
-			return true
 		}
 		if !maps.EqualIgnoreOrder(oldWorkload.Spec.Env, newWorkload.Spec.Env) || len(v1.GetEnvToBeRemoved(newWorkload)) > 0 {
 			return true
@@ -481,7 +481,7 @@ func (r *DispatcherReconciler) syncWorkloadToObject(ctx context.Context, adminWo
 	}
 
 	functions := []func(adminWorkload *v1.Workload, obj *unstructured.Unstructured, rt *v1.ResourceTemplate) bool{
-		isResourceChanged, isImageChanged, isEntryPointChanged, isSharedMemoryChanged,
+		isResourceChanged, isImageChanged, isEntrypointChanged, isSharedMemoryChanged,
 		isEnvChanged, isPriorityClassChanged, isGithubSecretChanged,
 	}
 	isChanged := false
@@ -554,7 +554,7 @@ func isResourceChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructure
 
 // isImageChanged checks if the container image of the workload has changed.
 func isImageChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructured, rt *v1.ResourceTemplate) bool {
-	image, err := jobutils.GetImage(obj, rt, v1.GetMainContainer(adminWorkload))
+	image, err := jobutils.GetImages(obj, rt, v1.GetMainContainer(adminWorkload))
 	if err != nil {
 		klog.ErrorS(err, "failed to get image", "obj", obj.GetName())
 		return false
@@ -562,9 +562,9 @@ func isImageChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructured, 
 	return adminWorkload.Spec.Image != image
 }
 
-// isEntryPointChanged checks if the entry point/command of the workload has changed.
-func isEntryPointChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructured, rt *v1.ResourceTemplate) bool {
-	commands, err := jobutils.GetCommand(obj, rt, v1.GetMainContainer(adminWorkload))
+// isEntrypointChanged checks if the entry point/command of the workload has changed.
+func isEntrypointChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructured, rt *v1.ResourceTemplate) bool {
+	commands, err := jobutils.GetCommands(obj, rt, v1.GetMainContainer(adminWorkload))
 	if err != nil {
 		klog.ErrorS(err, "failed to get command", "obj", obj.GetName())
 		return false
@@ -572,8 +572,23 @@ func isEntryPointChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructu
 	if len(commands) == 0 {
 		return false
 	}
-	cmd := buildEntryPoint(adminWorkload)
-	return cmd != commands[len(commands)-1]
+	if len(commands) != len(adminWorkload.Spec.Resources) {
+		return true
+	}
+	for i := range commands {
+		newEntrypoint := buildEntryPoint(adminWorkload, i)
+		oldCommand := commands[i]
+		if len(oldCommand) == 0 {
+			if newEntrypoint != "" {
+				return true
+			}
+			continue
+		}
+		if newEntrypoint != oldCommand[len(oldCommand)-1] {
+			return true
+		}
+	}
+	return false
 }
 
 // isEnvChanged checks if the environment variables of the workload have changed.

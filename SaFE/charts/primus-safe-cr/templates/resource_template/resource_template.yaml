@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+# Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
 # See LICENSE for license information.
 #
 
@@ -376,6 +376,16 @@ spec:
         - spec
         - rayClusterSpec
         - workerGroupSpecs
+        - "0"
+      templatePaths:
+        - template
+      replicasPaths:
+        - replicas
+    - prePaths:
+        - spec
+        - rayClusterSpec
+        - workerGroupSpecs
+        - "1"
       templatePaths:
         - template
       replicasPaths:
@@ -389,19 +399,13 @@ spec:
       - reason
     phases:
       - matchExpressions:
-          jobStatus: 'Succeeded'
+          jobStatus: 'SUCCEEDED'
         phase: K8sSucceeded
       - matchExpressions:
-          jobStatus: 'Complete'
-        phase: K8sSucceeded
-      - matchExpressions:
-          jobStatus: 'Failed'
+          jobStatus: 'FAILED'
         phase: K8sFailed
       - matchExpressions:
-          jobStatus: 'ValidationFailed'
-        phase: K8sFailed
-      - matchExpressions:
-          jobStatus: 'Running'
+          jobStatus: 'RUNNING'
         phase: K8sRunning
   activeReplica:
     prePaths:

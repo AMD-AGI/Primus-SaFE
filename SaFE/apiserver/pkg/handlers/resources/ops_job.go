@@ -668,19 +668,32 @@ func genDefaultOpsJob(req *view.BaseOpsJobRequest, requestUser *v1.User) *v1.Ops
 // are filtered out. The function ensures that ops jobs are ultimately executed on a per-node basis.
 func (h *Handler) generateOpsJobNodesInput(ctx context.Context, job *v1.OpsJob) error {
 	excludedNodesSet := sets.NewSetByKeys(job.Spec.ExcludedNodes...)
-	if workloadParam := job.GetParameter(v1.ParameterNode); workloadParam != nil {
-		allNodes := job.GetParameters(v1.ParameterNode)
+	if allNodes := job.GetParameters(v1.ParameterNode); len(allNodes) > 0 {
 		newInputs := make([]v1.Parameter, 0, len(allNodes))
+		workspaceId := ""
+		allTheSameWorkspace := true
 		for i, n := range allNodes {
 			if excludedNodesSet.Has(n.Value) {
 				continue
 			}
+			node, err := h.getAdminNode(ctx, n.Value)
+			if err != nil {
+				continue
+			}
 			newInputs = append(newInputs, *allNodes[i])
+			if workspaceId == "" {
+				workspaceId = v1.GetWorkspaceId(node)
+			} else if workspaceId != v1.GetWorkspaceId(node) {
+				allTheSameWorkspace = false
+			}
 		}
 		if len(newInputs) != len(allNodes) {
 			job.Spec.Inputs = newInputs
 		}
-	} else if workloadParam = job.GetParameter(v1.ParameterWorkload); workloadParam != nil {
+		if allTheSameWorkspace && workspaceId != "" {
+			v1.SetLabel(job, v1.WorkspaceIdLabel, workspaceId)
+		}
+	} else if workloadParam := job.GetParameter(v1.ParameterWorkload); workloadParam != nil {
 		nodes, workspaceId, err := h.getNodesOfWorkload(ctx, workloadParam.Value)
 		if err != nil {
 			return err

@@ -56,8 +56,6 @@ const (
 	BatchDelete WorkloadBatchAction = "delete"
 	BatchStop   WorkloadBatchAction = "stop"
 	BatchClone  WorkloadBatchAction = "clone"
-
-	PreheatDescription = "preheat"
 )
 
 // CreateWorkload handles the creation of a new workload resource.
@@ -799,10 +797,11 @@ func (h *Handler) generateWorkload(ctx context.Context,
 func (h *Handler) createPreheatWorkload(c *gin.Context, mainWorkload *v1.Workload,
 	mainQuery *view.CreateWorkloadRequest, requestUser *v1.User, roles []*v1.Role) (*v1.Workload, error) {
 	displayName := v1.GetDisplayName(mainWorkload)
-	if len(displayName) > commonutils.MaxDisplayNameLen-len(PreheatDescription)-1 {
-		displayName = displayName[:commonutils.MaxDisplayNameLen-len(PreheatDescription)-1]
+	description := "preheat"
+	if len(displayName) > commonutils.MaxDisplayNameLen-len(description)-1 {
+		displayName = displayName[:commonutils.MaxDisplayNameLen-len(description)-1]
 	}
-	displayName = PreheatDescription + "-" + displayName
+	displayName = description + "-" + displayName
 
 	preheatWorkload := &v1.Workload{
 		ObjectMeta: metav1.ObjectMeta{
@@ -811,21 +810,14 @@ func (h *Handler) createPreheatWorkload(c *gin.Context, mainWorkload *v1.Workloa
 				v1.DisplayNameLabel: displayName,
 			},
 			Annotations: map[string]string{
-				v1.DescriptionAnnotation:       PreheatDescription,
+				v1.DescriptionAnnotation:       v1.OpsJobKind,
 				v1.RequireNodeSpreadAnnotation: v1.TrueStr,
 			},
 		},
 		Spec: v1.WorkloadSpec{
 			Workspace: mainWorkload.Spec.Workspace,
-			Resources: []v1.WorkloadResource{{
-				CPU:              "1",
-				Memory:           "8Gi",
-				EphemeralStorage: "50Gi",
-			}},
-			Image:      mainWorkload.Spec.Image,
-			EntryPoint: stringutil.Base64Encode("echo \"preheat finished\""),
 			GroupVersionKind: v1.GroupVersionKind{
-				Kind:    common.JobKind,
+				Kind:    common.PytorchJobKind,
 				Version: common.DefaultVersion,
 			},
 			Priority:                mainWorkload.Spec.Priority,
@@ -835,6 +827,16 @@ func (h *Handler) createPreheatWorkload(c *gin.Context, mainWorkload *v1.Workloa
 			CustomerLabels:          mainWorkload.Spec.CustomerLabels,
 			Secrets:                 mainWorkload.Spec.Secrets,
 		},
+	}
+	for i := range mainWorkload.Spec.Resources {
+		preheatWorkload.Spec.Images = append(preheatWorkload.Spec.Images, mainWorkload.Spec.Images[i])
+		preheatWorkload.Spec.EntryPoints = append(preheatWorkload.Spec.EntryPoints,
+			stringutil.Base64Encode("echo \"preheat finished\""))
+		preheatWorkload.Spec.Resources = append(preheatWorkload.Spec.Resources, v1.WorkloadResource{
+			CPU:              "1",
+			Memory:           "8Gi",
+			EphemeralStorage: "50Gi",
+		})
 	}
 
 	if len(mainQuery.SpecifiedNodes) > 0 {
@@ -1183,6 +1185,23 @@ func (h *Handler) cvtDBWorkloadToResponseItem(ctx context.Context, w *dbclient.W
 	if len(result.Resources) == 0 {
 		result.Resources = cvtToWorkloadResources(w, result.GroupVersionKind.Kind)
 	}
+	entryPoint := ""
+	if result.GroupVersionKind.Kind != common.AuthoringKind && w.EntryPoint != "" {
+		if stringutil.IsBase64(w.EntryPoint) {
+			entryPoint = stringutil.Base64Decode(w.EntryPoint)
+		} else {
+			entryPoint = w.EntryPoint
+		}
+	}
+	for i, res := range result.Resources {
+		if res.Image == "" {
+			result.Resources[i].Image = w.Image
+		}
+		if res.EntryPoint == "" {
+			result.Resources[i].EntryPoint = entryPoint
+		}
+	}
+
 	if w.Timeout > 0 {
 		result.Timeout = pointer.Int(w.Timeout)
 		if result.EndTime == "" {
@@ -1211,13 +1230,7 @@ func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context,
 	user *v1.User, roles []*v1.Role, dbWorkload *dbclient.Workload) *view.GetWorkloadResponse {
 	result := &view.GetWorkloadResponse{
 		WorkloadResponseItem: h.cvtDBWorkloadToResponseItem(ctx, dbWorkload),
-		Image:                dbWorkload.Image,
 		IsSupervised:         dbWorkload.IsSupervised,
-	}
-	if result.GroupVersionKind.Kind != common.AuthoringKind && dbWorkload.EntryPoint != "" {
-		if stringutil.IsBase64(dbWorkload.EntryPoint) {
-			result.EntryPoint = stringutil.Base64Decode(dbWorkload.EntryPoint)
-		}
 	}
 	if dbWorkload.TTLSecond > 0 {
 		result.TTLSecondsAfterFinished = pointer.Int(dbWorkload.TTLSecond)
@@ -1261,7 +1274,7 @@ func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context,
 		json.Unmarshal([]byte(str), &dependencies)
 		for _, id := range dependencies {
 			item, err := h.dbClient.GetWorkload(ctx, id)
-			if err == nil && dbutils.ParseNullString(item.Description) != PreheatDescription {
+			if err == nil && dbutils.ParseNullString(item.Description) != v1.OpsJobKind {
 				result.Dependencies = append(result.Dependencies, id)
 			}
 		}
@@ -1387,8 +1400,6 @@ func cvtDBWorkloadToAdminWorkload(dbItem *dbclient.Workload) *v1.Workload {
 		},
 		Spec: v1.WorkloadSpec{
 			Workspace:     dbItem.Workspace,
-			Image:         dbItem.Image,
-			EntryPoint:    dbItem.EntryPoint,
 			IsSupervised:  dbItem.IsSupervised,
 			MaxRetry:      dbItem.MaxRetry,
 			Priority:      dbItem.Priority,
@@ -1401,6 +1412,14 @@ func cvtDBWorkloadToAdminWorkload(dbItem *dbclient.Workload) *v1.Workload {
 	}
 	if len(result.Spec.Resources) == 0 {
 		result.Spec.Resources = cvtToWorkloadResources(dbItem, result.Spec.GroupVersionKind.Kind)
+	}
+	for i, res := range result.Spec.Resources {
+		if res.Image == "" {
+			result.Spec.Resources[i].Image = dbItem.Image
+		}
+		if res.EntryPoint == "" {
+			result.Spec.Resources[i].EntryPoint = dbItem.EntryPoint
+		}
 	}
 
 	if str := dbutils.ParseNullString(dbItem.Env); str != "" {

@@ -100,7 +100,7 @@ func TestCreatePytorchJob(t *testing.T) {
 	checkVolumeMounts(t, obj, &templates[0])
 	checkVolumes(t, obj, workload, &templates[0], 0)
 	checkNodeSelectorTerms(t, obj, workload, &templates[0])
-	checkImage(t, obj, workload.Spec.Image, &templates[0])
+	checkImage(t, obj, workload.Spec.Resources[0].Image, &templates[0])
 	checkLabels(t, obj, workload, &templates[0], 0)
 	checkHostNetwork(t, obj, workload, &templates[0], 0)
 	checkTolerations(t, obj, workload, &templates[0])
@@ -122,7 +122,7 @@ func TestCreatePytorchJob(t *testing.T) {
 	checkVolumeMounts(t, obj, &templates[1])
 	checkVolumes(t, obj, workload, &templates[1], 1)
 	checkNodeSelectorTerms(t, obj, workload, &templates[1])
-	checkImage(t, obj, workload.Spec.Image, &templates[1])
+	checkImage(t, obj, workload.Spec.Resources[1].Image, &templates[1])
 	checkLabels(t, obj, workload, &templates[1], 1)
 	checkHostNetwork(t, obj, workload, &templates[1], 1)
 	checkTolerations(t, obj, workload, &templates[1])
@@ -169,7 +169,7 @@ func TestCreateDeployment(t *testing.T) {
 	checkVolumeMounts(t, obj, &templates[0])
 	checkVolumes(t, obj, workload, &templates[0], 0)
 	checkNodeSelectorTerms(t, obj, workload, &templates[0])
-	checkImage(t, obj, workload.Spec.Image, &templates[0])
+	checkImage(t, obj, workload.Spec.Resources[0].Image, &templates[0])
 	checkLabels(t, obj, workload, &templates[0], 0)
 	checkHostNetwork(t, obj, workload, &templates[0], 0)
 	checkSelector(t, obj, workload)
@@ -200,8 +200,7 @@ func TestUpdateDeployment(t *testing.T) {
 	assert.Equal(t, deployment.Spec.Template.Spec.Containers[0].Image, "test-image")
 	assert.Equal(t, deployment.Spec.Template.Spec.PriorityClassName, commonworkload.GeneratePriorityClass(adminWorkload))
 	assert.Equal(t, len(deployment.Spec.Template.Spec.Containers[0].Command), 3)
-	adminWorkload.Spec.EntryPoint = "sh -c test.sh"
-	cmd := buildEntryPoint(adminWorkload)
+	cmd := buildEntryPoint(adminWorkload, 0)
 	assert.Equal(t, deployment.Spec.Template.Spec.Containers[0].Command[2], cmd)
 
 	shareMemorySizes, err := jobutils.GetMemoryStorageSize(workloadObj, jobutils.TestDeploymentTemplate)
@@ -491,7 +490,7 @@ func TestCreateK8sJob(t *testing.T) {
 	checkNodeSelectorTerms(t, obj, workload, &templates[0])
 	checkPodAntiAffinity(t, obj, workload, &templates[0])
 	checkEnvs(t, obj, workload, &templates[0], 0)
-	checkImage(t, obj, workload.Spec.Image, &templates[0])
+	checkImage(t, obj, workload.Spec.Resources[0].Image, &templates[0])
 	checkLabels(t, obj, workload, &templates[0], 0)
 	checkHostNetwork(t, obj, workload, &templates[0], 0)
 	checkHostPid(t, obj, workload, &templates[0])
@@ -531,7 +530,7 @@ func TestCreateCICDScaleSet(t *testing.T) {
 	checkLabels(t, obj, workload, &templates[0], 0)
 	checkSecurityContext(t, obj, workload, &templates[0])
 	checkEnvs(t, obj, workload, &templates[0], 0)
-	checkImage(t, obj, workload.Spec.Image, &templates[0])
+	checkImage(t, obj, workload.Spec.Resources[0].Image, &templates[0])
 	checkHostNetwork(t, obj, workload, &templates[0], 0)
 	envs := getEnvs(t, obj, &templates[0])
 	checkCICDEnvs(t, envs, workload)
@@ -575,7 +574,7 @@ func TestCICDScaleSetWithUnifiedJob(t *testing.T) {
 	checkHostNetwork(t, obj, workload, &templates[0], 0)
 
 	checkCICDContainer(t, obj, workload, &templates[0],
-		"runner", workload.Spec.Image)
+		"runner", workload.Spec.Resources[0].Image)
 	checkCICDContainer(t, obj, workload, &templates[0],
 		"unified_job", "docker.io/primussafe/cicd-unified-job-proxy:latest")
 }

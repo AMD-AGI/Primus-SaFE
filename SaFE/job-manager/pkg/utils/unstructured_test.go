@@ -182,7 +182,7 @@ func TestGetDeploymentImage(t *testing.T) {
 	assert.NilError(t, err)
 	rt := TestDeploymentTemplate.DeepCopy()
 
-	image, err := GetImage(deploy, rt, "test")
+	image, err := GetImages(deploy, rt, "test")
 	assert.NilError(t, err)
 	assert.Equal(t, image, "test-image:latest")
 }
@@ -192,12 +192,32 @@ func TestGetDeploymentCommand(t *testing.T) {
 	assert.NilError(t, err)
 	rt := TestDeploymentTemplate.DeepCopy()
 
-	commands, err := GetCommand(deploy, rt, "test")
+	commands, err := GetCommands(deploy, rt, "test")
 	assert.NilError(t, err)
-	assert.Equal(t, len(commands), 3)
-	assert.Equal(t, commands[0], "sh")
-	assert.Equal(t, commands[1], "c")
-	assert.Equal(t, commands[2], "/bin/sh run.sh 'abcd'")
+	assert.Equal(t, len(commands), 1)
+	assert.Equal(t, len(commands[0]), 3)
+	assert.Equal(t, commands[0][0], "sh")
+	assert.Equal(t, commands[0][1], "-c")
+	assert.Equal(t, commands[0][2], "/bin/sh run.sh 'abcd'")
+}
+
+func TestGetPytorchJobCommand(t *testing.T) {
+	deploy, err := jsonutils.ParseYamlToJson(TestPytorchData)
+	assert.NilError(t, err)
+	rt := TestPytorchResourceTemplate.DeepCopy()
+
+	commands, err := GetCommands(deploy, rt, "pytorch")
+	assert.NilError(t, err)
+	assert.Equal(t, len(commands), 2)
+	assert.Equal(t, len(commands[0]), 3)
+	assert.Equal(t, commands[0][0], "sh")
+	assert.Equal(t, commands[0][1], "-c")
+	assert.Equal(t, commands[0][2], "test.sh")
+
+	assert.Equal(t, len(commands[1]), 3)
+	assert.Equal(t, commands[1][0], "sh")
+	assert.Equal(t, commands[1][1], "-c")
+	assert.Equal(t, commands[1][2], "test.sh")
 }
 
 func TestGetDeploymentShareMemorySize(t *testing.T) {
