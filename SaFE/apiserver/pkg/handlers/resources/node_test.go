@@ -321,6 +321,8 @@ func TestRetryNodes_SingleNode(t *testing.T) {
 	assert.NilError(t, err)
 	assert.Equal(t, result.TotalCount, 1)
 	assert.Equal(t, result.SuccessCount, 1)
+	assert.Equal(t, len(result.SuccessNodes), 1)
+	assert.Equal(t, result.SuccessNodes[0].NodeId, node.Name)
 }
 
 func TestRetryNodes_BatchNodes(t *testing.T) {
@@ -354,6 +356,7 @@ func TestRetryNodes_BatchNodes(t *testing.T) {
 	assert.NilError(t, err)
 	assert.Equal(t, result.TotalCount, 2)
 	assert.Equal(t, result.SuccessCount, 2)
+	assert.Equal(t, len(result.SuccessNodes), 2)
 }
 
 func TestRetryNodes_EmptyNodeIds(t *testing.T) {
