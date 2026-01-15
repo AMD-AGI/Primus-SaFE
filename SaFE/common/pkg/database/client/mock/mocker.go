@@ -3355,6 +3355,21 @@ func (mr *MockInterfaceMockRecorder) UpdateDatasetLocalPath(ctx, datasetId, work
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateDatasetLocalPath", reflect.TypeOf((*MockInterface)(nil).UpdateDatasetLocalPath), ctx, datasetId, workspace, status, message)
 }
 
+// CheckDatasetNameExists mocks base method.
+func (m *MockInterface) CheckDatasetNameExists(ctx context.Context, displayName string) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CheckDatasetNameExists", ctx, displayName)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CheckDatasetNameExists indicates an expected call of CheckDatasetNameExists.
+func (mr *MockInterfaceMockRecorder) CheckDatasetNameExists(ctx, displayName interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CheckDatasetNameExists", reflect.TypeOf((*MockInterface)(nil).CheckDatasetNameExists), ctx, displayName)
+}
+
 // UpsertDataset mocks base method.
 func (m *MockInterface) UpsertDataset(ctx context.Context, dataset *client.Dataset) error {
 	m.ctrl.T.Helper()

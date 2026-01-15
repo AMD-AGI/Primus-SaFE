@@ -81,6 +81,16 @@ func (h *Handler) createDataset(c *gin.Context) (interface{}, error) {
 		return nil, commonerrors.NewBadRequest(fmt.Sprintf("invalid dataset type: %s", req.DatasetType))
 	}
 
+	// Check if dataset name already exists
+	exists, err := h.dbClient.CheckDatasetNameExists(ctx, req.DisplayName)
+	if err != nil {
+		klog.ErrorS(err, "failed to check dataset name", "displayName", req.DisplayName)
+		return nil, commonerrors.NewInternalError(fmt.Sprintf("failed to check dataset name: %v", err))
+	}
+	if exists {
+		return nil, commonerrors.NewBadRequest(fmt.Sprintf("dataset name '%s' already exists", req.DisplayName))
+	}
+
 	// Get user info from context
 	userId := c.GetString(common.UserId)
 	userName := c.GetString(common.UserName)

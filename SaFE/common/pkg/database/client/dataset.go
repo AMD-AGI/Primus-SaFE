@@ -153,6 +153,25 @@ func (c *Client) GetDataset(ctx context.Context, datasetId string) (*Dataset, er
 	return datasets[0], nil
 }
 
+// CheckDatasetNameExists checks if a dataset with the given display name already exists.
+// Returns true if the name is already taken, false otherwise.
+func (c *Client) CheckDatasetNameExists(ctx context.Context, displayName string) (bool, error) {
+	if displayName == "" {
+		return false, nil
+	}
+	dbTags := GetDatasetFieldTags()
+	dbSql := sqrl.And{
+		sqrl.Eq{GetFieldTag(dbTags, "IsDeleted"): false},
+		sqrl.Eq{GetFieldTag(dbTags, "DisplayName"): displayName},
+	}
+	count, err := c.CountDatasets(ctx, dbSql)
+	if err != nil {
+		klog.ErrorS(err, "failed to check dataset name exists", "displayName", displayName)
+		return false, err
+	}
+	return count > 0, nil
+}
+
 // SetDatasetDeleted marks a dataset as deleted in the database.
 func (c *Client) SetDatasetDeleted(ctx context.Context, datasetId string) error {
 	db, err := c.getDB()
