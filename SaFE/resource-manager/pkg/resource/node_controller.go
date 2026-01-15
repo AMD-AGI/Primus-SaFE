@@ -42,7 +42,7 @@ const (
 	harborCACertPathUbuntu = "/usr/local/share/ca-certificates/harbor-ca.crt"
 	harborCACertPathCentOS = "/etc/pki/ca-trust/source/anchors/harbor-ca.crt"
 
-	machineCheckInterval = time.Minute * 30
+	machineCheckInterval = time.Minute * 10
 	podManagementTimeout = 3600 * 2
 )
 
@@ -268,8 +268,14 @@ func (r *NodeReconciler) processNode(ctx context.Context, adminNode *v1.Node, k8
 			return ctrlruntime.Result{}, err
 		}
 	}
-	if err := r.installAddons(ctx, adminNode); err != nil {
-		return ctrlruntime.Result{}, err
+	// Only managed nodes will have the addon installed.
+	if adminNode.IsManaged() {
+		if err := r.installAddons(ctx, adminNode); err != nil {
+			klog.ErrorS(err, "failed to install addons", "node", adminNode.Name)
+			if !utils.IsNonRetryableError(err) {
+				return ctrlruntime.Result{}, err
+			}
+		}
 	}
 	if err := r.cleanupTimeoutPods(ctx, adminNode); err != nil {
 		return ctrlruntime.Result{}, err
