@@ -213,6 +213,86 @@ func (c *Client) PutObject(ctx context.Context, key, value string, timeout int64
 	return c.s3Client.PutObject(timeoutCtx, input)
 }
 
+// PutObjectMultipart uploads a large object to S3 using multipart upload.
+// It reads from the provided io.Reader in chunks and uploads each chunk as a part.
+// This method is suitable for large files as it doesn't require loading the entire file into memory.
+func (c *Client) PutObjectMultipart(ctx context.Context, key string, reader io.Reader, size int64) error {
+	if c == nil {
+		return fmt.Errorf("please init client first")
+	}
+	if key == "" {
+		return fmt.Errorf("the object key is empty")
+	}
+
+	// For small files (< 100MB), use simple upload
+	if size > 0 && size < partSize {
+		data, err := io.ReadAll(reader)
+		if err != nil {
+			return fmt.Errorf("failed to read data: %w", err)
+		}
+		_, err = c.PutObject(ctx, key, string(data), 300)
+		return err
+	}
+
+	// Create multipart upload
+	uploadId, err := c.CreateMultiPartUpload(ctx, key, 60)
+	if err != nil {
+		return fmt.Errorf("failed to create multipart upload: %w", err)
+	}
+
+	param := &MultiUploadParam{
+		Key:            key,
+		UploadId:       uploadId,
+		CompletedParts: make([]types.CompletedPart, 0),
+	}
+
+	// Upload parts
+	partNumber := int32(1)
+	buffer := make([]byte, partSize)
+
+	for {
+		n, err := io.ReadFull(reader, buffer)
+		if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
+			// Abort upload on error
+			_ = c.AbortMultiPartUpload(ctx, param, 60)
+			return fmt.Errorf("failed to read part %d: %w", partNumber, err)
+		}
+
+		if n == 0 {
+			break
+		}
+
+		// Upload this part
+		partParam := &MultiUploadParam{
+			Key:            key,
+			Value:          string(buffer[:n]),
+			UploadId:       uploadId,
+			PartNumber:     partNumber,
+			CompletedParts: param.CompletedParts,
+		}
+
+		if err := c.MultiPartUpload(ctx, partParam, 600); err != nil {
+			_ = c.AbortMultiPartUpload(ctx, param, 60)
+			return fmt.Errorf("failed to upload part %d: %w", partNumber, err)
+		}
+
+		param.CompletedParts = partParam.CompletedParts
+		partNumber++
+
+		if err == io.EOF || err == io.ErrUnexpectedEOF {
+			break
+		}
+	}
+
+	// Complete multipart upload
+	if _, err := c.CompleteMultiPartUpload(ctx, param, 120); err != nil {
+		_ = c.AbortMultiPartUpload(ctx, param, 60)
+		return fmt.Errorf("failed to complete multipart upload: %w", err)
+	}
+
+	return nil
+}
+
 // DeleteObject delete object from S3 bucket.
 func (c *Client) DeleteObject(ctx context.Context, key string, timeout int64) error {
 	if c == nil {

@@ -6,6 +6,7 @@ package mock_s3
 
 import (
 	context "context"
+	io "io"
 	reflect "reflect"
 
 	s3 "github.com/AMD-AIG-AIMA/SAFE/common/pkg/s3"
@@ -151,6 +152,20 @@ func (m *MockInterface) PutObject(ctx context.Context, key, value string, timeou
 func (mr *MockInterfaceMockRecorder) PutObject(ctx, key, value, timeout interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PutObject", reflect.TypeOf((*MockInterface)(nil).PutObject), ctx, key, value, timeout)
+}
+
+// PutObjectMultipart mocks base method.
+func (m *MockInterface) PutObjectMultipart(ctx context.Context, key string, reader io.Reader, size int64) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PutObjectMultipart", ctx, key, reader, size)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// PutObjectMultipart indicates an expected call of PutObjectMultipart.
+func (mr *MockInterfaceMockRecorder) PutObjectMultipart(ctx, key, reader, size interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PutObjectMultipart", reflect.TypeOf((*MockInterface)(nil).PutObjectMultipart), ctx, key, reader, size)
 }
 
 // PresignModelFiles mocks base method.

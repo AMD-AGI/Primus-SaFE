@@ -9,7 +9,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"path/filepath"
 	"strings"
 	"time"
@@ -112,20 +111,14 @@ func (h *Handler) createDataset(c *gin.Context) (interface{}, error) {
 		}
 		defer file.Close()
 
-		// Read file content
-		content, err := io.ReadAll(file)
-		if err != nil {
-			return nil, commonerrors.NewInternalError(fmt.Sprintf("failed to read file: %v", err))
-		}
-
-		// Upload to S3
+		// Upload to S3 using multipart upload (handles both small and large files)
 		key := s3Path + fileHeader.Filename
-		_, err = h.s3Client.PutObject(context.Background(), key, string(content), 300)
-		if err != nil {
-			klog.ErrorS(err, "failed to upload file to S3", "key", key)
+		if err := h.s3Client.PutObjectMultipart(ctx, key, file, fileHeader.Size); err != nil {
+			klog.ErrorS(err, "failed to upload file to S3", "key", key, "size", fileHeader.Size)
 			return nil, commonerrors.NewInternalError(fmt.Sprintf("failed to upload file: %v", err))
 		}
 
+		klog.InfoS("uploaded file to S3", "key", key, "size", fileHeader.Size)
 		totalSize += fileHeader.Size
 	}
 
