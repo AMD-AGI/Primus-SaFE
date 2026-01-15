@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-#  Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
-#  See LICENSE for license information.
+# Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
 
 """
 Node Command Executor Script
@@ -28,7 +28,6 @@ import time
 import urllib.error
 import urllib.request
 
-
 def get_env_or_exit(name: str) -> str:
     """Get environment variable or exit with error if not set or empty."""
     value = os.environ.get(name)
@@ -47,7 +46,7 @@ def create_ops_job(endpoint: str, apikey: str, node_name: str, script_base64: st
     Create an OpsJob and return the job ID.
     
     Args:
-        endpoint: The control plane endpoint
+        endpoint: The control plane endpoint(including port)
         apikey: API key for authentication
         node_name: Target node name
         script_base64: Base64 encoded script content
