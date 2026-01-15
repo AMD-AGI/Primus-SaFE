@@ -22,6 +22,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/utils/pointer"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -256,4 +257,127 @@ func TestBuildNodeLabelSelector(t *testing.T) {
 	query.WorkspaceId = pointer.String("")
 	selector, _ = buildNodeLabelSelector(&query)
 	assert.Equal(t, selector.String(), fmt.Sprintf("%s=%s,!%s", v1.ClusterIdLabel, "cl", v1.WorkspaceIdLabel))
+}
+
+func genMockNodeWithPhase(clusterID string, phase v1.NodePhase, isMachineReady bool) *v1.Node {
+	node := &v1.Node{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       v1.NodeKind,
+			APIVersion: v1.SchemeGroupVersion.String(),
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name: commonutils.GenerateName("node"),
+			Labels: map[string]string{
+				v1.ClusterIdLabel: clusterID,
+			},
+		},
+		Spec: v1.NodeSpec{
+			Cluster: pointer.String(clusterID),
+		},
+		Status: v1.NodeStatus{
+			ClusterStatus: v1.NodeClusterStatus{
+				Phase: phase,
+			},
+		},
+	}
+	if isMachineReady {
+		node.Status.MachineStatus.Phase = v1.NodeReady
+	}
+	return node
+}
+
+func getTestScheme() *runtime.Scheme {
+	s := runtime.NewScheme()
+	_ = scheme.AddToScheme(s)
+	_ = corev1.AddToScheme(s)
+	return s
+}
+
+func TestRetryNodes_SingleNode(t *testing.T) {
+	clusterID := "test-cluster"
+	user := genMockUser()
+	role := genMockRole()
+	node := genMockNodeWithPhase(clusterID, v1.NodeManagedFailed, true)
+
+	fakeClient := fake.NewClientBuilder().
+		WithObjects(node, user, role).
+		WithScheme(getTestScheme()).Build()
+
+	h := Handler{Client: fakeClient, accessController: authority.NewAccessController(fakeClient)}
+	rsp := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rsp)
+	c.Set(common.UserId, user.Name)
+
+	reqBody := fmt.Sprintf(`{"nodeIds": ["%s"]}`, node.Name)
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/nodes/retry", strings.NewReader(reqBody))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	h.RetryNodes(c)
+
+	assert.Equal(t, rsp.Code, http.StatusOK)
+
+	result := &view.RetryNodesResponse{}
+	err := json.Unmarshal(rsp.Body.Bytes(), &result)
+	assert.NilError(t, err)
+	assert.Equal(t, result.TotalCount, 1)
+	assert.Equal(t, result.SuccessCount, 1)
+	assert.Equal(t, len(result.SuccessNodes), 1)
+	assert.Equal(t, result.SuccessNodes[0].NodeId, node.Name)
+}
+
+func TestRetryNodes_BatchNodes(t *testing.T) {
+	clusterID := "test-cluster"
+	user := genMockUser()
+	role := genMockRole()
+	node1 := genMockNodeWithPhase(clusterID, v1.NodeManagedFailed, true)
+	node1.Name = "node-1"
+	node2 := genMockNodeWithPhase(clusterID, v1.NodeUnmanagedFailed, true)
+	node2.Name = "node-2"
+
+	fakeClient := fake.NewClientBuilder().
+		WithObjects(node1, node2, user, role).
+		WithScheme(getTestScheme()).Build()
+
+	h := Handler{Client: fakeClient, accessController: authority.NewAccessController(fakeClient)}
+	rsp := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rsp)
+	c.Set(common.UserId, user.Name)
+
+	reqBody := `{"nodeIds": ["node-1", "node-2"]}`
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/nodes/retry", strings.NewReader(reqBody))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	h.RetryNodes(c)
+
+	assert.Equal(t, rsp.Code, http.StatusOK)
+
+	result := &view.RetryNodesResponse{}
+	err := json.Unmarshal(rsp.Body.Bytes(), &result)
+	assert.NilError(t, err)
+	assert.Equal(t, result.TotalCount, 2)
+	assert.Equal(t, result.SuccessCount, 2)
+	assert.Equal(t, len(result.SuccessNodes), 2)
+}
+
+func TestRetryNodes_EmptyNodeIds(t *testing.T) {
+	user := genMockUser()
+	role := genMockRole()
+
+	fakeClient := fake.NewClientBuilder().
+		WithObjects(user, role).
+		WithScheme(getTestScheme()).Build()
+
+	h := Handler{Client: fakeClient, accessController: authority.NewAccessController(fakeClient)}
+	rsp := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rsp)
+	c.Set(common.UserId, user.Name)
+
+	reqBody := `{"nodeIds": []}`
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/nodes/retry", strings.NewReader(reqBody))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	h.RetryNodes(c)
+
+	assert.Equal(t, rsp.Code, http.StatusBadRequest)
+	assert.Assert(t, strings.Contains(rsp.Body.String(), "nodeIds cannot be empty"))
 }

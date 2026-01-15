@@ -106,6 +106,124 @@ func (h *Handler) DeleteNodes(c *gin.Context) {
 	handle(c, h.deleteNodes)
 }
 
+// RetryNodes handles batch retrying node management operations (single or multiple nodes).
+// It deletes up/down pods for specified nodes and lets the controller handle the retry.
+// @Summary Batch retry node management operations
+// @Description Delete management pods for multiple nodes to trigger controller retry
+// @Tags nodes
+// @Accept json
+// @Produce json
+// @Param request body view.RetryNodesRequest true "List of node IDs to retry"
+// @Success 200 {object} view.RetryNodesResponse
+// @Router /api/v1/nodes/retry [post]
+func (h *Handler) RetryNodes(c *gin.Context) {
+	handle(c, h.retryNodes)
+}
+
+// retryNodes implements the batch retry logic for node operations.
+// It deletes all up/down pods associated with each node and lets the controller
+// automatically recreate them based on the node's Spec.Cluster value.
+func (h *Handler) retryNodes(c *gin.Context) (interface{}, error) {
+	ctx := c.Request.Context()
+
+	req := &view.RetryNodesRequest{}
+	if _, err := apiutils.ParseRequestBody(c.Request, req); err != nil {
+		return nil, commonerrors.NewBadRequest("failed to parse request: " + err.Error())
+	}
+
+	if len(req.NodeIds) == 0 {
+		return nil, commonerrors.NewBadRequest("nodeIds cannot be empty")
+	}
+
+	response := &view.RetryNodesResponse{
+		TotalCount:   len(req.NodeIds),
+		SuccessCount: 0,
+		SuccessNodes: make([]view.RetrySuccessNode, 0),
+		FailedNodes:  make([]view.RetryFailedNode, 0),
+	}
+
+	for _, nodeName := range req.NodeIds {
+		// Delete all up/down pods for this node and get pod info
+		podInfo, err := h.deleteNodeManagementPods(ctx, nodeName)
+		if err != nil {
+			klog.ErrorS(err, "failed to delete pods for node retry", "node", nodeName)
+			response.FailedNodes = append(response.FailedNodes, view.RetryFailedNode{
+				NodeId: nodeName,
+				Error:  err.Error(),
+			})
+			continue
+		}
+		response.SuccessCount++
+		response.SuccessNodes = append(response.SuccessNodes, view.RetrySuccessNode{
+			NodeId:      nodeName,
+			HasPods:     len(podInfo.deleted) > 0,
+			PodsDeleted: podInfo.deleted,
+		})
+		klog.Infof("retry initiated for node %s (deleted %d pods)", nodeName, len(podInfo.deleted))
+	}
+
+	// Clear slices if empty to avoid returning empty array in JSON
+	if len(response.SuccessNodes) == 0 {
+		response.SuccessNodes = nil
+	}
+	if len(response.FailedNodes) == 0 {
+		response.FailedNodes = nil
+	}
+
+	return response, nil
+}
+
+// podDeleteResult holds information about deleted pods
+type podDeleteResult struct {
+	deleted []string
+}
+
+// deleteNodeManagementPods deletes all up/down pods associated with a node.
+// It uses label selector: primus-safe.cluster.manage.node=<nodeName> AND action in (up, down)
+// Returns information about pods found and deleted.
+func (h *Handler) deleteNodeManagementPods(ctx context.Context, nodeName string) (*podDeleteResult, error) {
+	// Build label selector:
+	// primus-safe.cluster.manage.node=<nodeName> AND primus-safe.cluster.manage.action in (up, down)
+	selector := labels.NewSelector()
+
+	// Node name exact match
+	nodeReq, err := labels.NewRequirement(v1.ClusterManageNodeLabel, selection.Equals, []string{nodeName})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create node label requirement: %w", err)
+	}
+	selector = selector.Add(*nodeReq)
+
+	// Action in (up, down)
+	actionReq, err := labels.NewRequirement(v1.ClusterManageActionLabel, selection.In,
+		[]string{string(v1.ClusterScaleUpAction), string(v1.ClusterScaleDownAction)})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create action label requirement: %w", err)
+	}
+	selector = selector.Add(*actionReq)
+
+	podList := &corev1.PodList{}
+	if err := h.List(ctx, podList,
+		client.InNamespace(common.PrimusSafeNamespace),
+		client.MatchingLabelsSelector{Selector: selector}); err != nil {
+		return nil, fmt.Errorf("failed to list pods: %w", err)
+	}
+
+	result := &podDeleteResult{
+		deleted: make([]string, 0, len(podList.Items)),
+	}
+
+	for _, pod := range podList.Items {
+		podName := pod.Name
+		if err := h.Delete(ctx, &pod); client.IgnoreNotFound(err) != nil {
+			return nil, fmt.Errorf("failed to delete pod %s: %w", podName, err)
+		}
+		result.deleted = append(result.deleted, podName)
+		klog.Infof("deleted pod %s for node retry", podName)
+	}
+
+	return result, nil
+}
+
 // createNode implements the node creation logic.
 // Validates the request, generates a node object with specified parameters,
 // and persists it in the system.

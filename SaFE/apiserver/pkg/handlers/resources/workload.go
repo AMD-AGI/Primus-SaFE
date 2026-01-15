@@ -807,8 +807,8 @@ func (h *Handler) generateWorkload(ctx context.Context,
 func (h *Handler) createPreheatWorkload(c *gin.Context, mainWorkload *v1.Workload,
 	mainQuery *view.CreateWorkloadRequest, requestUser *v1.User, roles []*v1.Role) (*v1.Workload, error) {
 	displayName := v1.GetDisplayName(mainWorkload)
-	if len(displayName) > commonutils.MaxDisplayNameLen-len(PreheatDescription)-1 {
-		displayName = displayName[:commonutils.MaxDisplayNameLen-len(PreheatDescription)-1]
+	if len(displayName) > commonutils.MaxPytorchJobNameLen-len(PreheatDescription)-1 {
+		displayName = displayName[:commonutils.MaxPytorchJobNameLen-len(PreheatDescription)-1]
 	}
 	displayName = PreheatDescription + "-" + displayName
 

@@ -318,7 +318,7 @@ func (v *OpsJobValidator) validateRequiredParams(ctx context.Context, job *v1.Op
 	if v1.GetDisplayName(job) == "" {
 		errs = append(errs, fmt.Errorf("the displayName is empty"))
 	}
-	if err := validateDisplayName(v1.GetDisplayName(job)); err != nil {
+	if err := validateDisplayName(v1.GetDisplayName(job), common.PytorchJobKind); err != nil {
 		errs = append(errs, err)
 	}
 	if job.Spec.Type == "" {
@@ -336,7 +336,7 @@ func (v *OpsJobValidator) validateRequiredParams(ctx context.Context, job *v1.Op
 		}
 	}
 	if err := utilerrors.NewAggregate(errs); err != nil {
-		return err
+		return commonerrors.NewBadRequest(err.Error())
 	}
 	return nil
 }
