@@ -41,6 +41,7 @@ func getClusterNameForGithubWorkflow(ctx *gin.Context) (string, error) {
 
 // DisplaySettingsRequest represents display settings for a workflow config
 type DisplaySettingsRequest struct {
+	DefaultChartGroupMode string `json:"default_chart_group_mode,omitempty"`
 	DefaultChartGroupBy   string `json:"default_chart_group_by,omitempty"`
 	DefaultChartType      string `json:"default_chart_type,omitempty"`
 	ShowRawDataByDefault  bool   `json:"show_raw_data_by_default,omitempty"`
@@ -108,6 +109,7 @@ func CreateGithubWorkflowConfig(ctx *gin.Context) {
 	filePatterns, _ := json.Marshal(req.FilePatterns)
 	displaySettings := make(dbmodel.ExtType)
 	if req.DisplaySettings != nil {
+		displaySettings["default_chart_group_mode"] = req.DisplaySettings.DefaultChartGroupMode
 		displaySettings["default_chart_group_by"] = req.DisplaySettings.DefaultChartGroupBy
 		displaySettings["default_chart_type"] = req.DisplaySettings.DefaultChartType
 		displaySettings["show_raw_data_by_default"] = req.DisplaySettings.ShowRawDataByDefault
@@ -273,6 +275,7 @@ func UpdateGithubWorkflowConfig(ctx *gin.Context) {
 	config.FilePatterns = dbmodel.ExtJSON(filePatterns)
 	if req.DisplaySettings != nil {
 		displaySettings := make(dbmodel.ExtType)
+		displaySettings["default_chart_group_mode"] = req.DisplaySettings.DefaultChartGroupMode
 		displaySettings["default_chart_group_by"] = req.DisplaySettings.DefaultChartGroupBy
 		displaySettings["default_chart_type"] = req.DisplaySettings.DefaultChartType
 		displaySettings["show_raw_data_by_default"] = req.DisplaySettings.ShowRawDataByDefault
