@@ -138,4 +138,11 @@ const (
 	// torchft
 	torchftPrefix     = "torchft."
 	torchFTLightHouse = torchftPrefix + "lighthouse"
+
+	// tracing
+	tracingPrefix        = "tracing."
+	tracingEnable        = tracingPrefix + "enable"
+	tracingMode          = tracingPrefix + "mode"
+	tracingSamplingRatio = tracingPrefix + "sampling_ratio"
+	tracingOtlpEndpoint  = tracingPrefix + "otlp_endpoint"
 )

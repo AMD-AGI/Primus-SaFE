@@ -23,6 +23,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/config"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+
+	safeconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
@@ -33,6 +35,7 @@ import (
 	commonklog "github.com/AMD-AIG-AIMA/SAFE/common/pkg/klog"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/opensearch"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/options"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/trace"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/netutil"
 )
 
@@ -97,6 +100,13 @@ func (s *Server) init() error {
 		klog.ErrorS(err, "failed to start opensearch discovery")
 		return err
 	}
+	if safeconfig.IsTracingEnable() {
+		if err = trace.InitTracer("primus-safe-apiserver"); err != nil {
+			klog.Warningf("Failed to init tracer: %v", err)
+		}
+	} else {
+		klog.Info("Tracing is disabled (tracing.enable: false)")
+	}
 	s.isInited = true
 	return nil
 }
@@ -154,6 +164,10 @@ func (s *Server) Stop() {
 		if err := s.sshServer.Shutdown(); err != nil {
 			klog.ErrorS(err, "failed to shutdown ssh-server")
 		}
+	}
+	// Close tracer
+	if err := trace.CloseTracer(); err != nil {
+		klog.ErrorS(err, "failed to close tracer")
 	}
 	klog.Info("apiserver is stopped")
 	klog.Flush()
