@@ -261,12 +261,12 @@ func (r *SyncerReconciler) updateAdminWorkloadPhase(adminWorkload *v1.Workload,
 		adminWorkload.Status.Phase = v1.WorkloadPending
 	case v1.K8sSucceeded:
 		if !commonworkload.IsTorchFT(adminWorkload) ||
-			handleTorchFTGroupStatus(adminWorkload, message.name, v1.WorkloadSucceeded) == v1.WorkloadSucceeded {
+			handleTorchFTGroupStatus(adminWorkload, message.groupId, v1.WorkloadSucceeded) == v1.WorkloadSucceeded {
 			adminWorkload.Status.Phase = v1.WorkloadSucceeded
 		}
 	case v1.K8sFailed:
 		if commonworkload.IsTorchFT(adminWorkload) {
-			if handleTorchFTGroupStatus(adminWorkload, message.name, v1.WorkloadFailed) != v1.WorkloadFailed {
+			if handleTorchFTGroupStatus(adminWorkload, message.groupId, v1.WorkloadFailed) != v1.WorkloadFailed {
 				break
 			}
 		}
@@ -277,7 +277,7 @@ func (r *SyncerReconciler) updateAdminWorkloadPhase(adminWorkload *v1.Workload,
 		}
 	case v1.K8sDeleted:
 		if commonworkload.IsTorchFT(adminWorkload) {
-			if handleTorchFTGroupStatus(adminWorkload, message.name, v1.WorkloadStopped) != v1.WorkloadStopped {
+			if handleTorchFTGroupStatus(adminWorkload, message.groupId, v1.WorkloadStopped) != v1.WorkloadStopped {
 				break
 			}
 		}
@@ -295,7 +295,7 @@ func (r *SyncerReconciler) updateAdminWorkloadPhase(adminWorkload *v1.Workload,
 		}
 	case v1.K8sRunning:
 		if !commonworkload.IsTorchFT(adminWorkload) ||
-			handleTorchFTGroupStatus(adminWorkload, message.name, v1.WorkloadRunning) == v1.WorkloadRunning {
+			handleTorchFTGroupStatus(adminWorkload, message.groupId, v1.WorkloadRunning) == v1.WorkloadRunning {
 			adminWorkload.Status.Phase = v1.WorkloadRunning
 		}
 	case v1.K8sUpdating:
@@ -405,10 +405,10 @@ func shouldTerminateWorkload(adminWorkload *v1.Workload, status *jobutils.K8sObj
 
 // handleTorchFTGroupStatus handles status updates for TorchFT workload groups.
 // groupId: 0 lighthouse and [1,totalGroups] workers.
-// For failure status: fails if index=0 fails OR available workers < minGroup.
-// For succeed status: all workers are succeed.
-// For other statuses: returns status only when ALL groups have the same status.
-// Otherwise returns empty string.
+// For failure status: available worker groups < minGroup. lighthouse status is temporarily not considered.
+// For succeed status: all workers and lighthouse are succeed.
+// For other status: returns status only when ALL groups have the same status.
+// otherwise: returns empty string.
 func handleTorchFTGroupStatus(adminWorkload *v1.Workload, groupIdStr string, phase v1.WorkloadPhase) v1.WorkloadPhase {
 	// Get total group count
 	totalGroups, err := commonworkload.GetReplicaGroup(adminWorkload, common.ReplicaGroup)

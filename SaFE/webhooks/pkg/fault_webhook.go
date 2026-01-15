@@ -121,7 +121,7 @@ func (v *FaultValidator) validateOnCreation(fault *v1.Fault) error {
 	if err := v.validateFaultSpec(fault); err != nil {
 		return err
 	}
-	if err := validateDisplayName(v1.GetDisplayName(fault)); err != nil {
+	if err := validateDisplayName(v1.GetDisplayName(fault), ""); err != nil {
 		return err
 	}
 	return nil

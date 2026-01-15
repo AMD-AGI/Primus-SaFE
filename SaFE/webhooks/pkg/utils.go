@@ -16,6 +16,7 @@ import (
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 )
@@ -36,13 +37,8 @@ const (
 )
 
 var (
-	DisplayNameRegRule = fmt.Sprintf(DisplayNameRule, commonutils.MaxDisplayNameLen)
-	DNSNameRegRule     = fmt.Sprintf(DNSNameRule, commonutils.MaxDisplayNameLen)
-	LabelKeyRegRule    = fmt.Sprintf(LabelKeyRule, commonutils.MaxNameLength-1)
-
-	DisplayNameRegexp = regexp.MustCompile(DisplayNameRegRule)
-	DNSNameRegexp     = regexp.MustCompile(DNSNameRegRule)
-	LabelKeyRegexp    = regexp.MustCompile(LabelKeyRegRule)
+	LabelKeyRegRule = fmt.Sprintf(LabelKeyRule, commonutils.MaxNameLength-1)
+	LabelKeyRegexp  = regexp.MustCompile(LabelKeyRegRule)
 )
 
 // generateMutatePath generates the mutation webhook path for a given resource kind.
@@ -74,23 +70,27 @@ func handleError(name string, err error) admission.Response {
 }
 
 // validateDisplayName validates a display name against the naming rules.
-func validateDisplayName(name string) error {
+func validateDisplayName(name, workloadKind string) error {
 	if name == "" {
 		return nil
 	}
-	if !DisplayNameRegexp.MatchString(name) {
-		return commonerrors.NewBadRequest(fmt.Sprintf(DisplayNamePrompt, name, commonutils.MaxDisplayNameLen))
+	maxNameLen := getMaxNameLength(workloadKind)
+	displayNameRegexp := regexp.MustCompile(fmt.Sprintf(DisplayNameRule, maxNameLen))
+	if !displayNameRegexp.MatchString(name) {
+		return commonerrors.NewBadRequest(fmt.Sprintf(DisplayNamePrompt, name, maxNameLen))
 	}
 	return nil
 }
 
 // validateDNSName validates a DNS name against the naming rules.
-func validateDNSName(name string) error {
+func validateDNSName(name, workloadKind string) error {
 	if name == "" {
 		return nil
 	}
-	if !DNSNameRegexp.MatchString(name) {
-		return commonerrors.NewBadRequest(fmt.Sprintf(DNSNamePrompt, name, commonutils.MaxDisplayNameLen))
+	maxNameLen := getMaxNameLength(workloadKind)
+	dnsNameRegexp := regexp.MustCompile(fmt.Sprintf(DNSNameRule, maxNameLen))
+	if !dnsNameRegexp.MatchString(name) {
+		return commonerrors.NewBadRequest(fmt.Sprintf(DNSNamePrompt, name, maxNameLen))
 	}
 	return nil
 }
@@ -100,10 +100,28 @@ func validateLabelKey(name string) error {
 	if name == "" {
 		return nil
 	}
+
+	LabelKeyRegexp = regexp.MustCompile(LabelKeyRegRule)
 	if !LabelKeyRegexp.MatchString(name) {
 		return commonerrors.NewBadRequest(fmt.Sprintf(LabelKeyPrompt, name, commonutils.MaxNameLength))
 	}
 	return nil
+}
+
+// getMaxNameLength returns the maximum allowed name length based on the workload kind.
+func getMaxNameLength(workloadKind string) int {
+	switch workloadKind {
+	case common.PytorchJobKind, common.UnifiedJobKind, common.AuthoringKind:
+		return commonutils.MaxPytorchJobNameLen
+	case common.DeploymentKind, common.StatefulSetKind:
+		return commonutils.MaxDeploymentNameLen
+	case common.TorchFTKind:
+		return commonutils.MaxTorchFTNameLen
+	case common.CICDScaleRunnerSetKind:
+		return commonutils.MaxCICDScaleSetNameLen
+	default:
+		return commonutils.MaxGeneratedNameLength
+	}
 }
 
 // validateLabels ensures labels are valid.

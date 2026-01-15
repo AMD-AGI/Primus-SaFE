@@ -446,7 +446,7 @@ func (v *WorkspaceValidator) validateCommon(ctx context.Context, newWorkspace, o
 	if err := v.validateVolumes(newWorkspace, oldWorkspace); err != nil {
 		return err
 	}
-	if err := validateDisplayName(v1.GetDisplayName(newWorkspace)); err != nil {
+	if err := validateDNSName(v1.GetDisplayName(newWorkspace), ""); err != nil {
 		return err
 	}
 	if oldWorkspace == nil || newWorkspace.Spec.Replica > oldWorkspace.Spec.Replica {
