@@ -530,7 +530,7 @@ Export node list with multiple filtering options.
 
 ### 11. Retry Node Operations
 
-Retry failed node manage/unmanage operations. When a node is in `ManagedFailed` or `UnmanagedFailed` state, this API can be used to retry the operation.
+Retry node manage or unmanage operations when needed.
 
 **Endpoint**: `POST /api/v1/nodes/retry`
 
@@ -556,6 +556,17 @@ Retry failed node manage/unmanage operations. When a node is in `ManagedFailed` 
 {
   "totalCount": 2,
   "successCount": 2,
+  "successNodes": [
+    {
+      "nodeId": "node-001",
+      "hasPods": true,
+      "podsDeleted": ["safe-cluster-node-001-up"]
+    },
+    {
+      "nodeId": "node-002",
+      "hasPods": false
+    }
+  ],
   "failedNodes": null
 }
 ```
@@ -566,9 +577,11 @@ Retry failed node manage/unmanage operations. When a node is in `ManagedFailed` 
 |-------|------|-------------|
 | totalCount | int | Total number of nodes requested |
 | successCount | int | Number of nodes successfully processed |
+| successNodes | array | Details of successfully processed nodes |
+| successNodes[].nodeId | string | Node ID |
+| successNodes[].hasPods | bool | Whether management pods were found |
+| successNodes[].podsDeleted | string[] | Names of deleted pods (omitted if hasPods is false) |
 | failedNodes | array | Details of failed nodes (null if all succeeded) |
-
-**Note**: This API deletes the failed management pods and lets the controller automatically re-initiate the operation.
 
 ---
 ## Node Status
