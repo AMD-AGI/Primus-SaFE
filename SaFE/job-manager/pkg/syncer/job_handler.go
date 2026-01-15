@@ -171,13 +171,14 @@ func (r *SyncerReconciler) waitAllPodsDeleted(ctx context.Context, message *reso
 	listOptions := metav1.ListOptions{
 		LabelSelector: metav1.FormatLabelSelector(&labelSelector),
 	}
-	klog.Infof("wait all pods are deleted, workload: %s, match labels: %v", message.workloadId, labelSelector.MatchLabels)
+	klog.Infof("wait for all pods to be deleted, workload: %s, match labels: %v", message.workloadId, labelSelector.MatchLabels)
 	podList, err := clientSets.dataClientFactory.ClientSet().CoreV1().Pods(message.namespace).List(ctx, listOptions)
 	if err != nil {
 		klog.ErrorS(err, "failed to list pods", "workload", message.workloadId, "namespace", message.namespace)
 		return false
 	}
 	if len(podList.Items) == 0 {
+		klog.Infof("all pods are deleted, workload: %s", message.workloadId)
 		return true
 	}
 	return false

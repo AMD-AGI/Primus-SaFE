@@ -338,6 +338,7 @@ func (r *AddonJobReconciler) handleNode(ctx context.Context,
 	}
 	defer sshClient.Close()
 
+	isTaskRunning := false
 	for _, addOn := range addonJob.addonTemplates {
 		if !isMatchGpuChip(string(addOn.Spec.GpuChip), adminNode) {
 			continue
@@ -345,24 +346,28 @@ func (r *AddonJobReconciler) handleNode(ctx context.Context,
 		if err = executeCommand(sshClient, addOn.Name, addOn.Spec.Action, addOn.Spec.Required); err != nil {
 			return false, err
 		}
+		isTaskRunning = true
 	}
 	scriptParams := job.GetParameters(v1.ParameterScript)
 	for _, p := range scriptParams {
 		if err = executeCommand(sshClient, "script", p.Value, true); err != nil {
 			return false, err
 		}
+		isTaskRunning = true
 	}
 
 	// If the addon specified by node.template is installed on the node, save the operation result.
 	// Subsequent operations can then trigger the preflight check.
-	if err = r.updateNodeTemplatePhase(ctx, job, adminNode, true); err != nil {
+	if err = r.updateNodeTemplatePhase(ctx, job, adminNode, isTaskRunning); err != nil {
 		return false, err
 	}
 	if err = r.deleteFault(ctx, nodeName, common.AddonMonitorId); err != nil {
 		return false, err
 	}
-	klog.Infof("Processing addon job %s on node %s with %d addon templates",
-		job.Name, nodeName, len(addonJob.addonTemplates))
+	if !isTaskRunning {
+		return false, fmt.Errorf("do nothing")
+	}
+	klog.Infof("Processing addon job %s on node %s", job.Name, nodeName)
 	return true, nil
 }
 
@@ -520,6 +525,9 @@ func (r *AddonJobReconciler) getJobPhase(jobId string) (v1.OpsJobPhase, string) 
 // getInputAddonTemplates retrieves addon templates specified in the job parameters.
 func (r *AddonJobReconciler) getInputAddonTemplates(ctx context.Context, job *v1.OpsJob) ([]*v1.AddonTemplate, error) {
 	params := job.GetParameters(v1.ParameterAddonTemplate)
+	if len(params) == 0 {
+		return nil, nil
+	}
 	results := make([]*v1.AddonTemplate, 0, len(params))
 	for i := range params {
 		addonTemplate := &v1.AddonTemplate{}
@@ -534,9 +542,6 @@ func (r *AddonJobReconciler) getInputAddonTemplates(ctx context.Context, job *v1
 			continue
 		}
 		results = append(results, addonTemplate)
-	}
-	if len(results) == 0 {
-		return nil, commonerrors.NewBadRequest("no addonTemplates are found")
 	}
 	return results, nil
 }

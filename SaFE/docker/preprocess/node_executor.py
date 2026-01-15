@@ -93,14 +93,16 @@ def create_ops_job(endpoint: str, apikey: str, node_name: str, script_base64: st
         sys.exit(1)
 
 
-def get_ops_job(endpoint: str, apikey: str, job_id: str) -> dict:
+def get_ops_job(endpoint: str, apikey: str, job_id: str, max_retries: int = 10, retry_interval: float = 0.5) -> dict:
     """
-    Get OpsJob status by job ID.
+    Get OpsJob status by job ID with retry logic.
     
     Args:
         endpoint: The control plane endpoint
         apikey: API key for authentication
         job_id: The job ID to query
+        max_retries: Maximum number of retries (default 10)
+        retry_interval: Wait time between retries in seconds (default 0.5)
     
     Returns:
         The job response as dict
@@ -111,18 +113,23 @@ def get_ops_job(endpoint: str, apikey: str, job_id: str) -> dict:
         "Authorization": f"Bearer {apikey}"
     }
     
-    req = urllib.request.Request(url, headers=headers, method="GET")
+    last_error = None
+    for attempt in range(max_retries):
+        req = urllib.request.Request(url, headers=headers, method="GET")
+        try:
+            with urllib.request.urlopen(req, timeout=10) as response:
+                return json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            error_body = e.read().decode("utf-8") if e.fp else ""
+            last_error = f"HTTP {e.code} - {error_body}"
+        except urllib.error.URLError as e:
+            last_error = f"Connection error: {e.reason}"
+        
+        if attempt < max_retries - 1:
+            time.sleep(retry_interval)
     
-    try:
-        with urllib.request.urlopen(req, timeout=30) as response:
-            return json.loads(response.read().decode("utf-8"))
-    except urllib.error.HTTPError as e:
-        error_body = e.read().decode("utf-8") if e.fp else ""
-        print(f"Error querying OpsJob: HTTP {e.code} - {error_body}", file=sys.stderr)
-        return {}
-    except urllib.error.URLError as e:
-        print(f"Error connecting to server: {e.reason}", file=sys.stderr)
-        return {}
+    print(f"Error querying OpsJob after {max_retries} retries: {last_error}", file=sys.stderr)
+    return {}
 
 
 def wait_for_completion(endpoint: str, apikey: str, job_id: str, timeout: int = 300, poll_interval: int = 1) -> bool:
@@ -180,12 +187,7 @@ def main():
     endpoint = f"{endpoint}:{port}"
     
     # Base64 encode the script
-    script_base64 = base64.b64encode(script_content.encode("utf-8")).decode("utf-8")
-    print(f"Target node: {node_name}")
-    print(f"Script (base64): {script_base64}")
-    print(f"Endpoint: {endpoint}")
-    print()
-    
+    script_base64 = base64.b64encode(script_content.encode("utf-8")).decode("utf-8")    
     # Create the OpsJob
     job_id = create_ops_job(endpoint, apikey, node_name, script_base64)
     
