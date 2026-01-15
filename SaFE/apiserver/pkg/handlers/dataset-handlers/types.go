@@ -42,6 +42,7 @@ type DatasetResponse struct {
 	TotalSize     int64             `json:"totalSize"`
 	TotalSizeStr  string            `json:"totalSizeStr"`
 	FileCount     int               `json:"fileCount"`
+	Files         []DatasetFileInfo `json:"files,omitempty"` // List of files in dataset
 	Message       string            `json:"message,omitempty"`
 	LocalPaths    []LocalPathInfo   `json:"localPaths,omitempty"` // Per-workspace download status
 	Workspace     string            `json:"workspace,omitempty"`  // Workspace ID, empty means public
@@ -77,13 +78,6 @@ type DatasetFileInfo struct {
 	FilePath string `json:"filePath"`
 	FileSize int64  `json:"fileSize"`
 	SizeStr  string `json:"sizeStr"`
-}
-
-// ListFilesResponse represents the response body for listing files in a dataset
-type ListFilesResponse struct {
-	DatasetId string            `json:"datasetId"`
-	Files     []DatasetFileInfo `json:"files"`
-	Total     int               `json:"total"`
 }
 
 // DatasetTypeInfo represents information about a dataset type with schema

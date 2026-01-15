@@ -15,6 +15,7 @@ import (
 	cdhandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/cd-handlers"
 	datasethandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/dataset-handlers"
 	imagehandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/image-handlers"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/middleware"
 	model_handlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/model-handlers"
 	proxyhandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/proxy-handlers"
 	reshandler "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/resources"
@@ -31,8 +32,7 @@ import (
 // Returns the configured Gin engine or an error if initialization fails.
 func InitHttpHandlers(_ context.Context, mgr ctrlruntime.Manager) (*gin.Engine, error) {
 	engine := gin.New()
-	engine.MaxMultipartMemory = 500 << 20 // 500 MB max upload size
-	engine.Use(apiutils.Logger(), gin.Recovery())
+	engine.Use(apiutils.Logger(), gin.Recovery(), middleware.HandleTracing())
 	engine.NoRoute(func(c *gin.Context) {
 		apiutils.AbortWithApiError(c, commonerrors.NewNotFoundWithMessage(c.Request.RequestURI+" not found"))
 	})

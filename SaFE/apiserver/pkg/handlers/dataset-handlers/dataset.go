@@ -55,12 +55,6 @@ func (h *Handler) DeleteDataset(c *gin.Context) {
 	handle(c, h.deleteDataset)
 }
 
-// ListDatasetFiles handles listing files in a dataset.
-// GET /api/v1/datasets/:id/files
-func (h *Handler) ListDatasetFiles(c *gin.Context) {
-	handle(c, h.listDatasetFiles)
-}
-
 // ListDatasetTypes handles listing all available dataset types.
 // GET /api/v1/datasets/types
 func (h *Handler) ListDatasetTypes(c *gin.Context) {
@@ -282,7 +276,20 @@ func (h *Handler) getDataset(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 
-	return convertToDatasetResponse(dataset), nil
+	resp := convertToDatasetResponse(dataset)
+
+	// Get file list from S3
+	if h.s3Client != nil {
+		files, err := h.getDatasetFileList(context.Background(), dataset.S3Path)
+		if err != nil {
+			klog.ErrorS(err, "failed to list files from S3", "datasetId", datasetId)
+			// Don't fail the request, just return without files
+		} else {
+			resp.Files = files
+		}
+	}
+
+	return resp, nil
 }
 
 // deleteDataset deletes a dataset by ID.
@@ -316,25 +323,12 @@ func (h *Handler) deleteDataset(c *gin.Context) (interface{}, error) {
 	return gin.H{"message": "dataset deleted successfully", "datasetId": datasetId}, nil
 }
 
-// listDatasetFiles lists files in a dataset.
-func (h *Handler) listDatasetFiles(c *gin.Context) (interface{}, error) {
-	datasetId := c.Param("id")
-	if datasetId == "" {
-		return nil, commonerrors.NewBadRequest("dataset id is required")
-	}
-
-	// Get dataset to get S3 path
-	dataset, err := h.dbClient.GetDataset(context.Background(), datasetId)
-	if err != nil {
-		klog.ErrorS(err, "failed to get dataset", "datasetId", datasetId)
-		return nil, err
-	}
-
+// getDatasetFileList returns the list of files in a dataset from S3.
+func (h *Handler) getDatasetFileList(ctx context.Context, s3Path string) ([]DatasetFileInfo, error) {
 	// List files from S3 using presign model files API
-	filesMap, err := h.s3Client.PresignModelFiles(context.Background(), dataset.S3Path, 1)
+	filesMap, err := h.s3Client.PresignModelFiles(ctx, s3Path, 1)
 	if err != nil {
-		klog.ErrorS(err, "failed to list files from S3", "datasetId", datasetId, "s3Path", dataset.S3Path)
-		return nil, commonerrors.NewInternalError(fmt.Sprintf("failed to list files: %v", err))
+		return nil, err
 	}
 
 	// Convert to file info list
@@ -343,7 +337,7 @@ func (h *Handler) listDatasetFiles(c *gin.Context) (interface{}, error) {
 		// Extract file name from path
 		fileName := filepath.Base(filePath)
 		// Remove S3 path prefix to get relative path
-		relativePath := strings.TrimPrefix(filePath, dataset.S3Path)
+		relativePath := strings.TrimPrefix(filePath, s3Path)
 		files = append(files, DatasetFileInfo{
 			FileName: fileName,
 			FilePath: relativePath,
@@ -352,11 +346,7 @@ func (h *Handler) listDatasetFiles(c *gin.Context) (interface{}, error) {
 		})
 	}
 
-	return &ListFilesResponse{
-		DatasetId: datasetId,
-		Files:     files,
-		Total:     len(files),
-	}, nil
+	return files, nil
 }
 
 // MaxPreviewSize is the maximum file size for preview (100KB)

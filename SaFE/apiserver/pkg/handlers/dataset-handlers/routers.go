@@ -24,9 +24,8 @@ func InitDatasetRouters(e *gin.Engine, h *Handler) {
 		// Dataset CRUD operations
 		group.POST("datasets", h.CreateDataset)                 // Create dataset with file upload and download to workspace
 		group.GET("datasets", h.ListDatasets)                   // List datasets with filtering
-		group.GET("datasets/:id", h.GetDataset)                 // Get dataset details
+		group.GET("datasets/:id", h.GetDataset)                 // Get dataset details (includes file list)
 		group.DELETE("datasets/:id", h.DeleteDataset)           // Delete dataset
-		group.GET("datasets/:id/files", h.ListDatasetFiles)     // List files in dataset
 		group.GET("datasets/:id/files/*path", h.GetDatasetFile) // Get or preview a specific file (use ?preview=true for content)
 	}
 }
