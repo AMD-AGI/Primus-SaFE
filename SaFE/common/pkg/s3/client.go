@@ -325,6 +325,42 @@ func (c *Client) PresignModelFiles(ctx context.Context, prefix string, expireHou
 	return urls, nil
 }
 
+// ListObjectsWithSize lists all objects under the given prefix with their sizes.
+// Returns a slice of S3FileInfo with relative paths and sizes.
+func (c *Client) ListObjectsWithSize(ctx context.Context, prefix string) ([]S3FileInfo, error) {
+	if c == nil {
+		return nil, fmt.Errorf("please init client first")
+	}
+
+	// List all objects under prefix
+	result, err := c.s3Client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
+		Bucket: c.Bucket,
+		Prefix: aws.String(prefix),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list objects: %w", err)
+	}
+
+	files := make([]S3FileInfo, 0, len(result.Contents))
+	for _, obj := range result.Contents {
+		key := *obj.Key
+		if strings.HasSuffix(key, "/") {
+			continue // skip directories
+		}
+
+		// Use relative path (remove prefix)
+		relativePath := strings.TrimPrefix(key, prefix)
+		relativePath = strings.TrimPrefix(relativePath, "/")
+
+		files = append(files, S3FileInfo{
+			Key:  relativePath,
+			Size: *obj.Size,
+		})
+	}
+
+	return files, nil
+}
+
 // DownloadFile downloads a file from S3 to a local directory.
 // The localDir is treated as a directory path, and the original filename from the S3 key is used.
 // For example: key="models/config.json", localDir="/tmp" -> "/tmp/config.json"

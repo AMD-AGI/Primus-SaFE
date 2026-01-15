@@ -20,6 +20,12 @@ type MultiUploadParam struct {
 	CompletedParts []types.CompletedPart
 }
 
+// S3FileInfo represents file information from S3
+type S3FileInfo struct {
+	Key  string // Relative path (without prefix)
+	Size int64  // File size in bytes
+}
+
 type Interface interface {
 	CreateMultiPartUpload(ctx context.Context, key string, timeout int64) (string, error)
 	MultiPartUpload(ctx context.Context, param *MultiUploadParam, timeout int64) error
@@ -32,6 +38,7 @@ type Interface interface {
 
 	GeneratePresignedURL(ctx context.Context, key string, expireHour int32) (string, error)
 	PresignModelFiles(ctx context.Context, prefix string, expireHour int32) (map[string]string, error)
+	ListObjectsWithSize(ctx context.Context, prefix string) ([]S3FileInfo, error)
 
 	DownloadFile(ctx context.Context, key, localPath string) error
 	DownloadDirectory(ctx context.Context, prefix, localDir string) error

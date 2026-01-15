@@ -325,24 +325,20 @@ func (h *Handler) deleteDataset(c *gin.Context) (interface{}, error) {
 
 // getDatasetFileList returns the list of files in a dataset from S3.
 func (h *Handler) getDatasetFileList(ctx context.Context, s3Path string) ([]DatasetFileInfo, error) {
-	// List files from S3 using presign model files API
-	filesMap, err := h.s3Client.PresignModelFiles(ctx, s3Path, 1)
+	// List files from S3 with size information
+	s3Files, err := h.s3Client.ListObjectsWithSize(ctx, s3Path)
 	if err != nil {
 		return nil, err
 	}
 
 	// Convert to file info list
-	files := make([]DatasetFileInfo, 0, len(filesMap))
-	for filePath := range filesMap {
-		// Extract file name from path
-		fileName := filepath.Base(filePath)
-		// Remove S3 path prefix to get relative path
-		relativePath := strings.TrimPrefix(filePath, s3Path)
+	files := make([]DatasetFileInfo, 0, len(s3Files))
+	for _, f := range s3Files {
 		files = append(files, DatasetFileInfo{
-			FileName: fileName,
-			FilePath: relativePath,
-			FileSize: 0, // Size not available from presign API
-			SizeStr:  "N/A",
+			FileName: filepath.Base(f.Key),
+			FilePath: f.Key,
+			FileSize: f.Size,
+			SizeStr:  formatFileSize(f.Size),
 		})
 	}
 
