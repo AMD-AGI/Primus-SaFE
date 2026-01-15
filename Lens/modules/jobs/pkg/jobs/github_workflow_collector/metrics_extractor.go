@@ -99,7 +99,7 @@ func (e *MetricsExtractor) extractFromFile(
 				continue
 			}
 			if val, ok := row[dim]; ok {
-				record.Dimensions[dim] = fmt.Sprintf("%v", val)
+				record.Dimensions[dim] = formatDimensionValue(val)
 			}
 		}
 
@@ -161,7 +161,7 @@ func (e *MetricsExtractor) extractWithColumnSchema(
 				}
 				if colConfig.Type == "dimension" {
 					if val, ok := row[colName]; ok {
-						baseDimensions[colName] = fmt.Sprintf("%v", val)
+						baseDimensions[colName] = formatDimensionValue(val)
 					}
 				}
 			}
@@ -219,7 +219,7 @@ func (e *MetricsExtractor) extractWithColumnSchema(
 				}
 
 				if colConfig.Type == "dimension" {
-					record.Dimensions[colName] = fmt.Sprintf("%v", val)
+					record.Dimensions[colName] = formatDimensionValue(val)
 				} else if colConfig.Type == "metric" {
 					metricKey := colConfig.MetricKey
 					if metricKey == "" {
@@ -336,6 +336,35 @@ func toFloat64(val interface{}) (float64, error) {
 		return strconv.ParseFloat(v, 64)
 	default:
 		return 0, fmt.Errorf("cannot convert %T to float64", val)
+	}
+}
+
+// formatDimensionValue formats a value for dimension storage
+// This handles the case where JSON unmarshals numbers as float64,
+// which would result in scientific notation for large integers like dates (20260115)
+func formatDimensionValue(val interface{}) string {
+	switch v := val.(type) {
+	case float64:
+		// Check if the float is actually an integer
+		if v == float64(int64(v)) {
+			return strconv.FormatInt(int64(v), 10)
+		}
+		return strconv.FormatFloat(v, 'f', -1, 64)
+	case float32:
+		if v == float32(int32(v)) {
+			return strconv.FormatInt(int64(v), 10)
+		}
+		return strconv.FormatFloat(float64(v), 'f', -1, 32)
+	case int, int8, int16, int32, int64:
+		return fmt.Sprintf("%d", v)
+	case uint, uint8, uint16, uint32, uint64:
+		return fmt.Sprintf("%d", v)
+	case string:
+		return v
+	case bool:
+		return strconv.FormatBool(v)
+	default:
+		return fmt.Sprintf("%v", v)
 	}
 }
 
