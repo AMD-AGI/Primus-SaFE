@@ -221,8 +221,16 @@ type RetryNodesResponse struct {
 	TotalCount int `json:"totalCount"`
 	// Number of nodes successfully processed
 	SuccessCount int `json:"successCount"`
+	// Details of successfully processed nodes (optional)
+	SuccessNodes []RetrySuccessNode `json:"successNodes,omitempty"`
 	// Details of failed nodes (optional)
 	FailedNodes []RetryFailedNode `json:"failedNodes,omitempty"`
+}
+
+// RetrySuccessNode represents a node that was successfully processed
+type RetrySuccessNode struct {
+	NodeId      string   `json:"nodeId"`
+	PodsDeleted []string `json:"podsDeleted,omitempty"`
 }
 
 // RetryFailedNode represents a node that failed to retry
