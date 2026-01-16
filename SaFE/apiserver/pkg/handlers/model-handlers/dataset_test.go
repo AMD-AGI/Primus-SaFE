@@ -168,7 +168,7 @@ func TestConvertToDatasetResponse(t *testing.T) {
 				assert.Equal(t, "Test Dataset", resp.DisplayName)
 				assert.Equal(t, "Test Description", resp.Description)
 				assert.Equal(t, "sft", resp.DatasetType)
-				assert.Equal(t, "Ready", resp.Status)
+				assert.Equal(t, dbclient.DatasetStatusReady, resp.Status)
 				assert.Equal(t, "datasets/dataset-123/", resp.S3Path)
 				assert.Equal(t, int64(1024*1024), resp.TotalSize)
 				assert.Equal(t, "1.00 MB", resp.TotalSizeStr)
@@ -194,9 +194,9 @@ func TestConvertToDatasetResponse(t *testing.T) {
 				assert.Equal(t, "dataset-456", resp.DatasetId)
 				assert.Len(t, resp.LocalPaths, 2)
 				assert.Equal(t, "ws-1", resp.LocalPaths[0].Workspace)
-				assert.Equal(t, "Ready", resp.LocalPaths[0].Status)
+				assert.Equal(t, dbclient.DatasetStatusReady, resp.LocalPaths[0].Status)
 				assert.Equal(t, "ws-2", resp.LocalPaths[1].Workspace)
-				assert.Equal(t, "Downloading", resp.LocalPaths[1].Status)
+				assert.Equal(t, dbclient.DatasetStatusDownloading, resp.LocalPaths[1].Status)
 				assert.Equal(t, "1/2 workspaces completed", resp.StatusMessage)
 			},
 		},
