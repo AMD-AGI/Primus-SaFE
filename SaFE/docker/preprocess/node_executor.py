@@ -65,7 +65,8 @@ def create_ops_job(endpoint: str, apikey: str, node_name: str, script_base64: st
         "name": node_name + "-addon-script",
         "type": "addon",
         "securityUpgrade": False,
-        "timeoutSecond": timeout
+        "timeoutSecond": timeout,
+        "ttlSecondsAfterFinished": 10
     }
     
     headers = {
