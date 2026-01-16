@@ -175,6 +175,9 @@ func (m *OpsJobMutator) removeDuplicates(job *v1.OpsJob) {
 		if ok && val == in.Value {
 			continue
 		}
+		if in.Name == v1.ParameterNode && in.Value == "" {
+			continue
+		}
 		uniqInputs = append(uniqInputs, job.Spec.Inputs[i])
 		uniqMap[in.Name] = in.Value
 	}

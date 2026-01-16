@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-# Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
-# See LICENSE for license information.
+#  Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
+#  See LICENSE for license information.
 
 """
 Node Command Executor Script
@@ -59,7 +59,7 @@ def create_ops_job(endpoint: str, apikey: str, node_name: str, script_base64: st
     
     body = {
         "inputs": [
-            {"name": "node", "value": node_name},
+            {"name": "node.host", "value": node_name},
             {"name": "script", "value": script_base64}
         ],
         "name": node_name + "-addon-script",
@@ -182,9 +182,9 @@ def main():
     # Get environment variables
     node_name = get_env_or_exit("NODE_NAME")
     apikey = get_env_or_exit("APIKEY")
-    endpoint = get_env_or_exit("ADMIN_CONTROL_PLANE")
-    port = get_env_or_exit("APISERVER_NODE_PORT")
-    endpoint = f"{endpoint}:{port}"
+    admin_ip = get_env_or_exit("ADMIN_CONTROL_PLANE")
+    node_port = get_env_or_exit("APISERVER_NODE_PORT")
+    endpoint = f"{admin_ip}:{node_port}"
     
     # Base64 encode the script
     script_base64 = base64.b64encode(script_content.encode("utf-8")).decode("utf-8")    
