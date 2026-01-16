@@ -13,6 +13,7 @@ import (
 
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
+	commonworkspace "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workspace"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -615,7 +616,7 @@ func (r *ModelReconciler) listWorkspaces(ctx context.Context) ([]WorkspaceInfo, 
 
 	var workspaces []WorkspaceInfo
 	for _, ws := range workspaceList.Items {
-		pfsPath := getPFSPathFromWorkspace(&ws)
+		pfsPath := commonworkspace.GetNfsPathFromWorkspace(&ws)
 		workspaces = append(workspaces, WorkspaceInfo{
 			ID:      ws.Name,
 			PFSPath: pfsPath,
@@ -625,23 +626,6 @@ func (r *ModelReconciler) listWorkspaces(ctx context.Context) ([]WorkspaceInfo, 
 	return workspaces, nil
 }
 
-// getPFSPathFromWorkspace extracts the storage mount path from workspace volumes.
-// It prioritizes PFS type volumes, otherwise falls back to the first available volume's mount path.
-func getPFSPathFromWorkspace(ws *v1.Workspace) string {
-	result := ""
-	for _, vol := range ws.Spec.Volumes {
-		if vol.Type == v1.PFS {
-			result = vol.MountPath
-			break
-		}
-	}
-	// If no PFS volume, use the first available volume
-	if result == "" && len(ws.Spec.Volumes) > 0 {
-		result = ws.Spec.Volumes[0].MountPath
-	}
-	return result
-}
-
 // getWorkspace returns workspace info by ID
 func (r *ModelReconciler) getWorkspace(ctx context.Context, workspaceID string) (*WorkspaceInfo, error) {
 	ws := &v1.Workspace{}
@@ -649,7 +633,7 @@ func (r *ModelReconciler) getWorkspace(ctx context.Context, workspaceID string) 
 		return nil, err
 	}
 
-	pfsPath := getPFSPathFromWorkspace(ws)
+	pfsPath := commonworkspace.GetNfsPathFromWorkspace(ws)
 
 	return &WorkspaceInfo{
 		ID:      ws.Name,

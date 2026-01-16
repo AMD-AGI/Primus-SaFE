@@ -15,6 +15,12 @@ metadata:
   annotations:
     higress.io/destination: {{ .Release.Name }}-web.{{ .Release.Namespace }}.svc.cluster.local:80
     higress.io/ignore-path-case: "false"
+    higress.io/proxy-body-size: "0"
+    higress.io/proxy-read-timeout: "3600"
+    higress.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-body-size: "0"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
     meta.helm.sh/release-name: {{ .Release.Name }}
     meta.helm.sh/release-namespace: {{ .Release.Namespace }}
     higress.io/proxy-http-version: "1.1"

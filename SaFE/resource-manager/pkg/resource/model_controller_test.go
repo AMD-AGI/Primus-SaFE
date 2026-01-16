@@ -189,55 +189,6 @@ func TestExtractHFRepoId(t *testing.T) {
 	}
 }
 
-// TestGetPFSPathFromWorkspace tests the getPFSPathFromWorkspace function
-func TestGetPFSPathFromWorkspace(t *testing.T) {
-	tests := []struct {
-		name     string
-		volumes  []v1.WorkspaceVolume
-		expected string
-	}{
-		{
-			name: "Workspace with PFS volume",
-			volumes: []v1.WorkspaceVolume{
-				{Type: v1.PFS, MountPath: "/apps"},
-			},
-			expected: "/apps",
-		},
-		{
-			name: "Workspace with hostpath volume",
-			volumes: []v1.WorkspaceVolume{
-				{Type: v1.HOSTPATH, MountPath: "/data"},
-			},
-			expected: "/data",
-		},
-		{
-			name: "Workspace with PFS and hostpath volumes",
-			volumes: []v1.WorkspaceVolume{
-				{Type: v1.HOSTPATH, MountPath: "/data"},
-				{Type: v1.PFS, MountPath: "/apps"},
-			},
-			expected: "/apps",
-		},
-		{
-			name:     "Workspace with no volumes",
-			volumes:  []v1.WorkspaceVolume{},
-			expected: "",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ws := &v1.Workspace{
-				Spec: v1.WorkspaceSpec{
-					Volumes: tt.volumes,
-				},
-			}
-			result := getPFSPathFromWorkspace(ws)
-			assert.Equal(t, result, tt.expected)
-		})
-	}
-}
-
 // TestModelReconcile_RemoteAPIModel tests reconciliation of remote API models
 func TestModelReconcile_RemoteAPIModel(t *testing.T) {
 	model := genMockRemoteAPIModel("test-remote-model")
