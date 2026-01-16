@@ -89,7 +89,7 @@ def create_ops_job(endpoint: str, apikey: str, node_name: str, script_base64: st
         print(f"Error creating OpsJob: HTTP {e.code} - {error_body}", file=sys.stderr)
         sys.exit(1)
     except urllib.error.URLError as e:
-        print(f"Error connecting to server: {e.reason}", file=sys.stderr)
+        print(f"Error connecting to server: {e.reason}, url: {url}", file=sys.stderr)
         sys.exit(1)
 
 
