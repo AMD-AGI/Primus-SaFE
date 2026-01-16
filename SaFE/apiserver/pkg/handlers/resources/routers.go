@@ -112,11 +112,12 @@ func InitCustomRouters(e *gin.Engine, h *Handler) {
 		group.GET("addontemplates", h.ListAddonTemplate)
 		group.GET(fmt.Sprintf("addontemplates/:%s", common.Name), h.GetAddonTemplate)
 
-		// API Key management routes
 		group.POST("apikeys", h.CreateApiKey)
 		group.GET("apikeys", h.ListApiKey)
 		group.GET("apikeys/current", h.GetCurrentApiKey)
 		group.DELETE("apikeys/:id", h.DeleteApiKey)
+
+		group.GET("auditlogs", h.ListAuditLog)
 	}
 
 	// Custom API without authentication

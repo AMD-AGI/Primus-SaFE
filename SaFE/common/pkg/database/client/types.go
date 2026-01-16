@@ -324,3 +324,27 @@ func GetApiKeyFieldTags() map[string]string {
 	k := ApiKey{}
 	return getFieldTags(k)
 }
+
+type AuditLog struct {
+	Id             int64          `db:"id"`
+	UserId         string         `db:"user_id"`
+	UserName       sql.NullString `db:"user_name"`
+	UserType       sql.NullString `db:"user_type"`
+	ClientIP       sql.NullString `db:"client_ip"`
+	HttpMethod     string         `db:"http_method"`
+	RequestPath    string         `db:"request_path"`
+	ResourceType   sql.NullString `db:"resource_type"`
+	ResourceName   sql.NullString `db:"resource_name"`
+	RequestBody    sql.NullString `db:"request_body"`
+	ResponseStatus int            `db:"response_status"`
+	ResponseBody   sql.NullString `db:"response_body"`
+	LatencyMs      sql.NullInt64  `db:"latency_ms"`
+	TraceId        sql.NullString `db:"trace_id"`
+	CreateTime     pq.NullTime    `db:"create_time"`
+}
+
+// GetAuditLogFieldTags returns the AuditLogFieldTags value.
+func GetAuditLogFieldTags() map[string]string {
+	a := AuditLog{}
+	return getFieldTags(a)
+}

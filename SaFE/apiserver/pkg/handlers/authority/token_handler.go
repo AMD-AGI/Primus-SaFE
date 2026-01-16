@@ -52,6 +52,15 @@ func ParseToken(c *gin.Context) error {
 		// only for internal user
 		if userId != "" && !commonconfig.IsUserTokenRequired() {
 			c.Set(common.UserId, userId)
+			// Also set userName and userType from headers if provided (for internal testing)
+			if userName := c.GetHeader(common.UserName); userName != "" {
+				c.Set(common.UserName, userName)
+			}
+			if userType := c.GetHeader(common.UserType); userType != "" {
+				c.Set(common.UserType, userType)
+			} else {
+				c.Set(common.UserType, "internal")
+			}
 			return nil
 		}
 		return commonerrors.NewUnauthorized(err.Error())

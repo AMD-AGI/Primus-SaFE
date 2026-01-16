@@ -3253,3 +3253,47 @@ func (mr *MockModelInterfaceMockRecorder) UpsertModel(ctx, m interface{}) *gomoc
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertModel", reflect.TypeOf((*MockModelInterface)(nil).UpsertModel), ctx, m)
 }
+
+// InsertAuditLog mocks base method.
+func (m *MockInterface) InsertAuditLog(ctx context.Context, auditLog *client.AuditLog) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "InsertAuditLog", ctx, auditLog)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// InsertAuditLog indicates an expected call of InsertAuditLog.
+func (mr *MockInterfaceMockRecorder) InsertAuditLog(ctx, auditLog interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertAuditLog", reflect.TypeOf((*MockInterface)(nil).InsertAuditLog), ctx, auditLog)
+}
+
+// SelectAuditLogs mocks base method.
+func (m *MockInterface) SelectAuditLogs(ctx context.Context, query squirrel.Sqlizer, orderBy []string, limit, offset int) ([]*client.AuditLog, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SelectAuditLogs", ctx, query, orderBy, limit, offset)
+	ret0, _ := ret[0].([]*client.AuditLog)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SelectAuditLogs indicates an expected call of SelectAuditLogs.
+func (mr *MockInterfaceMockRecorder) SelectAuditLogs(ctx, query, orderBy, limit, offset interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SelectAuditLogs", reflect.TypeOf((*MockInterface)(nil).SelectAuditLogs), ctx, query, orderBy, limit, offset)
+}
+
+// CountAuditLogs mocks base method.
+func (m *MockInterface) CountAuditLogs(ctx context.Context, query squirrel.Sqlizer) (int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountAuditLogs", ctx, query)
+	ret0, _ := ret[0].(int)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountAuditLogs indicates an expected call of CountAuditLogs.
+func (mr *MockInterfaceMockRecorder) CountAuditLogs(ctx, query interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountAuditLogs", reflect.TypeOf((*MockInterface)(nil).CountAuditLogs), ctx, query)
+}
