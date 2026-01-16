@@ -174,8 +174,8 @@ def wait_for_completion(endpoint: str, apikey: str, job_id: str, timeout: int = 
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: python run_ops_job.py \"<script content>\"", file=sys.stderr)
-        print("Example: python run_ops_job.py \"ulimit -n 65535\"", file=sys.stderr)
+        print("Usage: python node_executor.py \"<script content>\"", file=sys.stderr)
+        print("Example: python node_executor.py \"ulimit -n 65535\"", file=sys.stderr)
         sys.exit(1)
     
     script_content = sys.argv[1]
