@@ -67,7 +67,7 @@ func TestConvertToAuditLogItem(t *testing.T) {
 				assert.Equal(t, int64(150), result.LatencyMs)
 				assert.Equal(t, "trace-abc-123", result.TraceId)
 				assert.NotEmpty(t, result.CreateTime)
-				assert.Equal(t, "create workload my-workload", result.Action)
+				assert.Equal(t, "create workload", result.Action) // POST doesn't include resource name in action
 			},
 		},
 		{

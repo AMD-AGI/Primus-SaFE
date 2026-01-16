@@ -211,8 +211,17 @@ func convertToAuditLogItem(record *dbclient.AuditLog) view.AuditLogItem {
 
 // generateActionDescription generates a human-readable action description
 // based on HTTP method and resource type.
-// Examples: "create apikey", "delete workspace my-ws", "update user john"
+// Examples: "create apikey", "delete workspace", "update user", "login", "logout"
 func generateActionDescription(method, resourceType, resourceName string) string {
+	// Special handling for login/logout - these are not CRUD operations
+	resourceLower := strings.ToLower(resourceType)
+	if resourceLower == "login" {
+		return "login"
+	}
+	if resourceLower == "logout" {
+		return "logout"
+	}
+
 	var action string
 	switch method {
 	case "POST":
@@ -233,7 +242,9 @@ func generateActionDescription(method, resourceType, resourceName string) string
 		resource = singularize(resource)
 	}
 
-	if resource != "" && resourceName != "" {
+	// For DELETE operations, include the resource name if available
+	// For other operations, just use the resource type
+	if method == "DELETE" && resource != "" && resourceName != "" {
 		return action + " " + resource + " " + resourceName
 	} else if resource != "" {
 		return action + " " + resource

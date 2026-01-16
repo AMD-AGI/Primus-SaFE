@@ -9,7 +9,6 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
-	"encoding/json"
 	"io"
 	"regexp"
 	"strings"
@@ -202,11 +201,6 @@ func AuditLog() gin.HandlerFunc {
 
 		resourceType, resourceName := extractResourceInfo(c.Request.URL.Path)
 
-		// For POST requests, try to extract resource name from request body
-		if method == "POST" && resourceName == "" && requestBody != "" {
-			resourceName = extractNameFromBody(requestBody)
-		}
-
 		userId, _ := c.Get(common.UserId)
 		userName, _ := c.Get(common.UserName)
 		userType, _ := c.Get(common.UserType)
@@ -302,18 +296,6 @@ func isOperationKeyword(s string) bool {
 		"logs": true, "export": true, "verify": true, "status": true,
 	}
 	return operations[strings.ToLower(s)]
-}
-
-// extractNameFromBody extracts the "name" field from a JSON request body
-func extractNameFromBody(body string) string {
-	var data map[string]interface{}
-	if err := json.Unmarshal([]byte(body), &data); err != nil {
-		return ""
-	}
-	if name, ok := data["name"].(string); ok {
-		return name
-	}
-	return ""
 }
 
 // sanitizeBody removes sensitive information from request body
