@@ -17,6 +17,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -668,19 +669,26 @@ func genDefaultOpsJob(req *view.BaseOpsJobRequest, requestUser *v1.User) *v1.Ops
 // are filtered out. The function ensures that ops jobs are ultimately executed on a per-node basis.
 func (h *Handler) generateOpsJobNodesInput(ctx context.Context, job *v1.OpsJob) error {
 	excludedNodesSet := sets.NewSetByKeys(job.Spec.ExcludedNodes...)
-	if workloadParam := job.GetParameter(v1.ParameterNode); workloadParam != nil {
-		allNodes := job.GetParameters(v1.ParameterNode)
-		newInputs := make([]v1.Parameter, 0, len(allNodes))
-		for i, n := range allNodes {
+	if nodeParams := job.GetParameters(v1.ParameterNode); len(nodeParams) > 0 {
+		for i, n := range nodeParams {
 			if excludedNodesSet.Has(n.Value) {
+				// if set empty, it will be ignored by webhook
+				nodeParams[i].Value = ""
+			}
+		}
+	} else if nodeHostParams := job.GetParameters(v1.ParameterNodeHost); len(nodeHostParams) > 0 {
+		for _, n := range nodeHostParams {
+			labelSelector := labels.SelectorFromSet(map[string]string{v1.NodeHostnameLabel: n.Value})
+			nodeList, err := h.getAdminNodes(ctx, labelSelector)
+			if err != nil {
+				return err
+			}
+			if len(nodeList) == 0 || excludedNodesSet.Has(nodeList[0].Name) {
 				continue
 			}
-			newInputs = append(newInputs, *allNodes[i])
+			job.Spec.Inputs = append(job.Spec.Inputs, v1.Parameter{Name: v1.ParameterNode, Value: nodeList[0].Name})
 		}
-		if len(newInputs) != len(allNodes) {
-			job.Spec.Inputs = newInputs
-		}
-	} else if workloadParam = job.GetParameter(v1.ParameterWorkload); workloadParam != nil {
+	} else if workloadParam := job.GetParameter(v1.ParameterWorkload); workloadParam != nil {
 		nodes, workspaceId, err := h.getNodesOfWorkload(ctx, workloadParam.Value)
 		if err != nil {
 			return err

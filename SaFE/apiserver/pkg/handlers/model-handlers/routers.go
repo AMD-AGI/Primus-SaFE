@@ -6,17 +6,17 @@
 package model_handlers
 
 import (
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/middleware"
 	"github.com/gin-gonic/gin"
 
-	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/middle"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 )
 
-// InitInferenceRouters initializes and registers all model and playground API routes with the Gin engine.
+// InitInferenceRouters initializes and registers all model, playground, and dataset API routes with the Gin engine.
 // It sets up authenticated routes requiring authorization and preprocessing.
 func InitInferenceRouters(e *gin.Engine, h *Handler) {
 	// Model and Playground API requires authentication and preprocessing.
-	group := e.Group(common.PrimusRouterCustomRootPath, middle.Authorize(), middle.Preprocess())
+	group := e.Group(common.PrimusRouterCustomRootPath, middleware.Authorize(), middleware.Preprocess())
 	{
 		// Playground routes
 		group.POST("playground/chat", h.Chat)                              // Chat with model or workload
@@ -36,5 +36,15 @@ func InitInferenceRouters(e *gin.Engine, h *Handler) {
 		group.GET("playground/models/:id/workloads", h.GetModelWorkloads)       // List workloads associated with model
 		group.GET("playground/models/:id/workload-config", h.GetWorkloadConfig) // Get workload config for deployment
 		group.GET("playground/models/:id/chat-url", h.GetChatURL)               // Get chat URL for remote_api model
+
+		// Dataset routes (only registered if S3 is enabled)
+		if h.IsDatasetEnabled() {
+			group.GET("datasets/types", h.ListDatasetTypes)          // List all dataset types with schemas
+			group.POST("datasets", h.CreateDataset)                  // Create dataset with file upload and download to workspace
+			group.GET("datasets", h.ListDatasets)                    // List datasets with filtering
+			group.GET("datasets/:id", h.GetDataset)                  // Get dataset details (includes file list)
+			group.DELETE("datasets/:id", h.DeleteDataset)            // Delete dataset
+			group.GET("datasets/:id/files/*path", h.GetDatasetFile)  // Get or preview a specific file (use ?preview=true for content)
+		}
 	}
 }

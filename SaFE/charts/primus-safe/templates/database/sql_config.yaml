@@ -420,7 +420,7 @@ data:
 
     alter table api_keys owner to "primus-safe";
 
-    CREATE TABLE IF NOT EXISTS audit_logs (
+CREATE TABLE IF NOT EXISTS audit_logs (
         id BIGSERIAL PRIMARY KEY,
         user_id VARCHAR(64) NOT NULL,
         user_name VARCHAR(256),
@@ -444,3 +444,36 @@ data:
     CREATE INDEX IF NOT EXISTS idx_audit_logs_http_method ON audit_logs(http_method);
 
     alter table audit_logs owner to "primus-safe";
+
+    -- Dataset table for managing datasets
+    -- All columns are defined in CREATE TABLE for new installations
+    -- ALTER TABLE statements are kept for backward compatibility with existing installations
+    create table if not exists dataset
+    (
+        id BIGSERIAL PRIMARY KEY,
+        dataset_id VARCHAR(64) NOT NULL,
+        display_name VARCHAR(128) NOT NULL,
+        description TEXT,
+        dataset_type VARCHAR(32) NOT NULL,
+        status VARCHAR(32) NOT NULL DEFAULT 'Pending',
+        s3_path VARCHAR(512) NOT NULL,
+        total_size BIGINT DEFAULT 0,
+        file_count INT DEFAULT 0,
+        message TEXT,
+        local_paths JSONB DEFAULT '[]',                 -- Per-workspace download status
+        workspace VARCHAR(64) DEFAULT '',               -- Workspace ID for access control, empty means public
+        user_id VARCHAR(64) NOT NULL,
+        user_name VARCHAR(128),
+        creation_time TIMESTAMPTZ DEFAULT NOW(),
+        update_time TIMESTAMPTZ,
+        deletion_time TIMESTAMPTZ,
+        is_deleted BOOLEAN DEFAULT FALSE
+    );
+
+    create unique index if not exists T_DATASET_ID_INDEX on dataset (dataset_id);
+    create index if not exists T_DATASET_USER_ID_INDEX on dataset (user_id);
+    create index if not exists T_DATASET_TYPE_INDEX on dataset (dataset_type);
+    create index if not exists T_DATASET_IS_DELETED_INDEX on dataset (is_deleted);
+    create index if not exists T_DATASET_WORKSPACE_INDEX on dataset (workspace);
+
+    alter table dataset owner to "primus-safe";
