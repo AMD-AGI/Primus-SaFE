@@ -5,7 +5,11 @@
 
 package model_handlers
 
-import "time"
+import (
+	"time"
+
+	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
+)
 
 // --- Dataset Request/Response Types ---
 
@@ -26,10 +30,10 @@ type DatasetDownloadJobInfo struct {
 
 // DatasetLocalPathInfo represents the download status of a dataset in a specific workspace
 type DatasetLocalPathInfo struct {
-	Workspace string `json:"workspace"`
-	Path      string `json:"path,omitempty"`
-	Status    string `json:"status"`
-	Message   string `json:"message,omitempty"`
+	Workspace string                 `json:"workspace"`
+	Path      string                 `json:"path,omitempty"`
+	Status    dbclient.DatasetStatus `json:"status"`
+	Message   string                 `json:"message,omitempty"`
 }
 
 // DatasetResponse represents the response body for a dataset
@@ -38,7 +42,7 @@ type DatasetResponse struct {
 	DisplayName   string                   `json:"displayName"`
 	Description   string                   `json:"description"`
 	DatasetType   string                   `json:"datasetType"`
-	Status        string                   `json:"status"`                  // Pending/Downloading/Ready/Failed
+	Status        dbclient.DatasetStatus   `json:"status"`                  // Pending/Downloading/Ready/Failed
 	StatusMessage string                   `json:"statusMessage,omitempty"` // e.g., "2/3 workspaces completed"
 	S3Path        string                   `json:"s3Path"`
 	TotalSize     int64                    `json:"totalSize"`

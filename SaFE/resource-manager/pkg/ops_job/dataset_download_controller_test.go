@@ -19,7 +19,7 @@ func TestMapOpsJobPhaseToDatasetStatus(t *testing.T) {
 	tests := []struct {
 		name     string
 		phase    v1.OpsJobPhase
-		expected string
+		expected dbclient.DatasetStatus
 	}{
 		{
 			name:     "pending phase",

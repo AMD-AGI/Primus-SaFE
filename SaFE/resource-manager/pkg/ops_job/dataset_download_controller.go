@@ -157,7 +157,7 @@ func (r *DatasetDownloadController) Reconcile(ctx context.Context, req ctrlrunti
 }
 
 // mapOpsJobPhaseToDatasetStatus converts OpsJob phase to dataset status.
-func mapOpsJobPhaseToDatasetStatus(phase v1.OpsJobPhase) string {
+func mapOpsJobPhaseToDatasetStatus(phase v1.OpsJobPhase) dbclient.DatasetStatus {
 	switch phase {
 	case v1.OpsJobPending:
 		return dbclient.DatasetStatusPending

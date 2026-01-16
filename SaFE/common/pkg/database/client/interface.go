@@ -197,8 +197,8 @@ type DatasetInterface interface {
 	GetDataset(ctx context.Context, datasetId string) (*Dataset, error)
 	CountDatasets(ctx context.Context, query sqrl.Sqlizer) (int, error)
 	SetDatasetDeleted(ctx context.Context, datasetId string) error
-	UpdateDatasetStatus(ctx context.Context, datasetId, status, message string) error
+	UpdateDatasetStatus(ctx context.Context, datasetId string, status DatasetStatus, message string) error
 	UpdateDatasetFileInfo(ctx context.Context, datasetId string, totalSize int64, fileCount int) error
-	UpdateDatasetLocalPath(ctx context.Context, datasetId, workspace, status, message string) error
+	UpdateDatasetLocalPath(ctx context.Context, datasetId, workspace string, status DatasetStatus, message string) error
 	CheckDatasetNameExists(ctx context.Context, displayName string) (bool, error)
 }

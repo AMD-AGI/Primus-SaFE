@@ -39,43 +39,16 @@ var (
 		WHERE dataset_id = :dataset_id`, TDataset)
 )
 
-// DatasetStatus represents a dataset status with its metadata
-type DatasetStatus struct {
-	Name        string // Status identifier
-	Description string // Human readable description
-}
+// DatasetStatus is the type for dataset status
+type DatasetStatus string
 
-// Dataset statuses registry
-var DatasetStatuses = map[string]DatasetStatus{
-	"Pending": {
-		Name:        "Pending",
-		Description: "Upload completed, waiting for download to workspace",
-	},
-	"Uploading": {
-		Name:        "Uploading",
-		Description: "File upload in progress to S3",
-	},
-	"Downloading": {
-		Name:        "Downloading",
-		Description: "Download in progress to workspace PFS",
-	},
-	"Ready": {
-		Name:        "Ready",
-		Description: "Download completed successfully",
-	},
-	"Failed": {
-		Name:        "Failed",
-		Description: "Upload or download failed",
-	},
-}
-
-// Dataset status constants for backward compatibility
+// Dataset status constants
 const (
-	DatasetStatusUploading   = "Uploading"   // File upload in progress to S3
-	DatasetStatusPending     = "Pending"     // Upload completed, waiting for download to workspace
-	DatasetStatusDownloading = "Downloading" // Download in progress
-	DatasetStatusReady       = "Ready"       // Download completed successfully
-	DatasetStatusFailed      = "Failed"      // Upload or download failed
+	DatasetStatusUploading   DatasetStatus = "Uploading"
+	DatasetStatusPending     DatasetStatus = "Pending"
+	DatasetStatusDownloading DatasetStatus = "Downloading"
+	DatasetStatusReady       DatasetStatus = "Ready"
+	DatasetStatusFailed      DatasetStatus = "Failed"
 )
 
 // Dataset label for OpsJob
@@ -219,7 +192,7 @@ func (c *Client) SetDatasetDeleted(ctx context.Context, datasetId string) error 
 }
 
 // UpdateDatasetStatus updates the status of a dataset.
-func (c *Client) UpdateDatasetStatus(ctx context.Context, datasetId, status, message string) error {
+func (c *Client) UpdateDatasetStatus(ctx context.Context, datasetId string, status DatasetStatus, message string) error {
 	db, err := c.getDB()
 	if err != nil {
 		return err
@@ -251,7 +224,7 @@ func (c *Client) UpdateDatasetFileInfo(ctx context.Context, datasetId string, to
 // UpdateDatasetLocalPath updates a specific workspace's download status in local_paths.
 // It also recalculates the overall status based on all workspaces.
 // Logic: Any Ready -> Ready, Any Downloading -> Downloading, All Failed -> Failed
-func (c *Client) UpdateDatasetLocalPath(ctx context.Context, datasetId, workspace, status, message string) error {
+func (c *Client) UpdateDatasetLocalPath(ctx context.Context, datasetId, workspace string, status DatasetStatus, message string) error {
 	db, err := c.getDB()
 	if err != nil {
 		return err
@@ -320,7 +293,7 @@ func (c *Client) UpdateDatasetLocalPath(ctx context.Context, datasetId, workspac
 
 // calculateOverallStatus calculates the overall status from all workspace statuses.
 // Logic: Any Ready -> Ready, Any Downloading -> Downloading, All Failed -> Failed
-func calculateOverallStatus(localPaths []DatasetLocalPathDB) string {
+func calculateOverallStatus(localPaths []DatasetLocalPathDB) DatasetStatus {
 	if len(localPaths) == 0 {
 		return DatasetStatusPending
 	}

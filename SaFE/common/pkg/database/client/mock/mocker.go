@@ -3328,7 +3328,7 @@ func (mr *MockInterfaceMockRecorder) UpdateDatasetFileInfo(ctx, datasetId, total
 }
 
 // UpdateDatasetStatus mocks base method.
-func (m *MockInterface) UpdateDatasetStatus(ctx context.Context, datasetId, status, message string) error {
+func (m *MockInterface) UpdateDatasetStatus(ctx context.Context, datasetId string, status client.DatasetStatus, message string) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "UpdateDatasetStatus", ctx, datasetId, status, message)
 	ret0, _ := ret[0].(error)
@@ -3342,7 +3342,7 @@ func (mr *MockInterfaceMockRecorder) UpdateDatasetStatus(ctx, datasetId, status,
 }
 
 // UpdateDatasetLocalPath mocks base method.
-func (m *MockInterface) UpdateDatasetLocalPath(ctx context.Context, datasetId, workspace, status, message string) error {
+func (m *MockInterface) UpdateDatasetLocalPath(ctx context.Context, datasetId, workspace string, status client.DatasetStatus, message string) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "UpdateDatasetLocalPath", ctx, datasetId, workspace, status, message)
 	ret0, _ := ret[0].(error)
