@@ -6,14 +6,14 @@
 package cdhandlers
 
 import (
-	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/middle"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/middleware"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	"github.com/gin-gonic/gin"
 )
 
 // InitCDRouters initializes routes
 func InitCDRouters(e *gin.Engine, h *Handler) {
-	group := e.Group(common.PrimusRouterCustomRootPath+"/cd", middle.Authorize(), middle.Preprocess())
+	group := e.Group(common.PrimusRouterCustomRootPath+"/cd", middleware.Authorize(), middleware.Preprocess())
 	{
 		group.POST("/deployments", h.CreateDeploymentRequest)
 		group.GET("/deployments", h.ListDeploymentRequests)

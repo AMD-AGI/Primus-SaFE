@@ -69,6 +69,8 @@ data:
                       value: "3"
                     - name: MAIN_CONTAINER_NAME
                       value: "pytorch"
+                    - name: APISERVER_NODE_PORT
+                      value: "{{ .Values.apiserver.node_port }}"
                     - name: POD_NAME
                       valueFrom:
                         fieldRef:
@@ -85,6 +87,10 @@ data:
                       valueFrom:
                         fieldRef:
                           fieldPath: metadata.namespace
+                    - name: NODE_NAME
+                      valueFrom:
+                        fieldRef:
+                          fieldPath: spec.nodeName
                   securityContext:
                     capabilities:
                       add: [ "IPC_LOCK", "SYS_PTRACE", "SYS_RESOURCE"]

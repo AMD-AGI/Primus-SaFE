@@ -483,31 +483,9 @@ func Test_generateCICDScaleRunnerSet(t *testing.T) {
 	user := genMockUser()
 	role := genMockRole()
 
-	// Create control plane node
-	controlPlaneNode := &corev1.Node{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "control-plane-node",
-			Labels: map[string]string{
-				"node-role.kubernetes.io/control-plane": "",
-			},
-		},
-		Status: corev1.NodeStatus{
-			Addresses: []corev1.NodeAddress{
-				{
-					Type:    corev1.NodeInternalIP,
-					Address: "192.168.1.100",
-				},
-			},
-		},
-	}
-
-	testScheme := runtime.NewScheme()
-	utilruntime.Must(clientgoscheme.AddToScheme(testScheme))
-	utilruntime.Must(scheme.AddToScheme(testScheme))
-
 	fakeCtrlClient := ctrlruntimefake.NewClientBuilder().
-		WithObjects(workload, user, role, controlPlaneNode).
-		WithScheme(testScheme).
+		WithObjects(workload, user, role).
+		WithScheme(scheme.Scheme).
 		Build()
 
 	fakeClientSet := k8sfake.NewSimpleClientset()
@@ -528,10 +506,6 @@ func Test_generateCICDScaleRunnerSet(t *testing.T) {
 	_, exists := workload.Spec.Env[GithubPAT]
 	assert.Assert(t, !exists, "GithubPAT should be removed from Spec.Env")
 	assert.Equal(t, workload.Spec.Env["OTHER_VAR"], "other_value", "Other env vars should remain")
-
-	// Verify control plane IP annotation was set
-	controlPlaneIp := v1.GetAnnotation(workload, v1.AdminControlPlaneAnnotation)
-	assert.Equal(t, controlPlaneIp, "192.168.1.100", "Control plane IP should be set")
 
 	// Verify secret annotation was set
 	secretId := v1.GetGithubSecretId(workload)

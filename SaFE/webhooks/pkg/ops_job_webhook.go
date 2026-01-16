@@ -175,6 +175,9 @@ func (m *OpsJobMutator) removeDuplicates(job *v1.OpsJob) {
 		if ok && val == in.Value {
 			continue
 		}
+		if in.Name == v1.ParameterNode && in.Value == "" {
+			continue
+		}
 		uniqInputs = append(uniqInputs, job.Spec.Inputs[i])
 		uniqMap[in.Name] = in.Value
 	}
@@ -283,9 +286,6 @@ func (v *OpsJobValidator) validateOnCreation(ctx context.Context, job *v1.OpsJob
 	if err := v.validateRequiredParams(ctx, job); err != nil {
 		return err
 	}
-	if err := v.validateNodes(ctx, job); err != nil {
-		return err
-	}
 	var err error
 	switch job.Spec.Type {
 	case v1.OpsJobAddonType:
@@ -368,6 +368,10 @@ func (v *OpsJobValidator) validatePreflight(ctx context.Context, job *v1.OpsJob)
 	if err != nil {
 		return err
 	}
+	if err = v.validateNodes(ctx, job); err != nil {
+		return err
+	}
+
 	if job.Spec.Resource == nil {
 		return fmt.Errorf("the resource of job is empty")
 	}
@@ -411,23 +415,30 @@ func (v *OpsJobValidator) validateAddon(ctx context.Context, job *v1.OpsJob) err
 	}
 	hasFound := false
 	for _, p := range job.Spec.Inputs {
-		if p.Name != v1.ParameterAddonTemplate {
-			continue
+		switch p.Name {
+		case v1.ParameterScript:
+			if p.Value == "" {
+				return commonerrors.NewBadRequest("The script parameter cannot be empty.")
+			} else if !stringutil.IsBase64(p.Value) {
+				return commonerrors.NewBadRequest("The script must be base64-encoded.")
+			}
+			hasFound = true
+		case v1.ParameterAddonTemplate:
+			addonTemplate := &v1.AddonTemplate{}
+			err = v.Get(ctx, client.ObjectKey{Name: p.Value}, addonTemplate)
+			if err != nil {
+				return err
+			}
+			if addonTemplate.Spec.Type == v1.AddonTemplateHelm {
+				return commonerrors.NewBadRequest("The addon job does not support Helm installation.")
+			}
+			hasFound = true
 		}
-		addonTemplate := &v1.AddonTemplate{}
-		err = v.Get(ctx, client.ObjectKey{Name: p.Value}, addonTemplate)
-		if err != nil {
-			return err
-		}
-		if addonTemplate.Spec.Type == v1.AddonTemplateHelm {
-			return commonerrors.NewBadRequest("The addon job does not support Helm installation.")
-		}
-		hasFound = true
 	}
 	if !hasFound {
 		return commonerrors.NewBadRequest(
-			fmt.Sprintf("either %s or %s must be specified in the job.",
-				v1.ParameterAddonTemplate, v1.ParameterNodeTemplate))
+			fmt.Sprintf("either %s or %s or %s must be specified in the job.",
+				v1.ParameterAddonTemplate, v1.ParameterNodeTemplate, v1.ParameterScript))
 	}
 	return nil
 }
@@ -524,9 +535,6 @@ func (v *OpsJobValidator) listRelatedRunningJobs(ctx context.Context, cluster st
 // If a job specifies a workspace, it will also check whether the node belongs to that workspace.
 // Additionally, both cluster and node flavor must not be empty.
 func (v *OpsJobValidator) validateNodes(ctx context.Context, job *v1.OpsJob) error {
-	if job.Spec.Type != v1.OpsJobPreflightType {
-		return nil
-	}
 	nodeParams := job.GetParameters(v1.ParameterNode)
 	clusterId := ""
 	nodeFlavor := ""

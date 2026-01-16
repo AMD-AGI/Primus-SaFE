@@ -36,8 +36,8 @@ data:
       # Whether to enable ssh, Users can log in directly to their own pods.
       enable: {{ .Values.ssh.enable }}
     ops_job:
-      # The lifecycle of the opsjob after completion, in seconds. Default is 300.
-      ttl_second: {{ default 300 (default .Values.ops_job).ttl_second }}
+      # The lifecycle of the opsjob after completion, in seconds. Default is 60.
+      ttl_second: {{ default 60 (default .Values.ops_job).ttl_second }}
       # The timeout of the opsjob, in seconds. Default is 3600.
       timeout_second: {{ default 3600 (default .Values.ops_job).timeout_second }}
 kind: ConfigMap

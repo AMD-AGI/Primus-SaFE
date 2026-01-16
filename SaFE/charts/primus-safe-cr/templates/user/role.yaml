@@ -136,6 +136,7 @@ rules:
     - workload/high-priority
     - workload/med-priority
     - workload/low-priority
+    - workload/privileged
   grantedUsers:
     - workspace-user
   verbs:

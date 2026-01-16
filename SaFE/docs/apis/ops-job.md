@@ -136,35 +136,75 @@ OpsJob(operations job) performs specific administrative tasks in the system. Com
 - Both `image` and `workspace` parameters are required.
 - You can check prewarm job status via `GET /api/v1/images/prewarm` endpoint.
 
+**Request Example (addon-template)**:
+```json
+{
+  "inputs": [{	    
+    "name": "node",
+    "value": "node-001"
+  }, { 
+    "name": "node",
+    "value": "node-002"
+  }, {
+    "name": "addon.template",
+    "value": "sysctl-inotify"
+  }],
+  "name": "sysctl-inotify",	  
+  "type": "addon",	  
+  "batchCount": 2,	  
+  "availableRatio": 1.0,	  
+  "securityUpgrade": false,	  
+  "timeoutSecond": 1800
+}
+```
+
+**Request Example (addon-script)**:
+```json
+{
+  "inputs": [{	    
+    "name": "node",
+    "value": "node-001"
+  }, {	    
+    "name": "script",
+    "value": "dWxpbWl0IC1uIDY1NTM1Cg=="
+  }], 
+  "name": "ulimit",	  
+  "type": "addon",	  
+  "securityUpgrade": false,	  
+  "timeoutSecond": 1800
+}
+```
+
 **Request Parameters**:
 
-| Parameter               | Type     | Required | Description                                                                                               |
-|-------------------------|----------|----------|-----------------------------------------------------------------------------------------------------------|
-| name                    | string   | Yes | Used to generate ops job ID; normalized with random suffix                                                |
-| type                    | string   | Yes | Ops job type: addon/preflight/dumplog/reboot/exportimage/prewarm/download                                 |
-| inputs[].name           | string   | Yes | Target selector; allowed: node, addon.template, workload, workspace, cluster, node.template, image        |
-| inputs[].value          | string   | Yes | Value for the selector (e.g. nodeId, workloadId, workspaceId, clusterId)                                  |
-| timeoutSecond           | int      | No | Timeout seconds; ≤0 means no timeout                                                                      |
-| ttlSecondsAfterFinished | int      | No | Job TTL after completion                                                                                  |
-| excludedNodes           | []string | No | Nodes to exclude from execution                                                                           |
-| isTolerateAll           | bool     | No | Whether to tolerate node taints                                                                           |
-| resource                | object   | Conditionally | Only for preflight; container resources, e.g. {cpu, gpu, memory, ephemeralStorage, sharedMemory, replica} |
-| image                   | string   | Conditionally | Only for preflight; container image                                                                       |
-| entryPoint              | string   | Conditionally | Only for preflight; startup command (Base64)                                                              |
-| env                     | object   | Conditionally | Only for preflight; environment variables key-value                                                       |
-| hostpath                | []string | Conditionally | Only for preflight; host paths to mount                                                                   |
-| batchCount              | int      | Conditionally | Only for addon; parallel nodes per batch (default 1)                                                      |
-| availableRatio          | float    | Conditionally | Only for addon; success ratio threshold (default 1.0)                                                     |
-| securityUpgrade         | bool     | Conditionally | Only for addon; wait until node idle(no workloads) before upgrade                                         |
-| workspaceId             | string   | Conditionally | Only for preflight; The workspace which the job belongs to, Non-admin users must specify a workspace.                                              |
+| Parameter               | Type     | Required | Description                                                                                                                             |
+|-------------------------|----------|----------|-----------------------------------------------------------------------------------------------------------------------------------------|
+| name                    | string   | Yes | Used to generate ops job ID; normalized with random suffix                                                                              |
+| type                    | string   | Yes | Ops job type: addon/preflight/dumplog/reboot/exportimage/prewarm/download                                                               |
+| inputs[].name           | string   | Yes | Target selector; allowed: node, addon.template, workload, workspace, cluster, node.template, node.host, image, script, secret, endpoint |
+| inputs[].value          | string   | Yes | Value for the selector (e.g. nodeId, workloadId, workspaceId, clusterId)                                                                |
+| timeoutSecond           | int      | No | Timeout seconds; ≤0 means no timeout                                                                                                    |
+| ttlSecondsAfterFinished | int      | No | Job TTL after completion                                                                                                                |
+| excludedNodes           | []string | No | Nodes to exclude from execution                                                                                                         |
+| isTolerateAll           | bool     | No | Whether to tolerate node taints                                                                                                         |
+| resource                | object   | Conditionally | Only for preflight; container resources, e.g. {cpu, gpu, memory, ephemeralStorage, sharedMemory, replica}                               |
+| image                   | string   | Conditionally | Only for preflight; container image                                                                                                     |
+| entryPoint              | string   | Conditionally | Only for preflight; startup command (Base64)                                                                                            |
+| env                     | object   | Conditionally | Only for preflight; environment variables key-value                                                                                     |
+| hostpath                | []string | Conditionally | Only for preflight; host paths to mount                                                                                                 |
+| batchCount              | int      | Conditionally | Only for addon; parallel nodes per batch (default 1)                                                                                    |
+| availableRatio          | float    | Conditionally | Only for addon; success ratio threshold (default 1.0)                                                                                   |
+| securityUpgrade         | bool     | Conditionally | Only for addon; wait until node idle(no workloads) before upgrade                                                                       |
+| workspaceId             | string   | Conditionally | Only for preflight; The workspace which the job belongs to, Non-admin users must specify a workspace.                                   |
 
 Notes:
-- At least one scope selector must be provided via inputs: node/workload/workspace/cluster.
+- At least one scope selector must be provided via inputs: node/node.host/workload/workspace/cluster. only one takes effect, with priority following this order.
 - For dumplog, inputs must include a workload selector.
-- For addon, typically include `addon.template` and one of node/workload/workspace/cluster.
+- For addon, typically include `addon.template` or `node.template` or `script` and one of node/workload/workspace/cluster.
 - For preflight, inputs must include one of node/workload/workspace/cluster.
 - For exportimage, inputs must include a workload selector. The job will export the workload's image to Harbor registry.
 - For preheat, inputs must include both `image` and `workspace`. The job will pre-pull the image to all nodes in the workspace.
+- For download, inputs must include both `secret`(for s3), `workspace`, `dest.path`(download path) and `endpoint`(input url).
 
 **Response**: `{ "jobId": "opsjob-abc123" }`
 
@@ -190,7 +230,7 @@ Notes:
 | workspaceId | string | No | Filter by workspace ID, This parameter only works if a workspace was set when creating. |
 | userName    | string | No | Filter by submitter username (fuzzy match)                                              |
 | phase       | string | No | Filter by job status: Succeeded/Failed/Running/Pending                                  |
-| type        | string | No | Filter by job type: addon/dumplog/preflight/reboot/exportimage/prewarm                  |
+| type        | string | No | Filter by job type: addon/preflight/dumplog/reboot/exportimage/prewarm/download                  |
 | jobName     | string | No | Filter by job name (fuzzy match)                       |
 
 
@@ -229,7 +269,7 @@ Notes:
 | workspaceId | string | The workspace which the job belongs to              |
 | userId | string | User ID of job submitter                            |
 | userName | string | Username of job submitter                           |
-| type | string | Job type: addon/dumplog/preflight/reboot/exportimage/prewarm |
+| type | string | Job type: addon/preflight/dumplog/reboot/exportimage/prewarm/download |
 | phase | string | Job status: Succeeded/Failed/Running/Pending        |
 | creationTime | string | Creation time (RFC3339)                             |
 | startTime | string | Start time (RFC3339), empty if not started          |

@@ -6,9 +6,9 @@
 package model_handlers
 
 import (
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/middleware"
 	"github.com/gin-gonic/gin"
 
-	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/middle"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 )
 
@@ -16,7 +16,7 @@ import (
 // It sets up authenticated routes requiring authorization and preprocessing.
 func InitInferenceRouters(e *gin.Engine, h *Handler) {
 	// Model and Playground API requires authentication and preprocessing.
-	group := e.Group(common.PrimusRouterCustomRootPath, middle.Authorize(), middle.Preprocess())
+	group := e.Group(common.PrimusRouterCustomRootPath, middleware.Authorize(), middleware.Preprocess())
 	{
 		// Playground routes
 		group.POST("playground/chat", h.Chat)                              // Chat with model or workload
