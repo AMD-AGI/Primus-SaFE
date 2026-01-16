@@ -1257,11 +1257,30 @@ func Test_createWorkload_NormalWorkload(t *testing.T) {
 
 	user := genMockUser()
 	role := genMockRole()
+	controlPlaneNode := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "control-plane-node-1",
+			Labels: map[string]string{
+				common.KubernetesControlPlane: "",
+			},
+		},
+		Status: corev1.NodeStatus{
+			Addresses: []corev1.NodeAddress{
+				{
+					Type:    corev1.NodeInternalIP,
+					Address: "192.168.1.100",
+				},
+			},
+		},
+	}
+	mockScheme := scheme.Scheme
+	_ = corev1.AddToScheme(mockScheme)
+	_ = v1.AddToScheme(mockScheme)
 
 	fakeCtrlClient := ctrlruntimefake.NewClientBuilder().
-		WithObjects(user, role).
-		WithScheme(scheme.Scheme).
-		WithStatusSubresource(&v1.Workload{}).
+		WithObjects(user, role, controlPlaneNode).
+		WithScheme(mockScheme).
+		WithStatusSubresource(&v1.Workload{}, controlPlaneNode).
 		Build()
 
 	fakeClientSet := k8sfake.NewSimpleClientset()
@@ -1279,7 +1298,6 @@ func Test_createWorkload_NormalWorkload(t *testing.T) {
 		"image": "pytorch/pytorch:latest",
 		"entryPoint": "python train.py",
 		"groupVersionKind": {
-			"group": "kubeflow.org",
 			"version": "v1",
 			"kind": "PyTorchJob"
 		},
