@@ -183,7 +183,7 @@ func (h *Handler) createWorkloadImpl(c *gin.Context,
 			"workspace", workload.Spec.Workspace, "user", c.GetString(common.UserName))
 		return nil, err
 	}
-	priorityKind := fmt.Sprintf("workload/%s", commonworkload.GeneratePriority(workload.Spec.Priority))
+	priorityKind := generatePriority(workload.Spec.Priority)
 	if err = h.authWorkloadAction(c, workload, v1.CreateVerb, priorityKind, requestUser, roles); err != nil {
 		klog.ErrorS(err, "failed to auth workload priority", "workload", workload.Name,
 			"priority", workload.Spec.Priority, "user", c.GetString(common.UserName))
@@ -485,7 +485,7 @@ func (h *Handler) patchWorkload(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 	if req.Priority != nil {
-		priorityKind := fmt.Sprintf("workload/%s", commonworkload.GeneratePriority(*req.Priority))
+		priorityKind := generatePriority(*req.Priority)
 		if err = h.authWorkloadAction(c, adminWorkload, v1.UpdateVerb, priorityKind, requestUser, roles); err != nil {
 			return nil, err
 		}
@@ -1502,4 +1502,8 @@ func cvtToWorkloadResources(dbItem *dbclient.Workload, kind string) []v1.Workloa
 		return commonworkload.ConvertResourceToList(resource, kind)
 	}
 	return nil
+}
+
+func generatePriority(priority int) string {
+	return fmt.Sprintf("workload/%s", commonworkload.GeneratePriority(priority))
 }
