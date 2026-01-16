@@ -69,6 +69,8 @@ data:
     s3:
       # Whether to enable s3, it is used to download logs
       enable: {{ .Values.s3.enable }}
+      # The path of s3 secret
+      secret_path: {{ .Values.s3.secret_path }}
     user:
       # Users can log in to the system without a token, intended for internal customers
       token_required: {{ .Values.user.token_required }}
