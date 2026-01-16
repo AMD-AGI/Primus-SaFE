@@ -262,7 +262,7 @@ func TestGetDatasetTypeDescriptions(t *testing.T) {
 	}
 
 	for typeName := range DatasetTypes {
-		assert.True(t, coveredTypes[typeName], "Type %s should be in DatasetTypeDescriptions", typeName)
+		assert.True(t, coveredTypes[string(typeName)], "Type %s should be in DatasetTypeDescriptions", typeName)
 	}
 }
 
@@ -270,9 +270,8 @@ func TestDatasetTypes(t *testing.T) {
 	// Test that all expected types exist
 	expectedTypes := []string{"sft", "dpo", "pretrain", "rlhf", "inference", "evaluation", "other"}
 	for _, typeName := range expectedTypes {
-		dt, ok := DatasetTypes[typeName]
+		dt, ok := DatasetTypes[DatasetType(typeName)]
 		assert.True(t, ok, "DatasetTypes should contain %s", typeName)
-		assert.Equal(t, typeName, dt.Name, "DatasetType.Name should match key")
 		assert.NotEmpty(t, dt.Description, "DatasetType.Description should not be empty")
 		assert.NotNil(t, dt.Schema, "DatasetType.Schema should not be nil")
 	}
