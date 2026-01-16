@@ -8,10 +8,10 @@ package resources
 import (
 	"fmt"
 
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/middleware"
 	"github.com/gin-gonic/gin"
 
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
-	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/middle"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/resources/view"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 )
@@ -22,7 +22,7 @@ import (
 // workloads, secrets, faults, nodes, workspaces, clusters, users, flavors, jobs, logs, and public keys.
 func InitCustomRouters(e *gin.Engine, h *Handler) {
 	// Custom API requires authentication and preprocessing.
-	group := e.Group(common.PrimusRouterCustomRootPath, middle.Authorize(), middle.Preprocess())
+	group := e.Group(common.PrimusRouterCustomRootPath, middleware.Authorize(), middleware.Preprocess())
 	{
 		group.POST("workloads", h.CreateWorkload)
 		group.POST("workloads/clone", h.CloneWorkloads)
@@ -120,7 +120,7 @@ func InitCustomRouters(e *gin.Engine, h *Handler) {
 	}
 
 	// Custom API without authentication
-	noAuthGroup := e.Group(common.PrimusRouterCustomRootPath, middle.Preprocess())
+	noAuthGroup := e.Group(common.PrimusRouterCustomRootPath, middleware.Preprocess())
 	{
 		noAuthGroup.GET("clusters", h.ListCluster)
 		noAuthGroup.GET(fmt.Sprintf("clusters/:%s", common.Name), h.GetCluster)
