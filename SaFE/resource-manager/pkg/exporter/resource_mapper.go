@@ -34,10 +34,12 @@ func truncateString(s string, maxLength int) string {
 }
 
 // escapePostgresArrayElement escapes special characters for PostgreSQL array literal syntax.
-// In PostgreSQL array literals, backslashes and double quotes need to be escaped.
+// In PostgreSQL array literals, backslashes, double quotes, and newlines need to be escaped.
 func escapePostgresArrayElement(s string) string {
 	s = strings.ReplaceAll(s, `\`, `\\`)
 	s = strings.ReplaceAll(s, `"`, `\"`)
+	s = strings.ReplaceAll(s, "\n", `\n`)
+	s = strings.ReplaceAll(s, "\r", `\r`)
 	return s
 }
 

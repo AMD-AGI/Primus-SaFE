@@ -9,6 +9,7 @@ import (
 	"context"
 
 	"github.com/gin-gonic/gin"
+	"k8s.io/klog/v2"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
@@ -23,6 +24,7 @@ import (
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
+	commons3 "github.com/AMD-AIG-AIMA/SAFE/common/pkg/s3"
 )
 
 // InitHttpHandlers initializes the HTTP handlers for the API server.
@@ -74,7 +76,7 @@ func InitHttpHandlers(_ context.Context, mgr ctrlruntime.Manager) (*gin.Engine, 
 		return nil, err
 	}
 	sshhandler.InitWebShellRouters(engine, sshHandler)
-	modelHandler := InitModelHandlers(mgr)
+	modelHandler := InitModelHandlers(context.Background(), mgr)
 	model_handlers.InitInferenceRouters(engine, modelHandler)
 
 	// Initialize proxy handlers
@@ -90,12 +92,27 @@ func InitHttpHandlers(_ context.Context, mgr ctrlruntime.Manager) (*gin.Engine, 
 // InitModelHandlers initializes the model handlers for the API server.
 // It creates and returns a new model handler instance configured with the provided manager.
 // If database is not enabled, dbClient will be nil and handlers will use K8s API only.
-func InitModelHandlers(mgr ctrlruntime.Manager) *model_handlers.Handler {
+// If S3 is enabled, s3Client will be initialized for dataset operations.
+func InitModelHandlers(ctx context.Context, mgr ctrlruntime.Manager) *model_handlers.Handler {
 	var dbClient dbclient.Interface
 	if commonconfig.IsDBEnable() {
 		dbClient = dbclient.NewClient()
 	}
 	accessController := authority.NewAccessController(mgr.GetClient())
+
+	// Initialize S3 client for dataset operations if S3 is enabled
+	var s3Client commons3.Interface
+	if commonconfig.IsS3Enable() && commonconfig.IsDBEnable() {
+		var err error
+		s3Client, err = commons3.NewClient(ctx, commons3.Option{})
+		if err != nil {
+			klog.ErrorS(err, "failed to initialize S3 client for dataset operations, dataset features will be disabled")
+		}
+	}
+
+	if s3Client != nil {
+		return model_handlers.NewHandlerWithS3(mgr.GetClient(), dbClient, s3Client, accessController)
+	}
 	return model_handlers.NewHandler(mgr.GetClient(), dbClient, accessController)
 }
 

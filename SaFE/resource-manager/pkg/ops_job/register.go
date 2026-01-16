@@ -41,5 +41,8 @@ func SetupOpsJobs(ctx context.Context, mgr manager.Manager) error {
 	if err := SetupCDJobController(mgr); err != nil {
 		return fmt.Errorf("cd-job controller: %v", err)
 	}
+	if err := SetupDatasetDownloadController(ctx, mgr); err != nil {
+		return fmt.Errorf("dataset-download controller: %v", err)
+	}
 	return nil
 }

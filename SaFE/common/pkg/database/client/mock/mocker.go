@@ -3253,3 +3253,133 @@ func (mr *MockModelInterfaceMockRecorder) UpsertModel(ctx, m interface{}) *gomoc
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertModel", reflect.TypeOf((*MockModelInterface)(nil).UpsertModel), ctx, m)
 }
+
+// CountDatasets mocks base method.
+func (m *MockInterface) CountDatasets(ctx context.Context, query squirrel.Sqlizer) (int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountDatasets", ctx, query)
+	ret0, _ := ret[0].(int)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountDatasets indicates an expected call of CountDatasets.
+func (mr *MockInterfaceMockRecorder) CountDatasets(ctx, query interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountDatasets", reflect.TypeOf((*MockInterface)(nil).CountDatasets), ctx, query)
+}
+
+// GetDataset mocks base method.
+func (m *MockInterface) GetDataset(ctx context.Context, datasetId string) (*client.Dataset, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetDataset", ctx, datasetId)
+	ret0, _ := ret[0].(*client.Dataset)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetDataset indicates an expected call of GetDataset.
+func (mr *MockInterfaceMockRecorder) GetDataset(ctx, datasetId interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDataset", reflect.TypeOf((*MockInterface)(nil).GetDataset), ctx, datasetId)
+}
+
+// SelectDatasets mocks base method.
+func (m *MockInterface) SelectDatasets(ctx context.Context, query squirrel.Sqlizer, orderBy []string, limit, offset int) ([]*client.Dataset, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SelectDatasets", ctx, query, orderBy, limit, offset)
+	ret0, _ := ret[0].([]*client.Dataset)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SelectDatasets indicates an expected call of SelectDatasets.
+func (mr *MockInterfaceMockRecorder) SelectDatasets(ctx, query, orderBy, limit, offset interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SelectDatasets", reflect.TypeOf((*MockInterface)(nil).SelectDatasets), ctx, query, orderBy, limit, offset)
+}
+
+// SetDatasetDeleted mocks base method.
+func (m *MockInterface) SetDatasetDeleted(ctx context.Context, datasetId string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetDatasetDeleted", ctx, datasetId)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetDatasetDeleted indicates an expected call of SetDatasetDeleted.
+func (mr *MockInterfaceMockRecorder) SetDatasetDeleted(ctx, datasetId interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetDatasetDeleted", reflect.TypeOf((*MockInterface)(nil).SetDatasetDeleted), ctx, datasetId)
+}
+
+// UpdateDatasetFileInfo mocks base method.
+func (m *MockInterface) UpdateDatasetFileInfo(ctx context.Context, datasetId string, totalSize int64, fileCount int) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateDatasetFileInfo", ctx, datasetId, totalSize, fileCount)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateDatasetFileInfo indicates an expected call of UpdateDatasetFileInfo.
+func (mr *MockInterfaceMockRecorder) UpdateDatasetFileInfo(ctx, datasetId, totalSize, fileCount interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateDatasetFileInfo", reflect.TypeOf((*MockInterface)(nil).UpdateDatasetFileInfo), ctx, datasetId, totalSize, fileCount)
+}
+
+// UpdateDatasetStatus mocks base method.
+func (m *MockInterface) UpdateDatasetStatus(ctx context.Context, datasetId string, status client.DatasetStatus, message string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateDatasetStatus", ctx, datasetId, status, message)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateDatasetStatus indicates an expected call of UpdateDatasetStatus.
+func (mr *MockInterfaceMockRecorder) UpdateDatasetStatus(ctx, datasetId, status, message interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateDatasetStatus", reflect.TypeOf((*MockInterface)(nil).UpdateDatasetStatus), ctx, datasetId, status, message)
+}
+
+// UpdateDatasetLocalPath mocks base method.
+func (m *MockInterface) UpdateDatasetLocalPath(ctx context.Context, datasetId, workspace string, status client.DatasetStatus, message string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateDatasetLocalPath", ctx, datasetId, workspace, status, message)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateDatasetLocalPath indicates an expected call of UpdateDatasetLocalPath.
+func (mr *MockInterfaceMockRecorder) UpdateDatasetLocalPath(ctx, datasetId, workspace, status, message interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateDatasetLocalPath", reflect.TypeOf((*MockInterface)(nil).UpdateDatasetLocalPath), ctx, datasetId, workspace, status, message)
+}
+
+// CheckDatasetNameExists mocks base method.
+func (m *MockInterface) CheckDatasetNameExists(ctx context.Context, displayName string) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CheckDatasetNameExists", ctx, displayName)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CheckDatasetNameExists indicates an expected call of CheckDatasetNameExists.
+func (mr *MockInterfaceMockRecorder) CheckDatasetNameExists(ctx, displayName interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CheckDatasetNameExists", reflect.TypeOf((*MockInterface)(nil).CheckDatasetNameExists), ctx, displayName)
+}
+
+// UpsertDataset mocks base method.
+func (m *MockInterface) UpsertDataset(ctx context.Context, dataset *client.Dataset) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpsertDataset", ctx, dataset)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpsertDataset indicates an expected call of UpsertDataset.
+func (mr *MockInterfaceMockRecorder) UpsertDataset(ctx, dataset interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertDataset", reflect.TypeOf((*MockInterface)(nil).UpsertDataset), ctx, dataset)
+}
