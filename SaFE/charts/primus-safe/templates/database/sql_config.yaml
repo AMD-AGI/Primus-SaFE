@@ -452,12 +452,4 @@ data:
     create index if not exists T_DATASET_IS_DELETED_INDEX on dataset (is_deleted);
     create index if not exists T_DATASET_WORKSPACE_INDEX on dataset (workspace);
 
-    -- Backward compatibility: Add columns for existing installations
-    ALTER TABLE dataset ADD COLUMN IF NOT EXISTS local_paths JSONB DEFAULT '[]';
-    ALTER TABLE dataset ADD COLUMN IF NOT EXISTS workspace VARCHAR(64) DEFAULT '';
-
-    -- Update existing NULL values to defaults (for data created before these columns were added)
-    UPDATE dataset SET local_paths = '[]' WHERE local_paths IS NULL;
-    UPDATE dataset SET workspace = '' WHERE workspace IS NULL;
-
     alter table dataset owner to "primus-safe";
