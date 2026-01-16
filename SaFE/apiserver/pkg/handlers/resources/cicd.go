@@ -109,17 +109,11 @@ func (h *Handler) cleanupCICDSecrets(ctx context.Context, workload *v1.Workload)
 }
 
 // generateCICDScaleRunnerSet configures a workload for CICD scaling runner set.
-// It validates CICD settings, creates a GitHub token secret, and sets the control plane IP.
+// It validates CICD settings, creates a GitHub token secret.
 func (h *Handler) generateCICDScaleRunnerSet(ctx context.Context, workload *v1.Workload, requestUser *v1.User) error {
 	if !commonconfig.IsCICDEnable() {
 		return commonerrors.NewNotImplemented("the CICD is not enabled")
 	}
-	controlPlaneIp, err := h.getAdminControlPlaneIp(ctx)
-	if err != nil {
-		return err
-	}
-	v1.SetAnnotation(workload, v1.AdminControlPlaneAnnotation, controlPlaneIp)
-
 	val, _ := workload.Spec.Env[GithubPAT]
 	if val == "" {
 		return commonerrors.NewBadRequest("the github pat(token) is empty")

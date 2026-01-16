@@ -152,6 +152,9 @@ func (m *NodeMutator) mutateLabels(node *v1.Node) bool {
 	if v1.RemoveEmptyLabel(node, v1.ClusterIdLabel) {
 		isChanged = true
 	}
+	if node.GetSpecHostName() != "" && v1.SetLabel(node, v1.NodeHostnameLabel, node.GetSpecHostName()) {
+		isChanged = true
+	}
 	return isChanged
 }
 

@@ -381,10 +381,11 @@ func (h *Handler) listNodeByQuery(c *gin.Context, query *view.ListNodeRequest) (
 	if err != nil {
 		return 0, nil, err
 	}
-	nodeList := &v1.NodeList{}
+	var nodeList []v1.Node
 	ctx := c.Request.Context()
 	if query.NodeId == nil {
-		if err = h.List(ctx, nodeList, &client.ListOptions{LabelSelector: labelSelector}); err != nil {
+		nodeList, err = h.getAdminNodes(ctx, labelSelector)
+		if err != nil {
 			return 0, nil, err
 		}
 	} else {
@@ -397,17 +398,17 @@ func (h *Handler) listNodeByQuery(c *gin.Context, query *view.ListNodeRequest) (
 		if !labelSelector.Matches(nodeLabels) {
 			return 0, nil, nil
 		}
-		nodeList.Items = append(nodeList.Items, *node)
+		nodeList = append(nodeList, *node)
 	}
 
 	roles := h.accessController.GetRoles(ctx, requestUser)
-	nodes := make([]*v1.Node, 0, len(nodeList.Items))
+	nodes := make([]*v1.Node, 0, len(nodeList))
 	var phases []string
 	if query.Phase != nil {
 		phases = strings.Split(string(*query.Phase), ",")
 	}
 
-	for i, n := range nodeList.Items {
+	for i, n := range nodeList {
 		if err = h.accessController.Authorize(authority.AccessInput{
 			Context:    ctx,
 			Resource:   &n,
@@ -434,7 +435,7 @@ func (h *Handler) listNodeByQuery(c *gin.Context, query *view.ListNodeRequest) (
 				continue
 			}
 		}
-		nodes = append(nodes, &nodeList.Items[i])
+		nodes = append(nodes, &nodeList[i])
 	}
 	totalCount := len(nodes)
 	if totalCount == 0 {
@@ -457,6 +458,15 @@ func (h *Handler) listNodeByQuery(c *gin.Context, query *view.ListNodeRequest) (
 		return totalCount, nodes[start:end], nil
 	}
 	return totalCount, nodes, nil
+}
+
+func (h *Handler) getAdminNodes(ctx context.Context, labelSelector labels.Selector) ([]v1.Node, error) {
+	nodeList := &v1.NodeList{}
+	if err := h.List(ctx, nodeList, &client.ListOptions{LabelSelector: labelSelector}); err != nil {
+		klog.ErrorS(err, "failed to list nodes")
+		return nil, err
+	}
+	return nodeList.Items, nil
 }
 
 // buildListNodeBriefResponse constructs a simplified response for node listings.

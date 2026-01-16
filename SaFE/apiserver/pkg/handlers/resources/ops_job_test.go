@@ -6,6 +6,7 @@
 package resources
 
 import (
+	"context"
 	"database/sql"
 	"testing"
 	"time"
@@ -291,6 +292,77 @@ func TestCreatePreflightRequestValidation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tt.validate(t, tt.request)
+		})
+	}
+}
+
+// TestGenerateOpsJobNodesInput_NodeParams tests generateOpsJobNodesInput (lines 672-678)
+// where excluded nodes have their value cleared, and non-excluded nodes are kept.
+func TestGenerateOpsJobNodesInput_NodeParams(t *testing.T) {
+	tests := []struct {
+		name           string
+		inputs         []v1.Parameter
+		excludedNodes  []string
+		expectedInputs []v1.Parameter
+	}{
+		{
+			name: "exclude one node - only excluded is cleared",
+			inputs: []v1.Parameter{
+				{Name: v1.ParameterNode, Value: "node-1"},
+				{Name: v1.ParameterNode, Value: "node-2"},
+				{Name: v1.ParameterNode, Value: "node-3"},
+			},
+			excludedNodes: []string{"node-2"},
+			expectedInputs: []v1.Parameter{
+				{Name: v1.ParameterNode, Value: "node-1"}, // kept
+				{Name: v1.ParameterNode, Value: ""},       // excluded, cleared
+				{Name: v1.ParameterNode, Value: "node-3"}, // kept
+			},
+		},
+		{
+			name: "exclude all nodes - all cleared",
+			inputs: []v1.Parameter{
+				{Name: v1.ParameterNode, Value: "node-1"},
+				{Name: v1.ParameterNode, Value: "node-2"},
+			},
+			excludedNodes: []string{"node-1", "node-2"},
+			expectedInputs: []v1.Parameter{
+				{Name: v1.ParameterNode, Value: ""}, // excluded, cleared
+				{Name: v1.ParameterNode, Value: ""}, // excluded, cleared
+			},
+		},
+		{
+			name: "no exclusions - all kept",
+			inputs: []v1.Parameter{
+				{Name: v1.ParameterNode, Value: "node-1"},
+				{Name: "other", Value: "keep-this"},
+			},
+			excludedNodes: []string{},
+			expectedInputs: []v1.Parameter{
+				{Name: v1.ParameterNode, Value: "node-1"}, // kept
+				{Name: "other", Value: "keep-this"},       // other param, kept
+			},
+		},
+	}
+
+	h := &Handler{}
+	ctx := context.Background()
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			job := &v1.OpsJob{
+				Spec: v1.OpsJobSpec{
+					Inputs:        tt.inputs,
+					ExcludedNodes: tt.excludedNodes,
+				},
+			}
+
+			// Call the actual function
+			err := h.generateOpsJobNodesInput(ctx, job)
+			assert.NoError(t, err)
+
+			// Verify that job.Spec.Inputs was modified correctly
+			assert.Equal(t, tt.expectedInputs, job.Spec.Inputs)
 		})
 	}
 }

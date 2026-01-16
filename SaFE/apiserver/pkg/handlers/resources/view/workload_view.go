@@ -33,6 +33,8 @@ type CreateWorkloadRequest struct {
 	Annotations map[string]string `json:"annotations,omitempty"`
 	// Preheat indicates whether to preheat the workload to prepare image in advance
 	Preheat bool `json:"preheat,omitempty"`
+	// Whether to run the workload in privileged mode, only accessible to administrators
+	Privileged bool `json:"privileged,omitempty"`
 	// The workload will be created using that specific user ID and name. This field is only accessible to administrators.
 	UserEntity *UserEntity `json:"userEntity,omitempty"`
 }

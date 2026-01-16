@@ -44,6 +44,8 @@ const (
 	ParameterImage         = "image"
 	ParameterSecret        = "secret"
 	ParameterDestPath      = "dest.path"
+	ParameterScript        = "script"
+	ParameterNodeHost      = "node.host"
 
 	// CD job specific parameters
 	ParameterDeploymentRequestId = "deployment.request.id" // Deployment request ID from database

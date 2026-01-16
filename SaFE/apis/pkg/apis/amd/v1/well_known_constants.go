@@ -42,6 +42,7 @@ const (
 	NodeGpuCountLabel = NodePrefix + "gpu.count"
 	// The node's last startup time
 	NodeStartupTimeLabel            = NodePrefix + "startup.time"
+	NodeHostnameLabel               = NodePrefix + "hostname"
 	NodeLabelAction                 = NodePrefix + "label.action"
 	NodeAnnotationAction            = NodePrefix + "annotation.action"
 	NodeTemplateInstalledAnnotation = NodePrefix + "template.installed"

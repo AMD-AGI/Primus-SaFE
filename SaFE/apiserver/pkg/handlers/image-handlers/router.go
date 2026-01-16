@@ -6,20 +6,20 @@
 package image_handlers
 
 import (
-	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/middle"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/middleware"
 	"github.com/gin-gonic/gin"
 )
 
 // InitImageRouter initializes and registers all image-related API routes.
 func InitImageRouter(e *gin.Engine, h *ImageHandler) {
 	group := e.Group("/api/v1/")
-	harborGroup := group.Group("/harbor", middle.Authorize())
+	harborGroup := group.Group("/harbor", middleware.Authorize())
 	{
 		harborGroup.GET("stats", func(c *gin.Context) {
 			handle(c, h.GetHarborStats)
 		})
 	}
-	imageGroup := e.Group("/api/v1/images", middle.Authorize())
+	imageGroup := e.Group("/api/v1/images", middleware.Authorize())
 	{
 		imageGroup.GET("", func(c *gin.Context) {
 			handle(c, h.listImage)
@@ -45,7 +45,7 @@ func InitImageRouter(e *gin.Engine, h *ImageHandler) {
 	}
 	imageImportGroup := e.Group("/api/v1/images:import")
 	{
-		imageImportGroup.POST("", middle.Authorize(), func(c *gin.Context) {
+		imageImportGroup.POST("", middleware.Authorize(), func(c *gin.Context) {
 			handle(c, h.importImage)
 		})
 		imageImportGroup.PUT(":name/progress", func(c *gin.Context) {
@@ -53,7 +53,7 @@ func InitImageRouter(e *gin.Engine, h *ImageHandler) {
 		})
 	}
 
-	imageRegistryGroup := group.Group("/image-registries", middle.Authorize())
+	imageRegistryGroup := group.Group("/image-registries", middleware.Authorize())
 	{
 		imageRegistryGroup.POST("", func(c *gin.Context) {
 			handle(c, h.createImageRegistry)
