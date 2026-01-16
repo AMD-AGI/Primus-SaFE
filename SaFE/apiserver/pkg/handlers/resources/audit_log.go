@@ -242,11 +242,8 @@ func generateActionDescription(method, resourceType, resourceName string) string
 		resource = singularize(resource)
 	}
 
-	// For DELETE operations, include the resource name if available
-	// For other operations, just use the resource type
-	if method == "DELETE" && resource != "" && resourceName != "" {
-		return action + " " + resource + " " + resourceName
-	} else if resource != "" {
+	// Just use action + resource type, keep it simple
+	if resource != "" {
 		return action + " " + resource
 	}
 	return action
