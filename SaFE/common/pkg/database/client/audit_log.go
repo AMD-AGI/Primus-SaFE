@@ -38,6 +38,55 @@ func (c *Client) InsertAuditLog(ctx context.Context, auditLog *AuditLog) error {
 	return nil
 }
 
+// BatchInsertAuditLogs inserts multiple audit log entries into the database in a single transaction.
+// This is more efficient than inserting one at a time for large batches.
+func (c *Client) BatchInsertAuditLogs(ctx context.Context, auditLogs []*AuditLog) error {
+	if len(auditLogs) == 0 {
+		return nil
+	}
+	db, err := c.getDB()
+	if err != nil {
+		return err
+	}
+
+	// Use squirrel to build batch insert
+	builder := sqrl.StatementBuilder.PlaceholderFormat(sqrl.Dollar).
+		Insert(TPAuditLog).
+		Columns("user_id", "user_name", "user_type", "client_ip", "http_method",
+			"request_path", "resource_type", "resource_name", "request_body",
+			"response_status", "response_body", "latency_ms", "trace_id", "create_time")
+
+	for _, log := range auditLogs {
+		builder = builder.Values(
+			log.UserId,
+			log.UserName,
+			log.UserType,
+			log.ClientIP,
+			log.HttpMethod,
+			log.RequestPath,
+			log.ResourceType,
+			log.ResourceName,
+			log.RequestBody,
+			log.ResponseStatus,
+			log.ResponseBody,
+			log.LatencyMs,
+			log.TraceId,
+			log.CreateTime,
+		)
+	}
+
+	sql, args, err := builder.ToSql()
+	if err != nil {
+		return fmt.Errorf("failed to build batch insert audit_logs query: %v", err)
+	}
+
+	_, err = db.ExecContext(ctx, sql, args...)
+	if err != nil {
+		return fmt.Errorf("failed to batch insert audit_logs to db: %v", err)
+	}
+	return nil
+}
+
 // SelectAuditLogs retrieves audit logs based on query conditions.
 func (c *Client) SelectAuditLogs(ctx context.Context, query sqrl.Sqlizer, orderBy []string, limit, offset int) ([]*AuditLog, error) {
 	db, err := c.getDB()

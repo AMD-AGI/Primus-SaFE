@@ -6,6 +6,7 @@
 package resources
 
 import (
+	"net/http"
 	"strings"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/gin-gonic/gin/binding"
 	"k8s.io/klog/v2"
 
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/resources/view"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
@@ -40,15 +42,16 @@ func (h *Handler) listAuditLog(c *gin.Context) (interface{}, error) {
 		return nil, commonerrors.NewUnauthorized("user not authenticated")
 	}
 
-	// Get user to check permissions - only admin can access audit logs
-	user, err := h.accessController.GetRequestUser(c.Request.Context(), userId)
+	// Check permissions using RBAC - user must have "list" permission on "auditlogs" resource
+	err := h.accessController.Authorize(authority.AccessInput{
+		Context:      c.Request.Context(),
+		ResourceKind: "auditlogs",
+		Verb:         "list",
+		UserId:       userId,
+	})
 	if err != nil {
-		klog.ErrorS(err, "failed to get user", "userId", userId)
-		return nil, commonerrors.NewInternalError("failed to check permissions")
-	}
-
-	if !user.IsSystemAdmin() && !user.IsSystemAdminReadonly() {
-		return nil, commonerrors.NewForbidden("only admin users can access audit logs")
+		klog.ErrorS(err, "user not authorized to access audit logs", "userId", userId)
+		return nil, err
 	}
 
 	req, err := parseListAuditLogQuery(c)
@@ -224,13 +227,13 @@ func generateActionDescription(method, resourceType, resourceName string) string
 
 	var action string
 	switch method {
-	case "POST":
+	case http.MethodPost:
 		action = "create"
-	case "PUT":
+	case http.MethodPut:
 		action = "replace"
-	case "PATCH":
+	case http.MethodPatch:
 		action = "update"
-	case "DELETE":
+	case http.MethodDelete:
 		action = "delete"
 	default:
 		action = strings.ToLower(method)

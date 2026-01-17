@@ -3427,3 +3427,17 @@ func (mr *MockInterfaceMockRecorder) UpsertDataset(ctx, dataset interface{}) *go
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertDataset", reflect.TypeOf((*MockInterface)(nil).UpsertDataset), ctx, dataset)
 }
+
+// BatchInsertAuditLogs mocks base method.
+func (m *MockInterface) BatchInsertAuditLogs(ctx context.Context, auditLogs []*client.AuditLog) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "BatchInsertAuditLogs", ctx, auditLogs)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// BatchInsertAuditLogs indicates an expected call of BatchInsertAuditLogs.
+func (mr *MockInterfaceMockRecorder) BatchInsertAuditLogs(ctx, auditLogs interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BatchInsertAuditLogs", reflect.TypeOf((*MockInterface)(nil).BatchInsertAuditLogs), ctx, auditLogs)
+}

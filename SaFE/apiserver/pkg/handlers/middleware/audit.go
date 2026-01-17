@@ -111,23 +111,29 @@ func (b *auditLogBuffer) flushWorker() {
 	}
 }
 
-// writeBatch writes a batch of audit logs to the database
+// writeBatch writes a batch of audit logs to the database using batch insert
 func (b *auditLogBuffer) writeBatch(batch []*dbclient.AuditLog) {
+	if len(batch) == 0 {
+		return
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	for _, log := range batch {
-		// TODO: If your DB supports batch insert, use it here for better performance
-		err := b.client.InsertAuditLog(ctx, log)
-		if err != nil {
-			klog.ErrorS(err, "failed to insert audit log",
-				"userId", log.UserId,
-				"method", log.HttpMethod,
-				"path", log.RequestPath)
+	err := b.client.BatchInsertAuditLogs(ctx, batch)
+	if err != nil {
+		klog.ErrorS(err, "failed to batch insert audit logs", "count", len(batch))
+		// Fallback to individual inserts if batch fails
+		for _, log := range batch {
+			if err := b.client.InsertAuditLog(ctx, log); err != nil {
+				klog.ErrorS(err, "failed to insert audit log",
+					"userId", log.UserId,
+					"method", log.HttpMethod,
+					"path", log.RequestPath)
+			}
 		}
-	}
-	if len(batch) > 0 {
-		klog.V(4).Infof("flushed %d audit logs to database", len(batch))
+	} else {
+		klog.V(4).Infof("batch inserted %d audit logs to database", len(batch))
 	}
 }
 
@@ -257,14 +263,16 @@ func isWriteOperation(method string) bool {
 
 // extractResourceInfo extracts resource type and name from the request path
 // For example: /api/v1/workloads/my-workload -> (workloads, my-workload)
+// For example: /api/v1/cd/deployments/33/approve -> (deployments, 33)
 func extractResourceInfo(path string) (string, string) {
 	// Common patterns: /api/v1/{resource_type}/{resource_name}/...
+	// Or with module prefix: /api/v1/{module}/{resource_type}/{resource_name}/...
 	parts := strings.Split(strings.Trim(path, "/"), "/")
 
-	// Skip api version prefix (e.g., "api/v1")
+	// Skip api version prefix (e.g., "api/v1") and module prefix (e.g., "cd")
 	startIdx := 0
 	for i, part := range parts {
-		if part == "api" || part == "v1" || part == "v2" {
+		if part == "api" || part == "v1" || part == "v2" || isModulePrefix(part) {
 			startIdx = i + 1
 			continue
 		}
@@ -289,11 +297,20 @@ func extractResourceInfo(path string) (string, string) {
 	return resourceType, resourceName
 }
 
+// isModulePrefix checks if a string is a known module prefix
+func isModulePrefix(s string) bool {
+	modules := map[string]bool{
+		"cd": true, // CD (Continuous Deployment) module
+	}
+	return modules[strings.ToLower(s)]
+}
+
 // isOperationKeyword checks if a string is a known operation keyword
 func isOperationKeyword(s string) bool {
 	operations := map[string]bool{
 		"delete": true, "stop": true, "clone": true, "retry": true,
 		"logs": true, "export": true, "verify": true, "status": true,
+		"approve": true, "rollback": true, "description": true, // CD and publickey operations
 	}
 	return operations[strings.ToLower(s)]
 }

@@ -194,6 +194,7 @@ type ModelInterface interface {
 
 type AuditLogInterface interface {
 	InsertAuditLog(ctx context.Context, auditLog *AuditLog) error
+	BatchInsertAuditLogs(ctx context.Context, auditLogs []*AuditLog) error
 	SelectAuditLogs(ctx context.Context, query sqrl.Sqlizer, orderBy []string, limit, offset int) ([]*AuditLog, error)
 	CountAuditLogs(ctx context.Context, query sqrl.Sqlizer) (int, error)
 }
