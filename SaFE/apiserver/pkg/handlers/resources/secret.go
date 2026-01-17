@@ -357,6 +357,16 @@ func (h *Handler) getAndAuthorizeSecret(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
+	if v1.GetSecretType(secret) == string(v1.SecretImage) && workspaceId != "" {
+		workspace, err := h.getAdminWorkspace(ctx, workspaceId)
+		if err == nil && len(workspace.Spec.ImageSecrets) > 0 {
+			for _, imageSecret := range workspace.Spec.ImageSecrets {
+				if imageSecret.Name == name {
+					return secret, nil
+				}
+			}
+		}
+	}
 	var workspaceIds []string
 	if workspaceId != "" {
 		workspaceIds = []string{workspaceId}

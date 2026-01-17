@@ -42,7 +42,7 @@ const (
 	harborCACertPathUbuntu = "/usr/local/share/ca-certificates/harbor-ca.crt"
 	harborCACertPathCentOS = "/etc/pki/ca-trust/source/anchors/harbor-ca.crt"
 
-	machineCheckInterval = time.Minute * 30
+	machineCheckInterval = time.Minute * 10
 	podManagementTimeout = 3600 * 2
 )
 
@@ -268,8 +268,14 @@ func (r *NodeReconciler) processNode(ctx context.Context, adminNode *v1.Node, k8
 			return ctrlruntime.Result{}, err
 		}
 	}
-	if err := r.installAddons(ctx, adminNode); err != nil {
-		return ctrlruntime.Result{}, err
+	// Only managed nodes will have the addons installed.
+	if adminNode.IsManaged() && adminNode.GetSpecCluster() != "" {
+		if err := r.installAddons(ctx, adminNode); err != nil {
+			klog.ErrorS(err, "failed to install addons", "node", adminNode.Name)
+			if !utils.IsNonRetryableError(err) {
+				return ctrlruntime.Result{}, err
+			}
+		}
 	}
 	if err := r.cleanupTimeoutPods(ctx, adminNode); err != nil {
 		return ctrlruntime.Result{}, err
@@ -290,7 +296,7 @@ func (r *NodeReconciler) syncMachineStatus(ctx context.Context, node *v1.Node) e
 		}
 	}()
 
-	hostname, err := r.syncHostname(node, sshClient)
+	hostname, err := r.syncHostname(ctx, node, sshClient)
 	if err != nil {
 		klog.ErrorS(err, "failed to sync hostname", "node", node.Name)
 		return r.updateMachineStatus(ctx, node, "", v1.NodeHostnameFailed)
@@ -322,19 +328,27 @@ func (r *NodeReconciler) updateMachineStatus(ctx context.Context,
 }
 
 // syncHostname synchronizes the hostname of a Node via SSH.
-func (r *NodeReconciler) syncHostname(node *v1.Node, client *ssh.Client) (string, error) {
+func (r *NodeReconciler) syncHostname(ctx context.Context, node *v1.Node, sshClient *ssh.Client) (string, error) {
 	if node.Status.MachineStatus.HostName != "" && node.Status.MachineStatus.HostName == node.GetSpecHostName() {
 		return node.Status.MachineStatus.HostName, nil
 	}
-	hostname, err := getHostname(client)
+	hostname, err := getHostname(sshClient)
 	if err != nil {
 		return "", err
 	}
-	if node.Spec.Hostname != nil && *node.Spec.Hostname != hostname {
-		if err = setHostname(client, *node.Spec.Hostname); err != nil {
-			return "", err
+	if node.GetSpecHostName() != "" {
+		if node.GetSpecHostName() != hostname {
+			hostname = node.GetSpecHostName()
+			if err = setHostname(sshClient, hostname); err != nil {
+				return "", err
+			}
 		}
-		hostname = *node.Spec.Hostname
+	} else if hostname != "" {
+		patch := client.MergeFrom(node.DeepCopy())
+		v1.SetLabel(node, v1.NodeHostnameLabel, hostname)
+		if err = r.Patch(ctx, node, patch); err != nil {
+			klog.ErrorS(err, "failed to patch node", "node", node.Name)
+		}
 	}
 	if hostname == "" {
 		return "", fmt.Errorf("hostname not found for node %s", node.Name)
@@ -559,26 +573,10 @@ func (r *NodeReconciler) processNodeManagement(ctx context.Context, adminNode *v
 	return result, nil
 }
 
-// cleanupNodeAfterUnmanage performs post-unmanagement cleanup operations on a node.
-// This includes resetting the node via SSH if not already done, removing cluster and workspace labels,
-// and updating the node resource when changes are made.
+// cleanupNodeAfterUnmanage performs cleanup operations on a node.
+// This includes removing cluster, workspace and addon labels
 func (r *NodeReconciler) cleanupNodeAfterUnmanage(ctx context.Context, adminNode *v1.Node) error {
 	isChanged := false
-	if !v1.HasAnnotation(adminNode, v1.NodeResetAnnotation) {
-		sshClient, err := utils.GetSSHClient(ctx, r.Client, adminNode)
-		if err != nil {
-			return err
-		}
-		defer sshClient.Close()
-
-		checkAndResetCmd := "kubeadm reset -f; rm -rf /etc/cni/ /etc/kubernetes/ ~/.kube"
-		if err = r.executeSSHCommand(sshClient, checkAndResetCmd); err != nil {
-			return err
-		}
-		v1.SetAnnotation(adminNode, v1.NodeResetAnnotation, v1.TrueStr)
-		isChanged = true
-	}
-
 	if v1.GetClusterId(adminNode) != "" {
 		v1.RemoveLabel(adminNode, v1.ClusterIdLabel)
 		isChanged = true
@@ -817,6 +815,10 @@ func (r *NodeReconciler) syncOrCreateScaleUpPod(ctx context.Context, adminNode *
 		return ctrlruntime.Result{}, err
 	}
 	if len(pods) == 0 {
+		if err = r.resetNode(ctx, adminNode); err != nil {
+			return ctrlruntime.Result{}, err
+		}
+
 		cluster, err := r.getCluster(ctx, adminNode.GetSpecCluster())
 		if err != nil || cluster == nil {
 			return ctrlruntime.Result{RequeueAfter: time.Second}, err
@@ -885,6 +887,8 @@ func (r *NodeReconciler) unmanage(ctx context.Context, adminNode *v1.Node, k8sNo
 			},
 		}
 		klog.Infof("node %s is unmanaged", adminNode.Name)
+		r.resetNode(ctx, adminNode)
+
 		if stringutil.StrCaseEqual(v1.GetLabel(adminNode, v1.NodeUnmanageNoRebootLabel), v1.TrueStr) {
 			return ctrlruntime.Result{}, nil
 		}
@@ -927,6 +931,21 @@ func (r *NodeReconciler) rebootNode(ctx context.Context, node *v1.Node) {
 		return
 	}
 	klog.Infof("machine node %s rebooted", node.Name)
+}
+
+// resetNode reset the Node via SSH.
+func (r *NodeReconciler) resetNode(ctx context.Context, node *v1.Node) error {
+	sshClient, err := utils.GetSSHClient(ctx, r.Client, node)
+	if err != nil {
+		return err
+	}
+	defer sshClient.Close()
+
+	resetNodeCmd := "kubeadm reset -f; rm -rf /etc/cni/ /etc/kubernetes/ ~/.kube"
+	if err = r.executeSSHCommand(sshClient, resetNodeCmd); err != nil {
+		return err
+	}
+	return nil
 }
 
 // syncOrCreateScaleDownPod synchronizes or creates a scale-down Pod for the Node when unmanaging.

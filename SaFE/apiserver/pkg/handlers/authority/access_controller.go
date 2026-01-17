@@ -47,6 +47,9 @@ type AccessInput struct {
 	// ResourceOwner is the owner of target resource, typically the user ID who owns the resource
 	ResourceOwner string
 
+	// ResourceName is the name of target resource
+	ResourceName string
+
 	// Resource is the actual resource object being accessed, can be nil if only ResourceKind is known
 	Resource client.Object
 
@@ -193,7 +196,8 @@ func (a *AccessController) extractResourceInfo(in AccessInput) (resourceKind, re
 	}
 	resourceKind = strings.ToLower(resourceKind)
 
-	if in.Resource != nil {
+	resourceName = in.ResourceName
+	if resourceName == "" && in.Resource != nil {
 		resourceName = in.Resource.GetName()
 	}
 	return resourceKind, resourceName

@@ -357,8 +357,9 @@ func (h *Handler) approveDeploymentRequest(c *gin.Context) (interface{}, error) 
 			return nil, err
 		}
 
-		// Update status to deploying
+		// Update status to deploying and save workload ID (workload ID = OpsJob name)
 		req.Status = StatusDeploying
+		req.WorkloadId = dbutils.NullString(opsJob.Name)
 		if err := h.dbClient.UpdateDeploymentRequest(ctx, req); err != nil {
 			klog.ErrorS(err, "Failed to update deployment request status", "id", req.Id)
 		}
@@ -366,10 +367,10 @@ func (h *Handler) approveDeploymentRequest(c *gin.Context) (interface{}, error) 
 		klog.Infof("CD OpsJob created for deployment request %d: %s", req.Id, opsJob.Name)
 
 		return ApprovalResp{
-			Id:      req.Id,
-			Status:  StatusApproved,
-			JobId:   opsJob.Name,
-			Message: "Deployment approved, OpsJob created and managed by resource-manager",
+			Id:         req.Id,
+			Status:     StatusApproved,
+			WorkloadId: opsJob.Name,
+			Message:    "Deployment approved, OpsJob created and managed by resource-manager",
 		}, nil
 
 	} else {

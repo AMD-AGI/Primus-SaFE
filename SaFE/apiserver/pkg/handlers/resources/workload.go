@@ -176,16 +176,26 @@ func (h *Handler) createWorkload(c *gin.Context) (interface{}, error) {
 func (h *Handler) createWorkloadImpl(c *gin.Context,
 	workload *v1.Workload, requestUser *v1.User, roles []*v1.Role) (*view.CreateWorkloadResponse, error) {
 	var err error
-	if err = h.authWorkloadAction(c, workload, v1.CreateVerb, requestUser, roles); err != nil {
+	if err = h.authWorkloadAction(c, workload, v1.CreateVerb, v1.WorkloadKind, requestUser, roles); err != nil {
 		klog.ErrorS(err, "failed to auth workload", "workload", workload.Name,
 			"workspace", workload.Spec.Workspace, "user", c.GetString(common.UserName))
 		return nil, err
 	}
-	if err = h.authWorkloadPriority(c, workload, v1.CreateVerb, workload.Spec.Priority, requestUser, roles); err != nil {
+	priorityKind := generatePriority(workload.Spec.Priority)
+	if err = h.authWorkloadAction(c, workload, v1.CreateVerb, priorityKind, requestUser, roles); err != nil {
 		klog.ErrorS(err, "failed to auth workload priority", "workload", workload.Name,
 			"priority", workload.Spec.Priority, "user", c.GetString(common.UserName))
 		return nil, err
 	}
+
+	if v1.IsPrivileged(workload) {
+		if err = h.authWorkloadAction(c, workload, v1.CreateVerb, authority.WorkloadPrivilegedKind, requestUser, roles); err != nil {
+			klog.ErrorS(err, "failed to auth workload privileged",
+				"workload", workload.Name, "user", c.GetString(common.UserName))
+			return nil, err
+		}
+	}
+
 	for i, sec := range workload.Spec.Secrets {
 		secret, err := h.getAndAuthorizeSecret(c.Request.Context(), sec.Id, workload.Spec.Workspace, requestUser, v1.GetVerb)
 		if err != nil {
@@ -248,7 +258,7 @@ func (h *Handler) listWorkload(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 	adminWorkload := generateWorkloadForAuth("", "", query.WorkspaceId, query.ClusterId)
-	if err = h.authWorkloadAction(c, adminWorkload, v1.ListVerb, requestUser, roles); err != nil {
+	if err = h.authWorkloadAction(c, adminWorkload, v1.ListVerb, v1.WorkloadKind, requestUser, roles); err != nil {
 		return nil, err
 	}
 
@@ -304,7 +314,7 @@ func (h *Handler) getWorkload(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 	adminWorkload := generateWorkloadForAuth(name, dbutils.ParseNullString(dbWorkload.UserId), dbWorkload.Workspace, dbWorkload.Cluster)
-	if err = h.authWorkloadAction(c, adminWorkload, v1.GetVerb, requestUser, roles); err != nil {
+	if err = h.authWorkloadAction(c, adminWorkload, v1.GetVerb, v1.WorkloadKind, requestUser, roles); err != nil {
 		return nil, err
 	}
 	return h.cvtDBWorkloadToGetResponse(ctx, requestUser, roles, dbWorkload), nil
@@ -338,7 +348,7 @@ func (h *Handler) deleteWorkloadImpl(c *gin.Context, name string, requestUser *v
 			return nil, err
 		}
 	} else {
-		if err = h.authWorkloadAction(c, adminWorkload, v1.DeleteVerb, requestUser, roles); err != nil {
+		if err = h.authWorkloadAction(c, adminWorkload, v1.DeleteVerb, v1.WorkloadKind, requestUser, roles); err != nil {
 			return nil, err
 		}
 		message := fmt.Sprintf("the workload is deleted by %s", c.GetString(common.UserName))
@@ -353,7 +363,7 @@ func (h *Handler) deleteWorkloadImpl(c *gin.Context, name string, requestUser *v
 			return nil, commonerrors.IgnoreFound(err)
 		}
 		adminWorkload = generateWorkloadForAuth(name, dbutils.ParseNullString(dbWorkload.UserId), dbWorkload.Workspace, dbWorkload.Cluster)
-		if err = h.authWorkloadAction(c, adminWorkload, v1.DeleteVerb, requestUser, roles); err != nil {
+		if err = h.authWorkloadAction(c, adminWorkload, v1.DeleteVerb, v1.WorkloadKind, requestUser, roles); err != nil {
 			return nil, err
 		}
 		if err = h.dbClient.SetWorkloadDeleted(c.Request.Context(), name); err != nil {
@@ -423,7 +433,7 @@ func (h *Handler) stopWorkloadImpl(c *gin.Context, name string, requestUser *v1.
 		}
 		adminWorkload = generateWorkloadForAuth(name,
 			dbutils.ParseNullString(dbWorkload.UserId), dbWorkload.Workspace, dbWorkload.Cluster)
-		if err = h.authWorkloadAction(c, adminWorkload, v1.DeleteVerb, requestUser, roles); err != nil {
+		if err = h.authWorkloadAction(c, adminWorkload, v1.DeleteVerb, v1.WorkloadKind, requestUser, roles); err != nil {
 			return nil, err
 		}
 		if err = h.dbClient.SetWorkloadStopped(c.Request.Context(), name); err != nil {
@@ -433,7 +443,7 @@ func (h *Handler) stopWorkloadImpl(c *gin.Context, name string, requestUser *v1.
 		if adminWorkload.IsEnd() {
 			return nil, nil
 		}
-		if err = h.authWorkloadAction(c, adminWorkload, v1.DeleteVerb, requestUser, roles); err != nil {
+		if err = h.authWorkloadAction(c, adminWorkload, v1.DeleteVerb, v1.WorkloadKind, requestUser, roles); err != nil {
 			return nil, err
 		}
 		message := fmt.Sprintf("the workload is stopped by %s", c.GetString(common.UserName))
@@ -469,11 +479,12 @@ func (h *Handler) patchWorkload(c *gin.Context) (interface{}, error) {
 	if _, err = apiutils.ParseRequestBody(c.Request, req); err != nil {
 		return nil, commonerrors.NewBadRequest(err.Error())
 	}
-	if err = h.authWorkloadAction(c, adminWorkload, v1.UpdateVerb, requestUser, roles); err != nil {
+	if err = h.authWorkloadAction(c, adminWorkload, v1.UpdateVerb, v1.WorkloadKind, requestUser, roles); err != nil {
 		return nil, err
 	}
 	if req.Priority != nil {
-		if err = h.authWorkloadPriority(c, adminWorkload, v1.UpdateVerb, *req.Priority, requestUser, roles); err != nil {
+		priorityKind := generatePriority(*req.Priority)
+		if err = h.authWorkloadAction(c, adminWorkload, v1.UpdateVerb, priorityKind, requestUser, roles); err != nil {
 			return nil, err
 		}
 	}
@@ -574,7 +585,7 @@ func (h *Handler) getWorkloadPodLog(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err = h.authWorkloadAction(c, workload, v1.GetVerb, requestUser, roles); err != nil {
+	if err = h.authWorkloadAction(c, workload, v1.GetVerb, v1.WorkloadKind, requestUser, roles); err != nil {
 		return nil, err
 	}
 
@@ -693,42 +704,24 @@ func (h *Handler) getRunningWorkloads(ctx context.Context, clusterName string, w
 // authWorkloadAction performs authorization checks for workload-related actions.
 // Validates if the requesting user has permission to perform the specified action on the workload.
 func (h *Handler) authWorkloadAction(c *gin.Context,
-	adminWorkload *v1.Workload, verb v1.RoleVerb, requestUser *v1.User, roles []*v1.Role) error {
+	adminWorkload *v1.Workload, verb v1.RoleVerb, resourceKind string, requestUser *v1.User, roles []*v1.Role) error {
 	var workspaces []string
 	if adminWorkload.Spec.Workspace != "" {
 		workspaces = append(workspaces, adminWorkload.Spec.Workspace)
 	}
-	if err := h.accessController.Authorize(authority.AccessInput{
-		Context:      c.Request.Context(),
-		ResourceKind: v1.WorkloadKind,
-		Resource:     adminWorkload,
-		Verb:         verb,
-		Workspaces:   workspaces,
-		User:         requestUser,
-		UserId:       c.GetString(common.UserId),
-		Roles:        roles,
-	}); err != nil {
-		return err
-	}
-	return nil
-}
-
-// authWorkloadPriority performs authorization checks for workload priority operations.
-// Validates if the requesting user has permission to set the specified priority level.
-func (h *Handler) authWorkloadPriority(c *gin.Context, adminWorkload *v1.Workload,
-	verb v1.RoleVerb, priority int, requestUser *v1.User, roles []*v1.Role) error {
-	priorityKind := fmt.Sprintf("workload/%s", commonworkload.GeneratePriority(priority))
-	resourceOwner := ""
-	if verb == v1.UpdateVerb {
-		resourceOwner = v1.GetUserId(adminWorkload)
+	resourceOwner := v1.GetUserId(adminWorkload)
+	if verb == v1.CreateVerb {
+		resourceOwner = ""
 	}
 	if err := h.accessController.Authorize(authority.AccessInput{
 		Context:       c.Request.Context(),
-		ResourceKind:  priorityKind,
+		ResourceKind:  resourceKind,
 		ResourceOwner: resourceOwner,
+		ResourceName:  adminWorkload.Name,
 		Verb:          verb,
-		Workspaces:    []string{adminWorkload.Spec.Workspace},
+		Workspaces:    workspaces,
 		User:          requestUser,
+		UserId:        c.GetString(common.UserId),
 		Roles:         roles,
 	}); err != nil {
 		return err
@@ -758,6 +751,12 @@ func (h *Handler) generateWorkload(ctx context.Context,
 	if err = json.Unmarshal(body, &workload.Spec); err != nil {
 		return nil, err
 	}
+	controlPlaneIp, err := h.getAdminControlPlaneIp(ctx)
+	if err != nil {
+		return nil, err
+	}
+	v1.SetAnnotation(workload, v1.AdminControlPlaneAnnotation, controlPlaneIp)
+
 	if commonworkload.IsAuthoring(workload) {
 		if len(req.SpecifiedNodes) > 1 {
 			return nil, fmt.Errorf("the authoring can only be created with one node")
@@ -790,6 +789,9 @@ func (h *Handler) generateWorkload(ctx context.Context,
 		v1.SetLabel(workload, v1.UserIdLabel, req.UserEntity.Id)
 		v1.SetAnnotation(workload, v1.UserNameAnnotation, req.UserEntity.Name)
 	}
+	if req.Privileged {
+		v1.SetAnnotation(workload, v1.WorkloadPrivilegedAnnotation, v1.TrueStr)
+	}
 	return workload, nil
 }
 
@@ -798,8 +800,8 @@ func (h *Handler) createPreheatWorkload(c *gin.Context, mainWorkload *v1.Workloa
 	mainQuery *view.CreateWorkloadRequest, requestUser *v1.User, roles []*v1.Role) (*v1.Workload, error) {
 	displayName := v1.GetDisplayName(mainWorkload)
 	description := "preheat"
-	if len(displayName) > commonutils.MaxDisplayNameLen-len(description)-1 {
-		displayName = displayName[:commonutils.MaxDisplayNameLen-len(description)-1]
+	if len(displayName) > commonutils.MaxPytorchJobNameLen-len(PreheatDescription)-1 {
+		displayName = displayName[:commonutils.MaxPytorchJobNameLen-len(PreheatDescription)-1]
 	}
 	displayName = description + "-" + displayName
 
@@ -1489,7 +1491,7 @@ func (h *Handler) getWorkloadPodContainers(c *gin.Context) (interface{}, error) 
 		}
 	}
 
-	if err = h.authWorkloadAction(c, adminWorkload, v1.GetVerb, requestUser, roles); err != nil {
+	if err = h.authWorkloadAction(c, adminWorkload, v1.GetVerb, v1.WorkloadKind, requestUser, roles); err != nil {
 		return nil, err
 	}
 
@@ -1519,4 +1521,8 @@ func cvtToWorkloadResources(dbItem *dbclient.Workload, kind string) []v1.Workloa
 		return commonworkload.ConvertResourceToList(resource, kind)
 	}
 	return nil
+}
+
+func generatePriority(priority int) string {
+	return fmt.Sprintf("workload/%s", commonworkload.GeneratePriority(priority))
 }

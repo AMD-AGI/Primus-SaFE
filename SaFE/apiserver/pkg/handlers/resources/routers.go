@@ -8,10 +8,10 @@ package resources
 import (
 	"fmt"
 
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/middleware"
 	"github.com/gin-gonic/gin"
 
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
-	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/middle"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/resources/view"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 )
@@ -22,7 +22,7 @@ import (
 // workloads, secrets, faults, nodes, workspaces, clusters, users, flavors, jobs, logs, and public keys.
 func InitCustomRouters(e *gin.Engine, h *Handler) {
 	// Custom API requires authentication and preprocessing.
-	group := e.Group(common.PrimusRouterCustomRootPath, middle.Authorize(), middle.Preprocess())
+	group := e.Group(common.PrimusRouterCustomRootPath, middleware.Authorize(), middleware.Preprocess())
 	{
 		group.POST("workloads", h.CreateWorkload)
 		group.POST("workloads/clone", h.CloneWorkloads)
@@ -53,6 +53,7 @@ func InitCustomRouters(e *gin.Engine, h *Handler) {
 
 		group.POST("nodes", h.CreateNode)
 		group.POST("nodes/delete", h.DeleteNodes)
+		group.POST("nodes/retry", h.RetryNodes)
 		group.DELETE(fmt.Sprintf("nodes/:%s", common.Name), h.DeleteNode)
 		group.PATCH(fmt.Sprintf("nodes/:%s", common.Name), h.PatchNode)
 		group.GET(fmt.Sprintf("nodes/:%s/logs", common.Name), h.GetNodePodLog)
@@ -114,11 +115,12 @@ func InitCustomRouters(e *gin.Engine, h *Handler) {
 		// API Key management routes
 		group.POST("apikeys", h.CreateApiKey)
 		group.GET("apikeys", h.ListApiKey)
+		group.GET("apikeys/current", h.GetCurrentApiKey)
 		group.DELETE("apikeys/:id", h.DeleteApiKey)
 	}
 
 	// Custom API without authentication
-	noAuthGroup := e.Group(common.PrimusRouterCustomRootPath, middle.Preprocess())
+	noAuthGroup := e.Group(common.PrimusRouterCustomRootPath, middleware.Preprocess())
 	{
 		noAuthGroup.GET("clusters", h.ListCluster)
 		noAuthGroup.GET(fmt.Sprintf("clusters/:%s", common.Name), h.GetCluster)

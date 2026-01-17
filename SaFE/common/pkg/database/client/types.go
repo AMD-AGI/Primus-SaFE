@@ -280,6 +280,7 @@ type DeploymentRequest struct {
 	RejectionReason sql.NullString `db:"rejection_reason"`
 	FailureReason   sql.NullString `db:"failure_reason"`
 	RollbackFromId  sql.NullInt64  `db:"rollback_from_id"`
+	WorkloadId      sql.NullString `db:"workload_id"` // Associated workload/opsjob ID
 	CreatedAt       pq.NullTime    `db:"created_at"`
 	UpdatedAt       pq.NullTime    `db:"updated_at"`
 	ApprovedAt      pq.NullTime    `db:"approved_at"`
@@ -322,4 +323,40 @@ type ApiKey struct {
 func GetApiKeyFieldTags() map[string]string {
 	k := ApiKey{}
 	return getFieldTags(k)
+}
+
+// DatasetLocalPathDB represents the local path status stored in database as JSON
+type DatasetLocalPathDB struct {
+	Workspace string        `json:"workspace"`
+	Path      string        `json:"path"`
+	Status    DatasetStatus `json:"status"`
+	Message   string        `json:"message,omitempty"`
+}
+
+// Dataset represents a dataset record in the database.
+type Dataset struct {
+	Id           int64         `db:"id"`
+	DatasetId    string        `db:"dataset_id"`
+	DisplayName  string        `db:"display_name"`
+	Description  string        `db:"description"`
+	DatasetType  string        `db:"dataset_type"`
+	Status       DatasetStatus `db:"status"`
+	S3Path       string      `db:"s3_path"`
+	TotalSize    int64       `db:"total_size"`
+	FileCount    int         `db:"file_count"`
+	Message      string      `db:"message"`
+	LocalPaths   string      `db:"local_paths"` // JSON array of DatasetLocalPathDB
+	Workspace    string      `db:"workspace"`   // Workspace ID for access control, empty means public
+	UserId       string      `db:"user_id"`
+	UserName     string      `db:"user_name"`
+	CreationTime pq.NullTime `db:"creation_time"`
+	UpdateTime   pq.NullTime `db:"update_time"`
+	DeletionTime pq.NullTime `db:"deletion_time"`
+	IsDeleted    bool        `db:"is_deleted"`
+}
+
+// GetDatasetFieldTags returns the DatasetFieldTags value.
+func GetDatasetFieldTags() map[string]string {
+	d := Dataset{}
+	return getFieldTags(d)
 }

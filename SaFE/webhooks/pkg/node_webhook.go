@@ -152,8 +152,7 @@ func (m *NodeMutator) mutateLabels(node *v1.Node) bool {
 	if v1.RemoveEmptyLabel(node, v1.ClusterIdLabel) {
 		isChanged = true
 	}
-	if node.GetSpecCluster() != "" && v1.HasAnnotation(node, v1.NodeResetAnnotation) {
-		v1.RemoveAnnotation(node, v1.NodeResetAnnotation)
+	if node.GetSpecHostName() != "" && v1.SetLabel(node, v1.NodeHostnameLabel, node.GetSpecHostName()) {
 		isChanged = true
 	}
 	return isChanged
@@ -260,7 +259,7 @@ func (v *NodeValidator) validateOnUpdate(ctx context.Context, newNode, oldNode *
 
 // validateCommon validates display name and node spec.
 func (v *NodeValidator) validateCommon(ctx context.Context, node *v1.Node) error {
-	if err := validateDisplayName(v1.GetDisplayName(node)); err != nil {
+	if err := validateDisplayName(v1.GetDisplayName(node), ""); err != nil {
 		return err
 	}
 	if err := validateLabels(node.GetLabels()); err != nil {
