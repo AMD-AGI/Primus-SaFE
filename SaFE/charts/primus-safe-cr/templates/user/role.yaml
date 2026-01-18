@@ -137,6 +137,7 @@ rules:
     - workload/med-priority
     - workload/low-priority
     - workload/privileged
+    - AddonTemplate
   grantedUsers:
     - workspace-user
   verbs:

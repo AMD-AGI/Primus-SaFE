@@ -285,27 +285,34 @@ func (h *Handler) generateAddonJob(c *gin.Context, body []byte) (*v1.OpsJob, err
 	if err != nil {
 		return nil, err
 	}
-	if err = h.accessController.Authorize(authority.AccessInput{
-		Context:      c.Request.Context(),
-		ResourceKind: v1.AddOnTemplateKind,
-		Verb:         v1.CreateVerb,
-		User:         requestUser,
-	}); err != nil {
-		return nil, err
-	}
 
 	req := &view.CreateAddonRequest{}
 	if err = jsonutils.Unmarshal(body, req); err != nil {
 		return nil, err
 	}
+	job := genDefaultOpsJob(&req.BaseOpsJobRequest, requestUser)
+	job.Spec.ExcludedNodes = req.ExcludedNodes
+	if err = h.generateOpsJobNodesInput(c.Request.Context(), job); err != nil {
+		return nil, err
+	}
+
+	if err = h.accessController.Authorize(authority.AccessInput{
+		Context:      c.Request.Context(),
+		ResourceKind: v1.AddOnTemplateKind,
+		Verb:         v1.CreateVerb,
+		Workspaces:   []string{v1.GetWorkspaceId(job)},
+		User:         requestUser,
+	}); err != nil {
+		return nil, err
+	}
+
 	if req.BatchCount <= 0 {
 		req.BatchCount = 1
 	}
 	if req.AvailableRatio == nil || *req.AvailableRatio <= 0 {
 		req.AvailableRatio = pointer.Float64(1.0)
 	}
-	job := genDefaultOpsJob(&req.BaseOpsJobRequest, requestUser)
-	job.Spec.ExcludedNodes = req.ExcludedNodes
+
 	if req.SecurityUpgrade {
 		v1.SetAnnotation(job, v1.OpsJobSecurityUpgradeAnnotation, "")
 	}
@@ -313,9 +320,6 @@ func (h *Handler) generateAddonJob(c *gin.Context, body []byte) (*v1.OpsJob, err
 	v1.SetAnnotation(job, v1.OpsJobAvailRatioAnnotation,
 		strconv.FormatFloat(*req.AvailableRatio, 'f', -1, 64))
 
-	if err = h.generateOpsJobNodesInput(c.Request.Context(), job); err != nil {
-		return nil, err
-	}
 	return job, nil
 }
 
