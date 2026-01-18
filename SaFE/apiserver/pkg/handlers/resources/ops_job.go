@@ -669,12 +669,27 @@ func genDefaultOpsJob(req *view.BaseOpsJobRequest, requestUser *v1.User) *v1.Ops
 // are filtered out. The function ensures that ops jobs are ultimately executed on a per-node basis.
 func (h *Handler) generateOpsJobNodesInput(ctx context.Context, job *v1.OpsJob) error {
 	excludedNodesSet := sets.NewSetByKeys(job.Spec.ExcludedNodes...)
+	workspaceId := ""
+	allTheSameWorkspace := true
 	if nodeParams := job.GetParameters(v1.ParameterNode); len(nodeParams) > 0 {
 		for i, n := range nodeParams {
 			if excludedNodesSet.Has(n.Value) {
 				// if set empty, it will be ignored by webhook
 				nodeParams[i].Value = ""
+				continue
 			}
+			node, err := h.getAdminNode(ctx, n.Value)
+			if err != nil {
+				return err
+			}
+			if workspaceId == "" {
+				workspaceId = v1.GetWorkspaceId(node)
+			} else if workspaceId != v1.GetWorkspaceId(node) {
+				allTheSameWorkspace = false
+			}
+		}
+		if allTheSameWorkspace && workspaceId != "" {
+			v1.SetLabel(job, v1.WorkspaceIdLabel, workspaceId)
 		}
 	} else if nodeHostParams := job.GetParameters(v1.ParameterNodeHost); len(nodeHostParams) > 0 {
 		for _, n := range nodeHostParams {
@@ -686,7 +701,15 @@ func (h *Handler) generateOpsJobNodesInput(ctx context.Context, job *v1.OpsJob) 
 			if len(nodeList) == 0 || excludedNodesSet.Has(nodeList[0].Name) {
 				continue
 			}
+			if workspaceId == "" {
+				workspaceId = v1.GetWorkspaceId(&nodeList[0])
+			} else if workspaceId != v1.GetWorkspaceId(&nodeList[0]) {
+				allTheSameWorkspace = false
+			}
 			job.Spec.Inputs = append(job.Spec.Inputs, v1.Parameter{Name: v1.ParameterNode, Value: nodeList[0].Name})
+		}
+		if allTheSameWorkspace && workspaceId != "" {
+			v1.SetLabel(job, v1.WorkspaceIdLabel, workspaceId)
 		}
 	} else if workloadParam := job.GetParameter(v1.ParameterWorkload); workloadParam != nil {
 		nodes, workspaceId, err := h.getNodesOfWorkload(ctx, workloadParam.Value)

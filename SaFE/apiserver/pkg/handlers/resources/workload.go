@@ -800,8 +800,8 @@ func (h *Handler) createPreheatWorkload(c *gin.Context, mainWorkload *v1.Workloa
 	mainQuery *view.CreateWorkloadRequest, requestUser *v1.User, roles []*v1.Role) (*v1.Workload, error) {
 	displayName := v1.GetDisplayName(mainWorkload)
 	description := "preheat"
-	if len(displayName) > commonutils.MaxPytorchJobNameLen-len(PreheatDescription)-1 {
-		displayName = displayName[:commonutils.MaxPytorchJobNameLen-len(PreheatDescription)-1]
+	if len(displayName) > commonutils.MaxPytorchJobNameLen-len(description)-1 {
+		displayName = displayName[:commonutils.MaxPytorchJobNameLen-len(description)-1]
 	}
 	displayName = description + "-" + displayName
 
