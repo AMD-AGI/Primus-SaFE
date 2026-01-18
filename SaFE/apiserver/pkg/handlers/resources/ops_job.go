@@ -893,6 +893,8 @@ func (h *Handler) authGetOpsJob(c *gin.Context, workspaceId, opsType string) err
 		resourceKind = authority.DownloadKind
 	case string(v1.OpsJobDumpLogType):
 		resourceKind = authority.DumpLogKind
+	case string(v1.OpsJobAddonType):
+		resourceKind = v1.AddOnTemplateKind
 	default:
 		resourceKind = v1.OpsJobKind
 	}
