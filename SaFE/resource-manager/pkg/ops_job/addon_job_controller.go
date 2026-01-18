@@ -298,7 +298,7 @@ func (r *AddonJobReconciler) handleNodes(ctx context.Context, job *v1.OpsJob, no
 
 		}, maxWaitTime, waitTime)
 		if err != nil {
-			klog.ErrorS(err, "failed to handle opsjob", "job", job.Name, "node", nodeName)
+			klog.ErrorS(err, "failed to handle opsJob", "job", job.Name, "node", nodeName)
 			if r.setNodePhase(job.Name, nodeName, v1.OpsJobFailed) {
 				r.addFailedNodeCondition(ctx, job.Name, nodeName, err.Error())
 			}
@@ -350,7 +350,7 @@ func (r *AddonJobReconciler) handleNode(ctx context.Context,
 	}
 	scriptParams := job.GetParameters(v1.ParameterScript)
 	for _, p := range scriptParams {
-		if err = executeCommand(sshClient, "script", p.Value, true); err != nil {
+		if err = executeCommand(sshClient, "", p.Value, true); err != nil {
 			return false, err
 		}
 		isTaskRunning = true
@@ -398,7 +398,8 @@ func executeCommand(sshClient *ssh.Client, name, command string, isRequired bool
 	}
 	defer session.Close()
 
-	err = session.Run(cmd)
+	// Capture combined stdout and stderr output
+	output, err := session.CombinedOutput(cmd)
 	if err == nil {
 		return nil
 	}
@@ -406,12 +407,13 @@ func executeCommand(sshClient *ssh.Client, name, command string, isRequired bool
 	if errors.As(err, &exitError) {
 		message := exitError.Error()
 		message = normalizeErrorMessage(message)
+		outputStr := normalizeErrorMessage(string(output))
 		klog.ErrorS(err, "failed to execute command", "addon", name,
-			"message", message, "code", exitError.ExitStatus())
-		err = commonerrors.NewInternalError(
-			fmt.Sprintf("message: %s, code: %d, addon: %s", message, exitError.ExitStatus(), name))
+			"exit_status", exitError.ExitStatus(), "output", outputStr)
+		err = commonerrors.NewInternalError(fmt.Sprintf("addon: %s, message: %s, exit_status: %d, output: %s",
+			name, message, exitError.ExitStatus(), outputStr))
 	} else {
-		klog.ErrorS(err, "failed to execute command", "addon", name)
+		klog.ErrorS(err, "failed to execute command", "addon", name, "output", string(output))
 	}
 	if !isRequired {
 		return nil

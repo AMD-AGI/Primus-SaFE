@@ -133,7 +133,7 @@ def get_ops_job(endpoint: str, apikey: str, job_id: str, max_retries: int = 10, 
     return {}
 
 
-def wait_for_completion(endpoint: str, apikey: str, job_id: str, timeout: int = 300, poll_interval: int = 1) -> bool:
+def wait_for_completion(endpoint: str, apikey: str, job_id: str, node_name: str, timeout: int = 300, poll_interval: int = 1) -> bool:
     """
     Wait for OpsJob to complete.
     
@@ -141,6 +141,7 @@ def wait_for_completion(endpoint: str, apikey: str, job_id: str, timeout: int = 
         endpoint: The control plane endpoint
         apikey: API key for authentication
         job_id: The job ID to monitor
+        node_name: The node name to find error details
         timeout: Maximum wait time in seconds
         poll_interval: Polling interval in seconds
     
@@ -166,6 +167,14 @@ def wait_for_completion(endpoint: str, apikey: str, job_id: str, timeout: int = 
             return True
         elif phase == "Failed":
             print(f"\n✗ The script execution failed!", file=sys.stderr)
+            # Find error details from conditions
+            conditions = result.get("conditions", [])
+            for cond in conditions:
+                cond_type = cond.get("type", "")
+                if (cond_type == node_name or node_name in cond_type) and cond.get("status") == "False":
+                    message = cond.get("message", "Unknown error")
+                    print(f"Error on {node_name}: {message}", file=sys.stderr)
+                    break
             return False
         
         # Still running (Pending, Running, etc.), continue polling
@@ -193,7 +202,7 @@ def main():
     job_id = create_ops_job(endpoint, apikey, node_name, script_base64)
     
     # Wait for completion
-    success = wait_for_completion(endpoint, apikey, job_id)
+    success = wait_for_completion(endpoint, apikey, job_id, node_name)
     
     sys.exit(0 if success else 1)
 
