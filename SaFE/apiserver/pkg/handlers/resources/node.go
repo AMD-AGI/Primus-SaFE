@@ -108,14 +108,6 @@ func (h *Handler) DeleteNodes(c *gin.Context) {
 
 // RetryNodes handles batch retrying node management operations (single or multiple nodes).
 // It deletes up/down pods for specified nodes and lets the controller handle the retry.
-// @Summary Batch retry node management operations
-// @Description Delete management pods for multiple nodes to trigger controller retry
-// @Tags nodes
-// @Accept json
-// @Produce json
-// @Param request body view.RetryNodesRequest true "List of node IDs to retry"
-// @Success 200 {object} view.RetryNodesResponse
-// @Router /api/v1/nodes/retry [post]
 func (h *Handler) RetryNodes(c *gin.Context) {
 	handle(c, h.retryNodes)
 }
@@ -125,6 +117,13 @@ func (h *Handler) RetryNodes(c *gin.Context) {
 // automatically recreate them based on the node's Spec.Cluster value.
 func (h *Handler) retryNodes(c *gin.Context) (interface{}, error) {
 	ctx := c.Request.Context()
+
+	// Get user information for authorization
+	requestUser, err := h.getAndSetUsername(c)
+	if err != nil {
+		return nil, err
+	}
+	roles := h.accessController.GetRoles(ctx, requestUser)
 
 	req := &view.RetryNodesRequest{}
 	if _, err := apiutils.ParseRequestBody(c.Request, req); err != nil {
@@ -143,6 +142,16 @@ func (h *Handler) retryNodes(c *gin.Context) (interface{}, error) {
 	}
 
 	for _, nodeName := range req.NodeIds {
+		// Authorize node access
+		if err := h.authorizeNodeAccess(ctx, nodeName, v1.UpdateVerb, requestUser, roles); err != nil {
+			klog.ErrorS(err, "authorization failed for node retry", "node", nodeName)
+			response.FailedNodes = append(response.FailedNodes, view.RetryFailedNode{
+				NodeId: nodeName,
+				Error:  err.Error(),
+			})
+			continue
+		}
+
 		// Delete all up/down pods for this node and get pod info
 		podInfo, err := h.deleteNodeManagementPods(ctx, nodeName)
 		if err != nil {
@@ -162,15 +171,25 @@ func (h *Handler) retryNodes(c *gin.Context) (interface{}, error) {
 		klog.Infof("retry initiated for node %s (deleted %d pods)", nodeName, len(podInfo.deleted))
 	}
 
-	// Clear slices if empty to avoid returning empty array in JSON
-	if len(response.SuccessNodes) == 0 {
-		response.SuccessNodes = nil
-	}
-	if len(response.FailedNodes) == 0 {
-		response.FailedNodes = nil
+	return response, nil
+}
+
+// authorizeNodeAccess checks if the user has permission to perform the specified verb on a node.
+// It retrieves the node and validates access based on the user's roles and workspace membership.
+func (h *Handler) authorizeNodeAccess(ctx context.Context, nodeName string, verb v1.RoleVerb, user *v1.User, roles []*v1.Role) error {
+	node, err := h.getAdminNode(ctx, nodeName)
+	if err != nil {
+		return err
 	}
 
-	return response, nil
+	return h.accessController.Authorize(authority.AccessInput{
+		Context:    ctx,
+		Resource:   node,
+		Verb:       verb,
+		Workspaces: []string{v1.GetWorkspaceId(node)},
+		User:       user,
+		Roles:      roles,
+	})
 }
 
 // podDeleteResult holds information about deleted pods
