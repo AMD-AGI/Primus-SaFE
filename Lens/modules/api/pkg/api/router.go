@@ -149,6 +149,18 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		alertRuleAdviceGroup.POST(":id/apply", ApplyAlertRuleAdvice)
 	}
 
+	// Notification Channel routes - Reusable notification channel configurations
+	notificationChannelGroup := group.Group("/notification-channels")
+	{
+		notificationChannelGroup.GET("/types", GetChannelTypes)
+		notificationChannelGroup.POST("", CreateNotificationChannel)
+		notificationChannelGroup.GET("", ListNotificationChannels)
+		notificationChannelGroup.GET(":id", GetNotificationChannel)
+		notificationChannelGroup.PUT(":id", UpdateNotificationChannel)
+		notificationChannelGroup.DELETE(":id", DeleteNotificationChannel)
+		notificationChannelGroup.POST(":id/test", TestNotificationChannel)
+	}
+
 	// GPU Aggregation routes - GPU aggregation data query
 	gpuAggregationGroup := group.Group("/gpu-aggregation")
 	{
