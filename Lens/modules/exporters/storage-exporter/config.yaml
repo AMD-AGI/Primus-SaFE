@@ -1,0 +1,37 @@
+# Storage Exporter Configuration
+
+httpPort: 8992
+loadK8SClient: true
+
+storage:
+  # Scrape interval for storage metrics (execute df command)
+  scrapeInterval: 60s
+
+  # Storage mounts to monitor
+  # Each mount should be configured in the Deployment and mounted to the specified path
+  mounts:
+    # WekaFS filesystem: amdprj2-k8s
+    - name: wekafs-amdprj2-k8s
+      mountPath: /mnt/wekafs-amdprj2-k8s
+      storageType: wekafs
+      filesystemName: amdprj2-k8s
+      # The PVC name used in deployment (for reference)
+      pvcName: storage-exporter-wekafs-amdprj2-k8s
+
+    # Example: Another WekaFS filesystem
+    # - name: wekafs-opensearch-fs
+    #   mountPath: /mnt/wekafs-opensearch-fs
+    #   storageType: wekafs
+    #   filesystemName: opensearch-fs
+    #   pvcName: storage-exporter-wekafs-opensearch-fs
+
+# Prometheus metrics configuration
+metrics:
+  # Additional static labels to add to all metrics
+  staticLabels:
+    primus_lens_cluster: x-flannel
+
+# Middleware configuration
+middleware:
+  enableLogging: true
+  enableTracing: false

@@ -167,6 +167,13 @@ jobs:
           echo "github_runners_exporter_changed=false" >> $GITHUB_OUTPUT
         fi
         
+        # storage_exporter: Lens/modules/exporters/storage-exporter/** or Lens/modules/core/**
+        if echo "$CHANGED_FILES" | grep -qE '^Lens/modules/exporters/storage-exporter/|^Lens/modules/core/'; then
+          echo "storage_exporter_changed=true" >> $GITHUB_OUTPUT
+        else
+          echo "storage_exporter_changed=false" >> $GITHUB_OUTPUT
+        fi
+        
         # installer: Lens/bootstrap/installer/** or Lens/charts/**
         if echo "$CHANGED_FILES" | grep -qE '^Lens/bootstrap/installer/|^Lens/charts/'; then
           echo "installer_changed=true" >> $GITHUB_OUTPUT
@@ -233,6 +240,9 @@ jobs:
           fi
           if [[ "${{ steps.detect-changes.outputs.github_runners_exporter_changed }}" == "true" ]]; then
             MATRIX+='{"name":"github-runners-exporter","buildpath":"cmd/github-runners-exporter","basepath":"Lens/modules/exporters/github-runners-exporter/"},'
+          fi
+          if [[ "${{ steps.detect-changes.outputs.storage_exporter_changed }}" == "true" ]]; then
+            MATRIX+='{"name":"storage-exporter","buildpath":"cmd/storage-exporter","basepath":"Lens/modules/exporters/storage-exporter/"},'
           fi
           MATRIX=${MATRIX%,} # remove trailing comma
           MATRIX+=']}'
