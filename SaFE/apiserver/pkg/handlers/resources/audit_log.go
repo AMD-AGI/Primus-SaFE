@@ -307,25 +307,30 @@ func extractActionFromPath(path string) string {
 func singularize(s string) string {
 	// Handle special cases
 	specialCases := map[string]string{
-		"apikeys":       "apikey",
-		"workloads":     "workload",
-		"workspaces":    "workspace",
-		"clusters":      "cluster",
-		"nodes":         "node",
-		"secrets":       "secret",
-		"users":         "user",
-		"faults":        "fault",
-		"nodetemplates": "nodetemplate",
-		"nodeflavors":   "nodeflavor",
-		"opsjobs":       "opsjob",
-		"publickeys":    "publickey",
-		"addons":        "addon",
-		"auditlogs":     "auditlog",
-		"deployments":   "deployment",
-		"datasets":      "dataset",
+		"apikeys":          "apikey",
+		"workloads":        "workload",
+		"workspaces":       "workspace",
+		"clusters":         "cluster",
+		"nodes":            "node",
+		"secrets":          "secret",
+		"users":            "user",
+		"faults":           "fault",
+		"nodetemplates":    "nodetemplate",
+		"nodeflavors":      "nodeflavor",
+		"opsjobs":          "opsjob",
+		"publickeys":       "publickey",
+		"addons":           "addon",
+		"auditlogs":        "auditlog",
+		"deployments":      "deployment",
+		"datasets":         "dataset",
+		"image-registries": "image-registry",
 	}
 	if singular, ok := specialCases[strings.ToLower(s)]; ok {
 		return singular
+	}
+	// Handle words ending with "-ies" -> "-y" (e.g., registries -> registry)
+	if strings.HasSuffix(s, "ies") && len(s) > 3 {
+		return s[:len(s)-3] + "y"
 	}
 	// Default: remove trailing 's'
 	if strings.HasSuffix(s, "s") && len(s) > 1 {
