@@ -374,9 +374,10 @@ func (c *Controller) ensureStaticPV(ctx context.Context, fs FilesystemInfo, pvNa
 		return err
 	}
 
-	// Create static PV with volumeHandle pointing to the filesystem root (no quota)
-	// Format: dir/v1/{filesystemName}/csi-volumes/storage-exporter-{fsName}
-	volumeHandle := fmt.Sprintf("dir/v1/%s/csi-volumes/storage-exporter-%s", fs.FilesystemName, fs.Name)
+	// Create static PV with volumeHandle pointing to the filesystem (no quota)
+	// Use "csi-volumes/public" as it's a common existing directory in WekaFS
+	// Format: dir/v1/{filesystemName}/csi-volumes/public
+	volumeHandle := fmt.Sprintf("dir/v1/%s/csi-volumes/public", fs.FilesystemName)
 
 	pv := &corev1.PersistentVolume{
 		ObjectMeta: metav1.ObjectMeta{
@@ -398,7 +399,7 @@ func (c *Controller) ensureStaticPV(ctx context.Context, fs FilesystemInfo, pvNa
 			AccessModes:                   []corev1.PersistentVolumeAccessMode{corev1.ReadOnlyMany},
 			PersistentVolumeReclaimPolicy: corev1.PersistentVolumeReclaimRetain,
 			StorageClassName:              "",
-			MountOptions: []string{"ro", "relatime", "forcedirect", "noatime"},
+			MountOptions:                  []string{"ro", "relatime", "forcedirect", "noatime"},
 			PersistentVolumeSource: corev1.PersistentVolumeSource{
 				CSI: &corev1.CSIPersistentVolumeSource{
 					Driver:       wekafsProvisioner,
