@@ -192,6 +192,13 @@ func (j *GithubWorkflowCollectorJob) Run(ctx context.Context, clientSets *client
 			}
 		}
 
+		// Auto-generate dashboard summary with regression analysis
+		// This runs after metrics extraction and GitHub data fetching
+		if err := j.generateDashboardSummary(ctx, config, run); err != nil {
+			log.Warnf("GithubWorkflowCollectorJob: failed to generate dashboard summary for run %d: %v", run.ID, err)
+			// Don't fail the job, dashboard can be regenerated later
+		}
+
 		totalCompleted++
 		totalProcessed++
 		totalMetrics += metricsCreated

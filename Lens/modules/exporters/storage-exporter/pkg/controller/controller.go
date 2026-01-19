@@ -30,6 +30,7 @@ const (
 	labelStorageType  = "storage-exporter.primus-lens/storage-type"
 	managedByValue    = "storage-exporter"
 	collectorImage    = "alpine:3.19"
+	pvPrefix          = "storage-exporter-pv-"
 	pvcPrefix         = "storage-exporter-"
 	podPrefix         = "storage-collector-"
 )
@@ -305,48 +306,124 @@ func (c *Controller) collectFilesystem(ctx context.Context, fs FilesystemInfo) S
 	return metrics
 }
 
-// ensurePVC ensures the PVC exists for the filesystem
+// ensurePVC ensures the static PV and PVC exist for the filesystem (no quota)
 func (c *Controller) ensurePVC(ctx context.Context, fs FilesystemInfo, pvcName string) error {
-	_, err := c.client.CoreV1().PersistentVolumeClaims(c.namespace).Get(ctx, pvcName, metav1.GetOptions{})
+	pvName := pvPrefix + fs.Name
+
+	// Check if PVC already exists and is bound
+	pvc, err := c.client.CoreV1().PersistentVolumeClaims(c.namespace).Get(ctx, pvcName, metav1.GetOptions{})
+	if err == nil && pvc.Status.Phase == corev1.ClaimBound {
+		return nil // PVC exists and bound
+	}
+
+	if err != nil && !errors.IsNotFound(err) {
+		return err
+	}
+
+	// First, ensure static PV exists (without quota)
+	if err := c.ensureStaticPV(ctx, fs, pvName, pvcName); err != nil {
+		return fmt.Errorf("failed to ensure static PV: %w", err)
+	}
+
+	// Then create PVC if not exists
+	if errors.IsNotFound(err) {
+		emptyStorageClass := ""
+		pvc := &corev1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      pvcName,
+				Namespace: c.namespace,
+				Labels: map[string]string{
+					labelManagedBy:   managedByValue,
+					labelFilesystem:  fs.FilesystemName,
+					labelStorageType: fs.StorageType,
+				},
+			},
+			Spec: corev1.PersistentVolumeClaimSpec{
+				AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadOnlyMany},
+				// Use empty StorageClassName for static PV binding
+				StorageClassName: &emptyStorageClass,
+				VolumeName:       pvName,
+				Resources: corev1.VolumeResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceStorage: resource.MustParse("1Pi"),
+					},
+				},
+			},
+		}
+
+		_, err = c.client.CoreV1().PersistentVolumeClaims(c.namespace).Create(ctx, pvc, metav1.CreateOptions{})
+		if err != nil && !errors.IsAlreadyExists(err) {
+			return err
+		}
+
+		log.Infof("Created PVC %s bound to static PV %s for filesystem %s", pvcName, pvName, fs.FilesystemName)
+	}
+
+	// Wait for PVC to be bound
+	return c.waitForPVCBound(ctx, pvcName)
+}
+
+// ensureStaticPV creates a static PV without quota for the filesystem
+func (c *Controller) ensureStaticPV(ctx context.Context, fs FilesystemInfo, pvName, pvcName string) error {
+	_, err := c.client.CoreV1().PersistentVolumes().Get(ctx, pvName, metav1.GetOptions{})
 	if err == nil {
-		return nil // PVC exists
+		return nil // PV exists
 	}
 
 	if !errors.IsNotFound(err) {
 		return err
 	}
 
-	// Create PVC
-	pvc := &corev1.PersistentVolumeClaim{
+	// Create static PV with volumeHandle pointing to the filesystem root (no quota)
+	// Format: dir/v1/{filesystemName}/csi-volumes/storage-exporter-{fsName}
+	volumeHandle := fmt.Sprintf("dir/v1/%s/csi-volumes/storage-exporter-%s", fs.FilesystemName, fs.Name)
+
+	pv := &corev1.PersistentVolume{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      pvcName,
-			Namespace: c.namespace,
+			Name: pvName,
 			Labels: map[string]string{
 				labelManagedBy:   managedByValue,
 				labelFilesystem:  fs.FilesystemName,
 				labelStorageType: fs.StorageType,
 			},
 		},
-		Spec: corev1.PersistentVolumeClaimSpec{
-			AccessModes:      []corev1.PersistentVolumeAccessMode{corev1.ReadOnlyMany},
-			StorageClassName: &fs.StorageClassName,
-			Resources: corev1.VolumeResourceRequirements{
-				Requests: corev1.ResourceList{
-					corev1.ResourceStorage: resource.MustParse("1Gi"),
+		Spec: corev1.PersistentVolumeSpec{
+			Capacity: corev1.ResourceList{
+				corev1.ResourceStorage: resource.MustParse("1Pi"),
+			},
+			VolumeMode: func() *corev1.PersistentVolumeMode {
+				mode := corev1.PersistentVolumeFilesystem
+				return &mode
+			}(),
+			AccessModes:                   []corev1.PersistentVolumeAccessMode{corev1.ReadOnlyMany},
+			PersistentVolumeReclaimPolicy: corev1.PersistentVolumeReclaimRetain,
+			StorageClassName:              "",
+			PersistentVolumeSource: corev1.PersistentVolumeSource{
+				CSI: &corev1.CSIPersistentVolumeSource{
+					Driver:       wekafsProvisioner,
+					VolumeHandle: volumeHandle,
+					VolumeAttributes: map[string]string{
+						"filesystemName": fs.FilesystemName,
+						"volumeType":     "dir/v1",
+					},
 				},
+			},
+			ClaimRef: &corev1.ObjectReference{
+				APIVersion: "v1",
+				Kind:       "PersistentVolumeClaim",
+				Namespace:  c.namespace,
+				Name:       pvcName,
 			},
 		},
 	}
 
-	_, err = c.client.CoreV1().PersistentVolumeClaims(c.namespace).Create(ctx, pvc, metav1.CreateOptions{})
+	_, err = c.client.CoreV1().PersistentVolumes().Create(ctx, pv, metav1.CreateOptions{})
 	if err != nil && !errors.IsAlreadyExists(err) {
 		return err
 	}
 
-	log.Infof("Created PVC %s for filesystem %s", pvcName, fs.FilesystemName)
-
-	// Wait for PVC to be bound
-	return c.waitForPVCBound(ctx, pvcName)
+	log.Infof("Created static PV %s for filesystem %s (no quota)", pvName, fs.FilesystemName)
+	return nil
 }
 
 // waitForPVCBound waits for PVC to be bound
