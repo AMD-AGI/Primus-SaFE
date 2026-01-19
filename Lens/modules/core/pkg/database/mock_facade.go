@@ -73,6 +73,7 @@ func (m *MockFacade) GetMetricBaseline() MetricBaselineFacadeInterface     { ret
 func (m *MockFacade) GetCommitImpactAnalysis() CommitImpactAnalysisFacadeInterface {
 	return nil
 }
+func (m *MockFacade) GetNotificationChannel() NotificationChannelFacadeInterface { return nil }
 
 func (m *MockFacade) GetGpuUsageWeeklyReport() GpuUsageWeeklyReportFacadeInterface {
 	return m.GpuUsageWeeklyReportMock

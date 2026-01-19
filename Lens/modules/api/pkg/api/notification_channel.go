@@ -88,7 +88,7 @@ func ListNotificationChannels(c *gin.Context) {
 		filter.Enabled = &enabled
 	}
 
-	facade := database.NewNotificationChannelFacade(database.GetDB())
+	facade := database.GetFacade().GetNotificationChannel()
 	channels, total, err := facade.ListNotificationChannels(c.Request.Context(), filter)
 	if err != nil {
 		log.GlobalLogger().WithContext(c).Errorf("Failed to list notification channels: %v", err)
@@ -102,7 +102,7 @@ func ListNotificationChannels(c *gin.Context) {
 		items[i] = toNotificationChannelResponse(ch)
 	}
 
-	c.JSON(http.StatusOK, rest.OKResp(c.Request.Context(), NotificationChannelListResponse{
+	c.JSON(http.StatusOK, rest.SuccessResp(c.Request.Context(), NotificationChannelListResponse{
 		Total: total,
 		Items: items,
 	}))
@@ -117,7 +117,7 @@ func GetNotificationChannel(c *gin.Context) {
 		return
 	}
 
-	facade := database.NewNotificationChannelFacade(database.GetDB())
+	facade := database.GetFacade().GetNotificationChannel()
 	channel, err := facade.GetNotificationChannelByID(c.Request.Context(), id)
 	if err != nil {
 		log.GlobalLogger().WithContext(c).Errorf("Failed to get notification channel: %v", err)
@@ -129,7 +129,7 @@ func GetNotificationChannel(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, rest.OKResp(c.Request.Context(), toNotificationChannelResponse(channel)))
+	c.JSON(http.StatusOK, rest.SuccessResp(c.Request.Context(), toNotificationChannelResponse(channel)))
 }
 
 // CreateNotificationChannel handles POST /api/notification-channels
@@ -189,7 +189,7 @@ func CreateNotificationChannel(c *gin.Context) {
 		CreatedBy:   createdByStr,
 	}
 
-	facade := database.NewNotificationChannelFacade(database.GetDB())
+	facade := database.GetFacade().GetNotificationChannel()
 
 	// Check if name already exists
 	existing, err := facade.GetNotificationChannelByName(c.Request.Context(), req.Name)
@@ -209,7 +209,7 @@ func CreateNotificationChannel(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusCreated, rest.OKResp(c.Request.Context(), toNotificationChannelResponse(channel)))
+	c.JSON(http.StatusCreated, rest.SuccessResp(c.Request.Context(), toNotificationChannelResponse(channel)))
 }
 
 // UpdateNotificationChannel handles PUT /api/notification-channels/:id
@@ -248,7 +248,7 @@ func UpdateNotificationChannel(c *gin.Context) {
 		return
 	}
 
-	facade := database.NewNotificationChannelFacade(database.GetDB())
+	facade := database.GetFacade().GetNotificationChannel()
 	channel, err := facade.GetNotificationChannelByID(c.Request.Context(), id)
 	if err != nil {
 		log.GlobalLogger().WithContext(c).Errorf("Failed to get notification channel: %v", err)
@@ -308,7 +308,7 @@ func UpdateNotificationChannel(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, rest.OKResp(c.Request.Context(), toNotificationChannelResponse(channel)))
+	c.JSON(http.StatusOK, rest.SuccessResp(c.Request.Context(), toNotificationChannelResponse(channel)))
 }
 
 // DeleteNotificationChannel handles DELETE /api/notification-channels/:id
@@ -320,7 +320,7 @@ func DeleteNotificationChannel(c *gin.Context) {
 		return
 	}
 
-	facade := database.NewNotificationChannelFacade(database.GetDB())
+	facade := database.GetFacade().GetNotificationChannel()
 	channel, err := facade.GetNotificationChannelByID(c.Request.Context(), id)
 	if err != nil {
 		log.GlobalLogger().WithContext(c).Errorf("Failed to get notification channel: %v", err)
@@ -340,7 +340,7 @@ func DeleteNotificationChannel(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, rest.OKResp(c.Request.Context(), gin.H{"deleted": true}))
+	c.JSON(http.StatusOK, rest.SuccessResp(c.Request.Context(), gin.H{"deleted": true}))
 }
 
 // TestNotificationChannel handles POST /api/notification-channels/:id/test
@@ -352,7 +352,7 @@ func TestNotificationChannel(c *gin.Context) {
 		return
 	}
 
-	facade := database.NewNotificationChannelFacade(database.GetDB())
+	facade := database.GetFacade().GetNotificationChannel()
 	channel, err := facade.GetNotificationChannelByID(c.Request.Context(), id)
 	if err != nil {
 		log.GlobalLogger().WithContext(c).Errorf("Failed to get notification channel: %v", err)
@@ -366,7 +366,7 @@ func TestNotificationChannel(c *gin.Context) {
 
 	// TODO: Implement actual channel testing logic based on channel type
 	// For now, just return success
-	c.JSON(http.StatusOK, rest.OKResp(c.Request.Context(), gin.H{
+	c.JSON(http.StatusOK, rest.SuccessResp(c.Request.Context(), gin.H{
 		"success": true,
 		"message": "Test notification sent (not yet implemented)",
 	}))
@@ -447,7 +447,7 @@ func GetChannelTypes(c *gin.Context) {
 		},
 	}
 
-	c.JSON(http.StatusOK, rest.OKResp(c.Request.Context(), types))
+	c.JSON(http.StatusOK, rest.SuccessResp(c.Request.Context(), types))
 }
 
 // validateChannelConfig validates the channel config based on type

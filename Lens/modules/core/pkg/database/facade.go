@@ -83,6 +83,8 @@ type FacadeInterface interface {
 	GetMetricBaseline() MetricBaselineFacadeInterface
 	// GetCommitImpactAnalysis returns the CommitImpactAnalysis Facade interface
 	GetCommitImpactAnalysis() CommitImpactAnalysisFacadeInterface
+	// GetNotificationChannel returns the NotificationChannel Facade interface
+	GetNotificationChannel() NotificationChannelFacadeInterface
 	// WithCluster returns a new Facade instance using the specified cluster
 	WithCluster(clusterName string) FacadeInterface
 }
@@ -128,6 +130,7 @@ type Facade struct {
 	DashboardSummary          DashboardSummaryFacadeInterface
 	MetricBaseline            MetricBaselineFacadeInterface
 	CommitImpactAnalysis      CommitImpactAnalysisFacadeInterface
+	NotificationChannel       NotificationChannelFacadeInterface
 }
 
 // NewFacade creates a new Facade instance
@@ -172,6 +175,7 @@ func NewFacade() *Facade {
 		DashboardSummary:          NewDashboardSummaryFacade(),
 		MetricBaseline:            NewMetricBaselineFacade(),
 		CommitImpactAnalysis:      NewCommitImpactAnalysisFacade(),
+		NotificationChannel:       NewNotificationChannelFacade(),
 	}
 }
 
@@ -370,6 +374,11 @@ func (f *Facade) GetCommitImpactAnalysis() CommitImpactAnalysisFacadeInterface {
 	return f.CommitImpactAnalysis
 }
 
+// GetNotificationChannel returns the NotificationChannel Facade interface
+func (f *Facade) GetNotificationChannel() NotificationChannelFacadeInterface {
+	return f.NotificationChannel
+}
+
 // WithCluster returns a new Facade instance, all sub-Facades use the specified cluster
 func (f *Facade) WithCluster(clusterName string) FacadeInterface {
 	return &Facade{
@@ -412,6 +421,7 @@ func (f *Facade) WithCluster(clusterName string) FacadeInterface {
 		DashboardSummary:          f.DashboardSummary.WithCluster(clusterName),
 		MetricBaseline:            f.MetricBaseline.WithCluster(clusterName),
 		CommitImpactAnalysis:      f.CommitImpactAnalysis.WithCluster(clusterName),
+		NotificationChannel:       f.NotificationChannel.WithCluster(clusterName),
 	}
 }
 

@@ -5,19 +5,28 @@ package database
 
 import (
 	"context"
+	"errors"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
 	"gorm.io/gorm"
 )
 
-// NotificationChannelFacade provides database operations for notification channels
-type NotificationChannelFacade struct {
-	db *gorm.DB
-}
+// NotificationChannelFacadeInterface defines the database operation interface for NotificationChannel
+type NotificationChannelFacadeInterface interface {
+	// CRUD operations
+	CreateNotificationChannel(ctx context.Context, channel *model.NotificationChannels) error
+	UpdateNotificationChannel(ctx context.Context, channel *model.NotificationChannels) error
+	GetNotificationChannelByID(ctx context.Context, id int64) (*model.NotificationChannels, error)
+	GetNotificationChannelByName(ctx context.Context, name string) (*model.NotificationChannels, error)
+	ListNotificationChannels(ctx context.Context, filter *NotificationChannelFilter) ([]*model.NotificationChannels, int64, error)
+	DeleteNotificationChannel(ctx context.Context, id int64) error
 
-// NewNotificationChannelFacade creates a new NotificationChannelFacade
-func NewNotificationChannelFacade(db *gorm.DB) *NotificationChannelFacade {
-	return &NotificationChannelFacade{db: db}
+	// Batch operations
+	GetEnabledChannelsByType(ctx context.Context, channelType string) ([]*model.NotificationChannels, error)
+	GetChannelsByIDs(ctx context.Context, ids []int64) ([]*model.NotificationChannels, error)
+
+	// WithCluster method
+	WithCluster(clusterName string) NotificationChannelFacadeInterface
 }
 
 // NotificationChannelFilter defines filter options for listing channels
@@ -29,17 +38,35 @@ type NotificationChannelFilter struct {
 	Limit   int
 }
 
+// NotificationChannelFacade implements NotificationChannelFacadeInterface
+type NotificationChannelFacade struct {
+	BaseFacade
+}
+
+// NewNotificationChannelFacade creates a new NotificationChannelFacade instance
+func NewNotificationChannelFacade() NotificationChannelFacadeInterface {
+	return &NotificationChannelFacade{}
+}
+
+func (f *NotificationChannelFacade) WithCluster(clusterName string) NotificationChannelFacadeInterface {
+	return &NotificationChannelFacade{
+		BaseFacade: f.withCluster(clusterName),
+	}
+}
+
 // CreateNotificationChannel creates a new notification channel
 func (f *NotificationChannelFacade) CreateNotificationChannel(ctx context.Context, channel *model.NotificationChannels) error {
-	return f.db.WithContext(ctx).Create(channel).Error
+	db := f.getDB().WithContext(ctx)
+	return db.Create(channel).Error
 }
 
 // GetNotificationChannelByID retrieves a channel by ID
 func (f *NotificationChannelFacade) GetNotificationChannelByID(ctx context.Context, id int64) (*model.NotificationChannels, error) {
+	db := f.getDB().WithContext(ctx)
 	var channel model.NotificationChannels
-	err := f.db.WithContext(ctx).Where("id = ?", id).First(&channel).Error
+	err := db.Where("id = ?", id).First(&channel).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
 		}
 		return nil, err
@@ -49,10 +76,11 @@ func (f *NotificationChannelFacade) GetNotificationChannelByID(ctx context.Conte
 
 // GetNotificationChannelByName retrieves a channel by name
 func (f *NotificationChannelFacade) GetNotificationChannelByName(ctx context.Context, name string) (*model.NotificationChannels, error) {
+	db := f.getDB().WithContext(ctx)
 	var channel model.NotificationChannels
-	err := f.db.WithContext(ctx).Where("name = ?", name).First(&channel).Error
+	err := db.Where("name = ?", name).First(&channel).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
 		}
 		return nil, err
@@ -62,10 +90,11 @@ func (f *NotificationChannelFacade) GetNotificationChannelByName(ctx context.Con
 
 // ListNotificationChannels lists channels with optional filters
 func (f *NotificationChannelFacade) ListNotificationChannels(ctx context.Context, filter *NotificationChannelFilter) ([]*model.NotificationChannels, int64, error) {
+	db := f.getDB().WithContext(ctx)
 	var channels []*model.NotificationChannels
 	var total int64
 
-	query := f.db.WithContext(ctx).Model(&model.NotificationChannels{})
+	query := db.Model(&model.NotificationChannels{})
 
 	if filter != nil {
 		if filter.Type != nil {
@@ -106,28 +135,28 @@ func (f *NotificationChannelFacade) ListNotificationChannels(ctx context.Context
 
 // UpdateNotificationChannel updates a notification channel
 func (f *NotificationChannelFacade) UpdateNotificationChannel(ctx context.Context, channel *model.NotificationChannels) error {
-	return f.db.WithContext(ctx).Save(channel).Error
+	db := f.getDB().WithContext(ctx)
+	return db.Save(channel).Error
 }
 
 // DeleteNotificationChannel deletes a notification channel by ID
 func (f *NotificationChannelFacade) DeleteNotificationChannel(ctx context.Context, id int64) error {
-	return f.db.WithContext(ctx).Delete(&model.NotificationChannels{}, id).Error
+	db := f.getDB().WithContext(ctx)
+	return db.Delete(&model.NotificationChannels{}, id).Error
 }
 
 // GetEnabledChannelsByType retrieves all enabled channels of a specific type
 func (f *NotificationChannelFacade) GetEnabledChannelsByType(ctx context.Context, channelType string) ([]*model.NotificationChannels, error) {
+	db := f.getDB().WithContext(ctx)
 	var channels []*model.NotificationChannels
-	err := f.db.WithContext(ctx).
-		Where("type = ? AND enabled = true", channelType).
-		Find(&channels).Error
+	err := db.Where("type = ? AND enabled = true", channelType).Find(&channels).Error
 	return channels, err
 }
 
 // GetChannelsByIDs retrieves channels by their IDs
 func (f *NotificationChannelFacade) GetChannelsByIDs(ctx context.Context, ids []int64) ([]*model.NotificationChannels, error) {
+	db := f.getDB().WithContext(ctx)
 	var channels []*model.NotificationChannels
-	err := f.db.WithContext(ctx).
-		Where("id IN ? AND enabled = true", ids).
-		Find(&channels).Error
+	err := db.Where("id IN ? AND enabled = true", ids).Find(&channels).Error
 	return channels, err
 }
