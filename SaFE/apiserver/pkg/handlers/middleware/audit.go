@@ -151,7 +151,6 @@ func (w *auditResponseWriter) Write(b []byte) (int, error) {
 
 // AuditLog creates a middleware that logs write operations (POST, PUT, PATCH, DELETE) to the database.
 // It uses a buffered channel and background worker to batch writes for better performance.
-// This is a common industry pattern that balances reliability with performance.
 func AuditLog() gin.HandlerFunc {
 	if !commonconfig.IsDBEnable() {
 		return func(c *gin.Context) {
