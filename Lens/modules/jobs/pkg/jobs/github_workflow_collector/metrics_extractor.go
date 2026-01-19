@@ -106,7 +106,7 @@ func (e *MetricsExtractor) extractFromFile(
 		// Extract metrics
 		for _, metric := range schema.MetricFields {
 			if val, ok := row[metric]; ok {
-				if floatVal, err := toFloat64(val); err == nil {
+				if floatVal, ok := toFloat64WithError(val); ok == nil {
 					record.Metrics[metric] = floatVal
 				}
 			}
@@ -169,8 +169,8 @@ func (e *MetricsExtractor) extractWithColumnSchema(
 			// Create a record for each date column
 			for _, dateCol := range dateColumns {
 				if val, ok := row[dateCol]; ok {
-					floatVal, err := toFloat64(val)
-					if err != nil || floatVal == 0 {
+					floatVal, ok := toFloat64WithError(val)
+					if ok != nil || floatVal == 0 {
 						continue
 					}
 
@@ -225,7 +225,7 @@ func (e *MetricsExtractor) extractWithColumnSchema(
 					if metricKey == "" {
 						metricKey = colName
 					}
-					if floatVal, err := toFloat64(val); err == nil {
+					if floatVal, ok := toFloat64WithError(val); ok == nil {
 						record.Metrics[metricKey] = floatVal
 					}
 				}
@@ -269,7 +269,7 @@ func (e *MetricsExtractor) convertWideToLong(
 		for _, dateCol := range schema.DateColumns {
 			if val, ok := row[dateCol]; ok {
 				// Skip empty or zero values
-				if floatVal, err := toFloat64(val); err != nil || floatVal == 0 {
+				if floatVal, ok := toFloat64WithError(val); ok != nil || floatVal == 0 {
 					continue
 				}
 
@@ -319,8 +319,8 @@ func parseDateColumn(dateCol string) time.Time {
 	return time.Now()
 }
 
-// toFloat64 converts an interface value to float64
-func toFloat64(val interface{}) (float64, error) {
+// toFloat64WithError converts an interface value to float64 with error
+func toFloat64WithError(val interface{}) (float64, error) {
 	switch v := val.(type) {
 	case float64:
 		return v, nil

@@ -468,6 +468,10 @@ func (c *Controller) runCollectorPod(ctx context.Context, fs FilesystemInfo, pvc
 		},
 		Spec: corev1.PodSpec{
 			RestartPolicy: corev1.RestartPolicyNever,
+			// Ensure pod is scheduled on nodes with Weka CSI support
+			NodeSelector: map[string]string{
+				"topology.csi.weka.io/accessible": "true",
+			},
 			Containers: []corev1.Container{
 				{
 					Name:  "collector",

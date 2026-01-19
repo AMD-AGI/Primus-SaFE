@@ -188,16 +188,13 @@ func (j *GithubWorkflowCollectorJob) analyzeRegressionsWithAI(
 
 		// Parse response
 		var output aitopics.RegressionAnalysisOutput
-		if respPayload, ok := resp.Payload.(map[string]interface{}); ok {
-			payloadBytes, _ := json.Marshal(respPayload)
-			if err := json.Unmarshal(payloadBytes, &output); err == nil {
-				if output.Confidence >= aiConfidenceThreshold && output.LikelyCommit != nil {
-					regression.LikelyCommitSHA = output.LikelyCommit.SHA
-					regression.LikelyCommitAuthor = output.LikelyCommit.Author
-					regression.LikelyCommitMessage = output.LikelyCommit.Message
-					regression.AIConfidence = output.Confidence
-					regression.AIReasoning = output.Reasoning
-				}
+		if err := resp.UnmarshalPayload(&output); err == nil {
+			if output.Confidence >= aiConfidenceThreshold && output.LikelyCommit != nil {
+				regression.LikelyCommitSHA = output.LikelyCommit.SHA
+				regression.LikelyCommitAuthor = output.LikelyCommit.Author
+				regression.LikelyCommitMessage = output.LikelyCommit.Message
+				regression.AIConfidence = output.Confidence
+				regression.AIReasoning = output.Reasoning
 			}
 		}
 	}
