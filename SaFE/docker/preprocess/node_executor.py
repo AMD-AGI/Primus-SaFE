@@ -94,7 +94,7 @@ def create_ops_job(endpoint: str, apikey: str, node_name: str, script_base64: st
         sys.exit(1)
 
 
-def get_ops_job(endpoint: str, apikey: str, job_id: str, max_retries: int = 10, retry_interval: float = 0.5) -> dict:
+def get_ops_job(endpoint: str, apikey: str, job_id: str, max_retries: int = 10, retry_interval: float = 0.2) -> dict:
     """
     Get OpsJob status by job ID with retry logic.
     
@@ -103,7 +103,7 @@ def get_ops_job(endpoint: str, apikey: str, job_id: str, max_retries: int = 10, 
         apikey: API key for authentication
         job_id: The job ID to query
         max_retries: Maximum number of retries (default 10)
-        retry_interval: Wait time between retries in seconds (default 0.5)
+        retry_interval: Wait time between retries in seconds (default 0.2)
     
     Returns:
         The job response as dict

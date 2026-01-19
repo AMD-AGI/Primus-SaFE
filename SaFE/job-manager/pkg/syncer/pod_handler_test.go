@@ -32,7 +32,7 @@ func TestGetMainContainerRank(t *testing.T) {
 					},
 				},
 				Spec: v1.WorkloadSpec{
-					Image: "pytorch:latest",
+					Images: []string{"pytorch:latest"},
 				},
 			},
 			pod: &corev1.Pod{
@@ -59,7 +59,7 @@ func TestGetMainContainerRank(t *testing.T) {
 					},
 				},
 				Spec: v1.WorkloadSpec{
-					Image: "pytorch:latest",
+					Images: []string{"pytorch:latest"},
 				},
 			},
 			pod: &corev1.Pod{
@@ -91,7 +91,7 @@ func TestGetMainContainerRank(t *testing.T) {
 					},
 				},
 				Spec: v1.WorkloadSpec{
-					Image: "pytorch:latest",
+					Images: []string{"pytorch:latest"},
 				},
 			},
 			pod: &corev1.Pod{
@@ -117,7 +117,7 @@ func TestGetMainContainerRank(t *testing.T) {
 					},
 				},
 				Spec: v1.WorkloadSpec{
-					Image: "pytorch:latest",
+					Images: []string{"pytorch:latest"},
 				},
 			},
 			pod: &corev1.Pod{

@@ -70,10 +70,6 @@ type WorkloadResource struct {
 	// RDMA resource is effective only with hostNetwork enabled (default: 1).
 	// This field is set internally
 	RdmaResource string `json:"rdmaResource,omitempty"`
-	// The address of the image used by the workload
-	Image string `json:"image,omitempty"`
-	// Startup command, required in base64 encoding
-	EntryPoint string `json:"entryPoint,omitempty"`
 }
 
 type HealthCheck struct {

@@ -71,7 +71,8 @@ spec:
                 items:
                   properties:
                     completionsPaths:
-                      description: The relative path of pod completions(only for job)
+                      description: The relative path of pod completions(only for job
+                        and ray-job)
                       items:
                         type: string
                       type: array

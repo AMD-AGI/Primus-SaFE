@@ -76,8 +76,16 @@ spec:
                   type: string
                 type: array
               entryPoint:
-                description: Workload startup command, required in base64 encoding
+                description: 'Deprecated: resource is old field, will be replaced
+                  by Images'
                 type: string
+              entryPoints:
+                description: |-
+                  Workload startup command, required in base64 encoding
+                  It must match the length of resources.
+                items:
+                  type: string
+                type: array
               env:
                 additionalProperties:
                   type: string
@@ -105,8 +113,16 @@ spec:
                   type: string
                 type: array
               image:
-                description: The address of the image used by the workload
+                description: 'Deprecated: resource is old field, will be replaced
+                  by Images'
                 type: string
+              images:
+                description: |-
+                  The address of the image used by the workload
+                  It must match the length of resources.
+                items:
+                  type: string
+                type: array
               isSupervised:
                 description: Supervision flag for the workload. When enabled, it performs
                   operations like hang detection

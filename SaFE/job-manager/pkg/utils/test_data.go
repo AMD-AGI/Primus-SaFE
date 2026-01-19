@@ -74,7 +74,7 @@ spec:
               env:
                 - name: NCCL_SOCKET_IFNAME
                   value: eth0
-              image: /docker.hub/test-image:0.0.1
+              image: docker.io/test-image:0.0.1
               name: pytorch
               resources:
                 limits:
@@ -136,7 +136,7 @@ spec:
               env:
                 - name: NCCL_SOCKET_IFNAME
                   value: eth0
-              image: /docker.hub/test-image:0.0.1
+              image: docker.io/test-image:0.0.1
               name: pytorch
               resources:
                 limits:
@@ -324,7 +324,7 @@ spec:
           value: "8"
         - name: SSH_PORT
           value: "12345"
-        image: /docker.hub/test-image:0.0.1
+        image: docker.io/test-image:0.0.1
         imagePullPolicy: IfNotPresent
         name: main
         ports:
@@ -360,7 +360,7 @@ spec:
         - /bin/sh
         - -c
         - test.sh
-        image: /docker.hub/test-image:0.0.1
+        image: docker.io/test-image:0.0.1
         imagePullPolicy: IfNotPresent
         name: prepare
         resources:
@@ -699,7 +699,7 @@ var (
 		},
 	}
 
-	TestJobTemplate = &v1.ResourceTemplate{
+	TestJobResourceTemplate = &v1.ResourceTemplate{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "job",
 			Labels: map[string]string{
@@ -746,7 +746,7 @@ var (
 		},
 	}
 
-	TestDeploymentTemplate = &v1.ResourceTemplate{
+	TestDeploymentResourceTemplate = &v1.ResourceTemplate{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "deployment",
 			Labels: map[string]string{
@@ -799,7 +799,7 @@ var (
 		},
 	}
 
-	TestStatefulSetTemplate = &v1.ResourceTemplate{
+	TestStatefulSetResourceTemplate = &v1.ResourceTemplate{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "statefulset",
 			Labels: map[string]string{
@@ -876,7 +876,7 @@ var (
 		},
 	}
 
-	TestCICDScaleSetTemplate = &v1.ResourceTemplate{
+	TestCICDScaleSetResourceTemplate = &v1.ResourceTemplate{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "job",
 			Labels: map[string]string{
@@ -899,7 +899,7 @@ var (
 		},
 	}
 
-	TestCICDEphemeralRunnerTemplate = &v1.ResourceTemplate{
+	TestCICDRunnerResourceTemplate = &v1.ResourceTemplate{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "job",
 			Labels: map[string]string{
@@ -979,9 +979,9 @@ var (
 				SharedMemory:     "32Gi",
 				EphemeralStorage: "20Gi",
 				RdmaResource:     "1k",
-				Image:            "test-image",
-				EntryPoint:       "sh -c test.sh",
 			}},
+			Images:      []string{"test-image"},
+			EntryPoints: []string{"sh -c test.sh"},
 			Env: map[string]string{
 				"key": "value",
 			},

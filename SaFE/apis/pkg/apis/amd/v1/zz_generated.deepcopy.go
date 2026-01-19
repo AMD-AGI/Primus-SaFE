@@ -2198,6 +2198,16 @@ func (in *WorkloadSpec) DeepCopyInto(out *WorkloadSpec) {
 		*out = make([]WorkloadResource, len(*in))
 		copy(*out, *in)
 	}
+	if in.Images != nil {
+		in, out := &in.Images, &out.Images
+		*out = make([]string, len(*in))
+		copy(*out, *in)
+	}
+	if in.EntryPoints != nil {
+		in, out := &in.EntryPoints, &out.EntryPoints
+		*out = make([]string, len(*in))
+		copy(*out, *in)
+	}
 	if in.Env != nil {
 		in, out := &in.Env, &out.Env
 		*out = make(map[string]string, len(*in))

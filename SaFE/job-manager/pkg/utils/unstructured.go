@@ -313,7 +313,7 @@ func GetCommands(unstructuredObj *unstructured.Unstructured,
 	return result, nil
 }
 
-// GetImages Retrieve the image address of the main container.
+// GetImages Retrieve all the image address of the main container.
 func GetImages(unstructuredObj *unstructured.Unstructured,
 	rt *v1.ResourceTemplate, mainContainer string) ([]string, error) {
 	result := make([]string, 0, len(rt.Spec.ResourceSpecs))

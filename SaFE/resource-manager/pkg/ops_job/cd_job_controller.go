@@ -264,14 +264,14 @@ func (r *CDJobReconciler) generateCDWorkload(ctx context.Context, job *v1.OpsJob
 				CPU:     "2",
 				Memory:  "4Gi",
 			}},
-			EntryPoint: entryPoint,
+			EntryPoints: []string{entryPoint},
 			GroupVersionKind: v1.GroupVersionKind{
 				Version: common.DefaultVersion,
 				Kind:    common.JobKind,
 			},
 			Priority:  common.HighPriorityInt,
 			Workspace: corev1.NamespaceDefault, // Use 'default' namespace (same as preflight)
-			Image:     commonconfig.GetCDJobImage(),
+			Images:    []string{commonconfig.GetCDJobImage()},
 			Env: map[string]string{
 				// Repository configuration
 				"REPO_URL":      PrimusSaFERepoURL,

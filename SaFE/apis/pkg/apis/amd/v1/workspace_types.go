@@ -37,6 +37,7 @@ const (
 	InferScope     WorkspaceScope = "Infer"
 	AuthoringScope WorkspaceScope = "Authoring"
 	CICDScope      WorkspaceScope = "CICD"
+	RayScope       WorkspaceScope = "Ray"
 
 	HOSTPATH WorkspaceVolumeType = "hostpath"
 	PFS      WorkspaceVolumeType = "pfs"

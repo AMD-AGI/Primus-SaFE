@@ -88,7 +88,7 @@ func TestPytorchJobSpecCount(t *testing.T) {
 func TestGetJobPhase(t *testing.T) {
 	job, err := jsonutils.ParseYamlToJson(TestJobData)
 	assert.NilError(t, err)
-	rt := TestJobTemplate.DeepCopy()
+	rt := TestJobResourceTemplate.DeepCopy()
 
 	status, err := GetK8sObjectStatus(job, rt)
 	assert.NilError(t, err)
@@ -109,7 +109,7 @@ func TestGetJobPhase(t *testing.T) {
 func TestGetJobActiveReplica(t *testing.T) {
 	job, err := jsonutils.ParseYamlToJson(TestJobData)
 	assert.NilError(t, err)
-	rt := TestJobTemplate.DeepCopy()
+	rt := TestJobResourceTemplate.DeepCopy()
 
 	replica, err := GetActiveReplica(job, rt)
 	assert.NilError(t, err)
@@ -119,7 +119,7 @@ func TestGetJobActiveReplica(t *testing.T) {
 func TestGetDeploymentPhase(t *testing.T) {
 	deploy, err := jsonutils.ParseYamlToJson(TestDeploymentData)
 	assert.NilError(t, err)
-	rt := TestDeploymentTemplate.DeepCopy()
+	rt := TestDeploymentResourceTemplate.DeepCopy()
 
 	status, err := GetK8sObjectStatus(deploy, rt)
 	assert.NilError(t, err)
@@ -161,7 +161,7 @@ func TestGetDeploymentPhase(t *testing.T) {
 func TestGetDeploymentResources(t *testing.T) {
 	deploy, err := jsonutils.ParseYamlToJson(TestDeploymentData)
 	assert.NilError(t, err)
-	rt := TestDeploymentTemplate.DeepCopy()
+	rt := TestDeploymentResourceTemplate.DeepCopy()
 
 	replicaList, resourceList, err := GetResources(deploy, rt, "test", common.AmdGpu)
 	assert.NilError(t, err)
@@ -180,17 +180,18 @@ func TestGetDeploymentResources(t *testing.T) {
 func TestGetDeploymentImage(t *testing.T) {
 	deploy, err := jsonutils.ParseYamlToJson(TestDeploymentData)
 	assert.NilError(t, err)
-	rt := TestDeploymentTemplate.DeepCopy()
+	rt := TestDeploymentResourceTemplate.DeepCopy()
 
-	image, err := GetImages(deploy, rt, "test")
+	images, err := GetImages(deploy, rt, "test")
 	assert.NilError(t, err)
-	assert.Equal(t, image, "test-image:latest")
+	assert.Equal(t, len(images), 1)
+	assert.Equal(t, images[0], "test-image:latest")
 }
 
 func TestGetDeploymentCommand(t *testing.T) {
 	deploy, err := jsonutils.ParseYamlToJson(TestDeploymentData)
 	assert.NilError(t, err)
-	rt := TestDeploymentTemplate.DeepCopy()
+	rt := TestDeploymentResourceTemplate.DeepCopy()
 
 	commands, err := GetCommands(deploy, rt, "test")
 	assert.NilError(t, err)
@@ -201,7 +202,7 @@ func TestGetDeploymentCommand(t *testing.T) {
 	assert.Equal(t, commands[0][2], "/bin/sh run.sh 'abcd'")
 }
 
-func TestGetPytorchJobCommand(t *testing.T) {
+func TestGetPytorchJobCommands(t *testing.T) {
 	deploy, err := jsonutils.ParseYamlToJson(TestPytorchData)
 	assert.NilError(t, err)
 	rt := TestPytorchResourceTemplate.DeepCopy()
@@ -223,7 +224,7 @@ func TestGetPytorchJobCommand(t *testing.T) {
 func TestGetDeploymentShareMemorySize(t *testing.T) {
 	deploy, err := jsonutils.ParseYamlToJson(TestDeploymentData)
 	assert.NilError(t, err)
-	rt := TestDeploymentTemplate.DeepCopy()
+	rt := TestDeploymentResourceTemplate.DeepCopy()
 
 	memoryStorageSizes, err := GetMemoryStorageSize(deploy, rt)
 	assert.NilError(t, err)
@@ -283,7 +284,7 @@ func TestGetPytorchJobMasterResource(t *testing.T) {
 func TestGetStatefulSetPhase(t *testing.T) {
 	statefulSet, err := jsonutils.ParseYamlToJson(TestStatefulSetData)
 	assert.NilError(t, err)
-	rt := TestStatefulSetTemplate.DeepCopy()
+	rt := TestStatefulSetResourceTemplate.DeepCopy()
 
 	status, err := GetK8sObjectStatus(statefulSet, rt)
 	assert.NilError(t, err)
@@ -305,7 +306,7 @@ func TestGetStatefulSetPhase(t *testing.T) {
 func TestGetDeploymentEnv(t *testing.T) {
 	deploy, err := jsonutils.ParseYamlToJson(TestDeploymentData)
 	assert.NilError(t, err)
-	rt := TestDeploymentTemplate.DeepCopy()
+	rt := TestDeploymentResourceTemplate.DeepCopy()
 
 	envs, err := GetEnv(deploy, rt, "test")
 	assert.NilError(t, err)
@@ -334,7 +335,7 @@ func TestGetPytorchJobPriorityClass(t *testing.T) {
 func TestGetCICDEphemeralRunnerPhase(t *testing.T) {
 	data, err := jsonutils.ParseYamlToJson(TestCICDEphemeralRunnerData)
 	assert.NilError(t, err)
-	rt := TestCICDEphemeralRunnerTemplate.DeepCopy()
+	rt := TestCICDRunnerResourceTemplate.DeepCopy()
 
 	status, err := GetK8sObjectStatus(data, rt)
 	assert.NilError(t, err)

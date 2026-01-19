@@ -195,7 +195,7 @@ func genMockWorkloadForService(userId string) *v1.Workload {
 		},
 		Spec: v1.WorkloadSpec{
 			Workspace: "test-workspace",
-			Image:     "test-image:latest",
+			Images:    []string{"test-image:latest"},
 		},
 		Status: v1.WorkloadStatus{
 			Phase: v1.WorkloadRunning,

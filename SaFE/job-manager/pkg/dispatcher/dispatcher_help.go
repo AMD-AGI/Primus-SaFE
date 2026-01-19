@@ -449,15 +449,15 @@ func buildCommands(workload *v1.Workload, id int) []interface{} {
 
 // buildEntryPoint constructs the command entry point for a workload.
 func buildEntryPoint(workload *v1.Workload, id int) string {
-	if workload.Spec.Resources[id].EntryPoint == "" {
+	if workload.Spec.EntryPoints[id] == "" {
 		return ""
 	}
 	result := ""
 	switch workload.SpecKind() {
 	case common.CICDScaleRunnerSetKind:
-		result = workload.Spec.Resources[id].EntryPoint
+		result = workload.Spec.EntryPoints[id]
 	default:
-		result = Launcher + " '" + workload.Spec.Resources[id].EntryPoint + "'"
+		result = Launcher + " '" + workload.Spec.EntryPoints[id] + "'"
 	}
 	return result
 }
@@ -947,10 +947,10 @@ func updateContainers(adminWorkload *v1.Workload,
 		}
 		name := jobutils.GetUnstructuredString(container, []string{"name"})
 		if name == mainContainerName {
-			if adminWorkload.Spec.Resources[id].Image != "" {
-				container["image"] = adminWorkload.Spec.Resources[id].Image
+			if len(adminWorkload.Spec.Images) > id && adminWorkload.Spec.Images[id] != "" {
+				container["image"] = adminWorkload.Spec.Images[id]
 			}
-			if adminWorkload.Spec.Resources[id].EntryPoint != "" {
+			if len(adminWorkload.Spec.EntryPoints) > id && adminWorkload.Spec.EntryPoints[id] != "" {
 				container["command"] = buildCommands(adminWorkload, id)
 			}
 		}

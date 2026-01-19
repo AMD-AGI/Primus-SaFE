@@ -31,7 +31,9 @@ type Workload struct {
 	Resource       string         `db:"resource"`
 	Resources      sql.NullString `db:"resources"`
 	Image          string         `db:"image"`
+	Images         sql.NullString `db:"resources"`
 	EntryPoint     string         `db:"entrypoint"`
+	EntryPoints    sql.NullString `db:"resources"`
 	GVK            string         `db:"gvk"`
 	Phase          sql.NullString `db:"phase"`
 	UserName       sql.NullString `db:"username"`
@@ -341,18 +343,18 @@ type Dataset struct {
 	Description  string        `db:"description"`
 	DatasetType  string        `db:"dataset_type"`
 	Status       DatasetStatus `db:"status"`
-	S3Path       string      `db:"s3_path"`
-	TotalSize    int64       `db:"total_size"`
-	FileCount    int         `db:"file_count"`
-	Message      string      `db:"message"`
-	LocalPaths   string      `db:"local_paths"` // JSON array of DatasetLocalPathDB
-	Workspace    string      `db:"workspace"`   // Workspace ID for access control, empty means public
-	UserId       string      `db:"user_id"`
-	UserName     string      `db:"user_name"`
-	CreationTime pq.NullTime `db:"creation_time"`
-	UpdateTime   pq.NullTime `db:"update_time"`
-	DeletionTime pq.NullTime `db:"deletion_time"`
-	IsDeleted    bool        `db:"is_deleted"`
+	S3Path       string        `db:"s3_path"`
+	TotalSize    int64         `db:"total_size"`
+	FileCount    int           `db:"file_count"`
+	Message      string        `db:"message"`
+	LocalPaths   string        `db:"local_paths"` // JSON array of DatasetLocalPathDB
+	Workspace    string        `db:"workspace"`   // Workspace ID for access control, empty means public
+	UserId       string        `db:"user_id"`
+	UserName     string        `db:"user_name"`
+	CreationTime pq.NullTime   `db:"creation_time"`
+	UpdateTime   pq.NullTime   `db:"update_time"`
+	DeletionTime pq.NullTime   `db:"deletion_time"`
+	IsDeleted    bool          `db:"is_deleted"`
 }
 
 // GetDatasetFieldTags returns the DatasetFieldTags value.
