@@ -449,6 +449,9 @@ func (h *Handler) login(c *gin.Context) (interface{}, error) {
 
 	// Record audit log for login attempt (success or failure)
 	latencyMs := time.Since(startTime).Milliseconds()
+	if latencyMs == 0 {
+		latencyMs = 1 // Ensure minimum 1ms for display
+	}
 	traceId := c.Writer.Header().Get("X-Trace-Id")
 	if h.dbClient != nil {
 		var auditLog *dbclient.AuditLog
@@ -582,6 +585,9 @@ func (h *Handler) logout(c *gin.Context) (interface{}, error) {
 
 	// Record audit log for logout
 	latencyMs := time.Since(startTime).Milliseconds()
+	if latencyMs == 0 {
+		latencyMs = 1 // Ensure minimum 1ms for display
+	}
 	traceId := c.Writer.Header().Get("X-Trace-Id")
 	if h.dbClient != nil {
 		// If no userId in cookie, mark as unknown

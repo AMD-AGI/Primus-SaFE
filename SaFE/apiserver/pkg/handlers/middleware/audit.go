@@ -210,6 +210,9 @@ func AuditLog() gin.HandlerFunc {
 		c.Next()
 
 		latencyMs := time.Since(startTime).Milliseconds()
+		if latencyMs == 0 {
+			latencyMs = 1 // Ensure minimum 1ms for display
+		}
 
 		resourceType := extractResourceType(c.Request.URL.Path)
 
