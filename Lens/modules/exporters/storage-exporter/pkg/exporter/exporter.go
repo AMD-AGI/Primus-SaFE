@@ -230,8 +230,14 @@ func (e *Exporter) Register() {
 
 // StartMetricsUpdateLoop starts the loop to update prometheus metrics from controller
 func (e *Exporter) StartMetricsUpdateLoop(ctx context.Context, interval time.Duration) {
+	log.Infof("Starting metrics update loop with interval %v", interval)
+
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
+
+	// Initial update after a short delay to let controller collect first batch
+	time.Sleep(10 * time.Second)
+	e.updatePrometheusMetrics()
 
 	for {
 		select {
@@ -250,6 +256,9 @@ func (e *Exporter) updatePrometheusMetrics() {
 
 	metrics := e.controller.GetMetrics()
 	filesystems := e.controller.GetFilesystems()
+
+	log.Infof("Updating prometheus metrics: %d filesystems discovered, %d metrics collected",
+		len(filesystems), len(metrics))
 
 	// Reset gauges
 	e.capacityBytes.Reset()
