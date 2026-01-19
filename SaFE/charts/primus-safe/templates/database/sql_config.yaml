@@ -429,7 +429,6 @@ CREATE TABLE IF NOT EXISTS audit_logs (
         http_method VARCHAR(16) NOT NULL,
         request_path VARCHAR(512) NOT NULL,
         resource_type VARCHAR(64),
-        resource_name VARCHAR(256),
         request_body TEXT,
         response_status INT NOT NULL,
         response_body TEXT,

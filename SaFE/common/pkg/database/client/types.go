@@ -334,7 +334,6 @@ type AuditLog struct {
 	HttpMethod     string         `db:"http_method"`
 	RequestPath    string         `db:"request_path"`
 	ResourceType   sql.NullString `db:"resource_type"`
-	ResourceName   sql.NullString `db:"resource_name"`
 	RequestBody    sql.NullString `db:"request_body"`
 	ResponseStatus int            `db:"response_status"`
 	ResponseBody   sql.NullString `db:"response_body"`

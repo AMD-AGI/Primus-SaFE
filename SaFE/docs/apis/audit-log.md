@@ -10,7 +10,7 @@ Audit logs capture the following information for each write operation:
 
 * **User Identity**: Who performed the operation (userId, userName, userType)
 * **Operation Details**: What was done (HTTP method, request path, action description)
-* **Resource Information**: Which resource was affected (resourceType, resourceName)
+* **Resource Information**: Which resource type was affected (resourceType)
 * **Request/Response**: Request body (with sensitive data redacted) and response status
 * **Timing**: When the operation occurred and how long it took
 * **Tracing**: Distributed tracing ID for cross-service correlation
@@ -41,7 +41,6 @@ Query audit logs with flexible filtering, sorting, and pagination support.
 | userName | string | No | - | Filter by user name (partial match) |
 | userType | string | No | - | Filter by user type (comma-separated, e.g., "default,sso") |
 | resourceType | string | No | - | Filter by resource type (comma-separated, e.g., "workloads,apikeys") |
-| resourceName | string | No | - | Filter by resource name (partial match) |
 | httpMethod | string | No | - | Filter by HTTP method (comma-separated, e.g., "POST,DELETE") |
 | requestPath | string | No | - | Filter by request path (partial match) |
 | startTime | string | No | - | Start time filter (RFC3339 format) |
@@ -86,7 +85,6 @@ GET /api/v1/auditlogs?userName=admin&resourceType=workloads&httpMethod=DELETE&li
       "httpMethod": "POST",
       "requestPath": "/api/v1/workloads",
       "resourceType": "workloads",
-      "resourceName": "",
       "requestBody": "{\"name\": \"my-training-job\", \"image\": \"pytorch:latest\"}",
       "responseStatus": 200,
       "latencyMs": 256,
@@ -103,7 +101,6 @@ GET /api/v1/auditlogs?userName=admin&resourceType=workloads&httpMethod=DELETE&li
       "httpMethod": "DELETE",
       "requestPath": "/api/v1/apikeys/42",
       "resourceType": "apikeys",
-      "resourceName": "42",
       "responseStatus": 200,
       "latencyMs": 15,
       "traceId": "8c3e3dg663070358f858d66253c022b8",
@@ -128,7 +125,6 @@ GET /api/v1/auditlogs?userName=admin&resourceType=workloads&httpMethod=DELETE&li
 | items[].httpMethod | string | HTTP method (POST/PUT/PATCH/DELETE) |
 | items[].requestPath | string | Full request URL path |
 | items[].resourceType | string | Type of resource being operated on |
-| items[].resourceName | string | Specific resource identifier (if applicable) |
 | items[].requestBody | string | Request body (sensitive data redacted) |
 | items[].responseStatus | int | HTTP response status code |
 | items[].latencyMs | int64 | Request processing time in milliseconds |
@@ -292,8 +288,6 @@ The `action` field provides a human-readable description of the operation:
    - Failed login: Records as `login-failed:{username}`
    - Logout: Records user identity from session cookies
 
-3. **Batch Operations**: For batch operations (e.g., batch delete nodes), `resourceName` will be empty as the specific resource IDs are in the request body.
-
-4. **Time Range Queries**: For optimal performance, always use `startTime` and `endTime` filters when querying historical data.
+3. **Time Range Queries**: For optimal performance, always use `startTime` and `endTime` filters when querying historical data.
 
 5. **Trace ID**: The `traceId` field enables correlation with distributed tracing systems (e.g., Jaeger) for debugging complex request flows.

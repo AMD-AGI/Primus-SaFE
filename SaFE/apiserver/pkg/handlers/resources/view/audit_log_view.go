@@ -23,8 +23,6 @@ type ListAuditLogRequest struct {
 	UserType string `form:"userType" binding:"omitempty"`
 	// ResourceType is the optional filter by resource type (comma-separated for multiple values, e.g., "workloads,apikeys")
 	ResourceType string `form:"resourceType" binding:"omitempty"`
-	// ResourceName is the optional filter by resource name (partial match)
-	ResourceName string `form:"resourceName" binding:"omitempty"`
 	// HttpMethod is the optional filter by HTTP method (comma-separated for multiple values, e.g., "POST,DELETE")
 	HttpMethod string `form:"httpMethod" binding:"omitempty"`
 	// RequestPath is the optional filter by request path (partial match)
@@ -65,8 +63,6 @@ type AuditLogItem struct {
 	RequestPath string `json:"requestPath"`
 	// ResourceType is the type of resource being operated on
 	ResourceType string `json:"resourceType,omitempty"`
-	// ResourceName is the name of the specific resource
-	ResourceName string `json:"resourceName,omitempty"`
 	// RequestBody is the request body (sensitive data may be redacted)
 	RequestBody string `json:"requestBody,omitempty"`
 	// ResponseStatus is the HTTP response status code

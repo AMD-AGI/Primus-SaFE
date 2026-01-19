@@ -44,7 +44,6 @@ func TestConvertToAuditLogItem(t *testing.T) {
 				HttpMethod:     "POST",
 				RequestPath:    "/api/v1/workloads",
 				ResourceType:   sql.NullString{String: "workloads", Valid: true},
-				ResourceName:   sql.NullString{String: "my-workload", Valid: true},
 				RequestBody:    sql.NullString{String: `{"name":"test"}`, Valid: true},
 				ResponseStatus: 200,
 				ResponseBody:   sql.NullString{String: `{"id":"123"}`, Valid: true},
@@ -61,13 +60,12 @@ func TestConvertToAuditLogItem(t *testing.T) {
 				assert.Equal(t, "POST", result.HttpMethod)
 				assert.Equal(t, "/api/v1/workloads", result.RequestPath)
 				assert.Equal(t, "workloads", result.ResourceType)
-				assert.Equal(t, "my-workload", result.ResourceName)
 				assert.Equal(t, `{"name":"test"}`, result.RequestBody)
 				assert.Equal(t, 200, result.ResponseStatus)
 				assert.Equal(t, int64(150), result.LatencyMs)
 				assert.Equal(t, "trace-abc-123", result.TraceId)
 				assert.NotEmpty(t, result.CreateTime)
-				assert.Equal(t, "create workload", result.Action) // POST doesn't include resource name in action
+				assert.Equal(t, "create workload", result.Action)
 			},
 		},
 		{
@@ -114,7 +112,6 @@ func TestConvertToAuditLogItem(t *testing.T) {
 				RequestPath:    "/api/v1/cd/deployments/34/approve",
 				ResponseStatus: 200,
 				ResourceType:   sql.NullString{String: "deployments", Valid: true},
-				ResourceName:   sql.NullString{String: "34", Valid: true},
 			},
 			validate: func(t *testing.T, result view.AuditLogItem) {
 				assert.Equal(t, "approve deployment", result.Action)
@@ -129,7 +126,6 @@ func TestConvertToAuditLogItem(t *testing.T) {
 				RequestPath:    "/api/v1/cd/deployments/10/rollback",
 				ResponseStatus: 200,
 				ResourceType:   sql.NullString{String: "deployments", Valid: true},
-				ResourceName:   sql.NullString{String: "10", Valid: true},
 			},
 			validate: func(t *testing.T, result view.AuditLogItem) {
 				assert.Equal(t, "rollback deployment", result.Action)
@@ -144,7 +140,6 @@ func TestConvertToAuditLogItem(t *testing.T) {
 				RequestPath:    "/api/v1/workloads/my-workload/stop",
 				ResponseStatus: 200,
 				ResourceType:   sql.NullString{String: "workloads", Valid: true},
-				ResourceName:   sql.NullString{String: "my-workload", Valid: true},
 			},
 			validate: func(t *testing.T, result view.AuditLogItem) {
 				assert.Equal(t, "stop workload", result.Action)

@@ -90,9 +90,6 @@ func (h *Handler) listAuditLog(c *gin.Context) (interface{}, error) {
 			conditions = append(conditions, sqrl.Eq{dbclient.GetFieldTag(tags, "ResourceType"): resourceTypes})
 		}
 	}
-	if req.ResourceName != "" {
-		conditions = append(conditions, sqrl.ILike{dbclient.GetFieldTag(tags, "ResourceName"): "%" + req.ResourceName + "%"})
-	}
 	// Support multiple httpMethod values (comma-separated, e.g., ?httpMethod=POST,DELETE)
 	if req.HttpMethod != "" {
 		httpMethods := splitAndTrim(req.HttpMethod)
@@ -214,9 +211,6 @@ func convertToAuditLogItem(record *dbclient.AuditLog) view.AuditLogItem {
 	}
 	if record.ResourceType.Valid {
 		item.ResourceType = record.ResourceType.String
-	}
-	if record.ResourceName.Valid {
-		item.ResourceName = record.ResourceName.String
 	}
 	if record.RequestBody.Valid {
 		item.RequestBody = record.RequestBody.String

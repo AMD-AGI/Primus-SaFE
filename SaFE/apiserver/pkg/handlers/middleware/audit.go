@@ -211,7 +211,7 @@ func AuditLog() gin.HandlerFunc {
 
 		latencyMs := time.Since(startTime).Milliseconds()
 
-		resourceType, resourceName := extractResourceInfo(c.Request.URL.Path)
+		resourceType := extractResourceType(c.Request.URL.Path)
 
 		userId, _ := c.Get(common.UserId)
 		userName, _ := c.Get(common.UserName)
@@ -243,7 +243,6 @@ func AuditLog() gin.HandlerFunc {
 			HttpMethod:     method,
 			RequestPath:    c.Request.URL.Path,
 			ResourceType:   toNullString(resourceType),
-			ResourceName:   toNullString(resourceName),
 			RequestBody:    toNullString(sanitizeBody(requestBody)),
 			ResponseStatus: c.Writer.Status(),
 			ResponseBody:   toNullString(sanitizeBody(truncateString(bodyWriter.body.String(), maxAuditBodySize))),
@@ -267,14 +266,14 @@ func isWriteOperation(method string) bool {
 	}
 }
 
-// extractResourceInfo extracts resource type and name from the request path
-// For example: /api/v1/workloads/my-workload -> (workloads, my-workload)
-// For example: /api/v1/cd/deployments/33/approve -> (deployments, 33)
-// For example: /api/v1/clusters/my-cluster/addons/my-addon -> (addons, my-addon)
-func extractResourceInfo(path string) (string, string) {
+// extractResourceType extracts resource type from the request path
+// For example: /api/v1/workloads/my-workload -> workloads
+// For example: /api/v1/cd/deployments/33/approve -> deployments
+// For example: /api/v1/clusters/my-cluster/addons -> addons
+func extractResourceType(path string) string {
 	// Common patterns: /api/v1/{resource_type}/{resource_name}/...
 	// Or with module prefix: /api/v1/{module}/{resource_type}/{resource_name}/...
-	// Or nested resources: /api/v1/{parent_type}/{parent_name}/{nested_type}/{nested_name}
+	// Or nested resources: /api/v1/{parent_type}/{parent_name}/{nested_type}
 	parts := strings.Split(strings.Trim(path, "/"), "/")
 
 	// Skip api version prefix (e.g., "api/v1") and module prefix (e.g., "cd")
@@ -288,35 +287,19 @@ func extractResourceInfo(path string) (string, string) {
 	}
 
 	if startIdx >= len(parts) {
-		return "", ""
+		return ""
 	}
 
-	// Check for nested resource pattern: /{parent_type}/{parent_name}/{nested_type}/{nested_name}
+	// Check for nested resource pattern: /{parent_type}/{parent_name}/{nested_type}
 	// Look for nested resource types in the path (after position startIdx+1)
 	for i := startIdx + 2; i < len(parts); i++ {
 		if isNestedResourceType(parts[i]) {
-			resourceType := parts[i]
-			resourceName := ""
-			if i+1 < len(parts) && !isOperationKeyword(parts[i+1]) {
-				resourceName = parts[i+1]
-			}
-			return resourceType, resourceName
+			return parts[i]
 		}
 	}
 
 	// Default: use first resource after api version
-	resourceType := parts[startIdx]
-	resourceName := ""
-	if startIdx+1 < len(parts) {
-		// The next part could be resource name or another operation
-		potentialName := parts[startIdx+1]
-		// Skip if it looks like an operation (e.g., "delete", "stop", "clone")
-		if !isOperationKeyword(potentialName) {
-			resourceName = potentialName
-		}
-	}
-
-	return resourceType, resourceName
+	return parts[startIdx]
 }
 
 // isModulePrefix checks if a string is a known module prefix

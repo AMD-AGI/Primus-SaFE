@@ -449,6 +449,7 @@ func (h *Handler) login(c *gin.Context) (interface{}, error) {
 
 	// Record audit log for login attempt (success or failure)
 	latencyMs := time.Since(startTime).Milliseconds()
+	traceId := c.Writer.Header().Get("X-Trace-Id")
 	if h.dbClient != nil {
 		var auditLog *dbclient.AuditLog
 		if err != nil {
@@ -463,6 +464,7 @@ func (h *Handler) login(c *gin.Context) (interface{}, error) {
 				ResourceType:   sql.NullString{String: "login", Valid: true},
 				ResponseStatus: 401,
 				LatencyMs:      sql.NullInt64{Int64: latencyMs, Valid: true},
+				TraceId:        sql.NullString{String: traceId, Valid: traceId != ""},
 				CreateTime:     pq.NullTime{Time: time.Now().UTC(), Valid: true},
 			}
 		} else {
@@ -477,6 +479,7 @@ func (h *Handler) login(c *gin.Context) (interface{}, error) {
 				ResourceType:   sql.NullString{String: "login", Valid: true},
 				ResponseStatus: 200,
 				LatencyMs:      sql.NullInt64{Int64: latencyMs, Valid: true},
+				TraceId:        sql.NullString{String: traceId, Valid: traceId != ""},
 				CreateTime:     pq.NullTime{Time: time.Now().UTC(), Valid: true},
 			}
 		}
@@ -579,6 +582,7 @@ func (h *Handler) logout(c *gin.Context) (interface{}, error) {
 
 	// Record audit log for logout
 	latencyMs := time.Since(startTime).Milliseconds()
+	traceId := c.Writer.Header().Get("X-Trace-Id")
 	if h.dbClient != nil {
 		// If no userId in cookie, mark as unknown
 		if userId == "" {
@@ -594,6 +598,7 @@ func (h *Handler) logout(c *gin.Context) (interface{}, error) {
 			ResourceType:   sql.NullString{String: "logout", Valid: true},
 			ResponseStatus: 200,
 			LatencyMs:      sql.NullInt64{Int64: latencyMs, Valid: true},
+			TraceId:        sql.NullString{String: traceId, Valid: traceId != ""},
 			CreateTime:     pq.NullTime{Time: time.Now().UTC(), Valid: true},
 		}
 		// Async write to avoid blocking
