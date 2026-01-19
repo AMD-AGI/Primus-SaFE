@@ -12,25 +12,24 @@ import (
 
 // StorageExporterConfig is the main configuration for storage-exporter
 type StorageExporterConfig struct {
-	HttpPort      int           `yaml:"httpPort" json:"httpPort"`
-	LoadK8SClient bool          `yaml:"loadK8SClient" json:"loadK8SClient"`
-	Storage       StorageConfig `yaml:"storage" json:"storage"`
-	Metrics       MetricsConfig `yaml:"metrics" json:"metrics"`
+	HttpPort      int              `yaml:"httpPort" json:"httpPort"`
+	LoadK8SClient bool             `yaml:"loadK8SClient" json:"loadK8SClient"`
+	Storage       StorageConfig    `yaml:"storage" json:"storage"`
+	Controller    ControllerConfig `yaml:"controller" json:"controller"`
+	Metrics       MetricsConfig    `yaml:"metrics" json:"metrics"`
 }
 
 // StorageConfig contains storage monitoring configuration
 type StorageConfig struct {
-	ScrapeInterval string        `yaml:"scrapeInterval" json:"scrapeInterval"`
-	Mounts         []MountConfig `yaml:"mounts" json:"mounts"`
+	ScrapeInterval string `yaml:"scrapeInterval" json:"scrapeInterval"`
 }
 
-// MountConfig defines a storage mount to monitor
-type MountConfig struct {
-	Name           string `yaml:"name" json:"name"`
-	MountPath      string `yaml:"mountPath" json:"mountPath"`
-	StorageType    string `yaml:"storageType" json:"storageType"`
-	FilesystemName string `yaml:"filesystemName" json:"filesystemName"`
-	PVCName        string `yaml:"pvcName" json:"pvcName"`
+// ControllerConfig contains controller configuration
+type ControllerConfig struct {
+	// Namespace where PVCs and collector pods will be created
+	Namespace string `yaml:"namespace" json:"namespace"`
+	// CollectorImage is the image used for collector pods
+	CollectorImage string `yaml:"collectorImage" json:"collectorImage"`
 }
 
 // GetScrapeInterval returns the scrape interval as duration
@@ -69,6 +68,12 @@ func LoadStorageExporterConfig() (*StorageExporterConfig, error) {
 	// Set defaults
 	if config.HttpPort == 0 {
 		config.HttpPort = 8992
+	}
+	if config.Controller.Namespace == "" {
+		config.Controller.Namespace = "primus-lens"
+	}
+	if config.Controller.CollectorImage == "" {
+		config.Controller.CollectorImage = "alpine:3.19"
 	}
 
 	return &config, nil

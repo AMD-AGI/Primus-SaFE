@@ -5,17 +5,20 @@ package bootstrap
 
 import (
 	"context"
+	"os"
 
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
 	coreconfig "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/config"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/server"
-	"github.com/AMD-AGI/Primus-SaFE/Lens/storage-exporter/pkg/collector"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/storage-exporter/pkg/config"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/storage-exporter/pkg/controller"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/storage-exporter/pkg/exporter"
 )
 
 var (
-	exp *exporter.Exporter
+	ctrl *controller.Controller
+	exp  *exporter.Exporter
 )
 
 // Init initializes the storage exporter
@@ -24,26 +27,43 @@ func Init(ctx context.Context, conf *coreconfig.Config) error {
 	storageConf, err := config.LoadStorageExporterConfig()
 	if err != nil {
 		log.Warnf("Failed to load storage exporter config, using defaults: %v", err)
-		storageConf = &config.StorageExporterConfig{}
+		storageConf = &config.StorageExporterConfig{
+			Storage: config.StorageConfig{
+				ScrapeInterval: "60s",
+			},
+		}
 	}
 
-	// Log configured mounts
-	log.Infof("Configured storage mounts: %d", len(storageConf.Storage.Mounts))
-	for _, m := range storageConf.Storage.Mounts {
-		log.Infof("  - %s: %s (%s/%s)", m.Name, m.MountPath, m.StorageType, m.FilesystemName)
+	// Get namespace from env or config
+	namespace := os.Getenv("POD_NAMESPACE")
+	if namespace == "" {
+		namespace = storageConf.Controller.Namespace
+	}
+	if namespace == "" {
+		namespace = "primus-lens"
 	}
 
-	// Initialize collector
-	coll := collector.NewCollector(storageConf.Storage.Mounts)
+	log.Infof("Storage exporter namespace: %s", namespace)
+
+	// Get Kubernetes client
+	k8sClient := clientsets.GetClusterManager().GetCurrentClusterClients().K8SClientSet.Clientsets
+
+	// Initialize controller
+	ctrl = controller.NewController(k8sClient, namespace, storageConf)
 
 	// Initialize exporter
-	exp = exporter.NewExporter(coll, storageConf)
+	exp = exporter.NewExporter(ctrl, storageConf)
 
 	// Register metrics handler
 	exp.Register()
 
-	// Start collection loop
-	go exp.StartCollectionLoop(ctx, storageConf.Storage.GetScrapeInterval())
+	// Start controller
+	if err := ctrl.Start(ctx); err != nil {
+		return err
+	}
+
+	// Start metrics update loop
+	go exp.StartMetricsUpdateLoop(ctx, storageConf.Storage.GetScrapeInterval())
 
 	// Set custom gatherer for metrics endpoint
 	server.SetDefaultGather(exp)

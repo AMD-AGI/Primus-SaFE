@@ -10,8 +10,8 @@ import (
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/router"
-	"github.com/AMD-AGI/Primus-SaFE/Lens/storage-exporter/pkg/collector"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/storage-exporter/pkg/config"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/storage-exporter/pkg/controller"
 	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
@@ -21,14 +21,12 @@ import (
 var MetricLabels = []string{
 	"storage_type",
 	"filesystem_name",
-	"mount_name",
-	"mount_path",
 }
 
 // Exporter manages collection and exposure of storage metrics
 type Exporter struct {
-	collector *collector.Collector
-	config    *config.StorageExporterConfig
+	controller *controller.Controller
+	config     *config.StorageExporterConfig
 
 	// Prometheus metrics
 	capacityBytes  *prometheus.GaugeVec
@@ -42,30 +40,30 @@ type Exporter struct {
 	freeInodes  *prometheus.GaugeVec
 
 	// Collector metrics
-	scrapeTotal    prometheus.Counter
-	scrapeDuration prometheus.Histogram
-	scrapeErrors   *prometheus.CounterVec
+	scrapeTotal      prometheus.Counter
+	scrapeDuration   prometheus.Histogram
+	scrapeErrors     *prometheus.CounterVec
+	filesystemsTotal prometheus.Gauge
 
 	// Internal state
 	mu            sync.RWMutex
 	lastCollected time.Time
-	metricsCache  []collector.StorageMetrics
 
 	// Registry
 	registry *prometheus.Registry
 }
 
 // NewExporter creates a new storage exporter
-func NewExporter(coll *collector.Collector, conf *config.StorageExporterConfig) *Exporter {
+func NewExporter(ctrl *controller.Controller, conf *config.StorageExporterConfig) *Exporter {
 	clusterName := ""
 	if conf.Metrics.StaticLabels != nil {
 		clusterName = conf.Metrics.StaticLabels["primus_lens_cluster"]
 	}
 
 	e := &Exporter{
-		collector: coll,
-		config:    conf,
-		registry:  prometheus.NewRegistry(),
+		controller: ctrl,
+		config:     conf,
+		registry:   prometheus.NewRegistry(),
 	}
 
 	constLabels := prometheus.Labels{}
@@ -179,10 +177,20 @@ func NewExporter(coll *collector.Collector, conf *config.StorageExporterConfig) 
 			Namespace:   "primus_lens",
 			Subsystem:   "storage_exporter",
 			Name:        "scrape_errors_total",
-			Help:        "Total number of scrape errors by mount",
+			Help:        "Total number of scrape errors by filesystem",
 			ConstLabels: constLabels,
 		},
-		[]string{"mount_name"},
+		[]string{"filesystem_name"},
+	)
+
+	e.filesystemsTotal = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Namespace:   "primus_lens",
+			Subsystem:   "storage_exporter",
+			Name:        "filesystems_total",
+			Help:        "Total number of discovered filesystems",
+			ConstLabels: constLabels,
+		},
 	)
 
 	return e
@@ -205,13 +213,14 @@ func (e *Exporter) Register() {
 		e.scrapeTotal,
 		e.scrapeDuration,
 		e.scrapeErrors,
+		e.filesystemsTotal,
 	)
 
 	// Register HTTP routes
 	router.RegisterGroup(func(group *gin.RouterGroup) error {
 		g := group.Group("/storage")
 		{
-			g.GET("/mounts", e.handleListMounts)
+			g.GET("/filesystems", e.handleListFilesystems)
 			g.GET("/health", e.handleHealthCheck)
 			g.GET("/metrics-cache", e.handleMetricsCache)
 		}
@@ -219,38 +228,30 @@ func (e *Exporter) Register() {
 	})
 }
 
-// Collect collects metrics from all storage mounts
-func (e *Exporter) Collect(ctx context.Context) error {
+// StartMetricsUpdateLoop starts the loop to update prometheus metrics from controller
+func (e *Exporter) StartMetricsUpdateLoop(ctx context.Context, interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			log.Info("Stopping storage exporter metrics update loop")
+			return
+		case <-ticker.C:
+			e.updatePrometheusMetrics()
+		}
+	}
+}
+
+func (e *Exporter) updatePrometheusMetrics() {
 	startTime := time.Now()
 	e.scrapeTotal.Inc()
 
-	// Collect from all mounts
-	metrics := e.collector.Collect(ctx)
+	metrics := e.controller.GetMetrics()
+	filesystems := e.controller.GetFilesystems()
 
-	// Update prometheus metrics
-	e.updatePrometheusMetrics(metrics)
-
-	// Update cache
-	e.mu.Lock()
-	e.metricsCache = metrics
-	e.lastCollected = time.Now()
-	e.mu.Unlock()
-
-	e.scrapeDuration.Observe(time.Since(startTime).Seconds())
-
-	successCount := 0
-	for _, m := range metrics {
-		if m.Error == nil {
-			successCount++
-		}
-	}
-	log.Debugf("Collected storage metrics: %d/%d successful", successCount, len(metrics))
-
-	return nil
-}
-
-func (e *Exporter) updatePrometheusMetrics(metrics []collector.StorageMetrics) {
-	// Reset gauges to avoid stale data
+	// Reset gauges
 	e.capacityBytes.Reset()
 	e.usedBytes.Reset()
 	e.availableBytes.Reset()
@@ -259,54 +260,35 @@ func (e *Exporter) updatePrometheusMetrics(metrics []collector.StorageMetrics) {
 	e.usedInodes.Reset()
 	e.freeInodes.Reset()
 
-	for _, m := range metrics {
+	e.filesystemsTotal.Set(float64(len(filesystems)))
+
+	for fsName, m := range metrics {
 		if m.Error != nil {
-			e.scrapeErrors.WithLabelValues(m.Name).Inc()
+			e.scrapeErrors.WithLabelValues(fsName).Inc()
 			continue
 		}
 
-		labels := []string{
-			m.StorageType,
-			m.FilesystemName,
-			m.Name,
-			m.MountPath,
-		}
+		labels := []string{m.StorageType, m.FilesystemName}
 
 		e.capacityBytes.WithLabelValues(labels...).Set(float64(m.TotalBytes))
 		e.usedBytes.WithLabelValues(labels...).Set(float64(m.UsedBytes))
 		e.availableBytes.WithLabelValues(labels...).Set(float64(m.AvailableBytes))
 		e.usagePercent.WithLabelValues(labels...).Set(m.UsagePercent)
 
-		// Inode metrics (only set if available)
 		if m.TotalInodes > 0 {
 			e.totalInodes.WithLabelValues(labels...).Set(float64(m.TotalInodes))
 			e.usedInodes.WithLabelValues(labels...).Set(float64(m.UsedInodes))
 			e.freeInodes.WithLabelValues(labels...).Set(float64(m.FreeInodes))
 		}
 	}
-}
 
-// StartCollectionLoop starts the periodic collection loop
-func (e *Exporter) StartCollectionLoop(ctx context.Context, interval time.Duration) {
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
+	e.mu.Lock()
+	e.lastCollected = time.Now()
+	e.mu.Unlock()
 
-	// Initial collection
-	if err := e.Collect(ctx); err != nil {
-		log.Errorf("Initial collection failed: %v", err)
-	}
+	e.scrapeDuration.Observe(time.Since(startTime).Seconds())
 
-	for {
-		select {
-		case <-ctx.Done():
-			log.Info("Stopping storage exporter collection loop")
-			return
-		case <-ticker.C:
-			if err := e.Collect(ctx); err != nil {
-				log.Errorf("Collection failed: %v", err)
-			}
-		}
-	}
+	log.Debugf("Updated prometheus metrics for %d filesystems", len(metrics))
 }
 
 // Gather implements prometheus.Gatherer

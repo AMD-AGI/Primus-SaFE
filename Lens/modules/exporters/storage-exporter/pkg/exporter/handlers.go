@@ -5,51 +5,53 @@ package exporter
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
 
-// MountInfo represents mount information for API response
-type MountInfo struct {
-	Name           string `json:"name"`
-	MountPath      string `json:"mountPath"`
-	StorageType    string `json:"storageType"`
-	FilesystemName string `json:"filesystemName"`
+// FilesystemResponse represents filesystem info for API response
+type FilesystemResponse struct {
+	Name             string `json:"name"`
+	StorageClassName string `json:"storageClassName"`
+	FilesystemName   string `json:"filesystemName"`
+	StorageType      string `json:"storageType"`
+	VolumeType       string `json:"volumeType,omitempty"`
 }
 
 // MetricsResponse represents the cached metrics for API response
 type MetricsResponse struct {
-	Name           string  `json:"name"`
-	MountPath      string  `json:"mountPath"`
-	StorageType    string  `json:"storageType"`
-	FilesystemName string  `json:"filesystemName"`
-	TotalBytes     uint64  `json:"totalBytes"`
-	UsedBytes      uint64  `json:"usedBytes"`
-	AvailableBytes uint64  `json:"availableBytes"`
-	UsagePercent   float64 `json:"usagePercent"`
-	TotalInodes    uint64  `json:"totalInodes,omitempty"`
-	UsedInodes     uint64  `json:"usedInodes,omitempty"`
-	FreeInodes     uint64  `json:"freeInodes,omitempty"`
-	Error          string  `json:"error,omitempty"`
+	FilesystemName string    `json:"filesystemName"`
+	StorageType    string    `json:"storageType"`
+	TotalBytes     uint64    `json:"totalBytes"`
+	UsedBytes      uint64    `json:"usedBytes"`
+	AvailableBytes uint64    `json:"availableBytes"`
+	UsagePercent   float64   `json:"usagePercent"`
+	TotalInodes    uint64    `json:"totalInodes,omitempty"`
+	UsedInodes     uint64    `json:"usedInodes,omitempty"`
+	FreeInodes     uint64    `json:"freeInodes,omitempty"`
+	CollectedAt    time.Time `json:"collectedAt"`
+	Error          string    `json:"error,omitempty"`
 }
 
-// handleListMounts returns the list of configured mounts
-func (e *Exporter) handleListMounts(c *gin.Context) {
-	mounts := e.collector.GetMounts()
-	result := make([]MountInfo, 0, len(mounts))
+// handleListFilesystems returns the list of discovered filesystems
+func (e *Exporter) handleListFilesystems(c *gin.Context) {
+	filesystems := e.controller.GetFilesystems()
+	result := make([]FilesystemResponse, 0, len(filesystems))
 
-	for _, m := range mounts {
-		result = append(result, MountInfo{
-			Name:           m.Name,
-			MountPath:      m.MountPath,
-			StorageType:    m.StorageType,
-			FilesystemName: m.FilesystemName,
+	for _, fs := range filesystems {
+		result = append(result, FilesystemResponse{
+			Name:             fs.Name,
+			StorageClassName: fs.StorageClassName,
+			FilesystemName:   fs.FilesystemName,
+			StorageType:      fs.StorageType,
+			VolumeType:       fs.VolumeType,
 		})
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"mounts": result,
-		"count":  len(result),
+		"filesystems": result,
+		"count":       len(result),
 	})
 }
 
@@ -57,31 +59,34 @@ func (e *Exporter) handleListMounts(c *gin.Context) {
 func (e *Exporter) handleHealthCheck(c *gin.Context) {
 	e.mu.RLock()
 	lastCollected := e.lastCollected
-	metricsCount := len(e.metricsCache)
 	e.mu.RUnlock()
 
-	healthy := !lastCollected.IsZero()
+	filesystems := e.controller.GetFilesystems()
+	metrics := e.controller.GetMetrics()
+
+	healthy := len(filesystems) > 0 && len(metrics) > 0
 
 	c.JSON(http.StatusOK, gin.H{
-		"healthy":       healthy,
-		"lastCollected": lastCollected,
-		"mountsCount":   len(e.collector.GetMounts()),
-		"metricsCount":  metricsCount,
+		"healthy":          healthy,
+		"lastCollected":    lastCollected,
+		"filesystemsCount": len(filesystems),
+		"metricsCount":     len(metrics),
 	})
 }
 
 // handleMetricsCache returns the cached metrics
 func (e *Exporter) handleMetricsCache(c *gin.Context) {
 	e.mu.RLock()
-	defer e.mu.RUnlock()
+	lastCollected := e.lastCollected
+	e.mu.RUnlock()
 
-	result := make([]MetricsResponse, 0, len(e.metricsCache))
-	for _, m := range e.metricsCache {
+	metrics := e.controller.GetMetrics()
+	result := make([]MetricsResponse, 0, len(metrics))
+
+	for _, m := range metrics {
 		resp := MetricsResponse{
-			Name:           m.Name,
-			MountPath:      m.MountPath,
-			StorageType:    m.StorageType,
 			FilesystemName: m.FilesystemName,
+			StorageType:    m.StorageType,
 			TotalBytes:     m.TotalBytes,
 			UsedBytes:      m.UsedBytes,
 			AvailableBytes: m.AvailableBytes,
@@ -89,6 +94,7 @@ func (e *Exporter) handleMetricsCache(c *gin.Context) {
 			TotalInodes:    m.TotalInodes,
 			UsedInodes:     m.UsedInodes,
 			FreeInodes:     m.FreeInodes,
+			CollectedAt:    m.CollectedAt,
 		}
 		if m.Error != nil {
 			resp.Error = m.Error.Error()
@@ -97,7 +103,7 @@ func (e *Exporter) handleMetricsCache(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"lastCollected": e.lastCollected,
+		"lastCollected": lastCollected,
 		"metrics":       result,
 	})
 }

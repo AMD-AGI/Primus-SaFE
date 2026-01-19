@@ -1,34 +1,27 @@
 # Storage Exporter Configuration
 #
-# Auto-generation:
-#   Use config-generator to automatically scan StorageClasses and generate
-#   deployment manifests:
+# This exporter automatically discovers WekaFS StorageClasses and collects
+# storage metrics by dynamically creating PVCs and collector pods.
 #
-#   go run ./cmd/config-generator \
-#     --kubeconfig ~/.kube/config \
-#     --output-dir ./generated \
-#     --namespace primus-lens \
-#     --cluster-name my-cluster
-#
-#   Then deploy: kubectl apply -f ./generated/
+# No manual mount configuration needed - just deploy and it will:
+# 1. Scan StorageClasses for provisioner: csi.weka.io
+# 2. Group by filesystemName (one PVC per filesystem)
+# 3. Create collector pods to run df command
+# 4. Export metrics to Prometheus
 
 httpPort: 8992
-loadK8SClient: false
+loadK8SClient: true
 
 storage:
-  # Scrape interval for storage metrics (execute df command)
+  # Scrape interval for storage metrics
   scrapeInterval: 60s
 
-  # Storage mounts to monitor
-  # Each mount should be configured in the Deployment and mounted to the specified path
-  # Use config-generator to auto-discover WekaFS filesystems from StorageClasses
-  mounts:
-    # Example: WekaFS filesystem
-    - name: wekafs-amdprj2-k8s
-      mountPath: /mnt/wekafs-amdprj2-k8s
-      storageType: wekafs
-      filesystemName: amdprj2-k8s
-      pvcName: storage-exporter-wekafs-amdprj2-k8s
+controller:
+  # Namespace where PVCs and collector pods will be created
+  # Can be overridden by POD_NAMESPACE env var
+  namespace: primus-lens
+  # Image for collector pods (must have df command)
+  collectorImage: alpine:3.19
 
 # Prometheus metrics configuration
 metrics:
