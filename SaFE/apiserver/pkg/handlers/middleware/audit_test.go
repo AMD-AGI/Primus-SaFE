@@ -169,19 +169,19 @@ func TestExtractResourceInfo(t *testing.T) {
 			description:  "GET /api/v1/cd/env-config",
 		},
 
-		// Nested resource routes
+		// Nested resource routes - addons is recognized as nested resource type
 		{
 			name:         "cluster_addons_list",
 			path:         "/api/v1/clusters/my-cluster/addons",
-			expectedType: "clusters",
-			expectedName: "my-cluster",
+			expectedType: "addons",
+			expectedName: "",
 			description:  "GET/POST /api/v1/clusters/:name/addons",
 		},
 		{
 			name:         "cluster_addon_specific",
 			path:         "/api/v1/clusters/my-cluster/addons/my-addon",
-			expectedType: "clusters",
-			expectedName: "my-cluster",
+			expectedType: "addons",
+			expectedName: "my-addon",
 			description:  "DELETE /api/v1/clusters/:name/addons/:addon",
 		},
 		{
@@ -367,6 +367,33 @@ func TestIsModulePrefix(t *testing.T) {
 		t.Run(tt.prefix, func(t *testing.T) {
 			result := isModulePrefix(tt.prefix)
 			assert.Equal(t, tt.expected, result, "isModulePrefix(%q) should be %v", tt.prefix, tt.expected)
+		})
+	}
+}
+
+func TestIsNestedResourceType(t *testing.T) {
+	tests := []struct {
+		resourceType string
+		expected     bool
+	}{
+		// True cases - nested resource types
+		{"addons", true},
+		{"ADDONS", true},
+		{"Addons", true},
+
+		// False cases - not nested resource types
+		{"workloads", false},
+		{"nodes", false},
+		{"clusters", false},
+		{"workspaces", false},
+		{"deployments", false},
+		{"", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.resourceType, func(t *testing.T) {
+			result := isNestedResourceType(tt.resourceType)
+			assert.Equal(t, tt.expected, result, "isNestedResourceType(%q) should be %v", tt.resourceType, tt.expected)
 		})
 	}
 }

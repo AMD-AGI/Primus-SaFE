@@ -270,9 +270,11 @@ func isWriteOperation(method string) bool {
 // extractResourceInfo extracts resource type and name from the request path
 // For example: /api/v1/workloads/my-workload -> (workloads, my-workload)
 // For example: /api/v1/cd/deployments/33/approve -> (deployments, 33)
+// For example: /api/v1/clusters/my-cluster/addons/my-addon -> (addons, my-addon)
 func extractResourceInfo(path string) (string, string) {
 	// Common patterns: /api/v1/{resource_type}/{resource_name}/...
 	// Or with module prefix: /api/v1/{module}/{resource_type}/{resource_name}/...
+	// Or nested resources: /api/v1/{parent_type}/{parent_name}/{nested_type}/{nested_name}
 	parts := strings.Split(strings.Trim(path, "/"), "/")
 
 	// Skip api version prefix (e.g., "api/v1") and module prefix (e.g., "cd")
@@ -289,6 +291,20 @@ func extractResourceInfo(path string) (string, string) {
 		return "", ""
 	}
 
+	// Check for nested resource pattern: /{parent_type}/{parent_name}/{nested_type}/{nested_name}
+	// Look for nested resource types in the path (after position startIdx+1)
+	for i := startIdx + 2; i < len(parts); i++ {
+		if isNestedResourceType(parts[i]) {
+			resourceType := parts[i]
+			resourceName := ""
+			if i+1 < len(parts) && !isOperationKeyword(parts[i+1]) {
+				resourceName = parts[i+1]
+			}
+			return resourceType, resourceName
+		}
+	}
+
+	// Default: use first resource after api version
 	resourceType := parts[startIdx]
 	resourceName := ""
 	if startIdx+1 < len(parts) {
@@ -309,6 +325,16 @@ func isModulePrefix(s string) bool {
 		"cd": true, // CD (Continuous Deployment) module
 	}
 	return modules[strings.ToLower(s)]
+}
+
+// isNestedResourceType checks if a string is a known nested resource type
+// These are resources that appear as sub-resources under a parent resource
+// For example: /api/v1/clusters/:name/addons -> addons is a nested resource
+func isNestedResourceType(s string) bool {
+	nestedTypes := map[string]bool{
+		"addons": true, // Cluster addons: /api/v1/clusters/:name/addons
+	}
+	return nestedTypes[strings.ToLower(s)]
 }
 
 // isOperationKeyword checks if a string is a known operation keyword
