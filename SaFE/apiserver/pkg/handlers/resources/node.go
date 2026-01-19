@@ -438,6 +438,15 @@ func (h *Handler) listNodeByQuery(c *gin.Context, query *view.ListNodeRequest) (
 		}); err != nil {
 			continue
 		}
+		// Search by name or IP address (case-insensitive partial match)
+		if query.Search != nil && *query.Search != "" {
+			searchLower := strings.ToLower(*query.Search)
+			nameLower := strings.ToLower(n.Name)
+			privateIP := n.Spec.PrivateIP
+			if !strings.Contains(nameLower, searchLower) && !strings.Contains(privateIP, *query.Search) {
+				continue
+			}
+		}
 		if query.Available != nil {
 			isAvailable, _ := n.CheckAvailable(false)
 			if *query.Available != isAvailable {
