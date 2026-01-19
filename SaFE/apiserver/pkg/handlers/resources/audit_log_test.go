@@ -542,6 +542,17 @@ func TestParseListAuditLogQuery(t *testing.T) {
 		assert.Equal(t, "workloads", query.ResourceType)
 		assert.Equal(t, "POST", query.HttpMethod)
 	})
+
+	t.Run("multiple userType and resourceType with comma-separated", func(t *testing.T) {
+		rsp := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rsp)
+		c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/auditlogs?userType=default,sso&resourceType=workloads,apikeys", nil)
+
+		query, err := parseListAuditLogQuery(c)
+		assert.NoError(t, err)
+		assert.Equal(t, "default,sso", query.UserType)
+		assert.Equal(t, "workloads,apikeys", query.ResourceType)
+	})
 }
 
 func TestBuildListAuditLogOrderBy(t *testing.T) {
@@ -585,5 +596,32 @@ func TestBuildListAuditLogOrderBy(t *testing.T) {
 		orderBy := buildListAuditLogOrderBy(req, dbTags)
 		assert.Len(t, orderBy, 1)
 		assert.Contains(t, orderBy[0], "create_time")
+	})
+}
+
+func TestSplitAndTrim(t *testing.T) {
+	t.Run("empty string", func(t *testing.T) {
+		result := splitAndTrim("")
+		assert.Nil(t, result)
+	})
+
+	t.Run("single value", func(t *testing.T) {
+		result := splitAndTrim("default")
+		assert.Equal(t, []string{"default"}, result)
+	})
+
+	t.Run("multiple values", func(t *testing.T) {
+		result := splitAndTrim("default,sso,apikey")
+		assert.Equal(t, []string{"default", "sso", "apikey"}, result)
+	})
+
+	t.Run("values with spaces", func(t *testing.T) {
+		result := splitAndTrim("default , sso , apikey")
+		assert.Equal(t, []string{"default", "sso", "apikey"}, result)
+	})
+
+	t.Run("values with empty parts", func(t *testing.T) {
+		result := splitAndTrim("default,,sso,")
+		assert.Equal(t, []string{"default", "sso"}, result)
 	})
 }

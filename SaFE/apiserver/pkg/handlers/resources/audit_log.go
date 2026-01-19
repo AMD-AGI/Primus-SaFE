@@ -62,20 +62,45 @@ func (h *Handler) listAuditLog(c *gin.Context) (interface{}, error) {
 	tags := dbclient.GetAuditLogFieldTags()
 	var conditions sqrl.And
 
-	// Admin can filter by userId
+	// Filter by user info
 	if req.UserId != "" {
 		conditions = append(conditions, sqrl.Eq{dbclient.GetFieldTag(tags, "UserId"): req.UserId})
 	}
+	if req.UserName != "" {
+		// Use partial match (ILIKE) for userName to support fuzzy search
+		conditions = append(conditions, sqrl.ILike{dbclient.GetFieldTag(tags, "UserName"): "%" + req.UserName + "%"})
+	}
+	// Support multiple userType values (comma-separated, e.g., ?userType=default,sso)
+	if req.UserType != "" {
+		userTypes := splitAndTrim(req.UserType)
+		if len(userTypes) == 1 {
+			conditions = append(conditions, sqrl.Eq{dbclient.GetFieldTag(tags, "UserType"): userTypes[0]})
+		} else if len(userTypes) > 1 {
+			conditions = append(conditions, sqrl.Eq{dbclient.GetFieldTag(tags, "UserType"): userTypes})
+		}
+	}
 
 	// Add filters
+	// Support multiple resourceType values (comma-separated, e.g., ?resourceType=workloads,apikeys)
 	if req.ResourceType != "" {
-		conditions = append(conditions, sqrl.Eq{dbclient.GetFieldTag(tags, "ResourceType"): req.ResourceType})
+		resourceTypes := splitAndTrim(req.ResourceType)
+		if len(resourceTypes) == 1 {
+			conditions = append(conditions, sqrl.Eq{dbclient.GetFieldTag(tags, "ResourceType"): resourceTypes[0]})
+		} else if len(resourceTypes) > 1 {
+			conditions = append(conditions, sqrl.Eq{dbclient.GetFieldTag(tags, "ResourceType"): resourceTypes})
+		}
 	}
 	if req.ResourceName != "" {
 		conditions = append(conditions, sqrl.ILike{dbclient.GetFieldTag(tags, "ResourceName"): "%" + req.ResourceName + "%"})
 	}
+	// Support multiple httpMethod values (comma-separated, e.g., ?httpMethod=POST,DELETE)
 	if req.HttpMethod != "" {
-		conditions = append(conditions, sqrl.Eq{dbclient.GetFieldTag(tags, "HttpMethod"): req.HttpMethod})
+		httpMethods := splitAndTrim(req.HttpMethod)
+		if len(httpMethods) == 1 {
+			conditions = append(conditions, sqrl.Eq{dbclient.GetFieldTag(tags, "HttpMethod"): httpMethods[0]})
+		} else if len(httpMethods) > 1 {
+			conditions = append(conditions, sqrl.Eq{dbclient.GetFieldTag(tags, "HttpMethod"): httpMethods})
+		}
 	}
 	if req.RequestPath != "" {
 		conditions = append(conditions, sqrl.ILike{dbclient.GetFieldTag(tags, "RequestPath"): "%" + req.RequestPath + "%"})
@@ -313,4 +338,21 @@ func singularize(s string) string {
 		return s[:len(s)-1]
 	}
 	return s
+}
+
+// splitAndTrim splits a comma-separated string and trims whitespace from each element.
+// Empty strings are filtered out.
+func splitAndTrim(s string) []string {
+	if s == "" {
+		return nil
+	}
+	parts := strings.Split(s, ",")
+	result := make([]string, 0, len(parts))
+	for _, p := range parts {
+		trimmed := strings.TrimSpace(p)
+		if trimmed != "" {
+			result = append(result, trimmed)
+		}
+	}
+	return result
 }

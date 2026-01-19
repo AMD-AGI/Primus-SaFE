@@ -17,12 +17,16 @@ type ListAuditLogRequest struct {
 	Order string `form:"order" binding:"omitempty,oneof=desc asc"`
 	// UserId is the optional filter by user ID (exact match)
 	UserId string `form:"userId" binding:"omitempty"`
-	// ResourceType is the optional filter by resource type (exact match)
+	// UserName is the optional filter by user name (partial match)
+	UserName string `form:"userName" binding:"omitempty"`
+	// UserType is the optional filter by user type (comma-separated for multiple values, e.g., "default,sso,apikey")
+	UserType string `form:"userType" binding:"omitempty"`
+	// ResourceType is the optional filter by resource type (comma-separated for multiple values, e.g., "workloads,apikeys")
 	ResourceType string `form:"resourceType" binding:"omitempty"`
 	// ResourceName is the optional filter by resource name (partial match)
 	ResourceName string `form:"resourceName" binding:"omitempty"`
-	// HttpMethod is the optional filter by HTTP method (POST, PUT, PATCH, DELETE)
-	HttpMethod string `form:"httpMethod" binding:"omitempty,oneof=POST PUT PATCH DELETE ''"`
+	// HttpMethod is the optional filter by HTTP method (comma-separated for multiple values, e.g., "POST,DELETE")
+	HttpMethod string `form:"httpMethod" binding:"omitempty"`
 	// RequestPath is the optional filter by request path (partial match)
 	RequestPath string `form:"requestPath" binding:"omitempty"`
 	// StartTime is the optional start time filter (RFC3339 format)
