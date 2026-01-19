@@ -105,6 +105,93 @@ func TestConvertToAuditLogItem(t *testing.T) {
 				assert.Equal(t, "create workload", result.Action)
 			},
 		},
+		{
+			name: "approve deployment",
+			record: &dbclient.AuditLog{
+				Id:             4,
+				UserId:         "user-100",
+				HttpMethod:     "POST",
+				RequestPath:    "/api/v1/cd/deployments/34/approve",
+				ResponseStatus: 200,
+				ResourceType:   sql.NullString{String: "deployments", Valid: true},
+				ResourceName:   sql.NullString{String: "34", Valid: true},
+			},
+			validate: func(t *testing.T, result view.AuditLogItem) {
+				assert.Equal(t, "approve deployment", result.Action)
+			},
+		},
+		{
+			name: "rollback deployment",
+			record: &dbclient.AuditLog{
+				Id:             5,
+				UserId:         "user-101",
+				HttpMethod:     "POST",
+				RequestPath:    "/api/v1/cd/deployments/10/rollback",
+				ResponseStatus: 200,
+				ResourceType:   sql.NullString{String: "deployments", Valid: true},
+				ResourceName:   sql.NullString{String: "10", Valid: true},
+			},
+			validate: func(t *testing.T, result view.AuditLogItem) {
+				assert.Equal(t, "rollback deployment", result.Action)
+			},
+		},
+		{
+			name: "stop workload",
+			record: &dbclient.AuditLog{
+				Id:             6,
+				UserId:         "user-102",
+				HttpMethod:     "POST",
+				RequestPath:    "/api/v1/workloads/my-workload/stop",
+				ResponseStatus: 200,
+				ResourceType:   sql.NullString{String: "workloads", Valid: true},
+				ResourceName:   sql.NullString{String: "my-workload", Valid: true},
+			},
+			validate: func(t *testing.T, result view.AuditLogItem) {
+				assert.Equal(t, "stop workload", result.Action)
+			},
+		},
+		{
+			name: "clone workload",
+			record: &dbclient.AuditLog{
+				Id:             7,
+				UserId:         "user-103",
+				HttpMethod:     "POST",
+				RequestPath:    "/api/v1/workloads/clone",
+				ResponseStatus: 200,
+				ResourceType:   sql.NullString{String: "workloads", Valid: true},
+			},
+			validate: func(t *testing.T, result view.AuditLogItem) {
+				assert.Equal(t, "clone workload", result.Action)
+			},
+		},
+		{
+			name: "login action",
+			record: &dbclient.AuditLog{
+				Id:             8,
+				UserId:         "user-104",
+				HttpMethod:     "POST",
+				RequestPath:    "/api/v1/login",
+				ResponseStatus: 200,
+				ResourceType:   sql.NullString{String: "login", Valid: true},
+			},
+			validate: func(t *testing.T, result view.AuditLogItem) {
+				assert.Equal(t, "login", result.Action)
+			},
+		},
+		{
+			name: "logout action",
+			record: &dbclient.AuditLog{
+				Id:             9,
+				UserId:         "user-105",
+				HttpMethod:     "POST",
+				RequestPath:    "/api/v1/logout",
+				ResponseStatus: 200,
+				ResourceType:   sql.NullString{String: "logout", Valid: true},
+			},
+			validate: func(t *testing.T, result view.AuditLogItem) {
+				assert.Equal(t, "logout", result.Action)
+			},
+		},
 	}
 
 	for _, tt := range tests {

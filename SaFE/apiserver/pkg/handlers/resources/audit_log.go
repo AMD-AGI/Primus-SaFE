@@ -207,15 +207,15 @@ func convertToAuditLogItem(record *dbclient.AuditLog) view.AuditLogItem {
 	}
 
 	// Generate human-readable action description
-	item.Action = generateActionDescription(record.HttpMethod, item.ResourceType, item.ResourceName)
+	item.Action = generateActionDescription(record.HttpMethod, item.ResourceType, record.RequestPath)
 
 	return item
 }
 
 // generateActionDescription generates a human-readable action description
-// based on HTTP method and resource type.
-// Examples: "create apikey", "delete workspace", "update user", "login", "logout"
-func generateActionDescription(method, resourceType, resourceName string) string {
+// based on HTTP method, resource type, and request path.
+// Examples: "create apikey", "delete workspace", "approve deployment", "login", "logout"
+func generateActionDescription(method, resourceType, requestPath string) string {
 	// Special handling for login/logout - these are not CRUD operations
 	resourceLower := strings.ToLower(resourceType)
 	if resourceLower == "login" {
@@ -225,18 +225,22 @@ func generateActionDescription(method, resourceType, resourceName string) string
 		return "logout"
 	}
 
-	var action string
-	switch method {
-	case http.MethodPost:
-		action = "create"
-	case http.MethodPut:
-		action = "replace"
-	case http.MethodPatch:
-		action = "update"
-	case http.MethodDelete:
-		action = "delete"
-	default:
-		action = strings.ToLower(method)
+	// Try to extract operation keyword from the request path (e.g., /approve, /rollback, /stop)
+	action := extractActionFromPath(requestPath)
+	if action == "" {
+		// Fall back to HTTP method based action
+		switch method {
+		case http.MethodPost:
+			action = "create"
+		case http.MethodPut:
+			action = "replace"
+		case http.MethodPatch:
+			action = "update"
+		case http.MethodDelete:
+			action = "delete"
+		default:
+			action = strings.ToLower(method)
+		}
 	}
 
 	// Singularize resource type (remove trailing 's' for common cases)
@@ -250,6 +254,34 @@ func generateActionDescription(method, resourceType, resourceName string) string
 		return action + " " + resource
 	}
 	return action
+}
+
+// extractActionFromPath extracts operation keyword from the end of request path
+// For example: /api/v1/cd/deployments/34/approve -> "approve"
+func extractActionFromPath(path string) string {
+	// Known operation keywords that override HTTP method
+	operationKeywords := map[string]bool{
+		"approve":  true,
+		"rollback": true,
+		"stop":     true,
+		"clone":    true,
+		"retry":    true,
+		"export":   true,
+		"verify":   true,
+	}
+
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	if len(parts) == 0 {
+		return ""
+	}
+
+	// Check if the last part is an operation keyword
+	lastPart := strings.ToLower(parts[len(parts)-1])
+	if operationKeywords[lastPart] {
+		return lastPart
+	}
+
+	return ""
 }
 
 // singularize converts plural resource names to singular form
@@ -270,6 +302,8 @@ func singularize(s string) string {
 		"publickeys":    "publickey",
 		"addons":        "addon",
 		"auditlogs":     "auditlog",
+		"deployments":   "deployment",
+		"datasets":      "dataset",
 	}
 	if singular, ok := specialCases[strings.ToLower(s)]; ok {
 		return singular

@@ -180,6 +180,12 @@ func AuditLog() gin.HandlerFunc {
 			return
 		}
 
+		// Skip login/logout - they have dedicated audit logging in handler
+		if isAuthPath(c.Request.URL.Path) {
+			c.Next()
+			return
+		}
+
 		startTime := time.Now()
 
 		var requestBody string
@@ -313,6 +319,11 @@ func isOperationKeyword(s string) bool {
 		"approve": true, "rollback": true, "description": true, // CD and publickey operations
 	}
 	return operations[strings.ToLower(s)]
+}
+
+// isAuthPath checks if the path is a login/logout path that has dedicated audit logging
+func isAuthPath(path string) bool {
+	return strings.HasSuffix(path, "/login") || strings.HasSuffix(path, "/logout")
 }
 
 // sanitizeBody removes sensitive information from request body

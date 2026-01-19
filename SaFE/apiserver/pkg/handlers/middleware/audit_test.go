@@ -371,6 +371,33 @@ func TestIsModulePrefix(t *testing.T) {
 	}
 }
 
+func TestIsAuthPath(t *testing.T) {
+	tests := []struct {
+		path     string
+		expected bool
+	}{
+		// True cases - auth paths
+		{"/api/v1/login", true},
+		{"/api/v1/logout", true},
+		{"/login", true},
+		{"/logout", true},
+		// False cases - not auth paths
+		{"/api/v1/users", false},
+		{"/api/v1/workloads", false},
+		{"/api/v1/logininfo", false},  // Contains "login" but not ending with it
+		{"/api/v1/logoutinfo", false}, // Contains "logout" but not ending with it
+		{"/api/v1/users/login-user", false},
+		{"", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.path, func(t *testing.T) {
+			result := isAuthPath(tt.path)
+			assert.Equal(t, tt.expected, result, "isAuthPath(%s) should be %v", tt.path, tt.expected)
+		})
+	}
+}
+
 func TestSanitizeBody(t *testing.T) {
 	// Note: sanitizeBody replaces the entire "field": "value" with "[REDACTED]"
 	// It uses regex patterns: "password"\s*:\s*"[^"]*" -> "[REDACTED]"
