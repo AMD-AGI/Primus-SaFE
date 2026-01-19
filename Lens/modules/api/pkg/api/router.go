@@ -76,6 +76,22 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		storageGroup.GET("stat", getStorageStat)
 	}
 
+	// Alert Event routes - Alert events query and analysis
+	alertsGroup := group.Group("/alerts")
+	{
+		// Summary and trend endpoints - must be defined before :id
+		alertsGroup.GET("/summary", GetAlertSummary)
+		alertsGroup.GET("/trend", GetAlertTrend)
+		alertsGroup.GET("/top-sources", GetTopAlertSources)
+		alertsGroup.GET("/by-cluster", GetAlertsByCluster)
+		// List alerts
+		alertsGroup.GET("", ListAlertEvents)
+		// Get alert by ID
+		alertsGroup.GET("/:id", GetAlertEvent)
+		// Get alert correlations
+		alertsGroup.GET("/:id/correlations", GetAlertCorrelations)
+	}
+
 	// Metric Alert Rule management routes
 	metricAlertRuleGroup := group.Group("/metric-alert-rules")
 	{
@@ -431,6 +447,13 @@ func RegisterRouter(group *gin.RouterGroup) error {
 			configsGroup.POST("/:id/runs/batch-retry", RetryFailedRuns)
 			// List completed EphemeralRunners for a config
 			configsGroup.GET("/:id/runners", ListEphemeralRunners)
+		// Dashboard APIs
+		configsGroup.GET("/:id/dashboard", GetDashboardSummary)
+		configsGroup.GET("/:id/dashboard/builds", GetDashboardRecentBuilds)
+		configsGroup.POST("/:id/dashboard/refresh", RefreshDashboardSummary)
+		// Note: Insights are now available via Chat Agent, not as a fixed API
+		// Commit analysis API
+			configsGroup.GET("/:id/commits/stats", GetCommitStats)
 		}
 		// Run management (global)
 		runsGroup := githubWorkflowMetricsGroup.Group("/runs")
@@ -439,6 +462,8 @@ func RegisterRouter(group *gin.RouterGroup) error {
 			runsGroup.GET("", ListAllGithubWorkflowRuns)
 			runsGroup.GET("/:id", GetGithubWorkflowRun)
 			runsGroup.GET("/:id/metrics", GetGithubWorkflowMetricsByRun)
+			// Run detail with commits and performance comparison
+			runsGroup.GET("/:id/detail", GetRunDetail)
 			// Retry single run
 			runsGroup.POST("/:id/retry", RetryGithubWorkflowRun)
 		}

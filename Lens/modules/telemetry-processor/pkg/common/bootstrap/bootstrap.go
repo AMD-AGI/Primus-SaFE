@@ -104,9 +104,6 @@ func initRouter(group *gin.RouterGroup) error {
 	// Alert query endpoints
 	group.GET("alerts", alerts.ListAlerts)
 	group.GET("alerts/summary", alerts.GetAlertSummary)
-	group.GET("alerts/trend", alerts.GetAlertTrend)
-	group.GET("alerts/top-sources", alerts.GetTopAlertSources)
-	group.GET("alerts/by-cluster", alerts.GetAlertsByCluster)
 	group.GET("alerts/statistics", alerts.GetAlertStatistics)
 	group.GET("alerts/:id", alerts.GetAlert)
 	group.GET("alerts/:id/correlations", alerts.GetAlertCorrelationsAPI)
