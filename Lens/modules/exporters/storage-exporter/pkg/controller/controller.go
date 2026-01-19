@@ -398,6 +398,7 @@ func (c *Controller) ensureStaticPV(ctx context.Context, fs FilesystemInfo, pvNa
 			AccessModes:                   []corev1.PersistentVolumeAccessMode{corev1.ReadOnlyMany},
 			PersistentVolumeReclaimPolicy: corev1.PersistentVolumeReclaimRetain,
 			StorageClassName:              "",
+			MountOptions: []string{"ro", "relatime", "forcedirect", "noatime"},
 			PersistentVolumeSource: corev1.PersistentVolumeSource{
 				CSI: &corev1.CSIPersistentVolumeSource{
 					Driver:       wekafsProvisioner,
@@ -405,6 +406,11 @@ func (c *Controller) ensureStaticPV(ctx context.Context, fs FilesystemInfo, pvNa
 					VolumeAttributes: map[string]string{
 						"filesystemName": fs.FilesystemName,
 						"volumeType":     "dir/v1",
+					},
+					// Required for Weka CSI authentication
+					NodePublishSecretRef: &corev1.SecretReference{
+						Name:      "csi-wekafs-api-secret",
+						Namespace: "kube-system",
 					},
 				},
 			},
