@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -286,36 +287,29 @@ func buildEmailMessage(config *EmailConfig, subject, textBody, htmlBody string) 
 		buf.WriteString(fmt.Sprintf("Cc: %s\r\n", strings.Join(config.CC, ", ")))
 	}
 
-	// Subject
+	// Subject with UTF-8 encoding
 	buf.WriteString(fmt.Sprintf("Subject: %s\r\n", subject))
 
 	// Date
 	buf.WriteString(fmt.Sprintf("Date: %s\r\n", time.Now().Format(time.RFC1123Z)))
 
-	// MIME headers
-	boundary := "----=_Part_Alert_Notification"
+	// MIME headers - Send HTML only for better compatibility
 	buf.WriteString("MIME-Version: 1.0\r\n")
-	buf.WriteString(fmt.Sprintf("Content-Type: multipart/alternative; boundary=\"%s\"\r\n", boundary))
-	buf.WriteString("\r\n")
-
-	// Plain text part
-	buf.WriteString(fmt.Sprintf("--%s\r\n", boundary))
-	buf.WriteString("Content-Type: text/plain; charset=UTF-8\r\n")
-	buf.WriteString("Content-Transfer-Encoding: quoted-printable\r\n")
-	buf.WriteString("\r\n")
-	buf.WriteString(textBody)
-	buf.WriteString("\r\n")
-
-	// HTML part
-	buf.WriteString(fmt.Sprintf("--%s\r\n", boundary))
 	buf.WriteString("Content-Type: text/html; charset=UTF-8\r\n")
-	buf.WriteString("Content-Transfer-Encoding: quoted-printable\r\n")
-	buf.WriteString("\r\n")
-	buf.WriteString(htmlBody)
+	buf.WriteString("Content-Transfer-Encoding: base64\r\n")
 	buf.WriteString("\r\n")
 
-	// End boundary
-	buf.WriteString(fmt.Sprintf("--%s--\r\n", boundary))
+	// Base64 encode the HTML body
+	encoded := base64.StdEncoding.EncodeToString([]byte(htmlBody))
+	// Split into 76-character lines per RFC 2045
+	for i := 0; i < len(encoded); i += 76 {
+		end := i + 76
+		if end > len(encoded) {
+			end = len(encoded)
+		}
+		buf.WriteString(encoded[i:end])
+		buf.WriteString("\r\n")
+	}
 
 	return buf.Bytes()
 }
