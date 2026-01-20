@@ -289,9 +289,20 @@ func (h *Handler) deleteApiKey(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, commonerrors.NewNotFoundWithMessage("API key not found")
 	}
-	if record.UserId != userId {
-		return nil, commonerrors.NewForbidden("not authorized to delete this API key")
+
+	// Check RBAC permission - user must have "delete" permission on "apikeys" resource
+	err = h.accessController.Authorize(authority.AccessInput{
+		Context:       c.Request.Context(),
+		ResourceKind:  authority.ApiKeysKind,
+		ResourceOwner: record.UserId, // Owner is the API key's owner
+		Verb:          "delete",
+		UserId:        userId,
+	})
+	if err != nil {
+		klog.ErrorS(err, "user not authorized to delete api key", "userId", userId, "apiKeyId", id)
+		return nil, err
 	}
+
 	if record.Deleted {
 		return nil, commonerrors.NewBadRequest("API key already deleted")
 	}

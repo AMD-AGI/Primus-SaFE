@@ -111,6 +111,14 @@ rules:
   verbs:
     - "*"
 - resources:
+    - apikeys
+  grantedUsers:
+    - owner
+  verbs:
+    - create
+    - list
+    - delete
+- resources:
     - secret
     - opsjob/preflight
     - opsjob/download
