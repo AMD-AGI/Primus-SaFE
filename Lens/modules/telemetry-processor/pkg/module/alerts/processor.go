@@ -80,7 +80,7 @@ func checkAlertExists(ctx context.Context, id string, status string) (*model.Ale
 func updateExistingAlert(ctx context.Context, existing *model.AlertEvents, newAlert *UnifiedAlert) error {
 	log.GlobalLogger().WithContext(ctx).Infof("Updating existing alert: %s", newAlert.ID)
 
-	// Update status and end time
+	// Update status and end time when alert is resolved
 	if newAlert.Status == StatusResolved && existing.Status != StatusResolved {
 		endsAt := time.Now()
 		if newAlert.EndsAt != nil {
@@ -95,15 +95,17 @@ func updateExistingAlert(ctx context.Context, existing *model.AlertEvents, newAl
 		// Update statistics for resolved alert
 		go updateResolvedAlertStatistics(context.Background(), existing, endsAt)
 
-		log.GlobalLogger().WithContext(ctx).Infof("Alert %s resolved", newAlert.ID)
+		// Send resolved notification
+		log.GlobalLogger().WithContext(ctx).Infof("Alert %s resolved, sending notification", newAlert.ID)
+		newAlert.Status = StatusResolved
+		go routeAndNotify(context.Background(), newAlert)
 	}
 
-	// For firing alerts, trigger notification if enough time has passed (repeat interval: 1 hour)
+	// For firing alerts, retry notification if previous notification failed
 	if existing.Status == StatusFiring && newAlert.Status != StatusResolved {
-		repeatInterval := time.Hour
-		if time.Since(existing.UpdatedAt) >= repeatInterval {
-			log.GlobalLogger().WithContext(ctx).Infof("Repeating notification for firing alert: %s", newAlert.ID)
-			// Route and notify
+		if existing.NotificationStatus == "" || existing.NotificationStatus == "failed" {
+			log.GlobalLogger().WithContext(ctx).Infof("Retrying notification for alert: %s (previous status: %s)", 
+				newAlert.ID, existing.NotificationStatus)
 			go routeAndNotify(context.Background(), newAlert)
 		}
 	}

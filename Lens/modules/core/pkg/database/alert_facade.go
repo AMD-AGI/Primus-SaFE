@@ -217,6 +217,15 @@ func (f *AlertFacade) UpdateAlertStatus(ctx context.Context, id string, status s
 	return db.Model(&model.AlertEvents{}).Where("id = ?", id).Updates(updates).Error
 }
 
+func (f *AlertFacade) UpdateAlertNotificationStatus(ctx context.Context, id string, notificationStatus string) error {
+	db := f.getDB().WithContext(ctx)
+	updates := map[string]interface{}{
+		"notification_status": notificationStatus,
+		"notified_at":         time.Now(),
+	}
+	return db.Model(&model.AlertEvents{}).Where("id = ?", id).Updates(updates).Error
+}
+
 func (f *AlertFacade) DeleteOldAlertEventss(ctx context.Context, before time.Time) error {
 	db := f.getDB().WithContext(ctx)
 	return db.Where("starts_at < ?", before).Delete(&model.AlertEvents{}).Error

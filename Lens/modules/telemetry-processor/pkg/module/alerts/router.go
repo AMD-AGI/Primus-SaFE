@@ -13,7 +13,7 @@ import (
 
 // routeAndNotify routes an alert and sends notifications
 func routeAndNotify(ctx context.Context, alert *UnifiedAlert) {
-	log.GlobalLogger().WithContext(ctx).Infof("Routing alert: %s", alert.ID)
+	log.GlobalLogger().WithContext(ctx).Infof("Routing alert: %s (status: %s)", alert.ID, alert.Status)
 	
 	// Get routing configuration for this alert
 	routes := getRoutesForAlert(ctx, alert)
@@ -24,13 +24,36 @@ func routeAndNotify(ctx context.Context, alert *UnifiedAlert) {
 		routes = []RouteConfig{getDefaultRoute()}
 	}
 	
+	// Track if any notification succeeded
+	anySuccess := false
+	anyFailure := false
+	
 	// Send notifications for each route
 	for _, route := range routes {
 		for _, channel := range route.Channels {
 			if err := sendNotification(ctx, alert, channel); err != nil {
 				log.GlobalLogger().WithContext(ctx).Errorf("Failed to send notification via %s: %v", channel.Type, err)
+				anyFailure = true
+			} else {
+				log.GlobalLogger().WithContext(ctx).Infof("Successfully sent notification via %s for alert: %s", channel.Type, alert.ID)
+				anySuccess = true
 			}
 		}
+	}
+	
+	// Update alert notification status
+	facade := database.GetFacade().GetAlert()
+	var notificationStatus string
+	if anySuccess {
+		notificationStatus = NotificationStatusSent
+	} else if anyFailure {
+		notificationStatus = NotificationStatusFailed
+	} else {
+		notificationStatus = NotificationStatusPending
+	}
+	
+	if err := facade.UpdateAlertNotificationStatus(ctx, alert.ID, notificationStatus); err != nil {
+		log.GlobalLogger().WithContext(ctx).Errorf("Failed to update notification status for alert %s: %v", alert.ID, err)
 	}
 }
 
