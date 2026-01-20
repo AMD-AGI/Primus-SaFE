@@ -420,7 +420,7 @@ data:
 
     alter table api_keys owner to "primus-safe";
 
-CREATE TABLE IF NOT EXISTS audit_logs (
+    CREATE TABLE IF NOT EXISTS audit_logs (
         id BIGSERIAL PRIMARY KEY,
         user_id VARCHAR(64) NOT NULL,
         user_name VARCHAR(256),
