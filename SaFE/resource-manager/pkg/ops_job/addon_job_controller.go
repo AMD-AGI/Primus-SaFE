@@ -298,7 +298,7 @@ func (r *AddonJobReconciler) handleNodes(ctx context.Context, job *v1.OpsJob, no
 
 		}, maxWaitTime, waitTime)
 		if err != nil {
-			klog.ErrorS(err, "failed to handle opsjob", "job", job.Name, "node", nodeName)
+			klog.ErrorS(err, "failed to handle opsJob", "job", job.Name, "node", nodeName)
 			if r.setNodePhase(job.Name, nodeName, v1.OpsJobFailed) {
 				r.addFailedNodeCondition(ctx, job.Name, nodeName, err.Error())
 			}
@@ -338,24 +338,36 @@ func (r *AddonJobReconciler) handleNode(ctx context.Context,
 	}
 	defer sshClient.Close()
 
+	isTaskRunning := false
 	for _, addOn := range addonJob.addonTemplates {
 		if !isMatchGpuChip(string(addOn.Spec.GpuChip), adminNode) {
 			continue
 		}
-		if err = executeAction(sshClient, addOn); err != nil {
+		if err = executeCommand(sshClient, addOn.Name, addOn.Spec.Action, addOn.Spec.Required); err != nil {
 			return false, err
 		}
+		isTaskRunning = true
 	}
+	scriptParams := job.GetParameters(v1.ParameterScript)
+	for _, p := range scriptParams {
+		if err = executeCommand(sshClient, "", p.Value, true); err != nil {
+			return false, err
+		}
+		isTaskRunning = true
+	}
+
 	// If the addon specified by node.template is installed on the node, save the operation result.
 	// Subsequent operations can then trigger the preflight check.
-	if err = r.updateNodeTemplatePhase(ctx, job, adminNode, true); err != nil {
+	if err = r.updateNodeTemplatePhase(ctx, job, adminNode, isTaskRunning); err != nil {
 		return false, err
 	}
 	if err = r.deleteFault(ctx, nodeName, common.AddonMonitorId); err != nil {
 		return false, err
 	}
-	klog.Infof("Processing addon job %s on node %s with %d addon templates",
-		job.Name, nodeName, len(addonJob.addonTemplates))
+	if !isTaskRunning {
+		return false, fmt.Errorf("do nothing")
+	}
+	klog.Infof("Processing addon job %s on node %s", job.Name, nodeName)
 	return true, nil
 }
 
@@ -374,11 +386,11 @@ func (r *AddonJobReconciler) updateNodeTemplatePhase(ctx context.Context, job *v
 	return nil
 }
 
-// executeAction executes the addon action on the node via SSH.
-func executeAction(sshClient *ssh.Client, addOn *v1.AddonTemplate) error {
+// executeCommand executes the addon action on the node via SSH.
+func executeCommand(sshClient *ssh.Client, name, command string, isRequired bool) error {
 	cmd := fmt.Sprintf(
 		`echo '%s' | /usr/bin/base64 -d | sudo /bin/bash`,
-		addOn.Spec.Action,
+		command,
 	)
 	session, err := sshClient.NewSession()
 	if err != nil {
@@ -386,7 +398,8 @@ func executeAction(sshClient *ssh.Client, addOn *v1.AddonTemplate) error {
 	}
 	defer session.Close()
 
-	err = session.Run(cmd)
+	// Capture combined stdout and stderr output
+	output, err := session.CombinedOutput(cmd)
 	if err == nil {
 		return nil
 	}
@@ -394,14 +407,15 @@ func executeAction(sshClient *ssh.Client, addOn *v1.AddonTemplate) error {
 	if errors.As(err, &exitError) {
 		message := exitError.Error()
 		message = normalizeErrorMessage(message)
-		klog.ErrorS(err, "failed to execute command", "addon", addOn.Name,
-			"message", message, "code", exitError.ExitStatus())
-		err = commonerrors.NewInternalError(
-			fmt.Sprintf("message: %s, code: %d, addon: %s", message, exitError.ExitStatus(), addOn.Name))
+		outputStr := normalizeErrorMessage(string(output))
+		klog.ErrorS(err, "failed to execute command", "addon", name,
+			"exit_status", exitError.ExitStatus(), "output", outputStr)
+		err = commonerrors.NewInternalError(fmt.Sprintf("addon: %s, message: %s, exit_status: %d, output: %s",
+			name, message, exitError.ExitStatus(), outputStr))
 	} else {
-		klog.ErrorS(err, "failed to execute command", "addon", addOn.Name)
+		klog.ErrorS(err, "failed to execute command", "addon", name, "output", string(output))
 	}
-	if !addOn.Spec.Required {
+	if !isRequired {
 		return nil
 	}
 	return err
@@ -513,6 +527,9 @@ func (r *AddonJobReconciler) getJobPhase(jobId string) (v1.OpsJobPhase, string) 
 // getInputAddonTemplates retrieves addon templates specified in the job parameters.
 func (r *AddonJobReconciler) getInputAddonTemplates(ctx context.Context, job *v1.OpsJob) ([]*v1.AddonTemplate, error) {
 	params := job.GetParameters(v1.ParameterAddonTemplate)
+	if len(params) == 0 {
+		return nil, nil
+	}
 	results := make([]*v1.AddonTemplate, 0, len(params))
 	for i := range params {
 		addonTemplate := &v1.AddonTemplate{}
@@ -527,9 +544,6 @@ func (r *AddonJobReconciler) getInputAddonTemplates(ctx context.Context, job *v1
 			continue
 		}
 		results = append(results, addonTemplate)
-	}
-	if len(results) == 0 {
-		return nil, commonerrors.NewBadRequest("no addontemplates are found")
 	}
 	return results, nil
 }

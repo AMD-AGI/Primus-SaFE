@@ -42,7 +42,7 @@ const (
 	harborCACertPathUbuntu = "/usr/local/share/ca-certificates/harbor-ca.crt"
 	harborCACertPathCentOS = "/etc/pki/ca-trust/source/anchors/harbor-ca.crt"
 
-	machineCheckInterval = time.Minute * 30
+	machineCheckInterval = time.Minute * 10
 	podManagementTimeout = 3600 * 2
 )
 
@@ -268,8 +268,14 @@ func (r *NodeReconciler) processNode(ctx context.Context, adminNode *v1.Node, k8
 			return ctrlruntime.Result{}, err
 		}
 	}
-	if err := r.installAddons(ctx, adminNode); err != nil {
-		return ctrlruntime.Result{}, err
+	// Only managed nodes will have the addons installed.
+	if adminNode.IsManaged() && adminNode.GetSpecCluster() != "" {
+		if err := r.installAddons(ctx, adminNode); err != nil {
+			klog.ErrorS(err, "failed to install addons", "node", adminNode.Name)
+			if !utils.IsNonRetryableError(err) {
+				return ctrlruntime.Result{}, err
+			}
+		}
 	}
 	if err := r.cleanupTimeoutPods(ctx, adminNode); err != nil {
 		return ctrlruntime.Result{}, err
@@ -290,7 +296,7 @@ func (r *NodeReconciler) syncMachineStatus(ctx context.Context, node *v1.Node) e
 		}
 	}()
 
-	hostname, err := r.syncHostname(node, sshClient)
+	hostname, err := r.syncHostname(ctx, node, sshClient)
 	if err != nil {
 		klog.ErrorS(err, "failed to sync hostname", "node", node.Name)
 		return r.updateMachineStatus(ctx, node, "", v1.NodeHostnameFailed)
@@ -322,19 +328,27 @@ func (r *NodeReconciler) updateMachineStatus(ctx context.Context,
 }
 
 // syncHostname synchronizes the hostname of a Node via SSH.
-func (r *NodeReconciler) syncHostname(node *v1.Node, client *ssh.Client) (string, error) {
+func (r *NodeReconciler) syncHostname(ctx context.Context, node *v1.Node, sshClient *ssh.Client) (string, error) {
 	if node.Status.MachineStatus.HostName != "" && node.Status.MachineStatus.HostName == node.GetSpecHostName() {
 		return node.Status.MachineStatus.HostName, nil
 	}
-	hostname, err := getHostname(client)
+	hostname, err := getHostname(sshClient)
 	if err != nil {
 		return "", err
 	}
-	if node.Spec.Hostname != nil && *node.Spec.Hostname != hostname {
-		if err = setHostname(client, *node.Spec.Hostname); err != nil {
-			return "", err
+	if node.GetSpecHostName() != "" {
+		if node.GetSpecHostName() != hostname {
+			hostname = node.GetSpecHostName()
+			if err = setHostname(sshClient, hostname); err != nil {
+				return "", err
+			}
 		}
-		hostname = *node.Spec.Hostname
+	} else if hostname != "" {
+		patch := client.MergeFrom(node.DeepCopy())
+		v1.SetLabel(node, v1.NodeHostnameLabel, hostname)
+		if err = r.Patch(ctx, node, patch); err != nil {
+			klog.ErrorS(err, "failed to patch node", "node", node.Name)
+		}
 	}
 	if hostname == "" {
 		return "", fmt.Errorf("hostname not found for node %s", node.Name)

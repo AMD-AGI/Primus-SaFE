@@ -16,16 +16,18 @@ export WORKLOAD_KIND=$WORKLOAD_KIND
 
 if [ -f "${PATH_TO_AINIC_TAR_PACKAGE}" ]; then
   export ENABLE_AINIC=true
-  sh /shared-data/build_ainic.sh
+  /bin/sh /shared-data/build_ainic.sh
 else
-  sh /shared-data/build_bnxt.sh
+  /bin/sh /shared-data/build_bnxt.sh
 fi
 
-sh /shared-data/build_ssh.sh
+/bin/sh /shared-data/build_ssh.sh
 echo "$input" |base64 -d > ".run.sh"
 chmod +x ".run.sh"
-if command -v bash >/dev/null 2>&1; then
+if [ -x /usr/bin/bash ]; then
     /usr/bin/bash -o pipefail ".run.sh" &
+elif [ -x /bin/bash ]; then
+    /bin/bash -o pipefail ".run.sh" &
 else
     /bin/sh ".run.sh" &
 fi

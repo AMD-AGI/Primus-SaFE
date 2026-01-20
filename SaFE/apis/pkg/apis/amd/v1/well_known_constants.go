@@ -42,6 +42,7 @@ const (
 	NodeGpuCountLabel = NodePrefix + "gpu.count"
 	// The node's last startup time
 	NodeStartupTimeLabel            = NodePrefix + "startup.time"
+	NodeHostnameLabel               = NodePrefix + "hostname"
 	NodeLabelAction                 = NodePrefix + "label.action"
 	NodeAnnotationAction            = NodePrefix + "annotation.action"
 	NodeTemplateInstalledAnnotation = NodePrefix + "template.installed"
@@ -98,6 +99,7 @@ const (
 	WorkloadReScheduledAnnotation     = WorkloadPrefix + "rescheduled"
 	WorkloadDisableFailoverAnnotation = WorkloadPrefix + "disable.failover"
 	WorkloadEnablePreemptAnnotation   = WorkloadPrefix + "enable.preempt"
+	WorkloadPrivilegedAnnotation      = WorkloadPrefix + "privileged"
 	CronJobTimestampAnnotation        = WorkloadPrefix + "cronjob"
 	EnvToBeRemovedAnnotation          = WorkloadPrefix + "env.to.remove"
 	AdminControlPlaneAnnotation       = WorkloadPrefix + "admin.control.plane"

@@ -6,6 +6,7 @@ package mock_s3
 
 import (
 	context "context"
+	io "io"
 	reflect "reflect"
 
 	s3 "github.com/AMD-AIG-AIMA/SAFE/common/pkg/s3"
@@ -94,6 +95,21 @@ func (mr *MockInterfaceMockRecorder) DeleteObject(ctx, key, timeout interface{})
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteObject", reflect.TypeOf((*MockInterface)(nil).DeleteObject), ctx, key, timeout)
 }
 
+// GetObject mocks base method.
+func (m *MockInterface) GetObject(ctx context.Context, key string, timeout int64) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetObject", ctx, key, timeout)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetObject indicates an expected call of GetObject.
+func (mr *MockInterfaceMockRecorder) GetObject(ctx, key, timeout interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetObject", reflect.TypeOf((*MockInterface)(nil).GetObject), ctx, key, timeout)
+}
+
 // GeneratePresignedURL mocks base method.
 func (m *MockInterface) GeneratePresignedURL(ctx context.Context, key string, expireDay int32) (string, error) {
 	m.ctrl.T.Helper()
@@ -136,4 +152,76 @@ func (m *MockInterface) PutObject(ctx context.Context, key, value string, timeou
 func (mr *MockInterfaceMockRecorder) PutObject(ctx, key, value, timeout interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PutObject", reflect.TypeOf((*MockInterface)(nil).PutObject), ctx, key, value, timeout)
+}
+
+// PutObjectMultipart mocks base method.
+func (m *MockInterface) PutObjectMultipart(ctx context.Context, key string, reader io.Reader, size int64) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PutObjectMultipart", ctx, key, reader, size)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// PutObjectMultipart indicates an expected call of PutObjectMultipart.
+func (mr *MockInterfaceMockRecorder) PutObjectMultipart(ctx, key, reader, size interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PutObjectMultipart", reflect.TypeOf((*MockInterface)(nil).PutObjectMultipart), ctx, key, reader, size)
+}
+
+// PresignModelFiles mocks base method.
+func (m *MockInterface) PresignModelFiles(ctx context.Context, prefix string, expireHour int32) (map[string]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PresignModelFiles", ctx, prefix, expireHour)
+	ret0, _ := ret[0].(map[string]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// PresignModelFiles indicates an expected call of PresignModelFiles.
+func (mr *MockInterfaceMockRecorder) PresignModelFiles(ctx, prefix, expireHour interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PresignModelFiles", reflect.TypeOf((*MockInterface)(nil).PresignModelFiles), ctx, prefix, expireHour)
+}
+
+// ListObjectsWithSize mocks base method.
+func (m *MockInterface) ListObjectsWithSize(ctx context.Context, prefix string) ([]s3.S3FileInfo, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListObjectsWithSize", ctx, prefix)
+	ret0, _ := ret[0].([]s3.S3FileInfo)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListObjectsWithSize indicates an expected call of ListObjectsWithSize.
+func (mr *MockInterfaceMockRecorder) ListObjectsWithSize(ctx, prefix interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListObjectsWithSize", reflect.TypeOf((*MockInterface)(nil).ListObjectsWithSize), ctx, prefix)
+}
+
+// DownloadFile mocks base method.
+func (m *MockInterface) DownloadFile(ctx context.Context, key, localPath string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DownloadFile", ctx, key, localPath)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DownloadFile indicates an expected call of DownloadFile.
+func (mr *MockInterfaceMockRecorder) DownloadFile(ctx, key, localPath interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DownloadFile", reflect.TypeOf((*MockInterface)(nil).DownloadFile), ctx, key, localPath)
+}
+
+// DownloadDirectory mocks base method.
+func (m *MockInterface) DownloadDirectory(ctx context.Context, prefix, localDir string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DownloadDirectory", ctx, prefix, localDir)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DownloadDirectory indicates an expected call of DownloadDirectory.
+func (mr *MockInterfaceMockRecorder) DownloadDirectory(ctx, prefix, localDir interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DownloadDirectory", reflect.TypeOf((*MockInterface)(nil).DownloadDirectory), ctx, prefix, localDir)
 }

@@ -475,7 +475,7 @@ Get operation logs for node joining/leaving cluster.
 }
 ```
 
-### 7. Batch Delete nodes
+### 9. Batch Delete Nodes
 
 Delete multiple nodes in batch.
 
@@ -498,7 +498,7 @@ Delete multiple nodes in batch.
 
 ---
 
-### 9. Export Node
+### 10. Export Node
 
 Export node list with multiple filtering options.
 
@@ -525,6 +525,63 @@ Export node list with multiple filtering options.
 | isAddonsInstalled | bool | No | Filter by addon installation status                                                      |
 
 **Response**: 200 OK with no response body
+
+---
+
+### 11. Retry Node Operations
+
+Retry node manage or unmanage operations when needed.
+
+**Endpoint**: `POST /api/v1/nodes/retry`
+
+**Authentication Required**: Yes
+
+**Request Parameters**:
+
+```json
+{
+  "nodeIds": ["node-001", "node-002"]
+}
+```
+
+**Field Description**:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| nodeIds | string[] | Yes | List of node IDs to retry (supports single or multiple nodes) |
+
+**Response Example**:
+
+```json
+{
+  "totalCount": 2,
+  "successCount": 2,
+  "successNodes": [
+    {
+      "nodeId": "node-001",
+      "hasPods": true,
+      "podsDeleted": ["safe-cluster-node-001-up"]
+    },
+    {
+      "nodeId": "node-002",
+      "hasPods": false
+    }
+  ],
+  "failedNodes": null
+}
+```
+
+**Response Fields**:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| totalCount | int | Total number of nodes requested |
+| successCount | int | Number of nodes successfully processed |
+| successNodes | array | Details of successfully processed nodes |
+| successNodes[].nodeId | string | Node ID |
+| successNodes[].hasPods | bool | Whether management pods were found |
+| successNodes[].podsDeleted | string[] | Names of deleted pods (omitted if hasPods is false) |
+| failedNodes | array | Details of failed nodes (null if all succeeded) |
 
 ---
 ## Node Status
