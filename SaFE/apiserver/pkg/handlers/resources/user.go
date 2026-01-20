@@ -7,7 +7,6 @@ package resources
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"net/url"
 	"sort"
@@ -15,7 +14,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
-	"github.com/lib/pq"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -29,7 +27,6 @@ import (
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
-	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonuser "github.com/AMD-AIG-AIMA/SAFE/common/pkg/user"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/backoff"
@@ -104,6 +101,10 @@ func (h *Handler) createUser(c *gin.Context) (interface{}, error) {
 		klog.ErrorS(err, "fail to parseRequestBody", "body", string(body))
 		return nil, err
 	}
+
+	c.Set(common.UserId, req.Name)
+	c.Set(common.UserName, req.Name)
+	c.Set(common.UserType, string(v1.DefaultUserType))
 
 	user := generateUser(req)
 	if err = h.Create(c.Request.Context(), user); err != nil {
@@ -420,9 +421,6 @@ func (h *Handler) getAdminUser(ctx context.Context, userId string) (*v1.User, er
 // login implements user authentication logic.
 // Handles different user types and performs authentication based on the request type.
 func (h *Handler) login(c *gin.Context) (interface{}, error) {
-	startTime := time.Now()
-	clientIP := c.ClientIP()
-
 	query, err := parseLoginQuery(c)
 	if err != nil {
 		return nil, err
@@ -447,53 +445,16 @@ func (h *Handler) login(c *gin.Context) (interface{}, error) {
 	}
 	user, resp, err := tokenInstance.Login(c.Request.Context(), tokenInput)
 
-	// Record audit log for login attempt (success or failure)
-	latencyMs := time.Since(startTime).Milliseconds()
-	if latencyMs == 0 {
-		latencyMs = 1 // Ensure minimum 1ms for display
-	}
-	traceId := c.Writer.Header().Get("X-Trace-Id")
-	if h.dbClient != nil {
-		var auditLog *dbclient.AuditLog
-		if err != nil {
-			// Login failed - record with attempted username
-			auditLog = &dbclient.AuditLog{
-				UserId:         "login-failed:" + query.Name,
-				UserName:       sql.NullString{String: query.Name, Valid: query.Name != ""},
-				UserType:       sql.NullString{String: string(query.Type), Valid: true},
-				ClientIP:       sql.NullString{String: clientIP, Valid: clientIP != ""},
-				HttpMethod:     "POST",
-				RequestPath:    "/api/v1/login",
-				ResourceType:   sql.NullString{String: "login", Valid: true},
-				ResponseStatus: 401,
-				LatencyMs:      sql.NullInt64{Int64: latencyMs, Valid: true},
-				TraceId:        sql.NullString{String: traceId, Valid: traceId != ""},
-				CreateTime:     pq.NullTime{Time: time.Now().UTC(), Valid: true},
-			}
-		} else {
-			// Login success - record with actual user info
-			auditLog = &dbclient.AuditLog{
-				UserId:         user.Name,
-				UserName:       sql.NullString{String: v1.GetUserName(user), Valid: true},
-				UserType:       sql.NullString{String: string(query.Type), Valid: true},
-				ClientIP:       sql.NullString{String: clientIP, Valid: clientIP != ""},
-				HttpMethod:     "POST",
-				RequestPath:    "/api/v1/login",
-				ResourceType:   sql.NullString{String: "login", Valid: true},
-				ResponseStatus: 200,
-				LatencyMs:      sql.NullInt64{Int64: latencyMs, Valid: true},
-				TraceId:        sql.NullString{String: traceId, Valid: traceId != ""},
-				CreateTime:     pq.NullTime{Time: time.Now().UTC(), Valid: true},
-			}
-		}
-		// Async write to avoid blocking
-		go func(log *dbclient.AuditLog) {
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer cancel()
-			if insertErr := h.dbClient.InsertAuditLog(ctx, log); insertErr != nil {
-				klog.ErrorS(insertErr, "failed to insert login audit log", "userId", log.UserId)
-			}
-		}(auditLog)
+	if err != nil {
+		// Login failed - set attempted username with prefix
+		c.Set(common.UserId, "login-failed:"+query.Name)
+		c.Set(common.UserName, query.Name)
+		c.Set(common.UserType, string(query.Type))
+	} else {
+		// Login success - set actual user info
+		c.Set(common.UserId, user.Name)
+		c.Set(common.UserName, v1.GetUserName(user))
+		c.Set(common.UserType, string(query.Type))
 	}
 
 	if err != nil {
@@ -526,6 +487,7 @@ func setCookie(c *gin.Context, userInfo *view.UserLoginResponse, userType v1.Use
 	domain := "." + c.Request.Host
 	c.SetCookie(authority.CookieToken, userInfo.Token, maxAge, "/", domain, false, true)
 	c.SetCookie(common.UserId, userInfo.Id, maxAge, "/", domain, false, true)
+	c.SetCookie(common.UserName, userInfo.Name, maxAge, "/", domain, false, true)
 	c.SetCookie(common.UserType, string(userType), maxAge, "/", domain, false, true)
 }
 
@@ -572,50 +534,18 @@ func (h *Handler) cvtToUserResponseItem(ctx context.Context, user *v1.User) view
 // logout handles user logout by clearing authentication cookies.
 // Only applicable for requests from the console interface.
 func (h *Handler) logout(c *gin.Context) (interface{}, error) {
-	startTime := time.Now()
-	clientIP := c.ClientIP()
-
 	// Get user info from cookie before clearing
 	userId, _ := c.Cookie(common.UserId)
+	userName, _ := c.Cookie(common.UserName)
 	userType, _ := c.Cookie(common.UserType)
+
+	c.Set(common.UserId, userId)
+	c.Set(common.UserName, userName)
+	c.Set(common.UserType, userType)
 
 	// Clear cookies
 	info := &view.UserLoginResponse{}
 	setCookie(c, info, "")
-
-	// Record audit log for logout
-	latencyMs := time.Since(startTime).Milliseconds()
-	if latencyMs == 0 {
-		latencyMs = 1 // Ensure minimum 1ms for display
-	}
-	traceId := c.Writer.Header().Get("X-Trace-Id")
-	if h.dbClient != nil {
-		// If no userId in cookie, mark as unknown
-		if userId == "" {
-			userId = "unknown"
-		}
-		auditLog := &dbclient.AuditLog{
-			UserId:         userId,
-			UserName:       sql.NullString{String: userId, Valid: true}, // Use userId as userName since we don't have actual name
-			UserType:       sql.NullString{String: userType, Valid: userType != ""},
-			ClientIP:       sql.NullString{String: clientIP, Valid: clientIP != ""},
-			HttpMethod:     "POST",
-			RequestPath:    "/api/v1/logout",
-			ResourceType:   sql.NullString{String: "logout", Valid: true},
-			ResponseStatus: 200,
-			LatencyMs:      sql.NullInt64{Int64: latencyMs, Valid: true},
-			TraceId:        sql.NullString{String: traceId, Valid: traceId != ""},
-			CreateTime:     pq.NullTime{Time: time.Now().UTC(), Valid: true},
-		}
-		// Async write to avoid blocking
-		go func(log *dbclient.AuditLog) {
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer cancel()
-			if insertErr := h.dbClient.InsertAuditLog(ctx, log); insertErr != nil {
-				klog.ErrorS(insertErr, "failed to insert logout audit log", "userId", log.UserId)
-			}
-		}(auditLog)
-	}
 
 	klog.Infof("user logout successfully, userId: %s", userId)
 	return nil, nil

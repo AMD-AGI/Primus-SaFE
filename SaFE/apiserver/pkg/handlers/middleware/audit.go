@@ -10,6 +10,7 @@ import (
 	"context"
 	"database/sql"
 	"io"
+	"net/http"
 	"regexp"
 	"strings"
 	"sync"
@@ -149,9 +150,10 @@ func (w *auditResponseWriter) Write(b []byte) (int, error) {
 	return w.ResponseWriter.Write(b)
 }
 
-// AuditLog creates a middleware that logs write operations (POST, PUT, PATCH, DELETE) to the database.
-// It uses a buffered channel and background worker to batch writes for better performance.
-func AuditLog() gin.HandlerFunc {
+// Audit creates audit middleware for route groups or routes.
+// GET requests are skipped automatically. Action is inferred from HTTP method if not provided.
+// POST->create, DELETE->delete, PATCH->update, PUT->replace.
+func Audit(resourceType string, action ...string) gin.HandlerFunc {
 	if !commonconfig.IsDBEnable() {
 		return func(c *gin.Context) {
 			c.Next()
@@ -172,15 +174,17 @@ func AuditLog() gin.HandlerFunc {
 		klog.Info("audit log buffer initialized with batch size", auditBatchSize, "flush interval", auditFlushInterval)
 	}
 
+	// Determine if action is explicitly provided
+	var explicitAction string
+	if len(action) > 0 && action[0] != "" {
+		explicitAction = action[0]
+	}
+
 	return func(c *gin.Context) {
 		method := c.Request.Method
-		if !isWriteOperation(method) {
-			c.Next()
-			return
-		}
 
-		// Skip login/logout - they have dedicated audit logging in handler
-		if isAuthPath(c.Request.URL.Path) {
+		// Skip GET requests - read operations should not be audited
+		if method == http.MethodGet {
 			c.Next()
 			return
 		}
@@ -213,13 +217,20 @@ func AuditLog() gin.HandlerFunc {
 			latencyMs = 1 // Ensure minimum 1ms for display
 		}
 
-		resourceType := extractResourceType(c.Request.URL.Path)
+		finalAction := explicitAction
+		if finalAction == "" {
+			finalAction = inferAction(method)
+		}
+		// Combine action with resourceType (e.g., "create workload")
+		// Skip combining for login/logout as they are standalone actions
+		if resourceType != "" && finalAction != "login" && finalAction != "logout" {
+			finalAction = finalAction + " " + resourceType
+		}
 
 		userId, _ := c.Get(common.UserId)
 		userName, _ := c.Get(common.UserName)
 		userType, _ := c.Get(common.UserType)
 
-		// Ensure we have user identification for audit trail
 		userIdStr := toStringValue(userId)
 		userNameStr := toStringValue(userName)
 		userTypeStr := toStringValue(userType)
@@ -228,14 +239,12 @@ func AuditLog() gin.HandlerFunc {
 		if userNameStr == "" && userIdStr != "" {
 			userNameStr = userIdStr
 		}
-		// Fallback: if userId is empty, mark as anonymous (e.g., failed auth attempts)
-		if userIdStr == "" {
-			userIdStr = "anonymous"
-			userNameStr = "anonymous"
-			userTypeStr = "unknown"
-		}
 
 		traceId := c.Writer.Header().Get("X-Trace-Id")
+		// Clear invalid traceId (all zeros when no tracing backend)
+		if isInvalidTraceId(traceId) {
+			traceId = ""
+		}
 
 		log := &dbclient.AuditLog{
 			UserId:         userIdStr,
@@ -245,6 +254,7 @@ func AuditLog() gin.HandlerFunc {
 			HttpMethod:     method,
 			RequestPath:    c.Request.URL.Path,
 			ResourceType:   toNullString(resourceType),
+			Action:         toNullString(finalAction),
 			RequestBody:    toNullString(sanitizeBody(requestBody)),
 			ResponseStatus: c.Writer.Status(),
 			ResponseBody:   toNullString(sanitizeBody(truncateString(bodyWriter.body.String(), maxAuditBodySize))),
@@ -253,88 +263,37 @@ func AuditLog() gin.HandlerFunc {
 			CreateTime:     pq.NullTime{Time: time.Now().UTC(), Valid: true},
 		}
 
-		// Non-blocking send to buffer - this is very fast
 		auditBuffer.send(log)
 	}
 }
 
-// isWriteOperation checks if the HTTP method is a write operation
-func isWriteOperation(method string) bool {
+// inferAction determines the action from HTTP method
+func inferAction(method string) string {
 	switch method {
-	case "POST", "PUT", "PATCH", "DELETE":
-		return true
+	case http.MethodPost:
+		return "create"
+	case http.MethodDelete:
+		return "delete"
+	case http.MethodPatch:
+		return "update"
+	case http.MethodPut:
+		return "replace"
 	default:
-		return false
+		return strings.ToLower(method)
 	}
 }
 
-// extractResourceType extracts resource type from the request path
-// For example: /api/v1/workloads/my-workload -> workloads
-// For example: /api/v1/cd/deployments/33/approve -> deployments
-// For example: /api/v1/clusters/my-cluster/addons -> addons
-func extractResourceType(path string) string {
-	// Common patterns: /api/v1/{resource_type}/{resource_name}/...
-	// Or with module prefix: /api/v1/{module}/{resource_type}/{resource_name}/...
-	// Or nested resources: /api/v1/{parent_type}/{parent_name}/{nested_type}
-	parts := strings.Split(strings.Trim(path, "/"), "/")
-
-	// Skip api version prefix (e.g., "api/v1") and module prefix (e.g., "cd")
-	startIdx := 0
-	for i, part := range parts {
-		if part == "api" || part == "v1" || part == "v2" || isModulePrefix(part) {
-			startIdx = i + 1
-			continue
-		}
-		break
+// isInvalidTraceId checks if traceId is invalid (all zeros when no tracing backend)
+func isInvalidTraceId(traceId string) bool {
+	if traceId == "" {
+		return true
 	}
-
-	if startIdx >= len(parts) {
-		return ""
-	}
-
-	// Check for nested resource pattern: /{parent_type}/{parent_name}/{nested_type}
-	// Look for nested resource types in the path (after position startIdx+1)
-	for i := startIdx + 2; i < len(parts); i++ {
-		if isNestedResourceType(parts[i]) {
-			return parts[i]
+	for _, c := range traceId {
+		if c != '0' {
+			return false
 		}
 	}
-
-	// Default: use first resource after api version
-	return parts[startIdx]
-}
-
-// isModulePrefix checks if a string is a known module prefix
-func isModulePrefix(s string) bool {
-	modules := map[string]bool{
-		"cd": true, // CD (Continuous Deployment) module
-	}
-	return modules[strings.ToLower(s)]
-}
-
-// isNestedResourceType checks if a string is a known nested resource type
-// These are resources that appear as sub-resources under a parent resource
-// For example: /api/v1/clusters/:name/addons -> addons is a nested resource
-func isNestedResourceType(s string) bool {
-	nestedTypes := map[string]bool{
-		"addons": true, // Cluster addons: /api/v1/clusters/:name/addons
-	}
-	return nestedTypes[strings.ToLower(s)]
-}
-
-// isOperationKeyword checks if a string is a known operation keyword
-func isOperationKeyword(s string) bool {
-	operations := map[string]bool{
-		"delete": true, "stop": true, "clone": true, "retry": true,
-		"logs": true, "export": true, "verify": true, "status": true,
-		"approve": true, "rollback": true, "description": true, // CD and publickey operations
-	}
-	return operations[strings.ToLower(s)]
-}
-
-// isAuthPath checks if the path is a login/logout path that has dedicated audit logging
-func isAuthPath(path string) bool {
-	return strings.HasSuffix(path, "/login") || strings.HasSuffix(path, "/logout")
+	return true
 }
 
 // sanitizeBody removes sensitive information from request body

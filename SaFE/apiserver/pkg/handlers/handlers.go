@@ -33,7 +33,7 @@ import (
 // Returns the configured Gin engine or an error if initialization fails.
 func InitHttpHandlers(_ context.Context, mgr ctrlruntime.Manager) (*gin.Engine, error) {
 	engine := gin.New()
-	engine.Use(apiutils.Logger(), gin.Recovery(), middleware.HandleTracing(), middleware.AuditLog())
+	engine.Use(apiutils.Logger(), gin.Recovery(), middleware.HandleTracing())
 	engine.NoRoute(func(c *gin.Context) {
 		apiutils.AbortWithApiError(c, commonerrors.NewNotFoundWithMessage(c.Request.RequestURI+" not found"))
 	})

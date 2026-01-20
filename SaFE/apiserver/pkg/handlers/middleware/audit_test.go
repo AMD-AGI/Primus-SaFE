@@ -11,378 +11,42 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestExtractResourceType(t *testing.T) {
+func TestInferAction(t *testing.T) {
 	tests := []struct {
-		name         string
-		path         string
-		expectedType string
-		description  string
+		method   string
+		expected string
 	}{
-		// Basic resource routes
-		{
-			name:         "simple_resource_list",
-			path:         "/api/v1/workloads",
-			expectedType: "workloads",
-			description:  "POST /api/v1/workloads - create workload",
-		},
-		{
-			name:         "resource_with_name",
-			path:         "/api/v1/workloads/my-job",
-			expectedType: "workloads",
-			description:  "GET/DELETE /api/v1/workloads/:name",
-		},
-		{
-			name:         "secrets_with_name",
-			path:         "/api/v1/secrets/my-secret",
-			expectedType: "secrets",
-			description:  "DELETE /api/v1/secrets/:name",
-		},
-
-		// Batch operation routes
-		{
-			name:         "batch_delete_workloads",
-			path:         "/api/v1/workloads/delete",
-			expectedType: "workloads",
-			description:  "POST /api/v1/workloads/delete - batch delete",
-		},
-		{
-			name:         "batch_stop_workloads",
-			path:         "/api/v1/workloads/stop",
-			expectedType: "workloads",
-			description:  "POST /api/v1/workloads/stop - batch stop",
-		},
-		{
-			name:         "batch_clone_workloads",
-			path:         "/api/v1/workloads/clone",
-			expectedType: "workloads",
-			description:  "POST /api/v1/workloads/clone - batch clone",
-		},
-		{
-			name:         "batch_delete_nodes",
-			path:         "/api/v1/nodes/delete",
-			expectedType: "nodes",
-			description:  "POST /api/v1/nodes/delete - batch delete nodes",
-		},
-		{
-			name:         "batch_retry_nodes",
-			path:         "/api/v1/nodes/retry",
-			expectedType: "nodes",
-			description:  "POST /api/v1/nodes/retry - batch retry nodes",
-		},
-
-		// Single resource operation routes
-		{
-			name:         "single_workload_stop",
-			path:         "/api/v1/workloads/my-job/stop",
-			expectedType: "workloads",
-			description:  "POST /api/v1/workloads/:name/stop",
-		},
-		{
-			name:         "single_fault_stop",
-			path:         "/api/v1/faults/fault-123/stop",
-			expectedType: "faults",
-			description:  "POST /api/v1/faults/:name/stop",
-		},
-		{
-			name:         "single_opsjob_stop",
-			path:         "/api/v1/opsjobs/job-456/stop",
-			expectedType: "opsjobs",
-			description:  "POST /api/v1/opsjobs/:name/stop",
-		},
-
-		// Routes with numeric ID
-		{
-			name:         "publickey_with_id",
-			path:         "/api/v1/publickeys/123",
-			expectedType: "publickeys",
-			description:  "DELETE /api/v1/publickeys/:id",
-		},
-		{
-			name:         "publickey_status",
-			path:         "/api/v1/publickeys/123/status",
-			expectedType: "publickeys",
-			description:  "PATCH /api/v1/publickeys/:id/status",
-		},
-		{
-			name:         "publickey_description",
-			path:         "/api/v1/publickeys/456/description",
-			expectedType: "publickeys",
-			description:  "PATCH /api/v1/publickeys/:id/description",
-		},
-		{
-			name:         "apikey_with_id",
-			path:         "/api/v1/apikeys/789",
-			expectedType: "apikeys",
-			description:  "DELETE /api/v1/apikeys/:id",
-		},
-
-		// CD module routes (with module prefix)
-		{
-			name:         "cd_deployments_list",
-			path:         "/api/v1/cd/deployments",
-			expectedType: "deployments",
-			description:  "GET/POST /api/v1/cd/deployments",
-		},
-		{
-			name:         "cd_deployment_by_id",
-			path:         "/api/v1/cd/deployments/33",
-			expectedType: "deployments",
-			description:  "GET /api/v1/cd/deployments/:id",
-		},
-		{
-			name:         "cd_deployment_approve",
-			path:         "/api/v1/cd/deployments/33/approve",
-			expectedType: "deployments",
-			description:  "POST /api/v1/cd/deployments/:id/approve",
-		},
-		{
-			name:         "cd_deployment_rollback",
-			path:         "/api/v1/cd/deployments/10/rollback",
-			expectedType: "deployments",
-			description:  "POST /api/v1/cd/deployments/:id/rollback",
-		},
-		{
-			name:         "cd_env_config",
-			path:         "/api/v1/cd/env-config",
-			expectedType: "env-config",
-			description:  "GET /api/v1/cd/env-config",
-		},
-
-		// Nested resource routes - addons is recognized as nested resource type
-		{
-			name:         "cluster_addons_list",
-			path:         "/api/v1/clusters/my-cluster/addons",
-			expectedType: "addons",
-			description:  "GET/POST /api/v1/clusters/:name/addons",
-		},
-		{
-			name:         "cluster_addon_specific",
-			path:         "/api/v1/clusters/my-cluster/addons/my-addon",
-			expectedType: "addons",
-			description:  "DELETE /api/v1/clusters/:name/addons/:addon",
-		},
-		{
-			name:         "workspace_nodes",
-			path:         "/api/v1/workspaces/ws-001/nodes",
-			expectedType: "workspaces",
-			description:  "POST /api/v1/workspaces/:name/nodes",
-		},
-		{
-			name:         "cluster_nodes",
-			path:         "/api/v1/clusters/cluster-001/nodes",
-			expectedType: "clusters",
-			description:  "POST /api/v1/clusters/:name/nodes",
-		},
-
-		// Log routes
-		{
-			name:         "node_logs",
-			path:         "/api/v1/nodes/node-1/logs",
-			expectedType: "nodes",
-			description:  "GET /api/v1/nodes/:name/logs",
-		},
-		{
-			name:         "cluster_logs",
-			path:         "/api/v1/clusters/cluster-1/logs",
-			expectedType: "clusters",
-			description:  "GET /api/v1/clusters/:name/logs",
-		},
-		{
-			name:         "workload_pod_logs",
-			path:         "/api/v1/workloads/job-1/pods/pod-abc/logs",
-			expectedType: "workloads",
-			description:  "GET /api/v1/workloads/:name/pods/:podId/logs",
-		},
-
-		// Export routes
-		{
-			name:         "nodes_export",
-			path:         "/api/v1/nodes/export",
-			expectedType: "nodes",
-			description:  "GET /api/v1/nodes/export",
-		},
-
-		// Login/Logout routes
-		{
-			name:         "login",
-			path:         "/api/v1/login",
-			expectedType: "login",
-			description:  "POST /api/v1/login",
-		},
-		{
-			name:         "logout",
-			path:         "/api/v1/logout",
-			expectedType: "logout",
-			description:  "POST /api/v1/logout",
-		},
-
-		// Auth verify route
-		{
-			name:         "auth_verify",
-			path:         "/api/v1/auth/verify",
-			expectedType: "auth",
-			description:  "POST /api/v1/auth/verify",
-		},
-
-		// Edge cases
-		{
-			name:         "empty_path",
-			path:         "",
-			expectedType: "",
-			description:  "empty path",
-		},
-		{
-			name:         "root_path",
-			path:         "/",
-			expectedType: "",
-			description:  "root path only",
-		},
-		{
-			name:         "api_only",
-			path:         "/api",
-			expectedType: "",
-			description:  "api prefix only",
-		},
-		{
-			name:         "api_v1_only",
-			path:         "/api/v1",
-			expectedType: "",
-			description:  "api/v1 prefix only",
-		},
-		{
-			name:         "api_v2_resource",
-			path:         "/api/v2/workloads/test",
-			expectedType: "workloads",
-			description:  "v2 API version support",
-		},
+		{"POST", "create"},
+		{"DELETE", "delete"},
+		{"PATCH", "update"},
+		{"PUT", "replace"},
+		{"GET", "get"},
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			resourceType := extractResourceType(tt.path)
-			assert.Equal(t, tt.expectedType, resourceType, "resourceType mismatch for: %s", tt.description)
+		t.Run(tt.method, func(t *testing.T) {
+			result := inferAction(tt.method)
+			assert.Equal(t, tt.expected, result)
 		})
 	}
 }
 
-func TestIsOperationKeyword(t *testing.T) {
+func TestIsInvalidTraceId(t *testing.T) {
 	tests := []struct {
-		keyword  string
+		traceId  string
 		expected bool
 	}{
-		// True cases - operation keywords
-		{"delete", true},
-		{"DELETE", true},
-		{"Delete", true},
-		{"stop", true},
-		{"clone", true},
-		{"retry", true},
-		{"logs", true},
-		{"export", true},
-		{"verify", true},
-		{"status", true},
-		{"approve", true},
-		{"rollback", true},
-		{"description", true},
-
-		// False cases - not operation keywords (resource names)
-		{"my-workload", false},
-		{"node-123", false},
-		{"123", false},
-		{"my-secret", false},
-		{"cluster-001", false},
-		{"addon-name", false},
-		{"env-config", false},
-		{"components", false},
-		{"deployments", false},
-		{"workloads", false},
-		{"", false},
+		{"", true},
+		{"00000000000000000000000000000000", true},
+		{"0000", true},
+		{"abc123def456", false},
+		{"00000000000000000000000000000001", false},
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.keyword, func(t *testing.T) {
-			result := isOperationKeyword(tt.keyword)
-			assert.Equal(t, tt.expected, result, "isOperationKeyword(%q) should be %v", tt.keyword, tt.expected)
-		})
-	}
-}
-
-func TestIsModulePrefix(t *testing.T) {
-	tests := []struct {
-		prefix   string
-		expected bool
-	}{
-		// True cases - module prefixes
-		{"cd", true},
-		{"CD", true},
-		{"Cd", true},
-
-		// False cases - not module prefixes
-		{"workloads", false},
-		{"api", false},
-		{"v1", false},
-		{"nodes", false},
-		{"", false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.prefix, func(t *testing.T) {
-			result := isModulePrefix(tt.prefix)
-			assert.Equal(t, tt.expected, result, "isModulePrefix(%q) should be %v", tt.prefix, tt.expected)
-		})
-	}
-}
-
-func TestIsNestedResourceType(t *testing.T) {
-	tests := []struct {
-		resourceType string
-		expected     bool
-	}{
-		// True cases - nested resource types
-		{"addons", true},
-		{"ADDONS", true},
-		{"Addons", true},
-
-		// False cases - not nested resource types
-		{"workloads", false},
-		{"nodes", false},
-		{"clusters", false},
-		{"workspaces", false},
-		{"deployments", false},
-		{"", false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.resourceType, func(t *testing.T) {
-			result := isNestedResourceType(tt.resourceType)
-			assert.Equal(t, tt.expected, result, "isNestedResourceType(%q) should be %v", tt.resourceType, tt.expected)
-		})
-	}
-}
-
-func TestIsAuthPath(t *testing.T) {
-	tests := []struct {
-		path     string
-		expected bool
-	}{
-		// True cases - auth paths
-		{"/api/v1/login", true},
-		{"/api/v1/logout", true},
-		{"/login", true},
-		{"/logout", true},
-		// False cases - not auth paths
-		{"/api/v1/users", false},
-		{"/api/v1/workloads", false},
-		{"/api/v1/logininfo", false},  // Contains "login" but not ending with it
-		{"/api/v1/logoutinfo", false}, // Contains "logout" but not ending with it
-		{"/api/v1/users/login-user", false},
-		{"", false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.path, func(t *testing.T) {
-			result := isAuthPath(tt.path)
-			assert.Equal(t, tt.expected, result, "isAuthPath(%s) should be %v", tt.path, tt.expected)
+		t.Run(tt.traceId, func(t *testing.T) {
+			result := isInvalidTraceId(tt.traceId)
+			assert.Equal(t, tt.expected, result)
 		})
 	}
 }

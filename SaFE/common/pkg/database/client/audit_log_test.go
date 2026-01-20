@@ -65,7 +65,7 @@ func TestGetAuditLogFieldTags(t *testing.T) {
 	assert.Equal(t, "http_method", tags["httpmethod"])
 	assert.Equal(t, "request_path", tags["requestpath"])
 	assert.Equal(t, "resource_type", tags["resourcetype"])
-	assert.Equal(t, "resource_name", tags["resourcename"])
+	assert.Equal(t, "action", tags["action"])
 	assert.Equal(t, "request_body", tags["requestbody"])
 	assert.Equal(t, "response_status", tags["responsestatus"])
 	assert.Equal(t, "response_body", tags["responsebody"])

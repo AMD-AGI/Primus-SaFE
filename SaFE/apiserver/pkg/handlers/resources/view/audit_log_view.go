@@ -55,8 +55,8 @@ type AuditLogItem struct {
 	UserType string `json:"userType,omitempty"`
 	// ClientIP is the IP address of the client
 	ClientIP string `json:"clientIp,omitempty"`
-	// Action is a human-readable description of what the request did (e.g., "create apikey")
-	Action string `json:"action"`
+	// Action is the operation performed with resource type (e.g., "create workload", "delete node", "login auth")
+	Action string `json:"action,omitempty"`
 	// HttpMethod is the HTTP method used (POST, PUT, PATCH, DELETE)
 	HttpMethod string `json:"httpMethod"`
 	// RequestPath is the requested URL path

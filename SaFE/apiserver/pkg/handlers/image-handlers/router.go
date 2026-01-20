@@ -27,25 +27,26 @@ func InitImageRouter(e *gin.Engine, h *ImageHandler) {
 		imageGroup.GET("custom", func(c *gin.Context) {
 			handle(c, h.listExportedImage)
 		})
-		imageGroup.DELETE("custom/:jobId", func(c *gin.Context) {
-			handle(c, h.deleteExportedImage)
-		})
 		imageGroup.GET("prewarm", func(c *gin.Context) {
 			handle(c, h.listPrewarmImage)
-		})
-		imageGroup.DELETE(":id", func(c *gin.Context) {
-			handle(c, h.deleteImage)
 		})
 		imageGroup.GET(":id/importing-details", func(c *gin.Context) {
 			handle(c, h.getImportingDetail)
 		})
-		imageGroup.PUT(":id/importing:retry", func(c *gin.Context) {
+
+		imageGroup.DELETE("custom/:jobId", middleware.Audit("image"), func(c *gin.Context) {
+			handle(c, h.deleteExportedImage)
+		})
+		imageGroup.DELETE(":id", middleware.Audit("image"), func(c *gin.Context) {
+			handle(c, h.deleteImage)
+		})
+		imageGroup.PUT(":id/importing:retry", middleware.Audit("image", "retry"), func(c *gin.Context) {
 			handle(c, h.retryDispatchImportImageJob)
 		})
 	}
 	imageImportGroup := e.Group("/api/v1/images:import")
 	{
-		imageImportGroup.POST("", middleware.Authorize(), func(c *gin.Context) {
+		imageImportGroup.POST("", middleware.Authorize(), middleware.Audit("image", "import"), func(c *gin.Context) {
 			handle(c, h.importImage)
 		})
 		imageImportGroup.PUT(":name/progress", func(c *gin.Context) {
@@ -55,13 +56,13 @@ func InitImageRouter(e *gin.Engine, h *ImageHandler) {
 
 	imageRegistryGroup := group.Group("/image-registries", middleware.Authorize())
 	{
-		imageRegistryGroup.POST("", func(c *gin.Context) {
+		imageRegistryGroup.POST("", middleware.Audit("imageregistry"), func(c *gin.Context) {
 			handle(c, h.createImageRegistry)
 		})
-		imageRegistryGroup.PUT(":id", func(c *gin.Context) {
+		imageRegistryGroup.PUT(":id", middleware.Audit("imageregistry"), func(c *gin.Context) {
 			handle(c, h.updateImageRegistry)
 		})
-		imageRegistryGroup.DELETE(":id", func(c *gin.Context) {
+		imageRegistryGroup.DELETE(":id", middleware.Audit("imageregistry"), func(c *gin.Context) {
 			handle(c, h.deleteImageRegistry)
 		})
 		imageRegistryGroup.GET("", func(c *gin.Context) {

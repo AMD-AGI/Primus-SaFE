@@ -6,7 +6,6 @@
 package resources
 
 import (
-	"net/http"
 	"strings"
 	"time"
 
@@ -225,118 +224,11 @@ func convertToAuditLogItem(record *dbclient.AuditLog) view.AuditLogItem {
 		item.CreateTime = timeutil.FormatRFC3339(record.CreateTime.Time)
 	}
 
-	// Generate human-readable action description
-	item.Action = generateActionDescription(record.HttpMethod, item.ResourceType, record.RequestPath)
+	if record.Action.Valid {
+		item.Action = record.Action.String
+	}
 
 	return item
-}
-
-// generateActionDescription generates a human-readable action description
-// based on HTTP method, resource type, and request path.
-// Examples: "create apikey", "delete workspace", "approve deployment", "login", "logout"
-func generateActionDescription(method, resourceType, requestPath string) string {
-	// Special handling for login/logout - these are not CRUD operations
-	resourceLower := strings.ToLower(resourceType)
-	if resourceLower == "login" {
-		return "login"
-	}
-	if resourceLower == "logout" {
-		return "logout"
-	}
-
-	// Try to extract operation keyword from the request path (e.g., /approve, /rollback, /stop)
-	action := extractActionFromPath(requestPath)
-	if action == "" {
-		// Fall back to HTTP method based action
-		switch method {
-		case http.MethodPost:
-			action = "create"
-		case http.MethodPut:
-			action = "replace"
-		case http.MethodPatch:
-			action = "update"
-		case http.MethodDelete:
-			action = "delete"
-		default:
-			action = strings.ToLower(method)
-		}
-	}
-
-	// Singularize resource type (remove trailing 's' for common cases)
-	resource := resourceType
-	if resource != "" {
-		resource = singularize(resource)
-	}
-
-	// Just use action + resource type, keep it simple
-	if resource != "" {
-		return action + " " + resource
-	}
-	return action
-}
-
-// extractActionFromPath extracts operation keyword from the end of request path
-// For example: /api/v1/cd/deployments/34/approve -> "approve"
-func extractActionFromPath(path string) string {
-	// Known operation keywords that override HTTP method
-	operationKeywords := map[string]bool{
-		"approve":  true,
-		"rollback": true,
-		"stop":     true,
-		"clone":    true,
-		"retry":    true,
-		"export":   true,
-		"verify":   true,
-	}
-
-	parts := strings.Split(strings.Trim(path, "/"), "/")
-	if len(parts) == 0 {
-		return ""
-	}
-
-	// Check if the last part is an operation keyword
-	lastPart := strings.ToLower(parts[len(parts)-1])
-	if operationKeywords[lastPart] {
-		return lastPart
-	}
-
-	return ""
-}
-
-// singularize converts plural resource names to singular form
-func singularize(s string) string {
-	// Handle special cases
-	specialCases := map[string]string{
-		"apikeys":          "apikey",
-		"workloads":        "workload",
-		"workspaces":       "workspace",
-		"clusters":         "cluster",
-		"nodes":            "node",
-		"secrets":          "secret",
-		"users":            "user",
-		"faults":           "fault",
-		"nodetemplates":    "nodetemplate",
-		"nodeflavors":      "nodeflavor",
-		"opsjobs":          "opsjob",
-		"publickeys":       "publickey",
-		"addons":           "addon",
-		"auditlogs":        "auditlog",
-		"deployments":      "deployment",
-		"datasets":         "dataset",
-		"image-registries": "image-registry",
-	}
-	if singular, ok := specialCases[strings.ToLower(s)]; ok {
-		return singular
-	}
-	// Handle words ending with "-ies" -> "-y" (e.g., registries -> registry)
-	if strings.HasSuffix(s, "ies") && len(s) > 3 {
-		return s[:len(s)-3] + "y"
-	}
-	// Default: remove trailing 's'
-	if strings.HasSuffix(s, "s") && len(s) > 1 {
-		return s[:len(s)-1]
-	}
-	return s
 }
 
 // splitAndTrim splits a comma-separated string and trims whitespace from each element.
