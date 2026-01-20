@@ -24,7 +24,9 @@ func InitCDRouters(e *gin.Engine, h *Handler) {
 		// Read-only routes (no audit)
 		group.GET("/deployments", h.ListDeploymentRequests)
 		group.GET("/deployments/:id", h.GetDeploymentRequest)
+		// Get current environment configuration
 		group.GET("/env-config", h.GetCurrentEnvConfig)
+		// Get deployable components list
 		group.GET("/components", h.GetDeployableComponents)
 	}
 }
