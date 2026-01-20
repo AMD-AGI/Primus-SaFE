@@ -32,7 +32,7 @@ const (
 	OpsJobExportImageType OpsJobType = "exportimage"
 	OpsJobPrewarmType     OpsJobType = "prewarm"
 	OpsJobDownloadType    OpsJobType = "download"
-	OpsJobCDType          OpsJobType = "cd" // CD deployment job
+	OpsJobCDType          OpsJobType = "cd" // CD deployment job (supports both Safe and Lens via deploy.type parameter)
 
 	ParameterNode          = "node"
 	ParameterNodeTemplate  = "node.template"
@@ -47,18 +47,21 @@ const (
 	ParameterScript        = "script"
 	ParameterNodeHost      = "node.host"
 
-	// CD job specific parameters
+	// CD job specific parameters (unified for both Safe and Lens)
 	ParameterDeploymentRequestId = "deployment.request.id" // Deployment request ID from database
-	ParameterDeployPhase         = "deploy.phase"          // Deployment phase: local/remote/verify
-	ParameterComponentTags       = "component.tags"        // Component image tags to deploy
-	ParameterNodeAgentTags       = "nodeagent.tags"        // Node agent image tags
-	ParameterEnvFileConfig       = "env.file.config"       // Base64 encoded .env file content
+	ParameterDeployType          = "deploy.type"           // Deployment type: "safe" or "lens"
+	ParameterDeployPhase         = "deploy.phase"          // Deployment phase: local/remote/verify (Safe)
+	ParameterComponentTags       = "component.tags"        // Component image tags to deploy (Safe)
+	ParameterNodeAgentTags       = "nodeagent.tags"        // Node agent image tags (Safe)
+	ParameterEnvFileConfig       = "env.file.config"       // Base64 encoded .env file content (Safe)
 	ParameterDeployBranch        = "deploy.branch"         // Git branch for deployment
-	ParameterHasNodeAgent        = "has.nodeagent"         // Whether node agent update is needed
-	ParameterHasCICD             = "has.cicd"              // Whether CICD update is needed
-	ParameterNodeAgentImage      = "nodeagent.image"       // Node agent image
-	ParameterCICDRunnerImage     = "cicd.runner.image"     // CICD runner image
-	ParameterCICDUnifiedImage    = "cicd.unified.image"    // CICD unified job image
+	ParameterHasNodeAgent        = "has.nodeagent"         // Whether node agent update is needed (Safe)
+	ParameterHasCICD             = "has.cicd"              // Whether CICD update is needed (Safe)
+	ParameterNodeAgentImage      = "nodeagent.image"       // Node agent image (Safe)
+	ParameterCICDRunnerImage     = "cicd.runner.image"     // CICD runner image (Safe)
+	ParameterCICDUnifiedImage    = "cicd.unified.image"    // CICD unified job image (Safe)
+	// Lens specific CD parameters
+	ParameterLensConfigMap = "lens.configmap" // ConfigMap name containing values.yaml files (Lens)
 )
 
 type Parameter struct {

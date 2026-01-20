@@ -103,17 +103,33 @@ func NormalizeImageVersion(component, version string) string {
 	return imageName + ":" + version
 }
 
+// Deploy type constants
+const (
+	DeployTypeSafe = "safe" // Default for backward compatibility
+	DeployTypeLens = "lens"
+)
+
 // CreateDeploymentRequestReq defines the payload for creating a deployment request
 type CreateDeploymentRequestReq struct {
-	ImageVersions map[string]string `json:"image_versions" binding:"required"` // Module image versions
-	EnvFileConfig string            `json:"env_file_config"`                   // Complete .env file content (optional)
-	Description   string            `json:"description"`
+	Type          string            `json:"type"`           // "safe" or "lens", default "safe"
+	Branch        string            `json:"branch"`         // Git branch to deploy (optional, defaults to "main")
+	ImageVersions map[string]string `json:"image_versions"` // Safe: component versions
+	EnvFileConfig string            `json:"env_file_config"`
+	// Lens specific fields (used when type=lens)
+	ControlPlaneConfig string `json:"control_plane_config,omitempty"` // Full values.yaml content
+	DataPlaneConfig    string `json:"data_plane_config,omitempty"`    // Full values.yaml content
+	Description        string `json:"description"`
 }
 
-// DeploymentConfig wraps both image versions and env file config for storage
+// DeploymentConfig wraps config for storage (unified for both safe and lens)
 type DeploymentConfig struct {
-	ImageVersions map[string]string `json:"image_versions"`  // e.g. {"apiserver": "harbor.example.com/primus/apiserver:v1.2.3"}
-	EnvFileConfig string            `json:"env_file_config"` // Complete .env file content
+	Type          string            `json:"type,omitempty"`           // "safe" or "lens"
+	Branch        string            `json:"branch,omitempty"`         // Git branch to deploy
+	ImageVersions map[string]string `json:"image_versions,omitempty"` // Safe: component versions
+	EnvFileConfig string            `json:"env_file_config,omitempty"`
+	// Lens specific (full YAML content)
+	ControlPlaneConfig string `json:"control_plane_config,omitempty"`
+	DataPlaneConfig    string `json:"data_plane_config,omitempty"`
 }
 
 // CreateDeploymentRequestResp is the response for creation
@@ -139,6 +155,7 @@ type ApprovalResp struct {
 type DeploymentRequestItem struct {
 	Id              int64  `json:"id"`
 	DeployName      string `json:"deploy_name"`
+	DeployType      string `json:"deploy_type"` // "safe" or "lens"
 	Status          string `json:"status"`
 	ApproverName    string `json:"approver_name"`
 	ApprovalResult  string `json:"approval_result"`
@@ -146,7 +163,7 @@ type DeploymentRequestItem struct {
 	RejectionReason string `json:"rejection_reason,omitempty"`
 	FailureReason   string `json:"failure_reason,omitempty"`
 	RollbackFromId  int64  `json:"rollback_from_id,omitempty"`
-	WorkloadId      string `json:"workload_id,omitempty"` // Associated workload/opsjob ID (they are the same)
+	WorkloadId      string `json:"workload_id,omitempty"`
 	CreatedAt       string `json:"created_at"`
 	UpdatedAt       string `json:"updated_at"`
 	ApprovedAt      string `json:"approved_at"`
@@ -161,8 +178,13 @@ type ListDeploymentRequestsResp struct {
 // GetDeploymentRequestResp is the detail response
 type GetDeploymentRequestResp struct {
 	DeploymentRequestItem
-	ImageVersions map[string]string `json:"image_versions"`  // Module image versions
-	EnvFileConfig string            `json:"env_file_config"` // Complete .env file content
+	Branch             string            `json:"branch,omitempty"`               // Git branch
+	ImageVersions      map[string]string `json:"image_versions,omitempty"`       // Safe: component versions
+	EnvFileConfig      string            `json:"env_file_config,omitempty"`      // Safe: .env file content
+	ControlPlaneConfig string            `json:"control_plane_config,omitempty"` // Lens: CP values.yaml (only for GET /env-config)
+	DataPlaneConfig    string            `json:"data_plane_config,omitempty"`    // Lens: DP values.yaml (only for GET /env-config)
+	ControlPlaneDiff   string            `json:"control_plane_diff,omitempty"`   // Lens: CP diff against latest snapshot
+	DataPlaneDiff      string            `json:"data_plane_diff,omitempty"`      // Lens: DP diff against latest snapshot
 }
 
 // ConfigDiffReq defines payload for config diff preview (optional helper)
@@ -176,9 +198,17 @@ type ConfigDiffResp struct {
 	Diff string `json:"diff"`
 }
 
-// GetCurrentEnvConfigResp returns the current .env file content
-type GetCurrentEnvConfigResp struct {
-	EnvFileConfig string `json:"env_file_config"` // Current .env file content
+// GetLatestConfigResp returns the latest deployment configuration
+// Used by GET /env-config?type=safe|lens
+type GetLatestConfigResp struct {
+	Type               string            `json:"type"`                             // "safe" or "lens"
+	Branch             string            `json:"branch,omitempty"`                 // Git branch
+	ImageVersions      map[string]string `json:"image_versions,omitempty"`         // Safe: component versions
+	EnvFileConfig      string            `json:"env_file_config,omitempty"`        // Safe: .env file content
+	ControlPlaneConfig string            `json:"control_plane_config,omitempty"`   // Lens: CP values.yaml
+	DataPlaneConfig    string            `json:"data_plane_config,omitempty"`      // Lens: DP values.yaml
+	SnapshotId         int64             `json:"snapshot_id,omitempty"`            // ID of the snapshot
+	CreatedAt          string            `json:"created_at,omitempty"`             // Snapshot creation time
 }
 
 // GetDeployableComponentsResp returns the list of deployable component names
