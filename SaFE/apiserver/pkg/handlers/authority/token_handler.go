@@ -45,6 +45,7 @@ func ParseToken(c *gin.Context) error {
 		return nil
 	}
 
+	// Fall back to regular token authentication
 	err := parseTokenFromRequest(c)
 	if err != nil {
 		userId := c.GetHeader(common.UserId)
@@ -55,7 +56,6 @@ func ParseToken(c *gin.Context) error {
 		}
 		return commonerrors.NewUnauthorized(err.Error())
 	}
-
 	return nil
 }
 
