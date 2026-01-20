@@ -9,7 +9,6 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
-	"html/template"
 	"net/http"
 	"net/smtp"
 	"strconv"
@@ -323,132 +322,180 @@ func buildEmailMessage(config *EmailConfig, subject, textBody, htmlBody string) 
 
 // buildEmailHTMLBody builds an HTML email body for the alert
 func buildEmailHTMLBody(alert *UnifiedAlert) string {
-	tmpl := `<!DOCTYPE html>
+	// Determine header color based on severity
+	severityColor := "#17a2b8" // default info blue
+	severityBg := "#17a2b8"
+	textColor := "white"
+	switch strings.ToLower(alert.Severity) {
+	case "critical":
+		severityColor = "#dc3545"
+		severityBg = "#dc3545"
+	case "high":
+		severityColor = "#fd7e14"
+		severityBg = "#fd7e14"
+	case "warning":
+		severityColor = "#ffc107"
+		severityBg = "#ffc107"
+		textColor = "#212529"
+	}
+
+	// Status badge color
+	statusColor := "#28a745" // green for resolved
+	if strings.ToLower(alert.Status) == "firing" {
+		statusColor = "#dc3545" // red for firing
+	}
+
+	// Build labels HTML
+	var labelsHTML string
+	for k, v := range alert.Labels {
+		labelsHTML += fmt.Sprintf(`<span style="display:inline-block;background:#e9ecef;padding:4px 10px;border-radius:4px;font-size:12px;margin:2px;">%s=%s</span>`, k, v)
+	}
+
+	// Get description
+	description := ""
+	if desc, ok := alert.Annotations["description"]; ok {
+		description = desc
+	} else if summary, ok := alert.Annotations["summary"]; ok {
+		description = summary
+	}
+
+	// Build HTML directly without template to avoid any parsing issues
+	html := fmt.Sprintf(`<!DOCTYPE html>
 <html>
 <head>
-    <meta charset="UTF-8">
-    <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 0; padding: 20px; background-color: #f5f5f5; }
-        .container { max-width: 600px; margin: 0 auto; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-        .header { padding: 20px; color: white; }
-        .header.critical { background: linear-gradient(135deg, #dc3545 0%, #c82333 100%); }
-        .header.high { background: linear-gradient(135deg, #fd7e14 0%, #e55a00 100%); }
-        .header.warning { background: linear-gradient(135deg, #ffc107 0%, #d39e00 100%); color: #212529; }
-        .header.info { background: linear-gradient(135deg, #17a2b8 0%, #138496 100%); }
-        .header h1 { margin: 0 0 5px 0; font-size: 20px; }
-        .header .status { font-size: 14px; opacity: 0.9; }
-        .content { padding: 20px; }
-        .field { margin-bottom: 15px; }
-        .field-label { font-size: 12px; color: #6c757d; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
-        .field-value { font-size: 14px; color: #212529; }
-        .labels { display: flex; flex-wrap: wrap; gap: 5px; }
-        .label { background: #e9ecef; padding: 3px 8px; border-radius: 4px; font-size: 12px; }
-        .footer { padding: 15px 20px; background: #f8f9fa; border-top: 1px solid #e9ecef; font-size: 12px; color: #6c757d; }
-        .description { background: #f8f9fa; padding: 12px; border-radius: 4px; margin-top: 10px; }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 </head>
-<body>
-    <div class="container">
-        <div class="header {{.Severity}}">
-            <h1>{{.AlertName}}</h1>
-            <div class="status">Status: {{.Status}} | Severity: {{.Severity | upper}}</div>
-        </div>
-        <div class="content">
-            <div class="field">
-                <div class="field-label">Source</div>
-                <div class="field-value">{{.Source}}</div>
-            </div>
-            <div class="field">
-                <div class="field-label">Time</div>
-                <div class="field-value">{{.StartsAt}}</div>
-            </div>
-            {{if .WorkloadID}}
-            <div class="field">
-                <div class="field-label">Workload</div>
-                <div class="field-value">{{.WorkloadID}}</div>
-            </div>
-            {{end}}
-            {{if .PodName}}
-            <div class="field">
-                <div class="field-label">Pod</div>
-                <div class="field-value">{{.PodName}}</div>
-            </div>
-            {{end}}
-            {{if .NodeName}}
-            <div class="field">
-                <div class="field-label">Node</div>
-                <div class="field-value">{{.NodeName}}</div>
-            </div>
-            {{end}}
-            {{if .ClusterName}}
-            <div class="field">
-                <div class="field-label">Cluster</div>
-                <div class="field-value">{{.ClusterName}}</div>
-            </div>
-            {{end}}
-            {{if .Description}}
-            <div class="field">
-                <div class="field-label">Description</div>
-                <div class="description">{{.Description}}</div>
-            </div>
-            {{end}}
-            {{if .Labels}}
-            <div class="field">
-                <div class="field-label">Labels</div>
-                <div class="labels">
-                    {{range $key, $value := .Labels}}
-                    <span class="label">{{$key}}={{$value}}</span>
-                    {{end}}
-                </div>
-            </div>
-            {{end}}
-        </div>
-        <div class="footer">
-            Alert ID: {{.ID}} | Generated by Primus Lens Alert System
-        </div>
-    </div>
+<body style="margin:0;padding:0;background-color:#f4f4f4;font-family:Arial,Helvetica,sans-serif;">
+<table width="100%%" cellpadding="0" cellspacing="0" style="background-color:#f4f4f4;padding:20px;">
+<tr>
+<td align="center">
+<table width="600" cellpadding="0" cellspacing="0" style="background-color:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.1);">
+<!-- Header -->
+<tr>
+<td style="background-color:%s;padding:25px 30px;">
+<h1 style="margin:0;color:%s;font-size:22px;font-weight:600;">🔔 %s</h1>
+<p style="margin:10px 0 0 0;color:%s;font-size:14px;opacity:0.9;">
+<span style="display:inline-block;background-color:%s;color:white;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:bold;">%s</span>
+<span style="margin-left:10px;">Severity: <strong>%s</strong></span>
+</p>
+</td>
+</tr>
+<!-- Content -->
+<tr>
+<td style="padding:25px 30px;">
+<table width="100%%" cellpadding="0" cellspacing="0">
+<!-- Source -->
+<tr>
+<td style="padding-bottom:15px;">
+<p style="margin:0;font-size:11px;color:#6c757d;text-transform:uppercase;letter-spacing:1px;">Source</p>
+<p style="margin:5px 0 0 0;font-size:15px;color:#212529;">%s</p>
+</td>
+</tr>
+<!-- Time -->
+<tr>
+<td style="padding-bottom:15px;">
+<p style="margin:0;font-size:11px;color:#6c757d;text-transform:uppercase;letter-spacing:1px;">Time</p>
+<p style="margin:5px 0 0 0;font-size:15px;color:#212529;">%s</p>
+</td>
+</tr>`,
+		severityBg, textColor, alert.AlertName, textColor,
+		statusColor, strings.ToUpper(alert.Status), strings.ToUpper(alert.Severity),
+		alert.Source, alert.StartsAt.Format("2006-01-02 15:04:05 MST"))
+
+	// Add optional fields
+	if alert.ClusterName != "" {
+		html += fmt.Sprintf(`
+<!-- Cluster -->
+<tr>
+<td style="padding-bottom:15px;">
+<p style="margin:0;font-size:11px;color:#6c757d;text-transform:uppercase;letter-spacing:1px;">Cluster</p>
+<p style="margin:5px 0 0 0;font-size:15px;color:#212529;">%s</p>
+</td>
+</tr>`, alert.ClusterName)
+	}
+
+	if alert.NodeName != "" {
+		html += fmt.Sprintf(`
+<!-- Node -->
+<tr>
+<td style="padding-bottom:15px;">
+<p style="margin:0;font-size:11px;color:#6c757d;text-transform:uppercase;letter-spacing:1px;">Node</p>
+<p style="margin:5px 0 0 0;font-size:15px;color:#212529;">%s</p>
+</td>
+</tr>`, alert.NodeName)
+	}
+
+	if alert.PodName != "" {
+		html += fmt.Sprintf(`
+<!-- Pod -->
+<tr>
+<td style="padding-bottom:15px;">
+<p style="margin:0;font-size:11px;color:#6c757d;text-transform:uppercase;letter-spacing:1px;">Pod</p>
+<p style="margin:5px 0 0 0;font-size:15px;color:#212529;">%s</p>
+</td>
+</tr>`, alert.PodName)
+	}
+
+	if alert.WorkloadID != "" {
+		html += fmt.Sprintf(`
+<!-- Workload -->
+<tr>
+<td style="padding-bottom:15px;">
+<p style="margin:0;font-size:11px;color:#6c757d;text-transform:uppercase;letter-spacing:1px;">Workload</p>
+<p style="margin:5px 0 0 0;font-size:15px;color:#212529;">%s</p>
+</td>
+</tr>`, alert.WorkloadID)
+	}
+
+	if description != "" {
+		html += fmt.Sprintf(`
+<!-- Description -->
+<tr>
+<td style="padding-bottom:15px;">
+<p style="margin:0;font-size:11px;color:#6c757d;text-transform:uppercase;letter-spacing:1px;">Description</p>
+<div style="margin:8px 0 0 0;padding:12px;background-color:#f8f9fa;border-radius:6px;border-left:4px solid %s;">
+<p style="margin:0;font-size:14px;color:#212529;line-height:1.5;">%s</p>
+</div>
+</td>
+</tr>`, severityColor, description)
+	}
+
+	if labelsHTML != "" {
+		html += fmt.Sprintf(`
+<!-- Labels -->
+<tr>
+<td style="padding-bottom:15px;">
+<p style="margin:0;font-size:11px;color:#6c757d;text-transform:uppercase;letter-spacing:1px;">Labels</p>
+<div style="margin:8px 0 0 0;">%s</div>
+</td>
+</tr>`, labelsHTML)
+	}
+
+	// Close content and add footer
+	html += fmt.Sprintf(`
+</table>
+</td>
+</tr>
+<!-- Footer -->
+<tr>
+<td style="background-color:#f8f9fa;padding:20px 30px;border-top:1px solid #e9ecef;">
+<p style="margin:0;font-size:12px;color:#6c757d;">
+Alert ID: <code style="background:#e9ecef;padding:2px 6px;border-radius:3px;">%s</code>
+</p>
+<p style="margin:8px 0 0 0;font-size:11px;color:#adb5bd;">
+Generated by Primus Lens Alert System
+</p>
+</td>
+</tr>
+</table>
+</td>
+</tr>
+</table>
 </body>
-</html>`
+</html>`, alert.ID)
 
-	// Prepare template data
-	data := map[string]interface{}{
-		"ID":          alert.ID,
-		"AlertName":   alert.AlertName,
-		"Severity":    alert.Severity,
-		"Status":      alert.Status,
-		"Source":      alert.Source,
-		"StartsAt":    alert.StartsAt.Format(time.RFC3339),
-		"WorkloadID":  alert.WorkloadID,
-		"PodName":     alert.PodName,
-		"NodeName":    alert.NodeName,
-		"ClusterName": alert.ClusterName,
-		"Labels":      alert.Labels,
-	}
-
-	// Add description from annotations
-	if desc, ok := alert.Annotations["description"]; ok {
-		data["Description"] = desc
-	} else if summary, ok := alert.Annotations["summary"]; ok {
-		data["Description"] = summary
-	}
-
-	// Parse and execute template
-	funcMap := template.FuncMap{
-		"upper": strings.ToUpper,
-	}
-
-	t, err := template.New("email").Funcs(funcMap).Parse(tmpl)
-	if err != nil {
-		// Fallback to plain text on template error
-		return formatAlertMessage(alert)
-	}
-
-	var buf bytes.Buffer
-	if err := t.Execute(&buf, data); err != nil {
-		return formatAlertMessage(alert)
-	}
-
-	return buf.String()
+	return html
 }
 
 // sendSMTPEmail sends email via SMTP
