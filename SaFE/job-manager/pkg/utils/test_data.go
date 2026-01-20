@@ -827,55 +827,6 @@ var (
 		},
 	}
 
-	TestWorkspaceData = &v1.Workspace{
-		TypeMeta: metav1.TypeMeta{
-			APIVersion: "amd.com/v1",
-			Kind:       "Workspace",
-		},
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "test-workspace-abc12",
-			Labels: map[string]string{
-				v1.DisplayNameLabel: "test-workspace",
-				v1.ClusterIdLabel:   "test-cluster",
-			},
-		},
-		Spec: v1.WorkspaceSpec{
-			Cluster:    "test-cluster",
-			Replica:    3,
-			NodeFlavor: "nf1",
-			Volumes: []v1.WorkspaceVolume{{
-				Id:           1,
-				Type:         v1.PFS,
-				MountPath:    "/ceph",
-				StorageClass: "storage-cephfs",
-				Capacity:     "100Gi",
-			}, {
-				Id:        2,
-				Type:      v1.HOSTPATH,
-				MountPath: "/data",
-				HostPath:  "/apps",
-			}},
-			ImageSecrets: []corev1.ObjectReference{{
-				Name: "test-image",
-			}},
-		},
-		Status: v1.WorkspaceStatus{
-			Phase: v1.WorkspaceRunning,
-			TotalResources: corev1.ResourceList{
-				corev1.ResourceCPU:              *resource.NewQuantity(50, resource.DecimalSI),
-				corev1.ResourceMemory:           *resource.NewQuantity(1024*1024*1024*512, resource.BinarySI),
-				common.NvidiaGpu:                *resource.NewQuantity(8, resource.DecimalSI),
-				corev1.ResourceEphemeralStorage: *resource.NewQuantity(1024*1024*1024*128, resource.BinarySI),
-			},
-			AvailableResources: corev1.ResourceList{
-				corev1.ResourceCPU:              *resource.NewQuantity(50, resource.DecimalSI),
-				corev1.ResourceMemory:           *resource.NewQuantity(1024*1024*1024*512, resource.BinarySI),
-				common.NvidiaGpu:                *resource.NewQuantity(8, resource.DecimalSI),
-				corev1.ResourceEphemeralStorage: *resource.NewQuantity(1024*1024*1024*128, resource.BinarySI),
-			},
-		},
-	}
-
 	TestCICDScaleSetResourceTemplate = &v1.ResourceTemplate{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "job",
@@ -947,6 +898,62 @@ var (
 		},
 	}
 
+	TestRayJobResourceTemplate = &v1.ResourceTemplate{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "ray-job",
+			Labels: map[string]string{
+				v1.WorkloadVersionLabel: "v1",
+			},
+			Annotations: map[string]string{
+				v1.WorkloadKindLabel: "RayJob",
+			},
+		},
+		Spec: v1.ResourceTemplateSpec{
+			GroupVersionKind: v1.GroupVersionKind{
+				Group:   "ray.io",
+				Version: "v1",
+				Kind:    "RayJob",
+			},
+			ResourceSpecs: []v1.ResourceSpec{{
+				PrePaths:      []string{"spec", "rayClusterSpec", "headGroupSpec"},
+				TemplatePaths: []string{"template"},
+			}, {
+				PrePaths:      []string{"spec", "rayClusterSpec", "workerGroupSpecs", "0"},
+				TemplatePaths: []string{"template"},
+				ReplicasPaths: []string{"replicas"},
+			}, {
+				PrePaths:      []string{"spec", "rayClusterSpec", "workerGroupSpecs", "1"},
+				TemplatePaths: []string{"template"},
+				ReplicasPaths: []string{"replicas"},
+			}},
+			ResourceStatus: v1.ResourceStatus{
+				PrePaths:     []string{"status"},
+				MessagePaths: []string{"message"},
+				ReasonPaths:  []string{"reason"},
+				Phases: []v1.PhaseExpression{{
+					MatchExpressions: map[string]string{
+						"jobStatus": "SUCCEEDED",
+					},
+					Phase: "K8sSucceeded",
+				}, {
+					MatchExpressions: map[string]string{
+						"jobStatus": "FAILED",
+					},
+					Phase: "K8sFailed",
+				}, {
+					MatchExpressions: map[string]string{
+						"jobStatus": "RUNNING",
+					},
+					Phase: "K8sRunning",
+				}},
+			},
+			ActiveReplica: v1.ActiveReplica{
+				PrePaths:    []string{"status"},
+				ReplicaPath: "succeeded",
+			},
+		},
+	}
+
 	TestWorkloadData = &v1.Workload{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "test-workload-abcde",
@@ -988,6 +995,55 @@ var (
 			CustomerLabels: map[string]string{
 				"key1": "val1",
 				"key2": "val2",
+			},
+		},
+	}
+
+	TestWorkspaceData = &v1.Workspace{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "amd.com/v1",
+			Kind:       "Workspace",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "test-workspace-abc12",
+			Labels: map[string]string{
+				v1.DisplayNameLabel: "test-workspace",
+				v1.ClusterIdLabel:   "test-cluster",
+			},
+		},
+		Spec: v1.WorkspaceSpec{
+			Cluster:    "test-cluster",
+			Replica:    3,
+			NodeFlavor: "nf1",
+			Volumes: []v1.WorkspaceVolume{{
+				Id:           1,
+				Type:         v1.PFS,
+				MountPath:    "/ceph",
+				StorageClass: "storage-cephfs",
+				Capacity:     "100Gi",
+			}, {
+				Id:        2,
+				Type:      v1.HOSTPATH,
+				MountPath: "/data",
+				HostPath:  "/apps",
+			}},
+			ImageSecrets: []corev1.ObjectReference{{
+				Name: "test-image",
+			}},
+		},
+		Status: v1.WorkspaceStatus{
+			Phase: v1.WorkspaceRunning,
+			TotalResources: corev1.ResourceList{
+				corev1.ResourceCPU:              *resource.NewQuantity(50, resource.DecimalSI),
+				corev1.ResourceMemory:           *resource.NewQuantity(1024*1024*1024*512, resource.BinarySI),
+				common.NvidiaGpu:                *resource.NewQuantity(8, resource.DecimalSI),
+				corev1.ResourceEphemeralStorage: *resource.NewQuantity(1024*1024*1024*128, resource.BinarySI),
+			},
+			AvailableResources: corev1.ResourceList{
+				corev1.ResourceCPU:              *resource.NewQuantity(50, resource.DecimalSI),
+				corev1.ResourceMemory:           *resource.NewQuantity(1024*1024*1024*512, resource.BinarySI),
+				common.NvidiaGpu:                *resource.NewQuantity(8, resource.DecimalSI),
+				corev1.ResourceEphemeralStorage: *resource.NewQuantity(1024*1024*1024*128, resource.BinarySI),
 			},
 		},
 	}

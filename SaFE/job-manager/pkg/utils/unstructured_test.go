@@ -363,3 +363,314 @@ func TestGetGithubConfigSecret(t *testing.T) {
 	assert.NilError(t, err)
 	assert.Equal(t, val, "primus-safe-cicd")
 }
+
+func TestNestedInt64(t *testing.T) {
+	// Create an object with nested arrays
+	obj := map[string]interface{}{
+		"spec": map[string]interface{}{
+			"replicas": int64(3),
+			"workerGroupSpecs": []interface{}{
+				map[string]interface{}{
+					"groupName":   "worker-group-0",
+					"replicas":    int64(2),
+					"minReplicas": int64(1),
+					"maxReplicas": int64(5), // int type
+					"template": map[string]interface{}{
+						"spec": map[string]interface{}{
+							"containers": []interface{}{
+								map[string]interface{}{
+									"name": "container-0",
+									"resources": map[string]interface{}{
+										"limits": map[string]interface{}{
+											"cpu": int64(4),
+										},
+									},
+								},
+								map[string]interface{}{
+									"name": "container-1",
+									"resources": map[string]interface{}{
+										"limits": map[string]interface{}{
+											"cpu": int64(8),
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+				map[string]interface{}{
+					"groupName": "worker-group-1",
+					"replicas":  int64(4),
+				},
+			},
+		},
+	}
+
+	tests := []struct {
+		name      string
+		path      []string
+		expected  int64
+		wantFound bool
+		wantErr   bool
+	}{
+		{
+			name:      "simple path without array",
+			path:      []string{"spec", "replicas"},
+			expected:  3,
+			wantFound: true,
+			wantErr:   false,
+		},
+		{
+			name:      "path with array index - first element",
+			path:      []string{"spec", "workerGroupSpecs", "0", "replicas"},
+			expected:  2,
+			wantFound: true,
+			wantErr:   false,
+		},
+		{
+			name:      "path with array index - second element",
+			path:      []string{"spec", "workerGroupSpecs", "1", "replicas"},
+			expected:  4,
+			wantFound: true,
+			wantErr:   false,
+		},
+		{
+			name:      "nested array path - first container",
+			path:      []string{"spec", "workerGroupSpecs", "0", "template", "spec", "containers", "0", "resources", "limits", "cpu"},
+			expected:  4,
+			wantFound: true,
+			wantErr:   false,
+		},
+		{
+			name:      "nested array path - second container",
+			path:      []string{"spec", "workerGroupSpecs", "0", "template", "spec", "containers", "1", "resources", "limits", "cpu"},
+			expected:  8,
+			wantFound: true,
+			wantErr:   false,
+		},
+		{
+			name:      "path not found",
+			path:      []string{"spec", "workerGroupSpecs", "0", "notExist"},
+			expected:  0,
+			wantFound: false,
+			wantErr:   false,
+		},
+		{
+			name:      "array index out of range",
+			path:      []string{"spec", "workerGroupSpecs", "10", "replicas"},
+			expected:  0,
+			wantFound: false,
+			wantErr:   true,
+		},
+		{
+			name:      "empty path",
+			path:      []string{},
+			expected:  0,
+			wantFound: false,
+			wantErr:   true,
+		},
+		{
+			name:      "invalid field type - string value",
+			path:      []string{"spec", "workerGroupSpecs", "0", "groupName"},
+			expected:  0,
+			wantFound: true,
+			wantErr:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, found, err := NestedInt64(obj, tt.path)
+
+			if tt.wantErr {
+				assert.Assert(t, err != nil || !found, "expected error or not found")
+			} else {
+				assert.NilError(t, err)
+			}
+
+			assert.Equal(t, found, tt.wantFound)
+			if tt.wantFound && !tt.wantErr {
+				assert.Equal(t, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestNestedMap(t *testing.T) {
+	obj := map[string]interface{}{
+		"spec": map[string]interface{}{
+			"replicas": int64(3),
+			"workerGroupSpecs": []interface{}{
+				map[string]interface{}{
+					"groupName": "worker-0",
+					"template": map[string]interface{}{
+						"metadata": map[string]interface{}{
+							"labels": map[string]interface{}{
+								"app": "test",
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	result, found, err := NestedMap(obj, []string{"spec"})
+	assert.NilError(t, err)
+	assert.Assert(t, found)
+	assert.Equal(t, result["replicas"].(int64), int64(3))
+
+	// Test: path with array index
+	result, found, err = NestedMap(obj, []string{"spec", "workerGroupSpecs", "0", "template", "metadata", "labels"})
+	assert.NilError(t, err)
+	assert.Assert(t, found)
+	assert.Equal(t, result["app"], "test")
+
+	// Test: path without array
+	result, found, err = NestedMap(obj, []string{"spec", "workerGroupSpecs", "0", "template", "metadata"})
+	assert.NilError(t, err)
+	assert.Assert(t, found)
+	assert.Assert(t, result["labels"] != nil)
+
+	// Test: path not found
+	_, found, err = NestedMap(obj, []string{"spec", "notExist"})
+	assert.NilError(t, err)
+	assert.Assert(t, !found)
+
+	// Test: array index out of range
+	_, found, err = NestedMap(obj, []string{"spec", "workerGroupSpecs", "10", "template"})
+	assert.Assert(t, err != nil)
+	assert.Assert(t, !found)
+}
+
+func TestNestedSlice(t *testing.T) {
+	obj := map[string]interface{}{
+		"spec": map[string]interface{}{
+			"volumes": []interface{}{
+				map[string]interface{}{"name": "vol1"},
+				map[string]interface{}{"name": "vol2"},
+			},
+			"workerGroupSpecs": []interface{}{
+				map[string]interface{}{
+					"template": map[string]interface{}{
+						"spec": map[string]interface{}{
+							"containers": []interface{}{
+								map[string]interface{}{"name": "c1"},
+								map[string]interface{}{"name": "c2"},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	// Test: simple path without array index
+	result, found, err := NestedSlice(obj, []string{"spec", "volumes"})
+	assert.NilError(t, err)
+	assert.Assert(t, found)
+	assert.Equal(t, len(result), 2)
+
+	// Test: path with array index
+	result, found, err = NestedSlice(obj, []string{"spec", "workerGroupSpecs", "0", "template", "spec", "containers"})
+	assert.NilError(t, err)
+	assert.Assert(t, found)
+	assert.Equal(t, len(result), 2)
+
+	// Test: path not found
+	_, found, err = NestedSlice(obj, []string{"spec", "notExist"})
+	assert.NilError(t, err)
+	assert.Assert(t, !found)
+
+	// Test: array index out of range
+	_, found, err = NestedSlice(obj, []string{"spec", "workerGroupSpecs", "10", "template", "spec", "containers"})
+	assert.Assert(t, err != nil)
+	assert.Assert(t, !found)
+}
+
+func TestRemoveNestedField(t *testing.T) {
+	// Test: remove field with array index
+	obj := map[string]interface{}{
+		"spec": map[string]interface{}{
+			"workerGroupSpecs": []interface{}{
+				map[string]interface{}{
+					"groupName": "worker-0",
+					"replicas":  int64(2),
+				},
+			},
+		},
+	}
+
+	err := RemoveNestedField(obj, []string{"spec", "workerGroupSpecs", "0", "replicas"})
+	assert.NilError(t, err)
+	_, found, _ := NestedInt64(obj, []string{"spec", "workerGroupSpecs", "0", "replicas"})
+	assert.Assert(t, !found)
+
+	// Test: remove simple field
+	obj2 := map[string]interface{}{
+		"metadata": map[string]interface{}{
+			"name":      "test",
+			"namespace": "default",
+		},
+	}
+
+	err = RemoveNestedField(obj2, []string{"metadata", "namespace"})
+	assert.NilError(t, err)
+	_, found, _ = unstructured.NestedString(obj2, "metadata", "namespace")
+	assert.Assert(t, !found)
+
+	// Test: remove array element
+	obj3 := map[string]interface{}{
+		"items": []interface{}{"a", "b", "c"},
+	}
+
+	err = RemoveNestedField(obj3, []string{"items", "1"})
+	assert.NilError(t, err)
+	arr, _, _ := unstructured.NestedSlice(obj3, "items")
+	assert.Equal(t, len(arr), 2)
+
+	// Test: remove non-existent field (no error)
+	err = RemoveNestedField(obj, []string{"spec", "notExist"})
+	assert.NilError(t, err)
+}
+
+func TestSetNestedField(t *testing.T) {
+	// Test: set field with array index
+	obj := map[string]interface{}{
+		"spec": map[string]interface{}{
+			"workerGroupSpecs": []interface{}{
+				map[string]interface{}{
+					"groupName": "worker-0",
+					"replicas":  int64(2),
+				},
+			},
+		},
+	}
+
+	err := SetNestedField(obj, int64(5), []string{"spec", "workerGroupSpecs", "0", "replicas"})
+	assert.NilError(t, err)
+	result, found, _ := NestedInt64(obj, []string{"spec", "workerGroupSpecs", "0", "replicas"})
+	assert.Assert(t, found)
+	assert.Equal(t, result, int64(5))
+
+	// Test: set simple field
+	err = SetNestedField(obj, "new-name", []string{"spec", "workerGroupSpecs", "0", "groupName"})
+	assert.NilError(t, err)
+	val, found, _ := NestedField(obj, []string{"spec", "workerGroupSpecs", "0", "groupName"})
+	assert.Assert(t, found)
+	assert.Equal(t, val.(string), "new-name")
+
+	// Test: set slice value
+	volumes := []interface{}{
+		map[string]interface{}{"name": "vol1"},
+	}
+	err = SetNestedField(obj, volumes, []string{"spec", "workerGroupSpecs", "0", "volumes"})
+	assert.NilError(t, err)
+	arr, found, _ := NestedSlice(obj, []string{"spec", "workerGroupSpecs", "0", "volumes"})
+	assert.Assert(t, found)
+	assert.Equal(t, len(arr), 1)
+
+	// Test: array index out of range
+	err = SetNestedField(obj, "test", []string{"spec", "workerGroupSpecs", "10", "name"})
+	assert.Assert(t, err != nil)
+}

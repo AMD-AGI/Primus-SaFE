@@ -106,7 +106,7 @@ func TestCreatePytorchJob(t *testing.T) {
 	checkTolerations(t, obj, workload, &templates[0])
 	checkPriorityClass(t, obj, workload, &templates[0])
 	checkImageSecrets(t, obj, &templates[0])
-	_, found, err := unstructured.NestedSlice(obj.Object, templates[1].PrePaths...)
+	_, found, err := jobutils.NestedSlice(obj.Object, templates[1].PrePaths)
 	assert.NilError(t, err)
 	assert.Equal(t, found, false)
 
@@ -598,7 +598,7 @@ func TestCICDScaleSetWithUnifiedJob(t *testing.T) {
 }
 
 func checkGithubConfig(t *testing.T, obj *unstructured.Unstructured) {
-	specObject, found, err := unstructured.NestedMap(obj.Object, []string{"spec"}...)
+	specObject, found, err := jobutils.NestedMap(obj.Object, []string{"spec"})
 	assert.NilError(t, err)
 	assert.Equal(t, found, true)
 	assert.Equal(t, len(specObject) == 0, false)
@@ -616,11 +616,11 @@ func checkCICDContainer(t *testing.T, obj *unstructured.Unstructured, workload *
 	resourceSpec *v1.ResourceSpec, containerName, containerImage string) {
 	container := getContainer(obj, containerName, resourceSpec)
 	assert.Equal(t, container != nil, true)
-	image, found, err := unstructured.NestedString(container, []string{"image"}...)
+	image, found, err := jobutils.NestedString(container, []string{"image"})
 	assert.NilError(t, err)
 	assert.Equal(t, found, true)
 	assert.Equal(t, image, containerImage)
-	envs, found, err := unstructured.NestedSlice(container, []string{"env"}...)
+	envs, found, err := jobutils.NestedSlice(container, []string{"env"})
 	assert.NilError(t, err)
 	assert.Equal(t, found, true)
 	checkCICDEnvs(t, envs, workload)
@@ -930,7 +930,7 @@ func Test_updateCICDScaleSet(t *testing.T) {
 	assert.NilError(t, err, "updateCICDScaleSet should succeed")
 
 	// Verify GitHub configuration was updated
-	specObject, found, err := unstructured.NestedMap(obj.Object, "spec")
+	specObject, found, err := jobutils.NestedMap(obj.Object, []string{"spec"})
 	assert.NilError(t, err)
 	assert.Equal(t, found, true, "spec should exist")
 
@@ -943,8 +943,82 @@ func Test_updateCICDScaleSet(t *testing.T) {
 	assert.Equal(t, githubUrl.(string), "https://github.com/test/repo")
 
 	// Verify container env was updated
-	containers, found, err := unstructured.NestedSlice(obj.Object, "spec", "template", "spec", "containers")
+	containers, found, err := jobutils.NestedSlice(obj.Object, []string{"spec", "template", "spec", "containers"})
 	assert.NilError(t, err)
 	assert.Equal(t, found, true, "containers should exist")
 	assert.Assert(t, len(containers) > 0, "should have at least one container")
+}
+
+func TestCreateRayJob(t *testing.T) {
+	commonconfig.SetValue("net.rdma_name", "rdma/hca")
+	defer commonconfig.SetValue("net.rdma_name", "")
+
+	workspace := jobutils.TestWorkspaceData.DeepCopy()
+	workload := jobutils.TestWorkloadData.DeepCopy()
+	workload.Spec.GroupVersionKind = v1.GroupVersionKind{
+		Kind:    common.RayJobKind,
+		Version: common.DefaultVersion,
+	}
+	workload.Spec.Secrets = []v1.SecretEntity{{
+		Id:   workspace.Spec.ImageSecrets[0].Name,
+		Type: v1.SecretImage,
+	}}
+	workload.Spec.Workspace = workspace.Name
+
+	configmap, err := parseConfigmap(TestRayJobTemplateConfig)
+	assert.NilError(t, err)
+	metav1.SetMetaDataAnnotation(&workload.ObjectMeta, v1.MainContainerAnnotation, v1.GetMainContainer(configmap))
+	scheme, err := genMockScheme()
+	assert.NilError(t, err)
+	adminClient := fake.NewClientBuilder().WithObjects(configmap, jobutils.TestRayJobResourceTemplate, workspace).WithScheme(scheme).Build()
+
+	r := DispatcherReconciler{Client: adminClient}
+	obj, err := r.generateK8sObject(context.Background(), workload, nil)
+	assert.NilError(t, err)
+
+	templates := jobutils.TestRayJobResourceTemplate.Spec.ResourceSpecs
+	checkResources(t, obj, workload, &templates[0], 0, 0)
+	checkPorts(t, obj, workload, &templates[0])
+	checkEnvs(t, obj, workload, &templates[0], 0)
+	checkVolumeMounts(t, obj, &templates[0])
+	checkVolumes(t, obj, workload, &templates[0], 0)
+	checkNodeSelectorTerms(t, obj, workload, &templates[0])
+	checkImage(t, obj, workload.Spec.Images[0], &templates[0])
+	checkLabels(t, obj, workload, &templates[0], 0)
+	checkHostNetwork(t, obj, workload, &templates[0], 0)
+	checkTolerations(t, obj, workload, &templates[0])
+	checkPriorityClass(t, obj, workload, &templates[0])
+	checkImageSecrets(t, obj, &templates[0])
+	_, found, err := jobutils.NestedSlice(obj.Object, templates[1].PrePaths)
+	assert.Equal(t, err != nil, true)
+	assert.Equal(t, found, false)
+
+	workload.Spec.Resources = append(workload.Spec.Resources, v1.WorkloadResource{
+		Replica:          2,
+		CPU:              "64",
+		GPU:              "8",
+		GPUName:          "amd.com/gpu",
+		Memory:           "1Ti",
+		SharedMemory:     "512Gi",
+		EphemeralStorage: "200Gi",
+		RdmaResource:     "1k",
+	})
+	workload.Spec.Images = append(workload.Spec.Images, "test-image2")
+	workload.Spec.EntryPoints = append(workload.Spec.EntryPoints, "sh -c test2.sh")
+	obj, err = r.generateK8sObject(context.Background(), workload, nil)
+	assert.NilError(t, err)
+
+	checkResources(t, obj, workload, &templates[1], 2, 1)
+	checkEnvs(t, obj, workload, &templates[1], 1)
+	checkPorts(t, obj, workload, &templates[1])
+	checkVolumeMounts(t, obj, &templates[1])
+	checkVolumes(t, obj, workload, &templates[1], 1)
+	checkNodeSelectorTerms(t, obj, workload, &templates[1])
+	checkImage(t, obj, workload.Spec.Images[1], &templates[1])
+	checkLabels(t, obj, workload, &templates[1], 1)
+	checkHostNetwork(t, obj, workload, &templates[1], 1)
+	checkTolerations(t, obj, workload, &templates[1])
+	checkPriorityClass(t, obj, workload, &templates[1])
+	checkImageSecrets(t, obj, &templates[1])
+	// fmt.Println(unstructuredutils.ToString(obj))
 }

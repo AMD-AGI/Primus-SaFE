@@ -656,10 +656,11 @@ func applyWorkloadSpecToObject(ctx context.Context, clientSets *syncer.ClusterCl
 			return err
 		}
 	}
-
 	for i, t := range rt.Spec.ResourceSpecs {
 		if i >= len(adminWorkload.Spec.Resources) {
-			unstructured.RemoveNestedField(obj.Object, t.PrePaths...)
+			if err := jobutils.RemoveNestedField(obj.Object, t.PrePaths); err != nil {
+				return err
+			}
 			continue
 		}
 		if err := updateHostNetwork(adminWorkload, obj, t, i); err != nil {
@@ -669,7 +670,7 @@ func applyWorkloadSpecToObject(ctx context.Context, clientSets *syncer.ClusterCl
 			return fmt.Errorf("failed to update replica: %v", err.Error())
 		}
 		if err := updateMetadata(adminWorkload, obj, t, i); err != nil {
-			return fmt.Errorf("failed to update main container: %v", err.Error())
+			return fmt.Errorf("failed to update metadata: %v", err.Error())
 		}
 		if err := updateContainers(adminWorkload, obj, t, i); err != nil {
 			return fmt.Errorf("failed to update main container: %v", err.Error())
