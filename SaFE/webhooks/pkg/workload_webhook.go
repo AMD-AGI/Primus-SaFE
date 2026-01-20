@@ -696,9 +696,6 @@ func (v *WorkloadValidator) validateRequiredParams(workload *v1.Workload) error 
 		} else if len(workload.Spec.Images) != len(workload.Spec.Resources) {
 			errs = append(errs, fmt.Errorf("the number of images and resources is not equal"))
 		}
-		if len(workload.Spec.EntryPoints) > 0 && len(workload.Spec.EntryPoints) != len(workload.Spec.Resources) {
-			errs = append(errs, fmt.Errorf("the number of entryPoints and resources is not equal"))
-		}
 	}
 
 	if err := utilerrors.NewAggregate(errs); err != nil {
