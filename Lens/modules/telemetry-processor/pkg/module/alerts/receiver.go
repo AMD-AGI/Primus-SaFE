@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
 	"time"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
@@ -225,12 +226,25 @@ func convertAlertManagerItemsToUnified(items []VMAlertItem) []*UnifiedAlert {
 			annotations = make(map[string]string)
 		}
 		
+		// Generate fingerprint if not provided
+		fingerprint := item.Fingerprint
+		if fingerprint == "" {
+			// Generate fingerprint from alertname and sorted labels
+			fingerprint = generateFingerprintFromLabels(labels)
+		}
+		
+		// Determine status - default to firing if not specified
+		status := item.Status
+		if status == "" {
+			status = StatusFiring
+		}
+		
 		alert := &UnifiedAlert{
-			ID:          item.Fingerprint,
+			ID:          fingerprint,
 			Source:      SourceMetric,
 			AlertName:   labels["alertname"],
 			Severity:    labels["severity"],
-			Status:      item.Status,
+			Status:      status,
 			Labels:      labels,
 			Annotations: annotations,
 			StartsAt:    parseTime(item.StartsAt),
@@ -389,6 +403,25 @@ func generateFingerprint(parts ...string) string {
 	h := sha256.New()
 	for _, part := range parts {
 		h.Write([]byte(part))
+	}
+	return fmt.Sprintf("%x", h.Sum(nil))[:16]
+}
+
+// generateFingerprintFromLabels generates a fingerprint from labels map
+func generateFingerprintFromLabels(labels map[string]string) string {
+	// Sort label keys for consistent fingerprint
+	keys := make([]string, 0, len(labels))
+	for k := range labels {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	
+	h := sha256.New()
+	for _, k := range keys {
+		h.Write([]byte(k))
+		h.Write([]byte("="))
+		h.Write([]byte(labels[k]))
+		h.Write([]byte(","))
 	}
 	return fmt.Sprintf("%x", h.Sum(nil))[:16]
 }
