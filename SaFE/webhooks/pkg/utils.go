@@ -111,7 +111,7 @@ func validateLabelKey(name string) error {
 // getMaxNameLength returns the maximum allowed name length based on the workload kind.
 func getMaxNameLength(workloadKind string) int {
 	switch workloadKind {
-	case common.PytorchJobKind, common.UnifiedJobKind, common.AuthoringKind, common.RayJobKind:
+	case common.PytorchJobKind, common.UnifiedJobKind, common.AuthoringKind:
 		return commonutils.MaxPytorchJobNameLen
 	case common.DeploymentKind, common.StatefulSetKind:
 		return commonutils.MaxDeploymentNameLen
@@ -119,6 +119,8 @@ func getMaxNameLength(workloadKind string) int {
 		return commonutils.MaxTorchFTNameLen
 	case common.CICDScaleRunnerSetKind:
 		return commonutils.MaxCICDScaleSetNameLen
+	case common.RayJobKind:
+		return commonutils.MaxRayJobNameLen
 	default:
 		return commonutils.MaxGeneratedNameLength
 	}
