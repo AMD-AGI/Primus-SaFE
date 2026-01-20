@@ -487,7 +487,6 @@ func setCookie(c *gin.Context, userInfo *view.UserLoginResponse, userType v1.Use
 	domain := "." + c.Request.Host
 	c.SetCookie(authority.CookieToken, userInfo.Token, maxAge, "/", domain, false, true)
 	c.SetCookie(common.UserId, userInfo.Id, maxAge, "/", domain, false, true)
-	c.SetCookie(common.UserName, userInfo.Name, maxAge, "/", domain, false, true)
 	c.SetCookie(common.UserType, string(userType), maxAge, "/", domain, false, true)
 }
 
@@ -534,20 +533,8 @@ func (h *Handler) cvtToUserResponseItem(ctx context.Context, user *v1.User) view
 // logout handles user logout by clearing authentication cookies.
 // Only applicable for requests from the console interface.
 func (h *Handler) logout(c *gin.Context) (interface{}, error) {
-	// Get user info from cookie before clearing
-	userId, _ := c.Cookie(common.UserId)
-	userName, _ := c.Cookie(common.UserName)
-	userType, _ := c.Cookie(common.UserType)
-
-	c.Set(common.UserId, userId)
-	c.Set(common.UserName, userName)
-	c.Set(common.UserType, userType)
-
-	// Clear cookies
 	info := &view.UserLoginResponse{}
 	setCookie(c, info, "")
-
-	klog.Infof("user logout successfully, userId: %s", userId)
 	return nil, nil
 }
 

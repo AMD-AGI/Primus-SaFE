@@ -1547,7 +1547,7 @@ func genMockDefaultRole() *v1.Role {
 			Name: string(v1.DefaultRole),
 		},
 		Rules: []v1.PolicyRule{{
-			Resources:    []string{"apikeys"},
+			Resources:    []string{authority.ApiKeysKind},
 			Verbs:        []v1.RoleVerb{"create", "list", "delete"},
 			GrantedUsers: []string{authority.GrantedOwner},
 		}},

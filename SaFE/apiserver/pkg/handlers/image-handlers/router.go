@@ -34,7 +34,7 @@ func InitImageRouter(e *gin.Engine, h *ImageHandler) {
 			handle(c, h.getImportingDetail)
 		})
 
-		imageGroup.DELETE("custom/:jobId", middleware.Audit("image"), func(c *gin.Context) {
+		imageGroup.DELETE("custom/:jobId", middleware.Audit("custom-image"), func(c *gin.Context) {
 			handle(c, h.deleteExportedImage)
 		})
 		imageGroup.DELETE(":id", middleware.Audit("image"), func(c *gin.Context) {
@@ -54,15 +54,15 @@ func InitImageRouter(e *gin.Engine, h *ImageHandler) {
 		})
 	}
 
-	imageRegistryGroup := group.Group("/image-registries", middleware.Authorize())
+	imageRegistryGroup := group.Group("/image-registries", middleware.Authorize(), middleware.Audit("imageregistry"))
 	{
-		imageRegistryGroup.POST("", middleware.Audit("imageregistry"), func(c *gin.Context) {
+		imageRegistryGroup.POST("", func(c *gin.Context) {
 			handle(c, h.createImageRegistry)
 		})
-		imageRegistryGroup.PUT(":id", middleware.Audit("imageregistry"), func(c *gin.Context) {
+		imageRegistryGroup.PUT(":id", func(c *gin.Context) {
 			handle(c, h.updateImageRegistry)
 		})
-		imageRegistryGroup.DELETE(":id", middleware.Audit("imageregistry"), func(c *gin.Context) {
+		imageRegistryGroup.DELETE(":id", func(c *gin.Context) {
 			handle(c, h.deleteImageRegistry)
 		})
 		imageRegistryGroup.GET("", func(c *gin.Context) {

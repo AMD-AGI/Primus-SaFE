@@ -290,4 +290,4 @@ The `action` field provides a human-readable description of the operation:
 
 3. **Time Range Queries**: For optimal performance, always use `startTime` and `endTime` filters when querying historical data.
 
-5. **Trace ID**: The `traceId` field enables correlation with distributed tracing systems (e.g., Jaeger) for debugging complex request flows.
+4. **Trace ID**: The `traceId` field enables correlation with distributed tracing systems (e.g., Jaeger) for debugging complex request flows.

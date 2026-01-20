@@ -165,6 +165,9 @@ func InitCustomRouters(e *gin.Engine, h *Handler) {
 
 		// ==================== Audit Logs (read-only) ====================
 		authGroup.GET("/auditlogs", h.ListAuditLog)
+
+		// ==================== Logout ====================
+		authGroup.POST("/logout", middleware.Audit("auth", "logout"), h.Logout)
 	}
 
 	// Public routes without authentication
@@ -173,7 +176,6 @@ func InitCustomRouters(e *gin.Engine, h *Handler) {
 		noAuthGroup.GET("/clusters", h.ListCluster)
 		noAuthGroup.GET(fmt.Sprintf("/clusters/:%s", common.Name), h.GetCluster)
 		noAuthGroup.POST("/login", middleware.Audit("auth", "login"), h.Login)
-		noAuthGroup.POST("/logout", middleware.Audit("auth", "logout"), h.Logout)
 		noAuthGroup.POST("/users", middleware.Audit("user", "register"), h.CreateUser)
 		noAuthGroup.GET("/envs", h.GetEnvs)
 		noAuthGroup.POST("/auth/verify", authority.VerifyToken)

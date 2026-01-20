@@ -293,7 +293,7 @@ func (h *Handler) deleteApiKey(c *gin.Context) (interface{}, error) {
 	// Check RBAC permission - user must have "delete" permission on "apikeys" resource
 	err = h.accessController.Authorize(authority.AccessInput{
 		Context:       c.Request.Context(),
-		ResourceKind:  "apikeys",
+		ResourceKind:  authority.ApiKeysKind,
 		ResourceOwner: record.UserId, // Owner is the API key's owner
 		Verb:          "delete",
 		UserId:        userId,

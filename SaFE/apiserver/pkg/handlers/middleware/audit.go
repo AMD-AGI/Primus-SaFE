@@ -171,7 +171,7 @@ func Audit(resourceType string, action ...string) gin.HandlerFunc {
 	// Initialize the audit buffer singleton (only once)
 	if auditBuffer == nil {
 		auditBuffer = initAuditBuffer(client)
-		klog.Info("audit log buffer initialized with batch size", auditBatchSize, "flush interval", auditFlushInterval)
+		klog.Infof("audit log buffer initialized with batch size %d, flush interval %v", auditBatchSize, auditFlushInterval)
 	}
 
 	// Determine if action is explicitly provided
