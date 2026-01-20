@@ -115,9 +115,19 @@ func TestSanitizeBody(t *testing.T) {
 			expected: `{"PASSWORD": "secret"}`, // regex is case-sensitive
 		},
 		{
-			name:     "form_data_not_matched",
+			name:     "form_data_password",
 			input:    `name=admin&password=secret123&type=default`,
-			expected: `name=admin&password=secret123&type=default`, // only JSON format matched
+			expected: `name=admin&password=[REDACTED]&type=default`,
+		},
+		{
+			name:     "form_data_password_at_start",
+			input:    `password=secret123&name=admin`,
+			expected: `password=[REDACTED]&name=admin`,
+		},
+		{
+			name:     "form_data_token",
+			input:    `userId=123&token=jwt-token&action=login`,
+			expected: `userId=123&token=[REDACTED]&action=login`,
 		},
 	}
 

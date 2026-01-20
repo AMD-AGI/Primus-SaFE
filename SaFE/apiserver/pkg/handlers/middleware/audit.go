@@ -302,18 +302,26 @@ func sanitizeBody(body string) string {
 		return ""
 	}
 
-	// Remove password fields
-	sensitivePatterns := []*regexp.Regexp{
+	result := body
+
+	// JSON format: "password": "value"
+	jsonPatterns := []*regexp.Regexp{
 		regexp.MustCompile(`"password"\s*:\s*"[^"]*"`),
 		regexp.MustCompile(`"token"\s*:\s*"[^"]*"`),
 		regexp.MustCompile(`"secret"\s*:\s*"[^"]*"`),
 		regexp.MustCompile(`"apiKey"\s*:\s*"[^"]*"`),
 		regexp.MustCompile(`"api_key"\s*:\s*"[^"]*"`),
 	}
-
-	result := body
-	for _, pattern := range sensitivePatterns {
+	for _, pattern := range jsonPatterns {
 		result = pattern.ReplaceAllString(result, `"[REDACTED]"`)
+	}
+
+	// Form-urlencoded format: password=value or password=value&
+	formPatterns := []*regexp.Regexp{
+		regexp.MustCompile(`(^|&)(password|token|secret|apiKey|api_key)=[^&]*`),
+	}
+	for _, pattern := range formPatterns {
+		result = pattern.ReplaceAllString(result, `$1$2=[REDACTED]`)
 	}
 
 	return result

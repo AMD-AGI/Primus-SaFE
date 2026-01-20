@@ -53,7 +53,7 @@ func (c *Client) BatchInsertAuditLogs(ctx context.Context, auditLogs []*AuditLog
 	builder := sqrl.StatementBuilder.PlaceholderFormat(sqrl.Dollar).
 		Insert(TPAuditLog).
 		Columns("user_id", "user_name", "user_type", "client_ip", "http_method",
-			"request_path", "resource_type", "request_body",
+			"request_path", "resource_type", "action", "request_body",
 			"response_status", "response_body", "latency_ms", "trace_id", "create_time")
 
 	for _, log := range auditLogs {
@@ -65,6 +65,7 @@ func (c *Client) BatchInsertAuditLogs(ctx context.Context, auditLogs []*AuditLog
 			log.HttpMethod,
 			log.RequestPath,
 			log.ResourceType,
+			log.Action,
 			log.RequestBody,
 			log.ResponseStatus,
 			log.ResponseBody,
