@@ -70,9 +70,15 @@ spec:
                   object
                 items:
                   properties:
-                    completionsPaths:
-                      description: The relative path of pod completions(only for job
-                        and ray-job)
+                    maxReplicasPaths:
+                      description: The relative path of pod max-replica(only for ray-job),
+                        Commonly used for elasticity.
+                      items:
+                        type: string
+                      type: array
+                    minReplicasPaths:
+                      description: The relative path of pod min-replica(only for job
+                        and ray-job). for job, it's the pod completions
                       items:
                         type: string
                       type: array

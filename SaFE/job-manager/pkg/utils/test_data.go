@@ -719,7 +719,7 @@ var (
 				PrePaths:         []string{"spec"},
 				TemplatePaths:    []string{"template"},
 				ReplicasPaths:    []string{"parallelism"},
-				CompletionsPaths: []string{"completions"},
+				MinReplicasPaths: []string{"completions"},
 			}},
 			ResourceStatus: v1.ResourceStatus{
 				PrePaths:     []string{"status", "conditions"},
@@ -918,13 +918,17 @@ var (
 				PrePaths:      []string{"spec", "rayClusterSpec", "headGroupSpec"},
 				TemplatePaths: []string{"template"},
 			}, {
-				PrePaths:      []string{"spec", "rayClusterSpec", "workerGroupSpecs", "0"},
-				TemplatePaths: []string{"template"},
-				ReplicasPaths: []string{"replicas"},
+				PrePaths:         []string{"spec", "rayClusterSpec", "workerGroupSpecs", "0"},
+				TemplatePaths:    []string{"template"},
+				ReplicasPaths:    []string{"replicas"},
+				MinReplicasPaths: []string{"minReplicas"},
+				MaxReplicasPaths: []string{"maxReplicas"},
 			}, {
-				PrePaths:      []string{"spec", "rayClusterSpec", "workerGroupSpecs", "1"},
-				TemplatePaths: []string{"template"},
-				ReplicasPaths: []string{"replicas"},
+				PrePaths:         []string{"spec", "rayClusterSpec", "workerGroupSpecs", "1"},
+				TemplatePaths:    []string{"template"},
+				ReplicasPaths:    []string{"replicas"},
+				MinReplicasPaths: []string{"minReplicas"},
+				MaxReplicasPaths: []string{"maxReplicas"},
 			}},
 			ResourceStatus: v1.ResourceStatus{
 				PrePaths:     []string{"status"},

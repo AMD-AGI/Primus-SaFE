@@ -745,17 +745,34 @@ func updateReplica(adminWorkload *v1.Workload,
 	if err := jobutils.SetNestedField(obj.Object, replica, path); err != nil {
 		return err
 	}
-	return updateCompletions(obj, resourceSpec, replica)
+	if err := updateMinReplicas(obj, resourceSpec, replica); err != nil {
+		return err
+	}
+	if err := updateMaxReplicas(obj, resourceSpec, replica); err != nil {
+		return err
+	}
+	return nil
 }
 
-// updateCompletions updates the completions count in the unstructured object. only for job
-// The current job's completions is equal to its parallelism, meaning all tasks run concurrently and all must succeed.
-func updateCompletions(obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec, replica int64) error {
-	if len(resourceSpec.CompletionsPaths) == 0 {
+// updateMaxReplicas updates the max-replicas in the unstructured object. only for ray-job
+// The current job's max-replicas is equal to its replicas, meaning elastic Ray clusters are not supported.
+func updateMaxReplicas(obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec, replica int64) error {
+	if len(resourceSpec.MaxReplicasPaths) == 0 {
 		return nil
 	}
 	path := resourceSpec.PrePaths
-	path = append(path, resourceSpec.CompletionsPaths...)
+	path = append(path, resourceSpec.MaxReplicasPaths...)
+	return jobutils.SetNestedField(obj.Object, replica, path)
+}
+
+// updateMinReplicas updates the min-replicas(for job, it's completions count) in the unstructured object. only for job or ray-job
+// The current job's min-replicas is equal to its replicas, meaning all tasks run concurrently and all must succeed.
+func updateMinReplicas(obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec, replica int64) error {
+	if len(resourceSpec.MinReplicasPaths) == 0 {
+		return nil
+	}
+	path := resourceSpec.PrePaths
+	path = append(path, resourceSpec.MinReplicasPaths...)
 	return jobutils.SetNestedField(obj.Object, replica, path)
 }
 

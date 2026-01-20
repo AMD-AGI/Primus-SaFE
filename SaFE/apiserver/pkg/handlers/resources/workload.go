@@ -30,6 +30,7 @@ import (
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 	maputil "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/maps"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/netutil"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 	sqrl "github.com/Masterminds/squirrel"
@@ -147,20 +148,22 @@ func (h *Handler) createWorkload(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, commonerrors.NewBadRequest(err.Error())
 	}
-	var preheatWorkload *v1.Workload
+	var preheatWorkloads []*v1.Workload
 	isSucceed := false
 	defer func() {
 		if !isSucceed {
-			h.cleanUpWorkloads(ctx, mainWorkload, preheatWorkload)
+			h.cleanUpWorkloads(ctx, mainWorkload, preheatWorkloads)
 		}
 	}()
 
 	if req.Preheat {
-		preheatWorkload, err = h.createPreheatWorkload(c, mainWorkload, req, requestUser, roles)
+		preheatWorkloads, err = h.createPreheatWorkloads(c, mainWorkload, req, requestUser, roles)
 		if err != nil {
 			return nil, err
 		}
-		mainWorkload.Spec.Dependencies = []string{preheatWorkload.Name}
+		for _, w := range preheatWorkloads {
+			mainWorkload.Spec.Dependencies = append(mainWorkload.Spec.Dependencies, w.Name)
+		}
 	}
 
 	resp, err := h.createWorkloadImpl(c, mainWorkload, requestUser, roles)
@@ -224,13 +227,15 @@ func (h *Handler) createWorkloadImpl(c *gin.Context,
 }
 
 // cleanUpWorkloads cleans up workloads when workload creation fails
-// It deletes the main workload and preheat workload if they exist,
+// It deletes the main workload and all preheat workloads if they exist,
 // and cleans up any CICD secrets associated with the main workload
-func (h *Handler) cleanUpWorkloads(ctx context.Context, mainWorkload, preheatWorkload *v1.Workload) {
+func (h *Handler) cleanUpWorkloads(ctx context.Context, mainWorkload *v1.Workload, preheatWorkloads []*v1.Workload) {
 	h.cleanupCICDSecrets(ctx, mainWorkload)
-	if preheatWorkload != nil {
-		if err := h.Delete(ctx, preheatWorkload); err != nil && !apierrors.IsNotFound(err) {
-			klog.ErrorS(err, "failed to delete preheat workload", "workload", preheatWorkload.Name)
+	if len(preheatWorkloads) > 0 {
+		for _, preheatWorkload := range preheatWorkloads {
+			if err := h.Delete(ctx, preheatWorkload); err != nil && !apierrors.IsNotFound(err) {
+				klog.ErrorS(err, "failed to delete preheat workload", "workload", preheatWorkload.Name)
+			}
 		}
 	}
 	if mainWorkload != nil {
@@ -795,9 +800,28 @@ func (h *Handler) generateWorkload(ctx context.Context,
 	return workload, nil
 }
 
-// createPreheatWorkload create a preheat workload based on the main workload configuration for resource warming up
+// createPreheatWorkloads create all preheat workloads based on the main workload images configuration
+func (h *Handler) createPreheatWorkloads(c *gin.Context, mainWorkload *v1.Workload,
+	mainQuery *view.CreateWorkloadRequest, requestUser *v1.User, roles []*v1.Role) ([]*v1.Workload, error) {
+	var result []*v1.Workload
+	uniqImageSet := sets.NewSet()
+	for _, image := range mainWorkload.Spec.Images {
+		if uniqImageSet.Has(image) {
+			continue
+		}
+		uniqImageSet.Insert(image)
+		preheatWorkload, err := h.createPreheatWorkload(c, mainWorkload, mainQuery, image, requestUser, roles)
+		if err != nil {
+			return result, err
+		}
+		result = append(result, preheatWorkload)
+	}
+	return result, nil
+}
+
+// createPreheatWorkload create a preheat workload based on the main workload image for resource warming up
 func (h *Handler) createPreheatWorkload(c *gin.Context, mainWorkload *v1.Workload,
-	mainQuery *view.CreateWorkloadRequest, requestUser *v1.User, roles []*v1.Role) (*v1.Workload, error) {
+	mainQuery *view.CreateWorkloadRequest, image string, requestUser *v1.User, roles []*v1.Role) (*v1.Workload, error) {
 	displayName := v1.GetDisplayName(mainWorkload)
 	description := "preheat"
 	if len(displayName) > commonutils.MaxPytorchJobNameLen-len(description)-1 {
@@ -818,8 +842,15 @@ func (h *Handler) createPreheatWorkload(c *gin.Context, mainWorkload *v1.Workloa
 		},
 		Spec: v1.WorkloadSpec{
 			Workspace: mainWorkload.Spec.Workspace,
+			Resources: []v1.WorkloadResource{{
+				CPU:              "1",
+				Memory:           "8Gi",
+				EphemeralStorage: "50Gi",
+			}},
+			Images:      []string{image},
+			EntryPoints: []string{stringutil.Base64Encode("echo \"preheat finished\"")},
 			GroupVersionKind: v1.GroupVersionKind{
-				Kind:    common.PytorchJobKind,
+				Kind:    common.JobKind,
 				Version: common.DefaultVersion,
 			},
 			Priority:                mainWorkload.Spec.Priority,
@@ -830,17 +861,6 @@ func (h *Handler) createPreheatWorkload(c *gin.Context, mainWorkload *v1.Workloa
 			Secrets:                 mainWorkload.Spec.Secrets,
 		},
 	}
-	for i := range mainWorkload.Spec.Resources {
-		preheatWorkload.Spec.Images = append(preheatWorkload.Spec.Images, mainWorkload.Spec.Images[i])
-		preheatWorkload.Spec.EntryPoints = append(preheatWorkload.Spec.EntryPoints,
-			stringutil.Base64Encode("echo \"preheat finished\""))
-		preheatWorkload.Spec.Resources = append(preheatWorkload.Spec.Resources, v1.WorkloadResource{
-			CPU:              "1",
-			Memory:           "8Gi",
-			EphemeralStorage: "50Gi",
-		})
-	}
-
 	if len(mainQuery.SpecifiedNodes) > 0 {
 		preheatWorkload.Spec.Resources[0].Replica = len(mainQuery.SpecifiedNodes)
 	} else {
@@ -859,7 +879,6 @@ func (h *Handler) createPreheatWorkload(c *gin.Context, mainWorkload *v1.Workloa
 		return nil, err
 	}
 	preheatWorkload.Name = resp.WorkloadId
-
 	return preheatWorkload, nil
 }
 

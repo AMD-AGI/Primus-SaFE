@@ -29,10 +29,20 @@ func checkResources(t *testing.T, obj *unstructured.Unstructured, workload *v1.W
 		assert.NilError(t, err)
 		assert.Equal(t, objReplica, int64(replica))
 		if workload.SpecKind() == common.JobKind {
-			path = append(template.PrePaths, "completions")
+			path = append(template.PrePaths, template.MinReplicasPaths...)
 			objReplica, found, err = jobutils.NestedInt64(obj.Object, path)
 			assert.Equal(t, found, true)
 			assert.NilError(t, err)
+			assert.Equal(t, objReplica, int64(replica))
+		} else if commonworkload.IsRayJob(workload) {
+			path = append(template.PrePaths, template.MinReplicasPaths...)
+			objReplica, found, err = jobutils.NestedInt64(obj.Object, path)
+			assert.Equal(t, found, true)
+			assert.Equal(t, objReplica, int64(replica))
+
+			path = append(template.PrePaths, template.MaxReplicasPaths...)
+			objReplica, found, err = jobutils.NestedInt64(obj.Object, path)
+			assert.Equal(t, found, true)
 			assert.Equal(t, objReplica, int64(replica))
 		}
 	}

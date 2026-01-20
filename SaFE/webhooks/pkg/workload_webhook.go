@@ -139,8 +139,8 @@ func (m *WorkloadMutator) mutateCommon(ctx context.Context, oldWorkload, newWork
 	}
 	m.mutateHostPath(newWorkload, workspace)
 	m.mutatePriority(newWorkload)
-	m.mutateImage(newWorkload)
-	m.mutateEntryPoint(newWorkload)
+	m.mutateImages(newWorkload)
+	m.mutateEntryPoints(newWorkload)
 	m.mutateEnv(oldWorkload, newWorkload)
 	m.mutateMaxRetry(newWorkload)
 	m.mutateHostNetwork(ctx, newWorkload)
@@ -394,10 +394,10 @@ func (m *WorkloadMutator) mutateCICDScaleSet(workload *v1.Workload) {
 	workload.Spec.Dependencies = nil
 }
 
-// mutateImage handles image assignment for workload resources.
+// mutateImages handles image assignment for workload resources.
 // If no images are specified, it populates the Images slice with the default image from workload.Spec.Image
 // for each resource in the workload. Then it trims whitespace from each image name.
-func (m *WorkloadMutator) mutateImage(workload *v1.Workload) {
+func (m *WorkloadMutator) mutateImages(workload *v1.Workload) {
 	if len(workload.Spec.Images) == 0 && workload.Spec.Image != "" {
 		for i := 0; i < len(workload.Spec.Resources); i++ {
 			workload.Spec.Images = append(workload.Spec.Images, workload.Spec.Image)
@@ -451,8 +451,8 @@ func (m *WorkloadMutator) mutateTTLSeconds(workload *v1.Workload) {
 	}
 }
 
-// mutateEntryPoint base64-encodes entry point for the required jobs.
-func (m *WorkloadMutator) mutateEntryPoint(workload *v1.Workload) {
+// mutateEntryPoints base64-encodes entry point for the required jobs.
+func (m *WorkloadMutator) mutateEntryPoints(workload *v1.Workload) {
 	if len(workload.Spec.EntryPoints) == 0 && workload.Spec.EntryPoint != "" {
 		for i := 0; i < len(workload.Spec.Resources); i++ {
 			workload.Spec.EntryPoints = append(workload.Spec.EntryPoints, workload.Spec.EntryPoint)

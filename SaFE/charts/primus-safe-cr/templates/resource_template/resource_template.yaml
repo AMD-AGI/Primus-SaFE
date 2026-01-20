@@ -263,7 +263,7 @@ spec:
         - template
       replicasPaths:
         - parallelism
-      completionsPaths:
+      minReplicasPaths:
         - completions
   resourceStatus:
     prePaths:
@@ -381,6 +381,10 @@ spec:
         - template
       replicasPaths:
         - replicas
+      maxReplicasPaths:
+        - maxReplicas
+      minReplicasPaths:
+        - minReplicas
     - prePaths:
         - spec
         - rayClusterSpec
@@ -390,6 +394,10 @@ spec:
         - template
       replicasPaths:
         - replicas
+      maxReplicasPaths:
+        - maxReplicas
+      minReplicasPaths:
+        - minReplicas
   resourceStatus:
     prePaths:
       - status

@@ -414,25 +414,25 @@ func Test_createPreheatWorkload(t *testing.T) {
 	}
 	roles := []*v1.Role{role}
 
-	preheatWorkload, err := h.createPreheatWorkload(c, mainWorkload, mainQuery, user, roles)
+	preHeatWorkload, err := h.createPreheatWorkload(c, mainWorkload, mainQuery, "test-image", user, roles)
 	assert.NilError(t, err)
-	assert.Assert(t, preheatWorkload != nil, "Preheat workload should be created")
+	assert.Assert(t, preHeatWorkload != nil, "Preheat workload should be created")
 
 	// Verify preheat workload properties
-	assert.Assert(t, preheatWorkload.Name != mainWorkload.Name, "Preheat workload should have different name")
-	assert.Equal(t, v1.GetDisplayName(preheatWorkload), "preheat-"+v1.GetDisplayName(mainWorkload))
-	assert.Equal(t, preheatWorkload.Spec.IsSupervised, false)
-	assert.Equal(t, preheatWorkload.Spec.MaxRetry, 0)
-	assert.Equal(t, *preheatWorkload.Spec.TTLSecondsAfterFinished, 10)
-	assert.Assert(t, preheatWorkload.Spec.CronJobs == nil, "CronJobs should be nil")
-	assert.Assert(t, preheatWorkload.Spec.Dependencies == nil, "Dependencies should be nil")
+	assert.Assert(t, preHeatWorkload.Name != mainWorkload.Name, "Preheat workload should have different name")
+	assert.Equal(t, v1.GetDisplayName(preHeatWorkload), "preheat-"+v1.GetDisplayName(mainWorkload))
+	assert.Equal(t, preHeatWorkload.Spec.IsSupervised, false)
+	assert.Equal(t, preHeatWorkload.Spec.MaxRetry, 0)
+	assert.Equal(t, *preHeatWorkload.Spec.TTLSecondsAfterFinished, 10)
+	assert.Assert(t, preHeatWorkload.Spec.CronJobs == nil, "CronJobs should be nil")
+	assert.Assert(t, preHeatWorkload.Spec.Dependencies == nil, "Dependencies should be nil")
 
 	// Verify resource requirements are minimal
-	assert.Equal(t, len(preheatWorkload.Spec.Resources), 1)
-	assert.Equal(t, preheatWorkload.Spec.Resources[0].CPU, "1")
-	assert.Equal(t, preheatWorkload.Spec.Resources[0].Memory, "8Gi")
-	assert.Equal(t, preheatWorkload.Spec.Resources[0].EphemeralStorage, "50Gi")
-	assert.Equal(t, preheatWorkload.Spec.Resources[0].Replica, 3) // From workspace.Status.AvailableReplica
+	assert.Equal(t, len(preHeatWorkload.Spec.Resources), 1)
+	assert.Equal(t, preHeatWorkload.Spec.Resources[0].CPU, "1")
+	assert.Equal(t, preHeatWorkload.Spec.Resources[0].Memory, "8Gi")
+	assert.Equal(t, preHeatWorkload.Spec.Resources[0].EphemeralStorage, "50Gi")
+	assert.Equal(t, preHeatWorkload.Spec.Resources[0].Replica, 3) // From workspace.Status.AvailableReplica
 }
 
 // Test_createWorkloadImpl tests creating workload implementation
