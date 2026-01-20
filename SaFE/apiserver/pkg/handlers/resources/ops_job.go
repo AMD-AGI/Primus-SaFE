@@ -285,27 +285,34 @@ func (h *Handler) generateAddonJob(c *gin.Context, body []byte) (*v1.OpsJob, err
 	if err != nil {
 		return nil, err
 	}
-	if err = h.accessController.Authorize(authority.AccessInput{
-		Context:      c.Request.Context(),
-		ResourceKind: v1.AddOnTemplateKind,
-		Verb:         v1.CreateVerb,
-		User:         requestUser,
-	}); err != nil {
-		return nil, err
-	}
 
 	req := &view.CreateAddonRequest{}
 	if err = jsonutils.Unmarshal(body, req); err != nil {
 		return nil, err
 	}
+	job := genDefaultOpsJob(&req.BaseOpsJobRequest, requestUser)
+	job.Spec.ExcludedNodes = req.ExcludedNodes
+	if err = h.generateOpsJobNodesInput(c.Request.Context(), job); err != nil {
+		return nil, err
+	}
+
+	if err = h.accessController.Authorize(authority.AccessInput{
+		Context:      c.Request.Context(),
+		ResourceKind: v1.AddOnTemplateKind,
+		Verb:         v1.CreateVerb,
+		Workspaces:   []string{v1.GetWorkspaceId(job)},
+		User:         requestUser,
+	}); err != nil {
+		return nil, err
+	}
+
 	if req.BatchCount <= 0 {
 		req.BatchCount = 1
 	}
 	if req.AvailableRatio == nil || *req.AvailableRatio <= 0 {
 		req.AvailableRatio = pointer.Float64(1.0)
 	}
-	job := genDefaultOpsJob(&req.BaseOpsJobRequest, requestUser)
-	job.Spec.ExcludedNodes = req.ExcludedNodes
+
 	if req.SecurityUpgrade {
 		v1.SetAnnotation(job, v1.OpsJobSecurityUpgradeAnnotation, "")
 	}
@@ -313,9 +320,6 @@ func (h *Handler) generateAddonJob(c *gin.Context, body []byte) (*v1.OpsJob, err
 	v1.SetAnnotation(job, v1.OpsJobAvailRatioAnnotation,
 		strconv.FormatFloat(*req.AvailableRatio, 'f', -1, 64))
 
-	if err = h.generateOpsJobNodesInput(c.Request.Context(), job); err != nil {
-		return nil, err
-	}
 	return job, nil
 }
 
@@ -669,12 +673,27 @@ func genDefaultOpsJob(req *view.BaseOpsJobRequest, requestUser *v1.User) *v1.Ops
 // are filtered out. The function ensures that ops jobs are ultimately executed on a per-node basis.
 func (h *Handler) generateOpsJobNodesInput(ctx context.Context, job *v1.OpsJob) error {
 	excludedNodesSet := sets.NewSetByKeys(job.Spec.ExcludedNodes...)
+	workspaceId := ""
+	allTheSameWorkspace := true
 	if nodeParams := job.GetParameters(v1.ParameterNode); len(nodeParams) > 0 {
 		for i, n := range nodeParams {
 			if excludedNodesSet.Has(n.Value) {
 				// if set empty, it will be ignored by webhook
 				nodeParams[i].Value = ""
+				continue
 			}
+			node, err := h.getAdminNode(ctx, n.Value)
+			if err != nil {
+				return err
+			}
+			if workspaceId == "" {
+				workspaceId = v1.GetWorkspaceId(node)
+			} else if workspaceId != v1.GetWorkspaceId(node) {
+				allTheSameWorkspace = false
+			}
+		}
+		if allTheSameWorkspace && workspaceId != "" {
+			v1.SetLabel(job, v1.WorkspaceIdLabel, workspaceId)
 		}
 	} else if nodeHostParams := job.GetParameters(v1.ParameterNodeHost); len(nodeHostParams) > 0 {
 		for _, n := range nodeHostParams {
@@ -686,7 +705,15 @@ func (h *Handler) generateOpsJobNodesInput(ctx context.Context, job *v1.OpsJob) 
 			if len(nodeList) == 0 || excludedNodesSet.Has(nodeList[0].Name) {
 				continue
 			}
+			if workspaceId == "" {
+				workspaceId = v1.GetWorkspaceId(&nodeList[0])
+			} else if workspaceId != v1.GetWorkspaceId(&nodeList[0]) {
+				allTheSameWorkspace = false
+			}
 			job.Spec.Inputs = append(job.Spec.Inputs, v1.Parameter{Name: v1.ParameterNode, Value: nodeList[0].Name})
+		}
+		if allTheSameWorkspace && workspaceId != "" {
+			v1.SetLabel(job, v1.WorkspaceIdLabel, workspaceId)
 		}
 	} else if workloadParam := job.GetParameter(v1.ParameterWorkload); workloadParam != nil {
 		nodes, workspaceId, err := h.getNodesOfWorkload(ctx, workloadParam.Value)
@@ -866,6 +893,8 @@ func (h *Handler) authGetOpsJob(c *gin.Context, workspaceId, opsType string) err
 		resourceKind = authority.DownloadKind
 	case string(v1.OpsJobDumpLogType):
 		resourceKind = authority.DumpLogKind
+	case string(v1.OpsJobAddonType):
+		resourceKind = v1.AddOnTemplateKind
 	default:
 		resourceKind = v1.OpsJobKind
 	}
