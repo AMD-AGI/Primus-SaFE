@@ -17,7 +17,12 @@ import (
 	"github.com/golang/mock/gomock"
 	"github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/resources/view"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
@@ -1271,7 +1276,8 @@ func TestDeleteApiKeyHandler(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
 
-		mockUser, fakeClient := createMockUser()
+		// Use non-admin user to test RBAC owner-based permission
+		mockUser, fakeClient := createMockDefaultUser()
 		mockDB := mock_client.NewMockInterface(ctrl)
 
 		h := Handler{
@@ -1283,7 +1289,7 @@ func TestDeleteApiKeyHandler(t *testing.T) {
 		mockDB.EXPECT().GetApiKeyById(gomock.Any(), int64(1)).Return(&dbclient.ApiKey{
 			Id:             1,
 			Name:           "other-user-key",
-			UserId:         "other-user-id", // Different user
+			UserId:         "other-user-id", // Different user - should be forbidden
 			ApiKey:         "ak-secret",
 			ExpirationTime: pq.NullTime{Time: now.Add(24 * time.Hour), Valid: true},
 			Deleted:        false,
@@ -1513,4 +1519,48 @@ func TestBuildListApiKeyOrderBy(t *testing.T) {
 		assert.Len(t, orderBy, 1)
 		assert.Contains(t, orderBy[0], "creation_time")
 	})
+}
+
+// genMockDefaultUser generates a mock user with default role (non-admin) for apikey permission testing
+func genMockDefaultUser() *v1.User {
+	return &v1.User{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "default-user",
+			Labels: map[string]string{
+				v1.UserIdLabel: "default-user",
+			},
+			Annotations: map[string]string{
+				v1.UserNameAnnotation: "default-user",
+			},
+		},
+		Spec: v1.UserSpec{
+			Type:  v1.DefaultUserType,
+			Roles: []v1.UserRole{v1.DefaultRole},
+		},
+	}
+}
+
+// genMockDefaultRole generates a mock default role with owner-based apikey permissions
+func genMockDefaultRole() *v1.Role {
+	return &v1.Role{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: string(v1.DefaultRole),
+		},
+		Rules: []v1.PolicyRule{{
+			Resources:    []string{authority.ApiKeysKind},
+			Verbs:        []v1.RoleVerb{"create", "list", "delete"},
+			GrantedUsers: []string{authority.GrantedOwner},
+		}},
+	}
+}
+
+// createMockDefaultUser creates a mock user with default role (non-admin) for testing apikey RBAC
+func createMockDefaultUser() (*v1.User, client.WithWatch) {
+	mockUser := genMockDefaultUser()
+	mockRole := genMockDefaultRole()
+	scheme := runtime.NewScheme()
+	_ = v1.AddToScheme(scheme)
+
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(mockUser, mockRole).Build()
+	return mockUser, fakeClient
 }

@@ -381,3 +381,182 @@ func TestRetryNodes_EmptyNodeIds(t *testing.T) {
 	assert.Equal(t, rsp.Code, http.StatusBadRequest)
 	assert.Assert(t, strings.Contains(rsp.Body.String(), "nodeIds cannot be empty"))
 }
+
+func genMockAdminNodeWithIP(name, clusterId, workspaceId, privateIP string) *v1.Node {
+	result := &v1.Node{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       v1.NodeKind,
+			APIVersion: v1.SchemeGroupVersion.String(),
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name: name,
+			Labels: map[string]string{
+				v1.DisplayNameLabel: name,
+			},
+		},
+		Spec: v1.NodeSpec{
+			PrivateIP: privateIP,
+		},
+	}
+	if clusterId != "" {
+		result.Spec.Cluster = pointer.String(clusterId)
+		metav1.SetMetaDataLabel(&result.ObjectMeta, v1.ClusterIdLabel, clusterId)
+	}
+	if workspaceId != "" {
+		result.Spec.Workspace = pointer.String(workspaceId)
+		metav1.SetMetaDataLabel(&result.ObjectMeta, v1.WorkspaceIdLabel, workspaceId)
+	}
+	return result
+}
+
+func TestListNodes_SearchByName(t *testing.T) {
+	clusterId := "test-cluster"
+	user := genMockUser()
+	role := genMockRole()
+
+	// Create nodes with different names
+	node1 := genMockAdminNodeWithIP("gpu-node-001", clusterId, "", "192.168.1.100")
+	node2 := genMockAdminNodeWithIP("gpu-node-002", clusterId, "", "192.168.1.101")
+	node3 := genMockAdminNodeWithIP("cpu-server-001", clusterId, "", "10.0.0.50")
+
+	fakeClient := fake.NewClientBuilder().
+		WithObjects(node1, node2, node3, user, role).
+		WithScheme(getTestScheme()).Build()
+
+	h := Handler{Client: fakeClient, accessController: authority.NewAccessController(fakeClient)}
+
+	// Test search by name (partial match)
+	rsp := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rsp)
+	c.Set(common.UserId, user.Name)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/nodes?search=gpu-node", nil)
+
+	h.ListNode(c)
+
+	assert.Equal(t, rsp.Code, http.StatusOK)
+	result := &view.ListNodeResponse{}
+	err := json.Unmarshal(rsp.Body.Bytes(), &result)
+	assert.NilError(t, err)
+	assert.Equal(t, result.TotalCount, 2) // Should match gpu-node-001 and gpu-node-002
+}
+
+func TestListNodes_SearchByIP(t *testing.T) {
+	clusterId := "test-cluster"
+	user := genMockUser()
+	role := genMockRole()
+
+	// Create nodes with different IPs
+	node1 := genMockAdminNodeWithIP("node-1", clusterId, "", "192.168.1.100")
+	node2 := genMockAdminNodeWithIP("node-2", clusterId, "", "192.168.1.101")
+	node3 := genMockAdminNodeWithIP("node-3", clusterId, "", "10.0.0.50")
+
+	fakeClient := fake.NewClientBuilder().
+		WithObjects(node1, node2, node3, user, role).
+		WithScheme(getTestScheme()).Build()
+
+	h := Handler{Client: fakeClient, accessController: authority.NewAccessController(fakeClient)}
+
+	// Test search by IP (partial match)
+	rsp := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rsp)
+	c.Set(common.UserId, user.Name)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/nodes?search=192.168", nil)
+
+	h.ListNode(c)
+
+	assert.Equal(t, rsp.Code, http.StatusOK)
+	result := &view.ListNodeResponse{}
+	err := json.Unmarshal(rsp.Body.Bytes(), &result)
+	assert.NilError(t, err)
+	assert.Equal(t, result.TotalCount, 2) // Should match 192.168.1.100 and 192.168.1.101
+}
+
+func TestListNodes_SearchCaseInsensitive(t *testing.T) {
+	clusterId := "test-cluster"
+	user := genMockUser()
+	role := genMockRole()
+
+	node1 := genMockAdminNodeWithIP("GPU-Node-Upper", clusterId, "", "192.168.1.100")
+	node2 := genMockAdminNodeWithIP("gpu-node-lower", clusterId, "", "192.168.1.101")
+
+	fakeClient := fake.NewClientBuilder().
+		WithObjects(node1, node2, user, role).
+		WithScheme(getTestScheme()).Build()
+
+	h := Handler{Client: fakeClient, accessController: authority.NewAccessController(fakeClient)}
+
+	// Test case-insensitive search
+	rsp := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rsp)
+	c.Set(common.UserId, user.Name)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/nodes?search=GPU-NODE", nil)
+
+	h.ListNode(c)
+
+	assert.Equal(t, rsp.Code, http.StatusOK)
+	result := &view.ListNodeResponse{}
+	err := json.Unmarshal(rsp.Body.Bytes(), &result)
+	assert.NilError(t, err)
+	assert.Equal(t, result.TotalCount, 2) // Should match both (case-insensitive)
+}
+
+func TestListNodes_SearchNoMatch(t *testing.T) {
+	clusterId := "test-cluster"
+	user := genMockUser()
+	role := genMockRole()
+
+	node1 := genMockAdminNodeWithIP("node-1", clusterId, "", "192.168.1.100")
+
+	fakeClient := fake.NewClientBuilder().
+		WithObjects(node1, user, role).
+		WithScheme(getTestScheme()).Build()
+
+	h := Handler{Client: fakeClient, accessController: authority.NewAccessController(fakeClient)}
+
+	// Test search with no matches
+	rsp := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rsp)
+	c.Set(common.UserId, user.Name)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/nodes?search=nonexistent", nil)
+
+	h.ListNode(c)
+
+	assert.Equal(t, rsp.Code, http.StatusOK)
+	result := &view.ListNodeResponse{}
+	err := json.Unmarshal(rsp.Body.Bytes(), &result)
+	assert.NilError(t, err)
+	assert.Equal(t, result.TotalCount, 0)
+}
+
+func TestListNodes_SearchCombinedWithOtherFilters(t *testing.T) {
+	cluster1 := "cluster-1"
+	cluster2 := "cluster-2"
+	user := genMockUser()
+	role := genMockRole()
+
+	// Nodes in cluster-1
+	node1 := genMockAdminNodeWithIP("gpu-node-001", cluster1, "", "192.168.1.100")
+	node2 := genMockAdminNodeWithIP("gpu-node-002", cluster1, "", "192.168.1.101")
+	// Node in cluster-2
+	node3 := genMockAdminNodeWithIP("gpu-node-003", cluster2, "", "192.168.1.102")
+
+	fakeClient := fake.NewClientBuilder().
+		WithObjects(node1, node2, node3, user, role).
+		WithScheme(getTestScheme()).Build()
+
+	h := Handler{Client: fakeClient, accessController: authority.NewAccessController(fakeClient)}
+
+	// Test search combined with clusterId filter
+	rsp := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rsp)
+	c.Set(common.UserId, user.Name)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/nodes?search=gpu-node&clusterId=cluster-1", nil)
+
+	h.ListNode(c)
+
+	assert.Equal(t, rsp.Code, http.StatusOK)
+	result := &view.ListNodeResponse{}
+	err := json.Unmarshal(rsp.Body.Bytes(), &result)
+	assert.NilError(t, err)
+	assert.Equal(t, result.TotalCount, 2) // Only gpu-node-001 and gpu-node-002 in cluster-1
+}

@@ -76,12 +76,29 @@ Get node list with multiple filtering options.
 | workspaceId | string | No | Filter by workspace ID                                                                   |
 | flavorId | string | No | Filter by node flavor ID                                                                 |
 | nodeId | string | No | Filter by node ID                                                                        |
+| search | string | No | Search by node name or IP address (case-insensitive partial match)                       |
 | available | bool | No | Filter by availability: true (available)/false (unavailable)                             |
 | phase | string | No | Filter by status (comma-separated)                                                       |
 | isAddonsInstalled | bool | No | Filter by addon installation status                                                      |
 | brief | bool | No | Brief mode, returns only ID, name, IP,  availability, and unavailability reason (if any) |
 | offset | int | No | Pagination offset, default 0                                                             |
 | limit | int | No | Records per page, default 100, -1 for all                                                |
+
+**Request Examples**:
+
+```bash
+# Search by node name (case-insensitive)
+GET /api/v1/nodes?search=smc300x
+
+# Search by IP address
+GET /api/v1/nodes?search=35.192
+
+# Combined filtering: search + status + availability
+GET /api/v1/nodes?search=gpu-node&phase=Ready&available=true
+
+# Combined filtering: search + cluster + workspace
+GET /api/v1/nodes?search=test&clusterId=safe-cluster&workspaceId=ai-team
+```
 
 **Response Example (Full mode)**:
 

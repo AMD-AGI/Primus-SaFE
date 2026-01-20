@@ -18,6 +18,7 @@ const (
 	PublicKeyKind          = "PublicKey"
 	ImageImportKind        = "ImageImport"
 	ImageRegisterKind      = "ImageRegister"
+	ApiKeysKind            = "apikeys"
 	WorkloadPrivilegedKind = "workload/privileged"
 	AllResource            = "*"
 
