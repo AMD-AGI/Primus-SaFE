@@ -74,7 +74,10 @@ func getRoutesForAlert(ctx context.Context, alert *UnifiedAlert) []RouteConfig {
 	}
 	
 	// Load all metric alert rules for the cluster
-	rules, err := facade.ListMetricAlertRules(ctx, clusterName, nil, nil, nil)
+	filter := &database.MetricAlertRuleFilter{
+		ClusterName: &clusterName,
+	}
+	rules, _, err := facade.ListMetricAlertRules(ctx, filter)
 	if err != nil {
 		log.GlobalLogger().WithContext(ctx).Errorf("Failed to load metric alert rules: %v", err)
 		return []RouteConfig{}

@@ -20,6 +20,7 @@ type AlertFacadeInterface interface {
 	GetAlertEventsByID(ctx context.Context, id string) (*model.AlertEvents, error)
 	ListAlertEventss(ctx context.Context, filter *AlertEventsFilter) ([]*model.AlertEvents, int64, error)
 	UpdateAlertStatus(ctx context.Context, id string, status string, endsAt *time.Time) error
+	UpdateAlertNotificationStatus(ctx context.Context, id string, notificationStatus string) error
 	DeleteOldAlertEventss(ctx context.Context, before time.Time) error
 
 	// AlertCorrelations operations
