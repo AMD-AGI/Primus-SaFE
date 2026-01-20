@@ -46,6 +46,37 @@ func ReceiveMetricAlert(ctx *gin.Context) {
 	}))
 }
 
+// ReceiveAlertManagerAlert handles alerts in AlertManager format (array of alerts)
+// VMAlert sends alerts in this format when using the AlertManager-compatible endpoint
+func ReceiveAlertManagerAlert(ctx *gin.Context) {
+	var alertItems []VMAlertItem
+	if err := ctx.ShouldBindJSON(&alertItems); err != nil {
+		log.GlobalLogger().WithContext(ctx).Errorf("Failed to parse AlertManager format alerts: %v", err)
+		ctx.JSON(http.StatusBadRequest, rest.ErrorResp(ctx.Request.Context(), http.StatusBadRequest, err.Error(), nil))
+		return
+	}
+	
+	log.GlobalLogger().WithContext(ctx).Infof("Received %d alerts in AlertManager format", len(alertItems))
+	
+	// Convert to unified format
+	alerts := convertAlertManagerItemsToUnified(alertItems)
+	
+	// Process each alert
+	successCount := 0
+	for _, alert := range alerts {
+		if err := processAlert(ctx.Request.Context(), alert); err != nil {
+			log.GlobalLogger().WithContext(ctx).Errorf("Failed to process alert %s: %v", alert.ID, err)
+		} else {
+			successCount++
+		}
+	}
+	
+	ctx.JSON(http.StatusOK, rest.SuccessResp(ctx.Request.Context(), gin.H{
+		"received": len(alertItems),
+		"processed": successCount,
+	}))
+}
+
 // ReceiveLogAlert handles log-based alerts
 func ReceiveLogAlert(ctx *gin.Context) {
 	var req LogAlertRequest
@@ -166,6 +197,57 @@ func convertVMAlertToUnified(webhook *VMAlertWebhook) []*UnifiedAlert {
 				alert.Annotations[k] = v
 			}
 		}
+		
+		// Store raw data
+		rawData, _ := json.Marshal(item)
+		alert.RawData = rawData
+		
+		alerts = append(alerts, alert)
+	}
+	
+	return alerts
+}
+
+// convertAlertManagerItemsToUnified converts AlertManager format alerts to unified format
+func convertAlertManagerItemsToUnified(items []VMAlertItem) []*UnifiedAlert {
+	alerts := make([]*UnifiedAlert, 0, len(items))
+	
+	for _, item := range items {
+		// Ensure labels map is initialized
+		labels := item.Labels
+		if labels == nil {
+			labels = make(map[string]string)
+		}
+		
+		// Ensure annotations map is initialized
+		annotations := item.Annotations
+		if annotations == nil {
+			annotations = make(map[string]string)
+		}
+		
+		alert := &UnifiedAlert{
+			ID:          item.Fingerprint,
+			Source:      SourceMetric,
+			AlertName:   labels["alertname"],
+			Severity:    labels["severity"],
+			Status:      item.Status,
+			Labels:      labels,
+			Annotations: annotations,
+			StartsAt:    parseTime(item.StartsAt),
+		}
+		
+		// Handle resolved alerts
+		if item.EndsAt != "" && item.EndsAt != "0001-01-01T00:00:00Z" {
+			endsAt := parseTime(item.EndsAt)
+			alert.EndsAt = &endsAt
+		}
+		
+		// Extract context information from labels
+		alert.WorkloadID = labels["workload_id"]
+		alert.PodName = labels["pod"]
+		alert.PodID = labels["pod_id"]
+		alert.NodeName = labels["node"]
+		alert.ClusterName = labels["cluster"]
 		
 		// Store raw data
 		rawData, _ := json.Marshal(item)
