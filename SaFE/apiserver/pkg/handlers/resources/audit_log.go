@@ -199,11 +199,21 @@ func convertToAuditLogItem(record *dbclient.AuditLog) view.AuditLogItem {
 		ResponseStatus: record.ResponseStatus,
 	}
 
-	if record.UserName.Valid {
+	if record.UserName.Valid && record.UserName.String != "" {
 		item.UserName = record.UserName.String
+	} else if item.UserId != "" {
+		// Fallback for historical data: use userId if userName is empty
+		item.UserName = item.UserId
+	} else {
+		item.UserName = "unknown"
 	}
-	if record.UserType.Valid {
+	if record.UserType.Valid && record.UserType.String != "" {
 		item.UserType = record.UserType.String
+	} else if item.UserId != "" {
+		// Fallback for historical data: use "default" if userType is empty
+		item.UserType = "default"
+	} else {
+		item.UserType = "unknown"
 	}
 	if record.ClientIP.Valid {
 		item.ClientIP = record.ClientIP.String

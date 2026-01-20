@@ -19,7 +19,10 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/lib/pq"
 	"k8s.io/klog/v2"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
@@ -235,9 +238,35 @@ func Audit(resourceType string, action ...string) gin.HandlerFunc {
 		userNameStr := toStringValue(userName)
 		userTypeStr := toStringValue(userType)
 
-		// Fallback: if userName is empty but userId exists, use userId as userName
-		if userNameStr == "" && userIdStr != "" {
-			userNameStr = userIdStr
+		// Query K8s for user info if userName or userType is empty (internal calls)
+		if userIdStr != "" && (userNameStr == "" || userTypeStr == "") {
+			if user := getUserFromK8s(c.Request.Context(), userIdStr); user != nil {
+				if userNameStr == "" {
+					if name := v1.GetUserName(user); name != "" {
+						userNameStr = name
+					}
+				}
+				if userTypeStr == "" {
+					if user.Spec.Type != "" {
+						userTypeStr = string(user.Spec.Type)
+					}
+				}
+			}
+		}
+
+		// Final fallback
+		if userIdStr == "" {
+			userIdStr = "unknown"
+			userNameStr = "unknown"
+			userTypeStr = "unknown"
+		} else {
+			// userId exists but userName/userType might still be empty (K8s query failed)
+			if userNameStr == "" {
+				userNameStr = userIdStr
+			}
+			if userTypeStr == "" {
+				userTypeStr = "default"
+			}
 		}
 
 		traceId := c.Writer.Header().Get("X-Trace-Id")
@@ -357,4 +386,19 @@ func toStringValue(v interface{}) string {
 		return ""
 	}
 	return s
+}
+
+// getUserFromK8s queries K8s to get user information by userId
+func getUserFromK8s(ctx context.Context, userId string) *v1.User {
+	internalAuth := authority.InternalAuthInstance()
+	if internalAuth == nil {
+		return nil
+	}
+
+	user := &v1.User{}
+	if err := internalAuth.Get(ctx, client.ObjectKey{Name: userId}, user); err != nil {
+		klog.V(4).InfoS("failed to get user from K8s for audit", "userId", userId, "error", err)
+		return nil
+	}
+	return user
 }
