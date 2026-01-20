@@ -45,8 +45,18 @@ func ParseToken(c *gin.Context) error {
 		return nil
 	}
 
-	// Fall back to regular token authentication (includes internal test mode fallback)
-	return parseTokenFromRequest(c)
+	err := parseTokenFromRequest(c)
+	if err != nil {
+		userId := c.GetHeader(common.UserId)
+		// only for internal user
+		if userId != "" && !commonconfig.IsUserTokenRequired() {
+			c.Set(common.UserId, userId)
+			return nil
+		}
+		return commonerrors.NewUnauthorized(err.Error())
+	}
+
+	return nil
 }
 
 // parseApiKeyFromRequest validates the API key and sets user info in context
@@ -75,18 +85,11 @@ func parseApiKeyFromRequest(c *gin.Context, apiKey string) error {
 
 // parseTokenFromRequest extracts and validates the user token from the request cookie or header.
 // It decrypts the token, checks expiration, and sets the user ID in the context.
-// For internal testing (when token is not required), it falls back to userId from header.
 // Returns an error if the token is missing, invalid, or expired.
 func parseTokenFromRequest(c *gin.Context) error {
 	rawToken, userType, err := extractTokenAndUserType(c)
 	if err != nil {
-		// Fallback: internal test mode - use userId from header directly
-		userId := c.GetHeader(common.UserId)
-		if userId != "" && !commonconfig.IsUserTokenRequired() {
-			c.Set(common.UserId, userId)
-			return nil
-		}
-		return commonerrors.NewUnauthorized(err.Error())
+		return err
 	}
 
 	var tokenInstance TokenInterface
