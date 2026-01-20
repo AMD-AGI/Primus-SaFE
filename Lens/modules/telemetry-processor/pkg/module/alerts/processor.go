@@ -98,6 +98,16 @@ func updateExistingAlert(ctx context.Context, existing *model.AlertEvents, newAl
 		log.GlobalLogger().WithContext(ctx).Infof("Alert %s resolved", newAlert.ID)
 	}
 
+	// For firing alerts, trigger notification if enough time has passed (repeat interval: 1 hour)
+	if existing.Status == StatusFiring && newAlert.Status != StatusResolved {
+		repeatInterval := time.Hour
+		if time.Since(existing.UpdatedAt) >= repeatInterval {
+			log.GlobalLogger().WithContext(ctx).Infof("Repeating notification for firing alert: %s", newAlert.ID)
+			// Route and notify
+			go routeAndNotify(context.Background(), newAlert)
+		}
+	}
+
 	return nil
 }
 
