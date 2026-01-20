@@ -112,7 +112,7 @@ data:
                         fieldPath: metadata.labels
               terminationGracePeriodSeconds: 5
         workerGroupSpecs:
-        - groupName: workergroup1
+        - groupName: "1"
           template:
             spec:
               dnsPolicy: ClusterFirstWithHostNet
@@ -188,7 +188,7 @@ data:
                       fieldRef:
                         fieldPath: metadata.labels
               terminationGracePeriodSeconds: 5
-        - groupName: workergroup2
+        - groupName: "2"
           template:
             spec:
               dnsPolicy: ClusterFirstWithHostNet
