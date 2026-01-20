@@ -353,7 +353,8 @@ func storeAlert(ctx context.Context, alert *UnifiedAlert) error {
 
 	rawDataExt := model.ExtType{}
 	if len(alert.RawData) > 0 {
-		if err := rawDataExt.Scan(alert.RawData); err != nil {
+		// Explicitly convert json.RawMessage to []byte for type assertion in Scan
+		if err := rawDataExt.Scan([]byte(alert.RawData)); err != nil {
 			return err
 		}
 	}
