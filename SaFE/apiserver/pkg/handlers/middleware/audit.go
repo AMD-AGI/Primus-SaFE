@@ -239,33 +239,14 @@ func Audit(resourceType string, action ...string) gin.HandlerFunc {
 		userTypeStr := toStringValue(userType)
 
 		// Query K8s for user info if userName or userType is empty (internal calls)
-		if userIdStr != "" && (userNameStr == "" || userTypeStr == "") {
+		if userNameStr == "" || userTypeStr == "" {
 			if user := getUserFromK8s(c.Request.Context(), userIdStr); user != nil {
 				if userNameStr == "" {
-					if name := v1.GetUserName(user); name != "" {
-						userNameStr = name
-					}
+					userNameStr = v1.GetUserName(user)
 				}
 				if userTypeStr == "" {
-					if user.Spec.Type != "" {
-						userTypeStr = string(user.Spec.Type)
-					}
+					userTypeStr = string(user.Spec.Type)
 				}
-			}
-		}
-
-		// Final fallback
-		if userIdStr == "" {
-			userIdStr = "unknown"
-			userNameStr = "unknown"
-			userTypeStr = "unknown"
-		} else {
-			// userId exists but userName/userType might still be empty (K8s query failed)
-			if userNameStr == "" {
-				userNameStr = userIdStr
-			}
-			if userTypeStr == "" {
-				userTypeStr = "default"
 			}
 		}
 
@@ -397,7 +378,7 @@ func getUserFromK8s(ctx context.Context, userId string) *v1.User {
 
 	user := &v1.User{}
 	if err := internalAuth.Get(ctx, client.ObjectKey{Name: userId}, user); err != nil {
-		klog.V(4).InfoS("failed to get user from K8s for audit", "userId", userId, "error", err)
+		klog.ErrorS(err, "failed to get user from K8s for audit", "userId", userId)
 		return nil
 	}
 	return user
