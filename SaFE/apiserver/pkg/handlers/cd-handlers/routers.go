@@ -11,21 +11,22 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// InitCDRouters initializes routes for CD (Continuous Deployment) management.
-// Write operations are audited with resourceType "deployment".
+// InitCDRouters initializes routes for both Safe and Lens CD
+// Use query param ?type=safe or ?type=lens to filter (default: safe)
 func InitCDRouters(e *gin.Engine, h *Handler) {
 	group := e.Group(common.PrimusRouterCustomRootPath+"/cd", middleware.Authorize(), middleware.Preprocess())
 	{
-		// Deployment management with audit
-		group.POST("/deployments", middleware.Audit("deployment"), h.CreateDeploymentRequest)
-		group.POST("/deployments/:id/approve", middleware.Audit("deployment", "approve"), h.ApproveDeploymentRequest)
-		group.POST("/deployments/:id/rollback", middleware.Audit("deployment", "rollback"), h.RollbackDeployment)
-
-		// Read-only routes (no audit)
-		group.GET("/deployments", h.ListDeploymentRequests)
+		// Unified endpoints - use type field in body or query param to distinguish
+		group.POST("/deployments", h.CreateDeploymentRequest)       // body.type = "safe" or "lens"
+		group.GET("/deployments", h.ListDeploymentRequests)         // ?type=safe or ?type=lens
 		group.GET("/deployments/:id", h.GetDeploymentRequest)
-		// Get current environment configuration
+		group.POST("/deployments/:id/approve", h.ApproveDeploymentRequest)
+		group.POST("/deployments/:id/rollback", h.RollbackDeployment)
+
+		// Get latest deployment configuration
+		// Query params: ?type=safe or ?type=lens (default: safe)
 		group.GET("/env-config", h.GetCurrentEnvConfig)
+
 		// Get deployable components list
 		group.GET("/components", h.GetDeployableComponents)
 	}

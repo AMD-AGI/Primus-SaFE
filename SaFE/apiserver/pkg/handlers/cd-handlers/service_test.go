@@ -200,8 +200,8 @@ func TestCreateSnapshot(t *testing.T) {
 		}
 		configJSON, _ := json.Marshal(newConfig)
 
-		// No previous snapshot
-		mockDB.EXPECT().ListEnvironmentSnapshots(ctx, nil, []string{"created_at DESC"}, 1, 0).
+		// No previous snapshot (use gomock.Any() for query since we now pass sqrl conditions)
+		mockDB.EXPECT().ListEnvironmentSnapshots(ctx, gomock.Any(), []string{"created_at DESC"}, 1, 0).
 			Return([]*dbclient.EnvironmentSnapshot{}, nil)
 
 		mockDB.EXPECT().CreateEnvironmentSnapshot(ctx, gomock.Any()).DoAndReturn(
@@ -217,7 +217,7 @@ func TestCreateSnapshot(t *testing.T) {
 				return 1, nil
 			})
 
-		err := svc.CreateSnapshot(ctx, 1, string(configJSON))
+		err := svc.CreateSnapshot(ctx, 1, string(configJSON), DeployTypeSafe)
 		assert.NoError(t, err)
 	})
 
@@ -243,7 +243,7 @@ func TestCreateSnapshot(t *testing.T) {
 		}
 		newConfigJSON, _ := json.Marshal(newConfig)
 
-		mockDB.EXPECT().ListEnvironmentSnapshots(ctx, nil, []string{"created_at DESC"}, 1, 0).
+		mockDB.EXPECT().ListEnvironmentSnapshots(ctx, gomock.Any(), []string{"created_at DESC"}, 1, 0).
 			Return([]*dbclient.EnvironmentSnapshot{
 				{Id: 1, EnvConfig: string(previousConfigJSON)},
 			}, nil)
@@ -263,7 +263,7 @@ func TestCreateSnapshot(t *testing.T) {
 				return 2, nil
 			})
 
-		err := svc.CreateSnapshot(ctx, 2, string(newConfigJSON))
+		err := svc.CreateSnapshot(ctx, 2, string(newConfigJSON), DeployTypeSafe)
 		assert.NoError(t, err)
 	})
 }
@@ -289,7 +289,7 @@ func TestMergeWithLatestSnapshot(t *testing.T) {
 		}
 		snapshotJSON, _ := json.Marshal(snapshotConfig)
 
-		mockDB.EXPECT().ListEnvironmentSnapshots(ctx, nil, []string{"created_at DESC"}, 1, 0).
+		mockDB.EXPECT().ListEnvironmentSnapshots(ctx, gomock.Any(), []string{"created_at DESC"}, 1, 0).
 			Return([]*dbclient.EnvironmentSnapshot{
 				{Id: 1, EnvConfig: string(snapshotJSON)},
 			}, nil)
@@ -318,7 +318,7 @@ func TestMergeWithLatestSnapshot(t *testing.T) {
 		fakeK8s := fake.NewSimpleClientset()
 		svc := NewService(mockDB, fakeK8s)
 
-		mockDB.EXPECT().ListEnvironmentSnapshots(ctx, nil, []string{"created_at DESC"}, 1, 0).
+		mockDB.EXPECT().ListEnvironmentSnapshots(ctx, gomock.Any(), []string{"created_at DESC"}, 1, 0).
 			Return([]*dbclient.EnvironmentSnapshot{}, nil)
 
 		currentConfig := DeploymentConfig{

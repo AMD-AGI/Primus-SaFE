@@ -12,6 +12,8 @@ import (
 	"fmt"
 	"strings"
 
+	sqrl "github.com/Masterminds/squirrel"
+	"github.com/pmezard/go-difflib/difflib"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
 
@@ -93,8 +95,15 @@ func (s *Service) Rollback(ctx context.Context, reqId int64, username string) (i
 	}
 
 	// 3. Create a new request that applies the old config
+	// Preserve deploy_type from target request
+	deployType := targetReq.DeployType
+	if deployType == "" {
+		deployType = DeployTypeSafe // Default for backward compatibility
+	}
+
 	newReq := &dbclient.DeploymentRequest{
 		DeployName:     username,
+		DeployType:     deployType,
 		Status:         StatusPendingApproval,
 		EnvConfig:      envConfig,
 		Description:    dbutils.NullString(fmt.Sprintf("Rollback to version from request %d", reqId)),
@@ -106,9 +115,15 @@ func (s *Service) Rollback(ctx context.Context, reqId int64, username string) (i
 
 // mergeWithLatestSnapshot merges current request config with the latest snapshot
 // This ensures all historical image versions are preserved, and only the specified ones are updated
+// Note: This function is only used for Safe deployments
 func (s *Service) mergeWithLatestSnapshot(ctx context.Context, currentConfig DeploymentConfig) (DeploymentConfig, error) {
-	// Get the latest snapshot
-	snapshots, err := s.dbClient.ListEnvironmentSnapshots(ctx, nil, []string{"created_at DESC"}, 1, 0)
+	// Get the latest Safe snapshot (include empty deploy_type for backward compatibility)
+	query := sqrl.Or{
+		sqrl.Eq{"deploy_type": DeployTypeSafe},
+		sqrl.Eq{"deploy_type": ""},
+		sqrl.Expr("deploy_type IS NULL"),
+	}
+	snapshots, err := s.dbClient.ListEnvironmentSnapshots(ctx, query, []string{"created_at DESC"}, 1, 0)
 	if err != nil {
 		return currentConfig, fmt.Errorf("failed to get latest snapshot: %v", err)
 	}
@@ -151,75 +166,165 @@ func (s *Service) mergeWithLatestSnapshot(ctx context.Context, currentConfig Dep
 	}, nil
 }
 
-// GetCurrentEnvConfig reads the current .env file content from the latest snapshot
-func (s *Service) GetCurrentEnvConfig(ctx context.Context) (content string, err error) {
-	// Get from the latest successful deployment snapshot
-	snapshots, err := s.dbClient.ListEnvironmentSnapshots(ctx, nil, []string{"created_at DESC"}, 1, 0)
+// GetLatestConfig returns the latest snapshot configuration for the specified deploy type
+func (s *Service) GetLatestConfig(ctx context.Context, deployType string) (*GetLatestConfigResp, error) {
+	var query sqrl.Sqlizer
+	if deployType == DeployTypeLens {
+		query = sqrl.Eq{"deploy_type": DeployTypeLens}
+	} else {
+		// Safe: include empty deploy_type for backward compatibility
+		query = sqrl.Or{
+			sqrl.Eq{"deploy_type": DeployTypeSafe},
+			sqrl.Eq{"deploy_type": ""},
+			sqrl.Expr("deploy_type IS NULL"),
+		}
+		deployType = DeployTypeSafe // Normalize
+	}
+
+	snapshots, err := s.dbClient.ListEnvironmentSnapshots(ctx, query, []string{"created_at DESC"}, 1, 0)
 	if err != nil {
-		return "", fmt.Errorf("failed to read last .env record and no snapshot available: db_error=%v", err)
+		return nil, fmt.Errorf("failed to get latest snapshot: %v", err)
 	}
 
 	if len(snapshots) == 0 {
-		return "", fmt.Errorf("failed to read last .env record and no snapshot available: %v", err)
+		return nil, fmt.Errorf("no snapshot found for deploy_type=%s", deployType)
 	}
 
-	// Parse the snapshot config
+	snapshot := snapshots[0]
 	var config DeploymentConfig
-	if err := json.Unmarshal([]byte(snapshots[0].EnvConfig), &config); err != nil {
-		return "", fmt.Errorf("failed to parse snapshot config: %v", err)
+	if err := json.Unmarshal([]byte(snapshot.EnvConfig), &config); err != nil {
+		return nil, fmt.Errorf("failed to parse snapshot config: %v", err)
 	}
 
-	if config.EnvFileConfig == "" {
-		return "", fmt.Errorf("snapshot does not contain env_file_config")
+	resp := &GetLatestConfigResp{
+		Type:       deployType,
+		SnapshotId: snapshot.Id,
 	}
 
-	return config.EnvFileConfig, nil
+	if snapshot.CreatedAt.Valid {
+		resp.CreatedAt = snapshot.CreatedAt.Time.Format("2006-01-02T15:04:05Z")
+	}
+
+	if deployType == DeployTypeLens {
+		resp.Branch = config.Branch
+		resp.ControlPlaneConfig = config.ControlPlaneConfig
+		resp.DataPlaneConfig = config.DataPlaneConfig
+	} else {
+		resp.ImageVersions = config.ImageVersions
+		resp.EnvFileConfig = config.EnvFileConfig
+	}
+
+	return resp, nil
+}
+
+// ComputeUnifiedDiff computes a unified diff between old and new content
+func ComputeUnifiedDiff(oldContent, newContent, oldLabel, newLabel string) string {
+	if oldContent == newContent {
+		return "" // No changes
+	}
+
+	diff := difflib.UnifiedDiff{
+		A:        difflib.SplitLines(oldContent),
+		B:        difflib.SplitLines(newContent),
+		FromFile: oldLabel,
+		ToFile:   newLabel,
+		Context:  3,
+	}
+
+	result, err := difflib.GetUnifiedDiffString(diff)
+	if err != nil {
+		klog.Warningf("Failed to compute diff: %v", err)
+		return ""
+	}
+	return result
+}
+
+// GetLensConfigDiff computes diff between request config and base snapshot
+// If baseSnapshotId is valid, use that specific snapshot; otherwise use latest snapshot
+func (s *Service) GetLensConfigDiff(ctx context.Context, reqConfig DeploymentConfig, baseSnapshotId int64) (cpDiff, dpDiff string, err error) {
+	var oldConfig DeploymentConfig
+
+	if baseSnapshotId > 0 {
+		// Use the specific base snapshot recorded at request creation time
+		snapshot, err := s.dbClient.GetEnvironmentSnapshot(ctx, baseSnapshotId)
+		if err == nil && snapshot != nil {
+			if err := json.Unmarshal([]byte(snapshot.EnvConfig), &oldConfig); err != nil {
+				klog.Warningf("Failed to parse base snapshot config: %v", err)
+			}
+		}
+	} else {
+		// Fallback: get the latest Lens snapshot (for backward compatibility)
+		query := sqrl.Eq{"deploy_type": DeployTypeLens}
+		snapshots, err := s.dbClient.ListEnvironmentSnapshots(ctx, query, []string{"created_at DESC"}, 1, 0)
+		if err == nil && len(snapshots) > 0 {
+			if err := json.Unmarshal([]byte(snapshots[0].EnvConfig), &oldConfig); err != nil {
+				klog.Warningf("Failed to parse latest snapshot config: %v", err)
+			}
+		}
+	}
+
+	// Compute diffs
+	cpDiff = ComputeUnifiedDiff(oldConfig.ControlPlaneConfig, reqConfig.ControlPlaneConfig, "before", "after")
+	dpDiff = ComputeUnifiedDiff(oldConfig.DataPlaneConfig, reqConfig.DataPlaneConfig, "before", "after")
+
+	return cpDiff, dpDiff, nil
 }
 
 // CreateSnapshot creates a backup of the current FULL state
 // It merges the new request config with the previous snapshot to ensure complete state record
-func (s *Service) CreateSnapshot(ctx context.Context, reqId int64, newConfigStr string) error {
+func (s *Service) CreateSnapshot(ctx context.Context, reqId int64, newConfigStr string, deployType string) error {
 	// 1. Parse new config (partial or full)
 	var newConfig DeploymentConfig
 	if err := json.Unmarshal([]byte(newConfigStr), &newConfig); err != nil {
 		return fmt.Errorf("failed to parse new config: %v", err)
 	}
 
-	// 2. Get latest snapshot to find previous state
 	var finalConfig DeploymentConfig
 
-	snapshots, err := s.dbClient.ListEnvironmentSnapshots(ctx, nil, []string{"created_at DESC"}, 1, 0)
-	if err == nil && len(snapshots) > 0 {
-		// Parse previous config
-		if err := json.Unmarshal([]byte(snapshots[0].EnvConfig), &finalConfig); err != nil {
-			klog.Warningf("Failed to parse previous snapshot config: %v", err)
-			// If failed to parse previous, we start fresh
+	if deployType == DeployTypeLens {
+		// Lens: store full YAML content directly, no merging needed
+		finalConfig = newConfig
+	} else {
+		// Safe: merge with previous snapshot
+		// 2. Get latest Safe snapshot to find previous state (include empty deploy_type for backward compatibility)
+		query := sqrl.Or{
+			sqrl.Eq{"deploy_type": DeployTypeSafe},
+			sqrl.Eq{"deploy_type": ""},
+			sqrl.Expr("deploy_type IS NULL"),
+		}
+		snapshots, err := s.dbClient.ListEnvironmentSnapshots(ctx, query, []string{"created_at DESC"}, 1, 0)
+		if err == nil && len(snapshots) > 0 {
+			// Parse previous config
+			if err := json.Unmarshal([]byte(snapshots[0].EnvConfig), &finalConfig); err != nil {
+				klog.Warningf("Failed to parse previous snapshot config: %v", err)
+				// If failed to parse previous, we start fresh
+				finalConfig = DeploymentConfig{
+					ImageVersions: make(map[string]string),
+				}
+			}
+		} else {
+			// No previous snapshot, initialize empty
 			finalConfig = DeploymentConfig{
 				ImageVersions: make(map[string]string),
 			}
 		}
-	} else {
-		// No previous snapshot, initialize empty
-		finalConfig = DeploymentConfig{
-			ImageVersions: make(map[string]string),
+
+		// 3. Merge Configs
+		// 3.1 Merge Image Versions
+		if finalConfig.ImageVersions == nil {
+			finalConfig.ImageVersions = make(map[string]string)
 		}
-	}
+		for component, version := range newConfig.ImageVersions {
+			finalConfig.ImageVersions[component] = version
+		}
 
-	// 3. Merge Configs
-	// 3.1 Merge Image Versions
-	if finalConfig.ImageVersions == nil {
-		finalConfig.ImageVersions = make(map[string]string)
+		// 3.2 Merge Env File Config
+		// Only update if new config provides a non-empty env file content
+		if newConfig.EnvFileConfig != "" {
+			finalConfig.EnvFileConfig = newConfig.EnvFileConfig
+		}
+		// If newConfig.EnvFileConfig is empty, we keep finalConfig.EnvFileConfig (from previous snapshot)
 	}
-	for component, version := range newConfig.ImageVersions {
-		finalConfig.ImageVersions[component] = version
-	}
-
-	// 3.2 Merge Env File Config
-	// Only update if new config provides a non-empty env file content
-	if newConfig.EnvFileConfig != "" {
-		finalConfig.EnvFileConfig = newConfig.EnvFileConfig
-	}
-	// If newConfig.EnvFileConfig is empty, we keep finalConfig.EnvFileConfig (from previous snapshot)
 
 	// 4. Marshal final merged config
 	finalConfigJSON, err := json.Marshal(finalConfig)
@@ -230,6 +335,7 @@ func (s *Service) CreateSnapshot(ctx context.Context, reqId int64, newConfigStr 
 	// 5. Save to DB
 	snapshot := &dbclient.EnvironmentSnapshot{
 		DeploymentRequestId: reqId,
+		DeployType:          deployType,
 		EnvConfig:           string(finalConfigJSON),
 	}
 	_, err = s.dbClient.CreateEnvironmentSnapshot(ctx, snapshot)
@@ -238,9 +344,14 @@ func (s *Service) CreateSnapshot(ctx context.Context, reqId int64, newConfigStr 
 
 // cvtDBRequestToItem converts a database DeploymentRequest to a DeploymentRequestItem
 func (s *Service) cvtDBRequestToItem(req *dbclient.DeploymentRequest) *DeploymentRequestItem {
+	deployType := req.DeployType
+	if deployType == "" {
+		deployType = DeployTypeSafe // Default for backward compatibility
+	}
 	return &DeploymentRequestItem{
 		Id:              req.Id,
 		DeployName:      req.DeployName,
+		DeployType:      deployType,
 		Status:          req.Status,
 		ApproverName:    dbutils.ParseNullString(req.ApproverName),
 		ApprovalResult:  dbutils.ParseNullString(req.ApprovalResult),
