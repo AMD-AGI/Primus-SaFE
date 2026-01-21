@@ -23,6 +23,38 @@ type Config struct {
 	Netflow           *NetFlow            `json:"netflow" yaml:"netflow"`
 	Middleware        MiddlewareConfig    `json:"middleware" yaml:"middleware"`
 	AIGateway         *AIGatewayConfig    `json:"aiGateway" yaml:"aiGateway"`
+	MCP               *MCPConfig          `json:"mcp" yaml:"mcp"`
+}
+
+// MCPConfig contains MCP (Model Context Protocol) server configuration
+type MCPConfig struct {
+	// Enabled controls whether MCP server is started
+	Enabled bool `json:"enabled" yaml:"enabled"`
+	// BasePath is the MCP server base path (default: /mcp)
+	BasePath string `json:"basePath" yaml:"basePath"`
+	// Instructions are server instructions sent to MCP clients
+	Instructions string `json:"instructions" yaml:"instructions"`
+}
+
+// IsMCPEnabled returns whether MCP server is enabled
+func (c *Config) IsMCPEnabled() bool {
+	return c.MCP != nil && c.MCP.Enabled
+}
+
+// GetMCPBasePath returns the MCP server base path, defaults to "/mcp"
+func (c *Config) GetMCPBasePath() string {
+	if c.MCP == nil || c.MCP.BasePath == "" {
+		return "/mcp"
+	}
+	return c.MCP.BasePath
+}
+
+// GetMCPInstructions returns the MCP server instructions
+func (c *Config) GetMCPInstructions() string {
+	if c.MCP == nil {
+		return ""
+	}
+	return c.MCP.Instructions
 }
 
 type ControllerConfig struct {
