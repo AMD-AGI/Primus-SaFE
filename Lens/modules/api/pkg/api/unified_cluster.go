@@ -29,11 +29,8 @@ type ClusterOverviewRequest struct {
 	Cluster string `json:"cluster" query:"cluster" mcp:"cluster,description=Target cluster name (optional - uses default if not specified)"`
 }
 
-// ClusterOverviewResponse wraps the GpuClusterOverview model.
-type ClusterOverviewResponse struct {
-	model.GpuClusterOverview
-	ClusterName string `json:"cluster_name"`
-}
+// ClusterOverviewResponse is the same as model.GpuClusterOverview for backward compatibility.
+type ClusterOverviewResponse = model.GpuClusterOverview
 
 // ===== Cluster Consumers =====
 
@@ -45,10 +42,10 @@ type ClusterConsumersRequest struct {
 }
 
 // ClusterConsumersResponse represents the cluster consumers response.
+// Matches original API: {data: [...], total: int}
 type ClusterConsumersResponse struct {
-	Data        []model.TopLevelGpuResource `json:"data"`
-	Total       int                         `json:"total"`
-	ClusterName string                      `json:"cluster_name"`
+	Data  []model.TopLevelGpuResource `json:"data"`
+	Total int                         `json:"total"`
 }
 
 // ===== GPU Heatmap =====
@@ -114,10 +111,7 @@ func handleClusterOverview(ctx context.Context, req *ClusterOverviewRequest) (*C
 	// Try to get cached data first (reusing existing helper)
 	result, err := cluster.GetClusterOverviewFromCache(ctx, clients.ClusterName)
 	if err == nil && result != nil {
-		return &ClusterOverviewResponse{
-			GpuClusterOverview: *result,
-			ClusterName:        clients.ClusterName,
-		}, nil
+		return result, nil
 	}
 
 	// Cache miss - fall back to real-time calculation (reusing existing helpers)
@@ -150,7 +144,7 @@ func handleClusterOverview(ctx context.Context, req *ClusterOverviewRequest) (*C
 		return nil, err
 	}
 
-	overview := model.GpuClusterOverview{
+	return &model.GpuClusterOverview{
 		RdmaClusterStat:    rdmaStat,
 		StorageStat:        *storageStat,
 		TotalNodes:         len(gpuNodes),
@@ -161,11 +155,6 @@ func handleClusterOverview(ctx context.Context, req *ClusterOverviewRequest) (*C
 		BusyNodes:          busy,
 		AllocationRate:     allocationRate,
 		Utilization:        usage,
-	}
-
-	return &ClusterOverviewResponse{
-		GpuClusterOverview: overview,
-		ClusterName:        clients.ClusterName,
 	}, nil
 }
 
@@ -216,9 +205,8 @@ func handleClusterConsumers(ctx context.Context, req *ClusterConsumersRequest) (
 	data, _, total, _ := sliceUtil.PaginateSlice(result, pageNum, pageSize)
 
 	return &ClusterConsumersResponse{
-		Data:        data,
-		Total:       total,
-		ClusterName: clients.ClusterName,
+		Data:  data,
+		Total: total,
 	}, nil
 }
 
@@ -271,19 +259,3 @@ func handleClusterGPUHeatmap(ctx context.Context, req *ClusterGPUHeatmapRequest)
 	}, nil
 }
 
-// ===== Utility Functions =====
-
-// GetClusterEndpoints returns the Gin handlers for cluster endpoints.
-// Used by router.go to replace original handlers.
-func GetClusterEndpoints() map[string]unified.EndpointRegistration {
-	registry := unified.GetRegistry()
-	endpoints := make(map[string]unified.EndpointRegistration)
-	
-	for _, ep := range registry.GetAllEndpoints() {
-		switch ep.GetHTTPPath() {
-		case "/clusters/overview", "/clusters/consumers", "/clusters/gpuHeatmap":
-			endpoints[ep.GetHTTPPath()] = ep
-		}
-	}
-	return endpoints
-}

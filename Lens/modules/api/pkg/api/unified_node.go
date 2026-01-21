@@ -8,7 +8,6 @@ package api
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
@@ -48,21 +47,8 @@ type GPUAllocationRequest struct {
 }
 
 // GPUAllocationResponse represents the GPU allocation response.
-type GPUAllocationResponse struct {
-	Data        []model.GpuAllocation `json:"data"`
-	ClusterName string                `json:"cluster_name"`
-	Summary     GPUAllocationSummary  `json:"summary"`
-	Timestamp   time.Time             `json:"timestamp"`
-}
-
-// GPUAllocationSummary provides aggregated stats.
-type GPUAllocationSummary struct {
-	TotalNodes     int     `json:"total_nodes"`
-	TotalGPUs      int     `json:"total_gpus"`
-	AllocatedGPUs  int     `json:"allocated_gpus"`
-	AvailableGPUs  int     `json:"available_gpus"`
-	AllocationRate float64 `json:"allocation_rate_percent"`
-}
+// Returns array directly for backward compatibility with existing API.
+type GPUAllocationResponse []model.GpuAllocation
 
 // ===== Node Detail =====
 
@@ -186,6 +172,7 @@ func handleNodeList(ctx context.Context, req *NodeListRequest) (*NodeListRespons
 
 // handleGPUAllocation handles GPU allocation info requests.
 // Reuses: gpu.GetGpuNodesAllocation, database cache
+// Returns array directly for backward compatibility.
 func handleGPUAllocation(ctx context.Context, req *GPUAllocationRequest) (*GPUAllocationResponse, error) {
 	cm := clientsets.GetClusterManager()
 	clients, err := cm.GetClusterClientsOrDefault(req.Cluster)
@@ -207,25 +194,8 @@ func handleGPUAllocation(ctx context.Context, req *GPUAllocationRequest) (*GPUAl
 		}
 	}
 
-	// Calculate summary
-	summary := GPUAllocationSummary{
-		TotalNodes: len(result),
-	}
-	for _, alloc := range result {
-		summary.TotalGPUs += alloc.Capacity
-		summary.AllocatedGPUs += alloc.Allocated
-	}
-	summary.AvailableGPUs = summary.TotalGPUs - summary.AllocatedGPUs
-	if summary.TotalGPUs > 0 {
-		summary.AllocationRate = float64(summary.AllocatedGPUs) / float64(summary.TotalGPUs) * 100
-	}
-
-	return &GPUAllocationResponse{
-		Data:        result,
-		ClusterName: clients.ClusterName,
-		Summary:     summary,
-		Timestamp:   time.Now(),
-	}, nil
+	resp := GPUAllocationResponse(result)
+	return &resp, nil
 }
 
 // handleNodeDetail handles node detail requests.
