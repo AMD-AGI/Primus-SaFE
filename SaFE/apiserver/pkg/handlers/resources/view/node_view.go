@@ -46,6 +46,8 @@ type ListNodeRequest struct {
 	FlavorId *string `form:"flavorId" binding:"omitempty,max=64"`
 	// Filter results by node ID
 	NodeId *string `form:"nodeId" binding:"omitempty,max=64"`
+	// Search by node name or IP address (case-insensitive partial match)
+	Search *string `form:"search" binding:"omitempty,max=256"`
 	// Filter results based on node availability
 	Available *bool `form:"available" binding:"omitempty"`
 	// Filter by status (comma-separated),  e.g. Ready, SSHFailed, HostnameFailed, Managing, ManagedFailed, Unmanaging, UnmanagedFailed

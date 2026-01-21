@@ -81,7 +81,7 @@ func initAIClient(jobsCfg *config.JobsConfig) error {
 		{
 			Name:            agentCfg.Name,
 			Endpoint:        agentCfg.Endpoint,
-			Topics:          []string{aitopics.TopicGithubMetricsExtract},
+			Topics:          []string{aitopics.TopicGithubMetricsExtract, aitopics.TopicGithubSchemaAnalyze},
 			Timeout:         agentCfg.Timeout,
 			HealthCheckPath: "/health",
 		},

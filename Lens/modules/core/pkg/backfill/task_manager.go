@@ -23,7 +23,8 @@ const (
 // BackfillTask represents a backfill task stored in memory (can be enhanced with DB storage)
 type BackfillTask struct {
 	ID            string         `json:"id"`
-	ConfigID      int64          `json:"config_id"`
+	ConfigID      int64          `json:"config_id"`       // Optional - for config-based backfill
+	RunnerSetID   int64          `json:"runner_set_id"`   // Optional - for runner-set-based backfill
 	StartTime     time.Time      `json:"start_time"`
 	EndTime       time.Time      `json:"end_time"`
 	WorkloadUIDs  []string       `json:"workload_uids,omitempty"` // Optional: specific workloads
@@ -76,16 +77,58 @@ func (m *BackfillTaskManager) SetMetricsCallback(cb *TaskManagerMetricsCallback)
 	m.metrics = cb
 }
 
-// CreateTask creates a new backfill task
+// CreateTask creates a new backfill task (deprecated, use CreateTaskByConfig or CreateTaskByRunnerSet)
 func (m *BackfillTaskManager) CreateTask(configID int64, startTime, endTime time.Time, workloadUIDs []string, clusterName string, dryRun bool) *BackfillTask {
+	return m.CreateTaskByConfig(configID, startTime, endTime, workloadUIDs, clusterName, dryRun)
+}
+
+// CreateTaskByConfig creates a new config-based backfill task
+func (m *BackfillTaskManager) CreateTaskByConfig(configID int64, startTime, endTime time.Time, workloadUIDs []string, clusterName string, dryRun bool) *BackfillTask {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	taskID := fmt.Sprintf("backfill-%d-%d", configID, time.Now().UnixNano())
+	taskID := fmt.Sprintf("backfill-config-%d-%d", configID, time.Now().UnixNano())
 	now := time.Now()
 	task := &BackfillTask{
 		ID:           taskID,
 		ConfigID:     configID,
+		RunnerSetID:  0, // Not runner-set-based
+		StartTime:    startTime,
+		EndTime:      endTime,
+		WorkloadUIDs: workloadUIDs,
+		Status:       BackfillStatusPending,
+		CreatedAt:    now,
+		UpdatedAt:    now,
+		ClusterName:  clusterName,
+		DryRun:       dryRun,
+	}
+
+	m.tasks[taskID] = task
+
+	// Update metrics via callback
+	if m.metrics != nil {
+		if m.metrics.OnTaskCreated != nil {
+			m.metrics.OnTaskCreated()
+		}
+		if m.metrics.OnTaskActive != nil {
+			m.metrics.OnTaskActive()
+		}
+	}
+
+	return task
+}
+
+// CreateTaskByRunnerSet creates a new runner-set-based backfill task
+func (m *BackfillTaskManager) CreateTaskByRunnerSet(runnerSetID int64, startTime, endTime time.Time, workloadUIDs []string, clusterName string, dryRun bool) *BackfillTask {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	taskID := fmt.Sprintf("backfill-runnerset-%d-%d", runnerSetID, time.Now().UnixNano())
+	now := time.Now()
+	task := &BackfillTask{
+		ID:           taskID,
+		ConfigID:     0, // Not config-based
+		RunnerSetID:  runnerSetID,
 		StartTime:    startTime,
 		EndTime:      endTime,
 		WorkloadUIDs: workloadUIDs,
@@ -126,6 +169,20 @@ func (m *BackfillTaskManager) GetTasksByConfig(configID int64) []*BackfillTask {
 	var result []*BackfillTask
 	for _, task := range m.tasks {
 		if task.ConfigID == configID {
+			result = append(result, task)
+		}
+	}
+	return result
+}
+
+// GetTasksByRunnerSet returns all tasks for a runner set
+func (m *BackfillTaskManager) GetTasksByRunnerSet(runnerSetID int64) []*BackfillTask {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	var result []*BackfillTask
+	for _, task := range m.tasks {
+		if task.RunnerSetID == runnerSetID {
 			result = append(result, task)
 		}
 	}

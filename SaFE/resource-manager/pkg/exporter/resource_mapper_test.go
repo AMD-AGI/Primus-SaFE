@@ -1,5 +1,3 @@
-//go:build integration
-
 /*
  * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
@@ -30,11 +28,9 @@ var (
 			CreationTimestamp: metav1.NewTime(time.Now()),
 		},
 		Spec: v1.WorkloadSpec{
-			Workspace:  "test-workspace",
-			MaxRetry:   2,
-			Image:      "test-image",
-			EntryPoint: "sh -c test.sh",
-			JobPort:    12345,
+			Workspace: "test-workspace",
+			MaxRetry:  2,
+			JobPort:   12345,
 			GroupVersionKind: v1.GroupVersionKind{
 				Group:   "kubeflow.org",
 				Version: "v1",

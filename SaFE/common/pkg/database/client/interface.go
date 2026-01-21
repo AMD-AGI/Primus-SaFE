@@ -31,6 +31,7 @@ type Interface interface {
 	PlaygroundSessionInterface
 	ModelInterface
 	ApiKeyInterface
+	AuditLogInterface
 	DatasetInterface
 }
 
@@ -189,6 +190,13 @@ type ModelInterface interface {
 	GetModelByID(ctx context.Context, id string) (*Model, error)
 	ListModels(ctx context.Context, accessMode string, workspace string, isDeleted bool) ([]*Model, error)
 	DeleteModel(ctx context.Context, id string) error
+}
+
+type AuditLogInterface interface {
+	InsertAuditLog(ctx context.Context, auditLog *AuditLog) error
+	BatchInsertAuditLogs(ctx context.Context, auditLogs []*AuditLog) error
+	SelectAuditLogs(ctx context.Context, query sqrl.Sqlizer, orderBy []string, limit, offset int) ([]*AuditLog, error)
+	CountAuditLogs(ctx context.Context, query sqrl.Sqlizer) (int, error)
 }
 
 type DatasetInterface interface {

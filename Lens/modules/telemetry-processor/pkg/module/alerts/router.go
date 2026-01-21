@@ -5,16 +5,18 @@ package alerts
 
 import (
 	"context"
+	"encoding/json"
 
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 )
 
 // routeAndNotify routes an alert and sends notifications
 func routeAndNotify(ctx context.Context, alert *UnifiedAlert) {
-	log.GlobalLogger().WithContext(ctx).Infof("Routing alert: %s", alert.ID)
+	log.GlobalLogger().WithContext(ctx).Infof("Routing alert: %s (status: %s)", alert.ID, alert.Status)
 	
 	// Get routing configuration for this alert
-	routes := getRoutesForAlert(alert)
+	routes := getRoutesForAlert(ctx, alert)
 	
 	if len(routes) == 0 {
 		log.GlobalLogger().WithContext(ctx).Infof("No routes configured for alert: %s, using default notification", alert.ID)
@@ -22,26 +24,135 @@ func routeAndNotify(ctx context.Context, alert *UnifiedAlert) {
 		routes = []RouteConfig{getDefaultRoute()}
 	}
 	
+	// Track if any notification succeeded
+	anySuccess := false
+	anyFailure := false
+	
 	// Send notifications for each route
 	for _, route := range routes {
 		for _, channel := range route.Channels {
 			if err := sendNotification(ctx, alert, channel); err != nil {
 				log.GlobalLogger().WithContext(ctx).Errorf("Failed to send notification via %s: %v", channel.Type, err)
+				anyFailure = true
+			} else {
+				log.GlobalLogger().WithContext(ctx).Infof("Successfully sent notification via %s for alert: %s", channel.Type, alert.ID)
+				anySuccess = true
 			}
 		}
 	}
+	
+	// Update alert notification status
+	facade := database.GetFacade().GetAlert()
+	var notificationStatus string
+	if anySuccess {
+		notificationStatus = NotificationStatusSent
+	} else if anyFailure {
+		notificationStatus = NotificationStatusFailed
+	} else {
+		notificationStatus = NotificationStatusPending
+	}
+	
+	if err := facade.UpdateAlertNotificationStatus(ctx, alert.ID, notificationStatus); err != nil {
+		log.GlobalLogger().WithContext(ctx).Errorf("Failed to update notification status for alert %s: %v", alert.ID, err)
+	}
 }
 
-// getRoutesForAlert retrieves routing configurations that match the alert
-func getRoutesForAlert(alert *UnifiedAlert) []RouteConfig {
-	// TODO: Implement route matching logic
-	// This would typically:
-	// 1. Load routing rules from database or configuration
-	// 2. Match alert labels against route matchers
-	// 3. Return matching routes
+// AlertRoutingConfig represents the alert_routing field structure
+type AlertRoutingConfig struct {
+	Enabled  bool              `json:"enabled"`
+	Channels []json.RawMessage `json:"channels"`
+}
+
+// getRoutesForAlert retrieves routing configurations that match the alert from database
+func getRoutesForAlert(ctx context.Context, alert *UnifiedAlert) []RouteConfig {
+	facade := database.GetFacade().GetMetricAlertRule()
 	
-	// For now, return empty to use default route
-	return []RouteConfig{}
+	// Get cluster name from alert labels
+	clusterName := alert.ClusterName
+	if clusterName == "" {
+		clusterName = alert.Labels["cluster"]
+	}
+	
+	// Load all metric alert rules for the cluster
+	filter := &database.MetricAlertRuleFilter{
+		ClusterName: &clusterName,
+	}
+	rules, _, err := facade.ListMetricAlertRules(ctx, filter)
+	if err != nil {
+		log.GlobalLogger().WithContext(ctx).Errorf("Failed to load metric alert rules: %v", err)
+		return []RouteConfig{}
+	}
+	
+	var routes []RouteConfig
+	
+	for _, rule := range rules {
+		if rule.AlertRouting == nil {
+			continue
+		}
+		
+		// Parse alert_routing JSON
+		routingBytes, err := json.Marshal(rule.AlertRouting)
+		if err != nil {
+			continue
+		}
+		
+		var routing AlertRoutingConfig
+		if err := json.Unmarshal(routingBytes, &routing); err != nil {
+			continue
+		}
+		
+		if !routing.Enabled {
+			continue
+		}
+		
+		// Check if this rule contains the alertname
+		alertMatched := false
+		groupsBytes, _ := json.Marshal(rule.Groups)
+		if groupsBytes != nil && containsAlertName(string(groupsBytes), alert.AlertName) {
+			alertMatched = true
+		}
+		
+		if !alertMatched {
+			continue
+		}
+		
+		// Parse channels
+		var channels []ChannelConfig
+		for _, chRaw := range routing.Channels {
+			var ch ChannelConfig
+			if err := json.Unmarshal(chRaw, &ch); err != nil {
+				continue
+			}
+			channels = append(channels, ch)
+		}
+		
+		if len(channels) > 0 {
+			routes = append(routes, RouteConfig{Channels: channels})
+			log.GlobalLogger().WithContext(ctx).Infof("Found routing config for alert %s from rule %s", alert.AlertName, rule.Name)
+		}
+	}
+	
+	return routes
+}
+
+// containsAlertName checks if the groups JSON contains the alert name
+func containsAlertName(groupsJSON string, alertName string) bool {
+	return len(alertName) > 0 && len(groupsJSON) > 0 && 
+		(contains(groupsJSON, `"alert":"`+alertName+`"`) || contains(groupsJSON, `"alert": "`+alertName+`"`))
+}
+
+// contains checks if s contains substr
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsImpl(s, substr))
+}
+
+func containsImpl(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
 }
 
 // getDefaultRoute returns the default routing configuration

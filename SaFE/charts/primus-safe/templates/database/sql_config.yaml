@@ -71,6 +71,8 @@ data:
     alter table workload add column if not exists scale_runner_set VARCHAR(64);
     alter table workload add column if not exists scale_runner_id VARCHAR(128);
     alter table workload add column if not exists resources TEXT;
+    alter table workload add column if not exists images TEXT;
+    alter table workload add column if not exists entrypoints TEXT;
 
     create table if not exists fault
     (
@@ -428,6 +430,31 @@ data:
 
     alter table api_keys owner to "primus-safe";
 
+    CREATE TABLE IF NOT EXISTS audit_logs (
+        id BIGSERIAL PRIMARY KEY,
+        user_id VARCHAR(64) NOT NULL,
+        user_name VARCHAR(256),
+        user_type VARCHAR(32),
+        client_ip VARCHAR(64),
+        http_method VARCHAR(16) NOT NULL,
+        request_path VARCHAR(512) NOT NULL,
+        resource_type VARCHAR(64),
+        action VARCHAR(64),
+        request_body TEXT,
+        response_status INT NOT NULL,
+        response_body TEXT,
+        latency_ms INT,
+        trace_id VARCHAR(64),
+        create_time TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_audit_logs_user_id ON audit_logs(user_id);
+    CREATE INDEX IF NOT EXISTS idx_audit_logs_resource_type ON audit_logs(resource_type);
+    CREATE INDEX IF NOT EXISTS idx_audit_logs_action ON audit_logs(action);
+    CREATE INDEX IF NOT EXISTS idx_audit_logs_create_time ON audit_logs(create_time DESC);
+    CREATE INDEX IF NOT EXISTS idx_audit_logs_http_method ON audit_logs(http_method);
+
+    alter table audit_logs owner to "primus-safe";
 
     -- Dataset table for managing datasets
     -- All columns are defined in CREATE TABLE for new installations

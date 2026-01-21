@@ -137,10 +137,10 @@ func (m *WorkloadMutator) mutateCommon(ctx context.Context, oldWorkload, newWork
 	case common.CICDScaleRunnerSetKind:
 		m.mutateCICDScaleSet(newWorkload)
 	}
-	m.mutateHostpath(newWorkload, workspace)
+	m.mutateHostPath(newWorkload, workspace)
 	m.mutatePriority(newWorkload)
-	m.mutateImage(newWorkload)
-	m.mutateEntryPoint(newWorkload)
+	m.mutateImages(newWorkload)
+	m.mutateEntryPoints(newWorkload)
 	m.mutateEnv(oldWorkload, newWorkload)
 	m.mutateMaxRetry(newWorkload)
 	m.mutateHostNetwork(ctx, newWorkload)
@@ -287,27 +287,27 @@ func (m *WorkloadMutator) mutateResources(workload *v1.Workload, workspace *v1.W
 	return isChanged
 }
 
-// mutateHostpath removes hostpath duplicated by the workspace; workloads inherit workspace hostpath.
-func (m *WorkloadMutator) mutateHostpath(workload *v1.Workload, workspace *v1.Workspace) {
+// mutateHostPath removes hostPath duplicated by the workspace; workloads inherit workspace hostPath.
+func (m *WorkloadMutator) mutateHostPath(workload *v1.Workload, workspace *v1.Workspace) {
 	if len(workload.Spec.Hostpath) == 0 {
 		return
 	}
-	hostpathSet := sets.NewSet()
+	hostPathSet := sets.NewSet()
 	if workspace != nil {
 		for _, vol := range workspace.Spec.Volumes {
 			if vol.Type == v1.HOSTPATH {
-				hostpathSet.Insert(vol.HostPath)
+				hostPathSet.Insert(vol.HostPath)
 			}
 		}
 	}
-	hostpath := make([]string, 0, len(workload.Spec.Hostpath))
+	hostPath := make([]string, 0, len(workload.Spec.Hostpath))
 	for _, path := range workload.Spec.Hostpath {
-		if !hostpathSet.Has(path) {
-			hostpath = append(hostpath, path)
-			hostpathSet.Insert(path)
+		if !hostPathSet.Has(path) {
+			hostPath = append(hostPath, path)
+			hostPathSet.Insert(path)
 		}
 	}
-	workload.Spec.Hostpath = hostpath
+	workload.Spec.Hostpath = hostPath
 }
 
 // mutateHealthCheck fills default probe timings for liveness/readiness.
@@ -379,7 +379,7 @@ func (m *WorkloadMutator) mutateAuthoring(workload *v1.Workload) {
 	}
 
 	workload.Spec.Timeout = nil
-	workload.Spec.EntryPoint = stringutil.Base64Encode("sleep infinity")
+	workload.Spec.EntryPoints = []string{stringutil.Base64Encode("sleep infinity")}
 	workload.Spec.Dependencies = nil
 }
 
@@ -394,9 +394,18 @@ func (m *WorkloadMutator) mutateCICDScaleSet(workload *v1.Workload) {
 	workload.Spec.Dependencies = nil
 }
 
-// mutateImage trims image name and entry point.
-func (m *WorkloadMutator) mutateImage(workload *v1.Workload) {
-	workload.Spec.Image = strings.TrimSpace(workload.Spec.Image)
+// mutateImages handles image assignment for workload resources.
+// If no images are specified, it populates the Images slice with the default image from workload.Spec.Image
+// for each resource in the workload. Then it trims whitespace from each image name.
+func (m *WorkloadMutator) mutateImages(workload *v1.Workload) {
+	if len(workload.Spec.Images) == 0 && workload.Spec.Image != "" {
+		for i := 0; i < len(workload.Spec.Resources); i++ {
+			workload.Spec.Images = append(workload.Spec.Images, workload.Spec.Image)
+		}
+	}
+	for i := 0; i < len(workload.Spec.Images); i++ {
+		workload.Spec.Images[i] = strings.TrimSpace(workload.Spec.Images[i])
+	}
 }
 
 // mutateMaxRetry bounds MaxRetry to [0, DefaultMaxFailover].
@@ -442,14 +451,21 @@ func (m *WorkloadMutator) mutateTTLSeconds(workload *v1.Workload) {
 	}
 }
 
-// mutateEntryPoint base64-encodes entry point for the required jobs.
-func (m *WorkloadMutator) mutateEntryPoint(workload *v1.Workload) {
-	workload.Spec.EntryPoint = strings.TrimSpace(workload.Spec.EntryPoint)
-	if commonworkload.IsAuthoring(workload) || commonworkload.IsOpsJob(workload) {
-		return
+// mutateEntryPoints base64-encodes entry point for the required jobs.
+func (m *WorkloadMutator) mutateEntryPoints(workload *v1.Workload) {
+	if len(workload.Spec.EntryPoints) == 0 && workload.Spec.EntryPoint != "" {
+		for i := 0; i < len(workload.Spec.Resources); i++ {
+			workload.Spec.EntryPoints = append(workload.Spec.EntryPoints, workload.Spec.EntryPoint)
+		}
 	}
-	if !stringutil.IsBase64(workload.Spec.EntryPoint) {
-		workload.Spec.EntryPoint = stringutil.Base64Encode(workload.Spec.EntryPoint)
+	for i := 0; i < len(workload.Spec.EntryPoints); i++ {
+		workload.Spec.EntryPoints[i] = strings.TrimSpace(workload.Spec.EntryPoints[i])
+		if commonworkload.IsAuthoring(workload) || commonworkload.IsOpsJob(workload) {
+			continue
+		}
+		if !stringutil.IsBase64(workload.Spec.EntryPoints[i]) {
+			workload.Spec.EntryPoints[i] = stringutil.Base64Encode(workload.Spec.EntryPoints[i])
+		}
 	}
 }
 
@@ -617,6 +633,8 @@ func (v *WorkloadValidator) validateCommon(ctx context.Context, newWorkload, old
 		err = v.validateCICDScalingRunnerSet(newWorkload)
 	case common.TorchFTKind:
 		err = v.validateTorchFT(newWorkload, oldWorkload)
+	case common.RayJobKind:
+		err = v.validateRayJob(newWorkload, oldWorkload)
 	}
 	if err != nil {
 		return err
@@ -664,14 +682,6 @@ func (v *WorkloadValidator) validateRequiredParams(workload *v1.Workload) error 
 	if workload.Spec.GroupVersionKind.Kind == "" || workload.Spec.GroupVersionKind.Version == "" {
 		errs = append(errs, fmt.Errorf("the gvk is empty"))
 	}
-	if v1.GetOpsJobId(workload) == "" && !commonworkload.IsCICDScalingRunnerSet(workload) {
-		if workload.Spec.EntryPoint == "" {
-			errs = append(errs, fmt.Errorf("the entryPoint is empty"))
-		}
-		if workload.Spec.Image == "" {
-			errs = append(errs, fmt.Errorf("the image is empty"))
-		}
-	}
 	if len(workload.Spec.Resources) == 0 {
 		errs = append(errs, fmt.Errorf("the resources are empty"))
 	}
@@ -680,6 +690,14 @@ func (v *WorkloadValidator) validateRequiredParams(workload *v1.Workload) error 
 			errs = append(errs, err)
 		}
 	}
+	if v1.GetOpsJobId(workload) == "" && !commonworkload.IsCICDScalingRunnerSet(workload) {
+		if len(workload.Spec.Images) == 0 {
+			errs = append(errs, fmt.Errorf("the images are empty"))
+		} else if len(workload.Spec.Images) != len(workload.Spec.Resources) {
+			errs = append(errs, fmt.Errorf("the number of images and resources is not equal"))
+		}
+	}
+
 	if err := utilerrors.NewAggregate(errs); err != nil {
 		return err
 	}
@@ -758,6 +776,16 @@ func (v *WorkloadValidator) validateTorchFT(newWorkload, oldWorkload *v1.Workloa
 		if (oldWorkload.Spec.Resources[1].Replica / oldGroup) != (newWorkload.Spec.Resources[1].Replica / group) {
 			return fmt.Errorf("the count of group nodes can not be changed")
 		}
+	}
+	return nil
+}
+
+// validateRayJob validates RayJob workload configuration.
+func (v *WorkloadValidator) validateRayJob(newWorkload, _ *v1.Workload) error {
+	// RayJob workloads require at most 3 resource configurations - one for header group and two for the worker groups
+	if len(newWorkload.Spec.Resources) > 3 {
+		return fmt.Errorf("Expected at most 3 resource configurations (header and worker groups), "+
+			"got %d, resources: %v", len(newWorkload.Spec.Resources), newWorkload.Spec.Resources)
 	}
 	return nil
 }

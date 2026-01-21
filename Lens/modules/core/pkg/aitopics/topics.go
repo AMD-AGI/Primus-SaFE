@@ -27,6 +27,12 @@ const (
 
 	// GitHub Metrics Topics
 	TopicGithubMetricsExtract = "github.metrics.extract"
+	TopicGithubSchemaAnalyze  = "github.schema.analyze"
+
+	// GitHub Dashboard Analytics Topics
+	TopicGithubDashboardRegressionAnalyze = "github.dashboard.regression.analyze"
+	TopicGithubDashboardCommitImpact      = "github.dashboard.commit.impact"
+	TopicGithubDashboardInsightsGenerate  = "github.dashboard.insights.generate"
 )
 
 // API Version
@@ -53,7 +59,11 @@ func IsValidTopic(topic string) bool {
 		TopicReportGenerateInsights,
 		TopicScanIdentifyComponent,
 		TopicScanSuggestGrouping,
-		TopicGithubMetricsExtract:
+		TopicGithubMetricsExtract,
+		TopicGithubSchemaAnalyze,
+		TopicGithubDashboardRegressionAnalyze,
+		TopicGithubDashboardCommitImpact,
+		TopicGithubDashboardInsightsGenerate:
 		return true
 	default:
 		return false

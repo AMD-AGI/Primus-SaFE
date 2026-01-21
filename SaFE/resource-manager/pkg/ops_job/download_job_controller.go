@@ -186,7 +186,7 @@ func (r *DownloadJobReconciler) generateDownloadWorkload(ctx context.Context, jo
 				Kind:    common.JobKind,
 			},
 			Workspace: workspaceId,
-			Image:     *job.Spec.Image,
+			Images:    []string{*job.Spec.Image},
 			Env:       job.Spec.Env,
 		},
 	}

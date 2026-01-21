@@ -21,7 +21,6 @@ rules:
   - addontemplates
   - clusters
   - faults
-  - inferences
   - models
   - nodeflavors
   - nodes
@@ -47,7 +46,6 @@ rules:
   - addontemplates/status
   - clusters/status
   - faults/status
-  - inferences/status
   - models/status
   - nodeflavors/status
   - nodes/status

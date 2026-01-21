@@ -58,8 +58,10 @@ type ResourceSpec struct {
 	TemplatePaths []string `json:"templatePaths,omitempty"`
 	// The relative path of pod replica
 	ReplicasPaths []string `json:"replicasPaths,omitempty"`
-	// The relative path of pod completions(only for job)
-	CompletionsPaths []string `json:"completionsPaths,omitempty"`
+	// The relative path of pod max-replica(only for ray-job), Commonly used for elasticity.
+	MaxReplicasPaths []string `json:"maxReplicasPaths,omitempty"`
+	// The relative path of pod min-replica(only for job and ray-job). for job, it's the pod completions
+	MinReplicasPaths []string `json:"minReplicasPaths,omitempty"`
 }
 
 // GetTemplatePath returns the path components for locating the resource template.

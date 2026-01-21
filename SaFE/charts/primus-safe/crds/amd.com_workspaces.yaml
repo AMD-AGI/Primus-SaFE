@@ -132,6 +132,7 @@ spec:
                   - Infer
                   - Authoring
                   - CICD
+                  - Ray
                   type: string
                 type: array
               volumes:

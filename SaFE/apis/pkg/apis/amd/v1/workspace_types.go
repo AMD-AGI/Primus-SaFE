@@ -15,7 +15,7 @@ import (
 type WorkspacePhase string
 type WorkspaceQueuePolicy string
 
-// +kubebuilder:validation:Enum=Train;Infer;Authoring;CICD
+// +kubebuilder:validation:Enum=Train;Infer;Authoring;CICD;Ray
 type WorkspaceScope string
 type FileSystemType string
 type VolumePurpose int
@@ -37,6 +37,7 @@ const (
 	InferScope     WorkspaceScope = "Infer"
 	AuthoringScope WorkspaceScope = "Authoring"
 	CICDScope      WorkspaceScope = "CICD"
+	RayScope       WorkspaceScope = "Ray"
 
 	HOSTPATH WorkspaceVolumeType = "hostpath"
 	PFS      WorkspaceVolumeType = "pfs"

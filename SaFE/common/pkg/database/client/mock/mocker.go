@@ -3254,6 +3254,44 @@ func (mr *MockModelInterfaceMockRecorder) UpsertModel(ctx, m interface{}) *gomoc
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertModel", reflect.TypeOf((*MockModelInterface)(nil).UpsertModel), ctx, m)
 }
 
+// InsertAuditLog mocks base method.
+func (m *MockInterface) InsertAuditLog(ctx context.Context, auditLog *client.AuditLog) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "InsertAuditLog", ctx, auditLog)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// InsertAuditLog indicates an expected call of InsertAuditLog.
+func (mr *MockInterfaceMockRecorder) InsertAuditLog(ctx, auditLog interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertAuditLog", reflect.TypeOf((*MockInterface)(nil).InsertAuditLog), ctx, auditLog)
+}
+
+// SelectAuditLogs mocks base method.
+func (m *MockInterface) SelectAuditLogs(ctx context.Context, query squirrel.Sqlizer, orderBy []string, limit, offset int) ([]*client.AuditLog, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SelectAuditLogs", ctx, query, orderBy, limit, offset)
+	ret0, _ := ret[0].([]*client.AuditLog)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SelectAuditLogs indicates an expected call of SelectAuditLogs.
+func (mr *MockInterfaceMockRecorder) SelectAuditLogs(ctx, query, orderBy, limit, offset interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SelectAuditLogs", reflect.TypeOf((*MockInterface)(nil).SelectAuditLogs), ctx, query, orderBy, limit, offset)
+}
+
+// CountAuditLogs mocks base method.
+func (m *MockInterface) CountAuditLogs(ctx context.Context, query squirrel.Sqlizer) (int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountAuditLogs", ctx, query)
+	ret0, _ := ret[0].(int)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
 // CountDatasets mocks base method.
 func (m *MockInterface) CountDatasets(ctx context.Context, query squirrel.Sqlizer) (int, error) {
 	m.ctrl.T.Helper()
@@ -3261,6 +3299,12 @@ func (m *MockInterface) CountDatasets(ctx context.Context, query squirrel.Sqlize
 	ret0, _ := ret[0].(int)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
+}
+
+// CountAuditLogs indicates an expected call of CountAuditLogs.
+func (mr *MockInterfaceMockRecorder) CountAuditLogs(ctx, query interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountAuditLogs", reflect.TypeOf((*MockInterface)(nil).CountAuditLogs), ctx, query)
 }
 
 // CountDatasets indicates an expected call of CountDatasets.
@@ -3382,4 +3426,18 @@ func (m *MockInterface) UpsertDataset(ctx context.Context, dataset *client.Datas
 func (mr *MockInterfaceMockRecorder) UpsertDataset(ctx, dataset interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertDataset", reflect.TypeOf((*MockInterface)(nil).UpsertDataset), ctx, dataset)
+}
+
+// BatchInsertAuditLogs mocks base method.
+func (m *MockInterface) BatchInsertAuditLogs(ctx context.Context, auditLogs []*client.AuditLog) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "BatchInsertAuditLogs", ctx, auditLogs)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// BatchInsertAuditLogs indicates an expected call of BatchInsertAuditLogs.
+func (mr *MockInterfaceMockRecorder) BatchInsertAuditLogs(ctx, auditLogs interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BatchInsertAuditLogs", reflect.TypeOf((*MockInterface)(nil).BatchInsertAuditLogs), ctx, auditLogs)
 }

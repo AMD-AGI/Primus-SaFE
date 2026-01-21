@@ -31,7 +31,9 @@ type Workload struct {
 	Resource       string         `db:"resource"`
 	Resources      sql.NullString `db:"resources"`
 	Image          string         `db:"image"`
+	Images         sql.NullString `db:"images"`
 	EntryPoint     string         `db:"entrypoint"`
+	EntryPoints    sql.NullString `db:"entrypoints"`
 	GVK            string         `db:"gvk"`
 	Phase          sql.NullString `db:"phase"`
 	UserName       sql.NullString `db:"username"`
@@ -328,6 +330,30 @@ func GetApiKeyFieldTags() map[string]string {
 	return getFieldTags(k)
 }
 
+type AuditLog struct {
+	Id             int64          `db:"id"`
+	UserId         string         `db:"user_id"`
+	UserName       sql.NullString `db:"user_name"`
+	UserType       sql.NullString `db:"user_type"`
+	ClientIP       sql.NullString `db:"client_ip"`
+	HttpMethod     string         `db:"http_method"`
+	RequestPath    string         `db:"request_path"`
+	ResourceType   sql.NullString `db:"resource_type"`
+	Action         sql.NullString `db:"action"`
+	RequestBody    sql.NullString `db:"request_body"`
+	ResponseStatus int            `db:"response_status"`
+	ResponseBody   sql.NullString `db:"response_body"`
+	LatencyMs      sql.NullInt64  `db:"latency_ms"`
+	TraceId        sql.NullString `db:"trace_id"`
+	CreateTime     pq.NullTime    `db:"create_time"`
+}
+
+// GetAuditLogFieldTags returns the AuditLogFieldTags value.
+func GetAuditLogFieldTags() map[string]string {
+	a := AuditLog{}
+	return getFieldTags(a)
+}
+
 // DatasetLocalPathDB represents the local path status stored in database as JSON
 type DatasetLocalPathDB struct {
 	Workspace string        `json:"workspace"`
@@ -344,18 +370,18 @@ type Dataset struct {
 	Description  string        `db:"description"`
 	DatasetType  string        `db:"dataset_type"`
 	Status       DatasetStatus `db:"status"`
-	S3Path       string      `db:"s3_path"`
-	TotalSize    int64       `db:"total_size"`
-	FileCount    int         `db:"file_count"`
-	Message      string      `db:"message"`
-	LocalPaths   string      `db:"local_paths"` // JSON array of DatasetLocalPathDB
-	Workspace    string      `db:"workspace"`   // Workspace ID for access control, empty means public
-	UserId       string      `db:"user_id"`
-	UserName     string      `db:"user_name"`
-	CreationTime pq.NullTime `db:"creation_time"`
-	UpdateTime   pq.NullTime `db:"update_time"`
-	DeletionTime pq.NullTime `db:"deletion_time"`
-	IsDeleted    bool        `db:"is_deleted"`
+	S3Path       string        `db:"s3_path"`
+	TotalSize    int64         `db:"total_size"`
+	FileCount    int           `db:"file_count"`
+	Message      string        `db:"message"`
+	LocalPaths   string        `db:"local_paths"` // JSON array of DatasetLocalPathDB
+	Workspace    string        `db:"workspace"`   // Workspace ID for access control, empty means public
+	UserId       string        `db:"user_id"`
+	UserName     string        `db:"user_name"`
+	CreationTime pq.NullTime   `db:"creation_time"`
+	UpdateTime   pq.NullTime   `db:"update_time"`
+	DeletionTime pq.NullTime   `db:"deletion_time"`
+	IsDeleted    bool          `db:"is_deleted"`
 }
 
 // GetDatasetFieldTags returns the DatasetFieldTags value.
