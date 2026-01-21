@@ -293,7 +293,7 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		}
 	}
 
-	// Phase 9 Unified (GET only): TraceLens Session routes - On-demand trace analysis
+	// Phase 9+10 Unified: TraceLens Session routes - On-demand trace analysis
 	tracelensGroup := group.Group("/tracelens")
 	{
 		// Get available resource profiles
@@ -302,43 +302,42 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		// Session management
 		sessionsGroup := tracelensGroup.Group("/sessions")
 		{
-			// Create a new analysis session - POST not migrated
-			sessionsGroup.POST("", tracelens.CreateSession)
+			// Phase 10: Create a new analysis session - migrated
+			sessionsGroup.POST("", getUnifiedHandler("/tracelens/sessions"))
 			// List active sessions
 			sessionsGroup.GET("", getUnifiedHandler("/tracelens/sessions"))
 			// Get session statistics
 			sessionsGroup.GET("/stats", getUnifiedHandler("/tracelens/sessions/stats"))
 			// Get a specific session
 			sessionsGroup.GET("/:session_id", getUnifiedHandler("/tracelens/sessions/:session_id"))
-			// Extend session TTL - PATCH not migrated
-			sessionsGroup.PATCH("/:session_id", tracelens.ExtendSession)
-			// Delete a session - DELETE not migrated
-			sessionsGroup.DELETE("/:session_id", tracelens.DeleteSession)
+			// Phase 10: Extend session TTL - migrated
+			sessionsGroup.PATCH("/:session_id", getUnifiedHandler("/tracelens/sessions/:session_id"))
+			// Phase 10: Delete a session - migrated
+			sessionsGroup.DELETE("/:session_id", getUnifiedHandler("/tracelens/sessions/:session_id"))
 
-			// Phase 4: UI Proxy - Proxy HTTP/WebSocket requests to TraceLens pod
-			// Catch-all proxy for all UI paths (includes health check at /ui/health)
+			// UI Proxy - Proxy HTTP/WebSocket requests to TraceLens pod - NOT migrated (proxy)
 			sessionsGroup.Any("/:session_id/ui/*path", tracelens.ProxyUI)
 		}
 		// List sessions for a workload
 		tracelensGroup.GET("/workloads/:workload_uid/sessions", getUnifiedHandler("/tracelens/workloads/:workload_uid/sessions"))
 	}
 
-	// Phase 9 Unified (GET only): Perfetto Viewer routes - Lightweight trace visualization
+	// Phase 9+10 Unified: Perfetto Viewer routes - Lightweight trace visualization
 	perfettoGroup := group.Group("/perfetto")
 	{
 		// Session management
 		perfettoSessionsGroup := perfettoGroup.Group("/sessions")
 		{
-			// Create a new Perfetto viewer session - POST not migrated
-			perfettoSessionsGroup.POST("", perfetto.CreateSession)
+			// Phase 10: Create a new Perfetto viewer session - migrated
+			perfettoSessionsGroup.POST("", getUnifiedHandler("/perfetto/sessions"))
 			// Get a specific session - migrated
 			perfettoSessionsGroup.GET("/:session_id", getUnifiedHandler("/perfetto/sessions/:session_id"))
-			// Extend session TTL - PATCH not migrated
-			perfettoSessionsGroup.PATCH("/:session_id", perfetto.ExtendSession)
-			// Delete a session - DELETE not migrated
-			perfettoSessionsGroup.DELETE("/:session_id", perfetto.DeleteSession)
+			// Phase 10: Extend session TTL - migrated
+			perfettoSessionsGroup.PATCH("/:session_id", getUnifiedHandler("/perfetto/sessions/:session_id"))
+			// Phase 10: Delete a session - migrated
+			perfettoSessionsGroup.DELETE("/:session_id", getUnifiedHandler("/perfetto/sessions/:session_id"))
 
-			// UI Proxy - Proxy HTTP/WebSocket requests to Perfetto pod - not migrated
+			// UI Proxy - Proxy HTTP/WebSocket requests to Perfetto pod - NOT migrated (proxy)
 			perfettoSessionsGroup.Any("/:session_id/ui/*path", perfetto.ProxyUI)
 		}
 	}
