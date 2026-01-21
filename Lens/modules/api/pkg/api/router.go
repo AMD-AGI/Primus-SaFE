@@ -175,106 +175,106 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		notificationChannelGroup.POST(":id/test", TestNotificationChannel)
 	}
 
-	// GPU Aggregation routes - GPU aggregation data query
+	// Phase 8 Unified: GPU Aggregation routes - GPU aggregation data query
 	gpuAggregationGroup := group.Group("/gpu-aggregation")
 	{
 		// Metadata queries
-		gpuAggregationGroup.GET("/clusters", getClusters)
-		gpuAggregationGroup.GET("/namespaces", getNamespaces)
-		gpuAggregationGroup.GET("/dimension-keys", getDimensionKeys)
-		gpuAggregationGroup.GET("/dimension-values", getDimensionValues)
+		gpuAggregationGroup.GET("/clusters", getUnifiedHandler("/gpu-aggregation/clusters"))
+		gpuAggregationGroup.GET("/namespaces", getUnifiedHandler("/gpu-aggregation/namespaces"))
+		gpuAggregationGroup.GET("/dimension-keys", getUnifiedHandler("/gpu-aggregation/dimension-keys"))
+		gpuAggregationGroup.GET("/dimension-values", getUnifiedHandler("/gpu-aggregation/dimension-values"))
 
 		// Cluster-level hourly stats
-		gpuAggregationGroup.GET("/cluster/hourly-stats", getClusterHourlyStats)
+		gpuAggregationGroup.GET("/cluster/hourly-stats", getUnifiedHandler("/gpu-aggregation/cluster/hourly-stats"))
 
 		// Namespace-level hourly stats
-		gpuAggregationGroup.GET("/namespaces/hourly-stats", getNamespaceHourlyStats)
+		gpuAggregationGroup.GET("/namespaces/hourly-stats", getUnifiedHandler("/gpu-aggregation/namespaces/hourly-stats"))
 
 		// Label/Annotation-level hourly stats
-		gpuAggregationGroup.GET("/labels/hourly-stats", getLabelHourlyStats)
+		gpuAggregationGroup.GET("/labels/hourly-stats", getUnifiedHandler("/gpu-aggregation/labels/hourly-stats"))
 
 		// Workload-level hourly stats
-		gpuAggregationGroup.GET("/workloads/hourly-stats", getWorkloadHourlyStats)
+		gpuAggregationGroup.GET("/workloads/hourly-stats", getUnifiedHandler("/gpu-aggregation/workloads/hourly-stats"))
 
 		// Snapshot queries
-		gpuAggregationGroup.GET("/snapshots/latest", getLatestSnapshot)
-		gpuAggregationGroup.GET("/snapshots", listSnapshots)
+		gpuAggregationGroup.GET("/snapshots/latest", getUnifiedHandler("/gpu-aggregation/snapshots/latest"))
+		gpuAggregationGroup.GET("/snapshots", getUnifiedHandler("/gpu-aggregation/snapshots"))
 	}
 
-	// Job Execution History routes - Job execution history query
+	// Phase 8 Unified: Job Execution History routes - Job execution history query
 	jobHistoryGroup := group.Group("/job-execution-histories")
 	{
 		// Get recent failure records - must be defined before :id
-		jobHistoryGroup.GET("/recent-failures", GetRecentFailures)
+		jobHistoryGroup.GET("/recent-failures", getUnifiedHandler("/job-execution-histories/recent-failures"))
 		// Get job statistics - must be defined before :id
-		jobHistoryGroup.GET("/statistics/:job_name", GetJobStatistics)
+		jobHistoryGroup.GET("/statistics/:job_name", getUnifiedHandler("/job-execution-histories/statistics/:job_name"))
 		// List query - supports multiple filter conditions
-		jobHistoryGroup.GET("", ListJobExecutionHistories)
+		jobHistoryGroup.GET("", getUnifiedHandler("/job-execution-histories"))
 		// Get details
-		jobHistoryGroup.GET("/:id", GetJobExecutionHistory)
+		jobHistoryGroup.GET("/:id", getUnifiedHandler("/job-execution-histories/:id"))
 	}
 
-	// AI Workload Metadata routes - AI workload metadata management with conflict detection
+	// Phase 8 Unified (GET only): AI Workload Metadata routes - AI workload metadata management with conflict detection
 	aiMetadataGroup := group.Group("/ai-workload-metadata")
 	{
 		// List all AI workload metadata
-		aiMetadataGroup.GET("", ListAiWorkloadMetadata)
+		aiMetadataGroup.GET("", getUnifiedHandler("/ai-workload-metadata"))
 		// Get specific AI workload metadata by workload UID
-		aiMetadataGroup.GET("/:workload_uid", GetAiWorkloadMetadata)
-		// Annotate workload framework (user annotation)
+		aiMetadataGroup.GET("/:workload_uid", getUnifiedHandler("/ai-workload-metadata/:workload_uid"))
+		// Annotate workload framework (user annotation) - POST not migrated
 		aiMetadataGroup.POST("/:workload_uid/annotate", AnnotateWorkloadFramework)
-		// Update AI workload metadata (full update)
+		// Update AI workload metadata (full update) - PUT not migrated
 		aiMetadataGroup.PUT("/:workload_uid", UpdateAiWorkloadMetadata)
-		// Delete AI workload metadata
+		// Delete AI workload metadata - DELETE not migrated
 		aiMetadataGroup.DELETE("/:workload_uid", DeleteAiWorkloadMetadata)
 		// Get detection conflict logs for a specific workload
-		aiMetadataGroup.GET("/:workload_uid/conflicts", GetDetectionConflictLogs)
+		aiMetadataGroup.GET("/:workload_uid/conflicts", getUnifiedHandler("/ai-workload-metadata/:workload_uid/conflicts"))
 	}
 
-	// Detection Conflict routes - Detection conflict logs query
+	// Phase 8 Unified: Detection Conflict routes - Detection conflict logs query
 	conflictGroup := group.Group("/detection-conflicts")
 	{
 		// List all recent detection conflicts across workloads
-		conflictGroup.GET("", ListAllDetectionConflicts)
+		conflictGroup.GET("", getUnifiedHandler("/detection-conflicts"))
 	}
 
-	// Weekly Report routes - GPU usage weekly reports
+	// Phase 8 Unified: Weekly Report routes - GPU usage weekly reports
 	weeklyReportGroup := group.Group("/weekly-reports/gpu_utilization")
 	{
 		// Get latest report - must be defined before :id
-		weeklyReportGroup.GET("/latest", GetLatestWeeklyReport)
+		weeklyReportGroup.GET("/latest", getUnifiedHandler("/weekly-reports/gpu_utilization/latest"))
 		// List reports with pagination
-		weeklyReportGroup.GET("", ListWeeklyReports)
+		weeklyReportGroup.GET("", getUnifiedHandler("/weekly-reports/gpu_utilization"))
 		// Get report metadata
-		weeklyReportGroup.GET("/:id", GetWeeklyReport)
-		// Download report in different formats
+		weeklyReportGroup.GET("/:id", getUnifiedHandler("/weekly-reports/gpu_utilization/:id"))
+		// Download report in different formats (HTML/PDF not migrated - binary content)
 		weeklyReportGroup.GET("/:id/html", DownloadWeeklyReportHTML)
 		weeklyReportGroup.GET("/:id/pdf", DownloadWeeklyReportPDF)
-		weeklyReportGroup.GET("/:id/json", DownloadWeeklyReportJSON)
+		weeklyReportGroup.GET("/:id/json", getUnifiedHandler("/weekly-reports/gpu_utilization/:id/json"))
 	}
 
-	// Detection Config routes - Framework log parsing configuration management
+	// Phase 8 Unified (GET only): Detection Config routes - Framework log parsing configuration management
 	detectionConfigGroup := group.Group("/detection-configs")
 	{
 		// Framework configuration management
 		frameworkGroup := detectionConfigGroup.Group("/frameworks")
 		{
 			// List all enabled frameworks
-			frameworkGroup.GET("", ListFrameworks)
+			frameworkGroup.GET("", getUnifiedHandler("/detection-configs/frameworks"))
 			// Get specific framework configuration
-			frameworkGroup.GET("/:name", GetFrameworkConfig)
-			// Update framework configuration
+			frameworkGroup.GET("/:name", getUnifiedHandler("/detection-configs/frameworks/:name"))
+			// Update framework configuration - PUT not migrated
 			frameworkGroup.PUT("/:name", UpdateFrameworkConfig)
 		}
 
 		// Cache management
 		cacheGroup := detectionConfigGroup.Group("/cache")
 		{
-			// Refresh configuration cache
+			// Refresh configuration cache - POST not migrated
 			cacheGroup.POST("/refresh", RefreshDetectionConfigCache)
 			// Get cache TTL
-			cacheGroup.GET("/ttl", GetCacheTTL)
-			// Set cache TTL
+			cacheGroup.GET("/ttl", getUnifiedHandler("/detection-configs/cache/ttl"))
+			// Set cache TTL - PUT not migrated
 			cacheGroup.PUT("/ttl", SetCacheTTL)
 		}
 	}
@@ -379,28 +379,28 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		realtimeGroup.GET("/running-tasks", getRunningTasks)
 	}
   
-	// Detection Status routes - Framework detection status and task progress
+	// Phase 8 Unified (GET only): Detection Status routes - Framework detection status and task progress
 	detectionStatusGroup := group.Group("/detection-status")
 	{
 		// Summary - must be defined before :workload_uid
-		detectionStatusGroup.GET("/summary", GetDetectionSummary)
-		// Log report endpoint (for telemetry-processor)
+		detectionStatusGroup.GET("/summary", getUnifiedHandler("/detection-status/summary"))
+		// Log report endpoint (for telemetry-processor) - POST not migrated
 		detectionStatusGroup.POST("/log-report", ReportLogDetection)
 		// List all detection statuses
-		detectionStatusGroup.GET("", ListDetectionStatuses)
+		detectionStatusGroup.GET("", getUnifiedHandler("/detection-status"))
 		// Get detection status for a specific workload
-		detectionStatusGroup.GET("/:workload_uid", GetDetectionStatus)
+		detectionStatusGroup.GET("/:workload_uid", getUnifiedHandler("/detection-status/:workload_uid"))
 		// Get coverage for a workload
-		detectionStatusGroup.GET("/:workload_uid/coverage", GetDetectionCoverage)
-		// Initialize coverage for a workload
+		detectionStatusGroup.GET("/:workload_uid/coverage", getUnifiedHandler("/detection-status/:workload_uid/coverage"))
+		// Initialize coverage for a workload - POST not migrated
 		detectionStatusGroup.POST("/:workload_uid/coverage/initialize", InitializeDetectionCoverage)
 		// Get uncovered log window
-		detectionStatusGroup.GET("/:workload_uid/coverage/log-gap", GetUncoveredLogWindow)
+		detectionStatusGroup.GET("/:workload_uid/coverage/log-gap", getUnifiedHandler("/detection-status/:workload_uid/coverage/log-gap"))
 		// Get detection tasks for a workload
-		detectionStatusGroup.GET("/:workload_uid/tasks", GetDetectionTasks)
+		detectionStatusGroup.GET("/:workload_uid/tasks", getUnifiedHandler("/detection-status/:workload_uid/tasks"))
 		// Get evidence for a workload
-		detectionStatusGroup.GET("/:workload_uid/evidence", GetDetectionEvidence)
-		// Manually trigger detection
+		detectionStatusGroup.GET("/:workload_uid/evidence", getUnifiedHandler("/detection-status/:workload_uid/evidence"))
+		// Manually trigger detection - POST not migrated
 		detectionStatusGroup.POST("/:workload_uid/trigger", TriggerDetection)
 	}
 
