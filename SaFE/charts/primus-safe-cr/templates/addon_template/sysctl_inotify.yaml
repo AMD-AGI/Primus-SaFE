@@ -8,7 +8,7 @@ kind: AddonTemplate
 metadata:
   name: sysctl-inotify
   labels:
-    primus-safe.display.name: "sysctl-inotify-1024"
+    primus-safe.display.name: "sysctl-inotify-limit"
     app.kubernetes.io/managed-by: Helm
   annotations:
     meta.helm.sh/release-name: {{ .Release.Name }}
@@ -16,5 +16,5 @@ metadata:
 spec:
   category: System
   required: true
-  description: Set max inotify instances per user to 1024
-  action: ZWNobyAiZnMuaW5vdGlmeS5tYXhfdXNlcl9pbnN0YW5jZXM9MTAyNCIgPiAvZXRjL3N5c2N0bC5kLzk5LWlub3RpZnkuY29uZiAmJiBzeXNjdGwgLS1zeXN0ZW0K
+  description: Set max_user_instances=1024, max_user_watches=1048576, max_queued_events=16384
+  action: ZWNobyAiZnMuaW5vdGlmeS5tYXhfdXNlcl9pbnN0YW5jZXM9MTAyNCIgPiAvZXRjL3N5c2N0bC5kLzk5LWlub3RpZnkuY29uZgplY2hvICJmcy5pbm90aWZ5Lm1heF91c2VyX3dhdGNoZXM9MTA0ODU3NiIgPj4gL2V0Yy9zeXNjdGwuZC85OS1pbm90aWZ5LmNvbmYKZWNobyAiZnMuaW5vdGlmeS5tYXhfcXVldWVkX2V2ZW50cz0xNjM4NCIgPj4gL2V0Yy9zeXNjdGwuZC85OS1pbm90aWZ5LmNvbmYKc3lzY3RsIC0tc3lzdGVtCg==

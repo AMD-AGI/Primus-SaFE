@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+# Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
 # See LICENSE for license information.
 #
 
@@ -263,7 +263,7 @@ spec:
         - template
       replicasPaths:
         - parallelism
-      completionsPaths:
+      minReplicasPaths:
         - completions
   resourceStatus:
     prePaths:
@@ -348,3 +348,74 @@ spec:
       - matchExpressions:
           phase: 'Running'
         phase: K8sRunning
+---
+apiVersion: amd.com/v1
+kind: ResourceTemplate
+metadata:
+  name: ray-job
+  labels:
+    app.kubernetes.io/managed-by: Helm
+    primus-safe.workload.version: v1
+  annotations:
+    primus-safe.workload.kind: "RayJob"
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
+spec:
+  groupVersionKind:
+    group: ray.io
+    version: v1
+    kind: RayJob
+  resourceSpecs:
+    - prePaths:
+        - spec
+        - rayClusterSpec
+        - headGroupSpec
+      templatePaths:
+        - template
+    - prePaths:
+        - spec
+        - rayClusterSpec
+        - workerGroupSpecs
+        - "0"
+      templatePaths:
+        - template
+      replicasPaths:
+        - replicas
+      maxReplicasPaths:
+        - maxReplicas
+      minReplicasPaths:
+        - minReplicas
+    - prePaths:
+        - spec
+        - rayClusterSpec
+        - workerGroupSpecs
+        - "1"
+      templatePaths:
+        - template
+      replicasPaths:
+        - replicas
+      maxReplicasPaths:
+        - maxReplicas
+      minReplicasPaths:
+        - minReplicas
+  resourceStatus:
+    prePaths:
+      - status
+    messagePaths:
+      - message
+    reasonPaths:
+      - reason
+    phases:
+      - matchExpressions:
+          jobStatus: 'SUCCEEDED'
+        phase: K8sSucceeded
+      - matchExpressions:
+          jobStatus: 'FAILED'
+        phase: K8sFailed
+      - matchExpressions:
+          jobStatus: 'RUNNING'
+        phase: K8sRunning
+  activeReplica:
+    prePaths:
+      - status
+    replicaPath: succeeded

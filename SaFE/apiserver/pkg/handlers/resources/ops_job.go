@@ -485,7 +485,7 @@ func (h *Handler) generateExportImageJob(c *gin.Context, body []byte) (*v1.OpsJo
 	}
 
 	// Validate workload has image
-	if adminWorkload.Spec.Image == "" {
+	if len(adminWorkload.Spec.Images) == 0 {
 		return nil, commonerrors.NewBadRequest("workload image is empty")
 	}
 
@@ -497,7 +497,7 @@ func (h *Handler) generateExportImageJob(c *gin.Context, body []byte) (*v1.OpsJo
 	newInputs = append(newInputs, req.Inputs...) // Keep original inputs (workload, label, etc.)
 
 	// Add image parameter (system-generated)
-	newInputs = append(newInputs, v1.Parameter{Name: "image", Value: adminWorkload.Spec.Image})
+	newInputs = append(newInputs, v1.Parameter{Name: "image", Value: adminWorkload.Spec.Images[0]})
 
 	jobReq := &view.BaseOpsJobRequest{
 		Name:                    jobName,

@@ -31,7 +31,9 @@ type Workload struct {
 	Resource       string         `db:"resource"`
 	Resources      sql.NullString `db:"resources"`
 	Image          string         `db:"image"`
+	Images         sql.NullString `db:"images"`
 	EntryPoint     string         `db:"entrypoint"`
+	EntryPoints    sql.NullString `db:"entrypoints"`
 	GVK            string         `db:"gvk"`
 	Phase          sql.NullString `db:"phase"`
 	UserName       sql.NullString `db:"username"`

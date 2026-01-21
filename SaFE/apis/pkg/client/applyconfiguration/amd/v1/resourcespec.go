@@ -12,7 +12,8 @@ type ResourceSpecApplyConfiguration struct {
 	PrePaths         []string `json:"prePaths,omitempty"`
 	TemplatePaths    []string `json:"templatePaths,omitempty"`
 	ReplicasPaths    []string `json:"replicasPaths,omitempty"`
-	CompletionsPaths []string `json:"completionsPaths,omitempty"`
+	MaxReplicasPaths []string `json:"maxReplicasPaths,omitempty"`
+	MinReplicasPaths []string `json:"minReplicasPaths,omitempty"`
 }
 
 // ResourceSpecApplyConfiguration constructs a declarative configuration of the ResourceSpec type for use with
@@ -51,12 +52,22 @@ func (b *ResourceSpecApplyConfiguration) WithReplicasPaths(values ...string) *Re
 	return b
 }
 
-// WithCompletionsPaths adds the given value to the CompletionsPaths field in the declarative configuration
+// WithMaxReplicasPaths adds the given value to the MaxReplicasPaths field in the declarative configuration
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
-// If called multiple times, values provided by each call will be appended to the CompletionsPaths field.
-func (b *ResourceSpecApplyConfiguration) WithCompletionsPaths(values ...string) *ResourceSpecApplyConfiguration {
+// If called multiple times, values provided by each call will be appended to the MaxReplicasPaths field.
+func (b *ResourceSpecApplyConfiguration) WithMaxReplicasPaths(values ...string) *ResourceSpecApplyConfiguration {
 	for i := range values {
-		b.CompletionsPaths = append(b.CompletionsPaths, values[i])
+		b.MaxReplicasPaths = append(b.MaxReplicasPaths, values[i])
+	}
+	return b
+}
+
+// WithMinReplicasPaths adds the given value to the MinReplicasPaths field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the MinReplicasPaths field.
+func (b *ResourceSpecApplyConfiguration) WithMinReplicasPaths(values ...string) *ResourceSpecApplyConfiguration {
+	for i := range values {
+		b.MinReplicasPaths = append(b.MinReplicasPaths, values[i])
 	}
 	return b
 }

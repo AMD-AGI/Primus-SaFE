@@ -30,6 +30,8 @@ const (
 	MaxCICDScaleSetNameLen = 39
 	// 4 is the fixed suffix length of internal torchft worker name.
 	MaxTorchFTNameLen = MaxDeploymentNameLen - 4
+	// ray-pod: {workload-id}-5qj68-1-worker-78x27. 21 is the fixed suffix length
+	MaxRayJobNameLen = MaxGeneratedNameLength - 21
 )
 
 // GenerateName generates a unique name by appending a random string to the base name.

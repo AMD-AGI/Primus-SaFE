@@ -224,6 +224,8 @@ func GetScope(w *v1.Workload) v1.WorkspaceScope {
 		return v1.AuthoringScope
 	case common.CICDScaleRunnerSetKind, common.CICDEphemeralRunnerKind:
 		return v1.CICDScope
+	case common.RayJobKind:
+		return v1.RayScope
 	default:
 		return ""
 	}
@@ -233,16 +235,6 @@ func GetScope(w *v1.Workload) v1.WorkspaceScope {
 func IsApplication(w *v1.Workload) bool {
 	if w.SpecKind() == common.DeploymentKind ||
 		w.SpecKind() == common.StatefulSetKind {
-		return true
-	}
-	return false
-}
-
-// IsJob returns true if the workload is a job type (PyTorchJob, Authoring and so on).
-func IsJob(w *v1.Workload) bool {
-	kind := w.SpecKind()
-	if kind == common.PytorchJobKind || kind == common.AuthoringKind ||
-		kind == common.JobKind || kind == common.UnifiedJobKind || kind == common.TorchFTKind {
 		return true
 	}
 	return false
@@ -283,6 +275,14 @@ func IsCICDEphemeralRunner(w *v1.Workload) bool {
 // IsTorchFT returns true if the workload is an TorchFT type.
 func IsTorchFT(w *v1.Workload) bool {
 	if w.SpecKind() == common.TorchFTKind {
+		return true
+	}
+	return false
+}
+
+// IsRayJob returns true if the workload is an RayJob type.
+func IsRayJob(w *v1.Workload) bool {
+	if w.SpecKind() == common.RayJobKind {
 		return true
 	}
 	return false

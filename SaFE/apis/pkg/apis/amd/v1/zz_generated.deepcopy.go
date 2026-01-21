@@ -1671,8 +1671,13 @@ func (in *ResourceSpec) DeepCopyInto(out *ResourceSpec) {
 		*out = make([]string, len(*in))
 		copy(*out, *in)
 	}
-	if in.CompletionsPaths != nil {
-		in, out := &in.CompletionsPaths, &out.CompletionsPaths
+	if in.MaxReplicasPaths != nil {
+		in, out := &in.MaxReplicasPaths, &out.MaxReplicasPaths
+		*out = make([]string, len(*in))
+		copy(*out, *in)
+	}
+	if in.MinReplicasPaths != nil {
+		in, out := &in.MinReplicasPaths, &out.MinReplicasPaths
 		*out = make([]string, len(*in))
 		copy(*out, *in)
 	}
@@ -2196,6 +2201,16 @@ func (in *WorkloadSpec) DeepCopyInto(out *WorkloadSpec) {
 	if in.Resources != nil {
 		in, out := &in.Resources, &out.Resources
 		*out = make([]WorkloadResource, len(*in))
+		copy(*out, *in)
+	}
+	if in.Images != nil {
+		in, out := &in.Images, &out.Images
+		*out = make([]string, len(*in))
+		copy(*out, *in)
+	}
+	if in.EntryPoints != nil {
+		in, out := &in.EntryPoints, &out.EntryPoints
+		*out = make([]string, len(*in))
 		copy(*out, *in)
 	}
 	if in.Env != nil {

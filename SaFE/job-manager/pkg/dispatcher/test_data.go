@@ -387,4 +387,265 @@ data:
           - effect: NoExecute
             operator: Exists
 `
+
+	TestRayJobTemplateConfig = `
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: amd-ray-job-template
+  namespace: primus-safe
+  labels:
+    primus-safe.workload.version: v1
+    primus-safe.workload.kind: RayJob
+  annotations:
+    # The main container name should match the configuration defined in the template below
+    primus-safe.main.container: main
+data:
+  template: |
+    apiVersion: ray.io/v1
+    kind: RayJob
+    spec:
+      shutdownAfterJobFinishes: true
+      ttlSecondsAfterFinished: 10
+      rayClusterSpec:
+        headGroupSpec:
+          template:
+            spec:
+              dnsPolicy: ClusterFirstWithHostNet
+              initContainers:
+              - name: preprocess
+                image: docker.io/primussafe/preprocess:latest
+                imagePullPolicy: IfNotPresent
+                command: ["/bin/sh", "-c", "cp -r /preprocess/* /shared-data/"]
+                securityContext:
+                  capabilities:
+                    add: [ "IPC_LOCK" ]
+                resources:
+                  limits:
+                    cpu: 1000m
+                    memory: 128Mi
+                volumeMounts:
+                  - name: shared-data
+                    mountPath: /shared-data
+              containers:
+              - name: main
+                env:
+                - name: NCCL_SOCKET_IFNAME
+                  value: "ens51f0"
+                - name: GLOO_SOCKET_IFNAME
+                  value: "ens51f0"
+                - name: NCCL_IB_HCA
+                  value: "bnxt_re0,bnxt_re1,bnxt_re2,bnxt_re3,bnxt_re4,bnxt_re5,bnxt_re7,bnxt_re8"
+                - name: NCCL_IB_TIMEOUT
+                  value: "23"
+                - name: NCCL_IB_RETRY_CNT
+                  value: "11"
+                - name: NCCL_IB_GID_INDEX
+                  value: "3"
+                - name: NCCL_IB_QPS_PER_CONNECTION
+                  value: "4"
+                - name: NCCL_IB_TC
+                  value: "41"
+                - name: POD_NAME
+                  valueFrom:
+                    fieldRef:
+                      apiVersion: v1
+                      fieldPath: metadata.name
+                - name: POD_UID
+                  valueFrom:
+                    fieldRef:
+                      apiVersion: v1
+                      fieldPath: metadata.uid
+                - name: POD_IP
+                  valueFrom:
+                    fieldRef:
+                      apiVersion: v1
+                      fieldPath: status.podIP
+                - name: POD_NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      apiVersion: v1
+                      fieldPath: metadata.namespace
+                ports:
+                - containerPort: 6379
+                  name: gcs-server
+                - containerPort: 8265 # Ray dashboard
+                  name: dashboard
+                - containerPort: 10001
+                  name: client
+                imagePullPolicy: IfNotPresent
+                volumeMounts:
+                  - name: shared-data
+                    mountPath: /shared-data
+                  - name: podinfo
+                    mountPath: /etc/podinfo
+                    readOnly: true
+                securityContext:
+                  privileged: true
+                  runAsUser: 0
+              schedulerName: kube-scheduler-plugins
+              volumes:
+                - name: shared-data
+                  emptyDir: {}
+                - name: podinfo
+                  downwardAPI:
+                    items:
+                    - path: "labels"
+                      fieldRef:
+                        fieldPath: metadata.labels
+              terminationGracePeriodSeconds: 5
+        workerGroupSpecs:
+        - groupName: workergroup1
+          template:
+            spec:
+              dnsPolicy: ClusterFirstWithHostNet
+              initContainers:
+              - name: preprocess
+                image: docker.io/primussafe/preprocess:latest
+                imagePullPolicy: IfNotPresent
+                command: ["/bin/sh", "-c", "cp -r /preprocess/* /shared-data/"]
+                securityContext:
+                  capabilities:
+                    add: [ "IPC_LOCK" ]
+                resources:
+                  limits:
+                    cpu: 1000m
+                    memory: 128Mi
+                volumeMounts:
+                  - name: shared-data
+                    mountPath: /shared-data
+              containers:
+              - name: main
+                env:
+                - name: NCCL_SOCKET_IFNAME
+                  value: "ens51f0"
+                - name: GLOO_SOCKET_IFNAME
+                  value: "ens51f0"
+                - name: NCCL_IB_HCA
+                  value: "bnxt_re0,bnxt_re1,bnxt_re2,bnxt_re3,bnxt_re4,bnxt_re5,bnxt_re7,bnxt_re8"
+                - name: NCCL_IB_TIMEOUT
+                  value: "23"
+                - name: NCCL_IB_RETRY_CNT
+                  value: "11"
+                - name: NCCL_IB_GID_INDEX
+                  value: "3"
+                - name: NCCL_IB_QPS_PER_CONNECTION
+                  value: "4"
+                - name: NCCL_IB_TC
+                  value: "41"
+                - name: POD_NAME
+                  valueFrom:
+                    fieldRef:
+                      apiVersion: v1
+                      fieldPath: metadata.name
+                - name: POD_UID
+                  valueFrom:
+                    fieldRef:
+                      apiVersion: v1
+                      fieldPath: metadata.uid
+                - name: POD_IP
+                  valueFrom:
+                    fieldRef:
+                      apiVersion: v1
+                      fieldPath: status.podIP
+                - name: POD_NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      apiVersion: v1
+                      fieldPath: metadata.namespace
+                imagePullPolicy: IfNotPresent
+                volumeMounts:
+                  - name: shared-data
+                    mountPath: /shared-data
+                  - name: podinfo
+                    mountPath: /etc/podinfo
+                    readOnly: true
+              schedulerName: kube-scheduler-plugins
+              volumes:
+                - name: shared-data
+                  emptyDir: {}
+                - name: podinfo
+                  downwardAPI:
+                    items:
+                    - path: "labels"
+                      fieldRef:
+                        fieldPath: metadata.labels
+              terminationGracePeriodSeconds: 5
+        - groupName: workergroup2
+          template:
+            spec:
+              dnsPolicy: ClusterFirstWithHostNet
+              initContainers:
+              - name: preprocess
+                image: docker.io/primussafe/preprocess:latest
+                imagePullPolicy: IfNotPresent
+                command: ["/bin/sh", "-c", "cp -r /preprocess/* /shared-data/"]
+                securityContext:
+                  capabilities:
+                    add: [ "IPC_LOCK" ]
+                resources:
+                  limits:
+                    cpu: 1000m
+                    memory: 128Mi
+                volumeMounts:
+                  - name: shared-data
+                    mountPath: /shared-data
+              containers:
+              - name: main
+                env:
+                - name: NCCL_SOCKET_IFNAME
+                  value: "enp49s0f0np0"
+                - name: GLOO_SOCKET_IFNAME
+                  value: "enp49s0f0np0"
+                - name: NCCL_IB_HCA
+                  value: "bnxt_re0,bnxt_re1,bnxt_re2,bnxt_re3,bnxt_re4,bnxt_re5,bnxt_re7,bnxt_re8"
+                - name: NCCL_IB_TIMEOUT
+                  value: "23"
+                - name: NCCL_IB_RETRY_CNT
+                  value: "11"
+                - name: NCCL_IB_GID_INDEX
+                  value: "3"
+                - name: NCCL_IB_QPS_PER_CONNECTION
+                  value: "4"
+                - name: NCCL_IB_TC
+                  value: "41"
+                - name: POD_NAME
+                  valueFrom:
+                    fieldRef:
+                      apiVersion: v1
+                      fieldPath: metadata.name
+                - name: POD_UID
+                  valueFrom:
+                    fieldRef:
+                      apiVersion: v1
+                      fieldPath: metadata.uid
+                - name: POD_IP
+                  valueFrom:
+                    fieldRef:
+                      apiVersion: v1
+                      fieldPath: status.podIP
+                - name: POD_NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      apiVersion: v1
+                      fieldPath: metadata.namespace
+                imagePullPolicy: IfNotPresent
+                volumeMounts:
+                  - name: shared-data
+                    mountPath: /shared-data
+                  - name: podinfo
+                    mountPath: /etc/podinfo
+                    readOnly: true
+              schedulerName: kube-scheduler-plugins
+              volumes:
+                - name: shared-data
+                  emptyDir: {}
+                - name: podinfo
+                  downwardAPI:
+                    items:
+                    - path: "labels"
+                      fieldRef:
+                        fieldPath: metadata.labels
+              terminationGracePeriodSeconds: 5
+`
 )
