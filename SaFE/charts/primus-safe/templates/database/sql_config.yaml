@@ -401,6 +401,14 @@ data:
     -- Add workload_id column to deployment_requests for tracking associated workload
     ALTER TABLE deployment_requests ADD COLUMN IF NOT EXISTS workload_id VARCHAR(64);
 
+    -- Add deploy_type column to support both Safe and Lens CD (default 'safe' for backward compatibility)
+    ALTER TABLE deployment_requests ADD COLUMN IF NOT EXISTS deploy_type VARCHAR(16) DEFAULT 'safe';
+    ALTER TABLE environment_snapshots ADD COLUMN IF NOT EXISTS deploy_type VARCHAR(16) DEFAULT 'safe';
+    CREATE INDEX IF NOT EXISTS idx_deploy_type ON deployment_requests(deploy_type);
+
+    -- Add base_snapshot_id to record the snapshot before deployment (for accurate diff calculation)
+    ALTER TABLE deployment_requests ADD COLUMN IF NOT EXISTS base_snapshot_id BIGINT;
+
     -- API Keys table for API key authentication
     CREATE TABLE IF NOT EXISTS api_keys (
         id SERIAL PRIMARY KEY,

@@ -275,14 +275,16 @@ type DeploymentRequest struct {
 	Id              int64          `db:"id"`
 	DeployName      string         `db:"deploy_name"`
 	Status          string         `db:"status"`
+	DeployType      string         `db:"deploy_type"` // "safe" or "lens", default "safe"
 	ApproverName    sql.NullString `db:"approver_name"`
 	ApprovalResult  sql.NullString `db:"approval_result"`
-	EnvConfig       string         `db:"env_config"` // JSON string
+	EnvConfig       string         `db:"env_config"` // JSON string (unified config for both safe and lens)
 	Description     sql.NullString `db:"description"`
 	RejectionReason sql.NullString `db:"rejection_reason"`
 	FailureReason   sql.NullString `db:"failure_reason"`
 	RollbackFromId  sql.NullInt64  `db:"rollback_from_id"`
-	WorkloadId      sql.NullString `db:"workload_id"` // Associated workload/opsjob ID
+	BaseSnapshotId  sql.NullInt64  `db:"base_snapshot_id"` // Snapshot ID before deployment (for diff calculation)
+	WorkloadId      sql.NullString `db:"workload_id"`      // Associated workload/opsjob ID
 	CreatedAt       pq.NullTime    `db:"created_at"`
 	UpdatedAt       pq.NullTime    `db:"updated_at"`
 	ApprovedAt      pq.NullTime    `db:"approved_at"`
@@ -296,7 +298,8 @@ func GetDeploymentRequestFieldTags() map[string]string {
 type EnvironmentSnapshot struct {
 	Id                  int64       `db:"id"`
 	DeploymentRequestId int64       `db:"deployment_request_id"`
-	EnvConfig           string      `db:"env_config"` // JSON string
+	DeployType          string      `db:"deploy_type"` // "safe" or "lens", default "safe"
+	EnvConfig           string      `db:"env_config"`  // JSON string
 	CreatedAt           pq.NullTime `db:"created_at"`
 	UpdatedAt           pq.NullTime `db:"updated_at"`
 }
