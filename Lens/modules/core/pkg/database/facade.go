@@ -77,6 +77,14 @@ type FacadeInterface interface {
 	GetGithubWorkflowCommit() GithubWorkflowCommitFacadeInterface
 	// GetGithubWorkflowRunDetails returns the GithubWorkflowRunDetails Facade interface
 	GetGithubWorkflowRunDetails() GithubWorkflowRunDetailsFacadeInterface
+	// GetDashboardSummary returns the DashboardSummary Facade interface
+	GetDashboardSummary() DashboardSummaryFacadeInterface
+	// GetMetricBaseline returns the MetricBaseline Facade interface
+	GetMetricBaseline() MetricBaselineFacadeInterface
+	// GetCommitImpactAnalysis returns the CommitImpactAnalysis Facade interface
+	GetCommitImpactAnalysis() CommitImpactAnalysisFacadeInterface
+	// GetNotificationChannel returns the NotificationChannel Facade interface
+	GetNotificationChannel() NotificationChannelFacadeInterface
 	// WithCluster returns a new Facade instance using the specified cluster
 	WithCluster(clusterName string) FacadeInterface
 }
@@ -119,6 +127,10 @@ type Facade struct {
 	GithubRunnerSet           GithubRunnerSetFacadeInterface
 	GithubWorkflowCommit      GithubWorkflowCommitFacadeInterface
 	GithubWorkflowRunDetails  GithubWorkflowRunDetailsFacadeInterface
+	DashboardSummary          DashboardSummaryFacadeInterface
+	MetricBaseline            MetricBaselineFacadeInterface
+	CommitImpactAnalysis      CommitImpactAnalysisFacadeInterface
+	NotificationChannel       NotificationChannelFacadeInterface
 }
 
 // NewFacade creates a new Facade instance
@@ -160,6 +172,10 @@ func NewFacade() *Facade {
 		GithubRunnerSet:           NewGithubRunnerSetFacade(),
 		GithubWorkflowCommit:      NewGithubWorkflowCommitFacade(),
 		GithubWorkflowRunDetails:  NewGithubWorkflowRunDetailsFacade(),
+		DashboardSummary:          NewDashboardSummaryFacade(),
+		MetricBaseline:            NewMetricBaselineFacade(),
+		CommitImpactAnalysis:      NewCommitImpactAnalysisFacade(),
+		NotificationChannel:       NewNotificationChannelFacade(),
 	}
 }
 
@@ -343,6 +359,26 @@ func (f *Facade) GetGithubWorkflowRunDetails() GithubWorkflowRunDetailsFacadeInt
 	return f.GithubWorkflowRunDetails
 }
 
+// GetDashboardSummary returns the DashboardSummary Facade interface
+func (f *Facade) GetDashboardSummary() DashboardSummaryFacadeInterface {
+	return f.DashboardSummary
+}
+
+// GetMetricBaseline returns the MetricBaseline Facade interface
+func (f *Facade) GetMetricBaseline() MetricBaselineFacadeInterface {
+	return f.MetricBaseline
+}
+
+// GetCommitImpactAnalysis returns the CommitImpactAnalysis Facade interface
+func (f *Facade) GetCommitImpactAnalysis() CommitImpactAnalysisFacadeInterface {
+	return f.CommitImpactAnalysis
+}
+
+// GetNotificationChannel returns the NotificationChannel Facade interface
+func (f *Facade) GetNotificationChannel() NotificationChannelFacadeInterface {
+	return f.NotificationChannel
+}
+
 // WithCluster returns a new Facade instance, all sub-Facades use the specified cluster
 func (f *Facade) WithCluster(clusterName string) FacadeInterface {
 	return &Facade{
@@ -382,6 +418,10 @@ func (f *Facade) WithCluster(clusterName string) FacadeInterface {
 		GithubRunnerSet:           f.GithubRunnerSet.WithCluster(clusterName),
 		GithubWorkflowCommit:      f.GithubWorkflowCommit.WithCluster(clusterName),
 		GithubWorkflowRunDetails:  f.GithubWorkflowRunDetails.WithCluster(clusterName),
+		DashboardSummary:          f.DashboardSummary.WithCluster(clusterName),
+		MetricBaseline:            f.MetricBaseline.WithCluster(clusterName),
+		CommitImpactAnalysis:      f.CommitImpactAnalysis.WithCluster(clusterName),
+		NotificationChannel:       f.NotificationChannel.WithCluster(clusterName),
 	}
 }
 

@@ -57,6 +57,10 @@ type GithubWorkflowRunFacadeInterface interface {
 	// GetByRunnerSetAndWorkload retrieves a run by runner_set_id and workload_uid
 	GetByRunnerSetAndWorkload(ctx context.Context, runnerSetID int64, workloadUID string) (*model.GithubWorkflowRuns, error)
 
+	// GetByRunnerSetAndWorkloadName retrieves a run by runner_set_id and workload_name
+	// This is preferred over GetByRunnerSetAndWorkload as workload_name is more stable than UID
+	GetByRunnerSetAndWorkloadName(ctx context.Context, runnerSetID int64, workloadName string) (*model.GithubWorkflowRuns, error)
+
 	// GetByConfigAndWorkload retrieves a run by config_id and workload_uid (deprecated, use GetByRunnerSetAndWorkload)
 	GetByConfigAndWorkload(ctx context.Context, configID int64, workloadUID string) (*model.GithubWorkflowRuns, error)
 
@@ -68,6 +72,9 @@ type GithubWorkflowRunFacadeInterface interface {
 
 	// ListAllWithConfigName lists runs across all configs with config name (for global runs view)
 	ListAllWithConfigName(ctx context.Context, filter *GithubWorkflowRunFilter) ([]*RunWithConfigName, int64, error)
+
+	// ListPending lists all pending runs with optional filtering
+	ListPending(ctx context.Context, filter *GithubWorkflowRunFilter) ([]*model.GithubWorkflowRuns, error)
 
 	// ListPendingByRunnerSet lists pending runs for a runner set
 	ListPendingByRunnerSet(ctx context.Context, runnerSetID int64, limit int) ([]*model.GithubWorkflowRuns, error)
@@ -116,6 +123,15 @@ type GithubWorkflowRunFacadeInterface interface {
 
 	// DeleteByConfig deletes all runs for a config (deprecated)
 	DeleteByConfig(ctx context.Context, configID int64) error
+
+	// MarkPendingWithoutConfigAsCompleted batch marks pending runs without config as completed
+	// Returns the number of affected rows
+	MarkPendingWithoutConfigAsCompleted(ctx context.Context) (int64, error)
+
+	// ResetStuckCollectingToPending resets collecting runs that have been stuck for too long
+	// timeout specifies how long a run can be in collecting status before being reset
+	// Returns the number of affected rows
+	ResetStuckCollectingToPending(ctx context.Context, timeout time.Duration) (int64, error)
 
 	// WithCluster returns a new facade instance for the specified cluster
 	WithCluster(clusterName string) GithubWorkflowRunFacadeInterface
@@ -204,6 +220,27 @@ func (f *GithubWorkflowRunFacade) GetByRunnerSetAndWorkload(ctx context.Context,
 	return result, nil
 }
 
+// GetByRunnerSetAndWorkloadName retrieves a run by runner_set_id and workload_name
+// This is preferred over GetByRunnerSetAndWorkload as workload_name is more stable than UID
+func (f *GithubWorkflowRunFacade) GetByRunnerSetAndWorkloadName(ctx context.Context, runnerSetID int64, workloadName string) (*model.GithubWorkflowRuns, error) {
+	q := f.getDAL().GithubWorkflowRuns
+	result, err := q.WithContext(ctx).
+		Where(q.RunnerSetID.Eq(runnerSetID)).
+		Where(q.WorkloadName.Eq(workloadName)).
+		First()
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	// Handle edge case where GORM returns an empty struct instead of nil
+	if result == nil || result.ID == 0 {
+		return nil, nil
+	}
+	return result, nil
+}
+
 // GetByConfigAndWorkload retrieves a run by config_id and workload_uid (deprecated, use GetByRunnerSetAndWorkload)
 func (f *GithubWorkflowRunFacade) GetByConfigAndWorkload(ctx context.Context, configID int64, workloadUID string) (*model.GithubWorkflowRuns, error) {
 	q := f.getDAL().GithubWorkflowRuns
@@ -278,6 +315,52 @@ func (f *GithubWorkflowRunFacade) List(ctx context.Context, filter *GithubWorkfl
 	}
 
 	return results, total, nil
+}
+
+// ListPending lists all pending runs with optional filtering
+func (f *GithubWorkflowRunFacade) ListPending(ctx context.Context, filter *GithubWorkflowRunFilter) ([]*model.GithubWorkflowRuns, error) {
+	q := f.getDAL().GithubWorkflowRuns
+	query := q.WithContext(ctx).Where(q.Status.Eq(WorkflowRunStatusPending))
+
+	if filter != nil {
+		if filter.RunnerSetID > 0 {
+			query = query.Where(q.RunnerSetID.Eq(filter.RunnerSetID))
+		}
+		if filter.RunnerSetName != "" {
+			query = query.Where(q.RunnerSetName.Eq(filter.RunnerSetName))
+		}
+		if filter.ConfigID > 0 {
+			query = query.Where(q.ConfigID.Eq(filter.ConfigID))
+		}
+		if filter.ConfigID == -1 {
+			// Special value to indicate "no config"
+			// In our implementation, config_id is always set to 0 (not NULL) when no config exists
+			query = query.Where(q.ConfigID.Eq(0))
+		}
+		if filter.TriggerSource != "" {
+			query = query.Where(q.TriggerSource.Eq(filter.TriggerSource))
+		}
+		if filter.Since != nil {
+			query = query.Where(q.CreatedAt.Gte(*filter.Since))
+		}
+		if filter.Until != nil {
+			query = query.Where(q.CreatedAt.Lte(*filter.Until))
+		}
+
+		if filter.Limit > 0 {
+			query = query.Limit(filter.Limit)
+		}
+		if filter.Offset > 0 {
+			query = query.Offset(filter.Offset)
+		}
+	}
+
+	results, err := query.Order(q.CreatedAt.Asc()).Find()
+	if err != nil {
+		return nil, err
+	}
+
+	return results, nil
 }
 
 // ListPendingByRunnerSet lists pending runs for a runner set
@@ -430,6 +513,41 @@ func (f *GithubWorkflowRunFacade) DeleteByConfig(ctx context.Context, configID i
 	q := f.getDAL().GithubWorkflowRuns
 	_, err := q.WithContext(ctx).Where(q.ConfigID.Eq(configID)).Delete()
 	return err
+}
+
+// MarkPendingWithoutConfigAsCompleted batch marks pending runs without config as completed
+// This optimizes the collector by skipping runs that have no matching config
+func (f *GithubWorkflowRunFacade) MarkPendingWithoutConfigAsCompleted(ctx context.Context) (int64, error) {
+	result := f.getDB().WithContext(ctx).Exec(`
+		UPDATE github_workflow_runs r
+		SET status = 'completed', 
+		    error_message = 'no config configured for this runner set',
+		    updated_at = NOW()
+		WHERE r.status = 'pending'
+		AND NOT EXISTS (
+		    SELECT 1 FROM github_workflow_configs c 
+		    WHERE c.runner_set_namespace = r.runner_set_namespace 
+		    AND c.runner_set_name = r.runner_set_name 
+		    AND c.enabled = true
+		)
+	`)
+	return result.RowsAffected, result.Error
+}
+
+// ResetStuckCollectingToPending resets collecting runs that have been stuck for too long
+// This handles cases where collector crashed or failed after marking as collecting
+func (f *GithubWorkflowRunFacade) ResetStuckCollectingToPending(ctx context.Context, timeout time.Duration) (int64, error) {
+	cutoff := time.Now().Add(-timeout)
+	result := f.getDB().WithContext(ctx).Exec(`
+		UPDATE github_workflow_runs
+		SET status = 'pending',
+		    retry_count = retry_count + 1,
+		    error_message = 'reset from stuck collecting status',
+		    updated_at = NOW()
+		WHERE status = 'collecting'
+		AND collection_started_at < ?
+	`, cutoff)
+	return result.RowsAffected, result.Error
 }
 
 // ListByRunnerSetAndStatus lists runs by runner set and status

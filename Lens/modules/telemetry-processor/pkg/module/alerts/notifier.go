@@ -6,9 +6,14 @@ package alerts
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/smtp"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
@@ -143,12 +148,437 @@ func sendWebhookNotification(ctx context.Context, alert *UnifiedAlert, config ma
 	return nil
 }
 
+// EmailConfig represents SMTP email configuration
+type EmailConfig struct {
+	SMTPHost     string   // SMTP server host
+	SMTPPort     int      // SMTP server port (25, 465, 587)
+	Username     string   // SMTP authentication username
+	Password     string   // SMTP authentication password
+	From         string   // Sender email address
+	FromName     string   // Sender display name
+	To           []string // Recipient email addresses
+	CC           []string // CC recipients
+	UseTLS       bool     // Use TLS/SSL connection
+	UseSTARTTLS  bool     // Use STARTTLS upgrade
+	SkipVerify   bool     // Skip TLS certificate verification
+	TemplateName string   // Custom template name (optional)
+}
+
+// parseEmailConfig parses email configuration from map
+func parseEmailConfig(config map[string]interface{}) (*EmailConfig, error) {
+	ec := &EmailConfig{
+		SMTPPort:    587,     // Default to submission port
+		UseSTARTTLS: true,    // Default to STARTTLS
+		SkipVerify:  false,
+	}
+
+	// Required fields
+	if host, ok := config["smtp_host"].(string); ok && host != "" {
+		ec.SMTPHost = host
+	} else {
+		return nil, fmt.Errorf("smtp_host is required")
+	}
+
+	if from, ok := config["from"].(string); ok && from != "" {
+		ec.From = from
+	} else {
+		return nil, fmt.Errorf("from email address is required")
+	}
+
+	// Parse recipients
+	if to, ok := config["to"].([]interface{}); ok {
+		for _, addr := range to {
+			if s, ok := addr.(string); ok && s != "" {
+				ec.To = append(ec.To, s)
+			}
+		}
+	} else if to, ok := config["to"].(string); ok && to != "" {
+		ec.To = strings.Split(to, ",")
+	}
+	if len(ec.To) == 0 {
+		return nil, fmt.Errorf("at least one recipient (to) is required")
+	}
+
+	// Optional fields
+	if port, ok := config["smtp_port"].(float64); ok {
+		ec.SMTPPort = int(port)
+	} else if port, ok := config["smtp_port"].(int); ok {
+		ec.SMTPPort = port
+	}
+
+	if username, ok := config["username"].(string); ok {
+		ec.Username = username
+	}
+	if password, ok := config["password"].(string); ok {
+		ec.Password = password
+	}
+	if fromName, ok := config["from_name"].(string); ok {
+		ec.FromName = fromName
+	}
+
+	// Parse CC recipients
+	if cc, ok := config["cc"].([]interface{}); ok {
+		for _, addr := range cc {
+			if s, ok := addr.(string); ok && s != "" {
+				ec.CC = append(ec.CC, s)
+			}
+		}
+	} else if cc, ok := config["cc"].(string); ok && cc != "" {
+		ec.CC = strings.Split(cc, ",")
+	}
+
+	// TLS options
+	if useTLS, ok := config["use_tls"].(bool); ok {
+		ec.UseTLS = useTLS
+	}
+	if useSTARTTLS, ok := config["use_starttls"].(bool); ok {
+		ec.UseSTARTTLS = useSTARTTLS
+	}
+	if skipVerify, ok := config["skip_verify"].(bool); ok {
+		ec.SkipVerify = skipVerify
+	}
+	if templateName, ok := config["template_name"].(string); ok {
+		ec.TemplateName = templateName
+	}
+
+	return ec, nil
+}
+
 // sendEmailNotification sends a notification via email
 func sendEmailNotification(ctx context.Context, alert *UnifiedAlert, config map[string]interface{}) error {
-	// TODO: Implement email notification
-	// This would typically use SMTP or an email service API
-	log.GlobalLogger().WithContext(ctx).Infof("Email notification not yet implemented for alert %s", alert.ID)
-	return fmt.Errorf("email notification not implemented")
+	emailConfig, err := parseEmailConfig(config)
+	if err != nil {
+		return fmt.Errorf("invalid email configuration: %w", err)
+	}
+
+	// Build email content
+	subject := fmt.Sprintf("[%s] Alert: %s - %s", strings.ToUpper(alert.Severity), alert.AlertName, alert.Status)
+	htmlBody := buildEmailHTMLBody(alert)
+	textBody := formatAlertMessage(alert)
+
+	// Build email message
+	msg := buildEmailMessage(emailConfig, subject, textBody, htmlBody)
+
+	// Send email
+	if err := sendSMTPEmail(ctx, emailConfig, msg); err != nil {
+		return fmt.Errorf("failed to send email: %w", err)
+	}
+
+	log.GlobalLogger().WithContext(ctx).Infof("Email notification sent successfully for alert %s to %v", alert.ID, emailConfig.To)
+	return nil
+}
+
+// buildEmailMessage builds a MIME multipart email message
+func buildEmailMessage(config *EmailConfig, subject, textBody, htmlBody string) []byte {
+	var buf bytes.Buffer
+
+	// From header
+	if config.FromName != "" {
+		buf.WriteString(fmt.Sprintf("From: %s <%s>\r\n", config.FromName, config.From))
+	} else {
+		buf.WriteString(fmt.Sprintf("From: %s\r\n", config.From))
+	}
+
+	// To header
+	buf.WriteString(fmt.Sprintf("To: %s\r\n", strings.Join(config.To, ", ")))
+
+	// CC header
+	if len(config.CC) > 0 {
+		buf.WriteString(fmt.Sprintf("Cc: %s\r\n", strings.Join(config.CC, ", ")))
+	}
+
+	// Subject with UTF-8 encoding
+	buf.WriteString(fmt.Sprintf("Subject: %s\r\n", subject))
+
+	// Date
+	buf.WriteString(fmt.Sprintf("Date: %s\r\n", time.Now().Format(time.RFC1123Z)))
+
+	// MIME headers - Send HTML only for better compatibility
+	buf.WriteString("MIME-Version: 1.0\r\n")
+	buf.WriteString("Content-Type: text/html; charset=UTF-8\r\n")
+	buf.WriteString("Content-Transfer-Encoding: base64\r\n")
+	buf.WriteString("\r\n")
+
+	// Base64 encode the HTML body
+	encoded := base64.StdEncoding.EncodeToString([]byte(htmlBody))
+	// Split into 76-character lines per RFC 2045
+	for i := 0; i < len(encoded); i += 76 {
+		end := i + 76
+		if end > len(encoded) {
+			end = len(encoded)
+		}
+		buf.WriteString(encoded[i:end])
+		buf.WriteString("\r\n")
+	}
+
+	return buf.Bytes()
+}
+
+// buildEmailHTMLBody builds an HTML email body for the alert
+func buildEmailHTMLBody(alert *UnifiedAlert) string {
+	// Determine header color based on severity
+	severityColor := "#17a2b8" // default info blue
+	severityBg := "#17a2b8"
+	textColor := "white"
+	switch strings.ToLower(alert.Severity) {
+	case "critical":
+		severityColor = "#dc3545"
+		severityBg = "#dc3545"
+	case "high":
+		severityColor = "#fd7e14"
+		severityBg = "#fd7e14"
+	case "warning":
+		severityColor = "#ffc107"
+		severityBg = "#ffc107"
+		textColor = "#212529"
+	}
+
+	// Status badge color
+	statusColor := "#28a745" // green for resolved
+	if strings.ToLower(alert.Status) == "firing" {
+		statusColor = "#dc3545" // red for firing
+	}
+
+	// Build labels HTML
+	var labelsHTML string
+	for k, v := range alert.Labels {
+		labelsHTML += fmt.Sprintf(`<span style="display:inline-block;background:#e9ecef;padding:4px 10px;border-radius:4px;font-size:12px;margin:2px;">%s=%s</span>`, k, v)
+	}
+
+	// Get description
+	description := ""
+	if desc, ok := alert.Annotations["description"]; ok {
+		description = desc
+	} else if summary, ok := alert.Annotations["summary"]; ok {
+		description = summary
+	}
+
+	// Build HTML directly without template to avoid any parsing issues
+	html := fmt.Sprintf(`<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="margin:0;padding:0;background-color:#f4f4f4;font-family:Arial,Helvetica,sans-serif;">
+<table width="100%%" cellpadding="0" cellspacing="0" style="background-color:#f4f4f4;padding:20px;">
+<tr>
+<td align="center">
+<table width="600" cellpadding="0" cellspacing="0" style="background-color:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.1);">
+<!-- Header -->
+<tr>
+<td style="background-color:%s;padding:25px 30px;">
+<h1 style="margin:0;color:%s;font-size:22px;font-weight:600;">🔔 %s</h1>
+<p style="margin:10px 0 0 0;color:%s;font-size:14px;opacity:0.9;">
+<span style="display:inline-block;background-color:%s;color:white;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:bold;">%s</span>
+<span style="margin-left:10px;">Severity: <strong>%s</strong></span>
+</p>
+</td>
+</tr>
+<!-- Content -->
+<tr>
+<td style="padding:25px 30px;">
+<table width="100%%" cellpadding="0" cellspacing="0">
+<!-- Source -->
+<tr>
+<td style="padding-bottom:15px;">
+<p style="margin:0;font-size:11px;color:#6c757d;text-transform:uppercase;letter-spacing:1px;">Source</p>
+<p style="margin:5px 0 0 0;font-size:15px;color:#212529;">%s</p>
+</td>
+</tr>
+<!-- Time -->
+<tr>
+<td style="padding-bottom:15px;">
+<p style="margin:0;font-size:11px;color:#6c757d;text-transform:uppercase;letter-spacing:1px;">Time</p>
+<p style="margin:5px 0 0 0;font-size:15px;color:#212529;">%s</p>
+</td>
+</tr>`,
+		severityBg, textColor, alert.AlertName, textColor,
+		statusColor, strings.ToUpper(alert.Status), strings.ToUpper(alert.Severity),
+		alert.Source, alert.StartsAt.Format("2006-01-02 15:04:05 MST"))
+
+	// Add optional fields
+	if alert.ClusterName != "" {
+		html += fmt.Sprintf(`
+<!-- Cluster -->
+<tr>
+<td style="padding-bottom:15px;">
+<p style="margin:0;font-size:11px;color:#6c757d;text-transform:uppercase;letter-spacing:1px;">Cluster</p>
+<p style="margin:5px 0 0 0;font-size:15px;color:#212529;">%s</p>
+</td>
+</tr>`, alert.ClusterName)
+	}
+
+	if alert.NodeName != "" {
+		html += fmt.Sprintf(`
+<!-- Node -->
+<tr>
+<td style="padding-bottom:15px;">
+<p style="margin:0;font-size:11px;color:#6c757d;text-transform:uppercase;letter-spacing:1px;">Node</p>
+<p style="margin:5px 0 0 0;font-size:15px;color:#212529;">%s</p>
+</td>
+</tr>`, alert.NodeName)
+	}
+
+	if alert.PodName != "" {
+		html += fmt.Sprintf(`
+<!-- Pod -->
+<tr>
+<td style="padding-bottom:15px;">
+<p style="margin:0;font-size:11px;color:#6c757d;text-transform:uppercase;letter-spacing:1px;">Pod</p>
+<p style="margin:5px 0 0 0;font-size:15px;color:#212529;">%s</p>
+</td>
+</tr>`, alert.PodName)
+	}
+
+	if alert.WorkloadID != "" {
+		html += fmt.Sprintf(`
+<!-- Workload -->
+<tr>
+<td style="padding-bottom:15px;">
+<p style="margin:0;font-size:11px;color:#6c757d;text-transform:uppercase;letter-spacing:1px;">Workload</p>
+<p style="margin:5px 0 0 0;font-size:15px;color:#212529;">%s</p>
+</td>
+</tr>`, alert.WorkloadID)
+	}
+
+	if description != "" {
+		html += fmt.Sprintf(`
+<!-- Description -->
+<tr>
+<td style="padding-bottom:15px;">
+<p style="margin:0;font-size:11px;color:#6c757d;text-transform:uppercase;letter-spacing:1px;">Description</p>
+<div style="margin:8px 0 0 0;padding:12px;background-color:#f8f9fa;border-radius:6px;border-left:4px solid %s;">
+<p style="margin:0;font-size:14px;color:#212529;line-height:1.5;">%s</p>
+</div>
+</td>
+</tr>`, severityColor, description)
+	}
+
+	if labelsHTML != "" {
+		html += fmt.Sprintf(`
+<!-- Labels -->
+<tr>
+<td style="padding-bottom:15px;">
+<p style="margin:0;font-size:11px;color:#6c757d;text-transform:uppercase;letter-spacing:1px;">Labels</p>
+<div style="margin:8px 0 0 0;">%s</div>
+</td>
+</tr>`, labelsHTML)
+	}
+
+	// Close content and add footer
+	html += fmt.Sprintf(`
+</table>
+</td>
+</tr>
+<!-- Footer -->
+<tr>
+<td style="background-color:#f8f9fa;padding:20px 30px;border-top:1px solid #e9ecef;">
+<p style="margin:0;font-size:12px;color:#6c757d;">
+Alert ID: <code style="background:#e9ecef;padding:2px 6px;border-radius:3px;">%s</code>
+</p>
+<p style="margin:8px 0 0 0;font-size:11px;color:#adb5bd;">
+Generated by Primus Lens Alert System
+</p>
+</td>
+</tr>
+</table>
+</td>
+</tr>
+</table>
+</body>
+</html>`, alert.ID)
+
+	return html
+}
+
+// sendSMTPEmail sends email via SMTP
+func sendSMTPEmail(ctx context.Context, config *EmailConfig, msg []byte) error {
+	addr := config.SMTPHost + ":" + strconv.Itoa(config.SMTPPort)
+
+	// Collect all recipients
+	recipients := append([]string{}, config.To...)
+	recipients = append(recipients, config.CC...)
+
+	// TLS configuration
+	tlsConfig := &tls.Config{
+		ServerName:         config.SMTPHost,
+		InsecureSkipVerify: config.SkipVerify,
+	}
+
+	var conn *tls.Conn
+	var client *smtp.Client
+	var err error
+
+	if config.UseTLS {
+		// Direct TLS connection (port 465)
+		conn, err = tls.Dial("tcp", addr, tlsConfig)
+		if err != nil {
+			return fmt.Errorf("failed to connect with TLS: %w", err)
+		}
+		defer conn.Close()
+
+		client, err = smtp.NewClient(conn, config.SMTPHost)
+		if err != nil {
+			return fmt.Errorf("failed to create SMTP client: %w", err)
+		}
+	} else {
+		// Plain connection with optional STARTTLS
+		client, err = smtp.Dial(addr)
+		if err != nil {
+			return fmt.Errorf("failed to connect to SMTP server: %w", err)
+		}
+
+		// Try STARTTLS if configured
+		if config.UseSTARTTLS {
+			if ok, _ := client.Extension("STARTTLS"); ok {
+				if err = client.StartTLS(tlsConfig); err != nil {
+					return fmt.Errorf("failed to start TLS: %w", err)
+				}
+			}
+		}
+	}
+	defer client.Close()
+
+	// Authenticate if credentials provided
+	if config.Username != "" && config.Password != "" {
+		auth := smtp.PlainAuth("", config.Username, config.Password, config.SMTPHost)
+		if err = client.Auth(auth); err != nil {
+			return fmt.Errorf("SMTP authentication failed: %w", err)
+		}
+	}
+
+	// Set sender
+	if err = client.Mail(config.From); err != nil {
+		return fmt.Errorf("failed to set sender: %w", err)
+	}
+
+	// Set recipients
+	for _, rcpt := range recipients {
+		rcpt = strings.TrimSpace(rcpt)
+		if rcpt == "" {
+			continue
+		}
+		if err = client.Rcpt(rcpt); err != nil {
+			return fmt.Errorf("failed to add recipient %s: %w", rcpt, err)
+		}
+	}
+
+	// Send message body
+	w, err := client.Data()
+	if err != nil {
+		return fmt.Errorf("failed to open data writer: %w", err)
+	}
+
+	if _, err = w.Write(msg); err != nil {
+		return fmt.Errorf("failed to write message: %w", err)
+	}
+
+	if err = w.Close(); err != nil {
+		return fmt.Errorf("failed to close data writer: %w", err)
+	}
+
+	return client.Quit()
 }
 
 // sendDingTalkNotification sends a notification via DingTalk

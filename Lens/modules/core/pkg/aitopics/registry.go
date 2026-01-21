@@ -129,6 +129,15 @@ var TopicRegistry = map[string]TopicDefinition{
 		Timeout:     120 * time.Second,
 		Async:       true,
 	},
+	TopicGithubSchemaAnalyze: {
+		Name:        TopicGithubSchemaAnalyze,
+		Version:     CurrentVersion,
+		Description: "Analyze file structure to generate schema (without extracting metrics)",
+		InputType:   reflect.TypeOf(SchemaAnalyzeInput{}),
+		OutputType:  reflect.TypeOf(SchemaAnalyzeOutput{}),
+		Timeout:     60 * time.Second,
+		Async:       false,
+	},
 }
 
 // GetTopicDefinition returns the definition for a topic

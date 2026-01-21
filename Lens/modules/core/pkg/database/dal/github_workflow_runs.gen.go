@@ -28,9 +28,6 @@ func newGithubWorkflowRuns(db *gorm.DB, opts ...gen.DOOption) githubWorkflowRuns
 	tableName := _githubWorkflowRuns.githubWorkflowRunsDo.TableName()
 	_githubWorkflowRuns.ALL = field.NewAsterisk(tableName)
 	_githubWorkflowRuns.ID = field.NewInt64(tableName, "id")
-	_githubWorkflowRuns.RunnerSetID = field.NewInt64(tableName, "runner_set_id")
-	_githubWorkflowRuns.RunnerSetName = field.NewString(tableName, "runner_set_name")
-	_githubWorkflowRuns.RunnerSetNamespace = field.NewString(tableName, "runner_set_namespace")
 	_githubWorkflowRuns.ConfigID = field.NewInt64(tableName, "config_id")
 	_githubWorkflowRuns.WorkloadUID = field.NewString(tableName, "workload_uid")
 	_githubWorkflowRuns.WorkloadName = field.NewString(tableName, "workload_name")
@@ -54,6 +51,9 @@ func newGithubWorkflowRuns(db *gorm.DB, opts ...gen.DOOption) githubWorkflowRuns
 	_githubWorkflowRuns.RetryCount = field.NewInt32(tableName, "retry_count")
 	_githubWorkflowRuns.CreatedAt = field.NewTime(tableName, "created_at")
 	_githubWorkflowRuns.UpdatedAt = field.NewTime(tableName, "updated_at")
+	_githubWorkflowRuns.RunnerSetID = field.NewInt64(tableName, "runner_set_id")
+	_githubWorkflowRuns.RunnerSetName = field.NewString(tableName, "runner_set_name")
+	_githubWorkflowRuns.RunnerSetNamespace = field.NewString(tableName, "runner_set_namespace")
 
 	_githubWorkflowRuns.fillFieldMap()
 
@@ -65,9 +65,6 @@ type githubWorkflowRuns struct {
 
 	ALL                   field.Asterisk
 	ID                    field.Int64
-	RunnerSetID           field.Int64
-	RunnerSetName         field.String
-	RunnerSetNamespace    field.String
 	ConfigID              field.Int64
 	WorkloadUID           field.String
 	WorkloadName          field.String
@@ -91,6 +88,9 @@ type githubWorkflowRuns struct {
 	RetryCount            field.Int32
 	CreatedAt             field.Time
 	UpdatedAt             field.Time
+	RunnerSetID           field.Int64
+	RunnerSetName         field.String
+	RunnerSetNamespace    field.String
 
 	fieldMap map[string]field.Expr
 }
@@ -108,9 +108,6 @@ func (g githubWorkflowRuns) As(alias string) *githubWorkflowRuns {
 func (g *githubWorkflowRuns) updateTableName(table string) *githubWorkflowRuns {
 	g.ALL = field.NewAsterisk(table)
 	g.ID = field.NewInt64(table, "id")
-	g.RunnerSetID = field.NewInt64(table, "runner_set_id")
-	g.RunnerSetName = field.NewString(table, "runner_set_name")
-	g.RunnerSetNamespace = field.NewString(table, "runner_set_namespace")
 	g.ConfigID = field.NewInt64(table, "config_id")
 	g.WorkloadUID = field.NewString(table, "workload_uid")
 	g.WorkloadName = field.NewString(table, "workload_name")
@@ -134,6 +131,9 @@ func (g *githubWorkflowRuns) updateTableName(table string) *githubWorkflowRuns {
 	g.RetryCount = field.NewInt32(table, "retry_count")
 	g.CreatedAt = field.NewTime(table, "created_at")
 	g.UpdatedAt = field.NewTime(table, "updated_at")
+	g.RunnerSetID = field.NewInt64(table, "runner_set_id")
+	g.RunnerSetName = field.NewString(table, "runner_set_name")
+	g.RunnerSetNamespace = field.NewString(table, "runner_set_namespace")
 
 	g.fillFieldMap()
 
@@ -164,9 +164,6 @@ func (g *githubWorkflowRuns) GetFieldByName(fieldName string) (field.OrderExpr, 
 func (g *githubWorkflowRuns) fillFieldMap() {
 	g.fieldMap = make(map[string]field.Expr, 27)
 	g.fieldMap["id"] = g.ID
-	g.fieldMap["runner_set_id"] = g.RunnerSetID
-	g.fieldMap["runner_set_name"] = g.RunnerSetName
-	g.fieldMap["runner_set_namespace"] = g.RunnerSetNamespace
 	g.fieldMap["config_id"] = g.ConfigID
 	g.fieldMap["workload_uid"] = g.WorkloadUID
 	g.fieldMap["workload_name"] = g.WorkloadName
@@ -190,6 +187,9 @@ func (g *githubWorkflowRuns) fillFieldMap() {
 	g.fieldMap["retry_count"] = g.RetryCount
 	g.fieldMap["created_at"] = g.CreatedAt
 	g.fieldMap["updated_at"] = g.UpdatedAt
+	g.fieldMap["runner_set_id"] = g.RunnerSetID
+	g.fieldMap["runner_set_name"] = g.RunnerSetName
+	g.fieldMap["runner_set_namespace"] = g.RunnerSetNamespace
 }
 
 func (g githubWorkflowRuns) clone(db *gorm.DB) githubWorkflowRuns {
