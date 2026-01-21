@@ -73,9 +73,12 @@ func initMCPRoutes(engine *gin.Engine, cfg *config.Config) {
 	server := mcpserver.New()
 
 	// Register tools from unified registry
+	// Note: GetMCPTools() returns current tools at this moment
+	// The health/info endpoints will dynamically get the latest tools
 	tools := unified.GetRegistry().GetMCPTools()
 	server.RegisterTools(tools)
 	log.Infof("MCP Server: Registered %d tools from unified registry", len(tools))
+	log.Infof("MCP Server: Total endpoints in registry: %d", unified.GetRegistry().Count())
 
 	// Set instructions
 	if instructions := cfg.GetMCPInstructions(); instructions != "" {
@@ -103,20 +106,23 @@ func initMCPRoutes(engine *gin.Engine, cfg *config.Config) {
 		// Simple RPC endpoint for testing (no SSE required)
 		mcpGroup.POST("/rpc", gin.WrapH(streamableTransport.Handler()))
 
-		// Health check for MCP
+		// Health check for MCP - dynamically get tools count
 		mcpGroup.GET("/health", func(c *gin.Context) {
+			currentTools := unified.GetRegistry().GetMCPTools()
 			c.JSON(200, gin.H{
-				"status":  "ok",
-				"server":  "Lens MCP Server",
-				"version": mcpserver.MCPVersion,
-				"tools":   len(tools),
+				"status":    "ok",
+				"server":    "Lens MCP Server",
+				"version":   mcpserver.MCPVersion,
+				"tools":     len(currentTools),
+				"endpoints": unified.GetRegistry().Count(),
 			})
 		})
 
-		// MCP info endpoint
+		// MCP info endpoint - dynamically get tools
 		mcpGroup.GET("/", func(c *gin.Context) {
-			toolList := make([]gin.H, 0, len(tools))
-			for _, tool := range tools {
+			currentTools := unified.GetRegistry().GetMCPTools()
+			toolList := make([]gin.H, 0, len(currentTools))
+			for _, tool := range currentTools {
 				toolList = append(toolList, gin.H{
 					"name":        tool.Name,
 					"description": tool.Description,
@@ -128,6 +134,7 @@ func initMCPRoutes(engine *gin.Engine, cfg *config.Config) {
 				"sse_endpoint": basePath + "/sse",
 				"rpc_endpoint": basePath + "/rpc",
 				"tools":        toolList,
+				"endpoints":    unified.GetRegistry().Count(),
 			})
 		})
 	}
