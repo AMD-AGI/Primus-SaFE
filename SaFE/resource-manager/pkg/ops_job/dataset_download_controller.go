@@ -28,7 +28,7 @@ type DatasetDownloadController struct {
 }
 
 // SetupDatasetDownloadController initializes and registers the DatasetDownloadController with the controller manager.
-func SetupDatasetDownloadController(ctx context.Context, mgr manager.Manager) error {
+func SetupDatasetDownloadController(_ context.Context, mgr manager.Manager) error {
 	// Only setup if database is enabled
 	if !commonconfig.IsDBEnable() {
 		klog.Info("Database is not enabled, skipping DatasetDownloadController setup")
