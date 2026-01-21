@@ -7,12 +7,12 @@ apiVersion: amd.com/v1
 kind: AddonTemplate
 metadata:
   labels:
-    primus-safe.display.name: "gha-runner-scale-set-0.13.0"
+    primus-safe.display.name: "gha-runner-scale-set.0.13.0"
     app.kubernetes.io/managed-by: Helm
   annotations:
     meta.helm.sh/release-name: {{ .Release.Name }}
     meta.helm.sh/release-namespace: {{ .Release.Namespace }}
-  name: gha-runner-scale-set-0.13.0
+  name: gha-runner-scale-set.0.13.0
 spec:
   category: plugin
   description: Actions Runner Controller (ARC) is a Kubernetes operator that orchestrates and scales self-hosted runners for GitHub Action

@@ -17,8 +17,7 @@ metadata:
 spec:
   category: plugin
   description: KubeRay is a Kubernetes operator that simplifies the deployment and management of Ray applications on Kubernetes.
-  # oci://registry-1.docker.io/primussafe/kuberay-operator
-  url: oci://harbor.tw325.primus-safe.amd.com/primussafe/kuberay-operator
+  url: oci://{{ .Values.global.helm_registry }}/primussafe/kuberay-operator
   version: 1.4.2
   type: helm
   helmDefaultNamespace: ray-system
