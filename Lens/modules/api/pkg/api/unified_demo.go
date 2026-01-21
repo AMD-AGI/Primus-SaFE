@@ -408,23 +408,23 @@ type NodeWorkloadHistoryInfo struct {
 	Duration     int64     `json:"duration_seconds"`
 }
 
-// FragmentationAnalysisRequest represents the request for fragmentation analysis.
-type FragmentationAnalysisRequest struct {
+// UnifiedFragmentationRequest represents the request for fragmentation analysis.
+type UnifiedFragmentationRequest struct {
 	Cluster string `json:"cluster" query:"cluster" mcp:"cluster,description=Target cluster name,required"`
 }
 
-// FragmentationAnalysisResponse represents the response for fragmentation analysis.
-type FragmentationAnalysisResponse struct {
-	Cluster                   string                     `json:"cluster"`
-	ClusterFragmentationScore float64                    `json:"cluster_fragmentation_score"`
-	TotalNodes                int                        `json:"total_nodes"`
-	NodeFragmentations        []NodeFragmentationInfo    `json:"node_fragmentations"`
-	Recommendations           []string                   `json:"recommendations"`
-	Summary                   FragmentationSummaryResult `json:"summary"`
+// UnifiedFragmentationResponse represents the response for fragmentation analysis.
+type UnifiedFragmentationResponse struct {
+	Cluster                   string                       `json:"cluster"`
+	ClusterFragmentationScore float64                      `json:"cluster_fragmentation_score"`
+	TotalNodes                int                          `json:"total_nodes"`
+	NodeFragmentations        []UnifiedNodeFragInfo        `json:"node_fragmentations"`
+	Recommendations           []string                     `json:"recommendations"`
+	Summary                   UnifiedFragmentationSummary  `json:"summary"`
 }
 
-// NodeFragmentationInfo represents fragmentation info for a single node.
-type NodeFragmentationInfo struct {
+// UnifiedNodeFragInfo represents fragmentation info for a single node.
+type UnifiedNodeFragInfo struct {
 	NodeName           string  `json:"node_name"`
 	TotalGPUs          int32   `json:"total_gpus"`
 	AllocatedGPUs      int32   `json:"allocated_gpus"`
@@ -434,8 +434,8 @@ type NodeFragmentationInfo struct {
 	Utilization        float64 `json:"utilization"`
 }
 
-// FragmentationSummaryResult represents the fragmentation summary.
-type FragmentationSummaryResult struct {
+// UnifiedFragmentationSummary represents the fragmentation summary.
+type UnifiedFragmentationSummary struct {
 	HealthyNodes    int     `json:"healthy_nodes"`
 	FragmentedNodes int     `json:"fragmented_nodes"`
 	CriticalNodes   int     `json:"critical_nodes"`
@@ -443,32 +443,32 @@ type FragmentationSummaryResult struct {
 	WastePercentage float64 `json:"waste_percentage"`
 }
 
-// LoadBalanceAnalysisRequest represents the request for load balance analysis.
-type LoadBalanceAnalysisRequest struct {
+// UnifiedLoadBalanceRequest represents the request for load balance analysis.
+type UnifiedLoadBalanceRequest struct {
 	Cluster string `json:"cluster" query:"cluster" mcp:"cluster,description=Target cluster name,required"`
 }
 
-// LoadBalanceAnalysisResponse represents the response for load balance analysis.
-type LoadBalanceAnalysisResponse struct {
-	Cluster              string                 `json:"cluster"`
-	LoadBalanceScore     float64                `json:"load_balance_score"`
-	NodeLoadDistribution []NodeLoadInfo         `json:"node_load_distribution"`
-	HotspotNodes         []string               `json:"hotspot_nodes"`
-	IdleNodes            []string               `json:"idle_nodes"`
-	Recommendations      []string               `json:"recommendations"`
-	Statistics           LoadBalanceStatsResult `json:"statistics"`
+// UnifiedLoadBalanceResponse represents the response for load balance analysis.
+type UnifiedLoadBalanceResponse struct {
+	Cluster              string                   `json:"cluster"`
+	LoadBalanceScore     float64                  `json:"load_balance_score"`
+	NodeLoadDistribution []UnifiedNodeLoadInfo    `json:"node_load_distribution"`
+	HotspotNodes         []string                 `json:"hotspot_nodes"`
+	IdleNodes            []string                 `json:"idle_nodes"`
+	Recommendations      []string                 `json:"recommendations"`
+	Statistics           UnifiedLoadBalanceStats  `json:"statistics"`
 }
 
-// NodeLoadInfo represents load info for a single node.
-type NodeLoadInfo struct {
+// UnifiedNodeLoadInfo represents load info for a single node.
+type UnifiedNodeLoadInfo struct {
 	NodeName        string  `json:"node_name"`
 	AllocationRate  float64 `json:"allocation_rate"`
 	UtilizationRate float64 `json:"utilization_rate"`
 	LoadScore       float64 `json:"load_score"`
 }
 
-// LoadBalanceStatsResult represents load balance statistics.
-type LoadBalanceStatsResult struct {
+// UnifiedLoadBalanceStats represents load balance statistics.
+type UnifiedLoadBalanceStats struct {
 	AvgAllocationRate float64 `json:"avg_allocation_rate"`
 	StdDevAllocation  float64 `json:"stddev_allocation"`
 	MaxAllocation     float64 `json:"max_allocation"`
@@ -517,43 +517,43 @@ type GPUHeatmapRequest struct {
 
 // GPUHeatmapResponse represents the response for GPU heatmap.
 type GPUHeatmapResponse struct {
-	Power       HeatmapData `json:"power"`
-	Temperature HeatmapData `json:"temperature"`
-	Utilization HeatmapData `json:"utilization"`
+	Power       UnifiedHeatmapData `json:"power"`
+	Temperature UnifiedHeatmapData `json:"temperature"`
+	Utilization UnifiedHeatmapData `json:"utilization"`
 }
 
-// HeatmapData represents heatmap data for a metric.
-type HeatmapData struct {
-	Serial   int             `json:"serial"`
-	Unit     string          `json:"unit"`
-	YAxisMax int             `json:"y_axis_max"`
-	YAxisMin int             `json:"y_axis_min"`
-	Data     []HeatmapPoint  `json:"data"`
+// UnifiedHeatmapData represents heatmap data for a metric.
+type UnifiedHeatmapData struct {
+	Serial   int                  `json:"serial"`
+	Unit     string               `json:"unit"`
+	YAxisMax int                  `json:"y_axis_max"`
+	YAxisMin int                  `json:"y_axis_min"`
+	Data     []UnifiedHeatmapPoint `json:"data"`
 }
 
-// HeatmapPoint represents a point in the heatmap.
-type HeatmapPoint struct {
+// UnifiedHeatmapPoint represents a point in the heatmap.
+type UnifiedHeatmapPoint struct {
 	NodeName string  `json:"node_name"`
 	DeviceID int     `json:"device_id"`
 	Value    float64 `json:"value"`
 }
 
-// RunningTasksRequest represents the request for running tasks.
-type RunningTasksRequest struct {
+// UnifiedRunningTasksRequest represents the request for running tasks.
+type UnifiedRunningTasksRequest struct {
 	Cluster   string `json:"cluster" query:"cluster" mcp:"cluster,description=Target cluster name,required"`
 	Namespace string `json:"namespace" query:"namespace" mcp:"namespace,description=Filter by namespace (optional)"`
 }
 
-// RunningTasksResponse represents the response for running tasks.
-type RunningTasksResponse struct {
-	Cluster    string             `json:"cluster"`
-	Timestamp  time.Time          `json:"timestamp"`
-	TotalTasks int                `json:"total_tasks"`
-	Tasks      []RunningTaskInfo  `json:"tasks"`
+// UnifiedRunningTasksResponse represents the response for running tasks.
+type UnifiedRunningTasksResponse struct {
+	Cluster    string                  `json:"cluster"`
+	Timestamp  time.Time               `json:"timestamp"`
+	TotalTasks int                     `json:"total_tasks"`
+	Tasks      []UnifiedRunningTaskInfo `json:"tasks"`
 }
 
-// RunningTaskInfo represents a running GPU task.
-type RunningTaskInfo struct {
+// UnifiedRunningTaskInfo represents a running GPU task.
+type UnifiedRunningTaskInfo struct {
 	PodUID        string    `json:"pod_uid"`
 	PodName       string    `json:"pod_name"`
 	Namespace     string    `json:"namespace"`
@@ -776,7 +776,7 @@ func init() {
 	})
 
 	// Register fragmentation analysis endpoint (mirrors /nodes/fragmentation-analysis)
-	unified.Register(&unified.EndpointDef[FragmentationAnalysisRequest, FragmentationAnalysisResponse]{
+	unified.Register(&unified.EndpointDef[UnifiedFragmentationRequest, UnifiedFragmentationResponse]{
 		Name:        "fragmentation_analysis",
 		Description: "Analyze GPU resource fragmentation across the cluster. Returns fragmentation score per node, recommendations, and summary statistics.",
 		HTTPMethod:  "GET",
@@ -786,7 +786,7 @@ func init() {
 	})
 
 	// Register load balance analysis endpoint (mirrors /nodes/load-balance-analysis)
-	unified.Register(&unified.EndpointDef[LoadBalanceAnalysisRequest, LoadBalanceAnalysisResponse]{
+	unified.Register(&unified.EndpointDef[UnifiedLoadBalanceRequest, UnifiedLoadBalanceResponse]{
 		Name:        "load_balance_analysis",
 		Description: "Analyze GPU workload distribution across nodes. Returns load balance score, hotspot/idle nodes, and optimization recommendations.",
 		HTTPMethod:  "GET",
@@ -816,7 +816,7 @@ func init() {
 	})
 
 	// Register running tasks endpoint (mirrors /realtime/running-tasks)
-	unified.Register(&unified.EndpointDef[RunningTasksRequest, RunningTasksResponse]{
+	unified.Register(&unified.EndpointDef[UnifiedRunningTasksRequest, UnifiedRunningTasksResponse]{
 		Name:        "running_tasks",
 		Description: "Get list of currently running GPU tasks in the cluster. Returns task details including pod name, workload, node, GPU allocation and runtime.",
 		HTTPMethod:  "GET",
@@ -1654,8 +1654,15 @@ func convertToMetricsSeries(series []model.MetricsSeries) []MetricsSeries {
 				Value:     v.Value,
 			}
 		}
+		// Extract name from labels if available
+		name := ""
+		if s.Labels != nil {
+			if nodeName, ok := s.Labels["node"]; ok {
+				name = string(nodeName)
+			}
+		}
 		result[i] = MetricsSeries{
-			Name:   s.Name,
+			Name:   name,
 			Values: values,
 		}
 	}
@@ -1799,7 +1806,7 @@ func handleNodeWorkloads(ctx context.Context, req *NodeWorkloadsRequest) (*NodeW
 			Name:         w.Name,
 			Namespace:    w.Namespace,
 			Kind:         w.Kind,
-			GPUAllocated: w.GpuAllocated,
+			GPUAllocated: w.GpuRequest,
 			StartedAt:    w.CreatedAt,
 			Status:       getWorkloadStatus(w),
 		})
@@ -1813,7 +1820,7 @@ func handleNodeWorkloads(ctx context.Context, req *NodeWorkloadsRequest) (*NodeW
 
 // getWorkloadStatus determines workload status from db model.
 func getWorkloadStatus(w *dbModel.GpuWorkload) string {
-	if w.Deleted {
+	if w.DeletedAt.Valid {
 		return "Completed"
 	}
 	return "Running"
@@ -1871,7 +1878,7 @@ func handleNodeWorkloadsHistory(ctx context.Context, req *NodeWorkloadsHistoryRe
 				Name:         w.Name,
 				Namespace:    w.Namespace,
 				Kind:         w.Kind,
-				GPUAllocated: w.GpuAllocated,
+				GPUAllocated: w.GpuRequest,
 				StartedAt:    w.CreatedAt,
 				EndedAt:      w.EndAt,
 				Duration:     duration,
@@ -1886,7 +1893,7 @@ func handleNodeWorkloadsHistory(ctx context.Context, req *NodeWorkloadsHistoryRe
 }
 
 // handleFragmentationAnalysis handles fragmentation analysis requests.
-func handleFragmentationAnalysis(ctx context.Context, req *FragmentationAnalysisRequest) (*FragmentationAnalysisResponse, error) {
+func handleFragmentationAnalysis(ctx context.Context, req *UnifiedFragmentationRequest) (*UnifiedFragmentationResponse, error) {
 	cm := clientsets.GetClusterManager()
 	clients, err := cm.GetClientSetByClusterName(req.Cluster)
 	if err != nil {
@@ -1905,7 +1912,7 @@ func handleFragmentationAnalysis(ctx context.Context, req *FragmentationAnalysis
 	}
 
 	// Calculate fragmentation for each node
-	nodeFrags := make([]NodeFragmentationInfo, 0, len(nodes))
+	nodeFrags := make([]UnifiedNodeFragInfo, 0, len(nodes))
 	var totalScore float64
 	var healthyNodes, fragmentedNodes, criticalNodes int
 	var totalWasted int32
@@ -1941,7 +1948,7 @@ func handleFragmentationAnalysis(ctx context.Context, req *FragmentationAnalysis
 			totalWasted += n.GpuAllocation
 		}
 
-		nodeFrags = append(nodeFrags, NodeFragmentationInfo{
+		nodeFrags = append(nodeFrags, UnifiedNodeFragInfo{
 			NodeName:           n.Name,
 			TotalGPUs:          n.GpuCount,
 			AllocatedGPUs:      n.GpuAllocation,
@@ -1966,13 +1973,13 @@ func handleFragmentationAnalysis(ctx context.Context, req *FragmentationAnalysis
 	}
 	wastePercentage := float64(totalWasted) / float64(totalGPUs) * 100
 
-	return &FragmentationAnalysisResponse{
+	return &UnifiedFragmentationResponse{
 		Cluster:                   req.Cluster,
 		ClusterFragmentationScore: clusterScore,
 		TotalNodes:                len(nodes),
 		NodeFragmentations:        nodeFrags,
 		Recommendations:           recommendations,
-		Summary: FragmentationSummaryResult{
+		Summary: UnifiedFragmentationSummary{
 			HealthyNodes:    healthyNodes,
 			FragmentedNodes: fragmentedNodes,
 			CriticalNodes:   criticalNodes,
@@ -1998,7 +2005,7 @@ func generateFragmentationRecommendationsUnified(clusterScore float64, criticalN
 }
 
 // handleLoadBalanceAnalysis handles load balance analysis requests.
-func handleLoadBalanceAnalysis(ctx context.Context, req *LoadBalanceAnalysisRequest) (*LoadBalanceAnalysisResponse, error) {
+func handleLoadBalanceAnalysis(ctx context.Context, req *UnifiedLoadBalanceRequest) (*UnifiedLoadBalanceResponse, error) {
 	cm := clientsets.GetClusterManager()
 	clients, err := cm.GetClientSetByClusterName(req.Cluster)
 	if err != nil {
@@ -2017,7 +2024,7 @@ func handleLoadBalanceAnalysis(ctx context.Context, req *LoadBalanceAnalysisRequ
 	}
 
 	// Calculate load for each node
-	nodeLoads := make([]NodeLoadInfo, 0, len(nodes))
+	nodeLoads := make([]UnifiedNodeLoadInfo, 0, len(nodes))
 	var sum, max, min float64
 	min = 100
 	for _, n := range nodes {
@@ -2027,7 +2034,7 @@ func handleLoadBalanceAnalysis(ctx context.Context, req *LoadBalanceAnalysisRequ
 		}
 		loadScore := allocationRate*0.6 + n.GpuUtilization*0.4
 
-		nodeLoads = append(nodeLoads, NodeLoadInfo{
+		nodeLoads = append(nodeLoads, UnifiedNodeLoadInfo{
 			NodeName:        n.Name,
 			AllocationRate:  allocationRate,
 			UtilizationRate: n.GpuUtilization,
@@ -2076,14 +2083,14 @@ func handleLoadBalanceAnalysis(ctx context.Context, req *LoadBalanceAnalysisRequ
 	// Generate recommendations
 	recommendations := generateLoadBalanceRecommendationsUnified(loadBalanceScore, hotspotNodes, idleNodes)
 
-	return &LoadBalanceAnalysisResponse{
+	return &UnifiedLoadBalanceResponse{
 		Cluster:              req.Cluster,
 		LoadBalanceScore:     loadBalanceScore,
 		NodeLoadDistribution: nodeLoads,
 		HotspotNodes:         hotspotNodes,
 		IdleNodes:            idleNodes,
 		Recommendations:      recommendations,
-		Statistics: LoadBalanceStatsResult{
+		Statistics: UnifiedLoadBalanceStats{
 			AvgAllocationRate: mean,
 			StdDevAllocation:  stddev,
 			MaxAllocation:     max,
@@ -2239,21 +2246,21 @@ func handleGPUHeatmap(ctx context.Context, req *GPUHeatmapRequest) (*GPUHeatmapR
 	}
 
 	return &GPUHeatmapResponse{
-		Power: HeatmapData{
+		Power: UnifiedHeatmapData{
 			Serial:   2,
 			Unit:     "W",
 			YAxisMax: 850,
 			YAxisMin: 0,
 			Data:     convertHeatmapData(power),
 		},
-		Temperature: HeatmapData{
+		Temperature: UnifiedHeatmapData{
 			Serial:   3,
 			Unit:     "C",
 			YAxisMax: 110,
 			YAxisMin: 20,
 			Data:     convertHeatmapData(temp),
 		},
-		Utilization: HeatmapData{
+		Utilization: UnifiedHeatmapData{
 			Serial:   1,
 			Unit:     "%",
 			YAxisMax: 100,
@@ -2263,13 +2270,13 @@ func handleGPUHeatmap(ctx context.Context, req *GPUHeatmapRequest) (*GPUHeatmapR
 	}, nil
 }
 
-// convertHeatmapData converts model.HeatmapData to our HeatmapPoint slice.
-func convertHeatmapData(data []model.HeatmapData) []HeatmapPoint {
-	result := make([]HeatmapPoint, len(data))
+// convertHeatmapData converts model.ClusterOverviewHeatmapItem to our UnifiedHeatmapPoint slice.
+func convertHeatmapData(data []model.ClusterOverviewHeatmapItem) []UnifiedHeatmapPoint {
+	result := make([]UnifiedHeatmapPoint, len(data))
 	for i, d := range data {
-		result[i] = HeatmapPoint{
+		result[i] = UnifiedHeatmapPoint{
 			NodeName: d.NodeName,
-			DeviceID: d.DeviceId,
+			DeviceID: d.GpuId,
 			Value:    d.Value,
 		}
 	}
@@ -2277,7 +2284,7 @@ func convertHeatmapData(data []model.HeatmapData) []HeatmapPoint {
 }
 
 // handleRunningTasks handles running tasks requests.
-func handleRunningTasks(ctx context.Context, req *RunningTasksRequest) (*RunningTasksResponse, error) {
+func handleRunningTasks(ctx context.Context, req *UnifiedRunningTasksRequest) (*UnifiedRunningTasksResponse, error) {
 	cm := clientsets.GetClusterManager()
 	clients, err := cm.GetClientSetByClusterName(req.Cluster)
 	if err != nil {
@@ -2303,7 +2310,7 @@ func handleRunningTasks(ctx context.Context, req *RunningTasksRequest) (*Running
 	}
 
 	// Build task list
-	tasks := make([]RunningTaskInfo, 0, len(pods))
+	tasks := make([]UnifiedRunningTaskInfo, 0, len(pods))
 	now := time.Now()
 	for _, pod := range pods {
 		runningTime := int64(now.Sub(pod.CreatedAt).Seconds())
@@ -2312,7 +2319,7 @@ func handleRunningTasks(ctx context.Context, req *RunningTasksRequest) (*Running
 		// In real implementation, we would query workload info
 		// Simplified for now
 
-		tasks = append(tasks, RunningTaskInfo{
+		tasks = append(tasks, UnifiedRunningTaskInfo{
 			PodUID:        pod.UID,
 			PodName:       pod.Name,
 			Namespace:     pod.Namespace,
@@ -2326,7 +2333,7 @@ func handleRunningTasks(ctx context.Context, req *RunningTasksRequest) (*Running
 		})
 	}
 
-	return &RunningTasksResponse{
+	return &UnifiedRunningTasksResponse{
 		Cluster:    req.Cluster,
 		Timestamp:  now,
 		TotalTasks: len(tasks),
