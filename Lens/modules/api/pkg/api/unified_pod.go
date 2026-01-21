@@ -10,6 +10,7 @@ import (
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/errors"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/mcp/unified"
 )
 
@@ -29,6 +30,17 @@ type PodStatsRequest struct {
 // PodStatsListResponse is the same as PodStatsResponse for backward compatibility.
 type PodStatsListResponse = PodStatsResponse
 
+// ===== Pod Detail (Phase 4) =====
+
+// PodDetailRequest represents the request for pod detail.
+type PodDetailRequest struct {
+	Cluster string `json:"cluster" query:"cluster" mcp:"cluster,description=Target cluster name,required"`
+	PodUID  string `json:"pod_uid" param:"pod_uid" mcp:"pod_uid,description=Pod UID,required"`
+}
+
+// PodDetailResult is the same as PodDetailResponse for backward compatibility.
+type PodDetailResult = PodDetailResponse
+
 // ===== Register Pod Endpoints =====
 
 func init() {
@@ -40,6 +52,16 @@ func init() {
 		HTTPPath:    "/pods/stats",
 		MCPToolName: "lens_pod_stats",
 		Handler:     handlePodStats,
+	})
+
+	// Phase 4: Register pod detail endpoint - replaces getPodDetail
+	unified.Register(&unified.EndpointDef[PodDetailRequest, PodDetailResult]{
+		Name:        "pod_detail",
+		Description: "Get detailed information about a specific GPU pod by UID including allocated GPUs, status, metrics, and owner information.",
+		HTTPMethod:  "GET",
+		HTTPPath:    "/pods/:pod_uid",
+		MCPToolName: "lens_pod_detail",
+		Handler:     handlePodDetail,
 	})
 }
 
@@ -118,5 +140,47 @@ func handlePodStats(ctx context.Context, req *PodStatsRequest) (*PodStatsListRes
 		Total: int(total),
 		Page:  page,
 		Pods:  pods,
+	}, nil
+}
+
+// ===== Phase 4 Handler Implementations =====
+
+// handlePodDetail handles pod detail requests.
+// Reuses: database.GetPod().GetGpuPodsByPodUid, getCurrentPodMetrics
+func handlePodDetail(ctx context.Context, req *PodDetailRequest) (*PodDetailResult, error) {
+	cm := clientsets.GetClusterManager()
+	clients, err := cm.GetClientSetByClusterName(req.Cluster)
+	if err != nil {
+		return nil, err
+	}
+
+	podFacade := database.GetFacadeForCluster(clients.ClusterName).GetPod()
+
+	pod, err := podFacade.GetGpuPodsByPodUid(ctx, req.PodUID)
+	if err != nil {
+		return nil, err
+	}
+	if pod == nil {
+		return nil, errors.NewError().WithCode(errors.RequestDataNotExisted).WithMessage("pod not found")
+	}
+
+	// Get current metrics - reuse existing helper
+	metrics := getCurrentPodMetrics(ctx, podFacade, pod.NodeName)
+
+	return &PodDetailResponse{
+		PodUID:         pod.UID,
+		PodName:        pod.Name,
+		Namespace:      pod.Namespace,
+		NodeName:       pod.NodeName,
+		Status:         getStatusFromPhase(pod.Phase, pod.Running),
+		Phase:          pod.Phase,
+		CreatedAt:      pod.CreatedAt,
+		UpdatedAt:      pod.UpdatedAt,
+		AllocatedGPUs:  pod.GpuAllocated,
+		Running:        pod.Running,
+		Deleted:        pod.Deleted,
+		IP:             pod.IP,
+		OwnerUID:       pod.OwnerUID,
+		CurrentMetrics: metrics,
 	}, nil
 }

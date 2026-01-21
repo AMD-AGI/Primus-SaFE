@@ -13,11 +13,16 @@ import (
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
+	dbModel "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/errors"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/gpu"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/metadata"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/node"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/workload"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/mcp/unified"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/model"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/model/rest"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/utils/sliceUtil"
 )
 
 // ===== Node List =====
@@ -104,6 +109,86 @@ type GPUUtilizationHistoryRequest struct {
 // GPUUtilizationHistoryResponse is model.GpuUtilizationHistory for backward compatibility.
 type GPUUtilizationHistoryResponse = model.GpuUtilizationHistory
 
+// ===== Node Utilization (Phase 4) =====
+
+// NodeUtilizationRequest represents the request for node utilization.
+type NodeUtilizationRequest struct {
+	Cluster  string `json:"cluster" query:"cluster" mcp:"cluster,description=Target cluster name (optional)"`
+	NodeName string `json:"name" param:"name" mcp:"name,description=Node name,required"`
+}
+
+// NodeUtilizationResponse is model.NodeUtilization for backward compatibility.
+type NodeUtilizationResponse = model.NodeUtilization
+
+// ===== Node Utilization History (Phase 4) =====
+
+// NodeUtilizationHistoryRequest represents the request for node utilization history.
+type NodeUtilizationHistoryRequest struct {
+	Cluster  string `json:"cluster" query:"cluster" mcp:"cluster,description=Target cluster name (optional)"`
+	NodeName string `json:"name" param:"name" mcp:"name,description=Node name,required"`
+	Start    string `json:"start" query:"start" mcp:"start,description=Start timestamp (Unix seconds),required"`
+	End      string `json:"end" query:"end" mcp:"end,description=End timestamp (Unix seconds),required"`
+	Step     string `json:"step" query:"step" mcp:"step,description=Step interval in seconds (default 60)"`
+}
+
+// NodeUtilizationHistoryResponse represents the node utilization history response.
+type NodeUtilizationHistoryResponse struct {
+	NodeName       string                 `json:"node_name"`
+	CpuUtilization []model.MetricsSeries  `json:"cpu_utilization"`
+	MemUtilization []model.MetricsSeries  `json:"mem_utilization"`
+	GpuUtilization []model.MetricsSeries  `json:"gpu_utilization"`
+	GpuAllocation  []model.MetricsSeries  `json:"gpu_allocation"`
+}
+
+// ===== Node GPU Metrics (Phase 4) =====
+
+// NodeGPUMetricsRequest represents the request for node GPU metrics.
+type NodeGPUMetricsRequest struct {
+	Cluster  string `json:"cluster" query:"cluster" mcp:"cluster,description=Target cluster name (optional)"`
+	NodeName string `json:"name" param:"name" mcp:"name,description=Node name,required"`
+	Start    string `json:"start" query:"start" mcp:"start,description=Start timestamp (Unix seconds),required"`
+	End      string `json:"end" query:"end" mcp:"end,description=End timestamp (Unix seconds),required"`
+	Step     string `json:"step" query:"step" mcp:"step,description=Step interval in seconds (default 60)"`
+}
+
+// NodeGPUMetricsResponse represents the node GPU metrics response.
+type NodeGPUMetricsResponse struct {
+	GpuUtilization    model.MetricsGraph `json:"gpu_utilization"`
+	GpuAllocationRate model.MetricsGraph `json:"gpu_allocation_rate"`
+}
+
+// ===== Node Workloads (Phase 4) =====
+
+// NodeWorkloadsRequest represents the request for node workloads.
+type NodeWorkloadsRequest struct {
+	Cluster  string `json:"cluster" query:"cluster" mcp:"cluster,description=Target cluster name (optional)"`
+	NodeName string `json:"name" param:"name" mcp:"name,description=Node name,required"`
+	PageNum  int    `json:"page_num" query:"page_num" mcp:"page_num,description=Page number (default 1)"`
+	PageSize int    `json:"page_size" query:"page_size" mcp:"page_size,description=Items per page (default 10)"`
+}
+
+// NodeWorkloadsResponse represents the node workloads response.
+type NodeWorkloadsResponse struct {
+	Data  []model.WorkloadNodeView `json:"data"`
+	Total int                      `json:"total"`
+}
+
+// ===== Node Workloads History (Phase 4) =====
+
+// NodeWorkloadsHistoryRequest represents the request for node workloads history.
+type NodeWorkloadsHistoryRequest struct {
+	Cluster  string `json:"cluster" query:"cluster" mcp:"cluster,description=Target cluster name (optional)"`
+	NodeName string `json:"name" param:"name" mcp:"name,description=Node name,required"`
+	PageNum  int    `json:"page_num" query:"page_num" mcp:"page_num,description=Page number (default 1)"`
+	PageSize int    `json:"page_size" query:"page_size" mcp:"page_size,description=Items per page (default 10)"`
+}
+
+// NodeWorkloadsHistoryResponse represents the node workloads history response.
+type NodeWorkloadsHistoryResponse struct {
+	Data  []model.WorkloadHistoryNodeView `json:"data"`
+	Total int                             `json:"total"`
+}
+
 // ===== Register Node Endpoints =====
 
 func init() {
@@ -165,6 +250,56 @@ func init() {
 		HTTPPath:    "/nodes/gpuUtilizationHistory",
 		MCPToolName: "lens_gpu_utilization_history",
 		Handler:     handleGPUUtilizationHistory,
+	})
+
+	// Phase 4: Register node utilization endpoint - replaces getNodeUtilization
+	unified.Register(&unified.EndpointDef[NodeUtilizationRequest, NodeUtilizationResponse]{
+		Name:        "node_utilization",
+		Description: "Get current utilization metrics for a specific node including CPU, memory, and GPU utilization.",
+		HTTPMethod:  "GET",
+		HTTPPath:    "/nodes/:name/utilization",
+		MCPToolName: "lens_node_utilization",
+		Handler:     handleNodeUtilization,
+	})
+
+	// Phase 4: Register node utilization history endpoint - replaces getNodeUtilizationHistory
+	unified.Register(&unified.EndpointDef[NodeUtilizationHistoryRequest, NodeUtilizationHistoryResponse]{
+		Name:        "node_utilization_history",
+		Description: "Get historical utilization metrics for a node over a time range including CPU, memory, GPU utilization and allocation.",
+		HTTPMethod:  "GET",
+		HTTPPath:    "/nodes/:name/utilizationHistory",
+		MCPToolName: "lens_node_utilization_history",
+		Handler:     handleNodeUtilizationHistory,
+	})
+
+	// Phase 4: Register node GPU metrics endpoint - replaces getNodeGpuMetrics
+	unified.Register(&unified.EndpointDef[NodeGPUMetricsRequest, NodeGPUMetricsResponse]{
+		Name:        "node_gpu_metrics",
+		Description: "Get detailed GPU metrics for a node over a time range including utilization, allocation, VRAM, power and temperature.",
+		HTTPMethod:  "GET",
+		HTTPPath:    "/nodes/:name/gpuMetrics",
+		MCPToolName: "lens_node_gpu_metrics",
+		Handler:     handleNodeGPUMetrics,
+	})
+
+	// Phase 4: Register node workloads endpoint - replaces getNodeWorkload
+	unified.Register(&unified.EndpointDef[NodeWorkloadsRequest, NodeWorkloadsResponse]{
+		Name:        "node_workloads",
+		Description: "Get currently running GPU workloads on a specific node.",
+		HTTPMethod:  "GET",
+		HTTPPath:    "/nodes/:name/workloads",
+		MCPToolName: "lens_node_workloads",
+		Handler:     handleNodeWorkloads,
+	})
+
+	// Phase 4: Register node workloads history endpoint - replaces getNodeWorkloadHistory
+	unified.Register(&unified.EndpointDef[NodeWorkloadsHistoryRequest, NodeWorkloadsHistoryResponse]{
+		Name:        "node_workloads_history",
+		Description: "Get historical GPU workloads that ran on a specific node.",
+		HTTPMethod:  "GET",
+		HTTPPath:    "/nodes/:name/workloadsHistory",
+		MCPToolName: "lens_node_workloads_history",
+		Handler:     handleNodeWorkloadsHistory,
 	})
 }
 
@@ -418,5 +553,257 @@ func handleGPUUtilizationHistory(ctx context.Context, req *GPUUtilizationHistory
 		AllocationRate:  allocationHistory,
 		Utilization:     usageHistory,
 		VramUtilization: vramHistory,
+	}, nil
+}
+
+// ===== Phase 4 Handler Implementations =====
+
+// handleNodeUtilization handles node utilization requests.
+// Reuses: database.GetNode().GetNodeByName, node.GetNodeCpuUtilHistory, node.GetNodeMemUtilHistory
+func handleNodeUtilization(ctx context.Context, req *NodeUtilizationRequest) (*NodeUtilizationResponse, error) {
+	cm := clientsets.GetClusterManager()
+	clients, err := cm.GetClusterClientsOrDefault(req.Cluster)
+	if err != nil {
+		return nil, err
+	}
+
+	// Get node from database
+	dbNode, err := database.GetFacadeForCluster(clients.ClusterName).GetNode().GetNodeByName(ctx, req.NodeName)
+	if err != nil {
+		return nil, err
+	}
+	if dbNode == nil {
+		return nil, errors.NewError().WithCode(errors.RequestDataNotExisted).WithMessage("node not found")
+	}
+
+	// Get current utilization (last 1 minute average)
+	now := time.Now()
+	oneMinuteAgo := now.Add(-1 * time.Minute)
+
+	cpuUtil, err := node.GetNodeCpuUtilHistory(ctx, clients.StorageClientSet, req.NodeName, oneMinuteAgo, now, 60)
+	cpuUtilValue := 0.0
+	if err == nil && len(cpuUtil) > 0 && len(cpuUtil[0].Values) > 0 {
+		cpuUtilValue = cpuUtil[0].Values[len(cpuUtil[0].Values)-1].Value
+	}
+
+	memUtil, err := node.GetNodeMemUtilHistory(ctx, clients.StorageClientSet, req.NodeName, oneMinuteAgo, now, 60)
+	memUtilValue := 0.0
+	if err == nil && len(memUtil) > 0 && len(memUtil[0].Values) > 0 {
+		memUtilValue = memUtil[0].Values[len(memUtil[0].Values)-1].Value
+	}
+
+	return &model.NodeUtilization{
+		NodeName:       dbNode.Name,
+		CpuUtilization: cpuUtilValue,
+		MemUtilization: memUtilValue,
+		GpuUtilization: dbNode.GpuUtilization,
+		GpuAllocation:  int(dbNode.GpuAllocation),
+		Timestamp:      time.Now().Unix(),
+	}, nil
+}
+
+// handleNodeUtilizationHistory handles node utilization history requests.
+// Reuses: node.GetNodeCpuUtilHistory, node.GetNodeMemUtilHistory, node.GetNodeGpuUtilHistory, node.GetNodeGpuAllocationHistory
+func handleNodeUtilizationHistory(ctx context.Context, req *NodeUtilizationHistoryRequest) (*NodeUtilizationHistoryResponse, error) {
+	cm := clientsets.GetClusterManager()
+	clients, err := cm.GetClusterClientsOrDefault(req.Cluster)
+	if err != nil {
+		return nil, err
+	}
+
+	startUnix, err := strconv.ParseInt(req.Start, 10, 64)
+	if err != nil {
+		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("invalid start timestamp")
+	}
+	endUnix, err := strconv.ParseInt(req.End, 10, 64)
+	if err != nil {
+		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("invalid end timestamp")
+	}
+
+	step := 60
+	if req.Step != "" {
+		step, err = strconv.Atoi(req.Step)
+		if err != nil || step <= 0 {
+			return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("invalid step value")
+		}
+	}
+
+	startTime := time.Unix(startUnix, 0)
+	endTime := time.Unix(endUnix, 0)
+	storageClient := clients.StorageClientSet
+
+	cpuUtil, _ := node.GetNodeCpuUtilHistory(ctx, storageClient, req.NodeName, startTime, endTime, step)
+	memUtil, _ := node.GetNodeMemUtilHistory(ctx, storageClient, req.NodeName, startTime, endTime, step)
+	gpuUtil, _ := node.GetNodeGpuUtilHistory(ctx, storageClient, metadata.GpuVendorAMD, req.NodeName, startTime, endTime, step)
+	gpuAlloc, _ := node.GetNodeGpuAllocationHistory(ctx, storageClient, metadata.GpuVendorAMD, req.NodeName, startTime, endTime, step)
+
+	return &NodeUtilizationHistoryResponse{
+		NodeName:       req.NodeName,
+		CpuUtilization: cpuUtil,
+		MemUtilization: memUtil,
+		GpuUtilization: gpuUtil,
+		GpuAllocation:  gpuAlloc,
+	}, nil
+}
+
+// handleNodeGPUMetrics handles node GPU metrics requests.
+// Reuses: node.GetNodeGpuUtilHistory, node.GetNodeGpuAllocationHistory
+func handleNodeGPUMetrics(ctx context.Context, req *NodeGPUMetricsRequest) (*NodeGPUMetricsResponse, error) {
+	cm := clientsets.GetClusterManager()
+	clients, err := cm.GetClusterClientsOrDefault(req.Cluster)
+	if err != nil {
+		return nil, err
+	}
+
+	startUnix, err := strconv.ParseInt(req.Start, 10, 64)
+	if err != nil {
+		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("invalid start timestamp")
+	}
+	endUnix, err := strconv.ParseInt(req.End, 10, 64)
+	if err != nil {
+		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("invalid end timestamp")
+	}
+
+	step := 60
+	if req.Step != "" {
+		step, err = strconv.Atoi(req.Step)
+		if err != nil || step <= 0 {
+			return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("invalid step value")
+		}
+	}
+
+	startTime := time.Unix(startUnix, 0)
+	endTime := time.Unix(endUnix, 0)
+	storageClient := clients.StorageClientSet
+
+	gpuUtil, err := node.GetNodeGpuUtilHistory(ctx, storageClient, metadata.GpuVendorAMD, req.NodeName, startTime, endTime, step)
+	if err != nil {
+		return nil, err
+	}
+	gpuAlloc, err := node.GetNodeGpuAllocationHistory(ctx, storageClient, metadata.GpuVendorAMD, req.NodeName, startTime, endTime, step)
+	if err != nil {
+		return nil, err
+	}
+
+	return &NodeGPUMetricsResponse{
+		GpuUtilization: model.MetricsGraph{
+			Series: gpuUtil,
+			Config: model.MetricsGraphConfig{YAxisUnit: "%"},
+		},
+		GpuAllocationRate: model.MetricsGraph{
+			Series: gpuAlloc,
+			Config: model.MetricsGraphConfig{YAxisUnit: "%"},
+		},
+	}, nil
+}
+
+// handleNodeWorkloads handles node workloads requests.
+// Reuses: workload.GetRunningTopLevelGpuWorkloadByNode, batchCvtDBWorkload2TopLevelGpuResource
+func handleNodeWorkloads(ctx context.Context, req *NodeWorkloadsRequest) (*NodeWorkloadsResponse, error) {
+	cm := clientsets.GetClusterManager()
+	clients, err := cm.GetClusterClientsOrDefault(req.Cluster)
+	if err != nil {
+		return nil, err
+	}
+
+	pageNum := req.PageNum
+	pageSize := req.PageSize
+	if pageNum <= 0 {
+		pageNum = 1
+	}
+	if pageSize <= 0 {
+		pageSize = 10
+	}
+
+	workloads, err := workload.GetRunningTopLevelGpuWorkloadByNode(ctx, clients.ClusterName, req.NodeName)
+	if err != nil {
+		return nil, err
+	}
+
+	workloadsResult, _, count, _ := sliceUtil.PaginateSlice(workloads, pageNum, pageSize)
+	nodeViews, err := batchCvtDBWorkload2TopLevelGpuResource(ctx, clients.ClusterName, workloadsResult, req.NodeName)
+	if err != nil {
+		return nil, err
+	}
+
+	return &NodeWorkloadsResponse{
+		Data:  nodeViews,
+		Total: count,
+	}, nil
+}
+
+// handleNodeWorkloadsHistory handles node workloads history requests.
+// Reuses: database.GetPod().GetHistoryGpuPodByNodeName, workload.GetTopLevelWorkloadsByPods
+func handleNodeWorkloadsHistory(ctx context.Context, req *NodeWorkloadsHistoryRequest) (*NodeWorkloadsHistoryResponse, error) {
+	cm := clientsets.GetClusterManager()
+	clients, err := cm.GetClusterClientsOrDefault(req.Cluster)
+	if err != nil {
+		return nil, err
+	}
+
+	pageNum := req.PageNum
+	pageSize := req.PageSize
+	if pageNum <= 0 {
+		pageNum = 1
+	}
+	if pageSize <= 0 {
+		pageSize = 10
+	}
+
+	page := &rest.Page{PageNum: pageNum, PageSize: pageSize}
+
+	pods, count, err := database.GetFacadeForCluster(clients.ClusterName).GetPod().GetHistoryGpuPodByNodeName(ctx, req.NodeName, page.PageNum, page.PageSize)
+	if err != nil {
+		return nil, err
+	}
+
+	uids := []string{}
+	for _, pod := range pods {
+		uids = append(uids, pod.UID)
+	}
+
+	workloadMap := map[string]*dbModel.GpuWorkload{}
+	workloads, err := workload.GetTopLevelWorkloadsByPods(ctx, clients.ClusterName, pods)
+	if err != nil {
+		return nil, err
+	}
+	for i := range workloads {
+		gpuWorkload := workloads[i]
+		workloadMap[gpuWorkload.UID] = gpuWorkload
+	}
+
+	references := map[string]string{}
+	refs, err := database.GetFacadeForCluster(clients.ClusterName).GetWorkload().ListWorkloadPodReferencesByPodUids(ctx, uids)
+	if err != nil {
+		return nil, err
+	}
+	for _, ref := range refs {
+		references[ref.PodUID] = ref.WorkloadUID
+	}
+
+	result := []model.WorkloadHistoryNodeView{}
+	for _, pod := range pods {
+		workloadUid := references[pod.UID]
+		gpuWorkload := workloadMap[workloadUid]
+		if gpuWorkload == nil {
+			continue
+		}
+		view := model.WorkloadHistoryNodeView{
+			Kind:         gpuWorkload.Kind,
+			Name:         gpuWorkload.Name,
+			Namespace:    gpuWorkload.Namespace,
+			Uid:          gpuWorkload.UID,
+			GpuAllocated: int(pod.GpuAllocated),
+			PodName:      pod.Name,
+			PodNamespace: pod.Namespace,
+			StartTime:    pod.CreatedAt.Unix(),
+			EndTime:      pod.UpdatedAt.Unix(),
+		}
+		result = append(result, view)
+	}
+
+	return &NodeWorkloadsHistoryResponse{
+		Data:  result,
+		Total: count,
 	}, nil
 }

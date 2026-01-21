@@ -25,7 +25,7 @@ func getUnifiedHandler(path string) gin.HandlerFunc {
 func RegisterRouter(group *gin.RouterGroup) error {
 	nodeGroup := group.Group("/nodes")
 	{
-		// Phase 2 & 3 Unified: Node endpoints
+		// Phase 2-4 Unified: Node endpoints
 		nodeGroup.GET("gpuAllocation", getUnifiedHandler("/nodes/gpuAllocation"))
 		nodeGroup.GET("gpuUtilization", getUnifiedHandler("/nodes/gpuUtilization"))
 		nodeGroup.GET("gpuUtilizationHistory", getUnifiedHandler("/nodes/gpuUtilizationHistory"))
@@ -36,20 +36,20 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		nodeGroup.GET(":name", getUnifiedHandler("/nodes/:name"))
 		nodeGroup.GET(":name/fragmentation", getNodeFragmentation)
 		nodeGroup.GET(":name/gpuDevices", getUnifiedHandler("/nodes/:name/gpuDevices"))
-		// Not yet migrated
-		nodeGroup.GET(":name/gpuMetrics", getNodeGpuMetrics)
-		nodeGroup.GET(":name/utilization", getNodeUtilization)
-		nodeGroup.GET(":name/utilizationHistory", getNodeUtilizationHistory)
-		nodeGroup.GET(":name/workloads", getNodeWorkload)
-		nodeGroup.GET(":name/workloadsHistory", getNodeWorkloadHistory)
+		// Phase 4 Unified: Node metrics and workloads
+		nodeGroup.GET(":name/gpuMetrics", getUnifiedHandler("/nodes/:name/gpuMetrics"))
+		nodeGroup.GET(":name/utilization", getUnifiedHandler("/nodes/:name/utilization"))
+		nodeGroup.GET(":name/utilizationHistory", getUnifiedHandler("/nodes/:name/utilizationHistory"))
+		nodeGroup.GET(":name/workloads", getUnifiedHandler("/nodes/:name/workloads"))
+		nodeGroup.GET(":name/workloadsHistory", getUnifiedHandler("/nodes/:name/workloadsHistory"))
 	}
 
-	// Pod routes - Phase 3 Unified
+	// Pod routes - Phase 3 & 4 Unified
 	podGroup := group.Group("/pods")
 	{
 		podGroup.GET("/stats", getUnifiedHandler("/pods/stats"))
+		podGroup.GET("/:pod_uid", getUnifiedHandler("/pods/:pod_uid"))
 		// Not yet migrated
-		podGroup.GET("/:pod_uid", getPodDetail)
 		podGroup.GET("/:pod_uid/gpu-history", getPodGPUHistory)
 		podGroup.GET("/:pod_uid/events", getPodEvents)
 		podGroup.GET("/comparison", comparePods)
