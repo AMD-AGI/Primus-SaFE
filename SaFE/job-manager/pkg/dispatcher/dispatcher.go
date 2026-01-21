@@ -256,7 +256,6 @@ func (r *DispatcherReconciler) scaleDownTorchFTWorkers(ctx context.Context, root
 func (r *DispatcherReconciler) processWorkload(ctx context.Context, adminWorkload *v1.Workload) (ctrlruntime.Result, error) {
 	clientSets, err := syncer.GetClusterClientSets(r.clusterClientSets, v1.GetClusterId(adminWorkload))
 	if err != nil {
-		klog.Infof("failed to get cluster client sets, cluster %s", v1.GetClusterId(adminWorkload))
 		return ctrlruntime.Result{RequeueAfter: time.Second}, nil
 	}
 	rt, err := commonworkload.GetResourceTemplate(ctx, r.Client, adminWorkload)
