@@ -409,7 +409,7 @@ func (w *Workload) GetDependenciesPhase(workloadId string) (WorkloadPhase, bool)
 func (w *Workload) IsDependenciesEnd() bool {
 	for _, dep := range w.Spec.Dependencies {
 		phase, ok := w.GetDependenciesPhase(dep)
-		if !ok || IsWorkloadPhaseEnded(phase) {
+		if !ok || !IsWorkloadPhaseEnded(phase) {
 			return false
 		}
 	}
