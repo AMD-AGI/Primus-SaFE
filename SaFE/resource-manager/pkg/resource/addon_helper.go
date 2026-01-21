@@ -7,7 +7,9 @@ package resource
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
+	"net/http"
 	"os"
 	"reflect"
 	"sync"
@@ -248,6 +250,16 @@ func newDefaultRegistryClient(plainHTTP bool, settings *cli.EnvSettings) (*regis
 	if plainHTTP {
 		opts = append(opts, registry.ClientOptPlainHTTP())
 	}
+
+	// Create HTTP client with TLS verification disabled for self-signed certificates
+	httpClient := &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: true,
+			},
+		},
+	}
+	opts = append(opts, registry.ClientOptHTTPClient(httpClient))
 
 	// Create a new registry client
 	registryClient, err := registry.NewClient(opts...)
