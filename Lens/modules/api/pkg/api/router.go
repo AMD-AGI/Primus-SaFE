@@ -44,15 +44,16 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		nodeGroup.GET(":name/workloadsHistory", getUnifiedHandler("/nodes/:name/workloadsHistory"))
 	}
 
-	// Pod routes - Phase 3 & 4 Unified
+	// Pod routes - Phase 3-5 Unified
 	podGroup := group.Group("/pods")
 	{
 		podGroup.GET("/stats", getUnifiedHandler("/pods/stats"))
+		// Phase 5 Unified: Pod comparison (must be before /:pod_uid to avoid conflict)
+		podGroup.GET("/comparison", getUnifiedHandler("/pods/comparison"))
 		podGroup.GET("/:pod_uid", getUnifiedHandler("/pods/:pod_uid"))
-		// Not yet migrated
-		podGroup.GET("/:pod_uid/gpu-history", getPodGPUHistory)
-		podGroup.GET("/:pod_uid/events", getPodEvents)
-		podGroup.GET("/comparison", comparePods)
+		// Phase 5 Unified: Pod GPU history and events
+		podGroup.GET("/:pod_uid/gpu-history", getUnifiedHandler("/pods/:pod_uid/gpu-history"))
+		podGroup.GET("/:pod_uid/events", getUnifiedHandler("/pods/:pod_uid/events"))
 	}
 	// Phase 2 Unified: Cluster endpoints
 	clusterGroup := group.Group("/clusters")
@@ -61,13 +62,15 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		clusterGroup.GET("consumers", getUnifiedHandler("/clusters/consumers"))
 		clusterGroup.GET("gpuHeatmap", getUnifiedHandler("/clusters/gpuHeatmap"))
 	}
-	// Phase 3 Unified: Workload endpoints
+	// Phase 3-5 Unified: Workload endpoints
 	workloadGroup := group.Group("/workloads")
 	{
 		workloadGroup.GET("", getUnifiedHandler("/workloads"))
-		workloadGroup.GET("statistic", getWorkloadsStatistic)
-		workloadGroup.GET("hierarchy", getWorkloadHierarchyByKindName)
-		workloadGroup.GET("gpuUtilizationHistory", getWorkloadGpuUtilizationHistoryByKindName)
+		// Phase 5 Unified: Workload statistics, hierarchy query, GPU history
+		workloadGroup.GET("statistic", getUnifiedHandler("/workloads/statistic"))
+		workloadGroup.GET("hierarchy", getUnifiedHandler("/workloads/hierarchy"))
+		workloadGroup.GET("gpuUtilizationHistory", getUnifiedHandler("/workloads/gpuUtilizationHistory"))
+		// Not yet migrated
 		workloadGroup.GET(":uid/hierarchy", getWorkloadHierarchy)
 		workloadGroup.GET(":uid", getUnifiedHandler("/workloads/:uid"))
 		workloadGroup.GET(":uid/metrics", getWorkloadMetrics)
