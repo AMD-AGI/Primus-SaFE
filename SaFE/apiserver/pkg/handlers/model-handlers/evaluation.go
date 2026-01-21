@@ -20,6 +20,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
+	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 )
 
 const (
@@ -58,9 +59,12 @@ func (h *Handler) ListAvailableEvalServices(c *gin.Context) {
 
 		// Get local workloads with inference (Deployment type with Running status)
 		workloadTags := dbclient.GetWorkloadFieldTags()
+		// GVK is stored as JSON in database, e.g. {"version":"v1","kind":"Deployment"}
+		deploymentGVK := v1.GroupVersionKind{Kind: common.DeploymentKind, Version: common.DefaultVersion}
+		gvkStr := string(jsonutils.MarshalSilently(deploymentGVK))
 		workloadQuery := sqrl.And{
 			sqrl.Eq{dbclient.GetFieldTag(workloadTags, "IsDeleted"): false},
-			sqrl.Eq{dbclient.GetFieldTag(workloadTags, "GVK"): "apps/v1, Kind=Deployment"},
+			sqrl.Eq{dbclient.GetFieldTag(workloadTags, "GVK"): gvkStr},
 			sqrl.Eq{dbclient.GetFieldTag(workloadTags, "Phase"): "Running"},
 		}
 		if workspace != "" {
