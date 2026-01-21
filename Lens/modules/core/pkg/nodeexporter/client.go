@@ -76,6 +76,11 @@ func (c *Client) GetRestyClient() *resty.Client {
 	return c.client.Clone()
 }
 
+// BaseURL returns the base URL of the client
+func (c *Client) BaseURL() string {
+	return c.baseURL
+}
+
 // ============ Process Tree APIs ============
 
 // GetPodProcessTree retrieves the process tree for a pod
