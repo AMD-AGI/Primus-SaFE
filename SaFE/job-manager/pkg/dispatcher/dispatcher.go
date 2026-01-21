@@ -149,7 +149,6 @@ func (r *DispatcherReconciler) Reconcile(ctx context.Context, req ctrlruntime.Re
 	if !workload.GetDeletionTimestamp().IsZero() {
 		return ctrlruntime.Result{}, nil
 	}
-	klog.Infof("begin to dispatch workload %s", workload.Name)
 	// To prevent port conflicts when retrying, the port must be regenerated each time
 	if err = r.generateUniquePorts(ctx, workload); err != nil {
 		return ctrlruntime.Result{}, err
