@@ -36,7 +36,7 @@ const (
 	// installedMsg is the error message when trying to reuse an existing Helm release name
 	installedMsg = "cannot re-use a name that is still in use"
 	// Timeout specifies the timeout for Helm operations
-	Timeout = time.Second * 30
+	Timeout = time.Minute * 5
 	// MaxHistory specifies the maximum number of Helm release versions to keep
 	MaxHistory       = 20
 	DefaultNamespace = "primus-safe"
