@@ -151,12 +151,15 @@ func (mgr *MonitorManager) watchConfig() error {
 		}
 	}()
 
-	timeout := time.After(10 * time.Minute)
+	timeout := time.After(30 * time.Minute)
 	for {
 		select {
 		case <-mgr.tomb.Stopping():
 			return nil
 		case <-timeout:
+			if err = mgr.reloadMonitors(); err != nil {
+				klog.ErrorS(err, "failed to reload monitors")
+			}
 			return nil //restart after timeout
 		case ev, ok := <-watcher.Events:
 			if ok && (ev.Op == fsnotify.Create || ev.Op == fsnotify.Write || ev.Op == fsnotify.Remove) {

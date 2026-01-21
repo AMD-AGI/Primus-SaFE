@@ -24,6 +24,7 @@ const (
 	CICDEphemeralRunnerKind = "EphemeralRunner"
 	UnifiedJobKind          = "UnifiedJob"
 	TorchFTKind             = "TorchFT"
+	RayJobKind              = "RayJob"
 
 	PodKind            = "Pod"
 	EventKind          = "Event"

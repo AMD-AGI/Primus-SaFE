@@ -153,9 +153,9 @@ type GetWorkloadResponse struct {
 	// ExcludedNodes is a list of node names that the workload should avoid running on.
 	ExcludedNodes []string `json:"excludedNodes,omitempty"`
 	// The address of the image used by the workload
-	Image string `json:"image"`
+	Images []string `json:"images"`
 	// Workload startup command, in base64 encoding
-	EntryPoint string `json:"entryPoint"`
+	EntryPoints []string `json:"entryPoints"`
 	// Supervision flag for the workload. When enabled, it performs operations like hang detection
 	IsSupervised bool `json:"isSupervised"`
 	// The lifecycle after completion, in seconds, default 60.
@@ -201,9 +201,9 @@ type PatchWorkloadRequest struct {
 	// Workload resource requirements
 	Resources *[]v1.WorkloadResource `json:"resources"`
 	// The image address used by workload
-	Image *string `json:"image,omitempty"`
+	Images *[]string `json:"images,omitempty"`
 	// Workload startup command, required in base64 encoding
-	EntryPoint *string `json:"entryPoint,omitempty"`
+	EntryPoints *[]string `json:"entryPoints,omitempty"`
 	// Environment variable for workload
 	Env *map[string]string `json:"env,omitempty"`
 	// Workload description

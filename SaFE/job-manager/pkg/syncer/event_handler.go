@@ -65,11 +65,11 @@ func (r *SyncerReconciler) handleEvent(ctx context.Context, message *resourceMes
 // It traverses from event -> pod -> workload to find the corresponding workload.
 func (r *SyncerReconciler) getAdminWorkloadByEvent(ctx context.Context,
 	clientSets *ClusterClientSets, eventObj *unstructured.Unstructured) (*v1.Workload, error) {
-	podName := jobutils.GetUnstructuredString(eventObj.Object, eventInvolvedNamePath)
+	podName := jobutils.NestedStringSilently(eventObj.Object, eventInvolvedNamePath)
 	if podName == "" {
 		return nil, nil
 	}
-	podNamespace := jobutils.GetUnstructuredString(eventObj.Object, eventInvolvedNamespacePath)
+	podNamespace := jobutils.NestedStringSilently(eventObj.Object, eventInvolvedNamespacePath)
 	if podNamespace == "" {
 		return nil, nil
 	}
@@ -81,7 +81,7 @@ func (r *SyncerReconciler) getAdminWorkloadByEvent(ctx context.Context,
 	if err != nil || podObj == nil {
 		return nil, err
 	}
-	workloadId := jobutils.GetUnstructuredString(podObj.Object, workloadIdPath)
+	workloadId := jobutils.NestedStringSilently(podObj.Object, workloadIdPath)
 	if workloadId == "" {
 		return nil, nil
 	}
@@ -95,8 +95,8 @@ func (r *SyncerReconciler) updatePendingMessage(ctx context.Context, adminWorklo
 	if !adminWorkload.IsPending() {
 		return nil
 	}
-	message := jobutils.GetUnstructuredString(eventObj.Object, eventMessagePath)
-	reason := jobutils.GetUnstructuredString(eventObj.Object, eventReasonPath)
+	message := jobutils.NestedStringSilently(eventObj.Object, eventMessagePath)
+	reason := jobutils.NestedStringSilently(eventObj.Object, eventReasonPath)
 	switch {
 	case reason == PulledReason:
 		// If the image has already been pulled, clear the Pulling status message
@@ -123,13 +123,13 @@ func (r *SyncerReconciler) updatePendingMessage(ctx context.Context, adminWorklo
 // isRelevantPodEvent determines if a Pod event is relevant for processing.
 // Filters events based on type and reason to focus on significant events.
 func isRelevantPodEvent(obj *unstructured.Unstructured) bool {
-	eventInvolvedKind := jobutils.GetUnstructuredString(obj.Object, eventInvolvedKindPath)
+	eventInvolvedKind := jobutils.NestedStringSilently(obj.Object, eventInvolvedKindPath)
 	if eventInvolvedKind != common.PodKind {
 		return false
 	}
 
-	eventType := jobutils.GetUnstructuredString(obj.Object, eventTypePath)
-	eventReason := jobutils.GetUnstructuredString(obj.Object, eventReasonPath)
+	eventType := jobutils.NestedStringSilently(obj.Object, eventTypePath)
+	eventReason := jobutils.NestedStringSilently(obj.Object, eventReasonPath)
 	if eventType == corev1.EventTypeNormal {
 		if eventReason == PullingReason || eventReason == PulledReason {
 			return true

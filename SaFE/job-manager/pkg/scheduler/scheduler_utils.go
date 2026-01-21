@@ -42,7 +42,7 @@ func (workloads WorkloadList) Less(i, j int) bool {
 	} else if !isReScheduledForFailover(workloads[i]) && isReScheduledForFailover(workloads[j]) {
 		return false
 	}
-	if isHaveDependencies(workloads[i]) && !isHaveDependencies(workloads[j]) {
+	if !workloads[i].IsDependenciesEnd() && workloads[j].IsDependenciesEnd() {
 		return false
 	}
 	if workloads[i].Spec.Priority > workloads[j].Spec.Priority {
@@ -64,17 +64,5 @@ func isReScheduledForFailover(workload *v1.Workload) bool {
 	if v1.IsWorkloadReScheduled(workload) && !v1.IsWorkloadPreempted(workload) {
 		return true
 	}
-	return false
-}
-
-// isHaveDependencies checks if a workload has unmet dependencies.
-func isHaveDependencies(workload *v1.Workload) bool {
-	for _, dep := range workload.Spec.Dependencies {
-		phase, ok := workload.GetDependenciesPhase(dep)
-		if !ok || phase != v1.WorkloadSucceeded {
-			return true
-		}
-	}
-
 	return false
 }

@@ -70,11 +70,11 @@ spec:
             - command:
                 - sh
                 - -c
-                - ./test.sh
+                - test.sh
               env:
                 - name: NCCL_SOCKET_IFNAME
                   value: eth0
-              image: /docker.hub/test-image:0.0.1
+              image: docker.io/test-image:0.0.1
               name: pytorch
               resources:
                 limits:
@@ -136,7 +136,7 @@ spec:
               env:
                 - name: NCCL_SOCKET_IFNAME
                   value: eth0
-              image: /docker.hub/test-image:0.0.1
+              image: docker.io/test-image:0.0.1
               name: pytorch
               resources:
                 limits:
@@ -232,7 +232,7 @@ spec:
       containers:
         - command:
             - sh
-            - c
+            - -c
             - /bin/sh run.sh 'abcd'
           env:
             - name: NCCL_SOCKET_IFNAME
@@ -324,7 +324,7 @@ spec:
           value: "8"
         - name: SSH_PORT
           value: "12345"
-        image: /docker.hub/test-image:0.0.1
+        image: docker.io/test-image:0.0.1
         imagePullPolicy: IfNotPresent
         name: main
         ports:
@@ -360,7 +360,7 @@ spec:
         - /bin/sh
         - -c
         - test.sh
-        image: /docker.hub/test-image:0.0.1
+        image: docker.io/test-image:0.0.1
         imagePullPolicy: IfNotPresent
         name: prepare
         resources:
@@ -699,7 +699,7 @@ var (
 		},
 	}
 
-	TestJobTemplate = &v1.ResourceTemplate{
+	TestJobResourceTemplate = &v1.ResourceTemplate{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "job",
 			Labels: map[string]string{
@@ -719,7 +719,7 @@ var (
 				PrePaths:         []string{"spec"},
 				TemplatePaths:    []string{"template"},
 				ReplicasPaths:    []string{"parallelism"},
-				CompletionsPaths: []string{"completions"},
+				MinReplicasPaths: []string{"completions"},
 			}},
 			ResourceStatus: v1.ResourceStatus{
 				PrePaths:     []string{"status", "conditions"},
@@ -746,7 +746,7 @@ var (
 		},
 	}
 
-	TestDeploymentTemplate = &v1.ResourceTemplate{
+	TestDeploymentResourceTemplate = &v1.ResourceTemplate{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "deployment",
 			Labels: map[string]string{
@@ -799,7 +799,7 @@ var (
 		},
 	}
 
-	TestStatefulSetTemplate = &v1.ResourceTemplate{
+	TestStatefulSetResourceTemplate = &v1.ResourceTemplate{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "statefulset",
 			Labels: map[string]string{
@@ -823,6 +823,182 @@ var (
 			ActiveReplica: v1.ActiveReplica{
 				PrePaths:    []string{"status"},
 				ReplicaPath: "availableReplicas",
+			},
+		},
+	}
+
+	TestCICDScaleSetResourceTemplate = &v1.ResourceTemplate{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "job",
+			Labels: map[string]string{
+				v1.WorkloadVersionLabel: "v1",
+			},
+			Annotations: map[string]string{
+				v1.WorkloadKindLabel: common.CICDScaleRunnerSetKind,
+			},
+		},
+		Spec: v1.ResourceTemplateSpec{
+			GroupVersionKind: v1.GroupVersionKind{
+				Group:   "actions.github.com",
+				Version: "v1alpha1",
+				Kind:    "AutoscalingRunnerSet",
+			},
+			ResourceSpecs: []v1.ResourceSpec{{
+				PrePaths:      []string{"spec"},
+				TemplatePaths: []string{"template"},
+			}},
+		},
+	}
+
+	TestCICDRunnerResourceTemplate = &v1.ResourceTemplate{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "job",
+			Labels: map[string]string{
+				v1.WorkloadVersionLabel: "v1",
+			},
+			Annotations: map[string]string{
+				v1.WorkloadKindLabel: common.CICDEphemeralRunnerKind,
+			},
+		},
+		Spec: v1.ResourceTemplateSpec{
+			GroupVersionKind: v1.GroupVersionKind{
+				Group:   "actions.github.com",
+				Version: "v1alpha1",
+				Kind:    "EphemeralRunner",
+			},
+			ResourceSpecs: []v1.ResourceSpec{{
+				PrePaths: []string{"spec"},
+			}},
+			ResourceStatus: v1.ResourceStatus{
+				PrePaths:     []string{"status"},
+				MessagePaths: []string{"message"},
+				ReasonPaths:  []string{"reason"},
+				Phases: []v1.PhaseExpression{{
+					MatchExpressions: map[string]string{
+						"phase": "Running",
+					},
+					Phase: string(v1.K8sRunning),
+				}, {
+					MatchExpressions: map[string]string{
+						"phase": "Failed",
+					},
+					Phase: string(v1.K8sFailed),
+				}, {
+					MatchExpressions: map[string]string{
+						"phase": "Succeeded",
+					},
+					Phase: string(v1.K8sSucceeded),
+				}, {
+					MatchExpressions: map[string]string{
+						"phase": "Pending",
+					},
+					Phase: string(v1.K8sPending),
+				}},
+			},
+		},
+	}
+
+	TestRayJobResourceTemplate = &v1.ResourceTemplate{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "ray-job",
+			Labels: map[string]string{
+				v1.WorkloadVersionLabel: "v1",
+			},
+			Annotations: map[string]string{
+				v1.WorkloadKindLabel: "RayJob",
+			},
+		},
+		Spec: v1.ResourceTemplateSpec{
+			GroupVersionKind: v1.GroupVersionKind{
+				Group:   "ray.io",
+				Version: "v1",
+				Kind:    "RayJob",
+			},
+			ResourceSpecs: []v1.ResourceSpec{{
+				PrePaths:      []string{"spec", "rayClusterSpec", "headGroupSpec"},
+				TemplatePaths: []string{"template"},
+			}, {
+				PrePaths:         []string{"spec", "rayClusterSpec", "workerGroupSpecs", "0"},
+				TemplatePaths:    []string{"template"},
+				ReplicasPaths:    []string{"replicas"},
+				MinReplicasPaths: []string{"minReplicas"},
+				MaxReplicasPaths: []string{"maxReplicas"},
+			}, {
+				PrePaths:         []string{"spec", "rayClusterSpec", "workerGroupSpecs", "1"},
+				TemplatePaths:    []string{"template"},
+				ReplicasPaths:    []string{"replicas"},
+				MinReplicasPaths: []string{"minReplicas"},
+				MaxReplicasPaths: []string{"maxReplicas"},
+			}},
+			ResourceStatus: v1.ResourceStatus{
+				PrePaths:     []string{"status"},
+				MessagePaths: []string{"message"},
+				ReasonPaths:  []string{"reason"},
+				Phases: []v1.PhaseExpression{{
+					MatchExpressions: map[string]string{
+						"jobStatus": "SUCCEEDED",
+					},
+					Phase: "K8sSucceeded",
+				}, {
+					MatchExpressions: map[string]string{
+						"jobStatus": "FAILED",
+					},
+					Phase: "K8sFailed",
+				}, {
+					MatchExpressions: map[string]string{
+						"jobStatus": "RUNNING",
+					},
+					Phase: "K8sRunning",
+				}},
+			},
+			ActiveReplica: v1.ActiveReplica{
+				PrePaths:    []string{"status"},
+				ReplicaPath: "succeeded",
+			},
+		},
+	}
+
+	TestWorkloadData = &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "test-workload-abcde",
+			Labels: map[string]string{
+				v1.ClusterIdLabel:   "test-cluster",
+				v1.DisplayNameLabel: "test-workload",
+			},
+			Annotations: map[string]string{
+				v1.UserNameAnnotation: "test-user",
+				"key":                 "val",
+			},
+			CreationTimestamp: metav1.NewTime(time.Now()),
+		},
+		Spec: v1.WorkloadSpec{
+			Workspace: "test-workspace",
+			MaxRetry:  2,
+			Priority:  2,
+			JobPort:   12345,
+			SSHPort:   23456,
+			GroupVersionKind: v1.GroupVersionKind{
+				Version: "v1",
+				Kind:    "PyTorchJob",
+			},
+			Resources: []v1.WorkloadResource{{
+				Replica:          1,
+				CPU:              "32",
+				GPU:              "4",
+				GPUName:          "amd.com/gpu",
+				Memory:           "256Gi",
+				SharedMemory:     "32Gi",
+				EphemeralStorage: "20Gi",
+				RdmaResource:     "1k",
+			}},
+			Images:      []string{"test-image"},
+			EntryPoints: []string{"sh -c test.sh"},
+			Env: map[string]string{
+				"key": "value",
+			},
+			CustomerLabels: map[string]string{
+				"key1": "val1",
+				"key2": "val2",
 			},
 		},
 	}
@@ -872,122 +1048,6 @@ var (
 				corev1.ResourceMemory:           *resource.NewQuantity(1024*1024*1024*512, resource.BinarySI),
 				common.NvidiaGpu:                *resource.NewQuantity(8, resource.DecimalSI),
 				corev1.ResourceEphemeralStorage: *resource.NewQuantity(1024*1024*1024*128, resource.BinarySI),
-			},
-		},
-	}
-
-	TestCICDScaleSetTemplate = &v1.ResourceTemplate{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "job",
-			Labels: map[string]string{
-				v1.WorkloadVersionLabel: "v1",
-			},
-			Annotations: map[string]string{
-				v1.WorkloadKindLabel: common.CICDScaleRunnerSetKind,
-			},
-		},
-		Spec: v1.ResourceTemplateSpec{
-			GroupVersionKind: v1.GroupVersionKind{
-				Group:   "actions.github.com",
-				Version: "v1alpha1",
-				Kind:    "AutoscalingRunnerSet",
-			},
-			ResourceSpecs: []v1.ResourceSpec{{
-				PrePaths:      []string{"spec"},
-				TemplatePaths: []string{"template"},
-			}},
-		},
-	}
-
-	TestCICDEphemeralRunnerTemplate = &v1.ResourceTemplate{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "job",
-			Labels: map[string]string{
-				v1.WorkloadVersionLabel: "v1",
-			},
-			Annotations: map[string]string{
-				v1.WorkloadKindLabel: common.CICDEphemeralRunnerKind,
-			},
-		},
-		Spec: v1.ResourceTemplateSpec{
-			GroupVersionKind: v1.GroupVersionKind{
-				Group:   "actions.github.com",
-				Version: "v1alpha1",
-				Kind:    "EphemeralRunner",
-			},
-			ResourceSpecs: []v1.ResourceSpec{{
-				PrePaths: []string{"spec"},
-			}},
-			ResourceStatus: v1.ResourceStatus{
-				PrePaths:     []string{"status"},
-				MessagePaths: []string{"message"},
-				ReasonPaths:  []string{"reason"},
-				Phases: []v1.PhaseExpression{{
-					MatchExpressions: map[string]string{
-						"phase": "Running",
-					},
-					Phase: string(v1.K8sRunning),
-				}, {
-					MatchExpressions: map[string]string{
-						"phase": "Failed",
-					},
-					Phase: string(v1.K8sFailed),
-				}, {
-					MatchExpressions: map[string]string{
-						"phase": "Succeeded",
-					},
-					Phase: string(v1.K8sSucceeded),
-				}, {
-					MatchExpressions: map[string]string{
-						"phase": "Pending",
-					},
-					Phase: string(v1.K8sPending),
-				}},
-			},
-		},
-	}
-
-	TestWorkloadData = &v1.Workload{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "test-workload-abcde",
-			Labels: map[string]string{
-				v1.ClusterIdLabel:   "test-cluster",
-				v1.DisplayNameLabel: "test-workload",
-			},
-			Annotations: map[string]string{
-				v1.UserNameAnnotation: "test-user",
-				"key":                 "val",
-			},
-			CreationTimestamp: metav1.NewTime(time.Now()),
-		},
-		Spec: v1.WorkloadSpec{
-			Workspace:  "test-workspace",
-			MaxRetry:   2,
-			Priority:   2,
-			Image:      "test-image",
-			EntryPoint: "sh -c test.sh",
-			JobPort:    12345,
-			SSHPort:    23456,
-			GroupVersionKind: v1.GroupVersionKind{
-				Version: "v1",
-				Kind:    "PyTorchJob",
-			},
-			Resources: []v1.WorkloadResource{{
-				Replica:          1,
-				CPU:              "32",
-				GPU:              "4",
-				GPUName:          "amd.com/gpu",
-				Memory:           "256Gi",
-				SharedMemory:     "32Gi",
-				EphemeralStorage: "20Gi",
-				RdmaResource:     "1k",
-			}},
-			Env: map[string]string{
-				"key": "value",
-			},
-			CustomerLabels: map[string]string{
-				"key1": "val1",
-				"key2": "val2",
 			},
 		},
 	}
