@@ -62,7 +62,7 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		clusterGroup.GET("consumers", getUnifiedHandler("/clusters/consumers"))
 		clusterGroup.GET("gpuHeatmap", getUnifiedHandler("/clusters/gpuHeatmap"))
 	}
-	// Phase 3-5 Unified: Workload endpoints
+	// Phase 3-6 Unified: Workload endpoints
 	workloadGroup := group.Group("/workloads")
 	{
 		workloadGroup.GET("", getUnifiedHandler("/workloads"))
@@ -70,67 +70,68 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		workloadGroup.GET("statistic", getUnifiedHandler("/workloads/statistic"))
 		workloadGroup.GET("hierarchy", getUnifiedHandler("/workloads/hierarchy"))
 		workloadGroup.GET("gpuUtilizationHistory", getUnifiedHandler("/workloads/gpuUtilizationHistory"))
-		// Not yet migrated
-		workloadGroup.GET(":uid/hierarchy", getWorkloadHierarchy)
+		// Phase 6 Unified: Workload hierarchy by UID, metrics, training performance
+		workloadGroup.GET(":uid/hierarchy", getUnifiedHandler("/workloads/:uid/hierarchy"))
 		workloadGroup.GET(":uid", getUnifiedHandler("/workloads/:uid"))
-		workloadGroup.GET(":uid/metrics", getWorkloadMetrics)
-		workloadGroup.GET(":uid/trainingPerformance", GetWorkloadTrainingPerformance)
-		// Training performance new APIs
-		workloadGroup.GET(":uid/metrics/sources", GetDataSources)
-		workloadGroup.GET(":uid/metrics/available", GetAvailableMetrics)
-		workloadGroup.GET(":uid/metrics/data", GetMetricsData)
-		workloadGroup.GET(":uid/metrics/iteration-times", GetIterationTimes)
+		workloadGroup.GET(":uid/metrics", getUnifiedHandler("/workloads/:uid/metrics"))
+		workloadGroup.GET(":uid/trainingPerformance", getUnifiedHandler("/workloads/:uid/trainingPerformance"))
+		// Phase 6 Unified: Training performance new APIs
+		workloadGroup.GET(":uid/metrics/sources", getUnifiedHandler("/workloads/:uid/metrics/sources"))
+		workloadGroup.GET(":uid/metrics/available", getUnifiedHandler("/workloads/:uid/metrics/available"))
+		workloadGroup.GET(":uid/metrics/data", getUnifiedHandler("/workloads/:uid/metrics/data"))
+		workloadGroup.GET(":uid/metrics/iteration-times", getUnifiedHandler("/workloads/:uid/metrics/iteration-times"))
 		// Process tree API for py-spy profiling
 		workloadGroup.POST(":uid/process-tree", pyspy.GetProcessTree)
 	}
-	group.GET("workloadMetadata", getWorkloadsMetadata)
+	// Phase 6 Unified: Workload metadata
+	group.GET("workloadMetadata", getUnifiedHandler("/workloadMetadata"))
 	storageGroup := group.Group("/storage")
 	{
 		storageGroup.GET("stat", getStorageStat)
 	}
 
-	// Alert Event routes - Alert events query and analysis
+	// Phase 7 Unified: Alert Event routes - Alert events query and analysis
 	alertsGroup := group.Group("/alerts")
 	{
 		// Summary and trend endpoints - must be defined before :id
-		alertsGroup.GET("/summary", GetAlertSummary)
-		alertsGroup.GET("/trend", GetAlertTrend)
-		alertsGroup.GET("/top-sources", GetTopAlertSources)
-		alertsGroup.GET("/by-cluster", GetAlertsByCluster)
+		alertsGroup.GET("/summary", getUnifiedHandler("/alerts/summary"))
+		alertsGroup.GET("/trend", getUnifiedHandler("/alerts/trend"))
+		alertsGroup.GET("/top-sources", getUnifiedHandler("/alerts/top-sources"))
+		alertsGroup.GET("/by-cluster", getUnifiedHandler("/alerts/by-cluster"))
 		// List alerts
-		alertsGroup.GET("", ListAlertEvents)
+		alertsGroup.GET("", getUnifiedHandler("/alerts"))
 		// Get alert by ID
-		alertsGroup.GET("/:id", GetAlertEvent)
+		alertsGroup.GET("/:id", getUnifiedHandler("/alerts/:id"))
 		// Get alert correlations
-		alertsGroup.GET("/:id/correlations", GetAlertCorrelations)
+		alertsGroup.GET("/:id/correlations", getUnifiedHandler("/alerts/:id/correlations"))
 	}
 
-	// Metric Alert Rule management routes
+	// Phase 7 Unified: Metric Alert Rule management routes
 	metricAlertRuleGroup := group.Group("/metric-alert-rules")
 	{
 		metricAlertRuleGroup.POST("", CreateMetricAlertRule)
-		metricAlertRuleGroup.GET("", ListMetricAlertRules)
-		metricAlertRuleGroup.GET(":id", GetMetricAlertRule)
+		metricAlertRuleGroup.GET("", getUnifiedHandler("/metric-alert-rules"))
+		metricAlertRuleGroup.GET(":id", getUnifiedHandler("/metric-alert-rules/:id"))
 		metricAlertRuleGroup.PUT(":id", UpdateMetricAlertRule)
 		metricAlertRuleGroup.DELETE(":id", DeleteMetricAlertRule)
 		metricAlertRuleGroup.POST(":id/clone", CloneMetricAlertRule)
 		metricAlertRuleGroup.POST("sync", SyncMetricAlertRulesToCluster)
-		metricAlertRuleGroup.GET(":id/status", GetVMRuleStatus)
+		metricAlertRuleGroup.GET(":id/status", getUnifiedHandler("/metric-alert-rules/:id/status"))
 	}
 
-	// Log Alert Rule management routes
+	// Phase 7 Unified: Log Alert Rule management routes
 	logAlertRuleGroup := group.Group("/log-alert-rules")
 	{
 		logAlertRuleGroup.POST("", CreateLogAlertRule)
-		logAlertRuleGroup.GET("", ListLogAlertRules)
-		logAlertRuleGroup.GET("/multi-cluster", ListLogAlertRulesMultiCluster)
-		logAlertRuleGroup.GET(":id", GetLogAlertRule)
+		logAlertRuleGroup.GET("", getUnifiedHandler("/log-alert-rules"))
+		logAlertRuleGroup.GET("/multi-cluster", getUnifiedHandler("/log-alert-rules/multi-cluster"))
+		logAlertRuleGroup.GET(":id", getUnifiedHandler("/log-alert-rules/:id"))
 		logAlertRuleGroup.PUT(":id", UpdateLogAlertRule)
 		logAlertRuleGroup.DELETE(":id", DeleteLogAlertRule)
 		logAlertRuleGroup.POST("/batch-update", BatchUpdateLogAlertRules)
 		logAlertRuleGroup.POST("/test", TestLogAlertRule)
-		logAlertRuleGroup.GET(":id/statistics", GetLogAlertRuleStatistics)
-		logAlertRuleGroup.GET(":id/versions", GetLogAlertRuleVersions)
+		logAlertRuleGroup.GET(":id/statistics", getUnifiedHandler("/log-alert-rules/:id/statistics"))
+		logAlertRuleGroup.GET(":id/versions", getUnifiedHandler("/log-alert-rules/:id/versions"))
 		logAlertRuleGroup.POST(":id/rollback/:version", RollbackLogAlertRule)
 		logAlertRuleGroup.POST(":id/clone", CloneLogAlertRule)
 	}
