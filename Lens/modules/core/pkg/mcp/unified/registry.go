@@ -176,3 +176,21 @@ func (r *Registry) MCPToolCount() int {
 	defer r.mu.RUnlock()
 	return len(r.mcpTools)
 }
+
+// GetAllEndpoints returns all registered endpoints (alias for GetEndpoints).
+func (r *Registry) GetAllEndpoints() []EndpointRegistration {
+	return r.GetEndpoints()
+}
+
+// GetEndpointByPath returns an endpoint by its HTTP path.
+func (r *Registry) GetEndpointByPath(path string) EndpointRegistration {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	for _, ep := range r.endpoints {
+		if ep.GetHTTPPath() == path {
+			return ep
+		}
+	}
+	return nil
+}

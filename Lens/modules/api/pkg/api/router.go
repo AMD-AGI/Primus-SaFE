@@ -9,22 +9,37 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/api/pkg/api/registry"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/api/pkg/api/sysconfig"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/api/pkg/api/tracelens"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/mcp/unified"
 	"github.com/gin-gonic/gin"
 )
+
+// getUnifiedHandler returns the unified handler for a given path, or nil if not found.
+func getUnifiedHandler(path string) gin.HandlerFunc {
+	ep := unified.GetRegistry().GetEndpointByPath(path)
+	if ep != nil {
+		return ep.GetGinHandler()
+	}
+	return nil
+}
 
 func RegisterRouter(group *gin.RouterGroup) error {
 	nodeGroup := group.Group("/nodes")
 	{
-		nodeGroup.GET("gpuAllocation", getClusterGpuAllocationInfo)
+		// Phase 2 Unified: GPU Allocation
+		nodeGroup.GET("gpuAllocation", getUnifiedHandler("/nodes/gpuAllocation"))
+		// Not yet migrated
 		nodeGroup.GET("gpuUtilization", getClusterGPUUtilization)
 		nodeGroup.GET("gpuUtilizationHistory", getGpuUsageHistory)
-		nodeGroup.GET("", getGPUNodeList)
-		// Node Fragmentation Analysis API
+		// Phase 2 Unified: Node List
+		nodeGroup.GET("", getUnifiedHandler("/nodes"))
+		// Node Fragmentation Analysis API - not yet migrated
 		nodeGroup.GET("fragmentation-analysis", getFragmentationAnalysis)
 		nodeGroup.GET("load-balance-analysis", getLoadBalanceAnalysis)
-		nodeGroup.GET(":name", getNodeInfoByName)
+		// Phase 2 Unified: Node Detail & GPU Devices
+		nodeGroup.GET(":name", getUnifiedHandler("/nodes/:name"))
 		nodeGroup.GET(":name/fragmentation", getNodeFragmentation)
-		nodeGroup.GET(":name/gpuDevices", getGpuDevice)
+		nodeGroup.GET(":name/gpuDevices", getUnifiedHandler("/nodes/:name/gpuDevices"))
+		// Not yet migrated
 		nodeGroup.GET(":name/gpuMetrics", getNodeGpuMetrics)
 		nodeGroup.GET(":name/utilization", getNodeUtilization)
 		nodeGroup.GET(":name/utilizationHistory", getNodeUtilizationHistory)
@@ -32,7 +47,7 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		nodeGroup.GET(":name/workloadsHistory", getNodeWorkloadHistory)
 	}
 
-	// Pod routes - Pod REST API
+	// Pod routes - Pod REST API (not yet migrated)
 	podGroup := group.Group("/pods")
 	{
 		// Query pod statistics with filtering and pagination
@@ -46,11 +61,12 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		// Compare multiple pods side-by-side
 		podGroup.GET("/comparison", comparePods)
 	}
+	// Phase 2 Unified: Cluster endpoints
 	clusterGroup := group.Group("/clusters")
 	{
-		clusterGroup.GET("overview", getClusterOverview)
-		clusterGroup.GET("consumers", getConsumerInfo)
-		clusterGroup.GET("gpuHeatmap", getClusterGpuHeatmap)
+		clusterGroup.GET("overview", getUnifiedHandler("/clusters/overview"))
+		clusterGroup.GET("consumers", getUnifiedHandler("/clusters/consumers"))
+		clusterGroup.GET("gpuHeatmap", getUnifiedHandler("/clusters/gpuHeatmap"))
 	}
 	workloadGroup := group.Group("/workloads")
 	{
