@@ -7,56 +7,71 @@ package ops_job
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
+	"fmt"
+	"strings"
+	"sync"
+	"time"
 
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/pointer"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
+	commonjob "github.com/AMD-AIG-AIMA/SAFE/common/pkg/ops_job"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
 
-// EvaluationJobController watches OpsJob resources and updates evaluation task status in database.
-type EvaluationJobController struct {
-	client.Client
+const (
+	// EvalScope Docker image
+	EvalScopeImage = "registry.cn-hangzhou.aliyuncs.com/modelscope-repo/evalscope:latest"
+
+	// Default resource requirements for evaluation workload
+	DefaultEvalCPU    = "4"
+	DefaultEvalMemory = "16Gi"
+)
+
+// EvaluationJobReconciler reconciles evaluation type OpsJobs.
+type EvaluationJobReconciler struct {
+	*OpsJobBaseReconciler
 	dbClient dbclient.Interface
+	sync.RWMutex
 }
 
-// SetupEvaluationJobController initializes and registers the EvaluationJobController with the controller manager.
+// SetupEvaluationJobController initializes and registers the EvaluationJobReconciler with the controller manager.
 func SetupEvaluationJobController(ctx context.Context, mgr manager.Manager) error {
-	// Only setup if database is enabled
-	if !commonconfig.IsDBEnable() {
-		klog.Info("Database is not enabled, skipping EvaluationJobController setup")
-		return nil
+	var dbClient dbclient.Interface
+	if commonconfig.IsDBEnable() {
+		dbClient = dbclient.NewClient()
+		if dbClient == nil {
+			klog.Warning("Failed to create database client for EvaluationJobController")
+		}
 	}
 
-	dbClient := dbclient.NewClient()
-	if dbClient == nil {
-		klog.Warning("Failed to create database client, skipping EvaluationJobController setup")
-		return nil
-	}
-
-	r := &EvaluationJobController{
-		Client:   mgr.GetClient(),
+	r := &EvaluationJobReconciler{
+		OpsJobBaseReconciler: &OpsJobBaseReconciler{
+			Client: mgr.GetClient(),
+		},
 		dbClient: dbClient,
 	}
 
-	// Watch OpsJob with predicate to filter evaluation-related OpsJobs
 	err := ctrlruntime.NewControllerManagedBy(mgr).
-		For(&v1.OpsJob{}, builder.WithPredicates(
-			predicate.And(
-				evaluationOpsJobPredicate(),
-				predicate.Or(
-					predicate.GenerationChangedPredicate{},
-					evaluationOpsJobPhaseChangedPredicate(),
-				),
-			),
-		)).
+		For(&v1.OpsJob{}, builder.WithPredicates(predicate.Or(
+			predicate.GenerationChangedPredicate{}, onFirstPhaseChangedPredicate()))).
+		Watches(&v1.Workload{}, r.handleWorkloadEvent()).
 		Complete(r)
 	if err != nil {
 		return err
@@ -66,152 +81,345 @@ func SetupEvaluationJobController(ctx context.Context, mgr manager.Manager) erro
 	return nil
 }
 
-// evaluationOpsJobPredicate filters OpsJobs that have evaluation-task-id label
-func evaluationOpsJobPredicate() predicate.Predicate {
-	return predicate.NewPredicateFuncs(func(obj client.Object) bool {
-		labels := obj.GetLabels()
-		if labels == nil {
-			return false
-		}
-		_, hasEvalTaskId := labels[dbclient.EvaluationTaskIdLabel]
-		return hasEvalTaskId
-	})
-}
-
-// evaluationOpsJobPhaseChangedPredicate triggers when OpsJob phase changes
-func evaluationOpsJobPhaseChangedPredicate() predicate.Predicate {
-	return predicate.Funcs{
-		CreateFunc: func(e event.CreateEvent) bool {
-			return true
-		},
-		UpdateFunc: func(e event.UpdateEvent) bool {
-			oldJob, ok1 := e.ObjectOld.(*v1.OpsJob)
-			newJob, ok2 := e.ObjectNew.(*v1.OpsJob)
-			if !ok1 || !ok2 {
-				return false
+// handleWorkloadEvent creates an event handler that watches Workload resource events.
+func (r *EvaluationJobReconciler) handleWorkloadEvent() handler.EventHandler {
+	return handler.Funcs{
+		CreateFunc: func(ctx context.Context, evt event.CreateEvent, q v1.RequestWorkQueue) {
+			workload, ok := evt.Object.(*v1.Workload)
+			if !ok || !isEvaluationWorkload(workload) {
+				return
 			}
-			// Trigger if phase changed
-			return oldJob.Status.Phase != newJob.Status.Phase
+			r.handleWorkloadEventImpl(ctx, workload)
 		},
-		DeleteFunc: func(e event.DeleteEvent) bool {
-			return false
+		UpdateFunc: func(ctx context.Context, evt event.UpdateEvent, q v1.RequestWorkQueue) {
+			oldWorkload, ok1 := evt.ObjectOld.(*v1.Workload)
+			newWorkload, ok2 := evt.ObjectNew.(*v1.Workload)
+			if !ok1 || !ok2 || !isEvaluationWorkload(newWorkload) {
+				return
+			}
+			if (!oldWorkload.IsEnd() && newWorkload.IsEnd()) ||
+				(!oldWorkload.IsRunning() && newWorkload.IsRunning()) {
+				r.handleWorkloadEventImpl(ctx, newWorkload)
+			}
 		},
 	}
 }
 
-// Reconcile handles OpsJob status changes and updates evaluation task status.
-func (r *EvaluationJobController) Reconcile(ctx context.Context, req ctrlruntime.Request) (ctrlruntime.Result, error) {
-	// Get the OpsJob
-	job := &v1.OpsJob{}
-	if err := r.Get(ctx, req.NamespacedName, job); err != nil {
-		// Job may have been deleted, ignore
-		return ctrlruntime.Result{}, client.IgnoreNotFound(err)
+// isEvaluationWorkload checks if a workload is an evaluation job workload.
+func isEvaluationWorkload(workload *v1.Workload) bool {
+	return v1.GetOpsJobId(workload) != "" &&
+		v1.GetOpsJobType(workload) == string(v1.OpsJobEvaluationType)
+}
+
+// Reconcile is the main control loop for EvaluationJob resources.
+func (r *EvaluationJobReconciler) Reconcile(ctx context.Context, req ctrlruntime.Request) (ctrlruntime.Result, error) {
+	clearFuncs := []ClearFunc{r.cleanupJobRelatedInfo}
+	return r.OpsJobBaseReconciler.Reconcile(ctx, req, r, clearFuncs...)
+}
+
+// cleanupJobRelatedInfo cleans up job-related resources.
+func (r *EvaluationJobReconciler) cleanupJobRelatedInfo(ctx context.Context, job *v1.OpsJob) error {
+	return commonjob.CleanupJobRelatedResource(ctx, r.Client, job.Name)
+}
+
+// observe the job status. Returns true if the expected state is met (no handling required), false otherwise.
+func (r *EvaluationJobReconciler) observe(_ context.Context, job *v1.OpsJob) (bool, error) {
+	return job.IsEnd(), nil
+}
+
+// filter determines if the job should be processed by this evaluation job reconciler.
+func (r *EvaluationJobReconciler) filter(_ context.Context, job *v1.OpsJob) bool {
+	return job.Spec.Type != v1.OpsJobEvaluationType
+}
+
+// handle processes the evaluation job by creating a corresponding workload.
+func (r *EvaluationJobReconciler) handle(ctx context.Context, job *v1.OpsJob) (ctrlruntime.Result, error) {
+	if job.Status.Phase == "" {
+		originalJob := client.MergeFrom(job.DeepCopy())
+		job.Status.Phase = v1.OpsJobPending
+		if err := r.Status().Patch(ctx, job, originalJob); err != nil {
+			return ctrlruntime.Result{}, err
+		}
+		// Update database status
+		r.updateDBStatus(ctx, job, dbclient.EvaluationTaskStatusPending, 0)
+		return newRequeueAfterResult(job), nil
 	}
 
-	// Get evaluation task ID from labels
-	taskId := job.Labels[dbclient.EvaluationTaskIdLabel]
-	if taskId == "" {
-		// No task ID, skip
+	// Check if workload already exists
+	workload := &v1.Workload{}
+	if r.Get(ctx, client.ObjectKey{Name: job.Name}, workload) == nil {
 		return ctrlruntime.Result{}, nil
 	}
 
-	// Map OpsJob phase to evaluation task status
-	status, progress := mapOpsJobPhaseToEvaluationStatus(job.Status.Phase)
-	if status == "" {
-		// Unknown phase, skip
-		return ctrlruntime.Result{}, nil
+	// Generate and create workload
+	var err error
+	workload, err = r.generateEvaluationWorkload(ctx, job)
+	if err != nil {
+		klog.ErrorS(err, "failed to generate evaluation workload", "job", job.Name)
+		return ctrlruntime.Result{}, err
 	}
 
-	// Update status based on phase
-	switch job.Status.Phase {
-	case v1.OpsJobRunning:
-		// Update start time and status
-		if err := r.dbClient.UpdateEvaluationTaskStartTime(ctx, taskId); err != nil {
-			klog.ErrorS(err, "failed to update evaluation task start time",
-				"taskId", taskId,
-				"opsJobName", job.Name)
-			return ctrlruntime.Result{Requeue: true}, nil
-		}
-	case v1.OpsJobSucceeded:
-		// Update status to succeeded
-		if err := r.dbClient.UpdateEvaluationTaskStatus(ctx, taskId, status, progress); err != nil {
-			klog.ErrorS(err, "failed to update evaluation task status",
-				"taskId", taskId,
-				"opsJobName", job.Name,
-				"status", status)
-			return ctrlruntime.Result{Requeue: true}, nil
-		}
-		// Try to get and store report path from outputs
-		r.updateReportPath(ctx, taskId, job)
-	case v1.OpsJobFailed:
-		// Mark task as failed with error message
-		message := extractEvaluationFailureMessage(job)
-		if err := r.dbClient.SetEvaluationTaskFailed(ctx, taskId, message); err != nil {
-			klog.ErrorS(err, "failed to set evaluation task failed",
-				"taskId", taskId,
-				"opsJobName", job.Name)
-			return ctrlruntime.Result{Requeue: true}, nil
-		}
-	default:
-		// Update status and progress
-		if err := r.dbClient.UpdateEvaluationTaskStatus(ctx, taskId, status, progress); err != nil {
-			klog.ErrorS(err, "failed to update evaluation task status",
-				"taskId", taskId,
-				"opsJobName", job.Name,
-				"status", status)
-			return ctrlruntime.Result{Requeue: true}, nil
-		}
+	if err = r.Create(ctx, workload); err != nil {
+		return ctrlruntime.Result{}, client.IgnoreAlreadyExists(err)
 	}
 
-	klog.InfoS("updated evaluation task status",
-		"taskId", taskId,
-		"opsJobName", job.Name,
-		"opsJobPhase", job.Status.Phase,
-		"status", status,
-		"progress", progress)
-
+	klog.Infof("Created evaluation workload %s for job %s", workload.Name, job.Name)
 	return ctrlruntime.Result{}, nil
 }
 
-// mapOpsJobPhaseToEvaluationStatus converts OpsJob phase to evaluation task status.
-func mapOpsJobPhaseToEvaluationStatus(phase v1.OpsJobPhase) (dbclient.EvaluationTaskStatus, int) {
-	switch phase {
-	case v1.OpsJobPending:
-		return dbclient.EvaluationTaskStatusPending, 0
-	case v1.OpsJobRunning:
-		return dbclient.EvaluationTaskStatusRunning, 50
-	case v1.OpsJobSucceeded:
-		return dbclient.EvaluationTaskStatusSucceeded, 100
-	case v1.OpsJobFailed:
-		return dbclient.EvaluationTaskStatusFailed, 100
-	default:
-		return dbclient.EvaluationTaskStatusPending, 0
+// getParamValue safely extracts string value from Parameter
+func getParamValue(param *v1.Parameter) string {
+	if param == nil {
+		return ""
 	}
+	return param.Value
 }
 
-// extractEvaluationFailureMessage extracts failure message from OpsJob conditions
-func extractEvaluationFailureMessage(job *v1.OpsJob) string {
-	for _, cond := range job.Status.Conditions {
-		if cond.Type == "Failed" && cond.Message != "" {
-			return cond.Message
+// generateEvaluationWorkload generates an evaluation workload based on the job specification.
+func (r *EvaluationJobReconciler) generateEvaluationWorkload(ctx context.Context, job *v1.OpsJob) (*v1.Workload, error) {
+	// Extract parameters from job inputs
+	taskId := getParamValue(job.GetParameter(v1.ParameterEvalTaskId))
+	modelEndpoint := getParamValue(job.GetParameter(v1.ParameterModelEndpoint))
+	modelName := getParamValue(job.GetParameter(v1.ParameterModelName))
+	benchmarksJSON := getParamValue(job.GetParameter(v1.ParameterEvalBenchmarks))
+	paramsJSON := getParamValue(job.GetParameter(v1.ParameterEvalParams))
+	workspace := getParamValue(job.GetParameter(v1.ParameterWorkspace))
+
+	if taskId == "" {
+		taskId = job.Labels[dbclient.EvaluationTaskIdLabel]
+	}
+
+	// Build evalscope command
+	entryPoint, err := r.buildEvalCommand(ctx, modelEndpoint, modelName, benchmarksJSON, paramsJSON, taskId)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build eval command: %w", err)
+	}
+
+	// Base64 encode the entry point
+	encodedEntryPoint := base64.StdEncoding.EncodeToString([]byte(entryPoint))
+
+	workload := &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: job.Name,
+			Labels: map[string]string{
+				v1.UserIdLabel:                 v1.GetUserId(job),
+				v1.OpsJobIdLabel:               job.Name,
+				v1.OpsJobTypeLabel:             string(job.Spec.Type),
+				v1.DisplayNameLabel:            v1.GetDisplayName(job),
+				dbclient.EvaluationTaskIdLabel: taskId,
+			},
+			Annotations: map[string]string{
+				v1.UserNameAnnotation:          v1.GetUserName(job),
+				v1.WorkloadScheduledAnnotation: timeutil.FormatRFC3339(time.Now().UTC()),
+				v1.DescriptionAnnotation:       "Model evaluation task",
+			},
+		},
+		Spec: v1.WorkloadSpec{
+			EntryPoints: []string{encodedEntryPoint},
+			GroupVersionKind: v1.GroupVersionKind{
+				Version: common.DefaultVersion,
+				Kind:    common.JobKind,
+			},
+			IsTolerateAll: job.Spec.IsTolerateAll,
+			Priority:      common.LowPriorityInt,
+			Workspace:     workspace,
+			Images:        []string{EvalScopeImage},
+			Resources: []v1.WorkloadResource{
+				{
+					CPU:              DefaultEvalCPU,
+					Memory:           DefaultEvalMemory,
+					EphemeralStorage: "50Gi",
+					Replica:          1,
+				},
+			},
+		},
+	}
+
+	// Set workspace default
+	if workload.Spec.Workspace == "" {
+		workload.Spec.Workspace = corev1.NamespaceDefault
+	}
+
+	// Set timeout
+	if job.Spec.TimeoutSecond > 0 {
+		workload.Spec.Timeout = pointer.Int(job.Spec.TimeoutSecond)
+	}
+
+	// Set TTL
+	if job.Spec.TTLSecondsAfterFinished > 0 {
+		workload.Spec.TTLSecondsAfterFinished = pointer.Int(job.Spec.TTLSecondsAfterFinished)
+	}
+
+	// Set owner reference
+	if err := controllerutil.SetControllerReference(job, workload, r.Client.Scheme()); err != nil {
+		return nil, err
+	}
+
+	return workload, nil
+}
+
+// BenchmarkConfig represents benchmark configuration from API
+type BenchmarkConfig struct {
+	DatasetId string `json:"datasetId"`
+	EvalType  string `json:"evalType"`
+	Limit     int    `json:"limit,omitempty"`
+}
+
+// EvalParams represents evaluation parameters from API
+type EvalParams struct {
+	FewShot   int `json:"fewShot,omitempty"`
+	MaxTokens int `json:"maxTokens,omitempty"`
+}
+
+// buildEvalCommand builds the evalscope command based on parameters
+func (r *EvaluationJobReconciler) buildEvalCommand(ctx context.Context, modelEndpoint, modelName, benchmarksJSON, paramsJSON, taskId string) (string, error) {
+	// Parse benchmarks
+	var benchmarks []BenchmarkConfig
+	if err := json.Unmarshal([]byte(benchmarksJSON), &benchmarks); err != nil {
+		return "", fmt.Errorf("failed to parse benchmarks: %w", err)
+	}
+
+	if len(benchmarks) == 0 {
+		return "", fmt.Errorf("no benchmarks specified")
+	}
+
+	// Parse eval params
+	var evalParams EvalParams
+	if paramsJSON != "" {
+		if err := json.Unmarshal([]byte(paramsJSON), &evalParams); err != nil {
+			klog.Warningf("failed to parse eval params, using defaults: %v", err)
 		}
 	}
-	return "Evaluation failed"
+
+	// Build dataset list
+	var datasets []string
+	for _, b := range benchmarks {
+		// For now, use datasetId as dataset name
+		// In production, should look up actual dataset path from database
+		datasets = append(datasets, b.DatasetId)
+	}
+
+	// Build command
+	var cmdParts []string
+	cmdParts = append(cmdParts, "evalscope", "eval")
+
+	// Model configuration
+	cmdParts = append(cmdParts, "--model", modelName)
+
+	// API endpoint for remote/local inference
+	if modelEndpoint != "" {
+		cmdParts = append(cmdParts, "--api-url", modelEndpoint)
+	}
+
+	// Datasets
+	cmdParts = append(cmdParts, "--datasets", strings.Join(datasets, ","))
+
+	// Limit (use first benchmark's limit if specified)
+	if len(benchmarks) > 0 && benchmarks[0].Limit > 0 {
+		cmdParts = append(cmdParts, "--limit", fmt.Sprintf("%d", benchmarks[0].Limit))
+	}
+
+	// Few-shot
+	if evalParams.FewShot > 0 {
+		cmdParts = append(cmdParts, "--few-shot", fmt.Sprintf("%d", evalParams.FewShot))
+	}
+
+	// Max tokens
+	if evalParams.MaxTokens > 0 {
+		cmdParts = append(cmdParts, "--max-tokens", fmt.Sprintf("%d", evalParams.MaxTokens))
+	}
+
+	// Output directory (for report)
+	outputDir := fmt.Sprintf("/outputs/%s", taskId)
+	cmdParts = append(cmdParts, "--work-dir", outputDir)
+
+	return strings.Join(cmdParts, " "), nil
 }
 
-// updateReportPath tries to extract and update the report path from job outputs
-func (r *EvaluationJobController) updateReportPath(ctx context.Context, taskId string, job *v1.OpsJob) {
-	// Look for report path in outputs
-	for _, output := range job.Status.Outputs {
-		if output.Name == v1.ParameterEvalReportPath && output.Value != "" {
-			// TODO: Also parse and store result summary from the report
-			if err := r.dbClient.UpdateEvaluationTaskResult(ctx, taskId, "", output.Value); err != nil {
-				klog.ErrorS(err, "failed to update evaluation task result",
-					"taskId", taskId,
-					"reportPath", output.Value)
+// handleWorkloadEventImpl handles workload events and updates job/database status
+func (r *EvaluationJobReconciler) handleWorkloadEventImpl(ctx context.Context, workload *v1.Workload) {
+	// Use base reconciler's implementation to update OpsJob status
+	r.OpsJobBaseReconciler.handleWorkloadEventImpl(ctx, workload)
+
+	// Additionally update database status
+	taskId := workload.Labels[dbclient.EvaluationTaskIdLabel]
+	if taskId == "" || r.dbClient == nil {
+		return
+	}
+
+	var status dbclient.EvaluationTaskStatus
+	var progress int
+
+	switch {
+	case workload.IsEnd():
+		if workload.Status.Phase == v1.WorkloadSucceeded {
+			status = dbclient.EvaluationTaskStatusSucceeded
+			progress = 100
+			// Try to get report path
+			r.updateReportPath(ctx, taskId, workload)
+		} else {
+			status = dbclient.EvaluationTaskStatusFailed
+			progress = 100
+			message := getWorkloadCompletionMessage(workload)
+			if err := r.dbClient.SetEvaluationTaskFailed(ctx, taskId, message); err != nil {
+				klog.ErrorS(err, "failed to set evaluation task failed", "taskId", taskId)
 			}
-			break
+			return
 		}
+	case workload.IsRunning():
+		status = dbclient.EvaluationTaskStatusRunning
+		progress = 50
+		// Update start time
+		if err := r.dbClient.UpdateEvaluationTaskStartTime(ctx, taskId); err != nil {
+			klog.ErrorS(err, "failed to update evaluation task start time", "taskId", taskId)
+		}
+	default:
+		status = dbclient.EvaluationTaskStatusPending
+		progress = 0
+	}
+
+	r.updateDBStatus(ctx, workload, status, progress)
+}
+
+// updateDBStatus updates the evaluation task status in database
+func (r *EvaluationJobReconciler) updateDBStatus(ctx context.Context, obj client.Object, status dbclient.EvaluationTaskStatus, progress int) {
+	if r.dbClient == nil {
+		return
+	}
+
+	var taskId string
+	switch o := obj.(type) {
+	case *v1.OpsJob:
+		taskId = o.Labels[dbclient.EvaluationTaskIdLabel]
+	case *v1.Workload:
+		taskId = o.Labels[dbclient.EvaluationTaskIdLabel]
+	}
+
+	if taskId == "" {
+		return
+	}
+
+	if err := r.dbClient.UpdateEvaluationTaskStatus(ctx, taskId, status, progress); err != nil {
+		klog.ErrorS(err, "failed to update evaluation task status",
+			"taskId", taskId,
+			"status", status,
+			"progress", progress)
 	}
 }
 
+// updateReportPath tries to extract report path from workload and update database
+func (r *EvaluationJobReconciler) updateReportPath(ctx context.Context, taskId string, workload *v1.Workload) {
+	if r.dbClient == nil {
+		return
+	}
+
+	// For evaluation tasks, the report path is typically in the output directory
+	// Format: /outputs/{taskId}/report.json
+	reportPath := fmt.Sprintf("s3://evaluations/%s/report.json", taskId)
+
+	if err := r.dbClient.UpdateEvaluationTaskResult(ctx, taskId, "", reportPath); err != nil {
+		klog.ErrorS(err, "failed to update evaluation task result",
+			"taskId", taskId,
+			"reportPath", reportPath)
+	}
+}
