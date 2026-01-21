@@ -27,6 +27,22 @@ type RealtimeStatusRequest struct {
 // RealtimeStatusResult is the same as RealtimeStatusResponse for backward compatibility.
 type RealtimeStatusResult = RealtimeStatusResponse
 
+// ===== Running Tasks =====
+
+// RunningTasksRequest represents the request for running tasks.
+type RunningTasksRequestUnified struct {
+	Cluster   string `json:"cluster" mcp:"required,desc=Target cluster name"`
+	Namespace string `json:"namespace" mcp:"desc=Filter by namespace"`
+}
+
+// RunningTasksResponseUnified is the response for running tasks.
+type RunningTasksResponseUnified struct {
+	Cluster    string        `json:"cluster"`
+	Timestamp  time.Time     `json:"timestamp"`
+	TotalTasks int           `json:"total_tasks"`
+	Tasks      []RunningTask `json:"tasks"`
+}
+
 // ===== Register Realtime Endpoints =====
 
 func init() {
@@ -38,6 +54,16 @@ func init() {
 		HTTPPath:    "/realtime/status",
 		MCPToolName: "lens_realtime_status",
 		Handler:     handleRealtimeStatus,
+	})
+
+	// Register running tasks endpoint
+	unified.Register(&unified.EndpointDef[RunningTasksRequestUnified, RunningTasksResponseUnified]{
+		Name:        "running_tasks",
+		Description: "Get list of currently running GPU tasks with their resource allocation and status",
+		HTTPMethod:  "GET",
+		HTTPPath:    "/realtime/running-tasks",
+		MCPToolName: "lens_running_tasks",
+		Handler:     handleRunningTasks,
 	})
 }
 
@@ -81,4 +107,50 @@ func handleRealtimeStatus(ctx context.Context, req *RealtimeStatusRequest) (*Rea
 	_ = cacheFacade.Set(ctx, cacheKey, response, &expiresAt)
 
 	return &response, nil
+}
+
+// handleRunningTasks handles running tasks requests.
+func handleRunningTasks(ctx context.Context, req *RunningTasksRequestUnified) (*RunningTasksResponseUnified, error) {
+	if req.Cluster == "" {
+		return nil, fmt.Errorf("cluster is required")
+	}
+
+	cm := clientsets.GetClusterManager()
+	clients, err := cm.GetClientSetByClusterName(req.Cluster)
+	if err != nil {
+		return nil, err
+	}
+
+	// Try to get from cache first
+	cacheFacade := database.GetFacadeForCluster(clients.ClusterName).GetGenericCache()
+	cacheKey := fmt.Sprintf("running_tasks:%s:%s", req.Cluster, req.Namespace)
+
+	var response RunningTasksResponse
+	err = cacheFacade.Get(ctx, cacheKey, &response)
+	if err == nil && response.Cluster != "" && !response.Timestamp.IsZero() {
+		// Cache hit
+		return &RunningTasksResponseUnified{
+			Cluster:    response.Cluster,
+			Timestamp:  response.Timestamp,
+			TotalTasks: response.TotalTasks,
+			Tasks:      response.Tasks,
+		}, nil
+	}
+
+	// Cache miss - build response
+	response, err = buildRunningTasksResponse(ctx, clients.ClusterName, req.Namespace)
+	if err != nil {
+		return nil, err
+	}
+
+	// Cache the result
+	expiresAt := time.Now().Add(30 * time.Second)
+	_ = cacheFacade.Set(ctx, cacheKey, response, &expiresAt)
+
+	return &RunningTasksResponseUnified{
+		Cluster:    response.Cluster,
+		Timestamp:  response.Timestamp,
+		TotalTasks: response.TotalTasks,
+		Tasks:      response.Tasks,
+	}, nil
 }

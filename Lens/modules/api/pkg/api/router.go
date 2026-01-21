@@ -30,7 +30,7 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		nodeGroup.GET("gpuUtilization", getUnifiedHandler("/nodes/gpuUtilization"))
 		nodeGroup.GET("gpuUtilizationHistory", getUnifiedHandler("/nodes/gpuUtilizationHistory"))
 		nodeGroup.GET("", getUnifiedHandler("/nodes"))
-		// Not yet migrated
+		// Node analysis endpoints - complex, not migrated
 		nodeGroup.GET("fragmentation-analysis", getFragmentationAnalysis)
 		nodeGroup.GET("load-balance-analysis", getLoadBalanceAnalysis)
 		nodeGroup.GET(":name", getUnifiedHandler("/nodes/:name"))
@@ -87,7 +87,7 @@ func RegisterRouter(group *gin.RouterGroup) error {
 	group.GET("workloadMetadata", getUnifiedHandler("/workloadMetadata"))
 	storageGroup := group.Group("/storage")
 	{
-		storageGroup.GET("stat", getStorageStat)
+		storageGroup.GET("stat", getUnifiedHandler("/storage/stat"))
 	}
 
 	// Phase 7 Unified: Alert Event routes - Alert events query and analysis
@@ -136,25 +136,25 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		logAlertRuleGroup.POST(":id/clone", CloneLogAlertRule)
 	}
 
-	// Log Alert Rule Template routes
+	// Log Alert Rule Template routes - Phase 10.5: GET endpoints migrated
 	logAlertRuleTemplateGroup := group.Group("/log-alert-rule-templates")
 	{
 		logAlertRuleTemplateGroup.POST("", CreateLogAlertRuleTemplate)
-		logAlertRuleTemplateGroup.GET("", ListLogAlertRuleTemplates)
-		logAlertRuleTemplateGroup.GET(":id", GetLogAlertRuleTemplate)
+		logAlertRuleTemplateGroup.GET("", getUnifiedHandler("/log-alert-rule-templates"))
+		logAlertRuleTemplateGroup.GET(":id", getUnifiedHandler("/log-alert-rule-templates/:id"))
 		logAlertRuleTemplateGroup.DELETE(":id", DeleteLogAlertRuleTemplate)
 		logAlertRuleTemplateGroup.POST(":id/instantiate", CreateRuleFromTemplate)
 	}
 
-	// Alert Rule Advice routes
+	// Alert Rule Advice routes - Phase 10.5: GET endpoints migrated
 	alertRuleAdviceGroup := group.Group("/alert-rule-advices")
 	{
 		alertRuleAdviceGroup.POST("", CreateAlertRuleAdvice)
 		alertRuleAdviceGroup.POST("/batch", BatchCreateAlertRuleAdvices)
-		alertRuleAdviceGroup.GET("", ListAlertRuleAdvices)
-		alertRuleAdviceGroup.GET("/summary", GetAdviceSummary)
-		alertRuleAdviceGroup.GET("/statistics", GetAdviceStatistics)
-		alertRuleAdviceGroup.GET(":id", GetAlertRuleAdvice)
+		alertRuleAdviceGroup.GET("", getUnifiedHandler("/alert-rule-advices"))
+		alertRuleAdviceGroup.GET("/summary", getUnifiedHandler("/alert-rule-advices/summary"))
+		alertRuleAdviceGroup.GET("/statistics", getUnifiedHandler("/alert-rule-advices/statistics"))
+		alertRuleAdviceGroup.GET(":id", getUnifiedHandler("/alert-rule-advices/:id"))
 		alertRuleAdviceGroup.PUT(":id", UpdateAlertRuleAdvice)
 		alertRuleAdviceGroup.DELETE(":id", DeleteAlertRuleAdvice)
 		alertRuleAdviceGroup.POST("/batch-delete", BatchDeleteAlertRuleAdvices)
@@ -163,13 +163,13 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		alertRuleAdviceGroup.POST(":id/apply", ApplyAlertRuleAdvice)
 	}
 
-	// Notification Channel routes - Reusable notification channel configurations
+	// Notification Channel routes - Phase 10.5: GET endpoints migrated
 	notificationChannelGroup := group.Group("/notification-channels")
 	{
-		notificationChannelGroup.GET("/types", GetChannelTypes)
+		notificationChannelGroup.GET("/types", getUnifiedHandler("/notification-channels/types"))
 		notificationChannelGroup.POST("", CreateNotificationChannel)
-		notificationChannelGroup.GET("", ListNotificationChannels)
-		notificationChannelGroup.GET(":id", GetNotificationChannel)
+		notificationChannelGroup.GET("", getUnifiedHandler("/notification-channels"))
+		notificationChannelGroup.GET(":id", getUnifiedHandler("/notification-channels/:id"))
 		notificationChannelGroup.PUT(":id", UpdateNotificationChannel)
 		notificationChannelGroup.DELETE(":id", DeleteNotificationChannel)
 		notificationChannelGroup.POST(":id/test", TestNotificationChannel)
@@ -370,12 +370,11 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		sysconfigGroup.GET("/:key/history", getUnifiedHandler("/system-config/:key/history"))
 	}
 
-	// Real-time Status routes - Phase 3 Unified
+	// Real-time Status routes - Phase 3+10.5 Unified
 	realtimeGroup := group.Group("/realtime")
 	{
 		realtimeGroup.GET("/status", getUnifiedHandler("/realtime/status"))
-		// Not yet migrated
-		realtimeGroup.GET("/running-tasks", getRunningTasks)
+		realtimeGroup.GET("/running-tasks", getUnifiedHandler("/realtime/running-tasks"))
 	}
   
 	// Phase 8 Unified (GET only): Detection Status routes - Framework detection status and task progress
