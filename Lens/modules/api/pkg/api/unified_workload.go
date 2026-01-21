@@ -90,7 +90,7 @@ type WorkloadGPUHistoryRequest struct {
 }
 
 // WorkloadGPUHistoryResponse is the utilization history data.
-type WorkloadGPUHistoryResponse = model.GpuUtilizationHistory
+type WorkloadGPUHistoryResponse = model.MetricsGraph
 
 // ===== Register Workload Endpoints =====
 
