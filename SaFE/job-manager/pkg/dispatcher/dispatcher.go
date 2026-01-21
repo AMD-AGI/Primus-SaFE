@@ -120,10 +120,10 @@ func (relevantChangePredicate) Update(e event.UpdateEvent) bool {
 				return true
 			}
 		}
-		if oldWorkload.Spec.Image != newWorkload.Spec.Image {
+		if !reflect.DeepEqual(oldWorkload.Spec.Images, newWorkload.Spec.Images) {
 			return true
 		}
-		if oldWorkload.Spec.EntryPoint != newWorkload.Spec.EntryPoint {
+		if !reflect.DeepEqual(oldWorkload.Spec.EntryPoints, newWorkload.Spec.EntryPoints) {
 			return true
 		}
 		if !maps.EqualIgnoreOrder(oldWorkload.Spec.Env, newWorkload.Spec.Env) || len(v1.GetEnvToBeRemoved(newWorkload)) > 0 {
@@ -482,7 +482,7 @@ func (r *DispatcherReconciler) syncWorkloadToObject(ctx context.Context, adminWo
 	}
 
 	functions := []func(adminWorkload *v1.Workload, obj *unstructured.Unstructured, rt *v1.ResourceTemplate) bool{
-		isResourceChanged, isImageChanged, isEntryPointChanged, isSharedMemoryChanged,
+		isResourceChanged, isImagesChanged, isEntrypointChanged, isSharedMemoryChanged,
 		isEnvChanged, isPriorityClassChanged, isGithubSecretChanged,
 	}
 	isChanged := false
@@ -553,28 +553,40 @@ func isResourceChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructure
 	return false
 }
 
-// isImageChanged checks if the container image of the workload has changed.
-func isImageChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructured, rt *v1.ResourceTemplate) bool {
-	image, err := jobutils.GetImage(obj, rt, v1.GetMainContainer(adminWorkload))
+// isImagesChanged checks if the container image of the workload has changed.
+func isImagesChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructured, rt *v1.ResourceTemplate) bool {
+	images, err := jobutils.GetImages(obj, rt, v1.GetMainContainer(adminWorkload))
 	if err != nil {
 		klog.ErrorS(err, "failed to get image", "obj", obj.GetName())
 		return false
 	}
-	return adminWorkload.Spec.Image != image
+	return !reflect.DeepEqual(adminWorkload.Spec.Images, images)
 }
 
-// isEntryPointChanged checks if the entry point/command of the workload has changed.
-func isEntryPointChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructured, rt *v1.ResourceTemplate) bool {
-	commands, err := jobutils.GetCommand(obj, rt, v1.GetMainContainer(adminWorkload))
+// isEntrypointChanged checks if the entry point/command of the workload has changed.
+func isEntrypointChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructured, rt *v1.ResourceTemplate) bool {
+	commands, err := jobutils.GetCommands(obj, rt, v1.GetMainContainer(adminWorkload))
 	if err != nil {
 		klog.ErrorS(err, "failed to get command", "obj", obj.GetName())
 		return false
 	}
-	if len(commands) == 0 {
-		return false
+	if len(commands) != len(adminWorkload.Spec.EntryPoints) {
+		return true
 	}
-	cmd := buildEntryPoint(adminWorkload)
-	return cmd != commands[len(commands)-1]
+	for i := range commands {
+		newEntrypoint := buildEntryPoint(adminWorkload, i)
+		oldCommand := commands[i]
+		if len(oldCommand) == 0 {
+			if newEntrypoint != "" {
+				return true
+			}
+			continue
+		}
+		if newEntrypoint != oldCommand[len(oldCommand)-1] {
+			return true
+		}
+	}
+	return false
 }
 
 // isEnvChanged checks if the environment variables of the workload have changed.
@@ -644,10 +656,11 @@ func applyWorkloadSpecToObject(ctx context.Context, clientSets *syncer.ClusterCl
 			return err
 		}
 	}
-
 	for i, t := range rt.Spec.ResourceSpecs {
 		if i >= len(adminWorkload.Spec.Resources) {
-			unstructured.RemoveNestedField(obj.Object, t.PrePaths...)
+			if err := jobutils.RemoveNestedField(obj.Object, t.PrePaths); err != nil {
+				return err
+			}
 			continue
 		}
 		if err := updateHostNetwork(adminWorkload, obj, t, i); err != nil {
@@ -657,7 +670,7 @@ func applyWorkloadSpecToObject(ctx context.Context, clientSets *syncer.ClusterCl
 			return fmt.Errorf("failed to update replica: %v", err.Error())
 		}
 		if err := updateMetadata(adminWorkload, obj, t, i); err != nil {
-			return fmt.Errorf("failed to update main container: %v", err.Error())
+			return fmt.Errorf("failed to update metadata: %v", err.Error())
 		}
 		if err := updateContainers(adminWorkload, obj, t, i); err != nil {
 			return fmt.Errorf("failed to update main container: %v", err.Error())
@@ -949,7 +962,7 @@ func (r *DispatcherReconciler) generateLighthouse(ctx context.Context, rootWorkl
 	entryPoint := stringutil.Base64Decode(commonconfig.GetTorchFTLightHouse())
 	entryPoint = strings.TrimRight(entryPoint, "\n")
 	entryPoint += fmt.Sprintf(" --min_replicas %d", minGroup)
-	workload.Spec.EntryPoint = stringutil.Base64Encode(entryPoint)
+	workload.Spec.EntryPoints = []string{stringutil.Base64Encode(entryPoint)}
 	workload.Spec.Kind = common.DeploymentKind
 	workload.Spec.Resources = []v1.WorkloadResource{rootWorkload.Spec.Resources[0]}
 	workload.Spec.Service = &v1.Service{
@@ -970,7 +983,7 @@ func (r *DispatcherReconciler) generateLighthouse(ctx context.Context, rootWorkl
 func (r *DispatcherReconciler) generateTorchFTWorker(ctx context.Context,
 	rootWorkload *v1.Workload, groupId, totalGroup int, lightHouseAddr string) *v1.Workload {
 	workload := rootWorkload.DeepCopy()
-	// The webhook has already validated the resources.
+	// The webhook has already validated the resources, ensuring at least 2 elements exist.
 	groupIdAnnotation := strconv.Itoa(groupId + 1)
 	nodePerGroup := rootWorkload.Spec.Resources[1].Replica / totalGroup
 	displayName := v1.GetDisplayName(rootWorkload) + "-" + groupIdAnnotation
@@ -987,10 +1000,10 @@ func (r *DispatcherReconciler) generateTorchFTWorker(ctx context.Context,
 	}
 	workload.Spec.Env[common.TorchFTLightHouse] = lightHouseAddr
 
-	entryPoint := stringutil.Base64Decode(workload.Spec.EntryPoint)
+	entryPoint := stringutil.Base64Decode(workload.Spec.EntryPoints[1])
 	entryPoint = strings.TrimRight(entryPoint, "\n")
-	workload.Spec.EntryPoint = stringutil.Base64Encode(entryPoint + " --fault_tolerance.enable --fault_tolerance.replica_id=" +
-		strconv.Itoa(groupId) + " --fault_tolerance.group_size=" + strconv.Itoa(totalGroup))
+	workload.Spec.EntryPoints = []string{stringutil.Base64Encode(entryPoint + " --fault_tolerance.enable --fault_tolerance.replica_id=" +
+		strconv.Itoa(groupId) + " --fault_tolerance.group_size=" + strconv.Itoa(totalGroup))}
 	workload.Spec.GroupVersionKind.Kind = common.PytorchJobKind
 	v1.SetLabel(workload, v1.DisplayNameLabel, displayName)
 	v1.SetLabel(workload, v1.RootWorkloadIdLabel, rootWorkload.Name)

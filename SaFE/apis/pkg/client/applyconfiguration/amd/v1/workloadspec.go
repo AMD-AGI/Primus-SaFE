@@ -13,7 +13,9 @@ type WorkloadSpecApplyConfiguration struct {
 	Resources                           []WorkloadResourceApplyConfiguration `json:"resources,omitempty"`
 	Workspace                           *string                              `json:"workspace,omitempty"`
 	Image                               *string                              `json:"image,omitempty"`
+	Images                              []string                             `json:"images,omitempty"`
 	EntryPoint                          *string                              `json:"entryPoint,omitempty"`
+	EntryPoints                         []string                             `json:"entryPoints,omitempty"`
 	JobPort                             *int                                 `json:"jobPort,omitempty"`
 	SSHPort                             *int                                 `json:"sshPort,omitempty"`
 	Env                                 map[string]string                    `json:"env,omitempty"`
@@ -77,11 +79,31 @@ func (b *WorkloadSpecApplyConfiguration) WithImage(value string) *WorkloadSpecAp
 	return b
 }
 
+// WithImages adds the given value to the Images field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the Images field.
+func (b *WorkloadSpecApplyConfiguration) WithImages(values ...string) *WorkloadSpecApplyConfiguration {
+	for i := range values {
+		b.Images = append(b.Images, values[i])
+	}
+	return b
+}
+
 // WithEntryPoint sets the EntryPoint field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the EntryPoint field is set to the value of the last call.
 func (b *WorkloadSpecApplyConfiguration) WithEntryPoint(value string) *WorkloadSpecApplyConfiguration {
 	b.EntryPoint = &value
+	return b
+}
+
+// WithEntryPoints adds the given value to the EntryPoints field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the EntryPoints field.
+func (b *WorkloadSpecApplyConfiguration) WithEntryPoints(values ...string) *WorkloadSpecApplyConfiguration {
+	for i := range values {
+		b.EntryPoints = append(b.EntryPoints, values[i])
+	}
 	return b
 }
 

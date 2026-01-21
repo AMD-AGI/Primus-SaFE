@@ -119,6 +119,8 @@ func getMaxNameLength(workloadKind string) int {
 		return commonutils.MaxTorchFTNameLen
 	case common.CICDScaleRunnerSetKind:
 		return commonutils.MaxCICDScaleSetNameLen
+	case common.RayJobKind:
+		return commonutils.MaxRayJobNameLen
 	default:
 		return commonutils.MaxGeneratedNameLength
 	}
