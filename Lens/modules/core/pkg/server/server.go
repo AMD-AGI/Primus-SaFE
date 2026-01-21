@@ -44,14 +44,10 @@ func InitServerWithPreInitFunc(ctx context.Context, preInit func(ctx context.Con
 		return err
 	}
 
-	// Initialize unified API routes (for endpoints using the new framework)
-	// This registers any endpoints that were defined using unified.Register()
-	v1Group := ginEngine.Group("/v1")
-	if err := unified.GetRegistry().InitGinRoutes(v1Group); err != nil {
-		log.Warnf("Failed to init unified routes: %v", err)
-	} else {
-		log.Infof("Initialized %d unified endpoints", unified.GetRegistry().Count())
-	}
+	// Note: Unified endpoints are registered in router.go via getUnifiedHandler()
+	// The unified.GetRegistry().InitGinRoutes() should NOT be called here
+	// to avoid duplicate route registration
+	log.Infof("Unified registry has %d endpoints available for MCP", unified.GetRegistry().Count())
 
 	// Initialize MCP server routes under /mcp path if enabled
 	if cfg.IsMCPEnabled() {
