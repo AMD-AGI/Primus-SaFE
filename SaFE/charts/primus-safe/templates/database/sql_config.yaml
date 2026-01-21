@@ -71,8 +71,6 @@ data:
     alter table workload add column if not exists scale_runner_set VARCHAR(64);
     alter table workload add column if not exists scale_runner_id VARCHAR(128);
     alter table workload add column if not exists resources TEXT;
-    alter table workload add column if not exists images TEXT;
-    alter table workload add column if not exists entrypoints TEXT;
 
     create table if not exists fault
     (
@@ -401,14 +399,6 @@ data:
     -- Add workload_id column to deployment_requests for tracking associated workload
     ALTER TABLE deployment_requests ADD COLUMN IF NOT EXISTS workload_id VARCHAR(64);
 
-    -- Add deploy_type column to support both Safe and Lens CD (default 'safe' for backward compatibility)
-    ALTER TABLE deployment_requests ADD COLUMN IF NOT EXISTS deploy_type VARCHAR(16) DEFAULT 'safe';
-    ALTER TABLE environment_snapshots ADD COLUMN IF NOT EXISTS deploy_type VARCHAR(16) DEFAULT 'safe';
-    CREATE INDEX IF NOT EXISTS idx_deploy_type ON deployment_requests(deploy_type);
-
-    -- Add base_snapshot_id to record the snapshot before deployment (for accurate diff calculation)
-    ALTER TABLE deployment_requests ADD COLUMN IF NOT EXISTS base_snapshot_id BIGINT;
-
     -- API Keys table for API key authentication
     CREATE TABLE IF NOT EXISTS api_keys (
         id SERIAL PRIMARY KEY,
@@ -430,31 +420,6 @@ data:
 
     alter table api_keys owner to "primus-safe";
 
-    CREATE TABLE IF NOT EXISTS audit_logs (
-        id BIGSERIAL PRIMARY KEY,
-        user_id VARCHAR(64) NOT NULL,
-        user_name VARCHAR(256),
-        user_type VARCHAR(32),
-        client_ip VARCHAR(64),
-        http_method VARCHAR(16) NOT NULL,
-        request_path VARCHAR(512) NOT NULL,
-        resource_type VARCHAR(64),
-        action VARCHAR(64),
-        request_body TEXT,
-        response_status INT NOT NULL,
-        response_body TEXT,
-        latency_ms INT,
-        trace_id VARCHAR(64),
-        create_time TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_audit_logs_user_id ON audit_logs(user_id);
-    CREATE INDEX IF NOT EXISTS idx_audit_logs_resource_type ON audit_logs(resource_type);
-    CREATE INDEX IF NOT EXISTS idx_audit_logs_action ON audit_logs(action);
-    CREATE INDEX IF NOT EXISTS idx_audit_logs_create_time ON audit_logs(create_time DESC);
-    CREATE INDEX IF NOT EXISTS idx_audit_logs_http_method ON audit_logs(http_method);
-
-    alter table audit_logs owner to "primus-safe";
 
     -- Dataset table for managing datasets
     -- All columns are defined in CREATE TABLE for new installations
@@ -488,3 +453,49 @@ data:
     create index if not exists T_DATASET_WORKSPACE_INDEX on dataset (workspace);
 
     alter table dataset owner to "primus-safe";
+
+
+    -- Evaluation task table for model evaluation
+    create table if not exists evaluation_task
+    (
+        id BIGSERIAL PRIMARY KEY,
+        task_id VARCHAR(64) NOT NULL UNIQUE,
+        task_name VARCHAR(128) NOT NULL,
+        description TEXT,
+        
+        -- Model/service association
+        service_id VARCHAR(64) NOT NULL,
+        service_type VARCHAR(32) NOT NULL,
+        service_name VARCHAR(128),
+        
+        -- Evaluation configuration
+        benchmarks JSONB NOT NULL,
+        eval_params JSONB,
+        
+        -- Task status
+        ops_job_id VARCHAR(64),
+        status VARCHAR(32) DEFAULT 'Pending',
+        progress INT DEFAULT 0,
+        result_summary JSONB,
+        report_s3_path VARCHAR(512),
+        
+        -- Ownership
+        workspace VARCHAR(64),
+        user_id VARCHAR(64) NOT NULL,
+        user_name VARCHAR(128),
+        
+        -- Timestamps
+        creation_time TIMESTAMPTZ DEFAULT NOW(),
+        start_time TIMESTAMPTZ,
+        end_time TIMESTAMPTZ,
+        is_deleted BOOLEAN DEFAULT FALSE
+    );
+
+    create unique index if not exists T_EVAL_TASK_ID_INDEX on evaluation_task (task_id);
+    create index if not exists T_EVAL_TASK_SERVICE_INDEX on evaluation_task (service_id);
+    create index if not exists T_EVAL_TASK_STATUS_INDEX on evaluation_task (status);
+    create index if not exists T_EVAL_TASK_WORKSPACE_INDEX on evaluation_task (workspace);
+    create index if not exists T_EVAL_TASK_USER_INDEX on evaluation_task (user_id);
+    create index if not exists T_EVAL_TASK_CREATION_INDEX on evaluation_task (creation_time);
+
+    alter table evaluation_task owner to "primus-safe";
