@@ -29,7 +29,6 @@ import (
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	mock_client "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/mock"
 	dbutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/utils"
-	sqrl "github.com/Masterminds/squirrel"
 )
 
 func init() {
@@ -194,9 +193,10 @@ func TestListDeploymentRequests(t *testing.T) {
 	t.Run("list requests with status filter", func(t *testing.T) {
 		h, mockDB := setupTestHandler(ctrl)
 
-		mockDB.EXPECT().ListDeploymentRequests(gomock.Any(), sqrl.Eq{"status": StatusPendingApproval}, gomock.Any(), 10, 0).
+		// Query now includes deploy_type filter (COALESCE(deploy_type, 'safe')) along with status
+		mockDB.EXPECT().ListDeploymentRequests(gomock.Any(), gomock.Any(), gomock.Any(), 10, 0).
 			Return([]*dbclient.DeploymentRequest{}, nil)
-		mockDB.EXPECT().CountDeploymentRequests(gomock.Any(), sqrl.Eq{"status": StatusPendingApproval}).Return(0, nil)
+		mockDB.EXPECT().CountDeploymentRequests(gomock.Any(), gomock.Any()).Return(0, nil)
 
 		rsp := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(rsp)
@@ -434,7 +434,7 @@ func TestGetCurrentEnvConfig(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	t.Run("get env config from snapshot", func(t *testing.T) {
+	t.Run("get safe config from snapshot (default type)", func(t *testing.T) {
 		h, mockDB := setupTestHandler(ctrl)
 
 		config := DeploymentConfig{
@@ -450,7 +450,7 @@ func TestGetCurrentEnvConfig(t *testing.T) {
 			},
 		}
 
-		mockDB.EXPECT().ListEnvironmentSnapshots(gomock.Any(), nil, []string{"created_at DESC"}, 1, 0).
+		mockDB.EXPECT().ListEnvironmentSnapshots(gomock.Any(), gomock.Any(), []string{"created_at DESC"}, 1, 0).
 			Return(snapshots, nil)
 
 		rsp := httptest.NewRecorder()
@@ -461,16 +461,57 @@ func TestGetCurrentEnvConfig(t *testing.T) {
 
 		assert.Equal(t, http.StatusOK, rsp.Code)
 
-		var resp GetCurrentEnvConfigResp
+		var resp GetLatestConfigResp
 		err := json.Unmarshal(rsp.Body.Bytes(), &resp)
 		require.NoError(t, err)
+		assert.Equal(t, DeployTypeSafe, resp.Type)
 		assert.Equal(t, "key=value\nother=123", resp.EnvFileConfig)
+		assert.Equal(t, "v1.0.0", resp.ImageVersions["apiserver"])
+	})
+
+	t.Run("get lens config from snapshot", func(t *testing.T) {
+		h, mockDB := setupTestHandler(ctrl)
+
+		config := DeploymentConfig{
+			Type:               DeployTypeLens,
+			Branch:             "main",
+			ControlPlaneConfig: "cp-yaml-content",
+			DataPlaneConfig:    "dp-yaml-content",
+		}
+		configJSON, _ := json.Marshal(config)
+
+		snapshots := []*dbclient.EnvironmentSnapshot{
+			{
+				Id:         2,
+				DeployType: DeployTypeLens,
+				EnvConfig:  string(configJSON),
+			},
+		}
+
+		mockDB.EXPECT().ListEnvironmentSnapshots(gomock.Any(), gomock.Any(), []string{"created_at DESC"}, 1, 0).
+			Return(snapshots, nil)
+
+		rsp := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rsp)
+		c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/cd/env-config?type=lens", nil)
+
+		h.GetCurrentEnvConfig(c)
+
+		assert.Equal(t, http.StatusOK, rsp.Code)
+
+		var resp GetLatestConfigResp
+		err := json.Unmarshal(rsp.Body.Bytes(), &resp)
+		require.NoError(t, err)
+		assert.Equal(t, DeployTypeLens, resp.Type)
+		assert.Equal(t, "main", resp.Branch)
+		assert.Equal(t, "cp-yaml-content", resp.ControlPlaneConfig)
+		assert.Equal(t, "dp-yaml-content", resp.DataPlaneConfig)
 	})
 
 	t.Run("no snapshot available returns error", func(t *testing.T) {
 		h, mockDB := setupTestHandler(ctrl)
 
-		mockDB.EXPECT().ListEnvironmentSnapshots(gomock.Any(), nil, []string{"created_at DESC"}, 1, 0).
+		mockDB.EXPECT().ListEnvironmentSnapshots(gomock.Any(), gomock.Any(), []string{"created_at DESC"}, 1, 0).
 			Return([]*dbclient.EnvironmentSnapshot{}, nil)
 
 		rsp := httptest.NewRecorder()

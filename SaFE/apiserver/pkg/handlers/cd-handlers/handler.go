@@ -7,6 +7,7 @@ package cdhandlers
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
@@ -154,7 +156,8 @@ func (h *Handler) RollbackDeployment(c *gin.Context) {
 	handle(c, h.rollbackDeployment)
 }
 
-// GetCurrentEnvConfig gets the current .env file configuration
+// GetCurrentEnvConfig gets the latest deployment configuration
+// Query params: type=safe|lens (default: safe)
 func (h *Handler) GetCurrentEnvConfig(c *gin.Context) {
 	handle(c, h.getCurrentEnvConfig)
 }
@@ -165,7 +168,15 @@ func (h *Handler) GetDeployableComponents(c *gin.Context) {
 }
 
 func (h *Handler) getDeployableComponents(c *gin.Context) (interface{}, error) {
-	// Read components from config (sourced from values.yaml via ConfigMap)
+	deployType := c.Query("type")
+	if deployType == DeployTypeLens {
+		// Lens uses full values.yaml content, no component list needed
+		return map[string]interface{}{
+			"type":    DeployTypeLens,
+			"message": "Lens deployments accept full values.yaml content for control_plane_config and data_plane_config",
+		}, nil
+	}
+	// Default: Safe components
 	components := commonconfig.GetComponents()
 	return GetDeployableComponentsResp{Components: components}, nil
 }
@@ -176,24 +187,42 @@ func (h *Handler) createDeploymentRequest(c *gin.Context) (interface{}, error) {
 		return nil, commonerrors.NewBadRequest(err.Error())
 	}
 
-	// Validate: at least one of image_versions or env_file_config must be provided
-	if len(req.ImageVersions) == 0 && req.EnvFileConfig == "" {
-		return nil, commonerrors.NewBadRequest("at least one of image_versions or env_file_config must be provided")
+	// Default to safe type for backward compatibility
+	deployType := req.Type
+	if deployType == "" {
+		deployType = DeployTypeSafe
 	}
 
-	// Normalize image versions: auto-complete image name if only version tag is provided
-	normalizedVersions := make(map[string]string, len(req.ImageVersions))
-	for component, version := range req.ImageVersions {
-		normalizedVersions[component] = NormalizeImageVersion(component, version)
+	// Default branch to "main"
+	branch := req.Branch
+	if branch == "" {
+		branch = "main"
 	}
 
-	// Wrap into DeploymentConfig
-	config := DeploymentConfig{
-		ImageVersions: normalizedVersions,
-		EnvFileConfig: req.EnvFileConfig,
+	var config DeploymentConfig
+	config.Type = deployType
+	config.Branch = branch
+
+	if deployType == DeployTypeLens {
+		// Lens deployment: store full values.yaml content
+		if req.ControlPlaneConfig == "" && req.DataPlaneConfig == "" {
+			return nil, commonerrors.NewBadRequest("at least one of control_plane_config or data_plane_config must be provided")
+		}
+		config.ControlPlaneConfig = req.ControlPlaneConfig
+		config.DataPlaneConfig = req.DataPlaneConfig
+	} else {
+		// Safe deployment (default)
+		if len(req.ImageVersions) == 0 && req.EnvFileConfig == "" {
+			return nil, commonerrors.NewBadRequest("at least one of image_versions or env_file_config must be provided")
+		}
+		normalizedVersions := make(map[string]string, len(req.ImageVersions))
+		for component, version := range req.ImageVersions {
+			normalizedVersions[component] = NormalizeImageVersion(component, version)
+		}
+		config.ImageVersions = normalizedVersions
+		config.EnvFileConfig = req.EnvFileConfig
 	}
 
-	// Marshal to JSON for storage
 	configJSON, err := json.Marshal(config)
 	if err != nil {
 		return nil, commonerrors.NewBadRequest("Failed to marshal config")
@@ -204,11 +233,24 @@ func (h *Handler) createDeploymentRequest(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 
+	// Get current latest snapshot ID for diff calculation (Lens only)
+	var baseSnapshotId sql.NullInt64
+	if deployType == DeployTypeLens {
+		snapshots, err := h.dbClient.ListEnvironmentSnapshots(c.Request.Context(),
+			sqrl.Eq{"deploy_type": DeployTypeLens},
+			[]string{"created_at DESC"}, 1, 0)
+		if err == nil && len(snapshots) > 0 {
+			baseSnapshotId = sql.NullInt64{Int64: snapshots[0].Id, Valid: true}
+		}
+	}
+
 	dbReq := &dbclient.DeploymentRequest{
-		DeployName:  username,
-		Status:      StatusPendingApproval,
-		EnvConfig:   string(configJSON),
-		Description: dbutils.NullString(req.Description),
+		DeployName:     username,
+		DeployType:     deployType,
+		Status:         StatusPendingApproval,
+		EnvConfig:      string(configJSON),
+		Description:    dbutils.NullString(req.Description),
+		BaseSnapshotId: baseSnapshotId,
 	}
 
 	id, err := h.dbClient.CreateDeploymentRequest(c.Request.Context(), dbReq)
@@ -220,10 +262,9 @@ func (h *Handler) createDeploymentRequest(c *gin.Context) (interface{}, error) {
 }
 
 func (h *Handler) listDeploymentRequests(c *gin.Context) (interface{}, error) {
-	limit := 10 // Default
+	limit := 10
 	offset := 0
 
-	// Basic query param parsing (could be improved)
 	if l := c.Query("limit"); l != "" {
 		if val, err := strconv.Atoi(l); err == nil {
 			limit = val
@@ -235,10 +276,17 @@ func (h *Handler) listDeploymentRequests(c *gin.Context) (interface{}, error) {
 		}
 	}
 
-	query := sqrl.Eq{}
+	query := sqrl.And{}
+	// Filter by type (default to safe for backward compatibility)
+	deployType := c.Query("type")
+	if deployType == "" {
+		deployType = DeployTypeSafe
+	}
+	query = append(query, sqrl.Eq{"COALESCE(deploy_type, 'safe')": deployType})
+
 	// Filter by status
 	if status := c.Query("status"); status != "" {
-		query = sqrl.Eq{"status": status}
+		query = append(query, sqrl.Eq{"status": status})
 	}
 
 	orderBy := []string{"created_at DESC"}
@@ -280,17 +328,35 @@ func (h *Handler) getDeploymentRequest(c *gin.Context) (interface{}, error) {
 	// Parse stored config
 	var config DeploymentConfig
 	if err := json.Unmarshal([]byte(req.EnvConfig), &config); err != nil {
-		// Fallback for old format or invalid data
-		config = DeploymentConfig{
-			ImageVersions: make(map[string]string),
-			EnvFileConfig: "",
-		}
+		config = DeploymentConfig{}
 	}
 
 	resp := GetDeploymentRequestResp{
 		DeploymentRequestItem: *h.service.cvtDBRequestToItem(req),
-		ImageVersions:         config.ImageVersions,
-		EnvFileConfig:         config.EnvFileConfig,
+		Branch:                config.Branch,
+	}
+
+	deployType := req.DeployType
+	if deployType == "" {
+		deployType = DeployTypeSafe
+	}
+
+	if deployType == DeployTypeLens {
+		// Lens: return diff between request config and base snapshot (recorded at creation time)
+		baseSnapshotId := int64(0)
+		if req.BaseSnapshotId.Valid {
+			baseSnapshotId = req.BaseSnapshotId.Int64
+		}
+		cpDiff, dpDiff, err := h.service.GetLensConfigDiff(c.Request.Context(), config, baseSnapshotId)
+		if err != nil {
+			klog.Warningf("Failed to compute lens config diff: %v", err)
+		}
+		resp.ControlPlaneDiff = cpDiff
+		resp.DataPlaneDiff = dpDiff
+	} else {
+		// Safe: return full content as before
+		resp.ImageVersions = config.ImageVersions
+		resp.EnvFileConfig = config.EnvFileConfig
 	}
 
 	return resp, nil
@@ -357,6 +423,18 @@ func (h *Handler) approveDeploymentRequest(c *gin.Context) (interface{}, error) 
 			return nil, err
 		}
 
+		// For Lens deployment, create ConfigMap with OwnerReference to OpsJob
+		deployType := req.DeployType
+		if deployType == "" {
+			deployType = DeployTypeSafe
+		}
+		if deployType == DeployTypeLens {
+			if err := h.createLensConfigMap(ctx, req, opsJob); err != nil {
+				klog.ErrorS(err, "Failed to create Lens ConfigMap", "id", req.Id)
+				return nil, commonerrors.NewInternalError(fmt.Sprintf("Failed to create Lens ConfigMap: %v", err))
+			}
+		}
+
 		// Update status to deploying and save workload ID (workload ID = OpsJob name)
 		req.Status = StatusDeploying
 		req.WorkloadId = dbutils.NullString(opsJob.Name)
@@ -400,99 +478,108 @@ func (h *Handler) generateCDOpsJob(ctx context.Context, req *dbclient.Deployment
 		return nil, fmt.Errorf("failed to parse config: %v", err)
 	}
 
-	// Merge with latest snapshot for deployment
-	mergedConfig, err := h.service.mergeWithLatestSnapshot(ctx, requestConfig)
-	if err != nil {
-		return nil, fmt.Errorf("failed to merge with latest snapshot: %v", err)
-	}
-
-	// Get deployable components
-	expectedComponents := commonconfig.GetComponents()
-
-	// Build deployment parameters
-	componentTags := ""
-	nodeAgentTags := ""
-	hasNodeAgent := false
-	hasCICD := false
-	nodeAgentImage := ""
-	cicdRunnerImage := ""
-	cicdUnifiedImage := ""
-
-	deployBranch := extractBranchFromEnvFileConfig(mergedConfig.EnvFileConfig)
-
-	for _, comp := range expectedComponents {
-		if tag, ok := mergedConfig.ImageVersions[comp]; ok {
-			if yamlKey, isCICD := CICDComponentsMap[comp]; isCICD {
-				// Always write CICD version to componentTags (for values.yaml update)
-				componentTags += fmt.Sprintf("%s=%s;", yamlKey, tag)
-				// Only set hasCICD and image vars when user explicitly requested (for workload update)
-				if _, userRequested := requestConfig.ImageVersions[comp]; userRequested {
-					hasCICD = true
-					if comp == ComponentCICDRunner {
-						cicdRunnerImage = tag
-					} else if comp == ComponentCICDUnifiedJob {
-						cicdUnifiedImage = tag
-					}
-				}
-			} else if yamlKey, isSpecial := SpecialComponentsMap[comp]; isSpecial {
-				// Special components: use custom YAML key (e.g., model.downloader_image)
-				componentTags += fmt.Sprintf("%s=%s;", yamlKey, tag)
-			} else if comp == ComponentNodeAgent {
-				// Update node-agent if user explicitly requested it
-				if _, userRequested := requestConfig.ImageVersions[comp]; userRequested {
-					nodeAgentTags += fmt.Sprintf("%s=%s;", YAMLKeyNodeAgentImage, tag)
-					hasNodeAgent = true
-					nodeAgentImage = tag
-				}
-			} else {
-				// Standard components: use comp.image format
-				componentTags += fmt.Sprintf("%s.image=%s;", comp, tag)
-			}
-		}
+	deployType := req.DeployType
+	if deployType == "" {
+		deployType = DeployTypeSafe
 	}
 
 	// Generate OpsJob name
 	jobName := commonutils.GenerateName(fmt.Sprintf("cd-%d", req.Id))
-
-	// Build OpsJob inputs
-	inputs := []v1.Parameter{
-		{Name: v1.ParameterDeploymentRequestId, Value: fmt.Sprintf("%d", req.Id)},
-		{Name: v1.ParameterDeployPhase, Value: "local"}, // Start with local deployment
-		{Name: v1.ParameterComponentTags, Value: componentTags},
-		{Name: v1.ParameterNodeAgentTags, Value: nodeAgentTags},
-		{Name: v1.ParameterEnvFileConfig, Value: mergedConfig.EnvFileConfig},
-		{Name: v1.ParameterDeployBranch, Value: deployBranch},
-		{Name: v1.ParameterHasNodeAgent, Value: fmt.Sprintf("%t", hasNodeAgent)},
-		{Name: v1.ParameterHasCICD, Value: fmt.Sprintf("%t", hasCICD)},
-		{Name: v1.ParameterNodeAgentImage, Value: nodeAgentImage},
-		{Name: v1.ParameterCICDRunnerImage, Value: cicdRunnerImage},
-		{Name: v1.ParameterCICDUnifiedImage, Value: cicdUnifiedImage},
-	}
-
-	// Generate display name for the OpsJob
 	displayNameLabel := fmt.Sprintf("cd-deployment-%d", req.Id)
+
+	var inputs []v1.Parameter
+
+	if deployType == DeployTypeLens {
+		// Lens CD: pass ConfigMap name and branch
+		// ConfigMap will be created in approveDeploymentRequest
+		configMapName := fmt.Sprintf("lens-cd-config-%d", req.Id)
+		branch := requestConfig.Branch
+		if branch == "" {
+			branch = "main"
+		}
+		inputs = []v1.Parameter{
+			{Name: v1.ParameterDeploymentRequestId, Value: fmt.Sprintf("%d", req.Id)},
+			{Name: v1.ParameterDeployType, Value: DeployTypeLens},
+			{Name: v1.ParameterDeployBranch, Value: branch},
+			{Name: v1.ParameterLensConfigMap, Value: configMapName},
+		}
+	} else {
+		// Safe CD: original logic
+		mergedConfig, err := h.service.mergeWithLatestSnapshot(ctx, requestConfig)
+		if err != nil {
+			return nil, fmt.Errorf("failed to merge with latest snapshot: %v", err)
+		}
+
+		expectedComponents := commonconfig.GetComponents()
+		componentTags := ""
+		nodeAgentTags := ""
+		hasNodeAgent := false
+		hasCICD := false
+		nodeAgentImage := ""
+		cicdRunnerImage := ""
+		cicdUnifiedImage := ""
+		deployBranch := extractBranchFromEnvFileConfig(mergedConfig.EnvFileConfig)
+
+		for _, comp := range expectedComponents {
+			if tag, ok := mergedConfig.ImageVersions[comp]; ok {
+				if yamlKey, isCICD := CICDComponentsMap[comp]; isCICD {
+					componentTags += fmt.Sprintf("%s=%s;", yamlKey, tag)
+					if _, userRequested := requestConfig.ImageVersions[comp]; userRequested {
+						hasCICD = true
+						if comp == ComponentCICDRunner {
+							cicdRunnerImage = tag
+						} else if comp == ComponentCICDUnifiedJob {
+							cicdUnifiedImage = tag
+						}
+					}
+				} else if yamlKey, isSpecial := SpecialComponentsMap[comp]; isSpecial {
+					componentTags += fmt.Sprintf("%s=%s;", yamlKey, tag)
+				} else if comp == ComponentNodeAgent {
+					if _, userRequested := requestConfig.ImageVersions[comp]; userRequested {
+						nodeAgentTags += fmt.Sprintf("%s=%s;", YAMLKeyNodeAgentImage, tag)
+						hasNodeAgent = true
+						nodeAgentImage = tag
+					}
+				} else {
+					componentTags += fmt.Sprintf("%s.image=%s;", comp, tag)
+				}
+			}
+		}
+
+		inputs = []v1.Parameter{
+			{Name: v1.ParameterDeploymentRequestId, Value: fmt.Sprintf("%d", req.Id)},
+			{Name: v1.ParameterDeployType, Value: DeployTypeSafe},
+			{Name: v1.ParameterDeployPhase, Value: "local"},
+			{Name: v1.ParameterComponentTags, Value: componentTags},
+			{Name: v1.ParameterNodeAgentTags, Value: nodeAgentTags},
+			{Name: v1.ParameterEnvFileConfig, Value: mergedConfig.EnvFileConfig},
+			{Name: v1.ParameterDeployBranch, Value: deployBranch},
+			{Name: v1.ParameterHasNodeAgent, Value: fmt.Sprintf("%t", hasNodeAgent)},
+			{Name: v1.ParameterHasCICD, Value: fmt.Sprintf("%t", hasCICD)},
+			{Name: v1.ParameterNodeAgentImage, Value: nodeAgentImage},
+			{Name: v1.ParameterCICDRunnerImage, Value: cicdRunnerImage},
+			{Name: v1.ParameterCICDUnifiedImage, Value: cicdUnifiedImage},
+		}
+	}
 
 	opsJob := &v1.OpsJob{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: jobName,
 			Labels: map[string]string{
-				// No ClusterIdLabel - CD jobs use 'default' workspace with immediate scheduling
-				// userId is the User CRD name (safe for K8s labels, no @ character)
 				v1.UserIdLabel:      userId,
 				v1.DisplayNameLabel: displayNameLabel,
 				v1.OpsJobTypeLabel:  string(v1.OpsJobCDType),
 			},
 			Annotations: map[string]string{
-				// username may contain @ (e.g., email), which is allowed in annotations
 				v1.UserNameAnnotation: username,
 			},
 		},
 		Spec: v1.OpsJobSpec{
 			Type:                    v1.OpsJobCDType,
 			Inputs:                  inputs,
-			TimeoutSecond:           1800, // 30 minutes timeout
-			TTLSecondsAfterFinished: 3600, // 1 hour TTL after completion
-			IsTolerateAll:           true, // Can run on any node
+			TimeoutSecond:           1800,
+			TTLSecondsAfterFinished: 3600,
+			IsTolerateAll:           true,
 			Hostpath:                []string{HostMountPath},
 		},
 	}
@@ -520,12 +607,63 @@ func (h *Handler) rollbackDeployment(c *gin.Context) (interface{}, error) {
 }
 
 func (h *Handler) getCurrentEnvConfig(c *gin.Context) (interface{}, error) {
-	content, err := h.service.GetCurrentEnvConfig(c.Request.Context())
-	if err != nil {
-		return nil, commonerrors.NewInternalError(fmt.Sprintf("Failed to get env config: %v", err))
+	deployType := c.Query("type")
+	// Default to safe for backward compatibility
+	if deployType == "" {
+		deployType = DeployTypeSafe
 	}
 
-	return GetCurrentEnvConfigResp{
-		EnvFileConfig: content,
-	}, nil
+	if deployType != DeployTypeSafe && deployType != DeployTypeLens {
+		return nil, commonerrors.NewBadRequest("invalid type, must be 'safe' or 'lens'")
+	}
+
+	return h.service.GetLatestConfig(c.Request.Context(), deployType)
+}
+
+// createLensConfigMap creates a ConfigMap containing Lens values.yaml files
+// with OwnerReference pointing to the OpsJob for automatic cleanup
+func (h *Handler) createLensConfigMap(ctx context.Context, req *dbclient.DeploymentRequest, opsJob *v1.OpsJob) error {
+	var config DeploymentConfig
+	if err := json.Unmarshal([]byte(req.EnvConfig), &config); err != nil {
+		return fmt.Errorf("failed to parse config: %v", err)
+	}
+
+	configMapName := fmt.Sprintf("lens-cd-config-%d", req.Id)
+
+	// Build ConfigMap data
+	data := make(map[string]string)
+	if config.ControlPlaneConfig != "" {
+		data["cp-values.yaml"] = config.ControlPlaneConfig
+	}
+	if config.DataPlaneConfig != "" {
+		data["dp-values.yaml"] = config.DataPlaneConfig
+	}
+
+	cm := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      configMapName,
+			Namespace: corev1.NamespaceDefault,
+			Labels: map[string]string{
+				"app.kubernetes.io/name":      "lens-cd-config",
+				"app.kubernetes.io/component": "cd",
+				"deployment-request-id":       fmt.Sprintf("%d", req.Id),
+			},
+			OwnerReferences: []metav1.OwnerReference{
+				{
+					APIVersion: v1.SchemeGroupVersion.String(),
+					Kind:       "OpsJob",
+					Name:       opsJob.Name,
+					UID:        opsJob.UID,
+				},
+			},
+		},
+		Data: data,
+	}
+
+	if err := h.Create(ctx, cm); err != nil {
+		return fmt.Errorf("failed to create ConfigMap: %v", err)
+	}
+
+	klog.Infof("Created Lens ConfigMap %s for deployment request %d", configMapName, req.Id)
+	return nil
 }

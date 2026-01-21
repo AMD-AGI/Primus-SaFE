@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -38,7 +38,7 @@ func TestCreateSnapshot(t *testing.T) {
 		}
 		previousJSON, _ := json.Marshal(previousConfig)
 
-		mockDB.EXPECT().ListEnvironmentSnapshots(ctx, nil, []string{"created_at DESC"}, 1, 0).
+		mockDB.EXPECT().ListEnvironmentSnapshots(ctx, gomock.Any(), []string{"created_at DESC"}, 1, 0).
 			Return([]*dbclient.EnvironmentSnapshot{
 				{Id: 1, EnvConfig: string(previousJSON)},
 			}, nil)
@@ -71,7 +71,7 @@ func TestCreateSnapshot(t *testing.T) {
 		}
 		newJSON, _ := json.Marshal(newConfig)
 
-		err := r.createSnapshot(ctx, 1, string(newJSON))
+		err := r.createSnapshot(ctx, 1, string(newJSON), DeployTypeSafe)
 		assert.NoError(t, err)
 	})
 
@@ -86,7 +86,7 @@ func TestCreateSnapshot(t *testing.T) {
 		}
 		previousJSON, _ := json.Marshal(previousConfig)
 
-		mockDB.EXPECT().ListEnvironmentSnapshots(ctx, nil, []string{"created_at DESC"}, 1, 0).
+		mockDB.EXPECT().ListEnvironmentSnapshots(ctx, gomock.Any(), []string{"created_at DESC"}, 1, 0).
 			Return([]*dbclient.EnvironmentSnapshot{
 				{Id: 1, EnvConfig: string(previousJSON)},
 			}, nil)
@@ -110,15 +110,15 @@ func TestCreateSnapshot(t *testing.T) {
 		}
 		newJSON, _ := json.Marshal(newConfig)
 
-		err := r.createSnapshot(ctx, 1, string(newJSON))
+		err := r.createSnapshot(ctx, 1, string(newJSON), DeployTypeSafe)
 		assert.NoError(t, err)
 	})
 
 	t.Run("create snapshot without previous snapshot", func(t *testing.T) {
 		mockDB := mock_client.NewMockInterface(ctrl)
 
-		// No previous snapshots
-		mockDB.EXPECT().ListEnvironmentSnapshots(ctx, nil, []string{"created_at DESC"}, 1, 0).
+		// No previous snapshots (use gomock.Any() for query since we now pass sqrl conditions)
+		mockDB.EXPECT().ListEnvironmentSnapshots(ctx, gomock.Any(), []string{"created_at DESC"}, 1, 0).
 			Return([]*dbclient.EnvironmentSnapshot{}, nil)
 
 		mockDB.EXPECT().CreateEnvironmentSnapshot(ctx, gomock.Any()).
@@ -143,7 +143,7 @@ func TestCreateSnapshot(t *testing.T) {
 		}
 		newJSON, _ := json.Marshal(newConfig)
 
-		err := r.createSnapshot(ctx, 1, string(newJSON))
+		err := r.createSnapshot(ctx, 1, string(newJSON), DeployTypeSafe)
 		assert.NoError(t, err)
 	})
 }
@@ -152,3 +152,4 @@ func TestGetJobFailureReason(t *testing.T) {
 	// Test the failure reason extraction from OpsJob
 	// This is a simple function test
 }
+

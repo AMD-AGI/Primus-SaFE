@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"time"
 
+	sqrl "github.com/Masterminds/squirrel"
 	"k8s.io/klog/v2"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -30,9 +31,18 @@ import (
 
 // deploymentConfig represents the deployment configuration for snapshots
 type deploymentConfig struct {
-	ImageVersions map[string]string `json:"image_versions"`
-	EnvFileConfig string            `json:"env_file_config"`
+	Type               string            `json:"type,omitempty"`
+	Branch             string            `json:"branch,omitempty"`
+	ImageVersions      map[string]string `json:"image_versions,omitempty"`
+	EnvFileConfig      string            `json:"env_file_config,omitempty"`
+	ControlPlaneConfig string            `json:"control_plane_config,omitempty"`
+	DataPlaneConfig    string            `json:"data_plane_config,omitempty"`
 }
+
+const (
+	DeployTypeSafe = "safe"
+	DeployTypeLens = "lens"
+)
 
 const (
 	// Status constants for DeploymentRequest
@@ -159,7 +169,11 @@ func (r *CDOpsJobReconciler) Reconcile(ctx context.Context, req ctrlruntime.Requ
 	case v1.OpsJobSucceeded:
 		newStatus = StatusDeployed
 		// Create snapshot on success
-		if err := r.createSnapshot(ctx, requestId, dbReq.EnvConfig); err != nil {
+		deployType := dbReq.DeployType
+		if deployType == "" {
+			deployType = DeployTypeSafe
+		}
+		if err := r.createSnapshot(ctx, requestId, dbReq.EnvConfig, deployType); err != nil {
 			klog.ErrorS(err, "Failed to create snapshot", "id", requestId)
 		} else {
 			klog.Infof("Snapshot created for deployment request %d", requestId)
@@ -225,48 +239,59 @@ func getJobFailureReason(job *v1.OpsJob) string {
 
 // createSnapshot creates a deployment snapshot with merged configuration.
 // It merges the new request config with the previous snapshot to ensure complete state record.
-func (r *CDOpsJobReconciler) createSnapshot(ctx context.Context, requestId int64, envConfig string) error {
+func (r *CDOpsJobReconciler) createSnapshot(ctx context.Context, requestId int64, envConfig string, deployType string) error {
 	// 1. Parse new config (partial or full)
 	var newConfig deploymentConfig
 	if err := json.Unmarshal([]byte(envConfig), &newConfig); err != nil {
 		return fmt.Errorf("failed to parse new config: %v", err)
 	}
 
-	// 2. Get latest snapshot to find previous state
 	var finalConfig deploymentConfig
 
-	snapshots, err := r.dbClient.ListEnvironmentSnapshots(ctx, nil, []string{"created_at DESC"}, 1, 0)
-	if err == nil && len(snapshots) > 0 {
-		// Parse previous config
-		if err := json.Unmarshal([]byte(snapshots[0].EnvConfig), &finalConfig); err != nil {
-			klog.Warningf("Failed to parse previous snapshot config: %v", err)
-			// If failed to parse previous, we start fresh
+	if deployType == DeployTypeLens {
+		// Lens: store full YAML content directly, no merging needed
+		finalConfig = newConfig
+	} else {
+		// Safe: merge with previous snapshot
+		// 2. Get latest Safe snapshot to find previous state (include empty deploy_type for backward compatibility)
+		query := sqrl.Or{
+			sqrl.Eq{"deploy_type": DeployTypeSafe},
+			sqrl.Eq{"deploy_type": ""},
+			sqrl.Expr("deploy_type IS NULL"),
+		}
+		snapshots, err := r.dbClient.ListEnvironmentSnapshots(ctx, query, []string{"created_at DESC"}, 1, 0)
+		if err == nil && len(snapshots) > 0 {
+			// Parse previous config
+			if err := json.Unmarshal([]byte(snapshots[0].EnvConfig), &finalConfig); err != nil {
+				klog.Warningf("Failed to parse previous snapshot config: %v", err)
+				// If failed to parse previous, we start fresh
+				finalConfig = deploymentConfig{
+					ImageVersions: make(map[string]string),
+				}
+			}
+		} else {
+			// No previous snapshot, initialize empty
 			finalConfig = deploymentConfig{
 				ImageVersions: make(map[string]string),
 			}
 		}
-	} else {
-		// No previous snapshot, initialize empty
-		finalConfig = deploymentConfig{
-			ImageVersions: make(map[string]string),
+
+		// 3. Merge Configs
+		// 3.1 Merge Image Versions
+		if finalConfig.ImageVersions == nil {
+			finalConfig.ImageVersions = make(map[string]string)
 		}
-	}
+		for component, version := range newConfig.ImageVersions {
+			finalConfig.ImageVersions[component] = version
+		}
 
-	// 3. Merge Configs
-	// 3.1 Merge Image Versions
-	if finalConfig.ImageVersions == nil {
-		finalConfig.ImageVersions = make(map[string]string)
+		// 3.2 Merge Env File Config
+		// Only update if new config provides a non-empty env file content
+		if newConfig.EnvFileConfig != "" {
+			finalConfig.EnvFileConfig = newConfig.EnvFileConfig
+		}
+		// If newConfig.EnvFileConfig is empty, we keep finalConfig.EnvFileConfig (from previous snapshot)
 	}
-	for component, version := range newConfig.ImageVersions {
-		finalConfig.ImageVersions[component] = version
-	}
-
-	// 3.2 Merge Env File Config
-	// Only update if new config provides a non-empty env file content
-	if newConfig.EnvFileConfig != "" {
-		finalConfig.EnvFileConfig = newConfig.EnvFileConfig
-	}
-	// If newConfig.EnvFileConfig is empty, we keep finalConfig.EnvFileConfig (from previous snapshot)
 
 	// 4. Marshal final merged config
 	finalConfigJSON, err := json.Marshal(finalConfig)
@@ -277,6 +302,7 @@ func (r *CDOpsJobReconciler) createSnapshot(ctx context.Context, requestId int64
 	// 5. Save snapshot
 	snapshot := &dbclient.EnvironmentSnapshot{
 		DeploymentRequestId: requestId,
+		DeployType:          deployType,
 		EnvConfig:           string(finalConfigJSON),
 	}
 	_, err = r.dbClient.CreateEnvironmentSnapshot(ctx, snapshot)
