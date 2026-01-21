@@ -268,6 +268,7 @@ func (h *Handler) createEvaluationOpsJob(ctx context.Context, task *dbclient.Eva
 	opsJob := &v1.OpsJob{}
 	opsJob.Name = opsJobName
 	opsJob.Labels = map[string]string{
+		v1.DisplayNameLabel:            req.Name,
 		dbclient.EvaluationTaskIdLabel: task.TaskId,
 	}
 	if userId != "" {
