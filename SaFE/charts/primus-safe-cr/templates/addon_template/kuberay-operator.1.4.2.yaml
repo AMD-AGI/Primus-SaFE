@@ -7,17 +7,17 @@ apiVersion: amd.com/v1
 kind: AddonTemplate
 metadata:
   labels:
-    primus-safe.display.name: "kuberay-operator-1.4.2"
+    primus-safe.display.name: "kuberay-operator.1.4.2"
     app.kubernetes.io/managed-by: Helm
     primus-safe.addon.default: ""
   annotations:
     meta.helm.sh/release-name: {{ .Release.Name }}
     meta.helm.sh/release-namespace: {{ .Release.Namespace }}
-  name: kuberay-operator-1.4.2
+  name: kuberay-operator.1.4.2
 spec:
   category: plugin
   description: KubeRay is a Kubernetes operator that simplifies the deployment and management of Ray applications on Kubernetes.
-  url: oci://registry-1.docker.io/primussafe/kuberay-operator
+  url: oci://{{ .Values.global.helm_registry }}/primussafe/kuberay-operator
   version: 1.4.2
   type: helm
   helmDefaultNamespace: ray-system
