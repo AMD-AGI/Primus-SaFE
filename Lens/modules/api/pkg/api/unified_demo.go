@@ -9,17 +9,20 @@ package api
 import (
 	"context"
 	"fmt"
+	"math"
 	"strconv"
 	"time"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/filter"
+	dbModel "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/errors"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/cluster"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/fault"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/gpu"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/metadata"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/node"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/rdma"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/storage"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/workload"
@@ -282,6 +285,287 @@ type RealtimeAvailability struct {
 	MaxContiguousGPU int `json:"max_contiguous_gpu"`
 }
 
+// ===== Phase 4: Node Analysis & Metrics Endpoints (10%) =====
+
+// NodeGPUMetricsRequest represents the request for node GPU metrics history.
+type NodeGPUMetricsRequest struct {
+	NodeName string `json:"name" param:"name" mcp:"name,description=Node name to get GPU metrics for,required"`
+	Start    int64  `json:"start" query:"start" mcp:"start,description=Start timestamp (unix seconds),required"`
+	End      int64  `json:"end" query:"end" mcp:"end,description=End timestamp (unix seconds),required"`
+	Step     int    `json:"step" query:"step" mcp:"step,description=Step interval in seconds (default 60)"`
+	Cluster  string `json:"cluster" query:"cluster" mcp:"cluster,description=Target cluster name (optional)"`
+}
+
+// NodeGPUMetricsResponse represents the response for node GPU metrics.
+type NodeGPUMetricsResponse struct {
+	GpuUtilization    MetricsGraph `json:"gpu_utilization"`
+	GpuAllocationRate MetricsGraph `json:"gpu_allocation_rate"`
+}
+
+// MetricsGraph represents a graph of metrics over time.
+type MetricsGraph struct {
+	Series []MetricsSeries    `json:"series"`
+	Config MetricsGraphConfig `json:"config"`
+}
+
+// MetricsSeries represents a series of metric values.
+type MetricsSeries struct {
+	Name   string        `json:"name"`
+	Values []MetricValue `json:"values"`
+}
+
+// MetricValue represents a single metric value at a point in time.
+type MetricValue struct {
+	Timestamp int64   `json:"timestamp"`
+	Value     float64 `json:"value"`
+}
+
+// MetricsGraphConfig represents graph configuration.
+type MetricsGraphConfig struct {
+	YAxisUnit string `json:"y_axis_unit"`
+}
+
+// NodeUtilizationRequest represents the request for node utilization.
+type NodeUtilizationRequest struct {
+	NodeName string `json:"name" param:"name" mcp:"name,description=Node name to get utilization for,required"`
+	Cluster  string `json:"cluster" query:"cluster" mcp:"cluster,description=Target cluster name (optional)"`
+}
+
+// NodeUtilizationResponse represents the response for node utilization.
+type NodeUtilizationResponse struct {
+	NodeName       string  `json:"node_name"`
+	CpuUtilization float64 `json:"cpu_utilization"`
+	MemUtilization float64 `json:"mem_utilization"`
+	GpuUtilization float64 `json:"gpu_utilization"`
+	GpuAllocation  int     `json:"gpu_allocation"`
+	Timestamp      int64   `json:"timestamp"`
+}
+
+// NodeUtilizationHistoryRequest represents the request for node utilization history.
+type NodeUtilizationHistoryRequest struct {
+	NodeName string `json:"name" param:"name" mcp:"name,description=Node name to get utilization history for,required"`
+	Start    int64  `json:"start" query:"start" mcp:"start,description=Start timestamp (unix seconds),required"`
+	End      int64  `json:"end" query:"end" mcp:"end,description=End timestamp (unix seconds),required"`
+	Step     int    `json:"step" query:"step" mcp:"step,description=Step interval in seconds (default 60)"`
+	Cluster  string `json:"cluster" query:"cluster" mcp:"cluster,description=Target cluster name (optional)"`
+}
+
+// NodeUtilizationHistoryResponse represents the response for node utilization history.
+type NodeUtilizationHistoryResponse struct {
+	CpuUtilization MetricsGraph `json:"cpu_utilization"`
+	MemUtilization MetricsGraph `json:"mem_utilization"`
+	GpuUtilization MetricsGraph `json:"gpu_utilization"`
+}
+
+// NodeWorkloadsRequest represents the request for node workloads.
+type NodeWorkloadsRequest struct {
+	NodeName string `json:"name" param:"name" mcp:"name,description=Node name to get workloads for,required"`
+	PageNum  int    `json:"page_num" query:"page_num" mcp:"page_num,description=Page number (default 1)"`
+	PageSize int    `json:"page_size" query:"page_size" mcp:"page_size,description=Page size (default 20)"`
+	Cluster  string `json:"cluster" query:"cluster" mcp:"cluster,description=Target cluster name (optional)"`
+}
+
+// NodeWorkloadsResponse represents the response for node workloads.
+type NodeWorkloadsResponse struct {
+	Data  []NodeWorkloadInfo `json:"data"`
+	Total int                `json:"total"`
+}
+
+// NodeWorkloadInfo represents a workload running on a node.
+type NodeWorkloadInfo struct {
+	UID          string    `json:"uid"`
+	Name         string    `json:"name"`
+	Namespace    string    `json:"namespace"`
+	Kind         string    `json:"kind"`
+	GPUAllocated int32     `json:"gpu_allocated"`
+	StartedAt    time.Time `json:"started_at"`
+	Status       string    `json:"status"`
+}
+
+// NodeWorkloadsHistoryRequest represents the request for node workloads history.
+type NodeWorkloadsHistoryRequest struct {
+	NodeName string `json:"name" param:"name" mcp:"name,description=Node name to get workloads history for,required"`
+	PageNum  int    `json:"page_num" query:"page_num" mcp:"page_num,description=Page number (default 1)"`
+	PageSize int    `json:"page_size" query:"page_size" mcp:"page_size,description=Page size (default 20)"`
+	Cluster  string `json:"cluster" query:"cluster" mcp:"cluster,description=Target cluster name (optional)"`
+}
+
+// NodeWorkloadsHistoryResponse represents the response for node workloads history.
+type NodeWorkloadsHistoryResponse struct {
+	Data  []NodeWorkloadHistoryInfo `json:"data"`
+	Total int                       `json:"total"`
+}
+
+// NodeWorkloadHistoryInfo represents a historical workload on a node.
+type NodeWorkloadHistoryInfo struct {
+	UID          string    `json:"uid"`
+	Name         string    `json:"name"`
+	Namespace    string    `json:"namespace"`
+	Kind         string    `json:"kind"`
+	GPUAllocated int32     `json:"gpu_allocated"`
+	StartedAt    time.Time `json:"started_at"`
+	EndedAt      time.Time `json:"ended_at"`
+	Duration     int64     `json:"duration_seconds"`
+}
+
+// FragmentationAnalysisRequest represents the request for fragmentation analysis.
+type FragmentationAnalysisRequest struct {
+	Cluster string `json:"cluster" query:"cluster" mcp:"cluster,description=Target cluster name,required"`
+}
+
+// FragmentationAnalysisResponse represents the response for fragmentation analysis.
+type FragmentationAnalysisResponse struct {
+	Cluster                   string                     `json:"cluster"`
+	ClusterFragmentationScore float64                    `json:"cluster_fragmentation_score"`
+	TotalNodes                int                        `json:"total_nodes"`
+	NodeFragmentations        []NodeFragmentationInfo    `json:"node_fragmentations"`
+	Recommendations           []string                   `json:"recommendations"`
+	Summary                   FragmentationSummaryResult `json:"summary"`
+}
+
+// NodeFragmentationInfo represents fragmentation info for a single node.
+type NodeFragmentationInfo struct {
+	NodeName           string  `json:"node_name"`
+	TotalGPUs          int32   `json:"total_gpus"`
+	AllocatedGPUs      int32   `json:"allocated_gpus"`
+	AvailableGPUs      int32   `json:"available_gpus"`
+	FragmentationScore float64 `json:"fragmentation_score"`
+	Status             string  `json:"status"`
+	Utilization        float64 `json:"utilization"`
+}
+
+// FragmentationSummaryResult represents the fragmentation summary.
+type FragmentationSummaryResult struct {
+	HealthyNodes    int     `json:"healthy_nodes"`
+	FragmentedNodes int     `json:"fragmented_nodes"`
+	CriticalNodes   int     `json:"critical_nodes"`
+	TotalWastedGPUs int     `json:"total_wasted_gpus"`
+	WastePercentage float64 `json:"waste_percentage"`
+}
+
+// LoadBalanceAnalysisRequest represents the request for load balance analysis.
+type LoadBalanceAnalysisRequest struct {
+	Cluster string `json:"cluster" query:"cluster" mcp:"cluster,description=Target cluster name,required"`
+}
+
+// LoadBalanceAnalysisResponse represents the response for load balance analysis.
+type LoadBalanceAnalysisResponse struct {
+	Cluster              string                 `json:"cluster"`
+	LoadBalanceScore     float64                `json:"load_balance_score"`
+	NodeLoadDistribution []NodeLoadInfo         `json:"node_load_distribution"`
+	HotspotNodes         []string               `json:"hotspot_nodes"`
+	IdleNodes            []string               `json:"idle_nodes"`
+	Recommendations      []string               `json:"recommendations"`
+	Statistics           LoadBalanceStatsResult `json:"statistics"`
+}
+
+// NodeLoadInfo represents load info for a single node.
+type NodeLoadInfo struct {
+	NodeName        string  `json:"node_name"`
+	AllocationRate  float64 `json:"allocation_rate"`
+	UtilizationRate float64 `json:"utilization_rate"`
+	LoadScore       float64 `json:"load_score"`
+}
+
+// LoadBalanceStatsResult represents load balance statistics.
+type LoadBalanceStatsResult struct {
+	AvgAllocationRate float64 `json:"avg_allocation_rate"`
+	StdDevAllocation  float64 `json:"stddev_allocation"`
+	MaxAllocation     float64 `json:"max_allocation"`
+	MinAllocation     float64 `json:"min_allocation"`
+	Variance          float64 `json:"variance"`
+}
+
+// NodeFragmentationDetailRequest represents the request for node fragmentation detail.
+type NodeFragmentationDetailRequest struct {
+	NodeName string `json:"name" param:"name" mcp:"name,description=Node name to get fragmentation for,required"`
+	Cluster  string `json:"cluster" query:"cluster" mcp:"cluster,description=Target cluster name,required"`
+}
+
+// NodeFragmentationDetailResponse represents the response for node fragmentation detail.
+type NodeFragmentationDetailResponse struct {
+	NodeName           string                  `json:"node_name"`
+	TotalGPUs          int32                   `json:"total_gpus"`
+	AllocatedGPUs      int32                   `json:"allocated_gpus"`
+	AvailableGPUs      int32                   `json:"available_gpus"`
+	FragmentationScore float64                 `json:"fragmentation_score"`
+	Status             string                  `json:"status"`
+	AllocationPattern  AllocationPatternResult `json:"allocation_pattern"`
+	RunningPods        []PodAllocationInfo     `json:"running_pods"`
+	Recommendations    []string                `json:"recommendations"`
+}
+
+// AllocationPatternResult represents GPU allocation pattern.
+type AllocationPatternResult struct {
+	FullyAllocatedPods   int  `json:"fully_allocated_pods"`
+	PartiallyAllocPods   int  `json:"partially_allocated_pods"`
+	GPUSharing           bool `json:"gpu_sharing_enabled"`
+	LargestContiguousGPU int  `json:"largest_contiguous_gpu"`
+}
+
+// PodAllocationInfo represents pod GPU allocation.
+type PodAllocationInfo struct {
+	PodName       string `json:"pod_name"`
+	Namespace     string `json:"namespace"`
+	AllocatedGPUs int32  `json:"allocated_gpus"`
+}
+
+// GPUHeatmapRequest represents the request for GPU heatmap.
+type GPUHeatmapRequest struct {
+	Cluster string `json:"cluster" query:"cluster" mcp:"cluster,description=Target cluster name (optional)"`
+}
+
+// GPUHeatmapResponse represents the response for GPU heatmap.
+type GPUHeatmapResponse struct {
+	Power       HeatmapData `json:"power"`
+	Temperature HeatmapData `json:"temperature"`
+	Utilization HeatmapData `json:"utilization"`
+}
+
+// HeatmapData represents heatmap data for a metric.
+type HeatmapData struct {
+	Serial   int             `json:"serial"`
+	Unit     string          `json:"unit"`
+	YAxisMax int             `json:"y_axis_max"`
+	YAxisMin int             `json:"y_axis_min"`
+	Data     []HeatmapPoint  `json:"data"`
+}
+
+// HeatmapPoint represents a point in the heatmap.
+type HeatmapPoint struct {
+	NodeName string  `json:"node_name"`
+	DeviceID int     `json:"device_id"`
+	Value    float64 `json:"value"`
+}
+
+// RunningTasksRequest represents the request for running tasks.
+type RunningTasksRequest struct {
+	Cluster   string `json:"cluster" query:"cluster" mcp:"cluster,description=Target cluster name,required"`
+	Namespace string `json:"namespace" query:"namespace" mcp:"namespace,description=Filter by namespace (optional)"`
+}
+
+// RunningTasksResponse represents the response for running tasks.
+type RunningTasksResponse struct {
+	Cluster    string             `json:"cluster"`
+	Timestamp  time.Time          `json:"timestamp"`
+	TotalTasks int                `json:"total_tasks"`
+	Tasks      []RunningTaskInfo  `json:"tasks"`
+}
+
+// RunningTaskInfo represents a running GPU task.
+type RunningTaskInfo struct {
+	PodUID        string    `json:"pod_uid"`
+	PodName       string    `json:"pod_name"`
+	Namespace     string    `json:"namespace"`
+	WorkloadType  string    `json:"workload_type"`
+	WorkloadName  string    `json:"workload_name"`
+	NodeName      string    `json:"node_name"`
+	AllocatedGPUs int32     `json:"allocated_gpus"`
+	RunningTime   int64     `json:"running_time_seconds"`
+	StartedAt     time.Time `json:"started_at"`
+	Owner         string    `json:"owner"`
+}
+
 // ===== Register Unified Endpoints =====
 
 func init() {
@@ -437,6 +721,108 @@ func init() {
 		HTTPPath:    "/unified/realtime/status",
 		MCPToolName: "lens_realtime_status",
 		Handler:     handleRealtimeStatus,
+	})
+
+	// ===== Phase 4: Node Analysis & Metrics (10%) =====
+
+	// Register node GPU metrics endpoint (mirrors /nodes/:name/gpuMetrics)
+	unified.Register(&unified.EndpointDef[NodeGPUMetricsRequest, NodeGPUMetricsResponse]{
+		Name:        "node_gpu_metrics",
+		Description: "Get GPU utilization and allocation rate history for a specific node over a time range. Returns time series data for charting GPU metrics.",
+		HTTPMethod:  "GET",
+		HTTPPath:    "/unified/nodes/:name/gpuMetrics",
+		MCPToolName: "lens_node_gpu_metrics",
+		Handler:     handleNodeGPUMetrics,
+	})
+
+	// Register node utilization endpoint (mirrors /nodes/:name/utilization)
+	unified.Register(&unified.EndpointDef[NodeUtilizationRequest, NodeUtilizationResponse]{
+		Name:        "node_utilization",
+		Description: "Get current CPU, memory and GPU utilization for a specific node. Returns real-time resource usage metrics.",
+		HTTPMethod:  "GET",
+		HTTPPath:    "/unified/nodes/:name/utilization",
+		MCPToolName: "lens_node_utilization",
+		Handler:     handleNodeUtilization,
+	})
+
+	// Register node utilization history endpoint (mirrors /nodes/:name/utilizationHistory)
+	unified.Register(&unified.EndpointDef[NodeUtilizationHistoryRequest, NodeUtilizationHistoryResponse]{
+		Name:        "node_utilization_history",
+		Description: "Get historical CPU, memory and GPU utilization for a specific node. Returns time series data for resource usage over time.",
+		HTTPMethod:  "GET",
+		HTTPPath:    "/unified/nodes/:name/utilizationHistory",
+		MCPToolName: "lens_node_utilization_history",
+		Handler:     handleNodeUtilizationHistory,
+	})
+
+	// Register node workloads endpoint (mirrors /nodes/:name/workloads)
+	unified.Register(&unified.EndpointDef[NodeWorkloadsRequest, NodeWorkloadsResponse]{
+		Name:        "node_workloads",
+		Description: "Get currently running workloads on a specific node. Returns workload list with GPU allocation and status.",
+		HTTPMethod:  "GET",
+		HTTPPath:    "/unified/nodes/:name/workloads",
+		MCPToolName: "lens_node_workloads",
+		Handler:     handleNodeWorkloads,
+	})
+
+	// Register node workloads history endpoint (mirrors /nodes/:name/workloadsHistory)
+	unified.Register(&unified.EndpointDef[NodeWorkloadsHistoryRequest, NodeWorkloadsHistoryResponse]{
+		Name:        "node_workloads_history",
+		Description: "Get historical workloads that ran on a specific node. Returns completed workloads with duration and GPU usage.",
+		HTTPMethod:  "GET",
+		HTTPPath:    "/unified/nodes/:name/workloadsHistory",
+		MCPToolName: "lens_node_workloads_history",
+		Handler:     handleNodeWorkloadsHistory,
+	})
+
+	// Register fragmentation analysis endpoint (mirrors /nodes/fragmentation-analysis)
+	unified.Register(&unified.EndpointDef[FragmentationAnalysisRequest, FragmentationAnalysisResponse]{
+		Name:        "fragmentation_analysis",
+		Description: "Analyze GPU resource fragmentation across the cluster. Returns fragmentation score per node, recommendations, and summary statistics.",
+		HTTPMethod:  "GET",
+		HTTPPath:    "/unified/nodes/fragmentation-analysis",
+		MCPToolName: "lens_fragmentation_analysis",
+		Handler:     handleFragmentationAnalysis,
+	})
+
+	// Register load balance analysis endpoint (mirrors /nodes/load-balance-analysis)
+	unified.Register(&unified.EndpointDef[LoadBalanceAnalysisRequest, LoadBalanceAnalysisResponse]{
+		Name:        "load_balance_analysis",
+		Description: "Analyze GPU workload distribution across nodes. Returns load balance score, hotspot/idle nodes, and optimization recommendations.",
+		HTTPMethod:  "GET",
+		HTTPPath:    "/unified/nodes/load-balance-analysis",
+		MCPToolName: "lens_load_balance_analysis",
+		Handler:     handleLoadBalanceAnalysis,
+	})
+
+	// Register node fragmentation detail endpoint (mirrors /nodes/:name/fragmentation)
+	unified.Register(&unified.EndpointDef[NodeFragmentationDetailRequest, NodeFragmentationDetailResponse]{
+		Name:        "node_fragmentation",
+		Description: "Get detailed GPU fragmentation analysis for a specific node. Returns allocation pattern, running pods, and node-specific recommendations.",
+		HTTPMethod:  "GET",
+		HTTPPath:    "/unified/nodes/:name/fragmentation",
+		MCPToolName: "lens_node_fragmentation",
+		Handler:     handleNodeFragmentationDetail,
+	})
+
+	// Register GPU heatmap endpoint (mirrors /clusters/gpuHeatmap)
+	unified.Register(&unified.EndpointDef[GPUHeatmapRequest, GPUHeatmapResponse]{
+		Name:        "gpu_heatmap",
+		Description: "Get GPU heatmap data showing power, temperature and utilization for top K GPUs. Useful for visualizing cluster-wide GPU health.",
+		HTTPMethod:  "GET",
+		HTTPPath:    "/unified/clusters/gpuHeatmap",
+		MCPToolName: "lens_gpu_heatmap",
+		Handler:     handleGPUHeatmap,
+	})
+
+	// Register running tasks endpoint (mirrors /realtime/running-tasks)
+	unified.Register(&unified.EndpointDef[RunningTasksRequest, RunningTasksResponse]{
+		Name:        "running_tasks",
+		Description: "Get list of currently running GPU tasks in the cluster. Returns task details including pod name, workload, node, GPU allocation and runtime.",
+		HTTPMethod:  "GET",
+		HTTPPath:    "/unified/realtime/running-tasks",
+		MCPToolName: "lens_running_tasks",
+		Handler:     handleRunningTasks,
 	})
 }
 
@@ -1211,5 +1597,739 @@ func handleRealtimeStatus(ctx context.Context, req *RealtimeStatusRequest) (*Rea
 			AvailableNodes:   availableNodes,
 			MaxContiguousGPU: maxContiguous,
 		},
+	}, nil
+}
+
+// ===== Phase 4: Handler Implementations =====
+
+// handleNodeGPUMetrics handles node GPU metrics requests.
+func handleNodeGPUMetrics(ctx context.Context, req *NodeGPUMetricsRequest) (*NodeGPUMetricsResponse, error) {
+	cm := clientsets.GetClusterManager()
+	clients, err := cm.GetClusterClientsOrDefault(req.Cluster)
+	if err != nil {
+		return nil, err
+	}
+
+	step := req.Step
+	if step <= 0 {
+		step = 60
+	}
+
+	startTime := time.Unix(req.Start, 0)
+	endTime := time.Unix(req.End, 0)
+
+	// Get GPU utilization history
+	gpuUtil, err := node.GetNodeGpuUtilHistory(ctx, clients.StorageClientSet, metadata.GpuVendorAMD, req.NodeName, startTime, endTime, step)
+	if err != nil {
+		return nil, errors.NewError().WithCode(errors.InternalError).WithError(err).WithMessage("Failed to get GPU utilization history")
+	}
+
+	// Get GPU allocation rate history
+	gpuAllocRate, err := node.GetNodeGpuAllocationHistory(ctx, clients.StorageClientSet, metadata.GpuVendorAMD, req.NodeName, startTime, endTime, step)
+	if err != nil {
+		return nil, errors.NewError().WithCode(errors.InternalError).WithError(err).WithMessage("Failed to get GPU allocation history")
+	}
+
+	// Convert to response format
+	return &NodeGPUMetricsResponse{
+		GpuUtilization: MetricsGraph{
+			Series: convertToMetricsSeries(gpuUtil),
+			Config: MetricsGraphConfig{YAxisUnit: "%"},
+		},
+		GpuAllocationRate: MetricsGraph{
+			Series: convertToMetricsSeries(gpuAllocRate),
+			Config: MetricsGraphConfig{YAxisUnit: "%"},
+		},
+	}, nil
+}
+
+// convertToMetricsSeries converts model.MetricsSeries to our MetricsSeries.
+func convertToMetricsSeries(series []model.MetricsSeries) []MetricsSeries {
+	result := make([]MetricsSeries, len(series))
+	for i, s := range series {
+		values := make([]MetricValue, len(s.Values))
+		for j, v := range s.Values {
+			values[j] = MetricValue{
+				Timestamp: v.Timestamp,
+				Value:     v.Value,
+			}
+		}
+		result[i] = MetricsSeries{
+			Name:   s.Name,
+			Values: values,
+		}
+	}
+	return result
+}
+
+// handleNodeUtilization handles node utilization requests.
+func handleNodeUtilization(ctx context.Context, req *NodeUtilizationRequest) (*NodeUtilizationResponse, error) {
+	cm := clientsets.GetClusterManager()
+	clients, err := cm.GetClusterClientsOrDefault(req.Cluster)
+	if err != nil {
+		return nil, err
+	}
+
+	// Get node from database
+	dbNode, err := database.GetFacadeForCluster(clients.ClusterName).GetNode().GetNodeByName(ctx, req.NodeName)
+	if err != nil {
+		return nil, err
+	}
+	if dbNode == nil {
+		return nil, errors.NewError().WithCode(errors.RequestDataNotExisted).WithMessage("node not found")
+	}
+
+	// Get current utilization from recent metrics
+	now := time.Now()
+	oneMinuteAgo := now.Add(-1 * time.Minute)
+
+	// Get CPU utilization
+	cpuUtil, err := node.GetNodeCpuUtilHistory(ctx, clients.StorageClientSet, req.NodeName, oneMinuteAgo, now, 60)
+	cpuUtilValue := 0.0
+	if err == nil && len(cpuUtil) > 0 && len(cpuUtil[0].Values) > 0 {
+		cpuUtilValue = cpuUtil[0].Values[len(cpuUtil[0].Values)-1].Value
+	}
+
+	// Get Memory utilization
+	memUtil, err := node.GetNodeMemUtilHistory(ctx, clients.StorageClientSet, req.NodeName, oneMinuteAgo, now, 60)
+	memUtilValue := 0.0
+	if err == nil && len(memUtil) > 0 && len(memUtil[0].Values) > 0 {
+		memUtilValue = memUtil[0].Values[len(memUtil[0].Values)-1].Value
+	}
+
+	return &NodeUtilizationResponse{
+		NodeName:       dbNode.Name,
+		CpuUtilization: cpuUtilValue,
+		MemUtilization: memUtilValue,
+		GpuUtilization: dbNode.GpuUtilization,
+		GpuAllocation:  int(dbNode.GpuAllocation),
+		Timestamp:      time.Now().Unix(),
+	}, nil
+}
+
+// handleNodeUtilizationHistory handles node utilization history requests.
+func handleNodeUtilizationHistory(ctx context.Context, req *NodeUtilizationHistoryRequest) (*NodeUtilizationHistoryResponse, error) {
+	cm := clientsets.GetClusterManager()
+	clients, err := cm.GetClusterClientsOrDefault(req.Cluster)
+	if err != nil {
+		return nil, err
+	}
+
+	step := req.Step
+	if step <= 0 {
+		step = 60
+	}
+
+	startTime := time.Unix(req.Start, 0)
+	endTime := time.Unix(req.End, 0)
+
+	// Get CPU utilization history
+	cpuUtil, err := node.GetNodeCpuUtilHistory(ctx, clients.StorageClientSet, req.NodeName, startTime, endTime, step)
+	if err != nil {
+		return nil, errors.NewError().WithCode(errors.InternalError).WithError(err).WithMessage("Failed to get CPU utilization history")
+	}
+
+	// Get Memory utilization history
+	memUtil, err := node.GetNodeMemUtilHistory(ctx, clients.StorageClientSet, req.NodeName, startTime, endTime, step)
+	if err != nil {
+		return nil, errors.NewError().WithCode(errors.InternalError).WithError(err).WithMessage("Failed to get memory utilization history")
+	}
+
+	// Get GPU utilization history
+	gpuUtil, err := node.GetNodeGpuUtilHistory(ctx, clients.StorageClientSet, metadata.GpuVendorAMD, req.NodeName, startTime, endTime, step)
+	if err != nil {
+		return nil, errors.NewError().WithCode(errors.InternalError).WithError(err).WithMessage("Failed to get GPU utilization history")
+	}
+
+	return &NodeUtilizationHistoryResponse{
+		CpuUtilization: MetricsGraph{
+			Series: convertToMetricsSeries(cpuUtil),
+			Config: MetricsGraphConfig{YAxisUnit: "%"},
+		},
+		MemUtilization: MetricsGraph{
+			Series: convertToMetricsSeries(memUtil),
+			Config: MetricsGraphConfig{YAxisUnit: "%"},
+		},
+		GpuUtilization: MetricsGraph{
+			Series: convertToMetricsSeries(gpuUtil),
+			Config: MetricsGraphConfig{YAxisUnit: "%"},
+		},
+	}, nil
+}
+
+// handleNodeWorkloads handles node workloads requests.
+func handleNodeWorkloads(ctx context.Context, req *NodeWorkloadsRequest) (*NodeWorkloadsResponse, error) {
+	cm := clientsets.GetClusterManager()
+	clients, err := cm.GetClusterClientsOrDefault(req.Cluster)
+	if err != nil {
+		return nil, err
+	}
+
+	pageNum := req.PageNum
+	pageSize := req.PageSize
+	if pageNum <= 0 {
+		pageNum = 1
+	}
+	if pageSize <= 0 {
+		pageSize = 20
+	}
+
+	// Get running workloads on node
+	workloads, err := workload.GetRunningTopLevelGpuWorkloadByNode(ctx, clients.ClusterName, req.NodeName)
+	if err != nil {
+		return nil, err
+	}
+
+	// Paginate
+	total := len(workloads)
+	start := (pageNum - 1) * pageSize
+	end := start + pageSize
+	if start >= total {
+		return &NodeWorkloadsResponse{Data: []NodeWorkloadInfo{}, Total: total}, nil
+	}
+	if end > total {
+		end = total
+	}
+	workloads = workloads[start:end]
+
+	data := make([]NodeWorkloadInfo, 0, len(workloads))
+	for _, w := range workloads {
+		data = append(data, NodeWorkloadInfo{
+			UID:          w.UID,
+			Name:         w.Name,
+			Namespace:    w.Namespace,
+			Kind:         w.Kind,
+			GPUAllocated: w.GpuAllocated,
+			StartedAt:    w.CreatedAt,
+			Status:       getWorkloadStatus(w),
+		})
+	}
+
+	return &NodeWorkloadsResponse{
+		Data:  data,
+		Total: total,
+	}, nil
+}
+
+// getWorkloadStatus determines workload status from db model.
+func getWorkloadStatus(w *dbModel.GpuWorkload) string {
+	if w.Deleted {
+		return "Completed"
+	}
+	return "Running"
+}
+
+// handleNodeWorkloadsHistory handles node workloads history requests.
+func handleNodeWorkloadsHistory(ctx context.Context, req *NodeWorkloadsHistoryRequest) (*NodeWorkloadsHistoryResponse, error) {
+	cm := clientsets.GetClusterManager()
+	clients, err := cm.GetClusterClientsOrDefault(req.Cluster)
+	if err != nil {
+		return nil, err
+	}
+
+	pageNum := req.PageNum
+	pageSize := req.PageSize
+	if pageNum <= 0 {
+		pageNum = 1
+	}
+	if pageSize <= 0 {
+		pageSize = 20
+	}
+
+	// Get history pods for the node
+	pods, total, err := database.GetFacadeForCluster(clients.ClusterName).GetPod().GetHistoryGpuPodByNodeName(ctx, req.NodeName, pageNum, pageSize)
+	if err != nil {
+		return nil, err
+	}
+
+	// Get workload info for pods
+	workloadInfos, err := workload.GetTopLevelWorkloadsByPods(ctx, clients.ClusterName, pods)
+	if err != nil {
+		return nil, err
+	}
+
+	// Build workload map
+	workloadMap := make(map[string]*dbModel.GpuWorkload)
+	for _, w := range workloadInfos {
+		workloadMap[w.UID] = w
+	}
+
+	data := make([]NodeWorkloadHistoryInfo, 0)
+	seenWorkloads := make(map[string]bool)
+	for _, pod := range pods {
+		if w, ok := workloadMap[pod.OwnerUID]; ok {
+			if seenWorkloads[w.UID] {
+				continue
+			}
+			seenWorkloads[w.UID] = true
+			duration := int64(0)
+			if !w.EndAt.IsZero() && w.EndAt.After(w.CreatedAt) {
+				duration = int64(w.EndAt.Sub(w.CreatedAt).Seconds())
+			}
+			data = append(data, NodeWorkloadHistoryInfo{
+				UID:          w.UID,
+				Name:         w.Name,
+				Namespace:    w.Namespace,
+				Kind:         w.Kind,
+				GPUAllocated: w.GpuAllocated,
+				StartedAt:    w.CreatedAt,
+				EndedAt:      w.EndAt,
+				Duration:     duration,
+			})
+		}
+	}
+
+	return &NodeWorkloadsHistoryResponse{
+		Data:  data,
+		Total: int(total),
+	}, nil
+}
+
+// handleFragmentationAnalysis handles fragmentation analysis requests.
+func handleFragmentationAnalysis(ctx context.Context, req *FragmentationAnalysisRequest) (*FragmentationAnalysisResponse, error) {
+	cm := clientsets.GetClusterManager()
+	clients, err := cm.GetClientSetByClusterName(req.Cluster)
+	if err != nil {
+		return nil, err
+	}
+
+	// Get all GPU nodes
+	nodeFacade := database.GetFacadeForCluster(clients.ClusterName).GetNode()
+	nodes, err := nodeFacade.ListGpuNodes(ctx)
+	if err != nil {
+		return nil, errors.NewError().WithCode(errors.InternalError).WithError(err)
+	}
+
+	if len(nodes) == 0 {
+		return nil, errors.NewError().WithCode(errors.RequestDataNotExisted).WithMessage("No GPU nodes found")
+	}
+
+	// Calculate fragmentation for each node
+	nodeFrags := make([]NodeFragmentationInfo, 0, len(nodes))
+	var totalScore float64
+	var healthyNodes, fragmentedNodes, criticalNodes int
+	var totalWasted int32
+
+	for _, n := range nodes {
+		availableGPUs := n.GpuCount - n.GpuAllocation
+		allocationRate := float64(n.GpuAllocation) / float64(n.GpuCount)
+		
+		// Simplified fragmentation score calculation
+		baseFragmentation := (1 - allocationRate) * 40
+		utilizationGap := 0.0
+		if n.GpuUtilization < allocationRate*100 {
+			utilizationGap = (allocationRate*100 - n.GpuUtilization) / 100 * 40
+		}
+		score := baseFragmentation + utilizationGap
+		if score > 100 {
+			score = 100
+		}
+
+		status := "healthy"
+		if score > 60 {
+			status = "critical"
+			criticalNodes++
+		} else if score > 30 {
+			status = "fragmented"
+			fragmentedNodes++
+		} else {
+			healthyNodes++
+		}
+
+		// Calculate wasted GPUs (allocated but underutilized)
+		if n.GpuUtilization < 30 && n.GpuAllocation > 0 {
+			totalWasted += n.GpuAllocation
+		}
+
+		nodeFrags = append(nodeFrags, NodeFragmentationInfo{
+			NodeName:           n.Name,
+			TotalGPUs:          n.GpuCount,
+			AllocatedGPUs:      n.GpuAllocation,
+			AvailableGPUs:      availableGPUs,
+			FragmentationScore: score,
+			Status:             status,
+			Utilization:        n.GpuUtilization,
+		})
+		totalScore += score
+	}
+
+	// Calculate cluster-wide score
+	clusterScore := totalScore / float64(len(nodes))
+
+	// Generate recommendations
+	recommendations := generateFragmentationRecommendationsUnified(clusterScore, criticalNodes)
+
+	// Calculate total GPUs for waste percentage
+	var totalGPUs int32
+	for _, n := range nodes {
+		totalGPUs += n.GpuCount
+	}
+	wastePercentage := float64(totalWasted) / float64(totalGPUs) * 100
+
+	return &FragmentationAnalysisResponse{
+		Cluster:                   req.Cluster,
+		ClusterFragmentationScore: clusterScore,
+		TotalNodes:                len(nodes),
+		NodeFragmentations:        nodeFrags,
+		Recommendations:           recommendations,
+		Summary: FragmentationSummaryResult{
+			HealthyNodes:    healthyNodes,
+			FragmentedNodes: fragmentedNodes,
+			CriticalNodes:   criticalNodes,
+			TotalWastedGPUs: int(totalWasted),
+			WastePercentage: wastePercentage,
+		},
+	}, nil
+}
+
+// generateFragmentationRecommendationsUnified generates fragmentation recommendations.
+func generateFragmentationRecommendationsUnified(clusterScore float64, criticalNodes int) []string {
+	recommendations := make([]string, 0)
+	if clusterScore > 50 {
+		recommendations = append(recommendations, "High cluster fragmentation detected. Consider consolidating workloads to fewer nodes.")
+	}
+	if criticalNodes > 0 {
+		recommendations = append(recommendations, fmt.Sprintf("%d critical nodes detected. Review GPU allocation patterns on these nodes.", criticalNodes))
+	}
+	if len(recommendations) == 0 {
+		recommendations = append(recommendations, "Cluster GPU allocation is healthy. No immediate action needed.")
+	}
+	return recommendations
+}
+
+// handleLoadBalanceAnalysis handles load balance analysis requests.
+func handleLoadBalanceAnalysis(ctx context.Context, req *LoadBalanceAnalysisRequest) (*LoadBalanceAnalysisResponse, error) {
+	cm := clientsets.GetClusterManager()
+	clients, err := cm.GetClientSetByClusterName(req.Cluster)
+	if err != nil {
+		return nil, err
+	}
+
+	// Get all GPU nodes
+	nodeFacade := database.GetFacadeForCluster(clients.ClusterName).GetNode()
+	nodes, err := nodeFacade.ListGpuNodes(ctx)
+	if err != nil {
+		return nil, errors.NewError().WithCode(errors.InternalError).WithError(err)
+	}
+
+	if len(nodes) == 0 {
+		return nil, errors.NewError().WithCode(errors.RequestDataNotExisted).WithMessage("No GPU nodes found")
+	}
+
+	// Calculate load for each node
+	nodeLoads := make([]NodeLoadInfo, 0, len(nodes))
+	var sum, max, min float64
+	min = 100
+	for _, n := range nodes {
+		allocationRate := 0.0
+		if n.GpuCount > 0 {
+			allocationRate = float64(n.GpuAllocation) / float64(n.GpuCount) * 100
+		}
+		loadScore := allocationRate*0.6 + n.GpuUtilization*0.4
+
+		nodeLoads = append(nodeLoads, NodeLoadInfo{
+			NodeName:        n.Name,
+			AllocationRate:  allocationRate,
+			UtilizationRate: n.GpuUtilization,
+			LoadScore:       loadScore,
+		})
+
+		sum += allocationRate
+		if allocationRate > max {
+			max = allocationRate
+		}
+		if allocationRate < min {
+			min = allocationRate
+		}
+	}
+
+	// Calculate statistics
+	mean := sum / float64(len(nodeLoads))
+	var variance float64
+	for _, load := range nodeLoads {
+		variance += (load.AllocationRate - mean) * (load.AllocationRate - mean)
+	}
+	variance /= float64(len(nodeLoads))
+	stddev := 0.0
+	if variance > 0 {
+		stddev = math.Sqrt(variance)
+	}
+
+	// Calculate load balance score
+	cv := 0.0
+	if mean > 0 {
+		cv = stddev / mean
+	}
+	loadBalanceScore := 100 * (1 - math.Min(cv, 1))
+
+	// Identify hotspot and idle nodes
+	hotspotNodes := make([]string, 0)
+	idleNodes := make([]string, 0)
+	for _, load := range nodeLoads {
+		if load.AllocationRate > 80 {
+			hotspotNodes = append(hotspotNodes, load.NodeName)
+		} else if load.AllocationRate < 20 {
+			idleNodes = append(idleNodes, load.NodeName)
+		}
+	}
+
+	// Generate recommendations
+	recommendations := generateLoadBalanceRecommendationsUnified(loadBalanceScore, hotspotNodes, idleNodes)
+
+	return &LoadBalanceAnalysisResponse{
+		Cluster:              req.Cluster,
+		LoadBalanceScore:     loadBalanceScore,
+		NodeLoadDistribution: nodeLoads,
+		HotspotNodes:         hotspotNodes,
+		IdleNodes:            idleNodes,
+		Recommendations:      recommendations,
+		Statistics: LoadBalanceStatsResult{
+			AvgAllocationRate: mean,
+			StdDevAllocation:  stddev,
+			MaxAllocation:     max,
+			MinAllocation:     min,
+			Variance:          variance,
+		},
+	}, nil
+}
+
+// generateLoadBalanceRecommendationsUnified generates load balance recommendations.
+func generateLoadBalanceRecommendationsUnified(score float64, hotspotNodes, idleNodes []string) []string {
+	recommendations := make([]string, 0)
+	if score < 50 {
+		recommendations = append(recommendations, "Poor load balance detected. Consider redistributing workloads.")
+	}
+	if len(hotspotNodes) > 0 {
+		recommendations = append(recommendations, fmt.Sprintf("%d hotspot nodes detected (>80%% allocation). Consider migrating workloads.", len(hotspotNodes)))
+	}
+	if len(idleNodes) > 0 {
+		recommendations = append(recommendations, fmt.Sprintf("%d idle nodes detected (<20%% allocation). Consider scheduling more workloads.", len(idleNodes)))
+	}
+	if len(recommendations) == 0 {
+		recommendations = append(recommendations, "Cluster workload distribution is balanced. No action needed.")
+	}
+	return recommendations
+}
+
+// handleNodeFragmentationDetail handles node fragmentation detail requests.
+func handleNodeFragmentationDetail(ctx context.Context, req *NodeFragmentationDetailRequest) (*NodeFragmentationDetailResponse, error) {
+	cm := clientsets.GetClusterManager()
+	clients, err := cm.GetClientSetByClusterName(req.Cluster)
+	if err != nil {
+		return nil, err
+	}
+
+	// Get node info
+	nodeFacade := database.GetFacadeForCluster(clients.ClusterName).GetNode()
+	dbNode, err := nodeFacade.GetNodeByName(ctx, req.NodeName)
+	if err != nil {
+		return nil, errors.NewError().WithCode(errors.InternalError).WithError(err)
+	}
+	if dbNode == nil {
+		return nil, errors.NewError().WithCode(errors.RequestDataNotExisted).WithMessage("Node not found")
+	}
+
+	// Get pods on this node
+	podFacade := database.GetFacadeForCluster(clients.ClusterName).GetPod()
+	pods, err := podFacade.GetActiveGpuPodByNodeName(ctx, req.NodeName)
+	if err != nil {
+		return nil, errors.NewError().WithCode(errors.InternalError).WithError(err)
+	}
+
+	// Calculate fragmentation
+	availableGPUs := dbNode.GpuCount - dbNode.GpuAllocation
+	allocationRate := float64(dbNode.GpuAllocation) / float64(dbNode.GpuCount)
+	baseFragmentation := (1 - allocationRate) * 40
+	utilizationGap := 0.0
+	if dbNode.GpuUtilization < allocationRate*100 {
+		utilizationGap = (allocationRate*100 - dbNode.GpuUtilization) / 100 * 40
+	}
+	score := baseFragmentation + utilizationGap
+	if score > 100 {
+		score = 100
+	}
+
+	status := "healthy"
+	if score > 60 {
+		status = "critical"
+	} else if score > 30 {
+		status = "fragmented"
+	}
+
+	// Build allocation pattern
+	fullyAlloc := 0
+	partialAlloc := 0
+	for _, pod := range pods {
+		if pod.GpuAllocated >= 4 {
+			fullyAlloc++
+		} else if pod.GpuAllocated > 0 {
+			partialAlloc++
+		}
+	}
+
+	// Build pod allocations
+	podAllocations := make([]PodAllocationInfo, 0, len(pods))
+	for _, pod := range pods {
+		podAllocations = append(podAllocations, PodAllocationInfo{
+			PodName:       pod.Name,
+			Namespace:     pod.Namespace,
+			AllocatedGPUs: pod.GpuAllocated,
+		})
+	}
+
+	// Generate recommendations
+	recommendations := make([]string, 0)
+	if status == "critical" {
+		recommendations = append(recommendations, "Critical fragmentation: Consider migrating some pods to other nodes")
+	}
+	if partialAlloc > 3 && dbNode.GpuCount >= 8 {
+		recommendations = append(recommendations, "Many small GPU allocations detected. Consider consolidating workloads")
+	}
+	if availableGPUs > 0 && availableGPUs < 4 {
+		recommendations = append(recommendations, "Limited contiguous GPU blocks. Difficult to schedule larger jobs")
+	}
+	if dbNode.GpuUtilization < 30 && dbNode.GpuAllocation > 0 {
+		recommendations = append(recommendations, "Low GPU utilization despite allocation. Check if pods are idle or waiting")
+	}
+	if len(recommendations) == 0 {
+		recommendations = append(recommendations, "Node GPU allocation is healthy")
+	}
+
+	return &NodeFragmentationDetailResponse{
+		NodeName:           req.NodeName,
+		TotalGPUs:          dbNode.GpuCount,
+		AllocatedGPUs:      dbNode.GpuAllocation,
+		AvailableGPUs:      availableGPUs,
+		FragmentationScore: score,
+		Status:             status,
+		AllocationPattern: AllocationPatternResult{
+			FullyAllocatedPods:   fullyAlloc,
+			PartiallyAllocPods:   partialAlloc,
+			GPUSharing:           false,
+			LargestContiguousGPU: int(availableGPUs),
+		},
+		RunningPods:     podAllocations,
+		Recommendations: recommendations,
+	}, nil
+}
+
+// handleGPUHeatmap handles GPU heatmap requests.
+func handleGPUHeatmap(ctx context.Context, req *GPUHeatmapRequest) (*GPUHeatmapResponse, error) {
+	k := 5 // Top K GPUs
+	cm := clientsets.GetClusterManager()
+	clients, err := cm.GetClusterClientsOrDefault(req.Cluster)
+	if err != nil {
+		return nil, err
+	}
+
+	// Get top K GPU metrics
+	power, err := gpu.TopKGpuPowerInstant(ctx, k, clients.StorageClientSet)
+	if err != nil {
+		return nil, errors.NewError().WithCode(errors.InternalError).WithError(err).WithMessage("Failed to get GPU power data")
+	}
+
+	util, err := gpu.TopKGpuUtilizationInstant(ctx, k, clients.StorageClientSet)
+	if err != nil {
+		return nil, errors.NewError().WithCode(errors.InternalError).WithError(err).WithMessage("Failed to get GPU utilization data")
+	}
+
+	temp, err := gpu.TopKGpuTemperatureInstant(ctx, k, clients.StorageClientSet)
+	if err != nil {
+		return nil, errors.NewError().WithCode(errors.InternalError).WithError(err).WithMessage("Failed to get GPU temperature data")
+	}
+
+	return &GPUHeatmapResponse{
+		Power: HeatmapData{
+			Serial:   2,
+			Unit:     "W",
+			YAxisMax: 850,
+			YAxisMin: 0,
+			Data:     convertHeatmapData(power),
+		},
+		Temperature: HeatmapData{
+			Serial:   3,
+			Unit:     "C",
+			YAxisMax: 110,
+			YAxisMin: 20,
+			Data:     convertHeatmapData(temp),
+		},
+		Utilization: HeatmapData{
+			Serial:   1,
+			Unit:     "%",
+			YAxisMax: 100,
+			YAxisMin: 0,
+			Data:     convertHeatmapData(util),
+		},
+	}, nil
+}
+
+// convertHeatmapData converts model.HeatmapData to our HeatmapPoint slice.
+func convertHeatmapData(data []model.HeatmapData) []HeatmapPoint {
+	result := make([]HeatmapPoint, len(data))
+	for i, d := range data {
+		result[i] = HeatmapPoint{
+			NodeName: d.NodeName,
+			DeviceID: d.DeviceId,
+			Value:    d.Value,
+		}
+	}
+	return result
+}
+
+// handleRunningTasks handles running tasks requests.
+func handleRunningTasks(ctx context.Context, req *RunningTasksRequest) (*RunningTasksResponse, error) {
+	cm := clientsets.GetClusterManager()
+	clients, err := cm.GetClientSetByClusterName(req.Cluster)
+	if err != nil {
+		return nil, err
+	}
+
+	// Get active GPU pods
+	podFacade := database.GetFacadeForCluster(clients.ClusterName).GetPod()
+	pods, err := podFacade.ListActiveGpuPods(ctx)
+	if err != nil {
+		return nil, errors.NewError().WithCode(errors.InternalError).WithError(err)
+	}
+
+	// Filter by namespace if specified
+	if req.Namespace != "" {
+		filtered := make([]*dbModel.GpuPods, 0)
+		for _, pod := range pods {
+			if pod.Namespace == req.Namespace {
+				filtered = append(filtered, pod)
+			}
+		}
+		pods = filtered
+	}
+
+	// Build task list
+	tasks := make([]RunningTaskInfo, 0, len(pods))
+	now := time.Now()
+	for _, pod := range pods {
+		runningTime := int64(now.Sub(pod.CreatedAt).Seconds())
+		workloadType := "Unknown"
+		workloadName := "Unknown"
+		// In real implementation, we would query workload info
+		// Simplified for now
+
+		tasks = append(tasks, RunningTaskInfo{
+			PodUID:        pod.UID,
+			PodName:       pod.Name,
+			Namespace:     pod.Namespace,
+			WorkloadType:  workloadType,
+			WorkloadName:  workloadName,
+			NodeName:      pod.NodeName,
+			AllocatedGPUs: pod.GpuAllocated,
+			RunningTime:   runningTime,
+			StartedAt:     pod.CreatedAt,
+			Owner:         pod.Namespace, // Simplified - use namespace as owner
+		})
+	}
+
+	return &RunningTasksResponse{
+		Cluster:    req.Cluster,
+		Timestamp:  now,
+		TotalTasks: len(tasks),
+		Tasks:      tasks,
 	}, nil
 }
