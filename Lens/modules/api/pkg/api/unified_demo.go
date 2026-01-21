@@ -8,10 +8,14 @@ package api
 
 import (
 	"context"
+	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/filter"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/errors"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/cluster"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/fault"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/gpu"
@@ -141,6 +145,143 @@ type GPUAllocationSummary struct {
 	AllocationRate float64 `json:"allocation_rate_percent"`
 }
 
+// ===== Phase 3: Core Query APIs =====
+
+// GPUUtilizationRequest represents the request for GPU utilization.
+type GPUUtilizationRequest struct {
+	Cluster string `query:"cluster" mcp:"cluster,description=Target cluster name (optional)"`
+}
+
+// GPUUtilizationResponse represents GPU utilization response.
+type GPUUtilizationResponse struct {
+	ClusterName    string  `json:"cluster_name"`
+	AllocationRate float64 `json:"allocation_rate"`
+	Utilization    float64 `json:"utilization"`
+	Timestamp      time.Time `json:"timestamp"`
+}
+
+// GPUUtilizationHistoryRequest represents the request for GPU utilization history.
+type GPUUtilizationHistoryRequest struct {
+	Cluster string `query:"cluster" mcp:"cluster,description=Target cluster name (optional)"`
+	Start   string `query:"start" mcp:"start,description=Start timestamp (Unix seconds),required"`
+	End     string `query:"end" mcp:"end,description=End timestamp (Unix seconds),required"`
+	Step    string `query:"step" mcp:"step,description=Step interval in seconds (default 60)"`
+}
+
+// GPUUtilizationHistoryResponse represents GPU utilization history.
+type GPUUtilizationHistoryResponse struct {
+	ClusterName     string            `json:"cluster_name"`
+	AllocationRate  []model.TimePoint `json:"allocation_rate"`
+	Utilization     []model.TimePoint `json:"utilization"`
+	VramUtilization []model.TimePoint `json:"vram_utilization"`
+}
+
+// NodeDetailRequest represents the request for node detail.
+type NodeDetailRequest struct {
+	Cluster  string `query:"cluster" mcp:"cluster,description=Target cluster name (optional)"`
+	NodeName string `param:"name" mcp:"name,description=Node name to get details for,required"`
+}
+
+// NodeDetailResponse represents the node detail response.
+type NodeDetailResponse struct {
+	model.GpuNodeDetail
+	ClusterName string `json:"cluster_name"`
+}
+
+// NodeGPUDevicesRequest represents the request for node GPU devices.
+type NodeGPUDevicesRequest struct {
+	Cluster  string `query:"cluster" mcp:"cluster,description=Target cluster name (optional)"`
+	NodeName string `param:"name" mcp:"name,description=Node name to get GPU devices for,required"`
+}
+
+// NodeGPUDevicesResponse represents the node GPU devices response.
+type NodeGPUDevicesResponse struct {
+	NodeName    string              `json:"node_name"`
+	ClusterName string              `json:"cluster_name"`
+	Devices     []model.GpuDeviceInfo `json:"devices"`
+}
+
+// WorkloadListRequest represents the request for workload list.
+type WorkloadListRequest struct {
+	Cluster   string `query:"cluster" mcp:"cluster,description=Target cluster name (optional)"`
+	Name      string `query:"name" mcp:"name,description=Filter by workload name (partial match)"`
+	Kind      string `query:"kind" mcp:"kind,description=Filter by workload kind (Job/PyTorchJob/etc)"`
+	Namespace string `query:"namespace" mcp:"namespace,description=Filter by namespace"`
+	Status    string `query:"status" mcp:"status,description=Filter by status (Running/Completed/Failed)"`
+	PageNum   int    `query:"page_num" mcp:"page_num,description=Page number (default 1)"`
+	PageSize  int    `query:"page_size" mcp:"page_size,description=Page size (default 10)"`
+	OrderBy   string `query:"order_by" mcp:"order_by,description=Order by field (start_at/end_at)"`
+}
+
+// WorkloadListResponse represents the workload list response.
+type WorkloadListResponse struct {
+	Data        []model.WorkloadListItem `json:"data"`
+	Total       int                      `json:"total"`
+	ClusterName string                   `json:"cluster_name"`
+}
+
+// WorkloadDetailRequest represents the request for workload detail.
+type WorkloadDetailRequest struct {
+	Cluster     string `query:"cluster" mcp:"cluster,description=Target cluster name (optional)"`
+	WorkloadUID string `param:"uid" mcp:"uid,description=Workload UID to get details for,required"`
+}
+
+// WorkloadDetailResponse represents the workload detail response.
+type WorkloadDetailResponse struct {
+	model.WorkloadInfo
+	ClusterName string `json:"cluster_name"`
+}
+
+// PodStatsRequest represents the request for pod stats.
+type PodStatsRequest struct {
+	Cluster   string `query:"cluster" mcp:"cluster,description=Target cluster name,required"`
+	Namespace string `query:"namespace" mcp:"namespace,description=Filter by namespace"`
+	PodName   string `query:"pod_name" mcp:"pod_name,description=Filter by pod name (partial match)"`
+	StartTime string `query:"start_time" mcp:"start_time,description=Filter by start time (RFC3339)"`
+	EndTime   string `query:"end_time" mcp:"end_time,description=Filter by end time (RFC3339)"`
+	Page      int    `query:"page" mcp:"page,description=Page number (default 1)"`
+	PageSize  int    `query:"page_size" mcp:"page_size,description=Page size (default 20)"`
+}
+
+// UnifiedPodStatsResponse represents the pod stats response for unified API.
+type UnifiedPodStatsResponse struct {
+	Total       int        `json:"total"`
+	Page        int        `json:"page"`
+	Pods        []PodStats `json:"pods"`
+	ClusterName string     `json:"cluster_name"`
+}
+
+// RealtimeStatusRequest represents the request for realtime status.
+type RealtimeStatusRequest struct {
+	Cluster string   `query:"cluster" mcp:"cluster,description=Target cluster name,required"`
+	Include []string `query:"include" mcp:"include,description=Fields to include (nodes/pods/workloads/alerts)"`
+}
+
+// RealtimeStatusResult represents the realtime status response.
+type RealtimeStatusResult struct {
+	Cluster            string                `json:"cluster"`
+	Timestamp          time.Time             `json:"timestamp"`
+	CurrentGPUUsage    RealtimeGPUUsage      `json:"current_gpu_usage"`
+	RunningTasks       int                   `json:"running_tasks"`
+	AvailableResources RealtimeAvailability  `json:"available_resources"`
+}
+
+// RealtimeGPUUsage represents GPU usage in realtime status.
+type RealtimeGPUUsage struct {
+	TotalGPUs       int     `json:"total_gpus"`
+	AllocatedGPUs   int     `json:"allocated_gpus"`
+	UtilizedGPUs    int     `json:"utilized_gpus"`
+	AllocationRate  float64 `json:"allocation_rate"`
+	UtilizationRate float64 `json:"utilization_rate"`
+}
+
+// RealtimeAvailability represents resource availability.
+type RealtimeAvailability struct {
+	AvailableGPUs    int `json:"available_gpus"`
+	AvailableNodes   int `json:"available_nodes"`
+	MaxContiguousGPU int `json:"max_contiguous_gpu"`
+}
+
 // ===== Register Unified Endpoints =====
 
 func init() {
@@ -214,6 +355,88 @@ func init() {
 		HTTPPath:    "/unified/nodes/gpuAllocation",
 		MCPToolName: "lens_gpu_allocation",
 		Handler:     handleGPUAllocation,
+	})
+
+	// ===== Phase 3: Core Query APIs =====
+
+	// Register GPU utilization endpoint (mirrors /nodes/gpuUtilization)
+	unified.Register(&unified.EndpointDef[GPUUtilizationRequest, GPUUtilizationResponse]{
+		Name:        "gpu_utilization",
+		Description: "Get current cluster GPU utilization metrics including allocation rate and average utilization percentage across all GPUs.",
+		HTTPMethod:  "GET",
+		HTTPPath:    "/unified/nodes/gpuUtilization",
+		MCPToolName: "lens_gpu_utilization",
+		Handler:     handleGPUUtilization,
+	})
+
+	// Register GPU utilization history endpoint (mirrors /nodes/gpuUtilizationHistory)
+	unified.Register(&unified.EndpointDef[GPUUtilizationHistoryRequest, GPUUtilizationHistoryResponse]{
+		Name:        "gpu_utilization_history",
+		Description: "Get historical GPU utilization data over a time range. Returns allocation rate, utilization, and VRAM utilization as time series data points.",
+		HTTPMethod:  "GET",
+		HTTPPath:    "/unified/nodes/gpuUtilizationHistory",
+		MCPToolName: "lens_gpu_utilization_history",
+		Handler:     handleGPUUtilizationHistory,
+	})
+
+	// Register node detail endpoint (mirrors /nodes/:name)
+	unified.Register(&unified.EndpointDef[NodeDetailRequest, NodeDetailResponse]{
+		Name:        "node_detail",
+		Description: "Get detailed information about a specific GPU node including CPU, memory, OS, GPU driver version, kubelet version and health status.",
+		HTTPMethod:  "GET",
+		HTTPPath:    "/unified/nodes/:name",
+		MCPToolName: "lens_node_detail",
+		Handler:     handleNodeDetail,
+	})
+
+	// Register node GPU devices endpoint (mirrors /nodes/:name/gpuDevices)
+	unified.Register(&unified.EndpointDef[NodeGPUDevicesRequest, NodeGPUDevicesResponse]{
+		Name:        "node_gpu_devices",
+		Description: "Get GPU device information for a specific node including device ID, model, memory, utilization, temperature and power for each GPU.",
+		HTTPMethod:  "GET",
+		HTTPPath:    "/unified/nodes/:name/gpuDevices",
+		MCPToolName: "lens_node_gpu_devices",
+		Handler:     handleNodeGPUDevices,
+	})
+
+	// Register workload list endpoint (mirrors /workloads)
+	unified.Register(&unified.EndpointDef[WorkloadListRequest, WorkloadListResponse]{
+		Name:        "workload_list",
+		Description: "List GPU workloads in the cluster with filtering by name, kind, namespace, status. Returns workload metadata, GPU allocation, and utilization statistics.",
+		HTTPMethod:  "GET",
+		HTTPPath:    "/unified/workloads",
+		MCPToolName: "lens_workload_list",
+		Handler:     handleWorkloadList,
+	})
+
+	// Register workload detail endpoint (mirrors /workloads/:uid)
+	unified.Register(&unified.EndpointDef[WorkloadDetailRequest, WorkloadDetailResponse]{
+		Name:        "workload_detail",
+		Description: "Get detailed information about a specific workload by UID including pods, GPU allocation per node, start/end times, and status.",
+		HTTPMethod:  "GET",
+		HTTPPath:    "/unified/workloads/:uid",
+		MCPToolName: "lens_workload_detail",
+		Handler:     handleWorkloadDetail,
+	})
+
+	// Register pod stats endpoint (mirrors /pods/stats)
+	unified.Register(&unified.EndpointDef[PodStatsRequest, UnifiedPodStatsResponse]{
+		Name:        "pod_stats",
+		Description: "Query GPU pod statistics with filtering by namespace, pod name, and time range. Returns pod details, GPU allocation, and average utilization.",
+		HTTPMethod:  "GET",
+		HTTPPath:    "/unified/pods/stats",
+		MCPToolName: "lens_pod_stats",
+		Handler:     handlePodStats,
+	})
+
+	// Register realtime status endpoint (mirrors /realtime/status)
+	unified.Register(&unified.EndpointDef[RealtimeStatusRequest, RealtimeStatusResult]{
+		Name:        "realtime_status",
+		Description: "Get real-time cluster status including current GPU usage, running tasks count, and available resources. Provides a quick snapshot of cluster state.",
+		HTTPMethod:  "GET",
+		HTTPPath:    "/unified/realtime/status",
+		MCPToolName: "lens_realtime_status",
+		Handler:     handleRealtimeStatus,
 	})
 }
 
@@ -557,5 +780,436 @@ func handleGPUAllocation(ctx context.Context, req *GPUAllocationRequest) (*GPUAl
 		ClusterName: clients.ClusterName,
 		Summary:     summary,
 		Timestamp:   time.Now(),
+	}, nil
+}
+
+// ===== Phase 3 Handler Implementations =====
+
+// handleGPUUtilization handles GPU utilization requests.
+func handleGPUUtilization(ctx context.Context, req *GPUUtilizationRequest) (*GPUUtilizationResponse, error) {
+	cm := clientsets.GetClusterManager()
+	clients, err := cm.GetClusterClientsOrDefault(req.Cluster)
+	if err != nil {
+		return nil, err
+	}
+
+	// Try to get from cache first
+	cacheFacade := database.GetFacadeForCluster(clients.ClusterName).GetGenericCache()
+	cacheKey := "cluster:gpu:utilization"
+
+	var cachedResult model.GPUUtilization
+	err = cacheFacade.Get(ctx, cacheKey, &cachedResult)
+	if err == nil {
+		return &GPUUtilizationResponse{
+			ClusterName:    clients.ClusterName,
+			AllocationRate: cachedResult.AllocationRate,
+			Utilization:    cachedResult.Utilization,
+			Timestamp:      time.Now(),
+		}, nil
+	}
+
+	// Cache miss, fallback to real-time calculation
+	usage, err := gpu.CalculateGpuUsage(ctx, clients.StorageClientSet, metadata.GpuVendorAMD)
+	if err != nil {
+		return nil, err
+	}
+	allocationRate, err := gpu.GetClusterGpuAllocationRateFromDB(ctx, database.GetFacade().GetPod(), database.GetFacade().GetNode())
+	if err != nil {
+		return nil, err
+	}
+
+	return &GPUUtilizationResponse{
+		ClusterName:    clients.ClusterName,
+		AllocationRate: allocationRate,
+		Utilization:    usage,
+		Timestamp:      time.Now(),
+	}, nil
+}
+
+// handleGPUUtilizationHistory handles GPU utilization history requests.
+func handleGPUUtilizationHistory(ctx context.Context, req *GPUUtilizationHistoryRequest) (*GPUUtilizationHistoryResponse, error) {
+	cm := clientsets.GetClusterManager()
+	clients, err := cm.GetClusterClientsOrDefault(req.Cluster)
+	if err != nil {
+		return nil, err
+	}
+
+	startUnix, err := strconv.ParseInt(req.Start, 10, 64)
+	if err != nil {
+		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("invalid start timestamp")
+	}
+	endUnix, err := strconv.ParseInt(req.End, 10, 64)
+	if err != nil {
+		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("invalid end timestamp")
+	}
+
+	step := 60
+	if req.Step != "" {
+		step, err = strconv.Atoi(req.Step)
+		if err != nil || step <= 0 {
+			return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("invalid step value")
+		}
+	}
+
+	startTime := time.Unix(startUnix, 0)
+	endTime := time.Unix(endUnix, 0)
+
+	usageHistory, err := gpu.GetHistoryGpuUsage(ctx, clients.StorageClientSet, metadata.GpuVendorAMD, startTime, endTime, step)
+	if err != nil {
+		return nil, err
+	}
+	allocationHistory, err := gpu.GetHistoryGpuAllocationRate(ctx, clients.StorageClientSet, metadata.GpuVendorAMD, startTime, endTime, step)
+	if err != nil {
+		return nil, err
+	}
+	vramHistory, err := gpu.GetNodeGpuVramUsageHistory(ctx, clients.StorageClientSet, metadata.GpuVendorAMD, startTime, endTime, step)
+	if err != nil {
+		return nil, err
+	}
+
+	return &GPUUtilizationHistoryResponse{
+		ClusterName:     clients.ClusterName,
+		AllocationRate:  allocationHistory,
+		Utilization:     usageHistory,
+		VramUtilization: vramHistory,
+	}, nil
+}
+
+// handleNodeDetail handles node detail requests.
+func handleNodeDetail(ctx context.Context, req *NodeDetailRequest) (*NodeDetailResponse, error) {
+	cm := clientsets.GetClusterManager()
+	clients, err := cm.GetClusterClientsOrDefault(req.Cluster)
+	if err != nil {
+		return nil, err
+	}
+
+	dbNode, err := database.GetFacadeForCluster(clients.ClusterName).GetNode().GetNodeByName(ctx, req.NodeName)
+	if err != nil {
+		return nil, err
+	}
+	if dbNode == nil {
+		return nil, errors.NewError().WithCode(errors.RequestDataNotExisted).WithMessage("node not found")
+	}
+
+	detail := model.GpuNodeDetail{
+		Name:              dbNode.Name,
+		Health:            dbNode.Status,
+		Cpu:               fmt.Sprintf("%d X %s", dbNode.CPUCount, dbNode.CPU),
+		Memory:            dbNode.Memory,
+		OS:                dbNode.Os,
+		StaticGpuDetails:  fmt.Sprintf("%d X %s", dbNode.GpuCount, dbNode.GpuName),
+		KubeletVersion:    dbNode.KubeletVersion,
+		ContainerdVersion: dbNode.ContainerdVersion,
+		GPUDriverVersion:  dbNode.DriverVersion,
+	}
+
+	return &NodeDetailResponse{
+		GpuNodeDetail: detail,
+		ClusterName:   clients.ClusterName,
+	}, nil
+}
+
+// handleNodeGPUDevices handles node GPU devices requests.
+func handleNodeGPUDevices(ctx context.Context, req *NodeGPUDevicesRequest) (*NodeGPUDevicesResponse, error) {
+	cm := clientsets.GetClusterManager()
+	clients, err := cm.GetClusterClientsOrDefault(req.Cluster)
+	if err != nil {
+		return nil, err
+	}
+
+	node, err := database.GetFacadeForCluster(clients.ClusterName).GetNode().GetNodeByName(ctx, req.NodeName)
+	if err != nil {
+		return nil, err
+	}
+	if node == nil {
+		return nil, errors.NewError().WithCode(errors.RequestDataNotExisted).WithMessage("node not found")
+	}
+
+	devices, err := database.GetFacadeForCluster(clients.ClusterName).GetNode().ListGpuDeviceByNodeId(ctx, node.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	deviceInfos := make([]model.GpuDeviceInfo, 0, len(devices))
+	for _, d := range devices {
+		deviceInfos = append(deviceInfos, model.GpuDeviceInfo{
+			DeviceId:    int(d.GpuID),
+			Model:       d.GpuModel,
+			Memory:      fmt.Sprintf("%dGB", d.Memory/1024),
+			Utilization: d.Utilization,
+			Temperature: d.Temperature,
+			Power:       d.Power,
+		})
+	}
+
+	return &NodeGPUDevicesResponse{
+		NodeName:    req.NodeName,
+		ClusterName: clients.ClusterName,
+		Devices:     deviceInfos,
+	}, nil
+}
+
+// handleWorkloadList handles workload list requests.
+func handleWorkloadList(ctx context.Context, req *WorkloadListRequest) (*WorkloadListResponse, error) {
+	cm := clientsets.GetClusterManager()
+	clients, err := cm.GetClusterClientsOrDefault(req.Cluster)
+	if err != nil {
+		return nil, err
+	}
+
+	pageNum := req.PageNum
+	pageSize := req.PageSize
+	if pageNum <= 0 {
+		pageNum = 1
+	}
+	if pageSize <= 0 {
+		pageSize = 10
+	}
+
+	emptyParentUid := ""
+	f := &filter.WorkloadFilter{
+		Limit:     pageSize,
+		Offset:    (pageNum - 1) * pageSize,
+		ParentUid: &emptyParentUid,
+	}
+	if req.Name != "" {
+		f.Name = &req.Name
+	}
+	if req.Kind != "" {
+		f.Kind = &req.Kind
+	}
+	if req.Namespace != "" {
+		f.Namespace = &req.Namespace
+	}
+	if req.Status != "" {
+		f.Status = &req.Status
+	}
+	if req.OrderBy != "" {
+		switch req.OrderBy {
+		case "start_at":
+			f.OrderBy = "created_at"
+		case "end_at":
+			f.OrderBy = "end_at"
+		}
+	}
+
+	workloads, count, err := database.GetFacadeForCluster(clients.ClusterName).GetWorkload().QueryWorkload(ctx, f)
+	if err != nil {
+		return nil, err
+	}
+
+	result := []model.WorkloadListItem{}
+	for _, w := range workloads {
+		item, _ := cvtDBWorkloadListItem(ctx, clients.ClusterName, w)
+		result = append(result, item)
+	}
+
+	return &WorkloadListResponse{
+		Data:        result,
+		Total:       count,
+		ClusterName: clients.ClusterName,
+	}, nil
+}
+
+// handleWorkloadDetail handles workload detail requests.
+func handleWorkloadDetail(ctx context.Context, req *WorkloadDetailRequest) (*WorkloadDetailResponse, error) {
+	cm := clientsets.GetClusterManager()
+	clients, err := cm.GetClusterClientsOrDefault(req.Cluster)
+	if err != nil {
+		return nil, err
+	}
+
+	dbWorkload, err := database.GetFacadeForCluster(clients.ClusterName).GetWorkload().GetGpuWorkloadByUid(ctx, req.WorkloadUID)
+	if err != nil {
+		return nil, err
+	}
+	if dbWorkload == nil {
+		return nil, errors.NewError().WithCode(errors.RequestDataNotExisted).WithMessage("workload not found")
+	}
+
+	workloadInfo := model.WorkloadInfo{
+		ApiVersion:    dbWorkload.GroupVersion,
+		Kind:          dbWorkload.Kind,
+		Name:          dbWorkload.Name,
+		Namespace:     dbWorkload.Namespace,
+		Uid:           dbWorkload.UID,
+		GpuAllocation: nil,
+		Pods:          []model.WorkloadInfoPod{},
+		ActivePods:    []model.WorkloadInfoPod{},
+		StartTime:     dbWorkload.CreatedAt.Unix(),
+		EndTime:       dbWorkload.EndAt.Unix(),
+		Source:        getSource(dbWorkload),
+	}
+	if dbWorkload.EndAt.Unix() < int64(8*time.Hour) {
+		workloadInfo.EndTime = 0
+	}
+
+	pods, err := workload.GetWorkloadPods(ctx, clients.ClusterName, dbWorkload.UID)
+	if err != nil {
+		return nil, err
+	}
+	for _, pod := range pods {
+		podInfo := model.WorkloadInfoPod{
+			PodUID:       pod.UID,
+			PodNamespace: pod.Namespace,
+			PodName:      pod.Name,
+			NodeName:     pod.NodeName,
+			Phase:        pod.Phase,
+			Running:      pod.Running,
+			IP:           pod.IP,
+			GpuAllocated: int(pod.GpuAllocated),
+			CreatedAt:    pod.CreatedAt.Unix(),
+			UpdatedAt:    pod.UpdatedAt.Unix(),
+		}
+		workloadInfo.Pods = append(workloadInfo.Pods, podInfo)
+		if pod.Running && !pod.Deleted {
+			workloadInfo.ActivePods = append(workloadInfo.ActivePods, podInfo)
+		}
+	}
+
+	gpuAllocation, err := workload.GetWorkloadResource(ctx, clients.ClusterName, dbWorkload.UID)
+	if err == nil {
+		workloadInfo.GpuAllocation = gpuAllocation
+	}
+
+	return &WorkloadDetailResponse{
+		WorkloadInfo: workloadInfo,
+		ClusterName:  clients.ClusterName,
+	}, nil
+}
+
+// handlePodStats handles pod stats requests.
+func handlePodStats(ctx context.Context, req *PodStatsRequest) (*UnifiedPodStatsResponse, error) {
+	cm := clientsets.GetClusterManager()
+	clients, err := cm.GetClientSetByClusterName(req.Cluster)
+	if err != nil {
+		return nil, err
+	}
+
+	page := req.Page
+	pageSize := req.PageSize
+	if page <= 0 {
+		page = 1
+	}
+	if pageSize <= 0 {
+		pageSize = 20
+	}
+
+	podFacade := database.GetFacadeForCluster(clients.ClusterName).GetPod()
+	gpuPods, total, err := podFacade.QueryPodsWithFilters(
+		ctx,
+		req.Namespace,
+		req.PodName,
+		req.StartTime,
+		req.EndTime,
+		page,
+		pageSize,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	pods := make([]PodStats, 0, len(gpuPods))
+	for _, pod := range gpuPods {
+		avgUtil, _ := podFacade.GetAverageGPUUtilizationByNode(ctx, pod.NodeName)
+		status := "Unknown"
+		if pod.Running {
+			status = "Running"
+		} else {
+			switch pod.Phase {
+			case "Pending":
+				status = "Pending"
+			case "Succeeded":
+				status = "Succeeded"
+			case "Failed":
+				status = "Failed"
+			}
+		}
+
+		pods = append(pods, PodStats{
+			PodUID:         pod.UID,
+			PodName:        pod.Name,
+			Namespace:      pod.Namespace,
+			NodeName:       pod.NodeName,
+			Status:         status,
+			Phase:          pod.Phase,
+			CreatedAt:      pod.CreatedAt,
+			AllocatedGPUs:  pod.GpuAllocated,
+			AvgUtilization: avgUtil,
+			Running:        pod.Running,
+			OwnerUID:       pod.OwnerUID,
+			IP:             pod.IP,
+		})
+	}
+
+	return &UnifiedPodStatsResponse{
+		Total:       int(total),
+		Page:        page,
+		Pods:        pods,
+		ClusterName: clients.ClusterName,
+	}, nil
+}
+
+// handleRealtimeStatus handles realtime status requests.
+func handleRealtimeStatus(ctx context.Context, req *RealtimeStatusRequest) (*RealtimeStatusResult, error) {
+	cm := clientsets.GetClusterManager()
+	clients, err := cm.GetClientSetByClusterName(req.Cluster)
+	if err != nil {
+		return nil, err
+	}
+
+	facade := database.GetFacadeForCluster(clients.ClusterName)
+
+	// Get GPU allocation info
+	allocations, err := gpu.GetGpuNodesAllocation(ctx, clients.K8SClientSet, clients.ClusterName, metadata.GpuVendorAMD)
+	if err != nil {
+		return nil, err
+	}
+
+	totalGPUs := 0
+	allocatedGPUs := 0
+	for _, alloc := range allocations {
+		totalGPUs += alloc.Capacity
+		allocatedGPUs += alloc.Allocated
+	}
+
+	// Get utilization
+	utilization, _ := gpu.CalculateGpuUsage(ctx, clients.StorageClientSet, metadata.GpuVendorAMD)
+
+	// Estimate utilized GPUs (>50% utilization)
+	utilizedGPUs := int(float64(allocatedGPUs) * utilization / 100)
+
+	// Get running tasks count
+	pods, _ := facade.GetPod().ListActiveGpuPods(ctx)
+
+	// Calculate available nodes (nodes with available GPU slots)
+	availableNodes := 0
+	maxContiguous := 0
+	for _, alloc := range allocations {
+		available := alloc.Capacity - alloc.Allocated
+		if available > 0 {
+			availableNodes++
+			if available > maxContiguous {
+				maxContiguous = available
+			}
+		}
+	}
+
+	return &RealtimeStatusResult{
+		Cluster:   clients.ClusterName,
+		Timestamp: time.Now(),
+		CurrentGPUUsage: RealtimeGPUUsage{
+			TotalGPUs:       totalGPUs,
+			AllocatedGPUs:   allocatedGPUs,
+			UtilizedGPUs:    utilizedGPUs,
+			AllocationRate:  float64(allocatedGPUs) / float64(totalGPUs) * 100,
+			UtilizationRate: utilization,
+		},
+		RunningTasks: len(pods),
+		AvailableResources: RealtimeAvailability{
+			AvailableGPUs:    totalGPUs - allocatedGPUs,
+			AvailableNodes:   availableNodes,
+			MaxContiguousGPU: maxContiguous,
+		},
 	}, nil
 }
