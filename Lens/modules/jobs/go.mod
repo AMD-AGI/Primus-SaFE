@@ -8,7 +8,6 @@ replace github.com/AMD-AGI/Primus-SaFE/Lens/node-exporter => ../exporters/node-e
 
 require (
 	github.com/AMD-AGI/Primus-SaFE/Lens/core v0.0.0-00010101000000-000000000000
-	github.com/AMD-AGI/Primus-SaFE/Lens/node-exporter v0.0.0-00010101000000-000000000000
 	github.com/chromedp/cdproto v0.0.0-20241022234722-4d5d5faf59fb
 	github.com/chromedp/chromedp v0.11.2
 	github.com/go-resty/resty/v2 v2.16.5

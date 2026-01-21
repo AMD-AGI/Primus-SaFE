@@ -20,6 +20,7 @@ type AlertFacadeInterface interface {
 	GetAlertEventsByID(ctx context.Context, id string) (*model.AlertEvents, error)
 	ListAlertEventss(ctx context.Context, filter *AlertEventsFilter) ([]*model.AlertEvents, int64, error)
 	UpdateAlertStatus(ctx context.Context, id string, status string, endsAt *time.Time) error
+	UpdateAlertNotificationStatus(ctx context.Context, id string, notificationStatus string) error
 	DeleteOldAlertEventss(ctx context.Context, before time.Time) error
 
 	// AlertCorrelations operations
@@ -213,6 +214,15 @@ func (f *AlertFacade) UpdateAlertStatus(ctx context.Context, id string, status s
 	}
 	if endsAt != nil {
 		updates["ends_at"] = endsAt
+	}
+	return db.Model(&model.AlertEvents{}).Where("id = ?", id).Updates(updates).Error
+}
+
+func (f *AlertFacade) UpdateAlertNotificationStatus(ctx context.Context, id string, notificationStatus string) error {
+	db := f.getDB().WithContext(ctx)
+	updates := map[string]interface{}{
+		"notification_status": notificationStatus,
+		"notified_at":         time.Now(),
 	}
 	return db.Model(&model.AlertEvents{}).Where("id = ?", id).Updates(updates).Error
 }

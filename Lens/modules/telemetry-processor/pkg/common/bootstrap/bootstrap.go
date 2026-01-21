@@ -100,12 +100,15 @@ func initRouter(group *gin.RouterGroup) error {
 	group.POST("alerts/log", alerts.ReceiveLogAlert)
 	group.POST("alerts/trace", alerts.ReceiveTraceAlert)
 	group.POST("alerts/webhook", alerts.ReceiveGenericWebhook)
+	// AlertManager compatible endpoint (VMAlert appends /api/v2/alerts to notifier URL)
+	group.POST("api/v2/alerts", alerts.ReceiveAlertManagerAlert)
 
 	// Alert query endpoints
 	group.GET("alerts", alerts.ListAlerts)
+	group.GET("alerts/summary", alerts.GetAlertSummary)
+	group.GET("alerts/statistics", alerts.GetAlertStatistics)
 	group.GET("alerts/:id", alerts.GetAlert)
 	group.GET("alerts/:id/correlations", alerts.GetAlertCorrelationsAPI)
-	group.GET("alerts/statistics", alerts.GetAlertStatistics)
 
 	// Alert rule management endpoints
 	group.POST("alert-rules", alerts.CreateAlertRule)

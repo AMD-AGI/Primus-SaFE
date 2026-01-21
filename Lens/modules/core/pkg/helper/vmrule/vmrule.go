@@ -138,13 +138,9 @@ func (m *VMRuleManager) ListVMRules(ctx context.Context) (*unstructured.Unstruct
 
 // buildVMRule builds a VMRule unstructured object from MetricAlertRules
 func (m *VMRuleManager) buildVMRule(rule *model.MetricAlertRules) (map[string]interface{}, error) {
-	// Parse groups from ExtType
+	// Parse groups from ExtJSON
 	var groups []coremodel.VMRuleGroup
-	groupsBytes, err := json.Marshal(rule.Groups)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal groups: %w", err)
-	}
-	if err := json.Unmarshal(groupsBytes, &groups); err != nil {
+	if err := rule.Groups.UnmarshalTo(&groups); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal groups: %w", err)
 	}
 

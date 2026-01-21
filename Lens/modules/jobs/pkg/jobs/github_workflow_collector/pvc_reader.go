@@ -14,8 +14,8 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
-	"github.com/AMD-AGI/Primus-SaFE/Lens/node-exporter/pkg/client"
-	"github.com/AMD-AGI/Primus-SaFE/Lens/node-exporter/pkg/types"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/nodeexporter"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/types"
 )
 
 // PVCReader reads files from Pod PVC via node-exporter
@@ -26,7 +26,7 @@ type PVCReader struct {
 	workloadFacade database.WorkloadFacadeInterface
 
 	// Client cache for node-specific clients (thread-safe)
-	clientCache sync.Map // nodeName -> *client.Client
+	clientCache sync.Map // nodeName -> *nodeexporter.Client
 }
 
 // PodInfo contains pod information needed for file access
@@ -220,10 +220,10 @@ func (r *PVCReader) ReadFiles(ctx context.Context, podInfo *PodInfo, files []*ty
 }
 
 // getOrCreateClient gets or creates a node-exporter client for a node
-func (r *PVCReader) getOrCreateClient(ctx context.Context, nodeName string) (*client.Client, error) {
+func (r *PVCReader) getOrCreateClient(ctx context.Context, nodeName string) (*nodeexporter.Client, error) {
 	// Check cache first
 	if cached, ok := r.clientCache.Load(nodeName); ok {
-		return cached.(*client.Client), nil
+		return cached.(*nodeexporter.Client), nil
 	}
 
 	// Get node-exporter client using K8s clientsets
@@ -236,7 +236,7 @@ func (r *PVCReader) getOrCreateClient(ctx context.Context, nodeName string) (*cl
 
 	// Convert to our client type
 	baseURL := nodeExporterK8sClient.GetRestyClient().BaseURL
-	nodeClient := client.NewClient(client.DefaultConfig(baseURL))
+	nodeClient := nodeexporter.NewClient(nodeexporter.DefaultConfig(baseURL))
 
 	// Cache the client
 	r.clientCache.Store(nodeName, nodeClient)

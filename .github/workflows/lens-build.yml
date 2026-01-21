@@ -20,6 +20,7 @@ jobs:
       installer_changed: ${{ steps.detect-changes.outputs.installer_changed }}
       tracelens_changed: ${{ steps.detect-changes.outputs.tracelens_changed }}
       perfetto_changed: ${{ steps.detect-changes.outputs.perfetto_changed }}
+      github_runner_changed: ${{ steps.detect-changes.outputs.github_runner_changed }}
     steps:
     - name: Checkout Repository
       uses: actions/checkout@v4
@@ -167,6 +168,13 @@ jobs:
           echo "github_runners_exporter_changed=false" >> $GITHUB_OUTPUT
         fi
         
+        # storage_exporter: Lens/modules/exporters/storage-exporter/** or Lens/modules/core/**
+        if echo "$CHANGED_FILES" | grep -qE '^Lens/modules/exporters/storage-exporter/|^Lens/modules/core/'; then
+          echo "storage_exporter_changed=true" >> $GITHUB_OUTPUT
+        else
+          echo "storage_exporter_changed=false" >> $GITHUB_OUTPUT
+        fi
+        
         # installer: Lens/bootstrap/installer/** or Lens/charts/**
         if echo "$CHANGED_FILES" | grep -qE '^Lens/bootstrap/installer/|^Lens/charts/'; then
           echo "installer_changed=true" >> $GITHUB_OUTPUT
@@ -186,6 +194,13 @@ jobs:
           echo "perfetto_changed=true" >> $GITHUB_OUTPUT
         else
           echo "perfetto_changed=false" >> $GITHUB_OUTPUT
+        fi
+        
+        # github_runner: Lens/docker/github-runner/**
+        if echo "$CHANGED_FILES" | grep -qE '^Lens/docker/github-runner/'; then
+          echo "github_runner_changed=true" >> $GITHUB_OUTPUT
+        else
+          echo "github_runner_changed=false" >> $GITHUB_OUTPUT
         fi
     
     - name: Generate matrix
@@ -233,6 +248,9 @@ jobs:
           fi
           if [[ "${{ steps.detect-changes.outputs.github_runners_exporter_changed }}" == "true" ]]; then
             MATRIX+='{"name":"github-runners-exporter","buildpath":"cmd/github-runners-exporter","basepath":"Lens/modules/exporters/github-runners-exporter/"},'
+          fi
+          if [[ "${{ steps.detect-changes.outputs.storage_exporter_changed }}" == "true" ]]; then
+            MATRIX+='{"name":"storage-exporter","buildpath":"cmd/storage-exporter","basepath":"Lens/modules/exporters/storage-exporter/"},'
           fi
           MATRIX=${MATRIX%,} # remove trailing comma
           MATRIX+=']}'
@@ -579,9 +597,96 @@ jobs:
           path: build-info/perfetto-viewer.json
           retention-days: 90
 
+  # GitHub Runner image build job
+  # Based on buildah-runner with configurable GitHub Actions Runner version
+  build-github-runner:
+    needs: detect-changes
+    runs-on: primus-safe-builder
+    timeout-minutes: 30
+    if: ${{ needs.detect-changes.outputs.github_runner_changed == 'true' }}
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Read runner version from env file
+        id: read-version
+        run: |
+          source Lens/docker/github-runner/version.env
+          echo "runner_version=${RUNNER_VERSION}" >> $GITHUB_OUTPUT
+          echo "📦 GitHub Actions Runner Version: ${RUNNER_VERSION}"
+      
+      - name: Login registries
+        run: |
+          buildah login -u "${{ secrets.DOCKER_USERNAME }}" -p "${{ secrets.DOCKER_PASSWORD }}" docker.io
+          buildah login --tls-verify=false -u "${{ secrets.HARBOR_USERNAME }}" -p "${{ secrets.HARBOR_PASSWORD }}" "${{ secrets.HARBOR_HOST }}"
+
+      - name: Build and push GitHub Runner
+        env:
+          DOCKERIO_REPOSITORY: docker.io/primussafe
+          HARBOR_REPOSITORY: ${{ secrets.HARBOR_HOST }}/primussafe
+          IMAGE_VERSION: ${{ needs.detect-changes.outputs.image_version }}
+          DATE_TIME: ${{ needs.detect-changes.outputs.date_time }}
+          RUNNER_VERSION: ${{ steps.read-version.outputs.runner_version }}
+        run: |
+          set -e
+          echo "🚧 Building buildah-runner with GitHub Actions Runner v${RUNNER_VERSION}..."
+          
+          GITHUB_RUNNER_DIR="Lens/docker/github-runner"
+          
+          # Build the image
+          buildah bud \
+            --layers \
+            --build-arg RUNNER_VERSION=${RUNNER_VERSION} \
+            -t buildah-runner:${IMAGE_VERSION} \
+            -t buildah-runner:${DATE_TIME} \
+            -t buildah-runner:v${RUNNER_VERSION} \
+            -f "${GITHUB_RUNNER_DIR}/Dockerfile" \
+            "${GITHUB_RUNNER_DIR}"
+          
+          # Push to registries
+          for repo in ${DOCKERIO_REPOSITORY} ${HARBOR_REPOSITORY}; do
+            echo "🚀 Pushing buildah-runner to $repo..."
+            buildah tag buildah-runner:${IMAGE_VERSION} ${repo}/buildah-runner:${IMAGE_VERSION}
+            buildah tag buildah-runner:${DATE_TIME} ${repo}/buildah-runner:${DATE_TIME}
+            buildah tag buildah-runner:v${RUNNER_VERSION} ${repo}/buildah-runner:v${RUNNER_VERSION}
+            buildah push --tls-verify=false ${repo}/buildah-runner:${IMAGE_VERSION}
+            buildah push --tls-verify=false ${repo}/buildah-runner:${DATE_TIME}
+            buildah push --tls-verify=false ${repo}/buildah-runner:v${RUNNER_VERSION}
+          done
+          
+          echo "✅ buildah-runner build and push completed!"
+
+      - name: Save build info
+        env:
+          IMAGE_VERSION: ${{ needs.detect-changes.outputs.image_version }}
+          DATE_TIME: ${{ needs.detect-changes.outputs.date_time }}
+          RUNNER_VERSION: ${{ steps.read-version.outputs.runner_version }}
+        run: |
+          mkdir -p build-info
+          cat > build-info/buildah-runner.json << EOF
+          {
+            "name": "buildah-runner",
+            "image_version": "${IMAGE_VERSION}",
+            "date_time": "${DATE_TIME}",
+            "runner_version": "v${RUNNER_VERSION}",
+            "docker_hub": "docker.io/primussafe/buildah-runner:${IMAGE_VERSION}",
+            "docker_hub_datetime": "docker.io/primussafe/buildah-runner:${DATE_TIME}",
+            "docker_hub_runner_version": "docker.io/primussafe/buildah-runner:v${RUNNER_VERSION}",
+            "build_time": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
+            "commit_sha": "${{ github.sha }}",
+            "ref": "${{ github.ref }}"
+          }
+          EOF
+
+      - name: Upload build info artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-info-buildah-runner
+          path: build-info/buildah-runner.json
+          retention-days: 90
+
   # Summarize all build results into a single manifest artifact
   summarize-build:
-    needs: [detect-changes, build, build-installer, build-tracelens, build-perfetto]
+    needs: [detect-changes, build, build-installer, build-tracelens, build-perfetto, build-github-runner]
     runs-on: ubuntu-latest
     if: always()
     steps:

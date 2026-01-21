@@ -216,14 +216,26 @@ func (r *EphemeralRunnerReconciler) processRunner(ctx context.Context, info *typ
 	status := r.mapPhaseToStatus(info.Phase, info.IsCompleted)
 
 	// Check if we already have a run record for this workload
-	existingRun, err := runFacade.GetByRunnerSetAndWorkload(ctx, runnerSet.ID, info.UID)
+	// Use workload_name instead of UID for uniqueness - this allows same-named runners
+	// in the same repo to be aggregated together across different runs
+	existingRun, err := runFacade.GetByRunnerSetAndWorkloadName(ctx, runnerSet.ID, info.Name)
 	if err != nil {
-		return fmt.Errorf("failed to check existing run for %s: %w", info.UID, err)
+		return fmt.Errorf("failed to check existing run for %s: %w", info.Name, err)
 	}
 
 	if existingRun != nil {
 		needsUpdate := false
 		oldStatus := existingRun.Status
+
+		// Update WorkloadUID if changed (same name but different instance)
+		if existingRun.WorkloadUID != info.UID {
+			oldUID := existingRun.WorkloadUID
+			existingRun.WorkloadUID = info.UID
+			existingRun.WorkloadStartedAt = info.CreationTimestamp.Time
+			needsUpdate = true
+			log.Infof("EphemeralRunnerReconciler: updating UID for %s (old: %s, new: %s)",
+				info.Name, oldUID, info.UID)
+		}
 
 		// Update status if changed
 		if existingRun.Status != status && r.shouldUpdateStatus(oldStatus, status) {
@@ -478,9 +490,10 @@ func (r *EphemeralRunnerReconciler) processDeletion(ctx context.Context, info *t
 	}
 
 	// Check if we have a run record for this workload
-	existingRun, err := runFacade.GetByRunnerSetAndWorkload(ctx, runnerSet.ID, info.UID)
+	// Use workload_name instead of UID for consistency with processRunner
+	existingRun, err := runFacade.GetByRunnerSetAndWorkloadName(ctx, runnerSet.ID, info.Name)
 	if err != nil {
-		return fmt.Errorf("failed to check existing run for %s: %w", info.UID, err)
+		return fmt.Errorf("failed to check existing run for %s: %w", info.Name, err)
 	}
 
 	if existingRun == nil {

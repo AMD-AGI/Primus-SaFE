@@ -67,7 +67,11 @@ func (m *MockFacade) GetGithubWorkflowMetrics() database.GithubWorkflowMetricsFa
 func (m *MockFacade) GetGithubRunnerSet() database.GithubRunnerSetFacadeInterface           { return nil }
 func (m *MockFacade) GetGithubWorkflowCommit() database.GithubWorkflowCommitFacadeInterface { return nil }
 func (m *MockFacade) GetGithubWorkflowRunDetails() database.GithubWorkflowRunDetailsFacadeInterface { return nil }
-func (m *MockFacade) WithCluster(clusterName string) database.FacadeInterface              { return m }
+func (m *MockFacade) GetDashboardSummary() database.DashboardSummaryFacadeInterface         { return nil }
+func (m *MockFacade) GetMetricBaseline() database.MetricBaselineFacadeInterface             { return nil }
+func (m *MockFacade) GetCommitImpactAnalysis() database.CommitImpactAnalysisFacadeInterface { return nil }
+func (m *MockFacade) GetNotificationChannel() database.NotificationChannelFacadeInterface   { return nil }
+func (m *MockFacade) WithCluster(clusterName string) database.FacadeInterface               { return m }
 
 // MockNamespaceInfoFacade implements database.NamespaceInfoFacadeInterface
 type MockNamespaceInfoFacade struct {

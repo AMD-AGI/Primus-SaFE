@@ -93,6 +93,7 @@ type GithubWorkflowMetricsFilter struct {
 // MetricsAdvancedQuery defines advanced query options with dimension filtering
 type MetricsAdvancedQuery struct {
 	ConfigID      int64                  // Required: config ID
+	SchemaID      int64                  // Optional: filter by schema ID
 	Start         *time.Time             // Start time filter
 	End           *time.Time             // End time filter
 	Dimensions    map[string]interface{} // JSONB dimension filters (key=value)
@@ -154,6 +155,7 @@ type MetricStat struct {
 // MetricsTrendsQuery defines query for trends data
 type MetricsTrendsQuery struct {
 	ConfigID     int64                  // Required: config ID
+	SchemaID     int64                  // Optional: filter by schema ID
 	Start        *time.Time             // Start time
 	End          *time.Time             // End time
 	Dimensions   map[string]interface{} // Filter by dimensions
@@ -348,6 +350,11 @@ func (f *GithubWorkflowMetricsFacade) DeleteByTimeRange(ctx context.Context, con
 func (f *GithubWorkflowMetricsFacade) QueryWithDimensions(ctx context.Context, query *MetricsAdvancedQuery) ([]*model.GithubWorkflowMetrics, int64, error) {
 	q := f.getDAL().GithubWorkflowMetrics
 	db := q.WithContext(ctx).Where(q.ConfigID.Eq(query.ConfigID))
+
+	// Filter by schema ID if provided
+	if query.SchemaID > 0 {
+		db = db.Where(q.SchemaID.Eq(query.SchemaID))
+	}
 
 	// Time range filter
 	if query.Start != nil {
@@ -654,6 +661,11 @@ func (f *GithubWorkflowMetricsFacade) GetMetricsTrends(ctx context.Context, quer
 	// Generate timestamp series first
 	baseQuery := db.Table("github_workflow_metrics").
 		Where("config_id = ?", query.ConfigID)
+
+	// Filter by schema ID if provided
+	if query.SchemaID > 0 {
+		baseQuery = baseQuery.Where("schema_id = ?", query.SchemaID)
+	}
 
 	if query.Start != nil {
 		baseQuery = baseQuery.Where("timestamp >= ?", *query.Start)

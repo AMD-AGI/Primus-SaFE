@@ -30,7 +30,6 @@ func newGithubWorkflowConfigs(db *gorm.DB, opts ...gen.DOOption) githubWorkflowC
 	_githubWorkflowConfigs.ID = field.NewInt64(tableName, "id")
 	_githubWorkflowConfigs.Name = field.NewString(tableName, "name")
 	_githubWorkflowConfigs.Description = field.NewString(tableName, "description")
-	_githubWorkflowConfigs.RunnerSetID = field.NewInt64(tableName, "runner_set_id")
 	_githubWorkflowConfigs.RunnerSetNamespace = field.NewString(tableName, "runner_set_namespace")
 	_githubWorkflowConfigs.RunnerSetName = field.NewString(tableName, "runner_set_name")
 	_githubWorkflowConfigs.RunnerSetUID = field.NewString(tableName, "runner_set_uid")
@@ -46,6 +45,8 @@ func newGithubWorkflowConfigs(db *gorm.DB, opts ...gen.DOOption) githubWorkflowC
 	_githubWorkflowConfigs.ClusterName = field.NewString(tableName, "cluster_name")
 	_githubWorkflowConfigs.CreatedAt = field.NewTime(tableName, "created_at")
 	_githubWorkflowConfigs.UpdatedAt = field.NewTime(tableName, "updated_at")
+	_githubWorkflowConfigs.DisplaySettings = field.NewField(tableName, "display_settings")
+	_githubWorkflowConfigs.RunnerSetID = field.NewInt64(tableName, "runner_set_id")
 
 	_githubWorkflowConfigs.fillFieldMap()
 
@@ -59,7 +60,6 @@ type githubWorkflowConfigs struct {
 	ID                       field.Int64
 	Name                     field.String
 	Description              field.String
-	RunnerSetID              field.Int64
 	RunnerSetNamespace       field.String
 	RunnerSetName            field.String
 	RunnerSetUID             field.String
@@ -75,6 +75,8 @@ type githubWorkflowConfigs struct {
 	ClusterName              field.String
 	CreatedAt                field.Time
 	UpdatedAt                field.Time
+	DisplaySettings          field.Field // JSON object for display customization: defaultChartGroupBy, showRawDataByDefault, defaultChartType
+	RunnerSetID              field.Int64
 
 	fieldMap map[string]field.Expr
 }
@@ -94,7 +96,6 @@ func (g *githubWorkflowConfigs) updateTableName(table string) *githubWorkflowCon
 	g.ID = field.NewInt64(table, "id")
 	g.Name = field.NewString(table, "name")
 	g.Description = field.NewString(table, "description")
-	g.RunnerSetID = field.NewInt64(table, "runner_set_id")
 	g.RunnerSetNamespace = field.NewString(table, "runner_set_namespace")
 	g.RunnerSetName = field.NewString(table, "runner_set_name")
 	g.RunnerSetUID = field.NewString(table, "runner_set_uid")
@@ -110,6 +111,8 @@ func (g *githubWorkflowConfigs) updateTableName(table string) *githubWorkflowCon
 	g.ClusterName = field.NewString(table, "cluster_name")
 	g.CreatedAt = field.NewTime(table, "created_at")
 	g.UpdatedAt = field.NewTime(table, "updated_at")
+	g.DisplaySettings = field.NewField(table, "display_settings")
+	g.RunnerSetID = field.NewInt64(table, "runner_set_id")
 
 	g.fillFieldMap()
 
@@ -138,11 +141,10 @@ func (g *githubWorkflowConfigs) GetFieldByName(fieldName string) (field.OrderExp
 }
 
 func (g *githubWorkflowConfigs) fillFieldMap() {
-	g.fieldMap = make(map[string]field.Expr, 19)
+	g.fieldMap = make(map[string]field.Expr, 20)
 	g.fieldMap["id"] = g.ID
 	g.fieldMap["name"] = g.Name
 	g.fieldMap["description"] = g.Description
-	g.fieldMap["runner_set_id"] = g.RunnerSetID
 	g.fieldMap["runner_set_namespace"] = g.RunnerSetNamespace
 	g.fieldMap["runner_set_name"] = g.RunnerSetName
 	g.fieldMap["runner_set_uid"] = g.RunnerSetUID
@@ -158,6 +160,8 @@ func (g *githubWorkflowConfigs) fillFieldMap() {
 	g.fieldMap["cluster_name"] = g.ClusterName
 	g.fieldMap["created_at"] = g.CreatedAt
 	g.fieldMap["updated_at"] = g.UpdatedAt
+	g.fieldMap["display_settings"] = g.DisplaySettings
+	g.fieldMap["runner_set_id"] = g.RunnerSetID
 }
 
 func (g githubWorkflowConfigs) clone(db *gorm.DB) githubWorkflowConfigs {

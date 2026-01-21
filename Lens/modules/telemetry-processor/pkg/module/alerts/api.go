@@ -523,3 +523,320 @@ func DeleteSilence(ctx *gin.Context) {
 		"message": "silence deleted successfully",
 	}))
 }
+
+// GetAlertSummary handles GET /v1/alerts/summary - get alert summary by severity with changes
+func GetAlertSummary(ctx *gin.Context) {
+	clusterName := ctx.Query("cluster")
+
+	facade := database.GetFacade().GetAlert()
+
+	// Get current counts by severity
+	now := time.Now()
+	oneHourAgo := now.Add(-time.Hour)
+
+	// Build filter for current alerts
+	currentFilter := &database.AlertEventsFilter{
+		Status: strPtr(StatusFiring),
+		Limit:  10000, // High limit to get all
+	}
+	if clusterName != "" {
+		currentFilter.ClusterName = &clusterName
+	}
+
+	alerts, _, err := facade.ListAlertEventss(ctx.Request.Context(), currentFilter)
+	if err != nil {
+		log.GlobalLogger().WithContext(ctx).Errorf("Failed to get current alerts: %v", err)
+		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, err.Error(), nil))
+		return
+	}
+
+	// Count by severity
+	currentCounts := map[string]int{
+		SeverityCritical: 0,
+		SeverityHigh:     0,
+		SeverityWarning:  0,
+		SeverityInfo:     0,
+	}
+	for _, alert := range alerts {
+		currentCounts[alert.Severity]++
+	}
+
+	// Get counts from 1 hour ago for comparison
+	historicalFilter := &database.AlertEventsFilter{
+		Status:       strPtr(StatusFiring),
+		StartsBefore: &oneHourAgo,
+		Limit:        10000,
+	}
+	if clusterName != "" {
+		historicalFilter.ClusterName = &clusterName
+	}
+
+	historicalAlerts, _, err := facade.ListAlertEventss(ctx.Request.Context(), historicalFilter)
+	if err != nil {
+		log.GlobalLogger().WithContext(ctx).Warningf("Failed to get historical alerts: %v", err)
+		// Continue with zero changes
+	}
+
+	historicalCounts := map[string]int{
+		SeverityCritical: 0,
+		SeverityHigh:     0,
+		SeverityWarning:  0,
+		SeverityInfo:     0,
+	}
+	for _, alert := range historicalAlerts {
+		historicalCounts[alert.Severity]++
+	}
+
+	ctx.JSON(http.StatusOK, rest.SuccessResp(ctx.Request.Context(), gin.H{
+		"critical": gin.H{
+			"count":  currentCounts[SeverityCritical],
+			"change": currentCounts[SeverityCritical] - historicalCounts[SeverityCritical],
+		},
+		"high": gin.H{
+			"count":  currentCounts[SeverityHigh],
+			"change": currentCounts[SeverityHigh] - historicalCounts[SeverityHigh],
+		},
+		"warning": gin.H{
+			"count":  currentCounts[SeverityWarning],
+			"change": currentCounts[SeverityWarning] - historicalCounts[SeverityWarning],
+		},
+		"info": gin.H{
+			"count":  currentCounts[SeverityInfo],
+			"change": currentCounts[SeverityInfo] - historicalCounts[SeverityInfo],
+		},
+	}))
+}
+
+// GetAlertTrend handles GET /v1/alerts/trend - get alert trend data
+func GetAlertTrend(ctx *gin.Context) {
+	clusterName := ctx.Query("cluster")
+	groupBy := ctx.DefaultQuery("group_by", "hour")
+	hoursStr := ctx.DefaultQuery("hours", "24")
+
+	hours, err := strconv.Atoi(hoursStr)
+	if err != nil || hours <= 0 {
+		hours = 24
+	}
+
+	facade := database.GetFacade().GetAlert()
+
+	now := time.Now()
+	startTime := now.Add(-time.Duration(hours) * time.Hour)
+
+	// Build filter
+	filter := &database.AlertEventsFilter{
+		StartsAfter: &startTime,
+		Limit:       10000,
+	}
+	if clusterName != "" {
+		filter.ClusterName = &clusterName
+	}
+
+	alerts, _, err := facade.ListAlertEventss(ctx.Request.Context(), filter)
+	if err != nil {
+		log.GlobalLogger().WithContext(ctx).Errorf("Failed to get alerts for trend: %v", err)
+		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, err.Error(), nil))
+		return
+	}
+
+	// Group by time interval
+	var interval time.Duration
+	if groupBy == "day" {
+		interval = 24 * time.Hour
+	} else {
+		interval = time.Hour
+	}
+
+	// Create time buckets
+	buckets := make(map[int64]*TrendPoint)
+	current := startTime.Truncate(interval)
+	for current.Before(now) {
+		buckets[current.Unix()] = &TrendPoint{
+			Timestamp: current,
+			Critical:  0,
+			High:      0,
+			Warning:   0,
+			Info:      0,
+		}
+		current = current.Add(interval)
+	}
+
+	// Fill buckets with alert counts
+	for _, alert := range alerts {
+		bucketTime := alert.StartsAt.Truncate(interval).Unix()
+		if bucket, ok := buckets[bucketTime]; ok {
+			switch alert.Severity {
+			case SeverityCritical:
+				bucket.Critical++
+			case SeverityHigh:
+				bucket.High++
+			case SeverityWarning:
+				bucket.Warning++
+			case SeverityInfo:
+				bucket.Info++
+			}
+		}
+	}
+
+	// Convert to sorted slice
+	result := make([]*TrendPoint, 0, len(buckets))
+	current = startTime.Truncate(interval)
+	for current.Before(now) {
+		if bucket, ok := buckets[current.Unix()]; ok {
+			result = append(result, bucket)
+		}
+		current = current.Add(interval)
+	}
+
+	ctx.JSON(http.StatusOK, rest.SuccessResp(ctx.Request.Context(), result))
+}
+
+// GetTopAlertSources handles GET /v1/alerts/top-sources - get top alert sources
+func GetTopAlertSources(ctx *gin.Context) {
+	clusterName := ctx.Query("cluster")
+	limitStr := ctx.DefaultQuery("limit", "10")
+	hoursStr := ctx.DefaultQuery("hours", "24")
+
+	limit, err := strconv.Atoi(limitStr)
+	if err != nil || limit <= 0 {
+		limit = 10
+	}
+
+	hours, err := strconv.Atoi(hoursStr)
+	if err != nil || hours <= 0 {
+		hours = 24
+	}
+
+	facade := database.GetFacade().GetAlert()
+
+	startTime := time.Now().Add(-time.Duration(hours) * time.Hour)
+
+	// Build filter
+	filter := &database.AlertEventsFilter{
+		StartsAfter: &startTime,
+		Limit:       10000,
+	}
+	if clusterName != "" {
+		filter.ClusterName = &clusterName
+	}
+
+	alerts, _, err := facade.ListAlertEventss(ctx.Request.Context(), filter)
+	if err != nil {
+		log.GlobalLogger().WithContext(ctx).Errorf("Failed to get alerts for top sources: %v", err)
+		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, err.Error(), nil))
+		return
+	}
+
+	// Count by alert name
+	counts := make(map[string]int)
+	for _, alert := range alerts {
+		counts[alert.AlertName]++
+	}
+
+	// Sort and get top N
+	type sourceCount struct {
+		AlertName string `json:"alert_name"`
+		Count     int    `json:"count"`
+	}
+
+	sources := make([]sourceCount, 0, len(counts))
+	for name, count := range counts {
+		sources = append(sources, sourceCount{
+			AlertName: name,
+			Count:     count,
+		})
+	}
+
+	// Sort by count descending
+	for i := 0; i < len(sources); i++ {
+		for j := i + 1; j < len(sources); j++ {
+			if sources[j].Count > sources[i].Count {
+				sources[i], sources[j] = sources[j], sources[i]
+			}
+		}
+	}
+
+	// Limit results
+	if len(sources) > limit {
+		sources = sources[:limit]
+	}
+
+	ctx.JSON(http.StatusOK, rest.SuccessResp(ctx.Request.Context(), sources))
+}
+
+// GetAlertsByCluster handles GET /v1/alerts/by-cluster - get alert counts by cluster
+func GetAlertsByCluster(ctx *gin.Context) {
+	hoursStr := ctx.DefaultQuery("hours", "24")
+
+	hours, err := strconv.Atoi(hoursStr)
+	if err != nil || hours <= 0 {
+		hours = 24
+	}
+
+	facade := database.GetFacade().GetAlert()
+
+	startTime := time.Now().Add(-time.Duration(hours) * time.Hour)
+
+	// Build filter - get all clusters
+	filter := &database.AlertEventsFilter{
+		StartsAfter: &startTime,
+		Status:      strPtr(StatusFiring),
+		Limit:       10000,
+	}
+
+	alerts, _, err := facade.ListAlertEventss(ctx.Request.Context(), filter)
+	if err != nil {
+		log.GlobalLogger().WithContext(ctx).Errorf("Failed to get alerts by cluster: %v", err)
+		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, err.Error(), nil))
+		return
+	}
+
+	// Count by cluster
+	counts := make(map[string]int)
+	for _, alert := range alerts {
+		cluster := alert.ClusterName
+		if cluster == "" {
+			cluster = "unknown"
+		}
+		counts[cluster]++
+	}
+
+	// Convert to response format
+	type clusterCount struct {
+		ClusterName string `json:"cluster_name"`
+		Count       int    `json:"count"`
+	}
+
+	result := make([]clusterCount, 0, len(counts))
+	for cluster, count := range counts {
+		result = append(result, clusterCount{
+			ClusterName: cluster,
+			Count:       count,
+		})
+	}
+
+	// Sort by count descending
+	for i := 0; i < len(result); i++ {
+		for j := i + 1; j < len(result); j++ {
+			if result[j].Count > result[i].Count {
+				result[i], result[j] = result[j], result[i]
+			}
+		}
+	}
+
+	ctx.JSON(http.StatusOK, rest.SuccessResp(ctx.Request.Context(), result))
+}
+
+// TrendPoint represents a single point in the trend data
+type TrendPoint struct {
+	Timestamp time.Time `json:"timestamp"`
+	Critical  int       `json:"critical"`
+	High      int       `json:"high"`
+	Warning   int       `json:"warning"`
+	Info      int       `json:"info"`
+}
+
+// Helper function to create string pointer
+func strPtr(s string) *string {
+	return &s
+}

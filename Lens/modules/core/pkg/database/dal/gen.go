@@ -18,8 +18,6 @@ import (
 func Use(db *gorm.DB, opts ...gen.DOOption) *Query {
 	return &Query{
 		db:                          db,
-		AiAgentRegistrations:        newAiAgentRegistrations(db, opts...),
-		AiTasks:                     newAiTasks(db, opts...),
 		AiWorkloadMetadata:          newAiWorkloadMetadata(db, opts...),
 		AlertCorrelations:           newAlertCorrelations(db, opts...),
 		AlertEvents:                 newAlertEvents(db, opts...),
@@ -39,9 +37,12 @@ func Use(db *gorm.DB, opts ...gen.DOOption) *Query {
 		FrameworkConfig:             newFrameworkConfig(db, opts...),
 		FrameworkDetectionMetrics:   newFrameworkDetectionMetrics(db, opts...),
 		GenericCache:                newGenericCache(db, opts...),
+		GithubRunnerSets:            newGithubRunnerSets(db, opts...),
+		GithubWorkflowCommits:       newGithubWorkflowCommits(db, opts...),
 		GithubWorkflowConfigs:       newGithubWorkflowConfigs(db, opts...),
 		GithubWorkflowMetricSchemas: newGithubWorkflowMetricSchemas(db, opts...),
 		GithubWorkflowMetrics:       newGithubWorkflowMetrics(db, opts...),
+		GithubWorkflowRunDetails:    newGithubWorkflowRunDetails(db, opts...),
 		GithubWorkflowRuns:          newGithubWorkflowRuns(db, opts...),
 		GpuAllocationSnapshots:      newGpuAllocationSnapshots(db, opts...),
 		GpuDevice:                   newGpuDevice(db, opts...),
@@ -53,6 +54,7 @@ func Use(db *gorm.DB, opts ...gen.DOOption) *Query {
 		JobExecutionHistory:         newJobExecutionHistory(db, opts...),
 		K8sServices:                 newK8sServices(db, opts...),
 		LabelGpuHourlyStats:         newLabelGpuHourlyStats(db, opts...),
+		LensSystemConfigs:           newLensSystemConfigs(db, opts...),
 		LogAlertRuleStatistics:      newLogAlertRuleStatistics(db, opts...),
 		LogAlertRuleTemplates:       newLogAlertRuleTemplates(db, opts...),
 		LogAlertRuleVersions:        newLogAlertRuleVersions(db, opts...),
@@ -96,8 +98,6 @@ func Use(db *gorm.DB, opts ...gen.DOOption) *Query {
 type Query struct {
 	db *gorm.DB
 
-	AiAgentRegistrations        aiAgentRegistrations
-	AiTasks                     aiTasks
 	AiWorkloadMetadata          aiWorkloadMetadata
 	AlertCorrelations           alertCorrelations
 	AlertEvents                 alertEvents
@@ -117,9 +117,12 @@ type Query struct {
 	FrameworkConfig             frameworkConfig
 	FrameworkDetectionMetrics   frameworkDetectionMetrics
 	GenericCache                genericCache
+	GithubRunnerSets            githubRunnerSets
+	GithubWorkflowCommits       githubWorkflowCommits
 	GithubWorkflowConfigs       githubWorkflowConfigs
 	GithubWorkflowMetricSchemas githubWorkflowMetricSchemas
 	GithubWorkflowMetrics       githubWorkflowMetrics
+	GithubWorkflowRunDetails    githubWorkflowRunDetails
 	GithubWorkflowRuns          githubWorkflowRuns
 	GpuAllocationSnapshots      gpuAllocationSnapshots
 	GpuDevice                   gpuDevice
@@ -131,6 +134,7 @@ type Query struct {
 	JobExecutionHistory         jobExecutionHistory
 	K8sServices                 k8sServices
 	LabelGpuHourlyStats         labelGpuHourlyStats
+	LensSystemConfigs           lensSystemConfigs
 	LogAlertRuleStatistics      logAlertRuleStatistics
 	LogAlertRuleTemplates       logAlertRuleTemplates
 	LogAlertRuleVersions        logAlertRuleVersions
@@ -175,8 +179,6 @@ func (q *Query) Available() bool { return q.db != nil }
 func (q *Query) clone(db *gorm.DB) *Query {
 	return &Query{
 		db:                          db,
-		AiAgentRegistrations:        q.AiAgentRegistrations.clone(db),
-		AiTasks:                     q.AiTasks.clone(db),
 		AiWorkloadMetadata:          q.AiWorkloadMetadata.clone(db),
 		AlertCorrelations:           q.AlertCorrelations.clone(db),
 		AlertEvents:                 q.AlertEvents.clone(db),
@@ -196,9 +198,12 @@ func (q *Query) clone(db *gorm.DB) *Query {
 		FrameworkConfig:             q.FrameworkConfig.clone(db),
 		FrameworkDetectionMetrics:   q.FrameworkDetectionMetrics.clone(db),
 		GenericCache:                q.GenericCache.clone(db),
+		GithubRunnerSets:            q.GithubRunnerSets.clone(db),
+		GithubWorkflowCommits:       q.GithubWorkflowCommits.clone(db),
 		GithubWorkflowConfigs:       q.GithubWorkflowConfigs.clone(db),
 		GithubWorkflowMetricSchemas: q.GithubWorkflowMetricSchemas.clone(db),
 		GithubWorkflowMetrics:       q.GithubWorkflowMetrics.clone(db),
+		GithubWorkflowRunDetails:    q.GithubWorkflowRunDetails.clone(db),
 		GithubWorkflowRuns:          q.GithubWorkflowRuns.clone(db),
 		GpuAllocationSnapshots:      q.GpuAllocationSnapshots.clone(db),
 		GpuDevice:                   q.GpuDevice.clone(db),
@@ -210,6 +215,7 @@ func (q *Query) clone(db *gorm.DB) *Query {
 		JobExecutionHistory:         q.JobExecutionHistory.clone(db),
 		K8sServices:                 q.K8sServices.clone(db),
 		LabelGpuHourlyStats:         q.LabelGpuHourlyStats.clone(db),
+		LensSystemConfigs:           q.LensSystemConfigs.clone(db),
 		LogAlertRuleStatistics:      q.LogAlertRuleStatistics.clone(db),
 		LogAlertRuleTemplates:       q.LogAlertRuleTemplates.clone(db),
 		LogAlertRuleVersions:        q.LogAlertRuleVersions.clone(db),
@@ -261,8 +267,6 @@ func (q *Query) WriteDB() *Query {
 func (q *Query) ReplaceDB(db *gorm.DB) *Query {
 	return &Query{
 		db:                          db,
-		AiAgentRegistrations:        q.AiAgentRegistrations.replaceDB(db),
-		AiTasks:                     q.AiTasks.replaceDB(db),
 		AiWorkloadMetadata:          q.AiWorkloadMetadata.replaceDB(db),
 		AlertCorrelations:           q.AlertCorrelations.replaceDB(db),
 		AlertEvents:                 q.AlertEvents.replaceDB(db),
@@ -282,9 +286,12 @@ func (q *Query) ReplaceDB(db *gorm.DB) *Query {
 		FrameworkConfig:             q.FrameworkConfig.replaceDB(db),
 		FrameworkDetectionMetrics:   q.FrameworkDetectionMetrics.replaceDB(db),
 		GenericCache:                q.GenericCache.replaceDB(db),
+		GithubRunnerSets:            q.GithubRunnerSets.replaceDB(db),
+		GithubWorkflowCommits:       q.GithubWorkflowCommits.replaceDB(db),
 		GithubWorkflowConfigs:       q.GithubWorkflowConfigs.replaceDB(db),
 		GithubWorkflowMetricSchemas: q.GithubWorkflowMetricSchemas.replaceDB(db),
 		GithubWorkflowMetrics:       q.GithubWorkflowMetrics.replaceDB(db),
+		GithubWorkflowRunDetails:    q.GithubWorkflowRunDetails.replaceDB(db),
 		GithubWorkflowRuns:          q.GithubWorkflowRuns.replaceDB(db),
 		GpuAllocationSnapshots:      q.GpuAllocationSnapshots.replaceDB(db),
 		GpuDevice:                   q.GpuDevice.replaceDB(db),
@@ -296,6 +303,7 @@ func (q *Query) ReplaceDB(db *gorm.DB) *Query {
 		JobExecutionHistory:         q.JobExecutionHistory.replaceDB(db),
 		K8sServices:                 q.K8sServices.replaceDB(db),
 		LabelGpuHourlyStats:         q.LabelGpuHourlyStats.replaceDB(db),
+		LensSystemConfigs:           q.LensSystemConfigs.replaceDB(db),
 		LogAlertRuleStatistics:      q.LogAlertRuleStatistics.replaceDB(db),
 		LogAlertRuleTemplates:       q.LogAlertRuleTemplates.replaceDB(db),
 		LogAlertRuleVersions:        q.LogAlertRuleVersions.replaceDB(db),
@@ -337,8 +345,6 @@ func (q *Query) ReplaceDB(db *gorm.DB) *Query {
 }
 
 type queryCtx struct {
-	AiAgentRegistrations        *aiAgentRegistrationsDo
-	AiTasks                     *aiTasksDo
 	AiWorkloadMetadata          *aiWorkloadMetadataDo
 	AlertCorrelations           *alertCorrelationsDo
 	AlertEvents                 *alertEventsDo
@@ -358,9 +364,12 @@ type queryCtx struct {
 	FrameworkConfig             *frameworkConfigDo
 	FrameworkDetectionMetrics   *frameworkDetectionMetricsDo
 	GenericCache                *genericCacheDo
+	GithubRunnerSets            *githubRunnerSetsDo
+	GithubWorkflowCommits       *githubWorkflowCommitsDo
 	GithubWorkflowConfigs       *githubWorkflowConfigsDo
 	GithubWorkflowMetricSchemas *githubWorkflowMetricSchemasDo
 	GithubWorkflowMetrics       *githubWorkflowMetricsDo
+	GithubWorkflowRunDetails    *githubWorkflowRunDetailsDo
 	GithubWorkflowRuns          *githubWorkflowRunsDo
 	GpuAllocationSnapshots      *gpuAllocationSnapshotsDo
 	GpuDevice                   *gpuDeviceDo
@@ -372,6 +381,7 @@ type queryCtx struct {
 	JobExecutionHistory         *jobExecutionHistoryDo
 	K8sServices                 *k8sServicesDo
 	LabelGpuHourlyStats         *labelGpuHourlyStatsDo
+	LensSystemConfigs           *lensSystemConfigsDo
 	LogAlertRuleStatistics      *logAlertRuleStatisticsDo
 	LogAlertRuleTemplates       *logAlertRuleTemplatesDo
 	LogAlertRuleVersions        *logAlertRuleVersionsDo
@@ -413,8 +423,6 @@ type queryCtx struct {
 
 func (q *Query) WithContext(ctx context.Context) *queryCtx {
 	return &queryCtx{
-		AiAgentRegistrations:        q.AiAgentRegistrations.WithContext(ctx),
-		AiTasks:                     q.AiTasks.WithContext(ctx),
 		AiWorkloadMetadata:          q.AiWorkloadMetadata.WithContext(ctx),
 		AlertCorrelations:           q.AlertCorrelations.WithContext(ctx),
 		AlertEvents:                 q.AlertEvents.WithContext(ctx),
@@ -434,9 +442,12 @@ func (q *Query) WithContext(ctx context.Context) *queryCtx {
 		FrameworkConfig:             q.FrameworkConfig.WithContext(ctx),
 		FrameworkDetectionMetrics:   q.FrameworkDetectionMetrics.WithContext(ctx),
 		GenericCache:                q.GenericCache.WithContext(ctx),
+		GithubRunnerSets:            q.GithubRunnerSets.WithContext(ctx),
+		GithubWorkflowCommits:       q.GithubWorkflowCommits.WithContext(ctx),
 		GithubWorkflowConfigs:       q.GithubWorkflowConfigs.WithContext(ctx),
 		GithubWorkflowMetricSchemas: q.GithubWorkflowMetricSchemas.WithContext(ctx),
 		GithubWorkflowMetrics:       q.GithubWorkflowMetrics.WithContext(ctx),
+		GithubWorkflowRunDetails:    q.GithubWorkflowRunDetails.WithContext(ctx),
 		GithubWorkflowRuns:          q.GithubWorkflowRuns.WithContext(ctx),
 		GpuAllocationSnapshots:      q.GpuAllocationSnapshots.WithContext(ctx),
 		GpuDevice:                   q.GpuDevice.WithContext(ctx),
@@ -448,6 +459,7 @@ func (q *Query) WithContext(ctx context.Context) *queryCtx {
 		JobExecutionHistory:         q.JobExecutionHistory.WithContext(ctx),
 		K8sServices:                 q.K8sServices.WithContext(ctx),
 		LabelGpuHourlyStats:         q.LabelGpuHourlyStats.WithContext(ctx),
+		LensSystemConfigs:           q.LensSystemConfigs.WithContext(ctx),
 		LogAlertRuleStatistics:      q.LogAlertRuleStatistics.WithContext(ctx),
 		LogAlertRuleTemplates:       q.LogAlertRuleTemplates.WithContext(ctx),
 		LogAlertRuleVersions:        q.LogAlertRuleVersions.WithContext(ctx),
