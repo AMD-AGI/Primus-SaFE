@@ -692,7 +692,7 @@ func (v *WorkloadValidator) validateRequiredParams(workload *v1.Workload) error 
 	}
 	if v1.GetOpsJobId(workload) == "" && !commonworkload.IsCICDScalingRunnerSet(workload) {
 		if len(workload.Spec.Images) == 0 {
-			errs = append(errs, fmt.Errorf("the image is empty"))
+			errs = append(errs, fmt.Errorf("the images are empty"))
 		} else if len(workload.Spec.Images) != len(workload.Spec.Resources) {
 			errs = append(errs, fmt.Errorf("the number of images and resources is not equal"))
 		}
