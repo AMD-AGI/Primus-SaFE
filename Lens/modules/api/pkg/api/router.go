@@ -25,17 +25,14 @@ func getUnifiedHandler(path string) gin.HandlerFunc {
 func RegisterRouter(group *gin.RouterGroup) error {
 	nodeGroup := group.Group("/nodes")
 	{
-		// Phase 2 Unified: GPU Allocation
+		// Phase 2 & 3 Unified: Node endpoints
 		nodeGroup.GET("gpuAllocation", getUnifiedHandler("/nodes/gpuAllocation"))
-		// Not yet migrated
-		nodeGroup.GET("gpuUtilization", getClusterGPUUtilization)
-		nodeGroup.GET("gpuUtilizationHistory", getGpuUsageHistory)
-		// Phase 2 Unified: Node List
+		nodeGroup.GET("gpuUtilization", getUnifiedHandler("/nodes/gpuUtilization"))
+		nodeGroup.GET("gpuUtilizationHistory", getUnifiedHandler("/nodes/gpuUtilizationHistory"))
 		nodeGroup.GET("", getUnifiedHandler("/nodes"))
-		// Node Fragmentation Analysis API - not yet migrated
+		// Not yet migrated
 		nodeGroup.GET("fragmentation-analysis", getFragmentationAnalysis)
 		nodeGroup.GET("load-balance-analysis", getLoadBalanceAnalysis)
-		// Phase 2 Unified: Node Detail & GPU Devices
 		nodeGroup.GET(":name", getUnifiedHandler("/nodes/:name"))
 		nodeGroup.GET(":name/fragmentation", getNodeFragmentation)
 		nodeGroup.GET(":name/gpuDevices", getUnifiedHandler("/nodes/:name/gpuDevices"))
@@ -47,18 +44,14 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		nodeGroup.GET(":name/workloadsHistory", getNodeWorkloadHistory)
 	}
 
-	// Pod routes - Pod REST API (not yet migrated)
+	// Pod routes - Phase 3 Unified
 	podGroup := group.Group("/pods")
 	{
-		// Query pod statistics with filtering and pagination
-		podGroup.GET("/stats", getPodStats)
-		// Get detailed information for a single pod
+		podGroup.GET("/stats", getUnifiedHandler("/pods/stats"))
+		// Not yet migrated
 		podGroup.GET("/:pod_uid", getPodDetail)
-		// Get GPU usage history for a pod
 		podGroup.GET("/:pod_uid/gpu-history", getPodGPUHistory)
-		// Get events related to a pod
 		podGroup.GET("/:pod_uid/events", getPodEvents)
-		// Compare multiple pods side-by-side
 		podGroup.GET("/comparison", comparePods)
 	}
 	// Phase 2 Unified: Cluster endpoints
@@ -68,14 +61,15 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		clusterGroup.GET("consumers", getUnifiedHandler("/clusters/consumers"))
 		clusterGroup.GET("gpuHeatmap", getUnifiedHandler("/clusters/gpuHeatmap"))
 	}
+	// Phase 3 Unified: Workload endpoints
 	workloadGroup := group.Group("/workloads")
 	{
-		workloadGroup.GET("", listWorkloads)
+		workloadGroup.GET("", getUnifiedHandler("/workloads"))
 		workloadGroup.GET("statistic", getWorkloadsStatistic)
 		workloadGroup.GET("hierarchy", getWorkloadHierarchyByKindName)
 		workloadGroup.GET("gpuUtilizationHistory", getWorkloadGpuUtilizationHistoryByKindName)
 		workloadGroup.GET(":uid/hierarchy", getWorkloadHierarchy)
-		workloadGroup.GET(":uid", getWorkloadInfo)
+		workloadGroup.GET(":uid", getUnifiedHandler("/workloads/:uid"))
 		workloadGroup.GET(":uid/metrics", getWorkloadMetrics)
 		workloadGroup.GET(":uid/trainingPerformance", GetWorkloadTrainingPerformance)
 		// Training performance new APIs
@@ -373,12 +367,11 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		sysconfigGroup.GET("/:key/history", sysconfig.GetConfigHistory)
 	}
 
-	// Real-time Status routes - Real-time cluster status monitoring
+	// Real-time Status routes - Phase 3 Unified
 	realtimeGroup := group.Group("/realtime")
 	{
-		// Get optimized real-time cluster status
-		realtimeGroup.GET("/status", getRealtimeStatus)
-		// Get currently running GPU tasks
+		realtimeGroup.GET("/status", getUnifiedHandler("/realtime/status"))
+		// Not yet migrated
 		realtimeGroup.GET("/running-tasks", getRunningTasks)
 	}
   

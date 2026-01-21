@@ -8,6 +8,8 @@ package api
 import (
 	"context"
 	"fmt"
+	"strconv"
+	"time"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
@@ -74,10 +76,33 @@ type NodeGPUDevicesRequest struct {
 
 // NodeGPUDevicesResponse represents the node GPU devices response.
 type NodeGPUDevicesResponse struct {
-	NodeName    string              `json:"node_name"`
-	ClusterName string              `json:"cluster_name"`
+	NodeName    string                `json:"node_name"`
+	ClusterName string                `json:"cluster_name"`
 	Devices     []model.GpuDeviceInfo `json:"devices"`
 }
+
+// ===== GPU Utilization =====
+
+// GPUUtilizationRequest represents the request for GPU utilization.
+type GPUUtilizationRequest struct {
+	Cluster string `json:"cluster" query:"cluster" mcp:"cluster,description=Target cluster name (optional)"`
+}
+
+// GPUUtilizationResponse is model.GPUUtilization for backward compatibility.
+type GPUUtilizationResponse = model.GPUUtilization
+
+// ===== GPU Utilization History =====
+
+// GPUUtilizationHistoryRequest represents the request for GPU utilization history.
+type GPUUtilizationHistoryRequest struct {
+	Cluster string `json:"cluster" query:"cluster" mcp:"cluster,description=Target cluster name (optional)"`
+	Start   string `json:"start" query:"start" mcp:"start,description=Start timestamp (Unix seconds),required"`
+	End     string `json:"end" query:"end" mcp:"end,description=End timestamp (Unix seconds),required"`
+	Step    string `json:"step" query:"step" mcp:"step,description=Step interval in seconds (default 60)"`
+}
+
+// GPUUtilizationHistoryResponse is model.GpuUtilizationHistory for backward compatibility.
+type GPUUtilizationHistoryResponse = model.GpuUtilizationHistory
 
 // ===== Register Node Endpoints =====
 
@@ -120,6 +145,26 @@ func init() {
 		HTTPPath:    "/nodes/:name/gpuDevices",
 		MCPToolName: "lens_node_gpu_devices",
 		Handler:     handleNodeGPUDevices,
+	})
+
+	// Register GPU utilization endpoint - replaces getClusterGPUUtilization
+	unified.Register(&unified.EndpointDef[GPUUtilizationRequest, GPUUtilizationResponse]{
+		Name:        "gpu_utilization",
+		Description: "Get current cluster GPU utilization metrics including allocation rate and average utilization percentage.",
+		HTTPMethod:  "GET",
+		HTTPPath:    "/nodes/gpuUtilization",
+		MCPToolName: "lens_gpu_utilization",
+		Handler:     handleGPUUtilization,
+	})
+
+	// Register GPU utilization history endpoint - replaces getGpuUsageHistory
+	unified.Register(&unified.EndpointDef[GPUUtilizationHistoryRequest, GPUUtilizationHistoryResponse]{
+		Name:        "gpu_utilization_history",
+		Description: "Get historical GPU utilization data over a time range. Returns allocation rate, utilization, and VRAM utilization as time series.",
+		HTTPMethod:  "GET",
+		HTTPPath:    "/nodes/gpuUtilizationHistory",
+		MCPToolName: "lens_gpu_utilization_history",
+		Handler:     handleGPUUtilizationHistory,
 	})
 }
 
@@ -274,5 +319,104 @@ func handleNodeGPUDevices(ctx context.Context, req *NodeGPUDevicesRequest) (*Nod
 		NodeName:    req.NodeName,
 		ClusterName: clients.ClusterName,
 		Devices:     deviceInfos,
+	}, nil
+}
+
+// handleGPUUtilization handles GPU utilization requests.
+// Reuses: gpu.CalculateGpuUsage, gpu.GetClusterGpuAllocationRateFromDB, cache
+func handleGPUUtilization(ctx context.Context, req *GPUUtilizationRequest) (*GPUUtilizationResponse, error) {
+	cm := clientsets.GetClusterManager()
+	clients, err := cm.GetClusterClientsOrDefault(req.Cluster)
+	if err != nil {
+		return nil, err
+	}
+
+	// Try to get from cache first
+	cacheFacade := database.GetFacadeForCluster(clients.ClusterName).GetGenericCache()
+	cacheKey := "cluster:gpu:utilization"
+
+	var result model.GPUUtilization
+	err = cacheFacade.Get(ctx, cacheKey, &result)
+	if err == nil {
+		return &result, nil
+	}
+
+	// Cache miss, fallback to real-time calculation
+	usage, err := gpu.CalculateGpuUsage(ctx, clients.StorageClientSet, metadata.GpuVendorAMD)
+	if err != nil {
+		return nil, err
+	}
+	allocationRate, err := gpu.GetClusterGpuAllocationRateFromDB(ctx, database.GetFacade().GetPod(), database.GetFacade().GetNode())
+	if err != nil {
+		return nil, err
+	}
+
+	return &model.GPUUtilization{
+		AllocationRate: allocationRate,
+		Utilization:    usage,
+	}, nil
+}
+
+// handleGPUUtilizationHistory handles GPU utilization history requests.
+// Reuses: gpu.GetHistoryGpuUsage, gpu.GetHistoryGpuAllocationRate, gpu.GetNodeGpuVramUsageHistory
+func handleGPUUtilizationHistory(ctx context.Context, req *GPUUtilizationHistoryRequest) (*GPUUtilizationHistoryResponse, error) {
+	cm := clientsets.GetClusterManager()
+	clients, err := cm.GetClusterClientsOrDefault(req.Cluster)
+	if err != nil {
+		return nil, err
+	}
+
+	startUnix, err := strconv.ParseInt(req.Start, 10, 64)
+	if err != nil {
+		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("invalid start timestamp")
+	}
+	endUnix, err := strconv.ParseInt(req.End, 10, 64)
+	if err != nil {
+		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("invalid end timestamp")
+	}
+
+	step := 60
+	if req.Step != "" {
+		step, err = strconv.Atoi(req.Step)
+		if err != nil || step <= 0 {
+			return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("invalid step value")
+		}
+	}
+
+	startTime := time.Unix(startUnix, 0)
+	endTime := time.Unix(endUnix, 0)
+
+	// Try cache for default step
+	if step == 60 {
+		cacheFacade := database.GetFacadeForCluster(clients.ClusterName).GetGenericCache()
+		cacheKey := getGpuUsageHistoryCacheKey(startTime, endTime)
+		if cacheKey != "" {
+			var result model.GpuUtilizationHistory
+			err = cacheFacade.Get(ctx, cacheKey, &result)
+			if err == nil {
+				filteredResult := filterGpuUsageHistoryByTimeRange(result, startTime, endTime)
+				return &filteredResult, nil
+			}
+		}
+	}
+
+	// Cache miss or non-standard query
+	usageHistory, err := gpu.GetHistoryGpuUsage(ctx, clients.StorageClientSet, metadata.GpuVendorAMD, startTime, endTime, step)
+	if err != nil {
+		return nil, err
+	}
+	allocationHistory, err := gpu.GetHistoryGpuAllocationRate(ctx, clients.StorageClientSet, metadata.GpuVendorAMD, startTime, endTime, step)
+	if err != nil {
+		return nil, err
+	}
+	vramHistory, err := gpu.GetNodeGpuVramUsageHistory(ctx, clients.StorageClientSet, metadata.GpuVendorAMD, startTime, endTime, step)
+	if err != nil {
+		return nil, err
+	}
+
+	return &model.GpuUtilizationHistory{
+		AllocationRate:  allocationHistory,
+		Utilization:     usageHistory,
+		VramUtilization: vramHistory,
 	}, nil
 }
