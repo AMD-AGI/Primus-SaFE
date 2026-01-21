@@ -261,11 +261,27 @@ func (h *Handler) createEvaluationOpsJob(ctx context.Context, task *dbclient.Eva
 		endpoint := fmt.Sprintf("http://%s:8080/v1", workload.WorkloadId)
 		inputs = append(inputs, v1.Parameter{Name: v1.ParameterModelEndpoint, Value: endpoint})
 		inputs = append(inputs, v1.Parameter{Name: v1.ParameterModelName, Value: workload.DisplayName})
+		// Use workload's cluster and workspace
+		if workload.Cluster != "" {
+			inputs = append(inputs, v1.Parameter{Name: v1.ParameterCluster, Value: workload.Cluster})
+		}
+		if req.WorkspaceId == "" && workload.Workspace != "" {
+			req.WorkspaceId = workload.Workspace
+		}
 	}
 
 	// Add workspace parameter
 	if req.WorkspaceId != "" {
 		inputs = append(inputs, v1.Parameter{Name: v1.ParameterWorkspace, Value: req.WorkspaceId})
+	}
+
+	// Get cluster ID from input parameters
+	var clusterId string
+	for _, input := range inputs {
+		if input.Name == v1.ParameterCluster {
+			clusterId = input.Value
+			break
+		}
 	}
 
 	// Create OpsJob CR
@@ -274,6 +290,9 @@ func (h *Handler) createEvaluationOpsJob(ctx context.Context, task *dbclient.Eva
 	opsJob.Labels = map[string]string{
 		v1.DisplayNameLabel:            req.Name,
 		dbclient.EvaluationTaskIdLabel: task.TaskId,
+	}
+	if clusterId != "" {
+		opsJob.Labels[v1.ClusterIdLabel] = clusterId
 	}
 	if userId != "" {
 		opsJob.Labels[v1.UserIdLabel] = userId

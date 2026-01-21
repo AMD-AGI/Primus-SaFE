@@ -184,9 +184,13 @@ func (r *EvaluationJobReconciler) generateEvaluationWorkload(ctx context.Context
 	benchmarksJSON := getParamValue(job.GetParameter(v1.ParameterEvalBenchmarks))
 	paramsJSON := getParamValue(job.GetParameter(v1.ParameterEvalParams))
 	workspace := getParamValue(job.GetParameter(v1.ParameterWorkspace))
+	clusterId := getParamValue(job.GetParameter(v1.ParameterCluster))
 
 	if taskId == "" {
 		taskId = job.Labels[dbclient.EvaluationTaskIdLabel]
+	}
+	if clusterId == "" {
+		clusterId = v1.GetClusterId(job)
 	}
 
 	// Build evalscope command
@@ -202,6 +206,7 @@ func (r *EvaluationJobReconciler) generateEvaluationWorkload(ctx context.Context
 		ObjectMeta: metav1.ObjectMeta{
 			Name: job.Name,
 			Labels: map[string]string{
+				v1.ClusterIdLabel:              clusterId,
 				v1.UserIdLabel:                 v1.GetUserId(job),
 				v1.OpsJobIdLabel:               job.Name,
 				v1.OpsJobTypeLabel:             string(job.Spec.Type),
