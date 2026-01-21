@@ -68,6 +68,12 @@ func (m *MockFacade) GetGithubWorkflowCommit() GithubWorkflowCommitFacadeInterfa
 func (m *MockFacade) GetGithubWorkflowRunDetails() GithubWorkflowRunDetailsFacadeInterface {
 	return nil
 }
+func (m *MockFacade) GetDashboardSummary() DashboardSummaryFacadeInterface { return nil }
+func (m *MockFacade) GetMetricBaseline() MetricBaselineFacadeInterface     { return nil }
+func (m *MockFacade) GetCommitImpactAnalysis() CommitImpactAnalysisFacadeInterface {
+	return nil
+}
+func (m *MockFacade) GetNotificationChannel() NotificationChannelFacadeInterface { return nil }
 
 func (m *MockFacade) GetGpuUsageWeeklyReport() GpuUsageWeeklyReportFacadeInterface {
 	return m.GpuUsageWeeklyReportMock

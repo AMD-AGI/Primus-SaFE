@@ -63,15 +63,15 @@ func TestNewClient(t *testing.T) {
 		client := NewClient(cfg)
 
 		assert.NotNil(t, client)
-		assert.Equal(t, cfg.BaseURL, client.baseURL)
-		assert.NotNil(t, client.client)
+		assert.Equal(t, cfg.BaseURL, client.BaseURL())
+		assert.NotNil(t, client.GetRestyClient())
 	})
 
 	t.Run("with nil config", func(t *testing.T) {
 		client := NewClient(nil)
 
 		assert.NotNil(t, client)
-		assert.Equal(t, "http://primus-lens-node-exporter:8989", client.baseURL)
+		assert.Equal(t, "http://primus-lens-node-exporter:8989", client.BaseURL())
 	})
 }
 
@@ -79,7 +79,7 @@ func TestNewClientForNode(t *testing.T) {
 	client := NewClientForNode("worker-node-1")
 
 	assert.NotNil(t, client)
-	assert.Equal(t, "http://primus-lens-node-exporter.primus-lens.svc.cluster.local:8989", client.baseURL)
+	assert.Equal(t, "http://primus-lens-node-exporter.primus-lens.svc.cluster.local:8989", client.BaseURL())
 }
 
 func TestGetRestyClient(t *testing.T) {

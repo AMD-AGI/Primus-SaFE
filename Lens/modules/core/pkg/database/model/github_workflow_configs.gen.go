@@ -15,7 +15,6 @@ type GithubWorkflowConfigs struct {
 	ID                       int64     `gorm:"column:id;primaryKey;autoIncrement:true" json:"id"`
 	Name                     string    `gorm:"column:name;not null" json:"name"`
 	Description              string    `gorm:"column:description" json:"description"`
-	RunnerSetID              int64     `gorm:"column:runner_set_id" json:"runner_set_id"`
 	RunnerSetNamespace       string    `gorm:"column:runner_set_namespace;not null" json:"runner_set_namespace"`
 	RunnerSetName            string    `gorm:"column:runner_set_name;not null" json:"runner_set_name"`
 	RunnerSetUID             string    `gorm:"column:runner_set_uid" json:"runner_set_uid"`
@@ -29,9 +28,10 @@ type GithubWorkflowConfigs struct {
 	LastProcessedWorkloadUID string    `gorm:"column:last_processed_workload_uid" json:"last_processed_workload_uid"`
 	LastCheckedAt            time.Time `gorm:"column:last_checked_at" json:"last_checked_at"`
 	ClusterName              string    `gorm:"column:cluster_name;not null" json:"cluster_name"`
-	DisplaySettings          ExtJSON   `gorm:"column:display_settings;not null;default:{}" json:"display_settings"`
 	CreatedAt                time.Time `gorm:"column:created_at;not null;default:now()" json:"created_at"`
 	UpdatedAt                time.Time `gorm:"column:updated_at;not null;default:now()" json:"updated_at"`
+	DisplaySettings          ExtType   `gorm:"column:display_settings;not null;default:{};comment:JSON object for display customization: defaultChartGroupBy, showRawDataByDefault, defaultChartType" json:"display_settings"` // JSON object for display customization: defaultChartGroupBy, showRawDataByDefault, defaultChartType
+	RunnerSetID              int64     `gorm:"column:runner_set_id" json:"runner_set_id"`
 }
 
 // TableName GithubWorkflowConfigs's table name

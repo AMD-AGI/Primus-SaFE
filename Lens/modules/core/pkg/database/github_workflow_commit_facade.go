@@ -18,6 +18,8 @@ type GithubWorkflowCommitFacadeInterface interface {
 	Upsert(ctx context.Context, commit *model.GithubWorkflowCommits) error
 	// GetByRunID gets a commit by run ID
 	GetByRunID(ctx context.Context, runID int64) (*model.GithubWorkflowCommits, error)
+	// ListByRunID lists all commits by run ID
+	ListByRunID(ctx context.Context, runID int64) ([]*model.GithubWorkflowCommits, error)
 	// GetBySHA gets a commit by SHA
 	GetBySHA(ctx context.Context, sha string) (*model.GithubWorkflowCommits, error)
 	// ListByAuthor lists commits by author email
@@ -79,6 +81,16 @@ func (f *GithubWorkflowCommitFacade) GetByRunID(ctx context.Context, runID int64
 		return nil, err
 	}
 	return &commit, nil
+}
+
+// ListByRunID lists all commits by run ID
+func (f *GithubWorkflowCommitFacade) ListByRunID(ctx context.Context, runID int64) ([]*model.GithubWorkflowCommits, error) {
+	var commits []*model.GithubWorkflowCommits
+	err := f.getDB().WithContext(ctx).Where("run_id = ?", runID).Find(&commits).Error
+	if err != nil {
+		return nil, err
+	}
+	return commits, nil
 }
 
 // GetBySHA gets a commit by SHA

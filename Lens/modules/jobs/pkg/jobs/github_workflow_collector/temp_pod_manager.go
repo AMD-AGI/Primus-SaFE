@@ -221,13 +221,8 @@ func (m *TempPodManager) buildTempPodSpec(name, namespace string, configID, runI
 				},
 			},
 			Volumes: volumeInfo.Volumes,
-			// Use minimal resources
-			// Tolerate all taints to ensure scheduling
-			Tolerations: []corev1.Toleration{
-				{
-					Operator: corev1.TolerationOpExists,
-				},
-			},
+			// Only tolerate specific taints, NOT NotReady/Unreachable nodes
+			// This ensures the pod won't be scheduled to unhealthy nodes
 		},
 	}
 }

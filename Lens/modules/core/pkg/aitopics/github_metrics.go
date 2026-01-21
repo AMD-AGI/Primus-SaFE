@@ -152,3 +152,74 @@ type ExtractionError struct {
 	Recoverable bool `json:"recoverable"`
 }
 
+// ========== github.schema.analyze ==========
+
+// SchemaAnalyzeInput is the input payload for schema analysis (without metrics extraction)
+type SchemaAnalyzeInput struct {
+	// ConfigID is the configuration ID for context
+	ConfigID int64 `json:"config_id"`
+
+	// ConfigName is the configuration name for context
+	ConfigName string `json:"config_name,omitempty"`
+
+	// Files contains the file samples to analyze (headers + few rows)
+	Files []FileContent `json:"files"`
+
+	// ExistingSchemas contains existing schema hashes for matching
+	ExistingSchemas []map[string]interface{} `json:"existing_schemas,omitempty"`
+}
+
+// SchemaAnalyzeOutput is the output payload from schema analysis
+type SchemaAnalyzeOutput struct {
+	// Success indicates if the analysis was successful
+	Success bool `json:"success"`
+
+	// Error contains the error message if Success is false
+	Error string `json:"error,omitempty"`
+
+	// Schema is the analyzed schema definition
+	Schema *AnalyzedSchema `json:"schema,omitempty"`
+
+	// SchemaHash is the computed hash of the schema (for matching)
+	SchemaHash string `json:"schema_hash"`
+
+	// SchemaMatched indicates if the schema matched an existing one
+	SchemaMatched bool `json:"schema_matched"`
+
+	// MatchedSchemaID is the ID of the matched schema (if SchemaMatched is true)
+	MatchedSchemaID *int64 `json:"matched_schema_id,omitempty"`
+}
+
+// AnalyzedSchemaColumnConfig defines the configuration for a single column
+type AnalyzedSchemaColumnConfig struct {
+	Skip        bool   `json:"skip,omitempty"`
+	Type        string `json:"type,omitempty"`        // "dimension" or "metric"
+	DataType    string `json:"data_type,omitempty"`   // "string", "int", "float", "bool"
+	MetricKey   string `json:"metric_key,omitempty"`  // For metric columns, the key name in output
+	Description string `json:"description,omitempty"`
+}
+
+// AnalyzedSchemaDateColumnConfig defines the configuration for date columns in wide tables
+type AnalyzedSchemaDateColumnConfig struct {
+	Type       string `json:"type"`        // Usually "metric"
+	MetricKey  string `json:"metric_key"`  // e.g., "value"
+	TimeSource string `json:"time_source"` // "column_name" or "column_value"
+	DataType   string `json:"data_type"`
+}
+
+// AnalyzedSchema represents a schema definition from schema analysis
+type AnalyzedSchema struct {
+	// Name is the schema name
+	Name string `json:"name"`
+
+	// New column-based format
+	Columns           map[string]AnalyzedSchemaColumnConfig `json:"columns,omitempty"`
+	DateColumnPattern string                                `json:"date_column_pattern,omitempty"`
+	DateColumnConfig  *AnalyzedSchemaDateColumnConfig       `json:"date_column_config,omitempty"`
+
+	// Legacy format (kept for backward compatibility)
+	DimensionFields []string `json:"dimension_fields,omitempty"`
+	MetricFields    []string `json:"metric_fields,omitempty"`
+	IsWideTable     bool     `json:"is_wide_table"`
+	DateColumns     []string `json:"date_columns,omitempty"`
+}

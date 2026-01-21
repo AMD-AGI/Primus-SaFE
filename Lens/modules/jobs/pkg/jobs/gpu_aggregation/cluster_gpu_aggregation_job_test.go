@@ -102,6 +102,18 @@ func (m *ClusterMockFacade) GetGithubWorkflowCommit() database.GithubWorkflowCom
 func (m *ClusterMockFacade) GetGithubWorkflowRunDetails() database.GithubWorkflowRunDetailsFacadeInterface {
 	return nil
 }
+func (m *ClusterMockFacade) GetDashboardSummary() database.DashboardSummaryFacadeInterface {
+	return nil
+}
+func (m *ClusterMockFacade) GetMetricBaseline() database.MetricBaselineFacadeInterface {
+	return nil
+}
+func (m *ClusterMockFacade) GetCommitImpactAnalysis() database.CommitImpactAnalysisFacadeInterface {
+	return nil
+}
+func (m *ClusterMockFacade) GetNotificationChannel() database.NotificationChannelFacadeInterface {
+	return nil
+}
 func (m *ClusterMockFacade) WithCluster(clusterName string) database.FacadeInterface { return m }
 
 // ClusterMockNodeFacade implements database.NodeFacadeInterface for testing

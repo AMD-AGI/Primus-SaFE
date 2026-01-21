@@ -29,6 +29,9 @@ type GithubWorkflowConfigFacadeInterface interface {
 	// GetByRunnerSet retrieves a config by runner set namespace, name, and cluster
 	GetByRunnerSet(ctx context.Context, namespace, name, clusterName string) (*model.GithubWorkflowConfigs, error)
 
+	// ListByRunnerSet lists all configs for a runner set by namespace and name
+	ListByRunnerSet(ctx context.Context, namespace, name string) ([]*model.GithubWorkflowConfigs, error)
+
 	// List lists configs with optional filtering
 	List(ctx context.Context, filter *GithubWorkflowConfigFilter) ([]*model.GithubWorkflowConfigs, int64, error)
 
@@ -145,6 +148,16 @@ func (f *GithubWorkflowConfigFacade) GetByRunnerSet(ctx context.Context, namespa
 		return nil, err
 	}
 	return result, nil
+}
+
+// ListByRunnerSet lists all configs for a runner set by namespace and name
+func (f *GithubWorkflowConfigFacade) ListByRunnerSet(ctx context.Context, namespace, name string) ([]*model.GithubWorkflowConfigs, error) {
+	q := f.getDAL().GithubWorkflowConfigs
+	return q.WithContext(ctx).
+		Where(q.RunnerSetNamespace.Eq(namespace)).
+		Where(q.RunnerSetName.Eq(name)).
+		Order(q.ID.Desc()).
+		Find()
 }
 
 // List lists configs with optional filtering

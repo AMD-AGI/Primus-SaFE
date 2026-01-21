@@ -1,0 +1,39 @@
+# Storage Exporter Configuration
+#
+# This exporter automatically discovers WekaFS StorageClasses and collects
+# storage metrics by dynamically creating STATIC PVs and collector pods.
+#
+# Uses STATIC PV (no quota) to get full filesystem capacity!
+#
+# No manual mount configuration needed - just deploy and it will:
+# 1. Scan StorageClasses for provisioner: csi.weka.io
+# 2. Group by filesystemName (one static PV per filesystem)
+# 3. Create static PV without quota (reports full FS capacity)
+# 4. Create collector pods to run df command
+# 5. Export metrics to Prometheus
+#
+# RBAC: ServiceAccount needs permissions to create PersistentVolumes
+
+httpPort: 8992
+loadK8SClient: true
+
+storage:
+  # Scrape interval for storage metrics
+  scrapeInterval: 60s
+
+controller:
+  # Namespace where PVCs and collector pods will be created
+  # Can be overridden by POD_NAMESPACE env var
+  namespace: primus-lens
+  # Image for collector pods (must have df command)
+  collectorImage: alpine:3.19
+
+# Prometheus metrics configuration
+metrics:
+  staticLabels:
+    primus_lens_cluster: default
+
+# Middleware configuration
+middleware:
+  enableLogging: true
+  enableTracing: false

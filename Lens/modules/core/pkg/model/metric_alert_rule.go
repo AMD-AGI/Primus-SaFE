@@ -106,12 +106,15 @@ type AlertRoute struct {
 }
 
 // AlertReceiver defines a receiver for alerts
+// Supports both inline configuration and reference to notification channels via channel_ids
 type AlertReceiver struct {
 	Name            string           `json:"name"`                       // Receiver name
-	WebhookConfigs  []WebhookConfig  `json:"webhook_configs,omitempty"`  // Webhook configurations
-	EmailConfigs    []EmailConfig    `json:"email_configs,omitempty"`    // Email configurations
-	SlackConfigs    []SlackConfig    `json:"slack_configs,omitempty"`    // Slack configurations
-	DingTalkConfigs []DingTalkConfig `json:"dingtalk_configs,omitempty"` // DingTalk configurations
+	ChannelIDs      []int64          `json:"channel_ids,omitempty"`      // Reference to notification_channels by ID (preferred)
+	ChannelNames    []string         `json:"channel_names,omitempty"`    // Reference to notification_channels by name
+	WebhookConfigs  []WebhookConfig  `json:"webhook_configs,omitempty"`  // Inline webhook configurations (legacy)
+	EmailConfigs    []EmailConfig    `json:"email_configs,omitempty"`    // Inline email configurations (legacy)
+	SlackConfigs    []SlackConfig    `json:"slack_configs,omitempty"`    // Inline slack configurations (legacy)
+	DingTalkConfigs []DingTalkConfig `json:"dingtalk_configs,omitempty"` // Inline dingtalk configurations (legacy)
 }
 
 // WebhookConfig defines a webhook receiver configuration

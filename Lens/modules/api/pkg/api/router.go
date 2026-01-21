@@ -67,13 +67,29 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		workloadGroup.GET(":uid/metrics/available", GetAvailableMetrics)
 		workloadGroup.GET(":uid/metrics/data", GetMetricsData)
 		workloadGroup.GET(":uid/metrics/iteration-times", GetIterationTimes)
-		// Process tree API - proxies to node-exporter for py-spy profiling
+		// Process tree API for py-spy profiling
 		workloadGroup.POST(":uid/process-tree", pyspy.GetProcessTree)
 	}
 	group.GET("workloadMetadata", getWorkloadsMetadata)
 	storageGroup := group.Group("/storage")
 	{
 		storageGroup.GET("stat", getStorageStat)
+	}
+
+	// Alert Event routes - Alert events query and analysis
+	alertsGroup := group.Group("/alerts")
+	{
+		// Summary and trend endpoints - must be defined before :id
+		alertsGroup.GET("/summary", GetAlertSummary)
+		alertsGroup.GET("/trend", GetAlertTrend)
+		alertsGroup.GET("/top-sources", GetTopAlertSources)
+		alertsGroup.GET("/by-cluster", GetAlertsByCluster)
+		// List alerts
+		alertsGroup.GET("", ListAlertEvents)
+		// Get alert by ID
+		alertsGroup.GET("/:id", GetAlertEvent)
+		// Get alert correlations
+		alertsGroup.GET("/:id/correlations", GetAlertCorrelations)
 	}
 
 	// Metric Alert Rule management routes
@@ -131,6 +147,18 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		alertRuleAdviceGroup.POST(":id/status", UpdateAdviceStatus)
 		alertRuleAdviceGroup.POST("/batch-status", BatchUpdateAdviceStatus)
 		alertRuleAdviceGroup.POST(":id/apply", ApplyAlertRuleAdvice)
+	}
+
+	// Notification Channel routes - Reusable notification channel configurations
+	notificationChannelGroup := group.Group("/notification-channels")
+	{
+		notificationChannelGroup.GET("/types", GetChannelTypes)
+		notificationChannelGroup.POST("", CreateNotificationChannel)
+		notificationChannelGroup.GET("", ListNotificationChannels)
+		notificationChannelGroup.GET(":id", GetNotificationChannel)
+		notificationChannelGroup.PUT(":id", UpdateNotificationChannel)
+		notificationChannelGroup.DELETE(":id", DeleteNotificationChannel)
+		notificationChannelGroup.POST(":id/test", TestNotificationChannel)
 	}
 
 	// GPU Aggregation routes - GPU aggregation data query
@@ -431,6 +459,13 @@ func RegisterRouter(group *gin.RouterGroup) error {
 			configsGroup.POST("/:id/runs/batch-retry", RetryFailedRuns)
 			// List completed EphemeralRunners for a config
 			configsGroup.GET("/:id/runners", ListEphemeralRunners)
+		// Dashboard APIs
+		configsGroup.GET("/:id/dashboard", GetDashboardSummary)
+		configsGroup.GET("/:id/dashboard/builds", GetDashboardRecentBuilds)
+		configsGroup.POST("/:id/dashboard/refresh", RefreshDashboardSummary)
+		// Note: Insights are now available via Chat Agent, not as a fixed API
+		// Commit analysis API
+			configsGroup.GET("/:id/commits/stats", GetCommitStats)
 		}
 		// Run management (global)
 		runsGroup := githubWorkflowMetricsGroup.Group("/runs")
@@ -439,6 +474,8 @@ func RegisterRouter(group *gin.RouterGroup) error {
 			runsGroup.GET("", ListAllGithubWorkflowRuns)
 			runsGroup.GET("/:id", GetGithubWorkflowRun)
 			runsGroup.GET("/:id/metrics", GetGithubWorkflowMetricsByRun)
+			// Run detail with commits and performance comparison
+			runsGroup.GET("/:id/detail", GetRunDetail)
 			// Retry single run
 			runsGroup.POST("/:id/retry", RetryGithubWorkflowRun)
 		}
@@ -456,8 +493,20 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		// Runner Sets - discovered AutoScalingRunnerSets
 		runnerSetsGroup := githubRunnersGroup.Group("/runner-sets")
 		{
+			// List all runner sets (with optional stats)
 			runnerSetsGroup.GET("", ListGithubRunnerSets)
+			// Get runner set by namespace/name
 			runnerSetsGroup.GET("/:namespace/:name", GetGithubRunnerSet)
+			// Get runner set by ID
+			runnerSetsGroup.GET("/by-id/:id", GetGithubRunnerSetByID)
+			// Get runs for a runner set
+			runnerSetsGroup.GET("/by-id/:id/runs", ListRunsByRunnerSet)
+			// Get config for a runner set (may return null)
+			runnerSetsGroup.GET("/by-id/:id/config", GetConfigByRunnerSet)
+			// Get statistics for a runner set
+			runnerSetsGroup.GET("/by-id/:id/stats", GetStatsByRunnerSet)
+			// Create config for a runner set
+			runnerSetsGroup.POST("/by-id/:id/config", CreateConfigForRunnerSet)
 		}
 	}
 
