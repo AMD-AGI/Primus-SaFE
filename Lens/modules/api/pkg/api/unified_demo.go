@@ -32,7 +32,7 @@ import (
 
 // ClusterHealthRequest represents the request for cluster health check.
 type ClusterHealthRequest struct {
-	Cluster string `query:"cluster" mcp:"cluster,description=Target cluster name (optional - uses default if not specified)"`
+	Cluster string `json:"cluster" query:"cluster" mcp:"cluster,description=Target cluster name (optional - uses default if not specified)"`
 }
 
 // ClusterHealthResponse represents the response for cluster health check.
@@ -48,7 +48,7 @@ type ClusterHealthResponse struct {
 
 // GPUQuickStatsRequest represents the request for quick GPU stats.
 type GPUQuickStatsRequest struct {
-	Cluster string `query:"cluster" mcp:"cluster,description=Target cluster name (optional)"`
+	Cluster string `json:"cluster" query:"cluster" mcp:"cluster,description=Target cluster name (optional)"`
 }
 
 // GPUQuickStatsResponse represents quick GPU statistics.
@@ -80,7 +80,7 @@ type EchoResponse struct {
 
 // ClusterOverviewRequest represents the request for cluster overview.
 type ClusterOverviewRequest struct {
-	Cluster string `query:"cluster" mcp:"cluster,description=Target cluster name (optional - uses default if not specified)"`
+	Cluster string `json:"cluster" query:"cluster" mcp:"cluster,description=Target cluster name (optional - uses default if not specified)"`
 }
 
 // ClusterOverviewResponse wraps the GpuClusterOverview model.
@@ -92,9 +92,9 @@ type ClusterOverviewResponse struct {
 
 // ClusterConsumersRequest represents the request for cluster consumers.
 type ClusterConsumersRequest struct {
-	Cluster  string `query:"cluster" mcp:"cluster,description=Target cluster name (optional)"`
-	PageNum  int    `query:"page_num" mcp:"page_num,description=Page number for pagination (default 1)"`
-	PageSize int    `query:"page_size" mcp:"page_size,description=Number of items per page (default 10)"`
+	Cluster  string `json:"cluster" query:"cluster" mcp:"cluster,description=Target cluster name (optional)"`
+	PageNum  int    `json:"page_num" query:"page_num" mcp:"page_num,description=Page number for pagination (default 1)"`
+	PageSize int    `json:"page_size" query:"page_size" mcp:"page_size,description=Number of items per page (default 10)"`
 }
 
 // ClusterConsumersResponse represents the cluster consumers response.
@@ -106,14 +106,14 @@ type ClusterConsumersResponse struct {
 
 // GPUNodeListRequest represents the request for GPU node list.
 type GPUNodeListRequest struct {
-	Cluster  string `query:"cluster" mcp:"cluster,description=Target cluster name (optional)"`
-	Name     string `query:"name" mcp:"name,description=Filter by node name (partial match)"`
-	GpuName  string `query:"gpu_name" mcp:"gpu_name,description=Filter by GPU model name"`
-	Status   string `query:"status" mcp:"status,description=Filter by node status (comma-separated for multiple: ready,notready)"`
-	PageNum  int    `query:"page_num" mcp:"page_num,description=Page number for pagination (default 1)"`
-	PageSize int    `query:"page_size" mcp:"page_size,description=Number of items per page (default 10)"`
-	OrderBy  string `query:"order_by" mcp:"order_by,description=Field to order by"`
-	Desc     bool   `query:"desc" mcp:"desc,description=Sort in descending order"`
+	Cluster  string `json:"cluster" query:"cluster" mcp:"cluster,description=Target cluster name (optional)"`
+	Name     string `json:"name" query:"name" mcp:"name,description=Filter by node name (partial match)"`
+	GpuName  string `json:"gpu_name" query:"gpu_name" mcp:"gpu_name,description=Filter by GPU model name"`
+	Status   string `json:"status" query:"status" mcp:"status,description=Filter by node status (comma-separated for multiple: ready,notready)"`
+	PageNum  int    `json:"page_num" query:"page_num" mcp:"page_num,description=Page number for pagination (default 1)"`
+	PageSize int    `json:"page_size" query:"page_size" mcp:"page_size,description=Number of items per page (default 10)"`
+	OrderBy  string `json:"order_by" query:"order_by" mcp:"order_by,description=Field to order by"`
+	Desc     bool   `json:"desc" query:"desc" mcp:"desc,description=Sort in descending order"`
 }
 
 // GPUNodeListResponse represents the GPU node list response.
@@ -125,7 +125,7 @@ type GPUNodeListResponse struct {
 
 // GPUAllocationRequest represents the request for GPU allocation info.
 type GPUAllocationRequest struct {
-	Cluster string `query:"cluster" mcp:"cluster,description=Target cluster name (optional - uses default if not specified)"`
+	Cluster string `json:"cluster" query:"cluster" mcp:"cluster,description=Target cluster name (optional - uses default if not specified)"`
 }
 
 // GPUAllocationResponse represents the GPU allocation response.
@@ -149,7 +149,7 @@ type GPUAllocationSummary struct {
 
 // GPUUtilizationRequest represents the request for GPU utilization.
 type GPUUtilizationRequest struct {
-	Cluster string `query:"cluster" mcp:"cluster,description=Target cluster name (optional)"`
+	Cluster string `json:"cluster" query:"cluster" mcp:"cluster,description=Target cluster name (optional)"`
 }
 
 // GPUUtilizationResponse represents GPU utilization response.
@@ -162,10 +162,10 @@ type GPUUtilizationResponse struct {
 
 // GPUUtilizationHistoryRequest represents the request for GPU utilization history.
 type GPUUtilizationHistoryRequest struct {
-	Cluster string `query:"cluster" mcp:"cluster,description=Target cluster name (optional)"`
-	Start   string `query:"start" mcp:"start,description=Start timestamp (Unix seconds),required"`
-	End     string `query:"end" mcp:"end,description=End timestamp (Unix seconds),required"`
-	Step    string `query:"step" mcp:"step,description=Step interval in seconds (default 60)"`
+	Cluster string `json:"cluster" query:"cluster" mcp:"cluster,description=Target cluster name (optional)"`
+	Start   string `json:"start" query:"start" mcp:"start,description=Start timestamp (Unix seconds),required"`
+	End     string `json:"end" query:"end" mcp:"end,description=End timestamp (Unix seconds),required"`
+	Step    string `json:"step" query:"step" mcp:"step,description=Step interval in seconds (default 60)"`
 }
 
 // GPUUtilizationHistoryResponse represents GPU utilization history.
@@ -178,8 +178,8 @@ type GPUUtilizationHistoryResponse struct {
 
 // NodeDetailRequest represents the request for node detail.
 type NodeDetailRequest struct {
-	Cluster  string `query:"cluster" mcp:"cluster,description=Target cluster name (optional)"`
-	NodeName string `param:"name" mcp:"name,description=Node name to get details for,required"`
+	Cluster  string `json:"cluster" query:"cluster" mcp:"cluster,description=Target cluster name (optional)"`
+	NodeName string `json:"name" param:"name" mcp:"name,description=Node name to get details for,required"`
 }
 
 // NodeDetailResponse represents the node detail response.
@@ -190,8 +190,8 @@ type NodeDetailResponse struct {
 
 // NodeGPUDevicesRequest represents the request for node GPU devices.
 type NodeGPUDevicesRequest struct {
-	Cluster  string `query:"cluster" mcp:"cluster,description=Target cluster name (optional)"`
-	NodeName string `param:"name" mcp:"name,description=Node name to get GPU devices for,required"`
+	Cluster  string `json:"cluster" query:"cluster" mcp:"cluster,description=Target cluster name (optional)"`
+	NodeName string `json:"name" param:"name" mcp:"name,description=Node name to get GPU devices for,required"`
 }
 
 // NodeGPUDevicesResponse represents the node GPU devices response.
@@ -203,14 +203,14 @@ type NodeGPUDevicesResponse struct {
 
 // WorkloadListRequest represents the request for workload list.
 type WorkloadListRequest struct {
-	Cluster   string `query:"cluster" mcp:"cluster,description=Target cluster name (optional)"`
-	Name      string `query:"name" mcp:"name,description=Filter by workload name (partial match)"`
-	Kind      string `query:"kind" mcp:"kind,description=Filter by workload kind (Job/PyTorchJob/etc)"`
-	Namespace string `query:"namespace" mcp:"namespace,description=Filter by namespace"`
-	Status    string `query:"status" mcp:"status,description=Filter by status (Running/Completed/Failed)"`
-	PageNum   int    `query:"page_num" mcp:"page_num,description=Page number (default 1)"`
-	PageSize  int    `query:"page_size" mcp:"page_size,description=Page size (default 10)"`
-	OrderBy   string `query:"order_by" mcp:"order_by,description=Order by field (start_at/end_at)"`
+	Cluster   string `json:"cluster" query:"cluster" mcp:"cluster,description=Target cluster name (optional)"`
+	Name      string `json:"name" query:"name" mcp:"name,description=Filter by workload name (partial match)"`
+	Kind      string `json:"kind" query:"kind" mcp:"kind,description=Filter by workload kind (Job/PyTorchJob/etc)"`
+	Namespace string `json:"namespace" query:"namespace" mcp:"namespace,description=Filter by namespace"`
+	Status    string `json:"status" query:"status" mcp:"status,description=Filter by status (Running/Completed/Failed)"`
+	PageNum   int    `json:"page_num" query:"page_num" mcp:"page_num,description=Page number (default 1)"`
+	PageSize  int    `json:"page_size" query:"page_size" mcp:"page_size,description=Page size (default 10)"`
+	OrderBy   string `json:"order_by" query:"order_by" mcp:"order_by,description=Order by field (start_at/end_at)"`
 }
 
 // WorkloadListResponse represents the workload list response.
@@ -222,8 +222,8 @@ type WorkloadListResponse struct {
 
 // WorkloadDetailRequest represents the request for workload detail.
 type WorkloadDetailRequest struct {
-	Cluster     string `query:"cluster" mcp:"cluster,description=Target cluster name (optional)"`
-	WorkloadUID string `param:"uid" mcp:"uid,description=Workload UID to get details for,required"`
+	Cluster     string `json:"cluster" query:"cluster" mcp:"cluster,description=Target cluster name (optional)"`
+	WorkloadUID string `json:"uid" param:"uid" mcp:"uid,description=Workload UID to get details for,required"`
 }
 
 // WorkloadDetailResponse represents the workload detail response.
@@ -234,13 +234,13 @@ type WorkloadDetailResponse struct {
 
 // PodStatsRequest represents the request for pod stats.
 type PodStatsRequest struct {
-	Cluster   string `query:"cluster" mcp:"cluster,description=Target cluster name,required"`
-	Namespace string `query:"namespace" mcp:"namespace,description=Filter by namespace"`
-	PodName   string `query:"pod_name" mcp:"pod_name,description=Filter by pod name (partial match)"`
-	StartTime string `query:"start_time" mcp:"start_time,description=Filter by start time (RFC3339)"`
-	EndTime   string `query:"end_time" mcp:"end_time,description=Filter by end time (RFC3339)"`
-	Page      int    `query:"page" mcp:"page,description=Page number (default 1)"`
-	PageSize  int    `query:"page_size" mcp:"page_size,description=Page size (default 20)"`
+	Cluster   string `json:"cluster" query:"cluster" mcp:"cluster,description=Target cluster name,required"`
+	Namespace string `json:"namespace" query:"namespace" mcp:"namespace,description=Filter by namespace"`
+	PodName   string `json:"pod_name" query:"pod_name" mcp:"pod_name,description=Filter by pod name (partial match)"`
+	StartTime string `json:"start_time" query:"start_time" mcp:"start_time,description=Filter by start time (RFC3339)"`
+	EndTime   string `json:"end_time" query:"end_time" mcp:"end_time,description=Filter by end time (RFC3339)"`
+	Page      int    `json:"page" query:"page" mcp:"page,description=Page number (default 1)"`
+	PageSize  int    `json:"page_size" query:"page_size" mcp:"page_size,description=Page size (default 20)"`
 }
 
 // UnifiedPodStatsResponse represents the pod stats response for unified API.
@@ -253,8 +253,8 @@ type UnifiedPodStatsResponse struct {
 
 // RealtimeStatusRequest represents the request for realtime status.
 type RealtimeStatusRequest struct {
-	Cluster string   `query:"cluster" mcp:"cluster,description=Target cluster name,required"`
-	Include []string `query:"include" mcp:"include,description=Fields to include (nodes/pods/workloads/alerts)"`
+	Cluster string   `json:"cluster" query:"cluster" mcp:"cluster,description=Target cluster name,required"`
+	Include []string `json:"include" query:"include" mcp:"include,description=Fields to include (nodes/pods/workloads/alerts)"`
 }
 
 // RealtimeStatusResult represents the realtime status response.
