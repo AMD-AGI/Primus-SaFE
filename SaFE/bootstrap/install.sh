@@ -304,14 +304,27 @@ if helm -n "$NAMESPACE" list | grep -q "^$chart_name "; then
 fi
 install_or_upgrade_helm_chart "$chart_name" "$values_yaml"
 
+sleep 10
+
+echo
+echo "========================================="
+echo "🔧 Step 5: upgrade primus-safe cr"
+echo "========================================="
+
+cd ../charts/
+values_yaml="primus-safe-cr/values.yaml"
+if [ ! -f "$src_values_yaml" ]; then
+  echo "Error: $src_values_yaml does not exist"
+  exit 1
+fi
+
 install_or_upgrade_helm_chart "primus-safe-cr" "$values_yaml"
-rm -f "$values_yaml"
 
 
 if [[ "$install_node_agent" == "y" ]]; then
   echo
   echo "========================================="
-  echo "🔧 Step 5: install primus-safe data plane"
+  echo "🔧 Step 6: install primus-safe data plane"
   echo "========================================="
 
   cd ../node-agent/charts/
@@ -333,7 +346,7 @@ fi
 
 echo
 echo "========================================="
-echo "🔧 Step 6: All completed!"
+echo "🔧 Step 7: All completed!"
 echo "========================================="
 
 cd ../../bootstrap

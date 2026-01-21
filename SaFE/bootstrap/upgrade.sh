@@ -55,6 +55,7 @@ if [[ "$ingress" == "higress" ]]; then
   echo "✅ Cluster Name: \"$sub_domain\""
 fi
 echo "✅ Image Registry: \"$proxy_image_registry\""
+echo "✅ Helm Registry: \"$helm_registry\""
 echo "✅ CD Require Approval: \"$cd_require_approval\""
 
 echo
@@ -153,12 +154,32 @@ fi
 install_or_upgrade_helm_chart "$chart_name" "$values_yaml"
 
 sleep 10
-install_or_upgrade_helm_chart "primus-safe-cr" "$values_yaml"
-rm -f "$values_yaml"
 
 echo
 echo "========================================="
-echo "🔧 Step 3: upgrade primus-safe data plane"
+echo "🔧 Step 3: upgrade primus-safe cr"
+echo "========================================="
+
+cd ../charts/
+src_values_yaml="primus-safe-cr/values.yaml"
+if [ ! -f "$src_values_yaml" ]; then
+  echo "Error: $src_values_yaml does not exist"
+  exit 1
+fi
+values_yaml="primus-safe-cr/.values.yaml"
+cp "$src_values_yaml" "${values_yaml}"
+
+if [[ -n "${helm_registry:-}" ]]; then
+  sed -i '/global:/,/^[a-z]/ s/helm_registry: .*/helm_registry: "'"$helm_registry"'"/' "$values_yaml"
+fi
+
+install_or_upgrade_helm_chart "primus-safe-cr" "$values_yaml"
+rm -f "$values_yaml"
+
+
+echo
+echo "========================================="
+echo "🔧 Step 4: upgrade primus-safe data plane"
 echo "========================================="
 
 cd ../node-agent/charts/
