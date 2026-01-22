@@ -53,15 +53,26 @@ func (j *ActionTaskExecutorJob) Run(
 
 // getClusterName returns the current cluster name
 func getClusterName() string {
-	// First try environment variable
+	// First try CLUSTER_NAME environment variable
 	if name := os.Getenv("CLUSTER_NAME"); name != "" {
+		return name
+	}
+
+	// Then try DEFAULT_CLUSTER_NAME (used by primus-lens-jobs deployment)
+	if name := os.Getenv("DEFAULT_CLUSTER_NAME"); name != "" {
 		return name
 	}
 
 	// Try to get from ClusterManager
 	cm := clientsets.GetClusterManager()
 	if cm != nil {
-		return cm.GetCurrentClusterName()
+		if name := cm.GetCurrentClusterName(); name != "" && name != "default" {
+			return name
+		}
+		// Also try default cluster name from ClusterManager
+		if name := cm.GetDefaultClusterName(); name != "" {
+			return name
+		}
 	}
 
 	// Default fallback
