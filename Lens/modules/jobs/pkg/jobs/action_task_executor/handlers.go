@@ -107,8 +107,9 @@ func HandleGetProcessTree(ctx context.Context, task *model.ActionTasks, k8sClien
 		return nil, fmt.Errorf("failed to parse node-exporter response: %w", err)
 	}
 
-	if nodeExporterResp.Meta.Code != 0 {
-		return nil, fmt.Errorf("node-exporter error: %s", nodeExporterResp.Meta.Message)
+	// Node-exporter uses code 2000 for success, 0 is also acceptable
+	if nodeExporterResp.Meta.Code != 0 && nodeExporterResp.Meta.Code != 2000 {
+		return nil, fmt.Errorf("node-exporter error (code %d): %s", nodeExporterResp.Meta.Code, nodeExporterResp.Meta.Message)
 	}
 
 	// Return the data directly (it's already in the correct format)
