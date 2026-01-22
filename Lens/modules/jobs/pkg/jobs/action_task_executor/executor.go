@@ -46,13 +46,10 @@ type ActionTaskExecutor struct {
 
 // NewActionTaskExecutor creates a new ActionTaskExecutor
 func NewActionTaskExecutor(clusterName string) *ActionTaskExecutor {
-	// Use cluster-specific facade to ensure correct database connection
-	var facade database.ActionTaskFacadeInterface
-	if clusterName != "" && clusterName != "default" {
-		facade = database.NewActionTaskFacadeForCluster(clusterName)
-	} else {
-		facade = database.NewActionTaskFacade()
-	}
+	// In data plane (jobs service), always use default facade since
+	// the database is local. The clusterName is only used to filter
+	// tasks from the action_tasks table, not for DB connection.
+	facade := database.NewActionTaskFacade()
 
 	return &ActionTaskExecutor{
 		clusterName:  clusterName,
