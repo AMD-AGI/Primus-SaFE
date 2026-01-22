@@ -12,34 +12,39 @@ const TableNameAlertRuleAdvices = "alert_rule_advices"
 
 // AlertRuleAdvices mapped from table <alert_rule_advices>
 type AlertRuleAdvices struct {
-	ID              int64     `gorm:"column:id;primaryKey;autoIncrement:true" json:"id"`
-	RuleType        string    `gorm:"column:rule_type;not null;comment:Type of alert rule: log or metric" json:"rule_type"` // Type of alert rule: log or metric
-	Name            string    `gorm:"column:name;not null" json:"name"`
-	Title           string    `gorm:"column:title;not null" json:"title"`
-	Description     string    `gorm:"column:description" json:"description"`
-	Category        string    `gorm:"column:category;not null;comment:Advice category: performance/error/resource/security/availability" json:"category"` // Advice category: performance/error/resource/security/availability
-	ClusterName     string    `gorm:"column:cluster_name;not null" json:"cluster_name"`
-	TargetResource  string    `gorm:"column:target_resource" json:"target_resource"`
-	TargetName      string    `gorm:"column:target_name" json:"target_name"`
-	RuleConfig      ExtType   `gorm:"column:rule_config;not null;comment:Complete rule configuration in JSON format" json:"rule_config"` // Complete rule configuration in JSON format
-	Severity        string    `gorm:"column:severity;default:warning" json:"severity"`
-	Priority        int32     `gorm:"column:priority;default:5" json:"priority"`
-	Reason          string    `gorm:"column:reason" json:"reason"`
-	Evidence        ExtType   `gorm:"column:evidence;comment:Supporting data, logs, metrics that justify this recommendation" json:"evidence"`        // Supporting data, logs, metrics that justify this recommendation
-	Status          string    `gorm:"column:status;default:pending;comment:Current status: pending/reviewed/accepted/rejected/applied" json:"status"` // Current status: pending/reviewed/accepted/rejected/applied
-	ReviewedBy      string    `gorm:"column:reviewed_by" json:"reviewed_by"`
-	ReviewedAt      time.Time `gorm:"column:reviewed_at" json:"reviewed_at"`
-	ReviewNotes     string    `gorm:"column:review_notes" json:"review_notes"`
-	AppliedRuleID   int64     `gorm:"column:applied_rule_id;comment:ID of the actual alert rule if this advice was applied" json:"applied_rule_id"` // ID of the actual alert rule if this advice was applied
-	AppliedAt       time.Time `gorm:"column:applied_at" json:"applied_at"`
-	InspectionID    string    `gorm:"column:inspection_id;comment:ID of the inspection run that generated this advice" json:"inspection_id"` // ID of the inspection run that generated this advice
-	InspectionTime  time.Time `gorm:"column:inspection_time;not null" json:"inspection_time"`
-	Tags            string    `gorm:"column:tags" json:"tags"`
-	ConfidenceScore float64   `gorm:"column:confidence_score;default:0.5;comment:Confidence score (0.0-1.0) indicating how certain the recommendation is" json:"confidence_score"` // Confidence score (0.0-1.0) indicating how certain the recommendation is
-	ExpiresAt       time.Time `gorm:"column:expires_at" json:"expires_at"`
-	CreatedAt       time.Time `gorm:"column:created_at;default:now()" json:"created_at"`
-	UpdatedAt       time.Time `gorm:"column:updated_at;default:now()" json:"updated_at"`
-	CreatedBy       string    `gorm:"column:created_by" json:"created_by"`
+	ID                   int64     `gorm:"column:id;primaryKey;autoIncrement:true" json:"id"`
+	RuleType             string    `gorm:"column:rule_type;not null;comment:Type of alert rule: log or metric" json:"rule_type"` // Type of alert rule: log or metric
+	Name                 string    `gorm:"column:name;not null" json:"name"`
+	Title                string    `gorm:"column:title;not null" json:"title"`
+	Description          string    `gorm:"column:description" json:"description"`
+	Category             string    `gorm:"column:category;not null;comment:Advice category: performance/error/resource/security/availability" json:"category"` // Advice category: performance/error/resource/security/availability
+	ClusterName          string    `gorm:"column:cluster_name;not null" json:"cluster_name"`
+	TargetResource       string    `gorm:"column:target_resource" json:"target_resource"`
+	TargetName           string    `gorm:"column:target_name" json:"target_name"`
+	RuleConfig           ExtType   `gorm:"column:rule_config;not null;comment:Complete rule configuration in JSON format" json:"rule_config"` // Complete rule configuration in JSON format
+	Severity             string    `gorm:"column:severity;default:warning" json:"severity"`
+	Priority             int32     `gorm:"column:priority;default:5" json:"priority"`
+	Reason               string    `gorm:"column:reason" json:"reason"`
+	Evidence             ExtType   `gorm:"column:evidence;comment:Supporting data, logs, metrics that justify this recommendation" json:"evidence"`        // Supporting data, logs, metrics that justify this recommendation
+	Status               string    `gorm:"column:status;default:pending;comment:Current status: pending/reviewed/accepted/rejected/applied" json:"status"` // Current status: pending/reviewed/accepted/rejected/applied
+	ReviewedBy           string    `gorm:"column:reviewed_by" json:"reviewed_by"`
+	ReviewedAt           time.Time `gorm:"column:reviewed_at" json:"reviewed_at"`
+	ReviewNotes          string    `gorm:"column:review_notes" json:"review_notes"`
+	AppliedRuleID        int64     `gorm:"column:applied_rule_id;comment:ID of the actual alert rule if this advice was applied" json:"applied_rule_id"` // ID of the actual alert rule if this advice was applied
+	AppliedAt            time.Time `gorm:"column:applied_at" json:"applied_at"`
+	InspectionID         string    `gorm:"column:inspection_id;comment:ID of the inspection run that generated this advice" json:"inspection_id"` // ID of the inspection run that generated this advice
+	InspectionTime       time.Time `gorm:"column:inspection_time;not null" json:"inspection_time"`
+	Tags                 string    `gorm:"column:tags" json:"tags"`
+	ConfidenceScore      float64   `gorm:"column:confidence_score;default:0.5;comment:Confidence score (0.0-1.0) indicating how certain the recommendation is" json:"confidence_score"` // Confidence score (0.0-1.0) indicating how certain the recommendation is
+	ExpiresAt            time.Time `gorm:"column:expires_at" json:"expires_at"`
+	CreatedAt            time.Time `gorm:"column:created_at;default:now()" json:"created_at"`
+	UpdatedAt            time.Time `gorm:"column:updated_at;default:now()" json:"updated_at"`
+	CreatedBy            string    `gorm:"column:created_by" json:"created_by"`
+	ComponentID          string    `gorm:"column:component_id" json:"component_id"`
+	SuggestionCategory   string    `gorm:"column:suggestion_category" json:"suggestion_category"`
+	ScanID               string    `gorm:"column:scan_id" json:"scan_id"`
+	AiModel              string    `gorm:"column:ai_model" json:"ai_model"`
+	GenerationPromptHash string    `gorm:"column:generation_prompt_hash" json:"generation_prompt_hash"`
 }
 
 // TableName AlertRuleAdvices's table name

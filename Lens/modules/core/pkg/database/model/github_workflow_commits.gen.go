@@ -13,8 +13,8 @@ const TableNameGithubWorkflowCommits = "github_workflow_commits"
 // GithubWorkflowCommits mapped from table <github_workflow_commits>
 type GithubWorkflowCommits struct {
 	ID             int64     `gorm:"column:id;primaryKey;autoIncrement:true" json:"id"`
-	RunID          int64     `gorm:"column:run_id;not null" json:"run_id"`
-	Sha            string    `gorm:"column:sha;not null" json:"sha"`
+	RunID          int64     `gorm:"column:run_id;not null;comment:Reference to github_workflow_runs.id" json:"run_id"` // Reference to github_workflow_runs.id
+	Sha            string    `gorm:"column:sha;not null;comment:Git commit SHA" json:"sha"`                             // Git commit SHA
 	Message        string    `gorm:"column:message" json:"message"`
 	AuthorName     string    `gorm:"column:author_name" json:"author_name"`
 	AuthorEmail    string    `gorm:"column:author_email" json:"author_email"`
@@ -25,8 +25,8 @@ type GithubWorkflowCommits struct {
 	Additions      int32     `gorm:"column:additions;not null" json:"additions"`
 	Deletions      int32     `gorm:"column:deletions;not null" json:"deletions"`
 	FilesChanged   int32     `gorm:"column:files_changed;not null" json:"files_changed"`
-	ParentShas     ExtJSON   `gorm:"column:parent_shas;not null;default:[]" json:"parent_shas"`
-	Files          ExtType   `gorm:"column:files" json:"files"`
+	ParentShas     ExtJSON   `gorm:"column:parent_shas;not null;default:[];comment:JSON array of parent commit SHAs" json:"parent_shas"` // JSON array of parent commit SHAs
+	Files          ExtType   `gorm:"column:files;comment:JSON array of changed files with status, additions, deletions" json:"files"`    // JSON array of changed files with status, additions, deletions
 	HTMLURL        string    `gorm:"column:html_url" json:"html_url"`
 	CreatedAt      time.Time `gorm:"column:created_at;not null;default:now()" json:"created_at"`
 }

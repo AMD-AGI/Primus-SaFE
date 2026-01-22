@@ -13,17 +13,17 @@ const TableNameGithubRunnerSets = "github_runner_sets"
 // GithubRunnerSets mapped from table <github_runner_sets>
 type GithubRunnerSets struct {
 	ID                 int64     `gorm:"column:id;primaryKey;autoIncrement:true" json:"id"`
-	UID                string    `gorm:"column:uid;not null" json:"uid"`
+	UID                string    `gorm:"column:uid;not null;comment:Kubernetes UID of the AutoScalingRunnerSet" json:"uid"` // Kubernetes UID of the AutoScalingRunnerSet
 	Name               string    `gorm:"column:name;not null" json:"name"`
 	Namespace          string    `gorm:"column:namespace;not null" json:"namespace"`
-	GithubConfigURL    string    `gorm:"column:github_config_url" json:"github_config_url"`
-	GithubConfigSecret string    `gorm:"column:github_config_secret" json:"github_config_secret"`
+	GithubConfigURL    string    `gorm:"column:github_config_url;comment:GitHub config URL from ARS spec" json:"github_config_url"`                  // GitHub config URL from ARS spec
+	GithubConfigSecret string    `gorm:"column:github_config_secret;comment:Name of the secret containing GitHub token" json:"github_config_secret"` // Name of the secret containing GitHub token
 	RunnerGroup        string    `gorm:"column:runner_group" json:"runner_group"`
 	GithubOwner        string    `gorm:"column:github_owner" json:"github_owner"`
 	GithubRepo         string    `gorm:"column:github_repo" json:"github_repo"`
 	MinRunners         int32     `gorm:"column:min_runners;not null" json:"min_runners"`
 	MaxRunners         int32     `gorm:"column:max_runners;not null" json:"max_runners"`
-	Status             string    `gorm:"column:status;not null;default:active" json:"status"`
+	Status             string    `gorm:"column:status;not null;default:active;comment:Status: active, inactive, deleted" json:"status"` // Status: active, inactive, deleted
 	CurrentRunners     int32     `gorm:"column:current_runners;not null" json:"current_runners"`
 	DesiredRunners     int32     `gorm:"column:desired_runners;not null" json:"desired_runners"`
 	LastSyncAt         time.Time `gorm:"column:last_sync_at" json:"last_sync_at"`

@@ -13,15 +13,15 @@ const TableNameGithubWorkflowRunDetails = "github_workflow_run_details"
 // GithubWorkflowRunDetails mapped from table <github_workflow_run_details>
 type GithubWorkflowRunDetails struct {
 	ID                     int64     `gorm:"column:id;primaryKey;autoIncrement:true" json:"id"`
-	RunID                  int64     `gorm:"column:run_id;not null" json:"run_id"`
+	RunID                  int64     `gorm:"column:run_id;not null;comment:Reference to github_workflow_runs.id" json:"run_id"` // Reference to github_workflow_runs.id
 	GithubRunID            int64     `gorm:"column:github_run_id;not null" json:"github_run_id"`
 	GithubRunNumber        int32     `gorm:"column:github_run_number" json:"github_run_number"`
 	GithubRunAttempt       int32     `gorm:"column:github_run_attempt;default:1" json:"github_run_attempt"`
 	WorkflowID             int64     `gorm:"column:workflow_id" json:"workflow_id"`
 	WorkflowName           string    `gorm:"column:workflow_name" json:"workflow_name"`
 	WorkflowPath           string    `gorm:"column:workflow_path" json:"workflow_path"`
-	Status                 string    `gorm:"column:status" json:"status"`
-	Conclusion             string    `gorm:"column:conclusion" json:"conclusion"`
+	Status                 string    `gorm:"column:status;comment:GitHub status: queued, in_progress, completed" json:"status"`                                               // GitHub status: queued, in_progress, completed
+	Conclusion             string    `gorm:"column:conclusion;comment:GitHub conclusion: success, failure, cancelled, skipped, timed_out, action_required" json:"conclusion"` // GitHub conclusion: success, failure, cancelled, skipped, timed_out, action_required
 	HTMLURL                string    `gorm:"column:html_url" json:"html_url"`
 	JobsURL                string    `gorm:"column:jobs_url" json:"jobs_url"`
 	LogsURL                string    `gorm:"column:logs_url" json:"logs_url"`
@@ -31,7 +31,7 @@ type GithubWorkflowRunDetails struct {
 	RunStartedAt           time.Time `gorm:"column:run_started_at" json:"run_started_at"`
 	RunCompletedAt         time.Time `gorm:"column:run_completed_at" json:"run_completed_at"`
 	DurationSeconds        int32     `gorm:"column:duration_seconds" json:"duration_seconds"`
-	Event                  string    `gorm:"column:event" json:"event"`
+	Event                  string    `gorm:"column:event;comment:Trigger event: push, pull_request, schedule, workflow_dispatch" json:"event"` // Trigger event: push, pull_request, schedule, workflow_dispatch
 	TriggerActor           string    `gorm:"column:trigger_actor" json:"trigger_actor"`
 	TriggerActorID         int64     `gorm:"column:trigger_actor_id" json:"trigger_actor_id"`
 	HeadSha                string    `gorm:"column:head_sha" json:"head_sha"`
@@ -42,7 +42,7 @@ type GithubWorkflowRunDetails struct {
 	PullRequestNumber      int32     `gorm:"column:pull_request_number" json:"pull_request_number"`
 	PullRequestTitle       string    `gorm:"column:pull_request_title" json:"pull_request_title"`
 	PullRequestURL         string    `gorm:"column:pull_request_url" json:"pull_request_url"`
-	Jobs                   ExtType   `gorm:"column:jobs" json:"jobs"`
+	Jobs                   ExtType   `gorm:"column:jobs;comment:JSON array of job details with id, name, status, conclusion, started_at, completed_at" json:"jobs"` // JSON array of job details with id, name, status, conclusion, started_at, completed_at
 	CreatedAt              time.Time `gorm:"column:created_at;not null;default:now()" json:"created_at"`
 }
 

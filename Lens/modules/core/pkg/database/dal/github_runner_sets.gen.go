@@ -55,17 +55,17 @@ type githubRunnerSets struct {
 
 	ALL                field.Asterisk
 	ID                 field.Int64
-	UID                field.String
+	UID                field.String // Kubernetes UID of the AutoScalingRunnerSet
 	Name               field.String
 	Namespace          field.String
-	GithubConfigURL    field.String
-	GithubConfigSecret field.String
+	GithubConfigURL    field.String // GitHub config URL from ARS spec
+	GithubConfigSecret field.String // Name of the secret containing GitHub token
 	RunnerGroup        field.String
 	GithubOwner        field.String
 	GithubRepo         field.String
 	MinRunners         field.Int32
 	MaxRunners         field.Int32
-	Status             field.String
+	Status             field.String // Status: active, inactive, deleted
 	CurrentRunners     field.Int32
 	DesiredRunners     field.Int32
 	LastSyncAt         field.Time

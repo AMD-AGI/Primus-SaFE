@@ -45,8 +45,8 @@ func newGithubWorkflowConfigs(db *gorm.DB, opts ...gen.DOOption) githubWorkflowC
 	_githubWorkflowConfigs.ClusterName = field.NewString(tableName, "cluster_name")
 	_githubWorkflowConfigs.CreatedAt = field.NewTime(tableName, "created_at")
 	_githubWorkflowConfigs.UpdatedAt = field.NewTime(tableName, "updated_at")
-	_githubWorkflowConfigs.DisplaySettings = field.NewField(tableName, "display_settings")
 	_githubWorkflowConfigs.RunnerSetID = field.NewInt64(tableName, "runner_set_id")
+	_githubWorkflowConfigs.DisplaySettings = field.NewField(tableName, "display_settings")
 
 	_githubWorkflowConfigs.fillFieldMap()
 
@@ -60,23 +60,23 @@ type githubWorkflowConfigs struct {
 	ID                       field.Int64
 	Name                     field.String
 	Description              field.String
-	RunnerSetNamespace       field.String
-	RunnerSetName            field.String
-	RunnerSetUID             field.String
-	GithubOwner              field.String
-	GithubRepo               field.String
-	WorkflowFilter           field.String
-	BranchFilter             field.String
-	FilePatterns             field.Field
-	MetricSchemaID           field.Int64
+	RunnerSetNamespace       field.String // Namespace of the AutoscalingRunnerSet
+	RunnerSetName            field.String // Name of the AutoscalingRunnerSet
+	RunnerSetUID             field.String // UID of the AutoscalingRunnerSet (optional, for precise matching)
+	GithubOwner              field.String // GitHub repository owner
+	GithubRepo               field.String // GitHub repository name
+	WorkflowFilter           field.String // Optional workflow filename filter (e.g., benchmark.yml)
+	BranchFilter             field.String // Optional branch filter (e.g., main)
+	FilePatterns             field.Field  // JSON array of file path patterns (glob) to collect
+	MetricSchemaID           field.Int64  // Associated schema ID (populated after AI generates)
 	Enabled                  field.Bool
-	LastProcessedWorkloadUID field.String
+	LastProcessedWorkloadUID field.String // UID of last processed EphemeralRunner
 	LastCheckedAt            field.Time
 	ClusterName              field.String
 	CreatedAt                field.Time
 	UpdatedAt                field.Time
+	RunnerSetID              field.Int64 // Direct reference to github_runner_sets.id
 	DisplaySettings          field.Field // JSON object for display customization: defaultChartGroupBy, showRawDataByDefault, defaultChartType
-	RunnerSetID              field.Int64
 
 	fieldMap map[string]field.Expr
 }
@@ -111,8 +111,8 @@ func (g *githubWorkflowConfigs) updateTableName(table string) *githubWorkflowCon
 	g.ClusterName = field.NewString(table, "cluster_name")
 	g.CreatedAt = field.NewTime(table, "created_at")
 	g.UpdatedAt = field.NewTime(table, "updated_at")
-	g.DisplaySettings = field.NewField(table, "display_settings")
 	g.RunnerSetID = field.NewInt64(table, "runner_set_id")
+	g.DisplaySettings = field.NewField(table, "display_settings")
 
 	g.fillFieldMap()
 
@@ -160,8 +160,8 @@ func (g *githubWorkflowConfigs) fillFieldMap() {
 	g.fieldMap["cluster_name"] = g.ClusterName
 	g.fieldMap["created_at"] = g.CreatedAt
 	g.fieldMap["updated_at"] = g.UpdatedAt
-	g.fieldMap["display_settings"] = g.DisplaySettings
 	g.fieldMap["runner_set_id"] = g.RunnerSetID
+	g.fieldMap["display_settings"] = g.DisplaySettings
 }
 
 func (g githubWorkflowConfigs) clone(db *gorm.DB) githubWorkflowConfigs {
