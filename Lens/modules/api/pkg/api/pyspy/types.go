@@ -98,8 +98,10 @@ type TaskStatusResponse struct {
 
 // ProcessTreeRequest represents a request to get process tree for a pod
 type ProcessTreeRequest struct {
-	PodUID  string `json:"pod_uid" binding:"required"`
-	Cluster string `json:"cluster"` // Target cluster (optional for multi-cluster)
+	PodUID       string `json:"pod_uid" binding:"required"`
+	PodName      string `json:"pod_name"`      // Optional: pod name for faster lookup
+	PodNamespace string `json:"pod_namespace"` // Optional: pod namespace for faster lookup
+	Cluster      string `json:"cluster"`       // Target cluster (optional for multi-cluster)
 
 	// Options
 	IncludeEnv       bool `json:"include_env"`
