@@ -198,8 +198,8 @@ func (s *DashboardService) getCodeChangesSummary(
 	// Aggregate contributor stats
 	contributorMap := make(map[string]*ContributorInfo)
 	for _, commit := range commits {
-		codeChanges.Additions += commit.Additions
-		codeChanges.Deletions += commit.Deletions
+		codeChanges.Additions += int(commit.Additions)
+		codeChanges.Deletions += int(commit.Deletions)
 
 		key := commit.AuthorEmail
 		if key == "" {
@@ -208,15 +208,15 @@ func (s *DashboardService) getCodeChangesSummary(
 
 		if existing, ok := contributorMap[key]; ok {
 			existing.Commits++
-			existing.Additions += commit.Additions
-			existing.Deletions += commit.Deletions
+			existing.Additions += int(commit.Additions)
+			existing.Deletions += int(commit.Deletions)
 		} else {
 			contributorMap[key] = &ContributorInfo{
 				Author:    commit.AuthorName,
 				Email:     commit.AuthorEmail,
 				Commits:   1,
-				Additions: commit.Additions,
-				Deletions: commit.Deletions,
+				Additions: int(commit.Additions),
+				Deletions: int(commit.Deletions),
 			}
 		}
 	}

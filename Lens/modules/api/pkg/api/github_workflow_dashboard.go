@@ -365,16 +365,17 @@ func GetRunDetail(ctx *gin.Context) {
 
 	if commit != nil {
 		commitInfo := gin.H{
-			"sha":          commit.SHA,
+			"sha":          commit.Sha,
 			"message":      commit.Message,
 			"author":       commit.AuthorName,
 			"committed_at": commit.CommitterDate,
 			"additions":    commit.Additions,
 			"deletions":    commit.Deletions,
 		}
-		var files []string
-		if err := commit.Files.UnmarshalTo(&files); err == nil {
-			commitInfo["files"] = files
+		if commit.Files != nil {
+			if filesData, ok := commit.Files["files"]; ok {
+				commitInfo["files"] = filesData
+			}
 		}
 		response["commits"] = []gin.H{commitInfo}
 	}
@@ -627,16 +628,16 @@ func generateBasicDashboardSummary(ctx *gin.Context, clusterName string, config 
 		response.CodeChanges = &CodeChangesInfo{
 			CommitCount:      1,
 			ContributorCount: 1,
-			Additions:        commit.Additions,
-			Deletions:        commit.Deletions,
+			Additions:        int(commit.Additions),
+			Deletions:        int(commit.Deletions),
 		}
 		response.Contributors = []ContributorInfo{
 			{
 				Author:    commit.AuthorName,
 				Email:     commit.AuthorEmail,
 				Commits:   1,
-				Additions: commit.Additions,
-				Deletions: commit.Deletions,
+				Additions: int(commit.Additions),
+				Deletions: int(commit.Deletions),
 			},
 		}
 	} else {
