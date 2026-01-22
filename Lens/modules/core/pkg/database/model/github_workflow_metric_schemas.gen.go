@@ -27,14 +27,13 @@ type GithubWorkflowMetricSchemas struct {
 	SchemaHash           string    `gorm:"column:schema_hash;not null" json:"schema_hash"`
 	IsWideTable          bool      `gorm:"column:is_wide_table;not null" json:"is_wide_table"`
 	DateColumns          ExtJSON   `gorm:"column:date_columns;not null;default:[]" json:"date_columns"`
-	TimeField            string    `gorm:"column:time_field" json:"time_field"` // Field name that represents time (for wide tables, auto-set to date column)
 	RecordCount          int64     `gorm:"column:record_count;not null" json:"record_count"`
 	FirstSeenAt          time.Time `gorm:"column:first_seen_at" json:"first_seen_at"`
 	LastSeenAt           time.Time `gorm:"column:last_seen_at" json:"last_seen_at"`
-	// New column-based schema fields
-	Columns           ExtJSON `gorm:"column:columns" json:"columns"`                       // Column name to config mapping
-	DateColumnPattern string  `gorm:"column:date_column_pattern" json:"date_column_pattern"` // Regex pattern to match date columns
-	DateColumnConfig  ExtJSON `gorm:"column:date_column_config" json:"date_column_config"`   // Config for date columns
+	TimeField            string    `gorm:"column:time_field;default:NULL" json:"time_field"`
+	ColumnDefinitions    ExtType   `gorm:"column:column_definitions" json:"column_definitions"`
+	DateColumnPattern    string    `gorm:"column:date_column_pattern" json:"date_column_pattern"`
+	DateColumnConfig     ExtType   `gorm:"column:date_column_config" json:"date_column_config"`
 }
 
 // TableName GithubWorkflowMetricSchemas's table name

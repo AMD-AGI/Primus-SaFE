@@ -16,7 +16,7 @@ type MetricAlertRules struct {
 	Name            string    `gorm:"column:name;not null" json:"name"`
 	ClusterName     string    `gorm:"column:cluster_name;not null" json:"cluster_name"`
 	Enabled         bool      `gorm:"column:enabled;default:true" json:"enabled"`
-	Groups          ExtJSON   `gorm:"column:groups;not null;comment:Array of VMRule groups containing alert rules" json:"groups"` // Array of VMRule groups containing alert rules
+	Groups          ExtJSON   `gorm:"column:groups;not null;default:[];comment:Array of VMRule groups containing alert rules" json:"groups"` // Array of VMRule groups containing alert rules
 	Description     string    `gorm:"column:description" json:"description"`
 	Labels          ExtType   `gorm:"column:labels" json:"labels"`
 	SyncStatus      string    `gorm:"column:sync_status;default:pending;comment:Sync status: pending/synced/failed" json:"sync_status"` // Sync status: pending/synced/failed

@@ -45,6 +45,10 @@ func newGithubWorkflowMetricSchemas(db *gorm.DB, opts ...gen.DOOption) githubWor
 	_githubWorkflowMetricSchemas.RecordCount = field.NewInt64(tableName, "record_count")
 	_githubWorkflowMetricSchemas.FirstSeenAt = field.NewTime(tableName, "first_seen_at")
 	_githubWorkflowMetricSchemas.LastSeenAt = field.NewTime(tableName, "last_seen_at")
+	_githubWorkflowMetricSchemas.TimeField = field.NewString(tableName, "time_field")
+	_githubWorkflowMetricSchemas.ColumnDefinitions = field.NewField(tableName, "column_definitions")
+	_githubWorkflowMetricSchemas.DateColumnPattern = field.NewString(tableName, "date_column_pattern")
+	_githubWorkflowMetricSchemas.DateColumnConfig = field.NewField(tableName, "date_column_config")
 
 	_githubWorkflowMetricSchemas.fillFieldMap()
 
@@ -73,6 +77,10 @@ type githubWorkflowMetricSchemas struct {
 	RecordCount          field.Int64
 	FirstSeenAt          field.Time
 	LastSeenAt           field.Time
+	TimeField            field.String
+	ColumnDefinitions    field.Field
+	DateColumnPattern    field.String
+	DateColumnConfig     field.Field
 
 	fieldMap map[string]field.Expr
 }
@@ -107,6 +115,10 @@ func (g *githubWorkflowMetricSchemas) updateTableName(table string) *githubWorkf
 	g.RecordCount = field.NewInt64(table, "record_count")
 	g.FirstSeenAt = field.NewTime(table, "first_seen_at")
 	g.LastSeenAt = field.NewTime(table, "last_seen_at")
+	g.TimeField = field.NewString(table, "time_field")
+	g.ColumnDefinitions = field.NewField(table, "column_definitions")
+	g.DateColumnPattern = field.NewString(table, "date_column_pattern")
+	g.DateColumnConfig = field.NewField(table, "date_column_config")
 
 	g.fillFieldMap()
 
@@ -137,7 +149,7 @@ func (g *githubWorkflowMetricSchemas) GetFieldByName(fieldName string) (field.Or
 }
 
 func (g *githubWorkflowMetricSchemas) fillFieldMap() {
-	g.fieldMap = make(map[string]field.Expr, 18)
+	g.fieldMap = make(map[string]field.Expr, 22)
 	g.fieldMap["id"] = g.ID
 	g.fieldMap["config_id"] = g.ConfigID
 	g.fieldMap["name"] = g.Name
@@ -156,6 +168,10 @@ func (g *githubWorkflowMetricSchemas) fillFieldMap() {
 	g.fieldMap["record_count"] = g.RecordCount
 	g.fieldMap["first_seen_at"] = g.FirstSeenAt
 	g.fieldMap["last_seen_at"] = g.LastSeenAt
+	g.fieldMap["time_field"] = g.TimeField
+	g.fieldMap["column_definitions"] = g.ColumnDefinitions
+	g.fieldMap["date_column_pattern"] = g.DateColumnPattern
+	g.fieldMap["date_column_config"] = g.DateColumnConfig
 }
 
 func (g githubWorkflowMetricSchemas) clone(db *gorm.DB) githubWorkflowMetricSchemas {
