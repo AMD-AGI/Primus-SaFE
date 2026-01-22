@@ -36,9 +36,6 @@ import (
 )
 
 const (
-	// EvalScope Docker image
-	EvalScopeImage = "registry.cn-hangzhou.aliyuncs.com/modelscope-repo/evalscope:latest"
-
 	// Default resource requirements for evaluation workload
 	DefaultEvalCPU    = "4"
 	DefaultEvalMemory = "16Gi"
@@ -228,7 +225,7 @@ func (r *EvaluationJobReconciler) generateEvaluationWorkload(ctx context.Context
 			IsTolerateAll: job.Spec.IsTolerateAll,
 			Priority:      common.LowPriorityInt,
 			Workspace:     workspace,
-			Images:        []string{EvalScopeImage},
+			Images:        []string{commonconfig.GetEvalScopeImage()},
 			Resources: []v1.WorkloadResource{
 				{
 					CPU:              DefaultEvalCPU,
@@ -304,41 +301,44 @@ func (r *EvaluationJobReconciler) buildEvalCommand(ctx context.Context, modelEnd
 		datasets = append(datasets, b.DatasetId)
 	}
 
-	// Build command
-	var cmdParts []string
-	cmdParts = append(cmdParts, "evalscope", "eval")
+	// Build evalscope command arguments
+	var evalArgs []string
+	evalArgs = append(evalArgs, "evalscope", "eval")
 
 	// Model configuration
-	cmdParts = append(cmdParts, "--model", modelName)
+	evalArgs = append(evalArgs, "--model", modelName)
 
 	// API endpoint for remote/local inference
 	if modelEndpoint != "" {
-		cmdParts = append(cmdParts, "--api-url", modelEndpoint)
+		evalArgs = append(evalArgs, "--api-url", modelEndpoint)
 	}
 
 	// Datasets
-	cmdParts = append(cmdParts, "--datasets", strings.Join(datasets, ","))
+	evalArgs = append(evalArgs, "--datasets", strings.Join(datasets, ","))
 
 	// Limit (use first benchmark's limit if specified)
 	if len(benchmarks) > 0 && benchmarks[0].Limit > 0 {
-		cmdParts = append(cmdParts, "--limit", fmt.Sprintf("%d", benchmarks[0].Limit))
+		evalArgs = append(evalArgs, "--limit", fmt.Sprintf("%d", benchmarks[0].Limit))
 	}
 
 	// Few-shot
 	if evalParams.FewShot > 0 {
-		cmdParts = append(cmdParts, "--few-shot", fmt.Sprintf("%d", evalParams.FewShot))
+		evalArgs = append(evalArgs, "--few-shot", fmt.Sprintf("%d", evalParams.FewShot))
 	}
 
 	// Max tokens
 	if evalParams.MaxTokens > 0 {
-		cmdParts = append(cmdParts, "--max-tokens", fmt.Sprintf("%d", evalParams.MaxTokens))
+		evalArgs = append(evalArgs, "--max-tokens", fmt.Sprintf("%d", evalParams.MaxTokens))
 	}
 
 	// Output directory (for report)
 	outputDir := fmt.Sprintf("/outputs/%s", taskId)
-	cmdParts = append(cmdParts, "--work-dir", outputDir)
+	evalArgs = append(evalArgs, "--work-dir", outputDir)
 
-	return strings.Join(cmdParts, " "), nil
+	// Build full command - evalscope is pre-installed in the image
+	evalCommand := strings.Join(evalArgs, " ")
+
+	return evalCommand, nil
 }
 
 // handleWorkloadEventImpl handles workload events and updates job/database status
