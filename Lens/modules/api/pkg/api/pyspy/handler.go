@@ -566,7 +566,9 @@ func listTasksWithFilters(ctx interface{ Done() <-chan struct{} }, req *ListTask
 	return tasks, total, err
 }
 
-// GetProcessTree retrieves the process tree for a pod by proxying to node-exporter
+// GetProcessTree retrieves the process tree for a pod
+// For same-cluster requests: directly proxies to node-exporter
+// For cross-cluster requests: uses action_tasks queue for async execution
 // POST /api/v1/workloads/:uid/process-tree
 func GetProcessTree(c *gin.Context) {
 	var req ProcessTreeRequest
@@ -583,6 +585,102 @@ func GetProcessTree(c *gin.Context) {
 		return
 	}
 
+	// Check if this is a cross-cluster request
+	if clientsets.IsRemoteCluster(clusterName) {
+		// Cross-cluster: use action_tasks queue
+		log.Infof("Cross-cluster request detected for pod %s in cluster %s, using action queue", req.PodUID, clusterName)
+		getProcessTreeViaActionQueue(c, &req, clusterName)
+		return
+	}
+
+	// Same-cluster: call node-exporter directly
+	getProcessTreeDirect(c, &req, clusterName)
+}
+
+// getProcessTreeViaActionQueue handles cross-cluster process tree requests via action_tasks queue
+func getProcessTreeViaActionQueue(c *gin.Context, req *ProcessTreeRequest, clusterName string) {
+	// Get pod information from database to get node name
+	podFacade := database.GetFacadeForCluster(clusterName).GetPod()
+	gpuPod, err := podFacade.GetGpuPodsByPodUid(c.Request.Context(), req.PodUID)
+	if err != nil {
+		log.Errorf("Failed to query pod %s from database: %v", req.PodUID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to query pod information"})
+		return
+	}
+
+	if gpuPod == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("pod %s not found in database", req.PodUID)})
+		return
+	}
+
+	if gpuPod.NodeName == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "pod node name is empty"})
+		return
+	}
+
+	// Get ActionClient for the target cluster
+	actionClient, err := clientsets.GetActionClientForCluster(clusterName)
+	if err != nil {
+		log.Errorf("Failed to get action client for cluster %s: %v", clusterName, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get action client"})
+		return
+	}
+
+	// Build action request
+	actionReq := &clientsets.ActionRequest{
+		Type:       "get_process_tree",
+		TargetType: "pod",
+		TargetID:   req.PodUID,
+		TargetNode: gpuPod.NodeName,
+		Parameters: map[string]interface{}{
+			"pod_uid":           req.PodUID,
+			"pod_name":          gpuPod.Name,
+			"pod_namespace":     gpuPod.Namespace,
+			"include_env":       req.IncludeEnv,
+			"include_cmdline":   req.IncludeCmdline,
+			"include_resources": req.IncludeResources,
+			"include_gpu":       req.IncludeGPU,
+		},
+	}
+
+	log.Infof("Executing remote action for process tree: pod=%s, node=%s, cluster=%s",
+		req.PodUID, gpuPod.NodeName, clusterName)
+
+	// Execute action and wait for result (synchronous experience)
+	result, err := actionClient.ExecuteAction(c.Request.Context(), actionReq)
+	if err != nil {
+		log.Errorf("Failed to execute remote process tree action: %v", err)
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": fmt.Sprintf("failed to get process tree: %v", err)})
+		return
+	}
+
+	if !result.Success {
+		log.Errorf("Remote process tree action failed: %s", result.Error)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": result.Error})
+		return
+	}
+
+	// Parse result data as PodProcessTree
+	var processTree PodProcessTree
+	if err := json.Unmarshal(result.Data, &processTree); err != nil {
+		log.Errorf("Failed to parse process tree result: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to parse process tree result"})
+		return
+	}
+
+	// Add node name if not set
+	if processTree.NodeName == "" {
+		processTree.NodeName = gpuPod.NodeName
+	}
+
+	log.Infof("Successfully retrieved process tree via action queue for pod %s on node %s in cluster %s",
+		req.PodUID, gpuPod.NodeName, clusterName)
+
+	c.JSON(http.StatusOK, rest.SuccessResp(c, processTree))
+}
+
+// getProcessTreeDirect handles same-cluster process tree requests by calling node-exporter directly
+func getProcessTreeDirect(c *gin.Context, req *ProcessTreeRequest, clusterName string) {
 	// Get cluster clients for the target cluster (needed for both DB and K8s API fallback)
 	cm := clientsets.GetClusterManager()
 	clients, err := cm.GetClusterClientsOrDefault(clusterName)
