@@ -101,6 +101,7 @@ func CreateTask(c *gin.Context) {
 	ext := coreModel.PySpyTaskExt{
 		TaskID:         taskID,
 		TargetNodeName: req.NodeName,
+		WorkloadUID:    req.WorkloadUID,
 		PodUID:         req.PodUID,
 		PodName:        req.PodName,
 		PodNamespace:   req.PodNamespace,
@@ -531,6 +532,11 @@ func listTasksWithFilters(ctx interface{ Done() <-chan struct{} }, req *ListTask
 	if req.Status != "" {
 		query = query.Where("status = ?", req.Status)
 	}
+	// WorkloadUID filter - query all tasks for pods in this workload
+	if req.WorkloadUID != "" {
+		query = query.Where("ext->>'workload_uid' = ?", req.WorkloadUID)
+	}
+	// PodUID filter - more specific, can be combined with WorkloadUID
 	if req.PodUID != "" {
 		query = query.Where("ext->>'pod_uid' = ?", req.PodUID)
 	}
