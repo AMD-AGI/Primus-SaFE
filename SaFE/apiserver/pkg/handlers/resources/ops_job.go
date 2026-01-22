@@ -35,6 +35,7 @@ import (
 	commonnodes "github.com/AMD-AIG-AIMA/SAFE/common/pkg/nodes"
 	commonjob "github.com/AMD-AIG-AIMA/SAFE/common/pkg/ops_job"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
+	commonworkspace "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workspace"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
@@ -1073,6 +1074,28 @@ func (h *Handler) generateEvaluationJob(c *gin.Context, body []byte) (*v1.OpsJob
 
 	ctx := c.Request.Context()
 
+	// Parse and enrich benchmarks with dataset info
+	var benchmarks []benchmarkConfig
+	if err := json.Unmarshal([]byte(benchmarksJSON), &benchmarks); err != nil {
+		return nil, commonerrors.NewBadRequest(fmt.Sprintf("invalid benchmarks JSON: %v", err))
+	}
+
+	// Enrich benchmarks with dataset info from database
+	for i, b := range benchmarks {
+		if b.DatasetId == "" {
+			return nil, commonerrors.NewBadRequest("datasetId is required in benchmarks")
+		}
+		dataset, err := h.dbClient.GetDataset(ctx, b.DatasetId)
+		if err != nil {
+			return nil, commonerrors.NewBadRequest(fmt.Sprintf("dataset not found: %s", b.DatasetId))
+		}
+		if dataset.DatasetType != "evaluation" {
+			return nil, commonerrors.NewBadRequest(fmt.Sprintf("dataset %s is not an evaluation type dataset", b.DatasetId))
+		}
+		benchmarks[i].DatasetName = dataset.DisplayName
+		// DatasetLocalDir will be set after we know the workspace
+	}
+
 	// Generate task ID
 	taskId := fmt.Sprintf("eval-task-%s", uuid.New().String()[:8])
 
@@ -1107,6 +1130,27 @@ func (h *Handler) generateEvaluationJob(c *gin.Context, body []byte) (*v1.OpsJob
 			workspaceId = workload.Workspace
 		}
 	}
+
+	// Set DatasetLocalDir for benchmarks based on workspace volume path
+	volumeMountPath := "/wekafs" // default
+	if workspaceId != "" {
+		ws := &v1.Workspace{}
+		if err := h.Get(ctx, client.ObjectKey{Name: workspaceId}, ws); err == nil {
+			if path := commonworkspace.GetNfsPathFromWorkspace(ws); path != "" {
+				volumeMountPath = path
+			}
+		}
+	}
+	for i := range benchmarks {
+		benchmarks[i].DatasetLocalDir = fmt.Sprintf("%s/datasets/%s", volumeMountPath, benchmarks[i].DatasetName)
+	}
+
+	// Re-serialize enriched benchmarks
+	enrichedBenchmarksJSON, err := json.Marshal(benchmarks)
+	if err != nil {
+		return nil, commonerrors.NewInternalError(fmt.Sprintf("failed to serialize benchmarks: %v", err))
+	}
+	benchmarksJSON = string(enrichedBenchmarksJSON)
 
 	// Create EvaluationTask record in database
 	if evalParamsJSON == "" {
@@ -1180,4 +1224,13 @@ func getParamValue(inputs []v1.Parameter, name string) string {
 		}
 	}
 	return ""
+}
+
+// benchmarkConfig represents a benchmark configuration for evaluation
+type benchmarkConfig struct {
+	DatasetId       string `json:"datasetId"`
+	DatasetName     string `json:"datasetName,omitempty"`
+	DatasetLocalDir string `json:"localDir,omitempty"`
+	EvalType        string `json:"evalType,omitempty"`
+	Limit           *int   `json:"limit,omitempty"`
 }
