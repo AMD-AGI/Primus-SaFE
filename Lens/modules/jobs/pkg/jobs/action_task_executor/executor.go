@@ -46,12 +46,20 @@ type ActionTaskExecutor struct {
 
 // NewActionTaskExecutor creates a new ActionTaskExecutor
 func NewActionTaskExecutor(clusterName string) *ActionTaskExecutor {
+	// Use cluster-specific facade to ensure correct database connection
+	var facade database.ActionTaskFacadeInterface
+	if clusterName != "" && clusterName != "default" {
+		facade = database.NewActionTaskFacadeForCluster(clusterName)
+	} else {
+		facade = database.NewActionTaskFacade()
+	}
+
 	return &ActionTaskExecutor{
 		clusterName:  clusterName,
 		pollInterval: DefaultPollInterval,
 		batchSize:    DefaultBatchSize,
 		handlers:     make(map[string]ActionHandler),
-		facade:       database.NewActionTaskFacade(),
+		facade:       facade,
 	}
 }
 
