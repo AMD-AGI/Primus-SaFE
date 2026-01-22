@@ -15,11 +15,13 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"k8s.io/klog/v2"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
+	commonworkspace "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workspace"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 )
 
@@ -104,8 +106,10 @@ func (h *Handler) CreateEvaluationTask(c *gin.Context) {
 			return nil, commonerrors.NewBadRequest("serviceType must be 'remote_api' or 'local_workload'")
 		}
 
-		// Validate benchmarks (now from dataset table)
-		if err := h.validateBenchmarks(c.Request.Context(), req.Benchmarks); err != nil {
+		// Validate and enrich benchmarks (now from dataset table)
+		// This fills in DatasetName and DatasetLocalDir from the database for use in evalscope command
+		enrichedBenchmarks, err := h.validateAndEnrichBenchmarks(c.Request.Context(), req.Benchmarks, req.WorkspaceId)
+		if err != nil {
 			return nil, err
 		}
 
@@ -143,8 +147,8 @@ func (h *Handler) CreateEvaluationTask(c *gin.Context) {
 			req.EvalParams = &EvalParams{}
 		}
 
-		// Serialize benchmarks and params to JSON
-		benchmarksJSON, err := json.Marshal(req.Benchmarks)
+		// Serialize enriched benchmarks and params to JSON
+		benchmarksJSON, err := json.Marshal(enrichedBenchmarks)
 		if err != nil {
 			return nil, commonerrors.NewInternalError(fmt.Sprintf("failed to serialize benchmarks: %v", err))
 		}
@@ -194,32 +198,60 @@ func (h *Handler) CreateEvaluationTask(c *gin.Context) {
 	})
 }
 
-// validateBenchmarks validates the benchmark configurations by checking dataset existence
+// validateAndEnrichBenchmarks validates the benchmark configurations and enriches them with dataset info
 // All benchmarks are now stored in the dataset table (system benchmarks have userId = primus-safe-system)
-func (h *Handler) validateBenchmarks(ctx context.Context, benchmarks []BenchmarkConfig) error {
-	for _, b := range benchmarks {
+// Returns the enriched benchmarks with DatasetName and DatasetLocalDir filled from database
+func (h *Handler) validateAndEnrichBenchmarks(ctx context.Context, benchmarks []BenchmarkConfig, workspaceId string) ([]BenchmarkConfig, error) {
+	// Get workspace to determine the volume mount path
+	var volumeMountPath string
+	if workspaceId != "" {
+		ws := &v1.Workspace{}
+		if err := h.k8sClient.Get(ctx, client.ObjectKey{Name: workspaceId}, ws); err != nil {
+			return nil, commonerrors.NewBadRequest(fmt.Sprintf("workspace not found: %s", workspaceId))
+		}
+		volumeMountPath = commonworkspace.GetNfsPathFromWorkspace(ws)
+	}
+	if volumeMountPath == "" {
+		// Default fallback if workspace not specified or has no volume
+		volumeMountPath = "/apps"
+	}
+
+	enriched := make([]BenchmarkConfig, len(benchmarks))
+	for i, b := range benchmarks {
 		if b.DatasetId == "" {
-			return commonerrors.NewBadRequest("datasetId is required")
+			return nil, commonerrors.NewBadRequest("datasetId is required")
 		}
 
 		// Verify dataset exists and is evaluation type
 		dataset, err := h.dbClient.GetDataset(ctx, b.DatasetId)
 		if err != nil {
-			return commonerrors.NewBadRequest(fmt.Sprintf("dataset not found: %s", b.DatasetId))
+			return nil, commonerrors.NewBadRequest(fmt.Sprintf("dataset not found: %s", b.DatasetId))
 		}
 		if dataset.DatasetType != "evaluation" {
-			return commonerrors.NewBadRequest(fmt.Sprintf("dataset %s is not an evaluation type dataset", b.DatasetId))
+			return nil, commonerrors.NewBadRequest(fmt.Sprintf("dataset %s is not an evaluation type dataset", b.DatasetId))
 		}
 
 		// For user-uploaded datasets, evalType is required
 		// System benchmark datasets (userId = primus-safe-system) don't need evalType
 		if dataset.UserId != common.UserSystem && b.EvalType != "" {
 			if !IsValidCustomEvalType(b.EvalType) {
-				return commonerrors.NewBadRequest(fmt.Sprintf("invalid evalType: %s, must be 'general_qa' or 'general_mcq'", b.EvalType))
+				return nil, commonerrors.NewBadRequest(fmt.Sprintf("invalid evalType: %s, must be 'general_qa' or 'general_mcq'", b.EvalType))
 			}
 		}
+
+		// Calculate full local path: {volumeMountPath}/datasets/{displayName}
+		localDir := fmt.Sprintf("%s/datasets/%s", volumeMountPath, dataset.DisplayName)
+
+		// Enrich benchmark with dataset info
+		enriched[i] = BenchmarkConfig{
+			DatasetId:       b.DatasetId,
+			DatasetName:     dataset.DisplayName, // Use displayName as evalscope benchmark name
+			DatasetLocalDir: localDir,            // Full local path to dataset
+			EvalType:        b.EvalType,
+			Limit:           b.Limit,
+		}
 	}
-	return nil
+	return enriched, nil
 }
 
 // createEvaluationOpsJob creates an OpsJob for the evaluation task

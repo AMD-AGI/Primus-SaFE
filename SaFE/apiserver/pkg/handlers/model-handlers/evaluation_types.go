@@ -47,9 +47,11 @@ const (
 // BenchmarkConfig represents a benchmark/dataset configuration in the request
 // All benchmarks are now stored in the dataset table (including system benchmarks)
 type BenchmarkConfig struct {
-	DatasetId string `json:"datasetId" binding:"required"` // Dataset ID from dataset table
-	EvalType  string `json:"evalType,omitempty"`           // Optional: "general_qa" or "general_mcq" for custom datasets
-	Limit     *int   `json:"limit,omitempty"`              // Optional sample limit
+	DatasetId       string `json:"datasetId" binding:"required"` // Dataset ID from dataset table
+	DatasetName     string `json:"datasetName,omitempty"`        // Dataset displayName, used as evalscope benchmark name
+	DatasetLocalDir string `json:"datasetLocalDir,omitempty"`    // Full local path to dataset, e.g. /apps/datasets/math_500
+	EvalType        string `json:"evalType,omitempty"`           // Optional: "general_qa" or "general_mcq" for custom datasets
+	Limit           *int   `json:"limit,omitempty"`              // Optional sample limit
 }
 
 // EvalParams represents evaluation parameters

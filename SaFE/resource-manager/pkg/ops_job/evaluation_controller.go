@@ -262,9 +262,11 @@ func (r *EvaluationJobReconciler) generateEvaluationWorkload(ctx context.Context
 
 // BenchmarkConfig represents benchmark configuration from API
 type BenchmarkConfig struct {
-	DatasetId string `json:"datasetId"`
-	EvalType  string `json:"evalType"`
-	Limit     int    `json:"limit,omitempty"`
+	DatasetId       string `json:"datasetId"`
+	DatasetName     string `json:"datasetName"`     // Dataset displayName, used as evalscope benchmark name
+	DatasetLocalDir string `json:"datasetLocalDir"` // Full local path to dataset, e.g. /apps/datasets/math_500
+	EvalType        string `json:"evalType"`
+	Limit           int    `json:"limit,omitempty"`
 }
 
 // EvalParams represents evaluation parameters from API
@@ -293,12 +295,26 @@ func (r *EvaluationJobReconciler) buildEvalCommand(ctx context.Context, modelEnd
 		}
 	}
 
-	// Build dataset list
-	var datasets []string
+	// Build dataset list and dataset directories from enriched benchmark config
+	// DatasetName: evalscope benchmark name (e.g. math_500)
+	// DatasetLocalDir: full local path to dataset (e.g. /apps/datasets/math_500)
+	var datasetNames []string
+	var datasetDirs []string
 	for _, b := range benchmarks {
-		// For now, use datasetId as dataset name
-		// In production, should look up actual dataset path from database
-		datasets = append(datasets, b.DatasetId)
+		name := b.DatasetName
+		if name == "" {
+			// Fallback to datasetId if DatasetName not set (shouldn't happen)
+			name = b.DatasetId
+		}
+		datasetNames = append(datasetNames, name)
+
+		// Use DatasetLocalDir if provided, otherwise fallback
+		localDir := b.DatasetLocalDir
+		if localDir == "" {
+			// Fallback (shouldn't happen if apiserver enriches properly)
+			localDir = fmt.Sprintf("/wekafs/datasets/%s", name)
+		}
+		datasetDirs = append(datasetDirs, localDir)
 	}
 
 	// Build evalscope command arguments
@@ -313,8 +329,13 @@ func (r *EvaluationJobReconciler) buildEvalCommand(ctx context.Context, modelEnd
 		evalArgs = append(evalArgs, "--api-url", modelEndpoint)
 	}
 
-	// Datasets
-	evalArgs = append(evalArgs, "--datasets", strings.Join(datasets, ","))
+	// Datasets (benchmark names)
+	evalArgs = append(evalArgs, "--datasets", strings.Join(datasetNames, ","))
+
+	// Dataset directory (use first one for now, evalscope supports single --dataset-dir)
+	if len(datasetDirs) > 0 {
+		evalArgs = append(evalArgs, "--dataset-dir", datasetDirs[0])
+	}
 
 	// Limit (use first benchmark's limit if specified)
 	if len(benchmarks) > 0 && benchmarks[0].Limit > 0 {
