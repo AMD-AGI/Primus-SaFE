@@ -7,6 +7,7 @@ package resources
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"strconv"
@@ -17,6 +18,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
 	"github.com/google/uuid"
+	"github.com/lib/pq"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/klog/v2"
@@ -1100,7 +1102,7 @@ func (h *Handler) generateEvaluationJob(c *gin.Context, body []byte) (*v1.OpsJob
 	taskId := fmt.Sprintf("eval-task-%s", uuid.New().String()[:8])
 
 	// Get service info and construct endpoint
-	var serviceName, modelEndpoint, clusterId string
+	var serviceName, modelEndpoint, modelName, clusterId string
 	if serviceType == "remote_api" {
 		model, err := h.dbClient.GetModelByID(ctx, serviceId)
 		if err != nil {
@@ -1108,6 +1110,7 @@ func (h *Handler) generateEvaluationJob(c *gin.Context, body []byte) (*v1.OpsJob
 		}
 		serviceName = model.DisplayName
 		modelEndpoint = model.SourceURL
+		modelName = model.DisplayName // For remote API, use displayName as model name
 	} else {
 		// local_workload
 		workload, err := h.dbClient.GetWorkload(ctx, serviceId)
@@ -1117,13 +1120,19 @@ func (h *Handler) generateEvaluationJob(c *gin.Context, body []byte) (*v1.OpsJob
 		serviceName = workload.DisplayName
 		clusterId = workload.Cluster
 
-		// Construct external domain endpoint
-		systemHost := commonconfig.GetSystemHost()
-		if systemHost != "" && workload.Cluster != "" && workload.Workspace != "" {
-			modelEndpoint = fmt.Sprintf("https://%s/%s/%s/%s/v1", systemHost, workload.Cluster, workload.Workspace, workload.WorkloadId)
-		} else {
-			// Fallback to internal service
-			modelEndpoint = fmt.Sprintf("http://%s:8000/v1", workload.WorkloadId)
+		// TODO:
+		// systemHost := commonconfig.GetSystemHost()
+		// if systemHost != "" && workload.Cluster != "" && workload.Workspace != "" {
+		//     modelEndpoint = fmt.Sprintf("https://%s/%s/%s/%s/v1", systemHost, workload.Cluster, workload.Workspace, workload.WorkloadId)
+		// } else {
+		//     modelEndpoint = fmt.Sprintf("http://%s:8000/v1", workload.WorkloadId)
+		// }
+		modelEndpoint = fmt.Sprintf("http://%s:8000/v1", workload.WorkloadId)
+
+		// Parse real model name from workload env (e.g., PRIMUS_SOURCE_MODEL)
+		modelName = extractModelNameFromEnv(workload.Env)
+		if modelName == "" {
+			modelName = workload.DisplayName // fallback to displayName
 		}
 
 		if workspaceId == "" {
@@ -1157,18 +1166,19 @@ func (h *Handler) generateEvaluationJob(c *gin.Context, body []byte) (*v1.OpsJob
 		evalParamsJSON = "{}"
 	}
 	task := &dbclient.EvaluationTask{
-		TaskId:      taskId,
-		TaskName:    req.Name,
-		ServiceId:   serviceId,
-		ServiceType: serviceType,
-		ServiceName: serviceName,
-		Benchmarks:  benchmarksJSON,
-		EvalParams:  evalParamsJSON,
-		Status:      dbclient.EvaluationTaskStatusPending,
-		Progress:    0,
-		Workspace:   workspaceId,
-		UserId:      requestUser.Name,
-		UserName:    v1.GetUserName(requestUser),
+		TaskId:       taskId,
+		TaskName:     req.Name,
+		ServiceId:    serviceId,
+		ServiceType:  serviceType,
+		ServiceName:  serviceName,
+		Benchmarks:   benchmarksJSON,
+		EvalParams:   evalParamsJSON,
+		Status:       dbclient.EvaluationTaskStatusPending,
+		Progress:     0,
+		Workspace:    workspaceId,
+		UserId:       requestUser.Name,
+		UserName:     v1.GetUserName(requestUser),
+		CreationTime: pq.NullTime{Time: time.Now().UTC(), Valid: true},
 	}
 	if err := h.dbClient.UpsertEvaluationTask(ctx, task); err != nil {
 		return nil, commonerrors.NewInternalError(fmt.Sprintf("failed to create evaluation task: %v", err))
@@ -1182,7 +1192,7 @@ func (h *Handler) generateEvaluationJob(c *gin.Context, body []byte) (*v1.OpsJob
 		{Name: v1.ParameterEvalBenchmarks, Value: benchmarksJSON},
 		{Name: v1.ParameterEvalParams, Value: evalParamsJSON},
 		{Name: v1.ParameterModelEndpoint, Value: modelEndpoint},
-		{Name: v1.ParameterModelName, Value: serviceName},
+		{Name: v1.ParameterModelName, Value: modelName},
 	}
 	if clusterId != "" {
 		inputs = append(inputs, v1.Parameter{Name: v1.ParameterCluster, Value: clusterId})
@@ -1222,6 +1232,32 @@ func getParamValue(inputs []v1.Parameter, name string) string {
 		if p.Name == name {
 			return p.Value
 		}
+	}
+	return ""
+}
+
+// extractModelNameFromEnv parses the real model name from workload env JSON.
+// It looks for PRIMUS_SOURCE_MODEL or MODEL_NAME environment variables.
+// The env is expected to be a JSON object like {"PRIMUS_SOURCE_MODEL": "Qwen/Qwen2.5-0.5B-Instruct", ...}
+func extractModelNameFromEnv(env sql.NullString) string {
+	if !env.Valid || env.String == "" {
+		return ""
+	}
+
+	var envMap map[string]string
+	if err := json.Unmarshal([]byte(env.String), &envMap); err != nil {
+		return ""
+	}
+
+	// Priority: PRIMUS_SOURCE_MODEL > MODEL_NAME > SERVED_MODEL_NAME
+	if modelName, ok := envMap["PRIMUS_SOURCE_MODEL"]; ok && modelName != "" {
+		return modelName
+	}
+	if modelName, ok := envMap["MODEL_NAME"]; ok && modelName != "" {
+		return modelName
+	}
+	if modelName, ok := envMap["SERVED_MODEL_NAME"]; ok && modelName != "" {
+		return modelName
 	}
 	return ""
 }
