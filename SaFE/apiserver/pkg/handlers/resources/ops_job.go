@@ -16,6 +16,7 @@ import (
 	sqrl "github.com/Masterminds/squirrel"
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
+	"github.com/google/uuid"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/klog/v2"
@@ -99,6 +100,8 @@ func (h *Handler) createOpsJob(c *gin.Context) (interface{}, error) {
 		job, err = h.generatePrewarmImageJob(c, body)
 	case v1.OpsJobDownloadType:
 		job, err = h.generateDownloadJob(c, body)
+	case v1.OpsJobEvaluationType:
+		job, err = h.generateEvaluationJob(c, body)
 
 	default:
 		err = fmt.Errorf("unsupported ops job type(%s)", req.Type)
@@ -1034,4 +1037,147 @@ func hasParameters(inputs []v1.Parameter, names ...string) bool {
 		}
 	}
 	return false
+}
+
+// generateEvaluationJob creates an evaluation-type ops job.
+// It parses evaluation parameters from inputs, validates the service and benchmarks,
+// creates an EvaluationTask database record, and generates the OpsJob.
+func (h *Handler) generateEvaluationJob(c *gin.Context, body []byte) (*v1.OpsJob, error) {
+	requestUser, err := h.getAndSetUsername(c)
+	if err != nil {
+		return nil, err
+	}
+
+	req := &view.BaseOpsJobRequest{}
+	if err = jsonutils.Unmarshal(body, req); err != nil {
+		return nil, err
+	}
+
+	// Extract evaluation parameters from inputs
+	serviceId := getParamValue(req.Inputs, v1.ParameterEvalServiceId)
+	serviceType := getParamValue(req.Inputs, v1.ParameterEvalServiceType)
+	benchmarksJSON := getParamValue(req.Inputs, v1.ParameterEvalBenchmarks)
+	evalParamsJSON := getParamValue(req.Inputs, v1.ParameterEvalParams)
+	workspaceId := getParamValue(req.Inputs, v1.ParameterWorkspace)
+
+	// Validate required parameters
+	if serviceId == "" {
+		return nil, commonerrors.NewBadRequest(fmt.Sprintf("%s is required", v1.ParameterEvalServiceId))
+	}
+	if serviceType == "" {
+		return nil, commonerrors.NewBadRequest(fmt.Sprintf("%s is required", v1.ParameterEvalServiceType))
+	}
+	if benchmarksJSON == "" {
+		return nil, commonerrors.NewBadRequest(fmt.Sprintf("%s is required", v1.ParameterEvalBenchmarks))
+	}
+
+	ctx := c.Request.Context()
+
+	// Generate task ID
+	taskId := fmt.Sprintf("eval-task-%s", uuid.New().String()[:8])
+
+	// Get service info and construct endpoint
+	var serviceName, modelEndpoint, clusterId string
+	if serviceType == "remote_api" {
+		model, err := h.dbClient.GetModelByID(ctx, serviceId)
+		if err != nil {
+			return nil, commonerrors.NewBadRequest(fmt.Sprintf("model not found: %s", serviceId))
+		}
+		serviceName = model.DisplayName
+		modelEndpoint = model.SourceURL
+	} else {
+		// local_workload
+		workload, err := h.dbClient.GetWorkload(ctx, serviceId)
+		if err != nil {
+			return nil, commonerrors.NewBadRequest(fmt.Sprintf("workload not found: %s", serviceId))
+		}
+		serviceName = workload.DisplayName
+		clusterId = workload.Cluster
+
+		// Construct external domain endpoint
+		systemHost := commonconfig.GetSystemHost()
+		if systemHost != "" && workload.Cluster != "" && workload.Workspace != "" {
+			modelEndpoint = fmt.Sprintf("https://%s/%s/%s/%s/v1", systemHost, workload.Cluster, workload.Workspace, workload.WorkloadId)
+		} else {
+			// Fallback to internal service
+			modelEndpoint = fmt.Sprintf("http://%s:8000/v1", workload.WorkloadId)
+		}
+
+		if workspaceId == "" {
+			workspaceId = workload.Workspace
+		}
+	}
+
+	// Create EvaluationTask record in database
+	if evalParamsJSON == "" {
+		evalParamsJSON = "{}"
+	}
+	task := &dbclient.EvaluationTask{
+		TaskId:      taskId,
+		TaskName:    req.Name,
+		ServiceId:   serviceId,
+		ServiceType: serviceType,
+		ServiceName: serviceName,
+		Benchmarks:  benchmarksJSON,
+		EvalParams:  evalParamsJSON,
+		Status:      dbclient.EvaluationTaskStatusPending,
+		Progress:    0,
+		Workspace:   workspaceId,
+		UserId:      requestUser.Name,
+		UserName:    v1.GetUserName(requestUser),
+	}
+	if err := h.dbClient.UpsertEvaluationTask(ctx, task); err != nil {
+		return nil, commonerrors.NewInternalError(fmt.Sprintf("failed to create evaluation task: %v", err))
+	}
+
+	// Build complete inputs for OpsJob
+	inputs := []v1.Parameter{
+		{Name: v1.ParameterEvalTaskId, Value: taskId},
+		{Name: v1.ParameterEvalServiceId, Value: serviceId},
+		{Name: v1.ParameterEvalServiceType, Value: serviceType},
+		{Name: v1.ParameterEvalBenchmarks, Value: benchmarksJSON},
+		{Name: v1.ParameterEvalParams, Value: evalParamsJSON},
+		{Name: v1.ParameterModelEndpoint, Value: modelEndpoint},
+		{Name: v1.ParameterModelName, Value: serviceName},
+	}
+	if clusterId != "" {
+		inputs = append(inputs, v1.Parameter{Name: v1.ParameterCluster, Value: clusterId})
+	}
+	if workspaceId != "" {
+		inputs = append(inputs, v1.Parameter{Name: v1.ParameterWorkspace, Value: workspaceId})
+	}
+
+	// Set default timeout
+	if req.TimeoutSecond <= 0 {
+		req.TimeoutSecond = 7200 // 2 hours default for evaluation
+	}
+
+	// Create the OpsJob
+	req.Inputs = inputs
+	job := genDefaultOpsJob(req, requestUser)
+
+	// Set labels
+	if clusterId != "" {
+		v1.SetLabel(job, v1.ClusterIdLabel, clusterId)
+	}
+	if workspaceId != "" {
+		v1.SetLabel(job, v1.WorkspaceIdLabel, workspaceId)
+	}
+
+	// Update task with OpsJob name
+	if err := h.dbClient.UpdateEvaluationTaskOpsJobId(ctx, taskId, job.Name); err != nil {
+		klog.ErrorS(err, "failed to update task with ops_job_id", "taskId", taskId, "opsJobId", job.Name)
+	}
+
+	return job, nil
+}
+
+// getParamValue retrieves the value of a parameter by name from the inputs slice
+func getParamValue(inputs []v1.Parameter, name string) string {
+	for _, p := range inputs {
+		if p.Name == name {
+			return p.Value
+		}
+	}
+	return ""
 }

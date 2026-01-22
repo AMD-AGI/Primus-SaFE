@@ -61,24 +61,6 @@ type EvalParams struct {
 	MaxTokens   int     `json:"maxTokens,omitempty"`   // Maximum generation length
 }
 
-// CreateEvaluationTaskRequest represents the request to create an evaluation task
-type CreateEvaluationTaskRequest struct {
-	Name          string            `json:"name" binding:"required"`
-	Description   string            `json:"description,omitempty"`
-	ServiceId     string            `json:"serviceId" binding:"required"`
-	ServiceType   EvalServiceType   `json:"serviceType" binding:"required"`
-	Benchmarks    []BenchmarkConfig `json:"benchmarks" binding:"required,min=1"`
-	EvalParams    *EvalParams       `json:"evalParams,omitempty"`
-	WorkspaceId   string            `json:"workspaceId,omitempty"`
-	TimeoutSecond int               `json:"timeoutSecond,omitempty"` // Default: 7200 (2 hours)
-}
-
-// CreateEvaluationTaskResponse represents the response after creating an evaluation task
-type CreateEvaluationTaskResponse struct {
-	TaskId   string `json:"taskId"`
-	OpsJobId string `json:"opsJobId,omitempty"`
-}
-
 // AvailableEvalService represents a model/service available for evaluation
 type AvailableEvalService struct {
 	ServiceId   string          `json:"serviceId"`

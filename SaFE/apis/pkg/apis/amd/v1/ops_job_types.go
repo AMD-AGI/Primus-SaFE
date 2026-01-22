@@ -65,14 +65,15 @@ const (
 	ParameterLensConfigMap = "lens.configmap" // ConfigMap name containing values.yaml files (Lens)
 
 	// Evaluation job specific parameters
-	ParameterEvalTaskId      = "eval.task.id"      // Evaluation task ID from database
-	ParameterModelEndpoint   = "model.endpoint"    // Model service endpoint URL
-	ParameterModelName       = "model.name"        // Model name for API calls
-	ParameterModelApiKey     = "model.api.key"     // API key for remote model (encrypted)
-	ParameterEvalBenchmarks  = "eval.benchmarks"   // Benchmarks JSON configuration
-	ParameterEvalParams      = "eval.params"       // Evaluation parameters JSON
-	ParameterEvalReportPath  = "eval.report.path"  // S3 path for evaluation report output
-	ParameterEvalServiceType = "eval.service.type" // Service type: remote_api or local_workload
+	ParameterEvalTaskId      = "eval.task.id"       // Evaluation task ID from database
+	ParameterEvalServiceId   = "eval.service.id"    // Service ID (workload or model ID)
+	ParameterEvalServiceType = "eval.service.type"  // Service type: remote_api or local_workload
+	ParameterEvalBenchmarks  = "eval.benchmarks"    // Benchmarks JSON configuration
+	ParameterEvalParams      = "eval.params"        // Evaluation parameters JSON
+	ParameterEvalReportPath  = "eval.report.path"   // S3 path for evaluation report output
+	ParameterModelEndpoint   = "model.endpoint"     // Model service endpoint URL
+	ParameterModelName       = "model.name"         // Model name for API calls
+	ParameterModelApiKey     = "model.api.key"      // API key for remote model (encrypted)
 )
 
 type Parameter struct {
