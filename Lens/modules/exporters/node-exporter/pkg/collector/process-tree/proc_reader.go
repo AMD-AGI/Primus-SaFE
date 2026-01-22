@@ -41,12 +41,16 @@ func (r *ProcReader) GetProcessInfo(pid int, req *ProcessTreeRequest) (*ProcessI
 		return nil, err
 	}
 
-	// Read cmdline
-	if req.IncludeCmdline {
-		if cmdline, err := r.readCmdline(pid); err == nil {
+	// Always read cmdline to detect process type (Python/Java)
+	// This is needed for accurate process classification
+	if cmdline, err := r.readCmdline(pid); err == nil {
+		// Detect process type based on cmdline
+		info.IsPython = isPythonProcess(cmdline, info.Comm)
+		info.IsJava = isJavaProcess(cmdline, info.Comm)
+
+		// Only include cmdline in response if explicitly requested
+		if req.IncludeCmdline {
 			info.Cmdline = cmdline
-			info.IsPython = strings.Contains(cmdline, "python")
-			info.IsJava = strings.Contains(cmdline, "java")
 		}
 	}
 
@@ -518,4 +522,84 @@ func (r *ProcReader) identifyProfilerFile(pid int, fd, filePath string) *PyTorch
 
 func getCurrentTime() time.Time {
 	return time.Now()
+}
+
+// isPythonProcess detects if a process is a Python process
+// Checks both cmdline and comm (process name) for various Python patterns
+func isPythonProcess(cmdline, comm string) bool {
+	lowerCmdline := strings.ToLower(cmdline)
+	lowerComm := strings.ToLower(comm)
+
+	// Check comm (process name) first - this is more reliable
+	pythonCommPatterns := []string{
+		"python", "python3", "python2",
+		"ipython", "jupyter",
+		"pip", "pip3",
+		"conda",
+	}
+	for _, pattern := range pythonCommPatterns {
+		if lowerComm == pattern || strings.HasPrefix(lowerComm, pattern) {
+			return true
+		}
+	}
+
+	// Check cmdline for Python interpreter patterns
+	pythonCmdlinePatterns := []string{
+		"/python", "python ",
+		"/python3", "python3 ",
+		"/python2", "python2 ",
+		"/ipython", "ipython ",
+		"jupyter-", "/jupyter",
+	}
+	for _, pattern := range pythonCmdlinePatterns {
+		if strings.Contains(lowerCmdline, pattern) {
+			return true
+		}
+	}
+
+	// Check if cmdline starts with python executable
+	if strings.HasPrefix(lowerCmdline, "python") {
+		return true
+	}
+
+	return false
+}
+
+// isJavaProcess detects if a process is a Java process
+// Checks both cmdline and comm (process name) for various Java patterns
+func isJavaProcess(cmdline, comm string) bool {
+	lowerCmdline := strings.ToLower(cmdline)
+	lowerComm := strings.ToLower(comm)
+
+	// Check comm (process name) first
+	javaCommPatterns := []string{
+		"java", "javac",
+		"jvm", "jruby",
+		"kotlin", "scala",
+		"gradle", "maven",
+	}
+	for _, pattern := range javaCommPatterns {
+		if lowerComm == pattern || strings.HasPrefix(lowerComm, pattern) {
+			return true
+		}
+	}
+
+	// Check cmdline for Java patterns
+	javaCmdlinePatterns := []string{
+		"/java ", "/java\x00",
+		"java -", "java\x00-",
+		"/jvm/", "/jre/", "/jdk/",
+	}
+	for _, pattern := range javaCmdlinePatterns {
+		if strings.Contains(lowerCmdline, pattern) {
+			return true
+		}
+	}
+
+	// Check if cmdline starts with java executable
+	if strings.HasPrefix(lowerCmdline, "java ") || strings.HasPrefix(lowerCmdline, "java\x00") {
+		return true
+	}
+
+	return false
 }
