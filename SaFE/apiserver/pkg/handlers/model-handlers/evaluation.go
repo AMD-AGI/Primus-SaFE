@@ -25,8 +25,6 @@ import (
 
 const (
 	DefaultEvalTimeoutSecond = 7200 // 2 hours
-	DefaultEvalFewShot       = 5
-	DefaultEvalMaxTokens     = 512
 )
 
 // ==================== Evaluation API Handlers ====================
@@ -142,11 +140,7 @@ func (h *Handler) CreateEvaluationTask(c *gin.Context) {
 			req.TimeoutSecond = DefaultEvalTimeoutSecond
 		}
 		if req.EvalParams == nil {
-			req.EvalParams = &EvalParams{
-				FewShot:     DefaultEvalFewShot,
-				Temperature: 0,
-				MaxTokens:   DefaultEvalMaxTokens,
-			}
+			req.EvalParams = &EvalParams{}
 		}
 
 		// Serialize benchmarks and params to JSON

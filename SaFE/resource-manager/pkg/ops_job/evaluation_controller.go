@@ -321,15 +321,8 @@ func (r *EvaluationJobReconciler) buildEvalCommand(ctx context.Context, modelEnd
 		evalArgs = append(evalArgs, "--limit", fmt.Sprintf("%d", benchmarks[0].Limit))
 	}
 
-	// Few-shot
-	if evalParams.FewShot > 0 {
-		evalArgs = append(evalArgs, "--few-shot", fmt.Sprintf("%d", evalParams.FewShot))
-	}
-
-	// Max tokens
-	if evalParams.MaxTokens > 0 {
-		evalArgs = append(evalArgs, "--max-tokens", fmt.Sprintf("%d", evalParams.MaxTokens))
-	}
+	// Note: evalscope doesn't support --few-shot and --max-tokens directly
+	// These can be passed via --generation-config if needed in future
 
 	// Output directory (for report)
 	outputDir := fmt.Sprintf("/outputs/%s", taskId)
