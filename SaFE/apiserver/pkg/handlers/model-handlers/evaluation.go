@@ -208,25 +208,29 @@ func (h *Handler) GetEvaluationReport(c *gin.Context) {
 			return nil, err
 		}
 
-		// Parse result summary
-		var results map[string]interface{}
-		if task.ResultSummary.Valid && task.ResultSummary.String != "" {
-			if err := json.Unmarshal([]byte(task.ResultSummary.String), &results); err != nil {
-				klog.ErrorS(err, "failed to parse result summary", "taskId", taskId)
-			}
-		}
-
 		response := &EvaluationReportResponse{
 			TaskId:      task.TaskId,
 			TaskName:    task.TaskName,
 			ServiceName: task.ServiceName,
 			Status:      string(task.Status),
-			Results:     results,
 		}
 
-		if task.ReportS3Path.Valid {
-			response.ReportS3Path = task.ReportS3Path.String
+		// Try to get report content from S3
+		if task.ReportS3Path.Valid && task.ReportS3Path.String != "" && h.s3Client != nil {
+			reportContent, err := h.s3Client.GetObject(c.Request.Context(), task.ReportS3Path.String, 60)
+			if err != nil {
+				klog.ErrorS(err, "failed to get report from S3", "taskId", taskId, "s3Key", task.ReportS3Path.String)
+			} else {
+				// Parse JSON content to results
+				var reportData map[string]interface{}
+				if err := json.Unmarshal([]byte(reportContent), &reportData); err != nil {
+					klog.ErrorS(err, "failed to parse report JSON", "taskId", taskId)
+				} else {
+					response.Results = reportData
+				}
+			}
 		}
+
 		if task.StartTime.Valid {
 			t := task.StartTime.Time
 			response.StartTime = &t

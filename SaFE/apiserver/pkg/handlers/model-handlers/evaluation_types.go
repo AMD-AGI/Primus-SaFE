@@ -117,15 +117,14 @@ type ListEvaluationTasksResponse struct {
 
 // EvaluationReportResponse represents the evaluation report
 type EvaluationReportResponse struct {
-	TaskId       string                 `json:"taskId"`
-	TaskName     string                 `json:"taskName"`
-	ServiceName  string                 `json:"serviceName"`
-	Status       string                 `json:"status"`
-	Results      map[string]interface{} `json:"results,omitempty"`
-	ReportS3Path string                 `json:"reportS3Path,omitempty"`
-	StartTime    *time.Time             `json:"startTime,omitempty"`
-	EndTime      *time.Time             `json:"endTime,omitempty"`
-	Duration     string                 `json:"duration,omitempty"`
+	TaskId      string                 `json:"taskId"`
+	TaskName    string                 `json:"taskName"`
+	ServiceName string                 `json:"serviceName"`
+	Status      string                 `json:"status"`
+	Results     map[string]interface{} `json:"results,omitempty"` // Report content from S3
+	StartTime   *time.Time             `json:"startTime,omitempty"`
+	EndTime     *time.Time             `json:"endTime,omitempty"`
+	Duration    string                 `json:"duration,omitempty"`
 }
 
 // ==================== Report Types ====================

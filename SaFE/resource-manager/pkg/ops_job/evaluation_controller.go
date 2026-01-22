@@ -32,6 +32,7 @@ import (
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	commonjob "github.com/AMD-AIG-AIMA/SAFE/common/pkg/ops_job"
+	commons3 "github.com/AMD-AIG-AIMA/SAFE/common/pkg/s3"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
 
@@ -45,6 +46,7 @@ const (
 type EvaluationJobReconciler struct {
 	*OpsJobBaseReconciler
 	dbClient dbclient.Interface
+	s3Client commons3.Interface
 	sync.RWMutex
 }
 
@@ -58,11 +60,21 @@ func SetupEvaluationJobController(ctx context.Context, mgr manager.Manager) erro
 		}
 	}
 
+	var s3Client commons3.Interface
+	if commonconfig.IsS3Enable() {
+		var err error
+		s3Client, err = commons3.NewClient(ctx, commons3.Option{ExpireDay: commonconfig.GetS3ExpireDay()})
+		if err != nil {
+			klog.ErrorS(err, "Failed to create S3 client for EvaluationJobController, report upload will be disabled")
+		}
+	}
+
 	r := &EvaluationJobReconciler{
 		OpsJobBaseReconciler: &OpsJobBaseReconciler{
 			Client: mgr.GetClient(),
 		},
 		dbClient: dbClient,
+		s3Client: s3Client,
 	}
 
 	err := ctrlruntime.NewControllerManagedBy(mgr).
@@ -190,8 +202,19 @@ func (r *EvaluationJobReconciler) generateEvaluationWorkload(ctx context.Context
 		clusterId = v1.GetClusterId(job)
 	}
 
-	// Build evalscope command
-	entryPoint, err := r.buildEvalCommand(ctx, modelEndpoint, modelName, benchmarksJSON, paramsJSON, taskId)
+	// Generate S3 presigned PUT URL for report upload
+	var s3PresignedPutURL, s3ReportKey string
+	if r.s3Client != nil {
+		s3ReportKey = fmt.Sprintf("evaluations/%s/report.json", taskId)
+		var err error
+		s3PresignedPutURL, err = r.s3Client.GeneratePresignedPutURL(ctx, s3ReportKey, 24) // 24 hours expiry
+		if err != nil {
+			klog.ErrorS(err, "Failed to generate S3 presigned PUT URL", "taskId", taskId)
+		}
+	}
+
+	// Build evalscope command with upload script
+	entryPoint, err := r.buildEvalCommand(ctx, modelEndpoint, modelName, benchmarksJSON, paramsJSON, taskId, s3PresignedPutURL, s3ReportKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build eval command: %w", err)
 	}
@@ -276,7 +299,7 @@ type EvalParams struct {
 }
 
 // buildEvalCommand builds the evalscope command based on parameters
-func (r *EvaluationJobReconciler) buildEvalCommand(ctx context.Context, modelEndpoint, modelName, benchmarksJSON, paramsJSON, taskId string) (string, error) {
+func (r *EvaluationJobReconciler) buildEvalCommand(ctx context.Context, modelEndpoint, modelName, benchmarksJSON, paramsJSON, taskId, s3PresignedPutURL, s3ReportKey string) (string, error) {
 	// Parse benchmarks
 	var benchmarks []BenchmarkConfig
 	if err := json.Unmarshal([]byte(benchmarksJSON), &benchmarks); err != nil {
@@ -352,7 +375,45 @@ func (r *EvaluationJobReconciler) buildEvalCommand(ctx context.Context, modelEnd
 	// Build full command - evalscope is pre-installed in the image
 	evalCommand := strings.Join(evalArgs, " ")
 
+	// If S3 presigned URL is provided, add upload script after evalscope
+	if s3PresignedPutURL != "" {
+		uploadScript := r.buildReportUploadScript(outputDir, s3PresignedPutURL)
+		evalCommand = fmt.Sprintf("%s && %s", evalCommand, uploadScript)
+	}
+
 	return evalCommand, nil
+}
+
+// buildReportUploadScript builds a Python script to upload evaluation report to S3
+func (r *EvaluationJobReconciler) buildReportUploadScript(outputDir, presignedURL string) string {
+	// Python script to find and upload report file
+	script := fmt.Sprintf(`python3 -c "
+import glob, urllib.request, sys
+
+# Find report files
+report_files = glob.glob('%s/*/reports/*/*.json')
+if not report_files:
+    print('No report files found, skipping upload')
+    sys.exit(0)
+
+# Read the first report file
+with open(report_files[0], 'rb') as f:
+    report_data = f.read()
+
+print(f'Uploading report: {report_files[0]} ({len(report_data)} bytes)')
+
+# Upload to S3 using presigned PUT URL
+try:
+    req = urllib.request.Request('%s', data=report_data, method='PUT')
+    req.add_header('Content-Type', 'application/json')
+    urllib.request.urlopen(req, timeout=60)
+    print('Report uploaded successfully')
+except Exception as e:
+    print(f'Failed to upload report: {e}')
+    sys.exit(1)
+"`, outputDir, presignedURL)
+
+	return script
 }
 
 // handleWorkloadEventImpl handles workload events and updates job/database status
@@ -432,13 +493,12 @@ func (r *EvaluationJobReconciler) updateReportPath(ctx context.Context, taskId s
 		return
 	}
 
-	// For evaluation tasks, the report path is typically in the output directory
-	// Format: /outputs/{taskId}/report.json
-	reportPath := fmt.Sprintf("s3://evaluations/%s/report.json", taskId)
+	// S3 key for the evaluation report (same format as in generateEvaluationWorkload)
+	s3Key := fmt.Sprintf("evaluations/%s/report.json", taskId)
 
-	if err := r.dbClient.UpdateEvaluationTaskResult(ctx, taskId, "", reportPath); err != nil {
+	if err := r.dbClient.UpdateEvaluationTaskResult(ctx, taskId, "", s3Key); err != nil {
 		klog.ErrorS(err, "failed to update evaluation task result",
 			"taskId", taskId,
-			"reportPath", reportPath)
+			"s3Key", s3Key)
 	}
 }
