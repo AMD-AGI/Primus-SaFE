@@ -8,6 +8,7 @@ package resources
 import (
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"strconv"
@@ -1129,8 +1130,11 @@ func (h *Handler) generateEvaluationJob(c *gin.Context, body []byte) (*v1.OpsJob
 		// }
 		modelEndpoint = fmt.Sprintf("http://%s:8000/v1", workload.WorkloadId)
 
-		// Parse real model name from workload env (e.g., PRIMUS_SOURCE_MODEL)
-		modelName = extractModelNameFromEnv(workload.Env)
+		// Parse real model name: priority is --served-model-name from entryPoint > env > displayName
+		modelName = extractServedModelName(workload.EntryPoint, workload.EntryPoints)
+		if modelName == "" {
+			modelName = extractModelNameFromEnv(workload.Env)
+		}
 		if modelName == "" {
 			modelName = workload.DisplayName // fallback to displayName
 		}
@@ -1232,6 +1236,57 @@ func getParamValue(inputs []v1.Parameter, name string) string {
 		if p.Name == name {
 			return p.Value
 		}
+	}
+	return ""
+}
+
+// extractServedModelName parses the --served-model-name parameter from entryPoint or entryPoints.
+// This is the actual model name registered in vLLM/inference service.
+func extractServedModelName(entryPoint string, entryPoints sql.NullString) string {
+	// Try single entryPoint first
+	if entryPoint != "" {
+		decoded, err := base64.StdEncoding.DecodeString(entryPoint)
+		if err == nil {
+			if name := parseServedModelNameFromCmd(string(decoded)); name != "" {
+				return name
+			}
+		}
+	}
+
+	// Try entryPoints array
+	if entryPoints.Valid && entryPoints.String != "" {
+		var points []string
+		if err := json.Unmarshal([]byte(entryPoints.String), &points); err == nil {
+			for _, ep := range points {
+				decoded, err := base64.StdEncoding.DecodeString(ep)
+				if err == nil {
+					if name := parseServedModelNameFromCmd(string(decoded)); name != "" {
+						return name
+					}
+				}
+			}
+		}
+	}
+	return ""
+}
+
+// parseServedModelNameFromCmd extracts --served-model-name value from a command string.
+func parseServedModelNameFromCmd(cmd string) string {
+	// Look for --served-model-name parameter
+	const flag = "--served-model-name"
+	idx := strings.Index(cmd, flag)
+	if idx == -1 {
+		return ""
+	}
+
+	// Extract the value after the flag
+	rest := cmd[idx+len(flag):]
+	rest = strings.TrimLeft(rest, " =")
+
+	// Get the value (until space or end of string)
+	parts := strings.Fields(rest)
+	if len(parts) > 0 {
+		return parts[0]
 	}
 	return ""
 }
