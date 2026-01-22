@@ -69,21 +69,21 @@ func init() {
 type TraceLensResourceProfilesRequest struct{}
 
 type TraceLensSessionsListRequest struct {
-	Cluster string `json:"cluster" form:"cluster" mcp:"description=Cluster name"`
+	Cluster string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
 }
 
 type TraceLensSessionStatsRequest struct {
-	Cluster string `json:"cluster" form:"cluster" mcp:"description=Cluster name"`
+	Cluster string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
 }
 
 type TraceLensSessionGetRequest struct {
-	Cluster   string `json:"cluster" form:"cluster" mcp:"description=Cluster name"`
-	SessionID string `json:"session_id" form:"session_id" uri:"session_id" binding:"required" mcp:"description=Session ID,required"`
+	Cluster   string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
+	SessionID string `json:"session_id" form:"session_id" param:"session_id" binding:"required" mcp:"description=Session ID,required"`
 }
 
 type TraceLensWorkloadSessionsRequest struct {
-	Cluster     string `json:"cluster" form:"cluster" mcp:"description=Cluster name"`
-	WorkloadUID string `json:"workload_uid" form:"workload_uid" uri:"workload_uid" binding:"required" mcp:"description=Workload UID,required"`
+	Cluster     string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
+	WorkloadUID string `json:"workload_uid" form:"workload_uid" param:"workload_uid" binding:"required" mcp:"description=Workload UID,required"`
 }
 
 // ======================== Response Types ========================

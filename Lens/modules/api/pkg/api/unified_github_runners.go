@@ -73,38 +73,38 @@ func init() {
 // ======================== Request Types ========================
 
 type GithubRunnerSetsListRequest struct {
-	Cluster   string `json:"cluster" form:"cluster" mcp:"description=Cluster name"`
+	Cluster   string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
 	Namespace string `json:"namespace" form:"namespace" mcp:"description=Filter by namespace"`
 	WithStats string `json:"with_stats" form:"with_stats" mcp:"description=Include run statistics (true/false)"`
 }
 
 type GithubRunnerSetGetRequest struct {
-	Cluster   string `json:"cluster" form:"cluster" mcp:"description=Cluster name"`
-	Namespace string `json:"namespace" form:"namespace" uri:"namespace" binding:"required" mcp:"description=Runner set namespace,required"`
-	Name      string `json:"name" form:"name" uri:"name" binding:"required" mcp:"description=Runner set name,required"`
+	Cluster   string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
+	Namespace string `json:"namespace" form:"namespace" param:"namespace" binding:"required" mcp:"description=Runner set namespace,required"`
+	Name      string `json:"name" form:"name" param:"name" binding:"required" mcp:"description=Runner set name,required"`
 }
 
 type GithubRunnerSetByIDRequest struct {
-	Cluster string `json:"cluster" form:"cluster" mcp:"description=Cluster name"`
-	ID      string `json:"id" form:"id" uri:"id" binding:"required" mcp:"description=Runner set ID,required"`
+	Cluster string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
+	ID      string `json:"id" form:"id" param:"id" binding:"required" mcp:"description=Runner set ID,required"`
 }
 
 type GithubRunnerSetRunsRequest struct {
-	Cluster string `json:"cluster" form:"cluster" mcp:"description=Cluster name"`
-	ID      string `json:"id" form:"id" uri:"id" binding:"required" mcp:"description=Runner set ID,required"`
+	Cluster string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
+	ID      string `json:"id" form:"id" param:"id" binding:"required" mcp:"description=Runner set ID,required"`
 	Status  string `json:"status" form:"status" mcp:"description=Filter by status"`
 	Offset  int    `json:"offset" form:"offset" mcp:"description=Pagination offset"`
 	Limit   int    `json:"limit" form:"limit" mcp:"description=Pagination limit (max 100)"`
 }
 
 type GithubRunnerSetConfigRequest struct {
-	Cluster string `json:"cluster" form:"cluster" mcp:"description=Cluster name"`
-	ID      string `json:"id" form:"id" uri:"id" binding:"required" mcp:"description=Runner set ID,required"`
+	Cluster string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
+	ID      string `json:"id" form:"id" param:"id" binding:"required" mcp:"description=Runner set ID,required"`
 }
 
 type GithubRunnerSetStatsRequest struct {
-	Cluster string `json:"cluster" form:"cluster" mcp:"description=Cluster name"`
-	ID      string `json:"id" form:"id" uri:"id" binding:"required" mcp:"description=Runner set ID,required"`
+	Cluster string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
+	ID      string `json:"id" form:"id" param:"id" binding:"required" mcp:"description=Runner set ID,required"`
 }
 
 // ======================== Response Types ========================

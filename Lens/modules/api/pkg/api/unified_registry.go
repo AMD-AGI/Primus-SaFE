@@ -36,11 +36,11 @@ func init() {
 // ======================== Request Types ========================
 
 type RegistryConfigRequest struct {
-	Cluster string `json:"cluster" form:"cluster" mcp:"description=Cluster name"`
+	Cluster string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
 }
 
 type RegistryImageURLRequest struct {
-	Cluster string `json:"cluster" form:"cluster" mcp:"description=Cluster name"`
+	Cluster string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
 	Image   string `json:"image" form:"image" binding:"required" mcp:"description=Image name (e.g. tracelens or perfetto_viewer),required"`
 	Tag     string `json:"tag" form:"tag" mcp:"description=Image tag (default: latest)"`
 }

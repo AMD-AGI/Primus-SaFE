@@ -57,7 +57,7 @@ func init() {
 // ======================== Request Types ========================
 
 type JobHistoriesListRequest struct {
-	Cluster       string `json:"cluster" form:"cluster" mcp:"description=Cluster name"`
+	Cluster       string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
 	JobName       string `json:"job_name" form:"job_name" mcp:"description=Filter by job name (supports fuzzy matching)"`
 	JobType       string `json:"job_type" form:"job_type" mcp:"description=Filter by job type"`
 	Status        string `json:"status" form:"status" mcp:"description=Filter by status (running/success/failed/cancelled/timeout)"`
@@ -73,18 +73,18 @@ type JobHistoriesListRequest struct {
 }
 
 type RecentFailuresRequest struct {
-	Cluster string `json:"cluster" form:"cluster" mcp:"description=Cluster name"`
+	Cluster string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
 	Limit   int    `json:"limit" form:"limit" mcp:"description=Number of records to return (default 10 max 100)"`
 }
 
 type JobStatisticsRequest struct {
-	Cluster string `json:"cluster" form:"cluster" mcp:"description=Cluster name"`
-	JobName string `json:"job_name" form:"job_name" uri:"job_name" binding:"required" mcp:"description=Job name,required"`
+	Cluster string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
+	JobName string `json:"job_name" form:"job_name" param:"job_name" binding:"required" mcp:"description=Job name,required"`
 }
 
 type JobHistoryDetailRequest struct {
-	Cluster string `json:"cluster" form:"cluster" mcp:"description=Cluster name"`
-	ID      string `json:"id" form:"id" uri:"id" binding:"required" mcp:"description=Job execution history ID,required"`
+	Cluster string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
+	ID      string `json:"id" form:"id" param:"id" binding:"required" mcp:"description=Job execution history ID,required"`
 }
 
 // ======================== Response Types ========================
