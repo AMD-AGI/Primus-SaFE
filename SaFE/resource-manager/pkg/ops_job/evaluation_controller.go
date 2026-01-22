@@ -496,7 +496,8 @@ func (r *EvaluationJobReconciler) updateReportPath(ctx context.Context, taskId s
 	// S3 key for the evaluation report (same format as in generateEvaluationWorkload)
 	s3Key := fmt.Sprintf("evaluations/%s/report.json", taskId)
 
-	if err := r.dbClient.UpdateEvaluationTaskResult(ctx, taskId, "", s3Key); err != nil {
+	// Pass "{}" for empty result_summary since the field is JSONB type
+	if err := r.dbClient.UpdateEvaluationTaskResult(ctx, taskId, "{}", s3Key); err != nil {
 		klog.ErrorS(err, "failed to update evaluation task result",
 			"taskId", taskId,
 			"s3Key", s3Key)
