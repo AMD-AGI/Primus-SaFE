@@ -361,6 +361,12 @@ func GetGroupId(obj metav1.Object) string {
 	return GetAnnotation(obj, GroupIdAnnotation)
 }
 
+// IsWorkloadStickyNodes checks if the workload has sticky node feature enabled.
+// When enabled, the workload will try to use the same nodes during retries/failovers.
+func IsEnableStickyNodes(obj metav1.Object) bool {
+	return GetAnnotation(obj, WorkloadStickyNodesAnnotation) == TrueStr
+}
+
 // atoi converts a string to an integer, returning 0 if conversion fails.
 func atoi(str string) int {
 	if str == "" {

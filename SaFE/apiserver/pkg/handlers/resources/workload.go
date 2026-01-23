@@ -797,6 +797,9 @@ func (h *Handler) generateWorkload(ctx context.Context,
 	if req.Privileged {
 		v1.SetAnnotation(workload, v1.WorkloadPrivilegedAnnotation, v1.TrueStr)
 	}
+	if req.StickyNodes {
+		v1.SetAnnotation(workload, v1.WorkloadStickyNodesAnnotation, v1.TrueStr)
+	}
 	return workload, nil
 }
 

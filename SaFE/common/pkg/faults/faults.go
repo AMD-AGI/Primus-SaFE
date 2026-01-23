@@ -8,6 +8,8 @@ package faults
 import (
 	"strings"
 
+	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/slice"
 	corev1 "k8s.io/api/core/v1"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
@@ -24,15 +26,11 @@ func GenerateFaultId(adminNodeId, monitorId string) string {
 // GenerateTaintKey creates a taint key by prefixing the given ID with PrimusSafe prefix.
 func GenerateTaintKey(id string) string {
 	key := v1.PrimusSafePrefix + id
-	return stringutil.NormalizeName(key)
-}
-
-// GetIdByTaintKey extracts the ID from a taint key by removing the PrimusSafe prefix.
-func GetIdByTaintKey(taintKey string) string {
-	if len(taintKey) <= len(v1.PrimusSafePrefix) {
-		return ""
+	key = stringutil.NormalizeName(key)
+	if len(key) > commonutils.MaxNameLength {
+		key = key[0:commonutils.MaxNameLength]
 	}
-	return taintKey[len(v1.PrimusSafePrefix):]
+	return key
 }
 
 // IsTaintsEqualIgnoreOrder compares two taint slices for equality, ignoring the order of elements.
@@ -72,4 +70,12 @@ func GetCustomerTaints(taints []corev1.Taint) []corev1.Taint {
 		}
 	}
 	return result
+}
+
+// IsSystemReservedTaint checks if the given taint key belongs to system-reserved taints
+// These are special taints managed internally by the system for specific purposes like monitoring
+func IsSystemReservedTaint(taintKey string) bool {
+	id := v1.GetIdByTaintKey(taintKey)
+	allIds := []string{v1.AddonMonitorId, v1.StickyNodesMonitorId}
+	return slice.Contains(allIds, id)
 }

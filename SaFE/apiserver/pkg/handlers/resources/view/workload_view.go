@@ -35,6 +35,8 @@ type CreateWorkloadRequest struct {
 	Preheat bool `json:"preheat,omitempty"`
 	// Whether to run the workload in privileged mode, only accessible to administrators
 	Privileged bool `json:"privileged,omitempty"`
+	// When enabled, the workload will try to use the same nodes during retries/failovers.
+	StickyNodes bool `json:"StickyNodes,omitempty"`
 	// The workload will be created using that specific user ID and name. This field is only accessible to administrators.
 	UserEntity *UserEntity `json:"userEntity,omitempty"`
 }

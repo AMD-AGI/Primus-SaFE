@@ -43,11 +43,12 @@ data:
   sys_boot_args_306: '{"id":"306","toggle":"on"}'
   sys_docker_307: '{"id":"307","toggle":"on"}'
   sys_pcie_link_308: '{"id":"308","toggle":"on"}'
+  sys_csi_wekafs_309: '{"id":"309","action":"taint","toggle":"on"}'
   # Disk: 4XX
   nfs_check_401: '{"id":"401","action":"taint","toggle":"on"}'
   # primus system: 5XX, System reserved
   addon: '{"id": "501","action":"taint","toggle":"on"}'
-  preflight: '{"id": "502","action":"taint","toggle":"on"}'
+  sticky_nodes: '{"id": "502","action":"taint","toggle":"on"}'
   # k8s
   NotReady: '{"id":"NotReady","action":"taint","toggle":"on"}'
   DiskPressure: '{"id":"DiskPressure","action":"taint","toggle":"on"}'
