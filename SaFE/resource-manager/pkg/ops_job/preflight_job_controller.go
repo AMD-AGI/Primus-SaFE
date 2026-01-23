@@ -182,7 +182,6 @@ func (r *PreflightJobReconciler) generatePreflightWorkload(ctx context.Context, 
 			},
 		},
 		Spec: v1.WorkloadSpec{
-			EntryPoints: []string{*job.Spec.EntryPoint},
 			GroupVersionKind: v1.GroupVersionKind{
 				Version: common.DefaultVersion,
 				Kind:    common.PytorchJobKind,
@@ -193,13 +192,16 @@ func (r *PreflightJobReconciler) generatePreflightWorkload(ctx context.Context, 
 				v1.K8sHostName: nodeNames,
 			},
 			Workspace: v1.GetWorkspaceId(job),
-			Images:    []string{*job.Spec.Image},
 			Env:       job.Spec.Env,
 			Hostpath:  job.Spec.Hostpath,
 		},
 	}
 
 	workload.Spec.Resources = commonworkload.ConvertResourceToList(*job.Spec.Resource, workload.SpecKind())
+	for i := 0; i < len(workload.Spec.Resources); i++ {
+		workload.Spec.EntryPoints = append(workload.Spec.EntryPoints, *job.Spec.EntryPoint)
+		workload.Spec.Images = append(workload.Spec.Images, *job.Spec.Image)
+	}
 	if err := controllerutil.SetControllerReference(job, workload, r.Client.Scheme()); err != nil {
 		return nil, err
 	}
