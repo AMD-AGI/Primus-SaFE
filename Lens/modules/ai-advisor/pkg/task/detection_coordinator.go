@@ -950,23 +950,59 @@ func (c *DetectionCoordinator) createInferenceMetricsScrapeTask(
 		}
 	}
 
+	// Get pod info for this workload
+	podInfo, err := c.getInferencePodInfo(ctx, workloadUID)
+	if err != nil {
+		log.Warnf("Failed to get pod info for workload %s: %v", workloadUID, err)
+		// Continue with empty pod info - inference-metrics-exporter can try to fill it later
+	}
+
+	// Get metrics endpoint configuration based on framework
+	metricsPort, metricsPath := c.getInferenceMetricsEndpoint(detection.Framework)
+
+	// Build ext data for the task
+	extData := model.ExtType{
+		// Task configuration
+		"framework":       detection.Framework,
+		"scrape_interval": 15, // default 15 seconds
+
+		// Metrics endpoint configuration
+		"metrics_port": metricsPort,
+		"metrics_path": metricsPath,
+
+		// Task metadata
+		"created_by":   "detection_coordinator",
+		"created_at":   time.Now().Format(time.RFC3339),
+		"triggered_by": "framework_detection_v2",
+
+		// Detection info
+		"detection_confidence": detection.Confidence,
+	}
+
+	// Add pod info if available
+	if podInfo != nil {
+		extData["pod_ip"] = podInfo.IP
+		extData["namespace"] = podInfo.Namespace
+		extData["pod_name"] = podInfo.Name
+		extData["labels"] = map[string]string{
+			"namespace":     podInfo.Namespace,
+			"pod_name":      podInfo.Name,
+			"workload_uid":  workloadUID,
+			"workload_name": podInfo.WorkloadName,
+			"framework":     detection.Framework,
+		}
+		log.Infof("Creating inference metrics scrape task for workload %s (framework=%s, pod=%s/%s, ip=%s, port=%d)",
+			workloadUID, detection.Framework, podInfo.Namespace, podInfo.Name, podInfo.IP, metricsPort)
+	} else {
+		log.Infof("Creating inference metrics scrape task for workload %s (framework=%s, no pod info yet)",
+			workloadUID, detection.Framework)
+	}
+
 	task := &model.WorkloadTaskState{
 		WorkloadUID: workloadUID,
 		TaskType:    "inference_metrics_scrape",
 		Status:      constant.TaskStatusPending,
-		Ext: model.ExtType{
-			// Task configuration
-			"framework":       detection.Framework,
-			"scrape_interval": 15, // default 15 seconds
-
-			// Task metadata
-			"created_by":   "detection_coordinator",
-			"created_at":   time.Now().Format(time.RFC3339),
-			"triggered_by": "framework_detection_v2",
-
-			// Detection info
-			"detection_confidence": detection.Confidence,
-		},
+		Ext:         extData,
 	}
 
 	if err := c.taskFacade.UpsertTask(ctx, task); err != nil {
@@ -974,4 +1010,104 @@ func (c *DetectionCoordinator) createInferenceMetricsScrapeTask(
 	}
 
 	return nil
+}
+
+// InferencePodInfo contains pod information for inference services
+type InferencePodInfo struct {
+	Name         string
+	Namespace    string
+	IP           string
+	WorkloadName string
+}
+
+// getInferencePodInfo retrieves pod information for an inference workload
+func (c *DetectionCoordinator) getInferencePodInfo(ctx context.Context, workloadUID string) (*InferencePodInfo, error) {
+	workloadFacade := database.GetFacade().GetWorkload()
+	podFacade := database.GetFacade().GetPod()
+
+	// Try to find pods through workload_pod_reference table
+	podRefs, err := workloadFacade.ListWorkloadPodReferenceByWorkloadUid(ctx, workloadUID)
+	if err != nil {
+		log.Warnf("Failed to query workload_pod_reference for workload %s: %v", workloadUID, err)
+	}
+
+	var pods []*model.GpuPods
+	if len(podRefs) > 0 {
+		// Query pod details through pod UID list
+		for _, ref := range podRefs {
+			pod, err := podFacade.GetGpuPodByUid(ctx, ref.PodUID)
+			if err != nil || pod == nil {
+				continue
+			}
+			if !pod.DeletedAt.Valid && pod.Running && pod.IP != "" {
+				pods = append(pods, pod)
+			}
+		}
+	}
+
+	// If no pods found through references, try child workloads
+	if len(pods) == 0 {
+		childWorkloads, err := workloadFacade.ListChildrenWorkloadByParentUid(ctx, workloadUID)
+		if err != nil {
+			log.Warnf("Failed to query child workloads for %s: %v", workloadUID, err)
+		} else if len(childWorkloads) > 0 {
+			for _, child := range childWorkloads {
+				childPodInfo, err := c.getInferencePodInfo(ctx, child.UID)
+				if err == nil && childPodInfo != nil && childPodInfo.IP != "" {
+					return childPodInfo, nil
+				}
+			}
+		}
+	}
+
+	if len(pods) == 0 {
+		return nil, nil
+	}
+
+	// Get workload name
+	workloadName := ""
+	workload, err := workloadFacade.GetGpuWorkloadByUid(ctx, workloadUID)
+	if err == nil && workload != nil {
+		workloadName = workload.Name
+	}
+
+	// Return the first running pod with an IP
+	for _, pod := range pods {
+		if pod.IP != "" && pod.Running {
+			return &InferencePodInfo{
+				Name:         pod.Name,
+				Namespace:    pod.Namespace,
+				IP:           pod.IP,
+				WorkloadName: workloadName,
+			}, nil
+		}
+	}
+
+	return nil, nil
+}
+
+// getInferenceMetricsEndpoint returns the metrics port and path for an inference framework
+func (c *DetectionCoordinator) getInferenceMetricsEndpoint(frameworkName string) (port int, path string) {
+	// Default values
+	port = 8000
+	path = "/metrics"
+
+	// Framework-specific defaults
+	frameworkLower := strings.ToLower(frameworkName)
+	switch {
+	case strings.Contains(frameworkLower, "vllm"):
+		port = 8000
+		path = "/metrics"
+	case strings.Contains(frameworkLower, "tgi"):
+		port = 8080
+		path = "/metrics"
+	case strings.Contains(frameworkLower, "triton"):
+		port = 8002
+		path = "/metrics"
+	case strings.Contains(frameworkLower, "tensorrt"):
+		port = 8000
+		path = "/metrics"
+	}
+
+	return port, path
 }
