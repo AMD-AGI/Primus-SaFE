@@ -239,7 +239,7 @@ func handleGpuAggNamespaces(ctx context.Context, req *GpuAggNamespacesRequest) (
 	}
 
 	// Load config for namespace filtering
-	cfg, configErr := getGpuAggregationConfig(nil, clients.ClusterName)
+	cfg, configErr := getGpuAggregationConfig(ctx, clients.ClusterName)
 	if configErr != nil {
 		log.Warnf("Failed to load GPU aggregation config for namespace filtering: %v", configErr)
 	}
@@ -247,7 +247,7 @@ func handleGpuAggNamespaces(ctx context.Context, req *GpuAggNamespacesRequest) (
 	excludeNamespaces := getExcludeNamespacesList(cfg)
 
 	namespaces, err := database.GetFacadeForCluster(clients.ClusterName).GetGpuAggregation().
-		GetDistinctNamespacesWithExclusion(nil, startTime, endTime, excludeNamespaces)
+		GetDistinctNamespacesWithExclusion(ctx, startTime, endTime, excludeNamespaces)
 	if err != nil {
 		return nil, errors.WrapError(err, "Failed to get namespaces", errors.CodeDatabaseError)
 	}
@@ -274,7 +274,7 @@ func handleGpuAggDimensionKeys(ctx context.Context, req *GpuAggDimensionKeysRequ
 	}
 
 	keys, err := database.GetFacadeForCluster(clients.ClusterName).GetGpuAggregation().
-		GetDistinctDimensionKeys(nil, req.DimensionType, startTime, endTime)
+		GetDistinctDimensionKeys(ctx, req.DimensionType, startTime, endTime)
 	if err != nil {
 		return nil, errors.WrapError(err, "Failed to get dimension keys", errors.CodeDatabaseError)
 	}
@@ -301,7 +301,7 @@ func handleGpuAggDimensionValues(ctx context.Context, req *GpuAggDimensionValues
 	}
 
 	values, err := database.GetFacadeForCluster(clients.ClusterName).GetGpuAggregation().
-		GetDistinctDimensionValues(nil, req.DimensionType, req.DimensionKey, startTime, endTime)
+		GetDistinctDimensionValues(ctx, req.DimensionType, req.DimensionKey, startTime, endTime)
 	if err != nil {
 		return nil, errors.WrapError(err, "Failed to get dimension values", errors.CodeDatabaseError)
 	}
@@ -335,7 +335,7 @@ func handleGpuAggClusterHourlyStats(ctx context.Context, req *GpuAggClusterHourl
 	}
 
 	result, err := database.GetFacadeForCluster(clients.ClusterName).GetGpuAggregation().
-		GetClusterHourlyStatsPaginated(nil, startTime, endTime, opts)
+		GetClusterHourlyStatsPaginated(ctx, startTime, endTime, opts)
 	if err != nil {
 		return nil, errors.WrapError(err, "Failed to get cluster hourly stats", errors.CodeDatabaseError)
 	}
@@ -373,16 +373,16 @@ func handleGpuAggNamespaceHourlyStats(ctx context.Context, req *GpuAggNamespaceH
 		OrderDirection: req.OrderDirection,
 	}
 
-	cfg, _ := getGpuAggregationConfig(nil, clients.ClusterName)
+	cfg, _ := getGpuAggregationConfig(ctx, clients.ClusterName)
 	excludeNamespaces := getExcludeNamespacesList(cfg)
 
 	var result *database.PaginatedResult
 	facade := database.GetFacadeForCluster(clients.ClusterName).GetGpuAggregation()
 
 	if req.Namespace != "" {
-		result, err = facade.GetNamespaceHourlyStatsPaginated(nil, req.Namespace, startTime, endTime, opts)
+		result, err = facade.GetNamespaceHourlyStatsPaginated(ctx, req.Namespace, startTime, endTime, opts)
 	} else {
-		result, err = facade.ListNamespaceHourlyStatsPaginatedWithExclusion(nil, startTime, endTime, excludeNamespaces, opts)
+		result, err = facade.ListNamespaceHourlyStatsPaginatedWithExclusion(ctx, startTime, endTime, excludeNamespaces, opts)
 	}
 
 	if err != nil {
@@ -426,10 +426,10 @@ func handleGpuAggLabelHourlyStats(ctx context.Context, req *GpuAggLabelHourlySta
 	facade := database.GetFacadeForCluster(clients.ClusterName).GetGpuAggregation()
 
 	if req.DimensionValue != "" {
-		result, err = facade.GetLabelHourlyStatsPaginated(nil, req.DimensionType,
+		result, err = facade.GetLabelHourlyStatsPaginated(ctx, req.DimensionType,
 			req.DimensionKey, req.DimensionValue, startTime, endTime, opts)
 	} else {
-		result, err = facade.ListLabelHourlyStatsByKeyPaginated(nil, req.DimensionType,
+		result, err = facade.ListLabelHourlyStatsByKeyPaginated(ctx, req.DimensionType,
 			req.DimensionKey, startTime, endTime, opts)
 	}
 
@@ -470,7 +470,7 @@ func handleGpuAggWorkloadHourlyStats(ctx context.Context, req *GpuAggWorkloadHou
 		OrderDirection: req.OrderDirection,
 	}
 
-	cfg, _ := getGpuAggregationConfig(nil, clients.ClusterName)
+	cfg, _ := getGpuAggregationConfig(ctx, clients.ClusterName)
 
 	// Check if the requested namespace should be excluded
 	if req.Namespace != "" && cfg != nil && shouldExcludeNamespace(req.Namespace, cfg) {
@@ -486,7 +486,7 @@ func handleGpuAggWorkloadHourlyStats(ctx context.Context, req *GpuAggWorkloadHou
 	excludeNamespaces := getExcludeNamespacesList(cfg)
 
 	result, err := database.GetFacadeForCluster(clients.ClusterName).GetGpuAggregation().
-		GetWorkloadHourlyStatsPaginatedWithExclusion(nil, req.Namespace, req.WorkloadName, req.WorkloadType, startTime, endTime, excludeNamespaces, opts)
+		GetWorkloadHourlyStatsPaginatedWithExclusion(ctx, req.Namespace, req.WorkloadName, req.WorkloadType, startTime, endTime, excludeNamespaces, opts)
 	if err != nil {
 		return nil, errors.WrapError(err, "Failed to get workload hourly stats", errors.CodeDatabaseError)
 	}
@@ -508,7 +508,7 @@ func handleGpuAggLatestSnapshot(ctx context.Context, req *GpuAggSnapshotRequest)
 	}
 
 	snapshot, err := database.GetFacadeForCluster(clients.ClusterName).GetGpuAggregation().
-		GetLatestSnapshot(nil)
+		GetLatestSnapshot(ctx)
 	if err != nil {
 		return nil, errors.WrapError(err, "Failed to get latest snapshot", errors.CodeDatabaseError)
 	}
@@ -546,7 +546,7 @@ func handleGpuAggSnapshots(ctx context.Context, req *GpuAggSnapshotsListRequest)
 	}
 
 	snapshots, err := database.GetFacadeForCluster(clients.ClusterName).GetGpuAggregation().
-		ListSnapshots(nil, startTime, endTime)
+		ListSnapshots(ctx, startTime, endTime)
 	if err != nil {
 		return nil, errors.WrapError(err, "Failed to list snapshots", errors.CodeDatabaseError)
 	}
