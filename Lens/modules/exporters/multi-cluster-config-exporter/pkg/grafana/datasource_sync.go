@@ -134,6 +134,11 @@ func (s *DatasourceSyncer) SyncDatasources(ctx context.Context, clusterConfigs m
 
 	log.Infof("Syncing Grafana datasources for %d clusters", len(clusterConfigs))
 
+	// Sync static datasources (primus-lens API)
+	if err := s.syncPrimusLensAPIDatasource(ctx); err != nil {
+		log.Warnf("Failed to sync primus-lens API datasource: %v", err)
+	}
+
 	for clusterName, config := range clusterConfigs {
 		if err := s.syncClusterDatasources(ctx, clusterName, config); err != nil {
 			log.Warnf("Failed to sync Grafana datasources for cluster %s: %v", clusterName, err)
@@ -160,6 +165,23 @@ func (s *DatasourceSyncer) syncClusterDatasources(ctx context.Context, clusterNa
 	}
 
 	return nil
+}
+
+// syncPrimusLensAPIDatasource creates or updates the primus-lens JSON API datasource
+func (s *DatasourceSyncer) syncPrimusLensAPIDatasource(ctx context.Context) error {
+	datasourceName := "primus-lens-api"
+	url := fmt.Sprintf("http://primus-lens-api.%s.svc.cluster.local:8989", s.namespace)
+
+	datasource := s.buildDatasourceObject(
+		datasourceName,
+		"marcusolsson-json-datasource", // JSON API plugin type
+		url,
+		"default", // cluster label for static datasource
+		nil,       // no special jsonData needed
+		nil,
+	)
+
+	return s.createOrUpdateDatasource(ctx, datasource)
 }
 
 // syncPrometheusDatasource creates or updates a Prometheus datasource for a cluster
