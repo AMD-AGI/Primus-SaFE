@@ -4,6 +4,7 @@
 package github_workflow_collector
 
 import (
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -516,17 +517,19 @@ func ConvertDBSchemaToDefinition(dbSchema *model.GithubWorkflowMetricSchemas) (*
 	}
 
 	// Check if using new column-based format
-	if len(dbSchema.Columns) > 0 {
+	if dbSchema.ColumnDefinitions != nil && len(dbSchema.ColumnDefinitions) > 0 {
 		var columns map[string]ColumnConfig
-		if err := dbSchema.Columns.UnmarshalTo(&columns); err != nil {
+		colBytes, _ := json.Marshal(dbSchema.ColumnDefinitions)
+		if err := json.Unmarshal(colBytes, &columns); err != nil {
 			log.Warnf("Failed to parse columns, falling back to legacy format: %v", err)
 		} else {
 			schema.Columns = columns
 		}
 
-		if len(dbSchema.DateColumnConfig) > 0 {
+		if dbSchema.DateColumnConfig != nil && len(dbSchema.DateColumnConfig) > 0 {
 			var dateColumnConfig DateColumnConfig
-			if err := dbSchema.DateColumnConfig.UnmarshalTo(&dateColumnConfig); err != nil {
+			dateColBytes, _ := json.Marshal(dbSchema.DateColumnConfig)
+			if err := json.Unmarshal(dateColBytes, &dateColumnConfig); err != nil {
 				log.Warnf("Failed to parse date_column_config: %v", err)
 			} else {
 				schema.DateColumnConfig = &dateColumnConfig

@@ -46,18 +46,18 @@ func init() {
 // ======================== Request Types ========================
 
 type SysConfigListRequest struct {
-	Cluster  string `json:"cluster" form:"cluster" mcp:"description=Cluster name"`
+	Cluster  string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
 	Category string `json:"category" form:"category" mcp:"description=Filter by category"`
 }
 
 type SysConfigGetRequest struct {
-	Cluster string `json:"cluster" form:"cluster" mcp:"description=Cluster name"`
-	Key     string `json:"key" form:"key" uri:"key" binding:"required" mcp:"description=Configuration key,required"`
+	Cluster string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
+	Key     string `json:"key" form:"key" param:"key" binding:"required" mcp:"description=Configuration key,required"`
 }
 
 type SysConfigHistoryRequest struct {
-	Cluster string `json:"cluster" form:"cluster" mcp:"description=Cluster name"`
-	Key     string `json:"key" form:"key" uri:"key" binding:"required" mcp:"description=Configuration key,required"`
+	Cluster string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
+	Key     string `json:"key" form:"key" param:"key" binding:"required" mcp:"description=Configuration key,required"`
 }
 
 // ======================== Handler Implementations ========================

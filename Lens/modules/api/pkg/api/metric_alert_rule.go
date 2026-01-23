@@ -92,13 +92,16 @@ func CreateMetricAlertRule(c *gin.Context) {
 	}
 
 	// Create rule model
-	var groupsExt dbmodel.ExtJSON
+	var groupsExt dbmodel.ExtType
 	groupsBytes, err := json.Marshal(req.Groups)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, rest.ErrorResp(c.Request.Context(), http.StatusBadRequest, "invalid groups format: "+err.Error(), nil))
 		return
 	}
-	groupsExt = dbmodel.ExtJSON(groupsBytes)
+	if err := json.Unmarshal(groupsBytes, &groupsExt); err != nil {
+		c.JSON(http.StatusBadRequest, rest.ErrorResp(c.Request.Context(), http.StatusBadRequest, "invalid groups format: "+err.Error(), nil))
+		return
+	}
 
 	var labelsExt dbmodel.ExtType
 	if req.Labels != nil {
@@ -343,7 +346,12 @@ func UpdateMetricAlertRule(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, rest.ErrorResp(c.Request.Context(), http.StatusBadRequest, "invalid groups format: "+err.Error(), nil))
 			return
 		}
-		rule.Groups = dbmodel.ExtJSON(groupsBytes)
+		var groupsExt dbmodel.ExtType
+		if err := json.Unmarshal(groupsBytes, &groupsExt); err != nil {
+			c.JSON(http.StatusBadRequest, rest.ErrorResp(c.Request.Context(), http.StatusBadRequest, "invalid groups format: "+err.Error(), nil))
+			return
+		}
+		rule.Groups = groupsExt
 	}
 
 	if req.Labels != nil {

@@ -37,7 +37,6 @@ type NotificationChannelResponse struct {
 	CreatedAt   time.Time              `json:"created_at"`
 	UpdatedAt   time.Time              `json:"updated_at"`
 	CreatedBy   string                 `json:"created_by"`
-	UpdatedBy   string                 `json:"updated_by"`
 }
 
 // NotificationChannelListResponse represents a list response
@@ -58,7 +57,6 @@ func toNotificationChannelResponse(channel *dbmodel.NotificationChannels) *Notif
 		CreatedAt:   channel.CreatedAt,
 		UpdatedAt:   channel.UpdatedAt,
 		CreatedBy:   channel.CreatedBy,
-		UpdatedBy:   channel.UpdatedBy,
 	}
 	return resp
 }
@@ -274,13 +272,6 @@ func UpdateNotificationChannel(c *gin.Context) {
 		}
 	}
 
-	// Get user from context if available
-	updatedBy, _ := c.Get("user")
-	updatedByStr := ""
-	if updatedBy != nil {
-		updatedByStr = fmt.Sprintf("%v", updatedBy)
-	}
-
 	// Convert config to ExtType
 	var configExt dbmodel.ExtType
 	configBytes, err := json.Marshal(req.Config)
@@ -300,7 +291,6 @@ func UpdateNotificationChannel(c *gin.Context) {
 	channel.Config = configExt
 	channel.Description = req.Description
 	channel.UpdatedAt = time.Now()
-	channel.UpdatedBy = updatedByStr
 
 	if err := facade.UpdateNotificationChannel(c.Request.Context(), channel); err != nil {
 		log.GlobalLogger().WithContext(c).Errorf("Failed to update notification channel: %v", err)

@@ -41,13 +41,13 @@ func init() {
 // ======================== Request Types ========================
 
 type PySpyTaskGetRequest struct {
-	Cluster string `json:"cluster" form:"cluster" mcp:"description=Cluster name"`
-	ID      string `json:"id" form:"id" uri:"id" binding:"required" mcp:"description=Task ID,required"`
+	Cluster string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
+	ID      string `json:"id" form:"id" param:"id" binding:"required" mcp:"description=Task ID,required"`
 }
 
 type PySpyTaskFilesRequest struct {
-	Cluster string `json:"cluster" form:"cluster" mcp:"description=Cluster name"`
-	TaskID  string `json:"task_id" form:"task_id" uri:"task_id" binding:"required" mcp:"description=Task ID,required"`
+	Cluster string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
+	TaskID  string `json:"task_id" form:"task_id" param:"task_id" binding:"required" mcp:"description=Task ID,required"`
 }
 
 // ======================== Response Types ========================

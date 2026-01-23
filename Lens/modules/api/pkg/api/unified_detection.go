@@ -113,11 +113,11 @@ func init() {
 // ======================== Request Types ========================
 
 type DetectionSummaryRequest struct {
-	Cluster string `json:"cluster" form:"cluster" mcp:"description=Cluster name"`
+	Cluster string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
 }
 
 type DetectionStatusesListRequest struct {
-	Cluster        string `json:"cluster" form:"cluster" mcp:"description=Cluster name"`
+	Cluster        string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
 	Status         string `json:"status" form:"status" mcp:"description=Filter by detection status"`
 	DetectionState string `json:"state" form:"state" mcp:"description=Filter by detection state"`
 	Page           int    `json:"page" form:"page" mcp:"description=Page number (default 1)"`
@@ -125,34 +125,34 @@ type DetectionStatusesListRequest struct {
 }
 
 type DetectionStatusDetailRequest struct {
-	Cluster     string `json:"cluster" form:"cluster" mcp:"description=Cluster name"`
-	WorkloadUID string `json:"workload_uid" form:"workload_uid" uri:"workload_uid" binding:"required" mcp:"description=Workload UID,required"`
+	Cluster     string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
+	WorkloadUID string `json:"workload_uid" form:"workload_uid" param:"workload_uid" binding:"required" mcp:"description=Workload UID,required"`
 }
 
 type DetectionCoverageRequest struct {
-	Cluster     string `json:"cluster" form:"cluster" mcp:"description=Cluster name"`
-	WorkloadUID string `json:"workload_uid" form:"workload_uid" uri:"workload_uid" binding:"required" mcp:"description=Workload UID,required"`
+	Cluster     string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
+	WorkloadUID string `json:"workload_uid" form:"workload_uid" param:"workload_uid" binding:"required" mcp:"description=Workload UID,required"`
 }
 
 type DetectionLogGapRequest struct {
-	Cluster     string `json:"cluster" form:"cluster" mcp:"description=Cluster name"`
-	WorkloadUID string `json:"workload_uid" form:"workload_uid" uri:"workload_uid" binding:"required" mcp:"description=Workload UID,required"`
+	Cluster     string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
+	WorkloadUID string `json:"workload_uid" form:"workload_uid" param:"workload_uid" binding:"required" mcp:"description=Workload UID,required"`
 }
 
 type DetectionTasksRequest struct {
-	WorkloadUID string `json:"workload_uid" form:"workload_uid" uri:"workload_uid" binding:"required" mcp:"description=Workload UID,required"`
+	WorkloadUID string `json:"workload_uid" form:"workload_uid" param:"workload_uid" binding:"required" mcp:"description=Workload UID,required"`
 }
 
 type DetectionEvidenceRequest struct {
-	Cluster     string `json:"cluster" form:"cluster" mcp:"description=Cluster name"`
-	WorkloadUID string `json:"workload_uid" form:"workload_uid" uri:"workload_uid" binding:"required" mcp:"description=Workload UID,required"`
+	Cluster     string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
+	WorkloadUID string `json:"workload_uid" form:"workload_uid" param:"workload_uid" binding:"required" mcp:"description=Workload UID,required"`
 	Source      string `json:"source" form:"source" mcp:"description=Filter by evidence source"`
 }
 
 type DetectionFrameworksListRequest struct{}
 
 type DetectionFrameworkConfigRequest struct {
-	Name string `json:"name" form:"name" uri:"name" binding:"required" mcp:"description=Framework name,required"`
+	Name string `json:"name" form:"name" param:"name" binding:"required" mcp:"description=Framework name,required"`
 }
 
 type DetectionCacheTTLRequest struct{}

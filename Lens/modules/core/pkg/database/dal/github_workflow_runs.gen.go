@@ -65,21 +65,21 @@ type githubWorkflowRuns struct {
 
 	ALL                   field.Asterisk
 	ID                    field.Int64
-	ConfigID              field.Int64
-	WorkloadUID           field.String
-	WorkloadName          field.String
-	WorkloadNamespace     field.String
-	GithubRunID           field.Int64
+	ConfigID              field.Int64  // Associated configuration ID
+	WorkloadUID           field.String // Lens workload UID (from gpu_workloads table)
+	WorkloadName          field.String // Workload name
+	WorkloadNamespace     field.String // Workload namespace
+	GithubRunID           field.Int64  // GitHub workflow run ID (from annotations)
 	GithubRunNumber       field.Int32
-	GithubJobID           field.Int64
+	GithubJobID           field.Int64 // GitHub job ID (from annotations)
 	HeadSha               field.String
 	HeadBranch            field.String
 	WorkflowName          field.String
-	Status                field.String
-	TriggerSource         field.String
-	FilesFound            field.Int32
-	FilesProcessed        field.Int32
-	MetricsCount          field.Int32
+	Status                field.String // Processing status: pending, collecting, extracting, completed, failed, skipped
+	TriggerSource         field.String // How this run was triggered: realtime, backfill, manual
+	FilesFound            field.Int32  // Number of files matching patterns
+	FilesProcessed        field.Int32  // Number of files successfully processed
+	MetricsCount          field.Int32  // Number of metric records extracted
 	WorkloadStartedAt     field.Time
 	WorkloadCompletedAt   field.Time
 	CollectionStartedAt   field.Time
@@ -88,9 +88,9 @@ type githubWorkflowRuns struct {
 	RetryCount            field.Int32
 	CreatedAt             field.Time
 	UpdatedAt             field.Time
-	RunnerSetID           field.Int64
-	RunnerSetName         field.String
-	RunnerSetNamespace    field.String
+	RunnerSetID           field.Int64  // Direct reference to github_runner_sets.id
+	RunnerSetName         field.String // Denormalized runner set name for efficient querying
+	RunnerSetNamespace    field.String // Denormalized runner set namespace for efficient querying
 
 	fieldMap map[string]field.Expr
 }

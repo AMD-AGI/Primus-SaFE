@@ -13,14 +13,14 @@ const TableNameGithubWorkflowMetrics = "github_workflow_metrics"
 // GithubWorkflowMetrics mapped from table <github_workflow_metrics>
 type GithubWorkflowMetrics struct {
 	ID         int64     `gorm:"column:id;primaryKey;autoIncrement:true" json:"id"`
-	ConfigID   int64     `gorm:"column:config_id;not null" json:"config_id"`
-	RunID      int64     `gorm:"column:run_id;not null" json:"run_id"`
-	SchemaID   int64     `gorm:"column:schema_id;not null" json:"schema_id"`
-	Timestamp  time.Time `gorm:"column:timestamp;not null" json:"timestamp"`
-	SourceFile string    `gorm:"column:source_file" json:"source_file"`
-	Dimensions ExtType   `gorm:"column:dimensions;not null;default:{}" json:"dimensions"`
-	Metrics    ExtType   `gorm:"column:metrics;not null;default:{}" json:"metrics"`
-	RawData    ExtType   `gorm:"column:raw_data" json:"raw_data"`
+	ConfigID   int64     `gorm:"column:config_id;not null;comment:Configuration ID" json:"config_id"`                                                   // Configuration ID
+	RunID      int64     `gorm:"column:run_id;not null;comment:Associated workflow run ID" json:"run_id"`                                               // Associated workflow run ID
+	SchemaID   int64     `gorm:"column:schema_id;not null;comment:Schema used for extraction" json:"schema_id"`                                         // Schema used for extraction
+	Timestamp  time.Time `gorm:"column:timestamp;not null;comment:Metric timestamp (workflow completion time or extracted from data)" json:"timestamp"` // Metric timestamp (workflow completion time or extracted from data)
+	SourceFile string    `gorm:"column:source_file;comment:Source file path from which metrics were extracted" json:"source_file"`                      // Source file path from which metrics were extracted
+	Dimensions ExtType   `gorm:"column:dimensions;not null;default:{};comment:JSONB object of dimension key-value pairs" json:"dimensions"`             // JSONB object of dimension key-value pairs
+	Metrics    ExtType   `gorm:"column:metrics;not null;default:{};comment:JSONB object of metric key-value pairs (numeric)" json:"metrics"`            // JSONB object of metric key-value pairs (numeric)
+	RawData    ExtType   `gorm:"column:raw_data;comment:Original raw data for debugging (optional)" json:"raw_data"`                                    // Original raw data for debugging (optional)
 	CreatedAt  time.Time `gorm:"column:created_at;not null;default:now()" json:"created_at"`
 }
 
