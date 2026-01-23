@@ -68,10 +68,11 @@ func (r *TaskReceiver) Start(ctx context.Context) error {
 	}
 
 	// Start background goroutines
-	r.wg.Add(3)
+	r.wg.Add(4)
 	go r.pollAndAcquireTasks()
 	go r.renewLocks()
 	go r.cleanupStaleLocks()
+	go r.cleanupNonRunningWorkloadTasks()
 
 	return nil
 }
@@ -284,6 +285,79 @@ func (r *TaskReceiver) cleanupStaleLocks() {
 				log.Infof("Released %d stale locks", count)
 			}
 		}
+	}
+}
+
+// cleanupNonRunningWorkloadTasks periodically checks for tasks whose workloads are no longer running
+// and marks them as completed to free up capacity for active workloads
+func (r *TaskReceiver) cleanupNonRunningWorkloadTasks() {
+	defer r.wg.Done()
+
+	// Run every 2 minutes
+	ticker := time.NewTicker(2 * time.Minute)
+	defer ticker.Stop()
+
+	// Also run once at startup after a short delay
+	time.AfterFunc(30*time.Second, func() {
+		r.doCleanupNonRunningWorkloadTasks()
+	})
+
+	for {
+		select {
+		case <-r.ctx.Done():
+			return
+		case <-ticker.C:
+			r.doCleanupNonRunningWorkloadTasks()
+		}
+	}
+}
+
+// doCleanupNonRunningWorkloadTasks performs the actual cleanup of tasks for non-running workloads
+func (r *TaskReceiver) doCleanupNonRunningWorkloadTasks() {
+	// Get all inference_metrics_scrape tasks that are pending or running
+	tasks, err := r.facade.ListTasksByTypeAndStatuses(
+		r.ctx,
+		config.TaskTypeInferenceMetricsScrape,
+		[]string{constant.TaskStatusPending, constant.TaskStatusRunning},
+	)
+	if err != nil {
+		log.Errorf("Failed to list inference metrics tasks for cleanup: %v", err)
+		return
+	}
+
+	completedCount := 0
+	for _, task := range tasks {
+		// Get workload status
+		workload, err := r.workloadFacade.GetGpuWorkloadByUid(r.ctx, task.WorkloadUID)
+		if err != nil {
+			log.Debugf("Failed to get workload %s: %v", task.WorkloadUID, err)
+			continue
+		}
+
+		// If workload not found, deleted, or not running, complete the task
+		if workload == nil || workload.DeletedAt.Valid ||
+			(workload.Status != "Running" && workload.Status != "Pending") {
+			status := "unknown"
+			if workload != nil {
+				status = workload.Status
+			}
+
+			// Mark task as completed
+			if err := r.facade.UpdateTaskStatus(r.ctx, task.WorkloadUID, config.TaskTypeInferenceMetricsScrape, constant.TaskStatusCompleted); err != nil {
+				log.Errorf("Failed to complete task %s (workload status=%s): %v", task.WorkloadUID, status, err)
+				continue
+			}
+
+			completedCount++
+			log.Infof("Completed task %s: workload is no longer running (status=%s)", task.WorkloadUID, status)
+
+			// Remove from active tasks if present
+			r.removeActiveTask(task.WorkloadUID)
+		}
+	}
+
+	if completedCount > 0 {
+		log.Infof("Cleanup completed: marked %d tasks as completed (workloads no longer running)", completedCount)
 	}
 }
 
