@@ -18,7 +18,7 @@
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
-  "id": 17,
+  "id": 14,
   "links": [],
   "panels": [
     {
@@ -29,82 +29,53 @@
         "x": 0,
         "y": 0
       },
-      "id": 1000,
+      "id": 62,
       "panels": [],
-      "title": "Inference Performance",
+      "title": "Troubleshooting",
       "type": "row"
     },
     {
       "datasource": {
-        "type": "prometheus",
-        "uid": "${cluster}"
+        "type": "marcusolsson-json-datasource",
+        "uid": "primus-lens-api"
       },
       "fieldConfig": {
         "defaults": {
           "color": {
             "mode": "palette-classic"
           },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": 0
-              }
-            ]
-          },
-          "unit": "reqps"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 4,
-        "x": 0,
-        "y": 1
-      },
-      "id": 1001,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "percentChangeColorMode": "standard",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "showPercentChange": false,
-        "textMode": "auto",
-        "wideLayout": true
-      },
-      "pluginVersion": "12.1.0",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${cluster}"
-          },
-          "expr": "sum(rate(vllm:request_success_total{workload_uid=\"${workload_uid}\"}[5m]))",
-          "refId": "A"
-        }
-      ],
-      "title": "Request QPS",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${cluster}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
           },
           "mappings": [],
           "thresholds": {
@@ -113,1139 +84,29 @@
               {
                 "color": "green",
                 "value": 0
-              },
-              {
-                "color": "yellow",
-                "value": 10
               },
               {
                 "color": "red",
-                "value": 50
-              }
-            ]
-          },
-          "unit": "short"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 4,
-        "x": 4,
-        "y": 1
-      },
-      "id": 1002,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "percentChangeColorMode": "standard",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "showPercentChange": false,
-        "textMode": "auto",
-        "wideLayout": true
-      },
-      "pluginVersion": "12.1.0",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${cluster}"
-          },
-          "expr": "sum(vllm:num_requests_running{workload_uid=\"${workload_uid}\"})",
-          "refId": "A"
-        }
-      ],
-      "title": "Running Requests",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${cluster}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": 0
-              },
-              {
-                "color": "yellow",
-                "value": 5
-              },
-              {
-                "color": "red",
-                "value": 20
-              }
-            ]
-          },
-          "unit": "short"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 4,
-        "x": 8,
-        "y": 1
-      },
-      "id": 1003,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "percentChangeColorMode": "standard",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "showPercentChange": false,
-        "textMode": "auto",
-        "wideLayout": true
-      },
-      "pluginVersion": "12.1.0",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${cluster}"
-          },
-          "expr": "sum(vllm:num_requests_waiting{workload_uid=\"${workload_uid}\"})",
-          "refId": "A"
-        }
-      ],
-      "title": "Waiting Requests",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${cluster}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
-          "max": 100,
-          "min": 0,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": 0
-              },
-              {
-                "color": "yellow",
-                "value": 70
-              },
-              {
-                "color": "red",
-                "value": 90
-              }
-            ]
-          },
-          "unit": "percent"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 4,
-        "x": 12,
-        "y": 1
-      },
-      "id": 1004,
-      "options": {
-        "minVizHeight": 75,
-        "minVizWidth": 75,
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "showThresholdLabels": false,
-        "showThresholdMarkers": true,
-        "sizing": "auto"
-      },
-      "pluginVersion": "12.1.0",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${cluster}"
-          },
-          "expr": "avg(vllm:gpu_cache_usage_perc{workload_uid=\"${workload_uid}\"}) * 100",
-          "refId": "A"
-        }
-      ],
-      "title": "KV Cache Usage",
-      "type": "gauge"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${cluster}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": 0
-              }
-            ]
-          },
-          "unit": "short"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 4,
-        "x": 16,
-        "y": 1
-      },
-      "id": 1005,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "percentChangeColorMode": "standard",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "showPercentChange": false,
-        "textMode": "auto",
-        "wideLayout": true
-      },
-      "pluginVersion": "12.1.0",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${cluster}"
-          },
-          "expr": "sum(rate(vllm:generation_tokens_total{workload_uid=\"${workload_uid}\"}[5m]))",
-          "refId": "A"
-        }
-      ],
-      "title": "Token/s",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${cluster}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
-          "max": 100,
-          "min": 0,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "red",
-                "value": 0
-              },
-              {
-                "color": "yellow",
-                "value": 50
-              },
-              {
-                "color": "green",
                 "value": 80
               }
             ]
-          },
-          "unit": "percent"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 4,
-        "x": 20,
-        "y": 1
-      },
-      "id": 1006,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "percentChangeColorMode": "standard",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "showPercentChange": false,
-        "textMode": "auto",
-        "wideLayout": true
-      },
-      "pluginVersion": "12.1.0",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${cluster}"
-          },
-          "expr": "sum(rate(vllm:prefix_cache_hits_total{workload_uid=\"${workload_uid}\"}[5m])) / sum(rate(vllm:prefix_cache_queries_total{workload_uid=\"${workload_uid}\"}[5m])) * 100",
-          "refId": "A"
-        }
-      ],
-      "title": "Cache Hit Rate",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${cluster}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "axisBorderShow": false,
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "barWidthFactor": 0.6,
-            "drawStyle": "line",
-            "fillOpacity": 10,
-            "gradientMode": "none",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
-            },
-            "insertNulls": false,
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "showPoints": "never",
-            "spanNulls": false,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": 0
-              }
-            ]
-          },
-          "unit": "s"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 5
-      },
-      "id": 1007,
-      "options": {
-        "legend": {
-          "calcs": [
-            "mean",
-            "max"
-          ],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "hideZeros": false,
-          "mode": "multi",
-          "sort": "none"
-        }
-      },
-      "pluginVersion": "12.1.0",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${cluster}"
-          },
-          "expr": "histogram_quantile(0.50, sum(rate(vllm:e2e_request_latency_seconds_bucket{workload_uid=\"${workload_uid}\"}[5m])) by (le))",
-          "legendFormat": "P50",
-          "refId": "A"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${cluster}"
-          },
-          "expr": "histogram_quantile(0.90, sum(rate(vllm:e2e_request_latency_seconds_bucket{workload_uid=\"${workload_uid}\"}[5m])) by (le))",
-          "legendFormat": "P90",
-          "refId": "B"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${cluster}"
-          },
-          "expr": "histogram_quantile(0.99, sum(rate(vllm:e2e_request_latency_seconds_bucket{workload_uid=\"${workload_uid}\"}[5m])) by (le))",
-          "legendFormat": "P99",
-          "refId": "C"
-        }
-      ],
-      "title": "E2E Request Latency",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${cluster}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "axisBorderShow": false,
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "barWidthFactor": 0.6,
-            "drawStyle": "line",
-            "fillOpacity": 10,
-            "gradientMode": "none",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
-            },
-            "insertNulls": false,
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "showPoints": "never",
-            "spanNulls": false,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": 0
-              }
-            ]
-          },
-          "unit": "s"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 5
-      },
-      "id": 1008,
-      "options": {
-        "legend": {
-          "calcs": [
-            "mean",
-            "max"
-          ],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "hideZeros": false,
-          "mode": "multi",
-          "sort": "none"
-        }
-      },
-      "pluginVersion": "12.1.0",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${cluster}"
-          },
-          "expr": "histogram_quantile(0.50, sum(rate(vllm:time_to_first_token_seconds_bucket{workload_uid=\"${workload_uid}\"}[5m])) by (le))",
-          "legendFormat": "P50",
-          "refId": "A"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${cluster}"
-          },
-          "expr": "histogram_quantile(0.90, sum(rate(vllm:time_to_first_token_seconds_bucket{workload_uid=\"${workload_uid}\"}[5m])) by (le))",
-          "legendFormat": "P90",
-          "refId": "B"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${cluster}"
-          },
-          "expr": "histogram_quantile(0.99, sum(rate(vllm:time_to_first_token_seconds_bucket{workload_uid=\"${workload_uid}\"}[5m])) by (le))",
-          "legendFormat": "P99",
-          "refId": "C"
-        }
-      ],
-      "title": "Time to First Token (TTFT)",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${cluster}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "axisBorderShow": false,
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "barWidthFactor": 0.6,
-            "drawStyle": "line",
-            "fillOpacity": 10,
-            "gradientMode": "none",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
-            },
-            "insertNulls": false,
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "showPoints": "never",
-            "spanNulls": false,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": 0
-              }
-            ]
-          },
-          "unit": "ms"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 13
-      },
-      "id": 1009,
-      "options": {
-        "legend": {
-          "calcs": [
-            "mean",
-            "max"
-          ],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "hideZeros": false,
-          "mode": "multi",
-          "sort": "none"
-        }
-      },
-      "pluginVersion": "12.1.0",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${cluster}"
-          },
-          "expr": "histogram_quantile(0.50, sum(rate(vllm:time_per_output_token_seconds_bucket{workload_uid=\"${workload_uid}\"}[5m])) by (le)) * 1000",
-          "legendFormat": "P50",
-          "refId": "A"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${cluster}"
-          },
-          "expr": "histogram_quantile(0.90, sum(rate(vllm:time_per_output_token_seconds_bucket{workload_uid=\"${workload_uid}\"}[5m])) by (le)) * 1000",
-          "legendFormat": "P90",
-          "refId": "B"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${cluster}"
-          },
-          "expr": "histogram_quantile(0.99, sum(rate(vllm:time_per_output_token_seconds_bucket{workload_uid=\"${workload_uid}\"}[5m])) by (le)) * 1000",
-          "legendFormat": "P99",
-          "refId": "C"
-        }
-      ],
-      "title": "Time per Output Token (TPOT)",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${cluster}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "axisBorderShow": false,
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "barWidthFactor": 0.6,
-            "drawStyle": "line",
-            "fillOpacity": 10,
-            "gradientMode": "none",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
-            },
-            "insertNulls": false,
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "showPoints": "never",
-            "spanNulls": false,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": 0
-              }
-            ]
-          },
-          "unit": "short"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 13
-      },
-      "id": 1010,
-      "options": {
-        "legend": {
-          "calcs": [
-            "mean",
-            "max"
-          ],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "hideZeros": false,
-          "mode": "multi",
-          "sort": "none"
-        }
-      },
-      "pluginVersion": "12.1.0",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${cluster}"
-          },
-          "expr": "sum(rate(vllm:generation_tokens_total{workload_uid=\"${workload_uid}\"}[5m]))",
-          "legendFormat": "Generation Token/s",
-          "refId": "A"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${cluster}"
-          },
-          "expr": "sum(rate(vllm:prompt_tokens_total{workload_uid=\"${workload_uid}\"}[5m]))",
-          "legendFormat": "Prompt Token/s",
-          "refId": "B"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${cluster}"
-          },
-          "expr": "sum(rate(vllm:request_success_total{workload_uid=\"${workload_uid}\"}[5m]))",
-          "legendFormat": "Request/s",
-          "refId": "C"
-        }
-      ],
-      "title": "Throughput",
-      "type": "timeseries"
-    },
-    {
-      "collapsed": false,
-      "gridPos": {
-        "h": 1,
-        "w": 24,
-        "x": 0,
-        "y": 21
-      },
-      "id": 2000,
-      "panels": [],
-      "title": "API Gateway (Higress)",
-      "type": "row"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${cluster}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": 0
-              }
-            ]
-          },
-          "unit": "reqps"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 6,
-        "x": 0,
-        "y": 22
-      },
-      "id": 2001,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "auto"
-      },
-      "pluginVersion": "12.1.0",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${cluster}"
-          },
-          "expr": "sum(rate(envoy_cluster_external_upstream_rq_completed{cluster_name=~\".*${workload_name}.*\"}[5m]))",
-          "legendFormat": "QPS",
-          "refId": "A"
-        }
-      ],
-      "title": "Gateway Request QPS",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${cluster}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": 0
-              }
-            ]
-          },
-          "unit": "short"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 6,
-        "x": 6,
-        "y": 22
-      },
-      "id": 2002,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "auto"
-      },
-      "pluginVersion": "12.1.0",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${cluster}"
-          },
-          "expr": "sum(envoy_cluster_external_upstream_rq_completed{cluster_name=~\".*${workload_name}.*\"})",
-          "legendFormat": "Total",
-          "refId": "A"
-        }
-      ],
-      "title": "Total Requests",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${cluster}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
-          "max": 100,
-          "min": 0,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "red",
-                "value": 0
-              },
-              {
-                "color": "yellow",
-                "value": 95
-              },
-              {
-                "color": "green",
-                "value": 99
-              }
-            ]
-          },
-          "unit": "percent"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 6,
-        "x": 12,
-        "y": 22
-      },
-      "id": 2003,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "auto"
-      },
-      "pluginVersion": "12.1.0",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${cluster}"
-          },
-          "expr": "100 * sum(rate(envoy_cluster_external_upstream_rq{response_code_class=\"2xx\",cluster_name=~\".*${workload_name}.*\"}[5m])) / sum(rate(envoy_cluster_external_upstream_rq_completed{cluster_name=~\".*${workload_name}.*\"}[5m]))",
-          "legendFormat": "Success Rate",
-          "refId": "A"
-        }
-      ],
-      "title": "Success Rate",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${cluster}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": 0
-              }
-            ]
-          },
-          "unit": "short"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 6,
-        "x": 18,
-        "y": 22
-      },
-      "id": 2004,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "auto"
-      },
-      "pluginVersion": "12.1.0",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${cluster}"
-          },
-          "expr": "sum(envoy_cluster_upstream_cx_active{cluster_name=~\".*${workload_name}.*\"})",
-          "legendFormat": "Active",
-          "refId": "A"
-        }
-      ],
-      "title": "Active Connections",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${cluster}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "axisBorderShow": false,
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "barWidthFactor": 0.6,
-            "drawStyle": "line",
-            "fillOpacity": 10,
-            "gradientMode": "none",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
-            },
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "showPoints": "never",
-            "spanNulls": false,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
-          },
-          "unit": "reqps"
+          }
         },
         "overrides": [
           {
             "matcher": {
-              "id": "byRegexp",
-              "options": ".*2xx.*"
+              "id": "byFrameRefID",
+              "options": "B"
             },
             "properties": [
               {
-                "id": "color",
-                "value": {
-                  "fixedColor": "green",
-                  "mode": "fixed"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byRegexp",
-              "options": ".*4xx.*"
-            },
-            "properties": [
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
               {
-                "id": "color",
-                "value": {
-                  "fixedColor": "yellow",
-                  "mode": "fixed"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byRegexp",
-              "options": ".*5xx.*"
-            },
-            "properties": [
+                "id": "custom.lineWidth",
+                "value": 2
+              },
               {
                 "id": "color",
                 "value": {
@@ -1258,58 +119,135 @@
         ]
       },
       "gridPos": {
-        "h": 8,
-        "w": 12,
+        "h": 9,
+        "w": 24,
         "x": 0,
-        "y": 26
+        "y": 1
       },
-      "id": 2005,
+      "id": 63,
       "options": {
         "legend": {
-          "calcs": [
-            "mean",
-            "max"
-          ],
+          "calcs": [],
           "displayMode": "table",
-          "placement": "bottom",
+          "placement": "right",
           "showLegend": true
         },
         "tooltip": {
+          "hideZeros": false,
           "mode": "multi",
-          "sort": "desc"
+          "sort": "none"
         }
       },
       "pluginVersion": "12.1.0",
       "targets": [
         {
+          "cacheDurationSeconds": 300,
           "datasource": {
-            "type": "prometheus",
-            "uid": "${cluster}"
+            "type": "marcusolsson-json-datasource",
+            "uid": "primus-lens-api"
           },
-          "expr": "sum(rate(envoy_cluster_external_upstream_rq{response_code_class=\"2xx\",cluster_name=~\".*${workload_name}.*\"}[5m]))",
-          "legendFormat": "2xx Success",
-          "refId": "A"
+          "fields": [
+            {
+              "jsonPath": "$.data[*].metric_name",
+              "name": ""
+            },
+            {
+              "jsonPath": "$.data[*].timestamp",
+              "language": "jsonpath",
+              "name": "",
+              "type": "time"
+            },
+            {
+              "jsonPath": "$.data[*].value",
+              "language": "jsonpath",
+              "name": " ",
+              "type": "number"
+            }
+          ],
+          "hide": false,
+          "method": "GET",
+          "params": [
+            [
+              "data_source",
+              "$training_perf_datasource"
+            ],
+            [
+              "start",
+              "${__from}"
+            ],
+            [
+              "end",
+              "${__to}"
+            ],
+            [
+              "metrics",
+              "$training_perf_metrics"
+            ]
+          ],
+          "queryParams": "",
+          "refId": "A",
+          "urlPath": "/v1/workloads/${workload_uid}/metrics/data"
         },
         {
+          "cacheDurationSeconds": 300,
           "datasource": {
-            "type": "prometheus",
-            "uid": "${cluster}"
+            "type": "marcusolsson-json-datasource",
+            "uid": "primus-lens-api"
           },
-          "expr": "sum(rate(envoy_cluster_external_upstream_rq{response_code_class=\"4xx\",cluster_name=~\".*${workload_name}.*\"}[5m]))",
-          "legendFormat": "4xx Client Error",
-          "refId": "B"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${cluster}"
-          },
-          "expr": "sum(rate(envoy_cluster_external_upstream_rq{response_code_class=\"5xx\",cluster_name=~\".*${workload_name}.*\"}[5m]))",
-          "legendFormat": "5xx Server Error",
-          "refId": "C"
+          "fields": [
+            {
+              "jsonPath": "$.data[*].timestamp",
+              "language": "jsonpath",
+              "name": "",
+              "type": "time"
+            },
+            {
+              "jsonPath": "$.data[*].metric_name",
+              "language": "jsonpath",
+              "name": "",
+              "type": "string"
+            },
+            {
+              "jsonPath": "$.data[*].value",
+              "language": "jsonpath",
+              "name": "-",
+              "type": "number"
+            }
+          ],
+          "hide": false,
+          "method": "GET",
+          "params": [
+            [
+              "data_source",
+              "$training_perf_datasource"
+            ],
+            [
+              "start",
+              "${__from}"
+            ],
+            [
+              "end",
+              "${__to}"
+            ]
+          ],
+          "queryParams": "",
+          "refId": "B",
+          "urlPath": "/v1/workloads/${workload_uid}/metrics/iteration-times"
         }
       ],
-      "title": "Request Rate by Status Code",
+      "title": "Training Performance",
+      "transformations": [
+        {
+          "id": "prepareTimeSeries",
+          "options": {
+            "format": "multi"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {}
+        }
+      ],
       "type": "timeseries"
     },
     {
@@ -1331,20 +269,21 @@
             "barAlignment": 0,
             "barWidthFactor": 0.6,
             "drawStyle": "line",
-            "fillOpacity": 10,
+            "fillOpacity": 0,
             "gradientMode": "none",
             "hideFrom": {
               "legend": false,
               "tooltip": false,
               "viz": false
             },
+            "insertNulls": false,
             "lineInterpolation": "linear",
             "lineWidth": 1,
             "pointSize": 5,
             "scaleDistribution": {
               "type": "linear"
             },
-            "showPoints": "never",
+            "showPoints": "auto",
             "spanNulls": false,
             "stacking": {
               "group": "A",
@@ -1360,34 +299,35 @@
             "steps": [
               {
                 "color": "green",
-                "value": null
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
               }
             ]
-          },
-          "unit": "short"
+          }
         },
         "overrides": []
       },
       "gridPos": {
         "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 26
+        "w": 24,
+        "x": 0,
+        "y": 10
       },
-      "id": 2006,
+      "id": 37,
       "options": {
         "legend": {
-          "calcs": [
-            "mean",
-            "max"
-          ],
-          "displayMode": "table",
+          "calcs": [],
+          "displayMode": "list",
           "placement": "bottom",
           "showLegend": true
         },
         "tooltip": {
+          "hideZeros": false,
           "mode": "multi",
-          "sort": "desc"
+          "sort": "none"
         }
       },
       "pluginVersion": "12.1.0",
@@ -1397,8 +337,10 @@
             "type": "prometheus",
             "uid": "${cluster}"
           },
-          "expr": "sum(envoy_cluster_upstream_cx_active{cluster_name=~\".*${workload_name}.*\"})",
-          "legendFormat": "Active Connections",
+          "editorMode": "code",
+          "expr": "sum(increase(workload_rdma_stat_rx_roce_discards{workload_uid=\"$workload_uid\"})) by (primus_lens_node_name)> 0",
+          "legendFormat": "RX Roce Discards:{{primus_lens_node_name}}",
+          "range": true,
           "refId": "A"
         },
         {
@@ -1406,8 +348,12 @@
             "type": "prometheus",
             "uid": "${cluster}"
           },
-          "expr": "sum(rate(envoy_cluster_upstream_cx_connect_fail{cluster_name=~\".*${workload_name}.*\"}[5m]))",
-          "legendFormat": "Connection Failures/s",
+          "editorMode": "code",
+          "expr": "sum(increase(workload_rdma_stat_tx_roce_discards{workload_uid=\"$workload_uid\"})) by (primus_lens_node_name)> 0",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "TX Roce Discards:{{primus_lens_node_name}}",
+          "range": true,
           "refId": "B"
         },
         {
@@ -1415,12 +361,393 @@
             "type": "prometheus",
             "uid": "${cluster}"
           },
-          "expr": "sum(rate(envoy_cluster_upstream_cx_connect_timeout{cluster_name=~\".*${workload_name}.*\"}[5m]))",
-          "legendFormat": "Connection Timeouts/s",
+          "editorMode": "code",
+          "expr": "sum(increase(workload_rdma_stat_tx_roce_errors{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "TX Roce Errors:{{primus_lens_node_name}}",
+          "range": true,
           "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${cluster}"
+          },
+          "editorMode": "code",
+          "expr": "sum(increase(workload_rdma_stat_rx_roce_errors{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "RX Roce Errors:{{primus_lens_node_name}}",
+          "range": true,
+          "refId": "D"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${cluster}"
+          },
+          "editorMode": "code",
+          "expr": "sum(increase(workload_rdma_stat_seq_err_naks_rcvd{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "NAK(Seq err):{{primus_lens_node_name}}",
+          "range": true,
+          "refId": "E"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${cluster}"
+          },
+          "editorMode": "code",
+          "expr": "sum(increase(workload_rdma_stat_rnr_naks_rcvd{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "NAK(RNR):{{primus_lens_node_name}}",
+          "range": true,
+          "refId": "F"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${cluster}"
+          },
+          "editorMode": "code",
+          "expr": "sum(increase(workload_rdma_stat_missing_resp{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "Missing Resp:{{primus_lens_node_name}}",
+          "range": true,
+          "refId": "G"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${cluster}"
+          },
+          "editorMode": "code",
+          "expr": "sum(increase(workload_rdma_stat_to_retransmits{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "ReTransmit:{{primus_lens_node_name}}",
+          "range": true,
+          "refId": "H"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${cluster}"
+          },
+          "editorMode": "code",
+          "expr": "sum(increase(workload_rdma_stat_max_retry_exceeded{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "MaxRetryExceeded:{{primus_lens_node_name}}",
+          "range": true,
+          "refId": "I"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${cluster}"
+          },
+          "editorMode": "code",
+          "expr": "sum(increase(workload_rdma_stat_missing_resp{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "MissingResp:{{primus_lens_node_name}}",
+          "range": true,
+          "refId": "J"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${cluster}"
+          },
+          "editorMode": "code",
+          "expr": "sum(increase(workload_rdma_stat_unrecoverable_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "UnrecoverableErr:{{primus_lens_node_name}}",
+          "range": true,
+          "refId": "K"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${cluster}"
+          },
+          "editorMode": "code",
+          "expr": "sum(increase(workload_rdma_stat_local_qp_op_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "LocalQpOpErr:{{primus_lens_node_name}}",
+          "range": true,
+          "refId": "L"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${cluster}"
+          },
+          "editorMode": "code",
+          "expr": "sum(increase(workload_rdma_stat_local_protection_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "LocalProtectionErr:{{primus_lens_node_name}}",
+          "range": true,
+          "refId": "M"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${cluster}"
+          },
+          "editorMode": "code",
+          "expr": "sum(increase(workload_rdma_stat_remote_access_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0 ",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "RemoteAccessErr:{{primus_lens_node_name}}",
+          "range": true,
+          "refId": "N"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${cluster}"
+          },
+          "editorMode": "code",
+          "expr": "sum(increase(workload_rdma_stat_remote_invalid_req_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "RemoteInvalidReqErr:{{primus_lens_node_name}}",
+          "range": true,
+          "refId": "O"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${cluster}"
+          },
+          "editorMode": "code",
+          "expr": "sum(increase(workload_rdma_stat_remote_op_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0 ",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "RemoteOpErr:{{primus_lens_node_name}}",
+          "range": true,
+          "refId": "P"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${cluster}"
+          },
+          "editorMode": "code",
+          "expr": "sum(increase(workload_rdma_stat_res_opcode_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0 ",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "Res Opcode Err:{{primus_lens_node_name}}",
+          "range": true,
+          "refId": "Q"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${cluster}"
+          },
+          "editorMode": "code",
+          "expr": "sum(increase(workload_rdma_stat_res_rx_domain_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0 ",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "Res Rx Domain Err:{{primus_lens_node_name}}",
+          "range": true,
+          "refId": "R"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${cluster}"
+          },
+          "editorMode": "code",
+          "expr": "sum(increase(workload_rdma_stat_res_rx_no_perm{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0 ",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "Res Rx No Perm:{{primus_lens_node_name}}",
+          "range": true,
+          "refId": "S"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${cluster}"
+          },
+          "editorMode": "code",
+          "expr": "sum(increase(workload_rdma_stat_res_rx_range_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0 ",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "Res Rx Range Err:{{primus_lens_node_name}}",
+          "range": true,
+          "refId": "T"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${cluster}"
+          },
+          "editorMode": "code",
+          "expr": "sum(increase(workload_rdma_stat_res_tx_domain_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0 ",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "Res Tx Domain Err:{{primus_lens_node_name}}",
+          "range": true,
+          "refId": "U"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${cluster}"
+          },
+          "editorMode": "code",
+          "expr": "sum(increase(workload_rdma_stat_res_tx_no_perm{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0 ",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "Res Tx No Perm:{{primus_lens_node_name}}",
+          "range": true,
+          "refId": "V"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${cluster}"
+          },
+          "editorMode": "code",
+          "expr": "sum(increase(workload_rdma_stat_res_tx_range_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0 ",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "Res Tx Range Err:{{primus_lens_node_name}}",
+          "range": true,
+          "refId": "W"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${cluster}"
+          },
+          "editorMode": "code",
+          "expr": "sum(increase(workload_rdma_stat_res_rem_inv_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0 ",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "Res Rem Inv Err:{{primus_lens_node_name}}",
+          "range": true,
+          "refId": "X"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${cluster}"
+          },
+          "editorMode": "code",
+          "expr": "sum(increase(workload_rdma_stat_res_mem_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0 ",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "Res Mem Err:{{primus_lens_node_name}}",
+          "range": true,
+          "refId": "Y"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${cluster}"
+          },
+          "editorMode": "code",
+          "expr": "sum(increase(workload_rdma_stat_res_srq_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0 ",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "Res Srq Err:{{primus_lens_node_name}}",
+          "range": true,
+          "refId": "Z"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${cluster}"
+          },
+          "editorMode": "code",
+          "expr": "sum(increase(workload_rdma_stat_res_cmp_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0 ",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "Res Cmp Err:{{primus_lens_node_name}}",
+          "range": true,
+          "refId": "AA"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${cluster}"
+          },
+          "editorMode": "code",
+          "expr": "sum(increase(workload_rdma_stat_res_wqe_format_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0 ",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "Res Wqe Err:{{primus_lens_node_name}}",
+          "range": true,
+          "refId": "AB"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${cluster}"
+          },
+          "editorMode": "code",
+          "expr": "sum(increase(workload_rdma_stat_res_cq_load_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0 ",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "Res Cq Load Err:{{primus_lens_node_name}}",
+          "range": true,
+          "refId": "AC"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${cluster}"
+          },
+          "editorMode": "code",
+          "expr": "sum(increase(workload_rdma_stat_res_srq_load_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0 ",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "Res Srq Load Err:{{primus_lens_node_name}}",
+          "range": true,
+          "refId": "AD"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${cluster}"
+          },
+          "editorMode": "code",
+          "expr": "sum(increase(workload_rdma_stat_res_tx_pci_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0 ",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "Res Tx Pci Err:{{primus_lens_node_name}}",
+          "range": true,
+          "refId": "AE"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${cluster}"
+          },
+          "editorMode": "code",
+          "expr": "sum(increase(workload_rdma_stat_res_rx_pci_err{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name)> 0 ",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "Res Rx Pci Err:{{primus_lens_node_name}}",
+          "range": true,
+          "refId": "AF"
         }
       ],
-      "title": "Connection Statistics",
+      "title": "RDMA Errors",
       "type": "timeseries"
     },
     {
@@ -1429,7 +756,201 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 38
+        "y": 18
+      },
+      "id": 25,
+      "panels": [],
+      "title": "Training Performance",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "marcusolsson-json-datasource",
+        "uid": "primus-lens-api"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 19
+      },
+      "id": 64,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.1.0",
+      "targets": [
+        {
+          "cacheDurationSeconds": 300,
+          "datasource": {
+            "type": "marcusolsson-json-datasource",
+            "uid": "primus-lens-api"
+          },
+          "fields": [
+            {
+              "jsonPath": "$.data[*].metric_name"
+            },
+            {
+              "jsonPath": "$.data[*].timestamp",
+              "language": "jsonpath",
+              "name": "",
+              "type": "time"
+            },
+            {
+              "jsonPath": "$.data[*].value",
+              "language": "jsonpath",
+              "name": "",
+              "type": "number"
+            }
+          ],
+          "hide": false,
+          "method": "GET",
+          "params": [
+            [
+              "data_source",
+              "$training_perf_datasource"
+            ],
+            [
+              "start",
+              "${__from}"
+            ],
+            [
+              "end",
+              "${__to}"
+            ],
+            [
+              "metrics",
+              "$training_perf_metrics"
+            ]
+          ],
+          "queryParams": "",
+          "refId": "A",
+          "urlPath": "/v1/workloads/${workload_uid}/metrics/data"
+        },
+        {
+          "cacheDurationSeconds": 300,
+          "datasource": {
+            "type": "marcusolsson-json-datasource",
+            "uid": "primus-lens-api"
+          },
+          "fields": [
+            {
+              "jsonPath": "$.data[*].timestamp",
+              "language": "jsonpath",
+              "name": "",
+              "type": "time"
+            },
+            {
+              "jsonPath": "$.data[*].iteration",
+              "language": "jsonpath",
+              "name": "",
+              "type": "number"
+            }
+          ],
+          "hide": false,
+          "method": "GET",
+          "params": [
+            [
+              "data_source",
+              "$training_perf_datasource"
+            ],
+            [
+              "start",
+              "${__from}"
+            ],
+            [
+              "end",
+              "${__to}"
+            ]
+          ],
+          "queryParams": "",
+          "refId": "B",
+          "urlPath": "/v1/workloads/${workload_uid}/metrics/iteration-times"
+        }
+      ],
+      "title": "Training Performance",
+      "transformations": [
+        {
+          "id": "prepareTimeSeries",
+          "options": {
+            "format": "multi"
+          }
+        }
+      ],
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 28
       },
       "id": 51,
       "panels": [],
@@ -1501,7 +1022,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 39
+        "y": 29
       },
       "id": 50,
       "options": {
@@ -1599,7 +1120,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 39
+        "y": 29
       },
       "id": 53,
       "options": {
@@ -1696,7 +1217,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 47
+        "y": 37
       },
       "id": 52,
       "options": {
@@ -1794,7 +1315,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 47
+        "y": 37
       },
       "id": 54,
       "options": {
@@ -1892,7 +1413,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 55
+        "y": 45
       },
       "id": 56,
       "options": {
@@ -1990,7 +1511,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 55
+        "y": 45
       },
       "id": 55,
       "options": {
@@ -2029,7 +1550,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 63
+        "y": 53
       },
       "id": 8,
       "panels": [],
@@ -2100,7 +1621,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 64
+        "y": 54
       },
       "id": 1,
       "options": {
@@ -2201,7 +1722,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 64
+        "y": 54
       },
       "id": 2,
       "options": {
@@ -2303,7 +1824,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 72
+        "y": 62
       },
       "id": 4,
       "options": {
@@ -2405,7 +1926,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 72
+        "y": 62
       },
       "id": 3,
       "options": {
@@ -2507,7 +2028,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 80
+        "y": 70
       },
       "id": 6,
       "options": {
@@ -2617,7 +2138,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 80
+        "y": 70
       },
       "id": 27,
       "options": {
@@ -2727,7 +2248,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 88
+        "y": 78
       },
       "id": 61,
       "options": {
@@ -3227,7 +2748,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 96
+        "y": 86
       },
       "id": 49,
       "options": {
@@ -3455,7 +2976,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 104
+        "y": 94
       },
       "id": 26,
       "options": {
@@ -3566,7 +3087,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 104
+        "y": 94
       },
       "id": 7,
       "options": {
@@ -3605,7 +3126,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 112
+        "y": 102
       },
       "id": 38,
       "panels": [],
@@ -3676,7 +3197,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 113
+        "y": 103
       },
       "id": 39,
       "options": {
@@ -3777,7 +3298,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 113
+        "y": 103
       },
       "id": 40,
       "options": {
@@ -3879,7 +3400,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 121
+        "y": 111
       },
       "id": 41,
       "options": {
@@ -3981,7 +3502,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 121
+        "y": 111
       },
       "id": 42,
       "options": {
@@ -4083,7 +3604,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 129
+        "y": 119
       },
       "id": 43,
       "options": {
@@ -4193,7 +3714,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 129
+        "y": 119
       },
       "id": 44,
       "options": {
@@ -4303,7 +3824,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 137
+        "y": 127
       },
       "id": 45,
       "options": {
@@ -4804,7 +4325,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 145
+        "y": 135
       },
       "id": 46,
       "options": {
@@ -4915,7 +4436,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 145
+        "y": 135
       },
       "id": 47,
       "options": {
@@ -5012,7 +4533,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 153
+        "y": 143
       },
       "id": 48,
       "options": {
@@ -5184,7 +4705,7 @@
       {
         "current": {
           "text": "x-flannel",
-          "value": "f213ed2a-81c8-47ac-adbb-c972ed0b5800"
+          "value": "df1zi8bp96y9sd"
         },
         "name": "cluster",
         "options": [],
@@ -5212,29 +4733,6 @@
         },
         "refresh": 1,
         "regex": "",
-        "type": "query"
-      },
-      {
-        "current": {},
-        "datasource": {
-          "type": "prometheus",
-          "uid": "${cluster}"
-        },
-        "definition": "label_values(vllm:num_requests_running{workload_uid=\"$workload_uid\"}, workload_name)",
-        "hide": 2,
-        "includeAll": false,
-        "multi": false,
-        "name": "workload_name",
-        "options": [],
-        "query": {
-          "qryType": 1,
-          "query": "label_values(vllm:num_requests_running{workload_uid=\"$workload_uid\"}, workload_name)",
-          "refId": "PrometheusVariableQueryEditor-VariableQuery"
-        },
-        "refresh": 1,
-        "regex": "",
-        "skipUrlSync": false,
-        "sort": 0,
         "type": "query"
       },
       {
@@ -5269,12 +4767,8 @@
         "allValue": "all",
         "allowCustomValue": false,
         "current": {
-          "text": [
-            "All"
-          ],
-          "value": [
-            "$__all"
-          ]
+          "text": "All",
+          "value": "$__all"
         },
         "datasource": {
           "type": "marcusolsson-json-datasource",
@@ -5315,7 +4809,7 @@
   },
   "timepicker": {},
   "timezone": "browser",
-  "title": "Inference Workload",
-  "uid": "inference-workload",
+  "title": "Training Workload",
+  "uid": "training-workload",
   "version": 2
 }
