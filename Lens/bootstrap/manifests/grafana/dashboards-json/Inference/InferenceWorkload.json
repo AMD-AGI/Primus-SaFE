@@ -957,7 +957,7 @@
             "type": "prometheus",
             "uid": "${cluster}"
           },
-          "expr": "sum(rate(envoy_cluster_external_upstream_rq_completed{cluster_name=~\".*${workload_uid}.*\"}[5m]))",
+          "expr": "sum(rate(envoy_cluster_external_upstream_rq_completed{cluster_name=~\".*${workload_name}.*\"}[5m]))",
           "legendFormat": "QPS",
           "refId": "A"
         }
@@ -1017,7 +1017,7 @@
             "type": "prometheus",
             "uid": "${cluster}"
           },
-          "expr": "sum(envoy_cluster_external_upstream_rq_completed{cluster_name=~\".*${workload_uid}.*\"})",
+          "expr": "sum(envoy_cluster_external_upstream_rq_completed{cluster_name=~\".*${workload_name}.*\"})",
           "legendFormat": "Total",
           "refId": "A"
         }
@@ -1087,7 +1087,7 @@
             "type": "prometheus",
             "uid": "${cluster}"
           },
-          "expr": "100 * sum(rate(envoy_cluster_external_upstream_rq{response_code_class=\"2xx\",cluster_name=~\".*${workload_uid}.*\"}[5m])) / sum(rate(envoy_cluster_external_upstream_rq_completed{cluster_name=~\".*${workload_uid}.*\"}[5m]))",
+          "expr": "100 * sum(rate(envoy_cluster_external_upstream_rq{response_code_class=\"2xx\",cluster_name=~\".*${workload_name}.*\"}[5m])) / sum(rate(envoy_cluster_external_upstream_rq_completed{cluster_name=~\".*${workload_name}.*\"}[5m]))",
           "legendFormat": "Success Rate",
           "refId": "A"
         }
@@ -1147,7 +1147,7 @@
             "type": "prometheus",
             "uid": "${cluster}"
           },
-          "expr": "sum(envoy_cluster_upstream_cx_active{cluster_name=~\".*${workload_uid}.*\"})",
+          "expr": "sum(envoy_cluster_upstream_cx_active{cluster_name=~\".*${workload_name}.*\"})",
           "legendFormat": "Active",
           "refId": "A"
         }
@@ -1286,7 +1286,7 @@
             "type": "prometheus",
             "uid": "${cluster}"
           },
-          "expr": "sum(rate(envoy_cluster_external_upstream_rq{response_code_class=\"2xx\",cluster_name=~\".*${workload_uid}.*\"}[5m]))",
+          "expr": "sum(rate(envoy_cluster_external_upstream_rq{response_code_class=\"2xx\",cluster_name=~\".*${workload_name}.*\"}[5m]))",
           "legendFormat": "2xx Success",
           "refId": "A"
         },
@@ -1295,7 +1295,7 @@
             "type": "prometheus",
             "uid": "${cluster}"
           },
-          "expr": "sum(rate(envoy_cluster_external_upstream_rq{response_code_class=\"4xx\",cluster_name=~\".*${workload_uid}.*\"}[5m]))",
+          "expr": "sum(rate(envoy_cluster_external_upstream_rq{response_code_class=\"4xx\",cluster_name=~\".*${workload_name}.*\"}[5m]))",
           "legendFormat": "4xx Client Error",
           "refId": "B"
         },
@@ -1304,7 +1304,7 @@
             "type": "prometheus",
             "uid": "${cluster}"
           },
-          "expr": "sum(rate(envoy_cluster_external_upstream_rq{response_code_class=\"5xx\",cluster_name=~\".*${workload_uid}.*\"}[5m]))",
+          "expr": "sum(rate(envoy_cluster_external_upstream_rq{response_code_class=\"5xx\",cluster_name=~\".*${workload_name}.*\"}[5m]))",
           "legendFormat": "5xx Server Error",
           "refId": "C"
         }
@@ -1397,7 +1397,7 @@
             "type": "prometheus",
             "uid": "${cluster}"
           },
-          "expr": "sum(envoy_cluster_upstream_cx_active{cluster_name=~\".*${workload_uid}.*\"})",
+          "expr": "sum(envoy_cluster_upstream_cx_active{cluster_name=~\".*${workload_name}.*\"})",
           "legendFormat": "Active Connections",
           "refId": "A"
         },
@@ -1406,7 +1406,7 @@
             "type": "prometheus",
             "uid": "${cluster}"
           },
-          "expr": "sum(rate(envoy_cluster_upstream_cx_connect_fail{cluster_name=~\".*${workload_uid}.*\"}[5m]))",
+          "expr": "sum(rate(envoy_cluster_upstream_cx_connect_fail{cluster_name=~\".*${workload_name}.*\"}[5m]))",
           "legendFormat": "Connection Failures/s",
           "refId": "B"
         },
@@ -1415,7 +1415,7 @@
             "type": "prometheus",
             "uid": "${cluster}"
           },
-          "expr": "sum(rate(envoy_cluster_upstream_cx_connect_timeout{cluster_name=~\".*${workload_uid}.*\"}[5m]))",
+          "expr": "sum(rate(envoy_cluster_upstream_cx_connect_timeout{cluster_name=~\".*${workload_name}.*\"}[5m]))",
           "legendFormat": "Connection Timeouts/s",
           "refId": "C"
         }
@@ -5212,6 +5212,29 @@
         },
         "refresh": 1,
         "regex": "",
+        "type": "query"
+      },
+      {
+        "current": {},
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${cluster}"
+        },
+        "definition": "label_values(vllm:num_requests_running{workload_uid=\"$workload_uid\"}, workload_name)",
+        "hide": 2,
+        "includeAll": false,
+        "multi": false,
+        "name": "workload_name",
+        "options": [],
+        "query": {
+          "qryType": 1,
+          "query": "label_values(vllm:num_requests_running{workload_uid=\"$workload_uid\"}, workload_name)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 0,
         "type": "query"
       },
       {
