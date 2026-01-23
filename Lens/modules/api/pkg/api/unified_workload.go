@@ -395,20 +395,40 @@ func handleWorkloadList(ctx context.Context, req *WorkloadListRequest) (*Workloa
 // handleWorkloadDetail handles workload detail requests.
 // Reuses: database.GetWorkload().GetGpuWorkloadByUid, workload.GetWorkloadPods, workload.GetWorkloadResource
 func handleWorkloadDetail(ctx context.Context, req *WorkloadDetailRequest) (*WorkloadDetailResponse, error) {
+	// DEBUG: Log request parameters
+	log.Infof("[DEBUG-WorkloadDetail] Request received: UID=%s, Cluster=%s", req.UID, req.Cluster)
+
 	cm := clientsets.GetClusterManager()
+
+	// DEBUG: Log ClusterManager state
+	clusterNames := cm.GetClusterNames()
+	log.Infof("[DEBUG-WorkloadDetail] ClusterManager state: available_clusters=%v, requested_cluster=%s", clusterNames, req.Cluster)
+
 	clients, err := cm.GetClusterClientsOrDefault(req.Cluster)
 	if err != nil {
+		log.Errorf("[DEBUG-WorkloadDetail] GetClusterClientsOrDefault failed: cluster=%s, error=%v", req.Cluster, err)
 		return nil, err
 	}
 
+	// DEBUG: Log resolved cluster
+	log.Infof("[DEBUG-WorkloadDetail] Resolved cluster: requested=%s, resolved=%s, has_storage=%v",
+		req.Cluster, clients.ClusterName, clients.StorageClientSet != nil)
+
 	// Reuse existing database query
+	log.Infof("[DEBUG-WorkloadDetail] Querying database for workload: uid=%s, cluster=%s", req.UID, clients.ClusterName)
 	dbWorkload, err := database.GetFacadeForCluster(clients.ClusterName).GetWorkload().GetGpuWorkloadByUid(ctx, req.UID)
 	if err != nil {
+		log.Errorf("[DEBUG-WorkloadDetail] Database query error: uid=%s, cluster=%s, error=%v", req.UID, clients.ClusterName, err)
 		return nil, err
 	}
 	if dbWorkload == nil {
+		log.Warnf("[DEBUG-WorkloadDetail] Workload not found in database: uid=%s, cluster=%s", req.UID, clients.ClusterName)
 		return nil, errors.NewError().WithCode(errors.RequestDataNotExisted).WithMessage("workload not found")
 	}
+
+	// DEBUG: Log found workload
+	log.Infof("[DEBUG-WorkloadDetail] Workload found: uid=%s, name=%s, kind=%s, namespace=%s",
+		dbWorkload.UID, dbWorkload.Name, dbWorkload.Kind, dbWorkload.Namespace)
 
 	workloadInfo := &model.WorkloadInfo{
 		ApiVersion:    dbWorkload.GroupVersion,
@@ -539,11 +559,25 @@ func handleWorkloadStatistics(ctx context.Context, req *WorkloadStatisticsReques
 // handleWorkloadHierarchyQuery handles workload hierarchy query requests.
 // Reuses: database.GetWorkload().QueryWorkload, buildHierarchy
 func handleWorkloadHierarchyQuery(ctx context.Context, req *WorkloadHierarchyQueryRequest) (*WorkloadHierarchyResponse, error) {
+	// DEBUG: Log request parameters
+	log.Infof("[DEBUG-WorkloadHierarchy] Request received: Kind=%s, Name=%s, Namespace=%s, Cluster=%s",
+		req.Kind, req.Name, req.Namespace, req.Cluster)
+
 	cm := clientsets.GetClusterManager()
+
+	// DEBUG: Log ClusterManager state
+	clusterNames := cm.GetClusterNames()
+	log.Infof("[DEBUG-WorkloadHierarchy] ClusterManager state: available_clusters=%v, requested_cluster=%s", clusterNames, req.Cluster)
+
 	clients, err := cm.GetClusterClientsOrDefault(req.Cluster)
 	if err != nil {
+		log.Errorf("[DEBUG-WorkloadHierarchy] GetClusterClientsOrDefault failed: cluster=%s, error=%v", req.Cluster, err)
 		return nil, err
 	}
+
+	// DEBUG: Log resolved cluster
+	log.Infof("[DEBUG-WorkloadHierarchy] Resolved cluster: requested=%s, resolved=%s, has_storage=%v",
+		req.Cluster, clients.ClusterName, clients.StorageClientSet != nil)
 
 	if req.Kind == "" || req.Name == "" {
 		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("kind and name are required")
@@ -559,14 +593,23 @@ func handleWorkloadHierarchyQuery(ctx context.Context, req *WorkloadHierarchyQue
 	}
 
 	// Query workload by kind and name
+	log.Infof("[DEBUG-WorkloadHierarchy] Querying database: kind=%s, name=%s, namespace=%s, cluster=%s",
+		req.Kind, req.Name, req.Namespace, clients.ClusterName)
 	workloads, _, err := database.GetFacadeForCluster(clients.ClusterName).GetWorkload().QueryWorkload(ctx, f)
 	if err != nil {
+		log.Errorf("[DEBUG-WorkloadHierarchy] Database query error: kind=%s, name=%s, cluster=%s, error=%v",
+			req.Kind, req.Name, clients.ClusterName, err)
 		return nil, err
 	}
 
 	if len(workloads) == 0 {
+		log.Warnf("[DEBUG-WorkloadHierarchy] Workload not found: kind=%s, name=%s, cluster=%s", req.Kind, req.Name, clients.ClusterName)
 		return nil, errors.NewError().WithCode(errors.RequestDataNotExisted).WithMessage("workload not found")
 	}
+
+	// DEBUG: Log found workloads
+	log.Infof("[DEBUG-WorkloadHierarchy] Found %d workloads, using first: uid=%s, name=%s",
+		len(workloads), workloads[0].UID, workloads[0].Name)
 
 	// Use the first matched workload
 	rootWorkload := workloads[0]

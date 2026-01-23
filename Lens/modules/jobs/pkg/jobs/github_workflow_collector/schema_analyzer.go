@@ -527,9 +527,9 @@ func convertNewSchemaToDBModel(schema *SchemaDefinition, configID int64) *model.
 		IsWideTable:       schema.IsWideTable,
 		DateColumns:       model.ExtJSON("[]"), // Not used in new format
 		TimeField:         "",                  // Not used in new format
-		Columns:           model.ExtJSON(columnsJSON),
+		ColumnDefinitions: func() model.ExtType { var ext model.ExtType; _ = json.Unmarshal(columnsJSON, &ext); return ext }(),
 		DateColumnPattern: schema.DateColumnPattern,
-		DateColumnConfig:  model.ExtJSON(dateColumnConfigJSON),
+		DateColumnConfig:  func() model.ExtType { var ext model.ExtType; _ = json.Unmarshal(dateColumnConfigJSON, &ext); return ext }(),
 		SchemaHash:        ComputeSchemaHash(schema),
 		IsActive:          true,
 		GeneratedBy:       database.SchemaGeneratedByAI,

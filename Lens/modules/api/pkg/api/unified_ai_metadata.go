@@ -57,7 +57,7 @@ func init() {
 // ======================== Request Types ========================
 
 type AiMetadataListRequest struct {
-	Cluster          string `json:"cluster" form:"cluster" mcp:"description=Cluster name"`
+	Cluster          string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
 	Framework        string `json:"framework" form:"framework" mcp:"description=Search in wrapper_framework and base_framework"`
 	WrapperFramework string `json:"wrapper_framework" form:"wrapper_framework" mcp:"description=Specific wrapper framework filter"`
 	BaseFramework    string `json:"base_framework" form:"base_framework" mcp:"description=Specific base framework filter"`
@@ -68,19 +68,19 @@ type AiMetadataListRequest struct {
 }
 
 type AiMetadataDetailRequest struct {
-	Cluster     string `json:"cluster" form:"cluster" mcp:"description=Cluster name"`
-	WorkloadUID string `json:"workload_uid" form:"workload_uid" uri:"workload_uid" binding:"required" mcp:"description=Workload UID,required"`
+	Cluster     string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
+	WorkloadUID string `json:"workload_uid" form:"workload_uid" param:"workload_uid" binding:"required" mcp:"description=Workload UID,required"`
 }
 
 type AiMetadataConflictsRequest struct {
-	Cluster     string `json:"cluster" form:"cluster" mcp:"description=Cluster name"`
-	WorkloadUID string `json:"workload_uid" form:"workload_uid" uri:"workload_uid" binding:"required" mcp:"description=Workload UID,required"`
+	Cluster     string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
+	WorkloadUID string `json:"workload_uid" form:"workload_uid" param:"workload_uid" binding:"required" mcp:"description=Workload UID,required"`
 	Page        int    `json:"page" form:"page" mcp:"description=Page number (default 1)"`
 	PageSize    int    `json:"page_size" form:"page_size" mcp:"description=Page size (default 20 max 100)"`
 }
 
 type DetectionConflictsRequest struct {
-	Cluster  string `json:"cluster" form:"cluster" mcp:"description=Cluster name"`
+	Cluster  string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
 	Page     int    `json:"page" form:"page" mcp:"description=Page number (default 1)"`
 	PageSize int    `json:"page_size" form:"page_size" mcp:"description=Page size (default 20 max 100)"`
 }

@@ -23,6 +23,9 @@ type PySpyTaskExt struct {
 	// Target node (Jobs module uses this to route the request)
 	TargetNodeName string `json:"target_node_name"`
 
+	// Workload information (for querying history across all pods)
+	WorkloadUID string `json:"workload_uid,omitempty"`
+
 	// Pod information
 	PodUID       string `json:"pod_uid"`
 	PodName      string `json:"pod_name"`

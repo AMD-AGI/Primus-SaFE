@@ -55,6 +55,11 @@ func newAlertRuleAdvices(db *gorm.DB, opts ...gen.DOOption) alertRuleAdvices {
 	_alertRuleAdvices.CreatedAt = field.NewTime(tableName, "created_at")
 	_alertRuleAdvices.UpdatedAt = field.NewTime(tableName, "updated_at")
 	_alertRuleAdvices.CreatedBy = field.NewString(tableName, "created_by")
+	_alertRuleAdvices.ComponentID = field.NewString(tableName, "component_id")
+	_alertRuleAdvices.SuggestionCategory = field.NewString(tableName, "suggestion_category")
+	_alertRuleAdvices.ScanID = field.NewString(tableName, "scan_id")
+	_alertRuleAdvices.AiModel = field.NewString(tableName, "ai_model")
+	_alertRuleAdvices.GenerationPromptHash = field.NewString(tableName, "generation_prompt_hash")
 
 	_alertRuleAdvices.fillFieldMap()
 
@@ -64,35 +69,40 @@ func newAlertRuleAdvices(db *gorm.DB, opts ...gen.DOOption) alertRuleAdvices {
 type alertRuleAdvices struct {
 	alertRuleAdvicesDo alertRuleAdvicesDo
 
-	ALL             field.Asterisk
-	ID              field.Int64
-	RuleType        field.String // Type of alert rule: log or metric
-	Name            field.String
-	Title           field.String
-	Description     field.String
-	Category        field.String // Advice category: performance/error/resource/security/availability
-	ClusterName     field.String
-	TargetResource  field.String
-	TargetName      field.String
-	RuleConfig      field.Field // Complete rule configuration in JSON format
-	Severity        field.String
-	Priority        field.Int32
-	Reason          field.String
-	Evidence        field.Field  // Supporting data, logs, metrics that justify this recommendation
-	Status          field.String // Current status: pending/reviewed/accepted/rejected/applied
-	ReviewedBy      field.String
-	ReviewedAt      field.Time
-	ReviewNotes     field.String
-	AppliedRuleID   field.Int64 // ID of the actual alert rule if this advice was applied
-	AppliedAt       field.Time
-	InspectionID    field.String // ID of the inspection run that generated this advice
-	InspectionTime  field.Time
-	Tags            field.String
-	ConfidenceScore field.Float64 // Confidence score (0.0-1.0) indicating how certain the recommendation is
-	ExpiresAt       field.Time
-	CreatedAt       field.Time
-	UpdatedAt       field.Time
-	CreatedBy       field.String
+	ALL                  field.Asterisk
+	ID                   field.Int64
+	RuleType             field.String // Type of alert rule: log or metric
+	Name                 field.String
+	Title                field.String
+	Description          field.String
+	Category             field.String // Advice category: performance/error/resource/security/availability
+	ClusterName          field.String
+	TargetResource       field.String
+	TargetName           field.String
+	RuleConfig           field.Field // Complete rule configuration in JSON format
+	Severity             field.String
+	Priority             field.Int32
+	Reason               field.String
+	Evidence             field.Field  // Supporting data, logs, metrics that justify this recommendation
+	Status               field.String // Current status: pending/reviewed/accepted/rejected/applied
+	ReviewedBy           field.String
+	ReviewedAt           field.Time
+	ReviewNotes          field.String
+	AppliedRuleID        field.Int64 // ID of the actual alert rule if this advice was applied
+	AppliedAt            field.Time
+	InspectionID         field.String // ID of the inspection run that generated this advice
+	InspectionTime       field.Time
+	Tags                 field.String
+	ConfidenceScore      field.Float64 // Confidence score (0.0-1.0) indicating how certain the recommendation is
+	ExpiresAt            field.Time
+	CreatedAt            field.Time
+	UpdatedAt            field.Time
+	CreatedBy            field.String
+	ComponentID          field.String
+	SuggestionCategory   field.String
+	ScanID               field.String
+	AiModel              field.String
+	GenerationPromptHash field.String
 
 	fieldMap map[string]field.Expr
 }
@@ -137,6 +147,11 @@ func (a *alertRuleAdvices) updateTableName(table string) *alertRuleAdvices {
 	a.CreatedAt = field.NewTime(table, "created_at")
 	a.UpdatedAt = field.NewTime(table, "updated_at")
 	a.CreatedBy = field.NewString(table, "created_by")
+	a.ComponentID = field.NewString(table, "component_id")
+	a.SuggestionCategory = field.NewString(table, "suggestion_category")
+	a.ScanID = field.NewString(table, "scan_id")
+	a.AiModel = field.NewString(table, "ai_model")
+	a.GenerationPromptHash = field.NewString(table, "generation_prompt_hash")
 
 	a.fillFieldMap()
 
@@ -165,7 +180,7 @@ func (a *alertRuleAdvices) GetFieldByName(fieldName string) (field.OrderExpr, bo
 }
 
 func (a *alertRuleAdvices) fillFieldMap() {
-	a.fieldMap = make(map[string]field.Expr, 28)
+	a.fieldMap = make(map[string]field.Expr, 33)
 	a.fieldMap["id"] = a.ID
 	a.fieldMap["rule_type"] = a.RuleType
 	a.fieldMap["name"] = a.Name
@@ -194,6 +209,11 @@ func (a *alertRuleAdvices) fillFieldMap() {
 	a.fieldMap["created_at"] = a.CreatedAt
 	a.fieldMap["updated_at"] = a.UpdatedAt
 	a.fieldMap["created_by"] = a.CreatedBy
+	a.fieldMap["component_id"] = a.ComponentID
+	a.fieldMap["suggestion_category"] = a.SuggestionCategory
+	a.fieldMap["scan_id"] = a.ScanID
+	a.fieldMap["ai_model"] = a.AiModel
+	a.fieldMap["generation_prompt_hash"] = a.GenerationPromptHash
 }
 
 func (a alertRuleAdvices) clone(db *gorm.DB) alertRuleAdvices {

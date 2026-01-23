@@ -48,14 +48,14 @@ type githubWorkflowMetrics struct {
 
 	ALL        field.Asterisk
 	ID         field.Int64
-	ConfigID   field.Int64
-	RunID      field.Int64
-	SchemaID   field.Int64
-	Timestamp  field.Time
-	SourceFile field.String
-	Dimensions field.Field
-	Metrics    field.Field
-	RawData    field.Field
+	ConfigID   field.Int64  // Configuration ID
+	RunID      field.Int64  // Associated workflow run ID
+	SchemaID   field.Int64  // Schema used for extraction
+	Timestamp  field.Time   // Metric timestamp (workflow completion time or extracted from data)
+	SourceFile field.String // Source file path from which metrics were extracted
+	Dimensions field.Field  // JSONB object of dimension key-value pairs
+	Metrics    field.Field  // JSONB object of metric key-value pairs (numeric)
+	RawData    field.Field  // Original raw data for debugging (optional)
 	CreatedAt  field.Time
 
 	fieldMap map[string]field.Expr

@@ -70,15 +70,15 @@ type githubWorkflowRunDetails struct {
 
 	ALL                    field.Asterisk
 	ID                     field.Int64
-	RunID                  field.Int64
+	RunID                  field.Int64 // Reference to github_workflow_runs.id
 	GithubRunID            field.Int64
 	GithubRunNumber        field.Int32
 	GithubRunAttempt       field.Int32
 	WorkflowID             field.Int64
 	WorkflowName           field.String
 	WorkflowPath           field.String
-	Status                 field.String
-	Conclusion             field.String
+	Status                 field.String // GitHub status: queued, in_progress, completed
+	Conclusion             field.String // GitHub conclusion: success, failure, cancelled, skipped, timed_out, action_required
 	HTMLURL                field.String
 	JobsURL                field.String
 	LogsURL                field.String
@@ -88,7 +88,7 @@ type githubWorkflowRunDetails struct {
 	RunStartedAt           field.Time
 	RunCompletedAt         field.Time
 	DurationSeconds        field.Int32
-	Event                  field.String
+	Event                  field.String // Trigger event: push, pull_request, schedule, workflow_dispatch
 	TriggerActor           field.String
 	TriggerActorID         field.Int64
 	HeadSha                field.String
@@ -99,7 +99,7 @@ type githubWorkflowRunDetails struct {
 	PullRequestNumber      field.Int32
 	PullRequestTitle       field.String
 	PullRequestURL         field.String
-	Jobs                   field.Field
+	Jobs                   field.Field // JSON array of job details with id, name, status, conclusion, started_at, completed_at
 	CreatedAt              field.Time
 
 	fieldMap map[string]field.Expr

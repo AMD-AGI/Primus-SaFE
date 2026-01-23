@@ -105,8 +105,8 @@ func (j *GithubWorkflowCollectorJob) analyzeBuildComparison(
 		ContributorCount: countUniqueContributors(commits),
 	}
 	for _, c := range commits {
-		codeChanges.Additions += c.Additions
-		codeChanges.Deletions += c.Deletions
+		codeChanges.Additions += int(c.Additions)
+		codeChanges.Deletions += int(c.Deletions)
 	}
 
 	// If no previous run, all metrics are new
@@ -167,16 +167,23 @@ func (j *GithubWorkflowCollectorJob) analyzeRegressionsWithAI(
 
 		for _, c := range commits {
 			var files []string
-			if err := c.Files.UnmarshalTo(&files); err == nil {
-				input.Commits = append(input.Commits, aitopics.CommitInfo{
-					SHA:          c.SHA,
-					Author:       c.AuthorName,
-					Message:      c.Message,
-					FilesChanged: files,
-					Additions:    c.Additions,
-					Deletions:    c.Deletions,
-				})
+			if c.Files != nil {
+				if filesData, ok := c.Files["files"].([]interface{}); ok {
+					for _, f := range filesData {
+						if s, ok := f.(string); ok {
+							files = append(files, s)
+						}
+					}
+				}
 			}
+			input.Commits = append(input.Commits, aitopics.CommitInfo{
+				SHA:          c.Sha,
+				Author:       c.AuthorName,
+				Message:      c.Message,
+				FilesChanged: files,
+				Additions:    int(c.Additions),
+				Deletions:    int(c.Deletions),
+			})
 		}
 
 		// Call AI API
@@ -213,26 +220,18 @@ func (j *GithubWorkflowCollectorJob) saveDashboardSummary(
 	summaryDate := time.Date(run.WorkloadCompletedAt.Year(), run.WorkloadCompletedAt.Month(),
 		run.WorkloadCompletedAt.Day(), 0, 0, 0, 0, time.UTC)
 
-	summary := &model.DashboardSummaries{
-		ConfigID:                 config.ID,
-		SummaryDate:              summaryDate,
-		CurrentRunID:             &run.ID,
-		BuildStatus:              run.Status,
-		CommitCount:              codeChanges.CommitCount,
-		ContributorCount:         codeChanges.ContributorCount,
-		TotalAdditions:           codeChanges.Additions,
-		TotalDeletions:           codeChanges.Deletions,
-		RegressionCount:          perfSummary.RegressionCount,
-		ImprovementCount:         perfSummary.ImprovementCount,
-		NewMetricCount:           perfSummary.NewMetricCount,
-		OverallPerfChangePercent: perfSummary.OverallChangePercent,
-		GeneratedAt:              time.Now(),
-		IsStale:                  false,
+	var overallChange float64
+	if perfSummary.OverallChangePercent != nil {
+		overallChange = *perfSummary.OverallChangePercent
 	}
 
-	if !run.WorkloadStartedAt.IsZero() && !run.WorkloadCompletedAt.IsZero() {
-		duration := int(run.WorkloadCompletedAt.Sub(run.WorkloadStartedAt).Seconds())
-		summary.BuildDurationSeconds = &duration
+	summary := &model.DashboardSummaries{
+		ConfigID:         config.ID,
+		Date:             summaryDate,
+		BuildStatus:      run.Status,
+		CommitCount:      int32(codeChanges.CommitCount),
+		ContributorCount: int32(codeChanges.ContributorCount),
+		PerfChange:       overallChange,
 	}
 
 	// Serialize JSONB fields

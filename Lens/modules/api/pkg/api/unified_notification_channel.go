@@ -113,7 +113,6 @@ type GetNotificationChannelResponse struct {
 	CreatedAt   string                 `json:"created_at"`
 	UpdatedAt   string                 `json:"updated_at"`
 	CreatedBy   string                 `json:"created_by"`
-	UpdatedBy   string                 `json:"updated_by"`
 }
 
 func handleGetNotificationChannel(ctx context.Context, req *GetNotificationChannelRequest) (*GetNotificationChannelResponse, error) {
@@ -139,7 +138,6 @@ func handleGetNotificationChannel(ctx context.Context, req *GetNotificationChann
 		CreatedAt:   channel.CreatedAt.Format("2006-01-02T15:04:05Z"),
 		UpdatedAt:   channel.UpdatedAt.Format("2006-01-02T15:04:05Z"),
 		CreatedBy:   channel.CreatedBy,
-		UpdatedBy:   channel.UpdatedBy,
 	}
 	if channel.Config != nil {
 		resp.Config = channel.Config

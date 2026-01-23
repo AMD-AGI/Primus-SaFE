@@ -259,7 +259,7 @@ func init() {
 // ======================== Request Types ========================
 
 type GithubWorkflowConfigsListRequest struct {
-	Cluster     string `json:"cluster" form:"cluster" mcp:"description=Cluster name"`
+	Cluster     string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
 	GithubOwner string `json:"github_owner" form:"github_owner" mcp:"description=Filter by GitHub owner"`
 	GithubRepo  string `json:"github_repo" form:"github_repo" mcp:"description=Filter by GitHub repo"`
 	Enabled     string `json:"enabled" form:"enabled" mcp:"description=Filter by enabled status (true/false)"`
@@ -268,31 +268,31 @@ type GithubWorkflowConfigsListRequest struct {
 }
 
 type GithubWorkflowConfigGetRequest struct {
-	Cluster string `json:"cluster" form:"cluster" mcp:"description=Cluster name"`
-	ID      string `json:"id" form:"id" uri:"id" binding:"required" mcp:"description=Config ID,required"`
+	Cluster string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
+	ID      string `json:"id" form:"id" param:"id" binding:"required" mcp:"description=Config ID,required"`
 }
 
 type GithubWorkflowRunsListRequest struct {
-	Cluster string `json:"cluster" form:"cluster" mcp:"description=Cluster name"`
-	ID      string `json:"id" form:"id" uri:"id" binding:"required" mcp:"description=Config ID,required"`
+	Cluster string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
+	ID      string `json:"id" form:"id" param:"id" binding:"required" mcp:"description=Config ID,required"`
 	Status  string `json:"status" form:"status" mcp:"description=Filter by status"`
 	Offset  int    `json:"offset" form:"offset" mcp:"description=Pagination offset"`
 	Limit   int    `json:"limit" form:"limit" mcp:"description=Pagination limit"`
 }
 
 type GithubWorkflowSchemasListRequest struct {
-	Cluster string `json:"cluster" form:"cluster" mcp:"description=Cluster name"`
-	ID      string `json:"id" form:"id" uri:"id" binding:"required" mcp:"description=Config ID,required"`
+	Cluster string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
+	ID      string `json:"id" form:"id" param:"id" binding:"required" mcp:"description=Config ID,required"`
 }
 
 type GithubWorkflowActiveSchemaRequest struct {
-	Cluster string `json:"cluster" form:"cluster" mcp:"description=Cluster name"`
-	ID      string `json:"id" form:"id" uri:"id" binding:"required" mcp:"description=Config ID,required"`
+	Cluster string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
+	ID      string `json:"id" form:"id" param:"id" binding:"required" mcp:"description=Config ID,required"`
 }
 
 type GithubWorkflowMetricsListRequest struct {
-	Cluster string `json:"cluster" form:"cluster" mcp:"description=Cluster name"`
-	ID      string `json:"id" form:"id" uri:"id" binding:"required" mcp:"description=Config ID,required"`
+	Cluster string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
+	ID      string `json:"id" form:"id" param:"id" binding:"required" mcp:"description=Config ID,required"`
 	Offset  int    `json:"offset" form:"offset" mcp:"description=Pagination offset"`
 	Limit   int    `json:"limit" form:"limit" mcp:"description=Pagination limit"`
 	Since   string `json:"since" form:"since" mcp:"description=Start time (RFC3339)"`
@@ -300,73 +300,73 @@ type GithubWorkflowMetricsListRequest struct {
 }
 
 type GithubWorkflowStatsRequest struct {
-	Cluster string `json:"cluster" form:"cluster" mcp:"description=Cluster name"`
-	ID      string `json:"id" form:"id" uri:"id" binding:"required" mcp:"description=Config ID,required"`
+	Cluster string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
+	ID      string `json:"id" form:"id" param:"id" binding:"required" mcp:"description=Config ID,required"`
 }
 
 type GithubWorkflowSummaryRequest struct {
-	Cluster string `json:"cluster" form:"cluster" mcp:"description=Cluster name"`
-	ID      string `json:"id" form:"id" uri:"id" binding:"required" mcp:"description=Config ID,required"`
+	Cluster string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
+	ID      string `json:"id" form:"id" param:"id" binding:"required" mcp:"description=Config ID,required"`
 }
 
 type GithubWorkflowDimensionsRequest struct {
-	Cluster string `json:"cluster" form:"cluster" mcp:"description=Cluster name"`
-	ID      string `json:"id" form:"id" uri:"id" binding:"required" mcp:"description=Config ID,required"`
+	Cluster string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
+	ID      string `json:"id" form:"id" param:"id" binding:"required" mcp:"description=Config ID,required"`
 }
 
 type GithubWorkflowDimensionValuesRequest struct {
-	Cluster   string `json:"cluster" form:"cluster" mcp:"description=Cluster name"`
-	ID        string `json:"id" form:"id" uri:"id" binding:"required" mcp:"description=Config ID,required"`
-	Dimension string `json:"dimension" form:"dimension" uri:"dimension" binding:"required" mcp:"description=Dimension name,required"`
+	Cluster   string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
+	ID        string `json:"id" form:"id" param:"id" binding:"required" mcp:"description=Config ID,required"`
+	Dimension string `json:"dimension" form:"dimension" param:"dimension" binding:"required" mcp:"description=Dimension name,required"`
 }
 
 type GithubWorkflowFieldsRequest struct {
-	Cluster string `json:"cluster" form:"cluster" mcp:"description=Cluster name"`
-	ID      string `json:"id" form:"id" uri:"id" binding:"required" mcp:"description=Config ID,required"`
+	Cluster string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
+	ID      string `json:"id" form:"id" param:"id" binding:"required" mcp:"description=Config ID,required"`
 }
 
 type GithubWorkflowBackfillStatusRequest struct {
-	Cluster string `json:"cluster" form:"cluster" mcp:"description=Cluster name"`
-	ID      string `json:"id" form:"id" uri:"id" binding:"required" mcp:"description=Config ID,required"`
+	Cluster string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
+	ID      string `json:"id" form:"id" param:"id" binding:"required" mcp:"description=Config ID,required"`
 }
 
 type GithubWorkflowBackfillTasksRequest struct {
-	Cluster string `json:"cluster" form:"cluster" mcp:"description=Cluster name"`
-	ID      string `json:"id" form:"id" uri:"id" binding:"required" mcp:"description=Config ID,required"`
+	Cluster string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
+	ID      string `json:"id" form:"id" param:"id" binding:"required" mcp:"description=Config ID,required"`
 	Status  string `json:"status" form:"status" mcp:"description=Filter by status"`
 	Offset  int    `json:"offset" form:"offset" mcp:"description=Pagination offset"`
 	Limit   int    `json:"limit" form:"limit" mcp:"description=Pagination limit"`
 }
 
 type GithubWorkflowEphemeralRunnersRequest struct {
-	Cluster string `json:"cluster" form:"cluster" mcp:"description=Cluster name"`
-	ID      string `json:"id" form:"id" uri:"id" binding:"required" mcp:"description=Config ID,required"`
+	Cluster string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
+	ID      string `json:"id" form:"id" param:"id" binding:"required" mcp:"description=Config ID,required"`
 	Status  string `json:"status" form:"status" mcp:"description=Filter by status"`
 	Offset  int    `json:"offset" form:"offset" mcp:"description=Pagination offset"`
 	Limit   int    `json:"limit" form:"limit" mcp:"description=Pagination limit"`
 }
 
 type GithubWorkflowDashboardRequest struct {
-	Cluster string `json:"cluster" form:"cluster" mcp:"description=Cluster name"`
-	ID      string `json:"id" form:"id" uri:"id" binding:"required" mcp:"description=Config ID,required"`
+	Cluster string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
+	ID      string `json:"id" form:"id" param:"id" binding:"required" mcp:"description=Config ID,required"`
 }
 
 type GithubWorkflowDashboardBuildsRequest struct {
-	Cluster string `json:"cluster" form:"cluster" mcp:"description=Cluster name"`
-	ID      string `json:"id" form:"id" uri:"id" binding:"required" mcp:"description=Config ID,required"`
+	Cluster string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
+	ID      string `json:"id" form:"id" param:"id" binding:"required" mcp:"description=Config ID,required"`
 	Limit   int    `json:"limit" form:"limit" mcp:"description=Number of builds to return"`
 }
 
 type GithubWorkflowCommitStatsRequest struct {
-	Cluster string `json:"cluster" form:"cluster" mcp:"description=Cluster name"`
-	ID      string `json:"id" form:"id" uri:"id" binding:"required" mcp:"description=Config ID,required"`
+	Cluster string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
+	ID      string `json:"id" form:"id" param:"id" binding:"required" mcp:"description=Config ID,required"`
 	Since   string `json:"since" form:"since" mcp:"description=Start time (RFC3339)"`
 	Until   string `json:"until" form:"until" mcp:"description=End time (RFC3339)"`
 }
 
 type GithubWorkflowAnalyticsRequest struct {
-	Cluster      string `json:"cluster" form:"cluster" mcp:"description=Cluster name"`
-	ID           string `json:"id" form:"id" uri:"id" binding:"required" mcp:"description=Config ID,required"`
+	Cluster      string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
+	ID           string `json:"id" form:"id" param:"id" binding:"required" mcp:"description=Config ID,required"`
 	Since        string `json:"since" form:"since" mcp:"description=Start time (RFC3339)"`
 	Until        string `json:"until" form:"until" mcp:"description=End time (RFC3339)"`
 	WorkflowName string `json:"workflow_name" form:"workflow_name" mcp:"description=Filter by workflow name"`
@@ -375,47 +375,47 @@ type GithubWorkflowAnalyticsRequest struct {
 }
 
 type GithubWorkflowRunHistoryRequest struct {
-	Cluster string `json:"cluster" form:"cluster" mcp:"description=Cluster name"`
-	ID      string `json:"id" form:"id" uri:"id" binding:"required" mcp:"description=Config ID,required"`
+	Cluster string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
+	ID      string `json:"id" form:"id" param:"id" binding:"required" mcp:"description=Config ID,required"`
 	Offset  int    `json:"offset" form:"offset" mcp:"description=Pagination offset"`
 	Limit   int    `json:"limit" form:"limit" mcp:"description=Pagination limit"`
 }
 
 type GithubWorkflowAllRunsRequest struct {
-	Cluster string `json:"cluster" form:"cluster" mcp:"description=Cluster name"`
+	Cluster string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
 	Status  string `json:"status" form:"status" mcp:"description=Filter by status"`
 	Offset  int    `json:"offset" form:"offset" mcp:"description=Pagination offset"`
 	Limit   int    `json:"limit" form:"limit" mcp:"description=Pagination limit"`
 }
 
 type GithubWorkflowRunGetRequest struct {
-	Cluster string `json:"cluster" form:"cluster" mcp:"description=Cluster name"`
-	ID      string `json:"id" form:"id" uri:"id" binding:"required" mcp:"description=Run ID,required"`
+	Cluster string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
+	ID      string `json:"id" form:"id" param:"id" binding:"required" mcp:"description=Run ID,required"`
 }
 
 type GithubWorkflowRunMetricsRequest struct {
-	Cluster string `json:"cluster" form:"cluster" mcp:"description=Cluster name"`
-	ID      string `json:"id" form:"id" uri:"id" binding:"required" mcp:"description=Run ID,required"`
+	Cluster string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
+	ID      string `json:"id" form:"id" param:"id" binding:"required" mcp:"description=Run ID,required"`
 }
 
 type GithubWorkflowRunDetailRequest struct {
-	Cluster string `json:"cluster" form:"cluster" mcp:"description=Cluster name"`
-	ID      string `json:"id" form:"id" uri:"id" binding:"required" mcp:"description=Run ID,required"`
+	Cluster string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
+	ID      string `json:"id" form:"id" param:"id" binding:"required" mcp:"description=Run ID,required"`
 }
 
 type GithubWorkflowRunCommitRequest struct {
-	Cluster string `json:"cluster" form:"cluster" mcp:"description=Cluster name"`
-	ID      string `json:"id" form:"id" uri:"id" binding:"required" mcp:"description=Run ID,required"`
+	Cluster string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
+	ID      string `json:"id" form:"id" param:"id" binding:"required" mcp:"description=Run ID,required"`
 }
 
 type GithubWorkflowRunDetailsAPIRequest struct {
-	Cluster string `json:"cluster" form:"cluster" mcp:"description=Cluster name"`
-	ID      string `json:"id" form:"id" uri:"id" binding:"required" mcp:"description=Run ID,required"`
+	Cluster string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
+	ID      string `json:"id" form:"id" param:"id" binding:"required" mcp:"description=Run ID,required"`
 }
 
 type GithubWorkflowSchemaGetRequest struct {
-	Cluster string `json:"cluster" form:"cluster" mcp:"description=Cluster name"`
-	ID      string `json:"id" form:"id" uri:"id" binding:"required" mcp:"description=Schema ID,required"`
+	Cluster string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
+	ID      string `json:"id" form:"id" param:"id" binding:"required" mcp:"description=Schema ID,required"`
 }
 
 // ======================== Response Types ========================
