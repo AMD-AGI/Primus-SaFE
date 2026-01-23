@@ -159,19 +159,20 @@ func (r *TaskReceiver) tryAcquireNewTasks() {
 		return
 	}
 
-	// Find pending tasks
-	tasks, err := r.facade.ListTasksByStatus(r.ctx, constant.TaskStatusPending)
+	// Find tasks that are either pending or running with expired/no locks
+	// This allows us to acquire tasks that were orphaned by other instances
+	tasks, err := r.facade.ListTasksByTypeAndStatuses(
+		r.ctx,
+		config.TaskTypeInferenceMetricsScrape,
+		[]string{constant.TaskStatusPending, constant.TaskStatusRunning},
+	)
 	if err != nil {
-		log.Errorf("Failed to list pending tasks: %v", err)
+		log.Errorf("Failed to list available tasks: %v", err)
 		return
 	}
 
 	for _, m := range tasks {
-		if m.TaskType != config.TaskTypeInferenceMetricsScrape {
-			continue
-		}
-
-		// Check if already owned
+		// Check if already owned by this instance
 		r.tasksMu.RLock()
 		_, exists := r.activeTasks[m.WorkloadUID]
 		r.tasksMu.RUnlock()
@@ -179,7 +180,7 @@ func (r *TaskReceiver) tryAcquireNewTasks() {
 			continue
 		}
 
-		// Try to acquire
+		// Try to acquire - TryAcquireLock handles expired lock checking
 		acquired, err := r.facade.TryAcquireLock(r.ctx, m.WorkloadUID, config.TaskTypeInferenceMetricsScrape, r.cfg.InstanceID, r.cfg.LockDuration)
 		if err != nil {
 			log.Errorf("Failed to acquire lock for %s: %v", m.WorkloadUID, err)
