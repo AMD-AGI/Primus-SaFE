@@ -116,70 +116,70 @@ type GpuAggClustersRequest struct{}
 
 type GpuAggNamespacesRequest struct {
 	Cluster   string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
-	StartTime string `json:"start_time" form:"start_time" binding:"required" mcp:"description=Start time (RFC3339 format),required"`
-	EndTime   string `json:"end_time" form:"end_time" binding:"required" mcp:"description=End time (RFC3339 format),required"`
+	StartTime string `json:"start_time" query:"start_time" mcp:"description=Start time (RFC3339 format),required"`
+	EndTime   string `json:"end_time" query:"end_time" mcp:"description=End time (RFC3339 format),required"`
 }
 
 type GpuAggDimensionKeysRequest struct {
 	Cluster       string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
-	DimensionType string `json:"dimension_type" form:"dimension_type" binding:"required,oneof=label annotation" mcp:"description=Dimension type: label or annotation,required"`
-	StartTime     string `json:"start_time" form:"start_time" binding:"required" mcp:"description=Start time (RFC3339 format),required"`
-	EndTime       string `json:"end_time" form:"end_time" binding:"required" mcp:"description=End time (RFC3339 format),required"`
+	DimensionType string `json:"dimension_type" query:"dimension_type" mcp:"description=Dimension type: label or annotation,required"`
+	StartTime     string `json:"start_time" query:"start_time" mcp:"description=Start time (RFC3339 format),required"`
+	EndTime       string `json:"end_time" query:"end_time" mcp:"description=End time (RFC3339 format),required"`
 }
 
 type GpuAggDimensionValuesRequest struct {
 	Cluster       string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
-	DimensionType string `json:"dimension_type" form:"dimension_type" binding:"required,oneof=label annotation" mcp:"description=Dimension type: label or annotation,required"`
-	DimensionKey  string `json:"dimension_key" form:"dimension_key" binding:"required" mcp:"description=Dimension key name,required"`
-	StartTime     string `json:"start_time" form:"start_time" binding:"required" mcp:"description=Start time (RFC3339 format),required"`
-	EndTime       string `json:"end_time" form:"end_time" binding:"required" mcp:"description=End time (RFC3339 format),required"`
+	DimensionType string `json:"dimension_type" query:"dimension_type" mcp:"description=Dimension type: label or annotation,required"`
+	DimensionKey  string `json:"dimension_key" query:"dimension_key" mcp:"description=Dimension key name,required"`
+	StartTime     string `json:"start_time" query:"start_time" mcp:"description=Start time (RFC3339 format),required"`
+	EndTime       string `json:"end_time" query:"end_time" mcp:"description=End time (RFC3339 format),required"`
 }
 
 type GpuAggClusterHourlyStatsRequest struct {
 	Cluster        string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
-	StartTime      string `json:"start_time" form:"start_time" binding:"required" mcp:"description=Start time (RFC3339 format),required"`
-	EndTime        string `json:"end_time" form:"end_time" binding:"required" mcp:"description=End time (RFC3339 format),required"`
-	Page           int    `json:"page" form:"page" mcp:"description=Page number (default 1)"`
-	PageSize       int    `json:"page_size" form:"page_size" mcp:"description=Items per page (default 20 max 1000)"`
-	OrderBy        string `json:"order_by" form:"order_by" mcp:"description=Sort field: time or utilization"`
-	OrderDirection string `json:"order_direction" form:"order_direction" mcp:"description=Sort direction: asc or desc"`
+	StartTime      string `json:"start_time" query:"start_time" mcp:"description=Start time (RFC3339 format),required"`
+	EndTime        string `json:"end_time" query:"end_time" mcp:"description=End time (RFC3339 format),required"`
+	Page           int    `json:"page" query:"page" mcp:"description=Page number (default 1)"`
+	PageSize       int    `json:"page_size" query:"page_size" mcp:"description=Items per page (default 20 max 1000)"`
+	OrderBy        string `json:"order_by" query:"order_by" mcp:"description=Sort field: time or utilization"`
+	OrderDirection string `json:"order_direction" query:"order_direction" mcp:"description=Sort direction: asc or desc"`
 }
 
 type GpuAggNamespaceHourlyStatsRequest struct {
 	Cluster        string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
-	Namespace      string `json:"namespace" form:"namespace" mcp:"description=Namespace name (optional query all if empty)"`
-	StartTime      string `json:"start_time" form:"start_time" binding:"required" mcp:"description=Start time (RFC3339 format),required"`
-	EndTime        string `json:"end_time" form:"end_time" binding:"required" mcp:"description=End time (RFC3339 format),required"`
-	Page           int    `json:"page" form:"page" mcp:"description=Page number (default 1)"`
-	PageSize       int    `json:"page_size" form:"page_size" mcp:"description=Items per page (default 20 max 1000)"`
-	OrderBy        string `json:"order_by" form:"order_by" mcp:"description=Sort field: time or utilization"`
-	OrderDirection string `json:"order_direction" form:"order_direction" mcp:"description=Sort direction: asc or desc"`
+	Namespace      string `json:"namespace" query:"namespace" mcp:"description=Namespace name (optional query all if empty)"`
+	StartTime      string `json:"start_time" query:"start_time" mcp:"description=Start time (RFC3339 format),required"`
+	EndTime        string `json:"end_time" query:"end_time" mcp:"description=End time (RFC3339 format),required"`
+	Page           int    `json:"page" query:"page" mcp:"description=Page number (default 1)"`
+	PageSize       int    `json:"page_size" query:"page_size" mcp:"description=Items per page (default 20 max 1000)"`
+	OrderBy        string `json:"order_by" query:"order_by" mcp:"description=Sort field: time or utilization"`
+	OrderDirection string `json:"order_direction" query:"order_direction" mcp:"description=Sort direction: asc or desc"`
 }
 
 type GpuAggLabelHourlyStatsRequest struct {
 	Cluster        string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
-	DimensionType  string `json:"dimension_type" form:"dimension_type" binding:"required,oneof=label annotation" mcp:"description=Dimension type: label or annotation,required"`
-	DimensionKey   string `json:"dimension_key" form:"dimension_key" binding:"required" mcp:"description=Dimension key name,required"`
-	DimensionValue string `json:"dimension_value" form:"dimension_value" mcp:"description=Dimension value (optional query all values if empty)"`
-	StartTime      string `json:"start_time" form:"start_time" binding:"required" mcp:"description=Start time (RFC3339 format),required"`
-	EndTime        string `json:"end_time" form:"end_time" binding:"required" mcp:"description=End time (RFC3339 format),required"`
-	Page           int    `json:"page" form:"page" mcp:"description=Page number (default 1)"`
-	PageSize       int    `json:"page_size" form:"page_size" mcp:"description=Items per page (default 20 max 1000)"`
-	OrderBy        string `json:"order_by" form:"order_by" mcp:"description=Sort field: time utilization or allocated_gpu_count"`
-	OrderDirection string `json:"order_direction" form:"order_direction" mcp:"description=Sort direction: asc or desc"`
+	DimensionType  string `json:"dimension_type" query:"dimension_type" mcp:"description=Dimension type: label or annotation,required"`
+	DimensionKey   string `json:"dimension_key" query:"dimension_key" mcp:"description=Dimension key name,required"`
+	DimensionValue string `json:"dimension_value" query:"dimension_value" mcp:"description=Dimension value (optional query all values if empty)"`
+	StartTime      string `json:"start_time" query:"start_time" mcp:"description=Start time (RFC3339 format),required"`
+	EndTime        string `json:"end_time" query:"end_time" mcp:"description=End time (RFC3339 format),required"`
+	Page           int    `json:"page" query:"page" mcp:"description=Page number (default 1)"`
+	PageSize       int    `json:"page_size" query:"page_size" mcp:"description=Items per page (default 20 max 1000)"`
+	OrderBy        string `json:"order_by" query:"order_by" mcp:"description=Sort field: time utilization or allocated_gpu_count"`
+	OrderDirection string `json:"order_direction" query:"order_direction" mcp:"description=Sort direction: asc or desc"`
 }
 
 type GpuAggWorkloadHourlyStatsRequest struct {
 	Cluster        string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
-	Namespace      string `json:"namespace" form:"namespace" mcp:"description=Namespace name (optional)"`
-	WorkloadName   string `json:"workload_name" form:"workload_name" mcp:"description=Workload name (optional)"`
-	WorkloadType   string `json:"workload_type" form:"workload_type" mcp:"description=Workload type (Job Deployment StatefulSet etc)"`
-	StartTime      string `json:"start_time" form:"start_time" binding:"required" mcp:"description=Start time (RFC3339 format),required"`
-	EndTime        string `json:"end_time" form:"end_time" binding:"required" mcp:"description=End time (RFC3339 format),required"`
-	Page           int    `json:"page" form:"page" mcp:"description=Page number (default 1)"`
-	PageSize       int    `json:"page_size" form:"page_size" mcp:"description=Items per page (default 20 max 1000)"`
-	OrderBy        string `json:"order_by" form:"order_by" mcp:"description=Sort field: time utilization or allocated_gpu_count"`
-	OrderDirection string `json:"order_direction" form:"order_direction" mcp:"description=Sort direction: asc or desc"`
+	Namespace      string `json:"namespace" query:"namespace" mcp:"description=Namespace name (optional)"`
+	WorkloadName   string `json:"workload_name" query:"workload_name" mcp:"description=Workload name (optional)"`
+	WorkloadType   string `json:"workload_type" query:"workload_type" mcp:"description=Workload type (Job Deployment StatefulSet etc)"`
+	StartTime      string `json:"start_time" query:"start_time" mcp:"description=Start time (RFC3339 format),required"`
+	EndTime        string `json:"end_time" query:"end_time" mcp:"description=End time (RFC3339 format),required"`
+	Page           int    `json:"page" query:"page" mcp:"description=Page number (default 1)"`
+	PageSize       int    `json:"page_size" query:"page_size" mcp:"description=Items per page (default 20 max 1000)"`
+	OrderBy        string `json:"order_by" query:"order_by" mcp:"description=Sort field: time utilization or allocated_gpu_count"`
+	OrderDirection string `json:"order_direction" query:"order_direction" mcp:"description=Sort direction: asc or desc"`
 }
 
 type GpuAggSnapshotRequest struct {
@@ -188,8 +188,8 @@ type GpuAggSnapshotRequest struct {
 
 type GpuAggSnapshotsListRequest struct {
 	Cluster   string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
-	StartTime string `json:"start_time" form:"start_time" mcp:"description=Start time (RFC3339 format optional)"`
-	EndTime   string `json:"end_time" form:"end_time" mcp:"description=End time (RFC3339 format optional)"`
+	StartTime string `json:"start_time" query:"start_time" mcp:"description=Start time (RFC3339 format optional)"`
+	EndTime   string `json:"end_time" query:"end_time" mcp:"description=End time (RFC3339 format optional)"`
 }
 
 // ======================== Response Types ========================
