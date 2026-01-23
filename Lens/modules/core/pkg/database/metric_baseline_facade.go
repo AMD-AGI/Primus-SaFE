@@ -134,8 +134,7 @@ func (f *MetricBaselineFacade) ListByConfigAndMetric(ctx context.Context, config
 
 // Update updates a metric baseline
 func (f *MetricBaselineFacade) Update(ctx context.Context, baseline *model.MetricBaselines) error {
-	baseline.UpdatedAt = time.Now()
-	baseline.LastUpdatedAt = time.Now()
+	baseline.LastUpdated = time.Now()
 	return f.getDB().WithContext(ctx).Save(baseline).Error
 }
 

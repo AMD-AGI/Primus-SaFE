@@ -198,8 +198,8 @@ func (s *DashboardService) getCodeChangesSummary(
 	// Aggregate contributor stats
 	contributorMap := make(map[string]*ContributorInfo)
 	for _, commit := range commits {
-		codeChanges.Additions += commit.Additions
-		codeChanges.Deletions += commit.Deletions
+		codeChanges.Additions += int(commit.Additions)
+		codeChanges.Deletions += int(commit.Deletions)
 
 		key := commit.AuthorEmail
 		if key == "" {
@@ -208,15 +208,15 @@ func (s *DashboardService) getCodeChangesSummary(
 
 		if existing, ok := contributorMap[key]; ok {
 			existing.Commits++
-			existing.Additions += commit.Additions
-			existing.Deletions += commit.Deletions
+			existing.Additions += int(commit.Additions)
+			existing.Deletions += int(commit.Deletions)
 		} else {
 			contributorMap[key] = &ContributorInfo{
 				Author:    commit.AuthorName,
 				Email:     commit.AuthorEmail,
 				Commits:   1,
-				Additions: commit.Additions,
-				Deletions: commit.Deletions,
+				Additions: int(commit.Additions),
+				Deletions: int(commit.Deletions),
 			}
 		}
 	}
@@ -488,16 +488,23 @@ func (s *DashboardService) analyzeRegressionWithAI(
 
 	for _, c := range commits {
 		var files []string
-		if err := c.Files.UnmarshalTo(&files); err == nil {
-			input.Commits = append(input.Commits, aitopics.CommitInfo{
-				SHA:          c.SHA,
-				Author:       c.AuthorName,
-				Message:      c.Message,
-				FilesChanged: files,
-				Additions:    c.Additions,
-				Deletions:    c.Deletions,
-			})
+		if c.Files != nil {
+			if filesData, ok := c.Files["files"].([]interface{}); ok {
+				for _, f := range filesData {
+					if s, ok := f.(string); ok {
+						files = append(files, s)
+					}
+				}
+			}
 		}
+		input.Commits = append(input.Commits, aitopics.CommitInfo{
+			SHA:          c.Sha,
+			Author:       c.AuthorName,
+			Message:      c.Message,
+			FilesChanged: files,
+			Additions:    int(c.Additions),
+			Deletions:    int(c.Deletions),
+		})
 	}
 
 	// Call AI API
@@ -593,29 +600,16 @@ func (s *DashboardService) cacheSummary(
 	// Convert response to model
 	summary := &dbmodel.DashboardSummaries{
 		ConfigID:    configID,
-		SummaryDate: time.Date(summaryDate.Year(), summaryDate.Month(), summaryDate.Day(), 0, 0, 0, 0, time.UTC),
+		Date:        time.Date(summaryDate.Year(), summaryDate.Month(), summaryDate.Day(), 0, 0, 0, 0, time.UTC),
 		BuildStatus: response.Build.Status,
-		GeneratedAt: response.GeneratedAt,
-		IsStale:     false,
 	}
 
-	if response.Build.CurrentRunID != nil {
-		summary.CurrentRunID = response.Build.CurrentRunID
-	}
-	if response.Build.DurationSeconds != nil {
-		summary.BuildDurationSeconds = response.Build.DurationSeconds
-	}
+	summary.CommitCount = int32(response.CodeChanges.CommitCount)
+	summary.ContributorCount = int32(response.CodeChanges.ContributorCount)
 
-	summary.CommitCount = response.CodeChanges.CommitCount
-	summary.PRCount = response.CodeChanges.PRCount
-	summary.ContributorCount = response.CodeChanges.ContributorCount
-	summary.TotalAdditions = response.CodeChanges.Additions
-	summary.TotalDeletions = response.CodeChanges.Deletions
-
-	summary.RegressionCount = response.Performance.RegressionCount
-	summary.ImprovementCount = response.Performance.ImprovementCount
-	summary.NewMetricCount = response.Performance.NewMetricCount
-	summary.OverallPerfChangePercent = response.Performance.OverallChangePercent
+	if response.Performance.OverallChangePercent != nil {
+		summary.PerfChange = *response.Performance.OverallChangePercent
+	}
 
 	// Serialize JSONB fields
 	if improvements, err := json.Marshal(response.Performance.TopImprovements); err == nil {
@@ -624,8 +618,13 @@ func (s *DashboardService) cacheSummary(
 	if regressions, err := json.Marshal(response.Performance.TopRegressions); err == nil {
 		summary.TopRegressions = regressions
 	}
-	if contributors, err := json.Marshal(response.Contributors); err == nil {
-		summary.TopContributors = contributors
+	// Store AlertInfo with alert details
+	if response.Anomalies != nil {
+		alertInfo := map[string]interface{}{
+			"regression_alerts": response.Anomalies.RegressionAlerts,
+			"new_metrics":       response.Anomalies.NewMetrics,
+		}
+		summary.AlertInfo = alertInfo
 	}
 
 	return facade.Upsert(ctx, summary)
@@ -743,20 +742,26 @@ func (s *DashboardService) AnalyzeCommitImpact(
 
 	// Get files from commit
 	var files []string
-	if err := commit.Files.UnmarshalTo(&files); err != nil {
-		files = []string{}
+	if commit.Files != nil {
+		if filesData, ok := commit.Files["files"].([]interface{}); ok {
+			for _, f := range filesData {
+				if s, ok := f.(string); ok {
+					files = append(files, s)
+				}
+			}
+		}
 	}
 
 	// Build input for AI API
 	input := aitopics.CommitImpactInput{
 		ConfigID: configID,
 		Commit: aitopics.CommitInfo{
-			SHA:          commit.SHA,
+			SHA:          commit.Sha,
 			Author:       commit.AuthorName,
 			Message:      commit.Message,
 			FilesChanged: files,
-			Additions:    commit.Additions,
-			Deletions:    commit.Deletions,
+			Additions:    int(commit.Additions),
+			Deletions:    int(commit.Deletions),
 		},
 	}
 

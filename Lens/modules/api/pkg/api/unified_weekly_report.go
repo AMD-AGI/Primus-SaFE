@@ -64,11 +64,11 @@ type WeeklyReportLatestRequest struct {
 }
 
 type WeeklyReportDetailRequest struct {
-	ID string `json:"id" form:"id" uri:"id" binding:"required" mcp:"description=Report ID,required"`
+	ID string `json:"id" form:"id" param:"id" binding:"required" mcp:"description=Report ID,required"`
 }
 
 type WeeklyReportJSONRequest struct {
-	ID string `json:"id" form:"id" uri:"id" binding:"required" mcp:"description=Report ID,required"`
+	ID string `json:"id" form:"id" param:"id" binding:"required" mcp:"description=Report ID,required"`
 }
 
 // ======================== Response Types ========================

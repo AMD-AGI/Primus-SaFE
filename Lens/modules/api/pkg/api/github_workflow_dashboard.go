@@ -173,7 +173,7 @@ func GetDashboardSummary(ctx *gin.Context) {
 		log.GlobalLogger().WithContext(ctx).Warningf("Failed to get cached summary: %v", err)
 	}
 
-	if cachedSummary != nil && !cachedSummary.IsStale {
+	if cachedSummary != nil {
 		// Return cached summary
 		response := convertCachedSummaryToResponse(config, cachedSummary)
 		ctx.JSON(http.StatusOK, rest.SuccessResp(ctx.Request.Context(), response))
@@ -365,16 +365,17 @@ func GetRunDetail(ctx *gin.Context) {
 
 	if commit != nil {
 		commitInfo := gin.H{
-			"sha":          commit.SHA,
+			"sha":          commit.Sha,
 			"message":      commit.Message,
 			"author":       commit.AuthorName,
 			"committed_at": commit.CommitterDate,
 			"additions":    commit.Additions,
 			"deletions":    commit.Deletions,
 		}
-		var files []string
-		if err := commit.Files.UnmarshalTo(&files); err == nil {
-			commitInfo["files"] = files
+		if commit.Files != nil {
+			if filesData, ok := commit.Files["files"]; ok {
+				commitInfo["files"] = filesData
+			}
 		}
 		response["commits"] = []gin.H{commitInfo}
 	}
@@ -506,6 +507,7 @@ func GetCommitStats(ctx *gin.Context) {
 
 // convertCachedSummaryToResponse converts a cached summary to API response format
 func convertCachedSummaryToResponse(config *dbmodel.GithubWorkflowConfigs, summary *dbmodel.DashboardSummaries) *DashboardSummaryResponse {
+	perfChangePercent := summary.PerfChange
 	response := &DashboardSummaryResponse{
 		Config: &ConfigInfo{
 			ID:          config.ID,
@@ -513,26 +515,18 @@ func convertCachedSummaryToResponse(config *dbmodel.GithubWorkflowConfigs, summa
 			GithubOwner: config.GithubOwner,
 			GithubRepo:  config.GithubRepo,
 		},
-		SummaryDate: summary.SummaryDate.Format("2006-01-02"),
+		SummaryDate: summary.Date.Format("2006-01-02"),
 		Build: &BuildInfo{
-			CurrentRunID: summary.CurrentRunID,
-			Status:       summary.BuildStatus,
-			DurationSeconds: summary.BuildDurationSeconds,
+			Status: summary.BuildStatus,
 		},
 		CodeChanges: &CodeChangesInfo{
-			CommitCount:      summary.CommitCount,
-			PRCount:          summary.PRCount,
-			ContributorCount: summary.ContributorCount,
-			Additions:        summary.TotalAdditions,
-			Deletions:        summary.TotalDeletions,
+			CommitCount:      int(summary.CommitCount),
+			ContributorCount: int(summary.ContributorCount),
 		},
 		Performance: &PerformanceInfo{
-			OverallChangePercent: summary.OverallPerfChangePercent,
-			RegressionCount:      summary.RegressionCount,
-			ImprovementCount:     summary.ImprovementCount,
-			NewMetricCount:       summary.NewMetricCount,
+			OverallChangePercent: &perfChangePercent,
 		},
-		GeneratedAt: summary.GeneratedAt,
+		GeneratedAt: summary.CreatedAt,
 	}
 
 	// Parse top improvements
@@ -547,21 +541,19 @@ func convertCachedSummaryToResponse(config *dbmodel.GithubWorkflowConfigs, summa
 		response.Performance.TopRegressions = convertPerformanceChanges(regressions)
 	}
 
-	// Parse contributors
-	var contributors []dbmodel.ContributorSummary
-	if err := summary.TopContributors.UnmarshalTo(&contributors); err == nil {
-		response.Contributors = convertContributors(contributors)
-	}
-
-	// Parse alerts
-	var alerts []dbmodel.AlertInfo
-	if err := summary.ActiveAlerts.UnmarshalTo(&alerts); err == nil {
+	// Parse alerts from AlertInfo JSON
+	if summary.AlertInfo != nil {
 		response.Anomalies = &AnomaliesInfo{}
-		for _, alert := range alerts {
-			if alert.Type == "regression" {
-				response.Anomalies.RegressionAlerts++
-			} else if alert.Type == "new_metric" {
-				response.Anomalies.NewMetrics++
+		if alertsData, ok := summary.AlertInfo["alerts"].([]interface{}); ok {
+			for _, a := range alertsData {
+				if alertMap, ok := a.(map[string]interface{}); ok {
+					alertType, _ := alertMap["type"].(string)
+					if alertType == "regression" {
+						response.Anomalies.RegressionAlerts++
+					} else if alertType == "new_metric" {
+						response.Anomalies.NewMetrics++
+					}
+				}
 			}
 		}
 	}
@@ -627,16 +619,16 @@ func generateBasicDashboardSummary(ctx *gin.Context, clusterName string, config 
 		response.CodeChanges = &CodeChangesInfo{
 			CommitCount:      1,
 			ContributorCount: 1,
-			Additions:        commit.Additions,
-			Deletions:        commit.Deletions,
+			Additions:        int(commit.Additions),
+			Deletions:        int(commit.Deletions),
 		}
 		response.Contributors = []ContributorInfo{
 			{
 				Author:    commit.AuthorName,
 				Email:     commit.AuthorEmail,
 				Commits:   1,
-				Additions: commit.Additions,
-				Deletions: commit.Deletions,
+				Additions: int(commit.Additions),
+				Deletions: int(commit.Deletions),
 			},
 		}
 	} else {
