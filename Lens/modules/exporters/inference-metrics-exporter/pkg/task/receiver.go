@@ -341,7 +341,7 @@ func (r *TaskReceiver) enrichPodInfo(task *ScrapeTask) error {
 	if len(podRefs) > 0 {
 		// Query pod details through pod UID list
 		for _, ref := range podRefs {
-			pod, err := r.podFacade.GetGpuPodByUid(ctx, ref.PodUID)
+			pod, err := r.podFacade.GetGpuPodsByPodUid(ctx, ref.PodUID)
 			if err != nil || pod == nil {
 				continue
 			}
@@ -366,7 +366,7 @@ func (r *TaskReceiver) enrichPodInfo(task *ScrapeTask) error {
 					continue
 				}
 				for _, ref := range childPodRefs {
-					pod, err := r.podFacade.GetGpuPodByUid(ctx, ref.PodUID)
+					pod, err := r.podFacade.GetGpuPodsByPodUid(ctx, ref.PodUID)
 					if err != nil || pod == nil {
 						continue
 					}

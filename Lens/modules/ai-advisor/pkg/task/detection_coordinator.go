@@ -1035,7 +1035,7 @@ func (c *DetectionCoordinator) getInferencePodInfo(ctx context.Context, workload
 	if len(podRefs) > 0 {
 		// Query pod details through pod UID list
 		for _, ref := range podRefs {
-			pod, err := podFacade.GetGpuPodByUid(ctx, ref.PodUID)
+			pod, err := podFacade.GetGpuPodsByPodUid(ctx, ref.PodUID)
 			if err != nil || pod == nil {
 				continue
 			}
