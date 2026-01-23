@@ -1107,6 +1107,9 @@ func (c *DetectionCoordinator) getInferenceMetricsEndpoint(frameworkName string)
 	case strings.Contains(frameworkLower, "tensorrt"):
 		port = 8000
 		path = "/metrics"
+	case strings.Contains(frameworkLower, "tei"), strings.Contains(frameworkLower, "text-embeddings"):
+		port = 8000
+		path = "/metrics"
 	}
 
 	return port, path

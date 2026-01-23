@@ -442,6 +442,8 @@ func (r *TaskReceiver) getDefaultMetricsPort(framework string) int {
 		return 8002
 	case contains(framework, "tensorrt"):
 		return 8000
+	case contains(framework, "tei"), contains(framework, "text-embeddings"):
+		return 8000
 	default:
 		return 8000
 	}
