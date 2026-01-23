@@ -345,7 +345,7 @@ func (r *TaskReceiver) enrichPodInfo(task *ScrapeTask) error {
 			if err != nil || pod == nil {
 				continue
 			}
-			if !pod.DeletedAt.Valid && pod.Running && pod.IP != "" {
+			if !pod.Deleted && pod.Running && pod.IP != "" {
 				podIP = pod.IP
 				podName = pod.Name
 				namespace = pod.Namespace
@@ -370,7 +370,7 @@ func (r *TaskReceiver) enrichPodInfo(task *ScrapeTask) error {
 					if err != nil || pod == nil {
 						continue
 					}
-					if !pod.DeletedAt.Valid && pod.Running && pod.IP != "" {
+					if !pod.Deleted && pod.Running && pod.IP != "" {
 						podIP = pod.IP
 						podName = pod.Name
 						namespace = pod.Namespace

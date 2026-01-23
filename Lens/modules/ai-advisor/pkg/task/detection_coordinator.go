@@ -1039,7 +1039,7 @@ func (c *DetectionCoordinator) getInferencePodInfo(ctx context.Context, workload
 			if err != nil || pod == nil {
 				continue
 			}
-			if !pod.DeletedAt.Valid && pod.Running && pod.IP != "" {
+			if !pod.Deleted && pod.Running && pod.IP != "" {
 				pods = append(pods, pod)
 			}
 		}
