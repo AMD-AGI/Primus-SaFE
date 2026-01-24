@@ -27,6 +27,7 @@ data:
   gpu_xgmi_link_010: '{"id":"010","action":"taint","toggle":"on"}'
   gpu_rocm_version_011: '{"id":"011","toggle":"on"}'
   gpu_ipc_012: '{"id":"012","action":"taint","toggle":"on"}'
+  gpu_rocminfo_013: '{"id":"013","action":"taint","toggle":"on"}'
   # Network: 2XX
   net_ib_status_201: '{"id":"201","action":"taint","toggle":"on"}'
   net_ethtool_202: '{"id":"202","action":"taint","toggle":"on"}'

@@ -200,21 +200,18 @@ func (m *OpsJobMutator) filterUnhealthyNodes(ctx context.Context, job *v1.OpsJob
 		if err != nil || !node.IsMachineReady() || !node.GetDeletionTimestamp().IsZero() {
 			continue
 		}
-		if job.Spec.IsTolerateAll {
-			// do nothing
-		} else if len(node.Status.Taints) > 1 {
-			continue
-		} else if len(node.Status.Taints) == 1 {
-			monitorId := ""
-			switch job.Spec.Type {
-			case v1.OpsJobPreflightType:
-				monitorId = common.PreflightMonitorId
-			}
-			if node.Status.Taints[0].Key != commonfaults.GenerateTaintKey(monitorId) {
-				continue
+		isFiltered := false
+		if !job.Spec.IsTolerateAll {
+			for _, t := range node.Status.Taints {
+				if !commonfaults.IsSystemReservedTaint(t.Key) {
+					isFiltered = true
+					break
+				}
 			}
 		}
-		newInputs = append(newInputs, job.Spec.Inputs[i])
+		if !isFiltered {
+			newInputs = append(newInputs, job.Spec.Inputs[i])
+		}
 	}
 	if len(job.Spec.Inputs) == len(newInputs) {
 		return

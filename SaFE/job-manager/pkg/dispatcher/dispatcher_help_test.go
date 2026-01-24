@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"testing"
 
+	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
 	"gotest.tools/assert"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -247,7 +248,7 @@ func findVolume(volumes []interface{}, name string) map[string]interface{} {
 	return nil
 }
 
-func checkNodeSelectorTerms(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec) {
+func checkRequiredNodeSelectorTerms(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec) {
 	nodeSelectorPath := append(resourceSpec.PrePaths, resourceSpec.TemplatePaths...)
 	nodeSelectorPath = append(nodeSelectorPath, "spec", "affinity", "nodeAffinity",
 		"requiredDuringSchedulingIgnoredDuringExecution", "nodeSelectorTerms")
@@ -291,6 +292,38 @@ func checkNodeSelectorTerms(t *testing.T, obj *unstructured.Unstructured, worklo
 	valuesSlice := values.([]interface{})
 	assert.Equal(t, len(valuesSlice), 1)
 	assert.Equal(t, valuesSlice[0].(string) == val, true)
+}
+
+func checkPreferredNodeSelectorTerms(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec) {
+	nodeSelectorPath := append(resourceSpec.PrePaths, resourceSpec.TemplatePaths...)
+	nodeSelectorPath = append(nodeSelectorPath, "spec", "affinity", "nodeAffinity",
+		"preferredDuringSchedulingIgnoredDuringExecution")
+
+	preferenceSlice, found, err := jobutils.NestedSlice(obj.Object, nodeSelectorPath)
+	assert.NilError(t, err)
+	assert.Equal(t, found, true)
+	assert.Equal(t, len(preferenceSlice), 1)
+	preferenceMap := preferenceSlice[0].(map[string]interface{})
+	preference, ok := preferenceMap["preference"]
+	assert.Equal(t, ok, true)
+	matchExpressionObj, ok := preference.(map[string]interface{})["matchExpressions"]
+	assert.Equal(t, ok, true)
+	matchExpressionsSlice := matchExpressionObj.([]interface{})
+	count := v1.GetWorkloadDispatchCnt(workload)
+	assert.Equal(t, count > 0, true)
+	assert.Equal(t, len(matchExpressionsSlice), 1)
+
+	matchExpression := matchExpressionsSlice[0].(map[string]interface{})
+	key, ok := matchExpression["key"]
+	assert.Equal(t, ok, true)
+	assert.Equal(t, key, v1.K8sHostName)
+	values, ok := matchExpression["values"]
+	assert.Equal(t, ok, true)
+	valuesSlice := values.([]interface{})
+	assert.Equal(t, len(valuesSlice), len(workload.Status.Nodes[count-1]))
+	for i, val := range valuesSlice {
+		assert.Equal(t, val.(string) == workload.Status.Nodes[count-1][i], true)
+	}
 }
 
 func checkPodAntiAffinity(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec) {
@@ -409,6 +442,20 @@ func checkTolerations(t *testing.T, obj *unstructured.Unstructured, workload *v1
 		op, ok := toleration["operator"]
 		assert.Equal(t, ok, true)
 		assert.Equal(t, op, "Exists")
+	} else if v1.IsEnableStickyNodes(workload) {
+		assert.Equal(t, found, true)
+		assert.Equal(t, len(tolerations), 1)
+		toleration := tolerations[0].(map[string]interface{})
+		assert.Equal(t, len(toleration), 3)
+		key, ok := toleration["key"]
+		assert.Equal(t, ok, true)
+		assert.Equal(t, key, commonfaults.GenerateTaintKey(v1.StickyNodesMonitorId))
+		op, ok := toleration["operator"]
+		assert.Equal(t, ok, true)
+		assert.Equal(t, op, "Equal")
+		val, ok := toleration["value"]
+		assert.Equal(t, ok, true)
+		assert.Equal(t, val, workload.Name)
 	} else {
 		assert.Equal(t, found, false)
 	}

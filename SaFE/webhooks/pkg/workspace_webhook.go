@@ -287,19 +287,23 @@ func (m *WorkspaceMutator) mutatePreempt(ctx context.Context, workspace *v1.Work
 		return err
 	}
 	for _, w := range workloads {
+		isChanged := false
 		if workspace.Spec.EnablePreempt {
-			if v1.IsWorkloadEnablePreempt(w) {
-				continue
+			if v1.SetAnnotation(w, v1.WorkloadEnablePreemptAnnotation, v1.TrueStr) {
+				isChanged = true
 			}
-			v1.SetAnnotation(w, v1.WorkloadEnablePreemptAnnotation, v1.TrueStr)
+			if v1.RemoveAnnotation(w, v1.WorkloadStickyNodesAnnotation) {
+				isChanged = true
+			}
 		} else {
-			if !v1.IsWorkloadEnablePreempt(w) {
-				continue
+			if v1.RemoveAnnotation(w, v1.WorkloadEnablePreemptAnnotation) {
+				isChanged = true
 			}
-			v1.RemoveAnnotation(w, v1.WorkloadEnablePreemptAnnotation)
 		}
-		if err = m.Update(ctx, w); err != nil {
-			klog.ErrorS(err, "failed to patch workload")
+		if isChanged {
+			if err = m.Update(ctx, w); err != nil {
+				klog.ErrorS(err, "failed to patch workload")
+			}
 		}
 	}
 	return nil

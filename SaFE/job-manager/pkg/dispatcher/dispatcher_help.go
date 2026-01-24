@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/syncer"
@@ -49,6 +50,13 @@ func initializeObject(obj *unstructured.Unstructured,
 		"affinity", "nodeAffinity", "requiredDuringSchedulingIgnoredDuringExecution", "nodeSelectorTerms")
 	if err = modifyNodeSelectorTerms(obj, workload, path); err != nil {
 		return fmt.Errorf("failed to modify nodeSelectorTerms: %v", err.Error())
+	}
+	if v1.GetWorkloadDispatchCnt(workload) > 0 && v1.IsEnableStickyNodes(workload) {
+		path = append(templatePath, "spec",
+			"affinity", "nodeAffinity", "preferredDuringSchedulingIgnoredDuringExecution")
+		if err = modifyPreferredNodeAffinity(obj, workload, path); err != nil {
+			return fmt.Errorf("failed to modify preferredNodeAffinity: %v", err.Error())
+		}
 	}
 	if v1.IsRequireNodeSpread(workload) {
 		path = append(templatePath, "spec",
@@ -131,6 +139,46 @@ func modifyNodeSelectorTerms(obj *unstructured.Unstructured, workload *v1.Worklo
 		return err
 	}
 	return nil
+}
+
+// modifyPreferredNodeAffinity adds preferredDuringSchedulingIgnoredDuringExecution to prefer
+// nodes from the previous dispatch attempt. This helps workloads to be rescheduled on the same nodes.
+func modifyPreferredNodeAffinity(obj *unstructured.Unstructured, workload *v1.Workload, path []string) error {
+	dispatchCnt := v1.GetWorkloadDispatchCnt(workload)
+	if dispatchCnt <= 0 || len(workload.Status.Nodes) < dispatchCnt {
+		return nil
+	}
+
+	previousNodes := workload.Status.Nodes[dispatchCnt-1]
+	if len(previousNodes) == 0 {
+		return nil
+	}
+
+	// Convert node names to interface slice
+	nodeValues := make([]interface{}, len(previousNodes))
+	for i, node := range previousNodes {
+		nodeValues[i] = node
+	}
+
+	preferredTerm := map[string]interface{}{
+		"weight": int64(100),
+		"preference": map[string]interface{}{
+			"matchExpressions": []interface{}{
+				map[string]interface{}{
+					"key":      v1.K8sHostName,
+					"operator": "In",
+					"values":   nodeValues,
+				},
+			},
+		},
+	}
+
+	preferredTerms, _, err := jobutils.NestedSlice(obj.Object, path)
+	if err != nil {
+		return err
+	}
+	preferredTerms = append(preferredTerms, preferredTerm)
+	return jobutils.SetNestedField(obj.Object, preferredTerms, path)
 }
 
 // modifyPodAntiAffinity adds pod anti-affinity configuration to spread pods across nodes.
@@ -426,15 +474,27 @@ func modifySelector(obj *unstructured.Unstructured, workload *v1.Workload, path 
 	return nil
 }
 
-// modifyTolerations adds tolerations to tolerate all taints when IsTolerateAll is enabled.
+// modifyTolerations adds tolerations to tolerate all taints when IsTolerateAll is enabled or tolerate sticky node taints
 func modifyTolerations(obj *unstructured.Unstructured, workload *v1.Workload, path []string) error {
-	if !workload.Spec.IsTolerateAll {
+	if !workload.Spec.IsTolerateAll && !v1.IsEnableStickyNodes(workload) {
 		return nil
 	}
-	tolerations := []interface{}{
-		map[string]interface{}{
-			"operator": "Exists",
-		},
+	var tolerations []interface{}
+	if workload.Spec.IsTolerateAll {
+		tolerations = []interface{}{
+			map[string]interface{}{
+				"operator": "Exists",
+			},
+		}
+	} else {
+		taintKey := commonfaults.GenerateTaintKey(v1.StickyNodesMonitorId)
+		tolerations = []interface{}{
+			map[string]interface{}{
+				"key":      taintKey,
+				"operator": "Equal",
+				"value":    workload.Name,
+			},
+		}
 	}
 	if err := jobutils.SetNestedField(obj.Object, tolerations, path); err != nil {
 		return err

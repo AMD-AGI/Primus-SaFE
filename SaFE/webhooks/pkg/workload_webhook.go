@@ -15,6 +15,7 @@ import (
 	"time"
 
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/slice"
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -149,6 +150,9 @@ func (m *WorkloadMutator) mutateCommon(ctx context.Context, oldWorkload, newWork
 	m.mutateHealthCheck(newWorkload)
 	m.mutateService(newWorkload)
 	m.mutateSecrets(ctx, newWorkload, workspace)
+	if m.isDisableStickyNodes(ctx, newWorkload, workspace) {
+		v1.RemoveAnnotation(newWorkload, v1.WorkloadStickyNodesAnnotation)
+	}
 	return true
 }
 
@@ -555,6 +559,27 @@ func (m *WorkloadMutator) mutateSecrets(ctx context.Context, workload *v1.Worklo
 		}
 	}
 	workload.Spec.Secrets = newSecrets
+}
+
+func (m *WorkloadMutator) isDisableStickyNodes(ctx context.Context, workload *v1.Workload, workspace *v1.Workspace) bool {
+	if workspace.Spec.EnablePreempt {
+		return true
+	}
+	supportsKinds := []string{common.PytorchJobKind, common.TorchFTKind, common.RayJobKind}
+	if !slice.Contains(supportsKinds, workload.SpecKind()) {
+		return true
+	}
+	nf, _ := getNodeFlavor(ctx, m.Client, v1.GetNodeFlavorId(workload))
+	if nf == nil {
+		return true
+	}
+	gpuCountStr := strconv.Itoa(nf.GetGpuCount())
+	for _, res := range workload.Spec.Resources {
+		if res.GPU != gpuCountStr || res.GPU == "" {
+			return true
+		}
+	}
+	return false
 }
 
 // WorkloadValidator validates Workload resources on create and update operations.
