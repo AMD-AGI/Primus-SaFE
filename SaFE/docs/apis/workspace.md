@@ -54,19 +54,21 @@ Create a new workspace in a cluster.
 
 **Field Description**:
 
-| Field | Type | Required | Description                                                                                                                              |
-|-------|------|----------|------------------------------------------------------------------------------------------------------------------------------------------|
+| Field | Type   | Required | Description                                                                                                                              |
+|-------|--------|----------|------------------------------------------------------------------------------------------------------------------------------------------|
 | name | string | Yes | Workspace name                                                                                                                           |
 | clusterId | string | Yes | The cluster which workspace belongs to                                                                                                   |
 | description | string | No | Workspace description                                                                                                                    |
 | flavorId | string | Yes | Node flavor ID                                                                                                                           |
-| replica | int | No | Expected number of nodes                                                                                                                 |
+| replica | int    | No | Expected number of nodes                                                                                                                 |
 | queuePolicy | string | No | Queue policy: fifo (first-in-first-out)/balance (load balancing), default fifo                                                           |
 | scopes | []string | No | Supported service modules: Train/Infer/Authoring/CICD, no limitation if not specified                                                    |
 | volumes | []object | No | Storage volume configuration list                                                                                                        |
-| enablePreempt | bool | No | Whether to enable preemption, default false.  If enabled, higher-priority workload will preempt the lower-priority one in this workspace |
-| isDefault | bool | No | Whether to set as default workspace (accessible to all users)                                                                            |
+| enablePreempt | bool   | No | Whether to enable preemption, default false.  If enabled, higher-priority workload will preempt the lower-priority one in this workspace |
+| isDefault | bool   | No | Whether to set as default workspace (accessible to all users)                                                                            |
 | imageSecretIds | []string | No | List of image pull secret IDs                                                                                                            |
+| nodes | []string | No | Specify the node on which to create the workspace.  If this is specified, the replica will be ignored.                                            |
+| IsForceOnNode | bool   | No | Whether to force using the specified node (ignoring any running workloads); only administrators can set this.                  |
 
 **Volume Configuration**:
 

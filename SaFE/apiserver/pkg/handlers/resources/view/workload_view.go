@@ -36,7 +36,7 @@ type CreateWorkloadRequest struct {
 	// Whether to run the workload in privileged mode, only accessible to administrators
 	Privileged bool `json:"privileged,omitempty"`
 	// When enabled, the workload will try to use the same nodes during retries/failovers.
-	StickyNodes bool `json:"StickyNodes,omitempty"`
+	StickyNodes bool `json:"stickyNodes,omitempty"`
 	// The workload will be created using that specific user ID and name. This field is only accessible to administrators.
 	UserEntity *UserEntity `json:"userEntity,omitempty"`
 }
@@ -189,6 +189,8 @@ type GetWorkloadResponse struct {
 	CronJobs []v1.CronJob `json:"cronJobs,omitempty"`
 	// The secrets used by the workload. Only the user themselves or an administrator can get this info.
 	Secrets []v1.SecretEntity `json:"secrets,omitempty"`
+	// When enabled, the workload will try to use the same nodes during retries/failovers.
+	StickyNodes bool `json:"stickyNodes,omitempty"`
 }
 
 type WorkloadPodWrapper struct {

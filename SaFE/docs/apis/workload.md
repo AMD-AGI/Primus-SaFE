@@ -72,7 +72,8 @@ Create a new workload.
   "annotations": {
     "description": "Training job for model v2"
   },
-  "preheat": true
+  "preheat": true,
+  "stickyNodes": true
 }
 ```
 
@@ -296,13 +297,14 @@ TorchFT is a fault-tolerant distributed training framework that supports elastic
 | dependencies                 | []string | No       | Dependent workload IDs that must complete first                                                                                                                                                            |
 | cronJobs[].schedule          | string   | No       | Scheduled trigger time (RFC3339 Milli timestamp)                                                                                                                                                           |
 | cronJobs[].action            | string   | No       | Action to perform, e.g. start                                                                                                                                                                              |
- | secrets                      | []object | No       | Secrets automatically use all image secrets bound to the workspace.  You can also define your own Secret, such as a token used for CI/CD                                                                   |
- | secrets[].id                 | string   | Yes      | Secret ID                                                                                                                                                                                                  |
- | isTolerateAll                | bool     | No       | Whether to tolerate all node taints                                                                                                                                                                        |
+| secrets                      | []object | No       | Secrets automatically use all image secrets bound to the workspace.  You can also define your own Secret, such as a token used for CI/CD                                                                   |
+| secrets[].id                 | string   | Yes      | Secret ID                                                                                                                                                                                                  |
+| isTolerateAll                | bool     | No       | Whether to tolerate all node taints                                                                                                                                                                        |
 | labels                       | object   | No       | User-defined labels (key-value pairs). Keys cannot start with "primus-safe"                                                                                                                                |
 | annotations                  | object   | No       | User-defined annotations (key-value pairs). Keys cannot start with "primus-safe"                                                                                                                           |
-| preheat                      | bool     | No       | indicates whether to preheat the workload to prepare image in advance                                                                                                                                      |
-| workloadId                   | string   | NO       | 	If a workload ID is specified, use that ID directly instead of generating one from the display name.                                                                                                      |
+| preheat                      | bool     | No       | Whether to preheat the workload to prepare image in advance                                                                                                                                                |
+| stickyNodes                  | bool     | No       | When enabled, the workload will try to use the same nodes during retries/failovers.                                                                                                                        |
+| workloadId                   | string   | NO       | If a workload ID is specified, use that ID directly instead of generating one from the display name.                                                                                                       |
 | userEntry.id                 | string   | NO       | The workload will be created using that specific user ID. This field is only accessible to administrators.                                                                                                 |
 | userEntry.name               | string   | NO       | The workload will be created using that specific user name. This field is only accessible to administrators.                                                                                               |
 
@@ -433,7 +435,6 @@ Get workload list with filtering and pagination support.
 | groupVersionKind.version     | string | API version (usually v1)                                                                 |
 | timeout                      | int | Timeout seconds (0 means no timeout)                                                     |
 | workloadUid                  | string | Workload UID                                                                             |
-| k8sObjectUid                 | string | Corresponding Kubernetes object UID (e.g., PyTorchJob UID)                               |
 | avgGpuUsage                  | float | Average GPU usage in the last 3 hours; -1 if unavailable                                 |
 | scaleRunnerSet               | string | Associated Scale Runner Set ID for CI/CD workloads (if any)                              |
 | scaleRunnerId                | string | Associated Github Action Runner ID for CI/CD workloads (if any)                          |
@@ -535,7 +536,7 @@ Get detailed information about a specific workload.
     }
   ],
   "workloadUid": "a8e357ad-f73d-43ac-99fe-118886d5e193",
-  "k8sObjectUid": "f89f34e5-82da-49d7-9b89-0b2af523bc5a"
+  "stickyNodes": true
 }
 ```
 
@@ -581,7 +582,7 @@ Only fields not already covered by "List Workloads" are listed below. Other fiel
 | cronJobs                        | object     | Refer to the CreateWorkload parameter                                                                                                   |
 | secrets                         | object     | Refer to the CreateWorkload parameter                                                                                                   |
 | workloadUid                     | string     | UID of the workload                                                                                                                     |
-| k8sObjectUid                    | string     | K8s object UID corresponding to the workload. e.g. Associated PyTorchJob UID                                                            |
+| stickyNodes                     | bool       | When enabled, the workload will try to use the same nodes during retries/failovers.                                                            |
 
 > Other fields not listed here are identical to those in the "List Workloads" Field Description.
 
