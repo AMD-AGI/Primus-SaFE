@@ -328,7 +328,7 @@ func (r *SyncerReconciler) createStickyNodeFaults(ctx context.Context, adminWork
 			return err
 		}
 	}
-	klog.Infof("Create faults to sticky nodes for the workload %s.", adminWorkload.Name)
+	klog.Infof("Create sticky nodes faults for the workload %s.", adminWorkload.Name)
 	return nil
 }
 func generateStickyFault(adminWorkload *v1.Workload,
@@ -505,9 +505,6 @@ func hasPendingPod(workload *v1.Workload) bool {
 
 // isAllPodsAssigned checks if all pods in the workload are in Running or Termination phase
 func isAllPodsAssigned(workload *v1.Workload) bool {
-	if workload.IsPending() {
-		return false
-	}
 	if len(workload.Status.Pods) != commonworkload.GetTotalCount(workload) {
 		return false
 	}
