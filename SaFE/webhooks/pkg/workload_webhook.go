@@ -24,6 +24,7 @@ import (
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/pointer"
 	"k8s.io/utils/ptr"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -116,6 +117,7 @@ func (m *WorkloadMutator) mutateOnCreation(ctx context.Context, workload *v1.Wor
 	m.mutateMeta(ctx, workload, workspace)
 	m.mutateTTLSeconds(workload)
 	m.mutateCommon(ctx, nil, workload, workspace)
+	m.mutateWorkloadTimeout(workload, workspace)
 	return true
 }
 
@@ -578,6 +580,22 @@ func (m *WorkloadMutator) isDisableStickyNodes(ctx context.Context, workload *v1
 		if res.GPU != gpuCountStr || res.GPU == "" {
 			return true
 		}
+	}
+	return false
+}
+
+func (m *WorkloadMutator) mutateWorkloadTimeout(workload *v1.Workload, workspace *v1.Workspace) bool {
+	if workspace == nil {
+		return false
+	}
+	scope := commonworkload.GetScope(workload)
+	maxRuntime := workspace.GetMaxRunTime(scope)
+	if maxRuntime <= 0 {
+		return false
+	}
+	if workload.Spec.Timeout == nil || *workload.Spec.Timeout > maxRuntime {
+		workload.Spec.Timeout = pointer.Int(maxRuntime)
+		return true
 	}
 	return false
 }

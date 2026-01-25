@@ -80,6 +80,8 @@ type ProcessNodesRequest struct {
 	NodeIds []string `json:"nodeIds"`
 	// Action type: add/remove
 	Action string `json:"action"`
+	// Force remove nodes
+	Force bool `json:"force,omitempty"`
 }
 
 type ProcessNodesResponse struct {

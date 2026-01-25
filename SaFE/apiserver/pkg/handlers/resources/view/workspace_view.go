@@ -34,16 +34,14 @@ type CreateWorkspaceRequest struct {
 	Scopes []v1.WorkspaceScope `json:"scopes,omitempty"`
 	// Volumes used in this workspace
 	Volumes []v1.WorkspaceVolume `json:"volumes,omitempty"`
-	// Specify the node on which to create the workspace. If this is specified, the replica will be ignored.
-	Nodes []string `json:"nodes,omitempty"`
 	// Whether preemption is enabled. If enabled, higher-priority workload will preempt the lower-priority one
 	EnablePreempt bool `json:"enablePreempt"`
 	// Set the workspace as the default workspace (i.e., all users can access it)
 	IsDefault bool `json:"isDefault,omitempty"`
-	// Whether to force using the specified node (ignoring any running workloads); only administrators can set this.
-	IsForceOnNode bool `json:"IsForceOnNode,omitempty"`
 	// Workspace image secret ID, used for downloading images
 	ImageSecretIds []string `json:"imageSecretIds,omitempty"`
+	// The maximum workload runtime of each scope, Unit: hours
+	MaxRuntime map[v1.WorkspaceScope]int `json:"maxRuntime,omitempty"`
 }
 
 type CreateWorkspaceResponse struct {
@@ -98,6 +96,8 @@ type WorkspaceResponseItem struct {
 	Managers []UserEntity `json:"managers"`
 	// Set the workspace as the default workspace (i.e., all users can access it).
 	IsDefault bool `json:"isDefault"`
+	// The maximum workload runtime of each scope, Unit: hours
+	MaxRuntime map[v1.WorkspaceScope]int `json:"maxRuntime,omitempty"`
 }
 
 type GetWorkspaceResponse struct {
@@ -138,6 +138,8 @@ type PatchWorkspaceRequest struct {
 	IsDefault *bool `json:"isDefault,omitempty"`
 	// Workspace image secret ID, used for downloading images
 	ImageSecretIds *[]string `json:"imageSecretIds,omitempty"`
+	// The maximum workload runtime of each scope, Unit: hours
+	MaxRuntime *map[v1.WorkspaceScope]int `json:"maxRuntime,omitempty"`
 }
 
 type WorkspaceEntry struct {

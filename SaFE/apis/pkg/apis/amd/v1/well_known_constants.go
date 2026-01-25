@@ -79,6 +79,7 @@ const (
 	WorkspaceFinalizer     = PrimusSafeDomain + "workspace.finalizer"
 	WorkspaceIdLabel       = WorkspacePrefix + "id"
 	WorkspaceNodesAction   = WorkspacePrefix + "nodes.action"
+	WorkspaceForcedAction  = WorkspacePrefix + "forced.action"
 	WorkspaceIdsAnnotation = WorkspacePrefix + "ids"
 
 	// fault

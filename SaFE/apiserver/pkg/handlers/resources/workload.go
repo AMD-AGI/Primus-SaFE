@@ -484,14 +484,8 @@ func (h *Handler) patchWorkload(c *gin.Context) (interface{}, error) {
 	if _, err = apiutils.ParseRequestBody(c.Request, req); err != nil {
 		return nil, commonerrors.NewBadRequest(err.Error())
 	}
-	if err = h.authWorkloadAction(c, adminWorkload, v1.UpdateVerb, v1.WorkloadKind, requestUser, roles); err != nil {
+	if err = h.authWorkloadUpdate(c, adminWorkload, requestUser, roles, req); err != nil {
 		return nil, err
-	}
-	if req.Priority != nil {
-		priorityKind := generatePriority(*req.Priority)
-		if err = h.authWorkloadAction(c, adminWorkload, v1.UpdateVerb, priorityKind, requestUser, roles); err != nil {
-			return nil, err
-		}
 	}
 
 	if err = backoff.ConflictRetry(func() error {
@@ -515,6 +509,36 @@ func (h *Handler) patchWorkload(c *gin.Context) (interface{}, error) {
 	}
 	klog.Infof("update workload, name: %s, request: %s", name, string(jsonutils.MarshalSilently(*req)))
 	return nil, nil
+}
+
+// authWorkloadUpdate performs authorization checks for workload update.
+func (h *Handler) authWorkloadUpdate(c *gin.Context, adminWorkload *v1.Workload,
+	requestUser *v1.User, roles []*v1.Role, request *view.PatchWorkloadRequest) error {
+	var err error
+	if err = h.authWorkloadAction(c, adminWorkload, v1.UpdateVerb, v1.WorkloadKind, requestUser, roles); err != nil {
+		return err
+	}
+	if request.Priority != nil {
+		priorityKind := generatePriority(*request.Priority)
+		if err = h.authWorkloadAction(c, adminWorkload, v1.UpdateVerb, priorityKind, requestUser, roles); err != nil {
+			return err
+		}
+	}
+	if request.Timeout != nil {
+		workspace, err := h.getAdminWorkspace(c.Request.Context(), adminWorkload.Spec.Workspace)
+		if err != nil {
+			return err
+		}
+		// Modifying timeouts that exceed the workspace limit or setting no timeout requires the highest-priority permission.
+		maxRunTime := workspace.GetMaxRunTime(commonworkload.GetScope(adminWorkload))
+		if maxRunTime > 0 && (*request.Timeout > maxRunTime || *request.Timeout < 0) {
+			priorityKind := generatePriority(common.HighPriorityInt)
+			if err = h.authWorkloadAction(c, adminWorkload, v1.UpdateVerb, priorityKind, requestUser, roles); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // updateWorkload updates the workload in the system and handles CICD secret updates
