@@ -518,20 +518,20 @@ func (h *Handler) authWorkloadUpdate(c *gin.Context, adminWorkload *v1.Workload,
 	if err = h.authWorkloadAction(c, adminWorkload, v1.UpdateVerb, v1.WorkloadKind, requestUser, roles); err != nil {
 		return err
 	}
-	if request.Priority != nil {
+	if request.Priority != nil && *request.Priority != adminWorkload.Spec.Priority {
 		priorityKind := generatePriority(*request.Priority)
 		if err = h.authWorkloadAction(c, adminWorkload, v1.UpdateVerb, priorityKind, requestUser, roles); err != nil {
 			return err
 		}
 	}
-	if request.Timeout != nil {
+	if request.Timeout != nil && (adminWorkload.Spec.Timeout == nil || *request.Timeout != *adminWorkload.Spec.Timeout) {
 		workspace, err := h.getAdminWorkspace(c.Request.Context(), adminWorkload.Spec.Workspace)
 		if err != nil {
 			return err
 		}
 		// Modifying timeouts that exceed the workspace limit or setting no timeout requires the highest-priority permission.
 		maxRunTime := workspace.GetMaxRunTime(commonworkload.GetScope(adminWorkload))
-		if maxRunTime > 0 && (*request.Timeout > maxRunTime || *request.Timeout < 0) {
+		if maxRunTime > 0 && (*request.Timeout > maxRunTime || *request.Timeout <= 0) {
 			priorityKind := generatePriority(common.HighPriorityInt)
 			if err = h.authWorkloadAction(c, adminWorkload, v1.UpdateVerb, priorityKind, requestUser, roles); err != nil {
 				return err

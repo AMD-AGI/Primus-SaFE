@@ -383,8 +383,6 @@ func (m *WorkloadMutator) mutateAuthoring(workload *v1.Workload) {
 		workload.Spec.Resources = workload.Spec.Resources[0:1]
 		workload.Spec.Resources[0].Replica = 1
 	}
-
-	workload.Spec.Timeout = nil
 	workload.Spec.EntryPoints = []string{stringutil.Base64Encode("sleep infinity")}
 	workload.Spec.Dependencies = nil
 }
@@ -396,7 +394,6 @@ func (m *WorkloadMutator) mutateCICDScaleSet(workload *v1.Workload) {
 		workload.Spec.Resources = workload.Spec.Resources[0:1]
 		workload.Spec.Resources[0].Replica = 1
 	}
-	workload.Spec.Timeout = nil
 	workload.Spec.Dependencies = nil
 }
 

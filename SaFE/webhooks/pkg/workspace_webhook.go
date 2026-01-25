@@ -294,7 +294,6 @@ func (m *WorkspaceMutator) mutateScaleDown(ctx context.Context, oldWorkspace, ne
 
 // mutateWorkloadsOfWorkspace Modify all workloads on this workspace — currently primarily preempt and timeout settings.
 func (m *WorkspaceMutator) mutateWorkloadsOfWorkspace(ctx context.Context, workspace *v1.Workspace) error {
-	klog.Infof("begin to mutateWorkloadsOfWorkspace")
 	filterFunc := func(w *v1.Workload) bool {
 		if w.IsEnd() {
 			return true
@@ -307,7 +306,6 @@ func (m *WorkspaceMutator) mutateWorkloadsOfWorkspace(ctx context.Context, works
 		return err
 	}
 	for _, w := range workloads {
-		klog.Infof("running workload %s", w.Name)
 		isChanged := false
 		if workspace.Spec.EnablePreempt {
 			if v1.SetAnnotation(w, v1.WorkloadEnablePreemptAnnotation, v1.TrueStr) {
@@ -325,7 +323,6 @@ func (m *WorkspaceMutator) mutateWorkloadsOfWorkspace(ctx context.Context, works
 		if w.Spec.Timeout == nil {
 			scope := commonworkload.GetScope(w)
 			if maxRuntime := workspace.GetMaxRunTime(scope); maxRuntime > 0 {
-				klog.Infof("set workload %s timeout to %d", w.Name, maxRuntime)
 				if w.Status.StartTime != nil {
 					timeout := time.Now().Add(time.Duration(maxRuntime) * time.Second).Sub(w.Status.StartTime.Time)
 					w.Spec.Timeout = pointer.Int(int(timeout.Seconds()))
