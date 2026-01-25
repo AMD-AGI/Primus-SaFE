@@ -152,9 +152,7 @@ func (m *WorkloadMutator) mutateCommon(ctx context.Context, oldWorkload, newWork
 	m.mutateHealthCheck(newWorkload)
 	m.mutateService(newWorkload)
 	m.mutateSecrets(ctx, newWorkload, workspace)
-	if m.isDisableStickyNodes(ctx, newWorkload, workspace) {
-		v1.RemoveAnnotation(newWorkload, v1.WorkloadStickyNodesAnnotation)
-	}
+	m.mutateStickNodes(ctx, newWorkload, workspace)
 	return true
 }
 
@@ -558,6 +556,13 @@ func (m *WorkloadMutator) mutateSecrets(ctx context.Context, workload *v1.Worklo
 		}
 	}
 	workload.Spec.Secrets = newSecrets
+}
+
+func (m *WorkloadMutator) mutateStickNodes(ctx context.Context, workload *v1.Workload, workspace *v1.Workspace) {
+	if m.isDisableStickyNodes(ctx, workload, workspace) {
+		return
+		v1.RemoveAnnotation(workload, v1.WorkloadStickyNodesAnnotation)
+	}
 }
 
 func (m *WorkloadMutator) isDisableStickyNodes(ctx context.Context, workload *v1.Workload, workspace *v1.Workspace) bool {
