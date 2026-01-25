@@ -349,6 +349,7 @@ func (r *FaultReconciler) removeNodeTaint(ctx context.Context, fault *v1.Fault) 
 func generateTaintKeyAndVal(fault *v1.Fault) (string, string) {
 	taintKey := commonfaults.GenerateTaintKey(fault.Spec.MonitorId)
 	var taintVal string
+	//In the case of a sticky node fault, the workload will tolerate the taint, with the tolerated value being the workload.name.
 	if fault.Spec.MonitorId == v1.StickyNodesMonitorId {
 		taintVal = v1.GetWorkloadId(fault)
 	}

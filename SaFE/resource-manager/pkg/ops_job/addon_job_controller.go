@@ -406,7 +406,7 @@ func (r *AddonJobReconciler) updateNodeTemplatePhase(ctx context.Context, job *v
 }
 
 // executeCommand executes the addon action on the node via SSH.
-func executeCommand(sshClient *ssh.Client, name, command string) (string, error) {
+func executeCommand(sshClient *ssh.Client, addonName, command string) (string, error) {
 	cmd := fmt.Sprintf(
 		`echo '%s' | /usr/bin/base64 -d | sudo /bin/bash`,
 		command,
@@ -419,7 +419,7 @@ func executeCommand(sshClient *ssh.Client, name, command string) (string, error)
 
 	// Capture combined stdout and stderr output
 	output, err := session.CombinedOutput(cmd)
-	outputStr := "addon: " + name + ", output: " + normalizeMessage(string(output))
+	outputStr := "addon: " + addonName + ", output: " + normalizeMessage(string(output))
 	if err == nil {
 		klog.Infof("execute command successfully, %s", outputStr)
 		return outputStr, nil

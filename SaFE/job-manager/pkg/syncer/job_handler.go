@@ -240,7 +240,7 @@ func (r *SyncerReconciler) updateAdminWorkloadStatus(ctx context.Context, origin
 	if adminWorkload.IsEnd() && adminWorkload.Status.EndTime == nil {
 		adminWorkload.Status.EndTime = &metav1.Time{Time: time.Now().UTC()}
 	}
-	if !status.IsPending() || !hasPendingPod(adminWorkload) {
+	if !status.IsPending() {
 		adminWorkload.Status.Message = ""
 	}
 	if !commonworkload.IsTorchFT(adminWorkload) ||

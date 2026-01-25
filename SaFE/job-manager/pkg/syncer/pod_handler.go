@@ -183,6 +183,9 @@ func (r *SyncerReconciler) updateWorkloadPod(ctx context.Context, obj *unstructu
 	if shouldUpdateNodes {
 		r.updateWorkloadNodes(adminWorkload, message)
 		if isAllPodsAssigned(adminWorkload) {
+			if strings.Contains(adminWorkload.Status.Message, PullingImageMessage) {
+				adminWorkload.Status.Message = ""
+			}
 			if err = r.createStickyNodeFaults(ctx, adminWorkload, message.dispatchCount); err != nil {
 				return ctrlruntime.Result{}, err
 			}
@@ -485,22 +488,6 @@ func getMainContainerName(adminWorkload *v1.Workload, pod *corev1.Pod) string {
 		mainContainerName = v1.GetMainContainer(adminWorkload)
 	}
 	return mainContainerName
-}
-
-// hasPendingPod checks if any pod in the workload are in Pending phase
-func hasPendingPod(workload *v1.Workload) bool {
-	if !workload.IsPending() {
-		return false
-	}
-	if len(workload.Status.Pods) != commonworkload.GetTotalCount(workload) {
-		return true
-	}
-	for _, p := range workload.Status.Pods {
-		if p.Phase == corev1.PodPending || p.Phase == "" {
-			return true
-		}
-	}
-	return false
 }
 
 // isAllPodsAssigned checks if all pods in the workload are in Running or Termination phase
