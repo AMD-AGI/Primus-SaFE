@@ -559,31 +559,29 @@ func (m *WorkloadMutator) mutateSecrets(ctx context.Context, workload *v1.Worklo
 }
 
 func (m *WorkloadMutator) mutateStickNodes(ctx context.Context, workload *v1.Workload, workspace *v1.Workspace) {
-	if m.isDisableStickyNodes(ctx, workload, workspace) {
-		return
-		v1.RemoveAnnotation(workload, v1.WorkloadStickyNodesAnnotation)
-	}
-}
-
-func (m *WorkloadMutator) isDisableStickyNodes(ctx context.Context, workload *v1.Workload, workspace *v1.Workspace) bool {
-	if workspace.Spec.EnablePreempt {
-		return true
-	}
-	supportsKinds := []string{common.PytorchJobKind, common.TorchFTKind, common.RayJobKind}
-	if !slice.Contains(supportsKinds, workload.SpecKind()) {
-		return true
-	}
-	nf, _ := getNodeFlavor(ctx, m.Client, v1.GetNodeFlavorId(workload))
-	if nf == nil {
-		return true
-	}
-	gpuCountStr := strconv.Itoa(nf.GetGpuCount())
-	for _, res := range workload.Spec.Resources {
-		if res.GPU != gpuCountStr || res.GPU == "" {
+	isDisableStickyNodes := func(ctx context.Context, workload *v1.Workload, workspace *v1.Workspace) bool {
+		if workspace.Spec.EnablePreempt {
 			return true
 		}
+		supportsKinds := []string{common.PytorchJobKind, common.TorchFTKind, common.RayJobKind}
+		if !slice.Contains(supportsKinds, workload.SpecKind()) {
+			return true
+		}
+		nf, _ := getNodeFlavor(ctx, m.Client, v1.GetNodeFlavorId(workload))
+		if nf == nil {
+			return true
+		}
+		gpuCountStr := strconv.Itoa(nf.GetGpuCount())
+		for _, res := range workload.Spec.Resources {
+			if res.GPU != gpuCountStr || res.GPU == "" {
+				return true
+			}
+		}
+		return false
 	}
-	return false
+	if isDisableStickyNodes(ctx, workload, workspace) {
+		v1.RemoveAnnotation(workload, v1.WorkloadStickyNodesAnnotation)
+	}
 }
 
 func (m *WorkloadMutator) mutateWorkloadTimeout(workload *v1.Workload, workspace *v1.Workspace) bool {
