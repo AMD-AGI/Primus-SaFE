@@ -189,6 +189,7 @@ type ApiKeyInterface interface {
 type ModelInterface interface {
 	UpsertModel(ctx context.Context, m *Model) error
 	GetModelByID(ctx context.Context, id string) (*Model, error)
+	GetModelByModelName(ctx context.Context, modelName string) (*Model, error)
 	ListModels(ctx context.Context, accessMode string, workspace string, isDeleted bool) ([]*Model, error)
 	DeleteModel(ctx context.Context, id string) error
 }

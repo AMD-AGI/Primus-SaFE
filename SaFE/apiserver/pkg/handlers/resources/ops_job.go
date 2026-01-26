@@ -1248,6 +1248,35 @@ func (h *Handler) generateEvaluationJob(c *gin.Context, body []byte) (*v1.OpsJob
 		if err := json.Unmarshal([]byte(judgeJSON), &judgeConfig); err == nil {
 			if judgeConfig.Model != "" {
 				inputs = append(inputs, v1.Parameter{Name: v1.ParameterJudgeModel, Value: judgeConfig.Model})
+
+				// Try to get judge model's endpoint and API key from Model CR
+				// Find Model by modelName (e.g., "deepseek-ai/DeepSeek-V2.5")
+				judgeDbModel, err := h.dbClient.GetModelByModelName(ctx, judgeConfig.Model)
+				if err == nil && judgeDbModel != nil {
+					// Use Model's endpoint if not provided in request
+					if judgeConfig.Endpoint == "" && judgeDbModel.SourceURL != "" {
+						judgeConfig.Endpoint = judgeDbModel.SourceURL
+					}
+
+					// Get API Key from K8s Model CR's Secret reference
+					judgeK8sModel := &v1.Model{}
+					if err := h.Get(ctx, client.ObjectKey{Name: judgeDbModel.ID}, judgeK8sModel); err != nil {
+						klog.ErrorS(err, "failed to get K8s Model CR for judge model", "modelName", judgeConfig.Model)
+					} else if judgeK8sModel.Spec.Source.ApiKey != nil && judgeK8sModel.Spec.Source.ApiKey.Name != "" {
+						secret, err := h.getAdminSecret(ctx, judgeK8sModel.Spec.Source.ApiKey.Name)
+						if err != nil {
+							klog.ErrorS(err, "failed to get secret for judge model API key", "secretName", judgeK8sModel.Spec.Source.ApiKey.Name)
+						} else {
+							for _, key := range []string{"api-key", "apiKey", "token", "api_key"} {
+								if val, ok := secret.Data[key]; ok && len(val) > 0 {
+									judgeConfig.ApiKey = string(val)
+									klog.InfoS("got judge model API key from secret", "modelName", judgeConfig.Model, "secretName", judgeK8sModel.Spec.Source.ApiKey.Name)
+									break
+								}
+							}
+						}
+					}
+				}
 			}
 			if judgeConfig.Endpoint != "" {
 				inputs = append(inputs, v1.Parameter{Name: v1.ParameterJudgeEndpoint, Value: judgeConfig.Endpoint})
