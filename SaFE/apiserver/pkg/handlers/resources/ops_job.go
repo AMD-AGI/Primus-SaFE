@@ -1108,18 +1108,39 @@ func (h *Handler) generateEvaluationJob(c *gin.Context, body []byte) (*v1.OpsJob
 	// Get service info and construct endpoint
 	var serviceName, modelEndpoint, modelName, modelApiKey, clusterId string
 	if serviceType == "remote_api" {
-		model, err := h.dbClient.GetModelByID(ctx, serviceId)
+		// Get model from database for basic info
+		dbModel, err := h.dbClient.GetModelByID(ctx, serviceId)
 		if err != nil {
 			return nil, commonerrors.NewBadRequest(fmt.Sprintf("model not found: %s", serviceId))
 		}
-		serviceName = model.DisplayName
-		modelEndpoint = model.SourceURL
-		modelApiKey = model.SourceToken // API Key for remote API calls
+		serviceName = dbModel.DisplayName
+		modelEndpoint = dbModel.SourceURL
+
+		// Get K8s Model CR to access Source.ApiKey secret reference
+		k8sModel := &v1.Model{}
+		if err := h.Get(ctx, client.ObjectKey{Name: serviceId}, k8sModel); err != nil {
+			klog.ErrorS(err, "failed to get K8s Model CR", "modelId", serviceId)
+		} else if k8sModel.Spec.Source.ApiKey != nil && k8sModel.Spec.Source.ApiKey.Name != "" {
+			// Get API Key from the referenced Secret
+			secret, err := h.getAdminSecret(ctx, k8sModel.Spec.Source.ApiKey.Name)
+			if err != nil {
+				klog.ErrorS(err, "failed to get secret for model API key", "secretName", k8sModel.Spec.Source.ApiKey.Name, "modelId", serviceId)
+			} else {
+				// Try different possible key names in secret data
+				for _, key := range []string{"api-key", "apiKey", "token", "api_key"} {
+					if val, ok := secret.Data[key]; ok && len(val) > 0 {
+						modelApiKey = string(val)
+						break
+					}
+				}
+			}
+		}
+
 		// Use ModelName if available, otherwise fallback to DisplayName
-		if model.ModelName != "" {
-			modelName = model.ModelName
+		if dbModel.ModelName != "" {
+			modelName = dbModel.ModelName
 		} else {
-			modelName = model.DisplayName
+			modelName = dbModel.DisplayName
 		}
 	} else {
 		// local_workload

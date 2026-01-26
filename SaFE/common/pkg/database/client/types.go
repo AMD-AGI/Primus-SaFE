@@ -416,8 +416,8 @@ type EvaluationTask struct {
 	ServiceId     string               `db:"service_id"`
 	ServiceType   string               `db:"service_type"`
 	ServiceName   string               `db:"service_name"`
-	Benchmarks    string               `db:"benchmarks"`     // JSONB
-	EvalParams    string               `db:"eval_params"`    // JSONB
+	Benchmarks    string               `db:"benchmarks"`  // JSONB
+	EvalParams    string               `db:"eval_params"` // JSONB
 	OpsJobId      sql.NullString       `db:"ops_job_id"`
 	Status        EvaluationTaskStatus `db:"status"`
 	Progress      int                  `db:"progress"`
