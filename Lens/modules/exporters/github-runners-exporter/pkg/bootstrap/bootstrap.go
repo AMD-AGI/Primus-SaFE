@@ -5,10 +5,16 @@ package bootstrap
 
 import (
 	"context"
+	"time"
 
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/config"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/constant"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/controller"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/task"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/workflow"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/github-runners-exporter/pkg/executor"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/github-runners-exporter/pkg/reconciler"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/github-runners-exporter/pkg/types"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -40,12 +46,84 @@ func init() {
 	schemes.Register(schemeAdder)
 }
 
+var (
+	// taskScheduler is the global task scheduler for this exporter
+	taskScheduler *task.TaskScheduler
+)
+
 // Init initializes the github-runners-exporter
 func Init(ctx context.Context, cfg *config.Config) error {
 	if err := RegisterController(ctx); err != nil {
 		return err
 	}
+
+	// Initialize TaskScheduler for collection tasks
+	if err := InitTaskScheduler(ctx); err != nil {
+		return err
+	}
+
 	log.Info("GitHub Runners Exporter initialized successfully")
+	return nil
+}
+
+// InitTaskScheduler initializes the TaskScheduler for GitHub workflow collection
+func InitTaskScheduler(ctx context.Context) error {
+	// Create scheduler config with collection-specific settings
+	schedulerConfig := &task.SchedulerConfig{
+		ScanInterval:             5 * time.Second,  // Fast scan for real-time collection
+		LockDuration:             5 * time.Minute,
+		HeartbeatInterval:        30 * time.Second,
+		MaxConcurrentTasks:       10, // Allow parallel collection
+		StaleLockCleanupInterval: 1 * time.Minute,
+		AutoStart:                true,
+		// Consume collection and sync tasks - analysis tasks are handled by agent service
+		ConsumeTaskTypes: []string{
+			constant.TaskTypeGithubWorkflowCollection,
+			workflow.TaskTypeGithubWorkflowSync,
+		},
+	}
+
+	// Generate unique instance ID
+	instanceID := "github-workflow-exporter"
+
+	taskScheduler = task.NewTaskScheduler(instanceID, schedulerConfig)
+
+	// Get K8S client for collector
+	clusterManager := clientsets.GetClusterManager()
+	currentCluster := clusterManager.GetCurrentClusterClients()
+	var clientSets *clientsets.K8SClientSet
+	if currentCluster != nil {
+		clientSets = currentCluster.K8SClientSet
+	}
+
+	// Register CollectionExecutor
+	collectionExecutor := executor.NewCollectionExecutor(clientSets)
+	if err := taskScheduler.RegisterExecutor(collectionExecutor); err != nil {
+		return err
+	}
+	log.Info("CollectionExecutor registered with TaskScheduler")
+
+	// Register SyncExecutor for real-time workflow state synchronization
+	syncExecutor := workflow.NewSyncExecutor()
+	if err := taskScheduler.RegisterExecutor(syncExecutor); err != nil {
+		return err
+	}
+	log.Info("SyncExecutor registered with TaskScheduler")
+
+	// Start the scheduler
+	if err := taskScheduler.Start(); err != nil {
+		return err
+	}
+	log.Info("TaskScheduler started for GitHub workflow collection")
+
+	return nil
+}
+
+// StopTaskScheduler stops the TaskScheduler gracefully
+func StopTaskScheduler() error {
+	if taskScheduler != nil {
+		return taskScheduler.Stop()
+	}
 	return nil
 }
 

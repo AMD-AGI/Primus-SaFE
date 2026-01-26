@@ -56,6 +56,14 @@ func (m *MockWorkloadTaskFacade) ListTasksByStatus(ctx context.Context, status s
 	return args.Get(0).([]*model.WorkloadTaskState), args.Error(1)
 }
 
+func (m *MockWorkloadTaskFacade) ListTasksByStatusAndTypes(ctx context.Context, status string, taskTypes []string) ([]*model.WorkloadTaskState, error) {
+	args := m.Called(ctx, status, taskTypes)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*model.WorkloadTaskState), args.Error(1)
+}
+
 func (m *MockWorkloadTaskFacade) ListRecoverableTasks(ctx context.Context) ([]*model.WorkloadTaskState, error) {
 	args := m.Called(ctx)
 	if args.Get(0) == nil {
@@ -468,12 +476,15 @@ func TestScanAndExecuteTasks(t *testing.T) {
 		mockFacade := new(MockWorkloadTaskFacade)
 		scheduler := createTestScheduler(mockFacade)
 
-		mockFacade.On("ListTasksByStatus", mock.Anything, constant.TaskStatusPending).
+		executor := NewMockTaskExecutor("test-task")
+		scheduler.RegisterExecutor(executor)
+
+		mockFacade.On("ListTasksByStatusAndTypes", mock.Anything, constant.TaskStatusPending, []string{"test-task"}).
 			Return([]*model.WorkloadTaskState{}, nil)
 
 		scheduler.scanAndExecuteTasks()
 
-		mockFacade.AssertCalled(t, "ListTasksByStatus", mock.Anything, constant.TaskStatusPending)
+		mockFacade.AssertCalled(t, "ListTasksByStatusAndTypes", mock.Anything, constant.TaskStatusPending, []string{"test-task"})
 	})
 
 	t.Run("max concurrent tasks reached", func(t *testing.T) {
@@ -487,19 +498,31 @@ func TestScanAndExecuteTasks(t *testing.T) {
 
 		scheduler.scanAndExecuteTasks()
 
-		mockFacade.AssertNotCalled(t, "ListTasksByStatus")
+		mockFacade.AssertNotCalled(t, "ListTasksByStatusAndTypes")
+	})
+
+	t.Run("no executors registered", func(t *testing.T) {
+		mockFacade := new(MockWorkloadTaskFacade)
+		scheduler := createTestScheduler(mockFacade)
+
+		scheduler.scanAndExecuteTasks()
+
+		mockFacade.AssertNotCalled(t, "ListTasksByStatusAndTypes")
 	})
 
 	t.Run("list tasks error", func(t *testing.T) {
 		mockFacade := new(MockWorkloadTaskFacade)
 		scheduler := createTestScheduler(mockFacade)
 
-		mockFacade.On("ListTasksByStatus", mock.Anything, constant.TaskStatusPending).
+		executor := NewMockTaskExecutor("test-task")
+		scheduler.RegisterExecutor(executor)
+
+		mockFacade.On("ListTasksByStatusAndTypes", mock.Anything, constant.TaskStatusPending, []string{"test-task"}).
 			Return([]*model.WorkloadTaskState(nil), errors.New("database error"))
 
 		scheduler.scanAndExecuteTasks()
 
-		mockFacade.AssertCalled(t, "ListTasksByStatus", mock.Anything, constant.TaskStatusPending)
+		mockFacade.AssertCalled(t, "ListTasksByStatusAndTypes", mock.Anything, constant.TaskStatusPending, []string{"test-task"})
 	})
 
 	t.Run("execute multiple tasks", func(t *testing.T) {
@@ -514,7 +537,7 @@ func TestScanAndExecuteTasks(t *testing.T) {
 		executor := NewMockTaskExecutor("test-task")
 		scheduler.RegisterExecutor(executor)
 
-		mockFacade.On("ListTasksByStatus", mock.Anything, constant.TaskStatusPending).
+		mockFacade.On("ListTasksByStatusAndTypes", mock.Anything, constant.TaskStatusPending, []string{"test-task"}).
 			Return(tasks, nil)
 		mockFacade.On("TryAcquireLock", mock.Anything, mock.Anything, mock.Anything, scheduler.instanceID, scheduler.config.LockDuration).
 			Return(true, nil)
@@ -537,6 +560,109 @@ func TestScanAndExecuteTasks(t *testing.T) {
 		assert.True(t, completed, "tasks should complete within timeout")
 
 		mockFacade.AssertCalled(t, "TryAcquireLock", mock.Anything, task1.WorkloadUID, task1.TaskType, scheduler.instanceID, scheduler.config.LockDuration)
+	})
+}
+
+// ============ ConsumeTaskTypes Tests ============
+
+func TestGetConsumeTaskTypes(t *testing.T) {
+	t.Run("no config - returns registered executors", func(t *testing.T) {
+		mockFacade := new(MockWorkloadTaskFacade)
+		scheduler := createTestScheduler(mockFacade)
+
+		executor1 := NewMockTaskExecutor("task-type-1")
+		executor2 := NewMockTaskExecutor("task-type-2")
+		scheduler.RegisterExecutor(executor1)
+		scheduler.RegisterExecutor(executor2)
+
+		types := scheduler.GetConsumeTaskTypes()
+
+		assert.Len(t, types, 2)
+		assert.Contains(t, types, "task-type-1")
+		assert.Contains(t, types, "task-type-2")
+	})
+
+	t.Run("with config - returns configured types with registered executors", func(t *testing.T) {
+		mockFacade := new(MockWorkloadTaskFacade)
+		scheduler := createTestScheduler(mockFacade)
+		scheduler.config.ConsumeTaskTypes = []string{"task-type-1", "task-type-3"}
+
+		executor1 := NewMockTaskExecutor("task-type-1")
+		executor2 := NewMockTaskExecutor("task-type-2")
+		scheduler.RegisterExecutor(executor1)
+		scheduler.RegisterExecutor(executor2)
+
+		types := scheduler.GetConsumeTaskTypes()
+
+		// Only task-type-1 should be returned (configured AND has executor)
+		assert.Len(t, types, 1)
+		assert.Contains(t, types, "task-type-1")
+		// task-type-3 has no executor, task-type-2 is not configured
+	})
+
+	t.Run("with config but no matching executors", func(t *testing.T) {
+		mockFacade := new(MockWorkloadTaskFacade)
+		scheduler := createTestScheduler(mockFacade)
+		scheduler.config.ConsumeTaskTypes = []string{"task-type-x", "task-type-y"}
+
+		executor1 := NewMockTaskExecutor("task-type-1")
+		scheduler.RegisterExecutor(executor1)
+
+		types := scheduler.GetConsumeTaskTypes()
+
+		// No types should match
+		assert.Empty(t, types)
+	})
+
+	t.Run("empty config and no executors", func(t *testing.T) {
+		mockFacade := new(MockWorkloadTaskFacade)
+		scheduler := createTestScheduler(mockFacade)
+
+		types := scheduler.GetConsumeTaskTypes()
+
+		assert.Empty(t, types)
+	})
+}
+
+func TestScanWithConsumeTaskTypesFilter(t *testing.T) {
+	t.Run("only consumes configured task types", func(t *testing.T) {
+		mockFacade := new(MockWorkloadTaskFacade)
+		scheduler := createTestScheduler(mockFacade)
+		scheduler.config.ConsumeTaskTypes = []string{"type-a"}
+
+		executorA := NewMockTaskExecutor("type-a")
+		executorB := NewMockTaskExecutor("type-b")
+		scheduler.RegisterExecutor(executorA)
+		scheduler.RegisterExecutor(executorB)
+
+		taskA := createTestTask("workload-1", "type-a")
+		tasks := []*model.WorkloadTaskState{taskA}
+
+		// Should only query for type-a (configured), not type-b
+		mockFacade.On("ListTasksByStatusAndTypes", mock.Anything, constant.TaskStatusPending, []string{"type-a"}).
+			Return(tasks, nil)
+		mockFacade.On("TryAcquireLock", mock.Anything, mock.Anything, mock.Anything, scheduler.instanceID, scheduler.config.LockDuration).
+			Return(true, nil)
+		executorA.On("Validate", mock.Anything).Return(nil)
+		executorA.On("Execute", mock.Anything, mock.Anything).
+			Return(SuccessResult(map[string]interface{}{}), nil)
+		mockFacade.On("UpdateTaskStatus", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+			Return(nil)
+		mockFacade.On("UpdateTaskExt", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+			Return(nil)
+		mockFacade.On("ExtendLock", mock.Anything, mock.Anything, mock.Anything, scheduler.instanceID, scheduler.config.LockDuration).
+			Return(true, nil).Maybe()
+		mockFacade.On("ReleaseLock", mock.Anything, mock.Anything, mock.Anything, scheduler.instanceID).
+			Return(nil)
+
+		scheduler.scanAndExecuteTasks()
+
+		// Wait for tasks to complete
+		completed := waitForTasks(scheduler, 500*time.Millisecond)
+		assert.True(t, completed, "tasks should complete within timeout")
+
+		// Verify only type-a was queried
+		mockFacade.AssertCalled(t, "ListTasksByStatusAndTypes", mock.Anything, constant.TaskStatusPending, []string{"type-a"})
 	})
 }
 
@@ -1011,12 +1137,12 @@ func TestScanLoop(t *testing.T) {
 		scheduler.RegisterExecutor(executor)
 
 		callCount := 0
-		mockFacade.On("ListTasksByStatus", mock.Anything, constant.TaskStatusPending).
+		mockFacade.On("ListTasksByStatusAndTypes", mock.Anything, constant.TaskStatusPending, []string{"test-task"}).
 			Run(func(args mock.Arguments) {
 				callCount++
 			}).
 			Return([]*model.WorkloadTaskState{task}, nil).Once()
-		mockFacade.On("ListTasksByStatus", mock.Anything, constant.TaskStatusPending).
+		mockFacade.On("ListTasksByStatusAndTypes", mock.Anything, constant.TaskStatusPending, []string{"test-task"}).
 			Return([]*model.WorkloadTaskState{}, nil)
 
 		mockFacade.On("TryAcquireLock", mock.Anything, task.WorkloadUID, task.TaskType, scheduler.instanceID, scheduler.config.LockDuration).

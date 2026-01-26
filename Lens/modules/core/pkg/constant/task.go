@@ -33,6 +33,12 @@ const (
 
 	// Py-spy profiling task (executed by node-exporter on target node, dispatched by jobs module)
 	TaskTypePySpySample = "pyspy_sample"
+
+	// GitHub Workflow related task types
+	TaskTypeGithubWorkflowCollection = "github_workflow_collection" // Metrics collection from workflow runs
+	TaskTypeGithubWorkflowAnalysis   = "github_workflow_analysis"   // Performance analysis and fluctuation detection
+	TaskTypeGithubSchemaAnalyze      = "github_schema_analyze"      // AI-based schema analysis
+	TaskTypeGithubCodeIndexing       = "github_code_indexing"       // Code indexing for AI-Me
 )
 
 // Detection coverage source constants

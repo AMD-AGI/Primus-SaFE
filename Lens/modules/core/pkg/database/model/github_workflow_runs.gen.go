@@ -36,9 +36,14 @@ type GithubWorkflowRuns struct {
 	RetryCount            int32     `gorm:"column:retry_count;not null" json:"retry_count"`
 	CreatedAt             time.Time `gorm:"column:created_at;not null;default:now()" json:"created_at"`
 	UpdatedAt             time.Time `gorm:"column:updated_at;not null;default:now()" json:"updated_at"`
-	RunnerSetID           int64     `gorm:"column:runner_set_id;comment:Direct reference to github_runner_sets.id" json:"runner_set_id"`                              // Direct reference to github_runner_sets.id
-	RunnerSetName         string    `gorm:"column:runner_set_name;comment:Denormalized runner set name for efficient querying" json:"runner_set_name"`                // Denormalized runner set name for efficient querying
-	RunnerSetNamespace    string    `gorm:"column:runner_set_namespace;comment:Denormalized runner set namespace for efficient querying" json:"runner_set_namespace"` // Denormalized runner set namespace for efficient querying
+	RunnerSetID           int64      `gorm:"column:runner_set_id;comment:Direct reference to github_runner_sets.id" json:"runner_set_id"`                              // Direct reference to github_runner_sets.id
+	RunnerSetName         string     `gorm:"column:runner_set_name;comment:Denormalized runner set name for efficient querying" json:"runner_set_name"`                // Denormalized runner set name for efficient querying
+	RunnerSetNamespace    string     `gorm:"column:runner_set_namespace;comment:Denormalized runner set namespace for efficient querying" json:"runner_set_namespace"` // Denormalized runner set namespace for efficient querying
+	CurrentJobName        string     `gorm:"column:current_job_name;comment:Currently running job name from GitHub" json:"current_job_name"`                           // Currently running job name from GitHub
+	CurrentStepName       string     `gorm:"column:current_step_name;comment:Currently running step name from GitHub" json:"current_step_name"`                        // Currently running step name from GitHub
+	ProgressPercent       int32      `gorm:"column:progress_percent;default:0;comment:Overall workflow progress percentage (0-100)" json:"progress_percent"`           // Overall workflow progress percentage (0-100)
+	LastSyncedAt          *time.Time `gorm:"column:last_synced_at;comment:Last time state was synced from GitHub API" json:"last_synced_at"`                           // Last time state was synced from GitHub API
+	Conclusion            string     `gorm:"column:conclusion;comment:GitHub workflow conclusion: success, failure, cancelled, skipped, etc." json:"conclusion"`       // GitHub workflow conclusion
 }
 
 // TableName GithubWorkflowRuns's table name
