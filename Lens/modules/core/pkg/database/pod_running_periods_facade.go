@@ -68,6 +68,12 @@ func (f *PodRunningPeriodsFacade) EndRunningPeriod(ctx context.Context, podUID s
 		return err
 	}
 
+	// Check if record was actually found (GORM gen may return empty object instead of error)
+	if period == nil || period.ID == 0 {
+		// No active running period found, ignore
+		return nil
+	}
+
 	// Update end_at
 	period.EndAt = endAt
 	period.UpdatedAt = time.Now()
@@ -86,6 +92,10 @@ func (f *PodRunningPeriodsFacade) GetCurrentRunningPeriod(ctx context.Context, p
 			return nil, nil
 		}
 		return nil, err
+	}
+	// Check if record was actually found (GORM gen may return empty object instead of error)
+	if result == nil || result.ID == 0 {
+		return nil, nil
 	}
 	return result, nil
 }
