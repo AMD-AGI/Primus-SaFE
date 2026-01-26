@@ -190,6 +190,7 @@ func (r *EvaluationJobReconciler) generateEvaluationWorkload(ctx context.Context
 	taskId := getParamValue(job.GetParameter(v1.ParameterEvalTaskId))
 	modelEndpoint := getParamValue(job.GetParameter(v1.ParameterModelEndpoint))
 	modelName := getParamValue(job.GetParameter(v1.ParameterModelName))
+	modelApiKey := getParamValue(job.GetParameter(v1.ParameterModelApiKey)) // API key for remote_api model
 	benchmarksJSON := getParamValue(job.GetParameter(v1.ParameterEvalBenchmarks))
 	paramsJSON := getParamValue(job.GetParameter(v1.ParameterEvalParams))
 	workspace := getParamValue(job.GetParameter(v1.ParameterWorkspace))
@@ -219,7 +220,7 @@ func (r *EvaluationJobReconciler) generateEvaluationWorkload(ctx context.Context
 	}
 
 	// Build evalscope command with upload script
-	entryPoint, err := r.buildEvalCommand(ctx, modelEndpoint, modelName, benchmarksJSON, paramsJSON, taskId, s3PresignedPutURL, judgeModel, judgeEndpoint, judgeApiKey)
+	entryPoint, err := r.buildEvalCommand(ctx, modelEndpoint, modelName, modelApiKey, benchmarksJSON, paramsJSON, taskId, s3PresignedPutURL, judgeModel, judgeEndpoint, judgeApiKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build eval command: %w", err)
 	}
@@ -299,7 +300,7 @@ type BenchmarkConfig struct {
 
 // buildEvalCommand builds the evalscope command based on parameters
 // Supports multiple datasets and judge model (LLM-as-Judge) evaluation mode
-func (r *EvaluationJobReconciler) buildEvalCommand(ctx context.Context, modelEndpoint, modelName, benchmarksJSON, paramsJSON, taskId, s3PresignedPutURL, judgeModel, judgeEndpoint, judgeApiKey string) (string, error) {
+func (r *EvaluationJobReconciler) buildEvalCommand(ctx context.Context, modelEndpoint, modelName, modelApiKey, benchmarksJSON, paramsJSON, taskId, s3PresignedPutURL, judgeModel, judgeEndpoint, judgeApiKey string) (string, error) {
 	// Parse benchmarks
 	var benchmarks []BenchmarkConfig
 	if err := json.Unmarshal([]byte(benchmarksJSON), &benchmarks); err != nil {
@@ -347,7 +348,7 @@ func (r *EvaluationJobReconciler) buildEvalCommand(ctx context.Context, modelEnd
 			// Multiple datasets - use subdirectory for each dataset
 			singleOutputDir = fmt.Sprintf("%s/%s", outputDir, datasetNames[i])
 		}
-		evalArgs := r.buildSingleEvalCommand(modelEndpoint, modelName, datasetNames[i], datasetDirs[i], benchmark.Limit, singleOutputDir, judgeModel, judgeEndpoint, judgeApiKey)
+		evalArgs := r.buildSingleEvalCommand(modelEndpoint, modelName, modelApiKey, datasetNames[i], datasetDirs[i], benchmark.Limit, singleOutputDir, judgeModel, judgeEndpoint, judgeApiKey)
 		commands = append(commands, strings.Join(evalArgs, " "))
 	}
 
@@ -364,7 +365,7 @@ func (r *EvaluationJobReconciler) buildEvalCommand(ctx context.Context, modelEnd
 }
 
 // buildSingleEvalCommand builds evalscope command arguments for a single evaluation run
-func (r *EvaluationJobReconciler) buildSingleEvalCommand(modelEndpoint, modelName string, datasetName string, datasetDir string, limit int, outputDir, judgeModel, judgeEndpoint, judgeApiKey string) []string {
+func (r *EvaluationJobReconciler) buildSingleEvalCommand(modelEndpoint, modelName, modelApiKey string, datasetName string, datasetDir string, limit int, outputDir, judgeModel, judgeEndpoint, judgeApiKey string) []string {
 	var evalArgs []string
 	evalArgs = append(evalArgs, "evalscope", "eval")
 
@@ -374,6 +375,11 @@ func (r *EvaluationJobReconciler) buildSingleEvalCommand(modelEndpoint, modelNam
 	// API endpoint for remote/local inference
 	if modelEndpoint != "" {
 		evalArgs = append(evalArgs, "--api-url", modelEndpoint)
+	}
+
+	// API key for remote_api model (required for external APIs like OpenAI, SiliconFlow, etc.)
+	if modelApiKey != "" {
+		evalArgs = append(evalArgs, "--api-key", modelApiKey)
 	}
 
 	// Dataset (single benchmark name)

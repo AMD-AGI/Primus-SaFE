@@ -1106,7 +1106,7 @@ func (h *Handler) generateEvaluationJob(c *gin.Context, body []byte) (*v1.OpsJob
 	taskId := fmt.Sprintf("eval-task-%s", uuid.New().String()[:8])
 
 	// Get service info and construct endpoint
-	var serviceName, modelEndpoint, modelName, clusterId string
+	var serviceName, modelEndpoint, modelName, modelApiKey, clusterId string
 	if serviceType == "remote_api" {
 		model, err := h.dbClient.GetModelByID(ctx, serviceId)
 		if err != nil {
@@ -1114,7 +1114,13 @@ func (h *Handler) generateEvaluationJob(c *gin.Context, body []byte) (*v1.OpsJob
 		}
 		serviceName = model.DisplayName
 		modelEndpoint = model.SourceURL
-		modelName = model.DisplayName // For remote API, use displayName as model name
+		modelApiKey = model.SourceToken // API Key for remote API calls
+		// Use ModelName if available, otherwise fallback to DisplayName
+		if model.ModelName != "" {
+			modelName = model.ModelName
+		} else {
+			modelName = model.DisplayName
+		}
 	} else {
 		// local_workload
 		workload, err := h.dbClient.GetWorkload(ctx, serviceId)
@@ -1200,6 +1206,10 @@ func (h *Handler) generateEvaluationJob(c *gin.Context, body []byte) (*v1.OpsJob
 		{Name: v1.ParameterEvalParams, Value: evalParamsJSON},
 		{Name: v1.ParameterModelEndpoint, Value: modelEndpoint},
 		{Name: v1.ParameterModelName, Value: modelName},
+	}
+	// Add model API key for remote_api type
+	if modelApiKey != "" {
+		inputs = append(inputs, v1.Parameter{Name: v1.ParameterModelApiKey, Value: modelApiKey})
 	}
 	if clusterId != "" {
 		inputs = append(inputs, v1.Parameter{Name: v1.ParameterCluster, Value: clusterId})
