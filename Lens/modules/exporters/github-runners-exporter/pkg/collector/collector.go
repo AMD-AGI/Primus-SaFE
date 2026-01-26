@@ -1,7 +1,9 @@
 // Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
 // See LICENSE for license information.
 
-package github_workflow_collector
+// Package collector provides GitHub workflow metrics collection functionality.
+// This package was migrated from jobs/pkg/jobs/github_workflow_collector.
+package collector
 
 import (
 	"context"
@@ -19,7 +21,6 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/types"
-	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/common"
 )
 
 const (
@@ -64,8 +65,8 @@ func renderFilePatterns(patterns []string, referenceTime time.Time) []string {
 	return rendered
 }
 
-// GithubWorkflowCollectorJob processes pending runs and collects metrics from Pod PVC
-type GithubWorkflowCollectorJob struct {
+// WorkflowCollector processes pending runs and collects metrics from Pod PVC
+type WorkflowCollector struct {
 	// pvcReader reads files from temporary Pod via node-exporter
 	pvcReader *PVCReader
 	// tempPodManager manages temporary pods for reading PVC (EphemeralRunner pods are deleted after completion)
@@ -80,148 +81,92 @@ type GithubWorkflowCollectorJob struct {
 	clientSets *clientsets.K8SClientSet
 }
 
-// NewGithubWorkflowCollectorJob creates a new GithubWorkflowCollectorJob instance
-func NewGithubWorkflowCollectorJob() *GithubWorkflowCollectorJob {
-	return &GithubWorkflowCollectorJob{
+// NewWorkflowCollector creates a new WorkflowCollector instance
+func NewWorkflowCollector() *WorkflowCollector {
+	return &WorkflowCollector{
 		pvcReader:        NewPVCReader(),
 		tempPodManager:   NewTempPodManager(),
 		schemaAnalyzer:   NewSchemaAnalyzer(),
 		metricsExtractor: NewMetricsExtractor(),
-		githubFetcher:    nil, // Will be initialized in Run()
+		githubFetcher:    nil, // Will be initialized in CollectRun()
 		clientSets:       nil,
 	}
 }
 
-// Run executes the GitHub workflow collector job
-func (j *GithubWorkflowCollectorJob) Run(ctx context.Context, clientSets *clientsets.K8SClientSet, storageClientSet *clientsets.StorageClientSet) (*common.ExecutionStats, error) {
-	startTime := time.Now()
-	stats := common.NewExecutionStats()
-
-	log.Info("GithubWorkflowCollectorJob: starting collection")
-
-	// Initialize GitHub fetcher if not already done
-	if j.githubFetcher == nil && clientSets != nil {
-		j.clientSets = clientSets
+// Initialize initializes the collector with K8s clientsets
+func (c *WorkflowCollector) Initialize(clientSets *clientsets.K8SClientSet) {
+	if clientSets != nil {
+		c.clientSets = clientSets
 		InitGithubClientManager(clientSets)
-		j.githubFetcher = NewGithubFetcher(clientSets)
+		c.githubFetcher = NewGithubFetcher(clientSets)
 	}
+}
 
-	// Get ALL pending runs (not per-config)
+// CollectRun processes a single workflow run and collects its metrics
+// Returns the number of metrics created and any error
+func (c *WorkflowCollector) CollectRun(ctx context.Context, run *model.GithubWorkflowRuns) (int, error) {
 	runFacade := database.GetFacade().GetGithubWorkflowRun()
-
-	// Step 0: Batch mark pending runs without config as completed (optimization)
-	// This prevents runs without matching configs from blocking the queue
-	if affected, err := runFacade.MarkPendingWithoutConfigAsCompleted(ctx); err != nil {
-		log.Warnf("GithubWorkflowCollectorJob: failed to batch mark pending without config: %v", err)
-	} else if affected > 0 {
-		log.Infof("GithubWorkflowCollectorJob: batch marked %d pending runs without config as completed", affected)
-	}
-	pendingRuns, err := runFacade.ListPending(ctx, &database.GithubWorkflowRunFilter{
-		Status: database.WorkflowRunStatusPending,
-		Limit:  MaxRunsPerBatch,
-	})
-	if err != nil {
-		log.Errorf("GithubWorkflowCollectorJob: failed to list pending runs: %v", err)
-		stats.ErrorCount++
-		return stats, err
-	}
-
-	if len(pendingRuns) == 0 {
-		log.Debug("GithubWorkflowCollectorJob: no pending runs found")
-		return stats, nil
-	}
-
-	log.Infof("GithubWorkflowCollectorJob: processing %d pending runs", len(pendingRuns))
-
+	configFacade := database.GetFacade().GetGithubWorkflowConfig()
 	schemaFacade := database.GetFacade().GetGithubWorkflowSchema()
 	metricsFacade := database.GetFacade().GetGithubWorkflowMetrics()
 
-	totalProcessed := 0
-	totalCompleted := 0
-	totalFailed := 0
-	totalSkipped := 0
-	totalMetrics := 0
-
-	for _, run := range pendingRuns {
-		// Check retry count
-		if run.RetryCount >= MaxRetries {
-			log.Warnf("GithubWorkflowCollectorJob: run %d exceeded max retries, marking as failed", run.ID)
-			if err := runFacade.MarkFailed(ctx, run.ID, "exceeded max retry count"); err != nil {
-				log.Errorf("GithubWorkflowCollectorJob: failed to mark run %d as failed: %v", run.ID, err)
-			}
-			totalFailed++
-			continue
+	// Check retry count
+	if run.RetryCount >= MaxRetries {
+		log.Warnf("WorkflowCollector: run %d exceeded max retries, marking as failed", run.ID)
+		if err := runFacade.MarkFailed(ctx, run.ID, "exceeded max retry count"); err != nil {
+			log.Errorf("WorkflowCollector: failed to mark run %d as failed: %v", run.ID, err)
 		}
-
-		// Dynamically find config for this run
-		config := j.findConfigForRun(ctx, run)
-
-		if config == nil {
-			// No config = no metrics collection, mark as completed without metrics
-			log.Infof("GithubWorkflowCollectorJob: run %d (runner_set_id=%d) has no config, marking as completed without metrics",
-				run.ID, run.RunnerSetID)
-			if err := runFacade.MarkCompleted(ctx, run.ID, 0, 0, 0); err != nil {
-				log.Errorf("GithubWorkflowCollectorJob: failed to mark run %d as completed: %v", run.ID, err)
-				stats.ErrorCount++
-			}
-			totalSkipped++
-			totalProcessed++
-			continue
-		}
-
-		log.Infof("GithubWorkflowCollectorJob: processing run %d with config %s (id=%d)",
-			run.ID, config.Name, config.ID)
-
-		// Process this run with config
-		metricsCreated, err := j.processRun(ctx, config, run, schemaFacade, metricsFacade, runFacade)
-		if err != nil {
-			log.Errorf("GithubWorkflowCollectorJob: failed to process run %d: %v", run.ID, err)
-			if err := runFacade.IncrementRetryCount(ctx, run.ID); err != nil {
-				log.Errorf("GithubWorkflowCollectorJob: failed to increment retry count for run %d: %v", run.ID, err)
-			}
-			stats.ErrorCount++
-			totalFailed++
-			continue
-		}
-
-		// Fetch GitHub data (commits, workflow run details) after successful processing
-		if j.githubFetcher != nil {
-			if err := j.githubFetcher.FetchAndStoreGithubData(ctx, config, run); err != nil {
-				log.Warnf("GithubWorkflowCollectorJob: failed to fetch GitHub data for run %d: %v", run.ID, err)
-				// Don't fail the job, just log the warning
-			}
-		}
-
-		// Auto-generate dashboard summary with regression analysis
-		// This runs after metrics extraction and GitHub data fetching
-		if err := j.generateDashboardSummary(ctx, config, run); err != nil {
-			log.Warnf("GithubWorkflowCollectorJob: failed to generate dashboard summary for run %d: %v", run.ID, err)
-			// Don't fail the job, dashboard can be regenerated later
-		}
-
-		totalCompleted++
-		totalProcessed++
-		totalMetrics += metricsCreated
+		return 0, fmt.Errorf("exceeded max retries")
 	}
 
-	stats.RecordsProcessed = int64(totalProcessed)
-	stats.ItemsUpdated = int64(totalCompleted)
-	stats.ItemsCreated = int64(totalMetrics)
-	stats.ProcessDuration = time.Since(startTime).Seconds()
-	stats.AddMessage(fmt.Sprintf("Processed %d runs, completed %d, skipped %d (no config), failed %d, metrics created: %d",
-		totalProcessed, totalCompleted, totalSkipped, totalFailed, totalMetrics))
+	// Dynamically find config for this run
+	config := c.findConfigForRun(ctx, run, configFacade)
 
-	log.Infof("GithubWorkflowCollectorJob: completed - processed: %d, completed: %d, skipped: %d, failed: %d, metrics: %d",
-		totalProcessed, totalCompleted, totalSkipped, totalFailed, totalMetrics)
+	if config == nil {
+		// No config = no metrics collection, mark as completed without metrics
+		log.Infof("WorkflowCollector: run %d (runner_set_id=%d) has no config, marking as completed without metrics",
+			run.ID, run.RunnerSetID)
+		if err := runFacade.MarkCompleted(ctx, run.ID, 0, 0, 0); err != nil {
+			log.Errorf("WorkflowCollector: failed to mark run %d as completed: %v", run.ID, err)
+			return 0, err
+		}
+		return 0, nil
+	}
 
-	return stats, nil
+	log.Infof("WorkflowCollector: processing run %d with config %s (id=%d)",
+		run.ID, config.Name, config.ID)
+
+	// Process this run with config
+	metricsCreated, err := c.processRun(ctx, config, run, schemaFacade, metricsFacade, runFacade)
+	if err != nil {
+		log.Errorf("WorkflowCollector: failed to process run %d: %v", run.ID, err)
+		if err := runFacade.IncrementRetryCount(ctx, run.ID); err != nil {
+			log.Errorf("WorkflowCollector: failed to increment retry count for run %d: %v", run.ID, err)
+		}
+		return 0, err
+	}
+
+	// Fetch GitHub data (commits, workflow run details) after successful processing
+	if c.githubFetcher != nil {
+		if err := c.githubFetcher.FetchAndStoreGithubData(ctx, config, run); err != nil {
+			log.Warnf("WorkflowCollector: failed to fetch GitHub data for run %d: %v", run.ID, err)
+			// Don't fail the job, just log the warning
+		}
+	}
+
+	// Auto-generate dashboard summary with regression analysis
+	// This runs after metrics extraction and GitHub data fetching
+	if err := c.generateDashboardSummary(ctx, config, run); err != nil {
+		log.Warnf("WorkflowCollector: failed to generate dashboard summary for run %d: %v", run.ID, err)
+		// Don't fail the job, dashboard can be regenerated later
+	}
+
+	return metricsCreated, nil
 }
 
 // findConfigForRun dynamically finds a config for the given run
 // Returns nil if no matching config is found
-func (j *GithubWorkflowCollectorJob) findConfigForRun(ctx context.Context, run *model.GithubWorkflowRuns) *model.GithubWorkflowConfigs {
-	configFacade := database.GetFacade().GetGithubWorkflowConfig()
-
+func (c *WorkflowCollector) findConfigForRun(ctx context.Context, run *model.GithubWorkflowRuns, configFacade database.GithubWorkflowConfigFacadeInterface) *model.GithubWorkflowConfigs {
 	// Option 1: Use run.ConfigID if set (from exporter matching)
 	if run.ConfigID != 0 {
 		config, err := configFacade.GetByID(ctx, run.ConfigID)
@@ -229,19 +174,19 @@ func (j *GithubWorkflowCollectorJob) findConfigForRun(ctx context.Context, run *
 			return config
 		}
 		// If config_id is set but config not found or disabled, fall through to dynamic lookup
-		log.Debugf("GithubWorkflowCollectorJob: run %d has config_id=%d but config not found or disabled, trying dynamic lookup",
+		log.Debugf("WorkflowCollector: run %d has config_id=%d but config not found or disabled, trying dynamic lookup",
 			run.ID, run.ConfigID)
 	}
 
 	// Option 2: Find by runner_set (namespace + name)
 	if run.RunnerSetNamespace == "" || run.RunnerSetName == "" {
-		log.Warnf("GithubWorkflowCollectorJob: run %d missing runner_set_namespace or runner_set_name", run.ID)
+		log.Warnf("WorkflowCollector: run %d missing runner_set_namespace or runner_set_name", run.ID)
 		return nil
 	}
 
 	configs, err := configFacade.ListByRunnerSet(ctx, run.RunnerSetNamespace, run.RunnerSetName)
 	if err != nil {
-		log.Errorf("GithubWorkflowCollectorJob: failed to list configs for runner set %s/%s: %v",
+		log.Errorf("WorkflowCollector: failed to list configs for runner set %s/%s: %v",
 			run.RunnerSetNamespace, run.RunnerSetName, err)
 		return nil
 	}
@@ -255,8 +200,8 @@ func (j *GithubWorkflowCollectorJob) findConfigForRun(ctx context.Context, run *
 		if !cfg.Enabled {
 			continue
 		}
-		if j.matchesFilters(run, cfg) {
-			log.Debugf("GithubWorkflowCollectorJob: run %d matched config %s (id=%d) via filters",
+		if c.matchesFilters(run, cfg) {
+			log.Debugf("WorkflowCollector: run %d matched config %s (id=%d) via filters",
 				run.ID, cfg.Name, cfg.ID)
 			return cfg
 		}
@@ -267,7 +212,7 @@ func (j *GithubWorkflowCollectorJob) findConfigForRun(ctx context.Context, run *
 }
 
 // matchesFilters checks if a run matches the workflow and branch filters of a config
-func (j *GithubWorkflowCollectorJob) matchesFilters(run *model.GithubWorkflowRuns, cfg *model.GithubWorkflowConfigs) bool {
+func (c *WorkflowCollector) matchesFilters(run *model.GithubWorkflowRuns, cfg *model.GithubWorkflowConfigs) bool {
 	// Check workflow_filter
 	if cfg.WorkflowFilter != "" && run.WorkflowName != "" {
 		if run.WorkflowName != cfg.WorkflowFilter {
@@ -287,7 +232,7 @@ func (j *GithubWorkflowCollectorJob) matchesFilters(run *model.GithubWorkflowRun
 }
 
 // processRun processes a single pending run
-func (j *GithubWorkflowCollectorJob) processRun(
+func (c *WorkflowCollector) processRun(
 	ctx context.Context,
 	config *model.GithubWorkflowConfigs,
 	run *model.GithubWorkflowRuns,
@@ -314,13 +259,13 @@ func (j *GithubWorkflowCollectorJob) processRun(
 	}
 	renderedPatterns := renderFilePatterns(filePatterns, referenceTime)
 	if len(renderedPatterns) > 0 && renderedPatterns[0] != filePatterns[0] {
-		log.Infof("GithubWorkflowCollectorJob: rendered file patterns for run %d: %v -> %v",
+		log.Infof("WorkflowCollector: rendered file patterns for run %d: %v -> %v",
 			run.ID, filePatterns, renderedPatterns)
 	}
 	filePatterns = renderedPatterns
 
 	if len(filePatterns) == 0 {
-		log.Warnf("GithubWorkflowCollectorJob: no file patterns configured for config %d", config.ID)
+		log.Warnf("WorkflowCollector: no file patterns configured for config %d", config.ID)
 		if err := runFacade.UpdateStatus(ctx, run.ID, database.WorkflowRunStatusSkipped, "no file patterns configured"); err != nil {
 			return 0, fmt.Errorf("failed to mark as skipped: %w", err)
 		}
@@ -329,10 +274,10 @@ func (j *GithubWorkflowCollectorJob) processRun(
 
 	// EphemeralRunner pods are deleted after completion, so we must create a temporary pod
 	// to mount the same PVC and read result files
-	log.Infof("GithubWorkflowCollectorJob: creating temp pod to read PVC for run %d", run.ID)
+	log.Infof("WorkflowCollector: creating temp pod to read PVC for run %d", run.ID)
 
-	if j.tempPodManager == nil {
-		log.Errorf("GithubWorkflowCollectorJob: temp pod manager not initialized")
+	if c.tempPodManager == nil {
+		log.Errorf("WorkflowCollector: temp pod manager not initialized")
 		if err := runFacade.UpdateStatus(ctx, run.ID, database.WorkflowRunStatusSkipped, "temp pod manager not available"); err != nil {
 			return 0, fmt.Errorf("failed to mark as skipped: %w", err)
 		}
@@ -340,9 +285,9 @@ func (j *GithubWorkflowCollectorJob) processRun(
 	}
 
 	// Get volume info from AutoscalingRunnerSet
-	volumeInfo, err := j.tempPodManager.GetVolumeInfoFromARS(ctx, config.RunnerSetNamespace, config.RunnerSetName)
+	volumeInfo, err := c.tempPodManager.GetVolumeInfoFromARS(ctx, config.RunnerSetNamespace, config.RunnerSetName)
 	if err != nil {
-		log.Warnf("GithubWorkflowCollectorJob: failed to get volume info from ARS: %v", err)
+		log.Warnf("WorkflowCollector: failed to get volume info from ARS: %v", err)
 		if err := runFacade.UpdateStatus(ctx, run.ID, database.WorkflowRunStatusSkipped, fmt.Sprintf("failed to get ARS volume info: %v", err)); err != nil {
 			return 0, fmt.Errorf("failed to mark as skipped: %w", err)
 		}
@@ -350,9 +295,9 @@ func (j *GithubWorkflowCollectorJob) processRun(
 	}
 
 	// Create temporary pod to mount PVC
-	podInfo, err := j.tempPodManager.CreateTempPod(ctx, config, run.ID, volumeInfo)
+	podInfo, err := c.tempPodManager.CreateTempPod(ctx, config, run.ID, volumeInfo)
 	if err != nil {
-		log.Warnf("GithubWorkflowCollectorJob: failed to create temp pod: %v", err)
+		log.Warnf("WorkflowCollector: failed to create temp pod: %v", err)
 		if err := runFacade.UpdateStatus(ctx, run.ID, database.WorkflowRunStatusFailed, fmt.Sprintf("failed to create temp pod: %v", err)); err != nil {
 			return 0, fmt.Errorf("failed to mark as failed: %w", err)
 		}
@@ -363,12 +308,12 @@ func (j *GithubWorkflowCollectorJob) processRun(
 	defer func() {
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		if err := j.tempPodManager.DeleteTempPod(cleanupCtx, podInfo.Namespace, podInfo.Name); err != nil {
-			log.Warnf("GithubWorkflowCollectorJob: failed to cleanup temp pod %s/%s: %v", podInfo.Namespace, podInfo.Name, err)
+		if err := c.tempPodManager.DeleteTempPod(cleanupCtx, podInfo.Namespace, podInfo.Name); err != nil {
+			log.Warnf("WorkflowCollector: failed to cleanup temp pod %s/%s: %v", podInfo.Namespace, podInfo.Name, err)
 		}
 	}()
 
-	log.Infof("GithubWorkflowCollectorJob: using temp pod %s/%s on node %s",
+	log.Infof("WorkflowCollector: using temp pod %s/%s on node %s",
 		podInfo.Namespace, podInfo.Name, podInfo.NodeName)
 
 	// Determine base paths to search
@@ -378,40 +323,40 @@ func (j *GithubWorkflowCollectorJob) processRun(
 	}
 
 	// List matching files
-	matchingFiles, err := j.pvcReader.ListMatchingFiles(ctx, podInfo, basePaths, filePatterns)
+	matchingFiles, err := c.pvcReader.ListMatchingFiles(ctx, podInfo, basePaths, filePatterns)
 	if err != nil {
 		return 0, fmt.Errorf("failed to list matching files: %w", err)
 	}
 
 	if len(matchingFiles) == 0 {
-		log.Infof("GithubWorkflowCollectorJob: no matching files found for run %d", run.ID)
+		log.Infof("WorkflowCollector: no matching files found for run %d", run.ID)
 		if err := runFacade.MarkCompleted(ctx, run.ID, 0, 0, 0); err != nil {
 			return 0, fmt.Errorf("failed to mark as completed: %w", err)
 		}
 		return 0, nil
 	}
 
-	log.Infof("GithubWorkflowCollectorJob: found %d matching files for run %d", len(matchingFiles), run.ID)
+	log.Infof("WorkflowCollector: found %d matching files for run %d", len(matchingFiles), run.ID)
 
 	// Read files from pod
-	files, err := j.pvcReader.ReadFiles(ctx, podInfo, matchingFiles, MaxFileSizeBytes)
+	files, err := c.pvcReader.ReadFiles(ctx, podInfo, matchingFiles, MaxFileSizeBytes)
 	if err != nil {
 		return 0, fmt.Errorf("failed to read files: %w", err)
 	}
 
-	log.Infof("GithubWorkflowCollectorJob: read %d files from pod", len(files))
+	log.Infof("WorkflowCollector: read %d files from pod", len(files))
 
 	// Check if schema analyzer is available
-	if j.schemaAnalyzer == nil || !j.schemaAnalyzer.IsAvailable(ctx) {
+	if c.schemaAnalyzer == nil || !c.schemaAnalyzer.IsAvailable(ctx) {
 		// Schema analyzer not available - skip processing, will retry later
-		log.Warnf("GithubWorkflowCollectorJob: schema analyzer not available for run %d, will retry later", run.ID)
+		log.Warnf("WorkflowCollector: schema analyzer not available for run %d, will retry later", run.ID)
 		return 0, fmt.Errorf("schema analyzer not available")
 	}
 
 	// Use schema-versioning approach (AI for schema analysis, Go for data extraction)
-	log.Infof("GithubWorkflowCollectorJob: using schema-versioning extraction for run %d", run.ID)
+	log.Infof("WorkflowCollector: using schema-versioning extraction for run %d", run.ID)
 
-	metricsCreated, err := j.processRunWithSchemaVersioning(
+	metricsCreated, err := c.processRunWithSchemaVersioning(
 		ctx, config, run, files, matchingFiles, schemaFacade, metricsFacade, runFacade,
 	)
 	if err != nil {
@@ -423,7 +368,7 @@ func (j *GithubWorkflowCollectorJob) processRun(
 
 // processRunWithSchemaVersioning processes a run using the new schema-versioning approach
 // This uses AI only for schema analysis, then Go for metrics extraction (saves LLM tokens)
-func (j *GithubWorkflowCollectorJob) processRunWithSchemaVersioning(
+func (c *WorkflowCollector) processRunWithSchemaVersioning(
 	ctx context.Context,
 	config *model.GithubWorkflowConfigs,
 	run *model.GithubWorkflowRuns,
@@ -435,15 +380,15 @@ func (j *GithubWorkflowCollectorJob) processRunWithSchemaVersioning(
 ) (int, error) {
 	// Mark as extracting
 	if err := runFacade.UpdateStatus(ctx, run.ID, database.WorkflowRunStatusExtracting, ""); err != nil {
-		log.Warnf("GithubWorkflowCollectorJob: failed to update status to extracting: %v", err)
+		log.Warnf("WorkflowCollector: failed to update status to extracting: %v", err)
 	}
 
 	// Step 1: Prepare file samples for schema analysis (only headers + few rows)
 	var fileSamples []*FileSample
 	for _, file := range files {
-		sample, err := j.schemaAnalyzer.PrepareFileSample(file)
+		sample, err := c.schemaAnalyzer.PrepareFileSample(file)
 		if err != nil {
-			log.Warnf("GithubWorkflowCollectorJob: failed to prepare sample for %s: %v", file.Path, err)
+			log.Warnf("WorkflowCollector: failed to prepare sample for %s: %v", file.Path, err)
 			continue
 		}
 		fileSamples = append(fileSamples, sample)
@@ -456,12 +401,12 @@ func (j *GithubWorkflowCollectorJob) processRunWithSchemaVersioning(
 	// Step 2: Get existing schemas for matching
 	existingSchemas, err := schemaFacade.ListByConfigWithHash(ctx, config.ID)
 	if err != nil {
-		log.Warnf("GithubWorkflowCollectorJob: failed to list existing schemas: %v", err)
+		log.Warnf("WorkflowCollector: failed to list existing schemas: %v", err)
 		existingSchemas = []*database.SchemaHashInfo{}
 	}
 
 	// Step 3: Call AI Crew for schema analysis ONLY (no metrics extraction)
-	schemaResult, err := j.schemaAnalyzer.AnalyzeSchema(ctx, &SchemaAnalysisInput{
+	schemaResult, err := c.schemaAnalyzer.AnalyzeSchema(ctx, &SchemaAnalysisInput{
 		ConfigID:        config.ID,
 		ConfigName:      config.Name,
 		FileSamples:     fileSamples,
@@ -488,9 +433,9 @@ func (j *GithubWorkflowCollectorJob) processRunWithSchemaVersioning(
 		}
 		// Update last_seen_at
 		if err := schemaFacade.UpdateLastSeen(ctx, schemaID); err != nil {
-			log.Warnf("GithubWorkflowCollectorJob: failed to update last_seen: %v", err)
+			log.Warnf("WorkflowCollector: failed to update last_seen: %v", err)
 		}
-		log.Infof("GithubWorkflowCollectorJob: matched existing schema (id=%d, hash=%s)",
+		log.Infof("WorkflowCollector: matched existing schema (id=%d, hash=%s)",
 			schemaID, schemaResult.SchemaHash[:8])
 	} else {
 		// First check if schema with this hash already exists (handle concurrent creation)
@@ -505,9 +450,9 @@ func (j *GithubWorkflowCollectorJob) processRunWithSchemaVersioning(
 			schemaID = existingSchema.ID
 			// Update last_seen_at
 			if err := schemaFacade.UpdateLastSeen(ctx, schemaID); err != nil {
-				log.Warnf("GithubWorkflowCollectorJob: failed to update last_seen: %v", err)
+				log.Warnf("WorkflowCollector: failed to update last_seen: %v", err)
 			}
-			log.Infof("GithubWorkflowCollectorJob: found existing schema with same hash (id=%d, hash=%s)",
+			log.Infof("WorkflowCollector: found existing schema with same hash (id=%d, hash=%s)",
 				schemaID, schemaResult.SchemaHash[:8])
 		} else {
 			// Create new schema version
@@ -521,7 +466,7 @@ func (j *GithubWorkflowCollectorJob) processRunWithSchemaVersioning(
 				if existingSchema, lookupErr := schemaFacade.GetByConfigAndHash(ctx, config.ID, schemaResult.SchemaHash); lookupErr == nil && existingSchema != nil {
 					currentSchema = existingSchema
 					schemaID = existingSchema.ID
-					log.Infof("GithubWorkflowCollectorJob: schema created by concurrent process (id=%d, hash=%s)",
+					log.Infof("WorkflowCollector: schema created by concurrent process (id=%d, hash=%s)",
 						schemaID, schemaResult.SchemaHash[:8])
 				} else {
 					return 0, fmt.Errorf("failed to create new schema: %w", err)
@@ -530,16 +475,16 @@ func (j *GithubWorkflowCollectorJob) processRunWithSchemaVersioning(
 				schemaID = currentSchema.ID
 				// Set this schema as active
 				if err := schemaFacade.SetActive(ctx, config.ID, schemaID); err != nil {
-					log.Warnf("GithubWorkflowCollectorJob: failed to set schema active: %v", err)
+					log.Warnf("WorkflowCollector: failed to set schema active: %v", err)
 				}
-				log.Infof("GithubWorkflowCollectorJob: created new schema version (id=%d, hash=%s)",
+				log.Infof("WorkflowCollector: created new schema version (id=%d, hash=%s)",
 					schemaID, schemaResult.SchemaHash[:8])
 			}
 		}
 	}
 
 	// Step 5: Extract metrics using Go (NO AI, NO LLM tokens)
-	metrics, err := j.metricsExtractor.ExtractMetrics(files, schemaResult.Schema)
+	metrics, err := c.metricsExtractor.ExtractMetrics(files, schemaResult.Schema)
 	if err != nil {
 		return 0, fmt.Errorf("metrics extraction failed: %w", err)
 	}
@@ -552,11 +497,11 @@ func (j *GithubWorkflowCollectorJob) processRunWithSchemaVersioning(
 
 	// Step 7: Store metrics with schema_id
 	metricsCreated := 0
-	dbMetrics := j.metricsExtractor.ConvertToDBMetrics(config.ID, run.ID, schemaID, metricsTimestamp, metrics)
+	dbMetrics := c.metricsExtractor.ConvertToDBMetrics(config.ID, run.ID, schemaID, metricsTimestamp, metrics)
 
 	for _, metric := range dbMetrics {
 		if err := metricsFacade.Create(ctx, metric); err != nil {
-			log.Warnf("GithubWorkflowCollectorJob: failed to create metric: %v", err)
+			log.Warnf("WorkflowCollector: failed to create metric: %v", err)
 			continue
 		}
 		metricsCreated++
@@ -564,7 +509,7 @@ func (j *GithubWorkflowCollectorJob) processRunWithSchemaVersioning(
 
 	// Step 8: Update schema record count
 	if err := schemaFacade.IncrementRecordCount(ctx, schemaID, int64(metricsCreated)); err != nil {
-		log.Warnf("GithubWorkflowCollectorJob: failed to increment record count: %v", err)
+		log.Warnf("WorkflowCollector: failed to increment record count: %v", err)
 	}
 
 	// Mark as completed
@@ -573,7 +518,7 @@ func (j *GithubWorkflowCollectorJob) processRunWithSchemaVersioning(
 		return metricsCreated, fmt.Errorf("failed to mark as completed: %w", err)
 	}
 
-	log.Infof("GithubWorkflowCollectorJob: completed run %d with schema-versioning (files: %d/%d, metrics: %d, schema: %d)",
+	log.Infof("WorkflowCollector: completed run %d with schema-versioning (files: %d/%d, metrics: %d, schema: %d)",
 		run.ID, filesProcessed, len(matchingFiles), metricsCreated, schemaID)
 
 	return metricsCreated, nil
@@ -773,10 +718,4 @@ func parseMarkdown(content []byte) ([]map[string]interface{}, error) {
 	}
 
 	return results, nil
-}
-
-// Schedule returns the cron schedule for this job
-// Runs every 1 minute to process pending runs
-func (j *GithubWorkflowCollectorJob) Schedule() string {
-	return "@every 1m"
 }

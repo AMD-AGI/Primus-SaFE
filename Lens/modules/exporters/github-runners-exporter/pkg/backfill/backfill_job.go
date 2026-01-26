@@ -1,11 +1,12 @@
 // Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
 // See LICENSE for license information.
 
-package github_workflow_backfill
+package backfill
 
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/backfill"
@@ -13,7 +14,6 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
-	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/common"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -57,25 +57,29 @@ var (
 			Help:      "Total number of failed run creations by backfill",
 		},
 	)
+
+	metricsOnce sync.Once
 )
 
-func init() {
-	prometheus.MustRegister(backfillTasksTotal)
-	prometheus.MustRegister(backfillTasksActive)
-	prometheus.MustRegister(backfillRunsCreated)
-	prometheus.MustRegister(backfillRunsFailed)
+func registerMetrics() {
+	metricsOnce.Do(func() {
+		prometheus.MustRegister(backfillTasksTotal)
+		prometheus.MustRegister(backfillTasksActive)
+		prometheus.MustRegister(backfillRunsCreated)
+		prometheus.MustRegister(backfillRunsFailed)
 
-	// Set metrics callback for task manager
-	backfill.GetTaskManager().SetMetricsCallback(&backfill.TaskManagerMetricsCallback{
-		OnTaskCreated: func() {
-			backfillTasksTotal.Inc()
-		},
-		OnTaskActive: func() {
-			backfillTasksActive.Inc()
-		},
-		OnTaskCompleted: func() {
-			backfillTasksActive.Dec()
-		},
+		// Set metrics callback for task manager
+		backfill.GetTaskManager().SetMetricsCallback(&backfill.TaskManagerMetricsCallback{
+			OnTaskCreated: func() {
+				backfillTasksTotal.Inc()
+			},
+			OnTaskActive: func() {
+				backfillTasksActive.Inc()
+			},
+			OnTaskCompleted: func() {
+				backfillTasksActive.Dec()
+			},
+		})
 	})
 }
 
@@ -84,39 +88,107 @@ const (
 	DefaultBatchSize = 20
 	// DefaultMaxConcurrent is the default max concurrent processing
 	DefaultMaxConcurrent = 5
-	// BackfillCheckInterval is how often to check for backfill tasks
-	BackfillCheckInterval = "1m"
+	// DefaultCheckInterval is how often to check for backfill tasks
+	DefaultCheckInterval = 1 * time.Minute
 )
 
-// GithubWorkflowBackfillJob processes backfill tasks
-type GithubWorkflowBackfillJob struct {
-	taskManager *backfill.BackfillTaskManager
-	batchSize   int
+// WorkflowBackfillRunner manages backfill task processing
+type WorkflowBackfillRunner struct {
+	taskManager   *backfill.BackfillTaskManager
+	batchSize     int
+	checkInterval time.Duration
+	stopCh        chan struct{}
+	doneCh        chan struct{}
+	running       bool
+	mu            sync.Mutex
 }
 
-// NewGithubWorkflowBackfillJob creates a new backfill job
-func NewGithubWorkflowBackfillJob() *GithubWorkflowBackfillJob {
-	return &GithubWorkflowBackfillJob{
-		taskManager: backfill.GetTaskManager(),
-		batchSize:   DefaultBatchSize,
+// NewWorkflowBackfillRunner creates a new backfill runner
+func NewWorkflowBackfillRunner() *WorkflowBackfillRunner {
+	registerMetrics()
+	return &WorkflowBackfillRunner{
+		taskManager:   backfill.GetTaskManager(),
+		batchSize:     DefaultBatchSize,
+		checkInterval: DefaultCheckInterval,
+		stopCh:        make(chan struct{}),
+		doneCh:        make(chan struct{}),
 	}
 }
 
-// Run executes the backfill job
-func (j *GithubWorkflowBackfillJob) Run(ctx context.Context, clientSets *clientsets.K8SClientSet, storageClientSet *clientsets.StorageClientSet) (*common.ExecutionStats, error) {
-	startTime := time.Now()
-	stats := common.NewExecutionStats()
+// Start starts the backfill runner in a background goroutine
+func (r *WorkflowBackfillRunner) Start(ctx context.Context) error {
+	r.mu.Lock()
+	if r.running {
+		r.mu.Unlock()
+		return fmt.Errorf("backfill runner already running")
+	}
+	r.running = true
+	r.stopCh = make(chan struct{})
+	r.doneCh = make(chan struct{})
+	r.mu.Unlock()
 
-	log.Info("GithubWorkflowBackfillJob: checking for pending backfill tasks")
+	go r.runLoop(ctx)
+	log.Info("WorkflowBackfillRunner started")
+	return nil
+}
+
+// Stop stops the backfill runner
+func (r *WorkflowBackfillRunner) Stop() error {
+	r.mu.Lock()
+	if !r.running {
+		r.mu.Unlock()
+		return nil
+	}
+	close(r.stopCh)
+	r.mu.Unlock()
+
+	// Wait for the loop to finish
+	<-r.doneCh
+	
+	r.mu.Lock()
+	r.running = false
+	r.mu.Unlock()
+
+	log.Info("WorkflowBackfillRunner stopped")
+	return nil
+}
+
+// runLoop is the main loop that periodically checks for backfill tasks
+func (r *WorkflowBackfillRunner) runLoop(ctx context.Context) {
+	defer close(r.doneCh)
+
+	ticker := time.NewTicker(r.checkInterval)
+	defer ticker.Stop()
+
+	// Run once immediately
+	r.runOnce(ctx)
+
+	for {
+		select {
+		case <-ctx.Done():
+			log.Info("WorkflowBackfillRunner: context cancelled, stopping")
+			return
+		case <-r.stopCh:
+			log.Info("WorkflowBackfillRunner: stop signal received, stopping")
+			return
+		case <-ticker.C:
+			r.runOnce(ctx)
+		}
+	}
+}
+
+// runOnce executes a single backfill check cycle
+func (r *WorkflowBackfillRunner) runOnce(ctx context.Context) {
+	log.Debug("WorkflowBackfillRunner: checking for pending backfill tasks")
 
 	// Get pending tasks
-	pendingTasks := j.taskManager.GetPendingTasks()
+	pendingTasks := r.taskManager.GetPendingTasks()
 	if len(pendingTasks) == 0 {
-		log.Debug("GithubWorkflowBackfillJob: no pending backfill tasks")
-		return stats, nil
+		log.Debug("WorkflowBackfillRunner: no pending backfill tasks")
+		return
 	}
 
-	log.Infof("GithubWorkflowBackfillJob: found %d pending backfill tasks", len(pendingTasks))
+	log.Infof("WorkflowBackfillRunner: found %d pending backfill tasks", len(pendingTasks))
 
 	for _, task := range pendingTasks {
 		// Check if cancelled
@@ -125,33 +197,24 @@ func (j *GithubWorkflowBackfillJob) Run(ctx context.Context, clientSets *clients
 		}
 
 		// Process this task
-		err := j.processBackfillTask(ctx, task)
+		err := r.processBackfillTask(ctx, task)
 		if err != nil {
-			log.Errorf("GithubWorkflowBackfillJob: failed to process task %s: %v", task.ID, err)
-			j.taskManager.UpdateTaskStatus(task.ID, backfill.BackfillStatusFailed, err.Error())
-			stats.ErrorCount++
-		} else {
-			stats.ItemsUpdated++
+			log.Errorf("WorkflowBackfillRunner: failed to process task %s: %v", task.ID, err)
+			r.taskManager.UpdateTaskStatus(task.ID, backfill.BackfillStatusFailed, err.Error())
 		}
 	}
 
 	// Cleanup old completed tasks (older than 7 days)
-	removed := j.taskManager.CleanupOldTasks(7 * 24 * time.Hour)
+	removed := r.taskManager.CleanupOldTasks(7 * 24 * time.Hour)
 	if removed > 0 {
-		log.Infof("GithubWorkflowBackfillJob: cleaned up %d old tasks", removed)
+		log.Infof("WorkflowBackfillRunner: cleaned up %d old tasks", removed)
 	}
-
-	stats.RecordsProcessed = int64(len(pendingTasks))
-	stats.ProcessDuration = time.Since(startTime).Seconds()
-	stats.AddMessage(fmt.Sprintf("Processed %d backfill tasks", len(pendingTasks)))
-
-	return stats, nil
 }
 
 // processBackfillTask processes a single backfill task
-func (j *GithubWorkflowBackfillJob) processBackfillTask(ctx context.Context, task *backfill.BackfillTask) error {
+func (r *WorkflowBackfillRunner) processBackfillTask(ctx context.Context, task *backfill.BackfillTask) error {
 	// Mark as in progress
-	j.taskManager.UpdateTaskStatus(task.ID, backfill.BackfillStatusInProgress, "")
+	r.taskManager.UpdateTaskStatus(task.ID, backfill.BackfillStatusInProgress, "")
 
 	clusterName := task.ClusterName
 	if clusterName == "" {
@@ -172,7 +235,7 @@ func (j *GithubWorkflowBackfillJob) processBackfillTask(ctx context.Context, tas
 
 	if task.ConfigID != 0 {
 		// Config-based backfill (existing logic)
-		log.Infof("GithubWorkflowBackfillJob: processing config-based task %s for config %d", task.ID, task.ConfigID)
+		log.Infof("WorkflowBackfillRunner: processing config-based task %s for config %d", task.ID, task.ConfigID)
 		
 		var err error
 		config, err = configFacade.GetByID(ctx, task.ConfigID)
@@ -194,7 +257,7 @@ func (j *GithubWorkflowBackfillJob) processBackfillTask(ctx context.Context, tas
 		}
 	} else if task.RunnerSetID != 0 {
 		// Runner-set-based backfill (new logic)
-		log.Infof("GithubWorkflowBackfillJob: processing runner-set-based task %s for runner_set %d", task.ID, task.RunnerSetID)
+		log.Infof("WorkflowBackfillRunner: processing runner-set-based task %s for runner_set %d", task.ID, task.RunnerSetID)
 		
 		runnerSet, err := runnerSetFacade.GetByID(ctx, task.RunnerSetID)
 		if err != nil {
@@ -230,7 +293,7 @@ func (j *GithubWorkflowBackfillJob) processBackfillTask(ctx context.Context, tas
 		for _, uid := range task.WorkloadUIDs {
 			workload, err := workloadFacade.GetGpuWorkloadByUid(ctx, uid)
 			if err != nil {
-				log.Warnf("GithubWorkflowBackfillJob: failed to get workload %s: %v", uid, err)
+				log.Warnf("WorkflowBackfillRunner: failed to get workload %s: %v", uid, err)
 				continue
 			}
 			if workload != nil {
@@ -263,7 +326,7 @@ func (j *GithubWorkflowBackfillJob) processBackfillTask(ctx context.Context, tas
 			}
 
 			// Check parent matches the AutoscalingRunnerSet
-			if !j.matchesRunnerSetByName(w, runnerSetName) {
+			if !r.matchesRunnerSetByName(w, runnerSetName) {
 				continue
 			}
 
@@ -273,14 +336,14 @@ func (j *GithubWorkflowBackfillJob) processBackfillTask(ctx context.Context, tas
 	}
 
 	if len(workloads) == 0 {
-		log.Infof("GithubWorkflowBackfillJob: no workloads found for task %s", task.ID)
-		j.taskManager.UpdateTaskStatus(task.ID, backfill.BackfillStatusCompleted, "")
-		j.taskManager.UpdateTaskProgress(task.ID, 0, 0, 0)
+		log.Infof("WorkflowBackfillRunner: no workloads found for task %s", task.ID)
+		r.taskManager.UpdateTaskStatus(task.ID, backfill.BackfillStatusCompleted, "")
+		r.taskManager.UpdateTaskProgress(task.ID, 0, 0, 0)
 		return nil
 	}
 
-	log.Infof("GithubWorkflowBackfillJob: found %d workloads to backfill for task %s", len(workloads), task.ID)
-	j.taskManager.UpdateTaskProgress(task.ID, len(workloads), 0, 0)
+	log.Infof("WorkflowBackfillRunner: found %d workloads to backfill for task %s", len(workloads), task.ID)
+	r.taskManager.UpdateTaskProgress(task.ID, len(workloads), 0, 0)
 
 	// Create run records for workloads not yet processed
 	processed := 0
@@ -289,9 +352,9 @@ func (j *GithubWorkflowBackfillJob) processBackfillTask(ctx context.Context, tas
 
 	for _, workload := range workloads {
 		// Check if cancelled
-		currentTask := j.taskManager.GetTask(task.ID)
+		currentTask := r.taskManager.GetTask(task.ID)
 		if currentTask != nil && currentTask.Status == backfill.BackfillStatusCancelled {
-			log.Infof("GithubWorkflowBackfillJob: task %s was cancelled", task.ID)
+			log.Infof("WorkflowBackfillRunner: task %s was cancelled", task.ID)
 			return nil
 		}
 
@@ -305,7 +368,7 @@ func (j *GithubWorkflowBackfillJob) processBackfillTask(ctx context.Context, tas
 			existingRun, err = runFacade.GetByConfigAndWorkload(ctx, task.ConfigID, workload.UID)
 		}
 		if err != nil {
-			log.Warnf("GithubWorkflowBackfillJob: failed to check existing run for workload %s: %v", workload.UID, err)
+			log.Warnf("WorkflowBackfillRunner: failed to check existing run for workload %s: %v", workload.UID, err)
 			failed++
 			continue
 		}
@@ -313,7 +376,7 @@ func (j *GithubWorkflowBackfillJob) processBackfillTask(ctx context.Context, tas
 		if existingRun != nil {
 			// Already processed
 			processed++
-			j.taskManager.UpdateTaskProgress(task.ID, len(workloads), processed, failed)
+			r.taskManager.UpdateTaskProgress(task.ID, len(workloads), processed, failed)
 			continue
 		}
 
@@ -330,14 +393,14 @@ func (j *GithubWorkflowBackfillJob) processBackfillTask(ctx context.Context, tas
 			TriggerSource:       "backfill",
 			WorkloadStartedAt:   workload.CreatedAt,
 			WorkloadCompletedAt: workload.EndAt,
-			GithubRunID:         j.extractGithubRunID(workload),
-			GithubJobID:         j.extractGithubJobID(workload),
-			WorkflowName:        j.extractWorkflowName(workload),
-			HeadBranch:          j.extractBranch(workload),
+			GithubRunID:         r.extractGithubRunID(workload),
+			GithubJobID:         r.extractGithubJobID(workload),
+			WorkflowName:        r.extractWorkflowName(workload),
+			HeadBranch:          r.extractBranch(workload),
 		}
 
 		if err := runFacade.Create(ctx, run); err != nil {
-			log.Warnf("GithubWorkflowBackfillJob: failed to create run for workload %s: %v", workload.UID, err)
+			log.Warnf("WorkflowBackfillRunner: failed to create run for workload %s: %v", workload.UID, err)
 			failed++
 			backfillRunsFailed.Inc()
 		} else {
@@ -346,24 +409,19 @@ func (j *GithubWorkflowBackfillJob) processBackfillTask(ctx context.Context, tas
 		}
 
 		processed++
-		j.taskManager.UpdateTaskProgress(task.ID, len(workloads), processed, failed)
+		r.taskManager.UpdateTaskProgress(task.ID, len(workloads), processed, failed)
 	}
 
 	// Mark as completed
-	j.taskManager.UpdateTaskStatus(task.ID, backfill.BackfillStatusCompleted, "")
-	log.Infof("GithubWorkflowBackfillJob: completed task %s (total: %d, created: %d, failed: %d)",
+	r.taskManager.UpdateTaskStatus(task.ID, backfill.BackfillStatusCompleted, "")
+	log.Infof("WorkflowBackfillRunner: completed task %s (total: %d, created: %d, failed: %d)",
 		task.ID, len(workloads), created, failed)
 
 	return nil
 }
 
-// matchesRunnerSet checks if a workload belongs to the configured AutoscalingRunnerSet (deprecated)
-func (j *GithubWorkflowBackfillJob) matchesRunnerSet(workload *model.GpuWorkload, config *model.GithubWorkflowConfigs) bool {
-	return j.matchesRunnerSetByName(workload, config.RunnerSetName)
-}
-
 // matchesRunnerSetByName checks if a workload belongs to the specified runner set by name
-func (j *GithubWorkflowBackfillJob) matchesRunnerSetByName(workload *model.GpuWorkload, runnerSetName string) bool {
+func (r *WorkflowBackfillRunner) matchesRunnerSetByName(workload *model.GpuWorkload, runnerSetName string) bool {
 	// Check labels for scale-set-name
 	if workload.Labels != nil {
 		if scaleSetName, ok := workload.Labels["actions.github.com/scale-set-name"].(string); ok {
@@ -377,7 +435,7 @@ func (j *GithubWorkflowBackfillJob) matchesRunnerSetByName(workload *model.GpuWo
 }
 
 // extractGithubRunID extracts GitHub run ID from workload annotations
-func (j *GithubWorkflowBackfillJob) extractGithubRunID(workload *model.GpuWorkload) int64 {
+func (r *WorkflowBackfillRunner) extractGithubRunID(workload *model.GpuWorkload) int64 {
 	if workload.Annotations == nil {
 		return 0
 	}
@@ -390,7 +448,7 @@ func (j *GithubWorkflowBackfillJob) extractGithubRunID(workload *model.GpuWorklo
 }
 
 // extractGithubJobID extracts GitHub job ID from workload annotations
-func (j *GithubWorkflowBackfillJob) extractGithubJobID(workload *model.GpuWorkload) int64 {
+func (r *WorkflowBackfillRunner) extractGithubJobID(workload *model.GpuWorkload) int64 {
 	if workload.Annotations == nil {
 		return 0
 	}
@@ -403,7 +461,7 @@ func (j *GithubWorkflowBackfillJob) extractGithubJobID(workload *model.GpuWorklo
 }
 
 // extractWorkflowName extracts workflow name from workload annotations
-func (j *GithubWorkflowBackfillJob) extractWorkflowName(workload *model.GpuWorkload) string {
+func (r *WorkflowBackfillRunner) extractWorkflowName(workload *model.GpuWorkload) string {
 	if workload.Annotations == nil {
 		return ""
 	}
@@ -414,7 +472,7 @@ func (j *GithubWorkflowBackfillJob) extractWorkflowName(workload *model.GpuWorkl
 }
 
 // extractBranch extracts branch from workload annotations
-func (j *GithubWorkflowBackfillJob) extractBranch(workload *model.GpuWorkload) string {
+func (r *WorkflowBackfillRunner) extractBranch(workload *model.GpuWorkload) string {
 	if workload.Annotations == nil {
 		return ""
 	}
@@ -422,9 +480,4 @@ func (j *GithubWorkflowBackfillJob) extractBranch(workload *model.GpuWorkload) s
 		return branch
 	}
 	return ""
-}
-
-// Schedule returns the cron schedule for this job
-func (j *GithubWorkflowBackfillJob) Schedule() string {
-	return "@every " + BackfillCheckInterval
 }
