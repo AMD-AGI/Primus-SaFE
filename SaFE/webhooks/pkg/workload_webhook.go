@@ -560,7 +560,7 @@ func (m *WorkloadMutator) mutateSecrets(ctx context.Context, workload *v1.Worklo
 
 func (m *WorkloadMutator) mutateStickNodes(ctx context.Context, workload *v1.Workload, workspace *v1.Workspace) {
 	isDisableStickyNodes := func(ctx context.Context, workload *v1.Workload, workspace *v1.Workspace) bool {
-		if workspace.Spec.EnablePreempt {
+		if workspace == nil || workspace.Spec.EnablePreempt {
 			return true
 		}
 		supportsKinds := []string{common.PytorchJobKind, common.TorchFTKind, common.RayJobKind}
@@ -1043,7 +1043,7 @@ func (v *WorkloadValidator) validateScope(ctx context.Context, workload *v1.Work
 	}
 	if !workspace.HasScope(scope) {
 		return commonerrors.NewForbidden(
-			fmt.Sprintf("The workspace only supports %v and does not suuport %s", workspace.Spec.Scopes, scope))
+			fmt.Sprintf("The workspace only supports %v and does not support %s", workspace.Spec.Scopes, scope))
 	}
 	return nil
 }
