@@ -76,17 +76,20 @@ type PodAllocationDetail struct {
 
 // GpuAllocationCalculator calculates time-weighted GPU allocation
 type GpuAllocationCalculator struct {
-	workloadFacade database.WorkloadFacadeInterface
-	podFacade      database.PodFacadeInterface
-	clusterName    string
+	workloadFacade           database.WorkloadFacadeInterface
+	podFacade                database.PodFacadeInterface
+	podRunningPeriodsFacade  database.PodRunningPeriodsFacadeInterface
+	clusterName              string
 }
 
 // NewGpuAllocationCalculator creates a new calculator for the specified cluster
 func NewGpuAllocationCalculator(clusterName string) *GpuAllocationCalculator {
+	facade := database.GetFacadeForCluster(clusterName)
 	return &GpuAllocationCalculator{
-		workloadFacade: database.GetFacadeForCluster(clusterName).GetWorkload(),
-		podFacade:      database.GetFacadeForCluster(clusterName).GetPod(),
-		clusterName:    clusterName,
+		workloadFacade:          facade.GetWorkload(),
+		podFacade:               facade.GetPod(),
+		podRunningPeriodsFacade: facade.GetPodRunningPeriods(),
+		clusterName:             clusterName,
 	}
 }
 
@@ -97,9 +100,25 @@ func NewGpuAllocationCalculatorWithFacades(
 	clusterName string,
 ) *GpuAllocationCalculator {
 	return &GpuAllocationCalculator{
-		workloadFacade: workloadFacade,
-		podFacade:      podFacade,
-		clusterName:    clusterName,
+		workloadFacade:          workloadFacade,
+		podFacade:               podFacade,
+		podRunningPeriodsFacade: database.GetFacadeForCluster(clusterName).GetPodRunningPeriods(),
+		clusterName:             clusterName,
+	}
+}
+
+// NewGpuAllocationCalculatorWithAllFacades creates a calculator with all custom facades (useful for testing)
+func NewGpuAllocationCalculatorWithAllFacades(
+	workloadFacade database.WorkloadFacadeInterface,
+	podFacade database.PodFacadeInterface,
+	podRunningPeriodsFacade database.PodRunningPeriodsFacadeInterface,
+	clusterName string,
+) *GpuAllocationCalculator {
+	return &GpuAllocationCalculator{
+		workloadFacade:          workloadFacade,
+		podFacade:               podFacade,
+		podRunningPeriodsFacade: podRunningPeriodsFacade,
+		clusterName:             clusterName,
 	}
 }
 
@@ -143,7 +162,8 @@ func (c *GpuAllocationCalculator) CalculateNamespaceGpuAllocation(
 
 // calculateGpuAllocation is the core calculation logic
 // If namespace is empty, it calculates for the entire cluster
-// Uses pod-based approach: first find active pods in time range, then find their workloads
+// Uses pod_running_periods table for precise running time calculation
+// Falls back to gpu_pods table if no running periods data exists (backward compatibility)
 func (c *GpuAllocationCalculator) calculateGpuAllocation(
 	ctx context.Context,
 	startTime, endTime time.Time,
@@ -159,6 +179,264 @@ func (c *GpuAllocationCalculator) calculateGpuAllocation(
 		return &GpuAllocationResult{}, nil
 	}
 
+	// Try to use pod_running_periods table first for accurate calculation
+	if c.podRunningPeriodsFacade != nil {
+		result, err := c.calculateGpuAllocationFromRunningPeriods(ctx, startTime, endTime, namespace, totalDuration)
+		if err != nil {
+			log.Warnf("Failed to calculate GPU allocation from running periods, falling back to legacy method: %v", err)
+		} else if result.PodCount > 0 {
+			// Found data from running periods, return it
+			return result, nil
+		}
+		// No running periods data found, fall back to legacy method
+		log.Debugf("No running periods data found for namespace %s in time range %v-%v, using legacy method",
+			namespace, startTime, endTime)
+	}
+
+	// Fallback: Use legacy method based on gpu_pods table
+	return c.calculateGpuAllocationLegacy(ctx, startTime, endTime, namespace, totalDuration)
+}
+
+// calculateGpuAllocationFromRunningPeriods calculates GPU allocation using pod_running_periods table
+func (c *GpuAllocationCalculator) calculateGpuAllocationFromRunningPeriods(
+	ctx context.Context,
+	startTime, endTime time.Time,
+	namespace string,
+	totalDuration float64,
+) (*GpuAllocationResult, error) {
+	// 1. Query running periods that overlap with the time range
+	var runningPeriods []*model.PodRunningPeriods
+	var err error
+
+	if namespace != "" {
+		runningPeriods, err = c.podRunningPeriodsFacade.ListRunningPeriodsInTimeRangeByNamespace(ctx, namespace, startTime, endTime)
+	} else {
+		runningPeriods, err = c.podRunningPeriodsFacade.ListRunningPeriodsInTimeRange(ctx, startTime, endTime)
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	if len(runningPeriods) == 0 {
+		return &GpuAllocationResult{}, nil
+	}
+
+	// Build pod UID list from running periods
+	podUIDs := make([]string, 0, len(runningPeriods))
+	podRunningPeriodsMap := make(map[string][]*model.PodRunningPeriods)
+	for _, period := range runningPeriods {
+		if _, exists := podRunningPeriodsMap[period.PodUID]; !exists {
+			podUIDs = append(podUIDs, period.PodUID)
+			podRunningPeriodsMap[period.PodUID] = make([]*model.PodRunningPeriods, 0)
+		}
+		podRunningPeriodsMap[period.PodUID] = append(podRunningPeriodsMap[period.PodUID], period)
+	}
+
+	// 2. Get pod info from gpu_pods table
+	gpuPods, err := c.podFacade.ListPodsByUids(ctx, podUIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	gpuPodsMap := make(map[string]*model.GpuPods, len(gpuPods))
+	for _, pod := range gpuPods {
+		gpuPodsMap[pod.UID] = pod
+	}
+
+	// 3. Find workload UIDs through pod references
+	workloadUIDs, err := c.workloadFacade.ListWorkloadUidsByPodUids(ctx, podUIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(workloadUIDs) == 0 {
+		return &GpuAllocationResult{}, nil
+	}
+
+	// 4. Get top-level workloads
+	workloads, err := c.workloadFacade.ListTopLevelWorkloadByUids(ctx, workloadUIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	// Filter by namespace if specified
+	if namespace != "" {
+		filtered := make([]*model.GpuWorkload, 0)
+		for _, w := range workloads {
+			if w.Namespace == namespace {
+				filtered = append(filtered, w)
+			}
+		}
+		workloads = filtered
+	}
+
+	if len(workloads) == 0 {
+		return &GpuAllocationResult{}, nil
+	}
+
+	// 5. Get pod references for these workloads
+	workloadUIDList := make([]string, 0, len(workloads))
+	for _, w := range workloads {
+		workloadUIDList = append(workloadUIDList, w.UID)
+	}
+
+	podRefs, err := c.getTopLevelWorkloadPodReferences(ctx, workloadUIDList)
+	if err != nil {
+		return nil, err
+	}
+
+	// 6. Calculate time-weighted GPU allocation for each top-level workload
+	result := &GpuAllocationResult{
+		Details: make([]WorkloadAllocationDetail, 0, len(workloads)),
+	}
+
+	for _, workload := range workloads {
+		detail := c.calculateWorkloadAllocationFromPeriods(
+			workload, podRefs, gpuPodsMap, podRunningPeriodsMap,
+			startTime, endTime, totalDuration,
+		)
+		if len(detail.PodDetails) > 0 {
+			result.Details = append(result.Details, detail)
+			result.TotalAllocatedGpu += detail.AllocatedGpu
+			result.PodCount += detail.PodCount
+		}
+	}
+
+	result.WorkloadCount = len(result.Details)
+	return result, nil
+}
+
+// calculateWorkloadAllocationFromPeriods calculates time-weighted GPU allocation using running periods
+func (c *GpuAllocationCalculator) calculateWorkloadAllocationFromPeriods(
+	workload *model.GpuWorkload,
+	podRefs map[string]string,
+	gpuPodsMap map[string]*model.GpuPods,
+	podRunningPeriodsMap map[string][]*model.PodRunningPeriods,
+	startTime, endTime time.Time,
+	totalDuration float64,
+) WorkloadAllocationDetail {
+	detail := WorkloadAllocationDetail{
+		WorkloadUID:  workload.UID,
+		WorkloadName: workload.Name,
+		Namespace:    workload.Namespace,
+		WorkloadKind: workload.Kind,
+		PodDetails:   make([]PodAllocationDetail, 0),
+	}
+
+	// Calculate workload active duration
+	workloadStart := maxTime(workload.CreatedAt, startTime)
+	workloadEnd := endTime
+	if !workload.EndAt.IsZero() && workload.EndAt.Before(endTime) {
+		workloadEnd = workload.EndAt
+	}
+
+	if workloadEnd.After(workloadStart) {
+		detail.ActiveDuration = workloadEnd.Sub(workloadStart).Seconds()
+	}
+
+	// Calculate time-weighted GPU allocation from pods
+	var totalWeightedGpu float64
+
+	for podUID, workloadUID := range podRefs {
+		if workloadUID != workload.UID {
+			continue
+		}
+
+		periods := podRunningPeriodsMap[podUID]
+		if len(periods) == 0 {
+			continue
+		}
+
+		pod := gpuPodsMap[podUID]
+		gpuCount := int32(0)
+		if pod != nil {
+			gpuCount = pod.GpuAllocated
+		} else if len(periods) > 0 {
+			// Use GPU count from running period if pod not found
+			gpuCount = periods[0].GpuAllocated
+		}
+
+		// Calculate total active duration from all running periods
+		podDetail := c.calculatePodAllocationFromPeriods(podUID, gpuCount, periods, startTime, endTime)
+		if podDetail != nil && podDetail.ActiveDuration > 0 {
+			detail.PodDetails = append(detail.PodDetails, *podDetail)
+			totalWeightedGpu += float64(gpuCount) * podDetail.ActiveDuration / totalDuration
+		}
+	}
+
+	detail.AllocatedGpu = totalWeightedGpu
+	detail.PodCount = len(detail.PodDetails)
+
+	return detail
+}
+
+// calculatePodAllocationFromPeriods calculates the active duration from running periods
+func (c *GpuAllocationCalculator) calculatePodAllocationFromPeriods(
+	podUID string,
+	gpuCount int32,
+	periods []*model.PodRunningPeriods,
+	startTime, endTime time.Time,
+) *PodAllocationDetail {
+	if len(periods) == 0 {
+		return nil
+	}
+
+	var totalActiveDuration float64
+	var earliestStart, latestEnd time.Time
+
+	for _, period := range periods {
+		// Calculate overlap between period and query time range
+		periodStart := period.StartAt
+		periodEnd := endTime // default to endTime if still running
+
+		if !period.EndAt.IsZero() {
+			periodEnd = period.EndAt
+		}
+
+		// Check if period has any overlap with query time range
+		if !periodEnd.After(startTime) || periodStart.After(endTime) || periodStart.Equal(endTime) {
+			continue
+		}
+
+		// Calculate overlap
+		overlapStart := maxTime(periodStart, startTime)
+		overlapEnd := minTime(periodEnd, endTime)
+
+		if overlapEnd.After(overlapStart) {
+			totalActiveDuration += overlapEnd.Sub(overlapStart).Seconds()
+
+			// Track overall time range
+			if earliestStart.IsZero() || overlapStart.Before(earliestStart) {
+				earliestStart = overlapStart
+			}
+			if latestEnd.IsZero() || overlapEnd.After(latestEnd) {
+				latestEnd = overlapEnd
+			}
+		}
+	}
+
+	if totalActiveDuration <= 0 {
+		return nil
+	}
+
+	return &PodAllocationDetail{
+		PodUID:         podUID,
+		GpuCount:       gpuCount,
+		ActiveDuration: totalActiveDuration,
+		StartTime:      earliestStart,
+		EndTime:        latestEnd,
+	}
+}
+
+// calculateGpuAllocationLegacy is the legacy calculation method based on gpu_pods table
+// Used as fallback when pod_running_periods data is not available
+func (c *GpuAllocationCalculator) calculateGpuAllocationLegacy(
+	ctx context.Context,
+	startTime, endTime time.Time,
+	namespace string,
+	totalDuration float64,
+) (*GpuAllocationResult, error) {
 	// 1. Query pods that were active during the time range
 	activePods, err := c.podFacade.ListPodsActiveInTimeRange(ctx, startTime, endTime)
 	if err != nil {

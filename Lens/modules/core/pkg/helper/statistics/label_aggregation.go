@@ -83,20 +83,22 @@ type UtilizationStats struct {
 
 // LabelAggregationCalculator calculates GPU aggregation by label/annotation dimensions
 type LabelAggregationCalculator struct {
-	workloadFacade database.WorkloadFacadeInterface
-	podFacade      database.PodFacadeInterface
-	clusterName    string
-	config         *LabelAggregationConfig
+	workloadFacade          database.WorkloadFacadeInterface
+	podFacade               database.PodFacadeInterface
+	podRunningPeriodsFacade database.PodRunningPeriodsFacadeInterface
+	clusterName             string
+	config                  *LabelAggregationConfig
 }
 
 // NewLabelAggregationCalculator creates a new calculator for label/annotation aggregation
 func NewLabelAggregationCalculator(clusterName string, config *LabelAggregationConfig) *LabelAggregationCalculator {
 	facade := database.GetFacadeForCluster(clusterName)
 	return &LabelAggregationCalculator{
-		workloadFacade: facade.GetWorkload(),
-		podFacade:      facade.GetPod(),
-		clusterName:    clusterName,
-		config:         config,
+		workloadFacade:          facade.GetWorkload(),
+		podFacade:               facade.GetPod(),
+		podRunningPeriodsFacade: facade.GetPodRunningPeriods(),
+		clusterName:             clusterName,
+		config:                  config,
 	}
 }
 
@@ -108,10 +110,11 @@ func NewLabelAggregationCalculatorWithFacade(
 	config *LabelAggregationConfig,
 ) *LabelAggregationCalculator {
 	return &LabelAggregationCalculator{
-		workloadFacade: workloadFacade,
-		podFacade:      podFacade,
-		clusterName:    clusterName,
-		config:         config,
+		workloadFacade:          workloadFacade,
+		podFacade:               podFacade,
+		podRunningPeriodsFacade: database.GetFacadeForCluster(clusterName).GetPodRunningPeriods(),
+		clusterName:             clusterName,
+		config:                  config,
 	}
 }
 
@@ -135,7 +138,8 @@ func (c *LabelAggregationCalculator) CalculateHourlyLabelAggregation(
 }
 
 // CalculateLabelAggregation calculates GPU aggregation by label/annotation for a time range
-// Uses pod-based approach: first find active pods in time range, then find their workloads
+// Uses pod_running_periods table for accurate running pod detection
+// Falls back to gpu_pods table if no running periods data exists (backward compatibility)
 //
 // Parameters:
 //   - ctx: context for database operations
@@ -149,29 +153,39 @@ func (c *LabelAggregationCalculator) CalculateLabelAggregation(
 	ctx context.Context,
 	startTime, endTime time.Time,
 ) (*LabelAggregationSummary, error) {
-	// 1. Query pods that were active during the time range
-	activePods, err := c.podFacade.ListPodsActiveInTimeRange(ctx, startTime, endTime)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get active pods in time range: %w", err)
-	}
-
 	summary := &LabelAggregationSummary{
 		Results: make(map[string]*LabelAggregationResult),
 		Hour:    startTime.Truncate(time.Hour),
 	}
 
-	if len(activePods) == 0 {
+	// Try to use pod_running_periods table first for accurate detection
+	var podUIDs []string
+	var err error
+
+	if c.podRunningPeriodsFacade != nil {
+		podUIDs, err = c.getRunningPodUIDsFromPeriods(ctx, startTime, endTime)
+		if err != nil {
+			log.Warnf("Failed to get running pod UIDs from periods, falling back to legacy method: %v", err)
+			podUIDs = nil
+		}
+	}
+
+	// Fallback to legacy method if no running periods data
+	if len(podUIDs) == 0 {
+		log.Debugf("No running periods data found for label aggregation in time range %v - %v, using legacy method",
+			startTime, endTime)
+		podUIDs, err = c.getActivePodUIDsLegacy(ctx, startTime, endTime)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get active pods in time range: %w", err)
+		}
+	}
+
+	if len(podUIDs) == 0 {
 		log.Debugf("No active pods found for label aggregation in time range %v - %v", startTime, endTime)
 		return summary, nil
 	}
 
-	// Build pod UID list
-	podUIDs := make([]string, 0, len(activePods))
-	for _, pod := range activePods {
-		podUIDs = append(podUIDs, pod.UID)
-	}
-
-	// 2. Find workload UIDs through pod references
+	// Find workload UIDs through pod references
 	workloadUIDs, err := c.workloadFacade.ListWorkloadUidsByPodUids(ctx, podUIDs)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get workload UIDs by pod UIDs: %w", err)
@@ -182,7 +196,7 @@ func (c *LabelAggregationCalculator) CalculateLabelAggregation(
 		return summary, nil
 	}
 
-	// 3. Get top-level workloads
+	// Get top-level workloads
 	workloads, err := c.workloadFacade.ListTopLevelWorkloadByUids(ctx, workloadUIDs)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get top-level workloads: %w", err)
@@ -201,6 +215,48 @@ func (c *LabelAggregationCalculator) CalculateLabelAggregation(
 	c.aggregateWorkloads(workloads, summary)
 
 	return summary, nil
+}
+
+// getRunningPodUIDsFromPeriods gets pod UIDs that have running periods in the time range
+func (c *LabelAggregationCalculator) getRunningPodUIDsFromPeriods(
+	ctx context.Context,
+	startTime, endTime time.Time,
+) ([]string, error) {
+	runningPeriods, err := c.podRunningPeriodsFacade.ListRunningPeriodsInTimeRange(ctx, startTime, endTime)
+	if err != nil {
+		return nil, err
+	}
+
+	// Build unique pod UID list
+	podUIDMap := make(map[string]struct{})
+	for _, period := range runningPeriods {
+		podUIDMap[period.PodUID] = struct{}{}
+	}
+
+	podUIDs := make([]string, 0, len(podUIDMap))
+	for uid := range podUIDMap {
+		podUIDs = append(podUIDs, uid)
+	}
+
+	return podUIDs, nil
+}
+
+// getActivePodUIDsLegacy gets pod UIDs using the legacy method (gpu_pods table)
+func (c *LabelAggregationCalculator) getActivePodUIDsLegacy(
+	ctx context.Context,
+	startTime, endTime time.Time,
+) ([]string, error) {
+	activePods, err := c.podFacade.ListPodsActiveInTimeRange(ctx, startTime, endTime)
+	if err != nil {
+		return nil, err
+	}
+
+	podUIDs := make([]string, 0, len(activePods))
+	for _, pod := range activePods {
+		podUIDs = append(podUIDs, pod.UID)
+	}
+
+	return podUIDs, nil
 }
 
 // CalculateLabelAggregationFromWorkloads calculates aggregation from a pre-fetched list of workloads
