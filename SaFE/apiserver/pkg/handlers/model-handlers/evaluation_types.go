@@ -54,11 +54,12 @@ type BenchmarkConfig struct {
 	Limit           *int   `json:"limit,omitempty"`              // Optional sample limit
 }
 
-// EvalParams represents evaluation parameters
-type EvalParams struct {
-	FewShot     int     `json:"fewShot,omitempty"`     // Number of few-shot examples (0-5)
-	Temperature float64 `json:"temperature,omitempty"` // Generation temperature (recommended: 0)
-	MaxTokens   int     `json:"maxTokens,omitempty"`   // Maximum generation length
+// JudgeConfig represents the configuration for LLM-as-Judge evaluation mode
+// In this mode, a secondary LLM (judge) evaluates the quality of the primary model's answers
+type JudgeConfig struct {
+	Model    string `json:"model"`              // Judge model name (e.g. "gpt-4", "gpt-4o")
+	Endpoint string `json:"endpoint,omitempty"` // Judge model API endpoint (e.g. "https://api.openai.com/v1")
+	ApiKey   string `json:"apiKey,omitempty"`   // Judge model API key
 }
 
 // AvailableEvalService represents a model/service available for evaluation
@@ -86,7 +87,7 @@ type EvaluationTaskView struct {
 	ServiceType   EvalServiceType               `json:"serviceType"`
 	ServiceName   string                        `json:"serviceName,omitempty"`
 	Benchmarks    []BenchmarkConfig             `json:"benchmarks"`
-	EvalParams    *EvalParams                   `json:"evalParams,omitempty"`
+	EvalParams    map[string]interface{}        `json:"evalParams,omitempty"`
 	OpsJobId      string                        `json:"opsJobId,omitempty"`
 	Status        dbclient.EvaluationTaskStatus `json:"status"`
 	Progress      int                           `json:"progress"`

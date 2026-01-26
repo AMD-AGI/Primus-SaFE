@@ -195,6 +195,11 @@ func (r *EvaluationJobReconciler) generateEvaluationWorkload(ctx context.Context
 	workspace := getParamValue(job.GetParameter(v1.ParameterWorkspace))
 	clusterId := getParamValue(job.GetParameter(v1.ParameterCluster))
 
+	// Judge model parameters (optional, for LLM-as-Judge evaluation)
+	judgeModel := getParamValue(job.GetParameter(v1.ParameterJudgeModel))
+	judgeEndpoint := getParamValue(job.GetParameter(v1.ParameterJudgeEndpoint))
+	judgeApiKey := getParamValue(job.GetParameter(v1.ParameterJudgeApiKey))
+
 	if taskId == "" {
 		taskId = job.Labels[dbclient.EvaluationTaskIdLabel]
 	}
@@ -214,7 +219,7 @@ func (r *EvaluationJobReconciler) generateEvaluationWorkload(ctx context.Context
 	}
 
 	// Build evalscope command with upload script
-	entryPoint, err := r.buildEvalCommand(ctx, modelEndpoint, modelName, benchmarksJSON, paramsJSON, taskId, s3PresignedPutURL, s3ReportKey)
+	entryPoint, err := r.buildEvalCommand(ctx, modelEndpoint, modelName, benchmarksJSON, paramsJSON, taskId, s3PresignedPutURL, judgeModel, judgeEndpoint, judgeApiKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build eval command: %w", err)
 	}
@@ -292,14 +297,9 @@ type BenchmarkConfig struct {
 	Limit           int    `json:"limit,omitempty"`
 }
 
-// EvalParams represents evaluation parameters from API
-type EvalParams struct {
-	FewShot   int `json:"fewShot,omitempty"`
-	MaxTokens int `json:"maxTokens,omitempty"`
-}
-
 // buildEvalCommand builds the evalscope command based on parameters
-func (r *EvaluationJobReconciler) buildEvalCommand(ctx context.Context, modelEndpoint, modelName, benchmarksJSON, paramsJSON, taskId, s3PresignedPutURL, s3ReportKey string) (string, error) {
+// Supports multiple datasets and judge model (LLM-as-Judge) evaluation mode
+func (r *EvaluationJobReconciler) buildEvalCommand(ctx context.Context, modelEndpoint, modelName, benchmarksJSON, paramsJSON, taskId, s3PresignedPutURL, judgeModel, judgeEndpoint, judgeApiKey string) (string, error) {
 	// Parse benchmarks
 	var benchmarks []BenchmarkConfig
 	if err := json.Unmarshal([]byte(benchmarksJSON), &benchmarks); err != nil {
@@ -308,14 +308,6 @@ func (r *EvaluationJobReconciler) buildEvalCommand(ctx context.Context, modelEnd
 
 	if len(benchmarks) == 0 {
 		return "", fmt.Errorf("no benchmarks specified")
-	}
-
-	// Parse eval params
-	var evalParams EvalParams
-	if paramsJSON != "" {
-		if err := json.Unmarshal([]byte(paramsJSON), &evalParams); err != nil {
-			klog.Warningf("failed to parse eval params, using defaults: %v", err)
-		}
 	}
 
 	// Build dataset list and dataset directories from enriched benchmark config
@@ -340,7 +332,39 @@ func (r *EvaluationJobReconciler) buildEvalCommand(ctx context.Context, modelEnd
 		datasetDirs = append(datasetDirs, localDir)
 	}
 
-	// Build evalscope command arguments
+	// Output directory (for report)
+	outputDir := fmt.Sprintf("/outputs/%s", taskId)
+
+	// For multiple datasets with different directories, we need to run evalscope multiple times
+	// Each dataset may have its own directory
+	var commands []string
+	if len(datasetDirs) == 1 || allSameParentDir(datasetDirs) {
+		// Single dataset or all datasets in same parent directory - single evalscope run
+		evalArgs := r.buildSingleEvalCommand(modelEndpoint, modelName, datasetNames, datasetDirs[0], benchmarks[0].Limit, outputDir, judgeModel, judgeEndpoint, judgeApiKey)
+		commands = append(commands, strings.Join(evalArgs, " "))
+	} else {
+		// Multiple datasets with different directories - run evalscope for each
+		for i, benchmark := range benchmarks {
+			singleOutputDir := fmt.Sprintf("%s/%s", outputDir, datasetNames[i])
+			evalArgs := r.buildSingleEvalCommand(modelEndpoint, modelName, []string{datasetNames[i]}, datasetDirs[i], benchmark.Limit, singleOutputDir, judgeModel, judgeEndpoint, judgeApiKey)
+			commands = append(commands, strings.Join(evalArgs, " "))
+		}
+	}
+
+	// Join commands with && for sequential execution
+	evalCommand := strings.Join(commands, " && ")
+
+	// If S3 presigned URL is provided, add upload script after evalscope
+	if s3PresignedPutURL != "" {
+		uploadScript := r.buildReportUploadScript(outputDir, s3PresignedPutURL)
+		evalCommand = fmt.Sprintf("%s && %s", evalCommand, uploadScript)
+	}
+
+	return evalCommand, nil
+}
+
+// buildSingleEvalCommand builds evalscope command arguments for a single evaluation run
+func (r *EvaluationJobReconciler) buildSingleEvalCommand(modelEndpoint, modelName string, datasetNames []string, datasetDir string, limit int, outputDir, judgeModel, judgeEndpoint, judgeApiKey string) []string {
 	var evalArgs []string
 	evalArgs = append(evalArgs, "evalscope", "eval")
 
@@ -355,33 +379,60 @@ func (r *EvaluationJobReconciler) buildEvalCommand(ctx context.Context, modelEnd
 	// Datasets (benchmark names)
 	evalArgs = append(evalArgs, "--datasets", strings.Join(datasetNames, ","))
 
-	// Dataset directory (use first one for now, evalscope supports single --dataset-dir)
-	if len(datasetDirs) > 0 {
-		evalArgs = append(evalArgs, "--dataset-dir", datasetDirs[0])
+	// Dataset directory (parent directory containing dataset folders)
+	if datasetDir != "" {
+		// Extract parent directory for evalscope --dataset-dir
+		parentDir := extractParentDir(datasetDir)
+		evalArgs = append(evalArgs, "--dataset-dir", parentDir)
 	}
 
-	// Limit (use first benchmark's limit if specified)
-	if len(benchmarks) > 0 && benchmarks[0].Limit > 0 {
-		evalArgs = append(evalArgs, "--limit", fmt.Sprintf("%d", benchmarks[0].Limit))
+	// Limit (sample count)
+	if limit > 0 {
+		evalArgs = append(evalArgs, "--limit", fmt.Sprintf("%d", limit))
 	}
 
-	// Note: evalscope doesn't support --few-shot and --max-tokens directly
-	// These can be passed via --generation-config if needed in future
+	// Judge model configuration (for LLM-as-Judge evaluation mode)
+	if judgeModel != "" {
+		evalArgs = append(evalArgs, "--judge-model", judgeModel)
+		if judgeEndpoint != "" {
+			evalArgs = append(evalArgs, "--judge-api-url", judgeEndpoint)
+		}
+		if judgeApiKey != "" {
+			evalArgs = append(evalArgs, "--judge-api-key", judgeApiKey)
+		}
+	}
 
 	// Output directory (for report)
-	outputDir := fmt.Sprintf("/outputs/%s", taskId)
 	evalArgs = append(evalArgs, "--work-dir", outputDir)
 
-	// Build full command - evalscope is pre-installed in the image
-	evalCommand := strings.Join(evalArgs, " ")
+	return evalArgs
+}
 
-	// If S3 presigned URL is provided, add upload script after evalscope
-	if s3PresignedPutURL != "" {
-		uploadScript := r.buildReportUploadScript(outputDir, s3PresignedPutURL)
-		evalCommand = fmt.Sprintf("%s && %s", evalCommand, uploadScript)
+// allSameParentDir checks if all directories have the same parent
+func allSameParentDir(dirs []string) bool {
+	if len(dirs) <= 1 {
+		return true
 	}
+	parent := extractParentDir(dirs[0])
+	for _, dir := range dirs[1:] {
+		if extractParentDir(dir) != parent {
+			return false
+		}
+	}
+	return true
+}
 
-	return evalCommand, nil
+// extractParentDir extracts the parent directory from a path
+// e.g., /wekafs/datasets/math_500 -> /wekafs/datasets
+func extractParentDir(path string) string {
+	// Remove trailing slash if present
+	path = strings.TrimSuffix(path, "/")
+	// Find last slash
+	lastSlash := strings.LastIndex(path, "/")
+	if lastSlash > 0 {
+		return path[:lastSlash]
+	}
+	return path
 }
 
 // buildReportUploadScript builds a bash command to upload evaluation report to S3

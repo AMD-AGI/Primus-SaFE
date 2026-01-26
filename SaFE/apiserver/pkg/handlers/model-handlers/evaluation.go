@@ -274,9 +274,9 @@ func (h *Handler) convertToEvalTaskView(task *dbclient.EvaluationTask) Evaluatio
 
 	// Parse eval params
 	if task.EvalParams != "" {
-		var params EvalParams
+		var params map[string]interface{}
 		if err := json.Unmarshal([]byte(task.EvalParams), &params); err == nil {
-			view.EvalParams = &params
+			view.EvalParams = params
 		}
 	}
 

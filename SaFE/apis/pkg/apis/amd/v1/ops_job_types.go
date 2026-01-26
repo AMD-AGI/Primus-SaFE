@@ -74,6 +74,11 @@ const (
 	ParameterModelEndpoint   = "model.endpoint"    // Model service endpoint URL
 	ParameterModelName       = "model.name"        // Model name for API calls
 	ParameterModelApiKey     = "model.api.key"     // API key for remote model (encrypted)
+
+	// Judge model parameters (for LLM-as-Judge evaluation)
+	ParameterJudgeModel    = "eval.judge.model"    // Judge model name (e.g. gpt-4)
+	ParameterJudgeEndpoint = "eval.judge.endpoint" // Judge model API endpoint
+	ParameterJudgeApiKey   = "eval.judge.apikey"   // Judge model API key
 )
 
 type Parameter struct {

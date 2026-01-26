@@ -1064,6 +1064,9 @@ func (h *Handler) generateEvaluationJob(c *gin.Context, body []byte) (*v1.OpsJob
 	evalParamsJSON := getParamValue(req.Inputs, v1.ParameterEvalParams)
 	workspaceId := getParamValue(req.Inputs, v1.ParameterWorkspace)
 
+	// Extract judge model parameters (optional, for LLM-as-Judge evaluation)
+	judgeJSON := getParamValue(req.Inputs, "eval.judge") // {"model":"gpt-4","endpoint":"...","apiKey":"..."}
+
 	// Validate required parameters
 	if serviceId == "" {
 		return nil, commonerrors.NewBadRequest(fmt.Sprintf("%s is required", v1.ParameterEvalServiceId))
@@ -1203,6 +1206,25 @@ func (h *Handler) generateEvaluationJob(c *gin.Context, body []byte) (*v1.OpsJob
 	}
 	if workspaceId != "" {
 		inputs = append(inputs, v1.Parameter{Name: v1.ParameterWorkspace, Value: workspaceId})
+	}
+	// Add judge model parameters if provided
+	if judgeJSON != "" {
+		var judgeConfig struct {
+			Model    string `json:"model"`
+			Endpoint string `json:"endpoint"`
+			ApiKey   string `json:"apiKey"`
+		}
+		if err := json.Unmarshal([]byte(judgeJSON), &judgeConfig); err == nil {
+			if judgeConfig.Model != "" {
+				inputs = append(inputs, v1.Parameter{Name: v1.ParameterJudgeModel, Value: judgeConfig.Model})
+			}
+			if judgeConfig.Endpoint != "" {
+				inputs = append(inputs, v1.Parameter{Name: v1.ParameterJudgeEndpoint, Value: judgeConfig.Endpoint})
+			}
+			if judgeConfig.ApiKey != "" {
+				inputs = append(inputs, v1.Parameter{Name: v1.ParameterJudgeApiKey, Value: judgeConfig.ApiKey})
+			}
+		}
 	}
 
 	// Set default timeout
