@@ -152,6 +152,16 @@ func (f *WorkloadTaskFacade) ListTasksByTypeAndStatus(ctx context.Context, taskT
 	return tasks, err
 }
 
+// ListTasksByTypeAndStatuses lists tasks by type and multiple statuses
+func (f *WorkloadTaskFacade) ListTasksByTypeAndStatuses(ctx context.Context, taskType string, statuses []string) ([]*model.WorkloadTaskState, error) {
+	var tasks []*model.WorkloadTaskState
+	err := f.db.WithContext(ctx).
+		Where("task_type = ? AND status IN ?", taskType, statuses).
+		Order("created_at ASC").
+		Find(&tasks).Error
+	return tasks, err
+}
+
 // ListRecoverableTasks lists tasks that should be recovered on restart
 func (f *WorkloadTaskFacade) ListRecoverableTasks(ctx context.Context) ([]*model.WorkloadTaskState, error) {
 	var tasks []*model.WorkloadTaskState

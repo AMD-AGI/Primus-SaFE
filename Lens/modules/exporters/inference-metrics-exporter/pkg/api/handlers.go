@@ -30,6 +30,12 @@ func RegisterRoutes(group *gin.RouterGroup, receiver *task.TaskReceiver, exp *ex
 		configWatcher: watcher,
 	}
 
+	// Register /metrics endpoint at the group root for Prometheus scraping
+	// This exposes all inference metrics collected from workloads
+	group.GET("/metrics", func(c *gin.Context) {
+		exp.Handler().ServeHTTP(c.Writer, c.Request)
+	})
+
 	// Inference exporter specific routes
 	inference := group.Group("/inference-exporter")
 	{
