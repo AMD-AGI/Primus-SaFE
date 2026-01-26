@@ -320,7 +320,7 @@ func (r *EvaluationJobReconciler) buildEvalCommand(ctx context.Context, modelEnd
 
 	// Build dataset list and dataset directories from enriched benchmark config
 	// DatasetName: evalscope benchmark name (e.g. math_500)
-	// DatasetLocalDir: full local path to dataset (e.g. /apps/datasets/math_500)
+	// DatasetLocalDir: full local path to dataset (e.g. /wekafs/datasets/math_500)
 	var datasetNames []string
 	var datasetDirs []string
 	for _, b := range benchmarks {
