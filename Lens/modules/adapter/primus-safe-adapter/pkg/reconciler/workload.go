@@ -126,13 +126,35 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req reconcile.Reques
 
 func (r *WorkloadReconciler) calculateGpuRequest(workload *primusSafeV1.Workload) int32 {
 	totalGpu := 0
-	for _, res := range workload.Spec.Resources {
+
+	// Debug: Log the resources array length and content
+	log.Debugf("calculateGpuRequest for workload %s: Resources count=%d", workload.Name, len(workload.Spec.Resources))
+
+	// Process new Resources array field
+	for i, res := range workload.Spec.Resources {
+		log.Debugf("  Resource[%d]: GPU=%q, Replica=%d", i, res.GPU, res.Replica)
+		if res.GPU == "" {
+			// Skip resources without GPU specification
+			continue
+		}
 		n, err := strconv.Atoi(res.GPU)
 		if err != nil {
-			return 0
+			log.Warnf("Failed to parse GPU value %q for workload %s: %v", res.GPU, workload.Name, err)
+			continue
 		}
 		totalGpu += n * res.Replica
 	}
+
+	// Also check deprecated Resource field for backward compatibility
+	if totalGpu == 0 && workload.Spec.Resource.GPU != "" {
+		log.Debugf("  Using deprecated Resource field: GPU=%q, Replica=%d", workload.Spec.Resource.GPU, workload.Spec.Resource.Replica)
+		n, err := strconv.Atoi(workload.Spec.Resource.GPU)
+		if err == nil {
+			totalGpu = n * workload.Spec.Resource.Replica
+		}
+	}
+
+	log.Debugf("  Total GPU calculated: %d", totalGpu)
 	return int32(totalGpu)
 }
 
