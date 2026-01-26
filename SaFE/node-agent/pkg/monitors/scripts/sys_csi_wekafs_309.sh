@@ -5,7 +5,7 @@
 # See LICENSE for license information.
 #
 
-CONTAINER_NAME="csi-wekafs"
+CONTAINER_NAME="csi-wekafs-node"
 output=$(nsenter --target 1 --mount --uts --ipc --net --pid -- crictl ps 2>/dev/null | grep "$CONTAINER_NAME")
 
 if [ -z "$output" ]; then
