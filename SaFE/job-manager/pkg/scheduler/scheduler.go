@@ -450,6 +450,9 @@ func (r *SchedulerReconciler) getLeftTotalResources(ctx context.Context,
 		if err := r.Get(ctx, client.ObjectKey{Name: nodeName}, n); err != nil {
 			return true
 		}
+		if n.GetSpecWorkspace() != workspace.Name {
+			return true
+		}
 		return !n.IsAvailable(false)
 	}
 	usedTotalResource := make(corev1.ResourceList)

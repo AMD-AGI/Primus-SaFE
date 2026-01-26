@@ -570,6 +570,9 @@ func (h *Handler) getWorkspaceUsedQuota(ctx context.Context, workspace *v1.Works
 		if err != nil {
 			return true
 		}
+		if n.GetSpecWorkspace() != workspace.Name {
+			return true
+		}
 		return !n.IsAvailable(false)
 	}
 
@@ -589,7 +592,6 @@ func (h *Handler) getWorkspaceUsedQuota(ctx context.Context, workspace *v1.Works
 			usedQuota = quantity.AddResource(usedQuota, availableResource)
 			for _, n := range availableNodes {
 				nodeSet.Insert(n)
-				klog.Infof("workload %s, node %s", w.Name, n)
 			}
 		}
 	}
