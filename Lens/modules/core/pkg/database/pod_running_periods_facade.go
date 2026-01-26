@@ -55,29 +55,22 @@ func (f *PodRunningPeriodsFacade) CreateRunningPeriod(ctx context.Context, perio
 // EndRunningPeriod sets end_at for the current running period
 func (f *PodRunningPeriodsFacade) EndRunningPeriod(ctx context.Context, podUID string, endAt time.Time) error {
 	q := f.getDAL().PodRunningPeriods
-	// Find the running period with NULL end_at
-	period, err := q.WithContext(ctx).
+	// Use Update instead of First+Save to avoid creating empty records
+	// This only updates existing records with matching conditions
+	result, err := q.WithContext(ctx).
 		Where(q.PodUID.Eq(podUID)).
 		Where(q.EndAt.IsNull()).
-		First()
+		Updates(map[string]interface{}{
+			"end_at":     endAt,
+			"updated_at": time.Now(),
+		})
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			// No active running period found, ignore
-			return nil
-		}
 		return err
 	}
 
-	// Check if record was actually found (GORM gen may return empty object instead of error)
-	if period == nil || period.ID == 0 {
-		// No active running period found, ignore
-		return nil
-	}
-
-	// Update end_at
-	period.EndAt = endAt
-	period.UpdatedAt = time.Now()
-	return f.getDAL().PodRunningPeriods.WithContext(ctx).Save(period)
+	// RowsAffected will be 0 if no matching record was found, which is expected
+	_ = result
+	return nil
 }
 
 // GetCurrentRunningPeriod returns the current running period (end_at is NULL)
