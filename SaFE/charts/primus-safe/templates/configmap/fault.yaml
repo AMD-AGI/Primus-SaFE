@@ -35,6 +35,7 @@ data:
   net_bnxt_load_204: '{"id":"204","action":"taint","toggle":"on"}'
   net_ib_devices_206: '{"id":"206","action":"taint","toggle":"on"}'
   net_ib_gid_207: '{"id":"207","action":"taint","toggle":"on"}'
+  net_sys_resolved_209: '{"id":"209","action":"taint","toggle":"on"}'
   # System: 3XX
   sys_timezone_301: '{"id":"301","toggle":"on"}'
   sys_hostname_302: '{"id":"302","action":"taint","toggle":"on"}'
