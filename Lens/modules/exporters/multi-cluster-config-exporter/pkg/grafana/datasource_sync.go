@@ -134,6 +134,11 @@ func (s *DatasourceSyncer) SyncDatasources(ctx context.Context, clusterConfigs m
 
 	log.Infof("Syncing Grafana datasources for %d clusters", len(clusterConfigs))
 
+	// Sync static datasources (primus-lens API)
+	if err := s.syncPrimusLensAPIDatasource(ctx); err != nil {
+		log.Warnf("Failed to sync primus-lens API datasource: %v", err)
+	}
+
 	for clusterName, config := range clusterConfigs {
 		if err := s.syncClusterDatasources(ctx, clusterName, config); err != nil {
 			log.Warnf("Failed to sync Grafana datasources for cluster %s: %v", clusterName, err)
@@ -146,26 +151,43 @@ func (s *DatasourceSyncer) SyncDatasources(ctx context.Context, clusterConfigs m
 
 // syncClusterDatasources syncs datasources for a single cluster
 func (s *DatasourceSyncer) syncClusterDatasources(ctx context.Context, clusterName string, config *clientsets.PrimusLensClientConfig) error {
-	// Sync Prometheus read datasource
+	// Skip default cluster - it already has manually configured datasources
+	if clusterName == "default" {
+		log.Debugf("Skipping Grafana datasource sync for default cluster")
+		return nil
+	}
+
+	// Sync Prometheus read datasource only (PostgreSQL datasource is not needed)
 	if config.Prometheus != nil && config.Prometheus.ReadService != "" {
 		if err := s.syncPrometheusDatasource(ctx, clusterName, config.Prometheus); err != nil {
 			log.Warnf("Failed to sync Prometheus datasource for cluster %s: %v", clusterName, err)
 		}
 	}
 
-	// Sync Postgres datasource
-	if config.Postgres != nil && config.Postgres.Service != "" {
-		if err := s.syncPostgresDatasource(ctx, clusterName, config.Postgres); err != nil {
-			log.Warnf("Failed to sync Postgres datasource for cluster %s: %v", clusterName, err)
-		}
-	}
-
 	return nil
+}
+
+// syncPrimusLensAPIDatasource creates or updates the primus-lens JSON API datasource
+func (s *DatasourceSyncer) syncPrimusLensAPIDatasource(ctx context.Context) error {
+	datasourceName := "primus-lens-api"
+	url := fmt.Sprintf("http://primus-lens-api.%s.svc.cluster.local:8989", s.namespace)
+
+	datasource := s.buildDatasourceObject(
+		datasourceName,
+		"marcusolsson-json-datasource", // JSON API plugin type
+		url,
+		"default", // cluster label for static datasource
+		nil,       // no special jsonData needed
+		nil,
+	)
+
+	return s.createOrUpdateDatasource(ctx, datasource)
 }
 
 // syncPrometheusDatasource creates or updates a Prometheus datasource for a cluster
 func (s *DatasourceSyncer) syncPrometheusDatasource(ctx context.Context, clusterName string, config *clientsets.PrimusLensClientConfigPrometheus) error {
-	datasourceName := fmt.Sprintf("prometheus-%s", clusterName)
+	// Use cluster name directly as datasource name (without prometheus- prefix)
+	datasourceName := clusterName
 	
 	// Build the datasource URL
 	url := fmt.Sprintf("http://%s.%s.svc.cluster.local:%d/select/0/prometheus",
@@ -185,47 +207,6 @@ func (s *DatasourceSyncer) syncPrometheusDatasource(ctx context.Context, cluster
 		},
 		nil,
 	)
-
-	return s.createOrUpdateDatasource(ctx, datasource)
-}
-
-// syncPostgresDatasource creates or updates a Postgres datasource for a cluster
-func (s *DatasourceSyncer) syncPostgresDatasource(ctx context.Context, clusterName string, config *clientsets.PrimusLensClientConfigPostgres) error {
-	datasourceName := fmt.Sprintf("postgresql-%s", clusterName)
-	
-	// Build the datasource URL
-	url := fmt.Sprintf("%s.%s.svc.cluster.local:%d",
-		config.Service,
-		s.namespace,
-		config.Port,
-	)
-
-	sslMode := config.SSLMode
-	if sslMode == "" {
-		sslMode = "require"
-	}
-
-	datasource := s.buildDatasourceObject(
-		datasourceName,
-		"postgres",
-		url,
-		clusterName,
-		map[string]interface{}{
-			"database":         config.DBName,
-			"sslmode":          sslMode,
-			"maxOpenConns":     0,
-			"maxIdleConns":     2,
-			"connMaxLifetime":  14400,
-			"postgresVersion":  1400,
-			"timescaledb":      false,
-		},
-		map[string]string{
-			"password": config.Password,
-		},
-	)
-
-	// Add user field
-	datasource.Object["spec"].(map[string]interface{})["datasource"].(map[string]interface{})["user"] = config.Username
 
 	return s.createOrUpdateDatasource(ctx, datasource)
 }
