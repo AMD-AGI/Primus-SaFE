@@ -495,6 +495,12 @@ func RegisterRouter(group *gin.RouterGroup) error {
 			// Commit and details from V2 group
 			runsGroup.GET("/:id/commit", getUnifiedHandler("/github-workflow-metrics/runs/:id/commit"))
 			runsGroup.GET("/:id/details", getUnifiedHandler("/github-workflow-metrics/runs/:id/details"))
+			// Real-time workflow state sync APIs
+			runsGroup.GET("/:id/state", GetRunLiveState)
+			runsGroup.GET("/:id/live", HandleLiveWorkflowState)
+			runsGroup.GET("/:id/jobs", GetRunJobs)
+			runsGroup.POST("/:id/sync/start", StartRunSync)
+			runsGroup.POST("/:id/sync/stop", StopRunSync)
 		}
 		// Schema details
 		schemasGroup := githubWorkflowMetricsGroup.Group("/schemas")

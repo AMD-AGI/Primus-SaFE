@@ -28,6 +28,7 @@ type WorkloadTaskFacadeInterface interface {
 	// Task queries
 	ListTasksByWorkload(ctx context.Context, workloadUID string) ([]*model.WorkloadTaskState, error)
 	ListTasksByStatus(ctx context.Context, status string) ([]*model.WorkloadTaskState, error)
+	ListTasksByStatusAndTypes(ctx context.Context, status string, taskTypes []string) ([]*model.WorkloadTaskState, error)
 	ListRecoverableTasks(ctx context.Context) ([]*model.WorkloadTaskState, error)
 	
 	// Status updates
@@ -113,6 +114,21 @@ func (f *WorkloadTaskFacade) ListTasksByStatus(ctx context.Context, status strin
 		Where("status = ?", status).
 		Order("created_at ASC").
 		Find(&tasks).Error
+	return tasks, err
+}
+
+// ListTasksByStatusAndTypes lists tasks by status and filtered by task types.
+// If taskTypes is empty, returns all tasks with the given status (same as ListTasksByStatus).
+// If taskTypes is not empty, only returns tasks whose task_type is in the list.
+func (f *WorkloadTaskFacade) ListTasksByStatusAndTypes(ctx context.Context, status string, taskTypes []string) ([]*model.WorkloadTaskState, error) {
+	var tasks []*model.WorkloadTaskState
+	query := f.db.WithContext(ctx).Where("status = ?", status)
+	
+	if len(taskTypes) > 0 {
+		query = query.Where("task_type IN ?", taskTypes)
+	}
+	
+	err := query.Order("created_at ASC").Find(&tasks).Error
 	return tasks, err
 }
 

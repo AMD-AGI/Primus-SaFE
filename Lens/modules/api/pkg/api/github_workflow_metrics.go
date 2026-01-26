@@ -20,6 +20,7 @@ import (
 	dbmodel "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/model/rest"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/workflow"
 	"github.com/gin-gonic/gin"
 )
 
@@ -2253,3 +2254,85 @@ func trimSpace(s string) string {
 	return s[start:end]
 }
 
+// ========== Real-time Workflow State Handlers ==========
+
+// GetRunLiveState returns the current workflow state (non-streaming)
+// @Summary Get current workflow state
+// @Description Returns the current state of a workflow run without streaming
+// @Tags github-workflow-metrics
+// @Produce json
+// @Param id path int true "Workflow Run ID"
+// @Success 200 {object} workflow.WorkflowLiveState
+// @Router /v1/github-workflow-metrics/runs/{id}/state [get]
+func GetRunLiveState(ctx *gin.Context) {
+	liveHandler := workflow.NewLiveHandler()
+	liveHandler.GetCurrentState(ctx)
+}
+
+// HandleLiveWorkflowState handles SSE streaming for real-time workflow updates
+// @Summary Stream workflow run state updates
+// @Description Streams real-time updates for a workflow run using Server-Sent Events (SSE)
+// @Tags github-workflow-metrics
+// @Produce text/event-stream
+// @Param id path int true "Workflow Run ID"
+// @Success 200 {object} workflow.WorkflowLiveState
+// @Router /v1/github-workflow-metrics/runs/{id}/live [get]
+func HandleLiveWorkflowState(ctx *gin.Context) {
+	liveHandler := workflow.NewLiveHandler()
+	liveHandler.HandleLiveStream(ctx)
+}
+
+// GetRunJobs returns jobs for a workflow run
+// @Summary Get workflow run jobs
+// @Description Returns all jobs and steps for a workflow run
+// @Tags github-workflow-metrics
+// @Produce json
+// @Param id path int true "Workflow Run ID"
+// @Success 200 {object} map[string]interface{}
+// @Router /v1/github-workflow-metrics/runs/{id}/jobs [get]
+func GetRunJobs(ctx *gin.Context) {
+	runID, err := strconv.ParseInt(ctx.Param("id"), 10, 64)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, rest.ErrorResp(ctx.Request.Context(), http.StatusBadRequest, "invalid run_id", nil))
+		return
+	}
+
+	jobFacade := database.NewGithubWorkflowJobFacade()
+	jobs, err := jobFacade.ListByRunIDWithSteps(ctx.Request.Context(), runID)
+	if err != nil {
+		log.GlobalLogger().WithContext(ctx).Errorf("Failed to get jobs for run %d: %v", runID, err)
+		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, err.Error(), nil))
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"jobs":  jobs,
+		"total": len(jobs),
+	})
+}
+
+// StartRunSync starts synchronization for a workflow run
+// @Summary Start sync for workflow run
+// @Description Starts real-time synchronization for a workflow run
+// @Tags github-workflow-metrics
+// @Produce json
+// @Param id path int true "Workflow Run ID"
+// @Success 200 {object} map[string]interface{}
+// @Router /v1/github-workflow-metrics/runs/{id}/sync/start [post]
+func StartRunSync(ctx *gin.Context) {
+	liveHandler := workflow.NewLiveHandler()
+	liveHandler.StartSync(ctx)
+}
+
+// StopRunSync stops synchronization for a workflow run
+// @Summary Stop sync for workflow run
+// @Description Stops real-time synchronization for a workflow run
+// @Tags github-workflow-metrics
+// @Produce json
+// @Param id path int true "Workflow Run ID"
+// @Success 200 {object} map[string]interface{}
+// @Router /v1/github-workflow-metrics/runs/{id}/sync/stop [post]
+func StopRunSync(ctx *gin.Context) {
+	liveHandler := workflow.NewLiveHandler()
+	liveHandler.StopSync(ctx)
+}
