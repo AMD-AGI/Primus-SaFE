@@ -589,6 +589,7 @@ func (h *Handler) getWorkspaceUsedQuota(ctx context.Context, workspace *v1.Works
 			usedQuota = quantity.AddResource(usedQuota, availableResource)
 			for _, n := range availableNodes {
 				nodeSet.Insert(n)
+				klog.Infof("workload %s, node %s", w.Name, n)
 			}
 		}
 	}
