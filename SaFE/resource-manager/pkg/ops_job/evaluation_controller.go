@@ -335,20 +335,20 @@ func (r *EvaluationJobReconciler) buildEvalCommand(ctx context.Context, modelEnd
 	// Output directory (for report)
 	outputDir := fmt.Sprintf("/outputs/%s", taskId)
 
-	// For multiple datasets with different directories, we need to run evalscope multiple times
-	// Each dataset may have its own directory
+	// evalscope --datasets does NOT support comma-separated multiple datasets
+	// We must run evalscope separately for each dataset
 	var commands []string
-	if len(datasetDirs) == 1 || allSameParentDir(datasetDirs) {
-		// Single dataset or all datasets in same parent directory - single evalscope run
-		evalArgs := r.buildSingleEvalCommand(modelEndpoint, modelName, datasetNames, datasetDirs[0], benchmarks[0].Limit, outputDir, judgeModel, judgeEndpoint, judgeApiKey)
-		commands = append(commands, strings.Join(evalArgs, " "))
-	} else {
-		// Multiple datasets with different directories - run evalscope for each
-		for i, benchmark := range benchmarks {
-			singleOutputDir := fmt.Sprintf("%s/%s", outputDir, datasetNames[i])
-			evalArgs := r.buildSingleEvalCommand(modelEndpoint, modelName, []string{datasetNames[i]}, datasetDirs[i], benchmark.Limit, singleOutputDir, judgeModel, judgeEndpoint, judgeApiKey)
-			commands = append(commands, strings.Join(evalArgs, " "))
+	for i, benchmark := range benchmarks {
+		var singleOutputDir string
+		if len(benchmarks) == 1 {
+			// Single dataset - use the base output dir
+			singleOutputDir = outputDir
+		} else {
+			// Multiple datasets - use subdirectory for each dataset
+			singleOutputDir = fmt.Sprintf("%s/%s", outputDir, datasetNames[i])
 		}
+		evalArgs := r.buildSingleEvalCommand(modelEndpoint, modelName, datasetNames[i], datasetDirs[i], benchmark.Limit, singleOutputDir, judgeModel, judgeEndpoint, judgeApiKey)
+		commands = append(commands, strings.Join(evalArgs, " "))
 	}
 
 	// Join commands with && for sequential execution
@@ -364,7 +364,7 @@ func (r *EvaluationJobReconciler) buildEvalCommand(ctx context.Context, modelEnd
 }
 
 // buildSingleEvalCommand builds evalscope command arguments for a single evaluation run
-func (r *EvaluationJobReconciler) buildSingleEvalCommand(modelEndpoint, modelName string, datasetNames []string, datasetDir string, limit int, outputDir, judgeModel, judgeEndpoint, judgeApiKey string) []string {
+func (r *EvaluationJobReconciler) buildSingleEvalCommand(modelEndpoint, modelName string, datasetName string, datasetDir string, limit int, outputDir, judgeModel, judgeEndpoint, judgeApiKey string) []string {
 	var evalArgs []string
 	evalArgs = append(evalArgs, "evalscope", "eval")
 
@@ -376,8 +376,8 @@ func (r *EvaluationJobReconciler) buildSingleEvalCommand(modelEndpoint, modelNam
 		evalArgs = append(evalArgs, "--api-url", modelEndpoint)
 	}
 
-	// Datasets (benchmark names)
-	evalArgs = append(evalArgs, "--datasets", strings.Join(datasetNames, ","))
+	// Dataset (single benchmark name)
+	evalArgs = append(evalArgs, "--datasets", datasetName)
 
 	// Dataset directory (parent directory containing dataset folders)
 	if datasetDir != "" {
@@ -406,20 +406,6 @@ func (r *EvaluationJobReconciler) buildSingleEvalCommand(modelEndpoint, modelNam
 	evalArgs = append(evalArgs, "--work-dir", outputDir)
 
 	return evalArgs
-}
-
-// allSameParentDir checks if all directories have the same parent
-func allSameParentDir(dirs []string) bool {
-	if len(dirs) <= 1 {
-		return true
-	}
-	parent := extractParentDir(dirs[0])
-	for _, dir := range dirs[1:] {
-		if extractParentDir(dir) != parent {
-			return false
-		}
-	}
-	return true
 }
 
 // extractParentDir extracts the parent directory from a path
