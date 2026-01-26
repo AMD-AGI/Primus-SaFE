@@ -167,10 +167,16 @@ func (n *Node) CheckAvailable(ignoreTaint bool) (bool, string) {
 	if !ignoreTaint && len(n.Status.Taints) > 0 {
 		var taints []string
 		for _, t := range n.Status.Taints {
+			id := GetIdByTaintKey(t.Key)
+			if id == StickyNodesMonitorId {
+				continue
+			}
 			taints = append(taints, fmt.Sprintf("%s=%s", t.Key, t.Value))
 		}
-		b, _ := json.Marshal(taints)
-		return false, fmt.Sprintf("node has taints: %s", string(b))
+		if len(taints) > 0 {
+			b, _ := json.Marshal(taints)
+			return false, fmt.Sprintf("node has taints: %s", string(b))
+		}
 	}
 	return true, ""
 }
@@ -252,4 +258,12 @@ func (n *Node) GetPhase() NodePhase {
 		return n.Status.ClusterStatus.Phase
 	}
 	return NodeReady
+}
+
+// GetIdByTaintKey extracts the ID from a taint key by removing the PrimusSafe prefix.
+func GetIdByTaintKey(taintKey string) string {
+	if len(taintKey) <= len(PrimusSafePrefix) {
+		return ""
+	}
+	return taintKey[len(PrimusSafePrefix):]
 }

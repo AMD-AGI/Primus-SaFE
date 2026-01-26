@@ -145,14 +145,6 @@ func ExtractNumber(s string) int64 {
 	return num
 }
 
-// Atoi converts a string to an integer, returning 0 for empty strings
-func Atoi(s string) (int, error) {
-	if s == "" {
-		return 0, nil
-	}
-	return strconv.Atoi(s)
-}
-
 // ConvertToString converts various types to string representation.
 func ConvertToString(value interface{}) string {
 	switch v := value.(type) {

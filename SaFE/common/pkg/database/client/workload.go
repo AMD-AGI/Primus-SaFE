@@ -51,7 +51,8 @@ var (
 		    timeout = :timeout,
 		    cron_jobs = :cron_jobs,
 		    service = :service,
-		    workload_uid = :workload_uid 
+		    workload_uid = :workload_uid,
+		    is_sticky_nodes = :is_sticky_nodes 
 		WHERE workload_id = :workload_id`, TWorkload)
 )
 

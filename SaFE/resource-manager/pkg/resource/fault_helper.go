@@ -23,12 +23,7 @@ import (
 	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
 )
 
-// FaultAction defines the type of action to be taken for a fault
-type FaultAction string
-
 const (
-	// TaintAction represents the action of tainting a node
-	TaintAction FaultAction = "taint"
 	// NodeNotReady represents node not ready condition
 	NodeNotReady = "NotReady"
 
@@ -49,7 +44,7 @@ type FaultConfig struct {
 	// Id is a unique fault ID that is consistent with the ID used by NodeAgent for monitoring
 	Id string `json:"id"`
 	// Action defines actions for handling the fault, separated by commas if there are multiple
-	Action FaultAction `json:"action,omitempty"`
+	Action string `json:"action,omitempty"`
 	// Toggle controls whether the fault is enabled (on/off), default "off"
 	Toggle string `json:"toggle,omitempty"`
 	// whether the fault is auto repaired or not, default true
@@ -220,7 +215,7 @@ func generateFaultOnDeletion(node *v1.FaultNode,
 func getIdByConditionType(condType corev1.NodeConditionType) string {
 	switch {
 	case isPrimusCondition(condType):
-		return commonfaults.GetIdByTaintKey(string(condType))
+		return v1.GetIdByTaintKey(string(condType))
 	case condType == corev1.NodeReady:
 		return NodeNotReady
 	default:

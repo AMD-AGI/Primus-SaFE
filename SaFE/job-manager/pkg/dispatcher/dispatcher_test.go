@@ -99,7 +99,7 @@ func TestCreatePytorchJob(t *testing.T) {
 	checkEnvs(t, obj, workload, &templates[0], 0)
 	checkVolumeMounts(t, obj, &templates[0])
 	checkVolumes(t, obj, workload, &templates[0], 0)
-	checkNodeSelectorTerms(t, obj, workload, &templates[0])
+	checkRequiredNodeSelectorTerms(t, obj, workload, &templates[0])
 	checkImage(t, obj, workload.Spec.Images[0], &templates[0])
 	checkLabels(t, obj, workload, &templates[0], 0)
 	checkHostNetwork(t, obj, workload, &templates[0], 0)
@@ -123,7 +123,7 @@ func TestCreatePytorchJob(t *testing.T) {
 	checkPorts(t, obj, workload, &templates[1])
 	checkVolumeMounts(t, obj, &templates[1])
 	checkVolumes(t, obj, workload, &templates[1], 1)
-	checkNodeSelectorTerms(t, obj, workload, &templates[1])
+	checkRequiredNodeSelectorTerms(t, obj, workload, &templates[1])
 	checkImage(t, obj, workload.Spec.Images[1], &templates[1])
 	checkLabels(t, obj, workload, &templates[1], 1)
 	checkHostNetwork(t, obj, workload, &templates[1], 1)
@@ -170,7 +170,7 @@ func TestCreateDeployment(t *testing.T) {
 	checkEnvs(t, obj, workload, &templates[0], 0)
 	checkVolumeMounts(t, obj, &templates[0])
 	checkVolumes(t, obj, workload, &templates[0], 0)
-	checkNodeSelectorTerms(t, obj, workload, &templates[0])
+	checkRequiredNodeSelectorTerms(t, obj, workload, &templates[0])
 	checkImage(t, obj, workload.Spec.Images[0], &templates[0])
 	checkLabels(t, obj, workload, &templates[0], 0)
 	checkHostNetwork(t, obj, workload, &templates[0], 0)
@@ -505,7 +505,7 @@ func TestCreatePreflightJob(t *testing.T) {
 	templates := jobutils.TestJobResourceTemplate.Spec.ResourceSpecs
 	checkResources(t, obj, workload, &templates[0], workload.Spec.Resources[0].Replica, 0)
 	checkPorts(t, obj, workload, &templates[0])
-	checkNodeSelectorTerms(t, obj, workload, &templates[0])
+	checkRequiredNodeSelectorTerms(t, obj, workload, &templates[0])
 	checkPodAntiAffinity(t, obj, workload, &templates[0])
 	checkEnvs(t, obj, workload, &templates[0], 0)
 	checkImage(t, obj, workload.Spec.Images[0], &templates[0])
@@ -544,7 +544,7 @@ func TestCreateCICDScaleSet(t *testing.T) {
 
 	templates := jobutils.TestJobResourceTemplate.Spec.ResourceSpecs
 	checkGithubConfig(t, obj)
-	checkNodeSelectorTerms(t, obj, workload, &templates[0])
+	checkRequiredNodeSelectorTerms(t, obj, workload, &templates[0])
 	checkLabels(t, obj, workload, &templates[0], 0)
 	checkSecurityContext(t, obj, workload, &templates[0])
 	checkEnvs(t, obj, workload, &templates[0], 0)
@@ -585,7 +585,7 @@ func TestCICDScaleSetWithUnifiedJob(t *testing.T) {
 	// fmt.Println(unstructuredutils.ToString(obj))
 
 	templates := jobutils.TestJobResourceTemplate.Spec.ResourceSpecs
-	checkNodeSelectorTerms(t, obj, workload, &templates[0])
+	checkRequiredNodeSelectorTerms(t, obj, workload, &templates[0])
 	checkLabels(t, obj, workload, &templates[0], 0)
 	checkSecurityContext(t, obj, workload, &templates[0])
 	checkEnvs(t, obj, workload, &templates[0], 0)
@@ -982,7 +982,7 @@ func TestCreateRayJob(t *testing.T) {
 	checkEnvs(t, obj, workload, &templates[0], 0)
 	checkVolumeMounts(t, obj, &templates[0])
 	checkVolumes(t, obj, workload, &templates[0], 0)
-	checkNodeSelectorTerms(t, obj, workload, &templates[0])
+	checkRequiredNodeSelectorTerms(t, obj, workload, &templates[0])
 	checkImage(t, obj, workload.Spec.Images[0], &templates[0])
 	checkLabels(t, obj, workload, &templates[0], 0)
 	checkHostNetwork(t, obj, workload, &templates[0], 0)
@@ -1013,7 +1013,7 @@ func TestCreateRayJob(t *testing.T) {
 	checkPorts(t, obj, workload, &templates[1])
 	checkVolumeMounts(t, obj, &templates[1])
 	checkVolumes(t, obj, workload, &templates[1], 1)
-	checkNodeSelectorTerms(t, obj, workload, &templates[1])
+	checkRequiredNodeSelectorTerms(t, obj, workload, &templates[1])
 	checkImage(t, obj, workload.Spec.Images[1], &templates[1])
 	checkLabels(t, obj, workload, &templates[1], 1)
 	checkHostNetwork(t, obj, workload, &templates[1], 1)
@@ -1021,4 +1021,33 @@ func TestCreateRayJob(t *testing.T) {
 	checkPriorityClass(t, obj, workload, &templates[1])
 	checkImageSecrets(t, obj, &templates[1])
 	// fmt.Println(unstructuredutils.ToString(obj))
+}
+
+func TestCreatePytorchJobWithStickyNodes(t *testing.T) {
+	commonconfig.SetValue("net.rdma_name", "rdma/hca")
+	defer commonconfig.SetValue("net.rdma_name", "")
+
+	workspace := jobutils.TestWorkspaceData.DeepCopy()
+	workload := jobutils.TestWorkloadData.DeepCopy()
+	workload.Spec.Workspace = workspace.Name
+	workload.Status.Nodes = [][]string{{"node1", "node2"}}
+	v1.SetLabel(workload, v1.WorkloadDispatchCntLabel, "1")
+	v1.SetAnnotation(workload, v1.WorkloadStickyNodesAnnotation, v1.TrueStr)
+
+	configmap, err := parseConfigmap(TestPytorchJobTemplateConfig)
+	assert.NilError(t, err)
+	metav1.SetMetaDataAnnotation(&workload.ObjectMeta, v1.MainContainerAnnotation, v1.GetMainContainer(configmap))
+	scheme, err := genMockScheme()
+	assert.NilError(t, err)
+	adminClient := fake.NewClientBuilder().WithObjects(configmap, jobutils.TestPytorchResourceTemplate, workspace).WithScheme(scheme).Build()
+
+	r := DispatcherReconciler{Client: adminClient}
+	obj, err := r.generateK8sObject(context.Background(), workload, nil)
+	assert.NilError(t, err)
+	// fmt.Println(unstructuredutils.ToString(obj))
+
+	templates := jobutils.TestPytorchResourceTemplate.Spec.ResourceSpecs
+	checkRequiredNodeSelectorTerms(t, obj, workload, &templates[0])
+	checkPreferredNodeSelectorTerms(t, obj, workload, &templates[0])
+	checkTolerations(t, obj, workload, &templates[0])
 }

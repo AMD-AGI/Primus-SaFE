@@ -95,19 +95,6 @@ func validateDNSName(name, workloadKind string) error {
 	return nil
 }
 
-// validateLabelKey validates a label key against the naming rules.
-func validateLabelKey(name string) error {
-	if name == "" {
-		return nil
-	}
-
-	LabelKeyRegexp = regexp.MustCompile(LabelKeyRegRule)
-	if !LabelKeyRegexp.MatchString(name) {
-		return commonerrors.NewBadRequest(fmt.Sprintf(LabelKeyPrompt, name, commonutils.MaxNameLength))
-	}
-	return nil
-}
-
 // getMaxNameLength returns the maximum allowed name length based on the workload kind.
 func getMaxNameLength(workloadKind string) int {
 	switch workloadKind {
@@ -127,19 +114,30 @@ func getMaxNameLength(workloadKind string) int {
 }
 
 // validateLabels ensures labels are valid.
-// For keys containing '/', splits by '/' and validates each part separately.
 func validateLabels(labels map[string]string) error {
 	for key := range labels {
-		// If key contains '/', split it and validate each part
-		parts := strings.Split(key, "/")
-		// Only allow one '/' - exactly 2 parts
-		if len(parts) > 2 {
-			return commonerrors.NewBadRequest(fmt.Sprintf(LabelKeyPrompt, key, commonutils.MaxNameLength))
+		if err := validateLabelKey(key); err != nil {
+			return err
 		}
-		for _, part := range parts {
-			if validateLabelKey(part) != nil {
-				return commonerrors.NewBadRequest(fmt.Sprintf(LabelKeyPrompt, key, commonutils.MaxNameLength))
-			}
+	}
+	return nil
+}
+
+// validateLabel ensures label are valid. For keys containing '/', splits by '/' and validates each part separately.
+func validateLabelKey(key string) error {
+	if key == "" {
+		return commonerrors.NewBadRequest("The label key cannot be empty")
+	}
+	// If key contains '/', split it and validate each part
+	parts := strings.Split(key, "/")
+	// Only allow one '/' - exactly 2 parts
+	if len(parts) > 2 {
+		return commonerrors.NewBadRequest(fmt.Sprintf("The label key(%s) contains more than one '/'", key))
+	}
+	for _, part := range parts {
+		LabelKeyRegexp = regexp.MustCompile(LabelKeyRegRule)
+		if !LabelKeyRegexp.MatchString(part) {
+			return commonerrors.NewBadRequest(fmt.Sprintf(LabelKeyPrompt, part, commonutils.MaxNameLength))
 		}
 	}
 	return nil

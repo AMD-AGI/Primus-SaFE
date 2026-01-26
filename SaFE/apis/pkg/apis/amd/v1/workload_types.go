@@ -304,20 +304,6 @@ func (w *Workload) IsEnd() bool {
 	return false
 }
 
-// ElapsedTime returns the elapsed time in seconds from workload creation to completion or current time.
-func (w *Workload) ElapsedTime() int64 {
-	var elapsedTime time.Duration
-	if w.IsEnd() {
-		if w.Status.EndTime == nil {
-			return 0
-		}
-		elapsedTime = w.Status.EndTime.Time.Sub(w.CreationTimestamp.Time)
-	} else {
-		elapsedTime = time.Now().UTC().Sub(w.CreationTimestamp.Time)
-	}
-	return int64(elapsedTime.Seconds())
-}
-
 // EndTime returns the workload end time, or zero time if not set.
 func (w *Workload) EndTime() time.Time {
 	if w.Status.EndTime == nil || w.Status.EndTime.IsZero() {
