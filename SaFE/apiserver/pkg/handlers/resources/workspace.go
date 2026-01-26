@@ -570,6 +570,9 @@ func (h *Handler) getWorkspaceUsedQuota(ctx context.Context, workspace *v1.Works
 		if err != nil {
 			return true
 		}
+		if n.GetSpecWorkspace() != workspace.Name {
+			return true
+		}
 		return !n.IsAvailable(false)
 	}
 
