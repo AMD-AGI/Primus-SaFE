@@ -44,10 +44,6 @@ type WorkloadFacadeInterface interface {
 	// If namespace is empty, returns workloads from all namespaces
 	ListActiveTopLevelWorkloads(ctx context.Context, startTime, endTime time.Time, namespace string) ([]*model.GpuWorkload, error)
 
-	// ListWorkloadUidsWithRunningPods returns a set of workload UIDs that have at least one running pod
-	// This is used to filter out workloads that are marked as "Running" but have no active pods
-	ListWorkloadUidsWithRunningPods(ctx context.Context) (map[string]struct{}, error)
-
 	// GpuWorkloadSnapshot operations
 	CreateGpuWorkloadSnapshot(ctx context.Context, gpuWorkloadSnapshot *model.GpuWorkloadSnapshot) error
 	UpdateGpuWorkloadSnapshot(ctx context.Context, gpuWorkloadSnapshot *model.GpuWorkloadSnapshot) error
@@ -58,6 +54,9 @@ type WorkloadFacadeInterface interface {
 	ListWorkloadPodReferencesByPodUids(ctx context.Context, podUids []string) ([]*model.WorkloadPodReference, error)
 	ListWorkloadPodReferenceByWorkloadUid(ctx context.Context, workloadUid string) ([]*model.WorkloadPodReference, error)
 	GetAllWorkloadPodReferences(ctx context.Context) ([]*model.WorkloadPodReference, error)
+	// ListWorkloadUidsByPodUids returns workload UIDs for the given pod UIDs
+	// This is used to find workloads from their associated pods
+	ListWorkloadUidsByPodUids(ctx context.Context, podUids []string) ([]string, error)
 
 	// WorkloadEvent operations
 	GetWorkloadEventByWorkloadUidAndNearestWorkloadIdAndType(ctx context.Context, workloadUid, nearestWorkloadId, typ string) (*model.WorkloadEvent, error)
@@ -450,32 +449,27 @@ func (f *WorkloadFacade) GetAllWorkloadPodReferences(ctx context.Context) ([]*mo
 	return refs, nil
 }
 
-// ListWorkloadUidsWithRunningPods returns a set of workload UIDs that have at least one running pod
-// This performs a JOIN query between workload_pod_reference and gpu_pods tables
-func (f *WorkloadFacade) ListWorkloadUidsWithRunningPods(ctx context.Context) (map[string]struct{}, error) {
-	db := f.getDB()
-	if db == nil {
-		return make(map[string]struct{}), nil
+// ListWorkloadUidsByPodUids returns distinct workload UIDs for the given pod UIDs
+func (f *WorkloadFacade) ListWorkloadUidsByPodUids(ctx context.Context, podUids []string) ([]string, error) {
+	if len(podUids) == 0 {
+		return []string{}, nil
 	}
 
-	// Query: SELECT DISTINCT wpr.workload_uid FROM workload_pod_reference wpr
-	//        JOIN gpu_pods p ON wpr.pod_uid = p.uid WHERE p.running = true
-	var workloadUids []string
-	err := db.WithContext(ctx).
-		Table("workload_pod_reference").
-		Select("DISTINCT workload_pod_reference.workload_uid").
-		Joins("JOIN gpu_pods ON workload_pod_reference.pod_uid = gpu_pods.uid").
-		Where("gpu_pods.running = ?", true).
-		Pluck("workload_uid", &workloadUids).Error
-
+	q := f.getDAL().WorkloadPodReference
+	refs, err := q.WithContext(ctx).Where(q.PodUID.In(podUids...)).Find()
 	if err != nil {
-		return nil, fmt.Errorf("failed to query workload UIDs with running pods: %w", err)
+		return nil, err
 	}
 
-	// Convert to set for O(1) lookup
-	result := make(map[string]struct{}, len(workloadUids))
-	for _, uid := range workloadUids {
-		result[uid] = struct{}{}
+	// Deduplicate workload UIDs
+	uidSet := make(map[string]struct{})
+	for _, ref := range refs {
+		uidSet[ref.WorkloadUID] = struct{}{}
+	}
+
+	result := make([]string, 0, len(uidSet))
+	for uid := range uidSet {
+		result = append(result, uid)
 	}
 
 	return result, nil

@@ -25,6 +25,11 @@ type PodFacadeInterface interface {
 	ListActivePodsByUids(ctx context.Context, uids []string) ([]*model.GpuPods, error)
 	ListPodsByUids(ctx context.Context, uids []string) ([]*model.GpuPods, error)
 	ListActiveGpuPods(ctx context.Context) ([]*model.GpuPods, error)
+	// ListPodsActiveInTimeRange returns pods that were active during the specified time range
+	// A pod is considered active in the time range if:
+	// - created_at <= endTime AND
+	// - (phase = 'Running' OR updated_at >= startTime)
+	ListPodsActiveInTimeRange(ctx context.Context, startTime, endTime time.Time) ([]*model.GpuPods, error)
 
 	// GpuPodsEvent operations
 	CreateGpuPodsEvent(ctx context.Context, gpuPods *model.GpuPodsEvent) error
@@ -148,6 +153,31 @@ func (f *PodFacade) ListPodsByUids(ctx context.Context, uids []string) ([]*model
 func (f *PodFacade) ListActiveGpuPods(ctx context.Context) ([]*model.GpuPods, error) {
 	q := f.getDAL().GpuPods
 	result, err := q.WithContext(ctx).Where(q.Running.Is(true)).Find()
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return result, nil
+}
+
+// ListPodsActiveInTimeRange returns pods that were active during the specified time range
+// A pod is considered active if:
+// - created_at <= endTime AND
+// - (phase = 'Running' OR updated_at >= startTime)
+// This is used for time-based aggregation calculations
+func (f *PodFacade) ListPodsActiveInTimeRange(ctx context.Context, startTime, endTime time.Time) ([]*model.GpuPods, error) {
+	q := f.getDAL().GpuPods
+	// Pod was created before or during the time range
+	// AND (pod is still running OR pod ended during or after the time range)
+	result, err := q.WithContext(ctx).
+		Where(q.CreatedAt.Lte(endTime)).
+		Where(q.WithContext(ctx).Or(
+			q.Phase.Eq(string(corev1.PodRunning)),
+			q.UpdatedAt.Gte(startTime),
+		)).
+		Find()
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil

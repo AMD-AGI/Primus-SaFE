@@ -84,14 +84,17 @@ type UtilizationStats struct {
 // LabelAggregationCalculator calculates GPU aggregation by label/annotation dimensions
 type LabelAggregationCalculator struct {
 	workloadFacade database.WorkloadFacadeInterface
+	podFacade      database.PodFacadeInterface
 	clusterName    string
 	config         *LabelAggregationConfig
 }
 
 // NewLabelAggregationCalculator creates a new calculator for label/annotation aggregation
 func NewLabelAggregationCalculator(clusterName string, config *LabelAggregationConfig) *LabelAggregationCalculator {
+	facade := database.GetFacadeForCluster(clusterName)
 	return &LabelAggregationCalculator{
-		workloadFacade: database.GetFacadeForCluster(clusterName).GetWorkload(),
+		workloadFacade: facade.GetWorkload(),
+		podFacade:      facade.GetPod(),
 		clusterName:    clusterName,
 		config:         config,
 	}
@@ -100,11 +103,13 @@ func NewLabelAggregationCalculator(clusterName string, config *LabelAggregationC
 // NewLabelAggregationCalculatorWithFacade creates a calculator with custom facade (useful for testing)
 func NewLabelAggregationCalculatorWithFacade(
 	workloadFacade database.WorkloadFacadeInterface,
+	podFacade database.PodFacadeInterface,
 	clusterName string,
 	config *LabelAggregationConfig,
 ) *LabelAggregationCalculator {
 	return &LabelAggregationCalculator{
 		workloadFacade: workloadFacade,
+		podFacade:      podFacade,
 		clusterName:    clusterName,
 		config:         config,
 	}
@@ -130,6 +135,7 @@ func (c *LabelAggregationCalculator) CalculateHourlyLabelAggregation(
 }
 
 // CalculateLabelAggregation calculates GPU aggregation by label/annotation for a time range
+// Uses pod-based approach: first find active pods in time range, then find their workloads
 //
 // Parameters:
 //   - ctx: context for database operations
@@ -143,26 +149,49 @@ func (c *LabelAggregationCalculator) CalculateLabelAggregation(
 	ctx context.Context,
 	startTime, endTime time.Time,
 ) (*LabelAggregationSummary, error) {
-	// Get active top-level workloads during this time range
-	workloads, err := c.workloadFacade.ListActiveTopLevelWorkloads(ctx, startTime, endTime, "")
+	// 1. Query pods that were active during the time range
+	activePods, err := c.podFacade.ListPodsActiveInTimeRange(ctx, startTime, endTime)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get active top-level workloads: %w", err)
+		return nil, fmt.Errorf("failed to get active pods in time range: %w", err)
 	}
-
-	log.Debugf("Found %d active top-level workloads for label aggregation in time range %v - %v",
-		len(workloads), startTime, endTime)
-
-	// Filter out workloads that don't have any running pods
-	// This prevents counting workloads that are marked as "Running" but have no actual active pods
-	workloads = FilterWorkloadsWithActivePodsByFacade(ctx, c.workloadFacade, workloads)
-
-	log.Debugf("After filtering for running pods: %d workloads remain", len(workloads))
 
 	summary := &LabelAggregationSummary{
-		Results:        make(map[string]*LabelAggregationResult),
-		Hour:           startTime.Truncate(time.Hour),
-		TotalWorkloads: len(workloads),
+		Results: make(map[string]*LabelAggregationResult),
+		Hour:    startTime.Truncate(time.Hour),
 	}
+
+	if len(activePods) == 0 {
+		log.Debugf("No active pods found for label aggregation in time range %v - %v", startTime, endTime)
+		return summary, nil
+	}
+
+	// Build pod UID list
+	podUIDs := make([]string, 0, len(activePods))
+	for _, pod := range activePods {
+		podUIDs = append(podUIDs, pod.UID)
+	}
+
+	// 2. Find workload UIDs through pod references
+	workloadUIDs, err := c.workloadFacade.ListWorkloadUidsByPodUids(ctx, podUIDs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get workload UIDs by pod UIDs: %w", err)
+	}
+
+	if len(workloadUIDs) == 0 {
+		log.Debugf("No workloads found for active pods in time range %v - %v", startTime, endTime)
+		return summary, nil
+	}
+
+	// 3. Get top-level workloads
+	workloads, err := c.workloadFacade.ListTopLevelWorkloadByUids(ctx, workloadUIDs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get top-level workloads: %w", err)
+	}
+
+	log.Debugf("Found %d top-level workloads with active pods for label aggregation in time range %v - %v",
+		len(workloads), startTime, endTime)
+
+	summary.TotalWorkloads = len(workloads)
 
 	if len(workloads) == 0 {
 		return summary, nil
