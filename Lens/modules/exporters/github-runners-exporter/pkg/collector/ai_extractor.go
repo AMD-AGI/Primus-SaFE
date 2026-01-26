@@ -1,7 +1,7 @@
 // Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
 // See LICENSE for license information.
 
-package github_workflow_collector
+package collector
 
 import (
 	"context"
@@ -167,70 +167,6 @@ func (e *AIExtractor) ExtractWithAISingleFile(
 	existingSchema *model.GithubWorkflowMetricSchemas,
 ) (*aitopics.ExtractMetricsOutput, error) {
 	return e.ExtractWithAI(ctx, config, []*PVCFile{file}, existingSchema)
-}
-
-// extractSingleFileWithAI is the original implementation for reference
-func (e *AIExtractor) extractSingleFileWithAI(
-	ctx context.Context,
-	config *model.GithubWorkflowConfigs,
-	files []*PVCFile,
-	existingSchema *model.GithubWorkflowMetricSchemas,
-) (*aitopics.ExtractMetricsOutput, error) {
-	client := aiclient.GetGlobalClient()
-	if client == nil {
-		return nil, aiclient.ErrAgentUnavailable
-	}
-
-	// Convert PVC files to AI input format
-	aiFiles := make([]aitopics.FileContent, 0, len(files))
-	for _, f := range files {
-		aiFiles = append(aiFiles, aitopics.FileContent{
-			Path:      f.Path,
-			Name:      f.Name,
-			FileType:  detectFileType(f.Name),
-			Content:   string(f.Content),
-			SizeBytes: int64(len(f.Content)),
-		})
-	}
-
-	// Build AI request
-	aiInput := aitopics.ExtractMetricsInput{
-		ConfigID:   config.ID,
-		ConfigName: config.Name,
-		Files:      aiFiles,
-		Options: &aitopics.ExtractMetricsOptions{
-			IncludeRawData:     false,
-			IncludeExplanation: false,
-		},
-	}
-
-	// Add existing schema if available
-	if existingSchema != nil {
-		aiInput.ExistingSchema = convertDBSchemaToAISchema(existingSchema)
-	}
-
-	// Add cluster context
-	aiCtx := aiclient.WithClusterID(ctx, config.ClusterName)
-
-	// Invoke AI
-	log.Infof("AIExtractor: invoking AI to extract metrics from %d files for config %d", len(files), config.ID)
-	resp, err := client.InvokeSync(aiCtx, aitopics.TopicGithubMetricsExtract, aiInput)
-	if err != nil {
-		return nil, fmt.Errorf("AI invocation failed: %w", err)
-	}
-
-	if !resp.IsSuccess() {
-		return nil, aiclient.NewAPIError(resp.Code, resp.Message)
-	}
-
-	// Parse response
-	var output aitopics.ExtractMetricsOutput
-	if err := resp.UnmarshalPayload(&output); err != nil {
-		return nil, fmt.Errorf("failed to parse AI response: %w", err)
-	}
-
-	log.Infof("AIExtractor: extracted %d metrics from %d files", output.TotalRecords, output.FilesProcessed)
-	return &output, nil
 }
 
 // GenerateSchemaWithAI uses AI to generate a schema from sample files
@@ -419,4 +355,3 @@ func convertMapToExtType(m map[string]interface{}) model.ExtType {
 	}
 	return result
 }
-

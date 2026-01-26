@@ -14,6 +14,7 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/task"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/github-runners-exporter/pkg/collector"
 )
 
 const (
@@ -210,46 +211,30 @@ func (e *CollectionExecutor) Execute(ctx context.Context, execCtx *task.Executio
 
 // performCollection performs the actual collection using the collector
 func (e *CollectionExecutor) performCollection(ctx context.Context, run *model.GithubWorkflowRuns) (*CollectionResult, error) {
-	// If collector is set (dependency injection), use it
+	// If collector is set (dependency injection for testing), use it
 	if e.collector != nil {
 		return e.collector.CollectRun(ctx, run.ID)
 	}
 
-	// Otherwise, use built-in collection logic
-	// This is a simplified version - the actual implementation would call
-	// the full GithubWorkflowCollectorJob logic
+	// Use the new migrated WorkflowCollector from collector package
+	log.Infof("CollectionExecutor: performing collection for run %d using WorkflowCollector", run.ID)
 
-	log.Infof("CollectionExecutor: performing built-in collection for run %d", run.ID)
+	workflowCollector := collector.NewWorkflowCollector()
 
-	// Get config
-	configFacade := database.GetFacade().GetGithubWorkflowConfig()
-	config, err := configFacade.GetByID(ctx, run.ConfigID)
+	// Initialize with K8s clients if available
+	if e.clientSets != nil {
+		workflowCollector.Initialize(e.clientSets)
+	}
+
+	// Perform collection
+	metricsCount, err := workflowCollector.CollectRun(ctx, run)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get config %d: %w", run.ConfigID, err)
+		return nil, fmt.Errorf("collection failed: %w", err)
 	}
-
-	if config == nil || !config.Enabled {
-		return &CollectionResult{
-			Success:    true,
-			SkipReason: "config disabled or not found",
-		}, nil
-	}
-
-	// For now, simulate collection completion
-	// In the real implementation, this would:
-	// 1. Create temporary pod if needed
-	// 2. Read files from PVC
-	// 3. Analyze schema if needed
-	// 4. Extract metrics
-	// 5. Store metrics in database
-
-	// Placeholder for actual collection logic
-	// TODO: Integrate with GithubWorkflowCollectorJob.processRun()
-	time.Sleep(100 * time.Millisecond) // Simulate work
 
 	return &CollectionResult{
 		Success:      true,
-		MetricsCount: 0,
+		MetricsCount: metricsCount,
 	}, nil
 }
 

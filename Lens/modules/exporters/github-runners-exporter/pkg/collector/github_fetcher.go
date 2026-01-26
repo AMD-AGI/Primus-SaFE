@@ -1,7 +1,7 @@
 // Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
 // See LICENSE for license information.
 
-package github_workflow_collector
+package collector
 
 import (
 	"context"
@@ -112,7 +112,7 @@ func (f *GithubFetcher) fetchAndStoreCommit(ctx context.Context, client *github.
 
 	// Convert to model
 	parentSHAs, _ := json.Marshal(commitInfo.Parents)
-	
+
 	// Limit files to avoid storing too much data
 	files := commitInfo.Files
 	if len(files) > 100 {
@@ -321,4 +321,3 @@ func parseGitHubURL(url string) (owner, repo string) {
 
 	return owner, repo
 }
-

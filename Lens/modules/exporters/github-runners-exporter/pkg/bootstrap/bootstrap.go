@@ -14,6 +14,7 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/task"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/workflow"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/github-runners-exporter/pkg/backfill"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/github-runners-exporter/pkg/executor"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/github-runners-exporter/pkg/reconciler"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/github-runners-exporter/pkg/types"
@@ -49,6 +50,8 @@ func init() {
 var (
 	// taskScheduler is the global task scheduler for this exporter
 	taskScheduler *task.TaskScheduler
+	// backfillRunner is the global backfill runner for this exporter
+	backfillRunner *backfill.WorkflowBackfillRunner
 )
 
 // Init initializes the github-runners-exporter
@@ -59,6 +62,11 @@ func Init(ctx context.Context, cfg *config.Config) error {
 
 	// Initialize TaskScheduler for collection tasks
 	if err := InitTaskScheduler(ctx); err != nil {
+		return err
+	}
+
+	// Initialize and start backfill runner for historical data processing
+	if err := InitBackfillRunner(ctx); err != nil {
 		return err
 	}
 
@@ -123,6 +131,24 @@ func InitTaskScheduler(ctx context.Context) error {
 func StopTaskScheduler() error {
 	if taskScheduler != nil {
 		return taskScheduler.Stop()
+	}
+	return nil
+}
+
+// InitBackfillRunner initializes the backfill runner for historical data processing
+func InitBackfillRunner(ctx context.Context) error {
+	backfillRunner = backfill.NewWorkflowBackfillRunner()
+	if err := backfillRunner.Start(ctx); err != nil {
+		return err
+	}
+	log.Info("BackfillRunner started for GitHub workflow historical data processing")
+	return nil
+}
+
+// StopBackfillRunner stops the BackfillRunner gracefully
+func StopBackfillRunner() error {
+	if backfillRunner != nil {
+		return backfillRunner.Stop()
 	}
 	return nil
 }

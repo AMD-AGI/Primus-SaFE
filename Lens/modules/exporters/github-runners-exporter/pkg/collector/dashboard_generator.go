@@ -1,7 +1,7 @@
 // Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
 // See LICENSE for license information.
 
-package github_workflow_collector
+package collector
 
 import (
 	"context"
@@ -28,12 +28,12 @@ const (
 
 // generateDashboardSummary generates a dashboard summary with AI-powered regression analysis
 // This is called automatically after metrics extraction and GitHub data fetching
-func (j *GithubWorkflowCollectorJob) generateDashboardSummary(
+func (c *WorkflowCollector) generateDashboardSummary(
 	ctx context.Context,
 	config *model.GithubWorkflowConfigs,
 	currentRun *model.GithubWorkflowRuns,
 ) error {
-	log.Infof("GithubWorkflowCollectorJob: generating dashboard summary for run %d", currentRun.ID)
+	log.Infof("WorkflowCollector: generating dashboard summary for run %d", currentRun.ID)
 
 	facade := database.GetFacade()
 	runFacade := facade.GetGithubWorkflowRun()
@@ -57,27 +57,27 @@ func (j *GithubWorkflowCollectorJob) generateDashboardSummary(
 	}
 
 	// Calculate performance changes and code changes
-	perfSummary, codeChanges, err := j.analyzeBuildComparison(ctx, currentRun, previousRun)
+	perfSummary, codeChanges, err := c.analyzeBuildComparison(ctx, currentRun, previousRun)
 	if err != nil {
 		return fmt.Errorf("failed to analyze build comparison: %w", err)
 	}
 
 	// Run AI regression analysis if there are regressions
 	if len(perfSummary.TopRegressions) > 0 && previousRun != nil {
-		j.analyzeRegressionsWithAI(ctx, config, currentRun, previousRun, perfSummary)
+		c.analyzeRegressionsWithAI(ctx, config, currentRun, previousRun, perfSummary)
 	}
 
 	// Save dashboard summary to database
-	if err := j.saveDashboardSummary(ctx, config, currentRun, perfSummary, codeChanges); err != nil {
+	if err := c.saveDashboardSummary(ctx, config, currentRun, perfSummary, codeChanges); err != nil {
 		return fmt.Errorf("failed to save dashboard summary: %w", err)
 	}
 
-	log.Infof("GithubWorkflowCollectorJob: dashboard summary generated for run %d", currentRun.ID)
+	log.Infof("WorkflowCollector: dashboard summary generated for run %d", currentRun.ID)
 	return nil
 }
 
 // analyzeBuildComparison compares current and previous builds
-func (j *GithubWorkflowCollectorJob) analyzeBuildComparison(
+func (c *WorkflowCollector) analyzeBuildComparison(
 	ctx context.Context,
 	currentRun, previousRun *model.GithubWorkflowRuns,
 ) (*performanceSummary, *codeChangesSummary, error) {
@@ -128,7 +128,7 @@ func (j *GithubWorkflowCollectorJob) analyzeBuildComparison(
 }
 
 // analyzeRegressionsWithAI uses AI to analyze regressions and find likely causes
-func (j *GithubWorkflowCollectorJob) analyzeRegressionsWithAI(
+func (c *WorkflowCollector) analyzeRegressionsWithAI(
 	ctx context.Context,
 	config *model.GithubWorkflowConfigs,
 	currentRun, previousRun *model.GithubWorkflowRuns,
@@ -165,10 +165,10 @@ func (j *GithubWorkflowCollectorJob) analyzeRegressionsWithAI(
 			Commits: make([]aitopics.CommitInfo, 0, len(commits)),
 		}
 
-		for _, c := range commits {
+		for _, commit := range commits {
 			var files []string
-			if c.Files != nil {
-				if filesData, ok := c.Files["files"].([]interface{}); ok {
+			if commit.Files != nil {
+				if filesData, ok := commit.Files["files"].([]interface{}); ok {
 					for _, f := range filesData {
 						if s, ok := f.(string); ok {
 							files = append(files, s)
@@ -177,12 +177,12 @@ func (j *GithubWorkflowCollectorJob) analyzeRegressionsWithAI(
 				}
 			}
 			input.Commits = append(input.Commits, aitopics.CommitInfo{
-				SHA:          c.Sha,
-				Author:       c.AuthorName,
-				Message:      c.Message,
+				SHA:          commit.Sha,
+				Author:       commit.AuthorName,
+				Message:      commit.Message,
 				FilesChanged: files,
-				Additions:    int(c.Additions),
-				Deletions:    int(c.Deletions),
+				Additions:    int(commit.Additions),
+				Deletions:    int(commit.Deletions),
 			})
 		}
 
@@ -208,7 +208,7 @@ func (j *GithubWorkflowCollectorJob) analyzeRegressionsWithAI(
 }
 
 // saveDashboardSummary saves the dashboard summary to database
-func (j *GithubWorkflowCollectorJob) saveDashboardSummary(
+func (c *WorkflowCollector) saveDashboardSummary(
 	ctx context.Context,
 	config *model.GithubWorkflowConfigs,
 	run *model.GithubWorkflowRuns,
@@ -257,16 +257,16 @@ type performanceSummary struct {
 }
 
 type performanceChange struct {
-	Metric               string                 `json:"metric"`
-	Dimensions           map[string]interface{} `json:"dimensions,omitempty"`
-	CurrentValue         float64                `json:"current_value"`
-	PreviousValue        float64                `json:"previous_value"`
-	ChangePercent        float64                `json:"change_percent"`
-	LikelyCommitSHA      string                 `json:"likely_commit_sha,omitempty"`
-	LikelyCommitAuthor   string                 `json:"likely_commit_author,omitempty"`
-	LikelyCommitMessage  string                 `json:"likely_commit_message,omitempty"`
-	AIConfidence         float64                `json:"ai_confidence,omitempty"`
-	AIReasoning          string                 `json:"ai_reasoning,omitempty"`
+	Metric              string                 `json:"metric"`
+	Dimensions          map[string]interface{} `json:"dimensions,omitempty"`
+	CurrentValue        float64                `json:"current_value"`
+	PreviousValue       float64                `json:"previous_value"`
+	ChangePercent       float64                `json:"change_percent"`
+	LikelyCommitSHA     string                 `json:"likely_commit_sha,omitempty"`
+	LikelyCommitAuthor  string                 `json:"likely_commit_author,omitempty"`
+	LikelyCommitMessage string                 `json:"likely_commit_message,omitempty"`
+	AIConfidence        float64                `json:"ai_confidence,omitempty"`
+	AIReasoning         string                 `json:"ai_reasoning,omitempty"`
 }
 
 type codeChangesSummary struct {

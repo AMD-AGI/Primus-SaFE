@@ -1,7 +1,7 @@
 // Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
 // See LICENSE for license information.
 
-package github_workflow_collector
+package collector
 
 import (
 	"context"
@@ -21,8 +21,8 @@ import (
 // PVCReader reads files from Pod PVC via node-exporter
 type PVCReader struct {
 	// Database facades
-	nodeFacade    database.NodeFacadeInterface
-	podFacade     database.PodFacadeInterface
+	nodeFacade     database.NodeFacadeInterface
+	podFacade      database.PodFacadeInterface
 	workloadFacade database.WorkloadFacadeInterface
 
 	// Client cache for node-specific clients (thread-safe)
@@ -273,4 +273,3 @@ func matchesAnyPattern(path string, patterns []string) bool {
 
 	return false
 }
-

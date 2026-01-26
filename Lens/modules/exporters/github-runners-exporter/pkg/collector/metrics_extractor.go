@@ -1,7 +1,7 @@
 // Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
 // See LICENSE for license information.
 
-package github_workflow_collector
+package collector
 
 import (
 	"encoding/json"
@@ -303,11 +303,11 @@ func (e *MetricsExtractor) convertWideToLong(
 // parseDateColumn parses a date column name into a time.Time
 func parseDateColumn(dateCol string) time.Time {
 	dateFormats := []string{
-		"2006-01-02",  // 2025-12-30
-		"01/02/2006",  // 12/30/2025
-		"02-01-2006",  // 30-12-2025
-		"2006/01/02",  // 2025/12/30
-		"20060102",    // 20251230
+		"2006-01-02", // 2025-12-30
+		"01/02/2006", // 12/30/2025
+		"02-01-2006", // 30-12-2025
+		"2006/01/02", // 2025/12/30
+		"20060102",   // 20251230
 	}
 
 	for _, format := range dateFormats {
@@ -433,11 +433,11 @@ func tryFormatAsDate(val int64) string {
 // isDateColumn checks if a column name looks like a date
 func isDateColumn(name string) bool {
 	datePatterns := []*regexp.Regexp{
-		regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`),      // 2025-12-30
-		regexp.MustCompile(`^\d{2}/\d{2}/\d{4}$`),      // 12/30/2025
-		regexp.MustCompile(`^\d{2}-\d{2}-\d{4}$`),      // 30-12-2025
-		regexp.MustCompile(`^\d{4}/\d{2}/\d{2}$`),      // 2025/12/30
-		regexp.MustCompile(`^\d{8}$`),                  // 20251230
+		regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`), // 2025-12-30
+		regexp.MustCompile(`^\d{2}/\d{2}/\d{4}$`), // 12/30/2025
+		regexp.MustCompile(`^\d{2}-\d{2}-\d{4}$`), // 30-12-2025
+		regexp.MustCompile(`^\d{4}/\d{2}/\d{2}$`), // 2025/12/30
+		regexp.MustCompile(`^\d{8}$`),             // 20251230
 	}
 
 	for _, pattern := range datePatterns {
