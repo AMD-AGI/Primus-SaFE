@@ -1320,7 +1320,7 @@ func extractModelNameFromEnv(env sql.NullString) string {
 type benchmarkConfig struct {
 	DatasetId       string `json:"datasetId"`
 	DatasetName     string `json:"datasetName,omitempty"`
-	DatasetLocalDir string `json:"localDir,omitempty"`
+	DatasetLocalDir string `json:"datasetLocalDir,omitempty"`
 	EvalType        string `json:"evalType,omitempty"`
 	Limit           *int   `json:"limit,omitempty"`
 }
