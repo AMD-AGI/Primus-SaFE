@@ -287,7 +287,7 @@ func (r *EvaluationJobReconciler) generateEvaluationWorkload(ctx context.Context
 type BenchmarkConfig struct {
 	DatasetId       string `json:"datasetId"`
 	DatasetName     string `json:"datasetName"`     // Dataset displayName, used as evalscope benchmark name
-	DatasetLocalDir string `json:"datasetLocalDir"` // Full local path to dataset, e.g. /apps/datasets/math_500
+	DatasetLocalDir string `json:"datasetLocalDir"` // Full local path to dataset, e.g. /wekafs/datasets/math_500
 	EvalType        string `json:"evalType"`
 	Limit           int    `json:"limit,omitempty"`
 }
@@ -384,34 +384,11 @@ func (r *EvaluationJobReconciler) buildEvalCommand(ctx context.Context, modelEnd
 	return evalCommand, nil
 }
 
-// buildReportUploadScript builds a Python script to upload evaluation report to S3
+// buildReportUploadScript builds a bash command to upload evaluation report to S3
 func (r *EvaluationJobReconciler) buildReportUploadScript(outputDir, presignedURL string) string {
-	// Python script to find and upload report file
-	script := fmt.Sprintf(`python3 -c "
-import glob, urllib.request, sys
-
-# Find report files
-report_files = glob.glob('%s/*/reports/*/*.json')
-if not report_files:
-    print('No report files found, skipping upload')
-    sys.exit(0)
-
-# Read the first report file
-with open(report_files[0], 'rb') as f:
-    report_data = f.read()
-
-print(f'Uploading report: {report_files[0]} ({len(report_data)} bytes)')
-
-# Upload to S3 using presigned PUT URL
-try:
-    req = urllib.request.Request('%s', data=report_data, method='PUT')
-    req.add_header('Content-Type', 'application/json')
-    urllib.request.urlopen(req, timeout=60)
-    print('Report uploaded successfully')
-except Exception as e:
-    print(f'Failed to upload report: {e}')
-    sys.exit(1)
-"`, outputDir, presignedURL)
+	// Bash command to find and upload report file using curl
+	// Much simpler than Python version, and curl is available in the evalscope image
+	script := fmt.Sprintf(`REPORT=$(find %s -name "*.json" -path "*/reports/*" 2>/dev/null | head -1); if [ -n "$REPORT" ]; then echo "Uploading report: $REPORT"; curl -s -X PUT -T "$REPORT" -H "Content-Type: application/json" "%s" && echo "Report uploaded successfully"; else echo "No report files found"; fi`, outputDir, presignedURL)
 
 	return script
 }
