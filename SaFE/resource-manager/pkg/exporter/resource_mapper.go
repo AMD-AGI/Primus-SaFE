@@ -79,6 +79,7 @@ func workloadMapper(obj *unstructured.Unstructured) *dbclient.Workload {
 		DeletionTime:  dbutils.NullMetaV1Time(workload.GetDeletionTimestamp()),
 		IsSupervised:  workload.Spec.IsSupervised,
 		IsTolerateAll: workload.Spec.IsTolerateAll,
+		IsStickyNodes: v1.IsEnableStickyNodes(workload),
 		Priority:      workload.Spec.Priority,
 		MaxRetry:      workload.Spec.MaxRetry,
 		QueuePosition: workload.Status.QueuePosition,

@@ -484,14 +484,8 @@ func (h *Handler) patchWorkload(c *gin.Context) (interface{}, error) {
 	if _, err = apiutils.ParseRequestBody(c.Request, req); err != nil {
 		return nil, commonerrors.NewBadRequest(err.Error())
 	}
-	if err = h.authWorkloadAction(c, adminWorkload, v1.UpdateVerb, v1.WorkloadKind, requestUser, roles); err != nil {
+	if err = h.authWorkloadUpdate(c, adminWorkload, requestUser, roles, req); err != nil {
 		return nil, err
-	}
-	if req.Priority != nil {
-		priorityKind := generatePriority(*req.Priority)
-		if err = h.authWorkloadAction(c, adminWorkload, v1.UpdateVerb, priorityKind, requestUser, roles); err != nil {
-			return nil, err
-		}
 	}
 
 	if err = backoff.ConflictRetry(func() error {
@@ -515,6 +509,36 @@ func (h *Handler) patchWorkload(c *gin.Context) (interface{}, error) {
 	}
 	klog.Infof("update workload, name: %s, request: %s", name, string(jsonutils.MarshalSilently(*req)))
 	return nil, nil
+}
+
+// authWorkloadUpdate performs authorization checks for workload update.
+func (h *Handler) authWorkloadUpdate(c *gin.Context, adminWorkload *v1.Workload,
+	requestUser *v1.User, roles []*v1.Role, request *view.PatchWorkloadRequest) error {
+	var err error
+	if err = h.authWorkloadAction(c, adminWorkload, v1.UpdateVerb, v1.WorkloadKind, requestUser, roles); err != nil {
+		return err
+	}
+	if request.Priority != nil && *request.Priority != adminWorkload.Spec.Priority {
+		priorityKind := generatePriority(*request.Priority)
+		if err = h.authWorkloadAction(c, adminWorkload, v1.UpdateVerb, priorityKind, requestUser, roles); err != nil {
+			return err
+		}
+	}
+	if request.Timeout != nil && (adminWorkload.Spec.Timeout == nil || *request.Timeout != *adminWorkload.Spec.Timeout) {
+		workspace, err := h.getAdminWorkspace(c.Request.Context(), adminWorkload.Spec.Workspace)
+		if err != nil {
+			return err
+		}
+		// Modifying timeouts that exceed the workspace limit or setting no timeout requires the highest-priority permission.
+		maxRunTime := workspace.GetMaxRunTime(commonworkload.GetScope(adminWorkload))
+		if maxRunTime > 0 && (*request.Timeout > maxRunTime || *request.Timeout <= 0) {
+			priorityKind := generatePriority(common.HighPriorityInt)
+			if err = h.authWorkloadAction(c, adminWorkload, v1.UpdateVerb, priorityKind, requestUser, roles); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // updateWorkload updates the workload in the system and handles CICD secret updates
@@ -796,6 +820,9 @@ func (h *Handler) generateWorkload(ctx context.Context,
 	}
 	if req.Privileged {
 		v1.SetAnnotation(workload, v1.WorkloadPrivilegedAnnotation, v1.TrueStr)
+	}
+	if req.StickyNodes {
+		v1.SetAnnotation(workload, v1.WorkloadStickyNodesAnnotation, v1.TrueStr)
 	}
 	return workload, nil
 }
@@ -1231,6 +1258,7 @@ func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context,
 	result := &view.GetWorkloadResponse{
 		WorkloadResponseItem: h.cvtDBWorkloadToResponseItem(ctx, dbWorkload),
 		IsSupervised:         dbWorkload.IsSupervised,
+		StickyNodes:          dbWorkload.IsStickyNodes,
 	}
 	result.Images = cvtToWorkloadImages(dbWorkload, len(result.Resources))
 	if result.GroupVersionKind.Kind != common.AuthoringKind {
@@ -1415,6 +1443,9 @@ func cvtDBWorkloadToAdminWorkload(dbWorkload *dbclient.Workload) *v1.Workload {
 	result.Spec.Resources = cvtToWorkloadResources(dbWorkload, result.SpecKind())
 	result.Spec.Images = cvtToWorkloadImages(dbWorkload, len(result.Spec.Resources))
 	result.Spec.EntryPoints = cvtToWorkloadEntryPoints(dbWorkload, len(result.Spec.Resources))
+	if dbWorkload.IsStickyNodes {
+		v1.SetAnnotation(result, v1.WorkloadStickyNodesAnnotation, v1.TrueStr)
+	}
 
 	if str := dbutils.ParseNullString(dbWorkload.Env); str != "" {
 		json.Unmarshal([]byte(str), &result.Spec.Env)

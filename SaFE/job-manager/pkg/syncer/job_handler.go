@@ -12,7 +12,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -21,6 +20,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
@@ -81,9 +81,17 @@ func (r *SyncerReconciler) handleJobImpl(ctx context.Context, message *resourceM
 		}
 	}
 
-	if message.action == ResourceDel {
+	// Check if the resource is being deleted OR if the workload was preempted and dispatched
+	// The additional IsWorkloadPreempted check prevents issues when the service restarts during
+	// the preemption process, which could cause message loss and prevent proper cleanup/re-scheduling
+	if message.action == ResourceDel ||
+		(v1.IsWorkloadPreempted(adminWorkload) && !v1.IsWorkloadDisableFailover(adminWorkload)) {
 		// wait until the job is also deleted
 		if !r.waitJobDeleted(ctx, message, clientSets) {
+			// If this is not a deletion message, return without retrying
+			if message.action != ResourceDel {
+				return ctrlruntime.Result{}, nil
+			}
 			return ctrlruntime.Result{RequeueAfter: time.Second * 3}, nil
 		}
 		if !adminWorkload.IsEnd() {
@@ -395,11 +403,21 @@ func shouldTerminateWorkload(adminWorkload *v1.Workload, status *jobutils.K8sObj
 	case v1.K8sSucceeded:
 		return true
 	case v1.K8sFailed, v1.K8sDeleted:
-		// Continue retrying until the max retry limit is reached
-		if adminWorkload.Spec.MaxRetry <= 0 ||
-			count > adminWorkload.Spec.MaxRetry || v1.IsWorkloadDisableFailover(adminWorkload) {
+		if shouldWorkloadStopRetry(adminWorkload, count) {
 			return true
 		}
+	}
+	return false
+}
+
+// shouldWorkloadStopRetry determines if a workload should stop retrying based on its retry limit.
+func shouldWorkloadStopRetry(adminWorkload *v1.Workload, count int) bool {
+	if v1.IsWorkloadDisableFailover(adminWorkload) {
+		return true
+	}
+	// Continue retrying until the max retry limit is reached
+	if adminWorkload.Spec.MaxRetry <= 0 || count > adminWorkload.Spec.MaxRetry {
+		return true
 	}
 	return false
 }

@@ -188,6 +188,9 @@ func cvtToListFaultSql(query *view.ListFaultRequest) (sqrl.Sqlizer, []string) {
 			sqlList = append(sqlList, sqrl.Eq{monitorId: val})
 		}
 		dbSql = append(dbSql, sqrl.Or(sqlList))
+	} else {
+		// Exclude all monitorIds starting with "5", which are system reserved
+		dbSql = append(dbSql, sqrl.NotLike{monitorId: "5%"})
 	}
 
 	if clusterId := strings.TrimSpace(query.ClusterId); clusterId != "" {
