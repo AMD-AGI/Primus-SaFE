@@ -164,6 +164,10 @@ func (c *GpuAllocationCalculator) calculateGpuAllocation(
 		return nil, err
 	}
 
+	// Filter out workloads that don't have any running pods
+	// This prevents counting workloads that are marked as "Running" but have no actual active pods
+	workloads = FilterWorkloadsWithActivePodsByFacade(ctx, c.workloadFacade, workloads)
+
 	if len(workloads) == 0 {
 		return &GpuAllocationResult{}, nil
 	}

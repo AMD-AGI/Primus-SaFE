@@ -152,6 +152,12 @@ func (c *LabelAggregationCalculator) CalculateLabelAggregation(
 	log.Debugf("Found %d active top-level workloads for label aggregation in time range %v - %v",
 		len(workloads), startTime, endTime)
 
+	// Filter out workloads that don't have any running pods
+	// This prevents counting workloads that are marked as "Running" but have no actual active pods
+	workloads = FilterWorkloadsWithActivePodsByFacade(ctx, c.workloadFacade, workloads)
+
+	log.Debugf("After filtering for running pods: %d workloads remain", len(workloads))
+
 	summary := &LabelAggregationSummary{
 		Results:        make(map[string]*LabelAggregationResult),
 		Hour:           startTime.Truncate(time.Hour),

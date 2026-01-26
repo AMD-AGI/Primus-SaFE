@@ -426,6 +426,10 @@ func (j *WorkloadGpuAggregationJob) getActiveTopLevelWorkloads(
 	// Filter for top-level workloads (parent_uid is empty) that were active during the time range
 	activeWorkloads := FilterWorkloadActiveTopLevel(allWorkloads, startTime, endTime)
 
+	// Filter out workloads that don't have any running pods
+	// This prevents counting workloads that are marked as "Running" but have no actual active pods
+	activeWorkloads = FilterWorkloadsWithRunningPods(ctx, facade, activeWorkloads)
+
 	return activeWorkloads, nil
 }
 

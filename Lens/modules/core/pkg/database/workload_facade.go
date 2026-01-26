@@ -44,6 +44,10 @@ type WorkloadFacadeInterface interface {
 	// If namespace is empty, returns workloads from all namespaces
 	ListActiveTopLevelWorkloads(ctx context.Context, startTime, endTime time.Time, namespace string) ([]*model.GpuWorkload, error)
 
+	// ListWorkloadUidsWithRunningPods returns a set of workload UIDs that have at least one running pod
+	// This is used to filter out workloads that are marked as "Running" but have no active pods
+	ListWorkloadUidsWithRunningPods(ctx context.Context) (map[string]struct{}, error)
+
 	// GpuWorkloadSnapshot operations
 	CreateGpuWorkloadSnapshot(ctx context.Context, gpuWorkloadSnapshot *model.GpuWorkloadSnapshot) error
 	UpdateGpuWorkloadSnapshot(ctx context.Context, gpuWorkloadSnapshot *model.GpuWorkloadSnapshot) error
@@ -444,6 +448,37 @@ func (f *WorkloadFacade) GetAllWorkloadPodReferences(ctx context.Context) ([]*mo
 		return nil, err
 	}
 	return refs, nil
+}
+
+// ListWorkloadUidsWithRunningPods returns a set of workload UIDs that have at least one running pod
+// This performs a JOIN query between workload_pod_reference and gpu_pods tables
+func (f *WorkloadFacade) ListWorkloadUidsWithRunningPods(ctx context.Context) (map[string]struct{}, error) {
+	db := f.getDB()
+	if db == nil {
+		return make(map[string]struct{}), nil
+	}
+
+	// Query: SELECT DISTINCT wpr.workload_uid FROM workload_pod_reference wpr
+	//        JOIN gpu_pods p ON wpr.pod_uid = p.uid WHERE p.running = true
+	var workloadUids []string
+	err := db.WithContext(ctx).
+		Table("workload_pod_reference").
+		Select("DISTINCT workload_pod_reference.workload_uid").
+		Joins("JOIN gpu_pods ON workload_pod_reference.pod_uid = gpu_pods.uid").
+		Where("gpu_pods.running = ?", true).
+		Pluck("workload_uid", &workloadUids).Error
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to query workload UIDs with running pods: %w", err)
+	}
+
+	// Convert to set for O(1) lookup
+	result := make(map[string]struct{}, len(workloadUids))
+	for _, uid := range workloadUids {
+		result[uid] = struct{}{}
+	}
+
+	return result, nil
 }
 
 // WorkloadEvent operation implementations
