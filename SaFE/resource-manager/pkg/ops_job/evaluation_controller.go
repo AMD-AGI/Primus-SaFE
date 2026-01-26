@@ -398,14 +398,20 @@ func (r *EvaluationJobReconciler) buildSingleEvalCommand(modelEndpoint, modelNam
 	}
 
 	// Judge model configuration (for LLM-as-Judge evaluation mode)
+	// evalscope uses --judge-model-args with JSON format:
+	// --judge-model-args '{"model_id": "xxx", "api_url": "xxx", "api_key": "xxx"}'
 	if judgeModel != "" {
-		evalArgs = append(evalArgs, "--judge-model", judgeModel)
+		judgeArgs := map[string]string{
+			"model_id": judgeModel,
+		}
 		if judgeEndpoint != "" {
-			evalArgs = append(evalArgs, "--judge-api-url", judgeEndpoint)
+			judgeArgs["api_url"] = judgeEndpoint
 		}
 		if judgeApiKey != "" {
-			evalArgs = append(evalArgs, "--judge-api-key", judgeApiKey)
+			judgeArgs["api_key"] = judgeApiKey
 		}
+		judgeArgsJSON, _ := json.Marshal(judgeArgs)
+		evalArgs = append(evalArgs, "--judge-model-args", fmt.Sprintf("'%s'", string(judgeArgsJSON)))
 	}
 
 	// Output directory (for report)
@@ -431,7 +437,9 @@ func extractParentDir(path string) string {
 func (r *EvaluationJobReconciler) buildReportUploadScript(outputDir, presignedURL string) string {
 	// Bash command to find and upload report file using curl
 	// Much simpler than Python version, and curl is available in the evalscope image
-	script := fmt.Sprintf(`REPORT=$(find %s -name "*.json" -path "*/reports/*" 2>/dev/null | head -1); if [ -n "$REPORT" ]; then echo "Uploading report: $REPORT"; curl -s -X PUT -T "$REPORT" -H "Content-Type: application/json" "%s" && echo "Report uploaded successfully"; else echo "No report files found"; fi`, outputDir, presignedURL)
+	// Report path structure: outputs/<timestamp>/reports/<model>/<dataset>.json
+	// Use -path "*/reports/*" to match files under reports/ at any depth
+	script := fmt.Sprintf(`REPORT=$(find %s -path "*/reports/*" -name "*.json" 2>/dev/null | head -1); if [ -z "$REPORT" ]; then REPORT=$(find %s -name "*.json" 2>/dev/null | head -1); fi; if [ -n "$REPORT" ]; then echo "Uploading report: $REPORT"; curl -s -X PUT -T "$REPORT" -H "Content-Type: application/json" "%s" && echo "Report uploaded successfully"; else echo "No report files found"; fi`, outputDir, outputDir, presignedURL)
 
 	return script
 }
