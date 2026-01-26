@@ -10,7 +10,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"time"
 
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	admissionv1 "k8s.io/api/admission/v1"
@@ -323,12 +322,7 @@ func (m *WorkspaceMutator) mutateWorkloadsOfWorkspace(ctx context.Context, works
 		if w.Spec.Timeout == nil {
 			scope := commonworkload.GetScope(w)
 			if maxRuntime := workspace.GetMaxRunTime(scope); maxRuntime > 0 {
-				if w.Status.StartTime != nil {
-					timeout := time.Now().Add(time.Duration(maxRuntime) * time.Second).Sub(w.Status.StartTime.Time)
-					w.Spec.Timeout = pointer.Int(int(timeout.Seconds()))
-				} else {
-					w.Spec.Timeout = pointer.Int(maxRuntime)
-				}
+				w.Spec.Timeout = pointer.Int(maxRuntime)
 				isChanged = true
 			}
 		}

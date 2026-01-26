@@ -8,7 +8,6 @@ package webhooks
 import (
 	"context"
 	"testing"
-	"time"
 
 	"gotest.tools/assert"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -266,60 +265,4 @@ func TestMutateWorkloadsOfWorkspace_SetTimeout(t *testing.T) {
 	// Should set timeout (2 hours = 7200 seconds)
 	assert.Assert(t, updated.Spec.Timeout != nil)
 	assert.Equal(t, *updated.Spec.Timeout, 7200)
-}
-
-func TestMutateWorkloadsOfWorkspace_SetTimeoutFromStartTime(t *testing.T) {
-	ctx := context.TODO()
-	scheme := newSchemeForWebhookTests(t)
-
-	// Workload started 30 minutes ago
-	startTime := metav1.NewTime(time.Now().Add(-30 * time.Minute))
-	workload := &v1.Workload{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "w1",
-			Labels: map[string]string{
-				v1.ClusterIdLabel:   "cluster1",
-				v1.WorkspaceIdLabel: "ws1",
-			},
-		},
-		Spec: v1.WorkloadSpec{
-			GroupVersionKind: v1.GroupVersionKind{Kind: "PyTorchJob"}, // TrainScope
-			Timeout:          nil,
-		},
-		Status: v1.WorkloadStatus{
-			Phase:     v1.WorkloadRunning,
-			StartTime: &startTime,
-		},
-	}
-
-	k8sClient := fake.NewClientBuilder().
-		WithScheme(scheme).
-		WithObjects(workload).
-		Build()
-
-	m := &WorkspaceMutator{Client: k8sClient}
-	workspace := &v1.Workspace{
-		ObjectMeta: metav1.ObjectMeta{Name: "ws1"},
-		Spec: v1.WorkspaceSpec{
-			Cluster: "cluster1",
-			MaxRuntime: map[v1.WorkspaceScope]int{
-				v1.TrainScope: 2, // 2 hours = 7200 seconds
-			},
-		},
-	}
-
-	err := m.mutateWorkloadsOfWorkspace(ctx, workspace)
-	assert.NilError(t, err)
-
-	updated := &v1.Workload{}
-	err = k8sClient.Get(ctx, client.ObjectKey{Name: "w1"}, updated)
-	assert.NilError(t, err)
-
-	// Timeout is calculated as: (now + maxRuntime) - startTime
-	// maxRuntime = 2 hours = 7200 seconds, elapsed = 30 minutes = 1800 seconds
-	// timeout = 7200 + 1800 = 9000 seconds (approximately)
-	assert.Assert(t, updated.Spec.Timeout != nil)
-	// Allow some tolerance due to time elapsed during test execution
-	timeout := *updated.Spec.Timeout
-	assert.Assert(t, timeout >= 8990 && timeout <= 9010, "timeout should be approximately 9000 seconds, got %d", timeout)
 }
