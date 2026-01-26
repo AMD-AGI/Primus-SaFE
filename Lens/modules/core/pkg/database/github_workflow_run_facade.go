@@ -12,7 +12,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// WorkflowRunStatus constants
+// WorkflowRunStatus constants (DEPRECATED: use CollectionStatus instead for new code)
 const (
 	// Workload phases (before collection)
 	WorkflowRunStatusWorkloadPending = "workload_pending" // EphemeralRunner is pending
@@ -25,6 +25,45 @@ const (
 	WorkflowRunStatusCompleted  = "completed"  // Collection completed successfully
 	WorkflowRunStatusFailed     = "failed"     // Collection failed
 	WorkflowRunStatusSkipped    = "skipped"    // Skipped (no matching config or files)
+)
+
+// ============================================================================
+// NEW: Separated Status Constants
+// ============================================================================
+
+// WorkflowStatus from GitHub API (workflow execution status)
+const (
+	WorkflowStatusQueued     = "queued"
+	WorkflowStatusInProgress = "in_progress"
+	WorkflowStatusCompleted  = "completed"
+)
+
+// WorkflowConclusion from GitHub API (workflow execution result)
+const (
+	WorkflowConclusionSuccess        = "success"
+	WorkflowConclusionFailure        = "failure"
+	WorkflowConclusionCancelled      = "cancelled"
+	WorkflowConclusionSkipped        = "skipped"
+	WorkflowConclusionTimedOut       = "timed_out"
+	WorkflowConclusionActionRequired = "action_required"
+)
+
+// CollectionStatus for Lens internal processing
+const (
+	CollectionStatusPending    = "pending"    // Waiting for collection
+	CollectionStatusCollecting = "collecting" // Collecting metrics files
+	CollectionStatusExtracting = "extracting" // Extracting metrics from files
+	CollectionStatusCompleted  = "completed"  // Collection completed successfully
+	CollectionStatusFailed     = "failed"     // Collection failed
+	CollectionStatusSkipped    = "skipped"    // Skipped (no config/files)
+)
+
+// WorkflowEvent types from GitHub
+const (
+	WorkflowEventPush             = "push"
+	WorkflowEventPullRequest      = "pull_request"
+	WorkflowEventSchedule         = "schedule"
+	WorkflowEventWorkflowDispatch = "workflow_dispatch"
 )
 
 // WorkflowRunTriggerSource constants

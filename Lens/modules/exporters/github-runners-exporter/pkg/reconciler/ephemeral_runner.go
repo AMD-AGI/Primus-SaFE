@@ -10,10 +10,12 @@ import (
 	"time"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/constant"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/github"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/workflow"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/github-runners-exporter/pkg/types"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -282,6 +284,11 @@ func (r *EphemeralRunnerReconciler) processRunner(ctx context.Context, info *typ
 			} else {
 				log.Debugf("EphemeralRunnerReconciler: updated GitHub info for run record %d", existingRun.ID)
 			}
+
+			// Start real-time sync when runner is running and has GitHub run ID
+			if status == database.WorkflowRunStatusWorkloadRunning && existingRun.GithubRunID > 0 {
+				r.startRealtimeSync(existingRun.ID)
+			}
 		}
 		return nil
 	}
@@ -337,6 +344,11 @@ func (r *EphemeralRunnerReconciler) processRunner(ctx context.Context, info *typ
 	log.Infof("EphemeralRunnerReconciler: created run record %d for %s/%s (runner_set: %s, status: %s)",
 		run.ID, info.Namespace, info.Name, runnerSet.Name, status)
 
+	// Start real-time sync when runner is running and has GitHub run ID
+	if status == database.WorkflowRunStatusWorkloadRunning && run.GithubRunID > 0 {
+		r.startRealtimeSync(run.ID)
+	}
+
 	return nil
 }
 
@@ -380,6 +392,19 @@ func (r *EphemeralRunnerReconciler) shouldUpdateStatus(oldStatus, newStatus stri
 		return true // Allow if status is unknown
 	}
 	return newPriority > oldPriority
+}
+
+// startRealtimeSync starts real-time workflow state synchronization via TaskScheduler
+func (r *EphemeralRunnerReconciler) startRealtimeSync(runID int64) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := workflow.CreateSyncTask(ctx, runID); err != nil {
+		log.Warnf("EphemeralRunnerReconciler: failed to create sync task for run %d: %v", runID, err)
+		return
+	}
+
+	log.Infof("EphemeralRunnerReconciler: created sync task for run %d", runID)
 }
 
 // matchesConfig checks if an EphemeralRunner matches a workflow config
@@ -472,7 +497,7 @@ func (r *EphemeralRunnerReconciler) enrichWithGitHubInfo(ctx context.Context, in
 }
 
 // processDeletion handles the deletion of an EphemeralRunner
-// When a runner is deleted, we mark it as completed and ready for collection
+// When a runner is deleted, we mark it as ready for collection and submit a collection task
 func (r *EphemeralRunnerReconciler) processDeletion(ctx context.Context, info *types.EphemeralRunnerInfo) error {
 	runnerSetFacade := database.GetFacade().GetGithubRunnerSet()
 	runFacade := database.GetFacade().GetGithubWorkflowRun()
@@ -521,6 +546,40 @@ func (r *EphemeralRunnerReconciler) processDeletion(ctx context.Context, info *t
 	log.Infof("EphemeralRunnerReconciler: marked run %d as pending for collection on deletion (status: %s -> %s)",
 		existingRun.ID, oldStatus, existingRun.Status)
 
+	// Submit collection task to TaskScheduler
+	if err := r.submitCollectionTask(ctx, existingRun); err != nil {
+		// Log error but don't fail - the run is already marked as pending
+		// and will be picked up by the job scheduler if task submission fails
+		log.Warnf("EphemeralRunnerReconciler: failed to submit collection task for run %d: %v", existingRun.ID, err)
+	}
+
+	return nil
+}
+
+// submitCollectionTask creates a collection task for the workflow run
+func (r *EphemeralRunnerReconciler) submitCollectionTask(ctx context.Context, run *model.GithubWorkflowRuns) error {
+	taskFacade := database.NewWorkloadTaskFacade()
+
+	// Create unique workload UID for the task
+	taskUID := fmt.Sprintf("collection-%d-%d", run.ID, time.Now().Unix())
+
+	collectionTask := &model.WorkloadTaskState{
+		WorkloadUID: taskUID,
+		TaskType:    constant.TaskTypeGithubWorkflowCollection,
+		Status:      constant.TaskStatusPending,
+		Ext: model.ExtType{
+			"run_id":        run.ID,
+			"runner_set_id": run.RunnerSetID,
+			"config_id":     run.ConfigID,
+			"workload_name": run.WorkloadName,
+		},
+	}
+
+	if err := taskFacade.UpsertTask(ctx, collectionTask); err != nil {
+		return fmt.Errorf("failed to create collection task: %w", err)
+	}
+
+	log.Infof("EphemeralRunnerReconciler: submitted collection task %s for run %d", taskUID, run.ID)
 	return nil
 }
 
