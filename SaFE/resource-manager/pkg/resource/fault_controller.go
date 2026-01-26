@@ -142,7 +142,7 @@ func (r *FaultReconciler) handleConfigmapEvent() handler.EventHandler {
 			newConfigs := parseFaultConfig(newConfigmap)
 			for key, oldConf := range oldConfigs {
 				newConf, ok := newConfigs[key]
-				labelSelector := labels.SelectorFromSet(map[string]string{v1.FaultId: newConf.Id})
+				labelSelector := labels.SelectorFromSet(map[string]string{v1.FaultMonitorId: newConf.Id})
 				if !ok || (oldConf.IsEnable() && !newConf.IsEnable()) {
 					if err := r.deleteFaults(ctx, labelSelector); err != nil {
 						klog.ErrorS(err, "failed to delete faults")
@@ -224,7 +224,7 @@ func (r *FaultReconciler) processFault(ctx context.Context, fault *v1.Fault) (ct
 		actions := strings.Split(fault.Spec.Action, ",")
 		for _, action := range actions {
 			switch action {
-			case string(TaintAction):
+			case common.TaintAction:
 				err = r.taintNode(ctx, fault)
 			default:
 			}
@@ -272,10 +272,10 @@ func (r *FaultReconciler) taintNode(ctx context.Context, fault *v1.Fault) error 
 		return err
 	}
 
+	taintKey, taintVal := generateTaintKeyAndVal(fault)
 	// Check if it has already been processed
-	taintKey := commonfaults.GenerateTaintKey(fault.Spec.MonitorId)
 	for _, t := range adminNode.Spec.Taints {
-		if t.Key == taintKey {
+		if t.Key == taintKey && t.Value == taintVal {
 			return nil
 		}
 	}
@@ -288,6 +288,7 @@ func (r *FaultReconciler) taintNode(ctx context.Context, fault *v1.Fault) error 
 		"spec": map[string]any{
 			"taints": append(adminNode.Spec.Taints, corev1.Taint{
 				Key:       taintKey,
+				Value:     taintVal,
 				Effect:    corev1.TaintEffectNoSchedule,
 				TimeAdded: &metav1.Time{Time: time.Now().UTC()},
 			}),
@@ -314,9 +315,9 @@ func (r *FaultReconciler) removeNodeTaint(ctx context.Context, fault *v1.Fault) 
 	}
 
 	isFound := false
-	taintKey := commonfaults.GenerateTaintKey(fault.Spec.MonitorId)
-	for i, taint := range adminNode.Spec.Taints {
-		if taint.Key == taintKey {
+	taintKey, taintVal := generateTaintKeyAndVal(fault)
+	for i, t := range adminNode.Spec.Taints {
+		if t.Key == taintKey && t.Value == taintVal {
 			isFound = true
 			adminNode.Spec.Taints = append(adminNode.Spec.Taints[:i], adminNode.Spec.Taints[i+1:]...)
 			break
@@ -343,6 +344,16 @@ func (r *FaultReconciler) removeNodeTaint(ctx context.Context, fault *v1.Fault) 
 	klog.Infof("remove taint, cluster: %s, node-name: %s, key: %s",
 		v1.GetClusterId(fault), adminNode.Name, taintKey)
 	return nil
+}
+
+func generateTaintKeyAndVal(fault *v1.Fault) (string, string) {
+	taintKey := commonfaults.GenerateTaintKey(fault.Spec.MonitorId)
+	var taintVal string
+	//In the case of a sticky node fault, the workload will tolerate the taint, with the tolerated value being the workload.name.
+	if fault.Spec.MonitorId == v1.StickyNodesMonitorId {
+		taintVal = v1.GetWorkloadId(fault)
+	}
+	return taintKey, taintVal
 }
 
 // retry handles fault retry logic by incrementing retry count and scheduling requeue.

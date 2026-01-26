@@ -128,6 +128,7 @@ func (r *WorkloadTTLController) handle(ctx context.Context, workload *v1.Workloa
 	case workload.GetTimeout() > 0:
 		timeoutStamp := workload.Status.StartTime.Add(time.Duration(workload.GetTimeout()) * time.Second)
 		result.RequeueAfter = timeoutStamp.Sub(nowTime)
+		klog.Infof("the workload %s will time out in %d seconds", workload.Name, int(result.RequeueAfter.Seconds()))
 	}
 	return result, err
 }

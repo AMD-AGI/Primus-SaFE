@@ -1015,7 +1015,7 @@ func (h *Handler) deleteRelatedFaults(ctx context.Context, node *v1.Node, newTai
 		if newTaintKeys.Has(t.Key) {
 			continue
 		}
-		id := commonfaults.GetIdByTaintKey(t.Key)
+		id := v1.GetIdByTaintKey(t.Key)
 		faultId := commonfaults.GenerateFaultId(node.Name, id)
 		fault, err := h.getAdminFault(ctx, faultId)
 		if err != nil {

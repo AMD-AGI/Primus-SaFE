@@ -48,25 +48,27 @@ Create a new workspace in a cluster.
   ],
   "enablePreempt": false,
   "isDefault": true,
-  "imageSecretIds": ["image-secret-001"]
+  "imageSecretIds": ["image-secret-001"],
+  "maxRuntime": {"Authoring": 168, "Infer": 720}
 }
 ```
 
 **Field Description**:
 
-| Field | Type | Required | Description                                                                                                                              |
-|-------|------|----------|------------------------------------------------------------------------------------------------------------------------------------------|
-| name | string | Yes | Workspace name                                                                                                                           |
-| clusterId | string | Yes | The cluster which workspace belongs to                                                                                                   |
-| description | string | No | Workspace description                                                                                                                    |
-| flavorId | string | Yes | Node flavor ID                                                                                                                           |
-| replica | int | No | Expected number of nodes                                                                                                                 |
-| queuePolicy | string | No | Queue policy: fifo (first-in-first-out)/balance (load balancing), default fifo                                                           |
+| Field | Type     | Required | Description                                                                                                                              |
+|-------|----------|----------|------------------------------------------------------------------------------------------------------------------------------------------|
+| name | string   | Yes | Workspace name                                                                                                                           |
+| clusterId | string   | Yes | The cluster which workspace belongs to                                                                                                   |
+| description | string   | No | Workspace description                                                                                                                    |
+| flavorId | string   | Yes | Node flavor ID                                                                                                                           |
+| replica | int      | No | Expected number of nodes                                                                                                                 |
+| queuePolicy | string   | No | Queue policy: fifo (first-in-first-out)/balance (load balancing), default fifo                                                           |
 | scopes | []string | No | Supported service modules: Train/Infer/Authoring/CICD, no limitation if not specified                                                    |
 | volumes | []object | No | Storage volume configuration list                                                                                                        |
-| enablePreempt | bool | No | Whether to enable preemption, default false.  If enabled, higher-priority workload will preempt the lower-priority one in this workspace |
-| isDefault | bool | No | Whether to set as default workspace (accessible to all users)                                                                            |
+| enablePreempt | bool     | No | Whether to enable preemption, default false.  If enabled, higher-priority workload will preempt the lower-priority one in this workspace |
+| isDefault | bool     | No | Whether to set as default workspace (accessible to all users)                                                                            |
 | imageSecretIds | []string | No | List of image pull secret IDs                                                                                                            |
+| maxRuntime | object   | No | The maximum workload runtime of each scope, Unit: hours                                                                                    |
 
 **Volume Configuration**:
 
@@ -152,7 +154,8 @@ Get workspace list with cluster filtering support.
           "name": "zhangsan"
         }
       ],
-      "isDefault": false
+      "isDefault": false,
+      "maxRuntime": {"Authoring": 168, "Infer": 720}
     }
   ]
 }
@@ -163,17 +166,18 @@ Get workspace list with cluster filtering support.
 Only fields not already covered by "Create Workspace" are listed below. Other fields share the same meaning as in the creation request.
 
 
-| Field         | Type  | Description                                                         |
-|---------------|-------|---------------------------------------------------------------------|
-| totalCount    | int   | The total number of workspaces                                      |
+| Field         | Type   | Description                                                         |
+|---------------|--------|---------------------------------------------------------------------|
+| totalCount    | int    | The total number of workspaces                                      |
 | workspaceId   | string | Workspace ID                                                        |
 | workspaceName | string | Workspace name                                                      |
 | userId        | string | User id of workspace creator                                        |
-| targetNodeCount | int   | The target expected number of nodes in workspace                    |
-| currentNodeCount | int   | The current total number of nodes                                   |
-| abnormalNodeCount | int   | The current total number of abnormal nodes                          |
+| targetNodeCount | int    | The target expected number of nodes in workspace                    |
+| currentNodeCount | int    | The current total number of nodes                                   |
+| abnormalNodeCount | int    | The current total number of abnormal nodes                          |
 | phase    | string | The status of workspace, e.g. Creating, Running, Abnormal, Deleting |
 | creationTime  | string | The workspace creation time                                         |
+| maxRuntime  | Object | The maximum workload runtime of each scope, Unit: hours             |
 
 ---
 
@@ -259,7 +263,8 @@ Get detailed information about a specific workspace, including resource quotas.
     "rdma/hca": 0
   },
   "usedNodeCount": 64,
-  "imageSecretIds": ["image-secret-001"]
+  "imageSecretIds": ["image-secret-001"],
+  "maxRuntime": {"Authoring": 168, "Infer": 720}
 }
 ```
 
@@ -304,7 +309,8 @@ Update workspace configuration.
   "enablePreempt": true,
   "managers": ["user-001", "user-003"],
   "isDefault": false,
-  "imageSecretIds": ["image-secret-001", "image-secret-002"]
+  "imageSecretIds": ["image-secret-001", "image-secret-002"],
+  "maxRuntime": {"Authoring": 168, "Infer": 720}
 }
 ```
 
@@ -365,12 +371,21 @@ Add or remove nodes from a workspace.
 }
 ```
 
+```json
+{
+  "nodeIds": ["node-004", "node-005"],
+  "action": "remove",
+  "force": false
+}
+```
+
 **Field Description**:
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| nodeIds | []string | Yes | List of node IDs |
-| action | string | Yes | Action type: add/remove |
+| Field    | Type | Required | Description             |
+|----------|------|----------|-------------------------|
+| nodeIds  | []string | Yes | List of node IDs        |
+| action   | string | Yes | Action type: add/remove |
+| force | bool | No | Force remove nodes            |
 
 **Response**: 200 OK with no response body
 

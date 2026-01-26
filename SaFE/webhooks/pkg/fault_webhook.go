@@ -10,7 +10,6 @@ import (
 	"encoding/json"
 	"fmt"
 
-	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	admissionv1 "k8s.io/api/admission/v1"
 	"k8s.io/klog/v2"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
@@ -63,19 +62,19 @@ func (m *FaultMutator) Handle(ctx context.Context, req admission.Request) admiss
 func (m *FaultMutator) mutateOnCreation(ctx context.Context, fault *v1.Fault) {
 	fault.Name = stringutil.NormalizeName(fault.Name)
 	v1.SetLabel(fault, v1.ClusterIdLabel, fault.Spec.Node.ClusterName)
-	v1.SetLabel(fault, v1.FaultId, fault.Spec.MonitorId)
+	v1.SetLabel(fault, v1.FaultMonitorId, fault.Spec.MonitorId)
 	controllerutil.AddFinalizer(fault, v1.FaultFinalizer)
 
 	if fault.Spec.Node != nil {
-		adminNodeName := fault.Spec.Node.AdminName
-		node, _ := getNode(ctx, m.Client, adminNodeName)
-		if node == nil {
-			return
+		if v1.GetNodeId(fault) == "" {
+			v1.SetLabel(fault, v1.NodeIdLabel, fault.Spec.Node.AdminName)
 		}
-		v1.SetLabel(node, v1.NodeIdLabel, adminNodeName)
-		if !commonutils.HasOwnerReferences(fault, adminNodeName) {
-			if err := controllerutil.SetControllerReference(node, fault, m.Client.Scheme()); err != nil {
-				klog.ErrorS(err, "failed to SetControllerReference")
+		if len(fault.OwnerReferences) == 0 {
+			adminNodeName := fault.Spec.Node.AdminName
+			if node, _ := getNode(ctx, m.Client, adminNodeName); node != nil {
+				if err := controllerutil.SetControllerReference(node, fault, m.Client.Scheme()); err != nil {
+					klog.ErrorS(err, "failed to SetControllerReference")
+				}
 			}
 		}
 	}

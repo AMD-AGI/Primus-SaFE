@@ -341,7 +341,7 @@ func (h *Handler) processClusterNodes(c *gin.Context) (interface{}, error) {
 	}
 	ctx := c.Request.Context()
 	if req.Action == v1.NodeActionRemove {
-		if err = h.removeNodesFromWorkspace(c, req.NodeIds); err != nil {
+		if err = h.removeNodesFromWorkspace(c, req.NodeIds, req.Force); err != nil {
 			return nil, err
 		}
 	}
@@ -408,7 +408,7 @@ func (h *Handler) processClusterNode(ctx context.Context, cluster *v1.Cluster, n
 
 // removeNodesFromWorkspace removes nodes from their associated workspaces.
 // It groups nodes by workspace ID and updates each workspace to remove the specified nodes.
-func (h *Handler) removeNodesFromWorkspace(c *gin.Context, allNodeIds []string) error {
+func (h *Handler) removeNodesFromWorkspace(c *gin.Context, allNodeIds []string, force bool) error {
 	nodeIdMap := make(map[string]*[]string)
 	for _, nodeId := range allNodeIds {
 		node, err := h.getAdminNode(c.Request.Context(), nodeId)
@@ -429,7 +429,7 @@ func (h *Handler) removeNodesFromWorkspace(c *gin.Context, allNodeIds []string) 
 	}
 
 	for workspaceId, nodeIds := range nodeIdMap {
-		if err := h.updateWorkspaceNodesAction(c, workspaceId, v1.NodeActionRemove, *nodeIds); err != nil {
+		if err := h.updateWorkspaceNodesAction(c, workspaceId, v1.NodeActionRemove, *nodeIds, force); err != nil {
 			return err
 		}
 	}

@@ -6,13 +6,18 @@
 package webhooks
 
 import (
+	"context"
 	"testing"
 	"time"
 
 	"gotest.tools/assert"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
 
@@ -165,4 +170,169 @@ func TestMutateResources(t *testing.T) {
 			}
 		})
 	}
+}
+
+func newTestScheme(t *testing.T) *runtime.Scheme {
+	s := runtime.NewScheme()
+	err := v1.AddToScheme(s)
+	assert.NilError(t, err)
+	return s
+}
+
+func TestMutateStickyNodes_EnablePreempt(t *testing.T) {
+	ctx := context.TODO()
+	scheme := newTestScheme(t)
+
+	workload := &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "w1",
+			Annotations: map[string]string{
+				v1.WorkloadStickyNodesAnnotation: v1.TrueStr,
+			},
+		},
+		Spec: v1.WorkloadSpec{
+			GroupVersionKind: v1.GroupVersionKind{Kind: common.PytorchJobKind},
+		},
+	}
+
+	workspace := &v1.Workspace{
+		Spec: v1.WorkspaceSpec{
+			EnablePreempt: true,
+		},
+	}
+
+	k8sClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+	m := &WorkloadMutator{Client: k8sClient}
+
+	m.mutateStickNodes(ctx, workload, workspace)
+
+	// Should remove sticky nodes annotation when preempt is enabled
+	assert.Equal(t, v1.GetAnnotation(workload, v1.WorkloadStickyNodesAnnotation), "")
+}
+
+func TestMutateStickyNodes_UnsupportedKind(t *testing.T) {
+	ctx := context.TODO()
+	scheme := newTestScheme(t)
+
+	workload := &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "w1",
+			Annotations: map[string]string{
+				v1.WorkloadStickyNodesAnnotation: v1.TrueStr,
+			},
+		},
+		Spec: v1.WorkloadSpec{
+			GroupVersionKind: v1.GroupVersionKind{Kind: "Deployment"}, // unsupported kind
+		},
+	}
+
+	workspace := &v1.Workspace{
+		Spec: v1.WorkspaceSpec{
+			EnablePreempt: false,
+		},
+	}
+
+	k8sClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+	m := &WorkloadMutator{Client: k8sClient}
+
+	m.mutateStickNodes(ctx, workload, workspace)
+
+	// Should remove sticky nodes annotation for unsupported kind
+	assert.Equal(t, v1.GetAnnotation(workload, v1.WorkloadStickyNodesAnnotation), "")
+}
+
+func TestMutateStickyNodes_GpuCountMismatch(t *testing.T) {
+	ctx := context.TODO()
+	scheme := newTestScheme(t)
+
+	nodeFlavor := &v1.NodeFlavor{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "nf1",
+		},
+		Spec: v1.NodeFlavorSpec{
+			Gpu: &v1.GpuChip{
+				Quantity: resource.MustParse("8"),
+			},
+		},
+	}
+
+	workload := &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "w1",
+			Labels: map[string]string{
+				v1.NodeFlavorIdLabel: "nf1",
+			},
+			Annotations: map[string]string{
+				v1.WorkloadStickyNodesAnnotation: v1.TrueStr,
+			},
+		},
+		Spec: v1.WorkloadSpec{
+			GroupVersionKind: v1.GroupVersionKind{Kind: common.PytorchJobKind},
+			Resources: []v1.WorkloadResource{
+				{GPU: "4"}, // mismatch: 4 != 8
+			},
+		},
+	}
+
+	workspace := &v1.Workspace{
+		Spec: v1.WorkspaceSpec{
+			EnablePreempt: false,
+		},
+	}
+
+	k8sClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(nodeFlavor).Build()
+	m := &WorkloadMutator{Client: k8sClient}
+
+	m.mutateStickNodes(ctx, workload, workspace)
+
+	// Should remove sticky nodes annotation when GPU count mismatch
+	assert.Equal(t, v1.GetAnnotation(workload, v1.WorkloadStickyNodesAnnotation), "")
+}
+
+func TestMutateStickyNodes_AllConditionsPass(t *testing.T) {
+	ctx := context.TODO()
+	scheme := newTestScheme(t)
+
+	nodeFlavor := &v1.NodeFlavor{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "nf1",
+		},
+		Spec: v1.NodeFlavorSpec{
+			Gpu: &v1.GpuChip{
+				Quantity: resource.MustParse("8"),
+			},
+		},
+	}
+
+	workload := &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "w1",
+			Labels: map[string]string{
+				v1.NodeFlavorIdLabel: "nf1",
+			},
+			Annotations: map[string]string{
+				v1.WorkloadStickyNodesAnnotation: v1.TrueStr,
+			},
+		},
+		Spec: v1.WorkloadSpec{
+			GroupVersionKind: v1.GroupVersionKind{Kind: common.PytorchJobKind},
+			Resources: []v1.WorkloadResource{
+				{GPU: "8"}, // matches node flavor GPU count
+			},
+		},
+	}
+
+	workspace := &v1.Workspace{
+		Spec: v1.WorkspaceSpec{
+			EnablePreempt: false,
+		},
+	}
+
+	k8sClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(nodeFlavor).Build()
+	m := &WorkloadMutator{Client: k8sClient}
+
+	m.mutateStickNodes(ctx, workload, workspace)
+
+	// Should keep sticky nodes annotation when all conditions pass
+	assert.Equal(t, v1.GetAnnotation(workload, v1.WorkloadStickyNodesAnnotation), v1.TrueStr)
 }
