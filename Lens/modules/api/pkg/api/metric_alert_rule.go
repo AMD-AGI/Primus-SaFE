@@ -91,14 +91,9 @@ func CreateMetricAlertRule(c *gin.Context) {
 		createdByStr = fmt.Sprintf("%v", createdBy)
 	}
 
-	// Create rule model
-	var groupsExt dbmodel.ExtType
-	groupsBytes, err := json.Marshal(req.Groups)
+	// Create rule model - Groups is ExtJSON (json.RawMessage)
+	groupsJSON, err := json.Marshal(req.Groups)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, rest.ErrorResp(c.Request.Context(), http.StatusBadRequest, "invalid groups format: "+err.Error(), nil))
-		return
-	}
-	if err := json.Unmarshal(groupsBytes, &groupsExt); err != nil {
 		c.JSON(http.StatusBadRequest, rest.ErrorResp(c.Request.Context(), http.StatusBadRequest, "invalid groups format: "+err.Error(), nil))
 		return
 	}
@@ -176,7 +171,7 @@ func CreateMetricAlertRule(c *gin.Context) {
 		Name:            req.Name,
 		ClusterName:     req.ClusterName,
 		Enabled:         req.Enabled,
-		Groups:          groupsExt,
+		Groups:          groupsJSON,
 		Description:     req.Description,
 		Labels:          labelsExt,
 		ResourceMapping: resourceMappingExt,
@@ -341,17 +336,12 @@ func UpdateMetricAlertRule(c *gin.Context) {
 	rule.UpdatedBy = updatedByStr
 
 	if len(req.Groups) > 0 {
-		groupsBytes, err := json.Marshal(req.Groups)
+		groupsJSON, err := json.Marshal(req.Groups)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, rest.ErrorResp(c.Request.Context(), http.StatusBadRequest, "invalid groups format: "+err.Error(), nil))
 			return
 		}
-		var groupsExt dbmodel.ExtType
-		if err := json.Unmarshal(groupsBytes, &groupsExt); err != nil {
-			c.JSON(http.StatusBadRequest, rest.ErrorResp(c.Request.Context(), http.StatusBadRequest, "invalid groups format: "+err.Error(), nil))
-			return
-		}
-		rule.Groups = groupsExt
+		rule.Groups = groupsJSON
 	}
 
 	if req.Labels != nil {
