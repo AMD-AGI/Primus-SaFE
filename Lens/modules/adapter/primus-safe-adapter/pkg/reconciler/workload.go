@@ -200,8 +200,22 @@ func (r *WorkloadReconciler) saveWorkloadToDB(ctx context.Context, workload *pri
 		dbWorkload.Status = metadata.WorkloadStatusRunning
 	case primusSafeV1.WorkloadSucceeded:
 		dbWorkload.Status = metadata.WorkloadStatusDone
+		// Set EndAt from status.endTime if available
+		if workload.Status.EndTime != nil {
+			dbWorkload.EndAt = workload.Status.EndTime.Time
+		}
 	case primusSafeV1.WorkloadFailed:
 		dbWorkload.Status = metadata.WorkloadStatusFailed
+		// Set EndAt from status.endTime if available
+		if workload.Status.EndTime != nil {
+			dbWorkload.EndAt = workload.Status.EndTime.Time
+		}
+	case primusSafeV1.WorkloadStopped:
+		dbWorkload.Status = metadata.WorkloadStatusDone
+		// Set EndAt from status.endTime if available
+		if workload.Status.EndTime != nil {
+			dbWorkload.EndAt = workload.Status.EndTime.Time
+		}
 	}
 
 	for key, value := range workload.Labels {
