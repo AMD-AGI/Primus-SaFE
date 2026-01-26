@@ -62,7 +62,7 @@ type namespaceGpuHourlyStats struct {
 	ActiveWorkloadCount field.Int32
 	CreatedAt           field.Time
 	UpdatedAt           field.Time
-	AllocationRate      field.Float64 // GPU allocation rate (allocated_gpu_count / total_gpu_capacity) during this hour
+	AllocationRate      field.Float64
 
 	fieldMap map[string]field.Expr
 }

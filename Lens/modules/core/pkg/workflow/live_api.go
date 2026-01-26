@@ -165,8 +165,8 @@ func (h *LiveHandler) buildStateFromDB(ctx context.Context, runID int64) (*Workf
 		UpdatedAt:          run.UpdatedAt,
 	}
 
-	if run.LastSyncedAt != nil {
-		state.LastSyncedAt = *run.LastSyncedAt
+	if !run.LastSyncedAt.IsZero() {
+		state.LastSyncedAt = run.LastSyncedAt
 	}
 
 	// Calculate elapsed time
@@ -181,7 +181,7 @@ func (h *LiveHandler) buildStateFromDB(ctx context.Context, runID int64) (*Workf
 
 	// Determine workflow status from run status
 	state.WorkflowStatus = h.inferWorkflowStatus(run)
-	state.WorkflowConclusion = run.Conclusion
+	state.WorkflowConclusion = run.WorkflowConclusion
 
 	// Load jobs from database
 	jobFacade := database.NewGithubWorkflowJobFacade()
