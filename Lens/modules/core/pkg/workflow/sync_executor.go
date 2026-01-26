@@ -286,7 +286,7 @@ func (e *SyncExecutor) updateDatabase(ctx context.Context, run *model.GithubWork
 	run.CurrentJobName = state.CurrentJobName
 	run.CurrentStepName = state.CurrentStepName
 	run.ProgressPercent = int32(state.ProgressPercent)
-	run.LastSyncedAt = &state.LastSyncedAt
+	run.LastSyncedAt = state.LastSyncedAt
 
 	if err := runFacade.Update(ctx, run); err != nil {
 		return err

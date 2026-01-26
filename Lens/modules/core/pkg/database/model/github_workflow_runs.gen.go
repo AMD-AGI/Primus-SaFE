@@ -13,21 +13,21 @@ const TableNameGithubWorkflowRuns = "github_workflow_runs"
 // GithubWorkflowRuns mapped from table <github_workflow_runs>
 type GithubWorkflowRuns struct {
 	ID                    int64     `gorm:"column:id;primaryKey;autoIncrement:true" json:"id"`
-	ConfigID              int64     `gorm:"column:config_id;comment:Associated configuration ID" json:"config_id"`                                 // Associated configuration ID
-	WorkloadUID           string    `gorm:"column:workload_uid;not null;comment:Lens workload UID (from gpu_workloads table)" json:"workload_uid"` // Lens workload UID (from gpu_workloads table)
-	WorkloadName          string    `gorm:"column:workload_name;comment:Workload name" json:"workload_name"`                                       // Workload name
-	WorkloadNamespace     string    `gorm:"column:workload_namespace;comment:Workload namespace" json:"workload_namespace"`                        // Workload namespace
-	GithubRunID           int64     `gorm:"column:github_run_id;comment:GitHub workflow run ID (from annotations)" json:"github_run_id"`           // GitHub workflow run ID (from annotations)
+	ConfigID              int64     `gorm:"column:config_id" json:"config_id"`
+	WorkloadUID           string    `gorm:"column:workload_uid;not null" json:"workload_uid"`
+	WorkloadName          string    `gorm:"column:workload_name" json:"workload_name"`
+	WorkloadNamespace     string    `gorm:"column:workload_namespace" json:"workload_namespace"`
+	GithubRunID           int64     `gorm:"column:github_run_id" json:"github_run_id"`
 	GithubRunNumber       int32     `gorm:"column:github_run_number" json:"github_run_number"`
-	GithubJobID           int64     `gorm:"column:github_job_id;comment:GitHub job ID (from annotations)" json:"github_job_id"` // GitHub job ID (from annotations)
+	GithubJobID           int64     `gorm:"column:github_job_id" json:"github_job_id"`
 	HeadSha               string    `gorm:"column:head_sha" json:"head_sha"`
 	HeadBranch            string    `gorm:"column:head_branch" json:"head_branch"`
 	WorkflowName          string    `gorm:"column:workflow_name" json:"workflow_name"`
-	Status                string    `gorm:"column:status;not null;default:pending;comment:Processing status: pending, collecting, extracting, completed, failed, skipped" json:"status"` // Processing status: pending, collecting, extracting, completed, failed, skipped
-	TriggerSource         string    `gorm:"column:trigger_source;not null;default:realtime;comment:How this run was triggered: realtime, backfill, manual" json:"trigger_source"`        // How this run was triggered: realtime, backfill, manual
-	FilesFound            int32     `gorm:"column:files_found;not null;comment:Number of files matching patterns" json:"files_found"`                                                    // Number of files matching patterns
-	FilesProcessed        int32     `gorm:"column:files_processed;not null;comment:Number of files successfully processed" json:"files_processed"`                                       // Number of files successfully processed
-	MetricsCount          int32     `gorm:"column:metrics_count;not null;comment:Number of metric records extracted" json:"metrics_count"`                                               // Number of metric records extracted
+	Status                string    `gorm:"column:status;not null;default:pending" json:"status"`
+	TriggerSource         string    `gorm:"column:trigger_source;not null;default:realtime" json:"trigger_source"`
+	FilesFound            int32     `gorm:"column:files_found;not null" json:"files_found"`
+	FilesProcessed        int32     `gorm:"column:files_processed;not null" json:"files_processed"`
+	MetricsCount          int32     `gorm:"column:metrics_count;not null" json:"metrics_count"`
 	WorkloadStartedAt     time.Time `gorm:"column:workload_started_at" json:"workload_started_at"`
 	WorkloadCompletedAt   time.Time `gorm:"column:workload_completed_at" json:"workload_completed_at"`
 	CollectionStartedAt   time.Time `gorm:"column:collection_started_at" json:"collection_started_at"`
@@ -36,14 +36,16 @@ type GithubWorkflowRuns struct {
 	RetryCount            int32     `gorm:"column:retry_count;not null" json:"retry_count"`
 	CreatedAt             time.Time `gorm:"column:created_at;not null;default:now()" json:"created_at"`
 	UpdatedAt             time.Time `gorm:"column:updated_at;not null;default:now()" json:"updated_at"`
-	RunnerSetID           int64      `gorm:"column:runner_set_id;comment:Direct reference to github_runner_sets.id" json:"runner_set_id"`                              // Direct reference to github_runner_sets.id
-	RunnerSetName         string     `gorm:"column:runner_set_name;comment:Denormalized runner set name for efficient querying" json:"runner_set_name"`                // Denormalized runner set name for efficient querying
-	RunnerSetNamespace    string     `gorm:"column:runner_set_namespace;comment:Denormalized runner set namespace for efficient querying" json:"runner_set_namespace"` // Denormalized runner set namespace for efficient querying
-	CurrentJobName        string     `gorm:"column:current_job_name;comment:Currently running job name from GitHub" json:"current_job_name"`                           // Currently running job name from GitHub
-	CurrentStepName       string     `gorm:"column:current_step_name;comment:Currently running step name from GitHub" json:"current_step_name"`                        // Currently running step name from GitHub
-	ProgressPercent       int32      `gorm:"column:progress_percent;default:0;comment:Overall workflow progress percentage (0-100)" json:"progress_percent"`           // Overall workflow progress percentage (0-100)
-	LastSyncedAt          *time.Time `gorm:"column:last_synced_at;comment:Last time state was synced from GitHub API" json:"last_synced_at"`                           // Last time state was synced from GitHub API
-	Conclusion            string     `gorm:"column:conclusion;comment:GitHub workflow conclusion: success, failure, cancelled, skipped, etc." json:"conclusion"`       // GitHub workflow conclusion
+	RunnerSetID           int64     `gorm:"column:runner_set_id" json:"runner_set_id"`
+	RunnerSetName         string    `gorm:"column:runner_set_name" json:"runner_set_name"`
+	RunnerSetNamespace    string    `gorm:"column:runner_set_namespace" json:"runner_set_namespace"`
+	WorkflowStatus        string    `gorm:"column:workflow_status;comment:GitHub workflow execution status: queued, in_progress, completed, waiting, pending, requested" json:"workflow_status"`                 // GitHub workflow execution status: queued, in_progress, completed, waiting, pending, requested
+	WorkflowConclusion    string    `gorm:"column:workflow_conclusion;comment:GitHub workflow conclusion: success, failure, cancelled, skipped, neutral, timed_out, action_required" json:"workflow_conclusion"` // GitHub workflow conclusion: success, failure, cancelled, skipped, neutral, timed_out, action_required
+	CollectionStatus      string    `gorm:"column:collection_status;comment:Internal metrics collection status: pending, collecting, completed, failed, skipped" json:"collection_status"`                       // Internal metrics collection status: pending, collecting, completed, failed, skipped
+	CurrentJobName        string    `gorm:"column:current_job_name;comment:Currently running job name from GitHub" json:"current_job_name"`                                                                      // Currently running job name from GitHub
+	CurrentStepName       string    `gorm:"column:current_step_name;comment:Currently running step name from GitHub" json:"current_step_name"`                                                                   // Currently running step name from GitHub
+	ProgressPercent       int32     `gorm:"column:progress_percent;comment:Overall workflow progress percentage (0-100)" json:"progress_percent"`                                                                // Overall workflow progress percentage (0-100)
+	LastSyncedAt          time.Time `gorm:"column:last_synced_at;comment:Last time state was synced from GitHub API" json:"last_synced_at"`                                                                      // Last time state was synced from GitHub API
 }
 
 // TableName GithubWorkflowRuns's table name
