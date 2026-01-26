@@ -49,7 +49,7 @@ const (
 type BenchmarkConfig struct {
 	DatasetId       string `json:"datasetId" binding:"required"` // Dataset ID from dataset table
 	DatasetName     string `json:"datasetName,omitempty"`        // Dataset displayName, used as evalscope benchmark name
-	DatasetLocalDir string `json:"datasetLocalDir,omitempty"`    // Full local path to dataset, e.g. /apps/datasets/math_500
+	DatasetLocalDir string `json:"datasetLocalDir,omitempty"`    // Full local path to dataset, e.g. /wekafs/datasets/math_500
 	EvalType        string `json:"evalType,omitempty"`           // Optional: "general_qa" or "general_mcq" for custom datasets
 	Limit           *int   `json:"limit,omitempty"`              // Optional sample limit
 }
