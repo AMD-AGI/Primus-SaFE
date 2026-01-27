@@ -232,10 +232,6 @@ func (r *ClusterClientSets) handleResource(_ context.Context, oldObj, newObj int
 				oldUnstructured.GetNamespace(), oldUnstructured.GetName(), oldUnstructured.GetUID(),
 				msg.gvk.Kind, oldUnstructured.GetGeneration(), msg.workloadId, msg.dispatchCount)
 		}
-	case ResourceDeleting:
-		klog.Infof("object: %s/%s is deleting, uid: %s, kind: %s, generation: %d, workload: %s, dispatch.cnt: %d",
-			newUnstructured.GetNamespace(), newUnstructured.GetName(), newUnstructured.GetUID(),
-			msg.gvk.Kind, newUnstructured.GetGeneration(), msg.workloadId, msg.dispatchCount)
 	}
 	r.handler(msg)
 }
