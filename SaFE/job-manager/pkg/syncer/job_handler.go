@@ -82,7 +82,7 @@ func (r *SyncerReconciler) handleJobImpl(ctx context.Context, message *resourceM
 		}
 		ok, err = r.waitJobDeleted(ctx, adminWorkload, message, clientSets)
 		if err != nil || !ok {
-			return ctrlruntime.Result{RequeueAfter: time.Second * 3}, nil
+			return ctrlruntime.Result{RequeueAfter: time.Second * 3}, err
 		}
 	}
 
@@ -189,7 +189,8 @@ func (r *SyncerReconciler) waitJobDeleted(ctx context.Context,
 
 	for _, obj := range unstructuredObjs {
 		klog.Infof("wait for object(%s/%s) to be deleted, workload: %s", obj.GetNamespace(), obj.GetName(), message.workloadId)
-		if ts := obj.GetDeletionTimestamp(); ts != nil && !ts.IsZero() && time.Since(ts.Time) >= 2*time.Minute {
+		if ts := obj.GetDeletionTimestamp(); ts != nil && !ts.IsZero() &&
+			time.Since(ts.Time) >= time.Duration(ForceDeleteDelaySeconds)*time.Second {
 			patchObj := map[string]any{
 				"metadata": map[string]any{
 					"finalizers": []string{},
