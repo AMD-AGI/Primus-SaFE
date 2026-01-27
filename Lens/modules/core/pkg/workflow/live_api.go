@@ -53,7 +53,12 @@ func (h *LiveHandler) RegisterRoutes(r gin.IRoutes) {
 // @Success 200 {object} WorkflowLiveState
 // @Router /v1/github/workflow/runs/{run_id}/live [get]
 func (h *LiveHandler) HandleLiveStream(c *gin.Context) {
-	runID, err := strconv.ParseInt(c.Param("run_id"), 10, 64)
+	// Support both :id and :run_id parameter names for compatibility
+	runIDStr := c.Param("id")
+	if runIDStr == "" {
+		runIDStr = c.Param("run_id")
+	}
+	runID, err := strconv.ParseInt(runIDStr, 10, 64)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid run_id"})
 		return
@@ -280,7 +285,12 @@ func (h *LiveHandler) sendSSEEvent(c *gin.Context, event string, data interface{
 // @Success 200 {object} WorkflowLiveState
 // @Router /v1/github/workflow/runs/{run_id}/state [get]
 func (h *LiveHandler) GetCurrentState(c *gin.Context) {
-	runID, err := strconv.ParseInt(c.Param("run_id"), 10, 64)
+	// Support both :id and :run_id parameter names for compatibility
+	runIDStr := c.Param("id")
+	if runIDStr == "" {
+		runIDStr = c.Param("run_id")
+	}
+	runID, err := strconv.ParseInt(runIDStr, 10, 64)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid run_id"})
 		return
@@ -309,7 +319,12 @@ func (h *LiveHandler) GetCurrentState(c *gin.Context) {
 // @Success 200 {object} map[string]interface{}
 // @Router /v1/github/workflow/runs/{run_id}/sync/start [post]
 func (h *LiveHandler) StartSync(c *gin.Context) {
-	runID, err := strconv.ParseInt(c.Param("run_id"), 10, 64)
+	// Support both :id and :run_id parameter names for compatibility
+	runIDStr := c.Param("id")
+	if runIDStr == "" {
+		runIDStr = c.Param("run_id")
+	}
+	runID, err := strconv.ParseInt(runIDStr, 10, 64)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid run_id"})
 		return
@@ -336,7 +351,12 @@ func (h *LiveHandler) StartSync(c *gin.Context) {
 // @Success 200 {object} map[string]interface{}
 // @Router /v1/github/workflow/runs/{run_id}/sync/stop [post]
 func (h *LiveHandler) StopSync(c *gin.Context) {
-	runID, err := strconv.ParseInt(c.Param("run_id"), 10, 64)
+	// Support both :id and :run_id parameter names for compatibility
+	runIDStr := c.Param("id")
+	if runIDStr == "" {
+		runIDStr = c.Param("run_id")
+	}
+	runID, err := strconv.ParseInt(runIDStr, 10, 64)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid run_id"})
 		return
