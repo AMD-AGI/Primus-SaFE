@@ -173,9 +173,10 @@ func (a *AccessController) authorize(in AccessInput) error {
 			}
 		}
 	}
-
-	return commonerrors.NewForbidden(
-		fmt.Sprintf("The user is not allowed to %s %s, workspace: %s", in.Verb, resourceKind, in.Workspaces))
+	klog.Errorf("failed to authorize user(%s) to %s %s/%s, workspace: %s, isOwner: %t, isWorkspaceUser: %t",
+		in.User.Name, in.Verb, resourceKind, resourceName, in.Workspaces, isOwner, isWorkspaceUser)
+	return commonerrors.NewForbidden(fmt.Sprintf("The user(%s) is not allowed to %s %s,"+
+		" workspace: %s", in.User.Name, in.Verb, resourceKind, in.Workspaces))
 }
 
 // checkUserStatus checks UserStatus and returns the result.
