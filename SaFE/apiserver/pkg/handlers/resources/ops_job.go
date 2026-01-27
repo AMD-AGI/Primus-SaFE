@@ -1142,6 +1142,35 @@ func (h *Handler) generateEvaluationJob(c *gin.Context, body []byte) (*v1.OpsJob
 		} else {
 			modelName = dbModel.DisplayName
 		}
+
+		// For remote_api, get workspace/cluster from dataset's localPaths
+		// The evaluation workload needs to run in a cluster that has the dataset
+		if len(benchmarks) > 0 && workspaceId == "" {
+			dataset, err := h.dbClient.GetDataset(ctx, benchmarks[0].DatasetId)
+			if err == nil && dataset != nil && dataset.LocalPaths != "" {
+				var localPaths []dbclient.DatasetLocalPathDB
+				if err := json.Unmarshal([]byte(dataset.LocalPaths), &localPaths); err == nil {
+					// Find first Ready workspace
+					for _, lp := range localPaths {
+						if lp.Status == dbclient.DatasetStatusReady && lp.Workspace != "" {
+							workspaceId = lp.Workspace
+							klog.InfoS("Got workspace from dataset localPaths for remote_api evaluation",
+								"datasetId", benchmarks[0].DatasetId, "workspace", workspaceId)
+							break
+						}
+					}
+				}
+			}
+		}
+		// Get clusterId from workspace
+		if workspaceId != "" && clusterId == "" {
+			ws := &v1.Workspace{}
+			if err := h.Get(ctx, client.ObjectKey{Name: workspaceId}, ws); err == nil {
+				clusterId = ws.Spec.Cluster
+				klog.InfoS("Got clusterId from workspace for remote_api evaluation",
+					"workspace", workspaceId, "cluster", clusterId)
+			}
+		}
 	} else {
 		// local_workload
 		workload, err := h.dbClient.GetWorkload(ctx, serviceId)

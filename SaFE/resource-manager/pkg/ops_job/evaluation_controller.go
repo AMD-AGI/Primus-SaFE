@@ -434,12 +434,36 @@ func extractParentDir(path string) string {
 }
 
 // buildReportUploadScript builds a bash command to upload evaluation report to S3
+// For multiple datasets, it merges all reports into a single combined report using jq
 func (r *EvaluationJobReconciler) buildReportUploadScript(outputDir, presignedURL string) string {
-	// Bash command to find and upload report file using curl
-	// Much simpler than Python version, and curl is available in the evalscope image
-	// Report path structure: outputs/<timestamp>/reports/<model>/<dataset>.json
-	// Use -path "*/reports/*" to match files under reports/ at any depth
-	script := fmt.Sprintf(`REPORT=$(find %s -path "*/reports/*" -name "*.json" 2>/dev/null | head -1); if [ -z "$REPORT" ]; then REPORT=$(find %s -name "*.json" 2>/dev/null | head -1); fi; if [ -n "$REPORT" ]; then echo "Uploading report: $REPORT"; curl -s -X PUT -T "$REPORT" -H "Content-Type: application/json" "%s" && echo "Report uploaded successfully"; else echo "No report files found"; fi`, outputDir, outputDir, presignedURL)
+	// Shell script using jq to find, merge (if multiple), and upload reports
+	// Requires jq to be installed in the evalscope image
+	script := fmt.Sprintf(`
+REPORTS=$(find %s -path "*/reports/*" -name "*.json" 2>/dev/null)
+if [ -z "$REPORTS" ]; then
+  REPORTS=$(find %s -name "*.json" 2>/dev/null)
+fi
+
+if [ -z "$REPORTS" ]; then
+  echo "No report files found"
+  exit 0
+fi
+
+REPORT_COUNT=$(echo "$REPORTS" | wc -l)
+echo "Found $REPORT_COUNT report(s)"
+
+if [ "$REPORT_COUNT" -eq 1 ]; then
+  REPORT_FILE="$REPORTS"
+else
+  # Merge multiple reports using jq
+  REPORT_FILE="%s/combined_report.json"
+  echo $REPORTS | xargs jq -s '{datasets: ., summary: {total_datasets: length, average_score: ([.[].score // 0] | add / length)}}' > "$REPORT_FILE"
+  echo "Created combined report: $REPORT_FILE"
+fi
+
+echo "Uploading report: $REPORT_FILE"
+curl -s -X PUT -T "$REPORT_FILE" -H "Content-Type: application/json" "%s" && echo "Report uploaded successfully" || echo "Upload failed"
+`, outputDir, outputDir, outputDir, presignedURL)
 
 	return script
 }
