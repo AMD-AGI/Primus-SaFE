@@ -118,6 +118,13 @@ func InitTaskScheduler(ctx context.Context) error {
 	}
 	log.Info("SyncExecutor registered with TaskScheduler")
 
+	// Register LogFetchExecutor for fetching and caching workflow logs
+	logFetchExecutor := workflow.NewLogFetchExecutor()
+	if err := taskScheduler.RegisterExecutor(logFetchExecutor); err != nil {
+		return err
+	}
+	log.Info("LogFetchExecutor registered with TaskScheduler")
+
 	// Start the scheduler
 	if err := taskScheduler.Start(); err != nil {
 		return err
