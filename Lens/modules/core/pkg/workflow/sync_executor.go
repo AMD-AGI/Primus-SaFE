@@ -188,6 +188,7 @@ func (e *SyncExecutor) buildState(run *model.GithubWorkflowRuns, ghRun *github.W
 	state := &WorkflowLiveState{
 		RunID:              run.ID,
 		GithubRunID:        run.GithubRunID,
+		GithubRunNumber:    ghRun.RunNumber,
 		WorkflowName:       ghRun.WorkflowName,
 		HeadSHA:            ghRun.HeadSHA,
 		HeadBranch:         ghRun.HeadBranch,
@@ -287,6 +288,23 @@ func (e *SyncExecutor) updateDatabase(ctx context.Context, run *model.GithubWork
 	run.CurrentStepName = state.CurrentStepName
 	run.ProgressPercent = int32(state.ProgressPercent)
 	run.LastSyncedAt = state.LastSyncedAt
+
+	// Update workflow status from GitHub API
+	run.WorkflowStatus = state.WorkflowStatus
+	run.WorkflowConclusion = state.WorkflowConclusion
+
+	// Update head SHA and branch if not already set
+	if run.HeadSha == "" && state.HeadSHA != "" {
+		run.HeadSha = state.HeadSHA
+	}
+	if run.HeadBranch == "" && state.HeadBranch != "" {
+		run.HeadBranch = state.HeadBranch
+	}
+
+	// Update run number if not already set
+	if run.GithubRunNumber == 0 && state.GithubRunNumber != 0 {
+		run.GithubRunNumber = int32(state.GithubRunNumber)
+	}
 
 	if err := runFacade.Update(ctx, run); err != nil {
 		return err

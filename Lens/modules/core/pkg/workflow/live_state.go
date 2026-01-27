@@ -18,6 +18,7 @@ import (
 type WorkflowLiveState struct {
 	RunID              int64           `json:"run_id"`
 	GithubRunID        int64           `json:"github_run_id"`
+	GithubRunNumber    int             `json:"github_run_number"`
 	WorkflowName       string          `json:"workflow_name"`
 	HeadSHA            string          `json:"head_sha,omitempty"`
 	HeadBranch         string          `json:"head_branch,omitempty"`
