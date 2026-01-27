@@ -220,7 +220,7 @@ type EvaluationTaskInterface interface {
 	CountEvaluationTasks(ctx context.Context, query sqrl.Sqlizer) (int, error)
 	GetEvaluationTask(ctx context.Context, taskId string) (*EvaluationTask, error)
 	SetEvaluationTaskDeleted(ctx context.Context, taskId string) error
-	UpdateEvaluationTaskStatus(ctx context.Context, taskId string, status EvaluationTaskStatus, progress int) error
+	UpdateEvaluationTaskStatus(ctx context.Context, taskId string, status EvaluationTaskStatus) error
 	UpdateEvaluationTaskOpsJobId(ctx context.Context, taskId, opsJobId string) error
 	UpdateEvaluationTaskResult(ctx context.Context, taskId string, resultSummary, reportS3Path string) error
 	UpdateEvaluationTaskStartTime(ctx context.Context, taskId string) error

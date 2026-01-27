@@ -420,7 +420,6 @@ type EvaluationTask struct {
 	EvalParams    string               `db:"eval_params"` // JSONB
 	OpsJobId      sql.NullString       `db:"ops_job_id"`
 	Status        EvaluationTaskStatus `db:"status"`
-	Progress      int                  `db:"progress"`
 	ResultSummary sql.NullString       `db:"result_summary"` // JSONB
 	ReportS3Path  sql.NullString       `db:"report_s3_path"`
 	Workspace     string               `db:"workspace"`

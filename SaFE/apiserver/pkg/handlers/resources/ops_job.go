@@ -1243,7 +1243,6 @@ func (h *Handler) generateEvaluationJob(c *gin.Context, body []byte) (*v1.OpsJob
 		Benchmarks:   benchmarksJSON,
 		EvalParams:   "{}", // EvalParams is deprecated, always set to empty JSON
 		Status:       dbclient.EvaluationTaskStatusPending,
-		Progress:     0,
 		Workspace:    workspaceId,
 		UserId:       requestUser.Name,
 		UserName:     v1.GetUserName(requestUser),

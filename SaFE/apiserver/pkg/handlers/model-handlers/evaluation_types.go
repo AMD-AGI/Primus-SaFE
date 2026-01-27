@@ -92,7 +92,6 @@ type EvaluationTaskView struct {
 	Benchmarks    []BenchmarkConfig             `json:"benchmarks"`
 	OpsJobId      string                        `json:"opsJobId,omitempty"`
 	Status        dbclient.EvaluationTaskStatus `json:"status"`
-	Progress      int                           `json:"progress"`
 	ResultSummary map[string]interface{}        `json:"resultSummary,omitempty"`
 	ReportS3Path  string                        `json:"reportS3Path,omitempty"`
 	Workspace     string                        `json:"workspace,omitempty"`

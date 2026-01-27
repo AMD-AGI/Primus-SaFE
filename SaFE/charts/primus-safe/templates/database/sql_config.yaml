@@ -509,7 +509,6 @@ data:
         -- Task status
         ops_job_id VARCHAR(64),
         status VARCHAR(32) DEFAULT 'Pending',
-        progress INT DEFAULT 0,
         result_summary JSONB,
         report_s3_path VARCHAR(512),
         
@@ -531,5 +530,8 @@ data:
     create index if not exists T_EVAL_TASK_WORKSPACE_INDEX on evaluation_task (workspace);
     create index if not exists T_EVAL_TASK_USER_INDEX on evaluation_task (user_id);
     create index if not exists T_EVAL_TASK_CREATION_INDEX on evaluation_task (creation_time);
+
+    -- Remove deprecated progress column from existing tables
+    ALTER TABLE evaluation_task DROP COLUMN IF EXISTS progress;
 
     alter table evaluation_task owner to "primus-safe";

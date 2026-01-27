@@ -266,7 +266,6 @@ func (h *Handler) convertToEvalTaskView(task *dbclient.EvaluationTask) Evaluatio
 		ServiceType: EvalServiceType(task.ServiceType),
 		ServiceName: task.ServiceName,
 		Status:      task.Status,
-		Progress:    task.Progress,
 		Workspace:   task.Workspace,
 		UserId:      task.UserId,
 		UserName:    task.UserName,

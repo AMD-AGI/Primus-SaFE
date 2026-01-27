@@ -150,7 +150,7 @@ func (r *EvaluationJobReconciler) handle(ctx context.Context, job *v1.OpsJob) (c
 			return ctrlruntime.Result{}, err
 		}
 		// Update database status
-		r.updateDBStatus(ctx, job, dbclient.EvaluationTaskStatusPending, 0)
+		r.updateDBStatus(ctx, job, dbclient.EvaluationTaskStatusPending)
 		return newRequeueAfterResult(job), nil
 	}
 
@@ -444,8 +444,10 @@ if [ -z "$REPORTS" ]; then
 fi
 
 if [ -z "$REPORTS" ]; then
-  echo "No report files found"
-  exit 0
+  ERROR_MSG="No report files found in output directory"
+  echo "$ERROR_MSG"
+  echo "$ERROR_MSG" > /dev/termination-log
+  exit 1
 fi
 
 REPORT_COUNT=$(echo "$REPORTS" | wc -l)
@@ -457,11 +459,23 @@ else
   # Merge multiple reports using jq
   REPORT_FILE="%s/combined_report.json"
   echo $REPORTS | xargs jq -s '{datasets: ., summary: {total_datasets: length, average_score: ([.[].score // 0] | add / length)}}' > "$REPORT_FILE"
+  if [ $? -ne 0 ]; then
+    ERROR_MSG="Failed to merge report files with jq"
+    echo "$ERROR_MSG"
+    echo "$ERROR_MSG" > /dev/termination-log
+    exit 1
+  fi
   echo "Created combined report: $REPORT_FILE"
 fi
 
 echo "Uploading report: $REPORT_FILE"
-curl -s -X PUT -T "$REPORT_FILE" -H "Content-Type: application/json" "%s" && echo "Report uploaded successfully" || echo "Upload failed"
+if ! curl -s -X PUT -T "$REPORT_FILE" -H "Content-Type: application/json" "%s"; then
+  ERROR_MSG="Failed to upload report to S3"
+  echo "$ERROR_MSG"
+  echo "$ERROR_MSG" > /dev/termination-log
+  exit 1
+fi
+echo "Report uploaded successfully"
 `, outputDir, outputDir, outputDir, presignedURL)
 
 	return script
@@ -479,18 +493,15 @@ func (r *EvaluationJobReconciler) handleWorkloadEventImpl(ctx context.Context, w
 	}
 
 	var status dbclient.EvaluationTaskStatus
-	var progress int
 
 	switch {
 	case workload.IsEnd():
 		if workload.Status.Phase == v1.WorkloadSucceeded {
 			status = dbclient.EvaluationTaskStatusSucceeded
-			progress = 100
 			// Try to get report path
 			r.updateReportPath(ctx, taskId, workload)
 		} else {
 			status = dbclient.EvaluationTaskStatusFailed
-			progress = 100
 			message := getWorkloadCompletionMessage(workload)
 			if err := r.dbClient.SetEvaluationTaskFailed(ctx, taskId, message); err != nil {
 				klog.ErrorS(err, "failed to set evaluation task failed", "taskId", taskId)
@@ -499,21 +510,19 @@ func (r *EvaluationJobReconciler) handleWorkloadEventImpl(ctx context.Context, w
 		}
 	case workload.IsRunning():
 		status = dbclient.EvaluationTaskStatusRunning
-		progress = 50
 		// Update start time
 		if err := r.dbClient.UpdateEvaluationTaskStartTime(ctx, taskId); err != nil {
 			klog.ErrorS(err, "failed to update evaluation task start time", "taskId", taskId)
 		}
 	default:
 		status = dbclient.EvaluationTaskStatusPending
-		progress = 0
 	}
 
-	r.updateDBStatus(ctx, workload, status, progress)
+	r.updateDBStatus(ctx, workload, status)
 }
 
 // updateDBStatus updates the evaluation task status in database
-func (r *EvaluationJobReconciler) updateDBStatus(ctx context.Context, obj client.Object, status dbclient.EvaluationTaskStatus, progress int) {
+func (r *EvaluationJobReconciler) updateDBStatus(ctx context.Context, obj client.Object, status dbclient.EvaluationTaskStatus) {
 	if r.dbClient == nil {
 		return
 	}
@@ -530,11 +539,10 @@ func (r *EvaluationJobReconciler) updateDBStatus(ctx context.Context, obj client
 		return
 	}
 
-	if err := r.dbClient.UpdateEvaluationTaskStatus(ctx, taskId, status, progress); err != nil {
+	if err := r.dbClient.UpdateEvaluationTaskStatus(ctx, taskId, status); err != nil {
 		klog.ErrorS(err, "failed to update evaluation task status",
 			"taskId", taskId,
-			"status", status,
-			"progress", progress)
+			"status", status)
 	}
 }
 

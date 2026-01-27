@@ -158,14 +158,14 @@ func (c *Client) SetEvaluationTaskDeleted(ctx context.Context, taskId string) er
 	return nil
 }
 
-// UpdateEvaluationTaskStatus updates the status and progress of an evaluation task.
-func (c *Client) UpdateEvaluationTaskStatus(ctx context.Context, taskId string, status EvaluationTaskStatus, progress int) error {
+// UpdateEvaluationTaskStatus updates the status of an evaluation task.
+func (c *Client) UpdateEvaluationTaskStatus(ctx context.Context, taskId string, status EvaluationTaskStatus) error {
 	db, err := c.getDB()
 	if err != nil {
 		return err
 	}
-	cmd := fmt.Sprintf(`UPDATE %s SET status=$1, progress=$2 WHERE task_id=$3`, TEvaluationTask)
-	_, err = db.ExecContext(ctx, cmd, status, progress, taskId)
+	cmd := fmt.Sprintf(`UPDATE %s SET status=$1 WHERE task_id=$2`, TEvaluationTask)
+	_, err = db.ExecContext(ctx, cmd, status, taskId)
 	if err != nil {
 		klog.ErrorS(err, "failed to update evaluation task status", "TaskId", taskId)
 		return err
@@ -233,4 +233,3 @@ func (c *Client) SetEvaluationTaskFailed(ctx context.Context, taskId, message st
 	}
 	return nil
 }
-
