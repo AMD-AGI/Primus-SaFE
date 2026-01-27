@@ -75,6 +75,7 @@ func Use(db *gorm.DB, opts ...gen.DOOption) *Query {
 		NodeNamespaceMappingHistory: newNodeNamespaceMappingHistory(db, opts...),
 		NotificationChannels:        newNotificationChannels(db, opts...),
 		PodResource:                 newPodResource(db, opts...),
+		PodRunningPeriods:           newPodRunningPeriods(db, opts...),
 		PodSnapshot:                 newPodSnapshot(db, opts...),
 		ProfilerAnalysis:            newProfilerAnalysis(db, opts...),
 		ProfilerFileContent:         newProfilerFileContent(db, opts...),
@@ -160,6 +161,7 @@ type Query struct {
 	NodeNamespaceMappingHistory nodeNamespaceMappingHistory
 	NotificationChannels        notificationChannels
 	PodResource                 podResource
+	PodRunningPeriods           podRunningPeriods
 	PodSnapshot                 podSnapshot
 	ProfilerAnalysis            profilerAnalysis
 	ProfilerFileContent         profilerFileContent
@@ -246,6 +248,7 @@ func (q *Query) clone(db *gorm.DB) *Query {
 		NodeNamespaceMappingHistory: q.NodeNamespaceMappingHistory.clone(db),
 		NotificationChannels:        q.NotificationChannels.clone(db),
 		PodResource:                 q.PodResource.clone(db),
+		PodRunningPeriods:           q.PodRunningPeriods.clone(db),
 		PodSnapshot:                 q.PodSnapshot.clone(db),
 		ProfilerAnalysis:            q.ProfilerAnalysis.clone(db),
 		ProfilerFileContent:         q.ProfilerFileContent.clone(db),
@@ -339,6 +342,7 @@ func (q *Query) ReplaceDB(db *gorm.DB) *Query {
 		NodeNamespaceMappingHistory: q.NodeNamespaceMappingHistory.replaceDB(db),
 		NotificationChannels:        q.NotificationChannels.replaceDB(db),
 		PodResource:                 q.PodResource.replaceDB(db),
+		PodRunningPeriods:           q.PodRunningPeriods.replaceDB(db),
 		PodSnapshot:                 q.PodSnapshot.replaceDB(db),
 		ProfilerAnalysis:            q.ProfilerAnalysis.replaceDB(db),
 		ProfilerFileContent:         q.ProfilerFileContent.replaceDB(db),
@@ -422,6 +426,7 @@ type queryCtx struct {
 	NodeNamespaceMappingHistory *nodeNamespaceMappingHistoryDo
 	NotificationChannels        *notificationChannelsDo
 	PodResource                 *podResourceDo
+	PodRunningPeriods           *podRunningPeriodsDo
 	PodSnapshot                 *podSnapshotDo
 	ProfilerAnalysis            *profilerAnalysisDo
 	ProfilerFileContent         *profilerFileContentDo
@@ -505,6 +510,7 @@ func (q *Query) WithContext(ctx context.Context) *queryCtx {
 		NodeNamespaceMappingHistory: q.NodeNamespaceMappingHistory.WithContext(ctx),
 		NotificationChannels:        q.NotificationChannels.WithContext(ctx),
 		PodResource:                 q.PodResource.WithContext(ctx),
+		PodRunningPeriods:           q.PodRunningPeriods.WithContext(ctx),
 		PodSnapshot:                 q.PodSnapshot.WithContext(ctx),
 		ProfilerAnalysis:            q.ProfilerAnalysis.WithContext(ctx),
 		ProfilerFileContent:         q.ProfilerFileContent.WithContext(ctx),

@@ -85,6 +85,8 @@ type FacadeInterface interface {
 	GetCommitImpactAnalysis() CommitImpactAnalysisFacadeInterface
 	// GetNotificationChannel returns the NotificationChannel Facade interface
 	GetNotificationChannel() NotificationChannelFacadeInterface
+	// GetPodRunningPeriods returns the PodRunningPeriods Facade interface
+	GetPodRunningPeriods() PodRunningPeriodsFacadeInterface
 	// WithCluster returns a new Facade instance using the specified cluster
 	WithCluster(clusterName string) FacadeInterface
 }
@@ -131,6 +133,7 @@ type Facade struct {
 	MetricBaseline            MetricBaselineFacadeInterface
 	CommitImpactAnalysis      CommitImpactAnalysisFacadeInterface
 	NotificationChannel       NotificationChannelFacadeInterface
+	PodRunningPeriods         PodRunningPeriodsFacadeInterface
 }
 
 // NewFacade creates a new Facade instance
@@ -176,6 +179,7 @@ func NewFacade() *Facade {
 		MetricBaseline:            NewMetricBaselineFacade(),
 		CommitImpactAnalysis:      NewCommitImpactAnalysisFacade(),
 		NotificationChannel:       NewNotificationChannelFacade(),
+		PodRunningPeriods:         NewPodRunningPeriodsFacade(),
 	}
 }
 
@@ -379,6 +383,11 @@ func (f *Facade) GetNotificationChannel() NotificationChannelFacadeInterface {
 	return f.NotificationChannel
 }
 
+// GetPodRunningPeriods returns the PodRunningPeriods Facade interface
+func (f *Facade) GetPodRunningPeriods() PodRunningPeriodsFacadeInterface {
+	return f.PodRunningPeriods
+}
+
 // WithCluster returns a new Facade instance, all sub-Facades use the specified cluster
 func (f *Facade) WithCluster(clusterName string) FacadeInterface {
 	return &Facade{
@@ -422,6 +431,7 @@ func (f *Facade) WithCluster(clusterName string) FacadeInterface {
 		MetricBaseline:            f.MetricBaseline.WithCluster(clusterName),
 		CommitImpactAnalysis:      f.CommitImpactAnalysis.WithCluster(clusterName),
 		NotificationChannel:       f.NotificationChannel.WithCluster(clusterName),
+		PodRunningPeriods:         f.PodRunningPeriods.WithCluster(clusterName),
 	}
 }
 

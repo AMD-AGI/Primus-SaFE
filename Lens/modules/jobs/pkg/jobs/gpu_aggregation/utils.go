@@ -67,4 +67,3 @@ func convertToDBLabelStats(stats *model.LabelGpuHourlyStats) *dbmodel.LabelGpuHo
 		ActiveWorkloadCount: int32(stats.ActiveWorkloadCount),
 	}
 }
-

@@ -5,14 +5,7 @@
 # See LICENSE for license information.
 #
 
-CONTAINER_NAME="${1:-}"
-
-if [ -z "$CONTAINER_NAME" ]; then
-    echo "Usage: $0 <container-name>"
-    echo "Example: $0 csi-wekafs"
-    exit 2
-fi
-
+CONTAINER_NAME="csi-wekafs-node"
 output=$(nsenter --target 1 --mount --uts --ipc --net --pid -- crictl ps 2>/dev/null | grep "$CONTAINER_NAME")
 
 if [ -z "$output" ]; then
@@ -21,6 +14,11 @@ if [ -z "$output" ]; then
 fi
 
 total=$(echo "$output" | wc -l)
+if [ "$total" -ne 3 ]; then
+    echo "Error: Expected 3 $CONTAINER_NAME containers, but found $total"
+    exit 1
+fi
+
 running=$(echo "$output" | grep -c '\bRunning\b')
 
 if [ "$running" -ne "$total" ]; then
