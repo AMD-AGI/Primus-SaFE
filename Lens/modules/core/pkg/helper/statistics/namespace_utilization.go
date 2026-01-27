@@ -120,15 +120,14 @@ func (c *NamespaceUtilizationCalculator) buildUtilizationResult(values []float64
 
 // queryUtilizationByNodeMapping queries GPU utilization using node-namespace mapping history
 // Uses query: avg(gpu_utilization{primus_lens_node_name="nodename"})
+// This method calculates time-weighted utilization based on when each node was actually in the namespace
 func (c *NamespaceUtilizationCalculator) queryUtilizationByNodeMapping(
 	ctx context.Context,
 	namespace string,
 	startTime, endTime time.Time,
 ) []float64 {
-	// Get node mappings for this namespace at the query time
-	// Use the middle of the time range as the reference time
-	midTime := startTime.Add(endTime.Sub(startTime) / 2)
-	mappings, err := c.mappingFacade.ListHistoryByNamespaceNameAtTime(ctx, namespace, midTime)
+	// Get all node mappings that overlap with the query time range
+	mappings, err := c.mappingFacade.ListHistoryByNamespaceNameInTimeRange(ctx, namespace, startTime, endTime)
 	if err != nil {
 		log.Warnf("Failed to get node mappings for namespace %s: %v", namespace, err)
 		return nil
@@ -138,12 +137,30 @@ func (c *NamespaceUtilizationCalculator) queryUtilizationByNodeMapping(
 		return nil
 	}
 
-	// Query utilization for each node and collect all values
+	totalQueryDuration := endTime.Sub(startTime).Seconds()
+	if totalQueryDuration <= 0 {
+		return nil
+	}
+
+	// Query utilization for each node based on its effective time in the namespace
 	allValues := make([]float64, 0)
 	for _, mapping := range mappings {
-		nodeValues := c.queryNodeUtilization(ctx, mapping.NodeName, startTime, endTime)
+		// Calculate effective time period: intersection of [record_start, record_end] and [startTime, endTime]
+		effectiveStart := maxTime(mapping.RecordStart, startTime)
+		effectiveEnd := endTime
+		if !mapping.RecordEnd.IsZero() {
+			effectiveEnd = minTime(mapping.RecordEnd, endTime)
+		}
+
+		// Skip if no effective overlap
+		if !effectiveEnd.After(effectiveStart) {
+			continue
+		}
+
+		// Query node utilization for the effective time period
+		nodeValues := c.queryNodeUtilization(ctx, mapping.NodeName, effectiveStart, effectiveEnd)
 		if len(nodeValues) > 0 {
-			// Calculate average for this node
+			// Calculate average for this node during its effective period
 			var sum float64
 			for _, v := range nodeValues {
 				sum += v
