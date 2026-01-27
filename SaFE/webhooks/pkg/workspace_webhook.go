@@ -715,16 +715,13 @@ func (v *WorkspaceValidator) validateNodesRemoved(ctx context.Context, workspace
 	}
 	runningWorkloads, err := commonworkload.GetWorkloadsOfWorkspace(ctx, v.Client,
 		workspace.Spec.Cluster, []string{workspace.Name}, filterFunc)
-	if err != nil || len(runningWorkloads) == 0 {
+	if err != nil {
 		return err
 	}
 
 	for _, workload := range runningWorkloads {
 		for _, p := range workload.Status.Pods {
 			if !nodeNamesSet.Has(p.AdminNodeName) {
-				continue
-			}
-			if !v1.IsPodRunning(&p) {
 				continue
 			}
 			return commonerrors.NewForbidden(fmt.Sprintf("the node(%s) is currently in use by"+

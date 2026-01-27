@@ -28,9 +28,10 @@ import (
 )
 
 const (
-	ResourceAdd    = "add"
-	ResourceDel    = "delete"
-	ResourceUpdate = "update"
+	ResourceAdd      = "add"
+	ResourceDel      = "delete"
+	ResourceUpdate   = "update"
+	ResourceDeleting = "deleting"
 )
 
 type ResourceHandler controller.QueueHandler[*resourceMessage]
@@ -196,6 +197,10 @@ func (r *ClusterClientSets) handleResource(_ context.Context, oldObj, newObj int
 		action:        action,
 		dispatchCount: 0,
 	}
+	if msg.action != ResourceDel && !newUnstructured.GetDeletionTimestamp().IsZero() {
+		msg.action = ResourceDeleting
+	}
+
 	if newUnstructured.GetKind() == common.EventKind {
 		if isRelevantPodEvent(newUnstructured) {
 			r.handler(msg)
@@ -216,17 +221,21 @@ func (r *ClusterClientSets) handleResource(_ context.Context, oldObj, newObj int
 	}
 	msg.groupId = v1.GetGroupId(newUnstructured)
 
-	switch action {
+	switch msg.action {
 	case ResourceAdd:
-		klog.Infof("create object: %s/%s, uid: %s, kind: %s, generation: %d, workload: %s, dispatch.cnt: %d",
+		klog.Infof("object: %s/%s is created, uid: %s, kind: %s, generation: %d, workload: %s, dispatch.cnt: %d",
 			newUnstructured.GetNamespace(), newUnstructured.GetName(), newUnstructured.GetUID(),
 			msg.gvk.Kind, newUnstructured.GetGeneration(), msg.workloadId, msg.dispatchCount)
 	case ResourceDel:
 		if oldUnstructured, ok := oldObj.(*unstructured.Unstructured); ok {
-			klog.Infof("delete object: %s/%s, uid: %s, kind: %s, generation: %d, workload: %s, dispatch.cnt: %d",
+			klog.Infof("object: %s/%s is deleted, uid: %s, kind: %s, generation: %d, workload: %s, dispatch.cnt: %d",
 				oldUnstructured.GetNamespace(), oldUnstructured.GetName(), oldUnstructured.GetUID(),
 				msg.gvk.Kind, oldUnstructured.GetGeneration(), msg.workloadId, msg.dispatchCount)
 		}
+	case ResourceDeleting:
+		klog.Infof("object: %s/%s is deleting, uid: %s, kind: %s, generation: %d, workload: %s, dispatch.cnt: %d",
+			newUnstructured.GetNamespace(), newUnstructured.GetName(), newUnstructured.GetUID(),
+			msg.gvk.Kind, newUnstructured.GetGeneration(), msg.workloadId, msg.dispatchCount)
 	}
 	r.handler(msg)
 }
