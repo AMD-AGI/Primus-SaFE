@@ -361,9 +361,10 @@ func (g *GpuPodsReconciler) saveGpuPodsStatus(ctx context.Context, pod *corev1.P
 		CreatedAt:    time.Now(),
 		UpdatedAt:    time.Now(),
 	}
-	if !gpuPods.Deleted && slices.Contains([]string{
+	isRunning := !gpuPods.Deleted && slices.Contains([]string{
 		string(corev1.PodRunning),
-	}, string(pod.Status.Phase)) {
+	}, string(pod.Status.Phase))
+	if isRunning {
 		gpuPods.Running = true
 	}
 
@@ -371,6 +372,10 @@ func (g *GpuPodsReconciler) saveGpuPodsStatus(ctx context.Context, pod *corev1.P
 	if err != nil {
 		return err
 	}
+
+	// Track running period transitions
+	wasRunning := existGpuPodsRecord != nil && existGpuPodsRecord.Running
+
 	if existGpuPodsRecord == nil {
 		existGpuPodsRecord = gpuPods
 	} else {
@@ -389,6 +394,60 @@ func (g *GpuPodsReconciler) saveGpuPodsStatus(ctx context.Context, pod *corev1.P
 			return err
 		}
 	}
+
+	// Handle running period tracking
+	if err := g.trackRunningPeriod(ctx, pod, wasRunning, isRunning); err != nil {
+		log.Warnf("Failed to track running period for pod %s/%s: %v", pod.Namespace, pod.Name, err)
+		// Don't fail the entire reconcile for running period tracking errors
+	}
+
+	return nil
+}
+
+// trackRunningPeriod tracks pod running state transitions
+func (g *GpuPodsReconciler) trackRunningPeriod(ctx context.Context, pod *corev1.Pod, wasRunning, isRunning bool) error {
+	podUID := string(pod.UID)
+	now := time.Now()
+
+	// Case 1: Pod just entered Running state
+	if !wasRunning && isRunning {
+		// Check if there's already an active running period (shouldn't happen, but be defensive)
+		existingPeriod, err := database.GetFacade().GetPodRunningPeriods().GetCurrentRunningPeriod(ctx, podUID)
+		if err != nil {
+			return fmt.Errorf("failed to check existing running period: %w", err)
+		}
+		if existingPeriod != nil {
+			log.Warnf("Pod %s/%s already has an active running period, skipping create", pod.Namespace, pod.Name)
+			return nil
+		}
+
+		// Create new running period
+		period := &model.PodRunningPeriods{
+			PodUID:       podUID,
+			Namespace:    pod.Namespace,
+			PodName:      pod.Name,
+			StartAt:      now,
+			GpuAllocated: int32(k8sUtil.GetGpuAllocated(pod, metadata.GetResourceName(metadata.GpuVendorAMD))),
+			CreatedAt:    now,
+			UpdatedAt:    now,
+		}
+		if err := database.GetFacade().GetPodRunningPeriods().CreateRunningPeriod(ctx, period); err != nil {
+			return fmt.Errorf("failed to create running period: %w", err)
+		}
+		log.Infof("Created running period for pod %s/%s", pod.Namespace, pod.Name)
+		return nil
+	}
+
+	// Case 2: Pod just left Running state (or was deleted)
+	if wasRunning && !isRunning {
+		if err := database.GetFacade().GetPodRunningPeriods().EndRunningPeriod(ctx, podUID, now); err != nil {
+			return fmt.Errorf("failed to end running period: %w", err)
+		}
+		log.Infof("Ended running period for pod %s/%s", pod.Namespace, pod.Name)
+		return nil
+	}
+
+	// Case 3: No transition, nothing to do
 	return nil
 }
 

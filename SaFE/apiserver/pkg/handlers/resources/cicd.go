@@ -82,9 +82,7 @@ func (h *Handler) updateCICDSecret(ctx context.Context,
 	}
 	if oldSecretId != "" {
 		if err = h.deleteSecretImpl(ctx, oldSecretId, requestUser); err != nil {
-			if innerErr := h.deleteSecretImpl(ctx, newSecret.Name, requestUser); innerErr != nil {
-				klog.ErrorS(innerErr, "failed to delete secret", "secretId", newSecret.Name)
-			}
+			h.deleteSecretImpl(ctx, newSecret.Name, requestUser)
 			return err
 		}
 	}

@@ -74,6 +74,12 @@ if [ -n "$ENV_FILE_CONFIG" ]; then
     echo "✓ .env file created"
 fi
 
+# Source .env file to get configuration variables (e.g., proxy_image_registry)
+if [ -f "$ENV_FILE" ]; then
+    source "$ENV_FILE"
+    echo "✓ .env file loaded (proxy_image_registry=${proxy_image_registry:-not set})"
+fi
+
 # Update components
 if [ -n "$COMPONENT_TAGS" ]; then
     IFS=';' read -ra COMPS <<< "$COMPONENT_TAGS"
@@ -299,6 +305,13 @@ EOF
             NODE_AGENT_TMP_VALUES="$NODE_AGENT_CHART/.values.yaml"
             cp "$NODE_AGENT_CHART/values.yaml" "$NODE_AGENT_TMP_VALUES"
             sed -i "s|image: \".*\"|image: \"$NODE_AGENT_IMAGE\"|" "$NODE_AGENT_TMP_VALUES"
+            
+            # Replace image_registry with proxy_image_registry from .env
+            if [ -n "${proxy_image_registry:-}" ]; then
+                safe_image=$(printf '%s\n' "$proxy_image_registry" | sed 's/[&/\]/\\&/g')
+                sed -i '/node_agent:/,/^[a-z]/ s/image_registry: .*/image_registry: "'"$safe_image"'"/' "$NODE_AGENT_TMP_VALUES"
+                echo "  ✓ Updated image_registry to $proxy_image_registry"
+            fi
             
             helm $KUBECONFIG_OPT upgrade -i node-agent "$NODE_AGENT_CHART" \
                 -n $NAMESPACE --create-namespace \
