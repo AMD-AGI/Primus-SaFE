@@ -230,9 +230,6 @@ func (r *SyncerReconciler) updateAdminWorkloadStatus(ctx context.Context, origin
 		return adminWorkload, nil
 	}
 
-	if status.Phase == "" {
-		return originalWorkload, nil
-	}
 	r.updateAdminWorkloadPhase(adminWorkload, status, message)
 	if adminWorkload.Status.StartTime == nil {
 		adminWorkload.Status.StartTime = &metav1.Time{Time: time.Now().UTC()}
