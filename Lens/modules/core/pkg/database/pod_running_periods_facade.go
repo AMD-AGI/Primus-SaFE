@@ -95,15 +95,14 @@ func (f *PodRunningPeriodsFacade) GetCurrentRunningPeriod(ctx context.Context, p
 
 // ListRunningPeriodsInTimeRange returns all running periods that overlap with the time range
 func (f *PodRunningPeriodsFacade) ListRunningPeriodsInTimeRange(ctx context.Context, startTime, endTime time.Time) ([]*model.PodRunningPeriods, error) {
-	q := f.getDAL().PodRunningPeriods
+	db := f.getDB()
+	var results []*model.PodRunningPeriods
 	// Overlap condition: start_at < endTime AND (end_at IS NULL OR end_at > startTime)
-	results, err := q.WithContext(ctx).
-		Where(q.StartAt.Lt(endTime)).
-		Where(q.WithContext(ctx).Or(
-			q.EndAt.IsNull(),
-			q.EndAt.Gt(startTime),
-		)).
-		Find()
+	err := db.WithContext(ctx).
+		Model(&model.PodRunningPeriods{}).
+		Where("start_at < ?", endTime).
+		Where("end_at IS NULL OR end_at > ?", startTime).
+		Find(&results).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return []*model.PodRunningPeriods{}, nil
@@ -115,15 +114,15 @@ func (f *PodRunningPeriodsFacade) ListRunningPeriodsInTimeRange(ctx context.Cont
 
 // ListRunningPeriodsInTimeRangeByNamespace returns running periods for a specific namespace
 func (f *PodRunningPeriodsFacade) ListRunningPeriodsInTimeRangeByNamespace(ctx context.Context, namespace string, startTime, endTime time.Time) ([]*model.PodRunningPeriods, error) {
-	q := f.getDAL().PodRunningPeriods
-	results, err := q.WithContext(ctx).
-		Where(q.Namespace.Eq(namespace)).
-		Where(q.StartAt.Lt(endTime)).
-		Where(q.WithContext(ctx).Or(
-			q.EndAt.IsNull(),
-			q.EndAt.Gt(startTime),
-		)).
-		Find()
+	db := f.getDB()
+	var results []*model.PodRunningPeriods
+	// Overlap condition: namespace = ? AND start_at < endTime AND (end_at IS NULL OR end_at > startTime)
+	err := db.WithContext(ctx).
+		Model(&model.PodRunningPeriods{}).
+		Where("namespace = ?", namespace).
+		Where("start_at < ?", endTime).
+		Where("end_at IS NULL OR end_at > ?", startTime).
+		Find(&results).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return []*model.PodRunningPeriods{}, nil
@@ -139,15 +138,15 @@ func (f *PodRunningPeriodsFacade) ListRunningPeriodsInTimeRangeByPodUIDs(ctx con
 		return []*model.PodRunningPeriods{}, nil
 	}
 
-	q := f.getDAL().PodRunningPeriods
-	results, err := q.WithContext(ctx).
-		Where(q.PodUID.In(podUIDs...)).
-		Where(q.StartAt.Lt(endTime)).
-		Where(q.WithContext(ctx).Or(
-			q.EndAt.IsNull(),
-			q.EndAt.Gt(startTime),
-		)).
-		Find()
+	db := f.getDB()
+	var results []*model.PodRunningPeriods
+	// Overlap condition: pod_uid IN (?) AND start_at < endTime AND (end_at IS NULL OR end_at > startTime)
+	err := db.WithContext(ctx).
+		Model(&model.PodRunningPeriods{}).
+		Where("pod_uid IN ?", podUIDs).
+		Where("start_at < ?", endTime).
+		Where("end_at IS NULL OR end_at > ?", startTime).
+		Find(&results).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return []*model.PodRunningPeriods{}, nil
