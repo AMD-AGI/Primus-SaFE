@@ -29,6 +29,7 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/gpu_workload"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/action_task_executor"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/pyspy_task_dispatcher"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/stale_pod_cleanup"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/storage_scan"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/tracelens_cleanup"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/workload_statistic"
@@ -130,6 +131,11 @@ func initDataJobs() []Job {
 	// Polls every 300ms to achieve <1s latency for task pickup
 	jobs = append(jobs, action_task_executor.NewActionTaskExecutorJob())
 	log.Info("Action task executor job registered (poll interval: 300ms)")
+
+	// Add StalePodCleanupJob to clean up stale "Running" pods that no longer exist in K8s
+	// This handles cases where exporter's reconcile loop misses pod deletion events
+	jobs = append(jobs, stale_pod_cleanup.NewStalePodCleanupJob())
+	log.Info("Stale pod cleanup job registered (every 5m)")
 
 	return jobs
 }
