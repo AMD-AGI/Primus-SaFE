@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/aiclient"
@@ -18,6 +19,7 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
 	dbmodel "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/github"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/model/rest"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/workflow"
@@ -2335,4 +2337,239 @@ func StartRunSync(ctx *gin.Context) {
 func StopRunSync(ctx *gin.Context) {
 	liveHandler := workflow.NewLiveHandler()
 	liveHandler.StopSync(ctx)
+}
+
+// GetJobLogs returns logs for a specific job within a workflow run
+// @Summary Get job logs
+// @Description Fetches logs for a specific job from GitHub API
+// @Tags github-workflow-metrics
+// @Produce json
+// @Param id path int true "Workflow Run ID"
+// @Param job_id path int true "GitHub Job ID"
+// @Success 200 {object} map[string]interface{}
+// @Router /v1/github-workflow-metrics/runs/{id}/jobs/{job_id}/logs [get]
+func GetJobLogs(ctx *gin.Context) {
+	runID, err := strconv.ParseInt(ctx.Param("id"), 10, 64)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, rest.ErrorResp(ctx.Request.Context(), http.StatusBadRequest, "invalid run_id", nil))
+		return
+	}
+
+	jobID, err := strconv.ParseInt(ctx.Param("job_id"), 10, 64)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, rest.ErrorResp(ctx.Request.Context(), http.StatusBadRequest, "invalid job_id", nil))
+		return
+	}
+
+	// Get the workflow run to find the runner set
+	runFacade := database.GetFacade().GetGithubWorkflowRun()
+	run, err := runFacade.GetByID(ctx.Request.Context(), runID)
+	if err != nil {
+		log.GlobalLogger().WithContext(ctx).Errorf("Failed to get run %d: %v", runID, err)
+		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, err.Error(), nil))
+		return
+	}
+	if run == nil {
+		ctx.JSON(http.StatusNotFound, rest.ErrorResp(ctx.Request.Context(), http.StatusNotFound, "workflow run not found", nil))
+		return
+	}
+
+	// Get the runner set to find GitHub credentials
+	runnerSetFacade := database.GetFacade().GetGithubRunnerSet()
+	runnerSet, err := runnerSetFacade.GetByID(ctx.Request.Context(), run.RunnerSetID)
+	if err != nil || runnerSet == nil {
+		log.GlobalLogger().WithContext(ctx).Errorf("Failed to get runner set %d: %v", run.RunnerSetID, err)
+		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, "runner set not found", nil))
+		return
+	}
+
+	// Check if we have GitHub credentials
+	if runnerSet.GithubOwner == "" || runnerSet.GithubRepo == "" {
+		ctx.JSON(http.StatusBadRequest, rest.ErrorResp(ctx.Request.Context(), http.StatusBadRequest, "GitHub owner/repo not configured for this runner set", nil))
+		return
+	}
+
+	// Get GitHub client
+	githubManager := github.GetGlobalManager()
+	if githubManager == nil {
+		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, "GitHub client manager not initialized", nil))
+		return
+	}
+
+	client, err := githubManager.GetClientForSecret(ctx.Request.Context(), runnerSet.Namespace, runnerSet.GithubConfigSecret)
+	if err != nil {
+		log.GlobalLogger().WithContext(ctx).Errorf("Failed to get GitHub client: %v", err)
+		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, "failed to get GitHub credentials", nil))
+		return
+	}
+
+	// Fetch logs from GitHub
+	logs, err := client.GetJobLogs(ctx.Request.Context(), runnerSet.GithubOwner, runnerSet.GithubRepo, jobID)
+	if err != nil {
+		log.GlobalLogger().WithContext(ctx).Errorf("Failed to get job logs: %v", err)
+		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, fmt.Sprintf("failed to fetch logs: %v", err), nil))
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"run_id":  runID,
+		"job_id":  jobID,
+		"logs":    logs,
+		"fetched": true,
+	})
+}
+
+// GetStepLogs returns logs for a specific step within a job
+// Note: GitHub API only provides job-level logs, step logs are parsed from job logs
+// @Summary Get step logs
+// @Description Fetches logs for a specific step from job logs
+// @Tags github-workflow-metrics
+// @Produce json
+// @Param id path int true "Workflow Run ID"
+// @Param job_id path int true "GitHub Job ID"
+// @Param step_number path int true "Step Number"
+// @Success 200 {object} map[string]interface{}
+// @Router /v1/github-workflow-metrics/runs/{id}/jobs/{job_id}/steps/{step_number}/logs [get]
+func GetStepLogs(ctx *gin.Context) {
+	runID, err := strconv.ParseInt(ctx.Param("id"), 10, 64)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, rest.ErrorResp(ctx.Request.Context(), http.StatusBadRequest, "invalid run_id", nil))
+		return
+	}
+
+	jobID, err := strconv.ParseInt(ctx.Param("job_id"), 10, 64)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, rest.ErrorResp(ctx.Request.Context(), http.StatusBadRequest, "invalid job_id", nil))
+		return
+	}
+
+	stepNumber, err := strconv.Atoi(ctx.Param("step_number"))
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, rest.ErrorResp(ctx.Request.Context(), http.StatusBadRequest, "invalid step_number", nil))
+		return
+	}
+
+	// Get the workflow run to find the runner set
+	runFacade := database.GetFacade().GetGithubWorkflowRun()
+	run, err := runFacade.GetByID(ctx.Request.Context(), runID)
+	if err != nil {
+		log.GlobalLogger().WithContext(ctx).Errorf("Failed to get run %d: %v", runID, err)
+		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, err.Error(), nil))
+		return
+	}
+	if run == nil {
+		ctx.JSON(http.StatusNotFound, rest.ErrorResp(ctx.Request.Context(), http.StatusNotFound, "workflow run not found", nil))
+		return
+	}
+
+	// Get the runner set to find GitHub credentials
+	runnerSetFacade := database.GetFacade().GetGithubRunnerSet()
+	runnerSet, err := runnerSetFacade.GetByID(ctx.Request.Context(), run.RunnerSetID)
+	if err != nil || runnerSet == nil {
+		log.GlobalLogger().WithContext(ctx).Errorf("Failed to get runner set %d: %v", run.RunnerSetID, err)
+		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, "runner set not found", nil))
+		return
+	}
+
+	// Check if we have GitHub credentials
+	if runnerSet.GithubOwner == "" || runnerSet.GithubRepo == "" {
+		ctx.JSON(http.StatusBadRequest, rest.ErrorResp(ctx.Request.Context(), http.StatusBadRequest, "GitHub owner/repo not configured for this runner set", nil))
+		return
+	}
+
+	// Get GitHub client
+	githubManager := github.GetGlobalManager()
+	if githubManager == nil {
+		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, "GitHub client manager not initialized", nil))
+		return
+	}
+
+	client, err := githubManager.GetClientForSecret(ctx.Request.Context(), runnerSet.Namespace, runnerSet.GithubConfigSecret)
+	if err != nil {
+		log.GlobalLogger().WithContext(ctx).Errorf("Failed to get GitHub client: %v", err)
+		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, "failed to get GitHub credentials", nil))
+		return
+	}
+
+	// Fetch job logs from GitHub
+	jobLogs, err := client.GetJobLogs(ctx.Request.Context(), runnerSet.GithubOwner, runnerSet.GithubRepo, jobID)
+	if err != nil {
+		log.GlobalLogger().WithContext(ctx).Errorf("Failed to get job logs: %v", err)
+		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, fmt.Sprintf("failed to fetch logs: %v", err), nil))
+		return
+	}
+
+	// Parse step logs from job logs
+	// GitHub job logs format includes step markers like:
+	// ##[group]Run step-name
+	// ... step output ...
+	// ##[endgroup]
+	stepLogs := parseStepLogs(jobLogs, stepNumber)
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"run_id":      runID,
+		"job_id":      jobID,
+		"step_number": stepNumber,
+		"logs":        stepLogs,
+		"fetched":     true,
+	})
+}
+
+// parseStepLogs extracts logs for a specific step from job logs
+func parseStepLogs(jobLogs string, stepNumber int) string {
+	lines := strings.Split(jobLogs, "\n")
+	var stepLogs strings.Builder
+	inStep := false
+	currentStep := 0
+
+	for _, line := range lines {
+		// Check for step group markers
+		// Format: "##[group]Step Name" or timestamp prefix followed by group marker
+		if strings.Contains(line, "##[group]") {
+			currentStep++
+			if currentStep == stepNumber {
+				inStep = true
+				// Extract step name from group marker
+				groupIdx := strings.Index(line, "##[group]")
+				if groupIdx >= 0 {
+					stepName := strings.TrimSpace(line[groupIdx+9:])
+					stepLogs.WriteString(fmt.Sprintf("=== Step %d: %s ===\n", stepNumber, stepName))
+				}
+			}
+			continue
+		}
+
+		if strings.Contains(line, "##[endgroup]") {
+			if inStep {
+				inStep = false
+				break // We found our step, no need to continue
+			}
+			continue
+		}
+
+		if inStep {
+			// Clean up timestamp prefix if present (format: 2024-01-27T10:30:45.1234567Z)
+			cleanLine := line
+			if len(line) > 28 && line[0] >= '0' && line[0] <= '9' {
+				// Check if line starts with timestamp
+				if len(line) > 27 && line[4] == '-' && line[7] == '-' && line[10] == 'T' {
+					// Find the end of timestamp (after 'Z')
+					for i := 20; i < len(line) && i < 35; i++ {
+						if line[i] == 'Z' || line[i] == ' ' {
+							cleanLine = strings.TrimSpace(line[i+1:])
+							break
+						}
+					}
+				}
+			}
+			stepLogs.WriteString(cleanLine)
+			stepLogs.WriteString("\n")
+		}
+	}
+
+	result := stepLogs.String()
+	if result == "" {
+		return fmt.Sprintf("No logs found for step %d. The step may not have produced any output.", stepNumber)
+	}
+	return result
 }
