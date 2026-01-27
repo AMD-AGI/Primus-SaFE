@@ -25,6 +25,13 @@ type PodFacadeInterface interface {
 	ListActivePodsByUids(ctx context.Context, uids []string) ([]*model.GpuPods, error)
 	ListPodsByUids(ctx context.Context, uids []string) ([]*model.GpuPods, error)
 	ListActiveGpuPods(ctx context.Context) ([]*model.GpuPods, error)
+	// ListRunningGpuPods returns pods with phase = 'Running' (used by stale pod cleanup job)
+	ListRunningGpuPods(ctx context.Context) ([]*model.GpuPods, error)
+	// ListPodsActiveInTimeRange returns pods that were active during the specified time range
+	// A pod is considered active in the time range if:
+	// - created_at <= endTime AND
+	// - (phase = 'Running' OR updated_at >= startTime)
+	ListPodsActiveInTimeRange(ctx context.Context, startTime, endTime time.Time) ([]*model.GpuPods, error)
 
 	// GpuPodsEvent operations
 	CreateGpuPodsEvent(ctx context.Context, gpuPods *model.GpuPodsEvent) error
@@ -148,6 +155,59 @@ func (f *PodFacade) ListPodsByUids(ctx context.Context, uids []string) ([]*model
 func (f *PodFacade) ListActiveGpuPods(ctx context.Context) ([]*model.GpuPods, error) {
 	q := f.getDAL().GpuPods
 	result, err := q.WithContext(ctx).Where(q.Running.Is(true)).Find()
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return result, nil
+}
+
+// ListRunningGpuPods returns pods with phase = 'Running' and not deleted
+// This is used by the stale pod cleanup job to find pods that need to be checked
+func (f *PodFacade) ListRunningGpuPods(ctx context.Context) ([]*model.GpuPods, error) {
+	q := f.getDAL().GpuPods
+	result, err := q.WithContext(ctx).
+		Where(q.Phase.Eq(string(corev1.PodRunning))).
+		Where(q.Deleted.Is(false)).
+		Find()
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return result, nil
+}
+
+// ListPodsActiveInTimeRange returns pods that were active (running) during the specified time range
+// A pod is considered active if:
+// - created_at <= endTime AND
+// - (phase = 'Running' AND deleted = false) (currently running, not deleted) OR
+// - (phase IN ('Succeeded', 'Failed') AND updated_at >= startTime) (finished during the time range)
+// Note: Pending pods and deleted "Running" pods are explicitly excluded
+// This is used for time-based aggregation calculations
+func (f *PodFacade) ListPodsActiveInTimeRange(ctx context.Context, startTime, endTime time.Time) ([]*model.GpuPods, error) {
+	db := f.getDB()
+	if db == nil {
+		return nil, nil
+	}
+	// Pod was created before or during the time range
+	// AND (
+	//   (pod is currently running AND not deleted) OR
+	//   pod finished (Succeeded/Failed) during or after the time range
+	// )
+	// Explicitly exclude Pending pods and deleted "Running" pods (zombie pods)
+	var result []*model.GpuPods
+	err := db.WithContext(ctx).
+		Where("created_at <= ?", endTime).
+		Where(
+			// (Running AND not deleted) OR (Succeeded/Failed AND updated_at >= startTime)
+			db.Where("phase = ? AND deleted = ?", string(corev1.PodRunning), false).
+				Or("phase IN ? AND updated_at >= ?", []string{string(corev1.PodSucceeded), string(corev1.PodFailed)}, startTime),
+		).
+		Find(&result).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil

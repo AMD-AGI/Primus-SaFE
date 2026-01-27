@@ -54,6 +54,9 @@ type WorkloadFacadeInterface interface {
 	ListWorkloadPodReferencesByPodUids(ctx context.Context, podUids []string) ([]*model.WorkloadPodReference, error)
 	ListWorkloadPodReferenceByWorkloadUid(ctx context.Context, workloadUid string) ([]*model.WorkloadPodReference, error)
 	GetAllWorkloadPodReferences(ctx context.Context) ([]*model.WorkloadPodReference, error)
+	// ListWorkloadUidsByPodUids returns workload UIDs for the given pod UIDs
+	// This is used to find workloads from their associated pods
+	ListWorkloadUidsByPodUids(ctx context.Context, podUids []string) ([]string, error)
 
 	// WorkloadEvent operations
 	GetWorkloadEventByWorkloadUidAndNearestWorkloadIdAndType(ctx context.Context, workloadUid, nearestWorkloadId, typ string) (*model.WorkloadEvent, error)
@@ -410,6 +413,20 @@ func (f *WorkloadFacade) GetLatestGpuWorkloadSnapshotByUid(ctx context.Context, 
 
 // WorkloadPodReference operation implementations
 func (f *WorkloadFacade) CreateWorkloadPodReference(ctx context.Context, workloadUid, podUid string) error {
+	// Check if reference already exists to prevent duplicates
+	q := f.getDAL().WorkloadPodReference
+	existingRef, err := q.WithContext(ctx).
+		Where(q.WorkloadUID.Eq(workloadUid)).
+		Where(q.PodUID.Eq(podUid)).
+		First()
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return err
+	}
+	// If reference already exists (either found or ID > 0), skip creation
+	if existingRef != nil && existingRef.ID > 0 {
+		return nil
+	}
+
 	ref := &model.WorkloadPodReference{
 		WorkloadUID: workloadUid,
 		PodUID:      podUid,
@@ -444,6 +461,32 @@ func (f *WorkloadFacade) GetAllWorkloadPodReferences(ctx context.Context) ([]*mo
 		return nil, err
 	}
 	return refs, nil
+}
+
+// ListWorkloadUidsByPodUids returns distinct workload UIDs for the given pod UIDs
+func (f *WorkloadFacade) ListWorkloadUidsByPodUids(ctx context.Context, podUids []string) ([]string, error) {
+	if len(podUids) == 0 {
+		return []string{}, nil
+	}
+
+	q := f.getDAL().WorkloadPodReference
+	refs, err := q.WithContext(ctx).Where(q.PodUID.In(podUids...)).Find()
+	if err != nil {
+		return nil, err
+	}
+
+	// Deduplicate workload UIDs
+	uidSet := make(map[string]struct{})
+	for _, ref := range refs {
+		uidSet[ref.WorkloadUID] = struct{}{}
+	}
+
+	result := make([]string, 0, len(uidSet))
+	for uid := range uidSet {
+		result = append(result, uid)
+	}
+
+	return result, nil
 }
 
 // WorkloadEvent operation implementations

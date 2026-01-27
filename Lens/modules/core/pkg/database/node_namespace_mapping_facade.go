@@ -31,6 +31,9 @@ type NodeNamespaceMappingFacadeInterface interface {
 	UpdateHistoryRecordEnd(ctx context.Context, historyID int32, recordEnd time.Time) error
 	ListHistoryByNamespaceAtTime(ctx context.Context, namespaceID int64, atTime time.Time) ([]*model.NodeNamespaceMappingHistory, error)
 	ListHistoryByNamespaceNameAtTime(ctx context.Context, namespaceName string, atTime time.Time) ([]*model.NodeNamespaceMappingHistory, error)
+	// ListHistoryByNamespaceNameInTimeRange lists all history records for a namespace that overlap with the time range
+	// Overlap condition: record_start < endTime AND (record_end IS NULL OR record_end > startTime)
+	ListHistoryByNamespaceNameInTimeRange(ctx context.Context, namespaceName string, startTime, endTime time.Time) ([]*model.NodeNamespaceMappingHistory, error)
 
 	// WithCluster method
 	WithCluster(clusterName string) NodeNamespaceMappingFacadeInterface
@@ -225,3 +228,23 @@ func (f *NodeNamespaceMappingFacade) ListHistoryByNamespaceNameAtTime(ctx contex
 	return results, nil
 }
 
+// ListHistoryByNamespaceNameInTimeRange lists all history records for a namespace that overlap with the time range
+// Overlap condition: record_start < endTime AND (record_end IS NULL OR record_end > startTime)
+func (f *NodeNamespaceMappingFacade) ListHistoryByNamespaceNameInTimeRange(ctx context.Context, namespaceName string, startTime, endTime time.Time) ([]*model.NodeNamespaceMappingHistory, error) {
+	q := f.getDAL().NodeNamespaceMappingHistory
+	results, err := q.WithContext(ctx).
+		Where(q.NamespaceName.Eq(namespaceName)).
+		Where(q.RecordStart.Lt(endTime)).
+		Where(q.WithContext(ctx).Or(
+			q.RecordEnd.IsNull(),
+			q.RecordEnd.Gt(startTime),
+		)).
+		Find()
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return results, nil
+}
