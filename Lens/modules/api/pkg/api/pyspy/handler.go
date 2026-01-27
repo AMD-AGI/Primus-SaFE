@@ -10,16 +10,18 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/storage"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/constant"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	coreModel "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/model"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/model/rest"
-	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/storage"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	corev1 "k8s.io/api/core/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 var (
@@ -101,6 +103,7 @@ func CreateTask(c *gin.Context) {
 	ext := coreModel.PySpyTaskExt{
 		TaskID:         taskID,
 		TargetNodeName: req.NodeName,
+		WorkloadUID:    req.WorkloadUID,
 		PodUID:         req.PodUID,
 		PodName:        req.PodName,
 		PodNamespace:   req.PodNamespace,
@@ -531,6 +534,11 @@ func listTasksWithFilters(ctx interface{ Done() <-chan struct{} }, req *ListTask
 	if req.Status != "" {
 		query = query.Where("status = ?", req.Status)
 	}
+	// WorkloadUID filter - query all tasks for pods in this workload
+	if req.WorkloadUID != "" {
+		query = query.Where("ext->>'workload_uid' = ?", req.WorkloadUID)
+	}
+	// PodUID filter - more specific, can be combined with WorkloadUID
 	if req.PodUID != "" {
 		query = query.Where("ext->>'pod_uid' = ?", req.PodUID)
 	}
@@ -558,3 +566,288 @@ func listTasksWithFilters(ctx interface{ Done() <-chan struct{} }, req *ListTask
 	return tasks, total, err
 }
 
+// GetProcessTree retrieves the process tree for a pod
+// For same-cluster requests: directly proxies to node-exporter
+// For cross-cluster requests: uses action_tasks queue for async execution
+// POST /api/v1/workloads/:uid/process-tree
+func GetProcessTree(c *gin.Context) {
+	var req ProcessTreeRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Resolve cluster name
+	clusterName, err := getClusterName(c, req.Cluster)
+	if err != nil {
+		log.Errorf("Failed to resolve cluster: %v", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("invalid cluster: %v", err)})
+		return
+	}
+
+	// Check if this is a cross-cluster request
+	if clientsets.IsRemoteCluster(clusterName) {
+		// Cross-cluster: use action_tasks queue
+		log.Infof("Cross-cluster request detected for pod %s in cluster %s, using action queue", req.PodUID, clusterName)
+		getProcessTreeViaActionQueue(c, &req, clusterName)
+		return
+	}
+
+	// Same-cluster: call node-exporter directly
+	getProcessTreeDirect(c, &req, clusterName)
+}
+
+// getProcessTreeViaActionQueue handles cross-cluster process tree requests via action_tasks queue
+func getProcessTreeViaActionQueue(c *gin.Context, req *ProcessTreeRequest, clusterName string) {
+	// Get pod information from database to get node name
+	podFacade := database.GetFacadeForCluster(clusterName).GetPod()
+	gpuPod, err := podFacade.GetGpuPodsByPodUid(c.Request.Context(), req.PodUID)
+	if err != nil {
+		log.Errorf("Failed to query pod %s from database: %v", req.PodUID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to query pod information"})
+		return
+	}
+
+	if gpuPod == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("pod %s not found in database", req.PodUID)})
+		return
+	}
+
+	if gpuPod.NodeName == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "pod node name is empty"})
+		return
+	}
+
+	// Get ActionClient for the target cluster
+	actionClient, err := clientsets.GetActionClientForCluster(clusterName)
+	if err != nil {
+		log.Errorf("Failed to get action client for cluster %s: %v", clusterName, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get action client"})
+		return
+	}
+
+	// Build action request
+	actionReq := &clientsets.ActionRequest{
+		Type:       "get_process_tree",
+		TargetType: "pod",
+		TargetID:   req.PodUID,
+		TargetNode: gpuPod.NodeName,
+		Parameters: map[string]interface{}{
+			"pod_uid":           req.PodUID,
+			"pod_name":          gpuPod.Name,
+			"pod_namespace":     gpuPod.Namespace,
+			"include_env":       req.IncludeEnv,
+			"include_cmdline":   req.IncludeCmdline,
+			"include_resources": req.IncludeResources,
+			"include_gpu":       req.IncludeGPU,
+		},
+	}
+
+	log.Infof("Executing remote action for process tree: pod=%s, node=%s, cluster=%s",
+		req.PodUID, gpuPod.NodeName, clusterName)
+
+	// Execute action and wait for result (synchronous experience)
+	result, err := actionClient.ExecuteAction(c.Request.Context(), actionReq)
+	if err != nil {
+		log.Errorf("Failed to execute remote process tree action: %v", err)
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": fmt.Sprintf("failed to get process tree: %v", err)})
+		return
+	}
+
+	if !result.Success {
+		log.Errorf("Remote process tree action failed: %s", result.Error)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": result.Error})
+		return
+	}
+
+	// Parse result data as PodProcessTree
+	var processTree PodProcessTree
+	if err := json.Unmarshal(result.Data, &processTree); err != nil {
+		log.Errorf("Failed to parse process tree result: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to parse process tree result"})
+		return
+	}
+
+	// Add node name if not set
+	if processTree.NodeName == "" {
+		processTree.NodeName = gpuPod.NodeName
+	}
+
+	log.Infof("Successfully retrieved process tree via action queue for pod %s on node %s in cluster %s",
+		req.PodUID, gpuPod.NodeName, clusterName)
+
+	c.JSON(http.StatusOK, rest.SuccessResp(c, processTree))
+}
+
+// getProcessTreeDirect handles same-cluster process tree requests by calling node-exporter directly
+func getProcessTreeDirect(c *gin.Context, req *ProcessTreeRequest, clusterName string) {
+	// Get cluster clients for the target cluster (needed for both DB and K8s API fallback)
+	cm := clientsets.GetClusterManager()
+	clients, err := cm.GetClusterClientsOrDefault(clusterName)
+	if err != nil {
+		log.Errorf("Failed to get cluster clients for %s: %v", clusterName, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get cluster clients"})
+		return
+	}
+
+	var podName, podNamespace, nodeName string
+
+	// Try to get pod information from database first
+	podFacade := database.GetFacadeForCluster(clusterName).GetPod()
+	gpuPod, err := podFacade.GetGpuPodsByPodUid(c.Request.Context(), req.PodUID)
+	if err != nil {
+		log.Warnf("Failed to query pod %s from database: %v, will try Kubernetes API", req.PodUID, err)
+	}
+
+	if gpuPod != nil && gpuPod.NodeName != "" {
+		// Found in database
+		podName = gpuPod.Name
+		podNamespace = gpuPod.Namespace
+		nodeName = gpuPod.NodeName
+		log.Debugf("Found pod %s in database: name=%s, namespace=%s, node=%s", req.PodUID, podName, podNamespace, nodeName)
+	} else {
+		// Fallback: Query Kubernetes API directly
+		log.Infof("Pod %s not found in database, querying Kubernetes API", req.PodUID)
+
+		k8sClient := clients.K8SClientSet.ControllerRuntimeClient
+		if k8sClient == nil {
+			log.Errorf("Kubernetes client not available for cluster %s", clusterName)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "kubernetes client not available"})
+			return
+		}
+
+		// If pod name and namespace are provided, query directly (faster)
+		if req.PodName != "" && req.PodNamespace != "" {
+			pod := &corev1.Pod{}
+			if err := k8sClient.Get(c.Request.Context(), client.ObjectKey{
+				Namespace: req.PodNamespace,
+				Name:      req.PodName,
+			}, pod); err != nil {
+				log.Errorf("Failed to get pod %s/%s from Kubernetes API: %v", req.PodNamespace, req.PodName, err)
+				c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("pod %s/%s not found", req.PodNamespace, req.PodName)})
+				return
+			}
+
+			// Verify UID matches
+			if string(pod.UID) != req.PodUID {
+				log.Warnf("Pod UID mismatch: expected %s, got %s", req.PodUID, pod.UID)
+				c.JSON(http.StatusBadRequest, gin.H{"error": "pod UID mismatch"})
+				return
+			}
+
+			podName = pod.Name
+			podNamespace = pod.Namespace
+			nodeName = pod.Spec.NodeName
+			log.Infof("Found pod %s via Kubernetes API (direct): name=%s, namespace=%s, node=%s", req.PodUID, podName, podNamespace, nodeName)
+		} else {
+			// List all pods and find the one with matching UID (slower fallback)
+			log.Warnf("Pod name/namespace not provided, listing all pods to find UID %s (this may be slow)", req.PodUID)
+			podList := &corev1.PodList{}
+			if err := k8sClient.List(c.Request.Context(), podList); err != nil {
+				log.Errorf("Failed to list pods from Kubernetes API: %v", err)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to query pods from kubernetes"})
+				return
+			}
+
+			var foundPod *corev1.Pod
+			for i := range podList.Items {
+				if string(podList.Items[i].UID) == req.PodUID {
+					foundPod = &podList.Items[i]
+					break
+				}
+			}
+
+			if foundPod == nil {
+				c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("pod with UID %s not found", req.PodUID)})
+				return
+			}
+
+			podName = foundPod.Name
+			podNamespace = foundPod.Namespace
+			nodeName = foundPod.Spec.NodeName
+			log.Infof("Found pod %s via Kubernetes API (list): name=%s, namespace=%s, node=%s", req.PodUID, podName, podNamespace, nodeName)
+		}
+	}
+
+	if nodeName == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "pod node name is empty"})
+		return
+	}
+
+	// Get node-exporter client for the target node
+	nodeExporterClient, err := clientsets.GetOrInitNodeExportersClient(
+		c.Request.Context(),
+		nodeName,
+		clients.K8SClientSet.ControllerRuntimeClient,
+	)
+	if err != nil {
+		log.Errorf("Failed to get node-exporter client for node %s: %v", nodeName, err)
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": fmt.Sprintf("failed to connect to node-exporter on node %s: %v", nodeName, err)})
+		return
+	}
+
+	// Build request body for node-exporter
+	nodeExporterReq := map[string]interface{}{
+		"pod_name":          podName,
+		"pod_namespace":     podNamespace,
+		"pod_uid":           req.PodUID,
+		"include_env":       req.IncludeEnv,
+		"include_cmdline":   req.IncludeCmdline,
+		"include_resources": req.IncludeResources,
+		"include_gpu":       req.IncludeGPU,
+	}
+
+	// Call node-exporter process-tree API
+	resp, err := nodeExporterClient.GetRestyClient().R().
+		SetContext(c.Request.Context()).
+		SetBody(nodeExporterReq).
+		Post("/v1/process-tree/pod")
+
+	if err != nil {
+		log.Errorf("Failed to call node-exporter process-tree API: %v", err)
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "failed to get process tree from node"})
+		return
+	}
+
+	if resp.StatusCode() != http.StatusOK {
+		log.Errorf("Node-exporter process-tree API returned status %d: %s", resp.StatusCode(), resp.String())
+		c.JSON(resp.StatusCode(), gin.H{"error": fmt.Sprintf("node-exporter returned error: %s", resp.String())})
+		return
+	}
+
+	// Parse response from node-exporter
+	var nodeExporterResp struct {
+		Meta struct {
+			Code    int    `json:"code"`
+			Message string `json:"message,omitempty"`
+		} `json:"meta"`
+		Data json.RawMessage `json:"data"`
+	}
+
+	if err := json.Unmarshal(resp.Body(), &nodeExporterResp); err != nil {
+		log.Errorf("Failed to parse node-exporter response: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to parse process tree response"})
+		return
+	}
+
+	if nodeExporterResp.Meta.Code != 0 {
+		log.Errorf("Node-exporter returned error code %d: %s", nodeExporterResp.Meta.Code, nodeExporterResp.Meta.Message)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": nodeExporterResp.Meta.Message})
+		return
+	}
+
+	// Parse the process tree data
+	var processTree PodProcessTree
+	if err := json.Unmarshal(nodeExporterResp.Data, &processTree); err != nil {
+		log.Errorf("Failed to parse process tree data: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to parse process tree data"})
+		return
+	}
+
+	// Add node name to response
+	processTree.NodeName = nodeName
+
+	log.Infof("Successfully retrieved process tree for pod %s on node %s in cluster %s", req.PodUID, nodeName, clusterName)
+
+	c.JSON(http.StatusOK, rest.SuccessResp(c, processTree))
+}

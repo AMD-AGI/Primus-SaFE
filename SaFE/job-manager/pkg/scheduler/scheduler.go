@@ -44,6 +44,8 @@ import (
 const (
 	defaultRetryCount = 3
 	defaultRetryDelay = 100 * time.Millisecond
+
+	dependentIndex = "spec.dependencies"
 )
 
 type SchedulerReconciler struct {
@@ -62,7 +64,7 @@ type SchedulerMessage struct {
 // SetupSchedulerController initializes and registers the SchedulerReconciler with the controller manager.
 func SetupSchedulerController(ctx context.Context, mgr manager.Manager) error {
 	if err := mgr.GetFieldIndexer().IndexField(ctx,
-		&v1.Workload{}, "spec.dependencies", func(object client.Object) []string {
+		&v1.Workload{}, dependentIndex, func(object client.Object) []string {
 			workload := object.(*v1.Workload)
 			if len(workload.Spec.Dependencies) == 0 {
 				return nil
@@ -123,7 +125,7 @@ func (r *SchedulerReconciler) relevantChangePredicate() predicate.Predicate {
 			if v1.IsWorkloadScheduled(oldWorkload) != v1.IsWorkloadScheduled(newWorkload) {
 				return true
 			}
-			if !oldWorkload.IsDependenciesFinish() && newWorkload.IsDependenciesFinish() {
+			if !oldWorkload.IsDependenciesEnd() && newWorkload.IsDependenciesEnd() {
 				return true
 			}
 			return false
@@ -289,11 +291,14 @@ func (r *SchedulerReconciler) scheduleWorkloads(ctx context.Context, message *Sc
 			return err
 		}
 		if !ok {
+			if w.IsEnd() {
+				continue
+			}
 			unScheduledReasons[w.Name] = reason
 			// Process scheduling workloads based on priority and policy
 			// If the scheduling policy is FIFO, or the priority is higher than subsequent queued workloads
 			// (excluding the workload which specified node), then break out of the queue directly and continue waiting.
-			if reason == CronjobReason || reason == DependencyReason || w.IsEnd() {
+			if reason == CronjobReason || reason == DependencyReason {
 				// CronJob or a job with dependencies that are not yet ready to start should be skipped
 				continue
 			} else if workspace.IsEnableFifo() {
@@ -371,16 +376,14 @@ func (r *SchedulerReconciler) checkWorkloadDependencies(ctx context.Context, wor
 		phase, ok := workload.GetDependenciesPhase(dep)
 		if !ok {
 			depWorkload := &v1.Workload{}
-			if err := r.Get(ctx, client.ObjectKey{Name: dep, Namespace: workload.Namespace}, depWorkload); err != nil {
+			if err := r.Get(ctx, client.ObjectKey{Name: dep}, depWorkload); err != nil {
 				if apierrors.IsNotFound(err) {
 					message := fmt.Sprintf("dependency workload %s not found", dep)
 					if err = jobutils.SetWorkloadFailed(ctx, r.Client, workload, message); err != nil {
 						klog.Errorf("failed to set workload %s dependency failed", workload.Name)
-						return true, err
 					}
-					return false, nil
 				}
-				return isReady, err
+				return false, err
 			}
 			phase = depWorkload.Status.Phase
 			if depWorkload.IsEnd() {
@@ -397,7 +400,6 @@ func (r *SchedulerReconciler) checkWorkloadDependencies(ctx context.Context, wor
 			return isReady, err
 		}
 	}
-
 	return isReady, nil
 }
 
@@ -446,6 +448,9 @@ func (r *SchedulerReconciler) getLeftTotalResources(ctx context.Context,
 	filterFunc := func(nodeName string) bool {
 		n := &v1.Node{}
 		if err := r.Get(ctx, client.ObjectKey{Name: nodeName}, n); err != nil {
+			return true
+		}
+		if n.GetSpecWorkspace() != workspace.Name {
 			return true
 		}
 		return !n.IsAvailable(false)
@@ -573,29 +578,28 @@ func (r *SchedulerReconciler) updateUnScheduled(ctx context.Context,
 	}
 }
 
-// updateDependentsPhase handles the phase of dependent workloads based on the status of their dependencies.
+// updateDependentsPhase finds all workloads that depend on the given workload and updates their dependency status
 func (r *SchedulerReconciler) updateDependentsPhase(ctx context.Context, workload *v1.Workload) error {
 	if !workload.IsEnd() {
 		return nil
 	}
-	var dependents v1.WorkloadList
-	if err := r.List(ctx, &dependents, client.MatchingFields{"spec.dependencies": workload.Name}); err != nil {
+	var dependentWorkloads v1.WorkloadList
+	if err := r.List(ctx, &dependentWorkloads, client.MatchingFields{dependentIndex: workload.Name}); err != nil {
 		klog.Errorf("failed to list dependencies for workload %s: %v", workload.Name, err)
 		return err
 	}
-	for _, depWorkload := range dependents.Items {
-		if err := r.setDependenciesPhase(ctx, workload, &depWorkload); err != nil {
+	for _, depWorkload := range dependentWorkloads.Items {
+		if err := r.setDependencyPhase(ctx, workload, &depWorkload); err != nil && !apierrors.IsNotFound(err) {
 			klog.ErrorS(err, "failed to set dependency phase",
 				"workload", workload.Name, "depend", depWorkload.Name)
 			return err
 		}
 	}
-
 	return nil
 }
 
-// setDependenciesPhase sets the phase of a dependent workload based on the status of its dependency.
-func (r *SchedulerReconciler) setDependenciesPhase(ctx context.Context, workload, depWorkload *v1.Workload) error {
+// setDependencyPhase sets the phase of a dependent workload based on the status of its dependency.
+func (r *SchedulerReconciler) setDependencyPhase(ctx context.Context, workload, depWorkload *v1.Workload) error {
 	depWorkload.SetDependenciesPhase(workload.Name, workload.Status.Phase)
 	if workload.Status.Phase != v1.WorkloadSucceeded {
 		if err := jobutils.SetWorkloadFailed(ctx, r.Client, depWorkload,

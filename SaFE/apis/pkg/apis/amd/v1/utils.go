@@ -337,6 +337,10 @@ func IsRequireNodeSpread(obj metav1.Object) bool {
 	return GetAnnotation(obj, RequireNodeSpreadAnnotation) == TrueStr
 }
 
+func IsPrivileged(obj metav1.Object) bool {
+	return GetAnnotation(obj, WorkloadPrivilegedAnnotation) == TrueStr
+}
+
 func GetRootWorkloadId(obj metav1.Object) string {
 	return GetLabel(obj, RootWorkloadIdLabel)
 }
@@ -355,6 +359,12 @@ func GetResourceId(obj metav1.Object) (int, bool) {
 
 func GetGroupId(obj metav1.Object) string {
 	return GetAnnotation(obj, GroupIdAnnotation)
+}
+
+// IsWorkloadStickyNodes checks if the workload has sticky node feature enabled.
+// When enabled, the workload will try to use the same nodes during retries/failovers.
+func IsEnableStickyNodes(obj metav1.Object) bool {
+	return GetAnnotation(obj, WorkloadStickyNodesAnnotation) == TrueStr
 }
 
 // atoi converts a string to an integer, returning 0 if conversion fails.

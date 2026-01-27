@@ -31,6 +31,8 @@ type Interface interface {
 	PlaygroundSessionInterface
 	ModelInterface
 	ApiKeyInterface
+	AuditLogInterface
+	DatasetInterface
 }
 
 type WorkloadInterface interface {
@@ -188,4 +190,23 @@ type ModelInterface interface {
 	GetModelByID(ctx context.Context, id string) (*Model, error)
 	ListModels(ctx context.Context, accessMode string, workspace string, isDeleted bool) ([]*Model, error)
 	DeleteModel(ctx context.Context, id string) error
+}
+
+type AuditLogInterface interface {
+	InsertAuditLog(ctx context.Context, auditLog *AuditLog) error
+	BatchInsertAuditLogs(ctx context.Context, auditLogs []*AuditLog) error
+	SelectAuditLogs(ctx context.Context, query sqrl.Sqlizer, orderBy []string, limit, offset int) ([]*AuditLog, error)
+	CountAuditLogs(ctx context.Context, query sqrl.Sqlizer) (int, error)
+}
+
+type DatasetInterface interface {
+	UpsertDataset(ctx context.Context, dataset *Dataset) error
+	SelectDatasets(ctx context.Context, query sqrl.Sqlizer, orderBy []string, limit, offset int) ([]*Dataset, error)
+	GetDataset(ctx context.Context, datasetId string) (*Dataset, error)
+	CountDatasets(ctx context.Context, query sqrl.Sqlizer) (int, error)
+	SetDatasetDeleted(ctx context.Context, datasetId string) error
+	UpdateDatasetStatus(ctx context.Context, datasetId string, status DatasetStatus, message string) error
+	UpdateDatasetFileInfo(ctx context.Context, datasetId string, totalSize int64, fileCount int) error
+	UpdateDatasetLocalPath(ctx context.Context, datasetId, workspace string, status DatasetStatus, message string) error
+	CheckDatasetNameExists(ctx context.Context, displayName string) (bool, error)
 }

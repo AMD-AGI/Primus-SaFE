@@ -311,6 +311,9 @@ func (h *Handler) applyWorkspacePatch(ctx context.Context,
 			return err
 		}
 	}
+	if req.MaxRuntime != nil {
+		workspace.Spec.MaxRuntime = *req.MaxRuntime
+	}
 	return nil
 }
 
@@ -324,7 +327,7 @@ func (h *Handler) updateWorkspaceImageSecrets(ctx context.Context,
 	uniqueSecretIds := sets.NewSet()
 	targetSecrets := make([]*corev1.Secret, 0, len(secretIds))
 	for _, id := range secretIds {
-		secret, err := h.getAndAuthorizeSecret(ctx, id, workspace.Name, requestUser, v1.ListVerb)
+		secret, err := h.getAdminSecret(ctx, id)
 		if err != nil {
 			return err
 		}
@@ -377,12 +380,12 @@ func (h *Handler) processWorkspaceNodes(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	return nil, h.updateWorkspaceNodesAction(c, c.GetString(common.Name), req.Action, req.NodeIds)
+	return nil, h.updateWorkspaceNodesAction(c, c.GetString(common.Name), req.Action, req.NodeIds, req.Force)
 }
 
 // updateWorkspaceNodesAction converts requested nodes and action into a node action
 // to update the workspace
-func (h *Handler) updateWorkspaceNodesAction(c *gin.Context, workspaceId, action string, nodeIds []string) error {
+func (h *Handler) updateWorkspaceNodesAction(c *gin.Context, workspaceId, action string, nodeIds []string, force bool) error {
 	nodeAction := commonnodes.BuildAction(action, nodeIds...)
 	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		workspace := &v1.Workspace{}
@@ -400,6 +403,9 @@ func (h *Handler) updateWorkspaceNodesAction(c *gin.Context, workspaceId, action
 		}
 		patch := client.MergeFrom(workspace.DeepCopy())
 		v1.SetAnnotation(workspace, v1.WorkspaceNodesAction, nodeAction)
+		if force {
+			v1.SetAnnotation(workspace, v1.WorkspaceForcedAction, v1.TrueStr)
+		}
 		if err := h.Patch(c.Request.Context(), workspace, patch); err != nil {
 			return err
 		}
@@ -465,6 +471,7 @@ func (h *Handler) generateWorkspace(ctx context.Context,
 			Scopes:        req.Scopes,
 			EnablePreempt: req.EnablePreempt,
 			IsDefault:     req.IsDefault,
+			MaxRuntime:    req.MaxRuntime,
 		},
 	}
 	if len(workspace.Spec.Scopes) == 0 {
@@ -517,6 +524,7 @@ func (h *Handler) cvtToWorkspaceResponseItem(ctx context.Context, w *v1.Workspac
 		Volumes:           w.Spec.Volumes,
 		EnablePreempt:     w.Spec.EnablePreempt,
 		IsDefault:         w.Spec.IsDefault,
+		MaxRuntime:        w.Spec.MaxRuntime,
 	}
 	for _, m := range w.Spec.Managers {
 		user, err := h.getAdminUser(ctx, m)
@@ -560,6 +568,9 @@ func (h *Handler) getWorkspaceUsedQuota(ctx context.Context, workspace *v1.Works
 	filterNode := func(nodeName string) bool {
 		n, err := h.getAdminNode(ctx, nodeName)
 		if err != nil {
+			return true
+		}
+		if n.GetSpecWorkspace() != workspace.Name {
 			return true
 		}
 		return !n.IsAvailable(false)

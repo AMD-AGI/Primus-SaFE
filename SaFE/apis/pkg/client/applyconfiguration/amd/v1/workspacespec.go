@@ -24,6 +24,7 @@ type WorkspaceSpecApplyConfiguration struct {
 	Managers      []string                            `json:"managers,omitempty"`
 	IsDefault     *bool                               `json:"isDefault,omitempty"`
 	ImageSecrets  []corev1.ObjectReference            `json:"imageSecrets,omitempty"`
+	MaxRuntime    map[amdv1.WorkspaceScope]int        `json:"maxRuntime,omitempty"`
 }
 
 // WorkspaceSpecApplyConfiguration constructs a declarative configuration of the WorkspaceSpec type for use with
@@ -119,6 +120,20 @@ func (b *WorkspaceSpecApplyConfiguration) WithIsDefault(value bool) *WorkspaceSp
 func (b *WorkspaceSpecApplyConfiguration) WithImageSecrets(values ...corev1.ObjectReference) *WorkspaceSpecApplyConfiguration {
 	for i := range values {
 		b.ImageSecrets = append(b.ImageSecrets, values[i])
+	}
+	return b
+}
+
+// WithMaxRuntime puts the entries into the MaxRuntime field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, the entries provided by each call will be put on the MaxRuntime field,
+// overwriting an existing map entries in MaxRuntime field with the same key.
+func (b *WorkspaceSpecApplyConfiguration) WithMaxRuntime(entries map[amdv1.WorkspaceScope]int) *WorkspaceSpecApplyConfiguration {
+	if b.MaxRuntime == nil && len(entries) > 0 {
+		b.MaxRuntime = make(map[amdv1.WorkspaceScope]int, len(entries))
+	}
+	for k, v := range entries {
+		b.MaxRuntime[k] = v
 	}
 	return b
 }

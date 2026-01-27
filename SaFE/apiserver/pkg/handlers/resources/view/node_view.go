@@ -46,6 +46,8 @@ type ListNodeRequest struct {
 	FlavorId *string `form:"flavorId" binding:"omitempty,max=64"`
 	// Filter results by node ID
 	NodeId *string `form:"nodeId" binding:"omitempty,max=64"`
+	// Search by node name or IP address (case-insensitive partial match)
+	Search *string `form:"search" binding:"omitempty,max=256"`
 	// Filter results based on node availability
 	Available *bool `form:"available" binding:"omitempty"`
 	// Filter by status (comma-separated),  e.g. Ready, SSHFailed, HostnameFailed, Managing, ManagedFailed, Unmanaging, UnmanagedFailed
@@ -206,4 +208,36 @@ type NodeRebootLogResponseItem struct {
 type BatchNodesRequest struct {
 	// List of node IDs to be processed
 	NodeIds []string `json:"nodeIds"`
+}
+
+// RetryNodesRequest represents the request for retrying node operations (single or batch)
+// For a single node, pass an array with one element
+type RetryNodesRequest struct {
+	// List of node IDs to retry
+	NodeIds []string `json:"nodeIds" binding:"required,min=1"`
+}
+
+// RetryNodesResponse represents the response for batch retrying node operations
+type RetryNodesResponse struct {
+	// Total number of nodes requested
+	TotalCount int `json:"totalCount"`
+	// Number of nodes successfully processed
+	SuccessCount int `json:"successCount"`
+	// Details of successfully processed nodes (optional)
+	SuccessNodes []RetrySuccessNode `json:"successNodes,omitempty"`
+	// Details of failed nodes (optional)
+	FailedNodes []RetryFailedNode `json:"failedNodes,omitempty"`
+}
+
+// RetrySuccessNode represents a node that was successfully processed
+type RetrySuccessNode struct {
+	NodeId      string   `json:"nodeId"`
+	HasPods     bool     `json:"hasPods"`
+	PodsDeleted []string `json:"podsDeleted,omitempty"`
+}
+
+// RetryFailedNode represents a node that failed to retry
+type RetryFailedNode struct {
+	NodeId string `json:"nodeId"`
+	Error  string `json:"error"`
 }

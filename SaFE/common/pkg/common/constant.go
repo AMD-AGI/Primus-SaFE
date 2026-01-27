@@ -24,6 +24,7 @@ const (
 	CICDEphemeralRunnerKind = "EphemeralRunner"
 	UnifiedJobKind          = "UnifiedJob"
 	TorchFTKind             = "TorchFT"
+	RayJobKind              = "RayJob"
 
 	PodKind            = "Pod"
 	EventKind          = "Event"
@@ -55,14 +56,12 @@ const (
 	JsonContentType        = "application/json; charset=utf-8"
 	KubernetesControlPlane = "node-role.kubernetes.io/control-plane"
 	ExcludedNodes          = "excluded-nodes"
+	TaintAction            = "taint"
 
 	DefaultBurst          = 1000
 	DefaultQPS            = 1000
 	DefaultMaxUnavailable = "25%"
 	DefaultMaxMaxSurge    = "25%"
-
-	AddonMonitorId     = "501"
-	PreflightMonitorId = "502"
 
 	HighPriority    = "high-priority"
 	MedPriority     = "med-priority"

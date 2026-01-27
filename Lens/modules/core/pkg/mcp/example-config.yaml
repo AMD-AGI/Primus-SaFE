@@ -1,0 +1,58 @@
+# Example configuration for Lens API Server with MCP support
+# This file shows how to enable and configure the MCP server alongside the HTTP API
+# Both HTTP API and MCP share the same port, differentiated by path:
+#   - /v1/*  -> HTTP REST API
+#   - /mcp/* -> MCP (Model Context Protocol) Server
+
+# HTTP API port (shared with MCP)
+httpPort: 8080
+
+# Multi-cluster support
+multiCluster: false
+loadK8SClient: true
+loadStorageClient: true
+
+# Controller configuration
+controller:
+  namespace: lens-system
+  leaderElectionId: lens-api-leader
+  metricsPort: 19191
+  healthzPort: 19192
+  pprofPort: 19193
+
+# Middleware configuration
+middleware:
+  enableLogging: true
+  enableTracing: true
+  trace:
+    mode: "error_only"
+    samplingRatio: 0.1
+    errorSamplingRatio: 1.0
+
+# MCP (Model Context Protocol) Server Configuration
+# Enable this to expose Lens API as MCP tools for AI assistants like Cursor
+mcp:
+  # Enable/disable MCP server
+  enabled: true
+  
+  # Base path for MCP endpoints (default: /mcp)
+  # MCP endpoints will be:
+  #   - GET  /mcp/sse     - SSE connection for MCP clients
+  #   - POST /mcp/message - Send message via SSE session
+  #   - POST /mcp/rpc     - Simple HTTP RPC for testing
+  #   - GET  /mcp/health  - Health check
+  #   - GET  /mcp/        - MCP server info
+  basePath: "/mcp"
+  
+  # Instructions shown to MCP clients when they connect
+  instructions: |
+    Lens API Server - GPU Cluster Management Tools
+    
+    This MCP server provides tools to query and manage GPU clusters:
+    - Get cluster overview and health status
+    - List and filter GPU nodes
+    - Get detailed node information
+    - Query workloads and their GPU usage
+    - Access real-time metrics and alerts
+    
+    Use these tools to understand and troubleshoot GPU cluster issues.

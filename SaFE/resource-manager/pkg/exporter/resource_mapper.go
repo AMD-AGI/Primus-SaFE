@@ -34,10 +34,12 @@ func truncateString(s string, maxLength int) string {
 }
 
 // escapePostgresArrayElement escapes special characters for PostgreSQL array literal syntax.
-// In PostgreSQL array literals, backslashes and double quotes need to be escaped.
+// In PostgreSQL array literals, backslashes, double quotes, and newlines need to be escaped.
 func escapePostgresArrayElement(s string) string {
 	s = strings.ReplaceAll(s, `\`, `\\`)
 	s = strings.ReplaceAll(s, `"`, `\"`)
+	s = strings.ReplaceAll(s, "\n", `\n`)
+	s = strings.ReplaceAll(s, "\r", `\r`)
 	return s
 }
 
@@ -66,8 +68,8 @@ func workloadMapper(obj *unstructured.Unstructured) *dbclient.Workload {
 		Workspace:     workload.Spec.Workspace,
 		Cluster:       v1.GetClusterId(workload),
 		Resources:     dbutils.NullString(string(jsonutils.MarshalSilently(workload.Spec.Resources))),
-		Image:         workload.Spec.Image,
-		EntryPoint:    workload.Spec.EntryPoint,
+		Images:        dbutils.NullString(string(jsonutils.MarshalSilently(workload.Spec.Images))),
+		EntryPoints:   dbutils.NullString(string(jsonutils.MarshalSilently(workload.Spec.EntryPoints))),
 		GVK:           string(jsonutils.MarshalSilently(workload.Spec.GroupVersionKind)),
 		Phase:         dbutils.NullString(string(workload.Status.Phase)),
 		UserName:      dbutils.NullString(v1.GetUserName(workload)),
@@ -77,6 +79,7 @@ func workloadMapper(obj *unstructured.Unstructured) *dbclient.Workload {
 		DeletionTime:  dbutils.NullMetaV1Time(workload.GetDeletionTimestamp()),
 		IsSupervised:  workload.Spec.IsSupervised,
 		IsTolerateAll: workload.Spec.IsTolerateAll,
+		IsStickyNodes: v1.IsEnableStickyNodes(workload),
 		Priority:      workload.Spec.Priority,
 		MaxRetry:      workload.Spec.MaxRetry,
 		QueuePosition: workload.Status.QueuePosition,

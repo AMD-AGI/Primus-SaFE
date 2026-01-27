@@ -18,6 +18,7 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/types"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/common"
 )
 
@@ -32,14 +33,47 @@ const (
 	DefaultBasePath = "/workspace"
 )
 
+// renderFilePatterns replaces date placeholders in file patterns with actual values
+// Supported placeholders:
+//   - {date}     -> 2025-12-30
+//   - {year}     -> 2025
+//   - {month}    -> 12
+//   - {day}      -> 30
+//   - {yyyymmdd} -> 20251230
+func renderFilePatterns(patterns []string, referenceTime time.Time) []string {
+	if referenceTime.IsZero() {
+		referenceTime = time.Now()
+	}
+
+	replacements := map[string]string{
+		"{date}":     referenceTime.Format("2006-01-02"),
+		"{year}":     referenceTime.Format("2006"),
+		"{month}":    referenceTime.Format("01"),
+		"{day}":      referenceTime.Format("02"),
+		"{yyyymmdd}": referenceTime.Format("20060102"),
+	}
+
+	rendered := make([]string, len(patterns))
+	for i, pattern := range patterns {
+		rendered[i] = pattern
+		for placeholder, value := range replacements {
+			rendered[i] = strings.ReplaceAll(rendered[i], placeholder, value)
+		}
+	}
+
+	return rendered
+}
+
 // GithubWorkflowCollectorJob processes pending runs and collects metrics from Pod PVC
 type GithubWorkflowCollectorJob struct {
 	// pvcReader reads files from temporary Pod via node-exporter
 	pvcReader *PVCReader
 	// tempPodManager manages temporary pods for reading PVC (EphemeralRunner pods are deleted after completion)
 	tempPodManager *TempPodManager
-	// aiExtractor handles AI-based metrics extraction
-	aiExtractor *AIExtractor
+	// schemaAnalyzer handles AI-based schema analysis (new simplified approach)
+	schemaAnalyzer *SchemaAnalyzer
+	// metricsExtractor extracts metrics based on schema (Go-based, no LLM)
+	metricsExtractor *MetricsExtractor
 	// githubFetcher fetches GitHub data (commits, workflow runs)
 	githubFetcher *GithubFetcher
 	// clientSets is the k8s client set
@@ -49,11 +83,12 @@ type GithubWorkflowCollectorJob struct {
 // NewGithubWorkflowCollectorJob creates a new GithubWorkflowCollectorJob instance
 func NewGithubWorkflowCollectorJob() *GithubWorkflowCollectorJob {
 	return &GithubWorkflowCollectorJob{
-		pvcReader:      NewPVCReader(),
-		tempPodManager: NewTempPodManager(),
-		aiExtractor:    NewAIExtractor(),
-		githubFetcher:  nil, // Will be initialized in Run()
-		clientSets:     nil,
+		pvcReader:        NewPVCReader(),
+		tempPodManager:   NewTempPodManager(),
+		schemaAnalyzer:   NewSchemaAnalyzer(),
+		metricsExtractor: NewMetricsExtractor(),
+		githubFetcher:    nil, // Will be initialized in Run()
+		clientSets:       nil,
 	}
 }
 
@@ -71,92 +106,184 @@ func (j *GithubWorkflowCollectorJob) Run(ctx context.Context, clientSets *client
 		j.githubFetcher = NewGithubFetcher(clientSets)
 	}
 
-	// Get all enabled configs
-	configFacade := database.GetFacade().GetGithubWorkflowConfig()
-	configs, err := configFacade.ListEnabled(ctx)
+	// Get ALL pending runs (not per-config)
+	runFacade := database.GetFacade().GetGithubWorkflowRun()
+
+	// Step 0: Batch mark pending runs without config as completed (optimization)
+	// This prevents runs without matching configs from blocking the queue
+	if affected, err := runFacade.MarkPendingWithoutConfigAsCompleted(ctx); err != nil {
+		log.Warnf("GithubWorkflowCollectorJob: failed to batch mark pending without config: %v", err)
+	} else if affected > 0 {
+		log.Infof("GithubWorkflowCollectorJob: batch marked %d pending runs without config as completed", affected)
+	}
+	pendingRuns, err := runFacade.ListPending(ctx, &database.GithubWorkflowRunFilter{
+		Status: database.WorkflowRunStatusPending,
+		Limit:  MaxRunsPerBatch,
+	})
 	if err != nil {
-		log.Errorf("GithubWorkflowCollectorJob: failed to list enabled configs: %v", err)
+		log.Errorf("GithubWorkflowCollectorJob: failed to list pending runs: %v", err)
 		stats.ErrorCount++
 		return stats, err
 	}
 
-	if len(configs) == 0 {
-		log.Debug("GithubWorkflowCollectorJob: no enabled configs found")
+	if len(pendingRuns) == 0 {
+		log.Debug("GithubWorkflowCollectorJob: no pending runs found")
 		return stats, nil
 	}
 
-	runFacade := database.GetFacade().GetGithubWorkflowRun()
+	log.Infof("GithubWorkflowCollectorJob: processing %d pending runs", len(pendingRuns))
+
 	schemaFacade := database.GetFacade().GetGithubWorkflowSchema()
 	metricsFacade := database.GetFacade().GetGithubWorkflowMetrics()
 
 	totalProcessed := 0
 	totalCompleted := 0
 	totalFailed := 0
+	totalSkipped := 0
 	totalMetrics := 0
 
-	for _, config := range configs {
-		// Get pending runs for this config
-		pendingRuns, err := runFacade.ListPendingByConfig(ctx, config.ID, MaxRunsPerBatch)
-		if err != nil {
-			log.Errorf("GithubWorkflowCollectorJob: failed to list pending runs for config %d: %v", config.ID, err)
-			stats.ErrorCount++
-			continue
-		}
-
-		if len(pendingRuns) == 0 {
-			continue
-		}
-
-		log.Infof("GithubWorkflowCollectorJob: processing %d pending runs for config %s", len(pendingRuns), config.Name)
-
-		for _, run := range pendingRuns {
-			// Check retry count
-			if run.RetryCount >= MaxRetries {
-				log.Warnf("GithubWorkflowCollectorJob: run %d exceeded max retries, marking as failed", run.ID)
-				if err := runFacade.MarkFailed(ctx, run.ID, "exceeded max retry count"); err != nil {
-					log.Errorf("GithubWorkflowCollectorJob: failed to mark run %d as failed: %v", run.ID, err)
-				}
-				totalFailed++
-				continue
+	for _, run := range pendingRuns {
+		// Check retry count
+		if run.RetryCount >= MaxRetries {
+			log.Warnf("GithubWorkflowCollectorJob: run %d exceeded max retries, marking as failed", run.ID)
+			if err := runFacade.MarkFailed(ctx, run.ID, "exceeded max retry count"); err != nil {
+				log.Errorf("GithubWorkflowCollectorJob: failed to mark run %d as failed: %v", run.ID, err)
 			}
+			totalFailed++
+			continue
+		}
 
-			// Process this run
-			metricsCreated, err := j.processRun(ctx, config, run, schemaFacade, metricsFacade, runFacade)
-			if err != nil {
-				log.Errorf("GithubWorkflowCollectorJob: failed to process run %d: %v", run.ID, err)
-				if err := runFacade.IncrementRetryCount(ctx, run.ID); err != nil {
-					log.Errorf("GithubWorkflowCollectorJob: failed to increment retry count for run %d: %v", run.ID, err)
-				}
+		// Dynamically find config for this run
+		config := j.findConfigForRun(ctx, run)
+
+		if config == nil {
+			// No config = no metrics collection, mark as completed without metrics
+			log.Infof("GithubWorkflowCollectorJob: run %d (runner_set_id=%d) has no config, marking as completed without metrics",
+				run.ID, run.RunnerSetID)
+			if err := runFacade.MarkCompleted(ctx, run.ID, 0, 0, 0); err != nil {
+				log.Errorf("GithubWorkflowCollectorJob: failed to mark run %d as completed: %v", run.ID, err)
 				stats.ErrorCount++
-				totalFailed++
-				continue
 			}
-
-			// Fetch GitHub data (commits, workflow run details) after successful processing
-			if j.githubFetcher != nil {
-				if err := j.githubFetcher.FetchAndStoreGithubData(ctx, config, run); err != nil {
-					log.Warnf("GithubWorkflowCollectorJob: failed to fetch GitHub data for run %d: %v", run.ID, err)
-					// Don't fail the job, just log the warning
-				}
-			}
-
-			totalCompleted++
+			totalSkipped++
 			totalProcessed++
-			totalMetrics += metricsCreated
+			continue
 		}
+
+		log.Infof("GithubWorkflowCollectorJob: processing run %d with config %s (id=%d)",
+			run.ID, config.Name, config.ID)
+
+		// Process this run with config
+		metricsCreated, err := j.processRun(ctx, config, run, schemaFacade, metricsFacade, runFacade)
+		if err != nil {
+			log.Errorf("GithubWorkflowCollectorJob: failed to process run %d: %v", run.ID, err)
+			if err := runFacade.IncrementRetryCount(ctx, run.ID); err != nil {
+				log.Errorf("GithubWorkflowCollectorJob: failed to increment retry count for run %d: %v", run.ID, err)
+			}
+			stats.ErrorCount++
+			totalFailed++
+			continue
+		}
+
+		// Fetch GitHub data (commits, workflow run details) after successful processing
+		if j.githubFetcher != nil {
+			if err := j.githubFetcher.FetchAndStoreGithubData(ctx, config, run); err != nil {
+				log.Warnf("GithubWorkflowCollectorJob: failed to fetch GitHub data for run %d: %v", run.ID, err)
+				// Don't fail the job, just log the warning
+			}
+		}
+
+		// Auto-generate dashboard summary with regression analysis
+		// This runs after metrics extraction and GitHub data fetching
+		if err := j.generateDashboardSummary(ctx, config, run); err != nil {
+			log.Warnf("GithubWorkflowCollectorJob: failed to generate dashboard summary for run %d: %v", run.ID, err)
+			// Don't fail the job, dashboard can be regenerated later
+		}
+
+		totalCompleted++
+		totalProcessed++
+		totalMetrics += metricsCreated
 	}
 
 	stats.RecordsProcessed = int64(totalProcessed)
 	stats.ItemsUpdated = int64(totalCompleted)
 	stats.ItemsCreated = int64(totalMetrics)
 	stats.ProcessDuration = time.Since(startTime).Seconds()
-	stats.AddMessage(fmt.Sprintf("Processed %d runs, completed %d, failed %d, metrics created: %d",
-		totalProcessed, totalCompleted, totalFailed, totalMetrics))
+	stats.AddMessage(fmt.Sprintf("Processed %d runs, completed %d, skipped %d (no config), failed %d, metrics created: %d",
+		totalProcessed, totalCompleted, totalSkipped, totalFailed, totalMetrics))
 
-	log.Infof("GithubWorkflowCollectorJob: completed - processed: %d, completed: %d, failed: %d, metrics: %d",
-		totalProcessed, totalCompleted, totalFailed, totalMetrics)
+	log.Infof("GithubWorkflowCollectorJob: completed - processed: %d, completed: %d, skipped: %d, failed: %d, metrics: %d",
+		totalProcessed, totalCompleted, totalSkipped, totalFailed, totalMetrics)
 
 	return stats, nil
+}
+
+// findConfigForRun dynamically finds a config for the given run
+// Returns nil if no matching config is found
+func (j *GithubWorkflowCollectorJob) findConfigForRun(ctx context.Context, run *model.GithubWorkflowRuns) *model.GithubWorkflowConfigs {
+	configFacade := database.GetFacade().GetGithubWorkflowConfig()
+
+	// Option 1: Use run.ConfigID if set (from exporter matching)
+	if run.ConfigID != 0 {
+		config, err := configFacade.GetByID(ctx, run.ConfigID)
+		if err == nil && config != nil && config.Enabled {
+			return config
+		}
+		// If config_id is set but config not found or disabled, fall through to dynamic lookup
+		log.Debugf("GithubWorkflowCollectorJob: run %d has config_id=%d but config not found or disabled, trying dynamic lookup",
+			run.ID, run.ConfigID)
+	}
+
+	// Option 2: Find by runner_set (namespace + name)
+	if run.RunnerSetNamespace == "" || run.RunnerSetName == "" {
+		log.Warnf("GithubWorkflowCollectorJob: run %d missing runner_set_namespace or runner_set_name", run.ID)
+		return nil
+	}
+
+	configs, err := configFacade.ListByRunnerSet(ctx, run.RunnerSetNamespace, run.RunnerSetName)
+	if err != nil {
+		log.Errorf("GithubWorkflowCollectorJob: failed to list configs for runner set %s/%s: %v",
+			run.RunnerSetNamespace, run.RunnerSetName, err)
+		return nil
+	}
+
+	if len(configs) == 0 {
+		return nil
+	}
+
+	// Option 3: Match by workflow/branch filters
+	for _, cfg := range configs {
+		if !cfg.Enabled {
+			continue
+		}
+		if j.matchesFilters(run, cfg) {
+			log.Debugf("GithubWorkflowCollectorJob: run %d matched config %s (id=%d) via filters",
+				run.ID, cfg.Name, cfg.ID)
+			return cfg
+		}
+	}
+
+	// No matching config found
+	return nil
+}
+
+// matchesFilters checks if a run matches the workflow and branch filters of a config
+func (j *GithubWorkflowCollectorJob) matchesFilters(run *model.GithubWorkflowRuns, cfg *model.GithubWorkflowConfigs) bool {
+	// Check workflow_filter
+	if cfg.WorkflowFilter != "" && run.WorkflowName != "" {
+		if run.WorkflowName != cfg.WorkflowFilter {
+			return false
+		}
+	}
+
+	// Check branch_filter
+	if cfg.BranchFilter != "" && run.HeadBranch != "" {
+		if run.HeadBranch != cfg.BranchFilter {
+			return false
+		}
+	}
+
+	// If no filters are set, or all filters match, return true
+	return true
 }
 
 // processRun processes a single pending run
@@ -178,6 +305,19 @@ func (j *GithubWorkflowCollectorJob) processRun(
 	if err := config.FilePatterns.UnmarshalTo(&filePatterns); err != nil {
 		return 0, fmt.Errorf("failed to parse file patterns: %w", err)
 	}
+
+	// Render date placeholders in file patterns using workload completion time
+	// This allows patterns like /path/{date}/**/summary.csv to only match current day's data
+	referenceTime := run.WorkloadCompletedAt
+	if referenceTime.IsZero() {
+		referenceTime = run.WorkloadStartedAt
+	}
+	renderedPatterns := renderFilePatterns(filePatterns, referenceTime)
+	if len(renderedPatterns) > 0 && renderedPatterns[0] != filePatterns[0] {
+		log.Infof("GithubWorkflowCollectorJob: rendered file patterns for run %d: %v -> %v",
+			run.ID, filePatterns, renderedPatterns)
+	}
+	filePatterns = renderedPatterns
 
 	if len(filePatterns) == 0 {
 		log.Warnf("GithubWorkflowCollectorJob: no file patterns configured for config %d", config.ID)
@@ -261,167 +401,182 @@ func (j *GithubWorkflowCollectorJob) processRun(
 
 	log.Infof("GithubWorkflowCollectorJob: read %d files from pod", len(files))
 
-	// Get existing schema
-	schema, err := schemaFacade.GetActiveByConfig(ctx, config.ID)
+	// Check if schema analyzer is available
+	if j.schemaAnalyzer == nil || !j.schemaAnalyzer.IsAvailable(ctx) {
+		// Schema analyzer not available - skip processing, will retry later
+		log.Warnf("GithubWorkflowCollectorJob: schema analyzer not available for run %d, will retry later", run.ID)
+		return 0, fmt.Errorf("schema analyzer not available")
+	}
+
+	// Use schema-versioning approach (AI for schema analysis, Go for data extraction)
+	log.Infof("GithubWorkflowCollectorJob: using schema-versioning extraction for run %d", run.ID)
+
+	metricsCreated, err := j.processRunWithSchemaVersioning(
+		ctx, config, run, files, matchingFiles, schemaFacade, metricsFacade, runFacade,
+	)
 	if err != nil {
-		return 0, fmt.Errorf("failed to get active schema: %w", err)
+		return 0, fmt.Errorf("schema-versioning extraction failed: %w", err)
 	}
-
-	metricsCreated := 0
-	filesProcessed := 0
-
-	// Try AI extraction first (if available)
-	if j.aiExtractor != nil && j.aiExtractor.IsAvailable(ctx) {
-		log.Infof("GithubWorkflowCollectorJob: using AI extraction for run %d", run.ID)
-
-		// Mark as extracting
-		if err := runFacade.UpdateStatus(ctx, run.ID, database.WorkflowRunStatusExtracting, ""); err != nil {
-			log.Warnf("GithubWorkflowCollectorJob: failed to update status to extracting: %v", err)
-		}
-
-		// Use AI extraction
-		aiOutput, aiErr := j.aiExtractor.ExtractWithAI(ctx, config, files, schema)
-		if aiErr != nil {
-			log.Warnf("GithubWorkflowCollectorJob: AI extraction failed for run %d: %v, falling back to basic extraction", run.ID, aiErr)
-		} else {
-			// Process AI results
-			filesProcessed = aiOutput.FilesProcessed
-
-			// If AI generated a new schema, save it
-			if aiOutput.SchemaGenerated && aiOutput.Schema != nil && schema == nil {
-				newSchema, saveErr := j.aiExtractor.SaveAIGeneratedSchema(ctx, config, aiOutput.Schema, schemaFacade)
-				if saveErr != nil {
-					log.Warnf("GithubWorkflowCollectorJob: failed to save AI schema: %v", saveErr)
-				} else {
-					schema = newSchema
-				}
-			}
-
-			// Use existing or placeholder schema for storing metrics
-			if schema == nil {
-				schema, err = j.createPlaceholderSchema(ctx, config, schemaFacade)
-				if err != nil {
-					return 0, fmt.Errorf("failed to create placeholder schema: %w", err)
-				}
-			}
-
-			// Determine timestamp for metrics
-			// Use WorkloadCompletedAt if available, otherwise fall back to current time
-			metricsTimestamp := run.WorkloadCompletedAt
-			if metricsTimestamp.IsZero() {
-				metricsTimestamp = time.Now()
-			}
-
-			// Convert and store AI-extracted metrics
-			dbMetrics := j.aiExtractor.ConvertAIMetricsToDBMetrics(
-				config.ID, run.ID, schema.ID, metricsTimestamp, aiOutput.Metrics,
-			)
-
-			for _, metric := range dbMetrics {
-				if err := metricsFacade.Create(ctx, metric); err != nil {
-					log.Warnf("GithubWorkflowCollectorJob: failed to create AI-extracted metric: %v", err)
-					continue
-				}
-				metricsCreated++
-			}
-
-			// Log any extraction errors
-			for _, extractErr := range aiOutput.Errors {
-				log.Warnf("GithubWorkflowCollectorJob: AI extraction error for %s: %s", extractErr.FilePath, extractErr.Error)
-			}
-
-			// Mark as completed
-			if err := runFacade.MarkCompleted(ctx, run.ID, int32(len(matchingFiles)), int32(filesProcessed), int32(metricsCreated)); err != nil {
-				return metricsCreated, fmt.Errorf("failed to mark as completed: %w", err)
-			}
-
-			log.Infof("GithubWorkflowCollectorJob: completed run %d with AI extraction (files: %d/%d, metrics: %d)",
-				run.ID, filesProcessed, len(matchingFiles), metricsCreated)
-
-			return metricsCreated, nil
-		}
-	}
-
-	// Fallback: Basic extraction without AI
-	log.Infof("GithubWorkflowCollectorJob: using basic extraction for run %d", run.ID)
-
-	// Ensure we have a schema
-	if schema == nil {
-		schema, err = j.createPlaceholderSchema(ctx, config, schemaFacade)
-		if err != nil {
-			return 0, fmt.Errorf("failed to create placeholder schema: %w", err)
-		}
-	}
-
-	// Parse files and extract metrics using basic parser
-	for _, file := range files {
-		records, err := parseFileContent(file)
-		if err != nil {
-			log.Warnf("GithubWorkflowCollectorJob: failed to parse file %s: %v", file.Path, err)
-			continue
-		}
-
-		filesProcessed++
-
-		// Store metrics
-		for _, record := range records {
-			metric := &model.GithubWorkflowMetrics{
-				ConfigID:   config.ID,
-				RunID:      run.ID,
-				SchemaID:   schema.ID,
-				Timestamp:  run.WorkloadCompletedAt,
-				SourceFile: file.Path,
-				Dimensions: buildDimensions(record, schema),
-				Metrics:    buildMetrics(record, schema),
-				RawData:    buildRawData(record),
-			}
-
-			if err := metricsFacade.Create(ctx, metric); err != nil {
-				log.Warnf("GithubWorkflowCollectorJob: failed to create metric from file %s: %v", file.Path, err)
-				continue
-			}
-
-			metricsCreated++
-		}
-	}
-
-	// Mark as completed
-	if err := runFacade.MarkCompleted(ctx, run.ID, int32(len(matchingFiles)), int32(filesProcessed), int32(metricsCreated)); err != nil {
-		return metricsCreated, fmt.Errorf("failed to mark as completed: %w", err)
-	}
-
-	log.Infof("GithubWorkflowCollectorJob: completed run %d with basic extraction (files: %d/%d, metrics: %d)",
-		run.ID, filesProcessed, len(matchingFiles), metricsCreated)
 
 	return metricsCreated, nil
 }
 
-// createPlaceholderSchema creates a placeholder schema for a config
-func (j *GithubWorkflowCollectorJob) createPlaceholderSchema(
+// processRunWithSchemaVersioning processes a run using the new schema-versioning approach
+// This uses AI only for schema analysis, then Go for metrics extraction (saves LLM tokens)
+func (j *GithubWorkflowCollectorJob) processRunWithSchemaVersioning(
 	ctx context.Context,
 	config *model.GithubWorkflowConfigs,
+	run *model.GithubWorkflowRuns,
+	files []*PVCFile,
+	matchingFiles []*types.ContainerFileInfo,
 	schemaFacade database.GithubWorkflowSchemaFacadeInterface,
-) (*model.GithubWorkflowMetricSchemas, error) {
-	schema := &model.GithubWorkflowMetricSchemas{
+	metricsFacade database.GithubWorkflowMetricsFacadeInterface,
+	runFacade database.GithubWorkflowRunFacadeInterface,
+) (int, error) {
+	// Mark as extracting
+	if err := runFacade.UpdateStatus(ctx, run.ID, database.WorkflowRunStatusExtracting, ""); err != nil {
+		log.Warnf("GithubWorkflowCollectorJob: failed to update status to extracting: %v", err)
+	}
+
+	// Step 1: Prepare file samples for schema analysis (only headers + few rows)
+	var fileSamples []*FileSample
+	for _, file := range files {
+		sample, err := j.schemaAnalyzer.PrepareFileSample(file)
+		if err != nil {
+			log.Warnf("GithubWorkflowCollectorJob: failed to prepare sample for %s: %v", file.Path, err)
+			continue
+		}
+		fileSamples = append(fileSamples, sample)
+	}
+
+	if len(fileSamples) == 0 {
+		return 0, fmt.Errorf("no valid file samples for schema analysis")
+	}
+
+	// Step 2: Get existing schemas for matching
+	existingSchemas, err := schemaFacade.ListByConfigWithHash(ctx, config.ID)
+	if err != nil {
+		log.Warnf("GithubWorkflowCollectorJob: failed to list existing schemas: %v", err)
+		existingSchemas = []*database.SchemaHashInfo{}
+	}
+
+	// Step 3: Call AI Crew for schema analysis ONLY (no metrics extraction)
+	schemaResult, err := j.schemaAnalyzer.AnalyzeSchema(ctx, &SchemaAnalysisInput{
 		ConfigID:        config.ID,
-		Name:            fmt.Sprintf("%s-auto", config.Name),
-		Fields:          model.ExtJSON(`[]`),
-		DimensionFields: model.ExtJSON(`[]`),
-		MetricFields:    model.ExtJSON(`[]`),
-		IsActive:        true,
-		GeneratedBy:     database.SchemaGeneratedBySystem,
+		ConfigName:      config.Name,
+		FileSamples:     fileSamples,
+		ExistingSchemas: existingSchemas,
+	})
+	if err != nil {
+		return 0, fmt.Errorf("schema analysis failed: %w", err)
 	}
 
-	if err := schemaFacade.Create(ctx, schema); err != nil {
-		return nil, err
+	if !schemaResult.Success {
+		return 0, fmt.Errorf("schema analysis failed: %s", schemaResult.Error)
 	}
 
-	// Update config with schema ID
-	if err := database.GetFacade().GetGithubWorkflowConfig().UpdateMetricSchemaID(ctx, config.ID, schema.ID); err != nil {
-		log.Warnf("GithubWorkflowCollectorJob: failed to update config schema ID: %v", err)
+	// Step 4: Get or create schema version
+	var schemaID int64
+	var currentSchema *model.GithubWorkflowMetricSchemas
+
+	if schemaResult.SchemaMatched && schemaResult.MatchedSchemaID != nil {
+		// Use existing schema
+		schemaID = *schemaResult.MatchedSchemaID
+		currentSchema, err = schemaFacade.GetByID(ctx, schemaID)
+		if err != nil {
+			return 0, fmt.Errorf("failed to get matched schema: %w", err)
+		}
+		// Update last_seen_at
+		if err := schemaFacade.UpdateLastSeen(ctx, schemaID); err != nil {
+			log.Warnf("GithubWorkflowCollectorJob: failed to update last_seen: %v", err)
+		}
+		log.Infof("GithubWorkflowCollectorJob: matched existing schema (id=%d, hash=%s)",
+			schemaID, schemaResult.SchemaHash[:8])
+	} else {
+		// First check if schema with this hash already exists (handle concurrent creation)
+		existingSchema, err := schemaFacade.GetByConfigAndHash(ctx, config.ID, schemaResult.SchemaHash)
+		if err != nil {
+			return 0, fmt.Errorf("failed to check existing schema: %w", err)
+		}
+
+		if existingSchema != nil {
+			// Schema already exists (created by concurrent process), use it
+			currentSchema = existingSchema
+			schemaID = existingSchema.ID
+			// Update last_seen_at
+			if err := schemaFacade.UpdateLastSeen(ctx, schemaID); err != nil {
+				log.Warnf("GithubWorkflowCollectorJob: failed to update last_seen: %v", err)
+			}
+			log.Infof("GithubWorkflowCollectorJob: found existing schema with same hash (id=%d, hash=%s)",
+				schemaID, schemaResult.SchemaHash[:8])
+		} else {
+			// Create new schema version
+			currentSchema = ConvertSchemaToDBModel(schemaResult.Schema, config.ID)
+			currentSchema.SchemaHash = schemaResult.SchemaHash
+			currentSchema.FirstSeenAt = time.Now()
+			currentSchema.LastSeenAt = time.Now()
+
+			if err := schemaFacade.Create(ctx, currentSchema); err != nil {
+				// Handle race condition: another process may have created the schema
+				if existingSchema, lookupErr := schemaFacade.GetByConfigAndHash(ctx, config.ID, schemaResult.SchemaHash); lookupErr == nil && existingSchema != nil {
+					currentSchema = existingSchema
+					schemaID = existingSchema.ID
+					log.Infof("GithubWorkflowCollectorJob: schema created by concurrent process (id=%d, hash=%s)",
+						schemaID, schemaResult.SchemaHash[:8])
+				} else {
+					return 0, fmt.Errorf("failed to create new schema: %w", err)
+				}
+			} else {
+				schemaID = currentSchema.ID
+				// Set this schema as active
+				if err := schemaFacade.SetActive(ctx, config.ID, schemaID); err != nil {
+					log.Warnf("GithubWorkflowCollectorJob: failed to set schema active: %v", err)
+				}
+				log.Infof("GithubWorkflowCollectorJob: created new schema version (id=%d, hash=%s)",
+					schemaID, schemaResult.SchemaHash[:8])
+			}
+		}
 	}
 
-	return schema, nil
+	// Step 5: Extract metrics using Go (NO AI, NO LLM tokens)
+	metrics, err := j.metricsExtractor.ExtractMetrics(files, schemaResult.Schema)
+	if err != nil {
+		return 0, fmt.Errorf("metrics extraction failed: %w", err)
+	}
+
+	// Step 6: Determine timestamp for metrics
+	metricsTimestamp := run.WorkloadCompletedAt
+	if metricsTimestamp.IsZero() {
+		metricsTimestamp = time.Now()
+	}
+
+	// Step 7: Store metrics with schema_id
+	metricsCreated := 0
+	dbMetrics := j.metricsExtractor.ConvertToDBMetrics(config.ID, run.ID, schemaID, metricsTimestamp, metrics)
+
+	for _, metric := range dbMetrics {
+		if err := metricsFacade.Create(ctx, metric); err != nil {
+			log.Warnf("GithubWorkflowCollectorJob: failed to create metric: %v", err)
+			continue
+		}
+		metricsCreated++
+	}
+
+	// Step 8: Update schema record count
+	if err := schemaFacade.IncrementRecordCount(ctx, schemaID, int64(metricsCreated)); err != nil {
+		log.Warnf("GithubWorkflowCollectorJob: failed to increment record count: %v", err)
+	}
+
+	// Mark as completed
+	filesProcessed := len(fileSamples)
+	if err := runFacade.MarkCompleted(ctx, run.ID, int32(len(matchingFiles)), int32(filesProcessed), int32(metricsCreated)); err != nil {
+		return metricsCreated, fmt.Errorf("failed to mark as completed: %w", err)
+	}
+
+	log.Infof("GithubWorkflowCollectorJob: completed run %d with schema-versioning (files: %d/%d, metrics: %d, schema: %d)",
+		run.ID, filesProcessed, len(matchingFiles), metricsCreated, schemaID)
+
+	return metricsCreated, nil
 }
 
 // getBasePaths extracts base paths from file patterns
@@ -618,68 +773,6 @@ func parseMarkdown(content []byte) ([]map[string]interface{}, error) {
 	}
 
 	return results, nil
-}
-
-// buildDimensions builds dimension map from record based on schema
-func buildDimensions(record map[string]interface{}, schema *model.GithubWorkflowMetricSchemas) model.ExtType {
-	result := make(model.ExtType)
-
-	// Parse dimension fields from schema
-	var dimensionFields []string
-	if err := schema.DimensionFields.UnmarshalTo(&dimensionFields); err != nil || len(dimensionFields) == 0 {
-		// If no schema defined, try to infer dimensions (string fields)
-		for key, value := range record {
-			if _, ok := value.(string); ok {
-				result[key] = value
-			}
-		}
-		return result
-	}
-
-	// Use schema-defined dimensions
-	for _, field := range dimensionFields {
-		if value, ok := record[field]; ok {
-			result[field] = value
-		}
-	}
-
-	return result
-}
-
-// buildMetrics builds metrics map from record based on schema
-func buildMetrics(record map[string]interface{}, schema *model.GithubWorkflowMetricSchemas) model.ExtType {
-	result := make(model.ExtType)
-
-	// Parse metric fields from schema
-	var metricFields []string
-	if err := schema.MetricFields.UnmarshalTo(&metricFields); err != nil || len(metricFields) == 0 {
-		// If no schema defined, try to infer metrics (numeric fields)
-		for key, value := range record {
-			switch value.(type) {
-			case float64, int64, int, float32:
-				result[key] = value
-			}
-		}
-		return result
-	}
-
-	// Use schema-defined metrics
-	for _, field := range metricFields {
-		if value, ok := record[field]; ok {
-			result[field] = value
-		}
-	}
-
-	return result
-}
-
-// buildRawData builds raw data from record
-func buildRawData(record map[string]interface{}) model.ExtType {
-	result := make(model.ExtType)
-	for k, v := range record {
-		result[k] = v
-	}
-	return result
 }
 
 // Schedule returns the cron schedule for this job

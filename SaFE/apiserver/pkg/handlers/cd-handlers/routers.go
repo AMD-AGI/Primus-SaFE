@@ -6,22 +6,25 @@
 package cdhandlers
 
 import (
-	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/middle"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/middleware"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	"github.com/gin-gonic/gin"
 )
 
-// InitCDRouters initializes routes
+// InitCDRouters initializes routes for both Safe and Lens CD
+// Use query param ?type=safe or ?type=lens to filter (default: safe)
 func InitCDRouters(e *gin.Engine, h *Handler) {
-	group := e.Group(common.PrimusRouterCustomRootPath+"/cd", middle.Authorize(), middle.Preprocess())
+	group := e.Group(common.PrimusRouterCustomRootPath+"/cd", middleware.Authorize(), middleware.Preprocess())
 	{
-		group.POST("/deployments", h.CreateDeploymentRequest)
-		group.GET("/deployments", h.ListDeploymentRequests)
+		// Unified endpoints - use type field in body or query param to distinguish
+		group.POST("/deployments", h.CreateDeploymentRequest)       // body.type = "safe" or "lens"
+		group.GET("/deployments", h.ListDeploymentRequests)         // ?type=safe or ?type=lens
 		group.GET("/deployments/:id", h.GetDeploymentRequest)
 		group.POST("/deployments/:id/approve", h.ApproveDeploymentRequest)
 		group.POST("/deployments/:id/rollback", h.RollbackDeployment)
 
-		// Get current environment configuration
+		// Get latest deployment configuration
+		// Query params: ?type=safe or ?type=lens (default: safe)
 		group.GET("/env-config", h.GetCurrentEnvConfig)
 
 		// Get deployable components list

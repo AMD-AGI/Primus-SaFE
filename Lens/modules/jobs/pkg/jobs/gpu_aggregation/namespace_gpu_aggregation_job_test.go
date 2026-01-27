@@ -95,6 +95,18 @@ func (m *NamespaceMockFacade) GetGithubWorkflowCommit() database.GithubWorkflowC
 func (m *NamespaceMockFacade) GetGithubWorkflowRunDetails() database.GithubWorkflowRunDetailsFacadeInterface {
 	return nil
 }
+func (m *NamespaceMockFacade) GetDashboardSummary() database.DashboardSummaryFacadeInterface {
+	return nil
+}
+func (m *NamespaceMockFacade) GetMetricBaseline() database.MetricBaselineFacadeInterface {
+	return nil
+}
+func (m *NamespaceMockFacade) GetCommitImpactAnalysis() database.CommitImpactAnalysisFacadeInterface {
+	return nil
+}
+func (m *NamespaceMockFacade) GetNotificationChannel() database.NotificationChannelFacadeInterface {
+	return nil
+}
 func (m *NamespaceMockFacade) WithCluster(clusterName string) database.FacadeInterface { return m }
 
 // NamespaceMockNamespaceInfoFacade implements database.NamespaceInfoFacadeInterface for testing

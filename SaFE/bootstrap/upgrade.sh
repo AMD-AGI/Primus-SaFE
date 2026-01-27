@@ -49,11 +49,13 @@ echo "✅ Storage Class: \"$storage_class\""
 echo "✅ Support Primus-lens: \"$lens_enable\""
 echo "✅ Support S3: \"$s3_enable\""
 echo "✅ Support SSO: \"$sso_enable\""
+echo "✅ Support Tracing: \"${tracing_enable:-false}\" (mode: ${tracing_mode:-error_only})"
 echo "✅ Ingress Name: \"$ingress\""
 if [[ "$ingress" == "higress" ]]; then
   echo "✅ Cluster Name: \"$sub_domain\""
 fi
 echo "✅ Image Registry: \"$proxy_image_registry\""
+echo "✅ Helm Registry: \"$helm_registry\""
 echo "✅ CD Require Approval: \"$cd_require_approval\""
 
 echo
@@ -118,6 +120,20 @@ if [[ "$sso_enable" == "true" ]]; then
 fi
 sed -i '/^cd:/,/^[a-z]/ s/require_approval: .*/require_approval: '"$cd_require_approval"'/' "$values_yaml"
 
+# Configure tracing if defined in .env
+if [[ "${tracing_enable:-false}" == "true" ]]; then
+  sed -i '/^tracing:/,/^[a-z]/ s/enable: .*/enable: true/' "$values_yaml"
+  if [[ -n "${tracing_mode:-}" ]]; then
+    sed -i '/^tracing:/,/^[a-z]/ s/mode: .*/mode: "'"$tracing_mode"'"/' "$values_yaml"
+  fi
+  if [[ -n "${tracing_sampling_ratio:-}" ]]; then
+    sed -i '/^tracing:/,/^[a-z]/ s/sampling_ratio: .*/sampling_ratio: "'"$tracing_sampling_ratio"'"/' "$values_yaml"
+  fi
+  if [[ -n "${tracing_otlp_endpoint:-}" ]]; then
+    sed -i '/^tracing:/,/^[a-z]/ s#otlp_endpoint: .*#otlp_endpoint: "'"$tracing_otlp_endpoint"'"#' "$values_yaml"
+  fi
+fi
+
 # Configure proxy services if defined in .env
 if [[ -n "${proxy_services:-}" ]]; then
   sed -i "/^proxy:/,/^[a-z_]*:/ { /^proxy:/! { /^[a-z_]*:/!d } }" "$values_yaml"
@@ -138,12 +154,32 @@ fi
 install_or_upgrade_helm_chart "$chart_name" "$values_yaml"
 
 sleep 10
-install_or_upgrade_helm_chart "primus-safe-cr" "$values_yaml"
-rm -f "$values_yaml"
 
 echo
 echo "========================================="
-echo "🔧 Step 3: upgrade primus-safe data plane"
+echo "🔧 Step 3: upgrade primus-safe cr"
+echo "========================================="
+
+cd ../charts/
+src_values_yaml="primus-safe-cr/values.yaml"
+if [ ! -f "$src_values_yaml" ]; then
+  echo "Error: $src_values_yaml does not exist"
+  exit 1
+fi
+values_yaml="primus-safe-cr/.values.yaml"
+cp "$src_values_yaml" "${values_yaml}"
+
+if [[ -n "${helm_registry:-}" ]]; then
+  sed -i '/global:/,/^[a-z]/ s/helm_registry: .*/helm_registry: "'"$helm_registry"'"/' "$values_yaml"
+fi
+
+install_or_upgrade_helm_chart "primus-safe-cr" "$values_yaml"
+rm -f "$values_yaml"
+
+
+echo
+echo "========================================="
+echo "🔧 Step 4: upgrade primus-safe data plane"
 echo "========================================="
 
 cd ../node-agent/charts/

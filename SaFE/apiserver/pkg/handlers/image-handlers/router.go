@@ -6,20 +6,20 @@
 package image_handlers
 
 import (
-	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/middle"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/middleware"
 	"github.com/gin-gonic/gin"
 )
 
 // InitImageRouter initializes and registers all image-related API routes.
 func InitImageRouter(e *gin.Engine, h *ImageHandler) {
 	group := e.Group("/api/v1/")
-	harborGroup := group.Group("/harbor", middle.Authorize())
+	harborGroup := group.Group("/harbor", middleware.Authorize())
 	{
 		harborGroup.GET("stats", func(c *gin.Context) {
 			handle(c, h.GetHarborStats)
 		})
 	}
-	imageGroup := e.Group("/api/v1/images", middle.Authorize())
+	imageGroup := e.Group("/api/v1/images", middleware.Authorize())
 	{
 		imageGroup.GET("", func(c *gin.Context) {
 			handle(c, h.listImage)
@@ -27,25 +27,26 @@ func InitImageRouter(e *gin.Engine, h *ImageHandler) {
 		imageGroup.GET("custom", func(c *gin.Context) {
 			handle(c, h.listExportedImage)
 		})
-		imageGroup.DELETE("custom/:jobId", func(c *gin.Context) {
-			handle(c, h.deleteExportedImage)
-		})
 		imageGroup.GET("prewarm", func(c *gin.Context) {
 			handle(c, h.listPrewarmImage)
-		})
-		imageGroup.DELETE(":id", func(c *gin.Context) {
-			handle(c, h.deleteImage)
 		})
 		imageGroup.GET(":id/importing-details", func(c *gin.Context) {
 			handle(c, h.getImportingDetail)
 		})
-		imageGroup.PUT(":id/importing:retry", func(c *gin.Context) {
+
+		imageGroup.DELETE("custom/:jobId", middleware.Audit("custom-image"), func(c *gin.Context) {
+			handle(c, h.deleteExportedImage)
+		})
+		imageGroup.DELETE(":id", middleware.Audit("image"), func(c *gin.Context) {
+			handle(c, h.deleteImage)
+		})
+		imageGroup.PUT(":id/importing:retry", middleware.Audit("image", "retry"), func(c *gin.Context) {
 			handle(c, h.retryDispatchImportImageJob)
 		})
 	}
 	imageImportGroup := e.Group("/api/v1/images:import")
 	{
-		imageImportGroup.POST("", middle.Authorize(), func(c *gin.Context) {
+		imageImportGroup.POST("", middleware.Authorize(), middleware.Audit("image", "import"), func(c *gin.Context) {
 			handle(c, h.importImage)
 		})
 		imageImportGroup.PUT(":name/progress", func(c *gin.Context) {
@@ -53,7 +54,7 @@ func InitImageRouter(e *gin.Engine, h *ImageHandler) {
 		})
 	}
 
-	imageRegistryGroup := group.Group("/image-registries", middle.Authorize())
+	imageRegistryGroup := group.Group("/image-registries", middleware.Authorize(), middleware.Audit("imageregistry"))
 	{
 		imageRegistryGroup.POST("", func(c *gin.Context) {
 			handle(c, h.createImageRegistry)

@@ -99,20 +99,22 @@ func TestCreatePytorchJob(t *testing.T) {
 	checkEnvs(t, obj, workload, &templates[0], 0)
 	checkVolumeMounts(t, obj, &templates[0])
 	checkVolumes(t, obj, workload, &templates[0], 0)
-	checkNodeSelectorTerms(t, obj, workload, &templates[0])
-	checkImage(t, obj, workload.Spec.Image, &templates[0])
+	checkRequiredNodeSelectorTerms(t, obj, workload, &templates[0])
+	checkImage(t, obj, workload.Spec.Images[0], &templates[0])
 	checkLabels(t, obj, workload, &templates[0], 0)
 	checkHostNetwork(t, obj, workload, &templates[0], 0)
 	checkTolerations(t, obj, workload, &templates[0])
 	checkPriorityClass(t, obj, workload, &templates[0])
 	checkImageSecrets(t, obj, &templates[0])
-	_, found, err := unstructured.NestedSlice(obj.Object, templates[1].PrePaths...)
+	_, found, err := jobutils.NestedSlice(obj.Object, templates[1].PrePaths)
 	assert.NilError(t, err)
 	assert.Equal(t, found, false)
 
 	// enable worker
 	workload.Spec.Resources = append(workload.Spec.Resources, *workload.Spec.Resources[0].DeepCopy())
 	workload.Spec.Resources[1].Replica = 2
+	workload.Spec.Images = append(workload.Spec.Images, workload.Spec.Images[0])
+	workload.Spec.EntryPoints = append(workload.Spec.EntryPoints, workload.Spec.EntryPoints[0])
 	workload.Spec.IsTolerateAll = true
 	obj, err = r.generateK8sObject(context.Background(), workload, nil)
 	assert.NilError(t, err)
@@ -121,8 +123,8 @@ func TestCreatePytorchJob(t *testing.T) {
 	checkPorts(t, obj, workload, &templates[1])
 	checkVolumeMounts(t, obj, &templates[1])
 	checkVolumes(t, obj, workload, &templates[1], 1)
-	checkNodeSelectorTerms(t, obj, workload, &templates[1])
-	checkImage(t, obj, workload.Spec.Image, &templates[1])
+	checkRequiredNodeSelectorTerms(t, obj, workload, &templates[1])
+	checkImage(t, obj, workload.Spec.Images[1], &templates[1])
 	checkLabels(t, obj, workload, &templates[1], 1)
 	checkHostNetwork(t, obj, workload, &templates[1], 1)
 	checkTolerations(t, obj, workload, &templates[1])
@@ -156,20 +158,20 @@ func TestCreateDeployment(t *testing.T) {
 	metav1.SetMetaDataAnnotation(&workload.ObjectMeta, v1.MainContainerAnnotation, v1.GetMainContainer(configmap))
 	scheme, err := genMockScheme()
 	assert.NilError(t, err)
-	adminClient := fake.NewClientBuilder().WithObjects(configmap, jobutils.TestDeploymentTemplate, workspace).WithScheme(scheme).Build()
+	adminClient := fake.NewClientBuilder().WithObjects(configmap, jobutils.TestDeploymentResourceTemplate, workspace).WithScheme(scheme).Build()
 
 	r := DispatcherReconciler{Client: adminClient}
 	obj, err := r.generateK8sObject(context.Background(), workload, nil)
 	assert.NilError(t, err)
-	templates := jobutils.TestDeploymentTemplate.Spec.ResourceSpecs
+	templates := jobutils.TestDeploymentResourceTemplate.Spec.ResourceSpecs
 
 	checkResources(t, obj, workload, &templates[0], 1, 0)
 	checkPorts(t, obj, workload, &templates[0])
 	checkEnvs(t, obj, workload, &templates[0], 0)
 	checkVolumeMounts(t, obj, &templates[0])
 	checkVolumes(t, obj, workload, &templates[0], 0)
-	checkNodeSelectorTerms(t, obj, workload, &templates[0])
-	checkImage(t, obj, workload.Spec.Image, &templates[0])
+	checkRequiredNodeSelectorTerms(t, obj, workload, &templates[0])
+	checkImage(t, obj, workload.Spec.Images[0], &templates[0])
 	checkLabels(t, obj, workload, &templates[0], 0)
 	checkHostNetwork(t, obj, workload, &templates[0], 0)
 	checkSelector(t, obj, workload)
@@ -183,7 +185,7 @@ func TestUpdateDeployment(t *testing.T) {
 	adminWorkload := jobutils.TestWorkloadData.DeepCopy()
 	metav1.SetMetaDataAnnotation(&adminWorkload.ObjectMeta, v1.MainContainerAnnotation, "test")
 
-	err = applyWorkloadSpecToObject(context.Background(), nil, workloadObj, adminWorkload, nil, jobutils.TestDeploymentTemplate)
+	err = applyWorkloadSpecToObject(context.Background(), nil, workloadObj, adminWorkload, nil, jobutils.TestDeploymentResourceTemplate)
 	assert.NilError(t, err)
 	deployment := &appsv1.Deployment{}
 	err = unstructuredutils.ConvertUnstructuredToObject(workloadObj, deployment)
@@ -200,11 +202,10 @@ func TestUpdateDeployment(t *testing.T) {
 	assert.Equal(t, deployment.Spec.Template.Spec.Containers[0].Image, "test-image")
 	assert.Equal(t, deployment.Spec.Template.Spec.PriorityClassName, commonworkload.GeneratePriorityClass(adminWorkload))
 	assert.Equal(t, len(deployment.Spec.Template.Spec.Containers[0].Command), 3)
-	adminWorkload.Spec.EntryPoint = "sh -c test.sh"
-	cmd := buildEntryPoint(adminWorkload)
+	cmd := buildEntryPoint(adminWorkload, 0)
 	assert.Equal(t, deployment.Spec.Template.Spec.Containers[0].Command[2], cmd)
 
-	shareMemorySizes, err := jobutils.GetMemoryStorageSize(workloadObj, jobutils.TestDeploymentTemplate)
+	shareMemorySizes, err := jobutils.GetMemoryStorageSize(workloadObj, jobutils.TestDeploymentResourceTemplate)
 	assert.NilError(t, err)
 	assert.Equal(t, len(shareMemorySizes), 1)
 	assert.Equal(t, shareMemorySizes[0], "32Gi")
@@ -295,17 +296,32 @@ func TestUpdatePytorchJobMaster(t *testing.T) {
 }
 
 func TestIsImageChanged(t *testing.T) {
-	workloadObj, err := jsonutils.ParseYamlToJson(jobutils.TestDeploymentData)
+	workloadObj, err := jsonutils.ParseYamlToJson(jobutils.TestPytorchData)
 	assert.NilError(t, err)
 	adminWorkload := jobutils.TestWorkloadData.DeepCopy()
-	metav1.SetMetaDataAnnotation(&adminWorkload.ObjectMeta, v1.MainContainerAnnotation, "test")
+	metav1.SetMetaDataAnnotation(&adminWorkload.ObjectMeta, v1.MainContainerAnnotation, "pytorch")
 
-	adminWorkload.Spec.Image = "test-image:latest"
-	ok := isImageChanged(adminWorkload, workloadObj, jobutils.TestDeploymentTemplate)
+	adminWorkload.Spec.Images = []string{"test-image:0.0.1", "docker.io/test-image:0.0.1"}
+	ok := isImagesChanged(adminWorkload, workloadObj, jobutils.TestPytorchResourceTemplate)
 	assert.Equal(t, ok, false)
 
-	adminWorkload.Spec.Image = "test-image:1234"
-	ok = isImageChanged(adminWorkload, workloadObj, jobutils.TestDeploymentTemplate)
+	adminWorkload.Spec.Images[0] = "docker.io/test-image:0.0.1"
+	ok = isImagesChanged(adminWorkload, workloadObj, jobutils.TestPytorchResourceTemplate)
+	assert.Equal(t, ok, true)
+}
+
+func TestIsEntrypointChanged(t *testing.T) {
+	workloadObj, err := jsonutils.ParseYamlToJson(jobutils.TestStatefulSetData)
+	assert.NilError(t, err)
+	adminWorkload := jobutils.TestWorkloadData.DeepCopy()
+	metav1.SetMetaDataAnnotation(&adminWorkload.ObjectMeta, v1.MainContainerAnnotation, "main")
+
+	adminWorkload.Spec.EntryPoints = []string{"abcd"}
+	ok := isEntrypointChanged(adminWorkload, workloadObj, jobutils.TestStatefulSetResourceTemplate)
+	assert.Equal(t, ok, false)
+
+	adminWorkload.Spec.EntryPoints = []string{"1234"}
+	ok = isEntrypointChanged(adminWorkload, workloadObj, jobutils.TestStatefulSetResourceTemplate)
 	assert.Equal(t, ok, true)
 }
 
@@ -343,11 +359,11 @@ func TestIsShareMemoryChanged(t *testing.T) {
 	adminWorkload := jobutils.TestWorkloadData.DeepCopy()
 
 	adminWorkload.Spec.Resources[0].SharedMemory = "20Gi"
-	ok := isSharedMemoryChanged(adminWorkload, workloadObj, jobutils.TestDeploymentTemplate)
+	ok := isSharedMemoryChanged(adminWorkload, workloadObj, jobutils.TestDeploymentResourceTemplate)
 	assert.Equal(t, ok, false)
 
 	adminWorkload.Spec.Resources[0].SharedMemory = "30Gi"
-	ok = isSharedMemoryChanged(adminWorkload, workloadObj, jobutils.TestDeploymentTemplate)
+	ok = isSharedMemoryChanged(adminWorkload, workloadObj, jobutils.TestDeploymentResourceTemplate)
 	assert.Equal(t, ok, true)
 }
 
@@ -357,19 +373,19 @@ func TestIsEnvChanged(t *testing.T) {
 	adminWorkload := jobutils.TestWorkloadData.DeepCopy()
 	metav1.SetMetaDataAnnotation(&adminWorkload.ObjectMeta, v1.MainContainerAnnotation, "test")
 
-	ok := isEnvChanged(adminWorkload, workloadObj, jobutils.TestDeploymentTemplate)
+	ok := isEnvChanged(adminWorkload, workloadObj, jobutils.TestDeploymentResourceTemplate)
 	assert.Equal(t, ok, true)
 
 	adminWorkload.Spec.Env = map[string]string{
 		"NCCL_SOCKET_IFNAME": "eth0",
 	}
-	ok = isEnvChanged(adminWorkload, workloadObj, jobutils.TestDeploymentTemplate)
+	ok = isEnvChanged(adminWorkload, workloadObj, jobutils.TestDeploymentResourceTemplate)
 	assert.Equal(t, ok, false)
 
 	adminWorkload.Spec.Env = map[string]string{
 		"NCCL_SOCKET_IFNAME": "eth1",
 	}
-	ok = isEnvChanged(adminWorkload, workloadObj, jobutils.TestDeploymentTemplate)
+	ok = isEnvChanged(adminWorkload, workloadObj, jobutils.TestDeploymentResourceTemplate)
 	assert.Equal(t, ok, true)
 
 	adminWorkload = jobutils.TestWorkloadData.DeepCopy()
@@ -378,7 +394,7 @@ func TestIsEnvChanged(t *testing.T) {
 		"NCCL_SOCKET_IFNAME": "eth0",
 		"GLOO_SOCKET_IFNAME": "",
 	}
-	ok = isEnvChanged(adminWorkload, workloadObj, jobutils.TestDeploymentTemplate)
+	ok = isEnvChanged(adminWorkload, workloadObj, jobutils.TestDeploymentResourceTemplate)
 	assert.Equal(t, ok, true)
 
 	adminWorkload.Spec.Env = map[string]string{
@@ -386,7 +402,7 @@ func TestIsEnvChanged(t *testing.T) {
 		"GLOO_SOCKET_IFNAME": "eth0",
 		"key":                "val",
 	}
-	ok = isEnvChanged(adminWorkload, workloadObj, jobutils.TestDeploymentTemplate)
+	ok = isEnvChanged(adminWorkload, workloadObj, jobutils.TestDeploymentResourceTemplate)
 	assert.Equal(t, ok, true)
 }
 
@@ -396,9 +412,9 @@ func TestUpdateDeploymentEnv(t *testing.T) {
 	adminWorkload := jobutils.TestWorkloadData.DeepCopy()
 	metav1.SetMetaDataAnnotation(&adminWorkload.ObjectMeta, v1.MainContainerAnnotation, "test")
 
-	err = applyWorkloadSpecToObject(context.Background(), nil, workloadObj, adminWorkload, nil, jobutils.TestDeploymentTemplate)
+	err = applyWorkloadSpecToObject(context.Background(), nil, workloadObj, adminWorkload, nil, jobutils.TestDeploymentResourceTemplate)
 	assert.NilError(t, err)
-	envs, err := jobutils.GetEnv(workloadObj, jobutils.TestDeploymentTemplate, "test")
+	envs, err := jobutils.GetEnv(workloadObj, jobutils.TestDeploymentResourceTemplate, "test")
 	assert.NilError(t, err)
 	assert.Equal(t, len(envs), 3)
 	env, ok := envs[0].(map[string]interface{})
@@ -418,9 +434,9 @@ func TestUpdateDeploymentEnv(t *testing.T) {
 		"NCCL_SOCKET_IFNAME": "eth1",
 		"key":                "val",
 	}
-	err = applyWorkloadSpecToObject(context.Background(), nil, workloadObj, adminWorkload, nil, jobutils.TestDeploymentTemplate)
+	err = applyWorkloadSpecToObject(context.Background(), nil, workloadObj, adminWorkload, nil, jobutils.TestDeploymentResourceTemplate)
 	assert.NilError(t, err)
-	envs, err = jobutils.GetEnv(workloadObj, jobutils.TestDeploymentTemplate, "test")
+	envs, err = jobutils.GetEnv(workloadObj, jobutils.TestDeploymentResourceTemplate, "test")
 	assert.NilError(t, err)
 	assert.Equal(t, len(envs), 3)
 	env, ok = envs[0].(map[string]interface{})
@@ -440,9 +456,9 @@ func TestUpdateDeploymentEnv(t *testing.T) {
 		"NCCL_SOCKET_IFNAME": "eth1",
 	}
 	v1.SetAnnotation(adminWorkload, v1.EnvToBeRemovedAnnotation, string(jsonutils.MarshalSilently([]string{"key"})))
-	err = applyWorkloadSpecToObject(context.Background(), nil, workloadObj, adminWorkload, nil, jobutils.TestDeploymentTemplate)
+	err = applyWorkloadSpecToObject(context.Background(), nil, workloadObj, adminWorkload, nil, jobutils.TestDeploymentResourceTemplate)
 	assert.NilError(t, err)
-	envs, err = jobutils.GetEnv(workloadObj, jobutils.TestDeploymentTemplate, "test")
+	envs, err = jobutils.GetEnv(workloadObj, jobutils.TestDeploymentResourceTemplate, "test")
 	assert.NilError(t, err)
 	assert.Equal(t, len(envs), 2)
 	env, ok = envs[0].(map[string]interface{})
@@ -455,7 +471,7 @@ func TestUpdateDeploymentEnv(t *testing.T) {
 	assert.Equal(t, env["value"].(string), "eth0")
 }
 
-func TestCreateK8sJob(t *testing.T) {
+func TestCreatePreflightJob(t *testing.T) {
 	commonconfig.SetValue("net.rdma_name", "rdma/hca")
 	defer commonconfig.SetValue("net.rdma_name", "")
 
@@ -472,26 +488,27 @@ func TestCreateK8sJob(t *testing.T) {
 	v1.SetAnnotation(workload, v1.UserNameAnnotation, common.UserSystem)
 	v1.SetAnnotation(workload, v1.RequireNodeSpreadAnnotation, v1.TrueStr)
 	v1.SetLabel(workload, v1.OpsJobTypeLabel, string(v1.OpsJobPreflightType))
+	v1.SetAnnotation(workload, v1.WorkloadPrivilegedAnnotation, v1.TrueStr)
 
 	configmap, err := parseConfigmap(TestJobTemplateConfig)
 	assert.NilError(t, err)
 	metav1.SetMetaDataAnnotation(&workload.ObjectMeta, v1.MainContainerAnnotation, v1.GetMainContainer(configmap))
 	scheme, err := genMockScheme()
 	assert.NilError(t, err)
-	adminClient := fake.NewClientBuilder().WithObjects(configmap, jobutils.TestJobTemplate).WithScheme(scheme).Build()
+	adminClient := fake.NewClientBuilder().WithObjects(configmap, jobutils.TestJobResourceTemplate).WithScheme(scheme).Build()
 
 	r := DispatcherReconciler{Client: adminClient}
 	obj, err := r.generateK8sObject(context.Background(), workload, nil)
 	assert.NilError(t, err)
 	// fmt.Println(unstructuredutils.ToString(obj))
 
-	templates := jobutils.TestJobTemplate.Spec.ResourceSpecs
+	templates := jobutils.TestJobResourceTemplate.Spec.ResourceSpecs
 	checkResources(t, obj, workload, &templates[0], workload.Spec.Resources[0].Replica, 0)
 	checkPorts(t, obj, workload, &templates[0])
-	checkNodeSelectorTerms(t, obj, workload, &templates[0])
+	checkRequiredNodeSelectorTerms(t, obj, workload, &templates[0])
 	checkPodAntiAffinity(t, obj, workload, &templates[0])
 	checkEnvs(t, obj, workload, &templates[0], 0)
-	checkImage(t, obj, workload.Spec.Image, &templates[0])
+	checkImage(t, obj, workload.Spec.Images[0], &templates[0])
 	checkLabels(t, obj, workload, &templates[0], 0)
 	checkHostNetwork(t, obj, workload, &templates[0], 0)
 	checkHostPid(t, obj, workload, &templates[0])
@@ -510,7 +527,7 @@ func TestCreateCICDScaleSet(t *testing.T) {
 	v1.SetAnnotation(workload, v1.AdminControlPlaneAnnotation, "10.0.0.1")
 	v1.SetAnnotation(workload, v1.GithubSecretIdAnnotation, "test-secret")
 	workload.Spec.Workspace = workspace.Name
-	workload.Spec.EntryPoint = stringutil.Base64Encode("bash test.sh")
+	workload.Spec.EntryPoints = []string{stringutil.Base64Encode("bash test.sh")}
 
 	configmap, err := parseConfigmap(TestCICDScaleSetTemplateConfig)
 	assert.NilError(t, err)
@@ -518,20 +535,20 @@ func TestCreateCICDScaleSet(t *testing.T) {
 	scheme, err := genMockScheme()
 	assert.NilError(t, err)
 	adminClient := fake.NewClientBuilder().WithObjects(configmap,
-		jobutils.TestCICDScaleSetTemplate, workspace).WithScheme(scheme).Build()
+		jobutils.TestCICDScaleSetResourceTemplate, workspace).WithScheme(scheme).Build()
 
 	r := DispatcherReconciler{Client: adminClient}
 	obj, err := r.generateK8sObject(context.Background(), workload, nil)
 	assert.NilError(t, err)
 	// fmt.Println(unstructuredutils.ToString(obj))
 
-	templates := jobutils.TestJobTemplate.Spec.ResourceSpecs
+	templates := jobutils.TestJobResourceTemplate.Spec.ResourceSpecs
 	checkGithubConfig(t, obj)
-	checkNodeSelectorTerms(t, obj, workload, &templates[0])
+	checkRequiredNodeSelectorTerms(t, obj, workload, &templates[0])
 	checkLabels(t, obj, workload, &templates[0], 0)
 	checkSecurityContext(t, obj, workload, &templates[0])
 	checkEnvs(t, obj, workload, &templates[0], 0)
-	checkImage(t, obj, workload.Spec.Image, &templates[0])
+	checkImage(t, obj, workload.Spec.Images[0], &templates[0])
 	checkHostNetwork(t, obj, workload, &templates[0], 0)
 	envs := getEnvs(t, obj, &templates[0])
 	checkCICDEnvs(t, envs, workload)
@@ -560,28 +577,28 @@ func TestCICDScaleSetWithUnifiedJob(t *testing.T) {
 	scheme, err := genMockScheme()
 	assert.NilError(t, err)
 	adminClient := fake.NewClientBuilder().WithObjects(configmap,
-		jobutils.TestCICDScaleSetTemplate, workspace).WithScheme(scheme).Build()
+		jobutils.TestCICDScaleSetResourceTemplate, workspace).WithScheme(scheme).Build()
 
 	r := DispatcherReconciler{Client: adminClient}
 	obj, err := r.generateK8sObject(context.Background(), workload, nil)
 	assert.NilError(t, err)
 	// fmt.Println(unstructuredutils.ToString(obj))
 
-	templates := jobutils.TestJobTemplate.Spec.ResourceSpecs
-	checkNodeSelectorTerms(t, obj, workload, &templates[0])
+	templates := jobutils.TestJobResourceTemplate.Spec.ResourceSpecs
+	checkRequiredNodeSelectorTerms(t, obj, workload, &templates[0])
 	checkLabels(t, obj, workload, &templates[0], 0)
 	checkSecurityContext(t, obj, workload, &templates[0])
 	checkEnvs(t, obj, workload, &templates[0], 0)
 	checkHostNetwork(t, obj, workload, &templates[0], 0)
 
 	checkCICDContainer(t, obj, workload, &templates[0],
-		"runner", workload.Spec.Image)
+		"runner", workload.Spec.Images[0])
 	checkCICDContainer(t, obj, workload, &templates[0],
 		"unified_job", "docker.io/primussafe/cicd-unified-job-proxy:latest")
 }
 
 func checkGithubConfig(t *testing.T, obj *unstructured.Unstructured) {
-	specObject, found, err := unstructured.NestedMap(obj.Object, []string{"spec"}...)
+	specObject, found, err := jobutils.NestedMap(obj.Object, []string{"spec"})
 	assert.NilError(t, err)
 	assert.Equal(t, found, true)
 	assert.Equal(t, len(specObject) == 0, false)
@@ -599,11 +616,11 @@ func checkCICDContainer(t *testing.T, obj *unstructured.Unstructured, workload *
 	resourceSpec *v1.ResourceSpec, containerName, containerImage string) {
 	container := getContainer(obj, containerName, resourceSpec)
 	assert.Equal(t, container != nil, true)
-	image, found, err := unstructured.NestedString(container, []string{"image"}...)
+	image, found, err := jobutils.NestedString(container, []string{"image"})
 	assert.NilError(t, err)
 	assert.Equal(t, found, true)
 	assert.Equal(t, image, containerImage)
-	envs, found, err := unstructured.NestedSlice(container, []string{"env"}...)
+	envs, found, err := jobutils.NestedSlice(container, []string{"env"})
 	assert.NilError(t, err)
 	assert.Equal(t, found, true)
 	checkCICDEnvs(t, envs, workload)
@@ -882,7 +899,7 @@ func Test_updateCICDScaleSet(t *testing.T) {
 	workload.Spec.Workspace = workspace.Name
 
 	// Create a test resource template
-	rt := jobutils.TestCICDScaleSetTemplate.DeepCopy()
+	rt := jobutils.TestCICDScaleSetResourceTemplate.DeepCopy()
 
 	// Create an unstructured object with spec
 	obj := &unstructured.Unstructured{}
@@ -913,7 +930,7 @@ func Test_updateCICDScaleSet(t *testing.T) {
 	assert.NilError(t, err, "updateCICDScaleSet should succeed")
 
 	// Verify GitHub configuration was updated
-	specObject, found, err := unstructured.NestedMap(obj.Object, "spec")
+	specObject, found, err := jobutils.NestedMap(obj.Object, []string{"spec"})
 	assert.NilError(t, err)
 	assert.Equal(t, found, true, "spec should exist")
 
@@ -926,8 +943,111 @@ func Test_updateCICDScaleSet(t *testing.T) {
 	assert.Equal(t, githubUrl.(string), "https://github.com/test/repo")
 
 	// Verify container env was updated
-	containers, found, err := unstructured.NestedSlice(obj.Object, "spec", "template", "spec", "containers")
+	containers, found, err := jobutils.NestedSlice(obj.Object, []string{"spec", "template", "spec", "containers"})
 	assert.NilError(t, err)
 	assert.Equal(t, found, true, "containers should exist")
 	assert.Assert(t, len(containers) > 0, "should have at least one container")
+}
+
+func TestCreateRayJob(t *testing.T) {
+	commonconfig.SetValue("net.rdma_name", "rdma/hca")
+	defer commonconfig.SetValue("net.rdma_name", "")
+
+	workspace := jobutils.TestWorkspaceData.DeepCopy()
+	workload := jobutils.TestWorkloadData.DeepCopy()
+	workload.Spec.GroupVersionKind = v1.GroupVersionKind{
+		Kind:    common.RayJobKind,
+		Version: common.DefaultVersion,
+	}
+	workload.Spec.Secrets = []v1.SecretEntity{{
+		Id:   workspace.Spec.ImageSecrets[0].Name,
+		Type: v1.SecretImage,
+	}}
+	workload.Spec.Workspace = workspace.Name
+
+	configmap, err := parseConfigmap(TestRayJobTemplateConfig)
+	assert.NilError(t, err)
+	metav1.SetMetaDataAnnotation(&workload.ObjectMeta, v1.MainContainerAnnotation, v1.GetMainContainer(configmap))
+	scheme, err := genMockScheme()
+	assert.NilError(t, err)
+	adminClient := fake.NewClientBuilder().WithObjects(configmap, jobutils.TestRayJobResourceTemplate, workspace).WithScheme(scheme).Build()
+
+	r := DispatcherReconciler{Client: adminClient}
+	obj, err := r.generateK8sObject(context.Background(), workload, nil)
+	assert.NilError(t, err)
+
+	templates := jobutils.TestRayJobResourceTemplate.Spec.ResourceSpecs
+	checkResources(t, obj, workload, &templates[0], 0, 0)
+	checkPorts(t, obj, workload, &templates[0])
+	checkEnvs(t, obj, workload, &templates[0], 0)
+	checkVolumeMounts(t, obj, &templates[0])
+	checkVolumes(t, obj, workload, &templates[0], 0)
+	checkRequiredNodeSelectorTerms(t, obj, workload, &templates[0])
+	checkImage(t, obj, workload.Spec.Images[0], &templates[0])
+	checkLabels(t, obj, workload, &templates[0], 0)
+	checkHostNetwork(t, obj, workload, &templates[0], 0)
+	checkTolerations(t, obj, workload, &templates[0])
+	checkPriorityClass(t, obj, workload, &templates[0])
+	checkImageSecrets(t, obj, &templates[0])
+	_, found, err := jobutils.NestedSlice(obj.Object, templates[1].PrePaths)
+	assert.Equal(t, err != nil, true)
+	assert.Equal(t, found, false)
+
+	workload.Spec.Resources = append(workload.Spec.Resources, v1.WorkloadResource{
+		Replica:          2,
+		CPU:              "64",
+		GPU:              "8",
+		GPUName:          "amd.com/gpu",
+		Memory:           "1Ti",
+		SharedMemory:     "512Gi",
+		EphemeralStorage: "200Gi",
+		RdmaResource:     "1k",
+	})
+	workload.Spec.Images = append(workload.Spec.Images, "test-image2")
+	workload.Spec.EntryPoints = append(workload.Spec.EntryPoints, "sh -c test2.sh")
+	obj, err = r.generateK8sObject(context.Background(), workload, nil)
+	assert.NilError(t, err)
+
+	checkResources(t, obj, workload, &templates[1], 2, 1)
+	checkEnvs(t, obj, workload, &templates[1], 1)
+	checkPorts(t, obj, workload, &templates[1])
+	checkVolumeMounts(t, obj, &templates[1])
+	checkVolumes(t, obj, workload, &templates[1], 1)
+	checkRequiredNodeSelectorTerms(t, obj, workload, &templates[1])
+	checkImage(t, obj, workload.Spec.Images[1], &templates[1])
+	checkLabels(t, obj, workload, &templates[1], 1)
+	checkHostNetwork(t, obj, workload, &templates[1], 1)
+	checkTolerations(t, obj, workload, &templates[1])
+	checkPriorityClass(t, obj, workload, &templates[1])
+	checkImageSecrets(t, obj, &templates[1])
+	// fmt.Println(unstructuredutils.ToString(obj))
+}
+
+func TestCreatePytorchJobWithStickyNodes(t *testing.T) {
+	commonconfig.SetValue("net.rdma_name", "rdma/hca")
+	defer commonconfig.SetValue("net.rdma_name", "")
+
+	workspace := jobutils.TestWorkspaceData.DeepCopy()
+	workload := jobutils.TestWorkloadData.DeepCopy()
+	workload.Spec.Workspace = workspace.Name
+	workload.Status.Nodes = [][]string{{"node1", "node2"}}
+	v1.SetLabel(workload, v1.WorkloadDispatchCntLabel, "1")
+	v1.SetAnnotation(workload, v1.WorkloadStickyNodesAnnotation, v1.TrueStr)
+
+	configmap, err := parseConfigmap(TestPytorchJobTemplateConfig)
+	assert.NilError(t, err)
+	metav1.SetMetaDataAnnotation(&workload.ObjectMeta, v1.MainContainerAnnotation, v1.GetMainContainer(configmap))
+	scheme, err := genMockScheme()
+	assert.NilError(t, err)
+	adminClient := fake.NewClientBuilder().WithObjects(configmap, jobutils.TestPytorchResourceTemplate, workspace).WithScheme(scheme).Build()
+
+	r := DispatcherReconciler{Client: adminClient}
+	obj, err := r.generateK8sObject(context.Background(), workload, nil)
+	assert.NilError(t, err)
+	// fmt.Println(unstructuredutils.ToString(obj))
+
+	templates := jobutils.TestPytorchResourceTemplate.Spec.ResourceSpecs
+	checkRequiredNodeSelectorTerms(t, obj, workload, &templates[0])
+	checkPreferredNodeSelectorTerms(t, obj, workload, &templates[0])
+	checkTolerations(t, obj, workload, &templates[0])
 }

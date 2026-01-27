@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"testing"
 
+	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
 	"gotest.tools/assert"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -23,19 +24,33 @@ import (
 
 func checkResources(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, template *v1.ResourceSpec, replica, id int) {
 	path := append(template.PrePaths, template.ReplicasPaths...)
-	if !commonworkload.IsCICDScalingRunnerSet(workload) {
-		objReplica := jobutils.GetUnstructuredInt(obj.Object, path)
+	if !commonworkload.IsCICDScalingRunnerSet(workload) && replica > 0 {
+		objReplica, found, err := jobutils.NestedInt64(obj.Object, path)
+		assert.Equal(t, found, true)
+		assert.NilError(t, err)
 		assert.Equal(t, objReplica, int64(replica))
 		if workload.SpecKind() == common.JobKind {
-			path = append(template.PrePaths, "completions")
-			objReplica = jobutils.GetUnstructuredInt(obj.Object, path)
+			path = append(template.PrePaths, template.MinReplicasPaths...)
+			objReplica, found, err = jobutils.NestedInt64(obj.Object, path)
+			assert.Equal(t, found, true)
+			assert.NilError(t, err)
+			assert.Equal(t, objReplica, int64(replica))
+		} else if commonworkload.IsRayJob(workload) {
+			path = append(template.PrePaths, template.MinReplicasPaths...)
+			objReplica, found, err = jobutils.NestedInt64(obj.Object, path)
+			assert.Equal(t, found, true)
+			assert.Equal(t, objReplica, int64(replica))
+
+			path = append(template.PrePaths, template.MaxReplicasPaths...)
+			objReplica, found, err = jobutils.NestedInt64(obj.Object, path)
+			assert.Equal(t, found, true)
 			assert.Equal(t, objReplica, int64(replica))
 		}
 	}
 
 	path = append(template.PrePaths, template.TemplatePaths...)
 	path = append(path, "spec", "containers")
-	containers, found, err := unstructured.NestedSlice(obj.Object, path...)
+	containers, found, err := jobutils.NestedSlice(obj.Object, path)
 	assert.NilError(t, err)
 	assert.Equal(t, found, true)
 	container := containers[0].(map[string]interface{})
@@ -57,14 +72,14 @@ func checkPorts(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workl
 	containerPath := append(template.PrePaths, template.TemplatePaths...)
 	containerPath = append(containerPath, "spec", "containers")
 
-	values, found, err := unstructured.NestedSlice(obj.Object, containerPath...)
+	values, found, err := jobutils.NestedSlice(obj.Object, containerPath)
 	assert.NilError(t, err)
 	assert.Equal(t, found, true)
 	assert.Equal(t, len(values) == 0, false)
 	mainContainer, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&values[0])
 	assert.NilError(t, err)
 
-	ports, found, err := unstructured.NestedSlice(mainContainer, []string{"ports"}...)
+	ports, found, err := jobutils.NestedSlice(mainContainer, []string{"ports"})
 	assert.NilError(t, err)
 	assert.Equal(t, len(ports), 2)
 
@@ -137,14 +152,14 @@ func checkVolumeMounts(t *testing.T, obj *unstructured.Unstructured, resourceSpe
 	containerPath := append(resourceSpec.PrePaths, resourceSpec.TemplatePaths...)
 	containerPath = append(containerPath, "spec", "containers")
 
-	values, found, err := unstructured.NestedSlice(obj.Object, containerPath...)
+	values, found, err := jobutils.NestedSlice(obj.Object, containerPath)
 	assert.NilError(t, err)
 	assert.Equal(t, found, true)
 	assert.Equal(t, len(values) == 0, false)
 	mainContainer, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&values[0])
 	assert.NilError(t, err)
 
-	volumeMounts, found, err := unstructured.NestedSlice(mainContainer, []string{"volumeMounts"}...)
+	volumeMounts, found, err := jobutils.NestedSlice(mainContainer, []string{"volumeMounts"})
 	assert.NilError(t, err)
 
 	if obj.GetKind() == common.PytorchJobKind {
@@ -187,7 +202,7 @@ func checkVolumes(t *testing.T, obj *unstructured.Unstructured, workload *v1.Wor
 	volumesPath := append(resourceSpec.PrePaths, resourceSpec.TemplatePaths...)
 	volumesPath = append(volumesPath, "spec", "volumes")
 
-	volumes, found, err := unstructured.NestedSlice(obj.Object, volumesPath...)
+	volumes, found, err := jobutils.NestedSlice(obj.Object, volumesPath)
 	assert.NilError(t, err)
 	assert.Equal(t, found, true)
 
@@ -233,12 +248,12 @@ func findVolume(volumes []interface{}, name string) map[string]interface{} {
 	return nil
 }
 
-func checkNodeSelectorTerms(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec) {
+func checkRequiredNodeSelectorTerms(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec) {
 	nodeSelectorPath := append(resourceSpec.PrePaths, resourceSpec.TemplatePaths...)
 	nodeSelectorPath = append(nodeSelectorPath, "spec", "affinity", "nodeAffinity",
 		"requiredDuringSchedulingIgnoredDuringExecution", "nodeSelectorTerms")
 
-	affinities, found, err := unstructured.NestedSlice(obj.Object, nodeSelectorPath...)
+	affinities, found, err := jobutils.NestedSlice(obj.Object, nodeSelectorPath)
 	assert.NilError(t, err)
 	assert.Equal(t, found, true)
 	assert.Equal(t, len(affinities), 1)
@@ -279,12 +294,44 @@ func checkNodeSelectorTerms(t *testing.T, obj *unstructured.Unstructured, worklo
 	assert.Equal(t, valuesSlice[0].(string) == val, true)
 }
 
+func checkPreferredNodeSelectorTerms(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec) {
+	nodeSelectorPath := append(resourceSpec.PrePaths, resourceSpec.TemplatePaths...)
+	nodeSelectorPath = append(nodeSelectorPath, "spec", "affinity", "nodeAffinity",
+		"preferredDuringSchedulingIgnoredDuringExecution")
+
+	preferenceSlice, found, err := jobutils.NestedSlice(obj.Object, nodeSelectorPath)
+	assert.NilError(t, err)
+	assert.Equal(t, found, true)
+	assert.Equal(t, len(preferenceSlice), 1)
+	preferenceMap := preferenceSlice[0].(map[string]interface{})
+	preference, ok := preferenceMap["preference"]
+	assert.Equal(t, ok, true)
+	matchExpressionObj, ok := preference.(map[string]interface{})["matchExpressions"]
+	assert.Equal(t, ok, true)
+	matchExpressionsSlice := matchExpressionObj.([]interface{})
+	count := v1.GetWorkloadDispatchCnt(workload)
+	assert.Equal(t, count > 0, true)
+	assert.Equal(t, len(matchExpressionsSlice), 1)
+
+	matchExpression := matchExpressionsSlice[0].(map[string]interface{})
+	key, ok := matchExpression["key"]
+	assert.Equal(t, ok, true)
+	assert.Equal(t, key, v1.K8sHostName)
+	values, ok := matchExpression["values"]
+	assert.Equal(t, ok, true)
+	valuesSlice := values.([]interface{})
+	assert.Equal(t, len(valuesSlice), len(workload.Status.Nodes[count-1]))
+	for i, val := range valuesSlice {
+		assert.Equal(t, val.(string) == workload.Status.Nodes[count-1][i], true)
+	}
+}
+
 func checkPodAntiAffinity(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec) {
 	podAntiAffinityPath := append(resourceSpec.PrePaths, resourceSpec.TemplatePaths...)
 	podAntiAffinityPath = append(podAntiAffinityPath, "spec", "affinity", "podAntiAffinity",
 		"requiredDuringSchedulingIgnoredDuringExecution")
 
-	antiAffinities, found, err := unstructured.NestedSlice(obj.Object, podAntiAffinityPath...)
+	antiAffinities, found, err := jobutils.NestedSlice(obj.Object, podAntiAffinityPath)
 	assert.NilError(t, err)
 	assert.Equal(t, found, true)
 	assert.Equal(t, len(antiAffinities), 1)
@@ -309,13 +356,13 @@ func checkImage(t *testing.T, obj *unstructured.Unstructured, inputImage string,
 	containerPath := append(resourceSpec.PrePaths, resourceSpec.TemplatePaths...)
 	containerPath = append(containerPath, "spec", "containers")
 
-	values, found, err := unstructured.NestedSlice(obj.Object, containerPath...)
+	values, found, err := jobutils.NestedSlice(obj.Object, containerPath)
 	assert.NilError(t, err)
 	assert.Equal(t, found, true)
 	assert.Equal(t, len(values) == 0, false)
 	mainContainer, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&values[0])
 	assert.NilError(t, err)
-	image, found, err := unstructured.NestedString(mainContainer, []string{"image"}...)
+	image, found, err := jobutils.NestedString(mainContainer, []string{"image"})
 	assert.NilError(t, err)
 	assert.Equal(t, found, true)
 	assert.Equal(t, image, inputImage)
@@ -325,7 +372,7 @@ func checkHostNetwork(t *testing.T, obj *unstructured.Unstructured, workload *v1
 	path := append(resourceSpec.PrePaths, resourceSpec.TemplatePaths...)
 	path = append(path, "spec", "hostNetwork")
 
-	isHostNetWork, found, err := unstructured.NestedBool(obj.Object, path...)
+	isHostNetWork, found, err := jobutils.NestedBool(obj.Object, path)
 	assert.NilError(t, err)
 	assert.Equal(t, found, true)
 	assert.Equal(t, isHostNetWork, workload.Spec.Resources[id].RdmaResource != "")
@@ -335,13 +382,14 @@ func checkHostPid(t *testing.T, obj *unstructured.Unstructured, workload *v1.Wor
 	path := append(resourceSpec.PrePaths, resourceSpec.TemplatePaths...)
 	path = append(path, "spec", "hostPID")
 
-	resp, found, err := unstructured.NestedBool(obj.Object, path...)
+	resp, found, err := jobutils.NestedBool(obj.Object, path)
 	assert.NilError(t, err)
 	if v1.GetOpsJobType(workload) == string(v1.OpsJobPreflightType) {
 		assert.Equal(t, found, true)
 		assert.Equal(t, resp, true)
 	} else {
 		assert.Equal(t, found, false)
+		assert.Equal(t, resp, false)
 	}
 }
 
@@ -349,13 +397,13 @@ func checkLabels(t *testing.T, obj *unstructured.Unstructured, workload *v1.Work
 	rootPath := append(resourceSpec.PrePaths, resourceSpec.TemplatePaths...)
 	path := append(rootPath, "metadata", "labels")
 
-	labels, found, err := unstructured.NestedMap(obj.Object, path...)
+	labels, found, err := jobutils.NestedMap(obj.Object, path)
 	assert.NilError(t, err)
 	assert.Equal(t, found, true)
 	assert.Equal(t, labels[v1.K8sObjectIdLabel].(string), workload.Name)
 
 	path = append(rootPath, "metadata", "annotations")
-	annotations, found, err := unstructured.NestedMap(obj.Object, path...)
+	annotations, found, err := jobutils.NestedMap(obj.Object, path)
 	assert.NilError(t, err)
 	assert.Equal(t, found, true)
 	assert.Equal(t, annotations[v1.UserNameAnnotation].(string), v1.GetUserName(workload))
@@ -365,7 +413,7 @@ func checkLabels(t *testing.T, obj *unstructured.Unstructured, workload *v1.Work
 
 func checkSelector(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload) {
 	path := []string{"spec", "selector", "matchLabels"}
-	labels, found, err := unstructured.NestedMap(obj.Object, path...)
+	labels, found, err := jobutils.NestedMap(obj.Object, path)
 	assert.NilError(t, err)
 	assert.Equal(t, found, true)
 	assert.Equal(t, labels[v1.K8sObjectIdLabel].(string), workload.Name)
@@ -373,7 +421,7 @@ func checkSelector(t *testing.T, obj *unstructured.Unstructured, workload *v1.Wo
 
 func checkStrategy(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload) {
 	path := []string{"spec", "strategy", "rollingUpdate"}
-	labels, found, err := unstructured.NestedMap(obj.Object, path...)
+	labels, found, err := jobutils.NestedMap(obj.Object, path)
 	assert.NilError(t, err)
 	assert.Equal(t, found, true)
 	assert.Equal(t, labels["maxSurge"].(string), workload.Spec.Service.Extends["maxSurge"])
@@ -384,7 +432,7 @@ func checkTolerations(t *testing.T, obj *unstructured.Unstructured, workload *v1
 	path := append(resourceSpec.PrePaths, resourceSpec.TemplatePaths...)
 	path = append(path, "spec", "tolerations")
 
-	tolerations, found, err := unstructured.NestedSlice(obj.Object, path...)
+	tolerations, found, err := jobutils.NestedSlice(obj.Object, path)
 	assert.NilError(t, err)
 	if workload.Spec.IsTolerateAll {
 		assert.Equal(t, found, true)
@@ -394,6 +442,20 @@ func checkTolerations(t *testing.T, obj *unstructured.Unstructured, workload *v1
 		op, ok := toleration["operator"]
 		assert.Equal(t, ok, true)
 		assert.Equal(t, op, "Exists")
+	} else if v1.IsEnableStickyNodes(workload) {
+		assert.Equal(t, found, true)
+		assert.Equal(t, len(tolerations), 1)
+		toleration := tolerations[0].(map[string]interface{})
+		assert.Equal(t, len(toleration), 3)
+		key, ok := toleration["key"]
+		assert.Equal(t, ok, true)
+		assert.Equal(t, key, commonfaults.GenerateTaintKey(v1.StickyNodesMonitorId))
+		op, ok := toleration["operator"]
+		assert.Equal(t, ok, true)
+		assert.Equal(t, op, "Equal")
+		val, ok := toleration["value"]
+		assert.Equal(t, ok, true)
+		assert.Equal(t, val, workload.Name)
 	} else {
 		assert.Equal(t, found, false)
 	}
@@ -402,7 +464,7 @@ func checkTolerations(t *testing.T, obj *unstructured.Unstructured, workload *v1
 func checkPriorityClass(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec) {
 	path := append(resourceSpec.PrePaths, resourceSpec.TemplatePaths...)
 	path = append(path, "spec", "priorityClassName")
-	priorityClassName, found, err := unstructured.NestedString(obj.Object, path...)
+	priorityClassName, found, err := jobutils.NestedString(obj.Object, path)
 	assert.NilError(t, err)
 	assert.Equal(t, found, true)
 	assert.Equal(t, priorityClassName, commonworkload.GeneratePriorityClass(workload))
@@ -412,14 +474,14 @@ func checkSecurityContext(t *testing.T, obj *unstructured.Unstructured, workload
 	containerPath := append(template.PrePaths, template.TemplatePaths...)
 	containerPath = append(containerPath, "spec", "containers")
 
-	values, found, err := unstructured.NestedSlice(obj.Object, containerPath...)
+	values, found, err := jobutils.NestedSlice(obj.Object, containerPath)
 	assert.NilError(t, err)
 	assert.Equal(t, found, true)
 	assert.Equal(t, len(values) == 0, false)
 	mainContainer, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&values[0])
 	assert.NilError(t, err)
 
-	securityContext, found, err := unstructured.NestedMap(mainContainer, []string{"securityContext"}...)
+	securityContext, found, err := jobutils.NestedMap(mainContainer, []string{"securityContext"})
 	assert.NilError(t, err)
 	privileged, ok := securityContext["privileged"]
 	if v1.GetOpsJobType(workload) == string(v1.OpsJobPreflightType) || commonworkload.IsCICD(workload) {
@@ -444,7 +506,7 @@ func checkImageSecrets(t *testing.T, obj *unstructured.Unstructured, resourceSpe
 	secretPath := append(resourceSpec.PrePaths, resourceSpec.TemplatePaths...)
 	secretPath = append(secretPath, "spec", "imagePullSecrets")
 
-	secrets, found, err := unstructured.NestedSlice(obj.Object, secretPath...)
+	secrets, found, err := jobutils.NestedSlice(obj.Object, secretPath)
 	assert.NilError(t, err)
 	assert.Equal(t, found, true)
 	assert.Equal(t, len(secrets), 1)
@@ -460,14 +522,14 @@ func getEnvs(t *testing.T, obj *unstructured.Unstructured, resourceSpec *v1.Reso
 	containerPath := append(resourceSpec.PrePaths, resourceSpec.TemplatePaths...)
 	containerPath = append(containerPath, "spec", "containers")
 
-	values, found, err := unstructured.NestedSlice(obj.Object, containerPath...)
+	values, found, err := jobutils.NestedSlice(obj.Object, containerPath)
 	assert.NilError(t, err)
 	assert.Equal(t, found, true)
 	assert.Equal(t, len(values) == 0, false)
 
 	mainContainer, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&values[0])
 	assert.NilError(t, err)
-	envs, found, err := unstructured.NestedSlice(mainContainer, []string{"env"}...)
+	envs, found, err := jobutils.NestedSlice(mainContainer, []string{"env"})
 	assert.NilError(t, err)
 	assert.Equal(t, found, true)
 	return envs
@@ -477,7 +539,7 @@ func getContainer(obj *unstructured.Unstructured, name string, resourceSpec *v1.
 	containerPath := append(resourceSpec.PrePaths, resourceSpec.TemplatePaths...)
 	containerPath = append(containerPath, "spec", "containers")
 
-	values, found, err := unstructured.NestedSlice(obj.Object, containerPath...)
+	values, found, err := jobutils.NestedSlice(obj.Object, containerPath)
 	if err != nil || !found {
 		return nil
 	}
@@ -552,7 +614,7 @@ func TestModifyPodAntiAffinity(t *testing.T) {
 			err := modifyPodAntiAffinity(obj, workload, path)
 			assert.NilError(t, err)
 
-			terms, found, err := unstructured.NestedSlice(obj.Object, path...)
+			terms, found, err := jobutils.NestedSlice(obj.Object, path)
 			assert.NilError(t, err)
 			assert.Equal(t, found, true)
 			assert.Equal(t, len(terms), tt.expectedCount)
@@ -633,7 +695,7 @@ func TestModifyServiceAccountName(t *testing.T) {
 	}
 }
 
-func TestModifyByOpsJob(t *testing.T) {
+func TestModifyHostPid(t *testing.T) {
 	tests := []struct {
 		name          string
 		opsJobType    string
@@ -641,19 +703,13 @@ func TestModifyByOpsJob(t *testing.T) {
 		expectHostIPC bool
 	}{
 		{
-			name:          "Preflight job should set hostPID and hostIPC",
+			name:          "Privileged job should set hostPID and hostIPC",
 			opsJobType:    string(v1.OpsJobPreflightType),
 			expectHostPID: true,
 			expectHostIPC: true,
 		},
 		{
-			name:          "CD job should not set hostPID and hostIPC",
-			opsJobType:    string(v1.OpsJobCDType),
-			expectHostPID: false,
-			expectHostIPC: false,
-		},
-		{
-			name:          "Empty ops job type should not set hostPID and hostIPC",
+			name:          "None-Privileged job type should not set hostPID and hostIPC",
 			opsJobType:    "",
 			expectHostPID: false,
 			expectHostIPC: false,
@@ -677,15 +733,17 @@ func TestModifyByOpsJob(t *testing.T) {
 				workload.Labels = map[string]string{
 					v1.OpsJobTypeLabel: tt.opsJobType,
 				}
+				if tt.opsJobType == string(v1.OpsJobPreflightType) {
+					v1.SetAnnotation(workload, v1.WorkloadPrivilegedAnnotation, v1.TrueStr)
+				}
 			}
 
 			templatePath := []string{"spec", "template"}
-			err := modifyByOpsJob(obj, workload, templatePath)
+			err := modifyHostPid(obj, workload, templatePath)
 			assert.NilError(t, err)
 
-			hostPID, foundPID, _ := unstructured.NestedBool(obj.Object, "spec", "template", "spec", "hostPID")
-			hostIPC, foundIPC, _ := unstructured.NestedBool(obj.Object, "spec", "template", "spec", "hostIPC")
-
+			hostPID, foundPID, _ := jobutils.NestedBool(obj.Object, []string{"spec", "template", "spec", "hostPID"})
+			hostIPC, foundIPC, _ := jobutils.NestedBool(obj.Object, []string{"spec", "template", "spec", "hostIPC"})
 			if tt.expectHostPID {
 				assert.Equal(t, foundPID, true)
 				assert.Equal(t, hostPID, true)

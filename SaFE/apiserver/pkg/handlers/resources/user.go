@@ -102,6 +102,10 @@ func (h *Handler) createUser(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 
+	c.Set(common.UserId, req.Name)
+	c.Set(common.UserName, req.Name)
+	c.Set(common.UserType, string(v1.DefaultUserType))
+
 	user := generateUser(req)
 	if err = h.Create(c.Request.Context(), user); err != nil {
 		return nil, err
@@ -440,6 +444,19 @@ func (h *Handler) login(c *gin.Context) (interface{}, error) {
 		Password: query.Password,
 	}
 	user, resp, err := tokenInstance.Login(c.Request.Context(), tokenInput)
+
+	if err != nil {
+		// Login failed - set attempted username with prefix
+		c.Set(common.UserId, "login-failed:"+query.Name)
+		c.Set(common.UserName, query.Name)
+		c.Set(common.UserType, string(query.Type))
+	} else {
+		// Login success - set actual user info
+		c.Set(common.UserId, user.Name)
+		c.Set(common.UserName, v1.GetUserName(user))
+		c.Set(common.UserType, string(query.Type))
+	}
+
 	if err != nil {
 		klog.ErrorS(err, "user login failed", "userName", query.Name, "code", query.Code)
 		return nil, err

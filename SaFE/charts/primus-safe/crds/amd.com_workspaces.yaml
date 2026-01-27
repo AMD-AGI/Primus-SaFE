@@ -105,6 +105,11 @@ spec:
                 items:
                   type: string
                 type: array
+              maxRuntime:
+                additionalProperties:
+                  type: integer
+                description: The maximum workload runtime of each scope
+                type: object
               nodeFlavor:
                 description: The node flavor id of workspace, A workspace supports
                   only one node flavor
@@ -132,6 +137,7 @@ spec:
                   - Infer
                   - Authoring
                   - CICD
+                  - Ray
                   type: string
                 type: array
               volumes:

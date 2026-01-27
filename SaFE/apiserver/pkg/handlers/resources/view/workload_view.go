@@ -33,6 +33,10 @@ type CreateWorkloadRequest struct {
 	Annotations map[string]string `json:"annotations,omitempty"`
 	// Preheat indicates whether to preheat the workload to prepare image in advance
 	Preheat bool `json:"preheat,omitempty"`
+	// Whether to run the workload in privileged mode, only accessible to administrators
+	Privileged bool `json:"privileged,omitempty"`
+	// When enabled, the workload will try to use the same nodes during retries/failovers.
+	StickyNodes bool `json:"stickyNodes,omitempty"`
 	// The workload will be created using that specific user ID and name. This field is only accessible to administrators.
 	UserEntity *UserEntity `json:"userEntity,omitempty"`
 }
@@ -151,9 +155,9 @@ type GetWorkloadResponse struct {
 	// ExcludedNodes is a list of node names that the workload should avoid running on.
 	ExcludedNodes []string `json:"excludedNodes,omitempty"`
 	// The address of the image used by the workload
-	Image string `json:"image"`
+	Images []string `json:"images"`
 	// Workload startup command, in base64 encoding
-	EntryPoint string `json:"entryPoint"`
+	EntryPoints []string `json:"entryPoints"`
 	// Supervision flag for the workload. When enabled, it performs operations like hang detection
 	IsSupervised bool `json:"isSupervised"`
 	// The lifecycle after completion, in seconds, default 60.
@@ -185,6 +189,8 @@ type GetWorkloadResponse struct {
 	CronJobs []v1.CronJob `json:"cronJobs,omitempty"`
 	// The secrets used by the workload. Only the user themselves or an administrator can get this info.
 	Secrets []v1.SecretEntity `json:"secrets,omitempty"`
+	// When enabled, the workload will try to use the same nodes during retries/failovers.
+	StickyNodes bool `json:"stickyNodes,omitempty"`
 }
 
 type WorkloadPodWrapper struct {
@@ -199,9 +205,9 @@ type PatchWorkloadRequest struct {
 	// Workload resource requirements
 	Resources *[]v1.WorkloadResource `json:"resources"`
 	// The image address used by workload
-	Image *string `json:"image,omitempty"`
+	Images *[]string `json:"images,omitempty"`
 	// Workload startup command, required in base64 encoding
-	EntryPoint *string `json:"entryPoint,omitempty"`
+	EntryPoints *[]string `json:"entryPoints,omitempty"`
 	// Environment variable for workload
 	Env *map[string]string `json:"env,omitempty"`
 	// Workload description

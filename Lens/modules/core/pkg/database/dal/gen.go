@@ -18,9 +18,11 @@ import (
 func Use(db *gorm.DB, opts ...gen.DOOption) *Query {
 	return &Query{
 		db:                          db,
+		ActionTasks:                 newActionTasks(db, opts...),
 		AiAgentRegistrations:        newAiAgentRegistrations(db, opts...),
 		AiTasks:                     newAiTasks(db, opts...),
 		AiWorkloadMetadata:          newAiWorkloadMetadata(db, opts...),
+		AlertCategoryDefinitions:    newAlertCategoryDefinitions(db, opts...),
 		AlertCorrelations:           newAlertCorrelations(db, opts...),
 		AlertEvents:                 newAlertEvents(db, opts...),
 		AlertNotifications:          newAlertNotifications(db, opts...),
@@ -31,7 +33,13 @@ func Use(db *gorm.DB, opts ...gen.DOOption) *Query {
 		AlertStatistics:             newAlertStatistics(db, opts...),
 		CheckpointEvent:             newCheckpointEvent(db, opts...),
 		ClusterGpuHourlyStats:       newClusterGpuHourlyStats(db, opts...),
+		ClusterInspections:          newClusterInspections(db, opts...),
 		ClusterOverviewCache:        newClusterOverviewCache(db, opts...),
+		ComponentGroupMembers:       newComponentGroupMembers(db, opts...),
+		ComponentGroups:             newComponentGroups(db, opts...),
+		ComponentRegistry:           newComponentRegistry(db, opts...),
+		ComponentScanWorkloads:      newComponentScanWorkloads(db, opts...),
+		ComponentScans:              newComponentScans(db, opts...),
 		DetectionConflictLog:        newDetectionConflictLog(db, opts...),
 		DetectionCoverage:           newDetectionCoverage(db, opts...),
 		DetectionSourcePriority:     newDetectionSourcePriority(db, opts...),
@@ -39,9 +47,12 @@ func Use(db *gorm.DB, opts ...gen.DOOption) *Query {
 		FrameworkConfig:             newFrameworkConfig(db, opts...),
 		FrameworkDetectionMetrics:   newFrameworkDetectionMetrics(db, opts...),
 		GenericCache:                newGenericCache(db, opts...),
+		GithubRunnerSets:            newGithubRunnerSets(db, opts...),
+		GithubWorkflowCommits:       newGithubWorkflowCommits(db, opts...),
 		GithubWorkflowConfigs:       newGithubWorkflowConfigs(db, opts...),
 		GithubWorkflowMetricSchemas: newGithubWorkflowMetricSchemas(db, opts...),
 		GithubWorkflowMetrics:       newGithubWorkflowMetrics(db, opts...),
+		GithubWorkflowRunDetails:    newGithubWorkflowRunDetails(db, opts...),
 		GithubWorkflowRuns:          newGithubWorkflowRuns(db, opts...),
 		GpuAllocationSnapshots:      newGpuAllocationSnapshots(db, opts...),
 		GpuDevice:                   newGpuDevice(db, opts...),
@@ -50,6 +61,8 @@ func Use(db *gorm.DB, opts ...gen.DOOption) *Query {
 		GpuUsageWeeklyReports:       newGpuUsageWeeklyReports(db, opts...),
 		GpuWorkload:                 newGpuWorkload(db, opts...),
 		GpuWorkloadSnapshot:         newGpuWorkloadSnapshot(db, opts...),
+		InspectionAnomalies:         newInspectionAnomalies(db, opts...),
+		InvestigationResults:        newInvestigationResults(db, opts...),
 		JobExecutionHistory:         newJobExecutionHistory(db, opts...),
 		K8sServices:                 newK8sServices(db, opts...),
 		LabelGpuHourlyStats:         newLabelGpuHourlyStats(db, opts...),
@@ -67,6 +80,7 @@ func Use(db *gorm.DB, opts ...gen.DOOption) *Query {
 		NodeDeviceChangelog:         newNodeDeviceChangelog(db, opts...),
 		NodeNamespaceMapping:        newNodeNamespaceMapping(db, opts...),
 		NodeNamespaceMappingHistory: newNodeNamespaceMappingHistory(db, opts...),
+		NotificationChannels:        newNotificationChannels(db, opts...),
 		PodResource:                 newPodResource(db, opts...),
 		PodSnapshot:                 newPodSnapshot(db, opts...),
 		ProfilerAnalysis:            newProfilerAnalysis(db, opts...),
@@ -96,9 +110,11 @@ func Use(db *gorm.DB, opts ...gen.DOOption) *Query {
 type Query struct {
 	db *gorm.DB
 
+	ActionTasks                 actionTasks
 	AiAgentRegistrations        aiAgentRegistrations
 	AiTasks                     aiTasks
 	AiWorkloadMetadata          aiWorkloadMetadata
+	AlertCategoryDefinitions    alertCategoryDefinitions
 	AlertCorrelations           alertCorrelations
 	AlertEvents                 alertEvents
 	AlertNotifications          alertNotifications
@@ -109,7 +125,13 @@ type Query struct {
 	AlertStatistics             alertStatistics
 	CheckpointEvent             checkpointEvent
 	ClusterGpuHourlyStats       clusterGpuHourlyStats
+	ClusterInspections          clusterInspections
 	ClusterOverviewCache        clusterOverviewCache
+	ComponentGroupMembers       componentGroupMembers
+	ComponentGroups             componentGroups
+	ComponentRegistry           componentRegistry
+	ComponentScanWorkloads      componentScanWorkloads
+	ComponentScans              componentScans
 	DetectionConflictLog        detectionConflictLog
 	DetectionCoverage           detectionCoverage
 	DetectionSourcePriority     detectionSourcePriority
@@ -117,9 +139,12 @@ type Query struct {
 	FrameworkConfig             frameworkConfig
 	FrameworkDetectionMetrics   frameworkDetectionMetrics
 	GenericCache                genericCache
+	GithubRunnerSets            githubRunnerSets
+	GithubWorkflowCommits       githubWorkflowCommits
 	GithubWorkflowConfigs       githubWorkflowConfigs
 	GithubWorkflowMetricSchemas githubWorkflowMetricSchemas
 	GithubWorkflowMetrics       githubWorkflowMetrics
+	GithubWorkflowRunDetails    githubWorkflowRunDetails
 	GithubWorkflowRuns          githubWorkflowRuns
 	GpuAllocationSnapshots      gpuAllocationSnapshots
 	GpuDevice                   gpuDevice
@@ -128,6 +153,8 @@ type Query struct {
 	GpuUsageWeeklyReports       gpuUsageWeeklyReports
 	GpuWorkload                 gpuWorkload
 	GpuWorkloadSnapshot         gpuWorkloadSnapshot
+	InspectionAnomalies         inspectionAnomalies
+	InvestigationResults        investigationResults
 	JobExecutionHistory         jobExecutionHistory
 	K8sServices                 k8sServices
 	LabelGpuHourlyStats         labelGpuHourlyStats
@@ -145,6 +172,7 @@ type Query struct {
 	NodeDeviceChangelog         nodeDeviceChangelog
 	NodeNamespaceMapping        nodeNamespaceMapping
 	NodeNamespaceMappingHistory nodeNamespaceMappingHistory
+	NotificationChannels        notificationChannels
 	PodResource                 podResource
 	PodSnapshot                 podSnapshot
 	ProfilerAnalysis            profilerAnalysis
@@ -175,9 +203,11 @@ func (q *Query) Available() bool { return q.db != nil }
 func (q *Query) clone(db *gorm.DB) *Query {
 	return &Query{
 		db:                          db,
+		ActionTasks:                 q.ActionTasks.clone(db),
 		AiAgentRegistrations:        q.AiAgentRegistrations.clone(db),
 		AiTasks:                     q.AiTasks.clone(db),
 		AiWorkloadMetadata:          q.AiWorkloadMetadata.clone(db),
+		AlertCategoryDefinitions:    q.AlertCategoryDefinitions.clone(db),
 		AlertCorrelations:           q.AlertCorrelations.clone(db),
 		AlertEvents:                 q.AlertEvents.clone(db),
 		AlertNotifications:          q.AlertNotifications.clone(db),
@@ -188,7 +218,13 @@ func (q *Query) clone(db *gorm.DB) *Query {
 		AlertStatistics:             q.AlertStatistics.clone(db),
 		CheckpointEvent:             q.CheckpointEvent.clone(db),
 		ClusterGpuHourlyStats:       q.ClusterGpuHourlyStats.clone(db),
+		ClusterInspections:          q.ClusterInspections.clone(db),
 		ClusterOverviewCache:        q.ClusterOverviewCache.clone(db),
+		ComponentGroupMembers:       q.ComponentGroupMembers.clone(db),
+		ComponentGroups:             q.ComponentGroups.clone(db),
+		ComponentRegistry:           q.ComponentRegistry.clone(db),
+		ComponentScanWorkloads:      q.ComponentScanWorkloads.clone(db),
+		ComponentScans:              q.ComponentScans.clone(db),
 		DetectionConflictLog:        q.DetectionConflictLog.clone(db),
 		DetectionCoverage:           q.DetectionCoverage.clone(db),
 		DetectionSourcePriority:     q.DetectionSourcePriority.clone(db),
@@ -196,9 +232,12 @@ func (q *Query) clone(db *gorm.DB) *Query {
 		FrameworkConfig:             q.FrameworkConfig.clone(db),
 		FrameworkDetectionMetrics:   q.FrameworkDetectionMetrics.clone(db),
 		GenericCache:                q.GenericCache.clone(db),
+		GithubRunnerSets:            q.GithubRunnerSets.clone(db),
+		GithubWorkflowCommits:       q.GithubWorkflowCommits.clone(db),
 		GithubWorkflowConfigs:       q.GithubWorkflowConfigs.clone(db),
 		GithubWorkflowMetricSchemas: q.GithubWorkflowMetricSchemas.clone(db),
 		GithubWorkflowMetrics:       q.GithubWorkflowMetrics.clone(db),
+		GithubWorkflowRunDetails:    q.GithubWorkflowRunDetails.clone(db),
 		GithubWorkflowRuns:          q.GithubWorkflowRuns.clone(db),
 		GpuAllocationSnapshots:      q.GpuAllocationSnapshots.clone(db),
 		GpuDevice:                   q.GpuDevice.clone(db),
@@ -207,6 +246,8 @@ func (q *Query) clone(db *gorm.DB) *Query {
 		GpuUsageWeeklyReports:       q.GpuUsageWeeklyReports.clone(db),
 		GpuWorkload:                 q.GpuWorkload.clone(db),
 		GpuWorkloadSnapshot:         q.GpuWorkloadSnapshot.clone(db),
+		InspectionAnomalies:         q.InspectionAnomalies.clone(db),
+		InvestigationResults:        q.InvestigationResults.clone(db),
 		JobExecutionHistory:         q.JobExecutionHistory.clone(db),
 		K8sServices:                 q.K8sServices.clone(db),
 		LabelGpuHourlyStats:         q.LabelGpuHourlyStats.clone(db),
@@ -224,6 +265,7 @@ func (q *Query) clone(db *gorm.DB) *Query {
 		NodeDeviceChangelog:         q.NodeDeviceChangelog.clone(db),
 		NodeNamespaceMapping:        q.NodeNamespaceMapping.clone(db),
 		NodeNamespaceMappingHistory: q.NodeNamespaceMappingHistory.clone(db),
+		NotificationChannels:        q.NotificationChannels.clone(db),
 		PodResource:                 q.PodResource.clone(db),
 		PodSnapshot:                 q.PodSnapshot.clone(db),
 		ProfilerAnalysis:            q.ProfilerAnalysis.clone(db),
@@ -261,9 +303,11 @@ func (q *Query) WriteDB() *Query {
 func (q *Query) ReplaceDB(db *gorm.DB) *Query {
 	return &Query{
 		db:                          db,
+		ActionTasks:                 q.ActionTasks.replaceDB(db),
 		AiAgentRegistrations:        q.AiAgentRegistrations.replaceDB(db),
 		AiTasks:                     q.AiTasks.replaceDB(db),
 		AiWorkloadMetadata:          q.AiWorkloadMetadata.replaceDB(db),
+		AlertCategoryDefinitions:    q.AlertCategoryDefinitions.replaceDB(db),
 		AlertCorrelations:           q.AlertCorrelations.replaceDB(db),
 		AlertEvents:                 q.AlertEvents.replaceDB(db),
 		AlertNotifications:          q.AlertNotifications.replaceDB(db),
@@ -274,7 +318,13 @@ func (q *Query) ReplaceDB(db *gorm.DB) *Query {
 		AlertStatistics:             q.AlertStatistics.replaceDB(db),
 		CheckpointEvent:             q.CheckpointEvent.replaceDB(db),
 		ClusterGpuHourlyStats:       q.ClusterGpuHourlyStats.replaceDB(db),
+		ClusterInspections:          q.ClusterInspections.replaceDB(db),
 		ClusterOverviewCache:        q.ClusterOverviewCache.replaceDB(db),
+		ComponentGroupMembers:       q.ComponentGroupMembers.replaceDB(db),
+		ComponentGroups:             q.ComponentGroups.replaceDB(db),
+		ComponentRegistry:           q.ComponentRegistry.replaceDB(db),
+		ComponentScanWorkloads:      q.ComponentScanWorkloads.replaceDB(db),
+		ComponentScans:              q.ComponentScans.replaceDB(db),
 		DetectionConflictLog:        q.DetectionConflictLog.replaceDB(db),
 		DetectionCoverage:           q.DetectionCoverage.replaceDB(db),
 		DetectionSourcePriority:     q.DetectionSourcePriority.replaceDB(db),
@@ -282,9 +332,12 @@ func (q *Query) ReplaceDB(db *gorm.DB) *Query {
 		FrameworkConfig:             q.FrameworkConfig.replaceDB(db),
 		FrameworkDetectionMetrics:   q.FrameworkDetectionMetrics.replaceDB(db),
 		GenericCache:                q.GenericCache.replaceDB(db),
+		GithubRunnerSets:            q.GithubRunnerSets.replaceDB(db),
+		GithubWorkflowCommits:       q.GithubWorkflowCommits.replaceDB(db),
 		GithubWorkflowConfigs:       q.GithubWorkflowConfigs.replaceDB(db),
 		GithubWorkflowMetricSchemas: q.GithubWorkflowMetricSchemas.replaceDB(db),
 		GithubWorkflowMetrics:       q.GithubWorkflowMetrics.replaceDB(db),
+		GithubWorkflowRunDetails:    q.GithubWorkflowRunDetails.replaceDB(db),
 		GithubWorkflowRuns:          q.GithubWorkflowRuns.replaceDB(db),
 		GpuAllocationSnapshots:      q.GpuAllocationSnapshots.replaceDB(db),
 		GpuDevice:                   q.GpuDevice.replaceDB(db),
@@ -293,6 +346,8 @@ func (q *Query) ReplaceDB(db *gorm.DB) *Query {
 		GpuUsageWeeklyReports:       q.GpuUsageWeeklyReports.replaceDB(db),
 		GpuWorkload:                 q.GpuWorkload.replaceDB(db),
 		GpuWorkloadSnapshot:         q.GpuWorkloadSnapshot.replaceDB(db),
+		InspectionAnomalies:         q.InspectionAnomalies.replaceDB(db),
+		InvestigationResults:        q.InvestigationResults.replaceDB(db),
 		JobExecutionHistory:         q.JobExecutionHistory.replaceDB(db),
 		K8sServices:                 q.K8sServices.replaceDB(db),
 		LabelGpuHourlyStats:         q.LabelGpuHourlyStats.replaceDB(db),
@@ -310,6 +365,7 @@ func (q *Query) ReplaceDB(db *gorm.DB) *Query {
 		NodeDeviceChangelog:         q.NodeDeviceChangelog.replaceDB(db),
 		NodeNamespaceMapping:        q.NodeNamespaceMapping.replaceDB(db),
 		NodeNamespaceMappingHistory: q.NodeNamespaceMappingHistory.replaceDB(db),
+		NotificationChannels:        q.NotificationChannels.replaceDB(db),
 		PodResource:                 q.PodResource.replaceDB(db),
 		PodSnapshot:                 q.PodSnapshot.replaceDB(db),
 		ProfilerAnalysis:            q.ProfilerAnalysis.replaceDB(db),
@@ -337,9 +393,11 @@ func (q *Query) ReplaceDB(db *gorm.DB) *Query {
 }
 
 type queryCtx struct {
+	ActionTasks                 *actionTasksDo
 	AiAgentRegistrations        *aiAgentRegistrationsDo
 	AiTasks                     *aiTasksDo
 	AiWorkloadMetadata          *aiWorkloadMetadataDo
+	AlertCategoryDefinitions    *alertCategoryDefinitionsDo
 	AlertCorrelations           *alertCorrelationsDo
 	AlertEvents                 *alertEventsDo
 	AlertNotifications          *alertNotificationsDo
@@ -350,7 +408,13 @@ type queryCtx struct {
 	AlertStatistics             *alertStatisticsDo
 	CheckpointEvent             *checkpointEventDo
 	ClusterGpuHourlyStats       *clusterGpuHourlyStatsDo
+	ClusterInspections          *clusterInspectionsDo
 	ClusterOverviewCache        *clusterOverviewCacheDo
+	ComponentGroupMembers       *componentGroupMembersDo
+	ComponentGroups             *componentGroupsDo
+	ComponentRegistry           *componentRegistryDo
+	ComponentScanWorkloads      *componentScanWorkloadsDo
+	ComponentScans              *componentScansDo
 	DetectionConflictLog        *detectionConflictLogDo
 	DetectionCoverage           *detectionCoverageDo
 	DetectionSourcePriority     *detectionSourcePriorityDo
@@ -358,9 +422,12 @@ type queryCtx struct {
 	FrameworkConfig             *frameworkConfigDo
 	FrameworkDetectionMetrics   *frameworkDetectionMetricsDo
 	GenericCache                *genericCacheDo
+	GithubRunnerSets            *githubRunnerSetsDo
+	GithubWorkflowCommits       *githubWorkflowCommitsDo
 	GithubWorkflowConfigs       *githubWorkflowConfigsDo
 	GithubWorkflowMetricSchemas *githubWorkflowMetricSchemasDo
 	GithubWorkflowMetrics       *githubWorkflowMetricsDo
+	GithubWorkflowRunDetails    *githubWorkflowRunDetailsDo
 	GithubWorkflowRuns          *githubWorkflowRunsDo
 	GpuAllocationSnapshots      *gpuAllocationSnapshotsDo
 	GpuDevice                   *gpuDeviceDo
@@ -369,6 +436,8 @@ type queryCtx struct {
 	GpuUsageWeeklyReports       *gpuUsageWeeklyReportsDo
 	GpuWorkload                 *gpuWorkloadDo
 	GpuWorkloadSnapshot         *gpuWorkloadSnapshotDo
+	InspectionAnomalies         *inspectionAnomaliesDo
+	InvestigationResults        *investigationResultsDo
 	JobExecutionHistory         *jobExecutionHistoryDo
 	K8sServices                 *k8sServicesDo
 	LabelGpuHourlyStats         *labelGpuHourlyStatsDo
@@ -386,6 +455,7 @@ type queryCtx struct {
 	NodeDeviceChangelog         *nodeDeviceChangelogDo
 	NodeNamespaceMapping        *nodeNamespaceMappingDo
 	NodeNamespaceMappingHistory *nodeNamespaceMappingHistoryDo
+	NotificationChannels        *notificationChannelsDo
 	PodResource                 *podResourceDo
 	PodSnapshot                 *podSnapshotDo
 	ProfilerAnalysis            *profilerAnalysisDo
@@ -413,9 +483,11 @@ type queryCtx struct {
 
 func (q *Query) WithContext(ctx context.Context) *queryCtx {
 	return &queryCtx{
+		ActionTasks:                 q.ActionTasks.WithContext(ctx),
 		AiAgentRegistrations:        q.AiAgentRegistrations.WithContext(ctx),
 		AiTasks:                     q.AiTasks.WithContext(ctx),
 		AiWorkloadMetadata:          q.AiWorkloadMetadata.WithContext(ctx),
+		AlertCategoryDefinitions:    q.AlertCategoryDefinitions.WithContext(ctx),
 		AlertCorrelations:           q.AlertCorrelations.WithContext(ctx),
 		AlertEvents:                 q.AlertEvents.WithContext(ctx),
 		AlertNotifications:          q.AlertNotifications.WithContext(ctx),
@@ -426,7 +498,13 @@ func (q *Query) WithContext(ctx context.Context) *queryCtx {
 		AlertStatistics:             q.AlertStatistics.WithContext(ctx),
 		CheckpointEvent:             q.CheckpointEvent.WithContext(ctx),
 		ClusterGpuHourlyStats:       q.ClusterGpuHourlyStats.WithContext(ctx),
+		ClusterInspections:          q.ClusterInspections.WithContext(ctx),
 		ClusterOverviewCache:        q.ClusterOverviewCache.WithContext(ctx),
+		ComponentGroupMembers:       q.ComponentGroupMembers.WithContext(ctx),
+		ComponentGroups:             q.ComponentGroups.WithContext(ctx),
+		ComponentRegistry:           q.ComponentRegistry.WithContext(ctx),
+		ComponentScanWorkloads:      q.ComponentScanWorkloads.WithContext(ctx),
+		ComponentScans:              q.ComponentScans.WithContext(ctx),
 		DetectionConflictLog:        q.DetectionConflictLog.WithContext(ctx),
 		DetectionCoverage:           q.DetectionCoverage.WithContext(ctx),
 		DetectionSourcePriority:     q.DetectionSourcePriority.WithContext(ctx),
@@ -434,9 +512,12 @@ func (q *Query) WithContext(ctx context.Context) *queryCtx {
 		FrameworkConfig:             q.FrameworkConfig.WithContext(ctx),
 		FrameworkDetectionMetrics:   q.FrameworkDetectionMetrics.WithContext(ctx),
 		GenericCache:                q.GenericCache.WithContext(ctx),
+		GithubRunnerSets:            q.GithubRunnerSets.WithContext(ctx),
+		GithubWorkflowCommits:       q.GithubWorkflowCommits.WithContext(ctx),
 		GithubWorkflowConfigs:       q.GithubWorkflowConfigs.WithContext(ctx),
 		GithubWorkflowMetricSchemas: q.GithubWorkflowMetricSchemas.WithContext(ctx),
 		GithubWorkflowMetrics:       q.GithubWorkflowMetrics.WithContext(ctx),
+		GithubWorkflowRunDetails:    q.GithubWorkflowRunDetails.WithContext(ctx),
 		GithubWorkflowRuns:          q.GithubWorkflowRuns.WithContext(ctx),
 		GpuAllocationSnapshots:      q.GpuAllocationSnapshots.WithContext(ctx),
 		GpuDevice:                   q.GpuDevice.WithContext(ctx),
@@ -445,6 +526,8 @@ func (q *Query) WithContext(ctx context.Context) *queryCtx {
 		GpuUsageWeeklyReports:       q.GpuUsageWeeklyReports.WithContext(ctx),
 		GpuWorkload:                 q.GpuWorkload.WithContext(ctx),
 		GpuWorkloadSnapshot:         q.GpuWorkloadSnapshot.WithContext(ctx),
+		InspectionAnomalies:         q.InspectionAnomalies.WithContext(ctx),
+		InvestigationResults:        q.InvestigationResults.WithContext(ctx),
 		JobExecutionHistory:         q.JobExecutionHistory.WithContext(ctx),
 		K8sServices:                 q.K8sServices.WithContext(ctx),
 		LabelGpuHourlyStats:         q.LabelGpuHourlyStats.WithContext(ctx),
@@ -462,6 +545,7 @@ func (q *Query) WithContext(ctx context.Context) *queryCtx {
 		NodeDeviceChangelog:         q.NodeDeviceChangelog.WithContext(ctx),
 		NodeNamespaceMapping:        q.NodeNamespaceMapping.WithContext(ctx),
 		NodeNamespaceMappingHistory: q.NodeNamespaceMappingHistory.WithContext(ctx),
+		NotificationChannels:        q.NotificationChannels.WithContext(ctx),
 		PodResource:                 q.PodResource.WithContext(ctx),
 		PodSnapshot:                 q.PodSnapshot.WithContext(ctx),
 		ProfilerAnalysis:            q.ProfilerAnalysis.WithContext(ctx),

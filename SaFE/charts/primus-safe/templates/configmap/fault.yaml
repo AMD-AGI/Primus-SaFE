@@ -27,6 +27,7 @@ data:
   gpu_xgmi_link_010: '{"id":"010","action":"taint","toggle":"on"}'
   gpu_rocm_version_011: '{"id":"011","toggle":"on"}'
   gpu_ipc_012: '{"id":"012","action":"taint","toggle":"on"}'
+  gpu_rocminfo_013: '{"id":"013","action":"taint","toggle":"on"}'
   # Network: 2XX
   net_ib_status_201: '{"id":"201","action":"taint","toggle":"on"}'
   net_ethtool_202: '{"id":"202","action":"taint","toggle":"on"}'
@@ -34,6 +35,7 @@ data:
   net_bnxt_load_204: '{"id":"204","action":"taint","toggle":"on"}'
   net_ib_devices_206: '{"id":"206","action":"taint","toggle":"on"}'
   net_ib_gid_207: '{"id":"207","action":"taint","toggle":"on"}'
+  net_sys_resolved_209: '{"id":"209","action":"taint","toggle":"on"}'
   # System: 3XX
   sys_timezone_301: '{"id":"301","toggle":"on"}'
   sys_hostname_302: '{"id":"302","action":"taint","toggle":"on"}'
@@ -43,11 +45,12 @@ data:
   sys_boot_args_306: '{"id":"306","toggle":"on"}'
   sys_docker_307: '{"id":"307","toggle":"on"}'
   sys_pcie_link_308: '{"id":"308","toggle":"on"}'
+  sys_csi_wekafs_309: '{"id":"309","action":"taint","toggle":"on"}'
   # Disk: 4XX
   nfs_check_401: '{"id":"401","action":"taint","toggle":"on"}'
   # primus system: 5XX, System reserved
   addon: '{"id": "501","action":"taint","toggle":"on"}'
-  preflight: '{"id": "502","action":"taint","toggle":"on"}'
+  sticky_nodes: '{"id": "502","action":"taint","toggle":"on"}'
   # k8s
   NotReady: '{"id":"NotReady","action":"taint","toggle":"on"}'
   DiskPressure: '{"id":"DiskPressure","action":"taint","toggle":"on"}'

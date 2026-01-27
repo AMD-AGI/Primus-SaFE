@@ -15,23 +15,23 @@ type GithubWorkflowConfigs struct {
 	ID                       int64     `gorm:"column:id;primaryKey;autoIncrement:true" json:"id"`
 	Name                     string    `gorm:"column:name;not null" json:"name"`
 	Description              string    `gorm:"column:description" json:"description"`
-	RunnerSetID              int64     `gorm:"column:runner_set_id" json:"runner_set_id"`
-	RunnerSetNamespace       string    `gorm:"column:runner_set_namespace;not null" json:"runner_set_namespace"`
-	RunnerSetName            string    `gorm:"column:runner_set_name;not null" json:"runner_set_name"`
-	RunnerSetUID             string    `gorm:"column:runner_set_uid" json:"runner_set_uid"`
-	GithubOwner              string    `gorm:"column:github_owner;not null" json:"github_owner"`
-	GithubRepo               string    `gorm:"column:github_repo;not null" json:"github_repo"`
-	WorkflowFilter           string    `gorm:"column:workflow_filter" json:"workflow_filter"`
-	BranchFilter             string    `gorm:"column:branch_filter" json:"branch_filter"`
-	FilePatterns             ExtJSON   `gorm:"column:file_patterns;not null;default:[]" json:"file_patterns"`
-	MetricSchemaID           int64     `gorm:"column:metric_schema_id" json:"metric_schema_id"`
+	RunnerSetNamespace       string    `gorm:"column:runner_set_namespace;not null;comment:Namespace of the AutoscalingRunnerSet" json:"runner_set_namespace"`           // Namespace of the AutoscalingRunnerSet
+	RunnerSetName            string    `gorm:"column:runner_set_name;not null;comment:Name of the AutoscalingRunnerSet" json:"runner_set_name"`                          // Name of the AutoscalingRunnerSet
+	RunnerSetUID             string    `gorm:"column:runner_set_uid;comment:UID of the AutoscalingRunnerSet (optional, for precise matching)" json:"runner_set_uid"`     // UID of the AutoscalingRunnerSet (optional, for precise matching)
+	GithubOwner              string    `gorm:"column:github_owner;not null;comment:GitHub repository owner" json:"github_owner"`                                         // GitHub repository owner
+	GithubRepo               string    `gorm:"column:github_repo;not null;comment:GitHub repository name" json:"github_repo"`                                            // GitHub repository name
+	WorkflowFilter           string    `gorm:"column:workflow_filter;comment:Optional workflow filename filter (e.g., benchmark.yml)" json:"workflow_filter"`            // Optional workflow filename filter (e.g., benchmark.yml)
+	BranchFilter             string    `gorm:"column:branch_filter;comment:Optional branch filter (e.g., main)" json:"branch_filter"`                                    // Optional branch filter (e.g., main)
+	FilePatterns             ExtJSON   `gorm:"column:file_patterns;not null;default:[];comment:JSON array of file path patterns (glob) to collect" json:"file_patterns"` // JSON array of file path patterns (glob) to collect
+	MetricSchemaID           int64     `gorm:"column:metric_schema_id;comment:Associated schema ID (populated after AI generates)" json:"metric_schema_id"`              // Associated schema ID (populated after AI generates)
 	Enabled                  bool      `gorm:"column:enabled;not null;default:true" json:"enabled"`
-	LastProcessedWorkloadUID string    `gorm:"column:last_processed_workload_uid" json:"last_processed_workload_uid"`
+	LastProcessedWorkloadUID string    `gorm:"column:last_processed_workload_uid;comment:UID of last processed EphemeralRunner" json:"last_processed_workload_uid"` // UID of last processed EphemeralRunner
 	LastCheckedAt            time.Time `gorm:"column:last_checked_at" json:"last_checked_at"`
 	ClusterName              string    `gorm:"column:cluster_name;not null" json:"cluster_name"`
-	DisplaySettings          ExtJSON   `gorm:"column:display_settings;not null;default:{}" json:"display_settings"`
 	CreatedAt                time.Time `gorm:"column:created_at;not null;default:now()" json:"created_at"`
 	UpdatedAt                time.Time `gorm:"column:updated_at;not null;default:now()" json:"updated_at"`
+	RunnerSetID              int64     `gorm:"column:runner_set_id;comment:Direct reference to github_runner_sets.id" json:"runner_set_id"`                                                                                    // Direct reference to github_runner_sets.id
+	DisplaySettings          ExtType   `gorm:"column:display_settings;not null;default:{};comment:JSON object for display customization: defaultChartGroupBy, showRawDataByDefault, defaultChartType" json:"display_settings"` // JSON object for display customization: defaultChartGroupBy, showRawDataByDefault, defaultChartType
 }
 
 // TableName GithubWorkflowConfigs's table name

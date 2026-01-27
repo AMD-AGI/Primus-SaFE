@@ -76,12 +76,29 @@ Get node list with multiple filtering options.
 | workspaceId | string | No | Filter by workspace ID                                                                   |
 | flavorId | string | No | Filter by node flavor ID                                                                 |
 | nodeId | string | No | Filter by node ID                                                                        |
+| search | string | No | Search by node name or IP address (case-insensitive partial match)                       |
 | available | bool | No | Filter by availability: true (available)/false (unavailable)                             |
 | phase | string | No | Filter by status (comma-separated)                                                       |
 | isAddonsInstalled | bool | No | Filter by addon installation status                                                      |
 | brief | bool | No | Brief mode, returns only ID, name, IP,  availability, and unavailability reason (if any) |
 | offset | int | No | Pagination offset, default 0                                                             |
 | limit | int | No | Records per page, default 100, -1 for all                                                |
+
+**Request Examples**:
+
+```bash
+# Search by node name (case-insensitive)
+GET /api/v1/nodes?search=smc300x
+
+# Search by IP address
+GET /api/v1/nodes?search=35.192
+
+# Combined filtering: search + status + availability
+GET /api/v1/nodes?search=gpu-node&phase=Ready&available=true
+
+# Combined filtering: search + cluster + workspace
+GET /api/v1/nodes?search=test&clusterId=safe-cluster&workspaceId=ai-team
+```
 
 **Response Example (Full mode)**:
 
@@ -475,7 +492,7 @@ Get operation logs for node joining/leaving cluster.
 }
 ```
 
-### 7. Batch Delete nodes
+### 9. Batch Delete Nodes
 
 Delete multiple nodes in batch.
 
@@ -498,7 +515,7 @@ Delete multiple nodes in batch.
 
 ---
 
-### 9. Export Node
+### 10. Export Node
 
 Export node list with multiple filtering options.
 
@@ -525,6 +542,63 @@ Export node list with multiple filtering options.
 | isAddonsInstalled | bool | No | Filter by addon installation status                                                      |
 
 **Response**: 200 OK with no response body
+
+---
+
+### 11. Retry Node Operations
+
+Retry node manage or unmanage operations when needed.
+
+**Endpoint**: `POST /api/v1/nodes/retry`
+
+**Authentication Required**: Yes
+
+**Request Parameters**:
+
+```json
+{
+  "nodeIds": ["node-001", "node-002"]
+}
+```
+
+**Field Description**:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| nodeIds | string[] | Yes | List of node IDs to retry (supports single or multiple nodes) |
+
+**Response Example**:
+
+```json
+{
+  "totalCount": 2,
+  "successCount": 2,
+  "successNodes": [
+    {
+      "nodeId": "node-001",
+      "hasPods": true,
+      "podsDeleted": ["safe-cluster-node-001-up"]
+    },
+    {
+      "nodeId": "node-002",
+      "hasPods": false
+    }
+  ],
+  "failedNodes": null
+}
+```
+
+**Response Fields**:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| totalCount | int | Total number of nodes requested |
+| successCount | int | Number of nodes successfully processed |
+| successNodes | array | Details of successfully processed nodes |
+| successNodes[].nodeId | string | Node ID |
+| successNodes[].hasPods | bool | Whether management pods were found |
+| successNodes[].podsDeleted | string[] | Names of deleted pods (omitted if hasPods is false) |
+| failedNodes | array | Details of failed nodes (null if all succeeded) |
 
 ---
 ## Node Status

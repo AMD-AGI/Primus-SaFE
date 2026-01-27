@@ -171,6 +171,23 @@ func (e *ExtJSON) Scan(value interface{}) error {
 	}
 }
 
+// MarshalJSON returns the raw JSON bytes (prevents Base64 encoding)
+func (e ExtJSON) MarshalJSON() ([]byte, error) {
+	if len(e) == 0 {
+		return []byte("null"), nil
+	}
+	return []byte(e), nil
+}
+
+// UnmarshalJSON sets the raw JSON bytes
+func (e *ExtJSON) UnmarshalJSON(data []byte) error {
+	if e == nil {
+		return errors.New("ExtJSON: UnmarshalJSON on nil pointer")
+	}
+	*e = append((*e)[0:0], data...)
+	return nil
+}
+
 // UnmarshalTo unmarshals the JSON into the provided destination
 func (e ExtJSON) UnmarshalTo(dest interface{}) error {
 	if len(e) == 0 {

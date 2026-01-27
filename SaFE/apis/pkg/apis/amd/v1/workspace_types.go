@@ -15,7 +15,7 @@ import (
 type WorkspacePhase string
 type WorkspaceQueuePolicy string
 
-// +kubebuilder:validation:Enum=Train;Infer;Authoring;CICD
+// +kubebuilder:validation:Enum=Train;Infer;Authoring;CICD;Ray
 type WorkspaceScope string
 type FileSystemType string
 type VolumePurpose int
@@ -37,6 +37,7 @@ const (
 	InferScope     WorkspaceScope = "Infer"
 	AuthoringScope WorkspaceScope = "Authoring"
 	CICDScope      WorkspaceScope = "CICD"
+	RayScope       WorkspaceScope = "Ray"
 
 	HOSTPATH WorkspaceVolumeType = "hostpath"
 	PFS      WorkspaceVolumeType = "pfs"
@@ -70,6 +71,8 @@ type WorkspaceSpec struct {
 	IsDefault bool `json:"isDefault,omitempty"`
 	// Workspace image secret ID, used for downloading images
 	ImageSecrets []corev1.ObjectReference `json:"imageSecrets,omitempty"`
+	// The maximum workload runtime of each scope, Unit: hours
+	MaxRuntime map[WorkspaceScope]int `json:"maxRuntime,omitempty"`
 }
 
 type WorkspaceVolume struct {
@@ -201,6 +204,16 @@ func (w *Workspace) HasScope(scope WorkspaceScope) bool {
 		}
 	}
 	return false
+}
+
+// GetMaxRunTime Return the maximum allowed runtime(unit second) for specified workload under the workspace.
+// If no configuration is found, return 0, indicating no limit.
+func (w *Workspace) GetMaxRunTime(scope WorkspaceScope) int {
+	maxRunTime, ok := w.Spec.MaxRuntime[scope]
+	if !ok {
+		return 0
+	}
+	return maxRunTime * 3600
 }
 
 func (v *WorkspaceVolume) GenFullVolumeId() string {

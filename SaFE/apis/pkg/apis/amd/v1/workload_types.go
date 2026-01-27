@@ -122,10 +122,16 @@ type WorkloadSpec struct {
 	Resources []WorkloadResource `json:"resources,omitempty"`
 	// Requested workspace id
 	Workspace string `json:"workspace"`
-	// The address of the image used by the workload
+	// Deprecated: resource is old field, will be replaced by Images
 	Image string `json:"image,omitempty"`
-	// Workload startup command, required in base64 encoding
+	// The address of the image used by the workload
+	// It must match the length of resources.
+	Images []string `json:"images,omitempty"`
+	// Deprecated: resource is old field, will be replaced by Images
 	EntryPoint string `json:"entryPoint,omitempty"`
+	// Workload startup command, required in base64 encoding
+	// It must match the length of resources.
+	EntryPoints []string `json:"entryPoints,omitempty"`
 	// The port for pytorch-job, This field is set internally
 	JobPort int `json:"jobPort,omitempty"`
 	// The port for ssh, This field is set internally
@@ -289,29 +295,13 @@ func (w *Workload) IsRunning() bool {
 
 // IsEnd returns true if the workload is terminated
 func (w *Workload) IsEnd() bool {
-	if w.Status.Phase == WorkloadSucceeded ||
-		w.Status.Phase == WorkloadFailed ||
-		w.Status.Phase == WorkloadStopped {
+	if IsWorkloadPhaseEnded(w.Status.Phase) {
 		return true
 	}
 	if !w.GetDeletionTimestamp().IsZero() {
 		return true
 	}
 	return false
-}
-
-// ElapsedTime returns the elapsed time in seconds from workload creation to completion or current time.
-func (w *Workload) ElapsedTime() int64 {
-	var elapsedTime time.Duration
-	if w.IsEnd() {
-		if w.Status.EndTime == nil {
-			return 0
-		}
-		elapsedTime = w.Status.EndTime.Time.Sub(w.CreationTimestamp.Time)
-	} else {
-		elapsedTime = time.Now().UTC().Sub(w.CreationTimestamp.Time)
-	}
-	return int64(elapsedTime.Seconds())
 }
 
 // EndTime returns the workload end time, or zero time if not set.
@@ -401,21 +391,14 @@ func (w *Workload) GetDependenciesPhase(workloadId string) (WorkloadPhase, bool)
 	return phase, ok
 }
 
-// IsDependenciesFinish checks if all dependencies are finished.
-func (w *Workload) IsDependenciesFinish() bool {
-	if w.IsEnd() {
-		return false
-	}
+// IsDependenciesEnd checks if all dependencies are terminated.
+func (w *Workload) IsDependenciesEnd() bool {
 	for _, dep := range w.Spec.Dependencies {
 		phase, ok := w.GetDependenciesPhase(dep)
-		if !ok {
-			return false
-		}
-		if phase != WorkloadSucceeded {
+		if !ok || !IsWorkloadPhaseEnded(phase) {
 			return false
 		}
 	}
-
 	return true
 }
 
@@ -447,4 +430,15 @@ func (w *Workload) GetEnv(name string) string {
 		}
 	}
 	return ""
+}
+
+// IsWorkloadPhaseEnded checks if the given workload phase indicates the workload has ended.
+// Returns true for terminal phases: Succeeded, Failed, or Stopped.
+func IsWorkloadPhaseEnded(phase WorkloadPhase) bool {
+	if phase == WorkloadSucceeded ||
+		phase == WorkloadFailed ||
+		phase == WorkloadStopped {
+		return true
+	}
+	return false
 }

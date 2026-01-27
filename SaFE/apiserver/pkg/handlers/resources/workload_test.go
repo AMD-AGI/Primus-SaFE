@@ -63,11 +63,11 @@ func genMockWorkload(clusterId, workspaceId string) *v1.Workload {
 			CreationTimestamp: metav1.NewTime(time.Now()),
 		},
 		Spec: v1.WorkloadSpec{
-			Workspace:  workspaceId,
-			MaxRetry:   3,
-			Priority:   1,
-			Image:      "image",
-			EntryPoint: "sh -c test.sh",
+			Workspace:   workspaceId,
+			MaxRetry:    3,
+			Priority:    1,
+			Images:      []string{"image"},
+			EntryPoints: []string{"sh -c test.sh"},
 			GroupVersionKind: v1.GroupVersionKind{
 				Group:   "kubeflow.org",
 				Version: "v1",
@@ -123,16 +123,17 @@ func Test_modifyWorkload_UpdateImage(t *testing.T) {
 	workspaceId := "test-workspace"
 
 	workload := genMockWorkload(clusterId, workspaceId)
-	workload.Spec.Image = "old-image:v1"
+	workload.Spec.Images = []string{"old-image:v1"}
 
 	newImage := "new-image:v2"
 	req := &view.PatchWorkloadRequest{
-		Image: &newImage,
+		Images: &[]string{newImage},
 	}
 
 	err := applyWorkloadPatch(workload, req)
 	assert.NilError(t, err)
-	assert.Equal(t, workload.Spec.Image, "new-image:v2")
+	assert.Equal(t, len(workload.Spec.Images), 1)
+	assert.Equal(t, workload.Spec.Images[0], "new-image:v2")
 }
 
 // Test_modifyWorkload_UpdateMultipleFields tests updating multiple fields at once
@@ -153,7 +154,7 @@ func Test_modifyWorkload_UpdateMultipleFields(t *testing.T) {
 		Resources: &[]v1.WorkloadResource{{
 			CPU: newCPU,
 		}},
-		Image:       &newImage,
+		Images:      &[]string{newImage},
 		Description: &newDesc,
 		Timeout:     &newTimeout,
 	}
@@ -163,7 +164,8 @@ func Test_modifyWorkload_UpdateMultipleFields(t *testing.T) {
 	assert.Equal(t, workload.Spec.Priority, 10)
 	assert.Equal(t, len(workload.Spec.Resources), 1)
 	assert.Equal(t, workload.Spec.Resources[0].CPU, "64")
-	assert.Equal(t, workload.Spec.Image, "updated-image:latest")
+	assert.Equal(t, len(workload.Spec.Images), 1)
+	assert.Equal(t, workload.Spec.Images[0], "updated-image:latest")
 	assert.Equal(t, v1.GetDescription(workload), "updated description")
 	assert.Equal(t, *workload.Spec.Timeout, 7200)
 }
@@ -353,22 +355,20 @@ func Test_modifyWorkload_EmptyValues(t *testing.T) {
 	workspaceId := "test-workspace"
 
 	workload := genMockWorkload(clusterId, workspaceId)
-	workload.Spec.Image = "original-image:v1"
-	workload.Spec.EntryPoint = "original-script.sh"
+	workload.Spec.Images = []string{"original-image:v1"}
+	workload.Spec.EntryPoints = []string{"original-script.sh"}
 
 	// Try to update with empty strings (should be ignored)
-	emptyImage := ""
-	emptyEntryPoint := ""
 	req := &view.PatchWorkloadRequest{
-		Image:      &emptyImage,
-		EntryPoint: &emptyEntryPoint,
+		Images:      &[]string{},
+		EntryPoints: &[]string{},
 	}
 
 	err := applyWorkloadPatch(workload, req)
 	assert.NilError(t, err)
 	// Empty values should be ignored, original values should remain
-	assert.Equal(t, workload.Spec.Image, "original-image:v1")
-	assert.Equal(t, workload.Spec.EntryPoint, "original-script.sh")
+	assert.Equal(t, workload.Spec.Images[0], "original-image:v1")
+	assert.Equal(t, workload.Spec.EntryPoints[0], "original-script.sh")
 }
 
 // Test_createPreheatWorkload tests creating preheat workload
@@ -377,8 +377,8 @@ func Test_createPreheatWorkload(t *testing.T) {
 	workspaceId := "test-workspace"
 
 	mainWorkload := genMockWorkload(clusterId, workspaceId)
-	mainWorkload.Spec.Image = "main-image:v1"
-	mainWorkload.Spec.EntryPoint = "main-script.sh"
+	mainWorkload.Spec.Images = []string{"main-image:v1"}
+	mainWorkload.Spec.EntryPoints = []string{"main-script.sh"}
 	mainWorkload.Spec.IsSupervised = true
 	mainWorkload.Spec.MaxRetry = 5
 
@@ -414,25 +414,25 @@ func Test_createPreheatWorkload(t *testing.T) {
 	}
 	roles := []*v1.Role{role}
 
-	preheatWorkload, err := h.createPreheatWorkload(c, mainWorkload, mainQuery, user, roles)
+	preHeatWorkload, err := h.createPreheatWorkload(c, mainWorkload, mainQuery, "test-image", user, roles)
 	assert.NilError(t, err)
-	assert.Assert(t, preheatWorkload != nil, "Preheat workload should be created")
+	assert.Assert(t, preHeatWorkload != nil, "Preheat workload should be created")
 
 	// Verify preheat workload properties
-	assert.Assert(t, preheatWorkload.Name != mainWorkload.Name, "Preheat workload should have different name")
-	assert.Equal(t, v1.GetDisplayName(preheatWorkload), "preheat-"+v1.GetDisplayName(mainWorkload))
-	assert.Equal(t, preheatWorkload.Spec.IsSupervised, false)
-	assert.Equal(t, preheatWorkload.Spec.MaxRetry, 0)
-	assert.Equal(t, *preheatWorkload.Spec.TTLSecondsAfterFinished, 10)
-	assert.Assert(t, preheatWorkload.Spec.CronJobs == nil, "CronJobs should be nil")
-	assert.Assert(t, preheatWorkload.Spec.Dependencies == nil, "Dependencies should be nil")
+	assert.Assert(t, preHeatWorkload.Name != mainWorkload.Name, "Preheat workload should have different name")
+	assert.Equal(t, v1.GetDisplayName(preHeatWorkload), "preheat-"+v1.GetDisplayName(mainWorkload))
+	assert.Equal(t, preHeatWorkload.Spec.IsSupervised, false)
+	assert.Equal(t, preHeatWorkload.Spec.MaxRetry, 0)
+	assert.Equal(t, *preHeatWorkload.Spec.TTLSecondsAfterFinished, 10)
+	assert.Assert(t, preHeatWorkload.Spec.CronJobs == nil, "CronJobs should be nil")
+	assert.Assert(t, preHeatWorkload.Spec.Dependencies == nil, "Dependencies should be nil")
 
 	// Verify resource requirements are minimal
-	assert.Equal(t, len(preheatWorkload.Spec.Resources), 1)
-	assert.Equal(t, preheatWorkload.Spec.Resources[0].CPU, "1")
-	assert.Equal(t, preheatWorkload.Spec.Resources[0].Memory, "8Gi")
-	assert.Equal(t, preheatWorkload.Spec.Resources[0].EphemeralStorage, "50Gi")
-	assert.Equal(t, preheatWorkload.Spec.Resources[0].Replica, 3) // From workspace.Status.AvailableReplica
+	assert.Equal(t, len(preHeatWorkload.Spec.Resources), 1)
+	assert.Equal(t, preHeatWorkload.Spec.Resources[0].CPU, "1")
+	assert.Equal(t, preHeatWorkload.Spec.Resources[0].Memory, "8Gi")
+	assert.Equal(t, preHeatWorkload.Spec.Resources[0].EphemeralStorage, "50Gi")
+	assert.Equal(t, preHeatWorkload.Spec.Resources[0].Replica, 3) // From workspace.Status.AvailableReplica
 }
 
 // Test_createWorkloadImpl tests creating workload implementation
@@ -687,8 +687,8 @@ func Test_getWorkload(t *testing.T) {
 		UserId:       sql.NullString{String: user.Name, Valid: true},
 		UserName:     sql.NullString{String: "TestUser", Valid: true},
 		Priority:     5,
-		Image:        "test-image:v1",
-		EntryPoint:   "echo 'test'",
+		Images:       sql.NullString{String: "[\"test-image:v1\"]", Valid: true},
+		EntryPoints:  sql.NullString{String: "[\"echo 'test'\"]", Valid: true},
 		GVK:          gvkJSON,
 		Resources:    sql.NullString{String: resourceJSON, Valid: true},
 		IsSupervised: true,
@@ -723,7 +723,7 @@ func Test_getWorkload(t *testing.T) {
 	assert.Equal(t, getResp.UserId, user.Name)
 	assert.Equal(t, getResp.UserName, "TestUser")
 	assert.Equal(t, getResp.Priority, 5)
-	assert.Equal(t, getResp.Image, "test-image:v1")
+	assert.Equal(t, getResp.Images[0], "test-image:v1")
 	assert.Equal(t, getResp.IsSupervised, true)
 	assert.Equal(t, getResp.MaxRetry, 3)
 	assert.Equal(t, getResp.GroupVersionKind.Kind, "PyTorchJob")
@@ -962,7 +962,7 @@ func Test_patchWorkload(t *testing.T) {
 	workload.Name = workloadId
 	workload.Status.Phase = v1.WorkloadRunning
 	workload.Spec.Priority = 0
-	workload.Spec.Image = "old-image:v1"
+	workload.Spec.Images = []string{"old-image:v1"}
 	v1.SetLabel(workload, v1.UserIdLabel, user.Name)
 
 	fakeCtrlClient := ctrlruntimefake.NewClientBuilder().
@@ -984,7 +984,7 @@ func Test_patchWorkload(t *testing.T) {
 	newImage := "new-image:v2"
 	patchReq := view.PatchWorkloadRequest{
 		Priority: &newPriority,
-		Image:    &newImage,
+		Images:   &[]string{newImage},
 	}
 	reqBody, _ := json.Marshal(patchReq)
 
@@ -1009,7 +1009,8 @@ func Test_patchWorkload(t *testing.T) {
 	err = h.Get(context.Background(), client.ObjectKey{Name: workloadId}, updatedWorkload)
 	assert.NilError(t, err)
 	assert.Equal(t, updatedWorkload.Spec.Priority, newPriority, "Priority should be updated")
-	assert.Equal(t, updatedWorkload.Spec.Image, newImage, "Image should be updated")
+	assert.Equal(t, len(updatedWorkload.Spec.Images), 1)
+	assert.Equal(t, updatedWorkload.Spec.Images[0], newImage, "Image should be updated")
 }
 
 // Test_getWorkloadPodLog tests getting pod logs
@@ -1202,8 +1203,8 @@ func Test_cloneWorkloadImpl(t *testing.T) {
 		UserId:       sql.NullString{String: "original-user", Valid: true},
 		UserName:     sql.NullString{String: "OriginalUser", Valid: true},
 		Priority:     5,
-		Image:        "test-image:v1",
-		EntryPoint:   "echo 'test'",
+		Images:       sql.NullString{String: "[\"test-image:v1\"]", Valid: true},
+		EntryPoints:  sql.NullString{String: "[\"echo 'test'\"]", Valid: true},
 		GVK:          gvkJSON,
 		Resources:    sql.NullString{String: resourceJSON, Valid: true},
 		IsSupervised: true,
@@ -1245,7 +1246,8 @@ func Test_cloneWorkloadImpl(t *testing.T) {
 
 	// Verify cloned workload has same specs
 	assert.Equal(t, clonedWorkload.Spec.Workspace, workspaceId)
-	assert.Equal(t, clonedWorkload.Spec.Image, "test-image:v1")
+	assert.Equal(t, len(clonedWorkload.Spec.Images), 1)
+	assert.Equal(t, clonedWorkload.Spec.Images[0], "test-image:v1")
 	assert.Equal(t, clonedWorkload.Spec.Priority, 5)
 	assert.Equal(t, clonedWorkload.Spec.IsSupervised, true)
 	assert.Equal(t, clonedWorkload.Spec.MaxRetry, 3)
@@ -1257,11 +1259,30 @@ func Test_createWorkload_NormalWorkload(t *testing.T) {
 
 	user := genMockUser()
 	role := genMockRole()
+	controlPlaneNode := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "control-plane-node-1",
+			Labels: map[string]string{
+				common.KubernetesControlPlane: "",
+			},
+		},
+		Status: corev1.NodeStatus{
+			Addresses: []corev1.NodeAddress{
+				{
+					Type:    corev1.NodeInternalIP,
+					Address: "192.168.1.100",
+				},
+			},
+		},
+	}
+	mockScheme := scheme.Scheme
+	_ = corev1.AddToScheme(mockScheme)
+	_ = v1.AddToScheme(mockScheme)
 
 	fakeCtrlClient := ctrlruntimefake.NewClientBuilder().
-		WithObjects(user, role).
-		WithScheme(scheme.Scheme).
-		WithStatusSubresource(&v1.Workload{}).
+		WithObjects(user, role, controlPlaneNode).
+		WithScheme(mockScheme).
+		WithStatusSubresource(&v1.Workload{}, controlPlaneNode).
 		Build()
 
 	fakeClientSet := k8sfake.NewSimpleClientset()
@@ -1276,10 +1297,9 @@ func Test_createWorkload_NormalWorkload(t *testing.T) {
 		"displayName": "Normal Workload",
 		"description": "A normal PyTorch job",
 		"workspaceId": "%s",
-		"image": "pytorch/pytorch:latest",
-		"entryPoint": "python train.py",
+		"images": ["pytorch/pytorch:latest"],
+		"entryPoints": ["python train.py"],
 		"groupVersionKind": {
-			"group": "kubeflow.org",
 			"version": "v1",
 			"kind": "PyTorchJob"
 		},
@@ -1326,7 +1346,10 @@ func Test_createWorkload_NormalWorkload(t *testing.T) {
 	assert.Equal(t, v1.GetDisplayName(createdWorkload), "Normal Workload")
 	assert.Equal(t, v1.GetDescription(createdWorkload), "A normal PyTorch job")
 	assert.Equal(t, createdWorkload.Spec.Workspace, workspaceId)
-	assert.Equal(t, createdWorkload.Spec.Image, "pytorch/pytorch:latest")
+	assert.Equal(t, len(createdWorkload.Spec.Images), 1)
+	assert.Equal(t, createdWorkload.Spec.Images[0], "pytorch/pytorch:latest")
+	assert.Equal(t, len(createdWorkload.Spec.EntryPoints), 1)
+	assert.Equal(t, createdWorkload.Spec.EntryPoints[0], "python train.py")
 	assert.Equal(t, createdWorkload.Spec.Priority, 5)
 	assert.Equal(t, createdWorkload.Spec.IsSupervised, true)
 	assert.Equal(t, createdWorkload.Spec.MaxRetry, 3)
@@ -1725,8 +1748,8 @@ func Test_cvtDBWorkloadToGetResponse(t *testing.T) {
 		UserId:         sql.NullString{String: user.Name, Valid: true},
 		UserName:       sql.NullString{String: "TestUser", Valid: true},
 		Priority:       5,
-		Image:          "test-image:v1",
-		EntryPoint:     stringutil.Base64Encode("python train.py"), // Base64 encoded
+		Images:         sql.NullString{String: "[\"test-image:v1\"]", Valid: true},
+		EntryPoints:    sql.NullString{String: fmt.Sprintf("[\"%s\"]", stringutil.Base64Encode("python train.py")), Valid: true},
 		IsSupervised:   true,
 		MaxRetry:       3,
 		TTLSecond:      300,
@@ -1758,12 +1781,14 @@ func Test_cvtDBWorkloadToGetResponse(t *testing.T) {
 	assert.Equal(t, result.DisplayName, "Test Workload")
 
 	// Verify additional fields
-	assert.Equal(t, result.Image, "test-image:v1")
+	assert.Equal(t, len(result.Images), 1)
+	assert.Equal(t, result.Images[0], "test-image:v1")
 	assert.Equal(t, result.IsSupervised, true)
 	assert.Equal(t, result.MaxRetry, 3)
 
 	// Verify EntryPoint is Base64 decoded
-	assert.Equal(t, result.EntryPoint, "python train.py", "EntryPoint should be Base64 decoded")
+	assert.Equal(t, len(result.EntryPoints), 1)
+	assert.Equal(t, result.EntryPoints[0], "python train.py", "EntryPoint should be Base64 decoded")
 
 	// Verify TTLSecondsAfterFinished
 	assert.Assert(t, result.TTLSecondsAfterFinished != nil, "TTLSecondsAfterFinished should be set")

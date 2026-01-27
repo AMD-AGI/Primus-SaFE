@@ -341,12 +341,12 @@ func UpdateMetricAlertRule(c *gin.Context) {
 	rule.UpdatedBy = updatedByStr
 
 	if len(req.Groups) > 0 {
-		var groupsExt dbmodel.ExtType
 		groupsBytes, err := json.Marshal(req.Groups)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, rest.ErrorResp(c.Request.Context(), http.StatusBadRequest, "invalid groups format: "+err.Error(), nil))
 			return
 		}
+		var groupsExt dbmodel.ExtType
 		if err := json.Unmarshal(groupsBytes, &groupsExt); err != nil {
 			c.JSON(http.StatusBadRequest, rest.ErrorResp(c.Request.Context(), http.StatusBadRequest, "invalid groups format: "+err.Error(), nil))
 			return

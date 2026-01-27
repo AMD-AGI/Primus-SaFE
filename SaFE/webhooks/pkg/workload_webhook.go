@@ -15,6 +15,7 @@ import (
 	"time"
 
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/slice"
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -23,6 +24,7 @@ import (
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/pointer"
 	"k8s.io/utils/ptr"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -50,9 +52,6 @@ const (
 	DefaultPeriodSeconds       = 3
 	DefaultFailureThreshold    = 3
 	DefaultMaxFailover         = 50
-
-	MaxCICDScaleSetNameLen = 39
-	MaxTorchFTNameLen      = commonutils.MaxDisplayNameLen - 4
 
 	ResourcesEnv  = "RESOURCES"
 	ImageEnv      = "IMAGE"
@@ -118,6 +117,7 @@ func (m *WorkloadMutator) mutateOnCreation(ctx context.Context, workload *v1.Wor
 	m.mutateMeta(ctx, workload, workspace)
 	m.mutateTTLSeconds(workload)
 	m.mutateCommon(ctx, nil, workload, workspace)
+	m.mutateWorkloadTimeout(workload, workspace)
 	return true
 }
 
@@ -140,10 +140,10 @@ func (m *WorkloadMutator) mutateCommon(ctx context.Context, oldWorkload, newWork
 	case common.CICDScaleRunnerSetKind:
 		m.mutateCICDScaleSet(newWorkload)
 	}
-	m.mutateHostpath(newWorkload, workspace)
+	m.mutateHostPath(newWorkload, workspace)
 	m.mutatePriority(newWorkload)
-	m.mutateImage(newWorkload)
-	m.mutateEntryPoint(newWorkload)
+	m.mutateImages(newWorkload)
+	m.mutateEntryPoints(newWorkload)
 	m.mutateEnv(oldWorkload, newWorkload)
 	m.mutateMaxRetry(newWorkload)
 	m.mutateHostNetwork(ctx, newWorkload)
@@ -152,6 +152,7 @@ func (m *WorkloadMutator) mutateCommon(ctx context.Context, oldWorkload, newWork
 	m.mutateHealthCheck(newWorkload)
 	m.mutateService(newWorkload)
 	m.mutateSecrets(ctx, newWorkload, workspace)
+	m.mutateStickNodes(ctx, newWorkload, workspace)
 	return true
 }
 
@@ -290,27 +291,27 @@ func (m *WorkloadMutator) mutateResources(workload *v1.Workload, workspace *v1.W
 	return isChanged
 }
 
-// mutateHostpath removes hostpath duplicated by the workspace; workloads inherit workspace hostpath.
-func (m *WorkloadMutator) mutateHostpath(workload *v1.Workload, workspace *v1.Workspace) {
+// mutateHostPath removes hostPath duplicated by the workspace; workloads inherit workspace hostPath.
+func (m *WorkloadMutator) mutateHostPath(workload *v1.Workload, workspace *v1.Workspace) {
 	if len(workload.Spec.Hostpath) == 0 {
 		return
 	}
-	hostpathSet := sets.NewSet()
+	hostPathSet := sets.NewSet()
 	if workspace != nil {
 		for _, vol := range workspace.Spec.Volumes {
 			if vol.Type == v1.HOSTPATH {
-				hostpathSet.Insert(vol.HostPath)
+				hostPathSet.Insert(vol.HostPath)
 			}
 		}
 	}
-	hostpath := make([]string, 0, len(workload.Spec.Hostpath))
+	hostPath := make([]string, 0, len(workload.Spec.Hostpath))
 	for _, path := range workload.Spec.Hostpath {
-		if !hostpathSet.Has(path) {
-			hostpath = append(hostpath, path)
-			hostpathSet.Insert(path)
+		if !hostPathSet.Has(path) {
+			hostPath = append(hostPath, path)
+			hostPathSet.Insert(path)
 		}
 	}
-	workload.Spec.Hostpath = hostpath
+	workload.Spec.Hostpath = hostPath
 }
 
 // mutateHealthCheck fills default probe timings for liveness/readiness.
@@ -380,9 +381,7 @@ func (m *WorkloadMutator) mutateAuthoring(workload *v1.Workload) {
 		workload.Spec.Resources = workload.Spec.Resources[0:1]
 		workload.Spec.Resources[0].Replica = 1
 	}
-
-	workload.Spec.Timeout = nil
-	workload.Spec.EntryPoint = stringutil.Base64Encode("sleep infinity")
+	workload.Spec.EntryPoints = []string{stringutil.Base64Encode("sleep infinity")}
 	workload.Spec.Dependencies = nil
 }
 
@@ -393,13 +392,21 @@ func (m *WorkloadMutator) mutateCICDScaleSet(workload *v1.Workload) {
 		workload.Spec.Resources = workload.Spec.Resources[0:1]
 		workload.Spec.Resources[0].Replica = 1
 	}
-	workload.Spec.Timeout = nil
 	workload.Spec.Dependencies = nil
 }
 
-// mutateImage trims image name and entry point.
-func (m *WorkloadMutator) mutateImage(workload *v1.Workload) {
-	workload.Spec.Image = strings.TrimSpace(workload.Spec.Image)
+// mutateImages handles image assignment for workload resources.
+// If no images are specified, it populates the Images slice with the default image from workload.Spec.Image
+// for each resource in the workload. Then it trims whitespace from each image name.
+func (m *WorkloadMutator) mutateImages(workload *v1.Workload) {
+	if len(workload.Spec.Images) == 0 && workload.Spec.Image != "" {
+		for i := 0; i < len(workload.Spec.Resources); i++ {
+			workload.Spec.Images = append(workload.Spec.Images, workload.Spec.Image)
+		}
+	}
+	for i := 0; i < len(workload.Spec.Images); i++ {
+		workload.Spec.Images[i] = strings.TrimSpace(workload.Spec.Images[i])
+	}
 }
 
 // mutateMaxRetry bounds MaxRetry to [0, DefaultMaxFailover].
@@ -445,14 +452,21 @@ func (m *WorkloadMutator) mutateTTLSeconds(workload *v1.Workload) {
 	}
 }
 
-// mutateEntryPoint base64-encodes entry point for the required jobs.
-func (m *WorkloadMutator) mutateEntryPoint(workload *v1.Workload) {
-	workload.Spec.EntryPoint = strings.TrimSpace(workload.Spec.EntryPoint)
-	if commonworkload.IsAuthoring(workload) || commonworkload.IsOpsJob(workload) {
-		return
+// mutateEntryPoints base64-encodes entry point for the required jobs.
+func (m *WorkloadMutator) mutateEntryPoints(workload *v1.Workload) {
+	if len(workload.Spec.EntryPoints) == 0 && workload.Spec.EntryPoint != "" {
+		for i := 0; i < len(workload.Spec.Resources); i++ {
+			workload.Spec.EntryPoints = append(workload.Spec.EntryPoints, workload.Spec.EntryPoint)
+		}
 	}
-	if !stringutil.IsBase64(workload.Spec.EntryPoint) {
-		workload.Spec.EntryPoint = stringutil.Base64Encode(workload.Spec.EntryPoint)
+	for i := 0; i < len(workload.Spec.EntryPoints); i++ {
+		workload.Spec.EntryPoints[i] = strings.TrimSpace(workload.Spec.EntryPoints[i])
+		if commonworkload.IsAuthoring(workload) || commonworkload.IsOpsJob(workload) {
+			continue
+		}
+		if !stringutil.IsBase64(workload.Spec.EntryPoints[i]) {
+			workload.Spec.EntryPoints[i] = stringutil.Base64Encode(workload.Spec.EntryPoints[i])
+		}
 	}
 }
 
@@ -544,6 +558,48 @@ func (m *WorkloadMutator) mutateSecrets(ctx context.Context, workload *v1.Worklo
 	workload.Spec.Secrets = newSecrets
 }
 
+func (m *WorkloadMutator) mutateStickNodes(ctx context.Context, workload *v1.Workload, workspace *v1.Workspace) {
+	isDisableStickyNodes := func(ctx context.Context, workload *v1.Workload, workspace *v1.Workspace) bool {
+		if workspace == nil || workspace.Spec.EnablePreempt {
+			return true
+		}
+		supportsKinds := []string{common.PytorchJobKind, common.TorchFTKind, common.RayJobKind}
+		if !slice.Contains(supportsKinds, workload.SpecKind()) {
+			return true
+		}
+		nf, _ := getNodeFlavor(ctx, m.Client, v1.GetNodeFlavorId(workload))
+		if nf == nil {
+			return true
+		}
+		gpuCountStr := strconv.Itoa(nf.GetGpuCount())
+		for _, res := range workload.Spec.Resources {
+			if res.GPU != gpuCountStr || res.GPU == "" {
+				return true
+			}
+		}
+		return false
+	}
+	if isDisableStickyNodes(ctx, workload, workspace) {
+		v1.RemoveAnnotation(workload, v1.WorkloadStickyNodesAnnotation)
+	}
+}
+
+func (m *WorkloadMutator) mutateWorkloadTimeout(workload *v1.Workload, workspace *v1.Workspace) bool {
+	if workspace == nil {
+		return false
+	}
+	scope := commonworkload.GetScope(workload)
+	maxRuntime := workspace.GetMaxRunTime(scope)
+	if maxRuntime <= 0 {
+		return false
+	}
+	if workload.Spec.Timeout == nil || *workload.Spec.Timeout > maxRuntime {
+		workload.Spec.Timeout = pointer.Int(maxRuntime)
+		return true
+	}
+	return false
+}
+
 // WorkloadValidator validates Workload resources on create and update operations.
 type WorkloadValidator struct {
 	client.Client
@@ -620,6 +676,8 @@ func (v *WorkloadValidator) validateCommon(ctx context.Context, newWorkload, old
 		err = v.validateCICDScalingRunnerSet(newWorkload)
 	case common.TorchFTKind:
 		err = v.validateTorchFT(newWorkload, oldWorkload)
+	case common.RayJobKind:
+		err = v.validateRayJob(newWorkload, oldWorkload)
 	}
 	if err != nil {
 		return err
@@ -655,7 +713,7 @@ func (v *WorkloadValidator) validateRequiredParams(workload *v1.Workload) error 
 	if v1.GetDisplayName(workload) == "" {
 		errs = append(errs, fmt.Errorf("the displayName is empty"))
 	}
-	if err := validateDNSName(v1.GetDisplayName(workload)); err != nil {
+	if err := validateDNSName(v1.GetDisplayName(workload), workload.SpecKind()); err != nil {
 		errs = append(errs, err)
 	}
 	if v1.GetClusterId(workload) == "" {
@@ -667,14 +725,6 @@ func (v *WorkloadValidator) validateRequiredParams(workload *v1.Workload) error 
 	if workload.Spec.GroupVersionKind.Kind == "" || workload.Spec.GroupVersionKind.Version == "" {
 		errs = append(errs, fmt.Errorf("the gvk is empty"))
 	}
-	if v1.GetOpsJobId(workload) == "" && !commonworkload.IsCICDScalingRunnerSet(workload) {
-		if workload.Spec.EntryPoint == "" {
-			errs = append(errs, fmt.Errorf("the entryPoint is empty"))
-		}
-		if workload.Spec.Image == "" {
-			errs = append(errs, fmt.Errorf("the image is empty"))
-		}
-	}
 	if len(workload.Spec.Resources) == 0 {
 		errs = append(errs, fmt.Errorf("the resources are empty"))
 	}
@@ -683,6 +733,14 @@ func (v *WorkloadValidator) validateRequiredParams(workload *v1.Workload) error 
 			errs = append(errs, err)
 		}
 	}
+	if v1.GetOpsJobId(workload) == "" && !commonworkload.IsCICDScalingRunnerSet(workload) {
+		if len(workload.Spec.Images) == 0 {
+			errs = append(errs, fmt.Errorf("the images are empty"))
+		} else if len(workload.Spec.Images) != len(workload.Spec.Resources) {
+			errs = append(errs, fmt.Errorf("the number of images and resources is not equal"))
+		}
+	}
+
 	if err := utilerrors.NewAggregate(errs); err != nil {
 		return err
 	}
@@ -691,8 +749,8 @@ func (v *WorkloadValidator) validateRequiredParams(workload *v1.Workload) error 
 
 // validateCICDScalingRunnerSet validates cicd runnerSet workload configuration including environment variables and resource requirements.
 func (v *WorkloadValidator) validateCICDScalingRunnerSet(workload *v1.Workload) error {
-	if len(v1.GetDisplayName(workload)) > MaxCICDScaleSetNameLen {
-		return fmt.Errorf("the displayName is too long, maximum length is %d characters", MaxCICDScaleSetNameLen)
+	if len(v1.GetDisplayName(workload)) > commonutils.MaxCICDScaleSetNameLen {
+		return fmt.Errorf("the displayName is too long, maximum length is %d characters", commonutils.MaxCICDScaleSetNameLen)
 	}
 	if len(workload.Spec.Env) == 0 {
 		return fmt.Errorf("the environment variables of workload is empty")
@@ -721,8 +779,8 @@ func (v *WorkloadValidator) validateTorchFT(newWorkload, oldWorkload *v1.Workloa
 		return fmt.Errorf("insufficient resources for TorchFT: expected at least 2 resource configurations (lighthouse and worker groups), "+
 			"got %d, resources: %v", len(newWorkload.Spec.Resources), newWorkload.Spec.Resources)
 	}
-	if len(v1.GetDisplayName(newWorkload)) > MaxTorchFTNameLen {
-		return fmt.Errorf("the displayName is too long, maximum length is %d", MaxTorchFTNameLen)
+	if len(v1.GetDisplayName(newWorkload)) > commonutils.MaxTorchFTNameLen {
+		return fmt.Errorf("the displayName is too long, maximum length is %d", commonutils.MaxTorchFTNameLen)
 	}
 
 	group, err := commonworkload.GetReplicaGroup(newWorkload, common.ReplicaGroup)
@@ -761,6 +819,16 @@ func (v *WorkloadValidator) validateTorchFT(newWorkload, oldWorkload *v1.Workloa
 		if (oldWorkload.Spec.Resources[1].Replica / oldGroup) != (newWorkload.Spec.Resources[1].Replica / group) {
 			return fmt.Errorf("the count of group nodes can not be changed")
 		}
+	}
+	return nil
+}
+
+// validateRayJob validates RayJob workload configuration.
+func (v *WorkloadValidator) validateRayJob(newWorkload, _ *v1.Workload) error {
+	// RayJob workloads require at most 3 resource configurations - one for header group and two for the worker groups
+	if len(newWorkload.Spec.Resources) > 3 {
+		return fmt.Errorf("Expected at most 3 resource configurations (header and worker groups), "+
+			"got %d, resources: %v", len(newWorkload.Spec.Resources), newWorkload.Spec.Resources)
 	}
 	return nil
 }
@@ -975,7 +1043,7 @@ func (v *WorkloadValidator) validateScope(ctx context.Context, workload *v1.Work
 	}
 	if !workspace.HasScope(scope) {
 		return commonerrors.NewForbidden(
-			fmt.Sprintf("The workspace only supports %v and does not suuport %s", workspace.Spec.Scopes, scope))
+			fmt.Sprintf("The workspace only supports %v and does not support %s", workspace.Spec.Scopes, scope))
 	}
 	return nil
 }

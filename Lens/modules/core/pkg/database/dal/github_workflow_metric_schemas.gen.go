@@ -39,6 +39,16 @@ func newGithubWorkflowMetricSchemas(db *gorm.DB, opts ...gen.DOOption) githubWor
 	_githubWorkflowMetricSchemas.GenerationSampleFile = field.NewString(tableName, "generation_sample_file")
 	_githubWorkflowMetricSchemas.CreatedAt = field.NewTime(tableName, "created_at")
 	_githubWorkflowMetricSchemas.UpdatedAt = field.NewTime(tableName, "updated_at")
+	_githubWorkflowMetricSchemas.SchemaHash = field.NewString(tableName, "schema_hash")
+	_githubWorkflowMetricSchemas.IsWideTable = field.NewBool(tableName, "is_wide_table")
+	_githubWorkflowMetricSchemas.DateColumns = field.NewField(tableName, "date_columns")
+	_githubWorkflowMetricSchemas.RecordCount = field.NewInt64(tableName, "record_count")
+	_githubWorkflowMetricSchemas.FirstSeenAt = field.NewTime(tableName, "first_seen_at")
+	_githubWorkflowMetricSchemas.LastSeenAt = field.NewTime(tableName, "last_seen_at")
+	_githubWorkflowMetricSchemas.TimeField = field.NewString(tableName, "time_field")
+	_githubWorkflowMetricSchemas.ColumnDefinitions = field.NewField(tableName, "column_definitions")
+	_githubWorkflowMetricSchemas.DateColumnPattern = field.NewString(tableName, "date_column_pattern")
+	_githubWorkflowMetricSchemas.DateColumnConfig = field.NewField(tableName, "date_column_config")
 
 	_githubWorkflowMetricSchemas.fillFieldMap()
 
@@ -50,17 +60,27 @@ type githubWorkflowMetricSchemas struct {
 
 	ALL                  field.Asterisk
 	ID                   field.Int64
-	ConfigID             field.Int64
-	Name                 field.String
-	Version              field.Int32
-	Fields               field.Field
-	DimensionFields      field.Field
-	MetricFields         field.Field
-	IsActive             field.Bool
-	GeneratedBy          field.String
+	ConfigID             field.Int64  // Associated configuration ID
+	Name                 field.String // Schema name
+	Version              field.Int32  // Schema version number
+	Fields               field.Field  // JSON array of field definitions with name, type, unit, description
+	DimensionFields      field.Field  // JSON array of field names used as dimensions (for grouping)
+	MetricFields         field.Field  // JSON array of field names used as metrics (numeric values)
+	IsActive             field.Bool   // Whether this schema version is currently active
+	GeneratedBy          field.String // How schema was generated: ai, user, system
 	GenerationSampleFile field.String
 	CreatedAt            field.Time
 	UpdatedAt            field.Time
+	SchemaHash           field.String
+	IsWideTable          field.Bool
+	DateColumns          field.Field
+	RecordCount          field.Int64
+	FirstSeenAt          field.Time
+	LastSeenAt           field.Time
+	TimeField            field.String
+	ColumnDefinitions    field.Field
+	DateColumnPattern    field.String
+	DateColumnConfig     field.Field
 
 	fieldMap map[string]field.Expr
 }
@@ -89,6 +109,16 @@ func (g *githubWorkflowMetricSchemas) updateTableName(table string) *githubWorkf
 	g.GenerationSampleFile = field.NewString(table, "generation_sample_file")
 	g.CreatedAt = field.NewTime(table, "created_at")
 	g.UpdatedAt = field.NewTime(table, "updated_at")
+	g.SchemaHash = field.NewString(table, "schema_hash")
+	g.IsWideTable = field.NewBool(table, "is_wide_table")
+	g.DateColumns = field.NewField(table, "date_columns")
+	g.RecordCount = field.NewInt64(table, "record_count")
+	g.FirstSeenAt = field.NewTime(table, "first_seen_at")
+	g.LastSeenAt = field.NewTime(table, "last_seen_at")
+	g.TimeField = field.NewString(table, "time_field")
+	g.ColumnDefinitions = field.NewField(table, "column_definitions")
+	g.DateColumnPattern = field.NewString(table, "date_column_pattern")
+	g.DateColumnConfig = field.NewField(table, "date_column_config")
 
 	g.fillFieldMap()
 
@@ -119,7 +149,7 @@ func (g *githubWorkflowMetricSchemas) GetFieldByName(fieldName string) (field.Or
 }
 
 func (g *githubWorkflowMetricSchemas) fillFieldMap() {
-	g.fieldMap = make(map[string]field.Expr, 12)
+	g.fieldMap = make(map[string]field.Expr, 22)
 	g.fieldMap["id"] = g.ID
 	g.fieldMap["config_id"] = g.ConfigID
 	g.fieldMap["name"] = g.Name
@@ -132,6 +162,16 @@ func (g *githubWorkflowMetricSchemas) fillFieldMap() {
 	g.fieldMap["generation_sample_file"] = g.GenerationSampleFile
 	g.fieldMap["created_at"] = g.CreatedAt
 	g.fieldMap["updated_at"] = g.UpdatedAt
+	g.fieldMap["schema_hash"] = g.SchemaHash
+	g.fieldMap["is_wide_table"] = g.IsWideTable
+	g.fieldMap["date_columns"] = g.DateColumns
+	g.fieldMap["record_count"] = g.RecordCount
+	g.fieldMap["first_seen_at"] = g.FirstSeenAt
+	g.fieldMap["last_seen_at"] = g.LastSeenAt
+	g.fieldMap["time_field"] = g.TimeField
+	g.fieldMap["column_definitions"] = g.ColumnDefinitions
+	g.fieldMap["date_column_pattern"] = g.DateColumnPattern
+	g.fieldMap["date_column_config"] = g.DateColumnConfig
 }
 
 func (g githubWorkflowMetricSchemas) clone(db *gorm.DB) githubWorkflowMetricSchemas {

@@ -200,29 +200,9 @@ func (r *CDJobReconciler) handle(ctx context.Context, job *v1.OpsJob) (ctrlrunti
 
 // generateCDWorkload generates a CD workload based on the job specification.
 func (r *CDJobReconciler) generateCDWorkload(ctx context.Context, job *v1.OpsJob) (*v1.Workload, error) {
-	// Get deployment parameters from job inputs
-	componentTags := getParameterValue(job, v1.ParameterComponentTags, "")
-	nodeAgentTags := getParameterValue(job, v1.ParameterNodeAgentTags, "")
-	envFileConfig := getParameterValue(job, v1.ParameterEnvFileConfig, "")
-	deployBranch := getParameterValue(job, v1.ParameterDeployBranch, "")
-	hasNodeAgent := getParameterValue(job, v1.ParameterHasNodeAgent, "false") == "true"
-	hasCICD := getParameterValue(job, v1.ParameterHasCICD, "false") == "true"
-	nodeAgentImage := getParameterValue(job, v1.ParameterNodeAgentImage, "")
-	cicdRunnerImage := getParameterValue(job, v1.ParameterCICDRunnerImage, "")
-	cicdUnifiedImage := getParameterValue(job, v1.ParameterCICDUnifiedImage, "")
-
-	// Base64 encode the .env file content for safe passing
-	envFileBase64 := ""
-	if envFileConfig != "" {
-		envFileBase64 = base64.StdEncoding.EncodeToString([]byte(envFileConfig))
-	}
-
-	// Simple entrypoint: git clone the repo then execute the bootstrap script
-	// All configuration is passed via environment variables
-	entryPoint := base64.StdEncoding.EncodeToString([]byte(
-		`git clone --depth 1 -b "$DEPLOY_BRANCH" "$REPO_URL" "$REPO_DIR" && ` +
-			`cd "$REPO_DIR/SaFE/bootstrap" && bash ./cd-deploy.sh`,
-	))
+	// Determine deployment type (safe or lens)
+	deployType := getParameterValue(job, v1.ParameterDeployType, "safe")
+	deployBranch := getParameterValue(job, v1.ParameterDeployBranch, "main")
 
 	// Query clusters with ClusterControlPlaneLabel to get the control plane cluster ID
 	clusterList := &v1.ClusterList{}
@@ -239,57 +219,11 @@ func (r *CDJobReconciler) generateCDWorkload(ctx context.Context, job *v1.OpsJob
 	clusterID := clusterList.Items[0].Name
 	klog.Infof("Found control plane cluster: %s", clusterID)
 
-	// Create workload with minimal resource requirements (no GPU needed)
-	// Uses 'default' workspace with immediate scheduling (similar to preflight jobs)
-	workload := &v1.Workload{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: job.Name,
-			Labels: map[string]string{
-				v1.ClusterIdLabel:   clusterID,
-				v1.UserIdLabel:      common.UserSystem,
-				v1.OpsJobIdLabel:    job.Name,
-				v1.OpsJobTypeLabel:  string(job.Spec.Type),
-				v1.DisplayNameLabel: job.Name,
-			},
-			Annotations: map[string]string{
-				v1.UserNameAnnotation:    common.UserSystem,
-				v1.DescriptionAnnotation: v1.OpsJobKind,
-				// Dispatch the workload immediately, skipping the queue (same as preflight)
-				v1.WorkloadScheduledAnnotation: timeutil.FormatRFC3339(time.Now().UTC()),
-			},
-		},
-		Spec: v1.WorkloadSpec{
-			Resources: []v1.WorkloadResource{{
-				Replica: 1,
-				CPU:     "2",
-				Memory:  "4Gi",
-			}},
-			EntryPoint: entryPoint,
-			GroupVersionKind: v1.GroupVersionKind{
-				Version: common.DefaultVersion,
-				Kind:    common.JobKind,
-			},
-			Priority:  common.HighPriorityInt,
-			Workspace: corev1.NamespaceDefault, // Use 'default' namespace (same as preflight)
-			Image:     commonconfig.GetCDJobImage(),
-			Env: map[string]string{
-				// Repository configuration
-				"REPO_URL":      PrimusSaFERepoURL,
-				"REPO_DIR":      ContainerMountPath + "/Primus-SaFE",
-				"MOUNT_DIR":     ContainerMountPath,
-				"DEPLOY_BRANCH": deployBranch,
-				// Deployment parameters
-				"COMPONENT_TAGS":        componentTags,
-				"NODE_AGENT_TAGS":       nodeAgentTags,
-				"ENV_FILE_CONFIG":       envFileBase64, // Base64 encoded
-				"HAS_NODE_AGENT":        fmt.Sprintf("%t", hasNodeAgent),
-				"HAS_CICD":              fmt.Sprintf("%t", hasCICD),
-				"NODE_AGENT_IMAGE":      nodeAgentImage,
-				"CICD_RUNNER_IMAGE":     cicdRunnerImage,
-				"CICD_UNIFIED_IMAGE":    cicdUnifiedImage,
-				"DEPLOYMENT_REQUEST_ID": getParameterValue(job, v1.ParameterDeploymentRequestId, ""),
-			},
-		},
+	var workload *v1.Workload
+	if deployType == "lens" {
+		workload = r.generateLensCDWorkload(job, clusterID, deployBranch)
+	} else {
+		workload = r.generateSafeCDWorkload(job, clusterID, deployBranch)
 	}
 
 	if err := controllerutil.SetControllerReference(job, workload, r.Client.Scheme()); err != nil {
@@ -311,6 +245,129 @@ func (r *CDJobReconciler) generateCDWorkload(ctx context.Context, job *v1.OpsJob
 	}
 
 	return workload, nil
+}
+
+// generateSafeCDWorkload generates a Safe CD workload
+func (r *CDJobReconciler) generateSafeCDWorkload(job *v1.OpsJob, clusterID, deployBranch string) *v1.Workload {
+	componentTags := getParameterValue(job, v1.ParameterComponentTags, "")
+	nodeAgentTags := getParameterValue(job, v1.ParameterNodeAgentTags, "")
+	envFileConfig := getParameterValue(job, v1.ParameterEnvFileConfig, "")
+	hasNodeAgent := getParameterValue(job, v1.ParameterHasNodeAgent, "false") == "true"
+	hasCICD := getParameterValue(job, v1.ParameterHasCICD, "false") == "true"
+	nodeAgentImage := getParameterValue(job, v1.ParameterNodeAgentImage, "")
+	cicdRunnerImage := getParameterValue(job, v1.ParameterCICDRunnerImage, "")
+	cicdUnifiedImage := getParameterValue(job, v1.ParameterCICDUnifiedImage, "")
+
+	// Base64 encode the .env file content for safe passing
+	envFileBase64 := ""
+	if envFileConfig != "" {
+		envFileBase64 = base64.StdEncoding.EncodeToString([]byte(envFileConfig))
+	}
+
+	// Safe entrypoint: git clone the repo then execute the bootstrap script
+	entryPoint := base64.StdEncoding.EncodeToString([]byte(
+		`git clone --depth 1 -b "$DEPLOY_BRANCH" "$REPO_URL" "$REPO_DIR" && ` +
+			`cd "$REPO_DIR/SaFE/bootstrap" && bash ./cd-deploy.sh`,
+	))
+
+	return &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: job.Name,
+			Labels: map[string]string{
+				v1.ClusterIdLabel:   clusterID,
+				v1.UserIdLabel:      common.UserSystem,
+				v1.OpsJobIdLabel:    job.Name,
+				v1.OpsJobTypeLabel:  string(job.Spec.Type),
+				v1.DisplayNameLabel: job.Name,
+			},
+			Annotations: map[string]string{
+				v1.UserNameAnnotation:          common.UserSystem,
+				v1.WorkloadScheduledAnnotation: timeutil.FormatRFC3339(time.Now().UTC()),
+			},
+		},
+		Spec: v1.WorkloadSpec{
+			Resource: v1.WorkloadResource{
+				Replica: 1,
+				CPU:     "2",
+				Memory:  "4Gi",
+			},
+			EntryPoint: entryPoint,
+			GroupVersionKind: v1.GroupVersionKind{
+				Version: common.DefaultVersion,
+				Kind:    common.JobKind,
+			},
+			Priority:  common.HighPriorityInt,
+			Workspace: corev1.NamespaceDefault,
+			Image:     commonconfig.GetCDJobImage(),
+			Env: map[string]string{
+				"REPO_URL":              PrimusSaFERepoURL,
+				"REPO_DIR":              ContainerMountPath + "/Primus-SaFE",
+				"MOUNT_DIR":             ContainerMountPath,
+				"DEPLOY_BRANCH":         deployBranch,
+				"COMPONENT_TAGS":        componentTags,
+				"NODE_AGENT_TAGS":       nodeAgentTags,
+				"ENV_FILE_CONFIG":       envFileBase64,
+				"HAS_NODE_AGENT":        fmt.Sprintf("%t", hasNodeAgent),
+				"HAS_CICD":              fmt.Sprintf("%t", hasCICD),
+				"NODE_AGENT_IMAGE":      nodeAgentImage,
+				"CICD_RUNNER_IMAGE":     cicdRunnerImage,
+				"CICD_UNIFIED_IMAGE":    cicdUnifiedImage,
+				"DEPLOYMENT_REQUEST_ID": getParameterValue(job, v1.ParameterDeploymentRequestId, ""),
+			},
+		},
+	}
+}
+
+// generateLensCDWorkload generates a Lens CD workload
+// The script will read ConfigMap via kubectl to get values.yaml content
+func (r *CDJobReconciler) generateLensCDWorkload(job *v1.OpsJob, clusterID, deployBranch string) *v1.Workload {
+	configMapName := getParameterValue(job, v1.ParameterLensConfigMap, "")
+
+	// Lens entrypoint: git clone the repo then execute the lens-cd-deploy script
+	entryPoint := base64.StdEncoding.EncodeToString([]byte(
+		`git clone --depth 1 -b "$DEPLOY_BRANCH" "$REPO_URL" "$REPO_DIR" && ` +
+			`cd "$REPO_DIR/Lens/bootstrap" && bash ./lens-cd-deploy.sh`,
+	))
+
+	return &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: job.Name,
+			Labels: map[string]string{
+				v1.ClusterIdLabel:   clusterID,
+				v1.UserIdLabel:      common.UserSystem,
+				v1.OpsJobIdLabel:    job.Name,
+				v1.OpsJobTypeLabel:  string(job.Spec.Type),
+				v1.DisplayNameLabel: job.Name,
+			},
+			Annotations: map[string]string{
+				v1.UserNameAnnotation:          common.UserSystem,
+				v1.WorkloadScheduledAnnotation: timeutil.FormatRFC3339(time.Now().UTC()),
+			},
+		},
+		Spec: v1.WorkloadSpec{
+			Resource: v1.WorkloadResource{
+				Replica: 1,
+				CPU:     "2",
+				Memory:  "4Gi",
+			},
+			EntryPoint: entryPoint,
+			GroupVersionKind: v1.GroupVersionKind{
+				Version: common.DefaultVersion,
+				Kind:    common.JobKind,
+			},
+			Priority:  common.HighPriorityInt,
+			Workspace: corev1.NamespaceDefault,
+			Image:     commonconfig.GetCDJobImage(),
+			Env: map[string]string{
+				"REPO_URL":              PrimusSaFERepoURL,
+				"REPO_DIR":              ContainerMountPath + "/Primus-SaFE",
+				"MOUNT_DIR":             ContainerMountPath,
+				"DEPLOY_BRANCH":         deployBranch,
+				"LENS_CONFIGMAP_NAME":   configMapName,
+				"DEPLOYMENT_REQUEST_ID": getParameterValue(job, v1.ParameterDeploymentRequestId, ""),
+			},
+		},
+	}
 }
 
 // getParameterValue retrieves a parameter value from job inputs with a default fallback.

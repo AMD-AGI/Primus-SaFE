@@ -36,6 +36,7 @@ Base Path: `/api/v1`
 - [OpsJob API](./ops-job.md) - Operational job management
 - [PublicKey API](./public-key.md) - SSH public key management
 - [API Key API](./api-key.md) - API Key management for programmatic access
+- [Audit Log API](./audit-log.md) - Audit log query for security compliance (Admin only)
 - [Log API](./log.md) - Log query interfaces
 - [Envs API](./envs.md) - Environment settings and feature flags
 

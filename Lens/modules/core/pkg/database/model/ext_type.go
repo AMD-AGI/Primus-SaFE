@@ -1,6 +1,3 @@
-// Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
-// See LICENSE for license information.
-
 package model
 
 import (
@@ -69,6 +66,23 @@ func (e *ExtJSON) Scan(value interface{}) error {
 	default:
 		return errors.New("type assertion to []byte or string failed for ExtJSON")
 	}
+}
+
+// MarshalJSON returns the raw JSON bytes (prevents Base64 encoding)
+func (e ExtJSON) MarshalJSON() ([]byte, error) {
+	if len(e) == 0 {
+		return []byte("null"), nil
+	}
+	return []byte(e), nil
+}
+
+// UnmarshalJSON sets the raw JSON bytes
+func (e *ExtJSON) UnmarshalJSON(data []byte) error {
+	if e == nil {
+		return errors.New("ExtJSON: UnmarshalJSON on nil pointer")
+	}
+	*e = append((*e)[0:0], data...)
+	return nil
 }
 
 // UnmarshalTo unmarshals the JSON into the provided destination

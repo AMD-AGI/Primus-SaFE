@@ -30,6 +30,7 @@ import (
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 	maputil "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/maps"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/netutil"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 	sqrl "github.com/Masterminds/squirrel"
@@ -56,8 +57,6 @@ const (
 	BatchDelete WorkloadBatchAction = "delete"
 	BatchStop   WorkloadBatchAction = "stop"
 	BatchClone  WorkloadBatchAction = "clone"
-
-	PreheatDescription = "preheat"
 )
 
 // CreateWorkload handles the creation of a new workload resource.
@@ -149,20 +148,22 @@ func (h *Handler) createWorkload(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, commonerrors.NewBadRequest(err.Error())
 	}
-	var preheatWorkload *v1.Workload
+	var preheatWorkloads []*v1.Workload
 	isSucceed := false
 	defer func() {
 		if !isSucceed {
-			h.cleanUpWorkloads(ctx, mainWorkload, preheatWorkload)
+			h.cleanUpWorkloads(ctx, mainWorkload, preheatWorkloads)
 		}
 	}()
 
 	if req.Preheat {
-		preheatWorkload, err = h.createPreheatWorkload(c, mainWorkload, req, requestUser, roles)
+		preheatWorkloads, err = h.createPreheatWorkloads(c, mainWorkload, req, requestUser, roles)
 		if err != nil {
 			return nil, err
 		}
-		mainWorkload.Spec.Dependencies = []string{preheatWorkload.Name}
+		for _, w := range preheatWorkloads {
+			mainWorkload.Spec.Dependencies = append(mainWorkload.Spec.Dependencies, w.Name)
+		}
 	}
 
 	resp, err := h.createWorkloadImpl(c, mainWorkload, requestUser, roles)
@@ -178,16 +179,26 @@ func (h *Handler) createWorkload(c *gin.Context) (interface{}, error) {
 func (h *Handler) createWorkloadImpl(c *gin.Context,
 	workload *v1.Workload, requestUser *v1.User, roles []*v1.Role) (*view.CreateWorkloadResponse, error) {
 	var err error
-	if err = h.authWorkloadAction(c, workload, v1.CreateVerb, requestUser, roles); err != nil {
+	if err = h.authWorkloadAction(c, workload, v1.CreateVerb, v1.WorkloadKind, requestUser, roles); err != nil {
 		klog.ErrorS(err, "failed to auth workload", "workload", workload.Name,
 			"workspace", workload.Spec.Workspace, "user", c.GetString(common.UserName))
 		return nil, err
 	}
-	if err = h.authWorkloadPriority(c, workload, v1.CreateVerb, workload.Spec.Priority, requestUser, roles); err != nil {
+	priorityKind := generatePriority(workload.Spec.Priority)
+	if err = h.authWorkloadAction(c, workload, v1.CreateVerb, priorityKind, requestUser, roles); err != nil {
 		klog.ErrorS(err, "failed to auth workload priority", "workload", workload.Name,
 			"priority", workload.Spec.Priority, "user", c.GetString(common.UserName))
 		return nil, err
 	}
+
+	if v1.IsPrivileged(workload) {
+		if err = h.authWorkloadAction(c, workload, v1.CreateVerb, authority.WorkloadPrivilegedKind, requestUser, roles); err != nil {
+			klog.ErrorS(err, "failed to auth workload privileged",
+				"workload", workload.Name, "user", c.GetString(common.UserName))
+			return nil, err
+		}
+	}
+
 	for i, sec := range workload.Spec.Secrets {
 		secret, err := h.getAndAuthorizeSecret(c.Request.Context(), sec.Id, workload.Spec.Workspace, requestUser, v1.GetVerb)
 		if err != nil {
@@ -216,13 +227,15 @@ func (h *Handler) createWorkloadImpl(c *gin.Context,
 }
 
 // cleanUpWorkloads cleans up workloads when workload creation fails
-// It deletes the main workload and preheat workload if they exist,
+// It deletes the main workload and all preheat workloads if they exist,
 // and cleans up any CICD secrets associated with the main workload
-func (h *Handler) cleanUpWorkloads(ctx context.Context, mainWorkload, preheatWorkload *v1.Workload) {
+func (h *Handler) cleanUpWorkloads(ctx context.Context, mainWorkload *v1.Workload, preheatWorkloads []*v1.Workload) {
 	h.cleanupCICDSecrets(ctx, mainWorkload)
-	if preheatWorkload != nil {
-		if err := h.Delete(ctx, preheatWorkload); err != nil && !apierrors.IsNotFound(err) {
-			klog.ErrorS(err, "failed to delete preheat workload", "workload", preheatWorkload.Name)
+	if len(preheatWorkloads) > 0 {
+		for _, preheatWorkload := range preheatWorkloads {
+			if err := h.Delete(ctx, preheatWorkload); err != nil && !apierrors.IsNotFound(err) {
+				klog.ErrorS(err, "failed to delete preheat workload", "workload", preheatWorkload.Name)
+			}
 		}
 	}
 	if mainWorkload != nil {
@@ -250,7 +263,7 @@ func (h *Handler) listWorkload(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 	adminWorkload := generateWorkloadForAuth("", "", query.WorkspaceId, query.ClusterId)
-	if err = h.authWorkloadAction(c, adminWorkload, v1.ListVerb, requestUser, roles); err != nil {
+	if err = h.authWorkloadAction(c, adminWorkload, v1.ListVerb, v1.WorkloadKind, requestUser, roles); err != nil {
 		return nil, err
 	}
 
@@ -306,7 +319,7 @@ func (h *Handler) getWorkload(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 	adminWorkload := generateWorkloadForAuth(name, dbutils.ParseNullString(dbWorkload.UserId), dbWorkload.Workspace, dbWorkload.Cluster)
-	if err = h.authWorkloadAction(c, adminWorkload, v1.GetVerb, requestUser, roles); err != nil {
+	if err = h.authWorkloadAction(c, adminWorkload, v1.GetVerb, v1.WorkloadKind, requestUser, roles); err != nil {
 		return nil, err
 	}
 	return h.cvtDBWorkloadToGetResponse(ctx, requestUser, roles, dbWorkload), nil
@@ -340,7 +353,7 @@ func (h *Handler) deleteWorkloadImpl(c *gin.Context, name string, requestUser *v
 			return nil, err
 		}
 	} else {
-		if err = h.authWorkloadAction(c, adminWorkload, v1.DeleteVerb, requestUser, roles); err != nil {
+		if err = h.authWorkloadAction(c, adminWorkload, v1.DeleteVerb, v1.WorkloadKind, requestUser, roles); err != nil {
 			return nil, err
 		}
 		message := fmt.Sprintf("the workload is deleted by %s", c.GetString(common.UserName))
@@ -355,7 +368,7 @@ func (h *Handler) deleteWorkloadImpl(c *gin.Context, name string, requestUser *v
 			return nil, commonerrors.IgnoreFound(err)
 		}
 		adminWorkload = generateWorkloadForAuth(name, dbutils.ParseNullString(dbWorkload.UserId), dbWorkload.Workspace, dbWorkload.Cluster)
-		if err = h.authWorkloadAction(c, adminWorkload, v1.DeleteVerb, requestUser, roles); err != nil {
+		if err = h.authWorkloadAction(c, adminWorkload, v1.DeleteVerb, v1.WorkloadKind, requestUser, roles); err != nil {
 			return nil, err
 		}
 		if err = h.dbClient.SetWorkloadDeleted(c.Request.Context(), name); err != nil {
@@ -425,7 +438,7 @@ func (h *Handler) stopWorkloadImpl(c *gin.Context, name string, requestUser *v1.
 		}
 		adminWorkload = generateWorkloadForAuth(name,
 			dbutils.ParseNullString(dbWorkload.UserId), dbWorkload.Workspace, dbWorkload.Cluster)
-		if err = h.authWorkloadAction(c, adminWorkload, v1.DeleteVerb, requestUser, roles); err != nil {
+		if err = h.authWorkloadAction(c, adminWorkload, v1.DeleteVerb, v1.WorkloadKind, requestUser, roles); err != nil {
 			return nil, err
 		}
 		if err = h.dbClient.SetWorkloadStopped(c.Request.Context(), name); err != nil {
@@ -435,7 +448,7 @@ func (h *Handler) stopWorkloadImpl(c *gin.Context, name string, requestUser *v1.
 		if adminWorkload.IsEnd() {
 			return nil, nil
 		}
-		if err = h.authWorkloadAction(c, adminWorkload, v1.DeleteVerb, requestUser, roles); err != nil {
+		if err = h.authWorkloadAction(c, adminWorkload, v1.DeleteVerb, v1.WorkloadKind, requestUser, roles); err != nil {
 			return nil, err
 		}
 		message := fmt.Sprintf("the workload is stopped by %s", c.GetString(common.UserName))
@@ -471,13 +484,8 @@ func (h *Handler) patchWorkload(c *gin.Context) (interface{}, error) {
 	if _, err = apiutils.ParseRequestBody(c.Request, req); err != nil {
 		return nil, commonerrors.NewBadRequest(err.Error())
 	}
-	if err = h.authWorkloadAction(c, adminWorkload, v1.UpdateVerb, requestUser, roles); err != nil {
+	if err = h.authWorkloadUpdate(c, adminWorkload, requestUser, roles, req); err != nil {
 		return nil, err
-	}
-	if req.Priority != nil {
-		if err = h.authWorkloadPriority(c, adminWorkload, v1.UpdateVerb, *req.Priority, requestUser, roles); err != nil {
-			return nil, err
-		}
 	}
 
 	if err = backoff.ConflictRetry(func() error {
@@ -501,6 +509,36 @@ func (h *Handler) patchWorkload(c *gin.Context) (interface{}, error) {
 	}
 	klog.Infof("update workload, name: %s, request: %s", name, string(jsonutils.MarshalSilently(*req)))
 	return nil, nil
+}
+
+// authWorkloadUpdate performs authorization checks for workload update.
+func (h *Handler) authWorkloadUpdate(c *gin.Context, adminWorkload *v1.Workload,
+	requestUser *v1.User, roles []*v1.Role, request *view.PatchWorkloadRequest) error {
+	var err error
+	if err = h.authWorkloadAction(c, adminWorkload, v1.UpdateVerb, v1.WorkloadKind, requestUser, roles); err != nil {
+		return err
+	}
+	if request.Priority != nil && *request.Priority != adminWorkload.Spec.Priority {
+		priorityKind := generatePriority(*request.Priority)
+		if err = h.authWorkloadAction(c, adminWorkload, v1.UpdateVerb, priorityKind, requestUser, roles); err != nil {
+			return err
+		}
+	}
+	if request.Timeout != nil && (adminWorkload.Spec.Timeout == nil || *request.Timeout != *adminWorkload.Spec.Timeout) {
+		workspace, err := h.getAdminWorkspace(c.Request.Context(), adminWorkload.Spec.Workspace)
+		if err != nil {
+			return err
+		}
+		// Modifying timeouts that exceed the workspace limit or setting no timeout requires the highest-priority permission.
+		maxRunTime := workspace.GetMaxRunTime(commonworkload.GetScope(adminWorkload))
+		if maxRunTime > 0 && (*request.Timeout > maxRunTime || *request.Timeout <= 0) {
+			priorityKind := generatePriority(common.HighPriorityInt)
+			if err = h.authWorkloadAction(c, adminWorkload, v1.UpdateVerb, priorityKind, requestUser, roles); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // updateWorkload updates the workload in the system and handles CICD secret updates
@@ -576,7 +614,7 @@ func (h *Handler) getWorkloadPodLog(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err = h.authWorkloadAction(c, workload, v1.GetVerb, requestUser, roles); err != nil {
+	if err = h.authWorkloadAction(c, workload, v1.GetVerb, v1.WorkloadKind, requestUser, roles); err != nil {
 		return nil, err
 	}
 
@@ -695,42 +733,24 @@ func (h *Handler) getRunningWorkloads(ctx context.Context, clusterName string, w
 // authWorkloadAction performs authorization checks for workload-related actions.
 // Validates if the requesting user has permission to perform the specified action on the workload.
 func (h *Handler) authWorkloadAction(c *gin.Context,
-	adminWorkload *v1.Workload, verb v1.RoleVerb, requestUser *v1.User, roles []*v1.Role) error {
+	adminWorkload *v1.Workload, verb v1.RoleVerb, resourceKind string, requestUser *v1.User, roles []*v1.Role) error {
 	var workspaces []string
 	if adminWorkload.Spec.Workspace != "" {
 		workspaces = append(workspaces, adminWorkload.Spec.Workspace)
 	}
-	if err := h.accessController.Authorize(authority.AccessInput{
-		Context:      c.Request.Context(),
-		ResourceKind: v1.WorkloadKind,
-		Resource:     adminWorkload,
-		Verb:         verb,
-		Workspaces:   workspaces,
-		User:         requestUser,
-		UserId:       c.GetString(common.UserId),
-		Roles:        roles,
-	}); err != nil {
-		return err
-	}
-	return nil
-}
-
-// authWorkloadPriority performs authorization checks for workload priority operations.
-// Validates if the requesting user has permission to set the specified priority level.
-func (h *Handler) authWorkloadPriority(c *gin.Context, adminWorkload *v1.Workload,
-	verb v1.RoleVerb, priority int, requestUser *v1.User, roles []*v1.Role) error {
-	priorityKind := fmt.Sprintf("workload/%s", commonworkload.GeneratePriority(priority))
-	resourceOwner := ""
-	if verb == v1.UpdateVerb {
-		resourceOwner = v1.GetUserId(adminWorkload)
+	resourceOwner := v1.GetUserId(adminWorkload)
+	if verb == v1.CreateVerb {
+		resourceOwner = ""
 	}
 	if err := h.accessController.Authorize(authority.AccessInput{
 		Context:       c.Request.Context(),
-		ResourceKind:  priorityKind,
+		ResourceKind:  resourceKind,
 		ResourceOwner: resourceOwner,
+		ResourceName:  adminWorkload.Name,
 		Verb:          verb,
-		Workspaces:    []string{adminWorkload.Spec.Workspace},
+		Workspaces:    workspaces,
 		User:          requestUser,
+		UserId:        c.GetString(common.UserId),
 		Roles:         roles,
 	}); err != nil {
 		return err
@@ -760,6 +780,12 @@ func (h *Handler) generateWorkload(ctx context.Context,
 	if err = json.Unmarshal(body, &workload.Spec); err != nil {
 		return nil, err
 	}
+	controlPlaneIp, err := h.getAdminControlPlaneIp(ctx)
+	if err != nil {
+		return nil, err
+	}
+	v1.SetAnnotation(workload, v1.AdminControlPlaneAnnotation, controlPlaneIp)
+
 	if commonworkload.IsAuthoring(workload) {
 		if len(req.SpecifiedNodes) > 1 {
 			return nil, fmt.Errorf("the authoring can only be created with one node")
@@ -792,17 +818,43 @@ func (h *Handler) generateWorkload(ctx context.Context,
 		v1.SetLabel(workload, v1.UserIdLabel, req.UserEntity.Id)
 		v1.SetAnnotation(workload, v1.UserNameAnnotation, req.UserEntity.Name)
 	}
+	if req.Privileged {
+		v1.SetAnnotation(workload, v1.WorkloadPrivilegedAnnotation, v1.TrueStr)
+	}
+	if req.StickyNodes {
+		v1.SetAnnotation(workload, v1.WorkloadStickyNodesAnnotation, v1.TrueStr)
+	}
 	return workload, nil
 }
 
-// createPreheatWorkload create a preheat workload based on the main workload configuration for resource warming up
-func (h *Handler) createPreheatWorkload(c *gin.Context, mainWorkload *v1.Workload,
-	mainQuery *view.CreateWorkloadRequest, requestUser *v1.User, roles []*v1.Role) (*v1.Workload, error) {
-	displayName := v1.GetDisplayName(mainWorkload)
-	if len(displayName) > commonutils.MaxDisplayNameLen-len(PreheatDescription)-1 {
-		displayName = displayName[:commonutils.MaxDisplayNameLen-len(PreheatDescription)-1]
+// createPreheatWorkloads create all preheat workloads based on the main workload images configuration
+func (h *Handler) createPreheatWorkloads(c *gin.Context, mainWorkload *v1.Workload,
+	mainQuery *view.CreateWorkloadRequest, requestUser *v1.User, roles []*v1.Role) ([]*v1.Workload, error) {
+	var result []*v1.Workload
+	uniqImageSet := sets.NewSet()
+	for _, image := range mainWorkload.Spec.Images {
+		if uniqImageSet.Has(image) {
+			continue
+		}
+		uniqImageSet.Insert(image)
+		preheatWorkload, err := h.createPreheatWorkload(c, mainWorkload, mainQuery, image, requestUser, roles)
+		if err != nil {
+			return result, err
+		}
+		result = append(result, preheatWorkload)
 	}
-	displayName = PreheatDescription + "-" + displayName
+	return result, nil
+}
+
+// createPreheatWorkload create a preheat workload based on the main workload image for resource warming up
+func (h *Handler) createPreheatWorkload(c *gin.Context, mainWorkload *v1.Workload,
+	mainQuery *view.CreateWorkloadRequest, image string, requestUser *v1.User, roles []*v1.Role) (*v1.Workload, error) {
+	displayName := v1.GetDisplayName(mainWorkload)
+	description := "preheat"
+	if len(displayName) > commonutils.MaxPytorchJobNameLen-len(description)-1 {
+		displayName = displayName[:commonutils.MaxPytorchJobNameLen-len(description)-1]
+	}
+	displayName = description + "-" + displayName
 
 	preheatWorkload := &v1.Workload{
 		ObjectMeta: metav1.ObjectMeta{
@@ -811,7 +863,7 @@ func (h *Handler) createPreheatWorkload(c *gin.Context, mainWorkload *v1.Workloa
 				v1.DisplayNameLabel: displayName,
 			},
 			Annotations: map[string]string{
-				v1.DescriptionAnnotation:       PreheatDescription,
+				v1.DescriptionAnnotation:       v1.OpsJobKind,
 				v1.RequireNodeSpreadAnnotation: v1.TrueStr,
 			},
 		},
@@ -822,8 +874,8 @@ func (h *Handler) createPreheatWorkload(c *gin.Context, mainWorkload *v1.Workloa
 				Memory:           "8Gi",
 				EphemeralStorage: "50Gi",
 			}},
-			Image:      mainWorkload.Spec.Image,
-			EntryPoint: stringutil.Base64Encode("echo \"preheat finished\""),
+			Images:      []string{image},
+			EntryPoints: []string{stringutil.Base64Encode("echo \"preheat finished\"")},
 			GroupVersionKind: v1.GroupVersionKind{
 				Kind:    common.JobKind,
 				Version: common.DefaultVersion,
@@ -836,7 +888,6 @@ func (h *Handler) createPreheatWorkload(c *gin.Context, mainWorkload *v1.Workloa
 			Secrets:                 mainWorkload.Spec.Secrets,
 		},
 	}
-
 	if len(mainQuery.SpecifiedNodes) > 0 {
 		preheatWorkload.Spec.Resources[0].Replica = len(mainQuery.SpecifiedNodes)
 	} else {
@@ -855,7 +906,6 @@ func (h *Handler) createPreheatWorkload(c *gin.Context, mainWorkload *v1.Workloa
 		return nil, err
 	}
 	preheatWorkload.Name = resp.WorkloadId
-
 	return preheatWorkload, nil
 }
 
@@ -1110,11 +1160,11 @@ func applyWorkloadPatch(adminWorkload *v1.Workload, req *view.PatchWorkloadReque
 		}
 		adminWorkload.Spec.Resources = *req.Resources
 	}
-	if req.Image != nil && *req.Image != "" {
-		adminWorkload.Spec.Image = *req.Image
+	if req.Images != nil && len(*req.Images) > 0 {
+		adminWorkload.Spec.Images = *req.Images
 	}
-	if req.EntryPoint != nil && *req.EntryPoint != "" {
-		adminWorkload.Spec.EntryPoint = *req.EntryPoint
+	if req.EntryPoints != nil && len(*req.EntryPoints) > 0 {
+		adminWorkload.Spec.EntryPoints = *req.EntryPoints
 	}
 	if req.Description != nil {
 		v1.SetAnnotation(adminWorkload, v1.DescriptionAnnotation, *req.Description)
@@ -1139,34 +1189,34 @@ func applyWorkloadPatch(adminWorkload *v1.Workload, req *view.PatchWorkloadReque
 
 // cvtDBWorkloadToResponseItem converts a database workload record to a response item format.
 // Maps database fields to the appropriate response structure with proper null value handling.
-func (h *Handler) cvtDBWorkloadToResponseItem(ctx context.Context, w *dbclient.Workload) view.WorkloadResponseItem {
+func (h *Handler) cvtDBWorkloadToResponseItem(ctx context.Context, dbWorkload *dbclient.Workload) view.WorkloadResponseItem {
 	result := view.WorkloadResponseItem{
-		WorkloadId:     w.WorkloadId,
-		WorkspaceId:    w.Workspace,
-		ClusterId:      w.Cluster,
-		Phase:          dbutils.ParseNullString(w.Phase),
-		CreationTime:   dbutils.ParseNullTimeToString(w.CreationTime),
-		StartTime:      dbutils.ParseNullTimeToString(w.StartTime),
-		EndTime:        dbutils.ParseNullTimeToString(w.EndTime),
-		DeletionTime:   dbutils.ParseNullTimeToString(w.DeletionTime),
-		QueuePosition:  w.QueuePosition,
-		DispatchCount:  w.DispatchCount,
-		DisplayName:    w.DisplayName,
-		Description:    dbutils.ParseNullString(w.Description),
-		UserId:         dbutils.ParseNullString(w.UserId),
-		UserName:       dbutils.ParseNullString(w.UserName),
-		Priority:       w.Priority,
-		IsTolerateAll:  w.IsTolerateAll,
-		WorkloadUid:    dbutils.ParseNullString(w.WorkloadUId),
+		WorkloadId:     dbWorkload.WorkloadId,
+		WorkspaceId:    dbWorkload.Workspace,
+		ClusterId:      dbWorkload.Cluster,
+		Phase:          dbutils.ParseNullString(dbWorkload.Phase),
+		CreationTime:   dbutils.ParseNullTimeToString(dbWorkload.CreationTime),
+		StartTime:      dbutils.ParseNullTimeToString(dbWorkload.StartTime),
+		EndTime:        dbutils.ParseNullTimeToString(dbWorkload.EndTime),
+		DeletionTime:   dbutils.ParseNullTimeToString(dbWorkload.DeletionTime),
+		QueuePosition:  dbWorkload.QueuePosition,
+		DispatchCount:  dbWorkload.DispatchCount,
+		DisplayName:    dbWorkload.DisplayName,
+		Description:    dbutils.ParseNullString(dbWorkload.Description),
+		UserId:         dbutils.ParseNullString(dbWorkload.UserId),
+		UserName:       dbutils.ParseNullString(dbWorkload.UserName),
+		Priority:       dbWorkload.Priority,
+		IsTolerateAll:  dbWorkload.IsTolerateAll,
+		WorkloadUid:    dbutils.ParseNullString(dbWorkload.WorkloadUId),
 		AvgGpuUsage:    -1, // Default value when statistics are not available
-		ScaleRunnerSet: dbutils.ParseNullString(w.ScaleRunnerSet),
-		ScaleRunnerId:  dbutils.ParseNullString(w.ScaleRunnerId),
-		MaxRetry:       w.MaxRetry,
+		ScaleRunnerSet: dbutils.ParseNullString(dbWorkload.ScaleRunnerSet),
+		ScaleRunnerId:  dbutils.ParseNullString(dbWorkload.ScaleRunnerId),
+		MaxRetry:       dbWorkload.MaxRetry,
 	}
 	if result.EndTime == "" && result.DeletionTime != "" {
 		result.EndTime = result.DeletionTime
 	}
-	if startTime := dbutils.ParseNullTime(w.StartTime); !startTime.IsZero() {
+	if startTime := dbutils.ParseNullTime(dbWorkload.StartTime); !startTime.IsZero() {
 		endTime, err := timeutil.CvtStrToRFC3339Milli(result.EndTime)
 		nowTime := time.Now().UTC()
 		if err != nil || endTime.After(nowTime) {
@@ -1176,18 +1226,14 @@ func (h *Handler) cvtDBWorkloadToResponseItem(ctx context.Context, w *dbclient.W
 	} else {
 		result.Duration = "0s"
 	}
-	json.Unmarshal([]byte(w.GVK), &result.GroupVersionKind)
-	if val := dbutils.ParseNullString(w.Resources); val != "" {
-		json.Unmarshal([]byte(val), &result.Resources)
-	}
-	if len(result.Resources) == 0 {
-		result.Resources = cvtToWorkloadResources(w, result.GroupVersionKind.Kind)
-	}
-	if w.Timeout > 0 {
-		result.Timeout = pointer.Int(w.Timeout)
+	json.Unmarshal([]byte(dbWorkload.GVK), &result.GroupVersionKind)
+	result.Resources = cvtToWorkloadResources(dbWorkload, result.GroupVersionKind.Kind)
+
+	if dbWorkload.Timeout > 0 {
+		result.Timeout = pointer.Int(dbWorkload.Timeout)
 		if result.EndTime == "" {
-			if t := dbutils.ParseNullTime(w.StartTime); !t.IsZero() {
-				result.SecondsUntilTimeout = t.Unix() + int64(w.Timeout) - time.Now().Unix()
+			if t := dbutils.ParseNullTime(dbWorkload.StartTime); !t.IsZero() {
+				result.SecondsUntilTimeout = t.Unix() + int64(dbWorkload.Timeout) - time.Now().Unix()
 				if result.SecondsUntilTimeout < 0 {
 					result.SecondsUntilTimeout = 0
 				}
@@ -1211,14 +1257,14 @@ func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context,
 	user *v1.User, roles []*v1.Role, dbWorkload *dbclient.Workload) *view.GetWorkloadResponse {
 	result := &view.GetWorkloadResponse{
 		WorkloadResponseItem: h.cvtDBWorkloadToResponseItem(ctx, dbWorkload),
-		Image:                dbWorkload.Image,
 		IsSupervised:         dbWorkload.IsSupervised,
+		StickyNodes:          dbWorkload.IsStickyNodes,
 	}
-	if result.GroupVersionKind.Kind != common.AuthoringKind && dbWorkload.EntryPoint != "" {
-		if stringutil.IsBase64(dbWorkload.EntryPoint) {
-			result.EntryPoint = stringutil.Base64Decode(dbWorkload.EntryPoint)
-		}
+	result.Images = cvtToWorkloadImages(dbWorkload, len(result.Resources))
+	if result.GroupVersionKind.Kind != common.AuthoringKind {
+		result.EntryPoints = cvtToWorkloadEntryPoints(dbWorkload, len(result.Resources))
 	}
+
 	if dbWorkload.TTLSecond > 0 {
 		result.TTLSecondsAfterFinished = pointer.Int(dbWorkload.TTLSecond)
 	}
@@ -1261,7 +1307,7 @@ func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context,
 		json.Unmarshal([]byte(str), &dependencies)
 		for _, id := range dependencies {
 			item, err := h.dbClient.GetWorkload(ctx, id)
-			if err == nil && dbutils.ParseNullString(item.Description) != PreheatDescription {
+			if err == nil && dbutils.ParseNullString(item.Description) != v1.OpsJobKind {
 				result.Dependencies = append(result.Dependencies, id)
 			}
 		}
@@ -1372,68 +1418,66 @@ func generateWorkloadForAuth(name, userId, workspace, clusterId string) *v1.Work
 
 // cvtDBWorkloadToAdminWorkload converts a database workload record to a workload CR object.
 // Used for cloning workloads from database records to create new workload objects.
-func cvtDBWorkloadToAdminWorkload(dbItem *dbclient.Workload) *v1.Workload {
+func cvtDBWorkloadToAdminWorkload(dbWorkload *dbclient.Workload) *v1.Workload {
 	result := &v1.Workload{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: commonutils.GenerateName(dbItem.DisplayName),
+			Name: commonutils.GenerateName(dbWorkload.DisplayName),
 			Labels: map[string]string{
-				v1.DisplayNameLabel: dbItem.DisplayName,
-				v1.UserIdLabel:      dbutils.ParseNullString(dbItem.UserId),
+				v1.DisplayNameLabel: dbWorkload.DisplayName,
+				v1.UserIdLabel:      dbutils.ParseNullString(dbWorkload.UserId),
 			},
 			Annotations: map[string]string{
-				v1.DescriptionAnnotation: dbutils.ParseNullString(dbItem.Description),
-				v1.UserNameAnnotation:    dbutils.ParseNullString(dbItem.UserName),
+				v1.DescriptionAnnotation: dbutils.ParseNullString(dbWorkload.Description),
+				v1.UserNameAnnotation:    dbutils.ParseNullString(dbWorkload.UserName),
 			},
 		},
 		Spec: v1.WorkloadSpec{
-			Workspace:     dbItem.Workspace,
-			Image:         dbItem.Image,
-			EntryPoint:    dbItem.EntryPoint,
-			IsSupervised:  dbItem.IsSupervised,
-			MaxRetry:      dbItem.MaxRetry,
-			Priority:      dbItem.Priority,
-			IsTolerateAll: dbItem.IsTolerateAll,
+			Workspace:     dbWorkload.Workspace,
+			IsSupervised:  dbWorkload.IsSupervised,
+			MaxRetry:      dbWorkload.MaxRetry,
+			Priority:      dbWorkload.Priority,
+			IsTolerateAll: dbWorkload.IsTolerateAll,
 		},
 	}
-	json.Unmarshal([]byte(dbItem.GVK), &result.Spec.GroupVersionKind)
-	if val := dbutils.ParseNullString(dbItem.Resources); val != "" {
-		json.Unmarshal([]byte(val), &result.Spec.Resources)
-	}
-	if len(result.Spec.Resources) == 0 {
-		result.Spec.Resources = cvtToWorkloadResources(dbItem, result.Spec.GroupVersionKind.Kind)
+	json.Unmarshal([]byte(dbWorkload.GVK), &result.Spec.GroupVersionKind)
+	result.Spec.Resources = cvtToWorkloadResources(dbWorkload, result.SpecKind())
+	result.Spec.Images = cvtToWorkloadImages(dbWorkload, len(result.Spec.Resources))
+	result.Spec.EntryPoints = cvtToWorkloadEntryPoints(dbWorkload, len(result.Spec.Resources))
+	if dbWorkload.IsStickyNodes {
+		v1.SetAnnotation(result, v1.WorkloadStickyNodesAnnotation, v1.TrueStr)
 	}
 
-	if str := dbutils.ParseNullString(dbItem.Env); str != "" {
+	if str := dbutils.ParseNullString(dbWorkload.Env); str != "" {
 		json.Unmarshal([]byte(str), &result.Spec.Env)
 	}
-	if dbItem.TTLSecond > 0 {
-		result.Spec.TTLSecondsAfterFinished = pointer.Int(dbItem.TTLSecond)
+	if dbWorkload.TTLSecond > 0 {
+		result.Spec.TTLSecondsAfterFinished = pointer.Int(dbWorkload.TTLSecond)
 	}
-	if dbItem.Timeout > 0 {
-		result.Spec.Timeout = pointer.Int(dbItem.Timeout)
+	if dbWorkload.Timeout > 0 {
+		result.Spec.Timeout = pointer.Int(dbWorkload.Timeout)
 	}
-	if str := dbutils.ParseNullString(dbItem.CustomerLabels); str != "" {
+	if str := dbutils.ParseNullString(dbWorkload.CustomerLabels); str != "" {
 		json.Unmarshal([]byte(str), &result.Spec.CustomerLabels)
 	}
-	if str := dbutils.ParseNullString(dbItem.Liveness); str != "" {
+	if str := dbutils.ParseNullString(dbWorkload.Liveness); str != "" {
 		json.Unmarshal([]byte(str), &result.Spec.Liveness)
 	}
-	if str := dbutils.ParseNullString(dbItem.Readiness); str != "" {
+	if str := dbutils.ParseNullString(dbWorkload.Readiness); str != "" {
 		json.Unmarshal([]byte(str), &result.Spec.Readiness)
 	}
-	if str := dbutils.ParseNullString(dbItem.Service); str != "" {
+	if str := dbutils.ParseNullString(dbWorkload.Service); str != "" {
 		json.Unmarshal([]byte(str), &result.Spec.Service)
 	}
-	if str := dbutils.ParseNullString(dbItem.Dependencies); str != "" {
+	if str := dbutils.ParseNullString(dbWorkload.Dependencies); str != "" {
 		json.Unmarshal([]byte(str), &result.Spec.Dependencies)
 	}
-	if str := dbutils.ParseNullString(dbItem.CronJobs); str != "" {
+	if str := dbutils.ParseNullString(dbWorkload.CronJobs); str != "" {
 		json.Unmarshal([]byte(str), &result.Spec.CronJobs)
 	}
-	if str := dbutils.ParseNullString(dbItem.Secrets); str != "" {
+	if str := dbutils.ParseNullString(dbWorkload.Secrets); str != "" {
 		json.Unmarshal([]byte(str), &result.Spec.Secrets)
 	}
-	if str := dbutils.ParseNullString(dbItem.ScaleRunnerSet); str != "" {
+	if str := dbutils.ParseNullString(dbWorkload.ScaleRunnerSet); str != "" {
 		if len(result.Spec.Env) == 0 {
 			result.Spec.Env = make(map[string]string)
 		}
@@ -1470,7 +1514,7 @@ func (h *Handler) getWorkloadPodContainers(c *gin.Context) (interface{}, error) 
 		}
 	}
 
-	if err = h.authWorkloadAction(c, adminWorkload, v1.GetVerb, requestUser, roles); err != nil {
+	if err = h.authWorkloadAction(c, adminWorkload, v1.GetVerb, v1.WorkloadKind, requestUser, roles); err != nil {
 		return nil, err
 	}
 
@@ -1494,10 +1538,50 @@ func (h *Handler) getWorkloadPodContainers(c *gin.Context) (interface{}, error) 
 	}, nil
 }
 
-func cvtToWorkloadResources(dbItem *dbclient.Workload, kind string) []v1.WorkloadResource {
-	var resource v1.WorkloadResource
-	if json.Unmarshal([]byte(dbItem.Resource), &resource) == nil {
-		return commonworkload.ConvertResourceToList(resource, kind)
+func cvtToWorkloadResources(dbWorkload *dbclient.Workload, kind string) []v1.WorkloadResource {
+	var resources []v1.WorkloadResource
+	if val := dbutils.ParseNullString(dbWorkload.Resources); val != "" {
+		json.Unmarshal([]byte(val), &resources)
 	}
-	return nil
+	if len(resources) == 0 {
+		var resource v1.WorkloadResource
+		if json.Unmarshal([]byte(dbWorkload.Resource), &resource) == nil {
+			resources = commonworkload.ConvertResourceToList(resource, kind)
+		}
+	}
+	return resources
+}
+
+func cvtToWorkloadImages(dbWorkload *dbclient.Workload, count int) []string {
+	var images []string
+	if val := dbutils.ParseNullString(dbWorkload.Images); val != "" {
+		json.Unmarshal([]byte(val), &images)
+	}
+	if len(images) == 0 && dbWorkload.Image != "" {
+		for i := 0; i < count; i++ {
+			images = append(images, dbWorkload.Image)
+		}
+	}
+	return images
+}
+func cvtToWorkloadEntryPoints(dbWorkload *dbclient.Workload, count int) []string {
+	var entryPoints []string
+	if val := dbutils.ParseNullString(dbWorkload.EntryPoints); val != "" {
+		json.Unmarshal([]byte(val), &entryPoints)
+	}
+	if len(entryPoints) == 0 && dbWorkload.EntryPoint != "" {
+		for i := 0; i < count; i++ {
+			entryPoints = append(entryPoints, dbWorkload.EntryPoint)
+		}
+	}
+	for i := 0; i < len(entryPoints); i++ {
+		if stringutil.IsBase64(entryPoints[i]) {
+			entryPoints[i] = stringutil.Base64Decode(entryPoints[i])
+		}
+	}
+	return entryPoints
+}
+
+func generatePriority(priority int) string {
+	return fmt.Sprintf("workload/%s", commonworkload.GeneratePriority(priority))
 }

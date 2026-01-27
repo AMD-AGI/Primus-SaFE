@@ -23,8 +23,15 @@ const (
 	MaxNameLength          = 63
 	randomLength           = 5
 	MaxGeneratedNameLength = MaxNameLength - randomLength - 1
-	// 13 is the fixed suffix length of pytorchjob.
-	MaxDisplayNameLen = MaxGeneratedNameLength - 13
+	// 13 is the fixed suffix length of pytorchjob pod.
+	MaxPytorchJobNameLen = MaxGeneratedNameLength - 13
+	// 17 is the fixed suffix length of deployment pod.
+	MaxDeploymentNameLen   = MaxGeneratedNameLength - 17
+	MaxCICDScaleSetNameLen = 39
+	// 4 is the fixed suffix length of internal torchft worker name.
+	MaxTorchFTNameLen = MaxDeploymentNameLen - 4
+	// ray-pod: {workload-id}-5qj68-1-worker-78x27. 21 is the fixed suffix length
+	MaxRayJobNameLen = MaxGeneratedNameLength - 21
 )
 
 // GenerateName generates a unique name by appending a random string to the base name.

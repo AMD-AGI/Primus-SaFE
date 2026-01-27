@@ -23,8 +23,6 @@ Create a new workload.
     "kind": "PyTorchJob",
     "version": "v1"
   },
-  "image": "harbor.example.com/ai/pytorch:2.0",
-  "entryPoint": "cHl0aG9uIHRyYWluLnB5",
   "resources": [{
     "cpu": "128",
     "gpu": "8",
@@ -38,6 +36,8 @@ Create a new workload.
      "ephemeralStorage": "300Gi",
      "replica": 31
   }],
+  "images": ["harbor.example.com/ai/pytorch:2.0","harbor.example.com/ai/pytorch:2.0"],
+  "entryPoints": ["cHl0aG9uIHRyYWluLnB5","cHl0aG9uIHRyYWluLnB5"],
   "priority": 0,
   "timeout": 3600,
   "maxRetry": 0,
@@ -72,7 +72,8 @@ Create a new workload.
   "annotations": {
     "description": "Training job for model v2"
   },
-  "preheat": true
+  "preheat": true,
+  "stickyNodes": true
 }
 ```
 
@@ -86,8 +87,8 @@ Create a new workload.
     "kind": "Deployment",
     "version": "v1"
   },
-  "image": "harbor.example.com/ai/infer:1.0",
-  "entryPoint": "cHl0aG9uIHRyYWluLnB5",
+  "images": ["harbor.example.com/ai/infer:1.0"],
+  "entryPoints": ["cHl0aG9uIHRyYWluLnB5"],
   "resources": [{
     "cpu": "128",
     "gpu": "8",
@@ -168,8 +169,8 @@ Create a new workload.
     "kind": "TorchFT",
     "version": "v1"
   },
-  "image": "harbor.example.com/ai/pytorch:2.0",
-  "entryPoint": "cHl0aG9uIHRyYWluLnB5",
+  "images": ["harbor.example.com/ai/torchft:2.0","harbor.example.com/ai/torchft:2.0"],
+  "entryPoints": ["cHl0aG9uIHRyYWluLnB5","cHl0aG9uIHRyYWluLnB5"],
   "resources": [{
     "cpu": "2",
     "memory": "4Gi",
@@ -258,53 +259,54 @@ TorchFT is a fault-tolerant distributed training framework that supports elastic
 
 **Field Description**:
 
-| Field                        | Type     | Required | Description                                                                                                                              |
-|------------------------------|----------|----------|------------------------------------------------------------------------------------------------------------------------------------------|
-| displayName                  | string   | Yes      | Workload display name                                                                                                                    |
-| description                  | string   | No       | Workload description                                                                                                                     |
-| workspaceId                  | string   | Yes      | Workspace ID                                                                                                                             |
-| groupVersionKind.kind        | string   | Yes      | Workload type: PyTorchJob/Deployment/StatefulSet/Authoring/AutoscalingRunnerSet/TorchFT                                                  |
-| groupVersionKind.version     | string   | Yes      | Version, usually v1                                                                                                                      |
-| image                        | string   | Yes      | Image address                                                                                                                            |
-| entryPoint                   | string   | Yes      | Startup command/script (Base64 encoded)                                                                                                  |
-| resources                    | []object | Yes      | Resource requirements, It may involve multiple resources, e.g., a PyTorchJob with master and worker roles.                               |
-| resources[].cpu              | string   | Yes      | Number of CPU cores                                                                                                                      |
-| resources[].gpu              | string   | No       | Number of GPU cards                                                                                                                      |
-| resources[].memory           | string   | Yes      | Memory size, e.g. "256Gi"                                                                                                                |
-| resources[].ephemeralStorage | string   | No       | Ephemeral-storage for pod. default 50Gi                                                                                                  |
-| resources[].replica          | int      | Yes      | Number of replicas. See below for special rules when `specifiedNodes` is provided.                                                       |
-| priority                     | int      | No       | Priority (0-2), default 0                                                                                                                |
-| timeout                      | int      | No       | Timeout in seconds, 0 means no timeout, 	The timeout is calculated from the moment the workload is dispatched.                           |
-| maxRetry                     | int      | No       | Maximum retry count, default 0                                                                                                           |
-| env                          | object   | No       | Environment variable key-value pairs                                                                                                     |
-| specifiedNodes               | []string | No       | List of nodes to run on                                                                                                                  |
-| excludedNodes                | []string | No       | List of nodes to avoid running on. If `specifiedNodes` is provided, this field will be ignored.                                          |                                                                                                  
-| isSupervised                 | bool     | No       | When enabled, it performs operations like hang detection                                                                                 |
-| ttlSecondsAfterFinished      | int      | No       | The lifecycle of the workload after completion, in seconds. Default is 60                                                                |
-| customerLabels               | object   | No       | The workload will run on nodes with the user-specified labels                                                                            |
-| liveness.path                | string   | No       | Liveness probe HTTP path. liveness is only for Deployment/StatefulSet                                                                    |
-| liveness.port                | int      | No       | Liveness probe port                                                                                                                      |
-| liveness.initialDelaySeconds | int      | No       | Liveness initial delay seconds, default 600                                                                                              |
-| liveness.periodSeconds       | int      | No       | Liveness check period seconds, default 3                                                                                                 |
-| liveness.failureThreshold    | int      | No       | Liveness failure threshold, default 3                                                                                                    |
-| service.protocol             | string   | No       | Service protocol, e.g. TCP/UDP, default TCP                                                                                              |
-| service.port                 | int      | No       | Service port for external access                                                                                                         |
-| service.nodePort             | int      | No       | Service NodePort (for NodePort type)                                                                                                     |
-| service.targetPort           | int      | No       | Target container port                                                                                                                    |
-| service.serviceType          | string   | No       | Service type, e.g. ClusterIP/NodePort                                                                                                    |
-| service.extends              | object   | No       | Additional service fields (advanced)                                                                                                     |
-| dependencies                 | []string | No       | Dependent workload IDs that must complete first                                                                                          |
-| cronJobs[].schedule          | string   | No       | Scheduled trigger time (RFC3339 Milli timestamp)                                                                                         |
-| cronJobs[].action            | string   | No       | Action to perform, e.g. start                                                                                                            |
- | secrets                      | []object | No       | Secrets automatically use all image secrets bound to the workspace.  You can also define your own Secret, such as a token used for CI/CD |
- | secrets[].id                 | string   | Yes      | Secret ID                                                                                                                                |
- | isTolerateAll                | bool     | No       | Whether to tolerate all node taints                                                                                                      |
-| labels                       | object   | No       | User-defined labels (key-value pairs). Keys cannot start with "primus-safe"                                                              |
-| annotations                  | object   | No       | User-defined annotations (key-value pairs). Keys cannot start with "primus-safe"                                                         |
-| preheat                      | bool     | No       | indicates whether to preheat the workload to prepare image in advance                                                                    |
-| workloadId                   | string   | NO       | 	If a workload ID is specified, use that ID directly instead of generating one from the display name.                                    |
-| userEntry.id                 | string   | NO       | The workload will be created using that specific user ID. This field is only accessible to administrators.                               |
-| userEntry.name               | string   | NO       | The workload will be created using that specific user name. This field is only accessible to administrators.                             |
+| Field                        | Type     | Required | Description                                                                                                                                                                                                |
+|------------------------------|----------|----------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| displayName                  | string   | Yes      | Workload display name                                                                                                                                                                                      |
+| description                  | string   | No       | Workload description                                                                                                                                                                                       |
+| workspaceId                  | string   | Yes      | Workspace ID                                                                                                                                                                                               |
+| groupVersionKind.kind        | string   | Yes      | Workload type: PyTorchJob/Deployment/StatefulSet/Authoring/AutoscalingRunnerSet/TorchFT                                                                                                                    |
+| groupVersionKind.version     | string   | Yes      | Version, usually v1                                                                                                                                                                                        |
+| images                       | []string | No       | Image address. The length of the `images` array should match the length of the `resources` array to ensure that each resource has a corresponding image configuration.                                     |
+| entryPoints                  | []string | No       | Startup command/script (Base64 encoded). The length of the `entryPoints` array should match the length of the `resources` array to ensure that each resource has a corresponding entryPoint configuration. |
+| resources                    | []object | Yes      | Resource requirements, It may involve multiple resources, e.g., a PyTorchJob with master and worker roles.                                                                                                 |
+| resources[].cpu              | string   | Yes      | Number of CPU cores                                                                                                                                                                                        |
+| resources[].gpu              | string   | No       | Number of GPU cards                                                                                                                                                                                        |
+| resources[].memory           | string   | Yes      | Memory size, e.g. "256Gi"                                                                                                                                                                                  |
+| resources[].ephemeralStorage | string   | No       | Ephemeral-storage for pod. default 50Gi                                                                                                                                                                    |
+| resources[].replica          | int      | Yes      | Number of replicas. See below for special rules when `specifiedNodes` is provided.                                                                                                                         |
+| priority                     | int      | No       | Priority (0-2), default 0                                                                                                                                                                                  |
+| timeout                      | int      | No       | Timeout in seconds, 0 means no timeout, 	The timeout is calculated from the moment the workload is dispatched.                                                                                             |
+| maxRetry                     | int      | No       | Maximum retry count, default 0                                                                                                                                                                             |
+| env                          | object   | No       | Environment variable key-value pairs                                                                                                                                                                       |
+| specifiedNodes               | []string | No       | List of nodes to run on                                                                                                                                                                                    |
+| excludedNodes                | []string | No       | List of nodes to avoid running on. If `specifiedNodes` is provided, this field will be ignored.                                                                                                            |                                                                                                  
+| isSupervised                 | bool     | No       | When enabled, it performs operations like hang detection                                                                                                                                                   |
+| ttlSecondsAfterFinished      | int      | No       | The lifecycle of the workload after completion, in seconds. Default is 60                                                                                                                                  |
+| customerLabels               | object   | No       | The workload will run on nodes with the user-specified labels                                                                                                                                              |
+| liveness.path                | string   | No       | Liveness probe HTTP path. liveness is only for Deployment/StatefulSet                                                                                                                                      |
+| liveness.port                | int      | No       | Liveness probe port                                                                                                                                                                                        |
+| liveness.initialDelaySeconds | int      | No       | Liveness initial delay seconds, default 600                                                                                                                                                                |
+| liveness.periodSeconds       | int      | No       | Liveness check period seconds, default 3                                                                                                                                                                   |
+| liveness.failureThreshold    | int      | No       | Liveness failure threshold, default 3                                                                                                                                                                      |
+| service.protocol             | string   | No       | Service protocol, e.g. TCP/UDP, default TCP                                                                                                                                                                |
+| service.port                 | int      | No       | Service port for external access                                                                                                                                                                           |
+| service.nodePort             | int      | No       | Service NodePort (for NodePort type)                                                                                                                                                                       |
+| service.targetPort           | int      | No       | Target container port                                                                                                                                                                                      |
+| service.serviceType          | string   | No       | Service type, e.g. ClusterIP/NodePort                                                                                                                                                                      |
+| service.extends              | object   | No       | Additional service fields (advanced)                                                                                                                                                                       |
+| dependencies                 | []string | No       | Dependent workload IDs that must complete first                                                                                                                                                            |
+| cronJobs[].schedule          | string   | No       | Scheduled trigger time (RFC3339 Milli timestamp)                                                                                                                                                           |
+| cronJobs[].action            | string   | No       | Action to perform, e.g. start                                                                                                                                                                              |
+| secrets                      | []object | No       | Secrets automatically use all image secrets bound to the workspace.  You can also define your own Secret, such as a token used for CI/CD                                                                   |
+| secrets[].id                 | string   | Yes      | Secret ID                                                                                                                                                                                                  |
+| isTolerateAll                | bool     | No       | Whether to tolerate all node taints                                                                                                                                                                        |
+| labels                       | object   | No       | User-defined labels (key-value pairs). Keys cannot start with "primus-safe"                                                                                                                                |
+| annotations                  | object   | No       | User-defined annotations (key-value pairs). Keys cannot start with "primus-safe"                                                                                                                           |
+| preheat                      | bool     | No       | Whether to preheat the workload to prepare image in advance                                                                                                                                                |
+| stickyNodes                  | bool     | No       | When enabled, the workload will try to use the same nodes during retries/failovers.                                                                                                                        |
+| workloadId                   | string   | NO       | If a workload ID is specified, use that ID directly instead of generating one from the display name.                                                                                                       |
+| userEntry.id                 | string   | NO       | The workload will be created using that specific user ID. This field is only accessible to administrators.                                                                                                 |
+| userEntry.name               | string   | NO       | The workload will be created using that specific user name. This field is only accessible to administrators.                                                                                               |
 
 **Replica Rules when `specifiedNodes` is provided**:
 
@@ -406,43 +408,43 @@ Get workload list with filtering and pagination support.
 ```
 **Field Description**:
 
-| Field                        | Type | Description                                                                             |
-|------------------------------|-----|-----------------------------------------------------------------------------------------|
-| totalCount                   | int | Total number of workloads matching the query (not limited by pagination)                |
-| workloadId                   | string | Workload ID                                                                             |
-| displayName                  | string | Workload display name                                                                   |
-| description                  | string | Workload description                                                                    |
-| workspaceId                  | string | Workspace the workload belongs to                                                       |
-| clusterId                    | string | Cluster the workload belongs to                                                         |
-| userId                       | string | ID of the user who submitted the workload                                               |
-| userName                     | string | Username of the submitter                                                               |
-| phase                        | string | Status: Pending/Running/Succeeded/Failed/Stopped/Updating/NotReady                      |
-| message                      | string | Pending reason (shown when applicable)                                                  |
-| priority                     | int | Scheduling priority (0-2), default 0                                                    |
-| maxRetry                     | int | Failure retry limit. default 0                                                                           |
-| creationTime                 | string | Creation time (RFC3339), e.g. "2025-01-15T10:30:00"                                     |
-| startTime                    | string | Start time (RFC3339)                                                                    |
-| endTime                      | string | End time (RFC3339), empty if not finished                                               |
-| deletionTime                 | string | Deletion time (RFC3339), empty if not deleted                                           |
-| duration                     | string | Human-readable duration from start to end (or now), e.g. "1h30m45s"                     |
-| secondsUntilTimeout          | int | Seconds until timeout from start; -1 if not started                                     |
-| queuePosition                | int | Queue position when workload is pending                                                 |
-| dispatchCount                | int | Number of dispatch attempts                                                             |
-| isTolerateAll                | bool | Whether to tolerate all node taints                                                     |
-| groupVersionKind.kind        | string | Workload type: PyTorchJob/Deployment/StatefulSet/Authoring/AutoscalingRunnerSet/TorchFT |
-| groupVersionKind.version     | string | API version (usually v1)                                                                |
-| timeout                      | int | Timeout seconds (0 means no timeout)                                                    |
-| workloadUid                  | string | Workload UID                                                                            |
-| k8sObjectUid                 | string | Corresponding Kubernetes object UID (e.g., PyTorchJob UID)                              |
-| avgGpuUsage                  | float | Average GPU usage in the last 3 hours; -1 if unavailable                                |
-| scaleRunnerSet               | string | Associated Scale Runner Set ID for CI/CD workloads (if any)                             |
-| scaleRunnerId                | string | Associated Github Action Runner ID for CI/CD workloads (if any)                         |
-| resources[].cpu              | string | CPU cores, e.g. "128"                                                                   |
-| resources[].gpu              | string | GPU cards, e.g. "8"                                                                     |
-| resources[].memory           | string | Memory size, e.g. "256Gi"                                                               |
-| resources[].ephemeralStorage | string | Ephemeral storage size, e.g. "256Gi"                                                    |
-| resources[].sharedMemory     | string | Shared memory size, e.g. "64Gi"                                                         |
-| resources[].replica          | int | Replica count                                                                           |
+| Field                        | Type | Description                                                                              |
+|------------------------------|-----|------------------------------------------------------------------------------------------|
+| totalCount                   | int | Total number of workloads matching the query (not limited by pagination)                 |
+| workloadId                   | string | Workload ID                                                                              |
+| displayName                  | string | Workload display name                                                                    |
+| description                  | string | Workload description                                                                     |
+| workspaceId                  | string | Workspace the workload belongs to                                                        |
+| clusterId                    | string | Cluster the workload belongs to                                                          |
+| userId                       | string | ID of the user who submitted the workload                                                |
+| userName                     | string | Username of the submitter                                                                |
+| phase                        | string | Status: Pending/Running/Succeeded/Failed/Stopped/Updating/NotReady                       |
+| message                      | string | Pending reason (shown when applicable)                                                   |
+| priority                     | int | Scheduling priority (0-2), default 0                                                     |
+| maxRetry                     | int | Failure retry limit. default 0                                                           |
+| creationTime                 | string | Creation time (RFC3339), e.g. "2025-01-15T10:30:00"                                      |
+| startTime                    | string | Start time (RFC3339)                                                                     |
+| endTime                      | string | End time (RFC3339), empty if not finished                                                |
+| deletionTime                 | string | Deletion time (RFC3339), empty if not deleted                                            |
+| duration                     | string | Human-readable duration from start to end (or now), e.g. "1h30m45s"                      |
+| secondsUntilTimeout          | int | Seconds until timeout from start; -1 if not started                                      |
+| queuePosition                | int | Queue position when workload is pending                                                  |
+| dispatchCount                | int | Number of dispatch attempts                                                              |
+| isTolerateAll                | bool | Whether to tolerate all node taints                                                      |
+| groupVersionKind.kind        | string | Workload type: PyTorchJob/Deployment/StatefulSet/Authoring/AutoscalingRunnerSet/TorchFT  |
+| groupVersionKind.version     | string | API version (usually v1)                                                                 |
+| timeout                      | int | Timeout seconds (0 means no timeout)                                                     |
+| workloadUid                  | string | Workload UID                                                                             |
+| avgGpuUsage                  | float | Average GPU usage in the last 3 hours; -1 if unavailable                                 |
+| scaleRunnerSet               | string | Associated Scale Runner Set ID for CI/CD workloads (if any)                              |
+| scaleRunnerId                | string | Associated Github Action Runner ID for CI/CD workloads (if any)                          |
+| resources[].cpu              | string | CPU cores, e.g. "128"                                                                    |
+| resources[].gpu              | string | GPU cards, e.g. "8"                                                                      |
+| resources[].memory           | string | Memory size, e.g. "256Gi"                                                                |
+| resources[].ephemeralStorage | string | Ephemeral storage size, e.g. "256Gi"                                                     |
+| resources[].sharedMemory     | string | Shared memory size, e.g. "64Gi"                                                          |
+| resources[].replica          | int | Replica count                                                                            |
+
 ---
 
 ### 3. Get Workload Details
@@ -472,14 +474,14 @@ Get detailed information about a specific workload.
   "userName": "zhangsan",
   "phase": "Running",
   "priority": 0,
-  "image": "harbor.example.com/ai/pytorch:2.0",
-  "entryPoint": "python train.py",
   "resources": [{
     "cpu": "128",
     "gpu": "8",
     "memory": "256Gi",
     "replica": 1
   }],
+  "images": ["harbor.example.com/ai/pytorch:2.0"],
+  "entryPoints": ["python train.py"],
   "isSupervised": false,
   "maxRetry": 0,
   "timeout": 3600,
@@ -534,7 +536,7 @@ Get detailed information about a specific workload.
     }
   ],
   "workloadUid": "a8e357ad-f73d-43ac-99fe-118886d5e193",
-  "k8sObjectUid": "f89f34e5-82da-49d7-9b89-0b2af523bc5a"
+  "stickyNodes": true
 }
 ```
 
@@ -544,8 +546,8 @@ Only fields not already covered by "List Workloads" are listed below. Other fiel
 
 | Field                           | Type       | Description                                                                                                                             |
 |---------------------------------|------------|-----------------------------------------------------------------------------------------------------------------------------------------|
-| image                           | string     | Image address used by the workload                                                                                                      |
-| entryPoint                      | string     | Startup command/script (in base64 encoding)                                                                                             |
+| images                          | []string   | Image address used by the workload                                                                                                      |
+| entryPoints                     | []string   | Startup command/script (in base64 encoding)                                                                                             |
 | isSupervised                    | bool       | When enabled, it performs operations like hang detection                                                                                |
 | ttlSecondsAfterFinished         | int        | The lifecycle after completion, in seconds, default 60.                                                                                 |
 | env                             | object     | Environment variables key-value pairs                                                                                                   |
@@ -580,7 +582,7 @@ Only fields not already covered by "List Workloads" are listed below. Other fiel
 | cronJobs                        | object     | Refer to the CreateWorkload parameter                                                                                                   |
 | secrets                         | object     | Refer to the CreateWorkload parameter                                                                                                   |
 | workloadUid                     | string     | UID of the workload                                                                                                                     |
-| k8sObjectUid                    | string     | K8s object UID corresponding to the workload. e.g. Associated PyTorchJob UID                                                            |
+| stickyNodes                     | bool       | When enabled, the workload will try to use the same nodes during retries/failovers.                                                            |
 
 > Other fields not listed here are identical to those in the "List Workloads" Field Description.
 
@@ -621,9 +623,9 @@ Partially update workload configuration (only when running).
       "sharedMemory": "64Gi",
       "replica": 31
    }],
+  "images": ["harbor.example.com/ai/pytorch:2.1","harbor.example.com/ai/pytorch:2.1"],
+  "entryPoints": ["YmFzaCBydW4uc2gK","YmFzaCBydW4uc2gK"],
   "priority": 1,
-  "image": "harbor.example.com/ai/pytorch:2.1",
-  "entryPoint": "YmFzaCBydW4uc2gK",
   "description": "New description",
   "timeout": 7200,
   "maxRetry": 3,
@@ -676,23 +678,23 @@ Partially update workload configuration (only when running).
 
 **Field Description**: All fields are optional; only provided fields will be updated
 
-| Field               | Type      | Required | Description                                                       |
-|---------------------|-----------|----|-------------------------------------------------------------------|
-| priority            | int       | No | Scheduling priority (0-2); unchanged if omitted                   |
-| resources           | []obeject | No | A complete list of resources requirements for a workload.         |
-| image               | string    | No | Image address; non-empty string required if provided              |
-| entryPoint          | string    | No | Startup command/script (Base64 encoded)                           |
-| description         | string    | No | Workload description                                              |
-| timeout             | int       | No | Timeout in seconds; 0 means no timeout                            |
-| maxRetry            | int       | No | Failure retry limit                                               |
-| env                 | object    | No | Environment variable key-value pairs                              |
+| Field               | Type      | Required | Description                                                      |
+|---------------------|-----------|----|------------------------------------------------------------------|
+| priority            | int       | No | Scheduling priority (0-2); unchanged if omitted                  |
+| resources           | []obeject | No | A complete list of resources requirements for a workload.        |
+| images              | []string  | No | Image address             |
+| entryPoints         | []string  | No | Startup command/script (Base64 encoded)                          |
+| description         | string    | No | Workload description                                             |
+| timeout             | int       | No | Timeout in seconds; 0 means no timeout                           |
+| maxRetry            | int       | No | Failure retry limit                                              |
+| env                 | object    | No | Environment variable key-value pairs                             |
 | cronJobs[].schedule | string    | No | Scheduled trigger time (RFC3339), e.g. "2025-09-30T16:04:00.000Z" |
-| cronJobs[].action   | string    | No | Action to perform, e.g. "start"                                   |
-| service.protocol    | string    | No | Service protocol, e.g. TCP/UDP, default TCP                       |
-| service.port        | int       | No | Service port for external access                                  |
-| service.nodePort    | int       | No | Service NodePort (for NodePort type)                              |
-| service.targetPort  | int       | No | Target container port                                             |
-| service.serviceType | string    | No | Service type, e.g. ClusterIP/NodePort                             |
+| cronJobs[].action   | string    | No | Action to perform, e.g. "start"                                  |
+| service.protocol    | string    | No | Service protocol, e.g. TCP/UDP, default TCP                      |
+| service.port        | int       | No | Service port for external access                                 |
+| service.nodePort    | int       | No | Service NodePort (for NodePort type)                             |
+| service.targetPort  | int       | No | Target container port                                            |
+| service.serviceType | string    | No | Service type, e.g. ClusterIP/NodePort                            |
 
 **Response**: 200 OK with no response body
 
@@ -948,13 +950,14 @@ Port fields:
 
 ## Workload Types
 
-| Type | Description | Use Case |
-|------|-------------|----------|
-| PyTorchJob | PyTorch distributed training | Deep learning training |
-| Deployment | K8s stateless deployment | Inference service |
-| StatefulSet | K8s stateful deployment | Stateful service |
-| Authoring | Development environment | Interactive development |
+| Type                 | Description                           | Use Case |
+|----------------------|---------------------------------------|----------|
+| PyTorchJob           | PyTorch distributed training          | Deep learning training |
+| Deployment           | K8s stateless deployment              | Inference service |
+| StatefulSet          | K8s stateful deployment               | Stateful service |
+| Authoring            | Development environment               | Interactive development |
 | AutoscalingRunnerSet | GitHub Actions autoscaling runner set | CI/CD runners |
+| TorchFT              | Fault-tolerant distributed training   | Deep learning training |
 
 ## Notes
 

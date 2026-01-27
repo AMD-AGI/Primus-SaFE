@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/syncer"
@@ -39,7 +40,7 @@ const (
 // based on the admin workload specification and workspace configuration.
 func initializeObject(obj *unstructured.Unstructured,
 	workload *v1.Workload, workspace *v1.Workspace, resourceSpec *v1.ResourceSpec, resourceId int) error {
-	_, found, err := unstructured.NestedFieldNoCopy(obj.Object, resourceSpec.PrePaths...)
+	_, found, err := jobutils.NestedField(obj.Object, resourceSpec.PrePaths)
 	if err != nil || !found {
 		return nil
 	}
@@ -49,6 +50,13 @@ func initializeObject(obj *unstructured.Unstructured,
 		"affinity", "nodeAffinity", "requiredDuringSchedulingIgnoredDuringExecution", "nodeSelectorTerms")
 	if err = modifyNodeSelectorTerms(obj, workload, path); err != nil {
 		return fmt.Errorf("failed to modify nodeSelectorTerms: %v", err.Error())
+	}
+	if v1.GetWorkloadDispatchCnt(workload) > 0 && v1.IsEnableStickyNodes(workload) {
+		path = append(templatePath, "spec",
+			"affinity", "nodeAffinity", "preferredDuringSchedulingIgnoredDuringExecution")
+		if err = modifyPreferredNodeAffinity(obj, workload, path); err != nil {
+			return fmt.Errorf("failed to modify preferredNodeAffinity: %v", err.Error())
+		}
 	}
 	if v1.IsRequireNodeSpread(workload) {
 		path = append(templatePath, "spec",
@@ -95,7 +103,7 @@ func initializeObject(obj *unstructured.Unstructured,
 			return fmt.Errorf("failed to modify selector: %v", err.Error())
 		}
 	}
-	if err = modifyByOpsJob(obj, workload, templatePath); err != nil {
+	if err = modifyHostPid(obj, workload, templatePath); err != nil {
 		return fmt.Errorf("failed to modify by opsjob: %v", err.Error())
 	}
 	return nil
@@ -104,7 +112,7 @@ func initializeObject(obj *unstructured.Unstructured,
 // modifyNodeSelectorTerms updates node selector terms in the object's node affinity configuration.
 // It adds custom match expressions based on the workload specification.
 func modifyNodeSelectorTerms(obj *unstructured.Unstructured, workload *v1.Workload, path []string) error {
-	nodeSelectorTerms, _, err := unstructured.NestedSlice(obj.Object, path...)
+	nodeSelectorTerms, _, err := jobutils.NestedSlice(obj.Object, path)
 	if err != nil {
 		return err
 	}
@@ -127,16 +135,56 @@ func modifyNodeSelectorTerms(obj *unstructured.Unstructured, workload *v1.Worklo
 			matchExpressions["matchExpressions"] = []interface{}{expression}
 		}
 	}
-	if err = unstructured.SetNestedSlice(obj.Object, nodeSelectorTerms, path...); err != nil {
+	if err = jobutils.SetNestedField(obj.Object, nodeSelectorTerms, path); err != nil {
 		return err
 	}
 	return nil
 }
 
+// modifyPreferredNodeAffinity adds preferredDuringSchedulingIgnoredDuringExecution to prefer
+// nodes from the previous dispatch attempt. This helps workloads to be rescheduled on the same nodes.
+func modifyPreferredNodeAffinity(obj *unstructured.Unstructured, workload *v1.Workload, path []string) error {
+	dispatchCnt := v1.GetWorkloadDispatchCnt(workload)
+	if dispatchCnt <= 0 || len(workload.Status.Nodes) < dispatchCnt {
+		return nil
+	}
+
+	previousNodes := workload.Status.Nodes[dispatchCnt-1]
+	if len(previousNodes) == 0 {
+		return nil
+	}
+
+	// Convert node names to interface slice
+	nodeValues := make([]interface{}, len(previousNodes))
+	for i, node := range previousNodes {
+		nodeValues[i] = node
+	}
+
+	preferredTerm := map[string]interface{}{
+		"weight": int64(100),
+		"preference": map[string]interface{}{
+			"matchExpressions": []interface{}{
+				map[string]interface{}{
+					"key":      v1.K8sHostName,
+					"operator": "In",
+					"values":   nodeValues,
+				},
+			},
+		},
+	}
+
+	preferredTerms, _, err := jobutils.NestedSlice(obj.Object, path)
+	if err != nil {
+		return err
+	}
+	preferredTerms = append(preferredTerms, preferredTerm)
+	return jobutils.SetNestedField(obj.Object, preferredTerms, path)
+}
+
 // modifyPodAntiAffinity adds pod anti-affinity configuration to spread pods across nodes.
 // It configures requiredDuringSchedulingIgnoredDuringExecution with topology key kubernetes.io/hostname.
 func modifyPodAntiAffinity(obj *unstructured.Unstructured, workload *v1.Workload, path []string) error {
-	podAntiAffinityTerms, _, err := unstructured.NestedSlice(obj.Object, path...)
+	podAntiAffinityTerms, _, err := jobutils.NestedSlice(obj.Object, path)
 	if err != nil {
 		return err
 	}
@@ -149,7 +197,7 @@ func modifyPodAntiAffinity(obj *unstructured.Unstructured, workload *v1.Workload
 		"topologyKey": "kubernetes.io/hostname",
 	}
 	podAntiAffinityTerms = append(podAntiAffinityTerms, antiAffinityTerm)
-	if err = unstructured.SetNestedSlice(obj.Object, podAntiAffinityTerms, path...); err != nil {
+	if err = jobutils.SetNestedField(obj.Object, podAntiAffinityTerms, path); err != nil {
 		return err
 	}
 	return nil
@@ -159,7 +207,7 @@ func modifyPodAntiAffinity(obj *unstructured.Unstructured, workload *v1.Workload
 // volume mounts, security context, ports, and health checks based on the workload specification.
 func modifyContainers(obj *unstructured.Unstructured,
 	workload *v1.Workload, workspace *v1.Workspace, path []string, resourceId int) error {
-	containers, found, err := unstructured.NestedSlice(obj.Object, path...)
+	containers, found, err := jobutils.NestedSlice(obj.Object, path)
 	if err != nil {
 		return err
 	}
@@ -174,7 +222,7 @@ func modifyContainers(obj *unstructured.Unstructured,
 		modifyVolumeMounts(container, workload, workspace)
 		modifyPrivilegedSecurity(container, workload)
 
-		name := jobutils.GetUnstructuredString(container, []string{"name"})
+		name := jobutils.NestedStringSilently(container, []string{"name"})
 		if name == mainContainerName {
 			container["ports"] = buildPorts(workload)
 			if healthz := buildHealthCheck(workload.Spec.Liveness); healthz != nil {
@@ -185,7 +233,7 @@ func modifyContainers(obj *unstructured.Unstructured,
 			}
 		}
 	}
-	if err = unstructured.SetNestedField(obj.Object, containers, path...); err != nil {
+	if err = jobutils.SetNestedField(obj.Object, containers, path); err != nil {
 		return err
 	}
 	return nil
@@ -274,7 +322,7 @@ func modifyVolumeMounts(container map[string]interface{}, workload *v1.Workload,
 
 // modifyVolumes adds volume definitions to the Kubernetes object based on workspace and workload specifications.
 func modifyVolumes(obj *unstructured.Unstructured, workload *v1.Workload, workspace *v1.Workspace, path []string) error {
-	volumes, _, err := unstructured.NestedSlice(obj.Object, path...)
+	volumes, _, err := jobutils.NestedSlice(obj.Object, path)
 	if err != nil {
 		return err
 	}
@@ -312,7 +360,7 @@ func modifyVolumes(obj *unstructured.Unstructured, workload *v1.Workload, worksp
 	if !hasNewVolume {
 		return nil
 	}
-	if err = unstructured.SetNestedSlice(obj.Object, volumes, path...); err != nil {
+	if err = jobutils.SetNestedField(obj.Object, volumes, path); err != nil {
 		return err
 	}
 	return nil
@@ -320,7 +368,7 @@ func modifyVolumes(obj *unstructured.Unstructured, workload *v1.Workload, worksp
 
 // modifyImageSecrets adds image pull secrets to the Kubernetes object based on workload configuration.
 func modifyImageSecrets(obj *unstructured.Unstructured, workload *v1.Workload, path []string) error {
-	secrets, _, err := unstructured.NestedSlice(obj.Object, path...)
+	secrets, _, err := jobutils.NestedSlice(obj.Object, path)
 	if err != nil {
 		return err
 	}
@@ -332,38 +380,33 @@ func modifyImageSecrets(obj *unstructured.Unstructured, workload *v1.Workload, p
 			secrets = append(secrets, buildImageSecret(s.Id))
 		}
 	}
-	if err = unstructured.SetNestedSlice(obj.Object, secrets, path...); err != nil {
+	if err = jobutils.SetNestedField(obj.Object, secrets, path); err != nil {
 		return err
 	}
 	return nil
 }
 
-// modifyPrivilegedSecurity configures the security context for OpsJob operations.
-// For all OpsJob types, runs as root user. For preflight checks, also sets privileged mode.
+// modifyPrivilegedSecurity configures the security context for OpsJob operations and privileged workloads.
+// For OpsJob types, runs as root user. For privileged workloads, also sets privileged mode.
 func modifyPrivilegedSecurity(container map[string]interface{}, workload *v1.Workload) {
-	opsJobType := v1.GetOpsJobType(workload)
-	if opsJobType == "" {
+	if v1.GetOpsJobType(workload) == "" && !v1.IsPrivileged(workload) {
 		return
 	}
-
-	// All OpsJob types run as root
+	// All OpsJobs run as root
 	securityContext := map[string]interface{}{
 		"runAsUser":  int64(0),
 		"runAsGroup": int64(0),
 	}
-
-	// Preflight type also needs privileged mode
-	if opsJobType == string(v1.OpsJobPreflightType) {
+	if v1.IsPrivileged(workload) {
 		securityContext["privileged"] = true
 	}
-
 	container["securityContext"] = securityContext
 }
 
 // modifyPriorityClass sets the priority class for the workload based on its specification.
 func modifyPriorityClass(obj *unstructured.Unstructured, workload *v1.Workload, path []string) error {
 	priorityClass := commonworkload.GeneratePriorityClass(workload)
-	if err := unstructured.SetNestedField(obj.Object, priorityClass, path...); err != nil {
+	if err := jobutils.SetNestedField(obj.Object, priorityClass, path); err != nil {
 		return err
 	}
 	return nil
@@ -372,7 +415,7 @@ func modifyPriorityClass(obj *unstructured.Unstructured, workload *v1.Workload, 
 // modifyServiceAccountName sets the service account name for the workload based on its specification.
 func modifyServiceAccountName(obj *unstructured.Unstructured, workload *v1.Workload, path []string) error {
 	if v1.GetOpsJobType(workload) == string(v1.OpsJobCDType) {
-		if err := unstructured.SetNestedField(obj.Object, common.PrimusSafeName, path...); err != nil {
+		if err := jobutils.SetNestedField(obj.Object, common.PrimusSafeName, path); err != nil {
 			return err
 		}
 	}
@@ -382,23 +425,23 @@ func modifyServiceAccountName(obj *unstructured.Unstructured, workload *v1.Workl
 // modifyHostNetwork enables or disables host networking based on workload annotations.
 func modifyHostNetwork(obj *unstructured.Unstructured, workload *v1.Workload, path []string, resourceId int) error {
 	isEnableHostNetwork := workload.Spec.Resources[resourceId].RdmaResource != ""
-	if err := unstructured.SetNestedField(obj.Object, isEnableHostNetwork, path...); err != nil {
+	if err := jobutils.SetNestedField(obj.Object, isEnableHostNetwork, path); err != nil {
 		return err
 	}
 	return nil
 }
 
-// modifyByOpsJob configures host PID and IPC settings for OpsJob preflight operations.
-func modifyByOpsJob(obj *unstructured.Unstructured, workload *v1.Workload, templatePath []string) error {
-	if v1.GetOpsJobType(workload) != string(v1.OpsJobPreflightType) {
+// modifyHostPid configures host PID and IPC settings for OpsJob preflight operations.
+func modifyHostPid(obj *unstructured.Unstructured, workload *v1.Workload, templatePath []string) error {
+	if !v1.IsPrivileged(workload) {
 		return nil
 	}
 	path := append(templatePath, "spec", "hostPID")
-	if err := unstructured.SetNestedField(obj.Object, true, path...); err != nil {
+	if err := jobutils.SetNestedField(obj.Object, true, path); err != nil {
 		return err
 	}
 	path = append(templatePath, "spec", "hostIPC")
-	if err := unstructured.SetNestedField(obj.Object, true, path...); err != nil {
+	if err := jobutils.SetNestedField(obj.Object, true, path); err != nil {
 		return err
 	}
 	return nil
@@ -413,7 +456,7 @@ func modifyStrategy(obj *unstructured.Unstructured, workload *v1.Workload, path 
 	if len(rollingUpdate) == 0 {
 		return nil
 	}
-	if err := unstructured.SetNestedMap(obj.Object, rollingUpdate, path...); err != nil {
+	if err := jobutils.SetNestedField(obj.Object, rollingUpdate, path); err != nil {
 		return err
 	}
 	return nil
@@ -425,44 +468,56 @@ func modifySelector(obj *unstructured.Unstructured, workload *v1.Workload, path 
 	if len(selector) == 0 {
 		return nil
 	}
-	if err := unstructured.SetNestedMap(obj.Object, selector, path...); err != nil {
+	if err := jobutils.SetNestedField(obj.Object, selector, path); err != nil {
 		return err
 	}
 	return nil
 }
 
-// modifyTolerations adds tolerations to tolerate all taints when IsTolerateAll is enabled.
+// modifyTolerations adds tolerations to tolerate all taints when IsTolerateAll is enabled or tolerate sticky node taints
 func modifyTolerations(obj *unstructured.Unstructured, workload *v1.Workload, path []string) error {
-	if !workload.Spec.IsTolerateAll {
+	if !workload.Spec.IsTolerateAll && !v1.IsEnableStickyNodes(workload) {
 		return nil
 	}
-	tolerations := []interface{}{
-		map[string]interface{}{
-			"operator": "Exists",
-		},
+	var tolerations []interface{}
+	if workload.Spec.IsTolerateAll {
+		tolerations = []interface{}{
+			map[string]interface{}{
+				"operator": "Exists",
+			},
+		}
+	} else {
+		taintKey := commonfaults.GenerateTaintKey(v1.StickyNodesMonitorId)
+		tolerations = []interface{}{
+			map[string]interface{}{
+				"key":      taintKey,
+				"operator": "Equal",
+				"value":    workload.Name,
+			},
+		}
 	}
-	if err := unstructured.SetNestedSlice(obj.Object, tolerations, path...); err != nil {
+	if err := jobutils.SetNestedField(obj.Object, tolerations, path); err != nil {
 		return err
 	}
 	return nil
 }
 
 // buildCommands constructs the command array for executing the workload entry point.
-func buildCommands(workload *v1.Workload) []interface{} {
-	return []interface{}{"/bin/sh", "-c", buildEntryPoint(workload)}
+func buildCommands(workload *v1.Workload, id int) []interface{} {
+	return []interface{}{"/bin/sh", "-c", buildEntryPoint(workload, id)}
 }
 
 // buildEntryPoint constructs the command entry point for a workload.
-func buildEntryPoint(workload *v1.Workload) string {
-	if workload.Spec.EntryPoint == "" {
+func buildEntryPoint(workload *v1.Workload, id int) string {
+	if workload.Spec.EntryPoints[id] == "" {
 		return ""
 	}
 	result := ""
 	switch workload.SpecKind() {
 	case common.CICDScaleRunnerSetKind:
-		result = workload.Spec.EntryPoint
+		result = workload.Spec.EntryPoints[id]
 	default:
-		result = Launcher + " '" + workload.Spec.EntryPoint + "'"
+		result = Launcher + " '" + workload.Spec.EntryPoints[id] + "'"
 	}
 	return result
 }
@@ -543,6 +598,9 @@ func buildEnvironment(workload *v1.Workload, resourceId int) []interface{} {
 	if workload.Spec.SSHPort > 0 {
 		result = addEnvVar(result, workload, "SSH_PORT", strconv.Itoa(workload.Spec.SSHPort))
 	}
+	if commonworkload.IsAuthoring(workload) {
+		result = addEnvVar(result, workload, jobutils.AdminControlPlaneEnv, v1.GetAdminControlPlane(workload))
+	}
 	return result
 }
 
@@ -611,6 +669,7 @@ func buildHostPathVolume(volumeName, hostPath string) interface{} {
 	return map[string]interface{}{
 		"hostPath": map[string]interface{}{
 			"path": hostPath,
+			"type": "Directory",
 		},
 		"name": volumeName,
 	}
@@ -743,21 +802,38 @@ func updateReplica(adminWorkload *v1.Workload,
 	replica := int64(adminWorkload.Spec.Resources[id].Replica)
 	path := resourceSpec.PrePaths
 	path = append(path, resourceSpec.ReplicasPaths...)
-	if err := unstructured.SetNestedField(obj.Object, replica, path...); err != nil {
+	if err := jobutils.SetNestedField(obj.Object, replica, path); err != nil {
 		return err
 	}
-	return updateCompletions(obj, resourceSpec, replica)
+	if err := updateMinReplicas(obj, resourceSpec, replica); err != nil {
+		return err
+	}
+	if err := updateMaxReplicas(obj, resourceSpec, replica); err != nil {
+		return err
+	}
+	return nil
 }
 
-// updateCompletions updates the completions count in the unstructured object. only for job
-// The current job's completions is equal to its parallelism, meaning all tasks run concurrently and all must succeed.
-func updateCompletions(obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec, replica int64) error {
-	if len(resourceSpec.CompletionsPaths) == 0 {
+// updateMaxReplicas updates the max-replicas in the unstructured object. only for ray-job
+// The current job's max-replicas is equal to its replicas, meaning elastic Ray clusters are not supported.
+func updateMaxReplicas(obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec, replica int64) error {
+	if len(resourceSpec.MaxReplicasPaths) == 0 {
 		return nil
 	}
 	path := resourceSpec.PrePaths
-	path = append(path, resourceSpec.CompletionsPaths...)
-	return unstructured.SetNestedField(obj.Object, replica, path...)
+	path = append(path, resourceSpec.MaxReplicasPaths...)
+	return jobutils.SetNestedField(obj.Object, replica, path)
+}
+
+// updateMinReplicas updates the min-replicas(for job, it's completions count) in the unstructured object. only for job or ray-job
+// The current job's min-replicas is equal to its replicas, meaning all tasks run concurrently and all must succeed.
+func updateMinReplicas(obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec, replica int64) error {
+	if len(resourceSpec.MinReplicasPaths) == 0 {
+		return nil
+	}
+	path := resourceSpec.PrePaths
+	path = append(path, resourceSpec.MinReplicasPaths...)
+	return jobutils.SetNestedField(obj.Object, replica, path)
 }
 
 // updateCICDScaleSet updates the CICD scale set configuration in the unstructured object.
@@ -813,7 +889,7 @@ func updateCICDEphemeralRunner(ctx context.Context, clientSets *syncer.ClusterCl
 // It updates the GitHub configuration and then configures environment variables based on unified build settings.
 // Returns an error if no resource templates are found or if any update operation fails.
 func updateCICDGithub(adminWorkload *v1.Workload, obj *unstructured.Unstructured) error {
-	specObject, ok, err := unstructured.NestedMap(obj.Object, "spec")
+	specObject, ok, err := jobutils.NestedMap(obj.Object, []string{"spec"})
 	if err != nil {
 		return err
 	}
@@ -835,7 +911,7 @@ func updateCICDGithub(adminWorkload *v1.Workload, obj *unstructured.Unstructured
 			}
 		}
 	}
-	if err = unstructured.SetNestedMap(obj.Object, specObject, "spec"); err != nil {
+	if err = jobutils.SetNestedField(obj.Object, specObject, []string{"spec"}); err != nil {
 		return err
 	}
 	return nil
@@ -875,7 +951,7 @@ func updateCICDScaleSetEnvs(obj *unstructured.Unstructured,
 			container := containers[i].(map[string]interface{})
 			updateContainerEnv(envs, container, nil)
 		}
-		if err = unstructured.SetNestedField(obj.Object, containers, path...); err != nil {
+		if err = jobutils.SetNestedField(obj.Object, containers, path); err != nil {
 			return err
 		}
 	} else {
@@ -883,12 +959,12 @@ func updateCICDScaleSetEnvs(obj *unstructured.Unstructured,
 		// When unified build is disabled, keep only main container with resource variables
 		for i := range containers {
 			container := containers[i].(map[string]interface{})
-			name := jobutils.GetUnstructuredString(container, []string{"name"})
+			name := jobutils.NestedStringSilently(container, []string{"name"})
 			if name == mainContainerName {
 				updateContainerEnv(envs, container, nil)
 				// Keep only the main container and remove other container
 				newContainers := []interface{}{container}
-				return unstructured.SetNestedField(obj.Object, newContainers, path...)
+				return jobutils.SetNestedField(obj.Object, newContainers, path)
 			}
 		}
 		return fmt.Errorf("no main container found")
@@ -899,13 +975,13 @@ func updateCICDScaleSetEnvs(obj *unstructured.Unstructured,
 // updateMetadata updates the template metadata annotations in the unstructured object.
 func updateMetadata(adminWorkload *v1.Workload,
 	obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec, id int) error {
-	_, found, err := unstructured.NestedMap(obj.Object, resourceSpec.GetTemplatePath()...)
+	_, found, err := jobutils.NestedMap(obj.Object, resourceSpec.GetTemplatePath())
 	if err != nil || !found {
 		return err
 	}
 	labels := buildPodLabels(adminWorkload)
 	path := append(resourceSpec.GetTemplatePath(), "metadata", "labels")
-	if err = unstructured.SetNestedMap(obj.Object, labels, path...); err != nil {
+	if err = jobutils.SetNestedField(obj.Object, labels, path); err != nil {
 		return err
 	}
 
@@ -914,7 +990,7 @@ func updateMetadata(adminWorkload *v1.Workload,
 	}
 	annotations := buildPodAnnotations(adminWorkload, id)
 	path = append(resourceSpec.GetTemplatePath(), "metadata", "annotations")
-	if err = unstructured.SetNestedMap(obj.Object, annotations, path...); err != nil {
+	if err = jobutils.SetNestedField(obj.Object, annotations, path); err != nil {
 		return err
 	}
 	return nil
@@ -946,17 +1022,17 @@ func updateContainers(adminWorkload *v1.Workload,
 			"limits":   resources,
 			"requests": resources,
 		}
-		name := jobutils.GetUnstructuredString(container, []string{"name"})
+		name := jobutils.NestedStringSilently(container, []string{"name"})
 		if name == mainContainerName {
-			if adminWorkload.Spec.Image != "" {
-				container["image"] = adminWorkload.Spec.Image
+			if len(adminWorkload.Spec.Images) > id && adminWorkload.Spec.Images[id] != "" {
+				container["image"] = adminWorkload.Spec.Images[id]
 			}
-			if adminWorkload.Spec.EntryPoint != "" {
-				container["command"] = buildCommands(adminWorkload)
+			if len(adminWorkload.Spec.EntryPoints) > id && adminWorkload.Spec.EntryPoints[id] != "" {
+				container["command"] = buildCommands(adminWorkload, id)
 			}
 		}
 	}
-	if err = unstructured.SetNestedField(obj.Object, containers, path...); err != nil {
+	if err = jobutils.SetNestedField(obj.Object, containers, path); err != nil {
 		return err
 	}
 	return nil
@@ -1027,14 +1103,14 @@ func updateSharedMemory(adminWorkload *v1.Workload, obj *unstructured.Unstructur
 	path := resourceSpec.PrePaths
 	path = append(path, resourceSpec.TemplatePaths...)
 	path = append(path, "spec", "volumes")
-	volumes, found, err := unstructured.NestedSlice(obj.Object, path...)
+	volumes, found, err := jobutils.NestedSlice(obj.Object, path)
 	if err != nil {
 		return err
 	}
 	if !found {
 		sharedMemoryVolume := buildSharedMemoryVolume(adminWorkload.Spec.Resources[id].SharedMemory)
 		volumes = []interface{}{sharedMemoryVolume}
-		if err = unstructured.SetNestedSlice(obj.Object, volumes, path...); err != nil {
+		if err = jobutils.SetNestedField(obj.Object, volumes, path); err != nil {
 			return err
 		}
 		return nil
@@ -1043,12 +1119,12 @@ func updateSharedMemory(adminWorkload *v1.Workload, obj *unstructured.Unstructur
 	sharedMemory := jobutils.GetMemoryStorageVolume(volumes)
 	if sharedMemory != nil {
 		sharedMemory["sizeLimit"] = adminWorkload.Spec.Resources[id].SharedMemory
-		if err = unstructured.SetNestedField(obj.Object, volumes, path...); err != nil {
+		if err = jobutils.SetNestedField(obj.Object, volumes, path); err != nil {
 			return err
 		}
 	} else {
 		volumes = append(volumes, buildSharedMemoryVolume(adminWorkload.Spec.Resources[id].SharedMemory))
-		if err = unstructured.SetNestedSlice(obj.Object, volumes, path...); err != nil {
+		if err = jobutils.SetNestedField(obj.Object, volumes, path); err != nil {
 			return err
 		}
 	}
@@ -1076,7 +1152,7 @@ func updatePriorityClass(adminWorkload *v1.Workload,
 func getContainers(obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec) ([]interface{}, []string, error) {
 	templatePath := resourceSpec.GetTemplatePath()
 	path := append(templatePath, "spec", "containers")
-	containers, found, err := unstructured.NestedSlice(obj.Object, path...)
+	containers, found, err := jobutils.NestedSlice(obj.Object, path)
 	if err != nil {
 		return nil, nil, err
 	}

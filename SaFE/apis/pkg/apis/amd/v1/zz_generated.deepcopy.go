@@ -1671,8 +1671,13 @@ func (in *ResourceSpec) DeepCopyInto(out *ResourceSpec) {
 		*out = make([]string, len(*in))
 		copy(*out, *in)
 	}
-	if in.CompletionsPaths != nil {
-		in, out := &in.CompletionsPaths, &out.CompletionsPaths
+	if in.MaxReplicasPaths != nil {
+		in, out := &in.MaxReplicasPaths, &out.MaxReplicasPaths
+		*out = make([]string, len(*in))
+		copy(*out, *in)
+	}
+	if in.MinReplicasPaths != nil {
+		in, out := &in.MinReplicasPaths, &out.MinReplicasPaths
 		*out = make([]string, len(*in))
 		copy(*out, *in)
 	}
@@ -2198,6 +2203,16 @@ func (in *WorkloadSpec) DeepCopyInto(out *WorkloadSpec) {
 		*out = make([]WorkloadResource, len(*in))
 		copy(*out, *in)
 	}
+	if in.Images != nil {
+		in, out := &in.Images, &out.Images
+		*out = make([]string, len(*in))
+		copy(*out, *in)
+	}
+	if in.EntryPoints != nil {
+		in, out := &in.EntryPoints, &out.EntryPoints
+		*out = make([]string, len(*in))
+		copy(*out, *in)
+	}
 	if in.Env != nil {
 		in, out := &in.Env, &out.Env
 		*out = make(map[string]string, len(*in))
@@ -2430,6 +2445,13 @@ func (in *WorkspaceSpec) DeepCopyInto(out *WorkspaceSpec) {
 		in, out := &in.ImageSecrets, &out.ImageSecrets
 		*out = make([]corev1.ObjectReference, len(*in))
 		copy(*out, *in)
+	}
+	if in.MaxRuntime != nil {
+		in, out := &in.MaxRuntime, &out.MaxRuntime
+		*out = make(map[WorkspaceScope]int, len(*in))
+		for key, val := range *in {
+			(*out)[key] = val
+		}
 	}
 	return
 }

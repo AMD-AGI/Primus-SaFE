@@ -6,6 +6,7 @@ package task
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -21,6 +22,8 @@ import (
 type TaskReceiver struct {
 	cfg           *config.ExporterConfig
 	facade        *database.WorkloadTaskFacade
+	podFacade     database.PodFacadeInterface
+	workloadFacade database.WorkloadFacadeInterface
 	exporter      *exporter.MetricsExporter
 	scrapeManager *scraper.ScrapeManager
 
@@ -37,11 +40,13 @@ type TaskReceiver struct {
 // NewTaskReceiver creates a new task receiver
 func NewTaskReceiver(cfg *config.ExporterConfig, exp *exporter.MetricsExporter) *TaskReceiver {
 	return &TaskReceiver{
-		cfg:           cfg,
-		facade:        database.NewWorkloadTaskFacade(),
-		exporter:      exp,
-		scrapeManager: scraper.NewScrapeManager(exp),
-		activeTasks:   make(map[string]*ScrapeTask),
+		cfg:            cfg,
+		facade:         database.NewWorkloadTaskFacade(),
+		podFacade:      database.GetFacade().GetPod(),
+		workloadFacade: database.GetFacade().GetWorkload(),
+		exporter:       exp,
+		scrapeManager:  scraper.NewScrapeManager(exp),
+		activeTasks:    make(map[string]*ScrapeTask),
 	}
 }
 
@@ -63,10 +68,11 @@ func (r *TaskReceiver) Start(ctx context.Context) error {
 	}
 
 	// Start background goroutines
-	r.wg.Add(3)
+	r.wg.Add(4)
 	go r.pollAndAcquireTasks()
 	go r.renewLocks()
 	go r.cleanupStaleLocks()
+	go r.cleanupNonRunningWorkloadTasks()
 
 	return nil
 }
@@ -153,19 +159,20 @@ func (r *TaskReceiver) tryAcquireNewTasks() {
 		return
 	}
 
-	// Find pending tasks
-	tasks, err := r.facade.ListTasksByStatus(r.ctx, constant.TaskStatusPending)
+	// Find tasks that are either pending or running with expired/no locks
+	// This allows us to acquire tasks that were orphaned by other instances
+	tasks, err := r.facade.ListTasksByTypeAndStatuses(
+		r.ctx,
+		config.TaskTypeInferenceMetricsScrape,
+		[]string{constant.TaskStatusPending, constant.TaskStatusRunning},
+	)
 	if err != nil {
-		log.Errorf("Failed to list pending tasks: %v", err)
+		log.Errorf("Failed to list available tasks: %v", err)
 		return
 	}
 
 	for _, m := range tasks {
-		if m.TaskType != config.TaskTypeInferenceMetricsScrape {
-			continue
-		}
-
-		// Check if already owned
+		// Check if already owned by this instance
 		r.tasksMu.RLock()
 		_, exists := r.activeTasks[m.WorkloadUID]
 		r.tasksMu.RUnlock()
@@ -173,7 +180,7 @@ func (r *TaskReceiver) tryAcquireNewTasks() {
 			continue
 		}
 
-		// Try to acquire
+		// Try to acquire - TryAcquireLock handles expired lock checking
 		acquired, err := r.facade.TryAcquireLock(r.ctx, m.WorkloadUID, config.TaskTypeInferenceMetricsScrape, r.cfg.InstanceID, r.cfg.LockDuration)
 		if err != nil {
 			log.Errorf("Failed to acquire lock for %s: %v", m.WorkloadUID, err)
@@ -282,8 +289,90 @@ func (r *TaskReceiver) cleanupStaleLocks() {
 	}
 }
 
+// cleanupNonRunningWorkloadTasks periodically checks for tasks whose workloads are no longer running
+// and marks them as completed to free up capacity for active workloads
+func (r *TaskReceiver) cleanupNonRunningWorkloadTasks() {
+	defer r.wg.Done()
+
+	// Run every 2 minutes
+	ticker := time.NewTicker(2 * time.Minute)
+	defer ticker.Stop()
+
+	// Also run once at startup after a short delay
+	time.AfterFunc(30*time.Second, func() {
+		r.doCleanupNonRunningWorkloadTasks()
+	})
+
+	for {
+		select {
+		case <-r.ctx.Done():
+			return
+		case <-ticker.C:
+			r.doCleanupNonRunningWorkloadTasks()
+		}
+	}
+}
+
+// doCleanupNonRunningWorkloadTasks performs the actual cleanup of tasks for non-running workloads
+func (r *TaskReceiver) doCleanupNonRunningWorkloadTasks() {
+	// Get all inference_metrics_scrape tasks that are pending or running
+	tasks, err := r.facade.ListTasksByTypeAndStatuses(
+		r.ctx,
+		config.TaskTypeInferenceMetricsScrape,
+		[]string{constant.TaskStatusPending, constant.TaskStatusRunning},
+	)
+	if err != nil {
+		log.Errorf("Failed to list inference metrics tasks for cleanup: %v", err)
+		return
+	}
+
+	completedCount := 0
+	for _, task := range tasks {
+		// Get workload status
+		workload, err := r.workloadFacade.GetGpuWorkloadByUid(r.ctx, task.WorkloadUID)
+		if err != nil {
+			log.Debugf("Failed to get workload %s: %v", task.WorkloadUID, err)
+			continue
+		}
+
+		// If workload not found, deleted, or not running, complete the task
+		if workload == nil || workload.DeletedAt.Valid ||
+			(workload.Status != "Running" && workload.Status != "Pending") {
+			status := "unknown"
+			if workload != nil {
+				status = workload.Status
+			}
+
+			// Mark task as completed
+			if err := r.facade.UpdateTaskStatus(r.ctx, task.WorkloadUID, config.TaskTypeInferenceMetricsScrape, constant.TaskStatusCompleted); err != nil {
+				log.Errorf("Failed to complete task %s (workload status=%s): %v", task.WorkloadUID, status, err)
+				continue
+			}
+
+			completedCount++
+			log.Infof("Completed task %s: workload is no longer running (status=%s)", task.WorkloadUID, status)
+
+			// Remove from active tasks if present
+			r.removeActiveTask(task.WorkloadUID)
+		}
+	}
+
+	if completedCount > 0 {
+		log.Infof("Cleanup completed: marked %d tasks as completed (workloads no longer running)", completedCount)
+	}
+}
+
 // addActiveTask adds a task and starts its scrape loop via ScrapeManager
 func (r *TaskReceiver) addActiveTask(task *ScrapeTask) {
+	// Enrich pod info if missing (fallback mechanism)
+	if task.Ext.PodIP == "" || task.Ext.MetricsPort == 0 {
+		log.Infof("Task %s missing pod info (PodIP=%s, MetricsPort=%d), attempting to enrich from database",
+			task.WorkloadUID, task.Ext.PodIP, task.Ext.MetricsPort)
+		if err := r.enrichPodInfo(task); err != nil {
+			log.Warnf("Failed to enrich pod info for task %s: %v", task.WorkloadUID, err)
+		}
+	}
+
 	r.tasksMu.Lock()
 	r.activeTasks[task.WorkloadUID] = task
 	r.tasksMu.Unlock()
@@ -308,6 +397,148 @@ func (r *TaskReceiver) addActiveTask(task *ScrapeTask) {
 
 	// Update metrics
 	exporter.UpdateScrapeTargets(len(r.activeTasks))
+}
+
+// enrichPodInfo tries to fill in missing pod information from database
+// This is a fallback mechanism when ai-advisor didn't populate pod info
+func (r *TaskReceiver) enrichPodInfo(task *ScrapeTask) error {
+	ctx := r.ctx
+	workloadUID := task.WorkloadUID
+
+	// Try to find pods through workload_pod_reference table
+	podRefs, err := r.workloadFacade.ListWorkloadPodReferenceByWorkloadUid(ctx, workloadUID)
+	if err != nil {
+		log.Warnf("Failed to query workload_pod_reference for workload %s: %v", workloadUID, err)
+	}
+
+	var podIP, podName, namespace, workloadName string
+
+	if len(podRefs) > 0 {
+		// Query pod details through pod UID list
+		for _, ref := range podRefs {
+			pod, err := r.podFacade.GetGpuPodsByPodUid(ctx, ref.PodUID)
+			if err != nil || pod == nil {
+				continue
+			}
+			if !pod.Deleted && pod.Running && pod.IP != "" {
+				podIP = pod.IP
+				podName = pod.Name
+				namespace = pod.Namespace
+				break
+			}
+		}
+	}
+
+	// If no pods found through references, try child workloads
+	if podIP == "" {
+		childWorkloads, err := r.workloadFacade.ListChildrenWorkloadByParentUid(ctx, workloadUID)
+		if err != nil {
+			log.Debugf("Failed to query child workloads for %s: %v", workloadUID, err)
+		} else {
+			for _, child := range childWorkloads {
+				childPodRefs, err := r.workloadFacade.ListWorkloadPodReferenceByWorkloadUid(ctx, child.UID)
+				if err != nil {
+					continue
+				}
+				for _, ref := range childPodRefs {
+					pod, err := r.podFacade.GetGpuPodsByPodUid(ctx, ref.PodUID)
+					if err != nil || pod == nil {
+						continue
+					}
+					if !pod.Deleted && pod.Running && pod.IP != "" {
+						podIP = pod.IP
+						podName = pod.Name
+						namespace = pod.Namespace
+						break
+					}
+				}
+				if podIP != "" {
+					break
+				}
+			}
+		}
+	}
+
+	if podIP == "" {
+		return fmt.Errorf("no running pod with IP found for workload %s", workloadUID)
+	}
+
+	// Get workload name
+	workload, err := r.workloadFacade.GetGpuWorkloadByUid(ctx, workloadUID)
+	if err == nil && workload != nil {
+		workloadName = workload.Name
+	}
+
+	// Update task ext with pod info
+	task.Ext.PodIP = podIP
+	task.Ext.PodName = podName
+	task.Ext.Namespace = namespace
+
+	// Set default metrics port if not set
+	if task.Ext.MetricsPort == 0 {
+		task.Ext.MetricsPort = r.getDefaultMetricsPort(task.Ext.Framework)
+	}
+
+	// Set default metrics path if not set
+	if task.Ext.MetricsPath == "" {
+		task.Ext.MetricsPath = "/metrics"
+	}
+
+	// Update labels
+	if task.Ext.Labels == nil {
+		task.Ext.Labels = make(map[string]string)
+	}
+	task.Ext.Labels["namespace"] = namespace
+	task.Ext.Labels["pod_name"] = podName
+	task.Ext.Labels["workload_uid"] = workloadUID
+	task.Ext.Labels["workload_name"] = workloadName
+	task.Ext.Labels["framework"] = task.Ext.Framework
+
+	log.Infof("Enriched pod info for task %s: pod=%s/%s, ip=%s, port=%d",
+		workloadUID, namespace, podName, podIP, task.Ext.MetricsPort)
+
+	// Update the task in database so we don't need to re-enrich next time
+	if err := r.updateTaskExtInDB(task); err != nil {
+		log.Warnf("Failed to update task ext in database for %s: %v", workloadUID, err)
+		// Continue anyway - we have the info in memory
+	}
+
+	return nil
+}
+
+// getDefaultMetricsPort returns the default metrics port for a framework
+func (r *TaskReceiver) getDefaultMetricsPort(framework string) int {
+	switch {
+	case contains(framework, "vllm"):
+		return 8000
+	case contains(framework, "tgi"):
+		return 8080
+	case contains(framework, "triton"):
+		return 8002
+	case contains(framework, "tensorrt"):
+		return 8000
+	case contains(framework, "tei"), contains(framework, "text-embeddings"):
+		return 8000
+	default:
+		return 8000
+	}
+}
+
+// contains checks if s contains substr (case-insensitive)
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsLower(s, substr))
+}
+
+func containsLower(s, substr string) bool {
+	s = strings.ToLower(s)
+	substr = strings.ToLower(substr)
+	return strings.Contains(s, substr)
+}
+
+// updateTaskExtInDB updates the task's ext field in database
+func (r *TaskReceiver) updateTaskExtInDB(task *ScrapeTask) error {
+	extMap := task.Ext.ToExtMap()
+	return r.facade.UpdateTaskExt(r.ctx, task.WorkloadUID, config.TaskTypeInferenceMetricsScrape, extMap)
 }
 
 // removeActiveTask removes a task and stops its scrape loop via ScrapeManager

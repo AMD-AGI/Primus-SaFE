@@ -111,6 +111,14 @@ rules:
   verbs:
     - "*"
 - resources:
+    - apikeys
+  grantedUsers:
+    - owner
+  verbs:
+    - create
+    - list
+    - delete
+- resources:
     - secret
     - opsjob/preflight
     - opsjob/download
@@ -136,6 +144,8 @@ rules:
     - workload/high-priority
     - workload/med-priority
     - workload/low-priority
+    - workload/privileged
+    - addontemplate
   grantedUsers:
     - workspace-user
   verbs:
