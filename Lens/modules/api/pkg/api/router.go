@@ -501,6 +501,9 @@ func RegisterRouter(group *gin.RouterGroup) error {
 			runsGroup.GET("/:id/jobs", GetRunJobs)
 			runsGroup.POST("/:id/sync/start", StartRunSync)
 			runsGroup.POST("/:id/sync/stop", StopRunSync)
+			// Job and step logs APIs
+			runsGroup.GET("/:id/jobs/:job_id/logs", GetJobLogs)
+			runsGroup.GET("/:id/jobs/:job_id/steps/:step_number/logs", GetStepLogs)
 		}
 		// Schema details
 		schemasGroup := githubWorkflowMetricsGroup.Group("/schemas")
