@@ -2403,11 +2403,19 @@ func GetJobLogs(ctx *gin.Context) {
 		return
 	}
 
-	// Get GitHub client
+	// Get GitHub client - ensure manager is initialized
 	githubManager := github.GetGlobalManager()
 	if githubManager == nil {
-		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, "GitHub client manager not initialized", nil))
-		return
+		// Initialize GitHub manager with cluster's K8s client
+		cm := clientsets.GetClusterManager()
+		clients, err := cm.GetClusterClientsOrDefault(ctx.Query("cluster"))
+		if err != nil {
+			log.GlobalLogger().WithContext(ctx).Errorf("Failed to get cluster clients: %v", err)
+			ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, "failed to get cluster clients", nil))
+			return
+		}
+		github.InitGlobalManager(clients.K8SClientSet.Clientsets)
+		githubManager = github.GetGlobalManager()
 	}
 
 	client, err := githubManager.GetClientForSecret(ctx.Request.Context(), runnerSet.Namespace, runnerSet.GithubConfigSecret)
@@ -2514,11 +2522,19 @@ func GetStepLogs(ctx *gin.Context) {
 		return
 	}
 
-	// Get GitHub client
+	// Get GitHub client - ensure manager is initialized
 	githubManager := github.GetGlobalManager()
 	if githubManager == nil {
-		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, "GitHub client manager not initialized", nil))
-		return
+		// Initialize GitHub manager with cluster's K8s client
+		cm := clientsets.GetClusterManager()
+		clients, err := cm.GetClusterClientsOrDefault(ctx.Query("cluster"))
+		if err != nil {
+			log.GlobalLogger().WithContext(ctx).Errorf("Failed to get cluster clients: %v", err)
+			ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, "failed to get cluster clients", nil))
+			return
+		}
+		github.InitGlobalManager(clients.K8SClientSet.Clientsets)
+		githubManager = github.GetGlobalManager()
 	}
 
 	client, err := githubManager.GetClientForSecret(ctx.Request.Context(), runnerSet.Namespace, runnerSet.GithubConfigSecret)
