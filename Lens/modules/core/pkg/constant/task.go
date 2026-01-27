@@ -70,3 +70,5 @@ const (
 	CoordinatorStateCompleted = "completed"
 )
 
+// Build trigger: 2026-01-27 - workflow sync API parameter fix
+
