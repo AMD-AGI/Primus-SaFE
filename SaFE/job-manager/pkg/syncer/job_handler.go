@@ -274,22 +274,23 @@ func (r *SyncerReconciler) updateAdminWorkloadStatus(ctx context.Context, origin
 		}
 		return adminWorkload, nil
 	}
-
-	r.updateAdminWorkloadPhase(adminWorkload, status, message)
 	if adminWorkload.Status.StartTime == nil {
 		adminWorkload.Status.StartTime = &metav1.Time{Time: time.Now().UTC()}
 	}
 	if adminWorkload.IsEnd() && adminWorkload.Status.EndTime == nil {
 		adminWorkload.Status.EndTime = &metav1.Time{Time: time.Now().UTC()}
 	}
+	if status.Phase != "" {
+		r.updateAdminWorkloadPhase(adminWorkload, status, message)
+		if !commonworkload.IsTorchFT(adminWorkload) ||
+			adminWorkload.Status.Phase != originalWorkload.Status.Phase || isTorchFTGroupFailed(adminWorkload) {
+			cond := jobutils.NewCondition(status.Phase, status.Message,
+				commonworkload.GenerateDispatchReason(message.dispatchCount))
+			updateWorkloadCondition(adminWorkload, cond)
+		}
+	}
 	if !status.IsPending() {
 		adminWorkload.Status.Message = ""
-	}
-	if !commonworkload.IsTorchFT(adminWorkload) ||
-		adminWorkload.Status.Phase != originalWorkload.Status.Phase || isTorchFTGroupFailed(adminWorkload) {
-		cond := jobutils.NewCondition(status.Phase, status.Message,
-			commonworkload.GenerateDispatchReason(message.dispatchCount))
-		updateWorkloadCondition(adminWorkload, cond)
 	}
 	if reflect.DeepEqual(adminWorkload.Status, originalWorkload.Status) {
 		return originalWorkload, nil
