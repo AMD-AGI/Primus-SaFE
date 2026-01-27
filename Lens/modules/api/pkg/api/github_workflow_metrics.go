@@ -2341,7 +2341,7 @@ func StopRunSync(ctx *gin.Context) {
 
 // GetJobLogs returns logs for a specific job within a workflow run
 // @Summary Get job logs
-// @Description Fetches logs for a specific job from GitHub API
+// @Description Fetches logs for a specific job, first from local cache, then from GitHub API
 // @Tags github-workflow-metrics
 // @Produce json
 // @Param id path int true "Workflow Run ID"
@@ -2358,6 +2358,20 @@ func GetJobLogs(ctx *gin.Context) {
 	jobID, err := strconv.ParseInt(ctx.Param("job_id"), 10, 64)
 	if err != nil {
 		ctx.JSON(http.StatusBadRequest, rest.ErrorResp(ctx.Request.Context(), http.StatusBadRequest, "invalid job_id", nil))
+		return
+	}
+
+	// First, try to get logs from local storage
+	logsFacade := database.NewGithubWorkflowJobLogsFacade()
+	cachedLog, err := logsFacade.GetByJobID(ctx.Request.Context(), runID, jobID)
+	if err == nil && cachedLog != nil && cachedLog.FetchStatus == "fetched" && cachedLog.Logs != "" {
+		ctx.JSON(http.StatusOK, gin.H{
+			"run_id":     runID,
+			"job_id":     jobID,
+			"logs":       cachedLog.Logs,
+			"source":     "cache",
+			"fetched_at": cachedLog.FetchedAt,
+		})
 		return
 	}
 
@@ -2411,11 +2425,18 @@ func GetJobLogs(ctx *gin.Context) {
 		return
 	}
 
+	// Store logs in cache for future use
+	go func() {
+		if storeErr := logsFacade.UpdateLogsContent(context.Background(), runID, jobID, logs); storeErr != nil {
+			log.GlobalLogger().Warningf("Failed to cache logs for job %d: %v", jobID, storeErr)
+		}
+	}()
+
 	ctx.JSON(http.StatusOK, gin.H{
-		"run_id":  runID,
-		"job_id":  jobID,
-		"logs":    logs,
-		"fetched": true,
+		"run_id": runID,
+		"job_id": jobID,
+		"logs":   logs,
+		"source": "github",
 	})
 }
 
@@ -2446,6 +2467,22 @@ func GetStepLogs(ctx *gin.Context) {
 	stepNumber, err := strconv.Atoi(ctx.Param("step_number"))
 	if err != nil {
 		ctx.JSON(http.StatusBadRequest, rest.ErrorResp(ctx.Request.Context(), http.StatusBadRequest, "invalid step_number", nil))
+		return
+	}
+
+	// First, try to get logs from local cache
+	logsFacade := database.NewGithubWorkflowJobLogsFacade()
+	cachedLog, err := logsFacade.GetByJobID(ctx.Request.Context(), runID, jobID)
+	if err == nil && cachedLog != nil && cachedLog.FetchStatus == "fetched" && cachedLog.Logs != "" {
+		stepLogs := parseStepLogs(cachedLog.Logs, stepNumber)
+		ctx.JSON(http.StatusOK, gin.H{
+			"run_id":      runID,
+			"job_id":      jobID,
+			"step_number": stepNumber,
+			"logs":        stepLogs,
+			"source":      "cache",
+			"fetched_at":  cachedLog.FetchedAt,
+		})
 		return
 	}
 
@@ -2499,6 +2536,13 @@ func GetStepLogs(ctx *gin.Context) {
 		return
 	}
 
+	// Store logs in cache for future use
+	go func() {
+		if storeErr := logsFacade.UpdateLogsContent(context.Background(), runID, jobID, jobLogs); storeErr != nil {
+			log.GlobalLogger().Warningf("Failed to cache logs for job %d: %v", jobID, storeErr)
+		}
+	}()
+
 	// Parse step logs from job logs
 	// GitHub job logs format includes step markers like:
 	// ##[group]Run step-name
@@ -2511,7 +2555,7 @@ func GetStepLogs(ctx *gin.Context) {
 		"job_id":      jobID,
 		"step_number": stepNumber,
 		"logs":        stepLogs,
-		"fetched":     true,
+		"source":      "github",
 	})
 }
 

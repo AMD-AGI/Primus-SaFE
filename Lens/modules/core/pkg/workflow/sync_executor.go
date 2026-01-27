@@ -316,6 +316,20 @@ func (e *SyncExecutor) updateDatabase(ctx context.Context, run *model.GithubWork
 		if err := jobFacade.SyncFromGitHub(ctx, run.ID, ghJobs); err != nil {
 			return err
 		}
+
+		// When workflow completes, create pending log entries for all jobs
+		if state.WorkflowStatus == "completed" {
+			logsFacade := database.NewGithubWorkflowJobLogsFacade()
+			for _, job := range ghJobs {
+				if err := logsFacade.CreatePendingLogs(ctx, run.ID, job.ID, job.Name); err != nil {
+					log.Warnf("SyncExecutor: failed to create pending log entry for job %d: %v", job.ID, err)
+				}
+			}
+			// Trigger async log fetch task
+			if err := CreateLogFetchTask(ctx, run.ID); err != nil {
+				log.Warnf("SyncExecutor: failed to create log fetch task for run %d: %v", run.ID, err)
+			}
+		}
 	}
 
 	return nil
