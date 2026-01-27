@@ -413,6 +413,20 @@ func (f *WorkloadFacade) GetLatestGpuWorkloadSnapshotByUid(ctx context.Context, 
 
 // WorkloadPodReference operation implementations
 func (f *WorkloadFacade) CreateWorkloadPodReference(ctx context.Context, workloadUid, podUid string) error {
+	// Check if reference already exists to prevent duplicates
+	q := f.getDAL().WorkloadPodReference
+	existingRef, err := q.WithContext(ctx).
+		Where(q.WorkloadUID.Eq(workloadUid)).
+		Where(q.PodUID.Eq(podUid)).
+		First()
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return err
+	}
+	// If reference already exists (either found or ID > 0), skip creation
+	if existingRef != nil && existingRef.ID > 0 {
+		return nil
+	}
+
 	ref := &model.WorkloadPodReference{
 		WorkloadUID: workloadUid,
 		PodUID:      podUid,
