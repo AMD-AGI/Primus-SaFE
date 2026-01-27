@@ -184,19 +184,24 @@ func (f *PodFacade) ListRunningGpuPods(ctx context.Context) ([]*model.GpuPods, e
 // ListPodsActiveInTimeRange returns pods that were active (running) during the specified time range
 // A pod is considered active if:
 // - created_at <= endTime AND
-// - phase = 'Running' (currently running) OR
+// - (phase = 'Running' AND deleted = false) (currently running, not deleted) OR
 // - (phase IN ('Succeeded', 'Failed') AND updated_at >= startTime) (finished during the time range)
-// Note: Pending pods are explicitly excluded as they were never actually running
+// Note: Pending pods and deleted "Running" pods are explicitly excluded
 // This is used for time-based aggregation calculations
 func (f *PodFacade) ListPodsActiveInTimeRange(ctx context.Context, startTime, endTime time.Time) ([]*model.GpuPods, error) {
 	q := f.getDAL().GpuPods
 	// Pod was created before or during the time range
-	// AND (pod is currently running OR pod finished (Succeeded/Failed) during or after the time range)
-	// Explicitly exclude Pending pods as they were never actually running
+	// AND (
+	//   (pod is currently running AND not deleted) OR
+	//   pod finished (Succeeded/Failed) during or after the time range
+	// )
+	// Explicitly exclude Pending pods and deleted "Running" pods (zombie pods)
 	result, err := q.WithContext(ctx).
 		Where(q.CreatedAt.Lte(endTime)).
 		Where(q.WithContext(ctx).Or(
-			q.Phase.Eq(string(corev1.PodRunning)),
+			// Running pods must not be deleted (exclude zombie pods)
+			q.WithContext(ctx).Where(q.Phase.Eq(string(corev1.PodRunning))).Where(q.Deleted.Is(false)),
+			// Completed pods - deleted flag doesn't matter
 			q.WithContext(ctx).Where(
 				q.Phase.In(string(corev1.PodSucceeded), string(corev1.PodFailed)),
 			).Where(q.UpdatedAt.Gte(startTime)),
