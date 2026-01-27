@@ -12,6 +12,7 @@ import (
 
 	sqrl "github.com/Masterminds/squirrel"
 	"github.com/gin-gonic/gin"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/klog/v2"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
@@ -124,7 +125,8 @@ func (h *Handler) ListEvaluationTasks(c *gin.Context) {
 		}
 
 		// Get tasks
-		orderBy := []string{"creation_time DESC"}
+		// Use NULLS LAST to ensure tasks with NULL creation_time are sorted after tasks with valid timestamps
+		orderBy := []string{"creation_time DESC NULLS LAST", "id DESC"}
 		tasks, err := h.dbClient.SelectEvaluationTasks(c.Request.Context(), query, orderBy, req.Limit, req.Offset)
 		if err != nil {
 			return nil, commonerrors.NewInternalError(fmt.Sprintf("failed to list tasks: %v", err))
@@ -176,12 +178,18 @@ func (h *Handler) DeleteEvaluationTask(c *gin.Context) {
 			return nil, err
 		}
 
-		// If task is running, try to cancel the OpsJob
-		if task.Status == dbclient.EvaluationTaskStatusRunning && task.OpsJobId.Valid {
+		// Delete associated OpsJob if exists (for any status, not just Running)
+		// OpsJob might still exist if TTL hasn't expired yet
+		if task.OpsJobId.Valid && task.OpsJobId.String != "" {
 			opsJob := &v1.OpsJob{}
 			opsJob.Name = task.OpsJobId.String
 			if err := h.k8sClient.Delete(c.Request.Context(), opsJob); err != nil {
-				klog.ErrorS(err, "failed to delete OpsJob", "opsJobId", task.OpsJobId.String)
+				// Ignore NotFound error (OpsJob may have been deleted by TTL)
+				if !apierrors.IsNotFound(err) {
+					klog.ErrorS(err, "failed to delete OpsJob", "opsJobId", task.OpsJobId.String)
+				}
+			} else {
+				klog.InfoS("deleted OpsJob for evaluation task", "taskId", taskId, "opsJobId", task.OpsJobId.String)
 			}
 		}
 
@@ -269,14 +277,6 @@ func (h *Handler) convertToEvalTaskView(task *dbclient.EvaluationTask) Evaluatio
 		var benchmarks []BenchmarkConfig
 		if err := json.Unmarshal([]byte(task.Benchmarks), &benchmarks); err == nil {
 			view.Benchmarks = benchmarks
-		}
-	}
-
-	// Parse eval params
-	if task.EvalParams != "" {
-		var params map[string]interface{}
-		if err := json.Unmarshal([]byte(task.EvalParams), &params); err == nil {
-			view.EvalParams = params
 		}
 	}
 

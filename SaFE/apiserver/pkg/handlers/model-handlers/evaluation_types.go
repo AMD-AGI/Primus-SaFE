@@ -57,9 +57,12 @@ type BenchmarkConfig struct {
 // JudgeConfig represents the configuration for LLM-as-Judge evaluation mode
 // In this mode, a secondary LLM (judge) evaluates the quality of the primary model's answers
 type JudgeConfig struct {
-	Model    string `json:"model"`              // Judge model name (e.g. "gpt-4", "gpt-4o")
-	Endpoint string `json:"endpoint,omitempty"` // Judge model API endpoint (e.g. "https://api.openai.com/v1")
-	ApiKey   string `json:"apiKey,omitempty"`   // Judge model API key
+	// ServiceId is the model/workload ID (e.g. "model-deepseek25" for remote_api, or workload ID for local)
+	// The system will automatically fetch modelName, endpoint, and apiKey
+	ServiceId string `json:"serviceId"`
+	// ServiceType specifies whether the judge is a remote API model or local workload
+	// Values: "remote_api" or "local_workload"
+	ServiceType EvalServiceType `json:"serviceType"`
 }
 
 // AvailableEvalService represents a model/service available for evaluation
@@ -87,7 +90,6 @@ type EvaluationTaskView struct {
 	ServiceType   EvalServiceType               `json:"serviceType"`
 	ServiceName   string                        `json:"serviceName,omitempty"`
 	Benchmarks    []BenchmarkConfig             `json:"benchmarks"`
-	EvalParams    map[string]interface{}        `json:"evalParams,omitempty"`
 	OpsJobId      string                        `json:"opsJobId,omitempty"`
 	Status        dbclient.EvaluationTaskStatus `json:"status"`
 	Progress      int                           `json:"progress"`

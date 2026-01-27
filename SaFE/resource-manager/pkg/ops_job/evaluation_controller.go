@@ -192,7 +192,6 @@ func (r *EvaluationJobReconciler) generateEvaluationWorkload(ctx context.Context
 	modelName := getParamValue(job.GetParameter(v1.ParameterModelName))
 	modelApiKey := getParamValue(job.GetParameter(v1.ParameterModelApiKey)) // API key for remote_api model
 	benchmarksJSON := getParamValue(job.GetParameter(v1.ParameterEvalBenchmarks))
-	paramsJSON := getParamValue(job.GetParameter(v1.ParameterEvalParams))
 	workspace := getParamValue(job.GetParameter(v1.ParameterWorkspace))
 	clusterId := getParamValue(job.GetParameter(v1.ParameterCluster))
 
@@ -220,7 +219,7 @@ func (r *EvaluationJobReconciler) generateEvaluationWorkload(ctx context.Context
 	}
 
 	// Build evalscope command with upload script
-	entryPoint, err := r.buildEvalCommand(ctx, modelEndpoint, modelName, modelApiKey, benchmarksJSON, paramsJSON, taskId, s3PresignedPutURL, judgeModel, judgeEndpoint, judgeApiKey)
+	entryPoint, err := r.buildEvalCommand(ctx, modelEndpoint, modelName, modelApiKey, benchmarksJSON, taskId, s3PresignedPutURL, judgeModel, judgeEndpoint, judgeApiKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build eval command: %w", err)
 	}
@@ -300,7 +299,7 @@ type BenchmarkConfig struct {
 
 // buildEvalCommand builds the evalscope command based on parameters
 // Supports multiple datasets and judge model (LLM-as-Judge) evaluation mode
-func (r *EvaluationJobReconciler) buildEvalCommand(ctx context.Context, modelEndpoint, modelName, modelApiKey, benchmarksJSON, paramsJSON, taskId, s3PresignedPutURL, judgeModel, judgeEndpoint, judgeApiKey string) (string, error) {
+func (r *EvaluationJobReconciler) buildEvalCommand(ctx context.Context, modelEndpoint, modelName, modelApiKey, benchmarksJSON, taskId, s3PresignedPutURL, judgeModel, judgeEndpoint, judgeApiKey string) (string, error) {
 	// Parse benchmarks
 	var benchmarks []BenchmarkConfig
 	if err := json.Unmarshal([]byte(benchmarksJSON), &benchmarks); err != nil {

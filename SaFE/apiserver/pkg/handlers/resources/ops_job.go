@@ -116,6 +116,16 @@ func (h *Handler) createOpsJob(c *gin.Context) (interface{}, error) {
 
 	if err = h.Create(ctx, job); err != nil {
 		klog.ErrorS(err, "failed to create ops job")
+		// Rollback: delete evaluation_task record if OpsJob creation failed
+		if req.Type == v1.OpsJobEvaluationType {
+			if taskId := getParamValue(job.Spec.Inputs, v1.ParameterEvalTaskId); taskId != "" {
+				if delErr := h.dbClient.SetEvaluationTaskDeleted(ctx, taskId); delErr != nil {
+					klog.ErrorS(delErr, "failed to rollback evaluation task after OpsJob creation failed", "taskId", taskId)
+				} else {
+					klog.InfoS("rolled back evaluation task after OpsJob creation failed", "taskId", taskId)
+				}
+			}
+		}
 		return nil, err
 	}
 	klog.Infof("create ops job: %s, type: %s, params: %v, user: %s",
@@ -1061,7 +1071,6 @@ func (h *Handler) generateEvaluationJob(c *gin.Context, body []byte) (*v1.OpsJob
 	serviceId := getParamValue(req.Inputs, v1.ParameterEvalServiceId)
 	serviceType := getParamValue(req.Inputs, v1.ParameterEvalServiceType)
 	benchmarksJSON := getParamValue(req.Inputs, v1.ParameterEvalBenchmarks)
-	evalParamsJSON := getParamValue(req.Inputs, v1.ParameterEvalParams)
 	workspaceId := getParamValue(req.Inputs, v1.ParameterWorkspace)
 
 	// Extract judge model parameters (optional, for LLM-as-Judge evaluation)
@@ -1225,9 +1234,6 @@ func (h *Handler) generateEvaluationJob(c *gin.Context, body []byte) (*v1.OpsJob
 	benchmarksJSON = string(enrichedBenchmarksJSON)
 
 	// Create EvaluationTask record in database
-	if evalParamsJSON == "" {
-		evalParamsJSON = "{}"
-	}
 	task := &dbclient.EvaluationTask{
 		TaskId:       taskId,
 		TaskName:     req.Name,
@@ -1235,7 +1241,7 @@ func (h *Handler) generateEvaluationJob(c *gin.Context, body []byte) (*v1.OpsJob
 		ServiceType:  serviceType,
 		ServiceName:  serviceName,
 		Benchmarks:   benchmarksJSON,
-		EvalParams:   evalParamsJSON,
+		EvalParams:   "{}", // EvalParams is deprecated, always set to empty JSON
 		Status:       dbclient.EvaluationTaskStatusPending,
 		Progress:     0,
 		Workspace:    workspaceId,
@@ -1253,7 +1259,6 @@ func (h *Handler) generateEvaluationJob(c *gin.Context, body []byte) (*v1.OpsJob
 		{Name: v1.ParameterEvalServiceId, Value: serviceId},
 		{Name: v1.ParameterEvalServiceType, Value: serviceType},
 		{Name: v1.ParameterEvalBenchmarks, Value: benchmarksJSON},
-		{Name: v1.ParameterEvalParams, Value: evalParamsJSON},
 		{Name: v1.ParameterModelEndpoint, Value: modelEndpoint},
 		{Name: v1.ParameterModelName, Value: modelName},
 	}
@@ -1270,27 +1275,25 @@ func (h *Handler) generateEvaluationJob(c *gin.Context, body []byte) (*v1.OpsJob
 	// Add judge model parameters if provided
 	if judgeJSON != "" {
 		var judgeConfig struct {
-			Model    string `json:"model"`
-			Endpoint string `json:"endpoint"`
-			ApiKey   string `json:"apiKey"`
+			ServiceId   string `json:"serviceId"`   // Model ID or Workload ID
+			ServiceType string `json:"serviceType"` // "remote_api" or "local_workload"
 		}
-		if err := json.Unmarshal([]byte(judgeJSON), &judgeConfig); err == nil {
-			if judgeConfig.Model != "" {
-				inputs = append(inputs, v1.Parameter{Name: v1.ParameterJudgeModel, Value: judgeConfig.Model})
+		if err := json.Unmarshal([]byte(judgeJSON), &judgeConfig); err == nil && judgeConfig.ServiceId != "" {
+			var judgeModelName, judgeEndpoint, judgeApiKey string
 
-				// Try to get judge model's endpoint and API key from Model CR
-				// Find Model by modelName (e.g., "deepseek-ai/DeepSeek-V2.5")
-				judgeDbModel, err := h.dbClient.GetModelByModelName(ctx, judgeConfig.Model)
-				if err == nil && judgeDbModel != nil {
-					// Use Model's endpoint if not provided in request
-					if judgeConfig.Endpoint == "" && judgeDbModel.SourceURL != "" {
-						judgeConfig.Endpoint = judgeDbModel.SourceURL
-					}
+			if judgeConfig.ServiceType == "remote_api" {
+				// Remote API model - get from Model table
+				judgeDbModel, err := h.dbClient.GetModelByID(ctx, judgeConfig.ServiceId)
+				if err != nil {
+					klog.ErrorS(err, "failed to get judge model from database", "serviceId", judgeConfig.ServiceId)
+				} else if judgeDbModel != nil {
+					judgeModelName = judgeDbModel.ModelName
+					judgeEndpoint = judgeDbModel.SourceURL
 
 					// Get API Key from K8s Model CR's Secret reference
 					judgeK8sModel := &v1.Model{}
 					if err := h.Get(ctx, client.ObjectKey{Name: judgeDbModel.ID}, judgeK8sModel); err != nil {
-						klog.ErrorS(err, "failed to get K8s Model CR for judge model", "modelName", judgeConfig.Model)
+						klog.ErrorS(err, "failed to get K8s Model CR for judge model", "serviceId", judgeConfig.ServiceId)
 					} else if judgeK8sModel.Spec.Source.ApiKey != nil && judgeK8sModel.Spec.Source.ApiKey.Name != "" {
 						secret, err := h.getAdminSecret(ctx, judgeK8sModel.Spec.Source.ApiKey.Name)
 						if err != nil {
@@ -1298,20 +1301,50 @@ func (h *Handler) generateEvaluationJob(c *gin.Context, body []byte) (*v1.OpsJob
 						} else {
 							for _, key := range []string{"api-key", "apiKey", "token", "api_key"} {
 								if val, ok := secret.Data[key]; ok && len(val) > 0 {
-									judgeConfig.ApiKey = string(val)
-									klog.InfoS("got judge model API key from secret", "modelName", judgeConfig.Model, "secretName", judgeK8sModel.Spec.Source.ApiKey.Name)
+									judgeApiKey = string(val)
+									klog.InfoS("got judge model API key from secret", "serviceId", judgeConfig.ServiceId)
 									break
 								}
 							}
 						}
 					}
 				}
+			} else if judgeConfig.ServiceType == "local_workload" {
+				// Local workload - get endpoint from Workload
+				judgeWorkload, err := h.dbClient.GetWorkload(ctx, judgeConfig.ServiceId)
+				if err != nil {
+					klog.ErrorS(err, "failed to get judge workload from database", "serviceId", judgeConfig.ServiceId)
+				} else if judgeWorkload != nil {
+					// Get K8s Workload to extract endpoint and model name
+					k8sWorkload := &v1.Workload{}
+					if err := h.Get(ctx, client.ObjectKey{
+						Name:      judgeWorkload.WorkloadId,
+						Namespace: judgeWorkload.Workspace,
+					}, k8sWorkload); err != nil {
+						klog.ErrorS(err, "failed to get K8s Workload for judge", "workloadId", judgeWorkload.WorkloadId)
+					} else {
+						// Build endpoint URL from workload service
+						judgeEndpoint = fmt.Sprintf("http://%s.%s.svc.cluster.local:8000/v1",
+							judgeWorkload.WorkloadId, judgeWorkload.Workspace)
+
+						// Extract served model name from workload
+						judgeModelName = extractServedModelName(k8sWorkload.Spec.EntryPoint, judgeWorkload.EntryPoints)
+						if judgeModelName == "" {
+							judgeModelName = judgeWorkload.DisplayName
+						}
+					}
+				}
 			}
-			if judgeConfig.Endpoint != "" {
-				inputs = append(inputs, v1.Parameter{Name: v1.ParameterJudgeEndpoint, Value: judgeConfig.Endpoint})
+
+			// Add judge parameters to inputs
+			if judgeModelName != "" {
+				inputs = append(inputs, v1.Parameter{Name: v1.ParameterJudgeModel, Value: judgeModelName})
 			}
-			if judgeConfig.ApiKey != "" {
-				inputs = append(inputs, v1.Parameter{Name: v1.ParameterJudgeApiKey, Value: judgeConfig.ApiKey})
+			if judgeEndpoint != "" {
+				inputs = append(inputs, v1.Parameter{Name: v1.ParameterJudgeEndpoint, Value: judgeEndpoint})
+			}
+			if judgeApiKey != "" {
+				inputs = append(inputs, v1.Parameter{Name: v1.ParameterJudgeApiKey, Value: judgeApiKey})
 			}
 		}
 	}
