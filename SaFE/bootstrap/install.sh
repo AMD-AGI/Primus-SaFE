@@ -49,11 +49,16 @@ install_or_upgrade_helm_chart() {
   local values_yaml="$2"
   local chart_path="./$chart_name"
 
-  if helm -n "$NAMESPACE" list | grep -q "^$chart_name"; then
-      helm upgrade "$chart_name" "$chart_path" -n "$NAMESPACE" -f $values_yaml
-  else
-      helm install "$chart_name" "$chart_path" -n "$NAMESPACE" -f $values_yaml --create-namespace
+  # Check if release exists but is not in deployed state (failed/pending-install)
+  if helm list -n "$NAMESPACE" -q | grep -qx "$chart_name"; then
+    local status=$(helm status "$chart_name" -n "$NAMESPACE" -o json 2>/dev/null | grep -o '"status":"[^"]*"' | cut -d'"' -f4)
+    if [ "$status" != "deployed" ]; then
+      echo "⚠️  Release $chart_name exists in '$status' state, cleaning up..."
+      helm uninstall "$chart_name" -n "$NAMESPACE" --no-hooks 2>/dev/null || true
+    fi
   fi
+
+  helm upgrade --install "$chart_name" "$chart_path" -n "$NAMESPACE" -f $values_yaml --create-namespace
   echo "✅ $chart_name installed in namespace("$NAMESPACE")"
   echo
 }
@@ -293,7 +298,7 @@ done
 echo
 
 chart_name="primus-safe"
-if helm -n "$NAMESPACE" list | grep -q "^$chart_name "; then
+if helm list -n "$NAMESPACE" -q | grep -qx "$chart_name"; then
   kubectl replace -f $chart_name/crds/ -n "$NAMESPACE"
   mkdir -p output
   helm template "$chart_name" -f "$values_yaml" -n "$NAMESPACE" "$chart_name" --output-dir ./output 1>/dev/null
