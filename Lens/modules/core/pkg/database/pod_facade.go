@@ -25,6 +25,8 @@ type PodFacadeInterface interface {
 	ListActivePodsByUids(ctx context.Context, uids []string) ([]*model.GpuPods, error)
 	ListPodsByUids(ctx context.Context, uids []string) ([]*model.GpuPods, error)
 	ListActiveGpuPods(ctx context.Context) ([]*model.GpuPods, error)
+	// ListRunningGpuPods returns pods with phase = 'Running' (used by stale pod cleanup job)
+	ListRunningGpuPods(ctx context.Context) ([]*model.GpuPods, error)
 	// ListPodsActiveInTimeRange returns pods that were active during the specified time range
 	// A pod is considered active in the time range if:
 	// - created_at <= endTime AND
@@ -153,6 +155,23 @@ func (f *PodFacade) ListPodsByUids(ctx context.Context, uids []string) ([]*model
 func (f *PodFacade) ListActiveGpuPods(ctx context.Context) ([]*model.GpuPods, error) {
 	q := f.getDAL().GpuPods
 	result, err := q.WithContext(ctx).Where(q.Running.Is(true)).Find()
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return result, nil
+}
+
+// ListRunningGpuPods returns pods with phase = 'Running' and not deleted
+// This is used by the stale pod cleanup job to find pods that need to be checked
+func (f *PodFacade) ListRunningGpuPods(ctx context.Context) ([]*model.GpuPods, error) {
+	q := f.getDAL().GpuPods
+	result, err := q.WithContext(ctx).
+		Where(q.Phase.Eq(string(corev1.PodRunning))).
+		Where(q.Deleted.Is(false)).
+		Find()
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
