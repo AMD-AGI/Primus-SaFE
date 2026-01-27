@@ -189,24 +189,25 @@ func (f *PodFacade) ListRunningGpuPods(ctx context.Context) ([]*model.GpuPods, e
 // Note: Pending pods and deleted "Running" pods are explicitly excluded
 // This is used for time-based aggregation calculations
 func (f *PodFacade) ListPodsActiveInTimeRange(ctx context.Context, startTime, endTime time.Time) ([]*model.GpuPods, error) {
-	q := f.getDAL().GpuPods
+	db := f.getDB()
+	if db == nil {
+		return nil, nil
+	}
 	// Pod was created before or during the time range
 	// AND (
 	//   (pod is currently running AND not deleted) OR
 	//   pod finished (Succeeded/Failed) during or after the time range
 	// )
 	// Explicitly exclude Pending pods and deleted "Running" pods (zombie pods)
-	result, err := q.WithContext(ctx).
-		Where(q.CreatedAt.Lte(endTime)).
-		Where(q.WithContext(ctx).Or(
-			// Running pods must not be deleted (exclude zombie pods)
-			q.WithContext(ctx).Where(q.Phase.Eq(string(corev1.PodRunning))).Where(q.Deleted.Is(false)),
-			// Completed pods - deleted flag doesn't matter
-			q.WithContext(ctx).Where(
-				q.Phase.In(string(corev1.PodSucceeded), string(corev1.PodFailed)),
-			).Where(q.UpdatedAt.Gte(startTime)),
-		)).
-		Find()
+	var result []*model.GpuPods
+	err := db.WithContext(ctx).
+		Where("created_at <= ?", endTime).
+		Where(
+			// (Running AND not deleted) OR (Succeeded/Failed AND updated_at >= startTime)
+			db.Where("phase = ? AND deleted = ?", string(corev1.PodRunning), false).
+				Or("phase IN ? AND updated_at >= ?", []string{string(corev1.PodSucceeded), string(corev1.PodFailed)}, startTime),
+		).
+		Find(&result).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
