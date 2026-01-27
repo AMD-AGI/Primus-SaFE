@@ -39,7 +39,7 @@ import (
 )
 
 const (
-	ForceDeleteDelaySeconds = 20
+	ForceDeleteDelaySeconds = 60
 	LogTailLines            = 1000
 
 	appComponent     = "app.kubernetes.io/component"

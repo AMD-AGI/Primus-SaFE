@@ -15,6 +15,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/klog/v2"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -62,13 +63,6 @@ func (r *SyncerReconciler) handleJob(ctx context.Context,
 // Processes resource creation, update, and deletion events.
 func (r *SyncerReconciler) handleJobImpl(ctx context.Context, message *resourceMessage,
 	adminWorkload *v1.Workload, clientSets *ClusterClientSets) (ctrlruntime.Result, error) {
-	if message.action == ResourceDel {
-		// wait until all pods are deleted
-		if !r.waitAllPodsDeleted(ctx, message, clientSets) {
-			return ctrlruntime.Result{RequeueAfter: time.Second * 3}, nil
-		}
-	}
-
 	if !adminWorkload.IsEnd() {
 		status, err := r.getK8sObjectStatus(ctx, message, clientSets, adminWorkload)
 		if err != nil {
@@ -81,37 +75,23 @@ func (r *SyncerReconciler) handleJobImpl(ctx context.Context, message *resourceM
 		}
 	}
 
-	// Check if the resource is being deleted OR if the workload was preempted and dispatched
-	// The additional IsWorkloadPreempted check prevents issues when the service restarts during
-	// the preemption process, which could cause message loss and prevent proper cleanup/re-scheduling
-	if message.action == ResourceDel ||
-		(v1.IsWorkloadPreempted(adminWorkload) && !v1.IsWorkloadDisableFailover(adminWorkload)) {
-		// wait until the job is also deleted
-		if !r.waitJobDeleted(ctx, message, clientSets) {
-			// If this is not a deletion message, return without retrying
-			if message.action != ResourceDel {
-				return ctrlruntime.Result{}, nil
-			}
+	if message.action == ResourceDeleting {
+		ok, err := r.waitAllPodsDeleted(ctx, message, clientSets)
+		if err != nil || !ok {
+			return ctrlruntime.Result{RequeueAfter: time.Second * 3}, err
+		}
+		ok, err = r.waitJobDeleted(ctx, adminWorkload, message, clientSets)
+		if err != nil || !ok {
 			return ctrlruntime.Result{RequeueAfter: time.Second * 3}, nil
 		}
-		if !adminWorkload.IsEnd() {
-			// TorchFT workloads consist of multiple objects (groups), while other workloads have a single object.
-			// For TorchFT: wait until ALL objects in the group are deleted before triggering reSchedule
-			// For other workloads: single job deletion is sufficient to trigger reSchedule
-			if commonworkload.IsTorchFT(adminWorkload) {
-				unstructuredObjs, err := jobutils.ListObjectsByWorkload(ctx, r.Client, clientSets.ClientFactory(), adminWorkload)
-				if err != nil {
-					klog.ErrorS(err, "failed to list objects by workload", "workload", adminWorkload.Name)
-					return ctrlruntime.Result{}, err
-				}
-				if len(unstructuredObjs) != 0 {
-					return ctrlruntime.Result{}, nil
-				}
-			}
-			if err := r.reSchedule(ctx, adminWorkload, message.dispatchCount); err != nil {
-				klog.ErrorS(err, "failed to reSchedule", "workload", adminWorkload.Name)
-				return ctrlruntime.Result{}, err
-			}
+	}
+
+	if ok, err := r.shouldReSchedule(ctx, adminWorkload, message, clientSets); err != nil {
+		return ctrlruntime.Result{}, err
+	} else if ok {
+		if err = r.reSchedule(ctx, adminWorkload, message.dispatchCount); err != nil {
+			klog.ErrorS(err, "failed to reSchedule", "workload", adminWorkload.Name)
+			return ctrlruntime.Result{}, err
 		}
 	}
 	return ctrlruntime.Result{}, nil
@@ -166,7 +146,8 @@ func (r *SyncerReconciler) getK8sObjectStatus(ctx context.Context, message *reso
 }
 
 // waitAllPodsDeleted checks if all pods associated with a workload have been deleted.
-func (r *SyncerReconciler) waitAllPodsDeleted(ctx context.Context, message *resourceMessage, clientSets *ClusterClientSets) bool {
+func (r *SyncerReconciler) waitAllPodsDeleted(ctx context.Context,
+	message *resourceMessage, clientSets *ClusterClientSets) (bool, error) {
 	labelSelector := metav1.LabelSelector{
 		MatchLabels: map[string]string{v1.K8sObjectIdLabel: message.name},
 	}
@@ -183,32 +164,95 @@ func (r *SyncerReconciler) waitAllPodsDeleted(ctx context.Context, message *reso
 	podList, err := clientSets.dataClientFactory.ClientSet().CoreV1().Pods(message.namespace).List(ctx, listOptions)
 	if err != nil {
 		klog.ErrorS(err, "failed to list pods", "workload", message.workloadId, "namespace", message.namespace)
-		return false
+		return false, err
 	}
 	if len(podList.Items) == 0 {
 		klog.Infof("all pods are deleted, workload: %s", message.workloadId)
-		return true
+		return true, nil
 	}
-	return false
+	return false, nil
 }
 
-func (r *SyncerReconciler) waitJobDeleted(ctx context.Context, message *resourceMessage, clientSets *ClusterClientSets) bool {
-	obj, err := jobutils.GetObject(ctx, clientSets.ClientFactory(), message.name, message.namespace, message.gvk)
+// waitJobDeleted wait all objects(not pods) associated with a workload have been deleted.
+// Note: TorchFT workloads consist of multiple objects (groups), while other workloads have a single object.
+// For TorchFT: wait until ALL objects in the group are deleted
+// For other workloads: single job deletion is enough
+func (r *SyncerReconciler) waitJobDeleted(ctx context.Context,
+	adminWorkload *v1.Workload, message *resourceMessage, clientSets *ClusterClientSets) (bool, error) {
+	unstructuredObjs, err := r.getObjectsByWorkload(ctx, adminWorkload, message, clientSets)
 	if err != nil {
-		return apierrors.IsNotFound(err)
+		return false, err
 	}
-	if ts := obj.GetDeletionTimestamp(); ts != nil && !ts.IsZero() && time.Since(ts.Time) >= 1*time.Minute {
-		patchObj := map[string]any{
-			"metadata": map[string]any{
-				"finalizers": []string{},
-			},
-		}
-		p := jsonutils.MarshalSilently(patchObj)
-		if patchErr := jobutils.PatchObject(ctx, clientSets.ClientFactory(), obj, p); patchErr != nil {
-			return apierrors.IsNotFound(patchErr)
+	if len(unstructuredObjs) == 0 {
+		return true, nil
+	}
+
+	for _, obj := range unstructuredObjs {
+		klog.Infof("wait for object(%s/%s) to be deleted, workload: %s", obj.GetNamespace(), obj.GetName(), message.workloadId)
+		if ts := obj.GetDeletionTimestamp(); ts != nil && !ts.IsZero() && time.Since(ts.Time) >= 2*time.Minute {
+			patchObj := map[string]any{
+				"metadata": map[string]any{
+					"finalizers": []string{},
+				},
+			}
+			p := jsonutils.MarshalSilently(patchObj)
+			if patchErr := jobutils.PatchObject(ctx, clientSets.ClientFactory(), &obj, p); patchErr != nil {
+				if !apierrors.IsNotFound(patchErr) {
+					return false, patchErr
+				}
+			}
 		}
 	}
-	return false
+	return false, nil
+}
+
+// getObjectsByWorkload retrieves all Kubernetes objects associated with a workload.
+// For TorchFT workloads: returns all objects belonging to the workload since TorchFT consists of multiple objects (groups)
+// For other workloads: returns the single primary object identified by the message details
+func (r *SyncerReconciler) getObjectsByWorkload(ctx context.Context,
+	adminWorkload *v1.Workload, message *resourceMessage, clientSets *ClusterClientSets) ([]unstructured.Unstructured, error) {
+	var unstructuredObjs []unstructured.Unstructured
+	if commonworkload.IsTorchFT(adminWorkload) {
+		var err error
+		unstructuredObjs, err = jobutils.ListObjectsByWorkload(ctx, r.Client, clientSets.ClientFactory(), adminWorkload)
+		if err != nil {
+			klog.ErrorS(err, "failed to list objects by workload", "workload", adminWorkload.Name)
+			return nil, err
+		}
+	} else {
+		obj, err := jobutils.GetObject(ctx, clientSets.ClientFactory(), message.name, message.namespace, message.gvk)
+		if err != nil {
+			return nil, client.IgnoreNotFound(err)
+		}
+		unstructuredObjs = append(unstructuredObjs, *obj)
+	}
+	return unstructuredObjs, nil
+}
+
+// shouldReSchedule determines if a workload needs to be rescheduled.
+// Returns true when:
+// 1. The workload is not in an end state but the associated Kubernetes object has been deleted (ResourceDel action)
+// 2. The workload has been preempted and all associated objects no longer exist
+func (r *SyncerReconciler) shouldReSchedule(ctx context.Context,
+	adminWorkload *v1.Workload, message *resourceMessage, clientSets *ClusterClientSets) (bool, error) {
+	if adminWorkload.IsEnd() {
+		return false, nil
+	}
+	if message.action == ResourceDel {
+		return true, nil
+	}
+	// The additional IsWorkloadPreempted check prevents issues when the service restarts during
+	// the preemption process, which could cause message loss and prevent proper cleanup/re-scheduling
+	if v1.IsWorkloadPreempted(adminWorkload) && !v1.IsWorkloadDisableFailover(adminWorkload) {
+		unstructuredObjs, err := r.getObjectsByWorkload(ctx, adminWorkload, message, clientSets)
+		if err != nil {
+			return false, err
+		}
+		if len(unstructuredObjs) == 0 {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // updateAdminWorkloadStatus updates the admin workload status based on resource status.

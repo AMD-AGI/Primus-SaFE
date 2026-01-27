@@ -173,7 +173,7 @@ func (a *AccessController) authorize(in AccessInput) error {
 			}
 		}
 	}
-	klog.Errorf("failed to authorize user(%s) for %s %s-%s, workspace: %s, isOwner: %t, isWorkspaceUser: %t",
+	klog.Errorf("failed to authorize user(%s) to %s %s/%s, workspace: %s, isOwner: %t, isWorkspaceUser: %t",
 		in.User.Name, in.Verb, resourceKind, resourceName, in.Workspaces, isOwner, isWorkspaceUser)
 	return commonerrors.NewForbidden(fmt.Sprintf("The user(%s) is not allowed to %s %s,"+
 		" workspace: %s", in.User.Name, in.Verb, resourceKind, in.Workspaces))
