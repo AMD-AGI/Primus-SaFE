@@ -1,0 +1,280 @@
+// Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
+// See LICENSE for license information.
+
+package dataplane_installer
+
+import (
+	"bytes"
+	"context"
+	"fmt"
+	"os"
+	"os/exec"
+	"strings"
+	"time"
+
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
+	"gopkg.in/yaml.v3"
+)
+
+// HelmClient wraps Helm CLI operations
+type HelmClient struct {
+	chartRepo    string
+	timeout      time.Duration
+	debug        bool
+}
+
+// NewHelmClient creates a new HelmClient
+func NewHelmClient() *HelmClient {
+	chartRepo := os.Getenv("HELM_CHART_REPO")
+	if chartRepo == "" {
+		chartRepo = "oci://docker.io/primussafe"
+	}
+
+	return &HelmClient{
+		chartRepo: chartRepo,
+		timeout:   10 * time.Minute,
+		debug:     os.Getenv("HELM_DEBUG") == "true",
+	}
+}
+
+// Install installs a Helm chart
+func (h *HelmClient) Install(ctx context.Context, kubeconfig []byte, namespace, releaseName, chartName string, values map[string]interface{}) error {
+	return h.installOrUpgrade(ctx, kubeconfig, namespace, releaseName, chartName, values, false)
+}
+
+// Upgrade upgrades a Helm release
+func (h *HelmClient) Upgrade(ctx context.Context, kubeconfig []byte, namespace, releaseName, chartName string, values map[string]interface{}) error {
+	return h.installOrUpgrade(ctx, kubeconfig, namespace, releaseName, chartName, values, true)
+}
+
+// installOrUpgrade performs helm install or upgrade
+func (h *HelmClient) installOrUpgrade(ctx context.Context, kubeconfig []byte, namespace, releaseName, chartName string, values map[string]interface{}, upgrade bool) error {
+	// Write kubeconfig to temp file
+	kubeconfigFile, err := os.CreateTemp("", "kubeconfig-*.yaml")
+	if err != nil {
+		return fmt.Errorf("failed to create kubeconfig temp file: %w", err)
+	}
+	defer os.Remove(kubeconfigFile.Name())
+
+	if _, err := kubeconfigFile.Write(kubeconfig); err != nil {
+		return fmt.Errorf("failed to write kubeconfig: %w", err)
+	}
+	kubeconfigFile.Close()
+
+	// Write values to temp file
+	valuesFile, err := os.CreateTemp("", "values-*.yaml")
+	if err != nil {
+		return fmt.Errorf("failed to create values temp file: %w", err)
+	}
+	defer os.Remove(valuesFile.Name())
+
+	valuesYAML, err := yaml.Marshal(values)
+	if err != nil {
+		return fmt.Errorf("failed to marshal values: %w", err)
+	}
+	if _, err := valuesFile.Write(valuesYAML); err != nil {
+		return fmt.Errorf("failed to write values: %w", err)
+	}
+	valuesFile.Close()
+
+	// Build helm command
+	chartPath := fmt.Sprintf("%s/%s", h.chartRepo, chartName)
+	
+	var args []string
+	if upgrade {
+		args = []string{"upgrade", releaseName, chartPath}
+	} else {
+		args = []string{"install", releaseName, chartPath}
+	}
+
+	args = append(args,
+		"--kubeconfig", kubeconfigFile.Name(),
+		"--namespace", namespace,
+		"--create-namespace",
+		"--values", valuesFile.Name(),
+		"--timeout", h.timeout.String(),
+		"--wait",
+	)
+
+	if h.debug {
+		args = append(args, "--debug")
+	}
+
+	log.Infof("Executing: helm %s", strings.Join(args, " "))
+
+	cmd := exec.CommandContext(ctx, "helm", args...)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		log.Errorf("Helm command failed: %s", stderr.String())
+		return fmt.Errorf("helm %s failed: %s", args[0], stderr.String())
+	}
+
+	log.Infof("Helm %s completed: %s", args[0], stdout.String())
+	return nil
+}
+
+// Uninstall uninstalls a Helm release
+func (h *HelmClient) Uninstall(ctx context.Context, kubeconfig []byte, namespace, releaseName string) error {
+	// Write kubeconfig to temp file
+	kubeconfigFile, err := os.CreateTemp("", "kubeconfig-*.yaml")
+	if err != nil {
+		return fmt.Errorf("failed to create kubeconfig temp file: %w", err)
+	}
+	defer os.Remove(kubeconfigFile.Name())
+
+	if _, err := kubeconfigFile.Write(kubeconfig); err != nil {
+		return fmt.Errorf("failed to write kubeconfig: %w", err)
+	}
+	kubeconfigFile.Close()
+
+	args := []string{
+		"uninstall", releaseName,
+		"--kubeconfig", kubeconfigFile.Name(),
+		"--namespace", namespace,
+	}
+
+	log.Infof("Executing: helm %s", strings.Join(args, " "))
+
+	cmd := exec.CommandContext(ctx, "helm", args...)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		log.Errorf("Helm uninstall failed: %s", stderr.String())
+		return fmt.Errorf("helm uninstall failed: %s", stderr.String())
+	}
+
+	log.Infof("Helm uninstall completed: %s", stdout.String())
+	return nil
+}
+
+// ReleaseStatus checks if a release exists and its status
+func (h *HelmClient) ReleaseStatus(ctx context.Context, kubeconfig []byte, namespace, releaseName string) (exists bool, healthy bool, err error) {
+	// Write kubeconfig to temp file
+	kubeconfigFile, err := os.CreateTemp("", "kubeconfig-*.yaml")
+	if err != nil {
+		return false, false, fmt.Errorf("failed to create kubeconfig temp file: %w", err)
+	}
+	defer os.Remove(kubeconfigFile.Name())
+
+	if _, err := kubeconfigFile.Write(kubeconfig); err != nil {
+		return false, false, fmt.Errorf("failed to write kubeconfig: %w", err)
+	}
+	kubeconfigFile.Close()
+
+	args := []string{
+		"status", releaseName,
+		"--kubeconfig", kubeconfigFile.Name(),
+		"--namespace", namespace,
+		"-o", "json",
+	}
+
+	cmd := exec.CommandContext(ctx, "helm", args...)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		// Release not found
+		if strings.Contains(stderr.String(), "not found") {
+			return false, false, nil
+		}
+		return false, false, fmt.Errorf("helm status failed: %s", stderr.String())
+	}
+
+	// Check if status is "deployed"
+	output := stdout.String()
+	healthy = strings.Contains(output, `"status":"deployed"`)
+
+	return true, healthy, nil
+}
+
+// WaitForPods waits for pods with given label selector to be ready
+func (h *HelmClient) WaitForPods(ctx context.Context, kubeconfig []byte, namespace, labelSelector string, timeout time.Duration) error {
+	// Write kubeconfig to temp file
+	kubeconfigFile, err := os.CreateTemp("", "kubeconfig-*.yaml")
+	if err != nil {
+		return fmt.Errorf("failed to create kubeconfig temp file: %w", err)
+	}
+	defer os.Remove(kubeconfigFile.Name())
+
+	if _, err := kubeconfigFile.Write(kubeconfig); err != nil {
+		return fmt.Errorf("failed to write kubeconfig: %w", err)
+	}
+	kubeconfigFile.Close()
+
+	args := []string{
+		"wait", "pods",
+		"--kubeconfig", kubeconfigFile.Name(),
+		"--namespace", namespace,
+		"-l", labelSelector,
+		"--for=condition=Ready",
+		"--timeout", timeout.String(),
+	}
+
+	log.Infof("Waiting for pods: kubectl %s", strings.Join(args, " "))
+
+	cmd := exec.CommandContext(ctx, "kubectl", args...)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		log.Errorf("Wait for pods failed: %s", stderr.String())
+		return fmt.Errorf("wait for pods failed: %s", stderr.String())
+	}
+
+	log.Infof("Pods ready: %s", stdout.String())
+	return nil
+}
+
+// ApplyYAML applies a YAML manifest
+func (h *HelmClient) ApplyYAML(ctx context.Context, kubeconfig []byte, namespace string, yamlContent []byte) error {
+	// Write kubeconfig to temp file
+	kubeconfigFile, err := os.CreateTemp("", "kubeconfig-*.yaml")
+	if err != nil {
+		return fmt.Errorf("failed to create kubeconfig temp file: %w", err)
+	}
+	defer os.Remove(kubeconfigFile.Name())
+
+	if _, err := kubeconfigFile.Write(kubeconfig); err != nil {
+		return fmt.Errorf("failed to write kubeconfig: %w", err)
+	}
+	kubeconfigFile.Close()
+
+	// Write YAML to temp file
+	yamlFile, err := os.CreateTemp("", "manifest-*.yaml")
+	if err != nil {
+		return fmt.Errorf("failed to create yaml temp file: %w", err)
+	}
+	defer os.Remove(yamlFile.Name())
+
+	if _, err := yamlFile.Write(yamlContent); err != nil {
+		return fmt.Errorf("failed to write yaml: %w", err)
+	}
+	yamlFile.Close()
+
+	args := []string{
+		"apply",
+		"--kubeconfig", kubeconfigFile.Name(),
+		"--namespace", namespace,
+		"-f", yamlFile.Name(),
+	}
+
+	cmd := exec.CommandContext(ctx, "kubectl", args...)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		log.Errorf("kubectl apply failed: %s", stderr.String())
+		return fmt.Errorf("kubectl apply failed: %s", stderr.String())
+	}
+
+	log.Infof("kubectl apply completed: %s", stdout.String())
+	return nil
+}
