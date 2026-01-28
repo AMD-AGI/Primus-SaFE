@@ -35,6 +35,10 @@ type ClusterConfigFacadeInterface interface {
 	UpdateStorageConfig(ctx context.Context, clusterName string, config *StorageConfigUpdate) error
 	// Exists checks if a cluster config exists
 	Exists(ctx context.Context, clusterName string) (bool, error)
+	// GetDefaultCluster gets the default cluster config
+	GetDefaultCluster(ctx context.Context) (*model.ClusterConfig, error)
+	// SetDefaultCluster sets a cluster as the default (clears other defaults)
+	SetDefaultCluster(ctx context.Context, clusterName string) error
 }
 
 // StorageConfigUpdate contains fields for updating storage configuration
@@ -243,4 +247,43 @@ func (f *ClusterConfigFacade) Exists(ctx context.Context, clusterName string) (b
 		return false, err
 	}
 	return count > 0, nil
+}
+
+// GetDefaultCluster gets the default cluster config
+func (f *ClusterConfigFacade) GetDefaultCluster(ctx context.Context) (*model.ClusterConfig, error) {
+	var config model.ClusterConfig
+	err := f.db.WithContext(ctx).
+		Where("is_default = ? AND status = ?", true, model.ClusterStatusActive).
+		First(&config).Error
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, nil // No default cluster configured
+		}
+		return nil, err
+	}
+	return &config, nil
+}
+
+// SetDefaultCluster sets a cluster as the default (clears other defaults)
+func (f *ClusterConfigFacade) SetDefaultCluster(ctx context.Context, clusterName string) error {
+	return f.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// Clear existing default
+		if err := tx.Model(&model.ClusterConfig{}).
+			Where("is_default = ?", true).
+			Update("is_default", false).Error; err != nil {
+			return err
+		}
+
+		// Set new default
+		result := tx.Model(&model.ClusterConfig{}).
+			Where("cluster_name = ? AND status = ?", clusterName, model.ClusterStatusActive).
+			Update("is_default", true)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return gorm.ErrRecordNotFound
+		}
+		return nil
+	})
 }

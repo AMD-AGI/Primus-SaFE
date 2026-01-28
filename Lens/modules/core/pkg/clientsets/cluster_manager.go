@@ -259,6 +259,8 @@ func (cm *ClusterManager) startPeriodicSync(ctx context.Context) {
 			} else {
 				log.Debug("Clusters synced successfully")
 			}
+			// Also refresh default cluster from database
+			cm.loadDefaultClusterFromDB(ctx)
 		case <-ctx.Done():
 			log.Info("Stopping cluster manager periodic sync")
 			return

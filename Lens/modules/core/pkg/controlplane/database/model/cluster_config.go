@@ -58,11 +58,12 @@ type ClusterConfig struct {
 	ManagedStorageConfig ManagedStorageJSON  `gorm:"column:managed_storage_config;default:{}" json:"managed_storage_config"`
 
 	// Metadata
-	Status    string          `gorm:"column:status;default:active" json:"status"`
-	Labels    ClusterLabels   `gorm:"column:labels;default:{}" json:"labels"`
-	CreatedAt time.Time       `gorm:"column:created_at;autoCreateTime" json:"created_at"`
-	UpdatedAt time.Time       `gorm:"column:updated_at;autoUpdateTime" json:"updated_at"`
-	DeletedAt *time.Time      `gorm:"column:deleted_at" json:"deleted_at"`
+	Status    string        `gorm:"column:status;default:active" json:"status"`
+	IsDefault bool          `gorm:"column:is_default;default:false" json:"is_default"`
+	Labels    ClusterLabels `gorm:"column:labels;default:{}" json:"labels"`
+	CreatedAt time.Time     `gorm:"column:created_at;autoCreateTime" json:"created_at"`
+	UpdatedAt time.Time     `gorm:"column:updated_at;autoUpdateTime" json:"updated_at"`
+	DeletedAt *time.Time    `gorm:"column:deleted_at" json:"deleted_at"`
 }
 
 // TableName returns the table name
