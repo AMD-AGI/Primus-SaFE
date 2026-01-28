@@ -5,6 +5,7 @@ package clientsets
 
 import (
 	"context"
+	"os"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 )
@@ -45,6 +46,40 @@ func (cm *ClusterManager) initControlPlane(ctx context.Context) error {
 		// Don't return error as multi-cluster config may not be ready yet
 	}
 
+	// Step 5: Load default cluster from database (only for control plane)
+	cm.loadDefaultClusterFromDB(ctx)
+
 	log.Infof("Control plane initialization completed, total clusters: %d", cm.GetClusterCount())
 	return nil
+}
+
+// loadDefaultClusterFromDB loads the default cluster name from control plane database
+// This takes priority over the DEFAULT_CLUSTER_NAME environment variable
+func (cm *ClusterManager) loadDefaultClusterFromDB(ctx context.Context) {
+	// First check environment variable (for backward compatibility)
+	if envDefault := os.Getenv("DEFAULT_CLUSTER_NAME"); envDefault != "" {
+		cm.defaultClusterName = envDefault
+		log.Infof("Default cluster from environment: %s", envDefault)
+		return
+	}
+
+	// Try to load from database
+	cpClientSet := GetControlPlaneClientSet()
+	if cpClientSet == nil || cpClientSet.Facade == nil {
+		log.Debug("Control plane client not available, skipping default cluster load from DB")
+		return
+	}
+
+	defaultCluster, err := cpClientSet.Facade.ClusterConfig.GetDefaultCluster(ctx)
+	if err != nil {
+		log.Warnf("Failed to get default cluster from database: %v", err)
+		return
+	}
+
+	if defaultCluster != nil {
+		cm.defaultClusterName = defaultCluster.ClusterName
+		log.Infof("Default cluster loaded from database: %s", defaultCluster.ClusterName)
+	} else {
+		log.Debug("No default cluster configured in database")
+	}
 }
