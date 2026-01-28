@@ -8,12 +8,14 @@ package model_handlers
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 
 	sqrl "github.com/Masterminds/squirrel"
 	"github.com/gin-gonic/gin"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/klog/v2"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
@@ -160,7 +162,26 @@ func (h *Handler) GetEvaluationTask(c *gin.Context) {
 			return nil, err
 		}
 
-		return h.convertToEvalTaskView(task), nil
+		view := h.convertToEvalTaskView(task)
+
+		// Fetch timeout and concurrency from OpsJob (for cloning support)
+		if task.OpsJobId.Valid && task.OpsJobId.String != "" {
+			opsJob := &v1.OpsJob{}
+			if err := h.k8sClient.Get(c.Request.Context(), client.ObjectKey{Name: task.OpsJobId.String}, opsJob); err == nil {
+				view.Timeout = opsJob.Spec.TimeoutSecond
+				// Get concurrency from inputs
+				for _, input := range opsJob.Spec.Inputs {
+					if input.Name == v1.ParameterEvalConcurrency {
+						if concurrency, _ := strconv.Atoi(input.Value); concurrency > 0 {
+							view.Concurrency = concurrency
+						}
+						break
+					}
+				}
+			}
+		}
+
+		return view, nil
 	})
 }
 
