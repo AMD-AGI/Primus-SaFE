@@ -22,11 +22,12 @@ type ClusterConfig struct {
 	PrimusSafeID  string     `gorm:"column:primus_safe_id" json:"primus_safe_id"`
 
 	// K8S Connection Config
-	K8SEndpoint string `gorm:"column:k8s_endpoint" json:"k8s_endpoint"`
-	K8SCAData   string `gorm:"column:k8s_ca_data" json:"k8s_ca_data"`
-	K8SCertData string `gorm:"column:k8s_cert_data" json:"k8s_cert_data"`
-	K8SKeyData  string `gorm:"column:k8s_key_data" json:"k8s_key_data"`
-	K8SToken    string `gorm:"column:k8s_token" json:"k8s_token"`
+	K8SEndpoint           string `gorm:"column:k8s_endpoint" json:"k8s_endpoint"`
+	K8SCAData             string `gorm:"column:k8s_ca_data" json:"k8s_ca_data"`
+	K8SCertData           string `gorm:"column:k8s_cert_data" json:"k8s_cert_data"`
+	K8SKeyData            string `gorm:"column:k8s_key_data" json:"k8s_key_data"`
+	K8SToken              string `gorm:"column:k8s_token" json:"k8s_token"`
+	K8SInsecureSkipVerify bool   `gorm:"column:k8s_insecure_skip_verify;default:false" json:"k8s_insecure_skip_verify"`
 
 	// Storage Config
 	PostgresHost     string `gorm:"column:postgres_host" json:"postgres_host"`
