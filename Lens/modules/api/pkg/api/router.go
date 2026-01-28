@@ -558,6 +558,9 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		clustersGroup := releaseGroup.Group("/clusters")
 		{
 			clustersGroup.GET("", release.ListClusterReleaseConfigs)
+			clustersGroup.GET("/default", release.GetDefaultCluster)
+			clustersGroup.PUT("/default", release.SetDefaultCluster)
+			clustersGroup.DELETE("/default", release.ClearDefaultCluster)
 			clustersGroup.GET("/:cluster_name", release.GetClusterReleaseConfig)
 			clustersGroup.PUT("/:cluster_name/version", release.UpdateClusterVersion)
 			clustersGroup.PUT("/:cluster_name/values", release.UpdateClusterValuesOverride)
