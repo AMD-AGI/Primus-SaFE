@@ -167,6 +167,16 @@ func (r *WorkloadReconciler) saveWorkloadToDB(ctx context.Context, workload *pri
 	// Get the appropriate facade based on cluster ID
 	var facade database.FacadeInterface
 	if clusterID != "" {
+		// Check if cluster exists in ClusterManager before proceeding
+		cm := clientsets.GetClusterManager()
+		if cm != nil {
+			_, err := cm.GetClientSetByClusterName(clusterID)
+			if err != nil {
+				log.Warnf("Cluster %s not found in ClusterManager, skipping workload %s/%s until next reconcile: %v",
+					clusterID, workload.Namespace, workload.Name, err)
+				return nil
+			}
+		}
 		facade = database.GetFacadeForCluster(clusterID)
 		log.Debugf("Using facade for cluster: %s", clusterID)
 	} else {
