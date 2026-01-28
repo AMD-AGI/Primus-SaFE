@@ -15,7 +15,8 @@ import (
 
 // WorkloadTaskFacade provides database operations for workload task management
 type WorkloadTaskFacade struct {
-	db *gorm.DB
+	db          *gorm.DB
+	clusterName string // empty means default cluster
 }
 
 // WorkloadTaskFacadeInterface defines the interface for task management
@@ -45,18 +46,30 @@ type WorkloadTaskFacadeInterface interface {
 	CleanupOldTasks(ctx context.Context, retentionDays int) (int64, error)
 }
 
-// NewWorkloadTaskFacade creates a new task facade
+// NewWorkloadTaskFacade creates a new task facade with lazy initialization
 func NewWorkloadTaskFacade() *WorkloadTaskFacade {
 	return &WorkloadTaskFacade{
-		db: GetFacade().GetSystemConfig().GetDB(),
+		clusterName: "", // empty means default cluster
 	}
 }
 
-// NewWorkloadTaskFacadeForCluster creates a new task facade for a specific cluster
+// NewWorkloadTaskFacadeForCluster creates a new task facade for a specific cluster with lazy initialization
 func NewWorkloadTaskFacadeForCluster(clusterName string) *WorkloadTaskFacade {
 	return &WorkloadTaskFacade{
-		db: GetFacadeForCluster(clusterName).GetSystemConfig().GetDB(),
+		clusterName: clusterName,
 	}
+}
+
+// getDB returns the database connection, initializing it lazily if needed
+func (f *WorkloadTaskFacade) getDB() *gorm.DB {
+	if f.db == nil {
+		if f.clusterName == "" {
+			f.db = GetFacade().GetSystemConfig().GetDB()
+		} else {
+			f.db = GetFacadeForCluster(f.clusterName).GetSystemConfig().GetDB()
+		}
+	}
+	return f.db
 }
 
 // UpsertTask creates or updates a task
@@ -66,7 +79,7 @@ func (f *WorkloadTaskFacade) UpsertTask(ctx context.Context, task *model.Workloa
 	}
 	task.UpdatedAt = time.Now()
 	
-	return f.db.WithContext(ctx).
+	return f.getDB().WithContext(ctx).
 		Clauses(clause.OnConflict{
 			Columns: []clause.Column{{Name: "workload_uid"}, {Name: "task_type"}},
 			DoUpdates: clause.Assignments(map[string]interface{}{
@@ -81,7 +94,7 @@ func (f *WorkloadTaskFacade) UpsertTask(ctx context.Context, task *model.Workloa
 // GetTask retrieves a task
 func (f *WorkloadTaskFacade) GetTask(ctx context.Context, workloadUID, taskType string) (*model.WorkloadTaskState, error) {
 	var task model.WorkloadTaskState
-	err := f.db.WithContext(ctx).
+	err := f.getDB().WithContext(ctx).
 		Where("workload_uid = ? AND task_type = ?", workloadUID, taskType).
 		First(&task).Error
 	if err == gorm.ErrRecordNotFound {
@@ -92,7 +105,7 @@ func (f *WorkloadTaskFacade) GetTask(ctx context.Context, workloadUID, taskType 
 
 // DeleteTask deletes a task
 func (f *WorkloadTaskFacade) DeleteTask(ctx context.Context, workloadUID, taskType string) error {
-	return f.db.WithContext(ctx).
+	return f.getDB().WithContext(ctx).
 		Where("workload_uid = ? AND task_type = ?", workloadUID, taskType).
 		Delete(&model.WorkloadTaskState{}).Error
 }
@@ -100,7 +113,7 @@ func (f *WorkloadTaskFacade) DeleteTask(ctx context.Context, workloadUID, taskTy
 // ListTasksByWorkload lists all tasks for a workload
 func (f *WorkloadTaskFacade) ListTasksByWorkload(ctx context.Context, workloadUID string) ([]*model.WorkloadTaskState, error) {
 	var tasks []*model.WorkloadTaskState
-	err := f.db.WithContext(ctx).
+	err := f.getDB().WithContext(ctx).
 		Where("workload_uid = ?", workloadUID).
 		Order("created_at ASC").
 		Find(&tasks).Error
@@ -110,7 +123,7 @@ func (f *WorkloadTaskFacade) ListTasksByWorkload(ctx context.Context, workloadUI
 // ListTasksByStatus lists tasks by status
 func (f *WorkloadTaskFacade) ListTasksByStatus(ctx context.Context, status string) ([]*model.WorkloadTaskState, error) {
 	var tasks []*model.WorkloadTaskState
-	err := f.db.WithContext(ctx).
+	err := f.getDB().WithContext(ctx).
 		Where("status = ?", status).
 		Order("created_at ASC").
 		Find(&tasks).Error
@@ -122,7 +135,7 @@ func (f *WorkloadTaskFacade) ListTasksByStatus(ctx context.Context, status strin
 // If taskTypes is not empty, only returns tasks whose task_type is in the list.
 func (f *WorkloadTaskFacade) ListTasksByStatusAndTypes(ctx context.Context, status string, taskTypes []string) ([]*model.WorkloadTaskState, error) {
 	var tasks []*model.WorkloadTaskState
-	query := f.db.WithContext(ctx).Where("status = ?", status)
+	query := f.getDB().WithContext(ctx).Where("status = ?", status)
 	
 	if len(taskTypes) > 0 {
 		query = query.Where("task_type IN ?", taskTypes)
@@ -135,7 +148,7 @@ func (f *WorkloadTaskFacade) ListTasksByStatusAndTypes(ctx context.Context, stat
 // ListPendingTasksByType lists pending tasks by task type
 func (f *WorkloadTaskFacade) ListPendingTasksByType(ctx context.Context, taskType string) ([]*model.WorkloadTaskState, error) {
 	var tasks []*model.WorkloadTaskState
-	err := f.db.WithContext(ctx).
+	err := f.getDB().WithContext(ctx).
 		Where("task_type = ? AND status = ?", taskType, constant.TaskStatusPending).
 		Order("created_at ASC").
 		Find(&tasks).Error
@@ -145,7 +158,7 @@ func (f *WorkloadTaskFacade) ListPendingTasksByType(ctx context.Context, taskTyp
 // ListTasksByTypeAndStatus lists tasks by type and status
 func (f *WorkloadTaskFacade) ListTasksByTypeAndStatus(ctx context.Context, taskType, status string) ([]*model.WorkloadTaskState, error) {
 	var tasks []*model.WorkloadTaskState
-	err := f.db.WithContext(ctx).
+	err := f.getDB().WithContext(ctx).
 		Where("task_type = ? AND status = ?", taskType, status).
 		Order("created_at ASC").
 		Find(&tasks).Error
@@ -155,7 +168,7 @@ func (f *WorkloadTaskFacade) ListTasksByTypeAndStatus(ctx context.Context, taskT
 // ListTasksByTypeAndStatuses lists tasks by type and multiple statuses
 func (f *WorkloadTaskFacade) ListTasksByTypeAndStatuses(ctx context.Context, taskType string, statuses []string) ([]*model.WorkloadTaskState, error) {
 	var tasks []*model.WorkloadTaskState
-	err := f.db.WithContext(ctx).
+	err := f.getDB().WithContext(ctx).
 		Where("task_type = ? AND status IN ?", taskType, statuses).
 		Order("created_at ASC").
 		Find(&tasks).Error
@@ -165,7 +178,7 @@ func (f *WorkloadTaskFacade) ListTasksByTypeAndStatuses(ctx context.Context, tas
 // ListRecoverableTasks lists tasks that should be recovered on restart
 func (f *WorkloadTaskFacade) ListRecoverableTasks(ctx context.Context) ([]*model.WorkloadTaskState, error) {
 	var tasks []*model.WorkloadTaskState
-	err := f.db.WithContext(ctx).
+	err := f.getDB().WithContext(ctx).
 		Where("status IN (?) AND (ext->>'auto_restart')::boolean IS NOT FALSE",
 			[]string{constant.TaskStatusRunning, constant.TaskStatusPending}).
 		Order("created_at ASC").
@@ -175,7 +188,7 @@ func (f *WorkloadTaskFacade) ListRecoverableTasks(ctx context.Context) ([]*model
 
 // UpdateTaskStatus updates task status
 func (f *WorkloadTaskFacade) UpdateTaskStatus(ctx context.Context, workloadUID, taskType, status string) error {
-	return f.db.WithContext(ctx).
+	return f.getDB().WithContext(ctx).
 		Model(&model.WorkloadTaskState{}).
 		Where("workload_uid = ? AND task_type = ?", workloadUID, taskType).
 		Update("status", status).Error
@@ -183,7 +196,7 @@ func (f *WorkloadTaskFacade) UpdateTaskStatus(ctx context.Context, workloadUID, 
 
 // UpdateTaskExt updates or merges ext field
 func (f *WorkloadTaskFacade) UpdateTaskExt(ctx context.Context, workloadUID, taskType string, extData model.ExtType) error {
-	return f.db.WithContext(ctx).
+	return f.getDB().WithContext(ctx).
 		Model(&model.WorkloadTaskState{}).
 		Where("workload_uid = ? AND task_type = ?", workloadUID, taskType).
 		Update("ext", gorm.Expr("ext || ?", extData)).Error
@@ -202,7 +215,7 @@ func (f *WorkloadTaskFacade) TryAcquireLock(
 ) (bool, error) {
 	expiresAt := time.Now().Add(lockDuration)
 	
-	result := f.db.WithContext(ctx).
+	result := f.getDB().WithContext(ctx).
 		Model(&model.WorkloadTaskState{}).
 		Where("workload_uid = ? AND task_type = ?", workloadUID, taskType).
 		Where("lock_owner IS NULL OR lock_expires_at < NOW() OR lock_owner = ?", lockOwner).
@@ -230,7 +243,7 @@ func (f *WorkloadTaskFacade) ExtendLock(
 ) (bool, error) {
 	expiresAt := time.Now().Add(lockDuration)
 	
-	result := f.db.WithContext(ctx).
+	result := f.getDB().WithContext(ctx).
 		Model(&model.WorkloadTaskState{}).
 		Where("workload_uid = ? AND task_type = ? AND lock_owner = ?", workloadUID, taskType, lockOwner).
 		Updates(map[string]interface{}{
@@ -247,7 +260,7 @@ func (f *WorkloadTaskFacade) ExtendLock(
 
 // ReleaseLock releases the lock for a task
 func (f *WorkloadTaskFacade) ReleaseLock(ctx context.Context, workloadUID, taskType, lockOwner string) error {
-	return f.db.WithContext(ctx).
+	return f.getDB().WithContext(ctx).
 		Model(&model.WorkloadTaskState{}).
 		Where("workload_uid = ? AND task_type = ? AND lock_owner = ?", workloadUID, taskType, lockOwner).
 		Updates(map[string]interface{}{
@@ -259,7 +272,7 @@ func (f *WorkloadTaskFacade) ReleaseLock(ctx context.Context, workloadUID, taskT
 
 // ReleaseStaleLocks releases all expired locks and returns count
 func (f *WorkloadTaskFacade) ReleaseStaleLocks(ctx context.Context) (int64, error) {
-	result := f.db.WithContext(ctx).
+	result := f.getDB().WithContext(ctx).
 		Model(&model.WorkloadTaskState{}).
 		Where("lock_expires_at < NOW() AND lock_owner IS NOT NULL").
 		Updates(map[string]interface{}{
@@ -276,7 +289,7 @@ func (f *WorkloadTaskFacade) ReleaseStaleLocks(ctx context.Context) (int64, erro
 func (f *WorkloadTaskFacade) CleanupOldTasks(ctx context.Context, retentionDays int) (int64, error) {
 	cutoff := time.Now().AddDate(0, 0, -retentionDays)
 	
-	result := f.db.WithContext(ctx).
+	result := f.getDB().WithContext(ctx).
 		Where("status IN (?) AND updated_at < ?",
 			[]string{constant.TaskStatusCompleted, constant.TaskStatusCancelled}, cutoff).
 		Delete(&model.WorkloadTaskState{})
