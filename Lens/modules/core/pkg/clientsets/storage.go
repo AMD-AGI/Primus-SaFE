@@ -218,12 +218,17 @@ func loadMultiClusterStorageConfigFromDB(ctx context.Context) (PrimusLensMultiCl
 
 		// OpenSearch config
 		if cluster.OpensearchHost != "" {
+			scheme := cluster.OpensearchScheme
+			if scheme == "" {
+				scheme = "https" // default to https
+			}
 			clusterCfg.Opensearch = &PrimusLensClientConfigOpensearch{
 				Service:   cluster.OpensearchHost,
 				Namespace: StorageConfigSecretNamespace,
 				Port:      int32(cluster.OpensearchPort),
 				Username:  cluster.OpensearchUsername,
 				Password:  cluster.OpensearchPassword,
+				Scheme:    scheme,
 			}
 		}
 
