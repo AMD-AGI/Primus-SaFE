@@ -501,6 +501,7 @@ func (s *ConfigSyncer) updateClusterStorageConfig(ctx context.Context, clusterNa
 		cluster.OpensearchPort = int(config.Opensearch.Port)
 		cluster.OpensearchUsername = config.Opensearch.Username
 		cluster.OpensearchPassword = config.Opensearch.Password
+		cluster.OpensearchScheme = config.Opensearch.Scheme
 	}
 
 	if config.Prometheus != nil {
