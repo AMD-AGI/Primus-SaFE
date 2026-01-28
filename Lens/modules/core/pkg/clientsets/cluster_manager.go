@@ -180,8 +180,13 @@ func (cm *ClusterManager) initializeCurrentCluster() error {
 		StorageClientSet: storageClient,
 	}
 
-	// Also add current cluster to clusters map
-	cm.clusters[clusterName] = cm.currentCluster
+	// For data plane components, add current cluster to clusters map
+	// (data plane only has access to its own cluster)
+	// For control plane components, current cluster stays separate from multi-cluster map
+	// (control plane's own cluster clients are accessed via GetCurrentClusterClients())
+	if cm.componentType.IsDataPlane() {
+		cm.clusters[clusterName] = cm.currentCluster
+	}
 
 	// Initialize default cluster name from environment variable
 	cm.defaultClusterName = getDefaultClusterName()
@@ -195,17 +200,14 @@ func (cm *ClusterManager) initializeCurrentCluster() error {
 }
 
 // loadAllClusters loads clients for all clusters (multi-cluster mode)
+// For control plane: loads only remote clusters from cluster_config (current cluster stays separate)
+// For data plane: this function should not be called (data plane only has current cluster)
 func (cm *ClusterManager) loadAllClusters(ctx context.Context) error {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
-	// Create new cluster map
+	// Create new cluster map for remote clusters only
 	newClusters := make(map[string]*ClusterClientSet)
-
-	// Keep current cluster
-	if cm.currentCluster != nil {
-		newClusters[cm.currentCluster.ClusterName] = cm.currentCluster
-	}
 
 	// Get all K8S clients if K8S client loading is enabled
 	var k8sClients map[string]*K8SClientSet
@@ -214,12 +216,9 @@ func (cm *ClusterManager) loadAllClusters(ctx context.Context) error {
 	}
 
 	// Create ClusterClientSet for each remote cluster
+	// Note: Current cluster (control plane's own cluster) is NOT included here
+	// It's accessed separately via GetCurrentClusterClients()
 	for clusterName, k8sClient := range k8sClients {
-		// Skip if it's the current cluster (already added)
-		if clusterName == cm.currentCluster.ClusterName {
-			continue
-		}
-
 		var storageClient *StorageClientSet
 		// Try to get storage client for this cluster if storage client loading is enabled
 		if cm.loadStorageClient {
