@@ -73,7 +73,15 @@ func loadCurrentClusterStorageClients(ctx context.Context) error {
 }
 
 func loadMultiClusterStorageClients(ctx context.Context) error {
-	cfg, err := loadMultiClusterStorageConfig(ctx)
+	var cfg PrimusLensMultiClusterClientConfig
+	var err error
+
+	// In control plane mode, load from DB; otherwise load from secret
+	if IsControlPlaneMode() {
+		cfg, err = loadMultiClusterStorageConfigFromDB(ctx)
+	} else {
+		cfg, err = loadMultiClusterStorageConfig(ctx)
+	}
 	if err != nil {
 		return err
 	}
@@ -145,6 +153,76 @@ func loadMultiClusterStorageConfig(ctx context.Context) (PrimusLensMultiClusterC
 			WithMessage("Failed to load multi-cluster storage config from secret").
 			WithError(err)
 	}
+	return cfg, nil
+}
+
+// loadMultiClusterStorageConfigFromDB loads storage config from control plane database
+func loadMultiClusterStorageConfigFromDB(ctx context.Context) (PrimusLensMultiClusterClientConfig, error) {
+	cpClientSet := GetControlPlaneClientSet()
+	if cpClientSet == nil || cpClientSet.Facade == nil {
+		return nil, errors.NewError().
+			WithCode(errors.CodeInitializeError).
+			WithMessage("Control plane client not initialized")
+	}
+
+	// Get all active clusters from DB
+	clusters, err := cpClientSet.Facade.ClusterConfig.ListByStatus(ctx, "active")
+	if err != nil {
+		return nil, errors.NewError().
+			WithCode(errors.CodeInitializeError).
+			WithMessage("Failed to list clusters from control plane DB").
+			WithError(err)
+	}
+
+	cfg := PrimusLensMultiClusterClientConfig{}
+	for _, cluster := range clusters {
+		// Skip clusters without storage config
+		if cluster.PostgresHost == "" && cluster.PrometheusReadHost == "" {
+			log.Debugf("Skipping cluster %s: no storage config in DB", cluster.ClusterName)
+			continue
+		}
+
+		clusterCfg := PrimusLensClientConfig{}
+
+		// Postgres config
+		if cluster.PostgresHost != "" {
+			clusterCfg.Postgres = &PrimusLensClientConfigPostgres{
+				Service:   cluster.PostgresHost,
+				Namespace: StorageConfigSecretNamespace,
+				Port:      int32(cluster.PostgresPort),
+				Username:  cluster.PostgresUsername,
+				Password:  cluster.PostgresPassword,
+				DBName:    cluster.PostgresDBName,
+			}
+		}
+
+		// OpenSearch config
+		if cluster.OpensearchHost != "" {
+			clusterCfg.Opensearch = &PrimusLensClientConfigOpensearch{
+				Service:   cluster.OpensearchHost,
+				Namespace: StorageConfigSecretNamespace,
+				Port:      int32(cluster.OpensearchPort),
+				Username:  cluster.OpensearchUsername,
+				Password:  cluster.OpensearchPassword,
+			}
+		}
+
+		// Prometheus config
+		if cluster.PrometheusReadHost != "" || cluster.PrometheusWriteHost != "" {
+			clusterCfg.Prometheus = &PrimusLensClientConfigPrometheus{
+				ReadService:  cluster.PrometheusReadHost,
+				ReadPort:     int32(cluster.PrometheusReadPort),
+				WriteService: cluster.PrometheusWriteHost,
+				WritePort:    int32(cluster.PrometheusWritePort),
+				Namespace:    StorageConfigSecretNamespace,
+			}
+		}
+
+		cfg[cluster.ClusterName] = clusterCfg
+		log.Debugf("Loaded storage config for cluster %s from DB", cluster.ClusterName)
+	}
+
+	log.Infof("Loaded storage config for %d clusters from control plane DB", len(cfg))
 	return cfg, nil
 }
 

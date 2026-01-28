@@ -111,13 +111,14 @@ func (s *ConfigSyncer) SyncAll(ctx context.Context) (*SyncStats, error) {
 		}
 	}
 
-	// Update multi-storage-config secret (for backward compatibility)
-	if len(allStorageConfigs) > 0 {
-		if err := s.updateMultiStorageConfigSecret(ctx, allStorageConfigs); err != nil {
-			log.Errorf("Failed to update multi-storage-config secret: %v", err)
-			stats.Errors = append(stats.Errors, fmt.Sprintf("multi-storage-config: %v", err))
-		}
-	}
+	// NOTE: multi-storage-config secret is no longer needed
+	// ClusterManager now reads storage config directly from control plane DB
+	// Keeping this code commented for reference during migration period
+	// if len(allStorageConfigs) > 0 {
+	// 	if err := s.updateMultiStorageConfigSecret(ctx, allStorageConfigs); err != nil {
+	// 		log.Errorf("Failed to update multi-storage-config secret: %v", err)
+	// 	}
+	// }
 
 	// Sync Grafana datasources
 	if len(clusterParsedConfigs) > 0 {
