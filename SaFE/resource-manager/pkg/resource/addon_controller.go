@@ -241,6 +241,7 @@ func (r *AddonController) createUpgradeClient(ctx context.Context, addon *v1.Add
 	upgradeClient.PlainHTTP = addon.Spec.AddonSource.HelmRepository.PlainHTTP
 	upgradeClient.MaxHistory = MaxHistory
 	upgradeClient.InsecureSkipTLSverify = true
+	upgradeClient.DisableHooks = true // Disable pre-upgrade hooks and all other hooks
 
 	if url != "" {
 		upgradeClient.RepoURL = url
