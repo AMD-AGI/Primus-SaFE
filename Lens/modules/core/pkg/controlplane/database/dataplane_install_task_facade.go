@@ -25,6 +25,8 @@ type DataplaneInstallTaskFacadeInterface interface {
 	MarkRunning(ctx context.Context, id int32) error
 	// UpdateStage updates the current stage
 	UpdateStage(ctx context.Context, id int32, stage string) error
+	// UpdateStageWithError updates the current stage with error message
+	UpdateStageWithError(ctx context.Context, id int32, stage, errorMsg string) error
 	// MarkCompleted marks a task as completed
 	MarkCompleted(ctx context.Context, id int32) error
 	// MarkFailed marks a task as failed
@@ -33,6 +35,14 @@ type DataplaneInstallTaskFacadeInterface interface {
 	IncrementRetry(ctx context.Context, id int32, errorMsg string) error
 	// ListByCluster lists tasks for a cluster
 	ListByCluster(ctx context.Context, clusterName string, limit int) ([]*model.DataplaneInstallTask, error)
+	// SetJobInfo sets the K8s Job tracking info
+	SetJobInfo(ctx context.Context, id int32, jobName, jobNamespace string) error
+	// GetByJobName gets a task by its associated K8s Job name
+	GetByJobName(ctx context.Context, jobName, jobNamespace string) (*model.DataplaneInstallTask, error)
+	// ClearJobInfo clears the K8s Job info (after Job completes)
+	ClearJobInfo(ctx context.Context, id int32) error
+	// ResetForRetry resets a failed task for retry
+	ResetForRetry(ctx context.Context, id int32) error
 }
 
 // DataplaneInstallTaskFacade implements DataplaneInstallTaskFacadeInterface
@@ -171,4 +181,66 @@ func (f *DataplaneInstallTaskFacade) ListByCluster(ctx context.Context, clusterN
 		return nil, err
 	}
 	return tasks, nil
+}
+
+// UpdateStageWithError updates the current stage with error message
+func (f *DataplaneInstallTaskFacade) UpdateStageWithError(ctx context.Context, id int32, stage, errorMsg string) error {
+	return f.db.WithContext(ctx).
+		Model(&model.DataplaneInstallTask{}).
+		Where("id = ?", id).
+		Updates(map[string]interface{}{
+			"current_stage": stage,
+			"error_message": errorMsg,
+			"updated_at":    time.Now(),
+		}).Error
+}
+
+// SetJobInfo sets the K8s Job tracking info
+func (f *DataplaneInstallTaskFacade) SetJobInfo(ctx context.Context, id int32, jobName, jobNamespace string) error {
+	return f.db.WithContext(ctx).
+		Model(&model.DataplaneInstallTask{}).
+		Where("id = ?", id).
+		Updates(map[string]interface{}{
+			"job_name":      jobName,
+			"job_namespace": jobNamespace,
+			"updated_at":    time.Now(),
+		}).Error
+}
+
+// GetByJobName gets a task by its associated K8s Job name
+func (f *DataplaneInstallTaskFacade) GetByJobName(ctx context.Context, jobName, jobNamespace string) (*model.DataplaneInstallTask, error) {
+	var task model.DataplaneInstallTask
+	err := f.db.WithContext(ctx).
+		Where("job_name = ? AND job_namespace = ?", jobName, jobNamespace).
+		First(&task).Error
+	if err != nil {
+		return nil, err
+	}
+	return &task, nil
+}
+
+// ClearJobInfo clears the K8s Job info (after Job completes)
+func (f *DataplaneInstallTaskFacade) ClearJobInfo(ctx context.Context, id int32) error {
+	return f.db.WithContext(ctx).
+		Model(&model.DataplaneInstallTask{}).
+		Where("id = ?", id).
+		Updates(map[string]interface{}{
+			"job_name":      "",
+			"job_namespace": "",
+			"updated_at":    time.Now(),
+		}).Error
+}
+
+// ResetForRetry resets a failed task for retry
+func (f *DataplaneInstallTaskFacade) ResetForRetry(ctx context.Context, id int32) error {
+	return f.db.WithContext(ctx).
+		Model(&model.DataplaneInstallTask{}).
+		Where("id = ?", id).
+		Updates(map[string]interface{}{
+			"status":        model.TaskStatusPending,
+			"error_message": "",
+			"job_name":      "",
+			"job_namespace": "",
+			"updated_at":    time.Now(),
+		}).Error
 }
