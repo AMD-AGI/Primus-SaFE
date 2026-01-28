@@ -1,7 +1,7 @@
 // Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
 // See LICENSE for license information.
 
-package dataplane_installer
+package installer
 
 import (
 	"bytes"
@@ -18,9 +18,9 @@ import (
 
 // HelmClient wraps Helm CLI operations
 type HelmClient struct {
-	chartRepo    string
-	timeout      time.Duration
-	debug        bool
+	chartRepo string
+	timeout   time.Duration
+	debug     bool
 }
 
 // NewHelmClient creates a new HelmClient
@@ -30,9 +30,17 @@ func NewHelmClient() *HelmClient {
 		chartRepo = "oci://docker.io/primussafe"
 	}
 
+	timeoutStr := os.Getenv("HELM_TIMEOUT")
+	timeout := 10 * time.Minute
+	if timeoutStr != "" {
+		if d, err := time.ParseDuration(timeoutStr); err == nil {
+			timeout = d
+		}
+	}
+
 	return &HelmClient{
 		chartRepo: chartRepo,
-		timeout:   10 * time.Minute,
+		timeout:   timeout,
 		debug:     os.Getenv("HELM_DEBUG") == "true",
 	}
 }
@@ -79,7 +87,7 @@ func (h *HelmClient) installOrUpgrade(ctx context.Context, kubeconfig []byte, na
 
 	// Build helm command
 	chartPath := fmt.Sprintf("%s/%s", h.chartRepo, chartName)
-	
+
 	var args []string
 	if upgrade {
 		args = []string{"upgrade", releaseName, chartPath}
@@ -277,4 +285,59 @@ func (h *HelmClient) ApplyYAML(ctx context.Context, kubeconfig []byte, namespace
 
 	log.Infof("kubectl apply completed: %s", stdout.String())
 	return nil
+}
+
+// GetSecretValue retrieves a value from a Kubernetes secret
+func (h *HelmClient) GetSecretValue(ctx context.Context, kubeconfig []byte, namespace, secretName, key string) (string, error) {
+	// Write kubeconfig to temp file
+	kubeconfigFile, err := os.CreateTemp("", "kubeconfig-*.yaml")
+	if err != nil {
+		return "", err
+	}
+	defer os.Remove(kubeconfigFile.Name())
+
+	if _, err := kubeconfigFile.Write(kubeconfig); err != nil {
+		return "", err
+	}
+	kubeconfigFile.Close()
+
+	args := []string{
+		"get", "secret", secretName,
+		"--kubeconfig", kubeconfigFile.Name(),
+		"--namespace", namespace,
+		"-o", fmt.Sprintf("jsonpath={.data.%s}", key),
+	}
+
+	cmd := exec.CommandContext(ctx, "kubectl", args...)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("kubectl get secret failed: %s", stderr.String())
+	}
+
+	// Decode base64
+	decoded := make([]byte, len(stdout.Bytes()))
+	n, err := decodeBase64(stdout.Bytes(), decoded)
+	if err != nil {
+		return "", err
+	}
+
+	return string(decoded[:n]), nil
+}
+
+// decodeBase64 decodes base64 encoded bytes
+func decodeBase64(src, dst []byte) (int, error) {
+	cmd := exec.Command("base64", "-d")
+	cmd.Stdin = bytes.NewReader(src)
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+
+	if err := cmd.Run(); err != nil {
+		return 0, err
+	}
+
+	copy(dst, stdout.Bytes())
+	return stdout.Len(), nil
 }
