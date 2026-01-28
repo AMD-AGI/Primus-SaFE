@@ -29,6 +29,7 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/gpu_usage_weekly_report"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/gpu_workload"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/action_task_executor"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/dataplane_installer"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/pyspy_task_dispatcher"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/stale_pod_cleanup"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/storage_scan"
@@ -181,6 +182,11 @@ func initManagementJobs(cfg *config.JobsConfig) []Job {
 	// Add Py-Spy task dispatcher job
 	jobs = append(jobs, pyspy_task_dispatcher.NewPySpyTaskDispatcherJob())
 	log.Info("Py-Spy task dispatcher job registered")
+
+	// Add Dataplane Installer job - only runs in control plane mode
+	// Polls every 10s to execute dataplane installation tasks
+	jobs = append(jobs, dataplane_installer.NewDataplaneInstallerJob())
+	log.Info("Dataplane installer job registered (control plane mode only)")
 
 	// Add more management jobs here in the future
 	// e.g., report distributor, cleanup jobs, etc.
