@@ -1233,20 +1233,46 @@ func (h *Handler) generateEvaluationJob(c *gin.Context, body []byte) (*v1.OpsJob
 	}
 	benchmarksJSON = string(enrichedBenchmarksJSON)
 
+	// Parse judge config to get judge service info for task record
+	var judgeServiceId, judgeServiceType, judgeServiceName string
+	if judgeJSON != "" {
+		var judgeConfig struct {
+			ServiceId   string `json:"serviceId"`
+			ServiceType string `json:"serviceType"`
+		}
+		if err := json.Unmarshal([]byte(judgeJSON), &judgeConfig); err == nil && judgeConfig.ServiceId != "" {
+			judgeServiceId = judgeConfig.ServiceId
+			judgeServiceType = judgeConfig.ServiceType
+			// Get judge service display name
+			if judgeConfig.ServiceType == "remote_api" {
+				if judgeDbModel, err := h.dbClient.GetModelByID(ctx, judgeConfig.ServiceId); err == nil && judgeDbModel != nil {
+					judgeServiceName = judgeDbModel.DisplayName
+				}
+			} else if judgeConfig.ServiceType == "local_workload" {
+				if judgeWorkload, err := h.dbClient.GetWorkload(ctx, judgeConfig.ServiceId); err == nil && judgeWorkload != nil {
+					judgeServiceName = judgeWorkload.DisplayName
+				}
+			}
+		}
+	}
+
 	// Create EvaluationTask record in database
 	task := &dbclient.EvaluationTask{
-		TaskId:       taskId,
-		TaskName:     req.Name,
-		ServiceId:    serviceId,
-		ServiceType:  serviceType,
-		ServiceName:  serviceName,
-		Benchmarks:   benchmarksJSON,
-		EvalParams:   "{}", // EvalParams is deprecated, always set to empty JSON
-		Status:       dbclient.EvaluationTaskStatusPending,
-		Workspace:    workspaceId,
-		UserId:       requestUser.Name,
-		UserName:     v1.GetUserName(requestUser),
-		CreationTime: pq.NullTime{Time: time.Now().UTC(), Valid: true},
+		TaskId:           taskId,
+		TaskName:         req.Name,
+		ServiceId:        serviceId,
+		ServiceType:      serviceType,
+		ServiceName:      serviceName,
+		Benchmarks:       benchmarksJSON,
+		EvalParams:       "{}", // EvalParams is deprecated, always set to empty JSON
+		Status:           dbclient.EvaluationTaskStatusPending,
+		JudgeServiceId:   sql.NullString{String: judgeServiceId, Valid: judgeServiceId != ""},
+		JudgeServiceType: sql.NullString{String: judgeServiceType, Valid: judgeServiceType != ""},
+		JudgeServiceName: sql.NullString{String: judgeServiceName, Valid: judgeServiceName != ""},
+		Workspace:        workspaceId,
+		UserId:           requestUser.Name,
+		UserName:         v1.GetUserName(requestUser),
+		CreationTime:     pq.NullTime{Time: time.Now().UTC(), Valid: true},
 	}
 	if err := h.dbClient.UpsertEvaluationTask(ctx, task); err != nil {
 		return nil, commonerrors.NewInternalError(fmt.Sprintf("failed to create evaluation task: %v", err))

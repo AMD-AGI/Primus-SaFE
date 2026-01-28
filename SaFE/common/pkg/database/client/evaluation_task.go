@@ -34,7 +34,6 @@ var (
 		    eval_params = :eval_params,
 		    ops_job_id = :ops_job_id,
 		    status = :status,
-		    progress = :progress,
 		    result_summary = :result_summary,
 		    report_s3_path = :report_s3_path,
 		    start_time = :start_time,

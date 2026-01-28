@@ -107,7 +107,8 @@ func (h *Handler) ListEvaluationTasks(c *gin.Context) {
 			query = append(query, sqrl.Eq{dbclient.GetFieldTag(dbTags, "Status"): req.Status})
 		}
 		if req.ServiceId != "" {
-			query = append(query, sqrl.Eq{dbclient.GetFieldTag(dbTags, "ServiceId"): req.ServiceId})
+			// Use LIKE for fuzzy matching
+			query = append(query, sqrl.Like{dbclient.GetFieldTag(dbTags, "ServiceId"): "%" + req.ServiceId + "%"})
 		}
 
 		// Set defaults
@@ -292,6 +293,22 @@ func (h *Handler) convertToEvalTaskView(task *dbclient.EvaluationTask) Evaluatio
 	}
 	if task.ReportS3Path.Valid {
 		view.ReportS3Path = task.ReportS3Path.String
+	}
+	// Judge model configuration (for LLM-as-Judge mode)
+	if task.JudgeServiceId.Valid {
+		view.JudgeServiceId = task.JudgeServiceId.String
+	}
+	if task.JudgeServiceType.Valid {
+		view.JudgeServiceType = task.JudgeServiceType.String
+	}
+	if task.JudgeServiceName.Valid {
+		view.JudgeServiceName = task.JudgeServiceName.String
+	}
+	// Set evaluation type based on judge config
+	if view.JudgeServiceId != "" {
+		view.EvaluationType = "judge"
+	} else {
+		view.EvaluationType = "normal"
 	}
 	if task.CreationTime.Valid {
 		t := task.CreationTime.Time

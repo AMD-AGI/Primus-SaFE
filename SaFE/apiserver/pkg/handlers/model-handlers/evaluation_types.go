@@ -83,23 +83,27 @@ type ListAvailableServicesResponse struct {
 
 // EvaluationTaskView represents the view of an evaluation task
 type EvaluationTaskView struct {
-	TaskId        string                        `json:"taskId"`
-	TaskName      string                        `json:"taskName"`
-	Description   string                        `json:"description,omitempty"`
-	ServiceId     string                        `json:"serviceId"`
-	ServiceType   EvalServiceType               `json:"serviceType"`
-	ServiceName   string                        `json:"serviceName,omitempty"`
-	Benchmarks    []BenchmarkConfig             `json:"benchmarks"`
-	OpsJobId      string                        `json:"opsJobId,omitempty"`
-	Status        dbclient.EvaluationTaskStatus `json:"status"`
-	ResultSummary map[string]interface{}        `json:"resultSummary,omitempty"`
-	ReportS3Path  string                        `json:"reportS3Path,omitempty"`
-	Workspace     string                        `json:"workspace,omitempty"`
-	UserId        string                        `json:"userId"`
-	UserName      string                        `json:"userName,omitempty"`
-	CreationTime  *time.Time                    `json:"creationTime,omitempty"`
-	StartTime     *time.Time                    `json:"startTime,omitempty"`
-	EndTime       *time.Time                    `json:"endTime,omitempty"`
+	TaskId           string                        `json:"taskId"`
+	TaskName         string                        `json:"taskName"`
+	Description      string                        `json:"description,omitempty"`
+	ServiceId        string                        `json:"serviceId"`
+	ServiceType      EvalServiceType               `json:"serviceType"`
+	ServiceName      string                        `json:"serviceName,omitempty"`
+	Benchmarks       []BenchmarkConfig             `json:"benchmarks"`
+	OpsJobId         string                        `json:"opsJobId,omitempty"`
+	Status           dbclient.EvaluationTaskStatus `json:"status"`
+	EvaluationType   string                        `json:"evaluationType"` // "normal" or "judge"
+	ResultSummary    map[string]interface{}        `json:"resultSummary,omitempty"`
+	ReportS3Path     string                        `json:"reportS3Path,omitempty"`
+	JudgeServiceId   string                        `json:"judgeServiceId,omitempty"`
+	JudgeServiceType string                        `json:"judgeServiceType,omitempty"`
+	JudgeServiceName string                        `json:"judgeServiceName,omitempty"`
+	Workspace        string                        `json:"workspace,omitempty"`
+	UserId           string                        `json:"userId"`
+	UserName         string                        `json:"userName,omitempty"`
+	CreationTime     *time.Time                    `json:"creationTime,omitempty"`
+	StartTime        *time.Time                    `json:"startTime,omitempty"`
+	EndTime          *time.Time                    `json:"endTime,omitempty"`
 }
 
 // ListEvaluationTasksRequest represents query parameters for listing tasks

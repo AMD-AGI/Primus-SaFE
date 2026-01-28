@@ -422,13 +422,17 @@ type EvaluationTask struct {
 	Status        EvaluationTaskStatus `db:"status"`
 	ResultSummary sql.NullString       `db:"result_summary"` // JSONB
 	ReportS3Path  sql.NullString       `db:"report_s3_path"`
-	Workspace     string               `db:"workspace"`
-	UserId        string               `db:"user_id"`
-	UserName      string               `db:"user_name"`
-	CreationTime  pq.NullTime          `db:"creation_time"`
-	StartTime     pq.NullTime          `db:"start_time"`
-	EndTime       pq.NullTime          `db:"end_time"`
-	IsDeleted     bool                 `db:"is_deleted"`
+	// Judge model configuration (empty means normal evaluation mode)
+	JudgeServiceId   sql.NullString `db:"judge_service_id"`
+	JudgeServiceType sql.NullString `db:"judge_service_type"`
+	JudgeServiceName sql.NullString `db:"judge_service_name"`
+	Workspace        string         `db:"workspace"`
+	UserId           string         `db:"user_id"`
+	UserName         string         `db:"user_name"`
+	CreationTime     pq.NullTime    `db:"creation_time"`
+	StartTime        pq.NullTime    `db:"start_time"`
+	EndTime          pq.NullTime    `db:"end_time"`
+	IsDeleted        bool           `db:"is_deleted"`
 }
 
 // GetEvaluationTaskFieldTags returns the EvaluationTaskFieldTags value.
