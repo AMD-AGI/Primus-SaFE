@@ -597,6 +597,85 @@ func TriggerRollback(c *gin.Context) {
 	}))
 }
 
+// ===== Default Cluster Handlers =====
+
+// GetDefaultCluster gets the current default cluster
+func GetDefaultCluster(c *gin.Context) {
+	facade := getFacade()
+	if facade == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "control plane not available"})
+		return
+	}
+
+	cluster, err := facade.ClusterConfig.GetDefaultCluster(c)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	if cluster == nil {
+		c.JSON(http.StatusOK, rest.SuccessResp(c, gin.H{"default_cluster": nil}))
+		return
+	}
+
+	c.JSON(http.StatusOK, rest.SuccessResp(c, gin.H{
+		"default_cluster": cluster.ClusterName,
+		"cluster_id":      cluster.ID,
+	}))
+}
+
+// SetDefaultClusterRequest is the request for setting default cluster
+type SetDefaultClusterRequest struct {
+	ClusterName string `json:"cluster_name" binding:"required"`
+}
+
+// SetDefaultCluster sets a cluster as the default
+func SetDefaultCluster(c *gin.Context) {
+	facade := getFacade()
+	if facade == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "control plane not available"})
+		return
+	}
+
+	var req SetDefaultClusterRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if err := facade.ClusterConfig.SetDefaultCluster(c, req.ClusterName); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, rest.SuccessResp(c, gin.H{
+		"message":         "default cluster set",
+		"default_cluster": req.ClusterName,
+	}))
+}
+
+// ClearDefaultCluster clears the default cluster setting
+func ClearDefaultCluster(c *gin.Context) {
+	facade := getFacade()
+	if facade == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "control plane not available"})
+		return
+	}
+
+	// Clear by setting is_default = false for all
+	if err := facade.ClusterConfig.SetDefaultCluster(c, ""); err != nil {
+		// If no cluster found, that's fine - it means no default was set
+		if err.Error() == "record not found" {
+			c.JSON(http.StatusOK, rest.SuccessResp(c, gin.H{"message": "no default cluster to clear"}))
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, rest.SuccessResp(c, gin.H{"message": "default cluster cleared"}))
+}
+
 // Helper function to extract string from nested values
 func getStringFromValues(values model.ValuesJSON, keys ...string) string {
 	current := interface{}(map[string]interface{}(values))
