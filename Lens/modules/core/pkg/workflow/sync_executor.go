@@ -317,15 +317,39 @@ func (e *SyncExecutor) updateDatabase(ctx context.Context, run *model.GithubWork
 			return err
 		}
 
-		// When workflow completes, create pending log entries for all jobs
-		if state.WorkflowStatus == "completed" {
-			logsFacade := database.NewGithubWorkflowJobLogsFacade()
-			for _, job := range ghJobs {
-				if err := logsFacade.CreatePendingLogs(ctx, run.ID, job.ID, job.Name); err != nil {
-					log.Warnf("SyncExecutor: failed to create pending log entry for job %d: %v", job.ID, err)
-				}
+		// Incrementally fetch logs for completed jobs (don't wait for entire workflow to complete)
+		logsFacade := database.NewGithubWorkflowJobLogsFacade()
+		hasNewCompletedJobs := false
+		
+		for _, job := range ghJobs {
+			// Only process completed jobs
+			if job.Status != "completed" {
+				continue
 			}
-			// Trigger async log fetch task
+			
+			// Check if we already have logs for this job
+			existingLog, err := logsFacade.GetByJobID(ctx, run.ID, job.ID)
+			if err != nil {
+				log.Warnf("SyncExecutor: failed to check existing logs for job %d: %v", job.ID, err)
+				continue
+			}
+			
+			// Skip if logs already exist (fetched or pending)
+			if existingLog != nil {
+				continue
+			}
+			
+			// Create pending log entry for newly completed job
+			if err := logsFacade.CreatePendingLogs(ctx, run.ID, job.ID, job.Name); err != nil {
+				log.Warnf("SyncExecutor: failed to create pending log entry for job %d: %v", job.ID, err)
+				continue
+			}
+			hasNewCompletedJobs = true
+			log.Infof("SyncExecutor: job %s completed, queued for log fetch", job.Name)
+		}
+		
+		// Trigger log fetch task if there are new completed jobs
+		if hasNewCompletedJobs {
 			if err := CreateLogFetchTask(ctx, run.ID); err != nil {
 				log.Warnf("SyncExecutor: failed to create log fetch task for run %d: %v", run.ID, err)
 			}
