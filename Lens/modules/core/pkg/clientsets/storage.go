@@ -165,8 +165,8 @@ func loadMultiClusterStorageConfigFromDB(ctx context.Context) (PrimusLensMultiCl
 			WithMessage("Control plane client not initialized")
 	}
 
-	// Get all active clusters from DB
-	clusters, err := cpClientSet.Facade.ClusterConfig.ListByStatus(ctx, "active")
+	// Get all active clusters from DB (List returns only active clusters)
+	clusters, err := cpClientSet.Facade.ClusterConfig.List(ctx)
 	if err != nil {
 		return nil, errors.NewError().
 			WithCode(errors.CodeInitializeError).
