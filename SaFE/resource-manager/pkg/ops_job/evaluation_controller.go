@@ -219,7 +219,12 @@ func (r *EvaluationJobReconciler) generateEvaluationWorkload(ctx context.Context
 	}
 
 	// Build evalscope command with upload script
-	entryPoint, err := r.buildEvalCommand(ctx, modelEndpoint, modelName, modelApiKey, benchmarksJSON, taskId, s3PresignedPutURL, judgeModel, judgeEndpoint, judgeApiKey)
+	// Pass the OpsJob timeout to use as evalscope command timeout
+	timeoutSecond := job.Spec.TimeoutSecond
+	if timeoutSecond <= 0 {
+		timeoutSecond = 7200 // Default 2 hours
+	}
+	entryPoint, err := r.buildEvalCommand(ctx, modelEndpoint, modelName, modelApiKey, benchmarksJSON, taskId, s3PresignedPutURL, judgeModel, judgeEndpoint, judgeApiKey, timeoutSecond)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build eval command: %w", err)
 	}
@@ -299,7 +304,8 @@ type BenchmarkConfig struct {
 
 // buildEvalCommand builds the evalscope command based on parameters
 // Supports multiple datasets and judge model (LLM-as-Judge) evaluation mode
-func (r *EvaluationJobReconciler) buildEvalCommand(ctx context.Context, modelEndpoint, modelName, modelApiKey, benchmarksJSON, taskId, s3PresignedPutURL, judgeModel, judgeEndpoint, judgeApiKey string) (string, error) {
+// timeoutSecond is the OpsJob timeout, used to limit each evalscope command execution time
+func (r *EvaluationJobReconciler) buildEvalCommand(ctx context.Context, modelEndpoint, modelName, modelApiKey, benchmarksJSON, taskId, s3PresignedPutURL, judgeModel, judgeEndpoint, judgeApiKey string, timeoutSecond int) (string, error) {
 	// Parse benchmarks
 	var benchmarks []BenchmarkConfig
 	if err := json.Unmarshal([]byte(benchmarksJSON), &benchmarks); err != nil {
@@ -357,7 +363,7 @@ echo "Model endpoint verified successfully"
 			// Multiple datasets - use subdirectory for each dataset
 			singleOutputDir = fmt.Sprintf("%s/%s", outputDir, datasetNames[i])
 		}
-		evalArgs := r.buildSingleEvalCommand(modelEndpoint, modelName, modelApiKey, datasetNames[i], datasetDirs[i], benchmark.Limit, singleOutputDir, judgeModel, judgeEndpoint, judgeApiKey)
+		evalArgs := r.buildSingleEvalCommand(modelEndpoint, modelName, modelApiKey, datasetNames[i], datasetDirs[i], benchmark.Limit, singleOutputDir, judgeModel, judgeEndpoint, judgeApiKey, timeoutSecond)
 		commands = append(commands, strings.Join(evalArgs, " "))
 	}
 
@@ -374,11 +380,12 @@ echo "Model endpoint verified successfully"
 }
 
 // buildSingleEvalCommand builds evalscope command arguments for a single evaluation run
-// Each evalscope command is wrapped with a 30-minute timeout to prevent hanging
-func (r *EvaluationJobReconciler) buildSingleEvalCommand(modelEndpoint, modelName, modelApiKey string, datasetName string, datasetDir string, limit int, outputDir, judgeModel, judgeEndpoint, judgeApiKey string) []string {
+// Each evalscope command is wrapped with a timeout to prevent infinite hanging
+func (r *EvaluationJobReconciler) buildSingleEvalCommand(modelEndpoint, modelName, modelApiKey string, datasetName string, datasetDir string, limit int, outputDir, judgeModel, judgeEndpoint, judgeApiKey string, timeoutSecond int) []string {
 	var evalArgs []string
-	// Wrap with timeout (1800 seconds = 30 minutes) to prevent infinite hanging on connection errors
-	evalArgs = append(evalArgs, "timeout", "1800", "evalscope", "eval")
+	// Wrap with timeout to prevent infinite hanging on connection errors
+	// Uses the OpsJob timeout value passed from API (default 7200 seconds = 2 hours)
+	evalArgs = append(evalArgs, "timeout", fmt.Sprintf("%d", timeoutSecond), "evalscope", "eval")
 
 	// Model configuration
 	evalArgs = append(evalArgs, "--model", modelName)
@@ -415,8 +422,8 @@ func (r *EvaluationJobReconciler) buildSingleEvalCommand(modelEndpoint, modelNam
 	evalArgs = append(evalArgs, "--stream")
 
 	// Limit max generation length to prevent timeout on long responses
-	// 4096 tokens at ~12 tokens/s = ~6 minutes max per sample
-	evalArgs = append(evalArgs, "--generation-config", `'{"max_tokens": 4096}'`)
+	// 2048 tokens (official default) for balanced speed and quality
+	evalArgs = append(evalArgs, "--generation-config", `'{"max_tokens": 2048}'`)
 
 	// Judge model configuration (for LLM-as-Judge evaluation mode)
 	// evalscope uses --judge-model-args with JSON format:
