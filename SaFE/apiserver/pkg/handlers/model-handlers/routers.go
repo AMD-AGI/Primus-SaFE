@@ -57,6 +57,7 @@ func InitInferenceRouters(e *gin.Engine, h *Handler) {
 		group.GET("evaluations/tasks", h.ListEvaluationTasks)                    // List evaluation tasks
 		group.GET("evaluations/tasks/:id", h.GetEvaluationTask)                  // Get task details
 		group.DELETE("evaluations/tasks/:id", h.DeleteEvaluationTask)            // Delete/cancel task
+		group.POST("evaluations/tasks/:id/stop", h.StopEvaluationTask)           // Stop running task
 		group.GET("evaluations/tasks/:id/report", h.GetEvaluationReport)         // Get evaluation report
 	}
 }

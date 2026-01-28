@@ -203,6 +203,49 @@ func (h *Handler) DeleteEvaluationTask(c *gin.Context) {
 	})
 }
 
+// StopEvaluationTask stops a running evaluation task.
+// POST /api/v1/evaluations/tasks/:id/stop
+func (h *Handler) StopEvaluationTask(c *gin.Context) {
+	handle(c, func(c *gin.Context) (interface{}, error) {
+		taskId := c.Param("id")
+		if taskId == "" {
+			return nil, commonerrors.NewBadRequest("task id is required")
+		}
+
+		// Get task first
+		task, err := h.dbClient.GetEvaluationTask(c.Request.Context(), taskId)
+		if err != nil {
+			return nil, err
+		}
+
+		// Only running tasks can be stopped
+		if task.Status != dbclient.EvaluationTaskStatusRunning && task.Status != dbclient.EvaluationTaskStatusPending {
+			return nil, commonerrors.NewBadRequest(fmt.Sprintf("task is not running (current status: %s)", task.Status))
+		}
+
+		// Stop associated OpsJob (will cascade delete Workload/Pod)
+		if task.OpsJobId.Valid && task.OpsJobId.String != "" {
+			opsJob := &v1.OpsJob{}
+			opsJob.Name = task.OpsJobId.String
+			if err := h.k8sClient.Delete(c.Request.Context(), opsJob); err != nil {
+				if !apierrors.IsNotFound(err) {
+					klog.ErrorS(err, "failed to stop OpsJob", "opsJobId", task.OpsJobId.String)
+					return nil, commonerrors.NewInternalError(fmt.Sprintf("failed to stop task: %v", err))
+				}
+			} else {
+				klog.InfoS("stopped OpsJob for evaluation task", "taskId", taskId, "opsJobId", task.OpsJobId.String)
+			}
+		}
+
+		// Update task status to Cancelled
+		if err := h.dbClient.UpdateEvaluationTaskStatus(c.Request.Context(), taskId, dbclient.EvaluationTaskStatusCancelled); err != nil {
+			klog.ErrorS(err, "failed to update task status to Cancelled", "taskId", taskId)
+		}
+
+		return gin.H{"message": "task stopped"}, nil
+	})
+}
+
 // GetEvaluationReport gets the evaluation report for a task.
 // GET /api/v1/evaluations/tasks/:id/report
 func (h *Handler) GetEvaluationReport(c *gin.Context) {
