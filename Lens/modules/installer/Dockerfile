@@ -10,7 +10,7 @@ WORKDIR /workspace
 
 # Copy go.mod files first for better caching
 COPY modules/core/go.mod modules/core/go.sum ./modules/core/
-COPY modules/installer/go.mod ./modules/installer/
+COPY modules/installer/go.mod modules/installer/go.sum ./modules/installer/
 
 # Download dependencies
 WORKDIR /workspace/modules/installer
@@ -44,11 +44,16 @@ WORKDIR /app
 
 COPY --from=builder /installer /app/installer
 
+# Copy database migrations
+COPY modules/core/pkg/database/migrations/ /app/migrations/
+
 # Non-root user
 RUN addgroup -g 1000 installer && \
     adduser -D -u 1000 -G installer installer && \
     chown -R installer:installer /app
 
 USER installer
+
+ENV MIGRATIONS_PATH=/app/migrations
 
 ENTRYPOINT ["/app/installer"]

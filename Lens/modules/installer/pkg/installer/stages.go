@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
@@ -14,16 +15,17 @@ import (
 
 // Stage constants
 const (
-	StagePending         = "pending"
-	StageOperators       = "operators"
-	StageWaitOperators   = "wait_operators"
-	StageInfrastructure  = "infrastructure"
-	StageWaitInfra       = "wait_infrastructure"
-	StageInit            = "init"
-	StageStorageSecret   = "storage_secret"
-	StageApplications    = "applications"
-	StageWaitApps        = "wait_applications"
-	StageCompleted       = "completed"
+	StagePending           = "pending"
+	StageOperators         = "operators"
+	StageWaitOperators     = "wait_operators"
+	StageInfrastructure    = "infrastructure"
+	StageWaitInfra         = "wait_infrastructure"
+	StageInit              = "init"
+	StageDatabaseMigration = "database_migration"
+	StageStorageSecret     = "storage_secret"
+	StageApplications      = "applications"
+	StageWaitApps          = "wait_applications"
+	StageCompleted         = "completed"
 )
 
 // GetStageSequence returns the ordered list of stages based on storage mode
@@ -35,6 +37,7 @@ func GetStageSequence(storageMode string) []string {
 			StageInfrastructure,
 			StageWaitInfra,
 			StageInit,
+			StageDatabaseMigration,
 			StageStorageSecret,
 			StageApplications,
 			StageWaitApps,
@@ -43,6 +46,7 @@ func GetStageSequence(storageMode string) []string {
 	// External storage mode - skip operators/infrastructure
 	return []string{
 		StageInit,
+		StageDatabaseMigration,
 		StageStorageSecret,
 		StageApplications,
 		StageWaitApps,
@@ -225,6 +229,80 @@ func (s *InitStage) Execute(ctx context.Context, helm *HelmClient, config *Insta
 	}
 
 	return helm.Install(ctx, config.Kubeconfig, config.Namespace, ReleaseInit, ChartInit, values)
+}
+
+// ===== Database Migration Stage =====
+
+type DatabaseMigrationStage struct{}
+
+func (s *DatabaseMigrationStage) Name() string       { return StageDatabaseMigration }
+func (s *DatabaseMigrationStage) IsIdempotent() bool { return true }
+
+func (s *DatabaseMigrationStage) Execute(ctx context.Context, helm *HelmClient, config *InstallConfig) error {
+	log.Info("Running database migrations...")
+
+	// Get database connection info
+	var host, user, password, dbName, sslMode string
+	var port int
+
+	if config.StorageMode == StorageModeExternal && config.ExternalStorage != nil {
+		// External storage mode - use provided connection info
+		host = config.ExternalStorage.PostgresHost
+		port = config.ExternalStorage.PostgresPort
+		user = config.ExternalStorage.PostgresUsername
+		password = config.ExternalStorage.PostgresPassword
+		dbName = config.ExternalStorage.PostgresDBName
+		sslMode = config.ExternalStorage.PostgresSSLMode
+	} else if config.StorageMode == StorageModeLensManaged {
+		// Lens-managed mode - get credentials from cluster secrets
+		log.Info("Lens-managed storage mode, fetching database credentials from cluster...")
+
+		// Get postgres password from secret
+		var err error
+		password, err = helm.GetSecretValue(ctx, config.Kubeconfig, config.Namespace,
+			"primus-lens.primus-lens.credentials.postgresql.acid.zalan.do", "password")
+		if err != nil {
+			return fmt.Errorf("failed to get postgres password: %w", err)
+		}
+
+		host = fmt.Sprintf("primus-lens-primary.%s.svc.cluster.local", config.Namespace)
+		port = 5432
+		user = "primus-lens"
+		dbName = "primus-lens"
+		sslMode = "require"
+	} else {
+		log.Warn("No storage configuration available, skipping database migration")
+		return nil
+	}
+
+	// Default values
+	if port == 0 {
+		port = 5432
+	}
+	if sslMode == "" {
+		sslMode = "require"
+	}
+
+	// Run migrations
+	migrationsPath := DefaultMigrationsPath
+	if envPath := getEnvOrDefault("MIGRATIONS_PATH", ""); envPath != "" {
+		migrationsPath = envPath
+	}
+
+	if err := ConnectAndMigrate(ctx, host, port, user, password, dbName, sslMode, migrationsPath); err != nil {
+		return fmt.Errorf("database migration failed: %w", err)
+	}
+
+	log.Info("Database migrations completed successfully")
+	return nil
+}
+
+// getEnvOrDefault returns the environment variable value or default
+func getEnvOrDefault(key, defaultValue string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return defaultValue
 }
 
 // ===== Storage Secret Stage =====
@@ -464,13 +542,14 @@ func (s *WaitAppsStage) Execute(ctx context.Context, helm *HelmClient, config *I
 // GetAllStages returns all stage implementations
 func GetAllStages() map[string]Stage {
 	return map[string]Stage{
-		StageOperators:      &OperatorsStage{},
-		StageWaitOperators:  &WaitOperatorsStage{},
-		StageInfrastructure: &InfrastructureStage{},
-		StageWaitInfra:      &WaitInfraStage{},
-		StageInit:           &InitStage{},
-		StageStorageSecret:  &StorageSecretStage{},
-		StageApplications:   &ApplicationsStage{},
-		StageWaitApps:       &WaitAppsStage{},
+		StageOperators:         &OperatorsStage{},
+		StageWaitOperators:     &WaitOperatorsStage{},
+		StageInfrastructure:    &InfrastructureStage{},
+		StageWaitInfra:         &WaitInfraStage{},
+		StageInit:              &InitStage{},
+		StageDatabaseMigration: &DatabaseMigrationStage{},
+		StageStorageSecret:     &StorageSecretStage{},
+		StageApplications:      &ApplicationsStage{},
+		StageWaitApps:          &WaitAppsStage{},
 	}
 }
