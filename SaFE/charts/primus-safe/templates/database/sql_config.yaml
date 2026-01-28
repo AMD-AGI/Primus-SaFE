@@ -507,6 +507,15 @@ data:
         benchmarks JSONB NOT NULL,
         eval_params JSONB,
         
+        -- Judge model configuration (for LLM-as-Judge mode)
+        judge_service_id VARCHAR(64),
+        judge_service_type VARCHAR(32),
+        judge_service_name VARCHAR(128),
+        
+        -- Performance settings
+        timeout INT DEFAULT 7200,
+        concurrency INT DEFAULT 32,
+        
         -- Task status
         ops_job_id VARCHAR(64),
         status VARCHAR(32) DEFAULT 'Pending',
@@ -534,12 +543,5 @@ data:
 
     -- Remove deprecated progress column from existing tables
     ALTER TABLE evaluation_task DROP COLUMN IF EXISTS progress;
-
-    -- Add judge model fields for LLM-as-Judge mode
-    ALTER TABLE evaluation_task ADD COLUMN IF NOT EXISTS judge_service_id VARCHAR(64);
-    ALTER TABLE evaluation_task ADD COLUMN IF NOT EXISTS judge_service_type VARCHAR(32);
-    ALTER TABLE evaluation_task ADD COLUMN IF NOT EXISTS judge_service_name VARCHAR(128);
-    ALTER TABLE evaluation_task ADD COLUMN IF NOT EXISTS timeout INT DEFAULT 7200;
-    ALTER TABLE evaluation_task ADD COLUMN IF NOT EXISTS concurrency INT DEFAULT 32;
 
     alter table evaluation_task owner to "primus-safe";
