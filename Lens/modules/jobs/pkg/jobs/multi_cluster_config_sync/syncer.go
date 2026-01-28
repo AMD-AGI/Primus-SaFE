@@ -552,7 +552,11 @@ func serializeStorageConfig(config *clientsets.PrimusLensClientConfig) ([]byte, 
 	return json.Marshal(data)
 }
 
-// loadExcludeNodesFromEnv loads exclude nodes config from environment
+// loadExcludeNodesFromEnv loads exclude nodes configuration from environment variable
+// Supported formats:
+//   - Simple: "node1,node2,node3" - applies to all clusters (stored with "*" key)
+//   - Per-cluster: "cluster1:node1,node2;cluster2:node3,node4"
+//   - Mixed: "*:node1,node2;cluster-a:node3" - global and per-cluster
 func loadExcludeNodesFromEnv() map[string][]string {
 	result := make(map[string][]string)
 	excludeStr := env.GetString("EXCLUDE_CONTROL_PLANE_NODES", "")
@@ -560,32 +564,65 @@ func loadExcludeNodesFromEnv() map[string][]string {
 		return result
 	}
 
-	// Parse format: "cluster1:node1,node2;cluster2:node3" or "*:node1,node2"
-	// Example: "x-flannel:tus1-vm-amd-prj2-k8s-021,tus1-vm-amd-prj2-k8s-022"
-	clusterSpecs := strings.Split(excludeStr, ";")
-	for _, spec := range clusterSpecs {
-		spec = strings.TrimSpace(spec)
-		if spec == "" {
-			continue
+	log.Infof("Loading exclude control plane nodes from env: %s", excludeStr)
+
+	// Check if it contains cluster-specific configuration (contains ":")
+	if strings.Contains(excludeStr, ":") {
+		// Per-cluster format: "cluster1:node1,node2;cluster2:node3,node4"
+		clusterConfigs := strings.Split(excludeStr, ";")
+		for _, clusterConfig := range clusterConfigs {
+			clusterConfig = strings.TrimSpace(clusterConfig)
+			if clusterConfig == "" {
+				continue
+			}
+
+			parts := strings.SplitN(clusterConfig, ":", 2)
+			if len(parts) != 2 {
+				log.Warnf("Invalid exclude nodes format: %s, expected 'cluster:node1,node2'", clusterConfig)
+				continue
+			}
+
+			clusterName := strings.TrimSpace(parts[0])
+			nodeNamesStr := strings.TrimSpace(parts[1])
+
+			if clusterName == "" || nodeNamesStr == "" {
+				log.Warnf("Invalid exclude nodes format: empty cluster name or node names in %s", clusterConfig)
+				continue
+			}
+
+			nodeNames := parseNodeNames(nodeNamesStr)
+			if len(nodeNames) > 0 {
+				result[clusterName] = nodeNames
+				if clusterName == "*" {
+					log.Infof("Loaded global exclude nodes (all clusters): %v", nodeNames)
+				} else {
+					log.Infof("Loaded exclude nodes for cluster %s: %v", clusterName, nodeNames)
+				}
+			}
 		}
-		parts := strings.SplitN(spec, ":", 2)
-		if len(parts) != 2 {
-			log.Warnf("Invalid exclude node spec: %s", spec)
-			continue
+	} else {
+		// Simple format: "node1,node2,node3" - applies to all clusters
+		nodeNames := parseNodeNames(excludeStr)
+		if len(nodeNames) > 0 {
+			result["*"] = nodeNames
+			log.Infof("Loaded global exclude nodes (all clusters): %v", nodeNames)
 		}
-		clusterName := strings.TrimSpace(parts[0])
-		nodeList := strings.TrimSpace(parts[1])
-		if clusterName == "" || nodeList == "" {
-			continue
-		}
-		nodes := strings.Split(nodeList, ",")
-		for i := range nodes {
-			nodes[i] = strings.TrimSpace(nodes[i])
-		}
-		result[clusterName] = nodes
-		log.Infof("Excluding control plane nodes for cluster %s: %v", clusterName, nodes)
 	}
+
 	return result
+}
+
+// parseNodeNames parses comma-separated node names and returns a cleaned slice
+func parseNodeNames(nodeNamesStr string) []string {
+	parts := strings.Split(nodeNamesStr, ",")
+	nodeNames := make([]string, 0, len(parts))
+	for _, name := range parts {
+		name = strings.TrimSpace(name)
+		if name != "" {
+			nodeNames = append(nodeNames, name)
+		}
+	}
+	return nodeNames
 }
 
 // buildConfigFromDB constructs a PrimusLensClientConfig from cluster DB record
