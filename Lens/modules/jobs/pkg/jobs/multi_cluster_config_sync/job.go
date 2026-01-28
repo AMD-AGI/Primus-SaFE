@@ -26,11 +26,9 @@ func (j *MultiClusterConfigSyncJob) Run(ctx context.Context, clientSet *clientse
 	// Only run in control plane mode
 	if !clientsets.IsControlPlaneMode() {
 		log.Debug("MultiClusterConfigSyncJob: skipping - not in control plane mode")
-		return &common.ExecutionStats{
-			JobName:    "MultiClusterConfigSyncJob",
-			Success:    true,
-			SkipReason: "not in control plane mode",
-		}, nil
+		stats := common.NewExecutionStats()
+		stats.AddMessage("skipped: not in control plane mode")
+		return stats, nil
 	}
 
 	log.Info("MultiClusterConfigSyncJob: starting multi-cluster config sync")
@@ -38,30 +36,30 @@ func (j *MultiClusterConfigSyncJob) Run(ctx context.Context, clientSet *clientse
 	syncer := NewConfigSyncer()
 	if err := syncer.Initialize(ctx); err != nil {
 		log.Errorf("MultiClusterConfigSyncJob: failed to initialize syncer: %v", err)
-		return &common.ExecutionStats{
-			JobName: "MultiClusterConfigSyncJob",
-			Success: false,
-			Error:   err.Error(),
-		}, nil
+		stats := common.NewExecutionStats()
+		stats.ErrorCount = 1
+		stats.AddMessage("failed to initialize syncer: " + err.Error())
+		return stats, err
 	}
 
-	stats, err := syncer.SyncAll(ctx)
+	syncStats, err := syncer.SyncAll(ctx)
 	if err != nil {
 		log.Errorf("MultiClusterConfigSyncJob: sync failed: %v", err)
-		return &common.ExecutionStats{
-			JobName: "MultiClusterConfigSyncJob",
-			Success: false,
-			Error:   err.Error(),
-		}, nil
+		stats := common.NewExecutionStats()
+		stats.ErrorCount = 1
+		stats.AddMessage("sync failed: " + err.Error())
+		return stats, err
 	}
 
 	log.Infof("MultiClusterConfigSyncJob: completed - synced %d clusters, created %d proxy services",
-		stats.ClustersProcessed, stats.ProxyServicesCreated)
+		syncStats.ClustersProcessed, syncStats.ProxyServicesCreated)
 
-	return &common.ExecutionStats{
-		JobName: "MultiClusterConfigSyncJob",
-		Success: true,
-	}, nil
+	stats := common.NewExecutionStats()
+	stats.RecordsProcessed = int64(syncStats.ClustersProcessed)
+	stats.ItemsCreated = int64(syncStats.ProxyServicesCreated)
+	stats.AddCustomMetric("clusters_processed", syncStats.ClustersProcessed)
+	stats.AddCustomMetric("proxy_services_created", syncStats.ProxyServicesCreated)
+	return stats, nil
 }
 
 // Schedule returns the job schedule (every 30 seconds)

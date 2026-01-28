@@ -76,7 +76,7 @@ func (s *ConfigSyncer) SyncAll(ctx context.Context) (*SyncStats, error) {
 	stats := &SyncStats{}
 
 	facade := cpdb.GetControlPlaneFacade()
-	clusters, err := facade.ClusterConfig.ListByStatus(ctx, "active")
+	clusters, err := facade.ClusterConfig.List(ctx) // List returns only active clusters
 	if err != nil {
 		return stats, fmt.Errorf("failed to list clusters: %w", err)
 	}
