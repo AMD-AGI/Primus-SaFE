@@ -198,13 +198,21 @@ func (w *WorkloadMatcher) doScan(ctx context.Context) error {
 	clusterManager := clientsets.GetClusterManager()
 	clusterNames := clusterManager.GetClusterNames()
 
-	// If no clusters found, scan the default database
+	// If no clusters found, skip scanning - no storage available
 	if len(clusterNames) == 0 {
-		return w.scanCluster(ctx, "")
+		log.Debug("WorkloadMatcher: no clusters available, skipping scan")
+		return nil
 	}
 
 	// Scan each cluster
 	for _, clusterName := range clusterNames {
+		// Check if cluster has storage client available
+		clientSet, err := clusterManager.GetClientSetByClusterName(clusterName)
+		if err != nil || clientSet.StorageClientSet == nil || clientSet.StorageClientSet.DB == nil {
+			log.Debugf("WorkloadMatcher: cluster %s storage not ready, skipping", clusterName)
+			continue
+		}
+
 		if err := w.scanCluster(ctx, clusterName); err != nil {
 			log.Errorf("failed to scan cluster %s: %v", clusterName, err)
 			// Continue to next cluster even if one fails
