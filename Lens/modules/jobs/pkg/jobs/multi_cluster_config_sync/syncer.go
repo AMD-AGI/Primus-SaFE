@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
 	cpdb "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/controlplane/database"
@@ -560,7 +561,30 @@ func loadExcludeNodesFromEnv() map[string][]string {
 	}
 
 	// Parse format: "cluster1:node1,node2;cluster2:node3" or "*:node1,node2"
-	// Implementation similar to the exporter
+	// Example: "x-flannel:tus1-vm-amd-prj2-k8s-021,tus1-vm-amd-prj2-k8s-022"
+	clusterSpecs := strings.Split(excludeStr, ";")
+	for _, spec := range clusterSpecs {
+		spec = strings.TrimSpace(spec)
+		if spec == "" {
+			continue
+		}
+		parts := strings.SplitN(spec, ":", 2)
+		if len(parts) != 2 {
+			log.Warnf("Invalid exclude node spec: %s", spec)
+			continue
+		}
+		clusterName := strings.TrimSpace(parts[0])
+		nodeList := strings.TrimSpace(parts[1])
+		if clusterName == "" || nodeList == "" {
+			continue
+		}
+		nodes := strings.Split(nodeList, ",")
+		for i := range nodes {
+			nodes[i] = strings.TrimSpace(nodes[i])
+		}
+		result[clusterName] = nodes
+		log.Infof("Excluding control plane nodes for cluster %s: %v", clusterName, nodes)
+	}
 	return result
 }
 
