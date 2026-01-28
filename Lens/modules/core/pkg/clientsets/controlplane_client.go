@@ -76,12 +76,13 @@ func InitControlPlaneClient(ctx context.Context, cfg *config.Config) error {
 			return
 		}
 
-		// Create facade
-		facade := cpdb.NewControlPlaneFacade(db)
+		// Initialize global facade for use by other packages
+		cpdb.InitControlPlaneFacade(db)
 
+		// Create client set with facade reference
 		controlPlaneClientSet = &ControlPlaneClientSet{
 			DB:     db,
-			Facade: facade,
+			Facade: cpdb.GetControlPlaneFacade(),
 		}
 
 		log.Info("Control plane client initialized successfully")
