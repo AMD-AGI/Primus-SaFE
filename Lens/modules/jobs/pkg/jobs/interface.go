@@ -140,6 +140,11 @@ func initDataJobs() []Job {
 	jobs = append(jobs, stale_pod_cleanup.NewStalePodCleanupJob())
 	log.Info("Stale pod cleanup job registered (every 5m)")
 
+	// Add Py-Spy task dispatcher job - runs in data plane to dispatch profiling tasks
+	// This needs access to local workload_task_state table and node-exporter
+	jobs = append(jobs, pyspy_task_dispatcher.NewPySpyTaskDispatcherJob())
+	log.Info("Py-Spy task dispatcher job registered (data plane, every 5s)")
+
 	return jobs
 }
 
@@ -179,10 +184,6 @@ func initManagementJobs(cfg *config.JobsConfig) []Job {
 		jobs = append(jobs, gpu_usage_weekly_report.NewGpuUsageWeeklyReportBackfillJob(backfillConfig))
 		log.Info("Weekly report backfill job registered")
 	}
-
-	// Add Py-Spy task dispatcher job
-	jobs = append(jobs, pyspy_task_dispatcher.NewPySpyTaskDispatcherJob())
-	log.Info("Py-Spy task dispatcher job registered")
 
 	// Add Dataplane Installer job - only runs in control plane mode
 	// Polls every 10s to execute dataplane installation tasks
