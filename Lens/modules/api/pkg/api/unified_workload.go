@@ -690,7 +690,7 @@ func handleWorkloadGPUHistory(ctx context.Context, req *WorkloadGPUHistoryReques
 			clients.ClusterName)
 		currentClients := cm.GetCurrentClusterClients()
 		if currentClients == nil || currentClients.StorageClientSet == nil {
-			return nil, errors.NewError().WithCode(errors.CodeInternalError).
+			return nil, errors.NewError().WithCode(errors.InternalError).
 				WithMessage("No storage configuration available for metrics query")
 		}
 		storageClient = currentClients.StorageClientSet
@@ -775,7 +775,7 @@ func handleWorkloadMetrics(ctx context.Context, req *WorkloadMetricsRequest) (*W
 			clients.ClusterName)
 		currentClients := cm.GetCurrentClusterClients()
 		if currentClients == nil || currentClients.StorageClientSet == nil {
-			return nil, errors.NewError().WithCode(errors.CodeInternalError).
+			return nil, errors.NewError().WithCode(errors.InternalError).
 				WithMessage("No storage configuration available for metrics query")
 		}
 		storageClient = currentClients.StorageClientSet
