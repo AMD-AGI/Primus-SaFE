@@ -5,6 +5,7 @@ package multi_cluster_config_sync
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 
@@ -185,15 +186,29 @@ func (s *ConfigSyncer) syncCluster(ctx context.Context, cluster *model.ClusterCo
 func (s *ConfigSyncer) buildK8SClient(cluster *model.ClusterConfig) (*kubernetes.Clientset, error) {
 	var config *rest.Config
 
+	// Decode base64-encoded certificate data
+	caData, err := decodeBase64IfNeeded(cluster.K8SCAData)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode CA data: %w", err)
+	}
+	certData, err := decodeBase64IfNeeded(cluster.K8SCertData)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode cert data: %w", err)
+	}
+	keyData, err := decodeBase64IfNeeded(cluster.K8SKeyData)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode key data: %w", err)
+	}
+
 	// Check if we have kubeconfig or cert/key data
-	if cluster.K8SCertData != "" && cluster.K8SKeyData != "" && cluster.K8SCAData != "" {
+	if certData != nil && keyData != nil && caData != nil {
 		// Build config from cert/key
 		config = &rest.Config{
 			Host: cluster.K8SEndpoint,
 			TLSClientConfig: rest.TLSClientConfig{
-				CAData:   []byte(cluster.K8SCAData),
-				CertData: []byte(cluster.K8SCertData),
-				KeyData:  []byte(cluster.K8SKeyData),
+				CAData:   caData,
+				CertData: certData,
+				KeyData:  keyData,
 			},
 		}
 	} else if cluster.K8SToken != "" {
@@ -202,7 +217,7 @@ func (s *ConfigSyncer) buildK8SClient(cluster *model.ClusterConfig) (*kubernetes
 			Host:        cluster.K8SEndpoint,
 			BearerToken: cluster.K8SToken,
 			TLSClientConfig: rest.TLSClientConfig{
-				CAData: []byte(cluster.K8SCAData),
+				CAData: caData,
 			},
 		}
 	} else {
@@ -216,6 +231,28 @@ func (s *ConfigSyncer) buildK8SClient(cluster *model.ClusterConfig) (*kubernetes
 	}
 
 	return kubernetes.NewForConfig(config)
+}
+
+// decodeBase64IfNeeded decodes base64 data if it appears to be encoded
+// Returns nil for empty input
+func decodeBase64IfNeeded(data string) ([]byte, error) {
+	if data == "" {
+		return nil, nil
+	}
+
+	// Check if data looks like PEM (starts with -----BEGIN)
+	if len(data) > 10 && data[:10] == "-----BEGIN" {
+		return []byte(data), nil
+	}
+
+	// Try to decode as base64
+	decoded, err := base64.StdEncoding.DecodeString(data)
+	if err != nil {
+		// If decode fails, assume it's already plain text
+		return []byte(data), nil
+	}
+
+	return decoded, nil
 }
 
 // getReadyControlPlaneNodeIPs gets control plane node IPs from a cluster
