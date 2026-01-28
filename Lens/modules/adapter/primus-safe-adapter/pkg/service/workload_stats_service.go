@@ -12,6 +12,7 @@ import (
 	"gorm.io/gorm"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
 	lensmodel "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
@@ -123,6 +124,17 @@ func (s *WorkloadStatsService) processWorkloadStats(ctx context.Context, workloa
 		log.Warnf("Workload %s/%s has no cluster ID, using default cluster",
 			workload.Spec.Workspace, workload.Name)
 		clusterID = "default"
+	}
+
+	// Check if cluster exists in ClusterManager before proceeding
+	cm := clientsets.GetClusterManager()
+	if cm != nil && clusterID != "default" {
+		clientSet, err := cm.GetClientSetByClusterName(clusterID)
+		if err != nil || clientSet.StorageClientSet == nil {
+			log.Warnf("Cluster %s storage client not ready, skipping workload stats for %s/%s: %v",
+				clusterID, workload.Spec.Workspace, workload.Name, err)
+			return nil
+		}
 	}
 
 	// Get lens facade for the specific cluster
