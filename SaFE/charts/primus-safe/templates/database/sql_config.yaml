@@ -538,5 +538,7 @@ data:
     ALTER TABLE evaluation_task ADD COLUMN IF NOT EXISTS judge_service_id VARCHAR(64);
     ALTER TABLE evaluation_task ADD COLUMN IF NOT EXISTS judge_service_type VARCHAR(32);
     ALTER TABLE evaluation_task ADD COLUMN IF NOT EXISTS judge_service_name VARCHAR(128);
+    ALTER TABLE evaluation_task ADD COLUMN IF NOT EXISTS timeout INT DEFAULT 7200;
+    ALTER TABLE evaluation_task ADD COLUMN IF NOT EXISTS concurrency INT DEFAULT 32;
 
     alter table evaluation_task owner to "primus-safe";

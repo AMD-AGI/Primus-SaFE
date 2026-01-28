@@ -426,6 +426,8 @@ type EvaluationTask struct {
 	JudgeServiceId   sql.NullString `db:"judge_service_id"`
 	JudgeServiceType sql.NullString `db:"judge_service_type"`
 	JudgeServiceName sql.NullString `db:"judge_service_name"`
+	Timeout          int            `db:"timeout"`
+	Concurrency      int            `db:"concurrency"`
 	Workspace        string         `db:"workspace"`
 	UserId           string         `db:"user_id"`
 	UserName         string         `db:"user_name"`

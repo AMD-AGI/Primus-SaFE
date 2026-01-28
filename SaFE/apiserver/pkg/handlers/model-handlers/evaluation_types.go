@@ -98,15 +98,14 @@ type EvaluationTaskView struct {
 	JudgeServiceId   string                        `json:"judgeServiceId,omitempty"`
 	JudgeServiceType string                        `json:"judgeServiceType,omitempty"`
 	JudgeServiceName string                        `json:"judgeServiceName,omitempty"`
+	Timeout          int                           `json:"timeout,omitempty"`
+	Concurrency      int                           `json:"concurrency,omitempty"`
 	Workspace        string                        `json:"workspace,omitempty"`
 	UserId           string                        `json:"userId"`
 	UserName         string                        `json:"userName,omitempty"`
 	CreationTime     *time.Time                    `json:"creationTime,omitempty"`
 	StartTime        *time.Time                    `json:"startTime,omitempty"`
 	EndTime          *time.Time                    `json:"endTime,omitempty"`
-	// Configuration parameters (populated from OpsJob for cloning support)
-	Timeout     int `json:"timeout,omitempty"`     // Timeout in seconds (from OpsJob)
-	Concurrency int `json:"concurrency,omitempty"` // Concurrency level (from OpsJob)
 }
 
 // ListEvaluationTasksRequest represents query parameters for listing tasks

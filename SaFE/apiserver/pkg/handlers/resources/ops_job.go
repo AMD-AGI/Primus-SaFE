@@ -1278,6 +1278,8 @@ func (h *Handler) generateEvaluationJob(c *gin.Context, body []byte) (*v1.OpsJob
 		JudgeServiceId:   sql.NullString{String: judgeServiceId, Valid: judgeServiceId != ""},
 		JudgeServiceType: sql.NullString{String: judgeServiceType, Valid: judgeServiceType != ""},
 		JudgeServiceName: sql.NullString{String: judgeServiceName, Valid: judgeServiceName != ""},
+		Timeout:          req.TimeoutSecond,
+		Concurrency:      concurrency,
 		Workspace:        workspaceId,
 		UserId:           requestUser.Name,
 		UserName:         v1.GetUserName(requestUser),
