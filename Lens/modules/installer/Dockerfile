@@ -2,7 +2,8 @@
 # See LICENSE for license information.
 
 # Build stage
-FROM golang:1.22-alpine AS builder
+ARG GO_VERSION=1.24.7
+FROM golang:${GO_VERSION}-alpine AS builder
 
 RUN apk add --no-cache git ca-certificates
 
