@@ -530,6 +530,13 @@ func (r *EvaluationJobReconciler) handleWorkloadEventImpl(ctx context.Context, w
 			// Try to get report path
 			r.updateReportPath(ctx, taskId, workload)
 		} else {
+			// Check if task was already cancelled (by Stop API) before marking as Failed
+			// This prevents the controller from overwriting the Cancelled status
+			existingTask, err := r.dbClient.GetEvaluationTask(ctx, taskId)
+			if err == nil && existingTask.Status == dbclient.EvaluationTaskStatusCancelled {
+				klog.InfoS("task already cancelled, skipping failed status update", "taskId", taskId)
+				return
+			}
 			status = dbclient.EvaluationTaskStatusFailed
 			message := getWorkloadCompletionMessage(workload)
 			if err := r.dbClient.SetEvaluationTaskFailed(ctx, taskId, message); err != nil {

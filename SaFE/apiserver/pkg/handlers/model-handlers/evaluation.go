@@ -223,23 +223,26 @@ func (h *Handler) StopEvaluationTask(c *gin.Context) {
 			return nil, commonerrors.NewBadRequest(fmt.Sprintf("task is not running (current status: %s)", task.Status))
 		}
 
-		// Stop associated OpsJob (will cascade delete Workload/Pod)
+		// IMPORTANT: Update status to Cancelled FIRST, before deleting OpsJob
+		// This prevents the controller from overwriting with Failed status
+		if err := h.dbClient.UpdateEvaluationTaskStatus(c.Request.Context(), taskId, dbclient.EvaluationTaskStatusCancelled); err != nil {
+			klog.ErrorS(err, "failed to update task status to Cancelled", "taskId", taskId)
+			return nil, commonerrors.NewInternalError(fmt.Sprintf("failed to update task status: %v", err))
+		}
+
+		// Now stop associated OpsJob (will cascade delete Workload/Pod)
+		// Controller will check status and skip Failed update since it's already Cancelled
 		if task.OpsJobId.Valid && task.OpsJobId.String != "" {
 			opsJob := &v1.OpsJob{}
 			opsJob.Name = task.OpsJobId.String
 			if err := h.k8sClient.Delete(c.Request.Context(), opsJob); err != nil {
 				if !apierrors.IsNotFound(err) {
 					klog.ErrorS(err, "failed to stop OpsJob", "opsJobId", task.OpsJobId.String)
-					return nil, commonerrors.NewInternalError(fmt.Sprintf("failed to stop task: %v", err))
+					// Don't return error here, status is already Cancelled
 				}
 			} else {
 				klog.InfoS("stopped OpsJob for evaluation task", "taskId", taskId, "opsJobId", task.OpsJobId.String)
 			}
-		}
-
-		// Update task status to Cancelled
-		if err := h.dbClient.UpdateEvaluationTaskStatus(c.Request.Context(), taskId, dbclient.EvaluationTaskStatusCancelled); err != nil {
-			klog.ErrorS(err, "failed to update task status to Cancelled", "taskId", taskId)
 		}
 
 		return gin.H{"message": "task stopped"}, nil
