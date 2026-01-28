@@ -13,7 +13,6 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
 	dbmodel "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
-	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/sql"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/common"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
