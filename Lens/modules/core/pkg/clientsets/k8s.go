@@ -152,12 +152,19 @@ func loadMultiClusterK8SClientSet(ctx context.Context) error {
 }
 
 func loadMultiClusterK8SConfigs(ctx context.Context) (MultiClusterConfig, error) {
-	// Load from control plane database if available
-	if IsControlPlaneMode() && controlPlaneClientSet != nil && controlPlaneClientSet.Facade != nil {
-		return loadMultiClusterK8SConfigsFromDB(ctx)
+	// Check if this is a control plane component
+	if globalClusterManager != nil && globalClusterManager.componentType.IsControlPlane() {
+		// Control plane: load from database if available
+		if controlPlaneClientSet != nil && controlPlaneClientSet.Facade != nil {
+			return loadMultiClusterK8SConfigsFromDB(ctx)
+		}
+		// Control plane DB not ready yet, return empty config
+		// Will be populated later by periodic sync
+		log.Debug("Control plane database not ready, returning empty multi-cluster K8S config")
+		return MultiClusterConfig{}, nil
 	}
 
-	// Fallback to secret-based loading (for backward compatibility)
+	// Data plane: load from secret (for backward compatibility)
 	secret, err := currentClusterClientset.Clientsets.CoreV1().Secrets(StorageConfigSecretNamespace).Get(ctx, MultiK8SConfigSecretName, metav1.GetOptions{})
 	if err != nil {
 		return nil, errors.NewError().

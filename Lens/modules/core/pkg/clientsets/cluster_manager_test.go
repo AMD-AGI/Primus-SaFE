@@ -363,19 +363,20 @@ func TestClusterManager_GetCurrentClusterClients(t *testing.T) {
 	}
 }
 
-func TestClusterManager_GetCurrentClusterClients_Panic(t *testing.T) {
-	defer func() {
-		if r := recover(); r == nil {
-			t.Errorf("GetCurrentClusterClients() should panic when currentCluster is nil")
-		}
-	}()
-
+func TestClusterManager_GetCurrentClusterClients_ReturnsNil(t *testing.T) {
 	cm := &ClusterManager{
 		currentCluster: nil,
 		clusters:       make(map[string]*ClusterClientSet),
 	}
 
-	cm.GetCurrentClusterClients()
+	got := cm.GetCurrentClusterClients()
+	if got != nil {
+		t.Errorf("GetCurrentClusterClients() = %v, want nil when currentCluster is nil", got)
+	}
+
+	if cm.HasCurrentCluster() {
+		t.Error("HasCurrentCluster() = true, want false when currentCluster is nil")
+	}
 }
 
 // Test concurrent access

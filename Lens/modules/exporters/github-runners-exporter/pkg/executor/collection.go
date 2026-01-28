@@ -130,17 +130,9 @@ func (e *CollectionExecutor) Execute(ctx context.Context, execCtx *task.Executio
 		}), nil
 	}
 
-	// Check if config exists
-	if run.ConfigID == 0 {
-		// No config means no collection needed - mark as completed
-		log.Infof("CollectionExecutor: run %d has no config, marking as completed", runID)
-		if err := runFacade.MarkCompleted(ctx, runID, 0, 0, 0); err != nil {
-			log.Errorf("CollectionExecutor: failed to mark run %d as completed: %v", runID, err)
-		}
-		return task.SuccessResult(map[string]interface{}{
-			ExtKeyCollectionResult: "no_config",
-		}), nil
-	}
+	// Note: We no longer skip collection when config_id == 0
+	// The collector's findConfigForRun() will dynamically find the config
+	// based on runner_set_namespace and runner_set_name
 
 	// Update run status to collecting
 	if err := runFacade.UpdateStatus(ctx, runID, database.WorkflowRunStatusCollecting, ""); err != nil {

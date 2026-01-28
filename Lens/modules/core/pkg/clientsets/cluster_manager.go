@@ -269,11 +269,14 @@ func (cm *ClusterManager) startPeriodicSync(ctx context.Context) {
 }
 
 // GetCurrentClusterClients returns the current cluster's clients (commonly used in data plane)
+// Returns nil if current cluster is not initialized (e.g., during initial setup with no clusters)
 func (cm *ClusterManager) GetCurrentClusterClients() *ClusterClientSet {
-	if cm.currentCluster == nil {
-		panic("current cluster not initialized")
-	}
 	return cm.currentCluster
+}
+
+// HasCurrentCluster returns true if the current cluster is initialized
+func (cm *ClusterManager) HasCurrentCluster() bool {
+	return cm.currentCluster != nil
 }
 
 // GetClientSetByClusterName returns clients for a specific cluster by name (commonly used in control plane)
