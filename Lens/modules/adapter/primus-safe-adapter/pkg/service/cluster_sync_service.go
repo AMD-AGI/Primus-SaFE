@@ -199,6 +199,20 @@ func (s *ClusterSyncService) createClusterConfig(ctx context.Context, cluster *p
 
 // updateClusterConfig updates an existing cluster config
 func (s *ClusterSyncService) updateClusterConfig(ctx context.Context, existing *model.ClusterConfig, cluster *primusSafeV1.Cluster) error {
+	// Skip K8S config update if in manual mode
+	if existing.K8SManualMode {
+		log.Debugf("Skipping K8S config update for cluster %s: K8S manual mode enabled", existing.ClusterName)
+		// Still update display name if changed
+		if displayName := cluster.Labels[primusSafeV1.DisplayNameLabel]; displayName != "" && displayName != existing.DisplayName {
+			existing.DisplayName = displayName
+			facade := cpdb.GetControlPlaneFacade()
+			if err := facade.GetClusterConfig().Update(ctx, existing); err != nil {
+				return fmt.Errorf("failed to update display name: %w", err)
+			}
+		}
+		return nil
+	}
+
 	// Check if K8S connection changed
 	endpoint := s.buildEndpoint(cluster)
 	if existing.K8SEndpoint == endpoint &&

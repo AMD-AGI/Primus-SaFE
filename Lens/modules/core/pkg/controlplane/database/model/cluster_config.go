@@ -28,6 +28,7 @@ type ClusterConfig struct {
 	K8SKeyData            string `gorm:"column:k8s_key_data" json:"k8s_key_data"`
 	K8SToken              string `gorm:"column:k8s_token" json:"k8s_token"`
 	K8SInsecureSkipVerify bool   `gorm:"column:k8s_insecure_skip_verify;default:false" json:"k8s_insecure_skip_verify"`
+	K8SManualMode         bool   `gorm:"column:k8s_manual_mode;default:false" json:"k8s_manual_mode"` // When true, K8S config won't be overwritten by adapter
 
 	// Storage Config
 	PostgresHost     string `gorm:"column:postgres_host" json:"postgres_host"`
@@ -47,6 +48,7 @@ type ClusterConfig struct {
 	PrometheusReadPort  int    `gorm:"column:prometheus_read_port;default:8481" json:"prometheus_read_port"`
 	PrometheusWriteHost string `gorm:"column:prometheus_write_host" json:"prometheus_write_host"`
 	PrometheusWritePort int    `gorm:"column:prometheus_write_port;default:8480" json:"prometheus_write_port"`
+	StorageManualMode   bool   `gorm:"column:storage_manual_mode;default:false" json:"storage_manual_mode"` // When true, storage config won't be overwritten by sync job
 
 	// Dataplane Status
 	DataplaneStatus  string     `gorm:"column:dataplane_status;default:pending" json:"dataplane_status"`

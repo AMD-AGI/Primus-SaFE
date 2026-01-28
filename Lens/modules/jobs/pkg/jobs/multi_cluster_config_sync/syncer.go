@@ -137,6 +137,16 @@ func (s *ConfigSyncer) SyncAll(ctx context.Context) (*SyncStats, error) {
 func (s *ConfigSyncer) syncCluster(ctx context.Context, cluster *model.ClusterConfig, stats *SyncStats) (*clientsets.PrimusLensClientConfig, error) {
 	log.Infof("Syncing storage config for cluster: %s", cluster.ClusterName)
 
+	// Skip storage sync if in manual mode, but still return existing config for Grafana sync
+	if cluster.StorageManualMode {
+		log.Debugf("Skipping storage config sync for cluster %s: storage manual mode enabled", cluster.ClusterName)
+		// Return existing config from DB if available (for Grafana datasource sync)
+		if cluster.PostgresHost != "" || cluster.PrometheusReadHost != "" {
+			return s.buildConfigFromDB(cluster), nil
+		}
+		return nil, nil
+	}
+
 	// Build K8S client for remote cluster
 	k8sClient, err := s.buildK8SClient(cluster)
 	if err != nil {
@@ -552,5 +562,50 @@ func loadExcludeNodesFromEnv() map[string][]string {
 	// Parse format: "cluster1:node1,node2;cluster2:node3" or "*:node1,node2"
 	// Implementation similar to the exporter
 	return result
+}
+
+// buildConfigFromDB constructs a PrimusLensClientConfig from cluster DB record
+// Used for manual mode clusters where we don't sync from remote but need config for Grafana
+func (s *ConfigSyncer) buildConfigFromDB(cluster *model.ClusterConfig) *clientsets.PrimusLensClientConfig {
+	config := &clientsets.PrimusLensClientConfig{}
+
+	if cluster.PostgresHost != "" {
+		config.Postgres = &clientsets.PrimusLensClientConfigPostgres{
+			Service:   cluster.PostgresHost,
+			Namespace: clientsets.StorageConfigSecretNamespace,
+			Port:      int32(cluster.PostgresPort),
+			Username:  cluster.PostgresUsername,
+			Password:  cluster.PostgresPassword,
+			DBName:    cluster.PostgresDBName,
+			SSLMode:   cluster.PostgresSSLMode,
+		}
+	}
+
+	if cluster.OpensearchHost != "" {
+		scheme := cluster.OpensearchScheme
+		if scheme == "" {
+			scheme = "https"
+		}
+		config.Opensearch = &clientsets.PrimusLensClientConfigOpensearch{
+			Service:   cluster.OpensearchHost,
+			Namespace: clientsets.StorageConfigSecretNamespace,
+			Port:      int32(cluster.OpensearchPort),
+			Username:  cluster.OpensearchUsername,
+			Password:  cluster.OpensearchPassword,
+			Scheme:    scheme,
+		}
+	}
+
+	if cluster.PrometheusReadHost != "" || cluster.PrometheusWriteHost != "" {
+		config.Prometheus = &clientsets.PrimusLensClientConfigPrometheus{
+			ReadService:  cluster.PrometheusReadHost,
+			ReadPort:     int32(cluster.PrometheusReadPort),
+			WriteService: cluster.PrometheusWriteHost,
+			WritePort:    int32(cluster.PrometheusWritePort),
+			Namespace:    clientsets.StorageConfigSecretNamespace,
+		}
+	}
+
+	return config
 }
 

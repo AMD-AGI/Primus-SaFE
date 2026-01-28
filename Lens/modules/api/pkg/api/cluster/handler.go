@@ -20,11 +20,13 @@ type ClusterConfigRequest struct {
 	Source        string `json:"source"` // manual or primus-safe
 
 	// K8S Connection Config
-	K8SEndpoint string `json:"k8s_endpoint"`
-	K8SCAData   string `json:"k8s_ca_data"`
-	K8SCertData string `json:"k8s_cert_data"`
-	K8SKeyData  string `json:"k8s_key_data"`
-	K8SToken    string `json:"k8s_token"`
+	K8SEndpoint           string `json:"k8s_endpoint"`
+	K8SCAData             string `json:"k8s_ca_data"`
+	K8SCertData           string `json:"k8s_cert_data"`
+	K8SKeyData            string `json:"k8s_key_data"`
+	K8SToken              string `json:"k8s_token"`
+	K8SInsecureSkipVerify *bool  `json:"k8s_insecure_skip_verify,omitempty"`
+	K8SManualMode         *bool  `json:"k8s_manual_mode,omitempty"` // When true, K8S config won't be overwritten by adapter
 
 	// Storage Config
 	PostgresHost     string `json:"postgres_host"`
@@ -44,6 +46,7 @@ type ClusterConfigRequest struct {
 	PrometheusReadPort  int    `json:"prometheus_read_port"`
 	PrometheusWriteHost string `json:"prometheus_write_host"`
 	PrometheusWritePort int    `json:"prometheus_write_port"`
+	StorageManualMode   *bool  `json:"storage_manual_mode,omitempty"` // When true, storage config won't be overwritten by sync job
 
 	// Storage Mode
 	StorageMode          string                     `json:"storage_mode"` // external or lens-managed
@@ -62,8 +65,10 @@ type ClusterConfigResponse struct {
 	Source        string            `json:"source"`
 
 	// K8S Connection (sensitive data masked)
-	K8SEndpoint    string `json:"k8s_endpoint"`
-	K8SConfigured  bool   `json:"k8s_configured"`
+	K8SEndpoint           string `json:"k8s_endpoint"`
+	K8SConfigured         bool   `json:"k8s_configured"`
+	K8SInsecureSkipVerify bool   `json:"k8s_insecure_skip_verify"`
+	K8SManualMode         bool   `json:"k8s_manual_mode"`
 
 	// Storage Config (sensitive data masked)
 	PostgresHost       string `json:"postgres_host"`
@@ -79,6 +84,7 @@ type ClusterConfigResponse struct {
 	PrometheusWriteHost  string `json:"prometheus_write_host"`
 	PrometheusWritePort  int    `json:"prometheus_write_port"`
 	PrometheusConfigured bool   `json:"prometheus_configured"`
+	StorageManualMode    bool   `json:"storage_manual_mode"`
 
 	// Status
 	StorageMode      string                    `json:"storage_mode"`
@@ -98,33 +104,36 @@ type ClusterConfigResponse struct {
 // toResponse converts model to response (masks sensitive data)
 func toResponse(c *model.ClusterConfig) *ClusterConfigResponse {
 	resp := &ClusterConfigResponse{
-		ID:              c.ID,
-		ClusterName:     c.ClusterName,
-		DisplayName:     c.DisplayName,
-		Description:     c.Description,
-		Source:          c.Source,
-		K8SEndpoint:     c.K8SEndpoint,
-		K8SConfigured:   c.K8SEndpoint != "" && (c.K8SToken != "" || (c.K8SCertData != "" && c.K8SKeyData != "")),
-		PostgresHost:    c.PostgresHost,
-		PostgresPort:    c.PostgresPort,
-		PostgresConfigured: c.PostgresHost != "" && c.PostgresUsername != "",
-		OpensearchHost:     c.OpensearchHost,
-		OpensearchPort:     c.OpensearchPort,
-		OpensearchConfigured: c.OpensearchHost != "" && c.OpensearchUsername != "",
-		PrometheusReadHost:   c.PrometheusReadHost,
-		PrometheusReadPort:   c.PrometheusReadPort,
-		PrometheusWriteHost:  c.PrometheusWriteHost,
-		PrometheusWritePort:  c.PrometheusWritePort,
-		PrometheusConfigured: c.PrometheusReadHost != "" || c.PrometheusWriteHost != "",
-		StorageMode:         c.StorageMode,
-		DataplaneStatus:     c.DataplaneStatus,
-		DataplaneVersion:    c.DataplaneVersion,
-		DataplaneMessage:    c.DataplaneMessage,
-		Status:              c.Status,
-		IsDefault:           c.IsDefault,
-		Labels:              c.Labels,
-		CreatedAt:           c.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
-		UpdatedAt:           c.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
+		ID:                    c.ID,
+		ClusterName:           c.ClusterName,
+		DisplayName:           c.DisplayName,
+		Description:           c.Description,
+		Source:                c.Source,
+		K8SEndpoint:           c.K8SEndpoint,
+		K8SConfigured:         c.K8SEndpoint != "" && (c.K8SToken != "" || (c.K8SCertData != "" && c.K8SKeyData != "")),
+		K8SInsecureSkipVerify: c.K8SInsecureSkipVerify,
+		K8SManualMode:         c.K8SManualMode,
+		PostgresHost:          c.PostgresHost,
+		PostgresPort:          c.PostgresPort,
+		PostgresConfigured:    c.PostgresHost != "" && c.PostgresUsername != "",
+		OpensearchHost:        c.OpensearchHost,
+		OpensearchPort:        c.OpensearchPort,
+		OpensearchConfigured:  c.OpensearchHost != "" && c.OpensearchUsername != "",
+		PrometheusReadHost:    c.PrometheusReadHost,
+		PrometheusReadPort:    c.PrometheusReadPort,
+		PrometheusWriteHost:   c.PrometheusWriteHost,
+		PrometheusWritePort:   c.PrometheusWritePort,
+		PrometheusConfigured:  c.PrometheusReadHost != "" || c.PrometheusWriteHost != "",
+		StorageManualMode:     c.StorageManualMode,
+		StorageMode:           c.StorageMode,
+		DataplaneStatus:       c.DataplaneStatus,
+		DataplaneVersion:      c.DataplaneVersion,
+		DataplaneMessage:      c.DataplaneMessage,
+		Status:                c.Status,
+		IsDefault:             c.IsDefault,
+		Labels:                c.Labels,
+		CreatedAt:             c.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+		UpdatedAt:             c.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
 	}
 
 	if c.LastDeployTime != nil {
@@ -278,6 +287,17 @@ func CreateCluster(c *gin.Context) {
 		Labels:              req.Labels,
 	}
 
+	// Set manual mode flags
+	if req.K8SInsecureSkipVerify != nil {
+		cluster.K8SInsecureSkipVerify = *req.K8SInsecureSkipVerify
+	}
+	if req.K8SManualMode != nil {
+		cluster.K8SManualMode = *req.K8SManualMode
+	}
+	if req.StorageManualMode != nil {
+		cluster.StorageManualMode = *req.StorageManualMode
+	}
+
 	if req.ManagedStorageConfig != nil {
 		cluster.ManagedStorageConfig = *req.ManagedStorageConfig
 	}
@@ -403,6 +423,16 @@ func UpdateCluster(c *gin.Context) {
 	}
 	if req.Labels != nil {
 		cluster.Labels = req.Labels
+	}
+	// Handle manual mode flags
+	if req.K8SInsecureSkipVerify != nil {
+		cluster.K8SInsecureSkipVerify = *req.K8SInsecureSkipVerify
+	}
+	if req.K8SManualMode != nil {
+		cluster.K8SManualMode = *req.K8SManualMode
+	}
+	if req.StorageManualMode != nil {
+		cluster.StorageManualMode = *req.StorageManualMode
 	}
 
 	if err := cpClientSet.Facade.ClusterConfig.Update(c.Request.Context(), cluster); err != nil {
