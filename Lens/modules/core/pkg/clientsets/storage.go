@@ -138,6 +138,12 @@ func LoadSingleClusterStorageConfig(ctx context.Context, k8sClient *K8SClientSet
 }
 
 func loadMultiClusterStorageConfig(ctx context.Context) (PrimusLensMultiClusterClientConfig, error) {
+	// Load from control plane database if available
+	if IsControlPlaneMode() && controlPlaneClientSet != nil && controlPlaneClientSet.Facade != nil {
+		return loadMultiClusterStorageConfigFromDB(ctx)
+	}
+
+	// Fallback to secret-based loading (for backward compatibility)
 	secret, err := getCurrentClusterK8SClientSet().Clientsets.CoreV1().Secrets(StorageConfigSecretNamespace).Get(ctx, MultiStorageConfigSecretName, metav1.GetOptions{})
 	if err != nil {
 		return nil, errors.NewError().
@@ -175,7 +181,14 @@ func loadMultiClusterStorageConfigFromDB(ctx context.Context) (PrimusLensMultiCl
 	}
 
 	cfg := PrimusLensMultiClusterClientConfig{}
+	currentClusterName := getCurrentClusterName()
+
 	for _, cluster := range clusters {
+		// Skip current cluster - control plane's own cluster should not be in multi-cluster map
+		if cluster.ClusterName == currentClusterName {
+			log.Debugf("Skipping current cluster '%s' from multi-cluster storage config", cluster.ClusterName)
+			continue
+		}
 		// Skip clusters without storage config
 		if cluster.PostgresHost == "" && cluster.PrometheusReadHost == "" {
 			log.Debugf("Skipping cluster %s: no storage config in DB", cluster.ClusterName)
