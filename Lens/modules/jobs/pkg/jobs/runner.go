@@ -33,6 +33,12 @@ func Start(ctx context.Context, cfg *config.JobsConfig) error {
 	cm := clientsets.GetClusterManager()
 	currentCluster := cm.GetCurrentClusterClients()
 
+	// Check if current cluster is available
+	// During initial setup (no clusters registered), currentCluster may be nil
+	if currentCluster == nil {
+		log.Warn("Current cluster not initialized. Jobs that require cluster clients will be skipped until clusters are configured.")
+	}
+
 	// Register all jobs with metrics collection
 	for _, job := range jobsToRun {
 		// Capture job variable for closure
@@ -40,7 +46,13 @@ func Start(ctx context.Context, cfg *config.JobsConfig) error {
 		jobName := getJobName(jobToRun)
 
 		_, err := c.AddFunc(job.Schedule(), func() {
-			runJobWithMetrics(ctx, jobToRun, currentCluster.K8SClientSet, currentCluster.StorageClientSet)
+			// Re-fetch current cluster each time as it may be initialized later
+			cluster := cm.GetCurrentClusterClients()
+			if cluster == nil {
+				log.Warnf("Skipping job %s: current cluster not initialized", getJobName(jobToRun))
+				return
+			}
+			runJobWithMetrics(ctx, jobToRun, cluster.K8SClientSet, cluster.StorageClientSet)
 		})
 
 		if err != nil {

@@ -431,9 +431,12 @@ func (c *WorkflowCollector) processRunWithSchemaVersioning(
 		if err != nil {
 			return 0, fmt.Errorf("failed to get matched schema: %w", err)
 		}
-		// Update last_seen_at
+		// Update last_seen_at and set as active (schema being used should be active)
 		if err := schemaFacade.UpdateLastSeen(ctx, schemaID); err != nil {
 			log.Warnf("WorkflowCollector: failed to update last_seen: %v", err)
+		}
+		if err := schemaFacade.SetActive(ctx, config.ID, schemaID); err != nil {
+			log.Warnf("WorkflowCollector: failed to set matched schema active: %v", err)
 		}
 		log.Infof("WorkflowCollector: matched existing schema (id=%d, hash=%s)",
 			schemaID, schemaResult.SchemaHash[:8])
@@ -448,9 +451,12 @@ func (c *WorkflowCollector) processRunWithSchemaVersioning(
 			// Schema already exists (created by concurrent process), use it
 			currentSchema = existingSchema
 			schemaID = existingSchema.ID
-			// Update last_seen_at
+			// Update last_seen_at and set as active
 			if err := schemaFacade.UpdateLastSeen(ctx, schemaID); err != nil {
 				log.Warnf("WorkflowCollector: failed to update last_seen: %v", err)
+			}
+			if err := schemaFacade.SetActive(ctx, config.ID, schemaID); err != nil {
+				log.Warnf("WorkflowCollector: failed to set existing schema active: %v", err)
 			}
 			log.Infof("WorkflowCollector: found existing schema with same hash (id=%d, hash=%s)",
 				schemaID, schemaResult.SchemaHash[:8])

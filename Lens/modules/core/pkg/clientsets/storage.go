@@ -138,12 +138,19 @@ func LoadSingleClusterStorageConfig(ctx context.Context, k8sClient *K8SClientSet
 }
 
 func loadMultiClusterStorageConfig(ctx context.Context) (PrimusLensMultiClusterClientConfig, error) {
-	// Load from control plane database if available
-	if IsControlPlaneMode() && controlPlaneClientSet != nil && controlPlaneClientSet.Facade != nil {
-		return loadMultiClusterStorageConfigFromDB(ctx)
+	// Check if this is a control plane component
+	if globalClusterManager != nil && globalClusterManager.componentType.IsControlPlane() {
+		// Control plane: load from database if available
+		if controlPlaneClientSet != nil && controlPlaneClientSet.Facade != nil {
+			return loadMultiClusterStorageConfigFromDB(ctx)
+		}
+		// Control plane DB not ready yet, return empty config
+		// Will be populated later by periodic sync
+		log.Debug("Control plane database not ready, returning empty multi-cluster storage config")
+		return PrimusLensMultiClusterClientConfig{}, nil
 	}
 
-	// Fallback to secret-based loading (for backward compatibility)
+	// Data plane: load from secret (for backward compatibility)
 	secret, err := getCurrentClusterK8SClientSet().Clientsets.CoreV1().Secrets(StorageConfigSecretNamespace).Get(ctx, MultiStorageConfigSecretName, metav1.GetOptions{})
 	if err != nil {
 		return nil, errors.NewError().
