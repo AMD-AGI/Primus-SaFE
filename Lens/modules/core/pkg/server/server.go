@@ -27,10 +27,25 @@ func InitServerWithPreInitFunc(ctx context.Context, preInit func(ctx context.Con
 	if err != nil {
 		return err
 	}
+
+	// Initialize K8S and Storage clients first
 	err = clientsets.InitClientSets(ctx, cfg.MultiCluster, cfg.LoadK8SClient, cfg.LoadStorageClient)
 	if err != nil {
 		return err
 	}
+
+	// Initialize control plane client after K8S client is ready (needs K8S to read secret)
+	if cfg.IsControlPlane {
+		log.Info("Control plane mode enabled, initializing control plane database...")
+		if err := clientsets.InitControlPlaneClient(ctx, cfg); err != nil {
+			return errors.NewError().
+				WithCode(errors.CodeInitializeError).
+				WithMessage("failed to initialize control plane client").
+				WithError(err)
+		}
+		log.Info("Control plane database initialized successfully")
+	}
+
 	if preInit != nil {
 		err := preInit(ctx, cfg)
 		if err != nil {
