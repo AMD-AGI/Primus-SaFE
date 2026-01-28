@@ -17,7 +17,6 @@ jobs:
       matrix: ${{ steps.generate-matrix.outputs.matrix }}
       image_version: ${{ steps.get-image-version.outputs.image_version }}
       date_time: ${{ steps.get-current-time.outputs.date_time }}
-      installer_changed: ${{ steps.detect-changes.outputs.installer_changed }}
       tracelens_changed: ${{ steps.detect-changes.outputs.tracelens_changed }}
       perfetto_changed: ${{ steps.detect-changes.outputs.perfetto_changed }}
       github_runner_changed: ${{ steps.detect-changes.outputs.github_runner_changed }}
@@ -175,8 +174,8 @@ jobs:
           echo "storage_exporter_changed=false" >> $GITHUB_OUTPUT
         fi
         
-        # installer: Lens/bootstrap/installer/** or Lens/charts/**
-        if echo "$CHANGED_FILES" | grep -qE '^Lens/bootstrap/installer/|^Lens/charts/'; then
+        # installer: Lens/modules/installer/** or Lens/modules/core/**
+        if echo "$CHANGED_FILES" | grep -qE '^Lens/modules/installer/|^Lens/modules/core/'; then
           echo "installer_changed=true" >> $GITHUB_OUTPUT
         else
           echo "installer_changed=false" >> $GITHUB_OUTPUT
@@ -252,6 +251,9 @@ jobs:
           if [[ "${{ steps.detect-changes.outputs.storage_exporter_changed }}" == "true" ]]; then
             MATRIX+='{"name":"storage-exporter","buildpath":"cmd/storage-exporter","basepath":"Lens/modules/exporters/storage-exporter/"},'
           fi
+          if [[ "${{ steps.detect-changes.outputs.installer_changed }}" == "true" ]]; then
+            MATRIX+='{"name":"primus-lens-installer","buildpath":"cmd","basepath":"Lens/modules/installer/"},'
+          fi
           MATRIX=${MATRIX%,} # remove trailing comma
           MATRIX+=']}'
           echo "Generated matrix: $MATRIX"
@@ -296,13 +298,17 @@ jobs:
           echo "🚧 Building ${{ matrix.name }}..."
 
           # Determine which Dockerfile to use
-          # First check if module has its own Dockerfile in installer directory
-          MODULE_DOCKERFILE="${{ matrix.basepath }}installer/Dockerfile"
+          # Check in order: basepath/Dockerfile, basepath/installer/Dockerfile, fallback
+          MODULE_DOCKERFILE="${{ matrix.basepath }}Dockerfile"
+          INSTALLER_DOCKERFILE="${{ matrix.basepath }}installer/Dockerfile"
           FALLBACK_DOCKERFILE="Lens/ci/Dockerfile"
           
           if [[ -f "$MODULE_DOCKERFILE" ]]; then
             DOCKERFILE="$MODULE_DOCKERFILE"
-            echo "📄 Using module-specific Dockerfile: $DOCKERFILE"
+            echo "📄 Using module Dockerfile: $DOCKERFILE"
+          elif [[ -f "$INSTALLER_DOCKERFILE" ]]; then
+            DOCKERFILE="$INSTALLER_DOCKERFILE"
+            echo "📄 Using module-specific installer Dockerfile: $DOCKERFILE"
           else
             DOCKERFILE="$FALLBACK_DOCKERFILE"
             echo "📄 Using fallback Dockerfile: $DOCKERFILE"
@@ -356,102 +362,6 @@ jobs:
         with:
           name: build-info-${{ matrix.name }}
           path: build-info/${{ matrix.name }}.json
-          retention-days: 90
-
-  # Special build job for primus-lens-installer
-  # This requires bundling all Helm charts into the image
-  build-installer:
-    needs: detect-changes
-    runs-on: primus-safe-builder
-    timeout-minutes: 30
-    if: ${{ needs.detect-changes.outputs.installer_changed == 'true' }}
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Login registries
-        run: |
-          buildah login -u "${{ secrets.DOCKER_USERNAME }}" -p "${{ secrets.DOCKER_PASSWORD }}" docker.io
-          buildah login --tls-verify=false -u "${{ secrets.HARBOR_USERNAME }}" -p "${{ secrets.HARBOR_PASSWORD }}" "${{ secrets.HARBOR_HOST }}"
-
-      - name: Build and push installer
-        env:
-          DOCKERIO_REPOSITORY: docker.io/primussafe
-          HARBOR_REPOSITORY: ${{ secrets.HARBOR_HOST }}/primussafe
-          IMAGE_VERSION: ${{ needs.detect-changes.outputs.image_version }}
-          DATE_TIME: ${{ needs.detect-changes.outputs.date_time }}
-        run: |
-          set -e
-          echo "🚧 Building primus-lens-installer..."
-          
-          INSTALLER_DIR="Lens/bootstrap/installer"
-          CHARTS_DIR="Lens/charts"
-          BUILD_CONTEXT="$INSTALLER_DIR/build-context"
-          
-          # Create build context with installer source and all charts
-          rm -rf "$BUILD_CONTEXT"
-          mkdir -p "$BUILD_CONTEXT"
-          
-          # Copy installer source files
-          cp "$INSTALLER_DIR/go.mod" "$INSTALLER_DIR/go.sum" "$BUILD_CONTEXT/"
-          cp -r "$INSTALLER_DIR/cmd" "$BUILD_CONTEXT/"
-          cp -r "$INSTALLER_DIR/pkg" "$BUILD_CONTEXT/"
-          cp -r "$INSTALLER_DIR/internal" "$BUILD_CONTEXT/"
-          
-          # Copy all Helm charts
-          cp -r "$CHARTS_DIR" "$BUILD_CONTEXT/charts"
-          
-          # Copy Dockerfile
-          cp "$INSTALLER_DIR/Dockerfile" "$BUILD_CONTEXT/"
-          
-          echo "📄 Build context created at $BUILD_CONTEXT"
-          ls -la "$BUILD_CONTEXT"
-          
-          # Build the image
-          buildah bud \
-            --layers \
-            -t primus-lens-installer:${IMAGE_VERSION} \
-            -t primus-lens-installer:${DATE_TIME} \
-            -f "$BUILD_CONTEXT/Dockerfile" \
-            "$BUILD_CONTEXT"
-          
-          # Push to Harbor first (internal registry), then Docker Hub
-          for repo in ${HARBOR_REPOSITORY} ${DOCKERIO_REPOSITORY}; do
-            echo "🚀 Pushing primus-lens-installer to $repo..."
-            buildah tag primus-lens-installer:${IMAGE_VERSION} ${repo}/primus-lens-installer:${IMAGE_VERSION}
-            buildah tag primus-lens-installer:${DATE_TIME} ${repo}/primus-lens-installer:${DATE_TIME}
-            buildah push --tls-verify=false ${repo}/primus-lens-installer:${IMAGE_VERSION}
-            buildah push --tls-verify=false ${repo}/primus-lens-installer:${DATE_TIME}
-          done
-          
-          # Cleanup
-          rm -rf "$BUILD_CONTEXT"
-          
-          echo "✅ primus-lens-installer build and push completed!"
-
-      - name: Save build info
-        env:
-          IMAGE_VERSION: ${{ needs.detect-changes.outputs.image_version }}
-          DATE_TIME: ${{ needs.detect-changes.outputs.date_time }}
-        run: |
-          mkdir -p build-info
-          cat > build-info/primus-lens-installer.json << EOF
-          {
-            "name": "primus-lens-installer",
-            "image_version": "${IMAGE_VERSION}",
-            "date_time": "${DATE_TIME}",
-            "docker_hub": "docker.io/primussafe/primus-lens-installer:${IMAGE_VERSION}",
-            "docker_hub_datetime": "docker.io/primussafe/primus-lens-installer:${DATE_TIME}",
-            "build_time": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
-            "commit_sha": "${{ github.sha }}",
-            "ref": "${{ github.ref }}"
-          }
-          EOF
-
-      - name: Upload build info artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-info-primus-lens-installer
-          path: build-info/primus-lens-installer.json
           retention-days: 90
 
   # TraceLens image build job
@@ -687,7 +597,7 @@ jobs:
 
   # Summarize all build results into a single manifest artifact
   summarize-build:
-    needs: [detect-changes, build, build-installer, build-tracelens, build-perfetto, build-github-runner]
+    needs: [detect-changes, build, build-tracelens, build-perfetto, build-github-runner]
     runs-on: ubuntu-latest
     if: always()
     steps:
