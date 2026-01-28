@@ -16,7 +16,7 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/sql"
 	"gorm.io/gorm"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/types"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // ControlPlaneClientSet contains clients for control plane operations
@@ -58,16 +58,16 @@ func InitControlPlaneClient(ctx context.Context, cfg *config.Config) error {
 		}
 
 		// Initialize database connection
-		sqlConfig := &sql.Config{
-			Host:      dbCfg.Host,
-			Port:      dbCfg.Port,
-			UserName:  dbCfg.UserName,
-			Password:  dbCfg.Password,
-			DBName:    dbCfg.DBName,
-			EnableSSL: dbCfg.SSLMode == "require" || dbCfg.SSLMode == "verify-full",
+		sqlConfig := sql.DatabaseConfig{
+			Host:     dbCfg.Host,
+			Port:     dbCfg.Port,
+			UserName: dbCfg.UserName,
+			Password: dbCfg.Password,
+			DBName:   dbCfg.DBName,
+			SSLMode:  dbCfg.SSLMode,
 		}
 
-		db, err := sql.InitDB(sqlConfig)
+		db, err := sql.InitGormDB("controlplane", sqlConfig)
 		if err != nil {
 			initErr = errors.NewError().
 				WithCode(errors.CodeInitializeError).
@@ -92,8 +92,8 @@ func InitControlPlaneClient(ctx context.Context, cfg *config.Config) error {
 // loadControlPlaneDBConfigFromSecret loads DB config from Kubernetes secret
 func loadControlPlaneDBConfigFromSecret(ctx context.Context, cpCfg *config.ControlPlaneConfig) (*ControlPlaneDBConfig, error) {
 	// Get K8S client from current cluster
-	k8sClient := GetCurrentClusterK8SClientSet()
-	if k8sClient == nil || k8sClient.Client == nil {
+	k8sClient := getCurrentClusterK8SClientSet()
+	if k8sClient == nil || k8sClient.Clientsets == nil {
 		return nil, fmt.Errorf("K8S client not initialized, cannot load control plane secret")
 	}
 
@@ -106,12 +106,8 @@ func loadControlPlaneDBConfigFromSecret(ctx context.Context, cpCfg *config.Contr
 
 	log.Infof("Loading control plane DB config from secret: %s/%s", secretNamespace, secretName)
 
-	// Get the secret
-	secret := &corev1.Secret{}
-	err := k8sClient.Client.Get(ctx, types.NamespacedName{
-		Namespace: secretNamespace,
-		Name:      secretName,
-	}, secret)
+	// Get the secret using client-go
+	secret, err := k8sClient.Clientsets.CoreV1().Secrets(secretNamespace).Get(ctx, secretName, metav1.GetOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get secret %s/%s: %w", secretNamespace, secretName, err)
 	}
