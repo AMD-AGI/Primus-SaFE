@@ -684,6 +684,18 @@ func handleWorkloadGPUHistory(ctx context.Context, req *WorkloadGPUHistoryReques
 
 	// Query GPU utilization history - reuse existing helper
 	storageClient := clients.StorageClientSet
+	// Check if storage client is available (needed for Prometheus queries)
+	if storageClient == nil {
+		log.Warnf("[WorkloadGPUHistory] Cluster '%s' has no storage configuration, falling back to current cluster",
+			clients.ClusterName)
+		currentClients := cm.GetCurrentClusterClients()
+		if currentClients == nil || currentClients.StorageClientSet == nil {
+			return nil, errors.NewError().WithCode(errors.CodeInternalError).
+				WithMessage("No storage configuration available for metrics query")
+		}
+		storageClient = currentClients.StorageClientSet
+	}
+
 	gpuUtilHistory, err := workload.GetWorkloadGpuUtilizationHistory(ctx, dbWorkload.UID, startTime, endTime, step, storageClient)
 	if err != nil {
 		return nil, err
@@ -756,6 +768,18 @@ func handleWorkloadMetrics(ctx context.Context, req *WorkloadMetricsRequest) (*W
 		return nil, err
 	}
 	storageClient := clients.StorageClientSet
+
+	// Check if storage client is available (needed for Prometheus queries)
+	if storageClient == nil {
+		log.Warnf("[WorkloadMetrics] Cluster '%s' has no storage configuration, falling back to current cluster",
+			clients.ClusterName)
+		currentClients := cm.GetCurrentClusterClients()
+		if currentClients == nil || currentClients.StorageClientSet == nil {
+			return nil, errors.NewError().WithCode(errors.CodeInternalError).
+				WithMessage("No storage configuration available for metrics query")
+		}
+		storageClient = currentClients.StorageClientSet
+	}
 
 	result := make(WorkloadMetricsResponse)
 
