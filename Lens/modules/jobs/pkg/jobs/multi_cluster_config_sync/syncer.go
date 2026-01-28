@@ -209,6 +209,7 @@ func (s *ConfigSyncer) buildK8SClient(cluster *model.ClusterConfig) (*kubernetes
 				CAData:   caData,
 				CertData: certData,
 				KeyData:  keyData,
+				Insecure: cluster.K8SInsecureSkipVerify,
 			},
 		}
 	} else if cluster.K8SToken != "" {
@@ -217,7 +218,8 @@ func (s *ConfigSyncer) buildK8SClient(cluster *model.ClusterConfig) (*kubernetes
 			Host:        cluster.K8SEndpoint,
 			BearerToken: cluster.K8SToken,
 			TLSClientConfig: rest.TLSClientConfig{
-				CAData: caData,
+				CAData:   caData,
+				Insecure: cluster.K8SInsecureSkipVerify,
 			},
 		}
 	} else {
@@ -228,6 +230,11 @@ func (s *ConfigSyncer) buildK8SClient(cluster *model.ClusterConfig) (*kubernetes
 			return clusterClient.K8SClientSet.Clientsets, nil
 		}
 		return nil, fmt.Errorf("no valid K8S credentials for cluster %s", cluster.ClusterName)
+	}
+
+	// If insecure mode, clear CA data to avoid conflicts
+	if cluster.K8SInsecureSkipVerify {
+		config.TLSClientConfig.CAData = nil
 	}
 
 	return kubernetes.NewForConfig(config)
