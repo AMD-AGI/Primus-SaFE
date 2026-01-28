@@ -4,6 +4,7 @@
 package api
 
 import (
+	"github.com/AMD-AGI/Primus-SaFE/Lens/api/pkg/api/cluster"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/api/pkg/api/perfetto"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/api/pkg/api/pyspy"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/api/pkg/api/registry"
@@ -573,6 +574,21 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		historyGroup := releaseGroup.Group("/history")
 		{
 			historyGroup.GET("/:id", release.GetReleaseHistoryByID)
+		}
+	}
+
+	// Cluster Management routes (Control Plane only)
+	managementGroup := group.Group("/management")
+	{
+		clusterMgmtGroup := managementGroup.Group("/clusters")
+		{
+			clusterMgmtGroup.GET("", cluster.ListClusters)
+			clusterMgmtGroup.POST("", cluster.CreateCluster)
+			clusterMgmtGroup.GET("/:cluster_name", cluster.GetCluster)
+			clusterMgmtGroup.PUT("/:cluster_name", cluster.UpdateCluster)
+			clusterMgmtGroup.DELETE("/:cluster_name", cluster.DeleteCluster)
+			clusterMgmtGroup.PUT("/:cluster_name/default", cluster.SetDefaultCluster)
+			clusterMgmtGroup.POST("/:cluster_name/test", cluster.TestClusterConnection)
 		}
 	}
 
