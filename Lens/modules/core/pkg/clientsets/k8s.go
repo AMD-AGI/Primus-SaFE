@@ -152,6 +152,12 @@ func loadMultiClusterK8SClientSet(ctx context.Context) error {
 }
 
 func loadMultiClusterK8SConfigs(ctx context.Context) (MultiClusterConfig, error) {
+	// Load from control plane database if available
+	if IsControlPlaneMode() && controlPlaneClientSet != nil && controlPlaneClientSet.Facade != nil {
+		return loadMultiClusterK8SConfigsFromDB(ctx)
+	}
+
+	// Fallback to secret-based loading (for backward compatibility)
 	secret, err := currentClusterClientset.Clientsets.CoreV1().Secrets(StorageConfigSecretNamespace).Get(ctx, MultiK8SConfigSecretName, metav1.GetOptions{})
 	if err != nil {
 		return nil, errors.NewError().
@@ -167,5 +173,56 @@ func loadMultiClusterK8SConfigs(ctx context.Context) (MultiClusterConfig, error)
 			WithMessage("Failed to load multi-cluster k8s config from secret").
 			WithError(err)
 	}
+	return cfg, nil
+}
+
+// loadMultiClusterK8SConfigsFromDB loads K8S configs from control plane database
+func loadMultiClusterK8SConfigsFromDB(ctx context.Context) (MultiClusterConfig, error) {
+	facade := controlPlaneClientSet.Facade
+	clusters, err := facade.GetClusterConfig().List(ctx)
+	if err != nil {
+		return nil, errors.NewError().
+			WithCode(errors.CodeInitializeError).
+			WithMessage("Failed to list clusters from control plane database").
+			WithError(err)
+	}
+
+	cfg := MultiClusterConfig{}
+	currentClusterName := getCurrentClusterName()
+
+	for _, cluster := range clusters {
+		// Skip inactive or deleted clusters
+		if cluster.Status != "active" {
+			continue
+		}
+		// Skip current cluster - control plane's own cluster should not be in multi-cluster map
+		if cluster.ClusterName == currentClusterName {
+			log.Debugf("Skipping current cluster '%s' from multi-cluster K8S config", cluster.ClusterName)
+			continue
+		}
+		// Skip clusters without K8S endpoint configured
+		if cluster.K8SEndpoint == "" {
+			log.Debugf("Skipping cluster '%s' - no K8S endpoint configured", cluster.ClusterName)
+			continue
+		}
+
+		k8sCfg := ClusterConfig{
+			Host:   cluster.K8SEndpoint,
+			CAData: cluster.K8SCAData,
+		}
+
+		// Use token or cert/key based auth
+		if cluster.K8SToken != "" {
+			k8sCfg.BearerToken = cluster.K8SToken
+		} else if cluster.K8SCertData != "" && cluster.K8SKeyData != "" {
+			k8sCfg.CertData = cluster.K8SCertData
+			k8sCfg.KeyData = cluster.K8SKeyData
+		}
+
+		cfg[cluster.ClusterName] = k8sCfg
+		log.Debugf("Loaded K8S config for cluster '%s' from database", cluster.ClusterName)
+	}
+
+	log.Infof("Loaded %d remote cluster K8S configs from control plane database", len(cfg))
 	return cfg, nil
 }
