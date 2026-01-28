@@ -214,8 +214,9 @@ func loadMultiClusterK8SConfigsFromDB(ctx context.Context) (MultiClusterConfig, 
 		}
 
 		k8sCfg := ClusterConfig{
-			Host:   cluster.K8SEndpoint,
-			CAData: cluster.K8SCAData,
+			Host:                  cluster.K8SEndpoint,
+			CAData:                cluster.K8SCAData,
+			InsecureSkipTLSVerify: cluster.K8SInsecureSkipVerify,
 		}
 
 		// Use token or cert/key based auth
