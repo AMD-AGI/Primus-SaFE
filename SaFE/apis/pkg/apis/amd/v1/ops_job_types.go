@@ -79,6 +79,9 @@ const (
 	ParameterJudgeModel    = "eval.judge.model"    // Judge model name (e.g. gpt-4)
 	ParameterJudgeEndpoint = "eval.judge.endpoint" // Judge model API endpoint
 	ParameterJudgeApiKey   = "eval.judge.apikey"   // Judge model API key
+
+	// Evaluation performance parameters
+	ParameterEvalConcurrency = "eval.concurrency" // Concurrency level for evaluation (default 32)
 )
 
 type Parameter struct {

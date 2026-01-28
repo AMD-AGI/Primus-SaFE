@@ -10,6 +10,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -200,6 +201,14 @@ func (r *EvaluationJobReconciler) generateEvaluationWorkload(ctx context.Context
 	judgeEndpoint := getParamValue(job.GetParameter(v1.ParameterJudgeEndpoint))
 	judgeApiKey := getParamValue(job.GetParameter(v1.ParameterJudgeApiKey))
 
+	// Concurrency parameter (default 32)
+	concurrency := 32
+	if concurrencyStr := getParamValue(job.GetParameter(v1.ParameterEvalConcurrency)); concurrencyStr != "" {
+		if c, err := strconv.Atoi(concurrencyStr); err == nil && c > 0 {
+			concurrency = c
+		}
+	}
+
 	if taskId == "" {
 		taskId = job.Labels[dbclient.EvaluationTaskIdLabel]
 	}
@@ -224,7 +233,7 @@ func (r *EvaluationJobReconciler) generateEvaluationWorkload(ctx context.Context
 	if timeoutSecond <= 0 {
 		timeoutSecond = 7200 // Default 2 hours
 	}
-	entryPoint, err := r.buildEvalCommand(ctx, modelEndpoint, modelName, modelApiKey, benchmarksJSON, taskId, s3PresignedPutURL, judgeModel, judgeEndpoint, judgeApiKey, timeoutSecond)
+	entryPoint, err := r.buildEvalCommand(ctx, modelEndpoint, modelName, modelApiKey, benchmarksJSON, taskId, s3PresignedPutURL, judgeModel, judgeEndpoint, judgeApiKey, timeoutSecond, concurrency)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build eval command: %w", err)
 	}
@@ -305,7 +314,8 @@ type BenchmarkConfig struct {
 // buildEvalCommand builds the evalscope command based on parameters
 // Supports multiple datasets and judge model (LLM-as-Judge) evaluation mode
 // timeoutSecond is the OpsJob timeout, used to limit each evalscope command execution time
-func (r *EvaluationJobReconciler) buildEvalCommand(ctx context.Context, modelEndpoint, modelName, modelApiKey, benchmarksJSON, taskId, s3PresignedPutURL, judgeModel, judgeEndpoint, judgeApiKey string, timeoutSecond int) (string, error) {
+// concurrency controls batch processing parallelism (default 32)
+func (r *EvaluationJobReconciler) buildEvalCommand(ctx context.Context, modelEndpoint, modelName, modelApiKey, benchmarksJSON, taskId, s3PresignedPutURL, judgeModel, judgeEndpoint, judgeApiKey string, timeoutSecond int, concurrency int) (string, error) {
 	// Parse benchmarks
 	var benchmarks []BenchmarkConfig
 	if err := json.Unmarshal([]byte(benchmarksJSON), &benchmarks); err != nil {
@@ -363,7 +373,7 @@ echo "Model endpoint verified successfully"
 			// Multiple datasets - use subdirectory for each dataset
 			singleOutputDir = fmt.Sprintf("%s/%s", outputDir, datasetNames[i])
 		}
-		evalArgs := r.buildSingleEvalCommand(modelEndpoint, modelName, modelApiKey, datasetNames[i], datasetDirs[i], benchmark.Limit, singleOutputDir, judgeModel, judgeEndpoint, judgeApiKey, timeoutSecond)
+		evalArgs := r.buildSingleEvalCommand(modelEndpoint, modelName, modelApiKey, datasetNames[i], datasetDirs[i], benchmark.Limit, singleOutputDir, judgeModel, judgeEndpoint, judgeApiKey, timeoutSecond, concurrency)
 		commands = append(commands, strings.Join(evalArgs, " "))
 	}
 
@@ -381,7 +391,8 @@ echo "Model endpoint verified successfully"
 
 // buildSingleEvalCommand builds evalscope command arguments for a single evaluation run
 // Each evalscope command is wrapped with a timeout to prevent infinite hanging
-func (r *EvaluationJobReconciler) buildSingleEvalCommand(modelEndpoint, modelName, modelApiKey string, datasetName string, datasetDir string, limit int, outputDir, judgeModel, judgeEndpoint, judgeApiKey string, timeoutSecond int) []string {
+// concurrency controls --eval-batch-size, generation_config.batch_size, and --judge-worker-num
+func (r *EvaluationJobReconciler) buildSingleEvalCommand(modelEndpoint, modelName, modelApiKey string, datasetName string, datasetDir string, limit int, outputDir, judgeModel, judgeEndpoint, judgeApiKey string, timeoutSecond int, concurrency int) []string {
 	var evalArgs []string
 	// Wrap with timeout to prevent infinite hanging on connection errors
 	// Uses the OpsJob timeout value passed from API (default 7200 seconds = 2 hours)
@@ -415,15 +426,17 @@ func (r *EvaluationJobReconciler) buildSingleEvalCommand(modelEndpoint, modelNam
 		evalArgs = append(evalArgs, "--limit", fmt.Sprintf("%d", limit))
 	}
 
-	// Acceleration: batch processing and streaming (hardcoded for performance)
-	// --eval-batch-size 5: Process 5 samples concurrently, ~3-5x speedup
+	// Concurrency settings:
+	// --eval-batch-size: Number of samples to process concurrently
+	// --generation-config batch_size: Batch size for model inference
 	// --stream: Use streaming output, reduces timeout risk
-	evalArgs = append(evalArgs, "--eval-batch-size", "5")
+	evalArgs = append(evalArgs, "--eval-batch-size", fmt.Sprintf("%d", concurrency))
 	evalArgs = append(evalArgs, "--stream")
 
-	// Limit max generation length to prevent timeout on long responses
-	// 2048 tokens (official default) for balanced speed and quality
-	evalArgs = append(evalArgs, "--generation-config", `'{"max_tokens": 2048}'`)
+	// Generation config with batch_size and max_tokens
+	// batch_size: controls inference parallelism
+	// max_tokens: 2048 (official default) for balanced speed and quality
+	evalArgs = append(evalArgs, "--generation-config", fmt.Sprintf(`'{"batch_size": %d, "max_tokens": 2048}'`, concurrency))
 
 	// Judge model configuration (for LLM-as-Judge evaluation mode)
 	// evalscope uses --judge-model-args with JSON format:
@@ -440,6 +453,8 @@ func (r *EvaluationJobReconciler) buildSingleEvalCommand(modelEndpoint, modelNam
 		}
 		judgeArgsJSON, _ := json.Marshal(judgeArgs)
 		evalArgs = append(evalArgs, "--judge-model-args", fmt.Sprintf("'%s'", string(judgeArgsJSON)))
+		// Judge worker parallelism (only for judge mode)
+		evalArgs = append(evalArgs, "--judge-worker-num", fmt.Sprintf("%d", concurrency))
 	}
 
 	// Output directory (for report)

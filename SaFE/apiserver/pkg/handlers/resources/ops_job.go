@@ -1074,7 +1074,16 @@ func (h *Handler) generateEvaluationJob(c *gin.Context, body []byte) (*v1.OpsJob
 	workspaceId := getParamValue(req.Inputs, v1.ParameterWorkspace)
 
 	// Extract judge model parameters (optional, for LLM-as-Judge evaluation)
-	judgeJSON := getParamValue(req.Inputs, "eval.judge") // {"model":"gpt-4","endpoint":"...","apiKey":"..."}
+	judgeJSON := getParamValue(req.Inputs, "eval.judge") // {"serviceId":"xxx","serviceType":"remote_api"}
+
+	// Extract concurrency parameter (optional, default 32)
+	concurrencyStr := getParamValue(req.Inputs, v1.ParameterEvalConcurrency)
+	concurrency := 32 // Default value
+	if concurrencyStr != "" {
+		if c, err := strconv.Atoi(concurrencyStr); err == nil && c > 0 {
+			concurrency = c
+		}
+	}
 
 	// Validate required parameters
 	if serviceId == "" {
@@ -1373,6 +1382,9 @@ func (h *Handler) generateEvaluationJob(c *gin.Context, body []byte) (*v1.OpsJob
 			}
 		}
 	}
+
+	// Add concurrency parameter
+	inputs = append(inputs, v1.Parameter{Name: v1.ParameterEvalConcurrency, Value: strconv.Itoa(concurrency)})
 
 	// Set default timeout
 	if req.TimeoutSecond <= 0 {
