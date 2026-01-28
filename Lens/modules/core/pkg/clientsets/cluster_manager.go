@@ -1,8 +1,6 @@
 // Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
 // See LICENSE for license information.
 
-// Build trigger: 2026-01-28 registry ARG support
-
 package clientsets
 
 import (
