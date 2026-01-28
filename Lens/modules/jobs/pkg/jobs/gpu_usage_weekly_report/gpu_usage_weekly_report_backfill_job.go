@@ -466,14 +466,14 @@ func (j *GpuUsageWeeklyReportBackfillJob) getDBForCluster(clusterName string) (*
 	// Try to get cluster-specific client set
 	clientSet, err := cm.GetClientSetByClusterName(clusterName)
 	if err != nil {
-		// Fallback to default DB if cluster not found
-		log.Warnf("GpuUsageWeeklyReportBackfillJob: cluster %s not found, using default DB", clusterName)
-		return sql.GetDefaultDB(), nil
+		// Return error instead of using nil default DB
+		log.Warnf("GpuUsageWeeklyReportBackfillJob: cluster %s not found in ClusterManager", clusterName)
+		return nil, fmt.Errorf("cluster %s not found: %w", clusterName, err)
 	}
 
 	if clientSet.StorageClientSet == nil || clientSet.StorageClientSet.DB == nil {
-		log.Warnf("GpuUsageWeeklyReportBackfillJob: no storage client for cluster %s, using default DB", clusterName)
-		return sql.GetDefaultDB(), nil
+		log.Warnf("GpuUsageWeeklyReportBackfillJob: no storage client for cluster %s", clusterName)
+		return nil, fmt.Errorf("cluster %s has no storage client initialized", clusterName)
 	}
 
 	return clientSet.StorageClientSet.DB, nil
