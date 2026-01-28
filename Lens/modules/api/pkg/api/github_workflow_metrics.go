@@ -19,7 +19,6 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
 	dbmodel "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
-	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/github"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/model/rest"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/workflow"
@@ -2341,7 +2340,7 @@ func StopRunSync(ctx *gin.Context) {
 
 // GetJobLogs returns logs for a specific job within a workflow run
 // @Summary Get job logs
-// @Description Fetches logs for a specific job, first from local cache, then from GitHub API
+// @Description Fetches logs for a specific job from local database (logs are collected by exporter)
 // @Tags github-workflow-metrics
 // @Produce json
 // @Param id path int true "Workflow Run ID"
@@ -2361,97 +2360,68 @@ func GetJobLogs(ctx *gin.Context) {
 		return
 	}
 
-	// First, try to get logs from local storage
+	// Get logs from local database (logs are collected by exporter's LogFetchExecutor)
 	logsFacade := database.NewGithubWorkflowJobLogsFacade()
 	cachedLog, err := logsFacade.GetByJobID(ctx.Request.Context(), runID, jobID)
-	if err == nil && cachedLog != nil && cachedLog.FetchStatus == "fetched" && cachedLog.Logs != "" {
+	
+	if err != nil {
+		log.GlobalLogger().WithContext(ctx).Errorf("Failed to query logs for job %d: %v", jobID, err)
+		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, "failed to query logs", nil))
+		return
+	}
+
+	// Check if logs exist and have been fetched
+	if cachedLog == nil {
 		ctx.JSON(http.StatusOK, gin.H{
-			"run_id":     runID,
-			"job_id":     jobID,
-			"logs":       cachedLog.Logs,
-			"source":     "cache",
-			"fetched_at": cachedLog.FetchedAt,
+			"run_id":  runID,
+			"job_id":  jobID,
+			"logs":    "",
+			"status":  "not_collected",
+			"message": "Logs have not been collected yet. Logs are collected when workflow completes.",
 		})
 		return
 	}
 
-	// Get the workflow run to find the runner set
-	runFacade := database.GetFacade().GetGithubWorkflowRun()
-	run, err := runFacade.GetByID(ctx.Request.Context(), runID)
-	if err != nil {
-		log.GlobalLogger().WithContext(ctx).Errorf("Failed to get run %d: %v", runID, err)
-		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, err.Error(), nil))
-		return
+	switch cachedLog.FetchStatus {
+	case "fetched":
+		ctx.JSON(http.StatusOK, gin.H{
+			"run_id":     runID,
+			"job_id":     jobID,
+			"job_name":   cachedLog.JobName,
+			"logs":       cachedLog.Logs,
+			"status":     "available",
+			"fetched_at": cachedLog.FetchedAt,
+		})
+	case "pending":
+		ctx.JSON(http.StatusOK, gin.H{
+			"run_id":  runID,
+			"job_id":  jobID,
+			"logs":    "",
+			"status":  "pending",
+			"message": "Logs collection is in progress. Please try again in a few seconds.",
+		})
+	case "failed":
+		ctx.JSON(http.StatusOK, gin.H{
+			"run_id":  runID,
+			"job_id":  jobID,
+			"logs":    "",
+			"status":  "failed",
+			"message": fmt.Sprintf("Failed to fetch logs: %s", cachedLog.FetchError),
+		})
+	default:
+		ctx.JSON(http.StatusOK, gin.H{
+			"run_id":  runID,
+			"job_id":  jobID,
+			"logs":    cachedLog.Logs,
+			"status":  cachedLog.FetchStatus,
+		})
 	}
-	if run == nil {
-		ctx.JSON(http.StatusNotFound, rest.ErrorResp(ctx.Request.Context(), http.StatusNotFound, "workflow run not found", nil))
-		return
-	}
-
-	// Get the runner set to find GitHub credentials
-	runnerSetFacade := database.GetFacade().GetGithubRunnerSet()
-	runnerSet, err := runnerSetFacade.GetByID(ctx.Request.Context(), run.RunnerSetID)
-	if err != nil || runnerSet == nil {
-		log.GlobalLogger().WithContext(ctx).Errorf("Failed to get runner set %d: %v", run.RunnerSetID, err)
-		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, "runner set not found", nil))
-		return
-	}
-
-	// Check if we have GitHub credentials
-	if runnerSet.GithubOwner == "" || runnerSet.GithubRepo == "" {
-		ctx.JSON(http.StatusBadRequest, rest.ErrorResp(ctx.Request.Context(), http.StatusBadRequest, "GitHub owner/repo not configured for this runner set", nil))
-		return
-	}
-
-	// Get GitHub client - ensure manager is initialized
-	githubManager := github.GetGlobalManager()
-	if githubManager == nil {
-		// Initialize GitHub manager with cluster's K8s client
-		cm := clientsets.GetClusterManager()
-		clients, err := cm.GetClusterClientsOrDefault(ctx.Query("cluster"))
-		if err != nil {
-			log.GlobalLogger().WithContext(ctx).Errorf("Failed to get cluster clients: %v", err)
-			ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, "failed to get cluster clients", nil))
-			return
-		}
-		github.InitGlobalManager(clients.K8SClientSet.Clientsets)
-		githubManager = github.GetGlobalManager()
-	}
-
-	client, err := githubManager.GetClientForSecret(ctx.Request.Context(), runnerSet.Namespace, runnerSet.GithubConfigSecret)
-	if err != nil {
-		log.GlobalLogger().WithContext(ctx).Errorf("Failed to get GitHub client: %v", err)
-		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, "failed to get GitHub credentials", nil))
-		return
-	}
-
-	// Fetch logs from GitHub
-	logs, err := client.GetJobLogs(ctx.Request.Context(), runnerSet.GithubOwner, runnerSet.GithubRepo, jobID)
-	if err != nil {
-		log.GlobalLogger().WithContext(ctx).Errorf("Failed to get job logs: %v", err)
-		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, fmt.Sprintf("failed to fetch logs: %v", err), nil))
-		return
-	}
-
-	// Store logs in cache for future use
-	go func() {
-		if storeErr := logsFacade.UpdateLogsContent(context.Background(), runID, jobID, logs); storeErr != nil {
-			log.GlobalLogger().Warningf("Failed to cache logs for job %d: %v", jobID, storeErr)
-		}
-	}()
-
-	ctx.JSON(http.StatusOK, gin.H{
-		"run_id": runID,
-		"job_id": jobID,
-		"logs":   logs,
-		"source": "github",
-	})
 }
 
 // GetStepLogs returns logs for a specific step within a job
-// Note: GitHub API only provides job-level logs, step logs are parsed from job logs
+// Note: Step logs are parsed from job logs stored in database (collected by exporter)
 // @Summary Get step logs
-// @Description Fetches logs for a specific step from job logs
+// @Description Fetches logs for a specific step from local database
 // @Tags github-workflow-metrics
 // @Produce json
 // @Param id path int true "Workflow Run ID"
@@ -2478,101 +2448,67 @@ func GetStepLogs(ctx *gin.Context) {
 		return
 	}
 
-	// First, try to get logs from local cache
+	// Get logs from local database (logs are collected by exporter's LogFetchExecutor)
 	logsFacade := database.NewGithubWorkflowJobLogsFacade()
 	cachedLog, err := logsFacade.GetByJobID(ctx.Request.Context(), runID, jobID)
-	if err == nil && cachedLog != nil && cachedLog.FetchStatus == "fetched" && cachedLog.Logs != "" {
+	
+	if err != nil {
+		log.GlobalLogger().WithContext(ctx).Errorf("Failed to query logs for job %d: %v", jobID, err)
+		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, "failed to query logs", nil))
+		return
+	}
+
+	// Check if logs exist and have been fetched
+	if cachedLog == nil {
+		ctx.JSON(http.StatusOK, gin.H{
+			"run_id":      runID,
+			"job_id":      jobID,
+			"step_number": stepNumber,
+			"logs":        "",
+			"status":      "not_collected",
+			"message":     "Logs have not been collected yet. Logs are collected when workflow completes.",
+		})
+		return
+	}
+
+	switch cachedLog.FetchStatus {
+	case "fetched":
 		stepLogs := parseStepLogs(cachedLog.Logs, stepNumber)
 		ctx.JSON(http.StatusOK, gin.H{
 			"run_id":      runID,
 			"job_id":      jobID,
 			"step_number": stepNumber,
 			"logs":        stepLogs,
-			"source":      "cache",
+			"status":      "available",
 			"fetched_at":  cachedLog.FetchedAt,
 		})
-		return
+	case "pending":
+		ctx.JSON(http.StatusOK, gin.H{
+			"run_id":      runID,
+			"job_id":      jobID,
+			"step_number": stepNumber,
+			"logs":        "",
+			"status":      "pending",
+			"message":     "Logs collection is in progress. Please try again in a few seconds.",
+		})
+	case "failed":
+		ctx.JSON(http.StatusOK, gin.H{
+			"run_id":      runID,
+			"job_id":      jobID,
+			"step_number": stepNumber,
+			"logs":        "",
+			"status":      "failed",
+			"message":     fmt.Sprintf("Failed to fetch logs: %s", cachedLog.FetchError),
+		})
+	default:
+		ctx.JSON(http.StatusOK, gin.H{
+			"run_id":      runID,
+			"job_id":      jobID,
+			"step_number": stepNumber,
+			"logs":        "",
+			"status":      cachedLog.FetchStatus,
+		})
 	}
-
-	// Get the workflow run to find the runner set
-	runFacade := database.GetFacade().GetGithubWorkflowRun()
-	run, err := runFacade.GetByID(ctx.Request.Context(), runID)
-	if err != nil {
-		log.GlobalLogger().WithContext(ctx).Errorf("Failed to get run %d: %v", runID, err)
-		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, err.Error(), nil))
-		return
-	}
-	if run == nil {
-		ctx.JSON(http.StatusNotFound, rest.ErrorResp(ctx.Request.Context(), http.StatusNotFound, "workflow run not found", nil))
-		return
-	}
-
-	// Get the runner set to find GitHub credentials
-	runnerSetFacade := database.GetFacade().GetGithubRunnerSet()
-	runnerSet, err := runnerSetFacade.GetByID(ctx.Request.Context(), run.RunnerSetID)
-	if err != nil || runnerSet == nil {
-		log.GlobalLogger().WithContext(ctx).Errorf("Failed to get runner set %d: %v", run.RunnerSetID, err)
-		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, "runner set not found", nil))
-		return
-	}
-
-	// Check if we have GitHub credentials
-	if runnerSet.GithubOwner == "" || runnerSet.GithubRepo == "" {
-		ctx.JSON(http.StatusBadRequest, rest.ErrorResp(ctx.Request.Context(), http.StatusBadRequest, "GitHub owner/repo not configured for this runner set", nil))
-		return
-	}
-
-	// Get GitHub client - ensure manager is initialized
-	githubManager := github.GetGlobalManager()
-	if githubManager == nil {
-		// Initialize GitHub manager with cluster's K8s client
-		cm := clientsets.GetClusterManager()
-		clients, err := cm.GetClusterClientsOrDefault(ctx.Query("cluster"))
-		if err != nil {
-			log.GlobalLogger().WithContext(ctx).Errorf("Failed to get cluster clients: %v", err)
-			ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, "failed to get cluster clients", nil))
-			return
-		}
-		github.InitGlobalManager(clients.K8SClientSet.Clientsets)
-		githubManager = github.GetGlobalManager()
-	}
-
-	client, err := githubManager.GetClientForSecret(ctx.Request.Context(), runnerSet.Namespace, runnerSet.GithubConfigSecret)
-	if err != nil {
-		log.GlobalLogger().WithContext(ctx).Errorf("Failed to get GitHub client: %v", err)
-		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, "failed to get GitHub credentials", nil))
-		return
-	}
-
-	// Fetch job logs from GitHub
-	jobLogs, err := client.GetJobLogs(ctx.Request.Context(), runnerSet.GithubOwner, runnerSet.GithubRepo, jobID)
-	if err != nil {
-		log.GlobalLogger().WithContext(ctx).Errorf("Failed to get job logs: %v", err)
-		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, fmt.Sprintf("failed to fetch logs: %v", err), nil))
-		return
-	}
-
-	// Store logs in cache for future use
-	go func() {
-		if storeErr := logsFacade.UpdateLogsContent(context.Background(), runID, jobID, jobLogs); storeErr != nil {
-			log.GlobalLogger().Warningf("Failed to cache logs for job %d: %v", jobID, storeErr)
-		}
-	}()
-
-	// Parse step logs from job logs
-	// GitHub job logs format includes step markers like:
-	// ##[group]Run step-name
-	// ... step output ...
-	// ##[endgroup]
-	stepLogs := parseStepLogs(jobLogs, stepNumber)
-
-	ctx.JSON(http.StatusOK, gin.H{
-		"run_id":      runID,
-		"job_id":      jobID,
-		"step_number": stepNumber,
-		"logs":        stepLogs,
-		"source":      "github",
-	})
 }
 
 // parseStepLogs extracts logs for a specific step from job logs
