@@ -9,7 +9,7 @@ ARG BASEPATH
 ARG GOPROXY=https://proxy.golang.org,direct
 
 # Stage 1: Build stage
-FROM ${REGISTRY}/library/golang:${GO_VERSION} AS builder
+FROM ${REGISTRY}/primussafe/golang:${GO_VERSION} AS builder
 WORKDIR /app
 
 ARG GITHUB_TOKEN

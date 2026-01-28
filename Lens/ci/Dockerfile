@@ -5,7 +5,7 @@ ARG APPNAME
 ARG BASEPATH
 ARG GOPROXY=https://proxy.golang.org,direct
 
-FROM ${REGISTRY}/library/golang:${GO_VERSION} AS builder
+FROM ${REGISTRY}/primussafe/golang:${GO_VERSION} AS builder
 WORKDIR /app
 
 ARG GITHUB_TOKEN
