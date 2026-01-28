@@ -5,7 +5,6 @@ package clientsets
 
 import (
 	"context"
-	"time"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 )
