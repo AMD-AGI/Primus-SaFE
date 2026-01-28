@@ -247,6 +247,7 @@ func (cm *ClusterManager) loadAllClusters(ctx context.Context) error {
 }
 
 // startPeriodicSync starts periodic synchronization (multi-cluster mode)
+// This syncs K8S clients, Storage clients, and then loads all clusters into the cluster map
 func (cm *ClusterManager) startPeriodicSync(ctx context.Context) {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
@@ -254,11 +255,27 @@ func (cm *ClusterManager) startPeriodicSync(ctx context.Context) {
 	for {
 		select {
 		case <-ticker.C:
+			// Sync K8S clients first (updates multiClusterK8S)
+			if cm.loadK8SClient {
+				if err := loadMultiClusterK8SClientSet(ctx); err != nil {
+					log.Warnf("Failed to reload multi-cluster K8S clients: %v", err)
+				}
+			}
+
+			// Then sync Storage clients (updates multiClusterStorage)
+			if cm.loadStorageClient {
+				if err := loadMultiClusterStorageClients(ctx); err != nil {
+					log.Warnf("Failed to reload multi-cluster storage clients: %v", err)
+				}
+			}
+
+			// Finally load all clusters into the cluster map
 			if err := cm.loadAllClusters(ctx); err != nil {
 				log.Errorf("Failed to sync clusters: %v", err)
 			} else {
 				log.Debug("Clusters synced successfully")
 			}
+
 			// Also refresh default cluster from database
 			cm.loadDefaultClusterFromDB(ctx)
 		case <-ctx.Done():
