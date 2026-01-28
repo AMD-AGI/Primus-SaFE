@@ -38,8 +38,8 @@ import (
 
 const (
 	// Default resource requirements for evaluation workload
-	DefaultEvalCPU    = "4"
-	DefaultEvalMemory = "16Gi"
+	DefaultEvalCPU    = "16"
+	DefaultEvalMemory = "96Gi"
 )
 
 // EvaluationJobReconciler reconciles evaluation type OpsJobs.
@@ -335,6 +335,16 @@ func (r *EvaluationJobReconciler) buildEvalCommand(ctx context.Context, modelEnd
 	// Output directory (for report)
 	outputDir := fmt.Sprintf("/outputs/%s", taskId)
 
+	// Pre-flight health check: verify model endpoint is reachable before starting evaluation
+	healthCheck := fmt.Sprintf(`
+echo "Pre-flight check: verifying model endpoint..."
+if ! curl -s -m 10 "%s/models" > /dev/null 2>&1; then
+  echo "Model endpoint %s not reachable" > /dev/termination-log
+  exit 1
+fi
+echo "Model endpoint verified successfully"
+`, modelEndpoint, modelEndpoint)
+
 	// evalscope --datasets does NOT support comma-separated multiple datasets
 	// We must run evalscope separately for each dataset
 	var commands []string
@@ -351,8 +361,8 @@ func (r *EvaluationJobReconciler) buildEvalCommand(ctx context.Context, modelEnd
 		commands = append(commands, strings.Join(evalArgs, " "))
 	}
 
-	// Join commands with && for sequential execution
-	evalCommand := strings.Join(commands, " && ")
+	// Join commands with && for sequential execution, prepend health check
+	evalCommand := healthCheck + strings.Join(commands, " && ")
 
 	// If S3 presigned URL is provided, add upload script after evalscope
 	if s3PresignedPutURL != "" {
@@ -364,9 +374,11 @@ func (r *EvaluationJobReconciler) buildEvalCommand(ctx context.Context, modelEnd
 }
 
 // buildSingleEvalCommand builds evalscope command arguments for a single evaluation run
+// Each evalscope command is wrapped with a 30-minute timeout to prevent hanging
 func (r *EvaluationJobReconciler) buildSingleEvalCommand(modelEndpoint, modelName, modelApiKey string, datasetName string, datasetDir string, limit int, outputDir, judgeModel, judgeEndpoint, judgeApiKey string) []string {
 	var evalArgs []string
-	evalArgs = append(evalArgs, "evalscope", "eval")
+	// Wrap with timeout (1800 seconds = 30 minutes) to prevent infinite hanging on connection errors
+	evalArgs = append(evalArgs, "timeout", "1800", "evalscope", "eval")
 
 	// Model configuration
 	evalArgs = append(evalArgs, "--model", modelName)
@@ -395,6 +407,16 @@ func (r *EvaluationJobReconciler) buildSingleEvalCommand(modelEndpoint, modelNam
 	if limit > 0 {
 		evalArgs = append(evalArgs, "--limit", fmt.Sprintf("%d", limit))
 	}
+
+	// Acceleration: batch processing and streaming (hardcoded for performance)
+	// --eval-batch-size 5: Process 5 samples concurrently, ~3-5x speedup
+	// --stream: Use streaming output, reduces timeout risk
+	evalArgs = append(evalArgs, "--eval-batch-size", "5")
+	evalArgs = append(evalArgs, "--stream")
+
+	// Limit max generation length to prevent timeout on long responses
+	// 4096 tokens at ~12 tokens/s = ~6 minutes max per sample
+	evalArgs = append(evalArgs, "--generation-config", `'{"max_tokens": 4096}'`)
 
 	// Judge model configuration (for LLM-as-Judge evaluation mode)
 	// evalscope uses --judge-model-args with JSON format:
