@@ -9,6 +9,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"fmt"
 	"sort"
 	"strconv"
 	"strings"
@@ -18,22 +19,27 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/netutil"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
+	sliceutil "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/slice"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 	unstructuredutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/unstructured"
 )
 
 const (
-	ForceDeleteDelaySeconds = 20
+	ForceDeleteDelaySeconds = 60
 	LogTailLines            = 1000
 
 	appComponent     = "app.kubernetes.io/component"
@@ -65,7 +71,7 @@ func (r *SyncerReconciler) handlePod(ctx context.Context,
 // Implements a delayed force deletion strategy to avoid premature deletion.
 func (r *SyncerReconciler) deletePod(ctx context.Context,
 	obj *unstructured.Unstructured, clusterClientSets *ClusterClientSets) (ctrlruntime.Result, error) {
-	if obj == nil {
+	if obj == nil || obj.GetDeletionTimestamp().IsZero() {
 		return ctrlruntime.Result{}, nil
 	}
 	nowTime := time.Now().Unix()
@@ -165,7 +171,8 @@ func (r *SyncerReconciler) updateWorkloadPod(ctx context.Context, obj *unstructu
 	if id >= 0 {
 		if adminWorkload.Status.Pods[id].K8sNodeName != workloadPod.K8sNodeName ||
 			adminWorkload.Status.Pods[id].HostIp != workloadPod.HostIp ||
-			adminWorkload.Status.Pods[id].Rank != workloadPod.Rank {
+			adminWorkload.Status.Pods[id].Rank != workloadPod.Rank ||
+			adminWorkload.Status.Pods[id].Phase != workloadPod.Phase {
 			shouldUpdateNodes = true
 		}
 		adminWorkload.Status.Pods[id] = workloadPod
@@ -175,6 +182,14 @@ func (r *SyncerReconciler) updateWorkloadPod(ctx context.Context, obj *unstructu
 	}
 	if shouldUpdateNodes {
 		r.updateWorkloadNodes(adminWorkload, message)
+		if isAllPodsAssigned(adminWorkload) {
+			if strings.Contains(adminWorkload.Status.Message, PullingImageMessage) {
+				adminWorkload.Status.Message = ""
+			}
+			if err = r.createStickyNodeFaults(ctx, adminWorkload, message.dispatchCount); err != nil {
+				return ctrlruntime.Result{}, err
+			}
+		}
 	}
 	if commonworkload.IsCICDScalingRunnerSet(adminWorkload) {
 		updateCICDScalingRunnerSetPhase(adminWorkload, pod)
@@ -277,6 +292,77 @@ func (r *SyncerReconciler) removeWorkloadPod(ctx context.Context, message *resou
 		return err
 	}
 	return nil
+}
+
+// createReservedFaults creates fault to reserve nodes for the workload
+// This ensures that after failover, the workload can still use the same nodes
+func (r *SyncerReconciler) createStickyNodeFaults(ctx context.Context, adminWorkload *v1.Workload, count int) error {
+	if !v1.IsEnableStickyNodes(adminWorkload) || count <= 0 || shouldWorkloadStopRetry(adminWorkload, count) {
+		return nil
+	}
+	var toAddNodes, toDelNodes []string
+	if count >= 2 {
+		toAddNodes = sliceutil.Difference(adminWorkload.Status.Nodes[count-1], adminWorkload.Status.Nodes[count-2])
+		toDelNodes = sliceutil.Difference(adminWorkload.Status.Nodes[count-2], adminWorkload.Status.Nodes[count-1])
+	} else {
+		toAddNodes = adminWorkload.Status.Nodes[count-1]
+	}
+
+	k8sNodeMap := make(map[string]string)
+	for _, p := range adminWorkload.Status.Pods {
+		k8sNodeMap[p.AdminNodeName] = p.K8sNodeName
+	}
+
+	for _, n := range toAddNodes {
+		fault, err := generateStickyFault(adminWorkload, n, k8sNodeMap[n], r.Client.Scheme())
+		if err != nil {
+			return err
+		}
+		if fault == nil {
+			continue
+		}
+		if err = r.Create(ctx, fault); err != nil && !apierrors.IsAlreadyExists(err) {
+			return err
+		}
+	}
+	for _, n := range toDelNodes {
+		faultId := commonfaults.GenerateFaultId(n, v1.StickyNodesMonitorId)
+		if err := r.Delete(ctx, &v1.Fault{ObjectMeta: metav1.ObjectMeta{Name: faultId}}); err != nil && !apierrors.IsNotFound(err) {
+			return err
+		}
+	}
+	klog.Infof("Create sticky nodes faults for the workload %s.", adminWorkload.Name)
+	return nil
+}
+func generateStickyFault(adminWorkload *v1.Workload,
+	adminNodeId, k8sNodeId string, scheme *runtime.Scheme) (*v1.Fault, error) {
+	if adminNodeId == "" || k8sNodeId == "" {
+		return nil, nil
+	}
+	fault := &v1.Fault{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: commonfaults.GenerateFaultId(adminNodeId, v1.StickyNodesMonitorId),
+			Labels: map[string]string{
+				v1.WorkloadIdLabel: adminWorkload.Name,
+				v1.NodeIdLabel:     adminNodeId,
+			},
+		},
+		Spec: v1.FaultSpec{
+			MonitorId: v1.StickyNodesMonitorId,
+			Message:   fmt.Sprintf("sticky node for workload %s", adminWorkload.Name),
+			Action:    common.TaintAction,
+			Node: &v1.FaultNode{
+				ClusterName: v1.GetClusterId(adminWorkload),
+				AdminName:   adminNodeId,
+				K8sName:     k8sNodeId,
+			},
+		},
+	}
+	err := controllerutil.SetControllerReference(adminWorkload, fault, scheme)
+	if err != nil {
+		return nil, err
+	}
+	return fault, err
 }
 
 // buildPodTerminatedInfo constructs termination information for a pod.
@@ -402,4 +488,17 @@ func getMainContainerName(adminWorkload *v1.Workload, pod *corev1.Pod) string {
 		mainContainerName = v1.GetMainContainer(adminWorkload)
 	}
 	return mainContainerName
+}
+
+// isAllPodsAssigned checks if all pods in the workload are in Running or Termination phase
+func isAllPodsAssigned(workload *v1.Workload) bool {
+	if len(workload.Status.Pods) != commonworkload.GetTotalCount(workload) {
+		return false
+	}
+	for _, p := range workload.Status.Pods {
+		if p.Phase == corev1.PodPending || p.AdminNodeName == "" {
+			return false
+		}
+	}
+	return true
 }

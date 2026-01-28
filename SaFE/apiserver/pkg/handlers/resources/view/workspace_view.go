@@ -40,6 +40,8 @@ type CreateWorkspaceRequest struct {
 	IsDefault bool `json:"isDefault,omitempty"`
 	// Workspace image secret ID, used for downloading images
 	ImageSecretIds []string `json:"imageSecretIds,omitempty"`
+	// The maximum workload runtime of each scope, Unit: hours
+	MaxRuntime map[v1.WorkspaceScope]int `json:"maxRuntime,omitempty"`
 }
 
 type CreateWorkspaceResponse struct {
@@ -94,6 +96,8 @@ type WorkspaceResponseItem struct {
 	Managers []UserEntity `json:"managers"`
 	// Set the workspace as the default workspace (i.e., all users can access it).
 	IsDefault bool `json:"isDefault"`
+	// The maximum workload runtime of each scope, Unit: hours
+	MaxRuntime map[v1.WorkspaceScope]int `json:"maxRuntime,omitempty"`
 }
 
 type GetWorkspaceResponse struct {
@@ -134,6 +138,8 @@ type PatchWorkspaceRequest struct {
 	IsDefault *bool `json:"isDefault,omitempty"`
 	// Workspace image secret ID, used for downloading images
 	ImageSecretIds *[]string `json:"imageSecretIds,omitempty"`
+	// The maximum workload runtime of each scope, Unit: hours
+	MaxRuntime *map[v1.WorkspaceScope]int `json:"maxRuntime,omitempty"`
 }
 
 type WorkspaceEntry struct {

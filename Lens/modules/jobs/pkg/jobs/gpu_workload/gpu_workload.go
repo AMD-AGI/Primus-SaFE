@@ -209,6 +209,10 @@ func (g *GpuWorkloadJob) checkWorkload(ctx context.Context, clusterName string, 
 			dbWorkload.Status = metadata.WorkloadStatusRunning
 		} else {
 			dbWorkload.Status = metadata.WorkloadStatusDone
+			// Set EndAt to current time if not already set
+			if dbWorkload.EndAt.IsZero() {
+				dbWorkload.EndAt = time.Now()
+			}
 		}
 
 		span.SetAttributes(

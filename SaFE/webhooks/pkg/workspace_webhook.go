@@ -19,6 +19,7 @@ import (
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/pointer"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -121,8 +122,9 @@ func (m *WorkspaceMutator) mutateCommon(ctx context.Context, oldWorkspace, newWo
 	}
 	m.mutateVolumes(newWorkspace)
 	m.mutateQueuePolicy(newWorkspace)
-	if oldWorkspace == nil || oldWorkspace.Spec.EnablePreempt != newWorkspace.Spec.EnablePreempt {
-		if err := m.mutatePreempt(ctx, newWorkspace); err != nil {
+	if oldWorkspace != nil && (oldWorkspace.Spec.EnablePreempt != newWorkspace.Spec.EnablePreempt ||
+		!isMaxRuntimeEqual(oldWorkspace.Spec.MaxRuntime, newWorkspace.Spec.MaxRuntime)) {
+		if err := m.mutateWorkloadsOfWorkspace(ctx, newWorkspace); err != nil {
 			return err
 		}
 	}
@@ -133,6 +135,18 @@ func (m *WorkspaceMutator) mutateCommon(ctx context.Context, oldWorkspace, newWo
 		return err
 	}
 	return nil
+}
+
+func isMaxRuntimeEqual(old, new map[v1.WorkspaceScope]int) bool {
+	if len(old) != len(new) {
+		return false
+	}
+	for k, v := range old {
+		if new[k] != v {
+			return false
+		}
+	}
+	return true
 }
 
 // mutateMeta sets workspace name, labels, finalizer and owner references.
@@ -165,6 +179,10 @@ func (m *WorkspaceMutator) mutateNodesAction(ctx context.Context, oldWorkspace, 
 	actions, err := parseNodesAction(newWorkspace)
 	if err != nil {
 		return err
+	}
+	if len(actions) == 0 {
+		v1.RemoveAnnotation(newWorkspace, v1.WorkspaceForcedAction)
+		return nil
 	}
 	for key, val := range actions {
 		n, _ := getNode(ctx, m.Client, key)
@@ -273,8 +291,8 @@ func (m *WorkspaceMutator) mutateScaleDown(ctx context.Context, oldWorkspace, ne
 	return nil
 }
 
-// mutatePreempt propagates workspace preemption settings to all non-terminated workloads.
-func (m *WorkspaceMutator) mutatePreempt(ctx context.Context, workspace *v1.Workspace) error {
+// mutateWorkloadsOfWorkspace Modify all workloads on this workspace — currently primarily preempt and timeout settings.
+func (m *WorkspaceMutator) mutateWorkloadsOfWorkspace(ctx context.Context, workspace *v1.Workspace) error {
 	filterFunc := func(w *v1.Workload) bool {
 		if w.IsEnd() {
 			return true
@@ -287,19 +305,31 @@ func (m *WorkspaceMutator) mutatePreempt(ctx context.Context, workspace *v1.Work
 		return err
 	}
 	for _, w := range workloads {
+		isChanged := false
 		if workspace.Spec.EnablePreempt {
-			if v1.IsWorkloadEnablePreempt(w) {
-				continue
+			if v1.SetAnnotation(w, v1.WorkloadEnablePreemptAnnotation, v1.TrueStr) {
+				isChanged = true
 			}
-			v1.SetAnnotation(w, v1.WorkloadEnablePreemptAnnotation, v1.TrueStr)
+			if v1.RemoveAnnotation(w, v1.WorkloadStickyNodesAnnotation) {
+				isChanged = true
+			}
 		} else {
-			if !v1.IsWorkloadEnablePreempt(w) {
-				continue
+			if v1.RemoveAnnotation(w, v1.WorkloadEnablePreemptAnnotation) {
+				isChanged = true
 			}
-			v1.RemoveAnnotation(w, v1.WorkloadEnablePreemptAnnotation)
 		}
-		if err = m.Update(ctx, w); err != nil {
-			klog.ErrorS(err, "failed to patch workload")
+
+		if w.Spec.Timeout == nil {
+			scope := commonworkload.GetScope(w)
+			if maxRuntime := workspace.GetMaxRunTime(scope); maxRuntime > 0 {
+				w.Spec.Timeout = pointer.Int(maxRuntime)
+				isChanged = true
+			}
+		}
+		if isChanged {
+			if err = m.Update(ctx, w); err != nil {
+				klog.ErrorS(err, "failed to patch workload")
+			}
 		}
 	}
 	return nil
@@ -673,7 +703,7 @@ func parseNodesAction(w *v1.Workspace) (map[string]string, error) {
 
 // validateNodesRemoved ensures no running workloads are using the nodes to be removed.
 func (v *WorkspaceValidator) validateNodesRemoved(ctx context.Context, workspace *v1.Workspace, nodeNames []string) error {
-	if len(nodeNames) == 0 {
+	if len(nodeNames) == 0 || v1.HasAnnotation(workspace, v1.WorkspaceForcedAction) {
 		return nil
 	}
 	nodeNamesSet := sets.NewSetByKeys(nodeNames...)
@@ -685,16 +715,13 @@ func (v *WorkspaceValidator) validateNodesRemoved(ctx context.Context, workspace
 	}
 	runningWorkloads, err := commonworkload.GetWorkloadsOfWorkspace(ctx, v.Client,
 		workspace.Spec.Cluster, []string{workspace.Name}, filterFunc)
-	if err != nil || len(runningWorkloads) == 0 {
+	if err != nil {
 		return err
 	}
 
 	for _, workload := range runningWorkloads {
 		for _, p := range workload.Status.Pods {
 			if !nodeNamesSet.Has(p.AdminNodeName) {
-				continue
-			}
-			if !v1.IsPodRunning(&p) {
 				continue
 			}
 			return commonerrors.NewForbidden(fmt.Sprintf("the node(%s) is currently in use by"+

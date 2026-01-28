@@ -79,12 +79,13 @@ const (
 	WorkspaceFinalizer     = PrimusSafeDomain + "workspace.finalizer"
 	WorkspaceIdLabel       = WorkspacePrefix + "id"
 	WorkspaceNodesAction   = WorkspacePrefix + "nodes.action"
+	WorkspaceForcedAction  = WorkspacePrefix + "forced.action"
 	WorkspaceIdsAnnotation = WorkspacePrefix + "ids"
 
 	// fault
 	FaultPrefix    = PrimusSafePrefix + "fault."
 	FaultFinalizer = PrimusSafeDomain + "fault.finalizer"
-	FaultId        = FaultPrefix + "id"
+	FaultMonitorId = FaultPrefix + "monitor.id"
 
 	// workload
 	WorkloadPrefix                    = PrimusSafePrefix + "workload."
@@ -100,6 +101,7 @@ const (
 	WorkloadDisableFailoverAnnotation = WorkloadPrefix + "disable.failover"
 	WorkloadEnablePreemptAnnotation   = WorkloadPrefix + "enable.preempt"
 	WorkloadPrivilegedAnnotation      = WorkloadPrefix + "privileged"
+	WorkloadStickyNodesAnnotation     = WorkloadPrefix + "sticky.nodes"
 	CronJobTimestampAnnotation        = WorkloadPrefix + "cronjob"
 	EnvToBeRemovedAnnotation          = WorkloadPrefix + "env.to.remove"
 	AdminControlPlaneAnnotation       = WorkloadPrefix + "admin.control.plane"
@@ -152,6 +154,9 @@ const (
 	TrueStr = "true"
 
 	K8sHostName = "kubernetes.io/hostname"
+
+	AddonMonitorId       = "501"
+	StickyNodesMonitorId = "502"
 
 	SecretImage   SecretType = "image"
 	SecretSSH     SecretType = "ssh"

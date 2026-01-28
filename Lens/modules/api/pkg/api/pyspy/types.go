@@ -8,6 +8,7 @@ import "time"
 // CreateTaskRequest represents a request to create a py-spy sampling task
 type CreateTaskRequest struct {
 	Cluster      string `json:"cluster"`                      // Target cluster (required for multi-cluster)
+	WorkloadUID  string `json:"workload_uid"`                 // Parent workload UID (optional, for querying history)
 	PodUID       string `json:"pod_uid" binding:"required"`
 	PodName      string `json:"pod_name"`
 	PodNamespace string `json:"pod_namespace"`
@@ -56,7 +57,8 @@ type TaskResponse struct {
 // ListTasksRequest represents a request to list py-spy tasks
 type ListTasksRequest struct {
 	Cluster      string `form:"cluster" json:"cluster"`
-	PodUID       string `form:"pod_uid" json:"pod_uid"`
+	WorkloadUID  string `form:"workload_uid" json:"workload_uid"` // Query tasks by workload UID (recommended for history)
+	PodUID       string `form:"pod_uid" json:"pod_uid"`           // Optional: filter by specific pod
 	PodNamespace string `form:"pod_namespace" json:"pod_namespace"`
 	NodeName     string `form:"node_name" json:"node_name"`
 	Status       string `form:"status" json:"status"`
@@ -96,8 +98,10 @@ type TaskStatusResponse struct {
 
 // ProcessTreeRequest represents a request to get process tree for a pod
 type ProcessTreeRequest struct {
-	PodUID  string `json:"pod_uid" binding:"required"`
-	Cluster string `json:"cluster"` // Target cluster (optional for multi-cluster)
+	PodUID       string `json:"pod_uid" binding:"required"`
+	PodName      string `json:"pod_name"`      // Optional: pod name for faster lookup
+	PodNamespace string `json:"pod_namespace"` // Optional: pod namespace for faster lookup
+	Cluster      string `json:"cluster"`       // Target cluster (optional for multi-cluster)
 
 	// Options
 	IncludeEnv       bool `json:"include_env"`

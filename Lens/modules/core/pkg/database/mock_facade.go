@@ -74,6 +74,7 @@ func (m *MockFacade) GetCommitImpactAnalysis() CommitImpactAnalysisFacadeInterfa
 	return nil
 }
 func (m *MockFacade) GetNotificationChannel() NotificationChannelFacadeInterface { return nil }
+func (m *MockFacade) GetPodRunningPeriods() PodRunningPeriodsFacadeInterface     { return nil }
 
 func (m *MockFacade) GetGpuUsageWeeklyReport() GpuUsageWeeklyReportFacadeInterface {
 	return m.GpuUsageWeeklyReportMock

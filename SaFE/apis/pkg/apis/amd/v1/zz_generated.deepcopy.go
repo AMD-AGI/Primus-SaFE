@@ -2446,6 +2446,13 @@ func (in *WorkspaceSpec) DeepCopyInto(out *WorkspaceSpec) {
 		*out = make([]corev1.ObjectReference, len(*in))
 		copy(*out, *in)
 	}
+	if in.MaxRuntime != nil {
+		in, out := &in.MaxRuntime, &out.MaxRuntime
+		*out = make(map[WorkspaceScope]int, len(*in))
+		for key, val := range *in {
+			(*out)[key] = val
+		}
+	}
 	return
 }
 

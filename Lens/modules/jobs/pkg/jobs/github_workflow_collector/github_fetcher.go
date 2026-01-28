@@ -119,14 +119,16 @@ func (f *GithubFetcher) fetchAndStoreCommit(ctx context.Context, client *github.
 		files = files[:100] // Only store first 100 files
 	}
 	filesJSON, _ := json.Marshal(files)
+	var filesExt model.ExtType
+	_ = json.Unmarshal(filesJSON, &filesExt)
 
 	commit := &model.GithubWorkflowCommits{
-		RunID:   run.ID,
-		SHA:     commitInfo.SHA,
-		Message: commitInfo.Message,
-		HTMLURL: commitInfo.HTMLURL,
-		ParentSHAs: model.ExtJSON(parentSHAs),
-		Files:      model.ExtJSON(filesJSON),
+		RunID:      run.ID,
+		Sha:        commitInfo.SHA,
+		Message:    commitInfo.Message,
+		HTMLURL:    commitInfo.HTMLURL,
+		ParentShas: model.ExtJSON(parentSHAs),
+		Files:      filesExt,
 	}
 
 	if commitInfo.Author != nil {
@@ -142,16 +144,16 @@ func (f *GithubFetcher) fetchAndStoreCommit(ctx context.Context, client *github.
 	}
 
 	if commitInfo.Stats != nil {
-		commit.Additions = commitInfo.Stats.Additions
-		commit.Deletions = commitInfo.Stats.Deletions
-		commit.FilesChanged = len(commitInfo.Files)
+		commit.Additions = int32(commitInfo.Stats.Additions)
+		commit.Deletions = int32(commitInfo.Stats.Deletions)
+		commit.FilesChanged = int32(len(commitInfo.Files))
 	}
 
 	if err := commitFacade.Upsert(ctx, commit); err != nil {
 		return err
 	}
 
-	log.Debugf("GithubFetcher: stored commit %s for run %d", commit.SHA, run.ID)
+	log.Debugf("GithubFetcher: stored commit %s for run %d", commit.Sha, run.ID)
 	return nil
 }
 
@@ -176,12 +178,14 @@ func (f *GithubFetcher) fetchAndStoreWorkflowRun(ctx context.Context, client *gi
 
 	// Convert jobs to JSON
 	jobsJSON, _ := json.Marshal(runInfo.Jobs)
+	var jobsExt model.ExtType
+	_ = json.Unmarshal(jobsJSON, &jobsExt)
 
 	details := &model.GithubWorkflowRunDetails{
 		RunID:                  run.ID,
 		GithubRunID:            runInfo.ID,
-		GithubRunNumber:        runInfo.RunNumber,
-		GithubRunAttempt:       runInfo.RunAttempt,
+		GithubRunNumber:        int32(runInfo.RunNumber),
+		GithubRunAttempt:       int32(runInfo.RunAttempt),
 		WorkflowID:             runInfo.WorkflowID,
 		WorkflowName:           runInfo.WorkflowName,
 		WorkflowPath:           runInfo.WorkflowPath,
@@ -193,14 +197,14 @@ func (f *GithubFetcher) fetchAndStoreWorkflowRun(ctx context.Context, client *gi
 		ArtifactsURL:           runInfo.ArtifactsURL,
 		CreatedAtGithub:        runInfo.CreatedAt,
 		UpdatedAtGithub:        runInfo.UpdatedAt,
-		DurationSeconds:        runInfo.DurationSeconds,
+		DurationSeconds:        int32(runInfo.DurationSeconds),
 		Event:                  runInfo.Event,
-		HeadSHA:                runInfo.HeadSHA,
+		HeadSha:                runInfo.HeadSHA,
 		HeadBranch:             runInfo.HeadBranch,
 		HeadRepositoryFullName: runInfo.HeadRepository,
-		BaseSHA:                runInfo.BaseSHA,
+		BaseSha:                runInfo.BaseSHA,
 		BaseBranch:             runInfo.BaseBranch,
-		Jobs:                   model.ExtJSON(jobsJSON),
+		Jobs:                   jobsExt,
 	}
 
 	if runInfo.RunStartedAt != nil {
@@ -216,7 +220,7 @@ func (f *GithubFetcher) fetchAndStoreWorkflowRun(ctx context.Context, client *gi
 	}
 
 	if runInfo.PullRequest != nil {
-		details.PullRequestNumber = runInfo.PullRequest.Number
+		details.PullRequestNumber = int32(runInfo.PullRequest.Number)
 		details.PullRequestTitle = runInfo.PullRequest.Title
 		details.PullRequestURL = runInfo.PullRequest.URL
 	}

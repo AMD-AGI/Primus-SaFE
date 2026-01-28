@@ -604,6 +604,7 @@ func (r *WorkspaceReconciler) removeNodesAction(ctx context.Context, workspace *
 	}
 	patch := client.MergeFrom(workspace.DeepCopy())
 	v1.RemoveAnnotation(workspace, v1.WorkspaceNodesAction)
+	v1.RemoveAnnotation(workspace, v1.WorkspaceForcedAction)
 	if err := r.Patch(ctx, workspace, patch); err != nil {
 		return err
 	}

@@ -4,6 +4,7 @@
 package api
 
 import (
+	"context"
 	"net/http"
 	"time"
 
@@ -27,7 +28,7 @@ const (
 var systemNamespaces = []string{"kube-system", "kube-public", "kube-node-lease"}
 
 // getGpuAggregationConfig loads GPU aggregation config from config manager
-func getGpuAggregationConfig(ctx *gin.Context, clusterName string) (*model.GpuAggregationConfig, error) {
+func getGpuAggregationConfig(ctx context.Context, clusterName string) (*model.GpuAggregationConfig, error) {
 	configManager := config.GetConfigManagerForCluster(clusterName)
 	var cfg model.GpuAggregationConfig
 	err := configManager.Get(ctx, ConfigKeyGpuAggregation, &cfg)

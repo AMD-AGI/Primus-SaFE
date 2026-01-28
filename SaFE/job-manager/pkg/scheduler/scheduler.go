@@ -450,6 +450,9 @@ func (r *SchedulerReconciler) getLeftTotalResources(ctx context.Context,
 		if err := r.Get(ctx, client.ObjectKey{Name: nodeName}, n); err != nil {
 			return true
 		}
+		if n.GetSpecWorkspace() != workspace.Name {
+			return true
+		}
 		return !n.IsAvailable(false)
 	}
 	usedTotalResource := make(corev1.ResourceList)
@@ -527,9 +530,7 @@ func (r *SchedulerReconciler) updateStatus(ctx context.Context, workload *v1.Wor
 	if workload.Status.QueuePosition > 0 {
 		statusPatch["queuePosition"] = 0
 	}
-	if workload.Status.Message == DependencyReason {
-		statusPatch["message"] = ""
-	}
+	statusPatch["message"] = ""
 	statusPatch["conditions"] = append(workload.Status.Conditions, *cond)
 	patchObj := map[string]any{
 		"metadata": map[string]any{

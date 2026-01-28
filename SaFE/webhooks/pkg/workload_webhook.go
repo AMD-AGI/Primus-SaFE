@@ -15,6 +15,7 @@ import (
 	"time"
 
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/slice"
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -23,6 +24,7 @@ import (
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/pointer"
 	"k8s.io/utils/ptr"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -115,6 +117,7 @@ func (m *WorkloadMutator) mutateOnCreation(ctx context.Context, workload *v1.Wor
 	m.mutateMeta(ctx, workload, workspace)
 	m.mutateTTLSeconds(workload)
 	m.mutateCommon(ctx, nil, workload, workspace)
+	m.mutateWorkloadTimeout(workload, workspace)
 	return true
 }
 
@@ -149,6 +152,7 @@ func (m *WorkloadMutator) mutateCommon(ctx context.Context, oldWorkload, newWork
 	m.mutateHealthCheck(newWorkload)
 	m.mutateService(newWorkload)
 	m.mutateSecrets(ctx, newWorkload, workspace)
+	m.mutateStickNodes(ctx, newWorkload, workspace)
 	return true
 }
 
@@ -377,8 +381,6 @@ func (m *WorkloadMutator) mutateAuthoring(workload *v1.Workload) {
 		workload.Spec.Resources = workload.Spec.Resources[0:1]
 		workload.Spec.Resources[0].Replica = 1
 	}
-
-	workload.Spec.Timeout = nil
 	workload.Spec.EntryPoints = []string{stringutil.Base64Encode("sleep infinity")}
 	workload.Spec.Dependencies = nil
 }
@@ -390,7 +392,6 @@ func (m *WorkloadMutator) mutateCICDScaleSet(workload *v1.Workload) {
 		workload.Spec.Resources = workload.Spec.Resources[0:1]
 		workload.Spec.Resources[0].Replica = 1
 	}
-	workload.Spec.Timeout = nil
 	workload.Spec.Dependencies = nil
 }
 
@@ -555,6 +556,48 @@ func (m *WorkloadMutator) mutateSecrets(ctx context.Context, workload *v1.Worklo
 		}
 	}
 	workload.Spec.Secrets = newSecrets
+}
+
+func (m *WorkloadMutator) mutateStickNodes(ctx context.Context, workload *v1.Workload, workspace *v1.Workspace) {
+	isDisableStickyNodes := func(ctx context.Context, workload *v1.Workload, workspace *v1.Workspace) bool {
+		if workspace == nil || workspace.Spec.EnablePreempt {
+			return true
+		}
+		supportsKinds := []string{common.PytorchJobKind, common.TorchFTKind, common.RayJobKind}
+		if !slice.Contains(supportsKinds, workload.SpecKind()) {
+			return true
+		}
+		nf, _ := getNodeFlavor(ctx, m.Client, v1.GetNodeFlavorId(workload))
+		if nf == nil {
+			return true
+		}
+		gpuCountStr := strconv.Itoa(nf.GetGpuCount())
+		for _, res := range workload.Spec.Resources {
+			if res.GPU != gpuCountStr || res.GPU == "" {
+				return true
+			}
+		}
+		return false
+	}
+	if isDisableStickyNodes(ctx, workload, workspace) {
+		v1.RemoveAnnotation(workload, v1.WorkloadStickyNodesAnnotation)
+	}
+}
+
+func (m *WorkloadMutator) mutateWorkloadTimeout(workload *v1.Workload, workspace *v1.Workspace) bool {
+	if workspace == nil {
+		return false
+	}
+	scope := commonworkload.GetScope(workload)
+	maxRuntime := workspace.GetMaxRunTime(scope)
+	if maxRuntime <= 0 {
+		return false
+	}
+	if workload.Spec.Timeout == nil || *workload.Spec.Timeout > maxRuntime {
+		workload.Spec.Timeout = pointer.Int(maxRuntime)
+		return true
+	}
+	return false
 }
 
 // WorkloadValidator validates Workload resources on create and update operations.
@@ -1000,7 +1043,7 @@ func (v *WorkloadValidator) validateScope(ctx context.Context, workload *v1.Work
 	}
 	if !workspace.HasScope(scope) {
 		return commonerrors.NewForbidden(
-			fmt.Sprintf("The workspace only supports %v and does not suuport %s", workspace.Spec.Scopes, scope))
+			fmt.Sprintf("The workspace only supports %v and does not support %s", workspace.Spec.Scopes, scope))
 	}
 	return nil
 }

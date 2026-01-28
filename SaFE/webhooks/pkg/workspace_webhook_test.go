@@ -125,3 +125,144 @@ func TestMutateManagers_AddManager_UserNotFound(t *testing.T) {
 	// Manager that does not exist should be removed from new workspace spec
 	assert.Equal(t, len(newWs.Spec.Managers), 0)
 }
+
+func TestMutateWorkloadsOfWorkspace_EnablePreempt(t *testing.T) {
+	ctx := context.TODO()
+	scheme := newSchemeForWebhookTests(t)
+
+	workload := &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "w1",
+			Labels: map[string]string{
+				v1.ClusterIdLabel:   "cluster1",
+				v1.WorkspaceIdLabel: "ws1",
+			},
+			Annotations: map[string]string{
+				v1.WorkloadStickyNodesAnnotation: v1.TrueStr,
+			},
+		},
+		Status: v1.WorkloadStatus{
+			Phase: v1.WorkloadRunning,
+		},
+	}
+
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(workload).
+		Build()
+
+	m := &WorkspaceMutator{Client: k8sClient}
+	workspace := &v1.Workspace{
+		ObjectMeta: metav1.ObjectMeta{Name: "ws1"},
+		Spec: v1.WorkspaceSpec{
+			Cluster:       "cluster1",
+			EnablePreempt: true,
+		},
+	}
+
+	err := m.mutateWorkloadsOfWorkspace(ctx, workspace)
+	assert.NilError(t, err)
+
+	updated := &v1.Workload{}
+	err = k8sClient.Get(ctx, client.ObjectKey{Name: "w1"}, updated)
+	assert.NilError(t, err)
+
+	// Should set preempt annotation
+	assert.Equal(t, v1.GetAnnotation(updated, v1.WorkloadEnablePreemptAnnotation), v1.TrueStr)
+	// Should remove sticky nodes annotation
+	assert.Equal(t, v1.GetAnnotation(updated, v1.WorkloadStickyNodesAnnotation), "")
+}
+
+func TestMutateWorkloadsOfWorkspace_DisablePreempt(t *testing.T) {
+	ctx := context.TODO()
+	scheme := newSchemeForWebhookTests(t)
+
+	workload := &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "w1",
+			Labels: map[string]string{
+				v1.ClusterIdLabel:   "cluster1",
+				v1.WorkspaceIdLabel: "ws1",
+			},
+			Annotations: map[string]string{
+				v1.WorkloadEnablePreemptAnnotation: v1.TrueStr,
+			},
+		},
+		Status: v1.WorkloadStatus{
+			Phase: v1.WorkloadRunning,
+		},
+	}
+
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(workload).
+		Build()
+
+	m := &WorkspaceMutator{Client: k8sClient}
+	workspace := &v1.Workspace{
+		ObjectMeta: metav1.ObjectMeta{Name: "ws1"},
+		Spec: v1.WorkspaceSpec{
+			Cluster:       "cluster1",
+			EnablePreempt: false,
+		},
+	}
+
+	err := m.mutateWorkloadsOfWorkspace(ctx, workspace)
+	assert.NilError(t, err)
+
+	updated := &v1.Workload{}
+	err = k8sClient.Get(ctx, client.ObjectKey{Name: "w1"}, updated)
+	assert.NilError(t, err)
+
+	// Should remove preempt annotation
+	assert.Equal(t, v1.GetAnnotation(updated, v1.WorkloadEnablePreemptAnnotation), "")
+}
+
+func TestMutateWorkloadsOfWorkspace_SetTimeout(t *testing.T) {
+	ctx := context.TODO()
+	scheme := newSchemeForWebhookTests(t)
+
+	workload := &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "w1",
+			Labels: map[string]string{
+				v1.ClusterIdLabel:   "cluster1",
+				v1.WorkspaceIdLabel: "ws1",
+			},
+		},
+		Spec: v1.WorkloadSpec{
+			GroupVersionKind: v1.GroupVersionKind{Kind: "PyTorchJob"}, // TrainScope
+			Timeout:          nil,
+		},
+		Status: v1.WorkloadStatus{
+			Phase: v1.WorkloadRunning,
+		},
+	}
+
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(workload).
+		Build()
+
+	m := &WorkspaceMutator{Client: k8sClient}
+	workspace := &v1.Workspace{
+		ObjectMeta: metav1.ObjectMeta{Name: "ws1"},
+		Spec: v1.WorkspaceSpec{
+			Cluster: "cluster1",
+			MaxRuntime: map[v1.WorkspaceScope]int{
+				v1.TrainScope: 2, // 2 hours = 7200 seconds
+			},
+		},
+	}
+
+	err := m.mutateWorkloadsOfWorkspace(ctx, workspace)
+	assert.NilError(t, err)
+
+	updated := &v1.Workload{}
+	err = k8sClient.Get(ctx, client.ObjectKey{Name: "w1"}, updated)
+	assert.NilError(t, err)
+
+	// Should set timeout (2 hours = 7200 seconds)
+	assert.Assert(t, updated.Spec.Timeout != nil)
+	assert.Equal(t, *updated.Spec.Timeout, 7200)
+}

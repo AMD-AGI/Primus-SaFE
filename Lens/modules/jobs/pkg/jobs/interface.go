@@ -27,7 +27,9 @@ import (
 	// github_workflow_scanner has been replaced by github-runners-exporter reconciler
 	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/gpu_usage_weekly_report"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/gpu_workload"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/action_task_executor"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/pyspy_task_dispatcher"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/stale_pod_cleanup"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/storage_scan"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/tracelens_cleanup"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/workload_statistic"
@@ -101,7 +103,7 @@ func InitJobs(cfg *config.JobsConfig) {
 
 // initDataJobs initializes all data collection jobs
 func initDataJobs() []Job {
-	return []Job{
+	jobs := []Job{
 		&gpu_allocation.GpuAllocationJob{},
 		&gpu_consumers.GpuConsumersJob{},
 		&device_info.DeviceInfoJob{},
@@ -124,6 +126,18 @@ func initDataJobs() []Job {
 		workload_statistic.NewWorkloadStatisticJob(),                     // Every 30s - workload GPU utilization statistics
 		workload_stats_backfill.NewWorkloadStatsBackfillJob(),            // Every 10m - backfill missing workload hourly stats
 	}
+
+	// Add ActionTaskExecutor for cross-cluster action handling
+	// Polls every 300ms to achieve <1s latency for task pickup
+	jobs = append(jobs, action_task_executor.NewActionTaskExecutorJob())
+	log.Info("Action task executor job registered (poll interval: 300ms)")
+
+	// Add StalePodCleanupJob to clean up stale "Running" pods that no longer exist in K8s
+	// This handles cases where exporter's reconcile loop misses pod deletion events
+	jobs = append(jobs, stale_pod_cleanup.NewStalePodCleanupJob())
+	log.Info("Stale pod cleanup job registered (every 5m)")
+
+	return jobs
 }
 
 // initManagementJobs initializes all management jobs
