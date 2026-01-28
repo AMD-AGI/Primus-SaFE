@@ -77,6 +77,7 @@ type ClusterConfigResponse struct {
 
 	OpensearchHost       string `json:"opensearch_host"`
 	OpensearchPort       int    `json:"opensearch_port"`
+	OpensearchScheme     string `json:"opensearch_scheme"`
 	OpensearchConfigured bool   `json:"opensearch_configured"`
 
 	PrometheusReadHost   string `json:"prometheus_read_host"`
@@ -118,6 +119,7 @@ func toResponse(c *model.ClusterConfig) *ClusterConfigResponse {
 		PostgresConfigured:    c.PostgresHost != "" && c.PostgresUsername != "",
 		OpensearchHost:        c.OpensearchHost,
 		OpensearchPort:        c.OpensearchPort,
+		OpensearchScheme:      c.OpensearchScheme,
 		OpensearchConfigured:  c.OpensearchHost != "" && c.OpensearchUsername != "",
 		PrometheusReadHost:    c.PrometheusReadHost,
 		PrometheusReadPort:    c.PrometheusReadPort,
