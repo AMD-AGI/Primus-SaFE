@@ -1,10 +1,11 @@
+ARG REGISTRY=docker.io
 ARG GO_VERSION=1.24.7
 ARG BUILDPATH
 ARG APPNAME
 ARG BASEPATH
 ARG GOPROXY=https://proxy.golang.org,direct
 
-FROM golang:${GO_VERSION} AS builder
+FROM ${REGISTRY}/library/golang:${GO_VERSION} AS builder
 WORKDIR /app
 
 ARG GITHUB_TOKEN
@@ -35,7 +36,8 @@ COPY . .
 
 RUN cd $BASEPATH && CGO_ENABLED=0 go build -tags nosqlite -a -installsuffix cgo -o $APPNAME $BUILDPATH/main.go
 
-FROM --platform=linux/amd64  docker.io/primussafe/ubuntu-rdma-base:0.0.1
+ARG REGISTRY
+FROM --platform=linux/amd64  ${REGISTRY}/primussafe/ubuntu-rdma-base:0.0.1
 
 ARG APPNAME
 ARG BASEPATH

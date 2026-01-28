@@ -2,8 +2,9 @@
 # See LICENSE for license information.
 
 # Build stage
+ARG REGISTRY=docker.io
 ARG GO_VERSION=1.24.7
-FROM golang:${GO_VERSION}-alpine AS builder
+FROM ${REGISTRY}/primussafe/golang:${GO_VERSION}-alpine AS builder
 
 RUN apk add --no-cache git ca-certificates
 
@@ -28,7 +29,8 @@ WORKDIR /workspace/modules/installer
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o /installer ./cmd/main.go
 
 # Runtime stage
-FROM alpine:3.19
+ARG REGISTRY
+FROM ${REGISTRY}/primussafe/alpine:3.19
 
 RUN apk add --no-cache ca-certificates curl
 

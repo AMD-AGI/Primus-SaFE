@@ -10,7 +10,8 @@
 # Final image size: ~80MB
 
 # Stage 1: Build Perfetto UI and get trace_processor_shell
-FROM ubuntu:22.04 AS builder
+ARG REGISTRY=docker.io
+FROM ${REGISTRY}/primussafe/ubuntu:22.04 AS builder
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -48,7 +49,8 @@ RUN tools/gn gen out/default --args='is_debug=false' && \
     cp out/default/trace_processor_shell /trace_processor_shell
 
 # Stage 2: Runtime image (use debian-based nginx for glibc compatibility)
-FROM nginx:latest
+ARG REGISTRY
+FROM ${REGISTRY}/primussafe/nginx:latest
 
 # Install required tools
 RUN apt-get update && apt-get install -y --no-install-recommends \

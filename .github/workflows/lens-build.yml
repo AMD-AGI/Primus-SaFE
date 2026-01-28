@@ -316,6 +316,7 @@ jobs:
 
           buildah bud \
             --layers \
+            --build-arg REGISTRY=${{ secrets.HARBOR_HOST }} \
             --build-arg GO_VERSION=${{ env.GO_VERSION }} \
             --build-arg GOPROXY=${{ secrets.GOPROXY }},direct \
             --build-arg BUILDPATH=${{ matrix.buildpath }} \
@@ -466,6 +467,7 @@ jobs:
           # Build the image
           buildah bud \
             --layers \
+            --build-arg REGISTRY=${{ secrets.HARBOR_HOST }} \
             -t perfetto-viewer:${IMAGE_VERSION} \
             -t perfetto-viewer:${DATE_TIME} \
             -f "${PERFETTO_DIR}/Dockerfile" \
@@ -546,6 +548,7 @@ jobs:
           # Build the image
           buildah bud \
             --layers \
+            --build-arg REGISTRY=${{ secrets.HARBOR_HOST }} \
             --build-arg RUNNER_VERSION=${RUNNER_VERSION} \
             -t buildah-runner:${IMAGE_VERSION} \
             -t buildah-runner:${DATE_TIME} \

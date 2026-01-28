@@ -1,4 +1,5 @@
-FROM docker.io/primussafe/buildah-runner:v2.329.0-3
+ARG REGISTRY=docker.io
+FROM ${REGISTRY}/primussafe/buildah-runner:v2.329.0-3
 
 USER root
 
