@@ -9,8 +9,9 @@ RUN apk add --no-cache git ca-certificates
 WORKDIR /workspace
 
 # Copy go.mod files first for better caching
-COPY modules/core/go.mod modules/core/go.sum ./modules/core/
-COPY modules/installer/go.mod modules/installer/go.sum ./modules/installer/
+# Note: paths are relative to repo root (build context is ".")
+COPY Lens/modules/core/go.mod Lens/modules/core/go.sum ./modules/core/
+COPY Lens/modules/installer/go.mod Lens/modules/installer/go.sum ./modules/installer/
 
 # Download dependencies
 WORKDIR /workspace/modules/installer
@@ -18,8 +19,8 @@ RUN go mod download
 
 # Copy source code
 WORKDIR /workspace
-COPY modules/core/ ./modules/core/
-COPY modules/installer/ ./modules/installer/
+COPY Lens/modules/core/ ./modules/core/
+COPY Lens/modules/installer/ ./modules/installer/
 
 # Build
 WORKDIR /workspace/modules/installer
@@ -45,7 +46,7 @@ WORKDIR /app
 COPY --from=builder /installer /app/installer
 
 # Copy database migrations
-COPY modules/core/pkg/database/migrations/ /app/migrations/
+COPY Lens/modules/core/pkg/database/migrations/ /app/migrations/
 
 # Non-root user
 RUN addgroup -g 1000 installer && \
