@@ -206,6 +206,10 @@ func loadMultiClusterStorageConfigFromDB(ctx context.Context) (PrimusLensMultiCl
 
 		// Postgres config
 		if cluster.PostgresHost != "" {
+			sslMode := cluster.PostgresSSLMode
+			if sslMode == "" {
+				sslMode = "require" // default to require for security
+			}
 			clusterCfg.Postgres = &PrimusLensClientConfigPostgres{
 				Service:   cluster.PostgresHost,
 				Namespace: StorageConfigSecretNamespace,
@@ -213,6 +217,7 @@ func loadMultiClusterStorageConfigFromDB(ctx context.Context) (PrimusLensMultiCl
 				Username:  cluster.PostgresUsername,
 				Password:  cluster.PostgresPassword,
 				DBName:    cluster.PostgresDBName,
+				SSLMode:   sslMode,
 			}
 		}
 
