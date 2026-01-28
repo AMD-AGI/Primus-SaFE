@@ -55,8 +55,8 @@ func TestClusterManager_GetCurrentClusterName(t *testing.T) {
 		currentCluster: &ClusterClientSet{
 			ClusterName: "test-cluster",
 		},
-		clusters:     make(map[string]*ClusterClientSet),
-		multiCluster: false,
+		clusters:      make(map[string]*ClusterClientSet),
+		componentType: ComponentTypeDataPlane,
 	}
 
 	got := cm.GetCurrentClusterName()
@@ -69,35 +69,40 @@ func TestClusterManager_GetCurrentClusterName(t *testing.T) {
 
 func TestClusterManager_IsMultiCluster(t *testing.T) {
 	tests := []struct {
-		name         string
-		multiCluster bool
+		name          string
+		componentType ComponentType
+		wantMulti     bool
 	}{
 		{
-			name:         "single cluster mode",
-			multiCluster: false,
+			name:          "data plane mode (single cluster)",
+			componentType: ComponentTypeDataPlane,
+			wantMulti:     false,
 		},
 		{
-			name:         "multi cluster mode",
-			multiCluster: true,
+			name:          "control plane mode (multi cluster)",
+			componentType: ComponentTypeControlPlane,
+			wantMulti:     true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cm := &ClusterManager{
-				multiCluster: tt.multiCluster,
-				clusters:     make(map[string]*ClusterClientSet),
+				componentType: tt.componentType,
+				clusters:      make(map[string]*ClusterClientSet),
 			}
 
-			if got := cm.IsMultiCluster(); got != tt.multiCluster {
-				t.Errorf("IsMultiCluster() = %v, want %v", got, tt.multiCluster)
+			if got := cm.IsMultiCluster(); got != tt.wantMulti {
+				t.Errorf("IsMultiCluster() = %v, want %v", got, tt.wantMulti)
 			}
 		})
 	}
 }
 
 func TestClusterManager_GetClusterCount(t *testing.T) {
+	// Test control plane component (multi-cluster)
 	cm := &ClusterManager{
+		componentType: ComponentTypeControlPlane,
 		clusters: map[string]*ClusterClientSet{
 			"cluster1": {ClusterName: "cluster1"},
 			"cluster2": {ClusterName: "cluster2"},
@@ -111,10 +116,28 @@ func TestClusterManager_GetClusterCount(t *testing.T) {
 	if got != want {
 		t.Errorf("GetClusterCount() = %v, want %v", got, want)
 	}
+
+	// Test data plane component (single cluster)
+	cmDataPlane := &ClusterManager{
+		componentType:  ComponentTypeDataPlane,
+		currentCluster: &ClusterClientSet{ClusterName: "current"},
+		clusters: map[string]*ClusterClientSet{
+			"cluster1": {ClusterName: "cluster1"},
+		},
+	}
+
+	gotDataPlane := cmDataPlane.GetClusterCount()
+	wantDataPlane := 1 // Data plane always returns 1
+
+	if gotDataPlane != wantDataPlane {
+		t.Errorf("GetClusterCount() for DataPlane = %v, want %v", gotDataPlane, wantDataPlane)
+	}
 }
 
 func TestClusterManager_GetClusterNames(t *testing.T) {
+	// Test control plane component (multi-cluster)
 	cm := &ClusterManager{
+		componentType: ComponentTypeControlPlane,
 		clusters: map[string]*ClusterClientSet{
 			"cluster1": {ClusterName: "cluster1"},
 			"cluster2": {ClusterName: "cluster2"},
@@ -135,6 +158,21 @@ func TestClusterManager_GetClusterNames(t *testing.T) {
 
 	if !nameMap["cluster1"] || !nameMap["cluster2"] {
 		t.Errorf("GetClusterNames() = %v, want [cluster1, cluster2]", names)
+	}
+
+	// Test data plane component (single cluster)
+	cmDataPlane := &ClusterManager{
+		componentType:  ComponentTypeDataPlane,
+		currentCluster: &ClusterClientSet{ClusterName: "current"},
+		clusters: map[string]*ClusterClientSet{
+			"cluster1": {ClusterName: "cluster1"},
+			"cluster2": {ClusterName: "cluster2"},
+		},
+	}
+
+	namesDataPlane := cmDataPlane.GetClusterNames()
+	if len(namesDataPlane) != 1 || namesDataPlane[0] != "current" {
+		t.Errorf("GetClusterNames() for DataPlane = %v, want [current]", namesDataPlane)
 	}
 }
 
@@ -176,7 +214,9 @@ func TestClusterManager_GetClientSetByClusterName(t *testing.T) {
 	cluster1 := &ClusterClientSet{ClusterName: "cluster1"}
 	cluster2 := &ClusterClientSet{ClusterName: "cluster2"}
 
+	// Test control plane component (multi-cluster access)
 	cm := &ClusterManager{
+		componentType: ComponentTypeControlPlane,
 		clusters: map[string]*ClusterClientSet{
 			"cluster1": cluster1,
 			"cluster2": cluster2,
@@ -212,13 +252,41 @@ func TestClusterManager_GetClientSetByClusterName(t *testing.T) {
 			}
 		})
 	}
+
+	// Test data plane component (only current cluster access)
+	currentCluster := &ClusterClientSet{ClusterName: "current"}
+	cmDataPlane := &ClusterManager{
+		componentType:  ComponentTypeDataPlane,
+		currentCluster: currentCluster,
+		clusters: map[string]*ClusterClientSet{
+			"current":  currentCluster,
+			"cluster1": cluster1,
+		},
+	}
+
+	// Data plane can access current cluster
+	got, err := cmDataPlane.GetClientSetByClusterName("current")
+	if err != nil {
+		t.Errorf("DataPlane GetClientSetByClusterName(current) error = %v, want nil", err)
+	}
+	if got.ClusterName != "current" {
+		t.Errorf("DataPlane GetClientSetByClusterName(current) = %v, want current", got.ClusterName)
+	}
+
+	// Data plane cannot access other clusters
+	_, err = cmDataPlane.GetClientSetByClusterName("cluster1")
+	if err == nil {
+		t.Errorf("DataPlane GetClientSetByClusterName(cluster1) should return error")
+	}
 }
 
 func TestClusterManager_ListAllClientSets(t *testing.T) {
 	cluster1 := &ClusterClientSet{ClusterName: "cluster1"}
 	cluster2 := &ClusterClientSet{ClusterName: "cluster2"}
 
+	// Test control plane component (multi-cluster access)
 	cm := &ClusterManager{
+		componentType: ComponentTypeControlPlane,
 		clusters: map[string]*ClusterClientSet{
 			"cluster1": cluster1,
 			"cluster2": cluster2,
@@ -237,6 +305,28 @@ func TestClusterManager_ListAllClientSets(t *testing.T) {
 
 	if got["cluster2"].ClusterName != "cluster2" {
 		t.Errorf("ListAllClientSets()[cluster2] = %v, want cluster2", got["cluster2"].ClusterName)
+	}
+
+	// Test data plane component (only current cluster)
+	currentCluster := &ClusterClientSet{ClusterName: "current"}
+	cmDataPlane := &ClusterManager{
+		componentType:  ComponentTypeDataPlane,
+		currentCluster: currentCluster,
+		clusters: map[string]*ClusterClientSet{
+			"current":  currentCluster,
+			"cluster1": cluster1,
+			"cluster2": cluster2,
+		},
+	}
+
+	gotDataPlane := cmDataPlane.ListAllClientSets()
+
+	if len(gotDataPlane) != 1 {
+		t.Errorf("DataPlane ListAllClientSets() returned %d items, want 1", len(gotDataPlane))
+	}
+
+	if gotDataPlane["current"] == nil || gotDataPlane["current"].ClusterName != "current" {
+		t.Errorf("DataPlane ListAllClientSets()[current] = %v, want current", gotDataPlane["current"])
 	}
 }
 
@@ -273,12 +363,12 @@ func TestClusterManager_GetCurrentClusterClients_Panic(t *testing.T) {
 // Test concurrent access
 func TestClusterManager_ConcurrentAccess(t *testing.T) {
 	cm := &ClusterManager{
+		componentType:  ComponentTypeControlPlane,
 		currentCluster: &ClusterClientSet{ClusterName: "current"},
 		clusters: map[string]*ClusterClientSet{
 			"cluster1": {ClusterName: "cluster1"},
 			"cluster2": {ClusterName: "cluster2"},
 		},
-		multiCluster: true,
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -327,6 +417,7 @@ func BenchmarkClusterManager_GetCurrentClusterClients(b *testing.B) {
 
 func BenchmarkClusterManager_GetClientSetByClusterName(b *testing.B) {
 	cm := &ClusterManager{
+		componentType: ComponentTypeControlPlane,
 		clusters: map[string]*ClusterClientSet{
 			"cluster1": {ClusterName: "cluster1"},
 		},
@@ -340,6 +431,7 @@ func BenchmarkClusterManager_GetClientSetByClusterName(b *testing.B) {
 
 func BenchmarkClusterManager_ListAllClientSets(b *testing.B) {
 	cm := &ClusterManager{
+		componentType: ComponentTypeControlPlane,
 		clusters: map[string]*ClusterClientSet{
 			"cluster1": {ClusterName: "cluster1"},
 			"cluster2": {ClusterName: "cluster2"},
@@ -350,5 +442,142 @@ func BenchmarkClusterManager_ListAllClientSets(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = cm.ListAllClientSets()
+	}
+}
+
+// Test ComponentType
+func TestComponentType(t *testing.T) {
+	tests := []struct {
+		name           string
+		ct             ComponentType
+		wantString     string
+		wantIsControl  bool
+		wantIsDataPane bool
+	}{
+		{
+			name:           "DataPlane",
+			ct:             ComponentTypeDataPlane,
+			wantString:     "DataPlane",
+			wantIsControl:  false,
+			wantIsDataPane: true,
+		},
+		{
+			name:           "ControlPlane",
+			ct:             ComponentTypeControlPlane,
+			wantString:     "ControlPlane",
+			wantIsControl:  true,
+			wantIsDataPane: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.ct.String(); got != tt.wantString {
+				t.Errorf("ComponentType.String() = %v, want %v", got, tt.wantString)
+			}
+			if got := tt.ct.IsControlPlane(); got != tt.wantIsControl {
+				t.Errorf("ComponentType.IsControlPlane() = %v, want %v", got, tt.wantIsControl)
+			}
+			if got := tt.ct.IsDataPlane(); got != tt.wantIsDataPane {
+				t.Errorf("ComponentType.IsDataPlane() = %v, want %v", got, tt.wantIsDataPane)
+			}
+		})
+	}
+}
+
+// Test ComponentDeclaration defaults
+func TestComponentDeclaration_Defaults(t *testing.T) {
+	// Test DefaultControlPlaneDeclaration
+	cpDecl := DefaultControlPlaneDeclaration()
+	if cpDecl.Type != ComponentTypeControlPlane {
+		t.Errorf("DefaultControlPlaneDeclaration().Type = %v, want ControlPlane", cpDecl.Type)
+	}
+	if !cpDecl.RequireK8S || !cpDecl.RequireStorage {
+		t.Errorf("DefaultControlPlaneDeclaration() should require both K8S and Storage")
+	}
+
+	// Test DefaultDataPlaneDeclaration
+	dpDecl := DefaultDataPlaneDeclaration()
+	if dpDecl.Type != ComponentTypeDataPlane {
+		t.Errorf("DefaultDataPlaneDeclaration().Type = %v, want DataPlane", dpDecl.Type)
+	}
+	if !dpDecl.RequireK8S || !dpDecl.RequireStorage {
+		t.Errorf("DefaultDataPlaneDeclaration() should require both K8S and Storage")
+	}
+}
+
+// Test GetComponentType
+func TestClusterManager_GetComponentType(t *testing.T) {
+	tests := []struct {
+		name string
+		ct   ComponentType
+	}{
+		{"DataPlane", ComponentTypeDataPlane},
+		{"ControlPlane", ComponentTypeControlPlane},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cm := &ClusterManager{
+				componentType: tt.ct,
+				clusters:      make(map[string]*ClusterClientSet),
+			}
+			if got := cm.GetComponentType(); got != tt.ct {
+				t.Errorf("GetComponentType() = %v, want %v", got, tt.ct)
+			}
+		})
+	}
+}
+
+// Test GetClusterClientsOrDefault behavior for different component types
+func TestClusterManager_GetClusterClientsOrDefault(t *testing.T) {
+	currentCluster := &ClusterClientSet{ClusterName: "current"}
+	cluster1 := &ClusterClientSet{ClusterName: "cluster1"}
+	cluster2 := &ClusterClientSet{ClusterName: "cluster2"}
+
+	// Test control plane component
+	cmControl := &ClusterManager{
+		componentType:      ComponentTypeControlPlane,
+		currentCluster:     currentCluster,
+		defaultClusterName: "cluster1",
+		clusters: map[string]*ClusterClientSet{
+			"current":  currentCluster,
+			"cluster1": cluster1,
+			"cluster2": cluster2,
+		},
+	}
+
+	// Control plane with empty cluster name returns default cluster
+	got, err := cmControl.GetClusterClientsOrDefault("")
+	if err != nil || got.ClusterName != "cluster1" {
+		t.Errorf("ControlPlane GetClusterClientsOrDefault('') = %v, want cluster1", got.ClusterName)
+	}
+
+	// Control plane with specific cluster name returns that cluster
+	got, err = cmControl.GetClusterClientsOrDefault("cluster2")
+	if err != nil || got.ClusterName != "cluster2" {
+		t.Errorf("ControlPlane GetClusterClientsOrDefault('cluster2') = %v, want cluster2", got.ClusterName)
+	}
+
+	// Test data plane component
+	cmData := &ClusterManager{
+		componentType:      ComponentTypeDataPlane,
+		currentCluster:     currentCluster,
+		defaultClusterName: "cluster1",
+		clusters: map[string]*ClusterClientSet{
+			"current":  currentCluster,
+			"cluster1": cluster1,
+		},
+	}
+
+	// Data plane always returns current cluster regardless of input
+	got, err = cmData.GetClusterClientsOrDefault("")
+	if err != nil || got.ClusterName != "current" {
+		t.Errorf("DataPlane GetClusterClientsOrDefault('') = %v, want current", got.ClusterName)
+	}
+
+	got, err = cmData.GetClusterClientsOrDefault("cluster1")
+	if err != nil || got.ClusterName != "current" {
+		t.Errorf("DataPlane GetClusterClientsOrDefault('cluster1') = %v, want current", got.ClusterName)
 	}
 }
