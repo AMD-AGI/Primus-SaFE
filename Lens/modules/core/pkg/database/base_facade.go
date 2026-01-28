@@ -49,6 +49,10 @@ func (f *BaseFacade) getDB() *gorm.DB {
 // getDAL retrieves the DAL instance
 func (f *BaseFacade) getDAL() *dal.Query {
 	db := f.getDB()
+	if db == nil {
+		log.Errorf("getDAL: database connection is nil for cluster '%s'", f.clusterName)
+		return nil
+	}
 	query := dal.Use(db)
 	return query
 }
