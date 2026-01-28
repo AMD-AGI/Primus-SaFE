@@ -11,6 +11,7 @@ import (
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/errors"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
+	"k8s.io/client-go/tools/clientcmd"
 )
 
 // ClusterClientSet contains all clients for a single cluster
@@ -400,11 +401,41 @@ func getCurrentClusterName() string {
 		return name
 	}
 
-	// Try to get from K8S config
-	// This can be extended based on actual requirements
+	// Try to get from kubeconfig current-context
+	if name := getClusterNameFromKubeconfig(); name != "" {
+		log.Infof("Cluster name detected from kubeconfig: %s", name)
+		return name
+	}
 
-	// Default value
-	return "default"
+	// Default value - use "local" instead of "default" to avoid confusion
+	// "default" is too generic and conflicts with Kubernetes "default" namespace
+	log.Warn("CLUSTER_NAME environment variable not set, using 'local' as cluster name")
+	return "local"
+}
+
+// getClusterNameFromKubeconfig attempts to get the cluster name from kubeconfig
+func getClusterNameFromKubeconfig() string {
+	// Try to load kubeconfig rules
+	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
+	configOverrides := &clientcmd.ConfigOverrides{}
+	kubeConfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, configOverrides)
+
+	// Get raw config
+	rawConfig, err := kubeConfig.RawConfig()
+	if err != nil {
+		log.Debugf("Failed to load kubeconfig: %v", err)
+		return ""
+	}
+
+	// Get current context
+	currentContext := rawConfig.CurrentContext
+	if currentContext == "" {
+		return ""
+	}
+
+	// Return the context name as cluster name
+	// Context name typically represents the cluster identity
+	return currentContext
 }
 
 // getDefaultClusterName gets the default cluster name from environment variables

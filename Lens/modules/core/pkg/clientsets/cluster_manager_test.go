@@ -23,16 +23,34 @@ func TestGetCurrentClusterName(t *testing.T) {
 		{
 			name:     "environment variable not set",
 			envValue: "",
-			want:     "default",
+			want:     "local", // When CLUSTER_NAME is not set and kubeconfig is not available, defaults to "local"
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// Save original env vars
+			origClusterName := os.Getenv("CLUSTER_NAME")
+			origKubeconfig := os.Getenv("KUBECONFIG")
+
+			// Set KUBECONFIG to invalid path to ensure getClusterNameFromKubeconfig returns empty
+			os.Setenv("KUBECONFIG", "/nonexistent/path/kubeconfig")
+			defer func() {
+				if origKubeconfig != "" {
+					os.Setenv("KUBECONFIG", origKubeconfig)
+				} else {
+					os.Unsetenv("KUBECONFIG")
+				}
+				if origClusterName != "" {
+					os.Setenv("CLUSTER_NAME", origClusterName)
+				} else {
+					os.Unsetenv("CLUSTER_NAME")
+				}
+			}()
+
 			// Set environment variable
 			if tt.envValue != "" {
 				os.Setenv("CLUSTER_NAME", tt.envValue)
-				defer os.Unsetenv("CLUSTER_NAME")
 			} else {
 				os.Unsetenv("CLUSTER_NAME")
 			}
