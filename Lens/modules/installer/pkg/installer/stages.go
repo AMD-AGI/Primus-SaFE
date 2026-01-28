@@ -1,26 +1,67 @@
 // Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
 // See LICENSE for license information.
 
-package dataplane_installer
+package installer
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
-	"os/exec"
 	"time"
 
-	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/controlplane/database/model"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 )
+
+// Stage constants
+const (
+	StagePending         = "pending"
+	StageOperators       = "operators"
+	StageWaitOperators   = "wait_operators"
+	StageInfrastructure  = "infrastructure"
+	StageWaitInfra       = "wait_infrastructure"
+	StageInit            = "init"
+	StageStorageSecret   = "storage_secret"
+	StageApplications    = "applications"
+	StageWaitApps        = "wait_applications"
+	StageCompleted       = "completed"
+)
+
+// GetStageSequence returns the ordered list of stages based on storage mode
+func GetStageSequence(storageMode string) []string {
+	if storageMode == StorageModeLensManaged {
+		return []string{
+			StageOperators,
+			StageWaitOperators,
+			StageInfrastructure,
+			StageWaitInfra,
+			StageInit,
+			StageStorageSecret,
+			StageApplications,
+			StageWaitApps,
+		}
+	}
+	// External storage mode - skip operators/infrastructure
+	return []string{
+		StageInit,
+		StageStorageSecret,
+		StageApplications,
+		StageWaitApps,
+	}
+}
+
+// GetUpgradeStageSequence returns stages for upgrade/rollback (skip infrastructure)
+func GetUpgradeStageSequence() []string {
+	return []string{
+		StageApplications,
+		StageWaitApps,
+	}
+}
 
 // ===== Operators Stage =====
 
 type OperatorsStage struct{}
 
-func (s *OperatorsStage) Name() string      { return model.StageOperators }
+func (s *OperatorsStage) Name() string       { return StageOperators }
 func (s *OperatorsStage) IsIdempotent() bool { return true }
 
 func (s *OperatorsStage) Execute(ctx context.Context, helm *HelmClient, config *InstallConfig) error {
@@ -51,11 +92,10 @@ func (s *OperatorsStage) Execute(ctx context.Context, helm *HelmClient, config *
 
 type WaitOperatorsStage struct{}
 
-func (s *WaitOperatorsStage) Name() string      { return model.StageWaitOperators }
+func (s *WaitOperatorsStage) Name() string       { return StageWaitOperators }
 func (s *WaitOperatorsStage) IsIdempotent() bool { return true }
 
 func (s *WaitOperatorsStage) Execute(ctx context.Context, helm *HelmClient, config *InstallConfig) error {
-	// Wait for operator pods to be ready
 	return helm.WaitForPods(ctx, config.Kubeconfig, config.Namespace, "app.kubernetes.io/instance="+ReleaseOperators, 5*time.Minute)
 }
 
@@ -63,11 +103,10 @@ func (s *WaitOperatorsStage) Execute(ctx context.Context, helm *HelmClient, conf
 
 type InfrastructureStage struct{}
 
-func (s *InfrastructureStage) Name() string      { return model.StageInfrastructure }
+func (s *InfrastructureStage) Name() string       { return StageInfrastructure }
 func (s *InfrastructureStage) IsIdempotent() bool { return true }
 
 func (s *InfrastructureStage) Execute(ctx context.Context, helm *HelmClient, config *InstallConfig) error {
-	// Check if already installed
 	exists, healthy, err := helm.ReleaseStatus(ctx, config.Kubeconfig, config.Namespace, ReleaseInfrastructure)
 	if err != nil {
 		return err
@@ -78,7 +117,6 @@ func (s *InfrastructureStage) Execute(ctx context.Context, helm *HelmClient, con
 		return nil
 	}
 
-	// Build values from managed storage config
 	managed := config.ManagedStorage
 	if managed == nil {
 		managed = &ManagedStorageConfig{
@@ -134,12 +172,11 @@ func (s *InfrastructureStage) Execute(ctx context.Context, helm *HelmClient, con
 
 type WaitInfraStage struct{}
 
-func (s *WaitInfraStage) Name() string      { return model.StageWaitInfra }
+func (s *WaitInfraStage) Name() string       { return StageWaitInfra }
 func (s *WaitInfraStage) IsIdempotent() bool { return true }
 
 func (s *WaitInfraStage) Execute(ctx context.Context, helm *HelmClient, config *InstallConfig) error {
-	// Wait for infrastructure pods - this may take a while
-	// First wait for postgres
+	// Wait for postgres
 	if err := helm.WaitForPods(ctx, config.Kubeconfig, config.Namespace, "cluster-name=primus-lens", 10*time.Minute); err != nil {
 		log.Warnf("Postgres pods not ready yet: %v", err)
 	}
@@ -161,17 +198,15 @@ func (s *WaitInfraStage) Execute(ctx context.Context, helm *HelmClient, config *
 
 type InitStage struct{}
 
-func (s *InitStage) Name() string      { return model.StageInit }
-func (s *InitStage) IsIdempotent() bool { return true } // DB migrations are idempotent (IF NOT EXISTS)
+func (s *InitStage) Name() string       { return StageInit }
+func (s *InitStage) IsIdempotent() bool { return true }
 
 func (s *InitStage) Execute(ctx context.Context, helm *HelmClient, config *InstallConfig) error {
-	// For external storage, skip init job as DB should already be set up
-	if config.StorageMode == model.StorageModeExternal {
+	if config.StorageMode == StorageModeExternal {
 		log.Info("External storage mode, skipping init job (assuming DB is pre-configured)")
 		return nil
 	}
 
-	// Check if already run
 	exists, _, err := helm.ReleaseStatus(ctx, config.Kubeconfig, config.Namespace, ReleaseInit)
 	if err != nil {
 		return err
@@ -196,41 +231,34 @@ func (s *InitStage) Execute(ctx context.Context, helm *HelmClient, config *Insta
 
 type StorageSecretStage struct{}
 
-func (s *StorageSecretStage) Name() string      { return model.StageStorageSecret }
+func (s *StorageSecretStage) Name() string       { return StageStorageSecret }
 func (s *StorageSecretStage) IsIdempotent() bool { return true }
 
 func (s *StorageSecretStage) Execute(ctx context.Context, helm *HelmClient, config *InstallConfig) error {
 	var storageConfig StorageConfig
 
-	if config.StorageMode == model.StorageModeLensManaged {
-		// Get credentials from managed storage secrets
+	if config.StorageMode == StorageModeLensManaged {
 		var err error
-		storageConfig, err = s.buildFromManagedStorage(ctx, config)
+		storageConfig, err = s.buildFromManagedStorage(ctx, helm, config)
 		if err != nil {
 			return fmt.Errorf("failed to build storage config from managed storage: %w", err)
 		}
 	} else {
-		// Use external storage config
 		storageConfig = s.buildFromExternalStorage(config)
 	}
 
-	// Create storage secret YAML
 	secretYAML := s.buildSecretYAML(config.Namespace, storageConfig)
-
-	// Apply the secret
 	return helm.ApplyYAML(ctx, config.Kubeconfig, config.Namespace, secretYAML)
 }
 
-func (s *StorageSecretStage) buildFromManagedStorage(ctx context.Context, config *InstallConfig) (StorageConfig, error) {
-	// Get postgres password from secret
-	pgPassword, err := s.getSecretValue(ctx, config.Kubeconfig, config.Namespace,
+func (s *StorageSecretStage) buildFromManagedStorage(ctx context.Context, helm *HelmClient, config *InstallConfig) (StorageConfig, error) {
+	pgPassword, err := helm.GetSecretValue(ctx, config.Kubeconfig, config.Namespace,
 		"primus-lens.primus-lens.credentials.postgresql.acid.zalan.do", "password")
 	if err != nil {
 		return StorageConfig{}, fmt.Errorf("failed to get postgres password: %w", err)
 	}
 
-	// Get opensearch password from secret
-	osPassword, err := s.getSecretValue(ctx, config.Kubeconfig, config.Namespace,
+	osPassword, err := helm.GetSecretValue(ctx, config.Kubeconfig, config.Namespace,
 		"primus-lens-logs-admin-credentials", "password")
 	if err != nil {
 		return StorageConfig{}, fmt.Errorf("failed to get opensearch password: %w", err)
@@ -339,112 +367,110 @@ stringData:
 `, namespace, string(pgJSON), string(osJSON), config.Prometheus.ReadEndpoint, config.Prometheus.WriteEndpoint))
 }
 
-func (s *StorageSecretStage) getSecretValue(ctx context.Context, kubeconfig []byte, namespace, secretName, key string) (string, error) {
-	// Write kubeconfig to temp file
-	kubeconfigFile, err := os.CreateTemp("", "kubeconfig-*.yaml")
-	if err != nil {
-		return "", err
-	}
-	defer os.Remove(kubeconfigFile.Name())
-
-	if _, err := kubeconfigFile.Write(kubeconfig); err != nil {
-		return "", err
-	}
-	kubeconfigFile.Close()
-
-	args := []string{
-		"get", "secret", secretName,
-		"--kubeconfig", kubeconfigFile.Name(),
-		"--namespace", namespace,
-		"-o", fmt.Sprintf("jsonpath={.data.%s}", key),
-	}
-
-	cmd := exec.CommandContext(ctx, "kubectl", args...)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("kubectl get secret failed: %s", stderr.String())
-	}
-
-	// Decode base64
-	decoded := make([]byte, len(stdout.Bytes()))
-	n, err := decodeBase64(stdout.Bytes(), decoded)
-	if err != nil {
-		return "", err
-	}
-
-	return string(decoded[:n]), nil
-}
-
-// decodeBase64 decodes base64 encoded bytes
-func decodeBase64(src, dst []byte) (int, error) {
-	cmd := exec.Command("base64", "-d")
-	cmd.Stdin = bytes.NewReader(src)
-	var stdout bytes.Buffer
-	cmd.Stdout = &stdout
-
-	if err := cmd.Run(); err != nil {
-		return 0, err
-	}
-
-	copy(dst, stdout.Bytes())
-	return stdout.Len(), nil
-}
-
 // ===== Applications Stage =====
 
 type ApplicationsStage struct{}
 
-func (s *ApplicationsStage) Name() string      { return model.StageApplications }
+func (s *ApplicationsStage) Name() string       { return StageApplications }
 func (s *ApplicationsStage) IsIdempotent() bool { return true }
 
 func (s *ApplicationsStage) Execute(ctx context.Context, helm *HelmClient, config *InstallConfig) error {
-	// Check if already installed
 	exists, healthy, err := helm.ReleaseStatus(ctx, config.Kubeconfig, config.Namespace, ReleaseApplications)
 	if err != nil {
 		return err
 	}
 
-	if exists && healthy {
+	// For upgrade mode, we always want to upgrade even if healthy
+	if exists && healthy && !config.IsUpgrade {
 		log.Infof("Applications already installed and healthy, skipping")
 		return nil
 	}
 
-	values := map[string]interface{}{
-		"global": map[string]interface{}{
-			"clusterName": config.ClusterName,
-			"namespace":   config.Namespace,
-			"imageRegistry": map[string]interface{}{
-				"url":        config.ImageRegistry,
-				"pullPolicy": "IfNotPresent",
-				"pullSecret": "",
+	// Use merged values from release management if available
+	var values map[string]interface{}
+	if config.MergedValues != nil && len(config.MergedValues) > 0 {
+		log.Infof("Using merged values from release management")
+		values = config.MergedValues
+
+		// Ensure global settings are set
+		if globalVals, ok := values["global"].(map[string]interface{}); ok {
+			globalVals["clusterName"] = config.ClusterName
+			globalVals["namespace"] = config.Namespace
+			if _, hasRegistry := globalVals["imageRegistry"]; !hasRegistry {
+				globalVals["imageRegistry"] = map[string]interface{}{
+					"url":        config.ImageRegistry,
+					"pullPolicy": "IfNotPresent",
+					"pullSecret": "",
+				}
+			}
+		} else {
+			values["global"] = map[string]interface{}{
+				"clusterName": config.ClusterName,
+				"namespace":   config.Namespace,
+				"imageRegistry": map[string]interface{}{
+					"url":        config.ImageRegistry,
+					"pullPolicy": "IfNotPresent",
+					"pullSecret": "",
+				},
+			}
+		}
+	} else {
+		// Build default values
+		values = map[string]interface{}{
+			"global": map[string]interface{}{
+				"clusterName": config.ClusterName,
+				"namespace":   config.Namespace,
+				"imageRegistry": map[string]interface{}{
+					"url":        config.ImageRegistry,
+					"pullPolicy": "IfNotPresent",
+					"pullSecret": "",
+				},
 			},
-		},
-		// Enable all dataplane applications
-		"telemetryCollector":  map[string]interface{}{"enabled": true},
-		"jobs":                map[string]interface{}{"enabled": true},
-		"nodeExporter":        map[string]interface{}{"enabled": true},
-		"gpuResourceExporter": map[string]interface{}{"enabled": true},
-		"systemTuner":         map[string]interface{}{"enabled": true},
-		"aiAdvisor":           map[string]interface{}{"enabled": true},
+			"telemetryCollector":  map[string]interface{}{"enabled": true},
+			"jobs":                map[string]interface{}{"enabled": true},
+			"nodeExporter":        map[string]interface{}{"enabled": true},
+			"gpuResourceExporter": map[string]interface{}{"enabled": true},
+			"systemTuner":         map[string]interface{}{"enabled": true},
+			"aiAdvisor":           map[string]interface{}{"enabled": true},
+		}
 	}
 
-	if exists {
-		return helm.Upgrade(ctx, config.Kubeconfig, config.Namespace, ReleaseApplications, ChartApplications, values)
+	// Determine chart name - use version-specific if available
+	chartName := ChartApplications
+	if config.ChartVersion != "" {
+		log.Infof("Using chart version: %s", config.ChartVersion)
 	}
-	return helm.Install(ctx, config.Kubeconfig, config.Namespace, ReleaseApplications, ChartApplications, values)
+
+	// Execute install or upgrade
+	if exists || config.IsUpgrade {
+		log.Infof("Upgrading applications release")
+		return helm.Upgrade(ctx, config.Kubeconfig, config.Namespace, ReleaseApplications, chartName, values)
+	}
+	log.Infof("Installing applications release")
+	return helm.Install(ctx, config.Kubeconfig, config.Namespace, ReleaseApplications, chartName, values)
 }
 
 // ===== Wait Applications Stage =====
 
 type WaitAppsStage struct{}
 
-func (s *WaitAppsStage) Name() string      { return model.StageWaitApps }
+func (s *WaitAppsStage) Name() string       { return StageWaitApps }
 func (s *WaitAppsStage) IsIdempotent() bool { return true }
 
 func (s *WaitAppsStage) Execute(ctx context.Context, helm *HelmClient, config *InstallConfig) error {
-	// Wait for application pods to be ready
 	return helm.WaitForPods(ctx, config.Kubeconfig, config.Namespace, "app.kubernetes.io/instance="+ReleaseApplications, 5*time.Minute)
+}
+
+// GetAllStages returns all stage implementations
+func GetAllStages() map[string]Stage {
+	return map[string]Stage{
+		StageOperators:      &OperatorsStage{},
+		StageWaitOperators:  &WaitOperatorsStage{},
+		StageInfrastructure: &InfrastructureStage{},
+		StageWaitInfra:      &WaitInfraStage{},
+		StageInit:           &InitStage{},
+		StageStorageSecret:  &StorageSecretStage{},
+		StageApplications:   &ApplicationsStage{},
+		StageWaitApps:       &WaitAppsStage{},
+	}
 }

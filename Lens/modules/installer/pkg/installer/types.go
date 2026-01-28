@@ -1,7 +1,7 @@
 // Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
 // See LICENSE for license information.
 
-package dataplane_installer
+package installer
 
 import "context"
 
@@ -13,6 +13,17 @@ type InstallConfig struct {
 	StorageClass  string
 	StorageMode   string // "lens-managed" or "external"
 	ImageRegistry string
+
+	// Chart configuration (from release version)
+	ChartRepo    string
+	ChartVersion string
+	ImageTag     string
+
+	// Merged values from release management
+	MergedValues map[string]interface{}
+
+	// Whether this is an upgrade (vs fresh install)
+	IsUpgrade bool
 
 	// Lens-managed storage config
 	ManagedStorage *ManagedStorageConfig
@@ -131,4 +142,10 @@ const (
 	ReleaseInfrastructure = "pli"
 	ReleaseInit           = "pli-init"
 	ReleaseApplications   = "pla"
+)
+
+// Storage modes
+const (
+	StorageModeLensManaged = "lens-managed"
+	StorageModeExternal    = "external"
 )

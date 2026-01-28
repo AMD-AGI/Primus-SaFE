@@ -7,6 +7,7 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/api/pkg/api/perfetto"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/api/pkg/api/pyspy"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/api/pkg/api/registry"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/api/pkg/api/release"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/api/pkg/api/sysconfig"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/api/pkg/api/tracelens"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/mcp/unified"
@@ -538,6 +539,39 @@ func RegisterRouter(group *gin.RouterGroup) error {
 
 	// Note: V2 group endpoints (analytics, history, commit, details) are now merged 
 	// into the main github-workflow-metrics group above using unified handlers
+
+	// Release Management routes (Control Plane only)
+	releaseGroup := group.Group("/releases")
+	{
+		// Release Versions
+		versionsGroup := releaseGroup.Group("/versions")
+		{
+			versionsGroup.GET("", release.ListReleaseVersions)
+			versionsGroup.POST("", release.CreateReleaseVersion)
+			versionsGroup.GET("/:id", release.GetReleaseVersion)
+			versionsGroup.PUT("/:id", release.UpdateReleaseVersion)
+			versionsGroup.DELETE("/:id", release.DeleteReleaseVersion)
+			versionsGroup.PATCH("/:id/status", release.UpdateReleaseVersionStatus)
+		}
+
+		// Cluster Release Configs
+		clustersGroup := releaseGroup.Group("/clusters")
+		{
+			clustersGroup.GET("", release.ListClusterReleaseConfigs)
+			clustersGroup.GET("/:cluster_name", release.GetClusterReleaseConfig)
+			clustersGroup.PUT("/:cluster_name/version", release.UpdateClusterVersion)
+			clustersGroup.PUT("/:cluster_name/values", release.UpdateClusterValuesOverride)
+			clustersGroup.GET("/:cluster_name/history", release.ListReleaseHistory)
+			clustersGroup.POST("/:cluster_name/deploy", release.TriggerDeploy)
+			clustersGroup.POST("/:cluster_name/rollback", release.TriggerRollback)
+		}
+
+		// Release History
+		historyGroup := releaseGroup.Group("/history")
+		{
+			historyGroup.GET("/:id", release.GetReleaseHistoryByID)
+		}
+	}
 
 	return nil
 }

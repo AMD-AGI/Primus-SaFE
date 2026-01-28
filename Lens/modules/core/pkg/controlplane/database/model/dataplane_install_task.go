@@ -14,20 +14,22 @@ const TableNameDataplaneInstallTask = "dataplane_install_tasks"
 
 // DataplaneInstallTask represents a dataplane installation task
 type DataplaneInstallTask struct {
-	ID            int32          `gorm:"column:id;primaryKey;autoIncrement:true" json:"id"`
-	ClusterName   string         `gorm:"column:cluster_name;not null" json:"cluster_name"`
-	TaskType      string         `gorm:"column:task_type;not null;default:install" json:"task_type"`
-	CurrentStage  string         `gorm:"column:current_stage;not null;default:pending" json:"current_stage"`
-	StorageMode   string         `gorm:"column:storage_mode;not null;default:external" json:"storage_mode"`
+	ID            int32             `gorm:"column:id;primaryKey;autoIncrement:true" json:"id"`
+	ClusterName   string            `gorm:"column:cluster_name;not null" json:"cluster_name"`
+	TaskType      string            `gorm:"column:task_type;not null;default:install" json:"task_type"`
+	CurrentStage  string            `gorm:"column:current_stage;not null;default:pending" json:"current_stage"`
+	StorageMode   string            `gorm:"column:storage_mode;not null;default:external" json:"storage_mode"`
 	InstallConfig InstallConfigJSON `gorm:"column:install_config;not null" json:"install_config"`
-	Status        string         `gorm:"column:status;not null;default:pending" json:"status"`
-	ErrorMessage  string         `gorm:"column:error_message" json:"error_message"`
-	RetryCount    int            `gorm:"column:retry_count;default:0" json:"retry_count"`
-	MaxRetries    int            `gorm:"column:max_retries;default:3" json:"max_retries"`
-	CreatedAt     time.Time      `gorm:"column:created_at;autoCreateTime" json:"created_at"`
-	UpdatedAt     time.Time      `gorm:"column:updated_at;autoUpdateTime" json:"updated_at"`
-	StartedAt     *time.Time     `gorm:"column:started_at" json:"started_at"`
-	CompletedAt   *time.Time     `gorm:"column:completed_at" json:"completed_at"`
+	Status        string            `gorm:"column:status;not null;default:pending" json:"status"`
+	ErrorMessage  string            `gorm:"column:error_message" json:"error_message"`
+	RetryCount    int               `gorm:"column:retry_count;default:0" json:"retry_count"`
+	MaxRetries    int               `gorm:"column:max_retries;default:3" json:"max_retries"`
+	JobName       string            `gorm:"column:job_name" json:"job_name"`       // K8s Job name for tracking
+	JobNamespace  string            `gorm:"column:job_namespace" json:"job_namespace"` // K8s Job namespace
+	CreatedAt     time.Time         `gorm:"column:created_at;autoCreateTime" json:"created_at"`
+	UpdatedAt     time.Time         `gorm:"column:updated_at;autoUpdateTime" json:"updated_at"`
+	StartedAt     *time.Time        `gorm:"column:started_at" json:"started_at"`
+	CompletedAt   *time.Time        `gorm:"column:completed_at" json:"completed_at"`
 }
 
 // TableName returns the table name
@@ -54,6 +56,8 @@ const (
 	TaskTypeInstall   = "install"
 	TaskTypeUpgrade   = "upgrade"
 	TaskTypeUninstall = "uninstall"
+	TaskTypeRollback  = "rollback"
+	TaskTypeSync      = "sync"
 )
 
 // Task status constants

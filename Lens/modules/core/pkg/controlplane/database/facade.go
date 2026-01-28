@@ -14,6 +14,9 @@ type ControlPlaneFacade struct {
 	ClusterConfig            ClusterConfigFacadeInterface
 	ClusterDeploymentHistory ClusterDeploymentHistoryFacadeInterface
 	DataplaneInstallTask     DataplaneInstallTaskFacadeInterface
+	ReleaseVersion           ReleaseVersionFacadeInterface
+	ClusterReleaseConfig     ClusterReleaseConfigFacadeInterface
+	ReleaseHistory           ReleaseHistoryFacadeInterface
 }
 
 // NewControlPlaneFacade creates a new ControlPlaneFacade instance
@@ -22,6 +25,9 @@ func NewControlPlaneFacade(db *gorm.DB) *ControlPlaneFacade {
 		ClusterConfig:            NewClusterConfigFacade(db),
 		ClusterDeploymentHistory: NewClusterDeploymentHistoryFacade(db),
 		DataplaneInstallTask:     NewDataplaneInstallTaskFacade(db),
+		ReleaseVersion:           NewReleaseVersionFacade(db),
+		ClusterReleaseConfig:     NewClusterReleaseConfigFacade(db),
+		ReleaseHistory:           NewReleaseHistoryFacade(db),
 	}
 }
 
@@ -38,6 +44,21 @@ func (f *ControlPlaneFacade) GetClusterDeploymentHistory() ClusterDeploymentHist
 // GetDataplaneInstallTask returns the DataplaneInstallTask Facade interface
 func (f *ControlPlaneFacade) GetDataplaneInstallTask() DataplaneInstallTaskFacadeInterface {
 	return f.DataplaneInstallTask
+}
+
+// GetReleaseVersion returns the ReleaseVersion Facade interface
+func (f *ControlPlaneFacade) GetReleaseVersion() ReleaseVersionFacadeInterface {
+	return f.ReleaseVersion
+}
+
+// GetClusterReleaseConfig returns the ClusterReleaseConfig Facade interface
+func (f *ControlPlaneFacade) GetClusterReleaseConfig() ClusterReleaseConfigFacadeInterface {
+	return f.ClusterReleaseConfig
+}
+
+// GetReleaseHistory returns the ReleaseHistory Facade interface
+func (f *ControlPlaneFacade) GetReleaseHistory() ReleaseHistoryFacadeInterface {
+	return f.ReleaseHistory
 }
 
 // Global control plane facade instance
