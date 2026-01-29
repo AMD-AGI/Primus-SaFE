@@ -28,44 +28,40 @@ COPY Lens/modules/installer/ ./modules/installer/
 WORKDIR /workspace/modules/installer
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o /installer ./cmd/main.go
 
-# Charts download stage - pull all required charts for offline installation
-FROM ${REGISTRY}/primussafe/alpine:3.19 AS charts-downloader
+# Charts packaging stage - package local charts with dependencies for offline installation
+FROM ${REGISTRY}/primussafe/alpine:3.19 AS charts-packager
 
 RUN apk add --no-cache ca-certificates curl
 
-# Install helm for pulling charts
+# Install helm for packaging charts
 RUN curl -fsSL https://get.helm.sh/helm-v3.14.0-linux-amd64.tar.gz | tar xz && \
     mv linux-amd64/helm /usr/local/bin/ && \
     rm -rf linux-amd64
 
-# Build arguments for chart version and registry credentials
-ARG CHART_VERSION=latest
-ARG CHART_REGISTRY=oci://docker.io/primussafe
-ARG REGISTRY_USERNAME
-ARG REGISTRY_PASSWORD
+WORKDIR /workspace
 
-WORKDIR /charts
+# Copy local charts source from repo
+# Note: paths are relative to repo root (build context is ".")
+COPY Lens/charts/primus-lens-operators/ ./charts/primus-lens-operators/
+COPY Lens/charts/primus-lens-infrastructure/ ./charts/primus-lens-infrastructure/
+COPY Lens/charts/primus-lens-init/ ./charts/primus-lens-init/
+COPY Lens/charts/primus-lens-apps-dataplane/ ./charts/primus-lens-apps-dataplane/
 
-# Login to registry if credentials provided
-RUN if [ -n "$REGISTRY_USERNAME" ] && [ -n "$REGISTRY_PASSWORD" ]; then \
-        echo "$REGISTRY_PASSWORD" | helm registry login docker.io -u "$REGISTRY_USERNAME" --password-stdin; \
-    fi
+# Create output directory for packaged charts
+RUN mkdir -p /charts
 
-# Pull all required charts
-# Charts are downloaded as .tgz files to /charts directory
-RUN helm pull ${CHART_REGISTRY}/primus-lens-operators --version ${CHART_VERSION} --destination /charts || \
-    helm pull ${CHART_REGISTRY}/primus-lens-operators --destination /charts
+# Download dependencies and package charts
+# primus-lens-operators has external dependencies (victoria-metrics-operator, fluent-operator, etc.)
+RUN cd /workspace/charts/primus-lens-operators && \
+    helm dependency update && \
+    helm package . -d /charts
 
-RUN helm pull ${CHART_REGISTRY}/primus-lens-infrastructure --version ${CHART_VERSION} --destination /charts || \
-    helm pull ${CHART_REGISTRY}/primus-lens-infrastructure --destination /charts
+# Package charts without dependencies
+RUN helm package /workspace/charts/primus-lens-infrastructure -d /charts
+RUN helm package /workspace/charts/primus-lens-init -d /charts
+RUN helm package /workspace/charts/primus-lens-apps-dataplane -d /charts
 
-RUN helm pull ${CHART_REGISTRY}/primus-lens-init --version ${CHART_VERSION} --destination /charts || \
-    helm pull ${CHART_REGISTRY}/primus-lens-init --destination /charts
-
-RUN helm pull ${CHART_REGISTRY}/primus-lens-apps-dataplane --version ${CHART_VERSION} --destination /charts || \
-    helm pull ${CHART_REGISTRY}/primus-lens-apps-dataplane --destination /charts
-
-# List downloaded charts for verification
+# List packaged charts for verification
 RUN ls -la /charts/
 
 # Runtime stage
@@ -92,7 +88,7 @@ COPY --from=builder /installer /app/installer
 COPY Lens/modules/core/pkg/database/migrations/ /app/migrations/
 
 # Copy bundled charts for offline installation
-COPY --from=charts-downloader /charts/ /app/charts/
+COPY --from=charts-packager /charts/ /app/charts/
 
 # Non-root user
 RUN addgroup -g 1000 installer && \
