@@ -756,22 +756,13 @@ func handleWorkloadGPUHistory(ctx context.Context, req *WorkloadGPUHistoryReques
 // handleWorkloadHierarchyByUID handles workload hierarchy by UID requests.
 // Reuses: database.GetWorkload().GetGpuWorkloadByUid, buildHierarchy
 func handleWorkloadHierarchyByUID(ctx context.Context, req *WorkloadHierarchyByUIDRequest) (*WorkloadHierarchyResponse, error) {
-	cm := clientsets.GetClusterManager()
-	clients, err := cm.GetClusterClientsOrDefault(req.Cluster)
+	// Auto-resolve cluster if not specified
+	clients, err := getClusterClientsForWorkload(ctx, req.UID, req.Cluster)
 	if err != nil {
 		return nil, err
 	}
 
-	// Verify workload exists
-	rootWorkload, err := database.GetFacadeForCluster(clients.ClusterName).GetWorkload().GetGpuWorkloadByUid(ctx, req.UID)
-	if err != nil {
-		return nil, err
-	}
-	if rootWorkload == nil {
-		return nil, errors.NewError().WithCode(errors.RequestDataNotExisted).WithMessage("workload not found")
-	}
-
-	// Reuse existing buildHierarchy function
+	// Build hierarchy tree using the resolved cluster
 	tree, err := buildHierarchy(ctx, clients.ClusterName, req.UID)
 	if err != nil {
 		return nil, err
@@ -809,8 +800,8 @@ func handleWorkloadMetrics(ctx context.Context, req *WorkloadMetricsRequest) (*W
 		}
 	}
 
-	cm := clientsets.GetClusterManager()
-	clients, err := cm.GetClusterClientsOrDefault(req.Cluster)
+	// Auto-resolve cluster if not specified
+	clients, err := getClusterClientsForWorkload(ctx, req.UID, req.Cluster)
 	if err != nil {
 		return nil, err
 	}
@@ -820,6 +811,7 @@ func handleWorkloadMetrics(ctx context.Context, req *WorkloadMetricsRequest) (*W
 	if storageClient == nil {
 		log.Warnf("[WorkloadMetrics] Cluster '%s' has no storage configuration, falling back to current cluster",
 			clients.ClusterName)
+		cm := clientsets.GetClusterManager()
 		currentClients := cm.GetCurrentClusterClients()
 		if currentClients == nil || currentClients.StorageClientSet == nil {
 			return nil, errors.NewError().WithCode(errors.InternalError).
@@ -929,8 +921,8 @@ func handleTrainingPerformance(ctx context.Context, req *TrainingPerformanceRequ
 // handleWorkloadDataSources handles data sources requests.
 // Reuses: database.GetTraining().ListTrainingPerformanceByWorkloadUID
 func handleWorkloadDataSources(ctx context.Context, req *WorkloadDataSourcesRequest) (*WorkloadDataSourcesResponse, error) {
-	cm := clientsets.GetClusterManager()
-	clients, err := cm.GetClusterClientsOrDefault(req.Cluster)
+	// Auto-resolve cluster if not specified
+	clients, err := getClusterClientsForWorkload(ctx, req.UID, req.Cluster)
 	if err != nil {
 		return nil, err
 	}
@@ -965,8 +957,8 @@ func handleWorkloadDataSources(ctx context.Context, req *WorkloadDataSourcesRequ
 // handleWorkloadAvailableMetrics handles available metrics requests.
 // Reuses: database.GetTraining().ListTrainingPerformanceByWorkloadUID/ByWorkloadUIDAndDataSource
 func handleWorkloadAvailableMetrics(ctx context.Context, req *WorkloadAvailableMetricsRequest) (*WorkloadAvailableMetricsResponse, error) {
-	cm := clientsets.GetClusterManager()
-	clients, err := cm.GetClusterClientsOrDefault(req.Cluster)
+	// Auto-resolve cluster if not specified
+	clients, err := getClusterClientsForWorkload(ctx, req.UID, req.Cluster)
 	if err != nil {
 		return nil, err
 	}
@@ -1025,8 +1017,8 @@ func handleWorkloadAvailableMetrics(ctx context.Context, req *WorkloadAvailableM
 // handleWorkloadMetricsData handles metrics data requests.
 // Reuses: database.GetTraining().ListTrainingPerformanceByWorkloadUIDDataSourceAndTimeRange
 func handleWorkloadMetricsData(ctx context.Context, req *WorkloadMetricsDataRequest) (*WorkloadMetricsDataResponse, error) {
-	cm := clientsets.GetClusterManager()
-	clients, err := cm.GetClusterClientsOrDefault(req.Cluster)
+	// Auto-resolve cluster if not specified
+	clients, err := getClusterClientsForWorkload(ctx, req.UID, req.Cluster)
 	if err != nil {
 		return nil, err
 	}
@@ -1117,8 +1109,8 @@ func handleWorkloadMetricsData(ctx context.Context, req *WorkloadMetricsDataRequ
 // handleWorkloadIterationTimes handles iteration times requests.
 // Reuses: database.GetTraining().ListTrainingPerformanceByWorkloadUIDDataSourceAndTimeRange
 func handleWorkloadIterationTimes(ctx context.Context, req *WorkloadIterationTimesRequest) (*WorkloadIterationTimesResponse, error) {
-	cm := clientsets.GetClusterManager()
-	clients, err := cm.GetClusterClientsOrDefault(req.Cluster)
+	// Auto-resolve cluster if not specified
+	clients, err := getClusterClientsForWorkload(ctx, req.UID, req.Cluster)
 	if err != nil {
 		return nil, err
 	}
