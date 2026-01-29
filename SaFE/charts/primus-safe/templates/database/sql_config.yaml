@@ -454,7 +454,6 @@ data:
     CREATE INDEX IF NOT EXISTS idx_audit_logs_action ON audit_logs(action);
     CREATE INDEX IF NOT EXISTS idx_audit_logs_create_time ON audit_logs(create_time DESC);
     CREATE INDEX IF NOT EXISTS idx_audit_logs_http_method ON audit_logs(http_method);
-
     alter table audit_logs owner to "primus-safe";
 
     -- Dataset table for managing datasets
@@ -489,3 +488,60 @@ data:
     create index if not exists T_DATASET_WORKSPACE_INDEX on dataset (workspace);
 
     alter table dataset owner to "primus-safe";
+
+
+    -- Evaluation task table for model evaluation
+    create table if not exists evaluation_task
+    (
+        id BIGSERIAL PRIMARY KEY,
+        task_id VARCHAR(64) NOT NULL UNIQUE,
+        task_name VARCHAR(128) NOT NULL,
+        description TEXT,
+        
+        -- Model/service association
+        service_id VARCHAR(64) NOT NULL,
+        service_type VARCHAR(32) NOT NULL,
+        service_name VARCHAR(128),
+        
+        -- Evaluation configuration
+        benchmarks JSONB NOT NULL,
+        eval_params JSONB,
+        
+        -- Judge model configuration (for LLM-as-Judge mode)
+        judge_service_id VARCHAR(64),
+        judge_service_type VARCHAR(32),
+        judge_service_name VARCHAR(128),
+        
+        -- Performance settings
+        timeout INT DEFAULT 7200,
+        concurrency INT DEFAULT 32,
+        
+        -- Task status
+        ops_job_id VARCHAR(64),
+        status VARCHAR(32) DEFAULT 'Pending',
+        result_summary JSONB,
+        report_s3_path VARCHAR(512),
+        
+        -- Ownership
+        workspace VARCHAR(64),
+        user_id VARCHAR(64) NOT NULL,
+        user_name VARCHAR(128),
+        
+        -- Timestamps
+        creation_time TIMESTAMPTZ DEFAULT NOW(),
+        start_time TIMESTAMPTZ,
+        end_time TIMESTAMPTZ,
+        is_deleted BOOLEAN DEFAULT FALSE
+    );
+
+    create unique index if not exists T_EVAL_TASK_ID_INDEX on evaluation_task (task_id);
+    create index if not exists T_EVAL_TASK_SERVICE_INDEX on evaluation_task (service_id);
+    create index if not exists T_EVAL_TASK_STATUS_INDEX on evaluation_task (status);
+    create index if not exists T_EVAL_TASK_WORKSPACE_INDEX on evaluation_task (workspace);
+    create index if not exists T_EVAL_TASK_USER_INDEX on evaluation_task (user_id);
+    create index if not exists T_EVAL_TASK_CREATION_INDEX on evaluation_task (creation_time);
+
+    -- Remove deprecated progress column from existing tables
+    ALTER TABLE evaluation_task DROP COLUMN IF EXISTS progress;
+
+    alter table evaluation_task owner to "primus-safe";

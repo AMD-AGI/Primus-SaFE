@@ -339,6 +339,11 @@ func (h *Handler) deleteDataset(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 
+	// Protect system datasets (benchmark datasets owned by primus-safe-system)
+	if dataset.UserId == common.UserSystem {
+		return nil, commonerrors.NewBadRequest("system datasets cannot be deleted")
+	}
+
 	// Delete files from S3 (best effort, don't fail if S3 delete fails)
 	if dataset.S3Path != "" && h.s3Client != nil {
 		if err := h.s3Client.DeleteObject(context.Background(), dataset.S3Path, 60); err != nil {

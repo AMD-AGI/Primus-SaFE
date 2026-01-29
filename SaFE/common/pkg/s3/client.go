@@ -341,11 +341,27 @@ func (c *Client) GetObject(ctx context.Context, key string, timeout int64) (stri
 	return string(content), nil
 }
 
-// GeneratePresignedURL generate presigned URL for temporary object access.
+// GeneratePresignedURL generate presigned URL for temporary object access (GET).
 func (c *Client) GeneratePresignedURL(ctx context.Context, key string, expireHour int32) (string, error) {
 	presigner := s3.NewPresignClient(c.s3Client)
 
 	resp, err := presigner.PresignGetObject(ctx, &s3.GetObjectInput{
+		Bucket: c.Bucket,
+		Key:    aws.String(key),
+	}, func(o *s3.PresignOptions) {
+		o.Expires = time.Duration(expireHour) * time.Hour
+	})
+	if err != nil {
+		return "", err
+	}
+	return resp.URL, nil
+}
+
+// GeneratePresignedPutURL generate presigned URL for uploading object (PUT).
+func (c *Client) GeneratePresignedPutURL(ctx context.Context, key string, expireHour int32) (string, error) {
+	presigner := s3.NewPresignClient(c.s3Client)
+
+	resp, err := presigner.PresignPutObject(ctx, &s3.PutObjectInput{
 		Bucket: c.Bucket,
 		Key:    aws.String(key),
 	}, func(o *s3.PresignOptions) {

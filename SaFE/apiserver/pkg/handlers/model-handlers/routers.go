@@ -49,5 +49,15 @@ func InitInferenceRouters(e *gin.Engine, h *Handler) {
 			group.GET("datasets/:id", h.GetDataset)
 			group.GET("datasets/:id/files/*path", h.GetDatasetFile)
 		}
+
+		// Evaluation routes
+		// Note: Benchmark datasets are now in the dataset table, use GET /datasets?datasetType=evaluation
+		// Note: Create evaluation task via OpsJob API: POST /api/v1/opsjobs with type=evaluation
+		group.GET("evaluations/available-services", h.ListAvailableEvalServices) // List models/services for evaluation
+		group.GET("evaluations/tasks", h.ListEvaluationTasks)                    // List evaluation tasks
+		group.GET("evaluations/tasks/:id", h.GetEvaluationTask)                  // Get task details
+		group.DELETE("evaluations/tasks/:id", h.DeleteEvaluationTask)            // Delete/cancel task
+		group.POST("evaluations/tasks/:id/stop", h.StopEvaluationTask)           // Stop running task
+		group.GET("evaluations/tasks/:id/report", h.GetEvaluationReport)         // Get evaluation report
 	}
 }

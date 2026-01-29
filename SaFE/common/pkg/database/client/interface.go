@@ -33,6 +33,7 @@ type Interface interface {
 	ApiKeyInterface
 	AuditLogInterface
 	DatasetInterface
+	EvaluationTaskInterface
 }
 
 type WorkloadInterface interface {
@@ -188,6 +189,7 @@ type ApiKeyInterface interface {
 type ModelInterface interface {
 	UpsertModel(ctx context.Context, m *Model) error
 	GetModelByID(ctx context.Context, id string) (*Model, error)
+	GetModelByModelName(ctx context.Context, modelName string) (*Model, error)
 	ListModels(ctx context.Context, accessMode string, workspace string, isDeleted bool) ([]*Model, error)
 	DeleteModel(ctx context.Context, id string) error
 }
@@ -209,4 +211,18 @@ type DatasetInterface interface {
 	UpdateDatasetFileInfo(ctx context.Context, datasetId string, totalSize int64, fileCount int) error
 	UpdateDatasetLocalPath(ctx context.Context, datasetId, workspace string, status DatasetStatus, message string) error
 	CheckDatasetNameExists(ctx context.Context, displayName string) (bool, error)
+}
+
+// EvaluationTaskInterface defines database operations for EvaluationTask entities
+type EvaluationTaskInterface interface {
+	UpsertEvaluationTask(ctx context.Context, task *EvaluationTask) error
+	SelectEvaluationTasks(ctx context.Context, query sqrl.Sqlizer, orderBy []string, limit, offset int) ([]*EvaluationTask, error)
+	CountEvaluationTasks(ctx context.Context, query sqrl.Sqlizer) (int, error)
+	GetEvaluationTask(ctx context.Context, taskId string) (*EvaluationTask, error)
+	SetEvaluationTaskDeleted(ctx context.Context, taskId string) error
+	UpdateEvaluationTaskStatus(ctx context.Context, taskId string, status EvaluationTaskStatus) error
+	UpdateEvaluationTaskOpsJobId(ctx context.Context, taskId, opsJobId string) error
+	UpdateEvaluationTaskResult(ctx context.Context, taskId string, resultSummary, reportS3Path string) error
+	UpdateEvaluationTaskStartTime(ctx context.Context, taskId string) error
+	SetEvaluationTaskFailed(ctx context.Context, taskId, message string) error
 }
