@@ -3,6 +3,8 @@
  * See LICENSE for license information.
  */
 
+// Trigger build for ghcr.io push test
+
 package common
 
 const (
