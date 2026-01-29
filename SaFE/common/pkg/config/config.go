@@ -420,10 +420,6 @@ func GetCICDControllerName() string {
 	return getString(cicdControllerName, "")
 }
 
-func GetCICDControllerNamespace() string {
-	return getString(cicdControllerNamespace, "")
-}
-
 // GetModelDownloaderImage returns the image for model downloader job.
 // Used for downloading models from HuggingFace and uploading to S3.
 func GetModelDownloaderImage() string {
