@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
@@ -909,6 +910,8 @@ func updateCICDGithub(adminWorkload *v1.Workload, obj *unstructured.Unstructured
 			if err != nil {
 				return fmt.Errorf("invalid runner scale set id %s", runnerSetId)
 			}
+		} else {
+			return commonerrors.NewInternalError("runner scale set id is not set")
 		}
 	}
 	if err = jobutils.SetNestedField(obj.Object, specObject, []string{"spec"}); err != nil {
