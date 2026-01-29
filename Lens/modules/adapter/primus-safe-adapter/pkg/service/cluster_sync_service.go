@@ -14,6 +14,8 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	primusSafeV1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"gorm.io/gorm"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -176,8 +178,8 @@ func (s *ClusterSyncService) createClusterConfig(ctx context.Context, cluster *p
 		Status:          model.ClusterStatusActive,
 		DataplaneStatus: model.DataplaneStatusPending,
 
-		// K8S connection from cluster status
-		K8SEndpoint: s.buildEndpoint(cluster),
+		// K8S connection from cluster status (prioritize service endpoint over CR endpoint)
+		K8SEndpoint: s.buildEndpoint(ctx, cluster),
 		K8SCAData:   cluster.Status.ControlPlaneStatus.CAData,
 		K8SCertData: cluster.Status.ControlPlaneStatus.CertData,
 		K8SKeyData:  cluster.Status.ControlPlaneStatus.KeyData,
@@ -214,7 +216,7 @@ func (s *ClusterSyncService) updateClusterConfig(ctx context.Context, existing *
 	}
 
 	// Check if K8S connection changed
-	endpoint := s.buildEndpoint(cluster)
+	endpoint := s.buildEndpoint(ctx, cluster)
 	if existing.K8SEndpoint == endpoint &&
 		existing.K8SCAData == cluster.Status.ControlPlaneStatus.CAData &&
 		existing.K8SCertData == cluster.Status.ControlPlaneStatus.CertData &&
@@ -245,16 +247,72 @@ func (s *ClusterSyncService) updateClusterConfig(ctx context.Context, existing *
 }
 
 // buildEndpoint builds the K8S API endpoint from cluster status
-func (s *ClusterSyncService) buildEndpoint(cluster *primusSafeV1.Cluster) string {
+// Priority: 1. Service in primus-safe namespace with same name as cluster
+//           2. Endpoints from cluster CR status
+func (s *ClusterSyncService) buildEndpoint(ctx context.Context, cluster *primusSafeV1.Cluster) string {
+	// Priority 1: Try to get endpoint from Service in primus-safe namespace
+	endpoint := s.getEndpointFromService(ctx, cluster.Name)
+	if endpoint != "" {
+		log.Debugf("Using endpoint from Service for cluster %s: %s", cluster.Name, endpoint)
+		return endpoint
+	}
+
+	// Priority 2: Fallback to CR endpoints
 	if len(cluster.Status.ControlPlaneStatus.Endpoints) > 0 {
 		endpoint := cluster.Status.ControlPlaneStatus.Endpoints[0]
 		// Ensure the endpoint has https:// prefix
 		if endpoint != "" && endpoint[0] != 'h' {
-			return "https://" + endpoint
+			endpoint = "https://" + endpoint
 		}
+		log.Debugf("Using endpoint from CR for cluster %s: %s", cluster.Name, endpoint)
 		return endpoint
 	}
 	return ""
+}
+
+// getEndpointFromService tries to get the K8S API endpoint from a Service
+// in primus-safe namespace with the same name as the cluster
+func (s *ClusterSyncService) getEndpointFromService(ctx context.Context, clusterName string) string {
+	// The service should be in primus-safe namespace with the same name as the cluster
+	svc := &corev1.Service{}
+	err := s.safeClient.Get(ctx, types.NamespacedName{
+		Namespace: "primus-safe",
+		Name:      clusterName,
+	}, svc)
+
+	if err != nil {
+		// Service not found or error, this is normal for clusters without proxy service
+		log.Debugf("No service found for cluster %s in primus-safe namespace: %v", clusterName, err)
+		return ""
+	}
+
+	// Get the service ClusterIP and port
+	if svc.Spec.ClusterIP == "" || svc.Spec.ClusterIP == "None" {
+		log.Debugf("Service %s has no ClusterIP", clusterName)
+		return ""
+	}
+
+	// Find the HTTPS port (usually 443 or 6443)
+	var port int32
+	for _, p := range svc.Spec.Ports {
+		if p.Name == "https" || p.Port == 443 || p.Port == 6443 {
+			port = p.Port
+			break
+		}
+	}
+
+	// If no HTTPS port found, use the first port
+	if port == 0 && len(svc.Spec.Ports) > 0 {
+		port = svc.Spec.Ports[0].Port
+	}
+
+	if port == 0 {
+		log.Debugf("Service %s has no suitable port", clusterName)
+		return ""
+	}
+
+	endpoint := fmt.Sprintf("https://%s:%d", svc.Spec.ClusterIP, port)
+	return endpoint
 }
 
 // markDeletedClusters marks clusters as deleted if they no longer exist in Primus-SaFE
