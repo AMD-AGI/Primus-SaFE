@@ -34,7 +34,7 @@ type Interface interface {
 	AbortMultiPartUpload(ctx context.Context, param *MultiUploadParam, timeout int64) error
 
 	PutObject(ctx context.Context, key, value string, timeout int64) (*s3.PutObjectOutput, error)
-	PutObjectMultipart(ctx context.Context, key string, reader io.Reader, size int64) error // Stream multipart upload.
+	PutObjectMultipart(ctx context.Context, key string, reader io.Reader, size int64) error // Stream multipart upload
 	GetObject(ctx context.Context, key string, timeout int64) (string, error)
 	DeleteObject(ctx context.Context, key string, timeout int64) error
 
