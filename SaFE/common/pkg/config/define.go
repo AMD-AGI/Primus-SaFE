@@ -113,11 +113,10 @@ const (
 	ssoSecretPath = ssoPrefix + "secret_path"
 
 	// cicd
-	cicdPrefix              = "cicd."
-	cicdEnable              = cicdPrefix + "enable"
-	cicdRoleName            = cicdPrefix + "role_name"
-	cicdControllerName      = cicdPrefix + "controller_name"
-	cicdControllerNamespace = cicdPrefix + "controller_namespace"
+	cicdPrefix         = "cicd."
+	cicdEnable         = cicdPrefix + "enable"
+	cicdRoleName       = cicdPrefix + "role_name"
+	cicdControllerName = cicdPrefix + "controller_name"
 
 	// model
 	modelPrefix          = "model."
