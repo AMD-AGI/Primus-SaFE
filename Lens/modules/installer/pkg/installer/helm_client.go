@@ -18,9 +18,11 @@ import (
 
 // HelmClient wraps Helm CLI operations
 type HelmClient struct {
-	chartRepo string
-	timeout   time.Duration
-	debug     bool
+	chartRepo       string
+	timeout         time.Duration
+	debug           bool
+	useLocalCharts  bool
+	localChartsPath string
 }
 
 // NewHelmClient creates a new HelmClient
@@ -38,10 +40,19 @@ func NewHelmClient() *HelmClient {
 		}
 	}
 
+	// Check if local charts should be used (for offline installation)
+	useLocalCharts := os.Getenv("HELM_USE_LOCAL_CHARTS") == "true"
+	localChartsPath := os.Getenv("HELM_LOCAL_CHARTS_PATH")
+	if localChartsPath == "" {
+		localChartsPath = "/app/charts"
+	}
+
 	return &HelmClient{
-		chartRepo: chartRepo,
-		timeout:   timeout,
-		debug:     os.Getenv("HELM_DEBUG") == "true",
+		chartRepo:       chartRepo,
+		timeout:         timeout,
+		debug:           os.Getenv("HELM_DEBUG") == "true",
+		useLocalCharts:  useLocalCharts,
+		localChartsPath: localChartsPath,
 	}
 }
 
@@ -53,6 +64,37 @@ func (h *HelmClient) Install(ctx context.Context, kubeconfig []byte, namespace, 
 // Upgrade upgrades a Helm release
 func (h *HelmClient) Upgrade(ctx context.Context, kubeconfig []byte, namespace, releaseName, chartName string, values map[string]interface{}) error {
 	return h.installOrUpgrade(ctx, kubeconfig, namespace, releaseName, chartName, values, true)
+}
+
+// resolveChartPath resolves the chart path based on local or remote mode
+func (h *HelmClient) resolveChartPath(chartName string) (string, error) {
+	if !h.useLocalCharts {
+		// Use remote OCI registry
+		return fmt.Sprintf("%s/%s", h.chartRepo, chartName), nil
+	}
+
+	// Use local charts - find the .tgz file
+	// Chart files are named like: primus-lens-operators-1.0.0.tgz or primus-lens-operators-latest.tgz
+	entries, err := os.ReadDir(h.localChartsPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read local charts directory %s: %w", h.localChartsPath, err)
+	}
+
+	// Look for matching chart file
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		// Match chart name prefix (e.g., "primus-lens-operators-" for chart "primus-lens-operators")
+		if strings.HasPrefix(name, chartName+"-") && strings.HasSuffix(name, ".tgz") {
+			chartPath := fmt.Sprintf("%s/%s", h.localChartsPath, name)
+			log.Infof("Using local chart: %s", chartPath)
+			return chartPath, nil
+		}
+	}
+
+	return "", fmt.Errorf("local chart not found for %s in %s", chartName, h.localChartsPath)
 }
 
 // installOrUpgrade performs helm install or upgrade
@@ -85,8 +127,11 @@ func (h *HelmClient) installOrUpgrade(ctx context.Context, kubeconfig []byte, na
 	}
 	valuesFile.Close()
 
-	// Build helm command
-	chartPath := fmt.Sprintf("%s/%s", h.chartRepo, chartName)
+	// Build helm command - resolve chart path based on local or remote mode
+	chartPath, err := h.resolveChartPath(chartName)
+	if err != nil {
+		return fmt.Errorf("failed to resolve chart path: %w", err)
+	}
 
 	var args []string
 	if upgrade {
