@@ -54,32 +54,31 @@ func (cm *ClusterManager) initControlPlane(ctx context.Context) error {
 }
 
 // loadDefaultClusterFromDB loads the default cluster name from control plane database
-// This takes priority over the DEFAULT_CLUSTER_NAME environment variable
+// Database configuration takes priority over the DEFAULT_CLUSTER_NAME environment variable
 func (cm *ClusterManager) loadDefaultClusterFromDB(ctx context.Context) {
-	// First check environment variable (for backward compatibility)
+	// Priority 1: Try to load from database (is_default=true)
+	cpClientSet := GetControlPlaneClientSet()
+	if cpClientSet != nil && cpClientSet.Facade != nil {
+		defaultCluster, err := cpClientSet.Facade.ClusterConfig.GetDefaultCluster(ctx)
+		if err != nil {
+			log.Warnf("Failed to get default cluster from database: %v", err)
+		} else if defaultCluster != nil {
+			cm.defaultClusterName = defaultCluster.ClusterName
+			log.Infof("Default cluster loaded from database: %s", defaultCluster.ClusterName)
+			return
+		} else {
+			log.Debug("No default cluster configured in database (is_default=true)")
+		}
+	} else {
+		log.Debug("Control plane client not available, skipping default cluster load from DB")
+	}
+
+	// Priority 2: Fallback to environment variable
 	if envDefault := os.Getenv("DEFAULT_CLUSTER_NAME"); envDefault != "" {
 		cm.defaultClusterName = envDefault
-		log.Infof("Default cluster from environment: %s", envDefault)
+		log.Infof("Default cluster from environment (fallback): %s", envDefault)
 		return
 	}
 
-	// Try to load from database
-	cpClientSet := GetControlPlaneClientSet()
-	if cpClientSet == nil || cpClientSet.Facade == nil {
-		log.Debug("Control plane client not available, skipping default cluster load from DB")
-		return
-	}
-
-	defaultCluster, err := cpClientSet.Facade.ClusterConfig.GetDefaultCluster(ctx)
-	if err != nil {
-		log.Warnf("Failed to get default cluster from database: %v", err)
-		return
-	}
-
-	if defaultCluster != nil {
-		cm.defaultClusterName = defaultCluster.ClusterName
-		log.Infof("Default cluster loaded from database: %s", defaultCluster.ClusterName)
-	} else {
-		log.Debug("No default cluster configured in database")
-	}
+	log.Debug("No default cluster configured")
 }
