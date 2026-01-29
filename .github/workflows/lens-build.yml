@@ -181,6 +181,13 @@ jobs:
           echo "installer_changed=false" >> $GITHUB_OUTPUT
         fi
         
+        # control_plane_controller: Lens/modules/control-plane-controller/** or Lens/modules/core/** or Lens/modules/jobs/**
+        if echo "$CHANGED_FILES" | grep -qE '^Lens/modules/control-plane-controller/|^Lens/modules/core/|^Lens/modules/jobs/'; then
+          echo "control_plane_controller_changed=true" >> $GITHUB_OUTPUT
+        else
+          echo "control_plane_controller_changed=false" >> $GITHUB_OUTPUT
+        fi
+        
         # tracelens: Lens/docker/tracelens/**
         if echo "$CHANGED_FILES" | grep -qE '^Lens/docker/tracelens/'; then
           echo "tracelens_changed=true" >> $GITHUB_OUTPUT
@@ -253,6 +260,9 @@ jobs:
           fi
           if [[ "${{ steps.detect-changes.outputs.installer_changed }}" == "true" ]]; then
             MATRIX+='{"name":"primus-lens-installer","buildpath":"cmd","basepath":"Lens/modules/installer/"},'
+          fi
+          if [[ "${{ steps.detect-changes.outputs.control_plane_controller_changed }}" == "true" ]]; then
+            MATRIX+='{"name":"control-plane-controller","buildpath":"cmd/control-plane-controller","basepath":"Lens/modules/control-plane-controller/"},'
           fi
           MATRIX=${MATRIX%,} # remove trailing comma
           MATRIX+=']}'
