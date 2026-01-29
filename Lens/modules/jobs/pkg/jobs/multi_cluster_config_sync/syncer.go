@@ -511,9 +511,11 @@ func (s *ConfigSyncer) updateClusterStorageConfig(ctx context.Context, clusterNa
 		cluster.PrometheusWritePort = int(config.Prometheus.WritePort)
 	}
 
-	// Mark as installed if storage config exists
-	if cluster.DataplaneStatus == "pending" && (config.Postgres != nil || config.Prometheus != nil) {
-		cluster.DataplaneStatus = "installed"
+	// Auto-detect storage mode: if storage secret exists and mode is not set, use external
+	// Note: DB default is already "external", so this only applies to legacy records with empty value
+	if cluster.StorageMode == "" && (config.Postgres != nil || config.Prometheus != nil) {
+		cluster.StorageMode = model.StorageModeExternal
+		log.Infof("Auto-detected storage mode for cluster %s: external (storage secret found)", clusterName)
 	}
 
 	return facade.ClusterConfig.Update(ctx, cluster)

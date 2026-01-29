@@ -498,12 +498,25 @@ func TriggerDeploy(c *gin.Context) {
 		return
 	}
 
+	// Get cluster config to determine storage mode
+	clusterConfig, err := facade.GetClusterConfig().GetByName(c, clusterName)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get cluster config: " + err.Error()})
+		return
+	}
+
+	// Determine storage mode from cluster config
+	storageMode := clusterConfig.StorageMode
+	if storageMode == "" {
+		storageMode = model.StorageModeExternal
+	}
+
 	// Create install task (will be picked up by the scheduler)
 	task := &model.DataplaneInstallTask{
 		ClusterName:  clusterName,
 		TaskType:     action,
 		CurrentStage: model.StagePending,
-		StorageMode:  model.StorageModeExternal, // Will be determined from values
+		StorageMode:  storageMode,
 		Status:       model.TaskStatusPending,
 	}
 
@@ -513,6 +526,12 @@ func TriggerDeploy(c *gin.Context) {
 		StorageClass:  getStringFromValues(mergedValues, "global", "storageClass"),
 		ImageRegistry: version.ImageRegistry,
 	}
+
+	// If lens-managed mode, copy managed storage config
+	if storageMode == model.StorageModeLensManaged {
+		installConfig.ManagedStorage = &clusterConfig.ManagedStorageConfig
+	}
+
 	task.InstallConfig = installConfig
 
 	if err := facade.GetDataplaneInstallTask().Create(c, task); err != nil {
