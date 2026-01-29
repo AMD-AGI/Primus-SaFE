@@ -2,31 +2,27 @@
 # Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
 # See LICENSE for license information.
 #
-# Script to download Helm charts for offline installation.
-# This script can be used in CI/CD pipelines to pre-download charts
-# before building the installer image.
+# Script to package Helm charts from local source for offline installation.
+# This script downloads dependencies and packages charts into .tgz files.
 #
 # Usage:
 #   ./download-charts.sh [OPTIONS]
 #
 # Options:
-#   -o, --output-dir    Output directory for downloaded charts (default: ./charts)
-#   -r, --registry      OCI registry URL (default: oci://docker.io/primussafe)
-#   -v, --version       Chart version to download (default: latest)
-#   -u, --username      Registry username (optional)
-#   -p, --password      Registry password (optional)
+#   -s, --source-dir    Source directory containing charts (default: ../../charts relative to script)
+#   -o, --output-dir    Output directory for packaged charts (default: ./packaged-charts)
 #   -h, --help          Show this help message
 
 set -e
 
-# Default values
-OUTPUT_DIR="./charts"
-REGISTRY="oci://docker.io/primussafe"
-VERSION=""
-USERNAME=""
-PASSWORD=""
+# Get script directory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Chart names
+# Default values
+SOURCE_DIR="${SCRIPT_DIR}/../../charts"
+OUTPUT_DIR="./packaged-charts"
+
+# Chart names that need to be packaged
 CHARTS=(
     "primus-lens-operators"
     "primus-lens-infrastructure"
@@ -34,31 +30,24 @@ CHARTS=(
     "primus-lens-apps-dataplane"
 )
 
+# Charts that have external dependencies
+CHARTS_WITH_DEPS=(
+    "primus-lens-operators"
+)
+
 # Parse arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
+        -s|--source-dir)
+            SOURCE_DIR="$2"
+            shift 2
+            ;;
         -o|--output-dir)
             OUTPUT_DIR="$2"
             shift 2
             ;;
-        -r|--registry)
-            REGISTRY="$2"
-            shift 2
-            ;;
-        -v|--version)
-            VERSION="$2"
-            shift 2
-            ;;
-        -u|--username)
-            USERNAME="$2"
-            shift 2
-            ;;
-        -p|--password)
-            PASSWORD="$2"
-            shift 2
-            ;;
         -h|--help)
-            head -25 "$0" | tail -n +2 | sed 's/^# //' | sed 's/^#//'
+            head -20 "$0" | tail -n +2 | sed 's/^# //' | sed 's/^#//'
             exit 0
             ;;
         *)
@@ -74,38 +63,49 @@ if ! command -v helm &> /dev/null; then
     exit 1
 fi
 
+# Resolve source directory to absolute path
+SOURCE_DIR="$(cd "$SOURCE_DIR" && pwd)"
+
+echo "Source directory: $SOURCE_DIR"
+echo "Output directory: $OUTPUT_DIR"
+echo ""
+
 # Create output directory
 mkdir -p "$OUTPUT_DIR"
 
-# Login to registry if credentials provided
-if [[ -n "$USERNAME" ]] && [[ -n "$PASSWORD" ]]; then
-    echo "Logging into registry..."
-    # Extract host from OCI URL (e.g., oci://docker.io/primussafe -> docker.io)
-    REGISTRY_HOST=$(echo "$REGISTRY" | sed 's|oci://||' | cut -d'/' -f1)
-    echo "$PASSWORD" | helm registry login "$REGISTRY_HOST" -u "$USERNAME" --password-stdin
-fi
+# Function to check if chart has dependencies
+has_dependencies() {
+    local chart="$1"
+    for dep_chart in "${CHARTS_WITH_DEPS[@]}"; do
+        if [[ "$chart" == "$dep_chart" ]]; then
+            return 0
+        fi
+    done
+    return 1
+}
 
-echo "Downloading charts to: $OUTPUT_DIR"
-echo "Registry: $REGISTRY"
-echo "Version: ${VERSION:-latest}"
-echo ""
-
-# Download each chart
+# Package each chart
 for chart in "${CHARTS[@]}"; do
-    echo "Downloading $chart..."
+    chart_path="$SOURCE_DIR/$chart"
     
-    if [[ -n "$VERSION" ]]; then
-        helm pull "$REGISTRY/$chart" --version "$VERSION" --destination "$OUTPUT_DIR" || {
-            echo "Warning: Failed to download $chart version $VERSION, trying without version..."
-            helm pull "$REGISTRY/$chart" --destination "$OUTPUT_DIR"
-        }
-    else
-        helm pull "$REGISTRY/$chart" --destination "$OUTPUT_DIR"
+    if [[ ! -d "$chart_path" ]]; then
+        echo "Warning: Chart directory not found: $chart_path"
+        continue
     fi
     
-    echo "  Downloaded: $chart"
+    echo "Packaging $chart..."
+    
+    # Update dependencies if needed
+    if has_dependencies "$chart"; then
+        echo "  Downloading dependencies..."
+        (cd "$chart_path" && helm dependency update)
+    fi
+    
+    # Package the chart
+    helm package "$chart_path" -d "$OUTPUT_DIR"
+    echo "  Packaged: $chart"
 done
 
 echo ""
-echo "Charts downloaded successfully:"
+echo "Charts packaged successfully:"
 ls -la "$OUTPUT_DIR"
