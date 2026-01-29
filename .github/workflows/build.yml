@@ -6,6 +6,10 @@ on:
     tags:
       - '**'
 
+permissions:
+  contents: read
+  packages: write  # Required for ghcr.io push
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: false
@@ -205,7 +209,7 @@ jobs:
         echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
   build:
     needs: detect-changes
-    runs-on: primus-safe-cicd-gfszt
+    runs-on: primus-safe-cicd-x8qwb
     timeout-minutes: 120
     outputs:
       primary_tag: ${{ steps.build-and-push.outputs.primary_tag }}
@@ -233,6 +237,9 @@ jobs:
           curl -v -k "https://${HARBOR_DOMAIN}/api/v2.0/ping" || echo "⚠️ Curl test failed"
           
           buildah login --tls-verify=false -u "${{ secrets.HARBOR_USERNAME }}" -p "${{ secrets.HARBOR_PASSWORD }}" "${{ secrets.HARBOR_HOST }}" && echo "✅ Harbor login successful" || echo "❌ Harbor login failed"
+          
+          echo "🔐 Logging in to GHCR..."
+          buildah login -u "${{ github.actor }}" -p "${{ secrets.GITHUB_TOKEN }}" ghcr.io && echo "✅ GHCR login successful" || echo "❌ GHCR login failed"
         env:
           DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
           HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
@@ -241,6 +248,7 @@ jobs:
         env:
           DOCKERIO_REPOSITORY: docker.io/primussafe
           HARBOR_REPOSITORY: ${{ secrets.HARBOR_HOST }}/primussafe
+          GHCR_REPOSITORY: ghcr.io/amd-agi/primussafe
           IMAGE_VERSION: ${{ needs.detect-changes.outputs.image_version }}
           DATE_TIME: ${{ needs.detect-changes.outputs.date_time }}
         run: |
@@ -260,7 +268,7 @@ jobs:
             -t ${{ matrix.name }}:${DATE_TIME} \
             -f ${{ matrix.dockerfile_path }} .
 
-          for repo in ${DOCKERIO_REPOSITORY} ${HARBOR_REPOSITORY}; do
+          for repo in ${DOCKERIO_REPOSITORY} ${HARBOR_REPOSITORY} ${GHCR_REPOSITORY}; do
             echo "🚀 Pushing ${{ matrix.name }} to $repo..."
             buildah tag ${{ matrix.name }}:${IMAGE_VERSION} ${repo}/${{ matrix.name }}:${IMAGE_VERSION}
             buildah tag ${{ matrix.name }}:${DATE_TIME} ${repo}/${{ matrix.name }}:${DATE_TIME}
