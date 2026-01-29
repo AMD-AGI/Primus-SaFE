@@ -22,6 +22,64 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/model"
 )
 
+// ===== Helper Functions =====
+
+// resolveWorkloadCluster finds the cluster where a workload exists.
+// It searches in the following order:
+// 1. If cluster is explicitly specified, use it directly
+// 2. Try the default cluster first (most common case)
+// 3. Search all other clusters if not found in default
+// Returns the cluster name where the workload was found, or error if not found anywhere.
+func resolveWorkloadCluster(ctx context.Context, uid string, requestedCluster string) (string, error) {
+	cm := clientsets.GetClusterManager()
+
+	// 1. If cluster is explicitly specified, use it directly
+	if requestedCluster != "" {
+		return requestedCluster, nil
+	}
+
+	// 2. Try the default cluster first (most common case)
+	defaultCluster := cm.GetDefaultClusterName()
+	if defaultCluster != "" {
+		workload, err := database.GetFacadeForCluster(defaultCluster).GetWorkload().GetGpuWorkloadByUid(ctx, uid)
+		if err == nil && workload != nil {
+			log.Debugf("[resolveWorkloadCluster] Workload %s found in default cluster %s", uid, defaultCluster)
+			return defaultCluster, nil
+		}
+	}
+
+	// 3. Search all other clusters if not found in default
+	allClients := cm.ListAllClientSets()
+	for clusterName := range allClients {
+		if clusterName == defaultCluster {
+			continue // Already checked
+		}
+		workload, err := database.GetFacadeForCluster(clusterName).GetWorkload().GetGpuWorkloadByUid(ctx, uid)
+		if err == nil && workload != nil {
+			log.Infof("[resolveWorkloadCluster] Workload %s found in cluster %s (not in default cluster %s)",
+				uid, clusterName, defaultCluster)
+			return clusterName, nil
+		}
+	}
+
+	// Not found in any cluster
+	return "", errors.NewError().
+		WithCode(errors.RequestDataNotExisted).
+		WithMessagef("workload %s not found in any cluster", uid)
+}
+
+// getClusterClientsForWorkload resolves the cluster and returns the client set.
+// This is a convenience wrapper that combines resolveWorkloadCluster and GetClientSetByClusterName.
+func getClusterClientsForWorkload(ctx context.Context, uid string, requestedCluster string) (*clientsets.ClusterClientSet, error) {
+	clusterName, err := resolveWorkloadCluster(ctx, uid, requestedCluster)
+	if err != nil {
+		return nil, err
+	}
+
+	cm := clientsets.GetClusterManager()
+	return cm.GetClientSetByClusterName(clusterName)
+}
+
 // ===== Workload List =====
 
 // WorkloadListRequest represents the request for workload list.
@@ -395,39 +453,28 @@ func handleWorkloadList(ctx context.Context, req *WorkloadListRequest) (*Workloa
 // handleWorkloadDetail handles workload detail requests.
 // Reuses: database.GetWorkload().GetGpuWorkloadByUid, workload.GetWorkloadPods, workload.GetWorkloadResource
 func handleWorkloadDetail(ctx context.Context, req *WorkloadDetailRequest) (*WorkloadDetailResponse, error) {
-	// DEBUG: Log request parameters
-	log.Infof("[DEBUG-WorkloadDetail] Request received: UID=%s, Cluster=%s", req.UID, req.Cluster)
+	log.Debugf("[WorkloadDetail] Request: UID=%s, Cluster=%s", req.UID, req.Cluster)
 
-	cm := clientsets.GetClusterManager()
-
-	// DEBUG: Log ClusterManager state
-	clusterNames := cm.GetClusterNames()
-	log.Infof("[DEBUG-WorkloadDetail] ClusterManager state: available_clusters=%v, requested_cluster=%s", clusterNames, req.Cluster)
-
-	clients, err := cm.GetClusterClientsOrDefault(req.Cluster)
+	// Auto-resolve cluster if not specified
+	clients, err := getClusterClientsForWorkload(ctx, req.UID, req.Cluster)
 	if err != nil {
-		log.Errorf("[DEBUG-WorkloadDetail] GetClusterClientsOrDefault failed: cluster=%s, error=%v", req.Cluster, err)
+		log.Errorf("[WorkloadDetail] Failed to resolve cluster for workload %s: %v", req.UID, err)
 		return nil, err
 	}
 
-	// DEBUG: Log resolved cluster
-	log.Infof("[DEBUG-WorkloadDetail] Resolved cluster: requested=%s, resolved=%s, has_storage=%v",
-		req.Cluster, clients.ClusterName, clients.StorageClientSet != nil)
+	log.Debugf("[WorkloadDetail] Resolved cluster: %s", clients.ClusterName)
 
-	// Reuse existing database query
-	log.Infof("[DEBUG-WorkloadDetail] Querying database for workload: uid=%s, cluster=%s", req.UID, clients.ClusterName)
+	// Query workload from the resolved cluster
 	dbWorkload, err := database.GetFacadeForCluster(clients.ClusterName).GetWorkload().GetGpuWorkloadByUid(ctx, req.UID)
 	if err != nil {
-		log.Errorf("[DEBUG-WorkloadDetail] Database query error: uid=%s, cluster=%s, error=%v", req.UID, clients.ClusterName, err)
+		log.Errorf("[WorkloadDetail] Database query error: uid=%s, cluster=%s, error=%v", req.UID, clients.ClusterName, err)
 		return nil, err
 	}
 	if dbWorkload == nil {
-		log.Warnf("[DEBUG-WorkloadDetail] Workload not found in database: uid=%s, cluster=%s", req.UID, clients.ClusterName)
 		return nil, errors.NewError().WithCode(errors.RequestDataNotExisted).WithMessage("workload not found")
 	}
 
-	// DEBUG: Log found workload
-	log.Infof("[DEBUG-WorkloadDetail] Workload found: uid=%s, name=%s, kind=%s, namespace=%s",
+	log.Debugf("[WorkloadDetail] Workload found: uid=%s, name=%s, kind=%s, namespace=%s",
 		dbWorkload.UID, dbWorkload.Name, dbWorkload.Kind, dbWorkload.Namespace)
 
 	workloadInfo := &model.WorkloadInfo{
