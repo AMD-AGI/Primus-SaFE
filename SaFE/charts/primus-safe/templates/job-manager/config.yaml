@@ -21,7 +21,7 @@ data:
       # The port of health check
       port: {{ default 8083 (default .Values.job_manager).health_port }}
     leader_election:
-      # LeaderElection determines whether or not to use leader election when starting the manager.
+      # Whether to enable leader election when starting the manager
       enable: true
     workspace:
       # The percentage of memory reserved for the system.

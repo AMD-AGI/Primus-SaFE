@@ -57,6 +57,7 @@ const (
 	KubernetesControlPlane = "node-role.kubernetes.io/control-plane"
 	ExcludedNodes          = "excluded-nodes"
 	TaintAction            = "taint"
+	ArcNamespace           = "arc-systems"
 
 	DefaultBurst          = 1000
 	DefaultQPS            = 1000
