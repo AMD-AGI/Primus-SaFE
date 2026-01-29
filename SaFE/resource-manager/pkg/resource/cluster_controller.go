@@ -649,7 +649,7 @@ func (r *ClusterReconciler) guaranteeCICDClusterRoleBinding(ctx context.Context,
 		Subjects: []rbacv1.Subject{{
 			Kind:      common.ServiceAccountKind,
 			Name:      commonconfig.GetCICDControllerName(),
-			Namespace: common.ArcNamespace,
+			Namespace: common.CICDArcNamespace,
 		}},
 	}
 	if _, err = clientSet.RbacV1().ClusterRoleBindings().Create(ctx, crb, metav1.CreateOptions{}); err != nil {
