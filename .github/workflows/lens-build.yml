@@ -306,7 +306,7 @@ jobs:
         env:
           DOCKERIO_REPOSITORY: docker.io/primussafe
           HARBOR_REPOSITORY: ${{ secrets.HARBOR_HOST }}/primussafe
-          GHCR_REPOSITORY: ghcr.io/AMD-AGI/primussafe
+          GHCR_REPOSITORY: ghcr.io/amd-agi/primussafe
           IMAGE_VERSION: ${{ needs.detect-changes.outputs.image_version }}
           DATE_TIME: ${{ needs.detect-changes.outputs.date_time }}
         run: |
@@ -402,7 +402,7 @@ jobs:
         env:
           DOCKERIO_REPOSITORY: docker.io/primussafe
           HARBOR_REPOSITORY: ${{ secrets.HARBOR_HOST }}/primussafe
-          GHCR_REPOSITORY: ghcr.io/AMD-AGI/primussafe
+          GHCR_REPOSITORY: ghcr.io/amd-agi/primussafe
           IMAGE_VERSION: ${{ needs.detect-changes.outputs.image_version }}
           DATE_TIME: ${{ needs.detect-changes.outputs.date_time }}
         run: |
@@ -476,7 +476,7 @@ jobs:
         env:
           DOCKERIO_REPOSITORY: docker.io/primussafe
           HARBOR_REPOSITORY: ${{ secrets.HARBOR_HOST }}/primussafe
-          GHCR_REPOSITORY: ghcr.io/AMD-AGI/primussafe
+          GHCR_REPOSITORY: ghcr.io/amd-agi/primussafe
           IMAGE_VERSION: ${{ needs.detect-changes.outputs.image_version }}
           DATE_TIME: ${{ needs.detect-changes.outputs.date_time }}
         run: |
@@ -559,7 +559,7 @@ jobs:
         env:
           DOCKERIO_REPOSITORY: docker.io/primussafe
           HARBOR_REPOSITORY: ${{ secrets.HARBOR_HOST }}/primussafe
-          GHCR_REPOSITORY: ghcr.io/AMD-AGI/primussafe
+          GHCR_REPOSITORY: ghcr.io/amd-agi/primussafe
           IMAGE_VERSION: ${{ needs.detect-changes.outputs.image_version }}
           DATE_TIME: ${{ needs.detect-changes.outputs.date_time }}
           RUNNER_VERSION: ${{ steps.read-version.outputs.runner_version }}
@@ -719,7 +719,7 @@ jobs:
           
           echo "" >> build-versions.txt
           echo "Docker Hub Registry: docker.io/primussafe/" >> build-versions.txt
-          echo "GHCR Registry: ghcr.io/AMD-AGI/primussafe/" >> build-versions.txt
+          echo "GHCR Registry: ghcr.io/amd-agi/primussafe/" >> build-versions.txt
           echo "================================================" >> build-versions.txt
           
           echo ""
