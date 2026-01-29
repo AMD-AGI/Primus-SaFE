@@ -78,8 +78,7 @@ data:
     cicd:
       enable: {{ .Values.cicd.enable }}
       role_name: {{ .Values.cicd.role_name }}
-      controller_namespace: "arc-systems"
-      controller_name: "arc-gha-rs-controller"
+      controller_name: {{ .Values.cicd.controller_name }}
     model:
       # Image for downloading models from HuggingFace and uploading to S3
       # Uses global.image_registry to support different registry environments

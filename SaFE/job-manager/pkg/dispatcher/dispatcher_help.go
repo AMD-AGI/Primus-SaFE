@@ -909,6 +909,8 @@ func updateCICDGithub(adminWorkload *v1.Workload, obj *unstructured.Unstructured
 			if err != nil {
 				return fmt.Errorf("invalid runner scale set id %s", runnerSetId)
 			}
+		} else {
+			return fmt.Errorf("runner scale set id is not set")
 		}
 	}
 	if err = jobutils.SetNestedField(obj.Object, specObject, []string{"spec"}); err != nil {
