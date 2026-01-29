@@ -1,40 +1,65 @@
-FROM golang:1.24.7-alpine AS builder
+# Dockerfile for control-plane-controller
+# Runs management plane jobs: dataplane_installer, multi_cluster_config_sync,
+# tracelens_cleanup, gpu_usage_weekly_report
 
+ARG REGISTRY=docker.io
+ARG GO_VERSION=1.24.7
+ARG BUILDPATH
+ARG APPNAME
+ARG BASEPATH
+ARG GOPROXY=https://proxy.golang.org,direct
+
+# Stage 1: Build stage
+FROM ${REGISTRY}/primussafe/golang:${GO_VERSION} AS builder
 WORKDIR /app
 
-# Install build dependencies
-RUN apk add --no-cache git ca-certificates tzdata
+ARG GITHUB_TOKEN
+ARG BASEPATH
+ARG BUILDPATH
+ARG APPNAME
+ARG GOPROXY
+ENV BUILDPATH=${BUILDPATH}
+ENV APPNAME=${APPNAME}
+ENV BASEPATH=${BASEPATH}
+ENV GOPROXY=${GOPROXY}
 
-# Copy go.mod files for dependency caching
-COPY modules/core/go.mod modules/core/go.sum ./modules/core/
-COPY modules/jobs/go.mod modules/jobs/go.sum ./modules/jobs/
-COPY modules/control-plane-controller/go.mod ./modules/control-plane-controller/
+ENV GOPRIVATE="github.com/AMD-AGI/*"
+SHELL ["/bin/bash", "-c"]
 
-# Download dependencies
-WORKDIR /app/modules/control-plane-controller
-RUN go mod download
+RUN echo "✅ GOPRIVATE=$GOPRIVATE" && \
+    echo "✅ BUILDPATH=$BUILDPATH" && \
+    echo "✅ BASEPATH=$BASEPATH" && \
+    echo "✅ APPNAME=$APPNAME"
 
-# Copy source code
-WORKDIR /app
-COPY modules/core/ ./modules/core/
-COPY modules/jobs/ ./modules/jobs/
-COPY modules/control-plane-controller/ ./modules/control-plane-controller/
+COPY . .
 
-# Build
-WORKDIR /app/modules/control-plane-controller
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o /control-plane-controller ./cmd/control-plane-controller
+RUN cd $BASEPATH && CGO_ENABLED=0 go build -tags nosqlite -a -installsuffix cgo -o $APPNAME $BUILDPATH/main.go
 
-# Final image
-FROM alpine:3.19
+# Stage 2: Runtime stage
+ARG REGISTRY
+FROM ${REGISTRY}/primussafe/debian:bookworm-slim
 
-RUN apk add --no-cache ca-certificates tzdata
+ARG APPNAME
+ARG BASEPATH
+ENV BASEPATH=${BASEPATH}
+ENV APPNAME=${APPNAME}
 
-COPY --from=builder /control-plane-controller /usr/local/bin/control-plane-controller
+WORKDIR /root/
 
-# Create non-root user
-RUN adduser -D -u 1000 appuser
-USER appuser
+# Install minimal dependencies
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    tzdata \
+    && rm -rf /var/lib/apt/lists/*
 
-EXPOSE 8080
+RUN echo "APPNAME: $APPNAME"
 
-ENTRYPOINT ["/usr/local/bin/control-plane-controller"]
+COPY --from=builder /app/$BASEPATH/$APPNAME .
+COPY --from=builder /app/Lens/ci/run.sh .
+RUN chmod +x run.sh
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
+    CMD pgrep -f $APPNAME || exit 1
+
+CMD ["./run.sh"]
