@@ -20,7 +20,6 @@ import (
 	"github.com/gin-gonic/gin/binding"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/klog/v2"
@@ -855,11 +854,16 @@ func (h *Handler) getUsedResource(ctx context.Context, node *v1.Node) (*resource
 // generateNode creates a new node object based on the creation request.
 // Validates the request parameters and create References for the flavors and templates used internally.
 func (h *Handler) generateNode(ctx context.Context, requestUser *v1.User, req *view.CreateNodeRequest, body []byte) (*v1.Node, error) {
-	node := &v1.Node{
-		ObjectMeta: metav1.ObjectMeta{
-			Labels: req.Labels,
-		},
+	node := &v1.Node{}
+	if len(req.Labels) > 0 {
+		node.Labels = make(map[string]string)
+		for key, val := range req.Labels {
+			if !strings.HasPrefix(key, v1.PrimusSafePrefix) {
+				node.Labels[key] = val
+			}
+		}
 	}
+
 	err := json.Unmarshal(body, &node.Spec)
 	if err != nil {
 		return nil, err

@@ -42,6 +42,8 @@ type CreateWorkspaceRequest struct {
 	ImageSecretIds []string `json:"imageSecretIds,omitempty"`
 	// The maximum workload runtime of each scope, Unit: hours
 	MaxRuntime map[v1.WorkspaceScope]int `json:"maxRuntime,omitempty"`
+	// User-defined labels, Keys cannot start with "primus-safe."
+	Labels map[string]string `json:"labels,omitempty"`
 }
 
 type CreateWorkspaceResponse struct {

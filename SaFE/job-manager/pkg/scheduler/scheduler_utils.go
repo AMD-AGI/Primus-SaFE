@@ -11,8 +11,9 @@ import (
 )
 
 const (
-	CronjobReason    = "The Execution time has not been reached"
-	DependencyReason = "Dependency cannot be satisfied"
+	CronjobReason        = "The Execution time has not been reached"
+	DependencyReason     = "Dependency cannot be satisfied"
+	SourceWorkloadReason = "The source workload for this workspace hasn't finished yet"
 )
 
 // formatResourceName formats resource names for display purposes.

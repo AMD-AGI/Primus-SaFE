@@ -477,6 +477,11 @@ func (h *Handler) generateWorkspace(ctx context.Context,
 	if len(workspace.Spec.Scopes) == 0 {
 		workspace.Spec.Scopes = []v1.WorkspaceScope{v1.TrainScope, v1.InferScope, v1.AuthoringScope}
 	}
+	for key, val := range req.Labels {
+		if !strings.HasPrefix(key, v1.PrimusSafePrefix) {
+			workspace.Labels[key] = val
+		}
+	}
 	err := h.updateWorkspaceImageSecrets(ctx, workspace, requestUser, req.ImageSecretIds)
 	if err != nil {
 		return nil, err
@@ -542,18 +547,31 @@ func (h *Handler) cvtToWorkspaceResponseItem(ctx context.Context, w *v1.Workspac
 func (h *Handler) cvtToGetWorkspaceResponse(ctx context.Context, workspace *v1.Workspace) (*view.GetWorkspaceResponse, error) {
 	result := &view.GetWorkspaceResponse{
 		WorkspaceResponseItem: h.cvtToWorkspaceResponseItem(ctx, workspace),
+		TotalQuota:            cvtToResourceList(workspace.Status.TotalResources),
+		AbnormalQuota:         cvtToResourceList(workspace.Status.AbnormalResources),
 	}
 
-	result.TotalQuota = cvtToResourceList(workspace.Status.TotalResources)
-	result.AbnormalQuota = cvtToResourceList(workspace.Status.AbnormalResources)
-
-	usedQuota, usedNodeCount, err := h.getWorkspaceUsedQuota(ctx, workspace)
-	if err != nil {
-		return nil, err
+	var usedQuota corev1.ResourceList
+	var usedNodeCount int
+	if sourceWorkloadId := v1.GetSourceWorkloadId(workspace); sourceWorkloadId != "" {
+		sourceWorkload, err := h.getAdminWorkload(ctx, sourceWorkloadId)
+		if err == nil && !sourceWorkload.IsEnd() {
+			usedQuota, err = commonworkload.GetTotalResourceList(sourceWorkload)
+			if err != nil {
+				return nil, err
+			}
+			usedNodeCount = commonworkload.GetTotalNodeCount(sourceWorkload)
+		}
+	}
+	if usedNodeCount == 0 {
+		var err error
+		usedQuota, usedNodeCount, err = h.getWorkspaceUsedQuota(ctx, workspace)
+		if err != nil {
+			return nil, err
+		}
 	}
 	result.UsedQuota = cvtToResourceList(usedQuota)
 	result.UsedNodeCount = usedNodeCount
-
 	result.AvailQuota = cvtToResourceList(quantity.SubResource(
 		workspace.Status.AvailableResources, usedQuota))
 	for _, s := range workspace.Spec.ImageSecrets {
