@@ -529,7 +529,17 @@ func TriggerDeploy(c *gin.Context) {
 
 	// If lens-managed mode, copy managed storage config
 	if storageMode == model.StorageModeLensManaged {
-		installConfig.ManagedStorage = &clusterConfig.ManagedStorageConfig
+		managedCfg := clusterConfig.ManagedStorageConfig
+		installConfig.ManagedStorage = &model.ManagedStorageConfig{
+			StorageClass:           managedCfg.StorageClass,
+			PostgresEnabled:        managedCfg.PostgresEnabled,
+			PostgresSize:           managedCfg.PostgresSize,
+			OpensearchEnabled:      managedCfg.OpensearchEnabled,
+			OpensearchSize:         managedCfg.OpensearchSize,
+			OpensearchReplicas:     managedCfg.OpensearchReplicas,
+			VictoriametricsEnabled: managedCfg.VictoriametricsEnabled,
+			VictoriametricsSize:    managedCfg.VictoriametricsSize,
+		}
 	}
 
 	task.InstallConfig = installConfig
