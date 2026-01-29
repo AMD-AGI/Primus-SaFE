@@ -6,7 +6,9 @@
 package ops_job
 
 import (
+	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -341,7 +343,7 @@ func TestEvaluationJobReconcilerFilter(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := r.filter(nil, tt.job)
+			result := r.filter(context.TODO(), tt.job)
 			assert.Equal(t, tt.expected, result)
 		})
 	}
@@ -349,6 +351,7 @@ func TestEvaluationJobReconcilerFilter(t *testing.T) {
 
 func TestEvaluationJobReconcilerObserve(t *testing.T) {
 	r := &EvaluationJobReconciler{}
+	now := metav1.NewTime(time.Now())
 
 	tests := []struct {
 		name        string
@@ -357,20 +360,22 @@ func TestEvaluationJobReconcilerObserve(t *testing.T) {
 		expectedErr error
 	}{
 		{
-			name: "job ended - succeeded",
+			name: "job ended - succeeded with FinishedAt",
 			job: &v1.OpsJob{
 				Status: v1.OpsJobStatus{
-					Phase: v1.OpsJobSucceeded,
+					Phase:      v1.OpsJobSucceeded,
+					FinishedAt: &now,
 				},
 			},
 			expectedOk:  true,
 			expectedErr: nil,
 		},
 		{
-			name: "job ended - failed",
+			name: "job ended - failed with FinishedAt",
 			job: &v1.OpsJob{
 				Status: v1.OpsJobStatus{
-					Phase: v1.OpsJobFailed,
+					Phase:      v1.OpsJobFailed,
+					FinishedAt: &now,
 				},
 			},
 			expectedOk:  true,
@@ -396,11 +401,24 @@ func TestEvaluationJobReconcilerObserve(t *testing.T) {
 			expectedOk:  false,
 			expectedErr: nil,
 		},
+		{
+			name: "job ended - with DeletionTimestamp",
+			job: &v1.OpsJob{
+				ObjectMeta: metav1.ObjectMeta{
+					DeletionTimestamp: &now,
+				},
+				Status: v1.OpsJobStatus{
+					Phase: v1.OpsJobRunning,
+				},
+			},
+			expectedOk:  true,
+			expectedErr: nil,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ok, err := r.observe(nil, tt.job)
+			ok, err := r.observe(context.TODO(), tt.job)
 			assert.Equal(t, tt.expectedOk, ok)
 			assert.Equal(t, tt.expectedErr, err)
 		})

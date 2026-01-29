@@ -549,6 +549,21 @@ func (mr *MockInterfaceMockRecorder) GetModelByID(ctx, id interface{}) *gomock.C
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetModelByID", reflect.TypeOf((*MockInterface)(nil).GetModelByID), ctx, id)
 }
 
+// GetModelByModelName mocks base method.
+func (m *MockInterface) GetModelByModelName(ctx context.Context, modelName string) (*client.Model, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetModelByModelName", ctx, modelName)
+	ret0, _ := ret[0].(*client.Model)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetModelByModelName indicates an expected call of GetModelByModelName.
+func (mr *MockInterfaceMockRecorder) GetModelByModelName(ctx, modelName interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetModelByModelName", reflect.TypeOf((*MockInterface)(nil).GetModelByModelName), ctx, modelName)
+}
+
 // GetNodeGpuUtilizationMap mocks base method.
 func (m *MockInterface) GetNodeGpuUtilizationMap(ctx context.Context, cluster string, nodeNames []string) (map[string]float64, error) {
 	m.ctrl.T.Helper()

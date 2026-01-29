@@ -104,7 +104,7 @@ func TestCalculateOverallScore(t *testing.T) {
 			name: "single result with accuracy",
 			results: []BenchmarkResult{
 				{
-					DatasetName: "gsm8k",
+					BenchmarkName: "gsm8k",
 					Metrics: map[string]float64{
 						"accuracy": 0.85,
 					},
@@ -116,13 +116,13 @@ func TestCalculateOverallScore(t *testing.T) {
 			name: "multiple results with accuracy",
 			results: []BenchmarkResult{
 				{
-					DatasetName: "gsm8k",
+					BenchmarkName: "gsm8k",
 					Metrics: map[string]float64{
 						"accuracy": 0.80,
 					},
 				},
 				{
-					DatasetName: "math",
+					BenchmarkName: "math",
 					Metrics: map[string]float64{
 						"accuracy": 0.90,
 					},
@@ -134,7 +134,7 @@ func TestCalculateOverallScore(t *testing.T) {
 			name: "results with score metric",
 			results: []BenchmarkResult{
 				{
-					DatasetName: "alpaca_eval",
+					BenchmarkName: "alpaca_eval",
 					Metrics: map[string]float64{
 						"winrate_score": 0.70,
 					},
@@ -146,7 +146,7 @@ func TestCalculateOverallScore(t *testing.T) {
 			name: "results with pass@1 metric",
 			results: []BenchmarkResult{
 				{
-					DatasetName: "humaneval",
+					BenchmarkName: "humaneval",
 					Metrics: map[string]float64{
 						"pass@1": 0.65,
 					},
@@ -158,7 +158,7 @@ func TestCalculateOverallScore(t *testing.T) {
 			name: "results without recognized metrics",
 			results: []BenchmarkResult{
 				{
-					DatasetName: "custom",
+					BenchmarkName: "custom",
 					Metrics: map[string]float64{
 						"bleu": 0.45,
 					},
@@ -171,7 +171,12 @@ func TestCalculateOverallScore(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := CalculateOverallScore(tt.results)
-			assert.Equal(t, result, tt.expected)
+			// Use tolerance for float comparison to handle precision issues
+			diff := result - tt.expected
+			if diff < 0 {
+				diff = -diff
+			}
+			assert.Assert(t, diff < 0.0001, "expected %v but got %v", tt.expected, result)
 		})
 	}
 }
@@ -184,17 +189,18 @@ func TestEvalServiceType(t *testing.T) {
 
 func TestBenchmarkConfig(t *testing.T) {
 	// Test BenchmarkConfig struct fields
+	limit := 100
 	config := BenchmarkConfig{
 		DatasetId:       "dataset-123",
 		DatasetName:     "gsm8k",
 		DatasetLocalDir: "/apps/datasets/gsm8k",
-		Limit:           100,
+		Limit:           &limit,
 	}
 
 	assert.Equal(t, config.DatasetId, "dataset-123")
 	assert.Equal(t, config.DatasetName, "gsm8k")
 	assert.Equal(t, config.DatasetLocalDir, "/apps/datasets/gsm8k")
-	assert.Equal(t, config.Limit, 100)
+	assert.Equal(t, *config.Limit, 100)
 }
 
 func TestEvaluationTaskView(t *testing.T) {
@@ -223,10 +229,9 @@ func TestJudgeConfig(t *testing.T) {
 	// Test JudgeConfig struct
 	config := JudgeConfig{
 		ServiceId:   "model-judge",
-		ServiceType: "remote_api",
+		ServiceType: EvalServiceTypeRemoteAPI,
 	}
 
 	assert.Equal(t, config.ServiceId, "model-judge")
-	assert.Equal(t, config.ServiceType, "remote_api")
+	assert.Equal(t, config.ServiceType, EvalServiceTypeRemoteAPI)
 }
-
