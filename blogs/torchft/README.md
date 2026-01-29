@@ -71,8 +71,7 @@ spec:
         command:
           - "bash"
           - "-c"
-          - 'pip install "torchft-nightly==2025.12.16" && 
-             RUST_BACKTRACE=1 torchft_lighthouse --min_replicas 1 
+          - 'RUST_BACKTRACE=1 torchft_lighthouse --min_replicas 1 
              --quorum_tick_ms 100 --join_timeout_ms 100000'
         resources:
           limits:
@@ -97,65 +96,63 @@ The key configuration parameters include `--min_replicas`, which sets the minimu
 
 ## Dynamic Fault Recovery Workflow
 
-The true power of this architecture becomes apparent when failures occur. Let us walk through a concrete scenario with two replica groups—workload-0 and workload-1—to understand the recovery workflow.
+The true power of this architecture becomes apparent when failures occur. Let us walk through a concrete scenario with two replica groups replicagroup-0 and replicagroup-1—to understand the recovery workflow.
 
 ### Normal Training
 
 During normal operation, both replica groups execute the standard training loop: forward pass, backward pass, gradient synchronization via Fault Tolerant all-reduce, and optimizer step. After each step, they report their progress to the Lighthouse and verify that the quorum remains stable.
 
 ```
-[workload-0] step: 200  loss: 3.5149  memory: 127.42GB(49.78%)  tps: 6,712  tflops: 388.72  mfu: 29.90%
-[workload-1] step: 200  loss: 3.5149  memory: 133.36GB(52.10%)  tps: 6,712  tflops: 388.71  mfu: 29.90%
+[replicagroup-0] step: 200  loss: 3.5149  memory: 127.42GB(49.78%)  tps: 6,712  tflops: 388.72  mfu: 29.90%
+[replicagroup-1] step: 200  loss: 3.5149  memory: 133.36GB(52.10%)  tps: 6,712  tflops: 388.71  mfu: 29.90%
 ```
 
 Both groups maintain synchronized step counts and similar performance metrics, indicating healthy distributed training.
 
 ### Failure Detection and Continued Training
 
-When workload-1 experiences a failure—perhaps due to a GPU error or network partition—the system detects the disruption through failed communication attempts:
+When replicagroup-1 experiences a failure—perhaps due to a GPU error or network partition—the system detects the disruption through failed communication attempts:
 
 ```
 RuntimeError: [/pytorch/third_party/gloo/gloo/transport/tcp/pair.cc:538] 
 Read error [10.32.80.130]:60313: Connection reset by peer
 ```
 
-Rather than halting, workload-0 detects the quorum change through the Lighthouse and reconfigures its communication group:
+Rather than halting, replicagroup-0 detects the quorum change through the Lighthouse and reconfigures its communication group:
 
 ```
-[workload-0] step 247: reconfiguring for quorum_id=5
-[workload-0] Rank 0 is connected to 0 peer ranks. Expected: 0
-[workload-0] step 248: should_commit=True enough_replicas=True
-[workload-0] step 249: should_commit=True enough_replicas=True
+[replicagroup-0] step 247: reconfiguring for quorum_id=5
+[replicagroup-0] Rank 0 is connected to 0 peer ranks. Expected: 0
+[replicagroup-0] step 248: should_commit=True enough_replicas=True
+[replicagroup-0] step 249: should_commit=True enough_replicas=True
 ```
 
-The critical insight here is that workload-0 **continues training independently**. It no longer waits for workload-1 to synchronize gradients—instead, it proceeds with its local gradients, maintaining training progress. The `should_commit=True` flag indicates that the optimizer step should be applied, and `enough_replicas=True` confirms that the current quorum (even with just one group) is sufficient to continue.
+The critical insight here is that replicagroup-0 **continues training independently**. It no longer waits for replicagroup-1 to synchronize gradients—instead, it proceeds with its local gradients, maintaining training progress. The `should_commit=True` flag indicates that the optimizer step should be applied, and `enough_replicas=True` confirms that the current quorum (even with just one group) is sufficient to continue.
 
 ### Recovery and Rejoin
 
-When the failed node is repaired or replaced, workload-1 restarts and contacts the Lighthouse to learn the current global state:
+When the failed node is repaired or replaced, replicagroup-1 restarts and contacts the Lighthouse to learn the current global state:
 
 ```
-[workload-1] Rank 1 is connected to 1 peer ranks. Expected: 1
-[workload-1] Loading the FT checkpoint at step 247
-[workload-1] Finished loading the ft checkpoint in 0.56 seconds
-[workload-1] Training starts at step 1
+[replicagroup-1] Rank 1 is connected to 1 peer ranks. Expected: 1
+[replicagroup-1] Loading the FT checkpoint at step 247
+[replicagroup-1] Finished loading the ft checkpoint in 0.56 seconds
+[replicagroup-1] Training starts at step 1
 ```
 
-The recovering group fetches the latest model weights from a healthy peer (workload-0) rather than from persistent storage. This peer-to-peer weight transfer is typically faster than reading from a distributed file system and ensures the recovering group has the most recent state.
+The recovering group fetches the latest model weights from a healthy peer (replicagroup-0) rather than from persistent storage. This peer-to-peer weight transfer is typically faster than reading from a distributed file system and ensures the recovering group has the most recent state.
 
-Once synchronized, workload-1 rejoins the quorum, and both groups resume coordinated gradient synchronization. The entire recovery process—from failure detection to resumed parallel training—completes without any manual intervention and with minimal impact on overall training throughput.
+Once synchronized, replicagroup-1 rejoins the quorum, and both groups resume coordinated gradient synchronization. The entire recovery process—from failure detection to resumed parallel training—completes without any manual intervention and with minimal impact on overall training throughput.
 
 ## Training Configuration and Deployment
 
-To enable fault-tolerant training on the Primus-SaFE platform, each workload is configured with specific environment variables and launch parameters:
+To enable fault-tolerant training on the Primus-SaFE platform, each replicagroup is configured with specific environment variables and launch parameters:
 
 ```bash
-# Environment configuration
 export TORCHFT_LIGHTHOUSE=http://lighthouse:29510
 
 # Launch training with fault tolerance enabled
-pip install "torchft-nightly==2025.12.16" "fastmcp==2.14.0"
-cd /wekafs/zhanglei/Primus && mkdir -p output
+cd /wekafs/code/Primus && mkdir -p output
 
 bash examples/run_pretrain.sh \
   --training.steps=1000 \
@@ -165,7 +162,7 @@ bash examples/run_pretrain.sh \
   --training.mock_data=True
 ```
 
-The key parameters are `--fault_tolerance.enable`, which activates the TorchFT integration, `--fault_tolerance.replica_id`, which assigns a unique identifier to each replica group, and `--fault_tolerance.group_size`, which specifies the total number of replica groups in the training job. The platform handles the orchestration of multiple workloads, ensuring each receives the correct replica ID and can discover the Lighthouse service.
+The key parameters are `--fault_tolerance.enable`, which activates the TorchFT integration, `--fault_tolerance.replica_id`, which assigns a unique identifier to each replica group, and `--fault_tolerance.group_size`, which specifies the total number of replica groups in the training job. The platform handles the orchestration of multiple replicagroups, ensuring each receives the correct replica ID and can discover the Lighthouse service.
 
 ## Performance Characteristics
 
