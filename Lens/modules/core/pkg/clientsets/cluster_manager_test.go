@@ -23,7 +23,7 @@ func TestGetCurrentClusterName(t *testing.T) {
 		{
 			name:     "environment variable not set",
 			envValue: "",
-			want:     "local", // When CLUSTER_NAME is not set and kubeconfig is not available, defaults to "local"
+			want:     "default", // When CLUSTER_NAME is not set and kubeconfig is not available, defaults to "default"
 		},
 	}
 

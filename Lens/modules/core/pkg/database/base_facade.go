@@ -20,33 +20,20 @@ type BaseFacade struct {
 func (f *BaseFacade) getDB() *gorm.DB {
 	clusterName := f.clusterName
 
-	// If clusterName is empty, try to get the current cluster name from ClusterManager
+	// If clusterName is empty, use default behavior
 	if clusterName == "" {
-		cm := clientsets.GetClusterManager()
-		if cm != nil {
-			clusterName = cm.GetCurrentClusterName()
+		// First try sql.GetDefaultDB() which uses "default" key
+		db := sql.GetDefaultDB()
+		if db != nil {
+			return db
 		}
-	}
 
-	// If still empty or "local", try to get from ClusterManager's current cluster
-	if clusterName == "" || clusterName == "local" {
+		// Fallback: try to get from ClusterManager's current cluster
 		cm := clientsets.GetClusterManager()
 		if cm != nil {
 			currentCluster := cm.GetCurrentClusterClients()
 			if currentCluster != nil && currentCluster.StorageClientSet != nil && currentCluster.StorageClientSet.DB != nil {
 				return currentCluster.StorageClientSet.DB
-			}
-		}
-		// Fallback to sql.GetDefaultDB() for backward compatibility
-		db := sql.GetDefaultDB()
-		if db != nil {
-			return db
-		}
-		// Last resort: try to get from sql pool with current cluster name
-		if clusterName != "" {
-			db = sql.GetDB(clusterName)
-			if db != nil {
-				return db
 			}
 		}
 		return nil

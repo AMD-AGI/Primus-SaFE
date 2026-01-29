@@ -428,10 +428,9 @@ func getCurrentClusterName() string {
 		return name
 	}
 
-	// Default value - use "local" instead of "default" to avoid confusion
-	// "default" is too generic and conflicts with Kubernetes "default" namespace
-	log.Warn("CLUSTER_NAME environment variable not set, using 'local' as cluster name")
-	return "local"
+	// Default value - use "default" to be consistent with sql.GetDefaultDB()
+	log.Warn("CLUSTER_NAME environment variable not set, using 'default' as cluster name")
+	return "default"
 }
 
 // getClusterNameFromKubeconfig attempts to get the cluster name from kubeconfig
