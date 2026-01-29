@@ -12,12 +12,13 @@ import (
 	"github.com/robfig/cron/v3"
 )
 
-// Start initializes and starts all jobs based on configuration
+// Start initializes and starts all data plane jobs
+// NOTE: Management jobs have been migrated to control-plane-controller module
 func Start(ctx context.Context, cfg *config.JobsConfig) error {
 	// Initialize job registry with configuration
 	InitJobs(cfg)
 
-	// Get jobs based on current mode
+	// Get jobs to run
 	jobsToRun := GetJobs()
 
 	if len(jobsToRun) == 0 {
@@ -26,7 +27,6 @@ func Start(ctx context.Context, cfg *config.JobsConfig) error {
 	}
 
 	// Use SkipIfStillRunning to prevent concurrent execution of the same job
-	// If a job is still running when the next scheduled time arrives, the new execution will be skipped
 	c := cron.New(cron.WithChain(
 		cron.SkipIfStillRunning(cron.DefaultLogger),
 	))
@@ -34,14 +34,12 @@ func Start(ctx context.Context, cfg *config.JobsConfig) error {
 	currentCluster := cm.GetCurrentClusterClients()
 
 	// Check if current cluster is available
-	// During initial setup (no clusters registered), currentCluster may be nil
 	if currentCluster == nil {
-		log.Warn("Current cluster not initialized. Jobs that require cluster clients will be skipped until clusters are configured.")
+		log.Warn("Current cluster not initialized. Jobs will be skipped until cluster is configured.")
 	}
 
 	// Register all jobs with metrics collection
 	for _, job := range jobsToRun {
-		// Capture job variable for closure
 		jobToRun := job
 		jobName := getJobName(jobToRun)
 
@@ -60,10 +58,10 @@ func Start(ctx context.Context, cfg *config.JobsConfig) error {
 			return err
 		}
 
-		log.Infof("Registered job: %s with schedule: %s (mode: %s)", jobName, job.Schedule(), GetMode())
+		log.Infof("Registered job: %s with schedule: %s", jobName, job.Schedule())
 	}
 
 	c.Start()
-	log.Infof("Started %d jobs in %s mode", len(jobsToRun), GetMode())
+	log.Infof("Started %d data plane jobs", len(jobsToRun))
 	return nil
 }
