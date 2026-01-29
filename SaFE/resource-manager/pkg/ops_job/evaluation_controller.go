@@ -472,6 +472,9 @@ func extractParentDir(path string) string {
 	lastSlash := strings.LastIndex(path, "/")
 	if lastSlash > 0 {
 		return path[:lastSlash]
+	} else if lastSlash == 0 {
+		// For paths like "/root", return "" (no meaningful parent to mount)
+		return ""
 	}
 	return path
 }
