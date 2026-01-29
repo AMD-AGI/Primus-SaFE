@@ -75,11 +75,8 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req reconcile.Reques
 	if err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
-	err = r.saveWorkloadToDB(ctx, workload)
-	if err != nil {
-		return reconcile.Result{}, err
-	}
 
+	// Handle deletion: remove finalizer first to ensure CR can be deleted even if DB fails
 	if workload.DeletionTimestamp != nil {
 		if !controllerutil.RemoveFinalizer(workload, constant.PrimusLensGpuWorkloadExporterFinalizer) {
 			return reconcile.Result{}, nil
@@ -100,8 +97,19 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req reconcile.Reques
 			log.Errorf("Failed to patch workload for removing finalizer: %v", err)
 			return reconcile.Result{}, err
 		}
+		// Save to DB after finalizer removal - error does not block deletion
+		if saveErr := r.saveWorkloadToDB(ctx, workload); saveErr != nil {
+			log.Errorf("Failed to save workload to DB during deletion (non-blocking): %v", saveErr)
+		}
 		return reconcile.Result{}, nil
 	}
+
+	// Handle create/update: save to DB first, then add finalizer
+	err = r.saveWorkloadToDB(ctx, workload)
+	if err != nil {
+		return reconcile.Result{}, err
+	}
+
 	if controllerutil.AddFinalizer(workload, constant.PrimusLensGpuWorkloadExporterFinalizer) {
 		// Use raw patch with resource version to add finalizer
 		finalizers := workload.GetFinalizers()
