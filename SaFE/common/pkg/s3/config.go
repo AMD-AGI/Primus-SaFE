@@ -127,7 +127,7 @@ func parseS3PathStyleURL(s3url string) (*S3Location, error) {
 		return nil, fmt.Errorf("missing bucket in path '%s'", path)
 	}
 	bucket := parts[0]
-	// Key can be empty for root bucket access or directory downloads
+	// Key can be empty for root bucket access or directory downloads.
 	key := ""
 	if len(parts) > 1 {
 		key = parts[1]
