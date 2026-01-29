@@ -6,6 +6,10 @@ on:
     tags:
       - '**'
 
+permissions:
+  contents: read
+  packages: write  # Required for ghcr.io push
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
@@ -296,11 +300,13 @@ jobs:
         run: |
           buildah login -u "${{ secrets.DOCKER_USERNAME }}" -p "${{ secrets.DOCKER_PASSWORD }}" docker.io
           buildah login --tls-verify=false -u "${{ secrets.HARBOR_USERNAME }}" -p "${{ secrets.HARBOR_PASSWORD }}" "${{ secrets.HARBOR_HOST }}"
+          buildah login -u "${{ github.actor }}" -p "${{ secrets.GITHUB_TOKEN }}" ghcr.io
 
       - name: Build and push with Buildah
         env:
           DOCKERIO_REPOSITORY: docker.io/primussafe
           HARBOR_REPOSITORY: ${{ secrets.HARBOR_HOST }}/primussafe
+          GHCR_REPOSITORY: ghcr.io/AMD-AGI/primussafe
           IMAGE_VERSION: ${{ needs.detect-changes.outputs.image_version }}
           DATE_TIME: ${{ needs.detect-changes.outputs.date_time }}
         run: |
@@ -339,8 +345,8 @@ jobs:
             -f ${DOCKERFILE} .
           
 
-          # Push to Harbor first (internal registry), then Docker Hub
-          for repo in ${HARBOR_REPOSITORY} ${DOCKERIO_REPOSITORY}; do
+          # Push to Harbor first (internal registry), then Docker Hub, then GHCR
+          for repo in ${HARBOR_REPOSITORY} ${DOCKERIO_REPOSITORY} ${GHCR_REPOSITORY}; do
             echo "🚀 Pushing ${{ matrix.name }} to $repo..."
             buildah tag ${{ matrix.name }}:${IMAGE_VERSION} ${repo}/${{ matrix.name }}:${IMAGE_VERSION}
             buildah tag ${{ matrix.name }}:${DATE_TIME} ${repo}/${{ matrix.name }}:${DATE_TIME}
@@ -390,11 +396,13 @@ jobs:
         run: |
           buildah login -u "${{ secrets.DOCKER_USERNAME }}" -p "${{ secrets.DOCKER_PASSWORD }}" docker.io
           buildah login --tls-verify=false -u "${{ secrets.HARBOR_USERNAME }}" -p "${{ secrets.HARBOR_PASSWORD }}" "${{ secrets.HARBOR_HOST }}"
+          buildah login -u "${{ github.actor }}" -p "${{ secrets.GITHUB_TOKEN }}" ghcr.io
 
       - name: Build and push TraceLens
         env:
           DOCKERIO_REPOSITORY: docker.io/primussafe
           HARBOR_REPOSITORY: ${{ secrets.HARBOR_HOST }}/primussafe
+          GHCR_REPOSITORY: ghcr.io/AMD-AGI/primussafe
           IMAGE_VERSION: ${{ needs.detect-changes.outputs.image_version }}
           DATE_TIME: ${{ needs.detect-changes.outputs.date_time }}
         run: |
@@ -411,8 +419,8 @@ jobs:
             -f "${TRACELENS_DIR}/Dockerfile" \
             "${TRACELENS_DIR}"
           
-          # Push to Harbor first (internal registry), then Docker Hub
-          for repo in ${HARBOR_REPOSITORY} ${DOCKERIO_REPOSITORY}; do
+          # Push to Harbor first (internal registry), then Docker Hub, then GHCR
+          for repo in ${HARBOR_REPOSITORY} ${DOCKERIO_REPOSITORY} ${GHCR_REPOSITORY}; do
             echo "🚀 Pushing tracelens to $repo..."
             buildah tag tracelens:${IMAGE_VERSION} ${repo}/tracelens:${IMAGE_VERSION}
             buildah tag tracelens:${DATE_TIME} ${repo}/tracelens:${DATE_TIME}
@@ -462,11 +470,13 @@ jobs:
         run: |
           buildah login -u "${{ secrets.DOCKER_USERNAME }}" -p "${{ secrets.DOCKER_PASSWORD }}" docker.io
           buildah login --tls-verify=false -u "${{ secrets.HARBOR_USERNAME }}" -p "${{ secrets.HARBOR_PASSWORD }}" "${{ secrets.HARBOR_HOST }}"
+          buildah login -u "${{ github.actor }}" -p "${{ secrets.GITHUB_TOKEN }}" ghcr.io
 
       - name: Build and push Perfetto Viewer
         env:
           DOCKERIO_REPOSITORY: docker.io/primussafe
           HARBOR_REPOSITORY: ${{ secrets.HARBOR_HOST }}/primussafe
+          GHCR_REPOSITORY: ghcr.io/AMD-AGI/primussafe
           IMAGE_VERSION: ${{ needs.detect-changes.outputs.image_version }}
           DATE_TIME: ${{ needs.detect-changes.outputs.date_time }}
         run: |
@@ -485,8 +495,8 @@ jobs:
             -f "${PERFETTO_DIR}/Dockerfile" \
             "${PERFETTO_DIR}"
           
-          # Push to Harbor first (internal registry), then Docker Hub
-          for repo in ${HARBOR_REPOSITORY} ${DOCKERIO_REPOSITORY}; do
+          # Push to Harbor first (internal registry), then Docker Hub, then GHCR
+          for repo in ${HARBOR_REPOSITORY} ${DOCKERIO_REPOSITORY} ${GHCR_REPOSITORY}; do
             echo "🚀 Pushing perfetto-viewer to $repo..."
             buildah tag perfetto-viewer:${IMAGE_VERSION} ${repo}/perfetto-viewer:${IMAGE_VERSION}
             buildah tag perfetto-viewer:${DATE_TIME} ${repo}/perfetto-viewer:${DATE_TIME}
@@ -543,11 +553,13 @@ jobs:
         run: |
           buildah login -u "${{ secrets.DOCKER_USERNAME }}" -p "${{ secrets.DOCKER_PASSWORD }}" docker.io
           buildah login --tls-verify=false -u "${{ secrets.HARBOR_USERNAME }}" -p "${{ secrets.HARBOR_PASSWORD }}" "${{ secrets.HARBOR_HOST }}"
+          buildah login -u "${{ github.actor }}" -p "${{ secrets.GITHUB_TOKEN }}" ghcr.io
 
       - name: Build and push GitHub Runner
         env:
           DOCKERIO_REPOSITORY: docker.io/primussafe
           HARBOR_REPOSITORY: ${{ secrets.HARBOR_HOST }}/primussafe
+          GHCR_REPOSITORY: ghcr.io/AMD-AGI/primussafe
           IMAGE_VERSION: ${{ needs.detect-changes.outputs.image_version }}
           DATE_TIME: ${{ needs.detect-changes.outputs.date_time }}
           RUNNER_VERSION: ${{ steps.read-version.outputs.runner_version }}
@@ -569,8 +581,8 @@ jobs:
             -f "${GITHUB_RUNNER_DIR}/Dockerfile" \
             "${GITHUB_RUNNER_DIR}"
           
-          # Push to Harbor first (internal registry), then Docker Hub
-          for repo in ${HARBOR_REPOSITORY} ${DOCKERIO_REPOSITORY}; do
+          # Push to Harbor first (internal registry), then Docker Hub, then GHCR
+          for repo in ${HARBOR_REPOSITORY} ${DOCKERIO_REPOSITORY} ${GHCR_REPOSITORY}; do
             echo "🚀 Pushing buildah-runner to $repo..."
             buildah tag buildah-runner:${IMAGE_VERSION} ${repo}/buildah-runner:${IMAGE_VERSION}
             buildah tag buildah-runner:${DATE_TIME} ${repo}/buildah-runner:${DATE_TIME}
@@ -707,6 +719,7 @@ jobs:
           
           echo "" >> build-versions.txt
           echo "Docker Hub Registry: docker.io/primussafe/" >> build-versions.txt
+          echo "GHCR Registry: ghcr.io/AMD-AGI/primussafe/" >> build-versions.txt
           echo "================================================" >> build-versions.txt
           
           echo ""
