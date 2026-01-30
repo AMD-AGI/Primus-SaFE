@@ -51,7 +51,7 @@ spec:
         {{- end }}
       
       # Disk configuration
-      diskSize: {{ $profile.opensearch.diskSize }}
+      diskSize: {{ include "primus-lens-infra.opensearchDiskSize" $ }}
       
       # Resource limits
       resources:
