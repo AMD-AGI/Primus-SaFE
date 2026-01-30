@@ -294,3 +294,41 @@ CREATE TABLE IF NOT EXISTS storage
     updated_at timestamp with time zone,
     deleted_at timestamp with time zone
 );
+
+-- system_config table (required by patch014+)
+CREATE TABLE IF NOT EXISTS system_config (
+    id BIGSERIAL PRIMARY KEY,
+    key VARCHAR(255) NOT NULL UNIQUE,
+    value JSONB NOT NULL,
+    description TEXT,
+    category VARCHAR(100),
+    is_encrypted BOOLEAN DEFAULT FALSE,
+    version INTEGER DEFAULT 1,
+    is_readonly BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_by VARCHAR(255),
+    updated_by VARCHAR(255)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_system_config_key ON system_config(key);
+CREATE INDEX IF NOT EXISTS idx_system_config_category ON system_config(category);
+CREATE INDEX IF NOT EXISTS idx_system_config_updated_at ON system_config(updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_system_config_value ON system_config USING GIN(value);
+
+-- system_config_history table
+CREATE TABLE IF NOT EXISTS system_config_history (
+    id BIGSERIAL PRIMARY KEY,
+    config_id BIGINT NOT NULL,
+    key VARCHAR(255) NOT NULL,
+    old_value JSONB,
+    new_value JSONB NOT NULL,
+    version INTEGER NOT NULL,
+    change_reason TEXT,
+    changed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    changed_by VARCHAR(255)
+);
+
+CREATE INDEX IF NOT EXISTS idx_system_config_history_config_id ON system_config_history(config_id);
+CREATE INDEX IF NOT EXISTS idx_system_config_history_key ON system_config_history(key);
+CREATE INDEX IF NOT EXISTS idx_system_config_history_changed_at ON system_config_history(changed_at DESC);

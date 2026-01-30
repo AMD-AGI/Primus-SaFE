@@ -60,9 +60,7 @@ CREATE TABLE IF NOT EXISTS system_config_history (
     version INTEGER NOT NULL,
     change_reason TEXT,
     changed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    changed_by VARCHAR(255),
-    
-    CONSTRAINT fk_system_config_history_config FOREIGN KEY (config_id) REFERENCES system_config(id) ON DELETE CASCADE
+    changed_by VARCHAR(255)
 );
 
 -- Indexes for system_config_history
