@@ -19,6 +19,8 @@ type DataplaneInstallTaskFacadeInterface interface {
 	GetByID(ctx context.Context, id int32) (*model.DataplaneInstallTask, error)
 	// GetActiveTask gets the active (pending/running) task for a cluster
 	GetActiveTask(ctx context.Context, clusterName string) (*model.DataplaneInstallTask, error)
+	// GetActiveTaskByScope gets the active task for a cluster with specific scope
+	GetActiveTaskByScope(ctx context.Context, clusterName, scope string) (*model.DataplaneInstallTask, error)
 	// GetPendingTasks gets pending or running tasks
 	GetPendingTasks(ctx context.Context, limit int) ([]*model.DataplaneInstallTask, error)
 	// MarkRunning marks a task as running
@@ -35,6 +37,10 @@ type DataplaneInstallTaskFacadeInterface interface {
 	IncrementRetry(ctx context.Context, id int32, errorMsg string) error
 	// ListByCluster lists tasks for a cluster
 	ListByCluster(ctx context.Context, clusterName string, limit int) ([]*model.DataplaneInstallTask, error)
+	// ListByClusterAndScope lists tasks for a cluster with specific scope
+	ListByClusterAndScope(ctx context.Context, clusterName, scope string, limit int) ([]*model.DataplaneInstallTask, error)
+	// GetLatestByScope gets the latest task for a cluster with specific scope
+	GetLatestByScope(ctx context.Context, clusterName, scope string) (*model.DataplaneInstallTask, error)
 	// SetJobInfo sets the K8s Job tracking info
 	SetJobInfo(ctx context.Context, id int32, jobName, jobNamespace string) error
 	// GetByJobName gets a task by its associated K8s Job name
@@ -243,4 +249,48 @@ func (f *DataplaneInstallTaskFacade) ResetForRetry(ctx context.Context, id int32
 			"job_namespace": "",
 			"updated_at":    time.Now(),
 		}).Error
+}
+
+// GetActiveTaskByScope gets the active (pending/running) task for a cluster with specific scope
+func (f *DataplaneInstallTaskFacade) GetActiveTaskByScope(ctx context.Context, clusterName, scope string) (*model.DataplaneInstallTask, error) {
+	var task model.DataplaneInstallTask
+	err := f.db.WithContext(ctx).
+		Where("cluster_name = ? AND install_scope = ? AND status IN ?",
+			clusterName, scope, []string{model.TaskStatusPending, model.TaskStatusRunning}).
+		First(&task).Error
+	if err != nil {
+		return nil, err
+	}
+	return &task, nil
+}
+
+// ListByClusterAndScope lists tasks for a cluster with specific scope
+func (f *DataplaneInstallTaskFacade) ListByClusterAndScope(ctx context.Context, clusterName, scope string, limit int) ([]*model.DataplaneInstallTask, error) {
+	var tasks []*model.DataplaneInstallTask
+	query := f.db.WithContext(ctx).
+		Where("cluster_name = ? AND install_scope = ?", clusterName, scope).
+		Order("created_at DESC")
+
+	if limit > 0 {
+		query = query.Limit(limit)
+	}
+
+	err := query.Find(&tasks).Error
+	if err != nil {
+		return nil, err
+	}
+	return tasks, nil
+}
+
+// GetLatestByScope gets the latest task for a cluster with specific scope
+func (f *DataplaneInstallTaskFacade) GetLatestByScope(ctx context.Context, clusterName, scope string) (*model.DataplaneInstallTask, error) {
+	var task model.DataplaneInstallTask
+	err := f.db.WithContext(ctx).
+		Where("cluster_name = ? AND install_scope = ?", clusterName, scope).
+		Order("created_at DESC").
+		First(&task).Error
+	if err != nil {
+		return nil, err
+	}
+	return &task, nil
 }

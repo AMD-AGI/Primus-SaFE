@@ -589,6 +589,16 @@ func RegisterRouter(group *gin.RouterGroup) error {
 			clusterMgmtGroup.DELETE("/:cluster_name", cluster.DeleteCluster)
 			clusterMgmtGroup.PUT("/:cluster_name/default", cluster.SetDefaultCluster)
 			clusterMgmtGroup.POST("/:cluster_name/test", cluster.TestClusterConnection)
+
+			// Infrastructure initialization
+			clusterMgmtGroup.POST("/:cluster_name/initialize", cluster.InitializeInfrastructure)
+			clusterMgmtGroup.GET("/:cluster_name/infrastructure/status", cluster.GetInfrastructureStatus)
+
+			// Task management
+			clusterMgmtGroup.GET("/:cluster_name/tasks", cluster.ListTasks)
+			clusterMgmtGroup.GET("/:cluster_name/tasks/active", cluster.GetActiveTask)
+			clusterMgmtGroup.GET("/:cluster_name/tasks/:task_id", cluster.GetTask)
+			clusterMgmtGroup.GET("/:cluster_name/tasks/:task_id/logs", cluster.GetTaskLogs)
 		}
 	}
 

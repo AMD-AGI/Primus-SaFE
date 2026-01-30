@@ -61,6 +61,48 @@ func GetUpgradeStageSequence() []string {
 	}
 }
 
+// GetInfrastructureStageSequence returns stages for infrastructure initialization only
+func GetInfrastructureStageSequence(storageMode string) []string {
+	if storageMode == StorageModeLensManaged {
+		return []string{
+			StageOperators,
+			StageWaitOperators,
+			StageInfrastructure,
+			StageWaitInfra,
+			StageInit,
+			StageDatabaseMigration,
+			StageStorageSecret,
+		}
+	}
+	// External storage mode - only init and storage secret
+	return []string{
+		StageInit,
+		StageDatabaseMigration,
+		StageStorageSecret,
+	}
+}
+
+// GetAppsStageSequence returns stages for apps deployment only
+func GetAppsStageSequence() []string {
+	return []string{
+		StageApplications,
+		StageWaitApps,
+	}
+}
+
+// GetStageSequenceByScope returns the ordered list of stages based on install scope and storage mode
+func GetStageSequenceByScope(scope, storageMode string) []string {
+	switch scope {
+	case InstallScopeInfrastructure:
+		return GetInfrastructureStageSequence(storageMode)
+	case InstallScopeApps:
+		return GetAppsStageSequence()
+	default:
+		// Full scope (backward compatible)
+		return GetStageSequence(storageMode)
+	}
+}
+
 // ===== Operators Stage =====
 
 type OperatorsStage struct{}

@@ -149,3 +149,13 @@ const (
 	StorageModeLensManaged = "lens-managed"
 	StorageModeExternal    = "external"
 )
+
+// Install scopes
+const (
+	// InstallScopeFull - Full installation (backward compatible)
+	InstallScopeFull = "full"
+	// InstallScopeInfrastructure - Infrastructure only (operators, storage, init)
+	InstallScopeInfrastructure = "infrastructure"
+	// InstallScopeApps - Applications only
+	InstallScopeApps = "apps"
+)
