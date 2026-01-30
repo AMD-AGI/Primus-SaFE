@@ -358,7 +358,7 @@ func (j *DataplaneInstallerJob) processRecentlyFailedTasks(ctx context.Context) 
 
 	for _, task := range failedTasks {
 		// Check if cluster status needs to be updated
-		clusterConfig, err := clusterConfigFacade.GetByClusterName(ctx, task.ClusterName)
+		clusterConfig, err := clusterConfigFacade.GetByName(ctx, task.ClusterName)
 		if err != nil {
 			log.Warnf("Failed to get cluster config for %s: %v", task.ClusterName, err)
 			continue
