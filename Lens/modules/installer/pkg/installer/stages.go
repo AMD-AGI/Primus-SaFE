@@ -122,23 +122,81 @@ func (s *OperatorsStage) Execute(ctx context.Context, helm *HelmClient, config *
 		return nil
 	}
 
-	// Check if operators already exist from another release (e.g., control plane installation)
-	// This handles the case where dataplane is installed on the same cluster as control plane
-	if !exists {
-		operatorsExist, foundRole, err := helm.OperatorsExist(ctx, config.Kubeconfig)
-		if err != nil {
-			log.Warnf("Failed to check existing operators: %v, proceeding with installation", err)
-		} else if operatorsExist {
-			log.Infof("Operators already exist in cluster (found ClusterRole '%s'), likely from control plane installation. Skipping operators stage to avoid conflicts.", foundRole)
-			return nil
-		}
+	// Detect which operators already exist in the cluster
+	operatorStatus, err := helm.DetectOperators(ctx, config.Kubeconfig)
+	if err != nil {
+		log.Warnf("Failed to detect existing operators: %v, will attempt to install all", err)
+		operatorStatus = &OperatorStatus{} // All false - install everything
 	}
 
+	// If all operators exist, skip the stage entirely
+	if operatorStatus.AllExist() {
+		log.Infof("All operators already exist in cluster, skipping operators stage")
+		return nil
+	}
+
+	// Build values with existing operators disabled
 	values := map[string]interface{}{
 		"global": map[string]interface{}{
 			"namespace": config.Namespace,
 		},
 	}
+
+	// Disable operators that already exist to avoid conflicts
+	if operatorStatus.PGO {
+		log.Infof("PGO already exists, disabling in chart")
+		values["database"] = map[string]interface{}{"enabled": false}
+		values["pgo"] = map[string]interface{}{"enabled": false}
+	}
+	if operatorStatus.OpenSearch {
+		log.Infof("OpenSearch Operator already exists, disabling in chart")
+		values["opensearch"] = map[string]interface{}{"enabled": false}
+		values["opensearch-operator"] = map[string]interface{}{"enabled": false}
+	}
+	if operatorStatus.Grafana {
+		log.Infof("Grafana Operator already exists, disabling in chart")
+		values["grafana"] = map[string]interface{}{"enabled": false}
+		values["grafana-operator"] = map[string]interface{}{"enabled": false}
+	}
+	if operatorStatus.VictoriaMetrics {
+		log.Infof("VictoriaMetrics Operator already exists, disabling in chart")
+		values["victoriametrics"] = map[string]interface{}{"enabled": false}
+		values["vm-operator"] = map[string]interface{}{"enabled": false}
+	}
+	if operatorStatus.Fluent {
+		log.Infof("Fluent Operator already exists, disabling in chart")
+		values["logging"] = map[string]interface{}{"enabled": false}
+		values["fluent-operator"] = map[string]interface{}{"enabled": false}
+	}
+	if operatorStatus.KubeStateMetrics {
+		log.Infof("Kube State Metrics already exists, disabling in chart")
+		values["monitoring"] = map[string]interface{}{
+			"kubeStateMetrics": map[string]interface{}{"enabled": false},
+		}
+		values["kube-state-metrics"] = map[string]interface{}{"enabled": false}
+	}
+
+	// Log what will be installed
+	toInstall := []string{}
+	if !operatorStatus.PGO {
+		toInstall = append(toInstall, "PGO")
+	}
+	if !operatorStatus.OpenSearch {
+		toInstall = append(toInstall, "OpenSearch")
+	}
+	if !operatorStatus.Grafana {
+		toInstall = append(toInstall, "Grafana")
+	}
+	if !operatorStatus.VictoriaMetrics {
+		toInstall = append(toInstall, "VictoriaMetrics")
+	}
+	if !operatorStatus.Fluent {
+		toInstall = append(toInstall, "Fluent")
+	}
+	if !operatorStatus.KubeStateMetrics {
+		toInstall = append(toInstall, "KubeStateMetrics")
+	}
+	log.Infof("Installing missing operators: %v", toInstall)
 
 	if exists {
 		return helm.Upgrade(ctx, config.Kubeconfig, config.Namespace, ReleaseOperators, ChartOperators, values)
@@ -154,21 +212,22 @@ func (s *WaitOperatorsStage) Name() string       { return StageWaitOperators }
 func (s *WaitOperatorsStage) IsIdempotent() bool { return true }
 
 func (s *WaitOperatorsStage) Execute(ctx context.Context, helm *HelmClient, config *InstallConfig) error {
-	// Check if operators release exists - if not, operators were skipped (already exist from another release)
+	// Check if operators release exists
 	exists, _, err := helm.ReleaseStatus(ctx, config.Kubeconfig, config.Namespace, ReleaseOperators)
 	if err != nil {
 		log.Warnf("Failed to check operators release status: %v", err)
 	}
 
 	if !exists {
-		// Operators were not installed by us, check if they exist from another release
-		operatorsExist, _, _ := helm.OperatorsExist(ctx, config.Kubeconfig)
-		if operatorsExist {
-			log.Infof("Operators exist from another release, skipping wait stage")
+		// Operators release doesn't exist, check if all operators already exist
+		operatorStatus, _ := helm.DetectOperators(ctx, config.Kubeconfig)
+		if operatorStatus != nil && operatorStatus.AllExist() {
+			log.Infof("All operators already exist, skipping wait stage")
 			return nil
 		}
 	}
 
+	// Wait for operator pods from our release
 	return helm.WaitForPods(ctx, config.Kubeconfig, config.Namespace, "app.kubernetes.io/instance="+ReleaseOperators, 5*time.Minute)
 }
 

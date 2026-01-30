@@ -422,26 +422,72 @@ func (h *HelmClient) ClusterRoleExists(ctx context.Context, kubeconfig []byte, n
 	return true, nil
 }
 
-// OperatorsExist checks if key operator components already exist in the cluster
-// This is used to detect if operators were installed by another release (e.g., control plane)
-func (h *HelmClient) OperatorsExist(ctx context.Context, kubeconfig []byte) (bool, string, error) {
-	// Check for key ClusterRoles that indicate operators are already installed
-	// These are cluster-scoped resources that would conflict if installed again
-	operatorClusterRoles := []string{
-		"pgo",                        // PostgreSQL Operator
-		"opensearch-operator-role",   // OpenSearch Operator
-		"grafana-operator",           // Grafana Operator
+// OperatorStatus tracks which operators exist and which need to be installed
+type OperatorStatus struct {
+	PGO              bool // PostgreSQL Operator
+	OpenSearch       bool // OpenSearch Operator
+	Grafana          bool // Grafana Operator
+	VictoriaMetrics  bool // VictoriaMetrics Operator
+	Fluent           bool // Fluent Operator
+	KubeStateMetrics bool // Kube State Metrics
+}
+
+// AllExist returns true if all operators exist
+func (s *OperatorStatus) AllExist() bool {
+	return s.PGO && s.OpenSearch && s.Grafana && s.VictoriaMetrics && s.Fluent && s.KubeStateMetrics
+}
+
+// NoneExist returns true if no operators exist
+func (s *OperatorStatus) NoneExist() bool {
+	return !s.PGO && !s.OpenSearch && !s.Grafana && !s.VictoriaMetrics && !s.Fluent && !s.KubeStateMetrics
+}
+
+// DetectOperators checks which operators already exist in the cluster
+func (h *HelmClient) DetectOperators(ctx context.Context, kubeconfig []byte) (*OperatorStatus, error) {
+	status := &OperatorStatus{}
+
+	// Check each operator by its ClusterRole or other unique resource
+	checks := []struct {
+		name     string
+		resource string
+		target   *bool
+	}{
+		{"PGO", "pgo", &status.PGO},
+		{"OpenSearch", "opensearch-operator-manager-role", &status.OpenSearch},
+		{"Grafana", "grafana-operator-manager-role", &status.Grafana},
+		{"VictoriaMetrics", "vm-operator-victoria-metrics-operator", &status.VictoriaMetrics},
+		{"Fluent", "fluent-operator", &status.Fluent},
+		{"KubeStateMetrics", "kube-state-metrics", &status.KubeStateMetrics},
 	}
 
-	for _, role := range operatorClusterRoles {
-		exists, err := h.ClusterRoleExists(ctx, kubeconfig, role)
+	for _, check := range checks {
+		exists, err := h.ClusterRoleExists(ctx, kubeconfig, check.resource)
 		if err != nil {
-			log.Warnf("Error checking ClusterRole %s: %v", role, err)
-			continue
+			log.Warnf("Error checking %s ClusterRole %s: %v", check.name, check.resource, err)
+			// Assume not exists on error
+			*check.target = false
+		} else {
+			*check.target = exists
+			if exists {
+				log.Debugf("Operator %s already exists (found ClusterRole %s)", check.name, check.resource)
+			}
 		}
-		if exists {
-			return true, role, nil
-		}
+	}
+
+	return status, nil
+}
+
+// OperatorsExist checks if key operator components already exist in the cluster
+// This is used to detect if operators were installed by another release (e.g., control plane)
+// Deprecated: Use DetectOperators for more granular control
+func (h *HelmClient) OperatorsExist(ctx context.Context, kubeconfig []byte) (bool, string, error) {
+	status, err := h.DetectOperators(ctx, kubeconfig)
+	if err != nil {
+		return false, "", err
+	}
+
+	if status.AllExist() {
+		return true, "all", nil
 	}
 
 	return false, "", nil
