@@ -1,0 +1,31 @@
+# PostgreSQL Cluster Configuration
+global:
+  namespace: "primus-lens"
+  storageClass: "local-path"
+
+postgres:
+  enabled: true
+  # Cluster name
+  name: "primus-lens"
+  # PostgreSQL version
+  version: 16
+  # Storage size for data
+  dataSize: "10Gi"
+  # Storage size for backups
+  backupSize: "10Gi"
+  # Number of replicas
+  replicas: 1
+  # Resources
+  resources:
+    limits:
+      cpu: "2000m"
+      memory: "4Gi"
+    requests:
+      cpu: "500m"
+      memory: "2Gi"
+  # Users to create
+  users:
+    - name: primus-lens
+      databases:
+        - primus_lens
+      options: "SUPERUSER"

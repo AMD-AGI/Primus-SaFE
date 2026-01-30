@@ -4,10 +4,8 @@
 package stages
 
 import (
-	"bytes"
 	"context"
 	"fmt"
-	"text/template"
 	"time"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
@@ -17,11 +15,14 @@ import (
 // VictoriaMetricsStage handles VictoriaMetrics cluster deployment
 type VictoriaMetricsStage struct {
 	installer.BaseStage
+	helmClient *installer.HelmClient
 }
 
 // NewVictoriaMetricsStage creates a new VictoriaMetrics stage
-func NewVictoriaMetricsStage() *VictoriaMetricsStage {
-	return &VictoriaMetricsStage{}
+func NewVictoriaMetricsStage(helmClient *installer.HelmClient) *VictoriaMetricsStage {
+	return &VictoriaMetricsStage{
+		helmClient: helmClient,
+	}
 }
 
 func (s *VictoriaMetricsStage) Name() string {
@@ -77,13 +78,73 @@ func (s *VictoriaMetricsStage) ShouldRun(ctx context.Context, client *installer.
 func (s *VictoriaMetricsStage) Execute(ctx context.Context, client *installer.ClusterClient, config *installer.InstallConfig) error {
 	log.Info("Deploying VMCluster CR...")
 
-	yaml, err := s.generateVMClusterYAML(config)
-	if err != nil {
-		return fmt.Errorf("failed to generate VMCluster YAML: %w", err)
+	values := map[string]interface{}{
+		"global": map[string]interface{}{
+			"namespace":    config.Namespace,
+			"storageClass": s.getStorageClass(config),
+		},
+		"victoriametrics": map[string]interface{}{
+			"enabled":         true,
+			"name":            "primus-lens-vmcluster",
+			"retentionPeriod": "30d",
+			"vmstorage": map[string]interface{}{
+				"replicas": 1,
+				"size":     s.getVMSize(config),
+				"resources": map[string]interface{}{
+					"limits": map[string]interface{}{
+						"cpu":    "1000m",
+						"memory": "2Gi",
+					},
+					"requests": map[string]interface{}{
+						"cpu":    "500m",
+						"memory": "1Gi",
+					},
+				},
+			},
+			"vmselect": map[string]interface{}{
+				"replicas": 1,
+				"resources": map[string]interface{}{
+					"limits": map[string]interface{}{
+						"cpu":    "500m",
+						"memory": "1Gi",
+					},
+					"requests": map[string]interface{}{
+						"cpu":    "100m",
+						"memory": "256Mi",
+					},
+				},
+			},
+			"vminsert": map[string]interface{}{
+				"replicas": 1,
+				"resources": map[string]interface{}{
+					"limits": map[string]interface{}{
+						"cpu":    "500m",
+						"memory": "512Mi",
+					},
+					"requests": map[string]interface{}{
+						"cpu":    "100m",
+						"memory": "128Mi",
+					},
+				},
+			},
+		},
 	}
 
-	log.Infof("Applying VMCluster CR to namespace %s", config.Namespace)
-	return client.ApplyYAML(ctx, yaml)
+	releaseName := "primus-lens-victoriametrics"
+	log.Infof("Installing VMCluster via Helm chart %s", ChartVictoriaMetrics)
+
+	// Check if release exists
+	exists, _, err := s.helmClient.ReleaseStatus(ctx, client.GetKubeconfig(), config.Namespace, releaseName)
+	if err != nil {
+		return fmt.Errorf("failed to check release status: %w", err)
+	}
+
+	if exists {
+		log.Infof("Release %s exists, upgrading...", releaseName)
+		return s.helmClient.Upgrade(ctx, client.GetKubeconfig(), config.Namespace, releaseName, ChartVictoriaMetrics, values)
+	}
+
+	return s.helmClient.Install(ctx, client.GetKubeconfig(), config.Namespace, releaseName, ChartVictoriaMetrics, values)
 }
 
 func (s *VictoriaMetricsStage) WaitForReady(ctx context.Context, client *installer.ClusterClient, config *installer.InstallConfig, timeout time.Duration) error {
@@ -125,71 +186,4 @@ func (s *VictoriaMetricsStage) getVMSize(config *installer.InstallConfig) string
 		return config.ManagedStorage.VictoriametricsSize
 	}
 	return installer.DefaultVMSize
-}
-
-func (s *VictoriaMetricsStage) generateVMClusterYAML(config *installer.InstallConfig) ([]byte, error) {
-	tmpl := `apiVersion: operator.victoriametrics.com/v1beta1
-kind: VMCluster
-metadata:
-  name: primus-lens-vmcluster
-  namespace: {{ .Namespace }}
-spec:
-  retentionPeriod: "30d"
-  replicationFactor: 1
-  vmstorage:
-    replicaCount: 1
-    storage:
-      volumeClaimTemplate:
-        spec:
-          storageClassName: {{ .StorageClass }}
-          accessModes:
-            - ReadWriteOnce
-          resources:
-            requests:
-              storage: {{ .VMSize }}
-    resources:
-      limits:
-        cpu: "1000m"
-        memory: "2Gi"
-      requests:
-        cpu: "500m"
-        memory: "1Gi"
-  vmselect:
-    replicaCount: 1
-    cacheMountPath: /cache
-    resources:
-      limits:
-        cpu: "500m"
-        memory: "1Gi"
-      requests:
-        cpu: "100m"
-        memory: "256Mi"
-  vminsert:
-    replicaCount: 1
-    resources:
-      limits:
-        cpu: "500m"
-        memory: "512Mi"
-      requests:
-        cpu: "100m"
-        memory: "128Mi"
-`
-
-	t, err := template.New("vmcluster").Parse(tmpl)
-	if err != nil {
-		return nil, err
-	}
-
-	data := map[string]string{
-		"Namespace":    config.Namespace,
-		"StorageClass": s.getStorageClass(config),
-		"VMSize":       s.getVMSize(config),
-	}
-
-	var buf bytes.Buffer
-	if err := t.Execute(&buf, data); err != nil {
-		return nil, err
-	}
-
-	return buf.Bytes(), nil
 }
