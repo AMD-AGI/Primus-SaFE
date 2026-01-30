@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
@@ -263,30 +264,60 @@ func (s *InfrastructureStage) Execute(ctx context.Context, helm *HelmClient, con
 		}
 	}
 
+	// Ensure storage class is set
+	storageClass := managed.StorageClass
+	if storageClass == "" {
+		storageClass = config.StorageClass
+	}
+	if storageClass == "" {
+		storageClass = DefaultStorageClass
+	}
+
+	// Ensure storage sizes have defaults
+	postgresSize := managed.PostgresSize
+	if postgresSize == "" {
+		postgresSize = DefaultPostgresSize
+	}
+	opensearchSize := managed.OpensearchSize
+	if opensearchSize == "" {
+		opensearchSize = DefaultOSSize
+	}
+	vmSize := managed.VictoriametricsSize
+	if vmSize == "" {
+		vmSize = DefaultVMSize
+	}
+	osReplicas := managed.OpensearchReplicas
+	if osReplicas == 0 {
+		osReplicas = DefaultOSReplicas
+	}
+
+	log.Infof("Infrastructure config: storageClass=%s, postgres=%s, opensearch=%s (replicas=%d), vm=%s",
+		storageClass, postgresSize, opensearchSize, osReplicas, vmSize)
+
 	values := map[string]interface{}{
 		"global": map[string]interface{}{
 			"clusterName":  config.ClusterName,
 			"namespace":    config.Namespace,
-			"storageClass": managed.StorageClass,
+			"storageClass": storageClass,
 		},
 		"postgres": map[string]interface{}{
 			"enabled":   managed.PostgresEnabled,
 			"instances": 1,
 			"storage": map[string]interface{}{
-				"size": managed.PostgresSize,
+				"size": postgresSize,
 			},
 		},
 		"victoriametrics": map[string]interface{}{
 			"enabled": managed.VictoriametricsEnabled,
 			"storage": map[string]interface{}{
-				"size": managed.VictoriametricsSize,
+				"size": vmSize,
 			},
 		},
 		"opensearch": map[string]interface{}{
 			"enabled":  managed.OpensearchEnabled,
-			"replicas": managed.OpensearchReplicas,
+			"replicas": osReplicas,
 			"storage": map[string]interface{}{
-				"size": managed.OpensearchSize,
+				"size": opensearchSize,
 			},
 		},
 		"grafana": map[string]interface{}{
@@ -308,22 +339,70 @@ func (s *WaitInfraStage) Name() string       { return StageWaitInfra }
 func (s *WaitInfraStage) IsIdempotent() bool { return true }
 
 func (s *WaitInfraStage) Execute(ctx context.Context, helm *HelmClient, config *InstallConfig) error {
-	// Wait for postgres
-	if err := helm.WaitForPods(ctx, config.Kubeconfig, config.Namespace, "cluster-name=primus-lens", 10*time.Minute); err != nil {
-		log.Warnf("Postgres pods not ready yet: %v", err)
+	// Wait for postgres - required for database_migration stage
+	// Retry with backoff since pods may not exist immediately after CR creation
+	if err := s.waitForPodsWithRetry(ctx, helm, config, "cluster-name=primus-lens", "Postgres", 10*time.Minute, true); err != nil {
+		return err
 	}
 
-	// Wait for opensearch
-	if err := helm.WaitForPods(ctx, config.Kubeconfig, config.Namespace, "opensearch.cluster.opensearch.org/cluster-name=primus-lens-logs", 10*time.Minute); err != nil {
-		log.Warnf("OpenSearch pods not ready yet: %v", err)
+	// Wait for opensearch (optional - warn on failure but continue)
+	if err := s.waitForPodsWithRetry(ctx, helm, config, "opensearch.cluster.opensearch.org/cluster-name=primus-lens-logs", "OpenSearch", 10*time.Minute, false); err != nil {
+		log.Warnf("OpenSearch not ready, continuing: %v", err)
 	}
 
-	// Wait for victoriametrics
-	if err := helm.WaitForPods(ctx, config.Kubeconfig, config.Namespace, "app.kubernetes.io/name=vmcluster", 5*time.Minute); err != nil {
-		log.Warnf("VictoriaMetrics pods not ready yet: %v", err)
+	// Wait for victoriametrics (optional - warn on failure but continue)
+	if err := s.waitForPodsWithRetry(ctx, helm, config, "app.kubernetes.io/name=vmcluster", "VictoriaMetrics", 5*time.Minute, false); err != nil {
+		log.Warnf("VictoriaMetrics not ready, continuing: %v", err)
 	}
 
 	return nil
+}
+
+// waitForPodsWithRetry waits for pods with retry logic for "no matching resources found" case
+func (s *WaitInfraStage) waitForPodsWithRetry(ctx context.Context, helm *HelmClient, config *InstallConfig, labelSelector, componentName string, timeout time.Duration, required bool) error {
+	maxRetries := 30       // Max retries for "no resources found" case
+	retryInterval := 20 * time.Second
+	startTime := time.Now()
+
+	for retry := 0; retry < maxRetries; retry++ {
+		// Check if we've exceeded total timeout
+		if time.Since(startTime) > timeout {
+			if required {
+				return fmt.Errorf("%s pods not ready within timeout", componentName)
+			}
+			return fmt.Errorf("%s pods not found within timeout", componentName)
+		}
+
+		err := helm.WaitForPods(ctx, config.Kubeconfig, config.Namespace, labelSelector, timeout-time.Since(startTime))
+		if err == nil {
+			log.Infof("%s pods are ready", componentName)
+			return nil
+		}
+
+		// Check if error is "no matching resources found" - pods don't exist yet
+		errStr := err.Error()
+		if strings.Contains(errStr, "no matching resources found") {
+			log.Infof("%s pods not yet created, waiting... (retry %d/%d)", componentName, retry+1, maxRetries)
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(retryInterval):
+				continue
+			}
+		}
+
+		// Other error - pods exist but not ready yet, kubectl wait handles this
+		// If it returned error, it means timeout or other issue
+		if required {
+			return fmt.Errorf("%s pods not ready: %w", componentName, err)
+		}
+		return err
+	}
+
+	if required {
+		return fmt.Errorf("%s pods not created after %d retries", componentName, maxRetries)
+	}
+	return fmt.Errorf("%s pods not found after %d retries", componentName, maxRetries)
 }
 
 // ===== Init Stage =====
