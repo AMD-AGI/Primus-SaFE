@@ -38,15 +38,22 @@ WORKDIR /workspace
 
 # Copy local charts source from repo
 # Note: paths are relative to repo root (build context is ".")
+# Legacy charts (for backward compatibility)
 COPY Lens/charts/primus-lens-operators/ ./charts/primus-lens-operators/
 COPY Lens/charts/primus-lens-infrastructure/ ./charts/primus-lens-infrastructure/
 COPY Lens/charts/primus-lens-init/ ./charts/primus-lens-init/
 COPY Lens/charts/primus-lens-apps-dataplane/ ./charts/primus-lens-apps-dataplane/
 
-# Create output directory for packaged charts
-RUN mkdir -p /charts
+# New modular charts
+COPY Lens/charts/operators/ ./charts/operators/
+COPY Lens/charts/infrastructure/ ./charts/infrastructure/
 
-# Download dependencies and package charts
+# Create output directory structure for packaged charts
+RUN mkdir -p /charts /charts/operators /charts/infrastructure
+
+# ============================================================================
+# Package legacy charts (for backward compatibility)
+# ============================================================================
 # primus-lens-operators has external dependencies (victoria-metrics-operator, fluent-operator, etc.)
 RUN cd /workspace/charts/primus-lens-operators && \
     helm dependency update && \
@@ -57,8 +64,50 @@ RUN helm package /workspace/charts/primus-lens-infrastructure -d /charts
 RUN helm package /workspace/charts/primus-lens-init -d /charts
 RUN helm package /workspace/charts/primus-lens-apps-dataplane -d /charts
 
+# ============================================================================
+# Package new modular operator charts
+# ============================================================================
+# PGO - PostgreSQL Operator
+RUN cd /workspace/charts/operators/pgo && \
+    helm dependency update && \
+    helm package . -d /charts/operators
+
+# VictoriaMetrics Operator
+RUN cd /workspace/charts/operators/victoria-metrics-operator && \
+    helm dependency update && \
+    helm package . -d /charts/operators
+
+# OpenSearch Operator
+RUN cd /workspace/charts/operators/opensearch-operator && \
+    helm dependency update && \
+    helm package . -d /charts/operators
+
+# Grafana Operator
+RUN cd /workspace/charts/operators/grafana-operator && \
+    helm dependency update && \
+    helm package . -d /charts/operators
+
+# Fluent Operator
+RUN cd /workspace/charts/operators/fluent-operator && \
+    helm dependency update && \
+    helm package . -d /charts/operators
+
+# Kube State Metrics
+RUN cd /workspace/charts/operators/kube-state-metrics && \
+    helm dependency update && \
+    helm package . -d /charts/operators
+
+# ============================================================================
+# Package new modular infrastructure charts
+# ============================================================================
+RUN helm package /workspace/charts/infrastructure/postgres -d /charts/infrastructure
+RUN helm package /workspace/charts/infrastructure/victoriametrics -d /charts/infrastructure
+RUN helm package /workspace/charts/infrastructure/opensearch -d /charts/infrastructure
+
 # List packaged charts for verification
-RUN ls -la /charts/
+RUN echo "=== Legacy Charts ===" && ls -la /charts/*.tgz || true
+RUN echo "=== Operator Charts ===" && ls -la /charts/operators/
+RUN echo "=== Infrastructure Charts ===" && ls -la /charts/infrastructure/
 
 # Runtime stage
 ARG REGISTRY

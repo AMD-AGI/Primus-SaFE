@@ -74,27 +74,49 @@ func (h *HelmClient) resolveChartPath(chartName string) (string, error) {
 	}
 
 	// Use local charts - find the .tgz file
-	// Chart files are named like: primus-lens-operators-1.0.0.tgz or primus-lens-operators-latest.tgz
-	entries, err := os.ReadDir(h.localChartsPath)
+	// Chart names can be:
+	// - Simple: "primus-lens-operators" -> /app/charts/primus-lens-operators-1.0.0.tgz
+	// - Nested: "operators/pgo" -> /app/charts/operators/primus-lens-pgo-1.0.0.tgz
+	// - Nested: "infrastructure/postgres" -> /app/charts/infrastructure/primus-lens-postgres-1.0.0.tgz
+
+	// Determine the search directory and base chart name
+	searchDir := h.localChartsPath
+	baseChartName := chartName
+
+	// Handle nested paths (e.g., "operators/pgo", "infrastructure/postgres")
+	if strings.Contains(chartName, "/") {
+		parts := strings.SplitN(chartName, "/", 2)
+		searchDir = fmt.Sprintf("%s/%s", h.localChartsPath, parts[0])
+		baseChartName = parts[1]
+	}
+
+	entries, err := os.ReadDir(searchDir)
 	if err != nil {
-		return "", fmt.Errorf("failed to read local charts directory %s: %w", h.localChartsPath, err)
+		return "", fmt.Errorf("failed to read local charts directory %s: %w", searchDir, err)
 	}
 
 	// Look for matching chart file
+	// Try multiple naming patterns:
+	// 1. Exact match: pgo-1.0.0.tgz
+	// 2. Prefixed: primus-lens-pgo-1.0.0.tgz
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue
 		}
 		name := entry.Name()
-		// Match chart name prefix (e.g., "primus-lens-operators-" for chart "primus-lens-operators")
-		if strings.HasPrefix(name, chartName+"-") && strings.HasSuffix(name, ".tgz") {
-			chartPath := fmt.Sprintf("%s/%s", h.localChartsPath, name)
+
+		// Match patterns:
+		// - baseChartName-version.tgz (e.g., pgo-1.0.0.tgz)
+		// - primus-lens-baseChartName-version.tgz (e.g., primus-lens-pgo-1.0.0.tgz)
+		if (strings.HasPrefix(name, baseChartName+"-") || strings.HasPrefix(name, "primus-lens-"+baseChartName+"-")) &&
+			strings.HasSuffix(name, ".tgz") {
+			chartPath := fmt.Sprintf("%s/%s", searchDir, name)
 			log.Infof("Using local chart: %s", chartPath)
 			return chartPath, nil
 		}
 	}
 
-	return "", fmt.Errorf("local chart not found for %s in %s", chartName, h.localChartsPath)
+	return "", fmt.Errorf("local chart not found for %s in %s", chartName, searchDir)
 }
 
 // installOrUpgrade performs helm install or upgrade
