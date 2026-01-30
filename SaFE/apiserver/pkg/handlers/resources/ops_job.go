@@ -1198,12 +1198,7 @@ func (h *Handler) generateEvaluationJob(c *gin.Context, body []byte) (*v1.OpsJob
 		serviceName = workload.DisplayName
 		clusterId = workload.Cluster
 
-		systemHost := commonconfig.GetSystemHost()
-		if systemHost != "" && workload.Cluster != "" && workload.Workspace != "" {
-			modelEndpoint = fmt.Sprintf("https://%s/%s/%s/%s/v1", systemHost, workload.Cluster, workload.Workspace, workload.WorkloadId)
-		} else {
-			modelEndpoint = fmt.Sprintf("http://%s:8000/v1", workload.WorkloadId)
-		}
+		modelEndpoint = fmt.Sprintf("http://%s:8000/v1", workload.WorkloadId)
 
 		// Parse real model name: priority is --served-model-name from entryPoint > env > displayName
 		modelName = extractServedModelName(workload.EntryPoint, workload.EntryPoints)
@@ -1357,13 +1352,7 @@ func (h *Handler) generateEvaluationJob(c *gin.Context, body []byte) (*v1.OpsJob
 					}, k8sWorkload); err != nil {
 						klog.ErrorS(err, "failed to get K8s Workload for judge", "workloadId", judgeWorkload.WorkloadId)
 					} else {
-						// Build endpoint URL from workload service
-						systemHost := commonconfig.GetSystemHost()
-						if systemHost != "" && judgeWorkload.Cluster != "" && judgeWorkload.Workspace != "" {
-							judgeEndpoint = fmt.Sprintf("https://%s/%s/%s/%s/v1", systemHost, judgeWorkload.Cluster, judgeWorkload.Workspace, judgeWorkload.WorkloadId)
-						} else {
-							judgeEndpoint = fmt.Sprintf("http://%s.%s.svc.cluster.local:8000/v1", judgeWorkload.WorkloadId, judgeWorkload.Workspace)
-						}
+						judgeEndpoint = fmt.Sprintf("http://%s.%s.svc.cluster.local:8000/v1", judgeWorkload.WorkloadId, judgeWorkload.Workspace)
 
 						// Extract served model name from workload
 						judgeModelName = extractServedModelName(k8sWorkload.Spec.EntryPoint, judgeWorkload.EntryPoints)
