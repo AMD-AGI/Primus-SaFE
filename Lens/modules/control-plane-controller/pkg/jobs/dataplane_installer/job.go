@@ -443,7 +443,7 @@ func (j *DataplaneInstallerJob) createInstallerJob(ctx context.Context, k8sClien
 				},
 				Spec: corev1.PodSpec{
 					RestartPolicy:      corev1.RestartPolicyNever,
-					ServiceAccountName: "primus-lens-installer",
+					ServiceAccountName: "primus-lens-sa",
 					Containers: []corev1.Container{
 						{
 							Name:  "installer",
