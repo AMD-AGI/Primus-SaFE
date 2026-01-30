@@ -5,7 +5,7 @@ DO
 $$
     DECLARE
         r RECORD;
-        app_user TEXT := 'primus_lens';
+        app_user TEXT := 'primus-lens';
     BEGIN
         RAISE NOTICE 'Setting table ownership to user: %', app_user;
         FOR r IN SELECT tablename FROM pg_tables WHERE schemaname = 'public'
@@ -20,7 +20,7 @@ DO
 $$
     DECLARE
         r RECORD;
-        app_user TEXT := 'primus_lens';
+        app_user TEXT := 'primus-lens';
     BEGIN
         FOR r IN SELECT sequencename FROM pg_sequences WHERE schemaname = 'public'
             LOOP
@@ -30,7 +30,7 @@ $$
 $$;
 
 -- Grant schema privileges
-GRANT USAGE ON SCHEMA public TO primus_lens;
-GRANT CREATE ON SCHEMA public TO primus_lens;
-GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO primus_lens;
-GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO primus_lens;
+GRANT USAGE ON SCHEMA public TO "primus-lens";
+GRANT CREATE ON SCHEMA public TO "primus-lens";
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO "primus-lens";
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO "primus-lens";
