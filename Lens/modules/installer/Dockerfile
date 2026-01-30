@@ -11,22 +11,16 @@ RUN apk add --no-cache git ca-certificates
 
 WORKDIR /workspace
 
-# Copy go.mod files first for better caching
-# Note: paths are relative to repo root (build context is ".")
-COPY Lens/modules/core/go.mod Lens/modules/core/go.sum ./modules/core/
-COPY Lens/modules/installer/go.mod Lens/modules/installer/go.sum ./modules/installer/
-
-# Download dependencies
-WORKDIR /workspace/modules/installer
-RUN go mod download
-
 # Copy source code
-WORKDIR /workspace
+# Note: paths are relative to repo root (build context is ".")
 COPY Lens/modules/core/ ./modules/core/
 COPY Lens/modules/installer/ ./modules/installer/
 
-# Build
+# Download dependencies and tidy
 WORKDIR /workspace/modules/installer
+RUN go mod tidy && go mod download
+
+# Build
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o /installer ./cmd/main.go
 
 # Charts packaging stage - package local charts with dependencies for offline installation
