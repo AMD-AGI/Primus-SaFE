@@ -19,6 +19,7 @@ type ControlPlaneFacade struct {
 	ReleaseHistory           ReleaseHistoryFacadeInterface
 	GpuUsageWeeklyReport     GpuUsageWeeklyReportFacadeInterface
 	TraceLensSession         TraceLensSessionFacadeInterface
+	ControlPlaneConfig       ControlPlaneConfigFacadeInterface
 }
 
 // NewControlPlaneFacade creates a new ControlPlaneFacade instance
@@ -32,6 +33,7 @@ func NewControlPlaneFacade(db *gorm.DB) *ControlPlaneFacade {
 		ReleaseHistory:           NewReleaseHistoryFacade(db),
 		GpuUsageWeeklyReport:     NewGpuUsageWeeklyReportFacade(db),
 		TraceLensSession:         NewTraceLensSessionFacade(db),
+		ControlPlaneConfig:       NewControlPlaneConfigFacade(db),
 	}
 }
 
@@ -73,6 +75,11 @@ func (f *ControlPlaneFacade) GetGpuUsageWeeklyReport() GpuUsageWeeklyReportFacad
 // GetTraceLensSession returns the TraceLensSession Facade interface
 func (f *ControlPlaneFacade) GetTraceLensSession() TraceLensSessionFacadeInterface {
 	return f.TraceLensSession
+}
+
+// GetControlPlaneConfig returns the ControlPlaneConfig Facade interface
+func (f *ControlPlaneFacade) GetControlPlaneConfig() ControlPlaneConfigFacadeInterface {
+	return f.ControlPlaneConfig
 }
 
 // Global control plane facade instance
