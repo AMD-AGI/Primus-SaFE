@@ -468,6 +468,19 @@ func (s *OperatorStatus) NoneExist() bool {
 func (h *HelmClient) DetectOperators(ctx context.Context, kubeconfig []byte) (*OperatorStatus, error) {
 	status := &OperatorStatus{}
 
+	// Write kubeconfig to temp file ONCE for all checks
+	// This avoids kubectl having to re-discover API groups for each check
+	kubeconfigFile, err := os.CreateTemp("", "kubeconfig-*.yaml")
+	if err != nil {
+		return nil, fmt.Errorf("failed to create kubeconfig temp file: %w", err)
+	}
+	defer os.Remove(kubeconfigFile.Name())
+
+	if _, err := kubeconfigFile.Write(kubeconfig); err != nil {
+		return nil, fmt.Errorf("failed to write kubeconfig: %w", err)
+	}
+	kubeconfigFile.Close()
+
 	// Check each operator by its ClusterRole or other unique resource
 	checks := []struct {
 		name     string
@@ -483,7 +496,7 @@ func (h *HelmClient) DetectOperators(ctx context.Context, kubeconfig []byte) (*O
 	}
 
 	for _, check := range checks {
-		exists, err := h.ClusterRoleExists(ctx, kubeconfig, check.resource)
+		exists, err := h.clusterRoleExistsWithKubeconfig(ctx, kubeconfigFile.Name(), check.resource)
 		if err != nil {
 			log.Warnf("Error checking %s ClusterRole %s: %v", check.name, check.resource, err)
 			// Assume not exists on error
@@ -497,6 +510,29 @@ func (h *HelmClient) DetectOperators(ctx context.Context, kubeconfig []byte) (*O
 	}
 
 	return status, nil
+}
+
+// clusterRoleExistsWithKubeconfig checks if a ClusterRole exists using an existing kubeconfig file
+func (h *HelmClient) clusterRoleExistsWithKubeconfig(ctx context.Context, kubeconfigPath, name string) (bool, error) {
+	args := []string{
+		"get", "clusterrole", name,
+		"--kubeconfig", kubeconfigPath,
+		"-o", "name",
+	}
+
+	cmd := exec.CommandContext(ctx, "kubectl", args...)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		// If ClusterRole not found, return false without error
+		if strings.Contains(stderr.String(), "not found") {
+			return false, nil
+		}
+		return false, fmt.Errorf("failed to check clusterrole: %s", stderr.String())
+	}
+
+	return true, nil
 }
 
 // OperatorsExist checks if key operator components already exist in the cluster
