@@ -646,16 +646,54 @@ func InitializeInfrastructure(c *gin.Context) {
 		Namespace:    "primus-lens",
 		StorageClass: req.StorageClass,
 	}
-	if req.ManagedStorage != nil {
-		installConfig.ManagedStorage = &model.ManagedStorageConfig{
-			StorageClass:           req.ManagedStorage.StorageClass,
-			PostgresEnabled:        req.ManagedStorage.PostgresEnabled,
-			PostgresSize:           req.ManagedStorage.PostgresSize,
-			OpensearchEnabled:      req.ManagedStorage.OpensearchEnabled,
-			OpensearchSize:         req.ManagedStorage.OpensearchSize,
-			OpensearchReplicas:     req.ManagedStorage.OpensearchReplicas,
-			VictoriametricsEnabled: req.ManagedStorage.VictoriametricsEnabled,
-			VictoriametricsSize:    req.ManagedStorage.VictoriametricsSize,
+
+	// Build managed storage config for lens-managed mode
+	if storageMode == model.StorageModeLensManaged {
+		if req.ManagedStorage != nil {
+			// Use request provided config
+			installConfig.ManagedStorage = &model.ManagedStorageConfig{
+				StorageClass:           req.ManagedStorage.StorageClass,
+				PostgresEnabled:        req.ManagedStorage.PostgresEnabled,
+				PostgresSize:           req.ManagedStorage.PostgresSize,
+				OpensearchEnabled:      req.ManagedStorage.OpensearchEnabled,
+				OpensearchSize:         req.ManagedStorage.OpensearchSize,
+				OpensearchReplicas:     req.ManagedStorage.OpensearchReplicas,
+				VictoriametricsEnabled: req.ManagedStorage.VictoriametricsEnabled,
+				VictoriametricsSize:    req.ManagedStorage.VictoriametricsSize,
+			}
+		} else if cluster.ManagedStorageConfig.StorageClass != "" {
+			// Use cluster's managed storage config
+			installConfig.ManagedStorage = &model.ManagedStorageConfig{
+				StorageClass:           cluster.ManagedStorageConfig.StorageClass,
+				PostgresEnabled:        cluster.ManagedStorageConfig.PostgresEnabled,
+				PostgresSize:           cluster.ManagedStorageConfig.PostgresSize,
+				OpensearchEnabled:      cluster.ManagedStorageConfig.OpensearchEnabled,
+				OpensearchSize:         cluster.ManagedStorageConfig.OpensearchSize,
+				OpensearchReplicas:     cluster.ManagedStorageConfig.OpensearchReplicas,
+				VictoriametricsEnabled: cluster.ManagedStorageConfig.VictoriametricsEnabled,
+				VictoriametricsSize:    cluster.ManagedStorageConfig.VictoriametricsSize,
+			}
+		} else {
+			// Use defaults for lens-managed mode
+			defaultStorageClass := "local-path"
+			if req.StorageClass != "" {
+				defaultStorageClass = req.StorageClass
+			}
+			installConfig.ManagedStorage = &model.ManagedStorageConfig{
+				StorageClass:           defaultStorageClass,
+				PostgresEnabled:        true,
+				PostgresSize:           "10Gi",
+				OpensearchEnabled:      true,
+				OpensearchSize:         "10Gi",
+				OpensearchReplicas:     1,
+				VictoriametricsEnabled: true,
+				VictoriametricsSize:    "10Gi",
+			}
+		}
+
+		// Ensure StorageClass is set at top level too
+		if installConfig.StorageClass == "" {
+			installConfig.StorageClass = installConfig.ManagedStorage.StorageClass
 		}
 	}
 
