@@ -21,6 +21,7 @@ import (
 type ImageFilter struct {
 	UserName string
 	Tag      string
+	Image    string
 	OrderBy  string
 	Order    string
 	PageNum  int
@@ -73,6 +74,9 @@ func (c *Client) SelectImages(ctx context.Context, filter *ImageFilter) ([]*mode
 	query := q.WithContext(ctx).Where(q.DeletedAt.IsNull())
 	if filter.Tag != "" {
 		query = query.Where(q.Tag.Like("%" + filter.Tag + "%"))
+	}
+	if filter.Image != "" {
+		query = query.Where(q.Tag.Like("%" + filter.Image + "%"))
 	}
 	if filter.UserName != "" {
 		query = query.Where(q.CreatedBy.Eq(filter.UserName))
