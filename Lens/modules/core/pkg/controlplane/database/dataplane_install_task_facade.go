@@ -23,6 +23,8 @@ type DataplaneInstallTaskFacadeInterface interface {
 	GetActiveTaskByScope(ctx context.Context, clusterName, scope string) (*model.DataplaneInstallTask, error)
 	// GetPendingTasks gets pending or running tasks
 	GetPendingTasks(ctx context.Context, limit int) ([]*model.DataplaneInstallTask, error)
+	// GetRecentlyFailedTasks gets tasks that failed recently (within last hour)
+	GetRecentlyFailedTasks(ctx context.Context, limit int) ([]*model.DataplaneInstallTask, error)
 	// MarkRunning marks a task as running
 	MarkRunning(ctx context.Context, id int32) error
 	// UpdateStage updates the current stage
@@ -94,6 +96,28 @@ func (f *DataplaneInstallTaskFacade) GetPendingTasks(ctx context.Context, limit 
 	query := f.db.WithContext(ctx).
 		Where("status IN ?", []string{model.TaskStatusPending, model.TaskStatusRunning}).
 		Order("created_at ASC")
+
+	if limit > 0 {
+		query = query.Limit(limit)
+	}
+
+	err := query.Find(&tasks).Error
+	if err != nil {
+		return nil, err
+	}
+	return tasks, nil
+}
+
+// GetRecentlyFailedTasks gets tasks that failed recently (within last hour)
+// This is used to ensure cluster status gets updated for failed tasks
+func (f *DataplaneInstallTaskFacade) GetRecentlyFailedTasks(ctx context.Context, limit int) ([]*model.DataplaneInstallTask, error) {
+	var tasks []*model.DataplaneInstallTask
+	oneHourAgo := time.Now().Add(-1 * time.Hour)
+
+	query := f.db.WithContext(ctx).
+		Where("status = ?", model.TaskStatusFailed).
+		Where("updated_at > ?", oneHourAgo).
+		Order("updated_at DESC")
 
 	if limit > 0 {
 		query = query.Limit(limit)

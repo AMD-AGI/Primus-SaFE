@@ -119,23 +119,26 @@ func (j *DataplaneInstallerJob) Run(
 		return stats, nil
 	}
 
-	if len(tasks) == 0 {
-		return stats, nil
-	}
-
-	log.Infof("Found %d pending dataplane install tasks", len(tasks))
-
 	processed := 0
 	errCount := int64(0)
 
-	for _, task := range tasks {
-		if err := j.processTask(ctx, k8sClient, task); err != nil {
-			log.Errorf("Failed to process task %d: %v", task.ID, err)
-			errCount++
-		} else {
-			processed++
+	if len(tasks) > 0 {
+		log.Infof("Found %d pending dataplane install tasks", len(tasks))
+
+		for _, task := range tasks {
+			if err := j.processTask(ctx, k8sClient, task); err != nil {
+				log.Errorf("Failed to process task %d: %v", task.ID, err)
+				errCount++
+			} else {
+				processed++
+			}
 		}
 	}
+
+	// Also process recently failed tasks to ensure cluster status is updated
+	// This handles the case where installer marks task as failed but controller
+	// hasn't updated cluster status yet
+	j.processRecentlyFailedTasks(ctx)
 
 	stats.AddMessage(fmt.Sprintf("processed %d tasks, %d errors", processed, errCount))
 	stats.ErrorCount = errCount
@@ -338,6 +341,58 @@ func (j *DataplaneInstallerJob) isInfrastructureStage(stage string) bool {
 		"storage_secret":     true,
 	}
 	return infrastructureStages[stage]
+}
+
+// processRecentlyFailedTasks checks recently failed tasks and ensures cluster status is updated
+// This handles the case where installer marks task as failed but cluster status wasn't updated
+func (j *DataplaneInstallerJob) processRecentlyFailedTasks(ctx context.Context) {
+	taskFacade := j.facade.GetDataplaneInstallTask()
+	clusterConfigFacade := j.facade.GetClusterConfig()
+
+	// Get recently failed tasks
+	failedTasks, err := taskFacade.GetRecentlyFailedTasks(ctx, 10)
+	if err != nil {
+		log.Warnf("Failed to get recently failed tasks: %v", err)
+		return
+	}
+
+	for _, task := range failedTasks {
+		// Check if cluster status needs to be updated
+		clusterConfig, err := clusterConfigFacade.GetByClusterName(ctx, task.ClusterName)
+		if err != nil {
+			log.Warnf("Failed to get cluster config for %s: %v", task.ClusterName, err)
+			continue
+		}
+
+		needsUpdate := false
+		switch task.InstallScope {
+		case model.InstallScopeInfrastructure:
+			// Check if infrastructure status is still initializing
+			if clusterConfig.InfrastructureStatus == model.InfrastructureStatusInitializing {
+				needsUpdate = true
+			}
+		case model.InstallScopeApps:
+			// Check if dataplane status is still deploying
+			if clusterConfig.DataplaneStatus == model.DataplaneStatusDeploying {
+				needsUpdate = true
+			}
+		case model.InstallScopeFull, "":
+			// Check both statuses
+			if clusterConfig.InfrastructureStatus == model.InfrastructureStatusInitializing ||
+				clusterConfig.DataplaneStatus == model.DataplaneStatusDeploying {
+				needsUpdate = true
+			}
+		}
+
+		if needsUpdate {
+			log.Infof("Fixing cluster status for failed task %d (cluster: %s)", task.ID, task.ClusterName)
+			failureReason := task.ErrorMessage
+			if failureReason == "" {
+				failureReason = "Installation failed"
+			}
+			j.updateClusterStatusOnFailure(ctx, clusterConfigFacade, task, failureReason)
+		}
+	}
 }
 
 // createInstallerJob creates a new Kubernetes Job for the install task
