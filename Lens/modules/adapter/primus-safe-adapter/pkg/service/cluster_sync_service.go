@@ -286,33 +286,98 @@ func (s *ClusterSyncService) getEndpointFromService(ctx context.Context, cluster
 		return ""
 	}
 
-	// Get the service ClusterIP and port
-	if svc.Spec.ClusterIP == "" || svc.Spec.ClusterIP == "None" {
-		log.Debugf("Service %s has no ClusterIP", clusterName)
-		return ""
-	}
-
 	// Find the HTTPS port (usually 443 or 6443)
-	var port int32
-	for _, p := range svc.Spec.Ports {
-		if p.Name == "https" || p.Port == 443 || p.Port == 6443 {
-			port = p.Port
-			break
-		}
-	}
-
-	// If no HTTPS port found, use the first port
-	if port == 0 && len(svc.Spec.Ports) > 0 {
-		port = svc.Spec.Ports[0].Port
-	}
-
+	port := s.getServicePort(svc)
 	if port == 0 {
 		log.Debugf("Service %s has no suitable port", clusterName)
 		return ""
 	}
 
-	endpoint := fmt.Sprintf("https://%s:%d", svc.Spec.ClusterIP, port)
-	return endpoint
+	// Priority 1: For LoadBalancer type, use the external IP from status
+	if svc.Spec.Type == corev1.ServiceTypeLoadBalancer {
+		if len(svc.Status.LoadBalancer.Ingress) > 0 {
+			ingress := svc.Status.LoadBalancer.Ingress[0]
+			if ingress.IP != "" {
+				endpoint := fmt.Sprintf("https://%s:%d", ingress.IP, port)
+				log.Debugf("Using LoadBalancer IP for cluster %s: %s", clusterName, endpoint)
+				return endpoint
+			}
+			if ingress.Hostname != "" {
+				endpoint := fmt.Sprintf("https://%s:%d", ingress.Hostname, port)
+				log.Debugf("Using LoadBalancer hostname for cluster %s: %s", clusterName, endpoint)
+				return endpoint
+			}
+		}
+		log.Debugf("LoadBalancer service %s has no ingress IP/hostname yet", clusterName)
+	}
+
+	// Priority 2: For NodePort type, get endpoint from Endpoints resource (actual pod IPs)
+	if svc.Spec.Type == corev1.ServiceTypeNodePort || svc.Spec.Type == corev1.ServiceTypeClusterIP {
+		endpointIP := s.getEndpointIP(ctx, clusterName)
+		if endpointIP != "" {
+			// For NodePort, we need to use the target port (actual API server port)
+			targetPort := s.getTargetPort(svc, port)
+			endpoint := fmt.Sprintf("https://%s:%d", endpointIP, targetPort)
+			log.Debugf("Using Endpoints IP for cluster %s: %s", clusterName, endpoint)
+			return endpoint
+		}
+	}
+
+	// No suitable endpoint found from Service
+	log.Debugf("No suitable endpoint found from Service for cluster %s", clusterName)
+	return ""
+}
+
+// getServicePort finds the HTTPS port from a Service
+func (s *ClusterSyncService) getServicePort(svc *corev1.Service) int32 {
+	for _, p := range svc.Spec.Ports {
+		if p.Name == "https" || p.Port == 443 || p.Port == 6443 {
+			return p.Port
+		}
+	}
+	// If no HTTPS port found, use the first port
+	if len(svc.Spec.Ports) > 0 {
+		return svc.Spec.Ports[0].Port
+	}
+	return 0
+}
+
+// getTargetPort gets the target port for a given service port
+func (s *ClusterSyncService) getTargetPort(svc *corev1.Service, servicePort int32) int32 {
+	for _, p := range svc.Spec.Ports {
+		if p.Port == servicePort {
+			if p.TargetPort.IntVal != 0 {
+				return p.TargetPort.IntVal
+			}
+			// If targetPort is not set or is a named port, use the service port
+			return servicePort
+		}
+	}
+	return servicePort
+}
+
+// getEndpointIP gets the first ready endpoint IP for a service
+func (s *ClusterSyncService) getEndpointIP(ctx context.Context, serviceName string) string {
+	endpoints := &corev1.Endpoints{}
+	err := s.safeClient.Get(ctx, types.NamespacedName{
+		Namespace: "primus-safe",
+		Name:      serviceName,
+	}, endpoints)
+
+	if err != nil {
+		log.Debugf("Failed to get endpoints for service %s: %v", serviceName, err)
+		return ""
+	}
+
+	// Find the first ready address
+	for _, subset := range endpoints.Subsets {
+		if len(subset.Addresses) > 0 {
+			return subset.Addresses[0].IP
+		}
+	}
+
+	log.Debugf("No ready endpoints found for service %s", serviceName)
+	return ""
 }
 
 // markDeletedClusters marks clusters as deleted if they no longer exist in Primus-SaFE
