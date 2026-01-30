@@ -92,16 +92,18 @@ type ClusterConfigResponse struct {
 	StorageManualMode    bool   `json:"storage_manual_mode"`
 
 	// Status
-	StorageMode      string                    `json:"storage_mode"`
-	DataplaneStatus  string                    `json:"dataplane_status"`
-	DataplaneVersion string                    `json:"dataplane_version"`
-	DataplaneMessage string                    `json:"dataplane_message"`
-	LastDeployTime   string                    `json:"last_deploy_time"`
-	Status           string                    `json:"status"`
-	IsDefault        bool                      `json:"is_default"`
-	Labels           map[string]string         `json:"labels"`
-	CreatedAt        string                    `json:"created_at"`
-	UpdatedAt        string                    `json:"updated_at"`
+	StorageMode            string                    `json:"storage_mode"`
+	InfrastructureStatus   string                    `json:"infrastructure_status"`
+	InfrastructureMessage  string                    `json:"infrastructure_message"`
+	DataplaneStatus        string                    `json:"dataplane_status"`
+	DataplaneVersion       string                    `json:"dataplane_version"`
+	DataplaneMessage       string                    `json:"dataplane_message"`
+	LastDeployTime         string                    `json:"last_deploy_time"`
+	Status                 string                    `json:"status"`
+	IsDefault              bool                      `json:"is_default"`
+	Labels                 map[string]string         `json:"labels"`
+	CreatedAt              string                    `json:"created_at"`
+	UpdatedAt              string                    `json:"updated_at"`
 
 	ManagedStorageConfig *model.ManagedStorageJSON `json:"managed_storage_config,omitempty"`
 }
@@ -130,16 +132,18 @@ func toResponse(c *model.ClusterConfig) *ClusterConfigResponse {
 		PrometheusWriteHost:   c.PrometheusWriteHost,
 		PrometheusWritePort:   c.PrometheusWritePort,
 		PrometheusConfigured:  c.PrometheusReadHost != "" || c.PrometheusWriteHost != "",
-		StorageManualMode:     c.StorageManualMode,
-		StorageMode:           c.StorageMode,
-		DataplaneStatus:       c.DataplaneStatus,
-		DataplaneVersion:      c.DataplaneVersion,
-		DataplaneMessage:      c.DataplaneMessage,
-		Status:                c.Status,
-		IsDefault:             c.IsDefault,
-		Labels:                c.Labels,
-		CreatedAt:             c.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
-		UpdatedAt:             c.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
+		StorageManualMode:      c.StorageManualMode,
+		StorageMode:            c.StorageMode,
+		InfrastructureStatus:   c.InfrastructureStatus,
+		InfrastructureMessage:  c.InfrastructureMessage,
+		DataplaneStatus:        c.DataplaneStatus,
+		DataplaneVersion:       c.DataplaneVersion,
+		DataplaneMessage:       c.DataplaneMessage,
+		Status:                 c.Status,
+		IsDefault:              c.IsDefault,
+		Labels:                 c.Labels,
+		CreatedAt:              c.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+		UpdatedAt:              c.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
 	}
 
 	if c.LastDeployTime != nil {
