@@ -50,6 +50,35 @@ func NewDataplaneInstallerJob() *DataplaneInstallerJob {
 	return &DataplaneInstallerJob{}
 }
 
+// getInstallerImage gets the installer image from config, env, or default
+func (j *DataplaneInstallerJob) getInstallerImage(ctx context.Context) string {
+	// First, try to get from control plane config
+	if j.facade != nil {
+		cfg, err := j.facade.GetControlPlaneConfig().Get(ctx, model.ConfigKeyInstallerImage)
+		if err == nil && cfg != nil {
+			repo := cfg.Value.GetString("repository")
+			tag := cfg.Value.GetString("tag")
+			if repo != "" {
+				if tag == "" {
+					tag = "latest"
+				}
+				log.Infof("Using installer image from config: %s:%s", repo, tag)
+				return repo + ":" + tag
+			}
+		}
+	}
+
+	// Then, try environment variable
+	if envImage := os.Getenv("INSTALLER_IMAGE"); envImage != "" {
+		log.Infof("Using installer image from env: %s", envImage)
+		return envImage
+	}
+
+	// Finally, use default
+	log.Infof("Using default installer image: %s", DefaultInstallerImage)
+	return DefaultInstallerImage
+}
+
 // Schedule returns the cron schedule for this job
 func (j *DataplaneInstallerJob) Schedule() string {
 	return JobSchedule
@@ -224,11 +253,8 @@ func (j *DataplaneInstallerJob) createInstallerJob(ctx context.Context, k8sClien
 
 	log.Infof("Creating installer job %s for task %d (cluster: %s)", jobName, task.ID, task.ClusterName)
 
-	// Get installer image from env or use default
-	installerImage := os.Getenv("INSTALLER_IMAGE")
-	if installerImage == "" {
-		installerImage = DefaultInstallerImage
-	}
+	// Get installer image from config or env or default
+	installerImage := j.getInstallerImage(ctx)
 
 	// Get control plane DB credentials from current pod's environment
 	cpDBHost := os.Getenv("CP_DB_HOST")
