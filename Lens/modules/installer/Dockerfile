@@ -1,6 +1,7 @@
 # Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
 # See LICENSE for license information.
 
+# Installer image - bundles Helm charts and runs dataplane installation
 # Build stage
 ARG REGISTRY=docker.io
 ARG GO_VERSION=1.24.7
