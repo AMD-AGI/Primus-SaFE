@@ -300,11 +300,11 @@ func (s *InfrastructureStage) Execute(ctx context.Context, helm *HelmClient, con
 			"namespace":    config.Namespace,
 			"storageClass": storageClass,
 		},
-		"postgres": map[string]interface{}{
-			"enabled":   managed.PostgresEnabled,
-			"instances": 1,
+		"database": map[string]interface{}{
+			"enabled": managed.PostgresEnabled,
 			"storage": map[string]interface{}{
-				"size": postgresSize,
+				"size":       postgresSize,
+				"backupSize": postgresSize, // Use same size for backup
 			},
 		},
 		"victoriametrics": map[string]interface{}{
@@ -314,14 +314,18 @@ func (s *InfrastructureStage) Execute(ctx context.Context, helm *HelmClient, con
 			},
 		},
 		"opensearch": map[string]interface{}{
-			"enabled":  managed.OpensearchEnabled,
-			"replicas": osReplicas,
+			"enabled":     managed.OpensearchEnabled,
+			"clusterName": "primus-lens-logs",
+			"nodeSets": []map[string]interface{}{
+				{
+					"name":     "nodes",
+					"replicas": osReplicas,
+					"roles":    []string{"master", "data", "ingest"},
+				},
+			},
 			"storage": map[string]interface{}{
 				"size": opensearchSize,
 			},
-		},
-		"grafana": map[string]interface{}{
-			"enabled": false,
 		},
 	}
 
