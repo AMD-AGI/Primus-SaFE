@@ -46,6 +46,8 @@ data:
           restartPolicy: Always
           securityContext:
             privileged: true
+            runAsGroup: 0
+            runAsUser: 0
           startupProbe:
             exec:
               command:
@@ -89,6 +91,8 @@ data:
             value: "120"
         securityContext:
           privileged: true
+          runAsGroup: 0
+          runAsUser: 0
         terminationMessagePath: /dev/termination-log
         terminationMessagePolicy: File
         volumeMounts:
