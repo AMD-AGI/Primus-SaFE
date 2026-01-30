@@ -386,3 +386,63 @@ func decodeBase64(src, dst []byte) (int, error) {
 	copy(dst, stdout.Bytes())
 	return stdout.Len(), nil
 }
+
+// ClusterRoleExists checks if a ClusterRole exists in the cluster
+func (h *HelmClient) ClusterRoleExists(ctx context.Context, kubeconfig []byte, name string) (bool, error) {
+	// Write kubeconfig to temp file
+	kubeconfigFile, err := os.CreateTemp("", "kubeconfig-*.yaml")
+	if err != nil {
+		return false, err
+	}
+	defer os.Remove(kubeconfigFile.Name())
+
+	if _, err := kubeconfigFile.Write(kubeconfig); err != nil {
+		return false, err
+	}
+	kubeconfigFile.Close()
+
+	args := []string{
+		"get", "clusterrole", name,
+		"--kubeconfig", kubeconfigFile.Name(),
+		"-o", "name",
+	}
+
+	cmd := exec.CommandContext(ctx, "kubectl", args...)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		// If ClusterRole not found, return false without error
+		if strings.Contains(stderr.String(), "not found") {
+			return false, nil
+		}
+		return false, fmt.Errorf("failed to check clusterrole: %s", stderr.String())
+	}
+
+	return true, nil
+}
+
+// OperatorsExist checks if key operator components already exist in the cluster
+// This is used to detect if operators were installed by another release (e.g., control plane)
+func (h *HelmClient) OperatorsExist(ctx context.Context, kubeconfig []byte) (bool, string, error) {
+	// Check for key ClusterRoles that indicate operators are already installed
+	// These are cluster-scoped resources that would conflict if installed again
+	operatorClusterRoles := []string{
+		"pgo",                        // PostgreSQL Operator
+		"opensearch-operator-role",   // OpenSearch Operator
+		"grafana-operator",           // Grafana Operator
+	}
+
+	for _, role := range operatorClusterRoles {
+		exists, err := h.ClusterRoleExists(ctx, kubeconfig, role)
+		if err != nil {
+			log.Warnf("Error checking ClusterRole %s: %v", role, err)
+			continue
+		}
+		if exists {
+			return true, role, nil
+		}
+	}
+
+	return false, "", nil
+}

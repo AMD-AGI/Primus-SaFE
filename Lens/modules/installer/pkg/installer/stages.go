@@ -111,7 +111,7 @@ func (s *OperatorsStage) Name() string       { return StageOperators }
 func (s *OperatorsStage) IsIdempotent() bool { return true }
 
 func (s *OperatorsStage) Execute(ctx context.Context, helm *HelmClient, config *InstallConfig) error {
-	// Check if already installed
+	// Check if already installed by this release
 	exists, healthy, err := helm.ReleaseStatus(ctx, config.Kubeconfig, config.Namespace, ReleaseOperators)
 	if err != nil {
 		return err
@@ -120,6 +120,18 @@ func (s *OperatorsStage) Execute(ctx context.Context, helm *HelmClient, config *
 	if exists && healthy {
 		log.Infof("Operators already installed and healthy, skipping")
 		return nil
+	}
+
+	// Check if operators already exist from another release (e.g., control plane installation)
+	// This handles the case where dataplane is installed on the same cluster as control plane
+	if !exists {
+		operatorsExist, foundRole, err := helm.OperatorsExist(ctx, config.Kubeconfig)
+		if err != nil {
+			log.Warnf("Failed to check existing operators: %v, proceeding with installation", err)
+		} else if operatorsExist {
+			log.Infof("Operators already exist in cluster (found ClusterRole '%s'), likely from control plane installation. Skipping operators stage to avoid conflicts.", foundRole)
+			return nil
+		}
 	}
 
 	values := map[string]interface{}{
@@ -142,6 +154,21 @@ func (s *WaitOperatorsStage) Name() string       { return StageWaitOperators }
 func (s *WaitOperatorsStage) IsIdempotent() bool { return true }
 
 func (s *WaitOperatorsStage) Execute(ctx context.Context, helm *HelmClient, config *InstallConfig) error {
+	// Check if operators release exists - if not, operators were skipped (already exist from another release)
+	exists, _, err := helm.ReleaseStatus(ctx, config.Kubeconfig, config.Namespace, ReleaseOperators)
+	if err != nil {
+		log.Warnf("Failed to check operators release status: %v", err)
+	}
+
+	if !exists {
+		// Operators were not installed by us, check if they exist from another release
+		operatorsExist, _, _ := helm.OperatorsExist(ctx, config.Kubeconfig)
+		if operatorsExist {
+			log.Infof("Operators exist from another release, skipping wait stage")
+			return nil
+		}
+	}
+
 	return helm.WaitForPods(ctx, config.Kubeconfig, config.Namespace, "app.kubernetes.io/instance="+ReleaseOperators, 5*time.Minute)
 }
 
