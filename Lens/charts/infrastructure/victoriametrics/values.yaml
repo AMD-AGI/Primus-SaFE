@@ -1,0 +1,46 @@
+# VictoriaMetrics Cluster Configuration
+global:
+  namespace: "primus-lens"
+  storageClass: "local-path"
+
+victoriametrics:
+  enabled: true
+  # Cluster name
+  name: "primus-lens-vmcluster"
+  # Retention period
+  retentionPeriod: "30d"
+  
+  # VMStorage configuration
+  vmstorage:
+    replicas: 1
+    size: "10Gi"
+    resources:
+      limits:
+        cpu: "1000m"
+        memory: "2Gi"
+      requests:
+        cpu: "500m"
+        memory: "1Gi"
+  
+  # VMSelect configuration
+  vmselect:
+    replicas: 1
+    cacheSize: "10Gi"
+    resources:
+      limits:
+        cpu: "500m"
+        memory: "1Gi"
+      requests:
+        cpu: "100m"
+        memory: "256Mi"
+  
+  # VMInsert configuration
+  vminsert:
+    replicas: 1
+    resources:
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+      requests:
+        cpu: "100m"
+        memory: "128Mi"

@@ -8,13 +8,21 @@ import (
 )
 
 // Operator chart paths (relative to /app/charts in the installer container)
+// Uses new modular chart structure: charts/operators/<operator-name>/
 const (
-	ChartPGO              = "pgo"
-	ChartVMOperator       = "victoria-metrics-operator"
-	ChartOpenSearchOp     = "opensearch-operator"
-	ChartGrafanaOperator  = "grafana-operator"
-	ChartFluentOperator   = "fluent-operator"
-	ChartKubeStateMetrics = "kube-state-metrics"
+	ChartPGO              = "operators/pgo"
+	ChartVMOperator       = "operators/victoria-metrics-operator"
+	ChartOpenSearchOp     = "operators/opensearch-operator"
+	ChartGrafanaOperator  = "operators/grafana-operator"
+	ChartFluentOperator   = "operators/fluent-operator"
+	ChartKubeStateMetrics = "operators/kube-state-metrics"
+)
+
+// Infrastructure chart paths
+const (
+	ChartPostgres         = "infrastructure/postgres"
+	ChartVictoriaMetrics  = "infrastructure/victoriametrics"
+	ChartOpenSearch       = "infrastructure/opensearch"
 )
 
 // NewPGOOperatorStage creates the PostgreSQL Operator (PGO) installation stage

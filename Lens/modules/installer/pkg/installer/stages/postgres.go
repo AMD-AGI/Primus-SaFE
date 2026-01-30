@@ -4,10 +4,8 @@
 package stages
 
 import (
-	"bytes"
 	"context"
 	"fmt"
-	"text/template"
 	"time"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
@@ -17,11 +15,14 @@ import (
 // PostgresStage handles PostgreSQL cluster deployment using CrunchyData PGO
 type PostgresStage struct {
 	installer.BaseStage
+	helmClient *installer.HelmClient
 }
 
 // NewPostgresStage creates a new PostgreSQL stage
-func NewPostgresStage() *PostgresStage {
-	return &PostgresStage{}
+func NewPostgresStage(helmClient *installer.HelmClient) *PostgresStage {
+	return &PostgresStage{
+		helmClient: helmClient,
+	}
 }
 
 func (s *PostgresStage) Name() string {
@@ -97,14 +98,53 @@ func (s *PostgresStage) ShouldRun(ctx context.Context, client *installer.Cluster
 func (s *PostgresStage) Execute(ctx context.Context, client *installer.ClusterClient, config *installer.InstallConfig) error {
 	log.Info("Deploying PostgresCluster CR...")
 
-	// Generate PostgresCluster YAML
-	yaml, err := s.generatePostgresClusterYAML(config)
-	if err != nil {
-		return fmt.Errorf("failed to generate PostgresCluster YAML: %w", err)
+	values := map[string]interface{}{
+		"global": map[string]interface{}{
+			"namespace":    config.Namespace,
+			"storageClass": s.getStorageClass(config),
+		},
+		"postgres": map[string]interface{}{
+			"enabled":    true,
+			"name":       "primus-lens",
+			"version":    16,
+			"dataSize":   s.getPostgresSize(config),
+			"backupSize": s.getPostgresSize(config),
+			"replicas":   1,
+			"resources": map[string]interface{}{
+				"limits": map[string]interface{}{
+					"cpu":    "2000m",
+					"memory": "4Gi",
+				},
+				"requests": map[string]interface{}{
+					"cpu":    "500m",
+					"memory": "2Gi",
+				},
+			},
+			"users": []map[string]interface{}{
+				{
+					"name":      "primus-lens",
+					"databases": []string{"primus_lens"},
+					"options":   "SUPERUSER",
+				},
+			},
+		},
 	}
 
-	log.Infof("Applying PostgresCluster CR to namespace %s", config.Namespace)
-	return client.ApplyYAML(ctx, yaml)
+	releaseName := "primus-lens-postgres"
+	log.Infof("Installing PostgresCluster via Helm chart %s", ChartPostgres)
+
+	// Check if release exists
+	exists, _, err := s.helmClient.ReleaseStatus(ctx, client.GetKubeconfig(), config.Namespace, releaseName)
+	if err != nil {
+		return fmt.Errorf("failed to check release status: %w", err)
+	}
+
+	if exists {
+		log.Infof("Release %s exists, upgrading...", releaseName)
+		return s.helmClient.Upgrade(ctx, client.GetKubeconfig(), config.Namespace, releaseName, ChartPostgres, values)
+	}
+
+	return s.helmClient.Install(ctx, client.GetKubeconfig(), config.Namespace, releaseName, ChartPostgres, values)
 }
 
 func (s *PostgresStage) WaitForReady(ctx context.Context, client *installer.ClusterClient, config *installer.InstallConfig, timeout time.Duration) error {
@@ -165,80 +205,4 @@ func (s *PostgresStage) getPostgresSize(config *installer.InstallConfig) string 
 		return config.ManagedStorage.PostgresSize
 	}
 	return installer.DefaultPostgresSize
-}
-
-func (s *PostgresStage) generatePostgresClusterYAML(config *installer.InstallConfig) ([]byte, error) {
-	tmpl := `apiVersion: postgres-operator.crunchydata.com/v1beta1
-kind: PostgresCluster
-metadata:
-  name: primus-lens
-  namespace: {{ .Namespace }}
-spec:
-  postgresVersion: 16
-  instances:
-    - name: instance1
-      replicas: 1
-      dataVolumeClaimSpec:
-        storageClassName: {{ .StorageClass }}
-        accessModes:
-          - ReadWriteOnce
-        resources:
-          requests:
-            storage: {{ .PostgresSize }}
-      resources:
-        limits:
-          cpu: "2000m"
-          memory: "4Gi"
-        requests:
-          cpu: "500m"
-          memory: "2Gi"
-  backups:
-    pgbackrest:
-      global:
-        repo1-retention-full: "14"
-        repo1-retention-full-type: time
-      repos:
-        - name: repo1
-          schedules:
-            full: "0 2 * * 0"
-            differential: "0 2 * * 1-6"
-          volume:
-            volumeClaimSpec:
-              storageClassName: {{ .StorageClass }}
-              accessModes:
-                - ReadWriteOnce
-              resources:
-                requests:
-                  storage: {{ .PostgresSize }}
-  patroni:
-    dynamicConfiguration:
-      postgresql:
-        parameters:
-          max_connections: "200"
-          shared_buffers: "256MB"
-          effective_cache_size: "1GB"
-  users:
-    - name: primus-lens
-      databases:
-        - primus_lens
-      options: "SUPERUSER"
-`
-
-	t, err := template.New("postgres").Parse(tmpl)
-	if err != nil {
-		return nil, err
-	}
-
-	data := map[string]string{
-		"Namespace":    config.Namespace,
-		"StorageClass": s.getStorageClass(config),
-		"PostgresSize": s.getPostgresSize(config),
-	}
-
-	var buf bytes.Buffer
-	if err := t.Execute(&buf, data); err != nil {
-		return nil, err
-	}
-
-	return buf.Bytes(), nil
 }

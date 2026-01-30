@@ -1,0 +1,66 @@
+{{- if .Values.opensearch.enabled }}
+apiVersion: opensearch.opster.io/v1
+kind: OpenSearchCluster
+metadata:
+  name: {{ .Values.opensearch.name }}
+  namespace: {{ include "opensearch.namespace" . }}
+  labels:
+    {{- include "opensearch.labels" . | nindent 4 }}
+spec:
+  general:
+    serviceName: {{ .Values.opensearch.name }}
+    version: {{ .Values.opensearch.version | quote }}
+    httpPort: {{ .Values.opensearch.httpPort }}
+    setVMMaxMapCount: true
+  
+  dashboards:
+    enable: {{ .Values.opensearch.dashboards.enabled }}
+    {{- if .Values.opensearch.dashboards.enabled }}
+    replicas: {{ .Values.opensearch.dashboards.replicas }}
+    version: {{ .Values.opensearch.version | quote }}
+    {{- end }}
+  
+  security:
+    config:
+      adminCredentialsSecret:
+        name: {{ include "opensearch.adminSecretName" . }}
+    tls:
+      transport:
+        generate: true
+      http:
+        generate: true
+  
+  nodePools:
+    {{- range .Values.opensearch.nodePools }}
+    - component: {{ .name }}
+      replicas: {{ .replicas }}
+      diskSize: {{ .diskSize | quote }}
+      persistence:
+        storageClass: {{ include "opensearch.storageClass" $ }}
+      resources:
+        {{- toYaml .resources | nindent 8 }}
+      roles:
+        {{- range .roles }}
+        - {{ . }}
+        {{- end }}
+      {{- if .jvm }}
+      jvm: {{ .jvm | quote }}
+      {{- end }}
+    {{- end }}
+{{- end }}
+---
+{{- if .Values.opensearch.enabled }}
+{{- if not .Values.opensearch.adminSecretName }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "opensearch.adminSecretName" . }}
+  namespace: {{ include "opensearch.namespace" . }}
+  labels:
+    {{- include "opensearch.labels" . | nindent 4 }}
+type: Opaque
+stringData:
+  username: admin
+  password: {{ randAlphaNum 32 | quote }}
+{{- end }}
+{{- end }}
