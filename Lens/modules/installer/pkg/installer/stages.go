@@ -341,7 +341,7 @@ func (s *WaitInfraStage) IsIdempotent() bool { return true }
 func (s *WaitInfraStage) Execute(ctx context.Context, helm *HelmClient, config *InstallConfig) error {
 	// Wait for postgres - required for database_migration stage
 	// Retry with backoff since pods may not exist immediately after CR creation
-	if err := s.waitForPodsWithRetry(ctx, helm, config, "cluster-name=primus-lens", "Postgres", 10*time.Minute, true); err != nil {
+	if err := s.waitForPodsWithRetry(ctx, helm, config, "postgres-operator.crunchydata.com/cluster=primus-lens", "Postgres", 10*time.Minute, true); err != nil {
 		return err
 	}
 
