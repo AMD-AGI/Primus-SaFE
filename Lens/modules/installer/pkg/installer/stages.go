@@ -385,10 +385,10 @@ func (s *DatabaseMigrationStage) Execute(ctx context.Context, helm *HelmClient, 
 		// Lens-managed mode - get credentials from cluster secrets
 		log.Info("Lens-managed storage mode, fetching database credentials from cluster...")
 
-		// Get postgres password from secret
+		// Get postgres password from secret (CrunchyData PGO format: {cluster}-pguser-{user})
 		var err error
 		password, err = helm.GetSecretValue(ctx, config.Kubeconfig, config.Namespace,
-			"primus-lens.primus-lens.credentials.postgresql.acid.zalan.do", "password")
+			"primus-lens-pguser-primus-lens", "password")
 		if err != nil {
 			return fmt.Errorf("failed to get postgres password: %w", err)
 		}
@@ -458,8 +458,9 @@ func (s *StorageSecretStage) Execute(ctx context.Context, helm *HelmClient, conf
 }
 
 func (s *StorageSecretStage) buildFromManagedStorage(ctx context.Context, helm *HelmClient, config *InstallConfig) (StorageConfig, error) {
+	// CrunchyData PGO secret format: {cluster}-pguser-{user}
 	pgPassword, err := helm.GetSecretValue(ctx, config.Kubeconfig, config.Namespace,
-		"primus-lens.primus-lens.credentials.postgresql.acid.zalan.do", "password")
+		"primus-lens-pguser-primus-lens", "password")
 	if err != nil {
 		return StorageConfig{}, fmt.Errorf("failed to get postgres password: %w", err)
 	}
