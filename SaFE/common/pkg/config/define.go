@@ -81,6 +81,7 @@ const (
 	opsJobTTLSecond     = opsJobPrefix + "ttl_second"
 	opsJobTimeoutSecond = opsJobPrefix + "timeout_second"
 	opsJobDownloadImage = opsJobPrefix + "download_image"
+	opsJobEvalImage     = opsJobPrefix + "evalscope_image"
 
 	// prewarm
 	prewarmPrefix           = opsJobPrefix + "prewarm."

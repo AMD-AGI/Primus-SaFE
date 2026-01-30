@@ -92,6 +92,8 @@ preprocess:
 ops_job:
   # Opsjob download image version. used for download file
   download_image: "s3-downloader:latest"
+  # Opsjob evalscope image version. used for model evaluation
+  evalscope_image: "evalscope:latest"
 cicd:
   enable: true
   role_name: "gha-rs-manager"
