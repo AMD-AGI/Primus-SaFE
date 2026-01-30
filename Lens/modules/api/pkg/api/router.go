@@ -5,6 +5,7 @@ package api
 
 import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/api/pkg/api/cluster"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/api/pkg/api/cpconfig"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/api/pkg/api/perfetto"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/api/pkg/api/pyspy"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/api/pkg/api/registry"
@@ -599,6 +600,16 @@ func RegisterRouter(group *gin.RouterGroup) error {
 			clusterMgmtGroup.GET("/:cluster_name/tasks/active", cluster.GetActiveTask)
 			clusterMgmtGroup.GET("/:cluster_name/tasks/:task_id", cluster.GetTask)
 			clusterMgmtGroup.GET("/:cluster_name/tasks/:task_id/logs", cluster.GetTaskLogs)
+		}
+
+		// Control plane configuration routes
+		configGroup := managementGroup.Group("/config")
+		{
+			configGroup.GET("", cpconfig.ListConfigs)
+			configGroup.GET("/installer", cpconfig.GetInstallerConfig)
+			configGroup.GET("/:key", cpconfig.GetConfig)
+			configGroup.PUT("/:key", cpconfig.SetConfig)
+			configGroup.DELETE("/:key", cpconfig.DeleteConfig)
 		}
 	}
 
