@@ -350,7 +350,8 @@ func (s *WaitInfraStage) Execute(ctx context.Context, helm *HelmClient, config *
 	}
 
 	// Wait for opensearch (optional - warn on failure but continue)
-	if err := s.waitForPodsWithRetry(ctx, helm, config, "opensearch.cluster.opensearch.org/cluster-name=primus-lens-logs", "OpenSearch", 10*time.Minute, false); err != nil {
+	// Note: OpenSearch operator uses 'opster.io/opensearch-cluster' label
+	if err := s.waitForPodsWithRetry(ctx, helm, config, "opster.io/opensearch-cluster=primus-lens-logs", "OpenSearch", 10*time.Minute, false); err != nil {
 		log.Warnf("OpenSearch not ready, continuing: %v", err)
 	}
 
