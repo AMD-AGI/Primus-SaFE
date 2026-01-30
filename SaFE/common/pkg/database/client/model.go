@@ -41,6 +41,22 @@ func (c *Client) GetModelByID(ctx context.Context, id string) (*Model, error) {
 	return &model, nil
 }
 
+// GetModelByModelName retrieves a Model by its model_name field.
+// This is used to find a model by its identifier (e.g., "deepseek-ai/DeepSeek-V2.5").
+func (c *Client) GetModelByModelName(ctx context.Context, modelName string) (*Model, error) {
+	db, err := c.GetGormDB()
+	if err != nil {
+		return nil, err
+	}
+
+	var model Model
+	result := db.WithContext(ctx).Where("model_name = ? AND is_deleted = ?", modelName, false).First(&model)
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	return &model, nil
+}
+
 // ListModels retrieves all models matching the filter criteria.
 // If accessMode is empty, all access modes are returned.
 // If workspace is empty, all workspaces are returned.
