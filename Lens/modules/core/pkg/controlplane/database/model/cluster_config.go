@@ -50,7 +50,12 @@ type ClusterConfig struct {
 	PrometheusWritePort int    `gorm:"column:prometheus_write_port;default:8480" json:"prometheus_write_port"`
 	StorageManualMode   bool   `gorm:"column:storage_manual_mode;default:false" json:"storage_manual_mode"` // When true, storage config won't be overwritten by sync job
 
-	// Dataplane Status
+	// Infrastructure Status (one-time initialization)
+	InfrastructureStatus  string     `gorm:"column:infrastructure_status;default:not_initialized" json:"infrastructure_status"` // not_initialized, initializing, ready, failed
+	InfrastructureMessage string     `gorm:"column:infrastructure_message" json:"infrastructure_message"`
+	InfrastructureTime    *time.Time `gorm:"column:infrastructure_time" json:"infrastructure_time"`
+
+	// Dataplane Status (apps deployment)
 	DataplaneStatus  string     `gorm:"column:dataplane_status;default:pending" json:"dataplane_status"`
 	DataplaneVersion string     `gorm:"column:dataplane_version" json:"dataplane_version"`
 	DataplaneMessage string     `gorm:"column:dataplane_message" json:"dataplane_message"`
@@ -101,6 +106,14 @@ func (l *ClusterLabels) Scan(value interface{}) error {
 		return errors.New("type assertion to []byte or string failed")
 	}
 }
+
+// Infrastructure status constants
+const (
+	InfrastructureStatusNotInitialized = "not_initialized"
+	InfrastructureStatusInitializing   = "initializing"
+	InfrastructureStatusReady          = "ready"
+	InfrastructureStatusFailed         = "failed"
+)
 
 // Dataplane status constants
 const (

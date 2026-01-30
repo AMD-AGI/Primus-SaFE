@@ -17,6 +17,7 @@ type DataplaneInstallTask struct {
 	ID            int32             `gorm:"column:id;primaryKey;autoIncrement:true" json:"id"`
 	ClusterName   string            `gorm:"column:cluster_name;not null" json:"cluster_name"`
 	TaskType      string            `gorm:"column:task_type;not null;default:install" json:"task_type"`
+	InstallScope  string            `gorm:"column:install_scope;not null;default:full" json:"install_scope"` // full, infrastructure, apps
 	CurrentStage  string            `gorm:"column:current_stage;not null;default:pending" json:"current_stage"`
 	StorageMode   string            `gorm:"column:storage_mode;not null;default:external" json:"storage_mode"`
 	InstallConfig InstallConfigJSON `gorm:"column:install_config;not null" json:"install_config"`
@@ -24,7 +25,7 @@ type DataplaneInstallTask struct {
 	ErrorMessage  string            `gorm:"column:error_message" json:"error_message"`
 	RetryCount    int               `gorm:"column:retry_count;default:0" json:"retry_count"`
 	MaxRetries    int               `gorm:"column:max_retries;default:3" json:"max_retries"`
-	JobName       string            `gorm:"column:job_name" json:"job_name"`       // K8s Job name for tracking
+	JobName       string            `gorm:"column:job_name" json:"job_name"`           // K8s Job name for tracking
 	JobNamespace  string            `gorm:"column:job_namespace" json:"job_namespace"` // K8s Job namespace
 	CreatedAt     time.Time         `gorm:"column:created_at;autoCreateTime" json:"created_at"`
 	UpdatedAt     time.Time         `gorm:"column:updated_at;autoUpdateTime" json:"updated_at"`
@@ -72,6 +73,13 @@ const (
 const (
 	StorageModeLensManaged = "lens-managed"
 	StorageModeExternal    = "external"
+)
+
+// Install scope constants
+const (
+	InstallScopeFull           = "full"           // Full installation (backward compatible)
+	InstallScopeInfrastructure = "infrastructure" // Infrastructure only (operators, storage, init)
+	InstallScopeApps           = "apps"           // Applications only
 )
 
 // InstallConfigJSON is a custom type for JSONB install config

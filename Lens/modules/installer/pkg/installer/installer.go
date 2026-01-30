@@ -142,12 +142,16 @@ func (d *DataplaneInstaller) executeRollback(ctx context.Context, task *model.Da
 func (d *DataplaneInstaller) executeStages(ctx context.Context, task *model.DataplaneInstallTask, config *InstallConfig, upgradeOnly bool) ([]string, error) {
 	var stagesCompleted []string
 
-	// Get stage sequence
+	// Get stage sequence based on install scope
 	var stageSequence []string
 	if upgradeOnly {
 		// For upgrade/rollback, skip infrastructure setup stages
 		stageSequence = GetUpgradeStageSequence()
+	} else if task.InstallScope != "" && task.InstallScope != model.InstallScopeFull {
+		// Use scope-based stage sequence
+		stageSequence = GetStageSequenceByScope(task.InstallScope, task.StorageMode)
 	} else {
+		// Default: full installation (backward compatible)
 		stageSequence = GetStageSequence(task.StorageMode)
 	}
 
