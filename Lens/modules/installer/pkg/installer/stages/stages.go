@@ -21,10 +21,10 @@ func GetInfrastructureStages(helmClient *installer.HelmClient) []installer.Stage
 		NewFluentOperatorStage(helmClient),
 		NewKubeStateMetricsStage(helmClient),
 
-		// Phase 3: Infrastructure
-		NewPostgresStage(),
-		NewVictoriaMetricsStage(),
-		NewOpenSearchStage(),
+		// Phase 3: Infrastructure CRs
+		NewPostgresStage(helmClient),
+		NewVictoriaMetricsStage(helmClient),
+		NewOpenSearchStage(helmClient),
 
 		// Phase 4: Database Setup
 		NewDatabaseInitStage(helmClient),

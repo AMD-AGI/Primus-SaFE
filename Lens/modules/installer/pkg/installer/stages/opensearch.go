@@ -4,10 +4,8 @@
 package stages
 
 import (
-	"bytes"
 	"context"
 	"fmt"
-	"text/template"
 	"time"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
@@ -17,11 +15,14 @@ import (
 // OpenSearchStage handles OpenSearch cluster deployment
 type OpenSearchStage struct {
 	installer.BaseStage
+	helmClient *installer.HelmClient
 }
 
 // NewOpenSearchStage creates a new OpenSearch stage
-func NewOpenSearchStage() *OpenSearchStage {
-	return &OpenSearchStage{}
+func NewOpenSearchStage(helmClient *installer.HelmClient) *OpenSearchStage {
+	return &OpenSearchStage{
+		helmClient: helmClient,
+	}
 }
 
 func (s *OpenSearchStage) Name() string {
@@ -77,13 +78,56 @@ func (s *OpenSearchStage) ShouldRun(ctx context.Context, client *installer.Clust
 func (s *OpenSearchStage) Execute(ctx context.Context, client *installer.ClusterClient, config *installer.InstallConfig) error {
 	log.Info("Deploying OpenSearchCluster CR...")
 
-	yaml, err := s.generateOpenSearchClusterYAML(config)
-	if err != nil {
-		return fmt.Errorf("failed to generate OpenSearchCluster YAML: %w", err)
+	values := map[string]interface{}{
+		"global": map[string]interface{}{
+			"namespace":    config.Namespace,
+			"storageClass": s.getStorageClass(config),
+		},
+		"opensearch": map[string]interface{}{
+			"enabled":  true,
+			"name":     "primus-lens-logs",
+			"version":  "2.11.0",
+			"httpPort": 9200,
+			"dashboards": map[string]interface{}{
+				"enabled": false,
+			},
+			"nodePools": []map[string]interface{}{
+				{
+					"name":     "nodes",
+					"replicas": s.getOpenSearchReplicas(config),
+					"roles":    []string{"master", "data", "ingest"},
+					"diskSize": s.getOpenSearchSize(config),
+					"jvm":      "-Xms1g -Xmx1g",
+					"resources": map[string]interface{}{
+						"requests": map[string]interface{}{
+							"cpu":    "500m",
+							"memory": "2Gi",
+						},
+						"limits": map[string]interface{}{
+							"cpu":    "2000m",
+							"memory": "4Gi",
+						},
+					},
+				},
+			},
+		},
 	}
 
-	log.Infof("Applying OpenSearchCluster CR to namespace %s", config.Namespace)
-	return client.ApplyYAML(ctx, yaml)
+	releaseName := "primus-lens-opensearch"
+	log.Infof("Installing OpenSearchCluster via Helm chart %s", ChartOpenSearch)
+
+	// Check if release exists
+	exists, _, err := s.helmClient.ReleaseStatus(ctx, client.GetKubeconfig(), config.Namespace, releaseName)
+	if err != nil {
+		return fmt.Errorf("failed to check release status: %w", err)
+	}
+
+	if exists {
+		log.Infof("Release %s exists, upgrading...", releaseName)
+		return s.helmClient.Upgrade(ctx, client.GetKubeconfig(), config.Namespace, releaseName, ChartOpenSearch, values)
+	}
+
+	return s.helmClient.Install(ctx, client.GetKubeconfig(), config.Namespace, releaseName, ChartOpenSearch, values)
 }
 
 func (s *OpenSearchStage) WaitForReady(ctx context.Context, client *installer.ClusterClient, config *installer.InstallConfig, timeout time.Duration) error {
@@ -124,77 +168,4 @@ func (s *OpenSearchStage) getOpenSearchReplicas(config *installer.InstallConfig)
 		return config.ManagedStorage.OpensearchReplicas
 	}
 	return installer.DefaultOSReplicas
-}
-
-func (s *OpenSearchStage) generateOpenSearchClusterYAML(config *installer.InstallConfig) ([]byte, error) {
-	tmpl := `apiVersion: opensearch.opster.io/v1
-kind: OpenSearchCluster
-metadata:
-  name: primus-lens-logs
-  namespace: {{ .Namespace }}
-spec:
-  general:
-    version: "2.11.0"
-    serviceName: primus-lens-logs
-    httpPort: 9200
-    setVMMaxMapCount: true
-  dashboards:
-    enable: false
-  security:
-    config:
-      adminCredentialsSecret:
-        name: primus-lens-logs-admin-password
-    tls:
-      transport:
-        generate: true
-      http:
-        generate: true
-  nodePools:
-    - component: nodes
-      replicas: {{ .Replicas }}
-      diskSize: {{ .OpenSearchSize }}
-      persistence:
-        storageClass: {{ .StorageClass }}
-      resources:
-        requests:
-          cpu: "500m"
-          memory: "2Gi"
-        limits:
-          cpu: "2000m"
-          memory: "4Gi"
-      roles:
-        - master
-        - data
-        - ingest
-      jvm: "-Xms1g -Xmx1g"
----
-apiVersion: v1
-kind: Secret
-metadata:
-  name: primus-lens-logs-admin-password
-  namespace: {{ .Namespace }}
-type: Opaque
-stringData:
-  username: admin
-  password: Primus-Lens-2024!
-`
-
-	t, err := template.New("opensearch").Parse(tmpl)
-	if err != nil {
-		return nil, err
-	}
-
-	data := map[string]interface{}{
-		"Namespace":      config.Namespace,
-		"StorageClass":   s.getStorageClass(config),
-		"OpenSearchSize": s.getOpenSearchSize(config),
-		"Replicas":       s.getOpenSearchReplicas(config),
-	}
-
-	var buf bytes.Buffer
-	if err := t.Execute(&buf, data); err != nil {
-		return nil, err
-	}
-
-	return buf.Bytes(), nil
 }
