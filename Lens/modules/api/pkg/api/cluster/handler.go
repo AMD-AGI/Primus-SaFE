@@ -991,11 +991,17 @@ func GetTaskLogs(c *gin.Context) {
 	}
 
 	// Get K8S client for control plane cluster
-	k8sClient := clientsets.GetK8SClientSet()
-	if k8sClient == nil || k8sClient.Clientsets == nil {
+	cm := clientsets.GetClusterManager()
+	if cm == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Cluster manager not available"})
+		return
+	}
+	currentCluster := cm.GetCurrentClusterClients()
+	if currentCluster == nil || currentCluster.K8SClientSet == nil || currentCluster.K8SClientSet.Clientsets == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "K8S client not available"})
 		return
 	}
+	k8sClient := currentCluster.K8SClientSet
 
 	// Get tail lines
 	tailLines := int64(500)
