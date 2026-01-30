@@ -1,6 +1,8 @@
 // Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
 // See LICENSE for license information.
 
+// Package dataplane_installer manages K8s Jobs for dataplane installation
+// and updates cluster status based on install scope when jobs complete.
 package dataplane_installer
 
 import (
