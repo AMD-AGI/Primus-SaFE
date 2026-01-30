@@ -120,6 +120,7 @@ func (h *ImageHandler) listImage(c *gin.Context) (interface{}, error) {
 	images, count, err := h.dbClient.SelectImages(c, &dbClient.ImageFilter{
 		UserName: query.UserName,
 		Tag:      query.Tag,
+		Image:    query.Image,
 		OrderBy:  query.OrderBy,
 		Order:    query.Order,
 		PageNum:  query.PageNum,
