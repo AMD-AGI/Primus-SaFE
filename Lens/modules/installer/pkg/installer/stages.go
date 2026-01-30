@@ -482,7 +482,7 @@ func (s *DatabaseMigrationStage) Execute(ctx context.Context, helm *HelmClient, 
 		host = fmt.Sprintf("primus-lens-primary.%s.svc.cluster.local", config.Namespace)
 		port = 5432
 		user = "primus-lens"
-		dbName = "primus-lens"
+		dbName = "primus_lens" // PostgreSQL database name uses underscore
 		sslMode = "require"
 	} else {
 		log.Warn("No storage configuration available, skipping database migration")
@@ -564,7 +564,7 @@ func (s *StorageSecretStage) buildFromManagedStorage(ctx context.Context, helm *
 			Namespace: config.Namespace,
 			Username:  "primus-lens",
 			Password:  pgPassword,
-			DBName:    "primus-lens",
+			DBName:    "primus_lens", // PostgreSQL database name uses underscore
 			SSLMode:   "require",
 		},
 		OpenSearch: OpenSearchConfig{
