@@ -97,6 +97,7 @@ ops_job:
 cicd:
   enable: true
   role_name: "gha-rs-manager"
+  controller_name: "gha-runner-scale-set-gha-rs-controller"
   # cicd component image version. used for starting jobs for runner
   runner: "cicd-runner-proxy:latest"
   unified_job: "cicd-unified-job-proxy:latest"
