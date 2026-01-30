@@ -81,6 +81,8 @@ data:
               ephemeral-storage: 20Gi
           securityContext:
             privileged: true
+            runAsGroup: 0
+            runAsUser: 0
         restartPolicy: Never
         serviceAccountName: "{{ .Values.cicd.role_name }}-no-permission"
         volumes:
