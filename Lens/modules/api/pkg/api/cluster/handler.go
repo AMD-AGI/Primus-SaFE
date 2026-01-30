@@ -570,9 +570,10 @@ func TestClusterConnection(c *gin.Context) {
 
 // InitializeInfrastructureRequest represents the request to initialize infrastructure
 type InitializeInfrastructureRequest struct {
-	StorageMode   string                    `json:"storage_mode"`    // external or lens-managed
-	StorageClass  string                    `json:"storage_class"`   // for lens-managed mode
-	ManagedStorage *model.ManagedStorageJSON `json:"managed_storage"` // for lens-managed mode
+	StorageMode string `json:"storage_mode"` // external or lens-managed (optional, defaults to cluster's storage_mode)
+	// Deprecated: StorageClass and ManagedStorage are ignored. Configuration is read from cluster_config.managed_storage_config
+	StorageClass   string                    `json:"storage_class,omitempty"`
+	ManagedStorage *model.ManagedStorageJSON `json:"managed_storage,omitempty"`
 }
 
 // InitializeInfrastructure initializes cluster infrastructure
@@ -648,21 +649,10 @@ func InitializeInfrastructure(c *gin.Context) {
 	}
 
 	// Build managed storage config for lens-managed mode
+	// Always use cluster's managed_storage_config from database, ignore request config
 	if storageMode == model.StorageModeLensManaged {
-		if req.ManagedStorage != nil {
-			// Use request provided config
-			installConfig.ManagedStorage = &model.ManagedStorageConfig{
-				StorageClass:           req.ManagedStorage.StorageClass,
-				PostgresEnabled:        req.ManagedStorage.PostgresEnabled,
-				PostgresSize:           req.ManagedStorage.PostgresSize,
-				OpensearchEnabled:      req.ManagedStorage.OpensearchEnabled,
-				OpensearchSize:         req.ManagedStorage.OpensearchSize,
-				OpensearchReplicas:     req.ManagedStorage.OpensearchReplicas,
-				VictoriametricsEnabled: req.ManagedStorage.VictoriametricsEnabled,
-				VictoriametricsSize:    req.ManagedStorage.VictoriametricsSize,
-			}
-		} else if cluster.ManagedStorageConfig.StorageClass != "" {
-			// Use cluster's managed storage config
+		if cluster.ManagedStorageConfig.StorageClass != "" {
+			// Use cluster's managed storage config from database
 			installConfig.ManagedStorage = &model.ManagedStorageConfig{
 				StorageClass:           cluster.ManagedStorageConfig.StorageClass,
 				PostgresEnabled:        cluster.ManagedStorageConfig.PostgresEnabled,
@@ -673,12 +663,15 @@ func InitializeInfrastructure(c *gin.Context) {
 				VictoriametricsEnabled: cluster.ManagedStorageConfig.VictoriametricsEnabled,
 				VictoriametricsSize:    cluster.ManagedStorageConfig.VictoriametricsSize,
 			}
+			log.Infof("Using cluster managed_storage_config: storageClass=%s, postgres=%s, opensearch=%s (replicas=%d), vm=%s",
+				cluster.ManagedStorageConfig.StorageClass,
+				cluster.ManagedStorageConfig.PostgresSize,
+				cluster.ManagedStorageConfig.OpensearchSize,
+				cluster.ManagedStorageConfig.OpensearchReplicas,
+				cluster.ManagedStorageConfig.VictoriametricsSize)
 		} else {
-			// Use defaults for lens-managed mode
+			// No managed storage config in cluster, use defaults
 			defaultStorageClass := "local-path"
-			if req.StorageClass != "" {
-				defaultStorageClass = req.StorageClass
-			}
 			installConfig.ManagedStorage = &model.ManagedStorageConfig{
 				StorageClass:           defaultStorageClass,
 				PostgresEnabled:        true,
@@ -689,6 +682,7 @@ func InitializeInfrastructure(c *gin.Context) {
 				VictoriametricsEnabled: true,
 				VictoriametricsSize:    "10Gi",
 			}
+			log.Warnf("Cluster %s has no managed_storage_config, using defaults", clusterName)
 		}
 
 		// Ensure StorageClass is set at top level too
