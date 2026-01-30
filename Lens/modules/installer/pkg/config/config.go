@@ -4,9 +4,14 @@
 package config
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strconv"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 )
 
 // Config holds the installer configuration
@@ -29,6 +34,7 @@ type Config struct {
 }
 
 // LoadFromEnv loads configuration from environment variables
+// If CP_DB_USER/CP_DB_PASSWORD are not set, it will try to load from K8s secret
 func LoadFromEnv() (*Config, error) {
 	taskIDStr := os.Getenv("TASK_ID")
 	if taskIDStr == "" {
@@ -63,13 +69,20 @@ func LoadFromEnv() (*Config, error) {
 	}
 
 	cpDBUser := os.Getenv("CP_DB_USER")
-	if cpDBUser == "" {
-		return nil, fmt.Errorf("CP_DB_USER environment variable is required")
-	}
-
 	cpDBPassword := os.Getenv("CP_DB_PASSWORD")
-	if cpDBPassword == "" {
-		return nil, fmt.Errorf("CP_DB_PASSWORD environment variable is required")
+
+	// If credentials not in env, try to load from K8s secret
+	if cpDBUser == "" || cpDBPassword == "" {
+		secretUser, secretPassword, err := loadDBCredentialsFromSecret()
+		if err != nil {
+			return nil, fmt.Errorf("CP_DB_USER/CP_DB_PASSWORD not set and failed to load from secret: %w", err)
+		}
+		if cpDBUser == "" {
+			cpDBUser = secretUser
+		}
+		if cpDBPassword == "" {
+			cpDBPassword = secretPassword
+		}
 	}
 
 	cpDBSSLMode := os.Getenv("CP_DB_SSL_MODE")
@@ -96,6 +109,44 @@ func LoadFromEnv() (*Config, error) {
 		HelmTimeout:  helmTimeout,
 		DryRun:       dryRun,
 	}, nil
+}
+
+// loadDBCredentialsFromSecret loads database credentials from K8s secret
+func loadDBCredentialsFromSecret() (string, string, error) {
+	// Use in-cluster config
+	config, err := rest.InClusterConfig()
+	if err != nil {
+		return "", "", fmt.Errorf("failed to get in-cluster config: %w", err)
+	}
+
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to create k8s client: %w", err)
+	}
+
+	// Secret name and namespace (same as used by control plane components)
+	secretName := os.Getenv("CP_DB_SECRET_NAME")
+	if secretName == "" {
+		secretName = "primus-lens-control-plane-pguser-primus-lens-control-plane"
+	}
+	secretNamespace := os.Getenv("CP_DB_SECRET_NAMESPACE")
+	if secretNamespace == "" {
+		secretNamespace = "primus-lens"
+	}
+
+	secret, err := clientset.CoreV1().Secrets(secretNamespace).Get(context.Background(), secretName, metav1.GetOptions{})
+	if err != nil {
+		return "", "", fmt.Errorf("failed to get secret %s/%s: %w", secretNamespace, secretName, err)
+	}
+
+	user := string(secret.Data["user"])
+	password := string(secret.Data["password"])
+
+	if user == "" || password == "" {
+		return "", "", fmt.Errorf("user or password not found in secret %s/%s", secretNamespace, secretName)
+	}
+
+	return user, password, nil
 }
 
 // GetCPDBDSN returns the PostgreSQL connection string for control plane DB
