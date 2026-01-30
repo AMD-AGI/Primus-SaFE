@@ -32,7 +32,8 @@ const (
 	OpsJobExportImageType OpsJobType = "exportimage"
 	OpsJobPrewarmType     OpsJobType = "prewarm"
 	OpsJobDownloadType    OpsJobType = "download"
-	OpsJobCDType          OpsJobType = "cd" // CD deployment job (supports both Safe and Lens via deploy.type parameter)
+	OpsJobCDType          OpsJobType = "cd"         // CD deployment job (supports both Safe and Lens via deploy.type parameter)
+	OpsJobEvaluationType  OpsJobType = "evaluation" // Model evaluation job
 
 	ParameterNode          = "node"
 	ParameterNodeTemplate  = "node.template"
@@ -62,6 +63,25 @@ const (
 	ParameterCICDUnifiedImage    = "cicd.unified.image"    // CICD unified job image (Safe)
 	// Lens specific CD parameters
 	ParameterLensConfigMap = "lens.configmap" // ConfigMap name containing values.yaml files (Lens)
+
+	// Evaluation job specific parameters
+	ParameterEvalTaskId      = "eval.task.id"      // Evaluation task ID from database
+	ParameterEvalServiceId   = "eval.service.id"   // Service ID (workload or model ID)
+	ParameterEvalServiceType = "eval.service.type" // Service type: remote_api or local_workload
+	ParameterEvalBenchmarks  = "eval.benchmarks"   // Benchmarks JSON configuration
+	ParameterEvalParams      = "eval.params"       // Evaluation parameters JSON
+	ParameterEvalReportPath  = "eval.report.path"  // S3 path for evaluation report output
+	ParameterModelEndpoint   = "model.endpoint"    // Model service endpoint URL
+	ParameterModelName       = "model.name"        // Model name for API calls
+	ParameterModelApiKey     = "model.api.key"     // API key for remote model (encrypted)
+
+	// Judge model parameters (for LLM-as-Judge evaluation)
+	ParameterJudgeModel    = "eval.judge.model"    // Judge model name (e.g. gpt-4)
+	ParameterJudgeEndpoint = "eval.judge.endpoint" // Judge model API endpoint
+	ParameterJudgeApiKey   = "eval.judge.apikey"   // Judge model API key
+
+	// Evaluation performance parameters
+	ParameterEvalConcurrency = "eval.concurrency" // Concurrency level for evaluation (default 32)
 )
 
 type Parameter struct {

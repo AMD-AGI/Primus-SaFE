@@ -63,6 +63,8 @@ data:
       timeout_second: {{ default 3600 (default .Values.ops_job).timeout_second }}
       # Opsjob download image version. Used for downloading files from S3 to local PFS
       download_image: {{ printf "%s/primussafe/%s" (default "docker.io" .Values.global.image_registry) (default "s3-downloader:latest" (default .Values.ops_job).download_image) }}
+      # Opsjob evalscope image version. Used for model evaluation
+      evalscope_image: {{ printf "%s/primussafe/%s" (default "docker.io" .Values.global.image_registry) (default "evalscope:latest" (default .Values.ops_job).evalscope_image) }}
       prewarm:
         # The timeout for prewarm jobs, in seconds. Default is 900 (15 min).
         timeout_second: {{ default 900 (default (default .Values.ops_job).prewarm).timeout_second }}
