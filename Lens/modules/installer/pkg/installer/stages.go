@@ -356,7 +356,9 @@ func (s *WaitInfraStage) Execute(ctx context.Context, helm *HelmClient, config *
 	}
 
 	// Wait for victoriametrics (optional - warn on failure but continue)
-	if err := s.waitForPodsWithRetry(ctx, helm, config, "app.kubernetes.io/name=vmcluster", "VictoriaMetrics", 5*time.Minute, false); err != nil {
+	// VictoriaMetrics has 3 components: vmstorage, vmselect, vminsert
+	// Use instance label to match all components
+	if err := s.waitForPodsWithRetry(ctx, helm, config, "app.kubernetes.io/instance=primus-lens-vmcluster", "VictoriaMetrics", 5*time.Minute, false); err != nil {
 		log.Warnf("VictoriaMetrics not ready, continuing: %v", err)
 	}
 
