@@ -54,7 +54,7 @@ func TestGenAddonName(t *testing.T) {
 
 // genAddonName generates a unique name for an addon
 // Format: {cluster}-{namespace}-{releaseName}
-// If namespace is empty, uses "default"
+// If namespace is empty, uses "default".
 func genAddonName(cluster, namespace, releaseName string) string {
 	if namespace == "" {
 		return cluster + "-" + "default" + "-" + releaseName
