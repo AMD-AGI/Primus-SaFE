@@ -29,6 +29,8 @@ type ClusterConfigFacadeInterface interface {
 	ListBySource(ctx context.Context, source string) ([]*model.ClusterConfig, error)
 	// ListByDataplaneStatus lists cluster configs by dataplane status
 	ListByDataplaneStatus(ctx context.Context, status string) ([]*model.ClusterConfig, error)
+	// UpdateInfrastructureStatus updates the infrastructure status
+	UpdateInfrastructureStatus(ctx context.Context, clusterName, status, message string) error
 	// UpdateDataplaneStatus updates the dataplane status
 	UpdateDataplaneStatus(ctx context.Context, clusterName, status, message string) error
 	// UpdateStorageConfig updates the storage configuration
@@ -157,6 +159,23 @@ func (f *ClusterConfigFacade) ListByDataplaneStatus(ctx context.Context, status 
 		return nil, err
 	}
 	return configs, nil
+}
+
+// UpdateInfrastructureStatus updates the infrastructure status
+func (f *ClusterConfigFacade) UpdateInfrastructureStatus(ctx context.Context, clusterName, status, message string) error {
+	updates := map[string]interface{}{
+		"infrastructure_status":  status,
+		"infrastructure_message": message,
+		"updated_at":             time.Now(),
+	}
+	if status == model.InfrastructureStatusReady || status == model.InfrastructureStatusFailed {
+		now := time.Now()
+		updates["infrastructure_time"] = now
+	}
+	return f.db.WithContext(ctx).
+		Model(&model.ClusterConfig{}).
+		Where("cluster_name = ?", clusterName).
+		Updates(updates).Error
 }
 
 // UpdateDataplaneStatus updates the dataplane status
