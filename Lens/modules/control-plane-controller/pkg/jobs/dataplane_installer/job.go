@@ -173,6 +173,7 @@ func (j *DataplaneInstallerJob) processTask(ctx context.Context, k8sClient *clie
 // handleExistingJob handles the case where a Job already exists
 func (j *DataplaneInstallerJob) handleExistingJob(ctx context.Context, k8sClient *clientsets.K8SClientSet, task *model.DataplaneInstallTask, job *batchv1.Job) error {
 	taskFacade := j.facade.GetDataplaneInstallTask()
+	clusterConfigFacade := j.facade.GetClusterConfig()
 
 	// Check Job status
 	if job.Status.Succeeded > 0 {
@@ -185,6 +186,9 @@ func (j *DataplaneInstallerJob) handleExistingJob(ctx context.Context, k8sClient
 				log.Errorf("Failed to mark task %d as completed: %v", task.ID, err)
 			}
 		}
+
+		// Update cluster status based on install scope
+		j.updateClusterStatusOnSuccess(ctx, clusterConfigFacade, task)
 
 		// Clean up the completed Job
 		if err := j.deleteJob(ctx, k8sClient, job.Namespace, job.Name); err != nil {
@@ -224,6 +228,9 @@ func (j *DataplaneInstallerJob) handleExistingJob(ctx context.Context, k8sClient
 			if err := taskFacade.MarkFailed(ctx, task.ID, failureReason); err != nil {
 				log.Errorf("Failed to mark task %d as failed: %v", task.ID, err)
 			}
+
+			// Update cluster status based on install scope
+			j.updateClusterStatusOnFailure(ctx, clusterConfigFacade, task, failureReason)
 		}
 
 		// Clean up the failed Job
@@ -245,6 +252,90 @@ func (j *DataplaneInstallerJob) handleExistingJob(ctx context.Context, k8sClient
 	}
 
 	return nil
+}
+
+// updateClusterStatusOnSuccess updates cluster status when installation succeeds
+func (j *DataplaneInstallerJob) updateClusterStatusOnSuccess(ctx context.Context, clusterConfigFacade cpdb.ClusterConfigFacadeInterface, task *model.DataplaneInstallTask) {
+	switch task.InstallScope {
+	case model.InstallScopeInfrastructure:
+		// Infrastructure only - update infrastructure status
+		if err := clusterConfigFacade.UpdateInfrastructureStatus(ctx, task.ClusterName, model.InfrastructureStatusReady, ""); err != nil {
+			log.Errorf("Failed to update infrastructure status for cluster %s: %v", task.ClusterName, err)
+		} else {
+			log.Infof("Updated infrastructure status to 'ready' for cluster %s", task.ClusterName)
+		}
+	case model.InstallScopeApps:
+		// Apps only - update dataplane status
+		if err := clusterConfigFacade.UpdateDataplaneStatus(ctx, task.ClusterName, model.DataplaneStatusDeployed, ""); err != nil {
+			log.Errorf("Failed to update dataplane status for cluster %s: %v", task.ClusterName, err)
+		} else {
+			log.Infof("Updated dataplane status to 'deployed' for cluster %s", task.ClusterName)
+		}
+	case model.InstallScopeFull, "":
+		// Full installation - update both statuses
+		if err := clusterConfigFacade.UpdateInfrastructureStatus(ctx, task.ClusterName, model.InfrastructureStatusReady, ""); err != nil {
+			log.Errorf("Failed to update infrastructure status for cluster %s: %v", task.ClusterName, err)
+		}
+		if err := clusterConfigFacade.UpdateDataplaneStatus(ctx, task.ClusterName, model.DataplaneStatusDeployed, ""); err != nil {
+			log.Errorf("Failed to update dataplane status for cluster %s: %v", task.ClusterName, err)
+		}
+		log.Infof("Updated infrastructure and dataplane status for cluster %s", task.ClusterName)
+	}
+}
+
+// updateClusterStatusOnFailure updates cluster status when installation fails (after max retries)
+func (j *DataplaneInstallerJob) updateClusterStatusOnFailure(ctx context.Context, clusterConfigFacade cpdb.ClusterConfigFacadeInterface, task *model.DataplaneInstallTask, failureReason string) {
+	switch task.InstallScope {
+	case model.InstallScopeInfrastructure:
+		// Infrastructure only - update infrastructure status
+		if err := clusterConfigFacade.UpdateInfrastructureStatus(ctx, task.ClusterName, model.InfrastructureStatusFailed, failureReason); err != nil {
+			log.Errorf("Failed to update infrastructure status for cluster %s: %v", task.ClusterName, err)
+		} else {
+			log.Infof("Updated infrastructure status to 'failed' for cluster %s", task.ClusterName)
+		}
+	case model.InstallScopeApps:
+		// Apps only - update dataplane status
+		if err := clusterConfigFacade.UpdateDataplaneStatus(ctx, task.ClusterName, model.DataplaneStatusFailed, failureReason); err != nil {
+			log.Errorf("Failed to update dataplane status for cluster %s: %v", task.ClusterName, err)
+		} else {
+			log.Infof("Updated dataplane status to 'failed' for cluster %s", task.ClusterName)
+		}
+	case model.InstallScopeFull, "":
+		// Full installation - determine which status to update based on current stage
+		// If failed before apps stage, it's infrastructure failure; otherwise apps failure
+		if j.isInfrastructureStage(task.CurrentStage) {
+			if err := clusterConfigFacade.UpdateInfrastructureStatus(ctx, task.ClusterName, model.InfrastructureStatusFailed, failureReason); err != nil {
+				log.Errorf("Failed to update infrastructure status for cluster %s: %v", task.ClusterName, err)
+			} else {
+				log.Infof("Updated infrastructure status to 'failed' for cluster %s (failed at stage %s)", task.ClusterName, task.CurrentStage)
+			}
+		} else {
+			// Infrastructure was ready, apps failed
+			if err := clusterConfigFacade.UpdateInfrastructureStatus(ctx, task.ClusterName, model.InfrastructureStatusReady, ""); err != nil {
+				log.Warnf("Failed to update infrastructure status to ready for cluster %s: %v", task.ClusterName, err)
+			}
+			if err := clusterConfigFacade.UpdateDataplaneStatus(ctx, task.ClusterName, model.DataplaneStatusFailed, failureReason); err != nil {
+				log.Errorf("Failed to update dataplane status for cluster %s: %v", task.ClusterName, err)
+			} else {
+				log.Infof("Updated dataplane status to 'failed' for cluster %s (failed at stage %s)", task.ClusterName, task.CurrentStage)
+			}
+		}
+	}
+}
+
+// isInfrastructureStage checks if the given stage is an infrastructure stage
+func (j *DataplaneInstallerJob) isInfrastructureStage(stage string) bool {
+	infrastructureStages := map[string]bool{
+		"pending":            true,
+		"operators":          true,
+		"wait_operators":     true,
+		"infrastructure":     true,
+		"wait_infrastructure": true,
+		"init":               true,
+		"database_migration": true,
+		"storage_secret":     true,
+	}
+	return infrastructureStages[stage]
 }
 
 // createInstallerJob creates a new Kubernetes Job for the install task
