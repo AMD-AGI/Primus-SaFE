@@ -209,9 +209,10 @@ func (cm *ClusterManager) loadAllClusters(ctx context.Context) error {
 	// Create new cluster map for remote clusters only
 	newClusters := make(map[string]*ClusterClientSet)
 
-	// Get all K8S clients if K8S client loading is enabled
+	// Get all K8S clients
+	// For control plane, always load multi-cluster clients regardless of config
 	var k8sClients map[string]*K8SClientSet
-	if cm.loadK8SClient {
+	if cm.componentType.IsControlPlane() || cm.loadK8SClient {
 		k8sClients = getAllClusterK8SClients()
 	}
 
@@ -220,8 +221,9 @@ func (cm *ClusterManager) loadAllClusters(ctx context.Context) error {
 	// It's accessed separately via GetCurrentClusterClients()
 	for clusterName, k8sClient := range k8sClients {
 		var storageClient *StorageClientSet
-		// Try to get storage client for this cluster if storage client loading is enabled
-		if cm.loadStorageClient {
+		// Try to get storage client for this cluster
+		// For control plane, always load multi-cluster clients regardless of config
+		if cm.componentType.IsControlPlane() || cm.loadStorageClient {
 			var err error
 			storageClient, err = getStorageClientSetByClusterName(clusterName)
 			if err != nil {
@@ -256,14 +258,16 @@ func (cm *ClusterManager) startPeriodicSync(ctx context.Context) {
 		select {
 		case <-ticker.C:
 			// Sync K8S clients first (updates multiClusterK8S)
-			if cm.loadK8SClient {
+			// For control plane, always load multi-cluster clients regardless of config
+			if cm.componentType.IsControlPlane() || cm.loadK8SClient {
 				if err := loadMultiClusterK8SClientSet(ctx); err != nil {
 					log.Warnf("Failed to reload multi-cluster K8S clients: %v", err)
 				}
 			}
 
 			// Then sync Storage clients (updates multiClusterStorage)
-			if cm.loadStorageClient {
+			// For control plane, always load multi-cluster clients regardless of config
+			if cm.componentType.IsControlPlane() || cm.loadStorageClient {
 				if err := loadMultiClusterStorageClients(ctx); err != nil {
 					log.Warnf("Failed to reload multi-cluster storage clients: %v", err)
 				}
