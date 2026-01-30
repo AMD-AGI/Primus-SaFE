@@ -178,8 +178,9 @@ jobs:
           echo "storage_exporter_changed=false" >> $GITHUB_OUTPUT
         fi
         
-        # installer: Lens/modules/installer/** or Lens/modules/core/**
-        if echo "$CHANGED_FILES" | grep -qE '^Lens/modules/installer/|^Lens/modules/core/'; then
+        # installer: Lens/modules/installer/** or Lens/modules/core/** or Lens/charts/**
+        # Charts are bundled into installer image, so chart changes should trigger rebuild
+        if echo "$CHANGED_FILES" | grep -qE '^Lens/modules/installer/|^Lens/modules/core/|^Lens/charts/'; then
           echo "installer_changed=true" >> $GITHUB_OUTPUT
         else
           echo "installer_changed=false" >> $GITHUB_OUTPUT
