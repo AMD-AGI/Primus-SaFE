@@ -111,10 +111,8 @@ func main() {
 			log.Errorf("Failed to mark task as failed: %v", err)
 		}
 
-		// Update cluster status
-		if err := clusterFacade.UpdateDataplaneStatus(ctx, task.ClusterName, model.DataplaneStatusFailed, installErr.Error()); err != nil {
-			log.Errorf("Failed to update cluster status: %v", err)
-		}
+		// Update cluster status based on install scope
+		updateClusterStatusOnFailure(ctx, clusterFacade, task, installErr.Error())
 
 		os.Exit(1)
 	}
@@ -125,10 +123,8 @@ func main() {
 		log.Errorf("Failed to mark task as completed: %v", err)
 	}
 
-	// Update cluster status
-	if err := clusterFacade.UpdateDataplaneStatus(ctx, task.ClusterName, model.DataplaneStatusDeployed, "Installation completed successfully"); err != nil {
-		log.Errorf("Failed to update cluster status: %v", err)
-	}
+	// Update cluster status based on install scope
+	updateClusterStatusOnSuccess(ctx, clusterFacade, task)
 
 	log.Info("=== Dataplane Installer Completed ===")
 }
@@ -155,4 +151,87 @@ func connectDB(dsn string) (*gorm.DB, error) {
 	sqlDB.SetConnMaxLifetime(5 * time.Minute)
 
 	return db, nil
+}
+
+// updateClusterStatusOnSuccess updates cluster status when installation succeeds
+func updateClusterStatusOnSuccess(ctx context.Context, clusterFacade cpdb.ClusterConfigFacadeInterface, task *model.DataplaneInstallTask) {
+	switch task.InstallScope {
+	case model.InstallScopeInfrastructure:
+		// Infrastructure only - update infrastructure status
+		if err := clusterFacade.UpdateInfrastructureStatus(ctx, task.ClusterName, model.InfrastructureStatusReady, ""); err != nil {
+			log.Errorf("Failed to update infrastructure status for cluster %s: %v", task.ClusterName, err)
+		} else {
+			log.Infof("Updated infrastructure status to 'ready' for cluster %s", task.ClusterName)
+		}
+	case model.InstallScopeApps:
+		// Apps only - update dataplane status
+		if err := clusterFacade.UpdateDataplaneStatus(ctx, task.ClusterName, model.DataplaneStatusDeployed, ""); err != nil {
+			log.Errorf("Failed to update dataplane status for cluster %s: %v", task.ClusterName, err)
+		} else {
+			log.Infof("Updated dataplane status to 'deployed' for cluster %s", task.ClusterName)
+		}
+	case model.InstallScopeFull, "":
+		// Full installation - update both statuses
+		if err := clusterFacade.UpdateInfrastructureStatus(ctx, task.ClusterName, model.InfrastructureStatusReady, ""); err != nil {
+			log.Errorf("Failed to update infrastructure status for cluster %s: %v", task.ClusterName, err)
+		}
+		if err := clusterFacade.UpdateDataplaneStatus(ctx, task.ClusterName, model.DataplaneStatusDeployed, ""); err != nil {
+			log.Errorf("Failed to update dataplane status for cluster %s: %v", task.ClusterName, err)
+		}
+		log.Infof("Updated infrastructure and dataplane status for cluster %s", task.ClusterName)
+	}
+}
+
+// updateClusterStatusOnFailure updates cluster status when installation fails
+func updateClusterStatusOnFailure(ctx context.Context, clusterFacade cpdb.ClusterConfigFacadeInterface, task *model.DataplaneInstallTask, failureReason string) {
+	switch task.InstallScope {
+	case model.InstallScopeInfrastructure:
+		// Infrastructure only - update infrastructure status
+		if err := clusterFacade.UpdateInfrastructureStatus(ctx, task.ClusterName, model.InfrastructureStatusFailed, failureReason); err != nil {
+			log.Errorf("Failed to update infrastructure status for cluster %s: %v", task.ClusterName, err)
+		} else {
+			log.Infof("Updated infrastructure status to 'failed' for cluster %s", task.ClusterName)
+		}
+	case model.InstallScopeApps:
+		// Apps only - update dataplane status
+		if err := clusterFacade.UpdateDataplaneStatus(ctx, task.ClusterName, model.DataplaneStatusFailed, failureReason); err != nil {
+			log.Errorf("Failed to update dataplane status for cluster %s: %v", task.ClusterName, err)
+		} else {
+			log.Infof("Updated dataplane status to 'failed' for cluster %s", task.ClusterName)
+		}
+	case model.InstallScopeFull, "":
+		// Full installation - determine which status to update based on current stage
+		if isInfrastructureStage(task.CurrentStage) {
+			if err := clusterFacade.UpdateInfrastructureStatus(ctx, task.ClusterName, model.InfrastructureStatusFailed, failureReason); err != nil {
+				log.Errorf("Failed to update infrastructure status for cluster %s: %v", task.ClusterName, err)
+			} else {
+				log.Infof("Updated infrastructure status to 'failed' for cluster %s (failed at stage %s)", task.ClusterName, task.CurrentStage)
+			}
+		} else {
+			// Infrastructure was ready, apps failed
+			if err := clusterFacade.UpdateInfrastructureStatus(ctx, task.ClusterName, model.InfrastructureStatusReady, ""); err != nil {
+				log.Warnf("Failed to update infrastructure status to ready for cluster %s: %v", task.ClusterName, err)
+			}
+			if err := clusterFacade.UpdateDataplaneStatus(ctx, task.ClusterName, model.DataplaneStatusFailed, failureReason); err != nil {
+				log.Errorf("Failed to update dataplane status for cluster %s: %v", task.ClusterName, err)
+			} else {
+				log.Infof("Updated dataplane status to 'failed' for cluster %s (failed at stage %s)", task.ClusterName, task.CurrentStage)
+			}
+		}
+	}
+}
+
+// isInfrastructureStage checks if the given stage is an infrastructure stage
+func isInfrastructureStage(stage string) bool {
+	infrastructureStages := map[string]bool{
+		"pending":             true,
+		"operators":           true,
+		"wait_operators":      true,
+		"infrastructure":      true,
+		"wait_infrastructure": true,
+		"init":                true,
+		"database_migration":  true,
+		"storage_secret":      true,
+	}
+	return infrastructureStages[stage]
 }
