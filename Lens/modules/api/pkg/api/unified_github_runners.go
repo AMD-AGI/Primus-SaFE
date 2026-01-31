@@ -5,7 +5,9 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"strconv"
+	"time"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
 	dbmodel "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
@@ -68,6 +70,52 @@ func init() {
 		MCPToolName: "lens_github_runner_set_stats",
 		Handler:     handleGithubRunnerSetStats,
 	})
+
+	// ========== Repository Endpoints ==========
+	unified.Register(&unified.EndpointDef[GithubRepositoriesListRequest, GithubRepositoriesListResponse]{
+		Name:        "github_repositories_list",
+		Description: "List all repositories with aggregated runner set statistics",
+		HTTPMethod:  "GET",
+		HTTPPath:    "/github-runners/repositories",
+		MCPToolName: "lens_github_repositories_list",
+		Handler:     handleGithubRepositoriesList,
+	})
+
+	unified.Register(&unified.EndpointDef[GithubRepositoryGetRequest, *database.RepositorySummary]{
+		Name:        "github_repository_get",
+		Description: "Get repository details with aggregated statistics",
+		HTTPMethod:  "GET",
+		HTTPPath:    "/github-runners/repositories/:owner/:repo",
+		MCPToolName: "lens_github_repository_get",
+		Handler:     handleGithubRepositoryGet,
+	})
+
+	unified.Register(&unified.EndpointDef[GithubRepositoryRunnerSetsRequest, GithubRepositoryRunnerSetsResponse]{
+		Name:        "github_repository_runner_sets",
+		Description: "List runner sets for a specific repository",
+		HTTPMethod:  "GET",
+		HTTPPath:    "/github-runners/repositories/:owner/:repo/runner-sets",
+		MCPToolName: "lens_github_repository_runner_sets",
+		Handler:     handleGithubRepositoryRunnerSets,
+	})
+
+	unified.Register(&unified.EndpointDef[GithubRepositoryMetricsMetadataRequest, GithubRepositoryMetricsMetadataResponse]{
+		Name:        "github_repository_metrics_metadata",
+		Description: "Get metrics metadata for all configs in a repository",
+		HTTPMethod:  "GET",
+		HTTPPath:    "/github-runners/repositories/:owner/:repo/metrics/metadata",
+		MCPToolName: "lens_github_repository_metrics_metadata",
+		Handler:     handleGithubRepositoryMetricsMetadata,
+	})
+
+	unified.Register(&unified.EndpointDef[GithubRepositoryMetricsTrendsRequest, *database.MetricsTrendsResult]{
+		Name:        "github_repository_metrics_trends",
+		Description: "Query metrics trends across all configs in a repository",
+		HTTPMethod:  "POST",
+		HTTPPath:    "/github-runners/repositories/:owner/:repo/metrics/trends",
+		MCPToolName: "lens_github_repository_metrics_trends",
+		Handler:     handleGithubRepositoryMetricsTrends,
+	})
 }
 
 // ======================== Request Types ========================
@@ -107,6 +155,44 @@ type GithubRunnerSetStatsRequest struct {
 	ID      string `json:"id" form:"id" param:"id" binding:"required" mcp:"description=Runner set ID,required"`
 }
 
+// Repository Request Types
+type GithubRepositoriesListRequest struct {
+	Cluster string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
+}
+
+type GithubRepositoryGetRequest struct {
+	Cluster string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
+	Owner   string `json:"owner" form:"owner" param:"owner" binding:"required" mcp:"description=GitHub owner,required"`
+	Repo    string `json:"repo" form:"repo" param:"repo" binding:"required" mcp:"description=GitHub repository name,required"`
+}
+
+type GithubRepositoryRunnerSetsRequest struct {
+	Cluster   string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
+	Owner     string `json:"owner" form:"owner" param:"owner" binding:"required" mcp:"description=GitHub owner,required"`
+	Repo      string `json:"repo" form:"repo" param:"repo" binding:"required" mcp:"description=GitHub repository name,required"`
+	WithStats string `json:"with_stats" form:"with_stats" mcp:"description=Include run statistics (true/false)"`
+}
+
+type GithubRepositoryMetricsMetadataRequest struct {
+	Cluster string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
+	Owner   string `json:"owner" form:"owner" param:"owner" binding:"required" mcp:"description=GitHub owner,required"`
+	Repo    string `json:"repo" form:"repo" param:"repo" binding:"required" mcp:"description=GitHub repository name,required"`
+}
+
+type GithubRepositoryMetricsTrendsRequest struct {
+	Cluster                string                 `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
+	Owner                  string                 `json:"owner" form:"owner" param:"owner" binding:"required" mcp:"description=GitHub owner,required"`
+	Repo                   string                 `json:"repo" form:"repo" param:"repo" binding:"required" mcp:"description=GitHub repository name,required"`
+	Start                  string                 `json:"start" mcp:"description=Start time (RFC3339)"`
+	End                    string                 `json:"end" mcp:"description=End time (RFC3339)"`
+	ConfigIDs              []int64                `json:"config_ids" mcp:"description=Filter by specific config IDs"`
+	Dimensions             map[string]interface{} `json:"dimensions" mcp:"description=Dimension filters"`
+	MetricFields           []string               `json:"metric_fields" mcp:"description=Metric fields to query,required"`
+	Interval               string                 `json:"interval" mcp:"description=Aggregation interval (1h, 6h, 1d, 1w)"`
+	GroupBy                []string               `json:"group_by" mcp:"description=Dimension fields to group by"`
+	AggregateAcrossConfigs bool                   `json:"aggregate_across_configs" mcp:"description=Merge all configs or separate series per config"`
+}
+
 // ======================== Response Types ========================
 
 type GithubRunnerSetsListResponse struct {
@@ -129,6 +215,38 @@ type GithubRunnerSetStatsResponse struct {
 	HasConfig  bool   `json:"has_config,omitempty"`
 	ConfigID   int64  `json:"config_id,omitempty"`
 	ConfigName string `json:"config_name,omitempty"`
+}
+
+// Repository Response Types
+type GithubRepositoriesListResponse struct {
+	Repositories []*database.RepositorySummary `json:"repositories"`
+}
+
+type GithubRepositoryRunnerSetsResponse struct {
+	RunnerSets interface{} `json:"runner_sets"`
+}
+
+// ConfigMetricsInfo contains metrics metadata for a single config
+type ConfigMetricsInfo struct {
+	ConfigID        int64    `json:"config_id"`
+	ConfigName      string   `json:"config_name"`
+	RunnerSetID     int64    `json:"runner_set_id"`
+	RunnerSetName   string   `json:"runner_set_name"`
+	SchemaID        int64    `json:"schema_id,omitempty"`
+	SchemaVersion   int32    `json:"schema_version,omitempty"`
+	DimensionFields []string `json:"dimension_fields"`
+	MetricFields    []string `json:"metric_fields"`
+	RecordCount     int64    `json:"record_count"`
+}
+
+type GithubRepositoryMetricsMetadataResponse struct {
+	Owner            string              `json:"owner"`
+	Repo             string              `json:"repo"`
+	Configs          []ConfigMetricsInfo `json:"configs"`
+	CommonDimensions []string            `json:"common_dimensions"`
+	CommonMetrics    []string            `json:"common_metrics"`
+	AllDimensions    []string            `json:"all_dimensions"`
+	AllMetrics       []string            `json:"all_metrics"`
 }
 
 // ======================== Handler Implementations ========================
@@ -341,6 +459,344 @@ func handleGithubRunnerSetStats(ctx context.Context, req *GithubRunnerSetStatsRe
 	}
 
 	return stats, nil
+}
+
+// ======================== Repository Handler Implementations ========================
+
+func handleGithubRepositoriesList(ctx context.Context, req *GithubRepositoriesListRequest) (*GithubRepositoriesListResponse, error) {
+	clusterName, err := getClusterNameForGithubWorkflowFromRequest(req.Cluster)
+	if err != nil {
+		return nil, err
+	}
+
+	facade := database.GetFacadeForCluster(clusterName).GetGithubRunnerSet()
+	repositories, err := facade.ListRepositories(ctx)
+	if err != nil {
+		return nil, errors.WrapError(err, "failed to list repositories", errors.CodeDatabaseError)
+	}
+
+	return &GithubRepositoriesListResponse{
+		Repositories: repositories,
+	}, nil
+}
+
+func handleGithubRepositoryGet(ctx context.Context, req *GithubRepositoryGetRequest) (**database.RepositorySummary, error) {
+	if req.Owner == "" || req.Repo == "" {
+		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("owner and repo are required")
+	}
+
+	clusterName, err := getClusterNameForGithubWorkflowFromRequest(req.Cluster)
+	if err != nil {
+		return nil, err
+	}
+
+	facade := database.GetFacadeForCluster(clusterName).GetGithubRunnerSet()
+	summary, err := facade.GetRepositorySummary(ctx, req.Owner, req.Repo)
+	if err != nil {
+		return nil, errors.WrapError(err, "failed to get repository summary", errors.CodeDatabaseError)
+	}
+	if summary == nil {
+		return nil, errors.NewError().WithCode(errors.RequestDataNotExisted).WithMessage("repository not found")
+	}
+
+	return &summary, nil
+}
+
+func handleGithubRepositoryRunnerSets(ctx context.Context, req *GithubRepositoryRunnerSetsRequest) (*GithubRepositoryRunnerSetsResponse, error) {
+	if req.Owner == "" || req.Repo == "" {
+		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("owner and repo are required")
+	}
+
+	clusterName, err := getClusterNameForGithubWorkflowFromRequest(req.Cluster)
+	if err != nil {
+		return nil, err
+	}
+
+	facade := database.GetFacadeForCluster(clusterName).GetGithubRunnerSet()
+
+	var runnerSets interface{}
+	var listErr error
+
+	if req.WithStats == "true" {
+		runnerSets, listErr = facade.ListByRepositoryWithStats(ctx, req.Owner, req.Repo)
+	} else {
+		runnerSets, listErr = facade.ListByRepository(ctx, req.Owner, req.Repo)
+	}
+
+	if listErr != nil {
+		return nil, errors.WrapError(listErr, "failed to list runner sets", errors.CodeDatabaseError)
+	}
+
+	return &GithubRepositoryRunnerSetsResponse{
+		RunnerSets: runnerSets,
+	}, nil
+}
+
+func handleGithubRepositoryMetricsMetadata(ctx context.Context, req *GithubRepositoryMetricsMetadataRequest) (*GithubRepositoryMetricsMetadataResponse, error) {
+	if req.Owner == "" || req.Repo == "" {
+		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("owner and repo are required")
+	}
+
+	clusterName, err := getClusterNameForGithubWorkflowFromRequest(req.Cluster)
+	if err != nil {
+		return nil, err
+	}
+
+	// Get all runner sets for this repository
+	runnerSetFacade := database.GetFacadeForCluster(clusterName).GetGithubRunnerSet()
+	runnerSets, err := runnerSetFacade.ListByRepository(ctx, req.Owner, req.Repo)
+	if err != nil {
+		return nil, errors.WrapError(err, "failed to list runner sets", errors.CodeDatabaseError)
+	}
+
+	configFacade := database.GetFacadeForCluster(clusterName).GetGithubWorkflowConfig()
+	schemaFacade := database.GetFacadeForCluster(clusterName).GetGithubWorkflowSchema()
+	metricsFacade := database.GetFacadeForCluster(clusterName).GetGithubWorkflowMetrics()
+
+	response := &GithubRepositoryMetricsMetadataResponse{
+		Owner:   req.Owner,
+		Repo:    req.Repo,
+		Configs: make([]ConfigMetricsInfo, 0),
+	}
+
+	allDimensions := make(map[string]bool)
+	allMetrics := make(map[string]bool)
+	dimensionSets := make([]map[string]bool, 0)
+	metricSets := make([]map[string]bool, 0)
+
+	for _, rs := range runnerSets {
+		// Find config for this runner set
+		configs, err := configFacade.ListByRunnerSet(ctx, rs.Namespace, rs.Name)
+		if err != nil {
+			continue
+		}
+
+		for _, config := range configs {
+			if !config.Enabled {
+				continue
+			}
+
+			info := ConfigMetricsInfo{
+				ConfigID:      config.ID,
+				ConfigName:    config.Name,
+				RunnerSetID:   rs.ID,
+				RunnerSetName: rs.Name,
+			}
+
+			// Get active schema for this config
+			schema, err := schemaFacade.GetActiveByConfig(ctx, config.ID)
+			if err == nil && schema != nil {
+				info.SchemaID = schema.ID
+				info.SchemaVersion = schema.Version
+				info.RecordCount = schema.RecordCount
+
+				// Parse dimension and metric fields from schema
+				var dimFields, metricFields []string
+				if len(schema.DimensionFields) > 0 {
+					json.Unmarshal(schema.DimensionFields, &dimFields)
+				}
+				if len(schema.MetricFields) > 0 {
+					json.Unmarshal(schema.MetricFields, &metricFields)
+				}
+				info.DimensionFields = dimFields
+				info.MetricFields = metricFields
+
+				// Track for intersection/union calculation
+				dimSet := make(map[string]bool)
+				for _, d := range dimFields {
+					dimSet[d] = true
+					allDimensions[d] = true
+				}
+				dimensionSets = append(dimensionSets, dimSet)
+
+				metricSet := make(map[string]bool)
+				for _, m := range metricFields {
+					metricSet[m] = true
+					allMetrics[m] = true
+				}
+				metricSets = append(metricSets, metricSet)
+			} else {
+				// No schema, try to get fields from metrics directly
+				dimFields, _ := metricsFacade.GetAvailableDimensions(ctx, config.ID)
+				metricFields, _ := metricsFacade.GetAvailableMetricFields(ctx, config.ID)
+				info.DimensionFields = dimFields
+				info.MetricFields = metricFields
+
+				dimSet := make(map[string]bool)
+				for _, d := range dimFields {
+					dimSet[d] = true
+					allDimensions[d] = true
+				}
+				dimensionSets = append(dimensionSets, dimSet)
+
+				metricSet := make(map[string]bool)
+				for _, m := range metricFields {
+					metricSet[m] = true
+					allMetrics[m] = true
+				}
+				metricSets = append(metricSets, metricSet)
+			}
+
+			response.Configs = append(response.Configs, info)
+		}
+	}
+
+	// Calculate common (intersection) and all (union) fields
+	for d := range allDimensions {
+		response.AllDimensions = append(response.AllDimensions, d)
+		// Check if in all sets
+		inAll := true
+		for _, set := range dimensionSets {
+			if !set[d] {
+				inAll = false
+				break
+			}
+		}
+		if inAll && len(dimensionSets) > 0 {
+			response.CommonDimensions = append(response.CommonDimensions, d)
+		}
+	}
+
+	for m := range allMetrics {
+		response.AllMetrics = append(response.AllMetrics, m)
+		// Check if in all sets
+		inAll := true
+		for _, set := range metricSets {
+			if !set[m] {
+				inAll = false
+				break
+			}
+		}
+		if inAll && len(metricSets) > 0 {
+			response.CommonMetrics = append(response.CommonMetrics, m)
+		}
+	}
+
+	return response, nil
+}
+
+func handleGithubRepositoryMetricsTrends(ctx context.Context, req *GithubRepositoryMetricsTrendsRequest) (**database.MetricsTrendsResult, error) {
+	if req.Owner == "" || req.Repo == "" {
+		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("owner and repo are required")
+	}
+	if len(req.MetricFields) == 0 {
+		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("metric_fields is required")
+	}
+
+	clusterName, err := getClusterNameForGithubWorkflowFromRequest(req.Cluster)
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse time range
+	var start, end *time.Time
+	if req.Start != "" {
+		if t, parseErr := time.Parse(time.RFC3339, req.Start); parseErr == nil {
+			start = &t
+		}
+	}
+	if req.End != "" {
+		if t, parseErr := time.Parse(time.RFC3339, req.End); parseErr == nil {
+			end = &t
+		}
+	}
+
+	interval := req.Interval
+	if interval == "" {
+		interval = "1d"
+	}
+
+	// Get configs to query
+	var configIDs []int64
+	if len(req.ConfigIDs) > 0 {
+		configIDs = req.ConfigIDs
+	} else {
+		// Get all configs for this repository
+		runnerSetFacade := database.GetFacadeForCluster(clusterName).GetGithubRunnerSet()
+		runnerSets, err := runnerSetFacade.ListByRepository(ctx, req.Owner, req.Repo)
+		if err != nil {
+			return nil, errors.WrapError(err, "failed to list runner sets", errors.CodeDatabaseError)
+		}
+
+		configFacade := database.GetFacadeForCluster(clusterName).GetGithubWorkflowConfig()
+		for _, rs := range runnerSets {
+			configs, _ := configFacade.ListByRunnerSet(ctx, rs.Namespace, rs.Name)
+			for _, config := range configs {
+				if config.Enabled {
+					configIDs = append(configIDs, config.ID)
+				}
+			}
+		}
+	}
+
+	if len(configIDs) == 0 {
+		emptyResult := &database.MetricsTrendsResult{
+			Interval: interval,
+			Series:   make([]database.MetricSeriesData, 0),
+		}
+		return &emptyResult, nil
+	}
+
+	// Query metrics from all configs
+	metricsFacade := database.GetFacadeForCluster(clusterName).GetGithubWorkflowMetrics()
+	configFacade := database.GetFacadeForCluster(clusterName).GetGithubWorkflowConfig()
+
+	result := &database.MetricsTrendsResult{
+		Interval:   interval,
+		Series:     make([]database.MetricSeriesData, 0),
+		Timestamps: make([]time.Time, 0),
+	}
+
+	timestampSet := make(map[time.Time]bool)
+
+	for _, configID := range configIDs {
+		query := &database.MetricsTrendsQuery{
+			ConfigID:     configID,
+			Start:        start,
+			End:          end,
+			Dimensions:   req.Dimensions,
+			MetricFields: req.MetricFields,
+			Interval:     interval,
+			GroupBy:      req.GroupBy,
+		}
+
+		configResult, err := metricsFacade.GetMetricsTrends(ctx, query)
+		if err != nil {
+			continue
+		}
+
+		// Collect timestamps
+		for _, ts := range configResult.Timestamps {
+			timestampSet[ts] = true
+		}
+
+		// Add series with config info
+		if req.AggregateAcrossConfigs {
+			// Merge into existing series
+			for _, series := range configResult.Series {
+				result.Series = append(result.Series, series)
+			}
+		} else {
+			// Add config info to series name
+			config, _ := configFacade.GetByID(ctx, configID)
+			configName := ""
+			if config != nil {
+				configName = config.Name
+			}
+
+			for _, series := range configResult.Series {
+				series.Name = configName + " - " + series.Field
+				result.Series = append(result.Series, series)
+			}
+		}
+	}
+
+	// Convert timestamp set to sorted slice
+	for ts := range timestampSet {
+		result.Timestamps = append(result.Timestamps, ts)
+	}
+
+	return &result, nil
 }
 
 // Helper function to get cluster name
