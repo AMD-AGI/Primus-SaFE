@@ -10,10 +10,14 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
+	unstructuredutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/unstructured"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
@@ -57,6 +61,26 @@ func deleteDataplaneNamespace(ctx context.Context, name string, clientSet kubern
 		return client.IgnoreNotFound(err)
 	}
 	klog.Infof("delete namespace: %s", name)
+	return nil
+}
+
+// createDataPlanePv creates a Kubernetes pv in dataplane if it doesn't already exist.
+func createDataPlanePv(ctx context.Context, workspace *v1.Workspace, adminClient client.Client, dataplaneClient kubernetes.Interface) error {
+	template, err := getPvTemplate(ctx, adminClient, workspace)
+	if err != nil {
+		return err
+	}
+	if template == nil {
+		return nil
+	}
+	pv := &corev1.PersistentVolume{}
+	err = unstructuredutils.ConvertUnstructuredToObject(template, pv)
+	if err != nil {
+		return err
+	}
+	if err = createPV(ctx, pv, dataplaneClient); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -120,6 +144,47 @@ func generatePVC(volume *v1.WorkspaceVolume,
 	volumeMode := corev1.PersistentVolumeFilesystem
 	pvc.Spec.VolumeMode = &volumeMode
 	return pvc, nil
+}
+
+// createPV creates a PersistentVolume.
+func createPV(ctx context.Context, pvTemplate *corev1.PersistentVolume, clientSet kubernetes.Interface) error {
+	pv, err := clientSet.CoreV1().PersistentVolumes().Create(ctx, pvTemplate, metav1.CreateOptions{})
+	if err != nil {
+		return client.IgnoreAlreadyExists(err)
+	}
+	klog.Infof("create persistent volume %s", pv.Name)
+	return nil
+}
+
+// deletePV deletes a PersistentVolume and removes its finalizers if present.
+func deletePV(ctx context.Context, workspace *v1.Workspace, clientSet kubernetes.Interface) error {
+	selector := &metav1.LabelSelector{
+		MatchLabels: map[string]string{
+			v1.OwnerLabel: workspace.Name,
+		},
+	}
+	pvList, err := clientSet.CoreV1().PersistentVolumes().List(ctx, metav1.ListOptions{LabelSelector: selector.String()})
+	if err != nil {
+		return client.IgnoreNotFound(err)
+	}
+	if len(pvList.Items) == 0 {
+		return nil
+	}
+
+	pv := &pvList.Items[0]
+	if len(pv.Finalizers) > 0 {
+		pv.Finalizers = nil
+		_, err = clientSet.CoreV1().PersistentVolumes().Update(ctx, pv, metav1.UpdateOptions{})
+		if err != nil {
+			klog.ErrorS(err, "failed to remove finalizers of pv", "name", pv.Name)
+		}
+	}
+	err = clientSet.CoreV1().PersistentVolumes().Delete(ctx, pv.Name, metav1.DeleteOptions{})
+	if err != nil {
+		return err
+	}
+	klog.Infof("delete persistent volume: %s", pv.Name)
+	return nil
 }
 
 // createPVC creates a PersistentVolumeClaim.
@@ -250,4 +315,34 @@ func deleteWorkspaceSecrets(ctx context.Context, workspace *v1.Workspace, client
 		}
 	}
 	return nil
+}
+
+func getPvTemplate(ctx context.Context, cli client.Client, workspace *v1.Workspace) (*unstructured.Unstructured, error) {
+	cm := &corev1.ConfigMap{}
+	if err := cli.Get(ctx, client.ObjectKey{Name: common.PrimusPvmName}, cm); err != nil {
+		return nil, client.IgnoreNotFound(err)
+	}
+	if v1.GetAnnotation(cm, "primus-safe.workspace.auto-create-pv") != v1.TrueStr {
+		return nil, nil
+	}
+	if v1.GetDisplayName(cm) == "" {
+		return nil, fmt.Errorf("failed to find the display name. name: %s", cm.Name)
+	}
+	templateStr, ok := cm.Data["template"]
+	if !ok || templateStr == "" {
+		return nil, fmt.Errorf("failed to find the template. name: %s", cm.Name)
+	}
+	template, err := jsonutils.ParseYamlToJson(templateStr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse template: %v", err.Error())
+	}
+	if len(template.GetLabels()) == 0 {
+		template.SetLabels(make(map[string]string))
+	}
+	pvName := v1.GetDisplayName(cm) + "-" + workspace.Name
+	v1.SetLabel(template, common.PfsSelectorKey, pvName)
+	v1.SetLabel(template, v1.WorkspaceIdLabel, workspace.Name)
+	v1.SetLabel(template, v1.OwnerLabel, workspace.Name)
+	template.SetName(pvName)
+	return template, nil
 }

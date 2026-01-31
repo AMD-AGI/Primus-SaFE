@@ -362,7 +362,7 @@ func (h *Handler) updateWorkspaceImageSecrets(ctx context.Context,
 // Returns an error if the workspace doesn't exist or the ID is empty.
 func (h *Handler) getAdminWorkspace(ctx context.Context, workspaceId string) (*v1.Workspace, error) {
 	if workspaceId == "" {
-		return nil, commonerrors.NewBadRequest("the workspaceId is empty")
+		return nil, commonerrors.NewBadRequest("the workspaceID is empty")
 	}
 	workspace := &v1.Workspace{}
 	err := h.Get(ctx, client.ObjectKey{Name: workspaceId}, workspace)
