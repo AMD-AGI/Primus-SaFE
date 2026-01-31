@@ -1,34 +1,54 @@
-# Build stage
-FROM golang:1.24-alpine AS builder
+ARG REGISTRY=docker.io
+ARG GO_VERSION=1.24.7
+ARG BUILDPATH=cmd/skills-repository
+ARG APPNAME=skills-repository
+ARG BASEPATH=Lens/modules/skills-repository/
+ARG GOPROXY=https://proxy.golang.org,direct
 
+FROM ${REGISTRY}/primussafe/golang:${GO_VERSION} AS builder
 WORKDIR /app
 
-# Copy module files
-COPY modules/core/go.mod modules/core/go.sum ./modules/core/
-COPY modules/skills-repository/go.mod modules/skills-repository/go.sum* ./modules/skills-repository/
+ARG GITHUB_TOKEN
+ARG BASEPATH
+ARG BUILDPATH
+ARG APPNAME
+ARG GOPROXY
+ENV BUILDPATH=${BUILDPATH}
+ENV APPNAME=${APPNAME}
+ENV BASEPATH=${BASEPATH}
+ENV GOPROXY=${GOPROXY}
 
-# Download dependencies
-WORKDIR /app/modules/skills-repository
-RUN go mod download
+ENV GOPRIVATE="github.com/AMD-AGI/*"
+SHELL ["/bin/bash", "-c"]
 
-# Copy source code
-WORKDIR /app
-COPY modules/core ./modules/core
-COPY modules/skills-repository ./modules/skills-repository
+RUN echo "✅ GOPRIVATE=$GOPRIVATE" && \
+    echo "✅ BUILDPATH=$BUILDPATH" && \
+    echo "✅ BASEPATH=$BASEPATH" && \
+    echo "✅ APPNAME=$APPNAME" && \
+    echo "✅ GOPROXY=$GOPROXY"
 
-# Build
-WORKDIR /app/modules/skills-repository
-RUN CGO_ENABLED=0 GOOS=linux go build -o /skills-repository ./cmd/skills-repository
+COPY . .
 
-# Runtime stage
-FROM alpine:3.19
+# Ensure dependencies are up to date
+RUN cd Lens/modules/core && go mod tidy
+RUN cd $BASEPATH && go mod tidy && CGO_ENABLED=0 go build -tags nosqlite -a -installsuffix cgo -o $APPNAME $BUILDPATH/main.go
 
-RUN apk --no-cache add ca-certificates tzdata
+ARG REGISTRY
+FROM --platform=linux/amd64 ${REGISTRY}/primussafe/ubuntu-rdma-base:0.0.1
 
-WORKDIR /app
+ARG APPNAME=skills-repository
+ARG BASEPATH=Lens/modules/skills-repository/
+ENV BASEPATH=${BASEPATH}
+ENV APPNAME=${APPNAME}
 
-COPY --from=builder /skills-repository /app/skills-repository
+WORKDIR /root/
+
+RUN echo "APPNAME: $APPNAME"
+
+COPY --from=builder /app/$BASEPATH/$APPNAME .
+COPY --from=builder /app/Lens/ci/run.sh .
+RUN chmod +x run.sh
 
 EXPOSE 8080
 
-ENTRYPOINT ["/app/skills-repository"]
+CMD ["./run.sh"]
