@@ -120,8 +120,10 @@ func TestReconcile(t *testing.T) {
 	adminNode2.Status.Unschedulable = true
 	metav1.SetMetaDataLabel(&adminNode2.ObjectMeta, v1.WorkspaceIdLabel, workspace.Name)
 
+	testScheme := scheme.Scheme
+	_ = corev1.AddToScheme(testScheme)
 	adminClient := fake.NewClientBuilder().WithObjects(adminNode1, adminNode2, workspace, cluster).
-		WithStatusSubresource(workspace).WithScheme(scheme.Scheme).Build()
+		WithStatusSubresource(workspace).WithScheme(testScheme).Build()
 	r := newMockWorkspaceReconciler(adminClient)
 	ns := &corev1.Namespace{
 		ObjectMeta: metav1.ObjectMeta{

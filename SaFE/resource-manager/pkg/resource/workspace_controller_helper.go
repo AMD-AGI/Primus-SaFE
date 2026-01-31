@@ -67,11 +67,8 @@ func deleteDataplaneNamespace(ctx context.Context, name string, clientSet kubern
 // createDataPlanePv creates a Kubernetes pv in dataplane if it doesn't already exist.
 func createDataPlanePv(ctx context.Context, workspace *v1.Workspace, adminClient client.Client, dataplaneClient kubernetes.Interface) error {
 	template, err := getPvTemplate(ctx, adminClient, workspace)
-	if err != nil {
+	if err != nil || template == nil {
 		return err
-	}
-	if template == nil {
-		return nil
 	}
 	pv := &corev1.PersistentVolume{}
 	err = unstructuredutils.ConvertUnstructuredToObject(template, pv)
