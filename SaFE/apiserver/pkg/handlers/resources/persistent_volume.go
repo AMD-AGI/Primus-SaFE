@@ -6,6 +6,7 @@
 package resources
 
 import (
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
 	corev1 "k8s.io/api/core/v1"
@@ -98,8 +99,7 @@ func buildListPersistentVolumeSelector(query *view.ListPersistentVolumeRequest) 
 
 // cvtToPersistentVolumeItem converts a PersistentVolume record to a response item format.
 func cvtToPersistentVolumeItem(item corev1.PersistentVolume) view.PersistentVolumeItem {
-	return view.PersistentVolumeItem{
-		Labels:                        item.Labels,
+	result := view.PersistentVolumeItem{
 		Capacity:                      item.Spec.Capacity,
 		AccessModes:                   item.Spec.AccessModes,
 		ClaimRef:                      item.Spec.ClaimRef,
@@ -109,4 +109,8 @@ func cvtToPersistentVolumeItem(item corev1.PersistentVolume) view.PersistentVolu
 		Phase:                         item.Status.Phase,
 		Message:                       item.Status.Message,
 	}
+	result.Labels = map[string]string{
+		common.PfsSelectorKey: item.Labels[common.PfsSelectorKey],
+	}
+	return result
 }
