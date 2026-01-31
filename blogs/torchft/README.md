@@ -1,6 +1,6 @@
 # Resilient Large-Scale Training: Integrating TorchFT with TorchTitan on AMD GPUs
 
-Training large AI models on AMD GPUs demands unwavering stability and robust fault-tolerance capabilities at cluster scale. Yet today's ROCm-based multi-node GPU deployments often rely on brittle checkpoint-and-restart mechanisms to recover from failures. This approach wastes precious compute cycles and slows down training as model sizes and cluster scales grow. To address these challenges, we integrated PyTorch's native fault-tolerance framework—TorchFT—with the TorchTitan training framework on AMD's Primus-SaFE Kubernetes platform, achieving resilient, checkpoint-less training at hundred-GPU scale.
+Training large AI models on AMD GPUs demands unwavering stability and robust fault-tolerance capabilities at cluster scale. Yet today's ROCm-based multi-node GPU deployments often rely on brittle checkpoint-and-restart mechanisms to recover from failures. This approach wastes precious compute cycles and slows down training as model sizes and cluster scales grow. To address these challenges, we integrated PyTorch's native fault-tolerance framework—TorchFT—with the TorchTitan training framework on AMD's [Primus-SaFE](https://github.com/AMD-AGI/Primus-SaFE) Kubernetes platform, achieving resilient, checkpoint-less training at hundred-GPU scale.
 
 In this blog, we'll explore the architecture of this integration, walk through the key components and their interactions, and demonstrate how the system dynamically recovers from node failures without halting the entire training job. By the end, you'll understand how TorchFT enables elastic, fault-tolerant distributed training on AMD GPUs and why this represents a significant step toward stable, large-scale AI infrastructure.
 
@@ -96,7 +96,7 @@ The key configuration parameters include `--min_replicas`, which sets the minimu
 
 ## Dynamic Fault Recovery Workflow
 
-The true power of this architecture becomes apparent when failures occur. Let us walk through a concrete scenario with two replica groups replicagroup-0 and replicagroup-1—to understand the recovery workflow.
+The true power of this architecture becomes apparent when failures occur. Let us walk through a concrete scenario with two replica groups replicagroup-0 and replicagroup-1 to understand the recovery workflow.
 
 ### Normal Training
 
@@ -164,9 +164,26 @@ bash examples/run_pretrain.sh \
 
 The key parameters are `--fault_tolerance.enable`, which activates the TorchFT integration, `--fault_tolerance.replica_id`, which assigns a unique identifier to each replica group, and `--fault_tolerance.group_size`, which specifies the total number of replica groups in the training job. The platform handles the orchestration of multiple replicagroups, ensuring each receives the correct replica ID and can discover the Lighthouse service.
 
+
+## Test Environment
+
+All tests and performance metrics described in this blog were conducted on the Primus-SaFE Kubernetes platform, utilizing a cluster of AMD Instinct™ MI325X GPUs.
+
+**AMD system configuration:**
+- Dual AMD EPYC 9575F 64-core processor
+- 8× AMD Instinct MI325X GPUs
+- 2 NUMA nodes per socket
+- Host OS: Ubuntu 22.04.5 LTS with Linux kernel 6.8.0-60-generic
+- Host GPU driver: ROCm 6.4 + amdgpu 6.12.12
+- VBIOS version: 113-M3250101-100
+- AMD ROCm 7.1.0 software
+- PyTorch 2.10.0.dev20251112
+- TorchTitan 0.2.1
+- TorchFT nightly/2025.12.16
+
 ## Performance Characteristics
 
-Our testing with the Llama 3 8B model (8,030,261,248 parameters) on AMD GPUs demonstrated the viability of this approach at scale. The following metrics were observed during stable training.
+Our testing with the Llama 3 8B model (8,030,261,248 parameters) on AMD MI325X GPUs demonstrated the viability of this approach at scale. The following metrics were observed during stable training.
 
 | Metric | Value |
 |--------|-------|
@@ -186,7 +203,7 @@ This integration represents several significant achievements for large-scale tra
 
 **First large-scale validation on AMD hardware**: We successfully deployed TorchTitan with TorchFT on AMD GPUs in a Kubernetes environment at hundred-GPU scale, demonstrating that the ROCm software stack fully supports advanced fault-tolerance mechanisms.
 
-**Production-ready deployment on Primus-SaFE**: The integration with AMD's Primus-SaFE platform enables automated workload management. Users specify only the essential parameters—number of replica groups and maximum group count—while the platform handles resource allocation, scaling, and recovery orchestration.
+**Production-ready deployment on Primus-SaFE**: The integration with AMD's Primus-SaFE platform enables automated and elastic workload management. Users specify the desired number of replica groups, and the platform ensures this number is maintained. When a failure occurs, Primus-SaFE can dynamically preempt lower-priority tasks to acquire the necessary GPU resources, automatically replacing the failed group to restore the job to its full scale. This elastic scaling capability, combined with automated recovery orchestration, provides a truly resilient training environment.
 
 **Exploration of checkpoint-less training**: By enabling healthy nodes to continue training during failures and recovering nodes to synchronize from peers, we have taken a significant step toward truly checkpoint-less training. This approach minimizes wasted computation and maximizes GPU utilization, which becomes increasingly important as cluster sizes grow to thousands or tens of thousands of GPUs.
 
@@ -202,4 +219,15 @@ The key architectural insight is the separation of parallelism strategies (FSDP2
 
 For teams running large-scale training workloads on AMD GPUs, this integration offers a path toward more stable, efficient, and cost-effective model development. As models continue to grow and training runs extend to weeks or months, the ability to survive failures without losing progress becomes not just a convenience but a necessity.
 
+---
+## References
+- [TorchFT GitHub Repository](https://github.com/pytorch/torchft)
+- [TorchTitan Documentation](https://github.com/pytorch/torchtitan)
+- [Primus-SaFE Training Platform](https://github.com/AMD-AIG-AIMA/Primus-SaFE)
+- [Primus Training Framework](https://github.com/AMD-AIG-AIMA/Primus)
+- [ROCm Documentation](https://rocm.docs.amd.com/)
+- [PyTorch Distributed Training Guide](https://pytorch.org/tutorials/intermediate/ddp_tutorial.html)
 
+---
+
+*Disclaimer: The performance data and configurations mentioned in this blog are specific to our test environment and may vary under different conditions. Always benchmark with your specific workload and hardware configuration.*
