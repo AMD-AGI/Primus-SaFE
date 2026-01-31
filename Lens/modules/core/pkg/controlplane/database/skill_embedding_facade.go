@@ -82,14 +82,16 @@ func (f *SkillEmbeddingFacade) SemanticSearch(ctx context.Context, queryEmbeddin
 	var results []*SkillSearchResult
 
 	// Use pgvector cosine similarity: 1 - (embedding <=> query) gives similarity score
-	query := f.db.WithContext(ctx).
-		Model(&model.SkillEmbedding{}).
-		Select("skill_name, embedding_type, 1 - (embedding <=> ?) as similarity", pgvector.NewVector(queryEmbedding)).
-		Where("embedding_type IN ('combined', 'description')").
-		Order("embedding <=> ?", pgvector.NewVector(queryEmbedding)).
-		Limit(limit)
-
-	err := query.Scan(&results).Error
+	// Use raw SQL for proper pgvector operator handling
+	vectorStr := pgvector.NewVector(queryEmbedding).String()
+	
+	err := f.db.WithContext(ctx).
+		Raw(`SELECT skill_name, embedding_type, 1 - (embedding <=> ?) as similarity 
+			 FROM skill_embeddings 
+			 WHERE embedding_type IN ('combined', 'description') 
+			 ORDER BY embedding <=> ? 
+			 LIMIT ?`, vectorStr, vectorStr, limit).
+		Scan(&results).Error
 	if err != nil {
 		return nil, err
 	}
