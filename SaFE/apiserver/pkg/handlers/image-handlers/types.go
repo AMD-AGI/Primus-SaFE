@@ -48,7 +48,7 @@ type GetImageResponseItem struct {
 
 type GetImageResponse struct {
 	TotalCount int                    `json:"totalCount"`
-	Items      []GetImageResponseItem `json:"images,omitempty"`
+	Items      []GetImageResponseItem `json:"images"`
 }
 
 type ImportImageResponse struct {

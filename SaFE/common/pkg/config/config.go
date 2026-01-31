@@ -279,6 +279,11 @@ func GetDownloadJoImage() string {
 	return getString(opsJobDownloadImage, "docker.io/primussafe/s3-downloader:latest")
 }
 
+// GetEvalScopeImage returns the image name for evaluation jobs.
+func GetEvalScopeImage() string {
+	return getString(opsJobEvalImage, "docker.io/primussafe/evalscope:latest")
+}
+
 // GetPrewarmTimeoutSecond returns the timeout in seconds for prewarm jobs.
 func GetPrewarmTimeoutSecond() int {
 	return getInt(prewarmTimeoutSecond, 900)
@@ -418,10 +423,6 @@ func GetCICDRoleName() string {
 
 func GetCICDControllerName() string {
 	return getString(cicdControllerName, "")
-}
-
-func GetCICDControllerNamespace() string {
-	return getString(cicdControllerNamespace, "")
 }
 
 // GetModelDownloaderImage returns the image for model downloader job.

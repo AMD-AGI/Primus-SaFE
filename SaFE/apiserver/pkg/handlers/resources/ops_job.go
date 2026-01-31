@@ -7,6 +7,8 @@ package resources
 
 import (
 	"context"
+	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"strconv"
@@ -16,6 +18,8 @@ import (
 	sqrl "github.com/Masterminds/squirrel"
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
+	"github.com/google/uuid"
+	"github.com/lib/pq"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/klog/v2"
@@ -34,6 +38,7 @@ import (
 	commonnodes "github.com/AMD-AIG-AIMA/SAFE/common/pkg/nodes"
 	commonjob "github.com/AMD-AIG-AIMA/SAFE/common/pkg/ops_job"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
+	commonworkspace "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workspace"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
@@ -99,6 +104,8 @@ func (h *Handler) createOpsJob(c *gin.Context) (interface{}, error) {
 		job, err = h.generatePrewarmImageJob(c, body)
 	case v1.OpsJobDownloadType:
 		job, err = h.generateDownloadJob(c, body)
+	case v1.OpsJobEvaluationType:
+		job, err = h.generateEvaluationJob(c, body)
 
 	default:
 		err = fmt.Errorf("unsupported ops job type(%s)", req.Type)
@@ -109,6 +116,16 @@ func (h *Handler) createOpsJob(c *gin.Context) (interface{}, error) {
 
 	if err = h.Create(ctx, job); err != nil {
 		klog.ErrorS(err, "failed to create ops job")
+		// Rollback: delete evaluation_task record if OpsJob creation failed
+		if req.Type == v1.OpsJobEvaluationType {
+			if taskId := getParamValue(job.Spec.Inputs, v1.ParameterEvalTaskId); taskId != "" {
+				if delErr := h.dbClient.SetEvaluationTaskDeleted(ctx, taskId); delErr != nil {
+					klog.ErrorS(delErr, "failed to rollback evaluation task after OpsJob creation failed", "taskId", taskId)
+				} else {
+					klog.InfoS("rolled back evaluation task after OpsJob creation failed", "taskId", taskId)
+				}
+			}
+		}
 		return nil, err
 	}
 	klog.Infof("create ops job: %s, type: %s, params: %v, user: %s",
@@ -1034,4 +1051,451 @@ func hasParameters(inputs []v1.Parameter, names ...string) bool {
 		}
 	}
 	return false
+}
+
+// generateEvaluationJob creates an evaluation-type ops job.
+// It parses evaluation parameters from inputs, validates the service and benchmarks,
+// creates an EvaluationTask database record, and generates the OpsJob.
+func (h *Handler) generateEvaluationJob(c *gin.Context, body []byte) (*v1.OpsJob, error) {
+	requestUser, err := h.getAndSetUsername(c)
+	if err != nil {
+		return nil, err
+	}
+
+	req := &view.BaseOpsJobRequest{}
+	if err = jsonutils.Unmarshal(body, req); err != nil {
+		return nil, err
+	}
+
+	// Extract evaluation parameters from inputs
+	serviceId := getParamValue(req.Inputs, v1.ParameterEvalServiceId)
+	serviceType := getParamValue(req.Inputs, v1.ParameterEvalServiceType)
+	benchmarksJSON := getParamValue(req.Inputs, v1.ParameterEvalBenchmarks)
+	workspaceId := getParamValue(req.Inputs, v1.ParameterWorkspace)
+
+	// Extract judge model parameters (optional, for LLM-as-Judge evaluation)
+	judgeJSON := getParamValue(req.Inputs, "eval.judge") // {"serviceId":"xxx","serviceType":"remote_api"}
+
+	// Extract concurrency parameter (optional, default 32)
+	concurrencyStr := getParamValue(req.Inputs, v1.ParameterEvalConcurrency)
+	concurrency := 32 // Default value
+	if concurrencyStr != "" {
+		if c, err := strconv.Atoi(concurrencyStr); err == nil && c > 0 {
+			concurrency = c
+		}
+	}
+
+	// Validate required parameters
+	if serviceId == "" {
+		return nil, commonerrors.NewBadRequest(fmt.Sprintf("%s is required", v1.ParameterEvalServiceId))
+	}
+	if serviceType == "" {
+		return nil, commonerrors.NewBadRequest(fmt.Sprintf("%s is required", v1.ParameterEvalServiceType))
+	}
+	if benchmarksJSON == "" {
+		return nil, commonerrors.NewBadRequest(fmt.Sprintf("%s is required", v1.ParameterEvalBenchmarks))
+	}
+
+	ctx := c.Request.Context()
+
+	// Parse and enrich benchmarks with dataset info
+	var benchmarks []benchmarkConfig
+	if err := json.Unmarshal([]byte(benchmarksJSON), &benchmarks); err != nil {
+		return nil, commonerrors.NewBadRequest(fmt.Sprintf("invalid benchmarks JSON: %v", err))
+	}
+
+	// Enrich benchmarks with dataset info from database
+	for i, b := range benchmarks {
+		if b.DatasetId == "" {
+			return nil, commonerrors.NewBadRequest("datasetId is required in benchmarks")
+		}
+		dataset, err := h.dbClient.GetDataset(ctx, b.DatasetId)
+		if err != nil {
+			return nil, commonerrors.NewBadRequest(fmt.Sprintf("dataset not found: %s", b.DatasetId))
+		}
+		if dataset.DatasetType != "evaluation" {
+			return nil, commonerrors.NewBadRequest(fmt.Sprintf("dataset %s is not an evaluation type dataset", b.DatasetId))
+		}
+		benchmarks[i].DatasetName = dataset.DisplayName
+		// DatasetLocalDir will be set after we know the workspace
+	}
+
+	// Generate task ID
+	taskId := fmt.Sprintf("eval-task-%s", uuid.New().String()[:8])
+
+	// Get service info and construct endpoint
+	var serviceName, modelEndpoint, modelName, modelApiKey, clusterId string
+	if serviceType == "remote_api" {
+		// Get model from database for basic info
+		dbModel, err := h.dbClient.GetModelByID(ctx, serviceId)
+		if err != nil {
+			return nil, commonerrors.NewBadRequest(fmt.Sprintf("model not found: %s", serviceId))
+		}
+		serviceName = dbModel.DisplayName
+		modelEndpoint = dbModel.SourceURL
+
+		// Get K8s Model CR to access Source.ApiKey secret reference
+		k8sModel := &v1.Model{}
+		if err := h.Get(ctx, client.ObjectKey{Name: serviceId}, k8sModel); err != nil {
+			klog.ErrorS(err, "failed to get K8s Model CR", "modelId", serviceId)
+		} else if k8sModel.Spec.Source.ApiKey != nil && k8sModel.Spec.Source.ApiKey.Name != "" {
+			// Get API Key from the referenced Secret
+			secret, err := h.getAdminSecret(ctx, k8sModel.Spec.Source.ApiKey.Name)
+			if err != nil {
+				klog.ErrorS(err, "failed to get secret for model API key", "secretName", k8sModel.Spec.Source.ApiKey.Name, "modelId", serviceId)
+			} else {
+				// Try different possible key names in secret data
+				for _, key := range []string{"api-key", "apiKey", "token", "api_key"} {
+					if val, ok := secret.Data[key]; ok && len(val) > 0 {
+						modelApiKey = string(val)
+						break
+					}
+				}
+			}
+		}
+
+		// Use ModelName if available, otherwise fallback to DisplayName
+		if dbModel.ModelName != "" {
+			modelName = dbModel.ModelName
+		} else {
+			modelName = dbModel.DisplayName
+		}
+
+		// For remote_api, get workspace/cluster from dataset's localPaths
+		// The evaluation workload needs to run in a cluster that has the dataset
+		if len(benchmarks) > 0 && workspaceId == "" {
+			dataset, err := h.dbClient.GetDataset(ctx, benchmarks[0].DatasetId)
+			if err == nil && dataset != nil && dataset.LocalPaths != "" {
+				var localPaths []dbclient.DatasetLocalPathDB
+				if err := json.Unmarshal([]byte(dataset.LocalPaths), &localPaths); err == nil {
+					// Find first Ready workspace
+					for _, lp := range localPaths {
+						if lp.Status == dbclient.DatasetStatusReady && lp.Workspace != "" {
+							workspaceId = lp.Workspace
+							klog.InfoS("Got workspace from dataset localPaths for remote_api evaluation",
+								"datasetId", benchmarks[0].DatasetId, "workspace", workspaceId)
+							break
+						}
+					}
+				}
+			}
+		}
+		// Get clusterId from workspace
+		if workspaceId != "" && clusterId == "" {
+			ws := &v1.Workspace{}
+			if err := h.Get(ctx, client.ObjectKey{Name: workspaceId}, ws); err == nil {
+				clusterId = ws.Spec.Cluster
+				klog.InfoS("Got clusterId from workspace for remote_api evaluation",
+					"workspace", workspaceId, "cluster", clusterId)
+			}
+		}
+	} else {
+		// local_workload
+		workload, err := h.dbClient.GetWorkload(ctx, serviceId)
+		if err != nil {
+			return nil, commonerrors.NewBadRequest(fmt.Sprintf("workload not found: %s", serviceId))
+		}
+		serviceName = workload.DisplayName
+		clusterId = workload.Cluster
+
+		modelEndpoint = fmt.Sprintf("http://%s:8000/v1", workload.WorkloadId)
+
+		// Parse real model name: priority is --served-model-name from entryPoint > env > displayName
+		modelName = extractServedModelName(workload.EntryPoint, workload.EntryPoints)
+		if modelName == "" {
+			modelName = extractModelNameFromEnv(workload.Env)
+		}
+		if modelName == "" {
+			modelName = workload.DisplayName // fallback to displayName
+		}
+
+		if workspaceId == "" {
+			workspaceId = workload.Workspace
+		}
+	}
+
+	// Set DatasetLocalDir for benchmarks based on workspace volume path
+	volumeMountPath := "/wekafs" // default
+	if workspaceId != "" {
+		ws := &v1.Workspace{}
+		if err := h.Get(ctx, client.ObjectKey{Name: workspaceId}, ws); err == nil {
+			if path := commonworkspace.GetNfsPathFromWorkspace(ws); path != "" {
+				volumeMountPath = path
+			}
+		}
+	}
+	for i := range benchmarks {
+		benchmarks[i].DatasetLocalDir = fmt.Sprintf("%s/datasets/%s", volumeMountPath, benchmarks[i].DatasetName)
+	}
+
+	// Re-serialize enriched benchmarks
+	enrichedBenchmarksJSON, err := json.Marshal(benchmarks)
+	if err != nil {
+		return nil, commonerrors.NewInternalError(fmt.Sprintf("failed to serialize benchmarks: %v", err))
+	}
+	benchmarksJSON = string(enrichedBenchmarksJSON)
+
+	// Parse judge config to get judge service info for task record
+	var judgeServiceId, judgeServiceType, judgeServiceName string
+	if judgeJSON != "" {
+		var judgeConfig struct {
+			ServiceId   string `json:"serviceId"`
+			ServiceType string `json:"serviceType"`
+		}
+		if err := json.Unmarshal([]byte(judgeJSON), &judgeConfig); err == nil && judgeConfig.ServiceId != "" {
+			judgeServiceId = judgeConfig.ServiceId
+			judgeServiceType = judgeConfig.ServiceType
+			// Get judge service display name
+			if judgeConfig.ServiceType == "remote_api" {
+				if judgeDbModel, err := h.dbClient.GetModelByID(ctx, judgeConfig.ServiceId); err == nil && judgeDbModel != nil {
+					judgeServiceName = judgeDbModel.DisplayName
+				}
+			} else if judgeConfig.ServiceType == "local_workload" {
+				if judgeWorkload, err := h.dbClient.GetWorkload(ctx, judgeConfig.ServiceId); err == nil && judgeWorkload != nil {
+					judgeServiceName = judgeWorkload.DisplayName
+				}
+			}
+		}
+	}
+
+	// Create EvaluationTask record in database
+	task := &dbclient.EvaluationTask{
+		TaskId:           taskId,
+		TaskName:         req.Name,
+		ServiceId:        serviceId,
+		ServiceType:      serviceType,
+		ServiceName:      serviceName,
+		Benchmarks:       benchmarksJSON,
+		EvalParams:       "{}", // EvalParams is deprecated, always set to empty JSON
+		Status:           dbclient.EvaluationTaskStatusPending,
+		JudgeServiceId:   sql.NullString{String: judgeServiceId, Valid: judgeServiceId != ""},
+		JudgeServiceType: sql.NullString{String: judgeServiceType, Valid: judgeServiceType != ""},
+		JudgeServiceName: sql.NullString{String: judgeServiceName, Valid: judgeServiceName != ""},
+		Timeout:          req.TimeoutSecond,
+		Concurrency:      concurrency,
+		Workspace:        workspaceId,
+		UserId:           requestUser.Name,
+		UserName:         v1.GetUserName(requestUser),
+		CreationTime:     pq.NullTime{Time: time.Now().UTC(), Valid: true},
+	}
+	if err := h.dbClient.UpsertEvaluationTask(ctx, task); err != nil {
+		return nil, commonerrors.NewInternalError(fmt.Sprintf("failed to create evaluation task: %v", err))
+	}
+
+	// Build complete inputs for OpsJob
+	inputs := []v1.Parameter{
+		{Name: v1.ParameterEvalTaskId, Value: taskId},
+		{Name: v1.ParameterEvalServiceId, Value: serviceId},
+		{Name: v1.ParameterEvalServiceType, Value: serviceType},
+		{Name: v1.ParameterEvalBenchmarks, Value: benchmarksJSON},
+		{Name: v1.ParameterModelEndpoint, Value: modelEndpoint},
+		{Name: v1.ParameterModelName, Value: modelName},
+	}
+	// Add model API key for remote_api type
+	if modelApiKey != "" {
+		inputs = append(inputs, v1.Parameter{Name: v1.ParameterModelApiKey, Value: modelApiKey})
+	}
+	if clusterId != "" {
+		inputs = append(inputs, v1.Parameter{Name: v1.ParameterCluster, Value: clusterId})
+	}
+	if workspaceId != "" {
+		inputs = append(inputs, v1.Parameter{Name: v1.ParameterWorkspace, Value: workspaceId})
+	}
+	// Add judge model parameters if provided
+	if judgeJSON != "" {
+		var judgeConfig struct {
+			ServiceId   string `json:"serviceId"`   // Model ID or Workload ID
+			ServiceType string `json:"serviceType"` // "remote_api" or "local_workload"
+		}
+		if err := json.Unmarshal([]byte(judgeJSON), &judgeConfig); err == nil && judgeConfig.ServiceId != "" {
+			var judgeModelName, judgeEndpoint, judgeApiKey string
+
+			if judgeConfig.ServiceType == "remote_api" {
+				// Remote API model - get from Model table
+				judgeDbModel, err := h.dbClient.GetModelByID(ctx, judgeConfig.ServiceId)
+				if err != nil {
+					klog.ErrorS(err, "failed to get judge model from database", "serviceId", judgeConfig.ServiceId)
+				} else if judgeDbModel != nil {
+					judgeModelName = judgeDbModel.ModelName
+					judgeEndpoint = judgeDbModel.SourceURL
+
+					// Get API Key from K8s Model CR's Secret reference
+					judgeK8sModel := &v1.Model{}
+					if err := h.Get(ctx, client.ObjectKey{Name: judgeDbModel.ID}, judgeK8sModel); err != nil {
+						klog.ErrorS(err, "failed to get K8s Model CR for judge model", "serviceId", judgeConfig.ServiceId)
+					} else if judgeK8sModel.Spec.Source.ApiKey != nil && judgeK8sModel.Spec.Source.ApiKey.Name != "" {
+						secret, err := h.getAdminSecret(ctx, judgeK8sModel.Spec.Source.ApiKey.Name)
+						if err != nil {
+							klog.ErrorS(err, "failed to get secret for judge model API key", "secretName", judgeK8sModel.Spec.Source.ApiKey.Name)
+						} else {
+							for _, key := range []string{"api-key", "apiKey", "token", "api_key"} {
+								if val, ok := secret.Data[key]; ok && len(val) > 0 {
+									judgeApiKey = string(val)
+									klog.InfoS("got judge model API key from secret", "serviceId", judgeConfig.ServiceId)
+									break
+								}
+							}
+						}
+					}
+				}
+			} else if judgeConfig.ServiceType == "local_workload" {
+				// Local workload - get endpoint from Workload
+				judgeWorkload, err := h.dbClient.GetWorkload(ctx, judgeConfig.ServiceId)
+				if err != nil {
+					klog.ErrorS(err, "failed to get judge workload from database", "serviceId", judgeConfig.ServiceId)
+				} else if judgeWorkload != nil {
+					// Get K8s Workload to extract endpoint and model name
+					k8sWorkload := &v1.Workload{}
+					if err := h.Get(ctx, client.ObjectKey{
+						Name:      judgeWorkload.WorkloadId,
+						Namespace: judgeWorkload.Workspace,
+					}, k8sWorkload); err != nil {
+						klog.ErrorS(err, "failed to get K8s Workload for judge", "workloadId", judgeWorkload.WorkloadId)
+					} else {
+						judgeEndpoint = fmt.Sprintf("http://%s.%s.svc.cluster.local:8000/v1", judgeWorkload.WorkloadId, judgeWorkload.Workspace)
+
+						// Extract served model name from workload
+						judgeModelName = extractServedModelName(k8sWorkload.Spec.EntryPoint, judgeWorkload.EntryPoints)
+						if judgeModelName == "" {
+							judgeModelName = judgeWorkload.DisplayName
+						}
+					}
+				}
+			}
+
+			// Add judge parameters to inputs
+			if judgeModelName != "" {
+				inputs = append(inputs, v1.Parameter{Name: v1.ParameterJudgeModel, Value: judgeModelName})
+			}
+			if judgeEndpoint != "" {
+				inputs = append(inputs, v1.Parameter{Name: v1.ParameterJudgeEndpoint, Value: judgeEndpoint})
+			}
+			if judgeApiKey != "" {
+				inputs = append(inputs, v1.Parameter{Name: v1.ParameterJudgeApiKey, Value: judgeApiKey})
+			}
+		}
+	}
+
+	// Add concurrency parameter
+	inputs = append(inputs, v1.Parameter{Name: v1.ParameterEvalConcurrency, Value: strconv.Itoa(concurrency)})
+
+	// Set default timeout
+	if req.TimeoutSecond <= 0 {
+		req.TimeoutSecond = 7200 // 2 hours default for evaluation
+	}
+
+	// Create the OpsJob
+	req.Inputs = inputs
+	job := genDefaultOpsJob(req, requestUser)
+
+	// Set labels
+	if clusterId != "" {
+		v1.SetLabel(job, v1.ClusterIdLabel, clusterId)
+	}
+	if workspaceId != "" {
+		v1.SetLabel(job, v1.WorkspaceIdLabel, workspaceId)
+	}
+
+	// Update task with OpsJob name
+	if err := h.dbClient.UpdateEvaluationTaskOpsJobId(ctx, taskId, job.Name); err != nil {
+		klog.ErrorS(err, "failed to update task with ops_job_id", "taskId", taskId, "opsJobId", job.Name)
+	}
+
+	return job, nil
+}
+
+// getParamValue retrieves the value of a parameter by name from the inputs slice
+func getParamValue(inputs []v1.Parameter, name string) string {
+	for _, p := range inputs {
+		if p.Name == name {
+			return p.Value
+		}
+	}
+	return ""
+}
+
+// extractServedModelName parses the --served-model-name parameter from entryPoint or entryPoints.
+// This is the actual model name registered in vLLM/inference service.
+func extractServedModelName(entryPoint string, entryPoints sql.NullString) string {
+	// Try single entryPoint first
+	if entryPoint != "" {
+		decoded, err := base64.StdEncoding.DecodeString(entryPoint)
+		if err == nil {
+			if name := parseServedModelNameFromCmd(string(decoded)); name != "" {
+				return name
+			}
+		}
+	}
+
+	// Try entryPoints array
+	if entryPoints.Valid && entryPoints.String != "" {
+		var points []string
+		if err := json.Unmarshal([]byte(entryPoints.String), &points); err == nil {
+			for _, ep := range points {
+				decoded, err := base64.StdEncoding.DecodeString(ep)
+				if err == nil {
+					if name := parseServedModelNameFromCmd(string(decoded)); name != "" {
+						return name
+					}
+				}
+			}
+		}
+	}
+	return ""
+}
+
+// parseServedModelNameFromCmd extracts --served-model-name value from a command string.
+func parseServedModelNameFromCmd(cmd string) string {
+	// Look for --served-model-name parameter
+	const flag = "--served-model-name"
+	idx := strings.Index(cmd, flag)
+	if idx == -1 {
+		return ""
+	}
+
+	// Extract the value after the flag
+	rest := cmd[idx+len(flag):]
+	rest = strings.TrimLeft(rest, " =")
+
+	// Get the value (until space or end of string)
+	parts := strings.Fields(rest)
+	if len(parts) > 0 {
+		return parts[0]
+	}
+	return ""
+}
+
+// extractModelNameFromEnv parses the real model name from workload env JSON.
+// It looks for PRIMUS_SOURCE_MODEL or MODEL_NAME environment variables.
+// The env is expected to be a JSON object like {"PRIMUS_SOURCE_MODEL": "Qwen/Qwen2.5-0.5B-Instruct", ...}
+func extractModelNameFromEnv(env sql.NullString) string {
+	if !env.Valid || env.String == "" {
+		return ""
+	}
+
+	var envMap map[string]string
+	if err := json.Unmarshal([]byte(env.String), &envMap); err != nil {
+		return ""
+	}
+
+	// Priority: PRIMUS_SOURCE_MODEL > MODEL_NAME > SERVED_MODEL_NAME
+	if modelName, ok := envMap["PRIMUS_SOURCE_MODEL"]; ok && modelName != "" {
+		return modelName
+	}
+	if modelName, ok := envMap["MODEL_NAME"]; ok && modelName != "" {
+		return modelName
+	}
+	if modelName, ok := envMap["SERVED_MODEL_NAME"]; ok && modelName != "" {
+		return modelName
+	}
+	return ""
+}
+
+// benchmarkConfig represents a benchmark configuration for evaluation
+type benchmarkConfig struct {
+	DatasetId       string `json:"datasetId"`
+	DatasetName     string `json:"datasetName,omitempty"`
+	DatasetLocalDir string `json:"datasetLocalDir,omitempty"`
+	EvalType        string `json:"evalType,omitempty"`
+	Limit           *int   `json:"limit,omitempty"`
 }
