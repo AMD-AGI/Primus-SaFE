@@ -11,7 +11,7 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     app.kubernetes.io/managed-by: Helm
-    primus-safe.display.name: "wekafs-pv"
+    primus-safe.display.name: "wekafs"
   annotations:
     # When set to true, automatically creates PV based on the template below when creating a workspace
     primus-safe.workspace.auto-create-pv: "true"

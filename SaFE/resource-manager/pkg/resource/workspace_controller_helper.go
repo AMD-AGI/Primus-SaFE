@@ -70,11 +70,13 @@ func createDataPlanePv(ctx context.Context, workspace *v1.Workspace, adminClient
 	if err != nil || template == nil {
 		return err
 	}
+	klog.Infof("template: %s", unstructuredutils.ToString(template))
 	pv := &corev1.PersistentVolume{}
 	err = unstructuredutils.ConvertUnstructuredToObject(template, pv)
 	if err != nil {
 		return err
 	}
+	klog.Infof("pv: %s", string(jsonutils.MarshalSilently(pv)))
 	if err = createPV(ctx, pv, dataplaneClient); err != nil {
 		return err
 	}
@@ -336,7 +338,7 @@ func getPvTemplate(ctx context.Context, cli client.Client, workspace *v1.Workspa
 	if len(template.GetLabels()) == 0 {
 		template.SetLabels(make(map[string]string))
 	}
-	pvName := v1.GetDisplayName(cm) + "-" + workspace.Name
+	pvName := v1.GetDisplayName(cm) + "-" + v1.GetDisplayName(workspace)
 	v1.SetLabel(template, common.PfsSelectorKey, pvName)
 	v1.SetLabel(template, v1.WorkspaceIdLabel, workspace.Name)
 	v1.SetLabel(template, v1.OwnerLabel, workspace.Name)

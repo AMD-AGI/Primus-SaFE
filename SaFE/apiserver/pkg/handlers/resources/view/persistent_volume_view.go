@@ -11,7 +11,7 @@ import (
 
 type ListPersistentVolumeRequest struct {
 	// Filter results by workspace ID
-	WorkspaceID string `form:"workspaceID" binding:"required,max=64"`
+	WorkspaceID string `form:"workspaceId" binding:"required,max=64"`
 }
 
 type ListPersistentVolumeResponse struct {
