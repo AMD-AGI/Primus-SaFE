@@ -6,7 +6,8 @@ package api
 import (
 	"context"
 
-	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
+	cpdb "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/controlplane/database"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/errors"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/mcp/unified"
 )
@@ -94,6 +95,17 @@ type WeeklyReportDetailResponse struct {
 	JSONContent map[string]interface{} `json:"json_content,omitempty"`
 }
 
+// ======================== Helper Functions ========================
+
+// getControlPlaneFacade returns the control plane facade for weekly reports
+func getControlPlaneFacade() *cpdb.ControlPlaneFacade {
+	cpClient := clientsets.GetControlPlaneClientSet()
+	if cpClient == nil {
+		return nil
+	}
+	return cpClient.Facade
+}
+
 // ======================== Handler Implementations ========================
 
 func handleWeeklyReportsList(ctx context.Context, req *WeeklyReportsListRequest) (*WeeklyReportsListResponse, error) {
@@ -110,8 +122,12 @@ func handleWeeklyReportsList(ctx context.Context, req *WeeklyReportsListRequest)
 		size = 100
 	}
 
-	facade := database.GetFacade().GetGpuUsageWeeklyReport()
-	reports, total, err := facade.List(context.Background(), req.Cluster, req.Status, page, size)
+	facade := getControlPlaneFacade()
+	if facade == nil {
+		return nil, errors.NewError().WithCode(errors.ServiceUnavailable).WithMessage("Control plane not available")
+	}
+
+	reports, total, err := facade.GetGpuUsageWeeklyReport().List(ctx, req.Cluster, req.Status, page, size)
 	if err != nil {
 		return nil, errors.WrapError(err, "Failed to query reports", errors.CodeDatabaseError)
 	}
@@ -145,8 +161,12 @@ func handleWeeklyReportLatest(ctx context.Context, req *WeeklyReportLatestReques
 		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("cluster parameter is required")
 	}
 
-	facade := database.GetFacade().GetGpuUsageWeeklyReport()
-	report, err := facade.GetLatestByCluster(context.Background(), req.Cluster)
+	facade := getControlPlaneFacade()
+	if facade == nil {
+		return nil, errors.NewError().WithCode(errors.ServiceUnavailable).WithMessage("Control plane not available")
+	}
+
+	report, err := facade.GetGpuUsageWeeklyReport().GetLatestByCluster(ctx, req.Cluster)
 	if err != nil {
 		return nil, errors.WrapError(err, "Failed to query latest report", errors.CodeDatabaseError)
 	}
@@ -171,8 +191,12 @@ func handleWeeklyReportLatest(ctx context.Context, req *WeeklyReportLatestReques
 }
 
 func handleWeeklyReportDetail(ctx context.Context, req *WeeklyReportDetailRequest) (*WeeklyReportDetailResponse, error) {
-	facade := database.GetFacade().GetGpuUsageWeeklyReport()
-	report, err := facade.GetByID(context.Background(), req.ID)
+	facade := getControlPlaneFacade()
+	if facade == nil {
+		return nil, errors.NewError().WithCode(errors.ServiceUnavailable).WithMessage("Control plane not available")
+	}
+
+	report, err := facade.GetGpuUsageWeeklyReport().GetByID(ctx, req.ID)
 	if err != nil {
 		return nil, errors.WrapError(err, "Failed to query report", errors.CodeDatabaseError)
 	}
@@ -197,8 +221,12 @@ func handleWeeklyReportDetail(ctx context.Context, req *WeeklyReportDetailReques
 }
 
 func handleWeeklyReportJSON(ctx context.Context, req *WeeklyReportJSONRequest) (*map[string]interface{}, error) {
-	facade := database.GetFacade().GetGpuUsageWeeklyReport()
-	report, err := facade.GetByID(context.Background(), req.ID)
+	facade := getControlPlaneFacade()
+	if facade == nil {
+		return nil, errors.NewError().WithCode(errors.ServiceUnavailable).WithMessage("Control plane not available")
+	}
+
+	report, err := facade.GetGpuUsageWeeklyReport().GetByID(ctx, req.ID)
 	if err != nil {
 		return nil, errors.WrapError(err, "Failed to query report", errors.CodeDatabaseError)
 	}
