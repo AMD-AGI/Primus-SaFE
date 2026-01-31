@@ -34,7 +34,9 @@ RUN echo "BUILDPATH: $BUILDPATH" && \
 
 COPY . .
 
-RUN cd $BASEPATH && CGO_ENABLED=0 go build -tags nosqlite -a -installsuffix cgo -o $APPNAME $BUILDPATH/main.go
+# Ensure dependencies are up to date (handles new packages added to core)
+RUN cd Lens/modules/core && go mod tidy
+RUN cd $BASEPATH && go mod tidy && CGO_ENABLED=0 go build -tags nosqlite -a -installsuffix cgo -o $APPNAME $BUILDPATH/main.go
 
 ARG REGISTRY
 FROM --platform=linux/amd64  ${REGISTRY}/primussafe/ubuntu-rdma-base:0.0.1
