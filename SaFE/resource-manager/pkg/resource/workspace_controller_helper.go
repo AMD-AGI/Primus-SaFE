@@ -316,7 +316,7 @@ func deleteWorkspaceSecrets(ctx context.Context, workspace *v1.Workspace, client
 
 func getPvTemplate(ctx context.Context, cli client.Client, workspace *v1.Workspace) (*unstructured.Unstructured, error) {
 	cm := &corev1.ConfigMap{}
-	if err := cli.Get(ctx, client.ObjectKey{Name: common.PrimusPvmName}, cm); err != nil {
+	if err := cli.Get(ctx, client.ObjectKey{Name: common.PrimusPvmName, Namespace: common.PrimusSafeNamespace}, cm); err != nil {
 		return nil, client.IgnoreNotFound(err)
 	}
 	if v1.GetAnnotation(cm, "primus-safe.workspace.auto-create-pv") != v1.TrueStr {
