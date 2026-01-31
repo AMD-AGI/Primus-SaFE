@@ -181,8 +181,8 @@ type GithubRepositoryMetricsMetadataRequest struct {
 
 type GithubRepositoryMetricsTrendsRequest struct {
 	Cluster                string                 `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
-	Owner                  string                 `json:"owner" form:"owner" param:"owner" binding:"required" mcp:"description=GitHub owner,required"`
-	Repo                   string                 `json:"repo" form:"repo" param:"repo" binding:"required" mcp:"description=GitHub repository name,required"`
+	Owner                  string                 `json:"owner" form:"owner" param:"owner" mcp:"description=GitHub owner,required"`
+	Repo                   string                 `json:"repo" form:"repo" param:"repo" mcp:"description=GitHub repository name,required"`
 	Start                  string                 `json:"start" mcp:"description=Start time (RFC3339)"`
 	End                    string                 `json:"end" mcp:"description=End time (RFC3339)"`
 	ConfigIDs              []int64                `json:"config_ids" mcp:"description=Filter by specific config IDs"`
