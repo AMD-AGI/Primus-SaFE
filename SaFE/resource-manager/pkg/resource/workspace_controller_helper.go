@@ -78,7 +78,6 @@ func createDataPlanePv(ctx context.Context, workspace *v1.Workspace, adminClient
 	v1.SetLabel(pv, common.PfsSelectorKey, pv.Name)
 	v1.SetLabel(pv, v1.WorkspaceIdLabel, workspace.Name)
 	v1.SetLabel(pv, v1.OwnerLabel, workspace.Name)
-	klog.Infof("pv: %s", string(jsonutils.MarshalSilently(pv)))
 	if err = createPV(ctx, pv, dataplaneClient); err != nil {
 		return err
 	}

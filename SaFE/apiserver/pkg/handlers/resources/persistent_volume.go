@@ -90,7 +90,7 @@ func parseListPersistentVolumeQuery(c *gin.Context) (*view.ListPersistentVolumeR
 func buildListPersistentVolumeSelector(query *view.ListPersistentVolumeRequest) (labels.Selector, error) {
 	var labelSelector = labels.NewSelector()
 	if query.WorkspaceID != "" {
-		req, _ := labels.NewRequirement(v1.WorkloadIdLabel, selection.Equals, []string{query.WorkspaceID})
+		req, _ := labels.NewRequirement(v1.WorkspaceIdLabel, selection.Equals, []string{query.WorkspaceID})
 		labelSelector = labelSelector.Add(*req)
 	}
 	return labelSelector, nil
