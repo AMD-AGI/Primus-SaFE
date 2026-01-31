@@ -117,6 +117,7 @@ func (r *SchedulerReconciler) relevantChangePredicate() predicate.Predicate {
 				r.cronManager.addOrReplace(newWorkload)
 			}
 			if !oldWorkload.IsEnd() && newWorkload.IsEnd() {
+				r.notifyDependentWorkspaces(newWorkload)
 				return true
 			}
 			if v1.GetCronjobTimestamp(oldWorkload) != v1.GetCronjobTimestamp(newWorkload) {
@@ -130,6 +131,20 @@ func (r *SchedulerReconciler) relevantChangePredicate() predicate.Predicate {
 			}
 			return false
 		},
+	}
+}
+
+// notifyDependentWorkspaces finds and notifies all workspaces that depend on the given workload
+func (r *SchedulerReconciler) notifyDependentWorkspaces(workload *v1.Workload) {
+	workspaceList := &v1.WorkspaceList{}
+	labelSelector := labels.SelectorFromSet(map[string]string{v1.SourceWorkloadIdLabel: workload.Name})
+	if r.List(context.Background(), workspaceList, &client.ListOptions{LabelSelector: labelSelector}) == nil {
+		for _, item := range workspaceList.Items {
+			r.Add(&SchedulerMessage{
+				ClusterId:   item.Spec.Cluster,
+				WorkspaceId: item.Name,
+			})
+		}
 	}
 }
 
@@ -342,6 +357,9 @@ func (r *SchedulerReconciler) canScheduleWorkload(ctx context.Context, requestWo
 			klog.Infof("the workload(%s) is not scheduled, reason: %s", requestWorkload.Name, reason)
 			return false, reason, nil
 		}
+		patch := client.MergeFrom(workspace.DeepCopy())
+		v1.RemoveLabel(workspace, v1.SourceWorkloadIdLabel)
+		r.Patch(ctx, workspace, patch)
 	}
 
 	for _, job := range requestWorkload.Spec.CronJobs {

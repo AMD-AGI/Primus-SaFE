@@ -18,6 +18,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
@@ -158,12 +159,8 @@ func createPV(ctx context.Context, pvTemplate *corev1.PersistentVolume, clientSe
 
 // deletePV deletes a PersistentVolume and removes its finalizers if present.
 func deletePV(ctx context.Context, workspace *v1.Workspace, clientSet kubernetes.Interface) error {
-	selector := &metav1.LabelSelector{
-		MatchLabels: map[string]string{
-			v1.OwnerLabel: workspace.Name,
-		},
-	}
-	pvList, err := clientSet.CoreV1().PersistentVolumes().List(ctx, metav1.ListOptions{LabelSelector: selector.String()})
+	labelSelector := labels.SelectorFromSet(map[string]string{v1.OwnerLabel: workspace.Name})
+	pvList, err := clientSet.CoreV1().PersistentVolumes().List(ctx, metav1.ListOptions{LabelSelector: labelSelector.String()})
 	if err != nil {
 		return client.IgnoreNotFound(err)
 	}
