@@ -537,6 +537,21 @@ func RegisterRouter(group *gin.RouterGroup) error {
 			// Create config for a runner set - POST not migrated
 			runnerSetsGroup.POST("/by-id/:id/config", CreateConfigForRunnerSet)
 		}
+
+		// Repositories - aggregated view by repository
+		repositoriesGroup := githubRunnersGroup.Group("/repositories")
+		{
+			// List all repositories with aggregated runner set statistics
+			repositoriesGroup.GET("", getUnifiedHandler("/github-runners/repositories"))
+			// Get repository details with aggregated statistics
+			repositoriesGroup.GET("/:owner/:repo", getUnifiedHandler("/github-runners/repositories/:owner/:repo"))
+			// List runner sets for a specific repository
+			repositoriesGroup.GET("/:owner/:repo/runner-sets", getUnifiedHandler("/github-runners/repositories/:owner/:repo/runner-sets"))
+			// Get metrics metadata for all configs in a repository
+			repositoriesGroup.GET("/:owner/:repo/metrics/metadata", getUnifiedHandler("/github-runners/repositories/:owner/:repo/metrics/metadata"))
+			// Query metrics trends across all configs in a repository
+			repositoriesGroup.POST("/:owner/:repo/metrics/trends", getUnifiedHandler("/github-runners/repositories/:owner/:repo/metrics/trends"))
+		}
 	}
 
 	// Note: V2 group endpoints (analytics, history, commit, details) are now merged 
