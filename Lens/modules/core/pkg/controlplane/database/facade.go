@@ -22,6 +22,13 @@ type ControlPlaneFacade struct {
 	GpuUsageWeeklyReport     GpuUsageWeeklyReportFacadeInterface
 	TraceLensSession         TraceLensSessionFacadeInterface
 	ControlPlaneConfig       ControlPlaneConfigFacadeInterface
+	// Skills Repository
+	Skill             SkillFacadeInterface
+	SkillVersion      SkillVersionFacadeInterface
+	SkillEmbedding    SkillEmbeddingFacadeInterface
+	SkillExecution    SkillExecutionFacadeInterface
+	SkillFeedback     SkillFeedbackFacadeInterface
+	SkillQualityStats SkillQualityStatsFacadeInterface
 }
 
 // NewControlPlaneFacade creates a new ControlPlaneFacade instance
@@ -36,6 +43,13 @@ func NewControlPlaneFacade(db *gorm.DB) *ControlPlaneFacade {
 		GpuUsageWeeklyReport:     NewGpuUsageWeeklyReportFacade(db),
 		TraceLensSession:         NewTraceLensSessionFacade(db),
 		ControlPlaneConfig:       NewControlPlaneConfigFacade(db),
+		// Skills Repository
+		Skill:             NewSkillFacade(db),
+		SkillVersion:      NewSkillVersionFacade(db),
+		SkillEmbedding:    NewSkillEmbeddingFacade(db),
+		SkillExecution:    NewSkillExecutionFacade(db),
+		SkillFeedback:     NewSkillFeedbackFacade(db),
+		SkillQualityStats: NewSkillQualityStatsFacade(db),
 	}
 }
 
@@ -82,6 +96,36 @@ func (f *ControlPlaneFacade) GetTraceLensSession() TraceLensSessionFacadeInterfa
 // GetControlPlaneConfig returns the ControlPlaneConfig Facade interface
 func (f *ControlPlaneFacade) GetControlPlaneConfig() ControlPlaneConfigFacadeInterface {
 	return f.ControlPlaneConfig
+}
+
+// GetSkill returns the Skill Facade interface
+func (f *ControlPlaneFacade) GetSkill() SkillFacadeInterface {
+	return f.Skill
+}
+
+// GetSkillVersion returns the SkillVersion Facade interface
+func (f *ControlPlaneFacade) GetSkillVersion() SkillVersionFacadeInterface {
+	return f.SkillVersion
+}
+
+// GetSkillEmbedding returns the SkillEmbedding Facade interface
+func (f *ControlPlaneFacade) GetSkillEmbedding() SkillEmbeddingFacadeInterface {
+	return f.SkillEmbedding
+}
+
+// GetSkillExecution returns the SkillExecution Facade interface
+func (f *ControlPlaneFacade) GetSkillExecution() SkillExecutionFacadeInterface {
+	return f.SkillExecution
+}
+
+// GetSkillFeedback returns the SkillFeedback Facade interface
+func (f *ControlPlaneFacade) GetSkillFeedback() SkillFeedbackFacadeInterface {
+	return f.SkillFeedback
+}
+
+// GetSkillQualityStats returns the SkillQualityStats Facade interface
+func (f *ControlPlaneFacade) GetSkillQualityStats() SkillQualityStatsFacadeInterface {
+	return f.SkillQualityStats
 }
 
 // Global control plane facade instance
