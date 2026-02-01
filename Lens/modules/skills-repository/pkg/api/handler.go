@@ -164,15 +164,15 @@ func (h *Handler) Health(c *gin.Context) {
 
 // CreateSkillRequest represents a request to create a skill
 type CreateSkillRequest struct {
-	Name        string            `json:"name" binding:"required"`
-	Description string            `json:"description" binding:"required"`
-	Category    string            `json:"category"`
-	Version     string            `json:"version"`
-	Source      string            `json:"source"`
-	License     string            `json:"license"`
-	Content     string            `json:"content"`
-	FilePath    string            `json:"file_path"`
-	Metadata    map[string]string `json:"metadata"`
+	Name        string                 `json:"name" binding:"required"`
+	Description string                 `json:"description" binding:"required"`
+	Category    string                 `json:"category"`
+	Version     string                 `json:"version"`
+	Source      string                 `json:"source"`
+	License     string                 `json:"license"`
+	Content     string                 `json:"content"`
+	FilePath    string                 `json:"file_path"`
+	Metadata    map[string]interface{} `json:"metadata"`
 }
 
 // CreateSkill creates a new skill
@@ -213,12 +213,12 @@ func (h *Handler) CreateSkill(c *gin.Context) {
 
 // UpdateSkillRequest represents a request to update a skill
 type UpdateSkillRequest struct {
-	Description string            `json:"description"`
-	Category    string            `json:"category"`
-	Version     string            `json:"version"`
-	License     string            `json:"license"`
-	Content     string            `json:"content"`
-	Metadata    map[string]string `json:"metadata"`
+	Description string                 `json:"description"`
+	Category    string                 `json:"category"`
+	Version     string                 `json:"version"`
+	License     string                 `json:"license"`
+	Content     string                 `json:"content"`
+	Metadata    map[string]interface{} `json:"metadata"`
 }
 
 // UpdateSkill updates an existing skill
