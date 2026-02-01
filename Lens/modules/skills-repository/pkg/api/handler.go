@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/controlplane/database/model"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/skills-repository/pkg/embedding"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/skills-repository/pkg/registry"
 	"github.com/gin-gonic/gin"
@@ -30,11 +31,18 @@ func NewHandler(reg *registry.SkillsRegistry, embedder embedding.Embedder) *Hand
 func RegisterRoutes(router *gin.Engine, h *Handler) {
 	v1 := router.Group("/api/v1")
 	{
-		// Skills endpoints
+		// Skills endpoints - Read
 		v1.GET("/skills", h.ListSkills)
 		v1.GET("/skills/:name", h.GetSkill)
 		v1.GET("/skills/:name/content", h.GetSkillContent)
+		
+		// Skills endpoints - Search (must be before generic POST)
 		v1.POST("/skills/search", h.SearchSkills)
+		
+		// Skills endpoints - Create/Update/Delete
+		v1.POST("/skills", h.CreateSkill)
+		v1.PUT("/skills/:name", h.UpdateSkill)
+		v1.DELETE("/skills/:name", h.DeleteSkill)
 
 		// Health check
 		v1.GET("/health", h.Health)
@@ -152,4 +160,120 @@ func (h *Handler) SearchSkills(c *gin.Context) {
 // Health returns service health status
 func (h *Handler) Health(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "healthy"})
+}
+
+// CreateSkillRequest represents a request to create a skill
+type CreateSkillRequest struct {
+	Name        string            `json:"name" binding:"required"`
+	Description string            `json:"description" binding:"required"`
+	Category    string            `json:"category"`
+	Version     string            `json:"version"`
+	Source      string            `json:"source"`
+	License     string            `json:"license"`
+	Content     string            `json:"content"`
+	FilePath    string            `json:"file_path"`
+	Metadata    map[string]string `json:"metadata"`
+}
+
+// CreateSkill creates a new skill
+func (h *Handler) CreateSkill(c *gin.Context) {
+	var req CreateSkillRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Set default source if not provided
+	if req.Source == "" {
+		req.Source = "manual"
+	}
+
+	skill := &model.Skill{
+		Name:        req.Name,
+		Description: req.Description,
+		Category:    req.Category,
+		Version:     req.Version,
+		Source:      req.Source,
+		License:     req.License,
+		Content:     req.Content,
+		FilePath:    req.FilePath,
+	}
+
+	if req.Metadata != nil {
+		skill.Metadata = model.SkillsMetadata(req.Metadata)
+	}
+
+	if err := h.registry.Register(c.Request.Context(), skill); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusCreated, skill)
+}
+
+// UpdateSkillRequest represents a request to update a skill
+type UpdateSkillRequest struct {
+	Description string            `json:"description"`
+	Category    string            `json:"category"`
+	Version     string            `json:"version"`
+	License     string            `json:"license"`
+	Content     string            `json:"content"`
+	Metadata    map[string]string `json:"metadata"`
+}
+
+// UpdateSkill updates an existing skill
+func (h *Handler) UpdateSkill(c *gin.Context) {
+	name := c.Param("name")
+
+	// Get existing skill
+	skill, err := h.registry.Get(c.Request.Context(), name)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "skill not found"})
+		return
+	}
+
+	var req UpdateSkillRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Update fields if provided
+	if req.Description != "" {
+		skill.Description = req.Description
+	}
+	if req.Category != "" {
+		skill.Category = req.Category
+	}
+	if req.Version != "" {
+		skill.Version = req.Version
+	}
+	if req.License != "" {
+		skill.License = req.License
+	}
+	if req.Content != "" {
+		skill.Content = req.Content
+	}
+	if req.Metadata != nil {
+		skill.Metadata = model.SkillsMetadata(req.Metadata)
+	}
+
+	if err := h.registry.Register(c.Request.Context(), skill); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, skill)
+}
+
+// DeleteSkill deletes a skill by name
+func (h *Handler) DeleteSkill(c *gin.Context) {
+	name := c.Param("name")
+
+	if err := h.registry.Delete(c.Request.Context(), name); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "skill deleted successfully"})
 }

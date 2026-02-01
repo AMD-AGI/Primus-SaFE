@@ -95,6 +95,39 @@ apps:
       prometheusPort: 8992
       controller:
         leaderElectionId: "primus-lens-github-runners"
+  
+  skillsRepository:
+    enabled: true
+    image: "primussafe/skills-repository:202602011111"
+    replicas: 1
+    httpPort: 8092
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "256Mi"
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+    config:
+      db:
+        host: ""  # Default: {release-name}-primary.{namespace}.svc
+        port: 5432
+        userName: "primus-lens-control-plane"
+        dbName: "primus-lens-control-plane"
+        sslMode: "require"
+      embedding:
+        provider: "openai"
+        model: "BAAI/bge-m3"
+        dimension: 1024
+        baseURL: ""
+        # Secret containing OpenAI API key
+        apiKeySecret:
+          name: "openai-api-key"
+          key: "api-key"
+      discovery:
+        syncInterval: "5m"
+        watchEnabled: false
+        sources: []
 
 # ============================================================================
 # Service Account Configuration

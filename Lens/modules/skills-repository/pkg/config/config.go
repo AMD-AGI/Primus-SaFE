@@ -75,8 +75,8 @@ func Load() (*Config, error) {
 		},
 		Embedding: EmbeddingConfig{
 			Provider:  getEnv("EMBEDDING_PROVIDER", "openai"),
-			Model:     getEnv("EMBEDDING_MODEL", "text-embedding-3-small"),
-			Dimension: getEnvInt("EMBEDDING_DIMENSION", 1536),
+			Model:     getEnv("EMBEDDING_MODEL", "BAAI/bge-m3"),
+			Dimension: getEnvInt("EMBEDDING_DIMENSION", 1024),
 			APIKey:    getEnv("OPENAI_API_KEY", ""),
 			BaseURL:   getEnv("OPENAI_BASE_URL", ""),
 		},

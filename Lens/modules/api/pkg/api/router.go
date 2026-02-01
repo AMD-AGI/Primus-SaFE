@@ -530,5 +530,24 @@ func RegisterRouter(group *gin.RouterGroup) error {
 	// Note: V2 group endpoints (analytics, history, commit, details) are now merged 
 	// into the main github-workflow-metrics group above using unified handlers
 
+	// Skills Repository routes - Proxy to skills-repository service
+	skillsGroup := group.Group("/skills")
+	{
+		// List all skills - supports pagination and filtering
+		skillsGroup.GET("", getUnifiedHandler("/skills"))
+		// Semantic search - must be defined before /:name
+		skillsGroup.POST("/search", getUnifiedHandler("/skills/search"))
+		// Get skill by name
+		skillsGroup.GET("/:name", getUnifiedHandler("/skills/:name"))
+		// Get skill content (SKILL.md)
+		skillsGroup.GET("/:name/content", getUnifiedHandler("/skills/:name/content"))
+		// Create a new skill
+		skillsGroup.POST("", getUnifiedHandler("/skills"))
+		// Update a skill
+		skillsGroup.PUT("/:name", getUnifiedHandler("/skills/:name"))
+		// Delete a skill
+		skillsGroup.DELETE("/:name", getUnifiedHandler("/skills/:name"))
+	}
+
 	return nil
 }
