@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -28,13 +29,22 @@ import (
 	sliceutil "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/slice"
 )
 
-// GetTotalCount returns the total replica count across all resources in the workload
-func GetTotalCount(w *v1.Workload) int {
+// GetTotalReplica returns the total replica count across all resources in the workload
+func GetTotalReplica(w *v1.Workload) int {
 	n := 0
 	for _, res := range w.Spec.Resources {
 		n += res.Replica
 	}
 	return n
+}
+
+// GetTotalNodeCount returns the total number of unique nodes where the workload's pods are running.
+func GetTotalNodeCount(w *v1.Workload) int {
+	uniqNodeSet := sets.NewSet()
+	for _, p := range w.Status.Pods {
+		uniqNodeSet.Insert(p.AdminNodeName)
+	}
+	return uniqNodeSet.Len()
 }
 
 // GetWorkloadsOfWorkspace retrieves workloads belonging to specified workspace(s) and cluster.
@@ -85,7 +95,7 @@ func GetWorkloadsOfK8sNode(ctx context.Context, k8sClient kubernetes.Interface, 
 
 // GetResourcesPerNode calculates resource usage per node for a workload.
 func GetResourcesPerNode(workload *v1.Workload, adminNodeName string) (map[string]corev1.ResourceList, error) {
-	if GetTotalCount(workload) == 0 {
+	if GetTotalReplica(workload) == 0 {
 		return nil, nil
 	}
 	allPodResources, err := toPodResourceLists(workload)
@@ -115,7 +125,7 @@ func GetResourcesPerNode(workload *v1.Workload, adminNodeName string) (map[strin
 // It filters out terminated pods and applies node filtering criteria.
 func GetWorkloadResourceUsage(workload *v1.Workload, filterNode func(nodeName string) bool) (
 	corev1.ResourceList, corev1.ResourceList, []string, error) {
-	if GetTotalCount(workload) == 0 || len(workload.Status.Pods) == 0 {
+	if GetTotalReplica(workload) == 0 || len(workload.Status.Pods) == 0 {
 		return nil, nil, nil, nil
 	}
 	allPodResources, err := toPodResourceLists(workload)
@@ -296,7 +306,7 @@ func IsOpsJob(w *v1.Workload) bool {
 // IsResourceEqual compares the resource specifications of two workloads.
 // Returns true if both workloads have the same resource including replica counts
 func IsResourceEqual(workload1, workload2 *v1.Workload) bool {
-	if GetTotalCount(workload1) != GetTotalCount(workload2) ||
+	if GetTotalReplica(workload1) != GetTotalReplica(workload2) ||
 		len(workload1.Spec.Resources) != len(workload2.Spec.Resources) {
 		return false
 	}

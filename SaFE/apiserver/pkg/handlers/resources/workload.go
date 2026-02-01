@@ -1152,7 +1152,7 @@ func applyWorkloadPatch(adminWorkload *v1.Workload, req *view.PatchWorkloadReque
 		for _, res := range *req.Resources {
 			reqCount += res.Replica
 		}
-		if reqCount != commonworkload.GetTotalCount(adminWorkload) {
+		if reqCount != commonworkload.GetTotalReplica(adminWorkload) {
 			_, ok := adminWorkload.Spec.CustomerLabels[v1.K8sHostName]
 			if ok {
 				return commonerrors.NewBadRequest("cannot update replica when specifying nodes")

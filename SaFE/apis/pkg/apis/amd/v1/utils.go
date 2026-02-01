@@ -361,6 +361,10 @@ func GetGroupId(obj metav1.Object) string {
 	return GetAnnotation(obj, GroupIdAnnotation)
 }
 
+func GetSourceWorkloadId(obj metav1.Object) string {
+	return GetLabel(obj, SourceWorkloadIdLabel)
+}
+
 // IsWorkloadStickyNodes checks if the workload has sticky node feature enabled.
 // When enabled, the workload will try to use the same nodes during retries/failovers.
 func IsEnableStickyNodes(obj metav1.Object) bool {
