@@ -83,6 +83,11 @@ func (r *AddonController) guaranteeHelmAddon(ctx context.Context, addon *v1.Addo
 	if addon.Spec.AddonSource.HelmRepository == nil {
 		return nil
 	}
+	if addon.Spec.Cluster != nil {
+		if _, err := getAdminCluster(ctx, r.Client, addon.Spec.Cluster.Name); err != nil {
+			return client.IgnoreNotFound(err)
+		}
+	}
 	if !addon.DeletionTimestamp.IsZero() {
 		if addon.Status.Phase == v1.AddonDeleted {
 			if controllerutil.RemoveFinalizer(addon, v1.AddonFinalizer) {
@@ -421,14 +426,16 @@ func (r *AddonController) getter(ctx context.Context, addon *v1.Addon) (*RESTCli
 
 // getCluster retrieves the REST configuration for a cluster.
 func (r *AddonController) getCluster(ctx context.Context, cluster *corev1.ObjectReference) (*rest.Config, error) {
-	c := new(v1.Cluster)
-	err := r.Get(ctx, types.NamespacedName{Name: cluster.Name}, c)
+	c, err := getAdminCluster(ctx, r.Client, cluster.Name)
 	if err != nil {
 		return nil, err
 	}
 	cert := c.Status.ControlPlaneStatus
 	_, restCfg, err := commonclient.NewClientSet(fmt.Sprintf("https://%s", c.Name),
 		cert.CertData, cert.KeyData, cert.CAData, true)
+	if err != nil {
+		return nil, err
+	}
 	restCfg.Insecure = true
 	return restCfg, err
 }

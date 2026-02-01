@@ -157,6 +157,12 @@ func InitCustomRouters(e *gin.Engine, h *Handler) {
 			apiKeys.GET("/current", h.GetCurrentApiKey)
 		}
 
+		// ==================== Persistent Volumes ====================
+		persistentvolumes := authGroup.Group("/persistentvolumes")
+		{
+			persistentvolumes.GET("", h.ListPersistentVolume)
+		}
+
 		authGroup.GET("/addontemplates", h.ListAddonTemplate)
 		authGroup.GET(fmt.Sprintf("/addontemplates/:%s", common.Name), h.GetAddonTemplate)
 

@@ -465,6 +465,9 @@ func (v *WorkspaceValidator) validateOnUpdate(ctx context.Context, newWorkspace,
 	if err := v.validateVolumeRemoved(ctx, newWorkspace, oldWorkspace); err != nil {
 		return err
 	}
+	if err := v.validateScaleDown(ctx, newWorkspace, oldWorkspace); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -507,6 +510,21 @@ func (v *WorkspaceValidator) validateRequiredParams(workspace *v1.Workspace) err
 	}
 	if err := utilerrors.NewAggregate(errs); err != nil {
 		return err
+	}
+	return nil
+}
+
+// validateScaleDown ensuring that workspaces created from
+// running workloads cannot be scale-down until the source workload completes.
+func (v *WorkspaceValidator) validateScaleDown(ctx context.Context, newWorkspace, oldWorkspace *v1.Workspace) error {
+	if oldWorkspace.Spec.Replica <= newWorkspace.Spec.Replica {
+		return nil
+	}
+	if sourceWorkloadId := v1.GetSourceWorkloadId(newWorkspace); sourceWorkloadId != "" {
+		workload, err := getWorkload(ctx, v.Client, sourceWorkloadId)
+		if err == nil && !workload.IsEnd() {
+			return fmt.Errorf("Scaling down is not allowed before the workload(%s) finishes.", sourceWorkloadId)
+		}
 	}
 	return nil
 }

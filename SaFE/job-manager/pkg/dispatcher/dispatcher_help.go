@@ -392,7 +392,7 @@ func modifyPrivilegedSecurity(container map[string]interface{}, workload *v1.Wor
 	if v1.GetOpsJobType(workload) == "" && !v1.IsPrivileged(workload) {
 		return
 	}
-	// All OpsJobs run as root
+	// run as root
 	securityContext := map[string]interface{}{
 		"runAsUser":  int64(0),
 		"runAsGroup": int64(0),

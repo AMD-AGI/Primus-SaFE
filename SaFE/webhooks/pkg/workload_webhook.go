@@ -919,7 +919,7 @@ func (v *WorkloadValidator) validateWorkspace(ctx context.Context, workload *v1.
 		}
 		return nil
 	}
-	if commonworkload.GetTotalCount(workload) > workspace.Spec.Replica {
+	if commonworkload.GetTotalReplica(workload) > workspace.Spec.Replica {
 		requestResources, err := commonworkload.GetTotalResourceList(workload)
 		if err != nil {
 			return err
@@ -936,7 +936,7 @@ func (v *WorkloadValidator) validateWorkspace(ctx context.Context, workload *v1.
 
 // validateResourceEnough checks if the workload resources do not exceed node flavor limits.
 func (v *WorkloadValidator) validateResourceEnough(ctx context.Context, workload *v1.Workload) error {
-	if commonworkload.GetTotalCount(workload) <= 0 {
+	if commonworkload.GetTotalReplica(workload) <= 0 {
 		return nil
 	}
 	nf, err := getNodeFlavor(ctx, v.Client, v1.GetNodeFlavorId(workload))
@@ -1088,7 +1088,7 @@ func isHostNetworkEnabled(workload *v1.Workload, id int, nf *v1.NodeFlavor) bool
 	if commonworkload.IsAuthoring(workload) {
 		return false
 	}
-	if commonworkload.GetTotalCount(workload) <= 1 {
+	if commonworkload.GetTotalReplica(workload) <= 1 {
 		return false
 	}
 
@@ -1107,4 +1107,13 @@ func isHostNetworkEnabled(workload *v1.Workload, id int, nf *v1.NodeFlavor) bool
 		return false
 	}
 	return true
+}
+
+// getWorkload retrieves a workload by ID
+func getWorkload(ctx context.Context, cli client.Client, workloadId string) (*v1.Workload, error) {
+	workload := &v1.Workload{}
+	if err := cli.Get(ctx, client.ObjectKey{Name: workloadId}, workload); err != nil {
+		return nil, err
+	}
+	return workload, nil
 }
