@@ -30,8 +30,8 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-REPOSITORIES=("harbor.safe.primus.ai/primussafe/${APP_NAME}")
-#REPOSITORIES=("primussafe/${APP_NAME}")
+# Push to Docker Hub
+REPOSITORIES=("primussafe/${APP_NAME}")
 
 for REPO in "${REPOSITORIES[@]}"; do
     docker tag ${APP_NAME}:${TIMESTAMP} ${REPO}:${TIMESTAMP}

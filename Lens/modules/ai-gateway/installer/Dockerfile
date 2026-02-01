@@ -1,7 +1,6 @@
 # Build stage
-ARG REGISTRY=docker.io
 ARG GO_VERSION=1.24.7
-FROM ${REGISTRY}/primussafe/golang:${GO_VERSION}-alpine AS builder
+FROM golang:${GO_VERSION}-alpine AS builder
 
 # Install git and ca-certificates
 RUN apk add --no-cache git ca-certificates tzdata
@@ -33,7 +32,6 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
     ./cmd/ai-gateway
 
 # Final stage
-ARG REGISTRY
 FROM ${REGISTRY}/primussafe/alpine:3.19
 
 # Install ca-certificates and timezone data

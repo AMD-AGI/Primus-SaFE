@@ -1,7 +1,6 @@
 # Dockerfile for primus-lens-jobs with PDF rendering support
 # This includes Chrome/Chromium for generating PDF reports from HTML
 
-ARG REGISTRY=docker.io
 ARG GO_VERSION=1.24.7
 ARG BUILDPATH
 ARG APPNAME
@@ -9,7 +8,7 @@ ARG BASEPATH
 ARG GOPROXY=https://proxy.golang.org,direct
 
 # Stage 1: Build stage
-FROM ${REGISTRY}/primussafe/golang:${GO_VERSION} AS builder
+FROM golang:${GO_VERSION} AS builder
 WORKDIR /app
 
 ARG GITHUB_TOKEN
@@ -37,11 +36,11 @@ RUN echo "BUILDPATH: $BUILDPATH" && \
 
 COPY . .
 
-RUN cd $BASEPATH && CGO_ENABLED=0 go build -tags nosqlite -a -installsuffix cgo -o $APPNAME $BUILDPATH/main.go
+RUN cd Lens/modules/core && go mod tidy
+RUN cd $BASEPATH && go mod tidy && CGO_ENABLED=0 go build -tags nosqlite -a -installsuffix cgo -o $APPNAME $BUILDPATH/main.go
 
 # Stage 2: Runtime stage with Chrome/Chromium support for PDF rendering
-ARG REGISTRY
-FROM --platform=linux/amd64 ${REGISTRY}/primussafe/debian:bookworm-slim
+FROM debian:bookworm-slim
 
 ARG APPNAME
 ARG BASEPATH
@@ -108,4 +107,3 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
     CMD pgrep -f $APPNAME || exit 1
 
 CMD ["./run.sh"]
-

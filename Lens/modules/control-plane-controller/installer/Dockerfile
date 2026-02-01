@@ -2,7 +2,6 @@
 # Runs management plane jobs: dataplane_installer, multi_cluster_config_sync,
 # tracelens_cleanup, gpu_usage_weekly_report
 
-ARG REGISTRY=docker.io
 ARG GO_VERSION=1.24.7
 ARG BUILDPATH
 ARG APPNAME
@@ -10,7 +9,7 @@ ARG BASEPATH
 ARG GOPROXY=https://proxy.golang.org,direct
 
 # Stage 1: Build stage
-FROM ${REGISTRY}/primussafe/golang:${GO_VERSION} AS builder
+FROM golang:${GO_VERSION} AS builder
 WORKDIR /app
 
 ARG GITHUB_TOKEN
@@ -33,11 +32,11 @@ RUN echo "✅ GOPRIVATE=$GOPRIVATE" && \
 
 COPY . .
 
-RUN cd $BASEPATH && CGO_ENABLED=0 go build -tags nosqlite -a -installsuffix cgo -o $APPNAME $BUILDPATH/main.go
+RUN cd Lens/modules/core && go mod tidy
+RUN cd $BASEPATH && go mod tidy && CGO_ENABLED=0 go build -tags nosqlite -a -installsuffix cgo -o $APPNAME $BUILDPATH/main.go
 
 # Stage 2: Runtime stage
-ARG REGISTRY
-FROM ${REGISTRY}/primussafe/debian:bookworm-slim
+FROM debian:bookworm-slim
 
 ARG APPNAME
 ARG BASEPATH
