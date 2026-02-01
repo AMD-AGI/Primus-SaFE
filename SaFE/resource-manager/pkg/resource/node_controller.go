@@ -678,7 +678,7 @@ func (r *NodeReconciler) authorizeClusterAccess(ctx context.Context, node *v1.No
 	if node.GetSpecCluster() == "" {
 		return nil
 	}
-	cluster, err := r.getCluster(ctx, node.GetSpecCluster())
+	cluster, err := getAdminCluster(ctx, r.Client, node.GetSpecCluster())
 	if err != nil {
 		return err
 	}
@@ -819,7 +819,7 @@ func (r *NodeReconciler) syncOrCreateScaleUpPod(ctx context.Context, adminNode *
 			return ctrlruntime.Result{}, err
 		}
 
-		cluster, err := r.getCluster(ctx, adminNode.GetSpecCluster())
+		cluster, err := getAdminCluster(ctx, r.Client, adminNode.GetSpecCluster())
 		if err != nil || cluster == nil {
 			return ctrlruntime.Result{RequeueAfter: time.Second}, err
 		}
@@ -951,7 +951,7 @@ func (r *NodeReconciler) resetNode(ctx context.Context, node *v1.Node) error {
 // syncOrCreateScaleDownPod synchronizes or creates a scale-down Pod for the Node when unmanaging.
 func (r *NodeReconciler) syncOrCreateScaleDownPod(ctx context.Context,
 	clientSet kubernetes.Interface, adminNode *v1.Node, k8sNode *corev1.Node, clusterId string) (ctrlruntime.Result, error) {
-	cluster, err := r.getCluster(ctx, clusterId)
+	cluster, err := getAdminCluster(ctx, r.Client, clusterId)
 	if err != nil {
 		return ctrlruntime.Result{}, client.IgnoreNotFound(err)
 	}

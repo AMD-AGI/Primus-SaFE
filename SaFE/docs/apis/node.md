@@ -34,16 +34,16 @@ Register a new node to the system.
 
 **Field Description**:
 
-| Field | Type | Required | Description                                                       |
-|-------|------|----------|-------------------------------------------------------------------|
-| hostname | string | No | Node hostname, uses privateIP if not specified                    |
-| privateIP | string | Yes | Node private IP                                                   |
-| publicIP | string | No | Node public IP, accessible from external networks                 |
-| port | int | No | SSH port, default 22                                              |
-| labels | object | No | Node labels                                                       |
-| flavorId | string | Yes | Associated node flavor ID                                         |
+| Field | Type | Required | Description                                          |
+|-------|------|----------|------------------------------------------------------|
+| hostname | string | No | Node hostname, uses privateIP if not specified       |
+| privateIP | string | Yes | Node private IP                                      |
+| publicIP | string | No | Node public IP, accessible from external networks    |
+| port | int | No | SSH port, default 22                                 |
+| labels | object | No | Node labels,  Keys cannot start with "primus-safe"   |
+| flavorId | string | Yes | Associated node flavor ID                            |
 | templateId | string | Yes | Associated node template ID (for addon installation) |
-| sshSecretId | string | Yes | SSH secret ID                                                     |
+| sshSecretId | string | Yes | SSH secret ID                                        |
 
 **Response Example**:
 

@@ -1,0 +1,50 @@
+#
+# Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  # The name cannot be modified, It is referenced in constant.go
+  name: primus-safe-pv
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/managed-by: Helm
+    primus-safe.display.name: "wekafs"
+  annotations:
+    # When set to true, automatically creates PV based on the template below when creating a workspace
+    primus-safe.workspace.auto-create-pv: "true"
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
+data:
+ template: |
+  apiVersion: v1
+  kind: PersistentVolume
+  metadata:
+    annotations:
+      pv.kubernetes.io/bound-by-controller: "yes"
+  spec:
+    accessModes:
+      - ReadWriteMany
+    capacity:
+      storage: 900Ti
+    csi:
+      controllerExpandSecretRef:
+        name: csi-wekafs-api-secret
+        namespace: kube-system
+      driver: csi.weka.io
+      nodePublishSecretRef:
+        name: csi-wekafs-api-secret
+        namespace: kube-system
+      volumeHandle: dir/v1/amdprj2-k8s/csi-volumes/public
+    mountOptions:
+      - rw
+      - relatime
+      - forcedirect
+      - noatime
+      - readahead_kb=2048
+      - dentry_max_age_positive=1000
+      - dentry_max_age_negative=0
+    persistentVolumeReclaimPolicy: Retain
+    volumeMode: Filesystem

@@ -162,6 +162,10 @@ func (r *WorkspaceReconciler) guaranteeDataPlaneResources(ctx context.Context, w
 		klog.ErrorS(err, "failed to create namespace for data plane", "name", workspace.Name)
 		return err
 	}
+	if err := createDataPlanePv(ctx, workspace, r.Client, clientSet); err != nil {
+		klog.ErrorS(err, "failed to create pv for data plane", "name", workspace.Name)
+		return err
+	}
 	if err := createDataPlanePvc(ctx, workspace, clientSet); err != nil {
 		klog.ErrorS(err, "failed to create pvc for data plane", "name", workspace.Name)
 		return err
@@ -198,6 +202,9 @@ func (r *WorkspaceReconciler) deleteDataPlaneResources(ctx context.Context, work
 	if err != nil || clientSet == nil {
 		return client.IgnoreNotFound(err)
 	}
+	if err = deletePV(ctx, workspace, clientSet); err != nil {
+		return err
+	}
 	for _, vol := range workspace.Spec.Volumes {
 		if vol.Type == v1.HOSTPATH {
 			continue
@@ -206,6 +213,7 @@ func (r *WorkspaceReconciler) deleteDataPlaneResources(ctx context.Context, work
 			return err
 		}
 	}
+
 	if err = deleteCICDNoPermissionSA(ctx, workspace, clientSet); err != nil {
 		return err
 	}
