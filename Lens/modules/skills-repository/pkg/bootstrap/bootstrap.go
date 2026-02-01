@@ -15,6 +15,7 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/skills-repository/pkg/config"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/skills-repository/pkg/discovery"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/skills-repository/pkg/embedding"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/skills-repository/pkg/mcp"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/skills-repository/pkg/registry"
 	"github.com/gin-gonic/gin"
 	"gorm.io/driver/postgres"
@@ -86,12 +87,18 @@ func (s *Server) Start() error {
 	apiHandler := api.NewHandler(s.registry, s.embedder)
 	api.RegisterRoutes(router, apiHandler)
 
+	// Register MCP routes for standalone MCP server
+	mcpHandler := mcp.NewHandler(s.registry)
+	mcpHandler.RegisterRoutes(router)
+	log.Infof("MCP Server enabled with %d tools", mcpHandler.GetServer().ToolCount())
+
 	s.httpServer = &http.Server{
 		Addr:    fmt.Sprintf(":%d", s.config.Server.Port),
 		Handler: router,
 	}
 
 	log.Infof("Skills Repository listening on port %d", s.config.Server.Port)
+	log.Infof("MCP SSE endpoint: http://localhost:%d/mcp/sse", s.config.Server.Port)
 	return s.httpServer.ListenAndServe()
 }
 
