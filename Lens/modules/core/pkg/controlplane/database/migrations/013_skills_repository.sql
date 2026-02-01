@@ -41,11 +41,12 @@ CREATE INDEX IF NOT EXISTS idx_skill_versions_version ON skill_versions(version)
 CREATE INDEX IF NOT EXISTS idx_skill_versions_created_at ON skill_versions(created_at);
 
 -- Skill embeddings table for semantic search
+-- Using 1024 dimensions for BGE-M3 model compatibility
 CREATE TABLE IF NOT EXISTS skill_embeddings (
     id BIGSERIAL PRIMARY KEY,
     skill_name VARCHAR(200) NOT NULL,
     embedding_type VARCHAR(50) NOT NULL,
-    embedding vector(1536),
+    embedding vector(1024),
     text_content TEXT,
     model_version VARCHAR(100),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
