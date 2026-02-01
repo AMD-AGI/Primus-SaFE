@@ -164,23 +164,21 @@ func deletePV(ctx context.Context, workspace *v1.Workspace, clientSet kubernetes
 	if err != nil {
 		return client.IgnoreNotFound(err)
 	}
-	if len(pvList.Items) == 0 {
-		return nil
-	}
 
-	pv := &pvList.Items[0]
-	if len(pv.Finalizers) > 0 {
-		pv.Finalizers = nil
-		_, err = clientSet.CoreV1().PersistentVolumes().Update(ctx, pv, metav1.UpdateOptions{})
-		if err != nil {
-			klog.ErrorS(err, "failed to remove finalizers of pv", "name", pv.Name)
+	for _, pv := range pvList.Items {
+		if len(pv.Finalizers) > 0 {
+			pv.Finalizers = nil
+			_, err = clientSet.CoreV1().PersistentVolumes().Update(ctx, &pv, metav1.UpdateOptions{})
+			if err != nil {
+				klog.ErrorS(err, "failed to remove finalizers of pv", "name", pv.Name)
+			}
 		}
+		err = clientSet.CoreV1().PersistentVolumes().Delete(ctx, pv.Name, metav1.DeleteOptions{})
+		if err != nil {
+			return err
+		}
+		klog.Infof("delete persistent volume: %s", pv.Name)
 	}
-	err = clientSet.CoreV1().PersistentVolumes().Delete(ctx, pv.Name, metav1.DeleteOptions{})
-	if err != nil {
-		return err
-	}
-	klog.Infof("delete persistent volume: %s", pv.Name)
 	return nil
 }
 
