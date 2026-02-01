@@ -103,7 +103,7 @@ type SkillsListRequest struct {
 }
 
 type SkillGetRequest struct {
-	Name string `json:"name" uri:"name" mcp:"description=Skill name,required"`
+	Name string `json:"name" param:"name" mcp:"description=Skill name,required"`
 }
 
 type SkillsSearchRequest struct {
@@ -124,7 +124,7 @@ type SkillCreateRequest struct {
 }
 
 type SkillUpdateRequest struct {
-	Name        string            `json:"name" uri:"name" mcp:"description=Skill name,required"`
+	Name        string            `json:"name" param:"name" mcp:"description=Skill name,required"`
 	Description string            `json:"description" mcp:"description=Skill description"`
 	Category    string            `json:"category" mcp:"description=Skill category"`
 	Version     string            `json:"version" mcp:"description=Skill version"`
