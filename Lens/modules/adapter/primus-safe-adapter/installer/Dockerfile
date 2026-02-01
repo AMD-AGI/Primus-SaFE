@@ -1,7 +1,6 @@
 # Dockerfile for primus-safe-adapter
 # Standard lightweight build
 
-ARG REGISTRY=docker.io
 ARG GO_VERSION=1.24.7
 ARG BUILDPATH
 ARG APPNAME
@@ -9,7 +8,7 @@ ARG BASEPATH
 ARG GOPROXY=https://proxy.golang.org,direct
 
 # Stage 1: Build stage
-FROM ${REGISTRY}/primussafe/golang:${GO_VERSION} AS builder
+FROM golang:${GO_VERSION} AS builder
 WORKDIR /app
 
 ARG GITHUB_TOKEN
@@ -37,11 +36,17 @@ RUN echo "BUILDPATH: $BUILDPATH" && \
 
 COPY . .
 
-RUN cd $BASEPATH && CGO_ENABLED=0 go build -tags nosqlite -a -installsuffix cgo -o $APPNAME $BUILDPATH/main.go
+RUN cd Lens/modules/core && go mod tidy
+RUN cd $BASEPATH && go mod tidy && CGO_ENABLED=0 go build -tags nosqlite -a -installsuffix cgo -o $APPNAME $BUILDPATH/main.go
 
 # Stage 2: Runtime stage - lightweight
-ARG REGISTRY
-FROM --platform=linux/amd64 ${REGISTRY}/primussafe/ubuntu-rdma-base:0.0.1
+FROM ubuntu:22.04
+
+# Install common runtime dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
 
 ARG APPNAME
 ARG BASEPATH
