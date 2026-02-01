@@ -217,7 +217,7 @@ func handleSkillsList(ctx context.Context, req *SkillsListRequest) (*SkillsListR
 
 	var result SkillsListResponse
 	if err := json.Unmarshal(resp, &result); err != nil {
-		return nil, errors.WrapError(err, "failed to parse skills list response", errors.CodeInternalServerError)
+		return nil, errors.WrapError(err, "failed to parse skills list response", errors.InternalError)
 	}
 
 	return &result, nil
@@ -237,7 +237,7 @@ func handleSkillGet(ctx context.Context, req *SkillGetRequest) (*SkillResponse, 
 
 	var result SkillData
 	if err := json.Unmarshal(resp, &result); err != nil {
-		return nil, errors.WrapError(err, "failed to parse skill response", errors.CodeInternalServerError)
+		return nil, errors.WrapError(err, "failed to parse skill response", errors.InternalError)
 	}
 
 	return &SkillResponse{SkillData: &result}, nil
@@ -279,7 +279,7 @@ func handleSkillsSearch(ctx context.Context, req *SkillsSearchRequest) (*SkillsS
 
 	var result SkillsSearchResponse
 	if err := json.Unmarshal(resp, &result); err != nil {
-		return nil, errors.WrapError(err, "failed to parse search response", errors.CodeInternalServerError)
+		return nil, errors.WrapError(err, "failed to parse search response", errors.InternalError)
 	}
 
 	return &result, nil
@@ -330,7 +330,7 @@ func handleSkillCreate(ctx context.Context, req *SkillCreateRequest) (*SkillResp
 
 	var result SkillData
 	if err := json.Unmarshal(resp, &result); err != nil {
-		return nil, errors.WrapError(err, "failed to parse create response", errors.CodeInternalServerError)
+		return nil, errors.WrapError(err, "failed to parse create response", errors.InternalError)
 	}
 
 	return &SkillResponse{SkillData: &result}, nil
@@ -370,7 +370,7 @@ func handleSkillUpdate(ctx context.Context, req *SkillUpdateRequest) (*SkillResp
 
 	var result SkillData
 	if err := json.Unmarshal(resp, &result); err != nil {
-		return nil, errors.WrapError(err, "failed to parse update response", errors.CodeInternalServerError)
+		return nil, errors.WrapError(err, "failed to parse update response", errors.InternalError)
 	}
 
 	return &SkillResponse{SkillData: &result}, nil
@@ -396,22 +396,22 @@ func handleSkillDelete(ctx context.Context, req *SkillGetRequest) (*MessageRespo
 func proxyGet(ctx context.Context, reqURL string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
 	if err != nil {
-		return nil, errors.WrapError(err, "failed to create request", errors.CodeInternalServerError)
+		return nil, errors.WrapError(err, "failed to create request", errors.InternalError)
 	}
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return nil, errors.WrapError(err, "failed to call skills-repository", errors.CodeInternalServerError)
+		return nil, errors.WrapError(err, "failed to call skills-repository", errors.InternalError)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, errors.WrapError(err, "failed to read response", errors.CodeInternalServerError)
+		return nil, errors.WrapError(err, "failed to read response", errors.InternalError)
 	}
 
 	if resp.StatusCode >= 400 {
-		return nil, errors.NewError().WithCode(errors.CodeInternalServerError).WithMessage(fmt.Sprintf("skills-repository error: %s", string(body)))
+		return nil, errors.NewError().WithCode(errors.InternalError).WithMessage(fmt.Sprintf("skills-repository error: %s", string(body)))
 	}
 
 	return body, nil
@@ -420,28 +420,28 @@ func proxyGet(ctx context.Context, reqURL string) ([]byte, error) {
 func proxyPost(ctx context.Context, reqURL string, data interface{}) ([]byte, error) {
 	jsonData, err := json.Marshal(data)
 	if err != nil {
-		return nil, errors.WrapError(err, "failed to marshal request body", errors.CodeInternalServerError)
+		return nil, errors.WrapError(err, "failed to marshal request body", errors.InternalError)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "POST", reqURL, bytes.NewReader(jsonData))
 	if err != nil {
-		return nil, errors.WrapError(err, "failed to create request", errors.CodeInternalServerError)
+		return nil, errors.WrapError(err, "failed to create request", errors.InternalError)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return nil, errors.WrapError(err, "failed to call skills-repository", errors.CodeInternalServerError)
+		return nil, errors.WrapError(err, "failed to call skills-repository", errors.InternalError)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, errors.WrapError(err, "failed to read response", errors.CodeInternalServerError)
+		return nil, errors.WrapError(err, "failed to read response", errors.InternalError)
 	}
 
 	if resp.StatusCode >= 400 {
-		return nil, errors.NewError().WithCode(errors.CodeInternalServerError).WithMessage(fmt.Sprintf("skills-repository error: %s", string(body)))
+		return nil, errors.NewError().WithCode(errors.InternalError).WithMessage(fmt.Sprintf("skills-repository error: %s", string(body)))
 	}
 
 	return body, nil
@@ -450,28 +450,28 @@ func proxyPost(ctx context.Context, reqURL string, data interface{}) ([]byte, er
 func proxyPut(ctx context.Context, reqURL string, data interface{}) ([]byte, error) {
 	jsonData, err := json.Marshal(data)
 	if err != nil {
-		return nil, errors.WrapError(err, "failed to marshal request body", errors.CodeInternalServerError)
+		return nil, errors.WrapError(err, "failed to marshal request body", errors.InternalError)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "PUT", reqURL, bytes.NewReader(jsonData))
 	if err != nil {
-		return nil, errors.WrapError(err, "failed to create request", errors.CodeInternalServerError)
+		return nil, errors.WrapError(err, "failed to create request", errors.InternalError)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return nil, errors.WrapError(err, "failed to call skills-repository", errors.CodeInternalServerError)
+		return nil, errors.WrapError(err, "failed to call skills-repository", errors.InternalError)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, errors.WrapError(err, "failed to read response", errors.CodeInternalServerError)
+		return nil, errors.WrapError(err, "failed to read response", errors.InternalError)
 	}
 
 	if resp.StatusCode >= 400 {
-		return nil, errors.NewError().WithCode(errors.CodeInternalServerError).WithMessage(fmt.Sprintf("skills-repository error: %s", string(body)))
+		return nil, errors.NewError().WithCode(errors.InternalError).WithMessage(fmt.Sprintf("skills-repository error: %s", string(body)))
 	}
 
 	return body, nil
@@ -480,22 +480,22 @@ func proxyPut(ctx context.Context, reqURL string, data interface{}) ([]byte, err
 func proxyDelete(ctx context.Context, reqURL string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, "DELETE", reqURL, nil)
 	if err != nil {
-		return nil, errors.WrapError(err, "failed to create request", errors.CodeInternalServerError)
+		return nil, errors.WrapError(err, "failed to create request", errors.InternalError)
 	}
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return nil, errors.WrapError(err, "failed to call skills-repository", errors.CodeInternalServerError)
+		return nil, errors.WrapError(err, "failed to call skills-repository", errors.InternalError)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, errors.WrapError(err, "failed to read response", errors.CodeInternalServerError)
+		return nil, errors.WrapError(err, "failed to read response", errors.InternalError)
 	}
 
 	if resp.StatusCode >= 400 {
-		return nil, errors.NewError().WithCode(errors.CodeInternalServerError).WithMessage(fmt.Sprintf("skills-repository error: %s", string(body)))
+		return nil, errors.NewError().WithCode(errors.InternalError).WithMessage(fmt.Sprintf("skills-repository error: %s", string(body)))
 	}
 
 	return body, nil
