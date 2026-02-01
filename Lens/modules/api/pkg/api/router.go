@@ -537,6 +537,8 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		skillsGroup.GET("", getUnifiedHandler("/skills"))
 		// Semantic search - must be defined before /:name
 		skillsGroup.POST("/search", getUnifiedHandler("/skills/search"))
+		// Import skills from GitHub
+		skillsGroup.POST("/import/github", getUnifiedHandler("/skills/import/github"))
 		// Get skill by name
 		skillsGroup.GET("/:name", getUnifiedHandler("/skills/:name"))
 		// Get skill content (SKILL.md)
