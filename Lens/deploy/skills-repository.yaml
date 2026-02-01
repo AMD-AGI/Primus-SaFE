@@ -1,0 +1,132 @@
+# Skills Repository Service Deployment
+# Image tag: 202602011111
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: skills-repository-config
+  namespace: primus-lens
+  labels:
+    app: skills-repository
+data:
+  config.yaml: |
+    server:
+      port: 8092
+    database:
+      host: primus-lens-control-plane-primary.primus-lens.svc.cluster.local
+      port: 5432
+      user: primus-lens-control-plane
+      db_name: primus-lens-control-plane
+      ssl_mode: require
+    embedding:
+      provider: openai
+      model: BAAI/bge-m3
+      dimension: 1024
+      base_url: "http://bge-m3-embedding:8000/v1"
+    discovery:
+      sync_interval: 5m
+      watch_enabled: false
+      sources: []
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: skills-repository
+  namespace: primus-lens
+  labels:
+    app: skills-repository
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: skills-repository
+  template:
+    metadata:
+      labels:
+        app: skills-repository
+    spec:
+      serviceAccountName: primus-lens-bootstrap
+      containers:
+      - name: app
+        image: docker.io/primussafe/skills-repository:202602011111
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8092
+          name: http
+          protocol: TCP
+        env:
+        - name: CONFIG_PATH
+          value: /etc/skills-repository/config.yaml
+        - name: DB_HOST
+          value: primus-lens-control-plane-primary.primus-lens.svc.cluster.local
+        - name: DB_NAME
+          value: primus-lens-control-plane
+        - name: DB_USER
+          valueFrom:
+            secretKeyRef:
+              key: user
+              name: primus-lens-control-plane-pguser-primus-lens-control-plane
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: password
+              name: primus-lens-control-plane-pguser-primus-lens-control-plane
+        # BGE-M3 embedding service configuration
+        - name: OPENAI_BASE_URL
+          value: "http://bge-m3-embedding:8000/v1"
+        - name: OPENAI_API_KEY
+          value: "not-needed"
+        - name: EMBEDDING_MODEL
+          value: "BAAI/bge-m3"
+        - name: EMBEDDING_DIMENSION
+          value: "1024"
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        volumeMounts:
+        - name: config-volume
+          mountPath: /etc/skills-repository/config.yaml
+          subPath: config.yaml
+        livenessProbe:
+          httpGet:
+            path: /api/v1/health
+            port: 8092
+          initialDelaySeconds: 10
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /api/v1/health
+            port: 8092
+          initialDelaySeconds: 5
+          periodSeconds: 10
+      volumes:
+      - name: config-volume
+        configMap:
+          name: skills-repository-config
+          items:
+          - key: config.yaml
+            path: config.yaml
+      restartPolicy: Always
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: skills-repository
+  namespace: primus-lens
+  labels:
+    app: skills-repository
+spec:
+  type: ClusterIP
+  ports:
+  - name: http
+    port: 8092
+    targetPort: 8092
+    protocol: TCP
+  selector:
+    app: skills-repository
