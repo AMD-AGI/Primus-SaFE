@@ -40,7 +40,7 @@ RUN cd Lens/modules/core && go mod tidy
 RUN cd $BASEPATH && go mod tidy && CGO_ENABLED=0 go build -tags nosqlite -a -installsuffix cgo -o $APPNAME $BUILDPATH/main.go
 
 # Stage 2: Runtime stage - lightweight alpine with coreutils for df command
-FROM ${REGISTRY}/primussafe/alpine:3.19
+FROM alpine:3.19
 
 ARG APPNAME
 ARG BASEPATH
