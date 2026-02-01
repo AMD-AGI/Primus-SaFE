@@ -91,6 +91,15 @@ func init() {
 		MCPToolName: "lens_skills_delete",
 		Handler:     handleSkillDelete,
 	})
+
+	unified.Register(&unified.EndpointDef[SkillImportGitHubRequest, SkillImportResponse]{
+		Name:        "skills_import_github",
+		Description: "Import skills from a GitHub repository",
+		HTTPMethod:  "POST",
+		HTTPPath:    "/skills/import/github",
+		MCPToolName: "lens_skills_import_github",
+		Handler:     handleSkillImportGitHub,
+	})
 }
 
 // ======================== Request Types ========================
@@ -131,6 +140,18 @@ type SkillUpdateRequest struct {
 	License     string            `json:"license" mcp:"description=License information"`
 	Content     string            `json:"content" mcp:"description=Full SKILL.md content"`
 	Metadata    map[string]string `json:"metadata" mcp:"description=Additional metadata"`
+}
+
+type SkillImportGitHubRequest struct {
+	URL         string `json:"url" binding:"required" mcp:"description=GitHub repository URL (e.g. https://github.com/owner/repo or https://github.com/owner/repo/tree/branch/path),required"`
+	GitHubToken string `json:"github_token" mcp:"description=GitHub personal access token for private repositories"`
+}
+
+type SkillImportResponse struct {
+	Message  string   `json:"message"`
+	Imported []string `json:"imported"`
+	Skipped  []string `json:"skipped"`
+	Errors   []string `json:"errors"`
 }
 
 // ======================== Response Types ========================
@@ -499,4 +520,33 @@ func proxyDelete(ctx context.Context, reqURL string) ([]byte, error) {
 	}
 
 	return body, nil
+}
+
+// ======================== Import Handlers ========================
+
+func handleSkillImportGitHub(ctx context.Context, req *SkillImportGitHubRequest) (*SkillImportResponse, error) {
+	if req.URL == "" {
+		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("url is required")
+	}
+
+	reqURL := skillsRepositoryURL + "/api/v1/skills/import/github"
+
+	reqBody := map[string]string{
+		"url": req.URL,
+	}
+	if req.GitHubToken != "" {
+		reqBody["github_token"] = req.GitHubToken
+	}
+
+	resp, err := proxyPost(ctx, reqURL, reqBody)
+	if err != nil {
+		return nil, err
+	}
+
+	var result SkillImportResponse
+	if err := json.Unmarshal(resp, &result); err != nil {
+		return nil, errors.WrapError(err, "failed to parse import response", errors.InternalError)
+	}
+
+	return &result, nil
 }

@@ -4,11 +4,13 @@
 package api
 
 import (
+	"io"
 	"net/http"
 	"strconv"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/controlplane/database/model"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/skills-repository/pkg/embedding"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/skills-repository/pkg/importer"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/skills-repository/pkg/registry"
 	"github.com/gin-gonic/gin"
 )
@@ -17,6 +19,7 @@ import (
 type Handler struct {
 	registry *registry.SkillsRegistry
 	embedder embedding.Embedder
+	importer *importer.SkillImporter
 }
 
 // NewHandler creates a new Handler
@@ -24,7 +27,13 @@ func NewHandler(reg *registry.SkillsRegistry, embedder embedding.Embedder) *Hand
 	return &Handler{
 		registry: reg,
 		embedder: embedder,
+		importer: importer.NewSkillImporter(reg, ""),
 	}
+}
+
+// SetGitHubToken sets the GitHub token for the importer
+func (h *Handler) SetGitHubToken(token string) {
+	h.importer = importer.NewSkillImporter(h.registry, token)
 }
 
 // RegisterRoutes registers API routes
@@ -43,6 +52,10 @@ func RegisterRoutes(router *gin.Engine, h *Handler) {
 		v1.POST("/skills", h.CreateSkill)
 		v1.PUT("/skills/:name", h.UpdateSkill)
 		v1.DELETE("/skills/:name", h.DeleteSkill)
+
+		// Skills import endpoints
+		v1.POST("/skills/import/github", h.ImportFromGitHub)
+		v1.POST("/skills/import/file", h.ImportFromFile)
 
 		// Health check
 		v1.GET("/health", h.Health)
@@ -276,4 +289,68 @@ func (h *Handler) DeleteSkill(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "skill deleted successfully"})
+}
+
+// ImportGitHubRequest represents a request to import from GitHub
+type ImportGitHubRequest struct {
+	URL         string `json:"url" binding:"required"`
+	GitHubToken string `json:"github_token"`
+}
+
+// ImportFromGitHub imports skills from a GitHub repository
+func (h *Handler) ImportFromGitHub(c *gin.Context) {
+	var req ImportGitHubRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Use provided token or environment token
+	imp := h.importer
+	if req.GitHubToken != "" {
+		imp = importer.NewSkillImporter(h.registry, req.GitHubToken)
+	}
+
+	result, err := imp.ImportFromGitHub(c.Request.Context(), req.URL)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message":  "Import completed",
+		"imported": result.Imported,
+		"skipped":  result.Skipped,
+		"errors":   result.Errors,
+	})
+}
+
+// ImportFromFile imports skills from an uploaded file
+func (h *Handler) ImportFromFile(c *gin.Context) {
+	file, header, err := c.Request.FormFile("file")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "file is required"})
+		return
+	}
+	defer file.Close()
+
+	// Read file content
+	content, err := io.ReadAll(file)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read file"})
+		return
+	}
+
+	result, err := h.importer.ImportFromFile(c.Request.Context(), header.Filename, content)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message":  "Import completed",
+		"imported": result.Imported,
+		"skipped":  result.Skipped,
+		"errors":   result.Errors,
+	})
 }
