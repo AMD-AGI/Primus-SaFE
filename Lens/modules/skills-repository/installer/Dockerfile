@@ -1,11 +1,10 @@
-ARG REGISTRY=docker.io
 ARG GO_VERSION=1.24.7
 ARG BUILDPATH=cmd/skills-repository
 ARG APPNAME=skills-repository
 ARG BASEPATH=Lens/modules/skills-repository/
 ARG GOPROXY=https://proxy.golang.org,direct
 
-FROM ${REGISTRY}/primussafe/golang:${GO_VERSION} AS builder
+FROM golang:${GO_VERSION} AS builder
 WORKDIR /app
 
 ARG GITHUB_TOKEN
@@ -33,8 +32,13 @@ COPY . .
 RUN cd Lens/modules/core && go mod tidy
 RUN cd $BASEPATH && go mod tidy && CGO_ENABLED=0 go build -tags nosqlite -a -installsuffix cgo -o $APPNAME $BUILDPATH/main.go
 
-ARG REGISTRY
-FROM --platform=linux/amd64 ${REGISTRY}/primussafe/ubuntu-rdma-base:0.0.1
+FROM ubuntu:22.04
+
+# Install common runtime dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
 
 ARG APPNAME=skills-repository
 ARG BASEPATH=Lens/modules/skills-repository/
