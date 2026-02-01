@@ -4,8 +4,6 @@
 package mcp
 
 import (
-	"net/http"
-
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/mcp/server"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/skills-repository/pkg/registry"
 	"github.com/gin-gonic/gin"
@@ -57,13 +55,15 @@ query "database migration" to find relevant skills.`)
 
 // RegisterRoutes registers MCP routes to the router
 func (h *Handler) RegisterRoutes(router *gin.Engine) {
-	// Mount SSE transport at /mcp path
-	mcpGroup := router.Group("/mcp")
-	{
-		mcpGroup.GET("/sse", gin.WrapH(http.HandlerFunc(h.sseTransport.Handler().ServeHTTP)))
-		mcpGroup.POST("/message", gin.WrapH(http.HandlerFunc(h.sseTransport.Handler().ServeHTTP)))
-		mcpGroup.GET("/health", gin.WrapH(http.HandlerFunc(h.sseTransport.Handler().ServeHTTP)))
-	}
+	// Mount SSE transport at /mcp path using Any to handle all sub-routes
+	router.Any("/mcp/*path", func(c *gin.Context) {
+		// Strip /mcp prefix and let the transport handler route internally
+		c.Request.URL.Path = c.Param("path")
+		if c.Request.URL.Path == "" {
+			c.Request.URL.Path = "/"
+		}
+		h.sseTransport.Handler().ServeHTTP(c.Writer, c.Request)
+	})
 }
 
 // GetServer returns the underlying MCP server
