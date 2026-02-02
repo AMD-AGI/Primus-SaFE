@@ -1,0 +1,90 @@
+# Tools Repository Service Deployment
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tools-repository-config
+  namespace: primus-lens
+data:
+  config.yaml: |
+    server:
+      port: 8093
+    database:
+      host: primus-lens-primary.primus-lens.svc.cluster.local
+      port: 5432
+      user: primus-lens-control-plane
+      db_name: primus-lens-control-plane
+      ssl_mode: require
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tools-repository
+  namespace: primus-lens
+  labels:
+    app: tools-repository
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: tools-repository
+  template:
+    metadata:
+      labels:
+        app: tools-repository
+    spec:
+      containers:
+      - name: app
+        image: primussafe/tools-repository:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8093
+          protocol: TCP
+        env:
+        - name: DATABASE_URL
+          value: "postgres://primus-lens-control-plane:$(DB_PASSWORD)@primus-lens-primary.primus-lens.svc.cluster.local:5432/primus-lens-control-plane?sslmode=require"
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: primus-lens-pguser-primus-lens-control-plane
+              key: password
+        - name: PORT
+          value: "8093"
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "256Mi"
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8093
+          initialDelaySeconds: 10
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8093
+          initialDelaySeconds: 5
+          periodSeconds: 10
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tools-repository
+  namespace: primus-lens
+  labels:
+    app: tools-repository
+spec:
+  type: ClusterIP
+  ports:
+  - name: http
+    port: 8093
+    targetPort: 8093
+    protocol: TCP
+  selector:
+    app: tools-repository
