@@ -264,6 +264,9 @@ func (r *SyncerReconciler) updateAdminWorkloadStatus(ctx context.Context, origin
 		return originalWorkload, nil
 	}
 	adminWorkload := originalWorkload.DeepCopy()
+	if adminWorkload.Status.StartTime == nil {
+		adminWorkload.Status.StartTime = &metav1.Time{Time: time.Now().UTC()}
+	}
 	if commonworkload.IsCICDScalingRunnerSet(adminWorkload) && status.RunnerScaleSetId != "" {
 		if adminWorkload.Status.RunnerScaleSetId != status.RunnerScaleSetId {
 			patch := client.MergeFrom(originalWorkload)
@@ -274,12 +277,6 @@ func (r *SyncerReconciler) updateAdminWorkloadStatus(ctx context.Context, origin
 		}
 		return adminWorkload, nil
 	}
-	if adminWorkload.Status.StartTime == nil {
-		adminWorkload.Status.StartTime = &metav1.Time{Time: time.Now().UTC()}
-	}
-	if adminWorkload.IsEnd() && adminWorkload.Status.EndTime == nil {
-		adminWorkload.Status.EndTime = &metav1.Time{Time: time.Now().UTC()}
-	}
 	if status.Phase != "" {
 		r.updateAdminWorkloadPhase(adminWorkload, status, message)
 		if !commonworkload.IsTorchFT(adminWorkload) ||
@@ -288,6 +285,9 @@ func (r *SyncerReconciler) updateAdminWorkloadStatus(ctx context.Context, origin
 				commonworkload.GenerateDispatchReason(message.dispatchCount))
 			updateWorkloadCondition(adminWorkload, cond)
 		}
+	}
+	if adminWorkload.IsEnd() && adminWorkload.Status.EndTime == nil {
+		adminWorkload.Status.EndTime = &metav1.Time{Time: time.Now().UTC()}
 	}
 	if !status.IsPending() {
 		adminWorkload.Status.Message = ""
