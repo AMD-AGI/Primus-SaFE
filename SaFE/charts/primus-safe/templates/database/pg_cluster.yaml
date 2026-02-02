@@ -25,29 +25,49 @@ spec:
         - "primus-safe-db"
   backups:
     pgbackrest:
+      global:
+        repo1-retention-full: "14"
+        repo1-retention-full-type: time
       repos:
         - name: repo1
+          schedules:
+            differential: 0 2 * * 1-6
+            full: 0 2 * * 0
           volume:
             volumeClaimSpec:
-              storageClassName: {{ .Values.global.storage_class }}
               accessModes:
-                - {{ if eq .Values.global.storage_class "juicefs" }}ReadWriteMany{{ else }}ReadWriteOnce{{ end }}
+                - ReadWriteOnce
               resources:
                 requests:
                   storage: 1024Gi
+              storageClassName: {{ .Values.global.storage_class }}
+  # To avoid multiple instances on the same node, please add affinity.
   instances:
     - dataVolumeClaimSpec:
         storageClassName: {{ .Values.global.storage_class }}
         accessModes:
-          - {{ if eq .Values.global.storage_class "juicefs" }}ReadWriteMany{{ else }}ReadWriteOnce{{ end }}
+          - ReadWriteOnce
         resources:
           requests:
-            storage: 500Gi
+            storage: 1Ti
       name: db
       replicas: 2
-  monitoring:
-    pgmonitor:
-      exporter:
-        image: ""
+      resources:
+        limits:
+          cpu: 2000m
+          memory: 4Gi
+        requests:
+          cpu: 500m
+          memory: 2Gi
+  patroni:
+    dynamicConfiguration:
+      postgresql:
+        parameters:
+          effective_cache_size: 1GB
+          max_connections: "200"
+          shared_buffers: 256MB
+    leaderLeaseDurationSeconds: 30
+    port: 8008
+    syncPeriodSeconds: 10
   port: 5432
   postgresVersion: 17
