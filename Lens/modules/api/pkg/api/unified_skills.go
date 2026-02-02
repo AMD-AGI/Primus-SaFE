@@ -105,10 +105,10 @@ func init() {
 // ======================== Request Types ========================
 
 type SkillsListRequest struct {
-	Offset   int    `json:"offset" form:"offset" mcp:"description=Pagination offset (default: 0)"`
-	Limit    int    `json:"limit" form:"limit" mcp:"description=Number of items per page (default: 50)"`
-	Category string `json:"category" form:"category" mcp:"description=Filter by category"`
-	Source   string `json:"source" form:"source" mcp:"description=Filter by source (manual/git/local)"`
+	Offset   int    `json:"offset" query:"offset" mcp:"description=Pagination offset (default: 0)"`
+	Limit    int    `json:"limit" query:"limit" mcp:"description=Number of items per page (default: 50)"`
+	Category string `json:"category" query:"category" mcp:"description=Filter by category"`
+	Source   string `json:"source" query:"source" mcp:"description=Filter by source (manual/git/local)"`
 }
 
 type SkillGetRequest struct {
