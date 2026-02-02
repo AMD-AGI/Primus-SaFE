@@ -8,6 +8,7 @@ import (
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/controlplane/database/model"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // WorkspaceSkillFacadeInterface defines the interface for WorkspaceSkill operations
@@ -110,10 +111,7 @@ func (f *WorkspaceSkillFacade) BatchAddSkillsToWorkspace(ctx context.Context, wo
 
 	// Use ON CONFLICT DO NOTHING to ignore duplicates
 	return f.db.WithContext(ctx).
-		Clauses(gorm.Clause{
-			Name: "ON CONFLICT",
-			Expression: gorm.Expr("(workspace_id, skill_id) DO NOTHING"),
-		}).
+		Clauses(clause.OnConflict{DoNothing: true}).
 		Create(&items).Error
 }
 
