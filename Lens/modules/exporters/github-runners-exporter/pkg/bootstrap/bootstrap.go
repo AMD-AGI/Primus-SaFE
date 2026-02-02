@@ -18,6 +18,7 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/github-runners-exporter/pkg/executor"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/github-runners-exporter/pkg/reconciler"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/github-runners-exporter/pkg/types"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
@@ -26,6 +27,11 @@ var schemes = &runtime.SchemeBuilder{}
 
 // schemeAdder adds the AutoScalingRunnerSet and EphemeralRunner types to the scheme
 func schemeAdder(scheme *runtime.Scheme) error {
+	// Register corev1 types (Pod, PodList, etc.) required by PVCReader to access node-exporter
+	if err := corev1.AddToScheme(scheme); err != nil {
+		return err
+	}
+
 	// Register the unstructured types for GitHub Actions Runner Controller CRDs
 	scheme.AddKnownTypeWithName(
 		types.AutoScalingRunnerSetGVK,
