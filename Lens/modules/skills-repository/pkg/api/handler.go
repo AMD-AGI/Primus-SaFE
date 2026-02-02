@@ -61,8 +61,8 @@ func RegisterRoutes(router *gin.Engine, h *Handler) {
 		v1.GET("/health", h.Health)
 	}
 
-	// Register workspace routes
-	RegisterWorkspaceRoutes(router, h)
+	// Register skillset routes
+	RegisterSkillsetRoutes(router, h)
 }
 
 // ListSkills lists all skills with pagination
