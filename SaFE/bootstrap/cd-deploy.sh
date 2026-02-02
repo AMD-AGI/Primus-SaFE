@@ -78,6 +78,7 @@ fi
 if [ -f "$ENV_FILE" ]; then
     source "$ENV_FILE"
     echo "✓ .env file loaded (proxy_image_registry=${proxy_image_registry:-not set})"
+    echo "✓ install_node_agent=${install_node_agent:-y}"
 fi
 
 # Update components
@@ -207,7 +208,12 @@ wait_deployment_ready "primus-safe-web" "$NAMESPACE" ""
 
 echo ""
 echo "Checking DaemonSet status..."
-wait_daemonset_ready "primus-safe-node-agent" "$NAMESPACE" ""
+# Skip node-agent verification if install_node_agent=n
+if [[ "${install_node_agent:-y}" == "n" ]]; then
+    echo "⏭️  Skipping node-agent verification (install_node_agent=n)"
+else
+    wait_daemonset_ready "primus-safe-node-agent" "$NAMESPACE" ""
+fi
 
 echo ""
 echo "✓ Local deployment verification completed"
@@ -298,32 +304,36 @@ EOF
         echo "✓ Connected to cluster $CLUSTER_ID"
         KUBECONFIG_OPT="--kubeconfig=$KUBECONFIG_FILE"
         
-        # Update node-agent if needed
+        # Update node-agent if needed (skip if install_node_agent=n)
         if [ "$HAS_NODE_AGENT" = "true" ]; then
-            echo "Updating node-agent on $CLUSTER_ID..."
-            
-            NODE_AGENT_TMP_VALUES="$NODE_AGENT_CHART/.values.yaml"
-            cp "$NODE_AGENT_CHART/values.yaml" "$NODE_AGENT_TMP_VALUES"
-            sed -i "s|image: \".*\"|image: \"$NODE_AGENT_IMAGE\"|" "$NODE_AGENT_TMP_VALUES"
-            
-            # Replace image_registry with proxy_image_registry from .env
-            if [ -n "${proxy_image_registry:-}" ]; then
-                safe_image=$(printf '%s\n' "$proxy_image_registry" | sed 's/[&/\]/\\&/g')
-                sed -i '/node_agent:/,/^[a-z]/ s/image_registry: .*/image_registry: "'"$safe_image"'"/' "$NODE_AGENT_TMP_VALUES"
-                echo "  ✓ Updated image_registry to $proxy_image_registry"
+            if [[ "${install_node_agent:-y}" == "n" ]]; then
+                echo "⏭️  Skipping node-agent update on $CLUSTER_ID (install_node_agent=n)"
+            else
+                echo "Updating node-agent on $CLUSTER_ID..."
+                
+                NODE_AGENT_TMP_VALUES="$NODE_AGENT_CHART/.values.yaml"
+                cp "$NODE_AGENT_CHART/values.yaml" "$NODE_AGENT_TMP_VALUES"
+                sed -i "s|image: \".*\"|image: \"$NODE_AGENT_IMAGE\"|" "$NODE_AGENT_TMP_VALUES"
+                
+                # Replace image_registry with proxy_image_registry from .env
+                if [ -n "${proxy_image_registry:-}" ]; then
+                    safe_image=$(printf '%s\n' "$proxy_image_registry" | sed 's/[&/\]/\\&/g')
+                    sed -i '/node_agent:/,/^[a-z]/ s/image_registry: .*/image_registry: "'"$safe_image"'"/' "$NODE_AGENT_TMP_VALUES"
+                    echo "  ✓ Updated image_registry to $proxy_image_registry"
+                fi
+                
+                helm $KUBECONFIG_OPT upgrade -i node-agent "$NODE_AGENT_CHART" \
+                    -n $NAMESPACE --create-namespace \
+                    -f "$NODE_AGENT_TMP_VALUES" \
+                    || echo "⚠ helm upgrade failed for $CLUSTER_ID, continuing..."
+                
+                rm -f "$NODE_AGENT_TMP_VALUES"
+                
+                # Verify node-agent DaemonSet using precise check
+                wait_daemonset_ready "primus-safe-node-agent" "$NAMESPACE" "$KUBECONFIG_OPT"
+                
+                echo "✓ node-agent updated on $CLUSTER_ID"
             fi
-            
-            helm $KUBECONFIG_OPT upgrade -i node-agent "$NODE_AGENT_CHART" \
-                -n $NAMESPACE --create-namespace \
-                -f "$NODE_AGENT_TMP_VALUES" \
-                || echo "⚠ helm upgrade failed for $CLUSTER_ID, continuing..."
-            
-            rm -f "$NODE_AGENT_TMP_VALUES"
-            
-            # Verify node-agent DaemonSet using precise check
-            wait_daemonset_ready "primus-safe-node-agent" "$NAMESPACE" "$KUBECONFIG_OPT"
-            
-            echo "✓ node-agent updated on $CLUSTER_ID"
         fi
         
         # Update CICD if needed
