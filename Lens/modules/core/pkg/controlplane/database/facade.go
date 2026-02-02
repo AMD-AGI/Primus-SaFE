@@ -29,9 +29,9 @@ type ControlPlaneFacade struct {
 	SkillExecution    SkillExecutionFacadeInterface
 	SkillFeedback     SkillFeedbackFacadeInterface
 	SkillQualityStats SkillQualityStatsFacadeInterface
-	// Workspace
-	Workspace      WorkspaceFacadeInterface
-	WorkspaceSkill WorkspaceSkillFacadeInterface
+	// Skillset
+	Skillset      SkillsetFacadeInterface
+	SkillsetSkill SkillsetSkillFacadeInterface
 }
 
 // NewControlPlaneFacade creates a new ControlPlaneFacade instance
@@ -53,9 +53,9 @@ func NewControlPlaneFacade(db *gorm.DB) *ControlPlaneFacade {
 		SkillExecution:    NewSkillExecutionFacade(db),
 		SkillFeedback:     NewSkillFeedbackFacade(db),
 		SkillQualityStats: NewSkillQualityStatsFacade(db),
-		// Workspace
-		Workspace:      NewWorkspaceFacade(db),
-		WorkspaceSkill: NewWorkspaceSkillFacade(db),
+		// Skillset
+		Skillset:      NewSkillsetFacade(db),
+		SkillsetSkill: NewSkillsetSkillFacade(db),
 	}
 }
 
@@ -134,14 +134,14 @@ func (f *ControlPlaneFacade) GetSkillQualityStats() SkillQualityStatsFacadeInter
 	return f.SkillQualityStats
 }
 
-// GetWorkspace returns the Workspace Facade interface
-func (f *ControlPlaneFacade) GetWorkspace() WorkspaceFacadeInterface {
-	return f.Workspace
+// GetSkillset returns the Skillset Facade interface
+func (f *ControlPlaneFacade) GetSkillset() SkillsetFacadeInterface {
+	return f.Skillset
 }
 
-// GetWorkspaceSkill returns the WorkspaceSkill Facade interface
-func (f *ControlPlaneFacade) GetWorkspaceSkill() WorkspaceSkillFacadeInterface {
-	return f.WorkspaceSkill
+// GetSkillsetSkill returns the SkillsetSkill Facade interface
+func (f *ControlPlaneFacade) GetSkillsetSkill() SkillsetSkillFacadeInterface {
+	return f.SkillsetSkill
 }
 
 // Global control plane facade instance
