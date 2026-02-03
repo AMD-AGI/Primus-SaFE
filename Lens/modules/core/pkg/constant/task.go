@@ -70,5 +70,19 @@ const (
 	CoordinatorStateCompleted = "completed"
 )
 
+// AnalysisTaskTypes defines all task types related to analysis
+var AnalysisTaskTypes = []string{
+	TaskTypeGithubWorkflowAnalysis,
+	TaskTypeGithubSchemaAnalyze,
+	TaskTypeGithubCodeIndexing,
+}
+
+// AnalysisTaskTypeDisplayNames maps task types to human-readable display names
+var AnalysisTaskTypeDisplayNames = map[string]string{
+	TaskTypeGithubWorkflowAnalysis: "Workflow Analysis",
+	TaskTypeGithubSchemaAnalyze:    "Schema Analysis",
+	TaskTypeGithubCodeIndexing:     "Code Indexing",
+}
+
 // Build trigger: 2026-01-27 - workflow sync API parameter fix
 
