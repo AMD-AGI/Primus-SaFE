@@ -197,6 +197,7 @@ func (r *EphemeralRunnerReconciler) removeFinalizer(ctx context.Context, obj *un
 func (r *EphemeralRunnerReconciler) processRunner(ctx context.Context, info *types.EphemeralRunnerInfo) error {
 	runnerSetFacade := database.GetFacade().GetGithubRunnerSet()
 	runFacade := database.GetFacade().GetGithubWorkflowRun()
+	runSummaryFacade := database.NewGithubWorkflowRunSummaryFacade()
 
 	// Find the runner set for this ephemeral runner
 	runnerSet, err := runnerSetFacade.GetByNamespaceName(ctx, info.Namespace, info.RunnerSetName)
@@ -212,6 +213,21 @@ func (r *EphemeralRunnerReconciler) processRunner(ctx context.Context, info *typ
 	// Enrich with GitHub API info if we have a run ID but missing details
 	if info.GithubRunID != 0 && info.HeadSHA == "" {
 		r.enrichWithGitHubInfo(ctx, info, runnerSet)
+	}
+
+	// Process Run Summary (Run-level aggregation) if we have a GitHub run ID
+	var runSummary *model.GithubWorkflowRunSummaries
+	var isNewSummary bool
+	if info.GithubRunID != 0 && runnerSet.GithubOwner != "" && runnerSet.GithubRepo != "" {
+		runSummary, isNewSummary, err = runSummaryFacade.GetOrCreateByRunID(ctx, info.GithubRunID, runnerSet.GithubOwner, runnerSet.GithubRepo)
+		if err != nil {
+			log.Warnf("EphemeralRunnerReconciler: failed to get/create run summary for github_run_id %d: %v", info.GithubRunID, err)
+		} else if runSummary != nil {
+			// Trigger GraphFetch if new or not yet fetched
+			if isNewSummary || !runSummary.GraphFetched {
+				r.triggerGraphFetch(ctx, runSummary, runnerSet)
+			}
+		}
 	}
 
 	// Map EphemeralRunner phase to our status
@@ -328,6 +344,11 @@ func (r *EphemeralRunnerReconciler) processRunner(ctx context.Context, info *typ
 		WorkloadStartedAt:  info.CreationTimestamp.Time,
 	}
 
+	// Set run_summary_id if we have a run summary
+	if runSummary != nil {
+		run.RunSummaryID = runSummary.ID
+	}
+
 	// Set completion time if completed
 	if info.IsCompleted {
 		if !info.CompletionTime.IsZero() {
@@ -341,8 +362,13 @@ func (r *EphemeralRunnerReconciler) processRunner(ctx context.Context, info *typ
 		return fmt.Errorf("failed to create run record for %s: %w", info.Name, err)
 	}
 
-	log.Infof("EphemeralRunnerReconciler: created run record %d for %s/%s (runner_set: %s, status: %s)",
-		run.ID, info.Namespace, info.Name, runnerSet.Name, status)
+	log.Infof("EphemeralRunnerReconciler: created run record %d for %s/%s (runner_set: %s, status: %s, run_summary: %d)",
+		run.ID, info.Namespace, info.Name, runnerSet.Name, status, run.RunSummaryID)
+
+	// Trigger code analysis on first job of this run (Run-level trigger)
+	if runSummary != nil && !runSummary.CodeAnalysisTriggered {
+		r.triggerCodeAnalysis(ctx, runSummary, runnerSet)
+	}
 
 	// Start real-time sync when runner is running and has GitHub run ID
 	if status == database.WorkflowRunStatusWorkloadRunning && run.GithubRunID > 0 {
@@ -581,5 +607,70 @@ func (r *EphemeralRunnerReconciler) submitCollectionTask(ctx context.Context, ru
 
 	log.Infof("EphemeralRunnerReconciler: submitted collection task %s for run %d", taskUID, run.ID)
 	return nil
+}
+
+// triggerGraphFetch triggers a GraphFetch task to fetch workflow graph from GitHub
+func (r *EphemeralRunnerReconciler) triggerGraphFetch(ctx context.Context, summary *model.GithubWorkflowRunSummaries, runnerSet *model.GithubRunnerSets) {
+	taskFacade := database.NewWorkloadTaskFacade()
+
+	taskUID := fmt.Sprintf("graph-fetch-%d-%d", summary.GithubRunID, time.Now().Unix())
+
+	graphFetchTask := &model.WorkloadTaskState{
+		WorkloadUID: taskUID,
+		TaskType:    constant.TaskTypeGithubGraphFetch,
+		Status:      constant.TaskStatusPending,
+		Ext: model.ExtType{
+			"run_summary_id":       summary.ID,
+			"github_run_id":        summary.GithubRunID,
+			"owner":                summary.Owner,
+			"repo":                 summary.Repo,
+			"runner_set_namespace": runnerSet.Namespace,
+			"runner_set_name":      runnerSet.Name,
+		},
+	}
+
+	if err := taskFacade.UpsertTask(ctx, graphFetchTask); err != nil {
+		log.Warnf("EphemeralRunnerReconciler: failed to create graph fetch task for run summary %d: %v", summary.ID, err)
+		return
+	}
+
+	log.Infof("EphemeralRunnerReconciler: triggered graph fetch task %s for run summary %d (github_run_id: %d)",
+		taskUID, summary.ID, summary.GithubRunID)
+}
+
+// triggerCodeAnalysis triggers code analysis on first job of a run (Run-level trigger)
+func (r *EphemeralRunnerReconciler) triggerCodeAnalysis(ctx context.Context, summary *model.GithubWorkflowRunSummaries, runnerSet *model.GithubRunnerSets) {
+	runSummaryFacade := database.NewGithubWorkflowRunSummaryFacade()
+
+	// Mark as triggered first to prevent duplicate triggers
+	if err := runSummaryFacade.UpdateAnalysisTriggered(ctx, summary.ID, "code", true); err != nil {
+		log.Warnf("EphemeralRunnerReconciler: failed to update code_analysis_triggered for run summary %d: %v", summary.ID, err)
+		return
+	}
+
+	taskFacade := database.NewWorkloadTaskFacade()
+	taskUID := fmt.Sprintf("code-analysis-%d-%d", summary.GithubRunID, time.Now().Unix())
+
+	analysisTask := &model.WorkloadTaskState{
+		WorkloadUID: taskUID,
+		TaskType:    constant.TaskTypeGithubCodeIndexing, // Code indexing for AI-Me
+		Status:      constant.TaskStatusPending,
+		Ext: model.ExtType{
+			"run_summary_id": summary.ID,
+			"github_run_id":  summary.GithubRunID,
+			"owner":          summary.Owner,
+			"repo":           summary.Repo,
+			"head_sha":       summary.HeadSha,
+			"head_branch":    summary.HeadBranch,
+		},
+	}
+
+	if err := taskFacade.UpsertTask(ctx, analysisTask); err != nil {
+		log.Warnf("EphemeralRunnerReconciler: failed to create code analysis task for run summary %d: %v", summary.ID, err)
+		return
+	}
+
+	log.Infof("EphemeralRunnerReconciler: triggered code analysis task %s for run summary %d (first job of run)",
+		taskUID, summary.ID)
 }
 
