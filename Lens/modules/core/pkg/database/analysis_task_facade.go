@@ -5,6 +5,7 @@ package database
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -228,6 +229,57 @@ func (f *AnalysisTaskFacade) RetryTask(ctx context.Context, taskID int64) error 
 	}
 	if result.RowsAffected == 0 {
 		return fmt.Errorf("task not found or not in failed status")
+	}
+	
+	return nil
+}
+
+// UpdateTask updates task status and merges ext fields
+func (f *AnalysisTaskFacade) UpdateTask(ctx context.Context, taskID int64, status string, extUpdates map[string]interface{}) error {
+	// Validate status
+	validStatuses := map[string]bool{
+		constant.TaskStatusPending:   true,
+		constant.TaskStatusRunning:   true,
+		constant.TaskStatusCompleted: true,
+		constant.TaskStatusFailed:    true,
+		constant.TaskStatusCancelled: true,
+	}
+	if status != "" && !validStatuses[status] {
+		return fmt.Errorf("invalid status: %s", status)
+	}
+	
+	// Build updates
+	updates := map[string]interface{}{
+		"updated_at": time.Now(),
+	}
+	
+	if status != "" {
+		updates["status"] = status
+	}
+	
+	// Build the query
+	query := f.getDB().WithContext(ctx).
+		Model(&model.WorkloadTaskState{}).
+		Where("id = ?", taskID).
+		Where("task_type IN ?", constant.AnalysisTaskTypes)
+	
+	// If we have ext updates, merge them into existing ext
+	if len(extUpdates) > 0 {
+		// Convert extUpdates to JSON for JSONB merge
+		extJSON, err := json.Marshal(extUpdates)
+		if err != nil {
+			return fmt.Errorf("failed to marshal ext updates: %w", err)
+		}
+		updates["ext"] = gorm.Expr("COALESCE(ext, '{}'::jsonb) || ?::jsonb", string(extJSON))
+	}
+	
+	result := query.Updates(updates)
+	
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return fmt.Errorf("task not found")
 	}
 	
 	return nil

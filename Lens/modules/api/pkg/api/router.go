@@ -507,12 +507,26 @@ func RegisterRouter(group *gin.RouterGroup) error {
 			// Job and step logs APIs
 			runsGroup.GET("/:id/jobs/:job_id/logs", GetJobLogs)
 			runsGroup.GET("/:id/jobs/:job_id/steps/:step_number/logs", GetStepLogs)
+			// Analysis tasks by run ID
+			runsGroup.GET("/:id/analysis-tasks", GetAnalysisTasksByRunID)
 		}
 		// Schema details
 		schemasGroup := githubWorkflowMetricsGroup.Group("/schemas")
 		{
 			schemasGroup.GET("/:id", getUnifiedHandler("/github-workflow-metrics/schemas/:id"))
 			schemasGroup.POST("/:id/activate", SetGithubWorkflowSchemaActive)
+		}
+		// Analysis tasks - AI workflow analysis tasks
+		analysisTasksGroup := githubWorkflowMetricsGroup.Group("/analysis-tasks")
+		{
+			// List all analysis tasks with optional filters
+			analysisTasksGroup.GET("", ListAnalysisTasks)
+			// Get a specific analysis task
+			analysisTasksGroup.GET("/:task_id", GetAnalysisTaskByID)
+			// Update an analysis task (status and ext fields)
+			analysisTasksGroup.PUT("/:task_id", UpdateAnalysisTask)
+			// Retry a failed analysis task
+			analysisTasksGroup.POST("/:task_id/retry", RetryAnalysisTask)
 		}
 	}
 
