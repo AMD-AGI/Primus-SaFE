@@ -365,7 +365,7 @@ func (f *WorkloadFacade) ListActiveTopLevelWorkloads(ctx context.Context, startT
 		Where("parent_uid = ?", "").                                                    // Top-level workloads only
 		Where("created_at <= ?", endTime).                                              // Created before or at end time
 		Where("(end_at IS NULL OR end_at = ? OR end_at >= ?)", time.Time{}, startTime). // Still active or ended after start time
-		Where("(deleted_at IS NULL OR deleted_at > ?)", endTime)                        // Not deleted before end time
+		Where("(deleted_at IS NULL OR deleted_at >= ?)", endTime)                       // Not deleted before or at end time (use >= to include boundary case)
 
 	if namespace != "" {
 		query = query.Where("namespace = ?", namespace)
