@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/constant"
@@ -89,14 +90,23 @@ func (e *SyncExecutor) Execute(ctx context.Context, execCtx *task.ExecutionConte
 				return e.buildResult(runID, syncCount, "timeout"), nil
 			}
 
-			// Perform sync
-			state, err := e.syncOnce(ctx, runID)
-			syncCount++
+		// Perform sync
+		state, err := e.syncOnce(ctx, runID)
+		syncCount++
 
-			if err != nil {
-				log.Warnf("SyncExecutor: sync failed for run %d: %v", runID, err)
-				// Continue trying, don't fail the task
+		if err != nil {
+			log.Warnf("SyncExecutor: sync failed for run %d: %v", runID, err)
+			
+			// Check for permanent errors that should stop the sync
+			errStr := err.Error()
+			if strings.Contains(errStr, "403 Forbidden") || 
+			   strings.Contains(errStr, "404 Not Found") ||
+			   strings.Contains(errStr, "secrets") && strings.Contains(errStr, "not found") {
+				log.Warnf("SyncExecutor: permanent error for run %d, stopping sync: %v", runID, err)
+				return e.buildResult(runID, syncCount, "error_permanent"), nil
 			}
+			// Continue trying for transient errors
+		}
 
 			// Update heartbeat with progress info
 			if state != nil {
