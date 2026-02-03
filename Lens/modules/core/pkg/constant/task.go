@@ -39,6 +39,8 @@ const (
 	TaskTypeGithubWorkflowAnalysis   = "github_workflow_analysis"   // Performance analysis and fluctuation detection
 	TaskTypeGithubSchemaAnalyze      = "github_schema_analyze"      // AI-based schema analysis
 	TaskTypeGithubCodeIndexing       = "github_code_indexing"       // Code indexing for AI-Me
+	TaskTypeGithubGraphFetch         = "github_graph_fetch"         // Fetch workflow graph from GitHub API
+	TaskTypeGithubRunSync            = "github_run_sync"            // Sync workflow run status from GitHub API
 )
 
 // Detection coverage source constants

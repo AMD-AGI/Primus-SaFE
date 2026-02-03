@@ -320,6 +320,9 @@ func (e *SyncExecutor) updateDatabase(ctx context.Context, run *model.GithubWork
 		return err
 	}
 
+	// Check for job failures and trigger failure analysis (Run-level trigger)
+	e.checkAndTriggerFailureAnalysis(ctx, run, ghJobs)
+
 	// Sync jobs and steps
 	if ghJobs != nil {
 		jobFacade := database.NewGithubWorkflowJobFacade()
@@ -451,4 +454,74 @@ func CreateSyncTask(ctx context.Context, runID int64) error {
 // generateSyncTaskUID generates a unique task UID for sync tasks
 func generateSyncTaskUID(runID int64) string {
 	return fmt.Sprintf("workflow-sync-%d", runID)
+}
+
+// checkAndTriggerFailureAnalysis checks for job failures and triggers failure analysis at Run level
+func (e *SyncExecutor) checkAndTriggerFailureAnalysis(ctx context.Context, run *model.GithubWorkflowRuns, ghJobs []github.JobInfo) {
+	if ghJobs == nil {
+		return
+	}
+
+	// Check if any job failed
+	hasFailure := false
+	for _, job := range ghJobs {
+		if job.Conclusion == "failure" {
+			hasFailure = true
+			break
+		}
+	}
+
+	if !hasFailure {
+		return
+	}
+
+	// Only proceed if we have a run_summary_id
+	if run.RunSummaryID == 0 {
+		return
+	}
+
+	runSummaryFacade := database.NewGithubWorkflowRunSummaryFacade()
+	summary, err := runSummaryFacade.GetByID(ctx, run.RunSummaryID)
+	if err != nil || summary == nil {
+		log.Warnf("SyncExecutor: failed to get run summary %d: %v", run.RunSummaryID, err)
+		return
+	}
+
+	// Check if already triggered
+	if summary.FailureAnalysisTriggered {
+		return
+	}
+
+	// Mark as triggered first to prevent duplicate triggers
+	if err := runSummaryFacade.UpdateAnalysisTriggered(ctx, summary.ID, "failure", true); err != nil {
+		log.Warnf("SyncExecutor: failed to update failure_analysis_triggered for run summary %d: %v", summary.ID, err)
+		return
+	}
+
+	// Create failure analysis task
+	taskFacade := database.NewWorkloadTaskFacade()
+	taskUID := fmt.Sprintf("failure-analysis-%d-%d", summary.GithubRunID, time.Now().Unix())
+
+	analysisTask := &model.WorkloadTaskState{
+		WorkloadUID: taskUID,
+		TaskType:    constant.TaskTypeGithubWorkflowAnalysis, // Use workflow analysis for failure analysis
+		Status:      constant.TaskStatusPending,
+		Ext: model.ExtType{
+			"run_summary_id":  summary.ID,
+			"github_run_id":   summary.GithubRunID,
+			"owner":           summary.Owner,
+			"repo":            summary.Repo,
+			"analysis_type":   "failure",
+			"head_sha":        summary.HeadSha,
+			"head_branch":     summary.HeadBranch,
+		},
+	}
+
+	if err := taskFacade.UpsertTask(ctx, analysisTask); err != nil {
+		log.Warnf("SyncExecutor: failed to create failure analysis task for run summary %d: %v", summary.ID, err)
+		return
+	}
+
+	log.Infof("SyncExecutor: triggered failure analysis task %s for run summary %d (first job failure detected)",
+		taskUID, summary.ID)
 }

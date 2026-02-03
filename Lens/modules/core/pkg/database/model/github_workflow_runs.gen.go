@@ -11,8 +11,10 @@ import (
 const TableNameGithubWorkflowRuns = "github_workflow_runs"
 
 // GithubWorkflowRuns mapped from table <github_workflow_runs>
+// Deprecated: This table will be renamed to github_workflow_jobs. Use GithubWorkflowJobs instead.
 type GithubWorkflowRuns struct {
 	ID                    int64     `gorm:"column:id;primaryKey;autoIncrement:true" json:"id"`
+	RunSummaryID          int64     `gorm:"column:run_summary_id" json:"run_summary_id"` // Logical reference to github_workflow_run_summaries
 	ConfigID              int64     `gorm:"column:config_id" json:"config_id"`
 	WorkloadUID           string    `gorm:"column:workload_uid;not null" json:"workload_uid"`
 	WorkloadName          string    `gorm:"column:workload_name" json:"workload_name"`
