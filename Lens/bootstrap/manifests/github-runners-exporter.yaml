@@ -43,7 +43,7 @@ spec:
       serviceAccountName: primus-lens-app
       containers:
         - name: app
-          image: docker.io/primussafe/github-runners-exporter:202601051448
+          image: docker.io/primussafe/github-runners-exporter:202602031846
           imagePullPolicy: IfNotPresent
           env:
             - name: CONFIG_PATH

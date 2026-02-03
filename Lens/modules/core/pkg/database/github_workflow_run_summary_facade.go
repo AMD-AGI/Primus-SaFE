@@ -48,8 +48,16 @@ type GithubWorkflowRunSummaryFacade struct {
 // NewGithubWorkflowRunSummaryFacade creates a new facade instance
 func NewGithubWorkflowRunSummaryFacade() *GithubWorkflowRunSummaryFacade {
 	return &GithubWorkflowRunSummaryFacade{
-		db: GetFacade().GetSystemConfig().GetDB(),
+		db: nil, // Will be set lazily
 	}
+}
+
+// getDB returns the database connection, initializing lazily to avoid circular dependency
+func (f *GithubWorkflowRunSummaryFacade) getDB() *gorm.DB {
+	if f.db == nil {
+		f.db = GetFacade().GetSystemConfig().GetDB()
+	}
+	return f.db
 }
 
 // GetOrCreateByRunID returns existing summary or creates a new one
@@ -61,7 +69,7 @@ func (f *GithubWorkflowRunSummaryFacade) GetOrCreateByRunID(
 ) (*model.GithubWorkflowRunSummaries, bool, error) {
 	var summary model.GithubWorkflowRunSummaries
 
-	err := f.db.WithContext(ctx).
+	err := f.getDB().WithContext(ctx).
 		Where("github_run_id = ?", githubRunID).
 		First(&summary).Error
 
@@ -86,10 +94,10 @@ func (f *GithubWorkflowRunSummaryFacade) GetOrCreateByRunID(
 		UpdatedAt:        time.Now(),
 	}
 
-	if err := f.db.WithContext(ctx).Create(&summary).Error; err != nil {
+	if err := f.getDB().WithContext(ctx).Create(&summary).Error; err != nil {
 		// Handle race condition - another goroutine may have created it
 		if errors.Is(err, gorm.ErrDuplicatedKey) {
-			if err := f.db.WithContext(ctx).Where("github_run_id = ?", githubRunID).First(&summary).Error; err != nil {
+			if err := f.getDB().WithContext(ctx).Where("github_run_id = ?", githubRunID).First(&summary).Error; err != nil {
 				return nil, false, err
 			}
 			return &summary, false, nil
@@ -103,7 +111,7 @@ func (f *GithubWorkflowRunSummaryFacade) GetOrCreateByRunID(
 // GetByID retrieves a summary by ID
 func (f *GithubWorkflowRunSummaryFacade) GetByID(ctx context.Context, id int64) (*model.GithubWorkflowRunSummaries, error) {
 	var summary model.GithubWorkflowRunSummaries
-	err := f.db.WithContext(ctx).Where("id = ?", id).First(&summary).Error
+	err := f.getDB().WithContext(ctx).Where("id = ?", id).First(&summary).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
 	}
@@ -113,7 +121,7 @@ func (f *GithubWorkflowRunSummaryFacade) GetByID(ctx context.Context, id int64) 
 // GetByGithubRunID retrieves a summary by GitHub run ID
 func (f *GithubWorkflowRunSummaryFacade) GetByGithubRunID(ctx context.Context, githubRunID int64) (*model.GithubWorkflowRunSummaries, error) {
 	var summary model.GithubWorkflowRunSummaries
-	err := f.db.WithContext(ctx).Where("github_run_id = ?", githubRunID).First(&summary).Error
+	err := f.getDB().WithContext(ctx).Where("github_run_id = ?", githubRunID).First(&summary).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
 	}
@@ -144,7 +152,7 @@ func (f *GithubWorkflowRunSummaryFacade) ListByRepo(
 	owner, repo string,
 	filter *RunSummaryFilter,
 ) ([]*model.GithubWorkflowRunSummaries, int64, error) {
-	query := f.db.WithContext(ctx).
+	query := f.getDB().WithContext(ctx).
 		Model(&model.GithubWorkflowRunSummaries{}).
 		Where("owner = ? AND repo = ?", owner, repo)
 
@@ -202,7 +210,7 @@ func (f *GithubWorkflowRunSummaryFacade) List(
 	ctx context.Context,
 	filter *RunSummaryFilter,
 ) ([]*model.GithubWorkflowRunSummaries, int64, error) {
-	query := f.db.WithContext(ctx).Model(&model.GithubWorkflowRunSummaries{})
+	query := f.getDB().WithContext(ctx).Model(&model.GithubWorkflowRunSummaries{})
 
 	if filter != nil {
 		if filter.Owner != "" {
@@ -265,7 +273,7 @@ func (f *GithubWorkflowRunSummaryFacade) List(
 // Update updates a summary record
 func (f *GithubWorkflowRunSummaryFacade) Update(ctx context.Context, summary *model.GithubWorkflowRunSummaries) error {
 	summary.UpdatedAt = time.Now()
-	return f.db.WithContext(ctx).Save(summary).Error
+	return f.getDB().WithContext(ctx).Save(summary).Error
 }
 
 // UpdateStatus updates the status and conclusion
@@ -281,7 +289,7 @@ func (f *GithubWorkflowRunSummaryFacade) UpdateStatus(
 	if conclusion != "" {
 		updates["conclusion"] = conclusion
 	}
-	return f.db.WithContext(ctx).
+	return f.getDB().WithContext(ctx).
 		Model(&model.GithubWorkflowRunSummaries{}).
 		Where("id = ?", id).
 		Updates(updates).Error
@@ -320,7 +328,7 @@ func (f *GithubWorkflowRunSummaryFacade) UpdateJobStats(ctx context.Context, sum
 		) sub
 		WHERE rs.id = sub.run_summary_id
 	`
-	return f.db.WithContext(ctx).Exec(sql, summaryID).Error
+	return f.getDB().WithContext(ctx).Exec(sql, summaryID).Error
 }
 
 // UpdateGraphFetched marks the graph as fetched
@@ -332,7 +340,7 @@ func (f *GithubWorkflowRunSummaryFacade) UpdateGraphFetched(ctx context.Context,
 	if fetched {
 		updates["graph_fetched_at"] = time.Now()
 	}
-	return f.db.WithContext(ctx).
+	return f.getDB().WithContext(ctx).
 		Model(&model.GithubWorkflowRunSummaries{}).
 		Where("id = ?", id).
 		Updates(updates).Error
@@ -364,7 +372,7 @@ func (f *GithubWorkflowRunSummaryFacade) UpdateAnalysisTriggered(
 		return errors.New("unknown analysis type: " + analysisType)
 	}
 
-	return f.db.WithContext(ctx).
+	return f.getDB().WithContext(ctx).
 		Model(&model.GithubWorkflowRunSummaries{}).
 		Where("id = ?", summaryID).
 		Updates(updates).Error
@@ -377,7 +385,7 @@ func (f *GithubWorkflowRunSummaryFacade) UpdateProgress(
 	currentJobName, currentStepName string,
 	progressPercent int32,
 ) error {
-	return f.db.WithContext(ctx).
+	return f.getDB().WithContext(ctx).
 		Model(&model.GithubWorkflowRunSummaries{}).
 		Where("id = ?", id).
 		Updates(map[string]interface{}{
@@ -419,7 +427,7 @@ func (f *GithubWorkflowRunSummaryFacade) UpdateFromGitHub(
 		updates["run_completed_at"] = *data.RunCompletedAt
 	}
 
-	return f.db.WithContext(ctx).
+	return f.getDB().WithContext(ctx).
 		Model(&model.GithubWorkflowRunSummaries{}).
 		Where("id = ?", id).
 		Updates(updates).Error
@@ -446,7 +454,7 @@ type GitHubRunData struct {
 
 // Delete deletes a summary by ID
 func (f *GithubWorkflowRunSummaryFacade) Delete(ctx context.Context, id int64) error {
-	return f.db.WithContext(ctx).
+	return f.getDB().WithContext(ctx).
 		Where("id = ?", id).
 		Delete(&model.GithubWorkflowRunSummaries{}).Error
 }
@@ -454,7 +462,7 @@ func (f *GithubWorkflowRunSummaryFacade) Delete(ctx context.Context, id int64) e
 // ListPendingGraphFetch returns runs that need graph fetching
 func (f *GithubWorkflowRunSummaryFacade) ListPendingGraphFetch(ctx context.Context, limit int) ([]*model.GithubWorkflowRunSummaries, error) {
 	var summaries []*model.GithubWorkflowRunSummaries
-	query := f.db.WithContext(ctx).
+	query := f.getDB().WithContext(ctx).
 		Where("graph_fetched = ?", false).
 		Order("created_at ASC")
 
@@ -469,7 +477,7 @@ func (f *GithubWorkflowRunSummaryFacade) ListPendingGraphFetch(ctx context.Conte
 // ListInProgress returns runs that are in progress
 func (f *GithubWorkflowRunSummaryFacade) ListInProgress(ctx context.Context, limit int) ([]*model.GithubWorkflowRunSummaries, error) {
 	var summaries []*model.GithubWorkflowRunSummaries
-	query := f.db.WithContext(ctx).
+	query := f.getDB().WithContext(ctx).
 		Where("status IN ?", []string{RunSummaryStatusQueued, RunSummaryStatusInProgress}).
 		Order("created_at ASC")
 
