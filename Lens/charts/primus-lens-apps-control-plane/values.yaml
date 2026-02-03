@@ -39,7 +39,7 @@ infrastructure:
 apps:
   api:
     enabled: true
-    image: "primussafe/primus-lens-api:202512111803"
+    image: "primussafe/primus-lens-api:202602031846"
     replicas: 2
     httpPort: 8989
     resources: {}
@@ -87,7 +87,7 @@ apps:
   
   githubRunnersExporter:
     enabled: true
-    image: "primussafe/github-runners-exporter:202601041206"
+    image: "primussafe/github-runners-exporter:202602031846"
     replicas: 1
     httpPort: 8991
     resources: {}

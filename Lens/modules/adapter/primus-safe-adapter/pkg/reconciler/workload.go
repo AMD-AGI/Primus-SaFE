@@ -307,5 +307,70 @@ func (r *WorkloadReconciler) linkChildrenWorkloads(ctx context.Context, workload
 		}
 	}
 
+	// Copy pod references from child workloads to parent workload immediately
+	// This ensures that pod references are available right away without waiting for WorkloadMatcher
+	if err := r.copyChildPodReferencesToParent(ctx, facade, workload, childWorkloads); err != nil {
+		log.Errorf("Failed to copy pod references from children to parent workload %s: %v", workload.Name, err)
+		// Don't fail the entire operation for pod reference copy errors
+	}
+
+	return nil
+}
+
+// copyChildPodReferencesToParent copies all pod references from child workloads to the parent workload
+// This ensures that aggregation jobs can correctly calculate GPU allocation for the parent workload
+func (r *WorkloadReconciler) copyChildPodReferencesToParent(ctx context.Context, facade database.FacadeInterface, parentWorkload *primusSafeV1.Workload, childWorkloads []*model.GpuWorkload) error {
+	parentUID := string(parentWorkload.UID)
+
+	// Collect all child workload UIDs (excluding parent workload itself)
+	childUIDs := make([]string, 0, len(childWorkloads))
+	for _, child := range childWorkloads {
+		if child.UID != parentUID {
+			childUIDs = append(childUIDs, child.UID)
+		}
+	}
+
+	if len(childUIDs) == 0 {
+		return nil
+	}
+
+	// Get existing pod references for parent workload
+	existingParentRefs, err := facade.GetWorkload().ListWorkloadPodReferenceByWorkloadUid(ctx, parentUID)
+	if err != nil {
+		return err
+	}
+
+	// Create set of existing pod UIDs for quick lookup
+	existingPodUIDs := make(map[string]bool)
+	for _, ref := range existingParentRefs {
+		existingPodUIDs[ref.PodUID] = true
+	}
+
+	// Collect all pod references from child workloads and copy to parent
+	copiedCount := 0
+	for _, childUID := range childUIDs {
+		childPodRefs, err := facade.GetWorkload().ListWorkloadPodReferenceByWorkloadUid(ctx, childUID)
+		if err != nil {
+			log.Warnf("Failed to get pod references for child workload %s: %v", childUID, err)
+			continue
+		}
+		for _, ref := range childPodRefs {
+			if !existingPodUIDs[ref.PodUID] {
+				err := facade.GetWorkload().CreateWorkloadPodReference(ctx, parentUID, ref.PodUID)
+				if err != nil {
+					log.Warnf("Failed to create pod reference for parent workload %s, pod %s: %v",
+						parentWorkload.Name, ref.PodUID, err)
+					continue
+				}
+				existingPodUIDs[ref.PodUID] = true
+				copiedCount++
+			}
+		}
+	}
+
+	if copiedCount > 0 {
+		log.Infof("Copied %d pod references from children to parent workload %s", copiedCount, parentWorkload.Name)
+	}
+
 	return nil
 }

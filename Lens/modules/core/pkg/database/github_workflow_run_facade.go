@@ -445,11 +445,12 @@ func (f *GithubWorkflowRunFacade) ListByGithubRunID(ctx context.Context, githubR
 
 // ListByRunSummaryID lists runs by run summary ID
 func (f *GithubWorkflowRunFacade) ListByRunSummaryID(ctx context.Context, runSummaryID int64) ([]*model.GithubWorkflowRuns, error) {
-	q := f.getDAL().GithubWorkflowRuns
-	return q.WithContext(ctx).
-		Where(q.RunSummaryID.Eq(runSummaryID)).
-		Order(q.ID.Asc()).
-		Find()
+	db := f.getDAL().GithubWorkflowRuns.WithContext(ctx).UnderlyingDB()
+	var runs []*model.GithubWorkflowRuns
+	err := db.Where("run_summary_id = ?", runSummaryID).
+		Order("id ASC").
+		Find(&runs).Error
+	return runs, err
 }
 
 // Update updates a run record
