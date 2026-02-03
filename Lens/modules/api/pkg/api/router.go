@@ -565,6 +565,17 @@ func RegisterRouter(group *gin.RouterGroup) error {
 			repositoriesGroup.GET("/:owner/:repo/metrics/metadata", getUnifiedHandler("/github-runners/repositories/:owner/:repo/metrics/metadata"))
 			// Query metrics trends across all configs in a repository
 			repositoriesGroup.POST("/:owner/:repo/metrics/trends", getUnifiedHandler("/github-runners/repositories/:owner/:repo/metrics/trends"))
+			// List run summaries for a repository
+			repositoriesGroup.GET("/:owner/:repo/run-summaries", getUnifiedHandler("/github-runners/repositories/:owner/:repo/run-summaries"))
+		}
+
+		// Run Summaries - workflow run level aggregation
+		runSummariesGroup := githubRunnersGroup.Group("/run-summaries")
+		{
+			// Get run summary by ID
+			runSummariesGroup.GET("/:id", getUnifiedHandler("/github-runners/run-summaries/:id"))
+			// Get jobs for a run summary
+			runSummariesGroup.GET("/:id/jobs", getUnifiedHandler("/github-runners/run-summaries/:id/jobs"))
 		}
 	}
 
