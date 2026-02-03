@@ -130,6 +130,9 @@ type GithubWorkflowRunFacadeInterface interface {
 	// ListByGithubRunID lists runs by GitHub run ID
 	ListByGithubRunID(ctx context.Context, githubRunID int64) ([]*model.GithubWorkflowRuns, error)
 
+	// ListByRunSummaryID lists runs by run summary ID
+	ListByRunSummaryID(ctx context.Context, runSummaryID int64) ([]*model.GithubWorkflowRuns, error)
+
 	// Update updates a run record
 	Update(ctx context.Context, run *model.GithubWorkflowRuns) error
 
@@ -437,6 +440,15 @@ func (f *GithubWorkflowRunFacade) ListByGithubRunID(ctx context.Context, githubR
 	q := f.getDAL().GithubWorkflowRuns
 	return q.WithContext(ctx).
 		Where(q.GithubRunID.Eq(githubRunID)).
+		Find()
+}
+
+// ListByRunSummaryID lists runs by run summary ID
+func (f *GithubWorkflowRunFacade) ListByRunSummaryID(ctx context.Context, runSummaryID int64) ([]*model.GithubWorkflowRuns, error) {
+	q := f.getDAL().GithubWorkflowRuns
+	return q.WithContext(ctx).
+		Where(q.RunSummaryID.Eq(runSummaryID)).
+		Order(q.ID.Asc()).
 		Find()
 }
 

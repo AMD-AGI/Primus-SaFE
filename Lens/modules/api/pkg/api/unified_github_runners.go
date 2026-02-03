@@ -116,6 +116,34 @@ func init() {
 		MCPToolName: "lens_github_repository_metrics_trends",
 		Handler:     handleGithubRepositoryMetricsTrends,
 	})
+
+	// ========== Run Summary Endpoints ==========
+	unified.Register(&unified.EndpointDef[GithubRunSummariesListRequest, GithubRunSummariesListResponse]{
+		Name:        "github_run_summaries_list",
+		Description: "List workflow run summaries for a repository",
+		HTTPMethod:  "GET",
+		HTTPPath:    "/github-runners/repositories/:owner/:repo/run-summaries",
+		MCPToolName: "lens_github_run_summaries_list",
+		Handler:     handleGithubRunSummariesList,
+	})
+
+	unified.Register(&unified.EndpointDef[GithubRunSummaryGetRequest, *dbmodel.GithubWorkflowRunSummaries]{
+		Name:        "github_run_summary_get",
+		Description: "Get a specific workflow run summary by ID",
+		HTTPMethod:  "GET",
+		HTTPPath:    "/github-runners/run-summaries/:id",
+		MCPToolName: "lens_github_run_summary_get",
+		Handler:     handleGithubRunSummaryGet,
+	})
+
+	unified.Register(&unified.EndpointDef[GithubRunSummaryJobsRequest, GithubRunSummaryJobsResponse]{
+		Name:        "github_run_summary_jobs",
+		Description: "List jobs for a workflow run summary",
+		HTTPMethod:  "GET",
+		HTTPPath:    "/github-runners/run-summaries/:id/jobs",
+		MCPToolName: "lens_github_run_summary_jobs",
+		Handler:     handleGithubRunSummaryJobs,
+	})
 }
 
 // ======================== Request Types ========================
@@ -193,6 +221,32 @@ type GithubRepositoryMetricsTrendsRequest struct {
 	AggregateAcrossConfigs bool                   `json:"aggregate_across_configs" mcp:"description=Merge all configs or separate series per config"`
 }
 
+// Run Summary Request Types
+type GithubRunSummariesListRequest struct {
+	Cluster          string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
+	Owner            string `json:"owner" form:"owner" param:"owner" binding:"required" mcp:"description=GitHub owner,required"`
+	Repo             string `json:"repo" form:"repo" param:"repo" binding:"required" mcp:"description=GitHub repository name,required"`
+	Status           string `json:"status" form:"status" mcp:"description=Filter by status (queued, in_progress, completed)"`
+	Conclusion       string `json:"conclusion" form:"conclusion" mcp:"description=Filter by conclusion (success, failure, cancelled)"`
+	CollectionStatus string `json:"collection_status" form:"collection_status" mcp:"description=Filter by collection status"`
+	WorkflowPath     string `json:"workflow_path" form:"workflow_path" mcp:"description=Filter by workflow path"`
+	HeadBranch       string `json:"head_branch" form:"head_branch" mcp:"description=Filter by branch"`
+	EventName        string `json:"event_name" form:"event_name" mcp:"description=Filter by event name"`
+	RunnerSetID      string `json:"runner_set_id" form:"runner_set_id" mcp:"description=Filter by runner set ID"`
+	Offset           int    `json:"offset" form:"offset" mcp:"description=Pagination offset"`
+	Limit            int    `json:"limit" form:"limit" mcp:"description=Pagination limit (max 100)"`
+}
+
+type GithubRunSummaryGetRequest struct {
+	Cluster string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
+	ID      string `json:"id" form:"id" param:"id" binding:"required" mcp:"description=Run summary ID,required"`
+}
+
+type GithubRunSummaryJobsRequest struct {
+	Cluster string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
+	ID      string `json:"id" form:"id" param:"id" binding:"required" mcp:"description=Run summary ID,required"`
+}
+
 // ======================== Response Types ========================
 
 type GithubRunnerSetsListResponse struct {
@@ -247,6 +301,17 @@ type GithubRepositoryMetricsMetadataResponse struct {
 	CommonMetrics    []string            `json:"common_metrics"`
 	AllDimensions    []string            `json:"all_dimensions"`
 	AllMetrics       []string            `json:"all_metrics"`
+}
+
+// Run Summary Response Types
+type GithubRunSummariesListResponse struct {
+	RunSummaries []*dbmodel.GithubWorkflowRunSummaries `json:"run_summaries"`
+	Total        int64                                 `json:"total"`
+}
+
+type GithubRunSummaryJobsResponse struct {
+	Jobs  []*dbmodel.GithubWorkflowRuns `json:"jobs"`
+	Total int64                         `json:"total"`
 }
 
 // ======================== Handler Implementations ========================
@@ -805,4 +870,113 @@ func getClusterNameForGithubWorkflowFromRequest(cluster string) (string, error) 
 		return "default", nil
 	}
 	return cluster, nil
+}
+
+// ======================== Run Summary Handler Implementations ========================
+
+func handleGithubRunSummariesList(ctx context.Context, req *GithubRunSummariesListRequest) (*GithubRunSummariesListResponse, error) {
+	if req.Owner == "" || req.Repo == "" {
+		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("owner and repo are required")
+	}
+
+	clusterName, err := getClusterNameForGithubWorkflowFromRequest(req.Cluster)
+	if err != nil {
+		return nil, err
+	}
+
+	facade := database.GetFacadeForCluster(clusterName).GetGithubWorkflowRunSummary()
+
+	// Build filter
+	filter := &database.RunSummaryFilter{
+		Owner:            req.Owner,
+		Repo:             req.Repo,
+		Status:           req.Status,
+		Conclusion:       req.Conclusion,
+		CollectionStatus: req.CollectionStatus,
+		WorkflowPath:     req.WorkflowPath,
+		HeadBranch:       req.HeadBranch,
+		EventName:        req.EventName,
+	}
+
+	if req.RunnerSetID != "" {
+		if id, parseErr := strconv.ParseInt(req.RunnerSetID, 10, 64); parseErr == nil {
+			filter.RunnerSetID = id
+		}
+	}
+
+	limit := req.Limit
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	offset := req.Offset
+	if offset < 0 {
+		offset = 0
+	}
+
+	filter.Offset = offset
+	filter.Limit = limit
+	summaries, total, err := facade.ListByRepo(ctx, req.Owner, req.Repo, filter)
+	if err != nil {
+		return nil, errors.WrapError(err, "failed to list run summaries", errors.CodeDatabaseError)
+	}
+
+	return &GithubRunSummariesListResponse{
+		RunSummaries: summaries,
+		Total:        total,
+	}, nil
+}
+
+func handleGithubRunSummaryGet(ctx context.Context, req *GithubRunSummaryGetRequest) (**dbmodel.GithubWorkflowRunSummaries, error) {
+	if req.ID == "" {
+		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("id is required")
+	}
+
+	clusterName, err := getClusterNameForGithubWorkflowFromRequest(req.Cluster)
+	if err != nil {
+		return nil, err
+	}
+
+	id, parseErr := strconv.ParseInt(req.ID, 10, 64)
+	if parseErr != nil {
+		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("invalid id format")
+	}
+
+	facade := database.GetFacadeForCluster(clusterName).GetGithubWorkflowRunSummary()
+	summary, err := facade.GetByID(ctx, id)
+	if err != nil {
+		return nil, errors.WrapError(err, "failed to get run summary", errors.CodeDatabaseError)
+	}
+	if summary == nil {
+		return nil, errors.NewError().WithCode(errors.RequestDataNotExisted).WithMessage("run summary not found")
+	}
+
+	return &summary, nil
+}
+
+func handleGithubRunSummaryJobs(ctx context.Context, req *GithubRunSummaryJobsRequest) (*GithubRunSummaryJobsResponse, error) {
+	if req.ID == "" {
+		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("id is required")
+	}
+
+	clusterName, err := getClusterNameForGithubWorkflowFromRequest(req.Cluster)
+	if err != nil {
+		return nil, err
+	}
+
+	id, parseErr := strconv.ParseInt(req.ID, 10, 64)
+	if parseErr != nil {
+		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("invalid id format")
+	}
+
+	// Get jobs associated with this run summary
+	runFacade := database.GetFacadeForCluster(clusterName).GetGithubWorkflowRun()
+	jobs, err := runFacade.ListByRunSummaryID(ctx, id)
+	if err != nil {
+		return nil, errors.WrapError(err, "failed to list jobs for run summary", errors.CodeDatabaseError)
+	}
+
+	return &GithubRunSummaryJobsResponse{
+		Jobs:  jobs,
+		Total: int64(len(jobs)),
+	}, nil
 }
