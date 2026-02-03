@@ -484,7 +484,8 @@ func setCookie(c *gin.Context, userInfo *view.UserLoginResponse, userType v1.Use
 		maxAge = int(userInfo.Expire - time.Now().Unix())
 	default:
 	}
-	domain := "." + c.Request.Host
+	// domain := "." + c.Request.Host
+	domain := ""
 	c.SetCookie(authority.CookieToken, userInfo.Token, maxAge, "/", domain, false, true)
 	c.SetCookie(common.UserId, userInfo.Id, maxAge, "/", domain, false, true)
 	c.SetCookie(common.UserType, string(userType), maxAge, "/", domain, false, true)
