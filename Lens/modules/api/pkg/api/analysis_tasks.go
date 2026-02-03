@@ -185,6 +185,58 @@ func ListAnalysisTasks(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, rest.SuccessResp(ctx.Request.Context(), response))
 }
 
+// UpdateAnalysisTaskRequest represents the request body for updating an analysis task
+type UpdateAnalysisTaskRequest struct {
+	Status string                 `json:"status"`
+	Ext    map[string]interface{} `json:"ext"`
+}
+
+// UpdateAnalysisTask handles PUT /v1/github-workflow-metrics/analysis-tasks/:task_id
+// Updates an analysis task status and ext fields
+func UpdateAnalysisTask(ctx *gin.Context) {
+	taskIDStr := ctx.Param("task_id")
+	taskID, err := strconv.ParseInt(taskIDStr, 10, 64)
+	if err != nil {
+		log.GlobalLogger().WithContext(ctx).Errorf("Invalid task ID: %v", err)
+		ctx.JSON(http.StatusBadRequest, rest.ErrorResp(ctx.Request.Context(), http.StatusBadRequest, "invalid task ID", nil))
+		return
+	}
+
+	var req UpdateAnalysisTaskRequest
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		log.GlobalLogger().WithContext(ctx).Errorf("Invalid request body: %v", err)
+		ctx.JSON(http.StatusBadRequest, rest.ErrorResp(ctx.Request.Context(), http.StatusBadRequest, "invalid request body", nil))
+		return
+	}
+
+	clusterName, err := getClusterNameForGithubWorkflow(ctx)
+	if err != nil {
+		log.GlobalLogger().WithContext(ctx).Errorf("Invalid cluster: %v", err)
+		ctx.JSON(http.StatusBadRequest, rest.ErrorResp(ctx.Request.Context(), http.StatusBadRequest, err.Error(), nil))
+		return
+	}
+
+	facade := database.NewAnalysisTaskFacadeForCluster(clusterName)
+
+	// Update the task
+	err = facade.UpdateTask(ctx.Request.Context(), taskID, req.Status, req.Ext)
+	if err != nil {
+		log.GlobalLogger().WithContext(ctx).Errorf("Failed to update analysis task: %v", err)
+		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, err.Error(), nil))
+		return
+	}
+
+	// Get the updated task
+	task, err := facade.GetTaskByID(ctx.Request.Context(), taskID)
+	if err != nil {
+		log.GlobalLogger().WithContext(ctx).Errorf("Failed to get analysis task after update: %v", err)
+		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, err.Error(), nil))
+		return
+	}
+
+	ctx.JSON(http.StatusOK, rest.SuccessResp(ctx.Request.Context(), task))
+}
+
 // RetryAnalysisTask handles POST /v1/github-workflow-metrics/analysis-tasks/:task_id/retry
 // Retries a failed analysis task
 func RetryAnalysisTask(ctx *gin.Context) {
