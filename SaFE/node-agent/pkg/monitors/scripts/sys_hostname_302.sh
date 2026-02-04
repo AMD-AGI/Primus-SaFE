@@ -9,6 +9,6 @@ set -o pipefail
 
 nsenter --target 1 --mount --uts --ipc --net --pid -- hostname > /dev/null
 if [ $? -ne 0 ]; then
-  echo "hostname is abnormal"
+  echo "Error: Failed to retrieve hostname"
   exit 1
 fi
