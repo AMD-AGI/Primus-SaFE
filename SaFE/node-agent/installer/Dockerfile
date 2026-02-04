@@ -21,6 +21,12 @@ RUN GOOS=linux GOARCH=amd64  go build -o dist/node_agent ./node-agent/cmd/main.g
 
 FROM ${REGISTRY}/library/ubuntu:22.04
 ARG APP_HOME=/opt/primus-safe/node-agent
+
+RUN apt-get update && \
+    apt-get install -y python3 python3-pip && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
 RUN apt-get update
 RUN apt-get install -y sed
 RUN apt-get install -y jq
