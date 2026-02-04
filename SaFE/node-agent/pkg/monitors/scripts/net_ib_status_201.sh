@@ -10,7 +10,7 @@ set -o pipefail
 if [ -z "$1" ]; then
   echo "Usage: $0 \"device1,device2,...\""
   echo "Example: $0 \"bnxt_re0,bnxt_re1,bnxt_re2\""
-  exit 1
+  exit 2
 fi
 
 IFS=',' read -ra DEV_ARRAY <<< "$1"
@@ -20,11 +20,13 @@ for dev in "${DEV_ARRAY[@]}"; do
   OUTPUT=$(nsenter --target 1 --mount --uts --ipc --net --pid -- /usr/sbin/ibstatus "$dev" 2>&1)
   ret=$?
   if [ $ret -ne 0 ]; then
+    echo "Error: Failed to get status for device '$dev'!"
     exit 1
   fi
 
   STATE_LINE=$(echo "$OUTPUT" | grep "state:" | head -n1)
   if [ -z "$STATE_LINE" ]; then
+    echo "Error: Failed to get state for device '$dev'!"
     exit 1
   fi
 
