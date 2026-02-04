@@ -5,6 +5,7 @@ package executor
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/github"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/task"
+	"gopkg.in/yaml.v3"
 )
 
 const (
@@ -175,6 +177,7 @@ func (e *GraphFetchExecutor) Execute(ctx context.Context, execCtx *task.Executio
 		WorkflowName:    runInfo.WorkflowName,
 		WorkflowPath:    runInfo.WorkflowPath,
 		WorkflowID:      runInfo.WorkflowID,
+		DisplayTitle:    runInfo.DisplayTitle,
 		HeadSha:         runInfo.HeadSHA,
 		HeadBranch:      runInfo.HeadBranch,
 		BaseBranch:      runInfo.BaseBranch,
@@ -202,9 +205,22 @@ func (e *GraphFetchExecutor) Execute(ctx context.Context, execCtx *task.Executio
 		log.Errorf("GraphFetchExecutor: failed to update total_jobs: %v", err)
 	}
 
+	// Fetch workflow file to get job dependencies (needs)
+	jobNeeds := make(map[string][]string)
+	if runInfo.WorkflowPath != "" {
+		workflowContent, err := client.GetWorkflowFileContent(ctx, owner, repo, runInfo.WorkflowPath, runInfo.HeadSHA)
+		if err != nil {
+			log.Warnf("GraphFetchExecutor: failed to get workflow file: %v", err)
+		} else {
+			// Parse workflow YAML to extract job dependencies
+			jobNeeds = e.parseWorkflowNeeds(workflowContent)
+			log.Infof("GraphFetchExecutor: parsed job dependencies from workflow: %v", jobNeeds)
+		}
+	}
+
 	// Sync jobs and steps
 	if len(runInfo.Jobs) > 0 {
-		if err := e.syncJobsAndSteps(ctx, summary.ID, runInfo.Jobs); err != nil {
+		if err := e.syncJobsAndSteps(ctx, summary.ID, runInfo.Jobs, jobNeeds); err != nil {
 			log.Errorf("GraphFetchExecutor: failed to sync jobs and steps: %v", err)
 		}
 	}
@@ -247,8 +263,73 @@ func (e *GraphFetchExecutor) getGitHubClient(ctx context.Context, namespace, nam
 	return e.clientManager.GetClientForSecret(ctx, namespace, runnerSet.GithubConfigSecret)
 }
 
+// parseWorkflowNeeds parses workflow YAML content and extracts job dependencies
+func (e *GraphFetchExecutor) parseWorkflowNeeds(content string) map[string][]string {
+	result := make(map[string][]string)
+
+	var workflow struct {
+		Jobs map[string]struct {
+			Name  string      `yaml:"name"`
+			Needs interface{} `yaml:"needs"`
+		} `yaml:"jobs"`
+	}
+
+	if err := yaml.Unmarshal([]byte(content), &workflow); err != nil {
+		log.Warnf("GraphFetchExecutor: failed to parse workflow YAML: %v", err)
+		return result
+	}
+
+	for jobID, jobDef := range workflow.Jobs {
+		if jobDef.Needs == nil {
+			continue
+		}
+
+		// needs can be a string or []string
+		switch needs := jobDef.Needs.(type) {
+		case string:
+			result[jobID] = []string{needs}
+		case []interface{}:
+			var needsList []string
+			for _, n := range needs {
+				if s, ok := n.(string); ok {
+					needsList = append(needsList, s)
+				}
+			}
+			result[jobID] = needsList
+		}
+	}
+
+	return result
+}
+
+// getJobIDByName finds the job ID key in workflow by matching job name
+func (e *GraphFetchExecutor) findJobIDByName(jobNeeds map[string][]string, jobName string, workflowContent string) string {
+	// Try to parse workflow to get job ID to name mapping
+	var workflow struct {
+		Jobs map[string]struct {
+			Name string `yaml:"name"`
+		} `yaml:"jobs"`
+	}
+
+	if err := yaml.Unmarshal([]byte(workflowContent), &workflow); err != nil {
+		return ""
+	}
+
+	for jobID, jobDef := range workflow.Jobs {
+		displayName := jobDef.Name
+		if displayName == "" {
+			displayName = jobID
+		}
+		if displayName == jobName {
+			return jobID
+		}
+	}
+
+	return ""
+}
+
 // syncJobsAndSteps syncs job and step data to the database
-func (e *GraphFetchExecutor) syncJobsAndSteps(ctx context.Context, runSummaryID int64, jobs []github.JobInfo) error {
+func (e *GraphFetchExecutor) syncJobsAndSteps(ctx context.Context, runSummaryID int64, jobs []github.JobInfo, jobNeeds map[string][]string) error {
 	jobFacade := database.NewGithubWorkflowJobFacade()
 	stepFacade := database.NewGithubWorkflowStepFacade()
 
@@ -266,6 +347,12 @@ func (e *GraphFetchExecutor) syncJobsAndSteps(ctx context.Context, runSummaryID 
 		if run.RunSummaryID == runSummaryID && run.GithubJobID > 0 {
 			jobToRunID[run.GithubJobID] = run.ID
 		}
+	}
+
+	// Build a map from job name to job ID for needs lookup
+	jobNameToID := make(map[string]string)
+	for jobID := range jobNeeds {
+		jobNameToID[jobID] = jobID
 	}
 
 	for _, ghJob := range jobs {
@@ -293,10 +380,27 @@ func (e *GraphFetchExecutor) syncJobsAndSteps(ctx context.Context, runSummaryID 
 			}
 		}
 
+		// Find needs for this job by matching job name
+		var needsJSON string
+		for jobID, needs := range jobNeeds {
+			// GitHub job name might match the workflow job ID directly
+			// or it might have a custom name set in the workflow
+			if jobID == ghJob.Name || len(needs) > 0 {
+				// Try to match by job name pattern
+				if jobID == ghJob.Name {
+					if needsBytes, err := json.Marshal(needs); err == nil {
+						needsJSON = string(needsBytes)
+					}
+					break
+				}
+			}
+		}
+
 		job := &model.GithubWorkflowJobs{
 			RunID:           runID,
 			GithubJobID:     ghJob.ID,
 			Name:            ghJob.Name,
+			Needs:           needsJSON,
 			Status:          ghJob.Status,
 			Conclusion:      ghJob.Conclusion,
 			StartedAt:       ghJob.StartedAt,
@@ -304,6 +408,7 @@ func (e *GraphFetchExecutor) syncJobsAndSteps(ctx context.Context, runSummaryID 
 			DurationSeconds: duration,
 			RunnerID:        ghJob.RunnerID,
 			RunnerName:      ghJob.RunnerName,
+			HTMLURL:         ghJob.HTMLURL,
 			StepsCount:      len(ghJob.Steps),
 			StepsCompleted:  stepsCompleted,
 			StepsFailed:     stepsFailed,

@@ -21,6 +21,7 @@ type GithubWorkflowRunSummaries struct {
 	WorkflowName              string    `gorm:"column:workflow_name" json:"workflow_name"`
 	WorkflowPath              string    `gorm:"column:workflow_path" json:"workflow_path"`
 	WorkflowID                int64     `gorm:"column:workflow_id" json:"workflow_id"`
+	DisplayTitle              string    `gorm:"column:display_title" json:"display_title"`
 	HeadSha                   string    `gorm:"column:head_sha" json:"head_sha"`
 	HeadBranch                string    `gorm:"column:head_branch" json:"head_branch"`
 	BaseBranch                string    `gorm:"column:base_branch" json:"base_branch"`
