@@ -13,6 +13,7 @@ type GithubWorkflowJobs struct {
 	RunID           int64      `gorm:"column:run_id;not null" json:"run_id"`
 	GithubJobID     int64      `gorm:"column:github_job_id;not null" json:"github_job_id"`
 	Name            string     `gorm:"column:name;not null" json:"name"`
+	Needs           string     `gorm:"column:needs" json:"needs"` // JSON array of job names this job depends on
 	Status          string     `gorm:"column:status" json:"status"`
 	Conclusion      string     `gorm:"column:conclusion" json:"conclusion"`
 	StartedAt       *time.Time `gorm:"column:started_at" json:"started_at"`

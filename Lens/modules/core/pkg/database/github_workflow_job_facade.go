@@ -221,3 +221,34 @@ func (f *GithubWorkflowJobFacade) CountByRunID(ctx context.Context, runID int64)
 	}
 	return
 }
+
+// ListByRunSummaryID lists all GitHub jobs for a run summary
+// It joins github_workflow_jobs with github_workflow_runs to find jobs by run_summary_id
+func (f *GithubWorkflowJobFacade) ListByRunSummaryID(ctx context.Context, runSummaryID int64) ([]*model.GithubWorkflowJobs, error) {
+	var jobs []*model.GithubWorkflowJobs
+	err := f.db.WithContext(ctx).
+		Joins("JOIN github_workflow_runs r ON r.id = github_workflow_jobs.run_id").
+		Where("r.run_summary_id = ?", runSummaryID).
+		Order("github_workflow_jobs.id ASC").
+		Find(&jobs).Error
+	return jobs, err
+}
+
+// ListByRunSummaryIDWithSteps lists all GitHub jobs with steps for a run summary
+func (f *GithubWorkflowJobFacade) ListByRunSummaryIDWithSteps(ctx context.Context, runSummaryID int64) ([]*JobWithSteps, error) {
+	jobs, err := f.ListByRunSummaryID(ctx, runSummaryID)
+	if err != nil {
+		return nil, err
+	}
+
+	stepFacade := NewGithubWorkflowStepFacade()
+	result := make([]*JobWithSteps, len(jobs))
+	for i, job := range jobs {
+		steps, _ := stepFacade.ListByJobID(ctx, job.ID)
+		result[i] = &JobWithSteps{
+			GithubWorkflowJobs: job,
+			Steps:              steps,
+		}
+	}
+	return result, nil
+}

@@ -145,6 +145,16 @@ func init() {
 		MCPToolName: "lens_github_run_summary_jobs",
 		Handler:     handleGithubRunSummaryJobs,
 	})
+
+	// GitHub run summary graph endpoint
+	unified.Register(&unified.EndpointDef[GithubRunSummaryGraphRequest, GithubRunSummaryGraphResponse]{
+		Name:        "github_run_summary_graph",
+		Description: "Get workflow DAG graph with GitHub job info for visualization",
+		HTTPMethod:  "GET",
+		HTTPPath:    "/github-runners/run-summaries/:id/graph",
+		MCPToolName: "lens_github_run_summary_graph",
+		Handler:     handleGithubRunSummaryGraph,
+	})
 }
 
 // ======================== Request Types ========================
@@ -313,6 +323,35 @@ type GithubRunSummariesListResponse struct {
 type GithubRunSummaryJobsResponse struct {
 	Jobs  []*dbmodel.GithubWorkflowRuns `json:"jobs"`
 	Total int64                         `json:"total"`
+}
+
+// GithubRunSummaryGraphRequest is the request for getting workflow DAG graph
+type GithubRunSummaryGraphRequest struct {
+	ID      string `json:"id" uri:"id"`
+	Cluster string `json:"cluster" form:"cluster"`
+}
+
+// GithubJobNode represents a job node in the workflow DAG
+type GithubJobNode struct {
+	ID              int64    `json:"id"`
+	GithubJobID     int64    `json:"github_job_id"`
+	Name            string   `json:"name"`
+	Status          string   `json:"status"`
+	Conclusion      string   `json:"conclusion,omitempty"`
+	Needs           []string `json:"needs,omitempty"`
+	StartedAt       string   `json:"started_at,omitempty"`
+	CompletedAt     string   `json:"completed_at,omitempty"`
+	DurationSeconds int      `json:"duration_seconds"`
+	StepsCount      int      `json:"steps_count"`
+	StepsCompleted  int      `json:"steps_completed"`
+	StepsFailed     int      `json:"steps_failed"`
+	HTMLURL         string   `json:"html_url,omitempty"`
+}
+
+// GithubRunSummaryGraphResponse contains the workflow DAG graph
+type GithubRunSummaryGraphResponse struct {
+	Jobs  []*GithubJobNode `json:"jobs"`
+	Total int64            `json:"total"`
 }
 
 // ======================== Handler Implementations ========================
@@ -979,5 +1018,68 @@ func handleGithubRunSummaryJobs(ctx context.Context, req *GithubRunSummaryJobsRe
 	return &GithubRunSummaryJobsResponse{
 		Jobs:  jobs,
 		Total: int64(len(jobs)),
+	}, nil
+}
+
+func handleGithubRunSummaryGraph(ctx context.Context, req *GithubRunSummaryGraphRequest) (*GithubRunSummaryGraphResponse, error) {
+	if req.ID == "" {
+		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("id is required")
+	}
+
+	clusterName, err := getClusterNameForGithubWorkflowFromRequest(req.Cluster)
+	if err != nil {
+		return nil, err
+	}
+
+	id, parseErr := strconv.ParseInt(req.ID, 10, 64)
+	if parseErr != nil {
+		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("invalid id format")
+	}
+
+	// Get GitHub jobs for this run summary
+	jobFacade := database.NewGithubWorkflowJobFacade()
+	_ = clusterName // TODO: add cluster support to job facade
+	githubJobs, err := jobFacade.ListByRunSummaryID(ctx, id)
+	if err != nil {
+		return nil, errors.WrapError(err, "failed to list github jobs for run summary", errors.CodeDatabaseError)
+	}
+
+	// Convert to response nodes with needs parsing
+	nodes := make([]*GithubJobNode, len(githubJobs))
+	for i, job := range githubJobs {
+		node := &GithubJobNode{
+			ID:              job.ID,
+			GithubJobID:     job.GithubJobID,
+			Name:            job.Name,
+			Status:          job.Status,
+			Conclusion:      job.Conclusion,
+			DurationSeconds: job.DurationSeconds,
+			StepsCount:      job.StepsCount,
+			StepsCompleted:  job.StepsCompleted,
+			StepsFailed:     job.StepsFailed,
+			HTMLURL:         job.HTMLURL,
+		}
+
+		if job.StartedAt != nil {
+			node.StartedAt = job.StartedAt.Format("2006-01-02T15:04:05Z")
+		}
+		if job.CompletedAt != nil {
+			node.CompletedAt = job.CompletedAt.Format("2006-01-02T15:04:05Z")
+		}
+
+		// Parse needs JSON array
+		if job.Needs != "" {
+			var needs []string
+			if err := json.Unmarshal([]byte(job.Needs), &needs); err == nil {
+				node.Needs = needs
+			}
+		}
+
+		nodes[i] = node
+	}
+
+	return &GithubRunSummaryGraphResponse{
+		Jobs:  nodes,
+		Total: int64(len(nodes)),
 	}, nil
 }
