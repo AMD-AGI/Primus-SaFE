@@ -13,15 +13,6 @@ import (
 
 // ControlPlaneFacade is the unified entry point for control plane database operations
 type ControlPlaneFacade struct {
-	ClusterConfig            ClusterConfigFacadeInterface
-	ClusterDeploymentHistory ClusterDeploymentHistoryFacadeInterface
-	DataplaneInstallTask     DataplaneInstallTaskFacadeInterface
-	ReleaseVersion           ReleaseVersionFacadeInterface
-	ClusterReleaseConfig     ClusterReleaseConfigFacadeInterface
-	ReleaseHistory           ReleaseHistoryFacadeInterface
-	GpuUsageWeeklyReport     GpuUsageWeeklyReportFacadeInterface
-	TraceLensSession         TraceLensSessionFacadeInterface
-	ControlPlaneConfig       ControlPlaneConfigFacadeInterface
 	// Skills Repository
 	Skill             SkillFacadeInterface
 	SkillVersion      SkillVersionFacadeInterface
@@ -37,15 +28,6 @@ type ControlPlaneFacade struct {
 // NewControlPlaneFacade creates a new ControlPlaneFacade instance
 func NewControlPlaneFacade(db *gorm.DB) *ControlPlaneFacade {
 	return &ControlPlaneFacade{
-		ClusterConfig:            NewClusterConfigFacade(db),
-		ClusterDeploymentHistory: NewClusterDeploymentHistoryFacade(db),
-		DataplaneInstallTask:     NewDataplaneInstallTaskFacade(db),
-		ReleaseVersion:           NewReleaseVersionFacade(db),
-		ClusterReleaseConfig:     NewClusterReleaseConfigFacade(db),
-		ReleaseHistory:           NewReleaseHistoryFacade(db),
-		GpuUsageWeeklyReport:     NewGpuUsageWeeklyReportFacade(db),
-		TraceLensSession:         NewTraceLensSessionFacade(db),
-		ControlPlaneConfig:       NewControlPlaneConfigFacade(db),
 		// Skills Repository
 		Skill:             NewSkillFacade(db),
 		SkillVersion:      NewSkillVersionFacade(db),
@@ -57,51 +39,6 @@ func NewControlPlaneFacade(db *gorm.DB) *ControlPlaneFacade {
 		Skillset:      NewSkillsetFacade(db),
 		SkillsetSkill: NewSkillsetSkillFacade(db),
 	}
-}
-
-// GetClusterConfig returns the ClusterConfig Facade interface
-func (f *ControlPlaneFacade) GetClusterConfig() ClusterConfigFacadeInterface {
-	return f.ClusterConfig
-}
-
-// GetClusterDeploymentHistory returns the ClusterDeploymentHistory Facade interface
-func (f *ControlPlaneFacade) GetClusterDeploymentHistory() ClusterDeploymentHistoryFacadeInterface {
-	return f.ClusterDeploymentHistory
-}
-
-// GetDataplaneInstallTask returns the DataplaneInstallTask Facade interface
-func (f *ControlPlaneFacade) GetDataplaneInstallTask() DataplaneInstallTaskFacadeInterface {
-	return f.DataplaneInstallTask
-}
-
-// GetReleaseVersion returns the ReleaseVersion Facade interface
-func (f *ControlPlaneFacade) GetReleaseVersion() ReleaseVersionFacadeInterface {
-	return f.ReleaseVersion
-}
-
-// GetClusterReleaseConfig returns the ClusterReleaseConfig Facade interface
-func (f *ControlPlaneFacade) GetClusterReleaseConfig() ClusterReleaseConfigFacadeInterface {
-	return f.ClusterReleaseConfig
-}
-
-// GetReleaseHistory returns the ReleaseHistory Facade interface
-func (f *ControlPlaneFacade) GetReleaseHistory() ReleaseHistoryFacadeInterface {
-	return f.ReleaseHistory
-}
-
-// GetGpuUsageWeeklyReport returns the GpuUsageWeeklyReport Facade interface
-func (f *ControlPlaneFacade) GetGpuUsageWeeklyReport() GpuUsageWeeklyReportFacadeInterface {
-	return f.GpuUsageWeeklyReport
-}
-
-// GetTraceLensSession returns the TraceLensSession Facade interface
-func (f *ControlPlaneFacade) GetTraceLensSession() TraceLensSessionFacadeInterface {
-	return f.TraceLensSession
-}
-
-// GetControlPlaneConfig returns the ControlPlaneConfig Facade interface
-func (f *ControlPlaneFacade) GetControlPlaneConfig() ControlPlaneConfigFacadeInterface {
-	return f.ControlPlaneConfig
 }
 
 // GetSkill returns the Skill Facade interface
