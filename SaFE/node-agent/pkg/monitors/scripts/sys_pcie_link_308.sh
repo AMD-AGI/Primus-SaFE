@@ -74,6 +74,6 @@ RESULT=$?
 if [ $RESULT -eq 0 ]; then
   echo "[OK] All checks passed: No FatalErr and Link is ${EXPECTED_SPEED} ${EXPECTED_WIDTH}"
 else
-  echo "[FAIL] Some PCIe status check failed"
+  echo "Error: PCIe status check failed: Fatal error detected or link speed/width mismatch."
   exit 1
 fi
