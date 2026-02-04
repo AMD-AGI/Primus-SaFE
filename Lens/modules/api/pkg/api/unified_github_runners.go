@@ -866,8 +866,10 @@ func handleGithubRepositoryMetricsTrends(ctx context.Context, req *GithubReposit
 
 // Helper function to get cluster name
 func getClusterNameForGithubWorkflowFromRequest(cluster string) (string, error) {
+	// Return empty string to use default database behavior in BaseFacade.getDB()
+	// This allows the facade to use sql.GetDefaultDB() or GetCurrentClusterClients()
 	if cluster == "" {
-		return "default", nil
+		return "", nil
 	}
 	return cluster, nil
 }
