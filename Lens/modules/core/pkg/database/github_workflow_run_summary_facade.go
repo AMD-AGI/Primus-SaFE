@@ -42,22 +42,19 @@ const (
 
 // GithubWorkflowRunSummaryFacade provides database operations for workflow run summaries
 type GithubWorkflowRunSummaryFacade struct {
-	db *gorm.DB
+	BaseFacade
 }
 
 // NewGithubWorkflowRunSummaryFacade creates a new facade instance
 func NewGithubWorkflowRunSummaryFacade() *GithubWorkflowRunSummaryFacade {
-	return &GithubWorkflowRunSummaryFacade{
-		db: nil, // Will be set lazily
-	}
+	return &GithubWorkflowRunSummaryFacade{}
 }
 
-// getDB returns the database connection, initializing lazily to avoid circular dependency
-func (f *GithubWorkflowRunSummaryFacade) getDB() *gorm.DB {
-	if f.db == nil {
-		f.db = GetFacade().GetSystemConfig().GetDB()
+// WithCluster returns a new facade for the specified cluster
+func (f *GithubWorkflowRunSummaryFacade) WithCluster(clusterName string) *GithubWorkflowRunSummaryFacade {
+	return &GithubWorkflowRunSummaryFacade{
+		BaseFacade: BaseFacade{clusterName: clusterName},
 	}
-	return f.db
 }
 
 // GetOrCreateByRunID returns existing summary or creates a new one
