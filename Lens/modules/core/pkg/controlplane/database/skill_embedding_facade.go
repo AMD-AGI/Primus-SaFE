@@ -81,12 +81,14 @@ func (f *SkillEmbeddingFacade) DeleteBySkillName(ctx context.Context, skillName 
 func (f *SkillEmbeddingFacade) SemanticSearch(ctx context.Context, queryEmbedding []float32, limit int) ([]*SkillSearchResult, error) {
 	var results []*SkillSearchResult
 
+	vec := pgvector.NewVector(queryEmbedding)
+
 	// Use pgvector cosine similarity: 1 - (embedding <=> query) gives similarity score
 	query := f.db.WithContext(ctx).
 		Model(&model.SkillEmbedding{}).
-		Select("skill_name, embedding_type, 1 - (embedding <=> ?) as similarity", pgvector.NewVector(queryEmbedding)).
+		Select("skill_name, embedding_type, 1 - (embedding <=> ?) as similarity", vec).
 		Where("embedding_type IN ('combined', 'description')").
-		Order("embedding <=> ?", pgvector.NewVector(queryEmbedding)).
+		Order(gorm.Expr("embedding <=> ?", vec)).
 		Limit(limit)
 
 	err := query.Scan(&results).Error
