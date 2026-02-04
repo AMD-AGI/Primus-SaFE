@@ -102,11 +102,6 @@ The true power of this architecture becomes apparent when failures occur. Let us
 
 During normal operation, both replica groups execute the standard training loop: forward pass, backward pass, gradient synchronization via Fault Tolerant all-reduce, and optimizer step. After each step, they report their progress to the Lighthouse and verify that the quorum remains stable.
 
-```
-[replicagroup-0] step: 200  loss: 3.5149  memory: 127.42GB(49.78%)  tps: 6,712  tflops: 388.72  mfu: 29.90%
-[replicagroup-1] step: 200  loss: 3.5149  memory: 133.36GB(52.10%)  tps: 6,712  tflops: 388.71  mfu: 29.90%
-```
-
 Both groups maintain synchronized step counts and similar performance metrics, indicating healthy distributed training.
 
 ### Failure Detection and Continued Training
@@ -137,7 +132,7 @@ When the failed node is repaired or replaced, replicagroup-1 restarts and contac
 [replicagroup-1] Rank 1 is connected to 1 peer ranks. Expected: 1
 [replicagroup-1] Loading the FT checkpoint at step 247
 [replicagroup-1] Finished loading the ft checkpoint in 0.56 seconds
-[replicagroup-1] Training starts at step 1
+[replicagroup-1] Training starts at step 249
 ```
 
 The recovering group fetches the latest model weights from a healthy peer (replicagroup-0) rather than from persistent storage. This peer-to-peer weight transfer is typically faster than reading from a distributed file system and ensures the recovering group has the most recent state.
