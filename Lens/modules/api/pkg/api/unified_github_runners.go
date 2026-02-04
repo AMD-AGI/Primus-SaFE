@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
 	dbmodel "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/errors"
@@ -866,10 +867,8 @@ func handleGithubRepositoryMetricsTrends(ctx context.Context, req *GithubReposit
 
 // Helper function to get cluster name
 func getClusterNameForGithubWorkflowFromRequest(cluster string) (string, error) {
-	// Return empty string to use default database behavior in BaseFacade.getDB()
-	// This allows the facade to use sql.GetDefaultDB() or GetCurrentClusterClients()
 	if cluster == "" {
-		return "", nil
+		return clientsets.GetClusterManager().GetCurrentClusterName(), nil
 	}
 	return cluster, nil
 }
