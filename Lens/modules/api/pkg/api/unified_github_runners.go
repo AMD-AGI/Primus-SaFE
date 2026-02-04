@@ -907,13 +907,23 @@ func handleGithubRepositoryMetricsTrends(ctx context.Context, req *GithubReposit
 // Helper function to get cluster name
 func getClusterNameForGithubWorkflowFromRequest(cluster string) (string, error) {
 	if cluster == "" {
+		cm := clientsets.GetClusterManager()
 		// Use default dataplane cluster, not current cluster (which is control-plane)
-		defaultCluster := clientsets.GetClusterManager().GetDefaultClusterName()
+		defaultCluster := cm.GetDefaultClusterName()
 		if defaultCluster != "" {
 			return defaultCluster, nil
 		}
-		// Fallback to current cluster if no default is set
-		return clientsets.GetClusterManager().GetCurrentClusterName(), nil
+		// Fallback: try to find a dataplane cluster from available clusters
+		currentCluster := cm.GetCurrentClusterName()
+		clusterNames := cm.GetClusterNames()
+		for _, name := range clusterNames {
+			// Skip control-plane cluster
+			if name != currentCluster && name != "control-plane" {
+				return name, nil
+			}
+		}
+		// Last resort: use current cluster
+		return currentCluster, nil
 	}
 	return cluster, nil
 }
