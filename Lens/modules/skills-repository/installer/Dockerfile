@@ -5,7 +5,7 @@ ARG APPNAME=skills-repository
 ARG BASEPATH=Lens/modules/skills-repository/
 ARG GOPROXY=https://proxy.golang.org,direct
 
-FROM ${REGISTRY}/primussafe/golang:${GO_VERSION} AS builder
+FROM golang:${GO_VERSION} AS builder
 WORKDIR /app
 
 ARG GITHUB_TOKEN
