@@ -149,7 +149,11 @@ func (f *GithubWorkflowRunSummaryFacade) ListByRepo(
 	owner, repo string,
 	filter *RunSummaryFilter,
 ) ([]*model.GithubWorkflowRunSummaries, int64, error) {
-	query := f.getDB().WithContext(ctx).
+	db := f.getDB()
+	if db == nil {
+		return nil, 0, errors.New("database connection not available")
+	}
+	query := db.WithContext(ctx).
 		Model(&model.GithubWorkflowRunSummaries{}).
 		Where("owner = ? AND repo = ?", owner, repo)
 
