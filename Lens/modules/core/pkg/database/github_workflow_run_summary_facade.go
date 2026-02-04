@@ -298,6 +298,7 @@ func (f *GithubWorkflowRunSummaryFacade) UpdateStatus(
 }
 
 // UpdateJobStats updates aggregated job statistics by querying github_workflow_runs table
+// Note: Uses 'status' field (K8s workload status) since 'workflow_status' (GitHub status) is not always populated
 func (f *GithubWorkflowRunSummaryFacade) UpdateJobStats(ctx context.Context, summaryID int64) error {
 	sql := `
 		UPDATE github_workflow_run_summaries rs
@@ -316,12 +317,12 @@ func (f *GithubWorkflowRunSummaryFacade) UpdateJobStats(ctx context.Context, sum
 			SELECT 
 				run_summary_id,
 				COUNT(*) as total_jobs,
-				COUNT(*) FILTER (WHERE workflow_status = 'completed') as completed_jobs,
-				COUNT(*) FILTER (WHERE workflow_conclusion = 'success') as successful_jobs,
-				COUNT(*) FILTER (WHERE workflow_conclusion = 'failure') as failed_jobs,
+				COUNT(*) FILTER (WHERE status IN ('completed', 'failed', 'skipped')) as completed_jobs,
+				COUNT(*) FILTER (WHERE status = 'completed' AND (workflow_conclusion IS NULL OR workflow_conclusion = '' OR workflow_conclusion = 'success')) as successful_jobs,
+				COUNT(*) FILTER (WHERE status = 'failed' OR workflow_conclusion = 'failure') as failed_jobs,
 				COUNT(*) FILTER (WHERE workflow_conclusion = 'cancelled') as cancelled_jobs,
-				COUNT(*) FILTER (WHERE workflow_status = 'in_progress') as in_progress_jobs,
-				COUNT(*) FILTER (WHERE workflow_status = 'queued') as queued_jobs,
+				COUNT(*) FILTER (WHERE status = 'running') as in_progress_jobs,
+				COUNT(*) FILTER (WHERE status = 'pending') as queued_jobs,
 				COALESCE(SUM(files_processed), 0) as total_files_processed,
 				COALESCE(SUM(metrics_count), 0) as total_metrics_count
 			FROM github_workflow_runs
