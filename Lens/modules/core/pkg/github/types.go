@@ -52,6 +52,7 @@ type WorkflowRunInfo struct {
 	WorkflowID      int64      `json:"workflow_id"`
 	WorkflowName    string     `json:"workflow_name"`
 	WorkflowPath    string     `json:"workflow_path"`
+	DisplayTitle    string     `json:"display_title"`   // The title of the run (commit message, PR title, etc.)
 	Status          string     `json:"status"`          // queued, in_progress, completed
 	Conclusion      string     `json:"conclusion"`      // success, failure, cancelled, skipped, timed_out, action_required
 	HTMLURL         string     `json:"html_url"`
@@ -97,6 +98,8 @@ type JobInfo struct {
 	CompletedAt *time.Time `json:"completed_at"`
 	RunnerID    int64      `json:"runner_id,omitempty"`
 	RunnerName  string     `json:"runner_name,omitempty"`
+	HTMLURL     string     `json:"html_url,omitempty"`
+	Needs       []string   `json:"needs,omitempty"` // Job dependencies (names of jobs this job depends on)
 	Steps       []StepInfo `json:"steps,omitempty"`
 }
 

@@ -42,7 +42,7 @@ func (f *GithubWorkflowJobFacade) Upsert(ctx context.Context, job *model.GithubW
 		Clauses(clause.OnConflict{
 			Columns: []clause.Column{{Name: "run_id"}, {Name: "github_job_id"}},
 			DoUpdates: clause.AssignmentColumns([]string{
-				"name", "status", "conclusion", "started_at", "completed_at",
+				"name", "needs", "status", "conclusion", "started_at", "completed_at",
 				"duration_seconds", "runner_id", "runner_name", "runner_group_name",
 				"steps_count", "steps_completed", "steps_failed", "html_url", "updated_at",
 			}),

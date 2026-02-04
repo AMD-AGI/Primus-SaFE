@@ -170,6 +170,7 @@ func (c *Client) GetWorkflowRun(ctx context.Context, owner, repo string, runID i
 		WorkflowID     int64  `json:"workflow_id"`
 		Name           string `json:"name"`
 		Path           string `json:"path"`
+		DisplayTitle   string `json:"display_title"`
 		Status         string `json:"status"`
 		Conclusion     string `json:"conclusion"`
 		HTMLURL        string `json:"html_url"`
@@ -214,6 +215,7 @@ func (c *Client) GetWorkflowRun(ctx context.Context, owner, repo string, runID i
 		WorkflowID:     ghRun.WorkflowID,
 		WorkflowName:   ghRun.Name,
 		WorkflowPath:   ghRun.Path,
+		DisplayTitle:   ghRun.DisplayTitle,
 		Status:         ghRun.Status,
 		Conclusion:     ghRun.Conclusion,
 		HTMLURL:        ghRun.HTMLURL,
@@ -281,6 +283,7 @@ func (c *Client) GetWorkflowRunJobs(ctx context.Context, owner, repo string, run
 			CompletedAt *time.Time `json:"completed_at"`
 			RunnerID    int64      `json:"runner_id"`
 			RunnerName  string     `json:"runner_name"`
+			HTMLURL     string     `json:"html_url"`
 			Steps       []struct {
 				Name        string     `json:"name"`
 				Status      string     `json:"status"`
@@ -307,6 +310,7 @@ func (c *Client) GetWorkflowRunJobs(ctx context.Context, owner, repo string, run
 			CompletedAt: j.CompletedAt,
 			RunnerID:    j.RunnerID,
 			RunnerName:  j.RunnerName,
+			HTMLURL:     j.HTMLURL,
 			Steps:       make([]StepInfo, len(j.Steps)),
 		}
 		for k, s := range j.Steps {
@@ -543,5 +547,42 @@ func (c *Client) GetWorkflowRunLogs(ctx context.Context, owner, repo string, run
 	}
 
 	return "", fmt.Errorf("GitHub API error: %s", resp.Status())
+}
+
+// GetWorkflowFileContent retrieves the workflow YAML file content from GitHub
+func (c *Client) GetWorkflowFileContent(ctx context.Context, owner, repo, path, ref string) (string, error) {
+	url := fmt.Sprintf("%s/repos/%s/%s/contents/%s", c.baseURL, owner, repo, path)
+
+	req := c.httpClient.R().
+		SetContext(ctx).
+		SetHeader("Accept", "application/vnd.github.raw+json")
+
+	if ref != "" {
+		req.SetQueryParam("ref", ref)
+	}
+
+	resp, err := req.Get(url)
+	if err != nil {
+		return "", fmt.Errorf("failed to get workflow file: %w", err)
+	}
+
+	if resp.StatusCode() != http.StatusOK {
+		return "", fmt.Errorf("GitHub API error: %s", resp.Status())
+	}
+
+	return string(resp.Body()), nil
+}
+
+// WorkflowDefinition represents parsed workflow YAML structure
+type WorkflowDefinition struct {
+	Name string                        `yaml:"name"`
+	Jobs map[string]WorkflowJobDef     `yaml:"jobs"`
+}
+
+// WorkflowJobDef represents a job definition in workflow YAML
+type WorkflowJobDef struct {
+	Name   string      `yaml:"name"`
+	Needs  interface{} `yaml:"needs"` // Can be string or []string
+	RunsOn interface{} `yaml:"runs-on"`
 }
 

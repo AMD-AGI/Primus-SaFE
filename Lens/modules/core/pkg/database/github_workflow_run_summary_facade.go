@@ -6,6 +6,7 @@ package database
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
@@ -332,6 +333,76 @@ func (f *GithubWorkflowRunSummaryFacade) UpdateJobStats(ctx context.Context, sum
 	return f.getDB().WithContext(ctx).Exec(sql, summaryID).Error
 }
 
+// RefreshStatusFromJobs updates job statistics and derives status from them
+// This should be called whenever a job's status changes
+func (f *GithubWorkflowRunSummaryFacade) RefreshStatusFromJobs(ctx context.Context, summaryID int64) error {
+	// First update job stats
+	if err := f.UpdateJobStats(ctx, summaryID); err != nil {
+		return fmt.Errorf("failed to update job stats: %w", err)
+	}
+
+	// Get the updated summary to check stats
+	summary, err := f.GetByID(ctx, summaryID)
+	if err != nil {
+		return fmt.Errorf("failed to get summary: %w", err)
+	}
+	if summary == nil {
+		return nil
+	}
+
+	// Derive status from job stats
+	var newStatus, newConclusion string
+
+	if summary.TotalJobs == 0 {
+		// No jobs yet
+		newStatus = RunSummaryStatusQueued
+	} else if summary.CompletedJobs == summary.TotalJobs {
+		// All jobs completed
+		newStatus = RunSummaryStatusCompleted
+		if summary.FailedJobs > 0 {
+			newConclusion = RunSummaryConclusionFailure
+		} else if summary.CancelledJobs > 0 {
+			newConclusion = RunSummaryConclusionCancelled
+		} else {
+			newConclusion = RunSummaryConclusionSuccess
+		}
+	} else if summary.InProgressJobs > 0 {
+		// Some jobs running
+		newStatus = RunSummaryStatusInProgress
+	} else if summary.QueuedJobs > 0 {
+		// Jobs waiting to start
+		newStatus = RunSummaryStatusQueued
+	} else {
+		// Fallback to in_progress
+		newStatus = RunSummaryStatusInProgress
+	}
+
+	// Calculate progress
+	var progressPercent int32
+	if summary.TotalJobs > 0 {
+		progressPercent = int32((float64(summary.CompletedJobs) / float64(summary.TotalJobs)) * 100)
+	}
+
+	// Update status and progress
+	updates := map[string]interface{}{
+		"status":           newStatus,
+		"progress_percent": progressPercent,
+		"last_synced_at":   time.Now(),
+		"updated_at":       time.Now(),
+	}
+	if newConclusion != "" {
+		updates["conclusion"] = newConclusion
+	}
+	if newStatus == RunSummaryStatusCompleted && summary.RunCompletedAt.IsZero() {
+		updates["run_completed_at"] = time.Now()
+	}
+
+	return f.getDB().WithContext(ctx).
+		Model(&model.GithubWorkflowRunSummaries{}).
+		Where("id = ?", summaryID).
+		Updates(updates).Error
+}
+
 // UpdateGraphFetched marks the graph as fetched
 func (f *GithubWorkflowRunSummaryFacade) UpdateGraphFetched(ctx context.Context, id int64, fetched bool) error {
 	updates := map[string]interface{}{
@@ -421,6 +492,9 @@ func (f *GithubWorkflowRunSummaryFacade) UpdateFromGitHub(
 		"last_synced_at":     time.Now(),
 		"updated_at":         time.Now(),
 	}
+	if data.DisplayTitle != "" {
+		updates["display_title"] = data.DisplayTitle
+	}
 	if data.Conclusion != "" {
 		updates["conclusion"] = data.Conclusion
 	}
@@ -441,6 +515,7 @@ type GitHubRunData struct {
 	WorkflowName    string
 	WorkflowPath    string
 	WorkflowID      int64
+	DisplayTitle    string
 	HeadSha         string
 	HeadBranch      string
 	BaseBranch      string

@@ -297,6 +297,14 @@ func (r *EphemeralRunnerReconciler) processRunner(ctx context.Context, info *typ
 			if existingRun.Status != oldStatus {
 				log.Infof("EphemeralRunnerReconciler: updated run record %d for %s/%s (status: %s -> %s)",
 					existingRun.ID, info.Namespace, info.Name, oldStatus, status)
+
+				// Refresh run summary status when job status changes
+				if existingRun.RunSummaryID > 0 {
+					if err := runSummaryFacade.RefreshStatusFromJobs(ctx, existingRun.RunSummaryID); err != nil {
+						log.Warnf("EphemeralRunnerReconciler: failed to refresh run summary status for %d: %v",
+							existingRun.RunSummaryID, err)
+					}
+				}
 			} else {
 				log.Debugf("EphemeralRunnerReconciler: updated GitHub info for run record %d", existingRun.ID)
 			}
@@ -364,6 +372,14 @@ func (r *EphemeralRunnerReconciler) processRunner(ctx context.Context, info *typ
 
 	log.Infof("EphemeralRunnerReconciler: created run record %d for %s/%s (runner_set: %s, status: %s, run_summary: %d)",
 		run.ID, info.Namespace, info.Name, runnerSet.Name, status, run.RunSummaryID)
+
+	// Refresh run summary status when a new job is added
+	if run.RunSummaryID > 0 {
+		if err := runSummaryFacade.RefreshStatusFromJobs(ctx, run.RunSummaryID); err != nil {
+			log.Warnf("EphemeralRunnerReconciler: failed to refresh run summary status for %d: %v",
+				run.RunSummaryID, err)
+		}
+	}
 
 	// Trigger code analysis on first job of this run (Run-level trigger)
 	if runSummary != nil && !runSummary.CodeAnalysisTriggered {
