@@ -167,7 +167,7 @@ The key parameters are `--fault_tolerance.enable`, which activates the TorchFT i
 
 ## Test Environment
 
-All tests and performance metrics described in this blog were conducted on the Primus-SaFE Kubernetes platform, utilizing a cluster of AMD Instinct™ MI325X GPUs.
+All tests and performance metrics described in this blog were conducted on the Primus-SaFE Kubernetes platform, utilizing a 4-node cluster of AMD Instinct™ MI325X GPUs with 8 GPUs per node.
 
 **AMD system configuration:**
 - Dual AMD EPYC 9575F 64-core processor
@@ -180,6 +180,7 @@ All tests and performance metrics described in this blog were conducted on the P
 - PyTorch 2.10.0.dev20251112
 - TorchTitan 0.2.1
 - TorchFT nightly/2025.12.16
+- Docker image Based on docker.io/rocm/primus:v25.10
 
 ## Performance Characteristics
 
@@ -189,9 +190,6 @@ Our testing with the Llama 3 8B model (8,030,261,248 parameters) on AMD MI325X G
 |--------|-------|
 | Model size | 8.03B parameters |
 | Memory usage | 127-133 GB (49-52% of available) |
-| Throughput | 6,700+ tokens per second |
-| TFLOPS | 388-514 |
-| MFU (Model FLOPS Utilization) | 29-39% |
 | Checkpoint staging time | ~1ms |
 | FT checkpoint load time | 0.56 seconds |
 
