@@ -22,6 +22,16 @@ func getUnifiedHandler(path string) gin.HandlerFunc {
 	return nil
 }
 
+// getUnifiedHandlerWithMethod returns the unified handler for a given path and HTTP method.
+// Use this when the same path has multiple HTTP methods (e.g., GET and POST on /skills).
+func getUnifiedHandlerWithMethod(path string, method string) gin.HandlerFunc {
+	ep := unified.GetRegistry().GetEndpointByPathAndMethod(path, method)
+	if ep != nil {
+		return ep.GetGinHandler()
+	}
+	return nil
+}
+
 func RegisterRouter(group *gin.RouterGroup) error {
 	nodeGroup := group.Group("/nodes")
 	{
@@ -376,7 +386,7 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		realtimeGroup.GET("/status", getUnifiedHandler("/realtime/status"))
 		realtimeGroup.GET("/running-tasks", getUnifiedHandler("/realtime/running-tasks"))
 	}
-  
+
 	// Phase 8 Unified (GET only): Detection Status routes - Framework detection status and task progress
 	detectionStatusGroup := group.Group("/detection-status")
 	{
@@ -527,28 +537,51 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		}
 	}
 
-	// Note: V2 group endpoints (analytics, history, commit, details) are now merged 
+	// Note: V2 group endpoints (analytics, history, commit, details) are now merged
 	// into the main github-workflow-metrics group above using unified handlers
 
 	// Skills Repository routes - Proxy to skills-repository service
 	skillsGroup := group.Group("/skills")
 	{
 		// List all skills - supports pagination and filtering
-		skillsGroup.GET("", getUnifiedHandler("/skills"))
+		skillsGroup.GET("", getUnifiedHandlerWithMethod("/skills", "GET"))
 		// Semantic search - must be defined before /:name
 		skillsGroup.POST("/search", getUnifiedHandler("/skills/search"))
 		// Import skills from GitHub
 		skillsGroup.POST("/import/github", getUnifiedHandler("/skills/import/github"))
 		// Get skill by name
-		skillsGroup.GET("/:name", getUnifiedHandler("/skills/:name"))
+		skillsGroup.GET("/:name", getUnifiedHandlerWithMethod("/skills/:name", "GET"))
 		// Get skill content (SKILL.md)
 		skillsGroup.GET("/:name/content", getUnifiedHandler("/skills/:name/content"))
 		// Create a new skill
-		skillsGroup.POST("", getUnifiedHandler("/skills"))
+		skillsGroup.POST("", getUnifiedHandlerWithMethod("/skills", "POST"))
 		// Update a skill
-		skillsGroup.PUT("/:name", getUnifiedHandler("/skills/:name"))
+		skillsGroup.PUT("/:name", getUnifiedHandlerWithMethod("/skills/:name", "PUT"))
 		// Delete a skill
-		skillsGroup.DELETE("/:name", getUnifiedHandler("/skills/:name"))
+		skillsGroup.DELETE("/:name", getUnifiedHandlerWithMethod("/skills/:name", "DELETE"))
+	}
+
+	// Skillsets routes - Proxy to skills-repository service
+	skillsetsGroup := group.Group("/skillsets")
+	{
+		// List all skillsets
+		skillsetsGroup.GET("", getUnifiedHandlerWithMethod("/skillsets", "GET"))
+		// Create a new skillset
+		skillsetsGroup.POST("", getUnifiedHandlerWithMethod("/skillsets", "POST"))
+		// Get skillset by name
+		skillsetsGroup.GET("/:name", getUnifiedHandlerWithMethod("/skillsets/:name", "GET"))
+		// Update a skillset
+		skillsetsGroup.PUT("/:name", getUnifiedHandlerWithMethod("/skillsets/:name", "PUT"))
+		// Delete a skillset
+		skillsetsGroup.DELETE("/:name", getUnifiedHandlerWithMethod("/skillsets/:name", "DELETE"))
+		// List skills in a skillset
+		skillsetsGroup.GET("/:name/skills", getUnifiedHandlerWithMethod("/skillsets/:name/skills", "GET"))
+		// Add skills to a skillset
+		skillsetsGroup.POST("/:name/skills", getUnifiedHandlerWithMethod("/skillsets/:name/skills", "POST"))
+		// Remove skills from a skillset
+		skillsetsGroup.DELETE("/:name/skills", getUnifiedHandlerWithMethod("/skillsets/:name/skills", "DELETE"))
+		// Search skills in a skillset
+		skillsetsGroup.POST("/:name/skills/search", getUnifiedHandler("/skillsets/:name/skills/search"))
 	}
 
 	return nil
