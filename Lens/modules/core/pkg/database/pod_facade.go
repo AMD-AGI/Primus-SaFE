@@ -20,6 +20,7 @@ type PodFacadeInterface interface {
 	CreateGpuPods(ctx context.Context, gpuPods *model.GpuPods) error
 	UpdateGpuPods(ctx context.Context, gpuPods *model.GpuPods) error
 	GetGpuPodsByPodUid(ctx context.Context, podUid string) (*model.GpuPods, error)
+	GetGpuPodsByNamespaceName(ctx context.Context, namespace, name string) (*model.GpuPods, error)
 	GetActiveGpuPodByNodeName(ctx context.Context, nodeName string) ([]*model.GpuPods, error)
 	GetHistoryGpuPodByNodeName(ctx context.Context, nodeName string, pageNum, pageSize int) ([]*model.GpuPods, int, error)
 	ListActivePodsByUids(ctx context.Context, uids []string) ([]*model.GpuPods, error)
@@ -93,6 +94,21 @@ func (f *PodFacade) UpdateGpuPods(ctx context.Context, gpuPods *model.GpuPods) e
 func (f *PodFacade) GetGpuPodsByPodUid(ctx context.Context, podUid string) (*model.GpuPods, error) {
 	q := f.getDAL().GpuPods
 	result, err := q.WithContext(ctx).Where(q.UID.Eq(podUid)).First()
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if result.ID == 0 {
+		return nil, nil
+	}
+	return result, nil
+}
+
+func (f *PodFacade) GetGpuPodsByNamespaceName(ctx context.Context, namespace, name string) (*model.GpuPods, error) {
+	q := f.getDAL().GpuPods
+	result, err := q.WithContext(ctx).Where(q.Namespace.Eq(namespace)).Where(q.Name.Eq(name)).First()
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
