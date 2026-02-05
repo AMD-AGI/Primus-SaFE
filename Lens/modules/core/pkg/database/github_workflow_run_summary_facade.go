@@ -565,3 +565,68 @@ func (f *GithubWorkflowRunSummaryFacade) ListInProgress(ctx context.Context, lim
 	err := query.Find(&summaries).Error
 	return summaries, err
 }
+
+// GetActivePlaceholderByRunnerSet returns an active placeholder summary for a runner set
+func (f *GithubWorkflowRunSummaryFacade) GetActivePlaceholderByRunnerSet(ctx context.Context, runnerSetID int64) (*model.GithubWorkflowRunSummaries, error) {
+	var summary model.GithubWorkflowRunSummaries
+	err := f.getDB().WithContext(ctx).
+		Where("primary_runner_set_id = ? AND is_placeholder = true AND status NOT IN ?",
+			runnerSetID, []string{RunSummaryStatusCompleted}).
+		Order("created_at DESC").
+		First(&summary).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	return &summary, err
+}
+
+// Create creates a new run summary
+func (f *GithubWorkflowRunSummaryFacade) Create(ctx context.Context, summary *model.GithubWorkflowRunSummaries) (*model.GithubWorkflowRunSummaries, error) {
+	now := time.Now()
+	if summary.CreatedAt.IsZero() {
+		summary.CreatedAt = now
+	}
+	if summary.UpdatedAt.IsZero() {
+		summary.UpdatedAt = now
+	}
+	if summary.Status == "" {
+		summary.Status = RunSummaryStatusQueued
+	}
+	if summary.CollectionStatus == "" {
+		summary.CollectionStatus = RunSummaryCollectionPending
+	}
+
+	if err := f.getDB().WithContext(ctx).Create(summary).Error; err != nil {
+		return nil, err
+	}
+	return summary, nil
+}
+
+// UpdateRunnerCounts updates the active launcher/worker counts and error count for a summary
+func (f *GithubWorkflowRunSummaryFacade) UpdateRunnerCounts(ctx context.Context, summaryID int64, activeLaunchers, activeWorkers, errorCount int32) error {
+	return f.getDB().WithContext(ctx).
+		Model(&model.GithubWorkflowRunSummaries{}).
+		Where("id = ?", summaryID).
+		Updates(map[string]interface{}{
+			"active_launchers": activeLaunchers,
+			"active_workers":   activeWorkers,
+			"error_count":      errorCount,
+			"updated_at":       time.Now(),
+		}).Error
+}
+
+// CleanupOrphanPlaceholders deletes placeholder summaries that have no runs referencing them
+// and are older than the specified duration
+func (f *GithubWorkflowRunSummaryFacade) CleanupOrphanPlaceholders(ctx context.Context, olderThan time.Duration) (int64, error) {
+	cutoff := time.Now().Add(-olderThan)
+	result := f.getDB().WithContext(ctx).Exec(`
+		DELETE FROM github_workflow_run_summaries
+		WHERE is_placeholder = true
+		AND created_at < ?
+		AND NOT EXISTS (
+			SELECT 1 FROM github_workflow_runs r
+			WHERE r.run_summary_id = github_workflow_run_summaries.id
+		)
+	`, cutoff)
+	return result.RowsAffected, result.Error
+}

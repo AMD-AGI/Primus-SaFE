@@ -38,6 +38,9 @@ type RepositorySummary struct {
 	FailedRuns       int64      `json:"failed_runs"`
 	LastRunAt        *time.Time `json:"last_run_at,omitempty"`
 	ConfiguredSets   int        `json:"configured_sets"`
+	PendingLaunchers int64      `json:"pending_launchers"`
+	ActiveWorkers    int64      `json:"active_workers"`
+	ErrorPods        int64      `json:"error_pods"`
 }
 
 // GithubRunnerSetFacadeInterface defines the interface for GithubRunnerSet operations
@@ -320,7 +323,10 @@ func (f *GithubRunnerSetFacade) ListRepositories(ctx context.Context) ([]*Reposi
 			COALESCE(COUNT(DISTINCT CASE WHEN r.status = 'completed' THEN r.id END), 0) AS completed_runs,
 			COALESCE(COUNT(DISTINCT CASE WHEN r.status = 'failed' THEN r.id END), 0) AS failed_runs,
 			MAX(r.workload_completed_at) AS last_run_at,
-			COUNT(DISTINCT c.id) AS configured_sets
+			COUNT(DISTINCT c.id) AS configured_sets,
+			COALESCE(COUNT(DISTINCT CASE WHEN r.runner_type = 'launcher' AND r.status IN ('workload_pending', 'workload_running') THEN r.id END), 0) AS pending_launchers,
+			COALESCE(COUNT(DISTINCT CASE WHEN r.runner_type = 'worker' AND r.status = 'workload_running' THEN r.id END), 0) AS active_workers,
+			COALESCE(COUNT(DISTINCT CASE WHEN r.pod_condition IN ('ImagePullBackOff', 'CrashLoopBackOff', 'OOMKilled') OR r.status = 'error' THEN r.id END), 0) AS error_pods
 		`).
 		Joins("LEFT JOIN github_workflow_runs r ON rs.id = r.runner_set_id").
 		Joins(`LEFT JOIN github_workflow_configs c ON 
@@ -353,7 +359,10 @@ func (f *GithubRunnerSetFacade) GetRepositorySummary(ctx context.Context, owner,
 			COALESCE(COUNT(DISTINCT CASE WHEN r.status = 'completed' THEN r.id END), 0) AS completed_runs,
 			COALESCE(COUNT(DISTINCT CASE WHEN r.status = 'failed' THEN r.id END), 0) AS failed_runs,
 			MAX(r.workload_completed_at) AS last_run_at,
-			COUNT(DISTINCT c.id) AS configured_sets
+			COUNT(DISTINCT c.id) AS configured_sets,
+			COALESCE(COUNT(DISTINCT CASE WHEN r.runner_type = 'launcher' AND r.status IN ('workload_pending', 'workload_running') THEN r.id END), 0) AS pending_launchers,
+			COALESCE(COUNT(DISTINCT CASE WHEN r.runner_type = 'worker' AND r.status = 'workload_running' THEN r.id END), 0) AS active_workers,
+			COALESCE(COUNT(DISTINCT CASE WHEN r.pod_condition IN ('ImagePullBackOff', 'CrashLoopBackOff', 'OOMKilled') OR r.status = 'error' THEN r.id END), 0) AS error_pods
 		`).
 		Joins("LEFT JOIN github_workflow_runs r ON rs.id = r.runner_set_id").
 		Joins(`LEFT JOIN github_workflow_configs c ON 

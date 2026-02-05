@@ -66,6 +66,27 @@ const (
 	WorkflowEventWorkflowDispatch = "workflow_dispatch"
 )
 
+// Runner types for EphemeralRunner
+const (
+	RunnerTypeLauncher = "launcher"
+	RunnerTypeWorker   = "worker"
+	RunnerTypeUnknown  = "unknown"
+)
+
+// Pod conditions
+const (
+	PodConditionImagePullBackOff  = "ImagePullBackOff"
+	PodConditionCrashLoopBackOff  = "CrashLoopBackOff"
+	PodConditionContainerCreating = "ContainerCreating"
+	PodConditionOOMKilled         = "OOMKilled"
+	PodConditionReady             = "Ready"
+)
+
+// Run status with error state
+const (
+	WorkflowRunStatusError = "error" // Pod has an error condition
+)
+
 // WorkflowRunTriggerSource constants
 const (
 	WorkflowRunTriggerRealtime = "realtime"
@@ -132,6 +153,9 @@ type GithubWorkflowRunFacadeInterface interface {
 
 	// ListByRunSummaryID lists runs by run summary ID
 	ListByRunSummaryID(ctx context.Context, runSummaryID int64) ([]*model.GithubWorkflowRuns, error)
+
+	// CountByRunSummaryID counts runs by run summary ID
+	CountByRunSummaryID(ctx context.Context, runSummaryID int64) (int64, error)
 
 	// Update updates a run record
 	Update(ctx context.Context, run *model.GithubWorkflowRuns) error
@@ -451,6 +475,16 @@ func (f *GithubWorkflowRunFacade) ListByRunSummaryID(ctx context.Context, runSum
 		Order("id ASC").
 		Find(&runs).Error
 	return runs, err
+}
+
+// CountByRunSummaryID counts runs by run summary ID
+func (f *GithubWorkflowRunFacade) CountByRunSummaryID(ctx context.Context, runSummaryID int64) (int64, error) {
+	db := f.getDAL().GithubWorkflowRuns.WithContext(ctx).UnderlyingDB()
+	var count int64
+	err := db.Model(&model.GithubWorkflowRuns{}).
+		Where("run_summary_id = ?", runSummaryID).
+		Count(&count).Error
+	return count, err
 }
 
 // Update updates a run record

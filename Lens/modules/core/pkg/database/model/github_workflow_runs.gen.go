@@ -48,6 +48,10 @@ type GithubWorkflowRuns struct {
 	CurrentStepName       string    `gorm:"column:current_step_name;comment:Currently running step name from GitHub" json:"current_step_name"`                                                                   // Currently running step name from GitHub
 	ProgressPercent       int32     `gorm:"column:progress_percent;comment:Overall workflow progress percentage (0-100)" json:"progress_percent"`                                                                // Overall workflow progress percentage (0-100)
 	LastSyncedAt          time.Time `gorm:"column:last_synced_at;comment:Last time state was synced from GitHub API" json:"last_synced_at"`                                                                      // Last time state was synced from GitHub API
+	RunnerType            string    `gorm:"column:runner_type;default:unknown;comment:Runner type: launcher, worker, or unknown" json:"runner_type"`                                                             // Runner type: launcher, worker, or unknown
+	PodPhase              string    `gorm:"column:pod_phase;comment:Pod phase: Pending, Running, Succeeded, Failed, Unknown" json:"pod_phase"`                                                                   // Pod phase: Pending, Running, Succeeded, Failed, Unknown
+	PodCondition          string    `gorm:"column:pod_condition;comment:Pod condition: ImagePullBackOff, CrashLoopBackOff, ContainerCreating, Ready, etc." json:"pod_condition"`                                 // Pod condition: ImagePullBackOff, CrashLoopBackOff, ContainerCreating, Ready, etc.
+	PodMessage            string    `gorm:"column:pod_message;comment:Detailed error message from pod status" json:"pod_message"`                                                                                // Detailed error message from pod status
 }
 
 // TableName GithubWorkflowRuns's table name
