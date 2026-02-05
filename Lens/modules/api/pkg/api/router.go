@@ -578,6 +578,8 @@ func RegisterRouter(group *gin.RouterGroup) error {
 			runSummariesGroup.GET("/:id", getUnifiedHandler("/github-runners/run-summaries/:id"))
 			// Get jobs for a run summary
 			runSummariesGroup.GET("/:id/jobs", getUnifiedHandler("/github-runners/run-summaries/:id/jobs"))
+			// Get workflow graph for a run summary
+			runSummariesGroup.GET("/:id/graph", getUnifiedHandler("/github-runners/run-summaries/:id/graph"))
 			// Manual sync (event-driven sync, replaces high-frequency polling)
 			runSummariesGroup.POST("/:id/sync", ManualSyncRunSummary)
 		}
