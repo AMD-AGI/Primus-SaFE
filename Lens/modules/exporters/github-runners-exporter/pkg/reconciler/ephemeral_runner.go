@@ -272,6 +272,29 @@ func (r *EphemeralRunnerReconciler) processRunner(ctx context.Context, info *typ
 		if existingRun.GithubRunID == 0 && info.GithubRunID != 0 {
 			existingRun.GithubRunID = info.GithubRunID
 			needsUpdate = true
+
+			// BUG FIX: When GithubRunID becomes available, create/associate run summary
+			// This was missing before, causing run_summary_id to remain 0
+			if existingRun.RunSummaryID == 0 && runnerSet.GithubOwner != "" && runnerSet.GithubRepo != "" {
+				summary, isNew, summaryErr := runSummaryFacade.GetOrCreateByRunID(ctx, info.GithubRunID, runnerSet.GithubOwner, runnerSet.GithubRepo)
+				if summaryErr != nil {
+					log.Warnf("EphemeralRunnerReconciler: failed to create run summary for existing run %d (github_run_id %d): %v",
+						existingRun.ID, info.GithubRunID, summaryErr)
+				} else if summary != nil {
+					existingRun.RunSummaryID = summary.ID
+					log.Infof("EphemeralRunnerReconciler: associated run %d with run summary %d (github_run_id: %d, new: %v)",
+						existingRun.ID, summary.ID, info.GithubRunID, isNew)
+
+					// Trigger GraphFetch if new or not yet fetched
+					if isNew || !summary.GraphFetched {
+						r.triggerGraphFetch(ctx, summary, runnerSet)
+					}
+
+					// Update runSummary variable for later use (code analysis trigger)
+					runSummary = summary
+					isNewSummary = isNew
+				}
+			}
 		}
 		if existingRun.WorkflowName == "" && info.WorkflowName != "" {
 			existingRun.WorkflowName = info.WorkflowName
