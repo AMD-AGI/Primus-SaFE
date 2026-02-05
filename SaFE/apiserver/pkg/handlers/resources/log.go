@@ -511,6 +511,8 @@ func parseLogQuery(req *http.Request, beginTime, endTime time.Time) (*view.ListL
 	} else if !beginTime.IsZero() && query.SinceTime.Before(beginTime) {
 		query.SinceTime = beginTime
 	}
+	klog.Infof("sinceTime: %s, untilTime: %s, begintTime: %s, endTime: %s",
+		query.SinceTime.String(), query.UntilTime.String(), beginTime.String(), endTime.String())
 	if query.SinceTime.After(query.UntilTime) {
 		return nil, commonerrors.NewBadRequest("the since time is later than until time")
 	}
