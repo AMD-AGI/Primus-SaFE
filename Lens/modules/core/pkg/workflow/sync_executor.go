@@ -480,7 +480,7 @@ func (e *SyncExecutor) checkAndTriggerFailureAnalysis(ctx context.Context, run *
 		return
 	}
 
-	runSummaryFacade := database.NewGithubWorkflowRunSummaryFacade()
+	runSummaryFacade := database.GetFacade().GetGithubWorkflowRunSummary()
 	summary, err := runSummaryFacade.GetByID(ctx, run.RunSummaryID)
 	if err != nil || summary == nil {
 		log.Warnf("SyncExecutor: failed to get run summary %d: %v", run.RunSummaryID, err)

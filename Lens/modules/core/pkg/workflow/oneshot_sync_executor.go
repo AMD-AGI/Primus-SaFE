@@ -335,7 +335,7 @@ func (e *CompletionSyncExecutor) checkAndTriggerFailureAnalysis(ctx context.Cont
 		return
 	}
 
-	runSummaryFacade := database.NewGithubWorkflowRunSummaryFacade()
+	runSummaryFacade := database.GetFacade().GetGithubWorkflowRunSummary()
 	summary, err := runSummaryFacade.GetByID(ctx, run.RunSummaryID)
 	if err != nil || summary == nil || summary.FailureAnalysisTriggered {
 		return
@@ -424,7 +424,7 @@ func (e *ManualSyncExecutor) Execute(ctx context.Context, execCtx *task.Executio
 }
 
 func (e *ManualSyncExecutor) syncRunSummary(ctx context.Context, runSummaryID int64) (*task.ExecutionResult, error) {
-	runSummaryFacade := database.NewGithubWorkflowRunSummaryFacade()
+	runSummaryFacade := database.GetFacade().GetGithubWorkflowRunSummary()
 	summary, err := runSummaryFacade.GetByID(ctx, runSummaryID)
 	if err != nil || summary == nil {
 		return task.FailureResult("run summary not found", nil), nil
