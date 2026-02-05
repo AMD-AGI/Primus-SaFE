@@ -309,9 +309,10 @@ func (r *EphemeralRunnerReconciler) processRunner(ctx context.Context, info *typ
 				log.Debugf("EphemeralRunnerReconciler: updated GitHub info for run record %d", existingRun.ID)
 			}
 
-			// Start real-time sync when runner is running and has GitHub run ID
+			// Trigger initial sync when runner starts running (event-driven, one-shot)
+			// This replaces the old high-frequency polling SyncExecutor
 			if status == database.WorkflowRunStatusWorkloadRunning && existingRun.GithubRunID > 0 {
-				r.startRealtimeSync(existingRun.ID)
+				r.triggerInitialSync(ctx, existingRun)
 			}
 		}
 		return nil
@@ -386,9 +387,10 @@ func (r *EphemeralRunnerReconciler) processRunner(ctx context.Context, info *typ
 		r.triggerCodeAnalysis(ctx, runSummary, runnerSet)
 	}
 
-	// Start real-time sync when runner is running and has GitHub run ID
+	// Trigger initial sync when runner starts running (event-driven, one-shot)
+	// This replaces the old high-frequency polling SyncExecutor
 	if status == database.WorkflowRunStatusWorkloadRunning && run.GithubRunID > 0 {
-		r.startRealtimeSync(run.ID)
+		r.triggerInitialSync(ctx, run)
 	}
 
 	return nil
@@ -436,17 +438,36 @@ func (r *EphemeralRunnerReconciler) shouldUpdateStatus(oldStatus, newStatus stri
 	return newPriority > oldPriority
 }
 
-// startRealtimeSync starts real-time workflow state synchronization via TaskScheduler
-func (r *EphemeralRunnerReconciler) startRealtimeSync(runID int64) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	if err := workflow.CreateSyncTask(ctx, runID); err != nil {
-		log.Warnf("EphemeralRunnerReconciler: failed to create sync task for run %d: %v", runID, err)
+// triggerInitialSync triggers one-shot initial sync when runner starts running
+// This replaces the old high-frequency polling SyncExecutor
+func (r *EphemeralRunnerReconciler) triggerInitialSync(ctx context.Context, run *model.GithubWorkflowRuns) {
+	if run.GithubRunID == 0 {
 		return
 	}
 
-	log.Infof("EphemeralRunnerReconciler: created sync task for run %d", runID)
+	// Create initial sync task (one-shot, not polling)
+	if err := workflow.CreateInitialSyncTask(ctx, run.ID, true, true); err != nil {
+		log.Warnf("EphemeralRunnerReconciler: failed to create initial sync task for run %d: %v", run.ID, err)
+		return
+	}
+
+	log.Infof("EphemeralRunnerReconciler: triggered initial sync for run %d (github_run: %d)", run.ID, run.GithubRunID)
+}
+
+// triggerCompletionSync triggers one-shot completion sync when runner finishes
+// This syncs the final job status, logs, and schedules periodic sync if workflow not done
+func (r *EphemeralRunnerReconciler) triggerCompletionSync(ctx context.Context, run *model.GithubWorkflowRuns) {
+	if run.GithubRunID == 0 {
+		return
+	}
+
+	// Create completion sync task (one-shot, fetches jobs and logs)
+	if err := workflow.CreateCompletionSyncTask(ctx, run.ID, true, true); err != nil {
+		log.Warnf("EphemeralRunnerReconciler: failed to create completion sync task for run %d: %v", run.ID, err)
+		return
+	}
+
+	log.Infof("EphemeralRunnerReconciler: triggered completion sync for run %d (github_run: %d)", run.ID, run.GithubRunID)
 }
 
 // matchesConfig checks if an EphemeralRunner matches a workflow config
@@ -587,6 +608,10 @@ func (r *EphemeralRunnerReconciler) processDeletion(ctx context.Context, info *t
 
 	log.Infof("EphemeralRunnerReconciler: marked run %d as pending for collection on deletion (status: %s -> %s)",
 		existingRun.ID, oldStatus, existingRun.Status)
+
+	// Trigger completion sync (event-driven, one-shot)
+	// This replaces the continuous SyncExecutor polling with a one-time sync
+	r.triggerCompletionSync(ctx, existingRun)
 
 	// Submit collection task to TaskScheduler
 	if err := r.submitCollectionTask(ctx, existingRun); err != nil {

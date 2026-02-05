@@ -90,10 +90,14 @@ func InitTaskScheduler(ctx context.Context) error {
 		MaxConcurrentTasks:       10, // Allow parallel collection
 		StaleLockCleanupInterval: 1 * time.Minute,
 		AutoStart:                true,
-		// Consume collection and sync tasks - analysis tasks are handled by agent service
+		// Consume collection and event-driven sync tasks - analysis tasks are handled by agent service
 		ConsumeTaskTypes: []string{
 			constant.TaskTypeGithubWorkflowCollection,
-			workflow.TaskTypeGithubWorkflowSync,
+			workflow.TaskTypeGithubWorkflowSync, // Legacy sync (deprecated, kept for backward compatibility)
+			constant.TaskTypeGithubInitialSync,    // Event-driven: on runner creation
+			constant.TaskTypeGithubCompletionSync, // Event-driven: on runner completion
+			constant.TaskTypeGithubPeriodicSync,   // Event-driven: every 5 minutes until workflow completes
+			constant.TaskTypeGithubManualSync,     // Event-driven: user-triggered manual sync
 		},
 	}
 
@@ -117,12 +121,38 @@ func InitTaskScheduler(ctx context.Context) error {
 	}
 	log.Info("CollectionExecutor registered with TaskScheduler")
 
-	// Register SyncExecutor for real-time workflow state synchronization
+	// Register SyncExecutor for real-time workflow state synchronization (legacy, deprecated)
+	// Kept for backward compatibility with existing tasks
 	syncExecutor := workflow.NewSyncExecutor()
 	if err := taskScheduler.RegisterExecutor(syncExecutor); err != nil {
 		return err
 	}
-	log.Info("SyncExecutor registered with TaskScheduler")
+	log.Info("SyncExecutor registered with TaskScheduler (legacy)")
+
+	// Register event-driven sync executors (new, replacing high-frequency polling)
+	initialSyncExecutor := workflow.NewInitialSyncExecutor()
+	if err := taskScheduler.RegisterExecutor(initialSyncExecutor); err != nil {
+		return err
+	}
+	log.Info("InitialSyncExecutor registered with TaskScheduler")
+
+	completionSyncExecutor := workflow.NewCompletionSyncExecutor()
+	if err := taskScheduler.RegisterExecutor(completionSyncExecutor); err != nil {
+		return err
+	}
+	log.Info("CompletionSyncExecutor registered with TaskScheduler")
+
+	periodicSyncExecutor := workflow.NewPeriodicSyncExecutor()
+	if err := taskScheduler.RegisterExecutor(periodicSyncExecutor); err != nil {
+		return err
+	}
+	log.Info("PeriodicSyncExecutor registered with TaskScheduler")
+
+	manualSyncExecutor := workflow.NewManualSyncExecutor()
+	if err := taskScheduler.RegisterExecutor(manualSyncExecutor); err != nil {
+		return err
+	}
+	log.Info("ManualSyncExecutor registered with TaskScheduler")
 
 	// Register LogFetchExecutor for fetching and caching workflow logs
 	logFetchExecutor := workflow.NewLogFetchExecutor()

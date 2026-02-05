@@ -504,6 +504,8 @@ func RegisterRouter(group *gin.RouterGroup) error {
 			runsGroup.GET("/:id/jobs", GetRunJobs)
 			runsGroup.POST("/:id/sync/start", StartRunSync)
 			runsGroup.POST("/:id/sync/stop", StopRunSync)
+			// Manual sync (event-driven sync, replaces high-frequency polling)
+			runsGroup.POST("/:id/sync", ManualSyncRun)
 			// Job and step logs APIs
 			runsGroup.GET("/:id/jobs/:job_id/logs", GetJobLogs)
 			runsGroup.GET("/:id/jobs/:job_id/steps/:step_number/logs", GetStepLogs)
@@ -576,6 +578,8 @@ func RegisterRouter(group *gin.RouterGroup) error {
 			runSummariesGroup.GET("/:id", getUnifiedHandler("/github-runners/run-summaries/:id"))
 			// Get jobs for a run summary
 			runSummariesGroup.GET("/:id/jobs", getUnifiedHandler("/github-runners/run-summaries/:id/jobs"))
+			// Manual sync (event-driven sync, replaces high-frequency polling)
+			runSummariesGroup.POST("/:id/sync", ManualSyncRunSummary)
 		}
 	}
 
