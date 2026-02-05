@@ -76,9 +76,6 @@ func InitControlPlaneClient(ctx context.Context, cfg *config.Config) error {
 			return
 		}
 
-		// Also register as default database so BaseFacade.getDB() can find it
-		sql.RegisterDB("default", db)
-
 		// Initialize global facade for use by other packages
 		cpdb.InitControlPlaneFacade(db)
 
