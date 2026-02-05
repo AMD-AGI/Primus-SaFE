@@ -549,6 +549,21 @@ func (mr *MockInterfaceMockRecorder) GetModelByID(ctx, id interface{}) *gomock.C
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetModelByID", reflect.TypeOf((*MockInterface)(nil).GetModelByID), ctx, id)
 }
 
+// GetModelByModelName mocks base method.
+func (m *MockInterface) GetModelByModelName(ctx context.Context, modelName string) (*client.Model, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetModelByModelName", ctx, modelName)
+	ret0, _ := ret[0].(*client.Model)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetModelByModelName indicates an expected call of GetModelByModelName.
+func (mr *MockInterfaceMockRecorder) GetModelByModelName(ctx, modelName interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetModelByModelName", reflect.TypeOf((*MockInterface)(nil).GetModelByModelName), ctx, modelName)
+}
+
 // GetNodeGpuUtilizationMap mocks base method.
 func (m *MockInterface) GetNodeGpuUtilizationMap(ctx context.Context, cluster string, nodeNames []string) (map[string]float64, error) {
 	m.ctrl.T.Helper()
@@ -3440,4 +3455,147 @@ func (m *MockInterface) BatchInsertAuditLogs(ctx context.Context, auditLogs []*c
 func (mr *MockInterfaceMockRecorder) BatchInsertAuditLogs(ctx, auditLogs interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BatchInsertAuditLogs", reflect.TypeOf((*MockInterface)(nil).BatchInsertAuditLogs), ctx, auditLogs)
+}
+
+// UpsertEvaluationTask mocks base method.
+func (m *MockInterface) UpsertEvaluationTask(ctx context.Context, task *client.EvaluationTask) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpsertEvaluationTask", ctx, task)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpsertEvaluationTask indicates an expected call of UpsertEvaluationTask.
+func (mr *MockInterfaceMockRecorder) UpsertEvaluationTask(ctx, task interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertEvaluationTask", reflect.TypeOf((*MockInterface)(nil).UpsertEvaluationTask), ctx, task)
+}
+
+// SelectEvaluationTasks mocks base method.
+func (m *MockInterface) SelectEvaluationTasks(ctx context.Context, query squirrel.Sqlizer, orderBy []string, limit, offset int) ([]*client.EvaluationTask, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SelectEvaluationTasks", ctx, query, orderBy, limit, offset)
+	ret0, _ := ret[0].([]*client.EvaluationTask)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SelectEvaluationTasks indicates an expected call of SelectEvaluationTasks.
+func (mr *MockInterfaceMockRecorder) SelectEvaluationTasks(ctx, query, orderBy, limit, offset interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SelectEvaluationTasks", reflect.TypeOf((*MockInterface)(nil).SelectEvaluationTasks), ctx, query, orderBy, limit, offset)
+}
+
+// CountEvaluationTasks mocks base method.
+func (m *MockInterface) CountEvaluationTasks(ctx context.Context, query squirrel.Sqlizer) (int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountEvaluationTasks", ctx, query)
+	ret0, _ := ret[0].(int)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountEvaluationTasks indicates an expected call of CountEvaluationTasks.
+func (mr *MockInterfaceMockRecorder) CountEvaluationTasks(ctx, query interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountEvaluationTasks", reflect.TypeOf((*MockInterface)(nil).CountEvaluationTasks), ctx, query)
+}
+
+// GetEvaluationTask mocks base method.
+func (m *MockInterface) GetEvaluationTask(ctx context.Context, taskId string) (*client.EvaluationTask, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetEvaluationTask", ctx, taskId)
+	ret0, _ := ret[0].(*client.EvaluationTask)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetEvaluationTask indicates an expected call of GetEvaluationTask.
+func (mr *MockInterfaceMockRecorder) GetEvaluationTask(ctx, taskId interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetEvaluationTask", reflect.TypeOf((*MockInterface)(nil).GetEvaluationTask), ctx, taskId)
+}
+
+// SetEvaluationTaskDeleted mocks base method.
+func (m *MockInterface) SetEvaluationTaskDeleted(ctx context.Context, taskId string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetEvaluationTaskDeleted", ctx, taskId)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetEvaluationTaskDeleted indicates an expected call of SetEvaluationTaskDeleted.
+func (mr *MockInterfaceMockRecorder) SetEvaluationTaskDeleted(ctx, taskId interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetEvaluationTaskDeleted", reflect.TypeOf((*MockInterface)(nil).SetEvaluationTaskDeleted), ctx, taskId)
+}
+
+// UpdateEvaluationTaskStatus mocks base method.
+func (m *MockInterface) UpdateEvaluationTaskStatus(ctx context.Context, taskId string, status client.EvaluationTaskStatus) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateEvaluationTaskStatus", ctx, taskId, status)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateEvaluationTaskStatus indicates an expected call of UpdateEvaluationTaskStatus.
+func (mr *MockInterfaceMockRecorder) UpdateEvaluationTaskStatus(ctx, taskId, status interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateEvaluationTaskStatus", reflect.TypeOf((*MockInterface)(nil).UpdateEvaluationTaskStatus), ctx, taskId, status)
+}
+
+// UpdateEvaluationTaskOpsJobId mocks base method.
+func (m *MockInterface) UpdateEvaluationTaskOpsJobId(ctx context.Context, taskId, opsJobId string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateEvaluationTaskOpsJobId", ctx, taskId, opsJobId)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateEvaluationTaskOpsJobId indicates an expected call of UpdateEvaluationTaskOpsJobId.
+func (mr *MockInterfaceMockRecorder) UpdateEvaluationTaskOpsJobId(ctx, taskId, opsJobId interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateEvaluationTaskOpsJobId", reflect.TypeOf((*MockInterface)(nil).UpdateEvaluationTaskOpsJobId), ctx, taskId, opsJobId)
+}
+
+// UpdateEvaluationTaskResult mocks base method.
+func (m *MockInterface) UpdateEvaluationTaskResult(ctx context.Context, taskId string, resultSummary, reportS3Path string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateEvaluationTaskResult", ctx, taskId, resultSummary, reportS3Path)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateEvaluationTaskResult indicates an expected call of UpdateEvaluationTaskResult.
+func (mr *MockInterfaceMockRecorder) UpdateEvaluationTaskResult(ctx, taskId, resultSummary, reportS3Path interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateEvaluationTaskResult", reflect.TypeOf((*MockInterface)(nil).UpdateEvaluationTaskResult), ctx, taskId, resultSummary, reportS3Path)
+}
+
+// UpdateEvaluationTaskStartTime mocks base method.
+func (m *MockInterface) UpdateEvaluationTaskStartTime(ctx context.Context, taskId string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateEvaluationTaskStartTime", ctx, taskId)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateEvaluationTaskStartTime indicates an expected call of UpdateEvaluationTaskStartTime.
+func (mr *MockInterfaceMockRecorder) UpdateEvaluationTaskStartTime(ctx, taskId interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateEvaluationTaskStartTime", reflect.TypeOf((*MockInterface)(nil).UpdateEvaluationTaskStartTime), ctx, taskId)
+}
+
+// SetEvaluationTaskFailed mocks base method.
+func (m *MockInterface) SetEvaluationTaskFailed(ctx context.Context, taskId, message string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetEvaluationTaskFailed", ctx, taskId, message)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetEvaluationTaskFailed indicates an expected call of SetEvaluationTaskFailed.
+func (mr *MockInterfaceMockRecorder) SetEvaluationTaskFailed(ctx, taskId, message interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetEvaluationTaskFailed", reflect.TypeOf((*MockInterface)(nil).SetEvaluationTaskFailed), ctx, taskId, message)
 }

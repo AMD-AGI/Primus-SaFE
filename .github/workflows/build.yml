@@ -205,7 +205,7 @@ jobs:
         echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
   build:
     needs: detect-changes
-    runs-on: primus-safe-cicd-x8qwb
+    runs-on: primus-safe-cicd-xfxr6
     timeout-minutes: 120
     outputs:
       primary_tag: ${{ steps.build-and-push.outputs.primary_tag }}
@@ -222,25 +222,12 @@ jobs:
           echo "Docker username length: ${#DOCKER_USERNAME}"
           buildah login -u "${{ secrets.DOCKER_USERNAME }}" -p "${{ secrets.DOCKER_PASSWORD }}" docker.io && echo "✅ Docker Hub login successful" || echo "❌ Docker Hub login failed"
           
-          echo "🔐 Logging in to Harbor..."
-          echo "Harbor host: ${{ secrets.HARBOR_HOST }}"
-          echo "Harbor username length: ${#HARBOR_USERNAME}"
-          
-          # Extract Harbor domain and test connectivity
-          HARBOR_DOMAIN=$(echo "${{ secrets.HARBOR_HOST }}" | sed 's|https://||;s|http://||;s|/.*||')
-          echo "🔍 Harbor domain: ${HARBOR_DOMAIN}"
-          echo "🔍 Curl test:"
-          curl -v -k "https://${HARBOR_DOMAIN}/api/v2.0/ping" || echo "⚠️ Curl test failed"
-          
-          buildah login --tls-verify=false -u "${{ secrets.HARBOR_USERNAME }}" -p "${{ secrets.HARBOR_PASSWORD }}" "${{ secrets.HARBOR_HOST }}" && echo "✅ Harbor login successful" || echo "❌ Harbor login failed"
         env:
           DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
-          HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
 
       - name: Build and push with Buildah
         env:
           DOCKERIO_REPOSITORY: docker.io/primussafe
-          HARBOR_REPOSITORY: ${{ secrets.HARBOR_HOST }}/primussafe
           IMAGE_VERSION: ${{ needs.detect-changes.outputs.image_version }}
           DATE_TIME: ${{ needs.detect-changes.outputs.date_time }}
         run: |
@@ -260,7 +247,7 @@ jobs:
             -t ${{ matrix.name }}:${DATE_TIME} \
             -f ${{ matrix.dockerfile_path }} .
 
-          for repo in ${DOCKERIO_REPOSITORY} ${HARBOR_REPOSITORY}; do
+          for repo in ${DOCKERIO_REPOSITORY}; do
             echo "🚀 Pushing ${{ matrix.name }} to $repo..."
             buildah tag ${{ matrix.name }}:${IMAGE_VERSION} ${repo}/${{ matrix.name }}:${IMAGE_VERSION}
             buildah tag ${{ matrix.name }}:${DATE_TIME} ${repo}/${{ matrix.name }}:${DATE_TIME}

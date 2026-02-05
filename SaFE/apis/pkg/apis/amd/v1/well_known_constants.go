@@ -81,6 +81,7 @@ const (
 	WorkspaceNodesAction   = WorkspacePrefix + "nodes.action"
 	WorkspaceForcedAction  = WorkspacePrefix + "forced.action"
 	WorkspaceIdsAnnotation = WorkspacePrefix + "ids"
+	SourceWorkloadIdLabel  = "source.workload.id"
 
 	// fault
 	FaultPrefix    = PrimusSafePrefix + "fault."

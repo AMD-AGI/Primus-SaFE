@@ -246,12 +246,12 @@ func (r *ClusterBaseReconciler) guaranteeHostsConfigMapCreated(ctx context.Conte
 }
 
 // getCluster retrieves a cluster by id from the API.
-func (r *ClusterBaseReconciler) getCluster(ctx context.Context, clusterId string) (*v1.Cluster, error) {
+func getAdminCluster(ctx context.Context, cli client.Client, clusterId string) (*v1.Cluster, error) {
 	if clusterId == "" {
 		return nil, nil
 	}
 	cluster := new(v1.Cluster)
-	err := r.Get(ctx, apitypes.NamespacedName{Name: clusterId}, cluster)
+	err := cli.Get(ctx, apitypes.NamespacedName{Name: clusterId}, cluster)
 	if err != nil {
 		return nil, err
 	}

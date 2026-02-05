@@ -46,6 +46,7 @@ Create a new workspace in a cluster.
       "type": "hostpath"
     }
   ],
+  "labels": {"key1": "value1", "key2": "value2"},
   "enablePreempt": false,
   "isDefault": true,
   "imageSecretIds": ["image-secret-001"],
@@ -69,6 +70,7 @@ Create a new workspace in a cluster.
 | isDefault | bool     | No | Whether to set as default workspace (accessible to all users)                                                                            |
 | imageSecretIds | []string | No | List of image pull secret IDs                                                                                                            |
 | maxRuntime | object   | No | The maximum workload runtime of each scope, Unit: hours                                                                                    |
+| labels     | object   | No  | User-defined labels (key-value pairs). Keys cannot start with "primus-safe"   |
 
 **Volume Configuration**:
 
