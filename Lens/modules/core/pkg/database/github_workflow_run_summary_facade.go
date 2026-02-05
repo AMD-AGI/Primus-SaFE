@@ -65,18 +65,25 @@ func (f *GithubWorkflowRunSummaryFacade) GetOrCreateByRunID(
 	githubRunID int64,
 	owner, repo string,
 ) (*model.GithubWorkflowRunSummaries, bool, error) {
+	db := f.getDB()
+	if db == nil {
+		return nil, false, fmt.Errorf("GetOrCreateByRunID: database connection is nil for github_run_id %d", githubRunID)
+	}
+
 	var summary model.GithubWorkflowRunSummaries
 
-	err := f.getDB().WithContext(ctx).
+	err := db.WithContext(ctx).
 		Where("github_run_id = ?", githubRunID).
 		First(&summary).Error
 
 	if err == nil {
-		return &summary, false, nil // exists
-	}
-
-	if !errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, false, err
+		// Additional check: ensure ID is valid (handles edge case where First() returns nil error but empty struct)
+		if summary.ID > 0 {
+			return &summary, false, nil // exists
+		}
+		// If ID is 0, something went wrong - fall through to create
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, false, fmt.Errorf("GetOrCreateByRunID: query failed for github_run_id %d: %w", githubRunID, err)
 	}
 
 	// Create new record
@@ -92,15 +99,23 @@ func (f *GithubWorkflowRunSummaryFacade) GetOrCreateByRunID(
 		UpdatedAt:        time.Now(),
 	}
 
-	if err := f.getDB().WithContext(ctx).Create(&summary).Error; err != nil {
+	if err := db.WithContext(ctx).Create(&summary).Error; err != nil {
 		// Handle race condition - another goroutine may have created it
 		if errors.Is(err, gorm.ErrDuplicatedKey) {
-			if err := f.getDB().WithContext(ctx).Where("github_run_id = ?", githubRunID).First(&summary).Error; err != nil {
-				return nil, false, err
+			if err := db.WithContext(ctx).Where("github_run_id = ?", githubRunID).First(&summary).Error; err != nil {
+				return nil, false, fmt.Errorf("GetOrCreateByRunID: re-query after duplicate key failed for github_run_id %d: %w", githubRunID, err)
 			}
-			return &summary, false, nil
+			if summary.ID > 0 {
+				return &summary, false, nil
+			}
+			return nil, false, fmt.Errorf("GetOrCreateByRunID: re-query returned invalid ID for github_run_id %d", githubRunID)
 		}
-		return nil, false, err
+		return nil, false, fmt.Errorf("GetOrCreateByRunID: create failed for github_run_id %d: %w", githubRunID, err)
+	}
+
+	// Verify ID was populated after create
+	if summary.ID == 0 {
+		return nil, false, fmt.Errorf("GetOrCreateByRunID: create succeeded but ID is 0 for github_run_id %d", githubRunID)
 	}
 
 	return &summary, true, nil // created
