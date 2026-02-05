@@ -848,8 +848,10 @@ func (r *EphemeralRunnerReconciler) getOrCreatePlaceholderSummary(ctx context.Co
 	}
 
 	// Create new placeholder summary
+	// Use negative runner_set_id as github_run_id to avoid unique constraint conflict
+	// The unique constraint is on (github_run_id, github_run_attempt)
 	placeholder := &model.GithubWorkflowRunSummaries{
-		GithubRunID:        0,
+		GithubRunID:        -int64(runnerSet.ID),
 		GithubRunNumber:    0,
 		Owner:              runnerSet.GithubOwner,
 		Repo:               runnerSet.GithubRepo,
