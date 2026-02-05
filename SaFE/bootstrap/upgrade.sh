@@ -57,6 +57,7 @@ fi
 echo "✅ Image Registry: \"$proxy_image_registry\""
 echo "✅ Helm Registry: \"$helm_registry\""
 echo "✅ CD Require Approval: \"$cd_require_approval\""
+echo "✅ Install Node Agent: \"${install_node_agent:-y}\""
 
 echo
 
@@ -182,25 +183,30 @@ echo "========================================="
 echo "🔧 Step 4: upgrade primus-safe data plane"
 echo "========================================="
 
-cd ../node-agent/charts/
-src_values_yaml="node-agent/values.yaml"
-if [ ! -f "$src_values_yaml" ]; then
-  echo "Error: $src_values_yaml does not exist"
-  exit 1
+# Check if node-agent installation is enabled (default: y)
+if [[ "${install_node_agent:-y}" == "n" ]]; then
+  echo "⏭️  Skipping node-agent upgrade (install_node_agent=n)"
+else
+  cd ../node-agent/charts/
+  src_values_yaml="node-agent/values.yaml"
+  if [ ! -f "$src_values_yaml" ]; then
+    echo "Error: $src_values_yaml does not exist"
+    exit 1
+  fi
+  values_yaml="node-agent/.values.yaml"
+  cp "$src_values_yaml" "${values_yaml}"
+
+  sed -i '/node_agent:/,/^[a-z]/ s/image_registry: .*/image_registry: "'"$safe_image"'"/' "$values_yaml"
+
+  sed -i "s/nccl_socket_ifname: \".*\"/nccl_socket_ifname: \"$ethernet_nic\"/" "$values_yaml"
+  sed -i "s/nccl_ib_hca: \".*\"/nccl_ib_hca: \"$rdma_nic\"/" "$values_yaml"
+  sed -i "s/image_pull_secret: \".*\"/image_pull_secret: \"$IMAGE_PULL_SECRET\"/" "$values_yaml"
+
+  install_or_upgrade_helm_chart "node-agent" "$values_yaml"
+  rm -f "$values_yaml"
 fi
-values_yaml="node-agent/.values.yaml"
-cp "$src_values_yaml" "${values_yaml}"
-
-sed -i '/node_agent:/,/^[a-z]/ s/image_registry: .*/image_registry: "'"$safe_image"'"/' "$values_yaml"
-
-sed -i "s/nccl_socket_ifname: \".*\"/nccl_socket_ifname: \"$ethernet_nic\"/" "$values_yaml"
-sed -i "s/nccl_ib_hca: \".*\"/nccl_ib_hca: \"$rdma_nic\"/" "$values_yaml"
-sed -i "s/image_pull_secret: \".*\"/image_pull_secret: \"$IMAGE_PULL_SECRET\"/" "$values_yaml"
-
-install_or_upgrade_helm_chart "node-agent" "$values_yaml"
-rm -f "$values_yaml"
 
 echo
 echo "==============================="
-echo "🔧 Step 4: All completed!"
+echo "🔧 Step 5: All completed!"
 echo "==============================="

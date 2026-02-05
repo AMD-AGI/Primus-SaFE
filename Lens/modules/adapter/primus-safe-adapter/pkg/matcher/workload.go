@@ -107,18 +107,21 @@ func (w *WorkloadMatcher) scanForSingleWorkload(ctx context.Context, dbWorkload 
 	// Set current Workload (parent) UID as parent_uid for child workloads (only if needed)
 	if needUpdateParentUID {
 		for _, childWorkload := range referencedWorkload {
+			// Skip the Workload itself to avoid self-referencing
+			// This can happen because Workload also has the primus-safe.workload.id label set to its own name
 			if childWorkload.UID == dbWorkload.UID {
+				// Fix existing self-referencing records
 				if childWorkload.ParentUID == childWorkload.UID {
 					childWorkload.ParentUID = ""
 					err = facade.GetWorkload().UpdateGpuWorkload(ctx, childWorkload)
 					if err != nil {
-						log.Errorf("failed to update child workload %s/%s parent_uid: %v",
+						log.Errorf("failed to fix self-referencing workload %s/%s: %v",
 							childWorkload.Namespace, childWorkload.Name, err)
-						continue
 					}
 				}
 				continue
 			}
+
 			if childWorkload.ParentUID == "" {
 				childWorkload.ParentUID = dbWorkload.UID
 				err = facade.GetWorkload().UpdateGpuWorkload(ctx, childWorkload)

@@ -14,6 +14,6 @@ if [ $? -ne 0 ]; then
 fi
 
 if [ $count -gt 0 ]; then
-  echo 'acs is enabled'
+  echo "Warning: ACS (Access Control Services) is enabled."
   exit 1
 fi

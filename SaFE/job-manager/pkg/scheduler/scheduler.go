@@ -117,6 +117,7 @@ func (r *SchedulerReconciler) relevantChangePredicate() predicate.Predicate {
 				r.cronManager.addOrReplace(newWorkload)
 			}
 			if !oldWorkload.IsEnd() && newWorkload.IsEnd() {
+				r.notifyDependentWorkspaces(newWorkload)
 				return true
 			}
 			if v1.GetCronjobTimestamp(oldWorkload) != v1.GetCronjobTimestamp(newWorkload) {
@@ -130,6 +131,20 @@ func (r *SchedulerReconciler) relevantChangePredicate() predicate.Predicate {
 			}
 			return false
 		},
+	}
+}
+
+// notifyDependentWorkspaces finds and notifies all workspaces that depend on the given workload
+func (r *SchedulerReconciler) notifyDependentWorkspaces(workload *v1.Workload) {
+	workspaceList := &v1.WorkspaceList{}
+	labelSelector := labels.SelectorFromSet(map[string]string{v1.SourceWorkloadIdLabel: workload.Name})
+	if r.List(context.Background(), workspaceList, &client.ListOptions{LabelSelector: labelSelector}) == nil {
+		for _, item := range workspaceList.Items {
+			r.Add(&SchedulerMessage{
+				ClusterId:   item.Spec.Cluster,
+				WorkspaceId: item.Name,
+			})
+		}
 	}
 }
 
@@ -286,7 +301,7 @@ func (r *SchedulerReconciler) scheduleWorkloads(ctx context.Context, message *Sc
 		} else {
 			leftResources = &leftAvailResources
 		}
-		ok, reason, err := r.canScheduleWorkload(ctx, w, scheduledWorkloads, requestResources, *leftResources)
+		ok, reason, err := r.canScheduleWorkload(ctx, w, workspace, scheduledWorkloads, requestResources, *leftResources)
 		if err != nil {
 			return err
 		}
@@ -298,7 +313,7 @@ func (r *SchedulerReconciler) scheduleWorkloads(ctx context.Context, message *Sc
 			// Process scheduling workloads based on priority and policy
 			// If the scheduling policy is FIFO, or the priority is higher than subsequent queued workloads
 			// (excluding the workload which specified node), then break out of the queue directly and continue waiting.
-			if reason == CronjobReason || reason == DependencyReason {
+			if reason == CronjobReason || reason == DependencyReason || reason == SourceWorkloadReason {
 				// CronJob or a job with dependencies that are not yet ready to start should be skipped
 				continue
 			} else if workspace.IsEnableFifo() {
@@ -332,7 +347,21 @@ func (r *SchedulerReconciler) scheduleWorkloads(ctx context.Context, message *Sc
 
 // canScheduleWorkload checks if a workload can be scheduled based on resource availability.
 func (r *SchedulerReconciler) canScheduleWorkload(ctx context.Context, requestWorkload *v1.Workload,
-	scheduledWorkloads []*v1.Workload, requestResources, leftResources corev1.ResourceList) (bool, string, error) {
+	workspace *v1.Workspace, scheduledWorkloads []*v1.Workload, requestResources, leftResources corev1.ResourceList) (bool, string, error) {
+	var reason string
+	if sourceWorkloadId := v1.GetSourceWorkloadId(workspace); sourceWorkloadId != "" {
+		sourceWorkload := &v1.Workload{}
+		err := r.Get(ctx, client.ObjectKey{Name: sourceWorkloadId}, sourceWorkload)
+		if err == nil && !sourceWorkload.IsEnd() {
+			reason = SourceWorkloadReason
+			klog.Infof("the workload(%s) is not scheduled, reason: %s", requestWorkload.Name, reason)
+			return false, reason, nil
+		}
+		patch := client.MergeFrom(workspace.DeepCopy())
+		v1.RemoveLabel(workspace, v1.SourceWorkloadIdLabel)
+		r.Patch(ctx, workspace, patch)
+	}
+
 	for _, job := range requestWorkload.Spec.CronJobs {
 		if job.Action == v1.CronStart {
 			_, scheduleTime, err := timeutil.CvtTime3339ToCronStandard(job.Schedule)
@@ -346,7 +375,6 @@ func (r *SchedulerReconciler) canScheduleWorkload(ctx context.Context, requestWo
 	if err != nil {
 		return false, "", err
 	}
-	var reason string
 	if !isDependencyReady {
 		reason = DependencyReason
 		klog.Infof("the workload(%s) is not scheduled, reason: %s", requestWorkload.Name, reason)

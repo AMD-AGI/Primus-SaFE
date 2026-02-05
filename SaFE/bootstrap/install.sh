@@ -299,13 +299,16 @@ echo
 
 chart_name="primus-safe"
 if helm list -n "$NAMESPACE" -q | grep -qx "$chart_name"; then
-  kubectl replace -f $chart_name/crds/ -n "$NAMESPACE"
-  mkdir -p output
-  helm template "$chart_name" -f "$values_yaml" -n "$NAMESPACE" "$chart_name" --output-dir ./output 1>/dev/null
-  kubectl replace -f output/$chart_name/templates/rbac/role.yaml
-  kubectl replace -f output/$chart_name/templates/webhooks/manifests.yaml
-  echo
-  rm -rf output
+  status=$(helm status "$chart_name" -n "$NAMESPACE" -o json 2>/dev/null | grep -o '"status":"[^"]*"' | cut -d'"' -f4)
+  if [ "$status" = "deployed" ]; then
+    kubectl replace -f $chart_name/crds/ -n "$NAMESPACE"
+    mkdir -p output
+    helm template "$chart_name" -f "$values_yaml" -n "$NAMESPACE" "$chart_name" --output-dir ./output 1>/dev/null
+    kubectl replace -f output/$chart_name/templates/rbac/role.yaml
+    kubectl replace -f output/$chart_name/templates/webhooks/manifests.yaml
+    echo
+    rm -rf output
+  fi
 fi
 install_or_upgrade_helm_chart "$chart_name" "$values_yaml"
 

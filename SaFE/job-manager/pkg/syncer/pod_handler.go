@@ -492,7 +492,7 @@ func getMainContainerName(adminWorkload *v1.Workload, pod *corev1.Pod) string {
 
 // isAllPodsAssigned checks if all pods in the workload are in Running or Termination phase
 func isAllPodsAssigned(workload *v1.Workload) bool {
-	if len(workload.Status.Pods) != commonworkload.GetTotalCount(workload) {
+	if len(workload.Status.Pods) != commonworkload.GetTotalReplica(workload) {
 		return false
 	}
 	for _, p := range workload.Status.Pods {

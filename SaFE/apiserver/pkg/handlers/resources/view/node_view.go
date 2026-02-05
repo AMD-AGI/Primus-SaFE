@@ -22,7 +22,7 @@ type CreateNodeRequest struct {
 	PublicIP string `json:"publicIP,omitempty"`
 	// SSH port, default 22
 	Port *int32 `json:"port,omitempty"`
-	// Node labels
+	// Node labels, Keys cannot start with "primus-safe."
 	Labels map[string]string `json:"labels,omitempty"`
 	// Associated node flavor ID
 	FlavorId string `json:"flavorId"`

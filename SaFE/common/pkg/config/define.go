@@ -81,6 +81,7 @@ const (
 	opsJobTTLSecond     = opsJobPrefix + "ttl_second"
 	opsJobTimeoutSecond = opsJobPrefix + "timeout_second"
 	opsJobDownloadImage = opsJobPrefix + "download_image"
+	opsJobEvalImage     = opsJobPrefix + "evalscope_image"
 
 	// prewarm
 	prewarmPrefix           = opsJobPrefix + "prewarm."
@@ -113,11 +114,10 @@ const (
 	ssoSecretPath = ssoPrefix + "secret_path"
 
 	// cicd
-	cicdPrefix              = "cicd."
-	cicdEnable              = cicdPrefix + "enable"
-	cicdRoleName            = cicdPrefix + "role_name"
-	cicdControllerName      = cicdPrefix + "controller_name"
-	cicdControllerNamespace = cicdPrefix + "controller_namespace"
+	cicdPrefix         = "cicd."
+	cicdEnable         = cicdPrefix + "enable"
+	cicdRoleName       = cicdPrefix + "role_name"
+	cicdControllerName = cicdPrefix + "controller_name"
 
 	// model
 	modelPrefix          = "model."
