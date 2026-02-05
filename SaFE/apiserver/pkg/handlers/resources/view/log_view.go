@@ -44,8 +44,10 @@ type ListLogRequest struct {
 	SinceTime time.Time
 	// End timestamp of the query
 	UntilTime time.Time
-	// All fields used for filtering.
-	Filters        map[string]string
+	// All fields used for term filtering.
+	TermFilters map[string]string
+	// All fields used for prefix filtering.
+	PrefixFilters  map[string]string
 	IsEventRequest bool
 }
 

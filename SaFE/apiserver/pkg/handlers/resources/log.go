@@ -241,29 +241,28 @@ func buildSearchBody(query *view.ListLogRequest, workloadId string) []byte {
 		From: query.Offset,
 		Size: query.Limit,
 	}
+	var timestampKey, timestampLayout string
 	if query.IsEventRequest {
-		req.Sort = []commonsearch.OpenSearchField{{
-			commonsearch.TimeField + ".keyword": map[string]interface{}{
-				"order": query.Order,
-			}},
-		}
+		timestampKey = commonsearch.TimeField + ".keyword"
+		timestampLayout = timeutil.TimeRFC3339UTC
 	} else {
-		req.Sort = []commonsearch.OpenSearchField{{
-			commonsearch.TimeField: map[string]interface{}{
-				"order": query.Order,
-			}},
-		}
+		timestampKey = commonsearch.TimeField
+		timestampLayout = timeutil.TimeRFC3339Milli
 	}
 
+	req.Sort = []commonsearch.OpenSearchField{{
+		timestampKey: map[string]interface{}{
+			"order": query.Order,
+		}},
+	}
 	req.Query.Bool.Must = []commonsearch.OpenSearchField{{
 		"range": map[string]interface{}{
-			commonsearch.TimeField: map[string]string{
-				"gte": query.SinceTime.Format(timeutil.TimeRFC3339Milli),
-				"lte": query.UntilTime.Format(timeutil.TimeRFC3339Milli),
+			timestampKey: map[string]string{
+				"gte": query.SinceTime.Format(timestampLayout),
+				"lte": query.UntilTime.Format(timestampLayout),
 			},
 		},
 	}}
-
 	buildFilter(req, query)
 	buildKeywords(req, query)
 	buildOutput(req, query, workloadId)
@@ -271,28 +270,36 @@ func buildSearchBody(query *view.ListLogRequest, workloadId string) []byte {
 }
 
 func buildFilter(req *commonsearch.OpenSearchRequest, query *view.ListLogRequest) {
-	for key, val := range query.Filters {
-		if key == "" || val == "" {
-			continue
-		}
-		termKey := ""
-		if !query.IsEventRequest {
-			// Use the same punctuation handling rules as OpenSearch.
-			key = strings.ReplaceAll(key, ".", "_")
-			termKey = "kubernetes.labels." + key
-		} else {
-			termKey = key
-		}
-		req.Query.Bool.Filter = append(req.Query.Bool.Filter, commonsearch.OpenSearchField{
-			"term": map[string]interface{}{
-				termKey + ".keyword": val,
-			},
-		})
-	}
+	buildSingleTermFilter(req, query.TermFilters, !query.IsEventRequest, false)
+	buildSingleTermFilter(req, query.PrefixFilters, !query.IsEventRequest, true)
 	if query.PodNames != "" {
 		buildMultiTermsFilter(req, "pod_name", query.PodNames)
 	} else if query.NodeNames != "" {
 		buildMultiTermsFilter(req, "host", query.NodeNames)
+	}
+}
+
+func buildSingleTermFilter(req *commonsearch.OpenSearchRequest, filters map[string]string, isK8sLabel, isPrefixMatch bool) {
+	for key, val := range filters {
+		if key == "" || val == "" {
+			continue
+		}
+		if isK8sLabel {
+			// Use the same punctuation handling rules as OpenSearch.
+			key = strings.ReplaceAll(key, ".", "_")
+			key = "kubernetes.labels." + key
+		}
+		filterType := ""
+		if isPrefixMatch {
+			filterType = "prefix"
+		} else {
+			filterType = "term"
+		}
+		req.Query.Bool.Filter = append(req.Query.Bool.Filter, commonsearch.OpenSearchField{
+			filterType: map[string]interface{}{
+				key + ".keyword": val,
+			},
+		})
 	}
 }
 
@@ -377,11 +384,11 @@ func parseWorkloadLogQuery(c *gin.Context, workload *v1.Workload) (*view.ListLog
 		klog.ErrorS(err, "failed to parse log query")
 		return nil, err
 	}
-	query.Filters = map[string]string{
+	query.TermFilters = map[string]string{
 		v1.WorkloadIdLabel: workload.Name,
 	}
 	if query.DispatchCount > 0 {
-		query.Filters[v1.WorkloadDispatchCntLabel] = strconv.Itoa(query.DispatchCount)
+		query.TermFilters[v1.WorkloadDispatchCntLabel] = strconv.Itoa(query.DispatchCount)
 	}
 	return query, nil
 }
@@ -396,7 +403,7 @@ func parseServiceLogQuery(c *gin.Context) (*view.ListLogRequest, error) {
 	if err != nil {
 		return nil, err
 	}
-	query.Filters = map[string]string{
+	query.TermFilters = map[string]string{
 		"app": name,
 	}
 	return query, nil
@@ -408,9 +415,11 @@ func parseEventLogQuery(c *gin.Context, workload *v1.Workload) (*view.ListLogReq
 		klog.ErrorS(err, "failed to parse log query")
 		return nil, err
 	}
-	query.Filters = map[string]string{
-		"involvedObject.name":      workload.Name,
+	query.TermFilters = map[string]string{
 		"involvedObject.namespace": workload.Spec.Workspace,
+	}
+	query.PrefixFilters = map[string]string{
+		"involvedObject.name": workload.Name,
 	}
 	query.IsEventRequest = true
 	query.NodeNames = ""

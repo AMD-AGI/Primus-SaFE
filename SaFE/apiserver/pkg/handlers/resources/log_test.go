@@ -335,7 +335,7 @@ func TestBuildSearchBody(t *testing.T) {
 				},
 				SinceTime: baseTime,
 				UntilTime: baseTime.Add(time.Hour),
-				Filters: map[string]string{
+				TermFilters: map[string]string{
 					"app":         "test-app",
 					"workload.id": "wl-001",
 				},
@@ -477,7 +477,7 @@ func TestBuildFilter(t *testing.T) {
 			name: "only label filters",
 			query: &view.ListLogRequest{
 				ListLogInput: view.ListLogInput{},
-				Filters: map[string]string{
+				TermFilters: map[string]string{
 					"app": "test",
 				},
 			},
@@ -521,7 +521,7 @@ func TestBuildFilter(t *testing.T) {
 				ListLogInput: view.ListLogInput{
 					PodNames: "pod1",
 				},
-				Filters: map[string]string{
+				TermFilters: map[string]string{
 					"app": "test",
 				},
 			},
@@ -532,7 +532,7 @@ func TestBuildFilter(t *testing.T) {
 			name: "empty filters map",
 			query: &view.ListLogRequest{
 				ListLogInput: view.ListLogInput{},
-				Filters:      map[string]string{},
+				TermFilters:  map[string]string{},
 			},
 			wantFilter: 0,
 			wantMust:   0,
@@ -541,7 +541,7 @@ func TestBuildFilter(t *testing.T) {
 			name: "filter with empty key is skipped",
 			query: &view.ListLogRequest{
 				ListLogInput: view.ListLogInput{},
-				Filters: map[string]string{
+				TermFilters: map[string]string{
 					"":    "value",
 					"app": "test",
 				},
@@ -553,7 +553,7 @@ func TestBuildFilter(t *testing.T) {
 			name: "filter with empty value is skipped",
 			query: &view.ListLogRequest{
 				ListLogInput: view.ListLogInput{},
-				Filters: map[string]string{
+				TermFilters: map[string]string{
 					"key": "",
 					"app": "test",
 				},
@@ -565,7 +565,7 @@ func TestBuildFilter(t *testing.T) {
 			name: "filter key with dots is converted",
 			query: &view.ListLogRequest{
 				ListLogInput: view.ListLogInput{},
-				Filters: map[string]string{
+				TermFilters: map[string]string{
 					"primus.safe.workload": "test",
 				},
 			},
