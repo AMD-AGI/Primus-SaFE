@@ -15,14 +15,14 @@ import (
 // RunnerSetWithStats extends GithubRunnerSets with run statistics and config info
 // Note: Using value type instead of pointer for proper GORM Scan support
 type RunnerSetWithStats struct {
-	model.GithubRunnerSets
-	TotalRuns     int64  `json:"total_runs"`
-	PendingRuns   int64  `json:"pending_runs"`
-	CompletedRuns int64  `json:"completed_runs"`
-	FailedRuns    int64  `json:"failed_runs"`
-	HasConfig     bool   `json:"has_config"`
-	ConfigID      int64  `json:"config_id,omitempty"`
-	ConfigName    string `json:"config_name,omitempty"`
+	model.GithubRunnerSets `gorm:"embedded"`
+	TotalRuns              int64  `json:"total_runs" gorm:"column:total_runs"`
+	PendingRuns            int64  `json:"pending_runs" gorm:"column:pending_runs"`
+	CompletedRuns          int64  `json:"completed_runs" gorm:"column:completed_runs"`
+	FailedRuns             int64  `json:"failed_runs" gorm:"column:failed_runs"`
+	HasConfig              bool   `json:"has_config" gorm:"column:has_config"`
+	ConfigID               int64  `json:"config_id,omitempty" gorm:"column:config_id"`
+	ConfigName             string `json:"config_name,omitempty" gorm:"column:config_name"`
 }
 
 // RepositorySummary represents aggregated statistics for a GitHub repository
