@@ -235,17 +235,17 @@ type GithubRepositoryMetricsTrendsRequest struct {
 // Run Summary Request Types
 type GithubRunSummariesListRequest struct {
 	Cluster          string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
-	Owner            string `json:"owner" form:"owner" param:"owner" binding:"required" mcp:"description=GitHub owner,required"`
-	Repo             string `json:"repo" form:"repo" param:"repo" binding:"required" mcp:"description=GitHub repository name,required"`
-	Status           string `json:"status" form:"status" mcp:"description=Filter by status (queued, in_progress, completed)"`
-	Conclusion       string `json:"conclusion" form:"conclusion" mcp:"description=Filter by conclusion (success, failure, cancelled)"`
-	CollectionStatus string `json:"collection_status" form:"collection_status" mcp:"description=Filter by collection status"`
-	WorkflowPath     string `json:"workflow_path" form:"workflow_path" mcp:"description=Filter by workflow path"`
-	HeadBranch       string `json:"head_branch" form:"head_branch" mcp:"description=Filter by branch"`
-	EventName        string `json:"event_name" form:"event_name" mcp:"description=Filter by event name"`
-	RunnerSetID      string `json:"runner_set_id" form:"runner_set_id" mcp:"description=Filter by runner set ID"`
-	Offset           int    `json:"offset" form:"offset" mcp:"description=Pagination offset"`
-	Limit            int    `json:"limit" form:"limit" mcp:"description=Pagination limit (max 100)"`
+	Owner            string `json:"owner" query:"owner" param:"owner" binding:"required" mcp:"description=GitHub owner,required"`
+	Repo             string `json:"repo" query:"repo" param:"repo" binding:"required" mcp:"description=GitHub repository name,required"`
+	Status           string `json:"status" query:"status" mcp:"description=Filter by status (queued, in_progress, completed)"`
+	Conclusion       string `json:"conclusion" query:"conclusion" mcp:"description=Filter by conclusion (success, failure, cancelled)"`
+	CollectionStatus string `json:"collection_status" query:"collection_status" mcp:"description=Filter by collection status"`
+	WorkflowPath     string `json:"workflow_path" query:"workflow_path" mcp:"description=Filter by workflow path"`
+	HeadBranch       string `json:"head_branch" query:"head_branch" mcp:"description=Filter by branch"`
+	EventName        string `json:"event_name" query:"event_name" mcp:"description=Filter by event name"`
+	RunnerSetID      string `json:"runner_set_id" query:"runner_set_id" mcp:"description=Filter by runner set ID"`
+	Offset           int    `json:"offset" query:"offset" mcp:"description=Pagination offset"`
+	Limit            int    `json:"limit" query:"limit" mcp:"description=Pagination limit (max 100)"`
 }
 
 type GithubRunSummaryGetRequest struct {
