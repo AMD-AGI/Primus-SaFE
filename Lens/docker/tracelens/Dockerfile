@@ -4,7 +4,8 @@
 # Build: docker build -t tracelens:latest .
 # Run: docker run -p 8501:8501 -e TRACE_FILE_PATH=/path/to/trace tracelens:latest
 
-FROM pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime
+ARG REGISTRY=""
+FROM ${REGISTRY}pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime
 
 LABEL maintainer="AMD AGI Team"
 LABEL description="TraceLens - GPU Trace Analysis Tool with Streamlit UI"

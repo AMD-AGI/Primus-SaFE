@@ -4,8 +4,9 @@
 # Installer image - bundles Helm charts and runs dataplane installation
 # Rebuild trigger: 202601301940
 # Build stage
+ARG REGISTRY=""
 ARG GO_VERSION=1.24.7
-FROM golang:${GO_VERSION}-alpine AS builder
+FROM ${REGISTRY}golang:${GO_VERSION}-alpine AS builder
 
 RUN apk add --no-cache git ca-certificates
 
@@ -24,7 +25,8 @@ RUN go mod tidy && go mod download
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o /installer ./cmd/main.go
 
 # Charts packaging stage - package local charts with dependencies for offline installation
-FROM alpine:3.19 AS charts-packager
+ARG REGISTRY=""
+FROM ${REGISTRY}alpine:3.19 AS charts-packager
 
 RUN apk add --no-cache ca-certificates curl
 
@@ -109,7 +111,8 @@ RUN echo "=== Operator Charts ===" && ls -la /charts/operators/
 RUN echo "=== Infrastructure Charts ===" && ls -la /charts/infrastructure/
 
 # Runtime stage
-FROM alpine:3.19
+ARG REGISTRY=""
+FROM ${REGISTRY}alpine:3.19
 
 RUN apk add --no-cache ca-certificates curl
 
