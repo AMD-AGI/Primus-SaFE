@@ -1,7 +1,8 @@
 # GitHub Actions Runner with Docker support
 # Based on Ubuntu 22.04 with Docker and common build tools
 
-FROM ubuntu:22.04
+ARG REGISTRY=""
+FROM ${REGISTRY}ubuntu:22.04
 
 USER root
 
