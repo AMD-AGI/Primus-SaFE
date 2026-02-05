@@ -308,23 +308,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - name: Login registries
+        run: |
+          set -x
+          echo "🔐 Logging in to Docker Hub..."
+          buildah login -u "${{ secrets.DOCKER_USERNAME }}" -p "${{ secrets.DOCKER_PASSWORD }}" docker.io && echo "✅ Docker Hub login successful" || echo "❌ Docker Hub login failed"
+          
+          echo "🔐 Logging in to GitHub Container Registry..."
+          buildah login -u "${{ github.actor }}" -p "${{ secrets.GITHUB_TOKEN }}" ghcr.io && echo "✅ GHCR login successful" || echo "❌ GHCR login failed"
 
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
-
-      - name: Login to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build and push with Docker
+      - name: Build and push with Buildah
         env:
           DOCKERIO_REPOSITORY: docker.io/primussafe
           GHCR_REPOSITORY: ghcr.io/amd-agi/primussafe
@@ -351,22 +344,33 @@ jobs:
             echo "📄 Using fallback Dockerfile: $DOCKERFILE"
           fi
 
-          # Build with docker buildx
-          docker buildx build \
-            --platform linux/amd64 \
+          # Build with buildah
+          buildah bud \
+            --layers \
+            --tls-verify=false \
             --build-arg GO_VERSION=${{ env.GO_VERSION }} \
             --build-arg GOPROXY=https://proxy.golang.org,direct \
             --build-arg BUILDPATH=${{ matrix.buildpath }} \
             --build-arg BASEPATH=${{ matrix.basepath }} \
             --build-arg APPNAME=${{ matrix.name }} \
             --build-arg GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }} \
-            -t ${DOCKERIO_REPOSITORY}/${{ matrix.name }}:${IMAGE_VERSION} \
-            -t ${DOCKERIO_REPOSITORY}/${{ matrix.name }}:${DATE_TIME} \
-            -t ${GHCR_REPOSITORY}/${{ matrix.name }}:${IMAGE_VERSION} \
-            -t ${GHCR_REPOSITORY}/${{ matrix.name }}:${DATE_TIME} \
-            -f ${DOCKERFILE} \
-            --push \
-            .
+            -t ${{ matrix.name }}:${IMAGE_VERSION} \
+            -t ${{ matrix.name }}:${DATE_TIME} \
+            -f ${DOCKERFILE} .
+
+          # Push to Docker Hub
+          echo "🚀 Pushing ${{ matrix.name }} to Docker Hub..."
+          buildah tag ${{ matrix.name }}:${IMAGE_VERSION} ${DOCKERIO_REPOSITORY}/${{ matrix.name }}:${IMAGE_VERSION}
+          buildah tag ${{ matrix.name }}:${DATE_TIME} ${DOCKERIO_REPOSITORY}/${{ matrix.name }}:${DATE_TIME}
+          buildah push --tls-verify=false ${DOCKERIO_REPOSITORY}/${{ matrix.name }}:${IMAGE_VERSION}
+          buildah push --tls-verify=false ${DOCKERIO_REPOSITORY}/${{ matrix.name }}:${DATE_TIME}
+
+          # Push to GHCR
+          echo "🚀 Pushing ${{ matrix.name }} to GHCR..."
+          buildah tag ${{ matrix.name }}:${IMAGE_VERSION} ${GHCR_REPOSITORY}/${{ matrix.name }}:${IMAGE_VERSION}
+          buildah tag ${{ matrix.name }}:${DATE_TIME} ${GHCR_REPOSITORY}/${{ matrix.name }}:${DATE_TIME}
+          buildah push --tls-verify=false ${GHCR_REPOSITORY}/${{ matrix.name }}:${IMAGE_VERSION}
+          buildah push --tls-verify=false ${GHCR_REPOSITORY}/${{ matrix.name }}:${DATE_TIME}
           
           echo "✅ ${{ matrix.name }} build and push completed!"
 
