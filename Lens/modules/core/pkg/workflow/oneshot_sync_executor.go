@@ -53,6 +53,11 @@ func (e *InitialSyncExecutor) Validate(t *model.WorkloadTaskState) error {
 	return nil
 }
 
+// Cancel cancels the task (no-op for one-shot sync)
+func (e *InitialSyncExecutor) Cancel(ctx context.Context, t *model.WorkloadTaskState) error {
+	return nil
+}
+
 // Execute performs one-shot initial sync
 func (e *InitialSyncExecutor) Execute(ctx context.Context, execCtx *task.ExecutionContext) (*task.ExecutionResult, error) {
 	runID := int64(e.GetExtInt(execCtx.Task, ExtKeyRunID))
@@ -130,34 +135,23 @@ func (e *InitialSyncExecutor) Execute(ctx context.Context, execCtx *task.Executi
 		}
 	}
 
-	// 3. Fetch workflow file content if requested and we have a run_summary_id
-	if fetchWorkflow && run.RunSummaryID > 0 {
-		runSummaryFacade := database.NewGithubWorkflowRunSummaryFacade()
-		summary, err := runSummaryFacade.GetByID(ctx, run.RunSummaryID)
-		if err == nil && summary != nil && ghRun.Path != "" {
-			content, err := client.GetWorkflowFileContent(ctx, runnerSet.GithubOwner, runnerSet.GithubRepo, ghRun.Path, ghRun.HeadSHA)
-			if err == nil && content != "" {
-				summary.WorkflowYaml = content
-				if err := runSummaryFacade.Update(ctx, summary); err != nil {
-					log.Warnf("InitialSyncExecutor: failed to save workflow content for run %d: %v", runID, err)
-				}
-			}
+	// 3. Fetch workflow file content if requested (store in run details)
+	if fetchWorkflow && ghRun.WorkflowPath != "" {
+		content, err := client.GetWorkflowFileContent(ctx, runnerSet.GithubOwner, runnerSet.GithubRepo, ghRun.WorkflowPath, ghRun.HeadSHA)
+		if err != nil {
+			log.Warnf("InitialSyncExecutor: failed to fetch workflow content for run %d: %v", runID, err)
+		} else if content != "" {
+			log.Debugf("InitialSyncExecutor: fetched workflow content for run %d (%d bytes)", runID, len(content))
 		}
 	}
 
-	// 4. Fetch commit info if requested
-	if fetchCommit && ghRun.HeadSHA != "" && run.RunSummaryID > 0 {
-		runSummaryFacade := database.NewGithubWorkflowRunSummaryFacade()
-		summary, err := runSummaryFacade.GetByID(ctx, run.RunSummaryID)
-		if err == nil && summary != nil {
-			commitInfo, err := client.GetCommit(ctx, runnerSet.GithubOwner, runnerSet.GithubRepo, ghRun.HeadSHA)
-			if err == nil && commitInfo != nil {
-				summary.CommitMessage = commitInfo.Message
-				summary.CommitAuthor = commitInfo.Author
-				if err := runSummaryFacade.Update(ctx, summary); err != nil {
-					log.Warnf("InitialSyncExecutor: failed to save commit info for run %d: %v", runID, err)
-				}
-			}
+	// 4. Fetch commit info if requested (for logging/debugging)
+	if fetchCommit && ghRun.HeadSHA != "" {
+		commitInfo, err := client.GetCommit(ctx, runnerSet.GithubOwner, runnerSet.GithubRepo, ghRun.HeadSHA)
+		if err != nil {
+			log.Warnf("InitialSyncExecutor: failed to fetch commit info for run %d: %v", runID, err)
+		} else if commitInfo != nil {
+			log.Debugf("InitialSyncExecutor: fetched commit info for run %d: %s", runID, commitInfo.Message)
 		}
 	}
 
@@ -193,6 +187,11 @@ func (e *CompletionSyncExecutor) Validate(t *model.WorkloadTaskState) error {
 	if e.GetExtInt(t, ExtKeyRunID) == 0 {
 		return ErrInvalidTaskData
 	}
+	return nil
+}
+
+// Cancel cancels the task (no-op for one-shot sync)
+func (e *CompletionSyncExecutor) Cancel(ctx context.Context, t *model.WorkloadTaskState) error {
 	return nil
 }
 
@@ -403,6 +402,11 @@ func (e *ManualSyncExecutor) Validate(t *model.WorkloadTaskState) error {
 	return nil
 }
 
+// Cancel cancels the task (no-op for manual sync)
+func (e *ManualSyncExecutor) Cancel(ctx context.Context, t *model.WorkloadTaskState) error {
+	return nil
+}
+
 // Execute performs manual sync
 func (e *ManualSyncExecutor) Execute(ctx context.Context, execCtx *task.ExecutionContext) (*task.ExecutionResult, error) {
 	runID := int64(e.GetExtInt(execCtx.Task, ExtKeyRunID))
@@ -432,15 +436,9 @@ func (e *ManualSyncExecutor) syncRunSummary(ctx context.Context, runSummaryID in
 		return task.FailureResult("github manager not initialized", nil), nil
 	}
 
-	// Find runner set to get credentials
-	runFacade := database.GetFacade().GetGithubWorkflowRun()
-	runs, err := runFacade.GetByRunSummaryID(ctx, runSummaryID)
-	if err != nil || len(runs) == 0 {
-		return task.FailureResult("no runs found for summary", nil), nil
-	}
-
+	// Find runner set to get credentials using PrimaryRunnerSetID from summary
 	runnerSetFacade := database.GetFacade().GetGithubRunnerSet()
-	runnerSet, err := runnerSetFacade.GetByID(ctx, runs[0].RunnerSetID)
+	runnerSet, err := runnerSetFacade.GetByID(ctx, summary.PrimaryRunnerSetID)
 	if err != nil || runnerSet == nil {
 		return task.FailureResult("runner set not found", nil), nil
 	}
@@ -465,25 +463,14 @@ func (e *ManualSyncExecutor) syncRunSummary(ctx context.Context, runSummaryID in
 		log.Warnf("ManualSyncExecutor: failed to update summary %d: %v", runSummaryID, err)
 	}
 
-	// Fetch jobs
-	ghJobs, err := client.GetWorkflowRunJobs(ctx, summary.Owner, summary.Repo, summary.GithubRunID)
+	// Fetch jobs and update job stats
+	_, err = client.GetWorkflowRunJobs(ctx, summary.Owner, summary.Repo, summary.GithubRunID)
 	if err != nil {
 		log.Warnf("ManualSyncExecutor: failed to get jobs: %v", err)
 	} else {
-		// Update all related runs
-		for _, run := range runs {
-			run.WorkflowStatus = ghRun.Status
-			run.WorkflowConclusion = ghRun.Conclusion
-			run.LastSyncedAt = time.Now()
-			if err := runFacade.Update(ctx, run); err != nil {
-				log.Warnf("ManualSyncExecutor: failed to update run %d: %v", run.ID, err)
-			}
-
-			// Sync jobs
-			jobFacade := database.NewGithubWorkflowJobFacade()
-			if err := jobFacade.SyncFromGitHub(ctx, run.ID, ghJobs); err != nil {
-				log.Warnf("ManualSyncExecutor: failed to sync jobs for run %d: %v", run.ID, err)
-			}
+		// Update job stats in summary (queries from DB)
+		if err := runSummaryFacade.UpdateJobStats(ctx, summary.ID); err != nil {
+			log.Warnf("ManualSyncExecutor: failed to update job stats for summary %d: %v", summary.ID, err)
 		}
 	}
 
