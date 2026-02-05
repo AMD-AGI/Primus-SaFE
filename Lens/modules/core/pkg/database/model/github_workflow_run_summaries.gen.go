@@ -13,8 +13,8 @@ const TableNameGithubWorkflowRunSummaries = "github_workflow_run_summaries"
 // GithubWorkflowRunSummaries mapped from table <github_workflow_run_summaries>
 type GithubWorkflowRunSummaries struct {
 	ID                        int64     `gorm:"column:id;primaryKey;autoIncrement:true" json:"id"`
-	GithubRunID               int64     `gorm:"column:github_run_id;not null" json:"github_run_id"`
-	GithubRunNumber           int32     `gorm:"column:github_run_number;not null" json:"github_run_number"`
+	GithubRunID               int64     `gorm:"column:github_run_id;default:0" json:"github_run_id"`
+	GithubRunNumber           int32     `gorm:"column:github_run_number" json:"github_run_number"`
 	GithubRunAttempt          int32     `gorm:"column:github_run_attempt;default:1" json:"github_run_attempt"`
 	Owner                     string    `gorm:"column:owner;not null" json:"owner"`
 	Repo                      string    `gorm:"column:repo;not null" json:"repo"`
@@ -58,6 +58,10 @@ type GithubWorkflowRunSummaries struct {
 	FailureAnalysisTriggeredAt time.Time `gorm:"column:failure_analysis_triggered_at" json:"failure_analysis_triggered_at"`
 	CreatedAt                 time.Time `gorm:"column:created_at;not null;default:now()" json:"created_at"`
 	UpdatedAt                 time.Time `gorm:"column:updated_at;not null;default:now()" json:"updated_at"`
+	IsPlaceholder             bool      `gorm:"column:is_placeholder;default:false;comment:True if this is a placeholder record waiting for GitHub info" json:"is_placeholder"`
+	ActiveLaunchers           int32     `gorm:"column:active_launchers;default:0;comment:Number of active launcher pods" json:"active_launchers"`
+	ActiveWorkers             int32     `gorm:"column:active_workers;default:0;comment:Number of active worker pods" json:"active_workers"`
+	ErrorCount                int32     `gorm:"column:error_count;default:0;comment:Number of pods with errors" json:"error_count"`
 }
 
 // TableName GithubWorkflowRunSummaries's table name

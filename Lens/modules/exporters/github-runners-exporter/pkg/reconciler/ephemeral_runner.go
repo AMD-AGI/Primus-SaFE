@@ -17,6 +17,7 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/workflow"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/github-runners-exporter/pkg/types"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/dynamic"
@@ -210,15 +211,22 @@ func (r *EphemeralRunnerReconciler) processRunner(ctx context.Context, info *typ
 		return nil
 	}
 
+	// Determine runner type (launcher vs worker)
+	info.RunnerType = types.DetermineRunnerType(info.Name)
+
+	// Get Pod status for visibility
+	r.enrichPodStatus(ctx, info)
+
 	// Enrich with GitHub API info if we have a run ID but missing details
 	if info.GithubRunID != 0 && info.HeadSHA == "" {
 		r.enrichWithGitHubInfo(ctx, info, runnerSet)
 	}
 
-	// Process Run Summary (Run-level aggregation) if we have a GitHub run ID
+	// Process Run Summary (Run-level aggregation)
 	var runSummary *model.GithubWorkflowRunSummaries
 	var isNewSummary bool
 	if info.GithubRunID != 0 && runnerSet.GithubOwner != "" && runnerSet.GithubRepo != "" {
+		// Has GitHub run ID - get or create regular summary
 		runSummary, isNewSummary, err = runSummaryFacade.GetOrCreateByRunID(ctx, info.GithubRunID, runnerSet.GithubOwner, runnerSet.GithubRepo)
 		if err != nil {
 			log.Warnf("EphemeralRunnerReconciler: failed to get/create run summary for github_run_id %d: %v", info.GithubRunID, err)
@@ -228,10 +236,20 @@ func (r *EphemeralRunnerReconciler) processRunner(ctx context.Context, info *typ
 				r.triggerGraphFetch(ctx, runSummary, runnerSet)
 			}
 		}
+	} else if runnerSet.GithubOwner != "" && runnerSet.GithubRepo != "" {
+		// No GitHub run ID yet - get or create placeholder summary
+		runSummary, err = r.getOrCreatePlaceholderSummary(ctx, runnerSet, runSummaryFacade)
+		if err != nil {
+			log.Warnf("EphemeralRunnerReconciler: failed to get/create placeholder summary for runner set %s: %v", runnerSet.Name, err)
+		}
 	}
 
-	// Map EphemeralRunner phase to our status
+	// Map EphemeralRunner phase to our status (considering pod errors)
 	status := r.mapPhaseToStatus(info.Phase, info.IsCompleted)
+	// If pod has error condition, mark as error status
+	if r.isPodErrorCondition(info.PodCondition) {
+		status = database.WorkflowRunStatusError
+	}
 
 	// Check if we already have a run record for this workload
 	// Use workload_name instead of UID for uniqueness - this allows same-named runners
@@ -244,6 +262,7 @@ func (r *EphemeralRunnerReconciler) processRunner(ctx context.Context, info *typ
 	if existingRun != nil {
 		needsUpdate := false
 		oldStatus := existingRun.Status
+		oldSummaryID := existingRun.RunSummaryID
 
 		// Update WorkloadUID if changed (same name but different instance)
 		if existingRun.WorkloadUID != info.UID {
@@ -253,6 +272,20 @@ func (r *EphemeralRunnerReconciler) processRunner(ctx context.Context, info *typ
 			needsUpdate = true
 			log.Infof("EphemeralRunnerReconciler: updating UID for %s (old: %s, new: %s)",
 				info.Name, oldUID, info.UID)
+		}
+
+		// Update runner type if not set or changed
+		if existingRun.RunnerType != info.RunnerType {
+			existingRun.RunnerType = info.RunnerType
+			needsUpdate = true
+		}
+
+		// Update pod status
+		if existingRun.PodPhase != info.PodPhase || existingRun.PodCondition != info.PodCondition || existingRun.PodMessage != info.PodMessage {
+			existingRun.PodPhase = info.PodPhase
+			existingRun.PodCondition = info.PodCondition
+			existingRun.PodMessage = info.PodMessage
+			needsUpdate = true
 		}
 
 		// Update status if changed
@@ -273,16 +306,15 @@ func (r *EphemeralRunnerReconciler) processRunner(ctx context.Context, info *typ
 			existingRun.GithubRunID = info.GithubRunID
 			needsUpdate = true
 
-			// BUG FIX: When GithubRunID becomes available, create/associate run summary
-			// This was missing before, causing run_summary_id to remain 0
-			if existingRun.RunSummaryID == 0 && runnerSet.GithubOwner != "" && runnerSet.GithubRepo != "" {
+			// When GithubRunID becomes available, upgrade from placeholder to real summary
+			if runnerSet.GithubOwner != "" && runnerSet.GithubRepo != "" {
 				summary, isNew, summaryErr := runSummaryFacade.GetOrCreateByRunID(ctx, info.GithubRunID, runnerSet.GithubOwner, runnerSet.GithubRepo)
 				if summaryErr != nil {
 					log.Warnf("EphemeralRunnerReconciler: failed to create run summary for existing run %d (github_run_id %d): %v",
 						existingRun.ID, info.GithubRunID, summaryErr)
 				} else if summary != nil {
 					existingRun.RunSummaryID = summary.ID
-					log.Infof("EphemeralRunnerReconciler: associated run %d with run summary %d (github_run_id: %d, new: %v)",
+					log.Infof("EphemeralRunnerReconciler: upgraded run %d from placeholder to run summary %d (github_run_id: %d, new: %v)",
 						existingRun.ID, summary.ID, info.GithubRunID, isNew)
 
 					// Trigger GraphFetch if new or not yet fetched
@@ -295,6 +327,10 @@ func (r *EphemeralRunnerReconciler) processRunner(ctx context.Context, info *typ
 					isNewSummary = isNew
 				}
 			}
+		} else if existingRun.RunSummaryID == 0 && runSummary != nil {
+			// Associate with placeholder summary if not already associated
+			existingRun.RunSummaryID = runSummary.ID
+			needsUpdate = true
 		}
 		if existingRun.WorkflowName == "" && info.WorkflowName != "" {
 			existingRun.WorkflowName = info.WorkflowName
@@ -317,9 +353,15 @@ func (r *EphemeralRunnerReconciler) processRunner(ctx context.Context, info *typ
 			if err := runFacade.Update(ctx, existingRun); err != nil {
 				return fmt.Errorf("failed to update run record for %s: %w", info.Name, err)
 			}
+
+			// Cleanup orphan placeholder summary if we upgraded to a real summary
+			if oldSummaryID != 0 && existingRun.RunSummaryID != oldSummaryID {
+				r.cleanupPlaceholderSummaryIfOrphan(ctx, oldSummaryID, runFacade, runSummaryFacade)
+			}
+
 			if existingRun.Status != oldStatus {
-				log.Infof("EphemeralRunnerReconciler: updated run record %d for %s/%s (status: %s -> %s)",
-					existingRun.ID, info.Namespace, info.Name, oldStatus, status)
+				log.Infof("EphemeralRunnerReconciler: updated run record %d for %s/%s (status: %s -> %s, type: %s)",
+					existingRun.ID, info.Namespace, info.Name, oldStatus, status, info.RunnerType)
 
 				// Refresh run summary status when job status changes
 				if existingRun.RunSummaryID > 0 {
@@ -374,6 +416,10 @@ func (r *EphemeralRunnerReconciler) processRunner(ctx context.Context, info *typ
 		Status:             status,
 		TriggerSource:      database.WorkflowRunTriggerRealtime,
 		WorkloadStartedAt:  info.CreationTimestamp.Time,
+		RunnerType:         info.RunnerType,
+		PodPhase:           info.PodPhase,
+		PodCondition:       info.PodCondition,
+		PodMessage:         info.PodMessage,
 	}
 
 	// Set run_summary_id if we have a run summary
@@ -587,6 +633,7 @@ func (r *EphemeralRunnerReconciler) enrichWithGitHubInfo(ctx context.Context, in
 func (r *EphemeralRunnerReconciler) processDeletion(ctx context.Context, info *types.EphemeralRunnerInfo) error {
 	runnerSetFacade := database.GetFacade().GetGithubRunnerSet()
 	runFacade := database.GetFacade().GetGithubWorkflowRun()
+	runSummaryFacade := database.NewGithubWorkflowRunSummaryFacade()
 
 	// Find the runner set for this ephemeral runner
 	runnerSet, err := runnerSetFacade.GetByNamespaceName(ctx, info.Namespace, info.RunnerSetName)
@@ -612,11 +659,18 @@ func (r *EphemeralRunnerReconciler) processDeletion(ctx context.Context, info *t
 		return nil
 	}
 
+	// Store old summary ID for potential cleanup
+	oldSummaryID := existingRun.RunSummaryID
+
 	// Only update if not already in a terminal state
 	if existingRun.Status == database.WorkflowRunStatusCompleted ||
 		existingRun.Status == database.WorkflowRunStatusFailed ||
 		existingRun.Status == database.WorkflowRunStatusSkipped {
 		log.Debugf("EphemeralRunnerReconciler: run %d already in terminal state %s", existingRun.ID, existingRun.Status)
+		// Still try to cleanup placeholder summary even if run is in terminal state
+		if oldSummaryID > 0 {
+			r.cleanupPlaceholderSummaryIfOrphan(ctx, oldSummaryID, runFacade, runSummaryFacade)
+		}
 		return nil
 	}
 
@@ -631,6 +685,11 @@ func (r *EphemeralRunnerReconciler) processDeletion(ctx context.Context, info *t
 
 	log.Infof("EphemeralRunnerReconciler: marked run %d as pending for collection on deletion (status: %s -> %s)",
 		existingRun.ID, oldStatus, existingRun.Status)
+
+	// Cleanup placeholder summary if this was the last run referencing it
+	if oldSummaryID > 0 {
+		r.cleanupPlaceholderSummaryIfOrphan(ctx, oldSummaryID, runFacade, runSummaryFacade)
+	}
 
 	// Trigger completion sync (event-driven, one-shot)
 	// This replaces the continuous SyncExecutor polling with a one-time sync
@@ -736,5 +795,114 @@ func (r *EphemeralRunnerReconciler) triggerCodeAnalysis(ctx context.Context, sum
 
 	log.Infof("EphemeralRunnerReconciler: triggered code analysis task %s for run summary %d (first job of run)",
 		taskUID, summary.ID)
+}
+
+// enrichPodStatus fetches Pod status and enriches the EphemeralRunnerInfo
+func (r *EphemeralRunnerReconciler) enrichPodStatus(ctx context.Context, info *types.EphemeralRunnerInfo) {
+	if r.client == nil || r.client.Clientsets == nil {
+		return
+	}
+
+	pod, err := r.client.Clientsets.CoreV1().Pods(info.Namespace).Get(ctx, info.Name, metav1.GetOptions{})
+	if err != nil {
+		log.Debugf("EphemeralRunnerReconciler: failed to get pod %s/%s: %v", info.Namespace, info.Name, err)
+		info.PodPhase = "Unknown"
+		info.PodMessage = fmt.Sprintf("Failed to get pod: %v", err)
+		return
+	}
+
+	info.PodPhase = string(pod.Status.Phase)
+
+	// Check container statuses for waiting/terminated states
+	for _, cs := range pod.Status.ContainerStatuses {
+		if cs.State.Waiting != nil {
+			info.PodCondition = cs.State.Waiting.Reason
+			info.PodMessage = cs.State.Waiting.Message
+			return
+		}
+		if cs.State.Terminated != nil && cs.State.Terminated.ExitCode != 0 {
+			info.PodCondition = cs.State.Terminated.Reason
+			info.PodMessage = cs.State.Terminated.Message
+			return
+		}
+	}
+
+	// Check Pod conditions
+	for _, pc := range pod.Status.Conditions {
+		if pc.Type == corev1.PodReady && pc.Status == corev1.ConditionTrue {
+			info.PodCondition = database.PodConditionReady
+			return
+		}
+	}
+}
+
+// getOrCreatePlaceholderSummary creates or gets an existing placeholder summary for a runner set
+func (r *EphemeralRunnerReconciler) getOrCreatePlaceholderSummary(ctx context.Context, runnerSet *model.GithubRunnerSets, facade *database.GithubWorkflowRunSummaryFacade) (*model.GithubWorkflowRunSummaries, error) {
+	// Try to find existing active placeholder for this runner set
+	summary, err := facade.GetActivePlaceholderByRunnerSet(ctx, runnerSet.ID)
+	if err != nil {
+		return nil, err
+	}
+	if summary != nil {
+		return summary, nil
+	}
+
+	// Create new placeholder summary
+	placeholder := &model.GithubWorkflowRunSummaries{
+		GithubRunID:        0,
+		GithubRunNumber:    0,
+		Owner:              runnerSet.GithubOwner,
+		Repo:               runnerSet.GithubRepo,
+		Status:             database.RunSummaryStatusQueued,
+		IsPlaceholder:      true,
+		PrimaryRunnerSetID: runnerSet.ID,
+		WorkflowName:       "Waiting for job assignment...",
+		CollectionStatus:   database.RunSummaryCollectionPending,
+	}
+
+	created, err := facade.Create(ctx, placeholder)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create placeholder summary: %w", err)
+	}
+
+	log.Infof("EphemeralRunnerReconciler: created placeholder summary %d for runner set %s/%s",
+		created.ID, runnerSet.Namespace, runnerSet.Name)
+	return created, nil
+}
+
+// isPodErrorCondition checks if the pod condition indicates an error
+func (r *EphemeralRunnerReconciler) isPodErrorCondition(condition string) bool {
+	switch condition {
+	case database.PodConditionImagePullBackOff,
+		database.PodConditionCrashLoopBackOff,
+		database.PodConditionOOMKilled:
+		return true
+	default:
+		return false
+	}
+}
+
+// cleanupPlaceholderSummaryIfOrphan deletes a placeholder summary if no runs reference it
+func (r *EphemeralRunnerReconciler) cleanupPlaceholderSummaryIfOrphan(ctx context.Context, summaryID int64, runFacade database.GithubWorkflowRunFacadeInterface, summaryFacade *database.GithubWorkflowRunSummaryFacade) {
+	summary, err := summaryFacade.GetByID(ctx, summaryID)
+	if err != nil || summary == nil || !summary.IsPlaceholder {
+		return // Not a placeholder summary, skip
+	}
+
+	// Check if any runs still reference this placeholder
+	count, err := runFacade.CountByRunSummaryID(ctx, summaryID)
+	if err != nil {
+		log.Warnf("EphemeralRunnerReconciler: failed to count runs for placeholder summary %d: %v", summaryID, err)
+		return
+	}
+
+	if count == 0 {
+		// No references, safe to delete
+		if err := summaryFacade.Delete(ctx, summaryID); err != nil {
+			log.Warnf("EphemeralRunnerReconciler: failed to delete orphan placeholder summary %d: %v", summaryID, err)
+			return
+		}
+		log.Infof("EphemeralRunnerReconciler: cleaned up orphan placeholder summary %d", summaryID)
+	}
 }
 

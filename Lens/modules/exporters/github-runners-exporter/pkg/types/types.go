@@ -100,6 +100,20 @@ type EphemeralRunnerInfo struct {
 	CreationTimestamp metav1.Time
 	CompletionTime    metav1.Time
 	IsCompleted       bool
+	RunnerType        string // "launcher" or "worker"
+	PodPhase          string // "Pending", "Running", "Succeeded", "Failed", "Unknown"
+	PodCondition      string // "ImagePullBackOff", "CrashLoopBackOff", "ContainerCreating", "Ready", etc.
+	PodMessage        string // Detailed error message from pod status
+}
+
+// DetermineRunnerType determines if an EphemeralRunner is a launcher or worker
+// Worker pods have "-runner-" suffix in their name (e.g., turbo-pt-gfx942-261-d66pq-8752c-runner-ssf57)
+// Launcher pods don't have this suffix (e.g., turbo-pt-gfx942-261-d66pq-8zht5)
+func DetermineRunnerType(name string) string {
+	if strings.Contains(name, "-runner-") {
+		return "worker"
+	}
+	return "launcher"
 }
 
 // ParseAutoScalingRunnerSet parses an unstructured object into AutoScalingRunnerSetInfo
