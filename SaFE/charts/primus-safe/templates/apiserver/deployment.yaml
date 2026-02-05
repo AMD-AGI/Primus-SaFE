@@ -9,6 +9,7 @@ metadata:
   name: {{ .Release.Name }}-apiserver
   namespace: {{ .Release.Namespace }}
   labels:
+    primus-safe-app-name: apiserver
     app: {{ .Release.Name }}-apiserver
     app.kubernetes.io/managed-by: Helm
   annotations:
