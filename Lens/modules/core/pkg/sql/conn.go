@@ -148,3 +148,14 @@ func GetDB(key string) *gorm.DB {
 func GetDefaultDB() *gorm.DB {
 	return GetDB(dbKeyDefault)
 }
+
+// RegisterDB registers an existing database connection with a key
+// This allows sharing a single connection under multiple keys
+func RegisterDB(key string, db *gorm.DB) {
+	if db == nil {
+		return
+	}
+	connPoolLock.Lock()
+	defer connPoolLock.Unlock()
+	connPools[key] = db
+}
