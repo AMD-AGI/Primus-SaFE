@@ -662,11 +662,33 @@ func (r *EphemeralRunnerReconciler) processDeletion(ctx context.Context, info *t
 	// Store old summary ID for potential cleanup
 	oldSummaryID := existingRun.RunSummaryID
 
-	// Only update if not already in a terminal state
+	// If already in a terminal state, just update pod status to reflect deletion
 	if existingRun.Status == database.WorkflowRunStatusCompleted ||
 		existingRun.Status == database.WorkflowRunStatusFailed ||
 		existingRun.Status == database.WorkflowRunStatusSkipped {
 		log.Debugf("EphemeralRunnerReconciler: run %d already in terminal state %s", existingRun.ID, existingRun.Status)
+
+		// Update pod status to reflect that pod has been terminated/deleted
+		needsUpdate := false
+		if existingRun.PodPhase != "Succeeded" && existingRun.PodPhase != "Failed" {
+			if existingRun.Status == database.WorkflowRunStatusCompleted {
+				existingRun.PodPhase = "Succeeded"
+			} else {
+				existingRun.PodPhase = "Failed"
+			}
+			existingRun.PodCondition = "Terminated"
+			existingRun.PodMessage = ""
+			needsUpdate = true
+		}
+
+		if needsUpdate {
+			if err := runFacade.Update(ctx, existingRun); err != nil {
+				log.Warnf("EphemeralRunnerReconciler: failed to update pod status for terminal run %d: %v", existingRun.ID, err)
+			} else {
+				log.Debugf("EphemeralRunnerReconciler: updated pod status for terminal run %d to %s", existingRun.ID, existingRun.PodPhase)
+			}
+		}
+
 		// Still try to cleanup placeholder summary even if run is in terminal state
 		if oldSummaryID > 0 {
 			r.cleanupPlaceholderSummaryIfOrphan(ctx, oldSummaryID, runFacade, runSummaryFacade)
@@ -674,17 +696,21 @@ func (r *EphemeralRunnerReconciler) processDeletion(ctx context.Context, info *t
 		return nil
 	}
 
-	// Mark as pending (ready for collection)
+	// Mark as pending (ready for collection) and update pod status
 	oldStatus := existingRun.Status
 	existingRun.Status = database.WorkflowRunStatusPending
 	existingRun.WorkloadCompletedAt = time.Now()
+	// Update pod status to reflect deletion
+	existingRun.PodPhase = "Succeeded"
+	existingRun.PodCondition = "Terminated"
+	existingRun.PodMessage = ""
 
 	if err := runFacade.Update(ctx, existingRun); err != nil {
 		return fmt.Errorf("failed to update run record for deletion %s: %w", info.Name, err)
 	}
 
-	log.Infof("EphemeralRunnerReconciler: marked run %d as pending for collection on deletion (status: %s -> %s)",
-		existingRun.ID, oldStatus, existingRun.Status)
+	log.Infof("EphemeralRunnerReconciler: marked run %d as pending for collection on deletion (status: %s -> %s, pod: %s)",
+		existingRun.ID, oldStatus, existingRun.Status, existingRun.PodPhase)
 
 	// Cleanup placeholder summary if this was the last run referencing it
 	if oldSummaryID > 0 {
