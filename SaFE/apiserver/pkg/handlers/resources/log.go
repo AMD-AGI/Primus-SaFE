@@ -355,13 +355,12 @@ func normalize(str string) string {
 }
 
 func buildOutput(req *commonsearch.OpenSearchRequest, query *view.ListLogRequest, workloadId string) {
-	req.Source = []string{
-		commonsearch.TimeField, commonsearch.MessageField,
-	}
 	if query.IsEventRequest {
 		return
 	}
-	req.Source = append(req.Source, "kubernetes.host")
+	req.Source = []string{
+		commonsearch.TimeField, commonsearch.MessageField, "kubernetes.host",
+	}
 	if workloadId != "" {
 		req.Source = append(req.Source, commonsearch.StreamField)
 		key := strings.ReplaceAll(v1.WorkloadDispatchCntLabel, ".", "_")
