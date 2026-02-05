@@ -244,16 +244,6 @@ func NewResourceProcessing(message string) *apierrors.StatusError {
 	}}
 }
 
-// NewNodeNotReady creates a new node not ready error.
-func NewNodeNotReady(message string) *apierrors.StatusError {
-	return &apierrors.StatusError{ErrStatus: metav1.Status{
-		Status:  metav1.StatusFailure,
-		Code:    http.StatusServiceUnavailable,
-		Reason:  NodeNotReady,
-		Message: message,
-	}}
-}
-
 // NewNotImplemented creates a new not implemented error.
 func NewNotImplemented(message string) *apierrors.StatusError {
 	return &apierrors.StatusError{ErrStatus: metav1.Status{

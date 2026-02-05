@@ -390,3 +390,56 @@ func GetDatasetFieldTags() map[string]string {
 	d := Dataset{}
 	return getFieldTags(d)
 }
+
+// EvaluationTaskStatus is the type for evaluation task status
+type EvaluationTaskStatus string
+
+// EvaluationTask status constants
+const (
+	EvaluationTaskStatusPending   EvaluationTaskStatus = "Pending"
+	EvaluationTaskStatusRunning   EvaluationTaskStatus = "Running"
+	EvaluationTaskStatusSucceeded EvaluationTaskStatus = "Succeeded"
+	EvaluationTaskStatusFailed    EvaluationTaskStatus = "Failed"
+	EvaluationTaskStatusCancelled EvaluationTaskStatus = "Cancelled"
+)
+
+// EvaluationTask label for OpsJob
+const (
+	EvaluationTaskIdLabel = "evaluation-task-id"
+)
+
+// EvaluationTask represents an evaluation task record in the database.
+type EvaluationTask struct {
+	Id            int64                `db:"id"`
+	TaskId        string               `db:"task_id"`
+	TaskName      string               `db:"task_name"`
+	Description   string               `db:"description"`
+	ServiceId     string               `db:"service_id"`
+	ServiceType   string               `db:"service_type"`
+	ServiceName   string               `db:"service_name"`
+	Benchmarks    string               `db:"benchmarks"`  // JSONB
+	EvalParams    string               `db:"eval_params"` // JSONB
+	OpsJobId      sql.NullString       `db:"ops_job_id"`
+	Status        EvaluationTaskStatus `db:"status"`
+	ResultSummary sql.NullString       `db:"result_summary"` // JSONB
+	ReportS3Path  sql.NullString       `db:"report_s3_path"`
+	// Judge model configuration (empty means normal evaluation mode)
+	JudgeServiceId   sql.NullString `db:"judge_service_id"`
+	JudgeServiceType sql.NullString `db:"judge_service_type"`
+	JudgeServiceName sql.NullString `db:"judge_service_name"`
+	Timeout          int            `db:"timeout"`
+	Concurrency      int            `db:"concurrency"`
+	Workspace        string         `db:"workspace"`
+	UserId           string         `db:"user_id"`
+	UserName         string         `db:"user_name"`
+	CreationTime     pq.NullTime    `db:"creation_time"`
+	StartTime        pq.NullTime    `db:"start_time"`
+	EndTime          pq.NullTime    `db:"end_time"`
+	IsDeleted        bool           `db:"is_deleted"`
+}
+
+// GetEvaluationTaskFieldTags returns the EvaluationTaskFieldTags value.
+func GetEvaluationTaskFieldTags() map[string]string {
+	t := EvaluationTask{}
+	return getFieldTags(t)
+}

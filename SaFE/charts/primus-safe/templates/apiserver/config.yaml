@@ -95,13 +95,13 @@ data:
       secret_path: /etc/secrets/notification
     tracing:
       # Whether to enable OpenTelemetry tracing
-      enable: {{ .Values.tracing.enable }}
+      enable: {{ default true (default dict .Values.tracing).enable }}
       # Tracing mode: "all" (record all requests) or "error_only" (only record failed requests)
-      mode: {{ .Values.tracing.mode }}
+      mode: {{ default "error_only" (default dict .Values.tracing).mode }}
       # Sampling ratio for exporting traces (0.0 to 1.0)
-      sampling_ratio: {{ .Values.tracing.sampling_ratio }}
+      sampling_ratio: {{ default 1.0 (default dict .Values.tracing).sampling_ratio }}
       # OTLP exporter endpoint (e.g., localhost:4317 for gRPC)
-      otlp_endpoint: {{ .Values.tracing.otlp_endpoint }}
+      otlp_endpoint: {{ default "otel-collector-collector.primus-lens.svc.cluster.local:4317" (default dict .Values.tracing).otlp_endpoint }}
     {{- if .Values.proxy }}
     proxy:
       # Proxy services configuration for reverse proxying to backend services

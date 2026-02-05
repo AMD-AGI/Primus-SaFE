@@ -9,6 +9,7 @@ const (
 	PrimusSafeName             = "primus-safe"
 	PrimusSafeNamespace        = "primus-safe"
 	PrimusFault                = "primus-safe-fault"
+	PrimusPvmName              = "primus-safe-pv"
 	PrimusFailover             = "primus-safe-failover"
 	DefaultVersion             = "v1"
 	PrimusRouterCustomRootPath = "api/" + DefaultVersion
@@ -52,11 +53,13 @@ const (
 	KubeSystemNamespace    = "kube-system"
 	KubePublicNamespace    = "kube-public"
 	PytorchJobPortName     = "pytorchjob-port"
+	PfsSelectorKey         = "pfs-name"
 	SSHPortName            = "ssh-port"
 	JsonContentType        = "application/json; charset=utf-8"
 	KubernetesControlPlane = "node-role.kubernetes.io/control-plane"
 	ExcludedNodes          = "excluded-nodes"
 	TaintAction            = "taint"
+	CICDArcNamespace       = "arc-systems"
 
 	DefaultBurst          = 1000
 	DefaultQPS            = 1000

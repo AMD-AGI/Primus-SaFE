@@ -120,6 +120,7 @@ func (h *ImageHandler) listImage(c *gin.Context) (interface{}, error) {
 	images, count, err := h.dbClient.SelectImages(c, &dbClient.ImageFilter{
 		UserName: query.UserName,
 		Tag:      query.Tag,
+		Image:    query.Image,
 		OrderBy:  query.OrderBy,
 		Order:    query.Order,
 		PageNum:  query.PageNum,
@@ -374,8 +375,11 @@ func cvtImageToResponse(images []*model.Image, os, arch string) []GetImageRespon
 	for _, image := range images {
 		registryHost, repo, tag, err := parseImageTag(image.Tag)
 		if err != nil {
-			klog.Errorf("image:%s is invalid, skip: %v", image.Tag, err)
-			continue
+			klog.Warningf("image:%s has invalid format, using fallback: %v", image.Tag, err)
+			// Use fallback values instead of skipping, keep original tag as repo
+			registryHost = ""
+			repo = image.Tag
+			tag = ""
 		}
 
 		artifact := ArtifactItem{
