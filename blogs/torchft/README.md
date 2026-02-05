@@ -216,6 +216,7 @@ For teams running large-scale training workloads on AMD GPUs, this integration o
 ## References
 - [TorchFT GitHub Repository](https://github.com/pytorch/torchft)
 - [TorchTitan Documentation](https://github.com/pytorch/torchtitan)
+- [TorchTitan Paper: One-stop PyTorch native solution for production ready LLM pretraining](https://arxiv.org/pdf/2410.06511)
 - [Primus-SaFE Training Platform](https://github.com/AMD-AIG-AIMA/Primus-SaFE)
 - [Primus Training Framework](https://github.com/AMD-AIG-AIMA/Primus)
 - [ROCm Documentation](https://rocm.docs.amd.com/)
