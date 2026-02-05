@@ -292,7 +292,7 @@ func (r *DumpLogJobReconciler) getInputWorkload(ctx context.Context, job *v1.Ops
 func (r *DumpLogJobReconciler) doSearch(client *commonsearch.SearchClient, job *v1.OpsJob, workload *workloadInfo) (*commonsearch.OpenSearchResponse, error) {
 	body := buildSearchBody(job, workload)
 
-	data, err := client.SearchByTimeRange(workload.startTime, workload.endTime,
+	data, err := client.SearchByTimeRange(workload.startTime, workload.endTime, "",
 		fmt.Sprintf("/_search?scroll=%s", contextTTL), body)
 	if err != nil {
 		return nil, commonerrors.NewInternalError(err.Error())

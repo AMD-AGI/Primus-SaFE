@@ -32,7 +32,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
 
-// GetWorkloadLog retrieves logs for a workload from OpenSearch or similar logging service.
+// GetWorkloadLog retrieves logs for a workload from OpenSearch
 func (h *Handler) GetWorkloadLog(c *gin.Context) {
 	handle(c, h.getWorkloadLog)
 }
@@ -40,6 +40,11 @@ func (h *Handler) GetWorkloadLog(c *gin.Context) {
 // GetServiceLog retrieves service logs from the logging backend.
 func (h *Handler) GetServiceLog(c *gin.Context) {
 	handle(c, h.getServiceLog)
+}
+
+// GetWorkloadEvent retrieves events for a workload from OpenSearch
+func (h *Handler) GetWorkloadEvent(c *gin.Context) {
+	handle(c, h.getWorkloadEvent)
 }
 
 // GetWorkloadLogContext retrieves contextual log information for a workload.
@@ -82,7 +87,7 @@ func (h *Handler) getWorkloadLog(c *gin.Context) (interface{}, error) {
 		return nil, commonerrors.NewInternalError("There is no OpenSearch in cluster " + clusterId)
 	}
 	return opensearchClient.SearchByTimeRange(query.SinceTime, query.UntilTime,
-		"/_search", buildSearchBody(query, name))
+		"", "/_search", buildSearchBody(query, name))
 }
 
 // getServiceLog retrieves logs for a specific service from OpenSearch.
@@ -107,7 +112,43 @@ func (h *Handler) getServiceLog(c *gin.Context) (interface{}, error) {
 		return nil, commonerrors.NewInternalError("There is no OpenSearch in cluster " + "")
 	}
 	return opensearchClient.SearchByTimeRange(query.SinceTime, query.UntilTime,
-		"/_search", buildSearchBody(query, ""))
+		"", "/_search", buildSearchBody(query, ""))
+}
+
+// getWorkloadEvent retrieves events for a specific workload from OpenSearch.
+func (h *Handler) getWorkloadEvent(c *gin.Context) (interface{}, error) {
+	if !commonconfig.IsOpenSearchEnable() {
+		return nil, commonerrors.NewInternalError("The logging function is not enabled")
+	}
+	name := c.GetString(common.Name)
+	if name == "" {
+		return nil, commonerrors.NewBadRequest("the workloadId is empty")
+	}
+	workload, err := h.getWorkloadForAuth(c.Request.Context(), name)
+	if err != nil {
+		return nil, err
+	}
+
+	if err = h.accessController.Authorize(authority.AccessInput{
+		Context:    c.Request.Context(),
+		Resource:   workload,
+		Verb:       v1.GetVerb,
+		Workspaces: []string{workload.Spec.Workspace},
+		UserId:     c.GetString(common.UserId),
+	}); err != nil {
+		return nil, err
+	}
+	clusterId := v1.GetClusterId(workload)
+	query, err := parseEventLogQuery(c, workload)
+	if err != nil {
+		return nil, err
+	}
+	opensearchClient := commonsearch.GetOpensearchClient(clusterId)
+	if opensearchClient == nil {
+		return nil, commonerrors.NewInternalError("There is no OpenSearch in cluster " + clusterId)
+	}
+	return opensearchClient.SearchByTimeRange(query.SinceTime, query.UntilTime,
+		"k8s-event-", "/_search", buildSearchBody(query, name))
 }
 
 // getWorkloadLogContext retrieves contextual logs for a specific workload from OpenSearch.
@@ -167,7 +208,7 @@ func (h *Handler) searchContextLog(queries []view.ListContextLogRequest, workloa
 		wrapper := <-ch
 		query := wrapper.Query
 		resp, err := opensearchClient.SearchByTimeRange(query.SinceTime, query.UntilTime,
-			"/_search", buildSearchBody(query, workloadId))
+			"", "/_search", buildSearchBody(query, workloadId))
 		if err != nil {
 			return err
 		}
@@ -347,6 +388,15 @@ func parseServiceLogQuery(c *gin.Context) (*view.ListLogRequest, error) {
 	query.DispatchCount = 0
 	query.Filters = map[string]string{
 		"app": name,
+	}
+	return query, nil
+}
+
+func parseEventLogQuery(c *gin.Context, workload *v1.Workload) (*view.ListLogRequest, error) {
+	query, err := parseLogQuery(c.Request, workload.CreationTimestamp.Time, workload.EndTime())
+	if err != nil {
+		klog.ErrorS(err, "failed to parse log query")
+		return nil, err
 	}
 	return query, nil
 }
