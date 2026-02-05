@@ -297,7 +297,7 @@ jobs:
   
   build:
     needs: detect-changes
-    runs-on: ubuntu-latest
+    runs-on: primus-safe-cicd-xfxr6
     timeout-minutes: 60
     strategy:
       fail-fast: false
