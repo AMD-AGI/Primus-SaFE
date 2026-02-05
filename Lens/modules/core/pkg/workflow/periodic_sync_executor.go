@@ -61,7 +61,7 @@ func (e *PeriodicSyncExecutor) Execute(ctx context.Context, execCtx *task.Execut
 
 	log.Infof("PeriodicSyncExecutor: starting periodic sync for run summary %d", runSummaryID)
 
-	runSummaryFacade := database.NewGithubWorkflowRunSummaryFacade()
+	runSummaryFacade := database.GetFacade().GetGithubWorkflowRunSummary()
 
 	// Get run summary
 	summary, err := runSummaryFacade.GetByID(ctx, runSummaryID)

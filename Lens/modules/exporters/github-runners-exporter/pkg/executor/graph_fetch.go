@@ -83,7 +83,7 @@ func (e *GraphFetchExecutor) Execute(ctx context.Context, execCtx *task.Executio
 	log.Infof("GraphFetchExecutor: starting graph fetch for run summary %d (github_run_id: %d)",
 		summaryID, githubRunID)
 
-	summaryFacade := database.NewGithubWorkflowRunSummaryFacade()
+	summaryFacade := database.GetFacade().GetGithubWorkflowRunSummary()
 
 	// Get or create summary
 	var summary *model.GithubWorkflowRunSummaries

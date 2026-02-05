@@ -198,7 +198,7 @@ func (r *EphemeralRunnerReconciler) removeFinalizer(ctx context.Context, obj *un
 func (r *EphemeralRunnerReconciler) processRunner(ctx context.Context, info *types.EphemeralRunnerInfo) error {
 	runnerSetFacade := database.GetFacade().GetGithubRunnerSet()
 	runFacade := database.GetFacade().GetGithubWorkflowRun()
-	runSummaryFacade := database.NewGithubWorkflowRunSummaryFacade()
+	runSummaryFacade := database.GetFacade().GetGithubWorkflowRunSummary()
 
 	// Find the runner set for this ephemeral runner
 	runnerSet, err := runnerSetFacade.GetByNamespaceName(ctx, info.Namespace, info.RunnerSetName)
@@ -633,7 +633,7 @@ func (r *EphemeralRunnerReconciler) enrichWithGitHubInfo(ctx context.Context, in
 func (r *EphemeralRunnerReconciler) processDeletion(ctx context.Context, info *types.EphemeralRunnerInfo) error {
 	runnerSetFacade := database.GetFacade().GetGithubRunnerSet()
 	runFacade := database.GetFacade().GetGithubWorkflowRun()
-	runSummaryFacade := database.NewGithubWorkflowRunSummaryFacade()
+	runSummaryFacade := database.GetFacade().GetGithubWorkflowRunSummary()
 
 	// Find the runner set for this ephemeral runner
 	runnerSet, err := runnerSetFacade.GetByNamespaceName(ctx, info.Namespace, info.RunnerSetName)
@@ -763,7 +763,7 @@ func (r *EphemeralRunnerReconciler) triggerGraphFetch(ctx context.Context, summa
 
 // triggerCodeAnalysis triggers code analysis on first job of a run (Run-level trigger)
 func (r *EphemeralRunnerReconciler) triggerCodeAnalysis(ctx context.Context, summary *model.GithubWorkflowRunSummaries, runnerSet *model.GithubRunnerSets) {
-	runSummaryFacade := database.NewGithubWorkflowRunSummaryFacade()
+	runSummaryFacade := database.GetFacade().GetGithubWorkflowRunSummary()
 
 	// Mark as triggered first to prevent duplicate triggers
 	if err := runSummaryFacade.UpdateAnalysisTriggered(ctx, summary.ID, "code", true); err != nil {
