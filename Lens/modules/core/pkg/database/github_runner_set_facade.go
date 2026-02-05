@@ -13,8 +13,9 @@ import (
 )
 
 // RunnerSetWithStats extends GithubRunnerSets with run statistics and config info
+// Note: Using value type instead of pointer for proper GORM Scan support
 type RunnerSetWithStats struct {
-	*model.GithubRunnerSets
+	model.GithubRunnerSets
 	TotalRuns     int64  `json:"total_runs"`
 	PendingRuns   int64  `json:"pending_runs"`
 	CompletedRuns int64  `json:"completed_runs"`
@@ -229,13 +230,6 @@ func (f *GithubRunnerSetFacade) ListWithRunStats(ctx context.Context) ([]*Runner
 		return nil, err
 	}
 
-	// Populate the embedded GithubRunnerSets struct for each result
-	for _, result := range results {
-		if result.GithubRunnerSets == nil {
-			result.GithubRunnerSets = &model.GithubRunnerSets{}
-		}
-	}
-
 	return results, nil
 }
 
@@ -294,12 +288,6 @@ func (f *GithubRunnerSetFacade) ListByRepositoryWithStats(ctx context.Context, o
 
 	if err != nil {
 		return nil, err
-	}
-
-	for _, result := range results {
-		if result.GithubRunnerSets == nil {
-			result.GithubRunnerSets = &model.GithubRunnerSets{}
-		}
 	}
 
 	return results, nil
