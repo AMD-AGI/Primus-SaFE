@@ -41,6 +41,12 @@ const (
 	TaskTypeGithubCodeIndexing       = "github_code_indexing"       // Code indexing for AI-Me
 	TaskTypeGithubGraphFetch         = "github_graph_fetch"         // Fetch workflow graph from GitHub API
 	TaskTypeGithubRunSync            = "github_run_sync"            // Sync workflow run status from GitHub API
+
+	// Event-driven sync task types (replacing high-frequency polling)
+	TaskTypeGithubInitialSync    = "github_initial_sync"    // One-shot sync on runner creation
+	TaskTypeGithubCompletionSync = "github_completion_sync" // One-shot sync on runner completion
+	TaskTypeGithubPeriodicSync   = "github_periodic_sync"   // Periodic sync every 5 minutes until workflow completes
+	TaskTypeGithubManualSync     = "github_manual_sync"     // Manual sync triggered by user
 )
 
 // Detection coverage source constants
