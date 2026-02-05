@@ -240,11 +240,19 @@ func buildSearchBody(query *view.ListLogRequest, workloadId string) []byte {
 	req := &commonsearch.OpenSearchRequest{
 		From: query.Offset,
 		Size: query.Limit,
-		Sort: []commonsearch.OpenSearchField{{
+	}
+	if query.IsEventRequest {
+		req.Sort = []commonsearch.OpenSearchField{{
+			commonsearch.TimeField + ".keyword": map[string]interface{}{
+				"order": query.Order,
+			}},
+		}
+	} else {
+		req.Sort = []commonsearch.OpenSearchField{{
 			commonsearch.TimeField: map[string]interface{}{
 				"order": query.Order,
 			}},
-		},
+		}
 	}
 
 	req.Query.Bool.Must = []commonsearch.OpenSearchField{{
