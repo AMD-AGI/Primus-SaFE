@@ -275,6 +275,12 @@ func (r *WorkloadReconciler) linkChildrenWorkloads(ctx context.Context, workload
 
 	// Set the parent_uid of found child workloads to current Workload's UID
 	for _, child := range childWorkloads {
+		// Skip the Workload itself to avoid self-referencing
+		// This can happen because Workload also has the primus-safe.workload.id label set to its own name
+		if child.UID == string(workload.UID) {
+			continue
+		}
+
 		// Only update workloads that don't have parent_uid set yet
 		if child.ParentUID == "" {
 			log.Debugf("Linking child workload: name=%s, uid=%s to parent uid=%s", child.Name, child.UID, workload.UID)
