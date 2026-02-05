@@ -457,6 +457,7 @@ func parseContextQuery(c *gin.Context, workload *v1.Workload) ([]view.ListContex
 // based on the provided beginTime and endTime parameters.
 // Returns a validated ListLogRequest object or an error if validation fails.
 func parseLogQuery(req *http.Request, beginTime, endTime time.Time) (*view.ListLogRequest, error) {
+	klog.Infof("beginTime: %s, endTime: %s", beginTime.String(), endTime.String())
 	query := &view.ListLogRequest{}
 	_, err := apiutils.ParseRequestBody(req, &query.ListLogInput)
 	if err != nil {
