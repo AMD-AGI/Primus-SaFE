@@ -30,7 +30,7 @@ type OpenSearchQuery struct {
 
 type OpenSearchRequest struct {
 	// Specify the fields to return
-	Source []string          `json:"_source"`
+	Source []string          `json:"_source,omitempty"`
 	Query  OpenSearchQuery   `json:"query"`
 	Sort   []OpenSearchField `json:"sort,omitempty"`
 	From   int               `json:"from"`
