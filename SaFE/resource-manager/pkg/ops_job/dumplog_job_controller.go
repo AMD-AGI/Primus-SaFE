@@ -190,7 +190,7 @@ func (r *DumpLogJobReconciler) processDumpLogJob(ctx context.Context, job *v1.Op
 
 // singleUpload uploads log data in a single S3 operation.
 func (r *DumpLogJobReconciler) singleUpload(ctx context.Context, job *v1.OpsJob,
-	workload *workloadInfo, searchResult *commonsearch.OpenSearchResponse) error {
+	workload *workloadInfo, searchResult *commonsearch.OpenSearchLogResponse) error {
 	content := serializeSearchResponse(searchResult)
 	logName := buildLogName(workload.workloadId)
 	_, err := r.s3Client.PutObject(ctx, logName, content, int64(job.Spec.TimeoutSecond))
@@ -206,7 +206,7 @@ func (r *DumpLogJobReconciler) multiUpload(
 	ctx context.Context,
 	client *commonsearch.SearchClient,
 	job *v1.OpsJob,
-	workload *workloadInfo, searchResult *commonsearch.OpenSearchResponse) error {
+	workload *workloadInfo, searchResult *commonsearch.OpenSearchLogResponse) error {
 
 	logName := buildLogName(workload.workloadId)
 	uploadId, err := r.s3Client.CreateMultiPartUpload(ctx, logName, job.GetLeftTime())
@@ -214,7 +214,7 @@ func (r *DumpLogJobReconciler) multiUpload(
 		return err
 	}
 
-	logCh := make(chan *commonsearch.OpenSearchResponse, 10)
+	logCh := make(chan *commonsearch.OpenSearchLogResponse, 10)
 	errCh := make(chan error, 10)
 	stopCh := make(chan struct{})
 	defer func() {
@@ -289,7 +289,7 @@ func (r *DumpLogJobReconciler) getInputWorkload(ctx context.Context, job *v1.Ops
 }
 
 // doSearch performs log search in OpenSearch based on job and workload parameters.
-func (r *DumpLogJobReconciler) doSearch(client *commonsearch.SearchClient, job *v1.OpsJob, workload *workloadInfo) (*commonsearch.OpenSearchResponse, error) {
+func (r *DumpLogJobReconciler) doSearch(client *commonsearch.SearchClient, job *v1.OpsJob, workload *workloadInfo) (*commonsearch.OpenSearchLogResponse, error) {
 	body := buildSearchBody(job, workload)
 
 	data, err := client.SearchByTimeRange(workload.startTime, workload.endTime, "",
@@ -297,7 +297,7 @@ func (r *DumpLogJobReconciler) doSearch(client *commonsearch.SearchClient, job *
 	if err != nil {
 		return nil, commonerrors.NewInternalError(err.Error())
 	}
-	result := &commonsearch.OpenSearchResponse{}
+	result := &commonsearch.OpenSearchLogResponse{}
 	if err = json.Unmarshal(data, result); err != nil {
 		return nil, commonerrors.NewInternalError(err.Error())
 	}
@@ -365,7 +365,7 @@ func buildSearchBody(job *v1.OpsJob, workload *workloadInfo) []byte {
 
 // scroll retrieves log data using OpenSearch scroll API.
 func (r *DumpLogJobReconciler) scroll(client *commonsearch.SearchClient, job *v1.OpsJob, scrollId string,
-	logCh chan<- *commonsearch.OpenSearchResponse, errCh chan<- error) {
+	logCh chan<- *commonsearch.OpenSearchLogResponse, errCh chan<- error) {
 	request := &commonsearch.OpenSearchScrollRequest{
 		Scroll:   contextTTL,
 		ScrollId: scrollId,
@@ -374,7 +374,7 @@ func (r *DumpLogJobReconciler) scroll(client *commonsearch.SearchClient, job *v1
 
 	for {
 		data, err := client.Request("/_search/scroll", http.MethodPost, body)
-		response := new(commonsearch.OpenSearchResponse)
+		response := new(commonsearch.OpenSearchLogResponse)
 		if err == nil {
 			err = json.Unmarshal(data, response)
 		}
@@ -402,7 +402,7 @@ func (r *DumpLogJobReconciler) scroll(client *commonsearch.SearchClient, job *v1
 
 // dump processes and uploads log data through S3 multipart upload.
 func (r *DumpLogJobReconciler) dump(ctx context.Context, job *v1.OpsJob, param *commons3.MultiUploadParam,
-	logCh <-chan *commonsearch.OpenSearchResponse, errCh chan<- error, stopCh chan struct{}) {
+	logCh <-chan *commonsearch.OpenSearchLogResponse, errCh chan<- error, stopCh chan struct{}) {
 	param.PartNumber = 1
 	param.Value = ""
 	hasError := false
@@ -492,7 +492,7 @@ func (r *DumpLogJobReconciler) setOutput(ctx context.Context, job *v1.OpsJob, lo
 }
 
 // serializeSearchResponse converts OpenSearch response to formatted log string.
-func serializeSearchResponse(data *commonsearch.OpenSearchResponse) string {
+func serializeSearchResponse(data *commonsearch.OpenSearchLogResponse) string {
 	var logBuffer strings.Builder
 	for _, doc := range data.Hits.Hits {
 		logBuffer.WriteString(doc.Source.Timestamp)

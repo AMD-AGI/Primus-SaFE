@@ -458,63 +458,128 @@ func TestBuildSearchBody(t *testing.T) {
 	}
 }
 
-func TestBuildLabelFilter(t *testing.T) {
+func TestBuildFilter(t *testing.T) {
 	tests := []struct {
-		name    string
-		filters map[string]string
-		wantLen int
+		name       string
+		query      *view.ListLogRequest
+		wantFilter int
+		wantMust   int
 	}{
 		{
-			name:    "empty filters",
-			filters: map[string]string{},
-			wantLen: 0,
+			name: "no filters",
+			query: &view.ListLogRequest{
+				ListLogInput: view.ListLogInput{},
+			},
+			wantFilter: 0,
+			wantMust:   0,
 		},
 		{
-			name: "single filter",
-			filters: map[string]string{
-				"app": "test",
+			name: "only label filters",
+			query: &view.ListLogRequest{
+				ListLogInput: view.ListLogInput{},
+				Filters: map[string]string{
+					"app": "test",
+				},
 			},
-			wantLen: 1,
+			wantFilter: 1,
+			wantMust:   0,
 		},
 		{
-			name: "multiple filters",
-			filters: map[string]string{
-				"app":       "test",
-				"env":       "prod",
-				"component": "api",
+			name: "with pod names",
+			query: &view.ListLogRequest{
+				ListLogInput: view.ListLogInput{
+					PodNames: "pod1,pod2",
+				},
 			},
-			wantLen: 3,
+			wantFilter: 0,
+			wantMust:   1,
+		},
+		{
+			name: "with node names (no pod names)",
+			query: &view.ListLogRequest{
+				ListLogInput: view.ListLogInput{
+					NodeNames: "node1,node2",
+				},
+			},
+			wantFilter: 0,
+			wantMust:   1,
+		},
+		{
+			name: "pod names takes precedence over node names",
+			query: &view.ListLogRequest{
+				ListLogInput: view.ListLogInput{
+					PodNames:  "pod1",
+					NodeNames: "node1",
+				},
+			},
+			wantFilter: 0,
+			wantMust:   1,
+		},
+		{
+			name: "combined label and pod filters",
+			query: &view.ListLogRequest{
+				ListLogInput: view.ListLogInput{
+					PodNames: "pod1",
+				},
+				Filters: map[string]string{
+					"app": "test",
+				},
+			},
+			wantFilter: 1,
+			wantMust:   1,
+		},
+		{
+			name: "empty filters map",
+			query: &view.ListLogRequest{
+				ListLogInput: view.ListLogInput{},
+				Filters:      map[string]string{},
+			},
+			wantFilter: 0,
+			wantMust:   0,
 		},
 		{
 			name: "filter with empty key is skipped",
-			filters: map[string]string{
-				"":    "value",
-				"app": "test",
+			query: &view.ListLogRequest{
+				ListLogInput: view.ListLogInput{},
+				Filters: map[string]string{
+					"":    "value",
+					"app": "test",
+				},
 			},
-			wantLen: 1,
+			wantFilter: 1,
+			wantMust:   0,
 		},
 		{
 			name: "filter with empty value is skipped",
-			filters: map[string]string{
-				"key": "",
-				"app": "test",
+			query: &view.ListLogRequest{
+				ListLogInput: view.ListLogInput{},
+				Filters: map[string]string{
+					"key": "",
+					"app": "test",
+				},
 			},
-			wantLen: 1,
+			wantFilter: 1,
+			wantMust:   0,
 		},
 		{
 			name: "filter key with dots is converted",
-			filters: map[string]string{
-				"primus.safe.workload": "test",
+			query: &view.ListLogRequest{
+				ListLogInput: view.ListLogInput{},
+				Filters: map[string]string{
+					"primus.safe.workload": "test",
+				},
 			},
-			wantLen: 1,
+			wantFilter: 1,
+			wantMust:   0,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			req := &commonsearch.OpenSearchRequest{}
-			buildLabelFilter(req, tt.filters)
-			assert.Len(t, req.Query.Bool.Filter, tt.wantLen)
+			buildFilter(req, tt.query)
+			assert.Len(t, req.Query.Bool.Filter, tt.wantFilter)
+			assert.Len(t, req.Query.Bool.Must, tt.wantMust)
 		})
 	}
 }
@@ -764,7 +829,7 @@ func TestAddContextDoc(t *testing.T) {
 	tests := []struct {
 		name      string
 		query     view.ListContextLogRequest
-		response  *commonsearch.OpenSearchResponse
+		response  *commonsearch.OpenSearchLogResponse
 		isAsc     bool
 		wantErr   bool
 		wantCount int
@@ -775,9 +840,9 @@ func TestAddContextDoc(t *testing.T) {
 				DocId: "non-existent",
 				Limit: 3,
 			},
-			response: &commonsearch.OpenSearchResponse{
-				Hits: commonsearch.OpenSearchHits{
-					Hits: []commonsearch.OpenSearchDoc{
+			response: &commonsearch.OpenSearchLogResponse{
+				Hits: commonsearch.OpenSearchLogHits{
+					Hits: []commonsearch.OpenSearchLogDoc{
 						{Id: "doc-001", Source: struct {
 							Timestamp  string `json:"@timestamp"`
 							Stream     string `json:"stream,omitempty"`
@@ -809,9 +874,9 @@ func TestAddContextDoc(t *testing.T) {
 				DocId: "doc-001",
 				Limit: 5,
 			},
-			response: &commonsearch.OpenSearchResponse{
-				Hits: commonsearch.OpenSearchHits{
-					Hits: []commonsearch.OpenSearchDoc{
+			response: &commonsearch.OpenSearchLogResponse{
+				Hits: commonsearch.OpenSearchLogHits{
+					Hits: []commonsearch.OpenSearchLogDoc{
 						{Id: "doc-001", Source: struct {
 							Timestamp  string `json:"@timestamp"`
 							Stream     string `json:"stream,omitempty"`
@@ -877,7 +942,7 @@ func TestAddContextDoc(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := &commonsearch.OpenSearchResponse{}
+			result := &commonsearch.OpenSearchLogResponse{}
 			err := addContextDoc(result, tt.query, tt.response, tt.isAsc)
 			if tt.wantErr {
 				assert.Error(t, err)
@@ -894,88 +959,6 @@ func TestAddContextDoc(t *testing.T) {
 					}
 				}
 			}
-		})
-	}
-}
-
-func TestBuildFilter(t *testing.T) {
-	tests := []struct {
-		name       string
-		query      *view.ListLogRequest
-		wantFilter int
-		wantMust   int
-	}{
-		{
-			name: "no filters",
-			query: &view.ListLogRequest{
-				ListLogInput: view.ListLogInput{},
-			},
-			wantFilter: 0,
-			wantMust:   0,
-		},
-		{
-			name: "only label filters",
-			query: &view.ListLogRequest{
-				ListLogInput: view.ListLogInput{},
-				Filters: map[string]string{
-					"app": "test",
-				},
-			},
-			wantFilter: 1,
-			wantMust:   0,
-		},
-		{
-			name: "with pod names",
-			query: &view.ListLogRequest{
-				ListLogInput: view.ListLogInput{
-					PodNames: "pod1,pod2",
-				},
-			},
-			wantFilter: 0,
-			wantMust:   1,
-		},
-		{
-			name: "with node names (no pod names)",
-			query: &view.ListLogRequest{
-				ListLogInput: view.ListLogInput{
-					NodeNames: "node1,node2",
-				},
-			},
-			wantFilter: 0,
-			wantMust:   1,
-		},
-		{
-			name: "pod names takes precedence over node names",
-			query: &view.ListLogRequest{
-				ListLogInput: view.ListLogInput{
-					PodNames:  "pod1",
-					NodeNames: "node1",
-				},
-			},
-			wantFilter: 0,
-			wantMust:   1,
-		},
-		{
-			name: "combined label and pod filters",
-			query: &view.ListLogRequest{
-				ListLogInput: view.ListLogInput{
-					PodNames: "pod1",
-				},
-				Filters: map[string]string{
-					"app": "test",
-				},
-			},
-			wantFilter: 1,
-			wantMust:   1,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			req := &commonsearch.OpenSearchRequest{}
-			buildFilter(req, tt.query)
-			assert.Len(t, req.Query.Bool.Filter, tt.wantFilter)
-			assert.Len(t, req.Query.Bool.Must, tt.wantMust)
 		})
 	}
 }

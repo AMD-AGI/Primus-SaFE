@@ -45,7 +45,8 @@ type ListLogRequest struct {
 	// End timestamp of the query
 	UntilTime time.Time
 	// All fields used for filtering.
-	Filters map[string]string
+	Filters        map[string]string
+	IsEventRequest bool
 }
 
 // For internal use, the request for searching log context

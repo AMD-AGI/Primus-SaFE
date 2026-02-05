@@ -186,7 +186,7 @@ func (h *Handler) getWorkloadLogContext(c *gin.Context) (interface{}, error) {
 // searchContextLog performs concurrent OpenSearch queries to retrieve contextual logs for a workload.
 // It executes two parallel searches (before and after the target log) using the provided queries
 // Returns the combined search results or an error if any search fails.
-func (h *Handler) searchContextLog(queries []view.ListContextLogRequest, workloadId string) (*commonsearch.OpenSearchResponse, error) {
+func (h *Handler) searchContextLog(queries []view.ListContextLogRequest, workloadId string) (*commonsearch.OpenSearchLogResponse, error) {
 	startTime := time.Now().UTC()
 	const count = 2
 	ch := make(chan view.ListContextLogRequest, count)
@@ -203,7 +203,7 @@ func (h *Handler) searchContextLog(queries []view.ListContextLogRequest, workloa
 	if opensearchClient == nil {
 		return nil, commonerrors.NewInternalError("There is no OpenSearch in cluster " + clusterId)
 	}
-	var response [count]commonsearch.OpenSearchResponse
+	var response [count]commonsearch.OpenSearchLogResponse
 	_, err = concurrent.Exec(count, func() error {
 		wrapper := <-ch
 		query := wrapper.Query
@@ -221,7 +221,7 @@ func (h *Handler) searchContextLog(queries []view.ListContextLogRequest, workloa
 		return nil, err
 	}
 
-	result := &commonsearch.OpenSearchResponse{}
+	result := &commonsearch.OpenSearchLogResponse{}
 	if err = addContextDoc(result, queries[0], &response[0], true); err != nil {
 		return nil, err
 	}
@@ -263,27 +263,28 @@ func buildSearchBody(query *view.ListLogRequest, workloadId string) []byte {
 }
 
 func buildFilter(req *commonsearch.OpenSearchRequest, query *view.ListLogRequest) {
-	buildLabelFilter(req, query.Filters)
+	for key, val := range query.Filters {
+		if key == "" || val == "" {
+			continue
+		}
+		termKey := ""
+		if !query.IsEventRequest {
+			// Use the same punctuation handling rules as OpenSearch.
+			key = strings.ReplaceAll(key, ".", "_")
+			termKey = "kubernetes.labels." + key
+		} else {
+			termKey = key
+		}
+		req.Query.Bool.Filter = append(req.Query.Bool.Filter, commonsearch.OpenSearchField{
+			"term": map[string]interface{}{
+				termKey + ".keyword": val,
+			},
+		})
+	}
 	if query.PodNames != "" {
 		buildMultiTermsFilter(req, "pod_name", query.PodNames)
 	} else if query.NodeNames != "" {
 		buildMultiTermsFilter(req, "host", query.NodeNames)
-	}
-}
-
-func buildLabelFilter(req *commonsearch.OpenSearchRequest, labelFilters map[string]string) {
-	// including workload id/service name/dispatch count
-	for key, val := range labelFilters {
-		if key == "" || val == "" {
-			continue
-		}
-		// Use the same punctuation handling rules as OpenSearch.
-		key = strings.ReplaceAll(key, ".", "_")
-		req.Query.Bool.Filter = append(req.Query.Bool.Filter, commonsearch.OpenSearchField{
-			"term": map[string]interface{}{
-				"kubernetes.labels." + key + ".keyword": val,
-			},
-		})
 	}
 }
 
@@ -293,11 +294,10 @@ func buildMultiTermsFilter(req *commonsearch.OpenSearchRequest, key, values stri
 		return
 	}
 	var queries []map[string]interface{}
+	termKey := fmt.Sprintf("kubernetes.%s.keyword", key)
 	for _, val := range valueList {
 		queries = append(queries, map[string]interface{}{
-			"term": map[string]string{
-				fmt.Sprintf("kubernetes.%s.keyword", key): val,
-			},
+			"term": map[string]string{termKey: val},
 		})
 	}
 	req.Query.Bool.Must = append(req.Query.Bool.Must, commonsearch.OpenSearchField{
@@ -347,6 +347,9 @@ func normalize(str string) string {
 }
 
 func buildOutput(req *commonsearch.OpenSearchRequest, query *view.ListLogRequest, workloadId string) {
+	if query.IsEventRequest {
+		return
+	}
 	req.Source = []string{
 		commonsearch.TimeField, commonsearch.MessageField, "kubernetes.host",
 	}
@@ -385,7 +388,6 @@ func parseServiceLogQuery(c *gin.Context) (*view.ListLogRequest, error) {
 	if err != nil {
 		return nil, err
 	}
-	query.DispatchCount = 0
 	query.Filters = map[string]string{
 		"app": name,
 	}
@@ -398,6 +400,13 @@ func parseEventLogQuery(c *gin.Context, workload *v1.Workload) (*view.ListLogReq
 		klog.ErrorS(err, "failed to parse log query")
 		return nil, err
 	}
+	query.Filters = map[string]string{
+		"involvedObject.name":      workload.Name,
+		"involvedObject.namespace": workload.Spec.Workspace,
+	}
+	query.IsEventRequest = true
+	query.NodeNames = ""
+	query.PodNames = ""
 	return query, nil
 }
 
@@ -457,7 +466,6 @@ func parseContextQuery(c *gin.Context, workload *v1.Workload) ([]view.ListContex
 // based on the provided beginTime and endTime parameters.
 // Returns a validated ListLogRequest object or an error if validation fails.
 func parseLogQuery(req *http.Request, beginTime, endTime time.Time) (*view.ListLogRequest, error) {
-	klog.Infof("beginTime: %s, endTime: %s", beginTime.String(), endTime.String())
 	query := &view.ListLogRequest{}
 	_, err := apiutils.ParseRequestBody(req, &query.ListLogInput)
 	if err != nil {
@@ -511,8 +519,6 @@ func parseLogQuery(req *http.Request, beginTime, endTime time.Time) (*view.ListL
 	} else if !beginTime.IsZero() && query.SinceTime.Before(beginTime) {
 		query.SinceTime = beginTime
 	}
-	klog.Infof("sinceTime: %s, untilTime: %s, begintTime: %s, endTime: %s",
-		query.SinceTime.String(), query.UntilTime.String(), beginTime.String(), endTime.String())
 	if query.SinceTime.After(query.UntilTime) {
 		return nil, commonerrors.NewBadRequest("the since time is later than until time")
 	}
@@ -524,8 +530,8 @@ func parseLogQuery(req *http.Request, beginTime, endTime time.Time) (*view.ListL
 // that document (based on isAsc flag) up to the specified limit. Each log entry is assigned
 // a line number for context (positive for forward context, negative for backward context).
 // The function updates the result response with the extracted documents and total count.
-func addContextDoc(result *commonsearch.OpenSearchResponse,
-	query view.ListContextLogRequest, response *commonsearch.OpenSearchResponse, isAsc bool) error {
+func addContextDoc(result *commonsearch.OpenSearchLogResponse,
+	query view.ListContextLogRequest, response *commonsearch.OpenSearchLogResponse, isAsc bool) error {
 	id := -1
 	for i := range response.Hits.Hits {
 		if response.Hits.Hits[i].Id == query.DocId {
