@@ -2569,3 +2569,179 @@ func parseStepLogs(jobLogs string, stepNumber int) string {
 	}
 	return result
 }
+
+// ========== Manual Sync APIs (Event-Driven Sync) ==========
+
+// ManualSyncRequest represents the request for manual sync
+type ManualSyncRequest struct {
+	// RunSummaryID is the ID of the workflow run summary to sync
+	RunSummaryID int64 `json:"run_summary_id,omitempty"`
+	// RunID is the ID of a single workflow run to sync (alternative to RunSummaryID)
+	RunID int64 `json:"run_id,omitempty"`
+}
+
+// ManualSyncResponse represents the response for manual sync
+type ManualSyncResponse struct {
+	Success      bool   `json:"success"`
+	Message      string `json:"message"`
+	TaskID       string `json:"task_id,omitempty"`
+	CooldownSecs int    `json:"cooldown_secs,omitempty"`
+}
+
+// ManualSyncRunSummary handles POST /v1/github-workflow-metrics/run-summaries/:id/sync
+// Triggers manual sync for a workflow run summary (entire workflow run)
+// @Summary Manually sync workflow run summary
+// @Description Triggers a manual sync for a workflow run summary. Has a 30-second cooldown.
+// @Tags github-workflow-metrics
+// @Accept json
+// @Produce json
+// @Param id path int true "Run Summary ID"
+// @Success 200 {object} ManualSyncResponse
+// @Router /v1/github-workflow-metrics/run-summaries/{id}/sync [post]
+func ManualSyncRunSummary(ctx *gin.Context) {
+	idStr := ctx.Param("id")
+	runSummaryID, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, rest.ErrorResp(ctx.Request.Context(), http.StatusBadRequest, "invalid run_summary_id", nil))
+		return
+	}
+
+	clusterName, err := getClusterNameForGithubWorkflow(ctx)
+	if err != nil {
+		_ = ctx.Error(err)
+		return
+	}
+
+	// Get run summary
+	runSummaryFacade := database.GetFacadeForCluster(clusterName).GetGithubWorkflowRunSummary()
+	summary, err := runSummaryFacade.GetByID(ctx.Request.Context(), runSummaryID)
+	if err != nil {
+		log.GlobalLogger().WithContext(ctx).Errorf("Failed to get run summary %d: %v", runSummaryID, err)
+		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, "failed to get run summary", err))
+		return
+	}
+	if summary == nil {
+		ctx.JSON(http.StatusNotFound, rest.ErrorResp(ctx.Request.Context(), http.StatusNotFound, "run summary not found", nil))
+		return
+	}
+
+	// Check cooldown (30 seconds)
+	cooldownSecs := 30
+	if !summary.LastSyncedAt.IsZero() {
+		elapsed := time.Since(summary.LastSyncedAt)
+		if elapsed < time.Duration(cooldownSecs)*time.Second {
+			remaining := cooldownSecs - int(elapsed.Seconds())
+			ctx.JSON(http.StatusOK, ManualSyncResponse{
+				Success:      false,
+				Message:      fmt.Sprintf("Please wait %d seconds before syncing again", remaining),
+				CooldownSecs: remaining,
+			})
+			return
+		}
+	}
+
+	// Create manual sync task
+	if err := workflow.CreateManualSyncTask(ctx.Request.Context(), runSummaryID); err != nil {
+		log.GlobalLogger().WithContext(ctx).Errorf("Failed to create manual sync task for run summary %d: %v", runSummaryID, err)
+		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, "failed to create sync task", err))
+		return
+	}
+
+	log.GlobalLogger().WithContext(ctx).Infof("Created manual sync task for run summary %d", runSummaryID)
+
+	ctx.JSON(http.StatusOK, ManualSyncResponse{
+		Success:      true,
+		Message:      "Sync task created successfully. Status will be updated shortly.",
+		CooldownSecs: cooldownSecs,
+	})
+}
+
+// ManualSyncRun handles POST /v1/github-workflow-metrics/runs/:id/sync
+// Triggers manual sync for a single workflow run (job)
+// @Summary Manually sync workflow run
+// @Description Triggers a manual sync for a single workflow run. Has a 30-second cooldown.
+// @Tags github-workflow-metrics
+// @Accept json
+// @Produce json
+// @Param id path int true "Workflow Run ID"
+// @Success 200 {object} ManualSyncResponse
+// @Router /v1/github-workflow-metrics/runs/{id}/sync [post]
+func ManualSyncRun(ctx *gin.Context) {
+	idStr := ctx.Param("id")
+	runID, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, rest.ErrorResp(ctx.Request.Context(), http.StatusBadRequest, "invalid run_id", nil))
+		return
+	}
+
+	clusterName, err := getClusterNameForGithubWorkflow(ctx)
+	if err != nil {
+		_ = ctx.Error(err)
+		return
+	}
+
+	// Get run
+	runFacade := database.GetFacadeForCluster(clusterName).GetGithubWorkflowRun()
+	run, err := runFacade.GetByID(ctx.Request.Context(), runID)
+	if err != nil {
+		log.GlobalLogger().WithContext(ctx).Errorf("Failed to get run %d: %v", runID, err)
+		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, "failed to get run", err))
+		return
+	}
+	if run == nil {
+		ctx.JSON(http.StatusNotFound, rest.ErrorResp(ctx.Request.Context(), http.StatusNotFound, "run not found", nil))
+		return
+	}
+
+	// Check cooldown (30 seconds)
+	cooldownSecs := 30
+	if !run.LastSyncedAt.IsZero() {
+		elapsed := time.Since(run.LastSyncedAt)
+		if elapsed < time.Duration(cooldownSecs)*time.Second {
+			remaining := cooldownSecs - int(elapsed.Seconds())
+			ctx.JSON(http.StatusOK, ManualSyncResponse{
+				Success:      false,
+				Message:      fmt.Sprintf("Please wait %d seconds before syncing again", remaining),
+				CooldownSecs: remaining,
+			})
+			return
+		}
+	}
+
+	// If run has a run_summary_id, sync the entire summary instead
+	if run.RunSummaryID > 0 {
+		if err := workflow.CreateManualSyncTask(ctx.Request.Context(), run.RunSummaryID); err != nil {
+			log.GlobalLogger().WithContext(ctx).Errorf("Failed to create manual sync task for run summary %d: %v", run.RunSummaryID, err)
+			ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, "failed to create sync task", err))
+			return
+		}
+		log.GlobalLogger().WithContext(ctx).Infof("Created manual sync task for run summary %d (via run %d)", run.RunSummaryID, runID)
+	} else {
+		// Create manual sync task for single run
+		taskFacade := database.NewWorkloadTaskFacade()
+		taskUID := fmt.Sprintf("manual-sync-run-%d-%d", runID, time.Now().Unix())
+		
+		syncTask := &dbmodel.WorkloadTaskState{
+			WorkloadUID: taskUID,
+			TaskType:    "github_manual_sync",
+			Status:      "pending",
+			Ext: dbmodel.ExtType{
+				"run_id":    runID,
+				"sync_type": "manual",
+			},
+		}
+		
+		if err := taskFacade.UpsertTask(ctx.Request.Context(), syncTask); err != nil {
+			log.GlobalLogger().WithContext(ctx).Errorf("Failed to create manual sync task for run %d: %v", runID, err)
+			ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, "failed to create sync task", err))
+			return
+		}
+		log.GlobalLogger().WithContext(ctx).Infof("Created manual sync task for run %d", runID)
+	}
+
+	ctx.JSON(http.StatusOK, ManualSyncResponse{
+		Success:      true,
+		Message:      "Sync task created successfully. Status will be updated shortly.",
+		CooldownSecs: cooldownSecs,
+	})
+}
