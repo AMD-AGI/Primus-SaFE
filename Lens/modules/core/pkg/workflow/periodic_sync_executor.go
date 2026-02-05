@@ -50,6 +50,11 @@ func (e *PeriodicSyncExecutor) Validate(t *model.WorkloadTaskState) error {
 	return nil
 }
 
+// Cancel cancels the task (no-op for periodic sync)
+func (e *PeriodicSyncExecutor) Cancel(ctx context.Context, t *model.WorkloadTaskState) error {
+	return nil
+}
+
 // Execute performs periodic sync
 func (e *PeriodicSyncExecutor) Execute(ctx context.Context, execCtx *task.ExecutionContext) (*task.ExecutionResult, error) {
 	runSummaryID := int64(e.GetExtInt(execCtx.Task, ExtKeyRunSummaryID))
@@ -82,15 +87,9 @@ func (e *PeriodicSyncExecutor) Execute(ctx context.Context, execCtx *task.Execut
 		}), nil
 	}
 
-	// Get GitHub client via runner set
-	runFacade := database.GetFacade().GetGithubWorkflowRun()
-	runs, err := runFacade.GetByRunSummaryID(ctx, runSummaryID)
-	if err != nil || len(runs) == 0 {
-		return task.FailureResult("no runs found for summary", nil), nil
-	}
-
+	// Get GitHub client via runner set using PrimaryRunnerSetID from summary
 	runnerSetFacade := database.GetFacade().GetGithubRunnerSet()
-	runnerSet, err := runnerSetFacade.GetByID(ctx, runs[0].RunnerSetID)
+	runnerSet, err := runnerSetFacade.GetByID(ctx, summary.PrimaryRunnerSetID)
 	if err != nil || runnerSet == nil {
 		return task.FailureResult("runner set not found", nil), nil
 	}
@@ -126,24 +125,15 @@ func (e *PeriodicSyncExecutor) Execute(ctx context.Context, execCtx *task.Execut
 		log.Warnf("PeriodicSyncExecutor: failed to update run summary %d: %v", runSummaryID, err)
 	}
 
-	// Fetch jobs and update
-	ghJobs, err := client.GetWorkflowRunJobs(ctx, summary.Owner, summary.Repo, summary.GithubRunID)
+	// Fetch jobs and update job stats in summary
+	_, err = client.GetWorkflowRunJobs(ctx, summary.Owner, summary.Repo, summary.GithubRunID)
 	if err == nil {
-		// Update all related runs
-		for _, run := range runs {
-			run.WorkflowStatus = ghRun.Status
-			run.WorkflowConclusion = ghRun.Conclusion
-			run.LastSyncedAt = time.Now()
-			if err := runFacade.Update(ctx, run); err != nil {
-				log.Warnf("PeriodicSyncExecutor: failed to update run %d: %v", run.ID, err)
-			}
-
-			// Sync jobs
-			jobFacade := database.NewGithubWorkflowJobFacade()
-			if err := jobFacade.SyncFromGitHub(ctx, run.ID, ghJobs); err != nil {
-				log.Warnf("PeriodicSyncExecutor: failed to sync jobs for run %d: %v", run.ID, err)
-			}
+		// Update job stats in summary (queries from DB)
+		if err := runSummaryFacade.UpdateJobStats(ctx, summary.ID); err != nil {
+			log.Warnf("PeriodicSyncExecutor: failed to update job stats for summary %d: %v", summary.ID, err)
 		}
+	} else {
+		log.Warnf("PeriodicSyncExecutor: failed to get jobs for summary %d: %v", summary.ID, err)
 	}
 
 	// If workflow not completed, schedule next sync
@@ -174,16 +164,17 @@ func (e *PeriodicSyncExecutor) Execute(ctx context.Context, execCtx *task.Execut
 func (e *PeriodicSyncExecutor) scheduleNextSync(ctx context.Context, runSummaryID int64) {
 	taskFacade := database.NewWorkloadTaskFacade()
 
-	taskUID := fmt.Sprintf("periodic-sync-%d-%d", runSummaryID, time.Now().Unix())
+	scheduledAt := time.Now().Add(PeriodicSyncInterval)
+	taskUID := fmt.Sprintf("periodic-sync-%d-%d", runSummaryID, scheduledAt.Unix())
 
 	syncTask := &model.WorkloadTaskState{
 		WorkloadUID: taskUID,
 		TaskType:    constant.TaskTypeGithubPeriodicSync,
 		Status:      constant.TaskStatusPending,
-		ScheduledAt: time.Now().Add(PeriodicSyncInterval),
 		Ext: model.ExtType{
 			ExtKeyRunSummaryID: runSummaryID,
 			ExtKeySyncType:     "periodic",
+			"scheduled_at":     scheduledAt.Format(time.RFC3339),
 		},
 	}
 
@@ -194,16 +185,9 @@ func (e *PeriodicSyncExecutor) scheduleNextSync(ctx context.Context, runSummaryI
 
 // triggerDataAnalysisOnCompletion triggers data analysis when workflow completes
 func (e *PeriodicSyncExecutor) triggerDataAnalysisOnCompletion(ctx context.Context, summary *model.GithubWorkflowRunSummaries, conclusion string) {
-	runSummaryFacade := database.NewGithubWorkflowRunSummaryFacade()
-
-	// Skip if already triggered
-	if summary.DataAnalysisTriggered {
-		return
-	}
-
-	// Mark as triggered
-	if err := runSummaryFacade.UpdateAnalysisTriggered(ctx, summary.ID, "data", true); err != nil {
-		log.Warnf("PeriodicSyncExecutor: failed to update data_analysis_triggered for run summary %d: %v", summary.ID, err)
+	// Only trigger for successful workflows
+	if conclusion != "success" {
+		log.Debugf("PeriodicSyncExecutor: skipping data analysis for run summary %d (conclusion: %s)", summary.ID, conclusion)
 		return
 	}
 
@@ -240,16 +224,17 @@ func (e *PeriodicSyncExecutor) triggerDataAnalysisOnCompletion(ctx context.Conte
 func CreatePeriodicSyncTask(ctx context.Context, runSummaryID int64) error {
 	taskFacade := database.NewWorkloadTaskFacade()
 
-	taskUID := fmt.Sprintf("periodic-sync-%d-%d", runSummaryID, time.Now().Unix())
+	scheduledAt := time.Now().Add(PeriodicSyncInterval)
+	taskUID := fmt.Sprintf("periodic-sync-%d-%d", runSummaryID, scheduledAt.Unix())
 
 	syncTask := &model.WorkloadTaskState{
 		WorkloadUID: taskUID,
 		TaskType:    constant.TaskTypeGithubPeriodicSync,
 		Status:      constant.TaskStatusPending,
-		ScheduledAt: time.Now().Add(PeriodicSyncInterval),
 		Ext: model.ExtType{
 			ExtKeyRunSummaryID: runSummaryID,
 			ExtKeySyncType:     "periodic",
+			"scheduled_at":     scheduledAt.Format(time.RFC3339),
 		},
 	}
 
