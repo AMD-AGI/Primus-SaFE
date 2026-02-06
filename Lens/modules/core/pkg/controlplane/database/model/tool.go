@@ -39,8 +39,8 @@ type Tool struct {
 	RunCount      int `gorm:"column:run_count;default:0" json:"run_count"`
 	DownloadCount int `gorm:"column:download_count;default:0" json:"download_count"`
 
-	// Semantic search
-	Embedding pgvector.Vector `gorm:"type:vector(1024)" json:"embedding"`
+	// Semantic search (not exposed in JSON response)
+	Embedding pgvector.Vector `gorm:"type:vector(1024)" json:"-"`
 
 	CreatedAt time.Time `gorm:"column:created_at;autoCreateTime" json:"created_at"`
 	UpdatedAt time.Time `gorm:"column:updated_at;autoUpdateTime" json:"updated_at"`

@@ -61,6 +61,7 @@ type Candidate struct {
 // CommitRequest represents a commit request
 type CommitRequest struct {
 	UserID     string
+	Username   string // Used as default Author if not specified
 	ArchiveKey string
 	Selections []Selection
 }
@@ -248,7 +249,7 @@ func (i *Importer) Commit(ctx context.Context, req *CommitRequest) (*CommitRespo
 	// Process selections
 	var items []CommitResultItem
 	for _, sel := range req.Selections {
-		item := i.importOne(ctx, zipReader, commonRoot, candidateByPath, sel, userID)
+		item := i.importOne(ctx, zipReader, commonRoot, candidateByPath, sel, userID, req.Username)
 		items = append(items, item)
 	}
 
@@ -263,6 +264,7 @@ func (i *Importer) importOne(
 	candidateByPath map[string]Candidate,
 	sel Selection,
 	userID string,
+	author string,
 ) CommitResultItem {
 	candidate, ok := candidateByPath[sel.RelativePath]
 	if !ok {
@@ -426,6 +428,7 @@ func (i *Importer) importOne(
 		Config:      config,
 		SkillSource: model.SkillSourceZIP,
 		OwnerUserID: userID,
+		Author:      author,
 		IsPublic:    true,
 		Status:      model.AppStatusActive,
 	}
