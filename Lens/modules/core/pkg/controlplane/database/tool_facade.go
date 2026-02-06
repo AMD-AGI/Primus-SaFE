@@ -33,7 +33,9 @@ func (f *ToolFacade) Create(tool *model.Tool) error {
 		return fmt.Errorf("failed to check existing tool: %w", err)
 	}
 
-	return f.db.Create(tool).Error
+	// Omit embedding field to avoid pgvector empty vector error
+	// Embedding will be updated asynchronously via UpdateEmbedding
+	return f.db.Omit("Embedding").Create(tool).Error
 }
 
 // GetByID retrieves a tool by ID
