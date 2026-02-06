@@ -327,8 +327,8 @@ type GithubRunSummaryJobsResponse struct {
 
 // GithubRunSummaryGraphRequest is the request for getting workflow DAG graph
 type GithubRunSummaryGraphRequest struct {
-	ID      string `json:"id" uri:"id"`
-	Cluster string `json:"cluster" form:"cluster"`
+	Cluster string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
+	ID      string `json:"id" form:"id" param:"id" binding:"required" mcp:"description=Run summary ID,required"`
 }
 
 // GithubJobNode represents a job node in the workflow DAG
