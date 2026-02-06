@@ -105,7 +105,9 @@ func (e *GraphFetchExecutor) Execute(ctx context.Context, execCtx *task.Executio
 	if summary == nil {
 		// Create new summary if not exists
 		if githubRunID > 0 && owner != "" && repo != "" {
-			summary, _, err = summaryFacade.GetOrCreateByRunID(ctx, githubRunID, owner, repo)
+			// runnerSetID is 0 here as this is a fallback path; the reconciler
+			// normally creates summaries with the correct PrimaryRunnerSetID.
+			summary, _, err = summaryFacade.GetOrCreateByRunID(ctx, githubRunID, owner, repo, 0)
 			if err != nil {
 				return task.FailureResult(
 					fmt.Sprintf("failed to create run summary: %v", err),
