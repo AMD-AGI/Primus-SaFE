@@ -92,25 +92,59 @@ func loadMultiClusterStorageClients(ctx context.Context) error {
 			WithMessage("Failed to marshal storage config to json").
 			WithError(err)
 	}
-	if multiClusterStorageConfigJsonBytes != nil {
-		if string(cfgJsonBytes) == string(multiClusterStorageConfigJsonBytes) {
+
+	configChanged := multiClusterStorageConfigJsonBytes == nil || string(cfgJsonBytes) != string(multiClusterStorageConfigJsonBytes)
+
+	// If config hasn't changed, check if all expected clusters have storage clients.
+	// If some clusters failed to initialize previously, we need to retry them.
+	if !configChanged {
+		allClustersReady := true
+		for clusterName := range cfg {
+			if _, exists := multiClusterStorageClientSet[clusterName]; !exists {
+				allClustersReady = false
+				break
+			}
+		}
+		if allClustersReady {
 			return nil
 		}
+		log.Infof("Config unchanged but some clusters have missing storage clients, retrying initialization")
 	}
+
 	multiClusterStorageConfigJsonBytes = cfgJsonBytes
-	newMultiClusterStorageClientSet := map[string]*StorageClientSet{}
-	for clusterName, singleCLusterConfig := range cfg {
-		storageClientSet, err := initStorageClients(ctx, clusterName, singleCLusterConfig)
-		if err != nil {
-			log.Errorf("Failed to initialize storage clients for cluster %s: %v", clusterName, err)
-			continue
+
+	if configChanged {
+		// Config changed: reinitialize all clusters from scratch
+		newMultiClusterStorageClientSet := map[string]*StorageClientSet{}
+		for clusterName, singleCLusterConfig := range cfg {
+			storageClientSet, err := initStorageClients(ctx, clusterName, singleCLusterConfig)
+			if err != nil {
+				log.Errorf("Failed to initialize storage clients for cluster %s: %v", clusterName, err)
+				continue
+			}
+			newMultiClusterStorageClientSet[clusterName] = storageClientSet
+			log.Infof("Initialized storage clients for cluster %s successfully", clusterName)
 		}
-		newMultiClusterStorageClientSet[clusterName] = storageClientSet
-		log.Infof("Initialized storage clients for cluster %s successfully", clusterName)
+		multiClusterStorageClientSet = newMultiClusterStorageClientSet
+	} else {
+		// Config unchanged: only retry clusters that are missing storage clients
+		for clusterName, singleCLusterConfig := range cfg {
+			if _, exists := multiClusterStorageClientSet[clusterName]; exists {
+				continue
+			}
+			log.Infof("Retrying storage client initialization for cluster %s", clusterName)
+			storageClientSet, err := initStorageClients(ctx, clusterName, singleCLusterConfig)
+			if err != nil {
+				log.Errorf("Failed to initialize storage clients for cluster %s: %v", clusterName, err)
+				continue
+			}
+			multiClusterStorageClientSet[clusterName] = storageClientSet
+			log.Infof("Initialized storage clients for cluster %s successfully", clusterName)
+		}
 	}
-	multiClusterStorageClientSet = newMultiClusterStorageClientSet
-	log.Info("Initialized multi-cluster storage clients successfully")
-	return errors.NewError().WithCode(errors.CodeInitializeError).WithMessage("Failed to initialize storage clients for some clusters").WithError(err)
+
+	log.Infof("Multi-cluster storage clients initialized: %d/%d clusters ready", len(multiClusterStorageClientSet), len(cfg))
+	return nil
 }
 
 func loadSingleClusterStorageConfig(ctx context.Context, k8sClient *K8SClientSet) (*PrimusLensClientConfig, error) {
