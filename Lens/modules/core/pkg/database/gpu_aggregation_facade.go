@@ -469,11 +469,17 @@ func (f *GpuAggregationFacade) CleanupOldHourlyStats(ctx context.Context, before
 func (f *GpuAggregationFacade) GetDistinctNamespaces(ctx context.Context, startTime, endTime time.Time) ([]string, error) {
 	q := f.getDAL().NamespaceGpuHourlyStats
 
-	var namespaces []string
-	err := q.WithContext(ctx).
+	query := q.WithContext(ctx).
 		Where(q.StatHour.Gte(startTime)).
-		Where(q.StatHour.Lte(endTime)).
-		Distinct(q.Namespace).
+		Where(q.StatHour.Lte(endTime))
+
+	// Filter by cluster name to avoid returning namespaces from all clusters
+	if f.clusterName != "" {
+		query = query.Where(q.ClusterName.Eq(f.clusterName))
+	}
+
+	var namespaces []string
+	err := query.Distinct(q.Namespace).
 		Pluck(q.Namespace, &namespaces)
 
 	if err != nil {
@@ -493,6 +499,11 @@ func (f *GpuAggregationFacade) GetDistinctNamespacesWithExclusion(ctx context.Co
 	query := q.WithContext(ctx).
 		Where(q.StatHour.Gte(startTime)).
 		Where(q.StatHour.Lte(endTime))
+
+	// Filter by cluster name to avoid returning namespaces from all clusters
+	if f.clusterName != "" {
+		query = query.Where(q.ClusterName.Eq(f.clusterName))
+	}
 
 	// Add exclusion condition if excludeNamespaces is not empty
 	if len(excludeNamespaces) > 0 {
@@ -516,12 +527,18 @@ func (f *GpuAggregationFacade) GetDistinctNamespacesWithExclusion(ctx context.Co
 func (f *GpuAggregationFacade) GetDistinctDimensionKeys(ctx context.Context, dimensionType string, startTime, endTime time.Time) ([]string, error) {
 	q := f.getDAL().LabelGpuHourlyStats
 
-	var keys []string
-	err := q.WithContext(ctx).
+	query := q.WithContext(ctx).
 		Where(q.DimensionType.Eq(dimensionType)).
 		Where(q.StatHour.Gte(startTime)).
-		Where(q.StatHour.Lte(endTime)).
-		Distinct(q.DimensionKey).
+		Where(q.StatHour.Lte(endTime))
+
+	// Filter by cluster name to avoid returning keys from all clusters
+	if f.clusterName != "" {
+		query = query.Where(q.ClusterName.Eq(f.clusterName))
+	}
+
+	var keys []string
+	err := query.Distinct(q.DimensionKey).
 		Pluck(q.DimensionKey, &keys)
 
 	if err != nil {
@@ -538,13 +555,19 @@ func (f *GpuAggregationFacade) GetDistinctDimensionKeys(ctx context.Context, dim
 func (f *GpuAggregationFacade) GetDistinctDimensionValues(ctx context.Context, dimensionType, dimensionKey string, startTime, endTime time.Time) ([]string, error) {
 	q := f.getDAL().LabelGpuHourlyStats
 
-	var values []string
-	err := q.WithContext(ctx).
+	query := q.WithContext(ctx).
 		Where(q.DimensionType.Eq(dimensionType)).
 		Where(q.DimensionKey.Eq(dimensionKey)).
 		Where(q.StatHour.Gte(startTime)).
-		Where(q.StatHour.Lte(endTime)).
-		Distinct(q.DimensionValue).
+		Where(q.StatHour.Lte(endTime))
+
+	// Filter by cluster name to avoid returning values from all clusters
+	if f.clusterName != "" {
+		query = query.Where(q.ClusterName.Eq(f.clusterName))
+	}
+
+	var values []string
+	err := query.Distinct(q.DimensionValue).
 		Pluck(q.DimensionValue, &values)
 
 	if err != nil {
