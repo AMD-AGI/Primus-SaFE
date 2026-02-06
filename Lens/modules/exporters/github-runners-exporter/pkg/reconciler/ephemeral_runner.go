@@ -227,7 +227,7 @@ func (r *EphemeralRunnerReconciler) processRunner(ctx context.Context, info *typ
 	var isNewSummary bool
 	if info.GithubRunID != 0 && runnerSet.GithubOwner != "" && runnerSet.GithubRepo != "" {
 		// Has GitHub run ID - get or create regular summary
-		runSummary, isNewSummary, err = runSummaryFacade.GetOrCreateByRunID(ctx, info.GithubRunID, runnerSet.GithubOwner, runnerSet.GithubRepo)
+		runSummary, isNewSummary, err = runSummaryFacade.GetOrCreateByRunID(ctx, info.GithubRunID, runnerSet.GithubOwner, runnerSet.GithubRepo, runnerSet.ID)
 		if err != nil {
 			log.Warnf("EphemeralRunnerReconciler: failed to get/create run summary for github_run_id %d: %v", info.GithubRunID, err)
 		} else if runSummary != nil {
@@ -308,7 +308,7 @@ func (r *EphemeralRunnerReconciler) processRunner(ctx context.Context, info *typ
 
 			// When GithubRunID becomes available, upgrade from placeholder to real summary
 			if runnerSet.GithubOwner != "" && runnerSet.GithubRepo != "" {
-				summary, isNew, summaryErr := runSummaryFacade.GetOrCreateByRunID(ctx, info.GithubRunID, runnerSet.GithubOwner, runnerSet.GithubRepo)
+				summary, isNew, summaryErr := runSummaryFacade.GetOrCreateByRunID(ctx, info.GithubRunID, runnerSet.GithubOwner, runnerSet.GithubRepo, runnerSet.ID)
 				if summaryErr != nil {
 					log.Warnf("EphemeralRunnerReconciler: failed to create run summary for existing run %d (github_run_id %d): %v",
 						existingRun.ID, info.GithubRunID, summaryErr)
