@@ -16,13 +16,24 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// getUnifiedHandler returns the unified handler for a given path, or nil if not found.
+// getUnifiedHandler returns a gin handler that dispatches to the unified endpoint
+// matching both the request's HTTP method and the given path at request time.
+// This correctly handles cases where multiple endpoints share the same path
+// but differ by HTTP method (e.g., GET /alert-silences vs POST /alert-silences).
 func getUnifiedHandler(path string) gin.HandlerFunc {
-	ep := unified.GetRegistry().GetEndpointByPath(path)
-	if ep != nil {
-		return ep.GetGinHandler()
+	return func(c *gin.Context) {
+		ep := unified.GetRegistry().GetEndpointByMethodAndPath(c.Request.Method, path)
+		if ep == nil {
+			c.JSON(404, map[string]string{"error": "endpoint not found: " + c.Request.Method + " " + path})
+			return
+		}
+		handler := ep.GetGinHandler()
+		if handler == nil {
+			c.JSON(404, map[string]string{"error": "no handler for endpoint: " + c.Request.Method + " " + path})
+			return
+		}
+		handler(c)
 	}
-	return nil
 }
 
 func RegisterRouter(group *gin.RouterGroup) error {
@@ -85,12 +96,26 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		workloadGroup.GET(":uid/metrics/iteration-times", getUnifiedHandler("/workloads/:uid/metrics/iteration-times"))
 		// Process tree API for py-spy profiling
 		workloadGroup.POST(":uid/process-tree", pyspy.GetProcessTree)
+		// Profiler files alias: /workloads/:uid/profiler-files -> /profiler/files?workload_uid=:uid
+		workloadGroup.GET(":uid/profiler-files", tracelens.ListProfilerFilesForWorkload)
 	}
 	// Phase 6 Unified: Workload metadata
 	group.GET("workloadMetadata", getUnifiedHandler("/workloadMetadata"))
 	storageGroup := group.Group("/storage")
 	{
 		storageGroup.GET("stat", getUnifiedHandler("/storage/stat"))
+	}
+
+	// Alert Silence management routes - Unified (HTTP + MCP)
+	alertSilenceGroup := group.Group("/alert-silences")
+	{
+		alertSilenceGroup.POST("", getUnifiedHandler("/alert-silences"))
+		alertSilenceGroup.GET("", getUnifiedHandler("/alert-silences"))
+		alertSilenceGroup.GET("/silenced-alerts", getUnifiedHandler("/alert-silences/silenced-alerts"))
+		alertSilenceGroup.GET("/:id", getUnifiedHandler("/alert-silences/:id"))
+		alertSilenceGroup.PUT("/:id", getUnifiedHandler("/alert-silences/:id"))
+		alertSilenceGroup.DELETE("/:id", getUnifiedHandler("/alert-silences/:id"))
+		alertSilenceGroup.PATCH("/:id/disable", getUnifiedHandler("/alert-silences/:id/disable"))
 	}
 
 	// Phase 7 Unified: Alert Event routes - Alert events query and analysis
