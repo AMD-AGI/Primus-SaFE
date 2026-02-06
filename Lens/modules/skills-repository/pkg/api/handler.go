@@ -4,173 +4,642 @@
 package api
 
 import (
-	"io"
+	"archive/zip"
+	"bytes"
+	"context"
+	"fmt"
 	"net/http"
+	"path/filepath"
 	"strconv"
+	"strings"
+	"time"
 
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/controlplane/database"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/controlplane/database/model"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/skills-repository/pkg/embedding"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/skills-repository/pkg/importer"
-	"github.com/AMD-AGI/Primus-SaFE/Lens/skills-repository/pkg/registry"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/skills-repository/pkg/runner"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/skills-repository/pkg/storage"
 	"github.com/gin-gonic/gin"
 )
 
-// Handler handles API requests
+// Handler handles API requests for tools
 type Handler struct {
-	registry *registry.SkillsRegistry
-	embedder embedding.Embedder
-	importer *importer.SkillImporter
+	facade    *database.ToolFacade
+	runner    *runner.Runner
+	storage   storage.Storage
+	importer  *importer.Importer
+	embedding *embedding.Service
 }
 
 // NewHandler creates a new Handler
-func NewHandler(reg *registry.SkillsRegistry, embedder embedding.Embedder) *Handler {
-	return &Handler{
-		registry: reg,
-		embedder: embedder,
-		importer: importer.NewSkillImporter(reg, ""),
+func NewHandler(
+	facade *database.ToolFacade,
+	runner *runner.Runner,
+	storage storage.Storage,
+	embeddingSvc *embedding.Service,
+) *Handler {
+	var imp *importer.Importer
+	if storage != nil {
+		imp = importer.NewImporter(facade, storage)
 	}
-}
-
-// SetGitHubToken sets the GitHub token for the importer
-func (h *Handler) SetGitHubToken(token string) {
-	h.importer = importer.NewSkillImporter(h.registry, token)
+	return &Handler{
+		facade:    facade,
+		runner:    runner,
+		storage:   storage,
+		importer:  imp,
+		embedding: embeddingSvc,
+	}
 }
 
 // RegisterRoutes registers API routes
 func RegisterRoutes(router *gin.Engine, h *Handler) {
 	v1 := router.Group("/api/v1")
 	{
-		// Skills endpoints - Read
-		v1.GET("/skills", h.ListSkills)
-		v1.GET("/skills/:name", h.GetSkill)
-		v1.GET("/skills/:name/content", h.GetSkillContent)
-		
-		// Skills endpoints - Search (must be before generic POST)
-		v1.POST("/skills/search", h.SearchSkills)
-		
-		// Skills endpoints - Create/Update/Delete
-		v1.POST("/skills", h.CreateSkill)
-		v1.PUT("/skills/:name", h.UpdateSkill)
-		v1.DELETE("/skills/:name", h.DeleteSkill)
+		// Tools list and get
+		v1.GET("/tools", h.ListTools)
+		v1.GET("/tools/:id", h.GetTool)
+		v1.PUT("/tools/:id", h.UpdateTool)
+		v1.DELETE("/tools/:id", h.DeleteTool)
 
-		// Skills import endpoints
-		v1.POST("/skills/import/github", h.ImportFromGitHub)
-		v1.POST("/skills/import/file", h.ImportFromFile)
+		// Create MCP (JSON) - Skills are created via import/discover + import/commit
+		v1.POST("/tools/mcp", h.CreateMCP)
+
+		// Search
+		v1.GET("/tools/search", h.SearchTools)
+
+		// Run tools
+		v1.POST("/tools/run", h.RunTools)
+
+		// Download
+		v1.GET("/tools/:id/download", h.DownloadTool)
+
+		// Import (batch)
+		v1.POST("/tools/import/discover", h.ImportDiscover)
+		v1.POST("/tools/import/commit", h.ImportCommit)
 
 		// Health check
-		v1.GET("/health", h.Health)
+		v1.GET("/tools/health", h.Health)
 	}
-
-	// Register skillset routes
-	RegisterSkillsetRoutes(router, h)
 }
 
-// ListSkills lists all skills with pagination
-func (h *Handler) ListSkills(c *gin.Context) {
+// ListTools lists all tools with pagination and sorting
+func (h *Handler) ListTools(c *gin.Context) {
 	offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
-	category := c.Query("category")
-	source := c.Query("source")
+	toolType := c.Query("type") // skill, mcp
+	status := c.DefaultQuery("status", "active")
+	sortField := c.DefaultQuery("sort", "created_at")
+	sortOrder := c.DefaultQuery("order", "desc")
 
-	var skills interface{}
-	var total int64
-	var err error
-
-	if category != "" {
-		skills, total, err = h.registry.ListByCategory(c.Request.Context(), category, offset, limit)
-	} else if source != "" {
-		skills, total, err = h.registry.ListBySource(c.Request.Context(), source, offset, limit)
-	} else {
-		skills, total, err = h.registry.List(c.Request.Context(), offset, limit)
+	// Validate sort field
+	validSortFields := map[string]bool{
+		"created_at":     true,
+		"updated_at":     true,
+		"run_count":      true,
+		"download_count": true,
+	}
+	if !validSortFields[sortField] {
+		sortField = "created_at"
 	}
 
+	// Validate sort order
+	if sortOrder != "asc" && sortOrder != "desc" {
+		sortOrder = "desc"
+	}
+
+	tools, total, err := h.facade.List(toolType, status, sortField, sortOrder, offset, limit)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"skills": skills,
+		"tools":  tools,
 		"total":  total,
 		"offset": offset,
 		"limit":  limit,
 	})
 }
 
-// GetSkill retrieves a skill by name
-func (h *Handler) GetSkill(c *gin.Context) {
-	name := c.Param("name")
-
-	skill, err := h.registry.Get(c.Request.Context(), name)
+// GetTool retrieves a tool by ID
+func (h *Handler) GetTool(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "skill not found"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
 		return
 	}
 
-	c.JSON(http.StatusOK, skill)
-}
-
-// GetSkillContent retrieves the full SKILL.md content
-func (h *Handler) GetSkillContent(c *gin.Context) {
-	name := c.Param("name")
-
-	content, err := h.registry.GetContent(c.Request.Context(), name)
+	tool, err := h.facade.GetByID(id)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "skill not found"})
+		c.JSON(http.StatusNotFound, gin.H{"error": "tool not found"})
 		return
 	}
 
-	c.Header("Content-Type", "text/markdown")
-	c.String(http.StatusOK, content)
+	c.JSON(http.StatusOK, tool)
 }
 
-// SearchRequest represents a search request
-type SearchRequest struct {
-	Query string `json:"query" binding:"required"`
-	Limit int    `json:"limit"`
+// CreateMCPRequest represents a request to create an MCP server
+// CreateMCPRequest represents a request to create an MCP server
+type CreateMCPRequest struct {
+	Name        string                 `json:"name" binding:"required"`
+	DisplayName string                 `json:"display_name"`
+	Description string                 `json:"description" binding:"required"`
+	Tags        []string               `json:"tags"`
+	IconURL     string                 `json:"icon_url"`
+	Author      string                 `json:"author"`
+	Config      map[string]interface{} `json:"config" binding:"required"` // Full mcpServers JSON
+	IsPublic    *bool                  `json:"is_public"`
 }
 
-// SearchSkills performs semantic search for skills
-func (h *Handler) SearchSkills(c *gin.Context) {
-	var req SearchRequest
+// CreateMCP creates a new MCP server
+func (h *Handler) CreateMCP(c *gin.Context) {
+	userID := c.GetHeader("X-User-Id")
+	if userID == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "X-User-Id header is required"})
+		return
+	}
+
+	var req CreateMCPRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	if req.Limit == 0 {
-		req.Limit = 10
+	displayName := req.DisplayName
+	if displayName == "" {
+		displayName = req.Name
 	}
 
-	results, err := h.registry.Search(c.Request.Context(), req.Query, req.Limit)
+	isPublic := true
+	if req.IsPublic != nil {
+		isPublic = *req.IsPublic
+	}
+
+	// Store config as-is (full mcpServers JSON format)
+	config := model.AppConfig(req.Config)
+
+	tool := &model.Tool{
+		Type:        model.AppTypeMCP,
+		Name:        req.Name,
+		DisplayName: displayName,
+		Description: req.Description,
+		Tags:        req.Tags,
+		IconURL:     req.IconURL,
+		Author:      req.Author,
+		Config:      config,
+		OwnerUserID: userID,
+		IsPublic:    isPublic,
+		Status:      model.AppStatusActive,
+	}
+
+	if err := h.facade.Create(tool); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Generate embedding asynchronously
+	h.generateEmbeddingAsync(tool)
+
+	c.JSON(http.StatusCreated, tool)
+}
+
+// UpdateToolRequest represents a request to update a tool
+type UpdateToolRequest struct {
+	DisplayName string                 `json:"display_name"`
+	Description string                 `json:"description"`
+	Tags        []string               `json:"tags"`
+	IconURL     string                 `json:"icon_url"`
+	Author      string                 `json:"author"`
+	Config      map[string]interface{} `json:"config"`
+	IsPublic    *bool                  `json:"is_public"`
+	Status      string                 `json:"status"`
+}
+
+// UpdateTool updates an existing tool
+func (h *Handler) UpdateTool(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+
+	tool, err := h.facade.GetByID(id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "tool not found"})
+		return
+	}
+
+	var req UpdateToolRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Update fields if provided
+	if req.DisplayName != "" {
+		tool.DisplayName = req.DisplayName
+	}
+	if req.Description != "" {
+		tool.Description = req.Description
+	}
+	if req.Tags != nil {
+		tool.Tags = req.Tags
+	}
+	if req.IconURL != "" {
+		tool.IconURL = req.IconURL
+	}
+	if req.Author != "" {
+		tool.Author = req.Author
+	}
+	if req.IsPublic != nil {
+		tool.IsPublic = *req.IsPublic
+	}
+	if req.Status != "" {
+		tool.Status = req.Status
+	}
+
+	// Handle config update for skill (content update)
+	if req.Config != nil {
+		if tool.Type == model.AppTypeSkill {
+			if content, ok := req.Config["content"].(string); ok && content != "" {
+				s3Key := tool.GetSkillS3Key()
+				if s3Key == "" {
+					// Generate new S3 key using timestamp
+					s3Key = fmt.Sprintf("skills/%d/SKILL.md", time.Now().UnixNano())
+					tool.Config = map[string]interface{}{
+						"s3_key":    s3Key,
+						"is_prefix": false,
+					}
+				}
+				if h.storage != nil {
+					if err := h.storage.UploadBytes(c.Request.Context(), s3Key, []byte(content)); err != nil {
+						c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to upload skill content"})
+						return
+					}
+				}
+				// Keep existing s3_key, just update content in S3
+			} else {
+				tool.Config = req.Config
+			}
+		} else {
+			tool.Config = req.Config
+		}
+	}
+
+	if err := h.facade.Update(tool); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, tool)
+}
+
+// DeleteTool deletes a tool by ID
+func (h *Handler) DeleteTool(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+
+	tool, err := h.facade.GetByID(id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "tool not found"})
+		return
+	}
+
+	// Delete S3 content for skill
+	if tool.Type == model.AppTypeSkill {
+		if s3Key := tool.GetSkillS3Key(); s3Key != "" {
+			_ = h.storage.Delete(c.Request.Context(), s3Key)
+		}
+	}
+
+	if err := h.facade.Delete(id); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "tool deleted successfully"})
+}
+
+// SearchTools searches tools by query with different modes
+func (h *Handler) SearchTools(c *gin.Context) {
+	query := c.Query("q")
+	if query == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "query parameter 'q' is required"})
+		return
+	}
+
+	toolType := c.Query("type")
+	mode := c.DefaultQuery("mode", "semantic") // semantic, keyword, hybrid
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
+
+	switch mode {
+	case "semantic":
+		if h.embedding == nil || !h.embedding.IsEnabled() {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "semantic search is not enabled"})
+			return
+		}
+		emb, err := h.embedding.Generate(c.Request.Context(), query)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate embedding"})
+			return
+		}
+		results, err := h.facade.SemanticSearch(emb, toolType, limit)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"tools": results,
+			"total": len(results),
+			"mode":  "semantic",
+		})
+
+	case "hybrid":
+		if h.embedding == nil || !h.embedding.IsEnabled() {
+			// Fallback to keyword search
+			tools, err := h.facade.Search(query, toolType, limit)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			}
+			c.JSON(http.StatusOK, gin.H{
+				"tools": tools,
+				"total": len(tools),
+				"mode":  "keyword",
+			})
+			return
+		}
+		emb, err := h.embedding.Generate(c.Request.Context(), query)
+		if err != nil {
+			// Fallback to keyword search
+			tools, err := h.facade.Search(query, toolType, limit)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			}
+			c.JSON(http.StatusOK, gin.H{
+				"tools": tools,
+				"total": len(tools),
+				"mode":  "keyword",
+			})
+			return
+		}
+		results, err := h.facade.HybridSearch(query, emb, toolType, limit)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"tools": results,
+			"total": len(results),
+			"mode":  "hybrid",
+		})
+
+	default: // keyword
+		tools, err := h.facade.Search(query, toolType, limit)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"tools": tools,
+			"total": len(tools),
+			"mode":  "keyword",
+		})
+	}
+}
+
+// ToolRef represents a reference to a tool by ID or type+name
+type ToolRef struct {
+	ID   *int64 `json:"id"`   // Option 1: by ID
+	Type string `json:"type"` // Option 2: by type + name
+	Name string `json:"name"`
+}
+
+// RunToolsRequest represents a request to run multiple tools
+type RunToolsRequest struct {
+	Tools []ToolRef `json:"tools" binding:"required"`
+}
+
+// RunToolsResponse represents the response for running tools
+type RunToolsResponse struct {
+	RedirectURL string `json:"redirect_url"`
+	SessionID   string `json:"session_id,omitempty"`
+}
+
+// RunTools runs multiple tools via the execution backend
+func (h *Handler) RunTools(c *gin.Context) {
+	var req RunToolsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if h.runner == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "runner not configured"})
+		return
+	}
+
+	// Load tools by ID or type+name
+	var tools []*model.Tool
+	for _, ref := range req.Tools {
+		var tool *model.Tool
+		var err error
+
+		if ref.ID != nil {
+			// Lookup by ID
+			tool, err = h.facade.GetByID(*ref.ID)
+			if err != nil {
+				c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("tool not found: id=%d", *ref.ID)})
+				return
+			}
+		} else if ref.Type != "" && ref.Name != "" {
+			// Lookup by type + name
+			tool, err = h.facade.GetByTypeAndName(ref.Type, ref.Name)
+			if err != nil {
+				c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("tool not found: %s/%s", ref.Type, ref.Name)})
+				return
+			}
+		} else {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "each tool must have either 'id' or 'type'+'name'"})
+			return
+		}
+
+		tools = append(tools, tool)
+	}
+
+	// Get redirect URL from runner
+	result, err := h.runner.GetRunURL(c.Request.Context(), tools)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	// Format results
-	type SkillSummary struct {
-		Name        string  `json:"name"`
-		Description string  `json:"description"`
-		Category    string  `json:"category"`
-		Score       float64 `json:"relevance_score"`
+	// Update run counts
+	for _, tool := range tools {
+		_ = h.facade.IncrementRunCount(tool.ID)
 	}
 
-	summaries := make([]SkillSummary, len(results))
-	for i, r := range results {
-		summaries[i] = SkillSummary{
-			Name:        r.Skill.Name,
-			Description: r.Skill.Description,
-			Category:    r.Skill.Category,
-			Score:       r.Score,
-		}
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"skills": summaries,
-		"total":  len(summaries),
-		"hint":   "Use GET /api/v1/skills/{name}/content to retrieve full skill content",
+	c.JSON(http.StatusOK, RunToolsResponse{
+		RedirectURL: result.RedirectURL,
+		SessionID:   result.SessionID,
 	})
+}
+
+// DownloadTool generates and returns a downloadable file for local use
+func (h *Handler) DownloadTool(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+
+	tool, err := h.facade.GetByID(id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "tool not found"})
+		return
+	}
+
+	if tool.Type == model.AppTypeSkill {
+		// For skill, download as ZIP
+		h.downloadSkillAsZip(c, tool)
+	} else {
+		// For MCP, download setup guide as markdown
+		content := generateMCPSetupGuide(tool)
+		filename := tool.Name + "-setup.md"
+
+		_ = h.facade.IncrementDownloadCount(id)
+
+		c.Header("Content-Disposition", "attachment; filename="+filename)
+		c.Header("Content-Type", "text/markdown")
+		c.String(http.StatusOK, content)
+	}
+}
+
+// downloadSkillAsZip downloads skill files as a ZIP archive
+func (h *Handler) downloadSkillAsZip(c *gin.Context, tool *model.Tool) {
+	if h.storage == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "storage not configured"})
+		return
+	}
+
+	s3Key := tool.GetSkillS3Key()
+	if s3Key == "" {
+		c.JSON(http.StatusNotFound, gin.H{"error": "skill content not found"})
+		return
+	}
+
+	// Check if it's a prefix (directory) or single file
+	isPrefix := false
+	if v, ok := tool.Config["is_prefix"].(bool); ok {
+		isPrefix = v
+	}
+
+	// Create ZIP buffer
+	buf := new(bytes.Buffer)
+	zipWriter := zip.NewWriter(buf)
+
+	if isPrefix {
+		// List and download all files in the directory
+		objects, err := h.storage.ListObjects(c.Request.Context(), s3Key)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list skill files"})
+			return
+		}
+
+		for _, obj := range objects {
+			data, err := h.storage.DownloadBytes(c.Request.Context(), obj.Key)
+			if err != nil {
+				continue
+			}
+			// Use relative path in ZIP
+			relPath := strings.TrimPrefix(obj.Key, s3Key)
+			relPath = strings.TrimPrefix(relPath, "/")
+			if relPath == "" {
+				relPath = filepath.Base(obj.Key)
+			}
+
+			w, err := zipWriter.Create(relPath)
+			if err != nil {
+				continue
+			}
+			w.Write(data)
+		}
+	} else {
+		// Download single file
+		data, err := h.storage.DownloadBytes(c.Request.Context(), s3Key)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to download skill content"})
+			return
+		}
+
+		w, err := zipWriter.Create("SKILL.md")
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create zip entry"})
+			return
+		}
+		w.Write(data)
+	}
+
+	if err := zipWriter.Close(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create zip file"})
+		return
+	}
+
+	_ = h.facade.IncrementDownloadCount(tool.ID)
+
+	filename := tool.Name + ".zip"
+	c.Header("Content-Disposition", "attachment; filename="+filename)
+	c.Header("Content-Type", "application/zip")
+	c.Data(http.StatusOK, "application/zip", buf.Bytes())
+}
+
+// generateMCPSetupGuide generates a setup guide for MCP server
+func generateMCPSetupGuide(tool *model.Tool) string {
+	command, args, env := tool.GetMCPServerConfig()
+
+	content := "# " + tool.Name + " - MCP Server Setup Guide\n\n"
+	content += "## Description\n\n" + tool.Description + "\n\n"
+	content += "## Cursor Configuration\n\n"
+	content += "Add the following to your Cursor MCP settings:\n\n"
+	content += "```json\n"
+	content += "{\n"
+	content += "  \"mcpServers\": {\n"
+	content += "    \"" + tool.Name + "\": {\n"
+	content += "      \"command\": \"" + command + "\",\n"
+	content += "      \"args\": ["
+
+	for i, arg := range args {
+		if i > 0 {
+			content += ", "
+		}
+		content += "\"" + arg + "\""
+	}
+	content += "]"
+
+	if len(env) > 0 {
+		content += ",\n      \"env\": {\n"
+		first := true
+		for k, v := range env {
+			if !first {
+				content += ",\n"
+			}
+			content += "        \"" + k + "\": \"" + v + "\""
+			first = false
+		}
+		content += "\n      }"
+	}
+
+	content += "\n    }\n"
+	content += "  }\n"
+	content += "}\n"
+	content += "```\n"
+
+	return content
 }
 
 // Health returns service health status
@@ -178,182 +647,120 @@ func (h *Handler) Health(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "healthy"})
 }
 
-// CreateSkillRequest represents a request to create a skill
-type CreateSkillRequest struct {
-	Name        string                 `json:"name" binding:"required"`
-	Description string                 `json:"description" binding:"required"`
-	Category    string                 `json:"category"`
-	Version     string                 `json:"version"`
-	Source      string                 `json:"source"`
-	License     string                 `json:"license"`
-	Content     string                 `json:"content"`
-	FilePath    string                 `json:"file_path"`
-	Metadata    map[string]interface{} `json:"metadata"`
+// ImportDiscoverRequest represents a request to discover skills from ZIP or GitHub
+type ImportDiscoverRequest struct {
+	GitHubURL string `form:"github_url"`
 }
 
-// CreateSkill creates a new skill
-func (h *Handler) CreateSkill(c *gin.Context) {
-	var req CreateSkillRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+// ImportDiscover handles skill discovery from ZIP file or GitHub URL
+func (h *Handler) ImportDiscover(c *gin.Context) {
+	if h.importer == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "import service not configured"})
 		return
 	}
 
-	// Set default source if not provided
-	if req.Source == "" {
-		req.Source = "manual"
-	}
-
-	skill := &model.Skill{
-		Name:        req.Name,
-		Description: req.Description,
-		Category:    req.Category,
-		Version:     req.Version,
-		Source:      req.Source,
-		License:     req.License,
-		Content:     req.Content,
-		FilePath:    req.FilePath,
-	}
-
-	if req.Metadata != nil {
-		skill.Metadata = model.SkillsMetadata(req.Metadata)
-	}
-
-	if err := h.registry.Register(c.Request.Context(), skill); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	userID := c.GetHeader("X-User-Id")
+	if userID == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "X-User-Id header is required"})
 		return
 	}
 
-	c.JSON(http.StatusCreated, skill)
-}
+	// Check for file upload
+	file, header, fileErr := c.Request.FormFile("file")
+	githubURL := c.PostForm("github_url")
 
-// UpdateSkillRequest represents a request to update a skill
-type UpdateSkillRequest struct {
-	Description string                 `json:"description"`
-	Category    string                 `json:"category"`
-	Version     string                 `json:"version"`
-	License     string                 `json:"license"`
-	Content     string                 `json:"content"`
-	Metadata    map[string]interface{} `json:"metadata"`
-}
+	if fileErr != nil && githubURL == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "either file or github_url must be provided"})
+		return
+	}
 
-// UpdateSkill updates an existing skill
-func (h *Handler) UpdateSkill(c *gin.Context) {
-	name := c.Param("name")
+	if fileErr == nil && githubURL != "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "only one of file or github_url can be provided"})
+		return
+	}
 
-	// Get existing skill
-	skill, err := h.registry.Get(c.Request.Context(), name)
+	req := &importer.DiscoverRequest{
+		UserID:    userID,
+		GitHubURL: githubURL,
+	}
+
+	if fileErr == nil {
+		defer file.Close()
+		req.File = file
+		req.FileName = header.Filename
+	}
+
+	result, err := h.importer.Discover(c.Request.Context(), req)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "skill not found"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	var req UpdateSkillRequest
+	c.JSON(http.StatusOK, result)
+}
+
+// ImportCommitRequest represents a request to commit selected skills
+type ImportCommitRequest struct {
+	ArchiveKey string               `json:"archive_key" binding:"required"`
+	Selections []importer.Selection `json:"selections" binding:"required"`
+}
+
+// ImportCommit handles committing selected skills from a discovered archive
+func (h *Handler) ImportCommit(c *gin.Context) {
+	if h.importer == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "import service not configured"})
+		return
+	}
+
+	userID := c.GetHeader("X-User-Id")
+	if userID == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "X-User-Id header is required"})
+		return
+	}
+
+	var req ImportCommitRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	// Update fields if provided
-	if req.Description != "" {
-		skill.Description = req.Description
-	}
-	if req.Category != "" {
-		skill.Category = req.Category
-	}
-	if req.Version != "" {
-		skill.Version = req.Version
-	}
-	if req.License != "" {
-		skill.License = req.License
-	}
-	if req.Content != "" {
-		skill.Content = req.Content
-	}
-	if req.Metadata != nil {
-		skill.Metadata = model.SkillsMetadata(req.Metadata)
-	}
-
-	if err := h.registry.Register(c.Request.Context(), skill); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	if len(req.Selections) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "selections cannot be empty"})
 		return
 	}
 
-	c.JSON(http.StatusOK, skill)
-}
-
-// DeleteSkill deletes a skill by name
-func (h *Handler) DeleteSkill(c *gin.Context) {
-	name := c.Param("name")
-
-	if err := h.registry.Delete(c.Request.Context(), name); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"message": "skill deleted successfully"})
-}
-
-// ImportGitHubRequest represents a request to import from GitHub
-type ImportGitHubRequest struct {
-	URL         string `json:"url" binding:"required"`
-	GitHubToken string `json:"github_token"`
-}
-
-// ImportFromGitHub imports skills from a GitHub repository
-func (h *Handler) ImportFromGitHub(c *gin.Context) {
-	var req ImportGitHubRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	// Use provided token or environment token
-	imp := h.importer
-	if req.GitHubToken != "" {
-		imp = importer.NewSkillImporter(h.registry, req.GitHubToken)
-	}
-
-	result, err := imp.ImportFromGitHub(c.Request.Context(), req.URL)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"message":  "Import completed",
-		"imported": result.Imported,
-		"skipped":  result.Skipped,
-		"errors":   result.Errors,
+	result, err := h.importer.Commit(c.Request.Context(), &importer.CommitRequest{
+		UserID:     userID,
+		ArchiveKey: req.ArchiveKey,
+		Selections: req.Selections,
 	})
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, result)
 }
 
-// ImportFromFile imports skills from an uploaded file
-func (h *Handler) ImportFromFile(c *gin.Context) {
-	file, header, err := c.Request.FormFile("file")
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "file is required"})
-		return
-	}
-	defer file.Close()
-
-	// Read file content
-	content, err := io.ReadAll(file)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read file"})
+// generateEmbeddingAsync generates embedding for a tool asynchronously
+func (h *Handler) generateEmbeddingAsync(tool *model.Tool) {
+	if h.embedding == nil || !h.embedding.IsEnabled() {
 		return
 	}
 
-	result, err := h.importer.ImportFromFile(c.Request.Context(), header.Filename, content)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
 
-	c.JSON(http.StatusOK, gin.H{
-		"message":  "Import completed",
-		"imported": result.Imported,
-		"skipped":  result.Skipped,
-		"errors":   result.Errors,
-	})
+		emb, err := h.embedding.GenerateForTool(ctx, tool.Name, tool.Description)
+		if err != nil {
+			// Log error but don't fail the request
+			fmt.Printf("Failed to generate embedding for tool %d: %v\n", tool.ID, err)
+			return
+		}
+
+		if err := h.facade.UpdateEmbedding(tool.ID, emb); err != nil {
+			fmt.Printf("Failed to update embedding for tool %d: %v\n", tool.ID, err)
+		}
+	}()
 }

@@ -7,460 +7,688 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
-	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
-	"path/filepath"
-	"regexp"
+	"net/url"
+	"path"
 	"strings"
+	"time"
 
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/controlplane/database"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/controlplane/database/model"
-	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
-	"github.com/AMD-AGI/Primus-SaFE/Lens/skills-repository/pkg/registry"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/skills-repository/pkg/storage"
+	"github.com/google/uuid"
 )
 
-// SkillImporter handles importing skills from various sources
-type SkillImporter struct {
-	registry   *registry.SkillsRegistry
-	httpClient *http.Client
-	githubToken string
+// Importer handles skill import from ZIP files or GitHub URLs
+type Importer struct {
+	facade  *database.ToolFacade
+	storage storage.Storage
 }
 
-// NewSkillImporter creates a new SkillImporter
-func NewSkillImporter(reg *registry.SkillsRegistry, githubToken string) *SkillImporter {
-	return &SkillImporter{
-		registry:    reg,
-		httpClient:  &http.Client{},
-		githubToken: githubToken,
+// NewImporter creates a new Importer
+func NewImporter(facade *database.ToolFacade, storage storage.Storage) *Importer {
+	return &Importer{
+		facade:  facade,
+		storage: storage,
 	}
 }
 
-// ImportResult represents the result of an import operation
-type ImportResult struct {
-	Imported []string `json:"imported"`
-	Skipped  []string `json:"skipped"`
-	Errors   []string `json:"errors"`
+// DiscoverRequest represents a discover request
+type DiscoverRequest struct {
+	UserID    string
+	File      io.Reader
+	FileName  string
+	GitHubURL string
 }
 
-// ImportFromGitHub imports skills from a GitHub repository
-// Supports URLs like:
-// - https://github.com/owner/repo (imports all SKILL.md files)
-// - https://github.com/owner/repo/tree/branch/path (imports from specific path)
-// - https://github.com/owner/repo/blob/branch/path/SKILL.md (imports single file)
-func (i *SkillImporter) ImportFromGitHub(ctx context.Context, url string) (*ImportResult, error) {
-	result := &ImportResult{
-		Imported: make([]string, 0),
-		Skipped:  make([]string, 0),
-		Errors:   make([]string, 0),
+// DiscoverResponse represents a discover response
+type DiscoverResponse struct {
+	ArchiveKey string      `json:"archive_key"`
+	Candidates []Candidate `json:"candidates"`
+}
+
+// Candidate represents a discovered skill candidate
+type Candidate struct {
+	RelativePath     string `json:"relative_path"`
+	SkillName        string `json:"skill_name"`
+	SkillDescription string `json:"skill_description"`
+	RequiresName     bool   `json:"requires_name"`
+	WillOverwrite    bool   `json:"will_overwrite"`
+}
+
+// CommitRequest represents a commit request
+type CommitRequest struct {
+	UserID     string
+	ArchiveKey string
+	Selections []Selection
+}
+
+// Selection represents a skill selection for import
+type Selection struct {
+	RelativePath string `json:"relative_path"`
+	NameOverride string `json:"name_override"`
+}
+
+// CommitResponse represents a commit response
+type CommitResponse struct {
+	Items []CommitResultItem `json:"items"`
+}
+
+// CommitResultItem represents the result of importing a single skill
+type CommitResultItem struct {
+	RelativePath string `json:"relative_path"`
+	SkillName    string `json:"skill_name"`
+	Status       string `json:"status"` // success, failed, skipped
+	ToolID       int64  `json:"tool_id,omitempty"`
+	Error        string `json:"error,omitempty"`
+}
+
+// Discover scans a ZIP/MD file or GitHub repo for skills
+func (i *Importer) Discover(ctx context.Context, req *DiscoverRequest) (*DiscoverResponse, error) {
+	if req.File == nil && req.GitHubURL == "" {
+		return nil, fmt.Errorf("either file or github_url must be provided")
+	}
+	if req.File != nil && req.GitHubURL != "" {
+		return nil, fmt.Errorf("only one of file or github_url can be provided")
 	}
 
-	// Parse GitHub URL
-	owner, repo, branch, path, err := parseGitHubURL(url)
-	if err != nil {
-		return nil, fmt.Errorf("invalid GitHub URL: %w", err)
-	}
+	var zipData []byte
+	var filename string
+	var err error
 
-	log.Infof("Importing skills from GitHub: %s/%s (branch: %s, path: %s)", owner, repo, branch, path)
-
-	// If path points to a specific file
-	if strings.HasSuffix(strings.ToLower(path), ".md") {
-		skill, err := i.importSingleFile(ctx, owner, repo, branch, path)
+	if req.GitHubURL != "" {
+		// Download from GitHub
+		zipData, err = i.downloadGitHubZip(ctx, req.GitHubURL)
 		if err != nil {
-			result.Errors = append(result.Errors, fmt.Sprintf("%s: %v", path, err))
-		} else {
-			result.Imported = append(result.Imported, skill.Name)
+			return nil, fmt.Errorf("failed to download from GitHub: %w", err)
 		}
-		return result, nil
-	}
+		filename = "github.zip"
+	} else {
+		// Read uploaded file
+		fileData, err := io.ReadAll(req.File)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read file: %w", err)
+		}
+		filename = req.FileName
+		if filename == "" {
+			filename = "upload.zip"
+		}
 
-	// List files in the path and find SKILL.md files
-	files, err := i.listGitHubFiles(ctx, owner, repo, branch, path)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list files: %w", err)
-	}
-
-	for _, file := range files {
-		if strings.ToUpper(filepath.Base(file)) == "SKILL.MD" {
-			skill, err := i.importSingleFile(ctx, owner, repo, branch, file)
-			if err != nil {
-				result.Errors = append(result.Errors, fmt.Sprintf("%s: %v", file, err))
-				continue
+		// Check if it's a single MD file (not a ZIP)
+		if i.isMDFile(filename) {
+			// Validate it's a valid SKILL.md content
+			if !i.isValidSkillMD(fileData) {
+				return nil, fmt.Errorf("invalid SKILL.md file: must contain valid skill definition")
 			}
-			result.Imported = append(result.Imported, skill.Name)
-		}
-	}
-
-	return result, nil
-}
-
-// ImportFromFile imports skills from uploaded file content
-// Supports: single SKILL.md file, or ZIP archive containing multiple skills
-func (i *SkillImporter) ImportFromFile(ctx context.Context, filename string, content []byte) (*ImportResult, error) {
-	result := &ImportResult{
-		Imported: make([]string, 0),
-		Skipped:  make([]string, 0),
-		Errors:   make([]string, 0),
-	}
-
-	ext := strings.ToLower(filepath.Ext(filename))
-
-	switch ext {
-	case ".zip":
-		return i.importFromZip(ctx, content)
-	case ".md":
-		skill, err := i.parseAndRegisterSkill(ctx, filename, string(content), "upload")
-		if err != nil {
-			result.Errors = append(result.Errors, fmt.Sprintf("%s: %v", filename, err))
+			// Wrap single MD file into a ZIP
+			zipData, err = i.wrapMDInZip(fileData, "SKILL.md")
+			if err != nil {
+				return nil, fmt.Errorf("failed to process MD file: %w", err)
+			}
+			filename = "upload.zip"
 		} else {
-			result.Imported = append(result.Imported, skill.Name)
+			zipData = fileData
 		}
-	default:
-		return nil, fmt.Errorf("unsupported file type: %s", ext)
 	}
 
-	return result, nil
+	// Scan for SKILL.md files
+	candidates, err := i.scanCandidates(zipData)
+	if err != nil {
+		return nil, fmt.Errorf("failed to scan archive: %w", err)
+	}
+
+	if len(candidates) == 0 {
+		return nil, fmt.Errorf("no SKILL.md found in the archive")
+	}
+
+	// Check for existing skills
+	for idx := range candidates {
+		if candidates[idx].SkillName != "" {
+			_, err := i.facade.GetByTypeAndName(model.AppTypeSkill, candidates[idx].SkillName)
+			if err == nil {
+				candidates[idx].WillOverwrite = true
+			}
+		}
+	}
+
+	// Upload to temporary storage
+	archiveKey := fmt.Sprintf("skill-imports/%s/%s/%s", req.UserID, uuid.New().String(), filename)
+	if err := i.storage.UploadBytes(ctx, archiveKey, zipData); err != nil {
+		return nil, fmt.Errorf("failed to upload archive: %w", err)
+	}
+
+	return &DiscoverResponse{
+		ArchiveKey: archiveKey,
+		Candidates: candidates,
+	}, nil
 }
 
-// importFromZip imports skills from a ZIP archive
-func (i *SkillImporter) importFromZip(ctx context.Context, content []byte) (*ImportResult, error) {
-	result := &ImportResult{
-		Imported: make([]string, 0),
-		Skipped:  make([]string, 0),
-		Errors:   make([]string, 0),
-	}
+// isMDFile checks if the filename is a markdown file
+func (i *Importer) isMDFile(filename string) bool {
+	lower := strings.ToLower(filename)
+	return strings.HasSuffix(lower, ".md") || strings.HasSuffix(lower, ".markdown")
+}
 
-	reader, err := zip.NewReader(bytes.NewReader(content), int64(len(content)))
+// isValidSkillMD performs basic validation on skill MD content
+func (i *Importer) isValidSkillMD(content []byte) bool {
+	// Basic validation: must not be empty and should look like markdown
+	if len(content) == 0 {
+		return false
+	}
+	// Could add more sophisticated validation here (e.g., check for required sections)
+	return true
+}
+
+// wrapMDInZip wraps a single MD file into a ZIP archive
+func (i *Importer) wrapMDInZip(mdContent []byte, filename string) ([]byte, error) {
+	var buf bytes.Buffer
+	zipWriter := zip.NewWriter(&buf)
+
+	// Create the file in the ZIP
+	w, err := zipWriter.Create(filename)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read ZIP file: %w", err)
+		return nil, err
+	}
+	if _, err := w.Write(mdContent); err != nil {
+		return nil, err
 	}
 
-	for _, file := range reader.File {
-		// Skip directories
-		if file.FileInfo().IsDir() {
+	if err := zipWriter.Close(); err != nil {
+		return nil, err
+	}
+
+	return buf.Bytes(), nil
+}
+
+// Commit imports selected skills from a previously uploaded archive
+func (i *Importer) Commit(ctx context.Context, req *CommitRequest) (*CommitResponse, error) {
+	// Verify archive belongs to user
+	expectedPrefix := fmt.Sprintf("skill-imports/%s/", req.UserID)
+	if !strings.HasPrefix(req.ArchiveKey, expectedPrefix) {
+		return nil, fmt.Errorf("archive does not belong to the user")
+	}
+
+	// Download archive
+	zipData, err := i.storage.DownloadBytes(ctx, req.ArchiveKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to download archive: %w", err)
+	}
+
+	// Open zip
+	zipReader, err := zip.NewReader(bytes.NewReader(zipData), int64(len(zipData)))
+	if err != nil {
+		return nil, fmt.Errorf("invalid zip archive: %w", err)
+	}
+
+	// Scan candidates to get mapping
+	candidates, err := i.scanCandidates(zipData)
+	if err != nil {
+		return nil, fmt.Errorf("failed to scan archive: %w", err)
+	}
+	candidateByPath := make(map[string]Candidate)
+	for _, c := range candidates {
+		candidateByPath[c.RelativePath] = c
+	}
+
+	// Find common root
+	commonRoot := i.findCommonRoot(zipReader)
+
+	// Process selections
+	var items []CommitResultItem
+	for _, sel := range req.Selections {
+		item := i.importOne(ctx, zipReader, commonRoot, candidateByPath, sel, req.UserID)
+		items = append(items, item)
+	}
+
+	return &CommitResponse{Items: items}, nil
+}
+
+// importOne imports a single skill
+func (i *Importer) importOne(
+	ctx context.Context,
+	zipReader *zip.Reader,
+	commonRoot string,
+	candidateByPath map[string]Candidate,
+	sel Selection,
+	userID string,
+) CommitResultItem {
+	candidate, ok := candidateByPath[sel.RelativePath]
+	if !ok {
+		return CommitResultItem{
+			RelativePath: sel.RelativePath,
+			Status:       "failed",
+			Error:        "skill not found in archive",
+		}
+	}
+
+	// Determine skill name
+	skillName := sel.NameOverride
+	if skillName == "" {
+		skillName = candidate.SkillName
+	}
+	if skillName == "" {
+		return CommitResultItem{
+			RelativePath: sel.RelativePath,
+			Status:       "failed",
+			Error:        "skill name is required",
+		}
+	}
+
+	// Use parsed description from candidate
+	skillDescription := candidate.SkillDescription
+	if skillDescription == "" {
+		skillDescription = fmt.Sprintf("Imported skill: %s", skillName)
+	}
+
+	// Find SKILL.md file and related files
+	skillDir := sel.RelativePath
+	if skillDir == "." {
+		skillDir = ""
+	}
+
+	// Read all files in the skill directory
+	var skillContent []byte
+	var additionalFiles []struct {
+		name string
+		data []byte
+	}
+
+	for _, f := range zipReader.File {
+		if f.FileInfo().IsDir() {
 			continue
 		}
 
-		// Only process SKILL.md files
-		if strings.ToUpper(filepath.Base(file.Name)) != "SKILL.MD" {
+		// Strip common root
+		relPath := i.stripCommonRoot(f.Name, commonRoot)
+		if relPath == "" {
+			continue
+		}
+
+		// Check if file belongs to this skill
+		var inSkillDir bool
+		if skillDir == "" {
+			// Root level skill
+			inSkillDir = !strings.Contains(relPath, "/")
+		} else {
+			inSkillDir = strings.HasPrefix(relPath, skillDir+"/") || relPath == skillDir
+		}
+
+		if !inSkillDir {
 			continue
 		}
 
 		// Read file content
-		rc, err := file.Open()
+		rc, err := f.Open()
 		if err != nil {
-			result.Errors = append(result.Errors, fmt.Sprintf("%s: %v", file.Name, err))
 			continue
 		}
-
-		fileContent, err := io.ReadAll(rc)
+		data, err := io.ReadAll(rc)
 		rc.Close()
 		if err != nil {
-			result.Errors = append(result.Errors, fmt.Sprintf("%s: %v", file.Name, err))
 			continue
 		}
 
-		// Parse and register skill
-		skill, err := i.parseAndRegisterSkill(ctx, file.Name, string(fileContent), "upload")
-		if err != nil {
-			result.Errors = append(result.Errors, fmt.Sprintf("%s: %v", file.Name, err))
-			continue
+		// Get file name relative to skill directory
+		var fileName string
+		if skillDir == "" {
+			fileName = relPath
+		} else {
+			fileName = strings.TrimPrefix(relPath, skillDir+"/")
 		}
 
-		result.Imported = append(result.Imported, skill.Name)
+		if strings.ToLower(path.Base(fileName)) == "skill.md" {
+			skillContent = data
+		} else if fileName != "" {
+			additionalFiles = append(additionalFiles, struct {
+				name string
+				data []byte
+			}{name: fileName, data: data})
+		}
 	}
 
-	return result, nil
+	if skillContent == nil {
+		return CommitResultItem{
+			RelativePath: sel.RelativePath,
+			SkillName:    skillName,
+			Status:       "failed",
+			Error:        "SKILL.md not found",
+		}
+	}
+
+	// Upload to permanent storage
+	timestamp := time.Now().UnixNano()
+	s3KeyBase := fmt.Sprintf("skills/%d", timestamp)
+	s3Key := s3KeyBase + "/SKILL.md"
+
+	if err := i.storage.UploadBytes(ctx, s3Key, skillContent); err != nil {
+		return CommitResultItem{
+			RelativePath: sel.RelativePath,
+			SkillName:    skillName,
+			Status:       "failed",
+			Error:        fmt.Sprintf("failed to upload: %v", err),
+		}
+	}
+
+	// Upload additional files
+	isPrefix := len(additionalFiles) > 0
+	for _, af := range additionalFiles {
+		afKey := s3KeyBase + "/" + af.name
+		_ = i.storage.UploadBytes(ctx, afKey, af.data)
+	}
+
+	// Create or update tool record
+	config := model.AppConfig{
+		"s3_key":    s3Key,
+		"is_prefix": isPrefix,
+	}
+
+	// Check if skill already exists
+	existing, err := i.facade.GetByTypeAndName(model.AppTypeSkill, skillName)
+	if err == nil && existing != nil {
+		// Update existing
+		existing.Config = config
+		existing.SkillSource = model.SkillSourceZIP
+		existing.Description = skillDescription // Update description from SKILL.md
+		if err := i.facade.Update(existing); err != nil {
+			return CommitResultItem{
+				RelativePath: sel.RelativePath,
+				SkillName:    skillName,
+				Status:       "failed",
+				Error:        fmt.Sprintf("failed to update: %v", err),
+			}
+		}
+		return CommitResultItem{
+			RelativePath: sel.RelativePath,
+			SkillName:    skillName,
+			Status:       "success",
+			ToolID:       existing.ID,
+		}
+	}
+
+	// Create new
+	tool := &model.Tool{
+		Type:        model.AppTypeSkill,
+		Name:        skillName,
+		DisplayName: skillName,
+		Description: skillDescription,
+		Config:      config,
+		SkillSource: model.SkillSourceZIP,
+		OwnerUserID: userID,
+		IsPublic:    true,
+		Status:      model.AppStatusActive,
+	}
+
+	if err := i.facade.Create(tool); err != nil {
+		return CommitResultItem{
+			RelativePath: sel.RelativePath,
+			SkillName:    skillName,
+			Status:       "failed",
+			Error:        fmt.Sprintf("failed to create: %v", err),
+		}
+	}
+
+	return CommitResultItem{
+		RelativePath: sel.RelativePath,
+		SkillName:    skillName,
+		Status:       "success",
+		ToolID:       tool.ID,
+	}
 }
 
-// importSingleFile imports a single file from GitHub
-func (i *SkillImporter) importSingleFile(ctx context.Context, owner, repo, branch, path string) (*model.Skill, error) {
-	content, err := i.fetchGitHubFile(ctx, owner, repo, branch, path)
+// scanCandidates scans a ZIP for SKILL.md files
+func (i *Importer) scanCandidates(zipData []byte) ([]Candidate, error) {
+	zipReader, err := zip.NewReader(bytes.NewReader(zipData), int64(len(zipData)))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("invalid zip archive: %w", err)
 	}
 
-	return i.parseAndRegisterSkill(ctx, path, content, fmt.Sprintf("github:%s/%s", owner, repo))
-}
+	commonRoot := i.findCommonRoot(zipReader)
 
-// parseAndRegisterSkill parses SKILL.md content and registers the skill
-func (i *SkillImporter) parseAndRegisterSkill(ctx context.Context, filepath, content, source string) (*model.Skill, error) {
-	skill := parseSkillMD(content)
-	
-	// Use directory name as skill name if not found in content
-	if skill.Name == "" {
-		dir := strings.TrimSuffix(filepath, "/SKILL.md")
-		dir = strings.TrimSuffix(dir, "/SKILL.MD")
-		skill.Name = sanitizeSkillName(strings.TrimPrefix(dir, "/"))
-	}
+	foundDirs := make(map[string]bool)
+	var candidates []Candidate
 
-	if skill.Name == "" {
-		return nil, fmt.Errorf("could not determine skill name from file: %s", filepath)
-	}
-
-	skill.Source = source
-	skill.FilePath = filepath
-
-	// Register the skill
-	if err := i.registry.Register(ctx, skill); err != nil {
-		return nil, err
-	}
-
-	return skill, nil
-}
-
-// parseSkillMD parses SKILL.md content and extracts metadata
-func parseSkillMD(content string) *model.Skill {
-	skill := &model.Skill{
-		Content: content,
-	}
-
-	lines := strings.Split(content, "\n")
-
-	// Extract title from first H1
-	for _, line := range lines {
-		if strings.HasPrefix(line, "# ") {
-			skill.Name = sanitizeSkillName(strings.TrimPrefix(line, "# "))
-			break
-		}
-	}
-
-	// Extract description from content after title
-	var descLines []string
-	foundTitle := false
-	for _, line := range lines {
-		if strings.HasPrefix(line, "# ") {
-			foundTitle = true
+	for _, f := range zipReader.File {
+		if f.FileInfo().IsDir() {
 			continue
 		}
-		if foundTitle {
-			if strings.HasPrefix(line, "## ") {
+
+		// Check for SKILL.md
+		if strings.ToLower(path.Base(f.Name)) != "skill.md" {
+			continue
+		}
+
+		// Strip common root
+		relPath := i.stripCommonRoot(f.Name, commonRoot)
+		if relPath == "" {
+			continue
+		}
+
+		// Get directory
+		dir := path.Dir(relPath)
+		if dir == "." {
+			dir = "."
+		}
+
+		// Skip duplicates
+		if foundDirs[dir] {
+			continue
+		}
+		foundDirs[dir] = true
+
+		// Read and parse SKILL.md content
+		skillName, skillDescription := i.parseSkillMD(f)
+
+		// Fallback to directory name if parsing failed
+		var requiresName bool
+		if skillName == "" {
+			if dir != "." {
+				skillName = path.Base(dir)
+			} else {
+				requiresName = true
+			}
+		}
+
+		candidates = append(candidates, Candidate{
+			RelativePath:     dir,
+			SkillName:        skillName,
+			SkillDescription: skillDescription,
+			RequiresName:     requiresName,
+			WillOverwrite:    false,
+		})
+	}
+
+	return candidates, nil
+}
+
+// parseSkillMD parses name and description from a SKILL.md file
+func (i *Importer) parseSkillMD(f *zip.File) (name, description string) {
+	rc, err := f.Open()
+	if err != nil {
+		return "", ""
+	}
+	defer rc.Close()
+
+	content, err := io.ReadAll(rc)
+	if err != nil {
+		return "", ""
+	}
+
+	text := string(content)
+
+	// Try to parse YAML frontmatter: ---\nname: xxx\ndescription: xxx\n---
+	if strings.HasPrefix(text, "---") {
+		parts := strings.SplitN(text, "---", 3)
+		if len(parts) >= 2 {
+			frontmatter := parts[1]
+			for _, line := range strings.Split(frontmatter, "\n") {
+				line = strings.TrimSpace(line)
+				if strings.HasPrefix(line, "name:") {
+					name = strings.TrimSpace(strings.TrimPrefix(line, "name:"))
+				} else if strings.HasPrefix(line, "description:") {
+					description = strings.TrimSpace(strings.TrimPrefix(line, "description:"))
+				}
+			}
+		}
+	}
+
+	// Fallback: try to parse first heading as name
+	if name == "" {
+		lines := strings.Split(text, "\n")
+		for _, line := range lines {
+			line = strings.TrimSpace(line)
+			if strings.HasPrefix(line, "# ") {
+				name = strings.TrimPrefix(line, "# ")
 				break
 			}
-			trimmed := strings.TrimSpace(line)
-			if trimmed != "" {
-				descLines = append(descLines, trimmed)
-			}
-		}
-	}
-	if len(descLines) > 0 {
-		skill.Description = strings.Join(descLines, " ")
-		if len(skill.Description) > 500 {
-			skill.Description = skill.Description[:497] + "..."
 		}
 	}
 
-	// Extract metadata from YAML front matter if present
-	if strings.HasPrefix(content, "---") {
-		endIdx := strings.Index(content[3:], "---")
-		if endIdx > 0 {
-			frontMatter := content[3 : 3+endIdx]
-			metadata := parseYAMLFrontMatter(frontMatter)
-			
-			if name, ok := metadata["name"].(string); ok && skill.Name == "" {
-				skill.Name = name
+	// Fallback: use first non-empty, non-heading line as description
+	if description == "" {
+		lines := strings.Split(text, "\n")
+		inFrontmatter := false
+		for _, line := range lines {
+			line = strings.TrimSpace(line)
+			if line == "---" {
+				inFrontmatter = !inFrontmatter
+				continue
 			}
-			if desc, ok := metadata["description"].(string); ok && skill.Description == "" {
-				skill.Description = desc
+			if inFrontmatter || line == "" || strings.HasPrefix(line, "#") {
+				continue
 			}
-			if cat, ok := metadata["category"].(string); ok {
-				skill.Category = cat
-			}
-			if ver, ok := metadata["version"].(string); ok {
-				skill.Version = ver
-			}
-			if lic, ok := metadata["license"].(string); ok {
-				skill.License = lic
-			}
-		}
-	}
-
-	return skill
-}
-
-// parseYAMLFrontMatter parses simple YAML front matter
-func parseYAMLFrontMatter(content string) map[string]interface{} {
-	result := make(map[string]interface{})
-	lines := strings.Split(content, "\n")
-	
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		
-		parts := strings.SplitN(line, ":", 2)
-		if len(parts) == 2 {
-			key := strings.TrimSpace(parts[0])
-			value := strings.TrimSpace(parts[1])
-			// Remove quotes
-			value = strings.Trim(value, "\"'")
-			result[key] = value
-		}
-	}
-	
-	return result
-}
-
-// sanitizeSkillName converts a path or title to a valid skill name
-func sanitizeSkillName(name string) string {
-	// Get the last path component
-	name = filepath.Base(name)
-	
-	// Convert to lowercase
-	name = strings.ToLower(name)
-	
-	// Replace spaces with hyphens
-	name = strings.ReplaceAll(name, " ", "-")
-	
-	// Remove special characters except hyphens and underscores
-	reg := regexp.MustCompile(`[^a-z0-9\-_]`)
-	name = reg.ReplaceAllString(name, "")
-	
-	// Remove multiple consecutive hyphens
-	reg = regexp.MustCompile(`-+`)
-	name = reg.ReplaceAllString(name, "-")
-	
-	// Trim hyphens from start and end
-	name = strings.Trim(name, "-")
-	
-	return name
-}
-
-// parseGitHubURL parses a GitHub URL and returns owner, repo, branch, and path
-func parseGitHubURL(url string) (owner, repo, branch, path string, err error) {
-	// Remove trailing slash
-	url = strings.TrimSuffix(url, "/")
-	
-	// Pattern: https://github.com/owner/repo[/tree|blob/branch/path]
-	patterns := []string{
-		`^https?://github\.com/([^/]+)/([^/]+)/(?:tree|blob)/([^/]+)/(.+)$`,
-		`^https?://github\.com/([^/]+)/([^/]+)/(?:tree|blob)/([^/]+)$`,
-		`^https?://github\.com/([^/]+)/([^/]+)$`,
-	}
-
-	for i, pattern := range patterns {
-		re := regexp.MustCompile(pattern)
-		matches := re.FindStringSubmatch(url)
-		if matches != nil {
-			owner = matches[1]
-			repo = matches[2]
-			if i < 2 && len(matches) > 3 {
-				branch = matches[3]
-			}
-			if i == 0 && len(matches) > 4 {
-				path = matches[4]
+			description = line
+			if len(description) > 200 {
+				description = description[:200] + "..."
 			}
 			break
 		}
 	}
 
-	if owner == "" || repo == "" {
-		return "", "", "", "", fmt.Errorf("could not parse GitHub URL: %s", url)
-	}
-
-	// Default branch
-	if branch == "" {
-		branch = "main"
-	}
-
-	return owner, repo, branch, path, nil
+	return name, description
 }
 
-// fetchGitHubFile fetches a file from GitHub
-func (i *SkillImporter) fetchGitHubFile(ctx context.Context, owner, repo, branch, path string) (string, error) {
-	apiURL := fmt.Sprintf("https://api.github.com/repos/%s/%s/contents/%s?ref=%s", owner, repo, path, branch)
-	
-	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
-	if err != nil {
-		return "", err
+// findCommonRoot finds the common root directory in a ZIP
+func (i *Importer) findCommonRoot(zipReader *zip.Reader) string {
+	if len(zipReader.File) == 0 {
+		return ""
 	}
 
-	req.Header.Set("Accept", "application/vnd.github.v3+json")
-	if i.githubToken != "" {
-		req.Header.Set("Authorization", "token "+i.githubToken)
+	// Get first non-empty path
+	var firstPath string
+	for _, f := range zipReader.File {
+		if f.Name != "" && !f.FileInfo().IsDir() {
+			firstPath = f.Name
+			break
+		}
+	}
+	if firstPath == "" {
+		return ""
 	}
 
-	resp, err := i.httpClient.Do(req)
+	// Split first path
+	parts := strings.Split(firstPath, "/")
+	if len(parts) <= 1 {
+		return ""
+	}
+
+	// Check if all files share the same root
+	commonRoot := parts[0]
+	for _, f := range zipReader.File {
+		if f.Name == "" || f.FileInfo().IsDir() {
+			continue
+		}
+		if !strings.HasPrefix(f.Name, commonRoot+"/") {
+			return ""
+		}
+	}
+
+	return commonRoot
+}
+
+// stripCommonRoot removes the common root from a path
+func (i *Importer) stripCommonRoot(filePath, commonRoot string) string {
+	if commonRoot == "" {
+		return filePath
+	}
+	return strings.TrimPrefix(filePath, commonRoot+"/")
+}
+
+// downloadGitHubZip downloads a repository as ZIP from GitHub
+func (i *Importer) downloadGitHubZip(ctx context.Context, githubURL string) ([]byte, error) {
+	parsed, err := url.Parse(githubURL)
 	if err != nil {
-		return "", err
+		return nil, fmt.Errorf("invalid URL: %w", err)
+	}
+
+	if parsed.Host != "github.com" && parsed.Host != "www.github.com" {
+		return nil, fmt.Errorf("only github.com URLs are supported")
+	}
+
+	// Parse path: /owner/repo or /owner/repo/tree/branch
+	pathParts := strings.Split(strings.Trim(parsed.Path, "/"), "/")
+	if len(pathParts) < 2 {
+		return nil, fmt.Errorf("invalid GitHub repository URL")
+	}
+
+	owner := pathParts[0]
+	repo := strings.TrimSuffix(pathParts[1], ".git")
+
+	// Determine branch
+	branch := ""
+	if len(pathParts) >= 4 && pathParts[2] == "tree" {
+		branch = pathParts[3]
+	}
+
+	// Try branches
+	branches := []string{branch, "main", "master"}
+	var lastErr error
+
+	for _, b := range branches {
+		if b == "" {
+			continue
+		}
+		downloadURL := fmt.Sprintf("https://github.com/%s/%s/archive/refs/heads/%s.zip", owner, repo, b)
+		data, err := i.downloadWithLimit(ctx, downloadURL)
+		if err == nil {
+			return data, nil
+		}
+		lastErr = err
+	}
+
+	return nil, fmt.Errorf("failed to download from GitHub: %w", lastErr)
+}
+
+// downloadWithLimit downloads a URL with size limit
+func (i *Importer) downloadWithLimit(ctx context.Context, downloadURL string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, downloadURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", "tools-importer/1.0")
+
+	client := &http.Client{Timeout: 60 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("GitHub API returned status %d", resp.StatusCode)
+		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 
-	var result struct {
-		Content  string `json:"content"`
-		Encoding string `json:"encoding"`
-	}
-
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", err
-	}
-
-	if result.Encoding == "base64" {
-		decoded, err := base64.StdEncoding.DecodeString(strings.ReplaceAll(result.Content, "\n", ""))
-		if err != nil {
-			return "", err
-		}
-		return string(decoded), nil
-	}
-
-	return result.Content, nil
-}
-
-// listGitHubFiles lists files in a GitHub repository path recursively
-func (i *SkillImporter) listGitHubFiles(ctx context.Context, owner, repo, branch, path string) ([]string, error) {
-	var files []string
-
-	apiURL := fmt.Sprintf("https://api.github.com/repos/%s/%s/contents/%s?ref=%s", owner, repo, path, branch)
-	
-	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
+	// Limit to 100MB
+	maxSize := int64(100 * 1024 * 1024)
+	limitedReader := io.LimitReader(resp.Body, maxSize+1)
+	data, err := io.ReadAll(limitedReader)
 	if err != nil {
 		return nil, err
 	}
-
-	req.Header.Set("Accept", "application/vnd.github.v3+json")
-	if i.githubToken != "" {
-		req.Header.Set("Authorization", "token "+i.githubToken)
+	if int64(len(data)) > maxSize {
+		return nil, fmt.Errorf("file too large (max 100MB)")
 	}
 
-	resp, err := i.httpClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("GitHub API returned status %d", resp.StatusCode)
-	}
-
-	var items []struct {
-		Name string `json:"name"`
-		Path string `json:"path"`
-		Type string `json:"type"`
-	}
-
-	if err := json.NewDecoder(resp.Body).Decode(&items); err != nil {
-		return nil, err
-	}
-
-	for _, item := range items {
-		if item.Type == "dir" {
-			// Recursively list directory
-			subFiles, err := i.listGitHubFiles(ctx, owner, repo, branch, item.Path)
-			if err != nil {
-				log.Warnf("Failed to list directory %s: %v", item.Path, err)
-				continue
-			}
-			files = append(files, subFiles...)
-		} else if item.Type == "file" {
-			files = append(files, item.Path)
-		}
-	}
-
-	return files, nil
+	return data, nil
 }
