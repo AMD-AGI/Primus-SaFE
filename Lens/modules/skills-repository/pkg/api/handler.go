@@ -192,8 +192,8 @@ func (h *Handler) CreateMCP(c *gin.Context) {
 		return
 	}
 
-	// Generate embedding asynchronously
-	h.generateEmbeddingAsync(tool)
+	// Generate embedding synchronously (name + description is small, usually < 500ms)
+	h.generateEmbeddingSync(c.Request.Context(), tool)
 
 	c.JSON(http.StatusCreated, tool)
 }
@@ -724,25 +724,21 @@ func (h *Handler) ImportCommit(c *gin.Context) {
 	c.JSON(http.StatusOK, result)
 }
 
-// generateEmbeddingAsync generates embedding for a tool asynchronously
-func (h *Handler) generateEmbeddingAsync(tool *model.Tool) {
+// generateEmbeddingSync generates embedding for a tool synchronously
+// This is preferred for small text (name + description) as it usually takes < 500ms
+func (h *Handler) generateEmbeddingSync(ctx context.Context, tool *model.Tool) {
 	if h.embedding == nil || !h.embedding.IsEnabled() {
 		return
 	}
 
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
+	emb, err := h.embedding.GenerateForTool(ctx, tool.Name, tool.Description)
+	if err != nil {
+		// Log error but don't fail the create request
+		fmt.Printf("Failed to generate embedding for tool %d: %v\n", tool.ID, err)
+		return
+	}
 
-		emb, err := h.embedding.GenerateForTool(ctx, tool.Name, tool.Description)
-		if err != nil {
-			// Log error but don't fail the request
-			fmt.Printf("Failed to generate embedding for tool %d: %v\n", tool.ID, err)
-			return
-		}
-
-		if err := h.facade.UpdateEmbedding(tool.ID, emb); err != nil {
-			fmt.Printf("Failed to update embedding for tool %d: %v\n", tool.ID, err)
-		}
-	}()
+	if err := h.facade.UpdateEmbedding(tool.ID, emb); err != nil {
+		fmt.Printf("Failed to update embedding for tool %d: %v\n", tool.ID, err)
+	}
 }

@@ -553,8 +553,8 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		toolsGroup.POST("/mcp", getUnifiedHandler("/tools/mcp"))
 		// Run tools (returns redirect URL)
 		toolsGroup.POST("/run", getUnifiedHandler("/tools/run"))
-		// Import skills - discover candidates
-		toolsGroup.POST("/import/discover", getUnifiedHandler("/tools/import/discover"))
+		// Import skills - discover candidates (multipart/form-data, direct proxy)
+		toolsGroup.POST("/import/discover", ToolsImportDiscoverProxyHandler())
 		// Import skills - commit selected
 		toolsGroup.POST("/import/commit", getUnifiedHandler("/tools/import/commit"))
 		// Get tool by ID
@@ -563,8 +563,8 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		toolsGroup.PUT("/:id", getUnifiedHandlerWithMethod("/tools/:id", "PUT"))
 		// Delete tool
 		toolsGroup.DELETE("/:id", getUnifiedHandlerWithMethod("/tools/:id", "DELETE"))
-		// Download tool
-		toolsGroup.GET("/:id/download", getUnifiedHandler("/tools/:id/download"))
+		// Download tool (binary content, direct proxy)
+		toolsGroup.GET("/:id/download", ToolsDownloadProxyHandler())
 	}
 
 	return nil
