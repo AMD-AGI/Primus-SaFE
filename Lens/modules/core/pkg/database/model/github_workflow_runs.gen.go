@@ -52,6 +52,7 @@ type GithubWorkflowRuns struct {
 	PodPhase              string    `gorm:"column:pod_phase;comment:Pod phase: Pending, Running, Succeeded, Failed, Unknown" json:"pod_phase"`                                                                   // Pod phase: Pending, Running, Succeeded, Failed, Unknown
 	PodCondition          string    `gorm:"column:pod_condition;comment:Pod condition: ImagePullBackOff, CrashLoopBackOff, ContainerCreating, Ready, etc." json:"pod_condition"`                                 // Pod condition: ImagePullBackOff, CrashLoopBackOff, ContainerCreating, Ready, etc.
 	PodMessage            string    `gorm:"column:pod_message;comment:Detailed error message from pod status" json:"pod_message"`                                                                                // Detailed error message from pod status
+	SafeWorkloadID        string    `gorm:"column:safe_workload_id;comment:Associated SaFE UnifiedJob workload name for platform statistics" json:"safe_workload_id"`                                            // Associated SaFE UnifiedJob workload name
 }
 
 // TableName GithubWorkflowRuns's table name

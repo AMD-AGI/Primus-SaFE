@@ -64,6 +64,7 @@ func (f *GithubEphemeralRunnerStateFacade) Upsert(ctx context.Context, state *mo
 				"pod_phase":          gorm.Expr("EXCLUDED.pod_phase"),
 				"pod_condition":      gorm.Expr("EXCLUDED.pod_condition"),
 				"pod_message":        gorm.Expr("EXCLUDED.pod_message"),
+				"safe_workload_id":   gorm.Expr("CASE WHEN EXCLUDED.safe_workload_id != '' THEN EXCLUDED.safe_workload_id ELSE github_ephemeral_runner_states.safe_workload_id END"),
 				"is_completed":       gorm.Expr("EXCLUDED.is_completed"),
 				"creation_timestamp": gorm.Expr("EXCLUDED.creation_timestamp"),
 				"completion_time":    gorm.Expr("EXCLUDED.completion_time"),

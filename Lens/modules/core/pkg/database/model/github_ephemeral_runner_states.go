@@ -27,6 +27,9 @@ type GithubEphemeralRunnerStates struct {
 	PodCondition    string `gorm:"column:pod_condition;not null;default:''" json:"pod_condition"`
 	PodMessage      string `gorm:"column:pod_message;not null;default:''" json:"pod_message"`
 
+	// SaFE workload association
+	SafeWorkloadID string `gorm:"column:safe_workload_id;not null;default:''" json:"safe_workload_id"` // Associated SaFE UnifiedJob workload name
+
 	// Lifecycle flags
 	IsCompleted bool `gorm:"column:is_completed;not null;default:false" json:"is_completed"`
 	IsDeleted   bool `gorm:"column:is_deleted;not null;default:false" json:"is_deleted"`
