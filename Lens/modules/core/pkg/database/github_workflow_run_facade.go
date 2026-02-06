@@ -168,6 +168,9 @@ type GithubWorkflowRunFacadeInterface interface {
 		githubRunNumber int32,
 	) error
 
+	// UpdateFields updates specific fields of a run by map (for targeted updates without overwriting other fields)
+	UpdateFields(ctx context.Context, id int64, fields map[string]interface{}) error
+
 	// UpdateStatus updates the status of a run
 	UpdateStatus(ctx context.Context, id int64, status string, errMsg string) error
 
@@ -538,6 +541,15 @@ func (f *GithubWorkflowRunFacade) UpdateSyncFields(ctx context.Context, id int64
 		Where(q.ID.Eq(id)).
 		UpdateSimple(updates...)
 	return err
+}
+
+// UpdateFields updates specific fields of a run using a map.
+// This allows targeted updates without overwriting unrelated fields.
+// Used by RunnerStateProcessor and other components that need selective updates.
+func (f *GithubWorkflowRunFacade) UpdateFields(ctx context.Context, id int64, fields map[string]interface{}) error {
+	fields["updated_at"] = time.Now()
+	db := f.getDAL().GithubWorkflowRuns.WithContext(ctx).UnderlyingDB()
+	return db.Model(&model.GithubWorkflowRuns{}).Where("id = ?", id).Updates(fields).Error
 }
 
 // UpdateStatus updates the status of a run
