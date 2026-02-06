@@ -1053,8 +1053,7 @@ func handleGithubRunSummaryGraph(ctx context.Context, req *GithubRunSummaryGraph
 	}
 
 	// Get GitHub jobs for this run summary
-	jobFacade := database.NewGithubWorkflowJobFacade()
-	_ = clusterName // TODO: add cluster support to job facade
+	jobFacade := database.NewGithubWorkflowJobFacade().WithCluster(clusterName)
 	githubJobs, err := jobFacade.ListByRunSummaryID(ctx, id)
 	if err != nil {
 		return nil, errors.WrapError(err, "failed to list github jobs for run summary", errors.CodeDatabaseError)

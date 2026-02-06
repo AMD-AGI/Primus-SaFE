@@ -15,13 +15,18 @@ import (
 
 // GithubWorkflowJobFacade provides database operations for workflow jobs
 type GithubWorkflowJobFacade struct {
-	db *gorm.DB
+	BaseFacade
 }
 
 // NewGithubWorkflowJobFacade creates a new facade instance
 func NewGithubWorkflowJobFacade() *GithubWorkflowJobFacade {
+	return &GithubWorkflowJobFacade{}
+}
+
+// WithCluster returns a new facade instance for the specified cluster
+func (f *GithubWorkflowJobFacade) WithCluster(clusterName string) *GithubWorkflowJobFacade {
 	return &GithubWorkflowJobFacade{
-		db: GetFacade().GetSystemConfig().GetDB(),
+		BaseFacade: BaseFacade{clusterName: clusterName},
 	}
 }
 
@@ -38,7 +43,7 @@ func (f *GithubWorkflowJobFacade) Upsert(ctx context.Context, job *model.GithubW
 		job.CreatedAt = time.Now()
 	}
 
-	return f.db.WithContext(ctx).
+	return f.getDB().WithContext(ctx).
 		Clauses(clause.OnConflict{
 			Columns: []clause.Column{{Name: "run_id"}, {Name: "github_job_id"}},
 			DoUpdates: clause.AssignmentColumns([]string{
@@ -53,7 +58,7 @@ func (f *GithubWorkflowJobFacade) Upsert(ctx context.Context, job *model.GithubW
 // GetByID retrieves a job by ID
 func (f *GithubWorkflowJobFacade) GetByID(ctx context.Context, id int64) (*model.GithubWorkflowJobs, error) {
 	var job model.GithubWorkflowJobs
-	err := f.db.WithContext(ctx).Where("id = ?", id).First(&job).Error
+	err := f.getDB().WithContext(ctx).Where("id = ?", id).First(&job).Error
 	if err == gorm.ErrRecordNotFound {
 		return nil, nil
 	}
@@ -63,7 +68,7 @@ func (f *GithubWorkflowJobFacade) GetByID(ctx context.Context, id int64) (*model
 // ListByRunID lists all jobs for a workflow run
 func (f *GithubWorkflowJobFacade) ListByRunID(ctx context.Context, runID int64) ([]*model.GithubWorkflowJobs, error) {
 	var jobs []*model.GithubWorkflowJobs
-	err := f.db.WithContext(ctx).
+	err := f.getDB().WithContext(ctx).
 		Where("run_id = ?", runID).
 		Order("id ASC").
 		Find(&jobs).Error
@@ -92,15 +97,15 @@ func (f *GithubWorkflowJobFacade) ListByRunIDWithSteps(ctx context.Context, runI
 // DeleteByRunID deletes all jobs for a run
 func (f *GithubWorkflowJobFacade) DeleteByRunID(ctx context.Context, runID int64) error {
 	// First delete all steps for jobs in this run
-	subQuery := f.db.Model(&model.GithubWorkflowJobs{}).Select("id").Where("run_id = ?", runID)
-	if err := f.db.WithContext(ctx).
+	subQuery := f.getDB().Model(&model.GithubWorkflowJobs{}).Select("id").Where("run_id = ?", runID)
+	if err := f.getDB().WithContext(ctx).
 		Where("job_id IN (?)", subQuery).
 		Delete(&model.GithubWorkflowSteps{}).Error; err != nil {
 		return err
 	}
 
 	// Then delete jobs
-	return f.db.WithContext(ctx).
+	return f.getDB().WithContext(ctx).
 		Where("run_id = ?", runID).
 		Delete(&model.GithubWorkflowJobs{}).Error
 }
@@ -183,7 +188,7 @@ func (f *GithubWorkflowJobFacade) SyncFromGitHub(ctx context.Context, runID int6
 // GetByGithubJobID retrieves a job by run_id and github_job_id
 func (f *GithubWorkflowJobFacade) GetByGithubJobID(ctx context.Context, runID, githubJobID int64) (*model.GithubWorkflowJobs, error) {
 	var job model.GithubWorkflowJobs
-	err := f.db.WithContext(ctx).
+	err := f.getDB().WithContext(ctx).
 		Where("run_id = ? AND github_job_id = ?", runID, githubJobID).
 		First(&job).Error
 	if err == gorm.ErrRecordNotFound {
@@ -199,7 +204,7 @@ func (f *GithubWorkflowJobFacade) CountByRunID(ctx context.Context, runID int64)
 		Count      int
 	}
 
-	err = f.db.WithContext(ctx).
+	err = f.getDB().WithContext(ctx).
 		Model(&model.GithubWorkflowJobs{}).
 		Select("conclusion, COUNT(*) as count").
 		Where("run_id = ?", runID).
@@ -226,7 +231,7 @@ func (f *GithubWorkflowJobFacade) CountByRunID(ctx context.Context, runID int64)
 // It joins github_workflow_jobs with github_workflow_runs to find jobs by run_summary_id
 func (f *GithubWorkflowJobFacade) ListByRunSummaryID(ctx context.Context, runSummaryID int64) ([]*model.GithubWorkflowJobs, error) {
 	var jobs []*model.GithubWorkflowJobs
-	err := f.db.WithContext(ctx).
+	err := f.getDB().WithContext(ctx).
 		Joins("JOIN github_workflow_runs r ON r.id = github_workflow_jobs.run_id").
 		Where("r.run_summary_id = ?", runSummaryID).
 		Order("github_workflow_jobs.id ASC").
