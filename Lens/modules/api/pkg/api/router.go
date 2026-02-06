@@ -101,6 +101,13 @@ func RegisterRouter(group *gin.RouterGroup) error {
 	}
 	// Phase 6 Unified: Workload metadata
 	group.GET("workloadMetadata", getUnifiedHandler("/workloadMetadata"))
+
+	// Training Metrics endpoints - Unified (HTTP + MCP)
+	trainingMetricsGroup := group.Group("/training-metrics")
+	{
+		trainingMetricsGroup.GET("", getUnifiedHandler("/training-metrics"))
+		trainingMetricsGroup.GET("/data", getUnifiedHandler("/training-metrics/data"))
+	}
 	storageGroup := group.Group("/storage")
 	{
 		storageGroup.GET("stat", getUnifiedHandler("/storage/stat"))
