@@ -179,9 +179,9 @@ type GithubRunnerSetByIDRequest struct {
 type GithubRunnerSetRunsRequest struct {
 	Cluster string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
 	ID      string `json:"id" form:"id" param:"id" binding:"required" mcp:"description=Runner set ID,required"`
-	Status  string `json:"status" form:"status" mcp:"description=Filter by status"`
-	Offset  int    `json:"offset" form:"offset" mcp:"description=Pagination offset"`
-	Limit   int    `json:"limit" form:"limit" mcp:"description=Pagination limit (max 100)"`
+	Status  string `json:"status" query:"status" mcp:"description=Filter by status"`
+	Offset  int    `json:"offset" query:"offset" mcp:"description=Pagination offset"`
+	Limit   int    `json:"limit" query:"limit" mcp:"description=Pagination limit (max 100)"`
 }
 
 type GithubRunnerSetConfigRequest struct {
