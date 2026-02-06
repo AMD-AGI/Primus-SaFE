@@ -133,14 +133,21 @@ func (f *WorkloadTaskFacade) ListTasksByStatus(ctx context.Context, status strin
 // ListTasksByStatusAndTypes lists tasks by status and filtered by task types.
 // If taskTypes is empty, returns all tasks with the given status (same as ListTasksByStatus).
 // If taskTypes is not empty, only returns tasks whose task_type is in the list.
+// Tasks with a "scheduled_at" field in ext are only returned if the scheduled time has passed.
 func (f *WorkloadTaskFacade) ListTasksByStatusAndTypes(ctx context.Context, status string, taskTypes []string) ([]*model.WorkloadTaskState, error) {
 	var tasks []*model.WorkloadTaskState
 	query := f.getDB().WithContext(ctx).Where("status = ?", status)
-	
+
 	if len(taskTypes) > 0 {
 		query = query.Where("task_type IN ?", taskTypes)
 	}
-	
+
+	// Respect scheduled_at in ext: only pick up tasks that are either not scheduled
+	// or whose scheduled time has already passed.
+	query = query.Where(
+		"ext->>'scheduled_at' IS NULL OR ext->>'scheduled_at' = '' OR (ext->>'scheduled_at')::timestamptz <= NOW()",
+	)
+
 	err := query.Order("created_at ASC").Find(&tasks).Error
 	return tasks, err
 }
