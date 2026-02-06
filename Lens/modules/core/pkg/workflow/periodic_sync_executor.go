@@ -20,8 +20,14 @@ const (
 	// PeriodicSyncInterval is the interval between periodic syncs
 	PeriodicSyncInterval = 5 * time.Minute
 
-	// MaxPeriodicSyncTime is the maximum time to keep syncing a workflow
+	// SlowPeriodicSyncInterval is the interval for long-running workflows (after MaxPeriodicSyncTime)
+	SlowPeriodicSyncInterval = 30 * time.Minute
+
+	// MaxPeriodicSyncTime is the threshold after which syncing switches to slow mode
 	MaxPeriodicSyncTime = 6 * time.Hour
+
+	// AbsoluteMaxSyncTime is the absolute maximum time to keep syncing a workflow (7 days)
+	AbsoluteMaxSyncTime = 7 * 24 * time.Hour
 )
 
 // PeriodicSyncExecutor performs periodic sync every 5 minutes until workflow completes
@@ -69,13 +75,22 @@ func (e *PeriodicSyncExecutor) Execute(ctx context.Context, execCtx *task.Execut
 		return task.FailureResult("run summary not found", nil), nil
 	}
 
-	// Check if exceeded max sync time
-	if time.Since(summary.CreatedAt) > MaxPeriodicSyncTime {
-		log.Warnf("PeriodicSyncExecutor: exceeded max sync time for run summary %d", runSummaryID)
+	// Check if exceeded absolute max sync time (7 days)
+	summaryAge := time.Since(summary.CreatedAt)
+	if summaryAge > AbsoluteMaxSyncTime {
+		log.Warnf("PeriodicSyncExecutor: exceeded absolute max sync time (%v) for run summary %d, giving up",
+			AbsoluteMaxSyncTime, runSummaryID)
 		return task.SuccessResult(map[string]interface{}{
 			"status":  "timeout",
-			"message": "exceeded max periodic sync time",
+			"message": "exceeded absolute max periodic sync time",
 		}), nil
+	}
+
+	// Determine sync interval: slow mode after MaxPeriodicSyncTime
+	isSlowMode := summaryAge > MaxPeriodicSyncTime
+	syncInterval := PeriodicSyncInterval
+	if isSlowMode {
+		syncInterval = SlowPeriodicSyncInterval
 	}
 
 	// Check if already completed
@@ -134,7 +149,7 @@ func (e *PeriodicSyncExecutor) Execute(ctx context.Context, execCtx *task.Execut
 	if err != nil {
 		log.Warnf("PeriodicSyncExecutor: failed to get workflow run %d: %v", summary.GithubRunID, err)
 		// Schedule next sync despite error (transient failure)
-		e.scheduleNextSync(ctx, runSummaryID)
+		e.scheduleNextSyncWithInterval(ctx, runSummaryID, syncInterval)
 		return task.SuccessResult(map[string]interface{}{
 			"status": "retry",
 			"error":  err.Error(),
@@ -161,14 +176,19 @@ func (e *PeriodicSyncExecutor) Execute(ctx context.Context, execCtx *task.Execut
 		log.Warnf("PeriodicSyncExecutor: failed to get jobs for summary %d: %v", summary.ID, err)
 	}
 
-	// If workflow not completed, schedule next sync
+	// If workflow not completed, schedule next sync with appropriate interval
 	if ghRun.Status != "completed" {
-		e.scheduleNextSync(ctx, runSummaryID)
-		log.Infof("PeriodicSyncExecutor: synced run summary %d (status: %s), scheduled next sync in %v",
-			runSummaryID, ghRun.Status, PeriodicSyncInterval)
+		e.scheduleNextSyncWithInterval(ctx, runSummaryID, syncInterval)
+		if isSlowMode {
+			log.Infof("PeriodicSyncExecutor: synced run summary %d (status: %s, slow mode), scheduled next sync in %v",
+				runSummaryID, ghRun.Status, syncInterval)
+		} else {
+			log.Infof("PeriodicSyncExecutor: synced run summary %d (status: %s), scheduled next sync in %v",
+				runSummaryID, ghRun.Status, syncInterval)
+		}
 		return task.SuccessResult(map[string]interface{}{
 			"status":    ghRun.Status,
-			"next_sync": time.Now().Add(PeriodicSyncInterval).Format(time.RFC3339),
+			"next_sync": time.Now().Add(syncInterval).Format(time.RFC3339),
 		}), nil
 	}
 
@@ -185,11 +205,11 @@ func (e *PeriodicSyncExecutor) Execute(ctx context.Context, execCtx *task.Execut
 	}), nil
 }
 
-// scheduleNextSync schedules the next periodic sync
-func (e *PeriodicSyncExecutor) scheduleNextSync(ctx context.Context, runSummaryID int64) {
+// scheduleNextSyncWithInterval schedules the next periodic sync with the given interval
+func (e *PeriodicSyncExecutor) scheduleNextSyncWithInterval(ctx context.Context, runSummaryID int64, interval time.Duration) {
 	taskFacade := database.NewWorkloadTaskFacade()
 
-	scheduledAt := time.Now().Add(PeriodicSyncInterval)
+	scheduledAt := time.Now().Add(interval)
 	taskUID := fmt.Sprintf("periodic-sync-%d-%d", runSummaryID, scheduledAt.Unix())
 
 	syncTask := &model.WorkloadTaskState{
