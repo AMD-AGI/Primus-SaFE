@@ -19,6 +19,7 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/workflow"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/github-runners-exporter/pkg/backfill"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/github-runners-exporter/pkg/executor"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/github-runners-exporter/pkg/processor"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/github-runners-exporter/pkg/reconciler"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/github-runners-exporter/pkg/types"
 	corev1 "k8s.io/api/core/v1"
@@ -61,6 +62,8 @@ var (
 	taskScheduler *task.TaskScheduler
 	// backfillRunner is the global backfill runner for this exporter
 	backfillRunner *backfill.WorkflowBackfillRunner
+	// stateProcessor processes runner state changes and creates tasks
+	stateProcessor *processor.RunnerStateProcessor
 )
 
 // defaultAgentEndpoint is the default in-cluster endpoint for the AI agent service.
@@ -80,6 +83,11 @@ func Init(ctx context.Context, cfg *config.Config) error {
 
 	// Initialize TaskScheduler for collection tasks
 	if err := InitTaskScheduler(ctx); err != nil {
+		return err
+	}
+
+	// Initialize RunnerStateProcessor (reads runner_states table, creates tasks)
+	if err := InitStateProcessor(ctx); err != nil {
 		return err
 	}
 
@@ -246,6 +254,28 @@ func InitTaskScheduler(ctx context.Context) error {
 func StopTaskScheduler() error {
 	if taskScheduler != nil {
 		return taskScheduler.Stop()
+	}
+	return nil
+}
+
+// InitStateProcessor initializes the RunnerStateProcessor for processing K8s state changes
+func InitStateProcessor(ctx context.Context) error {
+	stateProcessor = processor.NewRunnerStateProcessor(&processor.ProcessorConfig{
+		ScanInterval: 3 * time.Second,
+		BatchSize:    100,
+	})
+
+	if err := stateProcessor.Start(ctx); err != nil {
+		return err
+	}
+	log.Info("RunnerStateProcessor started for K8s state processing")
+	return nil
+}
+
+// StopStateProcessor stops the RunnerStateProcessor gracefully
+func StopStateProcessor() error {
+	if stateProcessor != nil {
+		return stateProcessor.Stop()
 	}
 	return nil
 }
