@@ -33,6 +33,12 @@ data:
       sources:
         {{- toYaml .Values.apps.skillsRepository.config.discovery.sources | nindent 8 }}
       {{- end }}
+    runner:
+      enabled: {{ .Values.apps.skillsRepository.config.runner.enabled | default false }}
+      base_url: {{ .Values.apps.skillsRepository.config.runner.baseURL | default "" | quote }}
+      timeout: {{ .Values.apps.skillsRepository.config.runner.timeout | default 30 }}
+    storage:
+      provider: {{ .Values.apps.skillsRepository.config.storage.provider | default "local" | quote }}
 
 ---
 apiVersion: apps/v1
@@ -78,12 +84,59 @@ spec:
             secretKeyRef:
               name: {{ include "lens.fullname" . }}-pguser-{{ .Values.apps.skillsRepository.config.db.userName | default "primus-lens-control-plane" }}
               key: password
-        {{- if .Values.apps.skillsRepository.config.embedding.apiKeySecret }}
-        - name: OPENAI_API_KEY
+        # Embedding configuration
+        - name: EMBEDDING_ENABLED
+          value: {{ .Values.apps.skillsRepository.config.embedding.enabled | default false | quote }}
+        {{- if .Values.apps.skillsRepository.config.embedding.enabled }}
+        - name: EMBEDDING_PROVIDER
+          value: {{ .Values.apps.skillsRepository.config.embedding.provider | default "openai" | quote }}
+        - name: EMBEDDING_MODEL
+          value: {{ .Values.apps.skillsRepository.config.embedding.model | default "BAAI/bge-m3" | quote }}
+        - name: EMBEDDING_DIMENSION
+          value: {{ .Values.apps.skillsRepository.config.embedding.dimension | default 1024 | quote }}
+        - name: EMBEDDING_BASE_URL
+          value: {{ .Values.apps.skillsRepository.config.embedding.baseURL | default "" | quote }}
+        {{- if .Values.apps.skillsRepository.config.embedding.apiKeySecret.name }}
+        - name: EMBEDDING_API_KEY
           valueFrom:
             secretKeyRef:
               name: {{ .Values.apps.skillsRepository.config.embedding.apiKeySecret.name }}
               key: {{ .Values.apps.skillsRepository.config.embedding.apiKeySecret.key | default "api-key" }}
+        {{- end }}
+        {{- end }}
+        # Runner configuration
+        - name: RUNNER_ENABLED
+          value: {{ .Values.apps.skillsRepository.config.runner.enabled | default false | quote }}
+        {{- if .Values.apps.skillsRepository.config.runner.enabled }}
+        - name: RUNNER_BASE_URL
+          value: {{ .Values.apps.skillsRepository.config.runner.baseURL | default "" | quote }}
+        - name: RUNNER_TIMEOUT
+          value: {{ .Values.apps.skillsRepository.config.runner.timeout | default 30 | quote }}
+        {{- end }}
+        # Storage configuration
+        - name: STORAGE_PROVIDER
+          value: {{ .Values.apps.skillsRepository.config.storage.provider | default "local" | quote }}
+        - name: STORAGE_BUCKET
+          value: {{ .Values.apps.skillsRepository.config.storage.bucket | default "skills-repository" | quote }}
+        {{- if eq .Values.apps.skillsRepository.config.storage.provider "s3" }}
+        - name: STORAGE_ENDPOINT
+          value: {{ .Values.apps.skillsRepository.config.storage.s3.endpoint | quote }}
+        - name: STORAGE_REGION
+          value: {{ .Values.apps.skillsRepository.config.storage.s3.region | default "us-east-1" | quote }}
+        - name: STORAGE_USE_SSL
+          value: {{ .Values.apps.skillsRepository.config.storage.s3.useSSL | default true | quote }}
+        {{- if .Values.apps.skillsRepository.config.storage.s3.credentialsSecret.name }}
+        - name: STORAGE_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.apps.skillsRepository.config.storage.s3.credentialsSecret.name }}
+              key: {{ .Values.apps.skillsRepository.config.storage.s3.credentialsSecret.accessKeyField | default "access-key" }}
+        - name: STORAGE_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.apps.skillsRepository.config.storage.s3.credentialsSecret.name }}
+              key: {{ .Values.apps.skillsRepository.config.storage.s3.credentialsSecret.secretKeyField | default "secret-key" }}
+        {{- end }}
         {{- end }}
         {{- if .Values.global.tracing.enabled }}
         - name: OTEL_EXPORTER_OTLP_ENDPOINT
@@ -103,13 +156,13 @@ spec:
         {{- end }}
         livenessProbe:
           httpGet:
-            path: /api/v1/health
+            path: /api/v1/tools/health
             port: {{ .Values.apps.skillsRepository.httpPort | default 8092 }}
           initialDelaySeconds: 10
           periodSeconds: 30
         readinessProbe:
           httpGet:
-            path: /api/v1/health
+            path: /api/v1/tools/health
             port: {{ .Values.apps.skillsRepository.httpPort | default 8092 }}
           initialDelaySeconds: 5
           periodSeconds: 10

@@ -16,6 +16,8 @@ type Config struct {
 	Database  DatabaseConfig  `yaml:"database"`
 	Embedding EmbeddingConfig `yaml:"embedding"`
 	Discovery DiscoveryConfig `yaml:"discovery"`
+	Runner    RunnerConfig    `yaml:"runner"`
+	Storage   StorageConfig   `yaml:"storage"`
 }
 
 // ServerConfig represents server configuration
@@ -35,6 +37,7 @@ type DatabaseConfig struct {
 
 // EmbeddingConfig represents embedding service configuration
 type EmbeddingConfig struct {
+	Enabled   bool   `yaml:"enabled"`
 	Provider  string `yaml:"provider"`
 	Model     string `yaml:"model"`
 	Dimension int    `yaml:"dimension"`
@@ -59,6 +62,24 @@ type SourceConfig struct {
 	Watch    bool   `yaml:"watch"`
 }
 
+// RunnerConfig represents execution backend configuration
+type RunnerConfig struct {
+	Enabled bool   `yaml:"enabled"`
+	BaseURL string `yaml:"base_url"` // Backend URL for app execution
+	Timeout int    `yaml:"timeout"`  // Request timeout in seconds
+}
+
+// StorageConfig represents object storage configuration
+type StorageConfig struct {
+	Provider  string `yaml:"provider"` // s3, minio, local
+	Endpoint  string `yaml:"endpoint"`
+	Bucket    string `yaml:"bucket"`
+	Region    string `yaml:"region"`
+	AccessKey string `yaml:"access_key"`
+	SecretKey string `yaml:"secret_key"`
+	UseSSL    bool   `yaml:"use_ssl"`
+}
+
 // Load loads configuration from environment variables and config file
 func Load() (*Config, error) {
 	cfg := &Config{
@@ -74,15 +95,30 @@ func Load() (*Config, error) {
 			SSLMode:  getEnv("DB_SSL_MODE", "require"),
 		},
 		Embedding: EmbeddingConfig{
+			Enabled:   getEnvBool("EMBEDDING_ENABLED", false),
 			Provider:  getEnv("EMBEDDING_PROVIDER", "openai"),
 			Model:     getEnv("EMBEDDING_MODEL", "BAAI/bge-m3"),
 			Dimension: getEnvInt("EMBEDDING_DIMENSION", 1024),
-			APIKey:    getEnv("OPENAI_API_KEY", ""),
-			BaseURL:   getEnv("OPENAI_BASE_URL", ""),
+			APIKey:    getEnv("EMBEDDING_API_KEY", ""),
+			BaseURL:   getEnv("EMBEDDING_BASE_URL", ""),
 		},
 		Discovery: DiscoveryConfig{
 			SyncInterval: getEnv("DISCOVERY_SYNC_INTERVAL", "5m"),
 			WatchEnabled: getEnvBool("DISCOVERY_WATCH_ENABLED", true),
+		},
+		Runner: RunnerConfig{
+			Enabled: getEnvBool("RUNNER_ENABLED", false),
+			BaseURL: getEnv("RUNNER_BASE_URL", "http://localhost:8000"),
+			Timeout: getEnvInt("RUNNER_TIMEOUT", 30),
+		},
+		Storage: StorageConfig{
+			Provider:  getEnv("STORAGE_PROVIDER", "local"),
+			Endpoint:  getEnv("STORAGE_ENDPOINT", ""),
+			Bucket:    getEnv("STORAGE_BUCKET", "skills-repository"),
+			Region:    getEnv("STORAGE_REGION", "us-east-1"),
+			AccessKey: getEnv("STORAGE_ACCESS_KEY", ""),
+			SecretKey: getEnv("STORAGE_SECRET_KEY", ""),
+			UseSSL:    getEnvBool("STORAGE_USE_SSL", true),
 		},
 	}
 

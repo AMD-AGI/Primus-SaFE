@@ -10,26 +10,25 @@ import (
 	"time"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/controlplane/database"
-	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/skills-repository/pkg/api"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/skills-repository/pkg/config"
-	"github.com/AMD-AGI/Primus-SaFE/Lens/skills-repository/pkg/discovery"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/skills-repository/pkg/embedding"
-	"github.com/AMD-AGI/Primus-SaFE/Lens/skills-repository/pkg/mcp"
-	"github.com/AMD-AGI/Primus-SaFE/Lens/skills-repository/pkg/registry"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/skills-repository/pkg/runner"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/skills-repository/pkg/storage"
 	"github.com/gin-gonic/gin"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
 
-// Server represents the skills repository server
+// Server represents the tools server
 type Server struct {
 	config     *config.Config
 	db         *gorm.DB
 	httpServer *http.Server
-	registry   *registry.SkillsRegistry
-	discovery  *discovery.SkillsDiscovery
-	embedder   embedding.Embedder
+	facade     *database.ToolFacade
+	runner     *runner.Runner
+	storage    storage.Storage
+	embedding  *embedding.Service
 }
 
 // NewServer creates a new Server instance
@@ -46,59 +45,65 @@ func NewServer() (*Server, error) {
 		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
 
-	// Initialize control plane facade
-	database.InitControlPlaneFacade(db)
+	// Create facade
+	facade := database.NewToolFacade(db)
 
-	// Create embedder
-	embedder := embedding.NewOpenAIEmbedder(cfg.Embedding)
-
-	// Create registry
-	reg := registry.NewSkillsRegistry(database.GetControlPlaneFacade(), embedder)
-
-	// Create discovery
-	disc, err := discovery.NewSkillsDiscovery(cfg.Discovery, reg)
+	// Create storage
+	storageService, err := storage.NewStorage(cfg.Storage)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create discovery: %w", err)
+		fmt.Printf("Warning: Failed to create storage service: %v\n", err)
+	}
+
+	// Create runner (if enabled)
+	var toolRunner *runner.Runner
+	if cfg.Runner.Enabled {
+		backend := runner.NewHTTPBackend(runner.HTTPBackendConfig{
+			BaseURL: cfg.Runner.BaseURL,
+		})
+		toolRunner = runner.NewRunner(backend)
+		fmt.Printf("Runner enabled: %s\n", cfg.Runner.BaseURL)
+	}
+
+	// Create embedding service (if enabled)
+	var embeddingSvc *embedding.Service
+	if cfg.Embedding.Enabled {
+		embeddingSvc = embedding.NewService(embedding.Config{
+			Enabled:   cfg.Embedding.Enabled,
+			BaseURL:   cfg.Embedding.BaseURL,
+			APIKey:    cfg.Embedding.APIKey,
+			Model:     cfg.Embedding.Model,
+			Dimension: cfg.Embedding.Dimension,
+		})
+		fmt.Printf("Embedding enabled: model=%s, dimension=%d\n", cfg.Embedding.Model, cfg.Embedding.Dimension)
 	}
 
 	return &Server{
 		config:    cfg,
 		db:        db,
-		registry:  reg,
-		discovery: disc,
-		embedder:  embedder,
+		facade:    facade,
+		runner:    toolRunner,
+		storage:   storageService,
+		embedding: embeddingSvc,
 	}, nil
 }
 
 // Start starts the server
 func (s *Server) Start() error {
-	// Start discovery
-	ctx := context.Background()
-	if err := s.discovery.Start(ctx); err != nil {
-		log.Warnf("Failed to start discovery: %v", err)
-	}
-
 	// Setup HTTP server
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()
 	router.Use(gin.Recovery())
 
 	// Register API routes
-	apiHandler := api.NewHandler(s.registry, s.embedder)
-	api.RegisterRoutes(router, apiHandler)
-
-	// Register MCP routes for standalone MCP server
-	mcpHandler := mcp.NewHandler(s.registry)
-	mcpHandler.RegisterRoutes(router)
-	log.Infof("MCP Server enabled with %d tools", mcpHandler.GetServer().ToolCount())
+	handler := api.NewHandler(s.facade, s.runner, s.storage, s.embedding)
+	api.RegisterRoutes(router, handler)
 
 	s.httpServer = &http.Server{
 		Addr:    fmt.Sprintf(":%d", s.config.Server.Port),
 		Handler: router,
 	}
 
-	log.Infof("Skills Repository listening on port %d", s.config.Server.Port)
-	log.Infof("MCP SSE endpoint: http://localhost:%d/mcp/sse", s.config.Server.Port)
+	fmt.Printf("Tools API listening on port %d\n", s.config.Server.Port)
 	return s.httpServer.ListenAndServe()
 }
 
@@ -107,10 +112,6 @@ func (s *Server) Stop() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// Stop discovery
-	s.discovery.Stop()
-
-	// Shutdown HTTP server
 	if s.httpServer != nil {
 		return s.httpServer.Shutdown(ctx)
 	}

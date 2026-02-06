@@ -94,13 +94,13 @@ spec:
           subPath: config.yaml
         livenessProbe:
           httpGet:
-            path: /api/v1/health
+            path: /api/v1/tools/health
             port: 8092
           initialDelaySeconds: 10
           periodSeconds: 30
         readinessProbe:
           httpGet:
-            path: /api/v1/health
+            path: /api/v1/tools/health
             port: 8092
           initialDelaySeconds: 5
           periodSeconds: 10
