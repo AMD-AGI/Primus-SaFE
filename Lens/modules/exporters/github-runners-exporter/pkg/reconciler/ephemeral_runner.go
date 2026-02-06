@@ -255,10 +255,11 @@ func (r *EphemeralRunnerReconciler) removeFinalizer(ctx context.Context, obj *un
 }
 
 // resolveSafeWorkload looks up the associated SaFE UnifiedJob workload for this EphemeralRunner.
-// It queries the SaFE Workload CRD (amd.com/v1/workloads) by label:
 //
-//	primus-safe.scale.runner.id=<ephemeral-runner-name>
-//	primus-safe.workload.kind=UnifiedJob
+// The association works in two steps (SaFE Workload CRD is cluster-scoped):
+//  1. GET the SaFE Workload with the same name as this launcher EphemeralRunner
+//  2. Read its primus-safe.scale.runner.id label (which is the worker pod name)
+//  3. Find the UnifiedJob with the same scale.runner.id
 //
 // If found, the UnifiedJob workload name is stored in info.SafeWorkloadID.
 // For runners without a matching UnifiedJob, this is a no-op.
@@ -272,29 +273,45 @@ func (r *EphemeralRunnerReconciler) resolveSafeWorkload(ctx context.Context, inf
 		return
 	}
 
+	// Step 1: GET the SaFE Workload with the same name as this EphemeralRunner
+	// SaFE Workload CRD is cluster-scoped, so no namespace needed
+	safeWorkload, err := r.dynamicClient.Resource(types.SafeWorkloadGVR).
+		Get(ctx, info.Name, metav1.GetOptions{})
+	if err != nil {
+		// No matching SaFE Workload - normal for runners without SaFE association
+		log.Debugf("EphemeralRunnerReconciler: no SaFE workload found for %s: %v", info.Name, err)
+		return
+	}
+
+	// Step 2: Read the scale.runner.id label (this is the worker pod name that links both workloads)
+	safeLabels := safeWorkload.GetLabels()
+	scaleRunnerID, ok := safeLabels[types.LabelSafeScaleRunnerID]
+	if !ok || scaleRunnerID == "" {
+		log.Debugf("EphemeralRunnerReconciler: SaFE workload %s has no scale.runner.id label", info.Name)
+		return
+	}
+
+	// Step 3: Find the UnifiedJob with the same scale.runner.id
 	labelSelector := labels.SelectorFromSet(map[string]string{
-		types.LabelSafeScaleRunnerID: info.Name,
+		types.LabelSafeScaleRunnerID: scaleRunnerID,
 		types.LabelSafeWorkloadKind:  types.SafeUnifiedJobKind,
 	}).String()
 
-	// Search across all namespaces since SaFE Workloads may reside in
-	// a different namespace (workspace ns) than the EphemeralRunner (ARC ns)
 	workloadList, err := r.dynamicClient.Resource(types.SafeWorkloadGVR).
 		List(ctx, metav1.ListOptions{
 			LabelSelector: labelSelector,
 			Limit:         1,
 		})
 	if err != nil {
-		// SaFE Workload CRD may not exist in all clusters - this is expected
-		log.Debugf("EphemeralRunnerReconciler: failed to list SaFE workloads for %s/%s: %v",
-			info.Namespace, info.Name, err)
+		log.Debugf("EphemeralRunnerReconciler: failed to list UnifiedJob for scaleRunnerId %s: %v",
+			scaleRunnerID, err)
 		return
 	}
 
 	if len(workloadList.Items) > 0 {
 		info.SafeWorkloadID = workloadList.Items[0].GetName()
-		log.Debugf("EphemeralRunnerReconciler: resolved SaFE UnifiedJob %q for runner %s/%s",
-			info.SafeWorkloadID, info.Namespace, info.Name)
+		log.Infof("EphemeralRunnerReconciler: resolved SaFE UnifiedJob %q for runner %s (via scaleRunnerId %s)",
+			info.SafeWorkloadID, info.Name, scaleRunnerID)
 	}
 }
 
