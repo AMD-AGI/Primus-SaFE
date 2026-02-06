@@ -1274,7 +1274,7 @@ func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context,
 	if str := dbutils.ParseNullString(dbWorkload.Pods); str != "" {
 		json.Unmarshal([]byte(str), &result.Pods)
 		for i, p := range result.Pods {
-			result.Pods[i].SSHAddr = h.buildSSHAddress(ctx,
+			result.Pods[i].SSHCommand = h.buildSSHAddress(ctx,
 				&p.WorkloadPod, user.Name, result.WorkspaceId, result.GroupVersionKind)
 		}
 	}
@@ -1368,7 +1368,7 @@ func (h *Handler) buildSSHAddress(ctx context.Context, pod *v1.WorkloadPod, user
 	}
 	// pattern: {userId}.{podId}.{container}.sh.{workspace}@{host}
 	// e.g. ssh -o ServerAliveInterval=60 7fda556669b09dcec5d779438e7432c5.verl40-fpg88-master-0.pytorch.sh.x-flannel-prod@tw325.primus-safe.amd.com -p 2222
-	return fmt.Sprintf("ssh -o ServerAliveInterval=60  %s.%s.%s.sh.%s@%s -p %d", userId, pod.PodId,
+	return fmt.Sprintf("ssh -o ServerAliveInterval=60 %s.%s.%s.sh.%s@%s -p %d", userId, pod.PodId,
 		v1.GetMainContainer(template), workspace, commonconfig.GetSystemHost(), commonconfig.GetSSHServerPort())
 }
 

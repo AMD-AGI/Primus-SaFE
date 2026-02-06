@@ -196,7 +196,7 @@ type GetWorkloadResponse struct {
 type WorkloadPodWrapper struct {
 	v1.WorkloadPod
 	// SSH address to log in
-	SSHAddr string `json:"sshAddr,omitempty"`
+	SSHCommand string `json:"sshCommand,omitempty"`
 }
 
 type PatchWorkloadRequest struct {
