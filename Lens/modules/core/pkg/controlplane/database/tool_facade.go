@@ -216,3 +216,58 @@ func (f *ToolFacade) UpdateEmbedding(id int64, embedding []float32) error {
 	return f.db.Model(&model.Tool{}).Where("id = ?", id).
 		Update("embedding", gorm.Expr("?::vector", embStr)).Error
 }
+
+// Like adds a like from a user to a tool
+func (f *ToolFacade) Like(toolID int64, userID string) error {
+	return f.db.Transaction(func(tx *gorm.DB) error {
+		// Try to insert like record (will fail if already exists due to unique constraint)
+		like := &model.ToolLike{ToolID: toolID, UserID: userID}
+		result := tx.Create(like)
+		if result.Error != nil {
+			// If it's a unique constraint violation, the user already liked
+			return result.Error
+		}
+
+		// Increment like count
+		return tx.Model(&model.Tool{}).Where("id = ?", toolID).
+			Update("like_count", gorm.Expr("like_count + 1")).Error
+	})
+}
+
+// Unlike removes a like from a user to a tool
+func (f *ToolFacade) Unlike(toolID int64, userID string) error {
+	return f.db.Transaction(func(tx *gorm.DB) error {
+		// Delete like record
+		result := tx.Where("tool_id = ? AND user_id = ?", toolID, userID).
+			Delete(&model.ToolLike{})
+		if result.Error != nil {
+			return result.Error
+		}
+
+		// Only decrement if a record was actually deleted
+		if result.RowsAffected > 0 {
+			return tx.Model(&model.Tool{}).Where("id = ?", toolID).
+				Update("like_count", gorm.Expr("like_count - 1")).Error
+		}
+		return nil
+	})
+}
+
+// IsLiked checks if a user has liked a tool
+func (f *ToolFacade) IsLiked(toolID int64, userID string) (bool, error) {
+	var count int64
+	err := f.db.Model(&model.ToolLike{}).
+		Where("tool_id = ? AND user_id = ?", toolID, userID).
+		Count(&count).Error
+	return count > 0, err
+}
+
+// GetLikeCount returns the like count for a tool
+func (f *ToolFacade) GetLikeCount(toolID int64) (int, error) {
+	var tool model.Tool
+	err := f.db.Select("like_count").Where("id = ?", toolID).First(&tool).Error
+	if err != nil {
+		return 0, err
+	}
+	return tool.LikeCount, nil
+}
