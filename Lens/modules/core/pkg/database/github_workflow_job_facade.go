@@ -82,7 +82,7 @@ func (f *GithubWorkflowJobFacade) ListByRunIDWithSteps(ctx context.Context, runI
 		return nil, err
 	}
 
-	stepFacade := NewGithubWorkflowStepFacade()
+	stepFacade := NewGithubWorkflowStepFacade().WithCluster(f.clusterName)
 	result := make([]*JobWithSteps, len(jobs))
 	for i, job := range jobs {
 		steps, _ := stepFacade.ListByJobID(ctx, job.ID)
@@ -112,7 +112,7 @@ func (f *GithubWorkflowJobFacade) DeleteByRunID(ctx context.Context, runID int64
 
 // SyncFromGitHub syncs jobs and steps from GitHub API data
 func (f *GithubWorkflowJobFacade) SyncFromGitHub(ctx context.Context, runID int64, ghJobs []github.JobInfo) error {
-	stepFacade := NewGithubWorkflowStepFacade()
+	stepFacade := NewGithubWorkflowStepFacade().WithCluster(f.clusterName)
 
 	for _, ghJob := range ghJobs {
 		// Calculate duration
@@ -246,7 +246,7 @@ func (f *GithubWorkflowJobFacade) ListByRunSummaryIDWithSteps(ctx context.Contex
 		return nil, err
 	}
 
-	stepFacade := NewGithubWorkflowStepFacade()
+	stepFacade := NewGithubWorkflowStepFacade().WithCluster(f.clusterName)
 	result := make([]*JobWithSteps, len(jobs))
 	for i, job := range jobs {
 		steps, _ := stepFacade.ListByJobID(ctx, job.ID)

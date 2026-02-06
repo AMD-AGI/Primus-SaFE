@@ -906,26 +906,25 @@ func handleGithubRepositoryMetricsTrends(ctx context.Context, req *GithubReposit
 
 // Helper function to get cluster name
 func getClusterNameForGithubWorkflowFromRequest(cluster string) (string, error) {
-	if cluster == "" {
-		cm := clientsets.GetClusterManager()
-		// Use default dataplane cluster, not current cluster (which is control-plane)
-		defaultCluster := cm.GetDefaultClusterName()
-		if defaultCluster != "" {
-			return defaultCluster, nil
-		}
-		// Fallback: try to find a dataplane cluster from available clusters
-		currentCluster := cm.GetCurrentClusterName()
-		clusterNames := cm.GetClusterNames()
-		for _, name := range clusterNames {
-			// Skip control-plane cluster
-			if name != currentCluster && name != "control-plane" {
-				return name, nil
-			}
-		}
-		// Last resort: use current cluster
-		return currentCluster, nil
+	cm := clientsets.GetClusterManager()
+	// Resolve through cluster manager to validate and get the actual internal name
+	clients, err := cm.GetClusterClientsOrDefault(cluster)
+	if err == nil {
+		return clients.ClusterName, nil
 	}
-	return cluster, nil
+	// If the provided cluster name is not found, fall back to default
+	if cluster != "" {
+		clients, err = cm.GetClusterClientsOrDefault("")
+		if err == nil {
+			return clients.ClusterName, nil
+		}
+	}
+	// Last resort fallback
+	defaultCluster := cm.GetDefaultClusterName()
+	if defaultCluster != "" {
+		return defaultCluster, nil
+	}
+	return cm.GetCurrentClusterName(), nil
 }
 
 // ======================== Run Summary Handler Implementations ========================
