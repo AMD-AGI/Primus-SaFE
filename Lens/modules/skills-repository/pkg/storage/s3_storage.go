@@ -60,6 +60,13 @@ func NewS3Storage(cfg S3Config) (*S3Storage, error) {
 		o.UsePathStyle = cfg.UsePathStyle
 	})
 
+	// Auto-create bucket if it doesn't exist (private by default)
+	if err := ensureBucketExists(context.Background(), client, cfg.Bucket); err != nil {
+		// Log warning but don't fail - bucket might already exist or user might not have CreateBucket permission
+		// The actual upload will fail if bucket doesn't exist
+		_ = err
+	}
+
 	urlExpiry := cfg.URLExpiry
 	if urlExpiry == 0 {
 		urlExpiry = 1 * time.Hour
@@ -71,6 +78,30 @@ func NewS3Storage(cfg S3Config) (*S3Storage, error) {
 		presigner: s3.NewPresignClient(client),
 		urlExpiry: urlExpiry,
 	}, nil
+}
+
+// ensureBucketExists creates the bucket if it doesn't exist
+func ensureBucketExists(ctx context.Context, client *s3.Client, bucket string) error {
+	// Check if bucket exists
+	_, err := client.HeadBucket(ctx, &s3.HeadBucketInput{
+		Bucket: aws.String(bucket),
+	})
+	if err == nil {
+		// Bucket already exists
+		return nil
+	}
+
+	// Try to create the bucket (private by default, no public access)
+	_, err = client.CreateBucket(ctx, &s3.CreateBucketInput{
+		Bucket: aws.String(bucket),
+	})
+	if err != nil {
+		// Ignore "bucket already exists" errors
+		// Different S3 implementations return different error types
+		return err
+	}
+
+	return nil
 }
 
 // Upload uploads a file to S3
