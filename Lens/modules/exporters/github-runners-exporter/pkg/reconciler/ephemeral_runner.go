@@ -118,31 +118,8 @@ func (r *EphemeralRunnerReconciler) Reconcile(ctx context.Context, req reconcile
 	// Parse the object
 	info := types.ParseEphemeralRunner(obj)
 
-	// Handle finalizer for tracking deletion
-	if obj.GetDeletionTimestamp() != nil {
-		// Object is being deleted
-		if containsFinalizer(obj.GetFinalizers(), finalizerName) {
-			// Mark state as deleted in DB before removing finalizer
-			info.IsCompleted = true
-			if err := r.markDeleted(ctx, info); err != nil {
-				log.Errorf("EphemeralRunnerReconciler: failed to mark deleted for %s/%s: %v",
-					req.Namespace, req.Name, err)
-				return ctrl.Result{RequeueAfter: 5 * time.Second}, err
-			}
-
-			// Remove finalizer to allow K8s deletion to proceed
-			if err := r.removeFinalizer(ctx, obj); err != nil {
-				log.Errorf("EphemeralRunnerReconciler: failed to remove finalizer from %s/%s: %v",
-					req.Namespace, req.Name, err)
-				return ctrl.Result{RequeueAfter: 5 * time.Second}, err
-			}
-			log.Infof("EphemeralRunnerReconciler: marked deleted and removed finalizer from %s/%s", req.Namespace, req.Name)
-		}
-		return ctrl.Result{}, nil
-	}
-
-	// Add finalizer if not present
-	if !containsFinalizer(obj.GetFinalizers(), finalizerName) {
+	// Add finalizer if not present (before deletion check, so we always have it)
+	if obj.GetDeletionTimestamp() == nil && !containsFinalizer(obj.GetFinalizers(), finalizerName) {
 		if err := r.addFinalizer(ctx, obj); err != nil {
 			log.Errorf("EphemeralRunnerReconciler: failed to add finalizer to %s/%s: %v",
 				req.Namespace, req.Name, err)
@@ -160,7 +137,43 @@ func (r *EphemeralRunnerReconciler) Reconcile(ctx context.Context, req reconcile
 	// Resolve associated SaFE UnifiedJob workload (if any)
 	r.resolveSafeWorkload(ctx, info)
 
-	// Upsert raw state to database - this is the only DB write the reconciler does
+	// Handle deletion: only finalize when the Pod is no longer running.
+	// ARC sets deletionTimestamp early but keeps the Pod alive via its own finalizers
+	// until the GitHub Actions job completes. We must continue tracking state during
+	// this graceful shutdown period.
+	if obj.GetDeletionTimestamp() != nil && containsFinalizer(obj.GetFinalizers(), finalizerName) {
+		podDone := r.isPodTerminated(info)
+		if podDone {
+			// Pod is done - mark as deleted and remove our finalizer
+			info.IsCompleted = true
+			if err := r.markDeleted(ctx, info); err != nil {
+				log.Errorf("EphemeralRunnerReconciler: failed to mark deleted for %s/%s: %v",
+					req.Namespace, req.Name, err)
+				return ctrl.Result{RequeueAfter: 5 * time.Second}, err
+			}
+
+			if err := r.removeFinalizer(ctx, obj); err != nil {
+				log.Errorf("EphemeralRunnerReconciler: failed to remove finalizer from %s/%s: %v",
+					req.Namespace, req.Name, err)
+				return ctrl.Result{RequeueAfter: 5 * time.Second}, err
+			}
+			log.Infof("EphemeralRunnerReconciler: pod terminated, marked deleted and removed finalizer from %s/%s",
+				req.Namespace, req.Name)
+			return ctrl.Result{}, nil
+		}
+
+		// Pod still running during graceful shutdown - upsert latest state and requeue
+		if err := r.upsertState(ctx, info); err != nil {
+			log.Errorf("EphemeralRunnerReconciler: failed to upsert state for %s/%s: %v",
+				req.Namespace, req.Name, err)
+			return ctrl.Result{RequeueAfter: 30 * time.Second}, err
+		}
+		log.Debugf("EphemeralRunnerReconciler: %s/%s has deletionTimestamp but pod still running (phase: %s), requeueing",
+			req.Namespace, req.Name, info.PodPhase)
+		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+	}
+
+	// Normal path: upsert raw state to database
 	if err := r.upsertState(ctx, info); err != nil {
 		log.Errorf("EphemeralRunnerReconciler: failed to upsert state for %s/%s: %v",
 			req.Namespace, req.Name, err)
@@ -312,6 +325,33 @@ func (r *EphemeralRunnerReconciler) resolveSafeWorkload(ctx context.Context, inf
 		info.SafeWorkloadID = workloadList.Items[0].GetName()
 		log.Infof("EphemeralRunnerReconciler: resolved SaFE UnifiedJob %q for runner %s (via scaleRunnerId %s)",
 			info.SafeWorkloadID, info.Name, scaleRunnerID)
+	}
+}
+
+// isPodTerminated checks if the Pod is no longer actively running.
+// Returns true when the pod is Succeeded, Failed, not found, or in an unrecoverable error state.
+func (r *EphemeralRunnerReconciler) isPodTerminated(info *types.EphemeralRunnerInfo) bool {
+	switch info.PodPhase {
+	case "Succeeded", "Failed":
+		return true
+	case "Unknown":
+		// Pod not found or unreachable - treat as terminated
+		return true
+	case "Running":
+		// Check if the pod is in a terminal error condition even though phase is Running
+		switch info.PodCondition {
+		case "OOMKilled", "ContainerCannotRun":
+			return true
+		}
+		return false
+	case "Pending":
+		return false
+	default:
+		// Empty or unexpected phase - if we couldn't fetch the pod, it's likely gone
+		if info.PodPhase == "" {
+			return true
+		}
+		return false
 	}
 }
 
