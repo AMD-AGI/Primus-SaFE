@@ -346,22 +346,76 @@ func (c *WorkflowCollector) processRun(
 
 	log.Infof("WorkflowCollector: read %d files from pod", len(files))
 
-	// Check if schema analyzer is available
-	if c.schemaAnalyzer == nil || !c.schemaAnalyzer.IsAvailable(ctx) {
-		// Schema analyzer not available - skip processing, will retry later
-		log.Warnf("WorkflowCollector: schema analyzer not available for run %d, will retry later", run.ID)
-		return 0, fmt.Errorf("schema analyzer not available")
+	// Check if schema analyzer (AI) is available
+	aiAvailable := c.schemaAnalyzer != nil && c.schemaAnalyzer.IsAvailable(ctx)
+
+	if aiAvailable {
+		// Use schema-versioning approach (AI for schema analysis, Go for data extraction)
+		log.Infof("WorkflowCollector: using schema-versioning extraction for run %d", run.ID)
+
+		metricsCreated, err := c.processRunWithSchemaVersioning(
+			ctx, config, run, files, matchingFiles, schemaFacade, metricsFacade, runFacade,
+		)
+		if err != nil {
+			return 0, fmt.Errorf("schema-versioning extraction failed: %w", err)
+		}
+		return metricsCreated, nil
 	}
 
-	// Use schema-versioning approach (AI for schema analysis, Go for data extraction)
-	log.Infof("WorkflowCollector: using schema-versioning extraction for run %d", run.ID)
+	// AI not available - try fallback: use existing active schema from DB
+	log.Warnf("WorkflowCollector: schema analyzer not available for run %d, trying fallback with existing schema", run.ID)
 
-	metricsCreated, err := c.processRunWithSchemaVersioning(
-		ctx, config, run, files, matchingFiles, schemaFacade, metricsFacade, runFacade,
-	)
+	activeSchema, err := schemaFacade.GetActiveByConfig(ctx, config.ID)
+	if err != nil || activeSchema == nil {
+		// No active schema in DB and no AI to create one - cannot proceed
+		log.Warnf("WorkflowCollector: no active schema found for config %d and AI unavailable, will retry later", config.ID)
+		return 0, fmt.Errorf("schema analyzer not available and no active schema in DB for config %d", config.ID)
+	}
+
+	log.Infof("WorkflowCollector: using existing active schema (id=%d, hash=%s) for run %d",
+		activeSchema.ID, activeSchema.SchemaHash, run.ID)
+
+	// Extract metrics using existing schema (Go-based, no AI needed)
+	metrics, err := c.metricsExtractor.ExtractMetricsFromDBSchema(files, activeSchema)
 	if err != nil {
-		return 0, fmt.Errorf("schema-versioning extraction failed: %w", err)
+		return 0, fmt.Errorf("metrics extraction with existing schema failed: %w", err)
 	}
+
+	// Determine timestamp for metrics
+	metricsTimestamp := run.WorkloadCompletedAt
+	if metricsTimestamp.IsZero() {
+		metricsTimestamp = time.Now()
+	}
+
+	// Store metrics
+	metricsCreated := 0
+	dbMetrics := c.metricsExtractor.ConvertToDBMetrics(config.ID, run.ID, activeSchema.ID, metricsTimestamp, metrics)
+	for _, metric := range dbMetrics {
+		if err := metricsFacade.Create(ctx, metric); err != nil {
+			log.Warnf("WorkflowCollector: failed to create metric: %v", err)
+			continue
+		}
+		metricsCreated++
+	}
+
+	// Update schema last_seen_at
+	if err := schemaFacade.UpdateLastSeen(ctx, activeSchema.ID); err != nil {
+		log.Warnf("WorkflowCollector: failed to update schema last_seen: %v", err)
+	}
+
+	// Update record count
+	if err := schemaFacade.IncrementRecordCount(ctx, activeSchema.ID, int64(metricsCreated)); err != nil {
+		log.Warnf("WorkflowCollector: failed to increment record count: %v", err)
+	}
+
+	// Mark as completed
+	filesProcessed := len(files)
+	if err := runFacade.MarkCompleted(ctx, run.ID, int32(len(matchingFiles)), int32(filesProcessed), int32(metricsCreated)); err != nil {
+		return metricsCreated, fmt.Errorf("failed to mark as completed: %w", err)
+	}
+
+	log.Infof("WorkflowCollector: completed run %d with fallback schema (files: %d/%d, metrics: %d, schema: %d)",
+		run.ID, filesProcessed, len(matchingFiles), metricsCreated, activeSchema.ID)
 
 	return metricsCreated, nil
 }
