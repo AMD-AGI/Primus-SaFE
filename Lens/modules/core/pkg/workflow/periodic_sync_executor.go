@@ -156,10 +156,24 @@ func (e *PeriodicSyncExecutor) Execute(ctx context.Context, execCtx *task.Execut
 		}), nil
 	}
 
-	// Update summary status
+	// Update summary status and backfill missing GitHub info
 	summary.Status = ghRun.Status
 	summary.Conclusion = ghRun.Conclusion
 	summary.LastSyncedAt = time.Now()
+
+	// Backfill workflow details if not yet populated
+	if summary.WorkflowName == "" && ghRun.WorkflowName != "" {
+		summary.WorkflowName = ghRun.WorkflowName
+	}
+	if summary.HeadSha == "" && ghRun.HeadSHA != "" {
+		summary.HeadSha = ghRun.HeadSHA
+	}
+	if summary.HeadBranch == "" && ghRun.HeadBranch != "" {
+		summary.HeadBranch = ghRun.HeadBranch
+	}
+	if summary.GithubRunNumber == 0 && ghRun.RunNumber > 0 {
+		summary.GithubRunNumber = int32(ghRun.RunNumber)
+	}
 
 	if err := runSummaryFacade.Update(ctx, summary); err != nil {
 		log.Warnf("PeriodicSyncExecutor: failed to update run summary %d: %v", runSummaryID, err)

@@ -291,7 +291,37 @@ func (e *CompletionSyncExecutor) Execute(ctx context.Context, execCtx *task.Exec
 		}
 	}
 
-	// 5. Schedule periodic sync if workflow not yet completed
+	// 5. Backfill run summary GitHub info if available
+	if run.RunSummaryID > 0 {
+		runSummaryFacade := database.GetFacade().GetGithubWorkflowRunSummary()
+		summary, summaryErr := runSummaryFacade.GetByID(ctx, run.RunSummaryID)
+		if summaryErr == nil && summary != nil {
+			updated := false
+			if summary.WorkflowName == "" && ghRun.WorkflowName != "" {
+				summary.WorkflowName = ghRun.WorkflowName
+				updated = true
+			}
+			if summary.HeadSha == "" && ghRun.HeadSHA != "" {
+				summary.HeadSha = ghRun.HeadSHA
+				updated = true
+			}
+			if summary.HeadBranch == "" && ghRun.HeadBranch != "" {
+				summary.HeadBranch = ghRun.HeadBranch
+				updated = true
+			}
+			if summary.GithubRunNumber == 0 && ghRun.RunNumber > 0 {
+				summary.GithubRunNumber = int32(ghRun.RunNumber)
+				updated = true
+			}
+			if updated {
+				if err := runSummaryFacade.Update(ctx, summary); err != nil {
+					log.Warnf("CompletionSyncExecutor: failed to backfill summary %d: %v", run.RunSummaryID, err)
+				}
+			}
+		}
+	}
+
+	// 6. Schedule periodic sync if workflow not yet completed
 	if ghRun.Status != "completed" && run.RunSummaryID > 0 {
 		if err := CreatePeriodicSyncTask(ctx, run.RunSummaryID); err != nil {
 			log.Warnf("CompletionSyncExecutor: failed to schedule periodic sync for run summary %d: %v", run.RunSummaryID, err)
