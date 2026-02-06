@@ -135,12 +135,12 @@ func init() {
 // ======================== Request Types ========================
 
 type ToolsListRequest struct {
-	Offset int    `json:"offset" form:"offset" mcp:"description=Pagination offset (default: 0)"`
-	Limit  int    `json:"limit" form:"limit" mcp:"description=Number of items per page (default: 50)"`
-	Type   string `json:"type" form:"type" mcp:"description=Filter by type (skill/mcp)"`
-	Status string `json:"status" form:"status" mcp:"description=Filter by status (default: active)"`
-	Sort   string `json:"sort" form:"sort" mcp:"description=Sort field (created_at/updated_at/run_count/download_count)"`
-	Order  string `json:"order" form:"order" mcp:"description=Sort order (asc/desc)"`
+	Offset int    `json:"offset" query:"offset" mcp:"description=Pagination offset (default: 0)"`
+	Limit  int    `json:"limit" query:"limit" mcp:"description=Number of items per page (default: 50)"`
+	Type   string `json:"type" query:"type" mcp:"description=Filter by type (skill/mcp)"`
+	Status string `json:"status" query:"status" mcp:"description=Filter by status (default: active)"`
+	Sort   string `json:"sort" query:"sort" mcp:"description=Sort field (created_at/updated_at/run_count/download_count)"`
+	Order  string `json:"order" query:"order" mcp:"description=Sort order (asc/desc)"`
 }
 
 type ToolGetRequest struct {
@@ -158,10 +158,10 @@ type ToolUpdateRequest struct {
 }
 
 type ToolsSearchRequest struct {
-	Query string `json:"q" form:"q" mcp:"description=Search query,required"`
-	Mode  string `json:"mode" form:"mode" mcp:"description=Search mode (keyword/semantic/hybrid)"`
-	Type  string `json:"type" form:"type" mcp:"description=Filter by type (skill/mcp)"`
-	Limit int    `json:"limit" form:"limit" mcp:"description=Maximum number of results (default: 20)"`
+	Query string `json:"q" query:"q" mcp:"description=Search query,required"`
+	Mode  string `json:"mode" query:"mode" mcp:"description=Search mode (keyword/semantic/hybrid)"`
+	Type  string `json:"type" query:"type" mcp:"description=Filter by type (skill/mcp)"`
+	Limit int    `json:"limit" query:"limit" mcp:"description=Maximum number of results (default: 20)"`
 }
 
 type MCPCreateRequest struct {
