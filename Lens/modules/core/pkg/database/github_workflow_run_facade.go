@@ -520,7 +520,6 @@ func (f *GithubWorkflowRunFacade) UpdateSyncFields(ctx context.Context, id int64
 		q.WorkflowStatus.Value(workflowStatus),
 		q.WorkflowConclusion.Value(workflowConclusion),
 		q.LastSyncedAt.Value(now),
-		q.UpdatedAt.Value(now),
 	}
 
 	// Only update optional fields if they have values (don't overwrite with empty)
