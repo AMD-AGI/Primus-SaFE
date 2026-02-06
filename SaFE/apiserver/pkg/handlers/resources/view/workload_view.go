@@ -195,7 +195,7 @@ type GetWorkloadResponse struct {
 
 type WorkloadPodWrapper struct {
 	v1.WorkloadPod
-	// SSH address to log in
+	// SSH command for direct login into the container
 	SSHCommand string `json:"sshCommand,omitempty"`
 }
 
