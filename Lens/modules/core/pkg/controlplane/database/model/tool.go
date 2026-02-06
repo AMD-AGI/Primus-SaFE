@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/pgvector/pgvector-go"
+	"gorm.io/gorm"
 )
 
 const TableNameTools = "tools"
@@ -38,12 +39,14 @@ type Tool struct {
 	// Statistics
 	RunCount      int `gorm:"column:run_count;default:0" json:"run_count"`
 	DownloadCount int `gorm:"column:download_count;default:0" json:"download_count"`
+	LikeCount     int `gorm:"column:like_count;default:0" json:"like_count"`
 
 	// Semantic search (not exposed in JSON response)
 	Embedding pgvector.Vector `gorm:"type:vector(1024)" json:"-"`
 
-	CreatedAt time.Time `gorm:"column:created_at;autoCreateTime" json:"created_at"`
-	UpdatedAt time.Time `gorm:"column:updated_at;autoUpdateTime" json:"updated_at"`
+	CreatedAt time.Time      `gorm:"column:created_at;autoCreateTime" json:"created_at"`
+	UpdatedAt time.Time      `gorm:"column:updated_at;autoUpdateTime" json:"updated_at"`
+	DeletedAt gorm.DeletedAt `gorm:"column:deleted_at;index" json:"-"` // Soft delete
 }
 
 // TableName returns the table name
@@ -182,4 +185,17 @@ func (t *Tool) GetSkillS3Key() string {
 		return key
 	}
 	return ""
+}
+
+// ToolLike represents a like relationship between a user and a tool
+type ToolLike struct {
+	ID        int64     `gorm:"column:id;primaryKey;autoIncrement:true" json:"id"`
+	ToolID    int64     `gorm:"column:tool_id;not null" json:"tool_id"`
+	UserID    string    `gorm:"column:user_id;not null" json:"user_id"`
+	CreatedAt time.Time `gorm:"column:created_at;autoCreateTime" json:"created_at"`
+}
+
+// TableName returns the table name for ToolLike
+func (*ToolLike) TableName() string {
+	return "tool_likes"
 }

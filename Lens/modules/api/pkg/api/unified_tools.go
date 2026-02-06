@@ -130,6 +130,34 @@ func init() {
 		MCPToolName: "lens_tools_import_commit",
 		Handler:     handleToolsImportCommit,
 	})
+
+	// Like endpoints
+	unified.Register(&unified.EndpointDef[ToolLikeRequest, ToolLikeResponse]{
+		Name:        "tools_like",
+		Description: "Like a tool",
+		HTTPMethod:  "POST",
+		HTTPPath:    "/tools/:id/like",
+		MCPToolName: "lens_tools_like",
+		Handler:     handleToolLike,
+	})
+
+	unified.Register(&unified.EndpointDef[ToolLikeRequest, ToolLikeResponse]{
+		Name:        "tools_unlike",
+		Description: "Unlike a tool",
+		HTTPMethod:  "DELETE",
+		HTTPPath:    "/tools/:id/like",
+		MCPToolName: "lens_tools_unlike",
+		Handler:     handleToolUnlike,
+	})
+
+	unified.Register(&unified.EndpointDef[ToolLikeRequest, ToolLikeStatusResponse]{
+		Name:        "tools_like_status",
+		Description: "Get like status for a tool",
+		HTTPMethod:  "GET",
+		HTTPPath:    "/tools/:id/like",
+		MCPToolName: "lens_tools_like_status",
+		Handler:     handleToolLikeStatus,
+	})
 }
 
 // ======================== Request Types ========================
@@ -188,6 +216,10 @@ type ToolsRunRequest struct {
 type ToolsImportCommitRequest struct {
 	ArchiveKey string                       `json:"archive_key" binding:"required" mcp:"description=Archive key from discover,required"`
 	Selections []ToolsImportCommitSelection `json:"selections" binding:"required" mcp:"description=Selected skills to import,required"`
+}
+
+type ToolLikeRequest struct {
+	ID string `json:"id" param:"id" mcp:"description=Tool ID,required"`
 }
 
 type ToolsImportCommitSelection struct {
@@ -282,6 +314,16 @@ type ToolsImportCommitResult struct {
 	Status       string `json:"status"`
 	ToolID       int64  `json:"tool_id,omitempty"`
 	Error        string `json:"error,omitempty"`
+}
+
+type ToolLikeResponse struct {
+	Message   string `json:"message"`
+	LikeCount int    `json:"like_count"`
+}
+
+type ToolLikeStatusResponse struct {
+	IsLiked   bool `json:"is_liked"`
+	LikeCount int  `json:"like_count"`
 }
 
 // ======================== Handlers ========================
@@ -555,6 +597,60 @@ func handleToolsImportCommit(ctx context.Context, req *ToolsImportCommitRequest)
 	var result ToolsImportCommitResponse
 	if err := json.Unmarshal(resp, &result); err != nil {
 		return nil, errors.WrapError(err, "failed to parse commit response", errors.InternalError)
+	}
+	return &result, nil
+}
+
+func handleToolLike(ctx context.Context, req *ToolLikeRequest) (*ToolLikeResponse, error) {
+	if req.ID == "" {
+		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("tool id is required")
+	}
+
+	reqURL := toolsRepositoryURL + "/api/v1/tools/" + req.ID + "/like"
+	resp, err := toolsProxyPost(ctx, reqURL, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result ToolLikeResponse
+	if err := json.Unmarshal(resp, &result); err != nil {
+		return nil, errors.WrapError(err, "failed to parse like response", errors.InternalError)
+	}
+	return &result, nil
+}
+
+func handleToolUnlike(ctx context.Context, req *ToolLikeRequest) (*ToolLikeResponse, error) {
+	if req.ID == "" {
+		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("tool id is required")
+	}
+
+	reqURL := toolsRepositoryURL + "/api/v1/tools/" + req.ID + "/like"
+	resp, err := toolsProxyDelete(ctx, reqURL)
+	if err != nil {
+		return nil, err
+	}
+
+	var result ToolLikeResponse
+	if err := json.Unmarshal(resp, &result); err != nil {
+		return nil, errors.WrapError(err, "failed to parse unlike response", errors.InternalError)
+	}
+	return &result, nil
+}
+
+func handleToolLikeStatus(ctx context.Context, req *ToolLikeRequest) (*ToolLikeStatusResponse, error) {
+	if req.ID == "" {
+		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("tool id is required")
+	}
+
+	reqURL := toolsRepositoryURL + "/api/v1/tools/" + req.ID + "/like"
+	resp, err := toolsProxyGet(ctx, reqURL)
+	if err != nil {
+		return nil, err
+	}
+
+	var result ToolLikeStatusResponse
+	if err := json.Unmarshal(resp, &result); err != nil {
+		return nil, errors.WrapError(err, "failed to parse like status response", errors.InternalError)
 	}
 	return &result, nil
 }
