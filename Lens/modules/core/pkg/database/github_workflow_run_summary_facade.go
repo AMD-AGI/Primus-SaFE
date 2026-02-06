@@ -58,12 +58,15 @@ func (f *GithubWorkflowRunSummaryFacade) WithCluster(clusterName string) *Github
 	}
 }
 
-// GetOrCreateByRunID returns existing summary or creates a new one
+// GetOrCreateByRunID returns existing summary or creates a new one.
+// runnerSetID is used to populate PrimaryRunnerSetID when creating a new summary,
+// and to backfill it on existing summaries that have PrimaryRunnerSetID = 0.
 // Returns (summary, isNew, error)
 func (f *GithubWorkflowRunSummaryFacade) GetOrCreateByRunID(
 	ctx context.Context,
 	githubRunID int64,
 	owner, repo string,
+	runnerSetID int64,
 ) (*model.GithubWorkflowRunSummaries, bool, error) {
 	db := f.getDB()
 	if db == nil {
@@ -79,6 +82,11 @@ func (f *GithubWorkflowRunSummaryFacade) GetOrCreateByRunID(
 	if err == nil {
 		// Additional check: ensure ID is valid (handles edge case where First() returns nil error but empty struct)
 		if summary.ID > 0 {
+			// Backfill PrimaryRunnerSetID if missing
+			if summary.PrimaryRunnerSetID == 0 && runnerSetID > 0 {
+				summary.PrimaryRunnerSetID = runnerSetID
+				db.WithContext(ctx).Model(&summary).Update("primary_runner_set_id", runnerSetID)
+			}
 			return &summary, false, nil // exists
 		}
 		// If ID is 0, something went wrong - fall through to create
@@ -88,15 +96,16 @@ func (f *GithubWorkflowRunSummaryFacade) GetOrCreateByRunID(
 
 	// Create new record
 	summary = model.GithubWorkflowRunSummaries{
-		GithubRunID:      githubRunID,
-		GithubRunAttempt: 1,
-		Owner:            owner,
-		Repo:             repo,
-		Status:           RunSummaryStatusQueued,
-		CollectionStatus: RunSummaryCollectionPending,
-		GraphFetched:     false,
-		CreatedAt:        time.Now(),
-		UpdatedAt:        time.Now(),
+		GithubRunID:        githubRunID,
+		GithubRunAttempt:   1,
+		Owner:              owner,
+		Repo:               repo,
+		PrimaryRunnerSetID: runnerSetID,
+		Status:             RunSummaryStatusQueued,
+		CollectionStatus:   RunSummaryCollectionPending,
+		GraphFetched:       false,
+		CreatedAt:          time.Now(),
+		UpdatedAt:          time.Now(),
 	}
 
 	if err := db.WithContext(ctx).Create(&summary).Error; err != nil {
@@ -106,6 +115,11 @@ func (f *GithubWorkflowRunSummaryFacade) GetOrCreateByRunID(
 				return nil, false, fmt.Errorf("GetOrCreateByRunID: re-query after duplicate key failed for github_run_id %d: %w", githubRunID, err)
 			}
 			if summary.ID > 0 {
+				// Backfill PrimaryRunnerSetID if missing
+				if summary.PrimaryRunnerSetID == 0 && runnerSetID > 0 {
+					summary.PrimaryRunnerSetID = runnerSetID
+					db.WithContext(ctx).Model(&summary).Update("primary_runner_set_id", runnerSetID)
+				}
 				return &summary, false, nil
 			}
 			return nil, false, fmt.Errorf("GetOrCreateByRunID: re-query returned invalid ID for github_run_id %d", githubRunID)
