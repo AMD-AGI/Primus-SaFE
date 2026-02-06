@@ -89,9 +89,34 @@ func (e *PeriodicSyncExecutor) Execute(ctx context.Context, execCtx *task.Execut
 
 	// Get GitHub client via runner set using PrimaryRunnerSetID from summary
 	runnerSetFacade := database.GetFacade().GetGithubRunnerSet()
-	runnerSet, err := runnerSetFacade.GetByID(ctx, summary.PrimaryRunnerSetID)
+	runnerSetID := summary.PrimaryRunnerSetID
+
+	// Fallback: if PrimaryRunnerSetID is 0 (legacy data), look it up from workflow runs
+	if runnerSetID == 0 {
+		log.Warnf("PeriodicSyncExecutor: PrimaryRunnerSetID is 0 for summary %d, looking up from workflow runs", runSummaryID)
+		runFacade := database.GetFacade().GetGithubWorkflowRun()
+		runs, lookupErr := runFacade.ListByRunSummaryID(ctx, runSummaryID)
+		if lookupErr == nil && len(runs) > 0 {
+			for _, r := range runs {
+				if r.RunnerSetID > 0 {
+					runnerSetID = r.RunnerSetID
+					// Backfill PrimaryRunnerSetID in the summary
+					summary.PrimaryRunnerSetID = runnerSetID
+					runSummaryFacade.Update(ctx, summary)
+					log.Infof("PeriodicSyncExecutor: backfilled PrimaryRunnerSetID=%d for summary %d from run %d",
+						runnerSetID, runSummaryID, r.ID)
+					break
+				}
+			}
+		}
+		if runnerSetID == 0 {
+			return task.FailureResult("runner set not found: PrimaryRunnerSetID is 0 and no runs have a valid RunnerSetID", nil), nil
+		}
+	}
+
+	runnerSet, err := runnerSetFacade.GetByID(ctx, runnerSetID)
 	if err != nil || runnerSet == nil {
-		return task.FailureResult("runner set not found", nil), nil
+		return task.FailureResult(fmt.Sprintf("runner set %d not found", runnerSetID), nil), nil
 	}
 
 	githubManager := github.GetGlobalManager()

@@ -106,33 +106,29 @@ func (e *InitialSyncExecutor) Execute(ctx context.Context, execCtx *task.Executi
 		return task.FailureResult(fmt.Sprintf("failed to get workflow run: %v", err), nil), nil
 	}
 
-	// 2. Update run record with basic info
-	needsUpdate := false
-	if run.HeadSha == "" && ghRun.HeadSHA != "" {
-		run.HeadSha = ghRun.HeadSHA
-		needsUpdate = true
+	// 2. Update run record with sync fields only (avoid overwriting collection status)
+	headSha := ""
+	if run.HeadSha == "" {
+		headSha = ghRun.HeadSHA
 	}
-	if run.HeadBranch == "" && ghRun.HeadBranch != "" {
-		run.HeadBranch = ghRun.HeadBranch
-		needsUpdate = true
+	headBranch := ""
+	if run.HeadBranch == "" {
+		headBranch = ghRun.HeadBranch
 	}
-	if run.GithubRunNumber == 0 && ghRun.RunNumber != 0 {
-		run.GithubRunNumber = int32(ghRun.RunNumber)
-		needsUpdate = true
+	var githubRunNumber int32
+	if run.GithubRunNumber == 0 {
+		githubRunNumber = int32(ghRun.RunNumber)
 	}
-	if run.WorkflowName == "" && ghRun.WorkflowName != "" {
-		run.WorkflowName = ghRun.WorkflowName
-		needsUpdate = true
+	workflowName := ""
+	if run.WorkflowName == "" {
+		workflowName = ghRun.WorkflowName
 	}
-	run.WorkflowStatus = ghRun.Status
-	run.WorkflowConclusion = ghRun.Conclusion
-	run.LastSyncedAt = time.Now()
-	needsUpdate = true
 
-	if needsUpdate {
-		if err := runFacade.Update(ctx, run); err != nil {
-			log.Warnf("InitialSyncExecutor: failed to update run %d: %v", runID, err)
-		}
+	if err := runFacade.UpdateSyncFields(ctx, runID,
+		ghRun.Status, ghRun.Conclusion,
+		headSha, headBranch, workflowName, githubRunNumber,
+	); err != nil {
+		log.Warnf("InitialSyncExecutor: failed to update run %d: %v", runID, err)
 	}
 
 	// 3. Fetch workflow file content if requested (store in run details)
@@ -243,12 +239,11 @@ func (e *CompletionSyncExecutor) Execute(ctx context.Context, execCtx *task.Exec
 		return task.FailureResult(fmt.Sprintf("failed to get workflow run: %v", err), nil), nil
 	}
 
-	// 2. Update run status
-	run.WorkflowStatus = ghRun.Status
-	run.WorkflowConclusion = ghRun.Conclusion
-	run.LastSyncedAt = time.Now()
-
-	if err := runFacade.Update(ctx, run); err != nil {
+	// 2. Update run sync fields only (avoid overwriting collection status set by CollectionExecutor)
+	if err := runFacade.UpdateSyncFields(ctx, runID,
+		ghRun.Status, ghRun.Conclusion,
+		ghRun.HeadSHA, ghRun.HeadBranch, ghRun.WorkflowName, int32(ghRun.RunNumber),
+	); err != nil {
 		log.Warnf("CompletionSyncExecutor: failed to update run %d: %v", runID, err)
 	}
 
