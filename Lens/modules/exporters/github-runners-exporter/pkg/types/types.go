@@ -56,6 +56,24 @@ const (
 	LabelScaleSetNamespace = "actions.github.com/scale-set-namespace"
 )
 
+// SaFE Workload labels used for cross-component association
+// These must match the label constants defined in SaFE apis/pkg/apis/amd/v1/well_known_constants.go
+const (
+	// LabelSafeWorkloadKind matches WorkloadKindLabel = PrimusSafePrefix + "workload." + "kind"
+	LabelSafeWorkloadKind = "primus-safe.workload.kind"
+	// LabelSafeScaleRunnerID matches CICDScaleRunnerIdLabel = PrimusSafePrefix + "scale.runner.id"
+	LabelSafeScaleRunnerID = "primus-safe.scale.runner.id"
+	// SafeUnifiedJobKind is the SaFE workload kind for UnifiedJob
+	SafeUnifiedJobKind = "UnifiedJob"
+)
+
+// SaFE Workload CRD GroupVersionResource
+var SafeWorkloadGVR = schema.GroupVersionResource{
+	Group:    "amd.com",
+	Version:  "v1",
+	Resource: "workloads",
+}
+
 // EphemeralRunner status phases
 const (
 	EphemeralRunnerPhasePending   = "Pending"
@@ -97,6 +115,7 @@ type EphemeralRunnerInfo struct {
 	Branch            string
 	HeadSHA           string
 	WorkflowRef       string // Full workflow reference (e.g., owner/repo/.github/workflows/file.yaml@refs/heads/main)
+	SafeWorkloadID    string // Associated SaFE UnifiedJob workload name (from primus-safe.amd.com/scale.runner.id label lookup)
 	CreationTimestamp metav1.Time
 	CompletionTime    metav1.Time
 	IsCompleted       bool

@@ -295,6 +295,7 @@ func (p *RunnerStateProcessor) getOrCreateWorkflowRun(
 		PodPhase:           state.PodPhase,
 		PodCondition:       state.PodCondition,
 		PodMessage:         state.PodMessage,
+		SafeWorkloadID:     state.SafeWorkloadID,
 	}
 
 	if state.IsCompleted {
@@ -486,6 +487,13 @@ func (p *RunnerStateProcessor) updateWorkflowRunFields(
 	}
 	if run.GithubRunNumber == 0 && state.GithubRunNumber != 0 {
 		fields["github_run_number"] = state.GithubRunNumber
+	}
+
+	// Update SaFE workload association if it becomes available
+	if run.SafeWorkloadID == "" && state.SafeWorkloadID != "" {
+		fields["safe_workload_id"] = state.SafeWorkloadID
+		log.Infof("RunnerStateProcessor: associated SaFE UnifiedJob %q with run %d (%s)",
+			state.SafeWorkloadID, run.ID, state.Name)
 	}
 
 	// Update run_summary_id if changed
