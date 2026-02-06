@@ -149,9 +149,14 @@ func (h *LiveHandler) HandleLiveStream(c *gin.Context) {
 	}
 }
 
-// buildStateFromDB builds WorkflowLiveState from database
+// buildStateFromDB builds WorkflowLiveState from database (default cluster)
 func (h *LiveHandler) buildStateFromDB(ctx context.Context, runID int64) (*WorkflowLiveState, error) {
-	runFacade := database.GetFacade().GetGithubWorkflowRun()
+	return h.buildStateFromDBForCluster(ctx, runID, "")
+}
+
+// buildStateFromDBForCluster builds WorkflowLiveState from database for a specific cluster
+func (h *LiveHandler) buildStateFromDBForCluster(ctx context.Context, runID int64, clusterName string) (*WorkflowLiveState, error) {
+	runFacade := database.GetFacadeForCluster(clusterName).GetGithubWorkflowRun()
 	run, err := runFacade.GetByID(ctx, runID)
 	if err != nil || run == nil {
 		return nil, err
@@ -189,7 +194,7 @@ func (h *LiveHandler) buildStateFromDB(ctx context.Context, runID int64) (*Workf
 	state.WorkflowConclusion = run.WorkflowConclusion
 
 	// Load jobs from database
-	jobFacade := database.NewGithubWorkflowJobFacade()
+	jobFacade := database.NewGithubWorkflowJobFacade().WithCluster(clusterName)
 	jobsWithSteps, err := jobFacade.ListByRunIDWithSteps(ctx, runID)
 	if err == nil && len(jobsWithSteps) > 0 {
 		state.Jobs = make([]*JobLiveState, len(jobsWithSteps))
@@ -296,7 +301,8 @@ func (h *LiveHandler) GetCurrentState(c *gin.Context) {
 		return
 	}
 
-	state, err := h.buildStateFromDB(c.Request.Context(), runID)
+	clusterName := c.Query("cluster")
+	state, err := h.buildStateFromDBForCluster(c.Request.Context(), runID, clusterName)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

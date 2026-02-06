@@ -2312,7 +2312,13 @@ func GetRunJobs(ctx *gin.Context) {
 		return
 	}
 
-	jobFacade := database.NewGithubWorkflowJobFacade()
+	clusterName, err := getClusterNameForGithubWorkflow(ctx)
+	if err != nil {
+		_ = ctx.Error(err)
+		return
+	}
+
+	jobFacade := database.NewGithubWorkflowJobFacade().WithCluster(clusterName)
 	jobs, err := jobFacade.ListByRunIDWithSteps(ctx.Request.Context(), runID)
 	if err != nil {
 		log.GlobalLogger().WithContext(ctx).Errorf("Failed to get jobs for run %d: %v", runID, err)
