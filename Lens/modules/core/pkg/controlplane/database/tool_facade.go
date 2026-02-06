@@ -4,30 +4,14 @@
 package database
 
 import (
-	"context"
-	"time"
+	"errors"
+	"fmt"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/controlplane/database/model"
 	"gorm.io/gorm"
 )
 
-// ToolFacadeInterface defines the interface for Tool operations
-type ToolFacadeInterface interface {
-	// Tool CRUD
-	GetByID(ctx context.Context, id int64) (*model.Tool, error)
-	GetByName(ctx context.Context, name string) (*model.Tool, error)
-	List(ctx context.Context, offset, limit int) ([]*model.Tool, int64, error)
-	ListByCategory(ctx context.Context, category string, offset, limit int) ([]*model.Tool, int64, error)
-	ListByDomain(ctx context.Context, domain string, offset, limit int) ([]*model.Tool, int64, error)
-	ListByScope(ctx context.Context, scope string, offset, limit int) ([]*model.Tool, int64, error)
-	ListByStatus(ctx context.Context, status string, offset, limit int) ([]*model.Tool, int64, error)
-	Create(ctx context.Context, tool *model.Tool) error
-	Update(ctx context.Context, tool *model.Tool) error
-	Delete(ctx context.Context, id int64) error
-	Upsert(ctx context.Context, tool *model.Tool) error
-}
-
-// ToolFacade implements ToolFacadeInterface
+// ToolFacade provides database operations for tools
 type ToolFacade struct {
 	db *gorm.DB
 }
@@ -37,166 +21,196 @@ func NewToolFacade(db *gorm.DB) *ToolFacade {
 	return &ToolFacade{db: db}
 }
 
-// GetByID retrieves a tool by ID
-func (f *ToolFacade) GetByID(ctx context.Context, id int64) (*model.Tool, error) {
-	var tool model.Tool
-	err := f.db.WithContext(ctx).Where("id = ?", id).First(&tool).Error
-	if err != nil {
-		return nil, err
-	}
-	return &tool, nil
-}
-
-// GetByName retrieves a tool by name
-func (f *ToolFacade) GetByName(ctx context.Context, name string) (*model.Tool, error) {
-	var tool model.Tool
-	err := f.db.WithContext(ctx).Where("name = ?", name).First(&tool).Error
-	if err != nil {
-		return nil, err
-	}
-	return &tool, nil
-}
-
-// List retrieves paginated tools
-func (f *ToolFacade) List(ctx context.Context, offset, limit int) ([]*model.Tool, int64, error) {
-	var tools []*model.Tool
-	var total int64
-
-	err := f.db.WithContext(ctx).Model(&model.Tool{}).Count(&total).Error
-	if err != nil {
-		return nil, 0, err
-	}
-
-	err = f.db.WithContext(ctx).
-		Order("registered_at DESC").
-		Offset(offset).
-		Limit(limit).
-		Find(&tools).Error
-	if err != nil {
-		return nil, 0, err
-	}
-
-	return tools, total, nil
-}
-
-// ListByCategory retrieves tools by category
-func (f *ToolFacade) ListByCategory(ctx context.Context, category string, offset, limit int) ([]*model.Tool, int64, error) {
-	var tools []*model.Tool
-	var total int64
-
-	query := f.db.WithContext(ctx).Model(&model.Tool{}).Where("category = ?", category)
-
-	err := query.Count(&total).Error
-	if err != nil {
-		return nil, 0, err
-	}
-
-	err = query.Order("registered_at DESC").
-		Offset(offset).
-		Limit(limit).
-		Find(&tools).Error
-	if err != nil {
-		return nil, 0, err
-	}
-
-	return tools, total, nil
-}
-
-// ListByDomain retrieves tools by domain
-func (f *ToolFacade) ListByDomain(ctx context.Context, domain string, offset, limit int) ([]*model.Tool, int64, error) {
-	var tools []*model.Tool
-	var total int64
-
-	query := f.db.WithContext(ctx).Model(&model.Tool{}).Where("domain = ?", domain)
-
-	err := query.Count(&total).Error
-	if err != nil {
-		return nil, 0, err
-	}
-
-	err = query.Order("registered_at DESC").
-		Offset(offset).
-		Limit(limit).
-		Find(&tools).Error
-	if err != nil {
-		return nil, 0, err
-	}
-
-	return tools, total, nil
-}
-
-// ListByScope retrieves tools by access scope
-func (f *ToolFacade) ListByScope(ctx context.Context, scope string, offset, limit int) ([]*model.Tool, int64, error) {
-	var tools []*model.Tool
-	var total int64
-
-	query := f.db.WithContext(ctx).Model(&model.Tool{}).Where("access_scope = ?", scope)
-
-	err := query.Count(&total).Error
-	if err != nil {
-		return nil, 0, err
-	}
-
-	err = query.Order("registered_at DESC").
-		Offset(offset).
-		Limit(limit).
-		Find(&tools).Error
-	if err != nil {
-		return nil, 0, err
-	}
-
-	return tools, total, nil
-}
-
-// ListByStatus retrieves tools by status
-func (f *ToolFacade) ListByStatus(ctx context.Context, status string, offset, limit int) ([]*model.Tool, int64, error) {
-	var tools []*model.Tool
-	var total int64
-
-	query := f.db.WithContext(ctx).Model(&model.Tool{}).Where("status = ?", status)
-
-	err := query.Count(&total).Error
-	if err != nil {
-		return nil, 0, err
-	}
-
-	err = query.Order("registered_at DESC").
-		Offset(offset).
-		Limit(limit).
-		Find(&tools).Error
-	if err != nil {
-		return nil, 0, err
-	}
-
-	return tools, total, nil
-}
-
 // Create creates a new tool
-func (f *ToolFacade) Create(ctx context.Context, tool *model.Tool) error {
-	return f.db.WithContext(ctx).Create(tool).Error
+func (f *ToolFacade) Create(tool *model.Tool) error {
+	// 预检查是否已存在同类型同名的工具
+	_, err := f.GetByTypeAndName(tool.Type, tool.Name)
+	if err == nil {
+		return fmt.Errorf("tool %s/%s already exists", tool.Type, tool.Name)
+	}
+	// 只有当错误是"记录不存在"时才继续创建
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return fmt.Errorf("failed to check existing tool: %w", err)
+	}
+
+	return f.db.Create(tool).Error
 }
 
-// Update updates an existing tool
-func (f *ToolFacade) Update(ctx context.Context, tool *model.Tool) error {
-	tool.UpdatedAt = time.Now()
-	return f.db.WithContext(ctx).Save(tool).Error
+// GetByID retrieves a tool by ID
+func (f *ToolFacade) GetByID(id int64) (*model.Tool, error) {
+	var tool model.Tool
+	err := f.db.Where("id = ?", id).First(&tool).Error
+	if err != nil {
+		return nil, err
+	}
+	return &tool, nil
+}
+
+// GetByTypeAndName retrieves a tool by type and name
+func (f *ToolFacade) GetByTypeAndName(toolType, name string) (*model.Tool, error) {
+	var tool model.Tool
+	err := f.db.Where("type = ? AND name = ?", toolType, name).First(&tool).Error
+	if err != nil {
+		return nil, err
+	}
+	return &tool, nil
+}
+
+// List retrieves tools with optional filters and sorting
+func (f *ToolFacade) List(toolType, status, sortField, sortOrder string, offset, limit int) ([]model.Tool, int64, error) {
+	var tools []model.Tool
+	var total int64
+
+	query := f.db.Model(&model.Tool{})
+
+	if toolType != "" {
+		query = query.Where("type = ?", toolType)
+	}
+	if status != "" {
+		query = query.Where("status = ?", status)
+	}
+
+	err := query.Count(&total).Error
+	if err != nil {
+		return nil, 0, err
+	}
+
+	// Build order clause
+	orderClause := fmt.Sprintf("%s %s", sortField, sortOrder)
+	err = query.Order(orderClause).Offset(offset).Limit(limit).Find(&tools).Error
+	if err != nil {
+		return nil, 0, err
+	}
+
+	return tools, total, nil
+}
+
+// Update updates a tool
+func (f *ToolFacade) Update(tool *model.Tool) error {
+	return f.db.Save(tool).Error
 }
 
 // Delete deletes a tool by ID
-func (f *ToolFacade) Delete(ctx context.Context, id int64) error {
-	return f.db.WithContext(ctx).Delete(&model.Tool{}, id).Error
+func (f *ToolFacade) Delete(id int64) error {
+	return f.db.Delete(&model.Tool{}, id).Error
 }
 
-// Upsert creates or updates a tool based on name
-func (f *ToolFacade) Upsert(ctx context.Context, tool *model.Tool) error {
-	existing, err := f.GetByName(ctx, tool.Name)
-	if err != nil {
-		if err == gorm.ErrRecordNotFound {
-			return f.Create(ctx, tool)
-		}
-		return err
+// IncrementRunCount increments the run count for a tool
+func (f *ToolFacade) IncrementRunCount(id int64) error {
+	return f.db.Model(&model.Tool{}).Where("id = ?", id).
+		Update("run_count", gorm.Expr("run_count + 1")).Error
+}
+
+// IncrementDownloadCount increments the download count for a tool
+func (f *ToolFacade) IncrementDownloadCount(id int64) error {
+	return f.db.Model(&model.Tool{}).Where("id = ?", id).
+		Update("download_count", gorm.Expr("download_count + 1")).Error
+}
+
+// Search performs a text search on tools (keyword mode)
+func (f *ToolFacade) Search(query string, toolType string, limit int) ([]model.Tool, error) {
+	var tools []model.Tool
+
+	dbQuery := f.db.Model(&model.Tool{}).
+		Where("status = ?", model.AppStatusActive).
+		Where("name ILIKE ? OR description ILIKE ? OR display_name ILIKE ?",
+			"%"+query+"%", "%"+query+"%", "%"+query+"%")
+
+	if toolType != "" {
+		dbQuery = dbQuery.Where("type = ?", toolType)
 	}
-	tool.ID = existing.ID
-	tool.RegisteredAt = existing.RegisteredAt
-	return f.Update(ctx, tool)
+
+	err := dbQuery.Order("run_count DESC").Limit(limit).Find(&tools).Error
+	return tools, err
+}
+
+// ToolWithScore represents a tool with similarity score
+type ToolWithScore struct {
+	model.Tool
+	Score float64 `json:"score"`
+}
+
+// SemanticSearch performs a vector similarity search on tools
+func (f *ToolFacade) SemanticSearch(embedding []float32, toolType string, limit int) ([]ToolWithScore, error) {
+	var results []ToolWithScore
+
+	// Build embedding string for pgvector
+	embStr := "["
+	for i, v := range embedding {
+		if i > 0 {
+			embStr += ","
+		}
+		embStr += fmt.Sprintf("%f", v)
+	}
+	embStr += "]"
+
+	query := f.db.Model(&model.Tool{}).
+		Select("*, 1 - (embedding <=> ?) as score", embStr).
+		Where("status = ?", model.AppStatusActive).
+		Where("embedding IS NOT NULL")
+
+	if toolType != "" {
+		query = query.Where("type = ?", toolType)
+	}
+
+	err := query.Order("score DESC").Limit(limit).Find(&results).Error
+	return results, err
+}
+
+// HybridSearch combines keyword and semantic search
+func (f *ToolFacade) HybridSearch(keyword string, embedding []float32, toolType string, limit int) ([]ToolWithScore, error) {
+	// Get keyword results
+	keywordTools, err := f.Search(keyword, toolType, limit*2)
+	if err != nil {
+		return nil, err
+	}
+
+	// Get semantic results
+	semanticResults, err := f.SemanticSearch(embedding, toolType, limit*2)
+	if err != nil {
+		return nil, err
+	}
+
+	// Combine and deduplicate
+	seen := make(map[int64]bool)
+	var results []ToolWithScore
+
+	// Add semantic results first (higher priority)
+	for _, r := range semanticResults {
+		if !seen[r.ID] {
+			seen[r.ID] = true
+			results = append(results, r)
+		}
+	}
+
+	// Add keyword results
+	for _, t := range keywordTools {
+		if !seen[t.ID] {
+			seen[t.ID] = true
+			results = append(results, ToolWithScore{Tool: t, Score: 0.5})
+		}
+	}
+
+	// Limit results
+	if len(results) > limit {
+		results = results[:limit]
+	}
+
+	return results, nil
+}
+
+// UpdateEmbedding updates the embedding for a tool
+func (f *ToolFacade) UpdateEmbedding(id int64, embedding []float32) error {
+	// Build embedding string for pgvector
+	embStr := "["
+	for i, v := range embedding {
+		if i > 0 {
+			embStr += ","
+		}
+		embStr += fmt.Sprintf("%f", v)
+	}
+	embStr += "]"
+
+	return f.db.Model(&model.Tool{}).Where("id = ?", id).
+		Update("embedding", gorm.Expr("?::vector", embStr)).Error
 }
