@@ -154,12 +154,6 @@ type CreateMCPRequest struct {
 
 // CreateMCP creates a new MCP server
 func (h *Handler) CreateMCP(c *gin.Context) {
-	userID := c.GetHeader("X-User-Id")
-	if userID == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "X-User-Id header is required"})
-		return
-	}
-
 	var req CreateMCPRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -188,7 +182,7 @@ func (h *Handler) CreateMCP(c *gin.Context) {
 		IconURL:     req.IconURL,
 		Author:      req.Author,
 		Config:      config,
-		OwnerUserID: userID,
+		OwnerUserID: "", // Optional, empty by default
 		IsPublic:    isPublic,
 		Status:      model.AppStatusActive,
 	}
@@ -659,12 +653,6 @@ func (h *Handler) ImportDiscover(c *gin.Context) {
 		return
 	}
 
-	userID := c.GetHeader("X-User-Id")
-	if userID == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "X-User-Id header is required"})
-		return
-	}
-
 	// Check for file upload
 	file, header, fileErr := c.Request.FormFile("file")
 	githubURL := c.PostForm("github_url")
@@ -680,7 +668,7 @@ func (h *Handler) ImportDiscover(c *gin.Context) {
 	}
 
 	req := &importer.DiscoverRequest{
-		UserID:    userID,
+		UserID:    "", // Optional, empty by default
 		GitHubURL: githubURL,
 	}
 
@@ -712,12 +700,6 @@ func (h *Handler) ImportCommit(c *gin.Context) {
 		return
 	}
 
-	userID := c.GetHeader("X-User-Id")
-	if userID == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "X-User-Id header is required"})
-		return
-	}
-
 	var req ImportCommitRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -730,7 +712,7 @@ func (h *Handler) ImportCommit(c *gin.Context) {
 	}
 
 	result, err := h.importer.Commit(c.Request.Context(), &importer.CommitRequest{
-		UserID:     userID,
+		UserID:     "", // Optional, empty by default
 		ArchiveKey: req.ArchiveKey,
 		Selections: req.Selections,
 	})
