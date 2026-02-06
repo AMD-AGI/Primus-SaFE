@@ -56,30 +56,35 @@ func NewHandler(
 func RegisterRoutes(router *gin.Engine, h *Handler) {
 	v1 := router.Group("/api/v1")
 	{
+		// Health check (no auth required)
+		v1.GET("/tools/health", h.Health)
+	}
+
+	// Routes that require authentication
+	auth := v1.Group("")
+	auth.Use(AuthMiddleware(true))
+	{
 		// Tools list and get
-		v1.GET("/tools", h.ListTools)
-		v1.GET("/tools/:id", h.GetTool)
-		v1.PUT("/tools/:id", h.UpdateTool)
-		v1.DELETE("/tools/:id", h.DeleteTool)
+		auth.GET("/tools", h.ListTools)
+		auth.GET("/tools/:id", h.GetTool)
+		auth.PUT("/tools/:id", h.UpdateTool)
+		auth.DELETE("/tools/:id", h.DeleteTool)
 
 		// Create MCP (JSON) - Skills are created via import/discover + import/commit
-		v1.POST("/tools/mcp", h.CreateMCP)
+		auth.POST("/tools/mcp", h.CreateMCP)
 
 		// Search
-		v1.GET("/tools/search", h.SearchTools)
+		auth.GET("/tools/search", h.SearchTools)
 
 		// Run tools
-		v1.POST("/tools/run", h.RunTools)
+		auth.POST("/tools/run", h.RunTools)
 
 		// Download
-		v1.GET("/tools/:id/download", h.DownloadTool)
+		auth.GET("/tools/:id/download", h.DownloadTool)
 
 		// Import (batch)
-		v1.POST("/tools/import/discover", h.ImportDiscover)
-		v1.POST("/tools/import/commit", h.ImportCommit)
-
-		// Health check
-		v1.GET("/tools/health", h.Health)
+		auth.POST("/tools/import/discover", h.ImportDiscover)
+		auth.POST("/tools/import/commit", h.ImportCommit)
 	}
 }
 
@@ -160,9 +165,17 @@ func (h *Handler) CreateMCP(c *gin.Context) {
 		return
 	}
 
+	userInfo := GetUserInfo(c)
+
 	displayName := req.DisplayName
 	if displayName == "" {
 		displayName = req.Name
+	}
+
+	// Use request author, fallback to userName from header
+	author := req.Author
+	if author == "" {
+		author = userInfo.Username
 	}
 
 	isPublic := true
@@ -180,9 +193,9 @@ func (h *Handler) CreateMCP(c *gin.Context) {
 		Description: req.Description,
 		Tags:        req.Tags,
 		IconURL:     req.IconURL,
-		Author:      req.Author,
+		Author:      author,
 		Config:      config,
-		OwnerUserID: "", // Optional, empty by default
+		OwnerUserID: userInfo.UserID,
 		IsPublic:    isPublic,
 		Status:      model.AppStatusActive,
 	}
@@ -327,7 +340,7 @@ func (h *Handler) SearchTools(c *gin.Context) {
 	}
 
 	toolType := c.Query("type")
-	mode := c.DefaultQuery("mode", "semantic") // semantic, keyword, hybrid
+	mode := c.DefaultQuery("mode", "keyword") // keyword, semantic, hybrid
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
 
 	switch mode {
@@ -667,8 +680,10 @@ func (h *Handler) ImportDiscover(c *gin.Context) {
 		return
 	}
 
+	userInfo := GetUserInfo(c)
+
 	req := &importer.DiscoverRequest{
-		UserID:    "", // Optional, empty by default
+		UserID:    userInfo.UserID,
 		GitHubURL: githubURL,
 	}
 
@@ -711,8 +726,11 @@ func (h *Handler) ImportCommit(c *gin.Context) {
 		return
 	}
 
+	userInfo := GetUserInfo(c)
+
 	result, err := h.importer.Commit(c.Request.Context(), &importer.CommitRequest{
-		UserID:     "", // Optional, empty by default
+		UserID:     userInfo.UserID,
+		Username:   userInfo.Username,
 		ArchiveKey: req.ArchiveKey,
 		Selections: req.Selections,
 	})
