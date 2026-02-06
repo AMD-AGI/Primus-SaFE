@@ -154,7 +154,11 @@ func (i *Importer) Discover(ctx context.Context, req *DiscoverRequest) (*Discove
 	}
 
 	// Upload to temporary storage
-	archiveKey := fmt.Sprintf("skill-imports/%s/%s/%s", req.UserID, uuid.New().String(), filename)
+	userID := req.UserID
+	if userID == "" {
+		userID = "anonymous"
+	}
+	archiveKey := fmt.Sprintf("skill-imports/%s/%s/%s", userID, uuid.New().String(), filename)
 	if err := i.storage.UploadBytes(ctx, archiveKey, zipData); err != nil {
 		return nil, fmt.Errorf("failed to upload archive: %w", err)
 	}
@@ -204,8 +208,14 @@ func (i *Importer) wrapMDInZip(mdContent []byte, filename string) ([]byte, error
 
 // Commit imports selected skills from a previously uploaded archive
 func (i *Importer) Commit(ctx context.Context, req *CommitRequest) (*CommitResponse, error) {
+	// Handle empty UserID
+	userID := req.UserID
+	if userID == "" {
+		userID = "anonymous"
+	}
+
 	// Verify archive belongs to user
-	expectedPrefix := fmt.Sprintf("skill-imports/%s/", req.UserID)
+	expectedPrefix := fmt.Sprintf("skill-imports/%s/", userID)
 	if !strings.HasPrefix(req.ArchiveKey, expectedPrefix) {
 		return nil, fmt.Errorf("archive does not belong to the user")
 	}
@@ -238,7 +248,7 @@ func (i *Importer) Commit(ctx context.Context, req *CommitRequest) (*CommitRespo
 	// Process selections
 	var items []CommitResultItem
 	for _, sel := range req.Selections {
-		item := i.importOne(ctx, zipReader, commonRoot, candidateByPath, sel, req.UserID)
+		item := i.importOne(ctx, zipReader, commonRoot, candidateByPath, sel, userID)
 		items = append(items, item)
 	}
 
