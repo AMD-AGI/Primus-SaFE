@@ -11,11 +11,33 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"github.com/gin-gonic/gin"
 )
+
+// resolveClusterName resolves a cluster name through the cluster manager.
+// If the provided name is not found, falls back to the default cluster.
+func resolveClusterName(cluster string) string {
+	cm := clientsets.GetClusterManager()
+	if cm == nil {
+		return ""
+	}
+	clients, err := cm.GetClusterClientsOrDefault(cluster)
+	if err == nil {
+		return clients.ClusterName
+	}
+	// Provided cluster not found, try default
+	if cluster != "" {
+		clients, err = cm.GetClusterClientsOrDefault("")
+		if err == nil {
+			return clients.ClusterName
+		}
+	}
+	return ""
+}
 
 const (
 	// SSE polling interval for reading from database
@@ -301,7 +323,7 @@ func (h *LiveHandler) GetCurrentState(c *gin.Context) {
 		return
 	}
 
-	clusterName := c.Query("cluster")
+	clusterName := resolveClusterName(c.Query("cluster"))
 	state, err := h.buildStateFromDBForCluster(c.Request.Context(), runID, clusterName)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
