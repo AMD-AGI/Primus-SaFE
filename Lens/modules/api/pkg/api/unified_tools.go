@@ -17,6 +17,7 @@ import (
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/errors"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/mcp/unified"
+	"github.com/gin-gonic/gin"
 )
 
 var toolsRepositoryURL string
@@ -459,9 +460,85 @@ func handleToolDownload(ctx context.Context, req *ToolGetRequest) (*ToolsDownloa
 	return nil, errors.NewError().WithCode(errors.InternalError).WithMessage("download should be handled by direct proxy")
 }
 
+// ToolsDownloadProxyHandler returns a Gin handler for proxying download requests
+// This handles binary content (ZIP files)
+func ToolsDownloadProxyHandler() func(c *gin.Context) {
+	return func(c *gin.Context) {
+		id := c.Param("id")
+		targetURL := toolsRepositoryURL + "/api/v1/tools/" + id + "/download"
+
+		// Create a new request to the target
+		proxyReq, err := http.NewRequestWithContext(c.Request.Context(), "GET", targetURL, nil)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create proxy request"})
+			return
+		}
+
+		// Execute the request
+		resp, err := toolsHTTPClient.Do(proxyReq)
+		if err != nil {
+			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to reach skills-repository"})
+			return
+		}
+		defer resp.Body.Close()
+
+		// Copy response headers (Content-Type, Content-Disposition, etc.)
+		for key, values := range resp.Header {
+			for _, value := range values {
+				c.Header(key, value)
+			}
+		}
+
+		// Stream response body
+		c.Status(resp.StatusCode)
+		io.Copy(c.Writer, resp.Body)
+	}
+}
+
 func handleToolsImportDiscover(ctx context.Context, req *ToolsEmptyRequest) (*ToolsImportDiscoverResponse, error) {
 	// Import discover is multipart/form-data, handled by direct proxy in router
 	return nil, errors.NewError().WithCode(errors.InternalError).WithMessage("import discover should be handled by direct proxy")
+}
+
+// ToolsImportDiscoverProxyHandler returns a Gin handler for proxying import/discover requests
+// This handles multipart/form-data file uploads
+func ToolsImportDiscoverProxyHandler() func(c *gin.Context) {
+	return func(c *gin.Context) {
+		targetURL := toolsRepositoryURL + "/api/v1/tools/import/discover"
+
+		// Create a new request to the target
+		proxyReq, err := http.NewRequestWithContext(c.Request.Context(), "POST", targetURL, c.Request.Body)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create proxy request"})
+			return
+		}
+
+		// Copy headers (especially Content-Type for multipart)
+		for key, values := range c.Request.Header {
+			for _, value := range values {
+				proxyReq.Header.Add(key, value)
+			}
+		}
+
+		// Execute the request
+		resp, err := toolsHTTPClient.Do(proxyReq)
+		if err != nil {
+			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to reach skills-repository"})
+			return
+		}
+		defer resp.Body.Close()
+
+		// Copy response headers
+		for key, values := range resp.Header {
+			for _, value := range values {
+				c.Header(key, value)
+			}
+		}
+
+		// Copy response body
+		body, _ := io.ReadAll(resp.Body)
+		c.Data(resp.StatusCode, resp.Header.Get("Content-Type"), body)
+	}
 }
 
 func handleToolsImportCommit(ctx context.Context, req *ToolsImportCommitRequest) (*ToolsImportCommitResponse, error) {
