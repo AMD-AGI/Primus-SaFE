@@ -456,7 +456,8 @@ func GetGithubWorkflowRun(ctx *gin.Context) {
 		return
 	}
 
-	facade := database.GetFacadeForCluster(clusterName).GetGithubWorkflowRun()
+	clusterFacade := database.GetFacadeForCluster(clusterName)
+	facade := clusterFacade.GetGithubWorkflowRun()
 	run, err := facade.GetByID(ctx.Request.Context(), id)
 	if err != nil {
 		log.GlobalLogger().WithContext(ctx).Errorf("Failed to get github workflow run: %v", err)
@@ -468,7 +469,20 @@ func GetGithubWorkflowRun(ctx *gin.Context) {
 		return
 	}
 
-	ctx.JSON(http.StatusOK, rest.SuccessResp(ctx.Request.Context(), run))
+	// Resolve SaFE UnifiedJob UID from gpu_workload table for Grafana dashboard
+	type runWithSafeUID struct {
+		*dbmodel.GithubWorkflowRuns
+		SafeWorkloadUID string `json:"safeWorkloadUid,omitempty"`
+	}
+	result := runWithSafeUID{GithubWorkflowRuns: run}
+	if run.SafeWorkloadID != "" {
+		workloadFacade := clusterFacade.GetWorkload()
+		if gpuWorkload, err := workloadFacade.GetGpuWorkloadByName(ctx.Request.Context(), run.SafeWorkloadID); err == nil && gpuWorkload != nil {
+			result.SafeWorkloadUID = gpuWorkload.UID
+		}
+	}
+
+	ctx.JSON(http.StatusOK, rest.SuccessResp(ctx.Request.Context(), result))
 }
 
 // ListAllGithubWorkflowRuns handles GET /v1/github-workflow-metrics/runs
