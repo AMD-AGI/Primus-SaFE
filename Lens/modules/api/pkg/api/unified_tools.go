@@ -144,11 +144,11 @@ type ToolsListRequest struct {
 }
 
 type ToolGetRequest struct {
-	ID string `json:"id" uri:"id" mcp:"description=Tool ID,required"`
+	ID string `json:"id" param:"id" mcp:"description=Tool ID,required"`
 }
 
 type ToolUpdateRequest struct {
-	ID          string   `json:"id" uri:"id" mcp:"description=Tool ID,required"`
+	ID          string   `json:"id" param:"id" mcp:"description=Tool ID,required"`
 	DisplayName string   `json:"display_name" mcp:"description=Display name"`
 	Description string   `json:"description" mcp:"description=Description"`
 	Tags        []string `json:"tags" mcp:"description=Tags"`
