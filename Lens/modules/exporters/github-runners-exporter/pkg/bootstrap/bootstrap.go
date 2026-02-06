@@ -90,7 +90,8 @@ func InitTaskScheduler(ctx context.Context) error {
 		MaxConcurrentTasks:       10, // Allow parallel collection
 		StaleLockCleanupInterval: 1 * time.Minute,
 		AutoStart:                true,
-		// Consume collection and event-driven sync tasks - analysis tasks are handled by agent service
+		// Consume collection, sync, and graph-fetch tasks
+		// Note: analysis/code-indexing tasks are handled by agent service
 		ConsumeTaskTypes: []string{
 			constant.TaskTypeGithubWorkflowCollection,
 			workflow.TaskTypeGithubWorkflowSync, // Legacy sync (deprecated, kept for backward compatibility)
@@ -98,6 +99,8 @@ func InitTaskScheduler(ctx context.Context) error {
 			constant.TaskTypeGithubCompletionSync, // Event-driven: on runner completion
 			constant.TaskTypeGithubPeriodicSync,   // Event-driven: every 5 minutes until workflow completes
 			constant.TaskTypeGithubManualSync,     // Event-driven: user-triggered manual sync
+			constant.TaskTypeGithubGraphFetch,      // Fetch workflow graph (jobs/steps) from GitHub API
+			workflow.TaskTypeGithubWorkflowLogFetch, // Fetch and cache workflow logs
 		},
 	}
 
@@ -153,6 +156,13 @@ func InitTaskScheduler(ctx context.Context) error {
 		return err
 	}
 	log.Info("ManualSyncExecutor registered with TaskScheduler")
+
+	// Register GraphFetchExecutor for fetching workflow graph (jobs/steps) from GitHub API
+	graphFetchExecutor := executor.NewGraphFetchExecutor(clientSets)
+	if err := taskScheduler.RegisterExecutor(graphFetchExecutor); err != nil {
+		return err
+	}
+	log.Info("GraphFetchExecutor registered with TaskScheduler")
 
 	// Register LogFetchExecutor for fetching and caching workflow logs
 	logFetchExecutor := workflow.NewLogFetchExecutor()
