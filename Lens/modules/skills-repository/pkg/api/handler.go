@@ -85,6 +85,11 @@ func RegisterRoutes(router *gin.Engine, h *Handler) {
 		// Import (batch)
 		auth.POST("/tools/import/discover", h.ImportDiscover)
 		auth.POST("/tools/import/commit", h.ImportCommit)
+
+		// Like/Unlike
+		auth.POST("/tools/:id/like", h.LikeTool)
+		auth.DELETE("/tools/:id/like", h.UnlikeTool)
+		auth.GET("/tools/:id/like", h.GetLikeStatus)
 	}
 }
 
@@ -759,4 +764,90 @@ func (h *Handler) generateEmbeddingSync(ctx context.Context, tool *model.Tool) {
 	if err := h.facade.UpdateEmbedding(tool.ID, emb); err != nil {
 		fmt.Printf("Failed to update embedding for tool %d: %v\n", tool.ID, err)
 	}
+}
+
+// LikeTool handles POST /tools/:id/like
+func (h *Handler) LikeTool(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid tool id"})
+		return
+	}
+
+	userInfo := GetUserInfo(c)
+	if userInfo.UserID == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "user id required for liking"})
+		return
+	}
+
+	// Check if tool exists
+	tool, err := h.facade.GetByID(id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "tool not found"})
+		return
+	}
+
+	if err := h.facade.Like(id, userInfo.UserID); err != nil {
+		// Check for duplicate like (unique constraint violation)
+		c.JSON(http.StatusConflict, gin.H{"error": "already liked"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message":    "liked",
+		"like_count": tool.LikeCount + 1,
+	})
+}
+
+// UnlikeTool handles DELETE /tools/:id/like
+func (h *Handler) UnlikeTool(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid tool id"})
+		return
+	}
+
+	userInfo := GetUserInfo(c)
+	if userInfo.UserID == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "user id required for unliking"})
+		return
+	}
+
+	if err := h.facade.Unlike(id, userInfo.UserID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	likeCount, _ := h.facade.GetLikeCount(id)
+	c.JSON(http.StatusOK, gin.H{
+		"message":    "unliked",
+		"like_count": likeCount,
+	})
+}
+
+// GetLikeStatus handles GET /tools/:id/like
+func (h *Handler) GetLikeStatus(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid tool id"})
+		return
+	}
+
+	userInfo := GetUserInfo(c)
+
+	isLiked := false
+	if userInfo.UserID != "" {
+		isLiked, _ = h.facade.IsLiked(id, userInfo.UserID)
+	}
+
+	likeCount, err := h.facade.GetLikeCount(id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "tool not found"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"is_liked":   isLiked,
+		"like_count": likeCount,
+	})
 }
