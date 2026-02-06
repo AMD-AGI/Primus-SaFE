@@ -512,7 +512,7 @@ Get detailed information about a specific workload.
       "podId": "my-training-job-abc123-worker-0",
       "phase": "Running",
       "nodeName": "node-001",
-      "sshAddr": "ssh user-001.my-training-job-abc123-worker-0.cluster-workspace@10.0.0.1"
+      "sshCommand": "ssh user-001.my-training-job-abc123-worker-0.cluster-workspace@10.0.0.1"
     }
   ],
   "nodes": [["node-001"]],
@@ -560,13 +560,13 @@ Only fields not already covered by "List Workloads" are listed below. Other fiel
 | pods[].phase                    | string     | Pod phase, e.g. Pending/Running/Succeeded/Failed                                                                                        |
 | pods[].k8sNodeName              | string     | The Kubernetes node that the Pod is scheduled on                                                                                        |
 | pods[].adminNodeName            | string     | The Admin Node name where the pod is scheduled on                                                                                       |
-| pods[].sshAddr                  | string     | SSH address for direct login into the container                                                                                         |
+| pods[].sshCommand               | string     | SSH command for direct login into the container                                                                                         |
 | pods[].startTime                | string     | Pod start time                                                                                                                          |
 | pods[].endTime                  | string     | Pod end time                                                                                                                            |
 | pods[].hostIP                   | string     | The node IP address where the Pod is running                                                                                            |
 | pods[].podIP                    | string     | The pod IP address where the Pod is running                                                                                             |
 | pods[].rank                     | string     | The rank of pod, only for pytorch-job                                                                                                   |
-| pods[].groupId                  | int        | The group id of pod, only for TorchFT job         
+| pods[].groupId                  | int        | The group id of pod, only for TorchFT job                                                                                               
 | pods[].containers[].name        | string     | Container name                                                                                                                          |
 | pods[].containers[].reason      | string     | (brief) reason from the last termination of the container                                                                               |
 | pods[].containers[].message     | string     | Message regarding the last termination of the container                                                                                 |
@@ -582,7 +582,7 @@ Only fields not already covered by "List Workloads" are listed below. Other fiel
 | cronJobs                        | object     | Refer to the CreateWorkload parameter                                                                                                   |
 | secrets                         | object     | Refer to the CreateWorkload parameter                                                                                                   |
 | workloadUid                     | string     | UID of the workload                                                                                                                     |
-| stickyNodes                     | bool       | When enabled, the workload will try to use the same nodes during retries/failovers.                                                            |
+| stickyNodes                     | bool       | When enabled, the workload will try to use the same nodes during retries/failovers.                                                     |
 
 > Other fields not listed here are identical to those in the "List Workloads" Field Description.
 
