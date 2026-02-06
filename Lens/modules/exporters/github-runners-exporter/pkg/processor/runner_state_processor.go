@@ -182,6 +182,16 @@ func (p *RunnerStateProcessor) processState(ctx context.Context, state *model.Gi
 		}
 	}()
 
+	// Skip worker-type runners - they are compute nodes managed by a launcher
+	// and have no independent GitHub identity (github_run_id=0).
+	// Only launcher runners represent actual workflow runs.
+	if state.RunnerType == "worker" {
+		if err := p.stateFacade.MarkProcessed(ctx, state.ID, 0, 0, "skipped_worker"); err != nil {
+			log.Warnf("RunnerStateProcessor: failed to mark worker state %d as processed: %v", state.ID, err)
+		}
+		return
+	}
+
 	runnerSetFacade := database.GetFacade().GetGithubRunnerSet()
 	runFacade := database.GetFacade().GetGithubWorkflowRun()
 	runSummaryFacade := database.GetFacade().GetGithubWorkflowRunSummary()
