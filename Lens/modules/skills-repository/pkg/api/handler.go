@@ -108,6 +108,7 @@ func (h *Handler) ListTools(c *gin.Context) {
 		"updated_at":     true,
 		"run_count":      true,
 		"download_count": true,
+		"like_count":     true,
 	}
 	if !validSortFields[sortField] {
 		sortField = "created_at"
@@ -345,7 +346,7 @@ func (h *Handler) SearchTools(c *gin.Context) {
 	}
 
 	toolType := c.Query("type")
-	mode := c.DefaultQuery("mode", "keyword") // keyword, semantic, hybrid
+	mode := c.DefaultQuery("mode", "semantic") // semantic, keyword, hybrid
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
 
 	switch mode {
