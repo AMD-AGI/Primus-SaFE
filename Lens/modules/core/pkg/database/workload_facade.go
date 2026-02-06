@@ -19,6 +19,7 @@ import (
 type WorkloadFacadeInterface interface {
 	// GpuWorkload operations
 	GetGpuWorkloadByUid(ctx context.Context, uid string) (*model.GpuWorkload, error)
+	GetGpuWorkloadByName(ctx context.Context, name string) (*model.GpuWorkload, error)
 	CreateGpuWorkload(ctx context.Context, gpuWorkload *model.GpuWorkload) error
 	UpdateGpuWorkload(ctx context.Context, gpuWorkload *model.GpuWorkload) error
 	QueryWorkload(ctx context.Context, f *filter.WorkloadFilter) ([]*model.GpuWorkload, int, error)
@@ -89,6 +90,21 @@ func (f *WorkloadFacade) WithCluster(clusterName string) WorkloadFacadeInterface
 func (f *WorkloadFacade) GetGpuWorkloadByUid(ctx context.Context, uid string) (*model.GpuWorkload, error) {
 	q := f.getDAL().GpuWorkload
 	result, err := q.WithContext(ctx).Where(q.UID.Eq(uid)).First()
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if result.ID == 0 {
+		return nil, nil
+	}
+	return result, nil
+}
+
+func (f *WorkloadFacade) GetGpuWorkloadByName(ctx context.Context, name string) (*model.GpuWorkload, error) {
+	q := f.getDAL().GpuWorkload
+	result, err := q.WithContext(ctx).Where(q.Name.Eq(name)).Order(q.CreatedAt.Desc()).First()
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
