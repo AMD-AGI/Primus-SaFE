@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
+	"gorm.io/gen/field"
 	"gorm.io/gorm"
 )
 
@@ -159,6 +160,13 @@ type GithubWorkflowRunFacadeInterface interface {
 
 	// Update updates a run record
 	Update(ctx context.Context, run *model.GithubWorkflowRuns) error
+
+	// UpdateSyncFields updates only GitHub sync-related fields (workflow_status, workflow_conclusion, etc.)
+	// without overwriting collection status fields (status, error_message, etc.)
+	UpdateSyncFields(ctx context.Context, id int64,
+		workflowStatus, workflowConclusion, headSha, headBranch, workflowName string,
+		githubRunNumber int32,
+	) error
 
 	// UpdateStatus updates the status of a run
 	UpdateStatus(ctx context.Context, id int64, status string, errMsg string) error
@@ -492,6 +500,43 @@ func (f *GithubWorkflowRunFacade) Update(ctx context.Context, run *model.GithubW
 	run.UpdatedAt = time.Now()
 	q := f.getDAL().GithubWorkflowRuns
 	_, err := q.WithContext(ctx).Where(q.ID.Eq(run.ID)).Updates(run)
+	return err
+}
+
+// UpdateSyncFields updates only the GitHub sync-related fields of a run.
+// This avoids overwriting the collection status (status, error_message, etc.)
+// that may be concurrently updated by collection tasks.
+func (f *GithubWorkflowRunFacade) UpdateSyncFields(ctx context.Context, id int64,
+	workflowStatus, workflowConclusion, headSha, headBranch, workflowName string,
+	githubRunNumber int32,
+) error {
+	q := f.getDAL().GithubWorkflowRuns
+	now := time.Now()
+
+	updates := []field.AssignExpr{
+		q.WorkflowStatus.Value(workflowStatus),
+		q.WorkflowConclusion.Value(workflowConclusion),
+		q.LastSyncedAt.Value(now),
+		q.UpdatedAt.Value(now),
+	}
+
+	// Only update optional fields if they have values (don't overwrite with empty)
+	if headSha != "" {
+		updates = append(updates, q.HeadSha.Value(headSha))
+	}
+	if headBranch != "" {
+		updates = append(updates, q.HeadBranch.Value(headBranch))
+	}
+	if workflowName != "" {
+		updates = append(updates, q.WorkflowName.Value(workflowName))
+	}
+	if githubRunNumber != 0 {
+		updates = append(updates, q.GithubRunNumber.Value(githubRunNumber))
+	}
+
+	_, err := q.WithContext(ctx).
+		Where(q.ID.Eq(id)).
+		UpdateSimple(updates...)
 	return err
 }
 
