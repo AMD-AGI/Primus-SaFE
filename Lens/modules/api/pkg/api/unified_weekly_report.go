@@ -54,14 +54,16 @@ func init() {
 // ======================== Request Types ========================
 
 type WeeklyReportsListRequest struct {
-	Cluster string `json:"cluster" form:"cluster" mcp:"description=Cluster name filter"`
-	Status  string `json:"status" form:"status" mcp:"description=Report status filter"`
-	Page    int    `json:"page" form:"page" mcp:"description=Page number (default 1)"`
-	Size    int    `json:"size" form:"size" mcp:"description=Page size (default 20 max 100)"`
+	Cluster   string `json:"cluster" form:"cluster" query:"cluster" mcp:"description=Cluster name filter"`
+	ClusterName string `json:"cluster_name" form:"cluster_name" query:"cluster_name" mcp:"description=Cluster name filter (alias)"`
+	Status    string `json:"status" form:"status" query:"status" mcp:"description=Report status filter"`
+	Page      int    `json:"page" form:"page" query:"page" mcp:"description=Page number (default 1)"`
+	Size      int    `json:"size" form:"size" query:"size" mcp:"description=Page size (default 20 max 100)"`
+	PageSize  int    `json:"page_size" form:"page_size" query:"page_size" mcp:"description=Page size alias (default 20 max 100)"`
 }
 
 type WeeklyReportLatestRequest struct {
-	Cluster string `json:"cluster" form:"cluster" binding:"required" mcp:"description=Cluster name,required"`
+	Cluster string `json:"cluster" form:"cluster" query:"cluster" binding:"required" mcp:"description=Cluster name,required"`
 }
 
 type WeeklyReportDetailRequest struct {
@@ -109,12 +111,20 @@ func getControlPlaneFacade() *cpdb.ControlPlaneFacade {
 // ======================== Handler Implementations ========================
 
 func handleWeeklyReportsList(ctx context.Context, req *WeeklyReportsListRequest) (*WeeklyReportsListResponse, error) {
+	cluster := req.Cluster
+	if cluster == "" {
+		cluster = req.ClusterName
+	}
+
 	page := req.Page
 	if page < 1 {
 		page = 1
 	}
 
 	size := req.Size
+	if size < 1 {
+		size = req.PageSize
+	}
 	if size < 1 {
 		size = 20
 	}
@@ -127,7 +137,7 @@ func handleWeeklyReportsList(ctx context.Context, req *WeeklyReportsListRequest)
 		return nil, errors.NewError().WithCode(errors.ServiceUnavailable).WithMessage("Control plane not available")
 	}
 
-	reports, total, err := facade.GetGpuUsageWeeklyReport().List(ctx, req.Cluster, req.Status, page, size)
+	reports, total, err := facade.GetGpuUsageWeeklyReport().List(ctx, cluster, req.Status, page, size)
 	if err != nil {
 		return nil, errors.WrapError(err, "Failed to query reports", errors.CodeDatabaseError)
 	}
