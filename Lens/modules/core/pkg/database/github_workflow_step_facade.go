@@ -14,13 +14,18 @@ import (
 
 // GithubWorkflowStepFacade provides database operations for workflow steps
 type GithubWorkflowStepFacade struct {
-	db *gorm.DB
+	BaseFacade
 }
 
 // NewGithubWorkflowStepFacade creates a new facade instance
 func NewGithubWorkflowStepFacade() *GithubWorkflowStepFacade {
+	return &GithubWorkflowStepFacade{}
+}
+
+// WithCluster returns a new facade instance for the specified cluster
+func (f *GithubWorkflowStepFacade) WithCluster(clusterName string) *GithubWorkflowStepFacade {
 	return &GithubWorkflowStepFacade{
-		db: GetFacade().GetSystemConfig().GetDB(),
+		BaseFacade: BaseFacade{clusterName: clusterName},
 	}
 }
 
@@ -30,7 +35,7 @@ func (f *GithubWorkflowStepFacade) Upsert(ctx context.Context, step *model.Githu
 		step.CreatedAt = time.Now()
 	}
 
-	return f.db.WithContext(ctx).
+	return f.getDB().WithContext(ctx).
 		Clauses(clause.OnConflict{
 			Columns: []clause.Column{{Name: "job_id"}, {Name: "step_number"}},
 			DoUpdates: clause.AssignmentColumns([]string{
@@ -43,7 +48,7 @@ func (f *GithubWorkflowStepFacade) Upsert(ctx context.Context, step *model.Githu
 // GetByID retrieves a step by ID
 func (f *GithubWorkflowStepFacade) GetByID(ctx context.Context, id int64) (*model.GithubWorkflowSteps, error) {
 	var step model.GithubWorkflowSteps
-	err := f.db.WithContext(ctx).Where("id = ?", id).First(&step).Error
+	err := f.getDB().WithContext(ctx).Where("id = ?", id).First(&step).Error
 	if err == gorm.ErrRecordNotFound {
 		return nil, nil
 	}
@@ -53,7 +58,7 @@ func (f *GithubWorkflowStepFacade) GetByID(ctx context.Context, id int64) (*mode
 // ListByJobID lists all steps for a job
 func (f *GithubWorkflowStepFacade) ListByJobID(ctx context.Context, jobID int64) ([]*model.GithubWorkflowSteps, error) {
 	var steps []*model.GithubWorkflowSteps
-	err := f.db.WithContext(ctx).
+	err := f.getDB().WithContext(ctx).
 		Where("job_id = ?", jobID).
 		Order("step_number ASC").
 		Find(&steps).Error
@@ -62,7 +67,7 @@ func (f *GithubWorkflowStepFacade) ListByJobID(ctx context.Context, jobID int64)
 
 // DeleteByJobID deletes all steps for a job
 func (f *GithubWorkflowStepFacade) DeleteByJobID(ctx context.Context, jobID int64) error {
-	return f.db.WithContext(ctx).
+	return f.getDB().WithContext(ctx).
 		Where("job_id = ?", jobID).
 		Delete(&model.GithubWorkflowSteps{}).Error
 }
@@ -70,7 +75,7 @@ func (f *GithubWorkflowStepFacade) DeleteByJobID(ctx context.Context, jobID int6
 // GetFailedStep returns the first failed step for a job
 func (f *GithubWorkflowStepFacade) GetFailedStep(ctx context.Context, jobID int64) (*model.GithubWorkflowSteps, error) {
 	var step model.GithubWorkflowSteps
-	err := f.db.WithContext(ctx).
+	err := f.getDB().WithContext(ctx).
 		Where("job_id = ? AND conclusion = ?", jobID, WorkflowConclusionFailure).
 		Order("step_number ASC").
 		First(&step).Error
@@ -87,7 +92,7 @@ func (f *GithubWorkflowStepFacade) CountByJobID(ctx context.Context, jobID int64
 		Count      int
 	}
 
-	err = f.db.WithContext(ctx).
+	err = f.getDB().WithContext(ctx).
 		Model(&model.GithubWorkflowSteps{}).
 		Select("conclusion, COUNT(*) as count").
 		Where("job_id = ?", jobID).
