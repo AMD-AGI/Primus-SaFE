@@ -7,6 +7,9 @@ import (
 	"context"
 	"time"
 
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/aiclient"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/airegistry"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/aitopics"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/config"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/constant"
@@ -60,10 +63,19 @@ var (
 	backfillRunner *backfill.WorkflowBackfillRunner
 )
 
+// defaultAgentEndpoint is the default in-cluster endpoint for the AI agent service.
+// This is used when no explicit AI agent config is provided in the config file.
+const defaultAgentEndpoint = "http://lens-agent-api-service:8001"
+
 // Init initializes the github-runners-exporter
 func Init(ctx context.Context, cfg *config.Config) error {
 	if err := RegisterController(ctx); err != nil {
 		return err
+	}
+
+	// Initialize AI client for schema analysis (optional, collection works with fallback)
+	if err := initAIClient(cfg); err != nil {
+		log.Warnf("Failed to initialize AI client: %v, schema analysis will use DB fallback", err)
 	}
 
 	// Initialize TaskScheduler for collection tasks
@@ -77,6 +89,56 @@ func Init(ctx context.Context, cfg *config.Config) error {
 	}
 
 	log.Info("GitHub Runners Exporter initialized successfully")
+	return nil
+}
+
+// initAIClient initializes the global AI client for schema analysis.
+// If the AI agent is not reachable, collection will fall back to using existing schemas from DB.
+func initAIClient(cfg *config.Config) error {
+	// Determine AI agent endpoint from config or use default
+	agentEndpoint := defaultAgentEndpoint
+	agentName := "lens-agent-api"
+	agentTimeout := 120 * time.Second
+
+	if cfg.Jobs != nil && cfg.Jobs.AIAgent != nil && cfg.Jobs.AIAgent.Endpoint != "" {
+		agentEndpoint = cfg.Jobs.AIAgent.Endpoint
+		if cfg.Jobs.AIAgent.Name != "" {
+			agentName = cfg.Jobs.AIAgent.Name
+		}
+		if cfg.Jobs.AIAgent.Timeout > 0 {
+			agentTimeout = cfg.Jobs.AIAgent.Timeout
+		}
+	}
+
+	// Create static agent configuration
+	staticAgents := []airegistry.StaticAgentConfig{
+		{
+			Name:            agentName,
+			Endpoint:        agentEndpoint,
+			Topics:          []string{aitopics.TopicGithubMetricsExtract, aitopics.TopicGithubSchemaAnalyze},
+			Timeout:         agentTimeout,
+			HealthCheckPath: "/health",
+		},
+	}
+
+	// Create registry
+	registry, err := airegistry.NewRegistry(&airegistry.RegistryConfig{
+		Mode:                "config",
+		StaticAgents:        staticAgents,
+		HealthCheckInterval: 30 * time.Second,
+		UnhealthyThreshold:  3,
+	})
+	if err != nil {
+		return err
+	}
+
+	// Create and set global AI client
+	clientCfg := aiclient.DefaultClientConfig()
+	clientCfg.DefaultTimeout = agentTimeout
+	client := aiclient.New(clientCfg, registry, nil)
+	aiclient.SetGlobalClient(client)
+
+	log.Infof("AI client initialized with agent: %s at %s", agentName, agentEndpoint)
 	return nil
 }
 
