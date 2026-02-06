@@ -18,6 +18,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/dynamic"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -156,6 +157,9 @@ func (r *EphemeralRunnerReconciler) Reconcile(ctx context.Context, req reconcile
 	// Enrich with Pod status (lightweight K8s API call)
 	r.enrichPodStatus(ctx, info)
 
+	// Resolve associated SaFE UnifiedJob workload (if any)
+	r.resolveSafeWorkload(ctx, info)
+
 	// Upsert raw state to database - this is the only DB write the reconciler does
 	if err := r.upsertState(ctx, info); err != nil {
 		log.Errorf("EphemeralRunnerReconciler: failed to upsert state for %s/%s: %v",
@@ -188,6 +192,7 @@ func (r *EphemeralRunnerReconciler) upsertState(ctx context.Context, info *types
 		PodPhase:          info.PodPhase,
 		PodCondition:      info.PodCondition,
 		PodMessage:        info.PodMessage,
+		SafeWorkloadID:    info.SafeWorkloadID,
 		IsCompleted:       info.IsCompleted,
 		CreationTimestamp:  info.CreationTimestamp.Time,
 	}
@@ -247,6 +252,50 @@ func (r *EphemeralRunnerReconciler) removeFinalizer(ctx context.Context, obj *un
 		Namespace(obj.GetNamespace()).
 		Update(ctx, obj, metav1.UpdateOptions{})
 	return err
+}
+
+// resolveSafeWorkload looks up the associated SaFE UnifiedJob workload for this EphemeralRunner.
+// It queries the SaFE Workload CRD (amd.com/v1/workloads) by label:
+//
+//	primus-safe.scale.runner.id=<ephemeral-runner-name>
+//	primus-safe.workload.kind=UnifiedJob
+//
+// If found, the UnifiedJob workload name is stored in info.SafeWorkloadID.
+// For runners without a matching UnifiedJob, this is a no-op.
+func (r *EphemeralRunnerReconciler) resolveSafeWorkload(ctx context.Context, info *types.EphemeralRunnerInfo) {
+	if r.dynamicClient == nil || info.Name == "" {
+		return
+	}
+
+	// Only resolve for launcher-type runners (workers are sub-pods of the launcher)
+	if info.RunnerType == "worker" {
+		return
+	}
+
+	labelSelector := labels.SelectorFromSet(map[string]string{
+		types.LabelSafeScaleRunnerID: info.Name,
+		types.LabelSafeWorkloadKind:  types.SafeUnifiedJobKind,
+	}).String()
+
+	// Search across all namespaces since SaFE Workloads may reside in
+	// a different namespace (workspace ns) than the EphemeralRunner (ARC ns)
+	workloadList, err := r.dynamicClient.Resource(types.SafeWorkloadGVR).
+		List(ctx, metav1.ListOptions{
+			LabelSelector: labelSelector,
+			Limit:         1,
+		})
+	if err != nil {
+		// SaFE Workload CRD may not exist in all clusters - this is expected
+		log.Debugf("EphemeralRunnerReconciler: failed to list SaFE workloads for %s/%s: %v",
+			info.Namespace, info.Name, err)
+		return
+	}
+
+	if len(workloadList.Items) > 0 {
+		info.SafeWorkloadID = workloadList.Items[0].GetName()
+		log.Debugf("EphemeralRunnerReconciler: resolved SaFE UnifiedJob %q for runner %s/%s",
+			info.SafeWorkloadID, info.Namespace, info.Name)
+	}
 }
 
 // enrichPodStatus fetches Pod status and enriches the EphemeralRunnerInfo
