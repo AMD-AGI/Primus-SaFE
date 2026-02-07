@@ -16,6 +16,7 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/github-runners-exporter/pkg/types"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
@@ -363,9 +364,14 @@ func (r *EphemeralRunnerReconciler) enrichPodStatus(ctx context.Context, info *t
 
 	pod, err := r.client.Clientsets.CoreV1().Pods(info.Namespace).Get(ctx, info.Name, metav1.GetOptions{})
 	if err != nil {
-		log.Debugf("EphemeralRunnerReconciler: failed to get pod %s/%s: %v", info.Namespace, info.Name, err)
-		info.PodPhase = "Unknown"
-		info.PodMessage = fmt.Sprintf("Failed to get pod: %v", err)
+		if apierrors.IsNotFound(err) {
+			// Pod is gone - this is normal lifecycle (pod already cleaned up).
+			// Do NOT overwrite existing pod status with error-like values.
+			log.Debugf("EphemeralRunnerReconciler: pod %s/%s not found (already deleted), keeping existing status", info.Namespace, info.Name)
+			return
+		}
+		// Genuine API error (network issue, permissions, etc.) - log but don't overwrite status
+		log.Warnf("EphemeralRunnerReconciler: failed to get pod %s/%s: %v", info.Namespace, info.Name, err)
 		return
 	}
 
