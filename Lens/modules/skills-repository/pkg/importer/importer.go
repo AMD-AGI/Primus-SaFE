@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"path"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/controlplane/database"
@@ -268,18 +269,103 @@ func (i *Importer) Commit(ctx context.Context, req *CommitRequest) (*CommitRespo
 	// Find common root
 	commonRoot := i.findCommonRoot(zipReader)
 
-	// Process selections
-	var items []CommitResultItem
-	for _, sel := range req.Selections {
-		item := i.importOne(ctx, zipReader, commonRoot, candidateByPath, sel, userID, req.Username)
-		items = append(items, item)
+	// Phase 1: Process selections in parallel (S3 upload + DB insert, no embedding)
+	const maxWorkers = 10 // Higher concurrency since we're not calling embedding API here
+
+	items := make([]CommitResultItem, len(req.Selections))
+	toolInfos := make([]struct {
+		ID          int64
+		Name        string
+		Description string
+	}, len(req.Selections))
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	semaphore := make(chan struct{}, maxWorkers)
+
+	for idx, sel := range req.Selections {
+		wg.Add(1)
+		go func(idx int, sel Selection) {
+			defer wg.Done()
+			semaphore <- struct{}{}        // Acquire
+			defer func() { <-semaphore }() // Release
+
+			item, toolID, name, desc := i.importOneWithoutEmbedding(ctx, zipReader, commonRoot, candidateByPath, sel, userID, req.Username)
+			mu.Lock()
+			items[idx] = item
+			if item.Status == "success" && toolID > 0 {
+				toolInfos[idx] = struct {
+					ID          int64
+					Name        string
+					Description string
+				}{toolID, name, desc}
+			}
+			mu.Unlock()
+		}(idx, sel)
 	}
+	wg.Wait()
+
+	// Phase 2: Batch generate embeddings for successful imports
+	i.batchGenerateEmbeddings(ctx, toolInfos)
 
 	return &CommitResponse{Items: items}, nil
 }
 
-// importOne imports a single skill
-func (i *Importer) importOne(
+// batchGenerateEmbeddings generates embeddings for multiple tools in batch
+func (i *Importer) batchGenerateEmbeddings(ctx context.Context, toolInfos []struct {
+	ID          int64
+	Name        string
+	Description string
+}) {
+	if i.embedding == nil {
+		return
+	}
+
+	// Collect valid tools
+	var validTools []struct {
+		ID          int64
+		Name        string
+		Description string
+	}
+	for _, info := range toolInfos {
+		if info.ID > 0 && info.Name != "" {
+			validTools = append(validTools, info)
+		}
+	}
+
+	if len(validTools) == 0 {
+		return
+	}
+
+	// Prepare texts for batch embedding
+	texts := make([]string, len(validTools))
+	for i, t := range validTools {
+		texts[i] = fmt.Sprintf("%s: %s", t.Name, t.Description)
+	}
+
+	// Batch generate embeddings
+	embeddings, err := i.embedding.GenerateBatch(ctx, texts)
+	if err != nil {
+		fmt.Printf("Failed to batch generate embeddings: %v\n", err)
+		// Fallback to individual generation
+		for _, t := range validTools {
+			i.generateEmbedding(ctx, t.ID, t.Name, t.Description)
+		}
+		return
+	}
+
+	// Update embeddings in database
+	for idx, emb := range embeddings {
+		if emb != nil {
+			if err := i.facade.UpdateEmbedding(validTools[idx].ID, emb); err != nil {
+				fmt.Printf("Failed to update embedding for tool %d: %v\n", validTools[idx].ID, err)
+			}
+		}
+	}
+}
+
+// importOneWithoutEmbedding imports a single skill without generating embedding
+// Returns the result item and tool info for batch embedding generation
+func (i *Importer) importOneWithoutEmbedding(
 	ctx context.Context,
 	zipReader *zip.Reader,
 	commonRoot string,
@@ -287,14 +373,14 @@ func (i *Importer) importOne(
 	sel Selection,
 	userID string,
 	author string,
-) CommitResultItem {
+) (CommitResultItem, int64, string, string) {
 	candidate, ok := candidateByPath[sel.RelativePath]
 	if !ok {
 		return CommitResultItem{
 			RelativePath: sel.RelativePath,
 			Status:       "failed",
 			Error:        "skill not found in archive",
-		}
+		}, 0, "", ""
 	}
 
 	// Determine skill name
@@ -307,7 +393,7 @@ func (i *Importer) importOne(
 			RelativePath: sel.RelativePath,
 			Status:       "failed",
 			Error:        "skill name is required",
-		}
+		}, 0, "", ""
 	}
 
 	// Use parsed description from candidate
@@ -388,12 +474,13 @@ func (i *Importer) importOne(
 			SkillName:    skillName,
 			Status:       "failed",
 			Error:        "SKILL.md not found",
-		}
+		}, 0, "", ""
 	}
 
 	// Upload to permanent storage
+	// Use skillName in path to avoid S3 key collision and make it more readable
 	timestamp := time.Now().UnixNano()
-	s3KeyBase := fmt.Sprintf("skills/%d", timestamp)
+	s3KeyBase := fmt.Sprintf("skills/%s/%d", skillName, timestamp)
 	s3Key := s3KeyBase + "/SKILL.md"
 
 	if err := i.storage.UploadBytes(ctx, s3Key, skillContent); err != nil {
@@ -402,7 +489,7 @@ func (i *Importer) importOne(
 			SkillName:    skillName,
 			Status:       "failed",
 			Error:        fmt.Sprintf("failed to upload: %v", err),
-		}
+		}, 0, "", ""
 	}
 
 	// Upload additional files
@@ -431,16 +518,15 @@ func (i *Importer) importOne(
 				SkillName:    skillName,
 				Status:       "failed",
 				Error:        fmt.Sprintf("failed to update: %v", err),
-			}
+			}, 0, "", ""
 		}
-		// Generate embedding for updated skill
-		i.generateEmbedding(ctx, existing.ID, existing.Name, existing.Description)
+		// Return tool info for batch embedding generation
 		return CommitResultItem{
 			RelativePath: sel.RelativePath,
 			SkillName:    skillName,
 			Status:       "success",
 			ToolID:       existing.ID,
-		}
+		}, existing.ID, existing.Name, existing.Description
 	}
 
 	// Create new
@@ -458,23 +544,43 @@ func (i *Importer) importOne(
 	}
 
 	if err := i.facade.Create(tool); err != nil {
+		// Handle race condition: another goroutine may have created the same skill
+		// Retry as update
+		existing2, err2 := i.facade.GetByTypeAndName(model.AppTypeSkill, skillName)
+		if err2 == nil && existing2 != nil {
+			existing2.Config = config
+			existing2.SkillSource = model.SkillSourceZIP
+			existing2.Description = skillDescription
+			if err3 := i.facade.Update(existing2); err3 != nil {
+				return CommitResultItem{
+					RelativePath: sel.RelativePath,
+					SkillName:    skillName,
+					Status:       "failed",
+					Error:        fmt.Sprintf("failed to update after race: %v", err3),
+				}, 0, "", ""
+			}
+			return CommitResultItem{
+				RelativePath: sel.RelativePath,
+				SkillName:    skillName,
+				Status:       "success",
+				ToolID:       existing2.ID,
+			}, existing2.ID, existing2.Name, existing2.Description
+		}
 		return CommitResultItem{
 			RelativePath: sel.RelativePath,
 			SkillName:    skillName,
 			Status:       "failed",
 			Error:        fmt.Sprintf("failed to create: %v", err),
-		}
+		}, 0, "", ""
 	}
 
-	// Generate embedding for new skill
-	i.generateEmbedding(ctx, tool.ID, tool.Name, tool.Description)
-
+	// Return tool info for batch embedding generation
 	return CommitResultItem{
 		RelativePath: sel.RelativePath,
 		SkillName:    skillName,
 		Status:       "success",
 		ToolID:       tool.ID,
-	}
+	}, tool.ID, tool.Name, tool.Description
 }
 
 // generateEmbedding generates embedding for a tool
