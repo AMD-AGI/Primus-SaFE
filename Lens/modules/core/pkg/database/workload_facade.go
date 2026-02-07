@@ -108,11 +108,15 @@ func (f *WorkloadFacade) GetGpuWorkloadByName(ctx context.Context, name string) 
 		return nil, nil
 	}
 	var result model.GpuWorkload
-	// Prefer active workloads (end_at is null or zero) over completed ones.
-	// Within the same active/inactive group, pick the most recently created.
+	// When multiple gpu_workload records share the same name (e.g. a UnifiedJob
+	// parent and its PyTorchJob child), use a multi-level priority:
+	// 1. Prefer top-level workloads (parent_uid = '') over children
+	// 2. Prefer active workloads (end_at is null or zero) over completed ones
+	// 3. Among completed ones, prefer the most recently ended
+	// 4. Final tiebreaker: most recently created
 	err := db.WithContext(ctx).
 		Where("name = ?", name).
-		Order("CASE WHEN end_at IS NULL OR end_at = '0001-01-01 00:00:00+00' THEN 0 ELSE 1 END ASC, created_at DESC").
+		Order("CASE WHEN parent_uid = '' THEN 0 ELSE 1 END ASC, CASE WHEN end_at IS NULL OR end_at = '0001-01-01 00:00:00+00' THEN 0 ELSE 1 END ASC, end_at DESC, created_at DESC").
 		First(&result).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
