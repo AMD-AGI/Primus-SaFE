@@ -103,7 +103,8 @@ func (h *Handler) ListTools(c *gin.Context) {
 	offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
 	toolType := c.Query("type") // skill, mcp
-	status := c.DefaultQuery("status", "active")
+	status := c.Query("status") // active, inactive, or empty for all
+	owner := c.Query("owner")   // "me" to filter only tools created by current user
 	sortField := c.DefaultQuery("sort", "created_at")
 	sortOrder := c.DefaultQuery("order", "desc")
 
@@ -124,14 +125,20 @@ func (h *Handler) ListTools(c *gin.Context) {
 		sortOrder = "desc"
 	}
 
-	tools, total, err := h.facade.List(toolType, status, sortField, sortOrder, offset, limit)
+	// Get user info for access control and like status
+	userInfo := GetUserInfo(c)
+
+	// Check if filtering by owner (owner=me)
+	ownerOnly := owner == "me"
+
+	// List tools with access control (public + owned by current user)
+	tools, total, err := h.facade.List(toolType, status, sortField, sortOrder, offset, limit, userInfo.UserID, ownerOnly)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
 	// Get user's liked tools for batch like status
-	userInfo := GetUserInfo(c)
 	likedMap := make(map[int64]bool)
 	if userInfo.UserID != "" && len(tools) > 0 {
 		toolIDs := make([]int64, len(tools))
@@ -172,8 +179,14 @@ func (h *Handler) GetTool(c *gin.Context) {
 		return
 	}
 
-	// Check if user has liked this tool
+	// Access control: private tools can only be accessed by owner
 	userInfo := GetUserInfo(c)
+	if !tool.IsPublic && tool.OwnerUserID != userInfo.UserID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "access denied"})
+		return
+	}
+
+	// Check if user has liked this tool
 	isLiked := false
 	if userInfo.UserID != "" {
 		isLiked, _ = h.facade.IsLiked(id, userInfo.UserID)
@@ -278,6 +291,13 @@ func (h *Handler) UpdateTool(c *gin.Context) {
 		return
 	}
 
+	// Access control: only owner can update
+	userInfo := GetUserInfo(c)
+	if tool.OwnerUserID != userInfo.UserID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "access denied: only owner can update"})
+		return
+	}
+
 	var req UpdateToolRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -354,6 +374,13 @@ func (h *Handler) DeleteTool(c *gin.Context) {
 	tool, err := h.facade.GetByID(id)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "tool not found"})
+		return
+	}
+
+	// Access control: only owner can delete
+	userInfo := GetUserInfo(c)
+	if tool.OwnerUserID != userInfo.UserID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "access denied: only owner can delete"})
 		return
 	}
 
@@ -549,6 +576,13 @@ func (h *Handler) DownloadTool(c *gin.Context) {
 	tool, err := h.facade.GetByID(id)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "tool not found"})
+		return
+	}
+
+	// Access control: private tools can only be downloaded by owner
+	userInfo := GetUserInfo(c)
+	if !tool.IsPublic && tool.OwnerUserID != userInfo.UserID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "access denied"})
 		return
 	}
 

@@ -92,6 +92,7 @@ func (s *Server) Start() error {
 	// Setup HTTP server
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()
+	router.Use(gin.Logger()) // Add request logging
 	router.Use(gin.Recovery())
 
 	// Register API routes
