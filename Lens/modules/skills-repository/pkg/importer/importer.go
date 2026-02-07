@@ -305,7 +305,10 @@ func (i *Importer) Commit(ctx context.Context, req *CommitRequest) (*CommitRespo
 	wg.Wait()
 
 	// Phase 2: Batch generate embeddings for successful imports
-	i.batchGenerateEmbeddings(ctx, toolInfos)
+	// Use independent context to avoid cancellation when client disconnects
+	embeddingCtx, embeddingCancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer embeddingCancel()
+	i.batchGenerateEmbeddings(embeddingCtx, toolInfos)
 
 	return &CommitResponse{Items: items}, nil
 }
