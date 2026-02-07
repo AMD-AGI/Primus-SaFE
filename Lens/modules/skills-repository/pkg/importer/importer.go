@@ -19,6 +19,7 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/controlplane/database/model"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/skills-repository/pkg/storage"
 	"github.com/google/uuid"
+	"gopkg.in/yaml.v3"
 )
 
 // Importer handles skill import from ZIP files or GitHub URLs
@@ -515,6 +516,12 @@ func (i *Importer) scanCandidates(zipData []byte) ([]Candidate, error) {
 	return candidates, nil
 }
 
+// skillFrontmatter represents the YAML frontmatter structure in SKILL.md
+type skillFrontmatter struct {
+	Name        string `yaml:"name"`
+	Description string `yaml:"description"`
+}
+
 // parseSkillMD parses name and description from a SKILL.md file
 func (i *Importer) parseSkillMD(f *zip.File) (name, description string) {
 	rc, err := f.Open()
@@ -535,13 +542,11 @@ func (i *Importer) parseSkillMD(f *zip.File) (name, description string) {
 		parts := strings.SplitN(text, "---", 3)
 		if len(parts) >= 2 {
 			frontmatter := parts[1]
-			for _, line := range strings.Split(frontmatter, "\n") {
-				line = strings.TrimSpace(line)
-				if strings.HasPrefix(line, "name:") {
-					name = strings.TrimSpace(strings.TrimPrefix(line, "name:"))
-				} else if strings.HasPrefix(line, "description:") {
-					description = strings.TrimSpace(strings.TrimPrefix(line, "description:"))
-				}
+			// Use proper YAML parsing to handle multi-line values (>, |, etc.)
+			var fm skillFrontmatter
+			if err := yaml.Unmarshal([]byte(frontmatter), &fm); err == nil {
+				name = strings.TrimSpace(fm.Name)
+				description = strings.TrimSpace(fm.Description)
 			}
 		}
 	}
