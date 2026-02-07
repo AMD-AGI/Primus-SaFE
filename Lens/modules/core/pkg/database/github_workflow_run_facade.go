@@ -211,6 +211,11 @@ type GithubWorkflowRunFacadeInterface interface {
 	// Returns the number of affected rows
 	ResetStuckCollectingToPending(ctx context.Context, timeout time.Duration) (int64, error)
 
+	// ListStaleRunning lists runs that are in workload_running or workload_pending status
+	// but haven't been updated since the given cutoff time. Used by StaleRunCleaner
+	// to detect runs whose EphemeralRunner may no longer exist in K8s.
+	ListStaleRunning(ctx context.Context, updatedBefore time.Time, limit int) ([]*model.GithubWorkflowRuns, error)
+
 	// WithCluster returns a new facade instance for the specified cluster
 	WithCluster(clusterName string) GithubWorkflowRunFacadeInterface
 }
@@ -500,6 +505,21 @@ func (f *GithubWorkflowRunFacade) CountByRunSummaryID(ctx context.Context, runSu
 		Where("run_summary_id = ?", runSummaryID).
 		Count(&count).Error
 	return count, err
+}
+
+// ListStaleRunning lists runs that are in workload_running or workload_pending status
+// but haven't been updated since the given cutoff time.
+func (f *GithubWorkflowRunFacade) ListStaleRunning(ctx context.Context, updatedBefore time.Time, limit int) ([]*model.GithubWorkflowRuns, error) {
+	db := f.getDAL().GithubWorkflowRuns.WithContext(ctx).UnderlyingDB()
+	var runs []*model.GithubWorkflowRuns
+	q := db.Where("status IN (?, ?)", WorkflowRunStatusWorkloadRunning, WorkflowRunStatusWorkloadPending).
+		Where("updated_at < ?", updatedBefore).
+		Order("updated_at ASC")
+	if limit > 0 {
+		q = q.Limit(limit)
+	}
+	err := q.Find(&runs).Error
+	return runs, err
 }
 
 // Update updates a run record
