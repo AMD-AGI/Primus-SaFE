@@ -1314,24 +1314,22 @@ func handleGithubWorkflowRunGet(ctx context.Context, req *GithubWorkflowRunGetRe
 
 	result := &GithubWorkflowRunWithSafeUID{GithubWorkflowRuns: run}
 
-	// Resolve SafeWorkloadUID from gpu_workload table
-	safeWorkloadID := run.SafeWorkloadID
-	// If current run has no safe_workload_id, check siblings under the same summary
-	if safeWorkloadID == "" && run.RunSummaryID > 0 {
-		if siblings, listErr := facade.ListByRunSummaryID(ctx, run.RunSummaryID); listErr == nil {
-			for _, sibling := range siblings {
-				if sibling.SafeWorkloadID != "" {
-					safeWorkloadID = sibling.SafeWorkloadID
-					break
-				}
-			}
-		}
+	// Resolve SafeWorkloadUID from gpu_workload table.
+	// Strategy:
+	// 1. If the run has a safe_workload_id (multi-node UnifiedJob), look up that name
+	// 2. Otherwise, look up by the runner's own workload_name (single-node runners
+	//    have a top-level SaFE Workload entry with the same name as the runner)
+	// Note: we do NOT search siblings - a sibling's UnifiedJob belongs to a
+	// different GitHub job and should not be associated with this runner.
+	workloadFacade := clusterFacade.GetWorkload()
+	lookupName := run.SafeWorkloadID
+	if lookupName == "" {
+		lookupName = run.WorkloadName
 	}
-	if safeWorkloadID != "" {
-		workloadFacade := clusterFacade.GetWorkload()
-		// GetGpuWorkloadByName prefers the top-level (parent) workload when
-		// a UnifiedJob and its child PyTorchJob share the same name.
-		if gpuWorkload, wErr := workloadFacade.GetGpuWorkloadByName(ctx, safeWorkloadID); wErr == nil && gpuWorkload != nil {
+	if lookupName != "" {
+		// GetGpuWorkloadByName prefers top-level (parent_uid='') workloads,
+		// then active over completed, then most recently ended.
+		if gpuWorkload, wErr := workloadFacade.GetGpuWorkloadByName(ctx, lookupName); wErr == nil && gpuWorkload != nil {
 			result.SafeWorkloadUID = gpuWorkload.UID
 		}
 	}
