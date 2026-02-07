@@ -306,7 +306,7 @@ func (f *GithubRunnerSetFacade) ListRepositories(ctx context.Context) ([]*Reposi
 			COALESCE(SUM(rs.current_runners), 0) AS total_runners,
 			COALESCE(SUM(rs.max_runners), 0) AS max_runners,
 			COALESCE(COUNT(DISTINCT r.id), 0) AS total_runs,
-			COALESCE(COUNT(DISTINCT CASE WHEN r.status IN ('workload_running', 'workload_pending') THEN r.id END), 0) AS running_workflows,
+			COALESCE(COUNT(DISTINCT CASE WHEN s.status = 'in_progress' THEN s.id END), 0) AS running_workflows,
 			COALESCE(COUNT(DISTINCT CASE WHEN r.status = 'pending' THEN r.id END), 0) AS pending_runs,
 			COALESCE(COUNT(DISTINCT CASE WHEN r.status = 'completed' THEN r.id END), 0) AS completed_runs,
 			COALESCE(COUNT(DISTINCT CASE WHEN r.status = 'failed' THEN r.id END), 0) AS failed_runs,
@@ -317,6 +317,7 @@ func (f *GithubRunnerSetFacade) ListRepositories(ctx context.Context) ([]*Reposi
 			COALESCE(COUNT(DISTINCT CASE WHEN r.pod_condition IN ('ImagePullBackOff', 'CrashLoopBackOff', 'OOMKilled') OR r.status = 'error' THEN r.id END), 0) AS error_pods
 		`).
 		Joins("LEFT JOIN github_workflow_runs r ON rs.id = r.runner_set_id").
+		Joins("LEFT JOIN github_workflow_run_summaries s ON r.run_summary_id = s.id").
 		Joins(`LEFT JOIN github_workflow_configs c ON 
 			rs.namespace = c.runner_set_namespace AND 
 			rs.name = c.runner_set_name AND 
@@ -342,7 +343,7 @@ func (f *GithubRunnerSetFacade) GetRepositorySummary(ctx context.Context, owner,
 			COALESCE(SUM(rs.current_runners), 0) AS total_runners,
 			COALESCE(SUM(rs.max_runners), 0) AS max_runners,
 			COALESCE(COUNT(DISTINCT r.id), 0) AS total_runs,
-			COALESCE(COUNT(DISTINCT CASE WHEN r.status IN ('workload_running', 'workload_pending') THEN r.id END), 0) AS running_workflows,
+			COALESCE(COUNT(DISTINCT CASE WHEN s.status = 'in_progress' THEN s.id END), 0) AS running_workflows,
 			COALESCE(COUNT(DISTINCT CASE WHEN r.status = 'pending' THEN r.id END), 0) AS pending_runs,
 			COALESCE(COUNT(DISTINCT CASE WHEN r.status = 'completed' THEN r.id END), 0) AS completed_runs,
 			COALESCE(COUNT(DISTINCT CASE WHEN r.status = 'failed' THEN r.id END), 0) AS failed_runs,
@@ -353,6 +354,7 @@ func (f *GithubRunnerSetFacade) GetRepositorySummary(ctx context.Context, owner,
 			COALESCE(COUNT(DISTINCT CASE WHEN r.pod_condition IN ('ImagePullBackOff', 'CrashLoopBackOff', 'OOMKilled') OR r.status = 'error' THEN r.id END), 0) AS error_pods
 		`).
 		Joins("LEFT JOIN github_workflow_runs r ON rs.id = r.runner_set_id").
+		Joins("LEFT JOIN github_workflow_run_summaries s ON r.run_summary_id = s.id").
 		Joins(`LEFT JOIN github_workflow_configs c ON 
 			rs.namespace = c.runner_set_namespace AND 
 			rs.name = c.runner_set_name AND 
