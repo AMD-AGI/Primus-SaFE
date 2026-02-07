@@ -6,6 +6,7 @@ package database
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
@@ -810,13 +811,15 @@ func (f *GithubWorkflowRunFacade) ListAllWithRunnerSetName(ctx context.Context, 
 
 // ListAllWithConfigName lists runs across all configs with config name (for global runs view)
 func (f *GithubWorkflowRunFacade) ListAllWithConfigName(ctx context.Context, filter *GithubWorkflowRunFilter) ([]*RunWithConfigName, int64, error) {
-	db := f.getDAL().GithubWorkflowRuns.WithContext(ctx).UnderlyingDB()
+	rawDB := f.getDB()
+	if rawDB == nil {
+		return nil, 0, fmt.Errorf("database connection is nil")
+	}
 
-	// buildBaseQuery creates a completely fresh query with filters applied.
-	// We use Session({NewDB: true}) to get a clean DB instance each time,
-	// preventing GORM from accumulating state across Count() and Find() calls.
+	// buildBaseQuery creates a completely fresh query each time from the raw DB connection.
+	// This avoids any GORM state accumulation issues between Count() and Find() calls.
 	buildBaseQuery := func() *gorm.DB {
-		q := db.Session(&gorm.Session{NewDB: true}).WithContext(ctx).
+		q := rawDB.WithContext(ctx).
 			Table("github_workflow_runs r").
 			Joins("LEFT JOIN github_workflow_configs c ON r.config_id = c.id")
 
@@ -867,96 +870,29 @@ func (f *GithubWorkflowRunFacade) ListAllWithConfigName(ctx context.Context, fil
 		return nil, 0, err
 	}
 
-	// Build data query with select and pagination
-	query := buildBaseQuery().Select("r.*, c.name as config_name")
-
-	// Apply pagination
-	if filter != nil {
-		if filter.Offset > 0 {
-			query = query.Offset(filter.Offset)
-		}
-		if filter.Limit > 0 {
-			query = query.Limit(filter.Limit)
-		}
-	}
-
-	// Order by id descending
-	query = query.Order("r.id DESC")
-
-	// Execute query
-	rows, err := query.Rows()
-	if err != nil {
-		return nil, 0, err
-	}
-	defer rows.Close()
-
-	var results []*RunWithConfigName
-	for rows.Next() {
-		run := &model.GithubWorkflowRuns{}
-		var configName string
-
-		err := db.ScanRows(rows, run)
-		if err != nil {
-			return nil, 0, err
-		}
-
-		// Scan config_name separately (it's appended after run fields)
-		// Since ScanRows scans all columns into the struct, we need to re-scan with explicit columns
-		results = append(results, &RunWithConfigName{
-			GithubWorkflowRuns: run,
-			ConfigName:         configName,
-		})
-	}
-
-	// Re-query with explicit struct scanning
+	// Data query with struct scanning
 	var rawResults []struct {
 		model.GithubWorkflowRuns
 		ConfigName string `gorm:"column:config_name"`
 	}
 
-	// Rebuild query for final scan
-	query2 := db.Table("github_workflow_runs r").
-		Select("r.*, c.name as config_name").
-		Joins("LEFT JOIN github_workflow_configs c ON r.config_id = c.id")
+	dataQuery := buildBaseQuery().Select("r.*, c.name as config_name")
 
+	// Apply pagination
 	if filter != nil {
-		if filter.ConfigID > 0 {
-			query2 = query2.Where("r.config_id = ?", filter.ConfigID)
-		}
-		if filter.Status != "" {
-			query2 = query2.Where("r.status = ?", filter.Status)
-		}
-		if filter.TriggerSource != "" {
-			query2 = query2.Where("r.trigger_source = ?", filter.TriggerSource)
-		}
-		if filter.GithubRunID > 0 {
-			query2 = query2.Where("r.github_run_id = ?", filter.GithubRunID)
-		}
-		if filter.WorkloadUID != "" {
-			query2 = query2.Where("r.workload_uid = ?", filter.WorkloadUID)
-		}
-		if filter.RunnerSetName != "" {
-			query2 = query2.Where("r.runner_set_name = ?", filter.RunnerSetName)
-		}
-		if filter.Since != nil {
-			query2 = query2.Where("r.created_at >= ?", *filter.Since)
-		}
-		if filter.Until != nil {
-			query2 = query2.Where("r.created_at <= ?", *filter.Until)
-		}
 		if filter.Offset > 0 {
-			query2 = query2.Offset(filter.Offset)
+			dataQuery = dataQuery.Offset(filter.Offset)
 		}
 		if filter.Limit > 0 {
-			query2 = query2.Limit(filter.Limit)
+			dataQuery = dataQuery.Limit(filter.Limit)
 		}
 	}
 
-	if err := query2.Order("r.id DESC").Find(&rawResults).Error; err != nil {
+	if err := dataQuery.Order("r.id DESC").Find(&rawResults).Error; err != nil {
 		return nil, 0, err
 	}
 
-	results = make([]*RunWithConfigName, 0, len(rawResults))
+	results := make([]*RunWithConfigName, 0, len(rawResults))
 	for i := range rawResults {
 		run := rawResults[i].GithubWorkflowRuns
 		results = append(results, &RunWithConfigName{
