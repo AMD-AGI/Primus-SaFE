@@ -41,7 +41,7 @@ func NewService(cfg Config) *Service {
 		model:     cfg.Model,
 		dimension: cfg.Dimension,
 		client: &http.Client{
-			Timeout: 30 * time.Second,
+			Timeout: 2 * time.Minute, // Increased for batch embedding generation
 		},
 	}
 }
@@ -140,7 +140,11 @@ func (s *Service) GenerateForTool(ctx context.Context, name, description string)
 	return s.Generate(ctx, text)
 }
 
-// GenerateBatch generates embeddings for multiple texts in a single API call
+// Maximum batch size allowed by embedding service
+const maxBatchSize = 32
+
+// GenerateBatch generates embeddings for multiple texts
+// Automatically splits into smaller batches if needed
 // Falls back to individual generation if batch fails
 func (s *Service) GenerateBatch(ctx context.Context, texts []string) ([][]float32, error) {
 	if !s.enabled {
@@ -165,15 +169,42 @@ func (s *Service) GenerateBatch(ctx context.Context, texts []string) ([][]float3
 		return nil, fmt.Errorf("all texts are empty")
 	}
 
-	// Try batch API call first
-	result, err := s.generateBatchInternal(ctx, validTexts, validIndices, len(texts))
-	if err != nil {
-		// Fallback: generate individually (like SaFE-QA pattern)
-		fmt.Printf("⚠️ Batch embedding failed, falling back to single: %v\n", err)
-		return s.generateBatchFallback(ctx, texts)
+	result := make([][]float32, len(texts))
+
+	// Process in batches of maxBatchSize
+	for batchStart := 0; batchStart < len(validTexts); batchStart += maxBatchSize {
+		batchEnd := batchStart + maxBatchSize
+		if batchEnd > len(validTexts) {
+			batchEnd = len(validTexts)
+		}
+
+		batchTexts := validTexts[batchStart:batchEnd]
+		batchIndices := validIndices[batchStart:batchEnd]
+
+		// Try batch API call
+		batchResult, err := s.generateBatchInternal(ctx, batchTexts, batchIndices, len(texts))
+		if err != nil {
+			// Fallback: generate individually for this batch
+			fmt.Printf("⚠️ Batch embedding failed (batch %d-%d), falling back to single: %v\n", batchStart, batchEnd, err)
+			for i, idx := range batchIndices {
+				emb, err := s.Generate(ctx, batchTexts[i])
+				if err != nil {
+					fmt.Printf("⚠️ Single embedding failed for text %d: %v\n", idx, err)
+					continue
+				}
+				result[idx] = emb
+			}
+			continue
+		}
+
+		// Copy batch results to final result
+		for _, idx := range batchIndices {
+			result[idx] = batchResult[idx]
+		}
+
+		fmt.Printf("✅ Batch generated %d embeddings (batch %d-%d)\n", len(batchTexts), batchStart, batchEnd)
 	}
 
-	fmt.Printf("✅ Batch generated %d embeddings in one API call\n", len(validTexts))
 	return result, nil
 }
 
