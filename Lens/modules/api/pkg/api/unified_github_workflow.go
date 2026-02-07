@@ -382,10 +382,13 @@ type GithubWorkflowRunHistoryRequest struct {
 }
 
 type GithubWorkflowAllRunsRequest struct {
-	Cluster string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
-	Status  string `json:"status" form:"status" mcp:"description=Filter by status"`
-	Offset  int    `json:"offset" form:"offset" mcp:"description=Pagination offset"`
-	Limit   int    `json:"limit" form:"limit" mcp:"description=Pagination limit"`
+	Cluster      string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
+	Status       string `json:"status" form:"status" mcp:"description=Filter by status"`
+	Owner        string `json:"owner" form:"owner" mcp:"description=Filter by GitHub owner"`
+	Repo         string `json:"repo" form:"repo" mcp:"description=Filter by GitHub repo"`
+	PodCondition string `json:"pod_condition" form:"pod_condition" mcp:"description=Filter by pod condition (use 'error' for all error conditions)"`
+	Offset       int    `json:"offset" form:"offset" mcp:"description=Pagination offset"`
+	Limit        int    `json:"limit" form:"limit" mcp:"description=Pagination limit"`
 }
 
 type GithubWorkflowRunGetRequest struct {
@@ -1262,13 +1265,22 @@ func handleGithubWorkflowAllRuns(ctx context.Context, req *GithubWorkflowAllRuns
 	}
 
 	facade := database.GetFacadeForCluster(clusterName).GetGithubWorkflowRun()
-	runs, total, err := facade.List(ctx, &database.GithubWorkflowRunFilter{
-		Status: req.Status,
-		Offset: offset,
-		Limit:  limit,
+	runsWithConfig, total, err := facade.ListAllWithConfigName(ctx, &database.GithubWorkflowRunFilter{
+		Status:       req.Status,
+		Owner:        req.Owner,
+		Repo:         req.Repo,
+		PodCondition: req.PodCondition,
+		Offset:       offset,
+		Limit:        limit,
 	})
 	if err != nil {
 		return nil, errors.WrapError(err, "failed to list runs", errors.CodeDatabaseError)
+	}
+
+	// Extract base model for response compatibility
+	runs := make([]*dbmodel.GithubWorkflowRuns, len(runsWithConfig))
+	for i, r := range runsWithConfig {
+		runs[i] = r.GithubWorkflowRuns
 	}
 
 	return &GithubWorkflowRunsListResponse{
