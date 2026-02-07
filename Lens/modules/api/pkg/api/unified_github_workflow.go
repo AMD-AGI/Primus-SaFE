@@ -1329,6 +1329,8 @@ func handleGithubWorkflowRunGet(ctx context.Context, req *GithubWorkflowRunGetRe
 	}
 	if safeWorkloadID != "" {
 		workloadFacade := clusterFacade.GetWorkload()
+		// GetGpuWorkloadByName prefers the top-level (parent) workload when
+		// a UnifiedJob and its child PyTorchJob share the same name.
 		if gpuWorkload, wErr := workloadFacade.GetGpuWorkloadByName(ctx, safeWorkloadID); wErr == nil && gpuWorkload != nil {
 			result.SafeWorkloadUID = gpuWorkload.UID
 		}
