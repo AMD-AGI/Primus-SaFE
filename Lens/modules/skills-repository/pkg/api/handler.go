@@ -723,9 +723,17 @@ func (h *Handler) ImportDiscover(c *gin.Context) {
 		return
 	}
 
-	// Parse pagination parameters
-	offset, _ := strconv.Atoi(c.PostForm("offset"))
-	limit, _ := strconv.Atoi(c.PostForm("limit"))
+	// Parse pagination parameters (support both query and form-data)
+	offsetStr := c.Query("offset")
+	if offsetStr == "" {
+		offsetStr = c.PostForm("offset")
+	}
+	limitStr := c.Query("limit")
+	if limitStr == "" {
+		limitStr = c.PostForm("limit")
+	}
+	offset, _ := strconv.Atoi(offsetStr)
+	limit, _ := strconv.Atoi(limitStr)
 
 	userInfo := GetUserInfo(c)
 
