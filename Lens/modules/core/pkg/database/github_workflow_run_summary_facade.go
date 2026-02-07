@@ -160,6 +160,7 @@ type RunSummaryFilter struct {
 	Owner            string
 	Repo             string
 	WorkflowPath     string
+	WorkflowName     string
 	Status           string
 	Conclusion       string
 	CollectionStatus string
@@ -199,6 +200,9 @@ func (f *GithubWorkflowRunSummaryFacade) ListByRepo(
 		}
 		if filter.WorkflowPath != "" {
 			query = query.Where("workflow_path = ?", filter.WorkflowPath)
+		}
+		if filter.WorkflowName != "" {
+			query = query.Where("workflow_name = ?", filter.WorkflowName)
 		}
 		if filter.HeadBranch != "" {
 			query = query.Where("head_branch = ?", filter.HeadBranch)
@@ -261,6 +265,9 @@ func (f *GithubWorkflowRunSummaryFacade) List(
 		}
 		if filter.WorkflowPath != "" {
 			query = query.Where("workflow_path = ?", filter.WorkflowPath)
+		}
+		if filter.WorkflowName != "" {
+			query = query.Where("workflow_name = ?", filter.WorkflowName)
 		}
 		if filter.HeadBranch != "" {
 			query = query.Where("head_branch = ?", filter.HeadBranch)
@@ -558,6 +565,21 @@ type GitHubRunData struct {
 	Conclusion      string
 	RunStartedAt    time.Time
 	RunCompletedAt  *time.Time
+}
+
+// ListDistinctWorkflowNames returns distinct workflow names for a repository
+func (f *GithubWorkflowRunSummaryFacade) ListDistinctWorkflowNames(
+	ctx context.Context,
+	owner, repo string,
+) ([]string, error) {
+	var names []string
+	err := f.getDB().WithContext(ctx).
+		Model(&model.GithubWorkflowRunSummaries{}).
+		Where("owner = ? AND repo = ? AND workflow_name != ''", owner, repo).
+		Distinct("workflow_name").
+		Order("workflow_name ASC").
+		Pluck("workflow_name", &names).Error
+	return names, err
 }
 
 // Delete deletes a summary by ID

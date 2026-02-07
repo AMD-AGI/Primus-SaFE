@@ -65,6 +65,7 @@ type WorkflowRunInfo struct {
 	RunCompletedAt  *time.Time `json:"run_completed_at,omitempty"`
 	DurationSeconds int        `json:"duration_seconds,omitempty"`
 	Event           string     `json:"event"` // push, pull_request, schedule, workflow_dispatch
+	Actor           *Actor     `json:"actor,omitempty"`
 	TriggerActor    *Actor     `json:"trigger_actor,omitempty"`
 	HeadSHA         string     `json:"head_sha"`
 	HeadBranch      string     `json:"head_branch"`
