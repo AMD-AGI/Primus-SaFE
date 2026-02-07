@@ -149,7 +149,9 @@ type ToolWithScore struct {
 }
 
 // SemanticSearch performs a vector similarity search on tools
-func (f *ToolFacade) SemanticSearch(embedding []float32, toolType string, limit int) ([]ToolWithScore, error) {
+// scoreThreshold: minimum similarity score (0-1), results below this threshold are filtered out.
+// Pass 0 to disable threshold filtering.
+func (f *ToolFacade) SemanticSearch(embedding []float32, toolType string, limit int, scoreThreshold float64) ([]ToolWithScore, error) {
 	var results []ToolWithScore
 
 	// Build embedding string for pgvector
@@ -171,20 +173,25 @@ func (f *ToolFacade) SemanticSearch(embedding []float32, toolType string, limit 
 		query = query.Where("type = ?", toolType)
 	}
 
+	// Apply score threshold filter
+	if scoreThreshold > 0 {
+		query = query.Where("1 - (embedding <=> ?) > ?", embStr, scoreThreshold)
+	}
+
 	err := query.Order("score DESC").Limit(limit).Find(&results).Error
 	return results, err
 }
 
 // HybridSearch combines keyword and semantic search
-func (f *ToolFacade) HybridSearch(keyword string, embedding []float32, toolType string, limit int) ([]ToolWithScore, error) {
+func (f *ToolFacade) HybridSearch(keyword string, embedding []float32, toolType string, limit int, scoreThreshold float64) ([]ToolWithScore, error) {
 	// Get keyword results
 	keywordTools, err := f.Search(keyword, toolType, limit*2)
 	if err != nil {
 		return nil, err
 	}
 
-	// Get semantic results
-	semanticResults, err := f.SemanticSearch(embedding, toolType, limit*2)
+	// Get semantic results (with score threshold)
+	semanticResults, err := f.SemanticSearch(embedding, toolType, limit*2, scoreThreshold)
 	if err != nil {
 		return nil, err
 	}

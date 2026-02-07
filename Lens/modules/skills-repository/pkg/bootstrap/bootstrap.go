@@ -96,7 +96,7 @@ func (s *Server) Start() error {
 	router.Use(gin.Recovery())
 
 	// Register API routes
-	handler := api.NewHandler(s.facade, s.runner, s.storage, s.embedding)
+	handler := api.NewHandler(s.facade, s.runner, s.storage, s.embedding, s.config.Search.ScoreThreshold)
 	api.RegisterRoutes(router, handler)
 
 	s.httpServer = &http.Server{

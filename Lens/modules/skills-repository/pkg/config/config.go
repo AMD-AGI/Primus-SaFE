@@ -10,6 +10,11 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// Default values
+const (
+	DefaultSearchScoreThreshold = 0.6
+)
+
 // Config represents the skills repository configuration
 type Config struct {
 	Server    ServerConfig    `yaml:"server"`
@@ -18,6 +23,12 @@ type Config struct {
 	Discovery DiscoveryConfig `yaml:"discovery"`
 	Runner    RunnerConfig    `yaml:"runner"`
 	Storage   StorageConfig   `yaml:"storage"`
+	Search    SearchConfig    `yaml:"search"`
+}
+
+// SearchConfig represents search configuration
+type SearchConfig struct {
+	ScoreThreshold float64 `yaml:"score_threshold"` // Minimum similarity score for semantic search (0-1)
 }
 
 // ServerConfig represents server configuration
@@ -120,6 +131,9 @@ func Load() (*Config, error) {
 			SecretKey: getEnv("STORAGE_SECRET_KEY", ""),
 			UseSSL:    getEnvBool("STORAGE_USE_SSL", true),
 		},
+		Search: SearchConfig{
+			ScoreThreshold: getEnvFloat("SEARCH_SCORE_THRESHOLD", DefaultSearchScoreThreshold),
+		},
 	}
 
 	// Try to load from config file
@@ -148,6 +162,15 @@ func getEnvInt(key string, defaultValue int) int {
 	if value := os.Getenv(key); value != "" {
 		if i, err := strconv.Atoi(value); err == nil {
 			return i
+		}
+	}
+	return defaultValue
+}
+
+func getEnvFloat(key string, defaultValue float64) float64 {
+	if value := os.Getenv(key); value != "" {
+		if f, err := strconv.ParseFloat(value, 64); err == nil {
+			return f
 		}
 	}
 	return defaultValue
