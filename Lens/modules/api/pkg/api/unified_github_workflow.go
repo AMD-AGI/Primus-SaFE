@@ -383,12 +383,12 @@ type GithubWorkflowRunHistoryRequest struct {
 
 type GithubWorkflowAllRunsRequest struct {
 	Cluster      string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
-	Status       string `json:"status" form:"status" mcp:"description=Filter by status"`
-	Owner        string `json:"owner" form:"owner" mcp:"description=Filter by GitHub owner"`
-	Repo         string `json:"repo" form:"repo" mcp:"description=Filter by GitHub repo"`
-	PodCondition string `json:"pod_condition" form:"pod_condition" mcp:"description=Filter by pod condition (use 'error' for all error conditions)"`
-	Offset       int    `json:"offset" form:"offset" mcp:"description=Pagination offset"`
-	Limit        int    `json:"limit" form:"limit" mcp:"description=Pagination limit"`
+	Status       string `json:"status" query:"status" mcp:"description=Filter by status"`
+	Owner        string `json:"owner" query:"owner" mcp:"description=Filter by GitHub owner"`
+	Repo         string `json:"repo" query:"repo" mcp:"description=Filter by GitHub repo"`
+	PodCondition string `json:"pod_condition" query:"pod_condition" mcp:"description=Filter by pod condition (use 'error' for all error conditions)"`
+	Offset       int    `json:"offset" query:"offset" mcp:"description=Pagination offset"`
+	Limit        int    `json:"limit" query:"limit" mcp:"description=Pagination limit"`
 }
 
 type GithubWorkflowRunGetRequest struct {
