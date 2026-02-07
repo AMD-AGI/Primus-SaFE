@@ -475,9 +475,23 @@ func GetGithubWorkflowRun(ctx *gin.Context) {
 		SafeWorkloadUID string `json:"safeWorkloadUid,omitempty"`
 	}
 	result := runWithSafeUID{GithubWorkflowRuns: run}
-	if run.SafeWorkloadID != "" {
+
+	// Try this run's safe_workload_id first; if empty, check sibling runs under the same summary
+	safeWorkloadID := run.SafeWorkloadID
+	if safeWorkloadID == "" && run.RunSummaryID > 0 {
+		siblings, listErr := facade.ListByRunSummaryID(ctx.Request.Context(), run.RunSummaryID)
+		if listErr == nil {
+			for _, sibling := range siblings {
+				if sibling.SafeWorkloadID != "" {
+					safeWorkloadID = sibling.SafeWorkloadID
+					break
+				}
+			}
+		}
+	}
+	if safeWorkloadID != "" {
 		workloadFacade := clusterFacade.GetWorkload()
-		if gpuWorkload, err := workloadFacade.GetGpuWorkloadByName(ctx.Request.Context(), run.SafeWorkloadID); err == nil && gpuWorkload != nil {
+		if gpuWorkload, err := workloadFacade.GetGpuWorkloadByName(ctx.Request.Context(), safeWorkloadID); err == nil && gpuWorkload != nil {
 			result.SafeWorkloadUID = gpuWorkload.UID
 		}
 	}
@@ -2380,8 +2394,10 @@ func GetJobLogs(ctx *gin.Context) {
 		return
 	}
 
+	clusterName, _ := getClusterNameForGithubWorkflow(ctx)
+
 	// Get logs from local database (logs are collected by exporter's LogFetchExecutor)
-	logsFacade := database.NewGithubWorkflowJobLogsFacade()
+	logsFacade := database.NewGithubWorkflowJobLogsFacade().WithCluster(clusterName)
 	cachedLog, err := logsFacade.GetByJobID(ctx.Request.Context(), runID, jobID)
 	
 	if err != nil {
@@ -2468,8 +2484,10 @@ func GetStepLogs(ctx *gin.Context) {
 		return
 	}
 
+	clusterName, _ := getClusterNameForGithubWorkflow(ctx)
+
 	// Get logs from local database (logs are collected by exporter's LogFetchExecutor)
-	logsFacade := database.NewGithubWorkflowJobLogsFacade()
+	logsFacade := database.NewGithubWorkflowJobLogsFacade().WithCluster(clusterName)
 	cachedLog, err := logsFacade.GetByJobID(ctx.Request.Context(), runID, jobID)
 	
 	if err != nil {
