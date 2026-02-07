@@ -200,7 +200,7 @@ func init() {
 		Handler:     handleGithubWorkflowAllRuns,
 	})
 
-	unified.Register(&unified.EndpointDef[GithubWorkflowRunGetRequest, *dbmodel.GithubWorkflowRuns]{
+	unified.Register(&unified.EndpointDef[GithubWorkflowRunGetRequest, GithubWorkflowRunWithSafeUID]{
 		Name:        "github_workflow_run_get",
 		Description: "Get a specific workflow run by ID",
 		HTTPMethod:  "GET",
@@ -391,6 +391,12 @@ type GithubWorkflowAllRunsRequest struct {
 type GithubWorkflowRunGetRequest struct {
 	Cluster string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
 	ID      string `json:"id" form:"id" param:"id" binding:"required" mcp:"description=Run ID,required"`
+}
+
+// GithubWorkflowRunWithSafeUID extends GithubWorkflowRuns with resolved SaFE UnifiedJob UID
+type GithubWorkflowRunWithSafeUID struct {
+	*dbmodel.GithubWorkflowRuns
+	SafeWorkloadUID string `json:"safeWorkloadUid,omitempty"`
 }
 
 type GithubWorkflowRunMetricsRequest struct {
@@ -1273,7 +1279,7 @@ func handleGithubWorkflowAllRuns(ctx context.Context, req *GithubWorkflowAllRuns
 	}, nil
 }
 
-func handleGithubWorkflowRunGet(ctx context.Context, req *GithubWorkflowRunGetRequest) (**dbmodel.GithubWorkflowRuns, error) {
+func handleGithubWorkflowRunGet(ctx context.Context, req *GithubWorkflowRunGetRequest) (*GithubWorkflowRunWithSafeUID, error) {
 	runID, err := strconv.ParseInt(req.ID, 10, 64)
 	if err != nil {
 		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("invalid run id")
@@ -1284,7 +1290,8 @@ func handleGithubWorkflowRunGet(ctx context.Context, req *GithubWorkflowRunGetRe
 		return nil, err
 	}
 
-	facade := database.GetFacadeForCluster(clusterName).GetGithubWorkflowRun()
+	clusterFacade := database.GetFacadeForCluster(clusterName)
+	facade := clusterFacade.GetGithubWorkflowRun()
 	run, err := facade.GetByID(ctx, runID)
 	if err != nil {
 		return nil, errors.WrapError(err, "failed to get run", errors.CodeDatabaseError)
@@ -1293,7 +1300,29 @@ func handleGithubWorkflowRunGet(ctx context.Context, req *GithubWorkflowRunGetRe
 		return nil, errors.NewError().WithCode(errors.RequestDataNotExisted).WithMessage("run not found")
 	}
 
-	return &run, nil
+	result := &GithubWorkflowRunWithSafeUID{GithubWorkflowRuns: run}
+
+	// Resolve SafeWorkloadUID from gpu_workload table
+	safeWorkloadID := run.SafeWorkloadID
+	// If current run has no safe_workload_id, check siblings under the same summary
+	if safeWorkloadID == "" && run.RunSummaryID > 0 {
+		if siblings, listErr := facade.ListByRunSummaryID(ctx, run.RunSummaryID); listErr == nil {
+			for _, sibling := range siblings {
+				if sibling.SafeWorkloadID != "" {
+					safeWorkloadID = sibling.SafeWorkloadID
+					break
+				}
+			}
+		}
+	}
+	if safeWorkloadID != "" {
+		workloadFacade := clusterFacade.GetWorkload()
+		if gpuWorkload, wErr := workloadFacade.GetGpuWorkloadByName(ctx, safeWorkloadID); wErr == nil && gpuWorkload != nil {
+			result.SafeWorkloadUID = gpuWorkload.UID
+		}
+	}
+
+	return result, nil
 }
 
 func handleGithubWorkflowRunMetrics(ctx context.Context, req *GithubWorkflowRunMetricsRequest) (*GithubWorkflowRunMetricsResponse, error) {
