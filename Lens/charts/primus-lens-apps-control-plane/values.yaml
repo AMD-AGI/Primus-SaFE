@@ -95,6 +95,59 @@ apps:
       prometheusPort: 8992
       controller:
         leaderElectionId: "primus-lens-github-runners"
+  
+  skillsRepository:
+    enabled: true
+    image: "primussafe/skills-repository:202602011111"
+    replicas: 1
+    httpPort: 8092
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "256Mi"
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+    config:
+      db:
+        host: ""  # Default: {release-name}-primary.{namespace}.svc
+        port: 5432
+        userName: "primus-lens-control-plane"
+        dbName: "primus-lens-control-plane"
+        sslMode: "require"
+      embedding:
+        enabled: false  # Enable semantic search
+        provider: "openai"
+        model: "BAAI/bge-m3"
+        dimension: 1024
+        baseURL: ""
+        # Secret containing API key
+        apiKeySecret:
+          name: "embedding-api-key"
+          key: "api-key"
+      discovery:
+        syncInterval: "5m"
+        watchEnabled: false
+        sources: []
+      # Runner backend configuration
+      runner:
+        enabled: false
+        baseURL: "http://localhost:8000"
+        timeout: 30
+      # Storage configuration for skills and uploaded files
+      storage:
+        provider: "local"  # local or s3
+        bucket: "skills-repository"
+        # S3/MinIO configuration (when provider is s3)
+        s3:
+          endpoint: ""
+          region: "us-east-1"
+          useSSL: true
+          # Secret containing S3 credentials
+          credentialsSecret:
+            name: ""
+            accessKeyField: "access-key"
+            secretKeyField: "secret-key"
 
 # ============================================================================
 # Service Account Configuration

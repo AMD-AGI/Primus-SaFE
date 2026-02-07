@@ -183,12 +183,27 @@ func (r *Registry) GetAllEndpoints() []EndpointRegistration {
 }
 
 // GetEndpointByPath returns an endpoint by its HTTP path.
+// Note: For paths that have multiple HTTP methods (e.g., GET and POST on the same path),
+// use GetEndpointByPathAndMethod instead.
 func (r *Registry) GetEndpointByPath(path string) EndpointRegistration {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
 	for _, ep := range r.endpoints {
 		if ep.GetHTTPPath() == path {
+			return ep
+		}
+	}
+	return nil
+}
+
+// GetEndpointByPathAndMethod returns an endpoint by its HTTP path and method.
+func (r *Registry) GetEndpointByPathAndMethod(path string, method string) EndpointRegistration {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	for _, ep := range r.endpoints {
+		if ep.GetHTTPPath() == path && ep.GetHTTPMethod() == method {
 			return ep
 		}
 	}

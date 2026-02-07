@@ -22,6 +22,16 @@ func getUnifiedHandler(path string) gin.HandlerFunc {
 	return nil
 }
 
+// getUnifiedHandlerWithMethod returns the unified handler for a given path and HTTP method.
+// Use this when the same path has multiple HTTP methods (e.g., GET and POST on /skills).
+func getUnifiedHandlerWithMethod(path string, method string) gin.HandlerFunc {
+	ep := unified.GetRegistry().GetEndpointByPathAndMethod(path, method)
+	if ep != nil {
+		return ep.GetGinHandler()
+	}
+	return nil
+}
+
 func RegisterRouter(group *gin.RouterGroup) error {
 	nodeGroup := group.Group("/nodes")
 	{
@@ -376,7 +386,7 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		realtimeGroup.GET("/status", getUnifiedHandler("/realtime/status"))
 		realtimeGroup.GET("/running-tasks", getUnifiedHandler("/realtime/running-tasks"))
 	}
-  
+
 	// Phase 8 Unified (GET only): Detection Status routes - Framework detection status and task progress
 	detectionStatusGroup := group.Group("/detection-status")
 	{
@@ -527,8 +537,35 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		}
 	}
 
-	// Note: V2 group endpoints (analytics, history, commit, details) are now merged 
+	// Note: V2 group endpoints (analytics, history, commit, details) are now merged
 	// into the main github-workflow-metrics group above using unified handlers
+
+	// Tools Marketplace routes - Proxy to skills-repository service
+	toolsGroup := group.Group("/tools")
+	{
+		// List tools with pagination, filtering and sorting
+		toolsGroup.GET("", getUnifiedHandlerWithMethod("/tools", "GET"))
+		// Search tools (keyword, semantic, hybrid)
+		toolsGroup.GET("/search", getUnifiedHandler("/tools/search"))
+		// Health check
+		toolsGroup.GET("/health", getUnifiedHandler("/tools/health"))
+		// Create MCP Server
+		toolsGroup.POST("/mcp", getUnifiedHandler("/tools/mcp"))
+		// Run tools (returns redirect URL)
+		toolsGroup.POST("/run", getUnifiedHandler("/tools/run"))
+		// Import skills - discover candidates (multipart/form-data, direct proxy)
+		toolsGroup.POST("/import/discover", ToolsImportDiscoverProxyHandler())
+		// Import skills - commit selected
+		toolsGroup.POST("/import/commit", getUnifiedHandler("/tools/import/commit"))
+		// Get tool by ID
+		toolsGroup.GET("/:id", getUnifiedHandlerWithMethod("/tools/:id", "GET"))
+		// Update tool
+		toolsGroup.PUT("/:id", getUnifiedHandlerWithMethod("/tools/:id", "PUT"))
+		// Delete tool
+		toolsGroup.DELETE("/:id", getUnifiedHandlerWithMethod("/tools/:id", "DELETE"))
+		// Download tool (binary content, direct proxy)
+		toolsGroup.GET("/:id/download", ToolsDownloadProxyHandler())
+	}
 
 	return nil
 }
