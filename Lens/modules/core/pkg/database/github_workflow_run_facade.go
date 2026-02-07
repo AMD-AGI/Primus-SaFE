@@ -812,11 +812,12 @@ func (f *GithubWorkflowRunFacade) ListAllWithRunnerSetName(ctx context.Context, 
 func (f *GithubWorkflowRunFacade) ListAllWithConfigName(ctx context.Context, filter *GithubWorkflowRunFilter) ([]*RunWithConfigName, int64, error) {
 	db := f.getDAL().GithubWorkflowRuns.WithContext(ctx).UnderlyingDB()
 
-	// buildBaseQuery creates a fresh query with filters applied.
-	// We build it fresh each time to avoid GORM Session sharing issues
-	// where Count() mutates the shared Statement and strips WHERE clauses.
+	// buildBaseQuery creates a completely fresh query with filters applied.
+	// We use Session({NewDB: true}) to get a clean DB instance each time,
+	// preventing GORM from accumulating state across Count() and Find() calls.
 	buildBaseQuery := func() *gorm.DB {
-		q := db.Table("github_workflow_runs r").
+		q := db.Session(&gorm.Session{NewDB: true}).WithContext(ctx).
+			Table("github_workflow_runs r").
 			Joins("LEFT JOIN github_workflow_configs c ON r.config_id = c.id")
 
 		if filter != nil {
