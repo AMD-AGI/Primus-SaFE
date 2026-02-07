@@ -304,67 +304,28 @@ func (e *GraphFetchExecutor) parseWorkflowNeeds(content string) map[string][]str
 	return result
 }
 
-// getJobIDByName finds the job ID key in workflow by matching job name
-func (e *GraphFetchExecutor) findJobIDByName(jobNeeds map[string][]string, jobName string, workflowContent string) string {
-	// Try to parse workflow to get job ID to name mapping
-	var workflow struct {
-		Jobs map[string]struct {
-			Name string `yaml:"name"`
-		} `yaml:"jobs"`
-	}
-
-	if err := yaml.Unmarshal([]byte(workflowContent), &workflow); err != nil {
-		return ""
-	}
-
-	for jobID, jobDef := range workflow.Jobs {
-		displayName := jobDef.Name
-		if displayName == "" {
-			displayName = jobID
-		}
-		if displayName == jobName {
-			return jobID
-		}
-	}
-
-	return ""
-}
-
 // syncJobsAndSteps syncs job and step data to the database
 func (e *GraphFetchExecutor) syncJobsAndSteps(ctx context.Context, runSummaryID int64, jobs []github.JobInfo, jobNeeds map[string][]string) error {
 	jobFacade := database.NewGithubWorkflowJobFacade()
 	stepFacade := database.NewGithubWorkflowStepFacade()
 
-	// First, we need to find the corresponding run records (github_workflow_runs)
-	// that belong to this run summary
+	// Find any run under this summary to use as the target run_id.
+	// github_workflow_runs are per-launcher, not per-GitHub-job,
+	// so we pick the first available run as the anchor.
 	runFacade := database.GetFacade().GetGithubWorkflowRun()
-	runs, _, err := runFacade.List(ctx, &database.GithubWorkflowRunFilter{})
-	if err != nil {
-		return err
+	runs, err := runFacade.ListByRunSummaryID(ctx, runSummaryID)
+	if err != nil || len(runs) == 0 {
+		return fmt.Errorf("no runs found for summary %d: %v", runSummaryID, err)
 	}
+	targetRunID := runs[0].ID
 
-	// Build a map of github_job_id to run.ID
-	jobToRunID := make(map[int64]int64)
-	for _, run := range runs {
-		if run.RunSummaryID == runSummaryID && run.GithubJobID > 0 {
-			jobToRunID[run.GithubJobID] = run.ID
-		}
-	}
-
-	// Build a map from job name to job ID for needs lookup
-	jobNameToID := make(map[string]string)
-	for jobID := range jobNeeds {
-		jobNameToID[jobID] = jobID
-	}
+	// Build a reverse map: YAML job key -> needs list (already provided)
+	// We need to match GitHub display names to YAML keys for needs lookup.
+	// GitHub display names:
+	//   - Non-matrix: same as YAML key or "name" field (e.g. "wait_for_build")
+	//   - Matrix: "yaml_key (matrix_values)" (e.g. "integration_tests_mi325 (primus_pyt_train_llama-3.1-8b)")
 
 	for _, ghJob := range jobs {
-		// Find the run ID for this job
-		runID, ok := jobToRunID[ghJob.ID]
-		if !ok {
-			// Job not yet tracked in github_workflow_runs, skip
-			continue
-		}
-
 		// Calculate duration
 		var duration int
 		if ghJob.StartedAt != nil && ghJob.CompletedAt != nil {
@@ -382,24 +343,11 @@ func (e *GraphFetchExecutor) syncJobsAndSteps(ctx context.Context, runSummaryID 
 			}
 		}
 
-		// Find needs for this job by matching job name
-		var needsJSON string
-		for jobID, needs := range jobNeeds {
-			// GitHub job name might match the workflow job ID directly
-			// or it might have a custom name set in the workflow
-			if jobID == ghJob.Name || len(needs) > 0 {
-				// Try to match by job name pattern
-				if jobID == ghJob.Name {
-					if needsBytes, err := json.Marshal(needs); err == nil {
-						needsJSON = string(needsBytes)
-					}
-					break
-				}
-			}
-		}
+		// Find needs for this job by matching against YAML job keys
+		needsJSON := e.resolveNeeds(ghJob.Name, jobNeeds)
 
 		job := &model.GithubWorkflowJobs{
-			RunID:           runID,
+			RunID:           targetRunID,
 			GithubJobID:     ghJob.ID,
 			Name:            ghJob.Name,
 			Needs:           needsJSON,
@@ -422,7 +370,7 @@ func (e *GraphFetchExecutor) syncJobsAndSteps(ctx context.Context, runSummaryID 
 		}
 
 		// Get saved job to get its ID
-		savedJob, err := jobFacade.GetByGithubJobID(ctx, runID, ghJob.ID)
+		savedJob, err := jobFacade.GetByGithubJobID(ctx, targetRunID, ghJob.ID)
 		if err != nil || savedJob == nil {
 			continue
 		}
@@ -452,4 +400,38 @@ func (e *GraphFetchExecutor) syncJobsAndSteps(ctx context.Context, runSummaryID 
 	}
 
 	return nil
+}
+
+// resolveNeeds matches a GitHub job display name to YAML job keys and returns
+// the serialized needs JSON. Handles both exact matches and matrix prefix matches.
+func (e *GraphFetchExecutor) resolveNeeds(ghJobName string, jobNeeds map[string][]string) string {
+	// 1. Exact match: "wait_for_build" == "wait_for_build"
+	if needs, ok := jobNeeds[ghJobName]; ok {
+		if needsBytes, err := json.Marshal(needs); err == nil {
+			return string(needsBytes)
+		}
+	}
+
+	// 2. Prefix match for matrix jobs: "integration_tests_mi325 (variant)" starts with "integration_tests_mi325"
+	// Find the longest matching prefix to avoid false positives
+	bestMatch := ""
+	for yamlKey := range jobNeeds {
+		if len(yamlKey) > len(bestMatch) && len(ghJobName) > len(yamlKey) {
+			prefix := ghJobName[:len(yamlKey)]
+			nextChar := ghJobName[len(yamlKey)]
+			if prefix == yamlKey && (nextChar == ' ' || nextChar == '(') {
+				bestMatch = yamlKey
+			}
+		}
+	}
+
+	if bestMatch != "" {
+		if needs, ok := jobNeeds[bestMatch]; ok {
+			if needsBytes, err := json.Marshal(needs); err == nil {
+				return string(needsBytes)
+			}
+		}
+	}
+
+	return ""
 }

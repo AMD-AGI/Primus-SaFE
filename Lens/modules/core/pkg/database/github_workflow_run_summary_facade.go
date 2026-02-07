@@ -518,9 +518,11 @@ func (f *GithubWorkflowRunSummaryFacade) UpdateFromGitHub(
 		"actor":              data.Actor,
 		"triggering_actor":   data.TriggeringActor,
 		"status":             data.Status,
-		"run_started_at":     data.RunStartedAt,
 		"last_synced_at":     time.Now(),
 		"updated_at":         time.Now(),
+	}
+	if !data.RunStartedAt.IsZero() {
+		updates["run_started_at"] = data.RunStartedAt
 	}
 	if data.DisplayTitle != "" {
 		updates["display_title"] = data.DisplayTitle
