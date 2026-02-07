@@ -17,6 +17,7 @@ import (
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/controlplane/database"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/controlplane/database/model"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/skills-repository/pkg/embedding"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/skills-repository/pkg/storage"
 	"github.com/google/uuid"
 	"gopkg.in/yaml.v3"
@@ -24,15 +25,17 @@ import (
 
 // Importer handles skill import from ZIP files or GitHub URLs
 type Importer struct {
-	facade  *database.ToolFacade
-	storage storage.Storage
+	facade    *database.ToolFacade
+	storage   storage.Storage
+	embedding *embedding.Service
 }
 
 // NewImporter creates a new Importer
-func NewImporter(facade *database.ToolFacade, storage storage.Storage) *Importer {
+func NewImporter(facade *database.ToolFacade, storage storage.Storage, embeddingSvc *embedding.Service) *Importer {
 	return &Importer{
-		facade:  facade,
-		storage: storage,
+		facade:    facade,
+		storage:   storage,
+		embedding: embeddingSvc,
 	}
 }
 
@@ -42,12 +45,15 @@ type DiscoverRequest struct {
 	File      io.Reader
 	FileName  string
 	GitHubURL string
+	Offset    int // Pagination offset (default 0)
+	Limit     int // Pagination limit (default 0 = all)
 }
 
 // DiscoverResponse represents a discover response
 type DiscoverResponse struct {
 	ArchiveKey string      `json:"archive_key"`
 	Candidates []Candidate `json:"candidates"`
+	Total      int         `json:"total"` // Total number of candidates before pagination
 }
 
 // Candidate represents a discovered skill candidate
@@ -165,9 +171,24 @@ func (i *Importer) Discover(ctx context.Context, req *DiscoverRequest) (*Discove
 		return nil, fmt.Errorf("failed to upload archive: %w", err)
 	}
 
+	// Apply pagination
+	total := len(candidates)
+	if req.Offset > 0 || req.Limit > 0 {
+		start := req.Offset
+		if start > total {
+			start = total
+		}
+		end := total
+		if req.Limit > 0 && start+req.Limit < total {
+			end = start + req.Limit
+		}
+		candidates = candidates[start:end]
+	}
+
 	return &DiscoverResponse{
 		ArchiveKey: archiveKey,
 		Candidates: candidates,
+		Total:      total,
 	}, nil
 }
 
@@ -412,6 +433,8 @@ func (i *Importer) importOne(
 				Error:        fmt.Sprintf("failed to update: %v", err),
 			}
 		}
+		// Generate embedding for updated skill
+		i.generateEmbedding(ctx, existing.ID, existing.Name, existing.Description)
 		return CommitResultItem{
 			RelativePath: sel.RelativePath,
 			SkillName:    skillName,
@@ -443,11 +466,32 @@ func (i *Importer) importOne(
 		}
 	}
 
+	// Generate embedding for new skill
+	i.generateEmbedding(ctx, tool.ID, tool.Name, tool.Description)
+
 	return CommitResultItem{
 		RelativePath: sel.RelativePath,
 		SkillName:    skillName,
 		Status:       "success",
 		ToolID:       tool.ID,
+	}
+}
+
+// generateEmbedding generates embedding for a tool
+// This is called after create/update to enable semantic search
+func (i *Importer) generateEmbedding(ctx context.Context, toolID int64, name, description string) {
+	if i.embedding == nil {
+		return
+	}
+
+	emb, err := i.embedding.GenerateForTool(ctx, name, description)
+	if err != nil {
+		fmt.Printf("Failed to generate embedding for tool %d: %v\n", toolID, err)
+		return
+	}
+
+	if err := i.facade.UpdateEmbedding(toolID, emb); err != nil {
+		fmt.Printf("Failed to update embedding for tool %d: %v\n", toolID, err)
 	}
 }
 
