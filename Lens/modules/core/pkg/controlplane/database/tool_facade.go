@@ -271,3 +271,23 @@ func (f *ToolFacade) GetLikeCount(toolID int64) (int, error) {
 	}
 	return tool.LikeCount, nil
 }
+
+// GetLikedToolIDs returns a map of tool IDs that the user has liked
+// This is used for batch checking like status in list endpoints
+func (f *ToolFacade) GetLikedToolIDs(userID string, toolIDs []int64) (map[int64]bool, error) {
+	if userID == "" || len(toolIDs) == 0 {
+		return make(map[int64]bool), nil
+	}
+
+	var likes []model.ToolLike
+	err := f.db.Where("user_id = ? AND tool_id IN ?", userID, toolIDs).Find(&likes).Error
+	if err != nil {
+		return nil, err
+	}
+
+	result := make(map[int64]bool)
+	for _, like := range likes {
+		result[like.ToolID] = true
+	}
+	return result, nil
+}
