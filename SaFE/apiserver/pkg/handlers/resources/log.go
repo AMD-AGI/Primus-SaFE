@@ -241,25 +241,16 @@ func buildSearchBody(query *view.ListLogRequest, workloadId string) []byte {
 		From: query.Offset,
 		Size: query.Limit,
 	}
-	var timestampKey, timestampLayout string
-	if query.IsEventRequest {
-		timestampKey = commonsearch.TimeField + ".keyword"
-		timestampLayout = timeutil.TimeRFC3339UTC
-	} else {
-		timestampKey = commonsearch.TimeField
-		timestampLayout = timeutil.TimeRFC3339Milli
-	}
-
 	req.Sort = []commonsearch.OpenSearchField{{
-		timestampKey: map[string]interface{}{
+		commonsearch.TimeField: map[string]interface{}{
 			"order": query.Order,
 		}},
 	}
 	req.Query.Bool.Must = []commonsearch.OpenSearchField{{
 		"range": map[string]interface{}{
-			timestampKey: map[string]string{
-				"gte": query.SinceTime.Format(timestampLayout),
-				"lte": query.UntilTime.Format(timestampLayout),
+			commonsearch.TimeField: map[string]string{
+				"gte": query.SinceTime.Format(timeutil.TimeRFC3339Milli),
+				"lte": query.UntilTime.Format(timeutil.TimeRFC3339Milli),
 			},
 		},
 	}}
