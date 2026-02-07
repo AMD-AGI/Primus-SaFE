@@ -88,8 +88,10 @@ func (f *ToolFacade) List(toolType, status, sortField, sortOrder string, offset,
 }
 
 // Update updates a tool
+// Omit embedding field to avoid pgvector empty vector error
+// Embedding should be updated via UpdateEmbedding method
 func (f *ToolFacade) Update(tool *model.Tool) error {
-	return f.db.Save(tool).Error
+	return f.db.Omit("Embedding").Save(tool).Error
 }
 
 // Delete deletes a tool by ID

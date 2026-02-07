@@ -41,7 +41,7 @@ func NewHandler(
 ) *Handler {
 	var imp *importer.Importer
 	if storage != nil {
-		imp = importer.NewImporter(facade, storage)
+		imp = importer.NewImporter(facade, storage, embeddingSvc)
 	}
 	return &Handler{
 		facade:    facade,
@@ -698,6 +698,8 @@ func (h *Handler) Health(c *gin.Context) {
 // ImportDiscoverRequest represents a request to discover skills from ZIP or GitHub
 type ImportDiscoverRequest struct {
 	GitHubURL string `form:"github_url"`
+	Offset    int    `form:"offset"` // Pagination offset
+	Limit     int    `form:"limit"`  // Pagination limit (0 = all)
 }
 
 // ImportDiscover handles skill discovery from ZIP file or GitHub URL
@@ -721,11 +723,17 @@ func (h *Handler) ImportDiscover(c *gin.Context) {
 		return
 	}
 
+	// Parse pagination parameters
+	offset, _ := strconv.Atoi(c.PostForm("offset"))
+	limit, _ := strconv.Atoi(c.PostForm("limit"))
+
 	userInfo := GetUserInfo(c)
 
 	req := &importer.DiscoverRequest{
 		UserID:    userInfo.UserID,
 		GitHubURL: githubURL,
+		Offset:    offset,
+		Limit:     limit,
 	}
 
 	if fileErr == nil {
