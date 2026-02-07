@@ -601,6 +601,8 @@ func RegisterRouter(group *gin.RouterGroup) error {
 			repositoriesGroup.POST("/:owner/:repo/metrics/trends", getUnifiedHandler("/github-runners/repositories/:owner/:repo/metrics/trends"))
 			// List run summaries for a repository
 			repositoriesGroup.GET("/:owner/:repo/run-summaries", getUnifiedHandler("/github-runners/repositories/:owner/:repo/run-summaries"))
+			// List distinct workflow names (pipelines) for a repository
+			repositoriesGroup.GET("/:owner/:repo/workflow-names", getUnifiedHandler("/github-runners/repositories/:owner/:repo/workflow-names"))
 		}
 
 		// Run Summaries - workflow run level aggregation
