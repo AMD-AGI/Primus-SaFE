@@ -103,8 +103,17 @@ func (f *WorkloadFacade) GetGpuWorkloadByUid(ctx context.Context, uid string) (*
 }
 
 func (f *WorkloadFacade) GetGpuWorkloadByName(ctx context.Context, name string) (*model.GpuWorkload, error) {
-	q := f.getDAL().GpuWorkload
-	result, err := q.WithContext(ctx).Where(q.Name.Eq(name)).Order(q.CreatedAt.Desc()).First()
+	db := f.getDB()
+	if db == nil {
+		return nil, nil
+	}
+	var result model.GpuWorkload
+	// Prefer active workloads (end_at is null or zero) over completed ones.
+	// Within the same active/inactive group, pick the most recently created.
+	err := db.WithContext(ctx).
+		Where("name = ?", name).
+		Order("CASE WHEN end_at IS NULL OR end_at = '0001-01-01 00:00:00+00' THEN 0 ELSE 1 END ASC, created_at DESC").
+		First(&result).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
@@ -114,7 +123,7 @@ func (f *WorkloadFacade) GetGpuWorkloadByName(ctx context.Context, name string) 
 	if result.ID == 0 {
 		return nil, nil
 	}
-	return result, nil
+	return &result, nil
 }
 
 func (f *WorkloadFacade) CreateGpuWorkload(ctx context.Context, gpuWorkload *model.GpuWorkload) error {
