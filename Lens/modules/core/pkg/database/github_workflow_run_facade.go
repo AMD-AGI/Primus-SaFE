@@ -812,59 +812,62 @@ func (f *GithubWorkflowRunFacade) ListAllWithRunnerSetName(ctx context.Context, 
 func (f *GithubWorkflowRunFacade) ListAllWithConfigName(ctx context.Context, filter *GithubWorkflowRunFilter) ([]*RunWithConfigName, int64, error) {
 	db := f.getDAL().GithubWorkflowRuns.WithContext(ctx).UnderlyingDB()
 
-	// Build base query with join - use Session to prevent query mutation
-	baseQuery := db.Table("github_workflow_runs r").
-		Joins("LEFT JOIN github_workflow_configs c ON r.config_id = c.id")
+	// buildBaseQuery creates a fresh query with filters applied.
+	// We build it fresh each time to avoid GORM Session sharing issues
+	// where Count() mutates the shared Statement and strips WHERE clauses.
+	buildBaseQuery := func() *gorm.DB {
+		q := db.Table("github_workflow_runs r").
+			Joins("LEFT JOIN github_workflow_configs c ON r.config_id = c.id")
 
-	// Apply filters
-	if filter != nil {
-		if filter.ConfigID > 0 {
-			baseQuery = baseQuery.Where("r.config_id = ?", filter.ConfigID)
+		if filter != nil {
+			if filter.ConfigID > 0 {
+				q = q.Where("r.config_id = ?", filter.ConfigID)
+			}
+			if filter.Status != "" {
+				q = q.Where("r.status = ?", filter.Status)
+			}
+			if filter.TriggerSource != "" {
+				q = q.Where("r.trigger_source = ?", filter.TriggerSource)
+			}
+			if filter.GithubRunID > 0 {
+				q = q.Where("r.github_run_id = ?", filter.GithubRunID)
+			}
+			if filter.WorkloadUID != "" {
+				q = q.Where("r.workload_uid = ?", filter.WorkloadUID)
+			}
+			if filter.RunnerSetName != "" {
+				q = q.Where("r.runner_set_name = ?", filter.RunnerSetName)
+			}
+			if filter.Owner != "" {
+				q = q.Where("r.runner_set_id IN (SELECT id FROM github_runner_sets WHERE github_owner = ?)", filter.Owner)
+			}
+			if filter.Repo != "" {
+				q = q.Where("r.runner_set_id IN (SELECT id FROM github_runner_sets WHERE github_repo = ?)", filter.Repo)
+			}
+			if filter.PodCondition == "error" {
+				q = q.Where("(r.pod_condition IN (?, ?, ?) OR r.status = ?)",
+					PodConditionImagePullBackOff, PodConditionCrashLoopBackOff, PodConditionOOMKilled, WorkflowRunStatusError)
+			} else if filter.PodCondition != "" {
+				q = q.Where("r.pod_condition = ?", filter.PodCondition)
+			}
+			if filter.Since != nil {
+				q = q.Where("r.created_at >= ?", *filter.Since)
+			}
+			if filter.Until != nil {
+				q = q.Where("r.created_at <= ?", *filter.Until)
+			}
 		}
-		if filter.Status != "" {
-			baseQuery = baseQuery.Where("r.status = ?", filter.Status)
-		}
-		if filter.TriggerSource != "" {
-			baseQuery = baseQuery.Where("r.trigger_source = ?", filter.TriggerSource)
-		}
-		if filter.GithubRunID > 0 {
-			baseQuery = baseQuery.Where("r.github_run_id = ?", filter.GithubRunID)
-		}
-		if filter.WorkloadUID != "" {
-			baseQuery = baseQuery.Where("r.workload_uid = ?", filter.WorkloadUID)
-		}
-		if filter.RunnerSetName != "" {
-			baseQuery = baseQuery.Where("r.runner_set_name = ?", filter.RunnerSetName)
-		}
-		if filter.Owner != "" {
-			baseQuery = baseQuery.Where("r.runner_set_id IN (SELECT id FROM github_runner_sets WHERE github_owner = ?)", filter.Owner)
-		}
-		if filter.Repo != "" {
-			baseQuery = baseQuery.Where("r.runner_set_id IN (SELECT id FROM github_runner_sets WHERE github_repo = ?)", filter.Repo)
-		}
-		if filter.PodCondition == "error" {
-			baseQuery = baseQuery.Where("(r.pod_condition IN (?, ?, ?) OR r.status = ?)",
-				PodConditionImagePullBackOff, PodConditionCrashLoopBackOff, PodConditionOOMKilled, WorkflowRunStatusError)
-		} else if filter.PodCondition != "" {
-			baseQuery = baseQuery.Where("r.pod_condition = ?", filter.PodCondition)
-		}
-		if filter.Since != nil {
-			baseQuery = baseQuery.Where("r.created_at >= ?", *filter.Since)
-		}
-		if filter.Until != nil {
-			baseQuery = baseQuery.Where("r.created_at <= ?", *filter.Until)
-		}
+		return q
 	}
 
-	// Count total using a separate query to avoid mutation
+	// Count total
 	var total int64
-	countQuery := baseQuery.Session(&gorm.Session{})
-	if err := countQuery.Count(&total).Error; err != nil {
+	if err := buildBaseQuery().Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
 
 	// Build data query with select and pagination
-	query := baseQuery.Session(&gorm.Session{}).Select("r.*, c.name as config_name")
+	query := buildBaseQuery().Select("r.*, c.name as config_name")
 
 	// Apply pagination
 	if filter != nil {
