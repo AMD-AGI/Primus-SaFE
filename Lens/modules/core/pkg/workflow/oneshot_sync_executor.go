@@ -313,6 +313,29 @@ func (e *CompletionSyncExecutor) Execute(ctx context.Context, execCtx *task.Exec
 				summary.GithubRunNumber = int32(ghRun.RunNumber)
 				updated = true
 			}
+			// Backfill actor fields
+			if summary.Actor == "" {
+				if ghRun.Actor != nil && ghRun.Actor.Login != "" {
+					summary.Actor = ghRun.Actor.Login
+					updated = true
+				} else if ghRun.TriggerActor != nil && ghRun.TriggerActor.Login != "" {
+					summary.Actor = ghRun.TriggerActor.Login
+					updated = true
+				}
+			}
+			if summary.TriggeringActor == "" {
+				if ghRun.TriggerActor != nil && ghRun.TriggerActor.Login != "" {
+					summary.TriggeringActor = ghRun.TriggerActor.Login
+					updated = true
+				} else if ghRun.Actor != nil && ghRun.Actor.Login != "" {
+					summary.TriggeringActor = ghRun.Actor.Login
+					updated = true
+				}
+			}
+			if summary.EventName == "" && ghRun.Event != "" {
+				summary.EventName = ghRun.Event
+				updated = true
+			}
 			if updated {
 				if err := runSummaryFacade.Update(ctx, summary); err != nil {
 					log.Warnf("CompletionSyncExecutor: failed to backfill summary %d: %v", run.RunSummaryID, err)

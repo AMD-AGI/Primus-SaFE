@@ -189,9 +189,15 @@ func (e *GraphFetchExecutor) Execute(ctx context.Context, execCtx *task.Executio
 		RunCompletedAt:  runCompletedAt,
 	}
 
-	if runInfo.TriggerActor != nil {
+	if runInfo.Actor != nil && runInfo.Actor.Login != "" {
+		githubData.Actor = runInfo.Actor.Login
+	} else if runInfo.TriggerActor != nil && runInfo.TriggerActor.Login != "" {
 		githubData.Actor = runInfo.TriggerActor.Login
+	}
+	if runInfo.TriggerActor != nil && runInfo.TriggerActor.Login != "" {
 		githubData.TriggeringActor = runInfo.TriggerActor.Login
+	} else if runInfo.Actor != nil && runInfo.Actor.Login != "" {
+		githubData.TriggeringActor = runInfo.Actor.Login
 	}
 	if runInfo.RunStartedAt != nil {
 		githubData.RunStartedAt = *runInfo.RunStartedAt
