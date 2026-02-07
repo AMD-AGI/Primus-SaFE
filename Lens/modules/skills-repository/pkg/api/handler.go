@@ -25,11 +25,12 @@ import (
 
 // Handler handles API requests for tools
 type Handler struct {
-	facade    *database.ToolFacade
-	runner    *runner.Runner
-	storage   storage.Storage
-	importer  *importer.Importer
-	embedding *embedding.Service
+	facade         *database.ToolFacade
+	runner         *runner.Runner
+	storage        storage.Storage
+	importer       *importer.Importer
+	embedding      *embedding.Service
+	scoreThreshold float64 // Minimum similarity score for semantic search
 }
 
 // NewHandler creates a new Handler
@@ -38,17 +39,19 @@ func NewHandler(
 	runner *runner.Runner,
 	storage storage.Storage,
 	embeddingSvc *embedding.Service,
+	scoreThreshold float64,
 ) *Handler {
 	var imp *importer.Importer
 	if storage != nil {
 		imp = importer.NewImporter(facade, storage, embeddingSvc)
 	}
 	return &Handler{
-		facade:    facade,
-		runner:    runner,
-		storage:   storage,
-		importer:  imp,
-		embedding: embeddingSvc,
+		facade:         facade,
+		runner:         runner,
+		storage:        storage,
+		importer:       imp,
+		embedding:      embeddingSvc,
+		scoreThreshold: scoreThreshold,
 	}
 }
 
@@ -422,7 +425,7 @@ func (h *Handler) SearchTools(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate embedding"})
 			return
 		}
-		results, err := h.facade.SemanticSearch(emb, toolType, limit)
+		results, err := h.facade.SemanticSearch(emb, toolType, limit, h.scoreThreshold)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
@@ -463,7 +466,7 @@ func (h *Handler) SearchTools(c *gin.Context) {
 			})
 			return
 		}
-		results, err := h.facade.HybridSearch(query, emb, toolType, limit)
+		results, err := h.facade.HybridSearch(query, emb, toolType, limit, h.scoreThreshold)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
