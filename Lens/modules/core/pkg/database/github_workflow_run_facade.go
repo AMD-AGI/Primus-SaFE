@@ -221,9 +221,12 @@ type GithubWorkflowRunFilter struct {
 	RunnerSetNamespace string
 	ConfigID           int64
 	Status             string
+	PodCondition       string // Filter by pod condition (e.g. "error" for all error conditions)
 	TriggerSource      string
 	GithubRunID        int64
 	WorkloadUID        string
+	Owner              string
+	Repo               string
 	Since              *time.Time
 	Until              *time.Time
 	Offset             int
@@ -832,6 +835,18 @@ func (f *GithubWorkflowRunFacade) ListAllWithConfigName(ctx context.Context, fil
 		}
 		if filter.RunnerSetName != "" {
 			baseQuery = baseQuery.Where("r.runner_set_name = ?", filter.RunnerSetName)
+		}
+		if filter.Owner != "" {
+			baseQuery = baseQuery.Where("r.runner_set_id IN (SELECT id FROM github_runner_sets WHERE github_owner = ?)", filter.Owner)
+		}
+		if filter.Repo != "" {
+			baseQuery = baseQuery.Where("r.runner_set_id IN (SELECT id FROM github_runner_sets WHERE github_repo = ?)", filter.Repo)
+		}
+		if filter.PodCondition == "error" {
+			baseQuery = baseQuery.Where("(r.pod_condition IN (?, ?, ?) OR r.status = ?)",
+				PodConditionImagePullBackOff, PodConditionCrashLoopBackOff, PodConditionOOMKilled, WorkflowRunStatusError)
+		} else if filter.PodCondition != "" {
+			baseQuery = baseQuery.Where("r.pod_condition = ?", filter.PodCondition)
 		}
 		if filter.Since != nil {
 			baseQuery = baseQuery.Where("r.created_at >= ?", *filter.Since)

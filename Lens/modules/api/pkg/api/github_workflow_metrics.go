@@ -526,6 +526,15 @@ func ListAllGithubWorkflowRuns(ctx *gin.Context) {
 	if runnerSet := ctx.Query("runner_set"); runnerSet != "" {
 		filter.RunnerSetName = runnerSet
 	}
+	if owner := ctx.Query("owner"); owner != "" {
+		filter.Owner = owner
+	}
+	if repo := ctx.Query("repo"); repo != "" {
+		filter.Repo = repo
+	}
+	if podCondition := ctx.Query("pod_condition"); podCondition != "" {
+		filter.PodCondition = podCondition
+	}
 	if startDateStr := ctx.Query("start_date"); startDateStr != "" {
 		if t, err := time.Parse(time.RFC3339, startDateStr); err == nil {
 			filter.Since = &t
