@@ -149,15 +149,6 @@ func init() {
 		MCPToolName: "lens_tools_unlike",
 		Handler:     handleToolUnlike,
 	})
-
-	unified.Register(&unified.EndpointDef[ToolLikeRequest, ToolLikeStatusResponse]{
-		Name:        "tools_like_status",
-		Description: "Get like status for a tool",
-		HTTPMethod:  "GET",
-		HTTPPath:    "/tools/:id/like",
-		MCPToolName: "lens_tools_like_status",
-		Handler:     handleToolLikeStatus,
-	})
 }
 
 // ======================== Request Types ========================
@@ -259,6 +250,8 @@ type ToolData struct {
 	Status         string                 `json:"status"`
 	RunCount       int                    `json:"run_count"`
 	DownloadCount  int                    `json:"download_count"`
+	LikeCount      int                    `json:"like_count"`
+	IsLiked        bool                   `json:"is_liked"`
 	CreatedAt      time.Time              `json:"created_at"`
 	UpdatedAt      time.Time              `json:"updated_at"`
 }
@@ -319,11 +312,6 @@ type ToolsImportCommitResult struct {
 type ToolLikeResponse struct {
 	Message   string `json:"message"`
 	LikeCount int    `json:"like_count"`
-}
-
-type ToolLikeStatusResponse struct {
-	IsLiked   bool `json:"is_liked"`
-	LikeCount int  `json:"like_count"`
 }
 
 // ======================== Handlers ========================
@@ -633,24 +621,6 @@ func handleToolUnlike(ctx context.Context, req *ToolLikeRequest) (*ToolLikeRespo
 	var result ToolLikeResponse
 	if err := json.Unmarshal(resp, &result); err != nil {
 		return nil, errors.WrapError(err, "failed to parse unlike response", errors.InternalError)
-	}
-	return &result, nil
-}
-
-func handleToolLikeStatus(ctx context.Context, req *ToolLikeRequest) (*ToolLikeStatusResponse, error) {
-	if req.ID == "" {
-		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("tool id is required")
-	}
-
-	reqURL := toolsRepositoryURL + "/api/v1/tools/" + req.ID + "/like"
-	resp, err := toolsProxyGet(ctx, reqURL)
-	if err != nil {
-		return nil, err
-	}
-
-	var result ToolLikeStatusResponse
-	if err := json.Unmarshal(resp, &result); err != nil {
-		return nil, errors.WrapError(err, "failed to parse like status response", errors.InternalError)
 	}
 	return &result, nil
 }
