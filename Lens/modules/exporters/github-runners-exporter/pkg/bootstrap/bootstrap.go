@@ -64,6 +64,8 @@ var (
 	backfillRunner *backfill.WorkflowBackfillRunner
 	// stateProcessor processes runner state changes and creates tasks
 	stateProcessor *processor.RunnerStateProcessor
+	// staleRunCleaner periodically detects and cleans stale running records
+	staleRunCleaner *processor.StaleRunCleaner
 )
 
 // defaultAgentEndpoint is the default in-cluster endpoint for the AI agent service.
@@ -93,6 +95,11 @@ func Init(ctx context.Context, cfg *config.Config) error {
 
 	// Initialize and start backfill runner for historical data processing
 	if err := InitBackfillRunner(ctx); err != nil {
+		return err
+	}
+
+	// Initialize StaleRunCleaner (detects stale running/pending records and cleans them)
+	if err := InitStaleRunCleaner(ctx); err != nil {
 		return err
 	}
 
@@ -294,6 +301,28 @@ func InitBackfillRunner(ctx context.Context) error {
 func StopBackfillRunner() error {
 	if backfillRunner != nil {
 		return backfillRunner.Stop()
+	}
+	return nil
+}
+
+// InitStaleRunCleaner initializes the StaleRunCleaner for detecting stale running records
+func InitStaleRunCleaner(ctx context.Context) error {
+	staleRunCleaner = processor.NewStaleRunCleaner(&processor.StaleRunCleanerConfig{
+		CheckInterval:  30 * time.Second,
+		StaleThreshold: 10 * time.Minute,
+	})
+
+	if err := staleRunCleaner.Start(ctx); err != nil {
+		return err
+	}
+	log.Info("StaleRunCleaner started for detecting stale running records")
+	return nil
+}
+
+// StopStaleRunCleaner stops the StaleRunCleaner gracefully
+func StopStaleRunCleaner() error {
+	if staleRunCleaner != nil {
+		return staleRunCleaner.Stop()
 	}
 	return nil
 }
