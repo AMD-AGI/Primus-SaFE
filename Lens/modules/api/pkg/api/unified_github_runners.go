@@ -128,6 +128,15 @@ func init() {
 		Handler:     handleGithubRunSummariesList,
 	})
 
+	unified.Register(&unified.EndpointDef[GithubWorkflowNamesRequest, GithubWorkflowNamesResponse]{
+		Name:        "github_workflow_names",
+		Description: "List distinct workflow names (pipelines) for a repository",
+		HTTPMethod:  "GET",
+		HTTPPath:    "/github-runners/repositories/:owner/:repo/workflow-names",
+		MCPToolName: "lens_github_workflow_names",
+		Handler:     handleGithubWorkflowNames,
+	})
+
 	unified.Register(&unified.EndpointDef[GithubRunSummaryGetRequest, *dbmodel.GithubWorkflowRunSummaries]{
 		Name:        "github_run_summary_get",
 		Description: "Get a specific workflow run summary by ID",
@@ -241,6 +250,7 @@ type GithubRunSummariesListRequest struct {
 	Conclusion       string `json:"conclusion" query:"conclusion" mcp:"description=Filter by conclusion (success, failure, cancelled)"`
 	CollectionStatus string `json:"collection_status" query:"collection_status" mcp:"description=Filter by collection status"`
 	WorkflowPath     string `json:"workflow_path" query:"workflow_path" mcp:"description=Filter by workflow path"`
+	WorkflowName     string `json:"workflow_name" query:"workflow_name" mcp:"description=Filter by workflow name (pipeline)"`
 	HeadBranch       string `json:"head_branch" query:"head_branch" mcp:"description=Filter by branch"`
 	EventName        string `json:"event_name" query:"event_name" mcp:"description=Filter by event name"`
 	RunnerSetID      string `json:"runner_set_id" query:"runner_set_id" mcp:"description=Filter by runner set ID"`
@@ -312,6 +322,17 @@ type GithubRepositoryMetricsMetadataResponse struct {
 	CommonMetrics    []string            `json:"common_metrics"`
 	AllDimensions    []string            `json:"all_dimensions"`
 	AllMetrics       []string            `json:"all_metrics"`
+}
+
+// Workflow Names Request/Response
+type GithubWorkflowNamesRequest struct {
+	Cluster string `json:"cluster" query:"cluster" mcp:"description=Cluster name"`
+	Owner   string `json:"owner" query:"owner" param:"owner" binding:"required" mcp:"description=GitHub owner,required"`
+	Repo    string `json:"repo" query:"repo" param:"repo" binding:"required" mcp:"description=GitHub repository name,required"`
+}
+
+type GithubWorkflowNamesResponse struct {
+	WorkflowNames []string `json:"workflow_names"`
 }
 
 // Run Summary Response Types
@@ -929,6 +950,27 @@ func getClusterNameForGithubWorkflowFromRequest(cluster string) (string, error) 
 
 // ======================== Run Summary Handler Implementations ========================
 
+func handleGithubWorkflowNames(ctx context.Context, req *GithubWorkflowNamesRequest) (*GithubWorkflowNamesResponse, error) {
+	if req.Owner == "" || req.Repo == "" {
+		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("owner and repo are required")
+	}
+
+	clusterName, err := getClusterNameForGithubWorkflowFromRequest(req.Cluster)
+	if err != nil {
+		return nil, err
+	}
+
+	facade := database.GetFacadeForCluster(clusterName).GetGithubWorkflowRunSummary()
+	names, err := facade.ListDistinctWorkflowNames(ctx, req.Owner, req.Repo)
+	if err != nil {
+		return nil, errors.WrapError(err, "failed to list workflow names", errors.CodeDatabaseError)
+	}
+
+	return &GithubWorkflowNamesResponse{
+		WorkflowNames: names,
+	}, nil
+}
+
 func handleGithubRunSummariesList(ctx context.Context, req *GithubRunSummariesListRequest) (*GithubRunSummariesListResponse, error) {
 	if req.Owner == "" || req.Repo == "" {
 		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("owner and repo are required")
@@ -949,6 +991,7 @@ func handleGithubRunSummariesList(ctx context.Context, req *GithubRunSummariesLi
 		Conclusion:       req.Conclusion,
 		CollectionStatus: req.CollectionStatus,
 		WorkflowPath:     req.WorkflowPath,
+		WorkflowName:     req.WorkflowName,
 		HeadBranch:       req.HeadBranch,
 		EventName:        req.EventName,
 	}

@@ -174,6 +174,24 @@ func (e *PeriodicSyncExecutor) Execute(ctx context.Context, execCtx *task.Execut
 	if summary.GithubRunNumber == 0 && ghRun.RunNumber > 0 {
 		summary.GithubRunNumber = int32(ghRun.RunNumber)
 	}
+	// Backfill actor fields
+	if summary.Actor == "" {
+		if ghRun.Actor != nil && ghRun.Actor.Login != "" {
+			summary.Actor = ghRun.Actor.Login
+		} else if ghRun.TriggerActor != nil && ghRun.TriggerActor.Login != "" {
+			summary.Actor = ghRun.TriggerActor.Login
+		}
+	}
+	if summary.TriggeringActor == "" {
+		if ghRun.TriggerActor != nil && ghRun.TriggerActor.Login != "" {
+			summary.TriggeringActor = ghRun.TriggerActor.Login
+		} else if ghRun.Actor != nil && ghRun.Actor.Login != "" {
+			summary.TriggeringActor = ghRun.Actor.Login
+		}
+	}
+	if summary.EventName == "" && ghRun.Event != "" {
+		summary.EventName = ghRun.Event
+	}
 
 	if err := runSummaryFacade.Update(ctx, summary); err != nil {
 		log.Warnf("PeriodicSyncExecutor: failed to update run summary %d: %v", runSummaryID, err)

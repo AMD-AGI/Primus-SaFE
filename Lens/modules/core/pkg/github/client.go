@@ -186,6 +186,10 @@ func (c *Client) GetWorkflowRun(ctx context.Context, owner, repo string, runID i
 		HeadRepository struct {
 			FullName string `json:"full_name"`
 		} `json:"head_repository"`
+		Actor struct {
+			Login string `json:"login"`
+			ID    int64  `json:"id"`
+		} `json:"actor"`
 		TriggeringActor struct {
 			Login string `json:"login"`
 			ID    int64  `json:"id"`
@@ -229,6 +233,10 @@ func (c *Client) GetWorkflowRun(ctx context.Context, owner, repo string, runID i
 		HeadSHA:        ghRun.HeadSHA,
 		HeadBranch:     ghRun.HeadBranch,
 		HeadRepository: ghRun.HeadRepository.FullName,
+		Actor: &Actor{
+			Login: ghRun.Actor.Login,
+			ID:    ghRun.Actor.ID,
+		},
 		TriggerActor: &Actor{
 			Login: ghRun.TriggeringActor.Login,
 			ID:    ghRun.TriggeringActor.ID,
