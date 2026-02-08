@@ -152,9 +152,7 @@ func (f *GpuAggregationFacade) GetClusterHourlyStats(ctx context.Context, startT
 		Where(q.StatHour.Gte(startTime)).
 		Where(q.StatHour.Lte(endTime))
 
-	if f.clusterName != "" {
-		query = query.Where(q.ClusterName.Eq(f.clusterName))
-	}
+
 
 	result, err := query.Order(q.StatHour.Asc()).
 		Find()
@@ -221,9 +219,7 @@ func (f *GpuAggregationFacade) GetNamespaceHourlyStats(ctx context.Context, name
 		Where(q.StatHour.Gte(startTime)).
 		Where(q.StatHour.Lte(endTime))
 
-	if f.clusterName != "" {
-		query = query.Where(q.ClusterName.Eq(f.clusterName))
-	}
+
 
 	result, err := query.Order(q.StatHour.Asc()).
 		Find()
@@ -246,9 +242,7 @@ func (f *GpuAggregationFacade) ListNamespaceHourlyStats(ctx context.Context, sta
 		Where(q.StatHour.Gte(startTime)).
 		Where(q.StatHour.Lte(endTime))
 
-	if f.clusterName != "" {
-		query = query.Where(q.ClusterName.Eq(f.clusterName))
-	}
+
 
 	result, err := query.Order(q.Namespace.Asc()).
 		Order(q.StatHour.Asc()).
@@ -320,9 +314,7 @@ func (f *GpuAggregationFacade) GetLabelHourlyStats(ctx context.Context, dimensio
 		Where(q.StatHour.Gte(startTime)).
 		Where(q.StatHour.Lte(endTime))
 
-	if f.clusterName != "" {
-		query = query.Where(q.ClusterName.Eq(f.clusterName))
-	}
+
 
 	result, err := query.Order(q.StatHour.Asc()).
 		Find()
@@ -347,9 +339,7 @@ func (f *GpuAggregationFacade) ListLabelHourlyStatsByKey(ctx context.Context, di
 		Where(q.StatHour.Gte(startTime)).
 		Where(q.StatHour.Lte(endTime))
 
-	if f.clusterName != "" {
-		query = query.Where(q.ClusterName.Eq(f.clusterName))
-	}
+
 
 	result, err := query.Order(q.DimensionValue.Asc()).
 		Order(q.StatHour.Asc()).
@@ -398,9 +388,7 @@ func (f *GpuAggregationFacade) GetLatestSnapshot(ctx context.Context) (*dbmodel.
 
 	query := q.WithContext(ctx)
 
-	if f.clusterName != "" {
-		query = query.Where(q.ClusterName.Eq(f.clusterName))
-	}
+
 
 	result, err := query.Order(q.SnapshotTime.Desc()).
 		First()
@@ -427,9 +415,7 @@ func (f *GpuAggregationFacade) ListSnapshots(ctx context.Context, startTime, end
 		Where(q.SnapshotTime.Gte(startTime)).
 		Where(q.SnapshotTime.Lte(endTime))
 
-	if f.clusterName != "" {
-		query = query.Where(q.ClusterName.Eq(f.clusterName))
-	}
+
 
 	result, err := query.Order(q.SnapshotTime.Asc()).
 		Find()
@@ -509,9 +495,7 @@ func (f *GpuAggregationFacade) GetDistinctNamespaces(ctx context.Context, startT
 		Where(q.StatHour.Lte(endTime))
 
 	// Filter by cluster name to avoid returning namespaces from all clusters
-	if f.clusterName != "" {
-		query = query.Where(q.ClusterName.Eq(f.clusterName))
-	}
+
 
 	var namespaces []string
 	err := query.Distinct(q.Namespace).
@@ -536,9 +520,7 @@ func (f *GpuAggregationFacade) GetDistinctNamespacesWithExclusion(ctx context.Co
 		Where(q.StatHour.Lte(endTime))
 
 	// Filter by cluster name to avoid returning namespaces from all clusters
-	if f.clusterName != "" {
-		query = query.Where(q.ClusterName.Eq(f.clusterName))
-	}
+
 
 	// Add exclusion condition if excludeNamespaces is not empty
 	if len(excludeNamespaces) > 0 {
@@ -568,9 +550,7 @@ func (f *GpuAggregationFacade) GetDistinctDimensionKeys(ctx context.Context, dim
 		Where(q.StatHour.Lte(endTime))
 
 	// Filter by cluster name to avoid returning keys from all clusters
-	if f.clusterName != "" {
-		query = query.Where(q.ClusterName.Eq(f.clusterName))
-	}
+
 
 	var keys []string
 	err := query.Distinct(q.DimensionKey).
@@ -597,9 +577,7 @@ func (f *GpuAggregationFacade) GetDistinctDimensionValues(ctx context.Context, d
 		Where(q.StatHour.Lte(endTime))
 
 	// Filter by cluster name to avoid returning values from all clusters
-	if f.clusterName != "" {
-		query = query.Where(q.ClusterName.Eq(f.clusterName))
-	}
+
 
 	var values []string
 	err := query.Distinct(q.DimensionValue).
@@ -647,9 +625,7 @@ func (f *GpuAggregationFacade) GetClusterHourlyStatsPaginated(ctx context.Contex
 		Where(q.StatHour.Gte(startTime)).
 		Where(q.StatHour.Lte(endTime))
 
-	if f.clusterName != "" {
-		countQuery = countQuery.Where(q.ClusterName.Eq(f.clusterName))
-	}
+
 
 	// Query total count
 	total, err := countQuery.Count()
@@ -667,9 +643,7 @@ func (f *GpuAggregationFacade) GetClusterHourlyStatsPaginated(ctx context.Contex
 		Offset(offset).
 		Limit(limit)
 
-	if f.clusterName != "" {
-		baseQuery = baseQuery.Where(q.ClusterName.Eq(f.clusterName))
-	}
+
 
 	// Apply sorting
 	var result []*dbmodel.ClusterGpuHourlyStats
@@ -715,9 +689,7 @@ func (f *GpuAggregationFacade) GetNamespaceHourlyStatsPaginated(ctx context.Cont
 		Where(q.StatHour.Gte(startTime)).
 		Where(q.StatHour.Lte(endTime))
 
-	if f.clusterName != "" {
-		countQuery = countQuery.Where(q.ClusterName.Eq(f.clusterName))
-	}
+
 
 	// Query total count
 	total, err := countQuery.Count()
@@ -736,9 +708,7 @@ func (f *GpuAggregationFacade) GetNamespaceHourlyStatsPaginated(ctx context.Cont
 		Offset(offset).
 		Limit(limit)
 
-	if f.clusterName != "" {
-		baseQuery = baseQuery.Where(q.ClusterName.Eq(f.clusterName))
-	}
+
 
 	// Apply sorting
 	var result []*dbmodel.NamespaceGpuHourlyStats
@@ -783,9 +753,7 @@ func (f *GpuAggregationFacade) ListNamespaceHourlyStatsPaginated(ctx context.Con
 		Where(q.StatHour.Gte(startTime)).
 		Where(q.StatHour.Lte(endTime))
 
-	if f.clusterName != "" {
-		countQuery = countQuery.Where(q.ClusterName.Eq(f.clusterName))
-	}
+
 
 	// Query total count
 	total, err := countQuery.Count()
@@ -803,9 +771,7 @@ func (f *GpuAggregationFacade) ListNamespaceHourlyStatsPaginated(ctx context.Con
 		Offset(offset).
 		Limit(limit)
 
-	if f.clusterName != "" {
-		baseQuery = baseQuery.Where(q.ClusterName.Eq(f.clusterName))
-	}
+
 
 	// Apply sorting
 	var result []*dbmodel.NamespaceGpuHourlyStats
@@ -850,9 +816,7 @@ func (f *GpuAggregationFacade) ListNamespaceHourlyStatsPaginatedWithExclusion(ct
 		Where(q.StatHour.Gte(startTime)).
 		Where(q.StatHour.Lte(endTime))
 
-	if f.clusterName != "" {
-		baseQuery = baseQuery.Where(q.ClusterName.Eq(f.clusterName))
-	}
+
 
 	// Add exclusion condition if excludeNamespaces is not empty
 	if len(excludeNamespaces) > 0 {
@@ -875,9 +839,7 @@ func (f *GpuAggregationFacade) ListNamespaceHourlyStatsPaginatedWithExclusion(ct
 		Offset(offset).
 		Limit(limit)
 
-	if f.clusterName != "" {
-		paginatedQuery = paginatedQuery.Where(q.ClusterName.Eq(f.clusterName))
-	}
+
 
 	// Add exclusion condition
 	if len(excludeNamespaces) > 0 {
@@ -930,9 +892,7 @@ func (f *GpuAggregationFacade) GetLabelHourlyStatsPaginated(ctx context.Context,
 		Where(q.StatHour.Gte(startTime)).
 		Where(q.StatHour.Lte(endTime))
 
-	if f.clusterName != "" {
-		countQuery = countQuery.Where(q.ClusterName.Eq(f.clusterName))
-	}
+
 
 	// Query total count
 	total, err := countQuery.Count()
@@ -953,9 +913,7 @@ func (f *GpuAggregationFacade) GetLabelHourlyStatsPaginated(ctx context.Context,
 		Offset(offset).
 		Limit(limit)
 
-	if f.clusterName != "" {
-		baseQuery = baseQuery.Where(q.ClusterName.Eq(f.clusterName))
-	}
+
 
 	// Apply sorting
 	var result []*dbmodel.LabelGpuHourlyStats
@@ -1008,9 +966,7 @@ func (f *GpuAggregationFacade) ListLabelHourlyStatsByKeyPaginated(ctx context.Co
 		Where(q.StatHour.Gte(startTime)).
 		Where(q.StatHour.Lte(endTime))
 
-	if f.clusterName != "" {
-		countQuery = countQuery.Where(q.ClusterName.Eq(f.clusterName))
-	}
+
 
 	// Query total count
 	total, err := countQuery.Count()
@@ -1030,9 +986,7 @@ func (f *GpuAggregationFacade) ListLabelHourlyStatsByKeyPaginated(ctx context.Co
 		Offset(offset).
 		Limit(limit)
 
-	if f.clusterName != "" {
-		baseQuery = baseQuery.Where(q.ClusterName.Eq(f.clusterName))
-	}
+
 
 	// Apply sorting
 	var result []*dbmodel.LabelGpuHourlyStats
@@ -1129,9 +1083,7 @@ func (f *GpuAggregationFacade) GetWorkloadHourlyStats(ctx context.Context, names
 		Where(q.StatHour.Gte(startTime)).
 		Where(q.StatHour.Lte(endTime))
 
-	if f.clusterName != "" {
-		query = query.Where(q.ClusterName.Eq(f.clusterName))
-	}
+
 
 	result, err := query.Order(q.StatHour.Asc()).
 		Find()
@@ -1154,9 +1106,7 @@ func (f *GpuAggregationFacade) ListWorkloadHourlyStats(ctx context.Context, star
 		Where(q.StatHour.Gte(startTime)).
 		Where(q.StatHour.Lte(endTime))
 
-	if f.clusterName != "" {
-		query = query.Where(q.ClusterName.Eq(f.clusterName))
-	}
+
 
 	result, err := query.Order(q.StatHour.Asc()).
 		Find()
@@ -1180,9 +1130,7 @@ func (f *GpuAggregationFacade) ListWorkloadHourlyStatsByNamespace(ctx context.Co
 		Where(q.StatHour.Gte(startTime)).
 		Where(q.StatHour.Lte(endTime))
 
-	if f.clusterName != "" {
-		query = query.Where(q.ClusterName.Eq(f.clusterName))
-	}
+
 
 	result, err := query.Order(q.StatHour.Asc()).
 		Find()
@@ -1206,9 +1154,7 @@ func (f *GpuAggregationFacade) GetWorkloadHourlyStatsPaginated(ctx context.Conte
 		Where(q.StatHour.Gte(startTime)).
 		Where(q.StatHour.Lte(endTime))
 
-	if f.clusterName != "" {
-		query = query.Where(q.ClusterName.Eq(f.clusterName))
-	}
+
 
 	if namespace != "" {
 		query = query.Where(q.Namespace.Eq(namespace))
@@ -1281,9 +1227,7 @@ func (f *GpuAggregationFacade) GetWorkloadHourlyStatsPaginatedWithExclusion(ctx 
 		Where(q.StatHour.Gte(startTime)).
 		Where(q.StatHour.Lte(endTime))
 
-	if f.clusterName != "" {
-		query = query.Where(q.ClusterName.Eq(f.clusterName))
-	}
+
 
 	if namespace != "" {
 		query = query.Where(q.Namespace.Eq(namespace))
