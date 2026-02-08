@@ -516,6 +516,9 @@ func (e *ManualSyncExecutor) syncRunSummary(ctx context.Context, runSummaryID in
 	if err != nil {
 		log.Warnf("ManualSyncExecutor: failed to get jobs: %v", err)
 	} else {
+		// Match GitHub jobs to runner records and update workflow_status
+		syncWorkflowStatusFromJobs(ctx, runSummaryID, ghJobs)
+
 		// Sync individual job records to each run under this summary
 		runFacade := database.GetFacade().GetGithubWorkflowRun()
 		runs, listErr := runFacade.ListByRunSummaryID(ctx, runSummaryID)

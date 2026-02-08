@@ -198,14 +198,17 @@ func (e *PeriodicSyncExecutor) Execute(ctx context.Context, execCtx *task.Execut
 	}
 
 	// Fetch jobs and update job stats in summary
-	_, err = client.GetWorkflowRunJobs(ctx, summary.Owner, summary.Repo, summary.GithubRunID)
-	if err == nil {
+	ghJobs, jobsErr := client.GetWorkflowRunJobs(ctx, summary.Owner, summary.Repo, summary.GithubRunID)
+	if jobsErr == nil {
+		// Match GitHub jobs to individual runner records and update workflow_status
+		syncWorkflowStatusFromJobs(ctx, summary.ID, ghJobs)
+
 		// Update job stats in summary (queries from DB)
 		if err := runSummaryFacade.UpdateJobStats(ctx, summary.ID); err != nil {
 			log.Warnf("PeriodicSyncExecutor: failed to update job stats for summary %d: %v", summary.ID, err)
 		}
 	} else {
-		log.Warnf("PeriodicSyncExecutor: failed to get jobs for summary %d: %v", summary.ID, err)
+		log.Warnf("PeriodicSyncExecutor: failed to get jobs for summary %d: %v", summary.ID, jobsErr)
 	}
 
 	// If workflow not completed, schedule next sync with appropriate interval
@@ -358,4 +361,44 @@ func CreateCompletionSyncTask(ctx context.Context, runID int64, fetchJobs, fetch
 	}
 
 	return taskFacade.UpsertTask(ctx, syncTask)
+}
+
+// syncWorkflowStatusFromJobs matches GitHub jobs to individual github_workflow_runs
+// records (by runner_name == workload_name) and updates each record's workflow_status
+// and workflow_conclusion to reflect the actual GitHub job status.
+func syncWorkflowStatusFromJobs(ctx context.Context, summaryID int64, ghJobs []github.JobInfo) {
+	if len(ghJobs) == 0 {
+		return
+	}
+
+	runFacade := database.GetFacade().GetGithubWorkflowRun()
+	runs, err := runFacade.ListByRunSummaryID(ctx, summaryID)
+	if err != nil || len(runs) == 0 {
+		return
+	}
+
+	// Build a map of runner_name -> job info for quick lookup
+	jobByRunner := make(map[string]*github.JobInfo, len(ghJobs))
+	for i := range ghJobs {
+		if ghJobs[i].RunnerName != "" {
+			jobByRunner[ghJobs[i].RunnerName] = &ghJobs[i]
+		}
+	}
+
+	for _, run := range runs {
+		job, ok := jobByRunner[run.WorkloadName]
+		if !ok {
+			continue
+		}
+		// Only update if the status has changed
+		if run.WorkflowStatus == job.Status && run.WorkflowConclusion == job.Conclusion {
+			continue
+		}
+		if err := runFacade.UpdateFields(ctx, run.ID, map[string]interface{}{
+			"workflow_status":     job.Status,
+			"workflow_conclusion": job.Conclusion,
+		}); err != nil {
+			log.Warnf("syncWorkflowStatusFromJobs: failed to update run %d: %v", run.ID, err)
+		}
+	}
 }
