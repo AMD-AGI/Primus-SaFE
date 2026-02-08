@@ -192,6 +192,13 @@ func (e *PeriodicSyncExecutor) Execute(ctx context.Context, execCtx *task.Execut
 	if summary.EventName == "" && ghRun.Event != "" {
 		summary.EventName = ghRun.Event
 	}
+	// Backfill run timing from GitHub
+	if summary.RunStartedAt.IsZero() && ghRun.RunStartedAt != nil {
+		summary.RunStartedAt = *ghRun.RunStartedAt
+	}
+	if summary.RunCompletedAt.IsZero() && ghRun.RunCompletedAt != nil {
+		summary.RunCompletedAt = *ghRun.RunCompletedAt
+	}
 
 	if err := runSummaryFacade.Update(ctx, summary); err != nil {
 		log.Warnf("PeriodicSyncExecutor: failed to update run summary %d: %v", runSummaryID, err)
@@ -554,6 +561,15 @@ func syncWorkflowStatusFromJobs(ctx context.Context, summaryID int64, ghJobs []g
 		// Backfill github_job_id if not set (enables GitHub Job name display on frontend)
 		if run.GithubJobID == 0 && job.ID != 0 {
 			fields["github_job_id"] = job.ID
+		}
+
+		// Backfill workload timing from GitHub job if K8s events were missed
+		// (e.g. pod deleted during exporter restart)
+		if run.WorkloadStartedAt.IsZero() && job.StartedAt != nil {
+			fields["workload_started_at"] = *job.StartedAt
+		}
+		if run.WorkloadCompletedAt.IsZero() && job.CompletedAt != nil {
+			fields["workload_completed_at"] = *job.CompletedAt
 		}
 
 		if len(fields) == 0 {
