@@ -300,6 +300,75 @@ func (e *PeriodicSyncExecutor) triggerDataAnalysisOnCompletion(ctx context.Conte
 		taskUID, summary.ID, conclusion)
 }
 
+// RecoverOrphanedPeriodicSyncs finds in_progress summaries whose periodic sync
+// chain was broken (e.g. due to exporter restart) and re-creates their tasks.
+// This should be called once during exporter startup.
+func RecoverOrphanedPeriodicSyncs(ctx context.Context) {
+	runSummaryFacade := database.GetFacade().GetGithubWorkflowRunSummary()
+	taskFacade := database.NewWorkloadTaskFacade()
+
+	summaries, err := runSummaryFacade.ListInProgress(ctx, 200)
+	if err != nil {
+		log.Warnf("RecoverOrphanedPeriodicSyncs: failed to list in-progress summaries: %v", err)
+		return
+	}
+
+	if len(summaries) == 0 {
+		log.Info("RecoverOrphanedPeriodicSyncs: no in-progress summaries found")
+		return
+	}
+
+	// Check which summaries already have a pending periodic sync task
+	pendingTasks, err := taskFacade.ListPendingTasksByType(ctx, constant.TaskTypeGithubPeriodicSync)
+	if err != nil {
+		log.Warnf("RecoverOrphanedPeriodicSyncs: failed to list pending periodic tasks: %v", err)
+		pendingTasks = nil // proceed anyway
+	}
+
+	// Build set of summary IDs that already have pending tasks
+	hasPendingSync := make(map[int64]bool)
+	for _, t := range pendingTasks {
+		if t.Ext != nil {
+			if sid, ok := t.Ext[ExtKeyRunSummaryID]; ok {
+				switch v := sid.(type) {
+				case float64:
+					hasPendingSync[int64(v)] = true
+				case int64:
+					hasPendingSync[v] = true
+				case int:
+					hasPendingSync[int64(v)] = true
+				}
+			}
+		}
+	}
+
+	recovered := 0
+	staleThreshold := 2 * PeriodicSyncInterval // 10 minutes
+	for _, summary := range summaries {
+		if hasPendingSync[summary.ID] {
+			continue // already has a pending task
+		}
+		// Only recover summaries that haven't been synced recently
+		if !summary.LastSyncedAt.IsZero() && time.Since(summary.LastSyncedAt) < staleThreshold {
+			continue
+		}
+		// Skip summaries older than AbsoluteMaxSyncTime
+		if time.Since(summary.CreatedAt) > AbsoluteMaxSyncTime {
+			continue
+		}
+		if err := CreatePeriodicSyncTask(ctx, summary.ID); err != nil {
+			log.Warnf("RecoverOrphanedPeriodicSyncs: failed to create task for summary %d: %v", summary.ID, err)
+		} else {
+			recovered++
+			log.Infof("RecoverOrphanedPeriodicSyncs: re-created periodic sync for orphaned summary %d (last_synced: %v)",
+				summary.ID, summary.LastSyncedAt)
+		}
+	}
+
+	log.Infof("RecoverOrphanedPeriodicSyncs: checked %d in-progress summaries, recovered %d orphaned syncs",
+		len(summaries), recovered)
+}
+
 // CreatePeriodicSyncTask creates a periodic sync task for a workflow run summary
 func CreatePeriodicSyncTask(ctx context.Context, runSummaryID int64) error {
 	taskFacade := database.NewWorkloadTaskFacade()

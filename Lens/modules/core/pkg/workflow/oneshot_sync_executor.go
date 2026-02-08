@@ -550,6 +550,16 @@ func (e *ManualSyncExecutor) syncRunSummary(ctx context.Context, runSummaryID in
 		}
 	}
 
+	// Re-schedule periodic sync if workflow is not yet completed
+	// (in case the periodic sync chain was broken by a restart)
+	if ghRun.Status != "completed" {
+		if err := CreatePeriodicSyncTask(ctx, runSummaryID); err != nil {
+			log.Warnf("ManualSyncExecutor: failed to re-schedule periodic sync for summary %d: %v", runSummaryID, err)
+		} else {
+			log.Infof("ManualSyncExecutor: re-scheduled periodic sync for summary %d", runSummaryID)
+		}
+	}
+
 	log.Infof("ManualSyncExecutor: completed manual sync for run summary %d (status: %s, jobs: %d)", runSummaryID, ghRun.Status, len(ghJobs))
 
 	return task.SuccessResult(map[string]interface{}{
