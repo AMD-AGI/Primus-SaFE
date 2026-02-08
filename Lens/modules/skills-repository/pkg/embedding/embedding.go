@@ -271,25 +271,3 @@ func (s *Service) generateBatchInternal(ctx context.Context, validTexts []string
 
 	return result, nil
 }
-
-// generateBatchFallback generates embeddings one by one when batch fails
-func (s *Service) generateBatchFallback(ctx context.Context, texts []string) ([][]float32, error) {
-	result := make([][]float32, len(texts))
-	successCount := 0
-
-	for i, text := range texts {
-		if text == "" {
-			continue
-		}
-		emb, err := s.Generate(ctx, text)
-		if err != nil {
-			fmt.Printf("⚠️ Single embedding failed for text %d: %v\n", i, err)
-			continue
-		}
-		result[i] = emb
-		successCount++
-	}
-
-	fmt.Printf("✅ Fallback generated %d/%d embeddings individually\n", successCount, len(texts))
-	return result, nil
-}
