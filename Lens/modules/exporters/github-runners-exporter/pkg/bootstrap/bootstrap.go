@@ -254,6 +254,11 @@ func InitTaskScheduler(ctx context.Context) error {
 	}
 	log.Info("TaskScheduler started for GitHub workflow collection")
 
+	// Recover orphaned periodic sync tasks (broken chains from previous restart)
+	go func() {
+		workflow.RecoverOrphanedPeriodicSyncs(ctx)
+	}()
+
 	return nil
 }
 
