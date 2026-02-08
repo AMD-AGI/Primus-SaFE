@@ -255,9 +255,18 @@ func (e *CompletionSyncExecutor) Execute(ctx context.Context, execCtx *task.Exec
 			log.Warnf("CompletionSyncExecutor: failed to get jobs for run %d: %v", run.GithubRunID, err)
 		} else {
 			jobCount = len(ghJobs)
+			// Sync jobs to the first run under this summary (one canonical copy).
+			// github_workflow_jobs are per-workflow-run, not per-runner.
+			targetRunID := run.ID
+			if run.RunSummaryID > 0 {
+				summaryRuns, listErr := runFacade.ListByRunSummaryID(ctx, run.RunSummaryID)
+				if listErr == nil && len(summaryRuns) > 0 {
+					targetRunID = summaryRuns[0].ID
+				}
+			}
 			jobFacade := database.NewGithubWorkflowJobFacade()
-			if err := jobFacade.SyncFromGitHub(ctx, run.ID, ghJobs); err != nil {
-				log.Warnf("CompletionSyncExecutor: failed to sync jobs for run %d: %v", runID, err)
+			if err := jobFacade.SyncFromGitHub(ctx, targetRunID, ghJobs); err != nil {
+				log.Warnf("CompletionSyncExecutor: failed to sync jobs for run %d: %v", targetRunID, err)
 			}
 
 			// 4. Fetch logs for completed jobs
@@ -519,19 +528,20 @@ func (e *ManualSyncExecutor) syncRunSummary(ctx context.Context, runSummaryID in
 		// Match GitHub jobs to runner records and update workflow_status
 		syncWorkflowStatusFromJobs(ctx, runSummaryID, ghJobs)
 
-		// Sync individual job records to each run under this summary
+		// Sync job records to the first run under this summary (one canonical copy).
+		// github_workflow_jobs are per-workflow-run, not per-runner, so we anchor
+		// them to a single run_id to avoid duplicates.
 		runFacade := database.GetFacade().GetGithubWorkflowRun()
 		runs, listErr := runFacade.ListByRunSummaryID(ctx, runSummaryID)
 		if listErr != nil {
 			log.Warnf("ManualSyncExecutor: failed to list runs for summary %d: %v", runSummaryID, listErr)
-		} else {
+		} else if len(runs) > 0 {
 			jobFacade := database.NewGithubWorkflowJobFacade()
-			for _, run := range runs {
-				if syncErr := jobFacade.SyncFromGitHub(ctx, run.ID, ghJobs); syncErr != nil {
-					log.Warnf("ManualSyncExecutor: failed to sync jobs for run %d (summary %d): %v", run.ID, runSummaryID, syncErr)
-				}
+			targetRunID := runs[0].ID
+			if syncErr := jobFacade.SyncFromGitHub(ctx, targetRunID, ghJobs); syncErr != nil {
+				log.Warnf("ManualSyncExecutor: failed to sync jobs for run %d (summary %d): %v", targetRunID, runSummaryID, syncErr)
 			}
-			log.Infof("ManualSyncExecutor: synced %d jobs to %d runs for summary %d", len(ghJobs), len(runs), runSummaryID)
+			log.Infof("ManualSyncExecutor: synced %d jobs to run %d for summary %d", len(ghJobs), targetRunID, runSummaryID)
 		}
 
 		// Update job stats in summary (queries from DB)
@@ -595,12 +605,19 @@ func (e *ManualSyncExecutor) syncSingleRun(ctx context.Context, runID int64) (*t
 		log.Warnf("ManualSyncExecutor: failed to update run %d: %v", runID, err)
 	}
 
-	// Sync jobs
+	// Sync jobs to the first run under this summary (one canonical copy)
 	ghJobs, err := client.GetWorkflowRunJobs(ctx, runnerSet.GithubOwner, runnerSet.GithubRepo, run.GithubRunID)
 	if err == nil {
+		targetRunID := run.ID
+		if run.RunSummaryID > 0 {
+			summaryRuns, listErr := runFacade.ListByRunSummaryID(ctx, run.RunSummaryID)
+			if listErr == nil && len(summaryRuns) > 0 {
+				targetRunID = summaryRuns[0].ID
+			}
+		}
 		jobFacade := database.NewGithubWorkflowJobFacade()
-		if err := jobFacade.SyncFromGitHub(ctx, run.ID, ghJobs); err != nil {
-			log.Warnf("ManualSyncExecutor: failed to sync jobs for run %d: %v", runID, err)
+		if err := jobFacade.SyncFromGitHub(ctx, targetRunID, ghJobs); err != nil {
+			log.Warnf("ManualSyncExecutor: failed to sync jobs for run %d: %v", targetRunID, err)
 		}
 	}
 
