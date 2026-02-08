@@ -204,6 +204,9 @@ func (e *PeriodicSyncExecutor) Execute(ctx context.Context, execCtx *task.Execut
 		log.Warnf("PeriodicSyncExecutor: failed to update run summary %d: %v", runSummaryID, err)
 	}
 
+	// Trigger code analysis once we have the commit SHA
+	e.triggerCodeAnalysis(ctx, summary, runSummaryFacade)
+
 	// Fetch jobs and update job stats in summary
 	ghJobs, jobsErr := client.GetWorkflowRunJobs(ctx, summary.Owner, summary.Repo, summary.GithubRunID)
 	if jobsErr == nil {
@@ -234,12 +237,15 @@ func (e *PeriodicSyncExecutor) Execute(ctx context.Context, execCtx *task.Execut
 		}), nil
 	}
 
-	// Workflow completed - trigger data analysis if needed
+	// Workflow completed - trigger analysis tasks as needed
 	log.Infof("PeriodicSyncExecutor: workflow %d completed (conclusion: %s), stopping periodic sync",
 		summary.GithubRunID, ghRun.Conclusion)
 
-	// Trigger data analysis on workflow completion
+	// Trigger data analysis on successful workflow completion
 	e.triggerDataAnalysisOnCompletion(ctx, summary, ghRun.Conclusion)
+
+	// Trigger failure analysis when workflow has failures
+	e.triggerFailureAnalysis(ctx, summary, runSummaryFacade, ghRun.Conclusion)
 
 	return task.SuccessResult(map[string]interface{}{
 		"status":     "completed",
@@ -295,6 +301,8 @@ func (e *PeriodicSyncExecutor) triggerDataAnalysisOnCompletion(ctx context.Conte
 			"conclusion":     conclusion,
 			"head_sha":       summary.HeadSha,
 			"head_branch":    summary.HeadBranch,
+			"workflow_name":  summary.WorkflowName,
+			"repo_name":      summary.Owner + "/" + summary.Repo,
 		},
 	}
 
@@ -305,6 +313,104 @@ func (e *PeriodicSyncExecutor) triggerDataAnalysisOnCompletion(ctx context.Conte
 
 	log.Infof("PeriodicSyncExecutor: triggered data analysis task %s for run summary %d (conclusion: %s)",
 		taskUID, summary.ID, conclusion)
+}
+
+// triggerFailureAnalysis creates a failure-analysis task when the workflow conclusion
+// indicates a failure.  It checks the failure_analysis_triggered flag to avoid duplicates.
+func (e *PeriodicSyncExecutor) triggerFailureAnalysis(
+	ctx context.Context,
+	summary *model.GithubWorkflowRunSummaries,
+	runSummaryFacade *database.GithubWorkflowRunSummaryFacade,
+	conclusion string,
+) {
+	if conclusion != "failure" && conclusion != "timed_out" && conclusion != "cancelled" {
+		return
+	}
+	if summary.FailureAnalysisTriggered {
+		return
+	}
+
+	// Mark as triggered first to prevent duplicate triggers
+	if err := runSummaryFacade.UpdateAnalysisTriggered(ctx, summary.ID, "failure", true); err != nil {
+		log.Warnf("PeriodicSyncExecutor: failed to update failure_analysis_triggered for summary %d: %v", summary.ID, err)
+		return
+	}
+
+	taskFacade := database.NewWorkloadTaskFacade()
+	taskUID := fmt.Sprintf("failure-analysis-%d-%d", summary.GithubRunID, time.Now().Unix())
+
+	analysisTask := &model.WorkloadTaskState{
+		WorkloadUID: taskUID,
+		TaskType:    constant.TaskTypeGithubWorkflowAnalysis,
+		Status:      constant.TaskStatusPending,
+		Ext: model.ExtType{
+			"run_summary_id": summary.ID,
+			"github_run_id":  summary.GithubRunID,
+			"owner":          summary.Owner,
+			"repo":           summary.Repo,
+			"analysis_type":  "failure",
+			"conclusion":     conclusion,
+			"head_sha":       summary.HeadSha,
+			"head_branch":    summary.HeadBranch,
+			"workflow_name":  summary.WorkflowName,
+			"repo_name":      summary.Owner + "/" + summary.Repo,
+		},
+	}
+
+	if err := taskFacade.UpsertTask(ctx, analysisTask); err != nil {
+		log.Warnf("PeriodicSyncExecutor: failed to create failure analysis task: %v", err)
+		return
+	}
+
+	log.Infof("PeriodicSyncExecutor: triggered failure analysis task %s for run summary %d (conclusion: %s)",
+		taskUID, summary.ID, conclusion)
+}
+
+// triggerCodeAnalysis creates a proactive code-analysis task the first time we
+// see a valid HeadSha on a run summary.  The task indexes the repository code
+// associated with this workflow run so that the AI assistant can reference it.
+func (e *PeriodicSyncExecutor) triggerCodeAnalysis(
+	ctx context.Context,
+	summary *model.GithubWorkflowRunSummaries,
+	runSummaryFacade *database.GithubWorkflowRunSummaryFacade,
+) {
+	if summary.CodeAnalysisTriggered || summary.HeadSha == "" {
+		return
+	}
+
+	// Mark as triggered first to prevent duplicate triggers
+	if err := runSummaryFacade.UpdateAnalysisTriggered(ctx, summary.ID, "code", true); err != nil {
+		log.Warnf("PeriodicSyncExecutor: failed to update code_analysis_triggered for summary %d: %v", summary.ID, err)
+		return
+	}
+
+	taskFacade := database.NewWorkloadTaskFacade()
+	taskUID := fmt.Sprintf("code-analysis-%d-%d", summary.GithubRunID, time.Now().Unix())
+
+	analysisTask := &model.WorkloadTaskState{
+		WorkloadUID: taskUID,
+		TaskType:    constant.TaskTypeGithubCodeIndexing,
+		Status:      constant.TaskStatusPending,
+		Ext: model.ExtType{
+			"run_summary_id": summary.ID,
+			"github_run_id":  summary.GithubRunID,
+			"owner":          summary.Owner,
+			"repo":           summary.Repo,
+			"analysis_type":  "code",
+			"head_sha":       summary.HeadSha,
+			"head_branch":    summary.HeadBranch,
+			"workflow_name":  summary.WorkflowName,
+			"repo_name":      summary.Owner + "/" + summary.Repo,
+		},
+	}
+
+	if err := taskFacade.UpsertTask(ctx, analysisTask); err != nil {
+		log.Warnf("PeriodicSyncExecutor: failed to create code analysis task: %v", err)
+		return
+	}
+
+	log.Infof("PeriodicSyncExecutor: triggered code analysis task %s for run summary %d (sha: %s)",
+		taskUID, summary.ID, summary.HeadSha[:7])
 }
 
 // RecoverOrphanedPeriodicSyncs finds in_progress summaries whose periodic sync

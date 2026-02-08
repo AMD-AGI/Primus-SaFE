@@ -88,6 +88,55 @@ func GetAnalysisTasksByRunID(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, rest.SuccessResp(ctx.Request.Context(), response))
 }
 
+// GetAnalysisTasksByRunSummaryID handles GET /v1/github-runners/run-summaries/:id/analysis-tasks
+// Returns all analysis tasks associated with a specific run summary
+func GetAnalysisTasksByRunSummaryID(ctx *gin.Context) {
+	summaryIDStr := ctx.Param("id")
+	summaryID, err := strconv.ParseInt(summaryIDStr, 10, 64)
+	if err != nil {
+		log.GlobalLogger().WithContext(ctx).Errorf("Invalid summary ID: %v", err)
+		ctx.JSON(http.StatusBadRequest, rest.ErrorResp(ctx.Request.Context(), http.StatusBadRequest, "invalid summary ID", nil))
+		return
+	}
+
+	clusterName, err := getClusterNameForGithubWorkflow(ctx)
+	if err != nil {
+		log.GlobalLogger().WithContext(ctx).Errorf("Invalid cluster: %v", err)
+		ctx.JSON(http.StatusBadRequest, rest.ErrorResp(ctx.Request.Context(), http.StatusBadRequest, err.Error(), nil))
+		return
+	}
+
+	facade := database.NewAnalysisTaskFacadeForCluster(clusterName)
+
+	tasks, err := facade.GetTasksByRunSummaryID(ctx.Request.Context(), summaryID)
+	if err != nil {
+		log.GlobalLogger().WithContext(ctx).Errorf("Failed to get analysis tasks for summary %d: %v", summaryID, err)
+		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, err.Error(), nil))
+		return
+	}
+
+	summary, err := facade.GetSummaryByRunSummaryID(ctx.Request.Context(), summaryID)
+	if err != nil {
+		log.GlobalLogger().WithContext(ctx).Errorf("Failed to get analysis task summary for summary %d: %v", summaryID, err)
+		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, err.Error(), nil))
+		return
+	}
+
+	response := &AnalysisTasksResponse{
+		RunID:   summaryID,
+		Tasks:   tasks,
+		Summary: summary,
+	}
+
+	if len(tasks) > 0 {
+		response.GithubRunID = tasks[0].GithubRunID
+		response.WorkflowName = tasks[0].WorkflowName
+		response.RepoName = tasks[0].RepoName
+	}
+
+	ctx.JSON(http.StatusOK, rest.SuccessResp(ctx.Request.Context(), response))
+}
+
 // GetAnalysisTaskByID handles GET /v1/github-workflow-metrics/analysis-tasks/:task_id
 // Returns a single analysis task by ID
 func GetAnalysisTaskByID(ctx *gin.Context) {
