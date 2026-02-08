@@ -345,6 +345,15 @@ func (e *CompletionSyncExecutor) Execute(ctx context.Context, execCtx *task.Exec
 				summary.EventName = ghRun.Event
 				updated = true
 			}
+			// Backfill run timing from GitHub
+			if summary.RunStartedAt.IsZero() && ghRun.RunStartedAt != nil {
+				summary.RunStartedAt = *ghRun.RunStartedAt
+				updated = true
+			}
+			if summary.RunCompletedAt.IsZero() && ghRun.RunCompletedAt != nil {
+				summary.RunCompletedAt = *ghRun.RunCompletedAt
+				updated = true
+			}
 			if updated {
 				if err := runSummaryFacade.Update(ctx, summary); err != nil {
 					log.Warnf("CompletionSyncExecutor: failed to backfill summary %d: %v", run.RunSummaryID, err)
@@ -515,6 +524,13 @@ func (e *ManualSyncExecutor) syncRunSummary(ctx context.Context, runSummaryID in
 	summary.Status = ghRun.Status
 	summary.Conclusion = ghRun.Conclusion
 	summary.LastSyncedAt = time.Now()
+	// Backfill run timing from GitHub
+	if summary.RunStartedAt.IsZero() && ghRun.RunStartedAt != nil {
+		summary.RunStartedAt = *ghRun.RunStartedAt
+	}
+	if summary.RunCompletedAt.IsZero() && ghRun.RunCompletedAt != nil {
+		summary.RunCompletedAt = *ghRun.RunCompletedAt
+	}
 
 	if err := runSummaryFacade.Update(ctx, summary); err != nil {
 		log.Warnf("ManualSyncExecutor: failed to update summary %d: %v", runSummaryID, err)
