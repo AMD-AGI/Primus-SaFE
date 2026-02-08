@@ -168,17 +168,10 @@ func setupTestRouter() (*gin.Engine, *Handler, *MockToolFacade) {
 	router := gin.New()
 
 	mockFacade := NewMockToolFacade()
-	mockStorage := NewMockStorage()
 
-	// Create handler with mocks (using nil for embedding service)
-	handler := &Handler{
-		facade:  nil, // We'll use mockFacade directly in tests
-		runner:  nil,
-		storage: mockStorage,
-	}
-
-	// Note: In real tests, we'd need a proper interface-based design
-	// For now, these tests demonstrate the structure
+	// Create handler with nil services for basic tests
+	// Note: Integration tests should create real services with mocks
+	handler := &Handler{}
 
 	return router, handler, mockFacade
 }

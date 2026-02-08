@@ -567,5 +567,26 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		toolsGroup.GET("/:id/download", ToolsDownloadProxyHandler())
 	}
 
+	// Toolsets routes - Proxy to skills-repository service
+	toolsetsGroup := group.Group("/toolsets")
+	{
+		// List toolsets
+		toolsetsGroup.GET("", getUnifiedHandlerWithMethod("/toolsets", "GET"))
+		// Create toolset
+		toolsetsGroup.POST("", getUnifiedHandlerWithMethod("/toolsets", "POST"))
+		// Search toolsets
+		toolsetsGroup.GET("/search", getUnifiedHandler("/toolsets/search"))
+		// Get toolset by ID
+		toolsetsGroup.GET("/:id", getUnifiedHandlerWithMethod("/toolsets/:id", "GET"))
+		// Update toolset
+		toolsetsGroup.PUT("/:id", getUnifiedHandlerWithMethod("/toolsets/:id", "PUT"))
+		// Delete toolset
+		toolsetsGroup.DELETE("/:id", getUnifiedHandlerWithMethod("/toolsets/:id", "DELETE"))
+		// Add tools to toolset
+		toolsetsGroup.POST("/:id/tools", getUnifiedHandler("/toolsets/:id/tools"))
+		// Remove tool from toolset
+		toolsetsGroup.DELETE("/:id/tools/:toolId", getUnifiedHandler("/toolsets/:id/tools/:toolId"))
+	}
+
 	return nil
 }

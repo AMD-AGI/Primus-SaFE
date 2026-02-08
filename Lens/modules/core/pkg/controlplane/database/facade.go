@@ -15,18 +15,26 @@ import (
 type ControlPlaneFacade struct {
 	// Tools (unified skills + mcp)
 	Tool *ToolFacade
+	// Toolsets (collections of tools)
+	Toolset *ToolsetFacade
 }
 
 // NewControlPlaneFacade creates a new ControlPlaneFacade instance
 func NewControlPlaneFacade(db *gorm.DB) *ControlPlaneFacade {
 	return &ControlPlaneFacade{
-		Tool: NewToolFacade(db),
+		Tool:    NewToolFacade(db),
+		Toolset: NewToolsetFacade(db),
 	}
 }
 
 // GetTool returns the Tool Facade
 func (f *ControlPlaneFacade) GetTool() *ToolFacade {
 	return f.Tool
+}
+
+// GetToolset returns the Toolset Facade
+func (f *ControlPlaneFacade) GetToolset() *ToolsetFacade {
+	return f.Toolset
 }
 
 // Global control plane facade instance
