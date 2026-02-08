@@ -2320,9 +2320,14 @@ func HandleLiveWorkflowState(ctx *gin.Context) {
 	liveHandler.HandleLiveStream(ctx)
 }
 
-// GetRunJobs returns jobs for a workflow run
+// GetRunJobs returns jobs for a workflow run.
+//
+// For runner-based runs (github_job_id > 0), only the single GitHub job
+// executed by this K8s runner is returned.  For legacy metrics-collection
+// runs (github_job_id == 0), all jobs stored under this run_id are returned.
+//
 // @Summary Get workflow run jobs
-// @Description Returns all jobs and steps for a workflow run
+// @Description Returns jobs and steps for a workflow run
 // @Tags github-workflow-metrics
 // @Produce json
 // @Param id path int true "Workflow Run ID"
@@ -2342,6 +2347,30 @@ func GetRunJobs(ctx *gin.Context) {
 	}
 
 	jobFacade := database.NewGithubWorkflowJobFacade().WithCluster(clusterName)
+
+	// Check if this runner has a specific github_job_id.
+	// If so, return only that single job (runner-based model).
+	runFacade := database.GetFacadeForCluster(clusterName).GetGithubWorkflowRun()
+	run, runErr := runFacade.GetByID(ctx.Request.Context(), runID)
+	if runErr == nil && run != nil && run.GithubJobID != 0 {
+		jobWithSteps, err := jobFacade.FindByGithubJobIDWithSteps(ctx.Request.Context(), run.GithubJobID)
+		if err != nil {
+			log.GlobalLogger().WithContext(ctx).Errorf("Failed to get job for run %d (github_job_id %d): %v", runID, run.GithubJobID, err)
+			ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, err.Error(), nil))
+			return
+		}
+		jobs := []*database.JobWithSteps{}
+		if jobWithSteps != nil {
+			jobs = append(jobs, jobWithSteps)
+		}
+		ctx.JSON(http.StatusOK, gin.H{
+			"jobs":  jobs,
+			"total": len(jobs),
+		})
+		return
+	}
+
+	// Fallback: legacy metrics-collection runs or github_job_id not yet backfilled
 	jobs, err := jobFacade.ListByRunIDWithSteps(ctx.Request.Context(), runID)
 	if err != nil {
 		log.GlobalLogger().WithContext(ctx).Errorf("Failed to get jobs for run %d: %v", runID, err)
