@@ -149,6 +149,79 @@ func init() {
 		MCPToolName: "lens_tools_unlike",
 		Handler:     handleToolUnlike,
 	})
+
+	// Toolset endpoints
+	unified.Register(&unified.EndpointDef[ToolsetListRequest, ToolsetListResponse]{
+		Name:        "toolsets_list",
+		Description: "List all toolsets with pagination and sorting",
+		HTTPMethod:  "GET",
+		HTTPPath:    "/toolsets",
+		MCPToolName: "lens_toolsets_list",
+		Handler:     handleToolsetsList,
+	})
+
+	unified.Register(&unified.EndpointDef[ToolsetCreateRequest, ToolsetResponse]{
+		Name:        "toolsets_create",
+		Description: "Create a new toolset",
+		HTTPMethod:  "POST",
+		HTTPPath:    "/toolsets",
+		MCPToolName: "lens_toolsets_create",
+		Handler:     handleToolsetCreate,
+	})
+
+	unified.Register(&unified.EndpointDef[ToolsetGetRequest, ToolsetDetailResponse]{
+		Name:        "toolsets_get",
+		Description: "Get a toolset by ID with its tools",
+		HTTPMethod:  "GET",
+		HTTPPath:    "/toolsets/:id",
+		MCPToolName: "lens_toolsets_get",
+		Handler:     handleToolsetGet,
+	})
+
+	unified.Register(&unified.EndpointDef[ToolsetUpdateRequest, ToolsetResponse]{
+		Name:        "toolsets_update",
+		Description: "Update a toolset",
+		HTTPMethod:  "PUT",
+		HTTPPath:    "/toolsets/:id",
+		MCPToolName: "lens_toolsets_update",
+		Handler:     handleToolsetUpdate,
+	})
+
+	unified.Register(&unified.EndpointDef[ToolsetGetRequest, ToolsMessageResponse]{
+		Name:        "toolsets_delete",
+		Description: "Delete a toolset",
+		HTTPMethod:  "DELETE",
+		HTTPPath:    "/toolsets/:id",
+		MCPToolName: "lens_toolsets_delete",
+		Handler:     handleToolsetDelete,
+	})
+
+	unified.Register(&unified.EndpointDef[ToolsetAddToolsRequest, ToolsetAddToolsResponse]{
+		Name:        "toolsets_add_tools",
+		Description: "Add tools to a toolset",
+		HTTPMethod:  "POST",
+		HTTPPath:    "/toolsets/:id/tools",
+		MCPToolName: "lens_toolsets_add_tools",
+		Handler:     handleToolsetAddTools,
+	})
+
+	unified.Register(&unified.EndpointDef[ToolsetRemoveToolRequest, ToolsMessageResponse]{
+		Name:        "toolsets_remove_tool",
+		Description: "Remove a tool from a toolset",
+		HTTPMethod:  "DELETE",
+		HTTPPath:    "/toolsets/:id/tools/:toolId",
+		MCPToolName: "lens_toolsets_remove_tool",
+		Handler:     handleToolsetRemoveTool,
+	})
+
+	unified.Register(&unified.EndpointDef[ToolsetSearchRequest, ToolsetSearchResponse]{
+		Name:        "toolsets_search",
+		Description: "Search toolsets",
+		HTTPMethod:  "GET",
+		HTTPPath:    "/toolsets/search",
+		MCPToolName: "lens_toolsets_search",
+		Handler:     handleToolsetSearch,
+	})
 }
 
 // ======================== Request Types ========================
@@ -621,6 +694,263 @@ func handleToolUnlike(ctx context.Context, req *ToolLikeRequest) (*ToolLikeRespo
 	var result ToolLikeResponse
 	if err := json.Unmarshal(resp, &result); err != nil {
 		return nil, errors.WrapError(err, "failed to parse unlike response", errors.InternalError)
+	}
+	return &result, nil
+}
+
+// ======================== Toolset Request Types ========================
+
+type ToolsetListRequest struct {
+	Offset int    `json:"offset" query:"offset" mcp:"description=Pagination offset (default: 0)"`
+	Limit  int    `json:"limit" query:"limit" mcp:"description=Number of items per page (default: 50)"`
+	Sort   string `json:"sort" query:"sort" mcp:"description=Sort field (created_at/updated_at/tool_count)"`
+	Order  string `json:"order" query:"order" mcp:"description=Sort order (asc/desc)"`
+	Owner  string `json:"owner" query:"owner" mcp:"description=Filter by owner (me for own toolsets)"`
+}
+
+type ToolsetGetRequest struct {
+	ID string `json:"id" param:"id" mcp:"description=Toolset ID,required"`
+}
+
+type ToolsetCreateRequest struct {
+	Name        string   `json:"name" binding:"required" mcp:"description=Toolset name,required"`
+	DisplayName string   `json:"display_name" mcp:"description=Display name"`
+	Description string   `json:"description" mcp:"description=Description"`
+	Tags        []string `json:"tags" mcp:"description=Tags"`
+	IconURL     string   `json:"icon_url" mcp:"description=Icon URL"`
+	IsPublic    *bool    `json:"is_public" mcp:"description=Is public"`
+	ToolIDs     []int64  `json:"tool_ids" mcp:"description=Initial tool IDs to add"`
+}
+
+type ToolsetUpdateRequest struct {
+	ID          string   `json:"id" param:"id" mcp:"description=Toolset ID,required"`
+	DisplayName string   `json:"display_name" mcp:"description=Display name"`
+	Description string   `json:"description" mcp:"description=Description"`
+	Tags        []string `json:"tags" mcp:"description=Tags"`
+	IconURL     string   `json:"icon_url" mcp:"description=Icon URL"`
+	IsPublic    *bool    `json:"is_public" mcp:"description=Is public"`
+}
+
+type ToolsetAddToolsRequest struct {
+	ID      string  `json:"id" param:"id" mcp:"description=Toolset ID,required"`
+	ToolIDs []int64 `json:"tool_ids" binding:"required" mcp:"description=Tool IDs to add,required"`
+}
+
+type ToolsetRemoveToolRequest struct {
+	ID     string `json:"id" param:"id" mcp:"description=Toolset ID,required"`
+	ToolID string `json:"toolId" param:"toolId" mcp:"description=Tool ID to remove,required"`
+}
+
+type ToolsetSearchRequest struct {
+	Query string `json:"q" query:"q" mcp:"description=Search query,required"`
+	Mode  string `json:"mode" query:"mode" mcp:"description=Search mode (keyword/semantic)"`
+	Limit int    `json:"limit" query:"limit" mcp:"description=Maximum number of results (default: 20)"`
+}
+
+// ======================== Toolset Response Types ========================
+
+type ToolsetData struct {
+	ID            int64     `json:"id"`
+	Name          string    `json:"name"`
+	DisplayName   string    `json:"display_name"`
+	Description   string    `json:"description"`
+	Tags          []string  `json:"tags"`
+	IconURL       string    `json:"icon_url"`
+	OwnerUserID   string    `json:"owner_user_id"`
+	OwnerUserName string    `json:"owner_user_name"`
+	IsPublic      bool      `json:"is_public"`
+	ToolCount     int       `json:"tool_count"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
+}
+
+type ToolsetResponse struct {
+	ToolsetData
+}
+
+type ToolsetDetailResponse struct {
+	ToolsetData
+	Tools []ToolData `json:"tools"`
+}
+
+type ToolsetListResponse struct {
+	Toolsets []ToolsetData `json:"toolsets"`
+	Total    int64         `json:"total"`
+	Offset   int           `json:"offset"`
+	Limit    int           `json:"limit"`
+}
+
+type ToolsetSearchResponse struct {
+	Toolsets interface{} `json:"toolsets"`
+	Total    int         `json:"total"`
+	Mode     string      `json:"mode"`
+}
+
+type ToolsetAddToolsResponse struct {
+	Message string `json:"message"`
+	Added   int    `json:"added"`
+}
+
+// ======================== Toolset Handlers ========================
+
+func handleToolsetsList(ctx context.Context, req *ToolsetListRequest) (*ToolsetListResponse, error) {
+	params := url.Values{}
+	if req.Offset > 0 {
+		params.Set("offset", strconv.Itoa(req.Offset))
+	}
+	if req.Limit > 0 {
+		params.Set("limit", strconv.Itoa(req.Limit))
+	}
+	if req.Sort != "" {
+		params.Set("sort", req.Sort)
+	}
+	if req.Order != "" {
+		params.Set("order", req.Order)
+	}
+	if req.Owner != "" {
+		params.Set("owner", req.Owner)
+	}
+
+	reqURL := toolsRepositoryURL + "/api/v1/toolsets"
+	if len(params) > 0 {
+		reqURL += "?" + params.Encode()
+	}
+
+	resp, err := toolsProxyGet(ctx, reqURL)
+	if err != nil {
+		return nil, err
+	}
+
+	var result ToolsetListResponse
+	if err := json.Unmarshal(resp, &result); err != nil {
+		return nil, errors.WrapError(err, "failed to parse toolsets list response", errors.InternalError)
+	}
+	return &result, nil
+}
+
+func handleToolsetCreate(ctx context.Context, req *ToolsetCreateRequest) (*ToolsetResponse, error) {
+	if req.Name == "" {
+		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("toolset name is required")
+	}
+
+	reqURL := toolsRepositoryURL + "/api/v1/toolsets"
+	resp, err := toolsProxyPost(ctx, reqURL, req)
+	if err != nil {
+		return nil, err
+	}
+
+	var result ToolsetData
+	if err := json.Unmarshal(resp, &result); err != nil {
+		return nil, errors.WrapError(err, "failed to parse toolset response", errors.InternalError)
+	}
+	return &ToolsetResponse{ToolsetData: result}, nil
+}
+
+func handleToolsetGet(ctx context.Context, req *ToolsetGetRequest) (*ToolsetDetailResponse, error) {
+	if req.ID == "" {
+		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("toolset ID is required")
+	}
+
+	reqURL := toolsRepositoryURL + "/api/v1/toolsets/" + url.PathEscape(req.ID)
+	resp, err := toolsProxyGet(ctx, reqURL)
+	if err != nil {
+		return nil, err
+	}
+
+	var result ToolsetDetailResponse
+	if err := json.Unmarshal(resp, &result); err != nil {
+		return nil, errors.WrapError(err, "failed to parse toolset response", errors.InternalError)
+	}
+	return &result, nil
+}
+
+func handleToolsetUpdate(ctx context.Context, req *ToolsetUpdateRequest) (*ToolsetResponse, error) {
+	if req.ID == "" {
+		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("toolset ID is required")
+	}
+
+	reqURL := toolsRepositoryURL + "/api/v1/toolsets/" + url.PathEscape(req.ID)
+	resp, err := toolsProxyPut(ctx, reqURL, req)
+	if err != nil {
+		return nil, err
+	}
+
+	var result ToolsetData
+	if err := json.Unmarshal(resp, &result); err != nil {
+		return nil, errors.WrapError(err, "failed to parse toolset response", errors.InternalError)
+	}
+	return &ToolsetResponse{ToolsetData: result}, nil
+}
+
+func handleToolsetDelete(ctx context.Context, req *ToolsetGetRequest) (*ToolsMessageResponse, error) {
+	if req.ID == "" {
+		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("toolset ID is required")
+	}
+
+	reqURL := toolsRepositoryURL + "/api/v1/toolsets/" + url.PathEscape(req.ID)
+	_, err := toolsProxyDelete(ctx, reqURL)
+	if err != nil {
+		return nil, err
+	}
+	return &ToolsMessageResponse{Message: "Toolset deleted successfully"}, nil
+}
+
+func handleToolsetAddTools(ctx context.Context, req *ToolsetAddToolsRequest) (*ToolsetAddToolsResponse, error) {
+	if req.ID == "" {
+		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("toolset ID is required")
+	}
+
+	reqURL := toolsRepositoryURL + "/api/v1/toolsets/" + url.PathEscape(req.ID) + "/tools"
+	resp, err := toolsProxyPost(ctx, reqURL, req)
+	if err != nil {
+		return nil, err
+	}
+
+	var result ToolsetAddToolsResponse
+	if err := json.Unmarshal(resp, &result); err != nil {
+		return nil, errors.WrapError(err, "failed to parse add tools response", errors.InternalError)
+	}
+	return &result, nil
+}
+
+func handleToolsetRemoveTool(ctx context.Context, req *ToolsetRemoveToolRequest) (*ToolsMessageResponse, error) {
+	if req.ID == "" || req.ToolID == "" {
+		return nil, errors.NewError().WithCode(errors.RequestParameterInvalid).WithMessage("toolset ID and tool ID are required")
+	}
+
+	reqURL := toolsRepositoryURL + "/api/v1/toolsets/" + url.PathEscape(req.ID) + "/tools/" + url.PathEscape(req.ToolID)
+	_, err := toolsProxyDelete(ctx, reqURL)
+	if err != nil {
+		return nil, err
+	}
+	return &ToolsMessageResponse{Message: "Tool removed from toolset"}, nil
+}
+
+func handleToolsetSearch(ctx context.Context, req *ToolsetSearchRequest) (*ToolsetSearchResponse, error) {
+	params := url.Values{}
+	if req.Query != "" {
+		params.Set("q", req.Query)
+	}
+	if req.Mode != "" {
+		params.Set("mode", req.Mode)
+	}
+	if req.Limit > 0 {
+		params.Set("limit", strconv.Itoa(req.Limit))
+	}
+
+	reqURL := toolsRepositoryURL + "/api/v1/toolsets/search"
+	if len(params) > 0 {
+		reqURL += "?" + params.Encode()
+	}
+
+	resp, err := toolsProxyGet(ctx, reqURL)
+	if err != nil {
+		return nil, err
+	}
+
+	var result ToolsetSearchResponse
+	if err := json.Unmarshal(resp, &result); err != nil {
+		return nil, errors.WrapError(err, "failed to parse toolset search response", errors.InternalError)
 	}
 	return &result, nil
 }

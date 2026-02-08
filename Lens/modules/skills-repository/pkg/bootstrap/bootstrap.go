@@ -14,6 +14,7 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/skills-repository/pkg/config"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/skills-repository/pkg/embedding"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/skills-repository/pkg/runner"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/skills-repository/pkg/service"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/skills-repository/pkg/storage"
 	"github.com/gin-gonic/gin"
 	"gorm.io/driver/postgres"
@@ -22,13 +23,14 @@ import (
 
 // Server represents the tools server
 type Server struct {
-	config     *config.Config
-	db         *gorm.DB
-	httpServer *http.Server
-	facade     *database.ToolFacade
-	runner     *runner.Runner
-	storage    storage.Storage
-	embedding  *embedding.Service
+	config        *config.Config
+	db            *gorm.DB
+	httpServer    *http.Server
+	facade        *database.ToolFacade
+	toolsetFacade *database.ToolsetFacade
+	runner        *runner.Runner
+	storage       storage.Storage
+	embedding     *embedding.Service
 }
 
 // NewServer creates a new Server instance
@@ -45,8 +47,9 @@ func NewServer() (*Server, error) {
 		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
 
-	// Create facade
+	// Create facades
 	facade := database.NewToolFacade(db)
+	toolsetFacade := database.NewToolsetFacade(db)
 
 	// Create storage
 	storageService, err := storage.NewStorage(cfg.Storage)
@@ -78,12 +81,13 @@ func NewServer() (*Server, error) {
 	}
 
 	return &Server{
-		config:    cfg,
-		db:        db,
-		facade:    facade,
-		runner:    toolRunner,
-		storage:   storageService,
-		embedding: embeddingSvc,
+		config:        cfg,
+		db:            db,
+		facade:        facade,
+		toolsetFacade: toolsetFacade,
+		runner:        toolRunner,
+		storage:       storageService,
+		embedding:     embeddingSvc,
 	}, nil
 }
 
@@ -95,8 +99,15 @@ func (s *Server) Start() error {
 	router.Use(gin.Logger()) // Add request logging
 	router.Use(gin.Recovery())
 
-	// Register API routes
-	handler := api.NewHandler(s.facade, s.runner, s.storage, s.embedding, s.config.Search.ScoreThreshold)
+	// Create services
+	toolSvc := service.NewToolService(s.facade, s.storage, s.embedding)
+	searchSvc := service.NewSearchService(s.facade, s.embedding, s.config.Search.ScoreThreshold)
+	importSvc := service.NewImportService(s.facade, s.storage, s.embedding)
+	runSvc := service.NewRunService(s.facade, s.runner, s.storage)
+	toolsetSvc := service.NewToolsetService(s.toolsetFacade, s.facade, s.embedding, s.config.Search.ScoreThreshold)
+
+	// Create handler and register routes
+	handler := api.NewHandler(toolSvc, searchSvc, importSvc, runSvc, toolsetSvc)
 	api.RegisterRoutes(router, handler)
 
 	s.httpServer = &http.Server{
