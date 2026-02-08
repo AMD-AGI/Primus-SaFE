@@ -2687,8 +2687,8 @@ func ManualSyncRunSummary(ctx *gin.Context) {
 		}
 	}
 
-	// Create manual sync task
-	if err := workflow.CreateManualSyncTask(ctx.Request.Context(), runSummaryID); err != nil {
+	// Create manual sync task (pass cluster name so the task is created in the correct cluster DB)
+	if err := workflow.CreateManualSyncTask(ctx.Request.Context(), runSummaryID, clusterName); err != nil {
 		log.GlobalLogger().WithContext(ctx).Errorf("Failed to create manual sync task for run summary %d: %v", runSummaryID, err)
 		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, "failed to create sync task", err))
 		return
@@ -2757,7 +2757,7 @@ func ManualSyncRun(ctx *gin.Context) {
 
 	// If run has a run_summary_id, sync the entire summary instead
 	if run.RunSummaryID > 0 {
-		if err := workflow.CreateManualSyncTask(ctx.Request.Context(), run.RunSummaryID); err != nil {
+		if err := workflow.CreateManualSyncTask(ctx.Request.Context(), run.RunSummaryID, clusterName); err != nil {
 			log.GlobalLogger().WithContext(ctx).Errorf("Failed to create manual sync task for run summary %d: %v", run.RunSummaryID, err)
 			ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, "failed to create sync task", err))
 			return
@@ -2765,7 +2765,7 @@ func ManualSyncRun(ctx *gin.Context) {
 		log.GlobalLogger().WithContext(ctx).Infof("Created manual sync task for run summary %d (via run %d)", run.RunSummaryID, runID)
 	} else {
 		// Create manual sync task for single run
-		taskFacade := database.NewWorkloadTaskFacade()
+		taskFacade := database.NewWorkloadTaskFacadeForCluster(clusterName)
 		taskUID := fmt.Sprintf("manual-sync-run-%d-%d", runID, time.Now().Unix())
 		
 		syncTask := &dbmodel.WorkloadTaskState{
