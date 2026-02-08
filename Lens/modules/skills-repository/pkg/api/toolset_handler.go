@@ -220,7 +220,7 @@ func (h *Handler) SearchToolsets(c *gin.Context) {
 		return
 	}
 
-	mode := c.DefaultQuery("mode", "keyword")
+	mode := c.DefaultQuery("mode", "semantic")
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
 	userInfo := GetUserInfo(c)
 
