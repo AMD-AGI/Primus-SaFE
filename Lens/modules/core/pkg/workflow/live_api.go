@@ -215,10 +215,20 @@ func (h *LiveHandler) buildStateFromDBForCluster(ctx context.Context, runID int6
 	state.WorkflowStatus = h.inferWorkflowStatus(run)
 	state.WorkflowConclusion = run.WorkflowConclusion
 
-	// Load jobs from database
+	// Load jobs from database.
+	// For runner-based runs (github_job_id > 0), return only the single job
+	// executed by this K8s runner.
 	jobFacade := database.NewGithubWorkflowJobFacade().WithCluster(clusterName)
-	jobsWithSteps, err := jobFacade.ListByRunIDWithSteps(ctx, runID)
-	if err == nil && len(jobsWithSteps) > 0 {
+	var jobsWithSteps []*database.JobWithSteps
+	if run.GithubJobID != 0 {
+		single, findErr := jobFacade.FindByGithubJobIDWithSteps(ctx, run.GithubJobID)
+		if findErr == nil && single != nil {
+			jobsWithSteps = []*database.JobWithSteps{single}
+		}
+	} else {
+		jobsWithSteps, _ = jobFacade.ListByRunIDWithSteps(ctx, runID)
+	}
+	if len(jobsWithSteps) > 0 {
 		state.Jobs = make([]*JobLiveState, len(jobsWithSteps))
 		for i, job := range jobsWithSteps {
 			jobState := &JobLiveState{

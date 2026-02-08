@@ -216,6 +216,30 @@ func (f *GithubWorkflowJobFacade) GetByGithubJobID(ctx context.Context, runID, g
 	return &job, err
 }
 
+// FindByGithubJobIDWithSteps looks up a single GitHub job (and its steps) by
+// github_job_id across any run_id.  Used by the RunDetail page to display only
+// the single job executed by a specific K8s runner.
+func (f *GithubWorkflowJobFacade) FindByGithubJobIDWithSteps(ctx context.Context, githubJobID int64) (*JobWithSteps, error) {
+	var job model.GithubWorkflowJobs
+	err := f.getDB().WithContext(ctx).
+		Where("github_job_id = ?", githubJobID).
+		Order("id DESC").
+		First(&job).Error
+	if err == gorm.ErrRecordNotFound {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	stepFacade := NewGithubWorkflowStepFacade().WithCluster(f.clusterName)
+	steps, _ := stepFacade.ListByJobID(ctx, job.ID)
+	return &JobWithSteps{
+		GithubWorkflowJobs: &job,
+		Steps:              steps,
+	}, nil
+}
+
 // CountByRunID counts jobs by run_id grouped by conclusion
 func (f *GithubWorkflowJobFacade) CountByRunID(ctx context.Context, runID int64) (total, success, failed int, err error) {
 	var results []struct {
