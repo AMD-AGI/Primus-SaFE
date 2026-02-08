@@ -641,9 +641,15 @@ func (e *ManualSyncExecutor) syncSingleRun(ctx context.Context, runID int64) (*t
 	}), nil
 }
 
-// CreateManualSyncTask creates a manual sync task for a workflow run summary
-func CreateManualSyncTask(ctx context.Context, runSummaryID int64) error {
-	taskFacade := database.NewWorkloadTaskFacade()
+// CreateManualSyncTask creates a manual sync task for a workflow run summary.
+// clusterName is optional; when empty, defaults to the exporter's local cluster.
+func CreateManualSyncTask(ctx context.Context, runSummaryID int64, clusterName ...string) error {
+	var taskFacade *database.WorkloadTaskFacade
+	if len(clusterName) > 0 && clusterName[0] != "" {
+		taskFacade = database.NewWorkloadTaskFacadeForCluster(clusterName[0])
+	} else {
+		taskFacade = database.NewWorkloadTaskFacade()
+	}
 
 	taskUID := fmt.Sprintf("manual-sync-%d-%d", runSummaryID, time.Now().Unix())
 

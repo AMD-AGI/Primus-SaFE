@@ -369,6 +369,87 @@ func RecoverOrphanedPeriodicSyncs(ctx context.Context) {
 		len(summaries), recovered)
 }
 
+// BackfillCompletedSummaries finds recently completed summaries that still have
+// workflow runs with github_job_id=0 (meaning syncWorkflowStatusFromJobs never ran
+// for them) and creates manual sync tasks to backfill the missing data.
+// This handles historical data that completed before the backfill code was deployed.
+func BackfillCompletedSummaries(ctx context.Context) {
+	runSummaryFacade := database.GetFacade().GetGithubWorkflowRunSummary()
+	runFacade := database.GetFacade().GetGithubWorkflowRun()
+
+	// Find summaries completed in the last 7 days
+	cutoff := time.Now().Add(-7 * 24 * time.Hour)
+	var summaries []*model.GithubWorkflowRunSummaries
+	err := database.GetFacade().GetSystemConfig().GetDB().WithContext(ctx).
+		Where("status = ? AND created_at > ?", database.RunSummaryStatusCompleted, cutoff).
+		Order("created_at DESC").
+		Limit(200).
+		Find(&summaries).Error
+	if err != nil {
+		log.Warnf("BackfillCompletedSummaries: failed to list completed summaries: %v", err)
+		return
+	}
+	_ = runSummaryFacade // used indirectly
+
+	if len(summaries) == 0 {
+		log.Info("BackfillCompletedSummaries: no recently completed summaries to check")
+		return
+	}
+
+	backfilled := 0
+	for _, summary := range summaries {
+		if summary.GithubRunID == 0 {
+			continue
+		}
+		// Check if any runs under this summary still have github_job_id=0
+		runs, err := runFacade.ListByRunSummaryID(ctx, summary.ID)
+		if err != nil || len(runs) == 0 {
+			continue
+		}
+
+		needsBackfill := false
+		for _, run := range runs {
+			if run.GithubJobID == 0 {
+				needsBackfill = true
+				break
+			}
+		}
+
+		if !needsBackfill {
+			continue
+		}
+
+		// Create a manual sync task for this summary
+		if err := CreateManualSyncTaskInternal(ctx, summary.ID); err != nil {
+			log.Warnf("BackfillCompletedSummaries: failed to create task for summary %d: %v", summary.ID, err)
+		} else {
+			backfilled++
+			log.Infof("BackfillCompletedSummaries: created backfill sync for completed summary %d", summary.ID)
+		}
+	}
+
+	log.Infof("BackfillCompletedSummaries: checked %d completed summaries, created %d backfill tasks",
+		len(summaries), backfilled)
+}
+
+// CreateManualSyncTaskInternal creates a manual sync task without cluster context (for exporter use)
+func CreateManualSyncTaskInternal(ctx context.Context, runSummaryID int64) error {
+	taskFacade := database.NewWorkloadTaskFacade()
+	taskUID := fmt.Sprintf("backfill-sync-%d-%d", runSummaryID, time.Now().Unix())
+
+	syncTask := &model.WorkloadTaskState{
+		WorkloadUID: taskUID,
+		TaskType:    constant.TaskTypeGithubManualSync,
+		Status:      constant.TaskStatusPending,
+		Ext: model.ExtType{
+			ExtKeyRunSummaryID: runSummaryID,
+			ExtKeySyncType:     "backfill",
+		},
+	}
+
+	return taskFacade.UpsertTask(ctx, syncTask)
+}
+
 // CreatePeriodicSyncTask creates a periodic sync task for a workflow run summary
 func CreatePeriodicSyncTask(ctx context.Context, runSummaryID int64) error {
 	taskFacade := database.NewWorkloadTaskFacade()
