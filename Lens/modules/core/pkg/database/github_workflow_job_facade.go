@@ -36,21 +36,40 @@ type JobWithSteps struct {
 	Steps []*model.GithubWorkflowSteps `json:"steps,omitempty"`
 }
 
-// Upsert creates or updates a job
+// Upsert creates or updates a job.
+// The "needs" field is only updated when the incoming value is non-empty,
+// preventing SyncFromGitHub (which has no workflow YAML) from overwriting
+// the dependency data set by GraphFetchExecutor.
 func (f *GithubWorkflowJobFacade) Upsert(ctx context.Context, job *model.GithubWorkflowJobs) error {
 	job.UpdatedAt = time.Now()
 	if job.CreatedAt.IsZero() {
 		job.CreatedAt = time.Now()
 	}
 
+	// Base columns that are always updated on conflict
+	updates := []clause.Assignment{
+		{Column: clause.Column{Name: "name"}, Value: gorm.Expr("EXCLUDED.name")},
+		{Column: clause.Column{Name: "status"}, Value: gorm.Expr("EXCLUDED.status")},
+		{Column: clause.Column{Name: "conclusion"}, Value: gorm.Expr("EXCLUDED.conclusion")},
+		{Column: clause.Column{Name: "started_at"}, Value: gorm.Expr("EXCLUDED.started_at")},
+		{Column: clause.Column{Name: "completed_at"}, Value: gorm.Expr("EXCLUDED.completed_at")},
+		{Column: clause.Column{Name: "duration_seconds"}, Value: gorm.Expr("EXCLUDED.duration_seconds")},
+		{Column: clause.Column{Name: "runner_id"}, Value: gorm.Expr("EXCLUDED.runner_id")},
+		{Column: clause.Column{Name: "runner_name"}, Value: gorm.Expr("EXCLUDED.runner_name")},
+		{Column: clause.Column{Name: "runner_group_name"}, Value: gorm.Expr("EXCLUDED.runner_group_name")},
+		{Column: clause.Column{Name: "steps_count"}, Value: gorm.Expr("EXCLUDED.steps_count")},
+		{Column: clause.Column{Name: "steps_completed"}, Value: gorm.Expr("EXCLUDED.steps_completed")},
+		{Column: clause.Column{Name: "steps_failed"}, Value: gorm.Expr("EXCLUDED.steps_failed")},
+		{Column: clause.Column{Name: "html_url"}, Value: gorm.Expr("EXCLUDED.html_url")},
+		{Column: clause.Column{Name: "updated_at"}, Value: gorm.Expr("EXCLUDED.updated_at")},
+		// Only update needs when the incoming value is non-empty (preserves graph_fetch data)
+		{Column: clause.Column{Name: "needs"}, Value: gorm.Expr("CASE WHEN EXCLUDED.needs != '' THEN EXCLUDED.needs ELSE github_workflow_jobs.needs END")},
+	}
+
 	return f.getDB().WithContext(ctx).
 		Clauses(clause.OnConflict{
-			Columns: []clause.Column{{Name: "run_id"}, {Name: "github_job_id"}},
-			DoUpdates: clause.AssignmentColumns([]string{
-				"name", "needs", "status", "conclusion", "started_at", "completed_at",
-				"duration_seconds", "runner_id", "runner_name", "runner_group_name",
-				"steps_count", "steps_completed", "steps_failed", "html_url", "updated_at",
-			}),
+			Columns:   []clause.Column{{Name: "run_id"}, {Name: "github_job_id"}},
+			DoUpdates: clause.Set(updates),
 		}).
 		Create(job).Error
 }
@@ -227,14 +246,18 @@ func (f *GithubWorkflowJobFacade) CountByRunID(ctx context.Context, runID int64)
 	return
 }
 
-// ListByRunSummaryID lists all GitHub jobs for a run summary
-// It joins github_workflow_jobs with github_workflow_runs to find jobs by run_summary_id
+// ListByRunSummaryID lists unique GitHub jobs for a run summary.
+// It deduplicates by github_job_id, keeping the record with the most complete data
+// (preferring rows that have needs populated and the latest update).
 func (f *GithubWorkflowJobFacade) ListByRunSummaryID(ctx context.Context, runSummaryID int64) ([]*model.GithubWorkflowJobs, error) {
 	var jobs []*model.GithubWorkflowJobs
+	// Use DISTINCT ON (github_job_id) to deduplicate.
+	// Order by needs DESC so rows with needs populated come first, then by id ASC.
 	err := f.getDB().WithContext(ctx).
+		Select("DISTINCT ON (github_workflow_jobs.github_job_id) github_workflow_jobs.*").
 		Joins("JOIN github_workflow_runs r ON r.id = github_workflow_jobs.run_id").
 		Where("r.run_summary_id = ?", runSummaryID).
-		Order("github_workflow_jobs.id ASC").
+		Order("github_workflow_jobs.github_job_id, github_workflow_jobs.needs DESC, github_workflow_jobs.id ASC").
 		Find(&jobs).Error
 	return jobs, err
 }
