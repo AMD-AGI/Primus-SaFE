@@ -390,14 +390,27 @@ func syncWorkflowStatusFromJobs(ctx context.Context, summaryID int64, ghJobs []g
 		if !ok {
 			continue
 		}
-		// Only update if the status has changed
-		if run.WorkflowStatus == job.Status && run.WorkflowConclusion == job.Conclusion {
+
+		fields := make(map[string]interface{})
+
+		// Sync workflow status if changed
+		if run.WorkflowStatus != job.Status {
+			fields["workflow_status"] = job.Status
+		}
+		if run.WorkflowConclusion != job.Conclusion {
+			fields["workflow_conclusion"] = job.Conclusion
+		}
+
+		// Backfill github_job_id if not set (enables GitHub Job name display on frontend)
+		if run.GithubJobID == 0 && job.ID != 0 {
+			fields["github_job_id"] = job.ID
+		}
+
+		if len(fields) == 0 {
 			continue
 		}
-		if err := runFacade.UpdateFields(ctx, run.ID, map[string]interface{}{
-			"workflow_status":     job.Status,
-			"workflow_conclusion": job.Conclusion,
-		}); err != nil {
+
+		if err := runFacade.UpdateFields(ctx, run.ID, fields); err != nil {
 			log.Warnf("syncWorkflowStatusFromJobs: failed to update run %d: %v", run.ID, err)
 		}
 	}
