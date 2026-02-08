@@ -409,6 +409,8 @@ func (f *AnalysisTaskFacade) convertTask(task *model.WorkloadTaskState) *Analysi
 		}
 		if v, ok := task.Ext["commit_sha"].(string); ok {
 			at.CommitSHA = v
+		} else if v, ok := task.Ext["head_sha"].(string); ok {
+			at.CommitSHA = v
 		}
 		if v, ok := task.Ext["repo_name"].(string); ok {
 			at.RepoName = v
@@ -417,6 +419,8 @@ func (f *AnalysisTaskFacade) convertTask(task *model.WorkloadTaskState) *Analysi
 			at.WorkflowName = v
 		}
 		if v, ok := task.Ext["branch"].(string); ok {
+			at.Branch = v
+		} else if v, ok := task.Ext["head_branch"].(string); ok {
 			at.Branch = v
 		}
 		
