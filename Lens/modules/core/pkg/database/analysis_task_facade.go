@@ -118,6 +118,61 @@ func (f *AnalysisTaskFacade) GetTasksByRunID(ctx context.Context, runID int64) (
 	return f.convertTasks(tasks), nil
 }
 
+// GetTasksByRunSummaryID retrieves all analysis tasks for a specific run summary
+func (f *AnalysisTaskFacade) GetTasksByRunSummaryID(ctx context.Context, runSummaryID int64) ([]*AnalysisTask, error) {
+	var tasks []*model.WorkloadTaskState
+
+	err := f.getDB().WithContext(ctx).
+		Where("task_type IN ?", constant.AnalysisTaskTypes).
+		Where("(ext->>'run_summary_id')::bigint = ?", runSummaryID).
+		Order("created_at ASC").
+		Find(&tasks).Error
+
+	if err != nil {
+		return nil, err
+	}
+
+	return f.convertTasks(tasks), nil
+}
+
+// GetSummaryByRunSummaryID returns summary statistics for analysis tasks of a run summary
+func (f *AnalysisTaskFacade) GetSummaryByRunSummaryID(ctx context.Context, runSummaryID int64) (*AnalysisTaskSummary, error) {
+	type statusCount struct {
+		Status string
+		Count  int
+	}
+
+	var counts []statusCount
+	err := f.getDB().WithContext(ctx).
+		Model(&model.WorkloadTaskState{}).
+		Select("status, COUNT(*) as count").
+		Where("task_type IN ?", constant.AnalysisTaskTypes).
+		Where("(ext->>'run_summary_id')::bigint = ?", runSummaryID).
+		Group("status").
+		Find(&counts).Error
+
+	if err != nil {
+		return nil, err
+	}
+
+	summary := &AnalysisTaskSummary{}
+	for _, c := range counts {
+		summary.Total += c.Count
+		switch c.Status {
+		case constant.TaskStatusPending:
+			summary.Pending = c.Count
+		case constant.TaskStatusRunning:
+			summary.Running = c.Count
+		case constant.TaskStatusCompleted:
+			summary.Completed = c.Count
+		case constant.TaskStatusFailed:
+			summary.Failed = c.Count
+		}
+	}
+
+	return summary, nil
+}
+
 // GetTasksByGithubRunID retrieves all analysis tasks for a specific GitHub run ID
 func (f *AnalysisTaskFacade) GetTasksByGithubRunID(ctx context.Context, githubRunID int64) ([]*AnalysisTask, error) {
 	var tasks []*model.WorkloadTaskState

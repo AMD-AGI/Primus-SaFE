@@ -87,9 +87,9 @@ var AnalysisTaskTypes = []string{
 
 // AnalysisTaskTypeDisplayNames maps task types to human-readable display names
 var AnalysisTaskTypeDisplayNames = map[string]string{
-	TaskTypeGithubWorkflowAnalysis: "Workflow Analysis",
+	TaskTypeGithubWorkflowAnalysis: "Failure Analysis",
 	TaskTypeGithubSchemaAnalyze:    "Schema Analysis",
-	TaskTypeGithubCodeIndexing:     "Code Indexing",
+	TaskTypeGithubCodeIndexing:     "Code Analysis",
 }
 
 // Build trigger: 2026-01-27 - workflow sync API parameter fix

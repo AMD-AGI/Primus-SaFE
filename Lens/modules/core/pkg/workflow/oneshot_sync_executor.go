@@ -429,6 +429,8 @@ func (e *CompletionSyncExecutor) checkAndTriggerFailureAnalysis(ctx context.Cont
 			"analysis_type":  "failure",
 			"head_sha":       summary.HeadSha,
 			"head_branch":    summary.HeadBranch,
+			"workflow_name":  summary.WorkflowName,
+			"repo_name":      summary.Owner + "/" + summary.Repo,
 		},
 	}
 
