@@ -1064,3 +1064,42 @@ func toolsProxyDelete(ctx context.Context, reqURL string) ([]byte, error) {
 
 	return body, nil
 }
+
+// toolsProxyRaw proxies a raw HTTP request (for multipart/form-data or other non-JSON)
+func toolsProxyRaw(c *gin.Context, targetPath string) {
+	// Build target URL
+	targetURL := toolsRepositoryURL + targetPath
+
+	// Create proxy request
+	proxyReq, err := http.NewRequestWithContext(c.Request.Context(), c.Request.Method, targetURL, c.Request.Body)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create proxy request"})
+		return
+	}
+
+	// Copy headers
+	for key, values := range c.Request.Header {
+		for _, value := range values {
+			proxyReq.Header.Add(key, value)
+		}
+	}
+
+	// Send request
+	resp, err := toolsHTTPClient.Do(proxyReq)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to call skills-repository"})
+		return
+	}
+	defer resp.Body.Close()
+
+	// Copy response headers
+	for key, values := range resp.Header {
+		for _, value := range values {
+			c.Header(key, value)
+		}
+	}
+
+	// Copy response body
+	c.Status(resp.StatusCode)
+	io.Copy(c.Writer, resp.Body)
+}

@@ -56,7 +56,7 @@ func (h *Handler) ListToolsets(c *gin.Context) {
 		UserID:    userInfo.UserID,
 	})
 	if err != nil {
-		handleServiceError(c, err)
+		respondServiceError(c, err)
 		return
 	}
 
@@ -72,14 +72,14 @@ func (h *Handler) ListToolsets(c *gin.Context) {
 func (h *Handler) GetToolset(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		respondInvalidParameter(c, "id", "ID must be a valid integer")
 		return
 	}
 
 	userInfo := GetUserInfo(c)
 	result, err := h.toolsetService.GetToolset(c.Request.Context(), id, userInfo.UserID)
 	if err != nil {
-		handleServiceError(c, err)
+		respondServiceError(c, err)
 		return
 	}
 
@@ -90,7 +90,7 @@ func (h *Handler) GetToolset(c *gin.Context) {
 func (h *Handler) CreateToolset(c *gin.Context) {
 	var req CreateToolsetRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		respondBadRequest(c, "Invalid request body", err.Error())
 		return
 	}
 
@@ -110,7 +110,7 @@ func (h *Handler) CreateToolset(c *gin.Context) {
 	})
 	if err != nil {
 		log.Printf("[CreateToolset] user=%s name=%s error=%v", userInfo.UserID, req.Name, err)
-		handleServiceError(c, err)
+		respondServiceError(c, err)
 		return
 	}
 
@@ -122,13 +122,13 @@ func (h *Handler) CreateToolset(c *gin.Context) {
 func (h *Handler) UpdateToolset(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		respondInvalidParameter(c, "id", "ID must be a valid integer")
 		return
 	}
 
 	var req UpdateToolsetRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		respondBadRequest(c, "Invalid request body", err.Error())
 		return
 	}
 
@@ -144,7 +144,7 @@ func (h *Handler) UpdateToolset(c *gin.Context) {
 	}, userInfo.UserID)
 	if err != nil {
 		log.Printf("[UpdateToolset] user=%s toolset_id=%d error=%v", userInfo.UserID, id, err)
-		handleServiceError(c, err)
+		respondServiceError(c, err)
 		return
 	}
 
@@ -156,7 +156,7 @@ func (h *Handler) UpdateToolset(c *gin.Context) {
 func (h *Handler) DeleteToolset(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		respondInvalidParameter(c, "id", "ID must be a valid integer")
 		return
 	}
 
@@ -165,7 +165,7 @@ func (h *Handler) DeleteToolset(c *gin.Context) {
 
 	if err := h.toolsetService.DeleteToolset(c.Request.Context(), id, userInfo.UserID); err != nil {
 		log.Printf("[DeleteToolset] user=%s toolset_id=%d error=%v", userInfo.UserID, id, err)
-		handleServiceError(c, err)
+		respondServiceError(c, err)
 		return
 	}
 
@@ -177,13 +177,13 @@ func (h *Handler) DeleteToolset(c *gin.Context) {
 func (h *Handler) AddToolsToToolset(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		respondInvalidParameter(c, "id", "ID must be a valid integer")
 		return
 	}
 
 	var req AddToolsToToolsetRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		respondBadRequest(c, "Invalid request body", err.Error())
 		return
 	}
 
@@ -195,7 +195,7 @@ func (h *Handler) AddToolsToToolset(c *gin.Context) {
 	}, userInfo.UserID)
 	if err != nil {
 		log.Printf("[AddToolsToToolset] user=%s toolset_id=%d error=%v", userInfo.UserID, id, err)
-		handleServiceError(c, err)
+		respondServiceError(c, err)
 		return
 	}
 
@@ -210,13 +210,13 @@ func (h *Handler) AddToolsToToolset(c *gin.Context) {
 func (h *Handler) RemoveToolFromToolset(c *gin.Context) {
 	toolsetID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid toolset id"})
+		respondInvalidParameter(c, "toolset_id", "Toolset ID must be a valid integer")
 		return
 	}
 
 	toolID, err := strconv.ParseInt(c.Param("toolId"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid tool id"})
+		respondInvalidParameter(c, "tool_id", "Tool ID must be a valid integer")
 		return
 	}
 
@@ -225,7 +225,7 @@ func (h *Handler) RemoveToolFromToolset(c *gin.Context) {
 
 	if err := h.toolsetService.RemoveTool(c.Request.Context(), toolsetID, toolID, userInfo.UserID); err != nil {
 		log.Printf("[RemoveToolFromToolset] user=%s toolset_id=%d tool_id=%d error=%v", userInfo.UserID, toolsetID, toolID, err)
-		handleServiceError(c, err)
+		respondServiceError(c, err)
 		return
 	}
 
@@ -237,7 +237,7 @@ func (h *Handler) RemoveToolFromToolset(c *gin.Context) {
 func (h *Handler) SearchToolsets(c *gin.Context) {
 	query := c.Query("q")
 	if query == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "query parameter 'q' is required"})
+		respondInvalidParameter(c, "q", "Query parameter 'q' is required")
 		return
 	}
 
@@ -247,7 +247,7 @@ func (h *Handler) SearchToolsets(c *gin.Context) {
 
 	result, err := h.toolsetService.Search(c.Request.Context(), query, mode, limit, userInfo.UserID)
 	if err != nil {
-		handleServiceError(c, err)
+		respondServiceError(c, err)
 		return
 	}
 
