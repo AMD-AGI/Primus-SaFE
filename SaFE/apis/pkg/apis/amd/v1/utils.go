@@ -255,7 +255,7 @@ func GetWorkloadId(obj metav1.Object) string {
 
 // IsWorkloadDisableFailover checks if failover is disabled for a workload.
 func IsWorkloadDisableFailover(obj metav1.Object) bool {
-	return HasAnnotation(obj, WorkloadDisableFailoverAnnotation)
+	return GetAnnotation(obj, WorkloadDisableFailoverAnnotation) == TrueStr
 }
 
 // IsWorkloadReScheduled checks if a workload has been rescheduled.

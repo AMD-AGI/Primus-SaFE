@@ -39,7 +39,7 @@ Query aggregated workload logs (based on OpenSearch).
 | offset | int | No | Pagination offset, default 0; must be >= 0 and < max docs(10000)                               |
 | limit | int | No | Page size, default 100; constrained by max docs-per-query                                      |
 | order | string | No | Time sort order: asc/desc; default asc                                                         |
-| keywords | []string | No | AND search                              |
+| keywords | []string | No | Use AND search for log keywords.                              |
 | podNames | string | No | Filter by pod names (comma-separated, OR filter)                                               |
 | dispatchCount | int | No | Filter by workload dispatch/run number; 0 means all                                            |
 | nodeNames | string | No | Filter by node names (comma-separated, OR filter); ignored if podNames is set                  |
@@ -117,6 +117,105 @@ Query parameters are the same as above (Get Workload Logs).
 
 ---
 
+### 4. Get Workload Events
+
+Query aggregated workload events (based on OpenSearch).
+
+**Endpoint**: `POST /api/v1/workloads/{WorkloadId}/events`
+
+**Authentication Required**: Yes
+
+**Path Parameters**:
+- `WorkloadId`: Workload ID
+
+**Request Example**:
+```json
+{
+  "since": "2025-01-15T10:00:00.000Z",
+  "until": "2025-01-15T11:00:00.000Z",
+  "offset": 0,
+  "limit": 100,
+  "order": "asc",
+  "keywords": ["error", "timeout"]
+}
+```
+
+**Request Parameters**:
+
+| Parameter | Type | Required | Description                                                                                    |
+|-----------|------|----------|------------------------------------------------------------------------------------------------|
+| since | string | No | Start time (RFC3339 with milliseconds); default depends on workload creation time or last 7 days |
+| until | string | No | End time (RFC3339 with milliseconds); default now                                              |
+| offset | int | No | Pagination offset, default 0; must be >= 0 and < max docs(10000)                               |
+| limit | int | No | Page size, default 100; constrained by max docs-per-query                                      |
+| order | string | No | Time sort order: asc/desc; default asc                                                         |
+| keywords | []string | No | Use AND search for log keywords.                              |
+
+**Response Example**:
+```json
+{
+    "took": 225,
+    "timed_out": false,
+    "_shards": {
+        "total": 1,
+        "successful": 1,
+        "skipped": 0,
+        "failed": 0
+    },
+    "hits": {
+        "total": {
+            "value": 10,
+            "relation": "eq"
+        },
+        "max_score": null,
+        "hits": [
+            {
+                "_index": "k8s-event-2026.02.05",
+                "_id": "8639e3fc-0e9d-45bf-a4f8-284effe37a41",
+                "_score": null,
+                "_source": {
+                    "reason": "SetPodTemplateSchedulerName",
+                    "metadata": {
+                        "uid": "8639e3fc-0e9d-45bf-a4f8-284effe37a41",
+                        "creationTimestamp": "2026-02-05 15:27:56 +0000 UTC",
+                        "name": "weilei-dev-dpt8p.1891634508279f80",
+                        "namespace": "tw-project2-control-plane"
+                    },
+                    "involvedObject": {
+                        "uid": "3df6e3ec-e67d-4839-8000-9a5167cb8bf4",
+                        "apiVersion": "kubeflow.org/v1",
+                        "kind": "PyTorchJob",
+                        "resourceVersion": "450426558",
+                        "fieldPath": "",
+                        "name": "weilei-dev-dpt8p",
+                        "namespace": "tw-project2-control-plane"
+                    },
+                    "reportingInstance": "",
+                    "kind": "",
+                    "count": "1",
+                    "source": {
+                        "component": "pytorchjob-controller",
+                        "host": ""
+                    },
+                    "message": "Another scheduler is specified when gang-scheduling is enabled and it will not be overwritten",
+                    "type": "Warning",
+                    "reportingComponent": "pytorchjob-controller",
+                    "firstTimestamp": "2026-02-05 15:27:56 +0000 UTC",
+                    "apiVersion": "",
+                    "@timestamp": "2026-02-05 15:27:56 +0000 UTC",
+                    "lastTimestamp": "2026-02-05 15:27:56 +0000 UTC",
+                    "clusterName": "tw-proj2",
+                    "eventTime": "0001-01-01 00:00:00 +0000 UTC",
+                    "action": ""
+                },
+                "sort": [
+                    "2026-02-05 15:27:56 +0000 UTC"
+                ]
+            }
+        ]
+    }
+}
+```
 
 ## Query Description
 

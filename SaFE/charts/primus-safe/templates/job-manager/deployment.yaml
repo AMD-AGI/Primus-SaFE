@@ -9,6 +9,7 @@ metadata:
   name: {{ .Release.Name }}-job-manager
   namespace: {{ .Release.Namespace }}
   labels:
+    primus-safe-app-name: job-manager
     app: {{ .Release.Name }}-job-manager
     app.kubernetes.io/managed-by: Helm
   annotations:
