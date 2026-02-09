@@ -680,6 +680,9 @@ func (p *RunnerStateProcessor) triggerCodeAnalysis(ctx context.Context, summary 
 			"repo":           summary.Repo,
 			"head_sha":       summary.HeadSha,
 			"head_branch":    summary.HeadBranch,
+			"workflow_name":  summary.WorkflowName,
+			"repo_name":      summary.Owner + "/" + summary.Repo,
+			"analysis_type":  "code",
 		},
 	}
 
