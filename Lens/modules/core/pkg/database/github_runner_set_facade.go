@@ -314,7 +314,7 @@ func (f *GithubRunnerSetFacade) ListRepositories(ctx context.Context) ([]*Reposi
 			COUNT(DISTINCT c.id) AS configured_sets,
 			COALESCE(COUNT(DISTINCT CASE WHEN r.runner_type = 'launcher' AND r.status IN ('workload_pending', 'workload_running') THEN r.id END), 0) AS pending_launchers,
 			COALESCE(COUNT(DISTINCT CASE WHEN r.runner_type = 'worker' AND r.status = 'workload_running' THEN r.id END), 0) AS active_workers,
-			COALESCE(COUNT(DISTINCT CASE WHEN r.pod_condition IN ('ImagePullBackOff', 'CrashLoopBackOff', 'OOMKilled') OR r.status = 'error' THEN r.id END), 0) AS error_pods
+			COALESCE(COUNT(DISTINCT CASE WHEN (r.pod_condition IN ('ImagePullBackOff', 'CrashLoopBackOff', 'OOMKilled') OR r.status = 'error') AND r.workload_completed_at = '0001-01-01 00:00:00+00' THEN r.id END), 0) AS error_pods
 		`).
 		Joins("LEFT JOIN github_workflow_runs r ON rs.id = r.runner_set_id").
 		Joins("LEFT JOIN github_workflow_run_summaries s ON r.run_summary_id = s.id").
@@ -351,7 +351,7 @@ func (f *GithubRunnerSetFacade) GetRepositorySummary(ctx context.Context, owner,
 			COUNT(DISTINCT c.id) AS configured_sets,
 			COALESCE(COUNT(DISTINCT CASE WHEN r.runner_type = 'launcher' AND r.status IN ('workload_pending', 'workload_running') THEN r.id END), 0) AS pending_launchers,
 			COALESCE(COUNT(DISTINCT CASE WHEN r.runner_type = 'worker' AND r.status = 'workload_running' THEN r.id END), 0) AS active_workers,
-			COALESCE(COUNT(DISTINCT CASE WHEN r.pod_condition IN ('ImagePullBackOff', 'CrashLoopBackOff', 'OOMKilled') OR r.status = 'error' THEN r.id END), 0) AS error_pods
+			COALESCE(COUNT(DISTINCT CASE WHEN (r.pod_condition IN ('ImagePullBackOff', 'CrashLoopBackOff', 'OOMKilled') OR r.status = 'error') AND r.workload_completed_at = '0001-01-01 00:00:00+00' THEN r.id END), 0) AS error_pods
 		`).
 		Joins("LEFT JOIN github_workflow_runs r ON rs.id = r.runner_set_id").
 		Joins("LEFT JOIN github_workflow_run_summaries s ON r.run_summary_id = s.id").
