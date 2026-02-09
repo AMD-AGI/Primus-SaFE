@@ -33,7 +33,7 @@ type Tool struct {
 
 	// Access control
 	OwnerUserID string `gorm:"column:owner_user_id" json:"owner_user_id"`
-	IsPublic    bool   `gorm:"column:is_public;default:true" json:"is_public"`
+	IsPublic    bool   `gorm:"column:is_public" json:"is_public"`
 	Status      string `gorm:"column:status;default:active" json:"status"`
 
 	// Statistics
