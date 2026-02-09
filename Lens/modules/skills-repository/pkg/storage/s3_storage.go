@@ -198,3 +198,31 @@ func (s *S3Storage) ListObjects(ctx context.Context, prefix string) ([]ObjectInf
 
 	return objects, nil
 }
+
+// Copy copies a file from srcKey to dstKey
+func (s *S3Storage) Copy(ctx context.Context, srcKey, dstKey string) error {
+	_, err := s.client.CopyObject(ctx, &s3.CopyObjectInput{
+		Bucket:     aws.String(s.bucket),
+		CopySource: aws.String(s.bucket + "/" + srcKey),
+		Key:        aws.String(dstKey),
+	})
+	return err
+}
+
+// CopyPrefix copies all files under srcPrefix to dstPrefix
+func (s *S3Storage) CopyPrefix(ctx context.Context, srcPrefix, dstPrefix string) error {
+	objects, err := s.ListObjects(ctx, srcPrefix)
+	if err != nil {
+		return err
+	}
+
+	for _, obj := range objects {
+		// Calculate new key by replacing prefix
+		newKey := dstPrefix + obj.Key[len(srcPrefix):]
+		if err := s.Copy(ctx, obj.Key, newKey); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}

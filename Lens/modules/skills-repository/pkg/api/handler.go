@@ -76,6 +76,9 @@ func RegisterRoutes(router *gin.Engine, h *Handler) {
 		auth.POST("/tools/:id/like", h.LikeTool)
 		auth.DELETE("/tools/:id/like", h.UnlikeTool)
 
+		// Clone
+		auth.POST("/tools/:id/clone", h.CloneTool)
+
 		// Toolsets
 		auth.GET("/toolsets", h.ListToolsets)
 		auth.POST("/toolsets", h.CreateToolset)
@@ -503,5 +506,35 @@ func (h *Handler) UnlikeTool(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"message":    "unliked",
 		"like_count": likeCount,
+	})
+}
+
+// CloneTool handles POST /tools/:id/clone
+func (h *Handler) CloneTool(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid tool id"})
+		return
+	}
+
+	userInfo := GetUserInfo(c)
+	if userInfo.UserID == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "user id required for cloning"})
+		return
+	}
+
+	newTool, err := h.toolService.Clone(c.Request.Context(), service.CloneInput{
+		SourceID: id,
+		UserID:   userInfo.UserID,
+		Username: userInfo.Username,
+	})
+	if err != nil {
+		handleServiceError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusCreated, gin.H{
+		"message": "cloned successfully",
+		"tool":    newTool,
 	})
 }
