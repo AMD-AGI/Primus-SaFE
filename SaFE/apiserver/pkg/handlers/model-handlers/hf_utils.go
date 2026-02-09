@@ -786,23 +786,23 @@ func truncate(text string, length int) string {
 
 // HFDatasetMetadata represents the JSON response from HuggingFace Datasets API
 type HFDatasetMetadata struct {
-	ID           string          `json:"id"`
-	Author       string          `json:"author"`
-	Tags         []string        `json:"tags"`
-	Downloads    int             `json:"downloads"`
-	Likes        int             `json:"likes"`
-	Private      bool            `json:"private"`
-	CardData     *HFDatasetCard  `json:"cardData"`
-	LastModified string          `json:"lastModified"`
-	CreatedAt    string          `json:"createdAt"`
+	ID           string         `json:"id"`
+	Author       string         `json:"author"`
+	Tags         []string       `json:"tags"`
+	Downloads    int            `json:"downloads"`
+	Likes        int            `json:"likes"`
+	Private      bool           `json:"private"`
+	CardData     *HFDatasetCard `json:"cardData"`
+	LastModified string         `json:"lastModified"`
+	CreatedAt    string         `json:"createdAt"`
 }
 
 // HFDatasetCard represents the cardData field from HuggingFace Datasets API
 type HFDatasetCard struct {
 	TaskCategories []string        `json:"task_categories"`
-	Size           string          `json:"size_categories"`
-	License        json.RawMessage `json:"license"`  // string or []string
-	Language       json.RawMessage `json:"language"` // string or []string
+	Size           json.RawMessage `json:"size_categories"` // string or []string
+	License        json.RawMessage `json:"license"`         // string or []string
+	Language       json.RawMessage `json:"language"`        // string or []string
 }
 
 // HFDatasetInfo contains processed dataset information
@@ -858,10 +858,13 @@ func GetHFDatasetInfo(urlOrID string) (*HFDatasetInfo, error) {
 	info.Likes = meta.Likes
 	info.Private = meta.Private
 
-	// Parse cardData fields (license/language can be string or []string)
+	// Parse cardData fields (license/language/size can be string or []string)
 	if meta.CardData != nil {
 		info.TaskCategories = meta.CardData.TaskCategories
-		info.Size = meta.CardData.Size
+		sizes := parseStringOrArray(meta.CardData.Size)
+		if len(sizes) > 0 {
+			info.Size = sizes[0]
+		}
 		info.Licenses = parseStringOrArray(meta.CardData.License)
 		info.Languages = parseStringOrArray(meta.CardData.Language)
 	}
