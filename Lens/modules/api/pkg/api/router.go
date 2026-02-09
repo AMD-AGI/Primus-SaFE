@@ -568,6 +568,15 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		// Like/Unlike tool
 		toolsGroup.POST("/:id/like", getUnifiedHandlerWithMethod("/tools/:id/like", "POST"))
 		toolsGroup.DELETE("/:id/like", getUnifiedHandlerWithMethod("/tools/:id/like", "DELETE"))
+		// Icon upload (multipart/form-data, direct proxy)
+		toolsGroup.POST("/icon", func(c *gin.Context) {
+			toolsProxyRaw(c, "/api/v1/tools/icon")
+		})
+		// Get tool content (SKILL.md for skills, direct proxy)
+		toolsGroup.GET("/:id/content", func(c *gin.Context) {
+			id := c.Param("id")
+			toolsProxyRaw(c, "/api/v1/tools/"+id+"/content")
+		})
 	}
 
 	// Toolsets routes - Proxy to skills-repository service

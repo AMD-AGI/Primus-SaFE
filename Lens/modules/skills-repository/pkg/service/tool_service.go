@@ -6,6 +6,8 @@ package service
 import (
 	"context"
 	"fmt"
+	"io"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -349,4 +351,66 @@ func (s *ToolService) generateEmbedding(ctx context.Context, tool *model.Tool) {
 	if err := s.facade.UpdateEmbedding(tool.ID, emb); err != nil {
 		fmt.Printf("Failed to update embedding for tool %d: %v\n", tool.ID, err)
 	}
+}
+
+// UploadIcon uploads an icon file to S3 and returns the URL
+func (s *ToolService) UploadIcon(ctx context.Context, userID, filename string, file io.Reader) (string, error) {
+	if s.storage == nil {
+		return "", ErrNotConfigured
+	}
+
+	// Generate unique S3 key: tools/icons/{userID}/{timestamp}.{ext}
+	timestamp := time.Now().Unix()
+	ext := filepath.Ext(filename)
+	key := fmt.Sprintf("tools/icons/%s/%d%s", userID, timestamp, ext)
+
+	// Upload to S3
+	if err := s.storage.Upload(ctx, key, file); err != nil {
+		return "", fmt.Errorf("failed to upload icon: %w", err)
+	}
+
+	// Get presigned URL (or public URL if available)
+	url, err := s.storage.GetURL(ctx, key)
+	if err != nil {
+		return "", fmt.Errorf("failed to get icon URL: %w", err)
+	}
+
+	return url, nil
+}
+
+// GetToolContent retrieves the raw SKILL.md content for a skill
+func (s *ToolService) GetToolContent(ctx context.Context, toolID int64, userID string) (string, error) {
+	// Get tool and check access
+	tool, err := s.facade.GetByID(toolID)
+	if err != nil {
+		return "", fmt.Errorf("tool %w", ErrNotFound)
+	}
+
+	// Access control
+	if !tool.IsPublic && tool.OwnerUserID != userID {
+		return "", ErrAccessDenied
+	}
+
+	// Only skills have content
+	if tool.Type != "skill" {
+		return "", fmt.Errorf("only skills have content")
+	}
+
+	// Get S3 key from config
+	s3Key, ok := tool.Config["s3_key"].(string)
+	if !ok || s3Key == "" {
+		return "", fmt.Errorf("s3_key not found in config")
+	}
+
+	// Download from S3
+	if s.storage == nil {
+		return "", ErrNotConfigured
+	}
+
+	content, err := s.storage.DownloadBytes(ctx, s3Key)
+	if err != nil {
+		return "", fmt.Errorf("failed to download skill content: %w", err)
+	}
+
+	return string(content), nil
 }

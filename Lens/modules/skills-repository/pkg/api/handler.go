@@ -77,6 +77,12 @@ func RegisterRoutes(router *gin.Engine, h *Handler) {
 		auth.POST("/tools/:id/like", h.LikeTool)
 		auth.DELETE("/tools/:id/like", h.UnlikeTool)
 
+		// Icon upload
+		auth.POST("/tools/icon", h.UploadIcon)
+
+		// Get tool content (SKILL.md for skills)
+		auth.GET("/tools/:id/content", h.GetToolContent)
+
 		// Toolsets
 		auth.GET("/toolsets", h.ListToolsets)
 		auth.POST("/toolsets", h.CreateToolset)
@@ -140,22 +146,7 @@ type ImportCommitRequest struct {
 }
 
 // --- Error Handling ---
-
-// handleServiceError maps service errors to HTTP responses
-func handleServiceError(c *gin.Context, err error) {
-	switch {
-	case errors.Is(err, service.ErrNotFound):
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
-	case errors.Is(err, service.ErrAccessDenied):
-		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
-	case errors.Is(err, service.ErrNotConfigured):
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
-	case errors.Is(err, service.ErrAlreadyLiked):
-		c.JSON(http.StatusConflict, gin.H{"error": "already liked"})
-	default:
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-	}
-}
+// (Moved to error_response.go for centralized error handling)
 
 // --- Handler Methods ---
 
@@ -181,7 +172,7 @@ func (h *Handler) ListTools(c *gin.Context) {
 		UserID:    userInfo.UserID,
 	})
 	if err != nil {
-		handleServiceError(c, err)
+		respondServiceError(c, err)
 		return
 	}
 
@@ -197,14 +188,14 @@ func (h *Handler) ListTools(c *gin.Context) {
 func (h *Handler) GetTool(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		respondInvalidParameter(c, "id", "ID must be a valid integer")
 		return
 	}
 
 	userInfo := GetUserInfo(c)
 	result, err := h.toolService.GetTool(c.Request.Context(), id, userInfo.UserID)
 	if err != nil {
-		handleServiceError(c, err)
+		respondServiceError(c, err)
 		return
 	}
 
@@ -215,7 +206,7 @@ func (h *Handler) GetTool(c *gin.Context) {
 func (h *Handler) CreateMCP(c *gin.Context) {
 	var req CreateMCPRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		respondBadRequest(c, "Invalid request body", err.Error())
 		return
 	}
 
@@ -236,7 +227,7 @@ func (h *Handler) CreateMCP(c *gin.Context) {
 	})
 	if err != nil {
 		log.Printf("[CreateMCP] user=%s name=%s error=%v", userInfo.UserID, req.Name, err)
-		handleServiceError(c, err)
+		respondServiceError(c, err)
 		return
 	}
 
@@ -248,13 +239,13 @@ func (h *Handler) CreateMCP(c *gin.Context) {
 func (h *Handler) UpdateTool(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		respondInvalidParameter(c, "id", "ID must be a valid integer")
 		return
 	}
 
 	var req UpdateToolRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		respondBadRequest(c, "Invalid request body", err.Error())
 		return
 	}
 
@@ -273,7 +264,7 @@ func (h *Handler) UpdateTool(c *gin.Context) {
 	}, userInfo.UserID)
 	if err != nil {
 		log.Printf("[UpdateTool] user=%s tool_id=%d error=%v", userInfo.UserID, id, err)
-		handleServiceError(c, err)
+		respondServiceError(c, err)
 		return
 	}
 
@@ -285,7 +276,7 @@ func (h *Handler) UpdateTool(c *gin.Context) {
 func (h *Handler) DeleteTool(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		respondInvalidParameter(c, "id", "ID must be a valid integer")
 		return
 	}
 
@@ -294,7 +285,7 @@ func (h *Handler) DeleteTool(c *gin.Context) {
 
 	if err := h.toolService.DeleteTool(c.Request.Context(), id, userInfo.UserID); err != nil {
 		log.Printf("[DeleteTool] user=%s tool_id=%d error=%v", userInfo.UserID, id, err)
-		handleServiceError(c, err)
+		respondServiceError(c, err)
 		return
 	}
 
@@ -306,7 +297,7 @@ func (h *Handler) DeleteTool(c *gin.Context) {
 func (h *Handler) SearchTools(c *gin.Context) {
 	query := c.Query("q")
 	if query == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "query parameter 'q' is required"})
+		respondInvalidParameter(c, "q", "Query parameter 'q' is required")
 		return
 	}
 
@@ -318,9 +309,9 @@ func (h *Handler) SearchTools(c *gin.Context) {
 	if err != nil {
 		// "semantic search not configured" should be 400 (client requested unsupported mode)
 		if errors.Is(err, service.ErrNotConfigured) {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			respondBadRequest(c, "Search mode not available", err.Error())
 		} else {
-			handleServiceError(c, err)
+			respondServiceError(c, err)
 		}
 		return
 	}
@@ -336,7 +327,7 @@ func (h *Handler) SearchTools(c *gin.Context) {
 func (h *Handler) RunTools(c *gin.Context) {
 	var req RunToolsRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		respondBadRequest(c, "Invalid request body", err.Error())
 		return
 	}
 
@@ -348,7 +339,7 @@ func (h *Handler) RunTools(c *gin.Context) {
 
 	result, err := h.runService.RunTools(c.Request.Context(), refs)
 	if err != nil {
-		handleServiceError(c, err)
+		respondServiceError(c, err)
 		return
 	}
 
@@ -362,14 +353,14 @@ func (h *Handler) RunTools(c *gin.Context) {
 func (h *Handler) DownloadTool(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		respondInvalidParameter(c, "id", "ID must be a valid integer")
 		return
 	}
 
 	userInfo := GetUserInfo(c)
 	result, err := h.runService.DownloadTool(c.Request.Context(), id, userInfo.UserID)
 	if err != nil {
-		handleServiceError(c, err)
+		respondServiceError(c, err)
 		return
 	}
 
@@ -385,12 +376,12 @@ func (h *Handler) ImportDiscover(c *gin.Context) {
 	githubURL := c.PostForm("github_url")
 
 	if fileErr != nil && githubURL == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "either file or github_url must be provided"})
+		respondBadRequest(c, "Either file or github_url must be provided")
 		return
 	}
 
 	if fileErr == nil && githubURL != "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "only one of file or github_url can be provided"})
+		respondBadRequest(c, "Only one of file or github_url can be provided")
 		return
 	}
 
@@ -426,11 +417,7 @@ func (h *Handler) ImportDiscover(c *gin.Context) {
 	result, err := h.importService.Discover(c.Request.Context(), input)
 	if err != nil {
 		log.Printf("[ImportDiscover] user=%s error=%v", userInfo.UserID, err)
-		if errors.Is(err, service.ErrNotConfigured) {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
-		} else {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		}
+		respondServiceError(c, err)
 		return
 	}
 
@@ -442,12 +429,12 @@ func (h *Handler) ImportDiscover(c *gin.Context) {
 func (h *Handler) ImportCommit(c *gin.Context) {
 	var req ImportCommitRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		respondBadRequest(c, "Invalid request body", err.Error())
 		return
 	}
 
 	if len(req.Selections) == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "selections cannot be empty"})
+		respondBadRequest(c, "Selections cannot be empty")
 		return
 	}
 
@@ -462,11 +449,7 @@ func (h *Handler) ImportCommit(c *gin.Context) {
 	})
 	if err != nil {
 		log.Printf("[ImportCommit] user=%s error=%v", userInfo.UserID, err)
-		if errors.Is(err, service.ErrNotConfigured) {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
-		} else {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		}
+		respondServiceError(c, err)
 		return
 	}
 
@@ -478,13 +461,13 @@ func (h *Handler) ImportCommit(c *gin.Context) {
 func (h *Handler) LikeTool(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid tool id"})
+		respondInvalidParameter(c, "id", "Tool ID must be a valid integer")
 		return
 	}
 
 	userInfo := GetUserInfo(c)
 	if userInfo.UserID == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "user id required for liking"})
+		respondUnauthorized(c, "User ID required for liking")
 		return
 	}
 
@@ -493,7 +476,7 @@ func (h *Handler) LikeTool(c *gin.Context) {
 	likeCount, err := h.toolService.LikeTool(c.Request.Context(), id, userInfo.UserID)
 	if err != nil {
 		log.Printf("[LikeTool] user=%s tool_id=%d error=%v", userInfo.UserID, id, err)
-		handleServiceError(c, err)
+		respondServiceError(c, err)
 		return
 	}
 
@@ -508,13 +491,13 @@ func (h *Handler) LikeTool(c *gin.Context) {
 func (h *Handler) UnlikeTool(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid tool id"})
+		respondInvalidParameter(c, "id", "Tool ID must be a valid integer")
 		return
 	}
 
 	userInfo := GetUserInfo(c)
 	if userInfo.UserID == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "user id required for unliking"})
+		respondUnauthorized(c, "User ID required for unliking")
 		return
 	}
 
@@ -523,7 +506,7 @@ func (h *Handler) UnlikeTool(c *gin.Context) {
 	likeCount, err := h.toolService.UnlikeTool(c.Request.Context(), id, userInfo.UserID)
 	if err != nil {
 		log.Printf("[UnlikeTool] user=%s tool_id=%d error=%v", userInfo.UserID, id, err)
-		handleServiceError(c, err)
+		respondServiceError(c, err)
 		return
 	}
 
@@ -532,4 +515,72 @@ func (h *Handler) UnlikeTool(c *gin.Context) {
 		"message":    "unliked",
 		"like_count": likeCount,
 	})
+}
+
+// UploadIcon handles POST /tools/icon - uploads icon to S3 and returns URL
+func (h *Handler) UploadIcon(c *gin.Context) {
+	userInfo := GetUserInfo(c)
+	if userInfo.UserID == "" {
+		respondUnauthorized(c, "User ID required")
+		return
+	}
+
+	file, header, err := c.Request.FormFile("file")
+	if err != nil {
+		respondInvalidParameter(c, "file", "File is required")
+		return
+	}
+	defer file.Close()
+
+	log.Printf("[UploadIcon] user=%s filename=%s size=%d", userInfo.UserID, header.Filename, header.Size)
+
+	// Validate file size (max 2MB)
+	const maxSize = 2 * 1024 * 1024
+	if header.Size > maxSize {
+		respondWithError(c, http.StatusBadRequest, ErrCodeFileTooLarge, "File size exceeds 2MB limit")
+		return
+	}
+
+	// Validate file type
+	contentType := header.Header.Get("Content-Type")
+	allowedTypes := map[string]bool{
+		"image/png":     true,
+		"image/jpeg":    true,
+		"image/jpg":     true,
+		"image/svg+xml": true,
+		"image/webp":    true,
+	}
+	if !allowedTypes[contentType] {
+		respondWithError(c, http.StatusBadRequest, ErrCodeInvalidFileType, "Invalid file type, only png/jpg/svg/webp allowed")
+		return
+	}
+
+	iconURL, err := h.toolService.UploadIcon(c.Request.Context(), userInfo.UserID, header.Filename, file)
+	if err != nil {
+		log.Printf("[UploadIcon] user=%s error=%v", userInfo.UserID, err)
+		respondServiceError(c, err)
+		return
+	}
+
+	log.Printf("[UploadIcon] user=%s icon_url=%s success", userInfo.UserID, iconURL)
+	c.JSON(http.StatusOK, gin.H{"icon_url": iconURL})
+}
+
+// GetToolContent handles GET /tools/:id/content - returns raw SKILL.md content
+func (h *Handler) GetToolContent(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		respondInvalidParameter(c, "id", "ID must be a valid integer")
+		return
+	}
+
+	userInfo := GetUserInfo(c)
+	content, err := h.toolService.GetToolContent(c.Request.Context(), id, userInfo.UserID)
+	if err != nil {
+		respondServiceError(c, err)
+		return
+	}
+
+	// Return as plain text
+	c.Data(http.StatusOK, "text/markdown; charset=utf-8", []byte(content))
 }
