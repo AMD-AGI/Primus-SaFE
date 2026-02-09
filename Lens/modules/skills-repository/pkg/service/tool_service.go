@@ -79,7 +79,6 @@ type CreateMCPInput struct {
 
 // UpdateToolInput represents input for updating a tool
 type UpdateToolInput struct {
-	Name        string
 	DisplayName string
 	Description string
 	Tags        []string
@@ -209,19 +208,8 @@ func (s *ToolService) UpdateTool(ctx context.Context, id int64, input UpdateTool
 		return nil, fmt.Errorf("%w: only owner can update", ErrAccessDenied)
 	}
 
-	needReEmbed := false
-
-	// Update name if provided (with uniqueness check)
-	if input.Name != "" && input.Name != tool.Name {
-		existing, err := s.facade.GetByTypeAndName(tool.Type, input.Name)
-		if err == nil && existing.ID != tool.ID {
-			return nil, fmt.Errorf("name '%s' already exists for type '%s'", input.Name, tool.Type)
-		}
-		tool.Name = input.Name
-		needReEmbed = true
-	}
-
 	// Update fields if provided
+	needReEmbed := false
 	if input.DisplayName != "" {
 		tool.DisplayName = input.DisplayName
 	}
@@ -361,121 +349,4 @@ func (s *ToolService) generateEmbedding(ctx context.Context, tool *model.Tool) {
 	if err := s.facade.UpdateEmbedding(tool.ID, emb); err != nil {
 		fmt.Printf("Failed to update embedding for tool %d: %v\n", tool.ID, err)
 	}
-}
-
-// CloneInput represents input for cloning a tool
-type CloneInput struct {
-	SourceID int64
-	UserID   string
-	Username string
-}
-
-// Clone creates a copy of an existing tool
-func (s *ToolService) Clone(ctx context.Context, input CloneInput) (*model.Tool, error) {
-	// 1. Get source tool
-	source, err := s.facade.GetByID(input.SourceID)
-	if err != nil {
-		return nil, fmt.Errorf("tool %w", ErrNotFound)
-	}
-
-	// Check access: must be public or owned by user
-	if !source.IsPublic && source.OwnerUserID != input.UserID {
-		return nil, ErrAccessDenied
-	}
-
-	// 2. Generate unique name with -copy suffix
-	newName := s.generateUniqueCopyName(source.Type, source.Name)
-
-	// 3. Create new tool with copied properties
-	newTool := &model.Tool{
-		Type:        source.Type,
-		Name:        newName,
-		DisplayName: source.DisplayName,
-		Description: source.Description,
-		Tags:        source.Tags,
-		IconURL:     source.IconURL,
-		Author:      input.Username, // New author is the cloner
-		Config:      source.Config,
-		SkillSource: source.SkillSource,
-		OwnerUserID: input.UserID, // New owner
-		IsPublic:    false,        // Cloned tools default to private
-		Status:      model.AppStatusActive,
-	}
-
-	// 4. For skills, copy S3 files
-	if source.Type == model.AppTypeSkill && s.storage != nil {
-		newConfig, err := s.copySkillFiles(ctx, source.Config, newName)
-		if err != nil {
-			fmt.Printf("Warning: failed to copy skill files: %v\n", err)
-			// Continue with original config if copy fails
-		} else {
-			newTool.Config = newConfig
-		}
-	}
-
-	// 5. Create the new tool
-	if err := s.facade.Create(newTool); err != nil {
-		return nil, fmt.Errorf("failed to create cloned tool: %w", err)
-	}
-
-	// 6. Generate embedding
-	s.generateEmbedding(ctx, newTool)
-
-	return newTool, nil
-}
-
-// generateUniqueCopyName generates a unique name with -copy suffix
-func (s *ToolService) generateUniqueCopyName(toolType, baseName string) string {
-	// Try baseName-copy first
-	copyName := baseName + "-copy"
-	_, err := s.facade.GetByTypeAndName(toolType, copyName)
-	if err != nil {
-		// Name is available
-		return copyName
-	}
-
-	// Try baseName-copy-1, baseName-copy-2, etc.
-	for i := 1; i <= 100; i++ {
-		copyName = fmt.Sprintf("%s-copy-%d", baseName, i)
-		_, err := s.facade.GetByTypeAndName(toolType, copyName)
-		if err != nil {
-			return copyName
-		}
-	}
-
-	// Fallback: use timestamp
-	return fmt.Sprintf("%s-copy-%d", baseName, time.Now().UnixNano())
-}
-
-// copySkillFiles copies S3 files for a skill
-func (s *ToolService) copySkillFiles(ctx context.Context, sourceConfig model.AppConfig, newName string) (model.AppConfig, error) {
-	s3Key, ok := sourceConfig["s3_key"].(string)
-	if !ok || s3Key == "" {
-		return sourceConfig, nil
-	}
-
-	isPrefix, _ := sourceConfig["is_prefix"].(bool)
-
-	// Generate new S3 key
-	timestamp := time.Now().UnixNano()
-	newS3KeyBase := fmt.Sprintf("skills/%s/%d", newName, timestamp)
-
-	if isPrefix {
-		// Copy all files under the prefix
-		oldPrefix := strings.TrimSuffix(s3Key, "/SKILL.md")
-		if err := s.storage.CopyPrefix(ctx, oldPrefix, newS3KeyBase); err != nil {
-			return nil, err
-		}
-	} else {
-		// Copy single file
-		newS3Key := newS3KeyBase + "/SKILL.md"
-		if err := s.storage.Copy(ctx, s3Key, newS3Key); err != nil {
-			return nil, err
-		}
-	}
-
-	return model.AppConfig{
-		"s3_key":    newS3KeyBase + "/SKILL.md",
-		"is_prefix": isPrefix,
-	}, nil
 }

@@ -77,9 +77,6 @@ func RegisterRoutes(router *gin.Engine, h *Handler) {
 		auth.POST("/tools/:id/like", h.LikeTool)
 		auth.DELETE("/tools/:id/like", h.UnlikeTool)
 
-		// Clone
-		auth.POST("/tools/:id/clone", h.CloneTool)
-
 		// Toolsets
 		auth.GET("/toolsets", h.ListToolsets)
 		auth.POST("/toolsets", h.CreateToolset)
@@ -108,7 +105,6 @@ type CreateMCPRequest struct {
 
 // UpdateToolRequest represents a request to update a tool
 type UpdateToolRequest struct {
-	Name        string                 `json:"name"`
 	DisplayName string                 `json:"display_name"`
 	Description string                 `json:"description"`
 	Tags        []string               `json:"tags"`
@@ -266,7 +262,6 @@ func (h *Handler) UpdateTool(c *gin.Context) {
 	log.Printf("[UpdateTool] user=%s tool_id=%d", userInfo.UserID, id)
 
 	tool, err := h.toolService.UpdateTool(c.Request.Context(), id, service.UpdateToolInput{
-		Name:        req.Name,
 		DisplayName: req.DisplayName,
 		Description: req.Description,
 		Tags:        req.Tags,
@@ -536,39 +531,5 @@ func (h *Handler) UnlikeTool(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"message":    "unliked",
 		"like_count": likeCount,
-	})
-}
-
-// CloneTool handles POST /tools/:id/clone
-func (h *Handler) CloneTool(c *gin.Context) {
-	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid tool id"})
-		return
-	}
-
-	userInfo := GetUserInfo(c)
-	if userInfo.UserID == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "user id required for cloning"})
-		return
-	}
-
-	log.Printf("[CloneTool] user=%s source_id=%d", userInfo.UserID, id)
-
-	newTool, err := h.toolService.Clone(c.Request.Context(), service.CloneInput{
-		SourceID: id,
-		UserID:   userInfo.UserID,
-		Username: userInfo.Username,
-	})
-	if err != nil {
-		log.Printf("[CloneTool] user=%s source_id=%d error=%v", userInfo.UserID, id, err)
-		handleServiceError(c, err)
-		return
-	}
-
-	log.Printf("[CloneTool] user=%s source_id=%d new_id=%d name=%s success", userInfo.UserID, id, newTool.ID, newTool.Name)
-	c.JSON(http.StatusCreated, gin.H{
-		"message": "cloned successfully",
-		"tool":    newTool,
 	})
 }
