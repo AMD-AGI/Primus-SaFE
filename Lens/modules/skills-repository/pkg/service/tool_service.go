@@ -79,6 +79,7 @@ type CreateMCPInput struct {
 
 // UpdateToolInput represents input for updating a tool
 type UpdateToolInput struct {
+	Name        string
 	DisplayName string
 	Description string
 	Tags        []string
@@ -208,12 +209,25 @@ func (s *ToolService) UpdateTool(ctx context.Context, id int64, input UpdateTool
 		return nil, fmt.Errorf("%w: only owner can update", ErrAccessDenied)
 	}
 
+	needReEmbed := false
+
+	// Update name if provided (with uniqueness check)
+	if input.Name != "" && input.Name != tool.Name {
+		existing, err := s.facade.GetByTypeAndName(tool.Type, input.Name)
+		if err == nil && existing.ID != tool.ID {
+			return nil, fmt.Errorf("name '%s' already exists for type '%s'", input.Name, tool.Type)
+		}
+		tool.Name = input.Name
+		needReEmbed = true
+	}
+
 	// Update fields if provided
 	if input.DisplayName != "" {
 		tool.DisplayName = input.DisplayName
 	}
 	if input.Description != "" {
 		tool.Description = input.Description
+		needReEmbed = true
 	}
 	if input.Tags != nil {
 		tool.Tags = input.Tags
@@ -258,6 +272,11 @@ func (s *ToolService) UpdateTool(ctx context.Context, id int64, input UpdateTool
 
 	if err := s.facade.Update(tool); err != nil {
 		return nil, err
+	}
+
+	// Re-generate embedding if name or description changed
+	if needReEmbed {
+		s.generateEmbedding(ctx, tool)
 	}
 
 	return tool, nil
