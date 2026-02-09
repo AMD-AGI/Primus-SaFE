@@ -20,6 +20,7 @@ type S3Storage struct {
 	client    *s3.Client
 	bucket    string
 	endpoint  string
+	publicURL string // Public URL for file access (optional, may include bucket path)
 	presigner *s3.PresignClient
 	urlExpiry time.Duration
 }
@@ -27,6 +28,7 @@ type S3Storage struct {
 // S3Config contains S3 configuration
 type S3Config struct {
 	Endpoint        string
+	PublicURL       string // Public URL for file access (optional)
 	Region          string
 	Bucket          string
 	AccessKeyID     string
@@ -77,6 +79,7 @@ func NewS3Storage(cfg S3Config) (*S3Storage, error) {
 		client:    client,
 		bucket:    cfg.Bucket,
 		endpoint:  cfg.Endpoint,
+		publicURL: cfg.PublicURL,
 		presigner: s3.NewPresignClient(client),
 		urlExpiry: urlExpiry,
 	}, nil
@@ -192,8 +195,16 @@ func (s *S3Storage) Exists(ctx context.Context, key string) (bool, error) {
 // GetURL returns a public URL for the file (no signature, permanent access)
 func (s *S3Storage) GetURL(ctx context.Context, key string) (string, error) {
 	// Return direct URL without presigning (bucket is public read)
-	// Path-style URL: http://endpoint/bucket/key
-	url := s.endpoint + "/" + s.bucket + "/" + key
+	var url string
+	if s.publicURL != "" {
+		// Use public URL if configured (already includes bucket path)
+		// e.g., http://test.primus-safe.amd.com/minio/tools + /icons/user/file.png
+		url = s.publicURL + "/" + key
+	} else {
+		// Fall back to endpoint + bucket + key
+		// e.g., http://minio:9000 + /tools + /icons/user/file.png
+		url = s.endpoint + "/" + s.bucket + "/" + key
+	}
 	return url, nil
 }
 

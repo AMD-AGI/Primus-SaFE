@@ -82,8 +82,9 @@ type RunnerConfig struct {
 
 // StorageConfig represents object storage configuration
 type StorageConfig struct {
-	Provider  string `yaml:"provider"` // s3, minio, local
-	Endpoint  string `yaml:"endpoint"`
+	Provider  string `yaml:"provider"`   // s3, minio, local
+	Endpoint  string `yaml:"endpoint"`   // Internal endpoint for API operations
+	PublicURL string `yaml:"public_url"` // Public URL for file access (optional, defaults to endpoint)
 	Bucket    string `yaml:"bucket"`
 	Region    string `yaml:"region"`
 	AccessKey string `yaml:"access_key"`
@@ -125,6 +126,7 @@ func Load() (*Config, error) {
 		Storage: StorageConfig{
 			Provider:  getEnv("STORAGE_PROVIDER", "local"),
 			Endpoint:  getEnv("STORAGE_ENDPOINT", ""),
+			PublicURL: getEnv("STORAGE_PUBLIC_URL", ""),
 			Bucket:    getEnv("STORAGE_BUCKET", "skills-repository"),
 			Region:    getEnv("STORAGE_REGION", "us-east-1"),
 			AccessKey: getEnv("STORAGE_ACCESS_KEY", ""),
