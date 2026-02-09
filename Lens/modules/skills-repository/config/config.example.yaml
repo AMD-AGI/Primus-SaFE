@@ -33,7 +33,11 @@ storage:
   
   # S3/MinIO configuration
   s3:
+    # Internal endpoint for API operations
     endpoint: "http://localhost:9000"
+    # Public URL for file access (optional, defaults to endpoint/bucket)
+    # e.g., "http://test.primus-safe.amd.com/minio/skills-repository"
+    public_url: ""
     region: "us-east-1"
     bucket: "skills-repository"
     access_key_id: "minioadmin"

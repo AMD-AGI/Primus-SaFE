@@ -70,6 +70,7 @@ func NewStorage(cfg config.StorageConfig) (Storage, error) {
 	case "s3", "minio":
 		return NewS3Storage(S3Config{
 			Endpoint:        cfg.Endpoint,
+			PublicURL:       cfg.PublicURL,
 			Region:          cfg.Region,
 			Bucket:          cfg.Bucket,
 			AccessKeyID:     cfg.AccessKey,
