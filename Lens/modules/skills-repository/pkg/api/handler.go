@@ -5,6 +5,7 @@ package api
 
 import (
 	"errors"
+	"log"
 	"net/http"
 	"strconv"
 
@@ -107,6 +108,7 @@ type CreateMCPRequest struct {
 
 // UpdateToolRequest represents a request to update a tool
 type UpdateToolRequest struct {
+	Name        string                 `json:"name"`
 	DisplayName string                 `json:"display_name"`
 	Description string                 `json:"description"`
 	Tags        []string               `json:"tags"`
@@ -222,6 +224,8 @@ func (h *Handler) CreateMCP(c *gin.Context) {
 	}
 
 	userInfo := GetUserInfo(c)
+	log.Printf("[CreateMCP] user=%s name=%s", userInfo.UserID, req.Name)
+
 	tool, err := h.toolService.CreateMCP(c.Request.Context(), service.CreateMCPInput{
 		Name:        req.Name,
 		DisplayName: req.DisplayName,
@@ -235,10 +239,12 @@ func (h *Handler) CreateMCP(c *gin.Context) {
 		Username:    userInfo.Username,
 	})
 	if err != nil {
+		log.Printf("[CreateMCP] user=%s name=%s error=%v", userInfo.UserID, req.Name, err)
 		handleServiceError(c, err)
 		return
 	}
 
+	log.Printf("[CreateMCP] user=%s name=%s tool_id=%d success", userInfo.UserID, req.Name, tool.ID)
 	c.JSON(http.StatusCreated, tool)
 }
 
@@ -257,7 +263,10 @@ func (h *Handler) UpdateTool(c *gin.Context) {
 	}
 
 	userInfo := GetUserInfo(c)
+	log.Printf("[UpdateTool] user=%s tool_id=%d", userInfo.UserID, id)
+
 	tool, err := h.toolService.UpdateTool(c.Request.Context(), id, service.UpdateToolInput{
+		Name:        req.Name,
 		DisplayName: req.DisplayName,
 		Description: req.Description,
 		Tags:        req.Tags,
@@ -268,10 +277,12 @@ func (h *Handler) UpdateTool(c *gin.Context) {
 		Status:      req.Status,
 	}, userInfo.UserID)
 	if err != nil {
+		log.Printf("[UpdateTool] user=%s tool_id=%d error=%v", userInfo.UserID, id, err)
 		handleServiceError(c, err)
 		return
 	}
 
+	log.Printf("[UpdateTool] user=%s tool_id=%d success", userInfo.UserID, id)
 	c.JSON(http.StatusOK, tool)
 }
 
@@ -284,11 +295,15 @@ func (h *Handler) DeleteTool(c *gin.Context) {
 	}
 
 	userInfo := GetUserInfo(c)
+	log.Printf("[DeleteTool] user=%s tool_id=%d", userInfo.UserID, id)
+
 	if err := h.toolService.DeleteTool(c.Request.Context(), id, userInfo.UserID); err != nil {
+		log.Printf("[DeleteTool] user=%s tool_id=%d error=%v", userInfo.UserID, id, err)
 		handleServiceError(c, err)
 		return
 	}
 
+	log.Printf("[DeleteTool] user=%s tool_id=%d success", userInfo.UserID, id)
 	c.JSON(http.StatusOK, gin.H{"message": "tool deleted successfully"})
 }
 
@@ -411,8 +426,11 @@ func (h *Handler) ImportDiscover(c *gin.Context) {
 		input.FileName = header.Filename
 	}
 
+	log.Printf("[ImportDiscover] user=%s github_url=%s file=%s offset=%d limit=%d", userInfo.UserID, githubURL, input.FileName, offset, limit)
+
 	result, err := h.importService.Discover(c.Request.Context(), input)
 	if err != nil {
+		log.Printf("[ImportDiscover] user=%s error=%v", userInfo.UserID, err)
 		if errors.Is(err, service.ErrNotConfigured) {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
 		} else {
@@ -421,6 +439,7 @@ func (h *Handler) ImportDiscover(c *gin.Context) {
 		return
 	}
 
+	log.Printf("[ImportDiscover] user=%s total=%d success", userInfo.UserID, result.Total)
 	c.JSON(http.StatusOK, result)
 }
 
@@ -438,6 +457,7 @@ func (h *Handler) ImportCommit(c *gin.Context) {
 	}
 
 	userInfo := GetUserInfo(c)
+	log.Printf("[ImportCommit] user=%s archive_key=%s selections=%d", userInfo.UserID, req.ArchiveKey, len(req.Selections))
 
 	result, err := h.importService.Commit(c.Request.Context(), &service.CommitInput{
 		UserID:     userInfo.UserID,
@@ -446,6 +466,7 @@ func (h *Handler) ImportCommit(c *gin.Context) {
 		Selections: req.Selections,
 	})
 	if err != nil {
+		log.Printf("[ImportCommit] user=%s error=%v", userInfo.UserID, err)
 		if errors.Is(err, service.ErrNotConfigured) {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
 		} else {
@@ -454,6 +475,7 @@ func (h *Handler) ImportCommit(c *gin.Context) {
 		return
 	}
 
+	log.Printf("[ImportCommit] user=%s success", userInfo.UserID)
 	c.JSON(http.StatusOK, result)
 }
 
@@ -471,12 +493,16 @@ func (h *Handler) LikeTool(c *gin.Context) {
 		return
 	}
 
+	log.Printf("[LikeTool] user=%s tool_id=%d", userInfo.UserID, id)
+
 	likeCount, err := h.toolService.LikeTool(c.Request.Context(), id, userInfo.UserID)
 	if err != nil {
+		log.Printf("[LikeTool] user=%s tool_id=%d error=%v", userInfo.UserID, id, err)
 		handleServiceError(c, err)
 		return
 	}
 
+	log.Printf("[LikeTool] user=%s tool_id=%d like_count=%d success", userInfo.UserID, id, likeCount)
 	c.JSON(http.StatusOK, gin.H{
 		"message":    "liked",
 		"like_count": likeCount,
@@ -497,12 +523,16 @@ func (h *Handler) UnlikeTool(c *gin.Context) {
 		return
 	}
 
+	log.Printf("[UnlikeTool] user=%s tool_id=%d", userInfo.UserID, id)
+
 	likeCount, err := h.toolService.UnlikeTool(c.Request.Context(), id, userInfo.UserID)
 	if err != nil {
+		log.Printf("[UnlikeTool] user=%s tool_id=%d error=%v", userInfo.UserID, id, err)
 		handleServiceError(c, err)
 		return
 	}
 
+	log.Printf("[UnlikeTool] user=%s tool_id=%d like_count=%d success", userInfo.UserID, id, likeCount)
 	c.JSON(http.StatusOK, gin.H{
 		"message":    "unliked",
 		"like_count": likeCount,
@@ -523,16 +553,20 @@ func (h *Handler) CloneTool(c *gin.Context) {
 		return
 	}
 
+	log.Printf("[CloneTool] user=%s source_id=%d", userInfo.UserID, id)
+
 	newTool, err := h.toolService.Clone(c.Request.Context(), service.CloneInput{
 		SourceID: id,
 		UserID:   userInfo.UserID,
 		Username: userInfo.Username,
 	})
 	if err != nil {
+		log.Printf("[CloneTool] user=%s source_id=%d error=%v", userInfo.UserID, id, err)
 		handleServiceError(c, err)
 		return
 	}
 
+	log.Printf("[CloneTool] user=%s source_id=%d new_id=%d name=%s success", userInfo.UserID, id, newTool.ID, newTool.Name)
 	c.JSON(http.StatusCreated, gin.H{
 		"message": "cloned successfully",
 		"tool":    newTool,
