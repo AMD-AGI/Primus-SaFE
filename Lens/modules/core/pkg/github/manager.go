@@ -6,6 +6,7 @@ package github
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -106,7 +107,8 @@ func (m *ClientManager) getTokenFromSecret(ctx context.Context, namespace, secre
 	tokenKeys := []string{"github_token", "token", "GITHUB_TOKEN"}
 	for _, key := range tokenKeys {
 		if token, ok := secret.Data[key]; ok {
-			return string(token), nil
+			// Trim whitespace — some secrets have trailing spaces/newlines
+			return strings.TrimSpace(string(token)), nil
 		}
 	}
 
