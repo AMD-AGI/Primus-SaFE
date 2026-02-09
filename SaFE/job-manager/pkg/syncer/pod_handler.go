@@ -183,9 +183,6 @@ func (r *SyncerReconciler) updateWorkloadPod(ctx context.Context, obj *unstructu
 	if shouldUpdateNodes {
 		r.updateWorkloadNodes(adminWorkload, message)
 		if isAllPodsAssigned(adminWorkload) {
-			if strings.Contains(adminWorkload.Status.Message, PullingImageMessage) {
-				adminWorkload.Status.Message = ""
-			}
 			if err = r.createStickyNodeFaults(ctx, adminWorkload, message.dispatchCount); err != nil {
 				return ctrlruntime.Result{}, err
 			}
@@ -208,12 +205,10 @@ func updateCICDScalingRunnerSetPhase(adminWorkload *v1.Workload, pod *corev1.Pod
 	}
 	switch pod.Status.Phase {
 	case corev1.PodRunning:
-		adminWorkload.Status.Message = ""
 		adminWorkload.Status.Phase = v1.WorkloadRunning
 	case corev1.PodPending:
 		adminWorkload.Status.Phase = v1.WorkloadPending
 	default:
-		adminWorkload.Status.Message = ""
 		adminWorkload.Status.Phase = v1.WorkloadNotReady
 	}
 }

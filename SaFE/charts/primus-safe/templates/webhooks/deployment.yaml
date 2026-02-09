@@ -9,6 +9,7 @@ metadata:
   name: {{ .Release.Name }}-webhooks
   namespace: {{ .Release.Namespace }}
   labels:
+    primus-safe-app-name: webhooks
     app: {{ .Release.Name }}-webhooks
     app.kubernetes.io/managed-by: Helm
   annotations:

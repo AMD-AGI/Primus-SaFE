@@ -39,6 +39,7 @@ func InitCustomRouters(e *gin.Engine, h *Handler) {
 			// POST but read-only (log query uses POST for complex body)
 			workloads.POST(fmt.Sprintf("/:%s/logs", common.Name), h.GetWorkloadLog)
 			workloads.POST(fmt.Sprintf("/:%s/logs/:%s/context", common.Name, view.DocId), h.GetWorkloadLogContext)
+			workloads.POST(fmt.Sprintf("/:%s/events", common.Name), h.GetWorkloadEvent)
 		}
 
 		// ==================== Secrets ====================

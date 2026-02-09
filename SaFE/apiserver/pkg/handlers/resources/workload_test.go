@@ -1841,57 +1841,150 @@ func Test_cvtDBWorkloadToGetResponse(t *testing.T) {
 	assert.Equal(t, result.Secrets[0].Id, "secret-1")
 }
 
-// Test_buildSSHAddress tests building SSH address with Higress gateway
-func Test_buildSSHAddress(t *testing.T) {
-	commonconfig.SetValue("ssh.enable", "true")
-	defer commonconfig.SetValue("ssh.enable", "")
-
+// Test_buildSSHCommand tests building SSH command
+func Test_buildSSHCommand(t *testing.T) {
 	ctx := context.Background()
-	userId := "test-user"
-	workspace := "test-workspace"
-	podId := "test-pod-123"
 
-	// Create workload pod
+	tests := []struct {
+		name           string
+		sshEnable      string
+		subDomain      string
+		domain         string
+		sshPort        string
+		userId         string
+		workspace      string
+		pod            *v1.WorkloadPod
+		gvk            v1.GroupVersionKind
+		mainContainer  string
+		expectedResult string
+	}{
+		{
+			name:      "SSH disabled returns empty",
+			sshEnable: "false",
+			pod: &v1.WorkloadPod{
+				PodId: "test-pod",
+				Phase: corev1.PodRunning,
+			},
+			gvk:            v1.GroupVersionKind{Group: "kubeflow.org", Version: "v1", Kind: "PyTorchJob"},
+			expectedResult: "",
+		},
+		{
+			name:      "Pod not running returns empty",
+			sshEnable: "true",
+			subDomain: "ssh",
+			domain:    "example.com",
+			sshPort:   "2222",
+			pod: &v1.WorkloadPod{
+				PodId: "test-pod",
+				Phase: corev1.PodPending,
+			},
+			gvk:            v1.GroupVersionKind{Group: "kubeflow.org", Version: "v1", Kind: "PyTorchJob"},
+			expectedResult: "",
+		},
+		{
+			name:          "Valid SSH address with all parameters",
+			sshEnable:     "true",
+			subDomain:     "ssh",
+			domain:        "example.com",
+			sshPort:       "2222",
+			userId:        "test-user",
+			workspace:     "test-workspace",
+			mainContainer: "pytorch",
+			pod: &v1.WorkloadPod{
+				PodId: "workload-abc123-master-0",
+				Phase: corev1.PodRunning,
+			},
+			gvk:            v1.GroupVersionKind{Group: "kubeflow.org", Version: "v1", Kind: "PyTorchJob"},
+			expectedResult: "ssh -o ServerAliveInterval=60 test-user.workload-abc123-master-0.pytorch.sh.test-workspace@ssh.example.com -p 2222",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Setup config
+			commonconfig.SetValue("ssh.enable", tt.sshEnable)
+			commonconfig.SetValue("global.sub_domain", tt.subDomain)
+			commonconfig.SetValue("global.domain", tt.domain)
+			commonconfig.SetValue("ssh.server_port", tt.sshPort)
+			defer func() {
+				commonconfig.SetValue("ssh.enable", "")
+				commonconfig.SetValue("global.sub_domain", "")
+				commonconfig.SetValue("global.domain", "")
+				commonconfig.SetValue("ssh.server_port", "")
+			}()
+
+			// Create workload template ConfigMap
+			templateCM := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "workload-template-pytorchjob",
+					Namespace: common.PrimusSafeNamespace,
+					Labels: map[string]string{
+						v1.WorkloadVersionLabel: tt.gvk.Version,
+						v1.WorkloadKindLabel:    tt.gvk.Kind,
+					},
+					Annotations: map[string]string{
+						v1.MainContainerAnnotation: tt.mainContainer,
+					},
+				},
+			}
+
+			testScheme := runtime.NewScheme()
+			utilruntime.Must(clientgoscheme.AddToScheme(testScheme))
+			utilruntime.Must(scheme.AddToScheme(testScheme))
+
+			fakeClient := ctrlruntimefake.NewClientBuilder().
+				WithScheme(testScheme).
+				WithObjects(templateCM).
+				Build()
+
+			h := Handler{
+				Client: fakeClient,
+			}
+
+			// Call buildSSHCommand
+			result := h.buildSSHCommand(ctx, tt.pod, tt.userId, tt.workspace, tt.gvk)
+
+			assert.Equal(t, result, tt.expectedResult)
+		})
+	}
+}
+
+// Test_buildSSHCommand_NoTemplate tests buildSSHCommand when workload template is not found
+func Test_buildSSHCommand_NoTemplate(t *testing.T) {
+	ctx := context.Background()
+
+	// Setup config
+	commonconfig.SetValue("ssh.enable", "true")
+	commonconfig.SetValue("global.sub_domain", "ssh")
+	commonconfig.SetValue("global.domain", "example.com")
+	commonconfig.SetValue("ssh.server_port", "2222")
+	defer func() {
+		commonconfig.SetValue("ssh.enable", "")
+		commonconfig.SetValue("global.sub_domain", "")
+		commonconfig.SetValue("global.domain", "")
+		commonconfig.SetValue("ssh.server_port", "")
+	}()
+
 	pod := &v1.WorkloadPod{
-		PodId: podId,
+		PodId: "test-pod",
 		Phase: corev1.PodRunning,
 	}
+	gvk := v1.GroupVersionKind{Group: "kubeflow.org", Version: "v1", Kind: "NonExistentJob"}
 
-	// Create Higress Gateway Endpoint
-	endpoint := &corev1.Endpoints{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      common.HigressGateway,
-			Namespace: common.HigressNamespace,
-		},
-		Subsets: []corev1.EndpointSubset{
-			{
-				Addresses: []corev1.EndpointAddress{
-					{
-						IP: "192.168.1.100",
-					},
-				},
-				Ports: []corev1.EndpointPort{
-					{
-						Port:     common.HigressSSHPort,
-						Protocol: corev1.ProtocolTCP,
-					},
-				},
-			},
-		},
-	}
+	testScheme := runtime.NewScheme()
+	utilruntime.Must(clientgoscheme.AddToScheme(testScheme))
+	utilruntime.Must(scheme.AddToScheme(testScheme))
 
-	fakeClientSet := k8sfake.NewSimpleClientset(endpoint)
+	fakeClient := ctrlruntimefake.NewClientBuilder().
+		WithScheme(testScheme).
+		Build()
 
 	h := Handler{
-		clientSet: fakeClientSet,
+		Client: fakeClient,
 	}
 
-	// Call buildSSHAddress
-	sshAddr := h.buildSSHAddress(ctx, pod, userId, workspace)
+	// Call buildSSHCommand - should return empty string when template not found
+	result := h.buildSSHCommand(ctx, pod, "test-user", "test-workspace", gvk)
 
-	// Verify SSH address format with gateway IP
-	expectedAddr := fmt.Sprintf("ssh %s.%s.%s@192.168.1.100", userId, podId, workspace)
-	assert.Equal(t, sshAddr, expectedAddr, "SSH address should use Higress gateway IP")
-	assert.Assert(t, strings.Contains(sshAddr, "test-user.test-pod-123.test-workspace@192.168.1.100"),
-		"SSH address should contain all components")
+	assert.Equal(t, result, "")
 }
